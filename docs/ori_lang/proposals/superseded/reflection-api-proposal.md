@@ -1,10 +1,15 @@
 # Proposal: Reflection API
 
-**Status:** Approved
+**Status:** Superseded
+**Superseded by:** `approved/compile-time-reflection-proposal.md` (2026-03-26)
 **Author:** Ori Language Team
 **Created:** 2026-01-31
 **Approved:** 2026-01-31
 **Affects:** Compiler (type system, derive macros), stdlib, spec
+
+## Errata (added 2026-03-26)
+
+> **Superseded by [compile-time-reflection-proposal](../approved/compile-time-reflection-proposal.md)**: The runtime `Reflect` trait, `TypeInfo`, `Unknown`, and `#derive(Reflect)` approach described in this proposal has been replaced by compile-time structural reflection using `fields_of(T)`, `variants_of(T)`, `$for`, `$if`, and splice access `value.[field]`. The compile-time approach is zero-cost, requires no opt-in, and provides strictly more capability. Runtime reflection may be reintroduced in a future proposal for plugin/scripting use cases.
 
 ## Summary
 

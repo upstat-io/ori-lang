@@ -33,6 +33,7 @@ mod canonical;
 mod enum_repr;
 pub mod escape;
 mod layout;
+pub mod narrowing;
 mod plan;
 pub mod range;
 mod repr;
@@ -45,6 +46,9 @@ pub use enum_repr::{EnumRepr, EnumTag, VariantRepr};
 pub use plan::{
     DecisionReason, DecisionSource, NarrowingPolicy, RcStrategy, ReprAttribute, ReprDecision,
     ReprPlan,
+};
+pub use range::{
+    FieldSummaryTable, KnownBuiltins, RangeAnalysisConfig, RangeFixpointResult, ValueRange,
 };
 pub use repr::{FloatWidth, IntWidth, MachineRepr};
 pub use struct_repr::{ClosureRepr, FatRepr, FieldRepr, RcRepr, StructRepr, TupleRepr};
@@ -73,6 +77,21 @@ pub fn compute_repr_plan(
     policy: NarrowingPolicy,
     repr_attrs: &[(Idx, ReprAttrKind)],
 ) -> ReprPlan {
+    compute_repr_plan_with_interner(pool, arc_functions, policy, repr_attrs, None)
+}
+
+/// Compute the representation plan with access to the string interner.
+///
+/// When `interner` is `Some`, builtin function names (len, abs, etc.) are
+/// resolved for range analysis, enabling tighter ranges on builtin calls.
+/// When `None`, builtin ranges conservatively degrade to `Top`.
+pub fn compute_repr_plan_with_interner(
+    pool: &Pool,
+    arc_functions: &[ArcFunction],
+    policy: NarrowingPolicy,
+    repr_attrs: &[(Idx, ReprAttrKind)],
+    interner: Option<&ori_ir::StringInterner>,
+) -> ReprPlan {
     let mut plan = ReprPlan::new(policy);
 
     // Phase 0: Store user-specified #repr attributes (§01.7).
@@ -92,7 +111,7 @@ pub fn compute_repr_plan(
     analyze_triviality(&mut plan, pool);
 
     // Phase 3: Range analysis (§03) → Integer narrowing (§04) → Float narrowing (§05)
-    analyze_ranges(&mut plan, pool, arc_functions);
+    analyze_ranges(&mut plan, pool, arc_functions, interner);
     apply_integer_narrowing(&mut plan, pool);
     apply_float_narrowing(&mut plan, pool);
 
@@ -173,10 +192,34 @@ fn analyze_triviality(plan: &mut ReprPlan, pool: &Pool) {
 }
 
 /// §03: Value range analysis (interval propagation per function).
-fn analyze_ranges(_plan: &mut ReprPlan, _pool: &Pool, _fns: &[ArcFunction]) {}
+///
+/// Runs interprocedural range propagation: intraprocedural fixpoint per
+/// function, SCC-based parameter seeding, and return-range propagation.
+/// Results stored in `ReprPlan::function_var_ranges` and `field_range_summaries`.
+///
+/// When `interner` is provided, builtin function names are resolved for
+/// tighter range analysis (TPR-03-029).
+fn analyze_ranges(
+    plan: &mut ReprPlan,
+    pool: &Pool,
+    arc_functions: &[ArcFunction],
+    interner: Option<&ori_ir::StringInterner>,
+) {
+    let mut config = range::RangeAnalysisConfig::default();
+    if let Some(interner) = interner {
+        config.known_builtins = range::KnownBuiltins::from_interner(interner);
+    }
+    range::propagate_ranges(plan, pool, arc_functions, &config);
+}
 
 /// §04: Integer narrowing (i64 → i32/i16/i8 when range fits).
-fn apply_integer_narrowing(_plan: &mut ReprPlan, _pool: &Pool) {}
+///
+/// Phase A: Struct/tuple field narrowing from field-range summaries.
+/// Phase B (future §04.2–§04.3): Local variable narrowing + overflow guards.
+/// Phase C (future §04.4): Collection element narrowing.
+fn apply_integer_narrowing(plan: &mut ReprPlan, pool: &Pool) {
+    narrowing::int::narrow_struct_fields(plan, pool);
+}
 
 /// §05: Float narrowing (f64 → f32 when precision is exact).
 fn apply_float_narrowing(_plan: &mut ReprPlan, _pool: &Pool) {}

@@ -76,33 +76,51 @@ def generate_ai_notes(tag, prev_tag, commit_log, pr_bodies):
     if not os.environ.get("COPILOT_GITHUB_TOKEN"):
         return None
 
-    prompt = f"""You are writing release notes for **Ori** ({tag}), an alpha-stage statically-typed, expression-based programming language with HM type inference, ARC memory management, and capability-based effects. The audience is developers and language enthusiasts following the project.
+    prompt = f"""You are writing release notes for **Ori** ({tag}), an alpha-stage statically-typed, expression-based programming language with HM type inference, ARC memory management, and capability-based effects. The audience is developers and language enthusiasts following an open-source compiler project.
 
-Write detailed, informative release notes in markdown. Do NOT wrap in ```markdown fences.
+Write clear, curated release notes in markdown. Do NOT wrap in ```markdown fences.
 
 ## Format
 
-Start with a 1-2 sentence summary blurb describing the theme of this release.
+Start with a 1-3 sentence summary describing the theme of this release.
 
 Then group changes into sections (omit empty ones):
-- **Features** — new user-facing capabilities
-- **Bug Fixes** — corrected behavior
-- **Improvements** — enhancements to existing features, performance, error messages
-- **Compiler Internals** — refactoring, architecture changes, code quality in the compiler itself (always include if applicable — compiler development IS the product at alpha stage)
-- **Housekeeping** — CI/CD, build scripts, docs, repo maintenance, tooling, website changes — anything that isn't the compiler or language itself. Keep these brief (one line each).
+- **Language** — syntax or semantics changes visible to Ori programmers
+- **Compiler** — type checker, codegen, diagnostics, performance improvements (frame through user impact: "type errors now point to the correct location", not "refactored inference engine")
+- **Standard Library** — new or changed functions, types, traits in the stdlib
+- **Tooling** — CLI, formatter, LSP, test runner changes
+- **Bug Fixes** — corrected behavior that was broken in a previous release
+- **Breaking Changes** — anything that changes existing behavior (with migration guidance)
+
+End with a brief **What's Next** section — 2-3 bullet points on near-term focus areas, derived from the commit log and PR descriptions.
 
 For each bullet:
-- **Bold title** followed by 1-2 sentences explaining what changed and why it matters
+- **Bold title** followed by 1-2 sentences explaining what changed and why it matters to users
 - Use past tense ("Added", "Fixed", "Improved")
-- Reference affected areas (e.g., type checker, evaluator, LLVM codegen, parser)
-- Housekeeping items can be shorter — just a bold title and one sentence is fine
+- Frame everything through user impact — if a change has no user-visible effect, omit it entirely
+
+## Core Principle: Deliverables, Not Process
+
+Release notes describe what was DELIVERED, not the process of delivery. Think of it like a code review: when a PR merges, the release notes say "Added feature X" — not "Added feature X, then fixed 8 things the reviewer caught." Review feedback is part of delivering X correctly.
+
+Apply this to ALL process artifacts:
+- **TPR (Third-Party Review) findings** — fold into the feature they harden. "Conditional compilation now works on all item types, with proper validation and no incremental parse leakage" — NOT 8 separate TPR bullets. Only surface a TPR as a standalone Bug Fix if it reveals broken behavior that existed in a PREVIOUS release and affected users.
+- **Internal plan references** — strip section numbers, plan IDs, and internal tracking codes (no "§02.1", "TPR-01-062", "Phase A"). Use plain English: "representation optimization" not "repr-opt §02".
+- **Iterative refinements** — hardening, edge case fixes, and polish done during development are part of the feature, not separate items.
+
+**The test**: would an outside contributor who has never seen our plans, TPR system, or internal tracking understand every bullet? If not, rewrite it.
 
 ## Rules
 - The PR descriptions are your PRIMARY source — they contain human-written summaries of what changed and why
 - The commit log is supplementary — use it to catch anything the PRs missed
-- Never say "Internal improvements and maintenance" — every change gets a meaningful description
-- Skip "nightly" automation PRs — focus on substantive changes
-- Do not reproduce test plan checklists — focus on what changed, not how it was tested
+- Curate ruthlessly — 4 meaningful bullets beats 12 granular ones. Combine related work into single entries.
+- Never dump the git log — every entry must be written for humans
+- Never say "Internal improvements and maintenance" — if it matters, describe the impact; if it doesn't, omit it
+- Skip version-bump commits and nightly automation PRs
+- Do not reproduce test plan checklists
+- Quantify performance improvements when data is available ("2.3x faster", "95 to 128 MiB/s")
+- For diagnostic improvements, briefly describe the before/after experience
+- If a change has no user-visible effect (pure refactoring, internal code movement), omit it entirely
 
 ## Input
 
@@ -117,7 +135,10 @@ Commit log ({prev_tag or 'beginning'}..{tag}):
 
         async def _generate():
             from copilot import CopilotClient
-            from copilot.session import PermissionHandler
+            from copilot.session import Kind, PermissionRequestResult
+
+            def approve_all(_request, _metadata):
+                return PermissionRequestResult(kind=Kind.APPROVED)
 
             client = CopilotClient()
             await client.start()
@@ -125,23 +146,9 @@ Commit log ({prev_tag or 'beginning'}..{tag}):
                 session = await client.create_session(
                     model="claude-sonnet-4.6",
                     streaming=False,
-                    on_permission_request=PermissionHandler.approve_all,
+                    on_permission_request=approve_all,
                 )
-                done = asyncio.Event()
-                result = []
-
-                def on_event(event):
-                    t = event.type.value if hasattr(event.type, "value") else str(event.type)
-                    if t == "assistant.message":
-                        content = event.data.content if hasattr(event.data, "content") else str(event.data)
-                        result.append(content)
-                    elif t == "session.idle":
-                        done.set()
-
-                session.on(on_event)
-                await session.send({"prompt": prompt})
-                await asyncio.wait_for(done.wait(), timeout=120)
-                return result[-1] if result else None
+                return await session.send(prompt)
             finally:
                 await client.stop()
 
@@ -154,11 +161,11 @@ Commit log ({prev_tag or 'beginning'}..{tag}):
 def generate_fallback_notes(tag, commit_log):
     """Categorize commits by conventional commit prefix."""
     sections = {
-        "Features": [],
+        "Language": [],
+        "Compiler": [],
+        "Standard Library": [],
+        "Tooling": [],
         "Bug Fixes": [],
-        "Improvements": [],
-        "Compiler Internals": [],
-        "Housekeeping": [],
     }
 
     for line in commit_log.strip().split("\n"):
@@ -166,16 +173,19 @@ def generate_fallback_notes(tag, commit_log):
         if not line or not line.startswith("- "):
             continue
         subject = line[2:]  # strip "- " prefix
+        # Skip version bumps and automation
+        if subject.startswith("chore: release") or subject.startswith("chore(release)"):
+            continue
         if subject.startswith("feat"):
-            sections["Features"].append(line)
+            sections["Language"].append(line)
         elif subject.startswith("fix"):
             sections["Bug Fixes"].append(line)
-        elif subject.startswith("perf"):
-            sections["Improvements"].append(line)
-        elif subject.startswith("refactor"):
-            sections["Compiler Internals"].append(line)
+        elif subject.startswith(("perf", "refactor")):
+            sections["Compiler"].append(line)
+        elif subject.startswith("docs"):
+            continue  # omit docs-only changes
         else:
-            sections["Housekeeping"].append(line)
+            sections["Compiler"].append(line)
 
     body = ""
     for section, items in sections.items():

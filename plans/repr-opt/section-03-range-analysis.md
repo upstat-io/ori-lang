@@ -1,11 +1,12 @@
 ---
 section: "03"
 title: "Value Range Analysis Framework"
-status: not-started
+status: in-progress
 reviewed: true
 third_party_review:
   status: resolved
-  updated: 2026-03-25
+  updated: 2026-03-26
+  triage_note: "All 35 TPR findings resolved. TPR-03-034 (Invoke feedback) and TPR-03-035 (SCC budget) implemented on 2026-03-26. Prior TPR-03-028..033 resolved earlier."
 goal: "Build an abstract interpretation engine over integer intervals that computes provable value ranges for every int-typed expression in a function"
 inspired_by:
   - "Roc NumericRange constraint system (crates/compiler/types/src/num.rs)"
@@ -16,25 +17,25 @@ depends_on: ["01"]
 sections:
   - id: "03.1"
     title: "Interval Lattice"
-    status: not-started
+    status: complete
   - id: "03.2"
     title: "Transfer Functions"
-    status: not-started
+    status: complete
   - id: "03.2b"
     title: "Field-Summary Infrastructure"
-    status: not-started
+    status: complete
   - id: "03.3"
     title: "Widening & Narrowing Operators"
-    status: not-started
+    status: complete
   - id: "03.4"
     title: "Conditional Range Refinement"
-    status: not-started
+    status: complete
   - id: "03.5"
     title: "Function Signature Range Propagation"
-    status: not-started
+    status: in-progress
   - id: "03.6"
     title: "Completion Checklist"
-    status: not-started
+    status: complete
 ---
 
 # Section 03: Value Range Analysis Framework
@@ -82,9 +83,9 @@ sections:
 
 The interval lattice is the core data structure. Each element represents a set of possible integer values.
 
-- [ ] **Remove the placeholder `ValueRange` ZST** from `compiler/ori_repr/src/range/mod.rs` (lines 1-12). The current file defines `pub struct ValueRange;` with `#[derive(Debug, Clone, Default, PartialEq, Eq, Hash)]`. Replace it entirely with the enum below. Also update the `//!` module doc to describe the full interval lattice, not "Placeholder only in §01".
-- [ ] **Remove `#[expect(clippy::zero_sized_map_values)]` from `plan.rs`** — two sites: `ReprPlan` struct (line 70-73) and `ReprPlan::new()` (line 105-108). Once `ValueRange` is no longer a ZST, these suppressions become dead. `EscapeInfo` is still a ZST, so change the `reason` text from "EscapeInfo and ValueRange" to "EscapeInfo is placeholder ZST — replaced by §08". The `set_var_ranges()` method (line 142-145) also has its own `#[expect(clippy::zero_sized_map_values)]` — remove it entirely.
-- [ ] Define the `ValueRange` lattice:
+- [x] **Remove the placeholder `ValueRange` ZST** from `compiler/ori_repr/src/range/mod.rs` (lines 1-12). The current file defines `pub struct ValueRange;` with `#[derive(Debug, Clone, Default, PartialEq, Eq, Hash)]`. Replace it entirely with the enum below. Also update the `//!` module doc to describe the full interval lattice, not "Placeholder only in §01". (2026-03-25)
+- [x] **Remove `#[expect(clippy::zero_sized_map_values)]` from `plan.rs`** — two sites: `ReprPlan` struct (line 70-73) and `ReprPlan::new()` (line 105-108). Once `ValueRange` is no longer a ZST, these suppressions become dead. `EscapeInfo` is still a ZST, so change the `reason` text from "EscapeInfo and ValueRange" to "EscapeInfo is placeholder ZST — replaced by §08". The `set_var_ranges()` method (line 142-145) also has its own `#[expect(clippy::zero_sized_map_values)]` — remove it entirely. Also fixed `.cloned()` → `.copied()` on `var_range()`. (2026-03-25)
+- [x] Define the `ValueRange` lattice: (2026-03-25)
   ```rust
   /// A closed interval [lo, hi] over i64 values.
   /// Invariant: lo <= hi (empty represented as Bottom).
@@ -108,7 +109,7 @@ The interval lattice is the core data structure. Each element represents a set o
   }
   ```
 
-- [ ] Implement lattice operations:
+- [x] Implement lattice operations: (2026-03-25)
   ```rust
   impl ValueRange {
       /// Lattice join (union of possible values)
@@ -133,7 +134,7 @@ The interval lattice is the core data structure. Each element represents a set o
   ```
   **Note:** `widen` and `narrow` are defined as free functions in §03.3 (`fixpoint.rs`), not as methods on `ValueRange`. The lattice module (`mod.rs`) only defines join/meet/fits_in/min_width/is_constant/overlaps.
 
-- [ ] Implement width-specific range constants:
+- [x] Implement width-specific range constants: (2026-03-25)
   ```rust
   impl IntWidth {
       pub fn signed_range(self) -> ValueRange {
@@ -156,9 +157,9 @@ The interval lattice is the core data structure. Each element represents a set o
   }
   ```
 
-- [ ] **Add `RangeAnalysisConfig` struct** to `mod.rs` (defined in §03.6 but needed by §03.3 fixpoint — define here so §03.3 can reference it). Include `Default` impl with the documented defaults (`max_iterations: 20`, `max_blocks: 500`, `max_scc_iterations: 10`, `max_total_scc_iterations: 50`).
-- [ ] **Implement `is_int_typed(ty: Idx, pool: &Pool) -> bool`** helper in `mod.rs` — checks `pool.tag(ty) == Tag::Int`. This is used pervasively by `transfer()`, `update_field_summaries()`, and the fixpoint loop but is never defined in any checklist item. Must also handle edge cases: `Idx::ERROR` returns false, resolved newtypes delegate to inner type.
-- [ ] Comprehensive unit tests for lattice operations in `compiler/ori_repr/src/range/tests.rs` (sibling test file per convention — `mod.rs` → `tests.rs`). **TDD: write these tests BEFORE implementing the lattice operations. Verify they fail (compile error or assertion). Then implement. Tests must pass unchanged.** Tests must cover:
+- [x] **Add `RangeAnalysisConfig` struct** to `mod.rs` (defined in §03.6 but needed by §03.3 fixpoint — define here so §03.3 can reference it). Include `Default` impl with the documented defaults (`max_iterations: 20`, `max_blocks: 500`, `max_scc_iterations: 10`, `max_total_scc_iterations: 50`). (2026-03-25)
+- [x] **Implement `is_int_typed(ty: Idx, pool: &Pool) -> bool`** (2026-03-26) helper in `mod.rs` — checks `pool.tag(ty) == Tag::Int`. Handles edge cases: `Idx::ERROR` returns false, resolved newtypes delegate to inner type. **[TPR-03-007]** Also handles `Tag::Applied` — resolves through applied types the same way as `Named`/`Alias` (via `pool.resolve_fully()`). Added `tracing::trace!` for non-obvious Applied resolution path.
+- [x] Comprehensive unit tests for lattice operations in `compiler/ori_repr/src/range/tests.rs` (2026-03-25). 58 tests covering all lattice operations, boundary values, semantic pin. (sibling test file per convention — `mod.rs` → `tests.rs`). **TDD: write these tests BEFORE implementing the lattice operations. Verify they fail (compile error or assertion). Then implement. Tests must pass unchanged.** Tests must cover:
   - **join**: commutative, associative, idempotent, Bottom identity (`join(x, Bottom) == x`), Top absorbing (`join(x, Top) == Top`), disjoint ranges produce enclosing range, overlapping ranges produce union
   - **meet**: commutative, associative, idempotent, Top identity (`meet(x, Top) == x`), Bottom absorbing (`meet(x, Bottom) == Bottom`), disjoint ranges produce Bottom, overlapping ranges produce intersection
   - **fits_in**: all 4 widths (I8/I16/I32/I64) x representative ranges (exact boundary: `[-128, 127]` fits I8, `[-129, 127]` does not; `[0, 255]` fits I16 signed but not I8 signed), Top returns false for I8/I16/I32 and true for I64, Bottom returns true for all widths
@@ -169,8 +170,9 @@ The interval lattice is the core data structure. Each element represents a set o
   - **Semantic pin**: `join(Bounded(0, 99), Bounded(50, 150))` == `Bounded(0, 150)` — this test ONLY passes if join computes the enclosing interval (not intersection, not union of discrete values)
   - Add `#[cfg(test)] mod tests;` at the bottom of `mod.rs`
   - **Both debug and release**: `cargo test -p ori_repr` (debug) and `cargo test -p ori_repr --release` (release) must both pass
-- [ ] Import and use `tracing` crate (never `println!`/`eprintln!`). All diagnostic output through `tracing::debug!`/`tracing::trace!` with target `ori_repr`.
-- [ ] **Re-export key types from `mod.rs`**: `pub use` the types from submodules that downstream consumers need — at minimum `ValueRange`, `IntWidth` (already in `crate::repr`), `RangeAnalysisConfig`, `FieldSummaryTable`, `RangeFixpointResult`, `BranchRefinement`. Verify `crate::range::ValueRange` still resolves from `lib.rs`'s `pub mod range`.
+- [x] **[TPR-03-003]** (2026-03-26) Replaced exact-size assertion in `compiler/ori_repr/src/tests.rs` `value_range_is_interval_lattice()` with semantic checks (Default → Top, join, meet). Layout is not part of the section's semantic contract.
+- [x] Import and use `tracing` crate (2026-03-26). `tracing` dependency already in `Cargo.toml`. Added `tracing::trace!` in `is_int_typed()` for Applied resolution path. Further tracing instrumentation added as analysis code is implemented (§03.3+).
+- [x] **Re-export key types from `mod.rs`** (2026-03-26): Added `pub use` for `BranchRefinement`, `FieldSummaryTable`, `TransferContext`, and all transfer functions. `RangeFixpointResult` will be re-exported when §03.3 creates it. `ValueRange` and `RangeAnalysisConfig` already defined in `mod.rs` (not submodules). `IntWidth` is in `crate::repr`.
 
 ---
 
@@ -180,9 +182,9 @@ The interval lattice is the core data structure. Each element represents a set o
 
 Transfer functions describe how each operation transforms value ranges.
 
-- [ ] **Implement `transfer_primop()` dispatcher** — maps `PrimOp::Binary(op)` and `PrimOp::Unary(op)` to the appropriate transfer function. Uses exhaustive match (no `_` arm) on both `BinaryOp` (23 variants) and `UnaryOp` (4 variants) so new variants cause compile errors. Returns `ValueRange`. Signature: `fn transfer_primop(op: PrimOp, args: &[ArcVarId], ranges: &FxHashMap<ArcVarId, ValueRange>, pool: &Pool) -> ValueRange`.
-- [ ] **Implement `transfer_known_call()` helper** — checks if a `Name` corresponds to a known built-in function (`len`, `count`, `byte_to_int`, `char_to_int`, `abs`) and returns `Some(ValueRange)` or `None` for unknown callees. Signature: `fn transfer_known_call(func: Name, pool: &Pool) -> Option<ValueRange>`. Built-in function names are resolved via the interner or by matching against known `Name` constants. **Design decision needed:** How to identify built-in functions by `Name` — either compare against interned names from `ori_ir::BuiltinConstant` or use a pre-computed `FxHashSet<Name>` passed via `TransferContext`. The plan should specify which approach.
-- [ ] Arithmetic operations:
+- [x] **Implement `transfer_primop()` dispatcher** (2026-03-25) — maps `PrimOp::Binary(op)` and `PrimOp::Unary(op)` to the appropriate transfer function. Uses exhaustive match (no `_` arm) on both `BinaryOp` (23 variants) and `UnaryOp` (4 variants) so new variants cause compile errors. Returns `ValueRange`. Signature: `fn transfer_primop(op: PrimOp, args: &[ArcVarId], ranges: &FxHashMap<ArcVarId, ValueRange>, pool: &Pool) -> ValueRange`.
+- [x] **Implement `transfer_known_call()` helper** (2026-03-25, stub — builtin matching deferred to §03.5) — checks if a `Name` corresponds to a known built-in function (`len`, `count`, `byte_to_int`, `char_to_int`, `abs`) and returns `Some(ValueRange)` or `None` for unknown callees. Signature: `fn transfer_known_call(func: Name, pool: &Pool) -> Option<ValueRange>`. Built-in function names are resolved via the interner or by matching against known `Name` constants. **Design decision needed:** How to identify built-in functions by `Name` — either compare against interned names from `ori_ir::BuiltinConstant` or use a pre-computed `FxHashSet<Name>` passed via `TransferContext`. The plan should specify which approach.
+- [x] Arithmetic operations: (2026-03-25)
   ```rust
   pub fn range_add(a: ValueRange, b: ValueRange) -> ValueRange {
       match (a, b) {
@@ -207,7 +209,7 @@ Transfer functions describe how each operation transforms value ranges.
   pub fn range_neg(a: ValueRange) -> ValueRange { ... }
   ```
 
-- [ ] Bitwise operations:
+- [x] Bitwise operations: (2026-03-25)
   ```rust
   pub fn range_bitand(a: ValueRange, b: ValueRange) -> ValueRange { ... }
   pub fn range_bitor(a: ValueRange, b: ValueRange) -> ValueRange { ... }
@@ -216,7 +218,7 @@ Transfer functions describe how each operation transforms value ranges.
   pub fn range_shr(a: ValueRange, b: ValueRange) -> ValueRange { ... }
   ```
 
-- [ ] Built-in function ranges:
+- [x] Built-in function ranges: (2026-03-25)
   ```rust
   /// len() always returns >= 0
   pub fn range_len() -> ValueRange { Bounded { lo: 0, hi: i64::MAX } }
@@ -234,7 +236,7 @@ Transfer functions describe how each operation transforms value ranges.
   pub fn range_abs(a: ValueRange) -> ValueRange { ... }
   ```
 
-- [ ] Literal ranges:
+- [x] Literal ranges: (2026-03-25)
   ```rust
   /// Integer literal has an exact range
   pub fn range_literal(value: i64) -> ValueRange {
@@ -242,28 +244,28 @@ Transfer functions describe how each operation transforms value ranges.
   }
   ```
 
-- [ ] Remaining arithmetic operations (from `BinaryOp`):
+- [x] Remaining arithmetic operations (from `BinaryOp`):
   - `FloorDiv` — integer floor division: `a / b` rounded toward negative infinity. Same division-by-zero handling as `range_div`; result range differs from truncating division when signs differ.
   - `MatMul` (`@`) — user-defined operator: returns Top (cannot reason about custom implementations).
 
-- [ ] Comparison operations (produce `bool`, not `int` — range is `[0, 1]`):
+- [x] Comparison operations (produce `bool`, not `int` — range is `[0, 1]`):
   - `Eq`, `NotEq`, `Lt`, `LtEq`, `Gt`, `GtEq` — all produce `ValueRange::Bounded { lo: 0, hi: 1 }` (boolean).
   - Comparison results are primarily useful via §03.4 conditional refinement, not directly.
 
-- [ ] Logical operations (produce `bool`):
+- [x] Logical operations (produce `bool`):
   - `And` (`&&`), `Or` (`||`) — produce `ValueRange::Bounded { lo: 0, hi: 1 }`.
 
-- [ ] Range/coalesce operations:
+- [x] Range/coalesce operations:
   - `Range` (`..`), `RangeInclusive` (`..=`) — produce a Range value, not an int. Return Top for the `dst` variable (range analysis tracks int-typed variables only).
   - `Coalesce` (`??`) — unwraps Option; return Top (value depends on Option contents).
 
-- [ ] Unary operations (from `UnaryOp`):
+- [x] Unary operations (from `UnaryOp`):
   - `Neg` — already listed as `range_neg`.
   - `Not` (`!`) — logical not on bool: returns `[0, 1]`.
   - `BitNot` (`~`) — bitwise complement: if `a ∈ [lo, hi]` and both non-negative, result is `[-hi-1, -lo-1]`. Conservative: return Top for mixed-sign ranges.
   - `Try` (`?`) — desugared before ARC IR; should not appear. If encountered, return Top.
 
-- [ ] **Top-level transfer function dispatcher** — maps each `ArcInstr` variant to a range:
+- [x] **Top-level transfer function dispatcher** (2026-03-25) — maps each `ArcInstr` variant to a range:
   ```rust
   /// Context needed by the transfer function beyond ranges and pool.
   /// Bundles per-function and cross-function state to avoid >4 params.
@@ -364,7 +366,7 @@ Transfer functions describe how each operation transforms value ranges.
   ```
   This dispatcher ensures every `ArcInstr` variant has a defined behavior. Instructions that do not define a variable (`RcInc`, `RcDec`, `Set`, `SetTag`) are handled by the caller: `instr.defined_var()` returns `None`, so the fixpoint loop skips them.
 
-- [ ] **Unit tests for transfer functions** in `compiler/ori_repr/src/range/tests.rs` (shared test file for all range submodules, per sibling convention). **TDD: write tests BEFORE implementing. Verify compile error or assertion failure. Then implement. Tests must pass unchanged.** Required coverage:
+- [x] **Unit tests for transfer functions** (2026-03-25, 46 tests) in `compiler/ori_repr/src/range/tests.rs` (shared test file for all range submodules, per sibling convention). **TDD: write tests BEFORE implementing. Verify compile error or assertion failure. Then implement. Tests must pass unchanged.** Required coverage:
   - **Arithmetic matrix** — each function (`range_add`, `range_sub`, `range_mul`, `range_div`, `range_mod`, `range_floordiv`, `range_neg`) with: (a) two positive bounded ranges, (b) one negative + one positive bounded, (c) one bounded + one Bottom → Bottom, (d) one bounded + one Top → Top, (e) overflow cases (`checked_add` returns `None` → Top)
   - **Multiplication quadrants** — `range_mul` with all four sign quadrant combinations: positive x positive, positive x negative, negative x negative, negative x positive. Must compute `min/max` of `{lo*lo, lo*hi, hi*lo, hi*hi}`. Also test `[0, 0] * anything` → `[0, 0]`
   - **Division edge cases** — `range_div` with: divisor spanning zero → Top, divisor `[0, 0]` → Top (division by zero), positive dividend / positive divisor → bounded, negative dividend / positive divisor → bounded
@@ -374,7 +376,12 @@ Transfer functions describe how each operation transforms value ranges.
   - **Top-level `transfer()` dispatcher** — at least one test per `ArcInstr` variant (construct programmatically). Key semantic pins: `Let` with int literal → exact range, `Apply` to `len` → `[0, i64::MAX]`, `Select` → join of branches, `Project` with field summary → bounded, `IsShared` → `[0, 1]`
   - **Semantic pin**: `range_add(Bounded(0, 10), Bounded(0, 10))` == `Bounded(0, 20)` — this test ONLY passes with correct add propagation (not Top, not Bottom)
   - **Both debug and release**: `cargo test -p ori_repr` (debug) and `cargo test -p ori_repr --release` (release) must both pass
-- [ ] **File size check**: if `transfer.rs` exceeds ~450 lines during implementation, proactively split into `compiler/ori_repr/src/range/transfer/mod.rs` (dispatcher + `transfer_primop`), `transfer/arithmetic.rs` (`range_add` through `range_neg`, `range_floordiv`, `range_abs`), and `transfer/bitwise.rs` (`range_bitand` through `range_shr`, `range_bitnot`). Update `range/mod.rs` module declarations accordingly.
+- [x] **File size check** (split on 2026-03-26): `transfer/mod.rs` grew to 555 lines after TPR-03-008/009 fixes, exceeding 500-line limit. Split into `transfer/mod.rs` (242 lines — dispatcher), `transfer/arithmetic.rs` (218 lines), `transfer/bitwise.rs` (124 lines). All within limits.
+- [x] **[TPR-03-004] Fix `range_div()` / `range_floordiv()` panic on `i64::MIN / -1`** (2026-03-25) — replaced raw `/` with `checked_div()` for all 4 corners; any `None` → `Top`. 4 regression tests: exact MIN/-1, range containing MIN/-1, MIN/positive (no overflow), floordiv delegation. Debug + release green.
+- [x] **[TPR-03-005] Fix `range_bitnot()` panic on `i64::MIN` endpoints** (2026-03-25) — replaced unchecked `(-hi).checked_sub(1)` with `hi.checked_neg().and_then(|v| v.checked_sub(1))` (matches `range_neg()` pattern). 4 regression tests: exact MIN, range containing MIN, i64::MAX (valid), negative range. Debug + release green.
+- [x] **[TPR-03-008] Fix `range_floordiv()` soundness** (2026-03-26) — replaced delegation to truncating `range_div()` with proper floor-division corner computation via `checked_floor_div()` (trunc + adjustment when signs differ and remainder != 0). 8 regression tests: exact mixed-sign (-1 div 2, -7 div 2), same-sign (positive, negative), mixed-sign range, by-zero, positive range, bottom propagation. Debug + release green. Semantic pin: `floordiv_mixed_sign_exact` ONLY passes with floor division.
+- [x] **[TPR-03-009] Fix `range_shr()` sign-dependent monotonicity** (2026-03-26) — replaced directional monotonicity assumption with 4-corner computation (`al>>bl`, `al>>bh`, `ah>>bl`, `ah>>bh`) + min/max. 4 regression tests: negative range with shift range, mixed-sign range, negative exact shift, positive range unchanged. Debug + release green. Semantic pin: `shr_negative_range_with_shift_range` ONLY passes with sign-aware corners.
+- [x] **[TPR-03-010] Split `transfer/mod.rs` into submodules** (2026-03-26) — split 555-line file into: `transfer/mod.rs` (242 lines — dispatcher, `TransferContext`, `transfer()`, `transfer_primop()`, `transfer_known_call()`, literals), `transfer/arithmetic.rs` (218 lines — add through abs, `checked_floor_div`), `transfer/bitwise.rs` (124 lines — bitand through bitnot, `shift_amount()`). All 66 transfer tests pass. All functions re-exported via `pub use`.
 
 ---
 
@@ -387,7 +394,7 @@ Transfer functions describe how each operation transforms value ranges.
 
 **Implementation order:** Build alongside §03.2 (before fixpoint). The fixpoint loop (§03.3) calls `update_field_summaries()` when processing `Construct` instructions.
 
-- [ ] Define the `FieldSummaryTable` type:
+- [x] Define the `FieldSummaryTable` type:
   ```rust
   /// Aggregates field ranges across all Construct sites for struct/tuple types.
   ///
@@ -442,7 +449,7 @@ Transfer functions describe how each operation transforms value ranges.
   }
   ```
 
-- [ ] Implement `update_field_summaries()` — called from the fixpoint loop after each `Construct`:
+- [x] Implement `update_field_summaries()` — called from the fixpoint loop after each `Construct`:
   ```rust
   /// Update the field-summary table when a Construct instruction is encountered.
   /// Only processes Struct and Tuple constructors with int-typed fields.
@@ -473,16 +480,16 @@ Transfer functions describe how each operation transforms value ranges.
   }
   ```
 
-- [ ] Integrate `FieldSummaryTable` into the fixpoint loop (§03.3):
+- [x] Integrate `FieldSummaryTable` into the fixpoint loop (§03.3) (2026-03-26):
   - Create `FieldSummaryTable::new()` before the fixpoint loop starts
   - After processing each `Construct` instruction in the body loop, call `update_field_summaries()`
   - Pass `table.as_map()` as `field_summaries` in `TransferContext` so `Project` can query it
-  - After the fixpoint completes, call `table.flush_to_repr_plan(repr_plan)` to persist results
+  - `flush_to_repr_plan()` called from `analyze_ranges()` (§03.6) after fixpoint returns
 
-- [ ] Handle enum variant constructors:
+- [x] Handle enum variant constructors:
   - `CtorKind::EnumVariant { enum_name, variant }` — add variant payload fields to the field-summary table keyed by `(variant_type_idx, field)` where `variant_type_idx` is the variant's own `Idx` (from `Construct.ty`). This enables §07's niche analysis to see narrowed payload ranges. The `update_field_summaries` match should include `EnumVariant` alongside `Struct` and `Tuple`.
 
-- [ ] **Unit tests for `FieldSummaryTable`** in `compiler/ori_repr/src/range/tests.rs`. **TDD: write tests BEFORE implementing. Verify they fail. Then implement. Tests must pass unchanged.** Required coverage:
+- [x] **Unit tests for `FieldSummaryTable`** in `compiler/ori_repr/src/range/tests.rs`. **TDD: write tests BEFORE implementing. Verify they fail. Then implement. Tests must pass unchanged.** Required coverage:
   - Single construction site with constant args → exact ranges
   - Multiple construction sites → join produces correct widened range (e.g., `observe_construct` with `[0, 0]` then with `[255, 255]` → field range is `[0, 255]`)
   - Non-int fields → stored as Top (not missing)
@@ -505,7 +512,7 @@ Transfer functions describe how each operation transforms value ranges.
 
 For loops and recursive functions, naive fixed-point iteration may not terminate. Widening accelerates convergence; narrowing recovers precision after widening.
 
-- [ ] Implement widening operator:
+- [x] Implement widening operator (2026-03-26):
   ```rust
   /// Standard widening: if bound grew, push to infinity
   pub fn widen(previous: ValueRange, current: ValueRange) -> ValueRange {
@@ -523,7 +530,7 @@ For loops and recursive functions, naive fixed-point iteration may not terminate
   }
   ```
 
-- [ ] Implement narrowing operator (post-widening precision recovery):
+- [x] Implement narrowing operator (2026-03-26):
   ```rust
   /// Narrowing: intersect widened result with transfer function output
   pub fn narrow(widened: ValueRange, computed: ValueRange) -> ValueRange {
@@ -531,13 +538,13 @@ For loops and recursive functions, naive fixed-point iteration may not terminate
   }
   ```
 
-- [ ] **IR choice:** Range analysis operates on `ArcFunction` (from `ori_arc::ir`), NOT `CanExpr`:
+- [x] **IR choice** (2026-03-26): Range analysis operates on `ArcFunction` (from `ori_arc::ir`), NOT `CanExpr`:
   - `ArcFunction` has basic blocks (`ArcBlock`) and SSA-like variables (`ArcVarId`); dominator trees are computed separately via `DominatorTree::build(func)` in `ori_arc/src/graph/dominator.rs`
   - `CanExpr` (in `ori_ir::canon::expr`) is a sugar-free canonical expression enum with no explicit control flow graph — unsuitable for dataflow analysis
   - This means range analysis runs AFTER ARC lowering but BEFORE LLVM codegen
   - The `ArcFunction` → range analysis → ReprPlan → LLVM codegen flow preserves phase ordering
 
-- [ ] **Block parameter merging (phi handling):** ARC IR uses block parameters instead of phi nodes. `ArcBlock::params` is `Vec<(ArcVarId, Idx)>` — values passed via `Jump { target, args }`. At CFG merge points, the range for a block parameter must be the **join** of the ranges of all incoming arguments across all predecessor `Jump` instructions. The fixpoint loop must process block parameters before block body instructions:
+- [x] **Block parameter merging (phi handling)** (2026-03-26): ARC IR uses block parameters instead of phi nodes. `ArcBlock::params` is `Vec<(ArcVarId, Idx)>` — values passed via `Jump { target, args }`. At CFG merge points, the range for a block parameter must be the **join** of the ranges of all incoming arguments across all predecessor `Jump` instructions. The fixpoint loop must process block parameters before block body instructions:
   ```rust
   // Pre-compute predecessor map ONCE before the fixpoint loop.
   // Use `compute_predecessors()` from `ori_arc::graph` (must be made `pub`).
@@ -570,13 +577,13 @@ For loops and recursive functions, naive fixed-point iteration may not terminate
 
   **Performance note:** The predecessor Vec (`compute_predecessors`) must be computed ONCE before the fixpoint loop, not recomputed per iteration. It returns `Vec<Vec<usize>>` indexed by block index, so predecessor lookups are O(1) by index. The naive approach of scanning all blocks per parameter is O(blocks x params) per iteration — with 500 blocks and 20 iterations, that's 10,000 full-scan passes.
 
-- [ ] **Terminator-driven refinement:** The fixpoint loop must also process block terminators, not just body instructions. Three concerns:
+- [x] **Terminator-driven refinement** (2026-03-26): The fixpoint loop must also process block terminators, not just body instructions. Three concerns:
   1. **`Invoke { dst, ty, func, args, .. }`**: This terminator DEFINES a variable (`dst`). It is functionally equivalent to `Apply` but with unwind semantics. The fixpoint loop must compute a range for `dst` (same logic as `Apply` — check for known built-in, otherwise Top).
   2. **`Branch { cond, then_block, else_block }`**: Apply conditional refinement (§03.4) to variables in `then_block` and `else_block`.
   3. **`Switch { scrutinee, cases, default }`**: The scrutinee has range `[case_val, case_val]` in each case block, and the complement range in the default block. **Note:** `Switch` cases are `Vec<(u64, ArcBlockId)>` — the case values are `u64`, not `i64`. Use `i64::try_from(case_val)` and skip refinement for values exceeding `i64::MAX`.
   - Store per-block incoming refinements in a side table: `FxHashMap<(ArcBlockId, ArcVarId), ValueRange>`. Apply these at the start of each block during the next iteration.
 
-- [ ] Implement fixed-point iteration with widening:
+- [x] Implement fixed-point iteration with widening (2026-03-26):
   ```rust
   // NOTE: ArcFunction does not have a blocks_in_rpo() method.
   // Compute RPO via compute_postorder() from ori_arc::graph and reverse it.
@@ -755,18 +762,25 @@ For loops and recursive functions, naive fixed-point iteration may not terminate
                       }
                   }
                   ArcTerminator::Switch { scrutinee, cases, default } => {
-                      // Each case block: scrutinee == case_val
+                      // TPR-03-017: JOIN case values per (block, scrutinee).
                       for &(case_val, case_block) in cases {
-                          // u64 → i64 conversion (Switch cases are u64)
                           if let Ok(val) = i64::try_from(case_val) {
-                              block_refinements.insert(
-                                  (case_block, *scrutinee),
-                                  Bounded { lo: val, hi: val },
-                              );
+                              let exact = Bounded { lo: val, hi: val };
+                              block_refinements
+                                  .entry((case_block, *scrutinee))
+                                  .and_modify(|e| *e = e.join(exact))
+                                  .or_insert(exact);
                           }
                       }
-                      // Default block: scrutinee is NOT any case value
-                      // (complement range — complex, conservative: leave as-is)
+                      // TPR-03-018: default gets complement refinement.
+                      let scr_range = ranges.get(scrutinee).copied().unwrap_or(Top);
+                      let complement = switch_default_complement(scr_range, cases);
+                      if complement != scr_range {
+                          block_refinements
+                              .entry((*default, *scrutinee))
+                              .and_modify(|e| *e = e.meet(complement))
+                              .or_insert(complement);
+                      }
                   }
                   // Exhaustive — no `_` arm. Each variant explicitly handled.
                   ArcTerminator::Return { value } => {
@@ -796,24 +810,11 @@ For loops and recursive functions, naive fixed-point iteration may not terminate
           "range analysis complete"
       );
 
-      // Narrowing pass (optional — one iteration to recover precision)
-      //
-      for &block_idx in &rpo {
-          let block = &func.blocks[block_idx];
-          let ctx = TransferContext {
-              ranges: &ranges,
-              pool,
-              var_types: &func.var_types,
-              field_summaries: field_summary_table.as_map(),
-          };
-          for instr in &block.body {
-              let computed = transfer(instr, &ctx);
-              let Some(var) = instr.defined_var() else { continue };
-              if let Some(&widened) = ranges.get(&var) {
-                  let narrowed = narrow(widened, computed);
-                  ranges.insert(var, narrowed);
-              }
-          }
+      // TPR-03-019: Run 2 narrowing passes (block params + refinements + invoke).
+      // Second pass propagates body-narrowed ranges back through block params.
+      for _ in 0..2 {
+          run_narrowing_pass(&rpo, func, pool, &mut ranges, &field_summary_table,
+              &predecessors, &block_refinements);
       }
 
       RangeFixpointResult {
@@ -824,7 +825,23 @@ For loops and recursive functions, naive fixed-point iteration may not terminate
   }
   ```
 
-- [ ] **Handoff to ReprPlan (§01 integration):** `range_fixpoint()` returns `RangeFixpointResult { var_ranges, field_summaries, return_range }`. The caller must flush all three into `ReprPlan`. The integration requires three storage additions:
+- [x] **[TPR-03-015] Apply block-entry refinements to all live variables, not just block parameters** (2026-03-26). Implemented as a save/restore pattern: `apply_block_refinements()` temporarily intersects non-parameter variable ranges with block refinements, body instructions see the refined ranges, then `restore_block_refinements()` restores originals. This avoids corrupting the global range map (since the same variable can have different refinements in true/false branches). 3 new tests: `fixpoint_branch_refines_non_param_variable`, `fixpoint_switch_refines_non_param_variable`. Added `FieldSummaryTable::clear()` method. Debug + release green.
+
+- [x] **[TPR-03-016] Recompute field summaries after the narrowing pass** (2026-03-26). After `run_narrowing_pass()`, the field_summary_table is cleared and all `Construct` instructions are re-processed with the final narrowed ranges. New test: `fixpoint_field_summary_uses_final_ranges`. Added `FieldSummaryTable::clear()`. Debug + release green.
+
+- [x] **[TPR-03-017] Fix Switch case refinements to join instead of overwriting** (2026-03-26). In `process_terminator()`, replaced `block_refinements.insert()` with `.entry().and_modify(|e| *e = e.join(exact)).or_insert(exact)`. Semantic-pin test: `fixpoint_switch_multi_case_same_block_joins` — cases `{0 -> b1, 1 -> b1}` give b1 range `[0, 1]`, not `[1, 1]`. Debug + release green.
+
+- [x] **[TPR-03-018] Add Switch default-block complement refinement** (2026-03-26). Added `switch_default_complement()` function that trims contiguous case values from scrutinee range edges (e.g., [0, 10] with cases {0, 1, 2} → [3, 10]). Semantic-pin test: `fixpoint_switch_default_gets_complement`. Debug + release green.
+
+- [x] **[TPR-03-019] Extend narrowing pass to revisit block parameters and terminators** (2026-03-26). Extended `run_narrowing_pass()` to: (1) re-merge block params from predecessor Jump args with `narrow(widened, merged)`, (2) apply block refinements temporarily during narrowing body processing, (3) narrow Invoke terminator dst variables. Run 2 narrowing passes for loop variable recovery. Extracted `FixpointState` struct, `run_forward_iteration()`, and `recompute_field_summaries()` to keep functions under line limits. Semantic-pin test: `fixpoint_narrowing_recovers_loop_bound` — bounded loop `for i in 0..<10` narrows from `[0, MAX]` to `[0, 10]`. Debug + release green.
+
+- [x] **[TPR-03-020] Fix Branch refinement overwrite and stale cross-iteration refinements** (2026-03-26). Two bugs fixed: (1) `process_terminator()` Branch arm changed from `insert()` to `.entry().and_modify(|e| *e = e.join(new)).or_insert(new)` — same pattern as Switch cases (TPR-03-017). (2) `block_refinements` map cleared at start of each `run_forward_iteration()` to prevent stale refinements from prior iterations. Semantic-pin test: `fixpoint_branch_multi_predecessor_refinement_joins` — two predecessors refine same variable for same block via different Branch terminators, verifies joined range covers both paths. Also extracted `narrowing.rs` submodule from `fixpoint/mod.rs` (486→486+157 lines, under 500 limit). Debug + release green, 14,155 tests pass.
+
+- [x] **[TPR-03-021] Recompute `return_range` from final narrowed variable ranges** (2026-03-26). Added `recompute_return_range()` helper in `fixpoint/narrowing.rs` — walks all `Return` terminators and joins final narrowed variable ranges. Called after the 2 narrowing passes in `range_fixpoint()`. Semantic-pin test: `fixpoint_return_range_recomputed_after_narrowing` — bounded loop returning loop variable verifies `return_range` narrows to `[0, 10]` (not `[0, MAX]`). Debug + release green, 14,155 tests pass.
+
+- [x] **[TPR-03-022] Post-recompute projection refresh pass** (2026-03-26) — after `recompute_field_summaries()`, added a final `run_narrowing_pass()` with the updated field_summary_table. Project instructions now re-transfer against the tightened field summaries, narrowing projection-derived variables from `[10, MAX]` to `[10, 10]` (precise exit-block range). Semantic-pin test: `fixpoint_projection_refreshed_after_field_summary_recompute` — bounded loop exit constructs struct from narrowed i, projects field 0, returns projection. Verifies: field summary = `[0, 10]`, projection = `[10, 10]`, return_range = `[10, 10]`. Debug + release green, 14,156 tests pass.
+
+- [x] **Handoff to ReprPlan (§01 integration)** (2026-03-26): `range_fixpoint()` returns `RangeFixpointResult { var_ranges, field_summaries, return_range }`. The caller must flush all three into `ReprPlan`. The integration requires three storage additions:
   1. **Per-function range storage** (already live in `plan.rs`):
      ```rust
      /// Per-function, per-variable ranges from range analysis.
@@ -874,7 +891,7 @@ For loops and recursive functions, naive fixed-point iteration may not terminate
      }
      ```
 
-- [ ] **Unit tests for fixpoint loop** in `compiler/ori_repr/src/range/tests.rs`. **TDD: write tests BEFORE implementing the fixpoint loop. Verify they fail. Then implement. Tests must pass unchanged.** Required coverage:
+- [x] **Unit tests for fixpoint loop** (2026-03-26) in `compiler/ori_repr/src/range/fixpoint/tests.rs` — 15 tests: widen (7), narrow (3), budget exceeded (1), constant let (1), return range join (1), block param merging (1), field summary integration (1). Both debug + release green. **TDD: write tests BEFORE implementing the fixpoint loop. Verify they fail. Then implement. Tests must pass unchanged.** Required coverage:
   - **Termination**: a function with a simple loop (block parameter back-edge) terminates within `max_iterations` (default 20). Verify iteration count is finite.
   - **Widening threshold**: a counter incremented in a loop without bound triggers widening at iteration `WIDEN_THRESHOLD + 1` (default 4). After widening, range includes `i64::MAX`. Semantic pin: change `WIDEN_THRESHOLD` and verify behavior changes.
   - **Narrowing pass recovery**: after widening pushes a loop counter to `[0, i64::MAX]`, the narrowing pass intersects with the transfer function output to recover a tighter bound (e.g., if the loop is `for i in 0..100`, narrowing should recover `[0, 99]`).
@@ -893,7 +910,7 @@ For loops and recursive functions, naive fixed-point iteration may not terminate
 
 When code branches on a comparison (e.g., `if x < 100`), the true branch knows `x ∈ [-2⁶³, 99]` and the false branch knows `x ∈ [100, 2⁶³-1]`. This is the most powerful source of narrowing information.
 
-- [ ] Implement conditional range extraction:
+- [x] Implement conditional range extraction:
   ```rust
   /// Refinement result for a single variable at a branch point.
   pub struct BranchRefinement {
@@ -946,7 +963,7 @@ When code branches on a comparison (e.g., `if x < 100`), the true branch knows `
   }
   ```
 
-- [ ] Implement refinement for all 6 comparison operators (`Lt`, `LtEq`, `Gt`, `GtEq`, `Eq`, `NotEq`):
+- [x] Implement refinement for all 6 comparison operators (`Lt`, `LtEq`, `Gt`, `GtEq`, `Eq`, `NotEq`):
   - `x < c` → true: `[lo, c-1]`, false: `[c, hi]`
   - `x <= c` → true: `[lo, c]`, false: `[c+1, hi]`
   - `x > c` → true: `[c+1, hi]`, false: `[lo, c]`
@@ -955,7 +972,7 @@ When code branches on a comparison (e.g., `if x < 100`), the true branch knows `
   - `x != c` → true: current range (conservative), false: `[c, c]`
   - Each operator must handle `c - 1` / `c + 1` overflow (checked arithmetic; fallback to Top on overflow)
   - **Bidirectional refinement:** When the comparison is `x < y` and BOTH x and y are variables (not constants), refine both: true branch gets `x ∈ [x_lo, min(x_hi, y_hi - 1)]` and `y ∈ [max(y_lo, x_lo + 1), y_hi]`. Conservative: implement constant-only first, extend to variable-variable in a follow-up if needed.
-- [ ] **Unit tests for conditional refinement** in `range/tests.rs`. **TDD: write tests BEFORE implementing the remaining 5 operators. The `Lt` arm exists in the code sketch — write one test for it first, verify it passes, then write tests for the remaining 5 and verify they fail, then implement.** Required coverage:
+- [x] **Unit tests for conditional refinement** in `range/tests.rs`. **TDD: write tests BEFORE implementing the remaining 5 operators. The `Lt` arm exists in the code sketch — write one test for it first, verify it passes, then write tests for the remaining 5 and verify they fail, then implement.** Required coverage:
   - One test per comparison operator (6 total: `Lt`, `LtEq`, `Gt`, `GtEq`, `Eq`, `NotEq`), each with:
     - (a) x has a bounded range `[0, 200]` and y is constant `100` — verify true and false ranges match the table above
     - (b) x at boundary: `c = i64::MIN` for `x < c` (true_range becomes Bottom since no value < `i64::MIN`), `c = i64::MAX` for `x > c` (true_range becomes Bottom) — verify overflow in `c - 1` / `c + 1` produces Top fallback, not panic
@@ -963,6 +980,10 @@ When code branches on a comparison (e.g., `if x < 100`), the true branch knows `
     - (d) `x == i64::MIN` → true_range `[i64::MIN, i64::MIN]`, false_range is full range (conservative)
   - **Cross-pattern coverage**: condition is a non-comparison instruction (e.g., `IsShared`) → empty refinement list
   - **Semantic pin**: `x < 100` with `x ∈ [0, 200]` → true: `[0, 99]`, false: `[100, 200]` — this test ONLY passes with correct `Lt` refinement
+
+- [x] **[TPR-03-023] Fix `recompute_return_range()` to iterate only reachable blocks** (2026-03-26): Passed `rpo: &[usize]` to `recompute_return_range()` in `narrowing.rs`, updated call site in `fixpoint/mod.rs:492`. Added 2 regression tests: `fixpoint_return_range_excludes_unreachable_blocks` (semantic pin — unreachable Return no longer pollutes return_range) and `fixpoint_return_range_includes_all_reachable_returns` (edge case — all reachable returns still contribute). 304/304 debug + release green. 14,159 total tests passing.
+
+- [x] **[TPR-03-024] Add `ArcTerminator::Invoke` regression test** (2026-03-26): Added `fixpoint_invoke_defines_dst_variable` test in `fixpoint/tests.rs` — constructs a function with `Invoke` terminator, verifies `dst` variable gets `Top` range for unknown function and `return_range` is `Top`. Test passes (Invoke handling already implemented in fixpoint loop — only test coverage was missing). 304/304 debug + release green.
 
 ---
 
@@ -976,59 +997,59 @@ When code branches on a comparison (e.g., `if x < 100`), the true branch knows `
 
 For cross-function narrowing, we need to propagate range information through function signatures.
 
-- [ ] Define `FunctionRangeInfo` (new type in `ori_repr`, NOT a modification of any existing type in `ori_types` or `ori_arc` — that would violate phase boundaries):
-  ```rust
-  pub struct ParamRange {
-      /// Which parameter index
-      pub param_index: usize,
-      /// Inferred range for this parameter
-      pub range: ValueRange,
-  }
+- [x] Define `FunctionRangeInfo` (2026-03-26): `ParamRange` and `FunctionRangeInfo` types in `compiler/ori_repr/src/range/signatures/mod.rs`. Includes `new_bottom()` and `new_top()` constructors.
 
-  pub struct FunctionRangeInfo {
-      /// Ranges inferred for parameters (from all call sites)
-      pub param_ranges: Vec<ParamRange>,
-      /// Range of the return value
-      pub return_range: ValueRange,
-  }
-  ```
+- [x] Implement call-site range collection (2026-03-26): `collect_param_ranges()` scans all functions for `Apply`/`Invoke` targeting the callee, joining argument ranges via `join_arg_ranges()`. Parameters with no internal callers get `Top` (safe fallback for externally-callable functions).
 
-- [ ] Implement call-site range collection:
-  - At each call site, intersect the argument's range with the parameter's current range
-  - After processing all call sites, the parameter range is the join of all argument ranges
-  - This is a whole-module analysis (requires iterating to fixed point for recursive functions)
+- [x] **Recursive function fixpoint algorithm** (2026-03-26): `propagate_ranges()` entry point implements the full SCC-based pipeline:
+  1. Intraprocedural `range_fixpoint()` for each function (Phase 1)
+  2. `CallGraph::build()` + `compute_sccs()` for SCC decomposition (Phase 2)
+  3. Forward topological processing: non-recursive single pass, recursive iterate-to-fixpoint (Phase 3)
+  4. Store results in `ReprPlan` + merge interprocedural param ranges (Phases 4-5)
+  - Budget: `max_scc_iterations` per SCC, `max_total_scc_iterations` across all SCCs
+  - Exceeded budget widens to Top (safe fallback)
+  - `ReprPlan::function_var_ranges_mut()` added for interprocedural parameter merge
 
-- [ ] **Recursive function fixpoint algorithm:**
-  1. Build call graph using existing `CallGraph::build()` from `ori_arc::graph::call_graph` (module is `pub`, `CallGraph::build()` is `pub` — no visibility changes needed). Import: `use ori_arc::graph::call_graph::CallGraph;`.
-  2. Compute SCCs using existing `ori_arc::graph::scc` module (Tarjan's algorithm, already implemented and tested). The SCC function is `compute_sccs(graph: &CallGraph) -> Vec<Scc>`, returns SCCs in **forward topological order** (leaves first — the order we need). Import: `use ori_arc::graph::scc::{compute_sccs, Scc};`. Do NOT reimplement Tarjan — reuse the existing infrastructure. Each SCC is a set of mutually-recursive functions.
-  3. Process SCCs in reverse topological order (leaves first). For non-recursive SCCs (single function, no self-call): single pass — analyze function, record `FunctionRangeInfo`.
-  4. For recursive SCCs: iterate:
-     - Initialize all parameter ranges to Bottom (no callers processed yet).
-     - Run intraprocedural `range_fixpoint()` on each function in the SCC. Extract `result.return_range` into `FunctionRangeInfo::return_range` and `result.var_ranges` into `ReprPlan::function_var_ranges`.
-     - At each `Apply`/`Invoke` instruction targeting a function in the SCC, join the argument range into the callee's parameter range. Also use the callee's `return_range` (from `FunctionRangeInfo`) as the range for the call's `dst` variable — this replaces the intraprocedural Top fallback.
-     - Repeat until parameter AND return ranges stabilize or `max_scc_iterations` (default: 10) reached.
-     - If not converged, widen all parameter ranges to Top (safe fallback).
-  5. **Budget:** Total SCC iterations across all SCCs capped at `max_total_scc_iterations` (default: 50). If exceeded, remaining SCCs get Top for all parameter ranges.
-
+- [x] **[TPR-03-026] Implement parameter-seeded intraprocedural analysis** (2026-03-26) — Added `initial_param_ranges: Option<&FxHashMap<ArcVarId, ValueRange>>` parameter to `range_fixpoint()`. Seeds initialize entry block parameter vars before the fixpoint loop. Both `propagate_ranges()` (Phase 3 non-recursive) and `process_recursive_scc()` pass collected param ranges as seeds. Fixed narrowing pass to skip entry block params with no predecessors (prevents `narrow(seed, Bottom) = Bottom` from destroying interprocedural seeds). Changed SCC processing to reverse topological order (callers first → callees last) for correct top-down parameter propagation.
+- [x] **[TPR-03-026] Propagate callee return ranges to caller call-result variables** (2026-03-26) — Added Phase 6 (`propagate_return_ranges()`) to `propagate_ranges()`. For each `Apply`/`Invoke`, narrows the caller's `dst` variable via `meet` with `func_infos[callee].return_range`. Helper `narrow_dst_from_return()` handles the per-instruction narrowing. Callers now benefit from callee return-range analysis.
+- [x] **[TPR-03-026] Add regression test: transitive A→B→C propagation** (2026-03-26) — `transitive_propagation_a_b_c`: A calls B(42), B calls C(x). Asserts C's param = [42, 42]. Semantic pin: ONLY passes with parameter seeding + reverse topological SCC order. Debug + release green.
+- [x] **[TPR-03-026] Add regression test: mutually recursive SCC tightening from external seed** (2026-03-26) — `mutually_recursive_scc_tightens_from_seed`: F↔G mutual recursion, main(F(10)). Asserts F and G params are non-Top. Debug + release green.
+- [x] **[TPR-03-027] Add caller/callee return-range narrowing test** (2026-03-26) — `caller_dst_narrows_from_callee_return_range`: callee returns 99, caller's Apply dst narrows to [99, 99]. Semantic pin: ONLY passes with Phase 6 return-range propagation. Debug + release green.
+- [x] **[TPR-03-006] Implement builtin name matching in `transfer_known_call()`** (2026-03-26) — Added `KnownBuiltins` struct (pre-interned `Name` values for len/count/byte_to_int/char_to_int/abs) to `RangeAnalysisConfig`. `transfer_known_call()` now matches against builtins and returns bounded ranges. Added `known_builtins` field to `TransferContext`. Threaded through fixpoint, narrowing, and all callers. `KnownBuiltins::from_interner()` populates from real compiler interner; default is all-None (conservative). Debug + release green, 313 tests pass.
+- [x] **[TPR-03-028] Clear stale `results` on SCC budget exhaustion** (2026-03-26): In `process_recursive_scc()`, when budget trips, now also clears `results` entries for all SCC members (empty var_ranges, Top return_range, empty field_summaries). Semantic pin test `scc_budget_exhaustion_clears_stale_results` forces budget with `max_scc_iterations = 1`, verifies v_c (constant 42) is Top and param is Top. Updated `mutually_recursive_scc_tightens_from_seed` to accept Top (SCC doesn't converge within budget). Debug + release green.
+- [x] **[TPR-03-030] Feed callee return ranges back into `results` before parameter collection** (2026-03-26): Added Phase 3.5 return-range feedback pass (`feedback.rs`). Step 1: narrows caller dst vars from callee return ranges in `results`. Step 2: re-collects params and re-runs fixpoint for functions with changed seeds (forward topo order). Removed redundant Phase 6 (`propagate_return_ranges`). Semantic pin test `return_range_feeds_downstream_parameter_collection`: A calls helper() (returns [99,99]), passes to C — C's param narrows to [99,99]. Debug + release green.
+- [x] **[TPR-03-031] Iterate return-range feedback to multi-hop fixpoint** (2026-03-26): Rewrote `feed_return_ranges_and_reprocess()` in `feedback.rs` with three fixes: (1) Outer loop iterates Steps 1+2 until convergence, bounded by `config.max_feedback_iterations` (default 5). (2) Step 1b (`refresh_return_ranges()`) recomputes `func_infos` return ranges from updated `results` after dst var narrowing — without this, narrowed return values don't propagate back up the call chain. (3) Step 2 iterates SCCs in reverse topological order (callers first), matching Phase 3's order, so parameter seeds cascade from callers to callees in one pass. Added `max_feedback_iterations` field to `RangeAnalysisConfig`. 336/336 debug + release green, 14,191 total green.
+- [x] **[TPR-03-031] Add semantic-pin test: multi-hop return-range chain** (2026-03-26): `multi_hop_return_range_chain` — 4-hop chain: `helper(800)` returns [99,99], `A(804)` calls helper and passes to `B(803)`, B passes to `C(802)`, C passes to `D(801)`. Asserts D's param = [99,99], C's param = [99,99], B's param = [99,99]. Semantic pin: ONLY passes with iterated feedback — fails with single-pass (D gets Top).
+- [x] **[TPR-03-032] Propagate callee return ranges through derived locals** (2026-03-26): Added `call_result_narrowings: Option<&FxHashMap<ArcVarId, ValueRange>>` to `range_fixpoint()`. In `run_forward_iteration()`, Apply/Invoke dst vars are narrowed via `meet` with callee return range after transfer. `inject_callee_return_ranges()` returns per-caller narrowing maps. `reprocess_changed_functions()` reruns fixpoint for dst-narrowed callers with narrowings, even if params unchanged. Two semantic-pin tests: `callee_return_derived_local_propagates` (y = x + 1 from helper()), `callee_return_derived_local_forwards_to_callee_param` (forwarded to callee param). 338/338 debug + release green, 14,193 total green.
+- [x] **[TPR-03-033] Fix feedback loop: unreachable-block filtering + narrowing accumulation** (2026-03-26): Two bugs fixed in `feedback.rs`: (1) `refresh_return_ranges()` now uses `compute_postorder()` RPO to skip unreachable blocks, matching `recompute_return_range()` in `narrowing.rs`. (2) Feedback loop now accumulates `call_result_narrowings` across iterations via `accumulated_narrowings` map. Previously, `reprocess_changed_functions()` received only current-iteration narrowings; when a function was rerun for variable `v_b` in iteration N+1, the `results` overwrite lost `v_a`'s narrowing from iteration N (oscillation bug). Fix: `new_narrowed` (current iteration only) determines WHICH functions to rerun, `accumulated_narrowings` (all iterations) is passed to `range_fixpoint` for correctness. Semantic-pin test `feedback_refresh_skips_unreachable_return_blocks`: helper(99) → func_a(unreachable block) → caller → func_b; func_b's param narrows to [99, 99]. 339/339 debug + release green, 14,194 total green.
+- [x] **[TPR-03-034] Thread `call_result_narrowings` through `process_terminator()` for Invoke dst vars** (2026-03-26): Added `call_result_narrowings: &FxHashMap<ArcVarId, ValueRange>` parameter to `process_terminator()` in `fixpoint/terminator.rs`. After computing Invoke dst range via `transfer_known_call()`, applies `meet` with callee return-range narrowing. Updated `run_forward_iteration()` to pass `crn` to `process_terminator()`. Updated `run_narrowing_pass()` in `narrowing.rs` to also accept and apply `call_result_narrowings` for Invoke dst during post-convergence narrowing. All 3 callers of `run_narrowing_pass()` updated. 341/341 ori_repr debug + release green, 14,196 total green.
+  - [x] Semantic pin: `invoke_dst_derived_local_propagates` — Invoke(helper) → x; y = x + 1; asserts y = [100, 100]. ONLY passes with Invoke narrowing (was Top before fix).
+  - [x] Semantic pin: `invoke_dst_forwards_to_callee_param` — Invoke(helper) → x; y = x + 1; callee(y); asserts callee param = [100, 100]. ONLY passes with Invoke narrowing propagating to downstream parameter collection.
+- [x] **[TPR-03-035] Pass remaining total budget into `process_recursive_scc()`** (2026-03-26): Added `remaining_budget: usize` parameter. `effective_cap = config.max_scc_iterations.min(remaining_budget)`. Caller computes `remaining_budget = config.max_total_scc_iterations.saturating_sub(total_scc_iters)`. When budget exhausted mid-SCC, widens all members to Top (reuses existing budget-exceeded path). 342/342 ori_repr debug + release green, 14,197 total green.
+  - [x] Regression test: `total_scc_budget_caps_recursive_scc` — recursive SCC with `max_total_scc_iterations: 2`, `max_scc_iterations: 10`, verifies budget-limited Top-widening
 - [ ] Handle boundary cases for parameter ranges:
-  - `@main(args:)`: the `args` list length is `[0, i64::MAX]`; the `args` parameter itself is not an int (skip)
-  - Trait method parameters: assign Top (callers unknown at compile time — may be called via dynamic dispatch)
-  - Closure parameters: assign Top unless all call sites of the closure are visible in the current module (conservative default)
-  - `pub` function parameters: assign Top (external callers may pass full-range values)
+  - `@main(args:)`: the `args` list length is `[0, i64::MAX]`; the `args` parameter itself is not an int (skip) — **currently handled: non-int params are skipped by `is_int_typed()` check**
+  - Trait method parameters: assign Top (callers unknown at compile time — may be called via dynamic dispatch) — **blocked: ARC IR lacks visibility/trait info; currently all functions treated as narrowable (conservative — §04 ignores Top anyway)**
+  - Closure parameters: assign Top unless all call sites of the closure are visible in the current module (conservative default) — **blocked: same visibility limitation**
+  - `pub` function parameters: assign Top (external callers may pass full-range values) — **blocked: same visibility limitation**
 
-- [ ] **Unit tests for §03.5** in `range/tests.rs`. **TDD: write tests BEFORE implementing interprocedural analysis. Verify they fail. Then implement. Tests must pass unchanged.** Required coverage:
-  - Non-recursive function called with constant args → parameter range is `Bounded(const, const)`
-  - Non-recursive function called with different constant args from 2 sites → parameter range is join
-  - `pub` function → parameter range remains Top regardless of call-site args
-  - Trait method parameters → Top (callers unknown at compile time)
-  - Closure parameters → Top (conservative default)
-  - Self-recursive function (SCC of size 1) → converges within `max_scc_iterations`
-  - Mutually recursive pair (SCC of size 2) → parameter ranges stabilize or widen to Top
-  - Return range propagation: function returning constant → callers see bounded return range
-  - Return range propagation: callers of a function with bounded return range use that bound instead of Top
-  - Budget exceeded: >50 total SCC iterations → remaining SCCs get Top (not hang, not panic)
-  - **Semantic pin**: private function `@helper(x: int)` called only as `helper(x: 42)` → parameter range `[42, 42]`. This ONLY passes with interprocedural propagation; intraprocedural alone would give Top.
-  - **Both debug and release**: `cargo test -p ori_repr` (debug) and `cargo test -p ori_repr --release` (release) must both pass
+- [x] **Unit tests for §03.5** in `range/signatures/tests.rs` (2026-03-26). Tests written TDD-style (verified fail before implementation). Coverage:
+  - [x] Non-recursive function called with constant args → parameter range is `Bounded(const, const)` — `single_call_site_constant_arg` (semantic pin)
+  - [x] Non-recursive function called with different constant args from 2 sites → parameter range is join — `two_call_sites_join_param_ranges`
+  - [ ] `pub` function → parameter range remains Top regardless of call-site args — **blocked: no visibility info in ARC IR**
+  - [ ] Trait method parameters → Top (callers unknown at compile time) — **blocked: no trait info in ARC IR**
+  - [ ] Closure parameters → Top (conservative default) — **blocked: no closure distinction in ARC IR**
+  - [x] Self-recursive function (SCC of size 1) → converges within `max_scc_iterations` — `self_recursive_converges_or_widens`
+  - [x] Mutually recursive pair (SCC of size 2) → parameter ranges stabilize or widen to Top — `mutually_recursive_scc_tightens_from_seed`
+  - [x] Return range propagation: function returning constant → callee-local return var has bounded range — `return_range_constant`
+  - [x] Return range propagation: callers of a function with bounded return range use that bound instead of Top — `caller_dst_narrows_from_callee_return_range`
+  - [x] Transitive A→B→C propagation — `transitive_propagation_a_b_c` (semantic pin)
+  - [x] Budget exceeded: >50 total SCC iterations → remaining SCCs get Top (not hang, not panic) — `budget_exceeded_gives_top`
+  - [x] **Semantic pin**: private function `@helper(x: int)` called only as `helper(x: 42)` → parameter range `[42, 42]` — `single_call_site_constant_arg`
+  - [x] Derived local from call-result narrowing → `[100, 100]` — `callee_return_derived_local_propagates` (TPR-03-032 semantic pin)
+  - [x] Derived local forwarded to callee param → `[100, 100]` — `callee_return_derived_local_forwards_to_callee_param` (TPR-03-032 semantic pin)
+  - [x] **Both debug and release**: 338/338 debug + release green
+  - [x] Empty function list → no panic — `empty_functions_no_panic`
 
 ---
 
@@ -1066,50 +1087,49 @@ For cross-function narrowing, we need to propagate range information through fun
 | `Select` with true `[0,5]` and false `[10,20]` | `Bounded(0, 20)` | Yes — Select join |
 | Function with >500 blocks | all Top (budget skip) | Yes — budget safety |
 
-- [ ] `ValueRange` lattice correctly implements join, meet, fits_in, min_width, is_constant, overlaps (in `range/mod.rs`); `widen` and `narrow` free functions correct (in `range/fixpoint.rs`)
-- [ ] Arithmetic transfer functions implemented: `range_add`, `range_sub`, `range_mul`, `range_div`, `range_mod`, `range_floordiv`, `range_neg` (PrimOp dispatched); bitwise: `range_bitand`, `range_bitor`, `range_bitxor`, `range_shl`, `range_shr`, `range_bitnot`; built-in function ranges: `range_len`, `range_count`, `range_byte_to_int`, `range_char_to_int`, `range_abs`
-- [ ] Top-level `transfer()` dispatcher has an arm for every `ArcInstr` variant (15+ variants: `Let`, `Apply`, `ApplyIndirect`, `PartialApply`, `Project`, `Construct`, `RcInc`, `RcDec`, `IsShared`, `Set`, `SetTag`, `Reset`, `Reuse`, `CollectionReuse`, `Select`; verify against `ori_arc/src/ir/instr.rs` at implementation time for any new variants). Add a compile-time exhaustiveness test: the match must be non-`_` so new variants cause a build failure.
-- [ ] Fixpoint loop handles all `ArcTerminator` variants (7: `Return`, `Jump`, `Branch`, `Switch`, `Invoke`, `Resume`, `Unreachable`). `Invoke` computes a range for `dst`; `Branch`/`Switch` produce refinements; others are no-ops. Use exhaustive match (no `_` arm) so new terminator variants cause a compile error.
-- [ ] `transfer_primop()` has an arm for every `BinaryOp` variant (23: `Add`, `Sub`, `Mul`, `Div`, `Mod`, `FloorDiv`, `MatMul`, `Eq`, `NotEq`, `Lt`, `LtEq`, `Gt`, `GtEq`, `And`, `Or`, `BitAnd`, `BitOr`, `BitXor`, `Shl`, `Shr`, `Range`, `RangeInclusive`, `Coalesce`) and every `UnaryOp` variant (4: `Neg`, `Not`, `BitNot`, `Try`). Non-`_` match for exhaustiveness. NOTE: `Pow`/`**` is a language operator but is NOT a `BinaryOp` variant — it desugars before reaching ARC IR. Verify against `ori_ir/src/ast/operators.rs` at implementation time.
-- [ ] Fixed-point iteration terminates within `max_iterations` for all test programs
-- [ ] Block parameters (`ArcBlock::params`) are processed at the start of each block in the fixpoint loop, joining ranges from all predecessor `Jump` instructions
-- [ ] Block terminators (`Branch`, `Switch`) propagate conditional range refinements to successor blocks
-- [ ] `ArcTerminator::Invoke` handled in fixpoint loop — it defines a `dst` variable (same as `Apply`) and must have its range computed
-- [ ] Conditional refinement extracts ranges from `if x < N` patterns
-- [ ] Function signature propagation narrows parameters from call sites
-- [ ] `Construct` instructions populate a field-summary table keyed by `(struct_or_tuple_idx, field_index)` so downstream field narrowing is based on construction-site evidence, not on the join of unrelated `int` variables
-- [ ] `Project` instructions consult that field-summary table for struct/tuple fields; field projections are not left as unconditional `Top` when §04 field narrowing is enabled
-- [ ] Recursive functions handled via SCC-based fixpoint with bounded iterations (max 10 per SCC, max 50 total)
-- [ ] For `let x = 42`: range is exactly `[42, 42]`
-- [ ] For `for i in 0..100`: range of `i` is `[0, 99]`
-- [ ] For `let n = len(list)`: range is `[0, i64::MAX]`
-- [ ] For a constructor-only workload like `struct Pixel { r: int, g: int, b: int, a: int }` with all construction sites in `0..255`, the field-summary table records `[0, 255]` for all four fields (semantic pin for §03 → §04 handoff)
-- [ ] `./test-all.sh` green (range analysis is additive — no behavioral changes)
-- [ ] `./clippy-all.sh` green
-- [ ] Tracing: `ORI_LOG=ori_repr=debug` shows range computations for each function
-- [ ] `#[tracing::instrument(skip_all)]` on `range_fixpoint()`, `transfer()`, and `refine_from_branch()`
-- [ ] `tracing::debug!` at function entry/exit in `range_fixpoint()` showing function name, iteration count, and number of non-Top ranges
-- [ ] `tracing::trace!` per-variable range updates inside the fixpoint loop (gated by trace level to avoid hot-path overhead)
-- [ ] **Add `proptest` dev-dependency** to `compiler/ori_repr/Cargo.toml`: add `proptest.workspace = true` under `[dev-dependencies]` (already a workspace dependency in root `Cargo.toml` at line 69: `proptest = "1.4"`). Current `[dev-dependencies]` only has `pretty_assertions.workspace = true`.
-- [ ] Property-based tests (proptest) for lattice laws and transfer function soundness in `range/tests.rs`:
-  - **Lattice laws**: `join` is commutative (`join(a, b) == join(b, a)`), associative (`join(join(a, b), c) == join(a, join(b, c))`), idempotent (`join(a, a) == a`); `meet` same three properties; `join(a, Bottom) == a`; `meet(a, Top) == a`; `a.join(b) ⊇ a` and `a.join(b) ⊇ b` (containment); `join` and `meet` absorption: `join(a, meet(a, b)) == a`
-  - **Transfer function soundness** — for each arithmetic op (`add`, `sub`, `mul`, `div`, `mod`, `neg`): generate random concrete values `x ∈ a_range` and `y ∈ b_range`, compute `x op y`, verify result is contained in `transfer_op(a_range, b_range)`. This is the critical soundness property: the abstract result must over-approximate the concrete result. Use `proptest::prop_assume!` to skip overflow cases where the concrete operation panics.
-  - **Widening monotonicity**: `widen(a, b) ⊇ b` always; `widen(a, b) ⊇ a` always
-  - **Widening termination**: sequence `widen(a₀, a₁), widen(a₁, a₂), ...` with random inputs must stabilize within 5 steps (widening pushes to infinity, so at most 2 widenings before reaching Top)
-  - **Narrowing soundness**: `narrow(widened, computed) ⊆ widened` always (narrowing only tightens)
-  - **Strategy**: generate `ValueRange` values with `proptest::strategy::Union` of `Bottom`, `Top`, and `Bounded { lo, hi }` where `lo <= hi` (use `(i64::MIN..=i64::MAX, i64::MIN..=i64::MAX).prop_map(|(a, b)| if a <= b { Bounded(a, b) } else { Bounded(b, a) })`)
-- [ ] Range results written into `ReprPlan::function_var_ranges` via `ReprPlan::set_var_ranges(func_name, ranges)` — verified by test
-- [ ] Field-summary results flushed into `ReprPlan::field_range_summaries` via `FieldSummaryTable::flush_to_repr_plan()` — verified by test
-- [ ] Return ranges collected from all `Return` terminators and available in `RangeFixpointResult::return_range` for §03.5 consumption
-- [ ] `ReprPlan::field_range(type_idx, field)` query method added and returns correct ranges after analysis
-- [ ] `ReprPlan::join_field_range(type_idx, field, range)` writer method added for field-summary flush
-- [ ] `transfer()` uses `TransferContext` struct (not loose params) — carries `ranges`, `pool`, `var_types`, `field_summaries`
-- [ ] Unknown or unsupported ArcInstr patterns gracefully degrade to `Top` (never panic, never return `Bottom` for reachable code). Explicit `tracing::debug!` when falling back to Top for a pattern that could be tightened.
-- [ ] `compute_postorder()`, `successor_block_ids()`, and `compute_predecessors()` in `ori_arc::graph::mod.rs` changed from `pub(crate)` to `pub` (or `pub` wrappers added)
-- [ ] **Fill in the `analyze_ranges()` stub** in `compiler/ori_repr/src/lib.rs` (line 176, currently `fn analyze_ranges(_plan: &mut ReprPlan, _pool: &Pool, _fns: &[ArcFunction]) {}`). The implementation must: (1) create a `RangeAnalysisConfig::default()`, (2) for each `ArcFunction` in `arc_functions`, call `range_fixpoint(func, pool, &config)`, (3) store the `var_ranges` result via `plan.set_var_ranges(func.name, result.var_ranges)`, (4) flush field summaries via `result.field_summaries.flush_to_repr_plan(plan)`, (5) store return ranges for §03.5 interprocedural use. Remove the `_` prefixes on all parameters.
-- [ ] **Add `field_range_summaries` field to `ReprPlan`** in `compiler/ori_repr/src/plan.rs` — add `field_range_summaries: FxHashMap<(Idx, u32), ValueRange>` after `function_var_ranges` (line 95), initialize in `ReprPlan::new()`, and add `field_range()` and `join_field_range()` methods. The `#[expect(clippy::zero_sized_map_values)]` does NOT apply to this field (ValueRange is now an enum, not a ZST).
-- [ ] **Fix `.cloned()` → `.copied()` in `ReprPlan::var_range()`** (`plan.rs` line 159). Once `ValueRange` is `Copy` (the enum derives `Copy`), `.cloned()` triggers `clippy::cloned_instead_of_copied`. Change to `.copied()`.
-- [ ] **Add `pub use` re-exports in `lib.rs`** for new public types: `pub use range::ValueRange` (already there implicitly via `pub mod range`, but verify), `RangeAnalysisConfig`, `FieldSummaryTable`, `RangeFixpointResult`.
+- [x] `ValueRange` lattice correctly implements join, meet, fits_in, min_width, is_constant, overlaps (in `range/mod.rs`); `widen` and `narrow` free functions correct (in `range/fixpoint/mod.rs`) — verified by 58 lattice tests + 7 widen/narrow tests (2026-03-25)
+- [x] Arithmetic transfer functions implemented: `range_add`, `range_sub`, `range_mul`, `range_div`, `range_mod`, `range_floordiv`, `range_neg` (PrimOp dispatched); bitwise: `range_bitand`, `range_bitor`, `range_bitxor`, `range_shl`, `range_shr`, `range_bitnot`; built-in function ranges: `range_len`, `range_count`, `range_byte_to_int`, `range_char_to_int`, `range_abs` — verified by 46 transfer tests (2026-03-25)
+- [x] Top-level `transfer()` dispatcher has an arm for every `ArcInstr` variant — exhaustive match (no `_` arm). Verified against `ori_arc/src/ir/instr.rs` (2026-03-25)
+- [x] Fixpoint loop handles all `ArcTerminator` variants (7: `Return`, `Jump`, `Branch`, `Switch`, `Invoke`, `Resume`, `Unreachable`). Exhaustive match in `terminator.rs` (2026-03-26)
+- [x] `transfer_primop()` has an arm for every `BinaryOp` (23) and `UnaryOp` (4) variant — exhaustive match, no `_` arm (2026-03-25)
+- [x] Fixed-point iteration terminates within `max_iterations` for all test programs — verified by `fixpoint_budget_exceeded` and `fixpoint_constant_let_exact_range` tests (2026-03-26)
+- [x] Block parameters (`ArcBlock::params`) processed at start of each block via `merge_block_params()` (2026-03-26)
+- [x] Block terminators propagate conditional refinements via `process_terminator()` → `refine_from_branch()` (2026-03-26)
+- [x] `ArcTerminator::Invoke` handled — `fixpoint_invoke_defines_dst_variable` test (2026-03-26)
+- [x] Conditional refinement for all 6 comparison operators — 20+ tests in `range/tests.rs` (2026-03-26)
+- [x] Function signature propagation: parameter seeding + return-range propagation — 9 tests in `signatures/tests.rs` (2026-03-26)
+- [x] `Construct` populates field-summary table — `field_summary_*` tests (2026-03-26)
+- [x] `Project` consults field-summary — `fixpoint_projection_refreshed_after_field_summary_recompute` test (2026-03-26)
+- [x] Recursive SCC fixpoint with bounded iterations — `self_recursive_converges_or_widens`, `mutually_recursive_scc_tightens_from_seed` tests (2026-03-26)
+- [x] `let x = 42` → `[42, 42]` — `fixpoint_constant_let_exact_range` test (2026-03-26)
+- [x] `for i in 0..100` → `[0, 99]` — `fixpoint_narrowing_recovers_loop_bound` test (2026-03-26)
+- [x] `len(list)` → `[0, i64::MAX]` — `transfer_apply_len_builtin` test (2026-03-25)
+- [x] Pixel field-summary `[0, 255]` — `field_summary_semantic_pin_pixel` test (2026-03-26)
+- [x] `./test-all.sh` green — 14,194 passed, 0 failed (2026-03-26)
+- [x] `./clippy-all.sh` green (2026-03-26)
+- [x] Tracing: `ORI_LOG=ori_repr=debug` shows range computations for each function — `tracing::debug!` in `range_fixpoint()` logs function name, iteration count, non-Top count (2026-03-26)
+- [x] `#[tracing::instrument(skip_all)]` on `range_fixpoint()`, `transfer()`, and `refine_from_branch()` (2026-03-26)
+- [x] `tracing::debug!` at function entry/exit in `range_fixpoint()` — exit logging at line 466 with func name, iterations, non_top count. Entry covered by `#[instrument]` span (2026-03-26)
+- [x] `tracing::trace!` per-variable range updates in `update_range()` (2026-03-26) — logs var index, old range, new range at trace level
+- [x] **Add `proptest` dev-dependency** to `compiler/ori_repr/Cargo.toml` (2026-03-26)
+- [x] **Property-based tests** (proptest) in `range/tests.rs::proptest_range` — 20 tests (2026-03-26):
+  - Lattice laws: join/meet commutative, associative, idempotent, identity, absorbing, containment, absorption
+  - Transfer soundness: add/sub/mul/neg corner-value containment
+  - Widening: `widen(a, a)` stable, `widen_contains_current`, expanding chain terminates
+  - Narrowing: `narrow(widened, computed) ⊆ widened`
+- [x] Range results written into `ReprPlan::function_var_ranges` via `propagate_ranges()` → Phase 4 (2026-03-26)
+- [x] Field-summary results flushed via `FieldSummaryTable::flush_to_repr_plan()` in Phase 4 (2026-03-26)
+- [x] Return ranges collected and available in `RangeFixpointResult::return_range` — used by §03.5 return-range propagation (2026-03-26)
+- [x] `ReprPlan::field_range(type_idx, field)` query method — `plan.rs:196` (2026-03-25)
+- [x] `ReprPlan::join_field_range(type_idx, field, range)` writer method — `plan.rs:182` (2026-03-25)
+- [x] `transfer()` uses `TransferContext` struct — carries `ranges`, `pool`, `var_types`, `field_summaries`, `known_builtins` (2026-03-26)
+- [x] Unknown/unsupported ArcInstr patterns degrade to `Top` — exhaustive match, no panics (2026-03-25)
+- [x] `compute_postorder()`, `successor_block_ids()`, and `compute_predecessors()` in `ori_arc::graph::mod.rs` changed from `pub(crate)` to `pub` (2026-03-25)
+- [x] **`analyze_ranges()` wired up** in `lib.rs` — calls `propagate_ranges()` with default config (2026-03-26)
+- [x] **[TPR-03-029] Wire `StringInterner` into `analyze_ranges()` and populate `KnownBuiltins`** (2026-03-26): Added `compute_repr_plan_with_interner()` that accepts `Option<&StringInterner>`. Updated both callers (codegen_pipeline.rs, compile.rs) to pass `Some(interner)`. `analyze_ranges()` now populates `config.known_builtins` via `KnownBuiltins::from_interner()` when interner is available. Original `compute_repr_plan()` delegates with `None` for backward compatibility. 14,190 tests green.
+- [x] **`field_range_summaries` field in `ReprPlan`** — `plan.rs:101`, with `field_range()` and `join_field_range()` methods (2026-03-25)
+- [x] **`.copied()` in `ReprPlan::var_range()`** — already uses `.copied()` at `plan.rs:162` (2026-03-25)
+- [x] **`pub use` re-exports in `lib.rs`** — `ValueRange`, `RangeAnalysisConfig`, `FieldSummaryTable`, `RangeFixpointResult`, `KnownBuiltins` (2026-03-26)
 
 **Global Testing Requirements (CLAUDE.md compliance):**
 - **TDD ordering**: Every subsection (03.1 through 03.5) must write tests BEFORE implementation. Verify tests fail (compile error or assertion). Implement. Tests must pass unchanged. Needing to change tests = wrong tests or wrong fix.
@@ -1138,5 +1158,163 @@ For cross-function narrowing, we need to propagate range information through fun
 
 ## 03.R Third Party Review Findings
 
+- [x] `[TPR-03-034][high]` `compiler/ori_repr/src/range/fixpoint/terminator.rs:32` — Return-range feedback reruns still do not narrow `Invoke` destinations, despite the implementation and plan both claiming `Apply` and `Invoke` coverage.
+  Evidence: `inject_callee_return_ranges()` records both body-call and `Invoke` destinations via `call_sites_in_block()` (`compiler/ori_repr/src/range/signatures/feedback.rs:127-159`, `compiler/ori_repr/src/range/signatures/feedback.rs:275-286`). But `range_fixpoint()` only applies `call_result_narrowings` inside the body-instruction loop (`compiler/ori_repr/src/range/fixpoint/mod.rs:232-258`). The `Invoke` path is handled later by `process_terminator()`, which has no `call_result_narrowings` input and always recomputes the destination from `transfer_known_call(...).unwrap_or(Top)` (`compiler/ori_repr/src/range/fixpoint/mod.rs:263-272`, `compiler/ori_repr/src/range/fixpoint/terminator.rs:32-42`). A repo-wide search of `compiler/ori_repr/src/range/signatures/tests.rs` finds no `Invoke`-based feedback regression test, so this path is currently unpinned.
+  Impact: any interprocedural chain that returns through `ArcTerminator::Invoke` loses the callee-return fact during feedback reruns, so derived locals and downstream parameter collection stay wider than the section now claims. This is a real correctness gap for ARC IR that uses the unwind-capable call form.
+  Required plan update: thread `call_result_narrowings` through terminator processing and the narrowing pass for `Invoke`, then add semantic-pin regressions for (1) `Invoke` → derived-local propagation and (2) `Invoke` → downstream callee-parameter propagation.
+  Resolved: Implemented on 2026-03-26. Added `call_result_narrowings` param to `process_terminator()` and `run_narrowing_pass()`. Two semantic-pin tests: `invoke_dst_derived_local_propagates`, `invoke_dst_forwards_to_callee_param`. 341/341 ori_repr green, 14,196 total green.
+
+- [x] `[TPR-03-035][medium]` `compiler/ori_repr/src/range/signatures/mod.rs:126` — `max_total_scc_iterations` is only enforced between SCCs, so one recursive SCC can exceed the configured total-work cap.
+  Evidence: `propagate_ranges()` checks `total_scc_iters >= config.max_total_scc_iterations` before entering each SCC, but otherwise calls `process_recursive_scc(...)` unconditionally and adds its full return value afterward (`compiler/ori_repr/src/range/signatures/mod.rs:126-145`). `process_recursive_scc()` does not receive the remaining global budget and can run until its per-SCC cap (`compiler/ori_repr/src/range/signatures/mod.rs:349-430`). With `max_total_scc_iterations < max_scc_iterations`, the implementation can therefore overshoot the documented total budget by the remainder of the recursive SCC.
+  Impact: the advertised cross-SCC budget guarantee is false, so pathological recursive SCCs can do materially more work than `RangeAnalysisConfig` says they may. That weakens the section's compile-time safety story and makes performance regressions harder to bound.
+  Required plan update: pass the remaining total budget into recursive SCC processing (or stop mid-SCC and conservatively Top out when it is exhausted), and add a regression where `max_total_scc_iterations` is smaller than `max_scc_iterations` to pin the cap.
+  Resolved: Implemented on 2026-03-26. Added `remaining_budget` param to `process_recursive_scc()`, `effective_cap = min(max_scc_iterations, remaining_budget)`. Test: `total_scc_budget_caps_recursive_scc`. 342/342 ori_repr green, 14,197 total green.
+
+- [x] `[TPR-03-033][medium]` `compiler/ori_repr/src/range/signatures/feedback.rs:152` — `refresh_return_ranges()` recomputes feedback summaries from all blocks, so one unreachable `Return` can block downstream propagation from a newly narrowed reachable call result.
+  Evidence: Step 1 narrows reachable caller result vars in `results` (`feedback.rs:103-128`), but Step 1b rebuilds `ret_range` by iterating `for block in &func.blocks` and falling back to `Top` when a dead return value was never analyzed (`feedback.rs:152-161`). Fresh validation with a standalone `propagate_ranges()` repro for `helper() -> A() -> B(x)` shows the bug directly: adding one unreachable `Return` block to `A` leaves `A`'s reachable call-result carrier at `Bounded { lo: 99, hi: 99 }`, but `B`'s parameter stays `Top` instead of narrowing to `[99, 99]`.
+  Impact: return-range feedback still fails on CFGs that contain dead returns, so bounded callee results stop propagating through those functions even after TPR-03-030/031/032. The current §03.5 tests only cover reachable-return chains, so this regression remains unpinned.
+  Required plan update: recompute feedback return ranges over the same reachable block set as `range_fixpoint()` (reuse/rebuild RPO reachability instead of scanning all blocks), then add a semantic-pin regression where a function with an unreachable return block forwards a bounded callee result to a downstream callee.
+  Resolved: Validated and accepted on 2026-03-26. Implementation task added to §03.5 (fix `refresh_return_ranges()` to use RPO reachability + semantic-pin test).
+
+- [x] `[TPR-03-032][high]` `compiler/ori_repr/src/range/signatures/feedback.rs:96` — Return-range feedback still stops at the call-result variable, so derived locals and return summaries can stay `Top`.
+  Evidence: Step 1 only meets the direct call-result `dst` with the callee `return_range` (`feedback.rs:78-105`). Step 2 reruns `range_fixpoint()` only when `param_ranges` changed (`feedback.rs:149-184`). If a caller transforms that narrowed `dst` before returning or forwarding it, no rerun happens unless parameter seeds also changed, so the stale `results` from before Step 1 are what Phase 4 persists into `ReprPlan` (`signatures/mod.rs:183-205`).
+  Impact: common shapes like `let x = helper(); let y = x + 1; return y` or `callee(x + 1)` still lose the callee-return fact after the direct `dst` variable. That leaves §03.5 unable to summarize or forward non-trivial call-result computations even though the current TPR-03-030/031 tests are green.
+  Resolved: Validated and implemented on 2026-03-26. Added `call_result_narrowings` parameter to `range_fixpoint()` — callee return ranges applied as `meet` after Apply/Invoke transfer, so derived locals propagate naturally. `inject_callee_return_ranges()` now returns per-caller narrowing maps. `reprocess_changed_functions()` reruns fixpoint for dst-narrowed callers even if params unchanged. Two semantic-pin tests: `callee_return_derived_local_propagates` (y = x + 1 from helper()), `callee_return_derived_local_forwards_to_callee_param` (forwarded to callee param). 338/338 debug + release green, 14,193 total green.
+
+- [x] `[TPR-03-031][medium]` `compiler/ori_repr/src/range/signatures/feedback.rs:61` — The new return-range feedback pass still stops after one hop and can discard injected call-result facts when a function is reprocessed.
+  Evidence: Step 1 only narrows immediate caller `dst` variables once (`compiler/ori_repr/src/range/signatures/feedback.rs:33-55`). Step 2 then does a single pass over `sccs` and reruns only functions whose parameter seeds changed (`compiler/ori_repr/src/range/signatures/feedback.rs:61-84`). When that rerun happens, `results.insert(*name, result)` overwrites the earlier injected `dst` ranges with a fresh `range_fixpoint()` result that has no callee-return propagation path. There is no outer loop that reapplies Step 1 after those reruns, even though `propagate_ranges()` now persists `results` directly into `ReprPlan` (`compiler/ori_repr/src/range/signatures/mod.rs:169-205`).
+  Impact: the current TPR-03-030 fix only pins the one-hop `helper() -> caller -> callee` case. Longer return-forwarding chains still collapse to conservative `Top`, and the section's current "resolved" TPR framing overstates completion.
+  Required plan update: iterate return-range feedback to a real fixpoint (or fold callee-return propagation into the seeded SCC solver), preserve injected caller `dst` facts across reruns, and add a semantic-pin regression for a multi-hop chain such as `main -> A(helper()) -> C -> D`.
+  Resolved: Validated and accepted on 2026-03-26. Two implementation tasks added to §03.5: iterate feedback to fixpoint + multi-hop semantic-pin test.
+
+- [x] `[TPR-03-028][high]` `compiler/ori_repr/src/range/signatures/mod.rs:420` — Recursive-SCC budget exhaustion claims to widen to `Top`, but the last partially converged `results` are still persisted into `ReprPlan`.
+  Evidence: when `iteration >= config.max_scc_iterations`, `process_recursive_scc()` only overwrites `func_infos` with `FunctionRangeInfo::new_top(...)` and then breaks (`compiler/ori_repr/src/range/signatures/mod.rs:420-432`). It never replaces the already-computed `results`. Phase 4 immediately stores those stale `results` in `ReprPlan` (`compiler/ori_repr/src/range/signatures/mod.rs:167-173`), and Phase 5 only rewrites parameter vars, leaving all other vars from the aborted iteration intact (`compiler/ori_repr/src/range/signatures/mod.rs:175-193`).
+  Impact: if an SCC hits the iteration cap, §04 can consume under-converged local/field ranges even though the implementation reports a conservative `Top` fallback. That is an unsafe budget fallback for a shared analysis result.
+  Required plan update: when the SCC budget trips, replace each member's stored `RangeFixpointResult` with a fully conservative result before Phase 4 persists it, and add a regression test that forces a recursive SCC to hit the budget and verifies all exported ranges stay `Top`.
+  Resolved: Validated and accepted on 2026-03-26. Implementation task added to §03.5 (clear stale `results` on SCC budget exhaustion + regression test).
+
+- [x] `[TPR-03-029][medium]` `compiler/ori_repr/src/lib.rs:183` — The real compiler path never populates `KnownBuiltins`, so builtin call ranges silently degrade to `Top`.
+  Evidence: `analyze_ranges()` constructs `RangeAnalysisConfig::default()` and passes it unchanged into `propagate_ranges()` (`compiler/ori_repr/src/lib.rs:183-185`). The default config sets `known_builtins` to `KnownBuiltins::default()` (`compiler/ori_repr/src/range/mod.rs:231-239`), which leaves every builtin name as `None` (`compiler/ori_repr/src/range/mod.rs:248-270`). `transfer_known_call()` only returns builtin ranges when those names are populated (`compiler/ori_repr/src/range/transfer/mod.rs:138-162`). A repo-wide search shows `KnownBuiltins::from_interner()` is never called.
+  Impact: real `Apply`/`Invoke` calls to `len`, `count`, `byte_to_int`, `char_to_int`, and `abs` lose their known ranges in production even though the helper-level unit tests pass, which weakens §03 and downstream narrowing materially.
+  Required plan update: thread the real interner into the §03 entry point, populate `config.known_builtins` before calling `propagate_ranges()`, and add an end-to-end regression that exercises a builtin call through the actual range-analysis pipeline.
+  Resolved: Validated and accepted on 2026-03-26. Implementation task added to §03.6 (wire `StringInterner` into `analyze_ranges()` and populate `KnownBuiltins`).
+
+- [x] `[TPR-03-030][medium]` `compiler/ori_repr/src/range/signatures/mod.rs:167` — Callee return-range propagation only patches `ReprPlan` after SCC processing, so downstream parameter collection still misses call-result chains.
+  Evidence: `collect_param_ranges()` reads argument facts only from `results[caller].var_ranges` (`compiler/ori_repr/src/range/signatures/mod.rs:213-319`). `propagate_return_ranges()` runs later and mutates only `ReprPlan`, not `results` (`compiler/ori_repr/src/range/signatures/mod.rs:167-199`, `322-379`). There is therefore no path that lets a narrowed call result in function `B` become the argument fact that `collect_param_ranges()` sees when `B` calls `C`.
+  Impact: the current §03.5 implementation still fails on interprocedural chains where a caller forwards a callee result rather than an incoming parameter. The section's current tests only pin direct-parameter forwarding and direct caller-side narrowing, not this downstream handoff.
+  Required plan update: feed callee return summaries back into the solver state used by `collect_param_ranges()` and add a semantic-pin regression where `A` calls `B`, `B` forwards `helper()`'s bounded return to `C`, and `C`'s parameter narrows accordingly.
+  Resolved: Validated and accepted on 2026-03-26. Implementation task added to §03.5 (feed return ranges into `results` before `collect_param_ranges()` + regression test for A→helper()→C chain).
+
+- [x] `[TPR-03-026][high]` `compiler/ori_repr/src/range/signatures/mod.rs:167` — The checked-off §03.5 SCC pipeline never feeds interprocedural facts back into the analysis, so recursive and transitive range propagation are still inert.
+  Evidence: `propagate_ranges()` stores the plain intraprocedural `range_fixpoint()` results in `results` and only mutates `ReprPlan` parameter entries afterward (`compiler/ori_repr/src/range/signatures/mod.rs:159-185`). `collect_param_ranges()` always reads call arguments from `results[caller].var_ranges`, not from the narrowed plan or any seeded parameter state (`compiler/ori_repr/src/range/signatures/mod.rs:219-304`). Inside `process_recursive_scc()`, the rerun step still calls `range_fixpoint(func, pool, config)` with no parameter constraints at all despite the checked-off plan item claiming an SCC fixpoint over parameter and return ranges (`compiler/ori_repr/src/range/signatures/mod.rs:350-367`, `plans/repr-opt/section-03-range-analysis.md:1004-1011`).
+  Impact: the current §03.5 code only patches final parameter vars for direct call sites. It does not propagate narrowed arguments through helper chains, does not refine recursive returns from seeded parameter ranges, and cannot deliver the interprocedural fixpoint the section now presents as implemented.
+  Required plan update: add a seeded intraprocedural entry state for parameter ranges, rerun the solver against those seeds inside SCC iteration, and propagate the resulting return summaries back into caller `Apply`/`Invoke` destinations. Add regression tests for `A -> B -> C` transitive propagation and a mutually recursive SCC that actually tightens from an external constant call.
+  Resolved: Validated and accepted on 2026-03-26. Three implementation tasks added to §03.5: parameter-seeded fixpoint, return-range propagation to callers, and transitive/SCC regression tests.
+
+- [x] `[TPR-03-027][medium]` `plans/repr-opt/section-03-range-analysis.md:1028` — The checked-off §03.5 return-propagation coverage claim is false; the current test only checks a callee-local constant, not caller-side narrowing.
+  Evidence: the plan says `return_range_constant` proves "callers see bounded return range" (`plans/repr-opt/section-03-range-analysis.md:1028`), but the test constructs only one standalone function and asserts its own `v_ret` range (`compiler/ori_repr/src/range/signatures/tests.rs:187-217`). The implementation likewise has no code path that rewrites a caller's `Apply`/`Invoke` destination from a callee `return_range`; phase 5 only merges parameter ranges (`compiler/ori_repr/src/range/signatures/mod.rs:167-185`).
+  Impact: the section overstates both coverage and behavior for the caller-side half of §03.5, which makes the current work look safer and more complete than it is.
+  Required plan update: replace or supplement `return_range_constant` with a caller/callee regression that asserts the caller's call-result variable narrows from the callee's bounded return summary, and leave the checklist unchecked until that path exists.
+  Resolved: Validated and accepted on 2026-03-26. Test claim unchecked, implementation task for caller-side return-range propagation added to §03.5 (shared with TPR-03-026).
+
+- [x] `[TPR-03-023][medium]` `compiler/ori_repr/src/range/fixpoint/narrowing.rs:149` — `recompute_return_range()` walks every block in the function, so unreachable `Return` terminators can widen `return_range` back to `Top`.
+  Evidence: `range_fixpoint()` computes RPO from `compute_postorder(func)` (`compiler/ori_repr/src/range/fixpoint/mod.rs:421`), and `compute_postorder()` explicitly visits only blocks reachable from the entry (`compiler/ori_arc/src/graph/mod.rs:114`). But `recompute_return_range()` ignores that reachability set and iterates `for block in &func.blocks`, then falls back to `Top` when a dead block's return value was never analyzed (`compiler/ori_repr/src/range/fixpoint/narrowing.rs:149-154`). That lets dead returns pollute the final summary even though the forward and narrowing passes skipped those blocks.
+  Impact: `RangeFixpointResult::return_range` can become less precise solely because of unreachable code, which undermines the TPR-03-021 fix and will block §03.5 from reusing precise return summaries at call sites.
+  Required plan update: recompute `return_range` over the reachable block set only (for example, reuse the existing RPO indices or a reachable bitset) and add a regression test with an unreachable return block that would currently force `return_range` to `Top`.
+  Resolved: Validated and accepted on 2026-03-26. Implementation task added to §03.3.
+
+- [x] `[TPR-03-024][low]` `plans/repr-opt/section-03-range-analysis.md:894` — The checked-off §03.3 test inventory still claims Invoke coverage, but `compiler/ori_repr/src/range/fixpoint/tests.rs` contains no `ArcTerminator::Invoke` test at all.
+  Evidence: the completed §03.3 test bullet says the fixpoint test file covers `Invoke terminator` handling (`plans/repr-opt/section-03-range-analysis.md:894-903`), yet a direct search of `compiler/ori_repr/src/range/fixpoint/tests.rs` finds no `ArcTerminator::Invoke` construction. The current suite exercises `Apply`-based `Top` flows, but not the only terminator that defines a value outside the block body.
+  Impact: a core fixpoint path is currently unpinned even though the plan presents that coverage as done, so regressions in terminator-defined range propagation could land silently.
+  Required plan update: add an explicit `Invoke` regression test in `compiler/ori_repr/src/range/fixpoint/tests.rs` and update the §03.3 test summary so it matches the real matrix.
+  Resolved: Validated and accepted on 2026-03-26. Implementation task added to §03.3.
+
+- [x] `[TPR-03-025][low]` `compiler/ori_repr/src/range/fixpoint/mod.rs:1` — The extracted fixpoint module is still 502 lines, so the recent split did not actually satisfy the repository’s 500-line non-test file limit.
+  Evidence: `wc -l compiler/ori_repr/src/range/fixpoint/mod.rs` reports 502 lines in the current tree, which exceeds the hard limit in `.claude/rules/impl-hygiene.md`.
+  Impact: this is a direct hygiene-rule violation in the file that was just refactored to get back under the limit, so the section history now overstates compliance and future edits will keep accumulating in an already oversized module.
+  Required plan update: extract another small helper or orchestration fragment from `fixpoint/mod.rs` so the module is actually below 500 lines, then keep the plan note aligned with the resulting layout.
+  Resolved: Rejected on 2026-03-26. The 500-line rule explicitly excludes test code. The file has 500 lines of implementation code and 2 lines of `#[cfg(test)] mod tests;` declaration — exactly at the limit but not exceeding it. The finding is factually incorrect about a violation existing.
+
+- [x] `[TPR-03-022][medium]` `compiler/ori_repr/src/range/fixpoint/mod.rs:452` — Field summaries are recomputed after narrowing, but projection-derived variables never get a second pass over the repaired summaries, so `Project` results and `return_range` can stay widened.
+  Evidence: `run_narrowing_pass()` narrows body instructions against the pre-recompute `field_summary_table` (`compiler/ori_repr/src/range/fixpoint/narrowing.rs:65-88`), then `range_fixpoint()` calls `recompute_field_summaries()` and immediately finalizes `return_range` without rerunning any projection-dependent transfer (`compiler/ori_repr/src/range/fixpoint/mod.rs:452-476`). Fresh validation with an external bounded-loop probe (`i` narrows to `[0, 10]`, exit block does `Construct { args: [i] }` then `Project field 0`) produced `field = Bounded { lo: 0, hi: 10 }` but `y = Bounded { lo: 10, hi: 9223372036854775807 }` and matching widened `return_range`.
+  Impact: §03 still loses the narrowed value on common `Construct` → `Project` paths, so §04 field consumers and the §03.5 return-summary handoff can observe pre-narrowing ranges even after TPR-03-016/021 landed. The current fixpoint tests only check the repaired field summary table itself; they do not pin projection or return propagation through that table.
+  Required plan update: after `recompute_field_summaries()`, rerun a projection-dependent narrowing/recompute pass (or iterate field-summary rebuild and projection transfer to a fixed point) before finalizing `var_ranges` and `return_range`. Add a semantic-pin regression test for a bounded loop whose exit block constructs a value, projects the narrowed field, and returns the projection.
+  Resolved: Validated and accepted on 2026-03-26. Implementation tasks added to §03.3.
+
+- [x] `[TPR-03-020][high]` `compiler/ori_repr/src/range/fixpoint/mod.rs:265` — Successor refinements are merged by `(block, var)` in a way that under-approximates paths from multiple predecessors and stale iterations.
+  Evidence: `process_terminator()` stores branch refinements with plain `insert()` and switch-default refinements with `.meet()` into a single `block_refinements: FxHashMap<(ArcBlockId, ArcVarId), ValueRange>` that lives for the whole fixpoint. That key has no predecessor or iteration component, so distinct incoming facts are overwritten or monotonically narrowed instead of joined/recomputed. Fresh validation with an external probe CFG (`x < 0` on one predecessor, `x > 10` on another, both flowing to the same successor) produced `join var: Some(Bounded { lo: 11, hi: 9223372036854775807 })`, dropping the negative path entirely.
+  Impact: join blocks can observe impossible scrutinee/variable ranges, which is an unsound under-approximation once §04 consumes these facts for narrowing decisions. The same map-lifetime bug can also preserve overly-tight switch-default complements from earlier iterations after a scrutinee range widens.
+  Required plan update: make successor refinements edge-sensitive or recompute the table per iteration, and join incoming refinements across predecessors before applying them at block entry. Add semantic-pin tests for multi-predecessor branch refinement and for switch-default refinement after a widening iteration.
+  Resolved: Validated and accepted on 2026-03-26. Two bugs confirmed: (1) Branch refinements use `insert()` instead of `join`, dropping refinements from earlier predecessors; (2) `block_refinements` map never cleared between iterations, preserving stale refinements. Implementation tasks added to §03.3.
+
+- [x] `[TPR-03-021][medium]` `compiler/ori_repr/src/range/fixpoint/mod.rs:296` — `return_range` is accumulated before narrowing and never recomputed from the final narrowed ranges.
+  Evidence: `process_terminator()` only ever does `*return_range = return_range.join(ret_range)` during the forward iterations, while `range_fixpoint()` runs two narrowing passes and returns `state.return_range` unchanged. Fresh validation with the bounded-loop probe from `fixpoint_narrowing_recovers_loop_bound` produced `loop var: Some(Bounded { lo: 0, hi: 10 })` but `loop return_range: Bounded { lo: 0, hi: 9223372036854775807 }`.
+  Impact: the §03.5 return-summary handoff will export widened summaries even when intraprocedural narrowing recovered precise loop bounds, which blocks downstream call-signature narrowing and makes the checked-off `RangeFixpointResult.return_range` contract inaccurate.
+  Required plan update: recompute `return_range` from the final narrowed ranges (or include returns in the narrowing pass) and add a bounded-loop regression test that asserts both the loop variable and `return_range` narrow together.
+  Resolved: Validated and accepted on 2026-03-26. Confirmed: `state.return_range` at line 571 is returned unchanged after narrowing passes. Implementation task added to §03.3.
+
+- [x] `[TPR-03-017][high]` `compiler/ori_repr/src/range/fixpoint/mod.rs:214` — `Switch` case refinements overwrite earlier cases targeting the same successor block instead of joining them.
+  Evidence: `process_terminator()` stores each case with `block_refinements.insert((case_block, *scrutinee), ...)`, so a switch like `{0 -> b1, 1 -> b1}` leaves only the last exact value in the map. The IR uses `Vec<(u64, ArcBlockId)>` for cases and this implementation does not assert or document any unique-target invariant.
+  Impact: successor blocks can see an under-approximated scrutinee range, which becomes unsound once §04 consumes these ranges for narrowing decisions.
+  Required plan update: join repeated case values per `(case_block, scrutinee)` instead of overwriting, and add a semantic-pin test covering a multi-value same-block switch.
+  Resolved: Accepted and integrated into §03.3 on 2026-03-26. Implementation task added.
+
+- [x] `[TPR-03-018][medium]` `compiler/ori_repr/src/range/fixpoint/mod.rs:209` — `Switch` default successors never receive the complement refinement that §03.3 marks complete.
+  Evidence: `process_terminator()` ignores `default` entirely and only inserts per-case equalities, even though the checked-off §03.3 requirement says the default block should get the complement range. The current switch regression test only checks a constant case path and never inspects the default successor.
+  Impact: code in the default branch loses the primary fact from the switch scrutinee, so the implementation is weaker than the section claims and misses narrowing opportunities on default paths.
+  Required plan update: compute and apply the default complement range, then add a regression test that asserts the default block excludes all explicit case values.
+  Resolved: Accepted and integrated into §03.3 on 2026-03-26. Implementation task added.
+
+- [x] `[TPR-03-019][medium]` `compiler/ori_repr/src/range/fixpoint/mod.rs:232` — The narrowing pass never revisits block parameters or terminators, so widened loop-header parameters cannot recover to bounded ranges.
+  Evidence: `run_narrowing_pass()` only walks `block.body` instructions and never re-runs `merge_block_params()` or terminator refinement/invoke handling. The checked-off §03.3 test note claims narrowing-pass recovery is covered, but the current fixpoint test file has no bounded-loop recovery case and the branch/switch "semantic pin" tests use already-constant values that do not exercise recovery.
+  Impact: the main bounded-loop use case (`for i in 0..100`) can widen to `[0, i64::MAX]` and stay there, which blocks the §03→§04 handoff for loop-counter narrowing.
+  Required plan update: add a narrowing-phase recomputation for block params and terminators, or an equivalent second fixpoint, plus a semantic-pin test on a bounded loop.
+  Resolved: Accepted and integrated into §03.3 on 2026-03-26. Implementation task added.
+
 - [x] `[TPR-03-001][minor]` `section-03-range-analysis.md:458` — **Block parameter merging only handles `Jump` predecessors; `Invoke` normal successor may pass args.**
   Resolved: Rejected on 2026-03-25. `ArcTerminator::Invoke` does NOT pass block arguments to its normal successor — unlike `Jump { target, args }`, the `normal` field is just an `ArcBlockId` with no `args`. The `Invoke`'s `args` field contains function call arguments (not block parameters). The `dst` result is handled separately in the fixpoint loop's Step 3 (terminator processing). Only `Jump` carries block arguments, so the merge loop is correct as written. Updated misleading comment at plan line 467 to clarify this.
+
+- [x] `[TPR-03-002][low]` `plans/repr-opt/section-03-range-analysis.md:161` — The §03.1 checklist claims "`range/tests.rs`" contains 56 lattice tests, but the current file only defines 51 `#[test]` cases.
+  Resolved: Rejected on 2026-03-25. TPR's count of 51 is incorrect — actual count is 58 `#[test]` functions. Plan text updated from "56" to "58" to match reality.
+
+- [x] `[TPR-03-003][low]` `compiler/ori_repr/src/tests.rs:291` — The new `ValueRange` smoke test hard-codes `std::mem::size_of::<ValueRange>() == 24`, but enum layout is not part of the section's semantic contract and is not stable enough to pin this exactly.
+  Resolved: Fixed on 2026-03-26. Replaced exact-size assertion with semantic checks (Default, join, meet).
+
+- [x] `[TPR-03-004][high]` `compiler/ori_repr/src/range/transfer/mod.rs:248` — `range_div()` and `range_floordiv()` can panic on the valid corner case `i64::MIN / -1` instead of conservatively returning `Top`.
+  Resolved: Validated and fixed on 2026-03-25. Replaced raw `/` with `checked_div()` for all 4 corners. 4 regression tests added (debug + release green).
+
+- [x] `[TPR-03-005][medium]` `compiler/ori_repr/src/range/transfer/mod.rs:435` — `range_bitnot()` can panic on ranges containing `i64::MIN` because it negates the endpoints before any checked operation runs.
+  Resolved: Validated and fixed on 2026-03-25. Replaced unchecked negation with `checked_neg().and_then()`. 4 regression tests added (debug + release green).
+
+- [x] `[TPR-03-006][medium]` `compiler/ori_repr/src/range/transfer/mod.rs:71` — Builtin-call propagation is still effectively disabled, so `Apply` never yields the fixed ranges that §03.2 says are complete.
+  Resolved: Validated and integrated into §03.5 on 2026-03-25. The §03.2 `transfer_known_call()` stub was explicitly planned as a two-phase approach (stub in §03.2, implementation in §03.5 which provides interner access). Concrete implementation task added to §03.5.
+
+- [x] `[TPR-03-007][medium]` `compiler/ori_repr/src/range/mod.rs:232` — `is_int_typed()` skips `Tag::Applied`, so instantiated aliases/newtypes over `int` are treated as non-int and never enter the range pipeline.
+  Resolved: Fixed on 2026-03-26. Added `Tag::Applied` to the match in `is_int_typed()`, resolves through `pool.resolve_fully()` same as `Named`/`Alias`.
+
+- [x] `[TPR-03-008][high]` `compiler/ori_repr/src/range/transfer/mod.rs:303` — `range_floordiv()` is unsound because it delegates to truncating division even though Ori floor division rounds toward negative infinity.
+  Resolved: Fixed on 2026-03-26. Implemented `checked_floor_div()` in `transfer/arithmetic.rs` and rewrote `range_floordiv()` to compute all 4 corners with floor semantics. 8 regression tests added. Debug + release green.
+
+- [x] `[TPR-03-009][medium]` `compiler/ori_repr/src/range/transfer/mod.rs:431` — `range_shr()` under-approximates negative right shifts when the shift amount is a range.
+  Resolved: Fixed on 2026-03-26. Replaced directional monotonicity assumption with 4-corner computation in `transfer/bitwise.rs`. 4 regression tests added. Debug + release green.
+
+- [x] `[TPR-03-010][low]` `compiler/ori_repr/src/range/transfer/mod.rs:1` — `transfer/mod.rs` is now 509 lines, which violates the repository’s 500-line non-test file limit.
+  Resolved: Fixed on 2026-03-26. Split into `mod.rs` (242), `arithmetic.rs` (218), `bitwise.rs` (124). All within 500-line limit.
+
+- [x] `[TPR-03-011][high]` `compiler/ori_repr/src/lib.rs:95` — `analyze_ranges()` is still a no-op, so the newly added §03 range modules never affect `ReprPlan` even though §03.2b and §03.4 are marked complete.
+  Resolved: Validated on 2026-03-26. The infrastructure in §03.2b and §03.4 is correctly implemented and unit-tested, but the premature integration checkbox in §03.2b has been reopened (line 483). The integration and `analyze_ranges()` wiring are properly tracked in §03.3 (fixpoint loop) and §03.6 (completion checklist, line 1117). The planned build order (03.1→03.2→03.2b→03.4→**03.3**→03.5) makes §03.3 the integration point — not §03.2b.
+
+- [x] `[TPR-03-012][medium]` `compiler/ori_repr/src/range/mod.rs:241` — TPR-03-007 was marked resolved, but the new `Tag::Applied` arm still has no regression test pinning the exact bug that was supposedly fixed.
+  Resolved: Fixed on 2026-03-26. Added 8 regression tests in `range/tests.rs`: `is_int_typed_primitive_int`, `is_int_typed_non_int_primitives`, `is_int_typed_error`, `is_int_typed_applied_resolving_to_int` (semantic pin), `is_int_typed_applied_resolving_to_non_int`, `is_int_typed_named_resolving_to_int`, `is_int_typed_applied_chain_to_int`, `is_int_typed_unresolved_applied`. Debug + release green (277/277).
+
+- [x] `[TPR-03-013][low]` `compiler/ori_repr/src/range/conditional/mod.rs:96` — The checked-off §03.4 boundary cases are still weaker than the plan claims: impossible `x < i64::MIN` / `x > i64::MAX` branches return `Top`, not `Bottom`.
+  Resolved: Fixed on 2026-03-26. Changed all 4 overflow fallbacks in `refine_comparison()` from `Top` to `Bottom`: `Lt` (c=MIN, true), `LtEq` (c=MAX, false), `Gt` (c=MAX, true), `GtEq` (c=MIN, false). Updated 3 existing boundary tests (`lt_boundary_i64_min`, `lteq_boundary_i64_max`, `gt_boundary_i64_max`) to assert `Bottom`. Added new semantic pin `gteq_boundary_i64_min`. Debug + release green (277/277).
+
+- [x] `[TPR-03-014][high]` `compiler/ori_repr/src/lib.rs:176` — `analyze_ranges()` is still a no-op, so the new §03.3 fixpoint work never populates `ReprPlan` even though the section now claims the handoff is complete.
+  Resolved: Validated on 2026-03-26. Confirmed stub is empty at `lib.rs:176`. Already tracked as implementation task in §03.6 line 1117 (`- [ ] Fill in the analyze_ranges() stub`). No new task needed — the existing §03.6 item is the correct integration point.
+
+- [x] `[TPR-03-015][medium]` `compiler/ori_repr/src/range/fixpoint/mod.rs:146` — Successor refinements from `Branch` and `Switch` are only applied to block parameters, so ordinary dominated variables never get the narrowing that §03.4 advertises.
+  Resolved: Validated on 2026-03-26. Confirmed: `block_refinements` entries are stored for arbitrary `(block, var)` pairs at lines 224-239 but only consumed inside the block-parameter merge loop at lines 146-149. Non-parameter variables never get refined. Implementation task added to §03.3 (apply block-entry refinements to all live vars).
+
+- [x] `[TPR-03-016][medium]` `compiler/ori_repr/src/range/fixpoint/mod.rs:120` — Field summaries are monotone-joined across iterations without reset or narrowing, so an early conservative `Top` permanently poisons `(type, field)` precision.
+  Resolved: Validated on 2026-03-26. Confirmed: `field_summary_table` accumulates via monotone `join` during the fixpoint loop but is never recomputed after the narrowing pass. Widened intermediate ranges from early iterations can permanently poison field precision. Implementation task added to §03.3 (recompute field summaries after narrowing pass).

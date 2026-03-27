@@ -24,10 +24,11 @@ Review a draft proposal, analyze implications, and (if approved) integrate into 
 6. Present analysis and ask questions
 7. Walk through recommendations one-by-one
 8. Confirm approval
-9. Execute approval workflow
-10. **Propagation audit** — find and fix ALL stale references across repo ← CRITICAL
-11. **Sync spec and grammar** (invoke `/sync-spec` and `/sync-grammar`)
-12. Verify documentation formatting (final step)
+9. Execute approval workflow (update status, move file)
+10. **Add to roadmap** — invoke `/create-plan` in roadmap mode for full research + section creation ← NEW
+11. **Propagation audit** — find and fix ALL stale references across repo ← CRITICAL
+12. **Sync spec and grammar** (invoke `/sync-spec` and `/sync-grammar`)
+13. Verify documentation formatting (final step)
 
 ---
 
@@ -210,51 +211,41 @@ Execute only after user confirms approval AND no blockers exist.
 - [ ] Remove any `## Blockers` section
 - [ ] `git mv docs/ori_lang/proposals/drafts/<name>-proposal.md docs/ori_lang/proposals/approved/`
 
-### Step 12: Determine Target Section
+### Step 12: Add to Roadmap via `/create-plan` (MANDATORY — Full Process)
 
-| Proposal Type | Section File |
-|---------------|--------------|
-| Syntax changes | `section-15A/B/C/D-*.md` |
-| New traits (prelude) | `section-03-traits.md` |
-| Stdlib additions | `section-07A/B/C/D-*.md` |
-| Type system | `section-01-type-system.md` or `section-02-type-inference.md` |
-| Patterns | `section-08-patterns.md` |
-| Capabilities | `section-06-capabilities.md` |
-| Testing framework | `section-14-testing.md` |
-| Tooling | `section-22-tooling.md` |
+**CRITICAL: Do NOT manually add sections to the roadmap.** Instead, invoke `/create-plan` in roadmap mode. This runs the full research-first, architecture-second process — multi-pass research, architecture design, user review, sequential section writing, cohesion checks, and `/review-plan`.
 
-Some proposals affect multiple sections — add entries to each.
+**Invoke the skill:**
 
-### Step 13: Add to Section File
-
-Add subsection to `plans/roadmap/section-XX-*.md`:
-```markdown
-## X.Y Proposal Name
-**Proposal**: `proposals/approved/<name>-proposal.md`
-
-Brief description.
-
-### Implementation
-- [ ] **Implement**: [task] — [spec ref]
-  - [ ] **Rust Tests**: `path/to/tests`
-  - [ ] **Ori Tests**: `tests/spec/category/file.ori`
-  - [ ] **LLVM Support**: [feature]
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/feature_tests.rs`
+```
+Skill: create-plan
+Args: add <proposal-name> to roadmap
 ```
 
-### Step 14: Update Tracking Files
+**What this does:**
+1. Reads the entire roadmap (overview, index, all sections)
+2. Runs multi-pass research on the proposal's scope (breadth scan, deep read, pattern study, prior art)
+3. Determines where the new section fits — dependencies, numbering, impact on existing sections
+4. Designs the architecture and presents it to the user for approval
+5. Writes the new section(s) with full research grounding — real file paths, real type signatures, real sync points, matrix testing strategy
+6. Updates existing sections affected by the new section (dependencies, cross-references)
+7. Updates `00-overview.md` and `index.md`
+8. Runs cohesion check across the full roadmap
+9. Runs `/review-plan plans/roadmap/` for formal review
 
-- [ ] Remove from drafts section in `plans/roadmap/plan.md` (if listed)
-- [ ] Add to `plans/roadmap/priority-and-tracking.md`:
-```markdown
-**Proposal Name** — APPROVED YYYY-MM-DD
-- Proposal: `proposals/approved/<name>-proposal.md`
-- Implementation: Section X.Y
-- [Key features]
-- Blocked on: [deps or "None"]
-```
+**Before invoking**, provide context to help the research phase:
+- Reference the approved proposal: `proposals/approved/<name>-proposal.md`
+- Summarize the key decisions made during proposal review (from Step 10)
+- Note any implementation constraints or dependencies identified during analysis
 
-### Step 15: Propagation Audit — Find and Fix All Downstream/Upstream Drift
+**After `/create-plan` completes**, verify:
+- [ ] New section(s) added to roadmap with proper numbering and dependencies
+- [ ] Existing sections updated where affected
+- [ ] Overview dependency graph and implementation sequence updated
+- [ ] Index keywords updated
+- [ ] `/review-plan` completed successfully
+
+### Step 13: Propagation Audit — Find and Fix All Downstream/Upstream Drift
 
 **CRITICAL STEP.** When a proposal changes language semantics, naming, behavior, or invariants, the change must propagate to EVERY document and code location that references the old assumptions. Failure to propagate creates silent contradictions that compound over time.
 
@@ -305,11 +296,11 @@ Brief description.
 
 **If the audit reveals more than 10 stale references**, the proposal is touching a fundamental invariant. Use `AskUserQuestion` to confirm the user wants to proceed with all fixes before making changes.
 
-### Step 16: Update Spec, Grammar, and Ori Syntax Reference
+### Step 14: Update Spec, Grammar, and Ori Syntax Reference
 
 If proposal introduces new syntax/types/semantics, **invoke the sync skills**:
 
-**Step 16a: Sync Spec (if semantics changed)**
+**Step 14a: Sync Spec (if semantics changed)**
 
 If the proposal affects language semantics, types, or behavior:
 
@@ -319,7 +310,7 @@ Invoke: `Skill(skill: "sync-spec")`
 
 This ensures spec files use formal, declarative language and follow `.claude/rules/spec.md`.
 
-**Step 16b: Sync Grammar (if syntax changed)**
+**Step 14b: Sync Grammar (if syntax changed)**
 
 If the proposal introduces or modifies syntax:
 
@@ -329,13 +320,13 @@ Invoke: `Skill(skill: "sync-grammar")`
 
 This ensures `grammar.ebnf` stays synchronized as the single source of truth.
 
-**Step 16c: Update Ori Syntax Reference (manual)**
+**Step 14c: Update Ori Syntax Reference (manual)**
 
 - [ ] Update `.claude/rules/ori-syntax.md` if syntax/types/patterns affected
 - [ ] Follow rules in `.claude/rules/ori-lang.md`
 - [ ] Verify consistency between spec, grammar.ebnf, and ori-syntax.md
 
-### Step 17: Verify Documentation Formatting
+### Step 15: Verify Documentation Formatting
 
 **Before committing**, verify all modified documentation follows formatting rules.
 
@@ -380,7 +371,7 @@ Use `AskUserQuestion` to resolve each formatting issue before proceeding.
 | "When you write `type T = Self`..." | "The syntax `type T = Self`..." |
 | "Don't forget to..." | "It is an error if..." |
 
-### Step 18: Commit and Push
+### Step 16: Commit and Push
 
 Invoke: `Skill(skill: "commit-push")`
 
@@ -420,9 +411,10 @@ Proposal: docs/ori_lang/proposals/approved/<name>-proposal.md
 - [ ] Proposal updated with approved changes
 - [ ] Moved from `drafts/` to `approved/`
 - [ ] Status updated to `Approved`, date added
-- [ ] Implementation tasks added to section file(s)
-- [ ] `plan.md` updated (if applicable)
-- [ ] `priority-and-tracking.md` updated
+- [ ] **`/create-plan` invoked in roadmap mode** — full research, architecture, section creation, cohesion check, and `/review-plan` ← CRITICAL
+- [ ] Roadmap section(s) created with proper dependencies, sync points, matrix testing strategy
+- [ ] Existing roadmap sections updated where affected
+- [ ] Overview dependency graph and implementation sequence updated
 - [ ] **Propagation audit completed** — searched ALL docs/specs/proposals/roadmap/compiler for stale references ← CRITICAL
 - [ ] Errata added to any approved proposals with stale reasoning
 - [ ] Compiler error messages updated if they reference old behavior
@@ -437,7 +429,7 @@ Proposal: docs/ori_lang/proposals/approved/<name>-proposal.md
 - [ ] Informative sections marked with `> **Note:**`
 - [ ] All docs synchronized (no contradictions between spec/ori-syntax.md/proposal)
 - [ ] Formatting issues resolved with user via `AskUserQuestion`
-- [ ] Committed and pushed via `/commit-push`
+- [ ] Committed and pushed via `/commit-push` (Step 16)
 
 ---
 

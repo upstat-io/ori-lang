@@ -320,8 +320,13 @@ pub(super) fn run_codegen_pipeline<'ctx>(
             .iter()
             .filter_map(|te| te.repr.map(|r| (te.idx, r)))
             .collect();
-        let repr_plan =
-            ori_repr::compute_repr_plan(pool, &all_arc_funcs, narrowing_policy, &repr_attrs);
+        let repr_plan = ori_repr::compute_repr_plan_with_interner(
+            pool,
+            &all_arc_funcs,
+            narrowing_policy,
+            &repr_attrs,
+            Some(interner),
+        );
 
         // Create type store with repr plan for triviality delegation (§02 Phase B).
         let store = TypeInfoStore::new_with_plan(pool, &repr_plan);
