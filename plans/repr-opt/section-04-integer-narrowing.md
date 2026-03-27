@@ -6,7 +6,7 @@ reviewed: true
 third_party_review:
   status: findings
   updated: 2026-03-27
-  triage_note: "TPR-04-017 triaged 2026-03-27: accepted as CROSS-04-017. TPR-04-018 triaged and RESOLVED 2026-03-27: IR-PIN-04-018 tests implemented, exposed critical index-mismatch bug, fixed. Status stays findings until CROSS-04-017 is complete."
+  triage_note: "All findings triaged as of 2026-03-27. TPR-04-017→CROSS-04-017, TPR-04-018→IR-PIN-04-018 (RESOLVED), TPR-04-019→accepted (plan claim fix + negative IR pin), TPR-04-020→DERIVE-PIN-04-020 (negative-value derive semantic pins). Status stays findings until CROSS-04-017, TPR-04-019, and DERIVE-PIN-04-020 tasks are complete."
 goal: "Lower int (semantic i64) to the smallest machine integer (i8/i16/i32) that preserves correctness, saving memory in struct fields, collections, and stack slots"
 inspired_by:
   - "Zig comptime_int narrowing to runtime types (src/Sema.zig)"
@@ -181,7 +181,7 @@ The LLVM backend type resolution path via `TypeLayoutResolver` handles `MachineR
 - [x] **Phase A — LLVM struct/tuple lowering (TPR-04-006 fix).** (2026-03-27): Implemented `try_lower_narrowed_aggregate()` in `layout_resolver.rs`. Only triggers for structs with at least one narrowed int field (`IntWidth != I64`). Recursively resolves field reprs via `try_repr_to_llvm_type()`. Non-narrowed structs continue using the named struct path. **Phase A scoping: tuples excluded from narrowing** — tuples are used as collection elements, iterator state, and intermediates where `element_store_size()` assumes canonical widths. Tuple narrowing deferred to Phase C when `element_store_size()` integration is complete. Implementation:
   - [x] `try_lower_narrowed_aggregate()` in `layout_resolver.rs:303-346`: detects narrowed aggregates via `has_narrowed` field scan, resolves all fields recursively, builds anonymous LLVM struct type from narrowed field types. Falls back to `None` for non-narrowed structs and structs with unresolvable nested fields.
   - [x] Fallback: if any field repr returns `None` from `try_repr_to_llvm_type()` (e.g., nested `Struct`/`Enum`), returns `None` → TypeInfoStore two-phase creation path takes over.
-  - [x] End-to-end semantic pin: 6 AOT tests in `compiler/ori_llvm/tests/aot/narrowing.rs` — Pixel round-trip (trunc i64→i8 + sext i8→i64), struct update, mixed types (str + narrowed int + bool), field mutation, i8 boundary values (-128, 127), negative test (wide range stays canonical).
+  - [x] End-to-end semantic pin: 6 AOT tests in `compiler/ori_llvm/tests/aot/narrowing.rs` — Pixel round-trip (trunc i64→i8 + sext i8→i64), struct update, mixed types (str + int + bool — **runtime fallback only: int field stays canonical i64 due to all-scalar-int guard in `try_lower_narrowed_aggregate()`; mixed-field narrowing deferred to Phase C**), field mutation, i8 boundary values (-128, 127), negative test (wide range stays canonical).
   - [x] Pixel test uses `[-128, 127]` for true i8 pin (signed narrowing).
   - [x] Tuple narrowing disabled in `narrow_struct_fields()` (`narrowing/int.rs`): `CandidateKind::Tuple` → skip with tracing. Tuple narrowing test updated to `tuple_elements_not_narrowed_phase_a`.
 
@@ -196,6 +196,14 @@ The LLVM backend type resolution path via `TypeLayoutResolver` handles `MachineR
   - [x] `test_narrowed_struct_ir_pin_trunc_on_construction`: Asserts `trunc i64` or `{ i8, i8, i8 }` constant store in `_ori_main` at construction site.
   - [x] `test_narrowed_struct_ir_pin_sext_on_field_load`: Asserts `sext i8` in `_ori_sum_channels` — narrowed field loads require sign extension to i64.
   - [x] `test_non_narrowed_struct_ir_pin_wide_range`: Negative pin — `_ori_sum_wide` with `3_000_000_000` values asserts NO `sext i8/i16/i32`.
+
+- [ ] `[DERIVE-PIN-04-020]` **Negative-value derive semantic pins** (from TPR-04-020). Add AOT tests that exercise derived `hash()`, `to_str()`, and `debug()` on narrowed structs with negative field values. A `zext` instead of `sext` bug would produce wrong results for negative values while passing for positive values.
+  - [ ] AOT test: `#derive(Hashable)` on narrowed struct with negative i8 field values (e.g., -50, -120) — verify hash output matches interpreter
+  - [ ] AOT test: `#derive(Printable)` on narrowed struct with negative i8 field values — verify `to_str()` output matches interpreter
+  - [ ] AOT test: `#derive(Debug)` on narrowed struct with negative i8 field values — verify `debug()` output matches interpreter
+  - [ ] At least one IR semantic pin: verify derive codegen for narrowed struct uses `sext` (not `zext`) when widening i8 fields to i64 for runtime function calls
+
+- [ ] `[MIXED-PIN-04-019]` **Negative semantic pin for mixed-field struct rejection** (from TPR-04-019). Verify that `struct Record { count: int, name: str, active: bool }` with `count` in i8 range does NOT get narrowed LLVM layout — int field stays canonical i64 because `try_lower_narrowed_aggregate()` rejects mixed-type structs. IR inspection must confirm no `i8` field type in the struct layout.
 
 - [ ] Handle comparison operations correctly:
   - Signed comparison (`icmp slt`) on narrow types is correct for signed narrowing
@@ -339,10 +347,17 @@ The LLVM backend type resolution path via `TypeLayoutResolver` handles `MachineR
 
 ## 04.R Third Party Review Findings
 
-- [ ] `[TPR-04-019][medium]` `plans/repr-opt/section-04-integer-narrowing.md:184` `compiler/ori_llvm/src/codegen/type_info/layout_resolver.rs:340` `compiler/ori_llvm/tests/aot/narrowing.rs:46` — §04.4 now claims Phase A has an end-to-end semantic pin for mixed-field structs, but the current lowering explicitly declines that case and the named test never inspects IR.
+- [x] `[TPR-04-020][medium]` `plans/repr-opt/section-04-integer-narrowing.md:154` `compiler/ori_llvm/tests/aot/derives.rs:174` `compiler/ori_llvm/tests/aot/ir_quality_attributes.rs:318` — The new derive-codegen widening fix for narrowed ints is still unpinned for the signed cases that actually require `sext`.
+  Evidence: §04.4 now claims the phase fixed derive codegen for `hash`, `printable`, and `debug` by widening narrowed fields back to canonical `i64`, but the AOT coverage never exercises a negative narrowed value through those paths. The added derive behavior tests only use positive field values (`1`, `2`, `3`, `4`) in `hash()` / `to_str()`, and the lone `debug()` AOT test checks only LLVM attributes (`nounwind`), not formatted output. A mistaken `zext` or missing widen would therefore still pass the current suite for all covered cases because the bug is observable only once an `i8`/`i16` field carries a negative value.
+  Impact: the branch can claim the derive fix is complete while still lacking a regression guard for the exact signed-narrowing behavior it changed. Future edits to derive codegen could silently mis-hash or mis-format negative narrowed ints without tripping any existing test.
+  Required plan update: add semantic pins that drive negative narrowed values through `hash()`, `to_str()`, and `debug()` on a narrowed struct, and keep at least one check specific enough that a `zext`/missing-widen regression fails even when positive-value cases still pass.
+  Resolved: Validated and accepted on 2026-03-27. Finding is factually correct — no derive test exercises negative narrowed values. Implementation tasks added as DERIVE-PIN-04-020 in §04.4.
+
+- [x] `[TPR-04-019][medium]` `plans/repr-opt/section-04-integer-narrowing.md:184` `compiler/ori_llvm/src/codegen/type_info/layout_resolver.rs:340` `compiler/ori_llvm/tests/aot/narrowing.rs:46` — §04.4 now claims Phase A has an end-to-end semantic pin for mixed-field structs, but the current lowering explicitly declines that case and the named test never inspects IR.
   Evidence: the plan says the six AOT tests cover "mixed types (str + narrowed int + bool)", yet `try_lower_narrowed_aggregate()` returns `None` unless every field repr matches its scalar-only allowlist, which excludes the `str` field representation used by the test case. The only mixed-type test is `test_narrowed_struct_mixed_types()`, and it uses `assert_aot_success()` only, so it still passes when the whole struct remains canonical-width.
   Impact: Section 04 currently overstates Phase A coverage. Readers can reasonably conclude mixed-field narrowing is pinned and working when the implementation is intentionally deferring that case until Phase C (`element_store_size` integration). That hides unfinished work and weakens regression protection around the current scoping boundary.
   Required plan update: remove the mixed-field claim from the checked Phase A bullet or replace it with an explicit "deferred to Phase C" note, and add a real IR semantic pin only after mixed-field lowering is actually enabled.
+  Resolved: Validated and accepted on 2026-03-27. Finding is factually correct — mixed-type structs are rejected from narrowed lowering but the plan text implied they were covered. Fixed Plan A claim to note "runtime fallback only, deferred to Phase C". Implementation task added as MIXED-PIN-04-019 in §04.4 for negative IR semantic pin.
 
 - [x] `[TPR-04-017][high]` `compiler/oric/src/test/runner/llvm_backend.rs:252` `compiler/ori_types/src/check/mod.rs:923` `compiler/oric/src/commands/build/multi.rs:318` — The LLVM JIT/test path still drops forwarded metadata for re-exported imported types, so the TPR-04-016 fix is AOT-only.
   Resolved: Validated on 2026-03-27. Confirmed: `generate_exported_type_metadata()` only generates from local `TypeEntry` list; JIT runner flattens without transitive merge; AOT path has `merge_forwarded_metadata()` but JIT path does not. Accepted — implementation tasks added as CROSS-04-017 in §04.X.
