@@ -1,6 +1,6 @@
-# Plan Template
+# Plan Schema
 
-Use this template when creating new plans in `plans/`.
+The single source of truth for plan structure. All plans in `plans/` and `plans/completed/` must conform to this schema. Referenced by `/create-plan` (creation) and `/continue-roadmap` (validation).
 
 ---
 
@@ -495,13 +495,32 @@ thresholds, and the specific commands that demonstrate completion.}
 
 ## Status Conventions
 
+### Section and Subsection Status (section files, `00-overview.md`)
+
 | YAML Status | Meaning | Notes |
 |-------------|---------|-------|
 | `not-started` | No work done | |
 | `in-progress` | Partial completion | Include date + current state in header |
 | `complete` | All done | Include completion date in header |
 
-Subsection status uses `not-started`, `in-progress`, `done`.
+Sections AND subsections use the same values: `not-started`, `in-progress`, `complete`. Do NOT use `done` — always use `complete`.
+
+### Plan-Level Status (`index.md` — website-facing)
+
+| YAML Status | Meaning |
+|-------------|---------|
+| `active` | Currently being worked on |
+| `queued` | Waiting in queue (lower `order` = promoted first) |
+| `resolved` | Completed and archived |
+
+Do NOT use `done` or `complete` in `index.md` — always use `resolved` for finished plans.
+
+### Completed Plans
+
+When all sections are `complete`, the plan is archived:
+1. Set `index.md` status to `resolved`
+2. Set `00-overview.md` status to `complete`
+3. Move to `plans/completed/` via `git mv`
 
 **Progress tracking conventions:**
 - `[x]` — completed (include date: `(2026-02-24)`)
@@ -550,8 +569,8 @@ reference can be consulted.
 
 ## Reference
 
-See `plans/aot_codegen_pipeline/` for the canonical example:
-- `00-overview.md` — Mission, architecture, dependency graph, phased sequence
-- `index.md` — Keyword clusters for all 12 sections
-- `section-04-borrow-hardening.md` — Deep design decisions with options/trade-offs
-- `section-11-verification.md` — Comprehensive test matrix, dual-execution, performance
+See `plans/completed/codegen-purity/` for a canonical example:
+- `00-overview.md` — Mission, architecture, dependency graph, phased sequence, metrics
+- `index.md` — Keyword clusters for all 10 sections
+- `section-01-block-merging.md` — Deep design decisions with options/trade-offs
+- `section-10-verification.md` — Comprehensive test matrix and exit criteria
