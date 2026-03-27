@@ -9,7 +9,7 @@
 //! blocked on `__collect_set` / `Set.new()` / `to_set()` not being
 //! implemented in the LLVM backend. The COW runtime functions exist
 //! (`ori_set_insert_cow`, etc.) but are untestable until Sets can be
-//! created. See value-semantics-optimization §04.6 tracking note.
+//! created.
 
 #![allow(
     clippy::needless_raw_string_hashes,

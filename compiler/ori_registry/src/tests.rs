@@ -1,6 +1,6 @@
 use crate::*;
 
-// Registry-level integrity tests (Section 14.1)
+// Registry-level integrity tests
 
 #[test]
 fn no_duplicate_methods() {
@@ -228,7 +228,7 @@ fn self_type_returns_valid() {
     }
 }
 
-// Purity tests (Section 02)
+// Purity tests
 
 #[test]
 fn purity_cargo_toml_has_no_dependencies() {

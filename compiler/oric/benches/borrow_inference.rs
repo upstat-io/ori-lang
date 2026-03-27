@@ -1,7 +1,7 @@
 //! Performance benchmarks for SCC-based borrow inference.
 //!
 //! Measures cold-compile, incremental, and SCC computation overhead for the
-//! per-function Salsa borrow inference pipeline (Section 12.13).
+//! per-function Salsa borrow inference pipeline.
 //!
 //! **Requires `llvm` feature**: `cargo bench -p oric --features llvm --bench borrow_inference`
 

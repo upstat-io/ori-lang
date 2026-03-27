@@ -1,4 +1,4 @@
-//! Memory Safety Stress Tests (Section 11.3)
+//! Memory Safety Stress Tests
 //!
 //! Tests that push the ARC pipeline to its limits: high allocation counts,
 //! complex ownership patterns, large collections, and deep recursion with

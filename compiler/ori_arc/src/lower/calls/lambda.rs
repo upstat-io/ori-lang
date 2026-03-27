@@ -136,7 +136,7 @@ impl ArcLowerer<'_> {
         // Step 4: Assign globally unique name by including the parent function name.
         // This prevents AIMS contract map collisions when multiple parent functions
         // each define lambdas — e.g., test_str_sso's lambda won't collide with
-        // test_str_heap's lambda. (BUG-04-07 fix)
+        // test_str_heap's lambda.
         let lambda_idx = self.lambdas.len();
         let parent = self.interner.lookup(self.func_name);
         let lambda_name = self

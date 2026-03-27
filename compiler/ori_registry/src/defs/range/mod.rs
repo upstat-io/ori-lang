@@ -34,8 +34,7 @@ const BOOL: ReturnTag = ReturnTag::Concrete(TypeTag::Bool);
 const INT: ReturnTag = ReturnTag::Concrete(TypeTag::Int);
 
 // All 8 methods alphabetically sorted.
-// backend_required: false for all — Range methods are typeck+eval,
-// LLVM coverage to be verified and upgraded in Section 14.
+// backend_required: false for all — Range methods are typeck+eval only.
 static RANGE_METHODS: &[MethodDef] = &[
     MethodDef::compound(
         "collect",
