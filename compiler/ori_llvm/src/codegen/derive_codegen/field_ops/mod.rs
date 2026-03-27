@@ -36,14 +36,16 @@ pub(super) fn emit_field_operation<'a>(
 ) -> ValueId {
     let info = fc.type_info().get(field_type);
     match &info {
-        // Integer-like signed: signed compare, already i64 for hash
+        // Integer-like signed: signed compare, sext to i64 for hash.
+        // §04 integer narrowing may produce i8/i16/i32 struct fields for
+        // types with bounded ranges. Hash requires canonical i64 width.
         TypeInfo::Int | TypeInfo::Duration | TypeInfo::Size => match op {
             FieldOp::Equals => fc.builder_mut().icmp_eq(lhs, expect_rhs(rhs), name),
             FieldOp::Compare => {
                 fc.builder_mut()
                     .emit_icmp_ordering(lhs, expect_rhs(rhs), name, true)
             }
-            FieldOp::Hash => lhs,
+            FieldOp::Hash => fc.builder_mut().sext_to_i64_if_narrower(lhs, name),
         },
 
         // Unsigned small: unsigned compare, zext to i64 for hash
