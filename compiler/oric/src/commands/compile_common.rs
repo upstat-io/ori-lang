@@ -159,6 +159,7 @@ pub fn compile_to_llvm<'ctx>(
         &[],
         target_triple,
         narrowing_policy,
+        &[], // Single-file: no imported type metadata
     )
 }
 
@@ -189,6 +190,7 @@ pub fn compile_to_llvm_with_imports<'ctx>(
     source_path: &str,
     module_name: &str,
     imported_functions: &[ImportedFunctionInfo],
+    imported_type_metadata: &[ori_types::ExportedTypeMetadata],
     arc_cache: Option<&ori_llvm::aot::incremental::ArcIrCache>,
     module_hash: Option<ori_llvm::aot::incremental::ContentHash>,
     target_triple: Option<&str>,
@@ -231,5 +233,6 @@ pub fn compile_to_llvm_with_imports<'ctx>(
         &import_sigs,
         target_triple,
         narrowing_policy,
+        imported_type_metadata,
     )
 }
