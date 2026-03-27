@@ -4,9 +4,9 @@ title: "Integer Narrowing Pipeline"
 status: in-progress
 reviewed: true
 third_party_review:
-  status: resolved
+  status: findings
   updated: 2026-03-27
-  triage_note: "All 13 TPR findings resolved. TPR-04-013 resolved 2026-03-27: policy/integration/verification scopes clarified — 04.2 complete as policy definition, 04.4/04.5 track production integration and verification."
+  triage_note: "TPR-04-014 triaged 2026-03-27: accepted, implementation task added to §04.X as CROSS-04-014. Fix requires extending TypeDescriptor with repr/pub metadata for cross-module transport."
 goal: "Lower int (semantic i64) to the smallest machine integer (i8/i16/i32) that preserves correctness, saving memory in struct fields, collections, and stack slots"
 inspired_by:
   - "Zig comptime_int narrowing to runtime types (src/Sema.zig)"
@@ -19,7 +19,7 @@ sections:
     status: complete
   - id: "04.2"
     title: "ABI Boundary Widening"
-    status: in-progress
+    status: complete
   - id: "04.3"
     title: "Overflow Guard Insertion"
     status: complete
@@ -28,7 +28,7 @@ sections:
     status: not-started
   - id: "04.5"
     title: "Completion Checklist"
-    status: not-started
+    status: in-progress
 ---
 
 # Section 04: Integer Narrowing Pipeline
@@ -304,6 +304,8 @@ The LLVM backend type resolution path via `TypeLayoutResolver` handles `MachineR
 
 - [x] `[HYGIENE-04-001][minor/bloat]` `compiler/ori_llvm/src/codegen/type_info/mod.rs:518` — **File exceeds the 500-line limit (518 lines, excluding tests).** (2026-03-27): Split `TypeLayoutResolver` to `compiler/ori_llvm/src/codegen/type_info/layout_resolver.rs` (449 lines). `mod.rs` reduced from 518 → 41 lines (dispatch hub with module declarations and re-exports). Test imports updated (`Pool`, `Idx`, `Name`, `SimpleCx`, `BasicTypeEnum`). All 14,281 tests pass.
 
+- [ ] `[CROSS-04-014][high]` `compiler/ori_types/src/pool/descriptor.rs` `compiler/ori_types/src/output/mod.rs` `compiler/oric/src/typeck.rs` — **Imported types lose repr/pub metadata across module boundaries.** Cross-module type transport (`TypeDescriptor`) carries no `#repr` or visibility metadata. Both AOT and JIT build `repr_attrs`/`pub_type_indices` solely from the local module's `TypedModule.types`. Phase 0c propagation cannot fan out metadata that was never seeded. **Fix:** Add `repr: Option<ReprAttrKind>` and `is_public: bool` fields to the relevant `TypeDescriptor` variants (`Struct`, `Enum`, `Applied`, `Named`), populate them during module export, reconstruct them during import registration, and feed them into `compute_repr_plan_with_interner()`. **Tests:** Semantic pins for (a) imported `pub` generic type — monomorphized concrete struct remains canonical, (b) imported `#repr("c")` generic type — monomorphized concrete struct not narrowed. Requires coordinated changes in `ori_types` (descriptor + output), `oric` (typeck import), and `ori_repr` (seed reconstruction). (From TPR-04-014.)
+
 - [ ] `[CROSS-05-001][major]` `section-05-float-narrowing.md:79,83,84` — **`ArithOp` type does not exist in the codebase.** §05.1 `preserves_f32_precision()` function signature and its match arms reference `ArithOp::Add`, `ArithOp::Sub`, `ArithOp::Mul`, `ArithOp::Div`, `ArithOp::Neg`. The same category of bug was found and fixed in §04 by TPR-04 (§04.3 originally referenced `ArithOp` — corrected to use `BinaryOp` from `ori_ir`). The correct type is `ori_ir::BinaryOp` (for binary ops) and `ori_ir::UnaryOp` (for `Neg`). **Action (before §05 implementation):** Update `section-05-float-narrowing.md:79` to use `ori_ir::BinaryOp` for the match arms `Add`/`Sub`/`Mul`/`Div` and `ori_ir::UnaryOp` for `Neg`, following the pattern already established in §04.3. Add a note that `Neg` is `UnaryOp::Neg` (separate type from `BinaryOp`). Also fix the `can_narrow_to_f32()` signature to use an existing `VarId` type — in the ARC IR, the equivalent is `ArcVarId` from `ori_arc`.
 
 ---
@@ -353,3 +355,9 @@ The LLVM backend type resolution path via `TypeLayoutResolver` handles `MachineR
 
 - [x] `[TPR-04-013][high]` `plans/repr-opt/section-04-integer-narrowing.md:20` `compiler/ori_repr/src/lib.rs:335` `compiler/ori_repr/src/narrowing/abi.rs:1` — This branch marked §04.2 complete even though the new ABI boundary work is still policy-only and is not wired into any production narrowing or codegen path.
   Resolved: Factual observation accepted on 2026-03-27. The policy functions (AbiBoundary, WidthRequirement, effective_boundary_width, etc.) have no production callers yet — correct. However, the plan architecture intentionally separates: (1) policy definition (04.2 scope — done), (2) production integration (04.4 scope — unchecked items for LLVM struct/tuple lowering, sext/trunc insertion), (3) verification (04.5 scope — unchecked Phase B LLVM IR tests). The 04.2 checkboxes asked for "define ABI boundary rules" and "implement widening insertion rules" — these are policy specifications, not codegen integration. Production consumption is tracked in 04.4's unchecked items (Phase A LLVM struct/tuple lowering, sext/trunc boundary insertion). The Phase B LLVM verification items cited (04.5 lines 310-316) belong to 04.5's scope, not 04.2. Keeping 04.2 as complete reflects its defined scope; 04.4 and 04.5 track the integration and verification work.
+
+- [x] `[TPR-04-014][high]` `compiler/oric/src/commands/codegen_pipeline.rs:317` `compiler/ori_llvm/src/evaluator/compile.rs:169` `compiler/ori_types/src/output/mod.rs:170` `compiler/ori_types/src/pool/descriptor.rs:41` — Imported user-defined types still lose `#repr(...)` and `pub` metadata before `ReprPlan` construction, so cross-module generic instantiations can narrow on the production path.
+  Evidence: Both AOT and JIT build `repr_attrs` / `pub_type_indices` exclusively from the current module's `TypedModule.types` ([codegen_pipeline.rs](/home/eric/projects/ori_lang/compiler/oric/src/commands/codegen_pipeline.rs:317), [compile.rs](/home/eric/projects/ori_lang/compiler/ori_llvm/src/evaluator/compile.rs:169)). `TypedModule.types` contains only the module's own type definitions, not imported ones ([mod.rs](/home/eric/projects/ori_lang/compiler/ori_types/src/output/mod.rs:170)). Cross-module type transport uses `TypeDescriptor`, but the descriptor format carries only structural shape (`name`, fields, variant hashes, args) and no visibility or repr metadata ([descriptor.rs](/home/eric/projects/ori_lang/compiler/ori_types/src/pool/descriptor.rs:41)). Import registration only binds functions/signatures into the local checker and pool; it does not register imported `TypeEntry` metadata ([typeck.rs](/home/eric/projects/ori_lang/compiler/oric/src/typeck.rs:165), [mod.rs](/home/eric/projects/ori_lang/compiler/ori_types/src/check/mod.rs:425)). The new Phase 0c propagation in [lib.rs](/home/eric/projects/ori_lang/compiler/ori_repr/src/lib.rs:122) can only fan out metadata that was seeded into `repr_attrs` / `pub_type_indices` in the first place, so imported `pub` or `#repr("c")` generic types remain unprotected.
+  Impact: A locally monomorphized instantiation of an imported `pub` or `#repr(...)` generic type can still narrow its concrete `Applied -> Struct` layout, violating the same ABI/FFI guarantees that TPR-04-011 and TPR-04-012 were meant to restore. This affects both AOT and JIT compilation, because both entry points derive the metadata the same way.
+  Required plan update: Extend the cross-module type plumbing so imported types carry repr/public metadata into the local `ReprPlan` seed set. Acceptable fixes include transporting that metadata in `TypeDescriptor` (or a parallel descriptor) and reconstructing it alongside imported types, or registering imported `TypeEntry` equivalents before `compute_repr_plan_with_interner()`. Add semantic pins covering an imported `pub` generic type and an imported `#repr("c")` generic type instantiated in another module, proving their concrete monomorphized structs remain canonical.
+  Resolved: Validated and accepted on 2026-03-27. All 5 evidence claims confirmed against codebase. Implementation task added to §04.X as `[CROSS-04-014]`.
