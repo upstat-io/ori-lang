@@ -17,7 +17,7 @@
 use ori_arc::ArcVarId;
 use ori_ir::Name;
 use ori_types::{Idx, Pool};
-use rustc_hash::FxHashMap;
+use rustc_hash::{FxHashMap, FxHashSet};
 
 use crate::escape::EscapeInfo;
 use crate::range::ValueRange;
@@ -103,6 +103,11 @@ pub struct ReprPlan {
     audit: Vec<ReprDecision>,
     /// Narrowing policy controlling optimization aggressiveness.
     narrowing_policy: NarrowingPolicy,
+    /// Type indices declared `pub` — their layout is part of the ABI
+    /// contract and must NOT be narrowed by §04 (TPR-04-005).
+    ///
+    /// Populated at plan construction from type checker visibility info.
+    pub_type_indices: FxHashSet<Idx>,
 }
 
 impl ReprPlan {
@@ -122,6 +127,7 @@ impl ReprPlan {
             field_range_summaries: FxHashMap::default(),
             audit: Vec::new(),
             narrowing_policy: policy,
+            pub_type_indices: FxHashSet::default(),
         }
     }
 
@@ -207,6 +213,23 @@ impl ReprPlan {
     #[must_use]
     pub fn repr_attr(&self, idx: Idx) -> Option<&ReprAttribute> {
         self.repr_attrs.get(&idx)
+    }
+
+    /// Register type indices that are declared `pub`.
+    ///
+    /// Public types have ABI contracts with external code — their field
+    /// layouts must not be narrowed by §04 integer narrowing (TPR-04-005).
+    pub fn set_pub_type_indices(&mut self, indices: impl IntoIterator<Item = Idx>) {
+        self.pub_type_indices.extend(indices);
+    }
+
+    /// Check if a type index is declared `pub`.
+    ///
+    /// Public types must not have their fields narrowed — external callers
+    /// may construct them with full-range values.
+    #[must_use]
+    pub fn is_public_type(&self, idx: Idx) -> bool {
+        self.pub_type_indices.contains(&idx)
     }
 
     /// Record per-function escape analysis info (§08 output).
