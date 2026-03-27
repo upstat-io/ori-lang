@@ -110,7 +110,7 @@ type Point = { x: int }
     assert!(!user_method_registry.has_method(point, unknown));
 }
 
-// Cross-crate sync enforcement (Section 05.1, Tests 4 and 6)
+// Cross-crate sync enforcement
 
 #[test]
 fn all_derived_traits_have_eval_handler() {

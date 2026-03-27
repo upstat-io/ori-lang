@@ -1,29 +1,29 @@
 //! Builtin type definitions — one `pub static` per type.
 //!
 //! Each submodule exports a single `pub static TypeDef`.
-//! As new builtin types are added (Sections 05-07), add a new
-//! file here and update `BUILTIN_TYPES`.
+//! When adding new builtin types, add a new file here and
+//! update `BUILTIN_TYPES`.
 
 // Shared parameter definitions used by multiple type def modules.
 pub mod params;
 
-// Primitives (Section 03)
+// Primitives
 mod bool;
 mod byte;
 mod char;
 mod float;
 mod int;
 
-// String (Section 04)
+// String
 mod str;
 
-// Compound types (Section 05)
+// Compound types
 mod duration;
 mod error;
 mod ordering;
 mod size;
 
-// Collections & wrappers (Section 06)
+// Collections & wrappers
 mod channel;
 mod list;
 mod map;
@@ -33,7 +33,7 @@ mod result;
 mod set;
 mod tuple;
 
-// Iterators (Section 07)
+// Iterators
 mod iterator;
 
 pub use self::bool::BOOL;
@@ -64,8 +64,7 @@ pub use self::iterator::ITERATOR;
 ///
 /// Order matches `TypeTag` declaration order for predictable iteration.
 ///
-// TODO(type_strategy_registry): Enforce completeness at compile time via
-// exhaustive match in a const fn (Section 14 of type_strategy_registry plan).
+// TODO: Enforce completeness at compile time via exhaustive match in a const fn.
 pub static BUILTIN_TYPES: &[&crate::TypeDef] = &[
     // Sorted by TypeTag discriminant value (repr(u8))
     &INT,   // 0

@@ -88,8 +88,7 @@ pub extern "C" fn ori_map_buffer_rc_dec(
 ///
 /// Maps use parameter-based dec functions (not header-based) because they
 /// require TWO cleanup functions (key + value) but the RC header has only
-/// one `elem_dec_fn` slot. Section 02 will store dec functions at codegen
-/// time via `emit_map_iter`.
+/// one `elem_dec_fn` slot.
 fn map_buffer_cleanup(
     data: *mut u8,
     cap: usize,

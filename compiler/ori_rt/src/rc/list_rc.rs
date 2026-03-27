@@ -96,8 +96,8 @@ pub extern "C" fn ori_buffer_rc_dec(
     rt_debug_check_not_freed(data.cast_const(), "ori_buffer_rc_dec");
 
     // Store elem_dec_fn in the header (write-once: first non-NULL wins).
-    // Defense-in-depth: even after Section 02 stores at construction time,
-    // this ensures the header is populated if any caller passes a real fn.
+    // Defense-in-depth: ensures the header is populated if any caller
+    // passes a real fn.
     unsafe { store_elem_dec_fn_once(data, elem_dec_fn) };
 
     // Invariant: after store_elem_dec_fn_once, if the caller passed a

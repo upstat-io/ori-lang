@@ -125,6 +125,25 @@ The scanner detects frontmatter/body mismatches (`!! MISMATCH` annotations) at b
 
 After fixing, briefly note what was corrected (e.g., "Fixed stale frontmatter: Section 09 status updated to `complete` (all subsections done)").
 
+### Step 1.55: Stale Plan Annotation Check
+
+Run the plan annotation scanner to detect stale annotations from already-completed plans:
+
+```bash
+bash .claude/skills/impl-hygiene-review/plan-annotations.sh --count
+```
+
+**If annotations exist for completed sections** (sections with `status: complete`):
+
+1. **These are stale** — the plan work is done but the scaffolding was never cleaned up
+2. **Report the count** to the user: "Found N stale plan annotations from completed sections"
+3. **Clean them up** before starting new work — remove all plan-specific annotations (TPR, CROSS, BUG, §, Phase, section- refs) from `.rs` files. Spec references (`Spec: Clause N.M`) are permanent and must NOT be removed.
+4. **Commit the cleanup** via `/commit-push`
+
+**If annotations exist only for in-progress or not-started sections**, they are legitimate scaffolding — no action needed.
+
+This check catches annotations that slipped through prior section completions. It runs once at startup, not on every subsection boundary.
+
 ### Step 1.6: Schema Compliance Check
 
 The plan schema lives at `.claude/skills/create-plan/plan-schema.md`. When working on a plan (reroute or roadmap section), verify the focus section's frontmatter conforms to the schema:
@@ -451,7 +470,8 @@ This applies to ALL skills: `/code-journey`, `/review-plan`, `/sync-spec`, etc.
    - Run `./fmt-all.sh` to ensure formatter still works
 5. **Update section file** — Check off completed items with `[x]`
 6. **Update YAML frontmatter** — See "Updating Section File Frontmatter" below
-7. **Run `/commit-push`** — NEVER commit directly with `git commit`. Always use the `/commit-push` skill.
+7. **Clean up plan annotations** — Run `.claude/skills/impl-hygiene-review/plan-annotations.sh --plan NN` (where NN is the section number) to find annotations in source code referencing the completed section. Remove all stale annotations (TPR-NN-XXX, CROSS-NN-XXX, BUG-NN-XX, §NN.X, Phase refs, etc.) from `.rs` files. Spec references (`Spec: Clause N.M`) are permanent and must NOT be removed. This is mandatory before marking a section complete.
+8. **Run `/commit-push`** — NEVER commit directly with `git commit`. Always use the `/commit-push` skill.
 
 ---
 
@@ -622,7 +642,9 @@ When completing a roadmap item:
 4. **Verify Estimated Effort table** (if it exists): every section row must show `Complete`
 5. **Scan for stale `Not Started` or `In Progress`**: grep the overview and index for these strings — if found in section status columns, fix them
 
-If any check fails, fix the frontmatter/tables first, then proceed.
+6. **Verify plan annotations are cleaned up**: Run `bash .claude/skills/impl-hygiene-review/plan-annotations.sh` and confirm zero annotations remain for this plan's sections. Any remaining TPR, CROSS, BUG, §, Phase, or section- references in `.rs` files are stale scaffolding that must be removed before archival.
+
+If any check fails, fix the issue first, then proceed.
 
 ## Plan Archival Protocol
 

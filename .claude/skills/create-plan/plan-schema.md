@@ -373,6 +373,7 @@ When all findings are triaged:
 - [ ] {Behavioral verification: `test_name` passes without modification}
 - [ ] {Regression check: `./test-all.sh` green}
 - [ ] {No spurious warnings in normal compilation}
+- [ ] Plan annotation cleanup: `bash .claude/skills/impl-hygiene-review/plan-annotations.sh --plan {NN}` returns 0 annotations — all temporary scaffolding (TPR, CROSS, BUG, §, Phase, section- refs) removed from `.rs` files
 
 **Exit Criteria:** {Paragraph describing the measurable, testable condition
 that proves this section is complete. Include specific commands, test names,
@@ -484,6 +485,7 @@ escalation to map the exact boundary of what works.
 - [ ] Stress tests pass ({N}/{M})
 - [ ] Performance baselined
 - [ ] All documentation updated
+- [ ] Plan annotation cleanup: `plan-annotations.sh` returns 0 annotations for this plan's sections
 - [ ] `./test-all.sh` green
 - [ ] `./clippy-all.sh` green
 

@@ -76,7 +76,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         // `br_exiting_catchpad` fails when the builder is at an internal
         // block, causing entry blocks to gain predecessors and terminators
         // to appear mid-block. Block merging should instead be done as a
-        // pre-emission ARC IR pass (option (b) in section-01-block-merging).
+        // pre-emission ARC IR pass.
         // LLVM requires the first appended block to be the function entry.
         // Create the entry block first, then the rest in order.
         let entry_idx = func.entry.index();

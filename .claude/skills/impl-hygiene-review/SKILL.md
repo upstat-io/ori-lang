@@ -180,6 +180,11 @@ Every piece of knowledge has one canonical home. Consumers query — they don't 
 - [ ] No silent workarounds for missing capabilities? (e.g., destructuring instead of `.0` because parser blocks it)
 - [ ] Full pipeline works end-to-end for each feature? (lexer → parser → type checker → evaluator → codegen)
 
+**Plan Annotation Hygiene:**
+- [ ] No stale plan annotations from completed plans? Run `plan-annotations.sh` (in this skill's folder) to scan
+- [ ] Active plan annotations are acceptable — but only while the plan is in progress
+- [ ] Spec references (`Spec: Clause N.M`) are permanent and always acceptable
+
 **File Organization:**
 - [ ] All production source files under 500 lines? (test files exempt)
 - [ ] Each file has a single clear responsibility? (not mixing closures, operators, construction, dispatch)
