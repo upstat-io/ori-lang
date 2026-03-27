@@ -96,12 +96,27 @@ pub fn compute_repr_plan_with_interner(
     let mut plan = ReprPlan::new(policy);
 
     // Phase 0: Store user-specified #repr attributes (§01.7).
+    // TPR-04-011: also store under the resolved idx so that narrowing and
+    // codegen (which operate on resolved struct/tuple indices) see the attr.
     for &(idx, ref attr) in repr_attrs {
-        plan.set_repr_attr(idx, convert_repr_attr_kind(attr));
+        let converted = convert_repr_attr_kind(attr);
+        plan.set_repr_attr(idx, converted);
+        let resolved = pool.resolve_fully(idx);
+        if resolved != idx {
+            plan.set_repr_attr(resolved, converted);
+        }
     }
 
     // Phase 0b: Store public type indices for ABI-safe narrowing (§04, TPR-04-005).
-    plan.set_pub_type_indices(pub_type_indices.iter().copied());
+    // TPR-04-011: also store under the resolved idx for the same reason.
+    plan.set_pub_type_indices(pub_type_indices.iter().flat_map(|&idx| {
+        let resolved = pool.resolve_fully(idx);
+        if resolved == idx {
+            vec![idx]
+        } else {
+            vec![idx, resolved]
+        }
+    }));
 
     // Phase 1: Set canonical representations for all types (§01).
     canonical::populate_canonical(&mut plan, pool);
