@@ -12,11 +12,42 @@
 //! Uses [`Idx`] (pool-based) instead of `TypeId` (legacy interning).
 
 use ori_diagnostic::ErrorGuaranteed;
-use ori_ir::{ExprId, Name, PatternKey, PatternResolution, Span};
+use ori_ir::{ExprId, Name, PatternKey, PatternResolution, ReprAttrKind, Span};
 
 use crate::pool::TypeDescriptor;
 use crate::registry::TypeEntry;
 use crate::{Idx, TypeCheckError, TypeCheckWarning};
+
+/// Per-type metadata exported for cross-module repr plan construction.
+///
+/// Carries `#repr` attributes and visibility information alongside the
+/// Merkle hash that identifies the type in the Pool. This metadata is
+/// NOT part of the type's structural identity (hash) — it is source-level
+/// information needed by `ori_repr` to correctly exempt imported types
+/// from integer narrowing.
+///
+/// Without this sidecar, imported `pub` or `#repr("c")` types lose their
+/// protection when an importing module builds its `ReprPlan`, allowing
+/// their field layouts to be narrowed in violation of ABI guarantees.
+/// See CROSS-04-014.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct ExportedTypeMetadata {
+    /// Merkle hash of the type's Pool representation.
+    ///
+    /// Used to map back to a local `Idx` in the importing module's pool
+    /// via `Pool::lookup_by_hash()`.
+    pub merkle_hash: u64,
+
+    /// Representation attribute (`#repr("c")`, `#repr("packed")`, etc.).
+    ///
+    /// `None` means default layout (all optimizations permitted).
+    pub repr: Option<ReprAttrKind>,
+
+    /// Whether this type is `pub` in its defining module.
+    ///
+    /// Public types have ABI contracts that narrowing must not violate.
+    pub is_public: bool,
+}
 
 /// A compile-time value used as a const generic argument.
 ///
@@ -209,6 +240,14 @@ pub struct TypedModule {
     ///
     /// Only includes types from public function signatures to minimize size.
     pub type_descriptors: Vec<(u64, TypeDescriptor)>,
+
+    /// Repr and visibility metadata for user-defined types in this module.
+    ///
+    /// Enables importing modules to correctly exempt `pub` and `#repr(...)`
+    /// types from integer narrowing when building their `ReprPlan`.
+    /// Only includes types with non-default metadata (repr attribute or public).
+    /// See CROSS-04-014.
+    pub exported_type_metadata: Vec<ExportedTypeMetadata>,
 }
 
 impl TypedModule {
@@ -229,6 +268,7 @@ impl TypedModule {
             impl_sigs: Vec::new(),
             mono_instances: Vec::new(),
             type_descriptors: Vec::new(),
+            exported_type_metadata: Vec::new(),
         }
     }
 

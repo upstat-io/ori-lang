@@ -81,7 +81,7 @@ pub fn compute_repr_plan(
     policy: NarrowingPolicy,
     repr_attrs: &[(Idx, ReprAttrKind)],
 ) -> ReprPlan {
-    compute_repr_plan_with_interner(pool, arc_functions, policy, repr_attrs, None, &[])
+    compute_repr_plan_with_interner(pool, arc_functions, policy, repr_attrs, None, &[], &[])
 }
 
 /// Compute the representation plan with access to the string interner.
@@ -89,6 +89,10 @@ pub fn compute_repr_plan(
 /// When `interner` is `Some`, builtin function names (len, abs, etc.) are
 /// resolved for range analysis, enabling tighter ranges on builtin calls.
 /// When `None`, builtin ranges conservatively degrade to `Top`.
+///
+/// `imported_type_metadata` carries repr/pub metadata from imported modules.
+/// Each entry's `merkle_hash` is mapped to a local `Idx` via `Pool::lookup_by_hash()`
+/// to seed the plan with imported type protections. See CROSS-04-014.
 pub fn compute_repr_plan_with_interner(
     pool: &Pool,
     arc_functions: &[ArcFunction],
@@ -96,6 +100,7 @@ pub fn compute_repr_plan_with_interner(
     repr_attrs: &[(Idx, ReprAttrKind)],
     interner: Option<&ori_ir::StringInterner>,
     pub_type_indices: &[Idx],
+    imported_type_metadata: &[ori_types::ExportedTypeMetadata],
 ) -> ReprPlan {
     let mut plan = ReprPlan::new(policy);
 
@@ -111,16 +116,57 @@ pub fn compute_repr_plan_with_interner(
         }
     }
 
+    // Phase 0a-import: Seed repr attributes from imported modules' metadata.
+    // Imported types with #repr attrs must be protected even though they aren't
+    // in the local module's TypeEntry list. See CROSS-04-014.
+    let mut imported_repr_attrs: Vec<(Idx, ReprAttrKind)> = Vec::new();
+    let mut imported_pub_indices: Vec<Idx> = Vec::new();
+    for meta in imported_type_metadata {
+        if let Some(idx) = pool.lookup_by_hash(meta.merkle_hash) {
+            if let Some(repr) = meta.repr {
+                let converted = convert_repr_attr_kind(&repr);
+                plan.set_repr_attr(idx, converted);
+                let resolved = pool.resolve_fully(idx);
+                if resolved != idx {
+                    plan.set_repr_attr(resolved, converted);
+                }
+                imported_repr_attrs.push((idx, repr));
+                tracing::trace!(
+                    ?idx,
+                    hash = meta.merkle_hash,
+                    ?repr,
+                    "imported repr attr seeded"
+                );
+            }
+            if meta.is_public {
+                let resolved = pool.resolve_fully(idx);
+                if resolved == idx {
+                    imported_pub_indices.push(idx);
+                } else {
+                    imported_pub_indices.push(idx);
+                    imported_pub_indices.push(resolved);
+                }
+                tracing::trace!(?idx, hash = meta.merkle_hash, "imported pub type seeded");
+            }
+        }
+    }
+
     // Phase 0b: Store public type indices for ABI-safe narrowing (§04, TPR-04-005).
     // TPR-04-011: also store under the resolved idx for the same reason.
-    plan.set_pub_type_indices(pub_type_indices.iter().flat_map(|&idx| {
-        let resolved = pool.resolve_fully(idx);
-        if resolved == idx {
-            vec![idx]
-        } else {
-            vec![idx, resolved]
-        }
-    }));
+    // Includes both local and imported public types.
+    plan.set_pub_type_indices(
+        pub_type_indices
+            .iter()
+            .flat_map(|&idx| {
+                let resolved = pool.resolve_fully(idx);
+                if resolved == idx {
+                    vec![idx]
+                } else {
+                    vec![idx, resolved]
+                }
+            })
+            .chain(imported_pub_indices),
+    );
 
     // Phase 0c: Propagate repr/pub metadata through Applied → concrete Struct
     // resolutions for monomorphized generic types (TPR-04-012).
@@ -131,7 +177,24 @@ pub fn compute_repr_plan_with_interner(
     // protected type Names, then scan the pool for Applied entries whose name
     // matches. Each matching Applied is resolved through the pool, and the
     // concrete Struct idx receives the same repr/pub metadata.
-    propagate_metadata_to_applied_resolutions(&mut plan, pool, repr_attrs, pub_type_indices);
+    //
+    // Combine local and imported repr attrs/pub indices for propagation.
+    let all_repr_attrs: Vec<(Idx, ReprAttrKind)> = repr_attrs
+        .iter()
+        .copied()
+        .chain(imported_repr_attrs)
+        .collect();
+    let all_pub_indices: Vec<Idx> = pub_type_indices
+        .iter()
+        .copied()
+        .chain(
+            imported_type_metadata
+                .iter()
+                .filter(|m| m.is_public)
+                .filter_map(|m| pool.lookup_by_hash(m.merkle_hash)),
+        )
+        .collect();
+    propagate_metadata_to_applied_resolutions(&mut plan, pool, &all_repr_attrs, &all_pub_indices);
 
     // Phase 1: Set canonical representations for all types (§01).
     canonical::populate_canonical(&mut plan, pool);
