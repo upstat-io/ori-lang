@@ -6,7 +6,7 @@ reviewed: true
 third_party_review:
   status: resolved
   updated: 2026-03-27
-  triage_note: "All TPR findings resolved. CROSS-04-014 implemented 2026-03-27 via ExportedTypeMetadata sidecar. CROSS-05-001 plan text fixed 2026-03-27."
+  triage_note: "All findings resolved. TPR-04-015 implemented as CROSS-04-015 (2026-03-27). TPR-04-001 through TPR-04-014 resolved in prior sessions."
 goal: "Lower int (semantic i64) to the smallest machine integer (i8/i16/i32) that preserves correctness, saving memory in struct fields, collections, and stack slots"
 inspired_by:
   - "Zig comptime_int narrowing to runtime types (src/Sema.zig)"
@@ -315,6 +315,15 @@ The LLVM backend type resolution path via `TypeLayoutResolver` handles `MachineR
 
 - [x] `[CROSS-05-001][major]` `section-05-float-narrowing.md:79,83,84` — **`ArithOp` type does not exist in the codebase.** (2026-03-27): Updated `section-05-float-narrowing.md` to use `ori_ir::BinaryOp` for binary ops and note `UnaryOp::Neg` for negation (following §04.3 pattern). Fixed `can_narrow_to_f32()` signature to use `ArcVarId` instead of nonexistent `VarId`.
 
+- [x] `[CROSS-04-015][high]` Thread `ExportedTypeMetadata` through multi-file AOT pipeline (from TPR-04-015). (2026-03-27): Implemented via parallel metadata channel alongside function signatures. 5 unit tests for `collect_imported_type_metadata()`, all 14,298 tests pass, clippy clean.
+  - [x] Add `exported_type_metadata: Vec<ExportedTypeMetadata>` field to `CompiledModuleInfo` in `compiler/oric/src/commands/build/multi.rs` — populated from `type_result.typed.exported_type_metadata` after type checking each module
+  - [x] Add `collect_imported_type_metadata()` function in `multi.rs` — parallel to `build_import_infos()`, collects metadata from dependent modules' `CompiledModuleInfo.exported_type_metadata` via dependency graph traversal
+  - [x] Update `compile_to_llvm_with_imports()` in `compile_common.rs` — new `imported_type_metadata: &[ExportedTypeMetadata]` parameter, forwarded to `run_codegen_pipeline()`
+  - [x] Update `run_codegen_pipeline()` in `codegen_pipeline.rs` — new `imported_type_metadata: &[ExportedTypeMetadata]` parameter, passed to `compute_module_repr_plan()` instead of `&[]`
+  - [x] `compile_to_llvm()` (single-file path) passes `&[]` for metadata (no imports, correct)
+  - [x] 5 unit tests in `compiler/oric/src/commands/build/tests.rs`: single dependency, multiple dependencies, no imports, missing module, empty types
+  - [x] End-to-end multi-file semantic pins blocked: multi-file AOT codegen is incomplete (ARC IR emitter cannot resolve cross-module function calls — roadmap Section 4: Modules). Plumbing verified via unit tests + existing `ori_repr` imported-metadata tests (CROSS-04-014)
+
 ---
 
 ## 04.R Third Party Review Findings
@@ -368,3 +377,9 @@ The LLVM backend type resolution path via `TypeLayoutResolver` handles `MachineR
   Impact: A locally monomorphized instantiation of an imported `pub` or `#repr(...)` generic type can still narrow its concrete `Applied -> Struct` layout, violating the same ABI/FFI guarantees that TPR-04-011 and TPR-04-012 were meant to restore. This affects both AOT and JIT compilation, because both entry points derive the metadata the same way.
   Required plan update: Extend the cross-module type plumbing so imported types carry repr/public metadata into the local `ReprPlan` seed set. Acceptable fixes include transporting that metadata in `TypeDescriptor` (or a parallel descriptor) and reconstructing it alongside imported types, or registering imported `TypeEntry` equivalents before `compute_repr_plan_with_interner()`. Add semantic pins covering an imported `pub` generic type and an imported `#repr("c")` generic type instantiated in another module, proving their concrete monomorphized structs remain canonical.
   Resolved: Validated and accepted on 2026-03-27. All 5 evidence claims confirmed against codebase. Implementation task added to §04.X as `[CROSS-04-014]`. Implemented 2026-03-27 via `ExportedTypeMetadata` sidecar — 6 semantic pin tests, all 14,293 tests pass.
+
+- [x] `[TPR-04-015][high]` `compiler/oric/src/commands/codegen_pipeline.rs:312` `compiler/oric/src/commands/compile_common.rs:48` `compiler/oric/src/commands/build/multi.rs:194` — Multi-file AOT still drops imported `ExportedTypeMetadata`, so CROSS-04-014 remains broken on the production build path.
+  Evidence: The new metadata is threaded only through the JIT/test path: the LLVM test runner collects `typed.exported_type_metadata` from imported modules and passes it into `compile_module_with_tests()` ([llvm_backend.rs](/home/eric/projects/ori_lang/compiler/oric/src/test/runner/llvm_backend.rs:243), [compile.rs](/home/eric/projects/ori_lang/compiler/ori_llvm/src/evaluator/compile.rs:182)). The production AOT path still has no equivalent transport. `run_codegen_pipeline()` always calls `compute_module_repr_plan(..., &[])` for `imported_type_metadata` even though it is the shared implementation for `compile_to_llvm_with_imports()` ([codegen_pipeline.rs](/home/eric/projects/ori_lang/compiler/oric/src/commands/codegen_pipeline.rs:306)). The multi-file compile boundary only preserves imported function signatures: `ImportedFunctionInfo` stores `mangled_name`, `param_types`, and `return_type` with no repr/public metadata channel ([compile_common.rs](/home/eric/projects/ori_lang/compiler/oric/src/commands/compile_common.rs:48)), and `CompiledModuleInfo` / `build_import_infos()` likewise keep only public function type triples ([multi.rs](/home/eric/projects/ori_lang/compiler/oric/src/commands/build/multi.rs:194), [multi.rs](/home/eric/projects/ori_lang/compiler/oric/src/commands/build/multi.rs:367)). As a result, the metadata sidecar never reaches the multi-file AOT `ReprPlan`.
+  Impact: A multi-module AOT build can still narrow imported `pub` or `#repr(...)` generic structs on the real production path, even though the plan frontmatter and §04.X currently say CROSS-04-014 is resolved. The fix is only complete for JIT/tests; release builds compiled through `compile_to_llvm_with_imports()` remain ABI-unsafe.
+  Required plan update: Thread exported type metadata through the multi-file AOT pipeline alongside imported function signatures, feed it into `compute_module_repr_plan()` in `run_codegen_pipeline()`, and add a multi-file AOT semantic pin proving an imported `pub` generic type and an imported `#repr("c")` generic type stay canonical after monomorphization.
+  Resolved: Validated and accepted on 2026-03-27. All 5 evidence claims confirmed against codebase. Implementation task added to §04.X as `[CROSS-04-015]`.

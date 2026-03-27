@@ -235,6 +235,7 @@ pub(super) fn run_codegen_pipeline<'ctx>(
     import_sigs: &[(Name, FunctionSig)],
     target_triple: Option<&str>,
     narrowing_policy: ori_repr::NarrowingPolicy,
+    imported_type_metadata: &[ori_types::ExportedTypeMetadata],
 ) -> Result<ori_llvm::inkwell::module::Module<'ctx>, String> {
     use ori_llvm::codegen::eh_model::EhModel;
     use ori_llvm::codegen::function_compiler::FunctionCompiler;
@@ -312,7 +313,7 @@ pub(super) fn run_codegen_pipeline<'ctx>(
             narrowing_policy,
             type_result,
             Some(interner),
-            &[], // Single-module AOT: no imported type metadata
+            imported_type_metadata,
         );
 
         // Create type store with repr plan for triviality delegation (§02 Phase B).
