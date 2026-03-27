@@ -1,0 +1,17 @@
+type Record = { name: str, data: str }
+
+@make_alpha () -> Record =
+    Record { name: "alpha-record-name-over-23-bytes!", data: "alpha-data-payload-over-23-bytes!" };
+
+@make_beta () -> Record =
+    Record { name: "beta-record-name-over-23-bytes!", data: "beta-data-payload-over-23-bytes!" };
+
+@main () -> int = {
+    let $a = make_alpha();
+    let $b = make_beta();
+    // a.name = 32 chars, b.name = 31 chars → 32 > 31 = true → picks a.name
+    let $pick = if a.name.len() > b.name.len()
+        then a.name
+        else b.name;
+    if pick == "alpha-record-name-over-23-bytes!" then 0 else 1
+}
