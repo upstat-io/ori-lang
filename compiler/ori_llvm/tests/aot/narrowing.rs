@@ -273,3 +273,159 @@ type Wide = { a: int, b: int }
          and -3_000_000_000 exceed i32 range, so fields must stay i64.\nIR:\n{fn_ir}"
     );
 }
+
+// ---- DERIVE-PIN-04-020: Negative-value derive semantic pins ----
+//
+// These tests exercise derived hash(), to_str(), and debug() on narrowed structs
+// with NEGATIVE field values. A zext (instead of sext) bug when widening i8 fields
+// to canonical i64 for runtime functions would corrupt negative values (e.g., -50
+// becomes 206). Previous derive tests only used positive values and would not
+// catch this.
+
+/// Semantic pin: derived `hash()` on narrowed struct with negative i8 field values.
+///
+/// Two structs with identical negative values must produce the same hash.
+/// A third struct with different values must produce a different hash.
+/// This verifies that hash codegen correctly sign-extends narrowed fields.
+#[test]
+fn test_narrowed_derive_hash_negative_values() {
+    assert_aot_success(
+        r"
+#[derive(Eq, Hashable)]
+type SignedPixel = { r: int, g: int, b: int }
+
+@main () -> int = {
+    let a = SignedPixel { r: -50, g: -120, b: 100 };
+    let b = SignedPixel { r: -50, g: -120, b: 100 };
+    let c = SignedPixel { r: 50, g: 120, b: -100 };
+    let same = a.hash() == b.hash();
+    let diff = a.hash() != c.hash();
+    if same && diff then 0 else 1
+}
+",
+        "narrowed_derive_hash_negative",
+    );
+}
+
+/// Semantic pin: derived `to_str()` on narrowed struct with negative i8 field values.
+///
+/// The string representation MUST contain "-50", not "206". If sext is replaced
+/// with zext in derive codegen, -50 (i8 = 0xCE) becomes 206 when zero-extended
+/// to i64, and `to_str()` would display "206" — failing this test.
+#[test]
+fn test_narrowed_derive_printable_negative_values() {
+    assert_aot_success(
+        r#"
+#[derive(Printable)]
+type SignedPoint = { x: int, y: int }
+
+@main () -> int = {
+    let p = SignedPoint { x: -50, y: -120 };
+    let s = p.to_str();
+    let has_neg50 = s.contains(substr: "-50");
+    let has_neg120 = s.contains(substr: "-120");
+    if has_neg50 && has_neg120 then 0 else 1
+}
+"#,
+        "narrowed_derive_printable_negative",
+    );
+}
+
+/// Semantic pin: derived `debug()` on narrowed struct with negative i8 field values.
+///
+/// Same as the Printable test but for the Debug trait. The debug representation
+/// MUST show the correct negative values, not zero-extended positive values.
+#[test]
+fn test_narrowed_derive_debug_negative_values() {
+    assert_aot_success(
+        r#"
+#[derive(Debug)]
+type SignedColor = { r: int, g: int, b: int }
+
+@main () -> int = {
+    let c = SignedColor { r: -1, g: -128, b: 127 };
+    let s = c.debug();
+    let has_neg1 = s.contains(substr: "-1");
+    let has_neg128 = s.contains(substr: "-128");
+    let has_127 = s.contains(substr: "127");
+    if has_neg1 && has_neg128 && has_127 then 0 else 1
+}
+"#,
+        "narrowed_derive_debug_negative",
+    );
+}
+
+/// IR semantic pin: derive hash codegen on narrowed struct must use sext (not zext)
+/// when widening i8 fields to i64 for `hash_combine` runtime calls.
+///
+/// We compile a narrowed struct with #derive(Hashable) and inspect the full IR
+/// for evidence that the hash function sign-extends narrowed fields.
+#[test]
+fn test_narrowed_derive_ir_pin_sext_in_hash() {
+    let ir = compile_and_capture_ir(
+        r"
+#[derive(Eq, Hashable)]
+type NarrowHash = { a: int, b: int }
+
+@compute_hash (p: NarrowHash) -> int = p.hash();
+
+@main () -> int = {
+    let p = NarrowHash { a: -50, b: -120 };
+    compute_hash(p:)
+}
+",
+    );
+
+    // The hash function for NarrowHash must extract i8 fields and sext them
+    // to i64 before passing to hash_combine. Look for sext in any function
+    // operating on the NarrowHash type (the hash impl function name varies).
+    // We check the full IR because the derive function name is mangled.
+    let has_sext_i8 = ir.contains("sext i8");
+    assert!(
+        has_sext_i8,
+        "expected `sext i8` in IR for narrowed struct hash — derive codegen must \
+         sign-extend i8 fields to i64 before hash_combine. A missing sext (or zext) \
+         would corrupt negative values in the hash computation.\n\
+         This is a regression guard for DERIVE-PIN-04-020.\n\
+         Full IR length: {} chars",
+        ir.len()
+    );
+}
+
+// ---- MIXED-PIN-04-019: Mixed-field struct rejection pin ----
+
+/// Negative IR semantic pin: mixed-field struct (str + narrowed int) must NOT
+/// be lowered through the narrowed aggregate path.
+///
+/// `try_lower_narrowed_aggregate()` rejects structs with non-scalar fields (str,
+/// collections, etc.) because narrowing changes the struct's overall size, breaking
+/// `element_store_size()` assumptions. This test verifies the int field stays at
+/// canonical i64 width in the LLVM type layout.
+#[test]
+fn test_mixed_field_struct_ir_pin_no_narrowing() {
+    let ir = compile_and_capture_ir(
+        r#"
+type Record = { count: int, name: str, active: bool }
+
+@read_count (r: Record) -> int = r.count;
+
+@main () -> int = {
+    let r = Record { count: 42, name: "hello", active: true };
+    read_count(r:)
+}
+"#,
+    );
+
+    let fn_ir = extract_function_ir(&ir, "_ori_read_count");
+
+    // The Record struct has a str field, so the narrowed aggregate path rejects it.
+    // The int field (count: 42, fits in i8) must NOT appear as i8 in the type layout.
+    // It should stay at canonical i64. Check that no i8 narrowing artifacts appear.
+    assert!(
+        !fn_ir.contains("sext i8"),
+        "expected NO `sext i8` in _ori_read_count — mixed-field struct Record \
+         (str + int + bool) must NOT be narrowed. The int field should stay i64 \
+         because `try_lower_narrowed_aggregate()` rejects non-all-scalar structs.\n\
+         This is a regression guard for MIXED-PIN-04-019.\nIR:\n{fn_ir}"
+    );
+}
