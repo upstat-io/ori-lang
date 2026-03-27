@@ -40,6 +40,33 @@ pub(super) fn emit_str_literal<'a>(
         })
 }
 
+/// Emit `ori_str_rc_dec(data, cap, null)` on a string value.
+///
+/// Handles SSO strings (no-op — cap field encodes SSO flag), heap strings
+/// (decrements RC on the data buffer), and seamless slices (finds original
+/// buffer). The `drop_fn` is null because strings contain no nested references.
+///
+/// Used by `compile_format_fields` to clean up intermediate concatenation results
+/// that are overwritten and become unreachable. Without these calls, every
+/// intermediate string in the format loop leaks.
+pub(super) fn emit_str_rc_dec<'a>(
+    fc: &mut FunctionCompiler<'_, 'a, 'a, '_>,
+    str_val: ValueId,
+    name: &str,
+) {
+    let data = fc
+        .builder_mut()
+        .extract_value(str_val, 2, &format!("{name}.data"));
+    let cap = fc
+        .builder_mut()
+        .extract_value(str_val, 1, &format!("{name}.cap"));
+    if let (Some(dp), Some(cp)) = (data, cap) {
+        let null = fc.builder_mut().const_null_ptr();
+        let dec_fn = fc.builder_mut().runtime_fn("ori_str_rc_dec");
+        fc.builder_mut().call(dec_fn, &[dp, cp, null], "");
+    }
+}
+
 /// Call `ori_str_concat(a: ptr, b: ptr) -> str` (alloca+store pattern).
 pub(super) fn emit_str_concat<'a>(
     fc: &mut FunctionCompiler<'_, 'a, 'a, '_>,

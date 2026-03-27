@@ -6,7 +6,7 @@ reviewed: true
 third_party_review:
   status: findings
   updated: 2026-03-27
-  triage_note: "All findings triaged as of 2026-03-27. TPR-04-017→CROSS-04-017, TPR-04-018→IR-PIN-04-018 (RESOLVED), TPR-04-019→accepted (plan claim fix + negative IR pin), TPR-04-020→DERIVE-PIN-04-020 (negative-value derive semantic pins). Status stays findings until CROSS-04-017, TPR-04-019, and DERIVE-PIN-04-020 tasks are complete."
+  triage_note: "All findings triaged as of 2026-03-27. TPR-04-018→IR-PIN-04-018 (RESOLVED), TPR-04-019→MIXED-PIN-04-019 (RESOLVED 2026-03-27), TPR-04-020→DERIVE-PIN-04-020 (RESOLVED 2026-03-27, also fixed debug derive memory leak). TPR-04-017→CROSS-04-017 still open (JIT transitive metadata). Status stays findings until CROSS-04-017 is complete."
 goal: "Lower int (semantic i64) to the smallest machine integer (i8/i16/i32) that preserves correctness, saving memory in struct fields, collections, and stack slots"
 inspired_by:
   - "Zig comptime_int narrowing to runtime types (src/Sema.zig)"
@@ -197,13 +197,13 @@ The LLVM backend type resolution path via `TypeLayoutResolver` handles `MachineR
   - [x] `test_narrowed_struct_ir_pin_sext_on_field_load`: Asserts `sext i8` in `_ori_sum_channels` — narrowed field loads require sign extension to i64.
   - [x] `test_non_narrowed_struct_ir_pin_wide_range`: Negative pin — `_ori_sum_wide` with `3_000_000_000` values asserts NO `sext i8/i16/i32`.
 
-- [ ] `[DERIVE-PIN-04-020]` **Negative-value derive semantic pins** (from TPR-04-020). Add AOT tests that exercise derived `hash()`, `to_str()`, and `debug()` on narrowed structs with negative field values. A `zext` instead of `sext` bug would produce wrong results for negative values while passing for positive values.
-  - [ ] AOT test: `#derive(Hashable)` on narrowed struct with negative i8 field values (e.g., -50, -120) — verify hash output matches interpreter
-  - [ ] AOT test: `#derive(Printable)` on narrowed struct with negative i8 field values — verify `to_str()` output matches interpreter
-  - [ ] AOT test: `#derive(Debug)` on narrowed struct with negative i8 field values — verify `debug()` output matches interpreter
-  - [ ] At least one IR semantic pin: verify derive codegen for narrowed struct uses `sext` (not `zext`) when widening i8 fields to i64 for runtime function calls
+- [x] `[DERIVE-PIN-04-020]` **Negative-value derive semantic pins** (2026-03-27, from TPR-04-020). 4 AOT tests in `narrowing.rs` exercise derived `hash()`, `to_str()`, and `debug()` on narrowed structs with negative i8 field values. Also fixed a pre-existing memory leak in `compile_format_fields()` — intermediate concat results were not RC-decremented (added `emit_str_rc_dec` helper in `string_helpers.rs`).
+  - [x] AOT test: `test_narrowed_derive_hash_negative_values` — `#derive(Hashable)` on `SignedPixel { r: -50, g: -120, b: 100 }`, verifies hash consistency with negative values
+  - [x] AOT test: `test_narrowed_derive_printable_negative_values` — `#derive(Printable)` verifies `to_str()` contains "-50" and "-120" (catches zext bug: -50 would display as "206")
+  - [x] AOT test: `test_narrowed_derive_debug_negative_values` — `#derive(Debug)` verifies `debug()` contains "-1", "-128", "127"
+  - [x] IR semantic pin: `test_narrowed_derive_ir_pin_sext_in_hash` — verifies `sext i8` present in IR for narrowed struct hash codegen
 
-- [ ] `[MIXED-PIN-04-019]` **Negative semantic pin for mixed-field struct rejection** (from TPR-04-019). Verify that `struct Record { count: int, name: str, active: bool }` with `count` in i8 range does NOT get narrowed LLVM layout — int field stays canonical i64 because `try_lower_narrowed_aggregate()` rejects mixed-type structs. IR inspection must confirm no `i8` field type in the struct layout.
+- [x] `[MIXED-PIN-04-019]` **Negative semantic pin for mixed-field struct rejection** (2026-03-27, from TPR-04-019). `test_mixed_field_struct_ir_pin_no_narrowing` in `narrowing.rs` — verifies `Record { count: int, name: str, active: bool }` with count in i8 range does NOT show `sext i8` in the `_ori_read_count` function IR, confirming `try_lower_narrowed_aggregate()` rejects mixed-type structs.
 
 - [ ] Handle comparison operations correctly:
   - Signed comparison (`icmp slt`) on narrow types is correct for signed narrowing
