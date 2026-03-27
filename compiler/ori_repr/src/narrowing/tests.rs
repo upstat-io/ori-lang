@@ -402,6 +402,86 @@ fn repr_aligned_struct_can_be_narrowed() {
 }
 
 // ────────────────────────────────────────────────────
+// #repr("c", aligned N) struct: NOT narrowed (C-ABI contract) — TPR-04-004
+// ────────────────────────────────────────────────────
+
+#[test]
+fn repr_c_aligned_struct_not_narrowed() {
+    let pool = Pool::new();
+    let mut plan = ReprPlan::new(NarrowingPolicy::Aggressive);
+
+    let idx = Idx::from_raw(Idx::FIRST_DYNAMIC);
+    setup_struct(&mut plan, idx, vec![int_field(0)]);
+    plan.set_repr_attr(idx, ReprAttribute::CAligned(16));
+    plan.join_field_range(idx, 0, ValueRange::Bounded { lo: 0, hi: 10 });
+
+    narrow_struct_fields(&mut plan, &pool);
+
+    assert_eq!(
+        struct_field_width(&plan, idx, 0),
+        Some(IntWidth::I64),
+        "#repr(\"c\", aligned 16) struct must not be narrowed — C-ABI layout is fixed"
+    );
+}
+
+// ────────────────────────────────────────────────────
+// Public type: NOT narrowed (ABI contract) — TPR-04-005
+// ────────────────────────────────────────────────────
+
+#[test]
+fn public_type_not_narrowed() {
+    let pool = Pool::new();
+    let mut plan = ReprPlan::new(NarrowingPolicy::Aggressive);
+
+    let idx = Idx::from_raw(Idx::FIRST_DYNAMIC);
+    setup_struct(&mut plan, idx, vec![int_field(0)]);
+    plan.set_pub_type_indices(std::iter::once(idx));
+    plan.join_field_range(idx, 0, ValueRange::Bounded { lo: 0, hi: 10 });
+
+    narrow_struct_fields(&mut plan, &pool);
+
+    assert_eq!(
+        struct_field_width(&plan, idx, 0),
+        Some(IntWidth::I64),
+        "public type must not be narrowed — ABI contract with external code"
+    );
+}
+
+// ────────────────────────────────────────────────────
+// Private type: IS narrowed normally — TPR-04-005 complement
+// ────────────────────────────────────────────────────
+
+#[test]
+fn private_type_narrowed_normally() {
+    let pool = Pool::new();
+    let mut plan = ReprPlan::new(NarrowingPolicy::Aggressive);
+
+    let pub_idx = Idx::from_raw(Idx::FIRST_DYNAMIC);
+    let priv_idx = Idx::from_raw(Idx::FIRST_DYNAMIC + 1);
+    setup_struct(&mut plan, pub_idx, vec![int_field(0)]);
+    setup_struct(&mut plan, priv_idx, vec![int_field(0)]);
+    // Only pub_idx is public.
+    plan.set_pub_type_indices(std::iter::once(pub_idx));
+    plan.join_field_range(pub_idx, 0, ValueRange::Bounded { lo: 0, hi: 10 });
+    plan.join_field_range(priv_idx, 0, ValueRange::Bounded { lo: 0, hi: 10 });
+
+    narrow_struct_fields(&mut plan, &pool);
+
+    // Public type stays canonical.
+    assert_eq!(
+        struct_field_width(&plan, pub_idx, 0),
+        Some(IntWidth::I64),
+        "public type must not be narrowed"
+    );
+    // Private type is narrowed.
+    assert_eq!(
+        struct_field_width(&plan, priv_idx, 0),
+        Some(IntWidth::I8),
+        "private type should be narrowed normally"
+    );
+}
+
+// ────────────────────────────────────────────────────
 // NarrowingPolicy::Disabled → no narrowing
 // ────────────────────────────────────────────────────
 

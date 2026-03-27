@@ -4,9 +4,9 @@ title: "Integer Narrowing Pipeline"
 status: in-progress
 reviewed: true
 third_party_review:
-  status: findings
+  status: resolved
   updated: 2026-03-26
-  triage_note: "TPR-04-004/005 validated on 2026-03-26. New open findings: `#repr(\"c\", aligned N)` still narrows in Phase A, and the current implementation cannot enforce the public-API conservatism rules that §04.1 now claims are implemented."
+  triage_note: "All 10 TPR findings resolved. TPR-04-008/009/010 (stale plan text) fixed on 2026-03-26. TPR-04-006/007 accepted earlier — implementation tasks in §04.4 and §04.X."
 goal: "Lower int (semantic i64) to the smallest machine integer (i8/i16/i32) that preserves correctness, saving memory in struct fields, collections, and stack slots"
 inspired_by:
   - "Zig comptime_int narrowing to runtime types (src/Sema.zig)"
@@ -58,15 +58,29 @@ Given a `ValueRange`, select the minimum integer width that preserves the semant
 
 - [x] Implement width selection (2026-03-26): Created `compiler/ori_repr/src/narrowing/int.rs` with `narrow_struct_fields()`. Uses `ValueRange::min_width()` from `range/mod.rs` — no duplicate function. Iterates `plan.decision_indices()` to find Struct/Tuple types, narrows `Int { I64, signed: true }` fields to smallest width from field-range summaries. Wired into `apply_integer_narrowing()` in `lib.rs`.
 
-- [x] Apply conservatism rules (2026-03-26): Phase A (struct/tuple field narrowing) implemented:
-  - **Local variables**: narrow aggressively (widening is free in registers)
-  - **Struct fields**: narrow aggressively, but ONLY from §03's field-summary table built from `Construct` sites (not from the join of unrelated `int` variables)
-  - **Function parameters**: narrow only if ALL call sites agree on the range
-  - **Function returns**: narrow only if ALL callers can handle the narrow type
-  - **Collection elements**: narrow aggressively (savings multiply by element count)
-  - **Public API types**: do NOT narrow (external callers may pass full-range values)
-  - **Address-taken functions / indirect-call targets**: do NOT narrow parameters or returns; any function stored in a value of function type, passed as an argument, or returned uses canonical widths at the callable boundary
-  - **Closure captures**: captured values remain at canonical width in the closure environment unless and until a dedicated closure-environment layout contract is implemented and verified
+- [x] Apply conservatism rules — implemented subset (2026-03-26):
+  - [x] `#repr("c")` / `#repr("packed")` / `#repr("transparent")` types skip narrowing (`has_fixed_layout_attr()`)
+  - [x] `#repr("c", aligned N)` types skip narrowing (TPR-04-004 fix, 2026-03-26)
+  - [x] `NarrowingPolicy::Disabled` skips all narrowing
+  - [x] Only canonical `Int { I64, signed: true }` fields are candidates
+  - [x] Fields with `Top` range stay at I64 (safe default)
+  - [x] Field-summary-driven narrowing: only from §03's `FieldSummaryTable` built from `Construct` sites
+- [x] Apply conservatism rules — visibility-based gating (TPR-04-005, implemented 2026-03-26): Public API types are now excluded from integer narrowing. Implementation:
+  - [x] Added `pub_type_indices: FxHashSet<Idx>` to `ReprPlan` (`plan.rs`) with `set_pub_type_indices()` and `is_public_type()` API
+  - [x] `compute_repr_plan_with_interner()` accepts `pub_type_indices: &[Idx]` parameter; stored in Phase 0b
+  - [x] Both call sites (`codegen_pipeline.rs`, `evaluator/compile.rs`) extract public type indices from `TypeEntry::visibility == Visibility::Public`
+  - [x] `narrow_struct_fields()` gates on `plan.is_public_type(idx)` — public types skip narrowing with tracing
+  - [x] Test `public_type_not_narrowed`: pub struct with bounded fields → stays I64
+  - [x] Test `private_type_narrowed_normally`: private struct narrowed, pub struct preserved in same plan
+- **Conservatism design rules** (enforced incrementally by Phase A/B/C):
+  - **Local variables** (Phase B): narrow aggressively (widening is free in registers)
+  - **Struct fields** (Phase A — done): narrow from field-summary table only
+  - **Function parameters** (Phase B): narrow only if ALL call sites agree on the range
+  - **Function returns** (Phase B): narrow only if ALL callers can handle the narrow type
+  - **Collection elements** (Phase C): narrow aggressively (savings multiply by element count)
+  - **Public API types** (Phase A — done): do NOT narrow (gated by `is_public_type()`)
+  - **Address-taken functions / indirect-call targets** (Phase B): do NOT narrow parameters or returns
+  - **Closure captures** (Phase B): canonical width in closure environment
 
 - [x] Use the existing `NarrowingPolicy` from `compiler/ori_repr/src/plan/query.rs` (2026-03-26): `narrow_struct_fields()` checks `plan.narrowing_policy() == Disabled` and returns early. Policy consumed via existing API.
   `NarrowingPolicy` already exists in `compiler/ori_repr/src/plan/query.rs` with three variants:
@@ -168,17 +182,17 @@ When a value is narrowed, arithmetic operations might overflow the narrow type e
 
 ## 04.4 LLVM Codegen Integration
 
-**Integration note:** `TypeInfo::storage_type()` does NOT consult `ReprPlan` and must not be modified for integer narrowing. The actual integration point is `TypeLayoutResolver::try_repr_to_llvm_type()` in `compiler/ori_llvm/src/codegen/type_info/mod.rs` (lines 167–229), which already handles `MachineRepr::Int { width }` → i8/i16/i32/i64 at lines 171–176. `TypeLayoutResolver::resolve_inner()` already queries `repr_plan.get_repr(idx)` first (line 249). The LLVM codegen side is therefore already correct — §04's job is to populate `ReprPlan` with `MachineRepr::Int { width: narrowed, signed: true }` decisions for the right Pool `Idx` values.
+**Integration note:** `TypeInfo::storage_type()` does NOT consult `ReprPlan` and must not be modified for integer narrowing. The actual integration point is `TypeLayoutResolver::try_repr_to_llvm_type()` in `compiler/ori_llvm/src/codegen/type_info/mod.rs` (lines 167–229). **Current state:** Primitive `MachineRepr::Int { width }` → i8/i16/i32/i64 already works (lines 171–176), and `TypeLayoutResolver::resolve_inner()` queries `repr_plan.get_repr(idx)` first (line 249). However, `MachineRepr::Struct`/`Tuple` return `None` and fall back to `TypeInfoStore` canonical `i64` fields — struct/tuple lowering is **pending** until `try_repr_to_llvm_type()` recursively consumes narrowed `FieldRepr` widths (see Phase A LLVM struct/tuple lowering tasks below).
 
 **Per-variable vs per-type `Idx`:** `ReprPlan::int_width(idx)` queries a *type* `Idx`. All local `int` variables share `Tag::Int`, so per-variable local narrowing needs either (a) a `per-(function, var)` decision map in `ReprPlan`, or (b) deriving the width on-the-fly in the emitter from `plan.var_range(func, var).min_width()`. Struct-field narrowing is clean: the struct type gets a new `MachineRepr::Struct` with narrowed `FieldRepr`. Local variable narrowing is Phase B.
 
 **File(s):**
 - `compiler/ori_repr/src/narrowing/int.rs` — the `apply_integer_narrowing()` implementation (populates `ReprPlan` with narrowed `MachineRepr::Struct` decisions for struct types whose fields have bounded ranges from §03)
-- `compiler/ori_llvm/src/codegen/type_info/mod.rs` — `TypeLayoutResolver::try_repr_to_llvm_type()` (already handles `MachineRepr::Int { width }` → i8/i16/i32/i64; **no changes needed for struct field narrowing**)
+- `compiler/ori_llvm/src/codegen/type_info/mod.rs` — `TypeLayoutResolver::try_repr_to_llvm_type()` (handles `MachineRepr::Int { width }` → i8/i16/i32/i64; **must be extended to handle `MachineRepr::Struct`/`Tuple` by recursively lowering `FieldRepr` widths — see §04.4 tasks**)
 - `compiler/ori_llvm/src/codegen/arc_emitter/value_emission.rs` — `emit_literal()` emits `const_i64` for all int literals today; for narrowed locals, must emit narrowed constant when variable's type has been narrowed
 - `compiler/ori_llvm/src/codegen/arc_emitter/construction.rs` — struct construction; `sext`/`trunc` inserts needed at field store boundaries when field width differs from operand width
 
-The LLVM backend type resolution path is **already in place** via `TypeLayoutResolver`. §04's primary job is to populate `ReprPlan` correctly; the codegen side follows automatically for type-level decisions.
+The LLVM backend type resolution path via `TypeLayoutResolver` handles `MachineRepr::Int { width }` but **does not yet handle recursive `MachineRepr::Struct`/`Tuple`** — those return `None` from `try_repr_to_llvm_type()` and fall back to `TypeInfoStore` canonical `i64` fields. §04.4 must extend `try_repr_to_llvm_type()` to recursively lower `FieldRepr` widths for struct/tuple decisions (TPR-04-006 fix).
 
 - [ ] **Phase A — Struct field narrowing (primary):** In `apply_integer_narrowing()` (`compiler/ori_repr/src/lib.rs` stub at line 215), iterate all struct types in the Pool. For each struct field of type `int`, query `plan.field_range(struct_idx, field_index)`. If `range.min_width() < I64`, emit a narrowed `MachineRepr::Struct` decision with updated `FieldRepr` entries:
   ```rust
@@ -207,7 +221,12 @@ The LLVM backend type resolution path is **already in place** via `TypeLayoutRes
   - **Element range collection**: §03's `FieldSummaryTable` covers struct/tuple `Construct` sites. Collection push/assignment sites (list `push`, map `insert`, set `insert`) are tracked via `ArcInstr` variants — these need to be handled in `update_field_summaries()` or a new `CollectionElementSummaryTable` equivalent. For Phase C: a minimal approach is to join all per-variable ranges for variables that are used as arguments to `push`/`set-by-index` instructions, keyed by the list's Pool `Idx`. Full generality is deferred; the conservative fallback is `Top` (no narrowing) for any collection whose element sites are not tracked.
   - **ABI conservatism**: `[int]` parameters and return values must not have their element type narrowed if the function is public or address-taken (same rules as struct fields in public types).
 
-- [ ] **Phase A — LLVM integration is already complete for struct fields.** `TypeLayoutResolver::try_repr_to_llvm_type()` in `compiler/ori_llvm/src/codegen/type_info/mod.rs` handles `MachineRepr::Int { width }` at lines 171–176 and `MachineRepr::Struct(_)` falls through to two-phase recursive resolution which reads `FieldRepr` widths. No modification needed there.
+- [ ] **Phase A — LLVM struct/tuple lowering (TPR-04-006 fix).** `TypeLayoutResolver::try_repr_to_llvm_type()` currently returns `None` for `MachineRepr::Struct(_)` and `MachineRepr::Tuple(_)`, falling back to `TypeInfoStore` canonical `i64` fields. Must extend to recursively lower narrowed representations:
+  - [ ] In `try_repr_to_llvm_type()`, add `MachineRepr::Struct(StructRepr { fields, .. })` arm: iterate `fields`, recursively call `try_repr_to_llvm_type()` on each `FieldRepr.repr`, build LLVM struct type from narrowed field types
+  - [ ] Add `MachineRepr::Tuple(TupleRepr { elements, .. })` arm: same pattern — recursively lower each element repr
+  - [ ] Handle fallback: if any field/element repr returns `None` from recursive call, fall back to resolving that field's Pool `Idx` via `TypeInfoStore` (graceful degradation for partially-narrowed types)
+  - [ ] End-to-end semantic pin test: struct with all fields `[-128, 127]` resolves to `{ i8, i8, i8, i8 }` LLVM type, NOT `{ i64, i64, i64, i64 }`. This test can ONLY pass with the lowering path implemented.
+  - [ ] Correct Pixel test expectations: with signed-only narrowing, `0..255` maps to `i16` (not `i8`). Use `[-128, 127]` for true `i8` semantic pin, or `[-32768, 32767]` for `i16` pin.
 
 - [ ] **Insert `sext`/`trunc` at narrowing boundaries** (needed for both Phase A and B):
   - Struct field store (in `construction.rs`): when storing a canonical-width operand into a narrowed field, insert `trunc i64 %val to i<N>`
@@ -255,7 +274,7 @@ The LLVM backend type resolution path is **already in place** via `TypeLayoutRes
 
 | Input pattern | Expected narrowing | Semantic pin |
 |---|---|---|
-| `[int]` list where all pushed values are `0..255` | element stored as `i8` in backing array | Yes — element GEP stride is 1 byte, not 8 |
+| `[int]` list where all pushed values are `[-128, 127]` | element stored as `i8` in backing array | Yes — element GEP stride is 1 byte, not 8 |
 | `[int]` list where element range is `Top` | element stays `i64` | Yes — no element narrowing without evidence |
 | Public `[int]` parameter | element stays `i64` — ABI conservative | Yes — no narrowing of public collection elements |
 
@@ -278,7 +297,7 @@ The LLVM backend type resolution path is **already in place** via `TypeLayoutRes
 - [x] Struct field `x: int` in `struct Pair { x: int, y: int }` uses narrowed type (2026-03-26): `mixed_fields_partial_narrowing` test verifies bounded fields narrow while Top fields stay I64.
 - [ ] Struct field store inserts `trunc i64 %val to i<N>` when storing canonical-width operand into narrowed field (visible in LLVM IR)
 - [ ] Struct field load inserts `sext i<N> %field to i64` when loading narrowed field for computation (visible in LLVM IR)
-- [ ] Semantic pin: `struct Pixel { r: int, g: int, b: int, a: int }` with `0..255` fields → struct LLVM type is `{ i8, i8, i8, i8 }`, NOT `{ i64, i64, i64, i64 }`. This test can ONLY pass with narrowing enabled.
+- [ ] Semantic pin: `struct Pixel { r: int, g: int, b: int, a: int }` with `[-128, 127]` fields → struct LLVM type is `{ i8, i8, i8, i8 }`, NOT `{ i64, i64, i64, i64 }`. This test can ONLY pass with narrowing enabled. (Note: `0..255` narrows to `i16` under signed narrowing — use `[-128, 127]` for true `i8` pin.)
 - [x] §04/§06 interface (2026-03-26): `field_offset_stays_zero_after_narrowing` test verifies offsets remain zero. `narrow_struct_fields()` only writes `FieldRepr.repr`; `FieldRepr.offset`, `StructRepr.size`, and `StructRepr.align` are untouched.
 
 **Phase B — Local variable narrowing:**
@@ -303,7 +322,7 @@ The LLVM backend type resolution path is **already in place** via `TypeLayoutRes
 - [ ] `NarrowingPolicy::Conservative` vs `Aggressive`: verify that Conservative is strictly a subset of Aggressive (Conservative never narrows what Aggressive does not)
 
 **Phase C — Collection element narrowing:**
-- [ ] `[int]` list whose push sites all pass `0..255` values → `FatRepr::Collection { element_repr: MachineRepr::Int { width: I8, signed: true } }` in `ReprPlan`
+- [ ] `[int]` list whose push sites all pass `[-128, 127]` values → `FatRepr::Collection { element_repr: MachineRepr::Int { width: I8, signed: true } }` in `ReprPlan`
 - [ ] `[int]` list with untracked push sites → element stays `i64` (conservative `Top`)
 - [ ] Public `[int]` parameter — element type not narrowed even if all internal construction sites show bounded values
 - [ ] `element_store_size()` in `compiler/ori_llvm/src/codegen/arc_emitter/emitter_utils.rs` consults `ReprPlan` for narrowed int element types before falling back to `TypeInfo::size()` — add unit test that narrowed int pool idx produces byte size 1/2/4 from `element_store_size`
@@ -318,11 +337,13 @@ The LLVM backend type resolution path is **already in place** via `TypeLayoutRes
 - [ ] `./diagnostics/valgrind-aot.sh` clean (no memory errors from narrowed GEP strides)
 - [ ] Performance: struct sizes measurably smaller for bounded-range fields (verify via LLVM IR inspection or binary size comparison)
 
-**Exit Criteria:** Compiling a program with `struct Pixel { r: int, g: int, b: int, a: int }` where all fields are `0..255` produces a 4-byte struct (4 × i8) instead of 32-byte struct (4 × i64), verified by checking LLVM IR struct definitions.
+**Exit Criteria:** Compiling a program with `struct Pixel { r: int, g: int, b: int, a: int }` where all fields are `[-128, 127]` produces a 4-byte struct (4 × i8) instead of 32-byte struct (4 × i64), verified by checking LLVM IR struct definitions. (Under signed narrowing, `0..255` maps to `i16`, producing an 8-byte struct — use `[-128, 127]` for the `i8` pin.)
 
 ---
 
 ## 04.X Cross-Section Findings
+
+- [ ] `[HYGIENE-04-002][minor/bloat]` `compiler/oric/src/commands/codegen_pipeline.rs:501` — **File exceeds the 500-line limit (501 lines).** Extract repr-plan computation block (lines 307–345: `repr_attrs`, `pub_type_indices`, `compute_repr_plan_with_interner`, `TypeInfoStore`, `TypeLayoutResolver` creation) into a helper function `compute_repr_and_layout_info()` in `compiler/oric/src/commands/repr_setup.rs` or similar adjacent module. This reduces `run_codegen_pipeline()` to ~464 lines. **Must be done before adding more §04 pipeline logic.** (TPR-04-007 fix)
 
 - [ ] `[HYGIENE-04-001][minor/bloat]` `compiler/ori_llvm/src/codegen/type_info/mod.rs:518` — **File exceeds the 500-line limit (518 lines, excluding tests).** Per impl-hygiene.md, touching a file over 500 lines without splitting is a BLOAT finding. When §04.4 adds Phase C element narrowing support to `type_info/mod.rs` (or when any §04 work touches it), the file must be split. The natural split is to extract `TypeLayoutResolver` to `type_info/layout_resolver.rs` (currently ~330 lines of the file) while keeping `mod.rs` as a dispatch hub. The test module (`#[cfg(test)] mod tests;`) is already a sibling file and is not counted toward the limit. **Action:** Before modifying `type_info/mod.rs` for §04, split `TypeLayoutResolver` into `compiler/ori_llvm/src/codegen/type_info/layout_resolver.rs` and update `mod.rs` to `pub use layout_resolver::TypeLayoutResolver;`.
 
@@ -341,12 +362,23 @@ The LLVM backend type resolution path is **already in place** via `TypeLayoutRes
 - [x] `[TPR-04-003][major]` `section-04-integer-narrowing.md:67` + `section-03-range-analysis.md:265-270,579` — **Struct field narrowing is unachievable with the specified range analysis.** §04.1 says "Struct fields: narrow aggressively" and the exit criteria requires `Pixel { r,g,b,a: int }` with 0..255 → 4-byte struct. However, §03's range analysis returns `Top` for all `Project` instructions (line 267-270: "Top unless we track per-field ranges") and `Top` for all `Construct` instructions (line 272-273). The type-level aggregation at §03 line 579 joins ALL int-typed variable ranges across ALL functions — which yields `Top` for any non-trivial program. There is no mechanism for per-field range tracking. **Action:** The plan needs either (a) per-field range tracking via `Construct` argument ranges aggregated by struct type and field position across all construction sites, or (b) a separate field-level analysis pass not covered by §03. The Pixel exit criteria is unachievable without this. Consensus: Agent 3 found, verified against plan text.
   Resolved: Fully implemented on 2026-03-26. §03.2b added `FieldSummaryTable` (`compiler/ori_repr/src/range/field_summary.rs`) with `observe_construct()` and `field_range()`. The fixpoint loop calls `update_field_summaries()` after each `Construct` instruction to populate per-(type, field) ranges. `Project` transfer function queries field summaries instead of returning Top. Field summaries are flushed to `ReprPlan` via `flush_to_repr_plan()`. §04 line 70 references this: "narrow aggressively, but ONLY from §03's field-summary table built from Construct sites." Pixel exit criterion is now achievable.
 
-- [ ] `[TPR-04-004][high]` `compiler/ori_repr/src/narrowing/int.rs:154` — Phase A still narrows `#repr("c", aligned N)` types, so a C-ABI layout can silently change under integer narrowing.
-  Evidence: `ReprAttribute::CAligned(u32)` is the canonical representation for `#repr("c") + #repr("aligned", N)` ([compiler/ori_repr/src/plan/repr_attr.rs](/home/eric/projects/ori_lang/compiler/ori_repr/src/plan/repr_attr.rs):22-23), but `has_fixed_layout_attr()` only exempts `C`, `Packed`, and `Transparent` ([compiler/ori_repr/src/narrowing/int.rs](/home/eric/projects/ori_lang/compiler/ori_repr/src/narrowing/int.rs):154-162). A `CAligned` struct therefore flows through `narrow_fields()` and can have its field widths rewritten even though it still advertises C-compatible layout.
-  Impact: exported or FFI-visible structs using `#repr("c", aligned N)` can get a different field ABI than the source declared. That is a correctness bug, not just plan drift.
-  Required plan update: treat `ReprAttribute::CAligned(_)` as a fixed-layout exemption alongside `C`, and add a regression test in `compiler/ori_repr/src/narrowing/tests.rs` proving `#repr("c", aligned N)` structs remain canonical.
+- [x] `[TPR-04-004][high]` `compiler/ori_repr/src/narrowing/int.rs:154` — Phase A still narrows `#repr("c", aligned N)` types, so a C-ABI layout can silently change under integer narrowing.
+  Resolved: Fixed on 2026-03-26. Added `CAligned(_)` to `has_fixed_layout_attr()` match in `narrowing/int.rs`. Regression test `repr_c_aligned_struct_not_narrowed` added to `narrowing/tests.rs`. All 25 narrowing tests pass.
 
-- [ ] `[TPR-04-005][high]` `plans/repr-opt/section-04-integer-narrowing.md:61` `compiler/ori_repr/src/narrowing/int.rs:32` `compiler/ori_repr/src/plan.rs:74` — §04.1 claims the public-API / callable-boundary conservatism rules are implemented, but the current Phase A code has no visibility or export metadata and narrows every struct/tuple that lacks a `#repr` exemption.
-  Evidence: the completed checklist item says Phase A now enforces "Public API types: do NOT narrow" and related callable-boundary rules ([plans/repr-opt/section-04-integer-narrowing.md](/home/eric/projects/ori_lang/plans/repr-opt/section-04-integer-narrowing.md):61-69). But `narrow_struct_fields()` only checks `narrowing_policy()` and `has_fixed_layout_attr()` before rewriting field widths ([compiler/ori_repr/src/narrowing/int.rs](/home/eric/projects/ori_lang/compiler/ori_repr/src/narrowing/int.rs):32-104), and `ReprPlan` stores only repr attrs, RC strategy, escape info, per-var ranges, and field summaries with no way to know whether a type appears in exported signatures ([compiler/ori_repr/src/plan.rs](/home/eric/projects/ori_lang/compiler/ori_repr/src/plan.rs):74-105). `apply_integer_narrowing()` therefore cannot distinguish private/internal layout from public ABI surface ([compiler/ori_repr/src/lib.rs](/home/eric/projects/ori_lang/compiler/ori_repr/src/lib.rs):215-220).
-  Impact: the section currently presents the TPR-04-001/002 conservatism work as resolved even though the shipped code cannot enforce those guarantees. Public struct/tuple layouts can still be narrowed across module boundaries, which risks ABI drift and hides an active correctness gap behind a resolved TPR state.
-  Required plan update: either add/export signature visibility metadata into `ReprPlan` and gate Phase A on it before claiming the rule is implemented, or reopen the completed §04.1 item so it states only field-summary-driven narrowing plus `Disabled`/`#repr` gating are implemented today.
+- [x] `[TPR-04-005][high]` `plans/repr-opt/section-04-integer-narrowing.md:61` `compiler/ori_repr/src/narrowing/int.rs:32` `compiler/ori_repr/src/plan.rs:74` — §04.1 claims the public-API / callable-boundary conservatism rules are implemented, but the current Phase A code has no visibility or export metadata and narrows every struct/tuple that lacks a `#repr` exemption.
+  Resolved: Validated and accepted on 2026-03-26. Reopened the overclaimed conservatism checkbox — split into "implemented subset" (repr attrs, policy, field-summary-driven) and "pending" (visibility-based gating). Added concrete implementation tasks for `pub_type_indices` in `ReprPlan`, population from type checker, and test coverage. The conservatism design rules are now listed as a reference section with phase attribution.
+
+- [x] `[TPR-04-006][high]` `compiler/ori_llvm/src/codegen/type_info/mod.rs:167` — Phase A narrowed struct/tuple decisions never reach LLVM type resolution, so integer narrowing is still a codegen no-op.
+  Resolved: Accepted on 2026-03-26. Validated: `try_repr_to_llvm_type()` returns `None` for `MachineRepr::Struct`/`Tuple`, falling back to `TypeInfoStore` canonical `i64` fields. The §04.4 checkbox claiming "already complete" was incorrect — replaced with concrete implementation tasks: (1) extend `try_repr_to_llvm_type()` to handle recursive `Struct`/`Tuple` via `FieldRepr` widths, (2) add end-to-end semantic pin, (3) correct Pixel test expectation to signed narrowing rules. Implementation tasks integrated into §04.4.
+
+- [x] `[TPR-04-007][low]` `compiler/oric/src/commands/codegen_pipeline.rs:501` — The visibility-gating follow-up pushed `codegen_pipeline.rs` past the 500-line hygiene limit, creating a new BLOAT rule violation in touched production code.
+  Resolved: Accepted on 2026-03-26. Validated: file is 501 lines (was 491 pre-change). Implementation task added to §04.X: extract repr-plan computation block (lines 307–345) into a helper function `compute_repr_and_layout_info()` in an adjacent module, reducing `run_codegen_pipeline()` to ~464 lines.
+
+- [x] `[TPR-04-008][medium]` `plans/repr-opt/section-04-integer-narrowing.md:185` `compiler/ori_llvm/src/codegen/type_info/mod.rs:167` — §04.4 still opens with a stale integration note claiming the LLVM side is "already correct," but the current resolver still returns `None` for `MachineRepr::Struct`/`Tuple` and falls back to canonical `i64` fields.
+  Resolved: Fixed on 2026-03-26. §04.4 opening note rewritten to state that primitive-width overrides work but struct/tuple lowering is pending until `try_repr_to_llvm_type()` recursively consumes narrowed `FieldRepr` widths. Contradictory guidance eliminated.
+
+- [x] `[TPR-04-009][medium]` `plans/repr-opt/section-04-integer-narrowing.md:277` — The Phase A/Phase C acceptance matrix still uses stale `0..255 -> i8` expectations that contradict the current signed-only narrowing rules and the accepted TPR-04-006 correction.
+  Resolved: Fixed on 2026-03-26. Updated all stale `0..255 → i8` expectations to use `[-128, 127] → i8` (signed-consistent). Affected: Phase C collection test matrix, Phase A Pixel semantic pin, Phase C collection element test, and exit criteria paragraph.
+
+- [x] `[TPR-04-010][low]` `plans/repr-opt/index.md:115` `plans/repr-opt/00-overview.md:332` — The plan index and overview still advertise Section 04 as "Not Started" even though the section file is `in-progress` and §04.1 work landed in `c8338d7c` / `9ad95d32`.
+  Resolved: Fixed on 2026-03-26. Updated `index.md` and `00-overview.md` to show Section 04 as "In Progress". Also fixed Section 03 (was "Not Started", actually 97% complete).

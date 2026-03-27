@@ -77,7 +77,7 @@ pub fn compute_repr_plan(
     policy: NarrowingPolicy,
     repr_attrs: &[(Idx, ReprAttrKind)],
 ) -> ReprPlan {
-    compute_repr_plan_with_interner(pool, arc_functions, policy, repr_attrs, None)
+    compute_repr_plan_with_interner(pool, arc_functions, policy, repr_attrs, None, &[])
 }
 
 /// Compute the representation plan with access to the string interner.
@@ -91,6 +91,7 @@ pub fn compute_repr_plan_with_interner(
     policy: NarrowingPolicy,
     repr_attrs: &[(Idx, ReprAttrKind)],
     interner: Option<&ori_ir::StringInterner>,
+    pub_type_indices: &[Idx],
 ) -> ReprPlan {
     let mut plan = ReprPlan::new(policy);
 
@@ -98,6 +99,9 @@ pub fn compute_repr_plan_with_interner(
     for &(idx, ref attr) in repr_attrs {
         plan.set_repr_attr(idx, convert_repr_attr_kind(attr));
     }
+
+    // Phase 0b: Store public type indices for ABI-safe narrowing (§04, TPR-04-005).
+    plan.set_pub_type_indices(pub_type_indices.iter().copied());
 
     // Phase 1: Set canonical representations for all types (§01).
     canonical::populate_canonical(&mut plan, pool);
