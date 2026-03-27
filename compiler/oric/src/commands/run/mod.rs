@@ -354,7 +354,7 @@ pub fn run_file_compiled(_path: &str) {
     let diag = Diagnostic::error(ErrorCode::E5004)
         .with_message("the '--compile' flag requires the LLVM backend")
         .with_note("the Ori compiler was built without LLVM support")
-        .with_suggestion("rebuild with `cargo build --features llvm`");
+        .with_suggestion("reinstall Ori with LLVM support enabled");
 
     let is_tty = std::io::IsTerminal::is_terminal(&std::io::stderr());
     let mut emitter = TerminalEmitter::with_color_mode(std::io::stderr(), ColorMode::Auto, is_tty);
