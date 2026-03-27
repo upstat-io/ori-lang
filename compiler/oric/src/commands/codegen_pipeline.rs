@@ -320,12 +320,22 @@ pub(super) fn run_codegen_pipeline<'ctx>(
             .iter()
             .filter_map(|te| te.repr.map(|r| (te.idx, r)))
             .collect();
+        // Extract public type indices — their field layout is an ABI contract
+        // that §04 integer narrowing must not violate (TPR-04-005).
+        let pub_type_indices: Vec<ori_types::Idx> = type_result
+            .typed
+            .types
+            .iter()
+            .filter(|te| te.visibility == ori_types::Visibility::Public)
+            .map(|te| te.idx)
+            .collect();
         let repr_plan = ori_repr::compute_repr_plan_with_interner(
             pool,
             &all_arc_funcs,
             narrowing_policy,
             &repr_attrs,
             Some(interner),
+            &pub_type_indices,
         );
 
         // Create type store with repr plan for triviality delegation (§02 Phase B).

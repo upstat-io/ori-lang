@@ -170,12 +170,19 @@ impl<'tcx> super::OwnedLLVMEvaluator<'tcx> {
             .iter()
             .filter_map(|te| te.repr.map(|r| (te.idx, r)))
             .collect();
+        // Extract public type indices for ABI-safe narrowing (TPR-04-005).
+        let pub_type_indices: Vec<ori_types::Idx> = user_types
+            .iter()
+            .filter(|te| te.visibility == ori_types::Visibility::Public)
+            .map(|te| te.idx)
+            .collect();
         let repr_plan = ori_repr::compute_repr_plan_with_interner(
             self.pool,
             &all_arc_funcs,
             policy,
             &repr_attrs,
             Some(interner),
+            &pub_type_indices,
         );
         let store = TypeInfoStore::new_with_plan(self.pool, &repr_plan);
         let resolver = TypeLayoutResolver::new(&store, scx_ref, Some(interner), Some(&repr_plan));
