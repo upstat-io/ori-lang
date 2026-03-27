@@ -337,6 +337,27 @@ impl<'a, 'll, 'tcx> TypeLayoutResolver<'a, 'll, 'tcx> {
             return None;
         }
 
+        // Safety: only create narrowed LLVM types when ALL fields are
+        // scalar int types. Mixed structs (e.g., { str, int }) change
+        // the overall struct size, which breaks element_store_size() and
+        // elem_dec_fn assumptions in collection codegen (list element
+        // GEP stride, RC cleanup offsets). Mixed-field narrowing requires
+        // Phase C element_store_size integration (§04.4).
+        let all_scalar_int = fields.iter().all(|f| {
+            matches!(
+                f.repr,
+                MachineRepr::Int { .. }
+                    | MachineRepr::Float { .. }
+                    | MachineRepr::Bool
+                    | MachineRepr::Char
+                    | MachineRepr::Byte
+                    | MachineRepr::Unit
+            )
+        });
+        if !all_scalar_int {
+            return None;
+        }
+
         // Resolve all field types. If any field can't be resolved (nested
         // Struct/Enum), return None to fall through to TypeInfoStore.
         let field_types: Option<Vec<BasicTypeEnum<'ll>>> = fields

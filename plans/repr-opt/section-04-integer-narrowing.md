@@ -6,7 +6,7 @@ reviewed: true
 third_party_review:
   status: findings
   updated: 2026-03-27
-  triage_note: "TPR-04-017 and TPR-04-018 triaged 2026-03-27: both accepted. CROSS-04-017 (transitive metadata) and IR-PIN-04-018 (IR semantic pins) tasks added to §04.4/§04.X. Status stays findings until all accepted implementation tasks are complete."
+  triage_note: "TPR-04-017 triaged 2026-03-27: accepted as CROSS-04-017. TPR-04-018 triaged and RESOLVED 2026-03-27: IR-PIN-04-018 tests implemented, exposed critical index-mismatch bug, fixed. Status stays findings until CROSS-04-017 is complete."
 goal: "Lower int (semantic i64) to the smallest machine integer (i8/i16/i32) that preserves correctness, saving memory in struct fields, collections, and stack slots"
 inspired_by:
   - "Zig comptime_int narrowing to runtime types (src/Sema.zig)"
@@ -151,7 +151,7 @@ When a value is narrowed, arithmetic operations might overflow the narrow type e
 
 The LLVM backend type resolution path via `TypeLayoutResolver` handles `MachineRepr::Int { width }` but **does not yet handle recursive `MachineRepr::Struct`/`Tuple`** — those return `None` from `try_repr_to_llvm_type()` and fall back to `TypeInfoStore` canonical `i64` fields. §04.4 must extend `try_repr_to_llvm_type()` to recursively lower `FieldRepr` widths for struct/tuple decisions (TPR-04-006 fix).
 
-- [ ] **Phase A — Struct field narrowing (primary):** In `apply_integer_narrowing()` (`compiler/ori_repr/src/lib.rs` stub at line 215), iterate all struct types in the Pool. For each struct field of type `int`, query `plan.field_range(struct_idx, field_index)`. If `range.min_width() < I64`, emit a narrowed `MachineRepr::Struct` decision with updated `FieldRepr` entries:
+- [x] **Phase A — Struct field narrowing (primary):** (2026-03-27): `apply_integer_narrowing()` calls `narrow_struct_fields()` which iterates all struct types with Struct reprs. For each struct field of type `int`, queries `plan.field_range(struct_idx, field_index)`. If `range.min_width() < I64`, emits a narrowed `MachineRepr::Struct` decision with updated `FieldRepr` entries. **Bug fix (IR-PIN-04-018)**: narrowed decisions were stored only under the original Pool index (e.g., `Named("Pixel")`) but codegen always canonicalizes via `pool.resolve_fully()` to the concrete `Struct(fields)` index. Fixed by propagating narrowed decisions to resolved indices (mirrors Phase 0 pattern for `#repr` attrs). Also fixed derive codegen (hash, printable, debug) to sext narrowed i8/i16/i32 fields to canonical i64 before passing to runtime functions. Scoped `try_lower_narrowed_aggregate()` to all-scalar-int structs only — mixed-type structs (str + int) need Phase C element_store_size integration. Original plan code block:
   ```rust
   fn apply_integer_narrowing(plan: &mut ReprPlan, pool: &Pool) {
       // Iterate Pool for struct/tuple types with int fields.
@@ -191,11 +191,11 @@ The LLVM backend type resolution path via `TypeLayoutResolver` handles `MachineR
   - Function entry (Phase B): parameters arrive at canonical width → `trunc` to narrow if locally narrowed — **deferred to Phase B**
   - Function exit (Phase B): narrow local → `sext` to canonical width at boundary — **deferred to Phase B**
 
-- [ ] `[IR-PIN-04-018]` **IR semantic pin tests for narrowing** (from TPR-04-018). Current AOT tests only assert runtime correctness — they don't inspect LLVM IR for narrowed types/instructions. Must add real IR pins:
-  - [ ] Add IR capture test using `compile_and_capture_ir()` + `extract_function_ir()` for the Pixel struct case. Structure source to prevent constant folding (use function parameters, not constants). Assert narrowed aggregate type contains `i8` fields.
-  - [ ] Add IR capture test asserting `trunc` instructions visible at struct field store boundaries.
-  - [ ] Add IR capture test asserting `sext` instructions visible at struct field load boundaries.
-  - [ ] Add negative IR pin: wide-range struct (fields exceeding i8/i16/i32 bounds) stays on canonical `i64` fields — assert NO `trunc`/`sext` in the function IR.
+- [x] `[IR-PIN-04-018]` **IR semantic pin tests for narrowing** (2026-03-27, from TPR-04-018). Added 4 IR semantic pin tests using `compile_and_capture_ir()` + `extract_function_ir()` in `narrowing.rs`. Tests exposed a critical bug: narrowed decisions were invisible to codegen (index mismatch). Fixed by propagating decisions to resolved Pool indices and adding sext in derive codegen (hash/printable/debug). Implementation:
+  - [x] `test_narrowed_struct_ir_pin_type_layout`: Asserts `{ i8, i8, i8, i8 }` type in `_ori_read_pixel` — uses separate function to prevent constant folding.
+  - [x] `test_narrowed_struct_ir_pin_trunc_on_construction`: Asserts `trunc i64` or `{ i8, i8, i8 }` constant store in `_ori_main` at construction site.
+  - [x] `test_narrowed_struct_ir_pin_sext_on_field_load`: Asserts `sext i8` in `_ori_sum_channels` — narrowed field loads require sign extension to i64.
+  - [x] `test_non_narrowed_struct_ir_pin_wide_range`: Negative pin — `_ori_sum_wide` with `3_000_000_000` values asserts NO `sext i8/i16/i32`.
 
 - [ ] Handle comparison operations correctly:
   - Signed comparison (`icmp slt`) on narrow types is correct for signed narrowing
