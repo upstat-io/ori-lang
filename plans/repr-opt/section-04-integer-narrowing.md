@@ -4,9 +4,9 @@ title: "Integer Narrowing Pipeline"
 status: in-progress
 reviewed: true
 third_party_review:
-  status: findings
+  status: resolved
   updated: 2026-03-26
-  triage_note: "TPR-04-012 accepted and integrated into §04.1 on 2026-03-26. Implementation tasks added for monomorphized generic type propagation + 2 semantic pins. Status stays findings until implementation complete."
+  triage_note: "All 12 TPR findings resolved. TPR-04-012 implemented on 2026-03-27: Phase 0c propagates repr/pub metadata to monomorphized Applied→Struct resolutions. 6 regression tests (2 semantic pins)."
 goal: "Lower int (semantic i64) to the smallest machine integer (i8/i16/i32) that preserves correctness, saving memory in struct fields, collections, and stack slots"
 inspired_by:
   - "Zig comptime_int narrowing to runtime types (src/Sema.zig)"
@@ -72,11 +72,12 @@ Given a `ValueRange`, select the minimum integer width that preserves the semant
   - [x] `narrow_struct_fields()` gates on `plan.is_public_type(idx)` — public types skip narrowing with tracing
   - [x] Test `public_type_not_narrowed`: pub struct with bounded fields → stays I64
   - [x] Test `private_type_narrowed_normally`: private struct narrowed, pub struct preserved in same plan
-- [ ] Apply conservatism rules — monomorphized generic type propagation (TPR-04-012, accepted 2026-03-26): Generic type instantiations (`Applied → concrete Struct`) create distinct pool idxs that bypass repr/public exemptions. Fix: propagate `repr_attrs` and `pub_type_indices` metadata to monomorphized concrete Struct/Tuple idxs in `compute_repr_plan_with_interner()`. The parent Named type's name can be used to find all concrete instantiations in the pool. Implementation approach:
-  - [ ] In `compute_repr_plan_with_interner()`, after Phase 0b, add Phase 0c: iterate all pool entries. For each `Applied` or concrete `Struct`/`Tuple` idx, resolve it fully and check if the type name matches any repr/pub-marked Named type. If so, propagate repr_attr and pub_type_index to that idx.
-  - [ ] Alternative: make `has_fixed_layout_attr()` and `is_public_type()` in `narrowing/int.rs` resolve through the pool to find the parent Named type's name, then check if THAT name is marked. This avoids pre-computation but adds a pool query per candidate.
-  - [ ] Semantic pin test: `pub type Wrapper<T>: #repr("c") = { value: T }` instantiated as `Wrapper<int>` — the monomorphized concrete Struct must NOT be narrowed (repr exemption propagated through Applied → Struct resolution)
-  - [ ] Semantic pin test: `pub type Pair<A, B> = { first: A, second: B }` instantiated as `Pair<int, int>` — the monomorphized concrete Struct must NOT be narrowed (public exemption propagated through Applied → Struct resolution)
+- [x] Apply conservatism rules — monomorphized generic type propagation (TPR-04-012, implemented 2026-03-27): Generic type instantiations (`Applied → concrete Struct`) create distinct pool idxs that bypass repr/public exemptions. Fix: added `propagate_metadata_to_applied_resolutions()` as Phase 0c in `compute_repr_plan_with_interner()` (`lib.rs`). Collects protected type Names from repr_attrs/pub_type_indices, scans all pool Applied entries, resolves through pool chain, propagates metadata to concrete Struct idx. Implementation:
+  - [x] Phase 0c in `compute_repr_plan_with_interner()`: `propagate_metadata_to_applied_resolutions()` iterates pool for Applied types matching protected Names, resolves each, propagates repr_attr and pub_type to resolved concrete Struct idx (2026-03-27)
+  - [x] 6 regression tests in `tests.rs`: `repr_attr_propagates_through_applied_to_concrete_struct`, `pub_type_propagates_through_applied_to_concrete_struct`, `repr_c_applied_concrete_struct_not_narrowed_semantic_pin`, `pub_applied_concrete_struct_not_narrowed_semantic_pin`, `applied_without_resolution_no_propagation` (negative), `multiple_applied_instantiations_all_protected` (2026-03-27)
+  - [x] Semantic pin: #repr("c") Named type with monomorphized Applied → Struct — narrowing blocked on mono struct (stays I64). ONLY passes with Phase 0c propagation (2026-03-27)
+  - [x] Semantic pin: pub Named type with monomorphized Applied → Struct — narrowing blocked on mono struct (stays I64). ONLY passes with Phase 0c propagation (2026-03-27)
+  - [x] 381/381 ori_repr debug + release green, 14,236 total tests green (2026-03-27)
 - **Conservatism design rules** (enforced incrementally by Phase A/B/C):
   - **Local variables** (Phase B): narrow aggressively (widening is free in registers)
   - **Struct fields** (Phase A — done): narrow from field-summary table only
@@ -397,4 +398,4 @@ The LLVM backend type resolution path via `TypeLayoutResolver` handles `MachineR
 - [x] `[TPR-04-012][high]` `compiler/ori_repr/src/lib.rs:101` — TPR-04-011 fixes only the direct `Named -> resolved` path; generic `Applied -> concrete Struct` resolutions still let public and `#repr(...)` types narrow on the production path.
   Evidence: `repr_attrs` and `pub_type_indices` are sourced only from declared `TypeEntry.idx` values in `type_result.typed.types` / `user_types` (`compiler/oric/src/commands/codegen_pipeline.rs:316-338`, `compiler/ori_llvm/src/evaluator/compile.rs:170-185`). The TPR-04-011 fix stores metadata on each input idx plus a single `pool.resolve_fully(idx)` result (`compiler/ori_repr/src/lib.rs:98-119`), but monomorphization later registers distinct `Applied -> concrete Struct` resolutions for generic instantiations (`compiler/ori_types/src/infer/expr/calls/monomorphization.rs:361-395`). LLVM type resolution canonicalizes through those applied resolutions (`compiler/ori_llvm/src/codegen/type_info/mod.rs:134-140`), while `narrow_struct_fields()`, `repr_attr()`, and `is_public_type()` still test exact idx membership (`compiler/ori_repr/src/narrowing/int.rs:55-67`, `compiler/ori_repr/src/plan.rs:214-232`). The new regression tests added for TPR-04-011 only cover `Named -> Struct` cases (`compiler/ori_repr/src/tests.rs:2823-3035`); there is no corresponding `Applied -> concrete Struct` semantic pin.
   Impact: public or `#repr("c")` generic structs can still have their monomorphized concrete layouts narrowed, violating ABI/FFI guarantees even though the section frontmatter currently says all TPR findings are resolved.
-  Resolved: Validated and accepted on 2026-03-26. Concrete implementation tasks integrated into §04.1 (monomorphized generic type propagation — Phase 0c or query-time resolution). Two semantic pins required: `pub type Wrapper<T>: #repr("c")` and `pub type Pair<A, B>` instantiated with concrete types. Status stays `findings` until implementation tasks are complete.
+  Resolved: Implemented on 2026-03-27. Added `propagate_metadata_to_applied_resolutions()` as Phase 0c in `compute_repr_plan_with_interner()`. Collects protected type Names, scans pool for Applied entries, resolves through chain, propagates repr/pub to concrete Struct idx. 6 regression tests: propagation (repr + pub), semantic pins (repr + pub narrowing blocked), negative (no resolution = no propagation), multiple instantiations. 381/381 ori_repr tests green, 14,236 total tests green.
