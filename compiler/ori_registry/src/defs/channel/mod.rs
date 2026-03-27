@@ -27,7 +27,7 @@ const OPT_ELEM: ReturnTag = ReturnTag::OptionOf(TypeProjection::Element);
 /// Channel-specific method constructor: impure instance method.
 ///
 /// All Channel methods have `pure: false` because they access shared
-/// mutable state. Uses `backend_required: false` (Section 14 will verify).
+/// mutable state. Uses `backend_required: false`.
 const fn chan(
     name: &'static str,
     params: &'static [ParamDef],

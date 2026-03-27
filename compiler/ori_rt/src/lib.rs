@@ -79,10 +79,6 @@ pub mod list;
 pub mod map;
 pub mod rc;
 pub mod set;
-#[allow(
-    dead_code,
-    reason = "Slice encoding primitives — consumers added in §05.2-05.5"
-)]
 pub(crate) mod slice_encoding;
 pub mod string;
 

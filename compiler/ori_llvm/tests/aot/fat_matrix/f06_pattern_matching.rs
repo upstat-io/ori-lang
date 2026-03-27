@@ -146,7 +146,7 @@ fn test_fm_match_tuple_mixed() {
     );
 }
 
-// Match with multiple arms using fat values (BUG-04-02 fix: multi-field variant offset)
+// Match with multiple arms using fat values (multi-field variant offset)
 #[test]
 fn test_fm_match_multi_arm_fat() {
     assert_aot_success(
@@ -171,7 +171,7 @@ type Shape = Circle(radius: int) | Rect(name: str, w: int, h: int);
     );
 }
 
-// BUG-04-02 matrix: multi-field variant with fat first field, scalars after
+// Multi-field variant with fat first field, scalars after
 // Semantic pin: would crash (misaligned pointer) without byte-offset GEP fix
 #[test]
 fn test_fm_match_multi_field_str_then_ints() {
@@ -197,7 +197,7 @@ type Msg = Alert(text: str, level: int, code: int) | Ack(id: int);
     );
 }
 
-// BUG-04-02 matrix: fat field in middle position
+// Fat field in middle position
 #[test]
 fn test_fm_match_fat_field_middle() {
     assert_aot_success(
@@ -222,7 +222,7 @@ type Entry = Record(id: int, name: str, score: int) | Empty;
     );
 }
 
-// BUG-04-02 matrix: fat field in last position
+// Fat field in last position
 #[test]
 fn test_fm_match_fat_field_last() {
     assert_aot_success(
@@ -244,7 +244,7 @@ type Tagged = Data(x: int, y: int, label: str) | Empty;
     );
 }
 
-// BUG-04-02 matrix: multiple fat fields in same variant
+// Multiple fat fields in same variant
 #[test]
 fn test_fm_match_multiple_fat_fields() {
     assert_aot_success(
@@ -266,7 +266,7 @@ type Pair = Both(first: str, second: str) | Neither;
     );
 }
 
-// BUG-04-02 matrix: str + int + str (fat-scalar-fat interleave)
+// str + int + str (fat-scalar-fat interleave)
 #[test]
 fn test_fm_match_fat_scalar_fat() {
     assert_aot_success(
@@ -288,7 +288,7 @@ type Row = Full(name: str, age: int, city: str) | Blank;
     );
 }
 
-// BUG-04-02 matrix: heap string (>23 bytes, non-SSO) in multi-field variant
+// Heap string (>23 bytes, non-SSO) in multi-field variant
 #[test]
 fn test_fm_match_heap_str_multi_field() {
     assert_aot_success(
