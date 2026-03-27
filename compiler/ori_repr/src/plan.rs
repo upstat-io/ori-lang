@@ -69,7 +69,7 @@ mod repr_attr;
 #[derive(Debug)]
 #[expect(
     clippy::zero_sized_map_values,
-    reason = "EscapeInfo and ValueRange are placeholder ZSTs — replaced by §03 and §08"
+    reason = "EscapeInfo is placeholder ZST — replaced by §08"
 )]
 pub struct ReprPlan {
     /// Per-type decisions (indexed by Pool `Idx`).
@@ -93,6 +93,12 @@ pub struct ReprPlan {
     /// Key: function `Name` → (`ArcVarId` → `ValueRange`).
     /// Populated by §03, consumed by §04.
     function_var_ranges: FxHashMap<Name, FxHashMap<ArcVarId, ValueRange>>,
+    /// Per-type-field range summaries from §03 field-summary analysis.
+    ///
+    /// Key: `(struct/tuple Idx, field_index)` → joined `ValueRange`.
+    /// Populated by §03.2b (`FieldSummaryTable::flush_to_repr_plan`),
+    /// consumed by §04 (struct field narrowing).
+    field_range_summaries: FxHashMap<(Idx, u32), ValueRange>,
     /// Audit trail — all decisions in insertion order.
     audit: Vec<ReprDecision>,
     /// Narrowing policy controlling optimization aggressiveness.
@@ -104,7 +110,7 @@ impl ReprPlan {
     #[must_use]
     #[expect(
         clippy::zero_sized_map_values,
-        reason = "EscapeInfo and ValueRange are placeholder ZSTs — replaced by §03 and §08"
+        reason = "EscapeInfo is placeholder ZST — replaced by §08"
     )]
     pub fn new(policy: NarrowingPolicy) -> Self {
         Self {
@@ -113,6 +119,7 @@ impl ReprPlan {
             rc_strategies: FxHashMap::default(),
             escape_info: FxHashMap::default(),
             function_var_ranges: FxHashMap::default(),
+            field_range_summaries: FxHashMap::default(),
             audit: Vec::new(),
             narrowing_policy: policy,
         }
@@ -139,10 +146,6 @@ impl ReprPlan {
     /// Record per-variable range analysis results for a function.
     ///
     /// Called by §03 after `range_fixpoint()` completes for a function.
-    #[expect(
-        clippy::zero_sized_map_values,
-        reason = "ValueRange is a placeholder ZST — replaced by §03"
-    )]
     pub fn set_var_ranges(&mut self, func: Name, ranges: FxHashMap<ArcVarId, ValueRange>) {
         self.function_var_ranges.insert(func, ranges);
     }
@@ -156,7 +159,42 @@ impl ReprPlan {
         self.function_var_ranges
             .get(&func)
             .and_then(|m| m.get(&var))
-            .cloned()
+            .copied()
+            .unwrap_or_default()
+    }
+
+    /// Get mutable access to a function's per-variable range map.
+    ///
+    /// Returns `None` if no ranges have been recorded for this function.
+    /// Used by §03.5 to merge interprocedural parameter ranges into existing
+    /// intraprocedural results.
+    pub fn function_var_ranges_mut(
+        &mut self,
+        func: Name,
+    ) -> Option<&mut FxHashMap<ArcVarId, ValueRange>> {
+        self.function_var_ranges.get_mut(&func)
+    }
+
+    /// Join a field range into the persistent summary.
+    ///
+    /// Called by `FieldSummaryTable::flush_to_repr_plan()` after the
+    /// fixpoint completes for each function. Multiple functions accumulate
+    /// evidence by joining (not overwriting).
+    pub fn join_field_range(&mut self, idx: Idx, field: u32, range: ValueRange) {
+        self.field_range_summaries
+            .entry((idx, field))
+            .and_modify(|existing| *existing = existing.join(range))
+            .or_insert(range);
+    }
+
+    /// Query the aggregated field range for a struct/tuple field.
+    ///
+    /// Returns `Top` if no construction sites were observed for this field.
+    #[must_use]
+    pub fn field_range(&self, idx: Idx, field: u32) -> ValueRange {
+        self.field_range_summaries
+            .get(&(idx, field))
+            .copied()
             .unwrap_or_default()
     }
 
@@ -197,6 +235,14 @@ impl ReprPlan {
                 .unwrap_or(MachineRepr::OpaquePtr),
             reason,
         });
+    }
+
+    /// Iterate over all type indices that have a stored representation decision.
+    ///
+    /// Used by narrowing passes (§04) to find struct/tuple types to narrow
+    /// without depending on pool iteration order.
+    pub fn decision_indices(&self) -> impl Iterator<Item = Idx> + '_ {
+        self.decisions.keys().copied()
     }
 
     /// Dump the audit trail for debugging.

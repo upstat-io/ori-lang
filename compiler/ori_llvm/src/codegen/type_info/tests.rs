@@ -1529,7 +1529,7 @@ fn phase_a_override_uses_repr_plan() {
                 signed: true,
             },
             reason: ori_repr::DecisionReason::RangeFits {
-                range: ori_repr::range::ValueRange,
+                range: ori_repr::range::ValueRange::Bounded { lo: 0, hi: 1000 },
                 min_width: ori_repr::IntWidth::I32,
             },
         },
