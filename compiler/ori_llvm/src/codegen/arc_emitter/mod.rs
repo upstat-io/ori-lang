@@ -189,6 +189,18 @@ pub struct ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
     /// When set, the `Return + Sret` terminator can skip the identity store
     /// (the value is already at the sret destination).
     sret_forwarded_result: Option<ValueId>,
+
+    /// §04.4 Phase B: per-function narrowed local variable widths.
+    ///
+    /// Maps `ArcVarId` → `IntWidth` for local `int` variables whose value
+    /// range fits in a narrower integer type. Function parameters are excluded
+    /// (no visibility info in ARC IR — conservative safety).
+    ///
+    /// When a variable is in this map:
+    /// - `def_var_repr()` inserts `trunc i64 %val to i<width>` at definition
+    /// - `var()` inserts `sext i<width> %val to i64` at each use
+    /// - Phi nodes use the narrow type
+    narrowed_vars: FxHashMap<ArcVarId, ori_repr::IntWidth>,
 }
 
 impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
@@ -231,6 +243,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
             iter_next_decomposed: FxHashMap::default(),
             current_sret_ptr: None,
             sret_forwarded_result: None,
+            narrowed_vars: FxHashMap::default(),
         }
     }
 

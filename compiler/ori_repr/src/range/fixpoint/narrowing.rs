@@ -75,30 +75,31 @@ pub(super) fn run_narrowing_pass(
         let saved = apply_block_refinements(block, ranges, block_refinements);
 
         // Narrow body instructions.
-        let mut updates: Vec<(ArcVarId, ValueRange)> = Vec::new();
-        {
-            let ctx = TransferContext {
-                ranges,
-                pool,
-                var_types: &func.var_types,
-                field_summaries: field_summary_table.as_map(),
-                known_builtins,
-            };
-            for instr in &block.body {
-                let computed = transfer(instr, &ctx);
-                let Some(var) = instr.defined_var() else {
-                    continue;
+        // Apply updates immediately so later instructions see narrowed values
+        // from earlier instructions in the same block. This is critical for
+        // loop body copy chains: %18 = %4 (narrowed via refinement) must be
+        // visible when computing %20 = %18 + 1.
+        let field_summaries = field_summary_table.as_map();
+        for instr in &block.body {
+            let computed = {
+                let ctx = TransferContext {
+                    ranges: &*ranges,
+                    pool,
+                    var_types: &func.var_types,
+                    field_summaries,
+                    known_builtins,
                 };
-                if let Some(&widened) = ranges.get(&var) {
-                    let narrowed = narrow(widened, computed);
-                    if narrowed != widened {
-                        updates.push((var, narrowed));
-                    }
+                transfer(instr, &ctx)
+            };
+            let Some(var) = instr.defined_var() else {
+                continue;
+            };
+            if let Some(&widened) = ranges.get(&var) {
+                let narrowed = narrow(widened, computed);
+                if narrowed != widened {
+                    ranges.insert(var, narrowed);
                 }
             }
-        }
-        for (var, narrowed) in updates {
-            ranges.insert(var, narrowed);
         }
 
         // Restore temporary refinements.

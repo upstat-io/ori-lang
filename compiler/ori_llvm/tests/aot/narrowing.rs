@@ -429,3 +429,171 @@ type Record = { count: int, name: str, active: bool }
          This is a regression guard for MIXED-PIN-04-019.\nIR:\n{fn_ir}"
     );
 }
+
+// ---- Phase B: Local Variable Narrowing Tests (§04.4) ----
+
+// Behavioral test: manual loop (loop+break) with bounded counter and accumulator.
+// The program must produce correct results regardless of narrowing.
+#[test]
+fn test_phase_b_loop_behavioral() {
+    assert_aot_success(
+        r"
+@main () -> int = {
+    let sum = 0;
+    let i = 0;
+    loop {
+        if i >= 10 then break;
+        sum = sum + i;
+        i = i + 1;
+    };
+    // 0+1+2+...+9 = 45
+    if sum == 45 then 0 else 1
+}
+",
+        "phase_b_loop_behavioral",
+    );
+}
+
+// Behavioral test: for-range loop with bounded counter.
+#[test]
+fn test_phase_b_for_range_behavioral() {
+    assert_aot_success(
+        r"
+@main () -> int = {
+    let sum = 0;
+    for i in 0..10 do {
+        sum = sum + i;
+    };
+    if sum == 45 then 0 else 1
+}
+",
+        "phase_b_for_range_behavioral",
+    );
+}
+
+// Behavioral test: loop with negative values (signed i8 range [-128, 127]).
+#[test]
+fn test_phase_b_negative_loop_behavioral() {
+    assert_aot_success(
+        r"
+@main () -> int = {
+    let sum = 0;
+    let i = -5;
+    loop {
+        if i > 5 then break;
+        sum = sum + i;
+        i = i + 1;
+    };
+    // -5+-4+-3+-2+-1+0+1+2+3+4+5 = 0
+    if sum == 0 then 0 else 1
+}
+",
+        "phase_b_negative_loop_behavioral",
+    );
+}
+
+// IR semantic pin: loop counter phi in a manual loop should use i8.
+// Range [0, 9] fits in signed i8 [-128, 127].
+// This test ONLY passes with Phase B local variable narrowing.
+#[test]
+#[ignore = "blocked: §03 range analysis loop variable convergence — narrowing pass produces [-MIN, 9] refinement, join with entry [0, 0] gives [-MIN+1, 10] (terrible lower bound)"]
+fn test_phase_b_ir_pin_loop_counter_phi() {
+    let ir = compile_and_capture_ir(
+        r"
+@sum_loop () -> int = {
+    let sum = 0;
+    let i = 0;
+    loop {
+        if i >= 10 then break;
+        sum = sum + i;
+        i = i + 1;
+    };
+    sum
+}
+
+@main () -> int = sum_loop();
+",
+    );
+
+    let fn_ir = extract_function_ir(&ir, "_ori_sum_loop");
+
+    // With local variable narrowing, loop counter `i` (range [0, 9]) and
+    // accumulator `sum` (range [0, 45]) should both produce i8 phi nodes
+    // instead of i64 phi nodes.
+    assert!(
+        fn_ir.contains("phi i8"),
+        "expected `phi i8` for narrowed loop counter/accumulator in _ori_sum_loop — \
+         ranges [0,9] and [0,45] both fit in signed i8.\n\
+         Phase B semantic pin: ONLY passes with local variable narrowing.\n\
+         Got IR:\n{fn_ir}"
+    );
+}
+
+// IR semantic pin: sext must be present to widen narrowed loop variables
+// before canonical-width arithmetic (overflow-checked i64 add).
+#[test]
+#[ignore = "blocked: §03 range analysis loop variable convergence — same as test_phase_b_ir_pin_loop_counter_phi"]
+fn test_phase_b_ir_pin_loop_sext() {
+    let ir = compile_and_capture_ir(
+        r"
+@sum_loop () -> int = {
+    let sum = 0;
+    let i = 0;
+    loop {
+        if i >= 10 then break;
+        sum = sum + i;
+        i = i + 1;
+    };
+    sum
+}
+
+@main () -> int = sum_loop();
+",
+    );
+
+    let fn_ir = extract_function_ir(&ir, "_ori_sum_loop");
+
+    // With narrowed i8 loop variables, arithmetic requires sign-extending
+    // to i64 before the overflow-checked add. This sext is the boundary
+    // between narrow storage and canonical computation.
+    assert!(
+        fn_ir.contains("sext i8"),
+        "expected `sext i8 ... to i64` in _ori_sum_loop — narrowed loop variables \
+         must be widened before overflow-checked arithmetic.\n\
+         Phase B semantic pin: ONLY passes with local variable narrowing.\n\
+         Got IR:\n{fn_ir}"
+    );
+}
+
+// Negative IR pin: wide-range loop variables must NOT be narrowed.
+// Loop counter up to 50000 exceeds i8 range, should stay i64 (or i16).
+#[test]
+fn test_phase_b_ir_pin_wide_range_no_i8() {
+    let ir = compile_and_capture_ir(
+        r"
+@sum_wide () -> int = {
+    let sum = 0;
+    let i = 0;
+    loop {
+        if i >= 50000 then break;
+        sum = sum + i;
+        i = i + 1;
+    };
+    sum
+}
+
+@main () -> int = sum_wide();
+",
+    );
+
+    let fn_ir = extract_function_ir(&ir, "_ori_sum_wide");
+
+    // Range [0, 49999] does NOT fit in signed i8 [-128, 127].
+    // The counter should NOT have a `phi i8` node.
+    assert!(
+        !fn_ir.contains("phi i8"),
+        "expected NO `phi i8` in _ori_sum_wide — loop counter range [0, 49999] \
+         exceeds i8 capacity. Should use i16 or wider.\n\
+         Got IR:\n{fn_ir}"
+    );
+}
