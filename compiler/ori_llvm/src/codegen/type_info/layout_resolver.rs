@@ -69,6 +69,14 @@ impl<'a, 'll, 'tcx> TypeLayoutResolver<'a, 'll, 'tcx> {
     ///
     /// Pass an `interner` to get human-readable LLVM type names (e.g., `%ori.Point`).
     /// Without it, types get numeric names (e.g., `%ori.3`).
+    /// Access the representation plan (if available).
+    ///
+    /// Used by `ArcIrEmitter` (Phase B) to query per-variable ranges for
+    /// local variable narrowing.
+    pub fn repr_plan(&self) -> Option<&'a ori_repr::ReprPlan> {
+        self.repr_plan
+    }
+
     pub fn new(
         store: &'a TypeInfoStore<'tcx>,
         scx: &'a SimpleCx<'ll>,

@@ -41,14 +41,44 @@ const WIDEN_THRESHOLD: usize = 3;
 /// push it to infinity. This guarantees termination by ensuring the
 /// ascending chain reaches `Top` in at most 2 widening steps per bound.
 #[must_use]
-pub fn widen(previous: ValueRange, current: ValueRange) -> ValueRange {
+/// Widen with optional comparison thresholds.
+///
+/// Standard VRP widening: when a bound is growing, jump to the NEXT threshold
+/// instead of ±MAX. This ensures loop counters converge to their comparison
+/// bounds (e.g., `i < 10` → widen to `[0, 10]` instead of `[0, MAX]`).
+///
+/// Without thresholds, falls back to the classic widening (jump to ±MAX).
+pub fn widen_with_thresholds(
+    previous: ValueRange,
+    current: ValueRange,
+    thresholds: &[i64],
+) -> ValueRange {
     match (previous, current) {
         (Bottom, x) => x,
         (_, Bottom) => Bottom,
         (Top, _) | (_, Top) => Top,
         (Bounded { lo: p_lo, hi: p_hi }, Bounded { lo: c_lo, hi: c_hi }) => {
-            let new_lo = if c_lo < p_lo { i64::MIN } else { c_lo };
-            let new_hi = if c_hi > p_hi { i64::MAX } else { c_hi };
+            let new_lo = if c_lo < p_lo {
+                // Lower bound is shrinking — find the next threshold below c_lo
+                thresholds
+                    .iter()
+                    .rev()
+                    .find(|&&t| t <= c_lo)
+                    .copied()
+                    .unwrap_or(i64::MIN)
+            } else {
+                c_lo
+            };
+            let new_hi = if c_hi > p_hi {
+                // Upper bound is growing — find the next threshold above c_hi
+                thresholds
+                    .iter()
+                    .find(|&&t| t >= c_hi)
+                    .copied()
+                    .unwrap_or(i64::MAX)
+            } else {
+                c_hi
+            };
             if new_lo == i64::MIN && new_hi == i64::MAX {
                 Top
             } else {
@@ -59,6 +89,10 @@ pub fn widen(previous: ValueRange, current: ValueRange) -> ValueRange {
             }
         }
     }
+}
+
+pub fn widen(previous: ValueRange, current: ValueRange) -> ValueRange {
+    widen_with_thresholds(previous, current, &[])
 }
 
 /// Narrowing: intersect widened result with transfer function output
@@ -86,10 +120,11 @@ fn update_range(
     var: ArcVarId,
     new_range: ValueRange,
     iteration: usize,
+    thresholds: &[i64],
 ) -> bool {
     let old = ranges.get(&var).copied().unwrap_or(Bottom);
     let merged = if iteration > WIDEN_THRESHOLD {
-        widen(old, old.join(new_range))
+        widen_with_thresholds(old, old.join(new_range), thresholds)
     } else {
         old.join(new_range)
     };
@@ -102,7 +137,69 @@ fn update_range(
     }
 }
 
+/// Collect integer constants used in comparison operations as widening thresholds.
+///
+/// Scans the function for comparison `PrimOps` and extracts constant operand
+/// values. These serve as "landmarks" that prevent widening from jumping
+/// directly to ±MAX. For example, `i >= 10` yields threshold 10, causing
+/// widening to produce `[0, 10]` instead of `[0, MAX]`.
+///
+/// Also includes ±1 neighbors since `i < N` uses N and `i >= N` uses N-1.
+fn collect_comparison_thresholds(
+    func: &ArcFunction,
+    ranges: &FxHashMap<ArcVarId, ValueRange>,
+) -> Vec<i64> {
+    use ori_arc::ir::{ArcInstr, ArcValue, PrimOp};
+    use ori_ir::BinaryOp;
+
+    let mut thresholds = Vec::new();
+    // Always include 0 — loop counters commonly start at 0
+    thresholds.push(0);
+
+    for block in &func.blocks {
+        for instr in &block.body {
+            if let ArcInstr::Let {
+                value:
+                    ArcValue::PrimOp {
+                        op: PrimOp::Binary(op),
+                        args,
+                    },
+                ..
+            } = instr
+            {
+                if matches!(
+                    op,
+                    BinaryOp::Lt
+                        | BinaryOp::LtEq
+                        | BinaryOp::Gt
+                        | BinaryOp::GtEq
+                        | BinaryOp::Eq
+                        | BinaryOp::NotEq
+                ) && args.len() == 2
+                {
+                    // Extract constant operand values from their ranges.
+                    // Only use the exact constant — NOT ±1 neighbors.
+                    // Neighbors cause infinite widening growth when the loop
+                    // counter increments by 1 each iteration.
+                    for &arg in args {
+                        if let Some(val) = ranges.get(&arg).and_then(ValueRange::is_constant) {
+                            thresholds.push(val);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    thresholds.sort_unstable();
+    thresholds.dedup();
+    thresholds
+}
+
 /// Process block parameters (phi-like merging from predecessor `Jump` args).
+#[expect(
+    clippy::too_many_arguments,
+    reason = "fixpoint infrastructure passes — bundling would add indirection"
+)]
 fn merge_block_params(
     block: &ArcBlock,
     block_idx: usize,
@@ -111,6 +208,7 @@ fn merge_block_params(
     ranges: &mut FxHashMap<ArcVarId, ValueRange>,
     block_refinements: &FxHashMap<(ArcBlockId, ArcVarId), ValueRange>,
     iteration: usize,
+    thresholds: &[i64],
 ) -> bool {
     let mut changed = false;
     for (param_idx, (param_var, _param_ty)) in block.params.iter().enumerate() {
@@ -130,7 +228,7 @@ fn merge_block_params(
         if let Some(&refinement) = block_refinements.get(&(block.id, *param_var)) {
             merged = merged.meet(refinement);
         }
-        changed |= update_range(ranges, *param_var, merged, iteration);
+        changed |= update_range(ranges, *param_var, merged, iteration, thresholds);
     }
     changed
 }
@@ -206,6 +304,7 @@ fn run_forward_iteration(
     iteration: usize,
     known_builtins: &super::KnownBuiltins,
     call_result_narrowings: &FxHashMap<ArcVarId, ValueRange>,
+    thresholds: &[i64],
 ) -> bool {
     // TPR-03-020: Clear stale refinements from prior iterations.
     // Refinements are recomputed fresh each iteration from the current ranges,
@@ -225,6 +324,7 @@ fn run_forward_iteration(
             &mut state.ranges,
             &state.block_refinements,
             iteration,
+            thresholds,
         );
 
         let saved = apply_block_refinements(block, &mut state.ranges, &state.block_refinements);
@@ -254,7 +354,7 @@ fn run_forward_iteration(
                 if let Some(&narrowing) = call_result_narrowings.get(&var) {
                     new_range = new_range.meet(narrowing);
                 }
-                changed |= update_range(&mut state.ranges, var, new_range, iteration);
+                changed |= update_range(&mut state.ranges, var, new_range, iteration, thresholds);
             }
         }
 
@@ -270,9 +370,106 @@ fn run_forward_iteration(
             iteration,
             known_builtins,
             call_result_narrowings,
+            thresholds,
         );
     }
     changed
+}
+
+/// Post-fixpoint narrowing: propagate refinements, run narrowing passes,
+/// recompute field summaries, and finalize return range.
+fn run_post_fixpoint_narrowing(
+    rpo: &[usize],
+    func: &ArcFunction,
+    pool: &Pool,
+    predecessors: &[Vec<usize>],
+    state: &mut FixpointState,
+    known_builtins: &super::KnownBuiltins,
+    crn: &FxHashMap<ArcVarId, ValueRange>,
+) -> RangeFixpointResult {
+    propagate_refinements_through_jump_chains(func, predecessors, &mut state.block_refinements);
+
+    // Run 2 narrowing passes: the second allows block-param ranges
+    // (narrowed in pass 1 via body variables) to propagate back through
+    // the predecessor merge. This recovers bounded loop variables.
+    for _ in 0..2 {
+        run_narrowing_pass(
+            rpo,
+            func,
+            pool,
+            &mut state.ranges,
+            &state.field_summary_table,
+            predecessors,
+            &state.block_refinements,
+            known_builtins,
+            crn,
+        );
+    }
+
+    recompute_field_summaries(
+        rpo,
+        func,
+        pool,
+        &state.ranges,
+        &mut state.field_summary_table,
+    );
+
+    // TPR-03-022: Final narrowing pass with recomputed field summaries.
+    run_narrowing_pass(
+        rpo,
+        func,
+        pool,
+        &mut state.ranges,
+        &state.field_summary_table,
+        predecessors,
+        &state.block_refinements,
+        known_builtins,
+        crn,
+    );
+
+    // TPR-03-021: Recompute return_range from final narrowed ranges.
+    let return_range = recompute_return_range(rpo, func, pool, &state.ranges);
+
+    RangeFixpointResult {
+        var_ranges: state.ranges.clone(),
+        field_summaries: std::mem::take(&mut state.field_summary_table),
+        return_range,
+    }
+}
+
+/// Propagate block refinements through single-predecessor jump chains.
+///
+/// The ARC pipeline may split the loop body into multiple blocks:
+/// `bb1 → Branch → bb4 (false, gets refinement) → Jump bb5 → body → Jump bb1`.
+/// Without propagation, bb5 doesn't inherit bb4's refinement, so the narrowing
+/// pass can't tighten loop-body variables.
+fn propagate_refinements_through_jump_chains(
+    func: &ArcFunction,
+    predecessors: &[Vec<usize>],
+    block_refinements: &mut FxHashMap<(ArcBlockId, ArcVarId), ValueRange>,
+) {
+    let mut propagated = Vec::new();
+    for block in &func.blocks {
+        let block_id = block.id;
+        let block_idx = block_id.index();
+        if predecessors[block_idx].len() != 1 {
+            continue;
+        }
+        let pred_idx = predecessors[block_idx][0];
+        let pred_id = func.blocks[pred_idx].id;
+        for (&(ref_block, ref_var), &ref_range) in block_refinements.iter() {
+            if ref_block == pred_id && !block_refinements.contains_key(&(block_id, ref_var)) {
+                propagated.push((block_id, ref_var, ref_range));
+            }
+        }
+    }
+    let count = propagated.len();
+    for (bid, var, range) in propagated {
+        block_refinements.insert((bid, var), range);
+    }
+    if count > 0 {
+        tracing::debug!(count, "propagated block refinements through jump chains");
+    }
 }
 
 /// Run intraprocedural range analysis on a single function.
@@ -342,6 +539,9 @@ pub fn range_fixpoint(
     let empty_narrowings = FxHashMap::default();
     let crn = call_result_narrowings.unwrap_or(&empty_narrowings);
 
+    // §04.4: Thresholds for guided widening, populated after iteration 0.
+    let mut thresholds: Vec<i64> = Vec::new();
+
     let mut iteration = 0;
     loop {
         let changed = run_forward_iteration(
@@ -353,7 +553,18 @@ pub fn range_fixpoint(
             iteration,
             &config.known_builtins,
             crn,
+            &thresholds,
         );
+
+        // After the first iteration, constant ranges are populated.
+        // Collect comparison thresholds for guided widening before
+        // widening triggers (at WIDEN_THRESHOLD).
+        if iteration == 0 {
+            thresholds = collect_comparison_thresholds(func, &state.ranges);
+            if !thresholds.is_empty() {
+                tracing::debug!(count = thresholds.len(), "collected widening thresholds");
+            }
+        }
         iteration += 1;
         if !changed || iteration >= config.max_iterations {
             break;
@@ -367,59 +578,15 @@ pub fn range_fixpoint(
         "range analysis complete"
     );
 
-    // Run 2 narrowing passes: the second allows block-param ranges
-    // (narrowed in pass 1 via body variables) to propagate back through
-    // the predecessor merge. This recovers bounded loop variables.
-    for _ in 0..2 {
-        run_narrowing_pass(
-            &rpo,
-            func,
-            pool,
-            &mut state.ranges,
-            &state.field_summary_table,
-            &predecessors,
-            &state.block_refinements,
-            &config.known_builtins,
-            crn,
-        );
-    }
-
-    recompute_field_summaries(
+    run_post_fixpoint_narrowing(
         &rpo,
         func,
         pool,
-        &state.ranges,
-        &mut state.field_summary_table,
-    );
-
-    // TPR-03-022: Run a final narrowing pass with the recomputed field summaries.
-    // The previous narrowing passes used pre-recompute field summaries, so
-    // Project-derived variables still carry widened ranges. This pass re-transfers
-    // Project instructions against the tightened field_summary_table, narrowing
-    // projection variables (and anything downstream) to match.
-    run_narrowing_pass(
-        &rpo,
-        func,
-        pool,
-        &mut state.ranges,
-        &state.field_summary_table,
         &predecessors,
-        &state.block_refinements,
+        &mut state,
         &config.known_builtins,
         crn,
-    );
-
-    // TPR-03-021: Recompute return_range from final narrowed ranges.
-    // Forward-pass accumulation uses pre-narrowing values; the recomputation
-    // ensures §03.5 gets the tightened ranges (e.g., loop counter narrowed
-    // from [0, MAX] to [0, 10] should also narrow the return summary).
-    let return_range = recompute_return_range(&rpo, func, pool, &state.ranges);
-
-    RangeFixpointResult {
-        var_ranges: state.ranges,
-        field_summaries: state.field_summary_table,
-        return_range,
-    }
+    )
 }
 
 #[cfg(test)]

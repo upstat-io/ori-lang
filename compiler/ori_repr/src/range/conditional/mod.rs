@@ -67,7 +67,27 @@ pub fn refine_from_branch<S: std::hash::BuildHasher>(
         return vec![];
     }
 
-    let x = args[0];
+    let mut x = args[0];
+    // Trace through Var copy chains to find the original variable.
+    // The ARC pipeline inserts copies like `%6 = %4` at block boundaries.
+    // Refining the original (%4) is more useful than the copy (%6) because
+    // the original is visible in dominated blocks (loop body) while the copy
+    // is local to the comparison block.
+    for instr in body.iter().rev() {
+        if let ArcInstr::Let {
+            dst,
+            value: ArcValue::Var(src),
+            ..
+        } = instr
+        {
+            if *dst == x {
+                x = *src;
+                // Continue tracing — there might be multiple levels of copies.
+                // Don't break here in case %6 = %5 = %4.
+            }
+        }
+    }
+
     let x_range = ranges.get(&x).copied().unwrap_or(Top);
 
     // We need y to be a known constant for the simple refinement.

@@ -30,6 +30,7 @@ pub(super) fn process_terminator(
     iteration: usize,
     known_builtins: &KnownBuiltins,
     call_result_narrowings: &FxHashMap<ArcVarId, ValueRange>,
+    thresholds: &[i64],
 ) -> bool {
     let mut changed = false;
     match &block.terminator {
@@ -47,7 +48,7 @@ pub(super) fn process_terminator(
                 if let Some(&narrowing) = call_result_narrowings.get(dst) {
                     new_range = new_range.meet(narrowing);
                 }
-                changed |= update_range(ranges, *dst, new_range, iteration);
+                changed |= update_range(ranges, *dst, new_range, iteration, thresholds);
             }
         }
         ArcTerminator::Branch {
