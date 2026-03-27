@@ -339,6 +339,11 @@ The LLVM backend type resolution path via `TypeLayoutResolver` handles `MachineR
 
 ## 04.R Third Party Review Findings
 
+- [ ] `[TPR-04-019][medium]` `plans/repr-opt/section-04-integer-narrowing.md:184` `compiler/ori_llvm/src/codegen/type_info/layout_resolver.rs:340` `compiler/ori_llvm/tests/aot/narrowing.rs:46` — §04.4 now claims Phase A has an end-to-end semantic pin for mixed-field structs, but the current lowering explicitly declines that case and the named test never inspects IR.
+  Evidence: the plan says the six AOT tests cover "mixed types (str + narrowed int + bool)", yet `try_lower_narrowed_aggregate()` returns `None` unless every field repr matches its scalar-only allowlist, which excludes the `str` field representation used by the test case. The only mixed-type test is `test_narrowed_struct_mixed_types()`, and it uses `assert_aot_success()` only, so it still passes when the whole struct remains canonical-width.
+  Impact: Section 04 currently overstates Phase A coverage. Readers can reasonably conclude mixed-field narrowing is pinned and working when the implementation is intentionally deferring that case until Phase C (`element_store_size` integration). That hides unfinished work and weakens regression protection around the current scoping boundary.
+  Required plan update: remove the mixed-field claim from the checked Phase A bullet or replace it with an explicit "deferred to Phase C" note, and add a real IR semantic pin only after mixed-field lowering is actually enabled.
+
 - [x] `[TPR-04-017][high]` `compiler/oric/src/test/runner/llvm_backend.rs:252` `compiler/ori_types/src/check/mod.rs:923` `compiler/oric/src/commands/build/multi.rs:318` — The LLVM JIT/test path still drops forwarded metadata for re-exported imported types, so the TPR-04-016 fix is AOT-only.
   Resolved: Validated on 2026-03-27. Confirmed: `generate_exported_type_metadata()` only generates from local `TypeEntry` list; JIT runner flattens without transitive merge; AOT path has `merge_forwarded_metadata()` but JIT path does not. Accepted — implementation tasks added as CROSS-04-017 in §04.X.
 

@@ -77,9 +77,7 @@ pub fn list_targets(_filter: TargetFilter) {
     eprintln!("error: the 'targets' command requires the LLVM backend");
     eprintln!();
     eprintln!("The Ori compiler was built without LLVM support.");
-    eprintln!("To enable target listing, rebuild with the 'llvm' feature:");
-    eprintln!();
-    eprintln!("  cargo build --features llvm");
+    eprintln!("To enable target listing, reinstall Ori with LLVM support.");
     std::process::exit(1);
 }
 

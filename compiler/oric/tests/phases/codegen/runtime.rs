@@ -52,7 +52,7 @@ fn test_runtime_not_found_display() {
     assert!(msg.contains(RuntimeConfig::lib_name()));
     assert!(msg.contains("/path/1"));
     assert!(msg.contains("/path/2"));
-    assert!(msg.contains("cargo build -p ori_rt"));
+    assert!(msg.contains("Reinstall Ori"));
     assert!(msg.contains("--runtime-path"));
     // Should NOT mention env vars anymore
     assert!(!msg.contains("ORI_RT_PATH"));

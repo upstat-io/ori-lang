@@ -16,6 +16,7 @@ set -e
 
 REPO="upstat-io/ori-lang"
 INSTALL_DIR="${ORI_INSTALL_DIR:-$HOME/.local/bin}"
+LIB_DIR="${ORI_LIB_DIR:-$HOME/.local/lib}"
 STDLIB_DIR="${ORI_STDLIB_DIR:-$HOME/.local/share/ori/library}"
 BINARY_NAME="ori"
 
@@ -60,6 +61,7 @@ Options:
 
 Environment:
   ORI_INSTALL_DIR   Binary installation directory (default: ~/.local/bin)
+  ORI_LIB_DIR       Runtime library directory (default: ~/.local/lib)
   ORI_STDLIB_DIR    Standard library directory (default: ~/.local/share/ori/library)
 
 Examples:
@@ -258,6 +260,16 @@ Check available releases at:
     chmod +x "$INSTALLED_PATH"
 
     success "Installed ori to $INSTALLED_PATH"
+
+    # Install runtime library (required for `ori build`)
+    if [ -d "${TMP_DIR}/lib" ]; then
+        mkdir -p "$LIB_DIR"
+        cp "${TMP_DIR}"/lib/* "$LIB_DIR/"
+        success "Installed runtime library to $LIB_DIR"
+    else
+        warn "Runtime library not found in archive — 'ori build' will not work"
+        warn "You can still use 'ori run', 'ori check', and 'ori test'"
+    fi
 
     # Install standard library
     if [ -d "${TMP_DIR}/library" ]; then
