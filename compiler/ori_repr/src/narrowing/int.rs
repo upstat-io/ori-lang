@@ -35,7 +35,6 @@ pub fn narrow_struct_fields(plan: &mut ReprPlan, pool: &Pool) {
         return;
     }
 
-    let _ = pool; // Pool unused in Phase A; reserved for Phase B/C.
     let mut narrowed_count: u32 = 0;
 
     // Collect type indices that have Struct or Tuple reprs.
@@ -86,15 +85,31 @@ pub fn narrow_struct_fields(plan: &mut ReprPlan, pool: &Pool) {
                 if changed {
                     narrowed_count += 1;
                     let range_info = field_range_summary_string(idx, &struct_repr.fields, plan);
-                    plan.set_repr(
-                        idx,
-                        ReprDecision {
-                            source: DecisionSource::IntegerNarrowing,
-                            type_idx: idx,
-                            repr: MachineRepr::Struct(struct_repr),
-                            reason: DecisionReason::Custom(range_info),
-                        },
-                    );
+                    let repr = MachineRepr::Struct(struct_repr);
+                    let decision = ReprDecision {
+                        source: DecisionSource::IntegerNarrowing,
+                        type_idx: idx,
+                        repr: repr.clone(),
+                        reason: DecisionReason::Custom(range_info.clone()),
+                    };
+                    plan.set_repr(idx, decision);
+                    // Codegen canonicalizes via pool.resolve_fully() — if the
+                    // original idx (e.g., Named("Pixel")) resolves to a different
+                    // concrete idx (e.g., Struct(fields)), store the narrowed
+                    // decision there too. Without this, codegen queries the
+                    // resolved idx and finds the original canonical (I64) version.
+                    let resolved = pool.resolve_fully(idx);
+                    if resolved != idx {
+                        plan.set_repr(
+                            resolved,
+                            ReprDecision {
+                                source: DecisionSource::IntegerNarrowing,
+                                type_idx: resolved,
+                                repr,
+                                reason: DecisionReason::Custom(range_info),
+                            },
+                        );
+                    }
                 }
             }
             (CandidateKind::Tuple, MachineRepr::Tuple(mut tuple_repr)) => {
@@ -102,15 +117,26 @@ pub fn narrow_struct_fields(plan: &mut ReprPlan, pool: &Pool) {
                 if changed {
                     narrowed_count += 1;
                     let range_info = field_range_summary_string(idx, &tuple_repr.elements, plan);
-                    plan.set_repr(
-                        idx,
-                        ReprDecision {
-                            source: DecisionSource::IntegerNarrowing,
-                            type_idx: idx,
-                            repr: MachineRepr::Tuple(tuple_repr),
-                            reason: DecisionReason::Custom(range_info),
-                        },
-                    );
+                    let repr = MachineRepr::Tuple(tuple_repr);
+                    let decision = ReprDecision {
+                        source: DecisionSource::IntegerNarrowing,
+                        type_idx: idx,
+                        repr: repr.clone(),
+                        reason: DecisionReason::Custom(range_info.clone()),
+                    };
+                    plan.set_repr(idx, decision);
+                    let resolved = pool.resolve_fully(idx);
+                    if resolved != idx {
+                        plan.set_repr(
+                            resolved,
+                            ReprDecision {
+                                source: DecisionSource::IntegerNarrowing,
+                                type_idx: resolved,
+                                repr,
+                                reason: DecisionReason::Custom(range_info),
+                            },
+                        );
+                    }
                 }
             }
             _ => {}
