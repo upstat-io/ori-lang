@@ -217,7 +217,13 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             .builder
             .extract_value(val, field, &format!("proj.{field}"))
         {
-            self.def_var_repr(dst, extracted, func);
+            // §04.4: sign-extend narrowed int fields (i8/i16/i32) back to
+            // canonical width (i64) for computation. Only applies when the
+            // ARC IR destination expects i64 (Tag::Int) but the struct field
+            // is narrower due to integer narrowing.
+            let dst_ty = func.var_type(dst);
+            let widened = self.sext_narrowed_field(extracted, field, dst_ty);
+            self.def_var_repr(dst, widened, func);
         } else {
             // Fallback: GEP-based field access for heap-allocated types
             let val_ty = func.var_type(value);

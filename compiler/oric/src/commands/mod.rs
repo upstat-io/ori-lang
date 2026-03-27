@@ -29,6 +29,8 @@ mod debug;
 mod demangle;
 mod explain;
 mod fmt;
+#[cfg(feature = "llvm")]
+mod repr_setup;
 mod run;
 mod target;
 mod targets;

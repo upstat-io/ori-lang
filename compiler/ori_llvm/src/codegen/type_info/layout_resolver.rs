@@ -193,6 +193,9 @@ impl<'a, 'll, 'tcx> TypeLayoutResolver<'a, 'll, 'tcx> {
                     .into(),
             ),
             // Recursive types — require two-phase creation via TypeInfoStore.
+            // Narrowed Struct/Tuple types are handled in resolve_inner() by
+            // try_lower_narrowed_aggregate(), not here — that ensures only
+            // actually-narrowed structs bypass the named struct path.
             MachineRepr::Struct(_)
             | MachineRepr::Enum(_)
             | MachineRepr::Tuple(_)
@@ -222,15 +225,13 @@ impl<'a, 'll, 'tcx> TypeLayoutResolver<'a, 'll, 'tcx> {
             if let Some(llvm_ty) = self.try_repr_to_llvm_type(repr) {
                 return llvm_ty;
             }
-            // §04.4 (future): narrowed Struct/Tuple lowering.
-            // Phase A narrowing produces MachineRepr::Struct with narrowed
-            // FieldRepr widths, but codegen doesn't yet insert sext/trunc at
-            // struct construction and field extraction boundaries. Enabling
-            // try_lower_narrowed_aggregate() here without sext/trunc causes
-            // LLVM verification failures (i64 values inserted into i8 slots).
-            // The narrowed decisions are stored in ReprPlan for when codegen
-            // is ready to consume them.
-            // Recursive types fall through to TypeInfoStore.
+            // §04.4: If this is a narrowed Struct/Tuple (has int fields with
+            // width < I64 from integer narrowing), resolve directly using the
+            // narrowed FieldRepr widths. Non-narrowed structs fall through to
+            // TypeInfoStore's named struct path below.
+            if let Some(llvm_ty) = self.try_lower_narrowed_aggregate(repr) {
+                return llvm_ty;
+            }
         }
 
         let info = self.store.get(idx);
@@ -298,6 +299,51 @@ impl<'a, 'll, 'tcx> TypeLayoutResolver<'a, 'll, 'tcx> {
 
         self.cache.borrow_mut().insert(idx, result);
         result
+    }
+
+    /// Try to lower a narrowed Struct/Tuple from the `ReprPlan` to an LLVM type.
+    ///
+    /// Returns `Some` only if the aggregate has at least one narrowed int field
+    /// (`MachineRepr::Int { width != I64 }`) and all field types can be resolved
+    /// without recursive type resolution. Non-narrowed aggregates return `None`
+    /// to preserve the existing named-struct creation path.
+    fn try_lower_narrowed_aggregate(
+        &self,
+        repr: &ori_repr::MachineRepr,
+    ) -> Option<BasicTypeEnum<'ll>> {
+        use ori_repr::MachineRepr;
+
+        let fields = match repr {
+            MachineRepr::Struct(s) => &s.fields[..],
+            MachineRepr::Tuple(t) => &t.elements[..],
+            _ => return None,
+        };
+
+        // Only enter the narrowed path if at least one field was actually
+        // narrowed. The canonical (non-narrowed) path for all int fields is
+        // Int { width: I64, signed: true }. Any Int with width < I64 must
+        // have come from the §04 narrowing pass — natural narrow types
+        // (Byte, Char, Bool) use their own MachineRepr variants.
+        let has_narrowed = fields.iter().any(|f| {
+            matches!(
+                f.repr,
+                MachineRepr::Int {
+                    width,
+                    ..
+                } if width != ori_repr::IntWidth::I64
+            )
+        });
+        if !has_narrowed {
+            return None;
+        }
+
+        // Resolve all field types. If any field can't be resolved (nested
+        // Struct/Enum), return None to fall through to TypeInfoStore.
+        let field_types: Option<Vec<BasicTypeEnum<'ll>>> = fields
+            .iter()
+            .map(|f| self.try_repr_to_llvm_type(&f.repr))
+            .collect();
+        field_types.map(|ft| self.scx.type_struct(&ft, false).into())
     }
 
     /// Resolve a struct type with two-phase creation for cycle safety.
