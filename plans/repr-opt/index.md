@@ -112,7 +112,7 @@ range_add, range_sub, range_mul, range_literal, transfer_primop
 ---
 
 ### Section 04: Integer Narrowing Pipeline
-**File:** `section-04-integer-narrowing.md` | **Status:** Not Started
+**File:** `section-04-integer-narrowing.md` | **Status:** In Progress
 
 ```
 integer narrowing, int → i32, int → i16, int → i8
