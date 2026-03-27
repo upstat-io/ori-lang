@@ -27,8 +27,10 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
         match ctor {
             CtorKind::Struct(_) | CtorKind::Tuple => {
-                // Build a struct value from fields
-                self.builder.build_struct(llvm_ty, &arg_vals, "ctor")
+                // §04.4: truncate canonical-width (i64) values to narrowed
+                // field width (i8/i16/i32) when the struct has narrowed fields.
+                let narrowed_args = self.trunc_for_narrowed_struct(llvm_ty, &arg_vals, ty);
+                self.builder.build_struct(llvm_ty, &narrowed_args, "ctor")
             }
 
             CtorKind::EnumVariant { variant, .. } => {

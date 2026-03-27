@@ -53,6 +53,16 @@ pub fn narrow_struct_fields(plan: &mut ReprPlan, pool: &Pool) {
         .collect();
 
     for (idx, kind) in candidates {
+        // Phase A: skip tuples — only narrow named structs.
+        // Tuples are used as collection elements, iterator state, and
+        // intermediate values where element_store_size() / elem_dec_fn
+        // assume canonical field widths. Tuple narrowing requires Phase C
+        // element_store_size integration (§04.4).
+        if matches!(kind, CandidateKind::Tuple) {
+            tracing::trace!(?idx, "skipping narrowing — tuple (Phase C)");
+            continue;
+        }
+
         // Skip types with ABI-fixed layout attributes.
         if has_fixed_layout_attr(plan, idx) {
             tracing::trace!(?idx, "skipping narrowing — fixed layout attribute");

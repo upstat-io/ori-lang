@@ -571,7 +571,10 @@ fn already_narrow_field_untouched() {
 // ────────────────────────────────────────────────────
 
 #[test]
-fn tuple_elements_narrowed() {
+fn tuple_elements_not_narrowed_phase_a() {
+    // Phase A: tuples are skipped — they're used as collection elements,
+    // iterator state, and intermediate values where element_store_size()
+    // assumes canonical field widths. Tuple narrowing is Phase C.
     let pool = Pool::new();
     let mut plan = ReprPlan::new(NarrowingPolicy::Aggressive);
 
@@ -589,15 +592,16 @@ fn tuple_elements_narrowed() {
 
     narrow_struct_fields(&mut plan, &pool);
 
+    // Tuple fields stay at I64 (canonical) — not narrowed in Phase A.
     assert_eq!(
         tuple_element_width(&plan, idx, 0),
-        Some(IntWidth::I8),
-        "tuple element 0 should narrow to i8"
+        Some(IntWidth::I64),
+        "tuple element 0 should stay i64 (Phase A skips tuples)"
     );
     assert_eq!(
         tuple_element_width(&plan, idx, 1),
-        Some(IntWidth::I16),
-        "tuple element 1 should narrow to i16"
+        Some(IntWidth::I64),
+        "tuple element 1 should stay i64 (Phase A skips tuples)"
     );
 }
 
