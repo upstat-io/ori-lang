@@ -35,23 +35,22 @@ CanExpr → lower → ArcFunction
   Interprocedural (once):
     1. analyze_program()         — MemoryContract per function (SCC fixpoint)
     2. apply_ownership()         — Populate ArcParam.ownership
-  Per-function (steps 3–14):
+  Per-function (steps 3–12):
     3. compute_var_reprs()       — ValueRepr per variable
-    4. emit_arg_ownership()      — Apply/Invoke arg_ownership
-    5. analyze_function()        — Backward dataflow → AimsStateMap
-    6. emit_rc_ops()             — RcInc/RcDec from state map
-    7. emit_reuse()              — Reset/Reuse from state map
-    9. verify()                  — ARC IR sanity check
-   9a. run_aims_verify()         — AIMS-specific: contract vs IR consistency
-   10. detect/rewrite tail calls — CFG optimization
-   11. merge_blocks()            — CFG cleanup
-  11a. compute_aims_cow_annotations() — COW from state map (post-merge, ArcVarId lookup)
-   12. compute_aims_drop_hints()      — Drop hints from state map (post-merge, ArcVarId lookup)
-   13. verify()                       — Final sanity check
-   14. check_fbip_enforcement()       — Read-only diagnostic
+   3a. normalize_function()      — TRMC context region detection
+    4. analyze_function()        — Backward dataflow → converged AimsStateMap
+    5. realize_rc_reuse()        — Phase 1: RC + reuse + arg_ownership (pre-merge)
+   5a. verify_fip_contract()     — FIP enforcement verification
+    6. verify()                  — ARC IR sanity check
+    7. run_aims_verify()         — AIMS contract vs IR consistency
+    8. detect/rewrite tail calls — CFG optimization
+    9. merge_blocks()            — CFG cleanup
+   10. realize_annotations()     — Phase 2: COW + drop hints (post-merge)
+   11. verify()                  — Final sanity check
+   12. FBIP enforcement          — Read-only diagnostic
 ```
 
-Key constraint: steps 11a–12 use `AimsStateMap` via ArcVarId-keyed lookups (`var_state_at_block_entry`), not the position-keyed `entry_states`/`exit_states` maps (invalidated by merge_blocks). The state map is accessed by walking the post-merge IR block indices and using those as block IDs into the pre-merge state map — this works because merge_blocks() preserves entry block IDs.
+Key constraint: step 10 uses `AimsStateMap` via ArcVarId-keyed lookups (`var_state_at_block_entry`), not the position-keyed `entry_states`/`exit_states` maps (invalidated by merge_blocks). The state map is accessed by walking the post-merge IR block indices and using those as block IDs into the pre-merge state map — this works because merge_blocks() preserves entry block IDs.
 
 ### Entry Points
 
@@ -160,8 +159,8 @@ Source: `ori_ir/src/builtin_constants/protocol/mod.rs`
   - `PossibleRef` after monomorphization → compiler bug
 - **Pipeline ordering** — AIMS pipeline step order is load-bearing:
   - `analyze_program()` (interprocedural) must run before any per-function steps
-  - `analyze_function()` (step 5) must run before `emit_rc_ops()` (step 6) — state map drives emission
-  - `compute_aims_cow_annotations()` and `compute_aims_drop_hints()` must run AFTER `merge_blocks()` — they access `AimsStateMap` via ArcVarId-keyed lookups; position-keyed state map fields are stale after merge
+  - `analyze_function()` (step 4) must run before `realize_rc_reuse()` (step 5) — state map drives emission
+  - `realize_annotations()` (step 10) must run AFTER `merge_blocks()` (step 9) — it accesses `AimsStateMap` via ArcVarId-keyed lookups; position-keyed state map fields are stale after merge
   - Position-keyed state maps (`entry_states`, `exit_states`, `instr_states`) are invalid after `merge_blocks()` — never query them post-merge
   - Do NOT add passes without updating the pipeline. Do NOT call out of order.
 
