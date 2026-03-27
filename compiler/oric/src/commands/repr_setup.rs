@@ -32,6 +32,10 @@ pub(super) fn collect_all_arc_functions(
 /// then runs the repr plan computation pipeline (§01 canonical reprs, §03 range
 /// analysis, §04 integer narrowing).
 ///
+/// `imported_type_metadata` carries repr/pub metadata from imported modules,
+/// enabling the repr plan to correctly exempt imported `pub` and `#repr(...)`
+/// types from integer narrowing. See CROSS-04-014.
+///
 /// Must run AFTER borrow inference (accepts `ArcFunction`s for §03 range analysis)
 /// and BEFORE codegen (`TypeLayoutResolver` and `TypeInfoStore` read the plan).
 pub(super) fn compute_module_repr_plan(
@@ -40,6 +44,7 @@ pub(super) fn compute_module_repr_plan(
     narrowing_policy: ori_repr::NarrowingPolicy,
     type_result: &TypeCheckResult,
     interner: Option<&StringInterner>,
+    imported_type_metadata: &[ori_types::ExportedTypeMetadata],
 ) -> ori_repr::ReprPlan {
     // Extract #repr attributes from typed module for the repr plan.
     let repr_attrs: Vec<(Idx, ReprAttrKind)> = type_result
@@ -66,5 +71,6 @@ pub(super) fn compute_module_repr_plan(
         &repr_attrs,
         interner,
         &pub_type_indices,
+        imported_type_metadata,
     )
 }

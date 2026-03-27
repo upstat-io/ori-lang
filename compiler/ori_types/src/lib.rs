@@ -40,8 +40,9 @@ pub use item::Item;
 pub use lifetime::LifetimeId;
 pub use ori_ir::{PatternKey, PatternResolution};
 pub use output::{
-    ConstParamInfo, ConstValue, DeferredMonoCall, DeferredVarBinding, EffectClass, FnWhereClause,
-    FunctionSig, GenericArg, MonoInstance, TypeCheckResult, TypedModule,
+    ConstParamInfo, ConstValue, DeferredMonoCall, DeferredVarBinding, EffectClass,
+    ExportedTypeMetadata, FnWhereClause, FunctionSig, GenericArg, MonoInstance, TypeCheckResult,
+    TypedModule,
 };
 pub use pool::{
     extract_var_from_types, re_intern_sig, re_intern_type, substitute_in_pool, EnumVariant, Pool,

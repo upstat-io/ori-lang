@@ -10,6 +10,7 @@ use crate::ReprAttribute;
 use crate::ReprPlan;
 
 use ori_ir::Name;
+use ori_types::ExportedTypeMetadata;
 
 // ── IntWidth / FloatWidth ───────────────────────────────────────────
 
@@ -2933,6 +2934,7 @@ fn pub_type_propagates_to_resolved_struct_idx() {
         &[],
         None,
         &[named_idx],
+        &[],
     );
 
     assert!(
@@ -3035,6 +3037,7 @@ fn pub_resolved_idx_not_narrowed_semantic_pin() {
         &[],
         None,
         &[named_idx],
+        &[],
     );
 
     // Manually add field ranges.
@@ -3138,6 +3141,7 @@ fn pub_type_propagates_through_applied_to_concrete_struct() {
         &[],
         None,
         &[named_idx],
+        &[],
     );
 
     assert!(plan.is_public_type(named_idx));
@@ -3224,6 +3228,7 @@ fn pub_applied_concrete_struct_not_narrowed_semantic_pin() {
         &[],
         None,
         &[named_idx],
+        &[],
     );
 
     plan.join_field_range(mono_struct_idx, 0, ValueRange::Bounded { lo: 0, hi: 10 });
@@ -3320,6 +3325,7 @@ fn multiple_applied_instantiations_all_protected() {
         &repr_attrs,
         None,
         &[named_idx],
+        &[],
     );
 
     // Both monomorphized structs must have repr and pub
@@ -3327,4 +3333,247 @@ fn multiple_applied_instantiations_all_protected() {
     assert_eq!(plan.repr_attr(mono_2), Some(&ReprAttribute::C));
     assert!(plan.is_public_type(mono_1));
     assert!(plan.is_public_type(mono_2));
+}
+
+// CROSS-04-014: Imported type metadata tests
+
+#[test]
+fn imported_pub_type_seeded_via_metadata() {
+    // CROSS-04-014: A type present in the pool (as if imported via type descriptors)
+    // with ExportedTypeMetadata marking it `is_public: true` must be protected
+    // from narrowing, even though it is NOT in the local module's pub_type_indices.
+    let mut pool = ori_types::Pool::new();
+    let type_name = Name::new(0, 900);
+    let field_x = Name::new(0, 901);
+
+    let struct_idx = pool.struct_type(type_name, &[(field_x, Idx::INT)]);
+    let struct_hash = pool.hash(struct_idx);
+
+    // Simulate imported metadata — the type is public in its originating module.
+    let imported_meta = vec![ExportedTypeMetadata {
+        merkle_hash: struct_hash,
+        repr: None,
+        is_public: true,
+    }];
+
+    let plan = crate::compute_repr_plan_with_interner(
+        &pool,
+        &[],
+        NarrowingPolicy::Aggressive,
+        &[], // No local repr attrs
+        None,
+        &[], // No local pub types
+        &imported_meta,
+    );
+
+    assert!(
+        plan.is_public_type(struct_idx),
+        "CROSS-04-014: imported pub type must be seeded as public via metadata"
+    );
+}
+
+#[test]
+fn imported_repr_c_type_seeded_via_metadata() {
+    // CROSS-04-014: A type present in the pool with ExportedTypeMetadata
+    // carrying `repr: Some(ReprAttrKind::C)` must have its repr attr seeded
+    // in the plan, even without local repr_attrs.
+    let mut pool = ori_types::Pool::new();
+    let type_name = Name::new(0, 910);
+    let field_x = Name::new(0, 911);
+
+    let struct_idx = pool.struct_type(type_name, &[(field_x, Idx::INT)]);
+    let struct_hash = pool.hash(struct_idx);
+
+    let imported_meta = vec![ExportedTypeMetadata {
+        merkle_hash: struct_hash,
+        repr: Some(ori_ir::ReprAttrKind::C),
+        is_public: false,
+    }];
+
+    let plan = crate::compute_repr_plan_with_interner(
+        &pool,
+        &[],
+        NarrowingPolicy::Aggressive,
+        &[], // No local repr attrs
+        None,
+        &[], // No local pub types
+        &imported_meta,
+    );
+
+    assert_eq!(
+        plan.repr_attr(struct_idx),
+        Some(&ReprAttribute::C),
+        "CROSS-04-014: imported #repr(\"c\") type must have repr attr seeded via metadata"
+    );
+}
+
+#[test]
+fn imported_pub_type_not_narrowed_semantic_pin() {
+    // CROSS-04-014 SEMANTIC PIN: An imported pub struct with bounded fields
+    // must NOT be narrowed. This test ONLY passes with imported metadata seeding.
+    use crate::narrowing::int::narrow_struct_fields;
+
+    let mut pool = ori_types::Pool::new();
+    let type_name = Name::new(0, 920);
+    let field_x = Name::new(0, 921);
+
+    let struct_idx = pool.struct_type(type_name, &[(field_x, Idx::INT)]);
+    let struct_hash = pool.hash(struct_idx);
+
+    let imported_meta = vec![ExportedTypeMetadata {
+        merkle_hash: struct_hash,
+        repr: None,
+        is_public: true,
+    }];
+
+    let mut plan = crate::compute_repr_plan_with_interner(
+        &pool,
+        &[],
+        NarrowingPolicy::Aggressive,
+        &[],
+        None,
+        &[], // No local pub types — only imported metadata
+        &imported_meta,
+    );
+
+    // Add field range that would normally trigger narrowing.
+    plan.join_field_range(struct_idx, 0, ValueRange::Bounded { lo: 0, hi: 10 });
+
+    // Run narrowing.
+    narrow_struct_fields(&mut plan, &pool);
+
+    // The struct must NOT be narrowed — it's public via imported metadata.
+    match plan.get_repr(struct_idx) {
+        Some(MachineRepr::Struct(s)) => {
+            assert_eq!(
+                s.fields[0].repr,
+                MachineRepr::Int {
+                    width: IntWidth::I64,
+                    signed: true,
+                },
+                "CROSS-04-014 semantic pin: imported pub struct must NOT be narrowed"
+            );
+        }
+        other => panic!("expected Struct repr, got {other:?}"),
+    }
+}
+
+#[test]
+fn imported_repr_c_type_not_narrowed_semantic_pin() {
+    // CROSS-04-014 SEMANTIC PIN: An imported #repr("c") struct with bounded
+    // fields must NOT be narrowed. This test ONLY passes with imported metadata.
+    use crate::narrowing::int::narrow_struct_fields;
+
+    let mut pool = ori_types::Pool::new();
+    let type_name = Name::new(0, 930);
+    let field_x = Name::new(0, 931);
+
+    let struct_idx = pool.struct_type(type_name, &[(field_x, Idx::INT)]);
+    let struct_hash = pool.hash(struct_idx);
+
+    let imported_meta = vec![ExportedTypeMetadata {
+        merkle_hash: struct_hash,
+        repr: Some(ori_ir::ReprAttrKind::C),
+        is_public: false,
+    }];
+
+    let mut plan = crate::compute_repr_plan_with_interner(
+        &pool,
+        &[],
+        NarrowingPolicy::Aggressive,
+        &[],
+        None,
+        &[],
+        &imported_meta,
+    );
+
+    // Add field range that would normally trigger narrowing.
+    plan.join_field_range(struct_idx, 0, ValueRange::Bounded { lo: 0, hi: 10 });
+
+    // Run narrowing.
+    narrow_struct_fields(&mut plan, &pool);
+
+    // The struct must NOT be narrowed — it has #repr("c") via imported metadata.
+    match plan.get_repr(struct_idx) {
+        Some(MachineRepr::Struct(s)) => {
+            assert_eq!(
+                s.fields[0].repr,
+                MachineRepr::Int {
+                    width: IntWidth::I64,
+                    signed: true,
+                },
+                "CROSS-04-014 semantic pin: imported #repr(\"c\") struct must NOT be narrowed"
+            );
+        }
+        other => panic!("expected Struct repr, got {other:?}"),
+    }
+}
+
+#[test]
+fn no_imported_metadata_allows_narrowing() {
+    // CROSS-04-014 NEGATIVE TEST: Without imported metadata, a struct with
+    // bounded fields IS narrowed. This proves the semantic pins above are
+    // testing the right thing — they would fail without the metadata.
+    use crate::narrowing::int::narrow_struct_fields;
+
+    let mut pool = ori_types::Pool::new();
+    let type_name = Name::new(0, 940);
+    let field_x = Name::new(0, 941);
+
+    let struct_idx = pool.struct_type(type_name, &[(field_x, Idx::INT)]);
+
+    let mut plan = crate::compute_repr_plan_with_interner(
+        &pool,
+        &[],
+        NarrowingPolicy::Aggressive,
+        &[],
+        None,
+        &[], // No pub types
+        &[], // No imported metadata
+    );
+
+    // Add field range that triggers narrowing.
+    plan.join_field_range(struct_idx, 0, ValueRange::Bounded { lo: 0, hi: 10 });
+
+    // Run narrowing.
+    narrow_struct_fields(&mut plan, &pool);
+
+    // Without any protection, the struct IS narrowed to i8.
+    match plan.get_repr(struct_idx) {
+        Some(MachineRepr::Struct(s)) => {
+            assert_eq!(
+                s.fields[0].repr,
+                MachineRepr::Int {
+                    width: IntWidth::I8,
+                    signed: true,
+                },
+                "Negative test: unprotected struct must be narrowed to i8"
+            );
+        }
+        other => panic!("expected Struct repr, got {other:?}"),
+    }
+}
+
+#[test]
+fn imported_metadata_hash_not_in_pool_ignored() {
+    // CROSS-04-014 EDGE CASE: Imported metadata with a hash that doesn't
+    // exist in the local pool is silently ignored (no panic, no effect).
+    let pool = ori_types::Pool::new();
+
+    let imported_meta = vec![ExportedTypeMetadata {
+        merkle_hash: 0xDEAD_BEEF_CAFE_1234,
+        repr: Some(ori_ir::ReprAttrKind::C),
+        is_public: true,
+    }];
+
+    // This must not panic.
+    let _plan = crate::compute_repr_plan_with_interner(
+        &pool,
+        &[],
+        NarrowingPolicy::Aggressive,
+        &[],
+        None,
+        &[],
+        &imported_meta,
+    );
 }

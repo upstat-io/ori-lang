@@ -312,6 +312,7 @@ pub(super) fn run_codegen_pipeline<'ctx>(
             narrowing_policy,
             type_result,
             Some(interner),
+            &[], // Single-module AOT: no imported type metadata
         );
 
         // Create type store with repr plan for triviality delegation (§02 Phase B).
