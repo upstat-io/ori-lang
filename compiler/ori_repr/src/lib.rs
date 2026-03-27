@@ -33,6 +33,7 @@ mod canonical;
 mod enum_repr;
 pub mod escape;
 mod layout;
+pub mod narrowing;
 mod plan;
 pub mod range;
 mod repr;
@@ -212,7 +213,13 @@ fn analyze_ranges(
 }
 
 /// §04: Integer narrowing (i64 → i32/i16/i8 when range fits).
-fn apply_integer_narrowing(_plan: &mut ReprPlan, _pool: &Pool) {}
+///
+/// Phase A: Struct/tuple field narrowing from field-range summaries.
+/// Phase B (future §04.2–§04.3): Local variable narrowing + overflow guards.
+/// Phase C (future §04.4): Collection element narrowing.
+fn apply_integer_narrowing(plan: &mut ReprPlan, pool: &Pool) {
+    narrowing::int::narrow_struct_fields(plan, pool);
+}
 
 /// §05: Float narrowing (f64 → f32 when precision is exact).
 fn apply_float_narrowing(_plan: &mut ReprPlan, _pool: &Pool) {}

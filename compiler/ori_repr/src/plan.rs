@@ -237,6 +237,14 @@ impl ReprPlan {
         });
     }
 
+    /// Iterate over all type indices that have a stored representation decision.
+    ///
+    /// Used by narrowing passes (§04) to find struct/tuple types to narrow
+    /// without depending on pool iteration order.
+    pub fn decision_indices(&self) -> impl Iterator<Item = Idx> + '_ {
+        self.decisions.keys().copied()
+    }
+
     /// Dump the audit trail for debugging.
     ///
     /// Returns a human-readable string with all decisions in insertion order.
