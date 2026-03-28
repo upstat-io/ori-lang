@@ -75,6 +75,7 @@ impl<'tcx> super::OwnedLLVMEvaluator<'tcx> {
         mut arc_cache: FxHashMap<Name, (ori_arc::ArcFunction, Vec<ori_arc::ArcFunction>)>,
         narrowing_policy: Option<ori_repr::NarrowingPolicy>,
         imported_type_metadata: &[ori_types::ExportedTypeMetadata],
+        trait_impl_fn_names: &[Name],
     ) -> Result<CompiledTestModule<'a>, LLVMEvalError> {
         // --- V2 pipeline ---
 
@@ -113,6 +114,7 @@ impl<'tcx> super::OwnedLLVMEvaluator<'tcx> {
                 &mut arc_cache,
                 narrowing_policy,
                 imported_type_metadata,
+                trait_impl_fn_names,
             )
         };
 
@@ -151,6 +153,7 @@ impl<'tcx> super::OwnedLLVMEvaluator<'tcx> {
         arc_cache: &mut FxHashMap<Name, (ori_arc::ArcFunction, Vec<ori_arc::ArcFunction>)>,
         narrowing_policy: Option<ori_repr::NarrowingPolicy>,
         imported_type_metadata: &[ori_types::ExportedTypeMetadata],
+        trait_impl_fn_names: &[Name],
     ) -> (FxHashMap<Name, String>, u32, Vec<String>) {
         // Type infrastructure
         let classifier = ori_arc::ArcClassifier::new(self.pool);
@@ -180,8 +183,9 @@ impl<'tcx> super::OwnedLLVMEvaluator<'tcx> {
             .map(|te| te.idx)
             .collect();
         // Collect unconstrained function names (pub + trait impl) for §03.5.
+        // Uses trait_impl_fn_names (not all impl_sigs) per TPR-03-038.
         let unconstrained_fn_names: Vec<ori_ir::Name> =
-            crate::collect_unconstrained_fn_names(function_sigs, impl_sigs);
+            crate::collect_unconstrained_fn_names(function_sigs, trait_impl_fn_names);
         let repr_plan = ori_repr::compute_repr_plan_with_interner(
             self.pool,
             &all_arc_funcs,
