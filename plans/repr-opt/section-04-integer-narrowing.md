@@ -6,7 +6,7 @@ reviewed: true
 third_party_review:
   status: resolved
   updated: 2026-03-27
-  triage_note: "All TPR findings resolved. TPR-04-018→IR-PIN-04-018, TPR-04-019→MIXED-PIN-04-019, TPR-04-020→DERIVE-PIN-04-020, TPR-04-021 resolved 2026-03-27. TPR-04-017→CROSS-04-017 accepted as follow-up work in §04.X. TPR-04-022 resolved 2026-03-27: removed stale Debug known_gap from enforcement test."
+  triage_note: "All TPR findings resolved. TPR-04-023 accepted: straight-line local narrowing tasks added to Phase B. Prior: TPR-04-018→IR-PIN-04-018, TPR-04-019→MIXED-PIN-04-019, TPR-04-020→DERIVE-PIN-04-020, TPR-04-021 (Debug str leak), TPR-04-022 (stale Debug known_gap). CROSS-04-017 remains accepted follow-up in §04.X."
 goal: "Lower int (semantic i64) to the smallest machine integer (i8/i16/i32) that preserves correctness, saving memory in struct fields, collections, and stack slots"
 inspired_by:
   - "Zig comptime_int narrowing to runtime types (src/Sema.zig)"
@@ -279,6 +279,8 @@ The LLVM backend type resolution path via `TypeLayoutResolver` handles `MachineR
 - [ ] ABI boundary widening: `sext` visible at function entry (param → narrow local) and at return (narrow local → canonical) in LLVM IR
 - [ ] Closure-captured ints stay canonical-width in the closure environment unless a separate closure-layout contract lands with its own tests
 - [ ] Semantic pin for Phase B: a loop counter `i` in `for i in 0..100` produces an `i8` local variable in LLVM IR — no `i64` alloca for `i`
+- [ ] Straight-line local narrowing: `let x = 200; let y = x + 1` produces narrowed local types (not `i64`) for `x` and `y` — `def_var_repr()` must truncate incoming values to narrowed width at definition site, and `var()` must sign-extend when the narrowed value is used (from TPR-04-023)
+- [ ] IR semantic pin for straight-line local: `let x = 200; let y = x + 1; id(x: y)` shows `trunc`/`sext` for locals — this test can ONLY pass once non-phi local narrowing is implemented (from TPR-04-023)
 
 **Phase B — Overflow guard insertion:**
 - [x] `can_overflow(BinaryOp::Add, lhs, rhs, target)` returns `true` when result range exceeds target width (2026-03-27): `add_overflows_i8`, `add_fits_in_i16_not_i8` tests
@@ -346,6 +348,12 @@ The LLVM backend type resolution path via `TypeLayoutResolver` handles `MachineR
 ---
 
 ## 04.R Third Party Review Findings
+
+- [x] `[TPR-04-023][medium]` `compiler/ori_llvm/src/codegen/arc_emitter/emit_function.rs:321` `compiler/ori_llvm/src/codegen/arc_emitter/terminators.rs:96` `compiler/ori_llvm/src/codegen/arc_emitter/emitter_utils.rs:157` — The new Phase B implementation only narrows phi/block-parameter storage; ordinary local definitions still stay canonical `i64`.
+  Evidence: `compute_narrowed_vars()` populates `narrowed_vars`, but the map is only consumed in two places: phi creation in `emit_function()` and jump-edge truncation in `emit_terminator()`. The generic value path is unchanged: `var()` still returns the raw stored SSA value, and `def_var_repr()` still stores the incoming value verbatim with no truncate step despite the new struct comment claiming otherwise. Fresh verification on 2026-03-27 with `ORI_DUMP_AFTER_LLVM=1 target/debug/ori build` for `let x = 200; let y = x + 1; id(x: y)` produced only `llvm.sadd.with.overflow.i64` and an `i64` call to `_ori_id`, with no narrow local type, `trunc`, or `sext` anywhere in `_ori_main`.
+  Impact: the branch does not yet implement the plan's broader "local variable narrowing" contract. Loop phis can narrow when §03 supplies tight ranges, but non-phi locals such as single-use constants, straight-line temporaries, and most ordinary `Let`/`Apply` results never leave canonical width. That leaves §04.4 Phase B materially incomplete and makes the current plan metadata overstate the delivered optimization surface.
+  Required plan update: either scope §04.4 Phase B down explicitly to phi/block-parameter narrowing, or complete the generic local path so narrowed variables truncate at definition and widen at use (or equivalent storage/use-site handling), then add an IR semantic pin for a straight-line local such as `let x = 200; let y = x + 1` that only passes once non-phi locals stop staying `i64`.
+  Resolved: Accepted on 2026-03-27. Finding is factually correct — non-phi locals are not yet narrowed. Added two concrete Phase B tasks in §04.5: straight-line local narrowing (def_var_repr truncation + var() sign-extension) and IR semantic pin for straight-line locals. Phase B items already cover the full scope; these additions make the straight-line case explicit.
 
 - [x] `[TPR-04-022][low]` `compiler/ori_llvm/tests/aot/derives.rs:20` `compiler/ori_llvm/src/codegen/derive_codegen/mod.rs:143` `compiler/ori_llvm/tests/aot/derives.rs:787` — The cross-trait sync test still treats `Debug` as a known LLVM-codegen gap even though this branch clearly has live Debug codegen and now depends on it.
   Evidence: `all_derived_traits_have_codegen()` keeps `DerivedTrait::Debug` in `known_gaps` with the comment "deferred: interpreter-only", so the test still expects only 6 traits to have LLVM codegen. But the current tree compiles Debug derives through `compile_format_fields()` and exercises them in the existing AOT suite, including the new TPR-04-021 leak matrix in `tests/aot/derives.rs`. Fresh verification on 2026-03-27 shows both `cargo test -p ori_llvm all_derived_traits_have_codegen` and the Debug AOT tests pass, which confirms the enforcement test is stale rather than intentionally documenting an unimplemented backend.
