@@ -65,8 +65,10 @@ pub(super) fn compute_module_repr_plan(
         .collect();
 
     // Collect unconstrained function names (pub + trait impl) for §03.5.
-    let unconstrained_fn_names =
-        collect_unconstrained_fn_names(&type_result.typed.functions, &type_result.typed.impl_sigs);
+    let unconstrained_fn_names = collect_unconstrained_fn_names(
+        &type_result.typed.functions,
+        &type_result.typed.trait_impl_fn_names,
+    );
 
     ori_repr::compute_repr_plan_with_interner(
         pool,
@@ -84,9 +86,11 @@ pub(super) fn compute_module_repr_plan(
 ///
 /// These functions may be called from external code or via dynamic dispatch,
 /// so §03.5 interprocedural range analysis must assign Top to their parameters.
+/// Only trait impl methods are included — inherent impl methods have known
+/// call sites and can be narrowed (TPR-03-038).
 pub(super) fn collect_unconstrained_fn_names(
     function_sigs: &[ori_types::FunctionSig],
-    impl_sigs: &[(oric::ir::Name, ori_types::FunctionSig)],
+    trait_impl_fn_names: &[oric::ir::Name],
 ) -> Vec<oric::ir::Name> {
     let mut names = Vec::new();
     // Public top-level functions — external callers may pass any value.
@@ -95,9 +99,8 @@ pub(super) fn collect_unconstrained_fn_names(
             names.push(sig.name);
         }
     }
-    // Trait impl methods — may be called via dynamic dispatch.
-    for (name, _sig) in impl_sigs {
-        names.push(*name);
-    }
+    // Trait impl methods only — may be called via dynamic dispatch.
+    // Inherent impl methods are NOT included (TPR-03-038).
+    names.extend_from_slice(trait_impl_fn_names);
     names
 }
