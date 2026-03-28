@@ -57,7 +57,7 @@ ori_eval, ori_patterns
 ---
 
 ### Section 04: Codegen & LLVM
-**File:** `section-04-codegen-llvm.md` | **Status:** No Open Bugs
+**File:** `section-04-codegen-llvm.md` | **Status:** 1 Open Bug
 
 ```
 codegen, LLVM, IR, JIT, AOT
@@ -93,7 +93,7 @@ library/std, ori_registry
 ---
 
 ### Section 07: Tooling & CLI
-**File:** `section-07-tooling-cli.md` | **Status:** No Open Bugs
+**File:** `section-07-tooling-cli.md` | **Status:** 1 Open Bug
 
 ```
 CLI, tooling, formatter, test runner
