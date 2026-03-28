@@ -69,6 +69,7 @@ pub(super) fn compute_module_repr_plan(
     let unconstrained_fn_names = collect_unconstrained_fn_names(
         &type_result.typed.functions,
         &type_result.typed.trait_impl_fn_names,
+        interner,
     );
 
     ori_repr::compute_repr_plan_with_interner(
@@ -96,6 +97,7 @@ pub(super) fn compute_module_repr_plan(
 pub(super) fn collect_unconstrained_fn_names(
     function_sigs: &[ori_types::FunctionSig],
     trait_impl_fn_names: &[(ori_types::Idx, oric::ir::Name)],
+    interner: Option<&oric::ir::StringInterner>,
 ) -> Vec<(Option<ori_types::Idx>, oric::ir::Name)> {
     let mut names = Vec::new();
     // Public top-level functions — external callers may pass any value.
@@ -109,6 +111,14 @@ pub(super) fn collect_unconstrained_fn_names(
     // Carries self-type for disambiguation (TPR-03-042).
     for &(self_type, name) in trait_impl_fn_names {
         names.push((Some(self_type), name));
+        // Also register the qualified name used by analysis-only ARC functions
+        // (TPR-03-043). The qualified name format matches what codegen_pipeline
+        // uses when ARC-lowering impl methods for range analysis.
+        if let Some(interner) = interner {
+            let method_str = interner.lookup(name);
+            let qualified = interner.intern(&format!("__impl_{}_{method_str}", self_type.raw()));
+            names.push((None, qualified));
+        }
     }
     names
 }
