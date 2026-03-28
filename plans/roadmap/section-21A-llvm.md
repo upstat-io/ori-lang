@@ -1079,6 +1079,7 @@ ori_llvm/src/
 - [ ] Generic monomorphization not in ARC pipeline <!-- test: test_aot_generic_identity, test_aot_generic_pair -->
 - [ ] `catch(expr:)` not yet lowered through ARC pipeline <!-- test: test_aot_catch_basic, test_aot_catch_no_panic, test_aot_catch_nested -->
 - [ ] String interpolation produces wrong result <!-- test: test_aot_string_interpolation -->
+- [ ] `/tpr-review` passed — independent Codex review found no critical or major issues (or all findings triaged)
 
 Cross-references to existing items:
 - Generic monomorphization → § 21.7 (**CRITICAL** — blocks 2,472+ test call sites)

@@ -253,6 +253,7 @@ Evaluate whether finer-grained Salsa queries (per-function rather than per-file)
 - [ ] `./test-all.sh` green
 - [ ] Debug AND release builds pass: `timeout 150 cargo t -p oric --release`
 - [ ] If incremental parsing activated: behavioral equivalence verified (incremental parse output == full parse output for all test cases)
+- [ ] `/tpr-review` passed — independent Codex review found no critical or major issues (or all findings triaged)
 
 **Correctness verification:** Section 05.2 introduces a significant behavioral change -- the Salsa `parsed()` query will sometimes return incrementally-reparsed ASTs instead of fully-reparsed ASTs. These MUST be semantically equivalent. Testing strategy:
 

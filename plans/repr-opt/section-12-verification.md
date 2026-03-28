@@ -312,6 +312,7 @@ Run `/code-journey` to test the full pipeline end-to-end with progressively comp
 - [ ] All documentation updated
 - [ ] `./test-all.sh` green
 - [ ] `./clippy-all.sh` green
+- [ ] `/tpr-review` passed — independent Codex review found no critical or major issues (or all findings triaged)
 
 **Exit Criteria:** Running `./scripts/perf-compare.sh baseline.txt optimized.txt` shows:
 - Runtime: geometric mean ≥ 10% improvement across benchmark suite

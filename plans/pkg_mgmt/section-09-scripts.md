@@ -86,5 +86,6 @@ sections:
 - [ ] Shebang support
 - [ ] Stripped on publish
 - [ ] Run full test suite
+- [ ] `/tpr-review` passed — independent Codex review found no critical or major issues (or all findings triaged)
 
 **Exit Criteria**: `ori run` works like `npm run`

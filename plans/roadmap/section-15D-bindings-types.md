@@ -607,5 +607,6 @@ cursor.advance()   // cursor is updated via desugaring
 - [ ] CLAUDE.md updated with syntax changes
 - [ ] Migration tools working
 - [ ] All tests pass: `./test-all.sh`
+- [ ] `/tpr-review` passed — independent Codex review found no critical or major issues (or all findings triaged)
 
 **Exit Criteria**: Binding and type syntax proposals implemented
