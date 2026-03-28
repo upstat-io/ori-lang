@@ -205,8 +205,15 @@ pub fn propagate_ranges(
     );
 
     // Phase 4: Store results in ReprPlan.
-    for (name, result) in &results {
-        plan.set_var_ranges(*name, result.var_ranges.clone());
+    // Per-variable ranges are only stored when §04 narrowing is safe for codegen.
+    // The ARC emitter reads var_range() to insert trunc/sext for local variables —
+    // without §04.2 (ABI widening) and §04.3 (overflow guards), applying narrowed
+    // widths to locals is unsound. Field-range summaries are always stored because
+    // they are consumed by §04 itself, not by codegen directly.
+    if plan.is_integer_narrowing_safe_for_codegen() {
+        for (name, result) in &results {
+            plan.set_var_ranges(*name, result.var_ranges.clone());
+        }
     }
     for result in results.values() {
         result.field_summaries.flush_to_repr_plan(plan);
@@ -253,7 +260,13 @@ fn collect_param_ranges(
     // Check if this function is unconstrained — pub, trait impl, or closure.
     // Unconstrained functions may be called from external code or via dynamic
     // dispatch, so their parameter ranges must stay Top (full i64 range).
-    let unconstrained = if plan.is_unconstrained_fn(target_func.name) {
+    // Extract self-type from the first parameter to disambiguate same-named
+    // methods across different types (TPR-03-042).
+    let self_type = target_func
+        .params
+        .first()
+        .map(|p| target_func.var_type(p.var));
+    let unconstrained = if plan.is_unconstrained_fn(self_type, target_func.name) {
         Some(UnconstrainedReason::PublicOrTraitImpl)
     } else if target_func.num_captures > 0 {
         Some(UnconstrainedReason::Closure)

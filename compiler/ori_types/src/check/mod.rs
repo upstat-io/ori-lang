@@ -190,8 +190,9 @@ pub struct ModuleChecker<'a> {
     /// maps an impl method name to its resolved signature. Codegen needs
     /// these to compute ABI (calling convention, sret, parameter passing).
     impl_sigs: Vec<(Name, FunctionSig)>,
-    /// Names of trait impl methods (for §03.5 unconstrained function detection).
-    trait_impl_fn_names: Vec<Name>,
+    /// Trait impl method identities (for §03.5 unconstrained function detection).
+    /// Each entry is `(self_type_idx, method_name)` for disambiguation (TPR-03-042).
+    trait_impl_fn_names: Vec<(Idx, Name)>,
 
     // === Monomorphization ===
     /// Concrete generic function instantiations discovered during type checking.
@@ -397,8 +398,8 @@ impl<'a> ModuleChecker<'a> {
     /// Trait impl methods may be called via dynamic dispatch — their parameter
     /// ranges must stay Top in interprocedural range analysis. Inherent impl
     /// methods are NOT recorded (they have known call sites).
-    pub fn register_trait_impl_fn_name(&mut self, name: Name) {
-        self.trait_impl_fn_names.push(name);
+    pub fn register_trait_impl_fn_name(&mut self, self_type: Idx, name: Name) {
+        self.trait_impl_fn_names.push((self_type, name));
     }
 
     /// Accumulate mono instances from an inference engine pass.

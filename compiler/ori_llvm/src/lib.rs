@@ -76,26 +76,23 @@ pub use context::SimpleCx;
 pub use init::{init_tracing, install_fatal_error_handler};
 pub use inkwell;
 
-/// Collect function names whose parameters are unconstrained (pub or trait impl).
+/// Collect unconstrained function identities (pub or trait impl).
 ///
-/// These functions may be called from external code or via dynamic dispatch,
-/// so §03.5 interprocedural range analysis must assign Top to their parameters.
-/// Only trait impl methods are included — inherent impl methods have known
-/// call sites and can be narrowed (TPR-03-038).
+/// Returns `(Option<Idx>, Name)` pairs: `None` for pub top-level functions,
+/// `Some(self_type)` for trait impl methods (TPR-03-042 disambiguation).
 pub fn collect_unconstrained_fn_names(
     function_sigs: &[ori_types::FunctionSig],
-    trait_impl_fn_names: &[ori_ir::Name],
-) -> Vec<ori_ir::Name> {
+    trait_impl_fn_names: &[(ori_types::Idx, ori_ir::Name)],
+) -> Vec<(Option<ori_types::Idx>, ori_ir::Name)> {
     let mut names = Vec::new();
-    // Public top-level functions — external callers may pass any value.
     for sig in function_sigs {
         if sig.is_public {
-            names.push(sig.name);
+            names.push((None, sig.name));
         }
     }
-    // Trait impl methods only — may be called via dynamic dispatch.
-    // Inherent impl methods are NOT included (TPR-03-038).
-    names.extend_from_slice(trait_impl_fn_names);
+    for &(self_type, name) in trait_impl_fn_names {
+        names.push((Some(self_type), name));
+    }
     names
 }
 

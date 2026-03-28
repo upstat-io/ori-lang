@@ -81,7 +81,17 @@ pub fn compute_repr_plan(
     policy: NarrowingPolicy,
     repr_attrs: &[(Idx, ReprAttrKind)],
 ) -> ReprPlan {
-    compute_repr_plan_with_interner(pool, arc_functions, policy, repr_attrs, None, &[], &[], &[])
+    compute_repr_plan_with_interner(
+        pool,
+        arc_functions,
+        policy,
+        repr_attrs,
+        None,
+        &[],
+        &[],
+        &[],
+        false,
+    )
 }
 
 /// Compute the representation plan with access to the string interner.
@@ -109,9 +119,13 @@ pub fn compute_repr_plan_with_interner(
     interner: Option<&ori_ir::StringInterner>,
     pub_type_indices: &[Idx],
     imported_type_metadata: &[ori_types::ExportedTypeMetadata],
-    unconstrained_fn_names: &[ori_ir::Name],
+    unconstrained_fn_names: &[(Option<Idx>, ori_ir::Name)],
+    has_analysis_only_functions: bool,
 ) -> ReprPlan {
     let mut plan = ReprPlan::new(policy);
+    if has_analysis_only_functions {
+        plan.set_has_analysis_only_functions();
+    }
 
     // Phase 0: Store user-specified #repr attributes (§01.7).
     // TPR-04-011: also store under the resolved idx so that narrowing and
@@ -418,6 +432,15 @@ fn analyze_ranges(
 /// Phase B (future §04.2–§04.3): Local variable narrowing + overflow guards.
 /// Phase C (future §04.4): Collection element narrowing.
 fn apply_integer_narrowing(plan: &mut ReprPlan, pool: &Pool) {
+    // Gate: only narrow when the full §04 pipeline is safe for codegen.
+    // Phase A (field narrowing) produces narrowed MachineRepr::Int widths
+    // that codegen consumes for struct layouts, trunc/sext, and phi nodes.
+    // Without §04.2 (ABI widening) and §04.3 (overflow guards), narrowed
+    // widths are unsound. Range analysis (§03) is always safe — it only
+    // populates function_var_ranges and field_range_summaries.
+    if !plan.is_integer_narrowing_safe_for_codegen() {
+        return;
+    }
     narrowing::int::narrow_struct_fields(plan, pool);
 }
 

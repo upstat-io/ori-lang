@@ -57,7 +57,7 @@ ori_eval, ori_patterns
 ---
 
 ### Section 04: Codegen & LLVM
-**File:** `section-04-codegen-llvm.md` | **Status:** 1 Open Bug
+**File:** `section-04-codegen-llvm.md` | **Status:** 2 Open Bugs
 
 ```
 codegen, LLVM, IR, JIT, AOT
