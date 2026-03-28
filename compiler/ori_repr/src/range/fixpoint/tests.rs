@@ -838,6 +838,127 @@ fn fixpoint_switch_default_gets_complement() {
     );
 }
 
+// ─── TPR-03-036: multi-predecessor switch default must join, not meet ─
+
+/// Build a diamond CFG where two switch blocks target the same default.
+/// entry: x ∈ [0,10]; branch → left, right
+/// left: switch x {0 → exit, default → join} → complement [1,10]
+/// right: switch x {10 → exit, default → join} → complement [0,9]
+/// join: y = copy x; return y
+fn build_multi_pred_switch_func() -> (ori_arc::ir::ArcFunction, ArcVarId) {
+    use ori_arc::ir::{ArcBlock, ArcFunction, ArcInstr, ArcTerminator, ArcValue, LitValue};
+    use ori_arc::ArcBlockId;
+
+    let (v_a, v_b, v_c, v_x, v_y) = (
+        ArcVarId::new(0),
+        ArcVarId::new(1),
+        ArcVarId::new(2),
+        ArcVarId::new(3),
+        ArcVarId::new(4),
+    );
+
+    let entry = ArcBlock {
+        id: ArcBlockId::new(0),
+        params: vec![],
+        body: vec![
+            ArcInstr::Let {
+                dst: v_a,
+                ty: ori_types::Idx::INT,
+                value: ArcValue::Literal(LitValue::Int(0)),
+            },
+            ArcInstr::Let {
+                dst: v_b,
+                ty: ori_types::Idx::INT,
+                value: ArcValue::Literal(LitValue::Int(10)),
+            },
+            ArcInstr::IsShared { dst: v_c, var: v_a },
+            ArcInstr::Select {
+                dst: v_x,
+                ty: ori_types::Idx::INT,
+                cond: v_c,
+                true_val: v_a,
+                false_val: v_b,
+            },
+        ],
+        terminator: ArcTerminator::Branch {
+            cond: v_c,
+            then_block: ArcBlockId::new(1),
+            else_block: ArcBlockId::new(2),
+        },
+    };
+    let left = ArcBlock {
+        id: ArcBlockId::new(1),
+        params: vec![],
+        body: vec![],
+        terminator: ArcTerminator::Switch {
+            scrutinee: v_x,
+            cases: vec![(0, ArcBlockId::new(4))],
+            default: ArcBlockId::new(3),
+        },
+    };
+    let right = ArcBlock {
+        id: ArcBlockId::new(2),
+        params: vec![],
+        body: vec![],
+        terminator: ArcTerminator::Switch {
+            scrutinee: v_x,
+            cases: vec![(10, ArcBlockId::new(4))],
+            default: ArcBlockId::new(3),
+        },
+    };
+    let join = ArcBlock {
+        id: ArcBlockId::new(3),
+        params: vec![],
+        body: vec![ArcInstr::Let {
+            dst: v_y,
+            ty: ori_types::Idx::INT,
+            value: ArcValue::Var(v_x),
+        }],
+        terminator: ArcTerminator::Return { value: v_y },
+    };
+    let exit = ArcBlock {
+        id: ArcBlockId::new(4),
+        params: vec![],
+        body: vec![],
+        terminator: ArcTerminator::Return { value: v_x },
+    };
+
+    let func = ArcFunction {
+        name: ori_ir::Name::from_raw(36),
+        params: vec![],
+        return_type: ori_types::Idx::INT,
+        blocks: vec![entry, left, right, join, exit],
+        entry: ArcBlockId::new(0),
+        var_types: vec![ori_types::Idx::INT; 5],
+        var_reprs: vec![ori_arc::ir::ValueRepr::Scalar; 5],
+        spans: vec![vec![None; 4], vec![], vec![], vec![None], vec![]],
+        is_fbip: false,
+        num_captures: 0,
+        cow_annotations: ori_arc::uniqueness::CowAnnotations::default(),
+        drop_hints: ori_arc::uniqueness::DropHints::default(),
+        tail_calls: vec![],
+    };
+    (func, v_y)
+}
+
+/// Semantic pin: two switch predecessors targeting the same default block
+/// must JOIN their complement refinements (sound over-approximation).
+/// Using meet would under-approximate to [1, 9] — unsound.
+#[test]
+fn fixpoint_switch_default_multi_predecessor_joins() {
+    let (func, v_y) = build_multi_pred_switch_func();
+    let pool = ori_types::Pool::new();
+    let result = range_fixpoint(&func, &pool, &RangeAnalysisConfig::default(), None, None);
+
+    // Left complement: [1, 10]. Right complement: [0, 9].
+    // JOIN = [0, 10] (sound). MEET = [1, 9] (UNSOUND).
+    assert_eq!(
+        result.var_ranges.get(&v_y).copied(),
+        Some(ValueRange::Bounded { lo: 0, hi: 10 }),
+        "TPR-03-036: multi-predecessor switch default must JOIN complements, not MEET"
+    );
+}
+
 // ─── TPR-03-019: Narrowing pass recovers loop-bound block parameters ─
 
 /// Build a simple bounded loop: `for i in 0..<limit` with increment 1.
