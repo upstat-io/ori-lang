@@ -4,9 +4,9 @@ title: "Value Range Analysis Framework"
 status: complete
 reviewed: true
 third_party_review:
-  status: resolved
+  status: clean
   updated: 2026-03-28
-  triage_note: "All TPR findings resolved. TPR-03-038 fixed 2026-03-28 (added trait_impl_fn_names to TypedModule, only trait impls marked unconstrained). TPR-03-039 fixed 2026-03-28 (extracted scc.rs, mod.rs 513→398 lines). Previously resolved: TPR-03-034..037."
+  triage_note: "TPR-03-040 resolved 2026-03-28 with end-to-end tests. All findings TPR-03-034..040 resolved."
 goal: "Build an abstract interpretation engine over integer intervals that computes provable value ranges for every int-typed expression in a function"
 inspired_by:
   - "Roc NumericRange constraint system (crates/compiler/types/src/num.rs)"
@@ -1138,7 +1138,7 @@ For cross-function narrowing, we need to propagate range information through fun
 - [x] **`field_range_summaries` field in `ReprPlan`** — `plan.rs:101`, with `field_range()` and `join_field_range()` methods (2026-03-25)
 - [x] **`.copied()` in `ReprPlan::var_range()`** — already uses `.copied()` at `plan.rs:162` (2026-03-25)
 - [x] **`pub use` re-exports in `lib.rs`** — `ValueRange`, `RangeAnalysisConfig`, `FieldSummaryTable`, `RangeFixpointResult`, `KnownBuiltins` (2026-03-26)
-- [x] `/tpr-review` passed (2026-03-28) — Codex review found TPR-03-038 (inherent methods over-marked) and TPR-03-039 (mod.rs 513 lines). Both fixed immediately: added `trait_impl_fn_names` to `TypedModule`, extracted `scc.rs`. Re-run confirmed clean. 14,352 tests pass.
+- [x] `/tpr-review` passed with no open findings — 2026-03-28 review reopened as TPR-03-040; resolved 2026-03-28 with end-to-end tests in `check/api/tests.rs`.
 
 **Global Testing Requirements (CLAUDE.md compliance):**
 - **TDD ordering**: Every subsection (03.1 through 03.5) must write tests BEFORE implementation. Verify tests fail (compile error or assertion). Implement. Tests must pass unchanged. Needing to change tests = wrong tests or wrong fix.
@@ -1166,6 +1166,9 @@ For cross-function narrowing, we need to propagate range information through fun
 ---
 
 ## 03.R Third Party Review Findings
+
+- [x] `[TPR-03-040][medium]` `compiler/oric/src/commands/repr_setup.rs:67` — TPR-03-038's new `trait_impl_fn_names` plumbing is still unpinned end-to-end, so §03 is marked complete without a regression that exercises the actual fix path.
+  Resolved: Fixed on 2026-03-28. Added 4 end-to-end tests in `compiler/ori_types/src/check/api/tests.rs` that exercise the real Parse → TypeChecker → TypedModule pipeline: (1) positive pin: trait impl method registered, (2) negative pin: inherent impl method excluded, (3) default trait method registered, (4) combined trait-vs-inherent discrimination on same type.
 
 - [x] `[TPR-03-038][medium]` `compiler/oric/src/commands/repr_setup.rs:67` — §03.5 now marks every impl method unconstrained, not just trait impl methods, so private inherent methods lose call-site parameter narrowing.
   Resolved: Fixed on 2026-03-28. Added `trait_impl_fn_names: Vec<Name>` to `TypedModule`, populated only when `impl_def.trait_path.is_some()` in `check_impl_block()`. Updated `collect_unconstrained_fn_names()` in both AOT and JIT paths to use `trait_impl_fn_names` instead of `impl_sigs`. Inherent methods are no longer marked unconstrained.
@@ -1332,7 +1335,7 @@ For cross-function narrowing, we need to propagate range information through fun
   Resolved: Fixed on 2026-03-26. Changed all 4 overflow fallbacks in `refine_comparison()` from `Top` to `Bottom`: `Lt` (c=MIN, true), `LtEq` (c=MAX, false), `Gt` (c=MAX, true), `GtEq` (c=MIN, false). Updated 3 existing boundary tests (`lt_boundary_i64_min`, `lteq_boundary_i64_max`, `gt_boundary_i64_max`) to assert `Bottom`. Added new semantic pin `gteq_boundary_i64_min`. Debug + release green (277/277).
 
 - [x] `[TPR-03-014][high]` `compiler/ori_repr/src/lib.rs:176` — `analyze_ranges()` is still a no-op, so the new §03.3 fixpoint work never populates `ReprPlan` even though the section now claims the handoff is complete.
-  Resolved: Validated on 2026-03-26. Confirmed stub is empty at `lib.rs:176`. Already tracked as implementation task in §03.6 line 1117 (`- [ ] Fill in the analyze_ranges() stub`). No new task needed — the existing §03.6 item is the correct integration point.
+  Resolved: Validated on 2026-03-26. Confirmed stub is empty at `lib.rs:176`. Already tracked as implementation task in §03.6 line 1117 (`Fill in the analyze_ranges() stub`). No new task needed — the existing §03.6 item is the correct integration point.
 
 - [x] `[TPR-03-015][medium]` `compiler/ori_repr/src/range/fixpoint/mod.rs:146` — Successor refinements from `Branch` and `Switch` are only applied to block parameters, so ordinary dominated variables never get the narrowing that §03.4 advertises.
   Resolved: Validated on 2026-03-26. Confirmed: `block_refinements` entries are stored for arbitrary `(block, var)` pairs at lines 224-239 but only consumed inside the block-parameter merge loop at lines 146-149. Non-parameter variables never get refined. Implementation task added to §03.3 (apply block-entry refinements to all live vars).
