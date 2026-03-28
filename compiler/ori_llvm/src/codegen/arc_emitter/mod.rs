@@ -50,6 +50,7 @@ mod emit_function;
 mod emitter_utils;
 mod field_scan;
 mod instr_dispatch;
+mod narrowing_local;
 mod operators;
 mod rc_buffer_ops;
 mod rc_helpers;

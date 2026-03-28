@@ -810,3 +810,73 @@ fn test_phase_b_negative_wide_constant_stays_i64() {
          Got IR:\n{fn_ir}"
     );
 }
+
+/// IR semantic pin: `ArcInstr::Select` result is narrowed when range analysis
+/// proves the result fits in a narrow type. Block-merge folds trivial if/else
+/// diamonds into `select` instructions — these must go through `def_var_repr()`
+/// to participate in Phase B local narrowing.
+///
+/// This test ONLY passes once the Select path uses `def_var_repr()`.
+#[test]
+fn test_phase_b_ir_pin_select_narrowed() {
+    let ir = compile_and_capture_ir(
+        r"
+@pick (b: bool) -> int = if b then 1 else 2;
+
+@main () -> int = pick(b: true);
+",
+    );
+
+    let fn_ir = extract_function_ir(&ir, "_ori_pick");
+
+    // Phase B: the select result (range [1, 2]) fits in signed i8.
+    // After block-merge folds the if/else diamond into ArcInstr::Select,
+    // the emitter should narrow the result via def_var_repr(), producing
+    // a trunc+sext pair. Without the fix, _ori_pick is just:
+    //   %sel = select i1 %0, i64 1, i64 2
+    //   ret i64 %sel
+    // With the fix, the trunc+sext should appear between select and ret.
+    assert!(
+        fn_ir.contains("local.trunc") && fn_ir.contains("local.sext"),
+        "expected `local.trunc` + `local.sext` in _ori_pick — \
+         select result (range [1, 2]) fits in signed i8, should be narrowed.\n\
+         Phase B semantic pin: ONLY passes with Select narrowing via def_var_repr().\n\
+         Got IR:\n{fn_ir}"
+    );
+}
+
+/// Behavioral test: narrowed Select result produces correct values.
+/// Verifies both branches of a narrowed select yield correct runtime output.
+#[test]
+fn test_phase_b_select_narrowed_behavior() {
+    assert_aot_success(
+        r"
+@pick (b: bool) -> int = if b then 10 else 20;
+
+@main () -> int = {
+    let t = pick(b: true);
+    let f = pick(b: false);
+    if t == 10 && f == 20 then 0 else 1
+}
+",
+        "select_narrowed_behavior",
+    );
+}
+
+/// Behavioral test: narrowed Select with negative values preserves sign.
+/// Catches zext bugs — negative values through narrowed select must retain sign.
+#[test]
+fn test_phase_b_select_narrowed_negative_values() {
+    assert_aot_success(
+        r"
+@pick (b: bool) -> int = if b then -50 else -100;
+
+@main () -> int = {
+    let sum = pick(b: true) + pick(b: false);
+    // -50 + -100 = -150
+    if sum == -150 then 0 else 1
+}
+",
+        "select_narrowed_negative_values",
+    );
+}
