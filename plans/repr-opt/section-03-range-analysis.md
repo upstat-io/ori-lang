@@ -1,12 +1,12 @@
 ---
 section: "03"
 title: "Value Range Analysis Framework"
-status: complete
+status: in-progress
 reviewed: true
 third_party_review:
-  status: clean
+  status: findings
   updated: 2026-03-28
-  triage_note: "TPR-03-040 resolved 2026-03-28 with end-to-end tests. All findings TPR-03-034..040 resolved."
+  triage_note: "TPR-03-041 (AOT impl methods not in repr analysis) and TPR-03-042 (bare-Name collision) are open findings requiring code fixes."
 goal: "Build an abstract interpretation engine over integer intervals that computes provable value ranges for every int-typed expression in a function"
 inspired_by:
   - "Roc NumericRange constraint system (crates/compiler/types/src/num.rs)"
@@ -1166,6 +1166,16 @@ For cross-function narrowing, we need to propagate range information through fun
 ---
 
 ## 03.R Third Party Review Findings
+
+- [ ] `[TPR-03-041][medium]` `codegen_pipeline.rs:308` — AOT repr-analysis path never sees impl methods (compiled later via `compile_impls()`), so `trait_impl_fn_names` plumbing is dead in AOT.
+  Evidence: AOT builds `all_arc_funcs` from `arc_cache` before impl methods are compiled. `compute_module_repr_plan()` threads `trait_impl_fn_names` into range analysis, but no impl ARC functions are present in `all_arc_funcs`.
+  Impact: §03.5 unconstrained detection only works in JIT, not AOT production backend.
+  Fix: Include impl method ARC functions in the AOT `all_arc_funcs` set before `compute_module_repr_plan()`.
+
+- [ ] `[TPR-03-042][medium]` `repr_setup.rs:67` — `trait_impl_fn_names` keys by bare `Name`, so same-named methods across different impl blocks are conflated.
+  Evidence: `check_impl_block()` records bare `method.name` into `trait_impl_fn_names`. `is_unconstrained_fn()` checks bare `Name`. Same-named inherent methods get over-marked.
+  Impact: Precision loss — inherent methods sharing a name with any trait impl method lose call-site parameter narrowing.
+  Fix: Use `(Idx, Name)` pairs in `trait_impl_fn_names` and `unconstrained_fn_names` to disambiguate by self-type. Update `is_unconstrained_fn()` to match on both type and name.
 
 - [x] `[TPR-03-040][medium]` `compiler/oric/src/commands/repr_setup.rs:67` — TPR-03-038's new `trait_impl_fn_names` plumbing is still unpinned end-to-end, so §03 is marked complete without a regression that exercises the actual fix path.
   Resolved: Fixed on 2026-03-28. Added 4 end-to-end tests in `compiler/ori_types/src/check/api/tests.rs` that exercise the real Parse → TypeChecker → TypedModule pipeline: (1) positive pin: trait impl method registered, (2) negative pin: inherent impl method excluded, (3) default trait method registered, (4) combined trait-vs-inherent discrimination on same type.
