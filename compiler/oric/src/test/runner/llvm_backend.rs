@@ -283,6 +283,7 @@ impl TestRunner {
                 arc_cache,
                 None, // JIT: use env var fallback for narrowing policy
                 &imported_type_metadata,
+                &type_result.typed.trait_impl_fn_names,
             )
         }));
 
