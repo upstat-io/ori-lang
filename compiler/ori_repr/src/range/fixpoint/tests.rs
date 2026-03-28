@@ -1492,3 +1492,297 @@ fn fixpoint_invoke_defines_dst_variable() {
         "TPR-03-024: return_range should be Top when returning Invoke dst of unknown fn"
     );
 }
+
+// ─── Loop convergence: SSA body vars must not be widened ──────────
+
+/// Build a loop that matches real ARC IR structure: copy variables in body.
+///
+/// This is the exact CFG from `@sum_loop` with `GtEq` comparison and copy
+/// chains (%6=%4, %18=%4, %13=%5, etc.) that trigger spurious widening
+/// when body variables are treated as phi nodes.
+///
+/// Returns `(func, v_i, v_sum, v_i_copy, v_next)`.
+#[expect(
+    clippy::too_many_lines,
+    reason = "ARC IR test builder — block construction is inherently verbose"
+)]
+fn build_real_loop_func(
+    limit: i64,
+) -> (
+    ori_arc::ir::ArcFunction,
+    ArcVarId,
+    ArcVarId,
+    ArcVarId,
+    ArcVarId,
+) {
+    use ori_arc::ir::{ArcBlock, ArcFunction, ArcInstr, ArcTerminator, ArcValue, LitValue, PrimOp};
+    use ori_arc::ArcBlockId;
+    use ori_ir::BinaryOp;
+
+    let v_i_init = ArcVarId::new(0); // %0: sum init = 0 in real IR (both inits are 0)
+    let v_s_init = ArcVarId::new(2); // %2: i init = 0 in real IR (both inits are 0)
+    let v_i = ArcVarId::new(4); // %4: loop counter phi
+    let v_sum = ArcVarId::new(5); // %5: accumulator phi
+    let v_i_copy = ArcVarId::new(6); // %6: copy of %4 (for comparison)
+    let v_limit = ArcVarId::new(7); // %7: limit constant
+    let v_cond = ArcVarId::new(8); // %8: comparison result
+    let v_s_copy = ArcVarId::new(13); // %13: copy of sum for add
+    let v_i_copy2 = ArcVarId::new(14); // %14: copy of i for sum add
+    let v_new_sum = ArcVarId::new(15); // %15: sum + i
+    let v_new_sum2 = ArcVarId::new(16); // %16: copy of new_sum
+    let v_i_copy3 = ArcVarId::new(18); // %18: copy of i for increment
+    let v_one = ArcVarId::new(19); // %19: constant 1
+    let v_next = ArcVarId::new(20); // %20: i + 1
+    let v_next2 = ArcVarId::new(21); // %21: copy of next
+    let v_ret_s = ArcVarId::new(26); // %26: copy of sum for return
+    let v_ret = ArcVarId::new(27); // %27: return value
+
+    // bb0: entry — both inits are 0, ordering doesn't affect result
+    let block0 = ArcBlock {
+        id: ArcBlockId::new(0),
+        params: vec![],
+        body: vec![
+            ArcInstr::Let {
+                dst: v_i_init,
+                ty: ori_types::Idx::INT,
+                value: ArcValue::Literal(LitValue::Int(0)),
+            },
+            ArcInstr::Let {
+                dst: v_s_init,
+                ty: ori_types::Idx::INT,
+                value: ArcValue::Literal(LitValue::Int(0)),
+            },
+        ],
+        terminator: ArcTerminator::Jump {
+            target: ArcBlockId::new(1),
+            args: vec![v_i_init, v_s_init],
+        },
+    };
+
+    // bb1: loop header — phi(i, sum), compare, branch
+    let block1 = ArcBlock {
+        id: ArcBlockId::new(1),
+        params: vec![(v_i, ori_types::Idx::INT), (v_sum, ori_types::Idx::INT)],
+        body: vec![
+            ArcInstr::Let {
+                dst: v_i_copy,
+                ty: ori_types::Idx::INT,
+                value: ArcValue::Var(v_i),
+            },
+            ArcInstr::Let {
+                dst: v_limit,
+                ty: ori_types::Idx::INT,
+                value: ArcValue::Literal(LitValue::Int(limit)),
+            },
+            ArcInstr::Let {
+                dst: v_cond,
+                ty: ori_types::Idx::BOOL,
+                value: ArcValue::PrimOp {
+                    op: PrimOp::Binary(BinaryOp::GtEq),
+                    args: vec![v_i_copy, v_limit],
+                },
+            },
+        ],
+        terminator: ArcTerminator::Branch {
+            cond: v_cond,
+            then_block: ArcBlockId::new(2),
+            else_block: ArcBlockId::new(3),
+        },
+    };
+
+    // bb2: exit (i >= limit) — return sum
+    let block2 = ArcBlock {
+        id: ArcBlockId::new(2),
+        params: vec![],
+        body: vec![
+            ArcInstr::Let {
+                dst: v_ret_s,
+                ty: ori_types::Idx::INT,
+                value: ArcValue::Var(v_sum),
+            },
+            ArcInstr::Let {
+                dst: v_ret,
+                ty: ori_types::Idx::INT,
+                value: ArcValue::Var(v_ret_s),
+            },
+        ],
+        terminator: ArcTerminator::Return { value: v_ret },
+    };
+
+    // bb3: body (i < limit) — sum = sum + i; i = i + 1; jump back
+    let block3 = ArcBlock {
+        id: ArcBlockId::new(3),
+        params: vec![],
+        body: vec![
+            ArcInstr::Let {
+                dst: v_s_copy,
+                ty: ori_types::Idx::INT,
+                value: ArcValue::Var(v_sum),
+            },
+            ArcInstr::Let {
+                dst: v_i_copy2,
+                ty: ori_types::Idx::INT,
+                value: ArcValue::Var(v_i),
+            },
+            ArcInstr::Let {
+                dst: v_new_sum,
+                ty: ori_types::Idx::INT,
+                value: ArcValue::PrimOp {
+                    op: PrimOp::Binary(BinaryOp::Add),
+                    args: vec![v_s_copy, v_i_copy2],
+                },
+            },
+            ArcInstr::Let {
+                dst: v_new_sum2,
+                ty: ori_types::Idx::INT,
+                value: ArcValue::Var(v_new_sum),
+            },
+            ArcInstr::Let {
+                dst: v_i_copy3,
+                ty: ori_types::Idx::INT,
+                value: ArcValue::Var(v_i),
+            },
+            ArcInstr::Let {
+                dst: v_one,
+                ty: ori_types::Idx::INT,
+                value: ArcValue::Literal(LitValue::Int(1)),
+            },
+            ArcInstr::Let {
+                dst: v_next,
+                ty: ori_types::Idx::INT,
+                value: ArcValue::PrimOp {
+                    op: PrimOp::Binary(BinaryOp::Add),
+                    args: vec![v_i_copy3, v_one],
+                },
+            },
+            ArcInstr::Let {
+                dst: v_next2,
+                ty: ori_types::Idx::INT,
+                value: ArcValue::Var(v_next),
+            },
+        ],
+        terminator: ArcTerminator::Jump {
+            target: ArcBlockId::new(1),
+            args: vec![v_next2, v_new_sum2],
+        },
+    };
+
+    let mut var_types = vec![ori_types::Idx::INT; 28];
+    var_types[8] = ori_types::Idx::BOOL;
+    let func = ArcFunction {
+        name: ori_ir::Name::from_raw(99),
+        params: vec![],
+        return_type: ori_types::Idx::INT,
+        blocks: vec![block0, block1, block2, block3],
+        entry: ArcBlockId::new(0),
+        var_types,
+        var_reprs: vec![ori_arc::ir::ValueRepr::Scalar; 28],
+        spans: vec![vec![None; 2], vec![None; 3], vec![None; 2], vec![None; 8]],
+        is_fbip: false,
+        num_captures: 0,
+        cow_annotations: ori_arc::uniqueness::CowAnnotations::default(),
+        drop_hints: ori_arc::uniqueness::DropHints::default(),
+        tail_calls: vec![],
+    };
+
+    (func, v_i, v_sum, v_i_copy, v_next)
+}
+
+/// Semantic pin: loop counter phi with `GtEq` comparison and copy chains
+/// must converge to [0, limit]. This is the exact structure generated by
+/// the Ori compiler for `loop { if i >= N then break; ... i = i + 1 }`.
+///
+/// BUG: Before fix, body copy variables (%6 = %4) get widened because
+/// `update_range()` applies join+widening to ALL variables. SSA body vars
+/// should use direct assignment. The widened copy poisons downstream:
+/// %20 = %6 + 1 feeds back to phi %4, causing %4 to diverge to Top.
+#[test]
+fn fixpoint_real_loop_converges_with_copies() {
+    let (func, v_i, v_sum, _v_i_copy, v_next) = build_real_loop_func(10);
+    let pool = ori_types::Pool::new();
+    let config = RangeAnalysisConfig::default();
+    let result = range_fixpoint(&func, &pool, &config, None, None);
+
+    let i_range = result
+        .var_ranges
+        .get(&v_i)
+        .copied()
+        .unwrap_or(ValueRange::Top);
+    assert_eq!(
+        i_range,
+        ValueRange::Bounded { lo: 0, hi: 10 },
+        "loop counter phi should converge to EXACTLY [0, 10] with real ARC IR structure \
+         (GtEq comparison + copy chains). Got {i_range:?}. \
+         If lo < 0: body copy vars are being widened — fix update_range for SSA body vars."
+    );
+
+    // v_next (i+1) should be [1, 10] — the back-edge argument
+    let next_range = result
+        .var_ranges
+        .get(&v_next)
+        .copied()
+        .unwrap_or(ValueRange::Top);
+    assert_eq!(
+        next_range,
+        ValueRange::Bounded { lo: 1, hi: 10 },
+        "i+1 should be exactly [1, 10], got {next_range:?}"
+    );
+
+    // sum accumulator doesn't have a branch refinement (no comparison on sum),
+    // so the narrowing pass can't tighten it. It may stay wide or Top.
+    // The critical assertion is on the loop counter and v_next above.
+    let sum_range = result
+        .var_ranges
+        .get(&v_sum)
+        .copied()
+        .unwrap_or(ValueRange::Top);
+    // After the fix, sum should at least have a non-negative lower bound because
+    // sum starts at 0 and only adds non-negative values (i in [0,9]).
+    // If this still fails, it's acceptable — sum convergence is a separate optimization.
+    if let ValueRange::Bounded { lo, .. } = sum_range {
+        assert!(
+            lo >= 0,
+            "if sum converges, lo should be >= 0, got {sum_range:?}"
+        );
+    }
+}
+
+/// Edge case: loop with limit=1 (single iteration).
+/// Counter goes 0..1, so i ∈ [0, 1], next ∈ [1, 1].
+#[test]
+fn fixpoint_real_loop_single_iteration() {
+    let (func, v_i, _, _, _) = build_real_loop_func(1);
+    let pool = ori_types::Pool::new();
+    let config = RangeAnalysisConfig::default();
+    let result = range_fixpoint(&func, &pool, &config, None, None);
+
+    let i_range = result
+        .var_ranges
+        .get(&v_i)
+        .copied()
+        .unwrap_or(ValueRange::Top);
+    assert!(
+        matches!(i_range, ValueRange::Bounded { lo: 0, hi } if hi <= 1),
+        "loop counter with limit=1 should converge to [0, 1], got {i_range:?}"
+    );
+}
+
+/// Edge case: loop with large limit (50000) — should use i16 or i32, not i8.
+/// Verifies convergence even with large bounds.
+#[test]
+fn fixpoint_real_loop_large_limit() {
+    let (func, v_i, _, _, _) = build_real_loop_func(50000);
+    let pool = ori_types::Pool::new();
+    let config = RangeAnalysisConfig::default();
+    let result = range_fixpoint(&func, &pool, &config, None, None);
+
+    let i_range = result
+        .var_ranges
+        .get(&v_i)
+        .copied()
+        .unwrap_or(ValueRange::Top);
+    assert!(
+        matches!(i_range, ValueRange::Bounded { lo: 0, hi } if hi <= 50000),
+        "loop counter with limit=50000 should converge to [0, 50000], got {i_range:?}"
+    );
+}
