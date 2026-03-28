@@ -69,9 +69,11 @@ fn generate_relative_candidates_nested_directory() {
 fn resolve_module_path_not_found() {
     let db = CompilerDb::new();
     let interner = db.interner();
-    let std = interner.intern("std");
-    let math = interner.intern("math");
-    let path = ImportPath::Module(vec![std, math]);
+    // Use a module name that doesn't exist anywhere (not in project library/,
+    // user-local ~/.local/share/ori/library/, or system locations).
+    let nonexistent_root = interner.intern("zzz_nonexistent_pkg");
+    let nonexistent_mod = interner.intern("does_not_exist");
+    let path = ImportPath::Module(vec![nonexistent_root, nonexistent_mod]);
     let current = PathBuf::from("/nonexistent/project/src/main.ori");
 
     let result = resolve_import(&db, &path, &current, None);

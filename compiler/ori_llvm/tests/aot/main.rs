@@ -35,6 +35,7 @@ pub mod linking;
 pub mod lto;
 pub mod memory_stress;
 pub mod mutations;
+pub mod narrowing;
 pub mod operators;
 pub mod panic;
 pub mod patterns;

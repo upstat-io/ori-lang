@@ -129,7 +129,7 @@ fn supports_sum_types_correctness() {
     assert!(DerivedTrait::Comparable.supports_sum_types());
 }
 
-// --- Cross-crate sync enforcement (Section 05.1, Test 1) ---
+// --- Cross-crate sync enforcement ---
 
 #[test]
 fn all_derived_traits_round_trip() {

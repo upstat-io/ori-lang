@@ -169,7 +169,7 @@ pub extern "C" fn ori_rc_realloc(
     if new_data == data_ptr {
         // Same address (in-place realloc) — update size/align metadata,
         // preserving the original alloc_id. Without this, the registry
-        // retains stale size/alignment from the original allocation. (TPR-05-004)
+        // retains stale size/alignment from the original allocation.
         #[cfg(debug_assertions)]
         if super::check_leaks_enabled() {
             super::debug::alloc_registry_update(new_data, new_data_size, align);

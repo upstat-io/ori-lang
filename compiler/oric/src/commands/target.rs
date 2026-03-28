@@ -209,9 +209,7 @@ pub fn add_target(_target: &str) {
     eprintln!("error: the 'target add' command requires the LLVM backend");
     eprintln!();
     eprintln!("The Ori compiler was built without LLVM support.");
-    eprintln!("To enable cross-compilation, rebuild with the 'llvm' feature:");
-    eprintln!();
-    eprintln!("  cargo build --features llvm");
+    eprintln!("To enable cross-compilation, reinstall Ori with LLVM support.");
     std::process::exit(1);
 }
 

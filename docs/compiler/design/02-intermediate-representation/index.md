@@ -213,7 +213,7 @@ See [Desugaring](../07-canonicalization/desugaring.md) for the full treatment of
 
 The ARC IR is a basic-block representation with explicit reference counting operations, consumed only by the LLVM backend. It exists because the interpreter doesn't need reference counting (it uses Rust's own reference counting via `Arc<Value>`), but the native backend must manage memory explicitly.
 
-The ARC pipeline transforms canonical IR through a 10-pass analysis and optimization sequence: lowering, borrow inference, ownership derivation, dominator tree construction, liveness analysis, RC insertion, reset/reuse detection, reset/reuse expansion, RC elimination, and cross-block RC elimination. This pipeline is inspired by [Lean 4](https://github.com/leanprover/lean4)'s LCNF IR and [Koka](https://github.com/koka-lang/koka)'s FBIP analysis.
+The ARC pipeline uses the **AIMS unified lattice** — a single backward dataflow analysis over a 7-dimensional product lattice (`AimsState`: AccessClass × Consumption × Cardinality × Uniqueness × Locality × ShapeClass × EffectClass) that converges on all memory decisions simultaneously. RC operations, allocation reuse, COW annotations, and drop hints are then emitted in two phases from the converged state map: Phase 1 (pre-merge) handles RC and reuse, Phase 2 (post-merge) handles COW and drop hints. This pipeline is inspired by [Lean 4](https://github.com/leanprover/lean4)'s LCNF IR and [Koka](https://github.com/koka-lang/koka)'s FBIP analysis.
 
 A three-way type classification drives all RC decisions:
 

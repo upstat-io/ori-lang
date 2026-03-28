@@ -96,6 +96,16 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                     };
                     for (i, &arg) in args.iter().enumerate() {
                         let val = self.var(arg);
+                        // §04.4 Phase B: trunc i64 → narrow for narrowed phi targets
+                        let val = {
+                            let target_var = arc_func.blocks[target_idx].params[i].0;
+                            if let Some(&width) = self.narrowed_vars.get(&target_var) {
+                                let narrow_ty = self.llvm_type_for_int_width(width);
+                                self.builder.trunc(val, narrow_ty, "phi.trunc")
+                            } else {
+                                val
+                            }
+                        };
                         self.phi_incoming.push((target_idx, i, val, source_block));
                     }
                 }

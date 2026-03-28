@@ -31,6 +31,27 @@ impl IrBuilder<'_, '_> {
         self.arena.push_value(result.into())
     }
 
+    /// Sign-extend an integer value to i64 if it is narrower. Returns the
+    /// value unchanged if it is already i64 or wider, or if it is not an
+    /// integer. Used by derive codegen to normalize narrowed struct fields
+    /// (i8/i16/i32 from §04 integer narrowing) back to canonical width.
+    pub fn sext_to_i64_if_narrower(&mut self, val: ValueId, name: &str) -> ValueId {
+        let v = self.arena.get_value(val);
+        if !v.is_int_value() {
+            return val;
+        }
+        let iv = v.into_int_value();
+        if iv.get_type().get_bit_width() >= 64 {
+            return val;
+        }
+        let i64_ty = self.scx.type_i64();
+        let result = self
+            .builder
+            .build_int_s_extend(iv, i64_ty, name)
+            .expect("sext_to_i64");
+        self.arena.push_value(result.into())
+    }
+
     /// Build sign extension (to a larger integer type).
     pub fn sext(&mut self, val: ValueId, ty: LLVMTypeId, name: &str) -> ValueId {
         let v = self.arena.get_value(val);

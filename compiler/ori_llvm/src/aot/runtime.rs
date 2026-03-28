@@ -83,11 +83,13 @@ impl std::fmt::Display for RuntimeNotFound {
         }
         writeln!(f)?;
         writeln!(f, "To fix this, either:")?;
-        writeln!(f, "  1. Build the runtime: cargo build -p ori_rt --release")?;
-        writeln!(f, "  2. Install Ori properly: make install")?;
         writeln!(
             f,
-            "  3. Specify path: ori build --runtime-path=/path/to/lib"
+            "  1. Reinstall Ori: curl -fsSL https://ori-lang.com/install.sh | sh"
+        )?;
+        writeln!(
+            f,
+            "  2. Specify path: ori build --runtime-path=/path/to/lib"
         )?;
         Ok(())
     }

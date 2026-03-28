@@ -2,9 +2,37 @@
 
 use super::*;
 use crate::CompilerDb;
+use ori_types::FunctionSig;
 use ori_types::Idx;
 use salsa::Setter;
 use std::path::PathBuf;
+
+/// Find a function signature by name in the typed result.
+///
+/// `typed.functions` may include imported/builtin signatures alongside
+/// user-defined ones — always look up by name rather than by index.
+fn find_fn<'a>(db: &CompilerDb, result: &'a TypeCheckResult, name: &str) -> &'a FunctionSig {
+    let interner = db.interner();
+    let target = interner.intern(name);
+    result
+        .typed
+        .functions
+        .iter()
+        .find(|f| f.name == target)
+        .unwrap_or_else(|| panic!("function '{name}' not found in typed output"))
+}
+
+/// Count only user-defined functions (those whose names match given set).
+fn user_fn_count(db: &CompilerDb, result: &TypeCheckResult, names: &[&str]) -> usize {
+    let interner = db.interner();
+    let targets: Vec<_> = names.iter().map(|n| interner.intern(n)).collect();
+    result
+        .typed
+        .functions
+        .iter()
+        .filter(|f| targets.contains(&f.name))
+        .count()
+}
 
 #[test]
 fn test_line_count() {
@@ -416,8 +444,7 @@ fn test_typed_basic() {
     let result = typed(&db, file);
 
     assert!(!result.has_errors());
-    assert!(!result.typed.functions.is_empty());
-    assert_eq!(result.typed.functions[0].return_type, Idx::INT);
+    assert_eq!(find_fn(&db, &result, "main").return_type, Idx::INT);
 }
 
 #[test]
@@ -454,7 +481,7 @@ fn test_typed_incremental() {
 
     // Initial type check
     let result1 = typed(&db, file);
-    assert_eq!(result1.typed.functions[0].return_type, Idx::INT);
+    assert_eq!(find_fn(&db, &result1, "main").return_type, Idx::INT);
 
     // Modify source to return bool
     file.set_text(&mut db)
@@ -462,7 +489,7 @@ fn test_typed_incremental() {
 
     // Should re-type-check with new return type
     let result2 = typed(&db, file);
-    assert_eq!(result2.typed.functions[0].return_type, Idx::BOOL);
+    assert_eq!(find_fn(&db, &result2, "main").return_type, Idx::BOOL);
 }
 
 #[test]
@@ -750,12 +777,12 @@ fn test_typed_function_signatures() {
 
     assert!(!result.has_errors());
     assert_eq!(
-        result.typed.functions.len(),
+        user_fn_count(&db, &result, &["add"]),
         1,
-        "Should have exactly 1 function signature"
+        "Should have exactly 1 user-defined function signature"
     );
 
-    let sig = &result.typed.functions[0];
+    let sig = find_fn(&db, &result, "add");
     assert_eq!(sig.param_types.len(), 2, "add() has 2 parameters");
     assert_eq!(sig.return_type, Idx::INT, "add() returns int");
     assert_eq!(sig.param_types[0], Idx::INT, "first param is int");
@@ -771,9 +798,11 @@ fn test_typed_empty_module() {
     let result = typed(&db, file);
 
     assert!(!result.has_errors(), "Empty module should have no errors");
-    assert!(
-        result.typed.functions.is_empty(),
-        "Empty module has no functions"
+    // No user-defined functions — builtins may be present in the list
+    assert_eq!(
+        user_fn_count(&db, &result, &[]),
+        0,
+        "Empty module has no user-defined functions"
     );
 }
 
@@ -791,9 +820,9 @@ fn test_typed_multiple_functions() {
 
     assert!(!result.has_errors());
     assert_eq!(
-        result.typed.functions.len(),
+        user_fn_count(&db, &result, &["foo", "bar"]),
         2,
-        "Should have 2 function signatures"
+        "Should have 2 user-defined function signatures"
     );
 }
 
@@ -810,13 +839,13 @@ fn test_typed_determinism() {
 
     assert_eq!(result1, result2, "must produce deterministic results");
 
-    // Verify function order is stable (sorted by name)
-    if result1.typed.functions.len() >= 2 {
-        assert!(
-            result1.typed.functions[0].name < result1.typed.functions[1].name,
-            "Functions should be sorted by name for determinism"
-        );
-    }
+    // Verify both user-defined functions are present
+    let add_sig = find_fn(&db, &result1, "add");
+    let mul_sig = find_fn(&db, &result1, "mul");
+    assert!(
+        add_sig.name < mul_sig.name,
+        "User functions 'add' and 'mul' should be sorted by name for determinism"
+    );
 }
 
 // ========================================================================
@@ -840,7 +869,7 @@ fn test_typed_list_indexing() {
         !result.has_errors(),
         "list indexing should not produce errors"
     );
-    assert_eq!(result.typed.functions[0].return_type, Idx::INT);
+    assert_eq!(find_fn(&db, &result, "main").return_type, Idx::INT);
 }
 
 #[test]
@@ -860,7 +889,7 @@ fn test_typed_map_indexing_with_coalesce() {
         !result.has_errors(),
         "map indexing with coalesce should not produce errors"
     );
-    assert_eq!(result.typed.functions[0].return_type, Idx::INT);
+    assert_eq!(find_fn(&db, &result, "main").return_type, Idx::INT);
 }
 
 #[test]
@@ -880,7 +909,7 @@ fn test_typed_struct_field_access() {
         !result.has_errors(),
         "struct field access should not produce errors"
     );
-    assert_eq!(result.typed.functions[0].return_type, Idx::INT);
+    assert_eq!(find_fn(&db, &result, "main").return_type, Idx::INT);
 }
 
 #[test]
@@ -919,7 +948,7 @@ fn test_typed_field_in_arithmetic() {
         !result.has_errors(),
         "field access in arithmetic should not produce errors"
     );
-    assert_eq!(result.typed.functions[0].return_type, Idx::INT);
+    assert_eq!(find_fn(&db, &result, "main").return_type, Idx::INT);
 }
 
 #[test]
@@ -948,13 +977,13 @@ fn test_typed_whitespace_invariance() {
     assert!(!result_tabbed.has_errors(), "tabbed should succeed");
 
     // All three should produce the same function signature
-    assert_eq!(result_compact.typed.functions.len(), 1);
-    assert_eq!(result_spaced.typed.functions.len(), 1);
-    assert_eq!(result_tabbed.typed.functions.len(), 1);
+    assert_eq!(user_fn_count(&db1, &result_compact, &["add"]), 1);
+    assert_eq!(user_fn_count(&db2, &result_spaced, &["add"]), 1);
+    assert_eq!(user_fn_count(&db3, &result_tabbed, &["add"]), 1);
 
-    let sig_compact = &result_compact.typed.functions[0];
-    let sig_spaced = &result_spaced.typed.functions[0];
-    let sig_tabbed = &result_tabbed.typed.functions[0];
+    let sig_compact = find_fn(&db1, &result_compact, "add");
+    let sig_spaced = find_fn(&db2, &result_spaced, "add");
+    let sig_tabbed = find_fn(&db3, &result_tabbed, "add");
 
     // Same function name
     assert_eq!(sig_compact.name, sig_spaced.name);
@@ -996,7 +1025,7 @@ fn test_typed_result_coalesce() {
         !result.has_errors(),
         "Result coalesce should not produce errors"
     );
-    assert_eq!(result.typed.functions[0].return_type, Idx::INT);
+    assert_eq!(find_fn(&db, &result, "main").return_type, Idx::INT);
 }
 
 // ========================================================================
@@ -1231,7 +1260,9 @@ fn test_body_change_without_signature_change_produces_different_module_hash() {
         "@add (a: int, b: int) -> int = a + b;".to_string(),
     );
     let type1 = typed(&db, file1);
-    let hashes1 = extract_function_hashes(&type1.typed.functions, &type1.typed.expr_types);
+    let all_hashes1 = extract_function_hashes(&type1.typed.functions, &type1.typed.expr_types);
+    let add_name = db.interner().intern("add");
+    let hashes1: Vec<_> = all_hashes1.iter().filter(|(n, _)| *n == add_name).collect();
 
     // Version 2: same signature, different body (extra operation)
     let file2 = SourceFile::new(
@@ -1240,14 +1271,15 @@ fn test_body_change_without_signature_change_produces_different_module_hash() {
         "@add (a: int, b: int) -> int = a + b + 0;".to_string(),
     );
     let type2 = typed(&db, file2);
-    let hashes2 = extract_function_hashes(&type2.typed.functions, &type2.typed.expr_types);
+    let all_hashes2 = extract_function_hashes(&type2.typed.functions, &type2.typed.expr_types);
+    let hashes2: Vec<_> = all_hashes2.iter().filter(|(n, _)| *n == add_name).collect();
 
-    assert_eq!(hashes1.len(), 1, "should have 1 function hash");
-    assert_eq!(hashes2.len(), 1, "should have 1 function hash");
+    assert_eq!(hashes1.len(), 1, "should have 1 'add' function hash");
+    assert_eq!(hashes2.len(), 1, "should have 1 'add' function hash");
 
     // Module hash should differ (body expression types changed)
-    let mh1 = compute_module_hash(&hashes1);
-    let mh2 = compute_module_hash(&hashes2);
+    let mh1 = compute_module_hash(&all_hashes1);
+    let mh2 = compute_module_hash(&all_hashes2);
     assert_ne!(mh1, mh2, "module hash should differ when body changes");
 
     // Signature hash should be identical (same params and return type)
@@ -1292,7 +1324,8 @@ fn test_typed_early_cutoff_on_body_change() {
 
     // Return types should still match (signature unchanged)
     assert_eq!(
-        result1.typed.functions[0].return_type, result2.typed.functions[0].return_type,
+        find_fn(&db, &result1, "main").return_type,
+        find_fn(&db, &result2, "main").return_type,
         "return type should be unchanged"
     );
 }
@@ -1314,7 +1347,7 @@ fn test_watch_loop_simulation() {
     // Cycle 1: initial check
     let r1 = typed(&db, file);
     assert!(!r1.has_errors(), "cycle 1 should have no errors");
-    assert_eq!(r1.typed.functions.len(), 1);
+    assert_eq!(user_fn_count(&db, &r1, &["main"]), 1);
 
     // Cycle 2: body change (same signature)
     file.set_text(&mut db)
@@ -1322,7 +1355,7 @@ fn test_watch_loop_simulation() {
 
     let r2 = typed(&db, file);
     assert!(!r2.has_errors(), "cycle 2 should have no errors");
-    assert_eq!(r2.typed.functions[0].return_type, Idx::INT);
+    assert_eq!(find_fn(&db, &r2, "main").return_type, Idx::INT);
 
     // Cycle 3: signature change (int → bool)
     file.set_text(&mut db)
@@ -1330,7 +1363,7 @@ fn test_watch_loop_simulation() {
 
     let r3 = typed(&db, file);
     assert!(!r3.has_errors(), "cycle 3 should have no errors");
-    assert_eq!(r3.typed.functions[0].return_type, Idx::BOOL);
+    assert_eq!(find_fn(&db, &r3, "main").return_type, Idx::BOOL);
 
     // Cycle 4: introduce a type error, verify it's caught
     file.set_text(&mut db)
@@ -1348,5 +1381,5 @@ fn test_watch_loop_simulation() {
         !r5.has_errors(),
         "cycle 5 should recover after fixing error"
     );
-    assert_eq!(r5.typed.functions[0].return_type, Idx::INT);
+    assert_eq!(find_fn(&db, &r5, "main").return_type, Idx::INT);
 }

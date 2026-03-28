@@ -235,6 +235,7 @@ pub(super) fn run_codegen_pipeline<'ctx>(
     import_sigs: &[(Name, FunctionSig)],
     target_triple: Option<&str>,
     narrowing_policy: ori_repr::NarrowingPolicy,
+    imported_type_metadata: &[ori_types::ExportedTypeMetadata],
 ) -> Result<ori_llvm::inkwell::module::Module<'ctx>, String> {
     use ori_llvm::codegen::eh_model::EhModel;
     use ori_llvm::codegen::function_compiler::FunctionCompiler;
@@ -305,37 +306,14 @@ pub(super) fn run_codegen_pipeline<'ctx>(
         });
 
         // 3a. Compute representation plan (§01 — canonical reprs only).
-        // Must run AFTER borrow inference (signature accepts ArcFunctions for
-        // §03 range analysis and §08 escape analysis) and BEFORE codegen
-        // (TypeLayoutResolver and TypeInfoStore read the plan).
-        let all_arc_funcs: Vec<ori_arc::ArcFunction> = arc_cache
-            .values()
-            .flat_map(|(parent, lambdas)| std::iter::once(parent).chain(lambdas.iter()))
-            .cloned()
-            .collect();
-        // Extract #repr attributes from typed module for the repr plan.
-        let repr_attrs: Vec<(ori_types::Idx, ori_ir::ReprAttrKind)> = type_result
-            .typed
-            .types
-            .iter()
-            .filter_map(|te| te.repr.map(|r| (te.idx, r)))
-            .collect();
-        // Extract public type indices — their field layout is an ABI contract
-        // that §04 integer narrowing must not violate (TPR-04-005).
-        let pub_type_indices: Vec<ori_types::Idx> = type_result
-            .typed
-            .types
-            .iter()
-            .filter(|te| te.visibility == ori_types::Visibility::Public)
-            .map(|te| te.idx)
-            .collect();
-        let repr_plan = ori_repr::compute_repr_plan_with_interner(
+        let all_arc_funcs = super::repr_setup::collect_all_arc_functions(&arc_cache);
+        let repr_plan = super::repr_setup::compute_module_repr_plan(
             pool,
             &all_arc_funcs,
             narrowing_policy,
-            &repr_attrs,
+            type_result,
             Some(interner),
-            &pub_type_indices,
+            imported_type_metadata,
         );
 
         // Create type store with repr plan for triviality delegation (§02 Phase B).
@@ -350,22 +328,14 @@ pub(super) fn run_codegen_pipeline<'ctx>(
         // Runs AFTER borrow inference (needs ownership annotations) and BEFORE
         // per-function ARC pipeline (which uses summaries for CowMode annotation).
         let uniqueness_summaries = {
-            let all_funcs: Vec<ori_arc::ArcFunction> = arc_cache
-                .values()
-                .flat_map(|(parent, lambdas)| std::iter::once(parent).chain(lambdas.iter()))
-                .cloned()
-                .collect();
+            let all_funcs = super::repr_setup::collect_all_arc_functions(&arc_cache);
             ori_arc::run_uniqueness_analysis(&all_funcs, &classifier, interner)
         };
 
         // 3c. AIMS interprocedural contracts (param/arg ownership).
         let builtins = ori_arc::BuiltinOwnershipSets::new(interner);
         let aims_contracts = {
-            let mut all_funcs: Vec<ori_arc::ArcFunction> = arc_cache
-                .values()
-                .flat_map(|(parent, lambdas)| std::iter::once(parent).chain(lambdas.iter()))
-                .cloned()
-                .collect();
+            let mut all_funcs = super::repr_setup::collect_all_arc_functions(&arc_cache);
             ori_arc::compute_aims_contracts(&mut all_funcs, &classifier, interner, &builtins)
         };
 

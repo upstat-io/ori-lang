@@ -76,16 +76,19 @@ In practice, this means float narrowing is mostly useful for:
 - [ ] Implement operation precision tracking:
   ```rust
   /// Can this operation produce f32-exact results from f32-exact inputs?
-  pub fn preserves_f32_precision(op: ArithOp) -> bool {
+  /// Note: Uses `ori_ir::BinaryOp` for binary operations and
+  /// `ori_ir::UnaryOp` for Neg (separate types — see §04.3 pattern).
+  pub fn preserves_f32_precision(op: BinaryOp) -> bool {
       match op {
           // Addition/subtraction of f32-exact values may not be f32-exact
           // (due to rounding). Only safe if we can bound the result.
-          ArithOp::Add | ArithOp::Sub => false, // conservative
-          ArithOp::Mul => false, // product may exceed f32 precision
-          ArithOp::Div => false, // quotient may not be f32-exact
-          ArithOp::Neg => true,  // negation is exact
+          BinaryOp::Add | BinaryOp::Sub => false, // conservative
+          BinaryOp::Mul => false, // product may exceed f32 precision
+          BinaryOp::Div => false, // quotient may not be f32-exact
+          _ => true, // other ops handled separately
       }
   }
+  // Negation is exact: `UnaryOp::Neg` — handled separately from BinaryOp.
   ```
 
 ---
@@ -98,7 +101,8 @@ Float narrowing is only applied under very strict conditions to avoid precision 
 
 - [ ] Define narrowing eligibility:
   ```rust
-  pub fn can_narrow_to_f32(var: VarId, analysis: &FloatAnalysis) -> bool {
+  /// Note: `VarId` → use `ori_arc::ir::ArcVarId` in the ARC IR context.
+  pub fn can_narrow_to_f32(var: ArcVarId, analysis: &FloatAnalysis) -> bool {
       let range = analysis.float_range(var);
       match range {
           FloatRange::Constant(v) => is_f32_exact(v),

@@ -400,7 +400,7 @@ fn split_heap_string_short_pieces_use_sso() {
     ori_rc_free(heap_data, content.len(), 1);
 }
 
-/// Semantic pin for TPR-04-006: splitting a slice-backed string must not crash.
+/// Semantic pin: splitting a slice-backed string must not crash.
 ///
 /// Creates a heap string, takes a substring (seamless slice), then splits
 /// the substring. Without the `str_cap` parameter fix, `ori_str_split` would
@@ -484,8 +484,6 @@ fn split_slice_backed_string_no_crash() {
     );
     ori_rc_free(heap_data, content.len(), 1);
 }
-
-// TPR-04-010: Slice-backed strings through string methods
 
 /// Semantic pin: `substring(...).to_uppercase()` must not crash on a
 /// slice-backed string. Without the `SLICE_FLAG` guard, `ori_rc_is_unique`
@@ -633,8 +631,6 @@ fn concat_on_slice_backed_string() {
     ori_rc_free(heap_data, 43, 1);
 }
 
-// TPR-04-011: repeat(1) double-free
-
 /// Semantic pin: `repeat(count: 1)` must return an owned clone, not `*s_ref`.
 /// Without the fix, both original and repeated value share the same heap.data
 /// pointer, and RC-decrementing both causes a double-free.
@@ -700,8 +696,6 @@ fn repeat_one_on_slice_backed_string() {
     ori_rc_dec(heap_data, None); // sub
     ori_rc_free(heap_data, 43, 1); // source
 }
-
-// TPR-04-012: concat("") double-free
 
 /// Semantic pin: `heap_str.concat("")` must return an owned copy, not alias.
 #[test]

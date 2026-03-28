@@ -829,7 +829,7 @@ fn test_build_incremental_unchanged() {
     );
 }
 
-// TPR-02-005: @main(args: [str]) ABI fix — Indirect param passing
+// @main(args: [str]) ABI — Indirect param passing
 
 #[test]
 fn test_main_args_no_arguments() {
@@ -878,7 +878,7 @@ fn test_main_args_void_return() {
     );
 }
 
-// TPR-02-016: @main(args: [str]) must clean up args on unwind path.
+// @main(args: [str]) must clean up args on unwind path.
 // When _ori_main panics, the C main wrapper must invoke/landingpad to
 // call ori_args_cleanup before re-raising, preventing args buffer leak.
 
@@ -1027,7 +1027,7 @@ fn test_main_no_args_wrapper_uses_call_ir() {
     );
 }
 
-// TPR-02-020: Valgrind-based panic-path verification.
+// Valgrind-based panic-path verification.
 // ORI_CHECK_LEAKS can't validate leak freedom on panic (unwind skips leak check).
 // Valgrind tracks allocations externally and detects leaks regardless of exit path.
 #[test]
@@ -1049,7 +1049,7 @@ fn test_main_args_panic_valgrind_clean() {
     }
 }
 
-// TPR-02-021: Functional JIT test for collection construction.
+// Functional JIT test for collection construction.
 // Verifies that ori_buffer_store_elem_dec / ori_buffer_store_elem_count
 // resolve correctly when MCJIT compiles a list literal with fat-pointer
 // elements (str). If these symbols were missing or mismatched, the JIT
@@ -1092,7 +1092,7 @@ fn test_jit_str_list_construction() {
     );
 }
 
-// TPR-02-026: @main(args: [str]) owned-path double-free fix.
+// @main(args: [str]) owned-path double-free fix.
 // When _ori_main takes ownership of args via Indirect ABI (e.g., passing
 // args through an owned function), the callee frees the buffer via its ARC
 // dec at function exit. The wrapper must NOT also call ori_args_cleanup on

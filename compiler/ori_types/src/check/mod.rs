@@ -916,6 +916,12 @@ impl<'a> ModuleChecker<'a> {
         // These enable cross-module type reconstruction without AST access.
         let type_descriptors = generate_export_descriptors(&pool, &functions);
 
+        // Generate exported type metadata for cross-module repr plan construction.
+        // Only includes types with repr attributes or public visibility — types with
+        // default layout and private visibility need no protection from narrowing.
+        // See CROSS-04-014.
+        let exported_type_metadata = generate_exported_type_metadata(&types);
+
         let typed = TypedModule {
             expr_types: self.expr_types,
             functions,
@@ -926,6 +932,7 @@ impl<'a> ModuleChecker<'a> {
             impl_sigs: self.impl_sigs,
             mono_instances,
             type_descriptors,
+            exported_type_metadata,
         };
 
         (TypeCheckResult::from_typed(typed), pool)
@@ -955,6 +962,26 @@ fn generate_export_descriptors(
     }
 
     descriptors
+}
+
+/// Generate exported type metadata for cross-module repr plan construction.
+///
+/// For each user-defined type that has a `#repr` attribute or public visibility,
+/// emits an [`ExportedTypeMetadata`] entry carrying the Merkle hash, repr, and
+/// visibility. Importing modules use these entries to seed their `ReprPlan` with
+/// the correct exemptions. See CROSS-04-014.
+fn generate_exported_type_metadata(
+    types: &[crate::registry::TypeEntry],
+) -> Vec<crate::output::ExportedTypeMetadata> {
+    types
+        .iter()
+        .filter(|te| te.repr.is_some() || te.visibility == crate::Visibility::Public)
+        .map(|te| crate::output::ExportedTypeMetadata {
+            merkle_hash: te.merkle_hash,
+            repr: te.repr,
+            is_public: te.visibility == crate::Visibility::Public,
+        })
+        .collect()
 }
 
 /// Resolve deferred mono calls transitively.
