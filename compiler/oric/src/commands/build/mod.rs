@@ -14,6 +14,9 @@ mod multi_emission;
 #[cfg(feature = "llvm")]
 mod single;
 
+#[cfg(test)]
+mod tests;
+
 #[cfg(feature = "llvm")]
 use std::path::Path;
 #[cfg(feature = "llvm")]

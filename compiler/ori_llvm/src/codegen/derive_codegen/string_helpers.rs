@@ -40,6 +40,34 @@ pub(super) fn emit_str_literal<'a>(
         })
 }
 
+/// Emit `ori_str_rc_dec(data, cap, null)` on a string value.
+///
+/// Handles SSO strings (no-op — cap field encodes SSO flag), heap strings
+/// (decrements RC on the data buffer), and seamless slices (finds original
+/// buffer). The `drop_fn` is null because strings contain no nested references.
+///
+/// Used by `compile_format_fields` to clean up intermediate concatenation results
+/// that are overwritten and become unreachable. Without these calls, every
+/// intermediate string in the format loop leaks.
+pub(super) fn emit_str_rc_dec<'a>(
+    fc: &mut FunctionCompiler<'_, 'a, 'a, '_>,
+    str_val: ValueId,
+    name: &str,
+) {
+    let data = fc
+        .builder_mut()
+        .extract_value(str_val, 2, &format!("{name}.data"));
+    let cap = fc
+        .builder_mut()
+        .extract_value(str_val, 1, &format!("{name}.cap"));
+    if let (Some(dp), Some(cp)) = (data, cap) {
+        let drop_fn_id = fc.builder_mut().runtime_fn("ori_str_drop_buffer");
+        let drop_fn_ptr = fc.builder_mut().get_function_ptr(drop_fn_id);
+        let dec_fn = fc.builder_mut().runtime_fn("ori_str_rc_dec");
+        fc.builder_mut().call(dec_fn, &[dp, cp, drop_fn_ptr], "");
+    }
+}
+
 /// Call `ori_str_concat(a: ptr, b: ptr) -> str` (alloca+store pattern).
 pub(super) fn emit_str_concat<'a>(
     fc: &mut FunctionCompiler<'_, 'a, 'a, '_>,
@@ -75,9 +103,14 @@ pub(super) fn emit_field_to_string<'a>(
     let info = fc.type_info().get(field_type);
     match &info {
         TypeInfo::Int | TypeInfo::Duration | TypeInfo::Size => {
+            // §04 integer narrowing may produce i8/i16/i32 struct fields —
+            // sext back to canonical i64 for the runtime formatting call.
+            let widened = fc
+                .builder_mut()
+                .sext_to_i64_if_narrower(val, &format!("{name}.sext"));
             let f = fc.builder_mut().runtime_fn("ori_str_from_int");
             fc.builder_mut()
-                .call_with_sret(f, &[val], str_ty_id, name)
+                .call_with_sret(f, &[widened], str_ty_id, name)
                 .unwrap_or_else(|| emit_str_literal(fc, "<int>", name, str_ty_id))
         }
         TypeInfo::Float => {
@@ -97,8 +130,16 @@ pub(super) fn emit_field_to_string<'a>(
                 // Debug quotes string values: "hello" → "\"hello\""
                 let open = emit_str_literal(fc, "\"", &format!("{name}.q1"), str_ty_id);
                 let quoted = emit_str_concat(fc, open, val, &format!("{name}.qcat"), str_ty_id);
+                // open is SSO (1 byte) — dec is a no-op but balances ownership.
+                emit_str_rc_dec(fc, open, &format!("{name}.dec.q1"));
                 let close = emit_str_literal(fc, "\"", &format!("{name}.q2"), str_ty_id);
-                emit_str_concat(fc, quoted, close, &format!("{name}.quoted"), str_ty_id)
+                let result =
+                    emit_str_concat(fc, quoted, close, &format!("{name}.quoted"), str_ty_id);
+                // quoted is heap-backed for long strings — must dec to avoid leak.
+                emit_str_rc_dec(fc, quoted, &format!("{name}.dec.qcat"));
+                // close is SSO (1 byte) — dec is a no-op but balances ownership.
+                emit_str_rc_dec(fc, close, &format!("{name}.dec.q2"));
+                result
             } else {
                 val
             }

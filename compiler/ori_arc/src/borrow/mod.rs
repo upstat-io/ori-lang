@@ -136,7 +136,7 @@ fn _enforce_exhaustiveness(tag: ori_registry::TypeTag) {
 /// forces updates to this crate when a new `TypeTag` variant is added.
 /// If you see a compile error pointing here, a new `TypeTag` was added
 /// to `ori_registry` without updating the ARC pass's borrow inference.
-// Compile-time exhaustiveness guard (Roc pattern). See plans/type_strategy_registry/section-14.
+// Compile-time exhaustiveness guard (Roc pattern).
 #[allow(
     dead_code,
     unreachable_code,

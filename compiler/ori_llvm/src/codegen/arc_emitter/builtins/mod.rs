@@ -14,12 +14,11 @@
 //! registrations for O(1) lookup and sync-test enumeration against
 //! `ori_registry::BUILTIN_TYPES`.
 //!
-//! # Migration
+//! # Submodule dispatch
 //!
-//! During the Section 05 migration, submodules are converted one at a time
-//! from empty `declare_builtins! {}` stubs to fully populated declarations.
-//! The legacy dispatch (`legacy_dispatch()`) handles all types not yet
-//! migrated. Once all submodules are migrated, the legacy dispatch is removed.
+//! Each submodule declares its builtin methods via `declare_builtins!`.
+//! No legacy dispatch remains -- all types are covered by submodule
+//! declarations.
 
 // declare_builtins! macro — MUST appear before submodule `mod` declarations
 // for textual scoping (macro_rules! follow source order in Rust).
@@ -478,7 +477,7 @@ fn _enforce_exhaustiveness(tag: ori_registry::TypeTag) {
 /// forces updates to this crate when a new `TypeTag` variant is added.
 /// If you see a compile error pointing here, a new `TypeTag` was added
 /// to `ori_registry` without updating the LLVM backend's builtin codegen.
-// Compile-time exhaustiveness guard (Roc pattern). See plans/type_strategy_registry/section-14.
+// Compile-time exhaustiveness guard (Roc pattern).
 #[allow(
     dead_code,
     unreachable_code,

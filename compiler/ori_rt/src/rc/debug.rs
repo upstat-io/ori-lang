@@ -189,7 +189,7 @@ pub(crate) fn alloc_registry_insert(data_ptr: *mut u8, size: usize, align: usize
 /// Update size/alignment of an existing allocation in the registry.
 ///
 /// Called from `ori_rc_realloc` when the pointer address stays the same
-/// (in-place realloc). Preserves the original `alloc_id`. (TPR-05-004)
+/// (in-place realloc). Preserves the original `alloc_id`.
 #[cfg(debug_assertions)]
 pub(crate) fn alloc_registry_update(data_ptr: *mut u8, new_size: usize, new_align: usize) {
     if let Ok(mut reg) = alloc_registry().lock() {

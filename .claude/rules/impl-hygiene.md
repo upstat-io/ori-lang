@@ -332,6 +332,7 @@ Inline comments on struct fields when purpose isn't obvious.
 - TODOs: format `// TODO(phase): description` — e.g., `// TODO(typeck): handle generic associated types`. Every TODO references a plan or roadmap item. No orphan TODOs.
 - Section labels in large enums/matches: plain `// Section name`
 - **Spec citations required**: code implementing grammar rules, operator semantics, type rules, or language semantics must cite the spec clause. Format: `// Spec: Clause N.M — description`
+- **Plan annotations are temporary scaffolding**: Annotations referencing plans (`TPR-04-005`, `CROSS-04-014`, `§04.3 Phase A`, `BUG-04-07`, `Section 04.2`, `section-04-name`) are allowed during active plan execution — they aid navigation. They MUST be removed when the plan completes. Every plan MUST include a final cleanup section to strip all its code annotations. Stale annotations from completed plans are hygiene violations (**DRIFT** category). Run `.claude/skills/impl-hygiene-review/plan-annotations.sh` to scan. Only **spec references** (`Spec: Clause N.M`) are permanent.
 
 ## Derives
 

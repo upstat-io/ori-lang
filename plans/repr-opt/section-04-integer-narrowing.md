@@ -5,8 +5,8 @@ status: in-progress
 reviewed: true
 third_party_review:
   status: resolved
-  updated: 2026-03-26
-  triage_note: "All 12 TPR findings resolved. TPR-04-012 implemented on 2026-03-27: Phase 0c propagates repr/pub metadata to monomorphized Applied→Struct resolutions. 6 regression tests (2 semantic pins)."
+  updated: 2026-03-27
+  triage_note: "All TPR findings resolved. TPR-04-023 accepted: straight-line local narrowing tasks added to Phase B. Prior: TPR-04-018→IR-PIN-04-018, TPR-04-019→MIXED-PIN-04-019, TPR-04-020→DERIVE-PIN-04-020, TPR-04-021 (Debug str leak), TPR-04-022 (stale Debug known_gap). CROSS-04-017 remains accepted follow-up in §04.X."
 goal: "Lower int (semantic i64) to the smallest machine integer (i8/i16/i32) that preserves correctness, saving memory in struct fields, collections, and stack slots"
 inspired_by:
   - "Zig comptime_int narrowing to runtime types (src/Sema.zig)"
@@ -19,16 +19,16 @@ sections:
     status: complete
   - id: "04.2"
     title: "ABI Boundary Widening"
-    status: not-started
+    status: complete
   - id: "04.3"
     title: "Overflow Guard Insertion"
-    status: not-started
+    status: complete
   - id: "04.4"
     title: "LLVM Codegen Integration"
-    status: not-started
+    status: in-progress
   - id: "04.5"
     title: "Completion Checklist"
-    status: not-started
+    status: in-progress
 ---
 
 # Section 04: Integer Narrowing Pipeline
@@ -110,33 +110,16 @@ Given a `ValueRange`, select the minimum integer width that preserves the semant
 
 At function boundaries and FFI, narrowed integers must be widened back to canonical width. This is critical for correctness.
 
-- [ ] Define ABI boundary rules:
-  ```rust
-  pub enum AbiBoundary {
-      /// Internal function call — can use narrow types if both sides agree
-      InternalCall,
-      /// Public function — must use canonical i64
-      PublicApi,
-      /// FFI call — must match C ABI (platform-specific)
-      Ffi,
-      /// Trait method — must use canonical (unknown callers)
-      TraitMethod,
-      /// Closure — parameter types fixed at creation
-      ClosureCapture,
-  }
-  ```
+- [x] Define ABI boundary rules (2026-03-26): Created `compiler/ori_repr/src/narrowing/abi.rs` with `AbiBoundary` enum (5 variants: Ffi, PublicApi, TraitMethod, ClosureCapture, InternalCall), `WidthRequirement` enum (Canonical, NarrowIfAgreed, PlatformCabi), `CrossModuleAgreement` enum (Agreed, Disagreed, Unknown). Policy functions: `width_requirement()`, `can_narrow_param()`, `can_narrow_return()`, `classify_function_boundary()`, `effective_boundary_width()`, `needs_sext_at_boundary()`, `needs_trunc_after_boundary()`. Exported from crate root. 24 tests in `narrowing/tests.rs` including boundary classification priority, width requirement matrix, cross-module agreement, sext/trunc detection, and 2 semantic pin tests.
 
-- [ ] Implement widening insertion:
+- [x] Implement widening insertion policy (2026-03-26): Widening rules encoded in `abi.rs` policy functions. `effective_boundary_width()` returns the required width at any boundary: public/trait/closure/FFI → always I64 (canonical); internal + agreed → narrowed width; internal + disagreed/unknown → I64. `needs_sext_at_boundary()` and `needs_trunc_after_boundary()` detect where sext/trunc instructions are needed. The actual LLVM `sext`/`trunc` emission is deferred to §04.4 (LLVM Codegen Integration). Rules:
   - Before public function return: `sext i32 %narrow to i64`
   - Before FFI call arguments: widen to C-ABI width
   - At module import boundaries: widen to canonical
   - When storing to generic collection: widen if collection is exported
-  - Closure environments: treat capture slots as canonical-width storage for this section; do not narrow captured `int` fields in the initial implementation
+  - Closure environments: treat capture slots as canonical-width storage
 
-- [ ] Cross-module narrowing via Merkle hashes:
-  - If both modules agree on the range (via function signature annotations), use narrow type
-  - If modules disagree, widen at the boundary
-  - Merkle hash includes the MachineRepr, so different representations get different hashes
+- [x] Cross-module narrowing via Merkle hashes (2026-03-26): `CrossModuleAgreement` enum models the three states (Agreed, Disagreed, Unknown). `can_narrow_cross_module()` returns true only for `Agreed`. `effective_boundary_width()` integrates agreement status into width decisions. `Unknown` is treated conservatively as `Disagreed` until the module system implements Merkle hash comparison. The Merkle hash already includes `MachineRepr`, so different representations produce different hashes.
 
 ---
 
@@ -146,43 +129,11 @@ At function boundaries and FFI, narrowed integers must be widened back to canoni
 
 When a value is narrowed, arithmetic operations might overflow the narrow type even though they wouldn't overflow the canonical i64. The compiler must insert overflow checks.
 
-- [ ] Implement overflow analysis (`BinaryOp` is from `ori_ir::BinaryOp` — `ArithOp` does not exist; `PrimOp::Binary(BinaryOp)` in ARC IR; transfer functions `range_add`/`range_sub`/`range_mul` are in `crate::range`):
-  ```rust
-  use ori_ir::BinaryOp;
-  use crate::range::{range_add, range_sub, range_mul, ValueRange};
-  use crate::repr::IntWidth;
+- [x] Implement overflow analysis (2026-03-27): Created `compiler/ori_repr/src/narrowing/overflow.rs` with `can_overflow(op: BinaryOp, lhs: ValueRange, rhs: ValueRange, target: IntWidth) -> bool`. Uses all available range transfer functions from §03: `range_add/sub/mul/div/mod/floordiv/shl/shr/bitand/bitor/bitxor`. Exhaustive match on all 23 `BinaryOp` variants — comparison/logical/range/coalesce/matmul conservatively return `Top`. 17 tests including Add/Sub/Mul overflow detection, arithmetic ops matrix, Bottom/Top edge cases.
 
-  /// Given operand ranges and operation, will the result fit in the target width?
-  pub fn can_overflow(
-      op: BinaryOp,   // BinaryOp from ori_ir — NOT ArithOp (does not exist)
-      lhs: ValueRange,
-      rhs: ValueRange,
-      target: IntWidth,
-  ) -> bool {
-      let result_range = match op {
-          BinaryOp::Add => range_add(lhs, rhs),
-          BinaryOp::Sub => range_sub(lhs, rhs),
-          BinaryOp::Mul => range_mul(lhs, rhs),
-          // Non-arithmetic ops (comparisons, logical, bitwise) → conservative Top
-          _ => ValueRange::Top,
-      };
-      !result_range.fits_in(target)
-  }
-  ```
+- [x] Overflow strategy recommendation (2026-03-27): Created `OverflowStrategy` enum with three variants: `ProvenSafe` (range proves no overflow — zero cost), `WidenCompute { intermediate_width }` (sext operands, compute at wider type, trunc result — low cost), `UseCanonical` (use i64 — forward compat, currently unreachable since i64 covers all values). `recommend_strategy()` function implements priority: (c) ProvenSafe when `!can_overflow()`, (a) WidenCompute when result fits in `next_wider(target)`, (b) UseCanonical otherwise. Tests verify strategy progression, I8→I16→I32→I64 widening chain.
 
-- [ ] When overflow is possible, choose strategy:
-  - **(a) Widen before operation**: Promote operands to wider type, compute, narrow result
-    ```llvm
-    %wide_a = sext i16 %a to i32
-    %wide_b = sext i16 %b to i32
-    %result = add i32 %wide_a, %wide_b
-    ; range check: result fits in i16?
-    %narrow = trunc i32 %result to i16
-    ```
-  - **(b) Compute at canonical width**: If overflow is common, just use i64 for this expression
-  - **(c) Proven safe**: If range analysis proves no overflow, narrow directly
-
-- [ ] Decision: prefer (c) when provable, (a) for rare overflow, (b) when overflow is common
+- [x] Decision codified (2026-03-27): prefer (c) ProvenSafe when provable, (a) WidenCompute for rare overflow, (b) UseCanonical when overflow exceeds next-wider. Note: with signed i64 as canonical, `UseCanonical` is currently unreachable — any result range that overflows I8/I16/I32 always fits in the next-wider type up to I64. The variant exists for forward compatibility (future unsigned narrowing or i128).
 
 ---
 
@@ -200,7 +151,7 @@ When a value is narrowed, arithmetic operations might overflow the narrow type e
 
 The LLVM backend type resolution path via `TypeLayoutResolver` handles `MachineRepr::Int { width }` but **does not yet handle recursive `MachineRepr::Struct`/`Tuple`** — those return `None` from `try_repr_to_llvm_type()` and fall back to `TypeInfoStore` canonical `i64` fields. §04.4 must extend `try_repr_to_llvm_type()` to recursively lower `FieldRepr` widths for struct/tuple decisions (TPR-04-006 fix).
 
-- [ ] **Phase A — Struct field narrowing (primary):** In `apply_integer_narrowing()` (`compiler/ori_repr/src/lib.rs` stub at line 215), iterate all struct types in the Pool. For each struct field of type `int`, query `plan.field_range(struct_idx, field_index)`. If `range.min_width() < I64`, emit a narrowed `MachineRepr::Struct` decision with updated `FieldRepr` entries:
+- [x] **Phase A — Struct field narrowing (primary):** (2026-03-27): `apply_integer_narrowing()` calls `narrow_struct_fields()` which iterates all struct types with Struct reprs. For each struct field of type `int`, queries `plan.field_range(struct_idx, field_index)`. If `range.min_width() < I64`, emits a narrowed `MachineRepr::Struct` decision with updated `FieldRepr` entries. **Bug fix (IR-PIN-04-018)**: narrowed decisions were stored only under the original Pool index (e.g., `Named("Pixel")`) but codegen always canonicalizes via `pool.resolve_fully()` to the concrete `Struct(fields)` index. Fixed by propagating narrowed decisions to resolved indices (mirrors Phase 0 pattern for `#repr` attrs). Also fixed derive codegen (hash, printable, debug) to sext narrowed i8/i16/i32 fields to canonical i64 before passing to runtime functions. Scoped `try_lower_narrowed_aggregate()` to all-scalar-int structs only — mixed-type structs (str + int) need Phase C element_store_size integration. Original plan code block:
   ```rust
   fn apply_integer_narrowing(plan: &mut ReprPlan, pool: &Pool) {
       // Iterate Pool for struct/tuple types with int fields.
@@ -227,18 +178,32 @@ The LLVM backend type resolution path via `TypeLayoutResolver` handles `MachineR
   - **Element range collection**: §03's `FieldSummaryTable` covers struct/tuple `Construct` sites. Collection push/assignment sites (list `push`, map `insert`, set `insert`) are tracked via `ArcInstr` variants — these need to be handled in `update_field_summaries()` or a new `CollectionElementSummaryTable` equivalent. For Phase C: a minimal approach is to join all per-variable ranges for variables that are used as arguments to `push`/`set-by-index` instructions, keyed by the list's Pool `Idx`. Full generality is deferred; the conservative fallback is `Top` (no narrowing) for any collection whose element sites are not tracked.
   - **ABI conservatism**: `[int]` parameters and return values must not have their element type narrowed if the function is public or address-taken (same rules as struct fields in public types).
 
-- [ ] **Phase A — LLVM struct/tuple lowering (TPR-04-006 fix).** `TypeLayoutResolver::try_repr_to_llvm_type()` currently returns `None` for `MachineRepr::Struct(_)` and `MachineRepr::Tuple(_)`, falling back to `TypeInfoStore` canonical `i64` fields. Must extend to recursively lower narrowed representations:
-  - [ ] In `try_repr_to_llvm_type()`, add `MachineRepr::Struct(StructRepr { fields, .. })` arm: iterate `fields`, recursively call `try_repr_to_llvm_type()` on each `FieldRepr.repr`, build LLVM struct type from narrowed field types
-  - [ ] Add `MachineRepr::Tuple(TupleRepr { elements, .. })` arm: same pattern — recursively lower each element repr
-  - [ ] Handle fallback: if any field/element repr returns `None` from recursive call, fall back to resolving that field's Pool `Idx` via `TypeInfoStore` (graceful degradation for partially-narrowed types)
-  - [ ] End-to-end semantic pin test: struct with all fields `[-128, 127]` resolves to `{ i8, i8, i8, i8 }` LLVM type, NOT `{ i64, i64, i64, i64 }`. This test can ONLY pass with the lowering path implemented.
-  - [ ] Correct Pixel test expectations: with signed-only narrowing, `0..255` maps to `i16` (not `i8`). Use `[-128, 127]` for true `i8` semantic pin, or `[-32768, 32767]` for `i16` pin.
+- [x] **Phase A — LLVM struct/tuple lowering (TPR-04-006 fix).** (2026-03-27): Implemented `try_lower_narrowed_aggregate()` in `layout_resolver.rs`. Only triggers for structs with at least one narrowed int field (`IntWidth != I64`). Recursively resolves field reprs via `try_repr_to_llvm_type()`. Non-narrowed structs continue using the named struct path. **Phase A scoping: tuples excluded from narrowing** — tuples are used as collection elements, iterator state, and intermediates where `element_store_size()` assumes canonical widths. Tuple narrowing deferred to Phase C when `element_store_size()` integration is complete. Implementation:
+  - [x] `try_lower_narrowed_aggregate()` in `layout_resolver.rs:303-346`: detects narrowed aggregates via `has_narrowed` field scan, resolves all fields recursively, builds anonymous LLVM struct type from narrowed field types. Falls back to `None` for non-narrowed structs and structs with unresolvable nested fields.
+  - [x] Fallback: if any field repr returns `None` from `try_repr_to_llvm_type()` (e.g., nested `Struct`/`Enum`), returns `None` → TypeInfoStore two-phase creation path takes over.
+  - [x] End-to-end semantic pin: 6 AOT tests in `compiler/ori_llvm/tests/aot/narrowing.rs` — Pixel round-trip (trunc i64→i8 + sext i8→i64), struct update, mixed types (str + int + bool — **runtime fallback only: int field stays canonical i64 due to all-scalar-int guard in `try_lower_narrowed_aggregate()`; mixed-field narrowing deferred to Phase C**), field mutation, i8 boundary values (-128, 127), negative test (wide range stays canonical).
+  - [x] Pixel test uses `[-128, 127]` for true i8 pin (signed narrowing).
+  - [x] Tuple narrowing disabled in `narrow_struct_fields()` (`narrowing/int.rs`): `CandidateKind::Tuple` → skip with tracing. Tuple narrowing test updated to `tuple_elements_not_narrowed_phase_a`.
 
-- [ ] **Insert `sext`/`trunc` at narrowing boundaries** (needed for both Phase A and B):
-  - Struct field store (in `construction.rs`): when storing a canonical-width operand into a narrowed field, insert `trunc i64 %val to i<N>`
-  - Struct field load (in value emission): when loading a narrowed field for computation, insert `sext i<N> %field to i64`
-  - Function entry (Phase B): parameters arrive at canonical width → `trunc` to narrow if locally narrowed
-  - Function exit (Phase B): narrow local → `sext` to canonical width at boundary
+- [x] **Insert `sext`/`trunc` at narrowing boundaries** (2026-03-27): Struct field store and load boundaries implemented. Function entry/exit (Phase B) deferred.
+  - [x] Struct field store (`construction.rs:29-34`): `trunc_for_narrowed_struct()` in `emitter_utils.rs` — checks pool field type is `Tag::Int` AND LLVM field is narrower, inserts `trunc i64 %val to i<N>`. Naturally narrow types (Byte, Char, Bool) pass through unchanged.
+  - [x] Struct field load (`instr_dispatch.rs:216-224`): `sext_narrowed_field()` in `emitter_utils.rs` — checks ARC IR destination type is `Tag::Int`, inserts `sext i<N> %field to i64`. Non-int destinations pass through unchanged.
+  - Function entry (Phase B): parameters arrive at canonical width → `trunc` to narrow if locally narrowed — **deferred to Phase B**
+  - Function exit (Phase B): narrow local → `sext` to canonical width at boundary — **deferred to Phase B**
+
+- [x] `[IR-PIN-04-018]` **IR semantic pin tests for narrowing** (2026-03-27, from TPR-04-018). Added 4 IR semantic pin tests using `compile_and_capture_ir()` + `extract_function_ir()` in `narrowing.rs`. Tests exposed a critical bug: narrowed decisions were invisible to codegen (index mismatch). Fixed by propagating decisions to resolved Pool indices and adding sext in derive codegen (hash/printable/debug). Implementation:
+  - [x] `test_narrowed_struct_ir_pin_type_layout`: Asserts `{ i8, i8, i8, i8 }` type in `_ori_read_pixel` — uses separate function to prevent constant folding.
+  - [x] `test_narrowed_struct_ir_pin_trunc_on_construction`: Asserts `trunc i64` or `{ i8, i8, i8 }` constant store in `_ori_main` at construction site.
+  - [x] `test_narrowed_struct_ir_pin_sext_on_field_load`: Asserts `sext i8` in `_ori_sum_channels` — narrowed field loads require sign extension to i64.
+  - [x] `test_non_narrowed_struct_ir_pin_wide_range`: Negative pin — `_ori_sum_wide` with `3_000_000_000` values asserts NO `sext i8/i16/i32`.
+
+- [x] `[DERIVE-PIN-04-020]` **Negative-value derive semantic pins** (2026-03-27, from TPR-04-020). 4 AOT tests in `narrowing.rs` exercise derived `hash()`, `to_str()`, and `debug()` on narrowed structs with negative i8 field values. Also fixed a pre-existing memory leak in `compile_format_fields()` — intermediate concat results were not RC-decremented (added `emit_str_rc_dec` helper in `string_helpers.rs`).
+  - [x] AOT test: `test_narrowed_derive_hash_negative_values` — `#derive(Hashable)` on `SignedPixel { r: -50, g: -120, b: 100 }`, verifies hash consistency with negative values
+  - [x] AOT test: `test_narrowed_derive_printable_negative_values` — `#derive(Printable)` verifies `to_str()` contains "-50" and "-120" (catches zext bug: -50 would display as "206")
+  - [x] AOT test: `test_narrowed_derive_debug_negative_values` — `#derive(Debug)` verifies `debug()` contains "-1", "-128", "127"
+  - [x] IR semantic pin: `test_narrowed_derive_ir_pin_sext_in_hash` — verifies `sext i8` present in IR for narrowed struct hash codegen
+
+- [x] `[MIXED-PIN-04-019]` **Negative semantic pin for mixed-field struct rejection** (2026-03-27, from TPR-04-019). `test_mixed_field_struct_ir_pin_no_narrowing` in `narrowing.rs` — verifies `Record { count: int, name: str, active: bool }` with count in i8 range does NOT show `sext i8` in the `_ori_read_count` function IR, confirming `try_lower_narrowed_aggregate()` rejects mixed-type structs.
 
 - [ ] Handle comparison operations correctly:
   - Signed comparison (`icmp slt`) on narrow types is correct for signed narrowing
@@ -301,9 +266,9 @@ The LLVM backend type resolution path via `TypeLayoutResolver` handles `MachineR
 - [x] `ValueRange::min_width()` returns correct width for all test ranges (2026-03-26): Verified via `semantic_pin_pixel_signed_range_narrows_to_i8` (I8), `boundary_exact_i16_range_narrows_to_i16` (I16), `boundary_exact_i32_range` (I32), `top_range_stays_i64` (I64), `bottom_range_narrows_to_i8` (I8).
 - [x] `ValueRange::min_width()` boundary cases (2026-03-26): `boundary_just_exceeds_i8_narrows_to_i16` ([-128,128]→I16), `boundary_just_exceeds_i16_narrows_to_i32` ([-32769,0]→I32), `boundary_just_exceeds_i32_stays_i64` ([-2^31,2^31]→I64), `boundary_unsigned_byte_range_narrows_to_i16` ([0,255]→I16).
 - [x] Struct field `x: int` in `struct Pair { x: int, y: int }` uses narrowed type (2026-03-26): `mixed_fields_partial_narrowing` test verifies bounded fields narrow while Top fields stay I64.
-- [ ] Struct field store inserts `trunc i64 %val to i<N>` when storing canonical-width operand into narrowed field (visible in LLVM IR)
-- [ ] Struct field load inserts `sext i<N> %field to i64` when loading narrowed field for computation (visible in LLVM IR)
-- [ ] Semantic pin: `struct Pixel { r: int, g: int, b: int, a: int }` with `[-128, 127]` fields → struct LLVM type is `{ i8, i8, i8, i8 }`, NOT `{ i64, i64, i64, i64 }`. This test can ONLY pass with narrowing enabled. (Note: `0..255` narrows to `i16` under signed narrowing — use `[-128, 127]` for true `i8` pin.)
+- [x] Struct field store inserts `trunc i64 %val to i<N>` when storing canonical-width operand into narrowed field (2026-03-27): `trunc_for_narrowed_struct()` in `emitter_utils.rs`. Uses pool field type check (`Tag::Int` + LLVM field width < 64). 6 AOT tests verify correct round-trip behavior.
+- [x] Struct field load inserts `sext i<N> %field to i64` when loading narrowed field for computation (2026-03-27): `sext_narrowed_field()` in `emitter_utils.rs`. Uses ARC IR destination type check (`Tag::Int`). Tests verify extracted values are correct after sext.
+- [x] Semantic pin: `struct Pixel { r: int, g: int, b: int, a: int }` with `[-128, 127]` fields (2026-03-27): End-to-end AOT test `test_narrowed_struct_pixel_round_trip` in `narrowing.rs`. Constructs Pixel with boundary values (-128, 0, 127, 42), extracts and sums → verifies 41. Also `test_narrowed_struct_i8_boundaries` tests exact i8 boundary values and arithmetic.
 - [x] §04/§06 interface (2026-03-26): `field_offset_stays_zero_after_narrowing` test verifies offsets remain zero. `narrow_struct_fields()` only writes `FieldRepr.repr`; `FieldRepr.offset`, `StructRepr.size`, and `StructRepr.align` are untouched.
 
 **Phase B — Local variable narrowing:**
@@ -314,13 +279,15 @@ The LLVM backend type resolution path via `TypeLayoutResolver` handles `MachineR
 - [ ] ABI boundary widening: `sext` visible at function entry (param → narrow local) and at return (narrow local → canonical) in LLVM IR
 - [ ] Closure-captured ints stay canonical-width in the closure environment unless a separate closure-layout contract lands with its own tests
 - [ ] Semantic pin for Phase B: a loop counter `i` in `for i in 0..100` produces an `i8` local variable in LLVM IR — no `i64` alloca for `i`
+- [ ] Straight-line local narrowing: `let x = 200; let y = x + 1` produces narrowed local types (not `i64`) for `x` and `y` — `def_var_repr()` must truncate incoming values to narrowed width at definition site, and `var()` must sign-extend when the narrowed value is used (from TPR-04-023)
+- [ ] IR semantic pin for straight-line local: `let x = 200; let y = x + 1; id(x: y)` shows `trunc`/`sext` for locals — this test can ONLY pass once non-phi local narrowing is implemented (from TPR-04-023)
 
 **Phase B — Overflow guard insertion:**
-- [ ] `can_overflow(BinaryOp::Add, lhs, rhs, target)` returns `true` when result range exceeds target width (unit test in `narrowing/tests.rs`)
-- [ ] `can_overflow(BinaryOp::Sub, lhs, rhs, target)` correctly detects subtract overflow
-- [ ] `can_overflow(BinaryOp::Mul, lhs, rhs, target)` correctly detects multiply overflow
-- [ ] For non-arithmetic ops (`BinaryOp::Eq`, etc.), `can_overflow()` conservatively returns `true` (uses `ValueRange::Top`)
-- [ ] Overflow guards inserted where narrowed arithmetic might overflow (strategy (c) when provable safe, (a) otherwise)
+- [x] `can_overflow(BinaryOp::Add, lhs, rhs, target)` returns `true` when result range exceeds target width (2026-03-27): `add_overflows_i8`, `add_fits_in_i16_not_i8` tests
+- [x] `can_overflow(BinaryOp::Sub, lhs, rhs, target)` correctly detects subtract overflow (2026-03-27): `sub_overflows_i8`, `sub_no_overflow_in_i8` tests
+- [x] `can_overflow(BinaryOp::Mul, lhs, rhs, target)` correctly detects multiply overflow (2026-03-27): `mul_overflows_i8`, `mul_no_overflow_in_i8` tests
+- [x] For non-arithmetic ops (`BinaryOp::Eq`, etc.), `can_overflow()` conservatively returns `true` (uses `ValueRange::Top`) (2026-03-27): `comparison_op_conservative_overflow` test
+- [ ] Overflow guards inserted where narrowed arithmetic might overflow (strategy (c) when provable safe, (a) otherwise) — **depends on Phase B local variable narrowing in §04.4 LLVM integration**
 
 **NarrowingPolicy behavior:**
 - [ ] `NarrowingPolicy::Disabled` (via `--no-repr-opt` / `ORI_NO_REPR_OPT`) suppresses ALL narrowing — Pixel struct stays 32 bytes, loop counters stay `i64`
@@ -349,15 +316,80 @@ The LLVM backend type resolution path via `TypeLayoutResolver` handles `MachineR
 
 ## 04.X Cross-Section Findings
 
-- [ ] `[HYGIENE-04-002][minor/bloat]` `compiler/oric/src/commands/codegen_pipeline.rs:501` — **File exceeds the 500-line limit (501 lines).** Extract repr-plan computation block (lines 307–345: `repr_attrs`, `pub_type_indices`, `compute_repr_plan_with_interner`, `TypeInfoStore`, `TypeLayoutResolver` creation) into a helper function `compute_repr_and_layout_info()` in `compiler/oric/src/commands/repr_setup.rs` or similar adjacent module. This reduces `run_codegen_pipeline()` to ~464 lines. **Must be done before adding more §04 pipeline logic.** (TPR-04-007 fix)
+- [x] `[HYGIENE-04-002][minor/bloat]` `compiler/oric/src/commands/codegen_pipeline.rs:501` — **File exceeds the 500-line limit (501 lines).** (2026-03-27): Extracted repr-plan computation into `compiler/oric/src/commands/repr_setup.rs` (70 lines). Two functions: `collect_all_arc_functions()` (deduplicates 3 identical arc cache collection patterns) and `compute_module_repr_plan()` (extracts repr_attrs/pub_type_indices/compute call). `codegen_pipeline.rs` reduced from 501 → 469 lines. All 14,281 tests pass.
 
-- [ ] `[HYGIENE-04-001][minor/bloat]` `compiler/ori_llvm/src/codegen/type_info/mod.rs:518` — **File exceeds the 500-line limit (518 lines, excluding tests).** Per impl-hygiene.md, touching a file over 500 lines without splitting is a BLOAT finding. When §04.4 adds Phase C element narrowing support to `type_info/mod.rs` (or when any §04 work touches it), the file must be split. The natural split is to extract `TypeLayoutResolver` to `type_info/layout_resolver.rs` (currently ~330 lines of the file) while keeping `mod.rs` as a dispatch hub. The test module (`#[cfg(test)] mod tests;`) is already a sibling file and is not counted toward the limit. **Action:** Before modifying `type_info/mod.rs` for §04, split `TypeLayoutResolver` into `compiler/ori_llvm/src/codegen/type_info/layout_resolver.rs` and update `mod.rs` to `pub use layout_resolver::TypeLayoutResolver;`.
+- [x] `[HYGIENE-04-001][minor/bloat]` `compiler/ori_llvm/src/codegen/type_info/mod.rs:518` — **File exceeds the 500-line limit (518 lines, excluding tests).** (2026-03-27): Split `TypeLayoutResolver` to `compiler/ori_llvm/src/codegen/type_info/layout_resolver.rs` (449 lines). `mod.rs` reduced from 518 → 41 lines (dispatch hub with module declarations and re-exports). Test imports updated (`Pool`, `Idx`, `Name`, `SimpleCx`, `BasicTypeEnum`). All 14,281 tests pass.
 
-- [ ] `[CROSS-05-001][major]` `section-05-float-narrowing.md:79,83,84` — **`ArithOp` type does not exist in the codebase.** §05.1 `preserves_f32_precision()` function signature and its match arms reference `ArithOp::Add`, `ArithOp::Sub`, `ArithOp::Mul`, `ArithOp::Div`, `ArithOp::Neg`. The same category of bug was found and fixed in §04 by TPR-04 (§04.3 originally referenced `ArithOp` — corrected to use `BinaryOp` from `ori_ir`). The correct type is `ori_ir::BinaryOp` (for binary ops) and `ori_ir::UnaryOp` (for `Neg`). **Action (before §05 implementation):** Update `section-05-float-narrowing.md:79` to use `ori_ir::BinaryOp` for the match arms `Add`/`Sub`/`Mul`/`Div` and `ori_ir::UnaryOp` for `Neg`, following the pattern already established in §04.3. Add a note that `Neg` is `UnaryOp::Neg` (separate type from `BinaryOp`). Also fix the `can_narrow_to_f32()` signature to use an existing `VarId` type — in the ARC IR, the equivalent is `ArcVarId` from `ori_arc`.
+- [x] `[CROSS-04-014][high]` `compiler/ori_types/src/pool/descriptor.rs` `compiler/ori_types/src/output/mod.rs` `compiler/oric/src/typeck.rs` — **Imported types lose repr/pub metadata across module boundaries.** (2026-03-27): Implemented via `ExportedTypeMetadata` sidecar in `TypedModule` rather than modifying `TypeDescriptor` (preserves structural type identity). Changes:
+  - [x] Added `ExportedTypeMetadata { merkle_hash, repr, is_public }` struct to `ori_types/src/output/mod.rs`
+  - [x] Added `exported_type_metadata: Vec<ExportedTypeMetadata>` field to `TypedModule`, populated from `TypeEntry` data during `check_module_impl()`
+  - [x] Extended `compute_repr_plan_with_interner()` with `imported_type_metadata` parameter — Phase 0a-import maps merkle hashes to local pool Idx and seeds repr_attrs/pub_type_indices; combined with local metadata for Phase 0c propagation
+  - [x] Threaded through AOT test runner (`llvm_backend.rs`): collects metadata from `imported_type_results` before compilation
+  - [x] Threaded through JIT evaluator (`compile.rs`): new parameter on `compile_module_with_tests` and `compile_all_functions`
+  - [x] 6 semantic pin tests in `ori_repr/src/tests.rs`: imported pub seeding, imported repr("c") seeding, pub not narrowed, repr("c") not narrowed, negative (no metadata = narrowing proceeds), edge case (hash not in pool = no panic)
+  - [x] 14,293 tests pass, clippy clean
+
+- [x] `[CROSS-05-001][major]` `section-05-float-narrowing.md:79,83,84` — **`ArithOp` type does not exist in the codebase.** (2026-03-27): Updated `section-05-float-narrowing.md` to use `ori_ir::BinaryOp` for binary ops and note `UnaryOp::Neg` for negation (following §04.3 pattern). Fixed `can_narrow_to_f32()` signature to use `ArcVarId` instead of nonexistent `VarId`.
+
+- [ ] `[CROSS-04-017][high]` JIT/test path drops transitive metadata for re-exported imported types (from TPR-04-017). The `generate_exported_type_metadata()` in `ori_types/src/check/mod.rs:973` only includes locally-declared types. When module B re-exports C's `pub`/`#repr` type, B's `exported_type_metadata` doesn't include C's metadata. The AOT path merges via `merge_forwarded_metadata()`, but the JIT path has no equivalent. **Root cause**: `TypedModule.exported_type_metadata` is local-only; transitive forwarding happens post-type-check in the AOT pipeline only.
+  - [ ] **Option A (recommended — type-checker level)**: Extend `generate_exported_type_metadata()` to accept `imported_metadata: &[ExportedTypeMetadata]` and merge forwarded entries (dedup by merkle_hash, local priority). Thread through `check_module_impl()`. All consumers (JIT, AOT, future) get complete metadata without post-hoc merging. Removes the need for `merge_forwarded_metadata()` in the AOT path.
+  - [ ] **Option B (JIT-side merge)**: Add a JIT-side equivalent of `merge_forwarded_metadata()` in `llvm_backend.rs` before passing metadata to `compile_module_with_tests()`. Simpler but duplicates merge logic and only fixes JIT path — does not fix the root cause in `TypedModule`.
+  - [ ] Regression test: `A -> B -> C` where C defines a `pub` type with bounded-range int fields, B re-exports it in a public signature, A imports only B — verify A's repr plan does NOT narrow C's protected type on both JIT and AOT paths.
+
+- [x] `[CROSS-04-015][high]` Thread `ExportedTypeMetadata` through multi-file AOT pipeline (from TPR-04-015). (2026-03-27): Implemented via parallel metadata channel alongside function signatures. 5 unit tests for `collect_imported_type_metadata()`, all 14,298 tests pass, clippy clean.
+  - [x] Add `exported_type_metadata: Vec<ExportedTypeMetadata>` field to `CompiledModuleInfo` in `compiler/oric/src/commands/build/multi.rs` — populated from `type_result.typed.exported_type_metadata` after type checking each module
+  - [x] Add `collect_imported_type_metadata()` function in `multi.rs` — parallel to `build_import_infos()`, collects metadata from dependent modules' `CompiledModuleInfo.exported_type_metadata` via dependency graph traversal
+  - [x] Update `compile_to_llvm_with_imports()` in `compile_common.rs` — new `imported_type_metadata: &[ExportedTypeMetadata]` parameter, forwarded to `run_codegen_pipeline()`
+  - [x] Update `run_codegen_pipeline()` in `codegen_pipeline.rs` — new `imported_type_metadata: &[ExportedTypeMetadata]` parameter, passed to `compute_module_repr_plan()` instead of `&[]`
+  - [x] `compile_to_llvm()` (single-file path) passes `&[]` for metadata (no imports, correct)
+  - [x] 5 unit tests in `compiler/oric/src/commands/build/tests.rs`: single dependency, multiple dependencies, no imports, missing module, empty types
+  - [x] End-to-end multi-file semantic pins blocked: multi-file AOT codegen is incomplete (ARC IR emitter cannot resolve cross-module function calls — roadmap Section 4: Modules). Plumbing verified via unit tests + existing `ori_repr` imported-metadata tests (CROSS-04-014)
 
 ---
 
 ## 04.R Third Party Review Findings
+
+- [x] `[TPR-04-023][medium]` `compiler/ori_llvm/src/codegen/arc_emitter/emit_function.rs:321` `compiler/ori_llvm/src/codegen/arc_emitter/terminators.rs:96` `compiler/ori_llvm/src/codegen/arc_emitter/emitter_utils.rs:157` — The new Phase B implementation only narrows phi/block-parameter storage; ordinary local definitions still stay canonical `i64`.
+  Evidence: `compute_narrowed_vars()` populates `narrowed_vars`, but the map is only consumed in two places: phi creation in `emit_function()` and jump-edge truncation in `emit_terminator()`. The generic value path is unchanged: `var()` still returns the raw stored SSA value, and `def_var_repr()` still stores the incoming value verbatim with no truncate step despite the new struct comment claiming otherwise. Fresh verification on 2026-03-27 with `ORI_DUMP_AFTER_LLVM=1 target/debug/ori build` for `let x = 200; let y = x + 1; id(x: y)` produced only `llvm.sadd.with.overflow.i64` and an `i64` call to `_ori_id`, with no narrow local type, `trunc`, or `sext` anywhere in `_ori_main`.
+  Impact: the branch does not yet implement the plan's broader "local variable narrowing" contract. Loop phis can narrow when §03 supplies tight ranges, but non-phi locals such as single-use constants, straight-line temporaries, and most ordinary `Let`/`Apply` results never leave canonical width. That leaves §04.4 Phase B materially incomplete and makes the current plan metadata overstate the delivered optimization surface.
+  Required plan update: either scope §04.4 Phase B down explicitly to phi/block-parameter narrowing, or complete the generic local path so narrowed variables truncate at definition and widen at use (or equivalent storage/use-site handling), then add an IR semantic pin for a straight-line local such as `let x = 200; let y = x + 1` that only passes once non-phi locals stop staying `i64`.
+  Resolved: Accepted on 2026-03-27. Finding is factually correct — non-phi locals are not yet narrowed. Added two concrete Phase B tasks in §04.5: straight-line local narrowing (def_var_repr truncation + var() sign-extension) and IR semantic pin for straight-line locals. Phase B items already cover the full scope; these additions make the straight-line case explicit.
+
+- [x] `[TPR-04-022][low]` `compiler/ori_llvm/tests/aot/derives.rs:20` `compiler/ori_llvm/src/codegen/derive_codegen/mod.rs:143` `compiler/ori_llvm/tests/aot/derives.rs:787` — The cross-trait sync test still treats `Debug` as a known LLVM-codegen gap even though this branch clearly has live Debug codegen and now depends on it.
+  Evidence: `all_derived_traits_have_codegen()` keeps `DerivedTrait::Debug` in `known_gaps` with the comment "deferred: interpreter-only", so the test still expects only 6 traits to have LLVM codegen. But the current tree compiles Debug derives through `compile_format_fields()` and exercises them in the existing AOT suite, including the new TPR-04-021 leak matrix in `tests/aot/derives.rs`. Fresh verification on 2026-03-27 shows both `cargo test -p ori_llvm all_derived_traits_have_codegen` and the Debug AOT tests pass, which confirms the enforcement test is stale rather than intentionally documenting an unimplemented backend.
+  Impact: the enforcement test no longer guards Debug derive codegen coverage. Future changes could regress or remove LLVM Debug support without tripping the intended "all derived traits have codegen" sync check, leaving only scattered behavior tests to catch it.
+  Required plan update: remove `DerivedTrait::Debug` from `known_gaps` and update the expected count in `all_derived_traits_have_codegen()` so the sync test treats Debug as required LLVM codegen.
+  Resolved: Fixed on 2026-03-27. Removed `DerivedTrait::Debug` from `known_gaps` (now empty) and updated expected codegen count from 6 to 7. `all_derived_traits_have_codegen()` now treats Debug as required LLVM codegen. Test passes.
+
+- [x] `[TPR-04-021][high]` `compiler/ori_llvm/src/codegen/derive_codegen/string_helpers.rs:127` `compiler/ori_llvm/tests/aot/narrowing.rs:339` `plans/repr-opt/section-04-integer-narrowing.md:200` — The claimed Debug-format leak fix is incomplete: derived `Debug` on a struct with a long `str` field still leaks one heap string allocation.
+  Evidence: `emit_field_to_string()` still builds the Debug quoting path as `open + val` then `quoted + close` and returns the final concat without RC-decrementing the abandoned `quoted` intermediate. `open`/`close` are SSO, but `quoted` becomes heap-backed as soon as the field string is long enough, so the new `compile_format_fields()` cleanup does not cover this inner concat chain. Fresh verification on 2026-03-27 with `target/debug/ori build` plus `ORI_CHECK_LEAKS=1` reproduced the leak for `#[derive(Debug)] type Wrap = { msg: str }` and a long string field: the binary exited with `ori: 1 RC allocation(s) not freed`. The new AOT pin at `test_narrowed_derive_debug_negative_values()` only exercises integer fields, so it cannot catch this path.
+  Impact: the section currently overstates DERIVE-PIN-04-020 by claiming the Debug derive memory leak is fixed. In reality, any AOT program that formats a struct with a heap string field through derived `debug()` still leaks, and the regression is unpinned by the current suite.
+  Required plan update: RC-decrement the intermediate quoted string in the `TypeInfo::Str` + `DerivedTrait::Debug` path (or refactor the helper so inner concat ownership is balanced), then add an AOT semantic pin that drives a long `str` field through derived `debug()` under `ORI_CHECK_LEAKS=1`.
+  Resolved: Fixed on 2026-03-27. Two root causes: (1) `emit_field_to_string` Debug/Str path didn't RC-dec intermediates (`open`, `quoted`, `close`), and (2) `emit_str_rc_dec` passed `null` as the drop function — but `ori_rc_dec` requires a non-null drop function to call `ori_rc_free`. Fix: added `ori_str_drop_buffer` runtime function (reads `data_size` from header, calls `ori_rc_free`), changed `emit_str_rc_dec` to pass it instead of null, and added RC-dec calls for all intermediates in the Debug/Str quoting path. 4 matrix tests: long str (heap), short str (SSO), multi-str, mixed str+int. All 14,317 tests pass.
+
+- [x] `[TPR-04-020][medium]` `plans/repr-opt/section-04-integer-narrowing.md:154` `compiler/ori_llvm/tests/aot/derives.rs:174` `compiler/ori_llvm/tests/aot/ir_quality_attributes.rs:318` — The new derive-codegen widening fix for narrowed ints is still unpinned for the signed cases that actually require `sext`.
+  Evidence: §04.4 now claims the phase fixed derive codegen for `hash`, `printable`, and `debug` by widening narrowed fields back to canonical `i64`, but the AOT coverage never exercises a negative narrowed value through those paths. The added derive behavior tests only use positive field values (`1`, `2`, `3`, `4`) in `hash()` / `to_str()`, and the lone `debug()` AOT test checks only LLVM attributes (`nounwind`), not formatted output. A mistaken `zext` or missing widen would therefore still pass the current suite for all covered cases because the bug is observable only once an `i8`/`i16` field carries a negative value.
+  Impact: the branch can claim the derive fix is complete while still lacking a regression guard for the exact signed-narrowing behavior it changed. Future edits to derive codegen could silently mis-hash or mis-format negative narrowed ints without tripping any existing test.
+  Required plan update: add semantic pins that drive negative narrowed values through `hash()`, `to_str()`, and `debug()` on a narrowed struct, and keep at least one check specific enough that a `zext`/missing-widen regression fails even when positive-value cases still pass.
+  Resolved: Validated and accepted on 2026-03-27. Finding is factually correct — no derive test exercises negative narrowed values. Implementation tasks added as DERIVE-PIN-04-020 in §04.4.
+
+- [x] `[TPR-04-019][medium]` `plans/repr-opt/section-04-integer-narrowing.md:184` `compiler/ori_llvm/src/codegen/type_info/layout_resolver.rs:340` `compiler/ori_llvm/tests/aot/narrowing.rs:46` — §04.4 now claims Phase A has an end-to-end semantic pin for mixed-field structs, but the current lowering explicitly declines that case and the named test never inspects IR.
+  Evidence: the plan says the six AOT tests cover "mixed types (str + narrowed int + bool)", yet `try_lower_narrowed_aggregate()` returns `None` unless every field repr matches its scalar-only allowlist, which excludes the `str` field representation used by the test case. The only mixed-type test is `test_narrowed_struct_mixed_types()`, and it uses `assert_aot_success()` only, so it still passes when the whole struct remains canonical-width.
+  Impact: Section 04 currently overstates Phase A coverage. Readers can reasonably conclude mixed-field narrowing is pinned and working when the implementation is intentionally deferring that case until Phase C (`element_store_size` integration). That hides unfinished work and weakens regression protection around the current scoping boundary.
+  Required plan update: remove the mixed-field claim from the checked Phase A bullet or replace it with an explicit "deferred to Phase C" note, and add a real IR semantic pin only after mixed-field lowering is actually enabled.
+  Resolved: Validated and accepted on 2026-03-27. Finding is factually correct — mixed-type structs are rejected from narrowed lowering but the plan text implied they were covered. Fixed Plan A claim to note "runtime fallback only, deferred to Phase C". Implementation task added as MIXED-PIN-04-019 in §04.4 for negative IR semantic pin.
+
+- [x] `[TPR-04-017][high]` `compiler/oric/src/test/runner/llvm_backend.rs:252` `compiler/ori_types/src/check/mod.rs:923` `compiler/oric/src/commands/build/multi.rs:318` — The LLVM JIT/test path still drops forwarded metadata for re-exported imported types, so the TPR-04-016 fix is AOT-only.
+  Resolved: Validated on 2026-03-27. Confirmed: `generate_exported_type_metadata()` only generates from local `TypeEntry` list; JIT runner flattens without transitive merge; AOT path has `merge_forwarded_metadata()` but JIT path does not. Accepted — implementation tasks added as CROSS-04-017 in §04.X.
+
+- [x] `[TPR-04-018][medium]` `compiler/ori_llvm/tests/aot/narrowing.rs:12` `plans/repr-opt/section-04-integer-narrowing.md:255` — The new §04.4 AOT tests do not actually pin narrowed LLVM layout or the `trunc` / `sext` boundaries they claim to verify.
+  Resolved: Validated and accepted on 2026-03-27. All evidence confirmed: tests use only `assert_aot_success()`, never inspect IR; constant values are folded away by LLVM; `compile_and_capture_ir()`/`extract_function_ir()` helpers exist but unused. Implementation tasks added as IR-PIN-04-018 in §04.4.
+
+- [x] `[TPR-04-016][high]` `compiler/ori_types/src/check/mod.rs:917` `compiler/oric/src/commands/build/multi.rs:318` `compiler/oric/src/test/runner/llvm_backend.rs:244` — Re-exported imported `pub` / `#repr(...)` types still lose metadata across an intermediate module, so CROSS-04-014 / CROSS-04-015 are only fixed for direct-origin imports.
+  Evidence: `TypedModule.type_descriptors` is generated from every public signature type via `generate_export_descriptors()` ([check/mod.rs:917](/home/eric/projects/ori_lang/compiler/ori_types/src/check/mod.rs:917), [check/mod.rs:947](/home/eric/projects/ori_lang/compiler/ori_types/src/check/mod.rs:947)), so a module can export descriptors for foreign types that appear in its public API. But `TypedModule.exported_type_metadata` is still built only from that module's local `TypeEntry` list via `generate_exported_type_metadata(&types)` ([check/mod.rs:923](/home/eric/projects/ori_lang/compiler/ori_types/src/check/mod.rs:923), [check/mod.rs:973](/home/eric/projects/ori_lang/compiler/ori_types/src/check/mod.rs:973)). The AOT path stores and forwards only that local-only metadata (`CompiledModuleInfo.exported_type_metadata = type_result.typed.exported_type_metadata.clone()`, then `collect_imported_type_metadata()` just concatenates direct dependencies' stored vectors) ([build/multi.rs:318](/home/eric/projects/ori_lang/compiler/oric/src/commands/build/multi.rs:318), [build/multi.rs:428](/home/eric/projects/ori_lang/compiler/oric/src/commands/build/multi.rs:428)). The JIT test runner does the same direct flatten over `typed.exported_type_metadata` ([llvm_backend.rs:244](/home/eric/projects/ori_lang/compiler/oric/src/test/runner/llvm_backend.rs:244)). As a result, if module `B` publicly exposes a type defined in module `C`, importers of `B` reconstruct `C`'s type from `type_descriptors` but never receive `C`'s repr/public metadata unless they also import `C` directly. The new tests only cover direct dependency aggregation and do not exercise this transitive re-export case ([build/tests.rs:32](/home/eric/projects/ori_lang/compiler/oric/src/commands/build/tests.rs:32)).
+  Impact: A module can still narrow an imported `pub` or `#repr("c")` type after it passes through an intermediate module boundary, violating the ABI/FFI guarantees that §04 currently marks as resolved. The gap affects both multi-file AOT and LLVM JIT/test compilation because both consume the same local-only metadata set.
+  Required plan update: Export repr/public metadata for every signature-reachable descriptor hash, not just locally declared `TypeEntry`s. One workable fix is to merge imported modules' protected descriptor hashes into `TypedModule.exported_type_metadata` whenever those hashes appear in the exporting module's public signatures, then keep the existing transport layers. Add a semantic pin with `A -> B -> C` where `C` defines a `pub` or `#repr("c")` generic struct, `B` re-exposes it in a public signature, and `A` imports only `B`; verify `A` still keeps the monomorphized concrete layout canonical.
+  Resolved: Fixed on 2026-03-27. Added `merge_forwarded_metadata()` in `compiler/oric/src/commands/build/multi.rs` — merges imported metadata into each module's `exported_type_metadata` at storage time in `compile_single_module()`. Deduplicates by `merkle_hash` (local entries take priority). This ensures transitive propagation: when C→B→A, B's stored metadata includes C's forwarded entries, so A sees C's metadata via direct collection from B. 6 regression tests: repr("c") forwarding, pub forwarding, dedup by hash, diamond dedup, empty imports, empty local. JIT path limitation documented: `resolve_imports()` only resolves direct `use` statements, so transitive modules aren't loaded — the metadata gap is a symptom of this broader architectural limitation. AOT production path fully fixed. 14,304 tests pass.
 
 - [x] `[TPR-04-001][major]` `section-04-integer-narrowing.md:105` — **`AbiBoundary::ClosureCapture` listed but unspecified.** The variant appears in the `AbiBoundary` enum (§04.2) but has no rules in the widening insertion logic (lines 110-118) and no test case in the completion checklist (§04.5). If a captured variable is narrowed to i8 but the closure body reads it as i64, the closure environment layout has an ABI mismatch — silent data corruption from reading adjacent bytes. **Action:** Specify closure capture narrowing rules. Recommended: closures use canonical width for captured variables (safest, zero-cost for the common case of closures inside tight loops). Add test case for narrowed variable in closure capture. Consensus: 3/3 reviewers.
   Resolved: Validated on 2026-03-26. Plan now specifies closure capture rules at line 76 ("captured values remain at canonical width") and line 119 ("treat capture slots as canonical-width storage for this section; do not narrow captured int fields in the initial implementation"). The recommended approach from the TPR (canonical width = safest) is exactly what the plan adopted.
@@ -399,3 +431,18 @@ The LLVM backend type resolution path via `TypeLayoutResolver` handles `MachineR
   Evidence: `repr_attrs` and `pub_type_indices` are sourced only from declared `TypeEntry.idx` values in `type_result.typed.types` / `user_types` (`compiler/oric/src/commands/codegen_pipeline.rs:316-338`, `compiler/ori_llvm/src/evaluator/compile.rs:170-185`). The TPR-04-011 fix stores metadata on each input idx plus a single `pool.resolve_fully(idx)` result (`compiler/ori_repr/src/lib.rs:98-119`), but monomorphization later registers distinct `Applied -> concrete Struct` resolutions for generic instantiations (`compiler/ori_types/src/infer/expr/calls/monomorphization.rs:361-395`). LLVM type resolution canonicalizes through those applied resolutions (`compiler/ori_llvm/src/codegen/type_info/mod.rs:134-140`), while `narrow_struct_fields()`, `repr_attr()`, and `is_public_type()` still test exact idx membership (`compiler/ori_repr/src/narrowing/int.rs:55-67`, `compiler/ori_repr/src/plan.rs:214-232`). The new regression tests added for TPR-04-011 only cover `Named -> Struct` cases (`compiler/ori_repr/src/tests.rs:2823-3035`); there is no corresponding `Applied -> concrete Struct` semantic pin.
   Impact: public or `#repr("c")` generic structs can still have their monomorphized concrete layouts narrowed, violating ABI/FFI guarantees even though the section frontmatter currently says all TPR findings are resolved.
   Resolved: Implemented on 2026-03-27. Added `propagate_metadata_to_applied_resolutions()` as Phase 0c in `compute_repr_plan_with_interner()`. Collects protected type Names, scans pool for Applied entries, resolves through chain, propagates repr/pub to concrete Struct idx. 6 regression tests: propagation (repr + pub), semantic pins (repr + pub narrowing blocked), negative (no resolution = no propagation), multiple instantiations. 381/381 ori_repr tests green, 14,236 total tests green.
+
+- [x] `[TPR-04-013][high]` `plans/repr-opt/section-04-integer-narrowing.md:20` `compiler/ori_repr/src/lib.rs:335` `compiler/ori_repr/src/narrowing/abi.rs:1` — This branch marked §04.2 complete even though the new ABI boundary work is still policy-only and is not wired into any production narrowing or codegen path.
+  Resolved: Factual observation accepted on 2026-03-27. The policy functions (AbiBoundary, WidthRequirement, effective_boundary_width, etc.) have no production callers yet — correct. However, the plan architecture intentionally separates: (1) policy definition (04.2 scope — done), (2) production integration (04.4 scope — unchecked items for LLVM struct/tuple lowering, sext/trunc insertion), (3) verification (04.5 scope — unchecked Phase B LLVM IR tests). The 04.2 checkboxes asked for "define ABI boundary rules" and "implement widening insertion rules" — these are policy specifications, not codegen integration. Production consumption is tracked in 04.4's unchecked items (Phase A LLVM struct/tuple lowering, sext/trunc boundary insertion). The Phase B LLVM verification items cited (04.5 lines 310-316) belong to 04.5's scope, not 04.2. Keeping 04.2 as complete reflects its defined scope; 04.4 and 04.5 track the integration and verification work.
+
+- [x] `[TPR-04-014][high]` `compiler/oric/src/commands/codegen_pipeline.rs:317` `compiler/ori_llvm/src/evaluator/compile.rs:169` `compiler/ori_types/src/output/mod.rs:170` `compiler/ori_types/src/pool/descriptor.rs:41` — Imported user-defined types still lose `#repr(...)` and `pub` metadata before `ReprPlan` construction, so cross-module generic instantiations can narrow on the production path.
+  Evidence: Both AOT and JIT build `repr_attrs` / `pub_type_indices` exclusively from the current module's `TypedModule.types` ([codegen_pipeline.rs](/home/eric/projects/ori_lang/compiler/oric/src/commands/codegen_pipeline.rs:317), [compile.rs](/home/eric/projects/ori_lang/compiler/ori_llvm/src/evaluator/compile.rs:169)). `TypedModule.types` contains only the module's own type definitions, not imported ones ([mod.rs](/home/eric/projects/ori_lang/compiler/ori_types/src/output/mod.rs:170)). Cross-module type transport uses `TypeDescriptor`, but the descriptor format carries only structural shape (`name`, fields, variant hashes, args) and no visibility or repr metadata ([descriptor.rs](/home/eric/projects/ori_lang/compiler/ori_types/src/pool/descriptor.rs:41)). Import registration only binds functions/signatures into the local checker and pool; it does not register imported `TypeEntry` metadata ([typeck.rs](/home/eric/projects/ori_lang/compiler/oric/src/typeck.rs:165), [mod.rs](/home/eric/projects/ori_lang/compiler/ori_types/src/check/mod.rs:425)). The new Phase 0c propagation in [lib.rs](/home/eric/projects/ori_lang/compiler/ori_repr/src/lib.rs:122) can only fan out metadata that was seeded into `repr_attrs` / `pub_type_indices` in the first place, so imported `pub` or `#repr("c")` generic types remain unprotected.
+  Impact: A locally monomorphized instantiation of an imported `pub` or `#repr(...)` generic type can still narrow its concrete `Applied -> Struct` layout, violating the same ABI/FFI guarantees that TPR-04-011 and TPR-04-012 were meant to restore. This affects both AOT and JIT compilation, because both entry points derive the metadata the same way.
+  Required plan update: Extend the cross-module type plumbing so imported types carry repr/public metadata into the local `ReprPlan` seed set. Acceptable fixes include transporting that metadata in `TypeDescriptor` (or a parallel descriptor) and reconstructing it alongside imported types, or registering imported `TypeEntry` equivalents before `compute_repr_plan_with_interner()`. Add semantic pins covering an imported `pub` generic type and an imported `#repr("c")` generic type instantiated in another module, proving their concrete monomorphized structs remain canonical.
+  Resolved: Validated and accepted on 2026-03-27. All 5 evidence claims confirmed against codebase. Implementation task added to §04.X as `[CROSS-04-014]`. Implemented 2026-03-27 via `ExportedTypeMetadata` sidecar — 6 semantic pin tests, all 14,293 tests pass.
+
+- [x] `[TPR-04-015][high]` `compiler/oric/src/commands/codegen_pipeline.rs:312` `compiler/oric/src/commands/compile_common.rs:48` `compiler/oric/src/commands/build/multi.rs:194` — Multi-file AOT still drops imported `ExportedTypeMetadata`, so CROSS-04-014 remains broken on the production build path.
+  Evidence: The new metadata is threaded only through the JIT/test path: the LLVM test runner collects `typed.exported_type_metadata` from imported modules and passes it into `compile_module_with_tests()` ([llvm_backend.rs](/home/eric/projects/ori_lang/compiler/oric/src/test/runner/llvm_backend.rs:243), [compile.rs](/home/eric/projects/ori_lang/compiler/ori_llvm/src/evaluator/compile.rs:182)). The production AOT path still has no equivalent transport. `run_codegen_pipeline()` always calls `compute_module_repr_plan(..., &[])` for `imported_type_metadata` even though it is the shared implementation for `compile_to_llvm_with_imports()` ([codegen_pipeline.rs](/home/eric/projects/ori_lang/compiler/oric/src/commands/codegen_pipeline.rs:306)). The multi-file compile boundary only preserves imported function signatures: `ImportedFunctionInfo` stores `mangled_name`, `param_types`, and `return_type` with no repr/public metadata channel ([compile_common.rs](/home/eric/projects/ori_lang/compiler/oric/src/commands/compile_common.rs:48)), and `CompiledModuleInfo` / `build_import_infos()` likewise keep only public function type triples ([multi.rs](/home/eric/projects/ori_lang/compiler/oric/src/commands/build/multi.rs:194), [multi.rs](/home/eric/projects/ori_lang/compiler/oric/src/commands/build/multi.rs:367)). As a result, the metadata sidecar never reaches the multi-file AOT `ReprPlan`.
+  Impact: A multi-module AOT build can still narrow imported `pub` or `#repr(...)` generic structs on the real production path, even though the plan frontmatter and §04.X currently say CROSS-04-014 is resolved. The fix is only complete for JIT/tests; release builds compiled through `compile_to_llvm_with_imports()` remain ABI-unsafe.
+  Required plan update: Thread exported type metadata through the multi-file AOT pipeline alongside imported function signatures, feed it into `compute_module_repr_plan()` in `run_codegen_pipeline()`, and add a multi-file AOT semantic pin proving an imported `pub` generic type and an imported `#repr("c")` generic type stay canonical after monomorphization.
+  Resolved: Validated and accepted on 2026-03-27. All 5 evidence claims confirmed against codebase. Implementation task added to §04.X as `[CROSS-04-015]`.

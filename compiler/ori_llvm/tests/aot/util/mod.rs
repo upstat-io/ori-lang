@@ -13,10 +13,11 @@ mod wasm;
 
 // Re-export everything for transparent access via `crate::util::*`
 pub use aot::{
-    assert_aot_success, assert_no_signal_crash, compile_and_capture_ir, compile_and_run,
-    compile_and_run_capture, compile_and_run_valgrind_with_args, compile_and_run_with_args,
-    count_bridge_blocks, count_dead_phis, count_single_pred_phis, extract_function_ir, ori_binary,
-    stdlib_path,
+    assert_aot_success, assert_multifile_aot_success, assert_no_signal_crash,
+    compile_and_capture_ir, compile_and_run, compile_and_run_capture,
+    compile_and_run_valgrind_with_args, compile_and_run_with_args,
+    compile_multifile_and_run_capture, count_bridge_blocks, count_dead_phis,
+    count_single_pred_phis, extract_function_ir, ori_binary, stdlib_path,
 };
 pub use object::{
     object_has_section, object_has_symbol, parse_object, ObjectFormat, ObjectVerification,

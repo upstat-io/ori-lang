@@ -135,7 +135,7 @@ impl CodegenProblem {
                     diag = diag.with_note(format!("searched: {paths}"));
                 }
 
-                diag.with_suggestion("build the runtime with `cargo build -p ori_rt`")
+                diag.with_suggestion("reinstall Ori or specify `--runtime-path=<dir>`")
             }
 
             // ── Linker (E5006) ───────────────────────────────────

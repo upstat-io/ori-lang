@@ -30,8 +30,8 @@ pub struct ParamDef {
 ///
 /// # Fields
 ///
-/// All 10 fields are required. Sections 03-07 MUST include all fields in
-/// every `MethodDef` literal.
+/// All 10 fields are required. Every `MethodDef` literal must include all
+/// fields.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 pub struct MethodDef {
     /// The method name as it appears in Ori source code.
@@ -63,9 +63,8 @@ pub struct MethodDef {
 
     /// Whether both backends (eval and LLVM) must implement this method.
     ///
-    /// `true` means Section 14 enforcement tests will fail if any backend
-    /// is missing a handler. `false` means the method is intentionally
-    /// backend-specific.
+    /// `true` means enforcement tests will fail if any backend is missing
+    /// a handler. `false` means the method is intentionally backend-specific.
     pub backend_required: bool,
 
     /// Whether this is an instance method or associated function.

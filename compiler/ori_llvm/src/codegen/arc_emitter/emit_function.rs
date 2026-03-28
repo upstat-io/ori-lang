@@ -76,7 +76,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         // `br_exiting_catchpad` fails when the builder is at an internal
         // block, causing entry blocks to gain predecessors and terminators
         // to appear mid-block. Block merging should instead be done as a
-        // pre-emission ARC IR pass (option (b) in section-01-block-merging).
+        // pre-emission ARC IR pass.
         // LLVM requires the first appended block to be the function entry.
         // Create the entry block first, then the rest in order.
         let entry_idx = func.entry.index();
@@ -317,20 +317,48 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let entry = self.block(func.entry);
         self.builder.position_at_end(entry);
 
-        // Create phi nodes for blocks with parameters (skip dead unwind blocks)
+        // §04.4 Phase B: compute which local int variables can be narrowed.
+        self.compute_narrowed_vars(func);
+
+        // Create phi nodes for blocks with parameters (skip dead unwind blocks).
+        // Two-pass approach: (1) create all phis first to satisfy LLVM's invariant
+        // that ALL phi nodes must be grouped at the top of a block, then (2) emit
+        // sext instructions for narrowed phis.
         let mut phi_nodes: Vec<Vec<(ArcVarId, ValueId)>> = Vec::new();
+        // Track narrowed phis for deferred sext emission: (var, phi_val, block_id)
+        let mut narrowed_phis: Vec<(ArcVarId, ValueId, ori_arc::ir::ArcBlockId)> = Vec::new();
         for block in &func.blocks {
             let mut block_phis = Vec::new();
             if !block.params.is_empty() && !dead_unwind.contains(&block.id.index()) {
                 self.builder.position_at_end(self.block(block.id));
                 for &(var, ty) in &block.params {
-                    let llvm_ty = self.resolve_type(ty);
-                    let phi_val = self.builder.phi(llvm_ty, &format!("v{}", var.raw()));
-                    self.def_var_repr(var, phi_val, func);
-                    block_phis.push((var, phi_val));
+                    // §04.4 Phase B: use narrow type for narrowed int phis
+                    if let Some(&width) = self.narrowed_vars.get(&var) {
+                        let narrow_ty = self.llvm_type_for_int_width(width);
+                        let phi_val = self.builder.phi(narrow_ty, &format!("v{}.n", var.raw()));
+                        // Defer sext to after ALL phis are created (LLVM phi grouping)
+                        narrowed_phis.push((var, phi_val, block.id));
+                        block_phis.push((var, phi_val));
+                    } else {
+                        let llvm_ty = self.resolve_type(ty);
+                        let phi_val = self.builder.phi(llvm_ty, &format!("v{}", var.raw()));
+                        self.def_var_repr(var, phi_val, func);
+                        block_phis.push((var, phi_val));
+                    }
                 }
             }
             phi_nodes.push(block_phis);
+        }
+
+        // §04.4 Phase B: emit sext instructions AFTER all phis are created.
+        // Position after the last phi in each block, then emit sext.
+        for (var, phi_val, block_id) in narrowed_phis {
+            self.builder.position_at_end(self.block(block_id));
+            let i64_ty = self.builder.i64_type();
+            let sext_val = self
+                .builder
+                .sext(phi_val, i64_ty, &format!("v{}", var.raw()));
+            self.def_var(var, EmittedValue::Immediate(sext_val));
         }
 
         // Emit each block's body and terminator in Reverse Post-Order (RPO).

@@ -1584,7 +1584,7 @@ fn different_type_args_produce_separate_instances() {
     assert!(types.contains(&Idx::STR), "should have str instance");
 }
 
-// ── Hash-First Import Resolution (Section 04) ──
+// ── Hash-First Import Resolution ──
 
 /// Verify that hash-first import resolution produces identical results
 /// to AST fallback, and measure the hit rate.

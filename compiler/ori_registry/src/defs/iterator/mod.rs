@@ -1,6 +1,6 @@
 //! `Iterator` and `DoubleEndedIterator` type definition.
 //!
-//! Uses the "single `TypeDef` with `dei_only` flag" design (Section 07 Decision 1):
+//! Uses the "single `TypeDef` with `dei_only` flag" design:
 //! all 24 user-callable methods live on one `TypeDef` keyed by `TypeTag::Iterator`.
 //! `TypeTag::DoubleEndedIterator` aliases to `Iterator` via `TypeTag::base_type()`,
 //! and the query API filters by `dei_only` to exclude DEI-specific methods when

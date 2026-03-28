@@ -49,7 +49,7 @@ pub(crate) enum IterState {
     /// stack data), no cleanup is performed.
     ///
     /// Element cleanup is entirely header-based: `ori_buffer_rc_dec` reads
-    /// `elem_dec_fn` from the V5 RC header at cleanup time (Section 02.1).
+    /// `elem_dec_fn` from the V5 RC header at cleanup time.
     List {
         data: *mut u8,
         len: i64,

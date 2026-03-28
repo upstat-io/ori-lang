@@ -238,6 +238,22 @@ impl TestRunner {
         // Delegates to shared implementation in typeck.
         let function_sigs = crate::typeck::build_function_sigs(parse_result, type_result);
 
+        // Collect exported type metadata from imported modules for repr plan
+        // construction. This ensures imported `pub` and `#repr(...)` types are
+        // correctly exempted from integer narrowing. See CROSS-04-014.
+        //
+        // Note: Each module's `exported_type_metadata` contains only its own
+        // locally-declared types. Transitive re-exports (A→B→C where B
+        // re-exports C's type) are NOT forwarded in the JIT path because
+        // `resolve_imports()` only resolves direct `use` statements — transitive
+        // modules aren't loaded at all. The AOT pipeline handles transitive
+        // forwarding via `merge_forwarded_metadata()` in `build/multi.rs`.
+        // See TPR-04-016.
+        let imported_type_metadata: Vec<ori_types::ExportedTypeMetadata> = imported_type_results
+            .iter()
+            .flat_map(|tc| tc.typed.exported_type_metadata.iter().cloned())
+            .collect();
+
         // ARC lowering + borrow inference + compilation, wrapped in catch_unwind
         // to gracefully handle panics in any phase (ARC classification, LLVM codegen,
         // etc.) without aborting the entire test runner.
@@ -266,6 +282,7 @@ impl TestRunner {
                 &annotated_sigs,
                 arc_cache,
                 None, // JIT: use env var fallback for narrowing policy
+                &imported_type_metadata,
             )
         }));
 

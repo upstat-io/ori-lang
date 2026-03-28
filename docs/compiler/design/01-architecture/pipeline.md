@@ -181,25 +181,34 @@ Key characteristics:
 **Input**: `CanonResult` + `Pool`
 **Output**: `Vec<ArcFunction>` (ARC IR with RC operations)
 
-The AIMS pipeline transforms canonical IR into a basic-block IR with explicit reference counting:
+The AIMS pipeline transforms canonical IR into a basic-block IR with explicit reference counting. Rather than a sequence of independent passes (borrow inference → liveness → RC insertion → elimination), AIMS uses a **unified 7-dimensional lattice** (`AimsState`: AccessClass × Consumption × Cardinality × Uniqueness × Locality × ShapeClass × EffectClass) where a single backward dataflow analysis converges on all memory decisions simultaneously:
 
 ```text
 CanExpr → lower → ArcFunction
-  → borrow inference (Owned/Borrowed params)
-  → derived ownership (all locals)
-  → dominator tree
-  → liveness + refined liveness
-  → RC insertion (RcInc/RcDec)
-  → reset/reuse detection
-  → expand reset/reuse
-  → RC elimination (dead RC removal)
-  → cross-block RC elimination
+  Interprocedural (once):
+    1. analyze_program()         — MemoryContract per function (SCC fixpoint)
+    2. apply_ownership()         — Populate ArcParam.ownership
+  Per-function (steps 3–12):
+    3. compute_var_reprs()       — ValueRepr per variable
+   3a. normalize_function()      — TRMC context region detection
+    4. analyze_function()        — Backward dataflow → converged AimsStateMap
+    5. realize_rc_reuse()        — Phase 1: RC + reuse + arg_ownership (pre-merge)
+   5a. verify_fip_contract()     — FIP enforcement verification
+    6. verify()                  — ARC IR sanity check
+    7. run_aims_verify()         — AIMS contract vs IR consistency
+    8. detect/rewrite tail calls — CFG optimization
+    9. merge_blocks()            — CFG cleanup
+   10. realize_annotations()     — Phase 2: COW + drop hints (post-merge)
+   11. verify()                  — Final sanity check
+   12. FBIP enforcement          — Read-only diagnostic
 ```
 
 Key characteristics:
+- Unified lattice analysis — all RC/reuse/COW/drop decisions derived from one converged state map
+- Two-phase emission: Phase 1 (pre-merge) emits RC ops and reuse; Phase 2 (post-merge) emits COW annotations and drop hints via `ArcVarId`-keyed lookups (position-keyed state maps are invalidated by `merge_blocks()`)
 - Three-way type classification: `Scalar` / `DefiniteRef` / `PossibleRef`
 - Backend-independent — no LLVM dependency
-- Borrow signatures cached per session for unchanged function bodies
+- Interprocedural contracts computed via SCC fixpoint before per-function analysis
 
 ### 7. LLVM Codegen (`ori_llvm`)
 

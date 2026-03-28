@@ -74,6 +74,7 @@ impl<'tcx> super::OwnedLLVMEvaluator<'tcx> {
         annotated_sigs: &FxHashMap<Name, ori_arc::AnnotatedSig>,
         mut arc_cache: FxHashMap<Name, (ori_arc::ArcFunction, Vec<ori_arc::ArcFunction>)>,
         narrowing_policy: Option<ori_repr::NarrowingPolicy>,
+        imported_type_metadata: &[ori_types::ExportedTypeMetadata],
     ) -> Result<CompiledTestModule<'a>, LLVMEvalError> {
         // --- V2 pipeline ---
 
@@ -111,6 +112,7 @@ impl<'tcx> super::OwnedLLVMEvaluator<'tcx> {
                 annotated_sigs,
                 &mut arc_cache,
                 narrowing_policy,
+                imported_type_metadata,
             )
         };
 
@@ -148,6 +150,7 @@ impl<'tcx> super::OwnedLLVMEvaluator<'tcx> {
         annotated_sigs: &FxHashMap<Name, ori_arc::AnnotatedSig>,
         arc_cache: &mut FxHashMap<Name, (ori_arc::ArcFunction, Vec<ori_arc::ArcFunction>)>,
         narrowing_policy: Option<ori_repr::NarrowingPolicy>,
+        imported_type_metadata: &[ori_types::ExportedTypeMetadata],
     ) -> (FxHashMap<Name, String>, u32, Vec<String>) {
         // Type infrastructure
         let classifier = ori_arc::ArcClassifier::new(self.pool);
@@ -183,6 +186,7 @@ impl<'tcx> super::OwnedLLVMEvaluator<'tcx> {
             &repr_attrs,
             Some(interner),
             &pub_type_indices,
+            imported_type_metadata,
         );
         let store = TypeInfoStore::new_with_plan(self.pool, &repr_plan);
         let resolver = TypeLayoutResolver::new(&store, scx_ref, Some(interner), Some(&repr_plan));

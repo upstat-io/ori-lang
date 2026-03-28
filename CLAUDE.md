@@ -101,6 +101,7 @@ When fixing any AIMS-related bug: ask "does this preserve system coherence?" A f
 - **Performance**: O(n²) → O(n); hash lookups not linear scans; no alloc in hot loops; iterators over indexing
 - **ARM portability**: C string pointers in `ori_rt` use `std::ffi::c_char`, never `i8` — `c_char` is `i8` on x86_64 but `u8` on aarch64
 - **Style**: no `#[allow(clippy)]` without justification; functions < 100 lines (target < 50); no dead/commented code; `//!`/`///` docs
+- **Plan annotations are temporary scaffolding**: Code annotations referencing plans (`TPR-04-005`, `CROSS-04-014`, `§04.3 Phase A`, `Section 04.2`) are allowed during active development — they aid navigation. But they are **ephemeral** and MUST be removed when the plan completes. Every plan MUST include a final cleanup section to strip all its code annotations. Stale annotations from completed plans are hygiene violations. Only **spec references** (`Spec: Clause N.M`) are permanent.
 - **File size**: 500 line limit (excl. tests). Stop and split before exceeding. Extract to submodules. `scripts/extract_tests.py` for test extraction.
 - **Tracing — USE FIRST**: `ORI_LOG` before `println!`. Levels: `error`/`warn`/`debug`/`trace`. Targets: `ori_types`/`ori_eval`/`ori_llvm`/`oric`. `#[tracing::instrument]` on pub APIs. Never `println!`/`eprintln!`. Setup: `compiler/oric/src/tracing_setup.rs`.
 - **Match extraction**: no 20+ arm match in single file; group related arms; 3+ similar → extract helper
