@@ -317,8 +317,20 @@ pub(super) fn run_codegen_pipeline<'ctx>(
                 if sig.is_generic() {
                     continue;
                 }
+                // Use a type-qualified name for analysis-only impl methods to
+                // prevent same-named methods across different types from colliding
+                // in the solver's Name-keyed maps (TPR-03-043). The qualified name
+                // is interned as "__impl_{self_type_idx}_{method}" — distinct from
+                // any user-facing name. The bare method name is preserved as the
+                // original_name for source-level diagnostics.
+                let qualified_name = if let Some(&self_type_idx) = sig.param_types.first() {
+                    let method_str = interner.lookup(*name);
+                    interner.intern(&format!("__impl_{}_{method_str}", self_type_idx.raw()))
+                } else {
+                    *name
+                };
                 let (arc_fn, lambdas) = crate::arc_lowering::lower_to_arc(
-                    *name,
+                    qualified_name,
                     sig,
                     *name,
                     canon,

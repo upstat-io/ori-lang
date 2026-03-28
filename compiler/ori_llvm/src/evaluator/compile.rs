@@ -184,8 +184,11 @@ impl<'tcx> super::OwnedLLVMEvaluator<'tcx> {
             .collect();
         // Collect unconstrained function names (pub + trait impl) for §03.5.
         // Uses trait_impl_fn_names (not all impl_sigs) per TPR-03-038.
-        let unconstrained_fn_names =
-            crate::collect_unconstrained_fn_names(function_sigs, trait_impl_fn_names);
+        let unconstrained_fn_names = crate::collect_unconstrained_fn_names(
+            function_sigs,
+            trait_impl_fn_names,
+            Some(interner),
+        );
         let repr_plan = ori_repr::compute_repr_plan_with_interner(
             self.pool,
             &all_arc_funcs,

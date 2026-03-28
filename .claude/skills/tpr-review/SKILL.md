@@ -91,7 +91,7 @@ Read CLAUDE.md (the project root one)
 
 **A TPR review is NOT complete until Codex produces zero actionable findings.** Filing findings without fixing and re-running is deferral. Fixing findings without re-running Codex to confirm clean is incomplete.
 
-**Maximum iterations: 5.** If after 5 cycles findings are still surfacing, present the remaining findings to the user via AskUserQuestion and ask how to proceed.
+**Maximum iterations: 10.** If after 10 cycles findings are still surfacing, present the remaining findings to the user via AskUserQuestion and ask how to proceed.
 
 ## Steps (Per Iteration)
 

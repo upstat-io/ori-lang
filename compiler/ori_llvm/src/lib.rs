@@ -83,6 +83,7 @@ pub use inkwell;
 pub fn collect_unconstrained_fn_names(
     function_sigs: &[ori_types::FunctionSig],
     trait_impl_fn_names: &[(ori_types::Idx, ori_ir::Name)],
+    interner: Option<&ori_ir::StringInterner>,
 ) -> Vec<(Option<ori_types::Idx>, ori_ir::Name)> {
     let mut names = Vec::new();
     for sig in function_sigs {
@@ -92,6 +93,13 @@ pub fn collect_unconstrained_fn_names(
     }
     for &(self_type, name) in trait_impl_fn_names {
         names.push((Some(self_type), name));
+        // Also register the qualified name used by analysis-only ARC functions
+        // (TPR-03-043). Format matches codegen_pipeline's ARC lowering.
+        if let Some(interner) = interner {
+            let method_str = interner.lookup(name);
+            let qualified = interner.intern(&format!("__impl_{}_{method_str}", self_type.raw()));
+            names.push((None, qualified));
+        }
     }
     names
 }

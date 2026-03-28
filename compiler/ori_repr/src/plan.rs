@@ -289,6 +289,18 @@ impl ReprPlan {
         self.unconstrained_fn_names.contains(&(self_type, name))
     }
 
+    /// Check if ANY trait impl method with the given name is unconstrained.
+    ///
+    /// Used as a fallback for trait associated functions (no `self` param),
+    /// where the caller can't derive a self-type from the first parameter
+    /// (TPR-03-044).
+    #[must_use]
+    pub fn is_any_trait_impl_unconstrained(&self, name: Name) -> bool {
+        self.unconstrained_fn_names
+            .iter()
+            .any(|(st, n)| st.is_some() && *n == name)
+    }
+
     /// Whether §04 integer narrowing is safe to apply at the codegen level.
     ///
     /// Returns `false` when the analysis set includes functions not fully
