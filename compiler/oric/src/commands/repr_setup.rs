@@ -64,6 +64,10 @@ pub(super) fn compute_module_repr_plan(
         .map(|te| te.idx)
         .collect();
 
+    // Collect unconstrained function names (pub + trait impl) for §03.5.
+    let unconstrained_fn_names =
+        collect_unconstrained_fn_names(&type_result.typed.functions, &type_result.typed.impl_sigs);
+
     ori_repr::compute_repr_plan_with_interner(
         pool,
         all_arc_funcs,
@@ -72,5 +76,28 @@ pub(super) fn compute_module_repr_plan(
         interner,
         &pub_type_indices,
         imported_type_metadata,
+        &unconstrained_fn_names,
     )
+}
+
+/// Collect function names whose parameters are unconstrained (pub or trait impl).
+///
+/// These functions may be called from external code or via dynamic dispatch,
+/// so §03.5 interprocedural range analysis must assign Top to their parameters.
+pub(super) fn collect_unconstrained_fn_names(
+    function_sigs: &[ori_types::FunctionSig],
+    impl_sigs: &[(oric::ir::Name, ori_types::FunctionSig)],
+) -> Vec<oric::ir::Name> {
+    let mut names = Vec::new();
+    // Public top-level functions — external callers may pass any value.
+    for sig in function_sigs {
+        if sig.is_public {
+            names.push(sig.name);
+        }
+    }
+    // Trait impl methods — may be called via dynamic dispatch.
+    for (name, _sig) in impl_sigs {
+        names.push(*name);
+    }
+    names
 }

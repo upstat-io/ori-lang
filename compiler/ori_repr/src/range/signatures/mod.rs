@@ -36,6 +36,15 @@ use super::{is_int_typed, RangeAnalysisConfig, ValueRange};
 use crate::plan::ReprPlan;
 use crate::range::fixpoint::range_fixpoint;
 
+/// Reason a function's parameters are unconstrained (all params → Top).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum UnconstrainedReason {
+    /// Function is `pub` or a trait impl method (registered in `ReprPlan`).
+    PublicOrTraitImpl,
+    /// Function is a closure/lambda (has captures).
+    Closure,
+}
+
 /// Per-parameter range summary from call-site analysis.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ParamRange {
@@ -153,6 +162,7 @@ pub fn propagate_ranges(
                 &mut results,
                 &mut func_infos,
                 remaining_budget,
+                plan,
             );
         } else {
             // Non-recursive SCC (single function): collect param ranges, then
@@ -160,7 +170,7 @@ pub fn propagate_ranges(
             debug_assert_eq!(scc.members.len(), 1);
             let name = scc.members[0];
             if let Some(func) = func_map.get(&name) {
-                let info = collect_param_ranges(func, &results, &func_infos, &func_map, pool);
+                let info = collect_param_ranges(func, &results, &func_infos, &func_map, pool, plan);
                 // Build seed map from collected param ranges.
                 let seeds = build_param_seed_map(func, &info);
                 // Re-run fixpoint with seeded parameters.
@@ -190,6 +200,7 @@ pub fn propagate_ranges(
         config,
         &mut results,
         &mut func_infos,
+        plan,
     );
 
     // Phase 4: Store results in ReprPlan.
@@ -234,19 +245,36 @@ fn collect_param_ranges(
     _func_infos: &FxHashMap<Name, FunctionRangeInfo>,
     func_map: &FxHashMap<Name, &ArcFunction>,
     pool: &Pool,
+    plan: &ReprPlan,
 ) -> FunctionRangeInfo {
     let num_params = target_func.params.len();
-    let mut info = FunctionRangeInfo::new_bottom(num_params);
 
-    // Check if this function is pub or otherwise unconstrained.
-    // For now, we conservatively treat ALL functions as narrowable.
-    // §03.5 plan notes that pub/trait/closure params should be Top,
-    // but we don't have visibility info in ARC IR. This is a safe
-    // under-approximation: we narrow everything, and §04 will only
-    // act on ranges that are actually tighter than Top.
-    //
-    // TODO(repr-opt): Once visibility info is available in ARC IR,
-    // set pub/trait/closure params to Top here.
+    // Check if this function is unconstrained — pub, trait impl, or closure.
+    // Unconstrained functions may be called from external code or via dynamic
+    // dispatch, so their parameter ranges must stay Top (full i64 range).
+    let unconstrained = if plan.is_unconstrained_fn(target_func.name) {
+        Some(UnconstrainedReason::PublicOrTraitImpl)
+    } else if target_func.num_captures > 0 {
+        Some(UnconstrainedReason::Closure)
+    } else {
+        None
+    };
+
+    if let Some(reason) = unconstrained {
+        tracing::debug!(
+            func = ?target_func.name,
+            ?reason,
+            "unconstrained function — all params Top"
+        );
+        let mut info = FunctionRangeInfo::new_top(num_params);
+        // Return range still comes from intraprocedural analysis.
+        if let Some(result) = results.get(&target_func.name) {
+            info.return_range = result.return_range;
+        }
+        return info;
+    }
+
+    let mut info = FunctionRangeInfo::new_bottom(num_params);
 
     // Scan all functions for call sites targeting this function.
     for caller_func in func_map.values() {
@@ -384,6 +412,10 @@ fn build_param_seed_map(
 /// Process a recursive SCC: iterate fixpoint until parameter + return ranges stabilize.
 ///
 /// Returns the number of SCC iterations consumed.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "plan parameter required for unconstrained function detection in collect_param_ranges"
+)]
 fn process_recursive_scc(
     scc: &ori_arc::graph::scc::Scc,
     func_map: &FxHashMap<Name, &ArcFunction>,
@@ -392,6 +424,7 @@ fn process_recursive_scc(
     results: &mut FxHashMap<Name, super::fixpoint::RangeFixpointResult>,
     func_infos: &mut FxHashMap<Name, FunctionRangeInfo>,
     remaining_budget: usize,
+    plan: &ReprPlan,
 ) -> usize {
     // TPR-03-035: Use the minimum of the per-SCC cap and the remaining total
     // budget. Without this, one recursive SCC can overshoot max_total_scc_iterations.
@@ -440,7 +473,7 @@ fn process_recursive_scc(
             };
 
             // Collect parameter ranges from all call sites (including within the SCC).
-            let new_info = collect_param_ranges(func, results, func_infos, func_map, pool);
+            let new_info = collect_param_ranges(func, results, func_infos, func_map, pool, plan);
 
             // Check if parameter ranges changed.
             if let Some(old_info) = func_infos.get(name) {

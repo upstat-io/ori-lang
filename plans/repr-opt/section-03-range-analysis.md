@@ -32,7 +32,7 @@ sections:
     status: complete
   - id: "03.5"
     title: "Function Signature Range Propagation"
-    status: in-progress
+    status: complete
   - id: "03.6"
     title: "Completion Checklist"
     status: complete
@@ -1034,19 +1034,19 @@ For cross-function narrowing, we need to propagate range information through fun
   - Unblocked: §04.4 Phase B IR pin tests `test_phase_b_ir_pin_loop_counter_phi` and `test_phase_b_ir_pin_loop_sext` (removed `#[ignore]`, now passing).
   - 3 matrix tests in `fixpoint/tests.rs`: `fixpoint_real_loop_converges_with_copies` (limit=10, exact [0,10] assertion), `fixpoint_real_loop_single_iteration` (limit=1), `fixpoint_real_loop_large_limit` (limit=50000).
   - 14,333 tests pass, 0 failures.
-- [ ] Handle boundary cases for parameter ranges: <!-- blocked: ARC IR lacks visibility/trait/closure metadata — 3 of 5 sub-cases blocked -->
-  - `@main(args:)`: the `args` list length is `[0, i64::MAX]`; the `args` parameter itself is not an int (skip) — **currently handled: non-int params are skipped by `is_int_typed()` check**
-  - Trait method parameters: assign Top (callers unknown at compile time — may be called via dynamic dispatch) — **blocked: ARC IR lacks visibility/trait info; currently all functions treated as narrowable (conservative — §04 ignores Top anyway)**
-  - Closure parameters: assign Top unless all call sites of the closure are visible in the current module (conservative default) — **blocked: same visibility limitation**
-  - `pub` function parameters: assign Top (external callers may pass full-range values) — **blocked: same visibility limitation**
+- [x] **Handle boundary cases for parameter ranges** (2026-03-28): All 5 sub-cases now handled. Implemented `unconstrained_fn_names` side-channel from `ori_types` to `ori_repr` (follows `pub_type_indices` pattern). `collect_param_ranges()` assigns Top to all parameters of unconstrained functions (pub, trait impl, closure).
+  - `@main(args:)`: the `args` list length is `[0, i64::MAX]`; the `args` parameter itself is not an int (skip) — **handled: non-int params are skipped by `is_int_typed()` check**
+  - Trait method parameters: assign Top — **implemented: trait impl method names collected from `TypedModule.impl_sigs`, stored in `ReprPlan.unconstrained_fn_names`, checked in `collect_param_ranges()`**. Test: `trait_impl_method_params_top`.
+  - Closure parameters: assign Top — **implemented: detected via `ArcFunction.num_captures > 0` directly in `collect_param_ranges()`, no additional plumbing needed**. Test: `closure_params_top_via_num_captures`.
+  - `pub` function parameters: assign Top — **implemented: pub function names collected from `FunctionSig.is_public`, stored in `ReprPlan.unconstrained_fn_names`**. Test: `pub_function_params_top_regardless_of_call_sites` (semantic pin: private [42,42] vs pub Top).
   - [x] Call-site-specific range propagation (TPR-03-037): `join_arg_ranges()` now uses block-local refined ranges at call sites via `block_local_ranges()` (2026-03-28). `RangeFixpointResult` stores `block_refinements` from the fixpoint; `collect_param_ranges()` intersects global var_ranges with block refinements at each call site. Tests: `call_site_specific_range_from_branch_refinement` (semantic pin: [0,4]), `call_site_specific_range_from_false_branch` ([5,10]), `call_site_without_branch_uses_global_range` (negative pin: [0,10]). 14,349 tests pass.
 
 - [x] **Unit tests for §03.5** in `range/signatures/tests.rs` (2026-03-26). Tests written TDD-style (verified fail before implementation). Coverage:
   - [x] Non-recursive function called with constant args → parameter range is `Bounded(const, const)` — `single_call_site_constant_arg` (semantic pin)
   - [x] Non-recursive function called with different constant args from 2 sites → parameter range is join — `two_call_sites_join_param_ranges`
-  - [ ] `pub` function → parameter range remains Top regardless of call-site args — **blocked: no visibility info in ARC IR**
-  - [ ] Trait method parameters → Top (callers unknown at compile time) — **blocked: no trait info in ARC IR**
-  - [ ] Closure parameters → Top (conservative default) — **blocked: no closure distinction in ARC IR**
+  - [x] `pub` function → parameter range remains Top regardless of call-site args — `pub_function_params_top_regardless_of_call_sites` (2026-03-28)
+  - [x] Trait method parameters → Top (callers unknown at compile time) — `trait_impl_method_params_top` (2026-03-28)
+  - [x] Closure parameters → Top (conservative default) — `closure_params_top_via_num_captures` (2026-03-28)
   - [x] Self-recursive function (SCC of size 1) → converges within `max_scc_iterations` — `self_recursive_converges_or_widens`
   - [x] Mutually recursive pair (SCC of size 2) → parameter ranges stabilize or widen to Top — `mutually_recursive_scc_tightens_from_seed`
   - [x] Return range propagation: function returning constant → callee-local return var has bounded range — `return_range_constant`
