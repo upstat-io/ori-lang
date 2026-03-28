@@ -87,12 +87,14 @@ pub(super) fn process_terminator(
                 }
             }
             // TPR-03-018: default block gets complement refinement.
+            // TPR-03-036: use JOIN (not meet) when multiple predecessors
+            // target the same default — join is the sound over-approximation.
             let scr_range = ranges.get(scrutinee).copied().unwrap_or(Top);
             let complement = switch_default_complement(scr_range, cases);
             if complement != scr_range {
                 block_refinements
                     .entry((*default, *scrutinee))
-                    .and_modify(|existing| *existing = existing.meet(complement))
+                    .and_modify(|existing| *existing = existing.join(complement))
                     .or_insert(complement);
             }
         }
