@@ -251,7 +251,7 @@ The following issues were found during the pre-implementation review. Each secti
 
 `ArcClassifier::classify_by_tag()` (line ~152) returns `ArcClass::Scalar` for `Tag::Iterator | Tag::DoubleEndedIterator`. `TypeInfoStore::classify_trivial()` returns `false` for `TypeInfo::Iterator { .. }`. These are live disagreements that cause codegen to emit unnecessary RC ops for iterator-typed values.
 
-- [x] **[DRIFT]** Fixed by §02.1 — `classify_triviality()` is now the single source of truth. `ArcClassifier` delegates to it, and `TypeInfoStore` pre-computes from `ReprPlan` (which embeds `UnmanagedPtr` for iterators, trivial). Completed 2026-03-25.
+- [x] **[DRIFT]** Fixed by §02.1 for the original iterator disagreement — `ArcClassifier` now delegates to `classify_triviality()`, and production `TypeInfoStore` call sites pre-compute from `ReprPlan` (which embeds `UnmanagedPtr` for iterators, trivial). Completed 2026-03-25. Residual fallback duplication remains tracked in `section-02-transitive-triviality.md` as TPR-02-007.
 
 ### [NOTE] `compiler/ori_arc/src/pipeline/aims_pipeline.rs:43` — `AimsPipelineConfig` is `pub(crate)`
 

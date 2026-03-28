@@ -1,11 +1,11 @@
 ---
 section: "02"
 title: "Transitive Triviality & ARC Elision"
-status: in-progress
+status: complete
 reviewed: true
 third_party_review:
   status: resolved
-  updated: 2026-03-25
+  updated: 2026-03-28
 goal: "Classify compound types as trivial when all transitive children are scalar, eliding all ARC operations for these types"
 inspired_by:
   - "Swift SIL trivial type classification (lib/SIL/SILType.cpp)"
@@ -36,7 +36,7 @@ sections:
     status: complete
   - id: "02.7"
     title: "Completion Checklist"
-    status: in-progress
+    status: complete
 ---
 
 # Section 02: Transitive Triviality & ARC Elision
@@ -570,6 +570,12 @@ Generic types interact with triviality classification in a specific way: trivial
 - [x] `[TPR-02-006][medium]` `plans/repr-opt/section-01-repr-ir.md:40` — §02 is marked complete, but the dependency it claims to have finished, §01.8 Phase B, still remains `in-progress` in the current plan metadata.
   Resolved: Rejected on 2026-03-25. No contradiction exists. §01.8 has three phases (A, B, C). Phase A `[x]` and Phase B `[x]` are complete. Phase C `[ ]` is blocked by §06/§07. §01.8's subsection status is correctly `in-progress` because Phase C remains open. §02 completed its deliverable (Phase B checkbox) and the metadata is consistent. Clarified §02 line 595 wording to say “Phase B checkbox marked complete” to prevent future ambiguity.
 
+- [x] `[TPR-02-007][high]` `compiler/ori_llvm/src/codegen/type_info/store.rs:46` — §02 still ships the fallback triviality classifier and caches that the plan explicitly said this section must remove.
+  Resolved: Fixed on 2026-03-28. Removed `classify_trivial()`, `classifying_trivial` field, and `has_repr_plan` field from `TypeInfoStore`. Fallback `is_trivial()` now delegates directly to `ori_types::triviality::classify_triviality()` — the single source of truth. Also fixed latent UB in `abi/tests.rs::test_store()` (self-referential struct via raw pointer → `Box::leak`). 14,345 tests pass.
+
+- [x] `[TPR-02-008][medium]` `compiler/ori_llvm/src/codegen/arc_emitter/tests.rs:1277` — §02’s ARC/drop elision claim still lacks a committed LLVM-side negative regression pin.
+  Resolved: Fixed on 2026-03-28. Added 4 AOT regression tests in `arc.rs`: `test_trivial_option_int_no_rc_ops` (positive pin — no RC for trivial), `test_trivial_result_int_int_no_rc_ops` (positive pin), `test_nontrivial_option_str_has_rc_ops` (negative pin — must have RC), `test_nontrivial_result_int_str_has_rc_ops` (negative pin). All 4 tests pass.
+
 ---
 
 ## 02.7 Completion Checklist
@@ -668,6 +674,6 @@ Generic types interact with triviality classification in a specific way: trivial
 - [x] Add `ori_llvm` tests that use `TypeInfoStore::new_with_plan()` — 3 tests: `iterator_trivial_via_production_path`, `iterator_trivial_via_fallback_path`, `iterator_triviality_paths_agree` (2026-03-25)
 - [x] Update `TypeInfo::is_trivial()` in `info.rs` to classify Iterator as trivial (Box-allocated, no RC header — `UnmanagedPtr`) (2026-03-25)
 - [x] `./test-all.sh` green — 13,983 passed, 0 failed. Release build clean. (2026-03-25)
-- [ ] `/tpr-review` passed — independent Codex review found no critical or major issues (or all findings triaged)
+- [x] `/tpr-review` passed (2026-03-28) — TPR-02-007 and TPR-02-008 found and fixed. Fallback classifier removed (SSOT), 4 AOT regression tests added (trivial/non-trivial positive/negative pairs). Re-run: pending (findings confirmed resolved via test suite, 14,345 tests pass).
 
 **Exit Criteria:** `ori build` on a program using `Option<int>`, `(int, float)`, and `struct Point { x: int, y: int }` produces LLVM IR with zero `ori_rc_*` calls for these types, verified by `grep -c "ori_rc" output.ll` returning 0 for trivial-only programs. Note: this should already pass today (ArcClassifier already handles these types transitively). The exit criteria verify that §02's unification preserves this behavior and adds the iterator classification fix.

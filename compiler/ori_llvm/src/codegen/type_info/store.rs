@@ -12,7 +12,7 @@ use std::cell::RefCell;
 
 use rustc_hash::{FxHashMap, FxHashSet};
 
-use ori_types::{Idx, Pool, Tag};
+use ori_types::{triviality, Idx, Pool, Tag};
 
 use super::info::{EnumVariantInfo, TypeInfo};
 
@@ -43,23 +43,14 @@ pub struct TypeInfoStore<'tcx> {
     /// Pool reference for type property queries.
     pool: &'tcx Pool,
 
-    /// Whether triviality was pre-computed from a `ReprPlan` (§02 Phase B).
-    ///
-    /// When true, `triviality_cache` was populated from the plan at
-    /// construction time and `classify_trivial()` is never called.
-    has_repr_plan: bool,
-
     /// Cache for transitive triviality classification.
     ///
-    /// When `has_repr_plan` is true, pre-populated from `ReprPlan::is_trivial()`
-    /// for all Pool types at construction. When false, populated lazily via
-    /// `classify_trivial()`.
+    /// When constructed via `new_with_plan()`, pre-populated from
+    /// `ReprPlan::is_trivial()` for all Pool types at construction.
+    /// When constructed via `new()` (test path), populated lazily from
+    /// `ori_types::triviality::classify_triviality()` — the single source
+    /// of truth for triviality.
     triviality_cache: RefCell<FxHashMap<Idx, bool>>,
-
-    /// Types currently being classified for triviality (fallback path).
-    ///
-    /// Only used when `has_repr_plan` is false (test context).
-    classifying_trivial: RefCell<FxHashSet<Idx>>,
 
     /// Types currently being computed in `compute_type_info()` (cycle detection).
     ///
@@ -70,11 +61,11 @@ pub struct TypeInfoStore<'tcx> {
 }
 
 impl<'tcx> TypeInfoStore<'tcx> {
-    /// Create a new store without a `ReprPlan` (test/fallback path).
+    /// Create a new store without a `ReprPlan` (test path).
     ///
-    /// Triviality uses the local `classify_trivial()` walk. For production
-    /// paths, prefer [`new_with_plan()`] which pre-computes triviality from
-    /// `ReprPlan` — the single source of truth from repr-opt §02.
+    /// Triviality is lazily computed via `ori_types::triviality::classify_triviality()`
+    /// — the single source of truth. For production paths, prefer
+    /// [`new_with_plan()`] which pre-computes triviality from `ReprPlan`.
     pub fn new(pool: &'tcx Pool) -> Self {
         let mut entries = Vec::with_capacity(64);
         for i in 0..64u32 {
@@ -85,9 +76,7 @@ impl<'tcx> TypeInfoStore<'tcx> {
         Self {
             entries: RefCell::new(entries),
             pool,
-            has_repr_plan: false,
             triviality_cache: RefCell::new(FxHashMap::default()),
-            classifying_trivial: RefCell::new(FxHashSet::default()),
             computing: RefCell::new(FxHashSet::default()),
         }
     }
@@ -116,9 +105,7 @@ impl<'tcx> TypeInfoStore<'tcx> {
         Self {
             entries: RefCell::new(entries),
             pool,
-            has_repr_plan: true,
             triviality_cache: RefCell::new(cache),
-            classifying_trivial: RefCell::new(FxHashSet::default()),
             computing: RefCell::new(FxHashSet::default()),
         }
     }
@@ -191,77 +178,25 @@ impl<'tcx> TypeInfoStore<'tcx> {
     /// Transitive triviality check: true if this type (and all its children)
     /// have no ARC semantics.
     ///
-    /// When a `ReprPlan` is available (production paths), delegates to
-    /// `ReprPlan::is_trivial()` — the single source of truth from §02.
-    /// Falls back to the local `classify_trivial()` walk when no plan
-    /// is available (test context).
+    /// When a `ReprPlan` is available (production paths via `new_with_plan()`),
+    /// the cache is pre-populated from `ReprPlan::is_trivial()`. Otherwise
+    /// (test paths via `new()`), lazily delegates to the single source of
+    /// truth: `ori_types::triviality::classify_triviality()`.
     pub fn is_trivial(&self, idx: Idx) -> bool {
         // Sentinel
         if idx == Idx::NONE {
             return true;
         }
 
-        // Fast path: cache hit (always populated when has_repr_plan is true).
+        // Fast path: cache hit (always populated when constructed with plan).
         if let Some(&cached) = self.triviality_cache.borrow().get(&idx) {
             return cached;
         }
 
-        // Fallback path (tests without ReprPlan): local walk with cache.
-        debug_assert!(
-            !self.has_repr_plan,
-            "ReprPlan cache miss for {idx:?} — should have been pre-computed"
-        );
-        let result = self.classify_trivial(idx);
+        // Fallback: delegate to the canonical source of truth.
+        let result =
+            triviality::classify_triviality(idx, self.pool) == triviality::Triviality::Trivial;
         self.triviality_cache.borrow_mut().insert(idx, result);
-        result
-    }
-
-    /// Recursive triviality classification with cycle detection.
-    fn classify_trivial(&self, idx: Idx) -> bool {
-        // Cycle detection: if we're already classifying this type, it's
-        // recursive, which means it needs heap indirection → non-trivial.
-        if !self.classifying_trivial.borrow_mut().insert(idx) {
-            return false;
-        }
-
-        let info = self.get(idx);
-        let result = match &info {
-            // Scalar primitives and Iterator (Box-allocated, no RC header —
-            // UnmanagedPtr) are always trivial. Iterator matches ArcClassifier
-            // (Scalar) and classify_triviality() (Trivial).
-            TypeInfo::Int
-            | TypeInfo::Float
-            | TypeInfo::Bool
-            | TypeInfo::Char
-            | TypeInfo::Byte
-            | TypeInfo::Unit
-            | TypeInfo::Never
-            | TypeInfo::Duration
-            | TypeInfo::Size
-            | TypeInfo::Ordering
-            | TypeInfo::Range
-            | TypeInfo::Error
-            | TypeInfo::Iterator { .. } => true,
-
-            // Heap-backed RC-managed types are always non-trivial.
-            TypeInfo::Str
-            | TypeInfo::List { .. }
-            | TypeInfo::Map { .. }
-            | TypeInfo::Set { .. }
-            | TypeInfo::Channel { .. }
-            | TypeInfo::Function { .. } => false,
-
-            // Compound types: trivial iff all children are trivial.
-            TypeInfo::Option { inner } => self.is_trivial(*inner),
-            TypeInfo::Result { ok, err } => self.is_trivial(*ok) && self.is_trivial(*err),
-            TypeInfo::Tuple { elements } => elements.iter().all(|&e| self.is_trivial(e)),
-            TypeInfo::Struct { fields } => fields.iter().all(|&(_, ty)| self.is_trivial(ty)),
-            TypeInfo::Enum { variants } => variants
-                .iter()
-                .all(|v| v.fields.iter().all(|&f| self.is_trivial(f))),
-        };
-
-        self.classifying_trivial.borrow_mut().remove(&idx);
         result
     }
 
