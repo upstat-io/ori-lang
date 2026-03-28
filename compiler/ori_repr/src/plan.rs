@@ -283,10 +283,10 @@ impl ReprPlan {
     /// - It's a trait impl method: `(Some(self_type), name)` is in the set
     #[must_use]
     pub fn is_unconstrained_fn(&self, self_type: Option<Idx>, name: Name) -> bool {
-        // Check for exact match (pub top-level or specific trait impl)
+        // Exact match only: (None, name) for pub top-level, (Some(idx), name) for
+        // trait impl methods. No wildcard fallback — a pub top-level `foo` must NOT
+        // make an unrelated impl method `Type.foo` unconstrained (TPR-03-042).
         self.unconstrained_fn_names.contains(&(self_type, name))
-            // Also check pub top-level match (None matches any function with that name)
-            || (self_type.is_some() && self.unconstrained_fn_names.contains(&(None, name)))
     }
 
     /// Whether §04 integer narrowing is safe to apply at the codegen level.
