@@ -1,12 +1,12 @@
 ---
 section: "03"
 title: "Value Range Analysis Framework"
-status: in-progress
+status: complete
 reviewed: true
 third_party_review:
-  status: findings
+  status: resolved
   updated: 2026-03-28
-  triage_note: "New review findings on 2026-03-28: TPR-03-038 (impl_sigs over-marks inherent methods unconstrained) and TPR-03-039 (signatures/mod.rs exceeds 500 lines). Recent fixes TPR-03-036 and TPR-03-037 remain resolved."
+  triage_note: "All TPR findings resolved. TPR-03-038 fixed 2026-03-28 (added trait_impl_fn_names to TypedModule, only trait impls marked unconstrained). TPR-03-039 fixed 2026-03-28 (extracted scc.rs, mod.rs 513→398 lines). Previously resolved: TPR-03-034..037."
 goal: "Build an abstract interpretation engine over integer intervals that computes provable value ranges for every int-typed expression in a function"
 inspired_by:
   - "Roc NumericRange constraint system (crates/compiler/types/src/num.rs)"
@@ -1138,7 +1138,7 @@ For cross-function narrowing, we need to propagate range information through fun
 - [x] **`field_range_summaries` field in `ReprPlan`** — `plan.rs:101`, with `field_range()` and `join_field_range()` methods (2026-03-25)
 - [x] **`.copied()` in `ReprPlan::var_range()`** — already uses `.copied()` at `plan.rs:162` (2026-03-25)
 - [x] **`pub use` re-exports in `lib.rs`** — `ValueRange`, `RangeAnalysisConfig`, `FieldSummaryTable`, `RangeFixpointResult`, `KnownBuiltins` (2026-03-26)
-- [ ] `/tpr-review` passed — independent Codex review found no critical or major issues (or all findings triaged)
+- [x] `/tpr-review` passed (2026-03-28) — Codex review found TPR-03-038 (inherent methods over-marked) and TPR-03-039 (mod.rs 513 lines). Both fixed immediately: added `trait_impl_fn_names` to `TypedModule`, extracted `scc.rs`. Re-run confirmed clean. 14,352 tests pass.
 
 **Global Testing Requirements (CLAUDE.md compliance):**
 - **TDD ordering**: Every subsection (03.1 through 03.5) must write tests BEFORE implementation. Verify tests fail (compile error or assertion). Implement. Tests must pass unchanged. Needing to change tests = wrong tests or wrong fix.
@@ -1167,15 +1167,11 @@ For cross-function narrowing, we need to propagate range information through fun
 
 ## 03.R Third Party Review Findings
 
-- [ ] `[TPR-03-038][medium]` `compiler/oric/src/commands/repr_setup.rs:67` — §03.5 now marks every impl method unconstrained, not just trait impl methods, so private inherent methods lose call-site parameter narrowing.
-  Evidence: both repr-plan entry points call `collect_unconstrained_fn_names(..., typed.impl_sigs)` / `collect_unconstrained_fn_names(..., impl_sigs)` and the helper blindly pushes every `impl_sigs` name (`compiler/oric/src/commands/repr_setup.rs:67-102`, `compiler/ori_llvm/src/lib.rs:79-99`). But `impl_sigs` is populated for every `impl` method in `check_impl_block()`, before the trait-only default-method branch (`compiler/ori_types/src/check/bodies/mod.rs:271-305`, `compiler/ori_types/src/check/bodies/mod.rs:400-433`). `collect_param_ranges()` treats any name in `ReprPlan.unconstrained_fn_names` as `Top` for all params (`compiler/ori_repr/src/range/signatures/mod.rs:252-275`). The new tests only pin `pub`, trait-impl, and closure behavior; there is no negative pin that a private inherent method called with bounded arguments still narrows.
-  Impact: ordinary inherent methods now fall back to `Top` parameter ranges even when all call sites are visible in-module, regressing §03.5 precision and weakening downstream narrowing for method-heavy code.
-  Required plan update: thread trait-impl identity separately from the flat `impl_sigs` ABI list (or filter on `impl_def.trait_path.is_some()` before storing unconstrained names), and add a regression where a private inherent method called with constant arguments still produces a bounded parameter range.
+- [x] `[TPR-03-038][medium]` `compiler/oric/src/commands/repr_setup.rs:67` — §03.5 now marks every impl method unconstrained, not just trait impl methods, so private inherent methods lose call-site parameter narrowing.
+  Resolved: Fixed on 2026-03-28. Added `trait_impl_fn_names: Vec<Name>` to `TypedModule`, populated only when `impl_def.trait_path.is_some()` in `check_impl_block()`. Updated `collect_unconstrained_fn_names()` in both AOT and JIT paths to use `trait_impl_fn_names` instead of `impl_sigs`. Inherent methods are no longer marked unconstrained.
 
-- [ ] `[TPR-03-039][low]` `compiler/ori_repr/src/range/signatures/mod.rs:1` — The touched non-test file is now 513 lines, exceeding the repository’s 500-line limit.
-  Evidence: `git show HEAD~1:compiler/ori_repr/src/range/signatures/mod.rs | wc -l` reports 480 lines before this change; the current file is 513 lines (`wc -l compiler/ori_repr/src/range/signatures/mod.rs`), and this review diff added the overflowing lines.
-  Impact: this is a direct `CLAUDE.md` / `impl-hygiene.md` file-organization violation in a hot analysis module, which makes future review and debugging harder.
-  Required plan update: split the new unconstrained-function / call-site-range helpers or the recursive-SCC driver into a sibling submodule so `signatures/mod.rs` returns under 500 lines.
+- [x] `[TPR-03-039][low]` `compiler/ori_repr/src/range/signatures/mod.rs:1` — The touched non-test file is now 513 lines, exceeding the repository’s 500-line limit.
+  Resolved: Fixed on 2026-03-28. Extracted `process_recursive_scc()` and `build_param_seed_map()` into `compiler/ori_repr/src/range/signatures/scc.rs`. `mod.rs` reduced from 513 → 398 lines.
 
 - [x] `[TPR-03-036][high]` `compiler/ori_repr/src/range/fixpoint/terminator.rs:88` — `Switch` default refinements are still merged with `meet`, so multiple predecessors feeding the same default successor under-approximate the scrutinee range.
   Resolved: Fixed on 2026-03-28. Changed `.meet(complement)` to `.join(complement)` at `terminator.rs:95` — now matches the `Branch` handler pattern (lines 66/70). Added `fixpoint_switch_default_multi_predecessor_joins` semantic pin test: two switches with cases {0} and {10} targeting the same default, verifies join gives [0,10] not meet's [1,9]. 14,346 tests pass.
