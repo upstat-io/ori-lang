@@ -4,9 +4,9 @@ title: "Value Range Analysis Framework"
 status: in-progress
 reviewed: true
 third_party_review:
-  status: resolved
-  updated: 2026-03-26
-  triage_note: "All 35 TPR findings resolved. TPR-03-034 (Invoke feedback) and TPR-03-035 (SCC budget) implemented on 2026-03-26. Prior TPR-03-028..033 resolved earlier."
+  status: findings
+  updated: 2026-03-28
+  triage_note: "TPR-03-036 (switch-default unsoundness) fixed 2026-03-28. TPR-03-037 (call-site range precision) accepted as implementation task — sound as-is, precision improvement. Previously resolved: TPR-03-034, TPR-03-035, and prior TPR-03-028..033."
 goal: "Build an abstract interpretation engine over integer intervals that computes provable value ranges for every int-typed expression in a function"
 inspired_by:
   - "Roc NumericRange constraint system (crates/compiler/types/src/num.rs)"
@@ -1039,6 +1039,7 @@ For cross-function narrowing, we need to propagate range information through fun
   - Trait method parameters: assign Top (callers unknown at compile time — may be called via dynamic dispatch) — **blocked: ARC IR lacks visibility/trait info; currently all functions treated as narrowable (conservative — §04 ignores Top anyway)**
   - Closure parameters: assign Top unless all call sites of the closure are visible in the current module (conservative default) — **blocked: same visibility limitation**
   - `pub` function parameters: assign Top (external callers may pass full-range values) — **blocked: same visibility limitation**
+  - Call-site-specific range propagation (TPR-03-037): `join_arg_ranges()` currently uses function-global `var_ranges`, not block-local refined state. When `helper(x)` is called only in a `x < 5` branch, the callee parameter gets `[0, 10]` instead of `[0, 4]`. Fix: compute block-entry ranges at each call site and pass those to `join_arg_ranges()`. **Sound as-is (over-approximates) — precision improvement.**
 
 - [x] **Unit tests for §03.5** in `range/signatures/tests.rs` (2026-03-26). Tests written TDD-style (verified fail before implementation). Coverage:
   - [x] Non-recursive function called with constant args → parameter range is `Bounded(const, const)` — `single_call_site_constant_arg` (semantic pin)
@@ -1165,6 +1166,14 @@ For cross-function narrowing, we need to propagate range information through fun
 ---
 
 ## 03.R Third Party Review Findings
+
+- [x] `[TPR-03-036][high]` `compiler/ori_repr/src/range/fixpoint/terminator.rs:88` — `Switch` default refinements are still merged with `meet`, so multiple predecessors feeding the same default successor under-approximate the scrutinee range.
+  Resolved: Fixed on 2026-03-28. Changed `.meet(complement)` to `.join(complement)` at `terminator.rs:95` — now matches the `Branch` handler pattern (lines 66/70). Added `fixpoint_switch_default_multi_predecessor_joins` semantic pin test: two switches with cases {0} and {10} targeting the same default, verifies join gives [0,10] not meet's [1,9]. 14,346 tests pass.
+
+- [ ] `[TPR-03-037][medium]` `compiler/ori_repr/src/range/signatures/mod.rs:323` — `collect_param_ranges()` uses the caller’s function-global `var_ranges`, so branch-local call-site refinements do not propagate to callee parameters.
+  Evidence: `join_arg_ranges()` reads each argument from `caller_result.var_ranges.get(arg_var)`, which is the final per-variable summary for the whole caller, not the refined environment at the specific `Apply`/`Invoke`. A focused probe on 2026-03-28 built `x ∈ [0, 10]`, branched on `x < 5`, and called `helper(x)` only in the true branch. `propagate_ranges()` inferred `helper`’s parameter as `[0, 10]`; the path-local fact at the call site is `[0, 4]`.
+  Impact: §03.5 is weaker than the plan claims whenever a call uses a live-through variable directly under conditional refinement. Interprocedural propagation only sees those facts if lowering happens to materialize a branch-local SSA copy first. Existing tests pin constant and derived-local call arguments, but not direct calls from refined branches.
+  Accepted: Validated precision limitation (sound — over-approximates, never under-approximates). Implementation task added to §03.5 boundary cases. Fix requires block-local range state at each call site — medium architectural effort.
 
 - [x] `[TPR-03-034][high]` `compiler/ori_repr/src/range/fixpoint/terminator.rs:32` — Return-range feedback reruns still do not narrow `Invoke` destinations, despite the implementation and plan both claiming `Apply` and `Invoke` coverage.
   Evidence: `inject_callee_return_ranges()` records both body-call and `Invoke` destinations via `call_sites_in_block()` (`compiler/ori_repr/src/range/signatures/feedback.rs:127-159`, `compiler/ori_repr/src/range/signatures/feedback.rs:275-286`). But `range_fixpoint()` only applies `call_result_narrowings` inside the body-instruction loop (`compiler/ori_repr/src/range/fixpoint/mod.rs:232-258`). The `Invoke` path is handled later by `process_terminator()`, which has no `call_result_narrowings` input and always recomputes the destination from `transfer_known_call(...).unwrap_or(Top)` (`compiler/ori_repr/src/range/fixpoint/mod.rs:263-272`, `compiler/ori_repr/src/range/fixpoint/terminator.rs:32-42`). A repo-wide search of `compiler/ori_repr/src/range/signatures/tests.rs` finds no `Invoke`-based feedback regression test, so this path is currently unpinned.
