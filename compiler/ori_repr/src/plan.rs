@@ -108,6 +108,15 @@ pub struct ReprPlan {
     ///
     /// Populated at plan construction from type checker visibility info.
     pub_type_indices: FxHashSet<Idx>,
+    /// Function names whose parameters must NOT be narrowed by §03.5
+    /// interprocedural range analysis.
+    ///
+    /// Includes: `pub` functions (external callers may pass full-range values),
+    /// trait impl methods (may be called via dynamic dispatch with unknown args).
+    /// Closures are handled separately via `ArcFunction::num_captures > 0`.
+    ///
+    /// Populated at plan construction from type checker visibility/impl info.
+    unconstrained_fn_names: FxHashSet<Name>,
 }
 
 impl ReprPlan {
@@ -128,6 +137,7 @@ impl ReprPlan {
             audit: Vec::new(),
             narrowing_policy: policy,
             pub_type_indices: FxHashSet::default(),
+            unconstrained_fn_names: FxHashSet::default(),
         }
     }
 
@@ -230,6 +240,26 @@ impl ReprPlan {
     #[must_use]
     pub fn is_public_type(&self, idx: Idx) -> bool {
         self.pub_type_indices.contains(&idx)
+    }
+
+    /// Register function names that are unconstrained (pub, trait impl).
+    ///
+    /// Unconstrained functions may be called from external code or via
+    /// dynamic dispatch — their parameter ranges must not be narrowed
+    /// by §03.5 interprocedural range analysis. Closures are handled
+    /// separately via `ArcFunction::num_captures`.
+    pub fn set_unconstrained_fn_names(&mut self, names: impl IntoIterator<Item = Name>) {
+        self.unconstrained_fn_names.extend(names);
+    }
+
+    /// Check if a function name is unconstrained (pub or trait impl).
+    ///
+    /// Unconstrained functions have their parameters set to `Top` in
+    /// interprocedural range analysis — external callers may pass
+    /// full-range values.
+    #[must_use]
+    pub fn is_unconstrained_fn(&self, name: Name) -> bool {
+        self.unconstrained_fn_names.contains(&name)
     }
 
     /// Record per-function escape analysis info (§08 output).

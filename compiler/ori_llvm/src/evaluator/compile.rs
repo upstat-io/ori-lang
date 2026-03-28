@@ -179,6 +179,9 @@ impl<'tcx> super::OwnedLLVMEvaluator<'tcx> {
             .filter(|te| te.visibility == ori_types::Visibility::Public)
             .map(|te| te.idx)
             .collect();
+        // Collect unconstrained function names (pub + trait impl) for §03.5.
+        let unconstrained_fn_names: Vec<ori_ir::Name> =
+            crate::collect_unconstrained_fn_names(function_sigs, impl_sigs);
         let repr_plan = ori_repr::compute_repr_plan_with_interner(
             self.pool,
             &all_arc_funcs,
@@ -187,6 +190,7 @@ impl<'tcx> super::OwnedLLVMEvaluator<'tcx> {
             Some(interner),
             &pub_type_indices,
             imported_type_metadata,
+            &unconstrained_fn_names,
         );
         let store = TypeInfoStore::new_with_plan(self.pool, &repr_plan);
         let resolver = TypeLayoutResolver::new(&store, scx_ref, Some(interner), Some(&repr_plan));

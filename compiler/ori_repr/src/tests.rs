@@ -2935,6 +2935,7 @@ fn pub_type_propagates_to_resolved_struct_idx() {
         None,
         &[named_idx],
         &[],
+        &[],
     );
 
     assert!(
@@ -3037,6 +3038,7 @@ fn pub_resolved_idx_not_narrowed_semantic_pin() {
         &[],
         None,
         &[named_idx],
+        &[],
         &[],
     );
 
@@ -3142,6 +3144,7 @@ fn pub_type_propagates_through_applied_to_concrete_struct() {
         None,
         &[named_idx],
         &[],
+        &[],
     );
 
     assert!(plan.is_public_type(named_idx));
@@ -3228,6 +3231,7 @@ fn pub_applied_concrete_struct_not_narrowed_semantic_pin() {
         &[],
         None,
         &[named_idx],
+        &[],
         &[],
     );
 
@@ -3326,6 +3330,7 @@ fn multiple_applied_instantiations_all_protected() {
         None,
         &[named_idx],
         &[],
+        &[],
     );
 
     // Both monomorphized structs must have repr and pub
@@ -3364,6 +3369,7 @@ fn imported_pub_type_seeded_via_metadata() {
         None,
         &[], // No local pub types
         &imported_meta,
+        &[],
     );
 
     assert!(
@@ -3398,6 +3404,7 @@ fn imported_repr_c_type_seeded_via_metadata() {
         None,
         &[], // No local pub types
         &imported_meta,
+        &[],
     );
 
     assert_eq!(
@@ -3434,6 +3441,7 @@ fn imported_pub_type_not_narrowed_semantic_pin() {
         None,
         &[], // No local pub types — only imported metadata
         &imported_meta,
+        &[],
     );
 
     // Add field range that would normally trigger narrowing.
@@ -3485,6 +3493,7 @@ fn imported_repr_c_type_not_narrowed_semantic_pin() {
         None,
         &[],
         &imported_meta,
+        &[],
     );
 
     // Add field range that would normally trigger narrowing.
@@ -3530,6 +3539,7 @@ fn no_imported_metadata_allows_narrowing() {
         None,
         &[], // No pub types
         &[], // No imported metadata
+        &[],
     );
 
     // Add field range that triggers narrowing.
@@ -3575,5 +3585,6 @@ fn imported_metadata_hash_not_in_pool_ignored() {
         None,
         &[],
         &imported_meta,
+        &[],
     );
 }
