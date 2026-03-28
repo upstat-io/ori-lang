@@ -1,10 +1,8 @@
 # Section 02: Complete Type Inference -- Verification Results
 
-**Verified**: 2026-03-19
-**Branch**: experiment/aims
-**Commit**: 073d88fb
-
-**Summary**: 48/49 items checked. 47 VERIFIED, 1 STALE TEST (collections.ori), 1 unchecked item confirmed as genuine open bug. Several count claims are stale but harmless.
+**Verified**: 2026-03-28
+**Branch**: dev
+**Verdict**: MOSTLY VERIFIED -- all implementations work, but roadmap metadata (test counts, bug status) is stale
 
 ---
 
@@ -12,40 +10,93 @@
 
 ### [x] Occurs check (2026-02-10) -- VERIFIED
 
-- **Rust Test**: `ori_types::unify::tests::occurs_check_detects_infinite_type` -- PASSES. Test creates `var` and `List<var>`, verifies unification fails with `UnifyError::InfiniteType`. Sound test: correctly validates prevention of infinite types like `T = [T]`.
-- **Ori Test**: `tests/spec/inference/unification.ori` -- 25 tests, ALL PASS.
-  - Tests cover: same-type unification, inferred type unification, list/nested list, function/higher-order, tuple, Option (Some/None), Result (Ok/Err), assignment chains, conditional branches, complex conditionals, Option/Result in branches, list element assignment, tuple destructuring, function call chains, closure capture, arithmetic/comparison/logical results, string concat, map lookup.
-  - Assertions verify computed values match expected, validating that type inference correctly unified types through each scenario.
+```
+Tests found:
+  Rust: compiler/ori_types/src/unify/tests.rs -- occurs_check_detects_infinite_type (line 76),
+        occurs_check_finds_var_in_borrowed (line 473), occurs_check_finds_var_in_dei (line 603)
+  Ori:  tests/spec/inference/unification.ori -- 25 active tests
+Tests run: ALL PASS
+  Rust: 38/38 in unify::tests (0 failed)
+  Ori:  4181 passed, 0 failed, 42 skipped (full suite)
+Audit: READ compiler/ori_types/src/unify/tests.rs
+  - line 76-88: occurs_check_detects_infinite_type -- creates var, creates List<var>, attempts
+    unify(var, List<var>), asserts InfiniteType error. Correct per spec.
+  - line 473-481: occurs_check_finds_var_in_borrowed -- same pattern for Borrowed<var>. Sound.
+  - line 603-611: occurs_check_finds_var_in_dei -- same pattern for DEI<var>. Sound.
+Audit: READ tests/spec/inference/unification.ori
+  - 25 tests covering: same-type unification, inferred types, list types, nested lists,
+    function types, higher-order functions, tuples, Option Some/None, Result Ok/Err,
+    assignment chains, conditional branches, nested conditionals, closure captures,
+    arithmetic/comparison/logical ops, string concat, map lookup.
+  - All assertions use assert_eq with actual/expected -- correct patterns.
+  - Dual structure: each test has a @test function + target function (belt-and-suspenders).
+Coverage: Comprehensive for core unification scenarios.
+Status: VERIFIED
+```
 
 ### [x] Substitution application via resolve() (2026-02-10) -- VERIFIED
 
-- **Rust Tests**: ALL PASS.
-  - `path_compression` -- Creates chain var1->var2->var3->INT, verifies resolve(var1) returns INT and compresses the path (var1 points directly to INT after resolution). Sound.
-  - `error_propagates` -- Verifies ERROR type unifies with anything (INT, STR). Sound for cascade prevention.
-  - `never_unifies_with_anything` -- Verifies NEVER unifies with INT and STR. Sound (bottom type semantics).
-- **Ori Tests**: Substitution verified through unification tests above -- transitive chains, conditional branches, arithmetic results all exercise substitution.
+```
+Tests found:
+  Rust: compiler/ori_types/src/unify/tests.rs -- path_compression (line 49),
+        error_propagates (line 187), never_unifies_with_anything (line 178)
+Tests run: ALL PASS (38/38)
+Audit: READ compiler/ori_types/src/unify/tests.rs
+  - line 49-73: path_compression -- creates chain var1->var2->var3->INT, resolves var1,
+    verifies path compressed to direct INT link. Correct.
+  - line 178-184: never_unifies_with_anything -- Never unifies with INT and STR. Correct per spec
+    (Never is bottom type, coerces to anything).
+  - line 187-194: error_propagates -- Error type unifies with anything (prevents cascading).
+    Correct per spec.
+Coverage: Path compression, Never coercion, Error propagation all tested.
+Status: VERIFIED
+```
 
 ### [x] Generalization (let-polymorphism) (2026-02-10) -- VERIFIED
 
-- **Rust Tests**: ALL PASS.
-  - `generalize_identity_function` -- Creates `a -> a` at inner rank, verifies scheme has 1 quantified variable and body is the function type. Sound.
-  - `generalize_monomorphic` -- Verifies concrete types (INT, `int -> bool`) return unchanged. Sound.
-  - `generalize_does_not_generalize_outer_vars` -- Creates `outer -> inner` function, verifies only inner-rank variable is generalized. Sound (escaping variable check).
-  - `let_polymorphism_example` -- Full canonical test: creates scheme for `id`, instantiates twice, unifies one with INT and other with STR, verifies they resolve independently. Sound.
-- **Ori Tests**: `tests/spec/inference/polymorphism.ori` -- 8 tests, ALL PASS.
-  - `let_poly_identity` -- Polymorphic identity `id(42)` and `id("hello")` both work. Sound.
-  - `let_poly_const` -- `const_fn(1, "ignored")` and `const_fn("kept", 999)` both work. Sound.
-  - `poly_list_head`, `poly_list_length` -- Polymorphic functions on collections. Sound.
-  - `poly_option`, `instantiate_multiple_calls` -- Option wrapping with different types. Sound.
-  - `inference_flow_down`, `inference_flow_up` -- Bidirectional flow. Sound.
+```
+Tests found:
+  Rust: compiler/ori_types/src/unify/tests.rs -- generalize_identity_function (line 254),
+        generalize_monomorphic (line 236), generalize_does_not_generalize_outer_vars (line 279),
+        let_polymorphism_example (line 386)
+  Ori:  tests/spec/inference/polymorphism.ori -- 8 active tests
+Tests run: ALL PASS
+Audit: READ compiler/ori_types/src/unify/tests.rs
+  - line 236-251: generalize_monomorphic -- int and fn(int)->bool return unchanged. Correct.
+  - line 254-276: generalize_identity_function -- creates var at inner rank, generalizes fn(a)->a,
+    verifies scheme with 1 quantified variable. Correct HM generalization.
+  - line 279-298: generalize_does_not_generalize_outer_vars -- outer_var at FIRST rank, inner_var
+    at FIRST.next(), generalizes: only inner_var generalized (1 quantified). Correct --
+    preserves rank-based scoping.
+  - line 386-422: let_polymorphism_example -- canonical test: id used with int AND str independently,
+    both resolve correctly, independent vars. Gold-standard HM test.
+Audit: READ tests/spec/inference/polymorphism.ori
+  - 8 tests: identity polymorphism, const function, list head, list length, Option polymorphism,
+    multiple instantiations, downward flow, upward flow.
+  - let_poly_identity: `let id = x -> x; id(x: 42); id(x: "hello")` -- both work. Sound.
+  - let_poly_const: `(a, b) -> a` used with mixed types. Sound.
+  - poly_list_head: `xs -> xs[0]` used with [int] and [str]. Sound.
+  - instantiate_multiple_calls: wrap = x -> Some(x) used with int/str/bool. Sound.
+Coverage: Good -- covers core HM scenarios including the canonical identity test.
+Status: VERIFIED
+```
 
 ### [x] Instantiation (2026-02-10) -- VERIFIED
 
-- **Rust Tests**: ALL PASS.
-  - `instantiate_identity_scheme` -- Creates scheme `forall a. a -> a`, instantiates, verifies fresh variables. Sound.
-  - `instantiate_non_scheme` -- INT and concrete function types return unchanged. Sound.
-  - `instantiate_twice_gives_different_vars` -- Two instantiations of same scheme yield different fresh variables. Sound (prevents cross-use aliasing).
-- **Ori Tests**: Covered by polymorphism.ori tests above (instantiation is exercised every time a polymorphic function is called with different types).
+```
+Tests found:
+  Rust: compiler/ori_types/src/unify/tests.rs -- instantiate_identity_scheme (line 322),
+        instantiate_non_scheme (line 305), instantiate_twice_gives_different_vars (line 356)
+Tests run: ALL PASS
+Audit: READ compiler/ori_types/src/unify/tests.rs
+  - line 305-318: instantiate_non_scheme -- non-scheme types return unchanged. Correct.
+  - line 322-353: instantiate_identity_scheme -- creates scheme forall a. a->a, instantiates,
+    verifies fresh var (different from original), both param and return are same fresh var. Correct.
+  - line 356-383: instantiate_twice_gives_different_vars -- two instantiations yield different
+    fresh variables. Correct -- essential for let-polymorphism soundness.
+Coverage: Complete for instantiation mechanics.
+Status: VERIFIED
+```
 
 ---
 
@@ -53,36 +104,104 @@
 
 ### [x] Local variable inference (2026-02-10) -- VERIFIED
 
-- **Rust Tests**: 182 infer tests pass in `ori_types` (covers expression inference broadly).
-- **Ori Tests**: `tests/spec/expressions/bindings.ori` -- 17 tests, ALL PASS.
-  - Tests cover: inferred int/str, annotated int/str/bool/float/char, shadowing (same and different type), struct destructuring (shorthand, rename, partial, nested), list destructuring (basic, head, rest), tuple destructuring.
-  - `let x = 42` infers int, `let x = x + 1` chains correctly (verified via `let_shadow`). Sound.
+```
+Tests found:
+  Rust: compiler/ori_types/src/infer/expr/ -- 126 tests in infer::expr::tests (all pass)
+  Ori:  tests/spec/expressions/bindings.ori -- 17 active tests
+Tests run: ALL PASS
+Audit: READ tests/spec/expressions/bindings.ori
+  - 17 tests covering: inferred int/str, annotated int/str/bool/float/char, shadowing,
+    type-changing shadow, struct destructuring (shorthand/rename/partial/nested),
+    list destructuring (basic/head/rest), tuple destructuring.
+  - All assertions use assert_eq with correct expected values.
+  - let_shadow_different_type: `let x = 42; let x = str(x)` -- tests type-changing shadow. Sound.
+  - struct_destructure_nested: 4-level nesting with Rectangle/Point. Sound.
+Coverage: Good coverage of variable inference and destructuring patterns.
+Status: VERIFIED
+Roadmap accuracy: Claims "17 tests" -- correct.
+```
 
 ### [x] Lambda parameter inference (2026-02-10) -- VERIFIED
 
-- **Ori Tests**: `tests/spec/expressions/lambdas.ori` -- 30 tests (was 29, +1 regression test), ALL PASS.
-  - Tests cover: simple lambda (`x -> x + 1`), identity, multiply, negate, multi-param, three-param, no-param, typed params, explicit return type, closures (single capture, multiple capture, nested), lambda as for-yield argument, inline lambda in for, IIFE (single/no-param/multi-param), lambda assignment, lambda in conditional, lambda with block body, lambda with conditional body, lambda infer from use, higher-order (pass lambda to function), single-char param, curried (lambda returns lambda), closure-returning-closure annotated (regression test).
-  - `apply(x -> x + 1, 41)` correctly infers `x: int` from context (tested via `lambda_infer_from_use` and `pass_lambda_to_function`). Sound.
+```
+Tests found:
+  Ori: tests/spec/expressions/lambdas.ori -- 30 active tests (roadmap says 29 -- STALE COUNT)
+Tests run: ALL PASS (4181 passed, 0 failed, 42 skipped)
+Audit: READ tests/spec/expressions/lambdas.ori
+  - 30 tests covering: simple lambdas (identity, multiply, negate), multi-param, no-param,
+    typed params, explicit return type, closures (single/multiple/nested capture),
+    lambdas in for-yield, IIFEs (single/no-param/multi-param), lambda aliasing,
+    lambda in conditional, complex bodies, type inference from use, higher-order,
+    single-char params, curried lambdas, closure-returning-closure (annotated).
+  - test_closure_returning_closure_annotated (line 372): regression test for the closure-returning-
+    closure bug. Uses explicit type annotations. Passes correctly, returns 17 (10+5+2).
+  - test_lambda_returns_lambda (line 360): curried add without annotations. Passes. Sound.
+Coverage: Comprehensive lambda coverage.
+Status: VERIFIED
+Roadmap accuracy: Claims "29 tests" -- actually 30 (one regression test added later). STALE COUNT.
+```
 
-### [x] Closure-returning-closure inference bug fix (2026-03-15) -- VERIFIED
+### [ ] Closure-returning-closure inference bug -- BUG APPEARS FIXED
 
-- **Ori Test**: `closure_returning_closure_annotated` in lambdas.ori -- PASSES. Tests `(n: int) -> (int) -> int = { (x: int) -> int = base + n + x }` with captured `base = 10`, verifies `make_adder(n: 5)(x: 2) == 17`. Sound regression test.
-- **AOT Test**: `ori_llvm::tests::aot::spec::test_aot_closure_capturing_closure` -- PASSES. Tests same pattern with `@main` returning exit code. Sound.
+```
+Status in roadmap: [ ] (open bug)
+Actual status: APPEARS FIXED
+Evidence:
+  - test_aot_closure_capturing_closure in compiler/ori_llvm/tests/aot/spec.rs: PASSES
+  - test_closure_returning_closure_annotated in tests/spec/expressions/lambdas.ori: PASSES
+  - Direct interpreter test with `(n: int) -> (int) -> int = { (x: int) -> int = base + n + x }`:
+    returns 17 correctly
+  - Without explicit return type annotation (no `-> (int) -> int`): also works correctly via ori run
+  - Tested as both inline lambda and top-level function: both pass
+  - `ori check` passes with no errors for all variants
+Note: The roadmap says "infers () return instead of (int) -> int" but both AOT and interpreter
+produce correct results. The bug appears to have been fixed as a side effect of other inference work.
+Status: BUG APPEARS FIXED -- roadmap checkbox is stale (should be [x])
+```
 
-### [x] Generic type argument inference (2026-02-10) -- VERIFIED (with caveat)
+### [x] Generic type argument inference (2026-02-10) -- VERIFIED (with count correction)
 
-- **Ori Tests**: `tests/spec/inference/generics.ori` -- 17 active tests PASS, 5 stubs present.
-  - Active tests cover: Option/Result/List type inference from argument, nested generics, return type inference, param type inference, lambda param/return inference, lambda chains, Option.unwrap_or, nested generics (list-in-option, option-in-list, tuple-in-option, result-in-option, option-in-result), inference through lambda, inference through closure.
-  - 5 test stubs for Option.map, Option.and_then, Result.map, Result.map_err, Result.unwrap_or have placeholder functions (`() -> bool = true` or `() -> int = 0`) -- these are noted as "IMPLEMENTATION BUG" (methods not implemented at the time). The stubs do not exercise any real inference.
-- **Caveat**: Roadmap claims "22 tests (all pass)" which is misleading. 17 tests actually exercise inference, 5 are vacuous stubs. The 17 active tests are sound.
+```
+Tests found:
+  Ori: tests/spec/inference/generics.ori -- 17 active tests (roadmap says "22" -- STALE COUNT)
+Tests run: ALL PASS
+Audit: READ tests/spec/inference/generics.ori
+  - 22 total test declarations but 5 are COMMENTED OUT with TODO notes:
+    - infer_option_map (line 139): "Option.map not implemented yet" -- stub returns true
+    - infer_option_and_then (line 149): "Option.and_then not implemented yet" -- stub returns true
+    - infer_result_map (line 159): "Result.map not implemented yet" -- stub returns true
+    - infer_result_map_err (line 169): "Result.map_err not implemented yet" -- stub returns true
+    - infer_result_unwrap_or (line 191): "Result.unwrap_or not implemented yet" -- stub returns 0
+  - Active 17 tests cover: Option/Result/List type inference from argument, nested generics,
+    return type context, parameter type context, lambda param inference, lambda return inference,
+    lambda chains, Option.unwrap_or, nested generics (list-in-option, option-in-list,
+    tuple-in-option, result-in-option, option-in-result), lambda+closure inference.
+  - infer_option_unwrap_or (line 179): `Option<int> = None; .unwrap_or(default: 42)` -- correct.
+Coverage: Good for active tests. 5 stubs remain as placeholders for unimplemented methods.
+Status: VERIFIED (active tests sound, but count claim is wrong)
+Roadmap accuracy: Claims "22 tests (all pass)" -- only 17 are active. 5 are vacuous stubs.
+```
 
-### [x] Collection element type inference (2026-02-10) -- STALE TEST
+### [x] Collection element type inference (2026-02-10) -- WRONG TEST
 
-- **Ori Tests**: `tests/spec/types/collections.ori` -- **ALL 35 tests are commented out.** Zero active tests.
-  - Roadmap claims "35 tests (all pass)" which is INCORRECT. The entire file is commented out with `TODO: Type checker needs various features` at the top.
-  - The tests were likely commented out because they used old comma-as-separator syntax and referenced features not yet implemented at the time of writing.
-  - Collection inference IS tested indirectly through `unification.ori` (list/map/option/result tests) and `generics.ori` (nested generic tests), but `collections.ori` itself contributes zero test coverage.
-- **Evidence**: Grep shows 0 active `@test_` lines, 35 commented-out `// @test_` lines in the file.
+```
+Tests found:
+  Ori: tests/spec/types/collections.ori -- 0 active tests (roadmap says "35 tests (all pass)")
+Tests run: N/A (entire file is commented out)
+Audit: READ tests/spec/types/collections.ori
+  - The ENTIRE file (416 lines) is commented out with `//` prefixes.
+  - Line 4-14: TODO header listing unimplemented features.
+  - Contains 35 test declarations, ALL commented out.
+  - Top-level non-test functions are also commented out.
+  - No active test code whatsoever.
+Coverage: ZERO active tests for collection type inference.
+Note: Collection type inference IS tested indirectly through other test files:
+  - unification.ori tests list, tuple, map, Option/Result inference
+  - generics.ori tests nested generic collections
+  - bindings.ori tests list/tuple destructuring
+  So the capability EXISTS, but the dedicated test file has no active tests.
+Status: WRONG TEST (roadmap claims "35 tests (all pass)" but 0 tests are active)
+```
 
 ---
 
@@ -90,69 +209,96 @@
 
 ### [x] Expected vs found messages (2026-02-10) -- VERIFIED
 
-- **Ori Test**: `tests/compile-fail/type_mismatch_arg.ori` -- 1 test, PASSES. Tests `add(a: "hello", b: 5)` where `add` expects `int`, using `#[compile_fail("type mismatch")]`. Sound -- verifies the compiler detects and reports the mismatch.
+```
+Tests found:
+  Ori: tests/compile-fail/type_mismatch_arg.ori -- 1 compile_fail test
+Tests run: ALL PASS
+Audit: READ tests/compile-fail/type_mismatch_arg.ori
+  - Uses old bracket syntax: `#[compile_fail("type mismatch")]`
+  - Test passes str "hello" where int is expected in @add(a: int, b: int)
+  - Expects "type mismatch" in error message. Correct.
+  - Note: uses `#[compile_fail(...)]` (old syntax) vs `#compile_fail(...)` (current syntax).
+    Both work but inconsistent with current convention.
+Coverage: Minimal -- only one test for type mismatch at argument position.
+Status: VERIFIED (works, but WEAK TESTS -- only 1 test)
+```
 
-### [x] Type conversion hints (2026-02-16) -- VERIFIED (with count correction)
+### [x] Type conversion hints + edit-distance suggestions (2026-02-16) -- VERIFIED
 
-- **Ori Tests**: `tests/compile-fail/type_hints.ori` -- 5 tests, ALL PASS.
-  - `test_float_to_int_hint` -- `takes_int(x: 3.14)` expects `#compile_fail("int(x)")`. Sound.
-  - `test_int_to_float_hint` -- `takes_float(x: 42)` expects `#compile_fail("float(x)")`. Sound.
-  - `test_int_to_str_hint` -- `takes_str(s: 42)` expects `#compile_fail("str(x)")`. Sound.
-  - `test_str_to_byte_hint` -- `takes_byte(b: "a")` expects `#compile_fail("byte(x)")`. Sound.
-  - `test_wrap_in_list_hint` -- `takes_list(items: 42)` expects `#compile_fail("[x]")`. Sound.
-- **Count correction**: Roadmap claims "all 10 tests pass (5 conversion hints + 5 existing)" but the file contains only 5 tests total (the 5 conversion hint tests). There are no "5 existing" tests in this file. The roadmap count is stale/wrong.
-- **Edit-distance typo suggestions**: 21 Rust tests in `ori_types::infer::env::tests`, ALL PASS. Tests cover: empty env, find similar, skip target, parent scopes, max results, sort by distance, unresolvable target, bound locally, local count, names iterator, new env. Additionally 6 `type_error::diff::tests` for edit distance calculation. Sound.
+```
+Tests found:
+  Rust: compiler/ori_types/src/infer/env/tests.rs -- 21 tests (all pass)
+  Ori:  tests/compile-fail/type_hints.ori -- 5 compile_fail tests
+Tests run: ALL PASS
+  Rust: 21/21 env tests pass
+  Ori:  4181 passed, 0 failed, 42 skipped
+Audit: READ compiler/ori_types/src/infer/env/tests.rs
+  - 9 env/scope tests: new_env, bind_and_lookup, shadow, child_scope, is_bound_locally,
+    names_iterator, local_count, parent. All verify TypeEnv scoping mechanics. Sound.
+  - 5 edit distance tests: identical, empty, single_edit (sub/ins/del), typos (transposition).
+    Correct Levenshtein distance implementation.
+  - 1 threshold test: default_threshold function for various lengths. Sound.
+  - 6 find_similar tests: basic typo, no match, empty env, max_results, parent scope search,
+    skip target name, sorted by distance, unresolvable target. Comprehensive.
+Audit: READ tests/compile-fail/type_hints.ori
+  - 5 compile_fail tests with conversion hints:
+    - float->int: expects "int(x)" suggestion. Correct.
+    - int->float: expects "float(x)" suggestion. Correct.
+    - int->str: expects "str(x)" suggestion. Correct.
+    - str->byte: expects "byte(x)" suggestion. Correct.
+    - int->[int]: expects "[x]" suggestion (list wrapping). Correct.
+  - All 5 are conversion hint tests.
+Coverage: Good for edit-distance and conversion hints.
+Status: VERIFIED
+Roadmap accuracy: Claims "10 tests (5 conversion hints + 5 existing)" -- only 5 tests exist. STALE.
+```
 
 ### [x] Source location in errors (2026-02-10) -- VERIFIED
 
-- **Ori Test**: `tests/compile-fail/return_type_mismatch.ori` -- 1 test, PASSES. Tests `(name: str) -> int = "Hello, " + name` with `#[compile_fail("type mismatch")]`. Sound -- verifies span information is present (the error includes the span of the mismatched expression).
+```
+Tests found:
+  Ori: tests/compile-fail/return_type_mismatch.ori -- 1 compile_fail test
+Tests run: ALL PASS
+Audit: READ tests/compile-fail/return_type_mismatch.ori
+  - Uses old bracket syntax: `#[compile_fail("type mismatch")]`
+  - Test defines lambda `(name: str) -> int = "Hello, " + name` -- return type mismatch
+    (declares int, body produces str). Expects "type mismatch" error. Correct.
+Coverage: Minimal -- only 1 test. Source location verified indirectly (all errors carry spans).
+Status: VERIFIED (works, but WEAK TESTS -- only 1 test)
+```
 
 ---
 
 ## 2.4 Section Completion Checklist
 
-### [x] All 2.1 items complete -- VERIFIED
+### Roadmap metadata accuracy
 
-All 4 unification items pass their Rust and Ori tests as documented above.
+```
+Claim: "3,792 Rust unit tests pass (ori_types)" -- STALE
+Actual: ori_types has 740 Rust tests (not 3,792). The number was likely a workspace total at the time.
 
-### [x] All 2.2 items complete (2026-03-15, closure bug verified fixed) -- VERIFIED (with caveats)
+Claim: "4,078 Rust tests in workspace" -- STALE
+Actual: Workspace test count has grown substantially since this was written.
 
-- Lambda, local variable, generic inference: VERIFIED.
-- Closure-returning-closure bug fix: VERIFIED with both Ori spec test and AOT test.
-- Collection element inference: STALE TEST -- `collections.ori` entirely commented out.
+Claim: "101 Ori spec tests across inference/bindings/lambdas/collections" -- WRONG
+Actual active tests:
+  - inference/unification.ori: 25
+  - inference/polymorphism.ori: 8
+  - inference/generics.ori: 17 (not 22 -- 5 commented out)
+  - expressions/bindings.ori: 17
+  - expressions/lambdas.ori: 30 (not 29)
+  - types/collections.ori: 0 (all 35 commented out)
+  Total active: 97 (not 101)
 
-### [x] All 2.3 items complete -- VERIFIED
+Claim: "11 compile-fail tests" -- STALE
+Actual: 38+ compile-fail test files exist now. Section-02-relevant: 7 tests.
 
-Expected/found, conversion hints, source locations all pass.
+Claim: "10 tests" in type_hints.ori -- STALE
+Actual: 5 tests (all conversion hints).
 
-### [x] 3,792 Rust unit tests pass (ori_types) -- STALE COUNT
-
-- Current count: **671 Rust tests** pass in `ori_types` (not 3,792). The number 3,792 was likely a workspace-wide count at the time.
-- All 671 tests PASS with zero failures.
-
-### [x] Spec and compile-fail tests pass -- VERIFIED (with caveats)
-
-- Current test suite: 4181 passed, 0 failed, 42 skipped (full spec test run).
-- Roadmap counts (101 Ori spec + 11 compile-fail) are stale; the current counts are much higher.
-- All section-relevant tests pass.
-
-### [x] Run full test suite -- VERIFIED
-
-- `cargo st` returns: 4181 passed, 0 failed, 42 skipped.
-
----
-
-## 2.5 Post-Completion Bugs
-
-### [ ] Unconstrained type variables reach codegen -- CONFIRMED OPEN BUG
-
-- **Status**: Genuinely incomplete. Bug is real and reproducible.
-- **Reproduction**: `let a = Ok("hello")` in a `@main` function.
-  - `ori check` passes (no error) -- type checker does not flag the unconstrained E type variable.
-  - `ori run` works fine (interpreter handles it).
-  - `ori build` crashes with: `unresolved type variable at codegen -- type inference bug` (E5001), referencing `Idx(97)` and `_ori_drop$97`.
-- **Root cause**: `Ok("hello")` produces `Result<str, E>` where `E` is never constrained. The type checker should either report "cannot infer type for E" or default unconstrained sum-type params to `Never`.
-- **Impact**: AOT-only (interpreter unaffected). Any program with a standalone `Ok(x)` or `Err(x)` where the other type param is unconstrained will crash at codegen.
+Claim: "closure-returning-closure inference bug" marked as [ ] (open)
+Actual: Bug appears FIXED. Both AOT and interpreter handle it correctly.
+```
 
 ---
 
@@ -161,21 +307,34 @@ Expected/found, conversion hints, source locations all pass.
 | Subsection | Items | Status |
 |-----------|-------|--------|
 | 2.1 Unification | 4/4 checked | All VERIFIED -- sound tests, all pass |
-| 2.2 Expression Inference | 5/5 checked | 4 VERIFIED, 1 STALE TEST (collections.ori entirely commented out) |
-| 2.3 Type Error Improvements | 3/3 checked | All VERIFIED |
-| 2.4 Completion Checklist | 6/6 checked | All VERIFIED (some counts stale but harmless) |
-| 2.5 Post-Completion Bugs | 1 unchecked | CONFIRMED -- genuinely open bug |
+| 2.2 Expression Inference | 5/5 checked | 4 VERIFIED, 1 WRONG TEST (collections.ori 100% commented out) |
+| 2.2 Open Bug | 1 checked | BUG APPEARS FIXED (roadmap checkbox stale) |
+| 2.3 Type Error Improvements | 3/3 checked | All VERIFIED (2 WEAK TESTS with only 1 test each) |
+| 2.4 Completion Checklist | 6/6 checked | All VERIFIED (multiple counts stale) |
 
-**Findings requiring attention**:
+### Issues Found
 
-1. **STALE TEST** -- `tests/spec/types/collections.ori`: All 35 tests commented out. The roadmap claims they pass. Collection inference works (verified through other test files) but this file provides zero coverage. Should be either uncommented and updated or the roadmap claim corrected.
+1. **WRONG TEST** -- `tests/spec/types/collections.ori`: All 35 tests commented out. The roadmap claims "35 tests (all pass)" but zero tests are active. Collection inference is tested indirectly through other test files, but the dedicated test file is non-functional.
 
-2. **STALE COUNTS** -- Several numbers in the roadmap are outdated:
-   - "35 tests (all pass)" for collections.ori -- 0 active tests
-   - "10 tests" for type_hints.ori -- only 5 tests
-   - "3,792 Rust tests" for ori_types -- currently 671
-   - "101 Ori spec tests" -- currently 4181 total
-   - "11 compile-fail tests" -- currently 39 files
-   - These counts were accurate when written (2026-02-10) but the codebase has evolved.
+2. **STALE BUG STATUS** -- Closure-returning-closure inference bug (2.2.3) is marked `[ ]` (open) but appears fully fixed. Both AOT (`test_aot_closure_capturing_closure` passes) and interpreter produce correct results. Tested with and without explicit type annotations -- all produce expected value 17 (10+5+2). Roadmap should be updated to `[x]`.
 
-3. **BUG CONFIRMED** -- Item 2.5 (unconstrained type variables reach codegen) is a real, reproducible AOT bug.
+3. **STALE COUNTS** -- Multiple test count claims are outdated:
+   - "22 tests" in generics.ori -- actually 17 active (5 commented out stubs)
+   - "29 tests" in lambdas.ori -- actually 30 (one regression test added)
+   - "35 tests" in collections.ori -- actually 0 active (all commented out)
+   - "101 Ori spec tests" -- actually 97 active
+   - "3,792 Rust unit tests (ori_types)" -- actually 740
+   - "10 tests" in type_hints.ori -- actually 5
+   - "11 compile-fail tests" -- now 38+ files
+
+4. **WEAK TESTS** -- 2.3.1 (expected/found) and 2.3.3 (source location) each have only 1 compile-fail test. Adequate for verification that the feature exists, but thin coverage.
+
+5. **OLD SYNTAX** -- `type_mismatch_arg.ori` and `return_type_mismatch.ori` use old bracket syntax `#[compile_fail(...)]` instead of current `#compile_fail(...)`. Both work but inconsistent with current convention.
+
+### Changes from Previous Verification (2026-03-19)
+
+- Previous verification on `experiment/aims` branch noted an open "unconstrained type variables reach codegen" bug (section 2.5). That item no longer appears in the current roadmap file on `dev` branch.
+- Closure-returning-closure bug: previous verification confirmed it as fixed. Current re-verification confirms it remains fixed.
+- Test counts: ori_types now has 740 tests (was 671 in previous verification).
+- Expression inference tests: now 126 (was 182 in previous count, likely due to test restructuring).
+- Total spec test suite: 4181 passed (same as previous).
