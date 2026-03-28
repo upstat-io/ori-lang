@@ -496,7 +496,6 @@ fn test_phase_b_negative_loop_behavioral() {
 // Range [0, 9] fits in signed i8 [-128, 127].
 // This test ONLY passes with Phase B local variable narrowing.
 #[test]
-#[ignore = "blocked: §03 range analysis loop variable convergence — narrowing pass produces [-MIN, 9] refinement, join with entry [0, 0] gives [-MIN+1, 10] (terrible lower bound)"]
 fn test_phase_b_ir_pin_loop_counter_phi() {
     let ir = compile_and_capture_ir(
         r"
@@ -532,7 +531,6 @@ fn test_phase_b_ir_pin_loop_counter_phi() {
 // IR semantic pin: sext must be present to widen narrowed loop variables
 // before canonical-width arithmetic (overflow-checked i64 add).
 #[test]
-#[ignore = "blocked: §03 range analysis loop variable convergence — same as test_phase_b_ir_pin_loop_counter_phi"]
 fn test_phase_b_ir_pin_loop_sext() {
     let ir = compile_and_capture_ir(
         r"
