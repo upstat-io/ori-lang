@@ -2066,3 +2066,212 @@ fn call_site_without_branch_uses_global_range() {
         "Negative pin: helper(x) in entry block (no branch refinement) should give param [0, 10], got {range:?}"
     );
 }
+
+// Unconstrained function tests (§03.5 — pub/trait/closure params → Top)
+
+/// `pub` function → parameter range remains Top regardless of call-site args.
+///
+/// Semantic pin: a private function called with constant 42 gets [42, 42],
+/// but a public function called with the same constant must stay Top because
+/// external callers may pass any value.
+#[test]
+fn pub_function_params_top_regardless_of_call_sites() {
+    let pool = ori_types::Pool::new();
+
+    // Private helper: helper(x: int) -> int = x
+    let v_hp = ArcVarId::new(0);
+    let helper = build_simple_func(
+        980,
+        &[(0, ori_types::Idx::INT)],
+        vec![],
+        v_hp,
+        ori_types::Idx::INT,
+        1,
+    );
+
+    // Main calls helper(42)
+    let v_arg = ArcVarId::new(0);
+    let v_ret = ArcVarId::new(1);
+    let main = build_simple_func(
+        981,
+        &[],
+        vec![
+            ArcInstr::Let {
+                dst: v_arg,
+                ty: ori_types::Idx::INT,
+                value: ArcValue::Literal(LitValue::Int(42)),
+            },
+            ArcInstr::Apply {
+                dst: v_ret,
+                ty: ori_types::Idx::INT,
+                func: ori_ir::Name::from_raw(980),
+                args: vec![v_arg],
+                arg_ownership: vec![ArgOwnership::Owned],
+            },
+        ],
+        v_ret,
+        ori_types::Idx::INT,
+        2,
+    );
+
+    let config = super::RangeAnalysisConfig::default();
+    let funcs = [helper, main];
+
+    // Without marking as unconstrained → helper gets [42, 42]
+    let mut plan_private = crate::ReprPlan::new(crate::NarrowingPolicy::Aggressive);
+    super::propagate_ranges(&mut plan_private, &pool, &funcs, &config);
+    let private_range = plan_private.var_range(ori_ir::Name::from_raw(980), v_hp);
+    assert_eq!(
+        private_range,
+        ValueRange::Bounded { lo: 42, hi: 42 },
+        "Baseline: private helper called with 42 should have param range [42, 42]"
+    );
+
+    // With marking as unconstrained (pub) → helper gets Top
+    let mut plan_public = crate::ReprPlan::new(crate::NarrowingPolicy::Aggressive);
+    plan_public.set_unconstrained_fn_names(std::iter::once(ori_ir::Name::from_raw(980)));
+    super::propagate_ranges(&mut plan_public, &pool, &funcs, &config);
+    let pub_range = plan_public.var_range(ori_ir::Name::from_raw(980), v_hp);
+    assert_eq!(
+        pub_range,
+        ValueRange::Top,
+        "Semantic pin: pub function param must be Top regardless of call-site args"
+    );
+}
+
+/// Trait method parameters → Top (callers unknown at compile time).
+///
+/// Same mechanism as pub — the function name is in `unconstrained_fn_names`
+/// because it's a trait impl method.
+#[test]
+fn trait_impl_method_params_top() {
+    let pool = ori_types::Pool::new();
+
+    // Trait impl method: method(self, x: int) -> int = x
+    let v_self = ArcVarId::new(0);
+    let v_x = ArcVarId::new(1);
+    let method = build_simple_func(
+        990,
+        &[(0, ori_types::Idx::INT), (1, ori_types::Idx::INT)],
+        vec![],
+        v_x,
+        ori_types::Idx::INT,
+        2,
+    );
+
+    // Caller passes method(0, 100)
+    let v_a0 = ArcVarId::new(0);
+    let v_a1 = ArcVarId::new(1);
+    let v_ret = ArcVarId::new(2);
+    let caller = build_simple_func(
+        991,
+        &[],
+        vec![
+            ArcInstr::Let {
+                dst: v_a0,
+                ty: ori_types::Idx::INT,
+                value: ArcValue::Literal(LitValue::Int(0)),
+            },
+            ArcInstr::Let {
+                dst: v_a1,
+                ty: ori_types::Idx::INT,
+                value: ArcValue::Literal(LitValue::Int(100)),
+            },
+            ArcInstr::Apply {
+                dst: v_ret,
+                ty: ori_types::Idx::INT,
+                func: ori_ir::Name::from_raw(990),
+                args: vec![v_a0, v_a1],
+                arg_ownership: vec![ArgOwnership::Owned, ArgOwnership::Owned],
+            },
+        ],
+        v_ret,
+        ori_types::Idx::INT,
+        3,
+    );
+
+    let config = super::RangeAnalysisConfig::default();
+    let funcs = [method, caller];
+
+    // Mark as unconstrained (trait impl) → both params get Top
+    let mut plan = crate::ReprPlan::new(crate::NarrowingPolicy::Aggressive);
+    plan.set_unconstrained_fn_names(std::iter::once(ori_ir::Name::from_raw(990)));
+    super::propagate_ranges(&mut plan, &pool, &funcs, &config);
+
+    let self_range = plan.var_range(ori_ir::Name::from_raw(990), v_self);
+    let x_range = plan.var_range(ori_ir::Name::from_raw(990), v_x);
+    assert_eq!(
+        self_range,
+        ValueRange::Top,
+        "Trait impl self param must be Top"
+    );
+    assert_eq!(x_range, ValueRange::Top, "Trait impl x param must be Top");
+}
+
+/// Closure parameters → Top (conservative default via `num_captures` > 0).
+///
+/// Closures may be passed to other code that calls them with any values.
+/// Even when the parent function calls the closure with known values,
+/// the closure could also be called via `ApplyIndirect` from elsewhere.
+#[test]
+fn closure_params_top_via_num_captures() {
+    let pool = ori_types::Pool::new();
+
+    // Closure: lambda(captured, x: int) -> int = x (num_captures = 1)
+    let _v_cap = ArcVarId::new(0); // capture param — not inspected
+    let v_x = ArcVarId::new(1);
+    let mut closure = build_simple_func(
+        1000,
+        &[(0, ori_types::Idx::INT), (1, ori_types::Idx::INT)],
+        vec![],
+        v_x,
+        ori_types::Idx::INT,
+        2,
+    );
+    closure.num_captures = 1; // Mark as closure
+
+    // Parent calls closure(0, 50)
+    let v_a0 = ArcVarId::new(0);
+    let v_a1 = ArcVarId::new(1);
+    let v_ret = ArcVarId::new(2);
+    let parent = build_simple_func(
+        1001,
+        &[],
+        vec![
+            ArcInstr::Let {
+                dst: v_a0,
+                ty: ori_types::Idx::INT,
+                value: ArcValue::Literal(LitValue::Int(0)),
+            },
+            ArcInstr::Let {
+                dst: v_a1,
+                ty: ori_types::Idx::INT,
+                value: ArcValue::Literal(LitValue::Int(50)),
+            },
+            ArcInstr::Apply {
+                dst: v_ret,
+                ty: ori_types::Idx::INT,
+                func: ori_ir::Name::from_raw(1000),
+                args: vec![v_a0, v_a1],
+                arg_ownership: vec![ArgOwnership::Owned, ArgOwnership::Owned],
+            },
+        ],
+        v_ret,
+        ori_types::Idx::INT,
+        3,
+    );
+
+    let config = super::RangeAnalysisConfig::default();
+    let funcs = [closure, parent];
+
+    // No unconstrained_fn_names set — closure detected via num_captures > 0
+    let mut plan = crate::ReprPlan::new(crate::NarrowingPolicy::Aggressive);
+    super::propagate_ranges(&mut plan, &pool, &funcs, &config);
+
+    let x_range = plan.var_range(ori_ir::Name::from_raw(1000), v_x);
+    assert_eq!(
+        x_range,
+        ValueRange::Top,
+        "Semantic pin: closure param must be Top (num_captures > 0)"
+    );
+}
