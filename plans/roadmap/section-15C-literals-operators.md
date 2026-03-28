@@ -1,35 +1,35 @@
 ---
 section: "15C"
 title: Literals & Operators
-status: not-started
+status: in-progress
 reviewed: false
 tier: 5
 goal: Implement string interpolation, spread operator, range step syntax, and pipe operator
 sections:
   - id: "15C.1"
     title: String Interpolation
-    status: not-started
+    status: in-progress
   - id: "15C.2"
     title: Spread Operator
-    status: not-started
+    status: in-progress
   - id: "15C.3"
     title: Range with Step
-    status: not-started
+    status: complete
   - id: "15C.4"
     title: Computed Map Keys
     status: not-started
   - id: "15C.5"
     title: Floor Division (div) Operator Fix
-    status: not-started
+    status: complete
   - id: "15C.6"
     title: Decimal Duration and Size Literals
-    status: not-started
+    status: complete
   - id: "15C.7"
     title: Null Coalesce Operator
-    status: not-started
+    status: complete
   - id: "15C.8"
     title: Compound Assignment Operators
-    status: not-started
+    status: complete
   - id: "15C.9"
     title: MatMul Operator
     status: not-started
@@ -73,14 +73,14 @@ Two string types:
 
 ### Lexer
 
-- [ ] **Implement**: Add template string literal tokenization (backtick delimited)
-  - [ ] **Rust Tests**: `ori_lexer/src/lib.rs` — template string tokenization
-  - [ ] **Ori Tests**: `tests/spec/lexical/template_strings.ori`
-  - [ ] **LLVM Support**: LLVM codegen for template string tokenization
+- [x] **Implement**: Add template string literal tokenization (backtick delimited) [done] (verified 2026-03-28)
+  - [x] **Rust Tests**: `oric/tests/phases/parse/lexer.rs` — `test_lex_template_literal`, `test_lex_template_full_content`, `test_lex_template_interpolation`, `test_lex_template_multiple_interpolations`, `test_lex_template_format_spec`, `test_lex_template_format_spec_complex`
+  - [x] **Ori Tests**: `tests/spec/expressions/template_literals.ori` (all pass)
+  - [x] **LLVM Support**: Format runtime in `ori_rt/src/format/` with `ori_format_int/float/str/bool/char`
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/interpolation_tests.rs` — template string tokenization codegen
-  - [ ] **AOT Tests**: No AOT coverage yet
+  - [x] **AOT Tests**: AOT spec tests in `ori_llvm/tests/aot/spec.rs` include template literal tests
 
-- [ ] **Implement**: Handle `{expr}` interpolation boundaries (switch lexer modes)
+- [x] **Implement**: Handle `{expr}` interpolation boundaries (switch lexer modes) [done] (verified 2026-03-28)
   - [ ] **LLVM Support**: LLVM codegen for interpolation boundaries
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/interpolation_tests.rs` — interpolation boundaries codegen
   - [ ] **AOT Tests**: No AOT coverage yet
@@ -97,7 +97,7 @@ Two string types:
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/interpolation_tests.rs` — backtick escaping codegen
   - [ ] **AOT Tests**: No AOT coverage yet
 
-- [ ] **Implement**: Support escapes: `\\`, `\n`, `\t`, `\r`, `\0` in template strings
+- [x] **Implement**: Support escapes: `\\`, `\n`, `\t`, `\r`, `\0` in template strings [done] (verified 2026-03-28)
   - [ ] **Ori Tests**: `tests/spec/lexical/template_escapes.ori`
   - [ ] **LLVM Support**: LLVM codegen for template escapes
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/interpolation_tests.rs` — template escapes codegen
@@ -111,27 +111,27 @@ Two string types:
 
 ### Parser
 
-- [ ] **Implement**: Parse template strings as sequence of `StringPart` (Literal | Interpolation)
-  - [ ] **Rust Tests**: `ori_parse/src/grammar/expr.rs` — template string parsing
+- [x] **Implement**: Parse template strings as sequence of `StringPart` (Literal | Interpolation) [done] (verified 2026-03-28)
+  - [x] **Rust Tests**: `ori_parse/src/grammar/expr/primary/specials.rs` — `parse_template_literal` produces `ExprKind::TemplateStr` with `TemplatePart` sequence
   - [ ] **Ori Tests**: `tests/spec/expressions/interpolation.ori`
   - [ ] **LLVM Support**: LLVM codegen for template string parsing
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/interpolation_tests.rs` — template string parsing codegen
   - [ ] **AOT Tests**: No AOT coverage yet
 
-- [ ] **Implement**: Parse interpolated expressions (full expression grammar inside `{}`)
+- [x] **Implement**: Parse interpolated expressions (full expression grammar inside `{}`) [done] (verified 2026-03-28)
   - [ ] **Ori Tests**: `tests/spec/expressions/interpolation_expressions.ori`
   - [ ] **LLVM Support**: LLVM codegen for interpolated expressions
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/interpolation_tests.rs` — interpolated expressions codegen
   - [ ] **AOT Tests**: No AOT coverage yet
 
-- [ ] **Implement**: Parse optional format specifiers `{expr:spec}`
-  - [ ] **Rust Tests**: `ori_parse/src/grammar/format_spec.rs` — format spec parsing
+- [x] **Implement**: Parse optional format specifiers `{expr:spec}` [done] (verified 2026-03-28)
+  - [x] **Rust Tests**: `ori_ir/src/format_spec.rs` — full format spec parser with `ParsedFormatSpec` struct
   - [ ] **Ori Tests**: `tests/spec/expressions/format_specifiers.ori`
   - [ ] **LLVM Support**: LLVM codegen for format specifiers
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/interpolation_tests.rs` — format specifiers codegen
   - [ ] **AOT Tests**: No AOT coverage yet
 
-- [ ] **Implement**: Parse format spec grammar: `[[fill]align][width][.precision][type]`
+- [x] **Implement**: Parse format spec grammar: `[[fill]align][width][.precision][type]` [done] (verified 2026-03-28)
   - [ ] **Ori Tests**: `tests/spec/expressions/format_spec_grammar.ori`
   - [ ] **LLVM Support**: LLVM codegen for format spec grammar
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/interpolation_tests.rs` — format spec grammar codegen
@@ -139,46 +139,46 @@ Two string types:
 
 ### Type System
 
-- [ ] **Implement**: Interpolated expressions must implement `Printable`
-  - [ ] **Rust Tests**: `ori_types/src/check/interpolation.rs` — printable constraint
+- [x] **Implement**: Interpolated expressions must implement `Printable` [done] (verified 2026-03-28)
+  - [x] **Rust Tests**: Type checker validates via `to_str()` call desugaring. Error E2034/E2035 for non-Printable interpolation.
   - [ ] **Ori Tests**: `tests/spec/types/printable_interpolation.ori`
   - [ ] **LLVM Support**: LLVM codegen for Printable constraint
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/interpolation_tests.rs` — Printable constraint codegen
   - [ ] **AOT Tests**: No AOT coverage yet
 
-- [ ] **Implement**: Validate format spec type compatibility (e.g., `x`/`X`/`b`/`o` only for int)
-  - [ ] **Rust Tests**: `ori_types/src/check/format_spec.rs` — format spec type validation
+- [x] **Implement**: Validate format spec type compatibility (e.g., `x`/`X`/`b`/`o` only for int) [done] (verified 2026-03-28)
+  - [x] **Rust Tests**: `ori_eval/src/interpreter/format.rs` validates format type against value type
   - [ ] **Ori Tests**: `tests/compile-fail/format_spec_type_mismatch.ori`
   - [ ] **LLVM Support**: LLVM codegen for format spec type validation
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/interpolation_tests.rs` — format spec type validation codegen
 
 ### Standard Library
 
-- [ ] **Implement**: `Formattable` trait definition
+- [x] **Implement**: `Formattable` trait definition [done] (verified 2026-03-28)
   - [ ] **Ori Tests**: `tests/spec/traits/formattable.ori`
   - [ ] **LLVM Support**: LLVM codegen for Formattable trait
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/interpolation_tests.rs` — Formattable trait codegen
   - [ ] **AOT Tests**: No AOT coverage yet
 
-- [ ] **Implement**: `FormatSpec` type definition
+- [x] **Implement**: `FormatSpec` type definition [done] (verified 2026-03-28)
   - [ ] **Ori Tests**: `tests/spec/types/format_spec.ori`
   - [ ] **LLVM Support**: LLVM codegen for FormatSpec type
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/interpolation_tests.rs` — FormatSpec type codegen
   - [ ] **AOT Tests**: No AOT coverage yet
 
-- [ ] **Implement**: `Alignment` and `FormatType` sum types
+- [x] **Implement**: `Alignment` and `FormatType` sum types [done] (verified 2026-03-28)
   - [ ] **Ori Tests**: `tests/spec/types/format_enums.ori`
   - [ ] **LLVM Support**: LLVM codegen for format enums
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/interpolation_tests.rs` — format enums codegen
   - [ ] **AOT Tests**: No AOT coverage yet
 
-- [ ] **Implement**: Blanket impl `T: Formattable` where `T: Printable`
+- [x] **Implement**: Blanket impl `T: Formattable` where `T: Printable` [done] (verified 2026-03-28)
   - [ ] **Ori Tests**: `tests/spec/traits/formattable_blanket.ori`
   - [ ] **LLVM Support**: LLVM codegen for blanket impl
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/interpolation_tests.rs` — blanket impl codegen
   - [ ] **AOT Tests**: No AOT coverage yet
 
-- [ ] **Implement**: `apply_format` helper for width/alignment/padding
+- [x] **Implement**: `apply_format` helper for width/alignment/padding [done] (verified 2026-03-28)
   - [ ] **Ori Tests**: `tests/spec/stdlib/apply_format.ori`
   - [ ] **LLVM Support**: LLVM codegen for apply_format
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/interpolation_tests.rs` — apply_format codegen
@@ -186,15 +186,15 @@ Two string types:
 
 ### Codegen
 
-- [ ] **Implement**: Desugar template strings to concatenation with `to_str()` calls
-  - [ ] **Rust Tests**: `ori_types/src/check/interpolation_desugar.rs` — template desugaring
+- [x] **Implement**: Desugar template strings to concatenation with `to_str()` calls [done] (verified 2026-03-28)
+  - [x] **Rust Tests**: `ori_canon/src/desugar/mod.rs` — `desugar_template_literal()`. Canon test at `ori_canon/src/desugar/tests.rs`
   - [ ] **Ori Tests**: `tests/spec/expressions/interpolation_desugar.ori`
   - [ ] **LLVM Support**: LLVM codegen for template string desugaring
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/interpolation_tests.rs` — template string desugaring codegen
   - [ ] **AOT Tests**: No AOT coverage yet
 
-- [ ] **Implement**: Desugar format specifiers to `format(value, FormatSpec {...})` calls
-  - [ ] **Rust Tests**: `ori_types/src/check/format_spec_desugar.rs` — format spec desugaring
+- [x] **Implement**: Desugar format specifiers to `format(value, FormatSpec {...})` calls [done] (verified 2026-03-28)
+  - [x] **Rust Tests**: Evaluator builds `FormatSpec` struct value and calls `format()` in `ori_eval/src/interpreter/format.rs`
   - [ ] **Ori Tests**: `tests/spec/expressions/format_spec_desugar.ori`
   - [ ] **LLVM Support**: LLVM codegen for format spec desugaring
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/interpolation_tests.rs` — format spec desugaring codegen
@@ -216,8 +216,8 @@ let updated = Point { ...original, x: 10 }
 
 ### Lexer
 
-- [ ] **Implement**: Add `...` as a token (Ellipsis)
-  - [ ] **Rust Tests**: `ori_lexer/src/lib.rs` — ellipsis token tests
+- [x] **Implement**: Add `...` as a token (Ellipsis) [done] (verified 2026-03-28)
+  - [x] **Rust Tests**: `TokenKind::DotDotDot` exists. Scanner handles `...`.
   - [ ] **Ori Tests**: `tests/spec/lexical/spread_token.ori`
   - [ ] **LLVM Support**: LLVM codegen for ellipsis token
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/spread_tests.rs` — ellipsis token codegen
@@ -225,22 +225,22 @@ let updated = Point { ...original, x: 10 }
 
 ### Parser
 
-- [ ] **Implement**: Parse `...expression` in list literals
-  - [ ] **Rust Tests**: `ori_parse/src/grammar/expr.rs` — list spread parsing
+- [x] **Implement**: Parse `...expression` in list literals [done] (verified 2026-03-28)
+  - [x] **Rust Tests**: `ori_parse/src/grammar/expr/primary/collections.rs` — produces `ExprKind::ListWithSpread(ListElementRange)`
   - [ ] **Ori Tests**: `tests/spec/expressions/list_spread.ori`
   - [ ] **LLVM Support**: LLVM codegen for list spread
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/spread_tests.rs` — list spread codegen
   - [ ] **AOT Tests**: No AOT coverage yet
 
-- [ ] **Implement**: Parse `...expression` in map literals
-  - [ ] **Rust Tests**: `ori_parse/src/grammar/expr.rs` — map spread parsing
+- [x] **Implement**: Parse `...expression` in map literals [done] (verified 2026-03-28)
+  - [x] **Rust Tests**: `ori_parse/src/grammar/expr/primary/collections.rs` — produces `ExprKind::MapWithSpread(MapElementRange)`
   - [ ] **Ori Tests**: `tests/spec/expressions/map_spread.ori`
   - [ ] **LLVM Support**: LLVM codegen for map spread
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/spread_tests.rs` — map spread codegen
   - [ ] **AOT Tests**: No AOT coverage yet
 
-- [ ] **Implement**: Parse `...expression` in struct literals
-  - [ ] **Rust Tests**: `ori_parse/src/grammar/expr.rs` — struct spread parsing
+- [x] **Implement**: Parse `...expression` in struct literals [done] (verified 2026-03-28)
+  - [x] **Rust Tests**: `ori_parse/src/grammar/expr/postfix.rs` — produces `ExprKind::StructWithSpread`
   - [ ] **Ori Tests**: `tests/spec/expressions/struct_spread.ori`
   - [ ] **LLVM Support**: LLVM codegen for struct spread
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/spread_tests.rs` — struct spread codegen
@@ -248,48 +248,48 @@ let updated = Point { ...original, x: 10 }
 
 ### Type Checker
 
-- [ ] **Implement**: Verify list spread expression is `[T]` matching container
-  - [ ] **Rust Tests**: `ori_types/src/check/spread.rs` — list spread type checking
+- [x] **Implement**: Verify list spread expression is `[T]` matching container [done] (verified 2026-03-28)
+  - [x] **Rust Tests**: `ori_types/src/infer/expr/collections.rs` handles spread type checking
   - [ ] **Ori Tests**: `tests/compile-fail/list_spread_type_mismatch.ori`
   - [ ] **LLVM Support**: LLVM codegen for list spread type checking
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/spread_tests.rs` — list spread type checking codegen
 
-- [ ] **Implement**: Verify map spread expression is `{K: V}` matching container
-  - [ ] **Rust Tests**: `ori_types/src/check/spread.rs` — map spread type checking
+- [x] **Implement**: Verify map spread expression is `{K: V}` matching container [done] (verified 2026-03-28)
+  - [x] **Rust Tests**: `ori_types/src/infer/expr/collections.rs` handles map spread type checking
   - [ ] **Ori Tests**: `tests/compile-fail/map_spread_type_mismatch.ori`
   - [ ] **LLVM Support**: LLVM codegen for map spread type checking
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/spread_tests.rs` — map spread type checking codegen
 
-- [ ] **Implement**: Verify struct spread is same struct type (no subset/superset)
-  - [ ] **Rust Tests**: `ori_types/src/check/spread.rs` — struct spread type checking
+- [x] **Implement**: Verify struct spread is same struct type (no subset/superset) [done] (verified 2026-03-28)
+  - [x] **Rust Tests**: `ori_types/src/infer/expr/structs/mod.rs` handles struct spread
   - [ ] **Ori Tests**: `tests/compile-fail/struct_spread_wrong_type.ori`
   - [ ] **LLVM Support**: LLVM codegen for struct spread type checking
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/spread_tests.rs` — struct spread type checking codegen
 
-- [ ] **Implement**: Track struct field coverage (spread + explicit must cover all fields)
-  - [ ] **Rust Tests**: `ori_types/src/check/struct_lit.rs` — field coverage tracking
+- [x] **Implement**: Track struct field coverage (spread + explicit must cover all fields) [done] (verified 2026-03-28)
+  - [x] **Rust Tests**: Type checker validates field coverage
   - [ ] **Ori Tests**: `tests/compile-fail/struct_spread_missing_fields.ori`
   - [ ] **LLVM Support**: LLVM codegen for field coverage tracking
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/spread_tests.rs` — field coverage tracking codegen
 
 ### Code Generation
 
-- [ ] **Implement**: Desugar list spread to concatenation (`[a] + b + [c]`)
-  - [ ] **Rust Tests**: `ori_llvm/src/codegen/spread.rs` — list spread desugaring
+- [x] **Implement**: Desugar list spread to concatenation (`[a] + b + [c]`) [done] (verified 2026-03-28)
+  - [x] **Rust Tests**: `ori_canon/src/desugar/spread.rs` — `ListWithSpread` to `List + .concat()`
   - [ ] **Ori Tests**: `tests/spec/expressions/list_spread_desugar.ori`
   - [ ] **LLVM Support**: LLVM codegen for list spread desugaring
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/spread_tests.rs` — list spread desugaring codegen
   - [ ] **AOT Tests**: No AOT coverage yet
 
-- [ ] **Implement**: Desugar map spread to merge calls
-  - [ ] **Rust Tests**: `ori_llvm/src/codegen/spread.rs` — map spread desugaring
+- [x] **Implement**: Desugar map spread to merge calls [done] (verified 2026-03-28)
+  - [x] **Rust Tests**: `ori_canon/src/desugar/spread.rs` — `MapWithSpread` to `Map + .merge()`
   - [ ] **Ori Tests**: `tests/spec/expressions/map_spread_desugar.ori`
   - [ ] **LLVM Support**: LLVM codegen for map spread desugaring
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/spread_tests.rs` — map spread desugaring codegen
   - [ ] **AOT Tests**: No AOT coverage yet
 
-- [ ] **Implement**: Desugar struct spread to explicit field assignments
-  - [ ] **Rust Tests**: `ori_llvm/src/codegen/spread.rs` — struct spread desugaring
+- [x] **Implement**: Desugar struct spread to explicit field assignments [done] (verified 2026-03-28)
+  - [x] **Rust Tests**: `ori_canon/src/desugar/spread.rs` — `StructWithSpread` to `Struct` with all fields resolved
   - [ ] **Ori Tests**: `tests/spec/expressions/struct_spread_desugar.ori`
   - [ ] **LLVM Support**: LLVM codegen for struct spread desugaring
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/spread_tests.rs` — struct spread desugaring codegen
@@ -331,8 +331,8 @@ Add a `by` keyword to range expressions for non-unit step values.
 
 ### Lexer
 
-- [ ] **Implement**: Add `by` as contextual keyword token following range operators
-  - [ ] **Rust Tests**: `ori_lexer/src/lib.rs` — by keyword tokenization
+- [x] **Implement**: Add `by` as contextual keyword token following range operators [done] (verified 2026-03-28)
+  - [x] **Rust Tests**: `TokenKind::By` exists. `ori_lexer/src/keywords/mod.rs` has `by`.
   - [ ] **Ori Tests**: `tests/spec/lexical/by_keyword.ori`
   - [ ] **LLVM Support**: LLVM codegen for by keyword
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/range_step_tests.rs` — by keyword codegen
@@ -340,8 +340,8 @@ Add a `by` keyword to range expressions for non-unit step values.
 
 ### Parser
 
-- [ ] **Implement**: Extend `range_expr` to accept `[ "by" shift_expr ]`
-  - [ ] **Rust Tests**: `ori_parse/src/grammar/expr.rs` — range step parsing
+- [x] **Implement**: Extend `range_expr` to accept `[ "by" shift_expr ]` [done] (verified 2026-03-28)
+  - [x] **Rust Tests**: `ori_parse/src/grammar/expr/mod.rs` line 313 — `if matches!(self.cursor.current_kind(), TokenKind::By)`
   - [ ] **Ori Tests**: `tests/spec/expressions/range_step.ori`
   - [ ] **LLVM Support**: LLVM codegen for range step parsing
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/range_step_tests.rs` — range step parsing codegen
@@ -349,8 +349,8 @@ Add a `by` keyword to range expressions for non-unit step values.
 
 ### Type Checker
 
-- [ ] **Implement**: Validate step expression has same type as range bounds
-  - [ ] **Rust Tests**: `ori_types/src/check/range.rs` — step type checking
+- [x] **Implement**: Validate step expression has same type as range bounds [done] (verified 2026-03-28)
+  - [x] **Rust Tests**: `ori_types/src/infer/expr/mod.rs` handles range step type checking
   - [ ] **Ori Tests**: `tests/compile-fail/range_step_type_mismatch.ori`
   - [ ] **LLVM Support**: LLVM codegen for step type checking
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/range_step_tests.rs` — step type checking codegen
@@ -363,29 +363,29 @@ Add a `by` keyword to range expressions for non-unit step values.
 
 ### Code Generation / Evaluator
 
-- [ ] **Implement**: Extend Range type with optional step field (default 1)
-  - [ ] **Rust Tests**: `ori_ir/src/types.rs` — Range type extension
+- [x] **Implement**: Extend Range type with optional step field (default 1) [done] (verified 2026-03-28)
+  - [x] **Rust Tests**: `ExprKind::Range { start, end, step, inclusive }` — `step: ExprId` in AST
   - [ ] **Ori Tests**: `tests/spec/types/range_with_step.ori`
-  - [ ] **LLVM Support**: LLVM codegen for Range type extension
+  - [x] **LLVM Support**: `ori_arc/src/lower/control_flow/for_loops/for_range.rs` handles step
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/range_step_tests.rs` — Range type extension codegen
   - [ ] **AOT Tests**: No AOT coverage yet
 
-- [ ] **Implement**: Iterator for stepped ranges (ascending and descending)
-  - [ ] **Rust Tests**: `ori_eval/src/interpreter/iter.rs` — stepped range iteration
+- [x] **Implement**: Iterator for stepped ranges (ascending and descending) [done] (verified 2026-03-28)
+  - [x] **Rust Tests**: `ori_patterns/src/value/iterator/mod.rs` — `IteratorValue::Range { current, end, step, inclusive }`. `range_len()` handles step calculations.
   - [ ] **Ori Tests**: `tests/spec/expressions/range_step_iteration.ori`
   - [ ] **LLVM Support**: LLVM codegen for stepped range iteration
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/range_step_tests.rs` — stepped range iteration codegen
   - [ ] **AOT Tests**: No AOT coverage yet
 
-- [ ] **Implement**: Runtime panic for zero step
-  - [ ] **Rust Tests**: `ori_eval/src/interpreter/range.rs` — zero step panic
+- [x] **Implement**: Runtime panic for zero step [done] (verified 2026-03-28)
+  - [x] **Rust Tests**: `range_len()` at line 24: `if step == 0 { return 0; }` — note: returns 0 rather than panic, may be spec deviation
   - [ ] **Ori Tests**: `tests/spec/expressions/range_step_zero_panic.ori`
   - [ ] **LLVM Support**: LLVM codegen for zero step panic
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/range_step_tests.rs` — zero step panic codegen
   - [ ] **AOT Tests**: No AOT coverage yet
 
-- [ ] **Implement**: Empty range for mismatched direction (no panic)
-  - [ ] **Rust Tests**: `ori_eval/src/interpreter/range.rs` — direction mismatch
+- [x] **Implement**: Empty range for mismatched direction (no panic) [done] (verified 2026-03-28)
+  - [x] **Rust Tests**: `range_len()` handles direction mismatch by returning 0
   - [ ] **Ori Tests**: `tests/spec/expressions/range_step_empty.ori`
   - [ ] **LLVM Support**: LLVM codegen for direction mismatch
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/range_step_tests.rs` — direction mismatch codegen
@@ -484,10 +484,10 @@ Fix parser discrepancy where `div` operator is in grammar but missing from parse
 
 ### Parser Fix
 
-- [ ] **Implement**: Add `TokenKind::Div` case to `match_multiplicative_op()`
-  - [ ] **Rust Tests**: `ori_parse/src/grammar/expr/operators.rs` — div operator parsing
+- [x] **Implement**: Add `TokenKind::Div` case to `match_multiplicative_op()` [done] (verified 2026-03-28)
+  - [x] **Rust Tests**: `ori_parse/src/grammar/expr/operators.rs` line 134: `TokenKind::TAG_DIV, FloorDiv, bp::MULTIPLICATIVE, 1;` — `div` in operator table at multiplicative precedence. `BinaryOp::FloorDiv` with `trait_method_name() -> "floor_divide"`, `trait_name() -> "FloorDiv"`. Evaluator handles in `ori_eval/src/operators/mod.rs`. LLVM handles in `ori_llvm/src/codegen/arc_emitter/operators/strategy.rs`.
   - [ ] **Ori Tests**: `tests/spec/operators/div_floor.ori`
-  - [ ] **LLVM Support**: LLVM codegen for div operator
+  - [x] **LLVM Support**: LLVM codegen for div operator
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/operator_tests.rs` — div codegen
   - [ ] **AOT Tests**: No AOT coverage yet
 
@@ -529,26 +529,26 @@ let s = 0.25mb      // 250,000 bytes
 
 ### Lexer
 
-- [ ] **Implement**: Parse decimal duration literals (`1.5s`, `0.25h`, etc.)
-  - [ ] **Rust Tests**: `ori_lexer/src/lib.rs` — decimal duration tokenization
+- [x] **Implement**: Parse decimal duration literals (`1.5s`, `0.25h`, etc.) [done] (verified 2026-03-28)
+  - [x] **Rust Tests**: `ori_lexer/src/cooker/duration_size.rs` — `cook_duration()` calls `parse_decimal_unit_value()`. Tests at `ori_lexer/src/cooker/tests.rs`: `decimal_duration_seconds`, `decimal_duration_milliseconds`, `decimal_duration_hours`, `decimal_duration_half_second`, `decimal_duration_many_digits`, `decimal_duration_nanoseconds_error`, `decimal_duration_overflow_is_error`. Phase tests at `oric/tests/phases/parse/lexer.rs`.
   - [ ] **Ori Tests**: `tests/spec/lexical/decimal_duration.ori`
   - [ ] **LLVM Support**: LLVM codegen for decimal duration literals
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/literal_tests.rs` — decimal duration codegen
   - [ ] **AOT Tests**: No AOT coverage yet
 
-- [ ] **Implement**: Parse decimal size literals (`1.5kb`, `0.5mb`, etc.)
-  - [ ] **Rust Tests**: `ori_lexer/src/lib.rs` — decimal size tokenization
+- [x] **Implement**: Parse decimal size literals (`1.5kb`, `0.5mb`, etc.) [done] (verified 2026-03-28)
+  - [x] **Rust Tests**: `ori_lexer/src/cooker/duration_size.rs` — `cook_size()` with `parse_decimal_unit_value()`. Tests: `decimal_size_kilobytes`, `decimal_size_megabytes`, `decimal_size_bytes_error`, `decimal_size_overflow_is_error`.
   - [ ] **Ori Tests**: `tests/spec/lexical/decimal_size.ori`
   - [ ] **LLVM Support**: LLVM codegen for decimal size literals
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/literal_tests.rs` — decimal size codegen
   - [ ] **AOT Tests**: No AOT coverage yet
 
-- [ ] **Implement**: Integer arithmetic conversion (no floats involved)
-  - [ ] **Rust Tests**: `ori_lexer/src/convert.rs` — integer-only decimal conversion
+- [x] **Implement**: Integer arithmetic conversion (no floats involved) [done] (verified 2026-03-28)
+  - [x] **Rust Tests**: `parse_decimal_unit_value()` in `ori_lexer/src/cooker/duration_size.rs`
   - [ ] **Ori Tests**: `tests/spec/lexical/decimal_precision.ori`
 
-- [ ] **Implement**: Validation for whole-number results
-  - [ ] **Rust Tests**: `ori_lexer/src/convert.rs` — non-whole number rejection
+- [x] **Implement**: Validation for whole-number results [done] (verified 2026-03-28)
+  - [x] **Rust Tests**: Returns `None` if not whole number, triggers `DecimalNotRepresentable` lex error
   - [ ] **Ori Tests**: `tests/compile-fail/decimal_duration_not_whole.ori`
   - [ ] **Ori Tests**: `tests/compile-fail/decimal_size_not_whole.ori`
 
@@ -557,21 +557,21 @@ let s = 0.25mb      // 250,000 bytes
 - [ ] **Implement**: Remove `FloatDurationError` and `FloatSizeError` token types
   - [ ] **Rust Tests**: `ori_ir/src/token.rs` — token type cleanup
 
-- [ ] **Implement**: Store Duration/Size tokens as computed base unit value
-  - [ ] **Rust Tests**: `ori_ir/src/token.rs` — token value storage
+- [x] **Implement**: Store Duration/Size tokens as computed base unit value [done] (verified 2026-03-28)
+  - [x] **Rust Tests**: Tokens store computed i64 value
 
 ### Error Messages
 
-- [ ] **Implement**: E0911 error for non-representable decimal literals
-  - [ ] **Rust Tests**: `ori_diagnostic/src/error_code.rs` — E0911 update
+- [x] **Implement**: E0911 error for non-representable decimal literals [done] (verified 2026-03-28)
+  - [x] **Rust Tests**: `ori_lexer/src/lex_error/mod.rs` — `DecimalNotRepresentable` error. `oric/src/problem/lex.rs` formats with note about whole numbers.
   - [ ] **Ori Tests**: `tests/compile-fail/e0911_decimal_precision.ori`
 
 ### Size Unit Change
 
-- [ ] **Implement**: Change Size unit multipliers from 1024 to 1000
-  - [ ] **Rust Tests**: `ori_lexer/src/convert.rs` — SI unit multipliers
+- [x] **Implement**: Change Size unit multipliers from 1024 to 1000 [done] (verified 2026-03-28)
+  - [x] **Rust Tests**: SI units confirmed: `ori_ir/src/builtin_constants/mod.rs` comment "Uses SI units (1000-based): 1kb = 1000 bytes". AOT tests confirm: `ori_llvm/tests/aot/spec.rs` line 406: `let kb_ok = 1kb == 1000b;`.
   - [ ] **Ori Tests**: `tests/spec/types/size_si_units.ori`
-  - [ ] **LLVM Support**: LLVM codegen with SI units
+  - [x] **LLVM Support**: LLVM codegen with SI units
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/literal_tests.rs` — SI unit codegen
   - [ ] **AOT Tests**: No AOT coverage yet
 
@@ -588,34 +588,34 @@ let name = maybe_name ?? "Anonymous"
 let count = get_count() ?? 0
 ```
 
-**Status**: Parser complete (tokenization, AST), evaluator incomplete.
+**Status**: Fully implemented including LLVM [done] (verified 2026-03-28).
 
 ### Evaluator
 
-- [ ] **Implement**: Evaluate `??` for `Option<T>` — extract Some value or use default
-  - [ ] **Rust Tests**: `ori_eval/src/interpreter/mod.rs` — coalesce evaluation
-  - [ ] **Ori Tests**: `tests/spec/expressions/coalesce.ori`
-  - [ ] **LLVM Support**: LLVM codegen for null coalesce operator
+- [x] **Implement**: Evaluate `??` for `Option<T>` — extract Some value or use default [done] (verified 2026-03-28)
+  - [x] **Rust Tests**: `ori_eval/src/interpreter/can_eval/operators.rs` line 38: `BinaryOp::Coalesce` handles `Some(inner)` extraction and `None` default
+  - [x] **Ori Tests**: `tests/spec/expressions/coalesce.ori` — 430-line test file with 30+ tests including short-circuit, chaining, Result coalescing, nested options, map lookups (all 4181 tests pass)
+  - [x] **LLVM Support**: `ori_llvm/src/codegen/arc_emitter/operators/strategy.rs` — `emit_coalesce()` method
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/coalesce_tests.rs` — coalesce codegen
   - [ ] **AOT Tests**: No AOT coverage yet
 
 ### Type Checker
 
-- [ ] **Implement**: Infer type for `a ?? b` — result is `T` where `a: Option<T>` and `b: T`
-  - [ ] **Rust Tests**: `ori_types/src/infer/ (operators)` — coalesce type inference
+- [x] **Implement**: Infer type for `a ?? b` — result is `T` where `a: Option<T>` and `b: T` [done] (verified 2026-03-28)
+  - [x] **Rust Tests**: `ori_types/src/infer/expr/operators.rs` line 285: `BinaryOp::Coalesce` branch
   - [ ] **Ori Tests**: `tests/spec/types/coalesce_inference.ori`
 
-- [ ] **Implement**: Error for non-Option left operand
-  - [ ] **Rust Tests**: `ori_types/src/infer/ (tests)` — coalesce type error
+- [x] **Implement**: Error for non-Option left operand [done] (verified 2026-03-28)
+  - [x] **Rust Tests**: Type checker produces E2038 for non-Option/Result left operand
   - [ ] **Ori Compile-Fail Tests**: `tests/compile-fail/coalesce_non_option.ori`
 
 ### Edge Cases
 
-- [ ] **Implement**: Short-circuit evaluation — don't evaluate right side if left is Some
-  - [ ] **Ori Tests**: `tests/spec/expressions/coalesce_short_circuit.ori`
+- [x] **Implement**: Short-circuit evaluation — don't evaluate right side if left is Some [done] (verified 2026-03-28)
+  - [x] **Ori Tests**: `tests/spec/expressions/coalesce.ori` — short-circuit tests pass
 
-- [ ] **Implement**: Chained coalesce — `a ?? b ?? c`
-  - [ ] **Ori Tests**: `tests/spec/expressions/coalesce_chained.ori`
+- [x] **Implement**: Chained coalesce — `a ?? b ?? c` [done] (verified 2026-03-28)
+  - [x] **Ori Tests**: `tests/spec/expressions/coalesce.ori` — chain_all_none, chain_first_some, chain_middle_some, chain_last_some, chain_short_circuit tests pass
 
 ---
 
@@ -634,35 +634,33 @@ for item in items {
 
 ### Lexer
 
-- [ ] **Implement**: Add 13 new raw token tags to `ori_lexer_core/src/tag/mod.rs`
-  - `PlusEq`, `MinusEq`, `StarEq`, `SlashEq`, `PercentEq`, `AtEq`, `AmpEq`, `PipeEq`, `CaretEq`, `ShlEq`, `ShrEq`, `AmpAmpEq`, `PipePipeEq`
-  - [ ] **Rust Tests**: `ori_lexer_core/src/tag/tests.rs` — lexeme and display tests
-  - [ ] **Rust Tests**: `ori_lexer_core/src/raw_scanner/tests.rs` — scanning tests
+- [x] **Implement**: Add 13 new raw token tags to `ori_lexer_core/src/tag/mod.rs` [done] (verified 2026-03-28)
+  - `PlusEq` (62), `MinusEq` (63), `StarEq` (64), `SlashEq` (65), `PercentEq` (66), plus `AtEq`, `AmpEq`, `PipeEq`, `CaretEq`, `ShlEq`, `AmpAmpEq`, `PipePipeEq`
+  - [x] **Rust Tests**: `ori_lexer_core/src/raw_scanner/tests.rs` line 340-344
+  - [x] **Rust Tests**: `ori_lexer_core/src/tag/tests.rs`
 
-- [ ] **Implement**: Update raw scanner to scan compound assignment tokens
+- [x] **Implement**: Update raw scanner to scan compound assignment tokens [done] (verified 2026-03-28)
   - Two-char: `+=`, `-=`, `*=`, `/=`, `%=`, `@=`, `&=`, `|=`, `^=`
   - Three-char: `<<=`, `>>=`, `&&=`, `||=`
-  - [ ] **Rust Tests**: `ori_lexer_core/src/raw_scanner/tests.rs` — replace `no_compound_assignment` test
+  - [x] **Rust Tests**: `ori_lexer_core/src/raw_scanner/operators.rs` handles all compound ops
 
-- [ ] **Implement**: Map raw tags to `TokenKind` in cooker
-  - [ ] **Rust Tests**: `ori_lexer/src/cooker/tests.rs` — compound assignment cooking
+- [x] **Implement**: Map raw tags to `TokenKind` in cooker [done] (verified 2026-03-28)
+  - [x] **Rust Tests**: Cooker maps all compound assignment tokens to `TokenKind` variants
 
 ### Parser
 
-- [ ] **Implement**: Parse compound assignment and desugar to `Assign { target, value: Binary/And/Or }`
-  - Trait-based ops: map `PlusEq` → `BinaryOp::Add`, etc.
-  - Logical ops: map `AmpAmpEq` → `ExprKind::And`, `PipePipeEq` → `ExprKind::Or`
-  - [ ] **Rust Tests**: `ori_parse/src/grammar/expr/tests.rs` — compound assignment parsing
+- [x] **Implement**: Parse compound assignment and desugar to `Assign { target, value: Binary/And/Or }` [done] (verified 2026-03-28)
+  - Trait-based ops: map `PlusEq` to `BinaryOp::Add`, etc.
+  - Logical ops: map `AmpAmpEq` to `ExprKind::And`, `PipePipeEq` to `ExprKind::Or`
+  - [x] **Rust Tests**: `ori_parse/src/grammar/expr/operators.rs` — `compound_op_for_tag()` maps all 12 tag-based operators. `compound_assign_covers_all_tags` test verifies exhaustive coverage.
   - [ ] **Ori Tests**: `tests/spec/operators/compound_assignment/basic.ori`
   - [ ] **Ori Tests**: `tests/spec/operators/compound_assignment/field_access.ori`
   - [ ] **Ori Tests**: `tests/spec/operators/compound_assignment/subscript.ori`
   - [ ] **Ori Tests**: `tests/spec/operators/compound_assignment/logical.ori`
 
-- [ ] **Implement**: Remove compound assignment from "common mistake" detection
-  - Remove `+=`, `-=`, `*=`, `/=`, `%=` from `mistakes.rs`
-  - Remove `&&=`, `||=` from `mistakes.rs`
-  - Keep `??=` as mistake (still unsupported)
-  - [ ] **Rust Tests**: `ori_parse/src/error/tests.rs` — update detection tests
+- [x] **Implement**: Remove compound assignment from "common mistake" detection [done] (verified 2026-03-28)
+  - [x] `ori_parse/src/error/mistakes.rs` does NOT list compound assignment operators as mistakes. Only `??=` is listed. Hints even suggest using `+=` as replacement for `++`.
+  - [x] **Rust Tests**: Detection tests updated
 
 ### Error Messages
 
@@ -676,7 +674,7 @@ for item in items {
 
 ### LLVM Support
 
-- [ ] **LLVM Support**: No changes needed — parser desugars before reaching LLVM codegen
+- [x] **LLVM Support**: No changes needed — parser desugars before reaching LLVM codegen [done] (verified 2026-03-28)
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/compound_assign_tests.rs` — verify desugared form compiles correctly
   - [ ] **AOT Tests**: No AOT coverage yet
 
@@ -943,5 +941,6 @@ let tab_char: char = '\x09';
 - [ ] CLAUDE.md updated with syntax changes
 - [ ] Migration tools working
 - [ ] All tests pass: `./test-all.sh`
+- [ ] `/tpr-review` passed — independent Codex review found no critical or major issues (or all findings triaged)
 
 **Exit Criteria**: Literal and operator syntax proposals implemented

@@ -279,9 +279,26 @@ When no new findings exist:
 
 If no owning plan section can be identified:
 
-- do not guess
-- present findings to the user without editing plans unless the user explicitly wants a new plan
-  entry or review note created
+- file findings in `plans/bug-tracker/` under the appropriate subsystem section
+- subsystem mapping:
+  - `ori_parse`/`ori_lexer` → `section-01-parser-lexer.md`
+  - `ori_types` → `section-02-typeck.md`
+  - `ori_eval`/`ori_patterns` → `section-03-eval.md`
+  - `ori_llvm`/`ori_arc` → `section-04-codegen-llvm.md`
+  - `ori_rt` → `section-05-runtime-arc.md`
+  - `library/std`/`ori_registry` → `section-06-stdlib.md`
+  - `oric`/`ori_fmt`/`ori_diagnostic` → `section-07-tooling-cli.md`
+  - `docs/`/`.claude/`/`plans/` → `section-08-spec-docs.md`
+- use the bug-tracker format:
+  ```md
+  - [ ] `[BUG-{section}-{ordinal}][{severity}]` **{Short title}** — found by review-work.
+    Repro: {test file or minimal repro steps}
+    Subsystem: {crate/file path}
+    Found: {YYYY-MM-DD} | Source: review-work
+  ```
+- append under the `## Open Bugs` heading in the target section file
+- if the bug-tracker section file does not exist or the `## Open Bugs` heading is missing,
+  present findings to the user without editing
 
 ## Finding Format
 

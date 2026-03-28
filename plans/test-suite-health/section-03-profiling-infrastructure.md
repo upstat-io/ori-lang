@@ -288,5 +288,6 @@ This subsection adds code to both the test harness (`aot.rs`) and the compiler (
 - [ ] Phase breakdown recorded (parse/typeck/arc/codegen/object/link/execute percentages)
 - [ ] Phase totals validate against overall time (within 5%)
 - [ ] No test regressions: `timeout 150 cargo t` still passes
+- [ ] `/tpr-review` passed — independent Codex review found no critical or major issues (or all findings triaged)
 
 **Exit Criteria:** We have concrete, reproducible data showing exactly where time is spent in `cargo t`. The flamegraphs identify the top 10 hottest functions. The AOT per-phase breakdown reveals which pipeline phase dominates. This data is sufficient for Sections 04 and 05 to target specific optimizations.

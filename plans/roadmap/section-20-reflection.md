@@ -422,5 +422,6 @@ Parse ──→ Type Check ──→ Monomorphize ──→ ARC Lower ──→ 
 - [ ] `./clippy-all.sh` green
 - [ ] Spec Clause 27 rewritten for compile-time model
 - [ ] `grammar.ebnf` updated with `$for`, `$if`, splice productions
+- [ ] `/tpr-review` passed — independent Codex review found no critical or major issues (or all findings triaged)
 
 **Exit Criteria:** `$for field in fields_of(User) yield field.name` evaluated at compile time produces `["name", "age", "email"]` with zero runtime overhead. LLVM IR for reflection-using code is identical to hand-written field-by-field code. All 5 error codes produce clear, actionable diagnostics. Eval and LLVM paths match for all tests. `./test-all.sh` and `./clippy-all.sh` green.

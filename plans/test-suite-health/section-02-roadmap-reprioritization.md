@@ -183,6 +183,7 @@ Define concrete, measurable milestones for tracking progress toward LCFail=0.
 - [ ] Stale number 1,985 replaced everywhere with actual 3,956 (or current count at time of implementation)
 - [ ] No contradictions between Section 21A and roadmap overview
 - [ ] `./test-all.sh` green
+- [ ] `/tpr-review` passed — independent Codex review found no critical or major issues (or all findings triaged)
 
 **Exit Criteria:** Section 21A has a clear, impact-ordered implementation sequence. Anyone running `/continue-roadmap` on Section 21A will work on the highest-impact features first. LCFail milestones provide measurable checkpoints. The roadmap reflects accurate data.
 

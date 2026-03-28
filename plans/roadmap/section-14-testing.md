@@ -10,7 +10,7 @@ spec:
 sections:
   - id: "14.1"
     title: Test Requirement
-    status: not-started
+    status: in-progress
   - id: "14.2"
     title: Test Declaration
     status: in-progress
@@ -71,9 +71,10 @@ sections:
 
 ## 14.1 Test Requirement
 
-- [ ] **Implement**: Configurable test enforcement (off/warn/error) — spec/19-testing.md § Test Requirements, design/11-testing/01-mandatory-tests.md
-  - [ ] **Rust Tests**: `ori_types/src/check/test_coverage.rs` — configurable test enforcement
-  - [ ] **Ori Tests**: `tests/spec/testing/enforcement.ori`
+- [x] **Implement**: Configurable test enforcement (off/warn/error) — spec/19-testing.md § Test Requirements, design/11-testing/01-mandatory-tests.md [done] (verified 2026-03-28)
+  - [x] **Implementation**: `TestEnforcement` enum (Off/Warn/Error) in `compiler/oric/src/commands/mod.rs`; `check_test_coverage()` in `compiler/oric/src/problem/semantic/test_coverage.rs`; `--test-enforcement=off|warn|error` CLI flag; E3010 error code documented
+  - [ ] **Rust Tests**: No dedicated unit tests for enforcement logic
+  - [ ] **Ori Tests**: `tests/spec/testing/enforcement.ori` — no Ori spec tests yet
   - [ ] **LLVM Support**: LLVM codegen for test enforcement
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/testing_framework_tests.rs` — test enforcement codegen
 
@@ -89,9 +90,9 @@ sections:
 
 - [x] **Implement**: Syntax `@test_name tests @target () -> void = ...` — spec/19-testing.md § Test Declaration, design/11-testing/02-test-syntax.md [done] (2026-02-10)
   - [x] **Rust Tests**: Parser — test declaration parsing
-  - [x] **Ori Tests**: All spec tests use this syntax (900+ tests across the test suite)
-  - [ ] **LLVM Support**: LLVM codegen for test declaration syntax
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/testing_framework_tests.rs` — test declaration codegen
+  - [x] **Ori Tests**: All spec tests use this syntax (4181+ tests across the test suite)
+  - [x] **LLVM Support**: `compile_tests()` in `compiler/ori_llvm/src/codegen/function_compiler/impls.rs`; LLVM JIT backend in `compiler/oric/src/test/runner/llvm_backend.rs`; `--backend=llvm` CLI flag [done] (verified 2026-03-28)
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/testing_framework_tests.rs` — no dedicated LLVM test file
   - [ ] **AOT Tests**: No AOT coverage yet
 
 - [x] **Implement**: Semantics — spec/19-testing.md § Test Declaration [done] (2026-02-10)
@@ -108,11 +109,11 @@ sections:
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/testing_framework_tests.rs` — multiple targets codegen
   - [ ] **AOT Tests**: No AOT coverage yet
 
-- [ ] **Implement**: Explicit free-floating tests `tests _` — proposals/approved/incremental-test-execution-proposal.md  <!-- unblocks:0.9.1 -->
-  - [ ] Parser accepts `_` as target in `tests _`
-  - [ ] AST distinguishes `Targeted(Vec<Name>)` vs `FreeFloating`
-  - [ ] **Rust Tests**: `ori_parse/src/grammar/function.rs` — free-floating test parsing
-  - [ ] **Ori Tests**: `tests/spec/testing/free_floating.ori`
+- [x] **Implement**: Explicit free-floating tests `tests _` — proposals/approved/incremental-test-execution-proposal.md [done] (verified 2026-03-28)  <!-- unblocks:0.9.1 -->
+  - [x] Parser accepts `_` as target in `tests _` — `ori_parse/src/grammar/item/function/mod.rs` line 62
+  - [x] AST distinguishes `Targeted(Vec<Name>)` vs `FreeFloating` — empty targets Vec = floating
+  - [x] **Rust Tests**: `test_floating_with_underscore` in parser tests; `floating_tests_never_skipped` in change detection tests
+  - [ ] **Ori Tests**: `tests/spec/testing/free_floating.ori` — no dedicated Ori spec tests yet
   - [ ] **LLVM Support**: LLVM codegen for free-floating tests
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/testing_framework_tests.rs` — free-floating tests codegen
   - [ ] **AOT Tests**: No AOT coverage yet
@@ -657,5 +658,6 @@ Record the last-passing git commit and timestamp for every test. When a test fai
 - [ ] Re-evaluate against docs/compiler-design/v2/02-design-principles.md
 - [ ] 80+% test coverage, tests against spec/design
 - [ ] Run full test suite: `./test-all.sh`
+- [ ] `/tpr-review` passed — independent Codex review found no critical or major issues (or all findings triaged)
 
 **Exit Criteria**: Tests are mandatory, dependency-aware, and run correctly

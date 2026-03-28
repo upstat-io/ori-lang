@@ -139,7 +139,7 @@ sections:
   - [ ] **LLVM Support**: LLVM codegen for variant pattern matching
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/matching_tests.rs` (file does not exist)
   - [ ] **AOT Tests**: No AOT coverage yet
-  - Note: `#derive(Eq)` for sum types NOT working (skipped in tests)
+  - Note: `#derive(Eq)` for sum types verified working [done] (verified 2026-03-28) -- 16 tests in eq_sum.ori + EqColor/EqOption in sum_types.ori all pass
 
 ---
 
@@ -343,7 +343,7 @@ Replace `#derive(Trait)` with `type T: Trait = ...`. Derivation moves from attri
   - [ ] **LLVM Support**: LLVM codegen for derived Eq
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/derive_tests.rs` (file does not exist)
   - [x] **AOT Tests**: `ori_llvm/tests/aot/structs.rs` — `test_struct_derived_eq`, `test_struct_derived_eq_string` (struct Eq with int and string fields)
-  - Note: Derive(Eq) for SUM TYPES not working (skipped in tests)
+  - Note: Derive(Eq) for sum types verified working [done] (verified 2026-03-28) -- eq_sum.ori 16 tests + sum_types.ori EqColor/EqOption all pass
 
 - [x] **Implement**: `#derive(Clone)` [done] (2026-02-10)
   - [x] **Rust Tests**: `ori_types/src/check/ (derive Clone)` — derive Clone generation
@@ -359,17 +359,16 @@ Replace `#derive(Trait)` with `type T: Trait = ...`. Derivation moves from attri
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/derive_tests.rs` (file does not exist)
   - [ ] **AOT Tests**: No AOT coverage yet
 
-- [ ] **Implement**: `#derive(Printable)` — spec/10-declarations.md § Attributes
-  - [ ] **Rust Tests**: `ori_types/src/check/derives/printable.rs` — derive Printable generation
-  - [ ] **Ori Tests**: `tests/spec/declarations/attributes.ori` — skipped ("derive(Printable) not fully implemented")
+- [x] **Implement**: `#derive(Printable)` — spec/10-declarations.md § Attributes [done] (verified 2026-03-28)
+  - [x] **Rust Tests**: `ori_types/src/check/derives/printable.rs` — derive Printable generation
+  - [x] **Ori Tests**: `tests/spec/traits/derive/printable.ori` — struct basic, single str field, nested struct, payloadless variants, sum type variants with payloads (all pass)
   - [ ] **LLVM Support**: LLVM codegen for derived Printable
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/derive_tests.rs` (file does not exist)
   - [ ] **AOT Tests**: No AOT coverage yet
-  - Note: Works in traits/derive/all_derives.ori but skipped in declarations/attributes.ori
 
-- [ ] **Implement**: `#derive(Default)` — spec/10-declarations.md § Attributes
-  - [ ] **Rust Tests**: `ori_types/src/check/derives/default.rs` — derive Default generation
-  - [ ] **Ori Tests**: Not tested
+- [x] **Implement**: `#derive(Default)` — spec/10-declarations.md § Attributes [done] (verified 2026-03-28)
+  - [x] **Rust Tests**: `ori_types/src/check/derives/default.rs` — derive Default generation
+  - [x] **Ori Tests**: `tests/spec/traits/derive/default.ori` — Point (int->0), Config (str->"", int->0, bool->false), single field, float fields (all pass). Negative: `tests/compile-fail/default_sum_type.ori` rejects derive(Default) on sum types.
   - [ ] **LLVM Support**: LLVM codegen for derived Default
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/derive_tests.rs` (file does not exist)
   - [ ] **AOT Tests**: No AOT coverage yet
@@ -476,13 +475,14 @@ Generalize associated functions to work for ANY type with an `impl` block, remov
 - [x] Visibility: pub type, private by default [done]
 - [x] Associated functions: Type.method() for user types, Duration, Size [done]
 - [ ] Compound type inference (5.5) — entirely pending
-- [ ] Derive: Printable, Default — not working
-- [ ] Derive(Eq) for sum types — not working
+- [x] Derive: Printable, Default — working [done] (verified 2026-03-28)
+- [x] Derive(Eq) for sum types — working [done] (verified 2026-03-28)
 - [ ] Newtype `.inner` accessor migration — pending
 - [ ] Generic associated functions with type args — not tested
 - [ ] Trait associated functions — not tested
 - [ ] LLVM codegen for all type declarations — no dedicated test files
 - [ ] Run full test suite: `./test-all.sh`
+- [ ] `/tpr-review` passed — independent Codex review found no critical or major issues (or all findings triaged)
 
 **Exit Criteria**: User-defined structs and enums work
 **Status**: Evaluator support complete for core features. Type checker compound inference and several derive impls pending. Verified 2026-02-10.
