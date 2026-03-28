@@ -75,7 +75,10 @@ fn test_runtime_not_found_diagnostic() {
     let diag = problem.into_diagnostic();
     assert_eq!(diag.code, ErrorCode::E5005);
     assert!(diag.notes.iter().any(|n| n.contains("/usr/lib")));
-    assert!(diag.suggestions.iter().any(|s| s.contains("cargo build")));
+    assert!(diag
+        .suggestions
+        .iter()
+        .any(|s| s.contains("reinstall") || s.contains("--runtime-path")));
 }
 
 #[test]

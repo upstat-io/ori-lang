@@ -1,9 +1,18 @@
-//! Tests for integer narrowing (§04.1 — struct/tuple field narrowing).
+//! Tests for integer narrowing (§04.1–§04.2).
+//!
+//! - Phase A tests (§04.1): struct/tuple field narrowing
+//! - ABI boundary tests (§04.2): boundary classification, widening policy
 
 use ori_ir::Name;
 use ori_types::{Idx, Pool};
 
+use ori_ir::BinaryOp;
+
+use crate::narrowing::abi::{
+    self, AbiBoundary, CrossModuleAgreement, FunctionBoundaryInfo, WidthRequirement,
+};
 use crate::narrowing::int::narrow_struct_fields;
+use crate::narrowing::overflow::{self, OverflowStrategy};
 use crate::plan::{
     DecisionReason, DecisionSource, NarrowingPolicy, ReprAttribute, ReprDecision, ReprPlan,
 };
@@ -562,7 +571,10 @@ fn already_narrow_field_untouched() {
 // ────────────────────────────────────────────────────
 
 #[test]
-fn tuple_elements_narrowed() {
+fn tuple_elements_not_narrowed_phase_a() {
+    // Phase A: tuples are skipped — they're used as collection elements,
+    // iterator state, and intermediate values where element_store_size()
+    // assumes canonical field widths. Tuple narrowing is Phase C.
     let pool = Pool::new();
     let mut plan = ReprPlan::new(NarrowingPolicy::Aggressive);
 
@@ -580,15 +592,16 @@ fn tuple_elements_narrowed() {
 
     narrow_struct_fields(&mut plan, &pool);
 
+    // Tuple fields stay at I64 (canonical) — not narrowed in Phase A.
     assert_eq!(
         tuple_element_width(&plan, idx, 0),
-        Some(IntWidth::I8),
-        "tuple element 0 should narrow to i8"
+        Some(IntWidth::I64),
+        "tuple element 0 should stay i64 (Phase A skips tuples)"
     );
     assert_eq!(
         tuple_element_width(&plan, idx, 1),
-        Some(IntWidth::I16),
-        "tuple element 1 should narrow to i16"
+        Some(IntWidth::I64),
+        "tuple element 1 should stay i64 (Phase A skips tuples)"
     );
 }
 
@@ -753,4 +766,676 @@ fn field_offset_stays_zero_after_narrowing() {
         }
         other => panic!("expected Struct, got {other:?}"),
     }
+}
+
+// ════════════════════════════════════════════════════
+// §04.2 — ABI Boundary Classification Tests
+// ════════════════════════════════════════════════════
+
+// Boundary classification priority
+
+#[test]
+fn classify_ffi_boundary() {
+    let info = FunctionBoundaryInfo {
+        is_ffi: true,
+        is_public: true,
+        is_trait_method: true,
+        is_closure: true,
+    };
+    assert_eq!(
+        abi::classify_function_boundary(info),
+        AbiBoundary::Ffi,
+        "FFI is highest priority"
+    );
+}
+
+#[test]
+fn classify_public_api_boundary() {
+    let info = FunctionBoundaryInfo {
+        is_public: true,
+        is_trait_method: true,
+        is_closure: true,
+        ..Default::default()
+    };
+    assert_eq!(
+        abi::classify_function_boundary(info),
+        AbiBoundary::PublicApi,
+        "public API outranks trait method"
+    );
+}
+
+#[test]
+fn classify_trait_method_boundary() {
+    let info = FunctionBoundaryInfo {
+        is_trait_method: true,
+        is_closure: true,
+        ..Default::default()
+    };
+    assert_eq!(
+        abi::classify_function_boundary(info),
+        AbiBoundary::TraitMethod,
+        "trait method outranks closure"
+    );
+}
+
+#[test]
+fn classify_closure_boundary() {
+    let info = FunctionBoundaryInfo {
+        is_closure: true,
+        ..Default::default()
+    };
+    assert_eq!(
+        abi::classify_function_boundary(info),
+        AbiBoundary::ClosureCapture
+    );
+}
+
+#[test]
+fn classify_internal_call_boundary() {
+    let info = FunctionBoundaryInfo::default();
+    assert_eq!(
+        abi::classify_function_boundary(info),
+        AbiBoundary::InternalCall,
+        "all flags false → internal"
+    );
+}
+
+// Width requirements per boundary
+
+#[test]
+fn ffi_requires_platform_cabi() {
+    assert_eq!(
+        abi::width_requirement(AbiBoundary::Ffi),
+        WidthRequirement::PlatformCabi,
+    );
+}
+
+#[test]
+fn public_api_requires_canonical() {
+    assert_eq!(
+        abi::width_requirement(AbiBoundary::PublicApi),
+        WidthRequirement::Canonical,
+    );
+}
+
+#[test]
+fn trait_method_requires_canonical() {
+    assert_eq!(
+        abi::width_requirement(AbiBoundary::TraitMethod),
+        WidthRequirement::Canonical,
+    );
+}
+
+#[test]
+fn closure_capture_requires_canonical() {
+    assert_eq!(
+        abi::width_requirement(AbiBoundary::ClosureCapture),
+        WidthRequirement::Canonical,
+    );
+}
+
+#[test]
+fn internal_call_allows_narrow_if_agreed() {
+    assert_eq!(
+        abi::width_requirement(AbiBoundary::InternalCall),
+        WidthRequirement::NarrowIfAgreed,
+    );
+}
+
+// can_narrow_param / can_narrow_return
+
+#[test]
+fn only_internal_call_allows_narrow_param() {
+    assert!(abi::can_narrow_param(AbiBoundary::InternalCall));
+    assert!(!abi::can_narrow_param(AbiBoundary::PublicApi));
+    assert!(!abi::can_narrow_param(AbiBoundary::Ffi));
+    assert!(!abi::can_narrow_param(AbiBoundary::TraitMethod));
+    assert!(!abi::can_narrow_param(AbiBoundary::ClosureCapture));
+}
+
+#[test]
+fn only_internal_call_allows_narrow_return() {
+    assert!(abi::can_narrow_return(AbiBoundary::InternalCall));
+    assert!(!abi::can_narrow_return(AbiBoundary::PublicApi));
+    assert!(!abi::can_narrow_return(AbiBoundary::Ffi));
+    assert!(!abi::can_narrow_return(AbiBoundary::TraitMethod));
+    assert!(!abi::can_narrow_return(AbiBoundary::ClosureCapture));
+}
+
+// Cross-module agreement
+
+#[test]
+fn cross_module_agreed_allows_narrowing() {
+    assert!(abi::can_narrow_cross_module(CrossModuleAgreement::Agreed));
+}
+
+#[test]
+fn cross_module_disagreed_blocks_narrowing() {
+    assert!(!abi::can_narrow_cross_module(
+        CrossModuleAgreement::Disagreed
+    ));
+}
+
+#[test]
+fn cross_module_unknown_blocks_narrowing() {
+    assert!(!abi::can_narrow_cross_module(CrossModuleAgreement::Unknown));
+}
+
+// Effective boundary width
+
+#[test]
+fn effective_width_public_api_always_i64() {
+    assert_eq!(
+        abi::effective_boundary_width(
+            IntWidth::I8,
+            AbiBoundary::PublicApi,
+            CrossModuleAgreement::Agreed
+        ),
+        IntWidth::I64,
+        "public API always canonical regardless of agreement"
+    );
+}
+
+#[test]
+fn effective_width_ffi_always_i64() {
+    assert_eq!(
+        abi::effective_boundary_width(
+            IntWidth::I16,
+            AbiBoundary::Ffi,
+            CrossModuleAgreement::Agreed
+        ),
+        IntWidth::I64,
+        "FFI boundary returns canonical (Ori int → i64 in C)"
+    );
+}
+
+#[test]
+fn effective_width_internal_agreed_preserves_narrow() {
+    assert_eq!(
+        abi::effective_boundary_width(
+            IntWidth::I8,
+            AbiBoundary::InternalCall,
+            CrossModuleAgreement::Agreed
+        ),
+        IntWidth::I8,
+        "internal call with agreement keeps narrow width"
+    );
+}
+
+#[test]
+fn effective_width_internal_disagreed_widens_to_i64() {
+    assert_eq!(
+        abi::effective_boundary_width(
+            IntWidth::I8,
+            AbiBoundary::InternalCall,
+            CrossModuleAgreement::Disagreed
+        ),
+        IntWidth::I64,
+        "internal call without agreement widens to canonical"
+    );
+}
+
+#[test]
+fn effective_width_internal_unknown_widens_to_i64() {
+    assert_eq!(
+        abi::effective_boundary_width(
+            IntWidth::I16,
+            AbiBoundary::InternalCall,
+            CrossModuleAgreement::Unknown
+        ),
+        IntWidth::I64,
+        "unknown agreement is conservative → canonical"
+    );
+}
+
+// sext / trunc boundary detection
+
+#[test]
+fn needs_sext_at_public_boundary() {
+    assert!(
+        abi::needs_sext_at_boundary(
+            IntWidth::I8,
+            AbiBoundary::PublicApi,
+            CrossModuleAgreement::Unknown
+        ),
+        "narrowed i8 value needs sext to i64 at public boundary"
+    );
+}
+
+#[test]
+fn no_sext_for_canonical_at_public_boundary() {
+    assert!(
+        !abi::needs_sext_at_boundary(
+            IntWidth::I64,
+            AbiBoundary::PublicApi,
+            CrossModuleAgreement::Unknown
+        ),
+        "i64 value at public boundary needs no widening"
+    );
+}
+
+#[test]
+fn no_sext_at_internal_agreed_boundary() {
+    assert!(
+        !abi::needs_sext_at_boundary(
+            IntWidth::I16,
+            AbiBoundary::InternalCall,
+            CrossModuleAgreement::Agreed
+        ),
+        "internal call with agreement — no widening needed"
+    );
+}
+
+#[test]
+fn needs_sext_at_internal_disagreed_boundary() {
+    assert!(
+        abi::needs_sext_at_boundary(
+            IntWidth::I16,
+            AbiBoundary::InternalCall,
+            CrossModuleAgreement::Disagreed
+        ),
+        "internal call without agreement — must widen"
+    );
+}
+
+#[test]
+fn needs_trunc_after_public_boundary() {
+    assert!(
+        abi::needs_trunc_after_boundary(
+            IntWidth::I8,
+            AbiBoundary::PublicApi,
+            CrossModuleAgreement::Unknown
+        ),
+        "canonical value arriving at narrowed local needs trunc"
+    );
+}
+
+#[test]
+fn no_trunc_when_already_canonical() {
+    assert!(
+        !abi::needs_trunc_after_boundary(
+            IntWidth::I64,
+            AbiBoundary::PublicApi,
+            CrossModuleAgreement::Unknown
+        ),
+        "i64 local at public boundary needs no trunc"
+    );
+}
+
+// Semantic pin: all boundary widths across all AbiBoundary variants
+
+#[test]
+fn semantic_pin_all_boundaries_width_matrix() {
+    let narrow = IntWidth::I8;
+    let agreed = CrossModuleAgreement::Agreed;
+    let unknown = CrossModuleAgreement::Unknown;
+
+    // FFI → always i64
+    assert_eq!(
+        abi::effective_boundary_width(narrow, AbiBoundary::Ffi, agreed),
+        IntWidth::I64
+    );
+    // Public → always i64
+    assert_eq!(
+        abi::effective_boundary_width(narrow, AbiBoundary::PublicApi, agreed),
+        IntWidth::I64
+    );
+    // Trait → always i64
+    assert_eq!(
+        abi::effective_boundary_width(narrow, AbiBoundary::TraitMethod, agreed),
+        IntWidth::I64
+    );
+    // Closure → always i64
+    assert_eq!(
+        abi::effective_boundary_width(narrow, AbiBoundary::ClosureCapture, agreed),
+        IntWidth::I64
+    );
+    // Internal + agreed → narrow
+    assert_eq!(
+        abi::effective_boundary_width(narrow, AbiBoundary::InternalCall, agreed),
+        IntWidth::I8
+    );
+    // Internal + unknown → i64
+    assert_eq!(
+        abi::effective_boundary_width(narrow, AbiBoundary::InternalCall, unknown),
+        IntWidth::I64
+    );
+}
+
+// Semantic pin: narrowing width matrix (i8/i16/i32/i64 × boundary)
+
+#[test]
+fn semantic_pin_width_preservation_internal_agreed() {
+    let agreed = CrossModuleAgreement::Agreed;
+    let internal = AbiBoundary::InternalCall;
+
+    assert_eq!(
+        abi::effective_boundary_width(IntWidth::I8, internal, agreed),
+        IntWidth::I8
+    );
+    assert_eq!(
+        abi::effective_boundary_width(IntWidth::I16, internal, agreed),
+        IntWidth::I16
+    );
+    assert_eq!(
+        abi::effective_boundary_width(IntWidth::I32, internal, agreed),
+        IntWidth::I32
+    );
+    assert_eq!(
+        abi::effective_boundary_width(IntWidth::I64, internal, agreed),
+        IntWidth::I64
+    );
+}
+
+// ════════════════════════════════════════════════════
+// §04.3 — Overflow Guard Insertion Tests
+// ════════════════════════════════════════════════════
+
+// can_overflow: addition
+
+#[test]
+fn add_no_overflow_in_i8() {
+    // [0, 50] + [0, 50] = [0, 100] — fits in i8 [-128, 127]
+    let lhs = ValueRange::Bounded { lo: 0, hi: 50 };
+    let rhs = ValueRange::Bounded { lo: 0, hi: 50 };
+    assert!(
+        !overflow::can_overflow(BinaryOp::Add, lhs, rhs, IntWidth::I8),
+        "[0,50] + [0,50] = [0,100] fits in i8"
+    );
+}
+
+#[test]
+fn add_overflows_i8() {
+    // [0, 100] + [0, 100] = [0, 200] — does NOT fit in i8 [-128, 127]
+    let lhs = ValueRange::Bounded { lo: 0, hi: 100 };
+    let rhs = ValueRange::Bounded { lo: 0, hi: 100 };
+    assert!(
+        overflow::can_overflow(BinaryOp::Add, lhs, rhs, IntWidth::I8),
+        "[0,100] + [0,100] = [0,200] overflows i8"
+    );
+}
+
+#[test]
+fn add_fits_in_i16_not_i8() {
+    // [0, 100] + [0, 100] = [0, 200] — overflows i8 but fits i16
+    let lhs = ValueRange::Bounded { lo: 0, hi: 100 };
+    let rhs = ValueRange::Bounded { lo: 0, hi: 100 };
+    assert!(overflow::can_overflow(
+        BinaryOp::Add,
+        lhs,
+        rhs,
+        IntWidth::I8
+    ));
+    assert!(!overflow::can_overflow(
+        BinaryOp::Add,
+        lhs,
+        rhs,
+        IntWidth::I16
+    ));
+}
+
+// can_overflow: subtraction
+
+#[test]
+fn sub_no_overflow_in_i8() {
+    // [0, 50] - [0, 50] = [-50, 50] — fits in i8
+    let lhs = ValueRange::Bounded { lo: 0, hi: 50 };
+    let rhs = ValueRange::Bounded { lo: 0, hi: 50 };
+    assert!(!overflow::can_overflow(
+        BinaryOp::Sub,
+        lhs,
+        rhs,
+        IntWidth::I8
+    ));
+}
+
+#[test]
+fn sub_overflows_i8() {
+    // [0, 127] - [-127, 0] = [0, 254] — overflows i8
+    let lhs = ValueRange::Bounded { lo: 0, hi: 127 };
+    let rhs = ValueRange::Bounded { lo: -127, hi: 0 };
+    assert!(overflow::can_overflow(
+        BinaryOp::Sub,
+        lhs,
+        rhs,
+        IntWidth::I8
+    ));
+}
+
+// can_overflow: multiplication
+
+#[test]
+fn mul_no_overflow_in_i8() {
+    // [0, 10] * [0, 10] = [0, 100] — fits in i8
+    let lhs = ValueRange::Bounded { lo: 0, hi: 10 };
+    let rhs = ValueRange::Bounded { lo: 0, hi: 10 };
+    assert!(!overflow::can_overflow(
+        BinaryOp::Mul,
+        lhs,
+        rhs,
+        IntWidth::I8
+    ));
+}
+
+#[test]
+fn mul_overflows_i8() {
+    // [0, 20] * [0, 20] = [0, 400] — overflows i8
+    let lhs = ValueRange::Bounded { lo: 0, hi: 20 };
+    let rhs = ValueRange::Bounded { lo: 0, hi: 20 };
+    assert!(overflow::can_overflow(
+        BinaryOp::Mul,
+        lhs,
+        rhs,
+        IntWidth::I8
+    ));
+}
+
+// can_overflow: non-arithmetic ops conservatively report overflow
+
+#[test]
+fn comparison_op_conservative_overflow() {
+    let lhs = ValueRange::Bounded { lo: 0, hi: 10 };
+    let rhs = ValueRange::Bounded { lo: 0, hi: 10 };
+    // Comparison ops return Top → can_overflow returns true (conservative)
+    assert!(overflow::can_overflow(BinaryOp::Eq, lhs, rhs, IntWidth::I8));
+}
+
+// can_overflow: Top range always overflows non-I64 target
+
+#[test]
+fn top_range_always_overflows_narrow() {
+    assert!(overflow::can_overflow(
+        BinaryOp::Add,
+        ValueRange::Top,
+        ValueRange::Top,
+        IntWidth::I8
+    ));
+    assert!(overflow::can_overflow(
+        BinaryOp::Add,
+        ValueRange::Top,
+        ValueRange::Top,
+        IntWidth::I16
+    ));
+    assert!(overflow::can_overflow(
+        BinaryOp::Add,
+        ValueRange::Top,
+        ValueRange::Top,
+        IntWidth::I32
+    ));
+}
+
+// can_overflow: Bottom range never overflows
+
+#[test]
+fn bottom_range_never_overflows() {
+    // Bottom + anything = Bottom → fits in any width
+    assert!(!overflow::can_overflow(
+        BinaryOp::Add,
+        ValueRange::Bottom,
+        ValueRange::Bottom,
+        IntWidth::I8
+    ));
+}
+
+// recommend_strategy
+
+#[test]
+fn strategy_proven_safe_when_no_overflow() {
+    let lhs = ValueRange::Bounded { lo: 0, hi: 50 };
+    let rhs = ValueRange::Bounded { lo: 0, hi: 50 };
+    assert_eq!(
+        overflow::recommend_strategy(BinaryOp::Add, lhs, rhs, IntWidth::I8),
+        OverflowStrategy::ProvenSafe,
+    );
+}
+
+#[test]
+fn strategy_widen_when_fits_in_next_wider() {
+    // [0, 100] + [0, 100] = [0, 200] — overflows i8, fits i16
+    let lhs = ValueRange::Bounded { lo: 0, hi: 100 };
+    let rhs = ValueRange::Bounded { lo: 0, hi: 100 };
+    assert_eq!(
+        overflow::recommend_strategy(BinaryOp::Add, lhs, rhs, IntWidth::I8),
+        OverflowStrategy::WidenCompute {
+            intermediate_width: IntWidth::I16,
+        },
+    );
+}
+
+#[test]
+fn strategy_widen_i16_to_i32() {
+    // [0, 30000] + [0, 30000] = [0, 60000] — overflows i16, fits i32
+    let lhs = ValueRange::Bounded { lo: 0, hi: 30_000 };
+    let rhs = ValueRange::Bounded { lo: 0, hi: 30_000 };
+    assert_eq!(
+        overflow::recommend_strategy(BinaryOp::Add, lhs, rhs, IntWidth::I16),
+        OverflowStrategy::WidenCompute {
+            intermediate_width: IntWidth::I32,
+        },
+    );
+}
+
+#[test]
+fn strategy_widen_to_i64_for_large_multiplication() {
+    // [0, 100_000] * [0, 100_000] = [0, 10_000_000_000] — overflows i32
+    // Next wider is I64, and the result fits in I64 → WidenCompute { I64 }
+    //
+    // Note: UseCanonical is currently unreachable with signed i64 as the
+    // canonical type — any overflow at I8/I16/I32 always fits in the
+    // next-wider type, and I64 is the ceiling. UseCanonical exists for
+    // forward compatibility (future unsigned narrowing or i128).
+    let lhs = ValueRange::Bounded { lo: 0, hi: 100_000 };
+    let rhs = ValueRange::Bounded { lo: 0, hi: 100_000 };
+    assert_eq!(
+        overflow::recommend_strategy(BinaryOp::Mul, lhs, rhs, IntWidth::I32),
+        OverflowStrategy::WidenCompute {
+            intermediate_width: IntWidth::I64,
+        },
+    );
+}
+
+#[test]
+fn strategy_canonical_for_i64_target() {
+    // I64 has no next-wider type → UseCanonical when overflow detected
+    // But Top + Top at I64 doesn't overflow I64 since fits_in(I64) returns true for Top
+    // So let's use a case where the transfer function returns Top
+    let lhs = ValueRange::Top;
+    let rhs = ValueRange::Top;
+    // For Add with Top inputs, range_add returns Top, and Top.fits_in(I64) = true
+    // So this is actually ProvenSafe for i64 target
+    assert_eq!(
+        overflow::recommend_strategy(BinaryOp::Add, lhs, rhs, IntWidth::I64),
+        OverflowStrategy::ProvenSafe,
+        "i64 target with Top range is proven safe (canonical = no overflow)"
+    );
+}
+
+// Semantic pin: strategy progression (ProvenSafe < WidenCompute < UseCanonical)
+
+#[test]
+fn semantic_pin_strategy_progression() {
+    // Same operation, decreasing target width → escalating strategies
+    let lhs = ValueRange::Bounded { lo: 0, hi: 100 };
+    let rhs = ValueRange::Bounded { lo: 0, hi: 100 };
+
+    // At i16: [0,200] fits → ProvenSafe
+    assert_eq!(
+        overflow::recommend_strategy(BinaryOp::Add, lhs, rhs, IntWidth::I16),
+        OverflowStrategy::ProvenSafe,
+    );
+
+    // At i8: [0,200] overflows i8, fits i16 → WidenCompute to i16
+    assert_eq!(
+        overflow::recommend_strategy(BinaryOp::Add, lhs, rhs, IntWidth::I8),
+        OverflowStrategy::WidenCompute {
+            intermediate_width: IntWidth::I16,
+        },
+    );
+}
+
+// Semantic pin: all arithmetic ops × overflow detection
+
+#[test]
+fn semantic_pin_all_arithmetic_ops_overflow_detection() {
+    let small = ValueRange::Bounded { lo: 0, hi: 10 };
+    let large = ValueRange::Bounded { lo: 0, hi: 200 };
+
+    // Add: [0,10] + [0,200] = [0,210] — overflows i8
+    assert!(overflow::can_overflow(
+        BinaryOp::Add,
+        small,
+        large,
+        IntWidth::I8
+    ));
+
+    // Sub: [0,10] - [0,200] = [-200,10] — overflows i8
+    assert!(overflow::can_overflow(
+        BinaryOp::Sub,
+        small,
+        large,
+        IntWidth::I8
+    ));
+
+    // Mul: [0,10] * [0,200] = [0,2000] — overflows i8
+    assert!(overflow::can_overflow(
+        BinaryOp::Mul,
+        small,
+        large,
+        IntWidth::I8
+    ));
+
+    // Div: [0,200] / [1,10] — result ≤ 200, overflows i8
+    let divisor = ValueRange::Bounded { lo: 1, hi: 10 };
+    assert!(overflow::can_overflow(
+        BinaryOp::Div,
+        large,
+        divisor,
+        IntWidth::I8
+    ));
+
+    // Mod: [0,200] % [1,10] — result ∈ [0,9], fits i8
+    assert!(!overflow::can_overflow(
+        BinaryOp::Mod,
+        large,
+        divisor,
+        IntWidth::I8
+    ));
+
+    // Shl: [0,10] << [0,3] — result up to 80, fits i8
+    let shift = ValueRange::Bounded { lo: 0, hi: 3 };
+    assert!(!overflow::can_overflow(
+        BinaryOp::Shl,
+        small,
+        shift,
+        IntWidth::I8
+    ));
+
+    // Shl: [0,10] << [0,8] — result up to 2560, overflows i8
+    let big_shift = ValueRange::Bounded { lo: 0, hi: 8 };
+    assert!(overflow::can_overflow(
+        BinaryOp::Shl,
+        small,
+        big_shift,
+        IntWidth::I8
+    ));
 }

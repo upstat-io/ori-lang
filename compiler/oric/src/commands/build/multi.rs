@@ -191,16 +191,21 @@ pub(super) struct ModuleCompileContext<'a> {
 }
 
 /// Information about a compiled module, including its function signatures.
-struct CompiledModuleInfo {
+pub(super) struct CompiledModuleInfo {
     /// Path to the source file.
-    path: PathBuf,
+    pub(super) path: PathBuf,
     /// Module name for mangling.
     #[allow(dead_code, reason = "kept for debugging and potential future use")]
-    module_name: String,
+    pub(super) module_name: String,
     /// Public function signatures (`mangled_name`, `param_types`, `return_type`).
     /// These are the actual types from type checking, not defaults.
     /// The mangled name is pre-computed to avoid needing the interner later.
-    public_functions: Vec<(String, Vec<ori_types::Idx>, ori_types::Idx)>,
+    pub(super) public_functions: Vec<(String, Vec<ori_types::Idx>, ori_types::Idx)>,
+    /// Exported type metadata (repr attrs + visibility) for cross-module repr
+    /// plan construction. Imported modules' metadata is fed into `ReprPlan` so
+    /// that `pub` and `#repr(...)` types are not incorrectly narrowed.
+    /// See CROSS-04-014 and CROSS-04-015.
+    pub(super) exported_type_metadata: Vec<ori_types::ExportedTypeMetadata>,
 }
 
 /// Compile a single module to an object file.
@@ -266,6 +271,12 @@ fn compile_single_module(
         ctx.mangler,
     );
 
+    // Collect exported type metadata from imported modules for repr plan
+    // construction. This ensures imported `pub` and `#repr(...)` types are
+    // correctly exempted from integer narrowing. See CROSS-04-015.
+    let imported_type_metadata =
+        collect_imported_type_metadata(source_path, ctx.graph, compiled_modules);
+
     // Compile to LLVM IR (with ARC cache if available).
     // Salsa/ArtifactCache boundary: typed() results flow into codegen via
     // function content hashes; ArcIrCache provides Layer 1 caching.
@@ -280,6 +291,7 @@ fn compile_single_module(
         &source_path_str,
         &module_name,
         &imported_functions,
+        &imported_type_metadata,
         ctx.arc_cache.as_ref(),
         ctx.module_hash
             .as_ref()
@@ -299,10 +311,20 @@ fn compile_single_module(
     // Configure target, optimize, and emit object/bitcode
     let obj_path = emit_module_artifact(ctx, &llvm_module, &module_name)?;
 
+    // Merge imported metadata into this module's exports so that re-exported
+    // `pub` / `#repr(...)` types propagate transitively through module chains.
+    // Without this, A→B→C loses C's metadata when A imports only B.
+    // See TPR-04-016.
+    let exported_type_metadata = merge_forwarded_metadata(
+        type_result.typed.exported_type_metadata.clone(),
+        &imported_type_metadata,
+    );
+
     let module_info = CompiledModuleInfo {
         path: source_path.to_path_buf(),
         module_name,
         public_functions,
+        exported_type_metadata,
     };
 
     Some((obj_path, module_info))
@@ -404,4 +426,70 @@ fn build_import_infos(
     }
 
     imported_functions
+}
+
+/// Merge imported metadata into a module's own exported type metadata.
+///
+/// When module B imports module C, C's `ExportedTypeMetadata` (repr attrs,
+/// public visibility) must be forwarded into B's exports. This ensures that
+/// when module A imports only B, it still receives C's metadata transitively.
+/// Without this forwarding, A's `ReprPlan` could incorrectly narrow C's
+/// `pub` or `#repr(...)` types. See TPR-04-016.
+///
+/// Deduplicates by `merkle_hash` — local entries take priority (first seen wins).
+pub(super) fn merge_forwarded_metadata(
+    local: Vec<ori_types::ExportedTypeMetadata>,
+    imported: &[ori_types::ExportedTypeMetadata],
+) -> Vec<ori_types::ExportedTypeMetadata> {
+    if imported.is_empty() {
+        return local;
+    }
+
+    let mut seen = rustc_hash::FxHashSet::default();
+    let mut result = Vec::with_capacity(local.len() + imported.len());
+
+    // Local entries first (take priority)
+    for entry in local {
+        if seen.insert(entry.merkle_hash) {
+            result.push(entry);
+        }
+    }
+
+    // Forwarded imports (skip duplicates)
+    for entry in imported {
+        if seen.insert(entry.merkle_hash) {
+            result.push(entry.clone());
+        }
+    }
+
+    result
+}
+
+/// Collect exported type metadata from all modules this module imports.
+///
+/// Mirrors `build_import_infos()` but collects `ExportedTypeMetadata` instead
+/// of function signatures. This metadata enables `ReprPlan` to correctly exempt
+/// imported `pub` and `#repr(...)` types from integer narrowing.
+/// See CROSS-04-014 and CROSS-04-015.
+pub(super) fn collect_imported_type_metadata(
+    source_path: &Path,
+    graph: &ori_llvm::aot::incremental::deps::DependencyGraph,
+    compiled_modules: &[CompiledModuleInfo],
+) -> Vec<ori_types::ExportedTypeMetadata> {
+    let Some(imports) = graph.get_imports(source_path) else {
+        return Vec::new();
+    };
+
+    let module_index: rustc_hash::FxHashMap<&Path, &CompiledModuleInfo> = compiled_modules
+        .iter()
+        .map(|m| (m.path.as_path(), m))
+        .collect();
+
+    let mut metadata = Vec::new();
+    for import_path in imports {
+        if let Some(module_info) = module_index.get(import_path.as_path()) {
+            metadata.extend(module_info.exported_type_metadata.iter().cloned());
+        }
+    }
+    metadata
 }

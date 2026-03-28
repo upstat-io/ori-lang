@@ -2,7 +2,7 @@
 //!
 //! These tests verify internal consistency of the registry data.
 //! Cross-crate validation tests (comparing against `ori_types`, `ori_eval`, etc.)
-//! are deferred to Section 09/14 where the dependency exists.
+//! live in the consuming crates where the dependency exists.
 
 use crate::defs::*;
 use crate::{MemoryStrategy, OpStrategy, Ownership, ReturnTag, TypeParamArity, TypeTag};
@@ -10,7 +10,7 @@ use crate::{MemoryStrategy, OpStrategy, Ownership, ReturnTag, TypeParamArity, Ty
 // Primitive type constants used across tests.
 const PRIMITIVE_TYPES: &[&crate::TypeDef] = &[&INT, &FLOAT, &BOOL, &BYTE, &CHAR];
 
-// 03.6a Registry-internal tests
+// Registry-internal tests
 
 #[test]
 fn no_duplicate_methods() {
@@ -81,7 +81,7 @@ fn methods_alphabetically_sorted() {
     }
 }
 
-// 03.6.1 Operator strategy correctness tests
+// Operator strategy correctness tests
 
 #[test]
 fn int_comparison_is_signed() {
@@ -177,7 +177,7 @@ fn byte_has_no_neg() {
     assert_eq!(BYTE.operators.neg, OpStrategy::Unsupported);
 }
 
-// 03.6.2 OpDefs field coverage test
+// OpDefs field coverage test
 
 #[test]
 fn opdefs_has_all_20_fields() {
@@ -266,7 +266,7 @@ fn bool_has_expected_methods() {
     );
 }
 
-// 04.5 STR type definition tests
+// STR type definition tests
 
 #[test]
 fn str_method_count() {
@@ -489,7 +489,7 @@ fn str_neq_uses_ori_str_ne() {
     }
 }
 
-// 14.1 Registry-level integrity tests
+// Registry-level integrity tests
 
 /// Every `TypeDef` must have at least one method.
 /// A type with zero methods provides no behavioral specification

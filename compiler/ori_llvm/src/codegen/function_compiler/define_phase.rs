@@ -348,7 +348,7 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
 
         // Lambda names are globally unique from lowering (include parent function
         // name: `__lambda_{parent}_{idx}`). No renaming needed — the AIMS contract
-        // map uses the same names, so ownership lookup succeeds. (BUG-04-07 fix)
+        // map uses the same names, so ownership lookup succeeds.
         let unique_name = lambda.name;
 
         let lambda_name_str = self.interner.lookup(unique_name);

@@ -815,7 +815,7 @@ fn rc_realloc_null_returns_null() {
 /// Directly tests the registry functions without going through `ori_rc_alloc`
 /// / `ori_rc_realloc`, which gate registry calls on `check_leaks_enabled()`
 /// — a `OnceLock`-cached env var that is non-deterministic in the shared
-/// test process. (TPR-05-004 fix, TPR-05-005 determinism fix)
+/// test process.
 #[test]
 fn alloc_registry_insert_update_query() {
     use crate::rc::{

@@ -599,7 +599,7 @@ fn null_iter_safety() {
     ori_iter_drop(ptr::null_mut()); // should not crash
 }
 
-// Output element size validation (TPR-01-005)
+// Output element size validation
 //
 // Consumer functions and ori_iter_next are `extern "C"`, so panics abort
 // rather than unwind. We test the assert_elem_size guard directly, then

@@ -129,6 +129,70 @@ pub fn compile_and_run(source: &str) -> i32 {
     exit_code
 }
 
+/// Compile and run a multi-file Ori program (entry + libraries), capturing output.
+///
+/// `files` is a list of `(filename, content)` pairs. The first file is the
+/// entry point passed to `ori build`. All files are written to the same temp
+/// directory so relative imports (`use "./lib" { ... }`) resolve correctly.
+///
+/// Returns `(exit_code, stdout, stderr)`. Enables `ORI_CHECK_LEAKS=1`.
+pub fn compile_multifile_and_run_capture(files: &[(&str, &str)]) -> (i32, String, String) {
+    static COUNTER: AtomicU64 = AtomicU64::new(0);
+
+    let id = COUNTER.fetch_add(1, Ordering::SeqCst);
+    let temp_dir = TempDir::new().expect("Failed to create temp dir");
+
+    // Write all source files
+    for (name, content) in files {
+        let path = temp_dir.path().join(name);
+        fs::write(&path, content).expect("Failed to write source");
+    }
+
+    let entry_path = temp_dir.path().join(files[0].0);
+    let binary_path = temp_dir
+        .path()
+        .join(format!("test_multi_{id}{}", std::env::consts::EXE_SUFFIX));
+
+    let compile_result = Command::new(ori_binary())
+        .args([
+            "build",
+            entry_path.to_str().unwrap(),
+            "-o",
+            binary_path.to_str().unwrap(),
+        ])
+        .env("ORI_STDLIB", stdlib_path())
+        .output()
+        .expect("Failed to execute ori build");
+
+    if !compile_result.status.success() {
+        let stderr = String::from_utf8_lossy(&compile_result.stderr).to_string();
+        return (-1, String::new(), stderr);
+    }
+
+    let run_result = Command::new(&binary_path)
+        .env("ORI_CHECK_LEAKS", "1")
+        .output()
+        .expect("Failed to execute binary");
+
+    let exit_code = exit_code_from_status(run_result.status);
+    let stdout = String::from_utf8_lossy(&run_result.stdout).to_string();
+    let stderr = String::from_utf8_lossy(&run_result.stderr).to_string();
+    (exit_code, stdout, stderr)
+}
+
+/// Assert that a multi-file Ori program compiles and runs with exit code 0.
+///
+/// See [`compile_multifile_and_run_capture`] for the file format.
+pub fn assert_multifile_aot_success(files: &[(&str, &str)], test_name: &str) {
+    let (exit_code, _, stderr) = compile_multifile_and_run_capture(files);
+    match exit_code {
+        0 => {} // success
+        2 => panic!("{test_name} leaked memory:\n{stderr}"),
+        -1 => panic!("{test_name} compilation failed:\n{stderr}"),
+        code => panic!("{test_name} failed with exit code {code}:\n{stderr}"),
+    }
+}
+
 /// Assert that a program compiles and runs with exit code 0.
 ///
 /// Automatically enables ARC leak detection (`ORI_CHECK_LEAKS=1`) in the

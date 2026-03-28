@@ -19,7 +19,9 @@ use super::super::function_compiler::FunctionCompiler;
 use super::clone_rc::emit_clone_field_rc_inc;
 
 use super::field_ops::emit_field_operation;
-use super::string_helpers::{emit_field_to_string, emit_str_concat, emit_str_literal};
+use super::string_helpers::{
+    emit_field_to_string, emit_str_concat, emit_str_literal, emit_str_rc_dec,
+};
 use super::{emit_derive_return, setup_derive_function, DeriveSetup};
 
 /// FNV-1a offset basis (64-bit).
@@ -269,7 +271,10 @@ pub(super) fn compile_format_fields<'a>(
         if include_names {
             let label = format!("{field_name_str}: ");
             let label_str = emit_str_literal(fc, &label, &format!("label.{i}"), str_ty_id);
+            let old = result;
             result = emit_str_concat(fc, result, label_str, &format!("cat.label.{i}"), str_ty_id);
+            emit_str_rc_dec(fc, old, &format!("dec.pre_label.{i}"));
+            emit_str_rc_dec(fc, label_str, &format!("dec.label.{i}"));
         }
 
         let field_val =
@@ -284,17 +289,26 @@ pub(super) fn compile_format_fields<'a>(
                 &format!("fmt.{field_name_str}"),
                 str_ty_id,
             );
+            let old = result;
             result = emit_str_concat(fc, result, field_str, &format!("cat.val.{i}"), str_ty_id);
+            emit_str_rc_dec(fc, old, &format!("dec.pre_val.{i}"));
+            emit_str_rc_dec(fc, field_str, &format!("dec.val.{i}"));
         }
 
         if i + 1 < fields.len() {
             let sep = emit_str_literal(fc, separator, &format!("sep.{i}"), str_ty_id);
+            let old = result;
             result = emit_str_concat(fc, result, sep, &format!("cat.sep.{i}"), str_ty_id);
+            emit_str_rc_dec(fc, old, &format!("dec.pre_sep.{i}"));
+            emit_str_rc_dec(fc, sep, &format!("dec.sep.{i}"));
         }
     }
 
     let suffix_str = emit_str_literal(fc, suffix, "suffix", str_ty_id);
+    let old = result;
     result = emit_str_concat(fc, result, suffix_str, "cat.suffix", str_ty_id);
+    emit_str_rc_dec(fc, old, "dec.pre_suffix");
+    emit_str_rc_dec(fc, suffix_str, "dec.suffix");
 
     emit_derive_return(fc, setup.func_id, &setup.abi, Some(result));
 }

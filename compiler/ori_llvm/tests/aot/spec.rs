@@ -1902,9 +1902,7 @@ fn test_aot_string_interpolation() {
     );
 }
 
-// =========================================================================
-// Section 11.1 — While-like loops (loop + conditional break)
-// =========================================================================
+// While-like loops (loop + conditional break)
 
 #[test]
 fn test_aot_while_pattern_basic() {
@@ -1942,9 +1940,7 @@ fn test_aot_while_pattern_with_accumulator() {
     );
 }
 
-// =========================================================================
-// Section 11.1 — catch(expr:) panic recovery
-// =========================================================================
+// catch(expr:) panic recovery
 
 #[test]
 fn test_aot_catch_success() {
@@ -1989,9 +1985,7 @@ fn test_aot_catch_div_by_zero() {
     );
 }
 
-// =========================================================================
-// Section 11.1 — Generic functions
-// =========================================================================
+// Generic functions
 
 #[test]
 fn test_aot_generic_identity() {
@@ -2073,9 +2067,7 @@ fn test_aot_generic_two_specializations() {
     );
 }
 
-// =========================================================================
-// Section 11.1 — Map collection operations
-// =========================================================================
+// Map collection operations
 
 #[test]
 fn test_aot_map_literal_length() {
@@ -2104,9 +2096,7 @@ fn test_aot_map_is_empty() {
     );
 }
 
-// =========================================================================
-// Section 11.1 — List operations
-// =========================================================================
+// List operations
 
 #[test]
 fn test_aot_list_push() {
@@ -2172,9 +2162,7 @@ fn test_aot_list_empty_operations() {
     );
 }
 
-// =========================================================================
-// Section 11.1 — Struct with RC fields (ARC stress)
-// =========================================================================
+// Struct with RC fields (ARC stress)
 
 #[test]
 fn test_aot_struct_with_list_field() {
@@ -2224,9 +2212,7 @@ type Person = { name: str, role: str }
     );
 }
 
-// =========================================================================
-// Section 11.1 — Closures: zero capture, multiple capture, nested
-// =========================================================================
+// Closures: zero capture, multiple capture, nested
 
 #[test]
 fn test_aot_closure_zero_capture() {
@@ -2258,9 +2244,7 @@ fn test_aot_closure_capturing_closure() {
     );
 }
 
-// =========================================================================
-// Section 11.1 — Enumerate iterator (produces tuples)
-// =========================================================================
+// Enumerate iterator (produces tuples)
 
 #[test]
 fn test_aot_iter_enumerate() {
@@ -2275,9 +2259,7 @@ fn test_aot_iter_enumerate() {
     );
 }
 
-// =========================================================================
-// Section 11.1 — Deep nesting stress
-// =========================================================================
+// Deep nesting stress
 
 #[test]
 fn test_aot_match_inside_loop_inside_if() {
@@ -2305,9 +2287,7 @@ fn test_aot_match_inside_loop_inside_if() {
     );
 }
 
-// =========================================================================
-// Section 11.1 — Comparison operators on structs (via trait dispatch)
-// =========================================================================
+// Comparison operators on structs (via trait dispatch)
 
 #[test]
 fn test_aot_derive_eq_struct_not_equal() {
@@ -2362,9 +2342,7 @@ type Score = { points: int, bonus: int };
     );
 }
 
-// =========================================================================
-// Section 11.1 — Panic and error handling (non-catch)
-// =========================================================================
+// Panic and error handling (non-catch)
 
 #[test]
 fn test_aot_panic_basic() {
@@ -2406,9 +2384,7 @@ fn test_aot_result_unwrap_ok() {
     );
 }
 
-// =========================================================================
-// Section 11.1 — ARC: collections of RC'd values (more patterns)
-// =========================================================================
+// ARC: collections of RC'd values (more patterns)
 
 #[test]
 fn test_aot_struct_with_list_and_string() {
@@ -2441,9 +2417,7 @@ type Outer = { inner: Inner, count: int };
     );
 }
 
-// =========================================================================
-// Section 11.1 — For-yield with complex expressions
-// =========================================================================
+// For-yield with complex expressions
 
 #[test]
 fn test_aot_for_yield_with_filter() {

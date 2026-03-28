@@ -9,12 +9,19 @@
 //! `ReprPlan::var_range()`, applies conservatism rules, and writes back
 //! narrowed `MachineRepr` into the plan.
 //!
-//! Three phases:
+//! Four modules:
+//! - **`abi`** (§04.2): ABI boundary classification and widening policy
+//! - **`int`** (§04.1): Struct/tuple field narrowing (Phase A)
+//! - **`overflow`** (§04.3, future): Overflow guard insertion
+//!
+//! Three narrowing phases:
 //! - **Phase A** (§04.1): Struct/tuple field narrowing via field-summary ranges
 //! - **Phase B** (§04.2–§04.3): Local variable narrowing + overflow guards
 //! - **Phase C** (§04.4): Collection element narrowing
 
+pub mod abi;
 pub mod int;
+pub mod overflow;
 
 #[cfg(test)]
 mod tests;

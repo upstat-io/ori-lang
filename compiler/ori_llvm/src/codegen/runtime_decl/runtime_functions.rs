@@ -1142,6 +1142,16 @@ pub(crate) static RT_FUNCTIONS: &[RtFn] = &[
         attrs: &[Attr::Nounwind, Attr::MemArgmemRW],
         jit_allowed: true,
     },
+    // Drop function for plain string buffers (no nested elements).
+    // Reads data_size from the RC header and calls ori_rc_free.
+    // Used as drop_fn argument to ori_str_rc_dec in derive format codegen.
+    RtFn {
+        name: "ori_str_drop_buffer",
+        params: &[Ty::Ptr],
+        ret: None,
+        attrs: &[Attr::Nounwind],
+        jit_allowed: true,
+    },
     // Slice-aware string RC dec: handles SSO, heap, and seamless slices.
     RtFn {
         name: "ori_str_rc_dec",

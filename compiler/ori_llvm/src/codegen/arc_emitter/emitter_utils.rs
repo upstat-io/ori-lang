@@ -188,11 +188,186 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         self.def_var(v, EmittedValue::from_repr(repr, val));
     }
 
+    /// §04.4 Phase B: Compute which local variables should use narrow int types.
+    ///
+    /// Scans all variables in the function and checks if their value range
+    /// (from the `ReprPlan`) fits in a narrower integer type. Function
+    /// parameters are excluded (no visibility info in ARC IR — conservative).
+    pub(super) fn compute_narrowed_vars(&mut self, func: &ArcFunction) {
+        use ori_types::Tag;
+
+        self.narrowed_vars.clear();
+
+        let Some(plan) = self.type_resolver.repr_plan() else {
+            return;
+        };
+
+        // Collect parameter variable IDs for exclusion.
+        let param_vars: rustc_hash::FxHashSet<ArcVarId> =
+            func.params.iter().map(|p| p.var).collect();
+
+        // Check each variable in the function.
+        for (raw_idx, &ty_idx) in func.var_types.iter().enumerate() {
+            let var = ArcVarId::new(raw_idx as u32);
+
+            // Skip function parameters (can't distinguish pub from private).
+            if param_vars.contains(&var) {
+                continue;
+            }
+
+            // Only narrow int-typed variables.
+            let resolved = self.pool.resolve_fully(ty_idx);
+            if self.pool.tag(resolved) != Tag::Int {
+                continue;
+            }
+
+            // Query the range analysis for this variable.
+            let range = plan.var_range(func.name, var);
+            let width = range.min_width();
+
+            // Only record if narrower than canonical i64.
+            if width != ori_repr::IntWidth::I64 {
+                self.narrowed_vars.insert(var, width);
+            }
+        }
+
+        if !self.narrowed_vars.is_empty() {
+            tracing::debug!(
+                func = func.name.raw(),
+                count = self.narrowed_vars.len(),
+                "§04.4 Phase B: narrowed local variables"
+            );
+        }
+    }
+
+    /// §04.4 Phase B: Get the LLVM integer type for a given `IntWidth`.
+    pub(super) fn llvm_type_for_int_width(&mut self, width: ori_repr::IntWidth) -> LLVMTypeId {
+        let scx = self.builder.scx();
+        let ty = match width {
+            ori_repr::IntWidth::I8 => scx.type_i8().into(),
+            ori_repr::IntWidth::I16 => scx.type_i16().into(),
+            ori_repr::IntWidth::I32 => scx.type_i32().into(),
+            ori_repr::IntWidth::I64 => scx.type_i64().into(),
+        };
+        self.builder.register_type(ty)
+    }
+
     /// Look up the LLVM block for an ARC block.
     ///
     /// Panics if the block is a dead unwind block (no LLVM block was created).
     pub(super) fn block(&self, b: ori_arc::ir::ArcBlockId) -> super::BlockId {
         self.block_map[b.index()]
             .expect("block() called for dead unwind block — invariant violated")
+    }
+
+    /// Truncate struct field values from canonical width (i64) to narrowed
+    /// field width (i8/i16/i32) when constructing a narrowed struct.
+    ///
+    /// Returns a new `Vec` with truncated values where needed. Values whose
+    /// LLVM type already matches the struct field type pass through unchanged.
+    ///
+    /// Only truncates fields whose pool type is `Tag::Int` (canonical i64) —
+    /// naturally narrow types (Byte → i8, Char → i32) are not affected.
+    ///
+    /// This is the construction-side half of §04.4 integer narrowing codegen.
+    /// The extraction-side half is [`sext_narrowed_field`](Self::sext_narrowed_field).
+    pub(super) fn trunc_for_narrowed_struct(
+        &mut self,
+        struct_ty_id: LLVMTypeId,
+        args: &[ValueId],
+        ctor_type: Idx,
+    ) -> Vec<ValueId> {
+        use inkwell::types::BasicTypeEnum;
+        use ori_types::Tag;
+
+        let raw_ty = self.builder.arena.get_type(struct_ty_id);
+        let BasicTypeEnum::StructType(st) = raw_ty else {
+            return args.to_vec();
+        };
+
+        // Get the struct/tuple field types from the pool.
+        let resolved = self.pool.resolve_fully(ctor_type);
+        let pool_tag = self.pool.tag(resolved);
+        let field_pool_types: Vec<Idx> = if pool_tag == Tag::Struct {
+            self.pool
+                .struct_fields(resolved)
+                .into_iter()
+                .map(|(_, idx)| idx)
+                .collect()
+        } else if pool_tag == Tag::Tuple {
+            self.pool.tuple_elems(resolved)
+        } else {
+            return args.to_vec();
+        };
+
+        args.iter()
+            .enumerate()
+            .map(|(i, &val)| {
+                // Only truncate when the pool field type is Int (canonical i64)
+                // but the struct field is narrower.
+                let is_int_field = field_pool_types
+                    .get(i)
+                    .is_some_and(|&idx| self.pool.tag(self.pool.resolve_fully(idx)) == Tag::Int);
+                if !is_int_field {
+                    return val;
+                }
+                let Some(BasicTypeEnum::IntType(field_int)) = st.get_field_type_at_index(i as u32)
+                else {
+                    return val;
+                };
+                let field_bits = field_int.get_bit_width();
+                if field_bits >= 64 {
+                    return val;
+                }
+                let v = self.builder.arena.get_value(val);
+                if !v.is_int_value() {
+                    return val;
+                }
+                let val_bits = v.into_int_value().get_type().get_bit_width();
+                if val_bits > field_bits {
+                    let field_ty_id = self.builder.register_type(field_int.into());
+                    self.builder
+                        .trunc(val, field_ty_id, &format!("narrow.trunc.{i}"))
+                } else {
+                    val
+                }
+            })
+            .collect()
+    }
+
+    /// Sign-extend a narrowed struct field value (i8/i16/i32) back to
+    /// canonical width (i64) after extraction.
+    ///
+    /// Only extends when the ARC IR destination type is `Tag::Int` (expects
+    /// canonical i64) but the extracted value is narrower — this ensures
+    /// naturally narrow types (Byte → i8, Char → i32) are not affected.
+    ///
+    /// This is the extraction-side half of §04.4 integer narrowing codegen.
+    pub(super) fn sext_narrowed_field(
+        &mut self,
+        extracted: ValueId,
+        field_index: u32,
+        dst_type: Idx,
+    ) -> ValueId {
+        use ori_types::Tag;
+
+        // Only sext when the destination expects i64 (Tag::Int).
+        let resolved = self.pool.resolve_fully(dst_type);
+        if self.pool.tag(resolved) != Tag::Int {
+            return extracted;
+        }
+        let v = self.builder.arena.get_value(extracted);
+        if !v.is_int_value() {
+            return extracted;
+        }
+        let bits = v.into_int_value().get_type().get_bit_width();
+        if bits >= 64 {
+            return extracted;
+        }
+        let i64_ty = self
+            .builder
+            .register_type(self.builder.scx.type_i64().into());
+        self.builder
+            .sext(extracted, i64_ty, &format!("narrow.sext.{field_index}"))
     }
 }

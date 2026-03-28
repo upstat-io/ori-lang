@@ -177,7 +177,7 @@ type Doc = { content: str }
     );
 }
 
-// BUG-04-03b: Derived Eq on struct with [str] using heap-backed strings
+// Derived Eq on struct with [str] using heap-backed strings
 // Regression: ori_list_eq_scalar did byte-level memcmp which fails for heap
 // strings (different data pointers but identical content).
 #[test]
@@ -199,7 +199,7 @@ type Words = { items: [str] }
     );
 }
 
-// BUG-04-03b: Multiple heap strings in a list
+// Multiple heap strings in a list
 #[test]
 fn test_fm_eq_list_multiple_heap_str() {
     assert_aot_success(
@@ -220,7 +220,7 @@ type Doc = { lines: [str] }
     );
 }
 
-// BUG-04-03b: Empty list equality
+// Empty list equality
 #[test]
 fn test_fm_eq_list_empty() {
     assert_aot_success(
@@ -241,7 +241,7 @@ type Container = { items: [str] }
     );
 }
 
-// BUG-04-03b: Mixed SSO and heap strings in a list
+// Mixed SSO and heap strings in a list
 #[test]
 fn test_fm_eq_list_mixed_str() {
     assert_aot_success(
@@ -259,7 +259,7 @@ type MixedDoc = { items: [str] }
     );
 }
 
-// BUG-04-03c: Map equality with composite value type {str: [int]}
+// Map equality with composite value type {str: [int]}
 #[test]
 fn test_fm_eq_map_composite_list_val() {
     assert_aot_success(
@@ -280,7 +280,7 @@ type Wrapper = { m: {str: [int]} }
     );
 }
 
-// BUG-04-03c: Map equality with str value type (non-primitive)
+// Map equality with str value type (non-primitive)
 #[test]
 fn test_fm_eq_map_str_val() {
     assert_aot_success(
@@ -301,7 +301,7 @@ type Config = { settings: {int: str} }
     );
 }
 
-// BUG-04-03c: Map equality — str keys with int values (base case, should still work)
+// Map equality — str keys with int values (base case, should still work)
 #[test]
 fn test_fm_eq_map_primitive_val() {
     assert_aot_success(
@@ -322,7 +322,7 @@ type Counts = { m: {str: int} }
     );
 }
 
-// TPR-04-003: Derived Eq on struct with [Option<str>] — wrapper elements
+// Derived Eq on struct with [Option<str>] — wrapper elements
 // require deep comparison but were missed by needs_deep_comparison().
 #[test]
 fn test_fm_eq_list_option_str() {
@@ -344,7 +344,7 @@ type Wrap = { items: [Option<str>] }
     );
 }
 
-// TPR-04-003: Derived Eq on struct with [Option<str>] — both None
+// Derived Eq on struct with [Option<str>] — both None
 #[test]
 fn test_fm_eq_list_option_str_both_none() {
     assert_aot_success(
@@ -362,7 +362,7 @@ type Wrap = { items: [Option<str>] }
     );
 }
 
-// TPR-04-004: Derived Eq on struct with {str: Option<str>} — wrapper map values
+// Derived Eq on struct with {str: Option<str>} — wrapper map values
 #[test]
 fn test_fm_eq_map_option_str_val() {
     assert_aot_success(
@@ -383,7 +383,7 @@ type Config = { m: {str: Option<str>} }
     );
 }
 
-// TPR-04-003/004: Derived Eq with Option field directly (not nested in list/map)
+// Derived Eq with Option field directly (not nested in list/map)
 #[test]
 fn test_fm_eq_option_field_direct() {
     assert_aot_success(
@@ -407,8 +407,8 @@ type MaybeNamed = { name: Option<str>, id: int }
     );
 }
 
-// TPR-04-003: Derived Eq with Result<str, str> in list
-// Uses SSO-length strings to avoid pre-existing [Result<str,str>] RC leak
+// Derived Eq with Result<str, str> in list
+// Uses SSO-length strings to avoid [Result<str,str>] RC leak
 // (heap strings in Result list elements leak — tracked in rc-integrity plan).
 #[test]
 fn test_fm_eq_list_result_str() {
@@ -430,7 +430,7 @@ type Outcomes = { results: [Result<str, str>] }
     );
 }
 
-// TPR-04-003: Derived Eq with (int, str) tuple in list
+// Derived Eq with (int, str) tuple in list
 #[test]
 fn test_fm_eq_list_tuple() {
     assert_aot_success(
@@ -451,7 +451,7 @@ type Pairs = { items: [(int, str)] }
     );
 }
 
-// TPR-04-005: Direct [Named] list equality where Named has fat fields
+// Direct [Named] list equality where Named has fat fields
 #[test]
 fn test_fm_eq_list_fat_struct() {
     assert_aot_success(
@@ -472,7 +472,7 @@ type Named = { name: str, id: int }
     );
 }
 
-// TPR-04-005: Struct with [Named] field (compute_elem_size must use LLVM layout)
+// Struct with [Named] field (compute_elem_size must use LLVM layout)
 #[test]
 fn test_fm_eq_struct_with_list_of_fat_struct() {
     assert_aot_success(
@@ -496,7 +496,7 @@ type Container = { items: [Named] }
     );
 }
 
-// TPR-04-005: Equality on empty [Named] list (edge case)
+// Equality on empty [Named] list (edge case)
 #[test]
 fn test_fm_eq_list_fat_struct_empty() {
     assert_aot_success(
@@ -514,7 +514,7 @@ type Named = { name: str, id: int }
     );
 }
 
-// TPR-04-005: Map with fat-struct values
+// Map with fat-struct values
 #[test]
 fn test_fm_eq_map_fat_struct_value() {
     assert_aot_success(
