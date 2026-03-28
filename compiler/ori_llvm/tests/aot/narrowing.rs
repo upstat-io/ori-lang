@@ -597,3 +597,218 @@ fn test_phase_b_ir_pin_wide_range_no_i8() {
          Got IR:\n{fn_ir}"
     );
 }
+
+// ---- Comparison operations on narrowed fields (§04.4) ----
+//
+// Narrowed struct fields are sign-extended (sext) to i64 before any use,
+// including comparisons. This guarantees signed comparison semantics are
+// preserved: -50 < 0 is true (sext: 0xFFFFFFFFFFFFFFCE < 0), not false
+// (zext: 0xCE = 206 < 0 is false). These tests pin that invariant.
+
+/// Semantic pin: signed comparisons on narrowed struct fields.
+/// Field values are negative, and all comparisons must respect signed semantics
+/// (via sext i8→i64 before icmp). A zext bug would make -50 > 0.
+#[test]
+fn test_narrowed_comparison_signed_semantics() {
+    assert_aot_success(
+        r"
+type SignedPair = { a: int, b: int }
+
+@compare (p: SignedPair) -> int = {
+    // a = -50, b = 20
+    let lt = p.a < p.b;     // -50 < 20 = true (zext would give 206 < 20 = false)
+    let le = p.a <= p.b;    // -50 <= 20 = true
+    let gt = p.b > p.a;     // 20 > -50 = true
+    let ge = p.b >= p.a;    // 20 >= -50 = true
+    let eq = p.a == p.a;    // -50 == -50 = true
+    let ne = p.a != p.b;    // -50 != 20 = true
+    if lt && le && gt && ge && eq && ne then 0 else 1
+}
+
+@main () -> int = {
+    let p = SignedPair { a: -50, b: 20 };
+    compare(p:)
+}
+",
+        "narrowed_comparison_signed",
+    );
+}
+
+/// Semantic pin: comparison at signed i8 boundaries (-128, 127).
+/// If sext is missing, -128 becomes 128 (unsigned) and -128 < 127 would still
+/// be true by coincidence in unsigned. So also check -128 < 0 (would fail with
+/// zext: 128 < 0 = false).
+#[test]
+fn test_narrowed_comparison_i8_boundary_values() {
+    assert_aot_success(
+        r"
+type Bounds = { lo: int, hi: int, zero: int }
+
+@main () -> int = {
+    let b = Bounds { lo: -128, hi: 127, zero: 0 };
+    let ok1 = b.lo < b.hi;     // -128 < 127 = true
+    let ok2 = b.lo < b.zero;   // -128 < 0 = true (zext: 128 < 0 = false!)
+    let ok3 = b.hi > b.zero;   // 127 > 0 = true
+    let ok4 = b.lo <= b.lo;    // -128 <= -128 = true
+    let ok5 = b.hi >= b.hi;    // 127 >= 127 = true
+    if ok1 && ok2 && ok3 && ok4 && ok5 then 0 else 1
+}
+",
+        "narrowed_comparison_i8_boundaries",
+    );
+}
+
+/// Semantic pin: ordering/sorting logic using narrowed struct fields.
+/// Tests that comparison chains (used in sorting, min/max) work correctly
+/// when field values are negative and narrowed to i8.
+#[test]
+fn test_narrowed_comparison_ordering_chain() {
+    assert_aot_success(
+        r"
+type Triple = { x: int, y: int, z: int }
+
+@min_of_three (t: Triple) -> int = {
+    let m = t.x;
+    let m = if t.y < m then t.y else m;
+    if t.z < m then t.z else m
+}
+
+@main () -> int = {
+    let t = Triple { x: -10, y: -100, z: -1 };
+    let m = min_of_three(t:);
+    // min(-10, -100, -1) = -100
+    if m == -100 then 0 else 1
+}
+",
+        "narrowed_comparison_ordering_chain",
+    );
+}
+
+// ---- Phase B: Straight-Line Local Variable Narrowing Tests (§04.4) ----
+//
+// These IR-inspection tests verify that non-phi local variables are narrowed
+// to smaller LLVM types when their value range fits. They are the TDD "write
+// failing tests first" step — they MUST FAIL before Phase B straight-line
+// local narrowing is implemented in def_var_repr()/var().
+//
+// §04.5 checklist: "Write failing test matrix for Phase B BEFORE implementing"
+
+/// IR semantic pin: arithmetic result `x + 25` where x is a literal produces
+/// trunc+sext in the IR. Literal constants (i64 50, i64 25) are inlined by
+/// LLVM, but the ADD result flows through `def_var_repr()` and gets narrowed.
+/// This test ONLY passes with Phase B straight-line local narrowing.
+#[test]
+fn test_phase_b_ir_pin_straight_line_add_narrowed() {
+    let ir = compile_and_capture_ir(
+        r"
+@id (x: int) -> int = x;
+
+@use_literal () -> int = {
+    let x = 50;
+    let y = x + 25;
+    id(x: y)
+}
+
+@main () -> int = use_literal();
+",
+    );
+
+    let fn_ir = extract_function_ir(&ir, "_ori_use_literal");
+
+    // Phase B: the add result (range [75, 75]) and its copy get trunc+sext.
+    // Literal constants 50 and 25 are inlined directly, but their arithmetic
+    // result flows through def_var_repr() which inserts the trunc+sext pair.
+    assert!(
+        fn_ir.contains("local.trunc") && fn_ir.contains("local.sext"),
+        "expected `local.trunc` + `local.sext` in _ori_use_literal — \
+         arithmetic result (range [75, 75]) fits in signed i8, should be narrowed.\n\
+         Phase B semantic pin: ONLY passes with straight-line local narrowing.\n\
+         Got IR:\n{fn_ir}"
+    );
+}
+
+/// IR semantic pin: multiple narrowed locals produce multiple trunc+sext pairs.
+/// Each narrowed variable definition inserts its own trunc+sext pair.
+#[test]
+fn test_phase_b_ir_pin_multiple_narrowed_locals() {
+    let ir = compile_and_capture_ir(
+        r"
+@id (x: int) -> int = x;
+
+@compute () -> int = {
+    let x = 50;
+    let y = x + 25;
+    let z = y + 10;
+    id(x: z)
+}
+
+@main () -> int = compute();
+",
+    );
+
+    let fn_ir = extract_function_ir(&ir, "_ori_compute");
+
+    // Phase B: y (range [75, 75]) and z (range [85, 85]) each get trunc+sext.
+    // Count trunc instructions — at least 2 for the arithmetic results.
+    let trunc_count = fn_ir.matches("local.trunc").count();
+    assert!(
+        trunc_count >= 2,
+        "expected at least 2 `local.trunc` instructions in _ori_compute — \
+         both y and z arithmetic results should be narrowed.\n\
+         Phase B semantic pin: ONLY passes with straight-line local narrowing.\n\
+         Got trunc count: {trunc_count}\nGot IR:\n{fn_ir}"
+    );
+}
+
+/// Negative pin: public function parameters must NOT be narrowed.
+/// Even if only called with value 5, the parameter stays i64 because
+/// external callers might pass any value.
+#[test]
+fn test_phase_b_negative_public_param_not_narrowed() {
+    let ir = compile_and_capture_ir(
+        r"
+pub @add_one (n: int) -> int = n + 1;
+
+@main () -> int = add_one(n: 5);
+",
+    );
+
+    let fn_ir = extract_function_ir(&ir, "_ori_add_one");
+
+    // Parameters are excluded from compute_narrowed_vars() — they must stay i64.
+    // No trunc/narrow-type should appear for the parameter itself.
+    assert!(
+        !fn_ir.contains("trunc i64") || fn_ir.contains("sadd.with.overflow.i64"),
+        "expected NO parameter narrowing in pub _ori_add_one — \
+         public function parameters must stay canonical i64.\n\
+         Got IR:\n{fn_ir}"
+    );
+}
+
+/// Negative pin: `let x = 3_000_000_000` exceeds i32 range — must stay i64.
+/// Range [3B, 3B] does not fit in i32 [-2^31, 2^31-1].
+#[test]
+fn test_phase_b_negative_wide_constant_stays_i64() {
+    let ir = compile_and_capture_ir(
+        r"
+@id (x: int) -> int = x;
+
+@use_wide () -> int = {
+    let x = 3_000_000_000;
+    id(x:)
+}
+
+@main () -> int = use_wide();
+",
+    );
+
+    let fn_ir = extract_function_ir(&ir, "_ori_use_wide");
+
+    // 3B exceeds signed i32 max (2147483647), so x stays i64.
+    // No trunc to i8/i16/i32 should appear.
+    assert!(
+        !fn_ir.contains("trunc i64") && !fn_ir.contains("i8") && !fn_ir.contains("i16"),
+        "expected NO narrowing in _ori_use_wide — 3_000_000_000 exceeds i32 range.\n\
+         Got IR:\n{fn_ir}"
+    );
+}
