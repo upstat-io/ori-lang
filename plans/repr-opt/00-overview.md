@@ -328,7 +328,7 @@ This is intentional (internal to `ori_arc`). §08.5's option (b) — passing esc
 |----|-------|------|--------|
 | 01 | Representation IR & Decision Framework | `section-01-repr-ir.md` | In Progress (99%) |
 | 02 | Transitive Triviality & ARC Elision | `section-02-transitive-triviality.md` | Complete |
-| 03 | Value Range Analysis Framework | `section-03-range-analysis.md` | Complete |
+| 03 | Value Range Analysis Framework | `section-03-range-analysis.md` | In Progress (TPR-03-041, TPR-03-042 open) |
 | 04 | Integer Narrowing Pipeline | `section-04-integer-narrowing.md` | In Progress (33%) |
 | 05 | Float Narrowing Pipeline | `section-05-float-narrowing.md` | Not Started |
 | 06 | Struct & Tuple Layout Optimization | `section-06-struct-layout.md` | Not Started |
