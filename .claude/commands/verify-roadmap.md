@@ -1,6 +1,6 @@
 # Verify Roadmap Command
 
-Systematically verify roadmap items using parallel subagents. This command does NOT implement features — it only verifies status, audits test quality, enforces matrix coverage, and annotates/reopens items that need better tests.
+Systematically verify AND expand roadmap sections using parallel subagents. Two-phase process: (1) review agents audit existing items and identify gaps against each section's stated mission, (2) update agents apply findings back into the section files — which is the entire point of this command.
 
 ## Usage
 
@@ -16,44 +16,72 @@ Systematically verify roadmap items using parallel subagents. This command does 
 
 ## Core Principle
 
-**Verification only, no implementation.** For each item:
+**Verify what exists. Expand for what's missing. Write it all back.**
 
-1. **Can verify → verified** — Tests pass, feature works, matrix coverage adequate → mark `[x]`
-2. **Cannot verify → annotate + pending** — Insufficient tests, missing matrix dimensions, no semantic pins → add concrete test tasks, leave `[ ]`
-3. **Reopen if needed** — A previously-completed `[x]` item that fails matrix/pin checks gets reopened to `[ ]` with specific missing test tasks
-4. **Move on** — Never fix code, never write features, just verify, annotate, and reopen
+This command has two jobs:
+
+1. **Verify** — Audit existing items: do tests pass, are they correct, is matrix coverage adequate, do semantic pins exist?
+2. **Expand** — Compare what the section *lists* against what it would *actually take* to fulfill the section's stated goal/mission. Identify missing functionality, missing tests, and missing items. A section that checks every listed box but doesn't achieve its stated goal is incomplete.
+
+For each existing item:
+- **Can verify → verified** — Tests pass, feature works, matrix coverage adequate → mark `[x]`
+- **Cannot verify → annotate + pending** — Insufficient tests, missing matrix dimensions, no semantic pins → add concrete test tasks, leave `[ ]`
+- **Reopen if needed** — A previously-completed `[x]` item that fails matrix/pin checks gets reopened to `[ ]` with specific missing test tasks
+
+For the section as a whole:
+- **Read the section's stated goal/mission** — the title, description, and any goal statements
+- **Ask: if every listed item were completed, would the goal be fulfilled?** If not, identify what's missing
+- **Add missing items** — new `- [ ]` entries for functionality, tests, or work needed to actually achieve the goal
+- **Never fix code, never write features** — only verify status, annotate deficiencies, and expand the plan
 
 ---
 
 ## Workflow
 
-### Architecture: Parallel Agents with Supervisor
+### Architecture: Two-Phase — Review Then Update
 
-Verification uses **parallel subagents** to process sections concurrently, with the main context acting as supervisor.
+The command runs in two distinct phases:
+
+**Phase 1 — Review**: Parallel subagents audit sections and write findings to temp files. Read-only — they do NOT modify section files.
+
+**Phase 2 — Update**: After ALL reviews complete, a second set of parallel agents takes the review findings and applies them to the actual section files. This is the deliverable.
 
 ```
 Main Context (Supervisor)
-├── Batch 1: Launch agents for sections 0, 1, 2 (in background)
-│   ├── Agent: section-00-parser.md → writes results to temp file
-│   ├── Agent: section-01-type-system.md → writes results to temp file
-│   └── Agent: section-02-type-inference.md → writes results to temp file
-├── Monitor: Check agent outputs, verify they're auditing tests properly
-├── Collect: Read results, apply to section files
-├── Batch 2: Launch next batch...
+│
+├── PHASE 1: REVIEW (read-only)
+│   ├── Batch 1: Launch review agents for sections 0, 1, 2 (in background)
+│   │   ├── Agent: section-00 → writes findings to .verify-results/section-00-results.md
+│   │   ├── Agent: section-01 → writes findings to .verify-results/section-01-results.md
+│   │   └── Agent: section-02 → writes findings to .verify-results/section-02-results.md
+│   ├── Monitor: Verify agents loaded context, audited tests, assessed matrix/pins
+│   ├── Batch 2: Next batch of review agents...
+│   └── All reviews collected
+│
+├── PHASE 2: UPDATE (writes section files)
+│   ├── Launch update agents in parallel (one per section with findings)
+│   │   ├── Agent: reads section-00-results.md → updates section-00-parser.md
+│   │   ├── Agent: reads section-01-results.md → updates section-01-type-system.md
+│   │   └── Agent: reads section-02-results.md → updates section-02-type-inference.md
+│   ├── Each agent: applies status changes, annotations, expansions, new items
+│   └── Supervisor: validates updates, resolves conflicts
+│
 └── Final: Update frontmatter, commit checkpoint
 ```
 
-**Batch size**: 3-4 sections per batch (avoids overwhelming system resources with test runs).
+**Batch size (Phase 1)**: 3-4 sections per batch (avoids overwhelming system resources with concurrent `cargo test` runs).
 
-**Why batches, not all-at-once**: Agents run tests via `cargo`, which involves compilation. Concurrent `cargo test` invocations for different packages can conflict. Batching keeps parallelism manageable.
+**Phase 2 parallelism**: All update agents can run in parallel since they each write to different section files — no test conflicts.
 
-### Step 1: Plan Batches
+### Phase 1: Review
+
+#### Step 1: Plan Batches
 
 Read all section files. Group into batches of 3-4 sections, ordered by section number. If the user specified a single section, skip batching — just run one agent.
 
-### Step 2: Launch Agent Batch
+#### Step 2: Launch Review Agent Batch
 
-For each batch, launch parallel `general-purpose` subagents using the Task tool with `run_in_background: true`. Each agent receives:
+For each batch, launch parallel `general-purpose` subagents using the Agent tool with `run_in_background: true`. Each agent receives:
 
 1. The section file path
 2. The spec directory path (`docs/ori_lang/v2026/spec/`)
@@ -95,36 +123,73 @@ After reading, report what you loaded at the top of your results file:
 
 This is non-negotiable. An agent that skips reading these files will miss critical context about matrix testing requirements, semantic pin expectations, and fix completeness criteria. The supervisor MUST verify that agent results begin with the "Context loaded" line showing all files were read. If the line is missing or shows fewer than 20 rules files, the agent's results are unreliable — re-run the section.
 
-### Step 3: Supervisor Monitoring
+#### Step 3: Supervisor Monitoring
 
-While agents run, the main context:
+While review agents run, the main context:
 
 1. **Periodically checks agent output** using Read on the output files
 2. **Verifies agents loaded full context** — look for "Context loaded: CLAUDE.md (read), rules/*.md (N files read)" at the top of results. If missing, the agent skipped context loading and its results are unreliable — re-run the section.
 3. **Verifies agents are actually reading tests** — look for evidence of file reads, not just "tests pass"
 4. **Verifies agents assess matrix coverage** — look for "Matrix assessment" blocks with type/pattern/backend dimensions. An agent that marks items verified without matrix assessment is REJECTED.
 5. **Verifies agents check for semantic pins** — look for "Semantic pin:" lines. An agent that marks items verified without identifying a pin is REJECTED.
-6. **Flags agents that appear to skip any of the above** — if an agent marks items verified without showing context loading, test reads, matrix assessment, AND pin identification, intervene and re-verify
-7. **Collects completed results** as agents finish
+6. **Verifies agents performed gap analysis** — look for "Gap analysis" block. An agent that doesn't analyze whether listed items fulfill the section's stated goal is INCOMPLETE.
+7. **Flags agents that appear to skip any of the above** — if an agent marks items verified without showing context loading, test reads, matrix assessment, pin identification, AND gap analysis, intervene and re-verify
+8. **Collects completed results** as agents finish
 
-### Step 4: Apply Results
+#### Step 4: Next Batch or Collect
 
-After a batch completes, the main context:
+If more review batches remain, go to Step 2. Otherwise, proceed to Phase 2.
 
-1. Reads each agent's results file
-2. Applies the status updates and annotations to the actual section files
-3. Updates frontmatter statuses
-4. Reports the batch summary
-
-### Step 5: Next Batch or Commit
-
-If more batches remain, go to Step 2. Otherwise, commit checkpoint.
+**Do NOT apply findings to section files during Phase 1.** Review agents are read-only. All findings accumulate in `.verify-results/` temp files.
 
 ---
 
-## Agent Verification Protocol
+### Phase 2: Update Section Files
 
-Each subagent follows this protocol for every item in its assigned section:
+**This is the entire point of the command.** After ALL Phase 1 review agents have completed, launch update agents to write findings back into the actual roadmap section files.
+
+#### Step 5: Launch Update Agents
+
+For each section that has a results file in `.verify-results/`, launch a parallel `general-purpose` agent. Each update agent receives:
+
+1. The review results file: `plans/roadmap/.verify-results/section-XX-results.md`
+2. The section file to update: `plans/roadmap/section-XX-*.md`
+3. Instructions to apply ALL findings from the review
+
+All update agents can run in parallel — they each modify a different section file, so there are no conflicts.
+
+**Each update agent MUST:**
+
+1. **Read the review results file** in full
+2. **Read the current section file** in full
+3. **Apply every finding** from the review:
+   - Update checkbox status (`[x]` / `[ ]`) based on verification results
+   - Add annotations (WEAK TESTS, INCOMPLETE MATRIX, NEEDS PIN, WRONG TEST, STALE TEST, NEEDS TESTS, BUG FOUND, REGRESSION) with specific sub-items
+   - Reopen previously-completed `[x]` items that failed matrix/pin checks
+   - **Add new `- [ ]` items** for missing functionality identified in gap analysis
+   - **Add new `- [ ]` test items** for missing test coverage
+   - Add verification dates on verified items: `(verified YYYY-MM-DD)`
+4. **Update frontmatter** — status, last_verified date
+5. **Preserve existing structure** — don't reorder sections, don't remove items, don't change item wording (only status and annotations)
+
+#### Step 6: Supervisor Validates Updates
+
+After update agents complete, the supervisor:
+
+1. Reads each updated section file
+2. Validates that all findings from the results file were applied
+3. Checks frontmatter consistency (see TPR consistency checks below)
+4. Reports the final summary
+
+#### Step 7: Commit Checkpoint
+
+After validation, commit all section file changes. Report summary to user.
+
+---
+
+## Phase 1: Review Agent Protocol
+
+Each review subagent follows this protocol for its assigned section. Results go to `.verify-results/` — agents do NOT modify section files.
 
 ### For Each Item (Sequential within agent)
 
@@ -366,9 +431,61 @@ When reopening:
 
 **This is not punitive — it's protective.** An item without matrix coverage is a future regression waiting to happen. Reopening ensures the test gaps are visible and tracked in the planning system, not buried as invisible assumptions.
 
-#### 2e. Report Progress
+#### 2e. Section-Level Gap Analysis
 
-After each item, briefly report (include test audit result + matrix/pin status):
+**After verifying all individual items, step back and analyze the section as a whole.** This is where expansion happens.
+
+1. **Re-read the section's title, description, and goal/mission statement** — what does this section claim to accomplish?
+
+2. **Ask: "If every listed item (even the unchecked ones) were completed, would this section's stated goal be fulfilled?"**
+   - If YES → gap analysis complete, note "No gaps found"
+   - If NO → identify what's missing
+
+3. **Identify missing items in these categories:**
+
+   **MISSING FUNCTIONALITY** — features or capabilities not listed but required by the goal:
+   ```markdown
+   MISSING FUNCTIONALITY (gap analysis):
+   - [ ] **Implement**: [feature] — required by section goal "[goal]" but not listed
+   - [ ] **Implement**: [feature] — spec clause N.M requires this but section omits it
+   ```
+
+   **MISSING TESTS** — test coverage that doesn't exist for any listed item:
+   ```markdown
+   MISSING TESTS (gap analysis):
+   - [ ] **Ori Tests**: tests/spec/path/to/new_test.ori — [what needs testing]
+   - [ ] **Rust Tests**: compiler/crate/src/module/tests.rs — [what needs testing]
+   ```
+
+   **MISSING ITEMS** — work items needed to bridge gaps (integration, wiring, docs, etc.):
+   ```markdown
+   MISSING ITEMS (gap analysis):
+   - [ ] Wire [feature X] to [feature Y] — both listed separately but integration not tracked
+   - [ ] Add error handling for [edge case] — spec requires it, no item covers it
+   ```
+
+4. **Check the spec** — read relevant spec clauses for this section's domain. Does the spec define behaviors that no listed item covers?
+
+5. **Check the codebase** — are there TODOs, FIXMEs, or `#[ignore]`/`#skip` markers in the code that relate to this section's domain but aren't tracked?
+
+6. **Report gap analysis results:**
+   ```
+   Gap analysis for Section 4 — Modules:
+     Section goal: "Complete module system with imports, exports, visibility, and resolution"
+     Listed items cover: imports, exports, visibility
+     GAPS FOUND:
+       - Module resolution algorithm not listed (spec clause 8.4 requires it)
+       - Re-export chains (`pub use` through multiple modules) — no item or test
+       - Circular import detection — mentioned in spec but not tracked
+       - 3 #skip tests in tests/spec/modules/ reference untracked issues
+     Items to add: 4 functionality, 2 test, 1 integration
+   ```
+
+**This is the most important step.** A section where every checkbox is green but the stated goal isn't achievable is worse than one with honest gaps — it creates false confidence. Expand the section to match reality.
+
+#### 2f. Report Progress
+
+After all items + gap analysis, report per-item results and gap summary:
 ```
 V 1.1.1 Primitive int type — VERIFIED (3 tests, matrix 8/8, pin: overflow_panics)
 X 1.1.2 Duration arithmetic — INCOMPLETE MATRIX (tests pass but only int+int, 3/12 cells)
@@ -376,15 +493,17 @@ X 1.1.3 Size comparison — WRONG TEST (asserts Size > Size returns int, spec sa
 X 1.1.4 Duration literals — NEEDS TESTS (no tests found)
 X 1.1.5 list.map() — NEEDS PIN (15 tests pass but none uniquely identifies map behavior)
 X 1.1.6 iterator.zip() — REOPENED (was [x], matrix 2/10 cells, no pin)
++ GAP: 3 missing functionality items, 2 missing test items (see gap analysis)
 ```
 
 ### Frontmatter Updates
 
-After applying results to a section, the supervisor updates frontmatter:
+Phase 2 update agents apply frontmatter changes:
 - All items `[x]` → `status: complete`
 - Mixed → `status: in-progress`
 - All items `[ ]` → `status: not-started`
 - **Any reopened items** → section status MUST change to `in-progress` (even if it was `complete`)
+- **Any new items added from gap analysis** → section status MUST be `in-progress`
 
 #### Third Party Review Consistency Checks
 
@@ -398,16 +517,21 @@ The supervisor must also validate `third_party_review` frontmatter consistency:
 
 Report any TPR consistency fixes alongside normal frontmatter updates in the batch summary.
 
-### Batch Commit Checkpoints
+### Commit Checkpoint (Phase 2 only)
 
-After each batch completes, the supervisor offers to commit:
+Commits happen after Phase 2 update agents have written findings into section files — never after Phase 1 alone.
+
 ```
-Batch 1 verification complete (Sections 0, 1, 2).
-- Section 0: 95/115 verified, 20 need attention
-- Section 1: 100/124 verified, 24 need attention
-- Section 2: 30/38 verified, 8 need attention
+Verification complete (Sections 0, 1, 2).
+Phase 1 (review): All sections reviewed
+Phase 2 (update): All section files updated
 
-Commit checkpoint? (Allows resuming later with /verify-roadmap continue)
+Section 0 — Parser:
+  Verified: 95/115 | Reopened: 0 | New items from gap analysis: 3
+Section 1 — Type System:
+  Verified: 100/124 | Reopened: 5 | New items from gap analysis: 7
+Section 2 — Type Inference:
+  Verified: 30/38 | Reopened: 0 | New items from gap analysis: 2
 ```
 
 ---
@@ -504,13 +628,15 @@ Bad:
 - Track what needs attention
 
 ### If You Find a Bug:
+
+In the review results, note it:
 ```markdown
 - [ ] **Implement**: Feature X
   - BUG FOUND: [brief description]
   - Should be fixed before marking complete
 ```
 
-Do NOT fix it. Just document and move on.
+Additionally, invoke `/add-bug` to file it in the bug tracker. Do NOT fix it — just document and file.
 
 ---
 
@@ -546,9 +672,9 @@ Or specify where to start:
 
 ## Output Format
 
-### Agent Per-Item Output (in results file)
+### Phase 1 Agent Output (in results file)
 
-Each agent writes its results in this format per item:
+Each review agent writes its results in this format — per item, then gap analysis:
 ```
 ─── Verifying 1.1.1: int type ───
 Context loaded: CLAUDE.md (read), rules/*.md (20 files read), spec/clause-3.md (read)
@@ -565,20 +691,39 @@ Matrix assessment:
   Coverage: 12/12 cells
 Semantic pin: line 12 `assert_panics(expr: () -> int_max + 1)` — uniquely fails without overflow check
 Status: VERIFIED (sound, matrix 12/12, pin: overflow_panics)
+
+─── ... more items ... ───
+
+═══ Gap Analysis: Section 1 — Type System ═══
+Section goal: "Complete type system with primitives, compounds, generics, and type rules"
+Listed items cover: primitives, compounds, generics, basic rules
+GAPS FOUND:
+  MISSING FUNCTIONALITY:
+  - [ ] **Implement**: Recursive type validation — spec clause 3.7 requires cycle detection
+  - [ ] **Implement**: Type alias transparency rules — spec says aliases are structurally transparent
+  MISSING TESTS:
+  - [ ] **Ori Tests**: tests/spec/types/recursive_validation.ori — no tests for recursive types
+  - [ ] **Rust Tests**: compiler/ori_types/src/check/recursive/tests.rs — cycle detection unit tests
+  MISSING ITEMS:
+  - [ ] Integration: generic type bounds with compound types — both listed but interaction untested
+  #skip markers found: 2 in tests/spec/types/ referencing untracked issues
+  TODOs found: 1 in compiler/ori_types/src/check/mod.rs:142 — "TODO: handle recursive newtypes"
+Items to add: 2 functionality, 2 test, 1 integration
 ```
 
-**Critical**: Agents MUST show evidence of (1) reading CLAUDE.md + rules, (2) reading test files, (3) matrix assessment, (4) pin identification. A result like this is REJECTED by the supervisor:
+**Critical**: Agents MUST show evidence of (1) reading CLAUDE.md + rules, (2) reading test files, (3) matrix assessment, (4) pin identification, (5) gap analysis. A result like this is REJECTED by the supervisor:
 ```
 ─── Verifying 1.1.1: int type ───
 Tests found: tests/spec/types/primitives.ori
 Tests run: pass
 Status: VERIFIED
 ```
-(No context-loading evidence, no audit, no matrix, no pin — supervisor will flag this agent and re-verify.)
+(No context-loading evidence, no audit, no matrix, no pin, no gap analysis — supervisor will flag this agent and re-verify.)
 
-### Supervisor Batch Summary
+### Final Summary (after Phase 2)
 ```
-═══ Batch 1 Complete (Sections 0, 1, 2) ═══
+═══ Verification Complete (Sections 0, 1, 2) ═══
+Phase 1: All sections reviewed | Phase 2: All section files updated
 
 Section 0 — Parser:
   Verified:           95/115
@@ -588,6 +733,7 @@ Section 0 — Parser:
   Needs tests:        12
   Regressions:         0
   Reopened:            0
+  New items (gaps):    3  <-- added from gap analysis
 
 Section 1 — Type System:
   Verified:          100/124
@@ -598,6 +744,7 @@ Section 1 — Type System:
   Needs tests:         6
   Regressions:         2
   Reopened:            5  <-- previously [x] items downgraded
+  New items (gaps):    7  <-- added from gap analysis
 
   Items needing attention:
   - 1.1A.5: float precision — INCOMPLETE MATRIX (only 1.0+2.0, 2/8 cells)
@@ -606,22 +753,27 @@ Section 1 — Type System:
   - 1.1A.12: Duration LLVM arithmetic — REGRESSION
   - 1.2.3: list.map() — REOPENED, was [x] — INCOMPLETE MATRIX (only [int], 3/15 cells)
   - 1.2.7: iterator.zip() — REOPENED, was [x] — NEEDS PIN (no unique regression guard)
+  - NEW: recursive type validation — MISSING FUNCTIONALITY (spec clause 3.7)
+  - NEW: type alias transparency — MISSING FUNCTIONALITY (spec says structurally transparent)
 
 Section 2 — Type Inference:
   Verified:      30/38
   Needs tests:    5
   Needs pin:      3
+  New items (gaps): 2
 ```
 
 ---
 
 ## Files Modified
 
-Only modifies:
-- `plans/roadmap/section-*.md` — Status and annotations
-- `plans/roadmap/.verify-results/` — Temporary agent results (can be deleted after verification)
+**Phase 1 creates (temp):**
+- `plans/roadmap/.verify-results/section-XX-results.md` — Review agent findings (can be deleted after Phase 2)
 
-Never modifies:
+**Phase 2 modifies (the deliverable):**
+- `plans/roadmap/section-*.md` — Status updates, annotations, reopened items, AND new items from gap analysis
+
+**Never modifies:**
 - Any code files
 - Any test files
-- Anything outside `plans/roadmap/`
+- Anything outside `plans/roadmap/` (except bug tracker via `/add-bug`)

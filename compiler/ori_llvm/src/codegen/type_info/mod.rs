@@ -23,6 +23,7 @@
 mod info;
 mod layout_resolver;
 mod store;
+pub(crate) mod type_size;
 
 pub use info::{EnumVariantInfo, TypeInfo};
 pub use layout_resolver::TypeLayoutResolver;

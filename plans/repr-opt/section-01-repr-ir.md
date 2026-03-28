@@ -5,8 +5,8 @@ status: in-progress
 reviewed: true
 third_party_review:
   status: resolved
-  updated: 2026-03-25
-  note: "All 64 TPR findings resolved. TPR-01-064 (stale orphan-attribute diagnostic) fixed 2026-03-25."
+  updated: 2026-03-28
+  note: "All 65 TPR findings resolved. TPR-01-065 (layout_resolver.rs file size) fixed 2026-03-28 via type_size.rs extraction."
 goal: "Create the ReprPlan data structure that records all narrowing decisions, integrated into the compilation pipeline between type checking and LLVM codegen"
 inspired_by:
   - "Lean4 LCNF phase separation (src/Lean/Compiler/LCNF/)"
@@ -43,7 +43,7 @@ sections:
     status: complete
   - id: "01.10"
     title: "Completion Checklist"
-    status: in-progress
+    status: complete
 ---
 
 # Section 01: Representation IR & Decision Framework
@@ -1267,6 +1267,9 @@ Canonical representations are the foundation — if they're wrong, every optimiz
 - [x] `[TPR-01-064][medium]` `compiler/ori_parse/src/lib.rs:564` — The orphan-attribute diagnostic still says attrs must be followed by a function or test definition even though §25.4 now allows additional declaration kinds.
   Resolved: Fixed on 2026-03-25. Updated diagnostic message at all 4 sites (full-parse EOF, incremental EOF, declaration-error with attrs+identifier, declaration-error with attrs+non-declaration token) from "function or test definition" to "declaration (function, type, impl, constant, import, or test)" matching spec §25.4. Also fixed stale comment at declaration-error branch. 4 diagnostic pin tests added to `attr_validation.rs` checking full message text across all code paths. 13,953 tests pass.
 
+- [x] `[TPR-01-065][medium]` `compiler/ori_llvm/src/codegen/type_info/layout_resolver.rs:1` — §01.8’s live migration file is back over the repo’s 500-line production-file limit, but §01.10 still marks the hygiene gate complete.
+  Resolved: Fixed on 2026-03-28. Extracted `type_store_size()` and `type_store_size_inner()` into new `type_info/type_size.rs` module (44 lines). `layout_resolver.rs` reduced from 524→493 lines. Delegation method preserved on `TypeLayoutResolver` so all external callers unchanged. 14,341 tests pass.
+
 ---
 
 ## 01.10 Completion Checklist
@@ -1280,7 +1283,7 @@ Canonical representations are the foundation — if they're wrong, every optimiz
 - [x] `#![deny(unsafe_code)]` in `ori_repr/src/lib.rs` (2026-03-24). Line 30.
 - [x] `//!` module doc on every `.rs` file in `ori_repr/src/` (2026-03-24). All 7 source files have module docs.
 - [x] `///` doc on all `pub` types and functions (2026-03-24). Verified via audit.
-- [x] No production source file exceeds 500 lines (tests.rs exempt) (2026-03-25). `attr/mod.rs` split: 937→389L (+ 3 submodules). `build_options/mod.rs` split: 505→405L (+ `parse_args.rs` 108L).
+- [x] No production source file exceeds 500 lines (tests.rs exempt) (2026-03-28). `attr/mod.rs` split: 937→389L (+ 3 submodules). `build_options/mod.rs` split: 505→405L (+ `parse_args.rs` 108L). `layout_resolver.rs` split: 524→493L (+ `type_size.rs` 46L).
 - [x] Tests in sibling `tests.rs` with `#[cfg(test)] mod tests;` in `lib.rs` (2026-03-24). Lines 41-42.
 - [x] `MachineRepr` enum has variants for ALL type kinds (2026-03-24): Int, Float, Bool, Char, Byte, Duration, Size, Ordering, Unit, Never, Struct, Enum, Tuple, RcPointer, FatPointer, Closure, Range, StackPromoted, OpaquePtr.
 - [x] `ReprPlan` populates canonical representations for all reachable `Tag` variants (2026-03-24). §01.9 tests cover the 29-type matrix:
@@ -1394,6 +1397,6 @@ Canonical representations are the foundation — if they're wrong, every optimiz
 - [x] **Formatter**: Add `#repr` emission to `format_type_decl()` between `#cfg` and `#derive` per canonical order (2026-03-25).
 - [x] **Golden tests**: 4 files: `types/repr_attr.ori`, `types/repr_with_target.ori`, `impls/conditional_attrs.ori`, `comments/edge/impl_conditional_attrs.ori` (2026-03-25).
 - [x] `./test-all.sh` green (2026-03-25). 13,933 passed, 0 failed.
-- [ ] `/tpr-review` passed — independent Codex review found no critical or major issues (or all findings triaged)
+- [x] `/tpr-review` passed (2026-03-28) — TPR-01-065 found and fixed (layout_resolver.rs file size). Re-run confirmed clean: no new findings. 14,341 tests pass.
 
 **Exit Criteria:** `ori_repr` crate exists, `ReprPlan` is threaded through the entire LLVM codegen pipeline, all existing tests pass with identical behavior, `cargo test -p ori_repr --release` passes, and `ORI_LOG=ori_repr=trace ori build tests/benchmarks/bench_small.ori` shows `ReprPlan query` events for every type in the program.
