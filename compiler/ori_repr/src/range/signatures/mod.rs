@@ -260,13 +260,17 @@ fn collect_param_ranges(
     // Check if this function is unconstrained — pub, trait impl, or closure.
     // Unconstrained functions may be called from external code or via dynamic
     // dispatch, so their parameter ranges must stay Top (full i64 range).
-    // Extract self-type from the first parameter to disambiguate same-named
-    // methods across different types (TPR-03-042).
+    // Check if this function is unconstrained. We check both (None, name) for
+    // pub top-level functions and (Some(self_type), name) for trait impl methods.
+    // The self-type is derived from the first parameter (TPR-03-042).
     let self_type = target_func
         .params
         .first()
         .map(|p| target_func.var_type(p.var));
-    let unconstrained = if plan.is_unconstrained_fn(self_type, target_func.name) {
+    let is_pub_unconstrained = plan.is_unconstrained_fn(None, target_func.name);
+    let is_trait_impl_unconstrained =
+        self_type.is_some_and(|st| plan.is_unconstrained_fn(Some(st), target_func.name));
+    let unconstrained = if is_pub_unconstrained || is_trait_impl_unconstrained {
         Some(UnconstrainedReason::PublicOrTraitImpl)
     } else if target_func.num_captures > 0 {
         Some(UnconstrainedReason::Closure)

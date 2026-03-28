@@ -332,7 +332,13 @@ pub(super) fn run_codegen_pipeline<'ctx>(
             }
             funcs
         };
-        let has_impl_methods = !type_result.typed.impl_sigs.is_empty();
+        // Only count non-generic impl methods — generic ones are skipped by
+        // the ARC lowering loop, so they don't enter the analysis set.
+        let has_impl_methods = type_result
+            .typed
+            .impl_sigs
+            .iter()
+            .any(|(_, sig)| !sig.is_generic());
         let repr_plan = super::repr_setup::compute_module_repr_plan(
             pool,
             &all_arc_funcs,
