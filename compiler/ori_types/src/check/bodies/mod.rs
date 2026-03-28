@@ -291,7 +291,7 @@ fn check_impl_block(
     for method in &impl_def.methods {
         check_impl_method(checker, method, self_type, &generic_params);
         if is_trait_impl {
-            checker.register_trait_impl_fn_name(method.name);
+            checker.register_trait_impl_fn_name(self_type, method.name);
         }
     }
 
@@ -307,7 +307,7 @@ fn check_impl_block(
                         if !overridden.contains(&default.name) {
                             let as_impl = ImplMethod::from(default);
                             check_impl_method(checker, &as_impl, self_type, &generic_params);
-                            checker.register_trait_impl_fn_name(default.name);
+                            checker.register_trait_impl_fn_name(self_type, default.name);
                         }
                     }
                 }

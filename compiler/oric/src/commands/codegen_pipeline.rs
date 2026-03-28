@@ -306,7 +306,33 @@ pub(super) fn run_codegen_pipeline<'ctx>(
         });
 
         // 3a. Compute representation plan (§01 — canonical reprs only).
-        let all_arc_funcs = super::repr_setup::collect_all_arc_functions(&arc_cache);
+        // Include impl methods in the analysis set so §03.5 range analysis
+        // sees their call sites (TPR-03-041). They are ARC-lowered into a
+        // separate vec (not the codegen arc_cache) to avoid interfering with
+        // compile_impls() which does its own ARC lowering for LLVM emission.
+        let all_arc_funcs = {
+            let mut funcs = super::repr_setup::collect_all_arc_functions(&arc_cache);
+            let mut impl_arc_problems = Vec::new();
+            for (name, sig) in &type_result.typed.impl_sigs {
+                if sig.is_generic() {
+                    continue;
+                }
+                let (arc_fn, lambdas) = crate::arc_lowering::lower_to_arc(
+                    *name,
+                    sig,
+                    *name,
+                    canon,
+                    interner,
+                    pool,
+                    &mut impl_arc_problems,
+                    None,
+                );
+                funcs.push(arc_fn);
+                funcs.extend(lambdas);
+            }
+            funcs
+        };
+        let has_impl_methods = !type_result.typed.impl_sigs.is_empty();
         let repr_plan = super::repr_setup::compute_module_repr_plan(
             pool,
             &all_arc_funcs,
@@ -314,6 +340,7 @@ pub(super) fn run_codegen_pipeline<'ctx>(
             type_result,
             Some(interner),
             imported_type_metadata,
+            has_impl_methods,
         );
 
         // Create type store with repr plan for triviality delegation (§02 Phase B).

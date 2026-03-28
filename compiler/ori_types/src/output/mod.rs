@@ -225,13 +225,17 @@ pub struct TypedModule {
     /// for impl methods, which are compiled separately from top-level functions.
     pub impl_sigs: Vec<(Name, FunctionSig)>,
 
-    /// Names of trait impl methods (subset of `impl_sigs`).
+    /// Trait impl method identities: `(self_type_idx, method_name)`.
     ///
     /// Trait impl methods may be called via dynamic dispatch with unknown
     /// arguments — their parameter ranges must stay Top in §03.5
     /// interprocedural range analysis. Inherent impl methods are NOT
     /// included (they have known call sites).
-    pub trait_impl_fn_names: Vec<Name>,
+    ///
+    /// The `Idx` is the self-type index (e.g., `Idx` for `Color` in
+    /// `impl Printable for Color { @to_str }`), disambiguating same-named
+    /// methods across different types (TPR-03-042).
+    pub trait_impl_fn_names: Vec<(Idx, Name)>,
 
     /// Monomorphization instances discovered during type checking.
     ///
