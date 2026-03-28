@@ -460,7 +460,9 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 let t = self.var(*true_val);
                 let f = self.var(*false_val);
                 let result = self.builder.select(c, t, f, "sel");
-                self.def_var(*dst, EmittedValue::Immediate(result));
+                // §04.4 Phase B: Select is a computation (branchless conditional),
+                // route through def_var_repr() for local narrowing.
+                self.def_var_repr(*dst, result, func);
             }
         }
     }
