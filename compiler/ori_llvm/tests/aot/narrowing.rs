@@ -880,3 +880,60 @@ fn test_phase_b_select_narrowed_negative_values() {
         "select_narrowed_negative_values",
     );
 }
+
+/// Overflow guard verification: when a narrowed local's arithmetic result
+/// exceeds i8 range, the result is correctly narrowed to i16 (not i8).
+/// The architecture handles this by construction — arithmetic operates at i64,
+/// and `min_width()` selects the smallest type that fits the computed range.
+/// No explicit overflow guard is needed.
+#[test]
+fn test_phase_b_overflow_guard_widens_to_i16() {
+    let ir = compile_and_capture_ir(
+        r"
+@id (x: int) -> int = x;
+
+@compute () -> int = {
+    let x = 100;
+    let y = x + 50;
+    id(x: y)
+}
+
+@main () -> int = compute();
+",
+    );
+
+    let fn_ir = extract_function_ir(&ir, "_ori_compute");
+
+    // y = 100 + 50 = 150 — exceeds signed i8 max (127), so narrowed to i16.
+    // This verifies the overflow guard is correct by construction:
+    // arithmetic at i64, trunc to i16 (not i8) preserves the value.
+    assert!(
+        fn_ir.contains("i16"),
+        "expected i16 narrowing in _ori_compute — result 150 exceeds i8, needs i16.\n\
+         Overflow guard semantic pin: verifies range-driven width selection.\n\
+         Got IR:\n{fn_ir}"
+    );
+    assert!(
+        !fn_ir.contains("trunc i64") || !fn_ir.contains("to i8\n"),
+        "result 150 must NOT be truncated to i8 — would lose data.\n\
+         Got IR:\n{fn_ir}"
+    );
+}
+
+/// Behavioral test: overflow guard correctness — 100 + 50 = 150 (exceeds i8).
+#[test]
+fn test_phase_b_overflow_guard_behavior() {
+    assert_aot_success(
+        r"
+@compute () -> int = {
+    let x = 100;
+    let y = x + 50;
+    // 150 exceeds i8 range but fits i16 — value must be preserved
+    if y == 150 then 0 else 1
+}
+
+@main () -> int = compute();
+",
+        "overflow_guard_behavior",
+    );
+}

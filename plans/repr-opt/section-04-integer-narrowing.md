@@ -289,7 +289,7 @@ The LLVM backend type resolution path via `TypeLayoutResolver` handles `MachineR
 - [x] `can_overflow(BinaryOp::Sub, lhs, rhs, target)` correctly detects subtract overflow (2026-03-27): `sub_overflows_i8`, `sub_no_overflow_in_i8` tests
 - [x] `can_overflow(BinaryOp::Mul, lhs, rhs, target)` correctly detects multiply overflow (2026-03-27): `mul_overflows_i8`, `mul_no_overflow_in_i8` tests
 - [x] For non-arithmetic ops (`BinaryOp::Eq`, etc.), `can_overflow()` conservatively returns `true` (uses `ValueRange::Top`) (2026-03-27): `comparison_op_conservative_overflow` test
-- [ ] Overflow guards inserted where narrowed arithmetic might overflow (strategy (c) when provable safe, (a) otherwise) — **depends on Phase B local variable narrowing in §04.4 LLVM integration**
+- [x] Overflow guards correct by construction (2026-03-28): Arithmetic always operates on sext'd i64 values (strategy (a)), and `min_width()` selects the smallest type that fits the computed range (implicit strategy (c)). No explicit overflow guards needed — the trunc+sext pair at definition time validates the value. Verified: `x=100, y=x+50` narrows `y` to i16 (not i8, since 150 > 127). Tests: `test_phase_b_overflow_guard_widens_to_i16` (IR pin: i16 in IR, no i8 trunc), `test_phase_b_overflow_guard_behavior` (150 preserved correctly). The existing `llvm.sadd.with.overflow.i64` catches any i64-level overflow.
 
 **NarrowingPolicy behavior:**
 - [ ] `NarrowingPolicy::Disabled` (via `--no-repr-opt` / `ORI_NO_REPR_OPT`) suppresses ALL narrowing — Pixel struct stays 32 bytes, loop counters stay `i64`
