@@ -2129,7 +2129,7 @@ fn pub_function_params_top_regardless_of_call_sites() {
 
     // With marking as unconstrained (pub) → helper gets Top
     let mut plan_public = crate::ReprPlan::new(crate::NarrowingPolicy::Aggressive);
-    plan_public.set_unconstrained_fn_names(std::iter::once(ori_ir::Name::from_raw(980)));
+    plan_public.set_unconstrained_fn_names(std::iter::once((None, ori_ir::Name::from_raw(980))));
     super::propagate_ranges(&mut plan_public, &pool, &funcs, &config);
     let pub_range = plan_public.var_range(ori_ir::Name::from_raw(980), v_hp);
     assert_eq!(
@@ -2195,7 +2195,11 @@ fn trait_impl_method_params_top() {
 
     // Mark as unconstrained (trait impl) → both params get Top
     let mut plan = crate::ReprPlan::new(crate::NarrowingPolicy::Aggressive);
-    plan.set_unconstrained_fn_names(std::iter::once(ori_ir::Name::from_raw(990)));
+    // Use Some(Idx::INT) to match the method's first param type (self).
+    plan.set_unconstrained_fn_names(std::iter::once((
+        Some(ori_types::Idx::INT),
+        ori_ir::Name::from_raw(990),
+    )));
     super::propagate_ranges(&mut plan, &pool, &funcs, &config);
 
     let self_range = plan.var_range(ori_ir::Name::from_raw(990), v_self);

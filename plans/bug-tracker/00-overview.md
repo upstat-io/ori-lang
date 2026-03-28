@@ -56,7 +56,7 @@ When resolved:
 | 01 | Parser & Lexer | `section-01-parser-lexer.md` | 0 |
 | 02 | Type Checker | `section-02-typeck.md` | 0 |
 | 03 | Evaluator | `section-03-eval.md` | 0 |
-| 04 | Codegen & LLVM | `section-04-codegen-llvm.md` | 1 |
+| 04 | Codegen & LLVM | `section-04-codegen-llvm.md` | 2 |
 | 05 | Runtime & ARC | `section-05-runtime-arc.md` | 0 |
 | 06 | Stdlib | `section-06-stdlib.md` | 0 |
 | 07 | Tooling & CLI | `section-07-tooling-cli.md` | 1 |

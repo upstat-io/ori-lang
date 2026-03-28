@@ -75,7 +75,7 @@ impl<'tcx> super::OwnedLLVMEvaluator<'tcx> {
         mut arc_cache: FxHashMap<Name, (ori_arc::ArcFunction, Vec<ori_arc::ArcFunction>)>,
         narrowing_policy: Option<ori_repr::NarrowingPolicy>,
         imported_type_metadata: &[ori_types::ExportedTypeMetadata],
-        trait_impl_fn_names: &[Name],
+        trait_impl_fn_names: &[(ori_types::Idx, Name)],
     ) -> Result<CompiledTestModule<'a>, LLVMEvalError> {
         // --- V2 pipeline ---
 
@@ -153,7 +153,7 @@ impl<'tcx> super::OwnedLLVMEvaluator<'tcx> {
         arc_cache: &mut FxHashMap<Name, (ori_arc::ArcFunction, Vec<ori_arc::ArcFunction>)>,
         narrowing_policy: Option<ori_repr::NarrowingPolicy>,
         imported_type_metadata: &[ori_types::ExportedTypeMetadata],
-        trait_impl_fn_names: &[Name],
+        trait_impl_fn_names: &[(ori_types::Idx, Name)],
     ) -> (FxHashMap<Name, String>, u32, Vec<String>) {
         // Type infrastructure
         let classifier = ori_arc::ArcClassifier::new(self.pool);
@@ -184,7 +184,7 @@ impl<'tcx> super::OwnedLLVMEvaluator<'tcx> {
             .collect();
         // Collect unconstrained function names (pub + trait impl) for §03.5.
         // Uses trait_impl_fn_names (not all impl_sigs) per TPR-03-038.
-        let unconstrained_fn_names: Vec<ori_ir::Name> =
+        let unconstrained_fn_names =
             crate::collect_unconstrained_fn_names(function_sigs, trait_impl_fn_names);
         let repr_plan = ori_repr::compute_repr_plan_with_interner(
             self.pool,
@@ -195,6 +195,7 @@ impl<'tcx> super::OwnedLLVMEvaluator<'tcx> {
             &pub_type_indices,
             imported_type_metadata,
             &unconstrained_fn_names,
+            false, // JIT path: all functions in the set are fully integrated
         );
         let store = TypeInfoStore::new_with_plan(self.pool, &repr_plan);
         let resolver = TypeLayoutResolver::new(&store, scx_ref, Some(interner), Some(&repr_plan));

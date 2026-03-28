@@ -67,11 +67,11 @@ fn trait_impl_method_registered_in_trait_impl_fn_names() {
     let greet_name = interner.intern("greet");
     let names = &result.typed.trait_impl_fn_names;
     assert!(
-        names.contains(&greet_name),
+        names.iter().any(|(_, n)| *n == greet_name),
         "trait impl method 'greet' should be in trait_impl_fn_names, got: {:?}",
         names
             .iter()
-            .map(|n| interner.lookup(*n))
+            .map(|(_, n)| interner.lookup(*n))
             .collect::<Vec<_>>()
     );
 }
@@ -92,11 +92,11 @@ fn inherent_impl_method_excluded_from_trait_impl_fn_names() {
     let increment_name = interner.intern("increment");
     let names = &result.typed.trait_impl_fn_names;
     assert!(
-        !names.contains(&increment_name),
+        !names.iter().any(|(_, n)| *n == increment_name),
         "inherent impl method 'increment' should NOT be in trait_impl_fn_names, got: {:?}",
         names
             .iter()
-            .map(|n| interner.lookup(*n))
+            .map(|(_, n)| interner.lookup(*n))
             .collect::<Vec<_>>()
     );
 }
@@ -120,11 +120,11 @@ fn default_trait_method_registered_in_trait_impl_fn_names() {
     let describe_name = interner.intern("describe");
     let names = &result.typed.trait_impl_fn_names;
     assert!(
-        names.contains(&describe_name),
+        names.iter().any(|(_, n)| *n == describe_name),
         "default trait method 'describe' should be in trait_impl_fn_names, got: {:?}",
         names
             .iter()
-            .map(|n| interner.lookup(*n))
+            .map(|(_, n)| interner.lookup(*n))
             .collect::<Vec<_>>()
     );
 }
@@ -156,11 +156,11 @@ fn trait_impl_fn_names_discriminates_trait_from_inherent() {
     let names = &result.typed.trait_impl_fn_names;
 
     assert!(
-        names.contains(&to_str_name),
+        names.iter().any(|(_, n)| *n == to_str_name),
         "trait impl method 'to_str' should be in trait_impl_fn_names"
     );
     assert!(
-        !names.contains(&distance_name),
+        !names.iter().any(|(_, n)| *n == distance_name),
         "inherent impl method 'distance' should NOT be in trait_impl_fn_names"
     );
 }
