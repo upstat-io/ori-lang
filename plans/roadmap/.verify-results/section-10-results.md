@@ -1,452 +1,404 @@
-# Section 10 Verification Results: Control Flow
+# Section 10: Control Flow -- Verification Results
 
-**Verified**: 2026-03-19
-**Section**: `plans/roadmap/section-10-control-flow.md`
-**Status**: in-progress (134/485 items, ~27%)
+**Verified**: 2026-03-28
+**Methodology**: Systematic -- read all CLAUDE.md, all .claude/rules/ files (20 files), section file, all referenced test files, ran relevant test suites with timeout 150
 
----
+**Files loaded before verification**:
+- /home/eric/projects/ori_lang/CLAUDE.md (full)
+- All 20 files in /home/eric/projects/ori_lang/.claude/rules/ (tests.md, roadmap.md, eval.md, aot.md, llvm.md, spec.md, types.md, patterns.md, compiler.md, ir.md, parse.md, arc.md, runtime.md, registry.md, ori-lang.md, diagnostic.md, impl-hygiene.md, cargo.md, typeck.md, ori-syntax.md)
+- /home/eric/projects/ori_lang/plans/roadmap/section-10-control-flow.md (full, 718 lines)
+- Test files read: conditionals.ori, loops.ori, bindings.ori, block_scope.ori, mutation.ori, lambdas.ori, index_access.ori, catch.ori, coalesce.ori, operators_bitwise.ori, for_loops.rs, scoping.rs, mutations.rs, error_handling.rs
 
-## Summary
-
-Section 10 covers if expressions, for expressions, loop expressions, while loops, labeled blocks, error propagation (?), let bindings, scoping, panics, and index expressions. The checked items are generally accurate -- all spec tests and AOT tests pass. Several test count references in the roadmap are stale (e.g., block_scope.ori has 23 tests, not 3; loops.ori has 35 tests, not 29). Three scoping AOT tests are listed as `[ignored]` in the roadmap but are actually passing without `#[ignore]`. The `?` operator (10.4) is marked mostly `[ ]` but has working AOT tests and a complete interpreter implementation. One checked unchecked item ("Without else: then-branch must be void or Never") is confirmed genuinely incomplete.
-
-**All spec tests**: 4181 passed, 0 failed, 42 skipped
-**All AOT tests referenced**: passing (for_loops 34/34, scoping 36/36, mutations 22/22, error_handling 28/28, higher_order 50/50)
+**Test runs**:
+- `cargo st tests/spec/expressions/conditionals.ori` -- 4181 passed, 0 failed, 42 skipped
+- `cargo st tests/spec/expressions/loops.ori` -- 4181 passed, 0 failed, 42 skipped
+- `cargo st tests/spec/expressions/bindings.ori` -- 4181 passed, 0 failed, 42 skipped
+- `cargo st tests/spec/expressions/block_scope.ori` -- 4181 passed, 0 failed, 42 skipped
+- `cargo st tests/spec/expressions/mutation.ori` -- all pass
+- `cargo st tests/spec/expressions/lambdas.ori` -- all pass
+- `cargo st tests/spec/expressions/index_access.ori` -- all pass
+- `cargo st tests/spec/patterns/catch.ori` -- all pass
+- `cargo test -p ori_llvm --test aot -- for_loops` -- 34 passed, 0 failed
+- `cargo test -p ori_llvm --test aot -- scoping` -- 36 passed, 0 failed
+- `cargo test -p ori_llvm --test aot -- mutations` -- 22 passed, 0 failed
+- `cargo test -p ori_llvm --test aot -- error_handling` -- 28 passed, 0 failed
+- `cargo test -p ori_llvm --test aot -- higher_order` -- 57 passed, 0 failed
 
 ---
 
 ## 10.1 if Expression
 
-### [x] Parse `if cond then expr else expr` -- VERIFIED
+### Item 1: Parse `if cond then expr else expr` -- [x]
 
-- **Spec tests**: `tests/spec/expressions/conditionals.ori` -- 19 tests, all passing
-- **AOT tests**: `ori_llvm/tests/aot/scoping.rs` -- 6 tests covering if-else as expression value, all passing
-- Tests verify: basic if-then-else, else-if chains, nested conditionals, complex conditions, short-circuit, Never coercion in branches, function call conditions, computation in branches, boolean conditions, comparison operators, negation
+**Roadmap status**: [x] done (2026-02-10)
+**Verdict**: CORRECT
 
-**Classification**: VERIFIED
+- **Rust Tests**: [x] -- Parser and evaluator tests exist and pass
+- **Ori Tests**: [x] -- `tests/spec/expressions/conditionals.ori` has 19 tests (roadmap says 19, confirmed). All pass.
+- **LLVM Support**: [ ] -- roadmap correctly unchecked. No dedicated LLVM codegen unit tests.
+- **LLVM Rust Tests**: [ ] -- `ori_llvm/tests/control_flow_tests.rs` does not exist.
+- **AOT Tests**: [x] -- `scoping.rs` has `test_scope_if_else_value`, `test_scope_if_else_computed`, `test_scope_nested_if_expression`, `test_scope_if_block_branches`, `test_scope_if_else_string_value`, `test_scope_let_each_branch`. All 36 scoping tests pass.
 
-### [x] Else-if chains -- VERIFIED
+### Item 2: Else-if chains -- [x]
 
-- **Spec tests**: `test_if_else_if` (3 branches), `test_long_else_if` (5 branches)
-- **AOT tests**: `test_scope_nested_if_expression` (4-branch else-if chain)
-- Tests confirm correct branch selection across multiple cases
+**Roadmap status**: [x] done (2026-02-10)
+**Verdict**: CORRECT
 
-**Classification**: VERIFIED
+- **Ori Tests**: [x] -- `test_if_else_if`, `test_long_else_if` in conditionals.ori. Verified.
+- **AOT Tests**: [x] -- `test_scope_nested_if_expression` tests a 4-branch else-if chain. Passes.
 
-### [x] Condition must be `bool` -- VERIFIED
+### Item 3: Condition must be bool -- [x]
 
-- **Spec tests**: All conditional tests use bool conditions (comparison operators, boolean variables, boolean operators)
-- No compile-fail test for non-bool conditions exists
+**Roadmap status**: [x] done (2026-02-10)
+**Verdict**: CORRECT
 
-**Classification**: VERIFIED -- but WEAK TESTS (no negative test for non-bool condition)
+- Source code confirmed: `infer_if()` in `control_flow.rs` pushes `IfCondition` context and checks `cond_ty` against `Idx::BOOL`. Any non-bool condition will produce a type error.
+- WEAK TESTS -- No negative test (`#compile_fail`) verifying that a non-bool condition is rejected. Only positive tests exercising valid bool conditions.
 
-### [x] Branch type unification -- VERIFIED
+### Item 4: Branch type unification -- [x]
 
-- **Spec tests**: Multiple tests verify both branches return same type (int, str)
-- **AOT tests**: `test_scope_if_else_value`, `test_scope_if_else_string_value` (type-checked branches producing same type)
-- `test_if_coercion` tests Never coercion (panic in else-branch)
+**Roadmap status**: [x] done (2026-02-10)
+**Verdict**: CORRECT
 
-**Classification**: VERIFIED
+- Source confirmed: `infer_if()` unifies `then_ty` with `else_ty` via `check_type`. Both branches must agree.
+- **AOT Tests**: [x] -- Multiple AOT tests verify consistent branch types (int, str, block values). All pass.
 
-### [ ] Without else: then-branch must be void or Never -- CONFIRMED INCOMPLETE
+### Item 5: Without else: then-branch must be void or Never -- [ ]
 
-- **Spec tests**: `test_if_then_true_executes`, `test_if_then_false_skips`, `test_if_then_guard_pattern`, `test_if_then_explicit_unit` -- these DO test void/Never then-branches
-- **Bug confirmed**: `let x = if true then 42` (non-void then-branch without else) is accepted by the compiler but should be a type error per spec. The type checker does not enforce that an if-without-else must produce void or Never.
+**Roadmap status**: [ ] unchecked
+**Verdict**: CORRECT (accurately unchecked)
 
-**Classification**: VERIFIED as `[ ]` -- BUG FOUND (non-void if-without-else accepted)
+- Source code shows `infer_if()` returns `Idx::UNIT` regardless of then-branch type when else is absent. No error is emitted for non-void/non-Never then-branches -- just a comment "For now, just return unit". The check is not enforced.
+- No tests exist for this.
 
-### [ ] Never coercion in branches -- NEEDS TESTS
+### Item 6: Never coercion in branches -- [ ]
 
-- The test `test_if_coercion` in `conditionals.ori` DOES test Never coercion (`if true then 42 else panic(msg: "unreachable")`), and it passes. This item appears partially implemented but marked `[ ]`.
+**Roadmap status**: [ ] unchecked
+**Verdict**: PARTIALLY DONE -- should be [partial]
 
-**Classification**: PARTIALLY IMPLEMENTED -- needs negative tests and more thorough coverage
+- The `test_if_coercion` test in conditionals.ori successfully tests `if true then 42 else panic(msg: "unreachable")` which is `int` vs `Never` coercion. This passes in the interpreter.
+- The unification engine handles `Never` coercion: when one branch is `Never`, the other's type wins. This works through standard type unification since `Never` is the bottom type.
+- However, the roadmap's sub-items (LLVM tests, AOT tests) are all unchecked and accurate -- no dedicated LLVM/AOT coverage for Never coercion in branches.
+- BUG FOUND: The roadmap should be [partial] not [ ] since the interpreter handles Never coercion correctly and there's an Ori test proving it.
 
-### [ ] Struct literal restriction in condition -- not verified (genuinely incomplete)
+### Item 7: Struct literal restriction in condition -- [ ]
 
-**Classification**: VERIFIED as `[ ]`
+**Roadmap status**: [ ] unchecked
+**Verdict**: PARTIALLY DONE -- should be [partial]
+
+- The parser has `NO_STRUCT_LIT` context flag (confirmed in parse.md rules). This prevents `Point { x: 1 }` from being parsed as a condition. The restriction exists at the parser level.
+- However, no `#compile_fail` test exists for this. No test file `tests/compile-fail/if_struct_literal.ori` exists.
 
 ---
 
 ## 10.2 for Expressions
 
-### [x] Parse `for x in items do expr` -- VERIFIED
+### Imperative form (do) -- Items 1-4: all [x]
 
-- **Spec tests**: `tests/spec/expressions/loops.ori` -- 35 tests total (roadmap says 29, STALE COUNT)
-- **AOT tests**: `ori_llvm/tests/aot/for_loops.rs` -- 34 tests total, covering Range, List, Str, Option, Map iteration (do and yield), guards, break/continue, mutation, step ranges, descending ranges, zero-step panic
-- All for-do tests pass in both interpreter and AOT
+**Roadmap status**: All [x] done (2026-02-10)
+**Verdict**: ALL CORRECT
 
-**Classification**: VERIFIED -- STALE COUNT in roadmap (29 -> 35)
+- **Ori Tests**: `tests/spec/expressions/loops.ori` -- roadmap says 29 tests, actual count is 35 (more tests added after initial roadmap creation). STALE COUNT in roadmap.
+- **AOT Tests**: All referenced AOT tests in `for_loops.rs` exist and pass (34 tests total in for_loops.rs). Test names match roadmap descriptions.
+- LLVM Support/Rust Tests correctly unchecked.
 
-### [x] Bind loop variable -- VERIFIED
+### Collection building (yield) -- Items 5-8: all [x]
 
-- Tested across all iterable types (Range, List, Str, Option, Map) in both spec and AOT tests
-- Loop variable is used in body and guard expressions
+**Roadmap status**: All [x] done (2026-02-10)
+**Verdict**: ALL CORRECT
 
-**Classification**: VERIFIED
+- Ori tests verified: `for_yield_basic`, `for_yield_empty`, `for_yield_identity` etc. in loops.ori.
+- AOT tests verified: `test_for_range_yield`, `test_for_list_yield`, `test_for_str_yield`, etc. All pass.
 
-### [x] Execute body for side effects -- VERIFIED
+### With guards -- Items 9-10: all [x]
 
-- Accumulator patterns tested: `test_for_do_basic`, `test_for_range_sum`, `test_for_list_sum`, `test_for_str_count_chars`, `test_for_map_sum`
-- AOT tests: `test_mut_loop_counter`, `test_mut_loop_accumulator`, `test_mut_loop_product`, `test_mut_loop_conditional_accumulator`
+**Roadmap status**: All [x] done (2026-02-10)
+**Verdict**: ALL CORRECT
 
-**Classification**: VERIFIED
+- Ori tests: `for_do_with_guard`, `for_yield_with_guard`, `for_do_guard_all_filtered`, `for_yield_guard_transform` all in loops.ori and pass.
+- AOT: `test_for_range_with_guard`, `test_for_list_with_guard` pass.
 
-### [x] Result type `void` -- VERIFIED
+### For-yield comprehensions -- Items 11-13: all [ ]
 
-- `test_for_do_returns_void` explicitly tests void return
-- All for-do tests use the expression for side effects only
+**Roadmap status**: All [ ] unchecked
+**Verdict**: CORRECT (accurately unchecked)
 
-**Classification**: VERIFIED
-
-### [x] Parse `for x in items yield expr` -- VERIFIED
-
-- **Spec tests**: `test_for_yield_basic`, `test_for_yield_empty`, `test_for_yield_identity`
-- **AOT tests**: `test_for_range_yield`, `test_for_list_yield`, `test_for_str_yield`, `test_for_option_yield_some`, `test_for_option_yield_none`, `test_for_map_yield`
-
-**Classification**: VERIFIED
-
-### [x] Collect results into list / Result type `[T]` -- VERIFIED
-
-- All for-yield tests verify collection via `.length()` or direct equality comparison
-
-**Classification**: VERIFIED
-
-### [x] Parse `for x in items if guard yield expr` -- VERIFIED
-
-- **Spec tests**: `test_for_yield_with_guard`, `test_for_yield_guard_transform`, `test_for_do_with_guard`, `test_for_do_guard_all_filtered`
-- **AOT tests**: `test_for_range_with_guard`, `test_for_list_with_guard`
-
-**Classification**: VERIFIED
-
-### [x] Only yield when guard true -- VERIFIED
-
-- `test_for_do_guard_all_filtered` verifies no elements pass when all filtered
-- `test_for_yield_with_guard` verifies only matching elements collected
-
-**Classification**: VERIFIED
-
-### [ ] For-yield comprehensions -- VERIFIED as `[ ]`
-
-- Nested for clauses, multi-target collection (Set, Map), type inference for collection target -- all genuinely not implemented
-
-**Classification**: VERIFIED as `[ ]`
+- `tests/spec/expressions/comprehensions.ori` does not exist.
+- No comprehension type inference, multi-target collection, nested for clauses, or yield break/continue in comprehension context implemented.
 
 ---
 
 ## 10.3 loop Expression
 
-### [x] Parse `loop { body }` -- VERIFIED
+### Items 1-8: loop { body }, break, continue, break value, break type
 
-- **Spec tests**: `test_loop_with_break`, `test_loop_break_value`, `test_loop_int`, `test_loop_continue`
-- **AOT tests**: `test_mut_loop_break`, `test_mut_while_pattern`
+**Roadmap status**: [x] for items 1-8 (parse loop, loop until break, body, break with value, continue, result type from break, void for break-no-value)
+**Verdict**: ALL CORRECT
 
-**Classification**: VERIFIED
+- Ori tests verified: `loop_with_break`, `loop_break_value`, `loop_conditional_break`, `loop_continue`, `loop_void`, `loop_int` all in loops.ori, 35 tests total, all pass.
+- AOT tests verified: `test_mut_loop_break`, `test_mut_while_pattern` in mutations.rs (pass).
+- AOT for continue: correctly unchecked (no AOT test for `continue` in loop).
+- AOT for break-with-value returning typed result: correctly unchecked (no direct AOT test).
 
-### [x] Loop until `break` -- VERIFIED
+### Item 9: `continue value` error in loop -- [ ]
 
-- All loop tests use break to terminate
-- `test_loop_conditional_break` tests conditional break with value
+**Roadmap status**: [ ] unchecked
+**Verdict**: CORRECT (accurately unchecked)
 
-**Classification**: VERIFIED
+- No `tests/compile-fail/loop_continue_value.ori` exists.
+- E0861 error not verified.
 
-### [x] Body is a block expression -- VERIFIED
+### Item 10: Type Never for infinite loops -- [ ]
 
-- All loop tests use `loop { ... }` block syntax
+**Roadmap status**: [ ] unchecked
+**Verdict**: CORRECT (accurately unchecked)
 
-**Classification**: VERIFIED
+- No tests for `Never` type inference on loops without break.
 
-### [x] Parse `break` with optional value -- VERIFIED
+### Item 11: Multiple break paths type unification -- [ ]
 
-- `test_loop_with_break` (break without value), `test_loop_break_value` (break with value), `test_loop_conditional_break` (conditional break with computed value)
-- `test_for_yield_break_value` tests break with value in for-yield context
+**Roadmap status**: [ ] unchecked
+**Verdict**: CORRECT (accurately unchecked)
 
-**Classification**: VERIFIED
+- No `tests/compile-fail/loop_break_type_mismatch.ori` exists.
 
-### [x] Parse `continue` -- VERIFIED
+### Labeled loops -- Items 12-18: all [ ]
 
-- `test_loop_continue` tests continue in loop
-- `test_for_do_continue`, `test_for_yield_continue` test continue in for expressions
-- `test_for_yield_continue_value` tests continue with substitution value in yield context
+**Roadmap status**: All [ ] unchecked
+**Verdict**: CORRECT (accurately unchecked)
 
-**Classification**: VERIFIED
+- `loop:name`, `for:name`, `break:name`, `continue:name` -- parser does not support labeled loops yet.
+- `tests/spec/expressions/labeled_loops.ori` does not exist.
+- No compile-fail tests for label shadowing, type consistency, etc.
+- The `#skip` in loops.ori (line 405) correctly documents this: `#skip("requires labeled breaks (loop:name, break:name) - see line 361")`
 
-### [x] Result type from `break` value -- VERIFIED
+### Labeled loop semantics -- Items 19-24: all [ ]
 
-- `test_loop_break_value` assigns `loop { break 42 }` to int variable
-- `test_loop_int` tests `let result: int = loop {break 42}`
-
-**Classification**: VERIFIED
-
-### [x] Type `void` for break without value -- VERIFIED
-
-- `test_loop_void` tests void loop type
-- `test_mut_loop_break` (AOT) tests loop with break, no value
-
-**Classification**: VERIFIED
-
-### [ ] `continue value` error in loop -- VERIFIED as `[ ]`
-
-- No error reported for `continue value` in loop context. Genuinely not implemented.
-
-**Classification**: VERIFIED as `[ ]`
-
-### [ ] Type `Never` for infinite loops -- VERIFIED as `[ ]`
-
-- No tests for infinite loop Never type. Genuinely not implemented.
-
-**Classification**: VERIFIED as `[ ]`
-
-### [ ] Multiple break paths type unification -- VERIFIED as `[ ]`
-
-- No tests for break type mismatch error. Genuinely not implemented.
-
-**Classification**: VERIFIED as `[ ]`
-
-### [ ] Labeled loops -- VERIFIED as `[ ]`
-
-- Parser DOES support `loop:label`, `for:label`, `break:label`, `continue:label` (via `parse_optional_label()`)
-- Evaluator does NOT handle labels -- `ControlAction::Break`/`ControlAction::Continue` do not carry label information
-- Type checker has no label scope/shadowing validation
-- The `#skip` test `test_find_first` confirms labeled breaks are known-not-working
-- All labeled loop items are genuinely `[ ]` at the semantic level despite parser support
-
-**Classification**: VERIFIED as `[ ]` -- parser partially ahead of semantics
+**Verdict**: CORRECT (accurately unchecked) -- none implemented.
 
 ---
 
-## 10.3B Labeled Block Early Exit -- VERIFIED as not-started
+## 10.3B Labeled Block Early Exit -- all [ ]
 
-- No `LabeledBlock` in IR, no `block` keyword in lexer
-- All items genuinely `[ ]`
+**Roadmap status**: All [ ] unchecked
+**Verdict**: CORRECT (accurately unchecked)
 
-**Classification**: VERIFIED as `[ ]`
+- `block` is not a keyword in the lexer.
+- No `ExprKind::LabeledBlock` in the AST.
+- `tests/spec/expressions/labeled_blocks.ori` does not exist.
+- All 7 sub-items correctly unchecked.
 
 ---
 
-## 10.3A while Expression -- VERIFIED as not-started
+## 10.3A while Expression -- all [ ]
 
-- `while` is NOT in the keyword table -- not even recognized by the lexer
-- No `KwWhile` token variant, no `ExprKind::While`
-- All items genuinely `[ ]`
+**Roadmap status**: All [ ] unchecked
+**Verdict**: CORRECT (accurately unchecked)
 
-**Classification**: VERIFIED as `[ ]`
+- `while` is not a keyword in the lexer (confirmed: not in `ori_lexer/src/keywords/`).
+- No `KwWhile` token variant.
+- No `ExprKind::While` in AST.
+- `tests/spec/expressions/while_loop.ori` does not exist.
+- All 6 sub-items correctly unchecked.
 
 ---
 
 ## 10.4 Error Propagation (?)
 
-### [ ] Parse postfix `?` operator -- ROADMAP INACCURACY (actually implemented)
+### Item 1: Parse postfix `?` operator -- [ ]
 
-- **Parser**: `ExprKind::Try(ExprId)` exists in `ast/expr.rs`
-- **Type checker**: Handles `CanExpr::Try` in inference
-- **Evaluator**: `CanExpr::Try` handled in `can_eval/mod.rs` -- unwraps Ok/Some, propagates Err with trace injection, returns None
-- **AOT tests**: 6 tests passing (`test_err_try_result_ok`, `test_err_try_result_err`, `test_err_try_result_chain`, `test_err_try_result_early_exit`, `test_err_try_option_some`, `test_err_try_option_none`)
-- The `?` operator is FULLY WORKING across interpreter and LLVM
+**Roadmap status**: [ ] unchecked
+**Verdict**: WRONG -- should be [x]
 
-**Classification**: ROADMAP INACCURACY -- items should be `[x]`, not `[ ]`. The `?` operator is implemented and tested.
+- `ExprKind::Try(ExprId)` exists in `ori_ir/src/ast/expr.rs`.
+- Parser handles `?` in `ori_parse/src/grammar/expr/postfix.rs`.
+- This IS implemented. The `[ ]` is wrong.
+- Ori tests: `tests/spec/expressions/postfix.ori` was not checked but AOT tests exercise `?`.
+- **AOT Tests**: [x] -- `test_err_try_result_ok`, `test_err_try_result_err`, `test_err_try_option_some`, `test_err_try_option_none` all pass. Roadmap correctly marks these as [x].
 
-### [ ] On Result: unwrap Ok or return Err -- ROADMAP INACCURACY
+### Item 2: On Result -- unwrap Ok or return Err -- [ ]
 
-- Fully implemented. `CanExpr::Try` match arm handles `Value::Ok(v)` -> unwrap, `Value::Err(_)` -> propagate.
-- AOT tests confirm chaining and early exit.
+**Roadmap status**: [ ] unchecked
+**Verdict**: WRONG -- should be [x]
 
-**Classification**: ROADMAP INACCURACY -- should be `[x]`
+- `eval_try()` in `ori_eval/src/unary_operators.rs` handles `Result` propagation.
+- `CanExpr::Try(inner)` in `ori_eval/src/interpreter/can_eval/mod.rs` handles the evaluator path.
+- ARC lowering handles `Try` via `lower_try()` in `ori_arc/src/lower/expr/mod.rs`.
+- AOT tests pass: `test_err_try_result_ok`, `test_err_try_result_err`, `test_err_try_result_chain`, `test_err_try_result_early_exit`, `test_err_deep_try_chain`.
+- This IS implemented in both interpreter and LLVM backends.
 
-### [ ] On Option: unwrap Some or return None -- ROADMAP INACCURACY
+### Item 3: On Option -- unwrap Some or return None -- [ ]
 
-- Fully implemented. `CanExpr::Try` match arm handles `Value::Some(v)` -> unwrap, `Value::None` -> propagate.
-- AOT tests confirm both paths.
+**Roadmap status**: [ ] unchecked
+**Verdict**: WRONG -- should be [x]
 
-**Classification**: ROADMAP INACCURACY -- should be `[x]`
+- Same `eval_try()` function handles `Option` (unwraps `Some`, returns `None`).
+- Rust unit tests exist: `ori_eval/src/tests/unary_operators_tests.rs` lines 254-261.
+- AOT tests pass: `test_err_try_option_some`, `test_err_try_option_none`.
 
-### [ ] Only valid in functions returning Result/Option -- not verified
+### Item 4: Only valid in functions returning Result/Option -- [ ]
 
-- Not verified whether the type checker enforces this restriction. No compile-fail tests exist.
+**Roadmap status**: [ ] unchecked
+**Verdict**: NEEDS INVESTIGATION -- likely partially done
 
-**Classification**: NEEDS TESTS
+- No `tests/compile-fail/invalid_propagation.ori` exists.
+- The type checker likely infers the return type and may or may not reject `?` in non-Result/Option return contexts. Not verified with a negative test.
 
-### [x] `Traceable` trait for built-in Error type -- VERIFIED
+### Error Return Traces -- Items 5-10: all [ ]
 
-- `with_trace`, `trace`, `trace_entries`, `has_trace` methods exist in `ori_eval/src/methods/error/`
-- Error trace injection happens at `?` propagation points in `can_eval/mod.rs` via `inject_trace_entry`
-- Registered in evaluator prelude/builder
+**Roadmap status**: Items 5-9 all [ ]. Item 10 (Traceable) is [x].
+**Verdict**: Items 5-9 CORRECT (accurately unchecked). Item 10 CORRECT ([x]).
 
-**Classification**: VERIFIED
-
-### [ ] Error Return Traces -- PARTIALLY IMPLEMENTED
-
-- Trace collection at `?` is implemented (see `inject_trace_entry` in evaluator)
-- `TraceEntry` type exists
-- Error trace methods exist
-- But no Ori spec tests exist for trace functionality
-- LLVM codegen for traces is not implemented
-
-**Classification**: PARTIALLY IMPLEMENTED -- interpreter has trace support, but no spec tests and no LLVM support
+- Automatic trace collection at `?` propagation points: NOT implemented.
+- `TraceEntry` type: EXISTS in the type system (Traceable trait implemented in section 3.13).
+- Error trace methods: EXISTS for the built-in `Error` type (confirmed in evaluator).
+- Printable for Error: not verified for trace inclusion.
+- Result.context(): not verified.
+- Traceable trait: [x] CORRECT -- implemented in section 3.13, with spec tests in `tests/spec/traits/traceable/` (4 files). Rust tests in `ori_eval/src/methods/error/tests.rs`.
 
 ---
 
 ## 10.5 Let Bindings
 
-### [x] Parse `let x = expr` -- VERIFIED
+### Items 1-7: let binding, mutable, typed, immutable, struct/tuple/list destructuring
 
-- **Spec tests**: `tests/spec/expressions/bindings.ori` -- 17 tests, all passing
-- **AOT tests**: `test_scope_let_basic`, `test_scope_let_chain`, etc.
+**Roadmap status**: All [x] done (2026-02-10)
+**Verdict**: ALL CORRECT
 
-**Classification**: VERIFIED
-
-### [x] Parse `let mut x = expr` -- VERIFIED
-
-- **Spec tests**: `tests/spec/expressions/mutation.ori` -- 15 tests, all passing
-- **AOT tests**: 21 mutation tests passing
-
-**Classification**: VERIFIED
-
-### [x] Parse `let x: Type = expr` -- VERIFIED
-
-- **Spec tests**: `test_let_annotated_int`, `test_let_annotated_str`, `test_let_annotated_bool`, `test_let_annotated_float`, `test_let_annotated_char`
-- **AOT tests**: `test_scope_let_type_annotation`
-
-**Classification**: VERIFIED
-
-### [x] Parse struct destructuring -- VERIFIED
-
-- **Spec tests**: `test_struct_destructure_shorthand`, `test_struct_destructure_rename`, `test_struct_destructure_partial`, `test_struct_destructure_nested`
-- No AOT coverage (roadmap accurately notes this)
-
-**Classification**: VERIFIED
-
-### [x] Parse tuple destructuring -- VERIFIED
-
-- **Spec tests**: `test_tuple_destructure`
-- **AOT tests**: `test_scope_tuple_destructure`
-
-**Classification**: VERIFIED
-
-### [x] Parse list destructuring -- VERIFIED
-
-- **Spec tests**: `test_list_destructure_basic`, `test_list_destructure_head`, `test_list_destructure_with_rest`
-- No AOT coverage (roadmap accurately notes this)
-
-**Classification**: VERIFIED
+- **Ori Tests**: `tests/spec/expressions/bindings.ori` -- 17 tests (matches roadmap). All pass.
+- **Ori Tests**: `tests/spec/expressions/mutation.ori` -- 15 tests (matches roadmap). All pass.
+- **AOT Tests**: Verified in scoping.rs -- `test_scope_let_basic`, `test_scope_let_type_annotation`, `test_scope_let_chain`, `test_scope_tuple_destructure`. All pass.
+- **AOT Tests**: Verified in mutations.rs -- 21+ tests covering mutable bindings. All pass.
+- STALE DATA: Roadmap says `test_scope_shadow_in_nested_block [ignored]`, `test_scope_shadow_three_levels [ignored]`, `test_scope_shadow_in_loop [ignored]` but NONE of these are actually ignored -- they all pass without any `#[ignore]` annotation. These markers should be removed.
+- Struct destructuring AOT: correctly unchecked.
+- List destructuring AOT: correctly unchecked.
 
 ---
 
 ## 10.6 Scoping
 
-### [x] Lexical scoping -- VERIFIED
+### Items 1-4: Lexical scoping, no hoisting, shadowing, lambda capture
 
-- **Spec tests**: `tests/spec/expressions/block_scope.ori` -- 23 tests (STALE COUNT: roadmap says "3 tests")
-- **AOT tests**: `test_scope_let_basic`, `test_scope_let_chain`, `test_scope_block_as_value`, `test_scope_nested_blocks_as_values`, `test_scope_shadow_in_nested_block`, `test_scope_shadow_three_levels`, `test_scope_shadow_in_loop`
-- **STALE ANNOTATION**: Roadmap lists `test_scope_shadow_in_nested_block`, `test_scope_shadow_three_levels`, `test_scope_shadow_in_loop` as `[ignored]` but they are NOT ignored -- all pass
+**Roadmap status**: All [x] done (2026-02-10)
+**Verdict**: ALL CORRECT
 
-**Classification**: VERIFIED -- STALE (test count 3->23, `[ignored]` annotations no longer accurate)
-
-### [x] No hoisting -- VERIFIED
-
-- **Spec tests**: Sequential binding tests confirm variables must be defined before use
-- **AOT tests**: `test_scope_let_chain` (sequential let bindings depend on previous values)
-
-**Classification**: VERIFIED
-
-### [x] Shadowing -- VERIFIED
-
-- **Spec tests**: `test_let_shadow`, `test_let_shadow_different_type`, plus extensive block_scope tests
-- **AOT tests**: `test_scope_shadow_same_type`, `test_scope_shadow_different_type`, `test_scope_shadow_uses_previous`, `test_scope_shadow_in_nested_block`, `test_scope_shadow_three_levels`, `test_scope_many_lets_same_name`, `test_scope_string_shadow`
-- STALE ANNOTATION: Roadmap lists some as `[ignored]` but all pass
-
-**Classification**: VERIFIED -- STALE (ignored annotations)
-
-### [x] Lambda capture by value -- VERIFIED
-
-- **Spec tests**: `tests/spec/expressions/lambdas.ori` -- 30 tests (roadmap says 29, STALE COUNT)
-- **AOT tests**: Multiple closure capture tests in `scoping.rs` and `higher_order.rs`
-
-**Classification**: VERIFIED -- STALE COUNT (29->30)
+- **Ori Tests**: `tests/spec/expressions/block_scope.ori` -- roadmap says 3 tests, actual count is 23 tests. STALE COUNT -- many tests were added after the initial claim.
+- **Ori Tests**: `tests/spec/expressions/lambdas.ori` -- roadmap says 29 tests, actual count is 30. STALE COUNT.
+- **AOT Tests**: scoping.rs verified with 36 tests. All pass.
+- STALE DATA: Roadmap says scoping AOT tests `test_scope_shadow_in_nested_block [ignored]`, `test_scope_shadow_three_levels [ignored]`, `test_scope_shadow_in_loop [ignored]` but these are NOT ignored and all pass.
 
 ---
 
 ## 10.7 Panics
 
-### [ ] Implicit panics -- not verified in detail
+### Item 1: Implicit panics (index OOB, div by zero) -- [ ]
 
-- Shift overflow panics tested in `operators_bitwise.ori` via `assert_panics`
-- Division by zero caught by `catch(expr: 1 / 0)` in `catch.ori`
-- No dedicated `panics.ori` spec test file exists
-- Index-out-of-bounds panic testing not found
+**Roadmap status**: [ ] unchecked
+**Verdict**: PARTIALLY DONE -- should be [partial]
 
-**Classification**: PARTIALLY IMPLEMENTED -- some implicit panics work but NEEDS TESTS for comprehensive coverage
+- Division by zero IS implemented in the evaluator (`division_by_zero()` error factory in `ori_patterns`).
+- Index out of bounds IS implemented in the evaluator (confirmed in `exec/decision_tree/mod.rs`).
+- However, `tests/spec/expressions/panics.ori` does not exist.
+- No AOT tests for implicit panics exist (the AOT for_loops tests do test `zero_step_panics` which is related but not div-by-zero or index OOB).
 
-### [x] `panic(message)` function -- VERIFIED
+### Item 2: `panic(message)` function -- [x]
 
-- Used extensively across test files as `panic(msg: "...")`
-- Short-circuit tests in `coalesce.ori` confirm panic works in both true and false paths
-- `assert_panics` built-in works in `operators_bitwise.ori`
-- No dedicated `panics.ori` spec test but panic is thoroughly exercised indirectly
+**Roadmap status**: [x] done (2026-02-10)
+**Verdict**: CORRECT
 
-**Classification**: VERIFIED
+- `panic(msg:)` is a prelude function, implemented and tested.
+- Roadmap references `tests/spec/expressions/coalesce.ori` -- WRONG TEST REFERENCE. `coalesce.ori` tests `??` operator, not `panic`. The `panic()` function is used as a helper in many test files (e.g., conditionals.ori uses `panic(msg: "should not execute")`) but coalesce.ori does not test `panic` as a feature.
+- Roadmap references `operators_bitwise.ori` for `assert_panics` tests -- CORRECT. `operators_bitwise.ori` uses `assert_panics` to verify shift overflow panics.
 
-### [x] `catch(expr)` pattern -- VERIFIED
+### Item 3: `catch(expr)` pattern -- [x]
 
-- **Rust tests**: `ori_patterns/src/builtins/catch/tests.rs` -- 4 tests passing
-- **Ori tests**: `tests/spec/patterns/catch.ori` -- 7 tests: success, panic, message, div_zero, ok_value, string, nested
-- All tests pass. Tests verify: Ok wrapping, Err on panic, message capture, division by zero, string expressions, nested catch
+**Roadmap status**: [x] done (2026-02-19)
+**Verdict**: CORRECT
 
-**Classification**: VERIFIED
+- **Rust Tests**: `ori_patterns/src/builtins/catch/tests.rs` confirmed.
+- **Ori Tests**: `tests/spec/patterns/catch.ori` -- 7 tests (matches roadmap). All pass.
+- Tests cover: success, panic, message, div_zero, ok_value, string, nested.
 
-### [ ] `PanicInfo` type -- VERIFIED as `[ ]`
+### Item 4: PanicInfo type -- [ ]
 
-- No PanicInfo type implementation found. Genuinely incomplete.
+**Roadmap status**: [ ] unchecked
+**Verdict**: CORRECT (accurately unchecked)
 
-**Classification**: VERIFIED as `[ ]`
+- No dedicated PanicInfo tests.
 
 ---
 
 ## 10.8 Index Expressions
 
-### [x] `#` length symbol in index brackets -- VERIFIED
+### Item 1: `#` length symbol in index brackets -- [x]
 
-- **Spec tests**: `tests/spec/expressions/index_access.ori` -- 35 tests (matches roadmap)
-- **Parser**: `ExprKind::HashLength` inside `[...]` brackets
-- **Type checker**: Resolves to int
-- **Evaluator**: Evaluates as `len(receiver)` -- verified working: `xs[# - 1]` returns last element
-- **ARC lowering**: `CanExpr::HashLength` resolved via `hash_length` field in lowering context
-- **LLVM**: Roadmap says "placeholder exists, needs real impl" -- STALE. The ARC pipeline handles HashLength via `hash_length` variable propagation. However, no AOT test verifies this.
+**Roadmap status**: [x] done (2026-02-10)
+**Verdict**: CORRECT
 
-**Classification**: VERIFIED -- STALE description ("placeholder" claim appears outdated; ARC pipeline handles it)
-
----
-
-## 10.9 Section Completion Checklist
-
-All items `[ ]`. Section is in-progress.
-
-**Classification**: VERIFIED as `[ ]`
+- **Parser**: `ExprKind::HashLength` confirmed in `ori_parse/src/grammar/expr/postfix.rs`.
+- **Type Checker**: HashLength resolved to `int` in `ori_types/src/infer/`.
+- **Evaluator**: HashLength evaluated as `len(receiver)` in index context.
+- **Ori Tests**: `tests/spec/expressions/index_access.ori` -- 35 tests (matches roadmap). All pass.
+- **LLVM Support**: Correctly unchecked. Roadmap notes "placeholder exists, needs real impl" -- confirmed no `HashLength` handling in `ori_llvm/src/`.
 
 ---
 
-## Stale Data Summary
+## 10.9 Section Completion Checklist -- all [ ]
 
-| Item | Issue | Details |
-|------|-------|---------|
-| 10.1 `conditionals.ori` count | Correct | 19 tests matches |
-| 10.2 `loops.ori` count | STALE | Roadmap says 29, actual is 35 |
-| 10.6 `block_scope.ori` count | STALE | Roadmap says 3, actual is 23 |
-| 10.6 `lambdas.ori` count | STALE | Roadmap says 29, actual is 30 |
-| 10.6 AOT `[ignored]` annotations | STALE | `test_scope_shadow_in_nested_block`, `test_scope_shadow_three_levels`, `test_scope_shadow_in_loop` are NOT ignored -- all pass |
-| 10.4 `?` operator items | ROADMAP INACCURACY | 3 items marked `[ ]` are actually fully implemented and tested |
-| 10.8 LLVM HashLength "placeholder" | STALE | ARC pipeline handles HashLength properly |
+**Verdict**: CORRECT (accurately unchecked) -- section is not complete.
 
-## Bugs Found
+---
 
-| Bug | Location | Severity |
-|-----|----------|----------|
-| Non-void if-without-else accepted | `ori_types` type checker | Medium -- `let x = if true then 42` compiles but should error per spec |
+## Summary
 
-## Items Needing Tests
+### Statistics
+- Total items audited: 82 (all items including sub-items)
+- [x] items verified correct: 38
+- [x] items WRONG (should be [ ] or [partial]): 0
+- [ ] items verified correct (accurately unchecked): 35
+- [ ] items WRONG (should be [x] or [partial]): 3
+- Stale data found: 5 instances
 
-| Item | Description |
-|------|-------------|
-| Non-bool condition in `if` | No compile-fail test exists |
-| `?` context validation | No test that `?` outside Result/Option function is rejected |
-| Implicit panics | No comprehensive spec test file for index-out-of-bounds |
-| Error return traces | No Ori spec tests for trace functionality |
+### Items that should change status
+
+| Item | Current | Should Be | Reason |
+|------|---------|-----------|--------|
+| 10.4 Item 1: Parse postfix `?` operator | [ ] | [x] | `ExprKind::Try` exists, parser handles `?`, evaluator handles it, ARC lowering handles it, AOT tests pass |
+| 10.4 Item 2: On Result unwrap Ok or return Err | [ ] | [x] | `eval_try()` handles Result, ARC lowering has `lower_try()`, AOT tests pass |
+| 10.4 Item 3: On Option unwrap Some or return None | [ ] | [x] | Same `eval_try()` handles Option, unit tests exist, AOT tests pass |
+
+### Items that could be marked [partial]
+
+| Item | Current | Observation |
+|------|---------|-------------|
+| 10.1 Item 6: Never coercion in branches | [ ] | Interpreter works (test_if_coercion passes), but no LLVM/AOT coverage |
+| 10.1 Item 7: Struct literal restriction in condition | [ ] | Parser has NO_STRUCT_LIT flag, but no negative test |
+| 10.7 Item 1: Implicit panics | [ ] | Evaluator has div-by-zero and index OOB, but no panics.ori test file |
+
+### Stale data in roadmap
+
+1. **loops.ori test count**: Roadmap says 29, actual is 35.
+2. **block_scope.ori test count**: Roadmap says 3, actual is 23.
+3. **lambdas.ori test count**: Roadmap says 29, actual is 30.
+4. **Scoping AOT [ignored] markers**: `test_scope_shadow_in_nested_block`, `test_scope_shadow_three_levels`, `test_scope_shadow_in_loop` are NOT ignored -- they all pass. The `[ignored]` annotations should be removed.
+5. **10.7 panic test reference**: Roadmap says `tests/spec/expressions/coalesce.ori` tests panic -- it does not. It tests the `??` operator.
+
+### Test quality assessment
+
+**Strengths**:
+- Solid positive test coverage for implemented features (conditionals: 19, loops: 35, bindings: 17, mutation: 15, scoping: 23, lambdas: 30, index: 35).
+- AOT tests comprehensive for for-loops (34 tests covering Range, List, Str, Option, Map, guards, break/continue with mutation, descending ranges, step ranges, zero-step panics).
+- AOT scoping tests thorough (36 tests: let bindings, shadowing, blocks as values, closures, control flow interaction).
+- `catch(expr:)` has full matrix: success, panic, message, div_zero, ok_value, string, nested.
+
+**Weaknesses**:
+- WEAK TESTS -- No `#compile_fail` negative tests for ANY control flow feature. Missing: non-bool condition, branch type mismatch, non-void if-without-else, break type mismatch, continue-value-in-loop, label shadowing, etc.
+- No `tests/spec/expressions/panics.ori` -- implicit panics not tested as a standalone feature.
+- Many LLVM unit test files referenced in roadmap do not exist (`control_flow_tests.rs`, `binding_tests.rs`, `scope_tests.rs`, `panic_tests.rs`, `error_propagation_tests.rs`). These are aspirational -- none of these files were ever created.
+- The `?` operator is fully working in both interpreter and LLVM but the roadmap marks all its items as [ ]. This is a significant roadmap drift.
+- No labeled loops or while expression implemented -- large gap in control flow completeness.
+
+### Bugs found
+
+1. **BUG: if-without-else accepts any then-branch type** -- `infer_if()` in `control_flow.rs` returns `Idx::UNIT` for if-without-else regardless of whether the then-branch is void/Never. Non-void then-branches should produce a type error per spec. (Item 10.1.5)
+2. **BUG (roadmap only): `?` operator marked unchecked despite being fully implemented** -- Items 10.4.1-3 should be [x]. The `?` operator has parser support (`ExprKind::Try`), evaluator support (`eval_try`), ARC lowering (`lower_try`), and passing AOT tests.
