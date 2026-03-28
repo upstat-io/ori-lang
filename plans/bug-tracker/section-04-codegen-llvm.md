@@ -1,7 +1,7 @@
 ---
 section: "04"
 title: "Codegen & LLVM"
-status: not-started
+status: open
 goal: "Track and resolve all known codegen/LLVM bugs"
 sections: []
 ---
