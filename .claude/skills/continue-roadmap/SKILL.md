@@ -327,10 +327,15 @@ Example:
 
 **Parent inheritance**: Nested `- [ ]` items (indented) inherit their parent's blocker. Only tag the top-level item.
 
+**Planned work requirement**: A `<!-- blocked-by:X -->` tag is ONLY valid if Section X contains a concrete `- [ ]` item whose completion will resolve the blocker. Adding a `blocked-by` reference to a section that has no planned resolution work is creating an unplanned blocker — which is not allowed (see Step 2.6). If no such item exists in Section X, you must add one before tagging.
+
+**No prose-only blockers**: `<!-- blocked: some description -->` without a section reference is a temporary annotation only. Step 2.6 will convert these to either (a) planned subsections in the current plan, or (b) `blocked-by:X` references pointing to concrete plan items. Prose-only blockers cannot persist across `/continue-roadmap` invocations.
+
 This ensures:
 - The scanner correctly counts blocked vs unblocked items
 - When completing a blocker, you can `grep 'unblocks:'` to find what it unblocks
 - When reviewing a blocked item, `grep 'blocked-by:'` shows what prerequisite is missing
+- **Every blocker has a resolution path** — no open-ended blockers accumulate silently
 
 ### Step 2.5: Blocker Chain Resolution
 
@@ -353,6 +358,54 @@ When the scanner shows blocked items, analyze the blocker chain:
    └─ Section 14: Testing [in-progress, 8%] — WAITING (deep chain: 13←12←11←10←9)
       └─ blocks 2 items here
    ```
+
+### Step 2.6: Impediment Resolution — No Unplanned Blockers
+
+**ABSOLUTE RULE: Every blocker must point to planned, actionable work.** A blocker that references a section or plan must have concrete `- [ ]` items in that section that will resolve the blocker. A blocker that describes a missing capability without referencing any plan is an **unplanned blocker** — and unplanned blockers are not allowed to remain open-ended.
+
+**After classifying blockers in Step 2.5, validate every blocker:**
+
+1. **For each `<!-- blocked-by:X -->` reference**: Read Section X and verify it contains a `- [ ]` item whose completion will resolve this blocker. If Section X has no such item, the blocker is unplanned — treat it as an impediment (see below).
+
+2. **For each prose `<!-- blocked: ... -->` comment** (no section reference): This is always an unplanned blocker. It describes a missing capability that nobody has planned to fix. It MUST be resolved — either by adding planned work or by determining it's actually fixable now.
+
+**Blocker categories after validation:**
+
+| Category | Example | Action |
+|----------|---------|--------|
+| **Planned cross-section blocker** | `<!-- blocked-by:19 -->` and Section 19 has `- [ ] Implement existential types` | Valid blocker — skip or tackle Section 19 |
+| **Unplanned cross-section blocker** | `<!-- blocked-by:19 -->` but Section 19 has no item that resolves this | Invalid — add the missing item to Section 19, or reclassify as impediment |
+| **Unplanned impediment (prose)** | `<!-- blocked: ARC IR lacks visibility metadata -->` | Must be planned NOW — invoke `/create-plan` to add a subsection |
+| **Fixable impediment** | Prose blocker where upstream data already exists | Plan it and implement it immediately |
+
+**When unplanned blockers or impediments are detected:**
+
+1. **Investigate each one** — use an Explore agent to verify whether the missing capability is truly unavailable or just unplumbed. Check:
+   - Does the data exist upstream? (e.g., does `ori_types` already have this info?)
+   - What's the plumbing path? (How many files need changes?)
+   - Is this a 50-line fix or a 500-line architectural change?
+
+2. **Plan the resolution** — every unplanned blocker must get planned work somewhere:
+   - **If the fix belongs in the current plan** (most common for impediments): Invoke `/create-plan` to add a new subsection:
+     ```
+     /create-plan add "ARC IR function metadata" subsection to plans/repr-opt
+     ```
+     The new subsection should: describe the impediment, list the implementation steps, include tests, and reference which blocked items it unblocks.
+   - **If the fix belongs in a different plan or roadmap section**: Add a concrete `- [ ]` item to that section describing the work needed, and update the blocker to use `<!-- blocked-by:X -->` pointing to the section. The blocker is now planned.
+   - **If the fix requires a new plan entirely** (large scope, new subsystem): Invoke `/create-plan` to create the new plan, then update the blocker to reference it.
+
+3. **After planning, decide whether to implement now or later:**
+   - **Implement now (recommended for impediments)** — if the fix is localized (< 200 lines, < 5 files), implement it immediately after planning. The impediment IS the next task.
+   - **Implement later (for large cross-section work)** — if the fix is a full section of work, it may be better to tackle it as a separate pass. But it MUST be planned — no open-ended blockers.
+
+4. **After implementation** (or after planning, if deferred):
+   - Remove prose `<!-- blocked: ... -->` comments from items that are now unblocked
+   - Update `<!-- blocked-by:X -->` references if the blocker section changed
+   - Check off resolved items
+
+**Why this matters:** A prose `<!-- blocked: ... -->` comment without a plan is invisible deferral. It looks responsible ("I documented the dependency!") but creates permanent blockers that nobody resolves because they aren't tracked as actionable work anywhere. By requiring every blocker to point to planned work, blockers become visible, trackable, and eventually resolvable. The system cannot accumulate open-ended blockers that silently prevent sections from completing.
+
+**This step is MANDATORY whenever blocked items exist.** Before presenting the blocker tree to the user, you MUST validate that every blocker points to planned work. Unplanned blockers must be resolved in this step — either by adding plan items or by determining they're actually fixable impediments that can be implemented now.
 
 ### Step 3: Load Section Details
 
@@ -401,9 +454,10 @@ Use AskUserQuestion with options. The options depend on the blocker state:
 5. **Switch sections** — Work on a different section
 
 **When ALL remaining items are blocked:**
-1. **Tackle deepest ready blocker (Recommended)** — Work on the READY blocker that unblocks the most items
-2. **Show blocker details** — See what the blocker requires and its dependency chain
-3. **Switch sections** — Work on a different section
+1. **Resolve impediments (Recommended if any exist)** — If Step 2.6 identified fixable impediments, plan and implement them to unblock items in the current section
+2. **Tackle deepest ready blocker** — Work on the READY blocker that unblocks the most items (for true cross-section blockers)
+3. **Show blocker details** — See what the blocker requires and its dependency chain
+4. **Switch sections** — Work on a different section
 
 ### Step 5.5: Subsection Pacing
 
@@ -425,6 +479,7 @@ Based on user choice:
 - **Start next task**: Begin implementing the first unblocked item, following the Implementation Guidelines below
 - **Show task details**: Read relevant spec sections, explore codebase for implementation location
 - **Pick different task**: List all unblocked incomplete items in the section, let user choose
+- **Resolve impediments**: Invoke `/create-plan` to add a subsection to the current plan that resolves the impediment (see Step 2.6). After the subsection is created and reviewed, implement it immediately. Then return to the previously-blocked items — they should now be unblocked.
 - **Tackle a blocker**: Switch to the blocker section and begin implementing its first unchecked item. When the blocker is complete, return to update the blocked items.
 - **Switch sections**: Ask which section to switch to
 

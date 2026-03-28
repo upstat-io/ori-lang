@@ -3,9 +3,10 @@
 use super::*;
 use ori_arc::ir::{
     ArcBlock, ArcFunction, ArcInstr, ArcParam, ArcTerminator, ArcValue, ArgOwnership, LitValue,
-    ValueRepr,
+    PrimOp, ValueRepr,
 };
 use ori_arc::{ArcBlockId, Ownership};
+use ori_ir::BinaryOp;
 
 /// Helper: build a simple function with one block, a body, and a Return terminator.
 fn build_simple_func(
@@ -48,6 +49,213 @@ fn build_simple_func(
         var_types: vec![ori_types::Idx::INT; num_vars],
         var_reprs: vec![ValueRepr::Scalar; num_vars],
         spans: vec![vec![None; span_count]],
+        is_fbip: false,
+        num_captures: 0,
+        cow_annotations: ori_arc::uniqueness::CowAnnotations::default(),
+        drop_hints: ori_arc::uniqueness::DropHints::default(),
+        tail_calls: vec![],
+    }
+}
+
+/// Where to place the `Apply` call to helper within a branching caller function.
+#[derive(Clone, Copy)]
+enum CallPlacement {
+    /// Apply in the true branch (block1, where x < threshold)
+    TrueBranch,
+    /// Apply in the false branch (block2, where x >= threshold)
+    FalseBranch,
+    /// Apply in the entry block (block0, before the branch)
+    EntryBlock,
+}
+
+/// Build a 3-function scenario (helper + branching caller + main) and run
+/// `propagate_ranges()`, returning the helper param's computed range.
+///
+/// Caller structure: `caller(x: int)` compares `x < threshold` and branches.
+/// Main calls `caller(0)` and `caller(hi)`, giving caller.x range = `[0, hi]`.
+/// The `placement` controls which block calls `helper(x)`.
+fn run_branch_call_scenario(
+    base_name: u32,
+    threshold: i64,
+    hi: i64,
+    placement: CallPlacement,
+) -> ValueRange {
+    let v_hp = ArcVarId::new(0);
+    let helper = build_simple_func(
+        base_name,
+        &[(0, ori_types::Idx::INT)],
+        vec![],
+        v_hp,
+        ori_types::Idx::INT,
+        1,
+    );
+
+    let caller = build_branching_caller(base_name + 1, base_name, threshold, placement);
+
+    let v_a0 = ArcVarId::new(0);
+    let v_r0 = ArcVarId::new(1);
+    let v_ahi = ArcVarId::new(2);
+    let v_rhi = ArcVarId::new(3);
+    let main = build_simple_func(
+        base_name + 2,
+        &[],
+        vec![
+            ArcInstr::Let {
+                dst: v_a0,
+                ty: ori_types::Idx::INT,
+                value: ArcValue::Literal(LitValue::Int(0)),
+            },
+            ArcInstr::Apply {
+                dst: v_r0,
+                ty: ori_types::Idx::INT,
+                func: ori_ir::Name::from_raw(base_name + 1),
+                args: vec![v_a0],
+                arg_ownership: vec![ArgOwnership::Owned],
+            },
+            ArcInstr::Let {
+                dst: v_ahi,
+                ty: ori_types::Idx::INT,
+                value: ArcValue::Literal(LitValue::Int(hi)),
+            },
+            ArcInstr::Apply {
+                dst: v_rhi,
+                ty: ori_types::Idx::INT,
+                func: ori_ir::Name::from_raw(base_name + 1),
+                args: vec![v_ahi],
+                arg_ownership: vec![ArgOwnership::Owned],
+            },
+        ],
+        v_rhi,
+        ori_types::Idx::INT,
+        4,
+    );
+
+    let pool = ori_types::Pool::new();
+    let config = RangeAnalysisConfig::default();
+    let mut plan = ReprPlan::new(crate::NarrowingPolicy::Conservative);
+    propagate_ranges(&mut plan, &pool, &[helper, caller, main], &config);
+    plan.var_range(ori_ir::Name::from_raw(base_name), v_hp)
+}
+
+/// Build the 3-block layout for a branching caller based on call placement.
+fn build_branch_blocks(
+    helper_name: u32,
+    threshold: i64,
+    placement: CallPlacement,
+) -> (ArcBlock, ArcBlock, ArcBlock) {
+    let x_param = ArcVarId::new(0);
+    let v_const = ArcVarId::new(1);
+    let v_cond = ArcVarId::new(2);
+    let v_result = ArcVarId::new(3);
+    let v_zero = ArcVarId::new(4);
+
+    let compare_instrs = vec![
+        ArcInstr::Let {
+            dst: v_const,
+            ty: ori_types::Idx::INT,
+            value: ArcValue::Literal(LitValue::Int(threshold)),
+        },
+        ArcInstr::Let {
+            dst: v_cond,
+            ty: ori_types::Idx::BOOL,
+            value: ArcValue::PrimOp {
+                op: PrimOp::Binary(BinaryOp::Lt),
+                args: vec![x_param, v_const],
+            },
+        },
+    ];
+    let apply_instr = ArcInstr::Apply {
+        dst: v_result,
+        ty: ori_types::Idx::INT,
+        func: ori_ir::Name::from_raw(helper_name),
+        args: vec![x_param],
+        arg_ownership: vec![ArgOwnership::Owned],
+    };
+    let zero_instr = ArcInstr::Let {
+        dst: v_zero,
+        ty: ori_types::Idx::INT,
+        value: ArcValue::Literal(LitValue::Int(0)),
+    };
+
+    let ret_result = ArcTerminator::Return { value: v_result };
+    let ret_zero = ArcTerminator::Return { value: v_zero };
+
+    let (block0_body, b1_body, b1_term, b2_body, b2_term) = match placement {
+        CallPlacement::TrueBranch => (
+            compare_instrs,
+            vec![apply_instr],
+            ret_result,
+            vec![zero_instr],
+            ret_zero,
+        ),
+        CallPlacement::FalseBranch => (
+            compare_instrs,
+            vec![zero_instr],
+            ret_zero,
+            vec![apply_instr],
+            ret_result,
+        ),
+        CallPlacement::EntryBlock => {
+            let mut body = vec![apply_instr];
+            body.extend(compare_instrs);
+            (body, vec![], ret_result, vec![zero_instr], ret_zero)
+        }
+    };
+
+    let block0 = ArcBlock {
+        id: ArcBlockId::new(0),
+        params: vec![(x_param, ori_types::Idx::INT)],
+        body: block0_body,
+        terminator: ArcTerminator::Branch {
+            cond: v_cond,
+            then_block: ArcBlockId::new(1),
+            else_block: ArcBlockId::new(2),
+        },
+    };
+    let block1 = ArcBlock {
+        id: ArcBlockId::new(1),
+        params: vec![],
+        body: b1_body,
+        terminator: b1_term,
+    };
+    let block2 = ArcBlock {
+        id: ArcBlockId::new(2),
+        params: vec![],
+        body: b2_body,
+        terminator: b2_term,
+    };
+    (block0, block1, block2)
+}
+
+/// Build a caller function that branches on `x < threshold` and calls
+/// `helper_name` in the branch specified by `placement`.
+fn build_branching_caller(
+    name: u32,
+    helper_name: u32,
+    threshold: i64,
+    placement: CallPlacement,
+) -> ArcFunction {
+    let (block0, block1, block2) = build_branch_blocks(helper_name, threshold, placement);
+    let spans: Vec<Vec<Option<ori_ir::Span>>> = [&block0, &block1, &block2]
+        .iter()
+        .map(|b| vec![None; b.body.len()])
+        .collect();
+    let mut var_types = vec![ori_types::Idx::INT; 5];
+    var_types[2] = ori_types::Idx::BOOL;
+
+    ArcFunction {
+        name: ori_ir::Name::from_raw(name),
+        params: vec![ArcParam {
+            var: ArcVarId::new(0),
+            ty: ori_types::Idx::INT,
+            ownership: Ownership::Owned,
+        }],
+        return_type: ori_types::Idx::INT,
+        blocks: vec![block0, block1, block2],
+        entry: ArcBlockId::new(0),
+        var_types,
+        var_reprs: vec![ValueRepr::Scalar; 5],
+        spans,
         is_fbip: false,
         num_captures: 0,
         cow_annotations: ori_arc::uniqueness::CowAnnotations::default(),
@@ -1819,5 +2027,42 @@ fn invoke_dst_forwards_to_callee_param() {
         p_range,
         ValueRange::Bounded { lo: 100, hi: 100 },
         "Semantic pin (TPR-03-034): callee(invoke_dst + 1) → callee's param should be [100, 100], got {p_range:?}"
+    );
+}
+
+// ─── TPR-03-037: Call-site-specific range propagation ──────
+
+/// Semantic pin (TPR-03-037): helper(x) called in true branch of `x < 5`.
+/// With call-site-specific propagation: helper.param = [0, 4].
+/// Without (global `var_ranges`): helper.param = [0, 10].
+#[test]
+fn call_site_specific_range_from_branch_refinement() {
+    let range = run_branch_call_scenario(950, 5, 10, CallPlacement::TrueBranch);
+    assert_eq!(
+        range,
+        ValueRange::Bounded { lo: 0, hi: 4 },
+        "Semantic pin (TPR-03-037): helper(x) in `if x < 5` branch should give param [0, 4], got {range:?}"
+    );
+}
+
+/// Edge case: call in the false branch of `x < 5` gets the complement range [5, 10].
+#[test]
+fn call_site_specific_range_from_false_branch() {
+    let range = run_branch_call_scenario(960, 5, 10, CallPlacement::FalseBranch);
+    assert_eq!(
+        range,
+        ValueRange::Bounded { lo: 5, hi: 10 },
+        "Edge case: helper(x) in `else` branch of `x < 5` should give param [5, 10], got {range:?}"
+    );
+}
+
+/// Negative pin: call outside any branch uses the full global range.
+#[test]
+fn call_site_without_branch_uses_global_range() {
+    let range = run_branch_call_scenario(970, 5, 10, CallPlacement::EntryBlock);
+    assert_eq!(
+        range,
+        ValueRange::Bounded { lo: 0, hi: 10 },
+        "Negative pin: helper(x) in entry block (no branch refinement) should give param [0, 10], got {range:?}"
     );
 }
