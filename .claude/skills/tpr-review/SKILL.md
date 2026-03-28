@@ -1,12 +1,41 @@
 ---
 name: tpr-review
 description: "Run a third-party review via Codex CLI — TRIGGER proactively after completing ANY non-trivial work: bug fixes, new features, refactors, multi-file changes, compiler changes, codegen changes, test additions, plan implementations, or anything touching correctness-sensitive code. When in doubt, run it. The cost of an unnecessary review is near zero; the cost of a missed bug is high."
-allowed-tools: Bash, Read, Edit, Write, Grep, Glob, Agent, AskUserQuestion
 ---
 
 # TPR Review via Codex
 
 Run the Codex CLI non-interactively to perform an independent review-work pass, then fix any findings and re-run until clean. Codex has its own context, rules, and skills — it will figure out scope on its own.
+
+## Step 0 — MANDATORY: Re-read CLAUDE.md
+
+**Before doing ANYTHING else, re-read the entire project CLAUDE.md.** This is non-negotiable. Even if you believe it is in memory, you MUST physically read it with the Read tool. Context compression may have dropped critical rules. Do this every single time this skill runs.
+
+```
+Read CLAUDE.md (the project root one)
+```
+
+## ABSOLUTE: You May NEVER Reason Out of Findings
+
+**There is NO circumstance under which you may dismiss, rationalize, scope-note, or defer a TPR finding.** The ONLY valid responses to a finding are:
+
+1. **Fix it NOW** — write code, write tests, verify, commit
+2. **Create a plan and execute it** — if too large for inline fix, create concrete implementation steps, then implement them
+3. **AskUserQuestion** — if genuinely blocked (need user decision, missing domain knowledge)
+
+**BANNED responses to findings — using ANY of these is a violation:**
+- "Pre-existing issue" / "was already broken"
+- "Architectural limitation" / "requires major refactor"
+- "Out of scope" / "not a §03 deliverable"
+- "Conservative/safe" / "only precision loss"
+- "Not a regression" / "not introduced by this work"
+- "Future improvement" / "tracked for later"
+- "Scoped as known limitation"
+- Marking `[x] Resolved:` with an explanation instead of a code fix
+
+**The size of the fix is irrelevant.** If the correct fix requires cross-crate refactoring across 10 files, that IS the work. "Requires architectural change" is not a reason to skip — it IS the work.
+
+**"Future improvement" requires a concrete artifact.** If you ever say something will be tracked, you MUST in the same response create: a bug-tracker entry (`/add-bug`), plan section `- [ ]` item, or roadmap checkbox. Ask yourself: "When would this get done? Who would find it?" If nobody/never, fix it now.
 
 ## When to Trigger — Bias Toward Running
 
@@ -34,24 +63,26 @@ Run the Codex CLI non-interactively to perform an independent review-work pass, 
 ## Loop Protocol — MANDATORY
 
 ```
-┌─────────────────────────────────────────────────────┐
-│                   TPR REVIEW LOOP                    │
-│                                                      │
-│  1. CODEX reviews (independent, external)            │
-│        ↓                                             │
-│  2. CLAUDE reads findings                            │
-│        ↓                                             │
-│  3. Zero findings? ──YES──→ DONE (clean pass)        │
-│        │                                             │
-│       NO                                             │
-│        ↓                                             │
-│  4. CLAUDE files findings in plan/bug-tracker        │
-│  5. CLAUDE fixes each finding (code + tests)         │
-│  6. CLAUDE commits fixes via /commit-push            │
-│        ↓                                             │
-│  7. Go to step 1 (CODEX re-reviews the fixed code)  │
-│                                                      │
-└─────────────────────────────────────────────────────┘
++---------------------------------------------------------+
+|                   TPR REVIEW LOOP                        |
+|                                                          |
+|  0. CLAUDE re-reads CLAUDE.md (MANDATORY)                |
+|        |                                                 |
+|  1. CODEX reviews (independent, external)                |
+|        |                                                 |
+|  2. CLAUDE reads findings                                |
+|        |                                                 |
+|  3. Zero findings? --YES--> DONE (clean pass)            |
+|        |                                                 |
+|       NO                                                 |
+|        |                                                 |
+|  4. CLAUDE files findings in plan/bug-tracker            |
+|  5. CLAUDE fixes each finding (code + tests)             |
+|  6. CLAUDE commits fixes via /commit-push                |
+|        |                                                 |
+|  7. Go to step 1 (CODEX re-reviews the fixed code)      |
+|                                                          |
++---------------------------------------------------------+
 ```
 
 **Two actors:**
@@ -94,17 +125,24 @@ for line in sys.stdin:
 
 For each finding in the Codex output, determine if it's actionable:
 
-- **Actionable finding**: a real code issue — bug, hygiene violation, missing test, incorrect behavior, file size limit exceeded, precision regression, etc. Must be fixed.
-- **Non-actionable observation**: a style preference, suggestion for future work, or observation about existing behavior that isn't a defect. Note it but don't block the loop on it.
+- **Actionable finding**: a real code issue — bug, hygiene violation, missing test, incorrect behavior, file size limit exceeded, precision regression, dead code path, etc. Must be fixed.
+- **Non-actionable observation**: a style preference or observation about behavior that isn't a defect AND isn't a precision loss AND isn't dead code. Note it but don't block the loop on it.
 
-### 4. If Zero Actionable Findings → Clean Pass (EXIT)
+**IMPORTANT: Err on the side of "actionable".** If you're unsure, it's actionable. The following are ALWAYS actionable:
+- Dead code paths (code that can never execute)
+- Precision regressions (over-approximation that loses optimization opportunities)
+- Missing tests for plumbed-through data
+- Name collisions or aliasing that cause incorrect behavior
+- Pipeline gaps where data is computed but never consumed
+
+### 4. If Zero Actionable Findings -> Clean Pass (EXIT)
 
 Report to the user:
 - "TPR review passed clean — no actionable findings."
 - Note the iteration count (e.g., "Clean on iteration 1" or "Clean on iteration 3 after fixing N findings").
 - **This is the ONLY exit from the loop.**
 
-### 5. If Actionable Findings Exist → Fix and Re-run
+### 5. If Actionable Findings Exist -> Fix and Re-run
 
 #### 5a. File Findings
 
@@ -128,26 +166,26 @@ For each validated finding:
    ```
 
    Subsystem mapping:
-   - `ori_parse`/`ori_lexer` → section-01
-   - `ori_types` → section-02
-   - `ori_eval`/`ori_patterns` → section-03
-   - `ori_llvm`/`ori_arc` → section-04
-   - `ori_rt` → section-05
-   - `library/std`/`ori_registry` → section-06
-   - `oric`/`ori_fmt`/`ori_diagnostic` → section-07
-   - `docs/`/`.claude/`/`plans/` → section-08
+   - `ori_parse`/`ori_lexer` -> section-01
+   - `ori_types` -> section-02
+   - `ori_eval`/`ori_patterns` -> section-03
+   - `ori_llvm`/`ori_arc` -> section-04
+   - `ori_rt` -> section-05
+   - `library/std`/`ori_registry` -> section-06
+   - `oric`/`ori_fmt`/`ori_diagnostic` -> section-07
+   - `docs/`/`.claude/`/`plans/` -> section-08
 
 #### 5b. Fix Each Finding
 
-**YOU (Claude) fix the code.** This means actual implementation — not just filing.
+**YOU (Claude) fix the code.** This means actual implementation — not just filing. Not scope notes. Not rationalizations. CODE CHANGES.
 
 - Read the affected code and understand the issue
-- Follow TDD if appropriate (write failing test → fix → test passes)
+- Follow TDD if appropriate (write failing test -> fix -> test passes)
 - Run `timeout 150 ./test-all.sh` after fixes
 - Mark the TPR finding as `[x]` resolved in the plan with a note:
   ```md
   - [x] `[TPR-03-038][medium]` ...
-    Resolved: Fixed on YYYY-MM-DD. [description of fix].
+    Resolved: Fixed on YYYY-MM-DD. [description of CODE fix].
   ```
 
 #### 5c. Commit Fixes

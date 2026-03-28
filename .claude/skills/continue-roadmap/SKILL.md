@@ -203,7 +203,8 @@ After identifying the focus section, **check its frontmatter for `third_party_re
      - [x] `[TPR-02-001][high]` `compiler/oric/src/foo.rs` — Description.
        Resolved: Validated and integrated into 02.2 and 02.5 on YYYY-MM-DD.
      ```
-   - **Rejected findings**: Do not delete — mark resolved with rejection rationale. **A finding may ONLY be rejected if it is factually incorrect** (the described issue does not actually exist in the codebase). "Not related to current plan", "out of scope", "pre-existing", and "not our problem" are NOT valid rejection reasons — per CLAUDE.md, there is no "unrelated" or "out of scope":
+   - **BANNED: Resolving findings with scope notes or rationalizations.** Marking a finding as `[x] Resolved: Scoped as known limitation...` or `Resolved: Pre-existing architectural issue...` is DEFERRAL, not resolution. The finding must be FIXED (code change + tests) or have a concrete plan created and executed. If the fix requires cross-crate refactoring, that IS the work. If genuinely blocked, use `AskUserQuestion`.
+   - **Rejected findings**: Do not delete — mark resolved with rejection rationale. **A finding may ONLY be rejected if it is factually incorrect** (the described issue does not actually exist in the codebase). "Not related to current plan", "out of scope", "pre-existing", "conservative/safe", "architectural limitation", and "not our problem" are NOT valid rejection reasons — per CLAUDE.md, there is no "unrelated" or "out of scope":
      ```markdown
      - [x] `[TPR-02-002][medium]` `compiler/oric/src/qux.rs` — Description.
        Resolved: Rejected after validation on YYYY-MM-DD. [Rationale — must explain why the issue does not actually exist].
