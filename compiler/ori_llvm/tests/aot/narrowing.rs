@@ -3,7 +3,55 @@
 //! Tests that struct field integer narrowing produces correct runtime behavior:
 //! trunc at construction + sext at extraction = identical semantics to canonical i64.
 
-use crate::util::{assert_aot_success, compile_and_capture_ir, extract_function_ir};
+use crate::util::{assert_aot_success, compile_and_capture_ir, extract_function_ir, stdlib_path};
+
+use std::process::Command;
+use std::sync::atomic::{AtomicU64, Ordering};
+use tempfile::TempDir;
+
+/// Compile with `ORI_NO_REPR_OPT=1` and capture LLVM IR.
+/// Used for `NarrowingPolicy::Disabled` verification tests.
+fn compile_and_capture_ir_no_repr_opt(source: &str) -> String {
+    static COUNTER: AtomicU64 = AtomicU64::new(0);
+
+    let id = COUNTER.fetch_add(1, Ordering::SeqCst);
+    let temp_dir = TempDir::new().expect("Failed to create temp dir");
+    let source_path = temp_dir.path().join(format!("test_nro_{id}.ori"));
+    let binary_path = temp_dir
+        .path()
+        .join(format!("test_nro_{id}{}", std::env::consts::EXE_SUFFIX));
+
+    std::fs::write(&source_path, source).expect("Failed to write source");
+
+    let exe = format!("ori{}", std::env::consts::EXE_SUFFIX);
+    let workspace_root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .and_then(|p| p.parent())
+        .unwrap()
+        .to_path_buf();
+    let binary = workspace_root.join("target/debug").join(&exe);
+
+    let result = Command::new(binary)
+        .args([
+            "build",
+            source_path.to_str().unwrap(),
+            "-o",
+            binary_path.to_str().unwrap(),
+        ])
+        .env("ORI_STDLIB", stdlib_path())
+        .env("ORI_DEBUG_LLVM", "1")
+        .env("ORI_NO_REPR_OPT", "1")
+        .output()
+        .expect("Failed to execute ori build");
+
+    assert!(
+        result.status.success(),
+        "Compilation failed:\n{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+
+    String::from_utf8_lossy(&result.stderr).to_string()
+}
 
 /// Semantic pin: struct with all fields in [-128, 127] range.
 /// Field values must survive trunc (i64→i8 at construction) and
@@ -935,5 +983,132 @@ fn test_phase_b_overflow_guard_behavior() {
 @main () -> int = compute();
 ",
         "overflow_guard_behavior",
+    );
+}
+
+// ── NarrowingPolicy verification ────────────────────────────────────────
+
+/// `ORI_NO_REPR_OPT=1` suppresses ALL narrowing — Pixel struct stays
+/// canonical i64 fields. Verifies `NarrowingPolicy::Disabled` works end-to-end.
+///
+/// Semantic pin: ONLY passes when Disabled actually suppresses narrowing.
+/// Without Disabled, the Pixel struct would show `i8` fields in IR.
+#[test]
+fn test_narrowing_policy_disabled_suppresses_struct_narrowing() {
+    let ir = compile_and_capture_ir_no_repr_opt(
+        r"
+type Pixel = { r: int, g: int, b: int, a: int }
+
+@read_pixel (p: Pixel) -> int = p.r + p.g + p.b + p.a;
+
+@main () -> int = {
+    let p = Pixel { r: 10, g: 20, b: 30, a: 40 };
+    let sum = read_pixel(p:);
+    if sum == 100 then 0 else 1
+}
+",
+    );
+
+    let fn_ir = extract_function_ir(&ir, "_ori_read_pixel");
+
+    // With Disabled, no trunc/sext should appear — fields stay canonical i64.
+    assert!(
+        !fn_ir.contains("sext i8") && !fn_ir.contains("sext i16"),
+        "expected NO sext in _ori_read_pixel with ORI_NO_REPR_OPT=1.\n\
+         NarrowingPolicy::Disabled must suppress ALL narrowing.\n\
+         Got IR:\n{fn_ir}"
+    );
+}
+
+/// `ORI_NO_REPR_OPT=1` suppresses local variable narrowing (Phase B).
+/// Loop counters and straight-line locals stay canonical i64.
+#[test]
+fn test_narrowing_policy_disabled_suppresses_local_narrowing() {
+    let ir = compile_and_capture_ir_no_repr_opt(
+        r"
+@id (x: int) -> int = x;
+
+@compute () -> int = {
+    let x = 50;
+    let y = x + 25;
+    id(x: y)
+}
+
+@main () -> int = compute();
+",
+    );
+
+    let fn_ir = extract_function_ir(&ir, "_ori_compute");
+
+    // With Disabled, no local.trunc/local.sext should appear.
+    assert!(
+        !fn_ir.contains("local.trunc") && !fn_ir.contains("local.sext"),
+        "expected NO local.trunc/sext in _ori_compute with ORI_NO_REPR_OPT=1.\n\
+         NarrowingPolicy::Disabled must suppress Phase B local narrowing.\n\
+         Got IR:\n{fn_ir}"
+    );
+}
+
+/// Verify that `NarrowingPolicy::Disabled` produces correct runtime results
+/// (no data corruption from missing narrowing).
+#[test]
+fn test_narrowing_policy_disabled_behavioral_correctness() {
+    // Run with ORI_NO_REPR_OPT=1 — same binary, different env
+    let workspace_root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .and_then(|p| p.parent())
+        .unwrap()
+        .to_path_buf();
+
+    let temp_dir = TempDir::new().expect("temp dir");
+    let source_path = temp_dir.path().join("test_disabled.ori");
+    let binary_path = temp_dir
+        .path()
+        .join(format!("test_disabled{}", std::env::consts::EXE_SUFFIX));
+
+    std::fs::write(
+        &source_path,
+        r"
+type Pixel = { r: int, g: int, b: int, a: int }
+
+@main () -> int = {
+    let p = Pixel { r: -128, g: 0, b: 127, a: 42 };
+    let sum = p.r + p.g + p.b + p.a;
+    if sum == 41 then 0 else 1
+}
+",
+    )
+    .unwrap();
+
+    let exe = format!("ori{}", std::env::consts::EXE_SUFFIX);
+    let binary = workspace_root.join("target/debug").join(&exe);
+
+    // Compile with ORI_NO_REPR_OPT=1
+    let compile = Command::new(&binary)
+        .args([
+            "build",
+            source_path.to_str().unwrap(),
+            "-o",
+            binary_path.to_str().unwrap(),
+        ])
+        .env("ORI_STDLIB", stdlib_path())
+        .env("ORI_NO_REPR_OPT", "1")
+        .output()
+        .expect("compile");
+    assert!(
+        compile.status.success(),
+        "Compilation failed:\n{}",
+        String::from_utf8_lossy(&compile.stderr)
+    );
+
+    // Run and check exit code
+    let run = Command::new(&binary_path).output().expect("run");
+    let exit_code = run.status.code().unwrap_or(-1);
+    assert_eq!(
+        exit_code,
+        0,
+        "Disabled-policy binary returned {exit_code}, expected 0.\n\
+         stderr: {}",
+        String::from_utf8_lossy(&run.stderr)
     );
 }
