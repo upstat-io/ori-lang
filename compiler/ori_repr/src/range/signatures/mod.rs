@@ -27,7 +27,7 @@ mod feedback;
 use ori_arc::graph::call_graph::CallGraph;
 use ori_arc::graph::scc::compute_sccs;
 use ori_arc::ir::{ArcFunction, ArcInstr, ArcTerminator};
-use ori_arc::ArcVarId;
+use ori_arc::{ArcBlockId, ArcVarId};
 use ori_ir::Name;
 use ori_types::Pool;
 use rustc_hash::FxHashMap;
@@ -263,13 +263,15 @@ fn collect_param_ranges(
                         args,
                         ..
                     } if *callee_name == target_func.name => {
-                        join_arg_ranges(
-                            args,
+                        // TPR-03-037: Use block-local refined ranges at the
+                        // call site instead of function-global var_ranges.
+                        let local = block_local_ranges(
                             &caller_result.var_ranges,
-                            &target_func.params,
-                            &mut info,
-                            pool,
+                            &caller_result.block_refinements,
+                            block.id,
+                            args,
                         );
+                        join_arg_ranges(args, &local, &target_func.params, &mut info, pool);
                     }
                     _ => {}
                 }
@@ -283,13 +285,13 @@ fn collect_param_ranges(
             } = &block.terminator
             {
                 if *callee_name == target_func.name {
-                    join_arg_ranges(
-                        args,
+                    let local = block_local_ranges(
                         &caller_result.var_ranges,
-                        &target_func.params,
-                        &mut info,
-                        pool,
+                        &caller_result.block_refinements,
+                        block.id,
+                        args,
                     );
+                    join_arg_ranges(args, &local, &target_func.params, &mut info, pool);
                 }
             }
         }
@@ -335,6 +337,30 @@ fn join_arg_ranges(
             .unwrap_or(ValueRange::Top);
         info.param_ranges[i].range = info.param_ranges[i].range.join(arg_range);
     }
+}
+
+/// Compute block-local variable ranges at a call site (TPR-03-037).
+///
+/// Intersects the function-global `var_ranges` with any block-entry refinements
+/// for the call site's block. When a call like `helper(x)` sits inside an
+/// `if x < 5` branch, the block refinement narrows `x` from its global range
+/// `[0, 10]` to `[0, 4]` at the call site, yielding a tighter callee parameter.
+fn block_local_ranges(
+    global_ranges: &FxHashMap<ArcVarId, ValueRange>,
+    block_refinements: &FxHashMap<(ArcBlockId, ArcVarId), ValueRange>,
+    block_id: ArcBlockId,
+    args: &[ArcVarId],
+) -> FxHashMap<ArcVarId, ValueRange> {
+    let mut local = FxHashMap::default();
+    for &var in args {
+        let global = global_ranges.get(&var).copied().unwrap_or(ValueRange::Top);
+        let effective = match block_refinements.get(&(block_id, var)) {
+            Some(&refinement) => global.meet(refinement),
+            None => global,
+        };
+        local.insert(var, effective);
+    }
+    local
 }
 
 /// Build a seed map from `FunctionRangeInfo::param_ranges` for `range_fixpoint()`.
@@ -399,6 +425,7 @@ fn process_recursive_scc(
                         var_ranges: FxHashMap::default(),
                         field_summaries: super::FieldSummaryTable::new(),
                         return_range: ValueRange::Top,
+                        block_refinements: FxHashMap::default(),
                     },
                 );
             }
