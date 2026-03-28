@@ -112,6 +112,12 @@ pub struct RangeFixpointResult {
     pub field_summaries: FieldSummaryTable,
     /// Join of all `Return` terminator value ranges (for §03.5 interprocedural).
     pub return_range: ValueRange,
+    /// Conditional refinements at block entries (from Branch/Switch terminators).
+    ///
+    /// Keyed by `(block_id, var)` — the range a variable is known to have
+    /// at entry to that block. Used by `collect_param_ranges()` (TPR-03-037)
+    /// to compute block-local argument ranges at call sites.
+    pub block_refinements: FxHashMap<(ArcBlockId, ArcVarId), ValueRange>,
 }
 
 /// Merge or widen a variable's range, returning whether it changed.
@@ -471,6 +477,7 @@ fn run_post_fixpoint_narrowing(
         var_ranges: state.ranges.clone(),
         field_summaries: std::mem::take(&mut state.field_summary_table),
         return_range,
+        block_refinements: state.block_refinements.clone(),
     }
 }
 
@@ -547,6 +554,7 @@ pub fn range_fixpoint(
             var_ranges: FxHashMap::default(),
             field_summaries: FieldSummaryTable::new(),
             return_range: Top,
+            block_refinements: FxHashMap::default(),
         };
     }
 
