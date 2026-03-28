@@ -1,167 +1,171 @@
-# Section 11: Foreign Function Interface (FFI) -- Verification Results
+# Section 11: FFI — Verification Results
 
-**Verified**: 2026-03-19
-**Section status**: 0/260 (0%) -- all items marked `[ ]`
-**Verdict**: Status is INACCURATE. Several items marked `[ ]` are partially or fully implemented. The section should be ~15-20% complete based on parser, IR, formatter, spec, and unsafe block infrastructure that already exists.
-
----
-
-## Methodology
-
-Spot-checked 15 items across all 11 subsections to confirm whether genuinely not implemented. Searched compiler crates (ori_ir, ori_parse, ori_types, ori_eval, ori_llvm, ori_fmt) for FFI-related code. Ran existing tests with `timeout 150`.
-
----
-
-## Subsection Summaries
-
-### 11.1 Extern Block Syntax -- PARTIALLY IMPLEMENTED (should be ~60%)
-
-The roadmap claims this is 0% but significant implementation exists:
-
-| Item | Roadmap | Actual | Classification |
-|------|---------|--------|----------------|
-| `extern` keyword (Lexer) | `[ ]` | Implemented: `KwExtern = 48` in `ori_ir/src/token/tag.rs` | **STALE** |
-| `parse_extern_block()` (Parser) | `[ ]` | Implemented: `ori_parse/src/grammar/item/extern_def.rs` (235 lines). Full parsing of convention, `from`, `as`, params, C variadics. | **STALE** |
-| `ExternBlock` AST node | `[ ]` | Implemented: `ori_ir/src/ast/items/extern_def.rs` (81 lines). `ExternBlock`, `ExternItem`, `ExternParam` structs. | **STALE** |
-| `ExternItem` variants | `[ ]` | Implemented: includes `is_c_variadic`, `alias`, params, return_ty | **STALE** |
-| `from "lib"` library spec | `[ ]` | Implemented: parser handles `from` contextual keyword | **STALE** |
-| `as "name"` name mapping | `[ ]` | Implemented: parser handles `as` with string literal | **STALE** |
-| Spec: `spec/26-ffi.md` | `[ ]` | Implemented: `docs/ori_lang/v2026/spec/26-ffi.md` exists (250+ lines), covers extern blocks, C types, CPtr, #repr, unsafe, JsValue, JsPromise | **STALE** |
-| Grammar: `grammar.ebnf` | (in completion checklist) | Implemented: `extern_block`, `extern_item`, `extern_params`, `extern_param`, `c_variadic` all defined | **STALE** |
-| Parser tests | `[ ]` | Implemented: `compiler/oric/tests/phases/parse/extern_def.rs` (20 tests, all passing). Covers basic C/JS, empty block, from/as, variadics, visibility, multiple items, error cases. | **STALE** |
-| Formatter | (not listed) | Implemented: `compiler/ori_fmt/src/declarations/extern_def.rs` (77 lines) | N/A |
-| Type checker: Validate extern | `[ ]` | NOT implemented: `ori_types` has no extern block processing | CONFIRMED `[ ]` |
-| Codegen: LLVM `declare` | `[ ]` | NOT implemented: `ori_llvm` has no extern block codegen | CONFIRMED `[ ]` |
-| Spec test: `tests/spec/ffi/extern_blocks.ori` | `[ ]` | NOT implemented: no `tests/spec/ffi/` directory exists | CONFIRMED `[ ]` |
-
-**Tests run**: `timeout 150 cargo test -p oric --test phases -- extern_def` -- 20 passed, 0 failed.
-
-### 11.2 C ABI Types -- NOT IMPLEMENTED (0% correct)
-
-| Item | Roadmap | Actual | Classification |
-|------|---------|--------|----------------|
-| `CPtr` in type system | `[ ]` | NOT implemented: no CPtr variant in ori_ir or ori_types | CONFIRMED `[ ]` |
-| C type aliases (`c_int`, etc.) | `[ ]` | NOT implemented: no c_int/c_long/etc. in any compiler crate | CONFIRMED `[ ]` |
-| Spec section | `[ ]` | Partially exists in `spec/26-ffi.md` section 26.4.2 | Spec exists but no impl |
-
-### 11.3 #repr Attribute -- PARTIALLY IMPLEMENTED (should be ~40%)
-
-| Item | Roadmap | Actual | Classification |
-|------|---------|--------|----------------|
-| Parser: `#repr("c")` | `[ ]` | Implemented: `ori_parse/src/grammar/attr/mod.rs` has `ReprAttr` enum (C, Packed, Transparent, Aligned(u64)) and `parse_repr_attr()` | **STALE** |
-| Parser: `#repr("packed")` | `[ ]` | Implemented: handled in `parse_repr_attr()` | **STALE** |
-| Parser: `#repr("transparent")` | `[ ]` | Implemented: handled in `parse_repr_attr()` | **STALE** |
-| Parser: `#repr("aligned", N)` | `[ ]` | Implemented: handled in `parse_repr_attr()` with power-of-two validation | **STALE** |
-| IR: `ReprKind` enum | `[ ]` | Partially: `ReprAttr` exists in parser attrs (not in IR as `ReprKind`) | **STALE** |
-| Type checker: Validate | `[ ]` | NOT implemented: no repr validation in ori_types | CONFIRMED `[ ]` |
-| Codegen: LLVM layout | `[ ]` | NOT implemented: no repr-aware LLVM struct layout | CONFIRMED `[ ]` |
-
-### 11.4 Unsafe Expressions -- PARTIALLY IMPLEMENTED (should be ~60%)
-
-| Item | Roadmap | Actual | Classification |
-|------|---------|--------|----------------|
-| `unsafe` keyword | `[ ]` | Implemented: `KwUnsafe = 35` in token/tag.rs | **STALE** |
-| Parser: unsafe blocks | `[ ]` | Implemented: `parse_unsafe_expr()` in `ori_parse/src/grammar/expr/primary/specials.rs` | **STALE** |
-| AST: `Unsafe(ExprId)` | `[ ]` | Implemented: in `ori_ir/src/ast/expr.rs` and `canon/expr.rs` | **STALE** |
-| Type checker: `Unsafe` | `[ ]` | Implemented: `ExprKind::Unsafe(inner) => infer_expr(engine, arena, *inner)` in ori_types (transparent) | **STALE** |
-| Evaluator: Execute | `[ ]` | Implemented: `CanExpr::Unsafe(inner) => self.eval_can(inner)` in ori_eval (transparent) | **STALE** |
-| Spec test: unsafe_block.ori | `[ ]` | Implemented: `tests/spec/capabilities/unsafe_block.ori` (6 tests, all passing) | **STALE** |
-| Grammar: `unsafe_expr` | (in checklist) | Implemented: `unsafe_expr = "unsafe" block_expr .` in grammar.ebnf | **STALE** |
-| LLVM codegen for unsafe | `[ ]` | NOT implemented: no Unsafe handling in ori_llvm | CONFIRMED `[ ]` |
-| `in_unsafe` flag (type checker) | `[ ]` | NOT implemented: no unsafe context tracking | CONFIRMED `[ ]` |
-| Compile-fail: unsafe outside block | `[ ]` | NOT implemented: no compile-fail tests | CONFIRMED `[ ]` |
-
-NOTE: Current unsafe implementation is transparent (no capability enforcement). The `uses Unsafe` capability is mentioned in the grammar/spec but not enforced -- unsafe blocks evaluate their body without any special checks. This is correct for Phase 1 but items about enforcing unsafe context are genuinely incomplete.
-
-**Tests run**: `timeout 150 cargo st tests/spec/capabilities/unsafe_block.ori` -- all 6 tests pass (within full 4181-test suite).
-**Tests run**: `timeout 150 cargo test -p ori_parse -- unsafe` -- 2 passed, 0 failed.
-
-### 11.5 FFI Capability -- NOT IMPLEMENTED (0% correct)
-
-| Item | Roadmap | Actual | Classification |
-|------|---------|--------|----------------|
-| `FFI` capability in type system | `[ ]` | NOT implemented: no FFI capability in ori_types | CONFIRMED `[ ]` |
-| `uses FFI` enforcement | `[ ]` | NOT implemented | CONFIRMED `[ ]` |
-
-### 11.6 Callbacks (Native) -- NOT IMPLEMENTED (0% correct)
-
-| Item | Roadmap | Actual | Classification |
-|------|---------|--------|----------------|
-| Function pointer types | `[ ]` | NOT implemented for FFI context | CONFIRMED `[ ]` |
-| Trampoline generation | `[ ]` | NOT implemented (existing "trampoline" code is for iterator/closure callbacks, not FFI) | CONFIRMED `[ ]` |
-
-### 11.7 Build System Integration -- NOT IMPLEMENTED (0% correct)
-
-| Item | Roadmap | Actual | Classification |
-|------|---------|--------|----------------|
-| ori.toml native section | `[ ]` | NOT implemented: no ori.toml parsing exists | CONFIRMED `[ ]` |
-| pkg-config integration | `[ ]` | NOT implemented | CONFIRMED `[ ]` |
-
-### 11.8 compile_error Built-in -- NOT IMPLEMENTED (0% correct)
-
-| Item | Roadmap | Actual | Classification |
-|------|---------|--------|----------------|
-| `compile_error` parsing | `[ ]` | NOT implemented: existing `compile_error!()` in Rust code is Rust's macro, not Ori's builtin | CONFIRMED `[ ]` |
-| Type checker trigger | `[ ]` | NOT implemented | CONFIRMED `[ ]` |
-
-### 11.9 WASM Target -- PARTIALLY IMPLEMENTED (infrastructure exists, not FFI-specific)
-
-| Item | Roadmap | Actual | Classification |
-|------|---------|--------|----------------|
-| WASM codegen | `[ ]` | WASM compilation infrastructure exists (`ori_llvm/src/aot/wasm/`, linker, config, WASI) but no JS FFI glue for `extern "js"` blocks | CONFIRMED `[ ]` for FFI-specific items |
-
-NOTE: The WASM compilation pipeline exists (target, linker, config, wasi support, JS binding generation infrastructure) but is not wired to extern "js" blocks. The WASM work belongs more to Section 14 (Targets) than Section 11.
-
-### 11.10 JsValue and Async -- NOT IMPLEMENTED (0% correct)
-
-| Item | Roadmap | Actual | Classification |
-|------|---------|--------|----------------|
-| `JsValue` type | `[ ]` | NOT implemented: no JsValue in compiler crates | CONFIRMED `[ ]` |
-| `JsPromise<T>` type | `[ ]` | NOT implemented | CONFIRMED `[ ]` |
-
-### 11.11 Deep FFI -- NOT IMPLEMENTED (0% correct)
-
-| Item | Roadmap | Actual | Classification |
-|------|---------|--------|----------------|
-| Error protocols | `[ ]` | NOT implemented | CONFIRMED `[ ]` |
-| `out` parameters | `[ ]` | NOT implemented | CONFIRMED `[ ]` |
-| Ownership annotations | `[ ]` | NOT implemented | CONFIRMED `[ ]` |
-| `[byte]` elision | `[ ]` | NOT implemented | CONFIRMED `[ ]` |
-| Parametric FFI capability | `[ ]` | NOT implemented | CONFIRMED `[ ]` |
-
----
-
-## Artifacts Found (not reflected in roadmap)
-
-These implemented items exist but are all marked `[ ]` in the section:
-
-1. **Spec file**: `docs/ori_lang/v2026/spec/26-ffi.md` -- comprehensive (250+ lines covering extern blocks, C types, CPtr, #repr, unsafe, JsValue, JsPromise)
-2. **Proposals**: `proposals/approved/platform-ffi-proposal.md`, `proposals/approved/deep-ffi-proposal.md`, `proposals/approved/repr-extensions-proposal.md`, `proposals/approved/unsafe-semantics-proposal.md` -- all approved
-3. **Grammar**: `grammar.ebnf` has extern_block and unsafe_expr productions
-4. **Parser**: Full extern block parser with 20 passing tests
-5. **IR**: ExternBlock, ExternItem, ExternParam AST nodes
-6. **Formatter**: Extern block formatting
-7. **Unsafe**: Full pipeline from parser through evaluator, 6 passing spec tests
-8. **#repr parser**: All 4 variants (C, Packed, Transparent, Aligned) parsed
-
----
+**Verified**: 2026-03-28
+**Status in roadmap**: not-started
+**Actual status**: PARTIAL — significant parser/IR/formatter infrastructure exists; type checker has repr validation; codegen has `declare_extern_function` infra. No eval or end-to-end FFI calling.
 
 ## Summary
 
-| Subsection | Roadmap Status | Actual Status | Items Stale |
-|------------|---------------|---------------|-------------|
-| 11.1 Extern Block Syntax | 0% | ~60% | 10 items should be `[x]` |
-| 11.2 C ABI Types | 0% | 0% (spec exists) | 0 |
-| 11.3 #repr Attribute | 0% | ~40% | 5 items should be `[x]` |
-| 11.4 Unsafe Expressions | 0% | ~60% | 7 items should be `[x]` |
-| 11.5 FFI Capability | 0% | 0% | 0 |
-| 11.6 Callbacks | 0% | 0% | 0 |
-| 11.7 Build System | 0% | 0% | 0 |
-| 11.8 compile_error | 0% | 0% | 0 |
-| 11.9 WASM Target | 0% | 0% (infra exists elsewhere) | 0 |
-| 11.10 JsValue/Async | 0% | 0% | 0 |
-| 11.11 Deep FFI | 0% | 0% | 0 |
+The FFI section is marked `not-started` but has substantial hidden implementation:
+- **Extern block parsing**: COMPLETE (parser, IR, formatter, incremental copier, tests)
+- **C variadic parsing**: COMPLETE (parser handles `...` in extern blocks)
+- **`#repr` attribute**: COMPLETE at parse+IR+typeck+repr-opt levels
+- **`unsafe` keyword**: Lexed as token; no parser/typeck/eval handling
+- **FFI capability**: Not implemented
+- **Codegen for user extern blocks**: Not implemented (only runtime function declarations exist)
+- **Spec files**: Both `spec/25-conditional-compilation.md` and `spec/26-ffi.md` EXIST
 
-**Total stale items**: ~22 items should be marked `[x]` that are currently `[ ]`.
-**Estimated true completion**: ~15-20% (vs reported 0%).
-**True remaining work**: Type checker integration for extern blocks, LLVM codegen for extern calls, CPtr type, C type aliases, FFI capability enforcement, unsafe context tracking, all WASM/JS FFI, all Deep FFI, build system integration, compile_error builtin.
+---
+
+## 11.1 Extern Block Syntax (94 items total section, this subsection)
+
+### Spec
+- [done] `spec/26-ffi.md` EXISTS with extern block syntax, calling conventions, linkage semantics
+  - File: `docs/ori_lang/v2026/spec/26-ffi.md`
+
+### Lexer
+- [done] `extern` keyword token — `compiler/ori_lexer/src/keywords/mod.rs:110`
+- [done] String literals for ABI ("c", "js") — standard string token, validated in parser
+
+### Parser
+- [done] `parse_extern_block()` — `compiler/ori_parse/src/grammar/item/extern_def.rs:22`
+- [done] `ExternBlock` AST node — `compiler/ori_ir/src/ast/items/extern_def.rs:64`
+- [done] `ExternItem` variants — `compiler/ori_ir/src/ast/items/extern_def.rs:37`
+- [done] `from "lib"` library specification — parser line 74, contextual keyword check
+- [done] `as "name"` name mapping — parser line 148
+
+### Type checker
+- [todo] Ensure types are FFI-safe — no FFI-safety validation in `ori_types`
+- [todo] Check for `uses FFI` in callers — no FFI capability tracking
+
+### Codegen
+- [partial] `declare_extern_function` exists in `ori_llvm/src/codegen/ir_builder/calls.rs:256` — used for runtime functions only
+- [todo] No codegen path from user `ExternBlock` AST to LLVM `declare`
+- [todo] No calling convention handling for user extern blocks
+- [todo] No external symbol linking from user code
+
+### Formatter
+- [done] `format_extern_block` — `compiler/ori_fmt/src/declarations/extern_def.rs`
+
+### Incremental
+- [done] Incremental copier handles extern blocks — `compiler/ori_parse/src/incremental/copier.rs:1514`
+
+### Tests
+- [done] Parser tests: 18 tests in `compiler/oric/tests/phases/parse/extern_def.rs`
+  - Basic extern c/js, empty block, from clause, as alias, C variadic, pub/private, multiple items, multiple blocks, mixed with functions, error cases
+- [todo] No spec tests (`tests/spec/ffi/extern_blocks.ori` does not exist)
+- [todo] No LLVM tests, no AOT tests
+
+---
+
+## 11.2 C ABI Types
+
+- [todo] `CPtr` type — not in type system (no `TypeId` variant, no pool entry)
+- [todo] C type aliases (`c_int`, `c_long`, etc.) — not registered in type checker
+  - NOTE: `c_int` appears in test strings and runtime Rust code, but NOT as Ori-level types
+- [todo] Size/alignment handling for C types
+- [todo] Platform-dependent sizes
+- [todo] FFI type validation
+- [todo] No spec tests
+
+---
+
+## 11.3 #repr Attribute
+
+- [done] IR `ReprAttrKind` enum — `compiler/ori_ir/src/ast/items/types.rs:22` with C, Packed, Transparent, Aligned(u64), CAligned(u64)
+- [done] Parser `#repr("c")`, `#repr("packed")`, `#repr("transparent")`, `#repr("aligned", N)` — `compiler/ori_parse/src/grammar/attr/repr.rs`
+- [done] Combined syntax `#repr("c", "aligned", 16)` — parser supports in-paren combinations
+- [done] Type checker validation and merging — `compiler/ori_types/src/check/registration/user_types.rs:186` (`validate_and_merge_repr_attrs`)
+  - Validates: transparent requires single field, aligned must be power of two, rejects packed+aligned, etc.
+- [done] `ori_repr` crate `ReprAttribute` enum — `compiler/ori_repr/src/plan/repr_attr.rs`
+- [done] Type checker tests for repr validation — `compiler/ori_types/src/check/registration/tests.rs` (transparent, duplicate C, duplicate aligned, C+aligned)
+- [todo] LLVM codegen for repr (packed struct type, transparent, aligned) — not directly wired for user types
+- [todo] No spec tests (`tests/spec/ffi/repr.ori` does not exist)
+- [todo] No compile-fail tests for invalid repr combinations
+
+---
+
+## 11.4 Unsafe Expressions
+
+- [done] `unsafe` keyword lexed — `compiler/ori_lexer/src/keywords/mod.rs:112`
+- [todo] Parser does NOT parse `unsafe { ... }` blocks — no `parse_unsafe_block` function
+- [todo] No `in_unsafe` flag in type checker
+- [todo] No evaluator handling
+- [todo] No codegen
+- [todo] No tests
+
+---
+
+## 11.5 FFI Capability
+
+- [todo] `FFI` capability not defined in capability system
+- [todo] Not tracked in function signatures
+- [todo] Not enforced by type checker
+- [todo] No tests
+
+---
+
+## 11.6 Callbacks (Native)
+
+- [todo] Function pointer type in FFI context not implemented
+- [todo] No trampoline generation
+- [todo] No tests
+
+---
+
+## 11.7 Build System Integration
+
+- [todo] `ori.toml` native section not implemented
+- [todo] No link directive generation
+- [todo] No pkg-config integration
+- [todo] No tests
+
+---
+
+## 11.8 compile_error Built-in
+
+- [todo] `compile_error` not recognized as a built-in function
+  - Not in `ori_types/src/infer/expr/identifiers.rs`
+  - Not in `ori_eval/src/function_val.rs`
+  - Not in `library/std/prelude.ori`
+- [todo] No spec tests
+
+---
+
+## 11.9 WASM Target (Section 2)
+
+- [todo] No WASM-specific codegen for user extern "js" blocks
+- [todo] No JS glue generation
+- NOTE: WASM cross-compilation infrastructure exists in `ori_llvm` (linker, config) but not for user FFI
+
+---
+
+## 11.10 JsValue and Async (Section 3-4)
+
+- [todo] JsValue type not in type system
+- [todo] JsPromise type not in type system
+- [todo] No implicit resolution
+- [todo] No tests
+
+---
+
+## 11.11 Deep FFI
+
+- [todo] All Deep FFI features (error protocols, ownership, marshalling, testability, const-generic safety) are not started
+- [todo] No `FfiError` type
+- [todo] No `out` parameter modifier
+- [todo] No ownership annotations
+
+---
+
+## Correction Needed
+
+The roadmap status should be changed from `not-started` to `partial`. Key completed items:
+1. Extern block parsing (parser + IR + formatter + tests) — subsection 11.1 parser portion
+2. C variadic parsing in extern blocks — subsection 11.1/12.4
+3. `#repr` attribute (parse + IR + typeck validation + repr-opt) — subsection 11.3
+4. `unsafe` keyword lexing — subsection 11.4 lexer portion
+5. Spec files exist for both FFI and conditional compilation
+6. `declare_extern_function` infrastructure in LLVM backend
+
+Estimated: ~25% of section items have hidden implementation.

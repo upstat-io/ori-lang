@@ -1,74 +1,65 @@
 # Section 19: Existential Types (impl Trait) -- Verification Results
 
-**Verified**: 2026-03-19
-**Section status**: not-started (0/127 items)
-**Verdict**: Section is genuinely not started. All items correctly marked `[ ]`.
-
----
-
-## Spot-Checked Items (7 items)
-
-### 19.1 -- Parser: Parse `impl Trait` in return position
-- **Status**: `[ ]` (unchecked)
-- **Codebase evidence**: Searched for `ImplTrait`, `impl_trait`, `OpaqueTy`, and `existential` across `ori_ir`, `ori_parse`, `ori_types`. No `ImplTrait` type variant exists in `ori_ir/src/parsed_type/mod.rs`. No parser code handles `impl` followed by a trait name in type position. The only `impl Trait` reference in `ori_parse` is in `impl_def/mod.rs` (parsing `impl Type: Trait` blocks, not `impl Trait` return types).
-- **Classification**: VERIFIED -- no parser support for `impl Trait` in type position exists.
-
-### 19.1 -- Type checker: Existential type handling
-- **Status**: `[ ]` (unchecked)
-- **Codebase evidence**: No opaque type tracking, no concrete type inference from function body for impl Trait, no multi-return-path unification. The type checker has no awareness of existential types.
-- **Classification**: VERIFIED -- genuinely not started.
-
-### 19.2 -- Type inference: Unify return types for impl Trait
-- **Status**: `[ ]` (unchecked)
-- **Codebase evidence**: No return path concrete type tracking for opaque types exists in `ori_types`.
-- **Classification**: VERIFIED -- genuinely not started.
-
-### 19.3 -- Associated type constraints (`where Item == int`)
-- **Status**: `[ ]` (unchecked)
-- **Codebase evidence**: The `where` clause parser handles type bounds (`T: Trait`) and const bounds (`N > 0`), but not associated type equality constraints (`where Item == int` on an `impl Trait` return). No `WhereClause::AssocTypeEquality` variant exists.
-- **Classification**: VERIFIED -- genuinely not started.
-
-### 19.4 -- Reject impl Trait in argument position
-- **Status**: `[ ]` (unchecked)
-- **Codebase evidence**: Since `impl Trait` is not parsed at all in type position, there is nothing to reject. The parser would treat `impl` as a keyword starting an impl block, not as part of a type expression.
-- **Classification**: VERIFIED -- genuinely not started (no implementation means no position restrictions needed yet).
-
-### 19.5 -- impl Trait vs dyn Trait comparison
-- **Status**: `[ ]` (unchecked)
-- **Codebase evidence**: No documentation or test exists. Trait objects (`dyn Trait` equivalent in Ori) exist as `Trait` in type position, but `impl Trait` (static dispatch alternative) is not implemented.
-- **Classification**: VERIFIED -- genuinely not started.
-
-### 19.1 -- Test: `tests/spec/types/impl_trait.ori`
-- **Status**: `[ ]` (unchecked)
-- **Codebase evidence**: No file at `tests/spec/types/impl_trait.ori` or `tests/spec/types/impl_trait*.ori`. Glob returned no results.
-- **Classification**: VERIFIED -- no tests exist.
-
----
+**Verified**: 2026-03-28
+**Methodology**: Searched codebase for `ImplTrait`, `OpaqueTy`, `opaque_type`, `impl Trait` in return position, existential type IR representations. Checked parser, type checker, evaluator, LLVM codegen, tests.
+**Sections verified**: 19.1-19.5 + Completion Checklist
+**Total items**: 26
 
 ## Summary
 
-| Classification | Count |
-|----------------|-------|
-| VERIFIED       | 7     |
-| NEEDS TESTS    | 0     |
-| WEAK TESTS     | 0     |
-| WRONG TEST     | 0     |
-| STALE TEST     | 0     |
-| REGRESSION     | 0     |
-| BUG FOUND      | 0     |
+| Subsection | Items | Done | Partial | Not Started | Notes |
+|-----------|-------|------|---------|-------------|-------|
+| 19.1 Return Position impl Trait | 4 | 0 | 0 | 4 | No IR, parser, or typeck support |
+| 19.2 Type Inference | 4 | 0 | 0 | 4 | No implementation |
+| 19.3 Associated Type Constraints | 3 | 0 | 0 | 3 | No implementation |
+| 19.4 Limitations and Errors | 4 | 0 | 0 | 4 | No implementation |
+| 19.5 impl Trait vs dyn Trait | 3 | 0 | 0 | 3 | No implementation |
+| Completion Checklist | 8 | 0 | 0 | 8 | N/A |
 
-**Conclusion**: All 127 items are genuinely not started. No `impl Trait` support exists at any level:
-- **IR**: No `ImplTrait` or `OpaqueType` variant in the type AST
-- **Parser**: Cannot parse `impl Trait` in type positions
-- **Type checker**: No opaque type inference or concrete type unification
-- **Evaluator**: Would need no special handling (sees concrete types), but irrelevant without parser/typeck
-- **LLVM**: No monomorphization for opaque return types
-- **Tests**: No test files exist
+**Hidden implementations found**: 0
 
-Section status `not-started` is accurate. This is a Tier 7 feature with no implementation work begun.
+## Detailed Findings
 
----
+### 19.1 Return Position impl Trait
 
-## Cross-Section Notes
+All 4 items are [not-started].
 
-Sections 16-19 are all Tier 6-7 features representing future language capabilities. The existing codebase has some infrastructure scaffolding (well-known trait bits for Sendable, pattern stubs for parallel/timeout/spawn/channel, parser support for const generics and fixed-capacity list syntax), but no functional implementations of async, concurrency, or existential types. The roadmap accurately reflects this state.
+- No `Type::ImplTrait` variant exists in `ori_ir`. Searched `ImplTrait`, `OpaqueTy`, `opaque_type` across all Rust source -- zero matches.
+- No parser support for `impl Trait` in return type position. `ori_parse/src` has no impl-trait parsing code.
+- No type checker support. `ori_types` has no opaque type inference or existential type handling.
+- No test files in `tests/spec/types/impl_trait*` or `tests/compile-fail/types/impl_trait*`.
+
+The only references to "impl Trait" in the Rust source are:
+- `ori_parse/src/grammar/item/impl_def/mod.rs` -- parsing `impl Type: Trait` blocks (trait implementations, not existential types)
+- `ori_ir/src/ast/items/traits.rs` -- trait definition IR
+- `ori_types/src/registry/traits/mod.rs` -- trait registry
+- `ori_fmt/tests/property_tests.rs` and `ori_fmt/src/declarations/def_impls.rs` -- formatting `impl` blocks
+- `ori_types/src/check/well_known/trait_set.rs` -- well-known trait sets
+
+None of these relate to existential return types (`-> impl Trait`).
+
+### 19.2 Type Inference
+
+All 4 items are [not-started]. No concrete type inference from function bodies, no return type unification for opaque types.
+
+### 19.3 Associated Type Constraints
+
+All 3 items are [not-started]. No `where Assoc == Type` constraint syntax for existential types.
+
+### 19.4 Limitations and Errors
+
+All 4 items are [not-started]. No position restrictions implemented (since the feature doesn't exist at all).
+
+### 19.5 impl Trait vs dyn Trait
+
+All 3 items are [not-started]. No documentation, comparison, or test infrastructure.
+
+### Completion Checklist
+
+All 8 items are [not-started].
+
+## Accuracy Assessment
+
+The section's `not-started` status is **accurate**. There is zero implementation of existential types (`impl Trait` in return position) anywhere in the codebase. No IR representation, no parsing, no type checking, no tests. This is a clean not-started section.
+
+**Recommended status**: not-started
