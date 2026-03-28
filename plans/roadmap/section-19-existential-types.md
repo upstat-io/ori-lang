@@ -389,6 +389,7 @@ error: `impl Trait` is only allowed in return position
 - [ ] Associated type constraints work
 - [ ] Clear errors for invalid positions
 - [ ] All tests pass: `./test-all.sh`
+- [ ] `/tpr-review` passed — independent Codex review found no critical or major issues (or all findings triaged)
 
 **Exit Criteria**: Can write iterator-returning functions with clean APIs
 

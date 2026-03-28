@@ -201,3 +201,4 @@ No changes needed in this file — the elision happens inside `checked_add`/`che
 - [ ] bench_compute overflow intrinsic count ≤ 8
 - [ ] `./test-all.sh` passes in debug and release
 - [ ] Benchmark re-run shows measurable improvement
+- [ ] `/tpr-review` passed — independent Codex review found no critical or major issues (or all findings triaged)

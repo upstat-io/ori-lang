@@ -265,6 +265,7 @@ When variant payloads have different sizes, the current approach uses `max(sizeo
 - [ ] `./test-all.sh` green in both debug (`cargo b`) and release (`cargo b --release`) builds
 - [ ] `./clippy-all.sh` green
 - [ ] `./diagnostics/valgrind-aot.sh` clean
+- [ ] `/tpr-review` passed — independent Codex review found no critical or major issues (or all findings triaged)
 
 **Exit Criteria:** `Option<bool>` compiles to a single `i8` in LLVM IR (no struct wrapper), with `None = 2`, `Some(false) = 0`, `Some(true) = 1`. Verified by inspecting LLVM IR and running all Option-related spec tests.
 

@@ -477,5 +477,6 @@ The spec formalizes two distinct pattern categories:
 - [ ] Data transformation patterns moved to stdlib
 - [ ] Resilience patterns moved to stdlib
 - [ ] Run full test suite: `./test-all.sh`
+- [ ] `/tpr-review` passed — independent Codex review found no critical or major issues (or all findings triaged)
 
 **Exit Criteria**: All compiler patterns evaluate correctly

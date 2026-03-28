@@ -1137,6 +1137,7 @@ For cross-function narrowing, we need to propagate range information through fun
 - [x] **`field_range_summaries` field in `ReprPlan`** — `plan.rs:101`, with `field_range()` and `join_field_range()` methods (2026-03-25)
 - [x] **`.copied()` in `ReprPlan::var_range()`** — already uses `.copied()` at `plan.rs:162` (2026-03-25)
 - [x] **`pub use` re-exports in `lib.rs`** — `ValueRange`, `RangeAnalysisConfig`, `FieldSummaryTable`, `RangeFixpointResult`, `KnownBuiltins` (2026-03-26)
+- [ ] `/tpr-review` passed — independent Codex review found no critical or major issues (or all findings triaged)
 
 **Global Testing Requirements (CLAUDE.md compliance):**
 - **TDD ordering**: Every subsection (03.1 through 03.5) must write tests BEFORE implementation. Verify tests fail (compile error or assertion). Implement. Tests must pass unchanged. Needing to change tests = wrong tests or wrong fix.

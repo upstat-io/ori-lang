@@ -146,5 +146,6 @@ sections:
 - [ ] Archive format validated
 - [ ] Checksum verification
 - [ ] Run full test suite
+- [ ] `/tpr-review` passed — independent Codex review found no critical or major issues (or all findings triaged)
 
 **Exit Criteria**: Registry protocol fully specified and testable

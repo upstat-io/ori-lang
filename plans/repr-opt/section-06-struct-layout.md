@@ -215,5 +215,6 @@ Tuples are anonymous structs. Apply the same optimization.
 - [ ] `./test-all.sh` green in both debug (`cargo b`) and release (`cargo b --release`) builds
 - [ ] `./clippy-all.sh` green
 - [ ] `./diagnostics/valgrind-aot.sh` clean
+- [ ] `/tpr-review` passed — independent Codex review found no critical or major issues (or all findings triaged)
 
 **Exit Criteria:** `sizeof` for `struct { a: bool, b: int, c: bool, d: byte }` is 16 bytes (i64 + i8 + i8 + i8 + 5 trailing padding to align 8) instead of 32 bytes, verified in LLVM IR. All struct-related spec tests pass.
