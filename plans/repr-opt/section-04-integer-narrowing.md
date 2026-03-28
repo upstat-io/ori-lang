@@ -4,9 +4,9 @@ title: "Integer Narrowing Pipeline"
 status: in-progress
 reviewed: true
 third_party_review:
-  status: resolved
+  status: findings
   updated: 2026-03-28
-  triage_note: "All TPR findings resolved. TPR-04-024 accepted on 2026-03-28 (Select narrowing tasks added to §04.4). Previously resolved: TPR-04-023 accepted (straight-line local narrowing tasks), TPR-04-018→IR-PIN-04-018, TPR-04-019→MIXED-PIN-04-019, TPR-04-020→DERIVE-PIN-04-020, TPR-04-021 (Debug str leak), TPR-04-022 (stale Debug known_gap). CROSS-04-017 remains accepted follow-up in §04.X."
+  triage_note: "Open finding: TPR-04-025 (emit_function.rs exceeds the 500-line source-file limit). Previously resolved: TPR-04-024 accepted on 2026-03-28 (Select narrowing tasks added to §04.4), TPR-04-023 accepted (straight-line local narrowing tasks), TPR-04-018→IR-PIN-04-018, TPR-04-019→MIXED-PIN-04-019, TPR-04-020→DERIVE-PIN-04-020, TPR-04-021 (Debug str leak), TPR-04-022 (stale Debug known_gap). CROSS-04-017 remains accepted follow-up in §04.X."
 goal: "Lower int (semantic i64) to the smallest machine integer (i8/i16/i32) that preserves correctness, saving memory in struct fields, collections, and stack slots"
 inspired_by:
   - "Zig comptime_int narrowing to runtime types (src/Sema.zig)"
@@ -292,9 +292,9 @@ The LLVM backend type resolution path via `TypeLayoutResolver` handles `MachineR
 - [x] Overflow guards correct by construction (2026-03-28): Arithmetic always operates on sext'd i64 values (strategy (a)), and `min_width()` selects the smallest type that fits the computed range (implicit strategy (c)). No explicit overflow guards needed — the trunc+sext pair at definition time validates the value. Verified: `x=100, y=x+50` narrows `y` to i16 (not i8, since 150 > 127). Tests: `test_phase_b_overflow_guard_widens_to_i16` (IR pin: i16 in IR, no i8 trunc), `test_phase_b_overflow_guard_behavior` (150 preserved correctly). The existing `llvm.sadd.with.overflow.i64` catches any i64-level overflow.
 
 **NarrowingPolicy behavior:**
-- [ ] `NarrowingPolicy::Disabled` (via `--no-repr-opt` / `ORI_NO_REPR_OPT`) suppresses ALL narrowing — Pixel struct stays 32 bytes, loop counters stay `i64`
-- [ ] `--no-repr-opt` flag passes `NarrowingPolicy::Disabled` to `ReprPlan` via `NarrowingPolicy::from(policy_flag)` or equivalent in the CLI
-- [ ] `NarrowingPolicy::Conservative` vs `Aggressive`: verify that Conservative is strictly a subset of Aggressive (Conservative never narrows what Aggressive does not)
+- [x] `NarrowingPolicy::Disabled` (via `--no-repr-opt` / `ORI_NO_REPR_OPT`) suppresses ALL narrowing (2026-03-28): 3 E2E AOT tests: `test_narrowing_policy_disabled_suppresses_struct_narrowing` (no sext in Pixel IR), `test_narrowing_policy_disabled_suppresses_local_narrowing` (no local.trunc/sext), `test_narrowing_policy_disabled_behavioral_correctness` (correct Pixel sum=41). Disabled returns after `populate_canonical()`.
+- [x] `--no-repr-opt` flag passes `NarrowingPolicy::Disabled` to `ReprPlan` (2026-03-28): Already implemented in §01. CLI: `parse_args.rs:92-112`, env: `NarrowingPolicy::env_disabled()`, threading: `BuildOptions` → `compile_to_llvm()` → `run_codegen_pipeline()` → `ReprPlan::new(policy)`. Unit tests in `build_options/tests.rs`.
+- [x] `NarrowingPolicy::Conservative` vs `Aggressive` (2026-03-28): Currently equivalent — both declared and parseable (`--repr-opt=aggressive|conservative`) but produce identical narrowing. Only `Disabled` has special handling. Differentiation deferred until specific Conservative policies are defined (e.g., "don't narrow loop counters" or "require 100% call-site coverage").
 
 **Phase C — Collection element narrowing:**
 - [ ] `[int]` list whose push sites all pass `[-128, 127]` values → `FatRepr::Collection { element_repr: MachineRepr::Int { width: I8, signed: true } }` in `ReprPlan`
@@ -350,6 +350,11 @@ The LLVM backend type resolution path via `TypeLayoutResolver` handles `MachineR
 ---
 
 ## 04.R Third Party Review Findings
+
+- [ ] `[TPR-04-025][low]` `compiler/ori_llvm/src/codegen/arc_emitter/emit_function.rs:1` — `emit_function.rs` is still over the 500-line source-file limit after the Phase B narrowing work.
+  Evidence: fresh review on 2026-03-28 measured `compiler/ori_llvm/src/codegen/arc_emitter/emit_function.rs` at 501 lines, and this file is part of the current `HEAD~5..HEAD` implementation slice (`0b3c41cf` touched it while adding the Phase B narrowing infrastructure). `CLAUDE.md` and `.claude/rules/impl-hygiene.md` both require splitting touched production files before they exceed 500 lines.
+  Impact: §04.4 is still actively changing the ARC emitter, but one of its orchestration files is already past the hard size limit. Leaving the file oversized makes the remaining narrowing and ABI-boundary work harder to review and easier to regress.
+  Required plan update: split parameter/phi setup or unwind/block-emission orchestration into a sibling helper/submodule so `emit_function.rs` drops back under the 500-line limit during the next §04.4 implementation pass.
 
 - [x] `[TPR-04-024][medium]` `compiler/ori_llvm/src/codegen/arc_emitter/instr_dispatch.rs:452` `compiler/ori_arc/src/block_merge/select.rs:260` `compiler/ori_repr/src/range/transfer/mod.rs:117` — `ArcInstr::Select` results still bypass the Phase B local-narrowing path, so narrow-range branch-diamond locals remain canonical `i64`.
   Evidence: `apply_select_fold()` lowers trivial `if`/`else` diamonds to `ArcInstr::Select`, and range analysis explicitly computes a joined integer range for `Select` destinations. But the emitter's `ArcInstr::Select` arm still binds the LLVM `select` result with `def_var()` instead of `def_var_repr()`, unlike the new straight-line narrowing path for `Let`/`Apply`/`Project`/`Construct`. Fresh verification on 2026-03-28 with `diagnostics/ir-dump.sh --raw --function _ori_pick` for `let x = if b then 1 else 2; x` produced `select i1 %0, i64 1, i64 2` and `ret i64 %sel`, with no `local.trunc`/`local.sext` or narrow integer type anywhere in `_ori_pick`.
