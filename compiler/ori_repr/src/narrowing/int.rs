@@ -15,7 +15,7 @@
 //! - Fields with `Top` range are left at I64 (safe default)
 //! - Fields with `Bottom` range get I8 (unreachable — smallest valid)
 
-use ori_types::{Idx, Pool};
+use ori_types::{Idx, Pool, Tag};
 
 use crate::plan::{DecisionReason, DecisionSource, ReprDecision, ReprPlan};
 use crate::repr::{IntWidth, MachineRepr};
@@ -245,7 +245,14 @@ enum CandidateKind {
 /// - Public collection types are not narrowed (ABI contract)
 /// - `NarrowingPolicy::Disabled` suppresses all narrowing
 /// - Collections with no observed construction sites stay at I64 (`Top`)
-/// - Only `[int]` and `Set<int>` are candidates (maps not yet supported)
+/// - Only `[int]` is a candidate (maps and sets not yet supported)
+///
+/// Sets are excluded because the eq/hash thunks generated for set hash
+/// table operations always load the canonical LLVM type (`i64` for `int`)
+/// from element pointers. Narrowing set elements would cause the thunks
+/// to read past the narrowed slot (e.g., reading 8 bytes from a 1-byte
+/// element), producing garbage comparisons and hashes. Set narrowing
+/// requires narrowing-aware thunks — tracked separately.
 pub fn narrow_collection_elements(plan: &mut ReprPlan, pool: &Pool) {
     let policy = plan.narrowing_policy();
     if policy == crate::plan::NarrowingPolicy::Disabled {
@@ -270,6 +277,16 @@ pub fn narrow_collection_elements(plan: &mut ReprPlan, pool: &Pool) {
         .collect();
 
     for (idx, _fat) in candidates {
+        // Skip sets — eq/hash thunks load canonical-width values from element
+        // pointers; narrowing set elements causes them to read past the slot.
+        if pool.tag(idx) == Tag::Set {
+            tracing::trace!(
+                ?idx,
+                "skipping collection narrowing — set type (thunks not narrowing-aware)"
+            );
+            continue;
+        }
+
         // Skip public collection types — ABI contract with external code.
         if plan.is_public_type(idx) {
             tracing::trace!(?idx, "skipping collection narrowing — public type");

@@ -211,10 +211,12 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                         debug_assert!(false, "SetLiteral TypeInfo mismatch: {type_info:?}");
                         Idx::INT
                     };
-                // §04.4 Phase C: narrowed element type/size for sets.
-                let collection_idx = self.pool.resolve_fully(ty);
-                let elem_llvm_ty = self.collection_elem_llvm_type(collection_idx, elem_idx);
-                let elem_size = self.collection_elem_size(collection_idx, elem_idx);
+                // Sets always use canonical element sizes — eq/hash thunks load
+                // full-width values, so narrowing set elements would cause
+                // out-of-bounds reads. Phase C collection narrowing is gated
+                // to list types only in ori_repr.
+                let elem_llvm_ty = self.resolve_type(elem_idx);
+                let elem_size = self.element_store_size(elem_idx);
 
                 let count_val = self.builder.const_i64(count as i64);
                 let esize_val = self.builder.const_i64(elem_size as i64);
@@ -234,17 +236,11 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                     .get_or_create_hash_thunk(elem_idx)
                     .unwrap_or_else(|| self.builder.const_null_ptr());
 
-                // Insert each element via runtime.
-                // For narrowed collections, trunc to narrow width before storing.
+                // Insert each element via runtime (canonical width).
                 let elem_tmp = self.builder.alloca(elem_llvm_ty, "set.elem_tmp");
                 let put_fn = self.builder.runtime_fn("ori_set_literal_put");
-                for (i, &val) in arg_vals.iter().enumerate() {
-                    let store_val = self.trunc_for_narrowed_collection_element(
-                        val,
-                        collection_idx,
-                        &format!("set.elem.trunc.{i}"),
-                    );
-                    self.builder.store(store_val, elem_tmp);
+                for &val in &arg_vals {
+                    self.builder.store(val, elem_tmp);
                     self.emit_rt_call(
                         put_fn,
                         &[data_ptr, cap_val, elem_tmp, esize_val, hash_thunk],
