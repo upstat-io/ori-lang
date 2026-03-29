@@ -198,7 +198,8 @@ impl<'tcx> super::OwnedLLVMEvaluator<'tcx> {
             &pub_type_indices,
             imported_type_metadata,
             &unconstrained_fn_names,
-            false, // JIT path: all functions in the set are fully integrated
+            // JIT also has analysis-only impl methods (TPR-03-048).
+            impl_sigs.iter().any(|(_, sig)| !sig.is_generic()),
         );
         let store = TypeInfoStore::new_with_plan(self.pool, &repr_plan);
         let resolver = TypeLayoutResolver::new(&store, scx_ref, Some(interner), Some(&repr_plan));
