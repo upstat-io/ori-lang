@@ -228,27 +228,28 @@ fn register_resolved_imports(
         .map(|m| m.source_file.map(|sf| crate::query::typed(db, sf)))
         .collect();
 
-    // 3a. Collect imported type metadata for transitive forwarding (CROSS-04-017).
-    // Each module's exported_type_metadata already includes its own transitive
-    // imports (because it went through the same merge in its own finish_with_pool).
-    // We collect from all direct imports — prelude + explicit modules.
+    // 3a. Collect imported metadata for transitive forwarding (CROSS-04-017, TPR-04-038).
+    // Both type metadata and collection surfaces flow through the same sources.
     {
         let mut imported_metadata: Vec<ori_types::ExportedTypeMetadata> = Vec::new();
+        let mut imported_surfaces: Vec<u64> = Vec::new();
 
-        // Prelude metadata
         if let Some(ref prelude) = resolved.prelude {
             if let Some(ref tcr) = prelude.source_file.map(|sf| crate::query::typed(db, sf)) {
                 imported_metadata.extend(tcr.typed.exported_type_metadata.iter().cloned());
+                imported_surfaces.extend(tcr.typed.exported_collection_surfaces.iter().copied());
             }
         }
-
-        // Explicit import module metadata
         for tcr in module_results.iter().flatten() {
             imported_metadata.extend(tcr.typed.exported_type_metadata.iter().cloned());
+            imported_surfaces.extend(tcr.typed.exported_collection_surfaces.iter().copied());
         }
 
         if !imported_metadata.is_empty() {
             checker.set_imported_type_metadata(imported_metadata);
+        }
+        if !imported_surfaces.is_empty() {
+            checker.set_imported_collection_surfaces(imported_surfaces);
         }
     }
 
