@@ -247,3 +247,93 @@ fn exported_metadata_multiple_imported_modules() {
     assert!(hashes.contains(&0xC001));
     assert!(hashes.contains(&0xD001));
 }
+
+// --- Transitive collection-surface forwarding tests (TPR-04-041) ---
+
+/// Regression: TPR-04-041 — the A→B→C collection-surface forwarding path must
+/// be pinned end-to-end. Module C exports a public `[int]` function. Module B
+/// imports C (no own public collection functions). Module A imports B. C's
+/// collection surface hash must propagate transitively through B to A.
+#[test]
+fn exported_collection_surfaces_forward_transitively_a_b_c() {
+    let arena = ExprArena::new();
+    let interner = StringInterner::new();
+
+    // Step 1: Simulate module C's exported hash.
+    // In production, C would have `pub @f() -> [int]`, and its type checker
+    // would compute hash(List<int>). Here we compute it from a fresh pool.
+    let c_hash = {
+        let mut pool = Pool::new();
+        let list_int = pool.list(Idx::INT);
+        pool.hash(list_int)
+    };
+
+    // Step 2: Module B imports C's surfaces, has no own public collection functions.
+    let mut checker_b = ModuleChecker::new(&arena, &interner);
+    checker_b.set_imported_collection_surfaces(vec![c_hash]);
+    let (result_b, _pool_b) = checker_b.finish_with_pool();
+
+    // B should forward C's hash in its exported_collection_surfaces.
+    assert!(
+        result_b
+            .typed
+            .exported_collection_surfaces
+            .contains(&c_hash),
+        "Module B must forward C's collection surface hash (hop 1)"
+    );
+
+    // Step 3: Module A imports B's surfaces (which contain C's forwarded hash).
+    let mut checker_a = ModuleChecker::new(&arena, &interner);
+    checker_a.set_imported_collection_surfaces(result_b.typed.exported_collection_surfaces.clone());
+    let (result_a, _pool_a) = checker_a.finish_with_pool();
+
+    // A should see C's hash through the full transitive chain.
+    assert!(
+        result_a
+            .typed
+            .exported_collection_surfaces
+            .contains(&c_hash),
+        "Module A must see C's collection surface hash transitively through B (hop 2)"
+    );
+}
+
+/// Diamond dependency: modules B and D both import C, module A imports both B
+/// and D. C's hash should appear exactly once in A's exported surfaces (dedup).
+#[test]
+fn exported_collection_surfaces_diamond_dedup() {
+    let arena = ExprArena::new();
+    let interner = StringInterner::new();
+
+    let c_hash: u64 = 0xCAFE_BEEF;
+
+    // Module B imports C's surface
+    let mut checker_b = ModuleChecker::new(&arena, &interner);
+    checker_b.set_imported_collection_surfaces(vec![c_hash]);
+    let (result_b, _) = checker_b.finish_with_pool();
+
+    // Module D also imports C's surface
+    let mut checker_d = ModuleChecker::new(&arena, &interner);
+    checker_d.set_imported_collection_surfaces(vec![c_hash]);
+    let (result_d, _) = checker_d.finish_with_pool();
+
+    // Module A imports both B and D
+    let mut combined = result_b.typed.exported_collection_surfaces.clone();
+    combined.extend(&result_d.typed.exported_collection_surfaces);
+
+    let mut checker_a = ModuleChecker::new(&arena, &interner);
+    checker_a.set_imported_collection_surfaces(combined);
+    let (result_a, _) = checker_a.finish_with_pool();
+
+    // C's hash should appear exactly once (deduped by the HashSet in
+    // generate_exported_collection_surfaces).
+    let count = result_a
+        .typed
+        .exported_collection_surfaces
+        .iter()
+        .filter(|&&h| h == c_hash)
+        .count();
+    assert_eq!(
+        count, 1,
+        "Diamond dependency must dedup to exactly one hash"
+    );
+}
