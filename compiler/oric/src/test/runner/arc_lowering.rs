@@ -95,13 +95,21 @@ pub(crate) fn lower_and_infer_borrows(
         imported_lowered.push((arc_fn, lambdas));
     }
 
-    // Lower impl method functions (local — uses main pool)
+    // Lower impl method functions (local — uses main pool).
+    // Use type-qualified names to prevent same-named methods across different
+    // types from colliding in the solver's Name-keyed maps (TPR-03-043/045).
     for (name, sig) in impl_sigs {
         if sig.is_generic() {
             continue;
         }
+        let qualified_name = if let Some(&self_type_idx) = sig.param_types.first() {
+            let method_str = interner.lookup(*name);
+            interner.intern(&format!("__impl_{}_{method_str}", self_type_idx.raw()))
+        } else {
+            *name
+        };
         let (arc_fn, lambdas) = crate::arc_lowering::lower_to_arc(
-            *name,
+            qualified_name,
             sig,
             *name,
             canon,
