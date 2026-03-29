@@ -313,34 +313,97 @@ pub(super) fn run_codegen_pipeline<'ctx>(
         let all_arc_funcs = {
             let mut funcs = super::repr_setup::collect_all_arc_functions(&arc_cache);
             let mut impl_arc_problems = Vec::new();
-            for (name, sig) in &type_result.typed.impl_sigs {
-                if sig.is_generic() {
-                    continue;
+            // Build a map from (method_name) -> self_type_idx using the impl
+            // block's resolved self-type. This is the same iteration order as
+            // compile_impls() and the type checker's impl_sigs registration.
+            let mut sig_iter = type_result.typed.impl_sigs.iter();
+            for impl_def in &parse_result.module.impls {
+                // Resolve the self-type Idx for this impl block.
+                let self_type_idx = impl_def.self_path.first().and_then(|&name| {
+                    type_result
+                        .typed
+                        .types
+                        .iter()
+                        .find(|te| te.name == name)
+                        .map(|te| te.idx)
+                });
+                for method in &impl_def.methods {
+                    let Some((_, sig)) = sig_iter.next() else {
+                        break;
+                    };
+                    if sig.is_generic() {
+                        continue;
+                    }
+                    // Type-qualified name using the impl block's self-type
+                    // (not sig.param_types[0] which may differ for associated
+                    // functions — TPR-03-047).
+                    let qualified_name = if let Some(idx) = self_type_idx {
+                        let method_str = interner.lookup(method.name);
+                        interner.intern(&format!("__impl_{}_{method_str}", idx.raw()))
+                    } else {
+                        method.name
+                    };
+                    let (arc_fn, lambdas) = crate::arc_lowering::lower_to_arc(
+                        qualified_name,
+                        sig,
+                        method.name,
+                        canon,
+                        interner,
+                        pool,
+                        &mut impl_arc_problems,
+                        None,
+                    );
+                    funcs.push(arc_fn);
+                    funcs.extend(lambdas);
                 }
-                // Use a type-qualified name for analysis-only impl methods to
-                // prevent same-named methods across different types from colliding
-                // in the solver's Name-keyed maps (TPR-03-043). The qualified name
-                // is interned as "__impl_{self_type_idx}_{method}" — distinct from
-                // any user-facing name. The bare method name is preserved as the
-                // original_name for source-level diagnostics.
-                let qualified_name = if let Some(&self_type_idx) = sig.param_types.first() {
-                    let method_str = interner.lookup(*name);
-                    interner.intern(&format!("__impl_{}_{method_str}", self_type_idx.raw()))
-                } else {
-                    *name
-                };
-                let (arc_fn, lambdas) = crate::arc_lowering::lower_to_arc(
-                    qualified_name,
-                    sig,
-                    *name,
-                    canon,
-                    interner,
-                    pool,
-                    &mut impl_arc_problems,
-                    None,
-                );
-                funcs.push(arc_fn);
-                funcs.extend(lambdas);
+                // Skip default trait methods in sig_iter (they don't have
+                // parse-level method definitions but are in impl_sigs).
+                if let Some(trait_path) = &impl_def.trait_path {
+                    if let Some(&trait_name) = trait_path.last() {
+                        let overridden: rustc_hash::FxHashSet<Name> =
+                            impl_def.methods.iter().map(|m| m.name).collect();
+                        if let Some(trait_def) = parse_result
+                            .module
+                            .traits
+                            .iter()
+                            .find(|t| t.name == trait_name)
+                        {
+                            for item in &trait_def.items {
+                                if let ori_ir::TraitItem::DefaultMethod(default) = item {
+                                    if !overridden.contains(&default.name) {
+                                        let Some((_, sig)) = sig_iter.next() else {
+                                            break;
+                                        };
+                                        if sig.is_generic() {
+                                            continue;
+                                        }
+                                        let qualified_name = if let Some(idx) = self_type_idx {
+                                            let method_str = interner.lookup(default.name);
+                                            interner.intern(&format!(
+                                                "__impl_{}_{method_str}",
+                                                idx.raw()
+                                            ))
+                                        } else {
+                                            default.name
+                                        };
+                                        let (arc_fn, lambdas) = crate::arc_lowering::lower_to_arc(
+                                            qualified_name,
+                                            sig,
+                                            default.name,
+                                            canon,
+                                            interner,
+                                            pool,
+                                            &mut impl_arc_problems,
+                                            None,
+                                        );
+                                        funcs.push(arc_fn);
+                                        funcs.extend(lambdas);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
             }
             funcs
         };

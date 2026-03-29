@@ -267,6 +267,7 @@ impl TestRunner {
                 &type_result.typed.impl_sigs,
                 &imported_for_codegen,
                 &type_result.typed.mono_instances,
+                &type_result.typed.types,
             );
 
             llvm_eval.compile_module_with_tests(
