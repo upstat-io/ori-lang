@@ -1987,7 +1987,7 @@ fn repr_c_aligned_stored_and_retrieved() {
 fn repr_convert_c_aligned_roundtrip() {
     // §01.7 semantic pin: CAligned survives the ReprAttrKind → ReprAttribute conversion.
     let kind = ori_ir::ReprAttrKind::CAligned(32);
-    let attr = crate::convert_repr_attr_kind(&kind);
+    let attr = crate::pipeline::convert_repr_attr_kind(&kind);
     assert_eq!(attr, ReprAttribute::CAligned(32));
 }
 
