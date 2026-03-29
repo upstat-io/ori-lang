@@ -2,7 +2,8 @@
 section: 11
 title: Foreign Function Interface (FFI)
 status: in-progress
-reviewed: false
+reviewed: true
+last_verified: "2026-03-29"
 tier: 4
 goal: Enable Ori to call C libraries, system APIs, and JavaScript APIs (WASM target)
 spec:
@@ -10,16 +11,16 @@ spec:
 sections:
   - id: "11.1"
     title: Extern Block Syntax
-    status: not-started
+    status: partial
   - id: "11.2"
     title: C ABI Types
     status: not-started
   - id: "11.3"
     title: "#repr Attribute"
-    status: not-started
+    status: partial
   - id: "11.4"
     title: Unsafe Blocks
-    status: not-started
+    status: partial
   - id: "11.5"
     title: FFI Capability
     status: not-started
@@ -108,28 +109,31 @@ extern "js" from "./utils.js" {
 
 ### Implementation
 
-- [ ] **Spec**: Add `spec/26-ffi.md` with extern block syntax
-  - [ ] Define extern block grammar
-  - [ ] Define calling conventions ("c", "js")
-  - [ ] Define linkage semantics
+- [x] **Spec**: Add `spec/26-ffi.md` with extern block syntax (verified 2026-03-29)
+  - [x] Define extern block grammar — `docs/ori_lang/v2026/spec/26-ffi.md` exists
+  - [x] Define calling conventions ("c", "js")
+  - [x] Define linkage semantics
 
-- [ ] **Lexer**: Add tokens
-  - [ ] `extern` keyword
-  - [ ] String literals for ABI ("c", "js")
+- [x] **Lexer**: Add tokens (verified 2026-03-29)
+  - [x] `extern` keyword — `compiler/ori_lexer/src/keywords/mod.rs:110`
+  - [x] String literals for ABI ("c", "js") — standard string token, validated in parser
 
-- [ ] **Parser**: Parse extern blocks
-  - [ ] `parse_extern_block()` in parser
-  - [ ] Add `ExternBlock` to AST
-  - [ ] Add `ExternItem` variants
-  - [ ] `from "lib"` library specification
-  - [ ] `as "name"` name mapping
+- [x] **Parser**: Parse extern blocks (verified 2026-03-29)
+  - [x] `parse_extern_block()` in parser — `compiler/ori_parse/src/grammar/item/extern_def.rs:22`
+  - [x] Add `ExternBlock` to AST — `compiler/ori_ir/src/ast/items/extern_def.rs:64`
+  - [x] Add `ExternItem` variants — `compiler/ori_ir/src/ast/items/extern_def.rs:37`
+  - [x] `from "lib"` library specification — parser line 74, contextual keyword check
+  - [x] `as "name"` name mapping — parser line 148
+  - [x] Formatter: `format_extern_block` — `compiler/ori_fmt/src/declarations/extern_def.rs`
+  - [x] Incremental copier: handles extern blocks — `compiler/ori_parse/src/incremental/copier.rs:1514`
+  - [x] Parser tests: 18 tests in `compiler/oric/tests/phases/parse/extern_def.rs` (basic c/js, empty, from, as, pub, C variadic, error cases)
 
 - [ ] **Type checker**: Validate extern declarations
-  - [ ] Ensure types are FFI-safe
-  - [ ] Check for `uses FFI` in callers
+  - [ ] Ensure types are FFI-safe — no FFI-safety validation in `ori_types`
+  - [ ] Check for `uses FFI` in callers — no FFI capability tracking
 
 - [ ] **Codegen**: Generate external references
-  - [ ] Emit LLVM `declare` for C functions
+  - [ ] Emit LLVM `declare` for C functions — `declare_extern_function` exists in LLVM backend but only for runtime, not user extern blocks
   - [ ] Handle calling convention
   - [ ] Link external symbols
 
@@ -137,7 +141,7 @@ extern "js" from "./utils.js" {
 - [ ] **LLVM Rust Tests**: `ori_llvm/tests/ffi_tests.rs` — extern blocks codegen
 - [ ] **AOT Tests**: No AOT coverage yet
 
-- [ ] **Test**: `tests/spec/ffi/extern_blocks.ori`
+- [ ] **Test**: `tests/spec/ffi/extern_blocks.ori` — NEEDS TESTS: file does not exist
   - [ ] Basic extern function declaration
   - [ ] Multiple functions in one block
   - [ ] Name mapping with `as`
@@ -240,23 +244,25 @@ type CacheAligned = { value: int }
 
 ### Implementation
 
-- [ ] **IR**: Add `ReprKind` enum to struct type definitions
-  - [ ] `Default`, `C`, `Packed`, `Transparent`, `Aligned(u32)`, `CAligned(u32)`
+- [x] **IR**: Add `ReprKind` enum to struct type definitions (verified 2026-03-29)
+  - [x] `ReprAttrKind` enum at `compiler/ori_ir/src/ast/items/types.rs:22` — variants: C, Packed, Transparent, Aligned(u64), CAligned(u64)
 
-- [ ] **Parser**: Parse `#repr` attribute variants
-  - [ ] `#repr("c")` — existing
-  - [ ] `#repr("packed")` — new
-  - [ ] `#repr("transparent")` — new
-  - [ ] `#repr("aligned", N)` — new, validate power of two
+- [x] **Parser**: Parse `#repr` attribute variants (verified 2026-03-29)
+  - [x] `#repr("c")` — `compiler/ori_parse/src/grammar/attr/repr.rs`
+  - [x] `#repr("packed")` — same file
+  - [x] `#repr("transparent")` — same file
+  - [x] `#repr("aligned", N)` — same file; combined syntax `#repr("c", "aligned", 16)` supported
 
-- [ ] **Type checker**: Validate #repr usage
-  - [ ] Only valid on struct types (not sum types)
-  - [ ] `transparent` requires exactly one field
-  - [ ] `aligned` N must be power of two
-  - [ ] Reject `packed` + `aligned` combination
+- [x] **Type checker**: Validate #repr usage (verified 2026-03-29)
+  - [x] Only valid on struct types (not sum types) — `validate_and_merge_repr_attrs` in `ori_types/src/check/registration/user_types.rs:186`
+  - [x] `transparent` requires exactly one field
+  - [x] `aligned` N must be power of two
+  - [x] Reject `packed` + `aligned` combination
+  - [x] Type checker tests: transparent, duplicate C, duplicate aligned, C+aligned — `ori_types/src/check/registration/tests.rs`
+  - [x] `ori_repr` crate: `ReprAttribute` enum in `compiler/ori_repr/src/plan/repr_attr.rs`
 
 - [ ] **Codegen**: Generate appropriate LLVM layout
-  - [ ] `#repr("c")` — default struct, no packed
+  - [ ] `#repr("c")` — not directly wired for user types
   - [ ] `#repr("packed")` — LLVM packed struct type
   - [ ] `#repr("transparent")` — same type as inner field
   - [ ] `#repr("aligned", N)` — align N on allocations
@@ -265,7 +271,7 @@ type CacheAligned = { value: int }
 - [ ] **LLVM Rust Tests**: `ori_llvm/tests/ffi_tests.rs` — #repr struct codegen
 - [ ] **AOT Tests**: No AOT coverage yet
 
-- [ ] **Test**: `tests/spec/ffi/repr.ori`
+- [ ] **Test**: `tests/spec/ffi/repr.ori` — NEEDS TESTS: file does not exist
   - [ ] `#repr("c")` struct
   - [ ] `#repr("packed")` struct
   - [ ] `#repr("transparent")` single-field struct
@@ -305,12 +311,13 @@ Inside `unsafe`:
   - [ ] Scoping rules
   - [ ] Interaction with FFI capability
 
-- [ ] **Parser**: Parse unsafe blocks
-  - [ ] `unsafe` keyword
-  - [ ] Block expression
+- [x] **Parser**: Parse unsafe blocks (verified 2026-03-29) — WRONG FINDING CORRECTED
+  - [x] `unsafe` keyword — `parse_unsafe_expr()` in `compiler/ori_parse/src/grammar/expr/primary/specials.rs:111`
+  - [x] Block expression — dispatched from `mod.rs:127` via `TAG_UNSAFE` token kind
+  - [x] Parser tests: `tests::compositional::mixed_expressions::test_unsafe_expressions` and `test_unsafe_requires_block` both pass
 
 - [ ] **Type checker**: Track unsafe context
-  - [ ] Set `in_unsafe` flag
+  - [ ] Set `in_unsafe` flag — no `in_unsafe` flag in type checker
   - [ ] Allow unsafe operations only in context
 
 - [ ] **Evaluator**: Execute unsafe operations
@@ -321,10 +328,11 @@ Inside `unsafe`:
 - [ ] **LLVM Rust Tests**: `ori_llvm/tests/ffi_tests.rs` — unsafe blocks codegen
 - [ ] **AOT Tests**: No AOT coverage yet
 
-- [ ] **Test**: `tests/spec/ffi/unsafe_blocks.ori`
+- [ ] **Test**: `tests/spec/ffi/unsafe_blocks.ori` — NEEDS TESTS: file does not exist
   - [ ] Basic unsafe block
   - [ ] Nested unsafe
   - [ ] Unsafe operations outside block (compile error)
+  - Note: `tests/spec/capabilities/unsafe_block.ori` exists (capabilities context, not FFI)
 
 - [ ] **Test**: `tests/compile-fail/ffi/unsafe_required.ori`
   - [ ] Pointer deref outside unsafe
