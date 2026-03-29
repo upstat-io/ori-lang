@@ -493,6 +493,20 @@ fn mark_nested_collections_recursive(
                 depth + 1,
             );
         }
+        // TPR-04-031: Walk struct fields to find nested collections.
+        ori_types::Tag::Struct => {
+            for (_name, field_ty) in pool.struct_fields(resolved) {
+                mark_nested_collections_recursive(pool, field_ty, pub_indices, depth + 1);
+            }
+        }
+        // TPR-04-031: Walk enum variant payloads to find nested collections.
+        ori_types::Tag::Enum => {
+            for (_name, field_types) in pool.enum_variants(resolved) {
+                for field_ty in field_types {
+                    mark_nested_collections_recursive(pool, field_ty, pub_indices, depth + 1);
+                }
+            }
+        }
         _ => {}
     }
 }

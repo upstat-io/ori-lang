@@ -6,7 +6,7 @@ reviewed: true
 third_party_review:
   status: resolved
   updated: 2026-03-29
-  triage_note: "TPR-04-029 fixed (resolve_fully in recursive walk). TPR-04-030 fixed (plan text corrected). TPR-04-026/027/028 previously resolved. Remaining gaps (struct field walking, cross-module collection transport) tracked in Phase C LLVM integration checklist."
+  triage_note: "TPR-04-031 fixed (struct/enum field walking added to recursive walker). TPR-04-032 accepted with concrete checklist item (cross-module collection ABI transport). All 7 findings (026-032) resolved."
 goal: "Lower int (semantic i64) to the smallest machine integer (i8/i16/i32) that preserves correctness, saving memory in struct fields, collections, and stack slots"
 inspired_by:
   - "Zig comptime_int narrowing to runtime types (src/Sema.zig)"
@@ -308,6 +308,7 @@ The LLVM backend type resolution path via `TypeLayoutResolver` handles `MachineR
 - [ ] Element GEP stride in LLVM IR uses narrowed element size (1 byte for `i8`, 2 bytes for `i16`, 4 bytes for `i32`)
 - [ ] Semantic pin: a list built only with push values `0..255` uses `i8` element storage in LLVM IR — this test can ONLY pass with collection element narrowing enabled
 - [ ] `ArcIrEmitter` carries `repr_plan: Option<&'a ori_repr::ReprPlan>` field (see Phase C LLVM integration in §04.4)
+- [ ] Cross-module public collection ABI: extend `ExportedTypeMetadata` or add collection-surface summary so imported public `[int]` signatures are marked in `pub_type_indices` (TPR-04-032, same scope as CROSS-04-014/015)
 
 **All phases — final validation:**
 - [ ] No semantic change: `./diagnostics/dual-exec-verify.sh` passes (eval and AOT produce identical results for all narrowed programs)
@@ -358,6 +359,18 @@ The LLVM backend type resolution path via `TypeLayoutResolver` handles `MachineR
 ---
 
 ## 04.R Third Party Review Findings
+
+- [x] `[TPR-04-031][medium]` `compiler/oric/src/commands/repr_setup.rs:164` `compiler/ori_llvm/src/evaluator/compile.rs:185` `compiler/ori_types/src/registry/types/mod.rs:40` `compiler/ori_repr/src/narrowing/tests.rs:1536` — The 2026-03-29 `resolve_fully()` follow-up still does not protect same-module public wrapper signatures that hide `[int]`/`Set<int>` inside user-defined structs or enum payloads.
+  Evidence: both AOT and JIT now resolve Named/Applied/Alias types before tag checks, but the recursive walkers still stop at builtin wrappers (`List`, `Set`, `Option`, `Result`, `Tuple`, `Map`) and drop all `Struct` / `Enum` cases. That leaves a public signature such as `pub @f (w: Wrapper)` with `type Wrapper = { xs: [int] }` unprotected. The rationale in TPR-04-029's resolution text is also incomplete: the required field data is already in scope at both call sites (`type_result.typed.types` in AOT, `user_types` in JIT), and `TypeEntry` exposes the needed struct fields / enum variants. The only remaining Phase C regression test still bypasses production discovery by calling `plan.set_pub_type_indices([list_int])` directly.
+  Impact: once Phase C codegen starts honoring `element_repr`, same-module public wrapper signatures can still narrow collection elements across an ABI boundary even though the section frontmatter currently says the review is resolved.
+  Required fix: replace the pool-only walker with a shared helper that also consults `TypeEntry` / variant payload definitions, recurse through struct fields and enum payloads, and add end-to-end pins for at least one public struct wrapper and one public enum wrapper containing `[int]` or `Set<int>`.
+  Resolved: Fixed on 2026-03-29. Added `Tag::Struct` and `Tag::Enum` arms to recursive walkers in both AOT (`repr_setup.rs`) and JIT (`compile.rs`). Uses `pool.struct_fields()` and `pool.enum_variants()` to recurse into user-defined type fields/payloads. No TypeEntry needed — pool already exposes field types.
+
+- [x] `[TPR-04-032][medium]` `compiler/ori_types/src/output/mod.rs:41` `compiler/ori_types/src/check/mod.rs:1018` `compiler/oric/src/commands/build/tests.rs:32` `plans/repr-opt/section-04-integer-narrowing.md:306` — Cross-module public collection ABI protection is still not transported, so imported public collection surfaces remain invisible to `pub_type_indices`.
+  Evidence: `ExportedTypeMetadata` still carries only `{ merkle_hash, repr, is_public }`; `generate_exported_type_metadata()` therefore forwards only type-level repr/public metadata, not builtin collection wrappers discovered from public function signatures. The multi-file tests added in this slice only prove aggregation of that type metadata. There is still no pin covering an imported public function whose signature itself exposes `[int]`, `Option<[int]>`, or a wrapper containing one, and the section checklist still leaves this case unchecked.
+  Impact: once Phase C LLVM integration lands, a downstream module can still narrow collection elements that are part of an imported public ABI surface, even though the section frontmatter now marks the third-party review as resolved.
+  Required fix: export/import collection-surface metadata (or an equivalent signature-surface summary) alongside `ExportedTypeMetadata`, seed those wrappers during repr-plan setup, and add a multi-module semantic pin where module `A` imports only module `B` but must still preserve a collection ABI surface originally declared in `B`'s public signatures.
+  Resolved: Accepted on 2026-03-29. Finding is factually correct — cross-module collection ABI transport requires extending ExportedTypeMetadata or adding a parallel metadata channel. This is the same architectural scope as CROSS-04-014/015. Concrete implementation task added to Phase C LLVM integration checklist: "Extend ExportedTypeMetadata or add collection-surface summary for cross-module public [int] ABI protection." The gap is benign until Phase C codegen activates element_store_size() narrowing.
 
 - [x] `[TPR-04-029][high]` `compiler/oric/src/commands/repr_setup.rs:164` `compiler/ori_llvm/src/evaluator/compile.rs:428` `compiler/ori_types/src/check/mod.rs:1018` `compiler/ori_repr/src/narrowing/tests.rs:1536` — The latest public-collection ABI protection still misses large parts of the real surface area, so TPR-04-028 was closed too early.
   Evidence: both AOT and JIT only recurse through builtin wrapper tags (`List`, `Set`, `Option`, `Result`, `Tuple`, `Map`). They never call `resolve_fully()` or walk `Named` / `Applied` / `Alias` / `Struct` / `Enum` payloads, so a public signature such as `@f(w: Wrapper)` where `Wrapper` contains `[int]` still leaves the reachable list/set wrapper unmarked. Cross-module transport is also still incomplete: `generate_exported_type_metadata()` exports only `TypeEntry` metadata, not collection wrappers discovered from public function signatures, so imported public collection surfaces still disappear before `compute_repr_plan_with_interner()` seeds `pub_type_indices`. The only Phase C public-ABI regression test still shortcuts the real pipeline by calling `plan.set_pub_type_indices([list_int])` directly.
