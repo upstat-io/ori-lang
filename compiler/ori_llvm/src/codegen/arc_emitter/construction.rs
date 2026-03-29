@@ -92,8 +92,13 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                         debug_assert!(false, "ListLiteral TypeInfo mismatch: {type_info:?}");
                         ori_types::Idx::INT
                     };
-                let elem_llvm_ty = self.resolve_type(elem_idx);
-                let elem_size = self.element_store_size(elem_idx);
+
+                // §04.4 Phase C: use narrowed element type/size if the ReprPlan
+                // has narrowed this collection's int elements (e.g., i8 for [int]
+                // with elements in [-128, 127]).
+                let collection_idx = self.pool.resolve_fully(ty);
+                let elem_llvm_ty = self.collection_elem_llvm_type(collection_idx, elem_idx);
+                let elem_size = self.collection_elem_size(collection_idx, elem_idx);
 
                 let cap_val = self.builder.const_i64(count as i64);
                 let esize_val = self.builder.const_i64(elem_size as i64);
@@ -104,13 +109,20 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                     .call(alloc_fn, &[cap_val, esize_val], "list.data")
                     .unwrap_or_else(|| self.builder.const_null_ptr());
 
-                // Store each element into the data buffer
+                // Store each element into the data buffer.
+                // For narrowed collections, trunc each i64 value to the narrow
+                // width (e.g., i8) before storing.
                 for (i, &val) in arg_vals.iter().enumerate() {
                     let idx = self.builder.const_i64(i as i64);
                     let elem_ptr =
                         self.builder
                             .gep(elem_llvm_ty, data_ptr, &[idx], "list.elem_ptr");
-                    self.builder.store(val, elem_ptr);
+                    let store_val = self.trunc_for_narrowed_collection_element(
+                        val,
+                        collection_idx,
+                        &format!("list.elem.trunc.{i}"),
+                    );
+                    self.builder.store(store_val, elem_ptr);
                 }
 
                 // Store elem_dec_fn and elem_count in the RC header so that
@@ -143,8 +155,10 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                     };
                 let key_llvm_ty = self.resolve_type(key_idx);
                 let val_llvm_ty = self.resolve_type(val_idx);
-                let key_size = self.element_store_size(key_idx);
-                let val_size = self.element_store_size(val_idx);
+                // §04.4 Phase C: use narrowed element sizes for map buffers.
+                let collection_idx = self.pool.resolve_fully(ty);
+                let key_size = self.collection_elem_size(collection_idx, key_idx);
+                let val_size = self.collection_elem_size(collection_idx, val_idx);
 
                 let count_val = self.builder.const_i64(count as i64);
                 let ks_val = self.builder.const_i64(key_size as i64);
@@ -197,8 +211,10 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                         debug_assert!(false, "SetLiteral TypeInfo mismatch: {type_info:?}");
                         Idx::INT
                     };
-                let elem_llvm_ty = self.resolve_type(elem_idx);
-                let elem_size = self.element_store_size(elem_idx);
+                // §04.4 Phase C: narrowed element type/size for sets.
+                let collection_idx = self.pool.resolve_fully(ty);
+                let elem_llvm_ty = self.collection_elem_llvm_type(collection_idx, elem_idx);
+                let elem_size = self.collection_elem_size(collection_idx, elem_idx);
 
                 let count_val = self.builder.const_i64(count as i64);
                 let esize_val = self.builder.const_i64(elem_size as i64);
@@ -218,11 +234,17 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                     .get_or_create_hash_thunk(elem_idx)
                     .unwrap_or_else(|| self.builder.const_null_ptr());
 
-                // Insert each element via runtime
+                // Insert each element via runtime.
+                // For narrowed collections, trunc to narrow width before storing.
                 let elem_tmp = self.builder.alloca(elem_llvm_ty, "set.elem_tmp");
                 let put_fn = self.builder.runtime_fn("ori_set_literal_put");
-                for &val in &arg_vals {
-                    self.builder.store(val, elem_tmp);
+                for (i, &val) in arg_vals.iter().enumerate() {
+                    let store_val = self.trunc_for_narrowed_collection_element(
+                        val,
+                        collection_idx,
+                        &format!("set.elem.trunc.{i}"),
+                    );
+                    self.builder.store(store_val, elem_tmp);
                     self.emit_rt_call(
                         put_fn,
                         &[data_ptr, cap_val, elem_tmp, esize_val, hash_thunk],
@@ -285,8 +307,10 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             }
         };
 
-        let elem_llvm_ty = self.resolve_type(elem_idx);
-        let elem_size = self.element_store_size(elem_idx);
+        // §04.4 Phase C: narrowed element type/size for collection reuse.
+        let collection_idx = self.pool.resolve_fully(ty);
+        let elem_llvm_ty = self.collection_elem_llvm_type(collection_idx, elem_idx);
+        let elem_size = self.collection_elem_size(collection_idx, elem_idx);
 
         // Extract old {len, cap, data} from old_var.
         let old_data = self
@@ -331,13 +355,19 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             .unwrap_or_else(|| self.builder.const_null_ptr());
 
         // Store each new element into the returned buffer.
+        // For narrowed collections, trunc to narrow width before storing.
         let arg_vals: Vec<ValueId> = args.iter().map(|a| self.var(*a)).collect();
         for (i, &val) in arg_vals.iter().enumerate() {
             let idx = self.builder.const_i64(i as i64);
             let elem_ptr = self
                 .builder
                 .gep(elem_llvm_ty, new_data, &[idx], "reuse.elem_ptr");
-            self.builder.store(val, elem_ptr);
+            let store_val = self.trunc_for_narrowed_collection_element(
+                val,
+                collection_idx,
+                &format!("reuse.elem.trunc.{i}"),
+            );
+            self.builder.store(store_val, elem_ptr);
         }
 
         // Store elem_dec_fn and elem_count in the new buffer's RC header.

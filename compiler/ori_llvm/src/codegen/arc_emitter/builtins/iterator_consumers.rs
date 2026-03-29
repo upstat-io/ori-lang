@@ -21,7 +21,8 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     ) -> Option<ValueId> {
         let func_id = self.builder.runtime_fn("ori_iter_collect");
 
-        let elem_size = self.element_store_size(elem_ty);
+        // §04.4 Phase C: use narrowed element size for int elements.
+        let elem_size = self.int_element_store_size(elem_ty);
         let elem_size_val = self.builder.const_i64(elem_size as i64);
         let elem_inc_fn = self.get_or_generate_elem_inc_fn(elem_ty);
 
@@ -80,6 +81,11 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     ) -> Option<ValueId> {
         let func_id = self.builder.runtime_fn("ori_iter_collect_set");
 
+        // Sets use canonical element sizes — set hash tables always store
+        // full-width elements regardless of list narrowing. The iterator
+        // yields narrowed bytes, but ori_iter_collect_set's elem_buf is
+        // zeroed, so on little-endian the zero-padded bytes form the
+        // correct canonical value for small non-negative integers.
         let elem_size = self.element_store_size(elem_ty);
         let elem_size_val = self.builder.const_i64(elem_size as i64);
 
@@ -146,7 +152,8 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     ) -> Option<ValueId> {
         let func_id = self.builder.runtime_fn("ori_iter_count");
 
-        let elem_size = self.element_store_size(elem_ty);
+        // §04.4 Phase C: use narrowed element size for int elements.
+        let elem_size = self.int_element_store_size(elem_ty);
         let elem_size_val = self.builder.const_i64(elem_size as i64);
 
         self.builder
@@ -169,7 +176,8 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let (tramp_fn, closure_env) =
             self.build_trampoline(closure, elem_ty, TrampolineKind::Predicate, None);
 
-        let elem_size = self.element_store_size(elem_ty);
+        // §04.4 Phase C: use narrowed element size for int elements.
+        let elem_size = self.int_element_store_size(elem_ty);
         let elem_size_val = self.builder.const_i64(elem_size as i64);
 
         let func_id = self.builder.runtime_fn("ori_iter_any");
@@ -202,7 +210,8 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let (tramp_fn, closure_env) =
             self.build_trampoline(closure, elem_ty, TrampolineKind::Predicate, None);
 
-        let elem_size = self.element_store_size(elem_ty);
+        // §04.4 Phase C: use narrowed element size for int elements.
+        let elem_size = self.int_element_store_size(elem_ty);
         let elem_size_val = self.builder.const_i64(elem_size as i64);
 
         let func_id = self.builder.runtime_fn("ori_iter_all");
@@ -235,7 +244,8 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let (tramp_fn, closure_env) =
             self.build_trampoline(closure, elem_ty, TrampolineKind::Predicate, None);
 
-        let elem_size = self.element_store_size(elem_ty);
+        // §04.4 Phase C: use narrowed element size for int elements.
+        let elem_size = self.int_element_store_size(elem_ty);
         let elem_size_val = self.builder.const_i64(elem_size as i64);
 
         let func_id = self.builder.runtime_fn("ori_iter_find");
@@ -279,7 +289,8 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let (tramp_fn, closure_env) =
             self.build_trampoline(closure, elem_ty, TrampolineKind::ForEach, None);
 
-        let elem_size = self.element_store_size(elem_ty);
+        // §04.4 Phase C: use narrowed element size for int elements.
+        let elem_size = self.int_element_store_size(elem_ty);
         let elem_size_val = self.builder.const_i64(elem_size as i64);
 
         let func_id = self.builder.runtime_fn("ori_iter_for_each");
@@ -314,7 +325,8 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let (tramp_fn, closure_env) =
             self.build_trampoline(closure, elem_ty, TrampolineKind::Fold, Some(acc_ty));
 
-        let elem_size = self.element_store_size(elem_ty);
+        // §04.4 Phase C: use narrowed element size for int elements.
+        let elem_size = self.int_element_store_size(elem_ty);
         let elem_size_val = self.builder.const_i64(elem_size as i64);
         let acc_size = self.element_store_size(acc_ty);
         let acc_size_val = self.builder.const_i64(acc_size as i64);
