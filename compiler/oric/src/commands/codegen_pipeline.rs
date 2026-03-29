@@ -222,6 +222,10 @@ pub(super) fn run_borrow_inference(
     clippy::too_many_lines,
     reason = "sequential pipeline — splitting would fragment the compilation flow"
 )]
+#[expect(
+    clippy::cognitive_complexity,
+    reason = "impl-method ordinal tracking adds nesting — extracting would split the iterator alignment"
+)]
 pub(super) fn run_codegen_pipeline<'ctx>(
     context: &'ctx Context,
     db: &CompilerDb,
@@ -313,13 +317,15 @@ pub(super) fn run_codegen_pipeline<'ctx>(
         let all_arc_funcs = {
             let mut funcs = super::repr_setup::collect_all_arc_functions(&arc_cache);
             let mut impl_arc_problems = Vec::new();
-            // Build a map from (method_name) -> self_type_idx using the impl
-            // block's resolved self-type. This is the same iteration order as
-            // compile_impls() and the type checker's impl_sigs registration.
+            // Ordinal counter: tracks how many times each (self_type, method_name)
+            // pair has been seen, for disambiguating same-type same-name impls
+            // like `impl Index<int, V>` and `impl Index<str, V>` (TPR-03-051).
+            let mut method_ordinals: rustc_hash::FxHashMap<(ori_types::Idx, Name), usize> =
+                rustc_hash::FxHashMap::default();
             let mut sig_iter = type_result.typed.impl_sigs.iter();
             for impl_def in &parse_result.module.impls {
                 // Resolve the self-type Name and Idx for this impl block.
-                let type_name_name = impl_def.self_path.first().copied();
+                let type_name_name = impl_def.self_path.last().copied();
                 let self_type_idx = type_name_name.and_then(|name| {
                     type_result
                         .typed
@@ -335,23 +341,39 @@ pub(super) fn run_codegen_pipeline<'ctx>(
                     if sig.is_generic() {
                         continue;
                     }
-                    // Type-qualified name using the impl block's self-type
-                    // (not sig.param_types[0] which may differ for associated
-                    // functions — TPR-03-047).
+                    // Type-qualified name with ordinal for same-type same-name
+                    // disambiguation (TPR-03-047, TPR-03-051).
+                    let ordinal = if let Some(idx) = self_type_idx {
+                        let entry = method_ordinals.entry((idx, method.name)).or_insert(0);
+                        let ord = *entry;
+                        *entry += 1;
+                        ord
+                    } else {
+                        0
+                    };
                     let qualified_name = if let Some(idx) = self_type_idx {
                         let method_str = interner.lookup(method.name);
-                        interner.intern(&format!("__impl_{}_{method_str}", idx.raw()))
+                        if ordinal == 0 {
+                            interner.intern(&format!("__impl_{}_{method_str}", idx.raw()))
+                        } else {
+                            interner.intern(&format!(
+                                "__impl_{}_{}_{ordinal}",
+                                idx.raw(),
+                                method_str
+                            ))
+                        }
                     } else {
                         method.name
                     };
-                    // Use lower_impl_method_to_arc for correct method_root_for
-                    // body lookup (TPR-03-049).
+                    // Use lower_impl_method_to_arc for correct body lookup
+                    // with ordinal-aware method_root_for_nth (TPR-03-049/051).
                     let (arc_fn, lambdas) = if let Some(tn) = type_name_name {
-                        crate::arc_lowering::lower_impl_method_to_arc(
+                        crate::arc_lowering::lower_impl_method_to_arc_nth(
                             qualified_name,
                             sig,
                             method.name,
                             tn,
+                            ordinal,
                             canon,
                             interner,
                             pool,
@@ -394,21 +416,40 @@ pub(super) fn run_codegen_pipeline<'ctx>(
                                         if sig.is_generic() {
                                             continue;
                                         }
+                                        let def_ordinal = if let Some(idx) = self_type_idx {
+                                            let entry = method_ordinals
+                                                .entry((idx, default.name))
+                                                .or_insert(0);
+                                            let ord = *entry;
+                                            *entry += 1;
+                                            ord
+                                        } else {
+                                            0
+                                        };
                                         let qualified_name = if let Some(idx) = self_type_idx {
                                             let method_str = interner.lookup(default.name);
-                                            interner.intern(&format!(
-                                                "__impl_{}_{method_str}",
-                                                idx.raw()
-                                            ))
+                                            if def_ordinal == 0 {
+                                                interner.intern(&format!(
+                                                    "__impl_{}_{method_str}",
+                                                    idx.raw()
+                                                ))
+                                            } else {
+                                                interner.intern(&format!(
+                                                    "__impl_{}_{}_{def_ordinal}",
+                                                    idx.raw(),
+                                                    method_str
+                                                ))
+                                            }
                                         } else {
                                             default.name
                                         };
                                         let (arc_fn, lambdas) = if let Some(tn) = type_name_name {
-                                            crate::arc_lowering::lower_impl_method_to_arc(
+                                            crate::arc_lowering::lower_impl_method_to_arc_nth(
                                                 qualified_name,
                                                 sig,
                                                 default.name,
                                                 tn,
+                                                def_ordinal,
                                                 canon,
                                                 interner,
                                                 pool,

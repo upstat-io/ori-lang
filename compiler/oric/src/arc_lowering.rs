@@ -53,11 +53,60 @@ pub fn lower_to_arc(
     )
 }
 
+/// Lower a single impl method with ordinal-aware body lookup.
+///
+/// For types with multiple impls defining the same method name (e.g.,
+/// `impl Index<int, V>` and `impl Index<str, V>`), `ordinal` selects
+/// which body to use via `canon.method_root_for_nth()` (TPR-03-051).
+#[expect(
+    clippy::too_many_arguments,
+    reason = "thin wrapper over lower_function_can — params mirror the underlying API"
+)]
+#[expect(
+    clippy::implicit_hasher,
+    reason = "downstream lower_function_can requires concrete FxHashMap — cannot generalize"
+)]
+pub fn lower_impl_method_to_arc_nth(
+    name: Name,
+    sig: &FunctionSig,
+    body_name: Name,
+    type_name: Name,
+    ordinal: usize,
+    canon: &CanonResult,
+    interner: &StringInterner,
+    pool: &Pool,
+    arc_problems: &mut Vec<ori_arc::ArcProblem>,
+    type_subst: Option<&FxHashMap<Idx, Idx>>,
+) -> (ArcFunction, Vec<ArcFunction>) {
+    let params: Vec<(Name, Idx)> = sig
+        .param_names
+        .iter()
+        .zip(sig.param_types.iter())
+        .map(|(&n, &t)| (n, t))
+        .collect();
+    let body_id = canon
+        .method_root_for_nth(type_name, body_name, ordinal)
+        .or_else(|| canon.method_root_for(type_name, body_name))
+        .or_else(|| canon.root_for(body_name))
+        .unwrap_or(canon.root);
+    ori_arc::lower_function_can(
+        name,
+        &params,
+        sig.return_type,
+        body_id,
+        canon,
+        interner,
+        pool,
+        arc_problems,
+        sig.is_fbip,
+        type_subst,
+    )
+}
+
 /// Lower a single impl method to ARC IR with correct method-root lookup.
 ///
 /// Uses `canon.method_root_for(type_name, body_name)` to find the impl
-/// method body instead of `canon.root_for()` which only finds top-level
-/// functions (TPR-03-049).
+/// method body (TPR-03-049).
 #[expect(
     clippy::too_many_arguments,
     reason = "thin wrapper over lower_function_can — params mirror the underlying API"
