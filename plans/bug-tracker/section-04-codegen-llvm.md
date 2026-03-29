@@ -30,6 +30,18 @@ Bugs in LLVM IR generation, JIT/AOT compilation, monomorphization, ARC pipeline 
   Found: 2026-03-28 | Source: continue-roadmap
   Note: Active work in roadmap section 03 (traits) and 21A (LLVM backend) touches this area.
 
+- [x] `[BUG-04-004][high]` **AOT test `test_arc_loop_allocation` fails with exit code 1** — found by continue-roadmap.
+  Resolved: OBE on 2026-03-29. Same stale release binary pattern as BUG-04-002 — a fresh `cargo build` during §06 work rebuilt the release binary, and all 4 AOT tests now pass (14,584 total, 0 failures).
+
+- [x] `[BUG-04-005][critical]` **AOT test `test_aot_derive_eq_mixed_types` segfaults (exit code -139)** — found by continue-roadmap.
+  Resolved: OBE on 2026-03-29. Stale release binary — same root cause as BUG-04-004.
+
+- [x] `[BUG-04-006][high]` **Derived comparison codegen uses `icmp` on narrowed float fields** — found by continue-roadmap.
+  Resolved: OBE on 2026-03-29. Stale release binary — same root cause as BUG-04-004.
+
+- [x] `[BUG-04-007][high]` **AOT test `test_float_narrowed_mixed_exact_non_exact` fails with exit code 1** — found by continue-roadmap.
+  Resolved: OBE on 2026-03-29. Stale release binary — same root cause as BUG-04-004.
+
 ---
 
 ## Resolved Bugs
