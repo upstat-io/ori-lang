@@ -1768,3 +1768,62 @@ fn phase_c_list_narrowed_but_set_stays_canonical() {
         "Set<int> must stay at canonical i64 even with same tight range"
     );
 }
+
+/// Semantic pin: imported collection surface does NOT suppress Phase C narrowing.
+/// This drives `narrow_collection_elements()` with an imported surface and
+/// proves the element width actually changes to i8 (not just `!is_public_type()`).
+/// Regression: TPR-04-042
+#[test]
+fn phase_c_imported_surface_allows_narrowing() {
+    let mut pool = Pool::default();
+    let list_int = pool.list(Idx::INT);
+    let list_hash = pool.hash(list_int);
+
+    // Build a plan that simulates an imported collection surface.
+    // After TPR-04-042 fix, imported surfaces don't add to pub_type_indices.
+    let mut plan = crate::compute_repr_plan_with_interner(
+        &pool,
+        &[],
+        NarrowingPolicy::Aggressive,
+        &[],
+        None,
+        &[], // No local pub types
+        &[],
+        &[list_hash], // Imported collection surface
+        &[],
+        false,
+    );
+
+    // Seed element range and run Phase C narrowing.
+    plan.join_element_range(list_int, ValueRange::Bounded { lo: -128, hi: 127 });
+    narrow_collection_elements(&mut plan, &pool);
+
+    // The imported surface should NOT block narrowing — elements narrow to i8.
+    assert_eq!(
+        collection_element_width(&plan, list_int),
+        Some(IntWidth::I8),
+        "Imported surface must not block Phase C narrowing (TPR-04-042 semantic pin)"
+    );
+}
+
+/// Negative pin: local public function DOES suppress Phase C narrowing.
+/// Counterpart to `phase_c_imported_surface_allows_narrowing` — proves
+/// the `is_public_type()` gate is still active for same-module public APIs.
+#[test]
+fn phase_c_local_public_blocks_narrowing() {
+    let mut pool = Pool::default();
+    let list_int = pool.list(Idx::INT);
+
+    let mut plan = ReprPlan::new(NarrowingPolicy::Aggressive);
+    setup_list_collection(&mut plan, list_int);
+    plan.set_pub_type_indices([list_int]); // Local public function has [int] in signature
+
+    plan.join_element_range(list_int, ValueRange::Bounded { lo: -128, hi: 127 });
+    narrow_collection_elements(&mut plan, &pool);
+
+    assert_eq!(
+        collection_element_width(&plan, list_int),
+        Some(IntWidth::I64),
+        "Local public [int] must suppress narrowing (ABI safety)"
+    );
+}
