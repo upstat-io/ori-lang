@@ -260,6 +260,15 @@ pub struct TypedModule {
     /// Only includes types with non-default metadata (repr attribute or public).
     /// See CROSS-04-014.
     pub exported_type_metadata: Vec<ExportedTypeMetadata>,
+
+    /// Merkle hashes of collection types (List, Set) reachable from public
+    /// function signatures.
+    ///
+    /// Enables importing modules to protect collection element layouts from
+    /// narrowing when the collection appears in an exported ABI surface.
+    /// Merged with imported collection surfaces for transitive forwarding
+    /// (A→B→C propagation). See TPR-04-032.
+    pub exported_collection_surfaces: Vec<u64>,
 }
 
 impl TypedModule {
@@ -282,6 +291,7 @@ impl TypedModule {
             mono_instances: Vec::new(),
             type_descriptors: Vec::new(),
             exported_type_metadata: Vec::new(),
+            exported_collection_surfaces: Vec::new(),
         }
     }
 

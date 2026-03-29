@@ -240,6 +240,7 @@ pub(super) fn run_codegen_pipeline<'ctx>(
     target_triple: Option<&str>,
     narrowing_policy: ori_repr::NarrowingPolicy,
     imported_type_metadata: &[ori_types::ExportedTypeMetadata],
+    imported_collection_surfaces: &[u64],
 ) -> Result<ori_llvm::inkwell::module::Module<'ctx>, String> {
     use ori_llvm::codegen::eh_model::EhModel;
     use ori_llvm::codegen::function_compiler::FunctionCompiler;
@@ -493,6 +494,7 @@ pub(super) fn run_codegen_pipeline<'ctx>(
             type_result,
             Some(interner),
             imported_type_metadata,
+            imported_collection_surfaces,
             has_impl_methods,
         );
 
