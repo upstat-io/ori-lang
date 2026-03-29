@@ -133,7 +133,8 @@ While review agents run, the main context:
 4. **Verifies agents assess matrix coverage** — look for "Matrix assessment" blocks with type/pattern/backend dimensions. An agent that marks items verified without matrix assessment is REJECTED.
 5. **Verifies agents check for semantic pins** — look for "Semantic pin:" lines. An agent that marks items verified without identifying a pin is REJECTED.
 6. **Verifies agents performed gap analysis** — look for "Gap analysis" block. An agent that doesn't analyze whether listed items fulfill the section's stated goal is INCOMPLETE.
-7. **Flags agents that appear to skip any of the above** — if an agent marks items verified without showing context loading, test reads, matrix assessment, pin identification, AND gap analysis, intervene and re-verify
+7. **Verifies agents performed hygiene audit** — look for "Hygiene audit" blocks with file reads and rule checks. An agent that marks items verified without any hygiene assessment of implementation code is INCOMPLETE.
+8. **Flags agents that appear to skip any of the above** — if an agent marks items verified without showing context loading, test reads, matrix assessment, pin identification, gap analysis, AND hygiene audit, intervene and re-verify
 8. **Collects completed results** as agents finish
 
 #### Step 4: Next Batch or Collect
@@ -164,7 +165,7 @@ All update agents can run in parallel — they each modify a different section f
 2. **Read the current section file** in full
 3. **Apply every finding** from the review:
    - Update checkbox status (`[x]` / `[ ]`) based on verification results
-   - Add annotations (WEAK TESTS, INCOMPLETE MATRIX, NEEDS PIN, WRONG TEST, STALE TEST, NEEDS TESTS, BUG FOUND, REGRESSION) with specific sub-items
+   - Add annotations (WEAK TESTS, INCOMPLETE MATRIX, NEEDS PIN, WRONG TEST, STALE TEST, NEEDS TESTS, BUG FOUND, REGRESSION, HYGIENE VIOLATION, HYGIENE NOTE, RULES VIOLATION) with specific sub-items
    - Reopen previously-completed `[x]` items that failed matrix/pin checks
    - **Add new `- [ ]` items** for missing functionality identified in gap analysis
    - **Add new `- [ ]` test items** for missing test coverage
@@ -400,6 +401,23 @@ A semantic pin IS:
     - [ ] Add test: [edge case description]
 ```
 
+**If Hygiene Violation (critical — blocks verification):**
+```markdown
+- [ ] **Implement**: Feature X
+  - HYGIENE VIOLATION: LEAK — [file:line] [description of side logic / phase bleeding]
+    - [ ] [Concrete remediation action]
+  - RULES VIOLATION: CLAUDE.md — [file:line] [specific rule violated]
+    - [ ] [Concrete remediation action]
+```
+
+**If Hygiene Note (informational — does not block verification):**
+```markdown
+- [x] **Implement**: Feature X [done] (verified 2026-03-28)
+  - HYGIENE NOTE: BLOAT — [file] is [N] lines (limit 500)
+    - [ ] Split into submodules
+  - HYGIENE NOTE: WASTE — unnecessary .clone() at [file:line]
+```
+
 #### 2d-reopen. Reopening Previously Completed Items
 
 **A `[x]` item that fails matrix or pin checks MUST be reopened to `[ ]`.**
@@ -431,7 +449,86 @@ When reopening:
 
 **This is not punitive — it's protective.** An item without matrix coverage is a future regression waiting to happen. Reopening ensures the test gaps are visible and tracked in the planning system, not buried as invisible assumptions.
 
-#### 2e. Section-Level Gap Analysis
+#### 2e. Implementation Hygiene & Rules Audit
+
+**After verifying tests, audit the implementation code for hygiene violations and CLAUDE.md / rules violations.** This catches architectural decay, coding standard drift, and rule violations in the code that implements each section's features.
+
+For each `**Implement**` item, identify the source files that implement the feature (the agent already located these while finding tests). Read those files and check against:
+
+1. **`impl-hygiene.md` rules** — the full hygiene ruleset. Key categories to check:
+   - **LEAK**: Side logic, phase bleeding, duplicated dispatch, scattered knowledge, validation bypass
+   - **DRIFT**: Registration data present in one location but missing from sync points
+   - **GAP**: Feature supported in one phase but blocked/missing in another
+   - **WASTE**: Unnecessary allocation, clone, or transformation at boundary
+   - **EXPOSURE**: Internal state leaking through boundary types
+   - **BLOAT**: File exceeds 500-line limit, mixes responsibilities
+
+2. **CLAUDE.md coding guidelines** — the project-level rules:
+   - **Architecture**: no upward deps, IO only in `oric`, no phase bleeding
+   - **Memory**: arena + ID pattern, intern identifiers, newtypes for IDs
+   - **API**: >3-4 params → config struct, no boolean flags, RAII guards
+   - **Style**: no `#[allow(clippy)]` without justification, functions < 100 lines, no dead/commented code
+   - **File size**: 500-line limit (excl. tests), split before exceeding
+   - **Tracing**: `ORI_LOG` before `println!`, never `println!`/`eprintln!` in library crates
+   - **Comments**: `//!` module docs, `///` on pub items, no decorative banners
+   - **Match extraction**: no 20+ arm match in single file, 3+ similar → extract helper
+   - **Plan annotations**: temporary scaffolding from completed plans must be removed
+
+3. **`.claude/rules/*.md` domain-specific rules** — each section maps to domain rules:
+   - Parser sections → `parse.md` rules
+   - Type system sections → `typeck.md`, `types.md` rules
+   - Eval sections → `eval.md`, `patterns.md` rules
+   - Codegen sections → `llvm.md`, `aot.md` rules
+   - Registry sections → `registry.md` rules
+   - Runtime sections → `runtime.md` rules
+   - ARC/memory sections → `arc.md` rules
+   - Diagnostic sections → `diagnostic.md` rules
+   - IR sections → `ir.md` rules
+
+**How to audit**: For each implementation file:
+- Check file length (>500 lines = BLOAT)
+- Check for `println!`/`eprintln!` in library crates (= LEAK)
+- Check for bare `#[allow(clippy::...)]` without reason (= LINT VIOLATION)
+- Check for dead code, commented-out code (= WASTE)
+- Check for decorative banners `// ===`, `// ---` (= STYLE VIOLATION)
+- Check for missing `//!` module docs (= DOC VIOLATION)
+- Check function lengths (>100 lines = STYLE VIOLATION, >50 = NOTE)
+- Check match arm counts (>20 arms in single file = DISPATCH BLOAT)
+- Check for phase bleeding (parser doing type-check work, etc.)
+- Check for stale plan annotations from completed plans (= DRIFT)
+- Check for side logic patterns per `impl-hygiene.md` detection heuristics
+- Check domain-specific rules for the relevant phase
+
+**Severity mapping**:
+| Hygiene Category | Verification Annotation |
+|------------------|------------------------|
+| LEAK (any sub-type) | HYGIENE VIOLATION: LEAK |
+| DRIFT | HYGIENE VIOLATION: DRIFT |
+| GAP | HYGIENE VIOLATION: GAP |
+| WASTE | HYGIENE NOTE: WASTE |
+| EXPOSURE | HYGIENE NOTE: EXPOSURE |
+| BLOAT | HYGIENE VIOLATION: BLOAT |
+| CLAUDE.md violation | RULES VIOLATION: [specific rule] |
+| Domain rule violation | RULES VIOLATION: [rule file]: [specific rule] |
+
+**Critical vs. informational**: LEAK, DRIFT, GAP, and CLAUDE.md violations are **critical** — they block verification (item stays `[ ]`). WASTE, EXPOSURE, and BLOAT are **informational** — noted but don't block verification.
+
+**Reporting hygiene findings**:
+```markdown
+- HYGIENE VIOLATION: LEAK — side logic in compiler/ori_eval/src/iterator/mod.rs:245
+  - Type-specific behavior hardcoded outside registry dispatch
+  - [ ] Move type-specific logic to ori_registry iterator TypeDef
+- HYGIENE VIOLATION: BLOAT — compiler/ori_types/src/infer/expr/calls.rs is 680 lines
+  - [ ] Split into submodules: calls/resolution.rs, calls/validation.rs
+- RULES VIOLATION: CLAUDE.md — bare #[allow(clippy::too_many_arguments)] at line 89
+  - [ ] Add reason or refactor to config struct per CLAUDE.md API rules
+- RULES VIOLATION: llvm.md — missing dual-execution parity check
+  - [ ] Add LLVM test matching interpreter test for this feature
+```
+
+**Scope**: Only audit files that implement features in the current section. Do NOT audit the entire codebase — this is section-scoped, not project-scoped. For a project-wide hygiene audit, use `/code-hygiene-review` or `/impl-hygiene-review` instead.
+
+#### 2f. Section-Level Gap Analysis
 
 **After verifying all individual items, step back and analyze the section as a whole.** This is where expansion happens.
 
@@ -483,16 +580,18 @@ When reopening:
 
 **This is the most important step.** A section where every checkbox is green but the stated goal isn't achievable is worse than one with honest gaps — it creates false confidence. Expand the section to match reality.
 
-#### 2f. Report Progress
+#### 2g. Report Progress
 
 After all items + gap analysis, report per-item results and gap summary:
 ```
-V 1.1.1 Primitive int type — VERIFIED (3 tests, matrix 8/8, pin: overflow_panics)
+V 1.1.1 Primitive int type — VERIFIED (3 tests, matrix 8/8, pin: overflow_panics, hygiene: clean)
 X 1.1.2 Duration arithmetic — INCOMPLETE MATRIX (tests pass but only int+int, 3/12 cells)
 X 1.1.3 Size comparison — WRONG TEST (asserts Size > Size returns int, spec says bool)
 X 1.1.4 Duration literals — NEEDS TESTS (no tests found)
 X 1.1.5 list.map() — NEEDS PIN (15 tests pass but none uniquely identifies map behavior)
 X 1.1.6 iterator.zip() — REOPENED (was [x], matrix 2/10 cells, no pin)
+X 1.1.7 list.sort() — HYGIENE VIOLATION: LEAK (side logic in eval/sort.rs bypasses registry)
+H 1.1.8 list.filter() — VERIFIED but HYGIENE NOTE: BLOAT (eval/filter.rs is 520 lines)
 + GAP: 3 missing functionality items, 2 missing test items (see gap analysis)
 ```
 
@@ -549,6 +648,7 @@ ALL of the following must be true:
 5. **Assertions are specific** — Tests check actual values, not just `is_ok()` / `is_some()`
 6. **Matrix coverage adequate** — All relevant types and patterns through the code path are tested (see matrix assessment criteria below)
 7. **Semantic pin exists** — At least one test would uniquely fail if the feature were reverted
+8. **No critical hygiene violations** — Implementation code has no LEAK, DRIFT, GAP, or CLAUDE.md/rules violations (informational notes like BLOAT/WASTE are OK)
 
 ### What Counts as "Weak Tests"
 
@@ -581,6 +681,21 @@ ALL of the following must be true:
 2. **Testing wrong behavior** — Test name says "addition" but tests multiplication
 3. **Copy-paste errors** — Test is a duplicate of another with no meaningful difference
 4. **False positive** — Test passes for the wrong reason (e.g., error swallowed)
+
+### What Counts as "Hygiene Violation" (Critical — blocks verification)
+
+1. **LEAK** — Side logic: type-specific behavior hardcoded outside registry/canonical dispatch, duplicated dispatch tables, phase bleeding
+2. **DRIFT** — Registration data present in one sync point but missing from another (e.g., new enum variant in one file but not its parallel)
+3. **GAP** — Feature supported in one phase but blocked/missing in another (e.g., parser accepts syntax but typeck rejects it)
+4. **CLAUDE.md violation** — bare `#[allow(clippy)]`, `println!` in library crate, function >100 lines without justification, missing `//!` module doc on pub module
+5. **Domain rule violation** — violates phase-specific rules from the relevant `.claude/rules/*.md` file (e.g., `llvm.md` dual-execution parity, `registry.md` method ordering)
+
+### What Counts as "Hygiene Note" (Informational — does not block verification)
+
+1. **BLOAT** — File exceeds 500-line limit (excluding tests)
+2. **WASTE** — Unnecessary `.clone()`, allocation, or transformation at boundary
+3. **EXPOSURE** — Internal state leaking through boundary types
+4. **Style nit** — Function >50 lines (target, not hard limit), decorative banners, minor naming inconsistency
 
 ### What Counts as "Cannot Verify"
 
@@ -690,7 +805,12 @@ Matrix assessment:
   Backend: interpreter only (LLVM N/A for this item)
   Coverage: 12/12 cells
 Semantic pin: line 12 `assert_panics(expr: () -> int_max + 1)` — uniquely fails without overflow check
-Status: VERIFIED (sound, matrix 12/12, pin: overflow_panics)
+Hygiene audit:
+  Files checked: compiler/ori_types/src/check/primitives.rs (145 lines)
+  impl-hygiene.md: no violations
+  CLAUDE.md: no violations
+  Domain rules (typeck.md): no violations
+Status: VERIFIED (sound, matrix 12/12, pin: overflow_panics, hygiene: clean)
 
 ─── ... more items ... ───
 
@@ -711,14 +831,14 @@ GAPS FOUND:
 Items to add: 2 functionality, 2 test, 1 integration
 ```
 
-**Critical**: Agents MUST show evidence of (1) reading CLAUDE.md + rules, (2) reading test files, (3) matrix assessment, (4) pin identification, (5) gap analysis. A result like this is REJECTED by the supervisor:
+**Critical**: Agents MUST show evidence of (1) reading CLAUDE.md + rules, (2) reading test files, (3) matrix assessment, (4) pin identification, (5) hygiene audit of implementation files, (6) gap analysis. A result like this is REJECTED by the supervisor:
 ```
 ─── Verifying 1.1.1: int type ───
 Tests found: tests/spec/types/primitives.ori
 Tests run: pass
 Status: VERIFIED
 ```
-(No context-loading evidence, no audit, no matrix, no pin, no gap analysis — supervisor will flag this agent and re-verify.)
+(No context-loading evidence, no audit, no matrix, no pin, no hygiene audit, no gap analysis — supervisor will flag this agent and re-verify.)
 
 ### Final Summary (after Phase 2)
 ```
@@ -736,15 +856,17 @@ Section 0 — Parser:
   New items (gaps):    3  <-- added from gap analysis
 
 Section 1 — Type System:
-  Verified:          100/124
-  Weak tests:          3
-  Incomplete matrix:   5
-  Needs pin:           2
-  Wrong tests:         1
-  Needs tests:         6
-  Regressions:         2
-  Reopened:            5  <-- previously [x] items downgraded
-  New items (gaps):    7  <-- added from gap analysis
+  Verified:              100/124
+  Weak tests:              3
+  Incomplete matrix:       5
+  Needs pin:               2
+  Wrong tests:             1
+  Needs tests:             6
+  Regressions:             2
+  Hygiene violations:      3  <-- critical: LEAK/DRIFT/GAP/rules (blocks verification)
+  Hygiene notes:           5  <-- informational: BLOAT/WASTE/EXPOSURE (does not block)
+  Reopened:                5  <-- previously [x] items downgraded
+  New items (gaps):        7  <-- added from gap analysis
 
   Items needing attention:
   - 1.1A.5: float precision — INCOMPLETE MATRIX (only 1.0+2.0, 2/8 cells)
@@ -753,6 +875,8 @@ Section 1 — Type System:
   - 1.1A.12: Duration LLVM arithmetic — REGRESSION
   - 1.2.3: list.map() — REOPENED, was [x] — INCOMPLETE MATRIX (only [int], 3/15 cells)
   - 1.2.7: iterator.zip() — REOPENED, was [x] — NEEDS PIN (no unique regression guard)
+  - 1.3.1: list.sort() — HYGIENE VIOLATION: LEAK (sort dispatch bypasses registry)
+  - 1.3.4: type.compare() — RULES VIOLATION: typeck.md (missing dual-dispatch check)
   - NEW: recursive type validation — MISSING FUNCTIONALITY (spec clause 3.7)
   - NEW: type alias transparency — MISSING FUNCTIONALITY (spec says structurally transparent)
 
