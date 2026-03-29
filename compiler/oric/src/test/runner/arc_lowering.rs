@@ -41,6 +41,7 @@ pub(crate) fn lower_and_infer_borrows(
     impl_sigs: &[(Name, ori_types::FunctionSig)],
     imported_functions: &[ori_llvm::evaluator::ImportedFunctionForCodegen<'_>],
     mono_instances: &[ori_types::MonoInstance],
+    user_types: &[ori_types::TypeEntry],
 ) -> ArcLoweringResult {
     let classifier = ori_arc::ArcClassifier::new(pool);
     let mut local_lowered: Vec<(ori_arc::ArcFunction, Vec<ori_arc::ArcFunction>)> = Vec::new();
@@ -96,29 +97,82 @@ pub(crate) fn lower_and_infer_borrows(
     }
 
     // Lower impl method functions (local — uses main pool).
-    // Use type-qualified names to prevent same-named methods across different
-    // types from colliding in the solver's Name-keyed maps (TPR-03-043/045).
-    for (name, sig) in impl_sigs {
-        if sig.is_generic() {
-            continue;
+    // Use type-qualified names from the impl block's self-type (not
+    // sig.param_types[0]) to prevent collisions (TPR-03-043/045/047).
+    {
+        let mut sig_iter = impl_sigs.iter();
+        for impl_def in &module.impls {
+            let self_type_idx = impl_def.self_path.first().and_then(|&name| {
+                user_types
+                    .iter()
+                    .find(|te| te.name == name)
+                    .map(|te| te.idx)
+            });
+            for method in &impl_def.methods {
+                let Some((_, sig)) = sig_iter.next() else {
+                    break;
+                };
+                if sig.is_generic() {
+                    continue;
+                }
+                let qualified_name = if let Some(idx) = self_type_idx {
+                    let method_str = interner.lookup(method.name);
+                    interner.intern(&format!("__impl_{}_{method_str}", idx.raw()))
+                } else {
+                    method.name
+                };
+                let (arc_fn, lambdas) = crate::arc_lowering::lower_to_arc(
+                    qualified_name,
+                    sig,
+                    method.name,
+                    canon,
+                    interner,
+                    pool,
+                    &mut arc_problems,
+                    None,
+                );
+                local_lowered.push((arc_fn, lambdas));
+            }
+            // Skip default trait methods in sig_iter
+            if let Some(trait_path) = &impl_def.trait_path {
+                if let Some(&trait_name) = trait_path.last() {
+                    let overridden: rustc_hash::FxHashSet<Name> =
+                        impl_def.methods.iter().map(|m| m.name).collect();
+                    if let Some(trait_def) = module.traits.iter().find(|t| t.name == trait_name) {
+                        for item in &trait_def.items {
+                            if let ori_ir::TraitItem::DefaultMethod(default) = item {
+                                if !overridden.contains(&default.name) {
+                                    let Some((_, sig)) = sig_iter.next() else {
+                                        break;
+                                    };
+                                    if sig.is_generic() {
+                                        continue;
+                                    }
+                                    let qualified_name = if let Some(idx) = self_type_idx {
+                                        let method_str = interner.lookup(default.name);
+                                        interner
+                                            .intern(&format!("__impl_{}_{method_str}", idx.raw()))
+                                    } else {
+                                        default.name
+                                    };
+                                    let (arc_fn, lambdas) = crate::arc_lowering::lower_to_arc(
+                                        qualified_name,
+                                        sig,
+                                        default.name,
+                                        canon,
+                                        interner,
+                                        pool,
+                                        &mut arc_problems,
+                                        None,
+                                    );
+                                    local_lowered.push((arc_fn, lambdas));
+                                }
+                            }
+                        }
+                    }
+                }
+            }
         }
-        let qualified_name = if let Some(&self_type_idx) = sig.param_types.first() {
-            let method_str = interner.lookup(*name);
-            interner.intern(&format!("__impl_{}_{method_str}", self_type_idx.raw()))
-        } else {
-            *name
-        };
-        let (arc_fn, lambdas) = crate::arc_lowering::lower_to_arc(
-            qualified_name,
-            sig,
-            *name,
-            canon,
-            interner,
-            pool,
-            &mut arc_problems,
-            None,
-        );
-        local_lowered.push((arc_fn, lambdas));
     }
 
     // Lower monomorphized generic functions (local — uses main pool)

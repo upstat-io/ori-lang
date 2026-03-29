@@ -6,7 +6,7 @@ reviewed: true
 third_party_review:
   status: pending-rerun
   updated: 2026-03-28
-  triage_note: "All findings TPR-03-034..046 resolved with code fixes across 5 review iterations. NEXT STEP: run iteration 6 to confirm clean pass — TPR-03-045/046 fixes have not been re-verified by Codex yet."
+  triage_note: "All findings TPR-03-034..048 resolved. TPR-03-047 (impl self-type from block, not param_types[0]) and TPR-03-048 (JIT safety gate parity) fixed. Running iteration 7 for clean confirmation."
 goal: "Build an abstract interpretation engine over integer intervals that computes provable value ranges for every int-typed expression in a function"
 inspired_by:
   - "Roc NumericRange constraint system (crates/compiler/types/src/num.rs)"
