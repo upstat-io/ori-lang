@@ -228,6 +228,30 @@ fn register_resolved_imports(
         .map(|m| m.source_file.map(|sf| crate::query::typed(db, sf)))
         .collect();
 
+    // 3a. Collect imported type metadata for transitive forwarding (CROSS-04-017).
+    // Each module's exported_type_metadata already includes its own transitive
+    // imports (because it went through the same merge in its own finish_with_pool).
+    // We collect from all direct imports — prelude + explicit modules.
+    {
+        let mut imported_metadata: Vec<ori_types::ExportedTypeMetadata> = Vec::new();
+
+        // Prelude metadata
+        if let Some(ref prelude) = resolved.prelude {
+            if let Some(ref tcr) = prelude.source_file.map(|sf| crate::query::typed(db, sf)) {
+                imported_metadata.extend(tcr.typed.exported_type_metadata.iter().cloned());
+            }
+        }
+
+        // Explicit import module metadata
+        for tcr in module_results.iter().flatten() {
+            imported_metadata.extend(tcr.typed.exported_type_metadata.iter().cloned());
+        }
+
+        if !imported_metadata.is_empty() {
+            checker.set_imported_type_metadata(imported_metadata);
+        }
+    }
+
     for func_ref in &resolved.imported_functions {
         let module = &resolved.modules[func_ref.module_index];
         let imported_parsed = &module.parse_output;
