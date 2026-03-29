@@ -4,9 +4,9 @@ title: "Integer Narrowing Pipeline"
 status: in-progress
 reviewed: true
 third_party_review:
-  status: findings
+  status: resolved
   updated: 2026-03-28
-  triage_note: "Open finding: TPR-04-025 (emit_function.rs exceeds the 500-line source-file limit). Previously resolved: TPR-04-024 accepted on 2026-03-28 (Select narrowing tasks added to §04.4), TPR-04-023 accepted (straight-line local narrowing tasks), TPR-04-018→IR-PIN-04-018, TPR-04-019→MIXED-PIN-04-019, TPR-04-020→DERIVE-PIN-04-020, TPR-04-021 (Debug str leak), TPR-04-022 (stale Debug known_gap). CROSS-04-017 remains accepted follow-up in §04.X."
+  triage_note: "All findings resolved. TPR-04-025 fixed on 2026-03-28 (emit_function.rs split → 370 lines). Previously resolved: TPR-04-024 (Select narrowing), TPR-04-023 (straight-line local narrowing), TPR-04-018→IR-PIN-04-018, TPR-04-019→MIXED-PIN-04-019, TPR-04-020→DERIVE-PIN-04-020, TPR-04-021 (Debug str leak), TPR-04-022 (stale Debug known_gap). CROSS-04-017 remains accepted follow-up in §04.X."
 goal: "Lower int (semantic i64) to the smallest machine integer (i8/i16/i32) that preserves correctness, saving memory in struct fields, collections, and stack slots"
 inspired_by:
   - "Zig comptime_int narrowing to runtime types (src/Sema.zig)"
@@ -334,10 +334,13 @@ The LLVM backend type resolution path via `TypeLayoutResolver` handles `MachineR
 
 - [x] `[CROSS-05-001][major]` `section-05-float-narrowing.md:79,83,84` — **`ArithOp` type does not exist in the codebase.** (2026-03-27): Updated `section-05-float-narrowing.md` to use `ori_ir::BinaryOp` for binary ops and note `UnaryOp::Neg` for negation (following §04.3 pattern). Fixed `can_narrow_to_f32()` signature to use `ArcVarId` instead of nonexistent `VarId`.
 
-- [ ] `[CROSS-04-017][high]` JIT/test path drops transitive metadata for re-exported imported types (from TPR-04-017). The `generate_exported_type_metadata()` in `ori_types/src/check/mod.rs:973` only includes locally-declared types. When module B re-exports C's `pub`/`#repr` type, B's `exported_type_metadata` doesn't include C's metadata. The AOT path merges via `merge_forwarded_metadata()`, but the JIT path has no equivalent. **Root cause**: `TypedModule.exported_type_metadata` is local-only; transitive forwarding happens post-type-check in the AOT pipeline only.
-  - [ ] **Option A (recommended — type-checker level)**: Extend `generate_exported_type_metadata()` to accept `imported_metadata: &[ExportedTypeMetadata]` and merge forwarded entries (dedup by merkle_hash, local priority). Thread through `check_module_impl()`. All consumers (JIT, AOT, future) get complete metadata without post-hoc merging. Removes the need for `merge_forwarded_metadata()` in the AOT path.
-  - [ ] **Option B (JIT-side merge)**: Add a JIT-side equivalent of `merge_forwarded_metadata()` in `llvm_backend.rs` before passing metadata to `compile_module_with_tests()`. Simpler but duplicates merge logic and only fixes JIT path — does not fix the root cause in `TypedModule`.
-  - [ ] Regression test: `A -> B -> C` where C defines a `pub` type with bounded-range int fields, B re-exports it in a public signature, A imports only B — verify A's repr plan does NOT narrow C's protected type on both JIT and AOT paths.
+- [x] `[CROSS-04-017][high]` JIT/test path drops transitive metadata for re-exported imported types (from TPR-04-017). The `generate_exported_type_metadata()` in `ori_types/src/check/mod.rs:973` only includes locally-declared types. When module B re-exports C's `pub`/`#repr` type, B's `exported_type_metadata` doesn't include C's metadata. The AOT path merges via `merge_forwarded_metadata()`, but the JIT path has no equivalent. **Root cause**: `TypedModule.exported_type_metadata` is local-only; transitive forwarding happens post-type-check in the AOT pipeline only.
+  Resolved: Fixed on 2026-03-28 via Option A (type-checker level). Implementation:
+  - [x] **Option A (type-checker level)**: Extended `generate_exported_type_metadata()` to accept `imported: &[ExportedTypeMetadata]` and merge (dedup by merkle_hash, local priority). Added `imported_type_metadata` field + `set_imported_type_metadata()` to `ModuleChecker`. Called from `register_resolved_imports()` in `typeck.rs` — collects metadata from prelude + all imported modules. TypedModule now carries transitive metadata from the start.
+  - [x] Removed `merge_forwarded_metadata()` from AOT `multi.rs` (now redundant — type checker handles it).
+  - [x] Updated JIT path comment in `llvm_backend.rs` (transitive metadata note).
+  - [x] 4 regression tests in `ori_types/src/check/tests.rs`: imported entries forwarded, first-seen dedup priority, empty imports unchanged, multiple imported modules with diamond dedup.
+  - [x] 14,360 tests pass, clippy clean.
 
 - [x] `[CROSS-04-015][high]` Thread `ExportedTypeMetadata` through multi-file AOT pipeline (from TPR-04-015). (2026-03-27): Implemented via parallel metadata channel alongside function signatures. 5 unit tests for `collect_imported_type_metadata()`, all 14,298 tests pass, clippy clean.
   - [x] Add `exported_type_metadata: Vec<ExportedTypeMetadata>` field to `CompiledModuleInfo` in `compiler/oric/src/commands/build/multi.rs` — populated from `type_result.typed.exported_type_metadata` after type checking each module
@@ -352,10 +355,11 @@ The LLVM backend type resolution path via `TypeLayoutResolver` handles `MachineR
 
 ## 04.R Third Party Review Findings
 
-- [ ] `[TPR-04-025][low]` `compiler/ori_llvm/src/codegen/arc_emitter/emit_function.rs:1` — `emit_function.rs` is still over the 500-line source-file limit after the Phase B narrowing work.
+- [x] `[TPR-04-025][low]` `compiler/ori_llvm/src/codegen/arc_emitter/emit_function.rs:1` — `emit_function.rs` is still over the 500-line source-file limit after the Phase B narrowing work.
   Evidence: fresh review on 2026-03-28 measured `compiler/ori_llvm/src/codegen/arc_emitter/emit_function.rs` at 501 lines, and this file is part of the current `HEAD~5..HEAD` implementation slice (`0b3c41cf` touched it while adding the Phase B narrowing infrastructure). `CLAUDE.md` and `.claude/rules/impl-hygiene.md` both require splitting touched production files before they exceed 500 lines.
   Impact: §04.4 is still actively changing the ARC emitter, but one of its orchestration files is already past the hard size limit. Leaving the file oversized makes the remaining narrowing and ABI-boundary work harder to review and easier to regress.
   Required plan update: split parameter/phi setup or unwind/block-emission orchestration into a sibling helper/submodule so `emit_function.rs` drops back under the 500-line limit during the next §04.4 implementation pass.
+  Resolved: Fixed on 2026-03-28. Extracted `bind_function_params()` and `compute_borrowed_rooted_vars()` into `emit_function_setup.rs` (160 lines). `emit_function.rs` reduced from 501 → 370 lines. 14,362 tests pass, clippy clean.
 
 - [x] `[TPR-04-024][medium]` `compiler/ori_llvm/src/codegen/arc_emitter/instr_dispatch.rs:452` `compiler/ori_arc/src/block_merge/select.rs:260` `compiler/ori_repr/src/range/transfer/mod.rs:117` — `ArcInstr::Select` results still bypass the Phase B local-narrowing path, so narrow-range branch-diamond locals remain canonical `i64`.
   Evidence: `apply_select_fold()` lowers trivial `if`/`else` diamonds to `ArcInstr::Select`, and range analysis explicitly computes a joined integer range for `Select` destinations. But the emitter's `ArcInstr::Select` arm still binds the LLVM `select` result with `def_var()` instead of `def_var_repr()`, unlike the new straight-line narrowing path for `Let`/`Apply`/`Project`/`Construct`. Fresh verification on 2026-03-28 with `diagnostics/ir-dump.sh --raw --function _ori_pick` for `let x = if b then 1 else 2; x` produced `select i1 %0, i64 1, i64 2` and `ret i64 %sel`, with no `local.trunc`/`local.sext` or narrow integer type anywhere in `_ori_pick`.

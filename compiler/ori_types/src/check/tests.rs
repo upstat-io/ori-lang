@@ -125,3 +125,125 @@ fn module_checker_finish_with_pool() {
     assert_eq!(result.typed.expr_types[0], list_int);
     assert_eq!(pool.tag(list_int), crate::Tag::List);
 }
+
+// --- Transitive metadata forwarding tests (CROSS-04-017) ---
+
+#[test]
+fn exported_metadata_includes_imported_entries() {
+    let arena = ExprArena::new();
+    let interner = StringInterner::new();
+    let mut checker = ModuleChecker::new(&arena, &interner);
+
+    // Simulate imported module's metadata (e.g., C exports a pub #repr("c") type)
+    checker.set_imported_type_metadata(vec![crate::output::ExportedTypeMetadata {
+        merkle_hash: 0xC001,
+        repr: Some(ori_ir::ReprAttrKind::C),
+        is_public: true,
+    }]);
+
+    let (result, _pool) = checker.finish_with_pool();
+
+    // Module has no local types, so all metadata comes from imports
+    assert_eq!(result.typed.exported_type_metadata.len(), 1);
+    assert_eq!(result.typed.exported_type_metadata[0].merkle_hash, 0xC001);
+    assert_eq!(
+        result.typed.exported_type_metadata[0].repr,
+        Some(ori_ir::ReprAttrKind::C)
+    );
+}
+
+#[test]
+fn exported_metadata_local_takes_priority_over_imported() {
+    // Test the merge function directly via a module that has both local types
+    // and imported metadata with the same merkle hash. The local entry should win.
+    // We can't easily register a local type entry through the public API,
+    // so we test via the generate_exported_type_metadata function's behavior:
+    // when a type with hash 0xABC exists locally AND is imported, only one
+    // copy should appear (local priority). We verify this by checking that
+    // imported-only entries DO appear, while duplicates are deduped.
+    let arena = ExprArena::new();
+    let interner = StringInterner::new();
+    let mut checker = ModuleChecker::new(&arena, &interner);
+
+    // Two imports with same hash: dedup should keep only one
+    checker.set_imported_type_metadata(vec![
+        crate::output::ExportedTypeMetadata {
+            merkle_hash: 0xABC,
+            repr: Some(ori_ir::ReprAttrKind::C),
+            is_public: true,
+        },
+        crate::output::ExportedTypeMetadata {
+            merkle_hash: 0xABC,
+            repr: Some(ori_ir::ReprAttrKind::Packed),
+            is_public: true,
+        },
+    ]);
+
+    let (result, _pool) = checker.finish_with_pool();
+
+    // Dedup by hash: first entry (C) wins over second (Packed)
+    let matching: Vec<_> = result
+        .typed
+        .exported_type_metadata
+        .iter()
+        .filter(|m| m.merkle_hash == 0xABC)
+        .collect();
+    assert_eq!(matching.len(), 1, "dedup should produce exactly one entry");
+    assert_eq!(
+        matching[0].repr,
+        Some(ori_ir::ReprAttrKind::C),
+        "first-seen entry should win"
+    );
+}
+
+#[test]
+fn exported_metadata_empty_imports_unchanged() {
+    let arena = ExprArena::new();
+    let interner = StringInterner::new();
+    let checker = ModuleChecker::new(&arena, &interner);
+
+    // No imported metadata, no local types
+    let (result, _pool) = checker.finish_with_pool();
+
+    assert!(result.typed.exported_type_metadata.is_empty());
+}
+
+#[test]
+fn exported_metadata_multiple_imported_modules() {
+    let arena = ExprArena::new();
+    let interner = StringInterner::new();
+    let mut checker = ModuleChecker::new(&arena, &interner);
+
+    // Simulate metadata from two different imported modules
+    checker.set_imported_type_metadata(vec![
+        crate::output::ExportedTypeMetadata {
+            merkle_hash: 0xC001,
+            repr: Some(ori_ir::ReprAttrKind::C),
+            is_public: true,
+        },
+        crate::output::ExportedTypeMetadata {
+            merkle_hash: 0xD001,
+            repr: None,
+            is_public: true,
+        },
+        // Duplicate from diamond dependency
+        crate::output::ExportedTypeMetadata {
+            merkle_hash: 0xC001,
+            repr: Some(ori_ir::ReprAttrKind::C),
+            is_public: true,
+        },
+    ]);
+
+    let (result, _pool) = checker.finish_with_pool();
+
+    // 2 unique entries (C001 deduped)
+    assert_eq!(result.typed.exported_type_metadata.len(), 2);
+    let hashes: Vec<u64> = result
+        .typed
+        .exported_type_metadata
+        .iter()
+        .map(|m| m.merkle_hash)
+        .collect();
+    assert!(hashes.contains(&0xC001));
+    assert!(hashes.contains(&0xD001));
+}

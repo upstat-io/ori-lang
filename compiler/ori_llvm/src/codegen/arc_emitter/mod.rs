@@ -47,6 +47,7 @@ mod drop_enum;
 mod drop_gen;
 mod element_fn_gen;
 mod emit_function;
+mod emit_function_setup;
 mod emitter_utils;
 mod field_scan;
 mod instr_dispatch;
