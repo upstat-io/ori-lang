@@ -345,14 +345,14 @@ impl ReprPlan {
     /// When no analysis-only functions are present, narrowing is safe because
     /// all analyzed functions go through the same codegen path.
     #[must_use]
-    pub fn is_integer_narrowing_safe_for_codegen(&self) -> bool {
+    pub fn is_narrowing_safe_for_codegen(&self) -> bool {
         !self.has_analysis_only_functions
     }
 
     /// Mark that the analysis set includes functions not fully integrated
     /// into the codegen pipeline (TPR-03-041).
     ///
-    /// When set, §04 integer narrowing and per-variable range storage are
+    /// When set, integer/float narrowing and per-variable range storage are
     /// suppressed to prevent ABI-mismatched struct layouts.
     pub fn set_has_analysis_only_functions(&mut self) {
         self.has_analysis_only_functions = true;

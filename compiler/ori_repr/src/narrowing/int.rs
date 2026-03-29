@@ -198,7 +198,7 @@ fn is_canonical_int(repr: &MachineRepr) -> bool {
 /// `#repr("transparent")` all fix the field layout — narrowing would
 /// violate the ABI contract. `#repr("aligned", N)` alone does NOT
 /// prevent narrowing: it sets whole-struct alignment, not field layout.
-fn has_fixed_layout_attr(plan: &ReprPlan, idx: Idx) -> bool {
+pub(crate) fn has_fixed_layout_attr(plan: &ReprPlan, idx: Idx) -> bool {
     plan.repr_attr(idx).is_some_and(|attr| {
         matches!(
             attr,
