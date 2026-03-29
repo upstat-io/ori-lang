@@ -9,7 +9,9 @@ use ori_llvm::aot::incremental::deps::DependencyGraph;
 use ori_llvm::aot::incremental::ContentHash;
 use ori_types::ExportedTypeMetadata;
 
-use super::multi::{collect_imported_type_metadata, CompiledModuleInfo};
+use super::multi::{
+    collect_imported_collection_surfaces, collect_imported_type_metadata, CompiledModuleInfo,
+};
 
 /// Helper to create a `CompiledModuleInfo` with specified metadata.
 fn module_info(path: &str, metadata: Vec<ExportedTypeMetadata>) -> CompiledModuleInfo {
@@ -19,6 +21,21 @@ fn module_info(path: &str, metadata: Vec<ExportedTypeMetadata>) -> CompiledModul
         public_functions: Vec::new(),
         exported_type_metadata: metadata,
         exported_collection_surfaces: Vec::new(),
+    }
+}
+
+/// Helper to create a `CompiledModuleInfo` with both type metadata and collection surfaces.
+fn module_info_with_surfaces(
+    path: &str,
+    metadata: Vec<ExportedTypeMetadata>,
+    surfaces: Vec<u64>,
+) -> CompiledModuleInfo {
+    CompiledModuleInfo {
+        path: PathBuf::from(path),
+        module_name: path.to_string(),
+        public_functions: Vec::new(),
+        exported_type_metadata: metadata,
+        exported_collection_surfaces: surfaces,
     }
 }
 
@@ -136,6 +153,79 @@ fn collect_metadata_dependency_with_no_types() {
     let graph = test_graph("/src/main.ori", &["/src/utils.ori"]);
 
     let result = collect_imported_type_metadata(&PathBuf::from("/src/main.ori"), &graph, &compiled);
+
+    assert!(result.is_empty());
+}
+
+// =============================================================================
+// Collection surface collection (TPR-04-032, TPR-04-038, TPR-04-039)
+// =============================================================================
+
+/// Semantic pin: `collect_imported_collection_surfaces` gathers hashes from
+/// compiled dependency modules.
+#[test]
+fn collect_collection_surfaces_from_single_dependency() {
+    let compiled = vec![module_info_with_surfaces(
+        "/src/lib.ori",
+        Vec::new(),
+        vec![0xABCD_1234, 0xDEAD_BEEF],
+    )];
+    let graph = test_graph("/src/main.ori", &["/src/lib.ori"]);
+
+    let result =
+        collect_imported_collection_surfaces(&PathBuf::from("/src/main.ori"), &graph, &compiled);
+
+    assert_eq!(result.len(), 2);
+    assert!(result.contains(&0xABCD_1234));
+    assert!(result.contains(&0xDEAD_BEEF));
+}
+
+/// Multiple dependencies — collection surfaces are aggregated.
+#[test]
+fn collect_collection_surfaces_from_multiple_dependencies() {
+    let compiled = vec![
+        module_info_with_surfaces("/src/a.ori", Vec::new(), vec![0x1111]),
+        module_info_with_surfaces("/src/b.ori", Vec::new(), vec![0x2222, 0x3333]),
+    ];
+    let graph = test_graph("/src/main.ori", &["/src/a.ori", "/src/b.ori"]);
+
+    let result =
+        collect_imported_collection_surfaces(&PathBuf::from("/src/main.ori"), &graph, &compiled);
+
+    assert_eq!(result.len(), 3);
+    assert!(result.contains(&0x1111));
+    assert!(result.contains(&0x2222));
+    assert!(result.contains(&0x3333));
+}
+
+/// No imports → empty collection surfaces.
+#[test]
+fn collect_collection_surfaces_no_imports() {
+    let compiled = vec![module_info_with_surfaces(
+        "/src/lib.ori",
+        Vec::new(),
+        vec![0xFFFF],
+    )];
+    let graph = DependencyGraph::new();
+
+    let result =
+        collect_imported_collection_surfaces(&PathBuf::from("/src/main.ori"), &graph, &compiled);
+
+    assert!(result.is_empty());
+}
+
+/// Dependency with empty collection surfaces → no contribution.
+#[test]
+fn collect_collection_surfaces_dependency_with_none() {
+    let compiled = vec![module_info_with_surfaces(
+        "/src/lib.ori",
+        Vec::new(),
+        Vec::new(),
+    )];
+    let graph = test_graph("/src/main.ori", &["/src/lib.ori"]);
+
+    let result =
+        collect_imported_collection_surfaces(&PathBuf::from("/src/main.ori"), &graph, &compiled);
 
     assert!(result.is_empty());
 }
