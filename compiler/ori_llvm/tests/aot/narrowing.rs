@@ -1112,3 +1112,193 @@ type Pixel = { r: int, g: int, b: int, a: int }
         String::from_utf8_lossy(&run.stderr)
     );
 }
+
+// §04.4 Phase C: Collection element narrowing tests
+//
+// These tests verify that [int] list literals with bounded values use narrowed
+// element storage (i8/i16/i32) and that the narrowing is transparent to program
+// semantics — all operations produce identical results to canonical i64 storage.
+
+/// Semantic pin: list literal with bounded values uses narrowed i8 element storage.
+/// Verifies LLVM IR contains narrowed `elem_size` (1) instead of canonical (8).
+#[test]
+fn test_narrowed_list_i8_ir_pin() {
+    let ir = compile_and_capture_ir(
+        r"
+@main () -> int = {
+    let xs: [int] = [1, 2, 3];
+    xs[0]
+}
+",
+    );
+
+    let main_ir = extract_function_ir(&ir, "_ori_main");
+    // Construction: ori_list_alloc_data with elem_size=1 (i8), not 8 (i64)
+    assert!(
+        main_ir.contains("@ori_list_alloc_data(i64 3, i64 1)"),
+        "Expected narrowed elem_size=1 in list construction IR.\nIR:\n{main_ir}"
+    );
+    // Element GEP should use i8 type (inbounds form)
+    assert!(
+        main_ir.contains("getelementptr inbounds i8,"),
+        "Expected i8 GEP type for narrowed list elements.\nIR:\n{main_ir}"
+    );
+    // Element store should use i8
+    assert!(
+        main_ir.contains("store i8 1,"),
+        "Expected i8 store for narrowed list elements.\nIR:\n{main_ir}"
+    );
+    // Element load should use i8 with sext to i64
+    assert!(
+        main_ir.contains("load i8,") && main_ir.contains("sext i8"),
+        "Expected i8 load + sext for narrowed element access.\nIR:\n{main_ir}"
+    );
+}
+
+/// Semantic pin: list indexing through narrowed elements produces correct values.
+/// Each element is stored as i8, loaded as i8, then sext'd back to i64.
+#[test]
+fn test_narrowed_list_index_round_trip() {
+    assert_aot_success(
+        r"
+@main () -> int = {
+    let xs: [int] = [-128, 0, 127, 42];
+    let ok = xs[0] == -128 && xs[1] == 0 && xs[2] == 127 && xs[3] == 42;
+    if ok then 0 else 1
+}
+",
+        "narrowed_list_index_round_trip",
+    );
+}
+
+/// For-yield over narrowed list produces a correctly narrowed result list.
+/// Tests the for-yield accumulator interception (`ori_list_new`/`ori_list_push`).
+#[test]
+fn test_narrowed_list_for_yield() {
+    assert_aot_success(
+        r"
+@main () -> int = {
+    let result = for x in [10, 20, 30] yield x;
+    let ok = result[0] == 10 && result[1] == 20 && result[2] == 30;
+    if ok then 0 else 1
+}
+",
+        "narrowed_list_for_yield",
+    );
+}
+
+/// For-yield with transform over narrowed list.
+#[test]
+fn test_narrowed_list_for_yield_transform() {
+    assert_aot_success(
+        r"
+@main () -> int = {
+    let result = for x in [1, 2, 3] yield x * 10;
+    let ok = result[0] == 10 && result[1] == 20 && result[2] == 30;
+    if ok then 0 else 1
+}
+",
+        "narrowed_list_for_yield_transform",
+    );
+}
+
+/// Iteration (for..do sum) over narrowed list.
+#[test]
+fn test_narrowed_list_iteration_sum() {
+    assert_aot_success(
+        r"
+@main () -> int = {
+    let xs = [10, 20, 30, 40];
+    let sum = 0;
+    for x in xs do { sum = sum + x };
+    if sum == 100 then 0 else 1
+}
+",
+        "narrowed_list_iteration_sum",
+    );
+}
+
+/// Derived Eq on struct with narrowed list field.
+#[test]
+fn test_narrowed_list_derived_eq() {
+    assert_aot_success(
+        r"
+#derive(Eq)
+type Container = { items: [int] }
+
+@main () -> int = {
+    let a = Container { items: [1, 2, 3] };
+    let b = Container { items: [1, 2, 3] };
+    let c = Container { items: [1, 2, 4] };
+    let eq = a == b;
+    let neq = a != c;
+    if eq && neq then 0 else 1
+}
+",
+        "narrowed_list_derived_eq",
+    );
+}
+
+/// List `.first()` and `.last()` through narrowed elements — returns `Option<int>`.
+#[test]
+fn test_narrowed_list_first_last() {
+    assert_aot_success(
+        r"
+@main () -> int = {
+    let xs = [10, 20, 30];
+    let f = xs.first();
+    let l = xs.last();
+    let ok = is_some(option: f) && is_some(option: l);
+    if !ok then 1
+    else {
+        let fv = f.unwrap_or(default: -1);
+        let lv = l.unwrap_or(default: -1);
+        if fv == 10 && lv == 30 then 0 else 2
+    }
+}
+",
+        "narrowed_list_first_last",
+    );
+}
+
+/// Sort on narrowed [int] list.
+#[test]
+fn test_narrowed_list_sort() {
+    assert_aot_success(
+        r"
+@main () -> int = {
+    let xs = [30, 10, 20];
+    let sorted = xs.sort();
+    let ok = sorted[0] == 10 && sorted[1] == 20 && sorted[2] == 30;
+    if ok then 0 else 1
+}
+",
+        "narrowed_list_sort",
+    );
+}
+
+/// Negative pin: list with narrowing disabled (`ORI_NO_REPR_OPT=1`) uses
+/// canonical i64 element storage — no i8 GEP in the LLVM IR.
+#[test]
+fn test_narrowed_list_disabled_ir_pin() {
+    let ir = compile_and_capture_ir_no_repr_opt(
+        r"
+@main () -> int = {
+    let xs: [int] = [1, 2, 3];
+    xs[0]
+}
+",
+    );
+
+    let main_ir = extract_function_ir(&ir, "_ori_main");
+    // With narrowing disabled, element GEP should NOT use i8
+    assert!(
+        !main_ir.contains("getelementptr inbounds i8,"),
+        "Expected NO i8 GEP when narrowing is disabled.\nIR:\n{main_ir}"
+    );
+    // Should use canonical elem_size=8
+    assert!(
+        main_ir.contains("i64 8)") || main_ir.contains(", i64 8,"),
+        "Expected canonical elem_size=8 when narrowing is disabled.\nIR:\n{main_ir}"
+    );
+}
