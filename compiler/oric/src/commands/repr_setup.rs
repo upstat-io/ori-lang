@@ -3,13 +3,16 @@
 //! Extracted from `codegen_pipeline.rs` to keep both files under 500 lines.
 //! Contains:
 //! - `collect_all_arc_functions`: flatten the (parent, lambdas) cache
+//! - `lower_impl_methods_for_analysis`: ARC-lower impl methods for interprocedural repr analysis
 //! - `compute_module_repr_plan`: build the repr plan from typed module metadata
 
+use ori_ir::canon::CanonResult;
 use ori_ir::ReprAttrKind;
 
 use ori_types::{Idx, Pool, TypeCheckResult, Visibility};
 use oric::ir::{Name, StringInterner};
-use rustc_hash::FxHashMap;
+use oric::parser::ParseOutput;
+use rustc_hash::{FxHashMap, FxHashSet};
 
 /// Collect all ARC functions from the inference cache (parents + lambdas).
 ///
@@ -24,6 +27,208 @@ pub(super) fn collect_all_arc_functions(
         .flat_map(|(parent, lambdas)| std::iter::once(parent).chain(lambdas.iter()))
         .cloned()
         .collect()
+}
+
+/// ARC-lower impl methods for interprocedural repr analysis.
+///
+/// The repr plan's range analysis needs to see call sites inside impl methods,
+/// not just top-level functions. This lowers each non-generic impl method
+/// (including default trait methods used in impl blocks) to ARC IR with
+/// type-qualified names for disambiguation.
+///
+/// These ARC functions are for analysis only — `compile_impls()` in the
+/// codegen pipeline does its own ARC lowering for LLVM emission.
+pub(super) fn lower_impl_methods_for_analysis(
+    parse_result: &ParseOutput,
+    type_result: &TypeCheckResult,
+    interner: &StringInterner,
+    canon: &CanonResult,
+    pool: &Pool,
+) -> Vec<ori_arc::ArcFunction> {
+    let mut funcs = Vec::new();
+    let mut impl_arc_problems = Vec::new();
+    // Ordinal counter: tracks how many times each (self_type, method_name)
+    // pair has been seen, for disambiguating same-type same-name impls
+    // like `impl Index<int, V>` and `impl Index<str, V>`.
+    let mut method_ordinals: FxHashMap<(Idx, Name), usize> = FxHashMap::default();
+    let mut sig_iter = type_result.typed.impl_sigs.iter();
+
+    for impl_def in &parse_result.module.impls {
+        // Resolve the self-type Name and Idx for this impl block.
+        let type_name_name = impl_def.self_path.last().copied();
+        let self_type_idx = type_name_name.and_then(|name| {
+            type_result
+                .typed
+                .types
+                .iter()
+                .find(|te| te.name == name)
+                .map(|te| te.idx)
+        });
+
+        for method in &impl_def.methods {
+            let Some((_, sig)) = sig_iter.next() else {
+                break;
+            };
+            if sig.is_generic() {
+                continue;
+            }
+            let (ordinal, qualified_name) =
+                make_qualified_name(self_type_idx, method.name, interner, &mut method_ordinals);
+            let (arc_fn, lambdas) = if let Some(tn) = type_name_name {
+                crate::arc_lowering::lower_impl_method_to_arc_nth(
+                    qualified_name,
+                    sig,
+                    method.name,
+                    tn,
+                    ordinal,
+                    canon,
+                    interner,
+                    pool,
+                    &mut impl_arc_problems,
+                    None,
+                )
+            } else {
+                crate::arc_lowering::lower_to_arc(
+                    qualified_name,
+                    sig,
+                    method.name,
+                    canon,
+                    interner,
+                    pool,
+                    &mut impl_arc_problems,
+                    None,
+                )
+            };
+            funcs.push(arc_fn);
+            funcs.extend(lambdas);
+        }
+
+        // Skip default trait methods in sig_iter (they don't have
+        // parse-level method definitions but are in impl_sigs).
+        lower_default_trait_methods(
+            impl_def,
+            parse_result,
+            &mut sig_iter,
+            type_name_name,
+            self_type_idx,
+            interner,
+            canon,
+            pool,
+            &mut method_ordinals,
+            &mut impl_arc_problems,
+            &mut funcs,
+        );
+    }
+    funcs
+}
+
+/// Compute the ordinal-qualified name for an impl method.
+///
+/// Same-type same-name methods (e.g., two `impl Index<...>`) get ordinal
+/// suffixes (`__impl_{idx}_{method}_{ordinal}`) for disambiguation.
+fn make_qualified_name(
+    self_type_idx: Option<Idx>,
+    method_name: Name,
+    interner: &StringInterner,
+    method_ordinals: &mut FxHashMap<(Idx, Name), usize>,
+) -> (usize, Name) {
+    let ordinal = if let Some(idx) = self_type_idx {
+        let entry = method_ordinals.entry((idx, method_name)).or_insert(0);
+        let ord = *entry;
+        *entry += 1;
+        ord
+    } else {
+        0
+    };
+    let qualified = if let Some(idx) = self_type_idx {
+        let method_str = interner.lookup(method_name);
+        if ordinal == 0 {
+            interner.intern(&format!("__impl_{}_{method_str}", idx.raw()))
+        } else {
+            interner.intern(&format!("__impl_{}_{}_{ordinal}", idx.raw(), method_str))
+        }
+    } else {
+        method_name
+    };
+    (ordinal, qualified)
+}
+
+/// Lower default trait methods that appear in an impl block's sig list
+/// but have no parse-level method definition (using the trait's default body).
+#[expect(
+    clippy::too_many_arguments,
+    reason = "thread-through of pipeline state from the caller"
+)]
+fn lower_default_trait_methods<'a>(
+    impl_def: &ori_ir::ImplDef,
+    parse_result: &ParseOutput,
+    sig_iter: &mut impl Iterator<Item = &'a (Name, ori_types::FunctionSig)>,
+    type_name_name: Option<Name>,
+    self_type_idx: Option<Idx>,
+    interner: &StringInterner,
+    canon: &CanonResult,
+    pool: &Pool,
+    method_ordinals: &mut FxHashMap<(Idx, Name), usize>,
+    impl_arc_problems: &mut Vec<ori_arc::ArcProblem>,
+    funcs: &mut Vec<ori_arc::ArcFunction>,
+) {
+    let Some(trait_path) = &impl_def.trait_path else {
+        return;
+    };
+    let Some(&trait_name) = trait_path.last() else {
+        return;
+    };
+    let overridden: FxHashSet<Name> = impl_def.methods.iter().map(|m| m.name).collect();
+    let Some(trait_def) = parse_result
+        .module
+        .traits
+        .iter()
+        .find(|t| t.name == trait_name)
+    else {
+        return;
+    };
+
+    for item in &trait_def.items {
+        if let ori_ir::TraitItem::DefaultMethod(default) = item {
+            if !overridden.contains(&default.name) {
+                let Some((_, sig)) = sig_iter.next() else {
+                    break;
+                };
+                if sig.is_generic() {
+                    continue;
+                }
+                let (ordinal, qualified_name) =
+                    make_qualified_name(self_type_idx, default.name, interner, method_ordinals);
+                let (arc_fn, lambdas) = if let Some(tn) = type_name_name {
+                    crate::arc_lowering::lower_impl_method_to_arc_nth(
+                        qualified_name,
+                        sig,
+                        default.name,
+                        tn,
+                        ordinal,
+                        canon,
+                        interner,
+                        pool,
+                        impl_arc_problems,
+                        None,
+                    )
+                } else {
+                    crate::arc_lowering::lower_to_arc(
+                        qualified_name,
+                        sig,
+                        default.name,
+                        canon,
+                        interner,
+                        pool,
+                        impl_arc_problems,
+                        None,
+                    )
+                };
+                funcs.push(arc_fn);
+                funcs.extend(lambdas);
+            }
+        }
+    }
 }
 
 /// Build the representation plan from a type-checked module.
