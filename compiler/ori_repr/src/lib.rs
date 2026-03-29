@@ -90,6 +90,7 @@ pub fn compute_repr_plan(
         &[],
         &[],
         &[],
+        &[],
         false,
     )
 }
@@ -119,6 +120,7 @@ pub fn compute_repr_plan_with_interner(
     interner: Option<&ori_ir::StringInterner>,
     pub_type_indices: &[Idx],
     imported_type_metadata: &[ori_types::ExportedTypeMetadata],
+    imported_collection_surfaces: &[u64],
     unconstrained_fn_names: &[(Option<Idx>, ori_ir::Name)],
     has_analysis_only_functions: bool,
 ) -> ReprPlan {
@@ -139,44 +141,18 @@ pub fn compute_repr_plan_with_interner(
         }
     }
 
-    // Phase 0a-import: Seed repr attributes from imported modules' metadata.
-    // Imported types with #repr attrs must be protected even though they aren't
-    // in the local module's TypeEntry list. See CROSS-04-014.
-    let mut imported_repr_attrs: Vec<(Idx, ReprAttrKind)> = Vec::new();
-    let mut imported_pub_indices: Vec<Idx> = Vec::new();
-    for meta in imported_type_metadata {
-        if let Some(idx) = pool.lookup_by_hash(meta.merkle_hash) {
-            if let Some(repr) = meta.repr {
-                let converted = convert_repr_attr_kind(&repr);
-                plan.set_repr_attr(idx, converted);
-                let resolved = pool.resolve_fully(idx);
-                if resolved != idx {
-                    plan.set_repr_attr(resolved, converted);
-                }
-                imported_repr_attrs.push((idx, repr));
-                tracing::trace!(
-                    ?idx,
-                    hash = meta.merkle_hash,
-                    ?repr,
-                    "imported repr attr seeded"
-                );
-            }
-            if meta.is_public {
-                let resolved = pool.resolve_fully(idx);
-                if resolved == idx {
-                    imported_pub_indices.push(idx);
-                } else {
-                    imported_pub_indices.push(idx);
-                    imported_pub_indices.push(resolved);
-                }
-                tracing::trace!(?idx, hash = meta.merkle_hash, "imported pub type seeded");
-            }
-        }
-    }
+    // Phase 0a-import: Seed imported repr/pub/collection metadata.
+    let (imported_repr_attrs, imported_pub_indices, imported_collection_indices) =
+        seed_imported_metadata(
+            &mut plan,
+            pool,
+            imported_type_metadata,
+            imported_collection_surfaces,
+        );
 
     // Phase 0b: Store public type indices for ABI-safe narrowing (§04, TPR-04-005).
     // TPR-04-011: also store under the resolved idx for the same reason.
-    // Includes both local and imported public types.
+    // Includes local, imported public types, and imported collection surfaces.
     plan.set_pub_type_indices(
         pub_type_indices
             .iter()
@@ -188,7 +164,8 @@ pub fn compute_repr_plan_with_interner(
                     vec![idx, resolved]
                 }
             })
-            .chain(imported_pub_indices),
+            .chain(imported_pub_indices)
+            .chain(imported_collection_indices),
     );
 
     // Phase 0b2: Store unconstrained function names for §03.5 range analysis.
@@ -253,6 +230,76 @@ pub fn compute_repr_plan_with_interner(
     specialize_collections(&mut plan, pool);
 
     plan
+}
+
+/// Phase 0a-import: Seed imported metadata from cross-module transport channels.
+///
+/// Resolves imported `ExportedTypeMetadata` (repr/pub) and collection surface
+/// hashes to local pool indices, storing repr attributes in the plan and
+/// collecting public type + collection indices for Phase 0b.
+///
+/// Returns `(imported_repr_attrs, imported_pub_indices, imported_collection_indices)`.
+fn seed_imported_metadata(
+    plan: &mut ReprPlan,
+    pool: &Pool,
+    imported_type_metadata: &[ori_types::ExportedTypeMetadata],
+    imported_collection_surfaces: &[u64],
+) -> (Vec<(Idx, ReprAttrKind)>, Vec<Idx>, Vec<Idx>) {
+    let mut imported_repr_attrs: Vec<(Idx, ReprAttrKind)> = Vec::new();
+    let mut imported_pub_indices: Vec<Idx> = Vec::new();
+
+    for meta in imported_type_metadata {
+        if let Some(idx) = pool.lookup_by_hash(meta.merkle_hash) {
+            if let Some(repr) = meta.repr {
+                let converted = convert_repr_attr_kind(&repr);
+                plan.set_repr_attr(idx, converted);
+                let resolved = pool.resolve_fully(idx);
+                if resolved != idx {
+                    plan.set_repr_attr(resolved, converted);
+                }
+                imported_repr_attrs.push((idx, repr));
+                tracing::trace!(
+                    ?idx,
+                    hash = meta.merkle_hash,
+                    ?repr,
+                    "imported repr attr seeded"
+                );
+            }
+            if meta.is_public {
+                let resolved = pool.resolve_fully(idx);
+                if resolved == idx {
+                    imported_pub_indices.push(idx);
+                } else {
+                    imported_pub_indices.push(idx);
+                    imported_pub_indices.push(resolved);
+                }
+                tracing::trace!(?idx, hash = meta.merkle_hash, "imported pub type seeded");
+            }
+        }
+    }
+
+    // Resolve imported collection surface hashes to local Idx.
+    // These are collection types (List, Set) that appeared in imported public
+    // function signatures — their element layout must not be narrowed. TPR-04-032.
+    let mut imported_collection_indices: Vec<Idx> = Vec::new();
+    for &hash in imported_collection_surfaces {
+        if let Some(idx) = pool.lookup_by_hash(hash) {
+            let resolved = pool.resolve_fully(idx);
+            if resolved == idx {
+                imported_collection_indices.push(idx);
+            } else {
+                imported_collection_indices.push(idx);
+                imported_collection_indices.push(resolved);
+            }
+            tracing::trace!(?idx, hash, "imported collection surface seeded");
+        }
+    }
+
+    (
+        imported_repr_attrs,
+        imported_pub_indices,
+        imported_collection_indices,
+    )
 }
 
 /// Phase 0c (TPR-04-012): Propagate repr/pub metadata to monomorphized generic

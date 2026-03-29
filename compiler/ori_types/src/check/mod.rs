@@ -216,6 +216,7 @@ pub struct ModuleChecker<'a> {
     /// A would lose C's `pub`/`#repr` metadata when importing only B.
     /// See CROSS-04-017.
     imported_type_metadata: Vec<crate::output::ExportedTypeMetadata>,
+    imported_collection_surfaces: Vec<u64>,
 }
 
 impl<'a> ModuleChecker<'a> {
@@ -248,6 +249,7 @@ impl<'a> ModuleChecker<'a> {
             mono_instances: Vec::new(),
             deferred_mono_calls: Vec::new(),
             imported_type_metadata: Vec::new(),
+            imported_collection_surfaces: Vec::new(),
         }
     }
 
@@ -288,6 +290,7 @@ impl<'a> ModuleChecker<'a> {
             mono_instances: Vec::new(),
             deferred_mono_calls: Vec::new(),
             imported_type_metadata: Vec::new(),
+            imported_collection_surfaces: Vec::new(),
         }
     }
 
@@ -303,6 +306,16 @@ impl<'a> ModuleChecker<'a> {
         metadata: Vec<crate::output::ExportedTypeMetadata>,
     ) {
         self.imported_type_metadata = metadata;
+    }
+
+    /// Set imported collection surface hashes from imported modules.
+    ///
+    /// These merkle hashes identify collection types (List, Set) that appear
+    /// in imported public function signatures. They are merged with local
+    /// collection surfaces during export for transitive forwarding.
+    /// See TPR-04-032.
+    pub fn set_imported_collection_surfaces(&mut self, surfaces: Vec<u64>) {
+        self.imported_collection_surfaces = surfaces;
     }
 
     // ========================================
@@ -962,6 +975,15 @@ impl<'a> ModuleChecker<'a> {
         let exported_type_metadata =
             generate_exported_type_metadata(&types, &self.imported_type_metadata);
 
+        // Generate collection surface hashes for cross-module ABI protection.
+        // Walks public function signatures to find List/Set types, merges with
+        // imported surfaces for transitive forwarding. See TPR-04-032.
+        let exported_collection_surfaces = generate_exported_collection_surfaces(
+            &pool,
+            &functions,
+            &self.imported_collection_surfaces,
+        );
+
         let typed = TypedModule {
             expr_types: self.expr_types,
             functions,
@@ -974,6 +996,7 @@ impl<'a> ModuleChecker<'a> {
             mono_instances,
             type_descriptors,
             exported_type_metadata,
+            exported_collection_surfaces,
         };
 
         (TypeCheckResult::from_typed(typed), pool)
@@ -1049,6 +1072,46 @@ fn generate_exported_type_metadata(
     }
 
     result
+}
+
+/// Generate merkle hashes of collection types in public function signatures.
+///
+/// Walks public function parameter and return types to discover List/Set types
+/// (including nested inside Option, Result, Tuple, Map, Struct, Enum). Returns
+/// the merkle hashes of discovered collection types, merged with imported
+/// collection surfaces for transitive forwarding (A→B→C propagation).
+///
+/// This parallels `collect_public_collection_types()` in `repr_setup.rs` but
+/// outputs merkle hashes (for cross-module transport) instead of Pool Idx values
+/// (for same-module use). Both use the shared `walk_collection_types()` walker.
+/// See TPR-04-032.
+fn generate_exported_collection_surfaces(
+    pool: &Pool,
+    functions: &[crate::output::FunctionSig],
+    imported: &[u64],
+) -> Vec<u64> {
+    let mut hashes = FxHashSet::default();
+
+    for sig in functions {
+        if !sig.is_public {
+            continue;
+        }
+        for &param_ty in &sig.param_types {
+            crate::pool::walk_collection_types(pool, param_ty, &mut |idx| {
+                hashes.insert(pool.hash(idx));
+            });
+        }
+        crate::pool::walk_collection_types(pool, sig.return_type, &mut |idx| {
+            hashes.insert(pool.hash(idx));
+        });
+    }
+
+    // Merge imported collection surfaces for transitive forwarding.
+    for &hash in imported {
+        hashes.insert(hash);
+    }
+
+    hashes.into_iter().collect()
 }
 
 /// Resolve deferred mono calls transitively.

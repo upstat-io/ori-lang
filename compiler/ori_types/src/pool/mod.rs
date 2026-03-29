@@ -13,12 +13,14 @@
 //! - Structure-of-Arrays (`SoA`) layout for cache-friendly bulk operations
 
 mod accessors;
+mod collection_surface;
 mod construct;
 pub mod descriptor;
 mod format;
 pub mod re_intern;
 pub mod substitute;
 
+pub use collection_surface::walk_collection_types;
 pub use construct::*;
 pub use descriptor::{TypeDescriptor, VariantDescriptor};
 pub use re_intern::{re_intern_sig, re_intern_type};

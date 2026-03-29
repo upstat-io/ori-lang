@@ -250,6 +250,13 @@ impl TestRunner {
             .flat_map(|tc| tc.typed.exported_type_metadata.iter().cloned())
             .collect();
 
+        // Collect imported collection surface hashes for cross-module ABI
+        // protection. See TPR-04-032.
+        let imported_collection_surfaces: Vec<u64> = imported_type_results
+            .iter()
+            .flat_map(|tc| tc.typed.exported_collection_surfaces.iter().copied())
+            .collect();
+
         // ARC lowering + borrow inference + compilation, wrapped in catch_unwind
         // to gracefully handle panics in any phase (ARC classification, LLVM codegen,
         // etc.) without aborting the entire test runner.
@@ -280,6 +287,7 @@ impl TestRunner {
                 arc_cache,
                 None, // JIT: use env var fallback for narrowing policy
                 &imported_type_metadata,
+                &imported_collection_surfaces,
                 &type_result.typed.trait_impl_fn_names,
             )
         }));

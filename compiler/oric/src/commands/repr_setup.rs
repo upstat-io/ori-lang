@@ -7,7 +7,7 @@
 
 use ori_ir::ReprAttrKind;
 
-use ori_types::{Idx, Pool, Tag, TypeCheckResult, Visibility};
+use ori_types::{Idx, Pool, TypeCheckResult, Visibility};
 use oric::ir::{Name, StringInterner};
 use rustc_hash::FxHashMap;
 
@@ -38,6 +38,10 @@ pub(super) fn collect_all_arc_functions(
 ///
 /// Must run AFTER borrow inference (accepts `ArcFunction`s for §03 range analysis)
 /// and BEFORE codegen (`TypeLayoutResolver` and `TypeInfoStore` read the plan).
+#[expect(
+    clippy::too_many_arguments,
+    reason = "each parameter carries distinct metadata from different compiler phases"
+)]
 pub(super) fn compute_module_repr_plan(
     pool: &Pool,
     all_arc_funcs: &[ori_arc::ArcFunction],
@@ -45,6 +49,7 @@ pub(super) fn compute_module_repr_plan(
     type_result: &TypeCheckResult,
     interner: Option<&StringInterner>,
     imported_type_metadata: &[ori_types::ExportedTypeMetadata],
+    imported_collection_surfaces: &[u64],
     has_analysis_only_functions: bool,
 ) -> ori_repr::ReprPlan {
     // Extract #repr attributes from typed module for the repr plan.
@@ -87,6 +92,7 @@ pub(super) fn compute_module_repr_plan(
         interner,
         &pub_type_indices,
         imported_type_metadata,
+        imported_collection_surfaces,
         &unconstrained_fn_names,
         has_analysis_only_functions,
     )
@@ -161,6 +167,9 @@ pub(super) fn collect_unconstrained_fn_names(
 /// types in its parameters or return type, those collection type indices
 /// must be marked public so §04 Phase C does not narrow their element
 /// layout (which would break ABI with external callers). See TPR-04-027.
+///
+/// Uses the shared `walk_collection_types` walker from `ori_types::pool`
+/// to avoid duplicating the recursive type-walking logic.
 fn collect_public_collection_types(
     pool: &Pool,
     function_sigs: &[ori_types::FunctionSig],
@@ -170,77 +179,17 @@ fn collect_public_collection_types(
         if !sig.is_public {
             continue;
         }
-        // Check parameter types for collection wrappers.
         for &param_ty in &sig.param_types {
-            mark_collection_if_needed(pool, param_ty, pub_type_indices);
-        }
-        // Check return type for collection wrappers.
-        mark_collection_if_needed(pool, sig.return_type, pub_type_indices);
-    }
-}
-
-/// Recursively walk a type and mark any collection types found (TPR-04-028/029).
-///
-/// Handles nested types like `Option<[int]>`, `Result<[int], E>`, tuples,
-/// and maps. Also resolves Named/Applied/Alias types via `resolve_fully()`
-/// to find collections hidden behind type aliases or generics.
-///
-/// The walk is bounded by the pool's type structure — no cycles possible
-/// because pool types are acyclic by construction. Depth limit prevents
-/// pathological cases.
-fn mark_collection_if_needed(pool: &Pool, ty: Idx, pub_indices: &mut Vec<Idx>) {
-    mark_collection_recursive(pool, ty, pub_indices, 0);
-}
-
-fn mark_collection_recursive(pool: &Pool, ty: Idx, pub_indices: &mut Vec<Idx>, depth: u32) {
-    if depth > 32 {
-        return;
-    }
-
-    // Resolve Named/Applied/Alias to concrete types (TPR-04-029).
-    let resolved = pool.resolve_fully(ty);
-    let tag = pool.tag(resolved);
-
-    match tag {
-        Tag::List | Tag::Set => {
-            if !pub_indices.contains(&resolved) {
-                pub_indices.push(resolved);
-            }
-            // Also mark the original idx if different (Named wrapper).
-            if ty != resolved && !pub_indices.contains(&ty) {
-                pub_indices.push(ty);
-            }
-        }
-        Tag::Option => {
-            mark_collection_recursive(pool, pool.option_inner(resolved), pub_indices, depth + 1);
-        }
-        Tag::Result => {
-            mark_collection_recursive(pool, pool.result_ok(resolved), pub_indices, depth + 1);
-            mark_collection_recursive(pool, pool.result_err(resolved), pub_indices, depth + 1);
-        }
-        Tag::Tuple => {
-            for elem in pool.tuple_elems(resolved) {
-                mark_collection_recursive(pool, elem, pub_indices, depth + 1);
-            }
-        }
-        Tag::Map => {
-            mark_collection_recursive(pool, pool.map_key(resolved), pub_indices, depth + 1);
-            mark_collection_recursive(pool, pool.map_value(resolved), pub_indices, depth + 1);
-        }
-        // TPR-04-031: Walk struct fields to find nested collections.
-        Tag::Struct => {
-            for (_name, field_ty) in pool.struct_fields(resolved) {
-                mark_collection_recursive(pool, field_ty, pub_indices, depth + 1);
-            }
-        }
-        // TPR-04-031: Walk enum variant payloads to find nested collections.
-        Tag::Enum => {
-            for (_name, field_types) in pool.enum_variants(resolved) {
-                for field_ty in field_types {
-                    mark_collection_recursive(pool, field_ty, pub_indices, depth + 1);
+            ori_types::walk_collection_types(pool, param_ty, &mut |idx| {
+                if !pub_type_indices.contains(&idx) {
+                    pub_type_indices.push(idx);
                 }
-            }
+            });
         }
-        _ => {}
+        ori_types::walk_collection_types(pool, sig.return_type, &mut |idx| {
+            if !pub_type_indices.contains(&idx) {
+                pub_type_indices.push(idx);
+            }
+        });
     }
 }

@@ -206,6 +206,10 @@ pub(super) struct CompiledModuleInfo {
     /// that `pub` and `#repr(...)` types are not incorrectly narrowed.
     /// See CROSS-04-014 and CROSS-04-015.
     pub(super) exported_type_metadata: Vec<ori_types::ExportedTypeMetadata>,
+    /// Merkle hashes of collection types in public function signatures.
+    /// Enables cross-module protection of collection element layouts from
+    /// narrowing. See TPR-04-032.
+    pub(super) exported_collection_surfaces: Vec<u64>,
 }
 
 /// Compile a single module to an object file.
@@ -276,6 +280,8 @@ fn compile_single_module(
     // correctly exempted from integer narrowing. See CROSS-04-015.
     let imported_type_metadata =
         collect_imported_type_metadata(source_path, ctx.graph, compiled_modules);
+    let imported_collection_surfaces =
+        collect_imported_collection_surfaces(source_path, ctx.graph, compiled_modules);
 
     // Compile to LLVM IR (with ARC cache if available).
     // Salsa/ArtifactCache boundary: typed() results flow into codegen via
@@ -292,6 +298,7 @@ fn compile_single_module(
         &module_name,
         &imported_functions,
         &imported_type_metadata,
+        &imported_collection_surfaces,
         ctx.arc_cache.as_ref(),
         ctx.module_hash
             .as_ref()
@@ -319,6 +326,7 @@ fn compile_single_module(
         module_name,
         public_functions,
         exported_type_metadata: type_result.typed.exported_type_metadata.clone(),
+        exported_collection_surfaces: type_result.typed.exported_collection_surfaces.clone(),
     };
 
     Some((obj_path, module_info))
@@ -454,4 +462,33 @@ pub(super) fn collect_imported_type_metadata(
         }
     }
     metadata
+}
+
+/// Collect imported collection surface hashes from dependency modules.
+///
+/// Parallel to `collect_imported_type_metadata()` but collects merkle hashes
+/// of collection types (List, Set) that appear in imported public function
+/// signatures. Enables `ReprPlan` to protect imported collection element
+/// layouts from narrowing. See TPR-04-032.
+pub(super) fn collect_imported_collection_surfaces(
+    source_path: &Path,
+    graph: &ori_llvm::aot::incremental::deps::DependencyGraph,
+    compiled_modules: &[CompiledModuleInfo],
+) -> Vec<u64> {
+    let Some(imports) = graph.get_imports(source_path) else {
+        return Vec::new();
+    };
+
+    let module_index: rustc_hash::FxHashMap<&Path, &CompiledModuleInfo> = compiled_modules
+        .iter()
+        .map(|m| (m.path.as_path(), m))
+        .collect();
+
+    let mut surfaces = Vec::new();
+    for import_path in imports {
+        if let Some(module_info) = module_index.get(import_path.as_path()) {
+            surfaces.extend(module_info.exported_collection_surfaces.iter().copied());
+        }
+    }
+    surfaces
 }
