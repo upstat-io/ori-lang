@@ -829,6 +829,7 @@ Enable AOT compilation of Ori programs with imports. Currently, `ori build` prod
 **Testing Infrastructure (21B.15):**
 - [ ] LLVM test utilities (6 tools)
 - [ ] Test infrastructure (3 features)
+- [ ] `/tpr-review` passed — independent Codex review found no critical or major issues (or all findings triaged)
 
 **Test Coverage Summary:**
 | Priority | Category | Scenarios |

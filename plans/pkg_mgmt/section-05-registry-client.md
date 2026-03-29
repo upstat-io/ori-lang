@@ -104,5 +104,6 @@ sections:
 - [ ] Search working
 - [ ] Multi-registry support
 - [ ] Run full test suite
+- [ ] `/tpr-review` passed — independent Codex review found no critical or major issues (or all findings triaged)
 
 **Exit Criteria**: Can fetch packages from registry

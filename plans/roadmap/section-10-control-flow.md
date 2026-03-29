@@ -28,7 +28,7 @@ sections:
     status: not-started
   - id: "10.4"
     title: Error Propagation (?)
-    status: not-started
+    status: in-progress
   - id: "10.5"
     title: Let Bindings
     status: in-progress
@@ -491,21 +491,21 @@ If desugared in the parser to `loop { if !condition then break; body }`, only st
 
 ## 10.4 Error Propagation (?)
 
-- [ ] **Implement**: Parse postfix `?` operator — spec/16-control-flow.md § Error Propagation
+- [x] **Implement**: Parse postfix `?` operator — spec/16-control-flow.md § Error Propagation [done] (verified 2026-03-28)
   - [ ] **Rust Tests**: `ori_parse/src/grammar/postfix.rs` — ? operator parsing
   - [ ] **Ori Tests**: `tests/spec/expressions/postfix.ori`
   - [ ] **LLVM Support**: LLVM codegen for ? operator
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/error_propagation_tests.rs` — ? operator codegen
   - [x] **AOT Tests**: `ori_llvm/tests/aot/error_handling.rs` — `test_err_try_result_ok`, `test_err_try_result_err`, `test_err_try_option_some`, `test_err_try_option_none` (postfix `?` operator on both Result and Option)
 
-- [ ] **Implement**: On `Result<T, E>`: unwrap `Ok` or return `Err` — spec/16-control-flow.md § On Result
+- [x] **Implement**: On `Result<T, E>`: unwrap `Ok` or return `Err` — spec/16-control-flow.md § On Result [done] (verified 2026-03-28)
   - [ ] **Rust Tests**: `ori_eval/src/interpreter/postfix.rs` — Result propagation
   - [ ] **Ori Tests**: `tests/spec/expressions/postfix.ori`
   - [ ] **LLVM Support**: LLVM codegen for Result propagation
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/error_propagation_tests.rs` — Result propagation codegen
   - [x] **AOT Tests**: `ori_llvm/tests/aot/error_handling.rs` — `test_err_try_result_ok`, `test_err_try_result_err`, `test_err_try_result_chain`, `test_err_try_result_early_exit`, `test_err_deep_try_chain` (`?` on Result unwrapping Ok, propagating Err, chaining, and early exit)
 
-- [ ] **Implement**: On `Option<T>`: unwrap `Some` or return `None` — spec/16-control-flow.md § On Option
+- [x] **Implement**: On `Option<T>`: unwrap `Some` or return `None` — spec/16-control-flow.md § On Option [done] (verified 2026-03-28)
   - [ ] **Rust Tests**: `ori_eval/src/interpreter/postfix.rs` — Option propagation
   - [ ] **Ori Tests**: `tests/spec/expressions/postfix.ori`
   - [ ] **LLVM Support**: LLVM codegen for Option propagation
@@ -713,5 +713,6 @@ If desugared in the parser to `loop { if !condition then break; body }`, only st
 - [ ] CLAUDE.md updated if syntax/behavior changed
 - [ ] 80+% test coverage
 - [ ] Run full test suite: `./test-all.sh`
+- [ ] `/tpr-review` passed — independent Codex review found no critical or major issues (or all findings triaged)
 
 **Exit Criteria**: All control flow constructs work including labeled loops, scoping, and panic handling

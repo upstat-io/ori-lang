@@ -99,5 +99,6 @@ sections:
 - [ ] Cache clean/list/verify commands
 - [ ] Offline fallback
 - [ ] Run full test suite
+- [ ] `/tpr-review` passed — independent Codex review found no critical or major issues (or all findings triaged)
 
 **Exit Criteria**: Packages cached and linked correctly

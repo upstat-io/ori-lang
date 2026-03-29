@@ -191,5 +191,6 @@ Understanding HOW LCFail works is essential for tracking. Key facts from `llvm_b
 - [ ] LCFail infrastructure documented (where defined, produced, counted, displayed)
 - [ ] `scripts/lcfail-report.sh` implemented and produces counts matching the test runner's summary line
 - [ ] `./test-all.sh` green (no regressions from roadmap updates)
+- [ ] `/tpr-review` passed — independent Codex review found no critical or major issues (or all findings triaged)
 
 **Exit Criteria:** A complete categorization table exists mapping all ~188 LCFail files to their primary root cause bucket, with counts per category. The roadmap reflects accurate test numbers. The categorization data is sufficient for Section 02 to create an impact-ordered implementation sequence.

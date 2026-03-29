@@ -267,6 +267,7 @@ impl TestRunner {
                 &type_result.typed.impl_sigs,
                 &imported_for_codegen,
                 &type_result.typed.mono_instances,
+                &type_result.typed.types,
             );
 
             llvm_eval.compile_module_with_tests(
@@ -283,6 +284,7 @@ impl TestRunner {
                 arc_cache,
                 None, // JIT: use env var fallback for narrowing policy
                 &imported_type_metadata,
+                &type_result.typed.trait_impl_fn_names,
             )
         }));
 

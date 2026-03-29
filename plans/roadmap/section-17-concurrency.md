@@ -662,6 +662,7 @@ Formalizes semantics for `timeout` and `spawn` patterns including cancellation b
 - [ ] Timeout pattern working (returns CancellationError, cooperative cancellation)
 - [ ] Spawn pattern working (fire-and-forget, task escapes scope, errors discarded)
 - [ ] All tests pass: `./test-all.sh`
+- [ ] `/tpr-review` passed — independent Codex review found no critical or major issues (or all findings triaged)
 
 **Exit Criteria**: Can write producer/consumer pipeline with ownership safety and proper cancellation
 

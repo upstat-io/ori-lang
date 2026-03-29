@@ -243,5 +243,6 @@ Each AOT test spawns TWO child processes: (1) `ori build` for compilation and (2
 - [ ] All ~1,950 AOT tests pass identically (no behavioral changes)
 - [ ] Optimizations documented (what was changed, why, measured impact)
 - [ ] `timeout 150 cargo t` passes with all tests green
+- [ ] `/tpr-review` passed — independent Codex review found no critical or major issues (or all findings triaged)
 
 **Exit Criteria:** `ORI_TEST_TIMING=1 cargo test -p ori_llvm --test aot` reports total time ≤15s. All ~1,950 tests pass. No test code was modified. The link-phase, compile-phase, and execute-phase timings are all recorded and show measurable improvement from baseline.

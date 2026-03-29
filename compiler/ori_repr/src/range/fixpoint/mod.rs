@@ -112,6 +112,12 @@ pub struct RangeFixpointResult {
     pub field_summaries: FieldSummaryTable,
     /// Join of all `Return` terminator value ranges (for §03.5 interprocedural).
     pub return_range: ValueRange,
+    /// Conditional refinements at block entries (from Branch/Switch terminators).
+    ///
+    /// Keyed by `(block_id, var)` — the range a variable is known to have
+    /// at entry to that block. Used by `collect_param_ranges()` (TPR-03-037)
+    /// to compute block-local argument ranges at call sites.
+    pub block_refinements: FxHashMap<(ArcBlockId, ArcVarId), ValueRange>,
 }
 
 /// Merge or widen a variable's range, returning whether it changed.
@@ -327,6 +333,29 @@ fn run_forward_iteration(
             thresholds,
         );
 
+        // Propagate refinements from single-predecessor parents to this block.
+        // The AIMS pipeline may split the loop body (e.g., bb3 → bb4 → bb5),
+        // so the branch refinement targets bb4 but the actual body is in bb5.
+        // Without inline propagation, bb5 doesn't see the refinement during
+        // the forward iteration, causing body computations to use the widened
+        // phi range instead of the refined range. This makes i+1 overshoot
+        // the comparison threshold, preventing convergence.
+        if predecessors[block_idx].len() == 1 {
+            let pred_idx = predecessors[block_idx][0];
+            let pred_id = func.blocks[pred_idx].id;
+            let inherited: Vec<_> = state
+                .block_refinements
+                .iter()
+                .filter(|&(&(rb, rv), _)| {
+                    rb == pred_id && !state.block_refinements.contains_key(&(block.id, rv))
+                })
+                .map(|(&(_, rv), &range)| (block.id, rv, range))
+                .collect();
+            for (bid, var, range) in inherited {
+                state.block_refinements.insert((bid, var), range);
+            }
+        }
+
         let saved = apply_block_refinements(block, &mut state.ranges, &state.block_refinements);
 
         for instr in &block.body {
@@ -354,7 +383,21 @@ fn run_forward_iteration(
                 if let Some(&narrowing) = call_result_narrowings.get(&var) {
                     new_range = new_range.meet(narrowing);
                 }
-                changed |= update_range(&mut state.ranges, var, new_range, iteration, thresholds);
+                // Body variables are SSA: defined exactly once per block. Their
+                // range is fully determined by the transfer function — no need to
+                // join with prior iterations or apply widening. Using join+widening
+                // on body variables (especially copies of loop counter phis like
+                // `%6 = %4`) causes spurious widening that poisons the back-edge
+                // contribution, preventing loop counter convergence.
+                //
+                // Only block parameters (phi nodes) need join+widening, which is
+                // handled by merge_block_params() above.
+                let old = state.ranges.get(&var).copied().unwrap_or(Bottom);
+                if new_range != old {
+                    tracing::trace!(var = var.index(), ?old, ?new_range, "body var updated");
+                    state.ranges.insert(var, new_range);
+                    changed = true;
+                }
             }
         }
 
@@ -434,6 +477,7 @@ fn run_post_fixpoint_narrowing(
         var_ranges: state.ranges.clone(),
         field_summaries: std::mem::take(&mut state.field_summary_table),
         return_range,
+        block_refinements: state.block_refinements.clone(),
     }
 }
 
@@ -510,6 +554,7 @@ pub fn range_fixpoint(
             var_ranges: FxHashMap::default(),
             field_summaries: FieldSummaryTable::new(),
             return_range: Top,
+            block_refinements: FxHashMap::default(),
         };
     }
 

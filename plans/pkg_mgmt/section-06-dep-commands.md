@@ -172,5 +172,6 @@ sections:
 - [ ] audit against advisories
 - [ ] Analysis commands (deps, why, diff, licenses)
 - [ ] Run full test suite
+- [ ] `/tpr-review` passed — independent Codex review found no critical or major issues (or all findings triaged)
 
 **Exit Criteria**: Full dependency management via CLI

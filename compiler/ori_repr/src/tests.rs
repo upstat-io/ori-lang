@@ -2935,6 +2935,8 @@ fn pub_type_propagates_to_resolved_struct_idx() {
         None,
         &[named_idx],
         &[],
+        &[],
+        false,
     );
 
     assert!(
@@ -3038,6 +3040,8 @@ fn pub_resolved_idx_not_narrowed_semantic_pin() {
         None,
         &[named_idx],
         &[],
+        &[],
+        false,
     );
 
     // Manually add field ranges.
@@ -3142,6 +3146,8 @@ fn pub_type_propagates_through_applied_to_concrete_struct() {
         None,
         &[named_idx],
         &[],
+        &[],
+        false,
     );
 
     assert!(plan.is_public_type(named_idx));
@@ -3229,6 +3235,8 @@ fn pub_applied_concrete_struct_not_narrowed_semantic_pin() {
         None,
         &[named_idx],
         &[],
+        &[],
+        false,
     );
 
     plan.join_field_range(mono_struct_idx, 0, ValueRange::Bounded { lo: 0, hi: 10 });
@@ -3326,6 +3334,8 @@ fn multiple_applied_instantiations_all_protected() {
         None,
         &[named_idx],
         &[],
+        &[],
+        false,
     );
 
     // Both monomorphized structs must have repr and pub
@@ -3364,6 +3374,8 @@ fn imported_pub_type_seeded_via_metadata() {
         None,
         &[], // No local pub types
         &imported_meta,
+        &[],
+        false,
     );
 
     assert!(
@@ -3398,6 +3410,8 @@ fn imported_repr_c_type_seeded_via_metadata() {
         None,
         &[], // No local pub types
         &imported_meta,
+        &[],
+        false,
     );
 
     assert_eq!(
@@ -3434,6 +3448,8 @@ fn imported_pub_type_not_narrowed_semantic_pin() {
         None,
         &[], // No local pub types — only imported metadata
         &imported_meta,
+        &[],
+        false,
     );
 
     // Add field range that would normally trigger narrowing.
@@ -3485,6 +3501,8 @@ fn imported_repr_c_type_not_narrowed_semantic_pin() {
         None,
         &[],
         &imported_meta,
+        &[],
+        false,
     );
 
     // Add field range that would normally trigger narrowing.
@@ -3530,6 +3548,8 @@ fn no_imported_metadata_allows_narrowing() {
         None,
         &[], // No pub types
         &[], // No imported metadata
+        &[],
+        false,
     );
 
     // Add field range that triggers narrowing.
@@ -3575,5 +3595,7 @@ fn imported_metadata_hash_not_in_pool_ignored() {
         None,
         &[],
         &imported_meta,
+        &[],
+        false,
     );
 }

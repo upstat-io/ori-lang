@@ -1,15 +1,9 @@
 use super::*;
 use ori_types::Pool;
 
-fn test_store() -> (Pool, TypeInfoStore<'static>) {
-    let pool = Pool::new();
-    // SAFETY: We're creating the store in the same scope as the pool.
-    // The store borrows the pool, and we return both together.
-    // This is safe because both live for the duration of the test.
-    let store = unsafe {
-        let pool_ptr = &raw const pool;
-        TypeInfoStore::new(&*pool_ptr)
-    };
+fn test_store() -> (&'static Pool, TypeInfoStore<'static>) {
+    let pool: &'static Pool = Box::leak(Box::new(Pool::new()));
+    let store = TypeInfoStore::new(pool);
     (pool, store)
 }
 
