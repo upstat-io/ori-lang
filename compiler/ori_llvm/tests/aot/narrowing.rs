@@ -1302,3 +1302,103 @@ fn test_narrowed_list_disabled_ir_pin() {
         "Expected canonical elem_size=8 when narrowing is disabled.\nIR:\n{main_ir}"
     );
 }
+
+// §04.4 Phase C: Set exclusion from narrowing
+//
+// Sets are excluded from Phase C narrowing because eq/hash thunks always load
+// canonical-width values (i64 for int) from element pointers. These tests
+// verify sets work correctly with canonical element sizes even when lists
+// in the same program are narrowed.
+
+/// Set operations work correctly when list narrowing is active.
+/// Sets are created via `.iter().collect()` — canonical element sizes.
+#[test]
+fn test_set_int_canonical_with_narrowed_list_ir() {
+    let ir = compile_and_capture_ir(
+        r"
+@main () -> int = {
+    let xs: [int] = [1, 2, 3];
+    let s: Set<int> = xs.iter().collect();
+    if s.contains(value: xs[0]) then 0 else 1
+}
+",
+    );
+
+    let main_ir = extract_function_ir(&ir, "_ori_main");
+    // List should be narrowed (elem_size=1 for i8)
+    assert!(
+        main_ir.contains("@ori_list_alloc_data(i64 3, i64 1)"),
+        "Expected narrowed list elem_size=1 in IR.\nIR:\n{main_ir}"
+    );
+    // collect_set uses canonical elem_size=8 (not narrowed)
+    assert!(
+        main_ir.contains("i64 8") || main_ir.contains(", i64 8,"),
+        "Expected canonical elem_size=8 for set collection.\nIR:\n{main_ir}"
+    );
+}
+
+/// Set with bounded int elements works correctly at runtime (canonical sizes).
+#[test]
+fn test_set_int_operations_canonical() {
+    assert_aot_success(
+        r"
+use std.testing { assert_eq, assert }
+@main () -> void = {
+    let s: Set<int> = [10, 20, 30].iter().collect();
+    assert(condition: s.contains(value: 10));
+    assert(condition: s.contains(value: 20));
+    assert(condition: s.contains(value: 30));
+    assert(condition: !s.contains(value: 40));
+    assert_eq(actual: s.len(), expected: 3);
+}
+",
+        "set_int_operations_canonical",
+    );
+}
+
+/// Mixed program: narrowed list + canonical set coexist without interference.
+#[test]
+fn test_narrowed_list_and_canonical_set_coexist() {
+    assert_aot_success(
+        r"
+use std.testing { assert_eq, assert }
+@main () -> void = {
+    // List gets narrowed (all values fit in i8)
+    let xs: [int] = [1, 2, 3, 4, 5];
+    assert_eq(actual: xs[0], expected: 1);
+    assert_eq(actual: xs[4], expected: 5);
+
+    // Set uses canonical sizes (not narrowed)
+    let s: Set<int> = [1, 2, 3, 4, 5].iter().collect();
+    assert(condition: s.contains(value: 1));
+    assert(condition: s.contains(value: 5));
+    assert(condition: !s.contains(value: 6));
+    assert_eq(actual: s.len(), expected: 5);
+
+    // Cross-check: list element lookup in set
+    assert(condition: s.contains(value: xs[2]));
+}
+",
+        "narrowed_list_and_canonical_set_coexist",
+    );
+}
+
+/// Set insert works with canonical element sizes when list narrowing is active.
+#[test]
+fn test_set_insert_with_narrowed_list_context() {
+    assert_aot_success(
+        r"
+use std.testing { assert_eq, assert }
+@main () -> void = {
+    let xs: [int] = [10, 20, 30];
+    let s: Set<int> = [10, 20].iter().collect();
+    let s2 = s.insert(value: 30);
+    assert_eq(actual: s2.len(), expected: 3);
+    assert(condition: s2.contains(value: 30));
+    // Original set unchanged
+    assert_eq(actual: s.len(), expected: 2);
+}
+",
+        "set_insert_with_narrowed_list_context",
+    );
+}

@@ -238,8 +238,9 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// available. Scans the `ReprPlan` for any collection type with narrowed int
     /// elements. Returns the narrowed width if found.
     ///
-    /// This is safe because the pool interns types — there is at most one
-    /// `List<int>` and one `Set<int>` type, so the narrowing is unambiguous.
+    /// This is safe because (1) the pool interns types — there is at most one
+    /// `List<int>` type, and (2) sets are excluded from Phase C narrowing
+    /// (eq/hash thunks are not narrowing-aware), so only list types contribute.
     pub(super) fn narrowed_int_collection_element_width(&self) -> Option<ori_repr::IntWidth> {
         use ori_repr::{FatRepr, IntWidth, MachineRepr};
         let plan = self.repr_plan?;
