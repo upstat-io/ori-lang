@@ -2,7 +2,8 @@
 section: 22
 title: Tooling
 status: in-progress
-reviewed: false
+reviewed: true
+last_verified: "2026-03-29"
 tier: 8
 goal: Developer experience
 sections:
@@ -60,7 +61,7 @@ sections:
 
 **Status**: Partial
 
-### Core Implementation
+### Core Implementation (verified 2026-03-29)
 
 - [x] **Implement**: Width calculation engine — `ori_fmt/src/width/`
   - [x] **Rust Tests**: `ori_fmt/src/width/tests.rs`
@@ -86,11 +87,11 @@ sections:
   - [x] Doc comment reordering (Description → Param/Field → Warning → Example)
   - [x] @param/@field order matching declaration order
 
-### Layer 4 Rule Integration (Pending)
+### Layer 4 Rule Integration (Pending) (verified 2026-03-29)
 
 6 of 7 rules have detection/decision infrastructure in `ori_fmt/src/rules/` but are **not wired into the rendering pipeline**. Only `ParenthesesRule` is integrated.
 
-- [x] **Integrated**: `ParenthesesRule` — `needs_parens()` called from `formatter/helpers.rs`
+- [x] **Integrated**: `ParenthesesRule` — `needs_parens()` called from `formatter/helpers.rs` at 6 call sites
 - [ ] **Wire up**: `ChainedElseIfRule` — chained `else if` always breaks (spec §16 lines 669-679)
 - [ ] **Wire up**: `MethodChainRule` — all-or-nothing chain breaking
 - [ ] **Wire up**: `BooleanBreakRule` — 3+ `||` clauses break with leading `||`
@@ -98,7 +99,7 @@ sections:
 - [ ] **Wire up**: `NestedForRule` — Rust-style indentation for nested `for`
 - [ ] **Wire up**: `LoopRule` — complex body (block/try/match/for) breaks
 
-### CLI Integration
+### CLI Integration (verified 2026-03-29)
 
 - [x] **Implement**: `ori fmt <file>` — format single file
 - [x] **Implement**: `ori fmt <directory>` — format all .ori files recursively
@@ -110,7 +111,7 @@ sections:
 - [x] **Implement**: `ori fmt --no-ignore` — format everything [done] (verified 2026-03-28) — `oric/src/commands/fmt/mod.rs:440` `--no-ignore` flag parsed, skips loading patterns when `config.no_ignore`
 - [x] **Implement**: Error messages with source snippets and suggestions
 
-### Performance
+### Performance (verified 2026-03-29)
 
 - [x] **Implement**: Incremental formatting — `ori_fmt/src/incremental.rs`
 - [x] **Implement**: Parallel file processing via rayon
@@ -133,18 +134,22 @@ When the user deliberately writes a stacked/multi-line layout that happens to fi
 
 **QA**: ~400 additional scenarios needed to cover edge cases from the syntax revamp and intent preservation.
 
-### Testing
+### Testing (verified 2026-03-29)
 
-- [x] **Rust Tests**: unit, golden, idempotence, property, incremental
-- [x] **Golden Tests**: `tests/fmt/` — declarations, expressions, patterns, collections, comments, edge-cases
+- [x] **Rust Tests**: unit, golden, idempotence, property, incremental — 171 tests pass
+- [x] **Golden Tests**: `tests/fmt/` — 100+ `.ori` files covering declarations, expressions, patterns, collections, comments, edge-cases
+
+> **WEAK TESTS**: No Ori spec tests for formatter. `tests/spec/tooling/` directory does not exist. All testing is Rust-side only.
 
 ---
 
-## 22.2 LSP Server
+## 22.2 LSP Server (verified 2026-03-29)
 
 > **DETAILED PLAN**: `plans/ori_lsp/` — Phased implementation with tracking
 > **PROPOSAL**: `proposals/approved/lsp-implementation-proposal.md` — Architecture decisions
-> **CRATE**: `compiler/ori_lsp/` — LSP server implementation
+> **CRATE**: `compiler/ori_lsp/` — LSP server implementation (does not exist yet)
+>
+> **NOTE**: `tools/ori-lsp/` exists as a standalone prototype but is fully excluded from the workspace. It imports from old APIs (`oric::ast`, `oric::type_check`, `oric::format::format`) that no longer exist. This prototype is non-functional dead code.
 
 ### Formatting (from ori_fmt Section 7.2)
 
@@ -189,7 +194,7 @@ When the user deliberately writes a stacked/multi-line layout that happens to fi
 
 ---
 
-## 22.3 Edit Operations
+## 22.3 Edit Operations (verified 2026-03-29)
 
 - [ ] **Implement**: `set`, `add`, `remove`, `rename`, `move` — design/12-tooling/index.md:56-62
   - [ ] **Rust Tests**: `oric/src/edit/edit_ops.rs` — edit operations
@@ -197,7 +202,7 @@ When the user deliberately writes a stacked/multi-line layout that happens to fi
 
 ---
 
-## 22.4 REPL
+## 22.4 REPL (verified 2026-03-29)
 
 - [ ] **Implement**: REPL interactive evaluation — `ori repl` command with expression eval and result display
   - [ ] **Rust Tests**: `oric/src/commands/repl.rs` — REPL evaluation
@@ -213,7 +218,7 @@ When the user deliberately writes a stacked/multi-line layout that happens to fi
 
 ---
 
-## 22.5 Test Runner
+## 22.5 Test Runner (verified 2026-03-29)
 
 > **NOTE**: This section covers the TEST RUNNER CLI commands, which are largely complete.
 > The TESTING FRAMEWORK features (configurable test enforcement, dependency-aware execution, incremental tests)
@@ -261,9 +266,11 @@ When the user deliberately writes a stacked/multi-line layout that happens to fi
   - [x] **Rust Tests**: `oric/src/test/result/tests.rs:42` — `test_summary_exit_code`
   - [ ] **Ori Tests**: `tests/spec/tooling/test_exit.ori`
 
+> **WEAK TESTS**: No Ori-side spec tests exist. All 11 planned `tests/spec/tooling/test_*.ori` files are unchecked. `tests/spec/tooling/` directory does not exist. Rust-side testing is solid (5 runner tests, 8 result tests) but no end-to-end Ori tests verify CLI commands.
+
 ---
 
-## 22.6 Causality Tracking
+## 22.6 Causality Tracking (verified 2026-03-29)
 
 > **PROPOSAL**: `proposals/approved/why-command-proposal.md`
 
@@ -318,7 +325,7 @@ Expose Salsa's dependency tracking to users for debugging and impact analysis.
 
 ---
 
-## 22.7 Structured Diagnostics
+## 22.7 Structured Diagnostics (verified 2026-03-29)
 
 > **PROPOSAL**: `proposals/approved/structured-diagnostics-autofix.md`
 
@@ -326,7 +333,7 @@ Machine-readable diagnostics with actionable fix suggestions. Enables AI agents 
 
 **Existing Infrastructure:** Core types (`Applicability`, `Suggestion`, `Substitution`) already exist in `ori_diagnostic/src/diagnostic.rs`. This section enhances the JSON emitter and adds CLI flags for auto-fix.
 
-### 22.7.0 Error Code Registry Centralization (Step 0)
+### 22.7.0 Error Code Registry Centralization (Step 0) (verified 2026-03-29)
 
 Currently `ErrorCode` has three manually-synchronized representations: the enum definition, `as_str()`, and `parse_error_code()` in `oric`. Adding a new error code requires updating all three plus the `DOCS` array — and forgetting one (as happened with E2019) silently breaks `ori explain`.
 
@@ -351,7 +358,7 @@ Currently `ErrorCode` has three manually-synchronized representations: the enum 
   - [ ] Explicit opt-out list for codes without docs yet (E4xxx, E5xxx, E6xxx)
   - [ ] **Rust Tests**: `ori_diagnostic/src/errors/tests.rs` — completeness check
 
-### 22.7.1 SourceLoc Type (Step 1)
+### 22.7.1 SourceLoc Type (Step 1) (verified 2026-03-29)
 
 - [x] **Implement**: `SourceLoc` struct with line/column from byte span [done] (verified 2026-03-28) — implemented as `offset_to_line_col()` in `ori_diagnostic/src/span_utils/mod.rs`
   - [x] 1-based line and column numbers
@@ -363,7 +370,7 @@ Currently `ErrorCode` has three manually-synchronized representations: the enum 
   - [x] O(log n) span-to-location conversion via binary search on line offsets
   - [x] **Rust Tests**: `test_line_offset_table_*` tests
 
-### 22.7.2 JSON Output Enhancement (Step 2)
+### 22.7.2 JSON Output Enhancement (Step 2) (verified 2026-03-29)
 
 - [ ] **Implement**: Add file path to JSON diagnostic output
   - [ ] File path at diagnostic level
@@ -385,7 +392,7 @@ Currently `ErrorCode` has three manually-synchronized representations: the enum 
   - [ ] **Rust Tests**: `oric/src/commands/check.rs` — JSON flag
   - [ ] **Ori Tests**: `tests/spec/tooling/json_output.ori`
 
-### 22.7.3 Improved Human Output (Step 3)
+### 22.7.3 Improved Human Output (Step 3) (verified 2026-03-29)
 
 - [ ] **Implement**: Rust-style diagnostic rendering
   - [ ] Source snippets with line numbers
@@ -395,7 +402,7 @@ Currently `ErrorCode` has three manually-synchronized representations: the enum 
   - [ ] **Rust Tests**: `ori_diagnostic/src/emitter/terminal.rs` — rendering tests
   - [ ] **Ori Tests**: `tests/spec/tooling/human_output.ori`
 
-### 22.7.4 Auto-Fix Infrastructure (Step 4)
+### 22.7.4 Auto-Fix Infrastructure (Step 4) (verified 2026-03-29)
 
 - [ ] **Implement**: `apply_suggestions()` function
   - [ ] Apply substitutions to source text
@@ -424,7 +431,7 @@ Currently `ErrorCode` has three manually-synchronized representations: the enum 
   - [ ] **Rust Tests**: `oric/src/commands/check.rs` — fix all
   - [ ] **Ori Tests**: `tests/spec/tooling/autofix_all.ori`
 
-### 22.7.5 Upgrade Existing Diagnostics (Step 5)
+### 22.7.5 Upgrade Existing Diagnostics (Step 5) (verified 2026-03-29)
 
 > **Hygiene note:** `Diagnostic` currently has dual suggestion fields: `suggestions: Vec<String>` (~53 callers of `with_suggestion()`) and `structured_suggestions: Vec<Suggestion>` (~7 callers). Emitters must check both. After migrating all callers below, remove the `suggestions` field and `with_suggestion()` method entirely, leaving `structured_suggestions` as the single path.
 
@@ -444,7 +451,7 @@ Currently `ErrorCode` has three manually-synchronized representations: the enum 
   - [ ] Expected token fixes
   - [ ] **Rust Tests**: `ori_parse/src/error.rs` — structured suggestions
 
-### 22.7.6 Extended Fixes (Step 6)
+### 22.7.6 Extended Fixes (Step 6) (verified 2026-03-29)
 
 - [ ] **Implement**: Typo detection for identifiers (Levenshtein distance)
   - [ ] "Did you mean `similar_name`?" suggestions
@@ -466,14 +473,14 @@ Currently `ErrorCode` has three manually-synchronized representations: the enum 
 
 ---
 
-## 22.8 WASM Playground
+## 22.8 WASM Playground (verified 2026-03-29)
 
 > **PROPOSAL**: `proposals/approved/wasm-playground-proposal.md`
-> **CRATE**: `playground/wasm/` — WASM bindings for portable compiler subset
+> **CRATE**: `playground/wasm/` — WASM bindings for portable compiler subset (does not exist yet)
 
-**Status**: Core complete, Examples pending
+**Status**: Not started
 
-### Core Implementation (Complete)
+### Core Implementation
 
 - [ ] **Implement**: WASM crate with `run_ori()`, `format_ori()`, `version()` exports
 - [ ] **Implement**: Monaco editor integration with Ori syntax highlighting (Monarch grammar)
@@ -490,13 +497,13 @@ Currently `ErrorCode` has three manually-synchronized representations: the enum 
 
 ---
 
-## 22.9 Grammar Synchronization Verification
+## 22.9 Grammar Synchronization Verification (verified 2026-03-29)
 
 > **PROPOSAL**: `proposals/approved/grammar-sync-formalization-proposal.md`
 
 Enhance `sync-grammar` skill with operator verification checklist to catch discrepancies between grammar.ebnf and parser implementation.
 
-### 22.8.1 Enhance sync-grammar Skill
+### 22.9.1 Enhance sync-grammar Skill
 
 - [ ] **Implement**: Add operator verification checklist to `.claude/commands/sync-grammar.md`
   - [ ] Checklist for each grammar operator: lexer, AST, parser, typeck, eval
@@ -509,7 +516,7 @@ Enhance `sync-grammar` skill with operator verification checklist to catch discr
 
 ---
 
-## 22.11 Package Management
+## 22.11 Package Management (verified 2026-03-29)
 
 > **DETAILED PLAN**: `plans/pkg_mgmt/` — Phased implementation with tracking
 > **DESIGN**: `plans/pkg_mgmt/design.md` — Full specification
