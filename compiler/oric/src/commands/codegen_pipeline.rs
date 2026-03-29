@@ -318,8 +318,9 @@ pub(super) fn run_codegen_pipeline<'ctx>(
             // compile_impls() and the type checker's impl_sigs registration.
             let mut sig_iter = type_result.typed.impl_sigs.iter();
             for impl_def in &parse_result.module.impls {
-                // Resolve the self-type Idx for this impl block.
-                let self_type_idx = impl_def.self_path.first().and_then(|&name| {
+                // Resolve the self-type Name and Idx for this impl block.
+                let type_name_name = impl_def.self_path.first().copied();
+                let self_type_idx = type_name_name.and_then(|name| {
                     type_result
                         .typed
                         .types
@@ -343,16 +344,32 @@ pub(super) fn run_codegen_pipeline<'ctx>(
                     } else {
                         method.name
                     };
-                    let (arc_fn, lambdas) = crate::arc_lowering::lower_to_arc(
-                        qualified_name,
-                        sig,
-                        method.name,
-                        canon,
-                        interner,
-                        pool,
-                        &mut impl_arc_problems,
-                        None,
-                    );
+                    // Use lower_impl_method_to_arc for correct method_root_for
+                    // body lookup (TPR-03-049).
+                    let (arc_fn, lambdas) = if let Some(tn) = type_name_name {
+                        crate::arc_lowering::lower_impl_method_to_arc(
+                            qualified_name,
+                            sig,
+                            method.name,
+                            tn,
+                            canon,
+                            interner,
+                            pool,
+                            &mut impl_arc_problems,
+                            None,
+                        )
+                    } else {
+                        crate::arc_lowering::lower_to_arc(
+                            qualified_name,
+                            sig,
+                            method.name,
+                            canon,
+                            interner,
+                            pool,
+                            &mut impl_arc_problems,
+                            None,
+                        )
+                    };
                     funcs.push(arc_fn);
                     funcs.extend(lambdas);
                 }
@@ -386,16 +403,30 @@ pub(super) fn run_codegen_pipeline<'ctx>(
                                         } else {
                                             default.name
                                         };
-                                        let (arc_fn, lambdas) = crate::arc_lowering::lower_to_arc(
-                                            qualified_name,
-                                            sig,
-                                            default.name,
-                                            canon,
-                                            interner,
-                                            pool,
-                                            &mut impl_arc_problems,
-                                            None,
-                                        );
+                                        let (arc_fn, lambdas) = if let Some(tn) = type_name_name {
+                                            crate::arc_lowering::lower_impl_method_to_arc(
+                                                qualified_name,
+                                                sig,
+                                                default.name,
+                                                tn,
+                                                canon,
+                                                interner,
+                                                pool,
+                                                &mut impl_arc_problems,
+                                                None,
+                                            )
+                                        } else {
+                                            crate::arc_lowering::lower_to_arc(
+                                                qualified_name,
+                                                sig,
+                                                default.name,
+                                                canon,
+                                                interner,
+                                                pool,
+                                                &mut impl_arc_problems,
+                                                None,
+                                            )
+                                        };
                                         funcs.push(arc_fn);
                                         funcs.extend(lambdas);
                                     }
