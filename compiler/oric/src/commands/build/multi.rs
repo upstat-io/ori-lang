@@ -311,20 +311,14 @@ fn compile_single_module(
     // Configure target, optimize, and emit object/bitcode
     let obj_path = emit_module_artifact(ctx, &llvm_module, &module_name)?;
 
-    // Merge imported metadata into this module's exports so that re-exported
-    // `pub` / `#repr(...)` types propagate transitively through module chains.
-    // Without this, A→B→C loses C's metadata when A imports only B.
-    // See TPR-04-016.
-    let exported_type_metadata = merge_forwarded_metadata(
-        type_result.typed.exported_type_metadata.clone(),
-        &imported_type_metadata,
-    );
-
+    // Transitive metadata forwarding now happens in the type checker
+    // (generate_exported_type_metadata merges imported metadata at finish_with_pool).
+    // No post-check merge needed here. See CROSS-04-017.
     let module_info = CompiledModuleInfo {
         path: source_path.to_path_buf(),
         module_name,
         public_functions,
-        exported_type_metadata,
+        exported_type_metadata: type_result.typed.exported_type_metadata.clone(),
     };
 
     Some((obj_path, module_info))
@@ -433,38 +427,6 @@ fn build_import_infos(
 /// When module B imports module C, C's `ExportedTypeMetadata` (repr attrs,
 /// public visibility) must be forwarded into B's exports. This ensures that
 /// when module A imports only B, it still receives C's metadata transitively.
-/// Without this forwarding, A's `ReprPlan` could incorrectly narrow C's
-/// `pub` or `#repr(...)` types. See TPR-04-016.
-///
-/// Deduplicates by `merkle_hash` — local entries take priority (first seen wins).
-pub(super) fn merge_forwarded_metadata(
-    local: Vec<ori_types::ExportedTypeMetadata>,
-    imported: &[ori_types::ExportedTypeMetadata],
-) -> Vec<ori_types::ExportedTypeMetadata> {
-    if imported.is_empty() {
-        return local;
-    }
-
-    let mut seen = rustc_hash::FxHashSet::default();
-    let mut result = Vec::with_capacity(local.len() + imported.len());
-
-    // Local entries first (take priority)
-    for entry in local {
-        if seen.insert(entry.merkle_hash) {
-            result.push(entry);
-        }
-    }
-
-    // Forwarded imports (skip duplicates)
-    for entry in imported {
-        if seen.insert(entry.merkle_hash) {
-            result.push(entry.clone());
-        }
-    }
-
-    result
-}
-
 /// Collect exported type metadata from all modules this module imports.
 ///
 /// Mirrors `build_import_infos()` but collects `ExportedTypeMetadata` instead

@@ -206,6 +206,16 @@ pub struct ModuleChecker<'a> {
     /// Accumulated from `InferEngine` after each function body is checked.
     /// Resolved in `finish_with_pool()` using direct `MonoInstance` body type maps.
     deferred_mono_calls: Vec<crate::DeferredMonoCall>,
+
+    /// Imported modules' exported type metadata for transitive forwarding.
+    ///
+    /// Set by the caller (e.g., `register_resolved_imports` in `oric/src/typeck.rs`)
+    /// before `finish_with_pool()`. When generating this module's
+    /// `exported_type_metadata`, these entries are merged in so that re-exported
+    /// types propagate transitively through module chains (A→B→C). Without this,
+    /// A would lose C's `pub`/`#repr` metadata when importing only B.
+    /// See CROSS-04-017.
+    imported_type_metadata: Vec<crate::output::ExportedTypeMetadata>,
 }
 
 impl<'a> ModuleChecker<'a> {
@@ -237,6 +247,7 @@ impl<'a> ModuleChecker<'a> {
             trait_impl_fn_names: Vec::new(),
             mono_instances: Vec::new(),
             deferred_mono_calls: Vec::new(),
+            imported_type_metadata: Vec::new(),
         }
     }
 
@@ -276,7 +287,22 @@ impl<'a> ModuleChecker<'a> {
             trait_impl_fn_names: Vec::new(),
             mono_instances: Vec::new(),
             deferred_mono_calls: Vec::new(),
+            imported_type_metadata: Vec::new(),
         }
+    }
+
+    /// Set imported type metadata for transitive forwarding.
+    ///
+    /// Called during the `register_fn` closure in [`check_module_with_imports`]
+    /// to provide metadata from imported modules. When this module finishes type
+    /// checking, its `exported_type_metadata` will include both local types and
+    /// forwarded imported entries (deduped by Merkle hash, local priority).
+    /// See CROSS-04-017.
+    pub fn set_imported_type_metadata(
+        &mut self,
+        metadata: Vec<crate::output::ExportedTypeMetadata>,
+    ) {
+        self.imported_type_metadata = metadata;
     }
 
     // ========================================
@@ -931,10 +957,10 @@ impl<'a> ModuleChecker<'a> {
         let type_descriptors = generate_export_descriptors(&pool, &functions);
 
         // Generate exported type metadata for cross-module repr plan construction.
-        // Only includes types with repr attributes or public visibility — types with
-        // default layout and private visibility need no protection from narrowing.
-        // See CROSS-04-014.
-        let exported_type_metadata = generate_exported_type_metadata(&types);
+        // Merges local types (repr/public) with forwarded imported metadata so that
+        // transitive chains (A→B→C) propagate correctly. See CROSS-04-014, CROSS-04-017.
+        let exported_type_metadata =
+            generate_exported_type_metadata(&types, &self.imported_type_metadata);
 
         let typed = TypedModule {
             expr_types: self.expr_types,
@@ -983,12 +1009,17 @@ fn generate_export_descriptors(
 ///
 /// For each user-defined type that has a `#repr` attribute or public visibility,
 /// emits an [`ExportedTypeMetadata`] entry carrying the Merkle hash, repr, and
-/// visibility. Importing modules use these entries to seed their `ReprPlan` with
-/// the correct exemptions. See CROSS-04-014.
+/// visibility. Merges in `imported` metadata from dependency modules so that
+/// transitive chains (A→B→C) propagate correctly — B's exports include C's
+/// forwarded metadata, so A receives everything transitively.
+///
+/// Deduplication: local entries take priority (by Merkle hash). See CROSS-04-014,
+/// CROSS-04-017.
 fn generate_exported_type_metadata(
     types: &[crate::registry::TypeEntry],
+    imported: &[crate::output::ExportedTypeMetadata],
 ) -> Vec<crate::output::ExportedTypeMetadata> {
-    types
+    let local: Vec<crate::output::ExportedTypeMetadata> = types
         .iter()
         .filter(|te| te.repr.is_some() || te.visibility == crate::Visibility::Public)
         .map(|te| crate::output::ExportedTypeMetadata {
@@ -996,7 +1027,28 @@ fn generate_exported_type_metadata(
             repr: te.repr,
             is_public: te.visibility == crate::Visibility::Public,
         })
-        .collect()
+        .collect();
+
+    if imported.is_empty() {
+        return local;
+    }
+
+    // Merge: local entries first (take priority), then imported (skip duplicates).
+    let mut seen = FxHashSet::default();
+    let mut result = Vec::with_capacity(local.len() + imported.len());
+
+    for entry in local {
+        if seen.insert(entry.merkle_hash) {
+            result.push(entry);
+        }
+    }
+    for entry in imported {
+        if seen.insert(entry.merkle_hash) {
+            result.push(entry.clone());
+        }
+    }
+
+    result
 }
 
 /// Resolve deferred mono calls transitively.
