@@ -1402,3 +1402,73 @@ use std.testing { assert_eq, assert }
         "set_insert_with_narrowed_list_context",
     );
 }
+
+// §04.4 Phase C: for-yield narrowing safety
+//
+// The for-yield elem_size override must only fire for int-element accumulators.
+// A program with a narrowed [int] and a for...yield producing [str] must not
+// corrupt the string accumulator's elem_size.
+
+/// Semantic pin: for-yield producing [str] works correctly when [int] is narrowed.
+/// Without the element-type gate, `ori_list_new`/`ori_list_push` for the str
+/// accumulator would receive `elem_size=1` instead of 24, causing corruption.
+#[test]
+fn test_for_yield_str_with_narrowed_int_list() {
+    assert_aot_success(
+        r"
+use std.testing { assert_eq }
+@main () -> void = {
+    // Narrowed [int] literal (all values fit in i8)
+    let xs: [int] = [1, 2, 3];
+    assert_eq(actual: xs[0], expected: 1);
+
+    // for-yield producing [str] — must NOT use narrowed elem_size
+    let ys: [str] = for x in xs.iter() yield if x == 1 then `a` else `bb`;
+    assert_eq(actual: ys[0], expected: `a`);
+    assert_eq(actual: ys[1], expected: `bb`);
+    assert_eq(actual: ys[2], expected: `bb`);
+}
+",
+        "for_yield_str_with_narrowed_int_list",
+    );
+}
+
+/// for-yield producing [int] from narrowed [int] — narrowing should still work.
+#[test]
+fn test_for_yield_int_from_narrowed_int_list() {
+    assert_aot_success(
+        r"
+use std.testing { assert_eq }
+@main () -> void = {
+    let xs: [int] = [1, 2, 3];
+    let ys: [int] = for x in xs.iter() yield x * 2;
+    assert_eq(actual: ys[0], expected: 2);
+    assert_eq(actual: ys[1], expected: 4);
+    assert_eq(actual: ys[2], expected: 6);
+}
+",
+        "for_yield_int_from_narrowed_int_list",
+    );
+}
+
+/// Mixed for-yields in same function: int and str accumulators coexist.
+#[test]
+fn test_mixed_for_yield_int_and_str() {
+    assert_aot_success(
+        r"
+use std.testing { assert_eq }
+@main () -> void = {
+    let xs: [int] = [1, 2, 3];
+    // Int for-yield — safe to narrow
+    let doubled: [int] = for x in xs.iter() yield x * 2;
+    // Str for-yield — must NOT narrow
+    let names: [str] = for x in xs.iter() yield if x == 1 then `one` else `other`;
+    assert_eq(actual: doubled[0], expected: 2);
+    assert_eq(actual: doubled[2], expected: 6);
+    assert_eq(actual: names[0], expected: `one`);
+    assert_eq(actual: names[1], expected: `other`);
+}
+",
+        "mixed_for_yield_int_and_str",
+    );
+}

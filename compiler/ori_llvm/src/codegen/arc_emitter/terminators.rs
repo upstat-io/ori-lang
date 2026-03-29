@@ -434,12 +434,21 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             })
             .collect();
 
-        // §04.4 Phase C: replace elem_size for for-yield list runtime calls.
+        // §04.4 Phase C: replace elem_size for int-element for-yield lists.
+        // Only override when the pre-scan identified this elem_size_var as
+        // belonging to an int-element for-yield (prevents corrupting non-int
+        // accumulators like [str] when narrowed [int] exists in the program).
         if let Some(width) = self.narrowed_int_collection_element_width() {
             let narrowed_size = self.builder.const_i64(i64::from(width.size_bytes()));
-            if is_list_new && coerced_args.len() == 2 {
+            if is_list_new
+                && arc_args.len() == 2
+                && self.for_yield_int_elem_sizes.contains(&arc_args[1])
+            {
                 coerced_args[1] = narrowed_size;
-            } else if is_list_push && coerced_args.len() == 3 {
+            } else if is_list_push
+                && arc_args.len() == 3
+                && self.for_yield_int_elem_sizes.contains(&arc_args[2])
+            {
                 coerced_args[2] = narrowed_size;
             }
         }
