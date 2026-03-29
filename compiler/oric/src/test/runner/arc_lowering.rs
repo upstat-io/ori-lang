@@ -102,7 +102,8 @@ pub(crate) fn lower_and_infer_borrows(
     {
         let mut sig_iter = impl_sigs.iter();
         for impl_def in &module.impls {
-            let self_type_idx = impl_def.self_path.first().and_then(|&name| {
+            let type_name_name = impl_def.self_path.first().copied();
+            let self_type_idx = type_name_name.and_then(|name| {
                 user_types
                     .iter()
                     .find(|te| te.name == name)
@@ -121,16 +122,30 @@ pub(crate) fn lower_and_infer_borrows(
                 } else {
                     method.name
                 };
-                let (arc_fn, lambdas) = crate::arc_lowering::lower_to_arc(
-                    qualified_name,
-                    sig,
-                    method.name,
-                    canon,
-                    interner,
-                    pool,
-                    &mut arc_problems,
-                    None,
-                );
+                let (arc_fn, lambdas) = if let Some(tn) = type_name_name {
+                    crate::arc_lowering::lower_impl_method_to_arc(
+                        qualified_name,
+                        sig,
+                        method.name,
+                        tn,
+                        canon,
+                        interner,
+                        pool,
+                        &mut arc_problems,
+                        None,
+                    )
+                } else {
+                    crate::arc_lowering::lower_to_arc(
+                        qualified_name,
+                        sig,
+                        method.name,
+                        canon,
+                        interner,
+                        pool,
+                        &mut arc_problems,
+                        None,
+                    )
+                };
                 local_lowered.push((arc_fn, lambdas));
             }
             // Skip default trait methods in sig_iter
@@ -155,16 +170,30 @@ pub(crate) fn lower_and_infer_borrows(
                                     } else {
                                         default.name
                                     };
-                                    let (arc_fn, lambdas) = crate::arc_lowering::lower_to_arc(
-                                        qualified_name,
-                                        sig,
-                                        default.name,
-                                        canon,
-                                        interner,
-                                        pool,
-                                        &mut arc_problems,
-                                        None,
-                                    );
+                                    let (arc_fn, lambdas) = if let Some(tn) = type_name_name {
+                                        crate::arc_lowering::lower_impl_method_to_arc(
+                                            qualified_name,
+                                            sig,
+                                            default.name,
+                                            tn,
+                                            canon,
+                                            interner,
+                                            pool,
+                                            &mut arc_problems,
+                                            None,
+                                        )
+                                    } else {
+                                        crate::arc_lowering::lower_to_arc(
+                                            qualified_name,
+                                            sig,
+                                            default.name,
+                                            canon,
+                                            interner,
+                                            pool,
+                                            &mut arc_problems,
+                                            None,
+                                        )
+                                    };
                                     local_lowered.push((arc_fn, lambdas));
                                 }
                             }
