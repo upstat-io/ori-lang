@@ -66,6 +66,9 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             let elem = self
                 .builder
                 .load(elem_llvm_ty, scratch_ptr, &format!("proj.{field}"));
+            // §04.4 Phase C: sign-extend narrowed int element back to canonical i64.
+            let dst_ty = func.var_type(dst);
+            let elem = self.sext_narrowed_int_element(elem, dst_ty, "iter_next.sext");
             self.def_var_repr(dst, elem, func);
             // Register scratch pointer for borrowed-parameter forwarding:
             // downstream calls (e.g., ori_str_len) can forward the scratch

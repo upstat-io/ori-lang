@@ -35,6 +35,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         receiver: ValueId,
         key: ValueId,
         key_ty: Idx,
+        map_ty: Idx,
     ) -> Option<ValueId> {
         let func_id = self.builder.runtime_fn("ori_map_contains_key");
 
@@ -52,7 +53,9 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             .unwrap_or_else(|| self.builder.const_i64(0));
 
         let needle_ptr = self.elem_to_ptr(key, key_ty, "contains_key.needle");
-        let key_size = self.element_store_size(key_ty);
+        // §04.4 Phase C: use narrowed key size if available.
+        let collection_idx = self.pool.resolve_fully(map_ty);
+        let key_size = self.collection_elem_size(collection_idx, key_ty);
         let key_size_val = self.builder.const_i64(key_size as i64);
         let key_eq = self.get_or_create_eq_thunk(key_ty)?;
         let key_hash = self.get_or_create_hash_thunk(key_ty)?;
@@ -73,7 +76,12 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// Calls `ori_map_keys_to_list(data, cap, len, key_size, key_dec_fn, key_inc_fn, out_ptr)`.
     /// `key_inc_fn` increments RC children of each copied key to prevent
     /// double-free when both the map and the output list are dropped.
-    pub(crate) fn emit_map_keys(&mut self, receiver: ValueId, key_ty: Idx) -> Option<ValueId> {
+    pub(crate) fn emit_map_keys(
+        &mut self,
+        receiver: ValueId,
+        key_ty: Idx,
+        map_ty: Idx,
+    ) -> Option<ValueId> {
         let func_id = self.builder.runtime_fn("ori_map_keys_to_list");
 
         let data = self
@@ -89,7 +97,9 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             .extract_value(receiver, 0, "map.len")
             .unwrap_or_else(|| self.builder.const_i64(0));
 
-        let key_size = self.element_store_size(key_ty);
+        // §04.4 Phase C: use narrowed key size if available.
+        let collection_idx = self.pool.resolve_fully(map_ty);
+        let key_size = self.collection_elem_size(collection_idx, key_ty);
         let key_size_val = self.builder.const_i64(key_size as i64);
         let key_dec_fn = self.get_or_generate_elem_dec_fn(key_ty);
         let key_inc_fn = self.get_or_generate_elem_inc_fn(key_ty);
@@ -126,11 +136,12 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         receiver: ValueId,
         key_ty: Idx,
         val_ty: Idx,
+        map_ty: Idx,
     ) -> Option<ValueId> {
         let func_id = self.builder.runtime_fn("ori_map_values_to_list");
 
         let (data, cap, len, key_size_val, val_size_val) =
-            self.extract_map_components(receiver, key_ty, val_ty);
+            self.extract_map_components(receiver, key_ty, val_ty, Some(map_ty));
         let val_dec_fn = self.get_or_generate_elem_dec_fn(val_ty);
         let val_inc_fn = self.get_or_generate_elem_inc_fn(val_ty);
 
@@ -167,11 +178,12 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         key: ValueId,
         key_ty: Idx,
         val_ty: Idx,
+        map_ty: Option<Idx>,
     ) -> Option<ValueId> {
         let func_id = self.builder.runtime_fn("ori_map_get");
 
         let (data, cap, len, key_size_val, val_size_val) =
-            self.extract_map_components(receiver, key_ty, val_ty);
+            self.extract_map_components(receiver, key_ty, val_ty, map_ty);
 
         let needle_ptr = self.elem_to_ptr(key, key_ty, "get.needle");
         let key_eq = self.get_or_create_eq_thunk(key_ty)?;
@@ -210,11 +222,15 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     }
 
     /// Extract map data, cap, len and compute key/val sizes from type info.
+    ///
+    /// When `map_ty` is `Some`, uses `collection_elem_size` for §04.4 Phase C
+    /// narrowed element sizes. Otherwise falls back to canonical sizes.
     pub(in crate::codegen::arc_emitter) fn extract_map_components(
         &mut self,
         receiver: ValueId,
         key_ty: Idx,
         val_ty: Idx,
+        map_ty: Option<Idx>,
     ) -> (ValueId, ValueId, ValueId, ValueId, ValueId) {
         let data = self
             .builder
@@ -228,12 +244,21 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             .builder
             .extract_value(receiver, 0, "map.len")
             .unwrap_or_else(|| self.builder.const_i64(0));
-        let key_size_val = self
-            .builder
-            .const_i64(self.element_store_size(key_ty) as i64);
-        let val_size_val = self
-            .builder
-            .const_i64(self.element_store_size(val_ty) as i64);
+        // §04.4 Phase C: use narrowed element sizes for map buffers.
+        let (key_size, val_size) = if let Some(mt) = map_ty {
+            let collection_idx = self.pool.resolve_fully(mt);
+            (
+                self.collection_elem_size(collection_idx, key_ty),
+                self.collection_elem_size(collection_idx, val_ty),
+            )
+        } else {
+            (
+                self.element_store_size(key_ty),
+                self.element_store_size(val_ty),
+            )
+        };
+        let key_size_val = self.builder.const_i64(key_size as i64);
+        let val_size_val = self.builder.const_i64(val_size as i64);
         (data, cap, len, key_size_val, val_size_val)
     }
 
@@ -255,11 +280,12 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         key_ty: Idx,
         val_ty: Idx,
         cow_mode: ValueId,
+        map_ty: Idx,
     ) -> Option<ValueId> {
         let func_id = self.builder.runtime_fn("ori_map_insert_cow");
 
         let (data, cap, len, key_size_val, val_size_val) =
-            self.extract_map_components(receiver, key_ty, val_ty);
+            self.extract_map_components(receiver, key_ty, val_ty, Some(map_ty));
 
         let key_ptr = self.elem_to_ptr(key, key_ty, "insert.key");
         let val_ptr = self.elem_to_ptr(value, val_ty, "insert.val");
@@ -311,11 +337,12 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         key_ty: Idx,
         val_ty: Idx,
         cow_mode: ValueId,
+        map_ty: Idx,
     ) -> Option<ValueId> {
         let func_id = self.builder.runtime_fn("ori_map_remove_cow");
 
         let (data, cap, len, key_size_val, val_size_val) =
-            self.extract_map_components(receiver, key_ty, val_ty);
+            self.extract_map_components(receiver, key_ty, val_ty, Some(map_ty));
 
         let key_ptr = self.elem_to_ptr(key, key_ty, "remove.key");
         let key_eq = self.get_or_create_eq_thunk(key_ty)?;
@@ -370,11 +397,12 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         receiver: ValueId,
         key_ty: Idx,
         val_ty: Idx,
+        map_ty: Idx,
     ) -> Option<ValueId> {
         let func_id = self.builder.runtime_fn("ori_iter_from_map");
 
         let (data, cap, len, key_size_val, val_size_val) =
-            self.extract_map_components(receiver, key_ty, val_ty);
+            self.extract_map_components(receiver, key_ty, val_ty, Some(map_ty));
 
         let owns_data = self.builder.const_bool(true);
         // Real dec functions: `collect_iter_element_defs()` propagates

@@ -203,6 +203,13 @@ pub struct ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
     /// - `var()` inserts `sext i<width> %val to i64` at each use
     /// - Phi nodes use the narrow type
     narrowed_vars: FxHashMap<ArcVarId, ori_repr::IntWidth>,
+
+    /// §04.4 Phase C: repr plan for collection element narrowing.
+    ///
+    /// When present, collection construction and element access paths consult
+    /// this plan for narrowed element types (e.g., `[int]` with elements in
+    /// `[-128, 127]` uses `i8` element storage instead of `i64`).
+    repr_plan: Option<&'a ori_repr::ReprPlan>,
 }
 
 impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
@@ -246,6 +253,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
             current_sret_ptr: None,
             sret_forwarded_result: None,
             narrowed_vars: FxHashMap::default(),
+            repr_plan: type_resolver.repr_plan(),
         }
     }
 

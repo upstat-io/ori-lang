@@ -29,29 +29,55 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     }
 
     /// Emit `list.first()` — returns `Option<T>` as `{i64 tag, T value}`.
-    pub(crate) fn emit_list_first(&mut self, receiver: ValueId, elem_ty: Idx) -> Option<ValueId> {
-        self.emit_list_first_or_last(receiver, elem_ty, "ori_list_first", "first")
+    pub(crate) fn emit_list_first(
+        &mut self,
+        receiver: ValueId,
+        elem_ty: Idx,
+        list_ty: Idx,
+    ) -> Option<ValueId> {
+        self.emit_list_first_or_last(receiver, elem_ty, list_ty, "ori_list_first", "first")
     }
 
     /// Emit `list.last()` — returns `Option<T>` as `{i64 tag, T value}`.
-    pub(crate) fn emit_list_last(&mut self, receiver: ValueId, elem_ty: Idx) -> Option<ValueId> {
-        self.emit_list_first_or_last(receiver, elem_ty, "ori_list_last", "last")
+    pub(crate) fn emit_list_last(
+        &mut self,
+        receiver: ValueId,
+        elem_ty: Idx,
+        list_ty: Idx,
+    ) -> Option<ValueId> {
+        self.emit_list_first_or_last(receiver, elem_ty, list_ty, "ori_list_last", "last")
     }
 
     /// Emit `list.contains(x)` — returns `bool`.
     ///
     /// Dispatches to type-specific runtime functions:
-    /// - `[int]` → `ori_list_contains_int(data, len, needle)`
+    /// - `[int]` → `ori_list_contains_int(data, len, needle)` (canonical i64)
+    /// - `[int]` (narrowed) → inline loop with narrowed element type
     /// - `[str]` → `ori_list_contains_str(data, len, needle_ptr)`
     pub(crate) fn emit_list_contains(
         &mut self,
         receiver: ValueId,
         needle: ValueId,
         elem_ty: Idx,
+        list_ty: Idx,
     ) -> Option<ValueId> {
         let (data_ptr, len) = self.extract_list_data_and_len(receiver);
 
         let elem_info = self.type_info.get(elem_ty);
+
+        // §04.4 Phase C: narrowed int elements cannot use the runtime
+        // `ori_list_contains_int` which hardcodes i64 stride. Generate an
+        // inline loop with the correct narrowed element type instead.
+        if matches!(&elem_info, TypeInfo::Int) {
+            let collection_idx = self.pool.resolve_fully(list_ty);
+            if self
+                .narrowed_collection_element_width(collection_idx)
+                .is_some()
+            {
+                return self.emit_list_contains_int_narrowed(data_ptr, len, needle, list_ty);
+            }
+        }
+
         let (func_name, args): (&'static str, Vec<ValueId>) = match &elem_info {
             TypeInfo::Int => ("ori_list_contains_int", vec![data_ptr, len, needle]),
             TypeInfo::Str => {
@@ -69,25 +95,104 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         Some(self.builder.icmp_ne(result, zero, "contains.bool"))
     }
 
+    /// Emit inline `contains` loop for narrowed `[int]` lists.
+    ///
+    /// Generates a simple linear scan: truncate the canonical i64 needle
+    /// to the narrowed width, then GEP/load/compare at the narrowed stride.
+    fn emit_list_contains_int_narrowed(
+        &mut self,
+        data_ptr: ValueId,
+        len: ValueId,
+        needle: ValueId,
+        list_ty: Idx,
+    ) -> Option<ValueId> {
+        let collection_idx = self.pool.resolve_fully(list_ty);
+        let elem_ty = self.pool.list_elem(collection_idx);
+        let elem_llvm_ty = self.collection_elem_llvm_type(collection_idx, elem_ty);
+
+        // Truncate the canonical i64 needle to narrowed width for comparison.
+        let narrow_needle =
+            self.trunc_for_narrowed_collection_element(needle, collection_idx, "contains.trunc");
+
+        let func = self.current_function;
+        let pre_header = self.builder.current_block().expect("current block");
+        let header = self.builder.append_block(func, "contains.hdr");
+        let body = self.builder.append_block(func, "contains.body");
+        let found = self.builder.append_block(func, "contains.found");
+        let not_found = self.builder.append_block(func, "contains.notfound");
+        let merge = self.builder.append_block(func, "contains.merge");
+
+        self.builder.br(header);
+
+        // Header: check index < len.
+        self.builder.position_at_end(header);
+        let i64_ty = self
+            .builder
+            .register_type(self.builder.scx().type_i64().into());
+        let idx_phi = self.builder.phi(i64_ty, "idx");
+        let has_more = self.builder.icmp_slt(idx_phi, len, "has_more");
+        self.builder.cond_br(has_more, body, not_found);
+
+        // Body: load element, compare with needle.
+        self.builder.position_at_end(body);
+        let elem_ptr = self.builder.gep(elem_llvm_ty, data_ptr, &[idx_phi], "ep");
+        let elem_val = self.builder.load(elem_llvm_ty, elem_ptr, "e");
+        let is_match = self.builder.icmp_eq(elem_val, narrow_needle, "match");
+        let one = self.builder.const_i64(1);
+        let next_idx = self.builder.add(idx_phi, one, "next_idx");
+        let body_end = self.builder.current_block().expect("body block");
+        self.builder.cond_br(is_match, found, header);
+
+        // Wire phi.
+        let zero = self.builder.const_i64(0);
+        self.builder
+            .add_phi_incoming(idx_phi, &[(zero, pre_header), (next_idx, body_end)]);
+
+        // Found/not found merge.
+        self.builder.position_at_end(found);
+        self.builder.br(merge);
+        self.builder.position_at_end(not_found);
+        self.builder.br(merge);
+
+        self.builder.position_at_end(merge);
+        let bool_ty = self
+            .builder
+            .register_type(self.builder.scx().type_i1().into());
+        let result = self.builder.phi(bool_ty, "contains.res");
+        let true_val = self.builder.const_bool(true);
+        let false_val = self.builder.const_bool(false);
+        self.builder
+            .add_phi_incoming(result, &[(true_val, found), (false_val, not_found)]);
+
+        Some(result)
+    }
+
     /// Emit `list[index]` — bounds-checked element access, returns `T` directly.
     ///
     /// Calls `ori_list_get(data, len, index, elem_size, out_ptr)`.
     /// Panics on out-of-bounds (no Option wrapper — direct element return).
+    ///
+    /// `list_ty` is the collection type (e.g., `List<int>`) used for §04.4
+    /// Phase C narrowed element size/type lookup.
     pub(crate) fn emit_list_index(
         &mut self,
         receiver: ValueId,
         index: ValueId,
         elem_ty: Idx,
+        list_ty: Idx,
     ) -> Option<ValueId> {
         let func_id = self.builder.runtime_fn("ori_list_get");
 
         let (data_ptr, len) = self.extract_list_data_and_len(receiver);
+
+        // §04.4 Phase C: use narrowed element size/type if available.
+        let collection_idx = self.pool.resolve_fully(list_ty);
         let elem_size_val = self
             .builder
-            .const_i64(self.element_store_size(elem_ty) as i64);
+            .const_i64(self.collection_elem_size(collection_idx, elem_ty) as i64);
+        let elem_llvm_ty = self.collection_elem_llvm_type(collection_idx, elem_ty);
 
-        // Alloca for the element (T, not Option<T>)
-        let elem_llvm_ty = self.resolve_type(elem_ty);
+        // Alloca for the element (uses narrowed type if applicable)
         let out_alloca =
             self.builder
                 .create_entry_alloca(self.current_function, "index.out", elem_llvm_ty);
@@ -99,6 +204,10 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         );
 
         let elem_val = self.builder.load(elem_llvm_ty, out_alloca, "index.val");
+
+        // §04.4 Phase C: sign-extend narrowed element back to canonical i64.
+        let elem_val =
+            self.sext_narrowed_collection_element(elem_val, collection_idx, "index.sext");
 
         // ori_list_get does a raw memcpy — the extracted element shares
         // the collection's RC children (e.g., str data pointers) without
@@ -126,15 +235,17 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     pub(crate) fn emit_list_iter(
         &mut self,
         receiver: ValueId,
-        _receiver_ty: Idx,
+        receiver_ty: Idx,
         elem_ty: Idx,
     ) -> Option<ValueId> {
         let func_id = self.builder.runtime_fn("ori_iter_from_list");
 
         let (data_ptr, len, cap) = self.extract_list_fields(receiver);
+        // §04.4 Phase C: narrowed element size for iterators.
+        let collection_idx = self.pool.resolve_fully(receiver_ty);
         let elem_size_val = self
             .builder
-            .const_i64(self.element_store_size(elem_ty) as i64);
+            .const_i64(self.collection_elem_size(collection_idx, elem_ty) as i64);
 
         self.emit_rt_call(func_id, &[data_ptr, len, cap, elem_size_val], "list.iter")
     }
@@ -148,13 +259,16 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         start: ValueId,
         end: ValueId,
         elem_ty: Idx,
+        list_ty: Idx,
     ) -> Option<ValueId> {
         let func_id = self.builder.runtime_fn("ori_list_slice");
 
         let (data_ptr, len, cap) = self.extract_list_fields(receiver);
+        // §04.4 Phase C: use narrowed element size if available.
+        let collection_idx = self.pool.resolve_fully(list_ty);
         let elem_size_val = self
             .builder
-            .const_i64(self.element_store_size(elem_ty) as i64);
+            .const_i64(self.collection_elem_size(collection_idx, elem_ty) as i64);
 
         let list_ty = self.list_struct_type();
         let out = self
@@ -178,13 +292,16 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         receiver: ValueId,
         n: ValueId,
         elem_ty: Idx,
+        list_ty: Idx,
     ) -> Option<ValueId> {
         let func_id = self.builder.runtime_fn("ori_list_slice_take");
 
         let (data_ptr, len, cap) = self.extract_list_fields(receiver);
+        // §04.4 Phase C: use narrowed element size if available.
+        let collection_idx = self.pool.resolve_fully(list_ty);
         let elem_size_val = self
             .builder
-            .const_i64(self.element_store_size(elem_ty) as i64);
+            .const_i64(self.collection_elem_size(collection_idx, elem_ty) as i64);
 
         let list_ty = self.list_struct_type();
         let out = self
@@ -208,13 +325,16 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         receiver: ValueId,
         n: ValueId,
         elem_ty: Idx,
+        list_ty: Idx,
     ) -> Option<ValueId> {
         let func_id = self.builder.runtime_fn("ori_list_slice_drop");
 
         let (data_ptr, len, cap) = self.extract_list_fields(receiver);
+        // §04.4 Phase C: use narrowed element size if available.
+        let collection_idx = self.pool.resolve_fully(list_ty);
         let elem_size_val = self
             .builder
-            .const_i64(self.element_store_size(elem_ty) as i64);
+            .const_i64(self.collection_elem_size(collection_idx, elem_ty) as i64);
 
         let list_ty = self.list_struct_type();
         let out = self
@@ -276,18 +396,23 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         &mut self,
         receiver: ValueId,
         elem_ty: Idx,
+        list_ty: Idx,
         func_name: &'static str,
         label: &str,
     ) -> Option<ValueId> {
         let func_id = self.builder.runtime_fn(func_name);
 
         let (data_ptr, len) = self.extract_list_data_and_len(receiver);
+        // §04.4 Phase C: use narrowed element size/type if available.
+        let collection_idx = self.pool.resolve_fully(list_ty);
         let elem_size_val = self
             .builder
-            .const_i64(self.element_store_size(elem_ty) as i64);
+            .const_i64(self.collection_elem_size(collection_idx, elem_ty) as i64);
 
         // Option<T> layout: {i64 tag, T value}
-        let elem_llvm_ty = self.resolve_type(elem_ty);
+        // For narrowed collections, use the narrowed element LLVM type so the
+        // runtime memcpy of `elem_size` bytes fills the struct correctly.
+        let elem_llvm_ty = self.collection_elem_llvm_type(collection_idx, elem_ty);
         let raw_elem_ty = self.builder.raw_type(elem_llvm_ty);
         let option_ty = self.builder.register_type(
             self.builder
@@ -304,20 +429,68 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         self.builder
             .call(func_id, &[data_ptr, len, elem_size_val, out_alloca], label);
 
-        Some(
-            self.builder
-                .load(option_ty, out_alloca, &format!("{label}.val")),
-        )
+        let opt_val = self
+            .builder
+            .load(option_ty, out_alloca, &format!("{label}.val"));
+
+        // §04.4 Phase C: sign-extend the narrowed value field back to canonical
+        // i64 so downstream code (unwrap, comparison) sees the expected type.
+        if self
+            .narrowed_collection_element_width(collection_idx)
+            .is_some()
+        {
+            let tag = self
+                .builder
+                .extract_value(opt_val, 0, &format!("{label}.tag"))?;
+            let narrow_val = self
+                .builder
+                .extract_value(opt_val, 1, &format!("{label}.narrow"))?;
+            let wide_val = self.sext_narrowed_collection_element(
+                narrow_val,
+                collection_idx,
+                &format!("{label}.sext"),
+            );
+            // Rebuild Option with canonical element type: {i64 tag, i64 value}
+            let canonical_elem_ty = self.resolve_type(elem_ty);
+            let raw_canonical = self.builder.raw_type(canonical_elem_ty);
+            let canonical_opt_ty = self.builder.register_type(
+                self.builder
+                    .scx()
+                    .type_struct(
+                        &[self.builder.scx().type_i64().into(), raw_canonical],
+                        false,
+                    )
+                    .into(),
+            );
+            let mut result = self.builder.const_zero_ty(canonical_opt_ty);
+            result = self
+                .builder
+                .insert_value(result, tag, 0, &format!("{label}.opt.tag"));
+            result = self
+                .builder
+                .insert_value(result, wide_val, 1, &format!("{label}.opt.val"));
+            Some(result)
+        } else {
+            Some(opt_val)
+        }
     }
 
     /// Build `(elem_size, elem_align)` constant pair for COW runtime calls.
+    ///
+    /// When `collection_ty` is `Some`, uses `collection_elem_size` for §04.4
+    /// Phase C narrowed element sizes. Otherwise falls back to canonical size.
     pub(in crate::codegen::arc_emitter::builtins::collections) fn elem_size_and_align(
         &mut self,
         elem_ty: Idx,
+        collection_ty: Option<Idx>,
     ) -> (ValueId, ValueId) {
-        let size = self
-            .builder
-            .const_i64(self.element_store_size(elem_ty) as i64);
+        let size_bytes = if let Some(coll_ty) = collection_ty {
+            let collection_idx = self.pool.resolve_fully(coll_ty);
+            self.collection_elem_size(collection_idx, elem_ty)
+        } else {
+            self.element_store_size(elem_ty)
+        };
+        let size = self.builder.const_i64(size_bytes as i64);
         let align = self
             .builder
             .const_i64(self.element_store_align(elem_ty) as i64);
@@ -401,9 +574,6 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         Some(self.builder.get_function_ptr(func_id))
     }
 
-    /// Generate comparison body for primitive types (int, float, bool, char, byte).
-    ///
-    /// Loads values from pointers, compares, and returns i32 (-1/0/1).
     fn gen_primitive_compare(
         &mut self,
         a_ptr: ValueId,
@@ -446,6 +616,78 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             }
             _ => unreachable!("non-primitive passed to gen_primitive_compare"),
         }
+    }
+
+    /// §04.4 Phase C: Get or generate a narrowed compare thunk for sorting.
+    ///
+    /// Like `get_or_create_compare_thunk`, but loads elements at the narrowed
+    /// width (i8/i16/i32) and sign-extends to i64 before comparing. Used for
+    /// sort operations on narrowed `[int]` lists where the buffer elements are
+    /// stored at sub-i64 widths.
+    ///
+    /// Returns `None` if int elements are not narrowed (caller should use the
+    /// canonical compare thunk instead).
+    pub(in crate::codegen::arc_emitter::builtins::collections) fn get_or_create_narrowed_compare_thunk(
+        &mut self,
+        _elem_ty: Idx,
+    ) -> Option<ValueId> {
+        let width = self.narrowed_int_collection_element_width()?;
+
+        let width_suffix = match width {
+            ori_repr::IntWidth::I8 => "i8",
+            ori_repr::IntWidth::I16 => "i16",
+            ori_repr::IntWidth::I32 => "i32",
+            ori_repr::IntWidth::I64 => return None,
+        };
+        let func_name = format!("_ori_cmp_int_narrow_{width_suffix}");
+
+        let ptr_ty = self.builder.ptr_type();
+        let i32_ty = self.builder.i32_type();
+        let func_id = self
+            .builder
+            .get_or_declare_function(&func_name, &[ptr_ty, ptr_ty], i32_ty);
+
+        if self.builder.function_has_body(func_id) {
+            return Some(self.builder.get_function_ptr(func_id));
+        }
+
+        let saved_pos = self.builder.save_position();
+        let saved_func = self.builder.current_function();
+
+        self.builder.set_ccc(func_id);
+        self.builder.add_nounwind_attribute(func_id);
+
+        let entry = self.builder.append_block(func_id, "entry");
+        self.builder.position_at_end(entry);
+        self.builder.set_current_function(func_id);
+
+        let a_ptr = self.builder.get_param(func_id, 0);
+        let b_ptr = self.builder.get_param(func_id, 1);
+
+        // Load at narrowed width, sign-extend to i64 for comparison.
+        let narrow_ty = self.llvm_type_for_int_width(width);
+        let i64_ty = self.builder.i64_type();
+        let a_raw = self.builder.load(narrow_ty, a_ptr, "a");
+        let a_val = self.builder.sext(a_raw, i64_ty, "a.sext");
+        let b_raw = self.builder.load(narrow_ty, b_ptr, "b");
+        let b_val = self.builder.sext(b_raw, i64_ty, "b.sext");
+
+        let neg1 = self.builder.const_i32(-1);
+        let zero = self.builder.const_i32(0);
+        let pos1 = self.builder.const_i32(1);
+
+        let lt = self.builder.icmp_slt(a_val, b_val, "lt");
+        let gt = self.builder.icmp_sgt(a_val, b_val, "gt");
+        let gt_or_eq = self.builder.select(gt, pos1, zero, "gt_or_eq");
+        let result = self.builder.select(lt, neg1, gt_or_eq, "cmp");
+        self.builder.ret(result);
+
+        self.builder.restore_position(saved_pos);
+        if let Some(f) = saved_func {
+            self.builder.set_current_function(f);
+        }
+
+        Some(self.builder.get_function_ptr(func_id))
     }
 
     /// Generate comparison body for strings.

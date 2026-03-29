@@ -419,7 +419,8 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         arc_func: &ArcFunction,
     ) {
         let is_list_push = func_name_str == "ori_list_push";
-        let coerced_args: Vec<ValueId> = arc_args
+        let is_list_new = func_name_str == "ori_list_new";
+        let mut coerced_args: Vec<ValueId> = arc_args
             .iter()
             .zip(arg_vals.iter())
             .enumerate()
@@ -432,6 +433,17 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 }
             })
             .collect();
+
+        // §04.4 Phase C: replace elem_size for for-yield list runtime calls.
+        if let Some(width) = self.narrowed_int_collection_element_width() {
+            let narrowed_size = self.builder.const_i64(i64::from(width.size_bytes()));
+            if is_list_new && coerced_args.len() == 2 {
+                coerced_args[1] = narrowed_size;
+            } else if is_list_push && coerced_args.len() == 3 {
+                coerced_args[2] = narrowed_size;
+            }
+        }
+
         if let Some(val) = self.call_or_invoke_llvm(func_id, &coerced_args, mode, "call") {
             self.builder.position_at_end(mode.normal_block());
             self.def_var_repr(dst, val, arc_func);

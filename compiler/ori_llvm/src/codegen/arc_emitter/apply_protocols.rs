@@ -90,8 +90,12 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                     let recv = self.var(args[0]);
                     let idx = self.var(args[1]);
                     match &type_info {
-                        TypeInfo::List { element } => self.emit_list_index(recv, idx, *element),
-                        TypeInfo::Map { key, value } => self.emit_map_get(recv, idx, *key, *value),
+                        TypeInfo::List { element } => {
+                            self.emit_list_index(recv, idx, *element, receiver_ty)
+                        }
+                        TypeInfo::Map { key, value } => {
+                            self.emit_map_get(recv, idx, *key, *value, Some(receiver_ty))
+                        }
                         _ => {
                             tracing::warn!(
                                 ?type_info,
@@ -155,13 +159,14 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let data = self.builder.extract_value(list_val, 2, "slice.data")?;
 
         // Compute element size from the list's element type
+        // §04.4 Phase C: use narrowed element size if available.
         let resolved = self.pool.resolve_fully(list_ty);
         let elem_ty = if self.pool.tag(resolved) == ori_types::Tag::List {
             self.pool.list_elem(resolved)
         } else {
             ori_types::Idx::INT // fallback
         };
-        let elem_size = self.element_store_size(elem_ty);
+        let elem_size = self.collection_elem_size(resolved, elem_ty);
         let elem_size_val = self.builder.const_i64(elem_size as i64);
 
         // Alloca {i64, i64, ptr} for the sret result

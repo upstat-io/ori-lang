@@ -54,12 +54,15 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         self.builder.cond_br(has_more, body, exit_true);
 
         // Body: compare elements[idx].
+        // §04.4 Phase C: use narrowed element type for GEP/load, sext after load.
         self.builder.position_at_end(body);
-        let elem_ty_id = self.resolve_type(elem_ty);
+        let elem_ty_id = self.int_element_llvm_type(elem_ty);
         let lhs_ptr = self.builder.gep(elem_ty_id, lhs_data, &[idx_phi], "lhs.ep");
         let rhs_ptr = self.builder.gep(elem_ty_id, rhs_data, &[idx_phi], "rhs.ep");
         let lhs_elem = self.builder.load(elem_ty_id, lhs_ptr, "lhs.e");
+        let lhs_elem = self.sext_narrowed_int_element(lhs_elem, elem_ty, "lhs.sext");
         let rhs_elem = self.builder.load(elem_ty_id, rhs_ptr, "rhs.e");
+        let rhs_elem = self.sext_narrowed_int_element(rhs_elem, elem_ty, "rhs.sext");
         let elem_eq = self.emit_element_equals(lhs_elem, rhs_elem, elem_ty)?;
         let one = self.builder.const_i64(1);
         let next_idx = self.builder.add(idx_phi, one, "next_idx");
@@ -130,12 +133,15 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         self.builder.cond_br(has_more, body, len_cmp_block);
 
         // Body: compare elements[idx].
+        // §04.4 Phase C: use narrowed element type for GEP/load, sext after load.
         self.builder.position_at_end(body);
-        let elem_ty_id = self.resolve_type(elem_ty);
+        let elem_ty_id = self.int_element_llvm_type(elem_ty);
         let lhs_ptr = self.builder.gep(elem_ty_id, lhs_data, &[idx_phi], "lhs.ep");
         let rhs_ptr = self.builder.gep(elem_ty_id, rhs_data, &[idx_phi], "rhs.ep");
         let lhs_elem = self.builder.load(elem_ty_id, lhs_ptr, "lhs.e");
+        let lhs_elem = self.sext_narrowed_int_element(lhs_elem, elem_ty, "lhs.sext");
         let rhs_elem = self.builder.load(elem_ty_id, rhs_ptr, "rhs.e");
+        let rhs_elem = self.sext_narrowed_int_element(rhs_elem, elem_ty, "rhs.sext");
         let elem_cmp = self.emit_element_compare(lhs_elem, rhs_elem, elem_ty)?;
         let equal_ord = self.builder.const_i8(1);
         let is_eq = self.builder.icmp_eq(elem_cmp, equal_ord, "is_eq");
@@ -202,10 +208,12 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         self.builder.cond_br(has_more, body, exit);
 
         // Body: hash current element, combine.
+        // §04.4 Phase C: use narrowed element type for GEP/load, sext after load.
         self.builder.position_at_end(body);
-        let elem_ty_id = self.resolve_type(elem_ty);
+        let elem_ty_id = self.int_element_llvm_type(elem_ty);
         let elem_ptr = self.builder.gep(elem_ty_id, data, &[idx_phi], "elem.ptr");
         let elem = self.builder.load(elem_ty_id, elem_ptr, "elem");
+        let elem = self.sext_narrowed_int_element(elem, elem_ty, "elem.sext");
         let elem_hash = self.emit_element_hash(elem, elem_ty)?;
         let new_hash = self.emit_hash_combine(hash_phi, elem_hash);
         let one = self.builder.const_i64(1);
