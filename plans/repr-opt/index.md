@@ -133,7 +133,7 @@ Zig comptime_int, Roc NumericRange, LLVM InstCombine
 ---
 
 ### Section 05: Float Narrowing Pipeline
-**File:** `section-05-float-narrowing.md` | **Status:** Not Started
+**File:** `section-05-float-narrowing.md` | **Status:** In Progress (§05.1–§05.4 complete)
 
 ```
 float narrowing, f64 → f32, FloatWidth, precision
