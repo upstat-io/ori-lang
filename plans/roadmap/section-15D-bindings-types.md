@@ -2,17 +2,18 @@
 section: "15D"
 title: Bindings & Types
 status: in-progress
-reviewed: false
+last_verified: "2026-03-29"
+reviewed: true
 tier: 1
 goal: Implement binding syntax changes and type system simplifications
 priority_note: "15D.3 escalated from Tier 5 → Tier 1 (2026-02-19). Block syntax + semicolons + $ enforcement complete (2026-02-20). Remaining: mut keyword removal, module-level immutability, scope conflicts."
 sections:
   - id: "15D.1"
     title: Function-Level Contracts (pre/post)
-    status: not-started
+    status: in-progress
   - id: "15D.2"
     title: as Conversion Syntax
-    status: not-started
+    status: in-progress
   - id: "15D.3"
     title: Simplified Bindings with $ for Immutability
     status: in-progress
@@ -72,18 +73,19 @@ Function-level `pre()` and `post()` contract declarations for defensive programm
 
 ### Implementation
 
-- [ ] **Implement**: Parser: Parse `pre()` and `post()` on function declarations
-  - [ ] **Rust Tests**: `ori_parse/src/grammar/function.rs` — contract parsing
-  - [ ] **Ori Tests**: `tests/spec/patterns/checks.ori`
-  - [ ] **LLVM Support**: LLVM codegen for contract parsing
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/syntax_tests.rs` — contract parsing codegen
+- [x] **Implement**: Parser: Parse `pre()` and `post()` on function declarations (verified 2026-03-29)
+  - [x] `ori_parse/src/grammar/item/function/mod.rs` — `parse_contracts()` at line 221 returns `(Vec<PreContract>, Vec<PostContract>)`. Contracts parsed between return type and `=`.
+  - [x] AST: `PreContract { condition, message, span }` and `PostContract { param, condition, message, span }` in `ori_ir/src/ast/items/function.rs`. `FunctionDef` has `pre_contracts` and `post_contracts` fields.
+  - [ ] **Rust Tests**: NEEDS TESTS — parser is implemented but no dedicated parser test exists
+  - [ ] **Ori Tests**: `tests/spec/patterns/checks.ori` — not yet created
+  - [ ] **LLVM Support**: NOT DONE
   - [ ] **AOT Tests**: No AOT coverage yet
 
-- [ ] **Implement**: Parser: Support `| "message"` custom message syntax
-  - [ ] **Rust Tests**: `ori_parse/src/grammar/function.rs` — message parsing
-  - [ ] **Ori Tests**: `tests/spec/patterns/check_messages.ori`
-  - [ ] **LLVM Support**: LLVM codegen for custom contract messages
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/syntax_tests.rs` — custom contract messages codegen
+- [x] **Implement**: Parser: Support `| "message"` custom message syntax (verified 2026-03-29)
+  - [x] `PreContract` has `message: Option<ExprId>`. `PostContract` has `message: Option<ExprId>`. Parser handles `|` separator.
+  - [ ] **Rust Tests**: NEEDS TESTS — parsing works but no tests
+  - [ ] **Ori Tests**: `tests/spec/patterns/check_messages.ori` — not yet created
+  - [ ] **LLVM Support**: NOT DONE
   - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: Type checker: Validate `pre()` condition is `bool`
@@ -136,6 +138,10 @@ Function-level `pre()` and `post()` contract declarations for defensive programm
 
 Replace `int()`, `float()`, `str()`, `byte()` with `as`/`as?` keyword syntax backed by `As<T>` and `TryAs<T>` traits.
 
+> **LLVM/AOT GAP** (verified 2026-03-29): `as`/`as?` works in the interpreter but is **broken in AOT compilation**. `lower_cast()` in `ori_arc/src/lower/collections/mod.rs` emits `Apply(dst, __cast, [val])` but `__cast` is NOT a registered protocol builtin and is NOT handled by the LLVM ARC emitter. AOT compilation will fail at link time or crash at runtime.
+
+> **TEST COVERAGE GAP** (verified 2026-03-29): `tests/spec/expressions/type_conversion.ori` contains comprehensive test cases for `as`/`as?` but ALL tests are commented out. Zero active tests for this feature.
+
 ```ori
 // Before (special-cased positional args)
 let x = int("42")
@@ -148,73 +154,56 @@ let y = value as float
 
 ### Lexer
 
-- [ ] **Implement**: `as` keyword token (if not already reserved)
-  - [ ] **Rust Tests**: `ori_lexer/src/lib.rs` — as keyword tokenization
-  - [ ] **Ori Tests**: `tests/spec/lexical/as_keyword.ori`
-  - [ ] **LLVM Support**: LLVM codegen for as keyword
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/as_conversion_tests.rs` — as keyword codegen
+- [x] **Implement**: `as` keyword token (verified 2026-03-29)
+  - [x] `TokenKind::As` in `ori_lexer/src/keywords/mod.rs` line 50. Test at line 183 confirms.
+  - [ ] **LLVM Support**: N/A — lexer token, not codegen
   - [ ] **AOT Tests**: No AOT coverage yet
 
 ### Parser
 
-- [ ] **Implement**: Parse `expression as Type` as conversion expression
-  - [ ] **Rust Tests**: `ori_parse/src/grammar/expr.rs` — as expression parsing
-  - [ ] **Ori Tests**: `tests/spec/expressions/as_syntax.ori`
-  - [ ] **LLVM Support**: LLVM codegen for as expression
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/as_conversion_tests.rs` — as expression codegen
+- [x] **Implement**: Parse `expression as Type` as conversion expression (verified 2026-03-29)
+  - [x] `ori_parse/src/grammar/expr/postfix.rs` line 120 checks for `TokenKind::As`. Produces `ExprKind::Cast { expr, ty, fallible: false }`.
+  - [ ] **LLVM Support**: LLVM codegen for as expression — BROKEN (see LLVM/AOT GAP above)
   - [ ] **AOT Tests**: No AOT coverage yet
 
-- [ ] **Implement**: Parse `expression as? Type` as fallible conversion
-  - [ ] **Rust Tests**: `ori_parse/src/grammar/expr.rs` — as? expression parsing
-  - [ ] **Ori Tests**: `tests/spec/expressions/as_fallible_syntax.ori`
-  - [ ] **LLVM Support**: LLVM codegen for as? expression
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/as_conversion_tests.rs` — as? expression codegen
+- [x] **Implement**: Parse `expression as? Type` as fallible conversion (verified 2026-03-29)
+  - [x] Same parser function checks for `?` after `as` to set `fallible: true`.
+  - [ ] **LLVM Support**: LLVM codegen for as? expression — BROKEN (see LLVM/AOT GAP above)
   - [ ] **AOT Tests**: No AOT coverage yet
 
 ### Type Checker
 
+- [x] **Implement**: Type resolution for `as` casts (verified 2026-03-29)
+  - [x] `infer_cast()` in `ori_types/src/infer/expr/operators.rs` line 466 resolves target type and returns it.
+  - [partial] Trait-based validation (`As<T>`) NOT implemented — any type can be cast to any type at typeck level. Runtime catches invalid casts.
+
 - [ ] **Implement**: Validate `as` only used with `As<T>` trait implementations
-  - [ ] **Rust Tests**: `ori_types/src/check/as_expr.rs`
   - [ ] **Ori Tests**: `tests/compile-fail/as_not_implemented.ori`
-  - [ ] **LLVM Support**: LLVM codegen for As<T> trait validation
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/as_conversion_tests.rs` — As<T> trait validation codegen
-  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: Validate `as?` only used with `TryAs<T>` trait implementations
-  - [ ] **Rust Tests**: `ori_types/src/check/as_expr.rs`
   - [ ] **Ori Tests**: `tests/compile-fail/try_as_not_implemented.ori`
-  - [ ] **LLVM Support**: LLVM codegen for TryAs<T> trait validation
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/as_conversion_tests.rs` — TryAs<T> trait validation codegen
-  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: Error when using `as` for fallible conversion (must use `as?`)
-  - [ ] **Rust Tests**: `ori_types/src/check/as_expr.rs`
   - [ ] **Ori Tests**: `tests/compile-fail/as_fallible_conversion.ori`
-  - [ ] **LLVM Support**: LLVM codegen for fallible conversion error
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/as_conversion_tests.rs` — fallible conversion error codegen
-  - [ ] **AOT Tests**: No AOT coverage yet
 
-### Codegen
+### Codegen (Evaluator)
 
-- [ ] **Implement**: Desugar `x as T` to `As<T>.as(self: x)`
-  - [ ] **LLVM Support**: LLVM codegen for as desugaring
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/as_conversion_tests.rs` — as desugaring codegen
-  - [ ] **AOT Tests**: No AOT coverage yet
-- [ ] **Implement**: Desugar `x as? T` to `TryAs<T>.try_as(self: x)`
-  - [ ] **LLVM Support**: LLVM codegen for as? desugaring
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/as_conversion_tests.rs` — as? desugaring codegen
+- [x] **Implement**: Evaluate `x as T` with hardcoded primitive conversion logic (verified 2026-03-29)
+  - [x] `eval_can_cast()` at `ori_eval/src/interpreter/can_eval/operators.rs` line 119 handles: int->float, int->byte (range checked), int->char, float->int, byte->int, char->int, str->int (fallible), str->float (fallible), str->bool (fallible).
+  - [x] NOT via trait dispatch — hardcoded conversion logic. Works correctly for all primitive conversions.
+- [x] **Implement**: Evaluate `x as? T` with fallible flag (verified 2026-03-29)
+  - [x] Same code path with `fallible` flag. Returns `None` on failure.
+
+### Codegen (LLVM/AOT)
+
+- [ ] **Implement**: Register `__cast` as protocol builtin in `ori_ir/src/builtin_constants/protocol/` and handle in LLVM ARC emitter with appropriate LLVM cast instructions (sitofp, fptosi, trunc, zext)
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/aot/conversions.rs` — as/as? codegen
   - [ ] **AOT Tests**: No AOT coverage yet
 
 ### Migration
 
 - [ ] **Implement**: Remove `int()`, `float()`, `str()`, `byte()` from parser
-  - [ ] **LLVM Support**: LLVM codegen for type conversion removal
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/as_conversion_tests.rs` — type conversion removal codegen
-  - [ ] **AOT Tests**: No AOT coverage yet
 - [ ] **Implement**: Update error messages to suggest `as` syntax
-  - [ ] **LLVM Support**: LLVM codegen for as syntax suggestion
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/as_conversion_tests.rs` — as syntax suggestion codegen
-  - [ ] **AOT Tests**: No AOT coverage yet
 
 ---
 
@@ -238,12 +227,9 @@ let $timeout = 30s // module-level constant (let and $ required)
 
 ### Lexer
 
-- [ ] **Implement**: Remove `mut` from reserved keywords
-  - [ ] **Rust Tests**: `ori_lexer/src/lib.rs` — keyword list update
-  - [ ] **Ori Tests**: `tests/spec/lexical/mut_not_keyword.ori`
-  - [ ] **LLVM Support**: LLVM codegen for mut removal
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/binding_tests.rs` — mut removal codegen
-  - [ ] **AOT Tests**: No AOT coverage yet
+- [x] **Implement**: Remove `mut` from reserved keywords (verified 2026-03-29)
+  - [x] No `mut` in `ori_lexer/src/keywords/mod.rs`. No `KwMut` token. Fully removed.
+  - [x] **LLVM Support**: N/A — lexer keyword removal, not codegen
 
 ### Parser
 
