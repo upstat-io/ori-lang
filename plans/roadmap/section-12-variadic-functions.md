@@ -2,7 +2,8 @@
 section: 12
 title: Variadic Functions
 status: in-progress
-reviewed: false
+reviewed: true
+last_verified: "2026-03-29"
 tier: 4
 goal: Enable functions with variable number of arguments
 spec:
@@ -11,7 +12,7 @@ spec:
 sections:
   - id: "12.1"
     title: Homogeneous Variadics
-    status: not-started
+    status: partial
   - id: "12.2"
     title: Minimum Argument Count
     status: not-started
@@ -20,7 +21,7 @@ sections:
     status: not-started
   - id: "12.4"
     title: C Variadic Interop
-    status: not-started
+    status: partial
   - id: "12.5"
     title: Variadic in Patterns
     status: not-started
@@ -136,22 +137,28 @@ SpreadExpr       = '...' Expression ;
   - [ ] Spread operator `...expr`
   - [ ] Type rules
 
-- [ ] **Lexer**: Add `...` token (if not exists)
-  - [ ] Three-dot token
-  - [ ] Distinguish from range `..`
+- [x] **Lexer**: Add `...` token (if not exists) (verified 2026-03-29)
+  - [x] Three-dot token — `DotDotDot` in `ori_lexer_core/src/raw_scanner/operators.rs:209`, `ori_ir/src/token/kind.rs:121`
+  - [x] Distinguish from range `..` — raw scanner handles both
 
-- [ ] **Parser**: Parse variadic parameters
-  - [ ] In function signatures
-  - [ ] Spread in call expressions
-  - [ ] Validation (last param only)
+- [x] **Parser**: Parse variadic parameters (verified 2026-03-29)
+  - [x] In function signatures — `ori_parse/src/grammar/item/function/mod.rs:489-494`, `is_variadic` flag on `Param` (IR line 97)
+  - [x] Spread in call expressions — `ori_parse/src/grammar/expr/postfix.rs:392-423`, `is_spread` flag on `CallArg` (IR line 143)
+  - [ ] Validation (last param only) — NEEDS TESTS: no enforcement in type checker
 
 - [ ] **Type checker**: Variadic type rules
-  - [ ] Convert `...T` to `[T]` internally
+  - [ ] Convert `...T` to `[T]` internally — `is_variadic` not read by `ori_types`; all test code sets `is_variadic: false`
   - [ ] Check spread type compatibility
   - [ ] Infer element type
 
+- **Note**: Collection spread IS implemented in type checker (verified 2026-03-29):
+  - `ListWithSpread` — `ori_types/src/infer/expr/collections.rs:78`
+  - `MapWithSpread` — `ori_types/src/infer/expr/collections.rs:188`
+  - `StructWithSpread` — `ori_types/src/infer/expr/structs/mod.rs:169`
+  - This is distinct from variadic function parameter/call spread.
+
 - [ ] **Evaluator**: Handle variadic calls
-  - [ ] Collect args into list
+  - [ ] Collect args into list — `ori_eval` does not handle `is_spread` on `CallArg`
   - [ ] Handle spread expansion
   - [ ] Mixed literal and spread
 
@@ -159,7 +166,7 @@ SpreadExpr       = '...' Expression ;
 - [ ] **LLVM Rust Tests**: `ori_llvm/tests/variadic_tests.rs` — homogeneous variadics codegen
 - [ ] **AOT Tests**: No AOT coverage yet
 
-- [ ] **Test**: `tests/spec/functions/variadic.ori`
+- [ ] **Test**: `tests/spec/functions/variadic.ori` — NEEDS TESTS: file does not exist
   - [ ] Basic variadic function
   - [ ] With required parameters
   - [ ] Spread operator
@@ -291,9 +298,9 @@ unsafe { printf("Number: %d, String: %s\n".as_c_str(), 42, "hello".as_c_str()) }
   - [ ] No type after `...`
   - [ ] Unsafe requirement
 
-- [ ] **Parser**: Parse C variadics
-  - [ ] `...` without type in extern
-  - [ ] Distinguish from Ori variadics
+- [x] **Parser**: Parse C variadics (verified 2026-03-29)
+  - [x] `...` without type in extern — `ori_parse/src/grammar/item/extern_def.rs:193-196`, `is_c_variadic` flag on `ExternItem`
+  - [x] Distinguish from Ori variadics — separate `is_c_variadic` flag vs `is_variadic` on Param
 
 - [ ] **Type checker**: C variadic rules
   - [ ] Must be in extern block
@@ -308,7 +315,9 @@ unsafe { printf("Number: %d, String: %s\n".as_c_str(), 42, "hello".as_c_str()) }
 - [ ] **LLVM Rust Tests**: `ori_llvm/tests/variadic_tests.rs` — C variadic interop codegen
 - [ ] **AOT Tests**: No AOT coverage yet
 
-- [ ] **Test**: `tests/spec/ffi/c_variadics.ori`
+- [x] **Rust Tests**: Parser tests for C variadic in extern blocks — `compiler/oric/tests/phases/parse/extern_def.rs:97-112` (verified 2026-03-29)
+
+- [ ] **Test**: `tests/spec/ffi/c_variadics.ori` — NEEDS TESTS: file does not exist
   - [ ] printf call
   - [ ] Mixed argument types
   - [ ] Requires unsafe

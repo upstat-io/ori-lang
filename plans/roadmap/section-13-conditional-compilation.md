@@ -2,7 +2,8 @@
 section: 13
 title: Conditional Compilation
 status: in-progress
-reviewed: false
+reviewed: true
+last_verified: "2026-03-29"
 tier: 5
 goal: Enable platform-specific code and feature flags
 spec:
@@ -10,22 +11,22 @@ spec:
 sections:
   - id: "13.1"
     title: Target Attribute
-    status: not-started
+    status: partial
   - id: "13.2"
     title: OR Conditions
-    status: not-started
+    status: partial
   - id: "13.3"
     title: Negation
-    status: not-started
+    status: partial
   - id: "13.4"
     title: Cfg Attribute
-    status: not-started
+    status: partial
   - id: "13.5"
     title: Feature Flags
     status: not-started
   - id: "13.6"
     title: File-Level Conditions
-    status: not-started
+    status: partial
   - id: "13.7"
     title: Compile-Time Constants
     status: not-started
@@ -34,7 +35,7 @@ sections:
     status: not-started
   - id: "13.9"
     title: Diagnostics
-    status: not-started
+    status: partial
   - id: "13.10"
     title: compile_error Built-in
     status: not-started
@@ -119,23 +120,23 @@ sections:
 
 ### Implementation
 
-- [ ] **Spec**: Add `spec/25-conditional-compilation.md`
-  - [ ] Target attribute syntax
-  - [ ] OS, arch, family values
+- [x] **Spec**: Add `spec/25-conditional-compilation.md` (verified 2026-03-29)
+  - [x] Target attribute syntax — `docs/ori_lang/v2026/spec/25-conditional-compilation.md` exists
+  - [x] OS, arch, family values
   - [ ] Scope rules
 
-- [ ] **Lexer/Parser**: Parse target attributes
-  - [ ] `#target(...)` syntax
-  - [ ] Named arguments: `os:`, `arch:`, `family:`
-  - [ ] Apply to items
+- [x] **Lexer/Parser**: Parse target attributes (verified 2026-03-29)
+  - [x] `#target(...)` syntax — `parse_target_attr_body()` in `ori_parse/src/grammar/attr/conditional.rs:32`
+  - [x] Named arguments: `os:`, `arch:`, `family:`, `not_os:`, `not_arch:`, `not_family:`, `any_os:`, `any_arch:` — all parsed
+  - [x] Apply to items — stored on `FunctionDef::target_attr`, `TypeDecl::target_attr`, imports, impl blocks
 
 - [ ] **Compiler**: Target evaluation
-  - [ ] Evaluate against build target
+  - [ ] Evaluate against build target — no target evaluation exists
   - [ ] Prune false branches from AST
   - [ ] Track for error messages
-  - [ ] **Rust Tests**: Target attribute parsing and evaluation
+  - [x] **Rust Tests**: Target attribute parsing — 27 parser tests in `compiler/oric/tests/phases/parse/file_attr.rs` (verified 2026-03-29)
 
-- [ ] **Ori Tests**: `tests/spec/conditional/target_basic.ori`
+- [ ] **Ori Tests**: `tests/spec/conditional/target_basic.ori` — NEEDS TESTS: file does not exist
   - [ ] OS-specific code
   - [ ] Arch-specific code
   - [ ] Family-specific code
@@ -169,15 +170,15 @@ sections:
   - [ ] `any_os`, `any_arch`, `any_family`
   - [ ] List syntax
 
-- [ ] **Parser**: Parse any_* variants
-  - [ ] Array literal values
-  - [ ] Validate all elements are strings
+- [x] **Parser**: Parse any_* variants (verified 2026-03-29)
+  - [x] Array literal values — `any_os`/`any_arch` with list syntax in `conditional.rs:102-103`
+  - [x] Validate all elements are strings — `parse_attr_string_list()` handles comma-separated strings
 
 - [ ] **Evaluator**: Evaluate OR conditions
   - [ ] Match if any element matches
-  - [ ] **Rust Tests**: OR condition evaluation
+  - [ ] **Rust Tests**: OR condition evaluation — parser tests exist but no evaluator tests
 
-- [ ] **Ori Tests**: `tests/spec/conditional/target_or.ori`
+- [ ] **Ori Tests**: `tests/spec/conditional/target_or.ori` — NEEDS TESTS: file does not exist
   - [ ] any_os conditions
   - [ ] any_arch conditions
   - [ ] Combined with AND
@@ -215,14 +216,15 @@ sections:
   - [ ] `not_*` prefix for all condition types
   - [ ] Interaction with OR conditions
 
-- [ ] **Parser**: Parse not_* variants
-  - [ ] Recognize all negation forms
+- [x] **Parser**: Parse not_* variants (verified 2026-03-29)
+  - [x] Recognize all negation forms — `not_os`, `not_arch`, `not_family` in `conditional.rs:99-101`; `not_debug`, `not_feature` in `conditional.rs:173-175`; `not_debug` as bare identifier at `conditional.rs:193`
+  - [x] IR fields: `not_os`, `not_arch`, `not_family` on `TargetAttr`; `not_debug`, `not_feature` on `CfgAttr`
 
 - [ ] **Evaluator**: Evaluate negation
   - [ ] Boolean NOT of underlying condition
-  - [ ] **Rust Tests**: Negation evaluation
+  - [ ] **Rust Tests**: Negation evaluation — parser tests exist but no evaluator tests
 
-- [ ] **Ori Tests**: `tests/spec/conditional/negation.ori`
+- [ ] **Ori Tests**: `tests/spec/conditional/negation.ori` — NEEDS TESTS: file does not exist
   - [ ] not_os, not_arch, not_family
   - [ ] not_debug, not_release
   - [ ] not_feature
@@ -262,18 +264,19 @@ sections:
   - [ ] `feature: "name"` syntax
   - [ ] `any_feature`, `not_feature`
 
-- [ ] **Parser**: Parse cfg attributes
-  - [ ] Boolean flags (debug, release)
-  - [ ] Keyed flags (feature: "...")
-  - [ ] OR and negation variants
+- [x] **Parser**: Parse cfg attributes (verified 2026-03-29)
+  - [x] Boolean flags (debug, release) — `parse_cfg_attr_body()` in `conditional.rs:139`; debug, release, not_debug as bare identifiers
+  - [x] Keyed flags (feature: "...") — `feature`, `not_feature` handled
+  - [x] OR and negation variants — `any_feature` with list, all negation forms parsed
+  - [x] IR: `CfgAttr` struct at `ori_ir/src/ast/items/function.rs:339` with fields: `debug`, `release`, `not_debug`, `feature`, `any_feature`, `not_feature`
 
 - [ ] **Compiler**: Cfg evaluation
-  - [ ] Accept `--debug` / `--release` flags
+  - [ ] Accept `--debug` / `--release` flags — no cfg evaluation exists
   - [ ] Accept `--feature name` flags
   - [ ] Prune based on configuration
-  - [ ] **Rust Tests**: Cfg attribute evaluation
+  - [x] **Rust Tests**: Cfg attribute parsing — tests in `file_attr.rs` for debug, release, not_debug, feature, any_feature (verified 2026-03-29)
 
-- [ ] **Ori Tests**: `tests/spec/conditional/cfg_basic.ori`
+- [ ] **Ori Tests**: `tests/spec/conditional/cfg_basic.ori` — NEEDS TESTS: file does not exist
   - [ ] debug/release flags
   - [ ] feature flags
   - [ ] any_feature, not_feature
@@ -331,13 +334,13 @@ Feature names must be valid Ori identifiers:
   - [ ] Declaration in ori.toml
   - [ ] Dependency resolution
   - [ ] Default features
-  - [ ] Feature name validation
+  - [x] Feature name validation — `is_valid_feature_name()` at `conditional.rs:17`, produces E0932 error (verified 2026-03-29)
 
 - [ ] **Build system**: Feature processing
   - [ ] Parse ori.toml features
   - [ ] Resolve feature dependencies
   - [ ] Pass to compiler
-  - [ ] Validate feature names
+  - [x] Validate feature names — parser validates at parse time, tests in `file_attr.rs:277-377` (verified 2026-03-29)
 
 - [ ] **Compiler**: Feature evaluation
   - [ ] `--feature` flag
@@ -380,19 +383,20 @@ The `#!` prefix indicates a file-level condition. It must appear before any decl
   - [ ] Position requirements
   - [ ] Interaction with imports
 
-- [ ] **Lexer**: Recognize `#!` token
-  - [ ] Only at file start
+- [x] **Lexer**: Recognize `#!` token (verified 2026-03-29)
+  - [x] Only at file start — file-level condition parsing handled by lexer/parser
 
-- [ ] **Parser**: Parse file-level conditions
-  - [ ] `#!target(...)`, `#!cfg(...)`
-  - [ ] Apply to entire file
+- [x] **Parser**: Parse file-level conditions (verified 2026-03-29)
+  - [x] `#!target(...)`, `#!cfg(...)` — `#!` prefix detected, `FileAttr::Target` and `FileAttr::Cfg` variants in IR
+  - [x] Apply to entire file — `Module::file_attr: Option<FileAttr>` field
+  - [x] Position requirement enforced (before imports/declarations)
 
 - [ ] **Compiler**: File-level evaluation
-  - [ ] Skip entire file if condition false
+  - [ ] Skip entire file if condition false — no evaluation logic exists
   - [ ] Track for IDE support
-  - [ ] **Rust Tests**: File-level condition processing
+  - [x] **Rust Tests**: File-level condition parsing — 27 parser tests in `compiler/oric/tests/phases/parse/file_attr.rs` (verified 2026-03-29)
 
-- [ ] **Ori Tests**: `tests/spec/conditional/file_level.ori`
+- [ ] **Ori Tests**: `tests/spec/conditional/file_level.ori` — NEEDS TESTS: file does not exist
   - [ ] File-level target
   - [ ] File-level cfg
 
@@ -588,21 +592,25 @@ dependencies = ["winapi"]
 - [ ] **Diagnostics**: Condition-aware error messages
   - [ ] Show active configuration when relevant
   - [ ] Suggest alternative platforms/features
-  - [ ] Validate feature names
+  - [x] Validate feature names — `E0932` error code in `conditional.rs:262`; valid: `ssl`, `_private`, `Feature123`; invalid: hyphenated, digit-start (verified 2026-03-29)
 
 - [ ] **Lints**: Condition validation
   - [ ] Warn on impossible conditions
   - [ ] Warn on unknown OS/arch values
-  - [ ] Error on invalid feature names
-  - [ ] **Rust Tests**: Diagnostic generation
+  - [x] Error on invalid feature names — E0932 implemented (verified 2026-03-29)
+  - [x] **Rust Tests**: Feature name validation tests — `file_attr.rs:277-377` (verified 2026-03-29)
 
-- [ ] **Ori Tests**: `tests/compile-fail/conditional/`
+- [ ] **Ori Tests**: `tests/compile-fail/conditional/` — NEEDS TESTS: directory does not exist
   - [ ] Platform mismatch errors
   - [ ] Invalid feature names
   - [ ] Unknown condition values
 
 - [ ] **LLVM Support**: LLVM codegen for condition diagnostics
 - [ ] **LLVM Rust Tests**: `ori_llvm/tests/conditional_tests.rs` — condition diagnostics codegen
+
+- **Additional diagnostics (verified 2026-03-29)**:
+  - [x] Attribute placement validation — `attr_validation.rs` (28+ tests): rejects `#target`, `#cfg`, `#derive`, `#skip`, `#repr` on wrong item kinds (traits, extern blocks, etc.); accepts on functions, types, constants, imports, impls
+  - [x] Orphaned attribute diagnostics — `attr_validation.rs:196-267`: EOF orphan detection
 
 ---
 

@@ -1,6 +1,10 @@
 # Section 11: FFI — Verification Results
 
 **Verified**: 2026-03-28
+**Re-verified**: 2026-03-29 — CORRECTION: Prior result incorrectly stated "Parser does NOT parse unsafe blocks". This is WRONG.
+  `parse_unsafe_expr()` exists at `compiler/ori_parse/src/grammar/expr/primary/specials.rs:111`.
+  Two parser tests pass: `test_unsafe_expressions` and `test_unsafe_requires_block`.
+  Section 11.4 is PARTIAL (parser done; type checker, evaluator, codegen not done).
 **Status in roadmap**: not-started
 **Actual status**: PARTIAL — significant parser/IR/formatter infrastructure exists; type checker has repr validation; codegen has `declare_extern_function` infra. No eval or end-to-end FFI calling.
 
@@ -88,11 +92,13 @@ The FFI section is marked `not-started` but has substantial hidden implementatio
 ## 11.4 Unsafe Expressions
 
 - [done] `unsafe` keyword lexed — `compiler/ori_lexer/src/keywords/mod.rs:112`
-- [todo] Parser does NOT parse `unsafe { ... }` blocks — no `parse_unsafe_block` function
+- [done] **CORRECTION (2026-03-29)**: Parser DOES parse `unsafe { ... }` blocks — `parse_unsafe_expr()` at `compiler/ori_parse/src/grammar/expr/primary/specials.rs:111`; dispatched from `mod.rs:127` via `TAG_UNSAFE`
+- [done] Parser tests: `test_unsafe_expressions` and `test_unsafe_requires_block` in `ori_parse` lib tests pass
 - [todo] No `in_unsafe` flag in type checker
 - [todo] No evaluator handling
 - [todo] No codegen
-- [todo] No tests
+- [todo] No spec tests (`tests/spec/ffi/unsafe_blocks.ori` does not exist)
+  - Note: `tests/spec/capabilities/unsafe_block.ori` exists for capability-context tests
 
 ---
 
