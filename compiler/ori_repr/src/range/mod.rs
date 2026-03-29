@@ -28,7 +28,7 @@ pub mod transfer;
 
 // Re-export key types for downstream consumers.
 pub use conditional::BranchRefinement;
-pub use field_summary::FieldSummaryTable;
+pub use field_summary::{ElementSummaryTable, FieldSummaryTable};
 pub use fixpoint::{narrow, range_fixpoint, widen, RangeFixpointResult};
 pub use signatures::{propagate_ranges, FunctionRangeInfo, ParamRange};
 pub use transfer::{
