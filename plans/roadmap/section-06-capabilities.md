@@ -609,6 +609,7 @@ Extend `with...in` to support stateful effect handlers. The `handler(state: expr
 - [ ] 6.16 Stateful Handlers — not started
 - [ ] LLVM codegen for capabilities — no test files exist
 - [ ] Full test suite: `./test-all.sh`
+- [ ] `/tpr-review` passed — independent Codex review found no critical or major issues (or all findings triaged)
 
 **Exit Criteria**: Effect tracking works per spec (6.1-6.8 evaluator complete, 6.9-6.14, 6.16 pending)
 **Status**: Verified 2026-02-10.

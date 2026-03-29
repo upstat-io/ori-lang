@@ -861,7 +861,7 @@ This section ensures the parser handles every syntactic construct in the Ori spe
 
 ## 0.8 Section Completion Checklist
 
-> **STATUS**: In Progress — Re-verified 2026-02-14. 8/10 checklist items complete, 2 blocked. Remaining: 0.4 audit (blocked-by:19, only impl Trait), 0.6 audit (blocked-by:23, only runtime enforcement). All unblocked parser work is complete. 3176 Ori tests pass, 1443 Rust tests pass.
+> **STATUS**: In Progress — Re-verified 2026-03-28. 8/10 checklist items complete, 2 blocked. Remaining: 0.4 audit (blocked-by:19, only impl Trait), 0.6 audit (blocked-by:23, only runtime enforcement). All unblocked parser work is complete. 4181 Ori tests pass, 7104 Rust workspace tests pass.
 
 - [x] All lexical grammar items audited and tested (0.1) [done] (2026-02-10)
 - [x] All source structure items audited and tested (0.2) [done] (2026-02-13) — file attributes, extern `as`, C variadics all work now
@@ -872,7 +872,8 @@ This section ensures the parser handles every syntactic construct in the Ori spe
 - [x] All constant expression items audited and tested (0.7) [done] (2026-02-14) — computed constants now work (arithmetic, comparison, logical, grouped)
 - [x] Run `cargo t -p ori_parse` — all parser tests pass [done] (2026-02-14)
 - [x] Run `cargo t -p ori_lexer` — all lexer tests pass [done] (2026-02-14)
-- [x] Run `cargo st tests/` — 3176 passed, 0 failed, 59 skipped [done] (2026-02-14)
+- [x] Run `cargo st tests/` — 4181 passed, 0 failed, 42 skipped [done] (verified 2026-03-28)
+- [ ] `/tpr-review` passed — independent Codex review found no critical or major issues (or all findings triaged)
 
 **Exit Criteria**: Every grammar production in `grammar.ebnf` has verified parser support with tests.
 

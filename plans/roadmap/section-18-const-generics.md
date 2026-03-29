@@ -682,6 +682,7 @@ impl [int, max 5]: FixedSize {
 - [ ] Const expressions in type positions work
 - [ ] Const bounds work
 - [ ] All tests pass: `./test-all.sh`
+- [ ] `/tpr-review` passed — independent Codex review found no critical or major issues (or all findings triaged)
 
 **Exit Criteria**: Can implement a matrix library with compile-time dimension checking
 

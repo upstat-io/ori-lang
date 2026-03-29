@@ -246,7 +246,20 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         match instr {
             ArcInstr::Let { dst, ty, value } => {
                 let val = self.emit_value(value, *ty, func);
-                self.def_var_repr(*dst, val, func);
+                // §04.4 Phase B: only narrow computation results (PrimOps),
+                // not copies (Var) or literals (Literal). Narrowing copies
+                // or literals creates new SSA values that break CSE cache
+                // coherence — two `x + 1` expressions using different
+                // sext'd copies of `x` or `1` won't match in the cache.
+                let should_narrow = matches!(value, ori_arc::ir::ArcValue::PrimOp { .. });
+                if should_narrow {
+                    self.def_var_repr(*dst, val, func);
+                } else {
+                    let repr = func
+                        .var_repr(*dst)
+                        .unwrap_or(ori_arc::ir::ValueRepr::Scalar);
+                    self.def_var(*dst, super::EmittedValue::from_repr(repr, val));
+                }
                 // Propagate borrowed parameter source pointers through aliases.
                 // When `Let { dst, Var(src) }`, if src has a known source pointer
                 // (from a borrowed param), dst inherits it for pointer forwarding.
@@ -447,7 +460,9 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 let t = self.var(*true_val);
                 let f = self.var(*false_val);
                 let result = self.builder.select(c, t, f, "sel");
-                self.def_var(*dst, EmittedValue::Immediate(result));
+                // §04.4 Phase B: Select is a computation (branchless conditional),
+                // route through def_var_repr() for local narrowing.
+                self.def_var_repr(*dst, result, func);
             }
         }
     }

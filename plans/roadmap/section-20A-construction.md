@@ -604,5 +604,6 @@ These are not blocking issues for 20A, but implementers should extract where pra
 - [ ] Spec Clause 27 updated with $construct/$construct_partial
 - [ ] `grammar.ebnf` updated with $construct productions
 - [ ] `.claude/rules/ori-syntax.md` updated with $construct in Compile-Time Reflection section
+- [ ] `/tpr-review` passed — independent Codex review found no critical or major issues (or all findings triaged)
 
 **Exit Criteria:** `$construct<User>($for field in fields_of(User) yield (field, parse(field.name)))` compiles to identical LLVM IR as `User { name: parse("name"), age: parse("age") }`. `$construct<UserId>(...)` expands to `UserId(value)` via constructor call (not struct literal). All 4 error codes (E0470-E0473) produce clear diagnostics. Generic, newtype, partial, and empty-struct construction all work. Eval and LLVM paths match. All tests pass in debug and release. `./test-all.sh` and `./clippy-all.sh` green.

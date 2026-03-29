@@ -183,9 +183,49 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
     /// Bind an ARC variable to a raw LLVM value, inferring its [`EmittedValue`]
     /// variant from the variable's [`ValueRepr`] in the ARC function.
+    ///
+    /// §04.4 Phase B: If the variable is in `narrowed_vars`, the incoming i64
+    /// value is truncated to the narrow width and immediately sign-extended back
+    /// to i64. This trunc+sext pair (a) validates the value fits in the narrow
+    /// range and (b) informs LLVM of the restricted range for optimization.
+    /// Consistent with the phi path which also stores sext'd i64 values.
     pub(super) fn def_var_repr(&mut self, v: ArcVarId, val: ValueId, func: &ArcFunction) {
         let repr = func.var_repr(v).unwrap_or(ValueRepr::Scalar);
-        self.def_var(v, EmittedValue::from_repr(repr, val));
+        let final_val = self.narrow_local_if_needed(v, val);
+        self.def_var(v, EmittedValue::from_repr(repr, final_val));
+    }
+
+    /// §04.4 Phase B: Insert trunc+sext for a narrowed local variable.
+    ///
+    /// If `v` is in `narrowed_vars`, truncates `val` from i64 to the narrow
+    /// width, then sign-extends back to i64. Returns the sext'd value.
+    /// If `v` is not narrowed, returns `val` unchanged.
+    fn narrow_local_if_needed(&mut self, v: ArcVarId, val: ValueId) -> ValueId {
+        let Some(&width) = self.narrowed_vars.get(&v) else {
+            return val;
+        };
+
+        // Only narrow actual i64 int values — skip non-int, zero-sized, pairs.
+        let llvm_val = self.builder.arena.get_value(val);
+        if !llvm_val.is_int_value() {
+            return val;
+        }
+        let bits = llvm_val.into_int_value().get_type().get_bit_width();
+        if bits <= width.size_bytes() * 8 {
+            // Already narrow or narrower — no truncation needed.
+            return val;
+        }
+
+        let narrow_ty = self.llvm_type_for_int_width(width);
+        let i64_ty = self
+            .builder
+            .register_type(self.builder.scx.type_i64().into());
+
+        let truncated = self
+            .builder
+            .trunc(val, narrow_ty, &format!("local.trunc.{}", v.raw()));
+        self.builder
+            .sext(truncated, i64_ty, &format!("local.sext.{}", v.raw()))
     }
 
     /// §04.4 Phase B: Compute which local variables should use narrow int types.
@@ -193,6 +233,11 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// Scans all variables in the function and checks if their value range
     /// (from the `ReprPlan`) fits in a narrower integer type. Function
     /// parameters are excluded (no visibility info in ARC IR — conservative).
+    ///
+    /// For variables with no range in the plan (e.g., fresh variables created
+    /// by block-merge Select folding), derives ranges locally from defining
+    /// instructions: `Let{Literal(Int(n))}` → `[n,n]`, `Let{Var(src)}` →
+    /// source range, `Select` → `join(true_val, false_val)`.
     pub(super) fn compute_narrowed_vars(&mut self, func: &ArcFunction) {
         use ori_types::Tag;
 
@@ -205,6 +250,25 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         // Collect parameter variable IDs for exclusion.
         let param_vars: rustc_hash::FxHashSet<ArcVarId> =
             func.params.iter().map(|p| p.var).collect();
+
+        // Build defining-instruction map for local range derivation.
+        // Block-merge creates fresh variables (Select destinations, renamed
+        // arm-local Let bindings) that have no range in the ReprPlan because
+        // range analysis ran on pre-merge IR. This map lets us derive ranges
+        // from the post-merge defining instructions.
+        let mut def_instrs: rustc_hash::FxHashMap<ArcVarId, &ori_arc::ir::ArcInstr> =
+            rustc_hash::FxHashMap::default();
+        for block in &func.blocks {
+            for instr in &block.body {
+                if let Some(var) = instr.defined_var() {
+                    def_instrs.insert(var, instr);
+                }
+            }
+        }
+
+        // Local range cache — avoids re-deriving the same variable.
+        let mut local_ranges: rustc_hash::FxHashMap<ArcVarId, ori_repr::ValueRange> =
+            rustc_hash::FxHashMap::default();
 
         // Check each variable in the function.
         for (raw_idx, &ty_idx) in func.var_types.iter().enumerate() {
@@ -221,8 +285,15 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 continue;
             }
 
-            // Query the range analysis for this variable.
-            let range = plan.var_range(func.name, var);
+            // Query the range analysis, falling back to local derivation
+            // for fresh post-merge variables.
+            let range = super::narrowing_local::derive_local_range(
+                var,
+                func.name,
+                plan,
+                &def_instrs,
+                &mut local_ranges,
+            );
             let width = range.min_width();
 
             // Only record if narrower than canonical i64.

@@ -1,7 +1,7 @@
 ---
 section: "15A"
 title: Attributes & Comments
-status: not-started
+status: in-progress
 reviewed: false
 tier: 5
 goal: Implement approved attribute syntax changes and comment restrictions
@@ -232,5 +232,6 @@ Simplify doc comment syntax by removing verbose markers:
 - [ ] CLAUDE.md updated with syntax changes
 - [ ] Migration tools working
 - [ ] All tests pass: `./test-all.sh`
+- [ ] `/tpr-review` passed — independent Codex review found no critical or major issues (or all findings triaged)
 
 **Exit Criteria**: Attribute syntax, comment rules, and doc comment syntax implemented

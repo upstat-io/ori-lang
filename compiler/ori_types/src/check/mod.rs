@@ -190,6 +190,9 @@ pub struct ModuleChecker<'a> {
     /// maps an impl method name to its resolved signature. Codegen needs
     /// these to compute ABI (calling convention, sret, parameter passing).
     impl_sigs: Vec<(Name, FunctionSig)>,
+    /// Trait impl method identities (for §03.5 unconstrained function detection).
+    /// Each entry is `(self_type_idx, method_name)` for disambiguation (TPR-03-042).
+    trait_impl_fn_names: Vec<(Idx, Name)>,
 
     // === Monomorphization ===
     /// Concrete generic function instantiations discovered during type checking.
@@ -231,6 +234,7 @@ impl<'a> ModuleChecker<'a> {
             warnings: Vec::new(),
             pattern_resolutions: Vec::new(),
             impl_sigs: Vec::new(),
+            trait_impl_fn_names: Vec::new(),
             mono_instances: Vec::new(),
             deferred_mono_calls: Vec::new(),
         }
@@ -269,6 +273,7 @@ impl<'a> ModuleChecker<'a> {
             warnings: Vec::new(),
             pattern_resolutions: Vec::new(),
             impl_sigs: Vec::new(),
+            trait_impl_fn_names: Vec::new(),
             mono_instances: Vec::new(),
             deferred_mono_calls: Vec::new(),
         }
@@ -386,6 +391,15 @@ impl<'a> ModuleChecker<'a> {
     /// Store an impl method signature for codegen.
     pub fn register_impl_sig(&mut self, name: Name, sig: FunctionSig) {
         self.impl_sigs.push((name, sig));
+    }
+
+    /// Record a trait impl method name for §03.5 unconstrained function detection.
+    ///
+    /// Trait impl methods may be called via dynamic dispatch — their parameter
+    /// ranges must stay Top in interprocedural range analysis. Inherent impl
+    /// methods are NOT recorded (they have known call sites).
+    pub fn register_trait_impl_fn_name(&mut self, self_type: Idx, name: Name) {
+        self.trait_impl_fn_names.push((self_type, name));
     }
 
     /// Accumulate mono instances from an inference engine pass.
@@ -930,6 +944,7 @@ impl<'a> ModuleChecker<'a> {
             warnings: self.warnings,
             pattern_resolutions,
             impl_sigs: self.impl_sigs,
+            trait_impl_fn_names: self.trait_impl_fn_names,
             mono_instances,
             type_descriptors,
             exported_type_metadata,

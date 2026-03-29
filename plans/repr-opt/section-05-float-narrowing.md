@@ -175,5 +175,6 @@ Float narrowing is only applied under very strict conditions to avoid precision 
 - [ ] Bit-identical results: `./diagnostics/dual-exec-verify.sh` passes (zero precision differences)
 - [ ] `./test-all.sh` green in both debug (`cargo b`) and release (`cargo b --release`) builds
 - [ ] `./clippy-all.sh` green
+- [ ] `/tpr-review` passed — independent Codex review found no critical or major issues (or all findings triaged)
 
 **Exit Criteria:** A program storing constant `0.5` in a struct field uses `float` (f32) in LLVM IR instead of `double` (f64), verified by inspecting generated IR. All floating-point spec tests continue to pass with bit-identical results.

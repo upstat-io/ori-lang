@@ -129,5 +129,6 @@ sections:
 - [ ] Yank/unyank/deprecate
 - [ ] Version bumping
 - [ ] Run full test suite
+- [ ] `/tpr-review` passed — independent Codex review found no critical or major issues (or all findings triaged)
 
 **Exit Criteria**: Can publish packages to registry

@@ -1,7 +1,7 @@
 ---
 section: 11
 title: Foreign Function Interface (FFI)
-status: not-started
+status: in-progress
 reviewed: false
 tier: 4
 goal: Enable Ori to call C libraries, system APIs, and JavaScript APIs (WASM target)
@@ -685,6 +685,7 @@ Deep FFI layers five opt-in abstractions on top of the base FFI syntax: error pr
 - [ ] All tests pass: `./test-all.sh`
 - [ ] `uses FFI` properly enforced
 - [ ] `unsafe` blocks working
+- [ ] `/tpr-review` passed — independent Codex review found no critical or major issues (or all findings triaged)
 
 **Exit Criteria**: Can write a program that opens and queries a SQLite database
 
