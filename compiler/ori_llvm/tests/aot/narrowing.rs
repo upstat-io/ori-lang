@@ -1472,3 +1472,430 @@ use std.testing { assert_eq }
         "mixed_for_yield_int_and_str",
     );
 }
+
+// ---- §05 Float Narrowing AOT Tests ----
+//
+// These tests verify that float field narrowing (f64→f32 for f32-exact literals)
+// produces correct runtime behavior and LLVM IR patterns. They are the float
+// counterpart to the integer narrowing tests above.
+
+/// Semantic pin: struct with f32-exact float fields (0.0, 0.5, 1.0).
+/// Field values must survive fptrunc (f64→f32 at construction) and
+/// fpext (f32→f64 at extraction) without data corruption.
+#[test]
+fn test_float_narrowed_struct_roundtrip() {
+    assert_aot_success(
+        r"
+type FloatPoint = { x: float, y: float, z: float }
+
+@main () -> int = {
+    let p = FloatPoint { x: 0.0, y: 0.5, z: 1.0 };
+    let ok1 = p.x == 0.0;
+    let ok2 = p.y == 0.5;
+    let ok3 = p.z == 1.0;
+    if ok1 && ok2 && ok3 then 0 else 1
+}
+",
+        "float_narrowed_struct_roundtrip",
+    );
+}
+
+/// IR semantic pin: narrowed float struct type contains `float` fields (not `double`).
+/// A struct with all f32-exact fields should produce `{ float, float, float }` in LLVM IR.
+#[test]
+fn test_float_narrowed_struct_ir_pin_type_layout() {
+    let ir = compile_and_capture_ir(
+        r"
+type FloatColor = { r: float, g: float, b: float }
+
+@read_r (c: FloatColor) -> float = c.r;
+
+@main () -> int = {
+    let c = FloatColor { r: 0.5, g: 0.25, b: 1.0 };
+    let v = read_r(c:);
+    if v == 0.5 then 0 else 1
+}
+",
+    );
+
+    let fn_ir = extract_function_ir(&ir, "_ori_read_r");
+
+    // The struct type should be { float, float, float } not { double, double, double }.
+    let has_narrowed_type =
+        fn_ir.contains("{ float, float, float }") || fn_ir.contains("{float, float, float}");
+    assert!(
+        has_narrowed_type,
+        "expected narrowed float struct type `{{ float, float, float }}` in _ori_read_r IR — \
+         FloatColor fields with f32-exact values should be narrowed to float (f32).\n\
+         Regression guard: without float narrowing, type would be `{{ double, double, double }}`.\n\
+         IR:\n{fn_ir}"
+    );
+}
+
+/// IR semantic pin: narrowed float struct construction must insert `fptrunc double ... to float`.
+#[test]
+fn test_float_narrowed_struct_ir_pin_fptrunc_on_construction() {
+    let ir = compile_and_capture_ir(
+        r"
+type FVec2 = { x: float, y: float }
+
+@read_x (v: FVec2) -> float = v.x;
+
+@main () -> int = {
+    let v = FVec2 { x: 0.5, y: 0.25 };
+    let r = read_x(v:);
+    if r == 0.5 then 0 else 1
+}
+",
+    );
+
+    let main_ir = extract_function_ir(&ir, "_ori_main");
+
+    // The f64 constants (0.5, 0.25) are stored into narrowed f32 struct fields.
+    // LLVM may fold `fptrunc double 5.0e-1 to float` → `float 5.0e-1` at IR
+    // construction time, so we check for either explicit fptrunc or a float constant.
+    let has_fptrunc = main_ir.contains("fptrunc double");
+    let has_narrowed_const = main_ir.contains("{ float, float }");
+    assert!(
+        has_fptrunc || has_narrowed_const,
+        "expected evidence of float narrowing at construction in _ori_main — either \
+         `fptrunc double ... to float` instructions or a `{{ float, float }}` constant.\n\
+         Regression guard: without narrowing, the struct type would be `{{ double, double }}`.\n\
+         IR:\n{main_ir}"
+    );
+}
+
+/// IR semantic pin: narrowed float struct field loads must produce `fpext float ... to double`.
+#[test]
+fn test_float_narrowed_struct_ir_pin_fpext_on_field_load() {
+    let ir = compile_and_capture_ir(
+        r"
+type FVec2 = { x: float, y: float }
+
+@sum_fields (v: FVec2) -> float = v.x + v.y;
+
+@main () -> int = {
+    let v = FVec2 { x: 0.5, y: 0.25 };
+    let s = sum_fields(v:);
+    if s == 0.75 then 0 else 1
+}
+",
+    );
+
+    let fn_ir = extract_function_ir(&ir, "_ori_sum_fields");
+
+    // Narrowed float fields are f32. Loading them produces f32 values that
+    // must be extended to f64 for canonical-width arithmetic.
+    assert!(
+        fn_ir.contains("fpext float"),
+        "expected `fpext float ... to double` in _ori_sum_fields — narrowed FVec2 fields \
+         should produce f32 loads that need extension to canonical f64.\n\
+         Regression guard: if narrowing is disabled, fields stay double and no fpext appears.\n\
+         IR:\n{fn_ir}"
+    );
+}
+
+/// Negative IR semantic pin: struct with non-f32-exact values must NOT show float narrowing.
+/// `1e300` exceeds f32 range — fields must stay double.
+#[test]
+fn test_float_non_narrowed_struct_ir_pin_wide_value() {
+    let ir = compile_and_capture_ir(
+        r"
+type WideFloat = { a: float, b: float }
+
+@sum_wide (w: WideFloat) -> float = w.a + w.b;
+
+@main () -> int = {
+    let w = WideFloat { a: 1e300, b: -1e300 };
+    let s = sum_wide(w:);
+    if s == 0.0 then 0 else 1
+}
+",
+    );
+
+    let fn_ir = extract_function_ir(&ir, "_ori_sum_wide");
+
+    // Fields with values 1e300 and -1e300 exceed f32 range — no narrowing.
+    // The function should NOT contain narrowing-specific fpext instructions.
+    assert!(
+        !fn_ir.contains("fpext float"),
+        "expected NO float narrowing fpext in _ori_sum_wide — field values 1e300 \
+         and -1e300 exceed f32 range, so fields must stay double.\nIR:\n{fn_ir}"
+    );
+}
+
+/// Negative pin: float arithmetic result stored in struct field stays f64.
+/// Even if the result is f32-exact, the analysis deems arithmetic as Top.
+#[test]
+fn test_float_arithmetic_not_narrowed() {
+    let ir = compile_and_capture_ir(
+        r"
+type Result = { val: float }
+
+@compute (r: Result) -> float = r.val;
+
+@main () -> int = {
+    let x = 0.5;
+    let y = x + 0.0;
+    let r = Result { val: y };
+    let v = compute(r:);
+    if v == 0.5 then 0 else 1
+}
+",
+    );
+
+    let fn_ir = extract_function_ir(&ir, "_ori_compute");
+
+    // Arithmetic result (even if f32-exact) is marked Top by the analysis.
+    // Field should stay double — no fpext needed.
+    assert!(
+        !fn_ir.contains("fpext float"),
+        "expected NO float narrowing in _ori_compute — arithmetic results must not \
+         be narrowed (analysis conservatively marks arithmetic as Top).\nIR:\n{fn_ir}"
+    );
+}
+
+/// Negative pin: non-literal float variable stored in struct field stays f64.
+/// Only literal values are analyzed for f32-exactness.
+#[test]
+fn test_float_variable_not_narrowed() {
+    let ir = compile_and_capture_ir(
+        r"
+type Wrap = { val: float }
+
+@identity (x: float) -> float = x;
+
+@compute (w: Wrap) -> float = w.val;
+
+@main () -> int = {
+    let x = identity(x: 0.5);
+    let w = Wrap { val: x };
+    let v = compute(w:);
+    if v == 0.5 then 0 else 1
+}
+",
+    );
+
+    let fn_ir = extract_function_ir(&ir, "_ori_compute");
+
+    // Function return values are not literal-analyzed — field stays double.
+    assert!(
+        !fn_ir.contains("fpext float"),
+        "expected NO float narrowing in _ori_compute — non-literal float variable \
+         stored in struct field must stay double.\nIR:\n{fn_ir}"
+    );
+}
+
+/// IR semantic pin: mixed int+float narrowed struct.
+/// Int field in [0, 255] → i16, float field with f32-exact → float.
+/// Verifies combined §04+§05 narrowing in one struct.
+#[test]
+fn test_mixed_int_float_narrowed_struct() {
+    let ir = compile_and_capture_ir(
+        r"
+type Particle = { mass: float, health: int }
+
+@read_mass (p: Particle) -> float = p.mass;
+
+@main () -> int = {
+    let p = Particle { mass: 0.5, health: 100 };
+    let m = read_mass(p:);
+    if m == 0.5 && p.health == 100 then 0 else 1
+}
+",
+    );
+
+    let fn_ir = extract_function_ir(&ir, "_ori_read_mass");
+
+    // Health [100, 100] narrows to i8 (§04), mass 0.5 narrows to float (§05).
+    // The struct type should be { float, i8 } — both fields narrowed.
+    // Note: the function return type is `double` (canonical f64), which is correct —
+    // only the struct storage uses the narrowed float type.
+    let has_narrowed_struct = fn_ir.contains("{ float, i8 }") || fn_ir.contains("{float, i8}");
+    assert!(
+        has_narrowed_struct,
+        "expected narrowed struct type `{{ float, i8 }}` in _ori_read_mass IR — \
+         Particle.mass (f32-exact 0.5) → float, Particle.health [100,100] → i8.\n\
+         Combined §04+§05 narrowing pin.\nIR:\n{fn_ir}"
+    );
+}
+
+/// Negative IR pin: `#repr("c")` struct with f32-exact fields must NOT be narrowed.
+/// C ABI compatibility requires canonical double layout.
+#[test]
+fn test_float_repr_c_not_narrowed() {
+    let ir = compile_and_capture_ir(
+        r#"
+#[repr("c")]
+type CPoint = { x: float, y: float }
+
+@read_x (p: CPoint) -> float = p.x;
+
+@main () -> int = {
+    let p = CPoint { x: 0.5, y: 0.25 };
+    let v = read_x(p:);
+    if v == 0.5 then 0 else 1
+}
+"#,
+    );
+
+    let fn_ir = extract_function_ir(&ir, "_ori_read_x");
+
+    // #repr("c") structs must preserve ABI — no narrowing. Fields stay double.
+    assert!(
+        !fn_ir.contains("fpext float"),
+        "expected NO float narrowing in #repr(\"c\") struct _ori_read_x — \
+         C ABI requires canonical double layout. Fields must stay double.\nIR:\n{fn_ir}"
+    );
+}
+
+// ---- §05 Derive Semantic Pins for Float Narrowing ----
+//
+// These tests verify that derived traits (Printable, Debug, Hashable) work
+// correctly with narrowed float struct fields. The derive codegen must extend
+// narrowed f32 fields back to canonical f64 before calling runtime functions.
+
+/// Semantic pin: derived `to_str()` on narrowed float struct fields.
+/// The string representation MUST show "0.5", not garbage from ABI mismatch.
+/// This is the regression test for TPR-05-001.
+#[test]
+fn test_float_narrowed_derive_printable() {
+    assert_aot_success(
+        r#"
+#[derive(Printable)]
+type FPoint = { x: float, y: float }
+
+@main () -> int = {
+    let p = FPoint { x: 0.5, y: 0.25 };
+    let s = p.to_str();
+    let has_05 = s.contains(substr: "0.5");
+    let has_025 = s.contains(substr: "0.25");
+    if has_05 && has_025 then 0 else 1
+}
+"#,
+        "float_narrowed_derive_printable",
+    );
+}
+
+/// Semantic pin: derived `debug()` on narrowed float struct fields.
+/// Same as Printable but for the Debug trait. The debug representation
+/// MUST show the correct float values.
+#[test]
+fn test_float_narrowed_derive_debug() {
+    assert_aot_success(
+        r#"
+#[derive(Debug)]
+type FColor = { r: float, g: float, b: float }
+
+@main () -> int = {
+    let c = FColor { r: 0.5, g: 0.25, b: 1.0 };
+    let s = c.debug();
+    let has_05 = s.contains(substr: "0.5");
+    let has_025 = s.contains(substr: "0.25");
+    // Runtime formats 1.0 as "1" (no trailing .0)
+    let has_b = s.contains(substr: "b: 1");
+    if has_05 && has_025 && has_b then 0 else 1
+}
+"#,
+        "float_narrowed_derive_debug",
+    );
+}
+
+/// Semantic pin: derived `hash()` on narrowed float struct fields.
+/// Two structs with identical f32-exact values must produce the same hash.
+/// A struct with different values must produce a different hash.
+#[test]
+fn test_float_narrowed_derive_hash() {
+    assert_aot_success(
+        r"
+#[derive(Eq, Hashable)]
+type FPair = { x: float, y: float }
+
+@main () -> int = {
+    let a = FPair { x: 0.5, y: 0.25 };
+    let b = FPair { x: 0.5, y: 0.25 };
+    let c = FPair { x: 1.0, y: 0.0 };
+    let same = a.hash() == b.hash();
+    let diff = a.hash() != c.hash();
+    if same && diff then 0 else 1
+}
+",
+        "float_narrowed_derive_hash",
+    );
+}
+
+/// Semantic pin: derived Eq on narrowed float struct fields.
+/// Equality must work correctly when fields are stored as f32.
+#[test]
+fn test_float_narrowed_derive_eq() {
+    assert_aot_success(
+        r"
+#[derive(Eq)]
+type FVec = { x: float, y: float }
+
+@main () -> int = {
+    let a = FVec { x: 0.5, y: 0.25 };
+    let b = FVec { x: 0.5, y: 0.25 };
+    let c = FVec { x: 1.0, y: 0.0 };
+    let ok1 = a == b;
+    let ok2 = a != c;
+    if ok1 && ok2 then 0 else 1
+}
+",
+        "float_narrowed_derive_eq",
+    );
+}
+
+/// Semantic pin: derived Comparable on narrowed float struct fields.
+/// Comparisons (via `compare()` → `Ordering`) must work correctly with f32 storage.
+#[test]
+fn test_float_narrowed_derive_comparable() {
+    assert_aot_success(
+        r"
+#[derive(Eq, Comparable)]
+type Measure = { value: float }
+
+@main () -> int = {
+    let a = Measure { value: 0.25 };
+    let b = Measure { value: 0.5 };
+    let ok1 = a < b;
+    let ok2 = b > a;
+    let ok3 = a <= a;
+    if ok1 && ok2 && ok3 then 0 else 1
+}
+",
+        "float_narrowed_derive_comparable",
+    );
+}
+
+/// IR semantic pin: derive Printable codegen must contain `fpext float` to widen
+/// narrowed fields before calling `ori_str_from_float(double)`.
+/// This directly verifies the TPR-05-001 fix at the IR level.
+#[test]
+fn test_float_narrowed_derive_ir_pin_fpext_in_printable() {
+    let ir = compile_and_capture_ir(
+        r#"
+#[derive(Printable)]
+type FmtFloat = { x: float }
+
+@format_it (f: FmtFloat) -> str = f.to_str();
+
+@main () -> int = {
+    let f = FmtFloat { x: 0.5 };
+    let s = format_it(f:);
+    if s.contains(substr: "0.5") then 0 else 1
+}
+"#,
+    );
+
+    // The derive Printable function must fpext narrowed float fields to double
+    // before calling ori_str_from_float. Without the fix, LLVM verification fails.
+    let has_fpext = ir.contains("fpext float");
+    assert!(
+        has_fpext,
+        "expected `fpext float ... to double` in derive Printable IR for narrowed float \
+         struct — derive codegen must widen f32 fields to f64 before ori_str_from_float.\n\
+         TPR-05-001 regression guard.\nFull IR length: {} chars",
+        ir.len()
+    );
+}

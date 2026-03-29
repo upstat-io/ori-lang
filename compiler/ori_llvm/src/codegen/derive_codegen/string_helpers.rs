@@ -114,9 +114,14 @@ pub(super) fn emit_field_to_string<'a>(
                 .unwrap_or_else(|| emit_str_literal(fc, "<int>", name, str_ty_id))
         }
         TypeInfo::Float => {
+            // §05 float narrowing may produce f32 struct fields —
+            // fpext back to canonical f64 for the runtime formatting call.
+            let widened = fc
+                .builder_mut()
+                .fpext_to_f64_if_narrower(val, &format!("{name}.fpext"));
             let f = fc.builder_mut().runtime_fn("ori_str_from_float");
             fc.builder_mut()
-                .call_with_sret(f, &[val], str_ty_id, name)
+                .call_with_sret(f, &[widened], str_ty_id, name)
                 .unwrap_or_else(|| emit_str_literal(fc, "<float>", name, str_ty_id))
         }
         TypeInfo::Bool => {

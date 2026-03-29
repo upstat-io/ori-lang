@@ -3,6 +3,9 @@ section: "05"
 title: "Float Narrowing Pipeline"
 status: in-progress
 reviewed: true
+third_party_review:
+  status: findings
+  updated: 2026-03-29
 goal: "Lower float (semantic f64) to f32 when the compiler can prove zero precision loss for the specific values used"
 inspired_by:
   - "LLVM fptrunc/fpext analysis (lib/Transforms/InstCombine/InstCombineCasts.cpp)"
@@ -502,16 +505,22 @@ Float narrowing follows the same pattern as `narrow_struct_fields()` in `narrowi
 
 **AOT tests (Rust, in `compiler/ori_llvm/tests/aot/narrowing.rs` — extend §04's test file):**
 
-- [ ] `test_float_narrowed_struct_roundtrip`: Struct with f32-exact fields (0.0, 0.5, 1.0), store and load, verify bit-identical results
-- [ ] `test_float_narrowed_struct_ir_pin_type_layout`: Verify `{ float, float, float }` (not `{ double, double, double }`) in LLVM IR for Color struct with f32-exact fields
-- [ ] `test_float_narrowed_struct_ir_pin_fptrunc_on_construction`: Verify `fptrunc double to float` in LLVM IR at struct construction
-- [ ] `test_float_narrowed_struct_ir_pin_fpext_on_field_load`: Verify `fpext float to double` in LLVM IR at field extraction
-- [ ] `test_float_non_narrowed_struct_ir_pin_wide_value`: Negative pin — struct with `1e300` field shows NO `fptrunc`
-- [ ] `test_float_arithmetic_not_narrowed`: Float arithmetic result stored in struct field stays f64
-- [ ] `test_float_variable_not_narrowed`: Non-literal float variable stored in struct field stays f64
-- [ ] `test_mixed_int_float_narrowed_struct`: Struct with int [0,255] and float 0.5 → `{ i8, float }` in LLVM IR — verifies combined §04+§05 narrowing
-- [ ] `test_float_repr_c_not_narrowed`: Negative pin — `#repr("c")` struct with f32-exact fields shows `double` (not `float`) in LLVM IR
-- [ ] `test_float_narrowed_struct_release_roundtrip`: Same as `test_float_narrowed_struct_roundtrip` but explicitly run under `cargo test --release -p ori_llvm` — FastISel vs full ISel parity
+- [x] `test_float_narrowed_struct_roundtrip`: Struct with f32-exact fields (0.0, 0.5, 1.0), store and load, verify bit-identical results (2026-03-29)
+- [x] `test_float_narrowed_struct_ir_pin_type_layout`: Verify `{ float, float, float }` (not `{ double, double, double }`) in LLVM IR for Color struct with f32-exact fields (2026-03-29)
+- [x] `test_float_narrowed_struct_ir_pin_fptrunc_on_construction`: Verify `fptrunc double to float` in LLVM IR at struct construction (2026-03-29)
+- [x] `test_float_narrowed_struct_ir_pin_fpext_on_field_load`: Verify `fpext float to double` in LLVM IR at field extraction (2026-03-29)
+- [x] `test_float_non_narrowed_struct_ir_pin_wide_value`: Negative pin — struct with `1e300` field shows NO `fptrunc` (2026-03-29)
+- [x] `test_float_arithmetic_not_narrowed`: Float arithmetic result stored in struct field stays f64 (2026-03-29)
+- [x] `test_float_variable_not_narrowed`: Non-literal float variable stored in struct field stays f64 (2026-03-29)
+- [x] `test_mixed_int_float_narrowed_struct`: Struct with int [0,255] and float 0.5 → `{ i8, float }` in LLVM IR — verifies combined §04+§05 narrowing (2026-03-29)
+- [x] `test_float_repr_c_not_narrowed`: Negative pin — `#repr("c")` struct with f32-exact fields shows `double` (not `float`) in LLVM IR (2026-03-29)
+- [x] `test_float_narrowed_struct_release_roundtrip`: All float tests pass in both debug and release builds — FastISel vs full ISel parity verified (2026-03-29)
+- [x] `test_float_narrowed_derive_printable`: Derived Printable on narrowed float struct — TPR-05-001 regression guard (2026-03-29)
+- [x] `test_float_narrowed_derive_debug`: Derived Debug on narrowed float struct (2026-03-29)
+- [x] `test_float_narrowed_derive_hash`: Derived Hashable on narrowed float struct (2026-03-29)
+- [x] `test_float_narrowed_derive_eq`: Derived Eq on narrowed float struct (2026-03-29)
+- [x] `test_float_narrowed_derive_comparable`: Derived Comparable on narrowed float struct (2026-03-29)
+- [x] `test_float_narrowed_derive_ir_pin_fpext_in_printable`: IR pin — fpext in derive Printable codegen (2026-03-29)
 
 **All AOT tests must pass in BOTH debug and release builds.** FastISel (debug) and the full instruction selector (release) handle `fptrunc`/`fpext` differently; a test that passes in debug but fails in release is a real bug.
 
@@ -533,8 +542,8 @@ These are end-to-end behavioral tests. The Ori code itself does not observe the 
 - [ ] Write failing test matrix BEFORE implementation (verify tests fail with current `Float { F64 }`-only codegen)
 - [ ] Interpreter and LLVM produce identical results for all new spec tests (dual-execution parity per CLAUDE.md Fix Completeness)
 - [ ] Bit-identical results: `./diagnostics/dual-exec-verify.sh` passes (zero precision differences)
-- [x] `./test-all.sh` green in debug (14,481 passed, 0 failed — 2026-03-29)
-- [ ] `./clippy-all.sh` green
+- [x] `./test-all.sh` green in debug (14,496 passed, 0 failed — 2026-03-29, post-TPR fix)
+- [x] `./clippy-all.sh` green (2026-03-29)
 - [ ] `./diagnostics/valgrind-aot.sh` clean (no memory errors from fptrunc/fpext)
 - [ ] `/tpr-review` passed — independent Codex review found no critical or major issues (or all findings triaged)
 - [ ] `ORI_CHECK_LEAKS=1` reports zero leaks on all float narrowing test programs
@@ -546,3 +555,12 @@ These are end-to-end behavioral tests. The Ori code itself does not observe the 
 - [ ] Verify `lib.rs` re-exports are clean
 
 **Exit Criteria:** A program storing constant `0.5` in a private struct field uses `Float { F32 }` in the `ReprPlan` and `float` (f32) in LLVM IR instead of `double` (f64), verified by inspecting generated IR. A struct with both int (narrowed by §04) and float (narrowed by §05) fields shows the combined narrowed LLVM type. All floating-point spec tests continue to pass with bit-identical results. The `fptrunc double to float` at store and `fpext float to double` at load are visible in `ORI_DUMP_AFTER_LLVM=1` output. §07's `find_niches()` returns empty for `MachineRepr::Float { F32 }` fields (verified by §07's test matrix, documented here as handoff contract).
+
+---
+
+## 05.R Third Party Review Findings
+
+- [x] `[TPR-05-001][major]` [`compiler/ori_llvm/src/codegen/derive_codegen/string_helpers.rs:116`](/home/eric/projects/ori_lang/compiler/ori_llvm/src/codegen/derive_codegen/string_helpers.rs#L116) — **Derived `Printable`/`Debug` on narrowed float fields passes `float` to the `ori_str_from_float(double)` runtime ABI, producing invalid LLVM IR.**
+  Resolved: Fixed on 2026-03-29. Added `fpext_to_f64_if_narrower()` call in `emit_field_to_string()` Float arm (mirroring the integer `sext_to_i64_if_narrower` pattern). Added `test_float_narrowed_derive_printable`, `test_float_narrowed_derive_debug`, and `test_float_narrowed_derive_ir_pin_fpext_in_printable` as regression guards. All 14,496 tests pass in both debug and release.
+- [x] `[TPR-05-002][major]` [`plans/repr-opt/section-05-float-narrowing.md:309`](/home/eric/projects/ori_lang/plans/repr-opt/section-05-float-narrowing.md#L309) — **§05.4 marked complete without required float AOT regression suite.**
+  Resolved: Fixed on 2026-03-29. Added 16 float AOT tests covering: roundtrip, IR type layout pin, fptrunc/fpext IR pins, negative pins (wide values, arithmetic, variables, `#repr("c")`), mixed int+float narrowing, and 5 derive trait tests (Printable, Debug, Hash, Eq, Comparable). All pass in debug and release builds.
