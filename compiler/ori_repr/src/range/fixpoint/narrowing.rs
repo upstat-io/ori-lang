@@ -11,7 +11,9 @@ use ori_arc::ArcVarId;
 use ori_types::Pool;
 use rustc_hash::FxHashMap;
 
-use super::super::field_summary::{update_field_summaries, FieldSummaryTable};
+use super::super::field_summary::{
+    update_element_summaries, update_field_summaries, ElementSummaryTable, FieldSummaryTable,
+};
 use super::super::transfer::{transfer, transfer_known_call, TransferContext};
 use super::super::{is_int_typed, ValueRange};
 use super::{apply_block_refinements, narrow, restore_block_refinements};
@@ -147,6 +149,24 @@ pub(super) fn recompute_field_summaries(
     for &block_idx in rpo {
         for instr in &func.blocks[block_idx].body {
             update_field_summaries(instr, ranges, &func.var_types, pool, field_summary_table);
+        }
+    }
+}
+
+/// Recompute element summaries from final (post-narrowing) variable ranges.
+///
+/// Same rationale as `recompute_field_summaries` — see TPR-03-016.
+pub(super) fn recompute_element_summaries(
+    rpo: &[usize],
+    func: &ArcFunction,
+    pool: &Pool,
+    ranges: &FxHashMap<ArcVarId, ValueRange>,
+    element_summary_table: &mut ElementSummaryTable,
+) {
+    element_summary_table.clear();
+    for &block_idx in rpo {
+        for instr in &func.blocks[block_idx].body {
+            update_element_summaries(instr, ranges, &func.var_types, pool, element_summary_table);
         }
     }
 }

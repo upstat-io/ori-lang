@@ -217,6 +217,7 @@ pub fn propagate_ranges(
     }
     for result in results.values() {
         result.field_summaries.flush_to_repr_plan(plan);
+        result.element_summaries.flush_to_repr_plan(plan);
     }
 
     // Phase 5: Merge interprocedural parameter ranges into ReprPlan.

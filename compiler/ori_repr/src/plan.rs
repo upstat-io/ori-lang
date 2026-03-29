@@ -99,6 +99,13 @@ pub struct ReprPlan {
     /// Populated by §03.2b (`FieldSummaryTable::flush_to_repr_plan`),
     /// consumed by §04 (struct field narrowing).
     field_range_summaries: FxHashMap<(Idx, u32), ValueRange>,
+    /// Per-collection-type element range summaries from §03 element analysis.
+    ///
+    /// Key: collection type `Idx` (e.g., `[int]`) → joined `ValueRange` of
+    /// all observed element values across `Construct(ListLiteral)` and
+    /// `CollectionReuse` sites. Consumed by §04 Phase C (collection element
+    /// narrowing).
+    element_range_summaries: FxHashMap<Idx, ValueRange>,
     /// Audit trail — all decisions in insertion order.
     audit: Vec<ReprDecision>,
     /// Narrowing policy controlling optimization aggressiveness.
@@ -146,6 +153,7 @@ impl ReprPlan {
             escape_info: FxHashMap::default(),
             function_var_ranges: FxHashMap::default(),
             field_range_summaries: FxHashMap::default(),
+            element_range_summaries: FxHashMap::default(),
             audit: Vec::new(),
             narrowing_policy: policy,
             pub_type_indices: FxHashSet::default(),
@@ -223,6 +231,29 @@ impl ReprPlan {
     pub fn field_range(&self, idx: Idx, field: u32) -> ValueRange {
         self.field_range_summaries
             .get(&(idx, field))
+            .copied()
+            .unwrap_or_default()
+    }
+
+    /// Join an element range into the persistent summary for a collection type.
+    ///
+    /// Called by `ElementSummaryTable::flush_to_repr_plan()` after the
+    /// fixpoint completes for each function. Multiple functions accumulate
+    /// evidence by joining (not overwriting).
+    pub fn join_element_range(&mut self, collection_idx: Idx, range: ValueRange) {
+        self.element_range_summaries
+            .entry(collection_idx)
+            .and_modify(|existing| *existing = existing.join(range))
+            .or_insert(range);
+    }
+
+    /// Query the aggregated element range for a collection type.
+    ///
+    /// Returns `Top` if no construction sites were observed for this collection.
+    #[must_use]
+    pub fn element_range(&self, collection_idx: Idx) -> ValueRange {
+        self.element_range_summaries
+            .get(&collection_idx)
             .copied()
             .unwrap_or_default()
     }

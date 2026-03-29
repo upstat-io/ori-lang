@@ -429,19 +429,19 @@ fn analyze_ranges(
 /// §04: Integer narrowing (i64 → i32/i16/i8 when range fits).
 ///
 /// Phase A: Struct/tuple field narrowing from field-range summaries.
-/// Phase B (future §04.2–§04.3): Local variable narrowing + overflow guards.
-/// Phase C (future §04.4): Collection element narrowing.
+/// Phase B: Local variable narrowing + overflow guards.
+/// Phase C: Collection element narrowing.
 fn apply_integer_narrowing(plan: &mut ReprPlan, pool: &Pool) {
     // Gate: only narrow when the full §04 pipeline is safe for codegen.
-    // Phase A (field narrowing) produces narrowed MachineRepr::Int widths
-    // that codegen consumes for struct layouts, trunc/sext, and phi nodes.
-    // Without §04.2 (ABI widening) and §04.3 (overflow guards), narrowed
-    // widths are unsound. Range analysis (§03) is always safe — it only
-    // populates function_var_ranges and field_range_summaries.
+    // Narrowing produces MachineRepr::Int widths that codegen consumes for
+    // struct layouts, trunc/sext, phi nodes, and collection GEP strides.
+    // Range analysis (§03) is always safe — it only populates
+    // function_var_ranges, field_range_summaries, and element_range_summaries.
     if !plan.is_integer_narrowing_safe_for_codegen() {
         return;
     }
     narrowing::int::narrow_struct_fields(plan, pool);
+    narrowing::int::narrow_collection_elements(plan, pool);
 }
 
 /// §05: Float narrowing (f64 → f32 when precision is exact).

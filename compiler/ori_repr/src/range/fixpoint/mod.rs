@@ -27,10 +27,15 @@ use ori_arc::{ArcBlockId, ArcVarId};
 use ori_types::Pool;
 use rustc_hash::{FxHashMap, FxHashSet};
 
-use super::field_summary::{update_field_summaries, FieldSummaryTable};
+use super::field_summary::{
+    update_element_summaries, update_field_summaries, ElementSummaryTable, FieldSummaryTable,
+};
 use super::transfer::{transfer, TransferContext};
 use super::{RangeAnalysisConfig, ValueRange};
-use narrowing::{recompute_field_summaries, recompute_return_range, run_narrowing_pass};
+use narrowing::{
+    recompute_element_summaries, recompute_field_summaries, recompute_return_range,
+    run_narrowing_pass,
+};
 use terminator::process_terminator;
 use ValueRange::{Bottom, Bounded, Top};
 
@@ -110,6 +115,8 @@ pub struct RangeFixpointResult {
     pub var_ranges: FxHashMap<ArcVarId, ValueRange>,
     /// Field-level range summaries from `Construct` instructions.
     pub field_summaries: FieldSummaryTable,
+    /// Element-level range summaries from collection construction/reuse sites.
+    pub element_summaries: ElementSummaryTable,
     /// Join of all `Return` terminator value ranges (for §03.5 interprocedural).
     pub return_range: ValueRange,
     /// Conditional refinements at block entries (from Branch/Switch terminators).
@@ -285,6 +292,7 @@ pub(super) fn restore_block_refinements(
 struct FixpointState {
     ranges: FxHashMap<ArcVarId, ValueRange>,
     field_summary_table: FieldSummaryTable,
+    element_summary_table: ElementSummaryTable,
     block_refinements: FxHashMap<(ArcBlockId, ArcVarId), ValueRange>,
     return_range: ValueRange,
 }
@@ -365,6 +373,13 @@ fn run_forward_iteration(
                 &func.var_types,
                 pool,
                 &mut state.field_summary_table,
+            );
+            update_element_summaries(
+                instr,
+                &state.ranges,
+                &func.var_types,
+                pool,
+                &mut state.element_summary_table,
             );
             let ctx = TransferContext {
                 ranges: &state.ranges,
@@ -456,6 +471,13 @@ fn run_post_fixpoint_narrowing(
         &state.ranges,
         &mut state.field_summary_table,
     );
+    recompute_element_summaries(
+        rpo,
+        func,
+        pool,
+        &state.ranges,
+        &mut state.element_summary_table,
+    );
 
     // TPR-03-022: Final narrowing pass with recomputed field summaries.
     run_narrowing_pass(
@@ -476,6 +498,7 @@ fn run_post_fixpoint_narrowing(
     RangeFixpointResult {
         var_ranges: state.ranges.clone(),
         field_summaries: std::mem::take(&mut state.field_summary_table),
+        element_summaries: std::mem::take(&mut state.element_summary_table),
         return_range,
         block_refinements: state.block_refinements.clone(),
     }
@@ -553,6 +576,7 @@ pub fn range_fixpoint(
         return RangeFixpointResult {
             var_ranges: FxHashMap::default(),
             field_summaries: FieldSummaryTable::new(),
+            element_summaries: ElementSummaryTable::new(),
             return_range: Top,
             block_refinements: FxHashMap::default(),
         };
@@ -567,6 +591,7 @@ pub fn range_fixpoint(
     let mut state = FixpointState {
         ranges: FxHashMap::default(),
         field_summary_table: FieldSummaryTable::new(),
+        element_summary_table: ElementSummaryTable::new(),
         block_refinements: FxHashMap::default(),
         return_range: Bottom,
     };
