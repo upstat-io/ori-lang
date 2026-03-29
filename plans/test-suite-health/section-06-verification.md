@@ -174,5 +174,6 @@ Install mechanisms to prevent both LCFail count and test performance from regres
 - [ ] Update process documented
 - [ ] `timeout 150 cargo t` green
 - [ ] `./test-all.sh` green
+- [ ] `/tpr-review` passed — independent Codex review found no critical or major issues (or all findings triaged)
 
 **Exit Criteria:** Running `./scripts/bench-tests.sh` reports wall time ≤30s with consistent results. The LCFail count is accurately tracked in the roadmap with a clear path to zero. Regression guards will alert if either metric backslides. The plan is complete.

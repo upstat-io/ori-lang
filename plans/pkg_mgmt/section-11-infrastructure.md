@@ -161,5 +161,6 @@ sections:
 - [ ] Advisory database working
 - [ ] Monitoring in place
 - [ ] Production deployment
+- [ ] `/tpr-review` passed — independent Codex review found no critical or major issues (or all findings triaged)
 
 **Exit Criteria**: Registry running on Cloudflare

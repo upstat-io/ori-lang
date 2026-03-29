@@ -24,6 +24,9 @@ When you see two possible fixes — one simpler and one more correct — the sim
 - **ZERO DEFERRAL on bugs** — when you discover a bug, issue, leak, performance problem, or anything broken: (1) IMMEDIATELY add it to your todo list, (2) fix it NOW in this session. No "tracked for later", no "known issue", no "pre-existing", no "separate fix needed". The discovery IS the assignment. There are zero valid reasons to defer — not scope, not complexity, not "it was already broken". If you found it, you fix it. **Pre-existing bugs MUST be fixed immediately** — "pre-existing" is diagnosis only, never justification for skipping.
 - **Comments are NOT documentation** — a code comment (`//`, `#[ignore = "..."]`, TODO) is non-visible and non-actionable. It does NOT count as documenting an issue. Discovered bugs that cannot be fixed immediately MUST be added to the active plan or roadmap as `- [ ]` checkbox items. A comment alone is NEVER sufficient — comments are invisible to the planning system.
 - **Tests that expose bugs = bugs found** — when writing tests (especially matrix tests), a failing test IS a bug discovery. Do NOT "fix the test to work around the bug" or say "this is a separate bug" and continue writing more tests. The moment a test reveals a bug: (1) STOP writing more tests, (2) add a `- [ ]` item to the active plan with the bug description, affected tests, and error category, (3) THEN decide whether to fix it now or continue testing. Rewriting a test to avoid a compiler bug without recording the bug is deferral — the test's purpose is to find bugs, and the bugs are the deliverable. "Completing the test matrix" is NOT more important than recording what the matrix found.
+- **Proactive bug filing with `/add-bug`** — when you encounter ANY bug not related to your current task, invoke `/add-bug` immediately. Do NOT gloss over it as "not related", note it mentally and move on, or say "separate issue" without filing. If in doubt, file it — verification happens at `/review-bugs` time. A false positive costs nothing; a missed bug costs everything. Triggers: unrelated test failures, suspicious behavior, spec/impl mismatches, wrong error messages, fixable `#skip` reasons, TODO/FIXME describing unfixed bugs.
+- **NEVER reason out of TPR findings** — when `/tpr-review` or `/review-work` surfaces a finding, the ONLY valid responses are: (1) fix it NOW, or (2) create a concrete implementation plan and execute it. You are NEVER permitted to dismiss findings as "pre-existing", "architectural limitation", "out of scope", "conservative/safe", "not a regression", or "future improvement". Marking a finding as resolved with a scope note or rationalization is DEFERRAL. The size of the fix is irrelevant — if the correct fix requires cross-crate refactoring, that IS the work. If genuinely blocked (need user decision, missing domain knowledge), use `AskUserQuestion` immediately.
+- **"Future improvement" MUST be concretely tracked** — NEVER say "tracked as future improvement" without creating a concrete artifact in the same response: a bug-tracker entry (`/add-bug`), plan section `- [ ]` item, or roadmap checkbox. Ask: "When would this get done? Who would find it?" If the answer is nobody/never, fix it now or `AskUserQuestion`. Empty promises are deferral.
 - **When unsure, STOP and ASK** — don't guess or assume
 - **Fact-check** against spec. Consult `~/projects/reference_repos/lang_repos/` (Rust, Go, Zig, TS, Gleam, Elm, Roc, Swift, Koka, Lean 4).
 - **If you can't do it right, say so** — communicate blockers, don't ship bad code
@@ -39,18 +42,24 @@ NEVER fix without tests first:
    - **Edge cases**: empty, single-element, boundary conditions
    - **Cross-type coverage**: if the fix is type-dependent, test ALL relevant types through the same code path (e.g., str, [int], Option<str>, closures, structs, maps, sets)
    - **Cross-pattern coverage**: if the fix is pattern-dependent, test ALL relevant control-flow patterns (e.g., full iteration, break, yield, guard, nested, two-call)
+   - **Cross-feature coverage**: test interactions with other features that flow through the same code path (e.g., closures, generics, `?`, pattern matching, traits — see `.claude/rules/tests.md` §Interaction Testing)
    - **Semantic pin**: at least one test that ONLY passes with the new semantics — this is the permanent regression guard
+   - **Negative pin**: at least one test that REJECTS the old/broken behavior — proves the compiler actively prevents regression
 4. **Verify tests fail** — if they pass, you misunderstand the bug
 5. **Fix the code** — choose the most correct fix, not the simplest one
 6. **Tests pass unchanged** — needing to change tests = wrong tests or wrong fix
-7. **Verify matrix completeness** — missing cells in the type x pattern matrix are future regressions
+7. **Verify matrix completeness** — missing cells in the type × pattern × feature matrix are future regressions
 
 ## Fix Completeness
 
 A fix is NOT done until ALL of these are true:
-- Matrix tests cover every type and pattern that flows through the changed code path
+- Matrix tests cover every type × pattern × feature interaction that flows through the changed code path
 - At least one semantic pin test exists that would fail if the fix is reverted
+- At least one negative pin rejects the broken behavior
+- Positive + negative pairing: every "should work" has a corresponding "should fail"
 - Debug AND release builds pass (FastISel behavior differs)
+- Interpreter and LLVM produce identical results for all new tests (dual-execution parity)
+- `ORI_CHECK_LEAKS=1` reports zero leaks on all test programs (for memory-touching fixes)
 - Plan/roadmap updated if the fix crosses section boundaries
 - The fix is architecturally correct — not merely functional. A workaround that passes tests is not a fix.
 

@@ -1154,3 +1154,107 @@ type Triple = { a: str, b: str, c: str }
         );
     }
 }
+
+// ─── Trivial inline enum ARC elision (§02 TPR-02-008) ───
+
+/// §02 regression pin: trivial `Option<int>` must emit NO `ori_rc_inc`,
+/// `ori_rc_dec`, or `_ori_drop$` in the generated LLVM IR. This proves
+/// that the transitive triviality classification correctly identifies
+/// `Option<int>` as trivial and elides all ARC operations.
+#[test]
+fn test_trivial_option_int_no_rc_ops() {
+    let ir = compile_and_capture_ir(
+        r#"
+@main () -> int = {
+    let $x = Some(42);
+    match x {
+        Some(v) -> v,
+        None -> 0
+    }
+}
+"#,
+    );
+    let main_ir = extract_function_ir(&ir, "_ori_main");
+    assert!(
+        !main_ir.contains("ori_rc_inc"),
+        "Trivial Option<int> should NOT emit ori_rc_inc:\n{main_ir}"
+    );
+    assert!(
+        !main_ir.contains("ori_rc_dec"),
+        "Trivial Option<int> should NOT emit ori_rc_dec:\n{main_ir}"
+    );
+    assert!(
+        !ir.contains("_ori_drop$"),
+        "Trivial Option<int> should NOT generate a drop function:\n{ir}"
+    );
+}
+
+/// §02 regression pin: trivial `Result<int, int>` must emit NO RC ops.
+/// Both `Ok` and `Err` payloads are trivial scalars.
+#[test]
+fn test_trivial_result_int_int_no_rc_ops() {
+    let ir = compile_and_capture_ir(
+        r#"
+@main () -> int = {
+    let $x: Result<int, int> = Ok(100);
+    match x {
+        Ok(v) -> v,
+        Err(e) -> e
+    }
+}
+"#,
+    );
+    let main_ir = extract_function_ir(&ir, "_ori_main");
+    assert!(
+        !main_ir.contains("ori_rc_inc"),
+        "Trivial Result<int, int> should NOT emit ori_rc_inc:\n{main_ir}"
+    );
+    assert!(
+        !main_ir.contains("ori_rc_dec"),
+        "Trivial Result<int, int> should NOT emit ori_rc_dec:\n{main_ir}"
+    );
+}
+
+/// §02 negative pin: non-trivial `Option<str>` MUST emit RC ops.
+/// `str` is heap-allocated with RC, so `Option<str>` is non-trivial.
+/// This is the companion to `test_trivial_option_int_no_rc_ops`.
+#[test]
+fn test_nontrivial_option_str_has_rc_ops() {
+    let ir = compile_and_capture_ir(
+        r#"
+@main () -> int = {
+    let $x = Some("hello");
+    match x {
+        Some(v) -> len(collection: v),
+        None -> 0
+    }
+}
+"#,
+    );
+    // Non-trivial Option<str> must have RC operations somewhere in the IR.
+    assert!(
+        ir.contains("ori_rc_dec") || ir.contains("_ori_drop$"),
+        "Non-trivial Option<str> MUST emit RC ops or drop functions:\n{ir}"
+    );
+}
+
+/// §02 negative pin: non-trivial `Result<int, str>` MUST emit RC ops.
+/// The `Err` variant payload is `str` (non-trivial).
+#[test]
+fn test_nontrivial_result_int_str_has_rc_ops() {
+    let ir = compile_and_capture_ir(
+        r#"
+@main () -> int = {
+    let $x: Result<int, str> = Ok(42);
+    match x {
+        Ok(v) -> v,
+        Err(_) -> -1
+    }
+}
+"#,
+    );
+    assert!(
+        ir.contains("ori_rc_dec") || ir.contains("_ori_drop$"),
+        "Non-trivial Result<int, str> MUST emit RC ops or drop functions:\n{ir}"
+    );
+}

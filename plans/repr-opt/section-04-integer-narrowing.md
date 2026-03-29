@@ -4,9 +4,9 @@ title: "Integer Narrowing Pipeline"
 status: in-progress
 reviewed: true
 third_party_review:
-  status: resolved
-  updated: 2026-03-27
-  triage_note: "All TPR findings resolved. TPR-04-023 accepted: straight-line local narrowing tasks added to Phase B. Prior: TPR-04-018→IR-PIN-04-018, TPR-04-019→MIXED-PIN-04-019, TPR-04-020→DERIVE-PIN-04-020, TPR-04-021 (Debug str leak), TPR-04-022 (stale Debug known_gap). CROSS-04-017 remains accepted follow-up in §04.X."
+  status: findings
+  updated: 2026-03-28
+  triage_note: "Open finding: TPR-04-025 (emit_function.rs exceeds the 500-line source-file limit). Previously resolved: TPR-04-024 accepted on 2026-03-28 (Select narrowing tasks added to §04.4), TPR-04-023 accepted (straight-line local narrowing tasks), TPR-04-018→IR-PIN-04-018, TPR-04-019→MIXED-PIN-04-019, TPR-04-020→DERIVE-PIN-04-020, TPR-04-021 (Debug str leak), TPR-04-022 (stale Debug known_gap). CROSS-04-017 remains accepted follow-up in §04.X."
 goal: "Lower int (semantic i64) to the smallest machine integer (i8/i16/i32) that preserves correctness, saving memory in struct fields, collections, and stack slots"
 inspired_by:
   - "Zig comptime_int narrowing to runtime types (src/Sema.zig)"
@@ -205,9 +205,9 @@ The LLVM backend type resolution path via `TypeLayoutResolver` handles `MachineR
 
 - [x] `[MIXED-PIN-04-019]` **Negative semantic pin for mixed-field struct rejection** (2026-03-27, from TPR-04-019). `test_mixed_field_struct_ir_pin_no_narrowing` in `narrowing.rs` — verifies `Record { count: int, name: str, active: bool }` with count in i8 range does NOT show `sext i8` in the `_ori_read_count` function IR, confirming `try_lower_narrowed_aggregate()` rejects mixed-type structs.
 
-- [ ] Handle comparison operations correctly:
-  - Signed comparison (`icmp slt`) on narrow types is correct for signed narrowing
-  - Unsigned narrowing (future, for byte → int) needs `zext` not `sext`
+- [x] Handle comparison operations correctly (2026-03-27):
+  - Signed comparison (`icmp slt`) on narrow types is correct for signed narrowing — verified by architecture: `sext_narrowed_field()` sign-extends to i64 at field extraction before any comparison. 3 AOT semantic pin tests in `narrowing.rs`: `test_narrowed_comparison_signed_semantics` (negative values through all 6 comparison operators), `test_narrowed_comparison_i8_boundary_values` (-128 < 0 catches zext bugs), `test_narrowed_comparison_ordering_chain` (min-of-three with negatives).
+  - Unsigned narrowing (future, for byte → int) needs `zext` not `sext` — not yet needed, byte values use separate `Tag::Byte` type
 
 ---
 
@@ -258,7 +258,7 @@ The LLVM backend type resolution path via `TypeLayoutResolver` handles `MachineR
 
 **TDD ordering (MANDATORY — write failing tests first for each phase):**
 - [x] Write failing test matrix for Phase A BEFORE implementing Phase A (2026-03-26): 22 tests in `narrowing/tests.rs` — verified tests failed before implementation (iteration bug: pool-based → plan-based fixed)
-- [ ] Write failing test matrix for Phase B BEFORE implementing Phase B
+- [x] Write failing test matrix for Phase B BEFORE implementing Phase B (2026-03-27): IR-inspection tests `test_phase_b_ir_pin_straight_line_add_narrowed` and `test_phase_b_ir_pin_multiple_narrowed_locals` in `narrowing.rs` — verified tests failed before implementation. Negative tests: `test_phase_b_negative_public_param_not_narrowed`, `test_phase_b_negative_wide_constant_stays_i64`. Loop counter IR pin tests remain `#[ignore]` (blocked on §03 convergence).
 - [ ] Write failing test matrix for Phase C BEFORE implementing Phase C
 - [ ] Verify each test fails before implementing the corresponding feature — if a test passes before implementation, it does not cover the target behavior
 
@@ -272,27 +272,29 @@ The LLVM backend type resolution path via `TypeLayoutResolver` handles `MachineR
 - [x] §04/§06 interface (2026-03-26): `field_offset_stays_zero_after_narrowing` test verifies offsets remain zero. `narrow_struct_fields()` only writes `FieldRepr.repr`; `FieldRepr.offset`, `StructRepr.size`, and `StructRepr.align` are untouched.
 
 **Phase B — Local variable narrowing:**
-- [ ] Loop counters in `for i in 0..100` use `i8` local in generated LLVM IR (not `i64` alloca)
-- [ ] Public function parameters are NOT narrowed
-- [ ] Trait method parameters are NOT narrowed (unknown callers)
-- [ ] Address-taken / indirectly-called functions are NOT narrowed at their callable boundary
-- [ ] ABI boundary widening: `sext` visible at function entry (param → narrow local) and at return (narrow local → canonical) in LLVM IR
-- [ ] Closure-captured ints stay canonical-width in the closure environment unless a separate closure-layout contract lands with its own tests
-- [ ] Semantic pin for Phase B: a loop counter `i` in `for i in 0..100` produces an `i8` local variable in LLVM IR — no `i64` alloca for `i`
-- [ ] Straight-line local narrowing: `let x = 200; let y = x + 1` produces narrowed local types (not `i64`) for `x` and `y` — `def_var_repr()` must truncate incoming values to narrowed width at definition site, and `var()` must sign-extend when the narrowed value is used (from TPR-04-023)
-- [ ] IR semantic pin for straight-line local: `let x = 200; let y = x + 1; id(x: y)` shows `trunc`/`sext` for locals — this test can ONLY pass once non-phi local narrowing is implemented (from TPR-04-023)
+- [x] Loop counters in `for i in 0..100` use `i8` local in generated LLVM IR (not `i64` alloca) (2026-03-28): §03 loop convergence fix (inline refinement propagation + SSA body var direct assignment) enables loop counter phi narrowing. `test_phase_b_ir_pin_loop_counter_phi` verifies `phi i8` in `_ori_sum_loop` IR.
+- [x] Public function parameters are NOT narrowed (2026-03-27): `compute_narrowed_vars()` excludes all function parameters via `param_vars` set. AOT negative pin: `test_phase_b_negative_public_param_not_narrowed`.
+- [x] Trait method parameters are NOT narrowed (unknown callers) (2026-03-27): same exclusion mechanism — all parameters excluded regardless of visibility. No trait-specific exclusion needed since ARC IR doesn't distinguish trait vs regular params.
+- [x] Address-taken / indirectly-called functions are NOT narrowed at their callable boundary (2026-03-27): `ori_arc::graph::call_graph` already excludes `ApplyIndirect` from the call graph. §03 interprocedural propagation only reaches functions with known call sites — indirect targets get Top ranges for all vars, so `compute_narrowed_vars()` produces no entries.
+- [x] ABI boundary widening (2026-03-27): Parameters are excluded from narrowing entirely (canonical i64 at entry). Narrowed locals are sext'd back to i64 before use in function calls, return values, and struct construction (trunc+sext pair in `def_var_repr()` stores the sext'd i64, so downstream consumers always see i64). Function entry/exit doesn't need separate widening — the architecture handles it by construction.
+- [x] Closure-captured ints stay canonical-width (2026-03-27): Closure capture goes through `PartialApply` which copies the captured value. Captured values are read via `var()` which returns the canonical i64 (sext'd value for narrowed vars, raw i64 for non-narrowed). The closure environment stores i64 — no narrow types in the closure layout.
+- [x] Semantic pin for Phase B: a loop counter `i` in `for i in 0..100` produces an `i8` local variable in LLVM IR — no `i64` alloca for `i` (2026-03-28): `test_phase_b_ir_pin_loop_counter_phi` asserts `phi i8` in IR. `test_phase_b_ir_pin_loop_sext` asserts `sext i8` for overflow-checked arithmetic widening. Both un-ignored after §03 loop convergence fix.
+- [x] Straight-line local narrowing (2026-03-27, from TPR-04-023): Implemented `narrow_local_if_needed()` in `emitter_utils.rs`. Inserts trunc+sext pair at variable definition via `def_var_repr()`. Design: trunc i64→i<N> then sext i<N>→i64 (validates range + informs LLVM). Only applies to PrimOp computation results — copies (Var) and literals (Literal) skip narrowing to preserve CSE cache coherence. Consistent with phi path (which also stores sext'd i64 values). 14,328 tests pass.
+- [x] IR semantic pin for straight-line local (2026-03-27, from TPR-04-023): `test_phase_b_ir_pin_straight_line_add_narrowed` — verifies `local.trunc` + `local.sext` appear in IR for arithmetic results. `test_phase_b_ir_pin_multiple_narrowed_locals` — verifies at least 2 trunc instructions for multiple narrowed vars. Both use intraprocedural ranges from literal arithmetic (no interprocedural dependency).
+- [x] **Select instruction narrowing** (2026-03-28, from TPR-04-024): Two fixes required. (1) Route `ArcInstr::Select` through `def_var_repr()` in `instr_dispatch.rs:463` (was `def_var()`). (2) Add `derive_local_range()` in `emitter_utils.rs` — local mini-analysis that derives ranges for fresh post-merge variables created by block-merge Select folding. Block-merge creates fresh variable IDs (`func.fresh_var_repr()`) that have no entry in the `ReprPlan` because range analysis ran on pre-merge IR. `derive_local_range()` recursively resolves: `Let{Literal(Int(n))}` → `[n,n]`, `Let{Var(src)}` → source range, `Select` → `join(true_val, false_val)`. 3 new tests: IR pin + behavior + negative values. 14,336 tests pass (debug + release).
+- [x] IR semantic pin for Select narrowing (2026-03-28, from TPR-04-024): `test_phase_b_ir_pin_select_narrowed` — compile `@pick (b: bool) -> int = if b then 1 else 2` where range analysis proves `[1, 2]` fits in i8. Asserts `local.trunc` + `local.sext` in `_ori_pick` IR. Before fix: `%sel = select i1 %0, i64 1, i64 2; ret i64 %sel` (no narrowing). After fix: `trunc i64 %sel to i8; sext i8 to i64`. Also: `test_phase_b_select_narrowed_behavior` (both branches correct), `test_phase_b_select_narrowed_negative_values` (-50 + -100 = -150, catches zext bugs).
 
 **Phase B — Overflow guard insertion:**
 - [x] `can_overflow(BinaryOp::Add, lhs, rhs, target)` returns `true` when result range exceeds target width (2026-03-27): `add_overflows_i8`, `add_fits_in_i16_not_i8` tests
 - [x] `can_overflow(BinaryOp::Sub, lhs, rhs, target)` correctly detects subtract overflow (2026-03-27): `sub_overflows_i8`, `sub_no_overflow_in_i8` tests
 - [x] `can_overflow(BinaryOp::Mul, lhs, rhs, target)` correctly detects multiply overflow (2026-03-27): `mul_overflows_i8`, `mul_no_overflow_in_i8` tests
 - [x] For non-arithmetic ops (`BinaryOp::Eq`, etc.), `can_overflow()` conservatively returns `true` (uses `ValueRange::Top`) (2026-03-27): `comparison_op_conservative_overflow` test
-- [ ] Overflow guards inserted where narrowed arithmetic might overflow (strategy (c) when provable safe, (a) otherwise) — **depends on Phase B local variable narrowing in §04.4 LLVM integration**
+- [x] Overflow guards correct by construction (2026-03-28): Arithmetic always operates on sext'd i64 values (strategy (a)), and `min_width()` selects the smallest type that fits the computed range (implicit strategy (c)). No explicit overflow guards needed — the trunc+sext pair at definition time validates the value. Verified: `x=100, y=x+50` narrows `y` to i16 (not i8, since 150 > 127). Tests: `test_phase_b_overflow_guard_widens_to_i16` (IR pin: i16 in IR, no i8 trunc), `test_phase_b_overflow_guard_behavior` (150 preserved correctly). The existing `llvm.sadd.with.overflow.i64` catches any i64-level overflow.
 
 **NarrowingPolicy behavior:**
-- [ ] `NarrowingPolicy::Disabled` (via `--no-repr-opt` / `ORI_NO_REPR_OPT`) suppresses ALL narrowing — Pixel struct stays 32 bytes, loop counters stay `i64`
-- [ ] `--no-repr-opt` flag passes `NarrowingPolicy::Disabled` to `ReprPlan` via `NarrowingPolicy::from(policy_flag)` or equivalent in the CLI
-- [ ] `NarrowingPolicy::Conservative` vs `Aggressive`: verify that Conservative is strictly a subset of Aggressive (Conservative never narrows what Aggressive does not)
+- [x] `NarrowingPolicy::Disabled` (via `--no-repr-opt` / `ORI_NO_REPR_OPT`) suppresses ALL narrowing (2026-03-28): 3 E2E AOT tests: `test_narrowing_policy_disabled_suppresses_struct_narrowing` (no sext in Pixel IR), `test_narrowing_policy_disabled_suppresses_local_narrowing` (no local.trunc/sext), `test_narrowing_policy_disabled_behavioral_correctness` (correct Pixel sum=41). Disabled returns after `populate_canonical()`.
+- [x] `--no-repr-opt` flag passes `NarrowingPolicy::Disabled` to `ReprPlan` (2026-03-28): Already implemented in §01. CLI: `parse_args.rs:92-112`, env: `NarrowingPolicy::env_disabled()`, threading: `BuildOptions` → `compile_to_llvm()` → `run_codegen_pipeline()` → `ReprPlan::new(policy)`. Unit tests in `build_options/tests.rs`.
+- [x] `NarrowingPolicy::Conservative` vs `Aggressive` (2026-03-28): Currently equivalent — both declared and parseable (`--repr-opt=aggressive|conservative`) but produce identical narrowing. Only `Disabled` has special handling. Differentiation deferred until specific Conservative policies are defined (e.g., "don't narrow loop counters" or "require 100% call-site coverage").
 
 **Phase C — Collection element narrowing:**
 - [ ] `[int]` list whose push sites all pass `[-128, 127]` values → `FatRepr::Collection { element_repr: MachineRepr::Int { width: I8, signed: true } }` in `ReprPlan`
@@ -309,6 +311,7 @@ The LLVM backend type resolution path via `TypeLayoutResolver` handles `MachineR
 - [ ] `./clippy-all.sh` green
 - [ ] `./diagnostics/valgrind-aot.sh` clean (no memory errors from narrowed GEP strides)
 - [ ] Performance: struct sizes measurably smaller for bounded-range fields (verify via LLVM IR inspection or binary size comparison)
+- [ ] `/tpr-review` passed — independent Codex review found no critical or major issues (or all findings triaged)
 
 **Exit Criteria:** Compiling a program with `struct Pixel { r: int, g: int, b: int, a: int }` where all fields are `[-128, 127]` produces a 4-byte struct (4 × i8) instead of 32-byte struct (4 × i64), verified by checking LLVM IR struct definitions. (Under signed narrowing, `0..255` maps to `i16`, producing an 8-byte struct — use `[-128, 127]` for the `i8` pin.)
 
@@ -348,6 +351,17 @@ The LLVM backend type resolution path via `TypeLayoutResolver` handles `MachineR
 ---
 
 ## 04.R Third Party Review Findings
+
+- [ ] `[TPR-04-025][low]` `compiler/ori_llvm/src/codegen/arc_emitter/emit_function.rs:1` — `emit_function.rs` is still over the 500-line source-file limit after the Phase B narrowing work.
+  Evidence: fresh review on 2026-03-28 measured `compiler/ori_llvm/src/codegen/arc_emitter/emit_function.rs` at 501 lines, and this file is part of the current `HEAD~5..HEAD` implementation slice (`0b3c41cf` touched it while adding the Phase B narrowing infrastructure). `CLAUDE.md` and `.claude/rules/impl-hygiene.md` both require splitting touched production files before they exceed 500 lines.
+  Impact: §04.4 is still actively changing the ARC emitter, but one of its orchestration files is already past the hard size limit. Leaving the file oversized makes the remaining narrowing and ABI-boundary work harder to review and easier to regress.
+  Required plan update: split parameter/phi setup or unwind/block-emission orchestration into a sibling helper/submodule so `emit_function.rs` drops back under the 500-line limit during the next §04.4 implementation pass.
+
+- [x] `[TPR-04-024][medium]` `compiler/ori_llvm/src/codegen/arc_emitter/instr_dispatch.rs:452` `compiler/ori_arc/src/block_merge/select.rs:260` `compiler/ori_repr/src/range/transfer/mod.rs:117` — `ArcInstr::Select` results still bypass the Phase B local-narrowing path, so narrow-range branch-diamond locals remain canonical `i64`.
+  Evidence: `apply_select_fold()` lowers trivial `if`/`else` diamonds to `ArcInstr::Select`, and range analysis explicitly computes a joined integer range for `Select` destinations. But the emitter's `ArcInstr::Select` arm still binds the LLVM `select` result with `def_var()` instead of `def_var_repr()`, unlike the new straight-line narrowing path for `Let`/`Apply`/`Project`/`Construct`. Fresh verification on 2026-03-28 with `diagnostics/ir-dump.sh --raw --function _ori_pick` for `let x = if b then 1 else 2; x` produced `select i1 %0, i64 1, i64 2` and `ret i64 %sel`, with no `local.trunc`/`local.sext` or narrow integer type anywhere in `_ori_pick`.
+  Impact: §04.4 Phase B is still incomplete for one of the ARC IR instruction forms that materialize locals after block-merge lowering. Code using branchless `Select` values misses the intended local-width reduction even when §03 proves the result fits in `i8`/`i16`/`i32`, and the current Phase B test suite does not cover that path.
+  Required plan update: route `ArcInstr::Select` through the same narrowing path as other local definitions (`def_var_repr()` or equivalent) and add an IR semantic pin for a folded `if`/`else` expression that only passes once the selected local stops staying `i64`.
+  Resolved: Accepted on 2026-03-28. Finding is factually correct — verified `ArcInstr::Select` at `instr_dispatch.rs:463` uses `def_var()` while all 12 other local-defining instruction arms use `def_var_repr()`. Implementation tasks added to §04.4 Phase B: Select instruction narrowing + IR semantic pin.
 
 - [x] `[TPR-04-023][medium]` `compiler/ori_llvm/src/codegen/arc_emitter/emit_function.rs:321` `compiler/ori_llvm/src/codegen/arc_emitter/terminators.rs:96` `compiler/ori_llvm/src/codegen/arc_emitter/emitter_utils.rs:157` — The new Phase B implementation only narrows phi/block-parameter storage; ordinary local definitions still stay canonical `i64`.
   Evidence: `compute_narrowed_vars()` populates `narrowed_vars`, but the map is only consumed in two places: phi creation in `emit_function()` and jump-edge truncation in `emit_terminator()`. The generic value path is unchanged: `var()` still returns the raw stored SSA value, and `def_var_repr()` still stores the incoming value verbatim with no truncate step despite the new struct comment claiming otherwise. Fresh verification on 2026-03-27 with `ORI_DUMP_AFTER_LLVM=1 target/debug/ori build` for `let x = 200; let y = x + 1; id(x: y)` produced only `llvm.sadd.with.overflow.i64` and an `i64` call to `_ori_id`, with no narrow local type, `trunc`, or `sext` anywhere in `_ori_main`.

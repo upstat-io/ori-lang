@@ -23,11 +23,12 @@
 //! - If either is exceeded, remaining parameters get `Top` (safe fallback).
 
 mod feedback;
+mod scc;
 
 use ori_arc::graph::call_graph::CallGraph;
 use ori_arc::graph::scc::compute_sccs;
 use ori_arc::ir::{ArcFunction, ArcInstr, ArcTerminator};
-use ori_arc::ArcVarId;
+use ori_arc::{ArcBlockId, ArcVarId};
 use ori_ir::Name;
 use ori_types::Pool;
 use rustc_hash::FxHashMap;
@@ -35,6 +36,15 @@ use rustc_hash::FxHashMap;
 use super::{is_int_typed, RangeAnalysisConfig, ValueRange};
 use crate::plan::ReprPlan;
 use crate::range::fixpoint::range_fixpoint;
+
+/// Reason a function's parameters are unconstrained (all params → Top).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum UnconstrainedReason {
+    /// Function is `pub` or a trait impl method (registered in `ReprPlan`).
+    PublicOrTraitImpl,
+    /// Function is a closure/lambda (has captures).
+    Closure,
+}
 
 /// Per-parameter range summary from call-site analysis.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -145,7 +155,7 @@ pub fn propagate_ranges(
             let remaining_budget = config
                 .max_total_scc_iterations
                 .saturating_sub(total_scc_iters);
-            total_scc_iters += process_recursive_scc(
+            total_scc_iters += scc::process_recursive_scc(
                 scc,
                 &func_map,
                 pool,
@@ -153,6 +163,7 @@ pub fn propagate_ranges(
                 &mut results,
                 &mut func_infos,
                 remaining_budget,
+                plan,
             );
         } else {
             // Non-recursive SCC (single function): collect param ranges, then
@@ -160,7 +171,7 @@ pub fn propagate_ranges(
             debug_assert_eq!(scc.members.len(), 1);
             let name = scc.members[0];
             if let Some(func) = func_map.get(&name) {
-                let info = collect_param_ranges(func, &results, &func_infos, &func_map, pool);
+                let info = collect_param_ranges(func, &results, &func_infos, &func_map, pool, plan);
                 // Build seed map from collected param ranges.
                 let seeds = build_param_seed_map(func, &info);
                 // Re-run fixpoint with seeded parameters.
@@ -190,11 +201,19 @@ pub fn propagate_ranges(
         config,
         &mut results,
         &mut func_infos,
+        plan,
     );
 
     // Phase 4: Store results in ReprPlan.
-    for (name, result) in &results {
-        plan.set_var_ranges(*name, result.var_ranges.clone());
+    // Per-variable ranges are only stored when §04 narrowing is safe for codegen.
+    // The ARC emitter reads var_range() to insert trunc/sext for local variables —
+    // without §04.2 (ABI widening) and §04.3 (overflow guards), applying narrowed
+    // widths to locals is unsound. Field-range summaries are always stored because
+    // they are consumed by §04 itself, not by codegen directly.
+    if plan.is_integer_narrowing_safe_for_codegen() {
+        for (name, result) in &results {
+            plan.set_var_ranges(*name, result.var_ranges.clone());
+        }
     }
     for result in results.values() {
         result.field_summaries.flush_to_repr_plan(plan);
@@ -234,19 +253,56 @@ fn collect_param_ranges(
     _func_infos: &FxHashMap<Name, FunctionRangeInfo>,
     func_map: &FxHashMap<Name, &ArcFunction>,
     pool: &Pool,
+    plan: &ReprPlan,
 ) -> FunctionRangeInfo {
     let num_params = target_func.params.len();
-    let mut info = FunctionRangeInfo::new_bottom(num_params);
 
-    // Check if this function is pub or otherwise unconstrained.
-    // For now, we conservatively treat ALL functions as narrowable.
-    // §03.5 plan notes that pub/trait/closure params should be Top,
-    // but we don't have visibility info in ARC IR. This is a safe
-    // under-approximation: we narrow everything, and §04 will only
-    // act on ranges that are actually tighter than Top.
-    //
-    // TODO(repr-opt): Once visibility info is available in ARC IR,
-    // set pub/trait/closure params to Top here.
+    // Check if this function is unconstrained — pub, trait impl, or closure.
+    // Unconstrained functions may be called from external code or via dynamic
+    // dispatch, so their parameter ranges must stay Top (full i64 range).
+    // Check if this function is unconstrained. We check:
+    // 1. (None, name) for pub top-level functions
+    // 2. (Some(self_type), name) for trait impl methods (self-type from first param)
+    // 3. (None, qualified_name) for type-qualified analysis-only functions
+    //    (covers both methods and associated functions via their __impl_ name)
+    let self_type = target_func
+        .params
+        .first()
+        .map(|p| target_func.var_type(p.var));
+    let is_pub_unconstrained = plan.is_unconstrained_fn(None, target_func.name);
+    let is_trait_impl_unconstrained = if let Some(st) = self_type {
+        plan.is_unconstrained_fn(Some(st), target_func.name)
+    } else {
+        false
+    };
+    // Also check by the ARC function's own name as a qualified key —
+    // analysis-only functions use __impl_{idx}_{method} names that are
+    // registered in the unconstrained set (TPR-03-043/044/046).
+    let is_qualified_unconstrained = plan.is_qualified_unconstrained(target_func.name);
+    let unconstrained =
+        if is_pub_unconstrained || is_trait_impl_unconstrained || is_qualified_unconstrained {
+            Some(UnconstrainedReason::PublicOrTraitImpl)
+        } else if target_func.num_captures > 0 {
+            Some(UnconstrainedReason::Closure)
+        } else {
+            None
+        };
+
+    if let Some(reason) = unconstrained {
+        tracing::debug!(
+            func = ?target_func.name,
+            ?reason,
+            "unconstrained function — all params Top"
+        );
+        let mut info = FunctionRangeInfo::new_top(num_params);
+        // Return range still comes from intraprocedural analysis.
+        if let Some(result) = results.get(&target_func.name) {
+            info.return_range = result.return_range;
+        }
+        return info;
+    }
+
+    let mut info = FunctionRangeInfo::new_bottom(num_params);
 
     // Scan all functions for call sites targeting this function.
     for caller_func in func_map.values() {
@@ -263,13 +319,15 @@ fn collect_param_ranges(
                         args,
                         ..
                     } if *callee_name == target_func.name => {
-                        join_arg_ranges(
-                            args,
+                        // TPR-03-037: Use block-local refined ranges at the
+                        // call site instead of function-global var_ranges.
+                        let local = block_local_ranges(
                             &caller_result.var_ranges,
-                            &target_func.params,
-                            &mut info,
-                            pool,
+                            &caller_result.block_refinements,
+                            block.id,
+                            args,
                         );
+                        join_arg_ranges(args, &local, &target_func.params, &mut info, pool);
                     }
                     _ => {}
                 }
@@ -283,13 +341,13 @@ fn collect_param_ranges(
             } = &block.terminator
             {
                 if *callee_name == target_func.name {
-                    join_arg_ranges(
-                        args,
+                    let local = block_local_ranges(
                         &caller_result.var_ranges,
-                        &target_func.params,
-                        &mut info,
-                        pool,
+                        &caller_result.block_refinements,
+                        block.id,
+                        args,
                     );
+                    join_arg_ranges(args, &local, &target_func.params, &mut info, pool);
                 }
             }
         }
@@ -337,117 +395,31 @@ fn join_arg_ranges(
     }
 }
 
-/// Build a seed map from `FunctionRangeInfo::param_ranges` for `range_fixpoint()`.
+/// Compute block-local variable ranges at a call site (TPR-03-037).
 ///
-/// Maps each function parameter's `ArcVarId` to its interprocedural range
-/// (from call-site analysis). The fixpoint loop uses this to initialize
-/// entry block parameter variables instead of starting at `Bottom`.
-fn build_param_seed_map(
-    func: &ArcFunction,
-    info: &FunctionRangeInfo,
+/// Intersects the function-global `var_ranges` with any block-entry refinements
+/// for the call site's block. When a call like `helper(x)` sits inside an
+/// `if x < 5` branch, the block refinement narrows `x` from its global range
+/// `[0, 10]` to `[0, 4]` at the call site, yielding a tighter callee parameter.
+fn block_local_ranges(
+    global_ranges: &FxHashMap<ArcVarId, ValueRange>,
+    block_refinements: &FxHashMap<(ArcBlockId, ArcVarId), ValueRange>,
+    block_id: ArcBlockId,
+    args: &[ArcVarId],
 ) -> FxHashMap<ArcVarId, ValueRange> {
-    let mut seeds = FxHashMap::default();
-    for pr in &info.param_ranges {
-        if pr.param_index < func.params.len() {
-            seeds.insert(func.params[pr.param_index].var, pr.range);
-        }
+    let mut local = FxHashMap::default();
+    for &var in args {
+        let global = global_ranges.get(&var).copied().unwrap_or(ValueRange::Top);
+        let effective = match block_refinements.get(&(block_id, var)) {
+            Some(&refinement) => global.meet(refinement),
+            None => global,
+        };
+        local.insert(var, effective);
     }
-    seeds
+    local
 }
 
-/// Process a recursive SCC: iterate fixpoint until parameter + return ranges stabilize.
-///
-/// Returns the number of SCC iterations consumed.
-fn process_recursive_scc(
-    scc: &ori_arc::graph::scc::Scc,
-    func_map: &FxHashMap<Name, &ArcFunction>,
-    pool: &Pool,
-    config: &RangeAnalysisConfig,
-    results: &mut FxHashMap<Name, super::fixpoint::RangeFixpointResult>,
-    func_infos: &mut FxHashMap<Name, FunctionRangeInfo>,
-    remaining_budget: usize,
-) -> usize {
-    // TPR-03-035: Use the minimum of the per-SCC cap and the remaining total
-    // budget. Without this, one recursive SCC can overshoot max_total_scc_iterations.
-    let effective_cap = config.max_scc_iterations.min(remaining_budget);
-
-    // Initialize all members with Bottom params.
-    for name in &scc.members {
-        if let Some(func) = func_map.get(name) {
-            func_infos.insert(*name, FunctionRangeInfo::new_bottom(func.params.len()));
-        }
-    }
-
-    let mut iteration = 0;
-    loop {
-        if iteration >= effective_cap {
-            tracing::warn!(
-                scc_size = scc.members.len(),
-                iterations = iteration,
-                "SCC fixpoint did not converge — widening to Top"
-            );
-            // Widen all parameter ranges to Top AND clear stale intermediate
-            // results (TPR-03-028). Without clearing `results`, Phase 4 would
-            // persist partially-converged var_ranges from the last iteration.
-            for name in &scc.members {
-                if let Some(func) = func_map.get(name) {
-                    func_infos.insert(*name, FunctionRangeInfo::new_top(func.params.len()));
-                }
-                results.insert(
-                    *name,
-                    super::fixpoint::RangeFixpointResult {
-                        var_ranges: FxHashMap::default(),
-                        field_summaries: super::FieldSummaryTable::new(),
-                        return_range: ValueRange::Top,
-                    },
-                );
-            }
-            break;
-        }
-
-        let mut changed = false;
-
-        for name in &scc.members {
-            let Some(func) = func_map.get(name) else {
-                continue;
-            };
-
-            // Collect parameter ranges from all call sites (including within the SCC).
-            let new_info = collect_param_ranges(func, results, func_infos, func_map, pool);
-
-            // Check if parameter ranges changed.
-            if let Some(old_info) = func_infos.get(name) {
-                if old_info.param_ranges != new_info.param_ranges {
-                    changed = true;
-                }
-            } else {
-                changed = true;
-            }
-
-            func_infos.insert(*name, new_info.clone());
-
-            // Re-run intraprocedural analysis with parameter seeds from call sites.
-            // This is the key TPR-03-026 fix: the fixpoint starts with
-            // interprocedural parameter constraints, enabling tighter results.
-            let seeds = build_param_seed_map(func, &new_info);
-            let result = range_fixpoint(func, pool, config, Some(&seeds), None);
-            results.insert(*name, result);
-        }
-
-        iteration += 1;
-
-        if !changed {
-            tracing::debug!(
-                scc_size = scc.members.len(),
-                iterations = iteration,
-                "SCC fixpoint converged"
-            );
-            break;
-        }
-    }
-
-    iteration
-}
+use scc::build_param_seed_map;
 
 #[cfg(test)]
 mod tests;

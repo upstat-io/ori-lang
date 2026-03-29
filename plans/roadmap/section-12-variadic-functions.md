@@ -1,7 +1,7 @@
 ---
 section: 12
 title: Variadic Functions
-status: not-started
+status: in-progress
 reviewed: false
 tier: 4
 goal: Enable functions with variable number of arguments
@@ -346,6 +346,7 @@ Defer to future consideration. Current section focuses on function parameters on
 - [ ] Spread operator works
 - [ ] C variadic interop works (after Section 11)
 - [ ] All tests pass: `./test-all.sh`
+- [ ] `/tpr-review` passed — independent Codex review found no critical or major issues (or all findings triaged)
 
 **Exit Criteria**: Can implement `format()` and call C's `printf()`
 

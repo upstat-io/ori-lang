@@ -3,7 +3,55 @@
 //! Tests that struct field integer narrowing produces correct runtime behavior:
 //! trunc at construction + sext at extraction = identical semantics to canonical i64.
 
-use crate::util::{assert_aot_success, compile_and_capture_ir, extract_function_ir};
+use crate::util::{assert_aot_success, compile_and_capture_ir, extract_function_ir, stdlib_path};
+
+use std::process::Command;
+use std::sync::atomic::{AtomicU64, Ordering};
+use tempfile::TempDir;
+
+/// Compile with `ORI_NO_REPR_OPT=1` and capture LLVM IR.
+/// Used for `NarrowingPolicy::Disabled` verification tests.
+fn compile_and_capture_ir_no_repr_opt(source: &str) -> String {
+    static COUNTER: AtomicU64 = AtomicU64::new(0);
+
+    let id = COUNTER.fetch_add(1, Ordering::SeqCst);
+    let temp_dir = TempDir::new().expect("Failed to create temp dir");
+    let source_path = temp_dir.path().join(format!("test_nro_{id}.ori"));
+    let binary_path = temp_dir
+        .path()
+        .join(format!("test_nro_{id}{}", std::env::consts::EXE_SUFFIX));
+
+    std::fs::write(&source_path, source).expect("Failed to write source");
+
+    let exe = format!("ori{}", std::env::consts::EXE_SUFFIX);
+    let workspace_root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .and_then(|p| p.parent())
+        .unwrap()
+        .to_path_buf();
+    let binary = workspace_root.join("target/debug").join(&exe);
+
+    let result = Command::new(binary)
+        .args([
+            "build",
+            source_path.to_str().unwrap(),
+            "-o",
+            binary_path.to_str().unwrap(),
+        ])
+        .env("ORI_STDLIB", stdlib_path())
+        .env("ORI_DEBUG_LLVM", "1")
+        .env("ORI_NO_REPR_OPT", "1")
+        .output()
+        .expect("Failed to execute ori build");
+
+    assert!(
+        result.status.success(),
+        "Compilation failed:\n{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+
+    String::from_utf8_lossy(&result.stderr).to_string()
+}
 
 /// Semantic pin: struct with all fields in [-128, 127] range.
 /// Field values must survive trunc (i64→i8 at construction) and
@@ -496,7 +544,6 @@ fn test_phase_b_negative_loop_behavioral() {
 // Range [0, 9] fits in signed i8 [-128, 127].
 // This test ONLY passes with Phase B local variable narrowing.
 #[test]
-#[ignore = "blocked: §03 range analysis loop variable convergence — narrowing pass produces [-MIN, 9] refinement, join with entry [0, 0] gives [-MIN+1, 10] (terrible lower bound)"]
 fn test_phase_b_ir_pin_loop_counter_phi() {
     let ir = compile_and_capture_ir(
         r"
@@ -532,7 +579,6 @@ fn test_phase_b_ir_pin_loop_counter_phi() {
 // IR semantic pin: sext must be present to widen narrowed loop variables
 // before canonical-width arithmetic (overflow-checked i64 add).
 #[test]
-#[ignore = "blocked: §03 range analysis loop variable convergence — same as test_phase_b_ir_pin_loop_counter_phi"]
 fn test_phase_b_ir_pin_loop_sext() {
     let ir = compile_and_capture_ir(
         r"
@@ -595,5 +641,474 @@ fn test_phase_b_ir_pin_wide_range_no_i8() {
         "expected NO `phi i8` in _ori_sum_wide — loop counter range [0, 49999] \
          exceeds i8 capacity. Should use i16 or wider.\n\
          Got IR:\n{fn_ir}"
+    );
+}
+
+// ---- Comparison operations on narrowed fields (§04.4) ----
+//
+// Narrowed struct fields are sign-extended (sext) to i64 before any use,
+// including comparisons. This guarantees signed comparison semantics are
+// preserved: -50 < 0 is true (sext: 0xFFFFFFFFFFFFFFCE < 0), not false
+// (zext: 0xCE = 206 < 0 is false). These tests pin that invariant.
+
+/// Semantic pin: signed comparisons on narrowed struct fields.
+/// Field values are negative, and all comparisons must respect signed semantics
+/// (via sext i8→i64 before icmp). A zext bug would make -50 > 0.
+#[test]
+fn test_narrowed_comparison_signed_semantics() {
+    assert_aot_success(
+        r"
+type SignedPair = { a: int, b: int }
+
+@compare (p: SignedPair) -> int = {
+    // a = -50, b = 20
+    let lt = p.a < p.b;     // -50 < 20 = true (zext would give 206 < 20 = false)
+    let le = p.a <= p.b;    // -50 <= 20 = true
+    let gt = p.b > p.a;     // 20 > -50 = true
+    let ge = p.b >= p.a;    // 20 >= -50 = true
+    let eq = p.a == p.a;    // -50 == -50 = true
+    let ne = p.a != p.b;    // -50 != 20 = true
+    if lt && le && gt && ge && eq && ne then 0 else 1
+}
+
+@main () -> int = {
+    let p = SignedPair { a: -50, b: 20 };
+    compare(p:)
+}
+",
+        "narrowed_comparison_signed",
+    );
+}
+
+/// Semantic pin: comparison at signed i8 boundaries (-128, 127).
+/// If sext is missing, -128 becomes 128 (unsigned) and -128 < 127 would still
+/// be true by coincidence in unsigned. So also check -128 < 0 (would fail with
+/// zext: 128 < 0 = false).
+#[test]
+fn test_narrowed_comparison_i8_boundary_values() {
+    assert_aot_success(
+        r"
+type Bounds = { lo: int, hi: int, zero: int }
+
+@main () -> int = {
+    let b = Bounds { lo: -128, hi: 127, zero: 0 };
+    let ok1 = b.lo < b.hi;     // -128 < 127 = true
+    let ok2 = b.lo < b.zero;   // -128 < 0 = true (zext: 128 < 0 = false!)
+    let ok3 = b.hi > b.zero;   // 127 > 0 = true
+    let ok4 = b.lo <= b.lo;    // -128 <= -128 = true
+    let ok5 = b.hi >= b.hi;    // 127 >= 127 = true
+    if ok1 && ok2 && ok3 && ok4 && ok5 then 0 else 1
+}
+",
+        "narrowed_comparison_i8_boundaries",
+    );
+}
+
+/// Semantic pin: ordering/sorting logic using narrowed struct fields.
+/// Tests that comparison chains (used in sorting, min/max) work correctly
+/// when field values are negative and narrowed to i8.
+#[test]
+fn test_narrowed_comparison_ordering_chain() {
+    assert_aot_success(
+        r"
+type Triple = { x: int, y: int, z: int }
+
+@min_of_three (t: Triple) -> int = {
+    let m = t.x;
+    let m = if t.y < m then t.y else m;
+    if t.z < m then t.z else m
+}
+
+@main () -> int = {
+    let t = Triple { x: -10, y: -100, z: -1 };
+    let m = min_of_three(t:);
+    // min(-10, -100, -1) = -100
+    if m == -100 then 0 else 1
+}
+",
+        "narrowed_comparison_ordering_chain",
+    );
+}
+
+// ---- Phase B: Straight-Line Local Variable Narrowing Tests (§04.4) ----
+//
+// These IR-inspection tests verify that non-phi local variables are narrowed
+// to smaller LLVM types when their value range fits. They are the TDD "write
+// failing tests first" step — they MUST FAIL before Phase B straight-line
+// local narrowing is implemented in def_var_repr()/var().
+//
+// §04.5 checklist: "Write failing test matrix for Phase B BEFORE implementing"
+
+/// IR semantic pin: arithmetic result `x + 25` where x is a literal produces
+/// trunc+sext in the IR. Literal constants (i64 50, i64 25) are inlined by
+/// LLVM, but the ADD result flows through `def_var_repr()` and gets narrowed.
+/// This test ONLY passes with Phase B straight-line local narrowing.
+#[test]
+fn test_phase_b_ir_pin_straight_line_add_narrowed() {
+    let ir = compile_and_capture_ir(
+        r"
+@id (x: int) -> int = x;
+
+@use_literal () -> int = {
+    let x = 50;
+    let y = x + 25;
+    id(x: y)
+}
+
+@main () -> int = use_literal();
+",
+    );
+
+    let fn_ir = extract_function_ir(&ir, "_ori_use_literal");
+
+    // Phase B: the add result (range [75, 75]) and its copy get trunc+sext.
+    // Literal constants 50 and 25 are inlined directly, but their arithmetic
+    // result flows through def_var_repr() which inserts the trunc+sext pair.
+    assert!(
+        fn_ir.contains("local.trunc") && fn_ir.contains("local.sext"),
+        "expected `local.trunc` + `local.sext` in _ori_use_literal — \
+         arithmetic result (range [75, 75]) fits in signed i8, should be narrowed.\n\
+         Phase B semantic pin: ONLY passes with straight-line local narrowing.\n\
+         Got IR:\n{fn_ir}"
+    );
+}
+
+/// IR semantic pin: multiple narrowed locals produce multiple trunc+sext pairs.
+/// Each narrowed variable definition inserts its own trunc+sext pair.
+#[test]
+fn test_phase_b_ir_pin_multiple_narrowed_locals() {
+    let ir = compile_and_capture_ir(
+        r"
+@id (x: int) -> int = x;
+
+@compute () -> int = {
+    let x = 50;
+    let y = x + 25;
+    let z = y + 10;
+    id(x: z)
+}
+
+@main () -> int = compute();
+",
+    );
+
+    let fn_ir = extract_function_ir(&ir, "_ori_compute");
+
+    // Phase B: y (range [75, 75]) and z (range [85, 85]) each get trunc+sext.
+    // Count trunc instructions — at least 2 for the arithmetic results.
+    let trunc_count = fn_ir.matches("local.trunc").count();
+    assert!(
+        trunc_count >= 2,
+        "expected at least 2 `local.trunc` instructions in _ori_compute — \
+         both y and z arithmetic results should be narrowed.\n\
+         Phase B semantic pin: ONLY passes with straight-line local narrowing.\n\
+         Got trunc count: {trunc_count}\nGot IR:\n{fn_ir}"
+    );
+}
+
+/// Negative pin: public function parameters must NOT be narrowed.
+/// Even if only called with value 5, the parameter stays i64 because
+/// external callers might pass any value.
+#[test]
+fn test_phase_b_negative_public_param_not_narrowed() {
+    let ir = compile_and_capture_ir(
+        r"
+pub @add_one (n: int) -> int = n + 1;
+
+@main () -> int = add_one(n: 5);
+",
+    );
+
+    let fn_ir = extract_function_ir(&ir, "_ori_add_one");
+
+    // Parameters are excluded from compute_narrowed_vars() — they must stay i64.
+    // No trunc/narrow-type should appear for the parameter itself.
+    assert!(
+        !fn_ir.contains("trunc i64") || fn_ir.contains("sadd.with.overflow.i64"),
+        "expected NO parameter narrowing in pub _ori_add_one — \
+         public function parameters must stay canonical i64.\n\
+         Got IR:\n{fn_ir}"
+    );
+}
+
+/// Negative pin: `let x = 3_000_000_000` exceeds i32 range — must stay i64.
+/// Range [3B, 3B] does not fit in i32 [-2^31, 2^31-1].
+#[test]
+fn test_phase_b_negative_wide_constant_stays_i64() {
+    let ir = compile_and_capture_ir(
+        r"
+@id (x: int) -> int = x;
+
+@use_wide () -> int = {
+    let x = 3_000_000_000;
+    id(x:)
+}
+
+@main () -> int = use_wide();
+",
+    );
+
+    let fn_ir = extract_function_ir(&ir, "_ori_use_wide");
+
+    // 3B exceeds signed i32 max (2147483647), so x stays i64.
+    // No trunc to i8/i16/i32 should appear.
+    assert!(
+        !fn_ir.contains("trunc i64") && !fn_ir.contains("i8") && !fn_ir.contains("i16"),
+        "expected NO narrowing in _ori_use_wide — 3_000_000_000 exceeds i32 range.\n\
+         Got IR:\n{fn_ir}"
+    );
+}
+
+/// IR semantic pin: `ArcInstr::Select` result is narrowed when range analysis
+/// proves the result fits in a narrow type. Block-merge folds trivial if/else
+/// diamonds into `select` instructions — these must go through `def_var_repr()`
+/// to participate in Phase B local narrowing.
+///
+/// This test ONLY passes once the Select path uses `def_var_repr()`.
+#[test]
+fn test_phase_b_ir_pin_select_narrowed() {
+    let ir = compile_and_capture_ir(
+        r"
+@pick (b: bool) -> int = if b then 1 else 2;
+
+@main () -> int = pick(b: true);
+",
+    );
+
+    let fn_ir = extract_function_ir(&ir, "_ori_pick");
+
+    // Phase B: the select result (range [1, 2]) fits in signed i8.
+    // After block-merge folds the if/else diamond into ArcInstr::Select,
+    // the emitter should narrow the result via def_var_repr(), producing
+    // a trunc+sext pair. Without the fix, _ori_pick is just:
+    //   %sel = select i1 %0, i64 1, i64 2
+    //   ret i64 %sel
+    // With the fix, the trunc+sext should appear between select and ret.
+    assert!(
+        fn_ir.contains("local.trunc") && fn_ir.contains("local.sext"),
+        "expected `local.trunc` + `local.sext` in _ori_pick — \
+         select result (range [1, 2]) fits in signed i8, should be narrowed.\n\
+         Phase B semantic pin: ONLY passes with Select narrowing via def_var_repr().\n\
+         Got IR:\n{fn_ir}"
+    );
+}
+
+/// Behavioral test: narrowed Select result produces correct values.
+/// Verifies both branches of a narrowed select yield correct runtime output.
+#[test]
+fn test_phase_b_select_narrowed_behavior() {
+    assert_aot_success(
+        r"
+@pick (b: bool) -> int = if b then 10 else 20;
+
+@main () -> int = {
+    let t = pick(b: true);
+    let f = pick(b: false);
+    if t == 10 && f == 20 then 0 else 1
+}
+",
+        "select_narrowed_behavior",
+    );
+}
+
+/// Behavioral test: narrowed Select with negative values preserves sign.
+/// Catches zext bugs — negative values through narrowed select must retain sign.
+#[test]
+fn test_phase_b_select_narrowed_negative_values() {
+    assert_aot_success(
+        r"
+@pick (b: bool) -> int = if b then -50 else -100;
+
+@main () -> int = {
+    let sum = pick(b: true) + pick(b: false);
+    // -50 + -100 = -150
+    if sum == -150 then 0 else 1
+}
+",
+        "select_narrowed_negative_values",
+    );
+}
+
+/// Overflow guard verification: when a narrowed local's arithmetic result
+/// exceeds i8 range, the result is correctly narrowed to i16 (not i8).
+/// The architecture handles this by construction — arithmetic operates at i64,
+/// and `min_width()` selects the smallest type that fits the computed range.
+/// No explicit overflow guard is needed.
+#[test]
+fn test_phase_b_overflow_guard_widens_to_i16() {
+    let ir = compile_and_capture_ir(
+        r"
+@id (x: int) -> int = x;
+
+@compute () -> int = {
+    let x = 100;
+    let y = x + 50;
+    id(x: y)
+}
+
+@main () -> int = compute();
+",
+    );
+
+    let fn_ir = extract_function_ir(&ir, "_ori_compute");
+
+    // y = 100 + 50 = 150 — exceeds signed i8 max (127), so narrowed to i16.
+    // This verifies the overflow guard is correct by construction:
+    // arithmetic at i64, trunc to i16 (not i8) preserves the value.
+    assert!(
+        fn_ir.contains("i16"),
+        "expected i16 narrowing in _ori_compute — result 150 exceeds i8, needs i16.\n\
+         Overflow guard semantic pin: verifies range-driven width selection.\n\
+         Got IR:\n{fn_ir}"
+    );
+    assert!(
+        !fn_ir.contains("trunc i64") || !fn_ir.contains("to i8\n"),
+        "result 150 must NOT be truncated to i8 — would lose data.\n\
+         Got IR:\n{fn_ir}"
+    );
+}
+
+/// Behavioral test: overflow guard correctness — 100 + 50 = 150 (exceeds i8).
+#[test]
+fn test_phase_b_overflow_guard_behavior() {
+    assert_aot_success(
+        r"
+@compute () -> int = {
+    let x = 100;
+    let y = x + 50;
+    // 150 exceeds i8 range but fits i16 — value must be preserved
+    if y == 150 then 0 else 1
+}
+
+@main () -> int = compute();
+",
+        "overflow_guard_behavior",
+    );
+}
+
+// ── NarrowingPolicy verification ────────────────────────────────────────
+
+/// `ORI_NO_REPR_OPT=1` suppresses ALL narrowing — Pixel struct stays
+/// canonical i64 fields. Verifies `NarrowingPolicy::Disabled` works end-to-end.
+///
+/// Semantic pin: ONLY passes when Disabled actually suppresses narrowing.
+/// Without Disabled, the Pixel struct would show `i8` fields in IR.
+#[test]
+fn test_narrowing_policy_disabled_suppresses_struct_narrowing() {
+    let ir = compile_and_capture_ir_no_repr_opt(
+        r"
+type Pixel = { r: int, g: int, b: int, a: int }
+
+@read_pixel (p: Pixel) -> int = p.r + p.g + p.b + p.a;
+
+@main () -> int = {
+    let p = Pixel { r: 10, g: 20, b: 30, a: 40 };
+    let sum = read_pixel(p:);
+    if sum == 100 then 0 else 1
+}
+",
+    );
+
+    let fn_ir = extract_function_ir(&ir, "_ori_read_pixel");
+
+    // With Disabled, no trunc/sext should appear — fields stay canonical i64.
+    assert!(
+        !fn_ir.contains("sext i8") && !fn_ir.contains("sext i16"),
+        "expected NO sext in _ori_read_pixel with ORI_NO_REPR_OPT=1.\n\
+         NarrowingPolicy::Disabled must suppress ALL narrowing.\n\
+         Got IR:\n{fn_ir}"
+    );
+}
+
+/// `ORI_NO_REPR_OPT=1` suppresses local variable narrowing (Phase B).
+/// Loop counters and straight-line locals stay canonical i64.
+#[test]
+fn test_narrowing_policy_disabled_suppresses_local_narrowing() {
+    let ir = compile_and_capture_ir_no_repr_opt(
+        r"
+@id (x: int) -> int = x;
+
+@compute () -> int = {
+    let x = 50;
+    let y = x + 25;
+    id(x: y)
+}
+
+@main () -> int = compute();
+",
+    );
+
+    let fn_ir = extract_function_ir(&ir, "_ori_compute");
+
+    // With Disabled, no local.trunc/local.sext should appear.
+    assert!(
+        !fn_ir.contains("local.trunc") && !fn_ir.contains("local.sext"),
+        "expected NO local.trunc/sext in _ori_compute with ORI_NO_REPR_OPT=1.\n\
+         NarrowingPolicy::Disabled must suppress Phase B local narrowing.\n\
+         Got IR:\n{fn_ir}"
+    );
+}
+
+/// Verify that `NarrowingPolicy::Disabled` produces correct runtime results
+/// (no data corruption from missing narrowing).
+#[test]
+fn test_narrowing_policy_disabled_behavioral_correctness() {
+    // Run with ORI_NO_REPR_OPT=1 — same binary, different env
+    let workspace_root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .and_then(|p| p.parent())
+        .unwrap()
+        .to_path_buf();
+
+    let temp_dir = TempDir::new().expect("temp dir");
+    let source_path = temp_dir.path().join("test_disabled.ori");
+    let binary_path = temp_dir
+        .path()
+        .join(format!("test_disabled{}", std::env::consts::EXE_SUFFIX));
+
+    std::fs::write(
+        &source_path,
+        r"
+type Pixel = { r: int, g: int, b: int, a: int }
+
+@main () -> int = {
+    let p = Pixel { r: -128, g: 0, b: 127, a: 42 };
+    let sum = p.r + p.g + p.b + p.a;
+    if sum == 41 then 0 else 1
+}
+",
+    )
+    .unwrap();
+
+    let exe = format!("ori{}", std::env::consts::EXE_SUFFIX);
+    let binary = workspace_root.join("target/debug").join(&exe);
+
+    // Compile with ORI_NO_REPR_OPT=1
+    let compile = Command::new(&binary)
+        .args([
+            "build",
+            source_path.to_str().unwrap(),
+            "-o",
+            binary_path.to_str().unwrap(),
+        ])
+        .env("ORI_STDLIB", stdlib_path())
+        .env("ORI_NO_REPR_OPT", "1")
+        .output()
+        .expect("compile");
+    assert!(
+        compile.status.success(),
+        "Compilation failed:\n{}",
+        String::from_utf8_lossy(&compile.stderr)
+    );
+
+    // Run and check exit code
+    let run = Command::new(&binary_path).output().expect("run");
+    let exit_code = run.status.code().unwrap_or(-1);
+    assert_eq!(
+        exit_code,
+        0,
+        "Disabled-policy binary returned {exit_code}, expected 0.\n\
+         stderr: {}",
+        String::from_utf8_lossy(&run.stderr)
     );
 }

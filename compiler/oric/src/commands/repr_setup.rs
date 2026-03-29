@@ -45,6 +45,7 @@ pub(super) fn compute_module_repr_plan(
     type_result: &TypeCheckResult,
     interner: Option<&StringInterner>,
     imported_type_metadata: &[ori_types::ExportedTypeMetadata],
+    has_analysis_only_functions: bool,
 ) -> ori_repr::ReprPlan {
     // Extract #repr attributes from typed module for the repr plan.
     let repr_attrs: Vec<(Idx, ReprAttrKind)> = type_result
@@ -64,6 +65,13 @@ pub(super) fn compute_module_repr_plan(
         .map(|te| te.idx)
         .collect();
 
+    // Collect unconstrained function names (pub + trait impl) for §03.5.
+    let unconstrained_fn_names = collect_unconstrained_fn_names(
+        &type_result.typed.functions,
+        &type_result.typed.trait_impl_fn_names,
+        interner,
+    );
+
     ori_repr::compute_repr_plan_with_interner(
         pool,
         all_arc_funcs,
@@ -72,5 +80,45 @@ pub(super) fn compute_module_repr_plan(
         interner,
         &pub_type_indices,
         imported_type_metadata,
+        &unconstrained_fn_names,
+        has_analysis_only_functions,
     )
+}
+
+/// Collect unconstrained function identities (pub or trait impl).
+///
+/// These functions may be called from external code or via dynamic dispatch,
+/// so §03.5 interprocedural range analysis must assign Top to their parameters.
+/// Only trait impl methods are included — inherent impl methods have known
+/// call sites and can be narrowed (TPR-03-038).
+///
+/// Returns `(Option<Idx>, Name)` pairs: `None` for pub top-level functions,
+/// `Some(self_type)` for trait impl methods (TPR-03-042 disambiguation).
+pub(super) fn collect_unconstrained_fn_names(
+    function_sigs: &[ori_types::FunctionSig],
+    trait_impl_fn_names: &[(ori_types::Idx, oric::ir::Name)],
+    interner: Option<&oric::ir::StringInterner>,
+) -> Vec<(Option<ori_types::Idx>, oric::ir::Name)> {
+    let mut names = Vec::new();
+    // Public top-level functions — external callers may pass any value.
+    for sig in function_sigs {
+        if sig.is_public {
+            names.push((None, sig.name));
+        }
+    }
+    // Trait impl methods only — may be called via dynamic dispatch.
+    // Inherent impl methods are NOT included (TPR-03-038).
+    // Carries self-type for disambiguation (TPR-03-042).
+    for &(self_type, name) in trait_impl_fn_names {
+        names.push((Some(self_type), name));
+        // Also register the qualified name used by analysis-only ARC functions
+        // (TPR-03-043). The qualified name format matches what codegen_pipeline
+        // uses when ARC-lowering impl methods for range analysis.
+        if let Some(interner) = interner {
+            let method_str = interner.lookup(name);
+            let qualified = interner.intern(&format!("__impl_{}_{method_str}", self_type.raw()));
+            names.push((None, qualified));
+        }
+    }
+    names
 }

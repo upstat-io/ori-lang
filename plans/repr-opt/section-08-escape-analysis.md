@@ -344,6 +344,7 @@ Feed escape information into the ARC pipeline so it can skip RC operations.
 - [ ] `./diagnostics/valgrind-aot.sh` clean (no use-after-free from premature stack deallocation or bump region reuse)
 - [ ] `./diagnostics/dual-exec-verify.sh` passes (eval and AOT produce identical results)
 - [ ] Zero `ori_rc_alloc` calls for functions that only use non-escaping values
+- [ ] `/tpr-review` passed — independent Codex review found no critical or major issues (or all findings triaged)
 
 **Exit Criteria:** A function that creates a temporary list, computes its length, and returns the length generates ZERO `ori_rc_alloc`/`ori_rc_dec` calls in LLVM IR. Verified by `grep -c "ori_rc" function.ll` returning 0. A function with a dynamic-size temporary collection uses `ori_bump_alloc` instead of `ori_rc_alloc`. Valgrind reports 0 heap leaks (bump regions properly freed).
 

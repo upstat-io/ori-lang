@@ -108,6 +108,27 @@ pub struct ReprPlan {
     ///
     /// Populated at plan construction from type checker visibility info.
     pub_type_indices: FxHashSet<Idx>,
+    /// Function identities whose parameters must NOT be narrowed by §03.5
+    /// interprocedural range analysis.
+    ///
+    /// Entries are `(Option<self_type_idx>, method_name)`:
+    /// - `(None, name)` — pub top-level function
+    /// - `(Some(idx), name)` — trait impl method on type `idx`
+    ///
+    /// Using `(Option<Idx>, Name)` prevents bare-Name collisions where a
+    /// trait impl method and an unrelated inherent method share a name
+    /// (TPR-03-042).
+    ///
+    /// Closures are handled separately via `ArcFunction::num_captures > 0`.
+    unconstrained_fn_names: FxHashSet<(Option<Idx>, Name)>,
+    /// Whether the analysis set includes functions not fully integrated into
+    /// the codegen pipeline (e.g., impl methods ARC-lowered for range analysis
+    /// only, not for borrow inference or LLVM emission).
+    ///
+    /// When true, §04 integer narrowing is suppressed because the field-range
+    /// summaries from analysis-only functions may trigger narrowing for structs
+    /// that cross ABI boundaries without proper widening (§04.2 not complete).
+    has_analysis_only_functions: bool,
 }
 
 impl ReprPlan {
@@ -128,6 +149,8 @@ impl ReprPlan {
             audit: Vec::new(),
             narrowing_policy: policy,
             pub_type_indices: FxHashSet::default(),
+            unconstrained_fn_names: FxHashSet::default(),
+            has_analysis_only_functions: false,
         }
     }
 
@@ -230,6 +253,77 @@ impl ReprPlan {
     #[must_use]
     pub fn is_public_type(&self, idx: Idx) -> bool {
         self.pub_type_indices.contains(&idx)
+    }
+
+    /// Register unconstrained function identities (pub, trait impl).
+    ///
+    /// Each entry is `(Option<self_type_idx>, method_name)`:
+    /// - `(None, name)` for pub top-level functions
+    /// - `(Some(idx), name)` for trait impl methods on type `idx`
+    ///
+    /// Unconstrained functions may be called from external code or via
+    /// dynamic dispatch — their parameter ranges must not be narrowed
+    /// by §03.5 interprocedural range analysis. Closures are handled
+    /// separately via `ArcFunction::num_captures`.
+    pub fn set_unconstrained_fn_names(
+        &mut self,
+        names: impl IntoIterator<Item = (Option<Idx>, Name)>,
+    ) {
+        self.unconstrained_fn_names.extend(names);
+    }
+
+    /// Check if a function is unconstrained (pub or trait impl).
+    ///
+    /// `self_type` is the first parameter's type for impl methods, or `None`
+    /// for top-level functions. This disambiguates same-named methods across
+    /// different types (TPR-03-042).
+    ///
+    /// A function is unconstrained if:
+    /// - It's a pub top-level function: `(None, name)` is in the set, OR
+    /// - It's a trait impl method: `(Some(self_type), name)` is in the set
+    #[must_use]
+    pub fn is_unconstrained_fn(&self, self_type: Option<Idx>, name: Name) -> bool {
+        // Exact match only: (None, name) for pub top-level, (Some(idx), name) for
+        // trait impl methods. No wildcard fallback — a pub top-level `foo` must NOT
+        // make an unrelated impl method `Type.foo` unconstrained (TPR-03-042).
+        self.unconstrained_fn_names.contains(&(self_type, name))
+    }
+
+    /// Check if this specific function (by its ARC-lowered name) is unconstrained.
+    ///
+    /// Used as a fallback for trait associated functions (no `self` param)
+    /// and for analysis-only ARC functions with type-qualified names
+    /// (TPR-03-044, TPR-03-046). The qualified name `__impl_{idx}_{method}`
+    /// is stored as `(None, qualified_name)` in the unconstrained set.
+    #[must_use]
+    pub fn is_qualified_unconstrained(&self, qualified_name: Name) -> bool {
+        self.unconstrained_fn_names
+            .contains(&(None, qualified_name))
+    }
+
+    /// Whether §04 integer narrowing is safe to apply at the codegen level.
+    ///
+    /// Returns `false` when the analysis set includes functions not fully
+    /// integrated into the codegen pipeline (e.g., impl methods ARC-lowered
+    /// for range analysis only). Their field-range summaries could trigger
+    /// narrowing for structs that cross ABI boundaries between the ARC-emitted
+    /// path (narrowed) and the `compile_impls` path (canonical), causing
+    /// layout mismatches.
+    ///
+    /// When no analysis-only functions are present, narrowing is safe because
+    /// all analyzed functions go through the same codegen path.
+    #[must_use]
+    pub fn is_integer_narrowing_safe_for_codegen(&self) -> bool {
+        !self.has_analysis_only_functions
+    }
+
+    /// Mark that the analysis set includes functions not fully integrated
+    /// into the codegen pipeline (TPR-03-041).
+    ///
+    /// When set, §04 integer narrowing and per-variable range storage are
+    /// suppressed to prevent ABI-mismatched struct layouts.
+    pub fn set_has_analysis_only_functions(&mut self) {
+        self.has_analysis_only_functions = true;
     }
 
     /// Record per-function escape analysis info (§08 output).

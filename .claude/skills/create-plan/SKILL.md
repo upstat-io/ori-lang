@@ -15,11 +15,12 @@ Create a new plan directory with index and section files using the standard plan
 ```
 /create-plan <name> [description]
 /create-plan <add xyz to roadmap>
+/create-plan add "<subsection title>" subsection to plans/<plan-dir>
 ```
 
 - `name`: Directory name for the plan (kebab-case, e.g., `error-recovery`, `lsp-integration`)
 - `description`: Optional one-line description of the plan's goal
-- **Roadmap mode**: If the name/description indicates adding to the roadmap (e.g., "add pattern matching to roadmap", "roadmap: closures"), this command operates in **Roadmap Mode** — see the dedicated section below.
+- **Existing plan mode**: If the input references an existing plan directory (e.g., "add X to plans/repr-opt", "add section to roadmap"), this command operates in **Existing Plan Mode** — see the dedicated section below.
 
 ---
 
@@ -27,7 +28,12 @@ Create a new plan directory with index and section files using the standard plan
 
 **New Plan Mode** (default): The argument names a new plan directory. Creates `plans/{name}/` from scratch.
 
-**Roadmap Mode**: The argument indicates adding a section to the existing roadmap. Detected when the input contains "roadmap" or references an existing roadmap section. Operates on `plans/roadmap/` instead of creating a new directory.
+**Existing Plan Mode**: The argument indicates adding a section or subsection to an existing plan. Detected when:
+- The input contains "roadmap" or references an existing roadmap section (legacy Roadmap Mode — operates on `plans/roadmap/`)
+- The input references any existing plan directory (e.g., "add X to plans/repr-opt", "add subsection to plans/test-suite-health")
+- The input uses the explicit syntax: `add "<title>" subsection to plans/<dir>`
+
+When in Existing Plan Mode, the target is the referenced plan directory. See "Existing Plan Mode" section below for the full workflow.
 
 Both modes follow the SAME research rigor, the SAME iterative deepening, the SAME sequential writing discipline. The difference is the target: a new plan vs. an existing one.
 
@@ -708,95 +714,129 @@ See `.claude/skills/create-plan/plan-schema.md` for full guidance.
 
 ---
 
-## Roadmap Mode
+## Existing Plan Mode
 
-When the input indicates adding to the roadmap (e.g., `/create-plan add closures to roadmap`, `/create-plan roadmap: pattern matching`), this command operates on `plans/roadmap/` instead of creating a new plan directory.
+When the input indicates adding to an existing plan — whether the roadmap, a rerouted plan, or any other plan directory — this command operates on that plan's directory instead of creating a new one.
+
+**Trigger examples:**
+- `/create-plan add closures to roadmap` → operates on `plans/roadmap/`
+- `/create-plan add "ARC IR function metadata" subsection to plans/repr-opt` → operates on `plans/repr-opt/`
+- `/create-plan roadmap: pattern matching` → operates on `plans/roadmap/`
 
 **Same rigor, different target.** Every phase applies identically — the research depth, the iterative deepening, the sequential writing, the cohesion review. The only differences are structural: you're inserting into an existing plan, not creating a fresh one.
 
-### Roadmap Mode: How It Differs
+### Subsection vs Section Granularity
+
+When invoked from `/continue-roadmap` impediment resolution (Step 2.6), the work is typically a **subsection** added to an existing section — not a whole new section file. The granularity depends on scope:
+
+- **Subsection** (most common for impediments): Add a `## XX.Y` block to an existing section file. Example: adding `## 03.5b ARC IR Function Metadata` to `section-03-range-analysis.md` to resolve the missing visibility/trait/closure plumbing.
+- **Section**: Add a new section file when the work is large enough to warrant its own file (100+ lines of plan content, multiple subsections, distinct from existing section scope).
+
+For subsections: update the parent section's YAML frontmatter `sections:` array to include the new subsection entry. For sections: create a new section file and update `00-overview.md` and `index.md`.
+
+### Existing Plan Mode: How It Differs
 
 #### Phase 1 Differences
 
 - **Step 1**: Instead of asking for a plan name, identify:
-  1. **What feature/section** to add to the roadmap
+  1. **What feature/section/subsection** to add to the plan
   2. **Where it fits** — after which existing section? What does it depend on?
   3. **What it might affect** — which existing sections reference related code?
+  4. **What it unblocks** — which blocked items will this resolve? (Critical for impediment-driven additions)
 
-- **Step 2**: In addition to the template and hygiene rules, **read the entire roadmap**:
-  - `plans/roadmap/00-overview.md` — understand the mission, architecture, dependency graph
-  - `plans/roadmap/index.md` — understand the keyword structure and section numbering
-  - **Every existing section file** — understand what's already planned, what's complete, what's in progress
+- **Step 2**: In addition to the template and hygiene rules, **read the target plan**:
+  - `plans/<dir>/00-overview.md` — understand the mission, architecture, dependency graph
+  - `plans/<dir>/index.md` — understand the keyword structure and section numbering
+  - **The section(s) most related to the new work** — understand what's already planned, what's complete, what's in progress
   - Pay attention to: section dependencies, implementation sequence, cross-section interactions
 
 #### Phase 2 Differences
 
-Research is identical in rigor, but adds a roadmap-specific dimension:
+Research is identical in rigor, but adds a plan-specific dimension:
 
 - **Pass 1**: In addition to the standard inventory, identify:
-  - Which existing roadmap sections touch the same files/types/crates
-  - Which existing sections might need updates due to the new section
+  - Which existing plan sections touch the same files/types/crates
+  - Which existing sections might need updates due to the new section/subsection
   - Whether any completed sections already partially cover the new scope
 
 - **Pass 2**: In addition to deep-reading critical files, deep-read:
-  - The 2-3 existing roadmap sections most related to the new one
-  - Any completed sections that the new section builds on (to understand what was actually implemented vs. what was planned)
+  - The 2-3 existing plan sections most related to the new one
+  - Any completed sections that the new work builds on (to understand what was actually implemented vs. what was planned)
 
 #### Phase 3 Differences
 
 - **Step 7**: Synthesis must include:
-  - **Impact analysis**: How does the new section affect the existing roadmap? Does it change dependencies? Does it invalidate assumptions in other sections?
-  - **Insertion point**: Where in the section numbering does it go? (May require renumbering)
+  - **Impact analysis**: How does the new section/subsection affect the existing plan? Does it change dependencies? Does it invalidate assumptions in other sections?
+  - **Insertion point**: Where does it go? For subsections: which `## XX.Y` header, what ID? For sections: which section number? (May require renumbering)
   - **Dependency updates**: Which existing sections need `depends_on` updates?
+  - **Unblock analysis** (for impediment-driven additions): Which `<!-- blocked: ... -->` comments will this resolve? List them explicitly.
 
 - **Step 8**: Instead of writing a new `00-overview.md`:
-  - **Update** the existing `00-overview.md` — add the new section to the architecture diagram, dependency graph, implementation sequence, quick reference table, and estimated effort
-  - **Update** `index.md` — add keyword clusters for the new section
+  - **For subsections**: Update the parent section's YAML frontmatter `sections:` array to include the new subsection entry. Update the section body with the new `## XX.Y` block.
+  - **For sections**: Create the new section file. Update `00-overview.md` — add the new section to the architecture diagram, dependency graph, implementation sequence, quick reference table, and estimated effort. Update `index.md` — add keyword clusters for the new section.
   - If the overview or index format has drifted from the current template (`.claude/skills/create-plan/plan-schema.md`), bring them up to date while you're editing them
 
 - **Step 9**: Present to the user:
-  - The proposed new section with its goals and scope
+  - The proposed new section/subsection with its goals and scope
   - The impact on existing sections (what changes, what doesn't)
-  - The updated dependency graph showing where the new section fits
+  - Which blocked items this will unblock (for impediment-driven additions)
   - Any existing sections that need updates and what those updates are
 
 #### Phase 4 Differences
 
-- **Step 11**: Write the new section(s) following the same sequential discipline. If multiple new sections are needed, write them in order.
+- **Step 11**: Write the new section(s)/subsection(s) following the same sequential discipline. If multiple are needed, write them in order.
 
-- **After writing the new section(s)**: Update any existing sections that are affected:
-  - Update `depends_on` in sections that now depend on the new section
+- **After writing**: Update any existing sections that are affected:
+  - Update `depends_on` in sections that now depend on the new work
   - Update cross-references in sections that reference related code
-  - Update `00-overview.md` dependency graph and implementation sequence
-  - Update `index.md` with the new section's keywords
-  - If any existing section's content is now stale or contradicted by the new section, fix it. Flag the section as `reviewed: false` if you changed its assumptions.
+  - Update `00-overview.md` dependency graph and implementation sequence (for new sections)
+  - Update `index.md` with new keywords (for new sections)
+  - **Remove `<!-- blocked: ... -->` comments** from items that the new work will unblock (for impediment-driven additions)
+  - If any existing section's content is now stale or contradicted by the new work, fix it. Flag the section as `reviewed: false` if you changed its assumptions.
 
 #### Phase 5 Differences
 
-- **Step 13**: The cohesion check reads the ENTIRE roadmap (all sections, not just new ones), checking that:
-  - The new section is consistent with all existing sections
-  - No existing section contradicts the new section
-  - The dependency graph in `00-overview.md` is accurate
-  - The implementation sequence still makes sense with the new section inserted
+- **Step 13**: The cohesion check reads the relevant plan sections (all sections for full plans; the parent section + neighbors for subsection additions), checking that:
+  - The new work is consistent with existing sections
+  - No existing section contradicts the new work
+  - The dependency graph in `00-overview.md` is accurate (if modified)
+  - The implementation sequence still makes sense
   - Cross-references between sections are all valid
 
-- **Step 16**: Run `/review-plan plans/roadmap/` (the full roadmap, not just the new section)
+- **Step 16**: Run `/review-plan` on the affected plan directory
 
-- **Step 18**: Skip the reroute question (the roadmap is the roadmap, not a reroute)
+- **Step 18**: Skip the reroute question if operating on a plan that is already a reroute or the roadmap itself
 
-### Roadmap Mode: The "Leave It Better" Rule
+### Existing Plan Mode: The "Leave It Better" Rule
 
-**You MUST leave the roadmap in better shape than you found it.** When operating in roadmap mode:
+**You MUST leave the plan in better shape than you found it.** When operating in existing plan mode:
 
-1. **Format drift**: If the roadmap's existing sections don't match the current template format (`.claude/skills/create-plan/plan-schema.md`), update them to match. This includes frontmatter fields, section structure, completion checklists, and third-party review blocks.
+1. **Format drift**: If the plan's existing sections don't match the current template format (`.claude/skills/create-plan/plan-schema.md`), update them to match. This includes frontmatter fields, section structure, completion checklists, and third-party review blocks.
 2. **Stale content**: If you encounter stale file paths, outdated type signatures, or references to code that no longer exists, fix them.
 3. **Missing cross-references**: If sections reference each other implicitly but lack explicit `depends_on` or co-implementation callouts, add them.
 4. **Incomplete hygiene**: If sections lack completion checklists, exit criteria, or test strategies, add them.
-5. **Overview accuracy**: The overview's architecture diagram, dependency graph, and implementation sequence must accurately reflect the current state of the roadmap after your changes.
+5. **Overview accuracy**: The overview's architecture diagram, dependency graph, and implementation sequence must accurately reflect the current state of the plan after your changes.
 
-This is not optional cleanup — it's a mandatory part of roadmap mode. Every touch of the roadmap is an opportunity to improve its coherence and accuracy.
+This is not optional cleanup — it's a mandatory part of existing plan mode. Every touch of the plan is an opportunity to improve its coherence and accuracy.
 
-### Roadmap Mode: Example
+### Existing Plan Mode: Impediment Resolution Example
+
+**Input** (from `/continue-roadmap` Step 2.6):
+`/create-plan add "ARC IR Function Metadata" subsection to plans/repr-opt`
+
+**Phase 1**: Read CLAUDE.md. Read `plans/repr-opt/00-overview.md` and the section containing blocked items (e.g., `section-03-range-analysis.md`). Identify that §03.5 has 6 items blocked by "ARC IR lacks visibility/trait/closure metadata."
+
+**Phase 2**:
+- *Pass 1*: Survey `ArcFunction` fields in `ori_arc/src/ir/mod.rs`. Find `FunctionSig.is_public` in `ori_types`. Check `lower_to_arc()` in `oric/src/arc_lowering.rs`.
+- *Pass 2*: Deep-read the lowering path. Discover `is_public` exists upstream but is dropped. `num_captures > 0` already identifies closures. Only `is_trait_method` needs inference from `impl_sigs`.
+
+**Phase 3**: Design subsection `03.5b ARC IR Function Metadata`. Scope: add `is_public` and `is_trait_method` to `ArcFunction`, thread through lowering, use in `propagate_ranges()`. Update §03 frontmatter with new subsection entry. Present to user with list of 6 items that will be unblocked.
+
+**Phase 4**: Write the `## 03.5b` block in `section-03-range-analysis.md`. Remove `<!-- blocked: ... -->` comments from the 6 items. Update §03 frontmatter sections array.
+
+**Phase 5**: Cohesion check against §03 and §04 (which also consumes range data). Verify no contradictions.
+
+### Existing Plan Mode: Roadmap Example
 
 **Input:** `/create-plan add pattern matching exhaustiveness to roadmap`
 

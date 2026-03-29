@@ -1,7 +1,7 @@
 ---
 section: "15B"
 title: Function Syntax
-status: not-started
+status: in-progress
 reviewed: false
 tier: 5
 goal: Implement function-related syntax proposals
@@ -547,5 +547,6 @@ conv2d(input:, weight:, bias:, stride: 2)
 - [ ] CLAUDE.md updated with syntax changes
 - [ ] Migration tools working
 - [ ] All tests pass: `./test-all.sh`
+- [ ] `/tpr-review` passed — independent Codex review found no critical or major issues (or all findings triaged)
 
 **Exit Criteria**: Function syntax proposals implemented

@@ -285,9 +285,14 @@ fn check_impl_block(
         .map(|p| p.name)
         .collect();
 
+    let is_trait_impl = impl_def.trait_path.is_some();
+
     // Check explicitly defined methods
     for method in &impl_def.methods {
         check_impl_method(checker, method, self_type, &generic_params);
+        if is_trait_impl {
+            checker.register_trait_impl_fn_name(self_type, method.name);
+        }
     }
 
     // For trait impls, also check unoverridden default methods.
@@ -302,6 +307,7 @@ fn check_impl_block(
                         if !overridden.contains(&default.name) {
                             let as_impl = ImplMethod::from(default);
                             check_impl_method(checker, &as_impl, self_type, &generic_params);
+                            checker.register_trait_impl_fn_name(self_type, default.name);
                         }
                     }
                 }

@@ -119,5 +119,6 @@ sections:
 - [ ] Shell completions
 - [ ] Clean command
 - [ ] Run full test suite
+- [ ] `/tpr-review` passed — independent Codex review found no critical or major issues (or all findings triaged)
 
 **Exit Criteria**: Full developer tooling

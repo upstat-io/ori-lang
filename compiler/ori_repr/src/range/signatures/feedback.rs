@@ -52,6 +52,7 @@ pub(super) fn feed_return_ranges_and_reprocess(
     config: &RangeAnalysisConfig,
     results: &mut FxHashMap<Name, crate::range::fixpoint::RangeFixpointResult>,
     func_infos: &mut FxHashMap<Name, FunctionRangeInfo>,
+    plan: &crate::plan::ReprPlan,
 ) {
     // Accumulated narrowings across ALL feedback iterations. When Step 2
     // reruns a function's fixpoint, it must receive ALL callee return-range
@@ -105,6 +106,7 @@ pub(super) fn feed_return_ranges_and_reprocess(
             func_infos,
             &new_narrowed,
             &accumulated_narrowings,
+            plan,
         );
 
         if !step2_changed {
@@ -232,6 +234,7 @@ fn reprocess_changed_functions(
     func_infos: &mut FxHashMap<Name, FunctionRangeInfo>,
     new_narrowed: &FxHashSet<Name>,
     all_narrowings: &FxHashMap<Name, FxHashMap<ArcVarId, ValueRange>>,
+    plan: &crate::plan::ReprPlan,
 ) -> bool {
     let mut any_changed = false;
 
@@ -242,7 +245,7 @@ fn reprocess_changed_functions(
             let Some(func) = func_map.get(name) else {
                 continue;
             };
-            let info = collect_param_ranges(func, results, func_infos, func_map, pool);
+            let info = collect_param_ranges(func, results, func_infos, func_map, pool, plan);
             let params_changed = func_infos
                 .get(name)
                 .is_none_or(|old| old.param_ranges != info.param_ranges);

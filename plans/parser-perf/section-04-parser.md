@@ -197,6 +197,7 @@ Micro-optimizations in the Pratt parser loop and expression dispatch. These are 
 - [ ] `./clippy-all.sh` green
 - [ ] Debug AND release builds pass: `timeout 150 cargo t -p ori_parse --release`
 - [ ] If snapshot enhancement implemented: correctness tests in `snapshot/tests.rs` pass (error truncation matrix + semantic pin)
+- [ ] `/tpr-review` passed — independent Codex review found no critical or major issues (or all findings triaged)
 
 **Correctness verification:** Sections 04.1, 04.2, and 04.4 are performance-only (adding `#[inline]`, tuning allocation, micro-optimizations). The existing parser test suite serves as the correctness regression guard. Run the full suite BEFORE any optimization to establish a green baseline, then after each change. Section 04.3 (snapshot enhancement) adds a behavioral change -- it requires dedicated correctness tests written BEFORE the implementation (see test matrix above). If any test fails after an optimization, the optimization introduced a bug -- revert and investigate.
 

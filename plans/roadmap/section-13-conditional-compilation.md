@@ -1,7 +1,7 @@
 ---
 section: 13
 title: Conditional Compilation
-status: not-started
+status: in-progress
 reviewed: false
 tier: 5
 goal: Enable platform-specific code and feature flags
@@ -683,6 +683,7 @@ Causes a compile-time error with the given message. Valid only in compile-time e
 - [ ] Dead code elimination works
 - [ ] Build system integration complete
 - [ ] All tests pass: `./test-all.sh`
+- [ ] `/tpr-review` passed — independent Codex review found no critical or major issues (or all findings triaged)
 
 **Exit Criteria**: Can build a cross-platform CLI tool with platform-specific implementations
 

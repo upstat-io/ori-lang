@@ -1,7 +1,7 @@
 ---
 section: 1
 title: Type System Foundation
-status: complete
+status: in-progress
 tier: 1
 goal: Fix type checking to properly use type annotations
 spec:
@@ -35,7 +35,7 @@ sections:
     status: complete
   - id: "1.7"
     title: Section Completion Checklist (Updated)
-    status: complete
+    status: in-progress
 ---
 
 # Section 1: Type System Foundation
@@ -376,5 +376,6 @@ Reserve architectural space in the type system for future low-level features (in
 - [x] LLVM AOT tests complete — all 8 primitive types have AOT tests [done] (2026-02-13); fixed byte codegen bug (i64→i8 store mismatch causing segfault)
 - [x] Loop/break/continue AOT tests — 5 tests verifying Never coercion in loops [done] (2026-02-13)
 - [x] `@main` let binding bug fixed [done] (2026-02-13) — `type_interner.rs` removed during hygiene refactors; 6 regression tests added
+- [ ] `/tpr-review` passed — independent Codex review found no critical or major issues (or all findings triaged)
 
 **Section 1 complete.** All subsections (1.1–1.4, 1.6) implemented and verified.

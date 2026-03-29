@@ -92,24 +92,47 @@ Review for:
 ### Step 4: Record Findings
 
 1. Report findings to the user, ordered by severity.
-2. If an owning plan section exists, record validated findings in that section's `Third Party Review Findings` block.
+2. **If an owning plan section exists**, record validated findings in that section's `Third Party Review Findings` block using TPR format.
+3. **If NO owning plan section exists** (completed plan, cross-cutting issue, or orphan finding), file validated findings as bugs in `plans/bug-tracker/` using `/add-bug` format.
 
-#### Finding Format:
+#### Finding Format (plan-owned):
 ```md
 - [ ] `[TPR-{section}-{ordinal}][{severity}]` `file:line` — Short finding summary.
   Evidence: Explain the specific mismatch, regression, or missing case.
   Impact: Explain why the work is incomplete, unsafe, or non-compliant.
   Required plan update: State what must be validated and integrated.
 ```
+
+#### Finding Format (bug-tracker fallback):
+```md
+- [ ] `[BUG-{section}-{ordinal}][{severity}]` **{Short title}** — found by review-work.
+  Repro: {test file or minimal repro steps}
+  Subsystem: {crate/file path}
+  Found: {YYYY-MM-DD} | Source: review-work
+```
+
+Map findings to bug-tracker subsystems:
+- `ori_parse`/`ori_lexer` → section-01
+- `ori_types` → section-02
+- `ori_eval`/`ori_patterns` → section-03
+- `ori_llvm`/`ori_arc` → section-04
+- `ori_rt` → section-05
+- `library/std`/`ori_registry` → section-06
+- `oric`/`ori_fmt`/`ori_diagnostic` → section-07
+- `docs/`/`.claude/`/`plans/` → section-08
+
 Severities: `high`, `medium`, `low`.
 
 ### Step 5: Update Plan Metadata
 
-If findings are added to a plan:
+If findings are added to a plan section (TPR format):
 - Set section frontmatter `status: in-progress`.
 - Set `third_party_review.status: findings`.
 - Set `third_party_review.updated` to today's date.
 - If the plan overview/index was marked complete/resolved, set it back to in-progress/active.
+
+If findings are added to the bug-tracker (fallback):
+- No metadata changes needed — the bug-tracker is always open.
 
 ---
 

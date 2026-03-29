@@ -159,3 +159,4 @@ Follow the `emit_list_index` pattern:
 - [ ] `bench_string.ori` compiles and runs correctly
 - [ ] `./test-all.sh` passes in debug and release
 - [ ] No regressions in existing string AOT tests
+- [ ] `/tpr-review` passed — independent Codex review found no critical or major issues (or all findings triaged)

@@ -203,7 +203,8 @@ After identifying the focus section, **check its frontmatter for `third_party_re
      - [x] `[TPR-02-001][high]` `compiler/oric/src/foo.rs` — Description.
        Resolved: Validated and integrated into 02.2 and 02.5 on YYYY-MM-DD.
      ```
-   - **Rejected findings**: Do not delete — mark resolved with rejection rationale. **A finding may ONLY be rejected if it is factually incorrect** (the described issue does not actually exist in the codebase). "Not related to current plan", "out of scope", "pre-existing", and "not our problem" are NOT valid rejection reasons — per CLAUDE.md, there is no "unrelated" or "out of scope":
+   - **BANNED: Resolving findings with scope notes or rationalizations.** Marking a finding as `[x] Resolved: Scoped as known limitation...` or `Resolved: Pre-existing architectural issue...` is DEFERRAL, not resolution. The finding must be FIXED (code change + tests) or have a concrete plan created and executed. If the fix requires cross-crate refactoring, that IS the work. If genuinely blocked, use `AskUserQuestion`.
+   - **Rejected findings**: Do not delete — mark resolved with rejection rationale. **A finding may ONLY be rejected if it is factually incorrect** (the described issue does not actually exist in the codebase). "Not related to current plan", "out of scope", "pre-existing", "conservative/safe", "architectural limitation", and "not our problem" are NOT valid rejection reasons — per CLAUDE.md, there is no "unrelated" or "out of scope":
      ```markdown
      - [x] `[TPR-02-002][medium]` `compiler/oric/src/qux.rs` — Description.
        Resolved: Rejected after validation on YYYY-MM-DD. [Rationale — must explain why the issue does not actually exist].
@@ -224,6 +225,46 @@ After identifying the focus section, **check its frontmatter for `third_party_re
 - A section cannot be `complete` while unchecked TPR items exist
 - `third_party_review.status: findings` forces section `status` to `in-progress`
 - All findings must be triaged before any new implementation work begins in that section
+
+### Step 1.92: Bug Tracker Check
+
+After identifying the focus section, **check the bug tracker for relevant known bugs** in the subsystem being worked on.
+
+Map the focus section to bug-tracker subsystems:
+
+| Roadmap Section | Bug Tracker Section(s) |
+|----------------|----------------------|
+| 00 (Parser) | 01 (Parser & Lexer) |
+| 01-02 (Types, Inference) | 02 (Type Checker) |
+| 03 (Traits) | 02 (Type Checker), 06 (Stdlib) |
+| 04 (Modules) | 02 (Type Checker), 07 (Tooling) |
+| 05 (Type Decls) | 02 (Type Checker) |
+| 06 (Capabilities) | 02 (Type Checker), 03 (Evaluator) |
+| 07A-D (Stdlib) | 03 (Evaluator), 06 (Stdlib) |
+| 08-10 (Patterns, Match, Control Flow) | 03 (Evaluator), 04 (Codegen) |
+| 11-12 (FFI, Variadics) | 04 (Codegen), 05 (Runtime) |
+| 15D (Bindings) | 02 (Type Checker), 03 (Evaluator) |
+| 21A-B (LLVM, AOT) | 04 (Codegen), 05 (Runtime) |
+| 22 (Tooling) | 07 (Tooling) |
+| 23 (Evaluator) | 03 (Evaluator) |
+
+Read the mapped bug-tracker section file(s) and check for `- [ ]` items.
+
+**If `critical` bugs exist in the mapped subsystem(s):**
+
+1. **STOP** — present them to the user as blockers
+2. List each critical bug with its ID, title, and repro
+3. Use AskUserQuestion:
+   - **Fix critical bugs first (Recommended)** — address these before starting new work
+   - **Proceed anyway** — user accepts the risk of working around known critical bugs
+
+**If `high` bugs exist:**
+
+1. **Mention them** — "There are N high-severity bugs in this area you may want to address"
+2. List the bug IDs and titles briefly
+3. Continue to the next step — high bugs are informational, not blocking
+
+**If only `medium`/`low` or no bugs exist**, proceed normally.
 
 ### Step 1.95: Clean Working Tree Gate
 
@@ -287,10 +328,15 @@ Example:
 
 **Parent inheritance**: Nested `- [ ]` items (indented) inherit their parent's blocker. Only tag the top-level item.
 
+**Planned work requirement**: A `<!-- blocked-by:X -->` tag is ONLY valid if Section X contains a concrete `- [ ]` item whose completion will resolve the blocker. Adding a `blocked-by` reference to a section that has no planned resolution work is creating an unplanned blocker — which is not allowed (see Step 2.6). If no such item exists in Section X, you must add one before tagging.
+
+**No prose-only blockers**: `<!-- blocked: some description -->` without a section reference is a temporary annotation only. Step 2.6 will convert these to either (a) planned subsections in the current plan, or (b) `blocked-by:X` references pointing to concrete plan items. Prose-only blockers cannot persist across `/continue-roadmap` invocations.
+
 This ensures:
 - The scanner correctly counts blocked vs unblocked items
 - When completing a blocker, you can `grep 'unblocks:'` to find what it unblocks
 - When reviewing a blocked item, `grep 'blocked-by:'` shows what prerequisite is missing
+- **Every blocker has a resolution path** — no open-ended blockers accumulate silently
 
 ### Step 2.5: Blocker Chain Resolution
 
@@ -313,6 +359,54 @@ When the scanner shows blocked items, analyze the blocker chain:
    └─ Section 14: Testing [in-progress, 8%] — WAITING (deep chain: 13←12←11←10←9)
       └─ blocks 2 items here
    ```
+
+### Step 2.6: Impediment Resolution — No Unplanned Blockers
+
+**ABSOLUTE RULE: Every blocker must point to planned, actionable work.** A blocker that references a section or plan must have concrete `- [ ]` items in that section that will resolve the blocker. A blocker that describes a missing capability without referencing any plan is an **unplanned blocker** — and unplanned blockers are not allowed to remain open-ended.
+
+**After classifying blockers in Step 2.5, validate every blocker:**
+
+1. **For each `<!-- blocked-by:X -->` reference**: Read Section X and verify it contains a `- [ ]` item whose completion will resolve this blocker. If Section X has no such item, the blocker is unplanned — treat it as an impediment (see below).
+
+2. **For each prose `<!-- blocked: ... -->` comment** (no section reference): This is always an unplanned blocker. It describes a missing capability that nobody has planned to fix. It MUST be resolved — either by adding planned work or by determining it's actually fixable now.
+
+**Blocker categories after validation:**
+
+| Category | Example | Action |
+|----------|---------|--------|
+| **Planned cross-section blocker** | `<!-- blocked-by:19 -->` and Section 19 has `- [ ] Implement existential types` | Valid blocker — skip or tackle Section 19 |
+| **Unplanned cross-section blocker** | `<!-- blocked-by:19 -->` but Section 19 has no item that resolves this | Invalid — add the missing item to Section 19, or reclassify as impediment |
+| **Unplanned impediment (prose)** | `<!-- blocked: ARC IR lacks visibility metadata -->` | Must be planned NOW — invoke `/create-plan` to add a subsection |
+| **Fixable impediment** | Prose blocker where upstream data already exists | Plan it and implement it immediately |
+
+**When unplanned blockers or impediments are detected:**
+
+1. **Investigate each one** — use an Explore agent to verify whether the missing capability is truly unavailable or just unplumbed. Check:
+   - Does the data exist upstream? (e.g., does `ori_types` already have this info?)
+   - What's the plumbing path? (How many files need changes?)
+   - Is this a 50-line fix or a 500-line architectural change?
+
+2. **Plan the resolution** — every unplanned blocker must get planned work somewhere:
+   - **If the fix belongs in the current plan** (most common for impediments): Invoke `/create-plan` to add a new subsection:
+     ```
+     /create-plan add "ARC IR function metadata" subsection to plans/repr-opt
+     ```
+     The new subsection should: describe the impediment, list the implementation steps, include tests, and reference which blocked items it unblocks.
+   - **If the fix belongs in a different plan or roadmap section**: Add a concrete `- [ ]` item to that section describing the work needed, and update the blocker to use `<!-- blocked-by:X -->` pointing to the section. The blocker is now planned.
+   - **If the fix requires a new plan entirely** (large scope, new subsystem): Invoke `/create-plan` to create the new plan, then update the blocker to reference it.
+
+3. **After planning, decide whether to implement now or later:**
+   - **Implement now (recommended for impediments)** — if the fix is localized (< 200 lines, < 5 files), implement it immediately after planning. The impediment IS the next task.
+   - **Implement later (for large cross-section work)** — if the fix is a full section of work, it may be better to tackle it as a separate pass. But it MUST be planned — no open-ended blockers.
+
+4. **After implementation** (or after planning, if deferred):
+   - Remove prose `<!-- blocked: ... -->` comments from items that are now unblocked
+   - Update `<!-- blocked-by:X -->` references if the blocker section changed
+   - Check off resolved items
+
+**Why this matters:** A prose `<!-- blocked: ... -->` comment without a plan is invisible deferral. It looks responsible ("I documented the dependency!") but creates permanent blockers that nobody resolves because they aren't tracked as actionable work anywhere. By requiring every blocker to point to planned work, blockers become visible, trackable, and eventually resolvable. The system cannot accumulate open-ended blockers that silently prevent sections from completing.
+
+**This step is MANDATORY whenever blocked items exist.** Before presenting the blocker tree to the user, you MUST validate that every blocker points to planned work. Unplanned blockers must be resolved in this step — either by adding plan items or by determining they're actually fixable impediments that can be implemented now.
 
 ### Step 3: Load Section Details
 
@@ -361,9 +455,10 @@ Use AskUserQuestion with options. The options depend on the blocker state:
 5. **Switch sections** — Work on a different section
 
 **When ALL remaining items are blocked:**
-1. **Tackle deepest ready blocker (Recommended)** — Work on the READY blocker that unblocks the most items
-2. **Show blocker details** — See what the blocker requires and its dependency chain
-3. **Switch sections** — Work on a different section
+1. **Resolve impediments (Recommended if any exist)** — If Step 2.6 identified fixable impediments, plan and implement them to unblock items in the current section
+2. **Tackle deepest ready blocker** — Work on the READY blocker that unblocks the most items (for true cross-section blockers)
+3. **Show blocker details** — See what the blocker requires and its dependency chain
+4. **Switch sections** — Work on a different section
 
 ### Step 5.5: Subsection Pacing
 
@@ -385,6 +480,7 @@ Based on user choice:
 - **Start next task**: Begin implementing the first unblocked item, following the Implementation Guidelines below
 - **Show task details**: Read relevant spec sections, explore codebase for implementation location
 - **Pick different task**: List all unblocked incomplete items in the section, let user choose
+- **Resolve impediments**: Invoke `/create-plan` to add a subsection to the current plan that resolves the impediment (see Step 2.6). After the subsection is created and reviewed, implement it immediately. Then return to the previously-blocked items — they should now be unblocked.
 - **Tackle a blocker**: Switch to the blocker section and begin implementing its first unchecked item. When the blocker is complete, return to update the blocked items.
 - **Switch sections**: Ask which section to switch to
 
@@ -472,6 +568,7 @@ This applies to ALL skills: `/code-journey`, `/review-plan`, `/sync-spec`, etc.
 6. **Update YAML frontmatter** — See "Updating Section File Frontmatter" below
 7. **Clean up plan annotations** — Run `.claude/skills/impl-hygiene-review/plan-annotations.sh --plan NN` (where NN is the section number) to find annotations in source code referencing the completed section. Remove all stale annotations (TPR-NN-XXX, CROSS-NN-XXX, BUG-NN-XX, §NN.X, Phase refs, etc.) from `.rs` files. Spec references (`Spec: Clause N.M`) are permanent and must NOT be removed. This is mandatory before marking a section complete.
 8. **Run `/commit-push`** — NEVER commit directly with `git commit`. Always use the `/commit-push` skill.
+9. **Run `/tpr-review` after section completion — MUST PASS CLEAN** — When ALL checkboxes in a section are checked and the section is about to be marked `complete`, run `/tpr-review` for an independent Codex review. **The TPR must come back completely clean before the section can be closed out.** If `/tpr-review` surfaces ANY findings: (1) triage them through Step 1.9 (TPR Triage Gate), (2) fix all accepted findings, (3) **re-run `/tpr-review`** to confirm clean. Repeat this cycle until the review passes with zero unresolved findings. A section CANNOT be marked `complete` until a clean `/tpr-review` pass is achieved — "all findings triaged" is not sufficient, the re-run must confirm they are actually resolved. **This rule is definitive and non-negotiable. Do not reason about whether a TPR pass is "close enough", whether remaining findings are "minor", or whether the section is "effectively complete". There is no judgement call — either the TPR is clean or the section stays open. No exceptions, no rationalizations, no shortcuts.**
 
 ---
 
@@ -624,6 +721,7 @@ When completing a roadmap item:
   - [ ] Check off completed items with `[x]`
   - [ ] Update subsection `status` in YAML frontmatter if subsection is now complete
   - [ ] Update section `status` in YAML frontmatter if all subsections are now complete
+- [ ] Run `/tpr-review` — MUST PASS CLEAN (zero unresolved findings). If findings surface: fix, re-run, repeat until clean. This is definitive — no reasoning about "close enough" or "minor remaining". Clean or open, no middle ground.
 - [ ] Update parent plan files (if section status changed):
   - [ ] Update `00-overview.md` effort table and Quick Reference table
   - [ ] Update `index.md` section status and Quick Reference table

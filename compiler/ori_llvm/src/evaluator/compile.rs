@@ -75,6 +75,7 @@ impl<'tcx> super::OwnedLLVMEvaluator<'tcx> {
         mut arc_cache: FxHashMap<Name, (ori_arc::ArcFunction, Vec<ori_arc::ArcFunction>)>,
         narrowing_policy: Option<ori_repr::NarrowingPolicy>,
         imported_type_metadata: &[ori_types::ExportedTypeMetadata],
+        trait_impl_fn_names: &[(ori_types::Idx, Name)],
     ) -> Result<CompiledTestModule<'a>, LLVMEvalError> {
         // --- V2 pipeline ---
 
@@ -113,6 +114,7 @@ impl<'tcx> super::OwnedLLVMEvaluator<'tcx> {
                 &mut arc_cache,
                 narrowing_policy,
                 imported_type_metadata,
+                trait_impl_fn_names,
             )
         };
 
@@ -151,6 +153,7 @@ impl<'tcx> super::OwnedLLVMEvaluator<'tcx> {
         arc_cache: &mut FxHashMap<Name, (ori_arc::ArcFunction, Vec<ori_arc::ArcFunction>)>,
         narrowing_policy: Option<ori_repr::NarrowingPolicy>,
         imported_type_metadata: &[ori_types::ExportedTypeMetadata],
+        trait_impl_fn_names: &[(ori_types::Idx, Name)],
     ) -> (FxHashMap<Name, String>, u32, Vec<String>) {
         // Type infrastructure
         let classifier = ori_arc::ArcClassifier::new(self.pool);
@@ -179,6 +182,13 @@ impl<'tcx> super::OwnedLLVMEvaluator<'tcx> {
             .filter(|te| te.visibility == ori_types::Visibility::Public)
             .map(|te| te.idx)
             .collect();
+        // Collect unconstrained function names (pub + trait impl) for §03.5.
+        // Uses trait_impl_fn_names (not all impl_sigs) per TPR-03-038.
+        let unconstrained_fn_names = crate::collect_unconstrained_fn_names(
+            function_sigs,
+            trait_impl_fn_names,
+            Some(interner),
+        );
         let repr_plan = ori_repr::compute_repr_plan_with_interner(
             self.pool,
             &all_arc_funcs,
@@ -187,6 +197,9 @@ impl<'tcx> super::OwnedLLVMEvaluator<'tcx> {
             Some(interner),
             &pub_type_indices,
             imported_type_metadata,
+            &unconstrained_fn_names,
+            // JIT also has analysis-only impl methods (TPR-03-048).
+            impl_sigs.iter().any(|(_, sig)| !sig.is_generic()),
         );
         let store = TypeInfoStore::new_with_plan(self.pool, &repr_plan);
         let resolver = TypeLayoutResolver::new(&store, scx_ref, Some(interner), Some(&repr_plan));
