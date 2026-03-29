@@ -560,6 +560,9 @@ These are end-to-end behavioral tests. The Ori code itself does not observe the 
 
 ## 05.R Third Party Review Findings
 
+- [x] `[TPR-05-019][low]` [`compiler/oric/src/commands/codegen_pipeline.rs:229`](/home/eric/projects/ori_lang/compiler/oric/src/commands/codegen_pipeline.rs#L229) — **The §05 extraction still leaves `codegen_pipeline.rs` over the repository’s 500-line source-file limit.**
+  Resolved: Fixed on 2026-03-29. Extracted `lower_impl_methods_for_analysis()` (impl-method ARC lowering for repr analysis) plus `make_qualified_name()` and `lower_default_trait_methods()` helpers into `repr_setup.rs`. Result: `codegen_pipeline.rs` = 497 lines, `repr_setup.rs` = 400 lines — both under 500. Updated module doc. All 14,549 tests pass, clippy clean.
+
 - [x] `[TPR-05-001][major]` [`compiler/ori_llvm/src/codegen/derive_codegen/string_helpers.rs:116`](/home/eric/projects/ori_lang/compiler/ori_llvm/src/codegen/derive_codegen/string_helpers.rs#L116) — **Derived `Printable`/`Debug` on narrowed float fields passes `float` to the `ori_str_from_float(double)` runtime ABI, producing invalid LLVM IR.**
   Resolved: Fixed on 2026-03-29. Added `fpext_to_f64_if_narrower()` call in `emit_field_to_string()` Float arm (mirroring the integer `sext_to_i64_if_narrower` pattern). Added `test_float_narrowed_derive_printable`, `test_float_narrowed_derive_debug`, and `test_float_narrowed_derive_ir_pin_fpext_in_printable` as regression guards. All 14,496 tests pass in both debug and release.
 - [x] `[TPR-05-002][major]` [`plans/repr-opt/section-05-float-narrowing.md:309`](/home/eric/projects/ori_lang/plans/repr-opt/section-05-float-narrowing.md#L309) — **§05.4 marked complete without required float AOT regression suite.**
