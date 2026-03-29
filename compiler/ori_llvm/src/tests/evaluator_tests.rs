@@ -121,3 +121,49 @@ fn test_compile_module_with_tests_empty() {
         result.err().map(|e| e.message).unwrap_or_default()
     );
 }
+
+/// Regression: TPR-03-053 — ordinal-qualified names are registered as unconstrained.
+///
+/// When two trait impls on the same type share a method name (e.g., two `Index`
+/// impls with `@index`), `collect_unconstrained_fn_names()` must register both
+/// the base name (`__impl_42_index`) and ordinal-suffixed names
+/// (`__impl_42_index_1`).
+#[test]
+fn collect_unconstrained_fn_names_registers_ordinal_variants() {
+    let interner = StringInterner::new();
+
+    // Simulate type checker output: same type (Idx 42) defines `index` twice
+    // (e.g., `impl Index<int>` and `impl Index<str>` on the same type).
+    let self_type = ori_types::Idx::from_raw(42);
+    let index_name = interner.intern("index");
+    let trait_impl_fn_names = vec![
+        (self_type, index_name), // First impl: ordinal 0
+        (self_type, index_name), // Second impl: ordinal 1
+    ];
+
+    let result = crate::collect_unconstrained_fn_names(&[], &trait_impl_fn_names, Some(&interner));
+
+    // Expected registrations:
+    // 1. (Some(42), "index") — first trait impl method
+    // 2. (None, "__impl_42_index") — base qualified name (ordinal 0)
+    // 3. (Some(42), "index") — second trait impl method
+    // 4. (None, "__impl_42_index_1") — ordinal-qualified name (ordinal 1)
+    let base_qualified = interner.intern("__impl_42_index");
+    let ordinal_qualified = interner.intern("__impl_42_index_1");
+
+    assert!(
+        result.contains(&(None, base_qualified)),
+        "Base qualified name __impl_42_index must be registered"
+    );
+    assert!(
+        result.contains(&(None, ordinal_qualified)),
+        "Ordinal-qualified name __impl_42_index_1 must be registered — TPR-03-053"
+    );
+
+    // Negative: ordinal 0 must NOT produce a suffixed name
+    let wrong_base = interner.intern("__impl_42_index_0");
+    assert!(
+        !result.contains(&(None, wrong_base)),
+        "Ordinal 0 must use the unsuffixed base name, not __impl_42_index_0"
+    );
+}

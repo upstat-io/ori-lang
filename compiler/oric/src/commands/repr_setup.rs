@@ -94,6 +94,12 @@ pub(super) fn compute_module_repr_plan(
 ///
 /// Returns `(Option<Idx>, Name)` pairs: `None` for pub top-level functions,
 /// `Some(self_type)` for trait impl methods (TPR-03-042 disambiguation).
+///
+/// Tracks ordinals for same-type same-name method duplicates (e.g., two
+/// `impl Index<...>` on the same type). Registers both the base qualified
+/// name (`__impl_{idx}_{method}`) and ordinal-suffixed variants
+/// (`__impl_{idx}_{method}_{ordinal}`) to match the analysis-only ARC
+/// lowering format (TPR-03-053).
 pub(super) fn collect_unconstrained_fn_names(
     function_sigs: &[ori_types::FunctionSig],
     trait_impl_fn_names: &[(ori_types::Idx, oric::ir::Name)],
@@ -109,14 +115,33 @@ pub(super) fn collect_unconstrained_fn_names(
     // Trait impl methods only — may be called via dynamic dispatch.
     // Inherent impl methods are NOT included (TPR-03-038).
     // Carries self-type for disambiguation (TPR-03-042).
+    // Tracks ordinals for same-type same-name duplicates (TPR-03-053).
+    let mut method_ordinals: FxHashMap<(ori_types::Idx, oric::ir::Name), usize> =
+        FxHashMap::default();
     for &(self_type, name) in trait_impl_fn_names {
         names.push((Some(self_type), name));
-        // Also register the qualified name used by analysis-only ARC functions
-        // (TPR-03-043). The qualified name format matches what codegen_pipeline
-        // uses when ARC-lowering impl methods for range analysis.
+        // Register the qualified name used by analysis-only ARC functions
+        // (TPR-03-043). The format matches what codegen_pipeline and the JIT
+        // arc_lowering use when ARC-lowering impl methods for range analysis.
+        // Ordinal-qualified names are registered for same-type same-name
+        // duplicates so `is_qualified_unconstrained()` finds them (TPR-03-053).
         if let Some(interner) = interner {
+            let ordinal = {
+                let entry = method_ordinals.entry((self_type, name)).or_insert(0);
+                let ord = *entry;
+                *entry += 1;
+                ord
+            };
             let method_str = interner.lookup(name);
-            let qualified = interner.intern(&format!("__impl_{}_{method_str}", self_type.raw()));
+            let qualified = if ordinal == 0 {
+                interner.intern(&format!("__impl_{}_{method_str}", self_type.raw()))
+            } else {
+                interner.intern(&format!(
+                    "__impl_{}_{}_{ordinal}",
+                    self_type.raw(),
+                    method_str
+                ))
+            };
             names.push((None, qualified));
         }
     }

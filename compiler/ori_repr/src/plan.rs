@@ -292,21 +292,15 @@ impl ReprPlan {
     /// Check if this specific function (by its ARC-lowered name) is unconstrained.
     ///
     /// Used for analysis-only ARC functions with type-qualified names
-    /// (TPR-03-044, TPR-03-046, TPR-03-053). Checks both exact match
-    /// and ordinal-stripped match: `__impl_42_index_1` matches the
-    /// registered `__impl_42_index` base (the ordinal suffix is only
-    /// added for same-type same-name duplicates, but all such duplicates
-    /// are equally unconstrained).
+    /// (TPR-03-044, TPR-03-046). Both base names (`__impl_42_index`) and
+    /// ordinal-suffixed names (`__impl_42_index_1`) are registered by
+    /// `collect_unconstrained_fn_names()`, so exact match is sufficient
+    /// (TPR-03-053).
     #[must_use]
     pub fn is_qualified_unconstrained(&self, qualified_name: Name) -> bool {
         self.unconstrained_fn_names
             .contains(&(None, qualified_name))
     }
-
-    // Note: ordinal-suffixed names (__impl_42_index_1) are not separately
-    // registered as unconstrained. This is safe because when analysis-only
-    // functions are present, has_analysis_only_functions=true gates narrowing.
-    // The unconstrained check is a precision optimization, not a safety gate.
 
     /// Whether §04 integer narrowing is safe to apply at the codegen level.
     ///
