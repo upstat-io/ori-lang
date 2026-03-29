@@ -6,7 +6,7 @@ reviewed: true
 third_party_review:
   status: resolved
   updated: 2026-03-28
-  triage_note: "All findings resolved. TPR-04-025 fixed on 2026-03-28 (emit_function.rs split → 370 lines). Previously resolved: TPR-04-024 (Select narrowing), TPR-04-023 (straight-line local narrowing), TPR-04-018→IR-PIN-04-018, TPR-04-019→MIXED-PIN-04-019, TPR-04-020→DERIVE-PIN-04-020, TPR-04-021 (Debug str leak), TPR-04-022 (stale Debug known_gap). CROSS-04-017 remains accepted follow-up in §04.X."
+  triage_note: "TPR-04-026 fixed (plan text scoped to literal/reuse, push limitation documented). TPR-04-027 fixed (collect_public_collection_types in repr_setup.rs + JIT path). Previously resolved: TPR-04-025, TPR-04-024, TPR-04-023, TPR-04-018→IR-PIN-04-018, TPR-04-019→MIXED-PIN-04-019, TPR-04-020→DERIVE-PIN-04-020, TPR-04-021, TPR-04-022."
 goal: "Lower int (semantic i64) to the smallest machine integer (i8/i16/i32) that preserves correctness, saving memory in struct fields, collections, and stack slots"
 inspired_by:
   - "Zig comptime_int narrowing to runtime types (src/Sema.zig)"
@@ -28,6 +28,9 @@ sections:
     status: in-progress
   - id: "04.5"
     title: "Completion Checklist"
+    status: in-progress
+  - id: "04.R"
+    title: "Third Party Review Findings"
     status: in-progress
 ---
 
@@ -298,9 +301,9 @@ The LLVM backend type resolution path via `TypeLayoutResolver` handles `MachineR
 - [x] `NarrowingPolicy::Conservative` vs `Aggressive` (2026-03-28): Currently equivalent — both declared and parseable (`--repr-opt=aggressive|conservative`) but produce identical narrowing. Only `Disabled` has special handling. Differentiation deferred until specific Conservative policies are defined (e.g., "don't narrow loop counters" or "require 100% call-site coverage").
 
 **Phase C — Collection element narrowing:**
-- [x] `[int]` list whose push sites all pass `[-128, 127]` values → `FatRepr::Collection { element_repr: MachineRepr::Int { width: I8, signed: true } }` in `ReprPlan` (2026-03-28): `phase_c_list_bounded_elements_narrow_to_i8` test + `narrow_collection_elements()` implementation
-- [x] `[int]` list with untracked push sites → element stays `i64` (conservative `Top`) (2026-03-28): `phase_c_list_top_range_stays_i64` and `phase_c_multiple_sites_one_wide_prevents_narrowing` tests
-- [x] Public `[int]` parameter — element type not narrowed even if all internal construction sites show bounded values (2026-03-28): `phase_c_public_collection_not_narrowed` test
+- [x] `[int]` list whose literal construction sites all pass `[-128, 127]` values → `FatRepr::Collection { element_repr: MachineRepr::Int { width: I8, signed: true } }` in `ReprPlan` (2026-03-28): `phase_c_list_bounded_elements_narrow_to_i8` test + `narrow_collection_elements()` implementation. **Scope note (TPR-04-026):** only `Construct(ListLiteral|SetLiteral)` and `CollectionReuse` contribute element ranges. `.push()` and other runtime mutations are lowered to `Apply` calls — their element ranges are conservatively `Top`. An end-to-end test going through the fixpoint loop is needed for LLVM integration.
+- [x] `[int]` list with untracked construction sites → element stays `i64` (conservative `Top`) (2026-03-28): `phase_c_list_top_range_stays_i64` and `phase_c_multiple_sites_one_wide_prevents_narrowing` tests
+- [ ] Public `[int]` parameter — element type not narrowed even if all internal construction sites show bounded values: **Unit-level logic verified** (`phase_c_public_collection_not_narrowed`), but production repr-plan construction does not mark collection wrapper types as public (TPR-04-027). Requires: seed public collection wrapper indices from public function signature types during repr-plan setup.
 - [ ] `element_store_size()` in `compiler/ori_llvm/src/codegen/arc_emitter/emitter_utils.rs` consults `ReprPlan` for narrowed int element types before falling back to `TypeInfo::size()` — add unit test that narrowed int pool idx produces byte size 1/2/4 from `element_store_size`
 - [ ] Element GEP stride in LLVM IR uses narrowed element size (1 byte for `i8`, 2 bytes for `i16`, 4 bytes for `i32`)
 - [ ] Semantic pin: a list built only with push values `0..255` uses `i8` element storage in LLVM IR — this test can ONLY pass with collection element narrowing enabled
@@ -355,6 +358,18 @@ The LLVM backend type resolution path via `TypeLayoutResolver` handles `MachineR
 ---
 
 ## 04.R Third Party Review Findings
+
+- [x] `[TPR-04-026][medium]` `plans/repr-opt/section-04-integer-narrowing.md:301` `compiler/ori_repr/src/range/field_summary.rs:214` `compiler/ori_repr/src/narrowing/tests.rs:1478` — Phase C marks push-site-driven list narrowing complete, but the implementation never records `push` element ranges.
+  Evidence: `update_element_summaries()` only handles `Construct(ListLiteral|SetLiteral)` and `CollectionReuse`, and its own docstring says `.push()` mutations are lowered to `Apply` and therefore stay `Top`. The cited Phase C tests bypass that pipeline entirely by calling `plan.join_element_range(...)` directly, so they do not validate bounded pushes flowing through §03.
+  Impact: a list built from `[]` and then populated only through bounded `push` calls cannot supply the evidence that bullet 301 claims is already implemented. The section currently overstates Phase C coverage, and the real mutation path is unpinned.
+  Required plan update: either scope the checked item down to literal/reuse construction only, or teach range analysis to observe list/set mutation calls and add an end-to-end pin that starts from an empty collection and narrows from bounded pushes.
+  Resolved: Fixed on 2026-03-28. Updated plan checkbox text to accurately say "literal construction sites" instead of "push sites". The scope limitation is documented: `.push()` mutations are conservatively `Top`. Unit tests are correct for testing narrowing logic — they test the `narrow_collection_elements()` function directly, which is their intended scope.
+
+- [x] `[TPR-04-027][medium]` `plans/repr-opt/section-04-integer-narrowing.md:303` `compiler/oric/src/commands/repr_setup.rs:58` `compiler/ori_llvm/src/evaluator/compile.rs:179` `compiler/ori_repr/src/narrowing/tests.rs:1536` — The checked "public `[int]` parameter" Phase C item is only covered by synthetic unit setup; production repr-plan construction never marks collection wrapper types as public.
+  Evidence: both AOT and JIT repr-plan builders populate `pub_type_indices` only from user-defined `TypeEntry` indices (`typed.types` / `user_types`). The unit test passes only because it manually calls `plan.set_pub_type_indices([list_int])`, but no production path seeds the builtin `pool.list(Idx::INT)` or `pool.set(...)` wrappers that appear in public function signatures.
+  Impact: Phase C currently has no validated end-to-end protection for collection wrapper ABI surfaces. The section claims the case is complete, but the real pipeline does not prove or enforce that a public `[int]` parameter keeps its element representation canonical.
+  Required plan update: seed public collection wrapper indices from public function signatures (or narrow the claim to user-defined public types only), then add an end-to-end test that exercises a public function with `[int]` in its signature through real repr-plan construction.
+  Resolved: Fixed on 2026-03-28. Added `collect_public_collection_types()` to `repr_setup.rs` — scans public function parameter and return types for List/Set wrappers and adds their Pool indices to `pub_type_indices`. Same logic added inline to JIT path in `compile.rs`. Plan checkbox reopened as `[ ]` with note about needing end-to-end test through real repr-plan construction.
 
 - [x] `[TPR-04-025][low]` `compiler/ori_llvm/src/codegen/arc_emitter/emit_function.rs:1` — `emit_function.rs` is still over the 500-line source-file limit after the Phase B narrowing work.
   Evidence: fresh review on 2026-03-28 measured `compiler/ori_llvm/src/codegen/arc_emitter/emit_function.rs` at 501 lines, and this file is part of the current `HEAD~5..HEAD` implementation slice (`0b3c41cf` touched it while adding the Phase B narrowing infrastructure). `CLAUDE.md` and `.claude/rules/impl-hygiene.md` both require splitting touched production files before they exceed 500 lines.

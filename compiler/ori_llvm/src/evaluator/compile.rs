@@ -177,11 +177,31 @@ impl<'tcx> super::OwnedLLVMEvaluator<'tcx> {
             .filter_map(|te| te.repr.map(|r| (te.idx, r)))
             .collect();
         // Extract public type indices for ABI-safe narrowing (TPR-04-005).
-        let pub_type_indices: Vec<ori_types::Idx> = user_types
+        let mut pub_type_indices: Vec<ori_types::Idx> = user_types
             .iter()
             .filter(|te| te.visibility == ori_types::Visibility::Public)
             .map(|te| te.idx)
             .collect();
+        // TPR-04-027: Mark collection wrapper types from public function
+        // signatures as public to prevent element narrowing on ABI surfaces.
+        for sig in function_sigs {
+            if sig.is_public {
+                for &param_ty in &sig.param_types {
+                    let tag = self.pool.tag(param_ty);
+                    if matches!(tag, ori_types::Tag::List | ori_types::Tag::Set)
+                        && !pub_type_indices.contains(&param_ty)
+                    {
+                        pub_type_indices.push(param_ty);
+                    }
+                }
+                let ret_tag = self.pool.tag(sig.return_type);
+                if matches!(ret_tag, ori_types::Tag::List | ori_types::Tag::Set)
+                    && !pub_type_indices.contains(&sig.return_type)
+                {
+                    pub_type_indices.push(sig.return_type);
+                }
+            }
+        }
         // Collect unconstrained function names (pub + trait impl) for §03.5.
         // Uses trait_impl_fn_names (not all impl_sigs) per TPR-03-038.
         let unconstrained_fn_names = crate::collect_unconstrained_fn_names(
