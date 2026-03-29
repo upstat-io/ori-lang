@@ -425,33 +425,73 @@ impl<'tcx> super::OwnedLLVMEvaluator<'tcx> {
     }
 }
 
-/// Recursively walk a type and mark any collection types found (TPR-04-028).
+/// Recursively walk a type and mark any collection types found (TPR-04-028/029).
+///
+/// Resolves Named/Applied/Alias via `resolve_fully()` and walks into
+/// Option, Result, Tuple, Map children.
 fn mark_nested_collections(
     pool: &ori_types::Pool,
     ty: ori_types::Idx,
     pub_indices: &mut Vec<ori_types::Idx>,
 ) {
-    match pool.tag(ty) {
+    mark_nested_collections_recursive(pool, ty, pub_indices, 0);
+}
+
+fn mark_nested_collections_recursive(
+    pool: &ori_types::Pool,
+    ty: ori_types::Idx,
+    pub_indices: &mut Vec<ori_types::Idx>,
+    depth: u32,
+) {
+    if depth > 32 {
+        return;
+    }
+    let resolved = pool.resolve_fully(ty);
+    let tag = pool.tag(resolved);
+    match tag {
         ori_types::Tag::List | ori_types::Tag::Set => {
-            if !pub_indices.contains(&ty) {
+            if !pub_indices.contains(&resolved) {
+                pub_indices.push(resolved);
+            }
+            if ty != resolved && !pub_indices.contains(&ty) {
                 pub_indices.push(ty);
             }
         }
         ori_types::Tag::Option => {
-            mark_nested_collections(pool, pool.option_inner(ty), pub_indices);
+            mark_nested_collections_recursive(
+                pool,
+                pool.option_inner(resolved),
+                pub_indices,
+                depth + 1,
+            );
         }
         ori_types::Tag::Result => {
-            mark_nested_collections(pool, pool.result_ok(ty), pub_indices);
-            mark_nested_collections(pool, pool.result_err(ty), pub_indices);
+            mark_nested_collections_recursive(
+                pool,
+                pool.result_ok(resolved),
+                pub_indices,
+                depth + 1,
+            );
+            mark_nested_collections_recursive(
+                pool,
+                pool.result_err(resolved),
+                pub_indices,
+                depth + 1,
+            );
         }
         ori_types::Tag::Tuple => {
-            for elem in pool.tuple_elems(ty) {
-                mark_nested_collections(pool, elem, pub_indices);
+            for elem in pool.tuple_elems(resolved) {
+                mark_nested_collections_recursive(pool, elem, pub_indices, depth + 1);
             }
         }
         ori_types::Tag::Map => {
-            mark_nested_collections(pool, pool.map_key(ty), pub_indices);
-            mark_nested_collections(pool, pool.map_value(ty), pub_indices);
+            mark_nested_collections_recursive(pool, pool.map_key(resolved), pub_indices, depth + 1);
+            mark_nested_collections_recursive(
+                pool,
+                pool.map_value(resolved),
+                pub_indices,
+                depth + 1,
+            );
         }
         _ => {}
     }
