@@ -3615,10 +3615,12 @@ fn imported_metadata_hash_not_in_pool_ignored() {
 // Cross-module collection surface protection (TPR-04-032)
 // =============================================================================
 
-/// Imported collection surface hash resolves to local pool Idx and is marked
-/// as public, preventing Phase C element narrowing.
+/// Imported collection surface hash does NOT suppress element narrowing
+/// (TPR-04-042 fix). Imported surfaces are for transitive forwarding metadata
+/// (A→B→C), not for narrowing suppression. Private `[int]` in the importing
+/// module can narrow independently of imported public `[int]` APIs.
 #[test]
-fn imported_collection_surface_prevents_element_narrowing() {
+fn imported_collection_surface_does_not_suppress_narrowing() {
     let mut pool = Pool::new();
     let interner = ori_ir::StringInterner::new();
 
@@ -3645,10 +3647,11 @@ fn imported_collection_surface_prevents_element_narrowing() {
         false,
     );
 
-    // The List<int> type should be marked public by the imported surface hash.
+    // Imported surfaces should NOT mark the type as public.
+    // They're for transitive forwarding, not narrowing suppression.
     assert!(
-        plan.is_public_type(list_int),
-        "Imported collection surface should mark List<int> as public"
+        !plan.is_public_type(list_int),
+        "Imported collection surface should NOT suppress narrowing (TPR-04-042)"
     );
 }
 
@@ -3719,9 +3722,11 @@ fn imported_collection_surface_empty_is_noop() {
     );
 }
 
-/// Multiple imported collection surface hashes are all resolved.
+/// Multiple imported collection surface hashes are resolved without panic.
+/// After TPR-04-042, imported surfaces don't mark types as public (they're
+/// for forwarding metadata only), but the resolution still succeeds.
 #[test]
-fn imported_collection_surfaces_multiple_hashes() {
+fn imported_collection_surfaces_multiple_hashes_no_panic() {
     let mut pool = Pool::new();
 
     let list_int = pool.list(Idx::INT);
@@ -3743,36 +3748,29 @@ fn imported_collection_surfaces_multiple_hashes() {
         false,
     );
 
+    // After TPR-04-042: imported surfaces no longer mark types as public.
     assert!(
-        plan.is_public_type(list_int),
-        "List<int> should be marked public from imported surface"
+        !plan.is_public_type(list_int),
+        "Imported surface should NOT mark List<int> as public (TPR-04-042)"
     );
     assert!(
-        plan.is_public_type(set_int),
-        "Set<int> should be marked public from imported surface"
+        !plan.is_public_type(set_int),
+        "Imported surface should NOT mark Set<int> as public (TPR-04-042)"
     );
 }
 
-/// Documents the per-Idx precision limitation: an imported public `[int]`
-/// suppresses element narrowing for ALL `[int]` usage in the importing module,
-/// including private local uses that could theoretically narrow. This is because
-/// `Pool` deduplicates `List<int>` to a single `Idx`, and `pub_type_indices`
-/// operates at per-Idx granularity. The same limitation exists for same-module
-/// public functions — `collect_public_collection_types()` marks the same shared
-/// Idx.
+/// Verifies the TPR-04-042 fix: imported collection surfaces do NOT suppress
+/// element narrowing for the importing module's private `[int]` usage.
 ///
-/// The fix requires per-construction-site narrowing (planned in §11.4), which
-/// tracks public/private surface provenance per literal site rather than per
-/// interned type Idx.
+/// The per-Idx limitation is RESOLVED: imported surfaces are no longer added
+/// to `pub_type_indices`. Only same-module public functions suppress narrowing.
 ///
 /// Regression: TPR-04-042
 #[test]
-fn imported_collection_surface_per_idx_precision_limitation() {
+fn imported_collection_surface_allows_private_narrowing() {
     let mut pool = Pool::new();
 
     // One `[int]` Idx — shared by both imported public API and private local usage.
-    // In a real program, both `pub @api() -> [int]` and `let $xs = [1, 2, 3]`
-    // use the same pool Idx for List<int>.
     let list_int = pool.list(Idx::INT);
     let list_hash = pool.hash(list_int);
 
@@ -3804,23 +3802,50 @@ fn imported_collection_surface_per_idx_precision_limitation() {
         false,
     );
 
-    // With import: the shared Idx is marked public — ALL [int] usage (including
-    // private) gets narrowing suppressed.
+    // With import: the shared Idx is NOT marked public. Imported surfaces
+    // don't suppress narrowing — they're for forwarding metadata only.
     assert!(
-        plan_with_import.is_public_type(list_int),
-        "Imported surface marks the shared [int] Idx as public (per-Idx granularity)"
+        !plan_with_import.is_public_type(list_int),
+        "Imported surface should NOT mark [int] as public (TPR-04-042 fix)"
     );
 
-    // Without import: the same Idx is NOT marked public — private [int] can narrow.
+    // Without import: same — private [int] is not public.
     assert!(
         !plan_without_import.is_public_type(list_int),
         "Without imports, private [int] is not marked public"
     );
 
-    // This proves the limitation: there is no way to distinguish imported-public
-    // [int] from private-local [int] at the per-Idx level. A module that imports
-    // `pub @api() -> [int]` from another module will have ALL its local [int]
-    // usage marked public, preventing element narrowing even for `let $xs = [1, 2]`
-    // where all elements fit in i8. Per-construction-site narrowing (§11.4) will
-    // resolve this by tracking provenance per literal site, not per interned Idx.
+    // Both plans treat [int] identically — imported surfaces have no effect
+    // on narrowing. This verifies the fix: private [int] in a module that
+    // imports a public [int] API can now narrow independently.
+}
+
+/// Verifies that same-module public functions still correctly suppress
+/// narrowing. This is the positive counterpart to the TPR-04-042 fix —
+/// we removed imported surface suppression but kept local public suppression.
+#[test]
+fn local_public_function_still_suppresses_narrowing() {
+    let mut pool = Pool::new();
+
+    let list_int = pool.list(Idx::INT);
+
+    // Plan with local pub type: simulates `pub @f(xs: [int])` in this module.
+    let plan = crate::compute_repr_plan_with_interner(
+        &pool,
+        &[],
+        NarrowingPolicy::Aggressive,
+        &[],
+        None,
+        &[list_int], // Local pub type — [int] appears in own public signature
+        &[],
+        &[], // No imported surfaces
+        &[],
+        false,
+    );
+
+    // Local public function's collection type MUST suppress narrowing.
+    assert!(
+        plan.is_public_type(list_int),
+        "Local public function should suppress [int] narrowing"
+    );
 }

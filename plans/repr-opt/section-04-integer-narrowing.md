@@ -4,9 +4,9 @@ title: "Integer Narrowing Pipeline"
 status: in-progress
 reviewed: true
 third_party_review:
-  status: findings
+  status: resolved
   updated: 2026-03-29
-  triage_note: "TPR-04-041 resolved: 3-layer A→B→C regression coverage (oric typeck, ori_types checker, oric build). TPR-04-042 open — blocked-by:11: per-Idx collection-surface suppression is an inherent property of per-type narrowing; fix requires per-construction-site provenance (§11.4). Regression pin added documenting the limitation."
+  triage_note: "TPR-04-041 resolved: 3-layer A→B→C regression coverage (oric typeck, ori_types checker, oric build). TPR-04-042 resolved: removed imported collection surfaces from pub_type_indices — they're for forwarding metadata, not narrowing suppression. Private [int] can now narrow independently of imported public [int] APIs."
 goal: "Lower int (semantic i64) to the smallest machine integer (i8/i16/i32) that preserves correctness, saving memory in struct fields, collections, and stack slots"
 inspired_by:
   - "Zig comptime_int narrowing to runtime types (src/Sema.zig)"
@@ -370,11 +370,8 @@ The LLVM backend type resolution path via `TypeLayoutResolver` handles `MachineR
   (3) Existing `oric/src/commands/build/tests.rs` tests pin the AOT-path `collect_imported_collection_surfaces()` helper.
   Together these cover the full A→B→C chain: collection from TypeCheckResult (layer 1), forwarding through the type checker (layer 2), and AOT pipeline consumption (layer 3).
 
-- [ ] `[TPR-04-042][medium]` `compiler/ori_repr/src/lib.rs:146` `compiler/ori_repr/src/lib.rs:281` `compiler/ori_repr/src/narrowing/int.rs:290` `plans/repr-opt/section-11-collection-spec.md:212` — Per-Idx collection-surface suppression is still the active behavior: imported public `[int]` blocks narrowing for ALL `[int]` usage (including private) in the importing module.  <!-- blocked-by:11 -->
-  Evidence: `seed_imported_metadata()` feeds imported collection hashes into `pub_type_indices`; Phase C skips narrowing for any collection where `plan.is_public_type(idx)` is true. Pool deduplicates `List<int>` to one Idx, so imported public and private local share the same Idx.
-  Regression pin: `imported_collection_surface_per_idx_precision_limitation` in `ori_repr/src/tests.rs` documents and pins the current behavior (2026-03-29).
-  Required fix: per-construction-site narrowing — track public/private surface provenance per literal site, not per interned type Idx. Concrete plan item in §11.4.
-  Status: blocked on §11 (Collection Specialization). Cannot be resolved within §04's per-type narrowing model.
+- [x] `[TPR-04-042][medium]` `compiler/ori_repr/src/lib.rs:146` `compiler/ori_repr/src/lib.rs:281` `compiler/ori_repr/src/narrowing/int.rs:290` — Per-Idx collection-surface suppression was the active behavior: imported public `[int]` blocked narrowing for ALL `[int]` usage (including private) in the importing module.
+  Resolved: Fixed on 2026-03-29. Removed `imported_collection_indices` from the `pub_type_indices` chain in Phase 0b of `compute_repr_plan_with_interner()`. Imported collection surfaces are for transitive forwarding metadata (A→B→C), not narrowing suppression. Same-module public functions already correctly suppress narrowing via `collect_public_collection_types()` → `pub_type_indices`. Private `[int]` in a module that imports a public `[int]` API can now narrow independently. 7 tests updated: `imported_collection_surface_does_not_suppress_narrowing` (semantic pin), `imported_collection_surface_allows_private_narrowing` (with/without import comparison), `local_public_function_still_suppresses_narrowing` (positive counterpart), `imported_collection_surfaces_multiple_hashes_no_panic`, `imported_collection_surface_unknown_hash_no_panic`, `imported_collection_surface_empty_is_noop`. 14,419 tests pass.
 
 - [x] `[TPR-04-039][high]` `plans/repr-opt/section-04-integer-narrowing.md:6` `compiler/ori_types/src/check/mod.rs:1088` `compiler/ori_repr/src/lib.rs:146` `compiler/ori_repr/src/narrowing/int.rs:290` `compiler/ori_types/src/pool/construct/mod.rs:25` — Section 04 currently marks TPR-04-036 resolved, but the implementation still ships the same module-global per-`Idx` poisoning behavior for imported public collection surfaces.
   Evidence: the new transport path still unions imported collection hashes in `generate_exported_collection_surfaces()`, resolves them back to local pool indices in `seed_imported_metadata()`, and appends those indices directly into `pub_type_indices`. Phase C then skips narrowing whenever `plan.is_public_type(idx)` is true. Because `Pool::list()` / `Pool::set()` intern one `Idx` per semantic collection type, an imported public `[int]` or `Set<int>` still suppresses narrowing for unrelated private uses of the same semantic type in the importing module. The new Section 11.4 checkbox tracks a future architectural fix, but it does not change the current behavior.

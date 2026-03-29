@@ -142,7 +142,7 @@ pub fn compute_repr_plan_with_interner(
     }
 
     // Phase 0a-import: Seed imported repr/pub/collection metadata.
-    let (imported_repr_attrs, imported_pub_indices, imported_collection_indices) =
+    let (imported_repr_attrs, imported_pub_indices, _imported_collection_indices) =
         seed_imported_metadata(
             &mut plan,
             pool,
@@ -152,7 +152,16 @@ pub fn compute_repr_plan_with_interner(
 
     // Phase 0b: Store public type indices for ABI-safe narrowing (§04, TPR-04-005).
     // TPR-04-011: also store under the resolved idx for the same reason.
-    // Includes local, imported public types, and imported collection surfaces.
+    // Includes local public types and imported public user-defined types.
+    //
+    // NOTE (TPR-04-042): Imported collection surfaces are NOT added here.
+    // They exist for transitive forwarding metadata (A→B→C), not for narrowing
+    // suppression. Same-module public functions already mark `[int]` as public
+    // via `collect_public_collection_types()`. Imported surfaces would suppress
+    // narrowing for private `[int]` usage that never crosses module boundaries,
+    // because pool interning deduplicates `List<int>` to one Idx. The imported
+    // collection indices are still resolved by `seed_imported_metadata()` for
+    // future use when cross-module ABI widening is implemented.
     plan.set_pub_type_indices(
         pub_type_indices
             .iter()
@@ -164,8 +173,7 @@ pub fn compute_repr_plan_with_interner(
                     vec![idx, resolved]
                 }
             })
-            .chain(imported_pub_indices)
-            .chain(imported_collection_indices),
+            .chain(imported_pub_indices),
     );
 
     // Phase 0b2: Store unconstrained function names for §03.5 range analysis.
@@ -279,8 +287,9 @@ fn seed_imported_metadata(
     }
 
     // Resolve imported collection surface hashes to local Idx.
-    // These are collection types (List, Set) that appeared in imported public
-    // function signatures — their element layout must not be narrowed. TPR-04-032.
+    // These collection types (List, Set) appeared in imported public function
+    // signatures. Resolved for diagnostics and future cross-module ABI use.
+    // NOT added to pub_type_indices — see TPR-04-042 note in Phase 0b.
     let mut imported_collection_indices: Vec<Idx> = Vec::new();
     for &hash in imported_collection_surfaces {
         if let Some(idx) = pool.lookup_by_hash(hash) {
