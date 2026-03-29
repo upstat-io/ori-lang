@@ -210,7 +210,7 @@ pub fn propagate_ranges(
     // without §04.2 (ABI widening) and §04.3 (overflow guards), applying narrowed
     // widths to locals is unsound. Field-range summaries are always stored because
     // they are consumed by §04 itself, not by codegen directly.
-    if plan.is_integer_narrowing_safe_for_codegen() {
+    if plan.is_narrowing_safe_for_codegen() {
         for (name, result) in &results {
             plan.set_var_ranges(*name, result.var_ranges.clone());
         }

@@ -328,17 +328,15 @@ impl<'a, 'll, 'tcx> TypeLayoutResolver<'a, 'll, 'tcx> {
         };
 
         // Only enter the narrowed path if at least one field was actually
-        // narrowed. The canonical (non-narrowed) path for all int fields is
-        // Int { width: I64, signed: true }. Any Int with width < I64 must
-        // have come from the §04 narrowing pass — natural narrow types
-        // (Byte, Char, Bool) use their own MachineRepr variants.
+        // narrowed. Check for both integer narrowing (§04: Int width < I64)
+        // and float narrowing (§05: Float width F32).
         let has_narrowed = fields.iter().any(|f| {
             matches!(
                 f.repr,
-                MachineRepr::Int {
-                    width,
-                    ..
-                } if width != ori_repr::IntWidth::I64
+                MachineRepr::Int { width, .. } if width != ori_repr::IntWidth::I64
+            ) || matches!(
+                f.repr,
+                MachineRepr::Float { width } if width != ori_repr::FloatWidth::F64
             )
         });
         if !has_narrowed {
@@ -346,12 +344,12 @@ impl<'a, 'll, 'tcx> TypeLayoutResolver<'a, 'll, 'tcx> {
         }
 
         // Safety: only create narrowed LLVM types when ALL fields are
-        // scalar int types. Mixed structs (e.g., { str, int }) change
-        // the overall struct size, which breaks element_store_size() and
+        // scalar types. Mixed structs (e.g., { str, int }) change the
+        // overall struct size, which breaks element_store_size() and
         // elem_dec_fn assumptions in collection codegen (list element
         // GEP stride, RC cleanup offsets). Mixed-field narrowing requires
         // Phase C element_store_size integration (§04.4).
-        let all_scalar_int = fields.iter().all(|f| {
+        let all_scalar_fields = fields.iter().all(|f| {
             matches!(
                 f.repr,
                 MachineRepr::Int { .. }
@@ -362,7 +360,7 @@ impl<'a, 'll, 'tcx> TypeLayoutResolver<'a, 'll, 'tcx> {
                     | MachineRepr::Unit
             )
         });
-        if !all_scalar_int {
+        if !all_scalar_fields {
             return None;
         }
 

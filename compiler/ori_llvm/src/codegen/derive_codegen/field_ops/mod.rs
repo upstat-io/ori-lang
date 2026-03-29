@@ -80,15 +80,21 @@ pub(super) fn emit_field_operation<'a>(
                 .builder_mut()
                 .emit_fcmp_ordering(lhs, expect_rhs(rhs), name),
             FieldOp::Hash => {
+                // §05 float narrowing: widen f32 back to f64 before hashing.
+                // This ensures hash(narrowed_struct) == hash(canonical_struct).
+                let hash_val = fc.builder_mut().fpext_to_f64_if_narrower(lhs, name);
                 // Normalize ±0.0 → +0.0 before bitcast to preserve hash contract:
                 // (-0.0).equals(0.0) is true, so their hashes must match.
                 let pos_zero = fc.builder_mut().const_f64(0.0);
-                let is_zero = fc
-                    .builder_mut()
-                    .fcmp_oeq(lhs, pos_zero, &format!("{name}.is_zero"));
-                let normalized =
+                let is_zero =
                     fc.builder_mut()
-                        .select(is_zero, pos_zero, lhs, &format!("{name}.normalized"));
+                        .fcmp_oeq(hash_val, pos_zero, &format!("{name}.is_zero"));
+                let normalized = fc.builder_mut().select(
+                    is_zero,
+                    pos_zero,
+                    hash_val,
+                    &format!("{name}.normalized"),
+                );
                 let i64_ty = fc.builder_mut().i64_type();
                 fc.builder_mut().bitcast(normalized, i64_ty, name)
             }
