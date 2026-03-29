@@ -2279,3 +2279,43 @@ fn closure_params_top_via_num_captures() {
         "Semantic pin: closure param must be Top (num_captures > 0)"
     );
 }
+
+/// Ordinal-suffixed qualified names are correctly recognized as unconstrained (TPR-03-053).
+///
+/// When two impl blocks define the same method on the same type (e.g.,
+/// `impl Point: Index<int>` and `impl Point: Index<str>`, both with `@index`),
+/// the analysis-only ARC lowering assigns ordinal-qualified names:
+/// - First: `__impl_42_index` (ordinal 0)
+/// - Second: `__impl_42_index_1` (ordinal 1)
+///
+/// Both must be recognized by `is_qualified_unconstrained()`.
+#[test]
+fn ordinal_qualified_unconstrained_names() {
+    let mut plan = crate::ReprPlan::new(crate::NarrowingPolicy::Aggressive);
+
+    // Simulate what `collect_unconstrained_fn_names()` now produces for
+    // two same-type same-name trait impls:
+    let base_name = ori_ir::Name::from_raw(500); // __impl_42_index
+    let ordinal_name = ori_ir::Name::from_raw(501); // __impl_42_index_1
+
+    plan.set_unconstrained_fn_names(vec![
+        (None, base_name),    // ordinal 0 (base)
+        (None, ordinal_name), // ordinal 1 (suffixed)
+    ]);
+
+    assert!(
+        plan.is_qualified_unconstrained(base_name),
+        "Base qualified name (ordinal 0) must be unconstrained"
+    );
+    assert!(
+        plan.is_qualified_unconstrained(ordinal_name),
+        "Ordinal-suffixed qualified name (ordinal 1) must be unconstrained — TPR-03-053"
+    );
+
+    // Negative: unregistered name must NOT match
+    let unrelated = ori_ir::Name::from_raw(999);
+    assert!(
+        !plan.is_qualified_unconstrained(unrelated),
+        "Unregistered name must not be unconstrained"
+    );
+}

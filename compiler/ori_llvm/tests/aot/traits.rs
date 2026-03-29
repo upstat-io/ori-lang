@@ -1719,3 +1719,202 @@ fn test_aot_int_into_float_zero() {
         "int_into_float_zero",
     );
 }
+
+// -----------------------------------------------------------------------
+// Regression: TPR-03-050 — Analysis-only ARC lowering path coverage
+//
+// These tests exercise the impl-method analysis-only ARC lowering path
+// that feeds §03.5 range analysis. The codegen pipeline lowers impl method
+// bodies into analysis-only ARC functions with type-qualified names. These
+// tests verify that the analysis-only lowering doesn't interfere with
+// normal codegen, including default trait methods and multi-impl types.
+// -----------------------------------------------------------------------
+
+/// Regression: TPR-03-050 — multiple trait impls on the same type exercise
+/// the analysis-only ARC lowering path with ordinal-qualified names.
+///
+/// The analysis-only path creates type-qualified names for each impl method.
+/// Multiple trait impls on the same type exercise the ordinal counter and
+/// ensure the analysis path doesn't interfere with codegen dispatch.
+///
+/// Note: trait impl methods avoid field access on `self` due to BUG-04-003
+/// (trait impl methods with field access produce LLVM verification errors).
+/// Inherent methods test field access; trait methods test constant returns.
+#[test]
+fn test_aot_multi_trait_impl_analysis_path() {
+    assert_aot_success(
+        r#"
+trait Categorizable {
+    @category (self) -> str
+}
+
+trait Printable {
+    @to_str (self) -> str
+}
+
+type Rect = { w: int, h: int }
+
+impl Categorizable for Rect {
+    @category (self) -> str = "shape";
+}
+
+impl Printable for Rect {
+    @to_str (self) -> str = "rect";
+}
+
+impl Rect {
+    @area (self) -> int = self.w * self.h;
+    @perimeter (self) -> int = 2 * (self.w + self.h);
+}
+
+@main () -> int = {
+    let r = Rect { w: 3, h: 4 };
+    let ok1 = r.category() == "shape";
+    let ok2 = r.to_str() == "rect";
+    let ok3 = r.area() == 12;
+    let ok4 = r.perimeter() == 14;
+    if ok1 && ok2 && ok3 && ok4 then 0 else 1
+}
+"#,
+        "multi_trait_impl_analysis_path",
+    );
+}
+
+/// Regression: TPR-03-050 — default trait method in impl block is correctly
+/// analyzed through the analysis-only ARC lowering path.
+///
+/// The impl block for `Describable` uses the default method `@describe`
+/// without overriding it. The analysis-only path must resolve the default
+/// method body (not skip it or use the wrong body).
+#[test]
+fn test_aot_default_trait_method_analysis_path() {
+    assert_aot_success(
+        r#"
+trait Describable {
+    @describe (self) -> str = "unknown";
+}
+
+type Widget = { id: int }
+
+impl Describable for Widget {
+}
+
+impl Widget {
+    @label (self) -> str = `widget-{self.id}`;
+}
+
+@main () -> int = {
+    let w = Widget { id: 42 };
+    let ok1 = w.describe() == "unknown";
+    let ok2 = w.label() == "widget-42";
+    if ok1 && ok2 then 0 else 1
+}
+"#,
+        "default_trait_method_analysis_path",
+    );
+}
+
+/// Regression: TPR-03-050 — combined inherent, trait, and default methods
+/// on a single type, exercising the full analysis-only path complexity.
+///
+/// This program has 4 impl blocks on the same type (inherent + 3 traits,
+/// one with default), producing multiple analysis-only ARC functions.
+/// Verifies the analysis path processes all bodies without interference.
+///
+/// Note: trait impl methods use constant returns (BUG-04-003 workaround).
+/// Inherent methods exercise full field access + computation.
+#[test]
+fn test_aot_impl_analysis_combined_scenario() {
+    assert_aot_success(
+        r#"
+trait Describable {
+    @describe (self) -> str = "base";
+}
+
+trait Categorizable {
+    @category (self) -> str
+}
+
+trait Printable {
+    @to_str (self) -> str
+}
+
+type Config = { value: int, name: str }
+
+impl Describable for Config {
+}
+
+impl Categorizable for Config {
+    @category (self) -> str = "config";
+}
+
+impl Printable for Config {
+    @to_str (self) -> str = "cfg";
+}
+
+impl Config {
+    @get_value (self) -> int = self.value;
+    @get_name (self) -> str = self.name;
+}
+
+@main () -> int = {
+    let c = Config { value: 10, name: "port" };
+    let ok1 = c.get_value() == 10;
+    let ok2 = c.get_name() == "port";
+    let ok3 = c.describe() == "base";
+    let ok4 = c.category() == "config";
+    let ok5 = c.to_str() == "cfg";
+    if ok1 && ok2 && ok3 && ok4 && ok5 then 0 else 1
+}
+"#,
+        "impl_analysis_combined_scenario",
+    );
+}
+
+/// Regression: TPR-03-050 — multiple types each with multiple impls,
+/// exercising the analysis-only path across the full module.
+///
+/// Ensures that the analysis-only ARC lowering processes impl methods
+/// from multiple distinct types without cross-type interference.
+///
+/// Note: trait impl methods use constant returns (BUG-04-003 workaround).
+#[test]
+fn test_aot_impl_analysis_multiple_types() {
+    assert_aot_success(
+        r#"
+trait Printable {
+    @to_str (self) -> str
+}
+
+type Point = { x: int, y: int }
+type Color = { r: int, g: int, b: int }
+
+impl Printable for Point {
+    @to_str (self) -> str = "point";
+}
+
+impl Point {
+    @distance_sq (self) -> int = self.x * self.x + self.y * self.y;
+}
+
+impl Printable for Color {
+    @to_str (self) -> str = "color";
+}
+
+impl Color {
+    @brightness (self) -> int = (self.r + self.g + self.b) / 3;
+}
+
+@main () -> int = {
+    let p = Point { x: 3, y: 4 };
+    let c = Color { r: 100, g: 150, b: 200 };
+    let ok1 = p.to_str() == "point";
+    let ok2 = p.distance_sq() == 25;
+    let ok3 = c.to_str() == "color";
+    let ok4 = c.brightness() == 150;
+    if ok1 && ok2 && ok3 && ok4 then 0 else 1
+}
+"#,
+        "impl_analysis_multiple_types",
+    );
+}
