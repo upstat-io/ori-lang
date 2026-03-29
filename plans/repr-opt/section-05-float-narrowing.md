@@ -514,7 +514,7 @@ Float narrowing follows the same pattern as `narrow_struct_fields()` in `narrowi
 - [x] `test_float_variable_not_narrowed`: Non-literal float variable stored in struct field stays f64 (2026-03-29)
 - [x] `test_mixed_int_float_narrowed_struct`: Struct with int [0,255] and float 0.5 → `{ i8, float }` in LLVM IR — verifies combined §04+§05 narrowing (2026-03-29)
 - [x] `test_float_repr_c_not_narrowed`: Negative pin — `#repr("c")` struct with f32-exact fields shows `double` (not `float`) in LLVM IR (2026-03-29)
-- [x] Release parity verified: all 15 float AOT tests pass in both `cargo test -p ori_llvm -- float_narrowed` (debug) and `cargo test --release -p ori_llvm -- float_narrowed` (release) — FastISel vs full ISel parity confirmed (2026-03-29). No separate release-specific test needed; the same tests exercise both ISel paths.
+- [x] Release parity verified: all 15 float AOT tests pass in both debug and release — filter `cargo test -p ori_llvm -- float` selects 14 `test_float_*` + 1 `test_mixed_int_float_*` in the narrowing module (2026-03-29). FastISel vs full ISel parity confirmed.
 - [x] `test_float_narrowed_derive_printable`: Derived Printable on narrowed float struct — TPR-05-001 regression guard (2026-03-29)
 - [x] `test_float_narrowed_derive_debug`: Derived Debug on narrowed float struct (2026-03-29)
 - [x] `test_float_narrowed_derive_hash`: Derived Hashable on narrowed float struct (2026-03-29)
@@ -570,3 +570,5 @@ These are end-to-end behavioral tests. The Ori code itself does not observe the 
   Resolved: Fixed on 2026-03-29. Extracted 14 narrowing methods into `arc_emitter/narrowing_codegen.rs` (469 lines). `emitter_utils.rs` reduced from 652 to 205 lines.
 - [x] `[TPR-05-005][medium]` [`compiler/ori_repr/src/lib.rs:490`](/home/eric/projects/ori_lang/compiler/ori_repr/src/lib.rs#L490) — **The float narrowing work touched `lib.rs` without performing the planned extraction, leaving `lib.rs` as a 545-line implementation file.**
   Resolved: Fixed on 2026-03-29. Extracted all function bodies into `pipeline.rs` (497 lines). `lib.rs` reduced from 545 to 60 lines (pure index: `//!` docs, `mod` declarations, `pub use` re-exports only).
+- [x] `[TPR-05-006][medium]` [`plans/repr-opt/section-05-float-narrowing.md:517`](/home/eric/projects/ori_lang/plans/repr-opt/section-05-float-narrowing.md#L517) — **The recorded release-parity command still overstates float narrowing coverage.**
+  Resolved: Fixed on 2026-03-29. Replaced `float_narrowed` filter with `float` which matches all 15 narrowing tests (14 `test_float_*` + 1 `test_mixed_int_float_*`). Verified: `cargo test --release -p ori_llvm -- float` passes all 15 narrowing + 39 other float tests (54 total AOT).
