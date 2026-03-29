@@ -6,7 +6,7 @@ reviewed: true
 third_party_review:
   status: clean
   updated: 2026-03-28
-  triage_note: "All findings TPR-03-034..044 resolved. TPR-03-043 (type-qualified solver keys) and TPR-03-044 (associated function fallback) fixed 2026-03-28."
+  triage_note: "All findings TPR-03-034..046 resolved with code fixes across 5 review iterations."
 goal: "Build an abstract interpretation engine over integer intervals that computes provable value ranges for every int-typed expression in a function"
 inspired_by:
   - "Roc NumericRange constraint system (crates/compiler/types/src/num.rs)"
@@ -1166,6 +1166,18 @@ For cross-function narrowing, we need to propagate range information through fun
 ---
 
 ## 03.R Third Party Review Findings
+
+- [x] `[TPR-03-045][high]` `compiler/oric/src/test/runner/arc_lowering.rs:98` — TPR-03-043 is still unresolved in the JIT path: same-named impl methods are ARC-lowered under the bare method `Name`, so the JIT arc cache and repr-analysis input still collide.
+  Resolved: Fixed on 2026-03-28. Applied the same type-qualified naming (`__impl_{idx}_{method}`) in the JIT arc_lowering path. Both AOT and JIT paths now use identical qualified names for impl methods.
+  Evidence: `lower_and_infer_borrows()` lowers impl methods with `lower_to_arc(*name, sig, *name, ...)` and then stores them in `local_lowered` / `arc_cache` keyed by `arc_fn.name` (`compiler/oric/src/test/runner/arc_lowering.rs:98-113`, `compiler/oric/src/test/runner/arc_lowering.rs:157-163`). The JIT runner feeds that cache directly into `compile_module_with_tests()` (`compiler/oric/src/test/runner/llvm_backend.rs:261-286`), and the evaluator builds `all_arc_funcs` for repr analysis from the same cache (`compiler/ori_llvm/src/evaluator/compile.rs:162-166`). Unlike the AOT path, no type-qualified `__impl_{self_type}_{method}` renaming is applied anywhere in this JIT flow.
+  Impact: programs with multiple impl blocks that share a method name still lose one method's ARC/range/borrow facts under JIT, so the section's current claim that TPR-03-043 is fixed in both backends is overstated.
+  Fix: apply the same collision-proof impl-method identity in the JIT lowering/cache path and add a JIT regression with two impl methods sharing a name.
+
+- [x] `[TPR-03-046][medium]` `compiler/ori_repr/src/range/signatures/mod.rs:275` — TPR-03-044's zero-parameter fallback over-marks unrelated functions: any zero-arg function whose bare `Name` matches some trait impl method is treated as unconstrained, even when it is not an impl method.
+  Resolved: Fixed on 2026-03-28. Replaced `is_any_trait_impl_unconstrained` (bare-name existential) with `is_qualified_unconstrained` (checks the ARC function's own type-qualified name `__impl_{idx}_{method}`). Zero-param functions that aren't trait impls no longer match.
+  Evidence: when `target_func.params.first()` is `None`, `collect_param_ranges()` falls back to `plan.is_any_trait_impl_unconstrained(target_func.name)` (`compiler/ori_repr/src/range/signatures/mod.rs:268-279`). That helper only checks whether *any* `(Some(_), name)` entry exists in `unconstrained_fn_names` (`compiler/ori_repr/src/plan.rs:298-301`); it does not verify that the current `ArcFunction` came from a trait impl. A private top-level `@default()`, or an inherent associated function with no params, will therefore be marked unconstrained if any trait impl method anywhere in the module shares the same name.
+  Impact: zero-parameter non-impl functions can incorrectly get `Top` parameter facts and lose narrowing precision, so the associated-function fix is still not semantically exact.
+  Fix: carry explicit impl ownership/identity into ARC IR or the repr-plan side table instead of using a bare-name existential fallback, and add a regression covering a private/top-level zero-arg function that shares a name with a trait associated function.
 
 - [x] `[TPR-03-043][high]` `compiler/ori_repr/src/range/signatures/mod.rs:114` — §03.5 still keys analysis results by bare function `Name`, so same-named impl methods across different types collide even after TPR-03-042.
   Resolved: Fixed on 2026-03-28. Analysis-only ARC functions for impl methods now use type-qualified names (`__impl_{self_type_idx}_{method}`) interned as `Name`. This makes same-named methods across different types distinct in all solver maps (`func_map`, `results`, `function_var_ranges`). The qualified names are also registered in `unconstrained_fn_names` for the unconstrained check. Original bare method names preserved as `original_name` in `lower_to_arc`.

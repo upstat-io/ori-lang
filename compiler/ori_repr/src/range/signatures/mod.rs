@@ -263,8 +263,8 @@ fn collect_param_ranges(
     // Check if this function is unconstrained. We check:
     // 1. (None, name) for pub top-level functions
     // 2. (Some(self_type), name) for trait impl methods (self-type from first param)
-    // 3. Any trait impl with this name as fallback for associated functions
-    //    without `self` parameter (TPR-03-044)
+    // 3. (None, qualified_name) for type-qualified analysis-only functions
+    //    (covers both methods and associated functions via their __impl_ name)
     let self_type = target_func
         .params
         .first()
@@ -273,17 +273,20 @@ fn collect_param_ranges(
     let is_trait_impl_unconstrained = if let Some(st) = self_type {
         plan.is_unconstrained_fn(Some(st), target_func.name)
     } else {
-        // No params = associated function. Fall back to checking if any trait
-        // impl registered this name (TPR-03-044).
-        plan.is_any_trait_impl_unconstrained(target_func.name)
+        false
     };
-    let unconstrained = if is_pub_unconstrained || is_trait_impl_unconstrained {
-        Some(UnconstrainedReason::PublicOrTraitImpl)
-    } else if target_func.num_captures > 0 {
-        Some(UnconstrainedReason::Closure)
-    } else {
-        None
-    };
+    // Also check by the ARC function's own name as a qualified key —
+    // analysis-only functions use __impl_{idx}_{method} names that are
+    // registered in the unconstrained set (TPR-03-043/044/046).
+    let is_qualified_unconstrained = plan.is_qualified_unconstrained(target_func.name);
+    let unconstrained =
+        if is_pub_unconstrained || is_trait_impl_unconstrained || is_qualified_unconstrained {
+            Some(UnconstrainedReason::PublicOrTraitImpl)
+        } else if target_func.num_captures > 0 {
+            Some(UnconstrainedReason::Closure)
+        } else {
+            None
+        };
 
     if let Some(reason) = unconstrained {
         tracing::debug!(

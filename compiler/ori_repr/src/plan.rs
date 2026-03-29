@@ -289,16 +289,16 @@ impl ReprPlan {
         self.unconstrained_fn_names.contains(&(self_type, name))
     }
 
-    /// Check if ANY trait impl method with the given name is unconstrained.
+    /// Check if this specific function (by its ARC-lowered name) is unconstrained.
     ///
-    /// Used as a fallback for trait associated functions (no `self` param),
-    /// where the caller can't derive a self-type from the first parameter
-    /// (TPR-03-044).
+    /// Used as a fallback for trait associated functions (no `self` param)
+    /// and for analysis-only ARC functions with type-qualified names
+    /// (TPR-03-044, TPR-03-046). The qualified name `__impl_{idx}_{method}`
+    /// is stored as `(None, qualified_name)` in the unconstrained set.
     #[must_use]
-    pub fn is_any_trait_impl_unconstrained(&self, name: Name) -> bool {
+    pub fn is_qualified_unconstrained(&self, qualified_name: Name) -> bool {
         self.unconstrained_fn_names
-            .iter()
-            .any(|(st, n)| st.is_some() && *n == name)
+            .contains(&(None, qualified_name))
     }
 
     /// Whether §04 integer narrowing is safe to apply at the codegen level.
