@@ -2936,6 +2936,7 @@ fn pub_type_propagates_to_resolved_struct_idx() {
         &[named_idx],
         &[],
         &[],
+        &[],
         false,
     );
 
@@ -3039,6 +3040,7 @@ fn pub_resolved_idx_not_narrowed_semantic_pin() {
         &[],
         None,
         &[named_idx],
+        &[],
         &[],
         &[],
         false,
@@ -3147,6 +3149,7 @@ fn pub_type_propagates_through_applied_to_concrete_struct() {
         &[named_idx],
         &[],
         &[],
+        &[],
         false,
     );
 
@@ -3234,6 +3237,7 @@ fn pub_applied_concrete_struct_not_narrowed_semantic_pin() {
         &[],
         None,
         &[named_idx],
+        &[],
         &[],
         &[],
         false,
@@ -3335,6 +3339,7 @@ fn multiple_applied_instantiations_all_protected() {
         &[named_idx],
         &[],
         &[],
+        &[],
         false,
     );
 
@@ -3375,6 +3380,7 @@ fn imported_pub_type_seeded_via_metadata() {
         &[], // No local pub types
         &imported_meta,
         &[],
+        &[],
         false,
     );
 
@@ -3410,6 +3416,7 @@ fn imported_repr_c_type_seeded_via_metadata() {
         None,
         &[], // No local pub types
         &imported_meta,
+        &[],
         &[],
         false,
     );
@@ -3448,6 +3455,7 @@ fn imported_pub_type_not_narrowed_semantic_pin() {
         None,
         &[], // No local pub types — only imported metadata
         &imported_meta,
+        &[],
         &[],
         false,
     );
@@ -3502,6 +3510,7 @@ fn imported_repr_c_type_not_narrowed_semantic_pin() {
         &[],
         &imported_meta,
         &[],
+        &[],
         false,
     );
 
@@ -3548,6 +3557,7 @@ fn no_imported_metadata_allows_narrowing() {
         None,
         &[], // No pub types
         &[], // No imported metadata
+        &[],
         &[],
         false,
     );
@@ -3596,6 +3606,149 @@ fn imported_metadata_hash_not_in_pool_ignored() {
         &[],
         &imported_meta,
         &[],
+        &[],
         false,
+    );
+}
+
+// =============================================================================
+// Cross-module collection surface protection (TPR-04-032)
+// =============================================================================
+
+/// Imported collection surface hash resolves to local pool Idx and is marked
+/// as public, preventing Phase C element narrowing.
+#[test]
+fn imported_collection_surface_prevents_element_narrowing() {
+    let mut pool = Pool::new();
+    let interner = ori_ir::StringInterner::new();
+
+    // Build a narrowable struct so the plan has something to process.
+    let type_name = interner.intern("Wrapper");
+    let field_xs = interner.intern("xs");
+    let list_int = pool.list(Idx::INT);
+    let _struct_idx = pool.struct_type(type_name, &[(field_xs, list_int)]);
+
+    // Get the merkle hash of List<int> — simulates what the exporting module
+    // would have computed via generate_exported_collection_surfaces().
+    let list_int_hash = pool.hash(list_int);
+
+    let plan = crate::compute_repr_plan_with_interner(
+        &pool,
+        &[],
+        NarrowingPolicy::Aggressive,
+        &[],
+        None,
+        &[],              // No local pub types
+        &[],              // No imported type metadata
+        &[list_int_hash], // Imported collection surface
+        &[],
+        false,
+    );
+
+    // The List<int> type should be marked public by the imported surface hash.
+    assert!(
+        plan.is_public_type(list_int),
+        "Imported collection surface should mark List<int> as public"
+    );
+}
+
+/// Imported collection surface hash that doesn't match any local pool type
+/// is safely ignored (no panic).
+#[test]
+fn imported_collection_surface_unknown_hash_no_panic() {
+    let pool = Pool::new();
+    let bogus_hash = 0xDEAD_BEEF_CAFE_BABE;
+
+    let _plan = crate::compute_repr_plan_with_interner(
+        &pool,
+        &[],
+        NarrowingPolicy::Aggressive,
+        &[],
+        None,
+        &[],
+        &[],
+        &[bogus_hash],
+        &[],
+        false,
+    );
+    // No panic — unknown hash is silently skipped.
+}
+
+/// Empty imported collection surfaces behave identically to no surfaces.
+#[test]
+fn imported_collection_surface_empty_is_noop() {
+    let mut pool = Pool::new();
+    let interner = ori_ir::StringInterner::new();
+    let type_name = interner.intern("Pixel");
+    let field_r = interner.intern("r");
+    let named_idx = pool.named(type_name);
+    let struct_idx = pool.struct_type(type_name, &[(field_r, Idx::INT)]);
+    pool.set_resolution(named_idx, struct_idx);
+
+    let plan_without = crate::compute_repr_plan_with_interner(
+        &pool,
+        &[],
+        NarrowingPolicy::Aggressive,
+        &[],
+        None,
+        &[named_idx],
+        &[],
+        &[], // No collection surfaces
+        &[],
+        false,
+    );
+
+    let plan_with_empty = crate::compute_repr_plan_with_interner(
+        &pool,
+        &[],
+        NarrowingPolicy::Aggressive,
+        &[],
+        None,
+        &[named_idx],
+        &[],
+        &[], // Explicitly empty collection surfaces
+        &[],
+        false,
+    );
+
+    // Both plans should treat the struct identically.
+    assert_eq!(
+        plan_without.get_repr(struct_idx),
+        plan_with_empty.get_repr(struct_idx),
+        "Empty collection surfaces should not change narrowing behavior"
+    );
+}
+
+/// Multiple imported collection surface hashes are all resolved.
+#[test]
+fn imported_collection_surfaces_multiple_hashes() {
+    let mut pool = Pool::new();
+
+    let list_int = pool.list(Idx::INT);
+    let set_int = pool.set(Idx::INT);
+
+    let list_hash = pool.hash(list_int);
+    let set_hash = pool.hash(set_int);
+
+    let plan = crate::compute_repr_plan_with_interner(
+        &pool,
+        &[],
+        NarrowingPolicy::Aggressive,
+        &[],
+        None,
+        &[],
+        &[],
+        &[list_hash, set_hash],
+        &[],
+        false,
+    );
+
+    assert!(
+        plan.is_public_type(list_int),
+        "List<int> should be marked public from imported surface"
+    );
+    assert!(
+        plan.is_public_type(set_int),
+        "Set<int> should be marked public from imported surface"
     );
 }

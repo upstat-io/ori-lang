@@ -18,6 +18,7 @@ fn module_info(path: &str, metadata: Vec<ExportedTypeMetadata>) -> CompiledModul
         module_name: path.to_string(),
         public_functions: Vec::new(),
         exported_type_metadata: metadata,
+        exported_collection_surfaces: Vec::new(),
     }
 }
 

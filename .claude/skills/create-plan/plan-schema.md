@@ -253,6 +253,22 @@ sections:
   - id: "{NN}.N"
     title: "Completion Checklist"
     status: not-started
+# ── TPR Checkpoint Placement ──
+# For sections with 3+ implementation subsections, add intermediate
+# `/tpr-review` checkpoints after every 2-3 completed subsections.
+# Mark these as `- [ ] **TPR checkpoint** — ...` items at the END of
+# the last subsection in each group. The final `/tpr-review` in the
+# Completion Checklist ({NN}.N) still runs — it catches integration
+# issues across the full section.
+#
+# Example for a 6-subsection section:
+#   {NN}.1  Implementation A
+#   {NN}.2  Implementation B
+#   {NN}.3  Implementation C  ← TPR checkpoint here (covers .1-.3)
+#   {NN}.4  Implementation D
+#   {NN}.5  Implementation E  ← TPR checkpoint here (covers .4-.5)
+#   {NN}.R  Third Party Review Findings
+#   {NN}.N  Completion Checklist  ← final TPR (full section)
 ---
 
 # Section {NN}: {Title}
@@ -329,6 +345,13 @@ architectural principle it upholds.}
 **Recommended path:** Option (a) for {reason}, with option (b) as
 acceptable interim if {condition}.
 
+- [ ] **TPR checkpoint** — `/tpr-review` covering {NN}.1–{NN}.2 implementation work
+  <!-- For sections with 3+ implementation subsections, place intermediate
+       TPR checkpoints after every 2-3 completed subsections. This catches
+       design drift, missed edge cases, and hygiene issues BEFORE they
+       compound across the remaining subsections. The checkpoint item lives
+       at the end of the last subsection in the group. -->
+
 ### {Sub-topic within the subsection}
 
 **Discovery:** {What was learned during investigation that changes
@@ -374,7 +397,8 @@ When all findings are triaged:
 - [ ] {Regression check: `./test-all.sh` green}
 - [ ] {No spurious warnings in normal compilation}
 - [ ] Plan annotation cleanup: `bash .claude/skills/impl-hygiene-review/plan-annotations.sh --plan {NN}` returns 0 annotations — all temporary scaffolding (TPR, CROSS, BUG, §, Phase, section- refs) removed from `.rs` files
-- [ ] `/tpr-review` passed — independent Codex review found no critical or major issues (or all findings triaged)
+- [ ] All intermediate TPR checkpoint findings resolved (see checkpoint items in subsections above)
+- [ ] `/tpr-review` passed (final, full-section) — independent Codex review found no critical or major issues (or all findings triaged)
 
 **Exit Criteria:** {Paragraph describing the measurable, testable condition
 that proves this section is complete. Include specific commands, test names,
@@ -561,6 +585,18 @@ explain the specific failure mode if only one lands. Use
 When a bug or design flaw motivated a section, include the root cause
 chain. "X broke because Y, which happened because Z, which is
 fundamentally caused by W." This prevents surface-level fixes.
+
+### TPR Cadence — Review Early, Review Often
+Don't save `/tpr-review` for the very end of a section. For sections
+with 3+ implementation subsections, place **intermediate TPR checkpoints**
+after every 2-3 completed subsections of finished work. This catches
+design drift, hygiene violations, and missed edge cases *before* they
+compound across remaining subsections — fixing an issue in subsection 2
+is cheap; discovering it after subsection 6 means rework across 4
+subsections. The final TPR in the Completion Checklist still runs as a
+full-section integration review. Larger, more complex subsections
+(high estimated lines, cross-crate changes, new data flow paths) should
+trigger a checkpoint sooner rather than later.
 
 ### Reference Implementations
 Cite specific files from reference compilers/projects. Not "Rust does
