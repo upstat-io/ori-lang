@@ -2,7 +2,8 @@
 section: 0
 title: Full Parser Support
 status: in-progress
-reviewed: false
+reviewed: true
+last_verified: "2026-03-29"
 tier: 0
 goal: Complete parser support for entire Ori spec grammar (parsing only, not evaluation)
 spec:
@@ -55,7 +56,7 @@ sections:
 
 > **SPEC**: `spec/grammar.ebnf` (authoritative), `spec/06-source-code.md`, `spec/07-lexical-elements.md`
 
-**Status**: In Progress — Re-verified 2026-02-14. ~3 parser bugs remain (down from ~24). 23 items previously broken now parse correctly. Remaining gaps: const functions, `.match()` method syntax. See § 0.8 for full bug list.
+**Status**: In Progress — Verified 2026-03-29. 3 parser bugs remain (all blocked), down from 24. 4181 spec tests pass, 0 fail. Gap analysis found 3 missing grammar productions (while_expr, labeled_block, capset_decl) and systemic absence of negative parser tests. See 0.8 for full checklist.
 
 ---
 
@@ -73,15 +74,17 @@ This section ensures the parser handles every syntactic construct in the Ori spe
 
 ---
 
-## 0.1 Lexical Grammar
+## 0.1 Lexical Grammar (verified 2026-03-29)
 
 > **SPEC**: `grammar.ebnf` § LEXICAL GRAMMAR, `spec/07-lexical-elements.md`
+
+> **INCOMPLETE MATRIX**: Zero `#compile_fail` negative parser tests in `tests/spec/lexical/`. Every test suite must include negative tests per tests.md.
 
 ### 0.1.1 Comments
 
 - [x] **Audit**: Line comments `// ...` — grammar.ebnf § comment [done] (2026-02-10)
   - [x] **Rust Tests**: `oric/tests/phases/parse/lexer.rs` — 14 comment tests (classification, spans, detached warnings)
-  - [x] **Ori Tests**: `tests/spec/lexical/comments.ori` — 30+ tests
+  - [x] **Ori Tests**: `tests/spec/lexical/comments.ori` — 21 tests (verified 2026-03-29)
 
 - [x] **Audit**: Doc comments with markers — grammar.ebnf § doc_comment [done] (2026-02-10)
   - [x] `// ` (description), `// *` (param), `// !` (warning), `// >` (example)
@@ -92,7 +95,7 @@ This section ensures the parser handles every syntactic construct in the Ori spe
 
 - [x] **Audit**: Standard identifiers `letter { letter | digit | "_" }` — grammar.ebnf § identifier [done] (2026-02-10)
   - [x] **Rust Tests**: `oric/tests/phases/parse/lexer.rs` — identifier tokenization
-  - [x] **Ori Tests**: `tests/spec/lexical/identifiers.ori` — 40+ tests (letters, digits, underscores, case sensitivity)
+  - [x] **Ori Tests**: `tests/spec/lexical/identifiers.ori` — 26 tests (verified 2026-03-29)
 
 ### 0.1.3 Keywords
 
@@ -101,7 +104,7 @@ This section ensures the parser handles every syntactic construct in the Ori spe
   - [x] `in`, `let`, `loop`, `match`, `pub`, `self`, `Self`, `then`, `trait`, `true`
   - [x] `type`, `unsafe`, `use`, `uses`, `void`, `where`, `with`, `yield`
   - [x] **Rust Tests**: `oric/tests/phases/parse/lexer.rs` — 45+ keyword recognition tests
-  - [x] **Ori Tests**: `tests/spec/lexical/keywords.ori` — 50+ tests
+  - [x] **Ori Tests**: `tests/spec/lexical/keywords.ori` — 34 tests (verified 2026-03-29)
 
 - [x] **Audit**: Context-sensitive keywords (patterns) — grammar.ebnf § Keywords [done] (2026-02-10)
   - [x] `cache`, `catch`, `for`, `match`, `nursery`, `parallel`, `recurse`, `run`, `spawn`, `timeout`, `try`, `with`
@@ -125,7 +128,7 @@ This section ensures the parser handles every syntactic construct in the Ori spe
 - [x] **Audit**: Arithmetic operators — grammar.ebnf § arith_op [done] (2026-02-10)
   - [x] `+`, `-`, `*`, `/`, `%`, `div` — **Fixed**: Added `div` to parser (was missing)
   - [x] **Rust Tests**: implicit through tokenization
-  - [x] **Ori Tests**: `tests/spec/lexical/operators.ori` — 80+ tests including precedence
+  - [x] **Ori Tests**: `tests/spec/lexical/operators.ori` — 72 tests (verified 2026-03-29)
 
 - [x] **Audit**: Comparison operators — grammar.ebnf § comp_op [done] (2026-02-10)
   - [x] `==`, `!=`, `<`, `>`, `<=`, `>=`
@@ -152,14 +155,14 @@ This section ensures the parser handles every syntactic construct in the Ori spe
 - [x] **Audit**: All delimiters — grammar.ebnf § delimiter [done] (2026-02-10)
   - [x] `(`, `)`, `[`, `]`, `{`, `}`, `,`, `:`, `.`, `@`, `$`
   - [x] **Rust Tests**: implicit through parsing
-  - [x] **Ori Tests**: `tests/spec/lexical/delimiters.ori` — 70+ tests (all delimiter types in context)
+  - [x] **Ori Tests**: `tests/spec/lexical/delimiters.ori` — 57 tests (verified 2026-03-29)
 
 ### 0.1.6 Integer Literals
 
 - [x] **Audit**: Decimal integers — grammar.ebnf § decimal_lit [done] (2026-02-10)
   - [x] Basic: `42`, with underscores: `1_000_000`
   - [x] **Rust Tests**: `oric/tests/phases/parse/lexer.rs` — decimal/hex/binary underscore tests
-  - [x] **Ori Tests**: `tests/spec/lexical/int_literals.ori` — 50+ tests (decimal, hex, binary, underscores, negative, boundary)
+  - [x] **Ori Tests**: `tests/spec/lexical/int_literals.ori` — 42 tests (verified 2026-03-29)
 
 - [x] **Audit**: Hexadecimal integers — grammar.ebnf § hex_lit [done] (2026-02-10)
   - [x] Basic: `0xFF`, with underscores: `0x1A_2B_3C`
@@ -171,14 +174,14 @@ This section ensures the parser handles every syntactic construct in the Ori spe
 - [x] **Audit**: Basic floats — grammar.ebnf § float_literal [done] (2026-02-10)
   - [x] Simple: `3.14`, with exponent: `2.5e-8`, `1.0E+10`
   - [x] **Rust Tests**: `oric/tests/phases/parse/lexer.rs` — float/scientific notation tests
-  - [x] **Ori Tests**: `tests/spec/lexical/float_literals.ori` — 50+ tests (basic, exponents, underscores, precision)
+  - [x] **Ori Tests**: `tests/spec/lexical/float_literals.ori` — 45 tests (verified 2026-03-29)
 
 ### 0.1.8 String Literals
 
 - [x] **Audit**: Basic strings — grammar.ebnf § string_literal [done] (2026-02-10)
   - [x] Simple: `"hello"`, empty: `""`
   - [x] **Rust Tests**: `oric/tests/phases/parse/lexer.rs` — string escape tests
-  - [x] **Ori Tests**: `tests/spec/lexical/string_literals.ori` — 60+ tests
+  - [x] **Ori Tests**: `tests/spec/lexical/string_literals.ori` — 52 tests (verified 2026-03-29)
 
 - [x] **Audit**: Escape sequences — grammar.ebnf § escape [done] (2026-02-10)
   - [x] `\\`, `\"`, `\n`, `\t`, `\r`, `\0`
@@ -209,14 +212,14 @@ This section ensures the parser handles every syntactic construct in the Ori spe
 - [x] **Audit**: Character literals — grammar.ebnf § char_literal [done] (2026-02-10)
   - [x] Simple: `'a'`, escapes: `'\n'`, `'\t'`, `'\''`, `'\\'`
   - [x] **Rust Tests**: `oric/tests/phases/parse/lexer.rs` — char literal parsing
-  - [x] **Ori Tests**: `tests/spec/lexical/char_literals.ori` — 60+ tests (letters, digits, punctuation, escapes)
+  - [x] **Ori Tests**: `tests/spec/lexical/char_literals.ori` — 59 tests (verified 2026-03-29)
 
 ### 0.1.11 Boolean Literals
 
 - [x] **Audit**: Boolean literals — grammar.ebnf § bool_literal [done] (2026-02-10)
   - [x] `true`, `false`
   - [x] **Rust Tests**: implicit through keyword recognition
-  - [x] **Ori Tests**: `tests/spec/lexical/bool_literals.ori` — 60+ tests (truth tables, De Morgan's, short-circuit)
+  - [x] **Ori Tests**: `tests/spec/lexical/bool_literals.ori` — 51 tests (verified 2026-03-29)
 
 ### 0.1.12 Duration Literals
 
@@ -224,7 +227,7 @@ This section ensures the parser handles every syntactic construct in the Ori spe
   - [x] All units: `100ns`, `50us`, `10ms`, `5s`, `2m`, `1h`
   - [x] Decimal syntax: `0.5s`, `1.5m` (compile-time sugar) — tested
   - [x] **Rust Tests**: `oric/tests/phases/parse/lexer.rs` — 10+ duration tests (units, decimal, many digits)
-  - [x] **Ori Tests**: `tests/spec/lexical/duration_literals.ori` — 70+ tests (all units, decimal, cross-unit equivalences)
+  - [x] **Ori Tests**: `tests/spec/lexical/duration_literals.ori` — 60 tests (verified 2026-03-29)
 
 ### 0.1.13 Size Literals
 
@@ -232,11 +235,11 @@ This section ensures the parser handles every syntactic construct in the Ori spe
   - [x] All units: `100b`, `10kb`, `5mb`, `1gb`, `500tb`
   - [x] Decimal syntax: `1.5kb`, `2.5mb` (compile-time sugar) — tested
   - [x] **Rust Tests**: `oric/tests/phases/parse/lexer.rs` — 5+ size tests (units, decimal)
-  - [x] **Ori Tests**: `tests/spec/lexical/size_literals.ori` — 70+ tests (all units, decimal, SI units verified: 1kb == 1000b)
+  - [x] **Ori Tests**: `tests/spec/lexical/size_literals.ori` — 58 tests (verified 2026-03-29)
 
 ---
 
-## 0.2 Source Structure
+## 0.2 Source Structure (verified 2026-03-29)
 
 > **SPEC**: `grammar.ebnf` § SOURCE STRUCTURE, `spec/06-source-code.md`, `spec/18-modules.md`
 
@@ -245,7 +248,7 @@ This section ensures the parser handles every syntactic construct in the Ori spe
 - [x] **Audit**: Source file structure — grammar.ebnf § source_file [done] (2026-02-10)
   - [x] `[ file_attribute ] { import } { declaration }` — imports + types + functions + tests all parse
   - [x] **Rust Tests**: implicit through full-file parsing
-  - [x] **Ori Tests**: `tests/spec/source/file_structure.ori` — 6 tests
+  - [x] **Ori Tests**: `tests/spec/source/file_structure.ori` — 4 tests (verified 2026-03-29)
 
 - [x] **Audit**: File-level attributes — grammar.ebnf § file_attribute [done] (2026-02-13)
   - [x] `#!target(os: "linux")`, `#!cfg(debug)` — parses correctly, stored in `Module.file_attr`
@@ -258,7 +261,7 @@ This section ensures the parser handles every syntactic construct in the Ori spe
   - [x] Relative: `use "./path" { items }` — parses correctly
   - [x] Module: `use std.math { sqrt }` — parses correctly
   - [x] Alias: `use std.net.http as http` — parses correctly
-  - [x] **Ori Tests**: `tests/spec/source/imports.ori` — 3 tests
+  - [x] **Ori Tests**: `tests/spec/source/imports.ori` — 2 tests (verified 2026-03-29)
 
 - [x] **Audit**: Import items — grammar.ebnf § import_item [done] (2026-02-10)
   - [x] Basic: `{ name }`, aliased: `{ name as alias }` — parses correctly
@@ -278,7 +281,7 @@ This section ensures the parser handles every syntactic construct in the Ori spe
 - [x] **Audit**: Extension definitions — grammar.ebnf § extension_def [done] (2026-02-10)
   - [x] `extend Type { methods }` — parses correctly (verified via `ori parse`)
   - [x] `extend Type where T: Bound { methods }` — parses correctly (2026-02-13), including multiple bounds
-  - [x] **Ori Tests**: `tests/spec/source/extensions.ori` — 3 tests
+  - [x] **Ori Tests**: `tests/spec/source/extensions.ori` — 2 tests (verified 2026-03-29)
 
 - [x] **Audit**: Extension imports — grammar.ebnf § extension_import [done] (2026-02-13)
   - [x] `extension std.iter.extensions { Iterator.count }` — parses correctly (2026-02-13)
@@ -311,7 +314,7 @@ This section ensures the parser handles every syntactic construct in the Ori spe
 
 ---
 
-## 0.3 Declarations
+## 0.3 Declarations (verified 2026-03-29)
 
 > **SPEC**: `grammar.ebnf` § DECLARATIONS, `spec/10-declarations.md`
 
@@ -445,6 +448,14 @@ This section ensures the parser handles every syntactic construct in the Ori spe
   - [x] Typed: `let $MAX_SIZE: int = 1000` — parses correctly [done] (2026-02-14)
   - [x] **Ori Tests**: `tests/spec/declarations/constants.ori` — exists but all commented out
 
+### 0.3.9 Capset Declarations
+
+> NEEDS TESTS -- grammar.ebnf defines `capset_decl` but no section item or spec tests exist.
+
+- [ ] **Audit**: Capset declarations -- grammar.ebnf § capset_decl
+  - [ ] Basic: `capset Net = Http, Dns, Tls` -- needs verification and spec tests
+  - [ ] **NEEDS TESTS**: `tests/spec/declarations/capsets.ori` -- basic capset declaration and usage
+
 ---
 
 ## 0.4 Types
@@ -494,7 +505,7 @@ This section ensures the parser handles every syntactic construct in the Ori spe
   - [x] Arithmetic: `$N + 1`, `$N * 2` in type argument position — parses correctly
   - [x] **Rust Tests**: `ori_parse/src/grammar/ty.rs` — 4 const expression type arg tests
 
-### 0.4.5 Trait Objects
+### 0.4.5 Trait Objects (verified 2026-03-29)
 
 > **SPEC**: `spec/08-types.md` § Trait Objects
 
@@ -510,9 +521,11 @@ This section ensures the parser handles every syntactic construct in the Ori spe
 
 ---
 
-## 0.5 Expressions
+## 0.5 Expressions (verified 2026-03-29)
 
 > **SPEC**: `grammar.ebnf` § EXPRESSIONS, `spec/14-expressions.md`
+
+> **INCOMPLETE MATRIX**: Zero `#compile_fail` negative parser tests in `tests/spec/expressions/`. Missing dedicated while and labeled block tests.
 
 ### 0.5.1 Primary Expressions
 
@@ -524,7 +537,7 @@ This section ensures the parser handles every syntactic construct in the Ori spe
 
 - [x] **Audit**: Identifiers and self — grammar.ebnf § primary [done] (2026-02-10)
   - [x] `x`, `self`, `Self` — parse correctly
-  - [x] **Ori Tests**: `tests/spec/lexical/identifiers.ori` — 40+ tests
+  - [x] **Ori Tests**: `tests/spec/lexical/identifiers.ori` — 26 tests
 
 - [x] **Audit**: Grouped expressions — grammar.ebnf § primary [done] (2026-02-10)
   - [x] `(expr)`, nested: `((a + b) * c)` — parse correctly (verified via `ori parse`)
@@ -590,7 +603,7 @@ This section ensures the parser handles every syntactic construct in the Ori spe
   - [x] Logical not: `!condition` — parses correctly
   - [x] Negation: `-number` — parses correctly
   - [x] Bitwise not: `~bits` — parses correctly
-  - [x] **Ori Tests**: `tests/spec/lexical/operators.ori` — 80+ tests including unary
+  - [x] **Ori Tests**: `tests/spec/lexical/operators.ori` — 72 tests including unary
 
 ### 0.5.8 Binary Expressions
 
@@ -626,13 +639,56 @@ This section ensures the parser handles every syntactic construct in the Ori spe
   - [x] `a + b`, `a - b`, `a * b`, `a / b`, `a % b`, `a div b` — parse correctly
   - [x] **Ori Tests**: `tests/spec/lexical/operators.ori`
 
-### 0.5.9 With Expression
+### 0.5.9 While Expression
+
+> NEEDS TESTS -- grammar.ebnf defines `while_expr` but no section item or dedicated spec tests exist.
+
+- [ ] **Audit**: While expressions -- grammar.ebnf § while_expr
+  - [ ] Basic: `while condition do body` -- needs verification and spec tests
+  - [ ] Labeled: `while:name condition do body` -- needs verification and spec tests
+  - [ ] **NEEDS TESTS**: `tests/spec/expressions/while.ori` -- basic, labeled, break, continue, nested
+
+### 0.5.10 Labeled Blocks
+
+> NEEDS TESTS -- grammar.ebnf defines `labeled_block` but no section item or spec tests exist.
+
+- [ ] **Audit**: Labeled blocks -- grammar.ebnf § labeled_block
+  - [ ] Basic: `block:name { body }` -- needs verification and spec tests
+  - [ ] With break: `block:name { ... break:name value }` -- needs verification and spec tests
+  - [ ] **NEEDS TESTS**: `tests/spec/expressions/labeled_blocks.ori` -- basic, break with value, nested
+
+### 0.5.11 Pipe Expression
+
+> Parsing works in practice (used in 16+ spec test files). Not documented in section.
+
+- [x] **Audit**: Pipe expressions -- grammar.ebnf § pipe_expr (verified 2026-03-29)
+  - [x] `x |> f(a: v)` -- parses correctly (used in traits/debug/, traits/core/, etc.)
+  - [x] `x |> .method()` -- parses correctly
+  - [x] `x |> (a -> expr)` -- parses correctly
+
+### 0.5.12 Compound Assignment
+
+> Tests exist and pass (compound_assignment.ori, 412 lines). Not documented in section.
+
+- [x] **Audit**: Compound assignment -- grammar.ebnf § compound_assignment (verified 2026-03-29)
+  - [x] `x += y`, `x -= y`, `x *= y`, etc. -- parse correctly
+  - [x] **Ori Tests**: `tests/spec/expressions/compound_assignment.ori` -- 412 lines, comprehensive
+
+### 0.5.13 Argument Punning
+
+> Tests exist and pass. Not documented in section.
+
+- [x] **Audit**: Argument punning -- grammar.ebnf § argument_punning (verified 2026-03-29)
+  - [x] `f(x:)` = `f(x: x)` -- parses correctly
+  - [x] **Ori Tests**: `tests/spec/expressions/argument_punning.ori` -- tests present
+
+### 0.5.14 With Expression (verified 2026-03-29)
 
 - [x] **Audit**: Capability provision — grammar.ebnf § with_expr [done] (2026-02-10)
   - [x] `with x = value in expr` — parses correctly (verified via `ori parse`)
   - [x] Capability form: `with Http = MockHttp in expr` — parses correctly [done] (2026-02-13)
 
-### 0.5.10 Let Binding
+### 0.5.15 Let Binding
 
 - [x] **Audit**: Let expressions — grammar.ebnf § let_expr [done] (2026-02-10)
   - [x] Mutable: `let x = 42` — parses correctly
@@ -643,7 +699,7 @@ This section ensures the parser handles every syntactic construct in the Ori spe
 - [x] **Audit**: Assignment — grammar.ebnf § assignment [done] (2026-02-10)
   - [x] `x = new_value` — parses correctly
 
-### 0.5.11 Conditional
+### 0.5.16 Conditional
 
 - [x] **Audit**: If expressions — grammar.ebnf § if_expr [done] (2026-02-10)
   - [x] Simple: `if cond then a else b` — parses correctly
@@ -651,7 +707,7 @@ This section ensures the parser handles every syntactic construct in the Ori spe
   - [x] Chained: `if c1 then a else if c2 then b else c` — parses correctly (verified via `ori parse`)
   - [x] **Ori Tests**: extensive coverage across test files
 
-### 0.5.12 For Expression
+### 0.5.17 For Expression
 
 - [x] **Audit**: For loops — grammar.ebnf § for_expr [done] (2026-02-10)
   - [x] Do: `for x in items do action` — parses correctly
@@ -659,18 +715,18 @@ This section ensures the parser handles every syntactic construct in the Ori spe
   - [x] Filter: `for x in items if x > 0 yield x` — parses correctly (verified via `ori parse`)
   - [x] Labeled: `for:outer x in items do ...` — parses correctly [done] (2026-02-14)
 
-### 0.5.13 Loop Expression
+### 0.5.18 Loop Expression
 
 - [x] **Audit**: Loop expressions — grammar.ebnf § loop_expr [done] (2026-02-14)
   - [x] Basic: `loop { body }` — parses correctly (verified via `ori parse`)
   - [x] Labeled: `loop:name { body }` — parses correctly [done] (2026-02-14)
 
-### 0.5.14 Labels
+### 0.5.19 Labels
 
 - [x] **Audit**: Loop labels — grammar.ebnf § label [done] (2026-02-14)
   - [x] `:name` (no space around colon) — parses correctly (verified via labeled for/loop/break/continue)
 
-### 0.5.15 Lambda
+### 0.5.20 Lambda
 
 - [x] **Audit**: Simple lambdas — grammar.ebnf § simple_lambda [done] (2026-02-10)
   - [x] Single param: `x -> x + 1` — parses correctly
@@ -681,7 +737,7 @@ This section ensures the parser handles every syntactic construct in the Ori spe
 - [x] **Audit**: Typed lambdas — grammar.ebnf § typed_lambda [done] (2026-02-10)
   - [x] `(x: int) -> int = x * 2` — parses correctly (verified via `ori parse`)
 
-### 0.5.16 Control Flow
+### 0.5.21 Control Flow
 
 - [x] **Audit**: Break expression — grammar.ebnf § break_expr [done] (2026-02-14)
   - [x] Simple: `break` — parses correctly
@@ -695,7 +751,7 @@ This section ensures the parser handles every syntactic construct in the Ori spe
 
 ---
 
-## 0.6 Patterns
+## 0.6 Patterns (verified 2026-03-29)
 
 > **SPEC**: `grammar.ebnf` § PATTERNS, `spec/15-patterns.md`
 
@@ -837,7 +893,7 @@ This section ensures the parser handles every syntactic construct in the Ori spe
 
 ---
 
-## 0.7 Constant Expressions
+## 0.7 Constant Expressions (verified 2026-03-29)
 
 > **SPEC**: `grammar.ebnf` § CONSTANT EXPRESSIONS, `spec/12-constants.md`, `spec/24-constant-expressions.md`
 
@@ -859,21 +915,30 @@ This section ensures the parser handles every syntactic construct in the Ori spe
 
 ---
 
-## 0.8 Section Completion Checklist
+## 0.8 Section Completion Checklist (verified 2026-03-29)
 
-> **STATUS**: In Progress — Re-verified 2026-03-28. 8/10 checklist items complete, 2 blocked. Remaining: 0.4 audit (blocked-by:19, only impl Trait), 0.6 audit (blocked-by:23, only runtime enforcement). All unblocked parser work is complete. 4181 Ori tests pass, 7104 Rust workspace tests pass.
+> **STATUS**: In Progress — Re-verified 2026-03-29. 8/10 checklist items complete, 2 blocked. Remaining: 0.4 audit (blocked-by:19, only impl Trait), 0.6 audit (blocked-by:23, only runtime enforcement). All unblocked parser work is complete. 4181 Ori tests pass (confirmed), 42 skipped.
 
-- [x] All lexical grammar items audited and tested (0.1) [done] (2026-02-10)
-- [x] All source structure items audited and tested (0.2) [done] (2026-02-13) — file attributes, extern `as`, C variadics all work now
-- [x] All declaration items audited and tested (0.3) [done] (2026-02-14) — 92/92 checkboxes complete; typed constants, const generics, floating tests, clause params, guard clauses, variadic params all work
+> **INCOMPLETE MATRIX**: Grammar gap analysis found 3 major missing productions (`while_expr`, `labeled_block`, `capset_decl`) and systemic absence of negative parser tests.
+
+- [x] All lexical grammar items audited and tested (0.1) [done] (2026-02-10) (verified 2026-03-29)
+- [x] All source structure items audited and tested (0.2) [done] (2026-02-13) (verified 2026-03-29) — file attributes, extern `as`, C variadics all work now
+- [ ] All declaration items audited and tested (0.3) — capset_decl (0.3.9) missing  <!-- NEEDS TESTS -->
 - [ ] All type items audited and tested (0.4) — 30/34 complete; only impl Trait remains (0.4.2, 4 items)  <!-- blocked-by:19 -->
-- [x] All expression items audited and tested (0.5) [done] (2026-02-14) — length placeholder `#` now works; labeled break/continue/for/loop NOW WORK [done] (2026-02-14)
+- [ ] All expression items audited and tested (0.5) — while_expr (0.5.9) and labeled_block (0.5.10) missing  <!-- NEEDS TESTS -->
 - [ ] All pattern items audited and tested (0.6) — 93/94 complete; only runtime contract enforcement remains (0.6.1, 1 item)  <!-- blocked-by:23 -->
-- [x] All constant expression items audited and tested (0.7) [done] (2026-02-14) — computed constants now work (arithmetic, comparison, logical, grouped)
-- [x] Run `cargo t -p ori_parse` — all parser tests pass [done] (2026-02-14)
-- [x] Run `cargo t -p ori_lexer` — all lexer tests pass [done] (2026-02-14)
-- [x] Run `cargo st tests/` — 4181 passed, 0 failed, 42 skipped [done] (verified 2026-03-28)
-- [ ] `/tpr-review` passed — independent Codex review found no critical or major issues (or all findings triaged)
+- [x] All constant expression items audited and tested (0.7) [done] (2026-02-14) (verified 2026-03-29)
+- [x] Run `cargo t -p ori_parse` — all parser tests pass [done] (2026-02-14) (verified 2026-03-29)
+- [x] Run `cargo t -p ori_lexer` — all lexer tests pass (277 passed) [done] (2026-02-14) (verified 2026-03-29)
+- [x] Run `cargo st tests/` — 4181 passed, 0 failed, 42 skipped [done] (verified 2026-03-29)
+- [ ] `/tpr-review` passed — independent Codex review found no critical or major issues (or all findings triaged)  <!-- NEEDS PIN -->
+- [ ] **NEEDS TESTS**: Negative parser tests -- `#compile_fail` tests verifying invalid syntax is rejected with correct error codes (E0xxx/E1xxx)
+  - [ ] Invalid syntax rejection in `tests/spec/lexical/` (currently 0 `#compile_fail` tests)
+  - [ ] Invalid syntax rejection in `tests/spec/expressions/` (currently 0 `#compile_fail` tests)
+  - [ ] Error recovery continues past first error
+- [ ] **NEEDS TESTS**: `while` expression spec tests -- `tests/spec/expressions/while.ori` (basic, labeled, break, continue, nested)
+- [ ] **NEEDS TESTS**: Labeled block spec tests -- `tests/spec/expressions/labeled_blocks.ori` (`block:name { ... break:name value }`)
+- [ ] **NEEDS TESTS**: Capset declaration spec tests -- `tests/spec/declarations/capsets.ori` (`capset Net = Http, Dns, Tls`)
 
 **Exit Criteria**: Every grammar production in `grammar.ebnf` has verified parser support with tests.
 
@@ -898,9 +963,9 @@ File attributes, extern `as` alias, C variadics, pattern params, guard clauses, 
 
 ---
 
-## 0.9 Parser Bugs (from Comprehensive Tests)
+## 0.9 Parser Bugs (from Comprehensive Tests) (verified 2026-03-29)
 
-> **STATUS**: Re-verified 2026-02-13. Many items previously marked "STILL BROKEN" now parse correctly.
+> **STATUS**: Re-verified 2026-03-29. Many items previously marked "STILL BROKEN" now parse correctly. 19+ fixed, 3 remaining blocked.
 
 > **POLICY**: Skipping tests is NOT acceptable. Every test must pass. If a feature is tested, it must work. Fix the code, not the tests.
 
@@ -1014,7 +1079,7 @@ Systematic `ori parse` verification of every grammar production against actual p
 7. `as`/`as?` type conversion operators
 8. Wildcard in for loops (`for _ in range`)
 
-**Verified Parser Bugs — 24 items originally, 19 fixed, ~5 remain:**
+**Verified Parser Bugs — 24 items originally, 19+ fixed, 3 remain (blocked):** (verified 2026-03-29)
 1. Guard clauses (`if` before `=`) — ~~parser rejects~~ FIXED [done]
 2. List/pattern params (`@fib (0: int)`) — ~~parser rejects~~ FIXED [done]
 3. Const generics (`$` in generics) — ~~parser rejects~~ FIXED [done] (2026-02-13)
@@ -1093,7 +1158,7 @@ trait_object_bounds = type_path "+" type_path { "+" type_path } .
 
 ---
 
-## 0.10 Block Expression Syntax (PRIORITY)
+## 0.10 Block Expression Syntax (PRIORITY) (verified 2026-03-29)
 
 **Proposal**: `proposals/approved/block-expression-syntax.md`
 **Migration script**: `scripts/migrate_block_syntax.py`
@@ -1194,3 +1259,24 @@ Replace parenthesized `function_seq` syntax with curly-brace block expressions. 
 - [x] **Remove**: Visitor dead paths: `ori_ir/src/visitor.rs` (2026-02-20)
 - [x] **Remove**: Test references: `ori_fmt/src/width/tests.rs`, `ori_ir/src/ast/patterns/seq/tests.rs`, `ori_types/src/infer/expr/tests.rs` (2026-02-20)
 - [x] **Verify**: `./test-all.sh` passes after removal (10,215+ tests passing) (2026-02-20)
+
+---
+
+## Verification Log (2026-03-29)
+
+**Verified by**: Claude Opus 4.6 (1M context) verification agent
+**Test execution**: 4181 spec tests pass, 0 fail, 42 skipped. 277 lexer unit tests pass. 267 oric parse tests pass.
+
+**Hygiene audit**:
+- File sizes: All parser source files under 500-line limit. Largest: collections.rs (449), postfix.rs (442).
+- TODOs/FIXMEs: Zero in ori_parse/src/ and ori_lexer/src/.
+- Plan annotations: Zero stale plan annotations in parser source.
+- Phase bleeding: No type checking or evaluation logic in parser code.
+- Dead code: No commented-out code in parser source.
+- Sibling test pattern: Proper sibling test files (ty/tests.rs, function/tests.rs, generics/tests.rs, attr/tests.rs, impl_def/tests.rs, config/tests.rs).
+- Commented-out test files: 4 files (constants.ori, generics.ori, clause_params.ori, where_clause.ori) -- all correctly documented as evaluator/typeck blockers.
+
+**Findings summary**:
+- 4 major findings: 3 missing grammar productions (while_expr, labeled_block, capset_decl), systemic absence of negative parser tests
+- 4 minor findings: pipe_expr/compound_assignment/argument_punning not documented (tests exist and pass), test count claims corrected
+- 5 tracked/known: impl Trait (blocked-by:19), const functions (blocked-by:18), associated type constraints (blocked-by:3), contract formatting (blocked-by:15D), TPR review outstanding
