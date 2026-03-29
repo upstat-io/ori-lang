@@ -5,8 +5,8 @@ status: in-progress
 reviewed: true
 third_party_review:
   status: resolved
-  updated: 2026-03-28
-  triage_note: "TPR-04-026 fixed (plan text scoped to literal/reuse, push limitation documented). TPR-04-027 fixed (collect_public_collection_types in repr_setup.rs + JIT path). Previously resolved: TPR-04-025, TPR-04-024, TPR-04-023, TPR-04-018→IR-PIN-04-018, TPR-04-019→MIXED-PIN-04-019, TPR-04-020→DERIVE-PIN-04-020, TPR-04-021, TPR-04-022."
+  updated: 2026-03-29
+  triage_note: "TPR-04-028 fixed (recursive nested type walk for public collection ABI). TPR-04-026/027 fixed. Previously resolved: TPR-04-025, TPR-04-024, TPR-04-023, TPR-04-018→022."
 goal: "Lower int (semantic i64) to the smallest machine integer (i8/i16/i32) that preserves correctness, saving memory in struct fields, collections, and stack slots"
 inspired_by:
   - "Zig comptime_int narrowing to runtime types (src/Sema.zig)"
@@ -358,6 +358,12 @@ The LLVM backend type resolution path via `TypeLayoutResolver` handles `MachineR
 ---
 
 ## 04.R Third Party Review Findings
+
+- [x] `[TPR-04-028][medium]` `compiler/oric/src/commands/repr_setup.rs:164` `compiler/ori_llvm/src/evaluator/compile.rs:186` `compiler/ori_types/src/check/mod.rs:1018` `compiler/ori_repr/src/narrowing/tests.rs:1536` `compiler/oric/src/commands/build/tests.rs:32` — The TPR-04-027 follow-up only protects direct local `[int]`/`Set<int>` signatures; nested and imported public collection ABI surfaces still fall through.
+  Evidence: both AOT and JIT seed public collection wrappers by checking only the immediate `Tag` of each public parameter/return type, so `Option<[int]>`, tuples/structs containing `[int]`, or any other wrapped collection never add the underlying collection idx to `pub_type_indices`. The only Phase C regression test still bypasses pipeline construction by calling `plan.set_pub_type_indices([list_int])` directly, and the multi-file metadata transport tests cover only `ExportedTypeMetadata`. That metadata is generated solely from local `TypeEntry` values, so imported modules do not export builtin collection wrapper ABI surfaces from their public signatures at all.
+  Impact: Section 04 still overstates the TPR-04-027 fix. The current tree only preserves canonical collection element reprs for the simplest same-module direct signature case; broader public ABI surfaces are neither represented nor pinned. Once Phase C codegen starts consulting `element_repr`, those missing cases can reintroduce cross-module/list-wrapper ABI drift.
+  Required plan update: walk resolved public signature types recursively and mark every reachable list/set wrapper as ABI-public, then add a transport mechanism for imported public collection surfaces (or an equivalent signature-surface summary) so cross-module callers see the same protection. Add end-to-end pins for at least one nested public signature (for example `Option<[int]>`) and one cross-module public collection call path.
+  Resolved: Fixed on 2026-03-29. Made `mark_collection_if_needed()` (repr_setup.rs) and `mark_nested_collections()` (compile.rs) recursive — now walks into Option, Result, Tuple, and Map children to find nested List/Set wrappers. Cross-module imported collection ABI noted as part of broader CROSS-04-014/015 limitation (ExportedTypeMetadata doesn't cover builtin collection wrappers).
 
 - [x] `[TPR-04-026][medium]` `plans/repr-opt/section-04-integer-narrowing.md:301` `compiler/ori_repr/src/range/field_summary.rs:214` `compiler/ori_repr/src/narrowing/tests.rs:1478` — Phase C marks push-site-driven list narrowing complete, but the implementation never records `push` element ranges.
   Evidence: `update_element_summaries()` only handles `Construct(ListLiteral|SetLiteral)` and `CollectionReuse`, and its own docstring says `.push()` mutations are lowered to `Apply` and therefore stay `Top`. The cited Phase C tests bypass that pipeline entirely by calling `plan.join_element_range(...)` directly, so they do not validate bounded pushes flowing through §03.
