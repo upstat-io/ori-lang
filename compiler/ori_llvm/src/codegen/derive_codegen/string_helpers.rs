@@ -103,7 +103,7 @@ pub(super) fn emit_field_to_string<'a>(
     let info = fc.type_info().get(field_type);
     match &info {
         TypeInfo::Int | TypeInfo::Duration | TypeInfo::Size => {
-            // §04 integer narrowing may produce i8/i16/i32 struct fields —
+            // Integer narrowing may produce i8/i16/i32 struct fields —
             // sext back to canonical i64 for the runtime formatting call.
             let widened = fc
                 .builder_mut()
@@ -114,7 +114,7 @@ pub(super) fn emit_field_to_string<'a>(
                 .unwrap_or_else(|| emit_str_literal(fc, "<int>", name, str_ty_id))
         }
         TypeInfo::Float => {
-            // §05 float narrowing may produce f32 struct fields —
+            // Float narrowing may produce f32 struct fields —
             // fpext back to canonical f64 for the runtime formatting call.
             let widened = fc
                 .builder_mut()

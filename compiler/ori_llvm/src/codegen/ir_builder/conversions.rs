@@ -34,7 +34,7 @@ impl IrBuilder<'_, '_> {
     /// Sign-extend an integer value to i64 if it is narrower. Returns the
     /// value unchanged if it is already i64 or wider, or if it is not an
     /// integer. Used by derive codegen to normalize narrowed struct fields
-    /// (i8/i16/i32 from §04 integer narrowing) back to canonical width.
+    /// (i8/i16/i32 from integer narrowing) back to canonical width.
     pub fn sext_to_i64_if_narrower(&mut self, val: ValueId, name: &str) -> ValueId {
         let v = self.arena.get_value(val);
         if !v.is_int_value() {
@@ -151,7 +151,7 @@ impl IrBuilder<'_, '_> {
     /// Extend a float value to f64 if it is narrower (f32). Returns the
     /// value unchanged if it is already f64 or if it is not a float.
     /// Used by derive hash codegen to normalize narrowed struct fields
-    /// (f32 from §05 float narrowing) back to canonical width.
+    /// (f32 from float narrowing) back to canonical width.
     pub fn fpext_to_f64_if_narrower(&mut self, val: ValueId, name: &str) -> ValueId {
         let v = self.arena.get_value(val);
         if !v.is_float_value() {

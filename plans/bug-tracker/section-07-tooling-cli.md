@@ -24,6 +24,12 @@ Bugs in the CLI (`ori run`, `ori check`, `ori test`, `ori fmt`), formatter, diag
   Found: 2026-03-28 | Source: manual
   Note: Related to BUG-04-001 (cross-compilation failure). Early validation here would prevent the confusing linker error.
 
+- [ ] `[BUG-07-002][medium]` **`dual-exec-verify.sh` exits 0 with zero verified tests** — found by tpr-review.
+  Repro: `./diagnostics/dual-exec-verify.sh tests/spec/repr/float_narrowing/` reports "LLVM coverage gap: 36, Verified: 0, Total verified: 0/0 (0%)" then prints "DUAL-EXECUTION: ALL VERIFIED" and exits 0.
+  Expected: Zero-coverage runs should either warn or exit non-zero — a "verified" result with 0 verifications is misleading.
+  Subsystem: `diagnostics/dual-exec-verify.sh`
+  Found: 2026-03-29 | Source: tpr-review (TPR-05-016)
+
 ---
 
 ## Resolved Bugs

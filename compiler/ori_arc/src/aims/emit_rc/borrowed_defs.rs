@@ -274,7 +274,7 @@ pub(crate) fn collect_cow_borrowed_receivers(
                     // COW semantics only apply to heap-pointer collections (lists, maps,
                     // sets). Strings are FatValue and use borrowing semantics for
                     // add/concat — including them here would emit invalid RcInc with
-                    // HeapPointer strategy on a FatPointer variable. (TPR-05-003)
+                    // HeapPointer strategy on a FatPointer variable.
                     if param_borrowed.contains(&receiver)
                         && func.var_repr(receiver) == Some(ValueRepr::RcPointer)
                     {

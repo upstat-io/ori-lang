@@ -1,0 +1,52 @@
+// Spec: Annex E (System Considerations) — float narrowing transparency
+// Float values loaded from narrowed struct fields used in comparisons.
+// The fpext (f32→f64) must produce exact values for comparison operators.
+
+use std.testing { assert, assert_eq }
+
+type Threshold = { low: float, high: float }
+
+@make_threshold () -> Threshold = Threshold { low: 0.25, high: 0.75 };
+
+@test_less_than tests @make_threshold () -> void = {
+    let t = make_threshold();
+    assert(condition: t.low < 1.0)
+}
+
+@test_greater_than tests @make_threshold () -> void = {
+    let t = make_threshold();
+    assert(condition: t.high > 0.5)
+}
+
+@test_field_comparison tests @make_threshold () -> void = {
+    let t = make_threshold();
+    assert(condition: t.low < t.high)
+}
+
+@test_equality tests @make_threshold () -> void = {
+    let t = make_threshold();
+    assert_eq(actual: t.low, expected: 0.25);
+    assert_eq(actual: t.high, expected: 0.75)
+}
+
+@test_not_equal tests @make_threshold () -> void = {
+    let t = make_threshold();
+    assert(condition: t.low != t.high)
+}
+
+type Range = { min: float, max: float }
+
+@make_range () -> Range = Range { min: 0.0, max: 100.0 };
+
+@test_in_range tests @make_range () -> void = {
+    let r = make_range();
+    let value = 50.0;
+    assert(condition: value >= r.min);
+    assert(condition: value <= r.max)
+}
+
+@test_out_of_range tests @make_range () -> void = {
+    let r = make_range();
+    let value = 200.0;
+    assert(condition: value > r.max)
+}
