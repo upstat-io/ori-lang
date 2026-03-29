@@ -234,16 +234,23 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 .collect();
 
             // §04.4 Phase C: replace elem_size in for-yield list runtime calls
-            // with narrowed size when int collection element narrowing is active.
+            // with narrowed size when the accumulator element type is int.
             // ARC IR lowering bakes canonical elem_size=8 at lowering time
             // (before the ReprPlan exists), so the LLVM emitter must override it.
+            // The elem_size_var is shared between ori_list_new and ori_list_push
+            // in the same for-yield — the pre-scan identifies which vars belong
+            // to int-element for-yields.
             if let Some(width) = self.narrowed_int_collection_element_width() {
                 let narrowed_size = self.builder.const_i64(i64::from(width.size_bytes()));
-                if is_list_new && coerced_args.len() == 2 {
-                    // ori_list_new(cap, elem_size) → replace elem_size
+                if is_list_new
+                    && args.len() == 2
+                    && self.for_yield_int_elem_sizes.contains(&args[1])
+                {
                     coerced_args[1] = narrowed_size;
-                } else if is_list_push && coerced_args.len() == 3 {
-                    // ori_list_push(list_ptr, elem_ptr, elem_size) → replace elem_size
+                } else if is_list_push
+                    && args.len() == 3
+                    && self.for_yield_int_elem_sizes.contains(&args[2])
+                {
                     coerced_args[2] = narrowed_size;
                 }
             }

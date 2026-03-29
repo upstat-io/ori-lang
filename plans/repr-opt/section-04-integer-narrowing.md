@@ -4,9 +4,9 @@ title: "Integer Narrowing Pipeline"
 status: in-progress
 reviewed: true
 third_party_review:
-  status: resolved
+  status: findings
   updated: 2026-03-29
-  triage_note: "TPR-04-031 fixed (struct/enum field walking added to recursive walker). TPR-04-032 accepted with concrete checklist item (cross-module collection ABI transport). All 7 findings (026-032) resolved."
+  triage_note: "TPR-04-035 open: for-yield list runtime elem_size override is applied globally once any narrowed [int] exists, so unrelated non-int for-yield accumulators can be allocated at the wrong stride. Prior TPR-04-026..034 remain resolved."
 goal: "Lower int (semantic i64) to the smallest machine integer (i8/i16/i32) that preserves correctness, saving memory in struct fields, collections, and stack slots"
 inspired_by:
   - "Zig comptime_int narrowing to runtime types (src/Sema.zig)"
@@ -359,6 +359,11 @@ The LLVM backend type resolution path via `TypeLayoutResolver` handles `MachineR
 ---
 
 ## 04.R Third Party Review Findings
+
+- [x] `[TPR-04-035][high]` `compiler/ori_llvm/src/codegen/arc_emitter/apply.rs:236` `compiler/ori_llvm/src/codegen/arc_emitter/terminators.rs:437` — For-yield elem_size override fires globally for ALL `ori_list_new`/`ori_list_push` calls, not just int-element accumulators. A program with a narrowed `[int]` and a `for...yield` producing `[str]` corrupts the string accumulator.
+  Evidence: Codex repro showed `@ori_list_new(i64 8, i64 1)` for a `[str]` accumulator while `ori_list_get` used `i64 24`. Produced binary aborted with misaligned pointer dereference.
+  Impact: any module with narrowed `[int]` silently miscompiles unrelated for-yield lists with non-int elements.
+  Resolved: Fixed on 2026-03-29. Added `scan_for_yield_int_elem_sizes()` pre-scan in `emit_function.rs` — identifies which `elem_size_var` ArcVarIds belong to int-element for-yields by checking `ori_list_push` element arg types. Override only fires for variables in this set. The for-yield lowerer shares the same `elem_size_var` between `ori_list_new` and `ori_list_push`, so identifying it in push also gates new. Tests: str for-yield + narrowed int, int for-yield + narrowed int, mixed for-yields in same function. 14,389 tests pass.
 
 - [x] `[TPR-04-033][high]` `compiler/ori_repr/src/narrowing/int.rs:249` `compiler/ori_llvm/src/codegen/arc_emitter/construction.rs:214` `compiler/ori_llvm/src/codegen/arc_emitter/builtins/collections/set_builtins.rs:50` — Phase C narrowing applied to `Set<int>` but set eq/hash thunks always load canonical-width (`i64`) values from element pointers, causing out-of-bounds reads and wrong hash/eq on narrowed set elements. Set construction used narrowed sizes while set operations (`contains`, `insert`, `remove`, etc.) used canonical sizes — two incompatible layouts for the same type.
   Evidence: `narrow_collection_elements()` had no type filter excluding sets; `hash_thunks.rs` `gen_primitive_eq()` and `gen_primitive_hash()` always load via `resolve_type(elem_ty)` (i64 for int); set operations in `set_builtins.rs` use `element_store_size(elem_ty)` (canonical).

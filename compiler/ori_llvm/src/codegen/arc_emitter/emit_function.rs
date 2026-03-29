@@ -99,6 +99,14 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         // Resize var_map to hold all variables
         self.var_map.resize(func.var_types.len(), None);
 
+        // §04.4 Phase C: pre-scan for-yield loops to find which elem_size
+        // ArcVarIds belong to int-element accumulators. Only those are safe
+        // to override with narrowed sizes.
+        if self.narrowed_int_collection_element_width().is_some() {
+            self.for_yield_int_elem_sizes =
+                scan_for_yield_int_elem_sizes(func, self.pool, self.interner);
+        }
+
         // Pre-scan: determine which struct fields are actually used per variable.
         // This enables surgical struct loading — only accessed fields are loaded.
         let used_fields = scan_used_fields(func);
@@ -367,4 +375,39 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 .add_phi_incoming(phi_val, &[(value, source_block)]);
         }
     }
+}
+
+/// Pre-scan: find `elem_size` `ArcVarId`s used in `ori_list_push` calls where
+/// the pushed element type is `Tag::Int`. These are the for-yield accumulators
+/// whose `elem_size` is safe to override with narrowed widths.
+///
+/// The for-yield lowerer shares the same `elem_size_var` between `ori_list_new`
+/// and `ori_list_push`, so finding it in push identifies the corresponding new.
+fn scan_for_yield_int_elem_sizes(
+    func: &ArcFunction,
+    pool: &ori_types::Pool,
+    interner: &ori_ir::StringInterner,
+) -> FxHashSet<ArcVarId> {
+    use ori_types::Tag;
+
+    let mut result = FxHashSet::default();
+    for block in &func.blocks {
+        for instr in &block.body {
+            if let ArcInstr::Apply {
+                func: callee, args, ..
+            } = instr
+            {
+                let name = interner.lookup(*callee);
+                // ori_list_push(list_ptr, elem_val, elem_size_var)
+                if name == "ori_list_push" && args.len() == 3 {
+                    let elem_ty = func.var_type(args[1]);
+                    let resolved = pool.resolve_fully(elem_ty);
+                    if pool.tag(resolved) == Tag::Int {
+                        result.insert(args[2]);
+                    }
+                }
+            }
+        }
+    }
+    result
 }
