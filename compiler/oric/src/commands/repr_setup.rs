@@ -179,34 +179,53 @@ fn collect_public_collection_types(
     }
 }
 
-/// Recursively walk a type and mark any collection types found (TPR-04-028).
+/// Recursively walk a type and mark any collection types found (TPR-04-028/029).
 ///
 /// Handles nested types like `Option<[int]>`, `Result<[int], E>`, tuples,
-/// and maps. The walk is bounded by the pool's type structure — no cycles
-/// possible because pool types are acyclic by construction.
+/// and maps. Also resolves Named/Applied/Alias types via `resolve_fully()`
+/// to find collections hidden behind type aliases or generics.
+///
+/// The walk is bounded by the pool's type structure — no cycles possible
+/// because pool types are acyclic by construction. Depth limit prevents
+/// pathological cases.
 fn mark_collection_if_needed(pool: &Pool, ty: Idx, pub_indices: &mut Vec<Idx>) {
-    match pool.tag(ty) {
+    mark_collection_recursive(pool, ty, pub_indices, 0);
+}
+
+fn mark_collection_recursive(pool: &Pool, ty: Idx, pub_indices: &mut Vec<Idx>, depth: u32) {
+    if depth > 32 {
+        return;
+    }
+
+    // Resolve Named/Applied/Alias to concrete types (TPR-04-029).
+    let resolved = pool.resolve_fully(ty);
+    let tag = pool.tag(resolved);
+
+    match tag {
         Tag::List | Tag::Set => {
-            if !pub_indices.contains(&ty) {
+            if !pub_indices.contains(&resolved) {
+                pub_indices.push(resolved);
+            }
+            // Also mark the original idx if different (Named wrapper).
+            if ty != resolved && !pub_indices.contains(&ty) {
                 pub_indices.push(ty);
             }
         }
-        // Walk into wrapper types to find nested collections.
         Tag::Option => {
-            mark_collection_if_needed(pool, pool.option_inner(ty), pub_indices);
+            mark_collection_recursive(pool, pool.option_inner(resolved), pub_indices, depth + 1);
         }
         Tag::Result => {
-            mark_collection_if_needed(pool, pool.result_ok(ty), pub_indices);
-            mark_collection_if_needed(pool, pool.result_err(ty), pub_indices);
+            mark_collection_recursive(pool, pool.result_ok(resolved), pub_indices, depth + 1);
+            mark_collection_recursive(pool, pool.result_err(resolved), pub_indices, depth + 1);
         }
         Tag::Tuple => {
-            for elem in pool.tuple_elems(ty) {
-                mark_collection_if_needed(pool, elem, pub_indices);
+            for elem in pool.tuple_elems(resolved) {
+                mark_collection_recursive(pool, elem, pub_indices, depth + 1);
             }
         }
         Tag::Map => {
-            mark_collection_if_needed(pool, pool.map_key(ty), pub_indices);
-            mark_collection_if_needed(pool, pool.map_value(ty), pub_indices);
+            mark_collection_recursive(pool, pool.map_key(resolved), pub_indices, depth + 1);
+            mark_collection_recursive(pool, pool.map_value(resolved), pub_indices, depth + 1);
         }
         _ => {}
     }
