@@ -24,6 +24,12 @@ Bugs in LLVM IR generation, JIT/AOT compilation, monomorphization, ARC pipeline 
   Found: 2026-03-28 | Source: manual
   Note: Also applies to `--target=x86_64-pc-windows-gnu` (needs `x86_64-w64-mingw32-gcc`).
 
+- [ ] `[BUG-04-003][high]` **Trait impl methods that access `self` struct fields produce LLVM verification errors in AOT** — found by continue-roadmap.
+  Repro: `type Box = { w: int, h: int }` with `impl Printable for Box { @to_str (self) -> str = \`{self.w}x{self.h}\`; }` — LLVM verification: "Call parameter type does not match function signature!" Codegen extracts field 0 and passes it as the `self` parameter instead of passing the whole struct. Inherent impl methods with field access work fine; only trait impl methods are affected.
+  Subsystem: `compiler/ori_llvm/src/codegen/` — `compile_impls()` trait method calling convention
+  Found: 2026-03-28 | Source: continue-roadmap
+  Note: Active work in roadmap section 03 (traits) and 21A (LLVM backend) touches this area.
+
 ---
 
 ## Resolved Bugs
