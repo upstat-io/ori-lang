@@ -210,6 +210,15 @@ pub struct ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
     /// this plan for narrowed element types (e.g., `[int]` with elements in
     /// `[-128, 127]` uses `i8` element storage instead of `i64`).
     repr_plan: Option<&'a ori_repr::ReprPlan>,
+
+    /// §04.4 Phase C: `elem_size` `ArcVarId`s for int-element for-yield loops.
+    ///
+    /// Pre-scanned from `ori_list_push` calls: when a push's element arg
+    /// has type `Tag::Int`, the `elem_size` arg (shared between `ori_list_new`
+    /// and `ori_list_push` in the same for-yield) is added to this set.
+    /// The for-yield narrowing override only fires for variables in this set,
+    /// preventing non-int accumulators (e.g., `[str]`) from being corrupted.
+    for_yield_int_elem_sizes: FxHashSet<ArcVarId>,
 }
 
 impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
@@ -254,6 +263,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
             sret_forwarded_result: None,
             narrowed_vars: FxHashMap::default(),
             repr_plan: type_resolver.repr_plan(),
+            for_yield_int_elem_sizes: FxHashSet::default(),
         }
     }
 
