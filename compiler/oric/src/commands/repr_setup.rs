@@ -227,6 +227,20 @@ fn mark_collection_recursive(pool: &Pool, ty: Idx, pub_indices: &mut Vec<Idx>, d
             mark_collection_recursive(pool, pool.map_key(resolved), pub_indices, depth + 1);
             mark_collection_recursive(pool, pool.map_value(resolved), pub_indices, depth + 1);
         }
+        // TPR-04-031: Walk struct fields to find nested collections.
+        Tag::Struct => {
+            for (_name, field_ty) in pool.struct_fields(resolved) {
+                mark_collection_recursive(pool, field_ty, pub_indices, depth + 1);
+            }
+        }
+        // TPR-04-031: Walk enum variant payloads to find nested collections.
+        Tag::Enum => {
+            for (_name, field_types) in pool.enum_variants(resolved) {
+                for field_ty in field_types {
+                    mark_collection_recursive(pool, field_ty, pub_indices, depth + 1);
+                }
+            }
+        }
         _ => {}
     }
 }
