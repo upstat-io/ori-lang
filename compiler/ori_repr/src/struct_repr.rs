@@ -97,6 +97,67 @@ pub struct ClosureRepr {
     pub ret: Box<MachineRepr>,
 }
 
+impl StructRepr {
+    /// Find the field with the given original (declaration-order) index.
+    ///
+    /// Returns `None` if no field has that `original_index`.
+    #[must_use]
+    pub fn field_by_original(&self, original_index: u32) -> Option<&FieldRepr> {
+        self.fields
+            .iter()
+            .find(|f| f.original_index == original_index)
+    }
+
+    /// Get the memory-order position for a given declaration-order index.
+    ///
+    /// After field reordering, `fields[memory_index].original_index == original_index`.
+    /// Before reordering (or for `#repr("c")`), memory order == declaration order.
+    #[must_use]
+    pub fn memory_index(&self, original_index: u32) -> Option<usize> {
+        self.fields
+            .iter()
+            .position(|f| f.original_index == original_index)
+    }
+
+    /// Whether fields are in memory order that differs from declaration order.
+    #[must_use]
+    pub fn is_reordered(&self) -> bool {
+        self.fields.iter().enumerate().any(|(i, f)| {
+            #[expect(
+                clippy::cast_possible_truncation,
+                reason = "struct fields are always < u32::MAX"
+            )]
+            let idx = i as u32;
+            f.original_index != idx
+        })
+    }
+}
+
+impl TupleRepr {
+    /// Get the memory-order position for a given declaration-order element index.
+    ///
+    /// After element reordering, `elements[memory_index].original_index == original_index`.
+    #[must_use]
+    pub fn memory_index(&self, original_index: u32) -> Option<usize> {
+        self.elements
+            .iter()
+            .position(|e| e.original_index == original_index)
+    }
+
+    /// Whether elements are in memory order that differs from declaration order.
+    #[must_use]
+    pub fn is_reordered(&self) -> bool {
+        self.elements.iter().enumerate().any(|(i, e)| {
+            #[expect(
+                clippy::cast_possible_truncation,
+                reason = "tuple elements are always < u32::MAX"
+            )]
+            let idx = i as u32;
+            e.original_index != idx
+        })
+    }
+}
+
 impl IntWidth {
     /// Size in bytes of this integer width.
     #[must_use]

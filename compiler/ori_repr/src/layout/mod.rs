@@ -2,7 +2,18 @@
 //!
 //! Provides ABI-correct size, alignment, and layout computation for
 //! machine representations. Used by [`crate::canonical`] during
-//! initial population and by §06 (struct layout optimization).
+//! initial population and by the struct/tuple layout optimization pass.
+//!
+//! # Submodules
+//!
+//! - [`struct_layout`] — field reordering for structs (§06.1 + §06.3)
+//! - [`tuple_layout`] — field reordering for tuples (§06.4)
+
+pub(crate) mod struct_layout;
+pub(crate) mod tuple_layout;
+
+#[cfg(test)]
+mod tests;
 
 use crate::repr::MachineRepr;
 use crate::struct_repr::{FieldRepr, TupleRepr};
