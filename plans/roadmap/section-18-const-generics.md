@@ -2,7 +2,8 @@
 section: 18
 title: Const Generics
 status: in-progress
-reviewed: false
+reviewed: true
+last_verified: "2026-03-29"
 tier: 7
 goal: Enable type parameters that are compile-time constant values
 spec:
@@ -29,7 +30,7 @@ sections:
     status: in-progress
   - id: "18.6"
     title: Default Const Values
-    status: not-started
+    status: in-progress
   - id: "18.7"
     title: Const in Trait Bounds
     status: not-started
@@ -197,15 +198,15 @@ ConstType     = 'int' | 'bool' ;
 
 ### Implementation
 
-- [ ] **Spec**: Const parameter syntax
-  - [ ] `const N: int` in type parameters
-  - [ ] Allowed const types
-  - [ ] Scope rules
+- [x] **Spec**: Const parameter syntax (verified 2026-03-29) — spec/08-types.md section 8.3.1 covers syntax, allowed types, scope rules, default values, parameter ordering
+  - [x] `const N: int` in type parameters (verified 2026-03-29)
+  - [x] Allowed const types (verified 2026-03-29)
+  - [x] Scope rules (verified 2026-03-29)
   - [ ] **LLVM Support**: LLVM codegen for const parameter syntax
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/const_generic_tests.rs` — const parameter syntax codegen
   - [ ] **AOT Tests**: No AOT coverage yet
 
-- [ ] **Parser**: Parse const parameters
+- [x] **Parser**: Parse const parameters (verified 2026-03-29)
   - [x] `$` sigil in generics — parses `$N: int` [done] (2026-02-13)
   - [x] Type annotation required — enforced by parser [done] (2026-02-13)
   - [x] Position (can mix with type params) — `<T, $N: int>` works [done] (2026-02-13)
@@ -213,20 +214,20 @@ ConstType     = 'int' | 'bool' ;
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/const_generic_tests.rs` — const parameter parsing codegen
   - [ ] **AOT Tests**: No AOT coverage yet
 
-- [x] **Type checker**: Const parameter validation (body-level)
+- [x] **Type checker**: Const parameter validation (body-level) (verified 2026-03-29)
   - [x] Track const vs type parameters [done] (2026-02-14)
   - [x] Validate const type (int, bool) [done] (2026-02-14)
-  - [ ] Unification with const values (call-site deferred)
+  - [ ] Unification with const values (call-site deferred) — GAP-18-002: no call-site const value resolution exists
   - [ ] **LLVM Support**: LLVM codegen for const parameter validation
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/const_generic_tests.rs` — const parameter validation codegen
   - [ ] **AOT Tests**: No AOT coverage yet
 
-- [x] **Test**: `tests/spec/types/const_generics.ori` (body-level)
+- [x] **Test**: `tests/spec/types/const_generics.ori` (body-level) (verified 2026-03-29) — WEAK TESTS: functions declared but never called via @test, zero #compile_fail negative tests, zero interaction tests (GAP-18-004)
   - [x] Basic const parameter [done] (2026-02-14)
   - [x] Multiple const parameters [done] (2026-02-14)
   - [x] Mixed type and const [done] (2026-02-14)
-  - [ ] **LLVM Support**: LLVM codegen for const generic tests
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/const_generic_tests.rs` — const generic tests codegen
+  - [ ] **LLVM Support**: LLVM codegen for const generic tests — GAP-18-005: zero LLVM/AOT coverage for entire section
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/const_generic_tests.rs` — does not exist
   - [ ] **AOT Tests**: No AOT coverage yet
 
 ---
@@ -456,7 +457,7 @@ type Buffer<$SIZE: int> = {
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/const_generic_tests.rs` — const expression validation codegen
   - [ ] **AOT Tests**: No AOT coverage yet
 
-- [ ] **Test**: `tests/spec/types/const_expressions.ori`
+- [ ] **Test**: `tests/spec/types/const_expressions.ori` — FILE DOES NOT EXIST (verified 2026-03-29)
   - [ ] Arithmetic in types
   - [ ] Const functions in types
   - [ ] Conditional const
@@ -503,15 +504,15 @@ Formalizes const generic bounds (e.g., `where N > 0`), including allowed constra
 
 ### Implementation
 
-- [ ] **Grammar**: Update `grammar.ebnf` with const bound expression grammar
-  - [ ] `const_bound_expr = const_or_expr`
-  - [ ] `const_or_expr = const_and_expr { "||" const_and_expr }`
-  - [ ] `const_and_expr = const_not_expr { "&&" const_not_expr }`
-  - [ ] `const_not_expr = "!" const_not_expr | const_cmp_expr`
-  - [ ] `const_cmp_expr = const_expr comparison_op const_expr | "(" const_bound_expr ")"`
-  - [ ] **Rust Tests**: `ori_parse/tests/const_bound_grammar.rs`
+- [x] **Grammar**: Update `grammar.ebnf` with const bound expression grammar (verified 2026-03-29) — grammar.ebnf already contains complete const_constraint, const_bound_expr, const_or_expr, const_and_expr, const_not_expr, const_cmp_expr rules
+  - [x] `const_bound_expr = const_or_expr` (verified 2026-03-29)
+  - [x] `const_or_expr = const_and_expr { "||" const_and_expr }` (verified 2026-03-29)
+  - [x] `const_and_expr = const_not_expr { "&&" const_not_expr }` (verified 2026-03-29)
+  - [x] `const_not_expr = "!" const_not_expr | const_cmp_expr` (verified 2026-03-29)
+  - [x] `const_cmp_expr = const_expr comparison_op const_expr | "(" const_bound_expr ")"` (verified 2026-03-29)
+  - [ ] **Rust Tests**: `ori_parse/tests/const_bound_grammar.rs` — does not exist
 
-- [ ] **Parser**: Parse const bounds
+- [x] **Parser**: Parse const bounds (verified 2026-03-29) — WEAK TESTS: only 2 Rust parser tests for const bounds, no tests for compound &&/||, bitwise, negation
   - [x] In where clauses (compound expressions with `&&`, `||`, `!`) [done] (2026-02-13)
   - [x] Comparison expressions (`>`, `<`, `>=`, `<=`, `==`, `!=`) [done] (2026-02-13)
   - [x] Arithmetic in bounds (`+`, `-`, `*`, `/`, `%`) [done] (2026-02-13)
@@ -522,7 +523,7 @@ Formalizes const generic bounds (e.g., `where N > 0`), including allowed constra
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/const_generic_tests.rs` — const bounds parsing codegen
   - [ ] **AOT Tests**: No AOT coverage yet
 
-- [ ] **Type checker**: Validate const bounds at compile time
+- [ ] **Type checker**: Validate const bounds at compile time — GAP-18-001: parser parses WhereClause::ConstBound but type checker silently ignores them (as_type_bound() returns None, filtered by filter_map in build_where_constraint). `where N > 0` compiles without enforcement.
   - [ ] Check at instantiation when concrete values known
   - [ ] Defer to monomorphization when values unknown
   - [ ] Linear arithmetic implication checking (caller must imply callee bounds)
@@ -546,7 +547,7 @@ Formalizes const generic bounds (e.g., `where N > 0`), including allowed constra
   - [ ] E1033: Const bound evaluation overflow
   - [ ] **Rust Tests**: `ori_diagnostic/tests/const_bound_errors.rs`
 
-- [ ] **Test**: `tests/spec/types/const_bounds.ori`
+- [ ] **Test**: `tests/spec/types/const_bounds.ori` — FILE DOES NOT EXIST (verified 2026-03-29); const_generics.ori has 2 #skip tests for const bounds
   - [ ] Positive size constraint
   - [ ] Compound bounds with `&&` and `||`
   - [ ] Negation with `!`
@@ -588,7 +589,7 @@ let custom_buf = create_buffer<8192>()    // 8192
 
 ### Implementation
 
-- [ ] **Spec**: Default const values
+- [ ] **Spec**: Default const values — spec/08-types.md section 8.3.1 "Default Values" partially covers this (verified 2026-03-29)
   - [ ] Syntax in declaration
   - [ ] Resolution at use site
   - [ ] Interaction with inference
@@ -596,9 +597,9 @@ let custom_buf = create_buffer<8192>()    // 8192
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/const_generic_tests.rs` — default const values codegen
   - [ ] **AOT Tests**: No AOT coverage yet
 
-- [ ] **Parser**: Parse default const
-  - [ ] `= value` after const param
-  - [ ] Must be const expression
+- [x] **Parser**: Parse default const (verified 2026-03-29) — parser handles `= value` after const param at generics/mod.rs lines 88-93; GenericParam.default_value: Option<ExprId> stores the result; const_generics.ori has `@const_param_default<$N: int = 10>` which parses and type-checks
+  - [x] `= value` after const param (verified 2026-03-29)
+  - [x] Must be const expression (verified 2026-03-29)
   - [ ] **LLVM Support**: LLVM codegen for parsed default const
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/const_generic_tests.rs` — default const parsing codegen
   - [ ] **AOT Tests**: No AOT coverage yet
@@ -610,7 +611,7 @@ let custom_buf = create_buffer<8192>()    // 8192
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/const_generic_tests.rs` — const defaults application codegen
   - [ ] **AOT Tests**: No AOT coverage yet
 
-- [ ] **Test**: `tests/spec/types/const_defaults.ori`
+- [ ] **Test**: `tests/spec/types/const_defaults.ori` — FILE DOES NOT EXIST (verified 2026-03-29)
   - [ ] Type with default
   - [ ] Function with default
   - [ ] Override default
@@ -675,16 +676,25 @@ impl [int, max 5]: FixedSize {
 ## Section Completion Checklist
 
 - [ ] All items above have all checkboxes marked `[ ]`
-- [ ] Spec updated: `spec/08-types.md` and `spec/09-properties-of-types.md` const generics sections
-- [ ] CLAUDE.md updated with const generic syntax
-- [ ] `[T, max N]` fixed-capacity lists work
-- [ ] `$N: int` const parameters in types work
-- [ ] Const expressions in type positions work
-- [ ] Const bounds work
+- [x] Spec updated: `spec/08-types.md` sections 8.2.2, 8.3.1, 8.3.2 exist with const generics content (verified 2026-03-29)
+- [x] CLAUDE.md updated with const generic syntax (verified 2026-03-29) — `.claude/rules/ori-syntax.md` documents const generics
+- [ ] `[T, max N]` fixed-capacity lists work — parser only, capacity ignored
+- [ ] `$N: int` const parameters in types work — body-level typeck only, no call-site resolution (GAP-18-002)
+- [ ] Const expressions in type positions work — not implemented
+- [ ] Const bounds work — parser only, type checker silently ignores (GAP-18-001)
 - [ ] All tests pass: `./test-all.sh`
 - [ ] `/tpr-review` passed — independent Codex review found no critical or major issues (or all findings triaged)
 
 **Exit Criteria**: Can implement a matrix library with compile-time dimension checking
+
+---
+
+## Verification Gaps (2026-03-29)
+
+- **GAP-18-001**: Parser-to-TypeChecker gap for const bounds [Major] — WhereClause::ConstBound parsed but silently ignored by type checker (as_type_bound() returns None, filtered by filter_map). `where N > 0` compiles without enforcement. Location: `compiler/ori_types/src/check/registration/impls.rs`
+- **GAP-18-002**: Const param body binding without call-site resolution [Major] — Const params bind in function bodies but cannot be instantiated with concrete values (`f<5>()`). LLVM monomorphize has GenericArg::Const ready but type checker never produces ConstValue arguments. Location: `compiler/ori_types/src/infer/expr/calls/`
+- **GAP-18-004**: No negative tests for const generics [Major] — Zero `#compile_fail` tests. No verification that `$N: str`, `$N: float`, or type mismatches are rejected.
+- **GAP-18-005**: No LLVM/AOT coverage for any 18.x item [Major] — All `ori_llvm/tests/const_generic_tests.rs` references are non-existent files. Monomorphize infrastructure exists but is untested end-to-end.
 
 ---
 
