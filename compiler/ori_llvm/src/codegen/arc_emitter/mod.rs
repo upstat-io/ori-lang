@@ -27,6 +27,7 @@
 //! - [`emit_function`] — function-level emission orchestration
 //! - [`field_scan`] — field usage scanning for surgical struct loading
 //! - [`instr_dispatch`] — per-instruction dispatch (`emit_instr`, `emit_project`)
+//! - [`narrowing_codegen`] — integer and float narrowing at struct/collection/local boundaries
 //! - [`operators`] — binary and unary operator emission (primitive + trait dispatch)
 //! - [`rc_helpers`] — RC data pointer extraction and inline enum cleanup
 //! - [`rc_ops`] — `ori_rc_inc`/`ori_rc_dec` emission with closure-aware `env_ptr` handling
@@ -51,6 +52,7 @@ mod emit_function_setup;
 mod emitter_utils;
 mod field_scan;
 mod instr_dispatch;
+mod narrowing_codegen;
 mod narrowing_local;
 mod operators;
 mod rc_buffer_ops;
