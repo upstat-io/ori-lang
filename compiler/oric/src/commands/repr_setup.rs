@@ -179,13 +179,34 @@ fn collect_public_collection_types(
     }
 }
 
-/// If `ty` is a collection type (`[T]`, `Set<T>`), add it to `pub_indices`.
+/// Recursively walk a type and mark any collection types found (TPR-04-028).
+///
+/// Handles nested types like `Option<[int]>`, `Result<[int], E>`, tuples,
+/// and maps. The walk is bounded by the pool's type structure — no cycles
+/// possible because pool types are acyclic by construction.
 fn mark_collection_if_needed(pool: &Pool, ty: Idx, pub_indices: &mut Vec<Idx>) {
     match pool.tag(ty) {
         Tag::List | Tag::Set => {
             if !pub_indices.contains(&ty) {
                 pub_indices.push(ty);
             }
+        }
+        // Walk into wrapper types to find nested collections.
+        Tag::Option => {
+            mark_collection_if_needed(pool, pool.option_inner(ty), pub_indices);
+        }
+        Tag::Result => {
+            mark_collection_if_needed(pool, pool.result_ok(ty), pub_indices);
+            mark_collection_if_needed(pool, pool.result_err(ty), pub_indices);
+        }
+        Tag::Tuple => {
+            for elem in pool.tuple_elems(ty) {
+                mark_collection_if_needed(pool, elem, pub_indices);
+            }
+        }
+        Tag::Map => {
+            mark_collection_if_needed(pool, pool.map_key(ty), pub_indices);
+            mark_collection_if_needed(pool, pool.map_value(ty), pub_indices);
         }
         _ => {}
     }

@@ -182,24 +182,14 @@ impl<'tcx> super::OwnedLLVMEvaluator<'tcx> {
             .filter(|te| te.visibility == ori_types::Visibility::Public)
             .map(|te| te.idx)
             .collect();
-        // TPR-04-027: Mark collection wrapper types from public function
-        // signatures as public to prevent element narrowing on ABI surfaces.
+        // TPR-04-027/028: Mark collection wrapper types from public function
+        // signatures as public, recursively walking into nested types.
         for sig in function_sigs {
             if sig.is_public {
                 for &param_ty in &sig.param_types {
-                    let tag = self.pool.tag(param_ty);
-                    if matches!(tag, ori_types::Tag::List | ori_types::Tag::Set)
-                        && !pub_type_indices.contains(&param_ty)
-                    {
-                        pub_type_indices.push(param_ty);
-                    }
+                    mark_nested_collections(self.pool, param_ty, &mut pub_type_indices);
                 }
-                let ret_tag = self.pool.tag(sig.return_type);
-                if matches!(ret_tag, ori_types::Tag::List | ori_types::Tag::Set)
-                    && !pub_type_indices.contains(&sig.return_type)
-                {
-                    pub_type_indices.push(sig.return_type);
-                }
+                mark_nested_collections(self.pool, sig.return_type, &mut pub_type_indices);
             }
         }
         // Collect unconstrained function names (pub + trait impl) for §03.5.
@@ -432,5 +422,37 @@ impl<'tcx> super::OwnedLLVMEvaluator<'tcx> {
             engine,
             test_wrappers,
         })
+    }
+}
+
+/// Recursively walk a type and mark any collection types found (TPR-04-028).
+fn mark_nested_collections(
+    pool: &ori_types::Pool,
+    ty: ori_types::Idx,
+    pub_indices: &mut Vec<ori_types::Idx>,
+) {
+    match pool.tag(ty) {
+        ori_types::Tag::List | ori_types::Tag::Set => {
+            if !pub_indices.contains(&ty) {
+                pub_indices.push(ty);
+            }
+        }
+        ori_types::Tag::Option => {
+            mark_nested_collections(pool, pool.option_inner(ty), pub_indices);
+        }
+        ori_types::Tag::Result => {
+            mark_nested_collections(pool, pool.result_ok(ty), pub_indices);
+            mark_nested_collections(pool, pool.result_err(ty), pub_indices);
+        }
+        ori_types::Tag::Tuple => {
+            for elem in pool.tuple_elems(ty) {
+                mark_nested_collections(pool, elem, pub_indices);
+            }
+        }
+        ori_types::Tag::Map => {
+            mark_nested_collections(pool, pool.map_key(ty), pub_indices);
+            mark_nested_collections(pool, pool.map_value(ty), pub_indices);
+        }
+        _ => {}
     }
 }
