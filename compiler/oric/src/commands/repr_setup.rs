@@ -7,7 +7,7 @@
 
 use ori_ir::ReprAttrKind;
 
-use ori_types::{Idx, Pool, TypeCheckResult, Visibility};
+use ori_types::{Idx, Pool, Tag, TypeCheckResult, Visibility};
 use oric::ir::{Name, StringInterner};
 use rustc_hash::FxHashMap;
 
@@ -57,13 +57,20 @@ pub(super) fn compute_module_repr_plan(
 
     // Extract public type indices — their field layout is an ABI contract
     // that §04 integer narrowing must not violate (TPR-04-005).
-    let pub_type_indices: Vec<Idx> = type_result
+    let mut pub_type_indices: Vec<Idx> = type_result
         .typed
         .types
         .iter()
         .filter(|te| te.visibility == Visibility::Public)
         .map(|te| te.idx)
         .collect();
+
+    // TPR-04-027: Also mark collection wrapper types from public function
+    // signatures as public. A public `@f (xs: [int]) -> [int]` means the
+    // `[int]` type's element layout is an ABI surface — callers construct
+    // lists with canonical element widths. Without this, §04 Phase C could
+    // narrow the element repr while callers still use 8-byte strides.
+    collect_public_collection_types(pool, &type_result.typed.functions, &mut pub_type_indices);
 
     // Collect unconstrained function names (pub + trait impl) for §03.5.
     let unconstrained_fn_names = collect_unconstrained_fn_names(
@@ -146,4 +153,40 @@ pub(super) fn collect_unconstrained_fn_names(
         }
     }
     names
+}
+
+/// Collect collection wrapper type indices from public function signatures.
+///
+/// When a public function has `[int]`, `Set<int>`, or similar collection
+/// types in its parameters or return type, those collection type indices
+/// must be marked public so §04 Phase C does not narrow their element
+/// layout (which would break ABI with external callers). See TPR-04-027.
+fn collect_public_collection_types(
+    pool: &Pool,
+    function_sigs: &[ori_types::FunctionSig],
+    pub_type_indices: &mut Vec<Idx>,
+) {
+    for sig in function_sigs {
+        if !sig.is_public {
+            continue;
+        }
+        // Check parameter types for collection wrappers.
+        for &param_ty in &sig.param_types {
+            mark_collection_if_needed(pool, param_ty, pub_type_indices);
+        }
+        // Check return type for collection wrappers.
+        mark_collection_if_needed(pool, sig.return_type, pub_type_indices);
+    }
+}
+
+/// If `ty` is a collection type (`[T]`, `Set<T>`), add it to `pub_indices`.
+fn mark_collection_if_needed(pool: &Pool, ty: Idx, pub_indices: &mut Vec<Idx>) {
+    match pool.tag(ty) {
+        Tag::List | Tag::Set => {
+            if !pub_indices.contains(&ty) {
+                pub_indices.push(ty);
+            }
+        }
+        _ => {}
+    }
 }
