@@ -1,6 +1,7 @@
 # Section 12: Variadic Functions — Verification Results
 
 **Verified**: 2026-03-28
+**Re-verified**: 2026-03-29 (confirmed current codebase matches findings)
 **Status in roadmap**: not-started
 **Actual status**: PARTIAL — parser infrastructure for variadic parameters and spread syntax exists across IR, parser, and type checker. No eval or codegen support.
 
