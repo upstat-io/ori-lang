@@ -468,8 +468,9 @@ pub(super) fn collect_imported_type_metadata(
 ///
 /// Parallel to `collect_imported_type_metadata()` but collects merkle hashes
 /// of collection types (List, Set) that appear in imported public function
-/// signatures. Enables `ReprPlan` to protect imported collection element
-/// layouts from narrowing. See TPR-04-032.
+/// signatures. Used for transitive forwarding metadata (A→B→C propagation).
+/// After TPR-04-042, imported surfaces no longer suppress narrowing — they
+/// are forwarded for downstream metadata only. See TPR-04-032.
 pub(super) fn collect_imported_collection_surfaces(
     source_path: &Path,
     graph: &ori_llvm::aot::incremental::deps::DependencyGraph,
