@@ -431,6 +431,29 @@ fn compute_elem_size<'a>(fc: &FunctionCompiler<'_, 'a, 'a, '_>, ty: Idx, info: &
             let llvm_ty = fc.resolve_type(ty);
             crate::codegen::TypeLayoutResolver::type_store_size(llvm_ty) as i64
         }
-        _ => 8,
+        _ => {
+            // §04.4 Phase C: check if this element type is narrowed as a
+            // collection element. For `int` elements in narrowed collections,
+            // the element size is 1/2/4 instead of canonical 8.
+            if let Some(plan) = fc.repr_plan() {
+                let resolved = fc.pool().resolve_fully(ty);
+                if fc.pool().tag(resolved) == ori_types::Tag::Int {
+                    for idx in plan.decision_indices() {
+                        if let Some(ori_repr::MachineRepr::FatPointer(
+                            ori_repr::FatRepr::Collection { ref element_repr },
+                        )) = plan.get_repr(idx)
+                        {
+                            if let ori_repr::MachineRepr::Int { width, .. } = element_repr.as_ref()
+                            {
+                                if *width != ori_repr::IntWidth::I64 {
+                                    return i64::from(width.size_bytes());
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            8
+        }
     }
 }

@@ -144,6 +144,161 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         u64::from(info.alignment())
     }
 
+    // §04.4 Phase C: Collection element narrowing helpers
+
+    /// Check if a collection type has narrowed int elements in the `ReprPlan`.
+    ///
+    /// Returns the narrowed `IntWidth` if the collection's element repr has been
+    /// narrowed below canonical `i64`, `None` otherwise.
+    pub(super) fn narrowed_collection_element_width(
+        &self,
+        collection_idx: Idx,
+    ) -> Option<ori_repr::IntWidth> {
+        use ori_repr::{FatRepr, IntWidth, MachineRepr};
+
+        let plan = self.repr_plan?;
+        let repr = plan.get_repr(collection_idx)?;
+        if let MachineRepr::FatPointer(FatRepr::Collection { ref element_repr }) = repr {
+            if let MachineRepr::Int { width, .. } = element_repr.as_ref() {
+                if *width != IntWidth::I64 {
+                    return Some(*width);
+                }
+            }
+        }
+        None
+    }
+
+    /// Compute the element store size for a collection, consulting `ReprPlan`
+    /// for narrowed element types before falling back to the canonical size.
+    ///
+    /// `collection_idx` is the collection type (e.g., `pool.list(elem_ty)`).
+    /// If the collection has narrowed int elements, returns the narrowed byte
+    /// size (1/2/4). Otherwise, falls back to `element_store_size(elem_ty)`.
+    pub(crate) fn collection_elem_size(&self, collection_idx: Idx, elem_ty: Idx) -> u64 {
+        if let Some(width) = self.narrowed_collection_element_width(collection_idx) {
+            return u64::from(width.size_bytes());
+        }
+        self.element_store_size(elem_ty)
+    }
+
+    /// Get the LLVM type for a collection's element, respecting narrowing.
+    ///
+    /// If the collection has narrowed int elements, returns the narrowed LLVM
+    /// type (i8/i16/i32). Otherwise, returns the canonical LLVM type.
+    pub(super) fn collection_elem_llvm_type(
+        &mut self,
+        collection_idx: Idx,
+        elem_ty: Idx,
+    ) -> LLVMTypeId {
+        if let Some(width) = self.narrowed_collection_element_width(collection_idx) {
+            return self.llvm_type_for_int_width(width);
+        }
+        self.resolve_type(elem_ty)
+    }
+
+    /// Truncate a canonical i64 value to the collection's narrowed element width.
+    ///
+    /// Returns `val` unchanged if the collection has no narrowed elements.
+    /// Used before storing an element into a narrowed collection's backing buffer.
+    pub(super) fn trunc_for_narrowed_collection_element(
+        &mut self,
+        val: ValueId,
+        collection_idx: Idx,
+        label: &str,
+    ) -> ValueId {
+        let Some(width) = self.narrowed_collection_element_width(collection_idx) else {
+            return val;
+        };
+        let narrow_ty = self.llvm_type_for_int_width(width);
+        self.builder.trunc(val, narrow_ty, label)
+    }
+
+    /// Sign-extend a narrowed collection element back to canonical i64.
+    ///
+    /// Returns `val` unchanged if the collection has no narrowed elements.
+    /// Used after loading an element from a narrowed collection's backing buffer.
+    pub(super) fn sext_narrowed_collection_element(
+        &mut self,
+        val: ValueId,
+        collection_idx: Idx,
+        label: &str,
+    ) -> ValueId {
+        let Some(_width) = self.narrowed_collection_element_width(collection_idx) else {
+            return val;
+        };
+        let i64_ty = self
+            .builder
+            .register_type(self.builder.scx.type_i64().into());
+        self.builder.sext(val, i64_ty, label)
+    }
+
+    /// Check if int elements in any collection are narrowed.
+    ///
+    /// Used in iterator paths where the source collection type is not directly
+    /// available. Scans the `ReprPlan` for any collection type with narrowed int
+    /// elements. Returns the narrowed width if found.
+    ///
+    /// This is safe because the pool interns types — there is at most one
+    /// `List<int>` and one `Set<int>` type, so the narrowing is unambiguous.
+    pub(super) fn narrowed_int_collection_element_width(&self) -> Option<ori_repr::IntWidth> {
+        use ori_repr::{FatRepr, IntWidth, MachineRepr};
+        let plan = self.repr_plan?;
+        for idx in plan.decision_indices() {
+            if let Some(MachineRepr::FatPointer(FatRepr::Collection { ref element_repr })) =
+                plan.get_repr(idx)
+            {
+                if let MachineRepr::Int { width, .. } = element_repr.as_ref() {
+                    if *width != IntWidth::I64 {
+                        return Some(*width);
+                    }
+                }
+            }
+        }
+        None
+    }
+
+    /// Get narrowed element size for int-typed elements, with no collection context.
+    ///
+    /// Falls back to canonical `element_store_size` for non-narrowed or non-int elements.
+    pub(crate) fn int_element_store_size(&self, elem_ty: Idx) -> u64 {
+        if self.pool.tag(self.pool.resolve_fully(elem_ty)) == ori_types::Tag::Int {
+            if let Some(width) = self.narrowed_int_collection_element_width() {
+                return u64::from(width.size_bytes());
+            }
+        }
+        self.element_store_size(elem_ty)
+    }
+
+    /// Get narrowed LLVM type for int-typed elements, with no collection context.
+    pub(super) fn int_element_llvm_type(&mut self, elem_ty: Idx) -> LLVMTypeId {
+        if self.pool.tag(self.pool.resolve_fully(elem_ty)) == ori_types::Tag::Int {
+            if let Some(width) = self.narrowed_int_collection_element_width() {
+                return self.llvm_type_for_int_width(width);
+            }
+        }
+        self.resolve_type(elem_ty)
+    }
+
+    /// Sign-extend a potentially narrowed int element to canonical i64.
+    ///
+    /// No-op if int elements are not narrowed.
+    pub(super) fn sext_narrowed_int_element(
+        &mut self,
+        val: ValueId,
+        elem_ty: Idx,
+        label: &str,
+    ) -> ValueId {
+        if self.pool.tag(self.pool.resolve_fully(elem_ty)) == ori_types::Tag::Int
+            && self.narrowed_int_collection_element_width().is_some()
+        {
+            let i64_ty = self
+                .builder
+                .register_type(self.builder.scx.type_i64().into());
+            return self.builder.sext(val, i64_ty, label);
+        }
+        val
+    }
+
     /// Look up the raw LLVM value for an ARC variable.
     ///
     /// Returns the underlying `ValueId`, suitable for consumers that don't

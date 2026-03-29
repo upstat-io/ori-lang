@@ -147,7 +147,14 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         // Resolve element LLVM type and determine ABI passing mode.
         // Types > 16 bytes (e.g. str = 24 bytes) use indirect parameter
         // passing and sret return in Ori's fastcc ABI.
+        //
+        // §04.4 Phase C: use narrowed type for loads from buffer pointers.
+        // The buffer stores narrowed elements, but the Ori closure expects
+        // canonical i64 values. Load narrowed, sext, then pass to closure.
         let elem_llvm_ty = self.resolve_type(elem_ty);
+        let buf_elem_llvm_ty = self.int_element_llvm_type(elem_ty);
+        let needs_sext = self.pool.tag(self.pool.resolve_fully(elem_ty)) == ori_types::Tag::Int
+            && self.narrowed_int_collection_element_width().is_some();
         let elem_is_indirect = abi_size(elem_ty, self.type_info) > 16;
 
         match kind {
@@ -174,7 +181,14 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 let elem_arg = if elem_is_indirect {
                     in_ptr
                 } else {
-                    self.builder.load(elem_llvm_ty, in_ptr, "tramp.elem")
+                    // §04.4 Phase C: load with narrowed type, sext to canonical.
+                    let raw = self.builder.load(buf_elem_llvm_ty, in_ptr, "tramp.elem");
+                    if needs_sext {
+                        let i64_ty = self.builder.i64_type();
+                        self.builder.sext(raw, i64_ty, "tramp.elem.sext")
+                    } else {
+                        raw
+                    }
                 };
 
                 if result_is_indirect {
@@ -215,7 +229,14 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                         "tramp.pred",
                     )
                 } else {
-                    let elem = self.builder.load(elem_llvm_ty, elem_ptr, "tramp.elem");
+                    // §04.4 Phase C: load with narrowed type, sext to canonical.
+                    let raw = self.builder.load(buf_elem_llvm_ty, elem_ptr, "tramp.elem");
+                    let elem = if needs_sext {
+                        let i64_ty = self.builder.i64_type();
+                        self.builder.sext(raw, i64_ty, "tramp.elem.sext")
+                    } else {
+                        raw
+                    };
                     self.builder.call_indirect(
                         bool_ty,
                         &[ptr_ty, elem_llvm_ty],
@@ -248,7 +269,14 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                         &[ori_env, elem_ptr],
                     );
                 } else {
-                    let elem = self.builder.load(elem_llvm_ty, elem_ptr, "tramp.elem");
+                    // §04.4 Phase C: load with narrowed type, sext to canonical.
+                    let raw = self.builder.load(buf_elem_llvm_ty, elem_ptr, "tramp.elem");
+                    let elem = if needs_sext {
+                        let i64_ty = self.builder.i64_type();
+                        self.builder.sext(raw, i64_ty, "tramp.elem.sext")
+                    } else {
+                        raw
+                    };
                     let unit_ty = self.builder.i64_type(); // Unit = i64
                     self.builder.call_indirect(
                         unit_ty,
@@ -279,7 +307,14 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 let elem_arg = if elem_is_indirect {
                     elem_ptr
                 } else {
-                    self.builder.load(elem_llvm_ty, elem_ptr, "tramp.elem")
+                    // §04.4 Phase C: load with narrowed type, sext to canonical.
+                    let raw = self.builder.load(buf_elem_llvm_ty, elem_ptr, "tramp.elem");
+                    if needs_sext {
+                        let i64_ty = self.builder.i64_type();
+                        self.builder.sext(raw, i64_ty, "tramp.elem.sext")
+                    } else {
+                        raw
+                    }
                 };
 
                 let acc_arg_ty = if acc_is_indirect { ptr_ty } else { acc_llvm_ty };

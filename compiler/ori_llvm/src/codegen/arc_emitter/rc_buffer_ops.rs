@@ -47,7 +47,8 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         } else {
             self.pool.set_elem(resolved)
         };
-        let elem_size = self.element_store_size(elem_type);
+        // §04.4 Phase C: use narrowed element size for collection buffers.
+        let elem_size = self.collection_elem_size(resolved, elem_type);
         let elem_size_val = self.builder.const_i64(elem_size as i64);
         let elem_dec_fn = self.get_or_generate_elem_dec_fn(elem_type);
 
@@ -81,8 +82,9 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let key_type = self.pool.map_key(resolved);
         let val_type = self.pool.map_value(resolved);
 
-        let key_size = self.element_store_size(key_type);
-        let val_size = self.element_store_size(val_type);
+        // §04.4 Phase C: use narrowed element sizes for map buffers.
+        let key_size = self.collection_elem_size(resolved, key_type);
+        let val_size = self.collection_elem_size(resolved, val_type);
         let key_size_val = self.builder.const_i64(key_size as i64);
         let val_size_val = self.builder.const_i64(val_size as i64);
         let key_dec_fn = self.get_or_generate_elem_dec_fn(key_type);
@@ -132,7 +134,8 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         } else {
             self.pool.set_elem(resolved)
         };
-        let elem_size = self.element_store_size(elem_type);
+        // §04.4 Phase C: use narrowed element size for collection buffers.
+        let elem_size = self.collection_elem_size(resolved, elem_type);
         let elem_size_val = self.builder.const_i64(elem_size as i64);
         let elem_dec_fn = self.get_or_generate_elem_dec_fn(elem_type);
 
@@ -169,8 +172,9 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let key_type = self.pool.map_key(resolved);
         let val_type = self.pool.map_value(resolved);
 
-        let key_size = self.element_store_size(key_type);
-        let val_size = self.element_store_size(val_type);
+        // §04.4 Phase C: use narrowed element sizes for map buffers.
+        let key_size = self.collection_elem_size(resolved, key_type);
+        let val_size = self.collection_elem_size(resolved, val_type);
         let key_size_val = self.builder.const_i64(key_size as i64);
         let val_size_val = self.builder.const_i64(val_size as i64);
         let key_dec_fn = self.get_or_generate_elem_dec_fn(key_type);
