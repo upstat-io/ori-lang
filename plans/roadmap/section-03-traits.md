@@ -2,7 +2,8 @@
 section: 3
 title: Traits and Implementations
 status: in-progress
-reviewed: false
+reviewed: true
+last_verified: "2026-03-29"
 tier: 1
 goal: Trait-based polymorphism
 spec:
@@ -14,10 +15,10 @@ sections:
     status: complete
   - id: "3.1"
     title: Trait Declarations
-    status: in-progress
+    status: complete
   - id: "3.2"
     title: Trait Implementations
-    status: in-progress
+    status: complete
   - id: "3.3"
     title: Trait Bounds
     status: complete
@@ -68,10 +69,10 @@ sections:
     status: in-progress
   - id: "3.18"
     title: Ordering Type
-    status: in-progress
+    status: complete
   - id: "3.19"
     title: Default Type Parameters on Traits
-    status: complete  # verified 2026-02-15: all items checked
+    status: complete
   - id: "3.20"
     title: Default Associated Types
     status: complete
@@ -80,6 +81,9 @@ sections:
     status: in-progress
   - id: "3.22"
     title: "with Syntax for Bounds (Capability Unification)"
+    status: eliminated
+  - id: "3.23"
+    title: Impl Colon Syntax
     status: not-started
   - id: "3.24"
     title: Value Trait (ARC-Free Value Types)
@@ -92,7 +96,7 @@ sections:
 
 > **SPEC**: `spec/09-properties-of-types.md`, `spec/10-declarations.md`
 
-**Status**: In-progress — Core evaluator complete (3.0-3.6, 3.18-3.21), LLVM AOT tests 57 passing (45 traits + 12 derives, 0 ignored), proposals pending (3.7-3.17). §3.14 LLVM codegen complete for list/tuple/option/result compare+hash+equals and derive(Comparable/Hashable) (2026-02-18). Map/set LLVM hash/equals pending AOT collection infrastructure. Remaining: 3.8.1 performance, 3.9 Debug LLVM, 3.13 Traceable LLVM, 3.15-3.17 not started.
+**Status**: In-progress — Core evaluator complete (3.0-3.7, 3.14, 3.16, 3.18-3.21). LLVM AOT: 88 trait tests, 43 derive tests, 17 formattable tests, 26 iterator tests — all passing. 4181 spec tests pass, 0 fail, 42 skip. Evaluator verified complete for all subsections through 3.21. LLVM gaps remain for: Debug (3.9), Traceable (3.13), iterator advanced features (3.8), Index (3.12), derived sum/generic/recursive (3.15). Not started: 3.23 (impl colon syntax), 3.24 (Value trait). 3.22 eliminated per capability-unification decision. Last verified 2026-03-29.
 
 ---
 
@@ -134,7 +138,7 @@ Without traits, tests cannot use assertions - this blocks the testing workflow.
 
 ## 3.0 Core Library Traits
 
-**STATUS: COMPLETE**
+**STATUS: COMPLETE** (verified 2026-03-29 — evaluator complete, map/set LLVM equals/hash pending AOT collection infrastructure)
 
 Core library traits are implemented via:
 1. **Runtime**: Evaluator's `MethodRegistry` provides hardcoded Rust dispatch for methods like `.len()`, `.is_empty()`, `.is_some()`, etc.
@@ -159,7 +163,7 @@ This approach follows the "Lean Core, Rich Libraries" principle — the runtime 
 - [x] **Implement**: Update prelude `len()` to use `<T: Len>` bound (generic function) [done] (2026-02-18)
   - [x] **Implement**: Add `Len` trait definition to `library/std/prelude.ori`
   - [x] **Ori Tests**: `tests/spec/traits/core/len.ori` — generic len tests (str, list, tuple via `<T: Len>` bound)
-- [x] **Spec**: Add `Len Trait` section to `07-properties-of-types.md` [done] (2026-02-18)
+- [x] **Spec**: Add `Len Trait` section to `09-properties-of-types.md` [done] (2026-02-18)
 
 ### 3.0.2 IsEmpty Trait
 **Proposal**: `proposals/approved/is-empty-trait-proposal.md` (approved 2026-02-21)
@@ -177,7 +181,7 @@ This approach follows the "Lean Core, Rich Libraries" principle — the runtime 
 - [ ] **Implement**: Update prelude `is_empty()` to use `<T: IsEmpty>` bound (generic function)
   - [ ] **Implement**: Add `IsEmpty` trait definition to `library/std/prelude.ori`
   - [ ] **Ori Tests**: `tests/spec/traits/core/is_empty.ori` — generic is_empty tests (str, map via `<T: IsEmpty>` bound)
-- [ ] **Spec**: Add `IsEmpty Trait` section to `07-properties-of-types.md`
+- [ ] **Spec**: Verify `IsEmpty Trait` section in `09-properties-of-types.md` (note: IsEmpty IS present at 9.11; previously this item referenced nonexistent `07-properties-of-types.md`, corrected 2026-03-29)
 
 ### 3.0.3 Option Methods
 
@@ -227,6 +231,8 @@ The following traits are also recognized in trait bounds:
 
 ## 3.1 Trait Declarations
 
+**STATUS: COMPLETE** (verified 2026-03-29)
+
 - [x] **Implement**: Parse `trait Name { ... }` — spec/10-declarations.md § Trait Declarations [done] (2026-02-10)
   - [x] **Write test**: `tests/spec/traits/declaration.ori` — 16 tests (all pass)
   - [x] **Run test**: `ori test tests/spec/traits/declaration.ori`
@@ -265,6 +271,8 @@ The following traits are also recognized in trait bounds:
 ---
 
 ## 3.2 Trait Implementations
+
+**STATUS: COMPLETE** (verified 2026-03-29 — evaluator complete; LLVM generic impls intentionally deferred, no monomorphization pipeline)
 
 - [x] **Implement**: Inherent impl `impl Type { ... }` — spec/10-declarations.md § Inherent Implementations [done] (2026-02-10)
   - [x] **Write test**: `tests/spec/traits/declaration.ori` (Widget.get_name(), Widget.get_value(), Point.distance_from_origin())
@@ -321,7 +329,7 @@ The following traits are also recognized in trait bounds:
 
 ## 3.3 Trait Bounds
 
-**Complete Implementation:** [done] (verified 2026-02-14)
+**Complete Implementation:** [done] (verified 2026-02-14, re-verified 2026-03-29)
 - [x] Parser supports generic parameters with bounds `<T: Trait>`, `<T: A + B>` — `parse_generics()` + `parse_bounds()` in `ori_parse/src/grammar/item/generics/mod.rs`
 - [x] Parser supports where clauses `where T: Clone, U: Default` — `parse_where_clauses()` in `ori_parse/src/grammar/item/generics/mod.rs`
 - [x] `Function` AST node stores `generics: GenericParamRange` and `where_clauses: Vec<WhereClause>` — `ori_ir/src/ast/items/function.rs`
@@ -365,7 +373,7 @@ The following traits are also recognized in trait bounds:
 
 ## 3.4 Associated Types
 
-**STATUS: COMPLETE**
+**STATUS: COMPLETE** (verified 2026-03-29)
 
 Infrastructure implemented:
 - `ParsedType::AssociatedType` variant in `ori_ir/src/parsed_type.rs`
@@ -395,9 +403,10 @@ Infrastructure implemented:
 
 ## 3.5 Derive Traits
 
-**STATUS: COMPLETE**
+**STATUS: COMPLETE** (verified 2026-03-29 — all 7 DerivedTrait variants synced across ori_ir, ori_types, ori_eval, ori_llvm)
 
 All 5 derive traits implemented in `ori_types/src/check/ (derives)`.
+> **BLOAT**: `compiler/ori_eval/src/interpreter/derived_methods.rs` is 504 lines -- at the 500-line limit. Monitor for growth.
 Tests at `tests/spec/traits/derive/all_derives.ori` (7 tests pass).
 
 - [x] **Implement**: Auto-implement `Eq` — spec/10-declarations.md § Attributes [done] (2026-02-10)
@@ -445,8 +454,8 @@ Tests at `tests/spec/traits/derive/all_derives.ori` (7 tests pass).
 - [x] Associated types (3.4): Declaration, `Self.Item`, where constraints — all complete [done] (2026-02-10)
 - [x] Derive traits (3.5): Eq, Clone, Hashable, Printable complete; Default NOT tested [done] (2026-02-10)
 - [x] ~239 trait test annotations pass (len: 14, is_empty: 13, option: 16, result: 14, comparable: 58, eq: 23, declaration: 16, self_param: 9, self_type: 7, inheritance: 6, generic_impl: 4, associated_types: 4, default_type_params: 2, default_assoc_types: 4, derive: 16, ordering: 32, method_call: 1) [done] (2026-02-10)
-- [x] Run full test suite: `./test-all.sh` — 3,068 passed, 0 failed [done] (2026-02-10)
-- [x] LLVM AOT tests: `ori_llvm/tests/aot/traits.rs` — 39 passing, 0 ignored [done] (2026-02-13)
+- [x] Run full test suite: `./test-all.sh` — 4181 passed, 0 failed, 42 skipped (verified 2026-03-29)
+- [x] LLVM AOT tests: 88 trait + 43 derive + 17 formattable + 26 iterator = 174 total, all passing (verified 2026-03-29)
   - [x] **Fixed**: `.compare()` return type resolved as Ordering — added to V2 type checker [done] (2026-02-13)
   - [x] **Fixed**: `.unwrap_or()` added to LLVM Option dispatch table [done] (2026-02-13)
   - [x] **Fixed**: Default trait methods compiled in LLVM [done] (2026-02-13)
@@ -454,14 +463,20 @@ Tests at `tests/spec/traits/derive/all_derives.ori` (7 tests pass).
   - [x] **Fixed**: Derive methods wired into LLVM codegen — synthetic IR functions for Eq, Clone, Hashable, Printable [done] (2026-02-13)
 - [x] Operator traits (3.21): User-defined operator dispatch complete — type checker desugaring, evaluator dispatch, LLVM codegen, error messages [done] (2026-02-15)
   - [x] Remaining: spec and CLAUDE.md updates verified complete (2026-02-15). Derive for newtypes tracked as optional in 3.21 [done] (2026-02-18)
-- [ ] Proposals (3.8-3.17): Iterator Phase 1-5 complete + repeat() + for/yield desugaring + prelude registration + Range<float> rejection + spec verification [in-progress] (2026-02-16). Default trait complete with E2028 sum type rejection (2026-02-17). §3.14 Comparable/Hashable complete — all phases for list/tuple/option/result/primitives + derive(Comparable/Hashable) + LLVM codegen (2026-02-18). §3.16 Formattable complete — FormatSpec types, user dispatch, LLVM codegen + str.concat, 17 AOT tests (2026-02-18). §3.13 error messages complete — E2038 Missing Printable for interpolation (2026-02-18). LLVM iterator codegen Phase 1 complete (2026-02-19): runtime opaque handles (ori_rt IterState), TypeInfo::Iterator, trampoline bridge for closures, method dispatch (.iter()/.map()/.filter()/.take()/.skip()/.enumerate()/.collect()/.count()), for-loop over Iterator, 12 AOT tests — covers List/Range .iter(), 6/11 consumers+adapters; remaining Phase 2: .next()/.fold()/.find()/.any()/.all()/.for_each(), .zip/.chain/.flatten/.flat_map/.cycle/.reverse, DoubleEndedIterator, Str/Set/Map/Option .iter(), repeat(), for-yield over Iterator. 3.8.1 performance/semantics, 3.9 Debug LLVM, 3.13 Traceable LLVM, Into — not started (3.7 Clone complete [done])
+- [ ] Proposals (3.8-3.17): Evaluator verified complete for all proposals (verified 2026-03-29). LLVM gaps remain: Debug (3.9 all items), Traceable (3.13), iterator advanced features (3.8 Phase 2+), Index (3.12), derived sum/generic/recursive (3.15). See per-subsection LLVM items for details.
 - [ ] `/tpr-review` passed — independent Codex review found no critical or major issues (or all findings triaged)
+- [ ] **HYGIENE**: `compiler/ori_types/src/registry/traits/mod.rs` is 762 source lines -- exceeds the 500-line limit. Split into submodules.
+- [ ] **WEAK TESTS**: `tests/spec/traits/iterator/collect_set.ori` has 6 `#skip` markers with tautological stub bodies (`assert(cond: true)`) -- exceeds 3-skip budget per file. Replace with real tests or remove stubs and track Set collect as a plan item.
+- [ ] **WEAK TESTS**: Default type parameters (3.19) has only 2 spec tests. Add edge case tests (multiple defaults, complex cross-references, error cases for invalid ordering).
+- [ ] **WEAK TESTS**: Default associated types (3.20) has only 4 spec tests. Add bounds checking tests when feature is implemented.
 
-**Exit Criteria**: Core trait-based code compiles and runs in evaluator [done]. LLVM codegen for built-in and user methods works [done]. User-defined operator traits complete [done] (2026-02-15). Formal trait proposals (3.8-3.17) pending.
+**Exit Criteria**: Core trait-based code compiles and runs in evaluator [done]. LLVM codegen for built-in and user methods works [done]. User-defined operator traits complete [done] (2026-02-15). Formal trait proposals (3.8-3.17) evaluator complete, LLVM partial.
 
 ---
 
 ## 3.7 Clone Trait Formal Definition
+
+**STATUS: COMPLETE** (verified 2026-03-29)
 
 **Proposal**: `proposals/approved/clone-trait-proposal.md`
 
@@ -519,6 +534,8 @@ Formalizes the `Clone` trait that enables explicit value duplication. The trait 
 ---
 
 ## 3.8 Iterator Traits
+
+**STATUS: Evaluator COMPLETE, LLVM PARTIAL** (verified 2026-03-29 — evaluator verified complete; LLVM Phase 1 done with 26 AOT tests; Phase 2+ LLVM items unchecked; collect_set.ori has 6 skips with stub bodies -- WEAK TESTS)
 
 **Proposal**: `proposals/approved/iterator-traits-proposal.md`
 
@@ -621,6 +638,8 @@ Formalizes iteration with four core traits: `Iterator`, `DoubleEndedIterator`, `
 
 ## 3.8.1 Iterator Performance and Semantics
 
+**STATUS: Evaluator COMPLETE, LLVM/optimizations NOT STARTED** (verified 2026-03-29 — evaluator items verified; all LLVM items unchecked; optimization items correctly marked as not started)
+
 **Proposal**: `proposals/approved/iterator-performance-semantics-proposal.md`
 
 Formalizes the performance characteristics and precise semantics of Ori's functional iterator model. Specifies copy elision guarantees, lazy evaluation, compiler optimizations, and introduces infinite range syntax (`start..`).
@@ -673,6 +692,8 @@ Formalizes the performance characteristics and precise semantics of Ori's functi
 ---
 
 ## 3.9 Debug Trait
+
+**STATUS: Evaluator COMPLETE, LLVM NOT STARTED** (verified 2026-03-29 — all evaluator items verified; all LLVM items unchecked)
 
 **Proposal**: `proposals/approved/debug-trait-proposal.md`
 
@@ -739,6 +760,8 @@ Adds a `Debug` trait separate from `Printable` for developer-facing structural r
 ---
 
 ## 3.10 Trait Resolution and Conflict Handling
+
+**STATUS: PARTIAL** (verified 2026-03-29 — implemented items verified; blocked items correctly annotated with dependencies)
 
 **Proposal**: `proposals/approved/trait-resolution-conflicts-proposal.md`
 
@@ -808,6 +831,8 @@ Specifies rules for resolving trait implementation conflicts: diamond problem, c
 
 ## 3.11 Object Safety Rules
 
+**STATUS: COMPLETE** (verified 2026-03-29)
+
 **Proposal**: `proposals/approved/object-safety-rules-proposal.md`
 
 Formalizes the rules that determine whether a trait can be used as a trait object for dynamic dispatch. Defines three object safety rules and associated error codes.
@@ -855,6 +880,8 @@ Formalizes the rules that determine whether a trait can be used as a trait objec
 ---
 
 ## 3.12 Custom Subscripting (Index Trait)
+
+**STATUS: Evaluator COMPLETE, LLVM NOT STARTED** (verified 2026-03-29 — evaluator verified; no LLVM codegen tests)
 
 **Proposals**:
 - `proposals/approved/custom-subscripting-proposal.md` — Design and motivation
@@ -905,6 +932,8 @@ Introduces the `Index` trait for read-only custom subscripting, allowing user-de
 ---
 
 ## 3.13 Additional Core Traits
+
+**STATUS: Evaluator COMPLETE, LLVM PARTIAL** (verified 2026-03-29 — Printable and Default have LLVM support; Traceable LLVM pending)
 
 **Proposal**: `proposals/approved/additional-traits-proposal.md`
 
@@ -974,12 +1003,14 @@ Formalizes three core traits: `Printable`, `Default`, and `Traceable`. The `Iter
   - [x] E2038: Missing Printable for string interpolation (was E1040) — `TypeErrorKind::MissingPrintable`, check in template literal inference, `type_satisfies_trait` + `WellKnownNames` updated with Printable for compound types; compile-fail test `tests/compile-fail/interpolation_missing_printable.ori`, Rust unit test `printable_satisfaction_primitives_and_compounds` (2026-02-18)
   - [x] E2028: Cannot derive Default for sum type (was E1042) — implemented with TypeErrorKind::CannotDeriveDefaultForSumType (2026-02-17)
 
-- [x] **Update Spec**: `07-properties-of-types.md` — add Printable, Default, Traceable sections (verified 2026-02-17: already present)
+- [x] **Update Spec**: `09-properties-of-types.md` — add Printable, Default, Traceable sections (verified 2026-02-17: already present)
 - [x] **Update**: `CLAUDE.md` — traits documented in `.claude/rules/ori-syntax.md` (prelude traits, operator traits, iterator traits) [done] (verified 2026-02-18)
 
 ---
 
 ## 3.14 Comparable and Hashable Traits
+
+**STATUS: COMPLETE** (verified 2026-03-29 — excellent coverage: 120+ test assertions, all relevant types covered, AOT coverage for list/tuple/option/result; map/set LLVM pending AOT collection infrastructure)
 
 **Proposal**: `proposals/approved/comparable-hashable-traits-proposal.md`
 
@@ -1113,7 +1144,7 @@ Formalizes the `Comparable` and `Hashable` traits with complete definitions, mat
   - [x] E2031: Type cannot be used as map key (missing Hashable) — validation in `check_map_key_hashable()`, compile-fail test
   - [x] Fixed 5 AOT derive hash tests that derived Hashable without Eq (now correctly caught by E2029)
 
-- [x] **Update Spec**: `07-properties-of-types.md` — Comparable and Hashable sections already present; updated E2029/E2031 error references (2026-02-18)
+- [x] **Update Spec**: `09-properties-of-types.md` — Comparable and Hashable sections already present; updated E2029/E2031 error references (2026-02-18)
 - [x] **Update Spec**: `12-modules.md` — hash_combine already documented in prelude functions (2026-02-18)
 - [x] **Update**: `CLAUDE.md` — added Comparable, Hashable, hash_combine, derive validation docs (2026-02-18)
 
@@ -1129,6 +1160,8 @@ Formalizes the `Comparable` and `Hashable` traits with complete definitions, mat
 ---
 
 ## 3.15 Derived Traits Formal Semantics
+
+**STATUS: Evaluator COMPLETE, LLVM PARTIAL** (verified 2026-03-29 — 90+ evaluator tests across 12 files; LLVM gaps: sum type Eq, Debug, generic conditional, recursive derive)
 
 **Proposal**: `proposals/approved/derived-traits-proposal.md`
 
@@ -1195,11 +1228,13 @@ Formalizes the `#derive` attribute semantics: derivable traits list, derivation 
 - [x] W0100 superseded by E2029 — Hashable has supertrait Eq, making this a hard error (2026-02-18)
 
 - [x] **Update Spec**: `06-types.md` — Derive section already comprehensive (lines 775-837): derivable traits table, rules, generics, recursion, non-derivable [done] (verified 2026-02-18)
-- [x] **Update Spec**: `07-properties-of-types.md` — derive semantics covered via individual trait sections (Eq, Comparable, Hashable each reference derivation) [done] (verified 2026-02-18)
+- [x] **Update Spec**: `09-properties-of-types.md` — derive semantics covered via individual trait sections (Eq, Comparable, Hashable each reference derivation) [done] (verified 2026-02-18)
 
 ---
 
 ## 3.16 Formattable Trait
+
+**STATUS: COMPLETE** (verified 2026-03-29 — 8 evaluator test files + 17 AOT tests; one documented GAP: user-defined Formattable::format() LLVM codegen blocked by general trait method call codegen)
 
 **Proposal**: `proposals/approved/formattable-trait-proposal.md`
 
@@ -1276,7 +1311,7 @@ Formalizes the `Formattable` trait and format specification syntax for customize
   - [x] E2034: Invalid format specification syntax
   - [x] E2035: Format type not supported for this type
 
-- [x] **Update Spec**: `07-properties-of-types.md` — Formattable trait section present (pre-existing)
+- [x] **Update Spec**: `09-properties-of-types.md` — Formattable trait section present (pre-existing)
 - [x] **Update Spec**: `12-modules.md` — FormatSpec, Alignment, Sign, FormatType in prelude types (pre-existing)
 
 - [x] **LLVM str.concat() support**: Added string concatenation method to LLVM backend (2026-02-18)
@@ -1286,6 +1321,8 @@ Formalizes the `Formattable` trait and format specification syntax for customize
 ---
 
 ## 3.17 Into Trait
+
+**STATUS: Evaluator COMPLETE, LLVM PARTIAL** (verified 2026-03-29 — int->float LLVM done; str->Error blocked by Error type LLVM repr; orphan rules blocked by module system)
 
 **Proposal**: `proposals/approved/into-trait-proposal.md`
 
@@ -1333,7 +1370,7 @@ Formalizes the `Into` trait for semantic, lossless type conversions. Defines tra
   - [x] E2036: Type does not implement Into<T>
   - [x] E2037: Multiple Into implementations apply (ambiguous)
 
-- [x] **Update Spec**: `07-properties-of-types.md` — Into trait section (already present, fixed error codes E0960→E2036, E0961→E2037)
+- [x] **Update Spec**: `09-properties-of-types.md` — Into trait section (already present, fixed error codes E0960→E2036, E0961→E2037)
 - [x] **Update Spec**: `12-modules.md` — Into already in prelude traits list (verified)
 - [x] **Update**: `.claude/rules/ori-syntax.md` — Into already documented in prelude traits (verified)
 
@@ -1343,7 +1380,7 @@ Formalizes the `Into` trait for semantic, lossless type conversions. Defines tra
 
 ## 3.18 Ordering Type
 
-**STATUS: Partial — All methods complete (`then`, `then_with`). Only `Ordering.default()` deferred (needs static method support).**
+**STATUS: COMPLETE** (verified 2026-03-29 — 41 spec tests, all methods complete; only `Ordering.default()` deferred, blocked by static method support)
 
 **Proposal**: `proposals/approved/ordering-type-proposal.md`
 
@@ -1403,7 +1440,7 @@ Formalizes the `Ordering` type that represents comparison results. Defines the t
 
 ## 3.19 Default Type Parameters on Traits
 
-**STATUS: COMPLETE**
+**STATUS: COMPLETE** (verified 2026-03-29 — WEAK TESTS: only 2 spec tests for this feature)
 
 **Proposal**: `proposals/approved/default-type-parameters-proposal.md`
 
@@ -1443,7 +1480,7 @@ Allow type parameters on traits to have default values, enabling `trait Add<Rhs 
 
 ## 3.20 Default Associated Types
 
-**STATUS: COMPLETE**
+**STATUS: COMPLETE** (verified 2026-03-29 — bounds checking on defaults deferred)
 
 **Proposal**: `proposals/approved/default-associated-types-proposal.md`
 
@@ -1480,7 +1517,7 @@ Allow associated types in traits to have default values, enabling `type Output =
 
 ## 3.21 Operator Traits
 
-**STATUS: Complete — Type checker desugaring, evaluator dispatch, LLVM codegen, error messages all working. Derive for newtypes optional/deferred.**
+**STATUS: COMPLETE** (verified 2026-03-29 — type checker desugaring, evaluator dispatch, LLVM codegen, error messages all working; derive for newtypes optional/deferred; MatMul 3.21.1 not started)
 
 **Proposal**: `proposals/approved/operator-traits-proposal.md`
 
@@ -1592,6 +1629,8 @@ Add `@` as a binary operator for matrix multiplication at multiplicative precede
 
 ## 3.22 Bound Syntax — ELIMINATED (Capability Unification)
 
+**STATUS: ELIMINATED** (verified 2026-03-29 — correctly eliminated per 2026-03-04 capability-unification decision)
+
 **Proposal**: `proposals/approved/capability-unification-generics-proposal.md` — Phase 2 (eliminated)
 
 **Status:** This section is **no longer needed**. The 2026-03-04 addendum to the capability-unification-generics-proposal decided to retain `:` for all bound positions (generic parameters, where clauses, supertrait declarations, impl block bounds). No parser changes, no test migration, no spec updates for bound syntax. Only the `#derive` → `:` trait clause on type declarations is a new syntax change (tracked in Section 5).
@@ -1599,6 +1638,8 @@ Add `@` as a binary operator for matrix multiplication at multiplicative precede
 ---
 
 ## 3.23 Impl Colon Syntax
+
+**STATUS: NOT STARTED** (verified 2026-03-29 — all items unchecked)
 
 **Proposal**: `proposals/approved/impl-colon-syntax-proposal.md`
 
@@ -1627,6 +1668,8 @@ Replace `impl Trait for Type` with `impl Type: Trait` — subject-first ordering
 ---
 
 ## 3.24 Value Trait (ARC-Free Value Types)
+
+**STATUS: NOT STARTED** (verified 2026-03-29 — all items unchecked across 5 phases)
 
 **Proposal**: `proposals/approved/value-trait-proposal.md`
 
