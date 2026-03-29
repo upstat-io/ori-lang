@@ -310,17 +310,17 @@ pub(super) fn run_codegen_pipeline<'ctx>(
             crate::arc_dot::emit_arc_dot(&arc_cache, &annotated_sigs, &classifier, pool, interner);
         });
 
-        // 3a. Compute representation plan (§01 — canonical reprs only).
-        // Include impl methods in the analysis set so §03.5 range analysis
-        // sees their call sites (TPR-03-041). They are ARC-lowered into a
-        // separate vec (not the codegen arc_cache) to avoid interfering with
+        // 3a. Compute representation plan.
+        // Include impl methods in the analysis set so interprocedural range
+        // analysis sees their call sites. They are ARC-lowered into a separate
+        // vec (not the codegen arc_cache) to avoid interfering with
         // compile_impls() which does its own ARC lowering for LLVM emission.
         let all_arc_funcs = {
             let mut funcs = super::repr_setup::collect_all_arc_functions(&arc_cache);
             let mut impl_arc_problems = Vec::new();
             // Ordinal counter: tracks how many times each (self_type, method_name)
             // pair has been seen, for disambiguating same-type same-name impls
-            // like `impl Index<int, V>` and `impl Index<str, V>` (TPR-03-051).
+            // like `impl Index<int, V>` and `impl Index<str, V>`.
             let mut method_ordinals: rustc_hash::FxHashMap<(ori_types::Idx, Name), usize> =
                 rustc_hash::FxHashMap::default();
             let mut sig_iter = type_result.typed.impl_sigs.iter();
@@ -343,7 +343,7 @@ pub(super) fn run_codegen_pipeline<'ctx>(
                         continue;
                     }
                     // Type-qualified name with ordinal for same-type same-name
-                    // disambiguation (TPR-03-047, TPR-03-051).
+                    // disambiguation.
                     let ordinal = if let Some(idx) = self_type_idx {
                         let entry = method_ordinals.entry((idx, method.name)).or_insert(0);
                         let ord = *entry;
@@ -367,7 +367,7 @@ pub(super) fn run_codegen_pipeline<'ctx>(
                         method.name
                     };
                     // Use lower_impl_method_to_arc for correct body lookup
-                    // with ordinal-aware method_root_for_nth (TPR-03-049/051).
+                    // with ordinal-aware method_root_for_nth.
                     let (arc_fn, lambdas) = if let Some(tn) = type_name_name {
                         crate::arc_lowering::lower_impl_method_to_arc_nth(
                             qualified_name,
@@ -498,7 +498,7 @@ pub(super) fn run_codegen_pipeline<'ctx>(
             has_impl_methods,
         );
 
-        // Create type store with repr plan for triviality delegation (§02 Phase B).
+        // Create type store with repr plan for triviality delegation.
         let store = TypeInfoStore::new_with_plan(pool, &repr_plan);
         // Create type resolver with the repr plan.
         let resolver = TypeLayoutResolver::new(&store, scx_ref, Some(interner), Some(&repr_plan));

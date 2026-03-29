@@ -16,13 +16,13 @@ use crate::{narrowing, range};
 /// Compute the representation plan for all types reachable from the program.
 ///
 /// Called after type checking and ARC borrow inference, before LLVM codegen.
-/// The `arc_functions` parameter is unused in §01 but the signature is
-/// established now so later sections (§03 range analysis, §08 escape analysis)
-/// can add their passes without changing the call sites in `oric`.
+/// The `arc_functions` parameter is consumed by the range analysis and escape
+/// analysis passes.
 ///
 /// `repr_attrs` carries user-specified `#repr` attributes from the type
 /// registry, keyed by pool `Idx`. Each entry is converted to
-/// `ReprAttribute` and stored in the plan for §06/§07 to query.
+/// `ReprAttribute` and stored in the plan for struct layout and enum repr
+/// passes to query.
 ///
 /// When `policy` is `NarrowingPolicy::Disabled` (`--no-repr-opt`), returns
 /// after `populate_canonical()` — canonical representations only, zero
@@ -55,11 +55,11 @@ pub fn compute_repr_plan(
 ///
 /// `imported_type_metadata` carries repr/pub metadata from imported modules.
 /// Each entry's `merkle_hash` is mapped to a local `Idx` via `Pool::lookup_by_hash()`
-/// to seed the plan with imported type protections. See CROSS-04-014.
+/// to seed the plan with imported type protections.
 ///
 /// `unconstrained_fn_names` lists function `Name`s whose parameters must not
-/// be narrowed by §03.5 (pub functions, trait impl methods). Closures are
-/// detected directly from `ArcFunction::num_captures`.
+/// be narrowed (pub functions, trait impl methods). Closures are detected
+/// directly from `ArcFunction::num_captures`.
 #[expect(
     clippy::too_many_arguments,
     reason = "each parameter carries distinct metadata from different compiler phases"
@@ -81,9 +81,9 @@ pub fn compute_repr_plan_with_interner(
         plan.set_has_analysis_only_functions();
     }
 
-    // Phase 0: Store user-specified #repr attributes (§01.7).
-    // TPR-04-011: also store under the resolved idx so that narrowing and
-    // codegen (which operate on resolved struct/tuple indices) see the attr.
+    // Phase 0: Store user-specified #repr attributes.
+    // Also store under the resolved idx so that narrowing and codegen (which
+    // operate on resolved struct/tuple indices) see the attr.
     for &(idx, ref attr) in repr_attrs {
         let converted = convert_repr_attr_kind(attr);
         plan.set_repr_attr(idx, converted);
@@ -102,11 +102,11 @@ pub fn compute_repr_plan_with_interner(
             imported_collection_surfaces,
         );
 
-    // Phase 0b: Store public type indices for ABI-safe narrowing (§04, TPR-04-005).
-    // TPR-04-011: also store under the resolved idx for the same reason.
+    // Phase 0b: Store public type indices for ABI-safe narrowing.
+    // Also store under the resolved idx for the same reason.
     // Includes local public types and imported public user-defined types.
     //
-    // NOTE (TPR-04-042): Imported collection surfaces are NOT added here.
+    // NOTE: Imported collection surfaces are NOT added here.
     // They exist for transitive forwarding metadata (A→B→C), not for narrowing
     // suppression. Same-module public functions already mark `[int]` as public
     // via `collect_public_collection_types()`. Imported surfaces would suppress
@@ -128,13 +128,13 @@ pub fn compute_repr_plan_with_interner(
             .chain(imported_pub_indices),
     );
 
-    // Phase 0b2: Store unconstrained function names for §03.5 range analysis.
+    // Phase 0b2: Store unconstrained function names for interprocedural range analysis.
     // Public functions and trait impl methods have parameters that could be
     // called with any value — their parameter ranges must stay Top.
     plan.set_unconstrained_fn_names(unconstrained_fn_names.iter().copied());
 
     // Phase 0c: Propagate repr/pub metadata through Applied → concrete Struct
-    // resolutions for monomorphized generic types (TPR-04-012).
+    // resolutions for monomorphized generic types.
     //
     // Phases 0/0b store metadata on the Named idx and its direct resolve_fully()
     // result. But monomorphization creates additional Applied(Name, [ConcreteArgs])
@@ -161,7 +161,7 @@ pub fn compute_repr_plan_with_interner(
         .collect();
     propagate_metadata_to_applied_resolutions(&mut plan, pool, &all_repr_attrs, &all_pub_indices);
 
-    // Phase 1: Set canonical representations for all types (§01).
+    // Phase 1: Set canonical representations for all types.
     crate::canonical::populate_canonical(&mut plan, pool);
 
     if policy == NarrowingPolicy::Disabled {
@@ -169,24 +169,24 @@ pub fn compute_repr_plan_with_interner(
         return plan;
     }
 
-    // Phase 2: Triviality analysis (§02)
+    // Phase 2: Triviality analysis
     analyze_triviality(&mut plan, pool);
 
-    // Phase 3: Range analysis (§03) → Integer narrowing (§04) → Float narrowing (§05)
+    // Phase 3: Range analysis → Integer narrowing → Float narrowing
     analyze_ranges(&mut plan, pool, arc_functions, interner);
     apply_integer_narrowing(&mut plan, pool);
     apply_float_narrowing(&mut plan, pool, arc_functions);
 
-    // Phase 4: Struct layout (§06), Enum repr (§07)
+    // Phase 4: Struct layout, Enum repr
     compute_struct_layouts(&mut plan, pool);
     compute_enum_reprs(&mut plan, pool);
 
-    // Phase 5: Escape analysis (§08) → ARC header (§09) → Thread-local (§10)
+    // Phase 5: Escape analysis → ARC header compression → Thread-local ARC
     analyze_escape(&mut plan, pool, arc_functions);
     compress_arc_headers(&mut plan, pool);
     apply_thread_local_arc(&mut plan, pool, arc_functions);
 
-    // Phase 6: Collection specialization (§11)
+    // Phase 6: Collection specialization
     specialize_collections(&mut plan, pool);
 
     plan
@@ -241,7 +241,7 @@ fn seed_imported_metadata(
     // Resolve imported collection surface hashes to local Idx.
     // These collection types (List, Set) appeared in imported public function
     // signatures. Resolved for diagnostics and future cross-module ABI use.
-    // NOT added to pub_type_indices — see TPR-04-042 note in Phase 0b.
+    // NOT added to pub_type_indices — see note in Phase 0b.
     let mut imported_collection_indices: Vec<Idx> = Vec::new();
     for &hash in imported_collection_surfaces {
         if let Some(idx) = pool.lookup_by_hash(hash) {
@@ -263,8 +263,7 @@ fn seed_imported_metadata(
     )
 }
 
-/// Phase 0c (TPR-04-012): Propagate repr/pub metadata to monomorphized generic
-/// type resolutions.
+/// Phase 0c: Propagate repr/pub metadata to monomorphized generic type resolutions.
 ///
 /// Monomorphization creates `Applied(Name, [ConcreteArgs]) → Struct` resolutions
 /// that are distinct from the `Named → Struct` chain handled by Phases 0/0b.
@@ -336,7 +335,7 @@ fn propagate_metadata_to_applied_resolutions(
                     ?idx,
                     ?resolved,
                     ?attr,
-                    "TPR-04-012: propagated repr attr to monomorphized concrete type"
+                    "propagated repr attr to monomorphized concrete type"
                 );
             }
         }
@@ -346,16 +345,15 @@ fn propagate_metadata_to_applied_resolutions(
             tracing::trace!(
                 ?idx,
                 ?resolved,
-                "TPR-04-012: propagated pub status to monomorphized concrete type"
+                "propagated pub status to monomorphized concrete type"
             );
         }
     }
 }
 
-// Stubs — replaced by real implementations in §02–§11.
-// Each stub is a no-op today; the corresponding section fills it in.
+// Repr pipeline passes — active implementations and future stubs.
 
-/// §02: Transitive triviality validation pass.
+/// Transitive triviality validation pass.
 ///
 /// Validates that `classify_triviality()` (the canonical source of truth in
 /// `ori_types`) agrees with `is_trivial_repr()` for every type that has a
@@ -413,14 +411,14 @@ fn analyze_triviality(plan: &mut ReprPlan, pool: &Pool) {
     );
 }
 
-/// §03: Value range analysis (interval propagation per function).
+/// Value range analysis (interval propagation per function).
 ///
 /// Runs interprocedural range propagation: intraprocedural fixpoint per
 /// function, SCC-based parameter seeding, and return-range propagation.
 /// Results stored in `ReprPlan::function_var_ranges` and `field_range_summaries`.
 ///
 /// When `interner` is provided, builtin function names are resolved for
-/// tighter range analysis (TPR-03-029).
+/// tighter range analysis on builtin calls.
 fn analyze_ranges(
     plan: &mut ReprPlan,
     pool: &Pool,
@@ -434,16 +432,16 @@ fn analyze_ranges(
     range::propagate_ranges(plan, pool, arc_functions, &config);
 }
 
-/// §04: Integer narrowing (i64 → i32/i16/i8 when range fits).
+/// Integer narrowing (i64 → i32/i16/i8 when range fits).
 ///
 /// Phase A: Struct/tuple field narrowing from field-range summaries.
 /// Phase B: Local variable narrowing + overflow guards.
 /// Phase C: Collection element narrowing.
 fn apply_integer_narrowing(plan: &mut ReprPlan, pool: &Pool) {
-    // Gate: only narrow when the full §04 pipeline is safe for codegen.
+    // Gate: only narrow when the full integer narrowing pipeline is safe for codegen.
     // Narrowing produces MachineRepr::Int widths that codegen consumes for
     // struct layouts, trunc/sext, phi nodes, and collection GEP strides.
-    // Range analysis (§03) is always safe — it only populates
+    // Range analysis is always safe — it only populates
     // function_var_ranges, field_range_summaries, and element_range_summaries.
     if !plan.is_narrowing_safe_for_codegen() {
         return;
@@ -452,7 +450,7 @@ fn apply_integer_narrowing(plan: &mut ReprPlan, pool: &Pool) {
     narrowing::int::narrow_collection_elements(plan, pool);
 }
 
-/// §05: Float narrowing (f64 → f32 when precision is exact).
+/// Float narrowing (f64 → f32 when precision is exact).
 ///
 /// Phase A: Storage-only narrowing — struct fields where ALL observed
 /// values are f32-exact literals. Arithmetic results are never narrowed.
@@ -467,22 +465,22 @@ fn apply_float_narrowing(plan: &mut ReprPlan, pool: &Pool, arc_functions: &[ArcF
     narrowing::float::narrow_float_fields(plan, pool, &float_table);
 }
 
-/// §06: Struct and tuple field reordering for padding minimization.
+/// Struct and tuple field reordering for padding minimization.
 fn compute_struct_layouts(_plan: &mut ReprPlan, _pool: &Pool) {}
 
-/// §07: Enum niche optimization and discriminant narrowing.
+/// Enum niche optimization and discriminant narrowing.
 fn compute_enum_reprs(_plan: &mut ReprPlan, _pool: &Pool) {}
 
-/// §08: Escape analysis for stack promotion.
+/// Escape analysis for stack promotion.
 fn analyze_escape(_plan: &mut ReprPlan, _pool: &Pool, _fns: &[ArcFunction]) {}
 
-/// §09: ARC header compression (refcount width narrowing).
+/// ARC header compression (refcount width narrowing).
 fn compress_arc_headers(_plan: &mut ReprPlan, _pool: &Pool) {}
 
-/// §10: Thread-local non-atomic ARC (Rc vs Arc selection).
+/// Thread-local non-atomic ARC (Rc vs Arc selection).
 fn apply_thread_local_arc(_plan: &mut ReprPlan, _pool: &Pool, _fns: &[ArcFunction]) {}
 
-/// §11: Collection specialization (SSO, SVO, packed bool, element narrowing).
+/// Collection specialization (SSO, SVO, packed bool, element narrowing).
 fn specialize_collections(_plan: &mut ReprPlan, _pool: &Pool) {}
 
 /// Convert IR-level `ReprAttrKind` to repr-opt `ReprAttribute`.

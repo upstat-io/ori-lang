@@ -2,11 +2,11 @@
 //!
 //! Handles integer and float narrowing at three boundaries:
 //!
-//! - **Collection elements** (§04.4 Phase C): `trunc`/`sext` when storing/loading
+//! - **Collection elements** (integer narrowing Phase C): `trunc`/`sext` when storing/loading
 //!   narrowed int elements in collection backing buffers.
-//! - **Local variables** (§04.4 Phase B): `trunc+sext` pairs on definition for
+//! - **Local variables** (integer narrowing Phase B): `trunc+sext` pairs on definition for
 //!   variables whose value range fits in a narrower integer type.
-//! - **Struct fields** (§04/§05): `trunc`/`sext`/`fptrunc`/`fpext` when
+//! - **Struct fields** (integer/float narrowing): `trunc`/`sext`/`fptrunc`/`fpext` when
 //!   constructing or extracting fields of narrowed structs.
 
 use ori_arc::ir::{ArcFunction, ArcVarId};
@@ -16,7 +16,7 @@ use super::ArcIrEmitter;
 use crate::codegen::value_id::{LLVMTypeId, ValueId};
 
 impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
-    // Collection element narrowing (§04.4 Phase C)
+    // Collection element narrowing (integer narrowing phase C)
 
     /// Check if a collection type has narrowed int elements in the `ReprPlan`.
     ///
@@ -172,9 +172,9 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         val
     }
 
-    // Local variable narrowing (§04.4 Phase B)
+    // Local variable narrowing (integer narrowing phase B)
 
-    /// §04.4 Phase B: Insert trunc+sext for a narrowed local variable.
+    /// Insert trunc+sext for a narrowed local variable (integer narrowing phase B).
     ///
     /// If `v` is in `narrowed_vars`, truncates `val` from i64 to the narrow
     /// width, then sign-extends back to i64. Returns the sext'd value.
@@ -207,7 +207,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             .sext(truncated, i64_ty, &format!("local.sext.{}", v.raw()))
     }
 
-    /// §04.4 Phase B: Compute which local variables should use narrow int types.
+    /// Compute which local variables should use narrow int types (integer narrowing phase B).
     ///
     /// Scans all variables in the function and checks if their value range
     /// (from the `ReprPlan`) fits in a narrower integer type. Function
@@ -285,12 +285,12 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             tracing::debug!(
                 func = func.name.raw(),
                 count = self.narrowed_vars.len(),
-                "§04.4 Phase B: narrowed local variables"
+                "integer narrowing phase B: narrowed local variables"
             );
         }
     }
 
-    /// §04.4 Phase B: Get the LLVM integer type for a given `IntWidth`.
+    /// Get the LLVM integer type for a given `IntWidth`.
     pub(super) fn llvm_type_for_int_width(&mut self, width: ori_repr::IntWidth) -> LLVMTypeId {
         let scx = self.builder.scx();
         let ty = match width {
@@ -302,7 +302,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         self.builder.register_type(ty)
     }
 
-    // Struct field narrowing (§04/§05)
+    // Struct field narrowing (integer/float narrowing)
 
     /// Truncate struct field values from canonical width (i64) to narrowed
     /// field width (i8/i16/i32) when constructing a narrowed struct.
@@ -313,7 +313,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// Only truncates fields whose pool type is `Tag::Int` (canonical i64) —
     /// naturally narrow types (Byte → i8, Char → i32) are not affected.
     ///
-    /// This is the construction-side half of §04.4 integer narrowing codegen.
+    /// This is the construction-side half of integer narrowing codegen.
     /// The extraction-side half is [`sext_narrowed_field`](Self::sext_narrowed_field).
     pub(super) fn trunc_for_narrowed_struct(
         &mut self,
@@ -377,7 +377,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                     return val;
                 }
 
-                // Float narrowing (§05): fptrunc when pool field is Float (canonical f64)
+                // Float narrowing: fptrunc when pool field is Float (canonical f64)
                 // but the struct field is f32.
                 if field_pool_tag == Some(Tag::Float) {
                     let Some(BasicTypeEnum::FloatType(field_float)) =
@@ -416,7 +416,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// Naturally narrow types (Byte → i8, Char → i32) are not affected
     /// because their pool tag is `Tag::Byte`/`Tag::Char`, not `Tag::Int`.
     ///
-    /// This is the extraction-side half of §04/§05 narrowing codegen.
+    /// This is the extraction-side half of integer/float narrowing codegen.
     pub(super) fn sext_narrowed_field(
         &mut self,
         extracted: ValueId,
@@ -446,7 +446,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 .sext(extracted, i64_ty, &format!("narrow.sext.{field_index}"));
         }
 
-        // Float (§05): fpext when the destination expects f64 (Tag::Float).
+        // Float narrowing: fpext when the destination expects f64 (Tag::Float).
         if tag == Tag::Float {
             let v = self.builder.arena.get_value(extracted);
             if !v.is_float_value() {

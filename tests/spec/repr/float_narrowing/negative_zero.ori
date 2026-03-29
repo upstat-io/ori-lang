@@ -1,0 +1,32 @@
+// Spec: Annex E (System Considerations) — float narrowing transparency
+// Negative zero (-0.0) must be preserved through narrowing. IEEE 754
+// distinguishes +0.0 and -0.0; both are f32-exact, but -0.0 has
+// specific sign semantics that must not be lost.
+
+use std.testing { assert_eq, assert }
+
+type Signed = { value: float }
+
+@store_neg_zero () -> Signed = Signed { value: -0.0 };
+
+@test_neg_zero_roundtrip tests @store_neg_zero () -> void = {
+    let s = store_neg_zero();
+    // -0.0 == 0.0 per IEEE 754 equality
+    assert_eq(actual: s.value, expected: 0.0)
+}
+
+@test_neg_zero_sign tests @store_neg_zero () -> void = {
+    let s = store_neg_zero();
+    // Division by -0.0 produces -infinity, division by +0.0 produces +infinity
+    // This is the canonical way to distinguish sign of zero
+    let result = 1.0 / s.value;
+    assert(condition: result < 0.0)
+}
+
+@store_pos_zero () -> Signed = Signed { value: 0.0 };
+
+@test_pos_zero_sign tests @store_pos_zero () -> void = {
+    let s = store_pos_zero();
+    let result = 1.0 / s.value;
+    assert(condition: result > 0.0)
+}

@@ -14,7 +14,7 @@
 //!
 //! Range analysis runs after ARC lowering (on `ArcFunction`) and before
 //! LLVM codegen. Results are stored in `ReprPlan::function_var_ranges`
-//! and consumed by §04 (integer narrowing) and §05 (float narrowing).
+//! and consumed by the integer narrowing and float narrowing passes.
 
 use ori_types::{Idx, Pool, Tag};
 

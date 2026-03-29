@@ -1,0 +1,43 @@
+// Spec: Annex E (System Considerations) — float narrowing transparency
+// Arithmetic on values loaded from narrowed struct fields must produce
+// bit-identical results to the canonical f64 path.
+
+use std.testing { assert_eq }
+
+type Weight = { value: float }
+
+@make_weight () -> Weight = Weight { value: 0.5 };
+
+@test_add_after_load tests @make_weight () -> void = {
+    let w = make_weight();
+    let result = w.value + 1.0;
+    assert_eq(actual: result, expected: 1.5)
+}
+
+@test_mul_after_load tests @make_weight () -> void = {
+    let w = make_weight();
+    let result = w.value * 4.0;
+    assert_eq(actual: result, expected: 2.0)
+}
+
+@test_sub_after_load tests @make_weight () -> void = {
+    let w = make_weight();
+    let result = w.value - 0.25;
+    assert_eq(actual: result, expected: 0.25)
+}
+
+@test_div_after_load tests @make_weight () -> void = {
+    let w = make_weight();
+    let result = w.value / 2.0;
+    assert_eq(actual: result, expected: 0.25)
+}
+
+type Pair = { a: float, b: float }
+
+@make_pair () -> Pair = Pair { a: 3.0, b: 4.0 };
+
+@test_cross_field_arithmetic tests @make_pair () -> void = {
+    let p = make_pair();
+    let sum = p.a + p.b;
+    assert_eq(actual: sum, expected: 7.0)
+}

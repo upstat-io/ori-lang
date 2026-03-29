@@ -1,4 +1,4 @@
-//! Integer narrowing AOT tests (§04.4).
+//! Integer narrowing AOT tests.
 //!
 //! Tests that struct field integer narrowing produces correct runtime behavior:
 //! trunc at construction + sext at extraction = identical semantics to canonical i64.
@@ -151,7 +151,7 @@ type Bounds = { lo: int, hi: int }
     );
 }
 
-// CROSS-04-015 multi-file AOT semantic pin tests are blocked on multi-file
+// Multi-file AOT semantic pin tests for cross-module type metadata are blocked on multi-file
 // AOT compilation being incomplete (roadmap Section 4: Modules). The ARC IR
 // emitter currently cannot resolve cross-module function calls. The plumbing
 // for ExportedTypeMetadata is verified by:
@@ -478,7 +478,7 @@ type Record = { count: int, name: str, active: bool }
     );
 }
 
-// ---- Phase B: Local Variable Narrowing Tests (§04.4) ----
+// ---- Phase B: Local Variable Narrowing Tests ----
 
 // Behavioral test: manual loop (loop+break) with bounded counter and accumulator.
 // The program must produce correct results regardless of narrowing.
@@ -644,7 +644,7 @@ fn test_phase_b_ir_pin_wide_range_no_i8() {
     );
 }
 
-// ---- Comparison operations on narrowed fields (§04.4) ----
+// ---- Comparison operations on narrowed fields ----
 //
 // Narrowed struct fields are sign-extended (sext) to i64 before any use,
 // including comparisons. This guarantees signed comparison semantics are
@@ -730,14 +730,14 @@ type Triple = { x: int, y: int, z: int }
     );
 }
 
-// ---- Phase B: Straight-Line Local Variable Narrowing Tests (§04.4) ----
+// ---- Phase B: Straight-Line Local Variable Narrowing Tests ----
 //
 // These IR-inspection tests verify that non-phi local variables are narrowed
 // to smaller LLVM types when their value range fits. They are the TDD "write
 // failing tests first" step — they MUST FAIL before Phase B straight-line
 // local narrowing is implemented in def_var_repr()/var().
 //
-// §04.5 checklist: "Write failing test matrix for Phase B BEFORE implementing"
+// Phase B checklist: write failing test matrix BEFORE implementing local narrowing
 
 /// IR semantic pin: arithmetic result `x + 25` where x is a literal produces
 /// trunc+sext in the IR. Literal constants (i64 50, i64 25) are inlined by
@@ -1113,7 +1113,7 @@ type Pixel = { r: int, g: int, b: int, a: int }
     );
 }
 
-// §04.4 Phase C: Collection element narrowing tests
+// Phase C: Collection element narrowing tests
 //
 // These tests verify that [int] list literals with bounded values use narrowed
 // element storage (i8/i16/i32) and that the narrowing is transparent to program
@@ -1303,7 +1303,7 @@ fn test_narrowed_list_disabled_ir_pin() {
     );
 }
 
-// §04.4 Phase C: Set exclusion from narrowing
+// Phase C: Set exclusion from narrowing
 //
 // Sets are excluded from Phase C narrowing because eq/hash thunks always load
 // canonical-width values (i64 for int) from element pointers. These tests
@@ -1403,7 +1403,7 @@ use std.testing { assert_eq, assert }
     );
 }
 
-// §04.4 Phase C: for-yield narrowing safety
+// Phase C: for-yield narrowing safety
 //
 // The for-yield elem_size override must only fire for int-element accumulators.
 // A program with a narrowed [int] and a for...yield producing [str] must not
@@ -1473,7 +1473,7 @@ use std.testing { assert_eq }
     );
 }
 
-// ---- §05 Float Narrowing AOT Tests ----
+// ---- Float Narrowing AOT Tests ----
 //
 // These tests verify that float field narrowing (f64→f32 for f32-exact literals)
 // produces correct runtime behavior and LLVM IR patterns. They are the float
@@ -1688,7 +1688,7 @@ type Wrap = { val: float }
 
 /// IR semantic pin: mixed int+float narrowed struct.
 /// Int field in [0, 255] → i16, float field with f32-exact → float.
-/// Verifies combined §04+§05 narrowing in one struct.
+/// Verifies combined integer+float narrowing in one struct.
 #[test]
 fn test_mixed_int_float_narrowed_struct() {
     let ir = compile_and_capture_ir(
@@ -1707,8 +1707,8 @@ type Particle = { mass: float, health: int }
 
     let fn_ir = extract_function_ir(&ir, "_ori_read_mass");
 
-    // Health [100, 100] narrows to i8 (§04), mass 0.5 narrows to float (§05).
-    // The struct type should be { float, i8 } — both fields narrowed.
+    // Health [100, 100] narrows to i8 (integer narrowing), mass 0.5 narrows to float
+    // (float narrowing). The struct type should be { float, i8 } — both fields narrowed.
     // Note: the function return type is `double` (canonical f64), which is correct —
     // only the struct storage uses the narrowed float type.
     let has_narrowed_struct = fn_ir.contains("{ float, i8 }") || fn_ir.contains("{float, i8}");
@@ -1716,7 +1716,7 @@ type Particle = { mass: float, health: int }
         has_narrowed_struct,
         "expected narrowed struct type `{{ float, i8 }}` in _ori_read_mass IR — \
          Particle.mass (f32-exact 0.5) → float, Particle.health [100,100] → i8.\n\
-         Combined §04+§05 narrowing pin.\nIR:\n{fn_ir}"
+         Combined integer+float narrowing pin.\nIR:\n{fn_ir}"
     );
 }
 
@@ -1749,7 +1749,7 @@ type CPoint = { x: float, y: float }
     );
 }
 
-// ---- §05 Derive Semantic Pins for Float Narrowing ----
+// ---- Derive Semantic Pins for Float Narrowing ----
 //
 // These tests verify that derived traits (Printable, Debug, Hashable) work
 // correctly with narrowed float struct fields. The derive codegen must extend
@@ -1757,7 +1757,7 @@ type CPoint = { x: float, y: float }
 
 /// Semantic pin: derived `to_str()` on narrowed float struct fields.
 /// The string representation MUST show "0.5", not garbage from ABI mismatch.
-/// This is the regression test for TPR-05-001.
+/// Regression guard: derive codegen must widen narrowed float fields before formatting.
 #[test]
 fn test_float_narrowed_derive_printable() {
     assert_aot_success(
@@ -1870,7 +1870,7 @@ type Measure = { value: float }
 
 /// IR semantic pin: derive Printable codegen must contain `fpext float` to widen
 /// narrowed fields before calling `ori_str_from_float(double)`.
-/// This directly verifies the TPR-05-001 fix at the IR level.
+/// Directly verifies at the IR level that float widening occurs before formatting.
 #[test]
 fn test_float_narrowed_derive_ir_pin_fpext_in_printable() {
     let ir = compile_and_capture_ir(
@@ -1895,7 +1895,126 @@ type FmtFloat = { x: float }
         has_fpext,
         "expected `fpext float ... to double` in derive Printable IR for narrowed float \
          struct — derive codegen must widen f32 fields to f64 before ori_str_from_float.\n\
-         TPR-05-001 regression guard.\nFull IR length: {} chars",
+         Regression guard: derive codegen float widening fix.\nFull IR length: {} chars",
         ir.len()
+    );
+}
+
+// ---- Float Narrowing LLVM Parity Tests ----
+//
+// These tests close the LLVM coverage gap for scenarios that the Ori spec tests
+// (tests/spec/repr/float_narrowing/) cover via the interpreter but cannot run
+// through LLVM due to the assert_eq monomorphization limitation.
+
+/// Negative zero (-0.0) must be preserved through narrowing. IEEE 754
+/// distinguishes +0.0 and -0.0; both are f32-exact. 1.0/-0.0 = -inf.
+#[test]
+fn test_float_narrowed_negative_zero() {
+    assert_aot_success(
+        r"
+type Signed = { value: float }
+
+@main () -> int = {
+    let s = Signed { value: -0.0 };
+    // -0.0 == 0.0 per IEEE 754 equality
+    let eq_zero = s.value == 0.0;
+    // 1.0 / -0.0 = -infinity (negative)
+    let div_result = 1.0 / s.value;
+    let neg_inf = div_result < 0.0;
+    if eq_zero && neg_inf then 0 else 1
+}
+",
+        "float_narrowed_negative_zero",
+    );
+}
+
+/// Boundary values at the edge of f32 representation.
+/// Powers of 2 and the f32 precision edge (2^24 - 1).
+#[test]
+fn test_float_narrowed_boundary_values() {
+    assert_aot_success(
+        r"
+type Boundary = { large: float, small: float, edge: float }
+
+@main () -> int = {
+    let b = Boundary { large: 16777216.0, small: 0.0625, edge: 16777215.0 };
+    let ok1 = b.large == 16777216.0;
+    let ok2 = b.small == 0.0625;
+    let ok3 = b.edge == 16777215.0;
+    if ok1 && ok2 && ok3 then 0 else 1
+}
+",
+        "float_narrowed_boundary_values",
+    );
+}
+
+/// Multiple call sites storing different f32-exact values into the same
+/// struct field. The compiler joins multiple observations to decide narrowing.
+#[test]
+fn test_float_narrowed_multiple_stores() {
+    assert_aot_success(
+        r"
+type Config = { threshold: float }
+
+@config_a () -> Config = Config { threshold: 0.0 };
+@config_b () -> Config = Config { threshold: 1.0 };
+@config_c () -> Config = Config { threshold: 0.5 };
+@config_d () -> Config = Config { threshold: 255.0 };
+
+@main () -> int = {
+    let a = config_a();
+    let b = config_b();
+    let c = config_c();
+    let d = config_d();
+    let sum = a.threshold + b.threshold + c.threshold + d.threshold;
+    if sum == 256.5 then 0 else 1
+}
+",
+        "float_narrowed_multiple_stores",
+    );
+}
+
+/// Mixed exact/non-exact float fields: 0.5 is f32-exact (narrowable),
+/// 0.1 is NOT f32-exact (stays f64). Both must produce correct values.
+/// This is the AOT counterpart to `mixed_fields.ori`.
+#[test]
+fn test_float_narrowed_mixed_exact_non_exact() {
+    assert_aot_success(
+        r"
+type Measurement = { exact: float, imprecise: float }
+
+@main () -> int = {
+    let m = Measurement { exact: 0.5, imprecise: 0.1 };
+    let ok_exact = m.exact == 0.5;
+    let ok_imprecise = m.imprecise == 0.1;
+    // Use exact field in arithmetic
+    let doubled = m.exact * 2.0;
+    let ok_arith = doubled == 1.0;
+    if ok_exact && ok_imprecise && ok_arith then 0 else 1
+}
+",
+        "float_narrowed_mixed_exact_non_exact",
+    );
+}
+
+/// Float comparison operators on values loaded from narrowed struct fields.
+/// The fpext (f32→f64) must produce exact values for all comparison operators.
+#[test]
+fn test_float_narrowed_comparison_after_load() {
+    assert_aot_success(
+        r"
+type Threshold = { low: float, high: float }
+
+@main () -> int = {
+    let t = Threshold { low: 0.25, high: 0.75 };
+    let lt = t.low < 1.0;
+    let gt = t.high > 0.5;
+    let cmp = t.low < t.high;
+    let eq = t.low == 0.25;
+    let neq = t.low != t.high;
+    if lt && gt && cmp && eq && neq then 0 else 1
+}
+",
+        "float_narrowed_comparison_after_load",
     );
 }
