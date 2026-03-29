@@ -78,6 +78,7 @@ pub(super) fn process_recursive_scc(
                     crate::range::fixpoint::RangeFixpointResult {
                         var_ranges: FxHashMap::default(),
                         field_summaries: crate::range::FieldSummaryTable::new(),
+                        element_summaries: crate::range::ElementSummaryTable::new(),
                         return_range: ValueRange::Top,
                         block_refinements: FxHashMap::default(),
                     },
