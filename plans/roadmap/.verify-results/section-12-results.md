@@ -2,7 +2,7 @@
 
 **Verified**: 2026-03-28
 **Re-verified**: 2026-03-29 (confirmed current codebase matches findings)
-**Status in roadmap**: not-started
+**Status in roadmap**: in-progress (updated 2026-03-29)
 **Actual status**: PARTIAL — parser infrastructure for variadic parameters and spread syntax exists across IR, parser, and type checker. No eval or codegen support.
 
 ## Summary

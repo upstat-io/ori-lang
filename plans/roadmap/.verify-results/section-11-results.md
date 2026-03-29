@@ -5,7 +5,7 @@
   `parse_unsafe_expr()` exists at `compiler/ori_parse/src/grammar/expr/primary/specials.rs:111`.
   Two parser tests pass: `test_unsafe_expressions` and `test_unsafe_requires_block`.
   Section 11.4 is PARTIAL (parser done; type checker, evaluator, codegen not done).
-**Status in roadmap**: not-started
+**Status in roadmap**: in-progress (updated 2026-03-29)
 **Actual status**: PARTIAL — significant parser/IR/formatter infrastructure exists; type checker has repr validation; codegen has `declare_extern_function` infra. No eval or end-to-end FFI calling.
 
 ## Summary
@@ -14,7 +14,7 @@ The FFI section is marked `not-started` but has substantial hidden implementatio
 - **Extern block parsing**: COMPLETE (parser, IR, formatter, incremental copier, tests)
 - **C variadic parsing**: COMPLETE (parser handles `...` in extern blocks)
 - **`#repr` attribute**: COMPLETE at parse+IR+typeck+repr-opt levels
-- **`unsafe` keyword**: Lexed as token; no parser/typeck/eval handling
+- **`unsafe` keyword**: PARTIAL — parser handles `unsafe { ... }` blocks (`parse_unsafe_expr()` at `specials.rs:111`); no typeck/eval/codegen handling
 - **FFI capability**: Not implemented
 - **Codegen for user extern blocks**: Not implemented (only runtime function declarations exist)
 - **Spec files**: Both `spec/25-conditional-compilation.md` and `spec/26-ffi.md` EXIST

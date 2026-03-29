@@ -4,9 +4,9 @@ title: "Integer Narrowing Pipeline"
 status: in-progress
 reviewed: true
 third_party_review:
-  status: findings
+  status: resolved
   updated: 2026-03-29
-  triage_note: "TPR-04-035 open: for-yield list runtime elem_size override is applied globally once any narrowed [int] exists, so unrelated non-int for-yield accumulators can be allocated at the wrong stride. Prior TPR-04-026..034 remain resolved."
+  triage_note: "TPR-04-033/034/035 all resolved on 2026-03-29. Set exclusion from narrowing, global scan safety, for-yield element-type gating. All prior TPR-04-023..032 also resolved."
 goal: "Lower int (semantic i64) to the smallest machine integer (i8/i16/i32) that preserves correctness, saving memory in struct fields, collections, and stack slots"
 inspired_by:
   - "Zig comptime_int narrowing to runtime types (src/Sema.zig)"
