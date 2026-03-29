@@ -173,6 +173,8 @@ Information flow — each stage enriches the ReprPlan:
 
 **Cross-section interactions (must be co-implemented):**
 - **§04 + §06**: Integer narrowing changes field sizes, which changes struct layout. If narrowing lands without layout update, struct padding wastes the savings.
+- **§05 + §06**: Float narrowing (f64 → f32) also changes field sizes and alignments, affecting struct layout. §06 must run after both §04 and §05 to see final narrowed field sizes. <!-- reviewed: cohesion fix -->
+- **§06 + ori_llvm codegen**: Field reordering creates a mismatch between ARC IR field indices (declaration order) and LLVM struct field indices (memory order). ALL codegen consumers of field indices must remap via `StructRepr::memory_index()`: `ArcIrEmitter` (Project, Construct, Set), `derive_codegen` (extract_value, build_struct), `DropFunctionGenerator` (struct_gep), and `narrowing_codegen` (sext_narrowed_field, trunc_for_narrowed_struct). Missing any one consumer causes silent data corruption. <!-- reviewed: cohesion fix -->
 - **§08 + §09**: Escape analysis determines which allocations are stack-local (no RC header) vs heap (need RC header). If escape analysis lands without header compression, heap allocations still use i64 headers unnecessarily.
 - **§02 + ori_arc pipeline**: Transitive triviality must agree with `ori_arc::ArcClassifier` (defined in `ori_arc/src/classify/mod.rs`, re-exported at crate root via `pub use classify::ArcClassifier`). The ARC pipeline uses the `ArcClassification` trait (`ori_arc/src/lib.rs`) as the abstraction; `compute_drop_info()` and `run_arc_pipeline()` accept `&dyn ArcClassification`. If triviality and ArcClassifier disagree, codegen either emits unnecessary RC ops or skips needed ones. Both must use the same classification — `ori_types::triviality::classify_triviality()` is the single source of truth.
 - **§01.7 + §06**: `#repr` attributes (c, packed, transparent, aligned) are stored in ReprPlan by §01 but consumed by §06's layout algorithm. The layout pass must check `repr_attrs` before reordering fields. If §01 stores attrs but §06 ignores them, C-ABI structs get silently reordered → FFI bugs.
@@ -306,9 +308,12 @@ This is intentional (internal to `ori_arc`). §08.5's option (b) — passing esc
 |   ↳ 05.2 Float range collection | ~150 | Medium | §03 |
 |   ↳ 05.3 Float field narrowing | ~100 | Medium | §03 |
 |   ↳ 05.4 LLVM fpext/fptrunc codegen | ~150 | High | §04 |
-| 06 Struct Layout | ~700 | Medium | §04, §05 |
-|   ↳ 06.1 Field reordering | ~300 | Medium | §04 |
-|   ↳ 06.2 Padding minimization | ~200 | Medium | §04 |
+| 06 Struct Layout | ~900 | Medium-High | §04, §05 | <!-- reviewed: cohesion fix — expanded for codegen remapping across derive, drop, narrowing -->
+|   ↳ 06.0 Prerequisites + codegen remapping | ~350 | Medium-High | §04, §05 |
+|   ↳ 06.1 Field reordering algorithm | ~200 | Medium | §04 |
+|   ↳ 06.2 Padding tracking & diagnostics | ~50 | Low | §04 |
+|   ↳ 06.3 ABI-stable opt-out | ~150 | Medium | §04 |
+|   ↳ 06.4 Tuple layout | ~100 | Low | §04 |
 | 07 Enum Repr | ~900 | High | §04, §05 |
 |   ↳ 07.1 Niche filling | ~400 | High | §04 |
 |   ↳ 07.2 Discriminant narrowing | ~200 | Medium | §04 |

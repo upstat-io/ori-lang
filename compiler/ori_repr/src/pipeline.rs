@@ -466,7 +466,16 @@ fn apply_float_narrowing(plan: &mut ReprPlan, pool: &Pool, arc_functions: &[ArcF
 }
 
 /// Struct and tuple field reordering for padding minimization.
-fn compute_struct_layouts(_plan: &mut ReprPlan, _pool: &Pool) {}
+///
+/// **Currently a no-op.** Activated after codegen field-index remapping
+/// is wired (§06.0 prerequisite). The layout algorithms exist in
+/// `layout::struct_layout` and `layout::tuple_layout` — this function
+/// will iterate all struct/tuple types in the plan and apply them.
+fn compute_struct_layouts(_plan: &mut ReprPlan, _pool: &Pool) {
+    // Activated after codegen remapping is wired.
+    // See layout::struct_layout::optimize_struct_layout() and
+    // layout::tuple_layout::optimize_tuple_layout().
+}
 
 /// Enum niche optimization and discriminant narrowing.
 fn compute_enum_reprs(_plan: &mut ReprPlan, _pool: &Pool) {}
