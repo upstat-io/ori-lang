@@ -32,6 +32,10 @@ pub(crate) type ArcLoweringResult = (
     clippy::too_many_lines,
     reason = "ARC lowering pipeline — local, imported, impl, and mono functions in sequence"
 )]
+#[expect(
+    clippy::cognitive_complexity,
+    reason = "impl-method ordinal tracking adds nesting — extracting would split the iterator alignment"
+)]
 pub(crate) fn lower_and_infer_borrows(
     module: &ori_ir::ast::Module,
     function_sigs: &[ori_types::FunctionSig],
@@ -101,8 +105,10 @@ pub(crate) fn lower_and_infer_borrows(
     // sig.param_types[0]) to prevent collisions (TPR-03-043/045/047).
     {
         let mut sig_iter = impl_sigs.iter();
+        let mut method_ordinals: rustc_hash::FxHashMap<(ori_types::Idx, Name), usize> =
+            rustc_hash::FxHashMap::default();
         for impl_def in &module.impls {
-            let type_name_name = impl_def.self_path.first().copied();
+            let type_name_name = impl_def.self_path.last().copied();
             let self_type_idx = type_name_name.and_then(|name| {
                 user_types
                     .iter()
@@ -116,18 +122,31 @@ pub(crate) fn lower_and_infer_borrows(
                 if sig.is_generic() {
                     continue;
                 }
+                let ordinal = if let Some(idx) = self_type_idx {
+                    let entry = method_ordinals.entry((idx, method.name)).or_insert(0);
+                    let ord = *entry;
+                    *entry += 1;
+                    ord
+                } else {
+                    0
+                };
                 let qualified_name = if let Some(idx) = self_type_idx {
                     let method_str = interner.lookup(method.name);
-                    interner.intern(&format!("__impl_{}_{method_str}", idx.raw()))
+                    if ordinal == 0 {
+                        interner.intern(&format!("__impl_{}_{method_str}", idx.raw()))
+                    } else {
+                        interner.intern(&format!("__impl_{}_{}_{ordinal}", idx.raw(), method_str))
+                    }
                 } else {
                     method.name
                 };
                 let (arc_fn, lambdas) = if let Some(tn) = type_name_name {
-                    crate::arc_lowering::lower_impl_method_to_arc(
+                    crate::arc_lowering::lower_impl_method_to_arc_nth(
                         qualified_name,
                         sig,
                         method.name,
                         tn,
+                        ordinal,
                         canon,
                         interner,
                         pool,
@@ -163,19 +182,39 @@ pub(crate) fn lower_and_infer_borrows(
                                     if sig.is_generic() {
                                         continue;
                                     }
+                                    let def_ordinal = if let Some(idx) = self_type_idx {
+                                        let entry =
+                                            method_ordinals.entry((idx, default.name)).or_insert(0);
+                                        let ord = *entry;
+                                        *entry += 1;
+                                        ord
+                                    } else {
+                                        0
+                                    };
                                     let qualified_name = if let Some(idx) = self_type_idx {
                                         let method_str = interner.lookup(default.name);
-                                        interner
-                                            .intern(&format!("__impl_{}_{method_str}", idx.raw()))
+                                        if def_ordinal == 0 {
+                                            interner.intern(&format!(
+                                                "__impl_{}_{method_str}",
+                                                idx.raw()
+                                            ))
+                                        } else {
+                                            interner.intern(&format!(
+                                                "__impl_{}_{}_{def_ordinal}",
+                                                idx.raw(),
+                                                method_str
+                                            ))
+                                        }
                                     } else {
                                         default.name
                                     };
                                     let (arc_fn, lambdas) = if let Some(tn) = type_name_name {
-                                        crate::arc_lowering::lower_impl_method_to_arc(
+                                        crate::arc_lowering::lower_impl_method_to_arc_nth(
                                             qualified_name,
                                             sig,
                                             default.name,
                                             tn,
+                                            def_ordinal,
                                             canon,
                                             interner,
                                             pool,
