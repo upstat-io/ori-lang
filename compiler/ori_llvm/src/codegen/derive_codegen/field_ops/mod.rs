@@ -37,8 +37,8 @@ pub(super) fn emit_field_operation<'a>(
     let info = fc.type_info().get(field_type);
     match &info {
         // Integer-like signed: signed compare, sext to i64 for hash.
-        // §04 integer narrowing may produce i8/i16/i32 struct fields for
-        // types with bounded ranges. Hash requires canonical i64 width.
+        // Integer narrowing may produce i8/i16/i32 struct fields for types
+        // with bounded ranges. Hash requires canonical i64 width.
         TypeInfo::Int | TypeInfo::Duration | TypeInfo::Size => match op {
             FieldOp::Equals => fc.builder_mut().icmp_eq(lhs, expect_rhs(rhs), name),
             FieldOp::Compare => {
@@ -80,7 +80,7 @@ pub(super) fn emit_field_operation<'a>(
                 .builder_mut()
                 .emit_fcmp_ordering(lhs, expect_rhs(rhs), name),
             FieldOp::Hash => {
-                // §05 float narrowing: widen f32 back to f64 before hashing.
+                // Float narrowing: widen f32 back to f64 before hashing.
                 // This ensures hash(narrowed_struct) == hash(canonical_struct).
                 let hash_val = fc.builder_mut().fpext_to_f64_if_narrower(lhs, name);
                 // Normalize ±0.0 → +0.0 before bitcast to preserve hash contract:
@@ -438,9 +438,9 @@ fn compute_elem_size<'a>(fc: &FunctionCompiler<'_, 'a, 'a, '_>, ty: Idx, info: &
             crate::codegen::TypeLayoutResolver::type_store_size(llvm_ty) as i64
         }
         _ => {
-            // §04.4 Phase C: check if this element type is narrowed as a
-            // collection element. For `int` elements in narrowed collections,
-            // the element size is 1/2/4 instead of canonical 8.
+            // Integer narrowing phase C: check if this element type is narrowed
+            // as a collection element. For `int` elements in narrowed
+            // collections, the element size is 1/2/4 instead of canonical 8.
             if let Some(plan) = fc.repr_plan() {
                 let resolved = fc.pool().resolve_fully(ty);
                 if fc.pool().tag(resolved) == ori_types::Tag::Int {

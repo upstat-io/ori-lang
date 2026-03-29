@@ -1,5 +1,5 @@
-//! Tests for float precision analysis (§05.1), float field summary (§05.2),
-//! and float field narrowing (§05.3).
+//! Tests for float precision analysis, float field summary collection,
+//! and float field narrowing.
 
 #![expect(
     clippy::expect_used,
@@ -257,7 +257,7 @@ fn test_cannot_narrow_bottom() {
     assert!(!FloatRange::Bottom.can_narrow_to_f32());
 }
 
-// ── FloatFieldSummaryTable (§05.2) ──────────────────────────────────
+// ── FloatFieldSummaryTable ───────────────────────────────────────────
 
 #[test]
 fn test_table_empty_returns_bottom() {
@@ -332,7 +332,7 @@ fn test_table_no_construct_sites_all_bottom() {
     assert_eq!(table.get(Idx::BOOL, 0), FloatRange::Bottom);
 }
 
-// ── narrow_float_fields (§05.3) ─────────────────────────────────────
+// ── narrow_float_fields ──────────────────────────────────────────────
 
 /// Helper: create a `FieldRepr` with canonical f64 float type.
 fn float_field(index: u32) -> FieldRepr {
@@ -686,13 +686,13 @@ fn test_mixed_float_and_non_float_fields() {
 
 #[test]
 fn test_combined_int_and_float_narrowing() {
-    // Simulate a struct where §04 already narrowed int fields and §05
-    // narrows float fields. The combined result should have both.
+    // Simulate a struct where integer narrowing already narrowed int fields and
+    // float narrowing narrows float fields. The combined result should have both.
     let pool = Pool::default();
     let mut plan = ReprPlan::new(NarrowingPolicy::Conservative);
     let idx = Idx::from_raw(Idx::FIRST_DYNAMIC);
 
-    // Start with a struct where field 0 was already narrowed by §04 to I8.
+    // Start with a struct where field 0 was already narrowed by integer narrowing to I8.
     let fields = vec![
         FieldRepr {
             name: Name::from_raw(0),
@@ -714,7 +714,7 @@ fn test_combined_int_and_float_narrowing() {
 
     let repr = plan.get_repr(idx).expect("repr must exist");
     if let MachineRepr::Struct(s) = repr {
-        // Field 0: still I8 (from §04)
+        // Field 0: still I8 (from integer narrowing)
         assert_eq!(
             s.fields[0].repr,
             MachineRepr::Int {
@@ -722,7 +722,7 @@ fn test_combined_int_and_float_narrowing() {
                 signed: true,
             }
         );
-        // Field 1: narrowed to F32 (from §05)
+        // Field 1: narrowed to F32 (from float narrowing)
         assert_eq!(
             s.fields[1].repr,
             MachineRepr::Float {
@@ -768,7 +768,7 @@ fn test_semantic_pin_narrowed_repr_differs_from_canonical() {
     }
 }
 
-// ── collect_float_field_summaries (§05.2 collection) ───────────────
+// ── collect_float_field_summaries ───────────────────────────────────
 
 use ori_arc::ir::{
     ArcBlock, ArcBlockId, ArcFunction, ArcInstr, ArcTerminator, ArcValue, CtorKind, LitValue,

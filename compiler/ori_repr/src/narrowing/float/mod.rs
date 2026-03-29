@@ -1,9 +1,9 @@
-//! Float narrowing — Phase A: struct field precision analysis (§05).
+//! Float narrowing — Phase A: struct field precision analysis.
 //!
 //! Determines whether `float` (semantic f64) fields can be narrowed to f32
 //! when all observed values are exactly representable in f32.
 //!
-//! Unlike integer narrowing (§04), float narrowing does NOT consume §03's
+//! Unlike integer narrowing, float narrowing does NOT consume the
 //! `ValueRange` lattice (which is integer-only). Instead, it defines its
 //! own `FloatRange` lattice that tracks whether ALL observed literal values
 //! at a struct field position are f32-exact.
@@ -129,7 +129,7 @@ pub fn is_f32_exact(value: f64) -> bool {
     }
 }
 
-/// Apply float narrowing to struct fields (§05.3).
+/// Apply float narrowing to struct fields.
 ///
 /// Iterates all types with `Struct` representations, checks each
 /// `Float { F64 }` field against the float field summary table, and
@@ -141,8 +141,9 @@ pub fn is_f32_exact(value: f64) -> bool {
 /// - `NarrowingPolicy::Disabled` → skip (handled by caller)
 /// - Tuples → skip (Phase A defers tuples)
 ///
-/// **§04/§06 interface contract:** This pass writes only `FieldRepr.repr`;
-/// `FieldRepr.offset` remains zero (§06 is the authority for layout).
+/// **Integer narrowing / struct layout interface contract:** This pass
+/// writes only `FieldRepr.repr`; `FieldRepr.offset` remains zero (struct
+/// layout is the authority for offsets).
 pub fn narrow_float_fields(plan: &mut ReprPlan, pool: &Pool, float_table: &FloatFieldSummaryTable) {
     use crate::plan::{DecisionReason, DecisionSource, ReprDecision};
     use crate::repr::{FloatWidth, MachineRepr};
@@ -157,7 +158,7 @@ pub fn narrow_float_fields(plan: &mut ReprPlan, pool: &Pool, float_table: &Float
             let repr = plan.get_repr(idx)?;
             match repr {
                 MachineRepr::Struct(_) => Some(idx),
-                // Phase A: skip tuples — same rationale as §04.
+                // Phase A: skip tuples — same conservative rationale as integer narrowing.
                 MachineRepr::Tuple(_) => {
                     tracing::trace!(?idx, "float narrowing: skipping tuple (Phase A)");
                     None

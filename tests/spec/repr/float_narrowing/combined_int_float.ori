@@ -1,0 +1,39 @@
+// Spec: Annex E (System Considerations) — combined int + float narrowing
+// Struct with both int and float fields. The int may be narrowed by integer
+// narrowing and the float by float narrowing. Both must produce correct
+// values after their respective roundtrips.
+
+use std.testing { assert_eq }
+
+type Pixel = { r: int, x: float }
+
+@make_pixel () -> Pixel = Pixel { r: 128, x: 0.5 };
+
+@test_int_field tests @make_pixel () -> void = {
+    let p = make_pixel();
+    assert_eq(actual: p.r, expected: 128)
+}
+
+@test_float_field tests @make_pixel () -> void = {
+    let p = make_pixel();
+    assert_eq(actual: p.x, expected: 0.5)
+}
+
+@test_both_fields tests @make_pixel () -> void = {
+    let p = make_pixel();
+    // Use both fields in an expression
+    let result = p.r as float + p.x;
+    assert_eq(actual: result, expected: 128.5)
+}
+
+type Color = { r: int, g: int, b: int, alpha: float }
+
+@make_color () -> Color = Color { r: 255, g: 128, b: 0, alpha: 1.0 };
+
+@test_multi_int_one_float tests @make_color () -> void = {
+    let c = make_color();
+    assert_eq(actual: c.r, expected: 255);
+    assert_eq(actual: c.g, expected: 128);
+    assert_eq(actual: c.b, expected: 0);
+    assert_eq(actual: c.alpha, expected: 1.0)
+}

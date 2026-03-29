@@ -1,0 +1,39 @@
+// Spec: Annex E (System Considerations) — float narrowing transparency
+// The compiler may narrow f64 to f32 for storage when provably lossless.
+// This test verifies the optimization is invisible to user code.
+
+use std.testing { assert_eq }
+
+type Point = { x: float, y: float }
+
+@store_half () -> Point = Point { x: 0.5, y: 0.5 };
+
+@test_basic_roundtrip tests @store_half () -> void = {
+    let p = store_half();
+    assert_eq(actual: p.x, expected: 0.5);
+    assert_eq(actual: p.y, expected: 0.5)
+}
+
+@store_zero () -> Point = Point { x: 0.0, y: 0.0 };
+
+@test_zero_roundtrip tests @store_zero () -> void = {
+    let p = store_zero();
+    assert_eq(actual: p.x, expected: 0.0);
+    assert_eq(actual: p.y, expected: 0.0)
+}
+
+@store_one () -> Point = Point { x: 1.0, y: 1.0 };
+
+@test_one_roundtrip tests @store_one () -> void = {
+    let p = store_one();
+    assert_eq(actual: p.x, expected: 1.0);
+    assert_eq(actual: p.y, expected: 1.0)
+}
+
+@store_integer_valued () -> Point = Point { x: 42.0, y: 255.0 };
+
+@test_integer_valued_roundtrip tests @store_integer_valued () -> void = {
+    let p = store_integer_valued();
+    assert_eq(actual: p.x, expected: 42.0);
+    assert_eq(actual: p.y, expected: 255.0)
+}

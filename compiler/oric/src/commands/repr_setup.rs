@@ -29,14 +29,14 @@ pub(super) fn collect_all_arc_functions(
 /// Build the representation plan from a type-checked module.
 ///
 /// Extracts `#repr` attributes and public type indices from the typed module,
-/// then runs the repr plan computation pipeline (§01 canonical reprs, §03 range
-/// analysis, §04 integer narrowing).
+/// then runs the repr plan computation pipeline (canonical reprs, range analysis,
+/// integer narrowing, float narrowing).
 ///
 /// `imported_type_metadata` carries repr/pub metadata from imported modules,
 /// enabling the repr plan to correctly exempt imported `pub` and `#repr(...)`
-/// types from integer narrowing. See CROSS-04-014.
+/// types from integer narrowing.
 ///
-/// Must run AFTER borrow inference (accepts `ArcFunction`s for §03 range analysis)
+/// Must run AFTER borrow inference (accepts `ArcFunction`s for range analysis)
 /// and BEFORE codegen (`TypeLayoutResolver` and `TypeInfoStore` read the plan).
 #[expect(
     clippy::too_many_arguments,
@@ -61,7 +61,7 @@ pub(super) fn compute_module_repr_plan(
         .collect();
 
     // Extract public type indices — their field layout is an ABI contract
-    // that §04 integer narrowing must not violate (TPR-04-005).
+    // that integer narrowing must not violate.
     let mut pub_type_indices: Vec<Idx> = type_result
         .typed
         .types
@@ -70,14 +70,14 @@ pub(super) fn compute_module_repr_plan(
         .map(|te| te.idx)
         .collect();
 
-    // TPR-04-027: Also mark collection wrapper types from public function
-    // signatures as public. A public `@f (xs: [int]) -> [int]` means the
-    // `[int]` type's element layout is an ABI surface — callers construct
-    // lists with canonical element widths. Without this, §04 Phase C could
-    // narrow the element repr while callers still use 8-byte strides.
+    // Also mark collection wrapper types from public function signatures as
+    // public. A public `@f (xs: [int]) -> [int]` means the `[int]` type's
+    // element layout is an ABI surface — callers construct lists with canonical
+    // element widths. Without this, integer narrowing Phase C could narrow the
+    // element repr while callers still use 8-byte strides.
     collect_public_collection_types(pool, &type_result.typed.functions, &mut pub_type_indices);
 
-    // Collect unconstrained function names (pub + trait impl) for §03.5.
+    // Collect unconstrained function names (pub + trait impl) for interprocedural range analysis.
     let unconstrained_fn_names = collect_unconstrained_fn_names(
         &type_result.typed.functions,
         &type_result.typed.trait_impl_fn_names,
@@ -101,18 +101,18 @@ pub(super) fn compute_module_repr_plan(
 /// Collect unconstrained function identities (pub or trait impl).
 ///
 /// These functions may be called from external code or via dynamic dispatch,
-/// so §03.5 interprocedural range analysis must assign Top to their parameters.
+/// so interprocedural range analysis must assign Top to their parameters.
 /// Only trait impl methods are included — inherent impl methods have known
-/// call sites and can be narrowed (TPR-03-038).
+/// call sites and can be narrowed.
 ///
 /// Returns `(Option<Idx>, Name)` pairs: `None` for pub top-level functions,
-/// `Some(self_type)` for trait impl methods (TPR-03-042 disambiguation).
+/// `Some(self_type)` for trait impl methods (for disambiguation).
 ///
 /// Tracks ordinals for same-type same-name method duplicates (e.g., two
 /// `impl Index<...>` on the same type). Registers both the base qualified
 /// name (`__impl_{idx}_{method}`) and ordinal-suffixed variants
 /// (`__impl_{idx}_{method}_{ordinal}`) to match the analysis-only ARC
-/// lowering format (TPR-03-053).
+/// lowering format.
 pub(super) fn collect_unconstrained_fn_names(
     function_sigs: &[ori_types::FunctionSig],
     trait_impl_fn_names: &[(ori_types::Idx, oric::ir::Name)],
@@ -126,18 +126,18 @@ pub(super) fn collect_unconstrained_fn_names(
         }
     }
     // Trait impl methods only — may be called via dynamic dispatch.
-    // Inherent impl methods are NOT included (TPR-03-038).
-    // Carries self-type for disambiguation (TPR-03-042).
-    // Tracks ordinals for same-type same-name duplicates (TPR-03-053).
+    // Inherent impl methods are NOT included — they have known call sites.
+    // Carries self-type for disambiguation.
+    // Tracks ordinals for same-type same-name duplicates.
     let mut method_ordinals: FxHashMap<(ori_types::Idx, oric::ir::Name), usize> =
         FxHashMap::default();
     for &(self_type, name) in trait_impl_fn_names {
         names.push((Some(self_type), name));
-        // Register the qualified name used by analysis-only ARC functions
-        // (TPR-03-043). The format matches what codegen_pipeline and the JIT
-        // arc_lowering use when ARC-lowering impl methods for range analysis.
+        // Register the qualified name used by analysis-only ARC functions.
+        // The format matches what codegen_pipeline and the JIT arc_lowering use
+        // when ARC-lowering impl methods for range analysis.
         // Ordinal-qualified names are registered for same-type same-name
-        // duplicates so `is_qualified_unconstrained()` finds them (TPR-03-053).
+        // duplicates so `is_qualified_unconstrained()` finds them.
         if let Some(interner) = interner {
             let ordinal = {
                 let entry = method_ordinals.entry((self_type, name)).or_insert(0);
@@ -165,8 +165,8 @@ pub(super) fn collect_unconstrained_fn_names(
 ///
 /// When a public function has `[int]`, `Set<int>`, or similar collection
 /// types in its parameters or return type, those collection type indices
-/// must be marked public so §04 Phase C does not narrow their element
-/// layout (which would break ABI with external callers). See TPR-04-027.
+/// must be marked public so integer narrowing Phase C does not narrow their
+/// element layout (which would break ABI with external callers).
 ///
 /// Uses the shared `walk_collection_types` walker from `ori_types::pool`
 /// to avoid duplicating the recursive type-walking logic.

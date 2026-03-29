@@ -1,8 +1,7 @@
 //! `TypeLayoutResolver` — recursive LLVM type resolution with cycle detection.
 //!
 //! Resolves `Idx` → `BasicTypeEnum` with two-phase struct creation for
-//! recursive types. Extracted from `type_info/mod.rs` for file size hygiene
-//! (§04 HYGIENE-04-001).
+//! recursive types. Extracted from `type_info/mod.rs` for file size hygiene.
 
 use std::cell::{Cell, RefCell};
 
@@ -233,10 +232,10 @@ impl<'a, 'll, 'tcx> TypeLayoutResolver<'a, 'll, 'tcx> {
             if let Some(llvm_ty) = self.try_repr_to_llvm_type(repr) {
                 return llvm_ty;
             }
-            // §04.4: If this is a narrowed Struct/Tuple (has int fields with
-            // width < I64 from integer narrowing), resolve directly using the
-            // narrowed FieldRepr widths. Non-narrowed structs fall through to
-            // TypeInfoStore's named struct path below.
+            // If this is a narrowed Struct/Tuple (has int fields with width < I64
+            // from integer narrowing), resolve directly using the narrowed FieldRepr
+            // widths. Non-narrowed structs fall through to TypeInfoStore's named
+            // struct path below.
             if let Some(llvm_ty) = self.try_lower_narrowed_aggregate(repr) {
                 return llvm_ty;
             }
@@ -328,8 +327,8 @@ impl<'a, 'll, 'tcx> TypeLayoutResolver<'a, 'll, 'tcx> {
         };
 
         // Only enter the narrowed path if at least one field was actually
-        // narrowed. Check for both integer narrowing (§04: Int width < I64)
-        // and float narrowing (§05: Float width F32).
+        // narrowed. Check for both integer narrowing (Int width < I64)
+        // and float narrowing (Float width F32).
         let has_narrowed = fields.iter().any(|f| {
             matches!(
                 f.repr,
@@ -348,7 +347,7 @@ impl<'a, 'll, 'tcx> TypeLayoutResolver<'a, 'll, 'tcx> {
         // overall struct size, which breaks element_store_size() and
         // elem_dec_fn assumptions in collection codegen (list element
         // GEP stride, RC cleanup offsets). Mixed-field narrowing requires
-        // Phase C element_store_size integration (§04.4).
+        // Integer narrowing phase C: element_store_size integration.
         let all_scalar_fields = fields.iter().all(|f| {
             matches!(
                 f.repr,
