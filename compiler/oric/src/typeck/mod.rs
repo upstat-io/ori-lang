@@ -231,19 +231,15 @@ fn register_resolved_imports(
     // 3a. Collect imported metadata for transitive forwarding (CROSS-04-017, TPR-04-038).
     // Both type metadata and collection surfaces flow through the same sources.
     {
-        let mut imported_metadata: Vec<ori_types::ExportedTypeMetadata> = Vec::new();
-        let mut imported_surfaces: Vec<u64> = Vec::new();
+        let prelude_result = resolved
+            .prelude
+            .as_ref()
+            .and_then(|p| p.source_file.map(|sf| crate::query::typed(db, sf)));
 
-        if let Some(ref prelude) = resolved.prelude {
-            if let Some(ref tcr) = prelude.source_file.map(|sf| crate::query::typed(db, sf)) {
-                imported_metadata.extend(tcr.typed.exported_type_metadata.iter().cloned());
-                imported_surfaces.extend(tcr.typed.exported_collection_surfaces.iter().copied());
-            }
-        }
-        for tcr in module_results.iter().flatten() {
-            imported_metadata.extend(tcr.typed.exported_type_metadata.iter().cloned());
-            imported_surfaces.extend(tcr.typed.exported_collection_surfaces.iter().copied());
-        }
+        let imported_metadata =
+            collect_metadata_from_results(prelude_result.as_ref(), &module_results);
+        let imported_surfaces =
+            collect_surfaces_from_results(prelude_result.as_ref(), &module_results);
 
         if !imported_metadata.is_empty() {
             checker.set_imported_type_metadata(imported_metadata);
@@ -393,3 +389,46 @@ fn dummy_sig(name: Name) -> FunctionSig {
         return_hash: 0,
     }
 }
+
+/// Collect exported type metadata from prelude and imported module results.
+///
+/// Gathers `ExportedTypeMetadata` from the prelude (if present) and all
+/// imported module `TypeCheckResult` objects for transitive forwarding.
+/// See TPR-04-038.
+pub(crate) fn collect_metadata_from_results(
+    prelude: Option<&ori_types::TypeCheckResult>,
+    module_results: &[Option<ori_types::TypeCheckResult>],
+) -> Vec<ori_types::ExportedTypeMetadata> {
+    let mut metadata = Vec::new();
+    if let Some(tcr) = prelude {
+        metadata.extend(tcr.typed.exported_type_metadata.iter().cloned());
+    }
+    for tcr in module_results.iter().flatten() {
+        metadata.extend(tcr.typed.exported_type_metadata.iter().cloned());
+    }
+    metadata
+}
+
+/// Collect exported collection surface hashes from prelude and imported module results.
+///
+/// Gathers merkle hashes of collection types (List, Set) from the prelude (if
+/// present) and all imported module `TypeCheckResult` objects for transitive
+/// forwarding. The collected hashes are passed to `ModuleChecker::set_imported_collection_surfaces()`
+/// which feeds them into `generate_exported_collection_surfaces()` for A→B→C propagation.
+/// See TPR-04-038, TPR-04-041.
+pub(crate) fn collect_surfaces_from_results(
+    prelude: Option<&ori_types::TypeCheckResult>,
+    module_results: &[Option<ori_types::TypeCheckResult>],
+) -> Vec<u64> {
+    let mut surfaces = Vec::new();
+    if let Some(tcr) = prelude {
+        surfaces.extend(tcr.typed.exported_collection_surfaces.iter().copied());
+    }
+    for tcr in module_results.iter().flatten() {
+        surfaces.extend(tcr.typed.exported_collection_surfaces.iter().copied());
+    }
+    surfaces
+}
+
+#[cfg(test)]
+mod tests;
