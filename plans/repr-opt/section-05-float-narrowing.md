@@ -572,3 +572,5 @@ These are end-to-end behavioral tests. The Ori code itself does not observe the 
   Resolved: Fixed on 2026-03-29. Extracted all function bodies into `pipeline.rs` (497 lines). `lib.rs` reduced from 545 to 60 lines (pure index: `//!` docs, `mod` declarations, `pub use` re-exports only).
 - [x] `[TPR-05-006][medium]` [`plans/repr-opt/section-05-float-narrowing.md:517`](/home/eric/projects/ori_lang/plans/repr-opt/section-05-float-narrowing.md#L517) — **The recorded release-parity command still overstates float narrowing coverage.**
   Resolved: Fixed on 2026-03-29. Replaced `float_narrowed` filter with `float` which matches all 15 narrowing tests (14 `test_float_*` + 1 `test_mixed_int_float_*`). Verified: `cargo test --release -p ori_llvm -- float` passes all 15 narrowing + 39 other float tests (54 total AOT).
+- [x] `[TPR-05-007][medium]` [`plans/repr-opt/00-overview.md:338`](/home/eric/projects/ori_lang/plans/repr-opt/00-overview.md#L338) — **The plan summary files still advertise §05 as “Not Started.”**
+  Resolved: Fixed on 2026-03-29. Updated `00-overview.md` and `index.md` to reflect §05 as “In Progress (§05.1–§05.4 complete)”.
