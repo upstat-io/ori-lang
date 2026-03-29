@@ -15,7 +15,10 @@ use crate::plan::{
 use crate::repr::{FloatWidth, IntWidth, MachineRepr};
 use crate::struct_repr::{FieldRepr, StructRepr};
 
-use super::{is_f32_exact, narrow_float_fields, FloatFieldSummaryTable, FloatRange};
+use super::{
+    collect_float_field_summaries, is_f32_exact, narrow_float_fields, FloatFieldSummaryTable,
+    FloatRange,
+};
 
 // ── is_f32_exact ────────────────────────────────────────────────────
 
@@ -763,4 +766,538 @@ fn test_semantic_pin_narrowed_repr_differs_from_canonical() {
     } else {
         panic!("expected Struct repr");
     }
+}
+
+// ── collect_float_field_summaries (§05.2 collection) ───────────────
+
+use ori_arc::ir::{
+    ArcBlock, ArcBlockId, ArcFunction, ArcInstr, ArcTerminator, ArcValue, CtorKind, LitValue,
+};
+use ori_arc::uniqueness::{CowAnnotations, DropHints};
+use ori_arc::ArcVarId;
+
+/// Helper: build a minimal [`ArcFunction`] from blocks and `var_types`.
+fn make_arc_func(blocks: Vec<ArcBlock>, var_types: Vec<Idx>) -> ArcFunction {
+    let span_vecs: Vec<Vec<Option<ori_ir::Span>>> =
+        blocks.iter().map(|bl| vec![None; bl.body.len()]).collect();
+    ArcFunction {
+        name: Name::from_raw(1),
+        params: Vec::new(),
+        return_type: Idx::UNIT,
+        blocks,
+        entry: ArcBlockId::new(0),
+        var_types,
+        var_reprs: Vec::new(),
+        spans: span_vecs,
+        is_fbip: false,
+        num_captures: 0,
+        cow_annotations: CowAnnotations::default(),
+        drop_hints: DropHints::default(),
+        tail_calls: Vec::new(),
+    }
+}
+
+/// Helper: build a single-block `ArcBlock` with given instructions.
+fn make_block(id: u32, body: Vec<ArcInstr>) -> ArcBlock {
+    ArcBlock {
+        id: ArcBlockId::new(id),
+        params: Vec::new(),
+        body,
+        terminator: ArcTerminator::Return {
+            value: ArcVarId::new(0),
+        },
+    }
+}
+
+#[test]
+fn test_collect_empty_functions() {
+    let pool = Pool::default();
+    let plan = ReprPlan::new(NarrowingPolicy::Conservative);
+    let table = collect_float_field_summaries(&plan, &pool, &[]);
+
+    // No functions → no observations → all queries return Bottom.
+    assert_eq!(table.get(Idx::FLOAT, 0), FloatRange::Bottom);
+    assert_eq!(table.get(Idx::INT, 0), FloatRange::Bottom);
+}
+
+#[test]
+fn test_collect_f32_exact_literal() {
+    // Construct a function with:
+    //   v0 = 0.5 (f32-exact float literal)
+    //   v1 = Struct(name) { v0 }
+    // var_types: v0 = Float, v1 = some struct type
+    let pool = Pool::default();
+    let plan = ReprPlan::new(NarrowingPolicy::Conservative);
+
+    let struct_idx = Idx::from_raw(Idx::FIRST_DYNAMIC);
+    let body = vec![
+        ArcInstr::Let {
+            dst: ArcVarId::new(0),
+            ty: Idx::FLOAT,
+            value: ArcValue::Literal(LitValue::Float(0.5_f64.to_bits())),
+        },
+        ArcInstr::Construct {
+            dst: ArcVarId::new(1),
+            ty: struct_idx,
+            ctor: CtorKind::Struct(Name::from_raw(100)),
+            args: vec![ArcVarId::new(0)],
+        },
+    ];
+
+    let var_types = vec![Idx::FLOAT, struct_idx];
+    let func = make_arc_func(vec![make_block(0, body)], var_types);
+
+    let table = collect_float_field_summaries(&plan, &pool, &[func]);
+
+    assert_eq!(
+        table.get(struct_idx, 0),
+        FloatRange::F32Exact,
+        "0.5 is f32-exact, so field 0 should be F32Exact"
+    );
+}
+
+#[test]
+fn test_collect_non_f32_exact_literal() {
+    // Construct a function with:
+    //   v0 = 0.1 (NOT f32-exact)
+    //   v1 = Struct(name) { v0 }
+    let pool = Pool::default();
+    let plan = ReprPlan::new(NarrowingPolicy::Conservative);
+
+    let struct_idx = Idx::from_raw(Idx::FIRST_DYNAMIC);
+    let body = vec![
+        ArcInstr::Let {
+            dst: ArcVarId::new(0),
+            ty: Idx::FLOAT,
+            value: ArcValue::Literal(LitValue::Float(0.1_f64.to_bits())),
+        },
+        ArcInstr::Construct {
+            dst: ArcVarId::new(1),
+            ty: struct_idx,
+            ctor: CtorKind::Struct(Name::from_raw(100)),
+            args: vec![ArcVarId::new(0)],
+        },
+    ];
+
+    let var_types = vec![Idx::FLOAT, struct_idx];
+    let func = make_arc_func(vec![make_block(0, body)], var_types);
+
+    let table = collect_float_field_summaries(&plan, &pool, &[func]);
+
+    assert_eq!(
+        table.get(struct_idx, 0),
+        FloatRange::Top,
+        "0.1 is NOT f32-exact, so field 0 should be Top"
+    );
+}
+
+#[test]
+fn test_collect_variable_arg_yields_top() {
+    // Construct a function with:
+    //   v0 = some variable (not a float literal — e.g. a Var reference)
+    //   v1 = Struct(name) { v0 }
+    // The float literal map won't contain v0, so the function should
+    // conservatively assign Top.
+    let pool = Pool::default();
+    let plan = ReprPlan::new(NarrowingPolicy::Conservative);
+
+    let struct_idx = Idx::from_raw(Idx::FIRST_DYNAMIC);
+    // v0 is defined as a Var (copy of another variable, not a literal).
+    // We need v2 as the "source" even though it won't be scanned as a literal.
+    let body = vec![
+        ArcInstr::Let {
+            dst: ArcVarId::new(0),
+            ty: Idx::FLOAT,
+            value: ArcValue::Var(ArcVarId::new(2)),
+        },
+        ArcInstr::Construct {
+            dst: ArcVarId::new(1),
+            ty: struct_idx,
+            ctor: CtorKind::Struct(Name::from_raw(100)),
+            args: vec![ArcVarId::new(0)],
+        },
+    ];
+
+    // v0 = float, v1 = struct, v2 = float (the "source" for the Var copy)
+    let var_types = vec![Idx::FLOAT, struct_idx, Idx::FLOAT];
+    let func = make_arc_func(vec![make_block(0, body)], var_types);
+
+    let table = collect_float_field_summaries(&plan, &pool, &[func]);
+
+    assert_eq!(
+        table.get(struct_idx, 0),
+        FloatRange::Top,
+        "variable (non-literal) float arg should produce Top"
+    );
+}
+
+#[test]
+fn test_collect_mixed_float_and_non_float_fields() {
+    // Struct with 3 fields: int(v0), float-f32-exact(v1), float-non-exact(v2)
+    // Only float-typed fields should appear in the table.
+    let pool = Pool::default();
+    let plan = ReprPlan::new(NarrowingPolicy::Conservative);
+
+    let struct_idx = Idx::from_raw(Idx::FIRST_DYNAMIC);
+    let body = vec![
+        // v0: int literal (not float)
+        ArcInstr::Let {
+            dst: ArcVarId::new(0),
+            ty: Idx::INT,
+            value: ArcValue::Literal(LitValue::Int(42)),
+        },
+        // v1: f32-exact float literal (0.5)
+        ArcInstr::Let {
+            dst: ArcVarId::new(1),
+            ty: Idx::FLOAT,
+            value: ArcValue::Literal(LitValue::Float(0.5_f64.to_bits())),
+        },
+        // v2: non-f32-exact float literal (0.1)
+        ArcInstr::Let {
+            dst: ArcVarId::new(2),
+            ty: Idx::FLOAT,
+            value: ArcValue::Literal(LitValue::Float(0.1_f64.to_bits())),
+        },
+        // v3 = Struct { v0, v1, v2 }
+        ArcInstr::Construct {
+            dst: ArcVarId::new(3),
+            ty: struct_idx,
+            ctor: CtorKind::Struct(Name::from_raw(100)),
+            args: vec![ArcVarId::new(0), ArcVarId::new(1), ArcVarId::new(2)],
+        },
+    ];
+
+    let var_types = vec![Idx::INT, Idx::FLOAT, Idx::FLOAT, struct_idx];
+    let func = make_arc_func(vec![make_block(0, body)], var_types);
+
+    let table = collect_float_field_summaries(&plan, &pool, &[func]);
+
+    // Field 0 (int) — no float observation expected (Bottom).
+    assert_eq!(
+        table.get(struct_idx, 0),
+        FloatRange::Bottom,
+        "int field should have no float observation"
+    );
+    // Field 1 (float, 0.5) — f32-exact.
+    assert_eq!(
+        table.get(struct_idx, 1),
+        FloatRange::F32Exact,
+        "0.5 float field should be F32Exact"
+    );
+    // Field 2 (float, 0.1) — not f32-exact → Top.
+    assert_eq!(
+        table.get(struct_idx, 2),
+        FloatRange::Top,
+        "0.1 float field should be Top"
+    );
+}
+
+#[test]
+fn test_collect_multiple_construct_sites_join() {
+    // Two Construct sites for the same struct type:
+    //   site 1: field 0 = 0.5 (f32-exact)
+    //   site 2: field 0 = 1.0 (f32-exact)
+    // Joined result should be F32Exact.
+    let pool = Pool::default();
+    let plan = ReprPlan::new(NarrowingPolicy::Conservative);
+
+    let struct_idx = Idx::from_raw(Idx::FIRST_DYNAMIC);
+    let body = vec![
+        ArcInstr::Let {
+            dst: ArcVarId::new(0),
+            ty: Idx::FLOAT,
+            value: ArcValue::Literal(LitValue::Float(0.5_f64.to_bits())),
+        },
+        ArcInstr::Construct {
+            dst: ArcVarId::new(1),
+            ty: struct_idx,
+            ctor: CtorKind::Struct(Name::from_raw(100)),
+            args: vec![ArcVarId::new(0)],
+        },
+        ArcInstr::Let {
+            dst: ArcVarId::new(2),
+            ty: Idx::FLOAT,
+            value: ArcValue::Literal(LitValue::Float(1.0_f64.to_bits())),
+        },
+        ArcInstr::Construct {
+            dst: ArcVarId::new(3),
+            ty: struct_idx,
+            ctor: CtorKind::Struct(Name::from_raw(100)),
+            args: vec![ArcVarId::new(2)],
+        },
+    ];
+
+    let var_types = vec![Idx::FLOAT, struct_idx, Idx::FLOAT, struct_idx];
+    let func = make_arc_func(vec![make_block(0, body)], var_types);
+
+    let table = collect_float_field_summaries(&plan, &pool, &[func]);
+
+    assert_eq!(
+        table.get(struct_idx, 0),
+        FloatRange::F32Exact,
+        "two f32-exact sites should join to F32Exact"
+    );
+}
+
+#[test]
+fn test_collect_multiple_sites_one_non_exact_joins_to_top() {
+    // Two Construct sites for the same struct type:
+    //   site 1: field 0 = 0.5 (f32-exact)
+    //   site 2: field 0 = 0.1 (NOT f32-exact)
+    // Joined result should be Top.
+    let pool = Pool::default();
+    let plan = ReprPlan::new(NarrowingPolicy::Conservative);
+
+    let struct_idx = Idx::from_raw(Idx::FIRST_DYNAMIC);
+    let body = vec![
+        ArcInstr::Let {
+            dst: ArcVarId::new(0),
+            ty: Idx::FLOAT,
+            value: ArcValue::Literal(LitValue::Float(0.5_f64.to_bits())),
+        },
+        ArcInstr::Construct {
+            dst: ArcVarId::new(1),
+            ty: struct_idx,
+            ctor: CtorKind::Struct(Name::from_raw(100)),
+            args: vec![ArcVarId::new(0)],
+        },
+        ArcInstr::Let {
+            dst: ArcVarId::new(2),
+            ty: Idx::FLOAT,
+            value: ArcValue::Literal(LitValue::Float(0.1_f64.to_bits())),
+        },
+        ArcInstr::Construct {
+            dst: ArcVarId::new(3),
+            ty: struct_idx,
+            ctor: CtorKind::Struct(Name::from_raw(100)),
+            args: vec![ArcVarId::new(2)],
+        },
+    ];
+
+    let var_types = vec![Idx::FLOAT, struct_idx, Idx::FLOAT, struct_idx];
+    let func = make_arc_func(vec![make_block(0, body)], var_types);
+
+    let table = collect_float_field_summaries(&plan, &pool, &[func]);
+
+    assert_eq!(
+        table.get(struct_idx, 0),
+        FloatRange::Top,
+        "one non-f32-exact site should widen to Top"
+    );
+}
+
+#[test]
+fn test_collect_skips_non_struct_ctor_kinds() {
+    // ListLiteral constructor should be skipped by the match in
+    // collect_float_field_summaries (only Struct/Tuple/EnumVariant proceed).
+    let pool = Pool::default();
+    let plan = ReprPlan::new(NarrowingPolicy::Conservative);
+
+    let list_idx = Idx::from_raw(Idx::FIRST_DYNAMIC);
+    let body = vec![
+        ArcInstr::Let {
+            dst: ArcVarId::new(0),
+            ty: Idx::FLOAT,
+            value: ArcValue::Literal(LitValue::Float(0.5_f64.to_bits())),
+        },
+        ArcInstr::Construct {
+            dst: ArcVarId::new(1),
+            ty: list_idx,
+            ctor: CtorKind::ListLiteral,
+            args: vec![ArcVarId::new(0)],
+        },
+    ];
+
+    let var_types = vec![Idx::FLOAT, list_idx];
+    let func = make_arc_func(vec![make_block(0, body)], var_types);
+
+    let table = collect_float_field_summaries(&plan, &pool, &[func]);
+
+    assert_eq!(
+        table.get(list_idx, 0),
+        FloatRange::Bottom,
+        "ListLiteral ctor should be skipped — no observations"
+    );
+}
+
+#[test]
+fn test_collect_enum_variant_ctor() {
+    // EnumVariant constructor should be scanned (same as Struct).
+    let pool = Pool::default();
+    let plan = ReprPlan::new(NarrowingPolicy::Conservative);
+
+    let enum_idx = Idx::from_raw(Idx::FIRST_DYNAMIC);
+    let body = vec![
+        ArcInstr::Let {
+            dst: ArcVarId::new(0),
+            ty: Idx::FLOAT,
+            value: ArcValue::Literal(LitValue::Float(0.5_f64.to_bits())),
+        },
+        ArcInstr::Construct {
+            dst: ArcVarId::new(1),
+            ty: enum_idx,
+            ctor: CtorKind::EnumVariant {
+                enum_name: Name::from_raw(200),
+                variant: 0,
+            },
+            args: vec![ArcVarId::new(0)],
+        },
+    ];
+
+    let var_types = vec![Idx::FLOAT, enum_idx];
+    let func = make_arc_func(vec![make_block(0, body)], var_types);
+
+    let table = collect_float_field_summaries(&plan, &pool, &[func]);
+
+    assert_eq!(
+        table.get(enum_idx, 0),
+        FloatRange::F32Exact,
+        "EnumVariant ctor should scan float fields"
+    );
+}
+
+#[test]
+fn test_collect_tuple_ctor() {
+    // Tuple constructor should be scanned (same as Struct).
+    let pool = Pool::default();
+    let plan = ReprPlan::new(NarrowingPolicy::Conservative);
+
+    let tuple_idx = Idx::from_raw(Idx::FIRST_DYNAMIC);
+    let body = vec![
+        ArcInstr::Let {
+            dst: ArcVarId::new(0),
+            ty: Idx::FLOAT,
+            value: ArcValue::Literal(LitValue::Float(0.5_f64.to_bits())),
+        },
+        ArcInstr::Construct {
+            dst: ArcVarId::new(1),
+            ty: tuple_idx,
+            ctor: CtorKind::Tuple,
+            args: vec![ArcVarId::new(0)],
+        },
+    ];
+
+    let var_types = vec![Idx::FLOAT, tuple_idx];
+    let func = make_arc_func(vec![make_block(0, body)], var_types);
+
+    let table = collect_float_field_summaries(&plan, &pool, &[func]);
+
+    assert_eq!(
+        table.get(tuple_idx, 0),
+        FloatRange::F32Exact,
+        "Tuple ctor should scan float fields"
+    );
+}
+
+#[test]
+fn test_collect_across_multiple_functions() {
+    // Two functions, each constructing the same struct type with different
+    // float values. The table should join across functions.
+    let pool = Pool::default();
+    let plan = ReprPlan::new(NarrowingPolicy::Conservative);
+
+    let struct_idx = Idx::from_raw(Idx::FIRST_DYNAMIC);
+
+    // Function 1: field 0 = 0.5 (f32-exact)
+    let body1 = vec![
+        ArcInstr::Let {
+            dst: ArcVarId::new(0),
+            ty: Idx::FLOAT,
+            value: ArcValue::Literal(LitValue::Float(0.5_f64.to_bits())),
+        },
+        ArcInstr::Construct {
+            dst: ArcVarId::new(1),
+            ty: struct_idx,
+            ctor: CtorKind::Struct(Name::from_raw(100)),
+            args: vec![ArcVarId::new(0)],
+        },
+    ];
+    let func1 = make_arc_func(vec![make_block(0, body1)], vec![Idx::FLOAT, struct_idx]);
+
+    // Function 2: field 0 = 0.1 (NOT f32-exact)
+    let body2 = vec![
+        ArcInstr::Let {
+            dst: ArcVarId::new(0),
+            ty: Idx::FLOAT,
+            value: ArcValue::Literal(LitValue::Float(0.1_f64.to_bits())),
+        },
+        ArcInstr::Construct {
+            dst: ArcVarId::new(1),
+            ty: struct_idx,
+            ctor: CtorKind::Struct(Name::from_raw(100)),
+            args: vec![ArcVarId::new(0)],
+        },
+    ];
+    let func2 = make_arc_func(vec![make_block(0, body2)], vec![Idx::FLOAT, struct_idx]);
+
+    let table = collect_float_field_summaries(&plan, &pool, &[func1, func2]);
+
+    assert_eq!(
+        table.get(struct_idx, 0),
+        FloatRange::Top,
+        "cross-function join: f32-exact + non-exact → Top"
+    );
+}
+
+#[test]
+fn test_collect_across_multiple_blocks() {
+    // Single function with two blocks, each containing a Construct site.
+    let pool = Pool::default();
+    let plan = ReprPlan::new(NarrowingPolicy::Conservative);
+
+    let struct_idx = Idx::from_raw(Idx::FIRST_DYNAMIC);
+
+    let block0 = ArcBlock {
+        id: ArcBlockId::new(0),
+        params: Vec::new(),
+        body: vec![
+            ArcInstr::Let {
+                dst: ArcVarId::new(0),
+                ty: Idx::FLOAT,
+                value: ArcValue::Literal(LitValue::Float(0.5_f64.to_bits())),
+            },
+            ArcInstr::Construct {
+                dst: ArcVarId::new(1),
+                ty: struct_idx,
+                ctor: CtorKind::Struct(Name::from_raw(100)),
+                args: vec![ArcVarId::new(0)],
+            },
+        ],
+        terminator: ArcTerminator::Jump {
+            target: ArcBlockId::new(1),
+            args: Vec::new(),
+        },
+    };
+
+    let block1 = ArcBlock {
+        id: ArcBlockId::new(1),
+        params: Vec::new(),
+        body: vec![
+            ArcInstr::Let {
+                dst: ArcVarId::new(2),
+                ty: Idx::FLOAT,
+                value: ArcValue::Literal(LitValue::Float(1.0_f64.to_bits())),
+            },
+            ArcInstr::Construct {
+                dst: ArcVarId::new(3),
+                ty: struct_idx,
+                ctor: CtorKind::Struct(Name::from_raw(100)),
+                args: vec![ArcVarId::new(2)],
+            },
+        ],
+        terminator: ArcTerminator::Return {
+            value: ArcVarId::new(3),
+        },
+    };
+
+    let var_types = vec![Idx::FLOAT, struct_idx, Idx::FLOAT, struct_idx];
+    let func = make_arc_func(vec![block0, block1], var_types);
+
+    let table = collect_float_field_summaries(&plan, &pool, &[func]);
+
+    assert_eq!(
+        table.get(struct_idx, 0),
+        FloatRange::F32Exact,
+        "two f32-exact sites across blocks should join to F32Exact"
+    );
 }
