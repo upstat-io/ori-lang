@@ -190,9 +190,17 @@ impl<'tcx> super::OwnedLLVMEvaluator<'tcx> {
         for sig in function_sigs {
             if sig.is_public {
                 for &param_ty in &sig.param_types {
-                    mark_nested_collections(self.pool, param_ty, &mut pub_type_indices);
+                    ori_types::walk_collection_types(self.pool, param_ty, &mut |idx| {
+                        if !pub_type_indices.contains(&idx) {
+                            pub_type_indices.push(idx);
+                        }
+                    });
                 }
-                mark_nested_collections(self.pool, sig.return_type, &mut pub_type_indices);
+                ori_types::walk_collection_types(self.pool, sig.return_type, &mut |idx| {
+                    if !pub_type_indices.contains(&idx) {
+                        pub_type_indices.push(idx);
+                    }
+                });
             }
         }
         // Collect unconstrained function names (pub + trait impl) for §03.5.
@@ -426,91 +434,5 @@ impl<'tcx> super::OwnedLLVMEvaluator<'tcx> {
             engine,
             test_wrappers,
         })
-    }
-}
-
-/// Recursively walk a type and mark any collection types found (TPR-04-028/029).
-///
-/// Resolves Named/Applied/Alias via `resolve_fully()` and walks into
-/// Option, Result, Tuple, Map children.
-fn mark_nested_collections(
-    pool: &ori_types::Pool,
-    ty: ori_types::Idx,
-    pub_indices: &mut Vec<ori_types::Idx>,
-) {
-    mark_nested_collections_recursive(pool, ty, pub_indices, 0);
-}
-
-fn mark_nested_collections_recursive(
-    pool: &ori_types::Pool,
-    ty: ori_types::Idx,
-    pub_indices: &mut Vec<ori_types::Idx>,
-    depth: u32,
-) {
-    if depth > 32 {
-        return;
-    }
-    let resolved = pool.resolve_fully(ty);
-    let tag = pool.tag(resolved);
-    match tag {
-        ori_types::Tag::List | ori_types::Tag::Set => {
-            if !pub_indices.contains(&resolved) {
-                pub_indices.push(resolved);
-            }
-            if ty != resolved && !pub_indices.contains(&ty) {
-                pub_indices.push(ty);
-            }
-        }
-        ori_types::Tag::Option => {
-            mark_nested_collections_recursive(
-                pool,
-                pool.option_inner(resolved),
-                pub_indices,
-                depth + 1,
-            );
-        }
-        ori_types::Tag::Result => {
-            mark_nested_collections_recursive(
-                pool,
-                pool.result_ok(resolved),
-                pub_indices,
-                depth + 1,
-            );
-            mark_nested_collections_recursive(
-                pool,
-                pool.result_err(resolved),
-                pub_indices,
-                depth + 1,
-            );
-        }
-        ori_types::Tag::Tuple => {
-            for elem in pool.tuple_elems(resolved) {
-                mark_nested_collections_recursive(pool, elem, pub_indices, depth + 1);
-            }
-        }
-        ori_types::Tag::Map => {
-            mark_nested_collections_recursive(pool, pool.map_key(resolved), pub_indices, depth + 1);
-            mark_nested_collections_recursive(
-                pool,
-                pool.map_value(resolved),
-                pub_indices,
-                depth + 1,
-            );
-        }
-        // TPR-04-031: Walk struct fields to find nested collections.
-        ori_types::Tag::Struct => {
-            for (_name, field_ty) in pool.struct_fields(resolved) {
-                mark_nested_collections_recursive(pool, field_ty, pub_indices, depth + 1);
-            }
-        }
-        // TPR-04-031: Walk enum variant payloads to find nested collections.
-        ori_types::Tag::Enum => {
-            for (_name, field_types) in pool.enum_variants(resolved) {
-                for field_ty in field_types {
-                    mark_nested_collections_recursive(pool, field_ty, pub_indices, depth + 1);
-                }
-            }
-        }
-        _ => {}
     }
 }

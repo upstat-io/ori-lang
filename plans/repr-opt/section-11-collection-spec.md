@@ -209,6 +209,13 @@ When §04 narrows an element type (e.g., `int` → `i8`), the collection's backi
   - `{int: str}` where keys are 0..100 → i8 key array
   - Requires hash function to work on narrow type (hash the canonical value)
 
+- [ ] Per-construction-site collection element narrowing (TPR-04-036 follow-up):
+  - Current §04 Phase C narrows per-type (one `List<int>` Idx shared across all uses)
+  - A single public `[int]` signature in the module suppresses ALL `[int]` narrowing (conservative)
+  - Fix: track public/private surface provenance per literal construction site, not per interned type Idx
+  - Requires construction-site-tagged element range summaries (not just per-type FieldSummaryTable)
+  - Test: imported public `[int]` coexists with private `[int]` that should still narrow
+
 ---
 
 ## 11.5 Completion Checklist
