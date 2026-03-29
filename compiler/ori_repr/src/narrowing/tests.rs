@@ -1714,3 +1714,57 @@ fn phase_c_i32_boundary_narrows_correctly() {
         "range [-100000, 100000] should narrow to i32"
     );
 }
+
+/// Negative pin: `Set<int>` is excluded from Phase C narrowing because
+/// eq/hash thunks always load canonical-width (i64) values from element
+/// pointers. Narrowing set elements would cause the thunks to read past
+/// the narrowed slot.
+#[test]
+fn phase_c_set_int_not_narrowed() {
+    let mut pool = Pool::default();
+    let set_int = pool.set(Idx::INT);
+
+    let mut plan = ReprPlan::new(NarrowingPolicy::Aggressive);
+    setup_list_collection(&mut plan, set_int); // same repr shape as list
+
+    // Even with a tight range that would normally narrow to i8...
+    plan.join_element_range(set_int, ValueRange::Bounded { lo: 0, hi: 10 });
+
+    narrow_collection_elements(&mut plan, &pool);
+
+    // ...Set<int> stays at canonical i64 (not narrowed).
+    assert_eq!(
+        collection_element_width(&plan, set_int),
+        Some(IntWidth::I64),
+        "Set<int> must NOT be narrowed — eq/hash thunks are not narrowing-aware"
+    );
+}
+
+/// When both `[int]` and `Set<int>` have element ranges, only the list
+/// is narrowed. The set stays canonical.
+#[test]
+fn phase_c_list_narrowed_but_set_stays_canonical() {
+    let mut pool = Pool::default();
+    let list_int = pool.list(Idx::INT);
+    let set_int = pool.set(Idx::INT);
+
+    let mut plan = ReprPlan::new(NarrowingPolicy::Aggressive);
+    setup_list_collection(&mut plan, list_int);
+    setup_list_collection(&mut plan, set_int);
+
+    plan.join_element_range(list_int, ValueRange::Bounded { lo: 0, hi: 100 });
+    plan.join_element_range(set_int, ValueRange::Bounded { lo: 0, hi: 100 });
+
+    narrow_collection_elements(&mut plan, &pool);
+
+    assert_eq!(
+        collection_element_width(&plan, list_int),
+        Some(IntWidth::I8),
+        "List<int> with range [0, 100] should narrow to i8"
+    );
+    assert_eq!(
+        collection_element_width(&plan, set_int),
+        Some(IntWidth::I64),
+        "Set<int> must stay at canonical i64 even with same tight range"
+    );
+}
