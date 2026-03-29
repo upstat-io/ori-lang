@@ -223,7 +223,7 @@ pub fn compute_repr_plan_with_interner(
     // Phase 3: Range analysis (§03) → Integer narrowing (§04) → Float narrowing (§05)
     analyze_ranges(&mut plan, pool, arc_functions, interner);
     apply_integer_narrowing(&mut plan, pool);
-    apply_float_narrowing(&mut plan, pool);
+    apply_float_narrowing(&mut plan, pool, arc_functions);
 
     // Phase 4: Struct layout (§06), Enum repr (§07)
     compute_struct_layouts(&mut plan, pool);
@@ -493,7 +493,7 @@ fn apply_integer_narrowing(plan: &mut ReprPlan, pool: &Pool) {
     // struct layouts, trunc/sext, phi nodes, and collection GEP strides.
     // Range analysis (§03) is always safe — it only populates
     // function_var_ranges, field_range_summaries, and element_range_summaries.
-    if !plan.is_integer_narrowing_safe_for_codegen() {
+    if !plan.is_narrowing_safe_for_codegen() {
         return;
     }
     narrowing::int::narrow_struct_fields(plan, pool);
@@ -501,7 +501,19 @@ fn apply_integer_narrowing(plan: &mut ReprPlan, pool: &Pool) {
 }
 
 /// §05: Float narrowing (f64 → f32 when precision is exact).
-fn apply_float_narrowing(_plan: &mut ReprPlan, _pool: &Pool) {}
+///
+/// Phase A: Storage-only narrowing — struct fields where ALL observed
+/// values are f32-exact literals. Arithmetic results are never narrowed.
+fn apply_float_narrowing(plan: &mut ReprPlan, pool: &Pool, arc_functions: &[ArcFunction]) {
+    if plan.narrowing_policy() == plan::NarrowingPolicy::Disabled {
+        return;
+    }
+    if !plan.is_narrowing_safe_for_codegen() {
+        return;
+    }
+    let float_table = narrowing::float::collect_float_field_summaries(plan, pool, arc_functions);
+    narrowing::float::narrow_float_fields(plan, pool, &float_table);
+}
 
 /// §06: Struct and tuple field reordering for padding minimization.
 fn compute_struct_layouts(_plan: &mut ReprPlan, _pool: &Pool) {}

@@ -148,6 +148,59 @@ impl IrBuilder<'_, '_> {
         self.arena.push_value(result.into())
     }
 
+    /// Extend a float value to f64 if it is narrower (f32). Returns the
+    /// value unchanged if it is already f64 or if it is not a float.
+    /// Used by derive hash codegen to normalize narrowed struct fields
+    /// (f32 from §05 float narrowing) back to canonical width.
+    pub fn fpext_to_f64_if_narrower(&mut self, val: ValueId, name: &str) -> ValueId {
+        let v = self.arena.get_value(val);
+        if !v.is_float_value() {
+            return val;
+        }
+        let fv = v.into_float_value();
+        let f64_ty = self.scx.type_f64();
+        if fv.get_type() == f64_ty {
+            return val;
+        }
+        let result = self
+            .builder
+            .build_float_ext(fv, f64_ty, &format!("{name}.fpext"))
+            .expect("fpext_to_f64");
+        self.arena.push_value(result.into())
+    }
+
+    /// Build float truncation (e.g., f64 → f32).
+    pub fn float_trunc(&mut self, val: ValueId, ty: LLVMTypeId, name: &str) -> ValueId {
+        let v = self.arena.get_value(val);
+        let target = self.arena.get_type(ty).into_float_type();
+        if !v.is_float_value() {
+            tracing::error!(val_type = ?v.get_type(), "float_trunc on non-float operand");
+            self.record_codegen_error();
+            return self.const_f64(0.0);
+        }
+        let result = self
+            .builder
+            .build_float_trunc(v.into_float_value(), target, name)
+            .expect("float_trunc");
+        self.arena.push_value(result.into())
+    }
+
+    /// Build float extension (e.g., f32 → f64).
+    pub fn float_ext(&mut self, val: ValueId, ty: LLVMTypeId, name: &str) -> ValueId {
+        let v = self.arena.get_value(val);
+        let target = self.arena.get_type(ty).into_float_type();
+        if !v.is_float_value() {
+            tracing::error!(val_type = ?v.get_type(), "float_ext on non-float operand");
+            self.record_codegen_error();
+            return self.const_f64(0.0);
+        }
+        let result = self
+            .builder
+            .build_float_ext(v.into_float_value(), target, name)
+            .expect("float_ext");
+        self.arena.push_value(result.into())
+    }
+
     /// Build pointer-to-integer conversion.
     pub fn ptr_to_int(&mut self, ptr: ValueId, ty: LLVMTypeId, name: &str) -> ValueId {
         let p = self.arena.get_value(ptr);
