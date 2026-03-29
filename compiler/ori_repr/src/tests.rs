@@ -3752,3 +3752,75 @@ fn imported_collection_surfaces_multiple_hashes() {
         "Set<int> should be marked public from imported surface"
     );
 }
+
+/// Documents the per-Idx precision limitation: an imported public `[int]`
+/// suppresses element narrowing for ALL `[int]` usage in the importing module,
+/// including private local uses that could theoretically narrow. This is because
+/// `Pool` deduplicates `List<int>` to a single `Idx`, and `pub_type_indices`
+/// operates at per-Idx granularity. The same limitation exists for same-module
+/// public functions — `collect_public_collection_types()` marks the same shared
+/// Idx.
+///
+/// The fix requires per-construction-site narrowing (planned in §11.4), which
+/// tracks public/private surface provenance per literal site rather than per
+/// interned type Idx.
+///
+/// Regression: TPR-04-042
+#[test]
+fn imported_collection_surface_per_idx_precision_limitation() {
+    let mut pool = Pool::new();
+
+    // One `[int]` Idx — shared by both imported public API and private local usage.
+    // In a real program, both `pub @api() -> [int]` and `let $xs = [1, 2, 3]`
+    // use the same pool Idx for List<int>.
+    let list_int = pool.list(Idx::INT);
+    let list_hash = pool.hash(list_int);
+
+    // Plan WITH imported surface: simulates a module importing a public [int] API.
+    let plan_with_import = crate::compute_repr_plan_with_interner(
+        &pool,
+        &[],
+        NarrowingPolicy::Aggressive,
+        &[],
+        None,
+        &[], // No local pub types
+        &[],
+        &[list_hash], // Imported public [int] surface
+        &[],
+        false,
+    );
+
+    // Plan WITHOUT imported surface: private-only usage.
+    let plan_without_import = crate::compute_repr_plan_with_interner(
+        &pool,
+        &[],
+        NarrowingPolicy::Aggressive,
+        &[],
+        None,
+        &[],
+        &[],
+        &[], // No imported surfaces
+        &[],
+        false,
+    );
+
+    // With import: the shared Idx is marked public — ALL [int] usage (including
+    // private) gets narrowing suppressed.
+    assert!(
+        plan_with_import.is_public_type(list_int),
+        "Imported surface marks the shared [int] Idx as public (per-Idx granularity)"
+    );
+
+    // Without import: the same Idx is NOT marked public — private [int] can narrow.
+    assert!(
+        !plan_without_import.is_public_type(list_int),
+        "Without imports, private [int] is not marked public"
+    );
+
+    // This proves the limitation: there is no way to distinguish imported-public
+    // [int] from private-local [int] at the per-Idx level. A module that imports
+    // `pub @api() -> [int]` from another module will have ALL its local [int]
+    // usage marked public, preventing element narrowing even for `let $xs = [1, 2]`
+    // where all elements fit in i8. Per-construction-site narrowing (§11.4) will
+    // resolve this by tracking provenance per literal site, not per interned Idx.
+}
