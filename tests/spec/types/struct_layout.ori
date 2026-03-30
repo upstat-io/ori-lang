@@ -212,19 +212,22 @@ type PaddedEnum = A(flag: bool, count: int, active: bool, label: str) | B;
 // Regression: TPR-06-013 — Option/Result fields in structs must include
 // trailing alignment padding. Without it, for-yield element buffers are
 // undersized, causing memory corruption for nested tagged unions.
-type OptRecord = { left: Option<int>, active: bool }
+// Uses Option<bool> (not Option<int>) because Option<int> is 16 bytes
+// naturally (8+8), masking the bug. Option<bool> is 9 bytes without
+// trailing padding vs 16 with it — the actual regression surface.
+type OptRecord = { left: Option<bool>, active: bool }
 
 @test_for_yield_option_field tests @make_record () -> void = {
     let items = [
-        OptRecord { left: Some(1), active: true },
+        OptRecord { left: Some(true), active: true },
         OptRecord { left: None, active: false },
-        OptRecord { left: Some(42), active: true },
+        OptRecord { left: Some(false), active: true },
     ];
     let collected = for item in items yield item;
     assert_eq(actual: collected.length(), expected: 3);
     assert_eq(actual: collected[0].active, expected: true);
     match collected[0].left {
-        Some(v) -> assert_eq(actual: v, expected: 1),
+        Some(v) -> assert_eq(actual: v, expected: true),
         None -> panic(msg: "expected Some at [0]"),
     };
     assert_eq(actual: collected[1].active, expected: false);
@@ -234,7 +237,7 @@ type OptRecord = { left: Option<int>, active: bool }
     };
     assert_eq(actual: collected[2].active, expected: true);
     match collected[2].left {
-        Some(v) -> assert_eq(actual: v, expected: 42),
+        Some(v) -> assert_eq(actual: v, expected: false),
         None -> panic(msg: "expected Some at [2]"),
     }
 }
