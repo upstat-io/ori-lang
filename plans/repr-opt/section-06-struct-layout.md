@@ -27,7 +27,10 @@ sections:
     status: complete
   - id: "06.5"
     title: "Completion Checklist"
-    status: not-started
+    status: in-progress
+third_party_review:
+  status: none
+  updated: null
 ---
 
 # Section 06: Struct & Tuple Layout Optimization
