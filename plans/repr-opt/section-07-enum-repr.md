@@ -173,8 +173,8 @@ The discriminant (tag) should use the minimum width needed.
   ```
 
 - [x] Tag narrowed from i64 to i8 for USER-DEFINED enums with ≤256 variants via `resolve_enum()`. (2026-03-30)
-- [ ] **Option/Result tag narrowing** — Option/Result keep i64 tags in `TypeInfo::Option/Result` layout_resolver path for `ori_rt` runtime compatibility. Runtime functions (`ori_list_first`, `ori_map_get`, `ori_iter_find`, etc.) write `{i64 tag, T payload}` to sret pointers. Narrowing requires: (1) update `ori_rt` C functions to write i8 tags, (2) update layout_resolver Option/Result paths, (3) update inline Option struct constructors in `list_builtins/helpers.rs`, `map_builtins.rs`, `iterator_consumers.rs`. <!-- blocked-by:ori_rt update -->
-- [ ] For single-variant enums (newtypes), eliminate tag entirely (`EnumTag::None`) — deferred to §07.2 integration
+- [ ] **Option/Result tag narrowing** — Option/Result keep i64 tags for `ori_rt` runtime compatibility. <!-- blocked-by:07.5 "ori_rt Option/Result tag narrowing" item -->
+- [ ] For single-variant enums (newtypes), eliminate tag entirely (`EnumTag::None`) <!-- blocked-by:07.2 "Single-variant enum (newtype) erasure" item — same codegen path as niche (tagless layout) -->
 - [x] Added `min_tag_width()` to `compiler/ori_repr/src/enum_repr.rs` with 7 boundary-value unit tests. (2026-03-30)
 - [x] `TagEncoding` abstraction implemented in `tag_access/mod.rs` (§07.0). Consumer migration used `const_int_matching` + `struct_field_type` + `const_int_for_struct_field` helpers instead of full TagAccess LLVM emission — simpler and equally correct. (2026-03-30)
 - [x] All 16 codegen consumers migrated from hardcoded `const_i64`/`type_i64` to narrowed tag types. Changes across 15 files: `construction.rs`, `instr_dispatch.rs`, `drop_enum.rs`, `rc_helpers.rs`, `variant_construction.rs`, `option_result.rs`, `compound_type_impls.rs`, `iterator_consumers.rs`, `list_builtins.rs`, `operators/strategy.rs`, `enum_eq.rs`, `enum_comparable.rs`, `enum_hashable.rs`, `abi/mod.rs`, `layout_resolver.rs`. Key helpers added: `IrBuilder::struct_field_type()`, `IrBuilder::const_int_for_struct_field()`, `IrBuilder::const_i16()`, `IrBuilder::i16_type()`. (2026-03-30)
@@ -319,7 +319,8 @@ A "niche" is an invalid bit pattern in a type. If an enum variant's payload has 
   - If both have niches, prefer the one that eliminates more padding
   - Update `canonical_result()` in `compiler/ori_repr/src/canonical/type_repr.rs` to call this optimization after constructing the default repr
 
-- [ ] Update `resolve_enum()` in `compiler/ori_llvm/src/codegen/type_info/layout_resolver.rs` to handle `EnumTag::Niche` — niche-encoded enums have NO tag field; the LLVM struct is just the payload type (e.g., `Option<bool>` = `i8`, `Option<str>` = `%ori.str`). The current `{ tag, [M x i64] }` layout is only for `EnumTag::Explicit`. Must branch on `EnumRepr.tag` variant.
+- [ ] Update `resolve_enum()` in `compiler/ori_llvm/src/codegen/type_info/layout_resolver.rs` to handle `EnumTag::Niche` AND `EnumTag::None` — both produce enums with NO explicit tag field; the LLVM struct is just the payload type. The current `{ tag, [M x i64] }` layout is only for `EnumTag::Explicit`. Must branch on `EnumRepr.tag` variant. <!-- unblocks:07.1 EnumTag::None for newtypes -->
+- [ ] **Single-variant enum (newtype) erasure**: in `canonical_enum()`, when `variants.len() == 1`, emit `EnumTag::None` instead of `EnumTag::Explicit { I8 }`. The enum's LLVM layout becomes just the payload (no tag field). All 16 codegen consumers must handle `EnumTag::None` — `TagEncoding` already does (tested in §07.0). This is the same codegen path as niche-encoded enums (tagless layout). <!-- blocked from 07.1, anchored here -->
 - [ ] Pattern matching codegen for niche-encoded variants:
   - `TagAccess::emit_switch()` for niche-encoded enums must: (1) load the niche field, (2) compare against the niche value, (3) branch to the niche variant if equal, (4) otherwise fall through to the data variant
   - For `Option<bool>` with niche repr: load i8, compare against 2 → None branch; values 0/1 → `Some(false)`/`Some(true)` (switch on the same loaded value)
@@ -585,6 +586,7 @@ These test enum representations interacting with other language features. Each m
 
 **Final checkboxes (all phases):**
 
+- [ ] **`ori_rt` Option/Result tag narrowing**: Update runtime C functions (`ori_list_first`, `ori_list_last`, `ori_map_get`, `ori_iter_find`, and any other functions that write `{i64 tag, T payload}` to sret pointers) to write i8 tags instead of i64. Then update `TypeInfo::Option/Result` paths in `layout_resolver.rs` and inline Option struct constructors in `list_builtins/helpers.rs`, `map_builtins.rs`, `iterator_consumers.rs` to use `type_i8()`. <!-- unblocks:07.1 Option/Result tag narrowing -->
 - [ ] Add semantic pin test: `Option<bool>` LLVM type is `i8` (not `{ i64, i1 }`), with `None` encoded as integer 2. This test can ONLY pass with niche optimization enabled.
 - [ ] Add negative pin test: verify `Option<[int]>` does NOT use niche optimization (empty list = null data ptr)
 - [ ] Add negative pin test: verify `Option<int>` does NOT use niche optimization (all i64 values valid)
