@@ -271,13 +271,23 @@ impl<'a, 'll, 'tcx> TypeLayoutResolver<'a, 'll, 'tcx> {
         self.resolving.borrow_mut().insert(idx);
 
         // §06: if the struct is reordered, build LLVM type in memory order.
+        // Match fields by NAME (not original_index) to handle Pool entries
+        // where struct_fields() returns fields in a different order than
+        // the canonical entry that was optimized.
         let field_types: Vec<BasicTypeEnum<'ll>> = if let Some(ori_repr::MachineRepr::Struct(s)) =
             self.repr_plan.and_then(|p| p.get_repr(idx))
         {
             if s.is_reordered() {
                 s.fields
                     .iter()
-                    .map(|f| self.resolve(fields[f.original_index as usize].1))
+                    .map(|f| {
+                        // Match by field name for robustness across Pool entries.
+                        let ty = fields
+                            .iter()
+                            .find(|(n, _)| *n == f.name)
+                            .map_or(fields[f.original_index as usize].1, |(_, ty)| *ty);
+                        self.resolve(ty)
+                    })
                     .collect()
             } else {
                 fields.iter().map(|&(_, ty)| self.resolve(ty)).collect()
