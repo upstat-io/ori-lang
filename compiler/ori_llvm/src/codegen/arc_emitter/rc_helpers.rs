@@ -239,11 +239,15 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let alloca = self.builder.alloca(enum_llvm_ty, "rc_inc.enum");
         self.builder.store(val, alloca);
 
-        let i64_ty = self.builder.i64_type();
+        // Load tag (narrowed type at field 0 — §07.1)
+        let tag_ty = self
+            .builder
+            .struct_field_type(enum_llvm_ty, 0)
+            .unwrap_or_else(|| self.builder.i64_type());
         let tag_ptr = self
             .builder
             .struct_gep(enum_llvm_ty, alloca, 0, "rc_inc.tag.ptr");
-        let tag_val = self.builder.load(i64_ty, tag_ptr, "rc_inc.tag");
+        let tag_val = self.builder.load(tag_ty, tag_ptr, "rc_inc.tag");
 
         let done_block = self
             .builder
@@ -268,7 +272,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             let block = self
                 .builder
                 .append_block(self.current_function, &format!("rc_inc.v{i}"));
-            let tag_const = self.builder.const_i64(i as i64);
+            let tag_const = self.builder.const_int_matching(tag_val, i as u64);
             cases.push((tag_const, block, fields.as_slice(), i));
         }
 
@@ -356,12 +360,15 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let alloca = self.builder.alloca(enum_llvm_ty, "rc_dec.enum");
         self.builder.store(val, alloca);
 
-        // Load tag (i64 at field 0)
-        let i64_ty = self.builder.i64_type();
+        // Load tag (narrowed type at field 0 — §07.1)
+        let tag_ty = self
+            .builder
+            .struct_field_type(enum_llvm_ty, 0)
+            .unwrap_or_else(|| self.builder.i64_type());
         let tag_ptr = self
             .builder
             .struct_gep(enum_llvm_ty, alloca, 0, "rc_dec.tag.ptr");
-        let tag_val = self.builder.load(i64_ty, tag_ptr, "rc_dec.tag");
+        let tag_val = self.builder.load(tag_ty, tag_ptr, "rc_dec.tag");
 
         // Convergence block
         let done_block = self
@@ -388,7 +395,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             let block = self
                 .builder
                 .append_block(self.current_function, &format!("rc_dec.v{i}"));
-            let tag_const = self.builder.const_i64(i as i64);
+            let tag_const = self.builder.const_int_matching(tag_val, i as u64);
             cases.push((tag_const, block, fields.as_slice(), i));
         }
 

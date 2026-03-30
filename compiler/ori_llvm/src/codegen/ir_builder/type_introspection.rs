@@ -105,6 +105,45 @@ impl IrBuilder<'_, '_> {
         )
     }
 
+    /// Get the LLVM type of a struct's field at the given index.
+    ///
+    /// Returns `None` if the type is not a struct or the field index is
+    /// out of bounds. Used by enum tag access to determine the tag's LLVM
+    /// type (i8/i16/i32/i64) after discriminant narrowing (§07.1).
+    pub fn struct_field_type(&mut self, ty: LLVMTypeId, field_index: u32) -> Option<LLVMTypeId> {
+        let llvm_ty = self.arena.get_type(ty);
+        let BasicTypeEnum::StructType(st) = llvm_ty else {
+            return None;
+        };
+        let field_ty = st.get_field_type_at_index(field_index)?;
+        Some(self.arena.push_type(field_ty))
+    }
+
+    /// Create an integer constant whose type matches a struct's field at
+    /// `field_index`. Used to build tag constants that match the narrowed
+    /// tag type (i8/i16/i32/i64) of enum structs (§07.1).
+    ///
+    /// Falls back to `const_i64` if the struct type or field is unavailable.
+    pub fn const_int_for_struct_field(
+        &mut self,
+        struct_ty: LLVMTypeId,
+        field_index: u32,
+        val: u64,
+    ) -> ValueId {
+        let llvm_ty = self.arena.get_type(struct_ty);
+        let BasicTypeEnum::StructType(st) = llvm_ty else {
+            return self.const_i64(val as i64);
+        };
+        let Some(field_ty) = st.get_field_type_at_index(field_index) else {
+            return self.const_i64(val as i64);
+        };
+        let BasicTypeEnum::IntType(int_ty) = field_ty else {
+            return self.const_i64(val as i64);
+        };
+        let v = int_ty.const_int(val, false);
+        self.arena.push_value(v.into())
+    }
+
     /// Check if a value's LLVM type matches a struct field's type at the given index.
     ///
     /// Used by variant construction to determine if `insertvalue` is type-safe

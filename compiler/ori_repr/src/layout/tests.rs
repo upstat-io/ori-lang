@@ -755,3 +755,45 @@ fn test_three_element_tuple_memory_index_remapping() {
     // .2 (bool) → memory position 2
     assert_eq!(result.memory_index(2), Some(2));
 }
+
+// -- min_tag_width tests (§07.1) --
+
+use crate::enum_repr::min_tag_width;
+
+#[test]
+fn min_tag_width_zero_variants() {
+    assert_eq!(min_tag_width(0), IntWidth::I8);
+}
+
+#[test]
+fn min_tag_width_single_variant() {
+    assert_eq!(min_tag_width(1), IntWidth::I8);
+}
+
+#[test]
+fn min_tag_width_two_variants() {
+    assert_eq!(min_tag_width(2), IntWidth::I8);
+}
+
+#[test]
+fn min_tag_width_256_variants() {
+    // 256 = 2^8, fits in u8 (values 0..255)
+    assert_eq!(min_tag_width(256), IntWidth::I8);
+}
+
+#[test]
+fn min_tag_width_257_variants_needs_i16() {
+    // 257 > 256 → needs i16
+    assert_eq!(min_tag_width(257), IntWidth::I16);
+}
+
+#[test]
+fn min_tag_width_65536_variants() {
+    // 65536 = 2^16, fits in u16
+    assert_eq!(min_tag_width(65536), IntWidth::I16);
+}
+
+#[test]
+fn min_tag_width_65537_variants_needs_i32() {
+    assert_eq!(min_tag_width(65537), IntWidth::I32);
+}

@@ -103,6 +103,7 @@ fn emit_enum_payload_cmp<'a>(
         fc.builder_mut()
             .struct_gep(enum_ty_id, other_alloca, 1, "cmp.other.payload");
 
+    // Build switch cases — use const_int_matching for narrowed tag (§07.1).
     let mut cases = Vec::with_capacity(variants.len());
     let mut variant_bbs = Vec::with_capacity(variants.len());
     for (tag_idx, variant) in variants.iter().enumerate() {
@@ -110,7 +111,9 @@ fn emit_enum_payload_cmp<'a>(
         let bb = fc
             .builder_mut()
             .append_block(func_id, &format!("cmp.v.{variant_name}"));
-        let tag_val = fc.builder_mut().const_i64(tag_idx as i64);
+        let tag_val = fc
+            .builder_mut()
+            .const_int_matching(tag_self, tag_idx as u64);
         cases.push((tag_val, bb));
         variant_bbs.push(bb);
     }
