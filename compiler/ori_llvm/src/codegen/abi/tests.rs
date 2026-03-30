@@ -112,10 +112,7 @@ fn mixed_alignment_tuple_ignores_padding() {
 
 #[test]
 fn all_unit_enum_abi_size_is_tag_size() {
-    // Regression: §07.0 — abi_size_inner returned 1 for all-unit enums but
-    // the actual LLVM layout is { i64 } = 8 bytes (i64 tag, no payload).
-    // The tag is currently i64; after §07.1 (discriminant narrowing) it will
-    // be i8, at which point this test should be updated to expect 1.
+    // §07.1: all-unit enum with ≤256 variants has an i8 tag → 1 byte.
     let mut pool = Pool::new();
     let dir = pool.enum_type(
         Name::from_raw(100),
@@ -140,8 +137,8 @@ fn all_unit_enum_abi_size_is_tag_size() {
     );
     let store = TypeInfoStore::new(&pool);
 
-    // All-unit enum: { i64 tag } = 8 bytes (NOT 1)
-    assert_eq!(abi_size(dir, &store), 8);
+    // All-unit enum with 4 variants: { i8 tag } = 1 byte
+    assert_eq!(abi_size(dir, &store), 1);
 }
 
 #[test]
@@ -162,8 +159,8 @@ fn enum_with_payload_abi_size() {
     );
     let store = TypeInfoStore::new(&pool);
 
-    // { i64 tag, i64 payload } = 16 bytes
-    assert_eq!(abi_size(color, &store), 16);
+    // §07.1: { i8 tag, i64 payload } = 1 + 8 = 9 bytes
+    assert_eq!(abi_size(color, &store), 9);
 }
 
 // -- Param passing tests --

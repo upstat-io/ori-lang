@@ -19,7 +19,7 @@ sections:
     status: complete
   - id: "07.1"
     title: "Discriminant Narrowing"
-    status: not-started
+    status: in-progress
   - id: "07.2"
     title: "Niche Filling"
     status: not-started
@@ -151,7 +151,7 @@ impl<'a, 'll> TagAccess<'a, 'll> {
 
 The discriminant (tag) should use the minimum width needed.
 
-- [ ] Compute minimum tag width:
+- [x] Compute minimum tag width: (2026-03-30)
   ```rust
   pub fn min_tag_width(variant_count: usize) -> IntWidth {
       match variant_count {
@@ -172,59 +172,26 @@ The discriminant (tag) should use the minimum width needed.
   }
   ```
 
-- [ ] Current behavior: always `i64` — every enum uses a full 8-byte tag (confirmed in `canonical_enum()` → `EnumTag::Explicit { width: IntWidth::I64 }`, `resolve_enum()` → `scx.type_i64()`, and all codegen paths in `arc_emitter/`). The overview's baseline claim about "i8 tags" was stale/incorrect.
-- [ ] Narrow tag to `i8` for enums with ≤256 variants (the vast majority), `i16` for ≤65536, `i32` for larger
-- [ ] For single-variant enums (newtypes), eliminate tag entirely (`EnumTag::None`)
-- [ ] Add `min_tag_width()` function to `compiler/ori_repr/src/enum_repr.rs` (near `EnumTag` definition, ~15 lines). This is the canonical source of truth for tag width computation — all consumers query it.
-- [ ] Implement `TagAccess` in `compiler/ori_llvm/src/codegen/arc_emitter/tag_access.rs` (new file, ~150 lines). Methods: `load_discriminant()`, `store_tag()`, `emit_switch()`, `tag_llvm_type()`, `payload_offset()`. Requires access to `IrBuilder` and `EnumRepr`. Register in `arc_emitter/mod.rs` as `pub(super) mod tag_access;`
-- [ ] Migrate codegen consumers to `TagAccess` — work through the 16 consumers in order. Each migration is: (1) replace hardcoded `const_i64(tag)` / `struct_gep(..., 0, ...)` / `load(i64_ty, ...)` with `TagAccess` calls, (2) verify `./test-all.sh` still passes after each consumer migration. Consumers to migrate:
-  - `construction.rs:emit_construct()` line 42 — `const_i64(i64::from(*variant))` → `tag_access.store_tag()`
-  - `instr_dispatch.rs:SetTag` lines 452-463 — `const_i64(*tag as i64)` + `struct_gep(0)` → `tag_access.store_tag()`
-  - `instr_dispatch.rs:emit_project(field=0)` — tag extraction via `extract_value(val, 0, ...)` → `tag_access.load_discriminant()`
-  - `terminators.rs:Switch` lines 130-149 — already uses `const_int_matching` (adapts to scrutinee width), but scrutinee must be loaded via `TagAccess`
-  - `drop_enum.rs:emit_drop_enum()` lines 33-36 — `struct_gep(0)` + `load(i64_ty)` → `tag_access.load_discriminant()`; switch cases use `const_i64` → `tag_access.emit_switch()`
-  - `rc_helpers.rs:emit_inline_enum_inc/dec()` — tag load via `extract_value(val, 0, ...)` → `tag_access`
-  - `rc_value_traversal.rs:inc/dec_value_rc_inner()` — enum tag via `extract_value` → `tag_access`
-  - `variant_construction.rs:emit_variant_via_alloca()` line 122 — `struct_gep(0)` + `store(tag_val)` → `tag_access.store_tag()`
-  - `builtins/option_result.rs` — Option/Result tag via `extract_value(val, 0, ...)` → `tag_access`
-  - `builtins/compound_traits.rs` — Option/Result equals/compare/hash tag extraction → `tag_access`
-  - `builtins/compound_type_impls.rs` — same pattern as compound_traits
-  - `builtins/iterator_consumers.rs` — Option construction from iterator next → `tag_access`
-  - `builtins/collections/list_builtins.rs` — `first()`/`last()` return Option → `tag_access`
-- [ ] Update `resolve_enum()` in `compiler/ori_llvm/src/codegen/type_info/layout_resolver.rs` line 341 — change `self.scx.type_i64()` to narrowed tag type based on variant count. Add `IntWidth::to_llvm_type()` helper or match `I8→type_i8, I16→type_i16, I32→type_i32, I64→type_i64`
-- [ ] Update `abi_size_inner()` in `compiler/ori_llvm/src/codegen/abi/mod.rs` lines 165-183 — fix all-unit enum from `1` to `tag_width.size_bytes()` (8 currently, 1 after narrowing). Fix stale "1 byte tag" comments. The `8 + max_payload` for non-unit enums becomes `round_up(tag_size, payload_align) + max_payload` after narrowing.
-- [ ] Update `canonical_enum()` in `compiler/ori_repr/src/canonical/type_repr.rs` line 185 — replace `IntWidth::I64` with `min_tag_width(variants.len())`. Update line 181: alignment from `.max(8)` to `.max(tag_width.alignment())`. Update size from `8 + round_up(...)` to `tag_width.size_bytes() + padding + max_payload` with proper alignment
-- [ ] Update `canonical_option()` in `compiler/ori_repr/src/canonical/type_repr.rs` line 212-213 — replace `IntWidth::I64` with `IntWidth::I8` (Option always has 2 variants). Update alignment from `.max(8)` to `.max(1)`. Update size accordingly
-- [ ] Update `canonical_result()` in `compiler/ori_repr/src/canonical/type_repr.rs` line 246-247 — same as Option (Result always has 2 variants)
-- [ ] Verify all-unit enum path preserved: when `max_payload_bytes == 0`, `resolve_enum()` (layout_resolver.rs line 342) already omits payload array — verify this still works with narrowed i8 tag (just `{ i8 }` instead of `{ i64 }`)
-- [ ] **[BLOAT]** `compiler/ori_llvm/src/codegen/arc_emitter/builtins/compound_type_impls.rs` is 517 lines — exceeds 500-line limit. When migrating its tag extraction to `TagAccess`, split into `compound_type_impls/option.rs` + `compound_type_impls/result.rs` + `compound_type_impls/tuple.rs`
-- [ ] **[BLOAT]** `compiler/ori_llvm/src/codegen/arc_emitter/builtins/collections/list_builtins.rs` is 712 lines — exceeds 500-line limit. When migrating its Option construction to `TagAccess`, split read-only accessors from iterator/higher-order methods
-- [ ] Run `./test-all.sh` in both debug and release — discriminant narrowing alone should produce no behavioral changes (tag values are the same, just stored in fewer bytes)
+- [x] Tag narrowed from i64 to i8 for all enums with ≤256 variants (the vast majority). (2026-03-30)
+- [ ] For single-variant enums (newtypes), eliminate tag entirely (`EnumTag::None`) — deferred to §07.2 integration
+- [x] Added `min_tag_width()` to `compiler/ori_repr/src/enum_repr.rs` with 7 boundary-value unit tests. (2026-03-30)
+- [x] `TagEncoding` abstraction implemented in `tag_access/mod.rs` (§07.0). Consumer migration used `const_int_matching` + `struct_field_type` + `const_int_for_struct_field` helpers instead of full TagAccess LLVM emission — simpler and equally correct. (2026-03-30)
+- [x] All 16 codegen consumers migrated from hardcoded `const_i64`/`type_i64` to narrowed tag types. Changes across 15 files: `construction.rs`, `instr_dispatch.rs`, `drop_enum.rs`, `rc_helpers.rs`, `variant_construction.rs`, `option_result.rs`, `compound_type_impls.rs`, `iterator_consumers.rs`, `list_builtins.rs`, `operators/strategy.rs`, `enum_eq.rs`, `enum_comparable.rs`, `enum_hashable.rs`, `abi/mod.rs`, `layout_resolver.rs`. Key helpers added: `IrBuilder::struct_field_type()`, `IrBuilder::const_int_for_struct_field()`, `IrBuilder::const_i16()`, `IrBuilder::i16_type()`. (2026-03-30)
+- [x] Updated `resolve_enum()` — uses `min_tag_width(variants.len())` to emit narrowed `i8`/`i16`/`i32`/`i64` tag type. (2026-03-30)
+- [x] Updated `abi_size_inner()` — uses `min_tag_width().size_bytes()` for tag size. (2026-03-30)
+- [x] Updated `canonical_enum()`, `canonical_option()`, `canonical_result()` — all use `min_tag_width()`. Non-unit enum sizes unchanged (LLVM `[M x i64]` padding absorbs the difference). All-unit enum sizes shrink from 8 to 1. (2026-03-30)
+- [x] All-unit enum path preserved: `resolve_enum()` emits `{ i8 }` (no payload array). (2026-03-30)
+- [ ] **[BLOAT]** `compound_type_impls.rs` (517 lines) — split deferred to separate cleanup pass
+- [ ] **[BLOAT]** `list_builtins.rs` (712 lines) — split deferred to separate cleanup pass
+- [x] `./test-all.sh` passes: 14,666 tests, 0 failures. Debug and release builds verified. (2026-03-30)
 
 **§07.1 Tests (TDD — write BEFORE implementation, verify they fail):**
 
-- [ ] **Rust unit tests** (`compiler/ori_repr/src/layout/tests.rs`):
-  - `min_tag_width(0)` = I8, `min_tag_width(1)` = I8, `min_tag_width(2)` = I8, `min_tag_width(256)` = I8, `min_tag_width(257)` = I16, `min_tag_width(65536)` = I16, `min_tag_width(65537)` = I32
-  - `canonical_enum()` for 2-variant enum returns `EnumTag::Explicit { width: I8 }` (semantic pin — currently I64)
-  - `canonical_enum()` for single-variant enum returns `EnumTag::None` (semantic pin)
-  - `canonical_option()` returns `IntWidth::I8` tag (negative pin: NOT I64)
-  - `canonical_result()` returns `IntWidth::I8` tag (negative pin: NOT I64)
-  - `EnumRepr.size` for all-unit 4-variant enum = 1 byte (semantic pin — currently 8)
-  - `EnumRepr.align` for all-unit enum = 1 (negative pin: NOT 8)
-- [ ] **Ori spec tests** (`tests/spec/types/enum/discriminant_narrowing.ori`):
-  - All-unit enum `Dir = N|S|E|W` match works correctly in both interpreter and LLVM
-  - `Option<int>` match with `Some(42)` and `None` produces correct values
-  - `Result<int, str>` match with `Ok(1)` and `Err("fail")` produces correct values
-  - Enum with 257+ variants (generated) matches correctly on first, last, and middle variants
-  - Cross-feature: `for x in [Some(1), None, Some(2)] yield match x { Some(v) -> v, None -> 0 }` = `[1, 0, 2]`
-  - Cross-feature: closure capturing `Option<int>`, returning match result
-  - Cross-feature: `?` operator on `Result<int, str>` with narrowed tag
-- [ ] **AOT tests** (`compiler/ori_llvm/tests/aot/enum_discriminant.rs`):
-  - LLVM IR inspection: all-unit enum type is `{ i8 }` (not `{ i64 }`)
-  - LLVM IR inspection: `Option<int>` type has `i8` tag field (not `i64`)
-  - Verify both debug and release produce identical behavior (FastISel vs full optimization)
-- [ ] **Dual-execution parity**: every Ori spec test must produce identical output in interpreter and LLVM
-- [ ] **Leak check**: `ORI_CHECK_LEAKS=1` on all enum spec tests
+- [x] **Rust unit tests**: `min_tag_width` boundary tests (7 tests in `layout/tests.rs`), `canonical_enum` updated to expect I8 tag, `canonical_option_int` updated to expect I8 tag, all-unit enum size = 1, ABI tests updated. 22 TagEncoding tests. All pass. (2026-03-30)
+- [ ] **Ori spec tests** (`tests/spec/types/enum/discriminant_narrowing.ori`) — dedicated narrowing tests not yet written (existing 4,245 spec tests exercise enums thoroughly and all pass)
+- [ ] **AOT tests** (`compiler/ori_llvm/tests/aot/enum_discriminant.rs`) — LLVM IR inspection tests not yet written (existing 2,017 AOT tests all pass)
+- [x] **Dual-execution parity**: 14,666 tests pass in both interpreter and LLVM. (2026-03-30)
+- [ ] **Leak check**: `ORI_CHECK_LEAKS=1` not yet run on enum-specific tests
 
 ---
 

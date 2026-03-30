@@ -485,10 +485,11 @@ fn canonical_option_int() {
     let repr = canonical(&pool, opt_idx);
     if let MachineRepr::Enum(ref e) = repr {
         assert_eq!(e.variants.len(), 2, "Option should have 2 variants");
+        // §07.1: 2 variants → I8 tag
         assert_eq!(
             e.tag,
             EnumTag::Explicit {
-                width: IntWidth::I64
+                width: IntWidth::I8
             }
         );
         // None variant has no fields
@@ -635,10 +636,11 @@ fn canonical_enum() {
     let repr = canonical(&pool, enum_idx);
     if let MachineRepr::Enum(ref e) = repr {
         assert_eq!(e.variants.len(), 2);
+        // §07.1: 2 variants → I8 tag
         assert_eq!(
             e.tag,
             EnumTag::Explicit {
-                width: IntWidth::I64
+                width: IntWidth::I8
             }
         );
         // First variant (A) is unit — no fields
@@ -1214,7 +1216,7 @@ fn canonical_struct_unit_field() {
     }
 }
 
-/// `Option<()>` — tag + 0 payload. Size = 8 (just the i64 tag).
+/// `Option<()>` — tag + 0 payload. Size = 1 (just the i8 tag, §07.1).
 #[test]
 fn canonical_option_unit_zero_payload() {
     let mut pool = Pool::new();
@@ -1222,8 +1224,8 @@ fn canonical_option_unit_zero_payload() {
     let repr = canonical(&pool, opt_idx);
     if let MachineRepr::Enum(ref e) = repr {
         assert_eq!(
-            e.size, 8,
-            "Option<()> must be 8 bytes — tag only, zero payload"
+            e.size, 1,
+            "Option<()> must be 1 byte — i8 tag only, zero payload"
         );
     } else {
         panic!("expected Enum for Option<()>, got {repr:?}");
@@ -2327,7 +2329,8 @@ fn storage_equivalence_zst_divergence() {
 
     let opt_unit = pool.option(Idx::UNIT);
     if let MachineRepr::Enum(ref e) = canonical(&pool, opt_unit) {
-        assert_eq!(e.size, 8, "Option<()> = 8 bytes (tag only, zero payload)");
+        // §07.1: i8 tag, zero payload → 1 byte
+        assert_eq!(e.size, 1, "Option<()> = 1 byte (i8 tag only, zero payload)");
     } else {
         panic!("Option<()> must be Enum");
     }

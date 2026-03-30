@@ -7,7 +7,8 @@
 //! ## Enum layout
 //!
 //! - **Option/Result**: `{i64 tag, T payload}` — payload at struct index 1
-//! - **General enum**: `{i64 tag, [M x i64] payload}` — fields at byte offsets
+//! - **General enum**: `{tag, [M x i64] payload}` — tag is narrowed via
+//!   `min_tag_width()` (i8 for ≤256 variants, §07.1); fields at byte offsets
 //!   within the payload array
 
 use ori_types::{Idx, Pool, Tag};
@@ -27,13 +28,16 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         variants: &[Vec<(u32, Idx)>],
     ) {
         let enum_llvm_ty = self.resolve_type(ty);
-        let i64_ty = self.builder.i64_type();
 
-        // Load tag (i64 at field 0 for all enum-like types)
+        // Load tag (narrowed type at field 0 — §07.1 discriminant narrowing)
+        let tag_ty = self
+            .builder
+            .struct_field_type(enum_llvm_ty, 0)
+            .unwrap_or_else(|| self.builder.i64_type());
         let tag_ptr = self
             .builder
             .struct_gep(enum_llvm_ty, data_ptr, 0, "tag.ptr");
-        let tag_val = self.builder.load(i64_ty, tag_ptr, "tag");
+        let tag_val = self.builder.load(tag_ty, tag_ptr, "tag");
 
         // Convergence block: rc_free + ret
         let drop_done = self.builder.append_block(func_id, "drop.done");
@@ -49,7 +53,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 continue;
             }
             let block = self.builder.append_block(func_id, &format!("variant.{i}"));
-            let tag_const = self.builder.const_i64(i as i64);
+            let tag_const = self.builder.const_int_matching(tag_val, i as u64);
             case_tags.push(tag_const);
             case_blocks.push(block);
             case_fields.push(variant_fields.as_slice());

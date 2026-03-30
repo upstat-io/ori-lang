@@ -43,7 +43,7 @@ mod struct_repr;
 #[cfg(test)]
 mod tests;
 
-pub use enum_repr::{EnumRepr, EnumTag, VariantRepr};
+pub use enum_repr::{min_tag_width, EnumRepr, EnumTag, VariantRepr};
 pub use narrowing::abi::{
     AbiBoundary, CrossModuleAgreement, FunctionBoundaryInfo, WidthRequirement,
 };
