@@ -97,6 +97,12 @@ impl<'ctx> IrBuilder<'_, 'ctx> {
         self.arena.push_type(self.scx.type_i8().into())
     }
 
+    /// Register and return the `i16` type ID.
+    #[inline]
+    pub fn i16_type(&mut self) -> LLVMTypeId {
+        self.arena.push_type(self.scx.type_i16().into())
+    }
+
     /// Register and return the `i32` type ID.
     #[inline]
     pub fn i32_type(&mut self) -> LLVMTypeId {

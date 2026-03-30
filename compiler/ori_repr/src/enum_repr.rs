@@ -54,6 +54,35 @@ pub struct VariantRepr {
     pub alignment: u32,
 }
 
+/// Compute the minimum integer width needed to represent `variant_count` discriminants.
+///
+/// This is the canonical source of truth for tag width computation.
+/// All consumers (codegen, canonical repr, ABI) derive the tag width from this function.
+///
+/// - 0 or 1 variants → `I8` (single variant may use `EnumTag::None` instead)
+/// - 2–256 variants → `I8`
+/// - 257–65536 variants → `I16`
+/// - 65537–4294967296 variants → `I32`
+/// - Larger → `I64`
+#[must_use]
+pub fn min_tag_width(variant_count: usize) -> IntWidth {
+    match variant_count {
+        0 | 1 => IntWidth::I8,
+        n => {
+            // Bits needed = ceil(log2(n)), computed with integer arithmetic:
+            // (n - 1).leading_zeros() counts unused high bits in usize;
+            // usize::BITS - leading_zeros = bits needed to represent 0..n-1.
+            let bits_needed = usize::BITS - (n - 1).leading_zeros();
+            match bits_needed {
+                0..=8 => IntWidth::I8,
+                9..=16 => IntWidth::I16,
+                17..=32 => IntWidth::I32,
+                _ => IntWidth::I64,
+            }
+        }
+    }
+}
+
 impl VariantRepr {
     /// Whether this variant is a pointer type (for tagged pointer optimization).
     #[must_use]

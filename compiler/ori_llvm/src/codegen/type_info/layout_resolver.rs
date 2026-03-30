@@ -338,7 +338,13 @@ impl<'a, 'll, 'tcx> TypeLayoutResolver<'a, 'll, 'tcx> {
             max_payload_bytes = max_payload_bytes.max(variant_bytes);
         }
 
-        let tag_ty = self.scx.type_i64();
+        // §07.1: Use narrowed tag type (i8 for ≤256 variants) instead of i64.
+        let tag_ty = match ori_repr::min_tag_width(variants.len()) {
+            ori_repr::IntWidth::I8 => self.scx.type_i8(),
+            ori_repr::IntWidth::I16 => self.scx.type_i16(),
+            ori_repr::IntWidth::I32 => self.scx.type_i32(),
+            ori_repr::IntWidth::I64 => self.scx.type_i64(),
+        };
         if max_payload_bytes == 0 {
             self.scx
                 .set_struct_body(named_struct, &[tag_ty.into()], false);

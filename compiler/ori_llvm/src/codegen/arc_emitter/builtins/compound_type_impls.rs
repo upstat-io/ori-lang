@@ -36,7 +36,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let payload_eq = self.emit_element_equals(lhs_val, rhs_val, inner_ty)?;
 
         // Both None (tag=1): equal. Both Some (tag=0): check payload.
-        let one = self.builder.const_i64(1);
+        let one = self.builder.const_int_matching(lhs_tag, 1);
         let is_none = self.builder.icmp_eq(lhs_tag, one, "is_none");
         let true_val = self.builder.const_bool(true);
         let same_tag_result = self
@@ -75,7 +75,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let rhs_val = self.builder.extract_value(rhs, 1, "opt.rhs.val")?;
         let payload_cmp = self.emit_element_compare(lhs_val, rhs_val, inner_ty)?;
 
-        let one = self.builder.const_i64(1);
+        let one = self.builder.const_int_matching(lhs_tag, 1);
         let is_none = self.builder.icmp_eq(lhs_tag, one, "is_none");
         let equal_ord = self.builder.const_i8(1);
         let same_tag_cmp = self
@@ -99,7 +99,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let seed = self.builder.const_i64(1);
         let some_hash = self.emit_hash_combine(seed, payload_hash);
 
-        let one = self.builder.const_i64(1);
+        let one = self.builder.const_int_matching(tag, 1);
         let is_none = self.builder.icmp_eq(tag, one, "is_none");
         let zero = self.builder.const_i64(0);
         Some(self.builder.select(is_none, zero, some_hash, "opt_hash"))
@@ -159,7 +159,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
         // same_tag: Ok (tag=0) → ok_cmp, Err (tag=1) → err_cmp.
         self.builder.position_at_end(same_tag_bb);
-        let zero = self.builder.const_i64(0);
+        let zero = self.builder.const_int_matching(lhs_tag, 0);
         let is_ok = self.builder.icmp_eq(lhs_tag, zero, "is_ok");
         self.builder.cond_br(is_ok, ok_cmp_bb, err_cmp_bb);
 
@@ -241,7 +241,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
         // same_tag: Ok (tag=0) → ok_cmp, Err (tag=1) → err_cmp.
         self.builder.position_at_end(same_tag_bb);
-        let zero = self.builder.const_i64(0);
+        let zero = self.builder.const_int_matching(lhs_tag, 0);
         let is_ok = self.builder.icmp_eq(lhs_tag, zero, "is_ok");
         self.builder.cond_br(is_ok, ok_cmp_bb, err_cmp_bb);
 
@@ -305,7 +305,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             .builder
             .append_block(self.current_function, "res_hash.merge");
 
-        let zero = self.builder.const_i64(0);
+        let zero = self.builder.const_int_matching(tag, 0);
         let is_ok = self.builder.icmp_eq(tag, zero, "is_ok");
         self.builder.cond_br(is_ok, ok_bb, err_bb);
 
@@ -332,7 +332,9 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             &[(ok_hash, ok_exit_bb), (err_hash, err_exit_bb)],
         );
 
-        Some(self.emit_hash_combine(tag, payload_hash))
+        // Zero-extend narrowed tag to i64 for hash_combine which expects i64
+        let tag_i64 = self.builder.zext(tag, i64_ty, "res.tag.ext");
+        Some(self.emit_hash_combine(tag_i64, payload_hash))
     }
 
     // Tuple trait methods
