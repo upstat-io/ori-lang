@@ -1,6 +1,6 @@
 //! Pool-based type store-size computation.
 //!
-//! Sums field sizes without alignment padding. Must stay in sync with
+//! Sums field sizes without trailing alignment padding. Must stay in sync with
 //! `TypeLayoutResolver::type_store_size()` in `ori_llvm` — both compute the
 //! same logical size for every type, just at different abstraction levels
 //! (Pool indices here vs LLVM `BasicTypeEnum` there).
@@ -45,7 +45,10 @@ pub(crate) fn pool_type_store_size(ty: Idx, pool: &ori_types::Pool, depth: u32) 
         Tag::Function => 16,
         // 24-byte fat values: {i64, i64, ptr}
         Tag::Str | Tag::List | Tag::Set | Tag::Map => 24,
-        // Composite types: sum of fields
+        // Composite types: sum of fields (no trailing padding).
+        // This must match ori_llvm's type_store_size for non-reordered types.
+        // Reordered structs get their padded size from the ReprPlan in
+        // element_store_size() on the LLVM side.
         Tag::Struct => pool
             .struct_fields(ty)
             .iter()

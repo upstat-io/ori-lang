@@ -469,6 +469,10 @@ Rust unit tests in `compiler/ori_repr/src/layout/tests.rs`. AOT integration test
 - [x] `[TPR-06-003][medium]` `plans/repr-opt/section-06-struct-layout.md` — §06.4 marked complete but tuple reordering disabled in pipeline.
   Resolved: Fixed on 2026-03-30. Changed §06.4 status to in-progress, added deferred activation note.
 
+- [ ] `[TPR-06-004][high]` `compiler/ori_repr/src/pipeline/mod.rs` — `compute_struct_layouts()` applies `propagate_layout_to_aliases()` in `FxHashMap` iteration order, so a fixed-layout source (`#repr("c")`, `#repr("aligned")`, etc.) can overwrite a reorderable peer after that peer has already computed its own layout. Because `decision_indices()` is unordered and propagation only filters the target attribute, the final layout depends on hash-map iteration order instead of the type’s own `#repr`.
+
+- [ ] `[TPR-06-005][high]` `compiler/ori_llvm/src/codegen/type_info/type_size.rs`, `compiler/ori_arc/src/lower/control_flow/type_layout.rs`, `compiler/ori_arc/src/lower/control_flow/for_yield.rs` — LLVM-side element sizing now includes struct padding, but the for-yield lowerer still computes list element sizes as a raw sum of field sizes. Yielding reordered mixed-field structs into a list will allocate/copy too few bytes via `ori_list_new`/`ori_list_push`, truncating the stored element and risking memory corruption.
+
 ---
 
 ## 06.5 Completion Checklist
