@@ -14,6 +14,7 @@ use crate::layout::{
     compute_field_layout, compute_payload_layout, field_align, field_size, is_trivial_repr,
     round_up,
 };
+use crate::repr::IntWidth;
 use crate::repr::MachineRepr;
 use crate::struct_repr::{ClosureRepr, FatRepr, FieldRepr, StructRepr, TupleRepr};
 
@@ -198,6 +199,11 @@ pub(super) fn canonical_enum(
 }
 
 /// Build canonical `Option<T>` as a 2-variant enum: None (unit) + Some(T).
+///
+/// Uses `I64` tag width (not narrowed) to match the `ori_rt` runtime layout.
+/// Runtime functions (`ori_list_first`, `ori_map_get`, etc.) write `{i64, T}`
+/// to sret pointers. Narrowing Option/Result tags requires a coordinated
+/// `ori_rt` update — see `layout_resolver.rs` comment at `TypeInfo::Option`.
 pub(super) fn canonical_option(inner_repr: MachineRepr) -> MachineRepr {
     let none_variant = VariantRepr {
         name: Name::new(0, 0), // "None" — exact interning handled at call sites
@@ -214,7 +220,8 @@ pub(super) fn canonical_option(inner_repr: MachineRepr) -> MachineRepr {
         alignment: some_align,
     };
 
-    let tag_width = min_tag_width(2); // Option always has 2 variants → I8
+    // I64 tag — NOT narrowed. Must match ori_rt runtime layout.
+    let tag_width = IntWidth::I64;
     let tag_size = tag_width.size_bytes();
     let max_payload = some_size;
     let (size, align) = if max_payload == 0 {
@@ -233,6 +240,9 @@ pub(super) fn canonical_option(inner_repr: MachineRepr) -> MachineRepr {
 }
 
 /// Build canonical `Result<T, E>` as a 2-variant enum: Ok(T) + Err(E).
+///
+/// Uses `I64` tag width (not narrowed) to match the `ori_rt` runtime layout.
+/// See `canonical_option` for the rationale.
 pub(super) fn canonical_result(ok_repr: MachineRepr, err_repr: MachineRepr) -> MachineRepr {
     let ok_size = field_size(&ok_repr);
     let ok_align = field_align(&ok_repr);
@@ -252,7 +262,8 @@ pub(super) fn canonical_result(ok_repr: MachineRepr, err_repr: MachineRepr) -> M
         alignment: err_align,
     };
 
-    let tag_width = min_tag_width(2); // Result always has 2 variants → I8
+    // I64 tag — NOT narrowed. Must match ori_rt runtime layout.
+    let tag_width = IntWidth::I64;
     let tag_size = tag_width.size_bytes();
     let max_payload = ok_size.max(err_size);
     let max_variant_align = ok_align.max(err_align);
