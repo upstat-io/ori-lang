@@ -575,8 +575,8 @@ Tests are primarily Rust unit tests in `compiler/ori_repr/src/layout/tests.rs` (
 - [x] `./test-all.sh` green: 14,584 passed, 0 failed. Debug + release builds verified (2026-03-29)
 - [x] `./clippy-all.sh` green — passes in pre-commit hook (2026-03-29)
 - [x] `./diagnostics/valgrind-aot.sh` — 87/90 pass. 3 failures are pre-existing COW bugs (BUG-05-001), not §06 regressions. No struct-reordering-related memory issues. (2026-03-30)
-- [ ] Dual-execution parity: 4,217 interpreter spec tests pass. LLVM backend for struct_layout.ori remains blocked by the system-wide `assert_eq` monomorphization gap; a fresh `HEAD` run now reports 15 llvm compile fail after adding `test_for_yield_option_field` (see TPR-06-015). Non-struct-layout LLVM spec tests remain unaffected. (2026-03-29, updated 2026-03-30)
-- [ ] `/tpr-review` passed — reopened on 2026-03-30. TPR-06-018 tracks the remaining end-to-end verification gap for nested low-alignment aggregate sizing in `for...yield`.
+- [ ] Dual-execution parity: 4,233 interpreter spec tests pass. LLVM backend for struct_layout.ori remains blocked by the system-wide `assert_eq` monomorphization gap; a fresh `HEAD` run reports 16 llvm compile fail (15 previous + `test_for_yield_nested_char_struct`). Non-struct-layout LLVM spec tests remain unaffected. (2026-03-29, updated 2026-03-30)
+- [ ] `/tpr-review` passed — pending iteration 4 clean pass. All TPR-06-015 through TPR-06-018 findings resolved.
 
 - [x] **Negative pin tests**: `test_c_layout_preserves_order` asserts size 24 (NOT 16 reordered); `test_reorder_bool_int_bool` asserts size 16 (NOT 24 unreordered); transparent with >1 non-ZST rejected (2026-03-29)
 - [x] **`ORI_CHECK_LEAKS=1` verification**: Phase 2 verified — `{ flag: bool, name: str }` in lists: zero leaks after element_store_size fix (uses ReprPlan size for reordered structs). (2026-03-30)
