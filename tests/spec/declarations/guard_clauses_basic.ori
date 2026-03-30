@@ -1,0 +1,70 @@
+// Spec: 08-declarations.md § Guard Clauses
+// Tests for multi-clause functions using only guards (no pattern matching)
+// Verifies that guard-only clause dispatch works for the common
+// "early return" pattern that replaces `return` in expression-based languages.
+
+use std.testing { assert_eq }
+
+// =============================================================================
+// Guard-only clauses with parameter
+// =============================================================================
+
+@classify (n: int) -> str if n < 0 = "negative";
+@classify (n: int) -> str if n == 0 = "zero";
+@classify (n: int) -> str = "positive";
+
+@test_classify tests @classify () -> void = {
+    assert_eq(actual: classify(n: -10), expected: "negative");
+    assert_eq(actual: classify(n: -1), expected: "negative");
+    assert_eq(actual: classify(n: 0), expected: "zero");
+    assert_eq(actual: classify(n: 1), expected: "positive");
+    assert_eq(actual: classify(n: 100), expected: "positive");
+}
+
+// =============================================================================
+// Guard with complex expressions (fizzbuzz)
+// =============================================================================
+
+@fizzbuzz (n: int) -> str if n % 15 == 0 = "fizzbuzz";
+@fizzbuzz (n: int) -> str if n % 3 == 0 = "fizz";
+@fizzbuzz (n: int) -> str if n % 5 == 0 = "buzz";
+@fizzbuzz (n: int) -> str = str(n);
+
+@test_fizzbuzz tests @fizzbuzz () -> void = {
+    assert_eq(actual: fizzbuzz(n: 15), expected: "fizzbuzz");
+    assert_eq(actual: fizzbuzz(n: 30), expected: "fizzbuzz");
+    assert_eq(actual: fizzbuzz(n: 3), expected: "fizz");
+    assert_eq(actual: fizzbuzz(n: 9), expected: "fizz");
+    assert_eq(actual: fizzbuzz(n: 5), expected: "buzz");
+    assert_eq(actual: fizzbuzz(n: 10), expected: "buzz");
+    assert_eq(actual: fizzbuzz(n: 7), expected: "7");
+    assert_eq(actual: fizzbuzz(n: 1), expected: "1");
+}
+
+// =============================================================================
+// Guard with abs (two clauses)
+// =============================================================================
+
+@abs (n: int) -> int if n < 0 = -n;
+@abs (n: int) -> int = n;
+
+@test_abs tests @abs () -> void = {
+    assert_eq(actual: abs(n: -5), expected: 5);
+    assert_eq(actual: abs(n: -100), expected: 100);
+    assert_eq(actual: abs(n: 0), expected: 0);
+    assert_eq(actual: abs(n: 42), expected: 42);
+}
+
+// =============================================================================
+// Guard clause ordering (top-to-bottom, first match wins)
+// =============================================================================
+
+@sign (n: int) -> int if n > 0 = 1;
+@sign (n: int) -> int if n < 0 = -1;
+@sign (n: int) -> int = 0;
+
+@test_sign tests @sign () -> void = {
+    assert_eq(actual: sign(n: 100), expected: 1);
+    assert_eq(actual: sign(n: -100), expected: -1);
+    assert_eq(actual: sign(n: 0), expected: 0);
+}

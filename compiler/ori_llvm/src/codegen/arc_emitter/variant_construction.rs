@@ -66,7 +66,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 );
             }
         } else {
-            // Option/Result layout: `{ i64, T }` — insert payload directly.
+            // Option/Result layout: `{ i8, T }` — insert payload directly.
             // This only works when the value's LLVM type matches the struct
             // field's type. E.g., `Ok(42)` for `Result<int, str>` carries i64
             // but the payload slot is `{ i64, i64, ptr }` — type mismatch.

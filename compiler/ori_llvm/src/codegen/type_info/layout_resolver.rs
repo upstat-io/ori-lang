@@ -199,6 +199,11 @@ impl<'a, 'll, 'tcx> TypeLayoutResolver<'a, 'll, 'tcx> {
                 self.resolving.borrow_mut().insert(idx);
                 let payload = self.resolve(*inner);
                 self.resolving.borrow_mut().remove(&idx);
+                // Option/Result use i64 tag in LLVM layout to match ori_rt runtime
+                // expectations. Runtime functions (ori_list_first, ori_map_get, etc.)
+                // write {i64 tag, T payload} to sret pointers. Narrowing Option/Result
+                // tags to i8 requires a coordinated ori_rt update.
+                // User-defined enums are narrowed via resolve_enum().
                 self.scx
                     .type_struct(&[self.scx.type_i64().into(), payload], false)
                     .into()
@@ -212,6 +217,7 @@ impl<'a, 'll, 'tcx> TypeLayoutResolver<'a, 'll, 'tcx> {
                 let ok_size = Self::type_store_size(ok_ty);
                 let err_size = Self::type_store_size(err_ty);
                 let payload = if ok_size >= err_size { ok_ty } else { err_ty };
+                // See Option comment above — i64 tag for runtime compatibility.
                 self.scx
                     .type_struct(&[self.scx.type_i64().into(), payload], false)
                     .into()

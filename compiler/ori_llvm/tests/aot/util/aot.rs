@@ -631,3 +631,35 @@ fn is_ssa_var_used_in(var_name: &str, line: &str) -> bool {
     }
     false
 }
+
+/// Compile an Ori program to LLVM IR and return the IR text.
+///
+/// Returns `Ok(ir_text)` on success, `Err(stderr)` on compilation failure.
+pub fn compile_to_llvm_ir(source: &str) -> Result<String, String> {
+    static COUNTER: AtomicU64 = AtomicU64::new(0);
+
+    let id = COUNTER.fetch_add(1, Ordering::SeqCst);
+    let temp_dir = TempDir::new().expect("Failed to create temp dir");
+    let source_path = temp_dir.path().join(format!("ir_test_{id}.ori"));
+    let ir_path = temp_dir.path().join(format!("ir_test_{id}.ll"));
+
+    fs::write(&source_path, source).expect("Failed to write source");
+
+    let compile_result = Command::new(ori_binary())
+        .args([
+            "build",
+            source_path.to_str().unwrap(),
+            "--emit=llvm-ir",
+            "-o",
+            ir_path.to_str().unwrap(),
+        ])
+        .env("ORI_STDLIB", stdlib_path())
+        .output()
+        .expect("Failed to execute ori build");
+
+    if !compile_result.status.success() {
+        return Err(String::from_utf8_lossy(&compile_result.stderr).to_string());
+    }
+
+    fs::read_to_string(&ir_path).map_err(|e| format!("Failed to read IR file: {e}"))
+}
