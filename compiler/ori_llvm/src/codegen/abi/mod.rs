@@ -163,7 +163,8 @@ fn abi_size_inner(ty: Idx, store: &TypeInfoStore<'_>, visiting: &mut FxHashSet<I
             .map(|&(_, ty)| abi_size_inner(ty, store, visiting))
             .sum(),
         TypeInfo::Enum { variants } => {
-            // 1 byte tag + max variant payload
+            // Enum layout: {i64 tag, [M x i64] payload} — tag is always i64 (8 bytes).
+            // After §07.1 (discriminant narrowing), tag width will vary per enum.
             let max_payload: u64 = variants
                 .iter()
                 .map(|v| {
@@ -174,11 +175,11 @@ fn abi_size_inner(ty: Idx, store: &TypeInfoStore<'_>, visiting: &mut FxHashSet<I
                 })
                 .max()
                 .unwrap_or(0);
-            // Tag (1 byte) + padding to 8-byte alignment + payload
+            // i64 tag (8 bytes) + payload
             if max_payload == 0 {
-                1 // All-unit enum: just a tag
+                8 // All-unit enum: { i64 tag } = 8 bytes
             } else {
-                8 + max_payload // 1-byte tag padded to 8 + payload
+                8 + max_payload
             }
         }
         _ => 8, // Fallback: pointer-sized

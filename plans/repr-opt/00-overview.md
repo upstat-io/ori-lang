@@ -20,7 +20,7 @@ Complete the representation optimization system as one cohesive machine: from ab
 
 This plan implements the full 3-tier framework from the approved representation-optimization proposal, plus ARC-specific optimizations that no other language combines in one system: Lean 4's reuse analysis, Swift's retain/release pairing, Koka's FBIP verification, and Zig's comptime narrowing — unified under Ori's deterministic ARC model.
 
-**Current baseline (verified against the repo on 2026-03-23):** Tier 1 type-intrinsic narrowing is already live in `ori_llvm::codegen::type_info`; current enums already use `i8` tags where the existing lowering supports them; payload sharing and all-unit enum elimination already exist; transitive triviality already exists in `TypeInfoStore`/`ArcClassifier` (with known iterator drift); `str` already uses the 24-byte SSO-capable `OriStr`; and the runtime already uses the V5 32-byte RC header. This plan therefore mixes new work with three kinds of review-sensitive tasks: architectural refactoring (`ori_repr` / `ReprPlan`), new optimizations, and audits/extensions of existing runtime/codegen behavior.
+**Current baseline (verified against the repo on 2026-03-30):** Tier 1 type-intrinsic narrowing is already live in `ori_llvm::codegen::type_info`; current enums use `i64` tags for ALL variants (the canonical representation in `ori_repr` and the LLVM lowering in `resolve_enum()` both hardcode i64 — previous claim of "i8 tags" was stale); all-unit enum elimination already exists (payload array omitted when `max_payload_bytes == 0`, but tag remains i64); transitive triviality already exists in `TypeInfoStore`/`ArcClassifier` (with known iterator drift); `str` already uses the 24-byte SSO-capable `OriStr`; and the runtime already uses the V5 32-byte RC header. This plan therefore mixes new work with three kinds of review-sensitive tasks: architectural refactoring (`ori_repr` / `ReprPlan`), new optimizations, and audits/extensions of existing runtime/codegen behavior. <!-- reviewed: accuracy fix — enum tags are i64, not i8 -->
 
 ## Architecture
 
@@ -213,7 +213,7 @@ Phase 2 — Core Narrowing (§04 first, then §05)
 
 Phase 3 — Layout Optimization (partially parallel)
   ├─ §06: Struct field reordering + padding minimization  ─┐
-  ├─ §07: Enum niche filling + discriminant narrowing       │ (§06 ∥ §07)
+  ├─ §07: Enum discriminant narrowing + niche filling       │ (§06 ∥ §07)
   └─ §11: Collection specialization (SSO audit, SVO, packed arrays) ← after §06
   Gate: sizeof() measurements show reduced footprint, Valgrind clean
 
@@ -314,10 +314,12 @@ This is intentional (internal to `ori_arc`). §08.5's option (b) — passing esc
 |   ↳ 06.2 Padding tracking & diagnostics | ~50 | Low | §04 |
 |   ↳ 06.3 ABI-stable opt-out | ~150 | Medium | §04 |
 |   ↳ 06.4 Tuple layout | ~100 | Low | §04 |
-| 07 Enum Repr | ~900 | High | §04, §05 |
-|   ↳ 07.1 Niche filling | ~400 | High | §04 |
-|   ↳ 07.2 Discriminant narrowing | ~200 | Medium | §04 |
-|   ↳ 07.3 Tagged pointers | ~300 | High | §04 |
+| 07 Enum Repr | ~1,400 | High | §04, §05 | <!-- reviewed: expanded for §07.0 codegen audit + §07.1 TagAccess + §07.2 niche codegen + §07.4 payload alignment -->
+|   ↳ 07.0 Prerequisites + codegen consumer inventory | ~250 | Medium-High | §04, §05 |
+|   ↳ 07.1 Discriminant narrowing + TagAccess | ~350 | Medium-High | §07.0 |
+|   ↳ 07.2 Niche filling + niche-aware codegen | ~400 | High | §07.1 |
+|   ↳ 07.3 Tagged pointers | ~300 | High | §07.1 |
+|   ↳ 07.4 Payload compression | ~100 | Medium | §07.1 |
 | 08 Escape Analysis | ~1,500 (5+ files in `escape/` submodule) | Very High | §02 |
 |   ↳ 08.1 Intraprocedural escape | ~500 | High | §02 |
 |   ↳ 08.2 Interprocedural escape | ~600 | Very High | §02 |
@@ -329,19 +331,19 @@ This is intentional (internal to `ori_arc`). §08.5's option (b) — passing esc
 |   ↳ 11.2 Small vector optimization | ~300 | High | §04 |
 |   ↳ 11.3 Packed bool arrays | ~300 | Medium | — |
 | 12 Verification | ~800 | Medium | ALL |
-| **Total new** | **~11,074** | | |
+| **Total new** | **~11,574** | | | <!-- reviewed: +200 from §07 expansion (TagAccess abstraction + niche-aware codegen) -->
 | **Total deleted** | **~200** | | |
 
 ## Quick Reference
 
 | ID | Title | File | Status |
 |----|-------|------|--------|
-| 01 | Representation IR & Decision Framework | `section-01-repr-ir.md` | In Progress (99%) |
+| 01 | Representation IR & Decision Framework | `section-01-repr-ir.md` | Complete |
 | 02 | Transitive Triviality & ARC Elision | `section-02-transitive-triviality.md` | Complete |
 | 03 | Value Range Analysis Framework | `section-03-range-analysis.md` | Complete (13 TPR findings resolved) |
 | 04 | Integer Narrowing Pipeline | `section-04-integer-narrowing.md` | Complete |
 | 05 | Float Narrowing Pipeline | `section-05-float-narrowing.md` | Complete (19 TPR findings resolved) |
-| 06 | Struct & Tuple Layout Optimization | `section-06-struct-layout.md` | In Progress |
+| 06 | Struct & Tuple Layout Optimization | `section-06-struct-layout.md` | Complete |
 | 07 | Enum Representation Optimization | `section-07-enum-repr.md` | Not Started |
 | 08 | Escape Analysis & Stack Promotion | `section-08-escape-analysis.md` | Not Started |
 | 09 | ARC Header Compression | `section-09-arc-header.md` | Not Started |
