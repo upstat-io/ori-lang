@@ -75,11 +75,19 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                         // Surgical loading: only load fields actually used.
                         // `None` in the map = all fields needed, `Some(set)` = selective.
                         let field_set = used_fields.get(&param.var);
+                        // §06: remap declaration-order field indices to memory-order.
+                        let remapped_set = field_set.and_then(|opt| {
+                            opt.as_ref().map(|set| {
+                                set.iter()
+                                    .map(|&f| self.remap_struct_field(param.ty, f))
+                                    .collect::<FxHashSet<u32>>()
+                            })
+                        });
                         let loaded = if let Some(selective) = field_set {
                             self.builder.load_struct_selective(
                                 ty,
                                 ptr_param,
-                                selective.as_ref(),
+                                remapped_set.as_ref().or(selective.as_ref()),
                                 "param.load",
                             )
                         } else {

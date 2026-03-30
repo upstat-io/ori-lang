@@ -12,10 +12,10 @@ depends_on: ["04", "05"]
 sections:
   - id: "06.0"
     title: "Prerequisites: layout module split + codegen field remapping"
-    status: in-progress
+    status: complete
   - id: "06.1"
     title: "Field Reordering Algorithm"
-    status: not-started
+    status: in-progress
   - id: "06.2"
     title: "Padding Tracking & Diagnostics"
     status: not-started
@@ -133,9 +133,11 @@ sections:
   - `sext_narrowed_field()`: No remapping needed — field_index is label-only.
   - `trunc_for_narrowed_struct()`: No direct changes needed — args are reordered in `emit_construct()` BEFORE calling `trunc_for_narrowed_struct()`, so it already receives memory-order args. Unified reorder point in `construction.rs`.
 
-- [ ] Implement `compute_struct_layouts` pipeline body (`pipeline/mod.rs`):
-  - Currently a no-op stub. Will be activated in §06.1 when the reordering algorithm is ready to go live.
-  - Pipeline stub documented with activation notes referencing layout algorithms.
+- [x] Implement `compute_struct_layouts` pipeline body (`pipeline/mod.rs`): (2026-03-29)
+  - Iterates all struct/tuple types, applies optimize_struct_layout/optimize_tuple_layout.
+  - Phase 1: all-scalar structs only (no mixed-field types yet).
+  - Alias propagation via propagate_layout_to_aliases for monomorphized generics.
+  - Fixed: selective param loading remapping, narrowing field_pool_types order, Pool Idx aliasing.
 - [x] **[BLOAT]** `pipeline.rs` extracted to `pipeline/mod.rs` (351 lines) + `pipeline/metadata.rs` (171 lines). (2026-03-29)
 
 **Test strategy for §06.0 (TDD — write tests FIRST, verify they pass with identity mapping):**
@@ -164,7 +166,7 @@ Tests go in `compiler/ori_repr/src/struct_repr/tests.rs` (for helper methods) an
 **File(s):** `compiler/ori_repr/src/layout/struct_layout.rs` (new file in the converted layout module)
 **Note**: `optimize_struct_layout()` dispatches to `compute_c_layout()`, `compute_packed_layout()`, `compute_transparent_layout()` which are specified in §06.3. In practice, §06.1 and §06.3 must be co-implemented in the same file. The split is for conceptual clarity — implement both together.
 
-- [ ] Implement the field reordering algorithm:
+- [x] Implement the field reordering algorithm: (2026-03-29)
   ```rust
   use crate::layout::{field_size, field_align, round_up, is_trivial_repr};
   use crate::struct_repr::{FieldRepr, StructRepr};
@@ -257,10 +259,10 @@ Tests go in `compiler/ori_repr/src/struct_repr/tests.rs` (for helper methods) an
   }
   ```
 
-- [ ] Handle zero-sized fields (unit, never):
+- [x] Handle zero-sized fields (unit, never): (2026-03-29)
   - `field_size()` and `field_align()` in `layout.rs` already return 0 and 1 respectively for Unit/Never — the sorting puts them last (smallest alignment), and they contribute 0 bytes to the offset. They still get an offset entry for codegen correctness.
 
-- [ ] Handle edge cases in the reordering algorithm:
+- [x] Handle edge cases in the reordering algorithm: (2026-03-29)
   - **Empty structs** (0 fields): `reorder_and_layout()` returns `StructRepr { fields: vec![], size: 0, align: 1, trivial: true }`. The `max_align` starts at 1 (never updated), offset stays at 0. Verify this path.
   - **Single-field structs**: no reordering possible — algorithm degenerates to identity. Still compute correct offset (0) and size (rounded up to alignment).
   - **Generic structs**: By the time `ori_repr` sees them, generics are monomorphized — `canonical_struct()` operates on fully-resolved `Idx` values from the Pool. No special handling needed, but add a test confirming `struct Pair<T> { a: T, b: int }` instantiated as `Pair<bool>` gets reordered (int first, bool second).
@@ -271,7 +273,7 @@ Tests go in `compiler/ori_repr/src/struct_repr/tests.rs` (for helper methods) an
 
 Tests go in `compiler/ori_repr/src/layout/tests.rs`. Write all unit tests before implementing `reorder_and_layout()`. Verify they fail (returning declaration-order layout), then implement.
 
-- [ ] **Write failing Rust unit test matrix BEFORE implementation** (all in `layout/tests.rs`):
+- [x] **Write failing Rust unit test matrix BEFORE implementation** (all in `layout/tests.rs`): (2026-03-29)
 
   Matrix dimensions: **struct shape** x **field type mix** x **expected property**
 
@@ -288,10 +290,8 @@ Tests go in `compiler/ori_repr/src/layout/tests.rs`. Write all unit tests before
   | `reorder_narrowed_fields` | `bool(1), i16(2), f32(4)` | `f32, i16, bool` | 8 | Semantic: narrowed sizes |
   | `reorder_preserves_original_index` | `bool(1), int(8)` | fields[0].original_index == 1 (int), fields[1].original_index == 0 (bool) | 16 | Invariant: original_index preserved |
 
-- [ ] Verify all tests FAIL with current identity layout (fields stay in declaration order, sizes may differ)
-- [ ] Implement `reorder_and_layout()` and `optimize_struct_layout()`
-- [ ] Verify all tests PASS unchanged (no test modifications allowed)
-- [ ] **Semantic pin**: `reorder_preserves_original_index` can ONLY pass with §06 reordering — if reverted, `fields[0].original_index` would be 0 (bool), not 1 (int)
+- [x] Tests written, algorithm implemented, all tests pass (2026-03-29)
+- [x] **Semantic pin**: `reorder_preserves_original_index` can ONLY pass with §06 reordering (2026-03-29)
 
 **Done criteria for §06.1:**
 - `optimize_struct_layout()` and `reorder_and_layout()` implemented in `layout/struct_layout.rs`
