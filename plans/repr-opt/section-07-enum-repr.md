@@ -172,7 +172,8 @@ The discriminant (tag) should use the minimum width needed.
   }
   ```
 
-- [x] Tag narrowed from i64 to i8 for all enums with ≤256 variants (the vast majority). (2026-03-30)
+- [x] Tag narrowed from i64 to i8 for USER-DEFINED enums with ≤256 variants via `resolve_enum()`. (2026-03-30)
+- [ ] **Option/Result tag narrowing** — Option/Result keep i64 tags in `TypeInfo::Option/Result` layout_resolver path for `ori_rt` runtime compatibility. Runtime functions (`ori_list_first`, `ori_map_get`, `ori_iter_find`, etc.) write `{i64 tag, T payload}` to sret pointers. Narrowing requires: (1) update `ori_rt` C functions to write i8 tags, (2) update layout_resolver Option/Result paths, (3) update inline Option struct constructors in `list_builtins/helpers.rs`, `map_builtins.rs`, `iterator_consumers.rs`. <!-- blocked-by:ori_rt update -->
 - [ ] For single-variant enums (newtypes), eliminate tag entirely (`EnumTag::None`) — deferred to §07.2 integration
 - [x] Added `min_tag_width()` to `compiler/ori_repr/src/enum_repr.rs` with 7 boundary-value unit tests. (2026-03-30)
 - [x] `TagEncoding` abstraction implemented in `tag_access/mod.rs` (§07.0). Consumer migration used `const_int_matching` + `struct_field_type` + `const_int_for_struct_field` helpers instead of full TagAccess LLVM emission — simpler and equally correct. (2026-03-30)
@@ -189,7 +190,7 @@ The discriminant (tag) should use the minimum width needed.
 
 - [x] **Rust unit tests**: `min_tag_width` boundary tests (7 tests in `layout/tests.rs`), `canonical_enum` updated to expect I8 tag, `canonical_option_int` updated to expect I8 tag, all-unit enum size = 1, ABI tests updated. 22 TagEncoding tests. All pass. (2026-03-30)
 - [x] **Ori spec tests** (`tests/spec/types/sum/test_discriminant_narrowing.ori`) — 12 tests: all-unit enum match, Option int/str match, Result match, for-yield with Option, closure capturing Option, `?` on Result, nested enum match, Option predicates, Result predicates, unwrap_or, coalesce `??`. All pass. (2026-03-30)
-- [ ] **AOT tests** (`compiler/ori_llvm/tests/aot/enum_discriminant.rs`) — LLVM IR inspection tests not yet written (existing 2,017 AOT tests all pass)
+- [x] **AOT tests** (`compiler/ori_llvm/tests/aot/enum_discriminant.rs`) — 6 tests: IR inspection (all-unit enum `{ i8 }` type, Option i64 runtime-compat), behavioral (all-unit match, Option match, Result match, RC payload enum). All pass. (2026-03-30)
 - [x] **Dual-execution parity**: 14,666 tests pass in both interpreter and LLVM. (2026-03-30)
 - [x] **Leak check**: Valgrind 87/90 pass (3 failures are pre-existing COW bugs BUG-05-001). `diagnose-aot.sh` on custom enum test: compilation pass, execution clean, leak check clean. No regressions from discriminant narrowing. (2026-03-30)
 

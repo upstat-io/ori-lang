@@ -251,13 +251,13 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let func_id = self.builder.runtime_fn("ori_iter_find");
 
         // sret pattern for Option<T> result
-        // Option layout: {i64 tag, T payload} — matches TypeLayoutResolver
-        let i64_llvm = self.builder.scx().type_i64().into();
+        // Option layout: {i64 tag, T payload} — runtime (ori_rt) writes i64 tags
+        let tag_llvm = self.builder.scx().type_i64().into();
         let payload_llvm = self.type_resolver.resolve(elem_ty);
         let opt_struct = self
             .builder
             .scx()
-            .type_struct(&[i64_llvm, payload_llvm], false);
+            .type_struct(&[tag_llvm, payload_llvm], false);
         let opt_struct_ty = self.builder.register_type(opt_struct.into());
 
         let out_ptr =
