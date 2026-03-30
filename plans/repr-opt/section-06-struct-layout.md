@@ -29,7 +29,7 @@ sections:
     title: "Completion Checklist"
     status: in-progress
 third_party_review:
-  status: findings
+  status: resolved
   updated: 2026-03-30
 ---
 
@@ -472,11 +472,11 @@ Rust unit tests in `compiler/ori_repr/src/layout/tests.rs`. AOT integration test
 - [x] `[TPR-06-004][high]` `compiler/ori_repr/src/pipeline/mod.rs` — `compute_struct_layouts()` applies `propagate_layout_to_aliases()` in `FxHashMap` iteration order, so a fixed-layout source (`#repr("c")`, `#repr("aligned")`, etc.) can overwrite a reorderable peer after that peer has already computed its own layout. Because `decision_indices()` is unordered and propagation only filters the target attribute, the final layout depends on hash-map iteration order instead of the type’s own `#repr`.
   Resolved: Validated on 2026-03-30. `compute_struct_layouts()` now skips alias propagation from non-default-layout sources before calling `propagate_layout_to_aliases()`, so fixed-layout sources can no longer clobber reorderable peers regardless of `FxHashMap` iteration order. Verified in current code at `compiler/ori_repr/src/pipeline/mod.rs:355-370`; `timeout 150 cargo test -p ori_repr --lib -- --nocapture` passed (577 tests).
 
-- [ ] `[TPR-06-005][high]` `compiler/ori_llvm/src/codegen/type_info/type_size.rs`, `compiler/ori_arc/src/lower/control_flow/type_layout.rs`, `compiler/ori_arc/src/lower/control_flow/for_yield.rs` — LLVM-side element sizing now includes struct padding, but the for-yield lowerer still computes list element sizes as a raw sum of field sizes. Yielding reordered mixed-field structs into a list will allocate/copy too few bytes via `ori_list_new`/`ori_list_push`, truncating the stored element and risking memory corruption.
-  Re-validated on 2026-03-30 after `e9b69dcc`. The size-alignment fix landed in both ARC and LLVM (`pool_type_store_size()` now rounds composite sizes up to alignment; `element_store_size()` now uses `ReprPlan` sizes for struct/tuple aggregates), but the end-to-end bug is still reproducible when the yielded value itself is the reordered mixed-field struct. Reproducer:
-  `type Record = { flag: bool, name: str, count: int }`
-  `let collected = for item in items yield item`
-  Interpreter succeeds, but AOT still aborts under `timeout 150 diagnostics/dual-exec-debug.sh --no-color /tmp/tpr_06_005_recheck.ori`, and a direct AOT build/run panics in the runtime with `misaligned pointer dereference: address must be a multiple of 0x8 but is 0x29` at `compiler/ori_rt/src/rc/mod.rs:124`. This shows the original element-stride work was necessary but not sufficient; some remaining aggregate list store/load path still corrupts reordered mixed-field struct elements. Existing AOT tests only cover yielding projections from such structs (`item.val`, `item.name.length()`), not identity-yielding the struct value.
+- [x] `[TPR-06-005][high]` `compiler/ori_llvm/src/codegen/type_info/type_size.rs`, `compiler/ori_arc/src/lower/control_flow/type_layout.rs`, `compiler/ori_arc/src/lower/control_flow/for_yield.rs` — LLVM-side element sizing now includes struct padding, but the for-yield lowerer still computes list element sizes as a raw sum of field sizes. Yielding reordered mixed-field structs into a list will allocate/copy too few bytes via `ori_list_new`/`ori_list_push`, truncating the stored element and risking memory corruption.
+  Resolved: Re-validated on 2026-03-30 after `0c5f6d55`. The end-to-end identity-yield reproducer no longer fails on `HEAD`: `timeout 150 diagnostics/dual-exec-debug.sh --no-color /tmp/tpr_06_005_recheck_simple.ori` matched with interpreter exit `0` and AOT exit `0` for `type Record = { flag: bool, name: str, count: int }` plus `let collected = for item in items yield item`. Supporting checks also passed: `timeout 150 cargo test -p ori_repr --lib -- --nocapture` (577 tests), `timeout 150 cargo test -p ori_llvm test_for_yield_struct_elements -- --nocapture` (targeted AOT coverage), and `timeout 150 cargo st tests/spec/types/struct_layout.ori` (4225 passed, 0 failed, 42 skipped). The mixed-field widening change in `compute_struct_layouts()` closed the previously reproduced misaligned-pointer failure.
+
+- [x] `[TPR-06-006][medium]` Missing permanent regression pin for `for item in items yield item` with reordered mixed-field struct.
+  Resolved: Fixed on 2026-03-30. Added `test_for_yield_identity_reordered` and `test_for_yield_field_access` to `tests/spec/types/struct_layout.ori`. 4,227 spec tests pass.
 
 ---
 
