@@ -321,7 +321,6 @@ fn apply_float_narrowing(plan: &mut ReprPlan, pool: &Pool, arc_functions: &[ArcF
 /// strategies (no reordering for C, no padding for packed, etc.).
 fn compute_struct_layouts(plan: &mut ReprPlan, pool: &Pool) {
     use crate::layout::struct_layout::optimize_struct_layout;
-    use crate::layout::tuple_layout::optimize_tuple_layout;
 
     let indices: Vec<Idx> = plan.decision_indices().collect();
     // Collect (idx, optimized_repr) to write back after iteration.
@@ -331,17 +330,13 @@ fn compute_struct_layouts(plan: &mut ReprPlan, pool: &Pool) {
         let Some(repr) = plan.get_repr(idx) else {
             continue;
         };
-        match repr {
-            MachineRepr::Struct(s) => {
-                let attr = plan.repr_attr(idx);
-                let optimized = optimize_struct_layout(s, attr);
-                updates.push((idx, MachineRepr::Struct(optimized)));
-            }
-            MachineRepr::Tuple(t) => {
-                let optimized = optimize_tuple_layout(t);
-                updates.push((idx, MachineRepr::Tuple(optimized)));
-            }
-            _ => {}
+        // Only reorder structs. Tuple reordering is deferred: tuples cross
+        // the runtime boundary in map iteration (runtime writes key+value
+        // in declaration order).
+        if let MachineRepr::Struct(s) = repr {
+            let attr = plan.repr_attr(idx);
+            let optimized = optimize_struct_layout(s, attr);
+            updates.push((idx, MachineRepr::Struct(optimized)));
         }
     }
 
