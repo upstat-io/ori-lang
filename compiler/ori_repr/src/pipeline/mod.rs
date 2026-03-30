@@ -13,6 +13,7 @@ use ori_ir::ReprAttrKind;
 use ori_types::{Idx, Pool};
 
 use crate::plan::{NarrowingPolicy, ReprAttribute, ReprPlan};
+use crate::repr::{FloatWidth, IntWidth};
 use crate::{narrowing, range, DecisionReason, DecisionSource, MachineRepr, ReprDecision};
 
 use metadata::{propagate_metadata_to_applied_resolutions, seed_imported_metadata};
@@ -334,8 +335,48 @@ fn compute_struct_layouts(plan: &mut ReprPlan, pool: &Pool) {
         // the runtime boundary in map iteration (runtime writes key+value
         // in declaration order).
         if let MachineRepr::Struct(s) = repr {
+            // §04+§06 interaction: for structs with non-scalar fields,
+            // try_lower_narrowed_aggregate won't create the LLVM type with
+            // narrowed widths — the LLVM type uses canonical widths. If §04
+            // narrowed an int field to I8/I16/I32 in the StructRepr, the
+            // layout size would be smaller than the LLVM type's actual size.
+            // Fix: widen narrowed fields back to canonical width for mixed structs.
+            let has_non_scalar = s.fields.iter().any(|f| {
+                !matches!(
+                    f.repr,
+                    MachineRepr::Int { .. }
+                        | MachineRepr::Float { .. }
+                        | MachineRepr::Bool
+                        | MachineRepr::Char
+                        | MachineRepr::Byte
+                        | MachineRepr::Unit
+                )
+            });
+            let layout_input = if has_non_scalar {
+                let mut widened = s.clone();
+                for f in &mut widened.fields {
+                    if let MachineRepr::Int { width, signed } = &f.repr {
+                        if *width != IntWidth::I64 {
+                            f.repr = MachineRepr::Int {
+                                width: IntWidth::I64,
+                                signed: *signed,
+                            };
+                        }
+                    }
+                    if let MachineRepr::Float { width } = &f.repr {
+                        if *width != FloatWidth::F64 {
+                            f.repr = MachineRepr::Float {
+                                width: FloatWidth::F64,
+                            };
+                        }
+                    }
+                }
+                widened
+            } else {
+                s.clone()
+            };
             let attr = plan.repr_attr(idx);
-            let optimized = optimize_struct_layout(s, attr);
+            let optimized = optimize_struct_layout(&layout_input, attr);
             updates.push((idx, MachineRepr::Struct(optimized)));
         }
     }
@@ -431,16 +472,33 @@ fn propagate_layout_to_aliases(
                 .zip(source_elems.iter())
                 .all(|(&a, &b)| structural_type_eq(pool, a, b))
         {
-            // TPR-06-001b: don't propagate to types with fixed-layout attrs.
-            // A reorderable struct must not poison a same-shape #repr("c") struct.
+            // For structs: verify field NAMES match in the same order.
+            // Different Pool entries for the same struct can have fields
+            // in different orders — the StructRepr's original_index values
+            // assume the source's field order and would be wrong for a target
+            // with different ordering.
             if source_tag == ori_types::Tag::Struct {
+                let source_names: Vec<_> = pool
+                    .struct_fields(source_idx)
+                    .into_iter()
+                    .map(|(name, _)| name)
+                    .collect();
+                let target_names: Vec<_> = pool
+                    .struct_fields(idx)
+                    .into_iter()
+                    .map(|(name, _)| name)
+                    .collect();
+                if source_names != target_names {
+                    continue;
+                }
+                // Don't propagate to types with fixed-layout attrs.
                 if let Some(attr) = plan.repr_attr(idx) {
                     if !matches!(attr, crate::plan::ReprAttribute::Default) {
                         continue;
                     }
                 }
             }
-            // Same structural type, compatible attributes — propagate.
+            // Same structural type, compatible attributes and field order — propagate.
             plan.set_repr(
                 idx,
                 ReprDecision {
