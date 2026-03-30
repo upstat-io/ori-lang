@@ -688,3 +688,101 @@ fn type_store_size_extended_types() {
         "A(str) | B = {{i64 tag, max(24, 0)}} = 32"
     );
 }
+
+/// Regression: TPR-06-007 — inter-field alignment padding was missing.
+/// `pool_type_store_size()` summed field sizes without aligning each field,
+/// undercounting aggregates with mixed-alignment fields.
+#[test]
+fn type_store_size_inter_field_padding() {
+    let mut pool = Pool::new();
+    let interner = ori_ir::StringInterner::new();
+
+    // (bool, str, int, bool):
+    //   bool at 0 (1B), pad to 8, str at 8 (24B), int at 32 (8B), bool at 40 (1B)
+    //   → offset 41, round_up(41, 8) = 48
+    let tup_mixed = pool.tuple(&[Idx::BOOL, Idx::STR, Idx::INT, Idx::BOOL]);
+    assert_eq!(
+        pool_type_store_size(tup_mixed, &pool, 0),
+        48,
+        "(bool, str, int, bool) needs inter-field padding"
+    );
+
+    // (bool, int) — bool→pad to 8→int: offset 16, round_up(16, 8) = 16
+    let tup_bi = pool.tuple(&[Idx::BOOL, Idx::INT]);
+    assert_eq!(
+        pool_type_store_size(tup_bi, &pool, 0),
+        16,
+        "(bool, int) needs padding between bool and int"
+    );
+
+    // (char, int) — char at 0 (4B), pad to 8, int at 8: round_up(16, 8) = 16
+    let tup_ci = pool.tuple(&[Idx::CHAR, Idx::INT]);
+    assert_eq!(
+        pool_type_store_size(tup_ci, &pool, 0),
+        16,
+        "(char, int) needs padding between char and int"
+    );
+
+    // (bool, int, bool, str):
+    //   bool at 0 (1B), pad to 8, int at 8 (8B), bool at 16 (1B), pad to 8, str at 24 (24B)
+    //   → offset 48, round_up(48, 8) = 48
+    let tup_bibs = pool.tuple(&[Idx::BOOL, Idx::INT, Idx::BOOL, Idx::STR]);
+    assert_eq!(
+        pool_type_store_size(tup_bibs, &pool, 0),
+        48,
+        "(bool, int, bool, str) needs two inter-field pads"
+    );
+
+    // Struct { a: bool, b: str } — same padding as tuple:
+    //   bool at 0, pad to 8, str at 8 (24B) → round_up(32, 8) = 32
+    let a_name = interner.intern("a");
+    let b_name = interner.intern("b");
+    let c_name = interner.intern("c");
+    let d_name = interner.intern("d");
+    let s_name = interner.intern("PaddedStruct");
+    let padded_struct = pool.struct_type(s_name, &[(a_name, Idx::BOOL), (b_name, Idx::STR)]);
+    assert_eq!(
+        pool_type_store_size(padded_struct, &pool, 0),
+        32,
+        "Struct {{bool, str}} needs padding"
+    );
+
+    // Struct { a: bool, b: str, c: int, d: bool } — same as tuple case: 48
+    let s2_name = interner.intern("BigPaddedStruct");
+    let big_struct = pool.struct_type(
+        s2_name,
+        &[
+            (a_name, Idx::BOOL),
+            (b_name, Idx::STR),
+            (c_name, Idx::INT),
+            (d_name, Idx::BOOL),
+        ],
+    );
+    assert_eq!(
+        pool_type_store_size(big_struct, &pool, 0),
+        48,
+        "Struct {{bool, str, int, bool}} needs inter-field padding"
+    );
+
+    // Enum with multi-field variant needing padding:
+    // A(x: bool, y: str) | B → payload = pad(1→8) + 24 = 32, total = 8 + 32 = 40
+    let padded_enum_name = interner.intern("PaddedEnum");
+    let padded_enum = pool.enum_type(
+        padded_enum_name,
+        &[
+            ori_types::EnumVariant {
+                name: interner.intern("A"),
+                field_types: vec![Idx::BOOL, Idx::STR],
+            },
+            ori_types::EnumVariant {
+                name: interner.intern("B"),
+                field_types: vec![],
+            },
+        ],
+    );
+    assert_eq!(
+        pool_type_store_size(padded_enum, &pool, 0),
+        40,
+        "Enum A(bool, str) | B needs inter-field padding in variant payload"
+    );
+}

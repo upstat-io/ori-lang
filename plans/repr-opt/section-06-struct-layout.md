@@ -478,6 +478,9 @@ Rust unit tests in `compiler/ori_repr/src/layout/tests.rs`. AOT integration test
 - [x] `[TPR-06-006][medium]` Missing permanent regression pin for `for item in items yield item` with reordered mixed-field struct.
   Resolved: Fixed on 2026-03-30. Added `test_for_yield_identity_reordered` and `test_for_yield_field_access` to `tests/spec/types/struct_layout.ori`. 4,227 spec tests pass.
 
+- [x] `[TPR-06-007][high]` `compiler/ori_arc/src/lower/control_flow/type_layout.rs:48` — `pool_type_store_size()` still undercounts declaration-order aggregate stride by summing field sizes and only rounding the final total, so tuples (and any non-reordered aggregate using the same pattern) can miss inter-field padding even though `ori_repr`/LLVM use ABI-correct offset layout.
+  Resolved: Fixed on 2026-03-30. Introduced `aggregate_size_with_padding()` helper that walks fields with proper inter-field alignment (matching `compute_field_layout()` in `ori_repr`). Updated Struct, Tuple, and Enum variant payload branches to use it. Added `type_store_size_inter_field_padding` unit test covering tuples `(bool, str, int, bool)`, `(bool, int)`, `(char, int)`, `(bool, int, bool, str)`, structs `{bool, str}` and `{bool, str, int, bool}`, and enum variant `A(bool, str) | B`. Added Ori spec tests `test_for_yield_tuple_padding`, `test_for_yield_tuple_two_gaps`, and `test_for_yield_padded_struct` to `tests/spec/types/struct_layout.ori`. Valgrind-verified: 0 errors, 0 leaks. All 14,604 tests pass.
+
 ---
 
 ## 06.5 Completion Checklist
