@@ -8,8 +8,12 @@
 //!
 //! - [`struct_layout`] — field reordering for structs (§06.1 + §06.3)
 //! - [`tuple_layout`] — field reordering for tuples (§06.4)
+//! - [`niche`] — niche analysis for enum optimization (§07.2)
+//! - [`tagged_ptr`] — tagged pointer analysis for enum optimization (§07.3)
 
+pub(crate) mod niche;
 pub(crate) mod struct_layout;
+pub(crate) mod tagged_ptr;
 pub(crate) mod tuple_layout;
 
 #[cfg(test)]

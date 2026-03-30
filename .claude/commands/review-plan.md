@@ -58,6 +58,23 @@ Read the plan file(s) specified in `$ARGUMENTS`. If the path doesn't exist, repo
 - If a directory, read all `.md` files: `index.md`, `00-overview.md`, and all `section-*.md` files
 - If a single file, read it plus any sibling plan files for context
 
+### Step 1B: Plan-Wide Accuracy Audit (MANDATORY — before any section-specific review)
+
+**Before starting the section-specific review**, verify the ENTIRE plan's status metadata is accurate and up-to-date. This catches stale statuses from prior work that would mislead the review agents.
+
+1. **Read every section file's frontmatter** — compare each section's `status` field against its actual checkbox state:
+   - All `[x]` but `status: in-progress` → fix to `complete`
+   - Mixed `[x]`/`[ ]` but `status: not-started` → fix to `in-progress`
+   - All `[ ]` but `status: complete` → fix to `not-started` (or `in-progress` if partially done)
+   - Subsection statuses must agree with their checkboxes too
+2. **Check for "effectively complete" sections** — sections where all own implementation work is done but marked `in-progress` because of external blockers (other sections, cross-cutting infrastructure). If a section's remaining unchecked items are ALL blocked by external issues (not the section's own work), mark it `complete` with a note on the blocker.
+3. **Verify `00-overview.md` Quick Reference table** — every section's status must match its frontmatter. Fix any mismatches.
+4. **Verify `index.md` section statuses** — must match frontmatter. Fix any mismatches.
+5. **Verify Estimated Effort table** (if it exists) — statuses must match reality.
+6. **Report fixes** to the user before proceeding: "Plan-wide accuracy audit: fixed N stale statuses before starting review."
+
+This step ensures the review agents are working with accurate metadata, not stale statuses that mask completed work or hide incomplete sections.
+
 ### Step 2: Load Hygiene Rules
 
 The full rule set is embedded below (source of truth files — do not maintain separate copies). These rules inform all review agents for checking registration sync points, file size limits, phase boundary discipline, crate dependency ordering, and other hygiene requirements.

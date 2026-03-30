@@ -722,6 +722,12 @@ When completing a roadmap item:
   - [ ] Update subsection `status` in YAML frontmatter if subsection is now complete
   - [ ] Update section `status` in YAML frontmatter if all subsections are now complete
 - [ ] Run `/tpr-review` — MUST PASS CLEAN (zero unresolved findings). If findings surface: fix, re-run, repeat until clean. This is definitive — no reasoning about "close enough" or "minor remaining". Clean or open, no middle ground.
+- [ ] **Plan-wide accuracy audit** (MANDATORY on every section completion):
+  - [ ] Read the ENTIRE `00-overview.md` — verify every section's status in the Quick Reference table matches reality (check frontmatter of each section file). Fix any stale statuses.
+  - [ ] Read the ENTIRE `index.md` — verify every section's status matches reality. Fix any stale statuses.
+  - [ ] Verify the Estimated Effort table (if it exists) reflects actual status for ALL sections, not just the one you completed.
+  - [ ] Check for sections that are effectively complete but still marked "In Progress" due to external blockers (not their own remaining work). If a section's own implementation is done and the only remaining items are blocked by OTHER sections or cross-cutting infrastructure issues, mark it `complete` with a note on the blocker.
+  - [ ] Verify `00-overview.md` frontmatter `status` is consistent with overall plan progress (e.g., don't leave it as `not-started` when 6/12 sections are complete).
 - [ ] Update parent plan files (if section status changed):
   - [ ] Update `00-overview.md` effort table and Quick Reference table
   - [ ] Update `index.md` section status and Quick Reference table
