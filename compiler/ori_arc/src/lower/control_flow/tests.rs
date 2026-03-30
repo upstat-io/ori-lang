@@ -763,12 +763,19 @@ fn type_store_size_inter_field_padding() {
         48,
         "Struct {{bool, str, int, bool}} needs inter-field padding"
     );
+}
 
-    // Enum with multi-field variant needing padding:
-    // A(x: bool, y: str) | B → payload = pad(1→8) + 24 = 32, total = 8 + 32 = 40
-    let padded_enum_name = interner.intern("PaddedEnum");
+/// Regression: TPR-06-007 + TPR-06-008 — enum payload i64-slot sizing.
+/// Enum payloads use `[M x i64]` layout where each field occupies at
+/// least one full i64 slot (8 bytes), regardless of natural alignment.
+#[test]
+fn type_store_size_enum_payload_slots() {
+    let mut pool = Pool::new();
+    let interner = ori_ir::StringInterner::new();
+
+    // A(bool, str) | B → payload = 8+24 = 32, total = 40
     let padded_enum = pool.enum_type(
-        padded_enum_name,
+        interner.intern("PaddedEnum"),
         &[
             ori_types::EnumVariant {
                 name: interner.intern("A"),
@@ -783,6 +790,46 @@ fn type_store_size_inter_field_padding() {
     assert_eq!(
         pool_type_store_size(padded_enum, &pool, 0),
         40,
-        "Enum A(bool, str) | B needs inter-field padding in variant payload"
+        "Enum A(bool, str) | B: bool slot(8) + str(24) = 32 payload"
+    );
+
+    // A(bool, bool, int) | B → payload = 8+8+8 = 24 (3 slots), total = 32
+    let slot_enum = pool.enum_type(
+        interner.intern("SlotEnum"),
+        &[
+            ori_types::EnumVariant {
+                name: interner.intern("A"),
+                field_types: vec![Idx::BOOL, Idx::BOOL, Idx::INT],
+            },
+            ori_types::EnumVariant {
+                name: interner.intern("B"),
+                field_types: vec![],
+            },
+        ],
+    );
+    assert_eq!(
+        pool_type_store_size(slot_enum, &pool, 0),
+        32,
+        "Enum A(bool, bool, int) | B: each bool takes a full i64 slot"
+    );
+
+    // A(bool, int, bool, str) | B → payload = 8+8+8+24 = 48 (6 slots), total = 56
+    let big_enum = pool.enum_type(
+        interner.intern("BigSlotEnum"),
+        &[
+            ori_types::EnumVariant {
+                name: interner.intern("A"),
+                field_types: vec![Idx::BOOL, Idx::INT, Idx::BOOL, Idx::STR],
+            },
+            ori_types::EnumVariant {
+                name: interner.intern("B"),
+                field_types: vec![],
+            },
+        ],
+    );
+    assert_eq!(
+        pool_type_store_size(big_enum, &pool, 0),
+        56,
+        "Enum A(bool, int, bool, str) | B: 6-slot payload = 48 + tag 8 = 56"
     );
 }

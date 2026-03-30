@@ -165,3 +165,26 @@ type Padded = { flag: bool, label: str, count: int, active: bool }
     assert_eq(actual: collected[1].label, expected: "y");
     assert_eq(actual: collected[1].active, expected: true)
 }
+
+// Regression: TPR-06-008 — enum payload uses [M x i64] slot layout.
+// Each variant field occupies at least one full i64 slot (8 bytes).
+// A(bool, int, bool, str) payload = 6 slots = 48 bytes + 8 tag = 56.
+type PaddedEnum = A(flag: bool, count: int, active: bool, label: str) | B;
+
+@test_for_yield_padded_enum tests @make_record () -> void = {
+    let items = [
+        A(flag: true, count: 1, active: false, label: "x"),
+        A(flag: false, count: 2, active: true, label: "y"),
+        B,
+    ];
+    let collected = for item in items yield item;
+    assert_eq(actual: collected.length(), expected: 3);
+    match collected[0] {
+        A(flag:, count:, active:, label:) -> {
+            assert_eq(actual: flag, expected: true);
+            assert_eq(actual: count, expected: 1);
+            assert_eq(actual: label, expected: "x")
+        },
+        B -> panic(msg: "expected A"),
+    }
+}

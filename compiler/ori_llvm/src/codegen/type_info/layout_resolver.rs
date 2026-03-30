@@ -319,6 +319,10 @@ impl<'a, 'll, 'tcx> TypeLayoutResolver<'a, 'll, 'tcx> {
         self.named_structs.borrow_mut().insert(idx, named_struct);
         self.resolving.borrow_mut().insert(idx);
 
+        // Enum payloads use [M x i64] layout where each field occupies
+        // at least one full i64 slot (8 bytes). Must match
+        // compute_variant_field_offsets() in drop_enum.rs and
+        // enum_payload_size() / pool_type_store_size() in ori_arc.
         let mut max_payload_bytes: u64 = 0;
         for variant in variants {
             let variant_bytes: u64 = variant
@@ -326,7 +330,9 @@ impl<'a, 'll, 'tcx> TypeLayoutResolver<'a, 'll, 'tcx> {
                 .iter()
                 .map(|&f| {
                     let ty = self.resolve(f);
-                    Self::type_store_size(ty)
+                    let size = Self::type_store_size(ty);
+                    // Round up to 8-byte i64 slot boundary
+                    size.div_ceil(8) * 8
                 })
                 .sum();
             max_payload_bytes = max_payload_bytes.max(variant_bytes);

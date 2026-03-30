@@ -70,11 +70,14 @@ pub(crate) fn pool_type_store_size(ty: Idx, pool: &ori_types::Pool, depth: u32) 
             8 + ok_size.max(err_size)
         }
         Tag::Enum => {
-            // Enum = {i64 tag, max(variant payloads with inter-field padding)}
+            // Enum = {i64 tag, max(variant payloads in i64-slot layout)}
+            // Enum payloads use [M x i64] array layout where each field
+            // occupies ceil(field_size / 8) * 8 bytes (at least one i64 slot).
+            // This differs from struct/tuple natural alignment padding.
             let variants = pool.enum_variants(ty);
             let max_payload: i64 = variants
                 .iter()
-                .map(|(_, fields)| aggregate_size_with_padding(fields.iter().copied(), pool, depth))
+                .map(|(_, fields)| enum_payload_size(fields.iter().copied(), pool, depth))
                 .max()
                 .unwrap_or(0);
             8 + max_payload
@@ -135,6 +138,20 @@ fn aggregate_size_with_padding(
         max_align = max_align.max(fa);
     }
     round_up_i64(offset, max_align)
+}
+
+/// Compute total payload size for an enum variant's fields using i64-slot layout.
+///
+/// Enum payloads are stored as `[M x i64]` arrays in LLVM. Each field occupies
+/// at least one full i64 slot (8 bytes), regardless of its natural alignment.
+/// This matches `compute_variant_field_offsets()` in the LLVM emitter.
+fn enum_payload_size(fields: impl Iterator<Item = Idx>, pool: &ori_types::Pool, depth: u32) -> i64 {
+    fields
+        .map(|field_ty| {
+            let field_size = pool_type_store_size(field_ty, pool, depth + 1);
+            round_up_i64(field_size, 8)
+        })
+        .sum()
 }
 
 /// Round `value` up to the next multiple of `align`.
