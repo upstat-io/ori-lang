@@ -910,3 +910,67 @@ fn type_store_size_enum_payload_slots() {
         "Enum A(bool, int, bool, str) | B: 6-slot payload = 48 + tag 8 = 56"
     );
 }
+
+/// Regression: TPR-06-017 — nested aggregates with sub-8-byte alignment.
+/// `pool_type_alignment()` must recurse into struct/tuple fields to compute
+/// max field alignment, matching `type_alignment()` in `ori_llvm`. Without
+/// recursion, all struct/tuple types default to alignment 8, which over-sizes
+/// aggregates like `((char, char), bool)` (12 bytes, not 16).
+#[test]
+fn type_store_size_nested_low_alignment() {
+    let mut pool = Pool::new();
+    let interner = ori_ir::StringInterner::new();
+
+    // (char, char) — alignment 4, size 8
+    let tup_cc = pool.tuple(&[Idx::CHAR, Idx::CHAR]);
+    assert_eq!(
+        pool_type_store_size(tup_cc, &pool, 0),
+        8,
+        "(char, char) = 8"
+    );
+
+    // ((char, char), bool) — alignment should be 4 (max of inner fields)
+    // offset 0: (char,char)=8, offset 8: bool=1 → 9, round_up(9, 4) = 12
+    let tup_ccb = pool.tuple(&[tup_cc, Idx::BOOL]);
+    assert_eq!(
+        pool_type_store_size(tup_ccb, &pool, 0),
+        12,
+        "((char, char), bool) should be 12 (alignment 4), not 16"
+    );
+
+    // (bool, bool) — alignment 1, size 2
+    let tup_bb = pool.tuple(&[Idx::BOOL, Idx::BOOL]);
+    assert_eq!(
+        pool_type_store_size(tup_bb, &pool, 0),
+        2,
+        "(bool, bool) = 2"
+    );
+
+    // ((bool, bool), char) — alignment should be 4 (from char)
+    // offset 0: (bool,bool)=2, pad to 4 (char alignment), offset 4: char=4 → 8, round_up(8, 4) = 8
+    let tup_bbc = pool.tuple(&[tup_bb, Idx::CHAR]);
+    assert_eq!(
+        pool_type_store_size(tup_bbc, &pool, 0),
+        8,
+        "((bool, bool), char) should be 8"
+    );
+
+    // Struct { inner: (char, char), flag: bool } — same as nested tuple: 12
+    let inner_name = interner.intern("inner");
+    let flag_name = interner.intern("flag");
+    let s_name = interner.intern("NestedCharStruct");
+    let nested_struct = pool.struct_type(s_name, &[(inner_name, tup_cc), (flag_name, Idx::BOOL)]);
+    assert_eq!(
+        pool_type_store_size(nested_struct, &pool, 0),
+        12,
+        "Struct {{ inner: (char, char), flag: bool }} should be 12"
+    );
+
+    // Mixed: ((char, char), int) — alignment 8 (from int), so unchanged from before
+    let tup_cci = pool.tuple(&[tup_cc, Idx::INT]);
+    assert_eq!(
+        pool_type_store_size(tup_cci, &pool, 0),
+        16,
+        "((char, char), int) is 16 — int dominates alignment"
+    );
+}
