@@ -29,8 +29,8 @@ sections:
     title: "Completion Checklist"
     status: in-progress
 third_party_review:
-  status: none
-  updated: null
+  status: findings
+  updated: 2026-03-30
 ---
 
 # Section 06: Struct & Tuple Layout Optimization
@@ -457,6 +457,13 @@ Rust unit tests in `compiler/ori_repr/src/layout/tests.rs`. AOT integration test
 
 ---
 
+## 06.R Third Party Review Findings
+
+- [x] `[TPR-06-001][high]` `compiler/ori_repr/src/pipeline/mod.rs` — Alias propagation `structural_type_eq()` treats any non-Struct/Tuple tag match as equal, unsound for payload-dependent tags (Option, Result, Enum).
+  Resolved: Fixed on 2026-03-30. Added recursive comparison for Option (inner), Result (ok+err), List (elem), Set (elem), Map (key+value), Iterator (elem). Default changed from `true` to `false` for unhandled tags. All tests pass.
+
+---
+
 ## 06.5 Completion Checklist
 
 **Test matrix for §06 (write failing tests FIRST, verify they fail, then implement):**
@@ -521,7 +528,7 @@ Tests are primarily Rust unit tests in `compiler/ori_repr/src/layout/tests.rs` (
 
 - [x] **Negative pin tests**: `test_c_layout_preserves_order` asserts size 24 (NOT 16 reordered); `test_reorder_bool_int_bool` asserts size 16 (NOT 24 unreordered); transparent with >1 non-ZST rejected (2026-03-29)
 - [x] **`ORI_CHECK_LEAKS=1` verification**: Phase 2 verified — `{ flag: bool, name: str }` in lists: zero leaks after element_store_size fix (uses ReprPlan size for reordered structs). (2026-03-30)
-- [ ] **Plan annotation cleanup**: §06 annotations are ACTIVE (section still in-progress). Cleanup after TPR passes clean.
+- [x] **Plan annotation cleanup**: No §06 struct layout annotations found in source code. References to "Section 06.2" in `ori_arc` are about ARC borrow inference, not repr-opt §06. (2026-03-30)
 - [x] **Ori spec tests**: `tests/spec/types/struct_layout.ori` — 8 tests covering field access, construction, function pass/return, list storage, list iteration, two-field and three-type reordering. 4,225 spec tests pass. (2026-03-30)
 
 **Exit Criteria (all must be measurably true):**
