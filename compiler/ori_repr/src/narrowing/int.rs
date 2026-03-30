@@ -15,11 +15,11 @@
 //! - Fields with `Top` range are left at I64 (safe default)
 //! - Fields with `Bottom` range get I8 (unreachable — smallest valid)
 
-use ori_types::{Idx, Pool};
+use ori_types::{Idx, Pool, Tag};
 
 use crate::plan::{DecisionReason, DecisionSource, ReprDecision, ReprPlan};
 use crate::repr::{IntWidth, MachineRepr};
-use crate::struct_repr::FieldRepr;
+use crate::struct_repr::{FatRepr, FieldRepr};
 
 /// Apply integer narrowing to struct and tuple fields in the `ReprPlan`.
 ///
@@ -198,7 +198,7 @@ fn is_canonical_int(repr: &MachineRepr) -> bool {
 /// `#repr("transparent")` all fix the field layout — narrowing would
 /// violate the ABI contract. `#repr("aligned", N)` alone does NOT
 /// prevent narrowing: it sets whole-struct alignment, not field layout.
-fn has_fixed_layout_attr(plan: &ReprPlan, idx: Idx) -> bool {
+pub(crate) fn has_fixed_layout_attr(plan: &ReprPlan, idx: Idx) -> bool {
     plan.repr_attr(idx).is_some_and(|attr| {
         matches!(
             attr,
@@ -232,4 +232,123 @@ fn field_range_summary_string(idx: Idx, fields: &[FieldRepr], plan: &ReprPlan) -
 enum CandidateKind {
     Struct,
     Tuple,
+}
+
+/// Apply integer narrowing to collection element types (Phase C).
+///
+/// Iterates all types with `FatPointer(Collection { element_repr })` where
+/// the element is canonical `Int { I64, signed: true }`. When the element
+/// range (from `ElementSummaryTable`) fits in a smaller width, narrows the
+/// `element_repr` field.
+///
+/// Conservatism rules (same as struct field narrowing):
+/// - Public collection types are not narrowed (ABI contract)
+/// - `NarrowingPolicy::Disabled` suppresses all narrowing
+/// - Collections with no observed construction sites stay at I64 (`Top`)
+/// - Only `[int]` is a candidate (maps and sets not yet supported)
+///
+/// Sets are excluded because the eq/hash thunks generated for set hash
+/// table operations always load the canonical LLVM type (`i64` for `int`)
+/// from element pointers. Narrowing set elements would cause the thunks
+/// to read past the narrowed slot (e.g., reading 8 bytes from a 1-byte
+/// element), producing garbage comparisons and hashes. Set narrowing
+/// requires narrowing-aware thunks — tracked separately.
+pub fn narrow_collection_elements(plan: &mut ReprPlan, pool: &Pool) {
+    let policy = plan.narrowing_policy();
+    if policy == crate::plan::NarrowingPolicy::Disabled {
+        return;
+    }
+
+    let mut narrowed_count: u32 = 0;
+
+    // Collect collection type indices with FatPointer(Collection) reprs
+    // whose element type is canonical i64.
+    let candidates: Vec<(Idx, FatRepr)> = plan
+        .decision_indices()
+        .filter_map(|idx| {
+            let repr = plan.get_repr(idx)?;
+            if let MachineRepr::FatPointer(fat @ FatRepr::Collection { ref element_repr }) = repr {
+                if is_canonical_int(element_repr) {
+                    return Some((idx, fat.clone()));
+                }
+            }
+            None
+        })
+        .collect();
+
+    for (idx, _fat) in candidates {
+        // Skip sets — eq/hash thunks load canonical-width values from element
+        // pointers; narrowing set elements causes them to read past the slot.
+        if pool.tag(idx) == Tag::Set {
+            tracing::trace!(
+                ?idx,
+                "skipping collection narrowing — set type (thunks not narrowing-aware)"
+            );
+            continue;
+        }
+
+        // Skip public collection types — ABI contract with external code.
+        if plan.is_public_type(idx) {
+            tracing::trace!(?idx, "skipping collection narrowing — public type");
+            continue;
+        }
+
+        // Skip types with fixed layout attributes.
+        if has_fixed_layout_attr(plan, idx) {
+            tracing::trace!(?idx, "skipping collection narrowing — fixed layout attr");
+            continue;
+        }
+
+        let element_range = plan.element_range(idx);
+        let min_width = element_range.min_width();
+
+        if min_width == IntWidth::I64 {
+            continue;
+        }
+
+        tracing::debug!(
+            ?idx,
+            ?element_range,
+            ?min_width,
+            "narrowing collection element type"
+        );
+
+        let new_element_repr = MachineRepr::Int {
+            width: min_width,
+            signed: true,
+        };
+        let new_repr = MachineRepr::FatPointer(FatRepr::Collection {
+            element_repr: Box::new(new_element_repr),
+        });
+
+        let reason = format!("element narrowing: {element_range:?} → {min_width:?}");
+        let decision = ReprDecision {
+            source: DecisionSource::IntegerNarrowing,
+            type_idx: idx,
+            repr: new_repr.clone(),
+            reason: DecisionReason::Custom(reason.clone()),
+        };
+        plan.set_repr(idx, decision);
+
+        // Also store for resolved idx (same pattern as struct narrowing).
+        let resolved = pool.resolve_fully(idx);
+        if resolved != idx {
+            plan.set_repr(
+                resolved,
+                ReprDecision {
+                    source: DecisionSource::IntegerNarrowing,
+                    type_idx: resolved,
+                    repr: new_repr,
+                    reason: DecisionReason::Custom(reason),
+                },
+            );
+        }
+
+        narrowed_count += 1;
+    }
+
+    tracing::debug!(
+        narrowed_count,
+        "integer narrowing complete (collection elements)"
+    );
 }

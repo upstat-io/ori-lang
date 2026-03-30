@@ -1,4 +1,4 @@
-//! Integer narrowing AOT tests (§04.4).
+//! Integer narrowing AOT tests.
 //!
 //! Tests that struct field integer narrowing produces correct runtime behavior:
 //! trunc at construction + sext at extraction = identical semantics to canonical i64.
@@ -151,7 +151,7 @@ type Bounds = { lo: int, hi: int }
     );
 }
 
-// CROSS-04-015 multi-file AOT semantic pin tests are blocked on multi-file
+// Multi-file AOT semantic pin tests for cross-module type metadata are blocked on multi-file
 // AOT compilation being incomplete (roadmap Section 4: Modules). The ARC IR
 // emitter currently cannot resolve cross-module function calls. The plumbing
 // for ExportedTypeMetadata is verified by:
@@ -478,7 +478,7 @@ type Record = { count: int, name: str, active: bool }
     );
 }
 
-// ---- Phase B: Local Variable Narrowing Tests (§04.4) ----
+// ---- Phase B: Local Variable Narrowing Tests ----
 
 // Behavioral test: manual loop (loop+break) with bounded counter and accumulator.
 // The program must produce correct results regardless of narrowing.
@@ -644,7 +644,7 @@ fn test_phase_b_ir_pin_wide_range_no_i8() {
     );
 }
 
-// ---- Comparison operations on narrowed fields (§04.4) ----
+// ---- Comparison operations on narrowed fields ----
 //
 // Narrowed struct fields are sign-extended (sext) to i64 before any use,
 // including comparisons. This guarantees signed comparison semantics are
@@ -730,14 +730,14 @@ type Triple = { x: int, y: int, z: int }
     );
 }
 
-// ---- Phase B: Straight-Line Local Variable Narrowing Tests (§04.4) ----
+// ---- Phase B: Straight-Line Local Variable Narrowing Tests ----
 //
 // These IR-inspection tests verify that non-phi local variables are narrowed
 // to smaller LLVM types when their value range fits. They are the TDD "write
 // failing tests first" step — they MUST FAIL before Phase B straight-line
 // local narrowing is implemented in def_var_repr()/var().
 //
-// §04.5 checklist: "Write failing test matrix for Phase B BEFORE implementing"
+// Phase B checklist: write failing test matrix BEFORE implementing local narrowing
 
 /// IR semantic pin: arithmetic result `x + 25` where x is a literal produces
 /// trunc+sext in the IR. Literal constants (i64 50, i64 25) are inlined by
@@ -1110,5 +1110,911 @@ type Pixel = { r: int, g: int, b: int, a: int }
         "Disabled-policy binary returned {exit_code}, expected 0.\n\
          stderr: {}",
         String::from_utf8_lossy(&run.stderr)
+    );
+}
+
+// Phase C: Collection element narrowing tests
+//
+// These tests verify that [int] list literals with bounded values use narrowed
+// element storage (i8/i16/i32) and that the narrowing is transparent to program
+// semantics — all operations produce identical results to canonical i64 storage.
+
+/// Semantic pin: list literal with bounded values uses narrowed i8 element storage.
+/// Verifies LLVM IR contains narrowed `elem_size` (1) instead of canonical (8).
+#[test]
+fn test_narrowed_list_i8_ir_pin() {
+    let ir = compile_and_capture_ir(
+        r"
+@main () -> int = {
+    let xs: [int] = [1, 2, 3];
+    xs[0]
+}
+",
+    );
+
+    let main_ir = extract_function_ir(&ir, "_ori_main");
+    // Construction: ori_list_alloc_data with elem_size=1 (i8), not 8 (i64)
+    assert!(
+        main_ir.contains("@ori_list_alloc_data(i64 3, i64 1)"),
+        "Expected narrowed elem_size=1 in list construction IR.\nIR:\n{main_ir}"
+    );
+    // Element GEP should use i8 type (inbounds form)
+    assert!(
+        main_ir.contains("getelementptr inbounds i8,"),
+        "Expected i8 GEP type for narrowed list elements.\nIR:\n{main_ir}"
+    );
+    // Element store should use i8
+    assert!(
+        main_ir.contains("store i8 1,"),
+        "Expected i8 store for narrowed list elements.\nIR:\n{main_ir}"
+    );
+    // Element load should use i8 with sext to i64
+    assert!(
+        main_ir.contains("load i8,") && main_ir.contains("sext i8"),
+        "Expected i8 load + sext for narrowed element access.\nIR:\n{main_ir}"
+    );
+}
+
+/// Semantic pin: list indexing through narrowed elements produces correct values.
+/// Each element is stored as i8, loaded as i8, then sext'd back to i64.
+#[test]
+fn test_narrowed_list_index_round_trip() {
+    assert_aot_success(
+        r"
+@main () -> int = {
+    let xs: [int] = [-128, 0, 127, 42];
+    let ok = xs[0] == -128 && xs[1] == 0 && xs[2] == 127 && xs[3] == 42;
+    if ok then 0 else 1
+}
+",
+        "narrowed_list_index_round_trip",
+    );
+}
+
+/// For-yield over narrowed list produces a correctly narrowed result list.
+/// Tests the for-yield accumulator interception (`ori_list_new`/`ori_list_push`).
+#[test]
+fn test_narrowed_list_for_yield() {
+    assert_aot_success(
+        r"
+@main () -> int = {
+    let result = for x in [10, 20, 30] yield x;
+    let ok = result[0] == 10 && result[1] == 20 && result[2] == 30;
+    if ok then 0 else 1
+}
+",
+        "narrowed_list_for_yield",
+    );
+}
+
+/// For-yield with transform over narrowed list.
+#[test]
+fn test_narrowed_list_for_yield_transform() {
+    assert_aot_success(
+        r"
+@main () -> int = {
+    let result = for x in [1, 2, 3] yield x * 10;
+    let ok = result[0] == 10 && result[1] == 20 && result[2] == 30;
+    if ok then 0 else 1
+}
+",
+        "narrowed_list_for_yield_transform",
+    );
+}
+
+/// Iteration (for..do sum) over narrowed list.
+#[test]
+fn test_narrowed_list_iteration_sum() {
+    assert_aot_success(
+        r"
+@main () -> int = {
+    let xs = [10, 20, 30, 40];
+    let sum = 0;
+    for x in xs do { sum = sum + x };
+    if sum == 100 then 0 else 1
+}
+",
+        "narrowed_list_iteration_sum",
+    );
+}
+
+/// Derived Eq on struct with narrowed list field.
+#[test]
+fn test_narrowed_list_derived_eq() {
+    assert_aot_success(
+        r"
+#derive(Eq)
+type Container = { items: [int] }
+
+@main () -> int = {
+    let a = Container { items: [1, 2, 3] };
+    let b = Container { items: [1, 2, 3] };
+    let c = Container { items: [1, 2, 4] };
+    let eq = a == b;
+    let neq = a != c;
+    if eq && neq then 0 else 1
+}
+",
+        "narrowed_list_derived_eq",
+    );
+}
+
+/// List `.first()` and `.last()` through narrowed elements — returns `Option<int>`.
+#[test]
+fn test_narrowed_list_first_last() {
+    assert_aot_success(
+        r"
+@main () -> int = {
+    let xs = [10, 20, 30];
+    let f = xs.first();
+    let l = xs.last();
+    let ok = is_some(option: f) && is_some(option: l);
+    if !ok then 1
+    else {
+        let fv = f.unwrap_or(default: -1);
+        let lv = l.unwrap_or(default: -1);
+        if fv == 10 && lv == 30 then 0 else 2
+    }
+}
+",
+        "narrowed_list_first_last",
+    );
+}
+
+/// Sort on narrowed [int] list.
+#[test]
+fn test_narrowed_list_sort() {
+    assert_aot_success(
+        r"
+@main () -> int = {
+    let xs = [30, 10, 20];
+    let sorted = xs.sort();
+    let ok = sorted[0] == 10 && sorted[1] == 20 && sorted[2] == 30;
+    if ok then 0 else 1
+}
+",
+        "narrowed_list_sort",
+    );
+}
+
+/// Negative pin: list with narrowing disabled (`ORI_NO_REPR_OPT=1`) uses
+/// canonical i64 element storage — no i8 GEP in the LLVM IR.
+#[test]
+fn test_narrowed_list_disabled_ir_pin() {
+    let ir = compile_and_capture_ir_no_repr_opt(
+        r"
+@main () -> int = {
+    let xs: [int] = [1, 2, 3];
+    xs[0]
+}
+",
+    );
+
+    let main_ir = extract_function_ir(&ir, "_ori_main");
+    // With narrowing disabled, element GEP should NOT use i8
+    assert!(
+        !main_ir.contains("getelementptr inbounds i8,"),
+        "Expected NO i8 GEP when narrowing is disabled.\nIR:\n{main_ir}"
+    );
+    // Should use canonical elem_size=8
+    assert!(
+        main_ir.contains("i64 8)") || main_ir.contains(", i64 8,"),
+        "Expected canonical elem_size=8 when narrowing is disabled.\nIR:\n{main_ir}"
+    );
+}
+
+// Phase C: Set exclusion from narrowing
+//
+// Sets are excluded from Phase C narrowing because eq/hash thunks always load
+// canonical-width values (i64 for int) from element pointers. These tests
+// verify sets work correctly with canonical element sizes even when lists
+// in the same program are narrowed.
+
+/// Set operations work correctly when list narrowing is active.
+/// Sets are created via `.iter().collect()` — canonical element sizes.
+#[test]
+fn test_set_int_canonical_with_narrowed_list_ir() {
+    let ir = compile_and_capture_ir(
+        r"
+@main () -> int = {
+    let xs: [int] = [1, 2, 3];
+    let s: Set<int> = xs.iter().collect();
+    if s.contains(value: xs[0]) then 0 else 1
+}
+",
+    );
+
+    let main_ir = extract_function_ir(&ir, "_ori_main");
+    // List should be narrowed (elem_size=1 for i8)
+    assert!(
+        main_ir.contains("@ori_list_alloc_data(i64 3, i64 1)"),
+        "Expected narrowed list elem_size=1 in IR.\nIR:\n{main_ir}"
+    );
+    // collect_set uses canonical elem_size=8 (not narrowed)
+    assert!(
+        main_ir.contains("i64 8") || main_ir.contains(", i64 8,"),
+        "Expected canonical elem_size=8 for set collection.\nIR:\n{main_ir}"
+    );
+}
+
+/// Set with bounded int elements works correctly at runtime (canonical sizes).
+#[test]
+fn test_set_int_operations_canonical() {
+    assert_aot_success(
+        r"
+use std.testing { assert_eq, assert }
+@main () -> void = {
+    let s: Set<int> = [10, 20, 30].iter().collect();
+    assert(condition: s.contains(value: 10));
+    assert(condition: s.contains(value: 20));
+    assert(condition: s.contains(value: 30));
+    assert(condition: !s.contains(value: 40));
+    assert_eq(actual: s.len(), expected: 3);
+}
+",
+        "set_int_operations_canonical",
+    );
+}
+
+/// Mixed program: narrowed list + canonical set coexist without interference.
+#[test]
+fn test_narrowed_list_and_canonical_set_coexist() {
+    assert_aot_success(
+        r"
+use std.testing { assert_eq, assert }
+@main () -> void = {
+    // List gets narrowed (all values fit in i8)
+    let xs: [int] = [1, 2, 3, 4, 5];
+    assert_eq(actual: xs[0], expected: 1);
+    assert_eq(actual: xs[4], expected: 5);
+
+    // Set uses canonical sizes (not narrowed)
+    let s: Set<int> = [1, 2, 3, 4, 5].iter().collect();
+    assert(condition: s.contains(value: 1));
+    assert(condition: s.contains(value: 5));
+    assert(condition: !s.contains(value: 6));
+    assert_eq(actual: s.len(), expected: 5);
+
+    // Cross-check: list element lookup in set
+    assert(condition: s.contains(value: xs[2]));
+}
+",
+        "narrowed_list_and_canonical_set_coexist",
+    );
+}
+
+/// Set insert works with canonical element sizes when list narrowing is active.
+#[test]
+fn test_set_insert_with_narrowed_list_context() {
+    assert_aot_success(
+        r"
+use std.testing { assert_eq, assert }
+@main () -> void = {
+    let xs: [int] = [10, 20, 30];
+    let s: Set<int> = [10, 20].iter().collect();
+    let s2 = s.insert(value: 30);
+    assert_eq(actual: s2.len(), expected: 3);
+    assert(condition: s2.contains(value: 30));
+    // Original set unchanged
+    assert_eq(actual: s.len(), expected: 2);
+}
+",
+        "set_insert_with_narrowed_list_context",
+    );
+}
+
+// Phase C: for-yield narrowing safety
+//
+// The for-yield elem_size override must only fire for int-element accumulators.
+// A program with a narrowed [int] and a for...yield producing [str] must not
+// corrupt the string accumulator's elem_size.
+
+/// Semantic pin: for-yield producing [str] works correctly when [int] is narrowed.
+/// Without the element-type gate, `ori_list_new`/`ori_list_push` for the str
+/// accumulator would receive `elem_size=1` instead of 24, causing corruption.
+#[test]
+fn test_for_yield_str_with_narrowed_int_list() {
+    assert_aot_success(
+        r"
+use std.testing { assert_eq }
+@main () -> void = {
+    // Narrowed [int] literal (all values fit in i8)
+    let xs: [int] = [1, 2, 3];
+    assert_eq(actual: xs[0], expected: 1);
+
+    // for-yield producing [str] — must NOT use narrowed elem_size
+    let ys: [str] = for x in xs.iter() yield if x == 1 then `a` else `bb`;
+    assert_eq(actual: ys[0], expected: `a`);
+    assert_eq(actual: ys[1], expected: `bb`);
+    assert_eq(actual: ys[2], expected: `bb`);
+}
+",
+        "for_yield_str_with_narrowed_int_list",
+    );
+}
+
+/// for-yield producing [int] from narrowed [int] — narrowing should still work.
+#[test]
+fn test_for_yield_int_from_narrowed_int_list() {
+    assert_aot_success(
+        r"
+use std.testing { assert_eq }
+@main () -> void = {
+    let xs: [int] = [1, 2, 3];
+    let ys: [int] = for x in xs.iter() yield x * 2;
+    assert_eq(actual: ys[0], expected: 2);
+    assert_eq(actual: ys[1], expected: 4);
+    assert_eq(actual: ys[2], expected: 6);
+}
+",
+        "for_yield_int_from_narrowed_int_list",
+    );
+}
+
+/// Mixed for-yields in same function: int and str accumulators coexist.
+#[test]
+fn test_mixed_for_yield_int_and_str() {
+    assert_aot_success(
+        r"
+use std.testing { assert_eq }
+@main () -> void = {
+    let xs: [int] = [1, 2, 3];
+    // Int for-yield — safe to narrow
+    let doubled: [int] = for x in xs.iter() yield x * 2;
+    // Str for-yield — must NOT narrow
+    let names: [str] = for x in xs.iter() yield if x == 1 then `one` else `other`;
+    assert_eq(actual: doubled[0], expected: 2);
+    assert_eq(actual: doubled[2], expected: 6);
+    assert_eq(actual: names[0], expected: `one`);
+    assert_eq(actual: names[1], expected: `other`);
+}
+",
+        "mixed_for_yield_int_and_str",
+    );
+}
+
+// ---- Float Narrowing AOT Tests ----
+//
+// These tests verify that float field narrowing (f64→f32 for f32-exact literals)
+// produces correct runtime behavior and LLVM IR patterns. They are the float
+// counterpart to the integer narrowing tests above.
+
+/// Semantic pin: struct with f32-exact float fields (0.0, 0.5, 1.0).
+/// Field values must survive fptrunc (f64→f32 at construction) and
+/// fpext (f32→f64 at extraction) without data corruption.
+#[test]
+fn test_float_narrowed_struct_roundtrip() {
+    assert_aot_success(
+        r"
+type FloatPoint = { x: float, y: float, z: float }
+
+@main () -> int = {
+    let p = FloatPoint { x: 0.0, y: 0.5, z: 1.0 };
+    let ok1 = p.x == 0.0;
+    let ok2 = p.y == 0.5;
+    let ok3 = p.z == 1.0;
+    if ok1 && ok2 && ok3 then 0 else 1
+}
+",
+        "float_narrowed_struct_roundtrip",
+    );
+}
+
+/// IR semantic pin: narrowed float struct type contains `float` fields (not `double`).
+/// A struct with all f32-exact fields should produce `{ float, float, float }` in LLVM IR.
+#[test]
+fn test_float_narrowed_struct_ir_pin_type_layout() {
+    let ir = compile_and_capture_ir(
+        r"
+type FloatColor = { r: float, g: float, b: float }
+
+@read_r (c: FloatColor) -> float = c.r;
+
+@main () -> int = {
+    let c = FloatColor { r: 0.5, g: 0.25, b: 1.0 };
+    let v = read_r(c:);
+    if v == 0.5 then 0 else 1
+}
+",
+    );
+
+    let fn_ir = extract_function_ir(&ir, "_ori_read_r");
+
+    // The struct type should be { float, float, float } not { double, double, double }.
+    let has_narrowed_type =
+        fn_ir.contains("{ float, float, float }") || fn_ir.contains("{float, float, float}");
+    assert!(
+        has_narrowed_type,
+        "expected narrowed float struct type `{{ float, float, float }}` in _ori_read_r IR — \
+         FloatColor fields with f32-exact values should be narrowed to float (f32).\n\
+         Regression guard: without float narrowing, type would be `{{ double, double, double }}`.\n\
+         IR:\n{fn_ir}"
+    );
+}
+
+/// IR semantic pin: narrowed float struct construction must insert `fptrunc double ... to float`.
+#[test]
+fn test_float_narrowed_struct_ir_pin_fptrunc_on_construction() {
+    let ir = compile_and_capture_ir(
+        r"
+type FVec2 = { x: float, y: float }
+
+@read_x (v: FVec2) -> float = v.x;
+
+@main () -> int = {
+    let v = FVec2 { x: 0.5, y: 0.25 };
+    let r = read_x(v:);
+    if r == 0.5 then 0 else 1
+}
+",
+    );
+
+    let main_ir = extract_function_ir(&ir, "_ori_main");
+
+    // The f64 constants (0.5, 0.25) are stored into narrowed f32 struct fields.
+    // LLVM may fold `fptrunc double 5.0e-1 to float` → `float 5.0e-1` at IR
+    // construction time, so we check for either explicit fptrunc or a float constant.
+    let has_fptrunc = main_ir.contains("fptrunc double");
+    let has_narrowed_const = main_ir.contains("{ float, float }");
+    assert!(
+        has_fptrunc || has_narrowed_const,
+        "expected evidence of float narrowing at construction in _ori_main — either \
+         `fptrunc double ... to float` instructions or a `{{ float, float }}` constant.\n\
+         Regression guard: without narrowing, the struct type would be `{{ double, double }}`.\n\
+         IR:\n{main_ir}"
+    );
+}
+
+/// IR semantic pin: narrowed float struct field loads must produce `fpext float ... to double`.
+#[test]
+fn test_float_narrowed_struct_ir_pin_fpext_on_field_load() {
+    let ir = compile_and_capture_ir(
+        r"
+type FVec2 = { x: float, y: float }
+
+@sum_fields (v: FVec2) -> float = v.x + v.y;
+
+@main () -> int = {
+    let v = FVec2 { x: 0.5, y: 0.25 };
+    let s = sum_fields(v:);
+    if s == 0.75 then 0 else 1
+}
+",
+    );
+
+    let fn_ir = extract_function_ir(&ir, "_ori_sum_fields");
+
+    // Narrowed float fields are f32. Loading them produces f32 values that
+    // must be extended to f64 for canonical-width arithmetic.
+    assert!(
+        fn_ir.contains("fpext float"),
+        "expected `fpext float ... to double` in _ori_sum_fields — narrowed FVec2 fields \
+         should produce f32 loads that need extension to canonical f64.\n\
+         Regression guard: if narrowing is disabled, fields stay double and no fpext appears.\n\
+         IR:\n{fn_ir}"
+    );
+}
+
+/// Negative IR semantic pin: struct with non-f32-exact values must NOT show float narrowing.
+/// `1e300` exceeds f32 range — fields must stay double.
+#[test]
+fn test_float_non_narrowed_struct_ir_pin_wide_value() {
+    let ir = compile_and_capture_ir(
+        r"
+type WideFloat = { a: float, b: float }
+
+@sum_wide (w: WideFloat) -> float = w.a + w.b;
+
+@main () -> int = {
+    let w = WideFloat { a: 1e300, b: -1e300 };
+    let s = sum_wide(w:);
+    if s == 0.0 then 0 else 1
+}
+",
+    );
+
+    let fn_ir = extract_function_ir(&ir, "_ori_sum_wide");
+
+    // Fields with values 1e300 and -1e300 exceed f32 range — no narrowing.
+    // The function should NOT contain narrowing-specific fpext instructions.
+    assert!(
+        !fn_ir.contains("fpext float"),
+        "expected NO float narrowing fpext in _ori_sum_wide — field values 1e300 \
+         and -1e300 exceed f32 range, so fields must stay double.\nIR:\n{fn_ir}"
+    );
+}
+
+/// Negative pin: float arithmetic result stored in struct field stays f64.
+/// Even if the result is f32-exact, the analysis deems arithmetic as Top.
+#[test]
+fn test_float_arithmetic_not_narrowed() {
+    let ir = compile_and_capture_ir(
+        r"
+type Result = { val: float }
+
+@compute (r: Result) -> float = r.val;
+
+@main () -> int = {
+    let x = 0.5;
+    let y = x + 0.0;
+    let r = Result { val: y };
+    let v = compute(r:);
+    if v == 0.5 then 0 else 1
+}
+",
+    );
+
+    let fn_ir = extract_function_ir(&ir, "_ori_compute");
+
+    // Arithmetic result (even if f32-exact) is marked Top by the analysis.
+    // Field should stay double — no fpext needed.
+    assert!(
+        !fn_ir.contains("fpext float"),
+        "expected NO float narrowing in _ori_compute — arithmetic results must not \
+         be narrowed (analysis conservatively marks arithmetic as Top).\nIR:\n{fn_ir}"
+    );
+}
+
+/// Negative pin: non-literal float variable stored in struct field stays f64.
+/// Only literal values are analyzed for f32-exactness.
+#[test]
+fn test_float_variable_not_narrowed() {
+    let ir = compile_and_capture_ir(
+        r"
+type Wrap = { val: float }
+
+@identity (x: float) -> float = x;
+
+@compute (w: Wrap) -> float = w.val;
+
+@main () -> int = {
+    let x = identity(x: 0.5);
+    let w = Wrap { val: x };
+    let v = compute(w:);
+    if v == 0.5 then 0 else 1
+}
+",
+    );
+
+    let fn_ir = extract_function_ir(&ir, "_ori_compute");
+
+    // Function return values are not literal-analyzed — field stays double.
+    assert!(
+        !fn_ir.contains("fpext float"),
+        "expected NO float narrowing in _ori_compute — non-literal float variable \
+         stored in struct field must stay double.\nIR:\n{fn_ir}"
+    );
+}
+
+/// IR semantic pin: mixed int+float narrowed struct.
+/// Int field in [0, 255] → i16, float field with f32-exact → float.
+/// Verifies combined integer+float narrowing in one struct.
+#[test]
+fn test_mixed_int_float_narrowed_struct() {
+    let ir = compile_and_capture_ir(
+        r"
+type Particle = { mass: float, health: int }
+
+@read_mass (p: Particle) -> float = p.mass;
+
+@main () -> int = {
+    let p = Particle { mass: 0.5, health: 100 };
+    let m = read_mass(p:);
+    if m == 0.5 && p.health == 100 then 0 else 1
+}
+",
+    );
+
+    let fn_ir = extract_function_ir(&ir, "_ori_read_mass");
+
+    // Health [100, 100] narrows to i8 (integer narrowing), mass 0.5 narrows to float
+    // (float narrowing). The struct type should be { float, i8 } — both fields narrowed.
+    // Note: the function return type is `double` (canonical f64), which is correct —
+    // only the struct storage uses the narrowed float type.
+    let has_narrowed_struct = fn_ir.contains("{ float, i8 }") || fn_ir.contains("{float, i8}");
+    assert!(
+        has_narrowed_struct,
+        "expected narrowed struct type `{{ float, i8 }}` in _ori_read_mass IR — \
+         Particle.mass (f32-exact 0.5) → float, Particle.health [100,100] → i8.\n\
+         Combined integer+float narrowing pin.\nIR:\n{fn_ir}"
+    );
+}
+
+/// Negative IR pin: `#repr("c")` struct with f32-exact fields must NOT be narrowed.
+/// C ABI compatibility requires canonical double layout.
+#[test]
+fn test_float_repr_c_not_narrowed() {
+    let ir = compile_and_capture_ir(
+        r#"
+#[repr("c")]
+type CPoint = { x: float, y: float }
+
+@read_x (p: CPoint) -> float = p.x;
+
+@main () -> int = {
+    let p = CPoint { x: 0.5, y: 0.25 };
+    let v = read_x(p:);
+    if v == 0.5 then 0 else 1
+}
+"#,
+    );
+
+    let fn_ir = extract_function_ir(&ir, "_ori_read_x");
+
+    // #repr("c") structs must preserve ABI — no narrowing. Fields stay double.
+    assert!(
+        !fn_ir.contains("fpext float"),
+        "expected NO float narrowing in #repr(\"c\") struct _ori_read_x — \
+         C ABI requires canonical double layout. Fields must stay double.\nIR:\n{fn_ir}"
+    );
+}
+
+// ---- Derive Semantic Pins for Float Narrowing ----
+//
+// These tests verify that derived traits (Printable, Debug, Hashable) work
+// correctly with narrowed float struct fields. The derive codegen must extend
+// narrowed f32 fields back to canonical f64 before calling runtime functions.
+
+/// Semantic pin: derived `to_str()` on narrowed float struct fields.
+/// The string representation MUST show "0.5", not garbage from ABI mismatch.
+/// Regression guard: derive codegen must widen narrowed float fields before formatting.
+#[test]
+fn test_float_narrowed_derive_printable() {
+    assert_aot_success(
+        r#"
+#[derive(Printable)]
+type FPoint = { x: float, y: float }
+
+@main () -> int = {
+    let p = FPoint { x: 0.5, y: 0.25 };
+    let s = p.to_str();
+    let has_05 = s.contains(substr: "0.5");
+    let has_025 = s.contains(substr: "0.25");
+    if has_05 && has_025 then 0 else 1
+}
+"#,
+        "float_narrowed_derive_printable",
+    );
+}
+
+/// Semantic pin: derived `debug()` on narrowed float struct fields.
+/// Same as Printable but for the Debug trait. The debug representation
+/// MUST show the correct float values.
+#[test]
+fn test_float_narrowed_derive_debug() {
+    assert_aot_success(
+        r#"
+#[derive(Debug)]
+type FColor = { r: float, g: float, b: float }
+
+@main () -> int = {
+    let c = FColor { r: 0.5, g: 0.25, b: 1.0 };
+    let s = c.debug();
+    let has_05 = s.contains(substr: "0.5");
+    let has_025 = s.contains(substr: "0.25");
+    // Runtime formats 1.0 as "1" (no trailing .0)
+    let has_b = s.contains(substr: "b: 1");
+    if has_05 && has_025 && has_b then 0 else 1
+}
+"#,
+        "float_narrowed_derive_debug",
+    );
+}
+
+/// Semantic pin: derived `hash()` on narrowed float struct fields.
+/// Two structs with identical f32-exact values must produce the same hash.
+/// A struct with different values must produce a different hash.
+#[test]
+fn test_float_narrowed_derive_hash() {
+    assert_aot_success(
+        r"
+#[derive(Eq, Hashable)]
+type FPair = { x: float, y: float }
+
+@main () -> int = {
+    let a = FPair { x: 0.5, y: 0.25 };
+    let b = FPair { x: 0.5, y: 0.25 };
+    let c = FPair { x: 1.0, y: 0.0 };
+    let same = a.hash() == b.hash();
+    let diff = a.hash() != c.hash();
+    if same && diff then 0 else 1
+}
+",
+        "float_narrowed_derive_hash",
+    );
+}
+
+/// Semantic pin: derived Eq on narrowed float struct fields.
+/// Equality must work correctly when fields are stored as f32.
+#[test]
+fn test_float_narrowed_derive_eq() {
+    assert_aot_success(
+        r"
+#[derive(Eq)]
+type FVec = { x: float, y: float }
+
+@main () -> int = {
+    let a = FVec { x: 0.5, y: 0.25 };
+    let b = FVec { x: 0.5, y: 0.25 };
+    let c = FVec { x: 1.0, y: 0.0 };
+    let ok1 = a == b;
+    let ok2 = a != c;
+    if ok1 && ok2 then 0 else 1
+}
+",
+        "float_narrowed_derive_eq",
+    );
+}
+
+/// Semantic pin: derived Comparable on narrowed float struct fields.
+/// Comparisons (via `compare()` → `Ordering`) must work correctly with f32 storage.
+#[test]
+fn test_float_narrowed_derive_comparable() {
+    assert_aot_success(
+        r"
+#[derive(Eq, Comparable)]
+type Measure = { value: float }
+
+@main () -> int = {
+    let a = Measure { value: 0.25 };
+    let b = Measure { value: 0.5 };
+    let ok1 = a < b;
+    let ok2 = b > a;
+    let ok3 = a <= a;
+    if ok1 && ok2 && ok3 then 0 else 1
+}
+",
+        "float_narrowed_derive_comparable",
+    );
+}
+
+/// IR semantic pin: derive Printable codegen must contain `fpext float` to widen
+/// narrowed fields before calling `ori_str_from_float(double)`.
+/// Directly verifies at the IR level that float widening occurs before formatting.
+#[test]
+fn test_float_narrowed_derive_ir_pin_fpext_in_printable() {
+    let ir = compile_and_capture_ir(
+        r#"
+#[derive(Printable)]
+type FmtFloat = { x: float }
+
+@format_it (f: FmtFloat) -> str = f.to_str();
+
+@main () -> int = {
+    let f = FmtFloat { x: 0.5 };
+    let s = format_it(f:);
+    if s.contains(substr: "0.5") then 0 else 1
+}
+"#,
+    );
+
+    // The derive Printable function must fpext narrowed float fields to double
+    // before calling ori_str_from_float. Without the fix, LLVM verification fails.
+    let has_fpext = ir.contains("fpext float");
+    assert!(
+        has_fpext,
+        "expected `fpext float ... to double` in derive Printable IR for narrowed float \
+         struct — derive codegen must widen f32 fields to f64 before ori_str_from_float.\n\
+         Regression guard: derive codegen float widening fix.\nFull IR length: {} chars",
+        ir.len()
+    );
+}
+
+// ---- Float Narrowing LLVM Parity Tests ----
+//
+// These tests close the LLVM coverage gap for scenarios that the Ori spec tests
+// (tests/spec/repr/float_narrowing/) cover via the interpreter but cannot run
+// through LLVM due to the assert_eq monomorphization limitation.
+
+/// Negative zero (-0.0) must be preserved through narrowing. IEEE 754
+/// distinguishes +0.0 and -0.0; both are f32-exact. 1.0/-0.0 = -inf.
+#[test]
+fn test_float_narrowed_negative_zero() {
+    assert_aot_success(
+        r"
+type Signed = { value: float }
+
+@main () -> int = {
+    let s = Signed { value: -0.0 };
+    // -0.0 == 0.0 per IEEE 754 equality
+    let eq_zero = s.value == 0.0;
+    // 1.0 / -0.0 = -infinity (negative)
+    let div_result = 1.0 / s.value;
+    let neg_inf = div_result < 0.0;
+    if eq_zero && neg_inf then 0 else 1
+}
+",
+        "float_narrowed_negative_zero",
+    );
+}
+
+/// Boundary values at the edge of f32 representation.
+/// Powers of 2 and the f32 precision edge (2^24 - 1).
+#[test]
+fn test_float_narrowed_boundary_values() {
+    assert_aot_success(
+        r"
+type Boundary = { large: float, small: float, edge: float }
+
+@main () -> int = {
+    let b = Boundary { large: 16777216.0, small: 0.0625, edge: 16777215.0 };
+    let ok1 = b.large == 16777216.0;
+    let ok2 = b.small == 0.0625;
+    let ok3 = b.edge == 16777215.0;
+    if ok1 && ok2 && ok3 then 0 else 1
+}
+",
+        "float_narrowed_boundary_values",
+    );
+}
+
+/// Multiple call sites storing different f32-exact values into the same
+/// struct field. The compiler joins multiple observations to decide narrowing.
+#[test]
+fn test_float_narrowed_multiple_stores() {
+    assert_aot_success(
+        r"
+type Config = { threshold: float }
+
+@config_a () -> Config = Config { threshold: 0.0 };
+@config_b () -> Config = Config { threshold: 1.0 };
+@config_c () -> Config = Config { threshold: 0.5 };
+@config_d () -> Config = Config { threshold: 255.0 };
+
+@main () -> int = {
+    let a = config_a();
+    let b = config_b();
+    let c = config_c();
+    let d = config_d();
+    let sum = a.threshold + b.threshold + c.threshold + d.threshold;
+    if sum == 256.5 then 0 else 1
+}
+",
+        "float_narrowed_multiple_stores",
+    );
+}
+
+/// Mixed exact/non-exact float fields: 0.5 is f32-exact (narrowable),
+/// 0.1 is NOT f32-exact (stays f64). Both must produce correct values.
+/// This is the AOT counterpart to `mixed_fields.ori`.
+#[test]
+fn test_float_narrowed_mixed_exact_non_exact() {
+    assert_aot_success(
+        r"
+type Measurement = { exact: float, imprecise: float }
+
+@main () -> int = {
+    let m = Measurement { exact: 0.5, imprecise: 0.1 };
+    let ok_exact = m.exact == 0.5;
+    let ok_imprecise = m.imprecise == 0.1;
+    // Use exact field in arithmetic
+    let doubled = m.exact * 2.0;
+    let ok_arith = doubled == 1.0;
+    if ok_exact && ok_imprecise && ok_arith then 0 else 1
+}
+",
+        "float_narrowed_mixed_exact_non_exact",
+    );
+}
+
+/// Float comparison operators on values loaded from narrowed struct fields.
+/// The fpext (f32→f64) must produce exact values for all comparison operators.
+#[test]
+fn test_float_narrowed_comparison_after_load() {
+    assert_aot_success(
+        r"
+type Threshold = { low: float, high: float }
+
+@main () -> int = {
+    let t = Threshold { low: 0.25, high: 0.75 };
+    let lt = t.low < 1.0;
+    let gt = t.high > 0.5;
+    let cmp = t.low < t.high;
+    let eq = t.low == 0.25;
+    let neq = t.low != t.high;
+    if lt && gt && cmp && eq && neq then 0 else 1
+}
+",
+        "float_narrowed_comparison_after_load",
     );
 }

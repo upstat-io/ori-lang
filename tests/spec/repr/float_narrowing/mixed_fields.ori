@@ -1,0 +1,40 @@
+// Spec: Annex E (System Considerations) — float narrowing transparency
+// Struct with a mix of f32-exact and non-f32-exact float fields.
+// The f32-exact field may be narrowed; the non-f32-exact stays f64.
+// Both must produce correct values.
+
+use std.testing { assert_eq }
+
+type Measurement = { exact: float, imprecise: float }
+
+// 0.5 is f32-exact; 0.1 is NOT f32-exact (infinite binary expansion)
+@make_measurement () -> Measurement = Measurement { exact: 0.5, imprecise: 0.1 };
+
+@test_exact_field tests @make_measurement () -> void = {
+    let m = make_measurement();
+    assert_eq(actual: m.exact, expected: 0.5)
+}
+
+@test_imprecise_field tests @make_measurement () -> void = {
+    let m = make_measurement();
+    assert_eq(actual: m.imprecise, expected: 0.1)
+}
+
+@test_both_fields_arithmetic tests @make_measurement () -> void = {
+    let m = make_measurement();
+    // Use the exact field in arithmetic (avoids testing FP rounding behavior)
+    let result = m.exact * 2.0;
+    assert_eq(actual: result, expected: 1.0)
+}
+
+type ThreeFields = { a: float, b: float, c: float }
+
+// a and c are f32-exact, b is not
+@make_three () -> ThreeFields = ThreeFields { a: 1.0, b: 0.3, c: 2.0 };
+
+@test_mixed_three tests @make_three () -> void = {
+    let t = make_three();
+    assert_eq(actual: t.a, expected: 1.0);
+    assert_eq(actual: t.b, expected: 0.3);
+    assert_eq(actual: t.c, expected: 2.0)
+}

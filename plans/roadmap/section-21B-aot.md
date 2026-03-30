@@ -2,7 +2,8 @@
 section: "21B"
 title: AOT Compilation
 status: in-progress
-reviewed: false
+reviewed: true
+last_verified: "2026-03-29"
 tier: 8
 goal: Generate native executables and WebAssembly from Ori source code
 sections:
@@ -26,13 +27,13 @@ sections:
     status: in-progress
   - id: "21B.7"
     title: WebAssembly Backend
-    status: not-started
+    status: in-progress
   - id: "21B.8"
     title: CLI Integration
     status: in-progress
   - id: "21B.8.5"
     title: Multi-File Compilation
-    status: not-started
+    status: in-progress
   - id: "21B.9"
     title: Error Handling
     status: not-started
@@ -41,7 +42,7 @@ sections:
     status: not-started
   - id: "21B.11"
     title: Performance & Stress Tests
-    status: not-started
+    status: in-progress
   - id: "21B.12"
     title: Platform-Specific Tests
     status: not-started
@@ -68,23 +69,23 @@ sections:
 
 ## 21B.1 Target Configuration
 
-- [ ] **Implement**: Target triple parsing and validation
-  - [ ] Parse `<arch>-<vendor>-<os>[-<env>]` format
-  - [ ] Validate against supported targets list
-  - [ ] Native target auto-detection
-  - [ ] **Rust Tests**: `ori_llvm/src/aot/target.rs` (20 tests)
+- [x] **Implement**: Target triple parsing and validation (verified 2026-03-29)
+  - [x] Parse `<arch>-<vendor>-<os>[-<env>]` format
+  - [x] Validate against supported targets list
+  - [x] Native target auto-detection
+  - [x] **Rust Tests**: `ori_llvm/tests/aot/cross.rs` + `codegen::targets` (42 tests total)
 
-- [ ] **Implement**: Data layout configuration
-  - [ ] LLVM data layout string per target
-  - [ ] Pointer size, alignment, endianness
-  - [ ] Module configuration with target triple and data layout
-  - [ ] **Rust Tests**: `ori_llvm/src/aot/target.rs`
+- [x] **Implement**: Data layout configuration (verified 2026-03-29)
+  - [x] LLVM data layout string per target
+  - [x] Pointer size, alignment, endianness
+  - [x] Module configuration with target triple and data layout
+  - [x] **Rust Tests**: `ori_llvm/tests/aot/cross.rs`
 
-- [ ] **Implement**: CPU feature detection
-  - [ ] `--cpu=native` auto-detection (`with_cpu_native()`)
-  - [ ] `--features=+avx2,-sse4` parsing
-  - [ ] Host CPU feature detection (`get_host_cpu_features()`)
-  - [ ] **Rust Tests**: `ori_llvm/src/aot/target.rs`
+- [x] **Implement**: CPU feature detection (verified 2026-03-29)
+  - [x] `--cpu=native` auto-detection (`with_cpu_native()`)
+  - [x] `--features=+avx2,-sse4` parsing
+  - [x] Host CPU feature detection (`get_host_cpu_features()`)
+  - [x] **Rust Tests**: `ori_llvm/tests/aot/cross.rs`
 
 **Supported targets (initial):**
 | Target | Description |
@@ -102,25 +103,25 @@ sections:
 
 ## 21B.2 Object File Emission
 
-- [ ] **Implement**: LLVM TargetMachine creation
-  - [ ] Configure target triple, CPU, features
-  - [ ] Set relocation model (pic, static)
-  - [ ] Set code model (small, medium, large)
-  - [ ] **Rust Tests**: `ori_llvm/src/aot/target.rs` (existing tests)
+- [x] **Implement**: LLVM TargetMachine creation (verified 2026-03-29)
+  - [x] Configure target triple, CPU, features
+  - [x] Set relocation model (pic, static)
+  - [x] Set code model (small, medium, large)
+  - [x] **Rust Tests**: covered by target configuration tests (42 tests in 21B.1)
 
-- [ ] **Implement**: Object file writing
-  - [ ] ELF output (Linux)
-  - [ ] Mach-O output (macOS)
-  - [ ] COFF output (Windows)
-  - [ ] WASM output (WebAssembly)
-  - [ ] **Rust Tests**: `ori_llvm/src/aot/object.rs` (12 tests)
+- [x] **Implement**: Object file writing (verified 2026-03-29)
+  - [x] ELF output (Linux)
+  - [x] Mach-O output (macOS)
+  - [x] COFF output (Windows)
+  - [x] WASM output (WebAssembly)
+  - [x] **Rust Tests**: `ori_llvm/tests/aot/cli.rs` (emit tests); no dedicated object.rs unit tests -- NEEDS TESTS
 
-- [ ] **Implement**: Symbol mangling — `_ori_<module>$<function>` scheme in `ori_llvm/src/aot/mangle.rs`
-  - [ ] `_ori_<module>_<function>` scheme
-  - [ ] Type suffixes for overloads (generic mangling)
-  - [ ] Trait method mangling
-  - [ ] Demangle function for `ori demangle` command
-  - [ ] **Rust Tests**: `ori_llvm/src/aot/mangle.rs` (15 tests)
+- [x] **Implement**: Symbol mangling — `_ori_<module>$<function>` scheme in `ori_llvm/src/aot/mangle/` (verified 2026-03-29)
+  - [x] `_ori_<module>_<function>` scheme
+  - [x] Type suffixes for overloads (generic mangling)
+  - [x] Trait method mangling
+  - [x] Demangle function for `ori demangle` command
+  - [x] **Rust Tests**: 29 tests across `ori_llvm/tests/aot/` + `codegen::mangling` + `oric::demangle`
 
 - [ ] **Test**: Object file verification (HIGH priority)
   - [ ] ELF header validation (magic, class, endian)
@@ -149,31 +150,31 @@ sections:
 
 ## 21B.3 Debug Information
 
-- [ ] **Implement**: DIBuilder integration
-  - [ ] Create debug compilation unit
-  - [ ] Create debug files and directories
-  - [ ] Set producer metadata
-  - [ ] **Rust Tests**: `ori_llvm/src/aot/debug.rs` (18 tests)
+- [x] **Implement**: DIBuilder integration (verified 2026-03-29)
+  - [x] Create debug compilation unit
+  - [x] Create debug files and directories
+  - [x] Set producer metadata
+  - [x] **Rust Tests**: `ori_llvm/tests/aot/debug/tests.rs` (10 tests total across all debug subsections)
 
-- [ ] **Implement**: Source location tracking
-  - [ ] DILocation for each expression
-  - [ ] Line/column mapping from spans (LineMap)
-  - [ ] Scope hierarchy (file, function, block)
-  - [ ] **Rust Tests**: `ori_llvm/src/aot/debug.rs` (5 additional tests)
+- [x] **Implement**: Source location tracking (verified 2026-03-29)
+  - [x] DILocation for each expression
+  - [x] Line/column mapping from spans (LineMap)
+  - [x] Scope hierarchy (file, function, block)
+  - [x] **Rust Tests**: included in debug/tests.rs above
 
-- [ ] **Implement**: Type debug info
-  - [ ] Primitive type debug info
-  - [ ] Struct type debug info
-  - [ ] Enum/sum type debug info
-  - [ ] Generic type debug info (Option, Result, List)
-  - [ ] **Rust Tests**: `ori_llvm/src/aot/debug.rs` (9 additional tests)
+- [x] **Implement**: Type debug info (verified 2026-03-29)
+  - [x] Primitive type debug info
+  - [x] Struct type debug info
+  - [x] Enum/sum type debug info
+  - [x] Generic type debug info (Option, Result, List)
+  - [x] **Rust Tests**: included in debug/tests.rs above
 
-- [ ] **Implement**: Debug format emission
-  - [ ] DWARF 4 (Linux, macOS, WASM)
-  - [ ] dSYM bundle configuration (macOS)
-  - [ ] CodeView/PDB configuration (Windows)
-  - [ ] Debug levels: none, line-tables, full
-  - [ ] **Rust Tests**: `ori_llvm/src/aot/debug.rs` (10 additional tests)
+- [x] **Implement**: Debug format emission (verified 2026-03-29)
+  - [x] DWARF 4 (Linux, macOS, WASM)
+  - [x] dSYM bundle configuration (macOS)
+  - [x] CodeView/PDB configuration (Windows)
+  - [x] Debug levels: none, line-tables, full
+  - [x] **Rust Tests**: included in debug/tests.rs above
 
 - [ ] **Test**: Debug info verification (MEDIUM priority)
   - [ ] DWARF version selection (4 vs 5)
@@ -190,26 +191,26 @@ sections:
 
 ## 21B.4 Optimization Pipeline
 
-- [ ] **Implement**: Pass manager configuration
-  - [ ] LLVM new pass manager setup (via llvm-sys C API)
-  - [ ] Module pass pipeline (`LLVMRunPasses` with `default<OX>` strings)
-  - [ ] Function pass pipeline (via module adapters)
-  - [ ] **Rust Tests**: `ori_llvm/src/aot/passes.rs` (25 tests)
+- [x] **Implement**: Pass manager configuration (verified 2026-03-29)
+  - [x] LLVM new pass manager setup (via llvm-sys C API)
+  - [x] Module pass pipeline (`LLVMRunPasses` with `default<OX>` strings)
+  - [x] Function pass pipeline (via module adapters)
+  - [ ] **Rust Tests**: passes/mod.rs (424 lines) and config.rs (403 lines) have ZERO unit tests -- WEAK TESTS, tested only indirectly via LTO and CLI
 
-- [ ] **Implement**: Optimization levels — O0/O1/O2/O3/Os/Oz pass pipeline selection in `ori_llvm/src/aot/passes.rs`
-  - [ ] O0: No optimization (fastest compile)
-  - [ ] O1: Basic optimization (CSE, SimplifyCFG, DCE)
-  - [ ] O2: Standard optimization (LICM, GVN, inlining)
-  - [ ] O3: Aggressive optimization (vectorization, full unrolling)
-  - [ ] Os: Size optimization
-  - [ ] Oz: Aggressive size optimization
-  - [ ] **Rust Tests**: `ori_llvm/src/aot/passes.rs`
+- [x] **Implement**: Optimization levels — O0/O1/O2/O3/Os/Oz pass pipeline selection in `ori_llvm/src/aot/passes/` (verified 2026-03-29)
+  - [x] O0: No optimization (fastest compile)
+  - [x] O1: Basic optimization (CSE, SimplifyCFG, DCE)
+  - [x] O2: Standard optimization (LICM, GVN, inlining)
+  - [x] O3: Aggressive optimization (vectorization, full unrolling)
+  - [x] Os: Size optimization
+  - [x] Oz: Aggressive size optimization
+  - [ ] **Rust Tests**: no direct unit tests -- WEAK TESTS
 
-- [ ] **Implement**: LTO support
-  - [ ] Thin LTO (parallel, fast) - `thinlto-pre-link<OX>`, `thinlto<OX>`
-  - [ ] Full LTO (maximum optimization) - `lto-pre-link<OX>`, `lto<OX>`
-  - [ ] LTO object emission configuration
-  - [ ] **Rust Tests**: `ori_llvm/src/aot/passes.rs`
+- [x] **Implement**: LTO support (verified 2026-03-29)
+  - [x] Thin LTO (parallel, fast) - `thinlto-pre-link<OX>`, `thinlto<OX>`
+  - [x] Full LTO (maximum optimization) - `lto-pre-link<OX>`, `lto<OX>`
+  - [x] LTO object emission configuration
+  - [x] **Rust Tests**: 17 LTO tests in `ori_llvm/tests/aot/lto.rs` + codegen namespace
 
 - [ ] **Test**: LTO advanced (MEDIUM priority)
   - [ ] LTO with mixed Rust/C objects
@@ -234,40 +235,40 @@ sections:
 
 ## 21B.5 Linking
 
-- [ ] **Implement**: Platform linker driver — `ori_llvm/src/aot/linker/` dispatch to cc/clang/link.exe/lld
-  - [ ] Linux: invoke via `cc` or `ld`
-  - [ ] macOS: invoke via `clang` or `ld64`
-  - [ ] Windows: invoke `link.exe` or `lld-link`
-  - [ ] LLD support (`--linker=lld`)
-  - [ ] **Rust Tests**: `ori_llvm/src/aot/linker.rs` (68 tests, 81% coverage)
+- [x] **Implement**: Platform linker driver — `ori_llvm/src/aot/linker/` dispatch to cc/clang/link.exe/lld (verified 2026-03-29)
+  - [x] Linux: invoke via `cc` or `ld`
+  - [x] macOS: invoke via `clang` or `ld64`
+  - [x] Windows: invoke `link.exe` or `lld-link`
+  - [x] LLD support (`--linker=lld`)
+  - [x] **Rust Tests**: 35 linking integration + 20 WASM linker + 14 syslib = 69 tests total
 
-- [ ] **Implement**: Runtime library (libori_rt)
-  - [ ] Consolidate Section 21A runtime functions
-  - [ ] Memory: `ori_alloc`, `ori_free`, `ori_realloc`
-  - [ ] Reference counting: `ori_rc_inc`, `ori_rc_dec`, `ori_rc_new`
-  - [ ] Strings: `ori_str_concat`, `ori_str_from_int`, etc.
-  - [ ] Collections: `ori_list_new`, `ori_map_new`, etc.
-  - [ ] Panic: `ori_panic`, `ori_panic_handler`
-  - [ ] I/O: `ori_print`, `ori_stdin_read`
-  - [ ] Static linking (default)
-  - [ ] Dynamic linking (--link=dynamic)
-  - [ ] **Rust Tests**: `ori_rt/src/lib.rs` (19 tests), `ori_llvm/src/aot/runtime.rs` (4 tests)
+- [x] **Implement**: Runtime library (libori_rt) (verified 2026-03-29)
+  - [x] Consolidate Section 21A runtime functions
+  - [x] Memory: `ori_alloc`, `ori_free`, `ori_realloc`
+  - [x] Reference counting: `ori_rc_inc`, `ori_rc_dec`, `ori_rc_new`
+  - [x] Strings: `ori_str_concat`, `ori_str_from_int`, etc.
+  - [x] Collections: `ori_list_new`, `ori_map_new`, etc.
+  - [x] Panic: `ori_panic`, `ori_panic_handler`
+  - [x] I/O: `ori_print`, `ori_stdin_read`
+  - [x] Static linking (default)
+  - [x] Dynamic linking (--link=dynamic)
+  - [x] **Rust Tests**: `ori_rt` (360 tests); runtime.rs has 0 unit tests -- WEAK TESTS (indirect only via phase test)
 
-- [ ] **Implement**: Runtime library discovery
+- [x] **Implement**: Runtime library discovery (verified 2026-03-29)
   - **Proposal**: `proposals/approved/runtime-library-discovery-proposal.md` APPROVED 2026-02-02
-  - [ ] Walk up from binary to find `libori_rt.a` (like rustc sysroot)
-  - [ ] Dev layout: same directory as compiler binary
-  - [ ] Installed layout: `<exe>/../lib/libori_rt.a`
-  - [ ] Workspace dev: `$ORI_WORKSPACE_DIR/target/{release,debug}/`
+  - [x] Walk up from binary to find `libori_rt.a` (like rustc sysroot) -- 5-strategy binary-relative search
+  - [x] Dev layout: same directory as compiler binary
+  - [x] Installed layout: `<exe>/../lib/libori_rt.a`
+  - [x] Workspace dev: `$ORI_WORKSPACE_DIR/target/{release,debug}/`
   - [ ] CLI override: `--runtime-path` flag (pending CLI integration)
-  - [ ] Remove environment variables (ORI_LIB_DIR, ORI_RT_PATH) from current implementation
-  - [ ] **Unblocks**: Multi-file AOT compilation (21B.8.5), End-to-end tests (21B.10)
+  - [x] Remove environment variables (ORI_LIB_DIR, ORI_RT_PATH) from current implementation -- verified removed
+  - [x] **Unblocks**: Multi-file AOT compilation (21B.8.5), End-to-end tests (21B.10)
 
-- [ ] **Implement**: System library detection
-  - [ ] Platform-specific library paths
-  - [ ] Sysroot support for cross-compilation
-  - [ ] Library search order
-  - [ ] **Rust Tests**: `ori_llvm/src/aot/syslib.rs` (14 tests)
+- [x] **Implement**: System library detection (verified 2026-03-29)
+  - [x] Platform-specific library paths
+  - [x] Sysroot support for cross-compilation
+  - [x] Library search order
+  - [x] **Rust Tests**: `ori_llvm/src/aot/syslib/` (14 tests)
 
 - [ ] **Test**: Linker error handling (HIGH priority)
   - [ ] Undefined symbol error messages
@@ -294,37 +295,37 @@ sections:
 
 ## 21B.6 Incremental Compilation
 
-- [ ] **Implement**: Source hashing — content-based change detection in `ori_llvm/src/aot/incremental/hash.rs`
-  - [ ] Content hash per source file (FxHash algorithm)
-  - [ ] Store hashes in `build/cache/`
-  - [ ] Detect hash mismatches
-  - [ ] **Rust Tests**: `ori_llvm/src/aot/incremental/hash.rs` (14 tests)
+- [x] **Implement**: Source hashing — content-based change detection in `ori_llvm/src/aot/incremental/hash.rs` (verified 2026-03-29)
+  - [x] Content hash per source file (FxHash algorithm)
+  - [x] Store hashes in `build/cache/`
+  - [x] Detect hash mismatches
+  - [x] **Rust Tests**: 14 tests
 
-- [ ] **Implement**: Dependency tracking — import graph for incremental invalidation in `ori_llvm/src/aot/incremental/deps.rs`
-  - [ ] Import graph analysis
-  - [ ] Transitive dependency detection
-  - [ ] Topological ordering for compilation
-  - [ ] **Rust Tests**: `ori_llvm/src/aot/incremental/deps.rs` (12 tests)
+- [x] **Implement**: Dependency tracking — import graph for incremental invalidation in `ori_llvm/src/aot/incremental/deps.rs` (verified 2026-03-29)
+  - [x] Import graph analysis
+  - [x] Transitive dependency detection
+  - [x] Topological ordering for compilation
+  - [x] **Rust Tests**: 12 tests
 
-- [ ] **Implement**: Compilation cache management — validation/hit/miss/parallel access in `ori_llvm/src/aot/incremental/cache.rs`
-  - [ ] Cache validation (source + deps + flags + version)
-  - [ ] Cache hit: skip recompilation
-  - [ ] Cache miss: recompile and update cache
-  - [ ] Parallel cache access
-  - [ ] **Rust Tests**: `ori_llvm/src/aot/incremental/cache.rs` (11 tests)
+- [x] **Implement**: Compilation cache management — validation/hit/miss/parallel access in `ori_llvm/src/aot/incremental/cache.rs` (verified 2026-03-29)
+  - [x] Cache validation (source + deps + flags + version)
+  - [x] Cache hit: skip recompilation
+  - [x] Cache miss: recompile and update cache
+  - [x] Parallel cache access
+  - [x] **Rust Tests**: 11 tests
 
-- [ ] **Implement**: Parallel compilation — thread pool for multi-module builds in `ori_llvm/src/aot/incremental/parallel.rs`
-  - [ ] `--jobs=N` flag
-  - [ ] Auto-detect core count (`--jobs=auto`)
-  - [ ] Thread pool for module compilation
-  - [ ] **Rust Tests**: `ori_llvm/src/aot/incremental/parallel.rs` (12 tests)
+- [x] **Implement**: Parallel compilation — thread pool for multi-module builds in `ori_llvm/src/aot/incremental/parallel.rs` (verified 2026-03-29)
+  - [x] `--jobs=N` flag
+  - [x] Auto-detect core count (`--jobs=auto`)
+  - [x] Thread pool for module compilation
+  - [x] **Rust Tests**: 20 tests
 
-- [ ] **Integrate**: Wire up cache to `ori build` command
+- [ ] **Integrate**: Wire up cache to `ori build` command -- GAP-1 CRITICAL: infrastructure complete (77 tests, 7 submodules, ~2500 lines) but NOT wired into `ori build`
   - [ ] Add cache lookup before compilation in `build_file()`
   - [ ] Store compiled objects in cache after successful build
   - [ ] Add `--no-cache` flag to bypass incremental compilation
   - [ ] Add verbose output for cache hits/misses
-  - [ ] **Blocks**: 21B.8 incremental test (`test_build_incremental_unchanged`)
+  - [ ] **Blocks**: 21B.8 incremental test (`test_build_incremental_unchanged` is `#[ignore]`), 21B.8.5.4 cache integration
 
 - [ ] **Test**: Incremental compilation advanced (MEDIUM priority)
   - [ ] Source hash computation
@@ -340,32 +341,32 @@ sections:
 
 ## 21B.7 WebAssembly Backend
 
-- [ ] **Implement**: WASM target configuration
-  - [ ] `wasm32-unknown-unknown` (standalone)
-  - [ ] `wasm32-wasi` (WASI preview 2)
-  - [ ] WASM-specific data layout
-  - [ ] Memory import/export
-  - [ ] **Rust Tests**: `ori_llvm/src/aot/wasm.rs` (70 tests)
+- [x] **Implement**: WASM target configuration (verified 2026-03-29) -- STALE STATUS corrected from not-started
+  - [x] `wasm32-unknown-unknown` (standalone)
+  - [x] `wasm32-wasi` (WASI preview 2)
+  - [x] WASM-specific data layout
+  - [x] Memory import/export
+  - [x] **Rust Tests**: 73 WASM tests (44 integration + 20 linker unit + 6 cross-compilation + 3 others)
 
-- [ ] **Implement**: JavaScript binding generation
-  - [ ] `--js-bindings` flag support via `WasmConfig`
-  - [ ] Generate `<name>.js` glue code
-  - [ ] Generate `<name>.d.ts` TypeScript declarations
-  - [ ] String marshalling (TextEncoder/TextDecoder)
-  - [ ] Heap slab for JsValue handles
-  - [ ] **Rust Tests**: `ori_llvm/src/aot/wasm.rs`
+- [x] **Implement**: JavaScript binding generation (verified 2026-03-29)
+  - [x] `--js-bindings` flag support via `WasmConfig`
+  - [x] Generate `<name>.js` glue code
+  - [x] Generate `<name>.d.ts` TypeScript declarations
+  - [x] String marshalling (TextEncoder/TextDecoder)
+  - [x] Heap slab for JsValue handles
+  - [x] **Rust Tests**: included in WASM tests above
 
-- [ ] **Implement**: WASI support
-  - [ ] WASI import declarations (`WasiConfig::undefined_symbols()`)
-  - [ ] File system configuration
-  - [ ] Clock/random shim configuration
-  - [ ] **Rust Tests**: `ori_llvm/src/aot/wasm.rs`
+- [x] **Implement**: WASI support (verified 2026-03-29)
+  - [x] WASI import declarations (`WasiConfig::undefined_symbols()`)
+  - [x] File system configuration
+  - [x] Clock/random shim configuration
+  - [x] **Rust Tests**: included in WASM tests above
 
-- [ ] **Implement**: WASM optimization
-  - [ ] `--opt=z` for smallest size (`WasmOptLevel::Oz`)
-  - [ ] `--wasm-opt` post-processor integration (`WasmOptRunner`)
-  - [ ] Tree-shaking support via wasm-opt
-  - [ ] **Rust Tests**: `ori_llvm/src/aot/wasm.rs`
+- [x] **Implement**: WASM optimization (verified 2026-03-29)
+  - [x] `--opt=z` for smallest size (`WasmOptLevel::Oz`)
+  - [x] `--wasm-opt` post-processor integration (`WasmOptRunner`)
+  - [x] Tree-shaking support via wasm-opt
+  - [x] **Rust Tests**: included in WASM tests above
 
 - [ ] **Test**: WASM advanced (MEDIUM priority)
   - [ ] Custom section embedding
@@ -383,39 +384,39 @@ sections:
 
 ## 21B.8 CLI Integration
 
-- [ ] **Implement**: `ori build` command
-  - [ ] Parse all flags (--release, --target, --opt, etc.)
-  - [ ] Output path handling (-o, --out-dir)
-  - [ ] Emit mode (--emit=obj, llvm-ir, llvm-bc, asm)
-  - [ ] Library modes (--lib, --dylib)
-  - [ ] Verbose output (-v)
-  - [ ] **Rust Tests**: `oric/src/commands/build.rs` (36 tests)
-  - [ ] **CLI Tests**: `ori_llvm/tests/aot/cli.rs` (25 tests)
+- [x] **Implement**: `ori build` command (verified 2026-03-29)
+  - [x] Parse all flags (--release, --target, --opt, etc.)
+  - [x] Output path handling (-o, --out-dir)
+  - [x] Emit mode (--emit=obj, llvm-ir, llvm-bc, asm)
+  - [x] Library modes (--lib, --dylib)
+  - [x] Verbose output (-v)
+  - [x] **Rust Tests**: 53 build tests (11 build + 42 build_options)
+  - [x] **CLI Tests**: `ori_llvm/tests/aot/cli.rs` (42 tests, 1 ignored for incremental)
 
-- [ ] **Implement**: `ori targets` command
-  - [ ] List all supported targets
-  - [ ] `--installed` flag for targets with sysroots
-  - [ ] **Rust Tests**: `oric/src/commands/targets.rs` (8 tests, requires LLVM feature)
+- [x] **Implement**: `ori targets` command (verified 2026-03-29)
+  - [x] List all supported targets
+  - [x] `--installed` flag for targets with sysroots
+  - [x] **Rust Tests**: `oric/src/commands/targets/` (9 tests)
 
-- [ ] **Implement**: `ori target` command (cross-compilation)
-  - [ ] `ori target add <target>` - download sysroot
-  - [ ] `ori target remove <target>` - remove sysroot
-  - [ ] `ori target list` - list installed targets
-  - [ ] Sysroot management
-  - [ ] **Rust Tests**: `oric/src/commands/target.rs` (7 tests)
+- [x] **Implement**: `ori target` command (cross-compilation) (verified 2026-03-29)
+  - [x] `ori target add <target>` - download sysroot
+  - [x] `ori target remove <target>` - remove sysroot
+  - [x] `ori target list` - list installed targets
+  - [x] Sysroot management
+  - [x] **Rust Tests**: `oric/src/commands/target.rs` (7 tests)
 
-- [ ] **Implement**: `ori demangle` command
-  - [ ] Parse mangled symbol names
-  - [ ] Output demangled Ori names
-  - [ ] **Rust Tests**: `oric/src/commands/demangle.rs` (9 tests, requires LLVM feature)
+- [x] **Implement**: `ori demangle` command (verified 2026-03-29)
+  - [x] Parse mangled symbol names
+  - [x] Output demangled Ori names
+  - [x] **Rust Tests**: `oric/src/commands/demangle/` (9 tests)
 
-- [ ] **Implement**: `ori run --compile` mode
-  - [ ] AOT compile then execute
-  - [ ] Faster repeated runs
-  - [ ] Cache compiled binary (hash-based in ~/.cache/ori/compiled/)
-  - [ ] **Rust Tests**: `oric/src/commands/run.rs` (5 tests, requires LLVM feature)
+- [x] **Implement**: `ori run --compile` mode (verified 2026-03-29)
+  - [x] AOT compile then execute
+  - [x] Faster repeated runs
+  - [x] Cache compiled binary (hash-based in ~/.cache/ori/compiled/)
+  - [x] **Rust Tests**: `oric/src/commands/run/` (5 tests)
 
-- [ ] **Test**: CLI integration (25 tests in `ori_llvm/tests/aot/cli.rs`)
+- [x] **Test**: CLI integration (42 tests in `ori_llvm/tests/aot/cli.rs`, 1 ignored for incremental) (verified 2026-03-29)
   - [ ] `ori build` basic compilation
   - [ ] `ori build --target` cross-compilation (WASM object emission)
   - [ ] `ori build --release` optimization mode
@@ -440,25 +441,25 @@ Enable AOT compilation of Ori programs with imports. Currently, `ori build` prod
 
 ### 21B.8.5.1 Dependency Graph Infrastructure
 
-- [ ] **Implement**: `build_dependency_graph()` in `ori_llvm/src/aot/multi_file.rs`
-  - [ ] Build import graph from entry file using import extraction
-  - [ ] Handle relative imports (`./helper`, `../utils`)
-  - [ ] Handle directory modules (`./http` → `http/mod.ori`)
-  - [ ] Handle stdlib imports (`std.math` via `ORI_STDLIB`)
-  - [ ] **Rust Tests**: `ori_llvm/src/aot/multi_file.rs` (15 tests)
+- [x] **Implement**: `build_dependency_graph()` in `ori_llvm/src/aot/multi_file/mod.rs` (verified 2026-03-29) -- STALE STATUS corrected from not-started
+  - [x] Build import graph from entry file using import extraction
+  - [x] Handle relative imports (`./helper`, `../utils`)
+  - [x] Handle directory modules (`./http` → `http/mod.ori`)
+  - [x] Handle stdlib imports (`std.math` via `ORI_STDLIB`)
+  - [x] **Rust Tests**: 15 unit tests
 
-- [ ] **Implement**: Topological sorting for compilation order
-  - [ ] Sort modules so dependencies compile before dependents (reuses `DependencyGraph::topological_order()`)
-  - [ ] Integrate with cycle detection via `GraphBuildContext`
-  - [ ] **Rust Tests**: `ori_llvm/src/aot/multi_file.rs`
+- [x] **Implement**: Topological sorting for compilation order (verified 2026-03-29)
+  - [x] Sort modules so dependencies compile before dependents (reuses `DependencyGraph::topological_order()`)
+  - [x] Integrate with cycle detection via `GraphBuildContext`
+  - [x] **Rust Tests**: included in 15 unit tests above
 
 ### 21B.8.5.2 Per-Module Compilation
 
-- [ ] **Implement**: Per-module compilation in `build_file_multi()`
-  - [ ] Compile single module to object file
-  - [ ] Use module-qualified name mangling (`_ori_<module>$<function>`)
-  - [ ] Generate `declare` for imported symbols via `declare_external_fn_mangled()`
-  - [ ] **Rust Tests**: `ori_llvm/src/declare.rs`
+- [x] **Implement**: Per-module compilation in `build_file_multi()` (verified 2026-03-29)
+  - [x] Compile single module to object file
+  - [x] Use module-qualified name mangling (`_ori_<module>$<function>`)
+  - [x] Generate `declare` for imported symbols via `declare_external_fn_mangled()`
+  - [x] **Rust Tests**: `ori_llvm/src/declare.rs`
 
 - [ ] **Implement**: Update `ori demangle` for module paths
   - [ ] Parse `_ori_helper$my_assert` → `helper.@my_assert`
@@ -562,7 +563,7 @@ Enable AOT compilation of Ori programs with imports. Currently, `ori build` prod
 
 ## 21B.10 End-to-End Pipeline Tests
 
-> **CRITICAL** - 0% coverage. No tests for full: parse → typeck → codegen → link → execute
+> Proposed test infrastructure (formal `AotTestExecutor`, `--backend=aot`) is not started. However, 1977 AOT integration tests exercise the full parse-typeck-codegen-link-execute pipeline. `diagnostics/dual-exec-verify.sh` exists for interpreter vs AOT comparison. (verified 2026-03-29)
 
 **Proposal:** `proposals/approved/aot-test-backend-proposal.md`
 
@@ -609,7 +610,7 @@ Enable AOT compilation of Ori programs with imports. Currently, `ori build` prod
 
 ## 21B.11 Performance & Stress Tests
 
-> **CRITICAL** - 0% coverage. No large module or parallel compilation tests
+> STALE STATUS corrected from not-started. `compiler/ori_llvm/tests/aot/stress.rs` has 34 tests; `memory_stress.rs` also exists. (verified 2026-03-29)
 
 - [ ] **Test**: Performance benchmarks
   - [ ] Compile large module (10K+ lines)
@@ -732,69 +733,69 @@ Enable AOT compilation of Ori programs with imports. Currently, `ori build` prod
 
 ## 21B.16 Section Completion Checklist
 
-**Target Configuration (21B.1):**
-- [ ] Target triple parsing and validation
-- [ ] Data layout configuration
-- [ ] CPU feature detection
-- [ ] Native target auto-detection
+**Target Configuration (21B.1):** (verified 2026-03-29)
+- [x] Target triple parsing and validation
+- [x] Data layout configuration
+- [x] CPU feature detection
+- [x] Native target auto-detection
 
-**Object Emission (21B.2):**
-- [ ] ELF, Mach-O, COFF, WASM output
-- [ ] Symbol mangling scheme
-- [ ] `ori demangle` command (with tests)
+**Object Emission (21B.2):** (verified 2026-03-29 -- core emission done, verification tests not started)
+- [x] ELF, Mach-O, COFF, WASM output
+- [x] Symbol mangling scheme
+- [x] `ori demangle` command (with tests)
 - [ ] Object file verification tests (10 scenarios)
 - [ ] Symbol management tests (9 scenarios)
 
-**Debug Information (21B.3):**
-- [ ] DWARF 4 emission
-- [ ] dSYM bundle (macOS)
-- [ ] CodeView/PDB (Windows)
-- [ ] Source location tracking
+**Debug Information (21B.3):** (verified 2026-03-29 -- implementation done, 10 tests; verification tests not started)
+- [x] DWARF 4 emission
+- [x] dSYM bundle (macOS)
+- [x] CodeView/PDB (Windows)
+- [x] Source location tracking
 - [ ] Debug info verification tests (9 scenarios)
 
-**Optimization (21B.4):**
-- [ ] O0-O3, Os, Oz levels
-- [ ] Thin LTO and Full LTO
-- [ ] Pass manager configuration
+**Optimization (21B.4):** (verified 2026-03-29 -- implementation done; pass manager has ZERO unit tests)
+- [x] O0-O3, Os, Oz levels
+- [x] Thin LTO and Full LTO
+- [x] Pass manager configuration -- WEAK TESTS (0 direct unit tests, 827 lines untested)
 - [ ] LTO advanced tests (7 scenarios)
 - [ ] Code model tests (8 scenarios)
 
-**Linking (21B.5):**
-- [ ] System linker driver (cc/clang/link.exe)
-- [ ] LLD support
-- [ ] Runtime library (libori_rt)
-- [ ] Static and dynamic linking
-- [ ] Runtime library discovery (binary-relative, like rustc sysroot)
+**Linking (21B.5):** (verified 2026-03-29 -- core linking done, 69 tests)
+- [x] System linker driver (cc/clang/link.exe)
+- [x] LLD support
+- [x] Runtime library (libori_rt)
+- [x] Static and dynamic linking
+- [x] Runtime library discovery (binary-relative, like rustc sysroot)
 - [ ] Linker error handling tests (8 scenarios)
 - [ ] Linker feature tests (9 scenarios)
 
-**Incremental (21B.6):**
-- [ ] Source hashing
-- [ ] Dependency tracking
-- [ ] Cache management
-- [ ] Parallel compilation
-- [ ] Wire up cache to `ori build` command (blocks 21B.8 incremental test)
+**Incremental (21B.6):** (verified 2026-03-29 -- infrastructure done with 77 tests; GAP-1 CRITICAL: not wired to `ori build`)
+- [x] Source hashing
+- [x] Dependency tracking
+- [x] Cache management
+- [x] Parallel compilation
+- [ ] Wire up cache to `ori build` command (blocks 21B.8 incremental test) -- GAP-1 CRITICAL
 - [ ] Incremental advanced tests (8 scenarios)
 
-**WebAssembly (21B.7):**
-- [ ] wasm32-unknown-unknown target
-- [ ] wasm32-wasi target
-- [ ] JavaScript binding generation
-- [ ] TypeScript declarations
+**WebAssembly (21B.7):** (verified 2026-03-29 -- substantially implemented, 73 tests)
+- [x] wasm32-unknown-unknown target
+- [x] wasm32-wasi target
+- [x] JavaScript binding generation
+- [x] TypeScript declarations
 - [ ] WASM advanced tests (10 scenarios)
 
-**CLI (21B.8):**
-- [ ] `ori build` command (with tests)
-- [ ] `ori targets` command (with tests)
-- [ ] `ori target add/remove` commands (with tests)
-- [ ] `ori demangle` command (with tests)
-- [ ] `ori run --compile` mode (with tests)
-- [ ] CLI integration tests (25 end-to-end tests)
+**CLI (21B.8):** (verified 2026-03-29 -- all commands implemented, 125 tests total)
+- [x] `ori build` command (with tests)
+- [x] `ori targets` command (with tests)
+- [x] `ori target add/remove` commands (with tests)
+- [x] `ori demangle` command (with tests)
+- [x] `ori run --compile` mode (with tests)
+- [x] CLI integration tests (42 end-to-end tests)
 - [ ] Build incremental test (blocked on 21B.6 integration)
 
-**Multi-File Compilation (21B.8.5):**
-- [ ] Dependency graph infrastructure
-- [ ] Per-module compilation with name mangling
+**Multi-File Compilation (21B.8.5):** (verified 2026-03-29 -- infrastructure done, 15 tests)
+- [x] Dependency graph infrastructure
+- [x] Per-module compilation with name mangling
 - [ ] Linking integration
 - [ ] `ori demangle` Ori-style output (`module.@function`)
 - [ ] Cache integration (reuse 21B.6)
@@ -808,10 +809,10 @@ Enable AOT compilation of Ori programs with imports. Currently, `ori build` prod
 - [ ] Error handling tests (13 scenarios)
 - [ ] Error diagnostics tests (7 scenarios)
 
-**End-to-End Pipeline (21B.10):**
+**End-to-End Pipeline (21B.10):** (verified 2026-03-29 -- proposed infrastructure not started; 1977 AOT integration tests cover pipeline functionally)
 - [ ] End-to-end execution tests (12 scenarios)
 
-**Performance & Stress (21B.11):**
+**Performance & Stress (21B.11):** (verified 2026-03-29 -- 34 stress tests exist in stress.rs + memory_stress.rs)
 - [ ] Performance benchmark tests (8 scenarios)
 
 **Platform-Specific (21B.12):**
@@ -831,24 +832,24 @@ Enable AOT compilation of Ori programs with imports. Currently, `ori build` prod
 - [ ] Test infrastructure (3 features)
 - [ ] `/tpr-review` passed — independent Codex review found no critical or major issues (or all findings triaged)
 
-**Test Coverage Summary:**
-| Priority | Category | Scenarios |
-|----------|----------|-----------|
-| CRITICAL | CLI Integration (21B.8) | 12 |
-| CRITICAL | Multi-File Compilation (21B.8.5) | 13 |
-| CRITICAL | Error Handling (21B.9) | 20 |
-| CRITICAL | End-to-End Pipeline (21B.10) | 12 |
-| CRITICAL | Performance/Stress (21B.11) | 8 |
-| HIGH | Linker Tests (21B.5) | 17 |
-| HIGH | Object File Tests (21B.2) | 19 |
-| MEDIUM | Platform-Specific (21B.12) | 25 |
-| MEDIUM | WASM Advanced (21B.7) | 10 |
-| MEDIUM | LTO Advanced (21B.4) | 15 |
-| MEDIUM | Incremental (21B.6) | 8 |
-| MEDIUM | Debug Info (21B.3) | 9 |
-| LOW | ABI/FFI (21B.13) | 15 |
-| LOW | Architecture (21B.14) | 7 |
-| **Total** | | **~190 scenarios** |
+**Test Coverage Summary:** (verified 2026-03-29)
+| Priority | Category | Plan Scenarios | Actual Tests | Status |
+|----------|----------|---------------|-------------|--------|
+| CRITICAL | CLI Integration (21B.8) | 12 | 125 | [done] |
+| CRITICAL | Multi-File Compilation (21B.8.5) | 13 | 15 | [partial] |
+| CRITICAL | Error Handling (21B.9) | 20 | 0 | [todo] |
+| CRITICAL | End-to-End Pipeline (21B.10) | 12 | 0 (proposed infra) | [todo] |
+| CRITICAL | Performance/Stress (21B.11) | 8 | 34 | [partial] |
+| HIGH | Linker Tests (21B.5) | 17 | 69 | [done] |
+| HIGH | Object File Tests (21B.2) | 19 | 0 | [todo] |
+| MEDIUM | Platform-Specific (21B.12) | 25 | 0 | [todo] |
+| MEDIUM | WASM Advanced (21B.7) | 10 | 0 (73 core) | [todo] |
+| MEDIUM | LTO Advanced (21B.4) | 15 | 0 (17 core) | [todo] |
+| MEDIUM | Incremental (21B.6) | 8 | 0 (77 infra) | [todo] |
+| MEDIUM | Debug Info (21B.3) | 9 | 0 (10 core) | [todo] |
+| LOW | ABI/FFI (21B.13) | 15 | 0 | [todo] |
+| LOW | Architecture (21B.14) | 7 | 0 | [todo] |
+| **Total** | | **~190 scenarios** | **400+ actual** | |
 
 **Exit Criteria:** Native executables and WASM modules can be generated from Ori source with full debug support, optimization levels, incremental compilation, and multi-file import support. All test scenarios pass with comprehensive coverage.
 
@@ -869,15 +870,18 @@ Rationale:
 ## Running Tests
 
 ```bash
+# Run all AOT tests (1977 tests)
+cargo test -p ori_llvm
+
 # Run AOT-specific tests
-./docker/llvm/run.sh cargo test -p ori_llvm --lib aot
+cargo test -p ori_llvm --lib aot
 
 # Run WASM-specific tests
-./docker/llvm/run.sh cargo test -p ori_llvm --lib wasm
+cargo test -p ori_llvm --lib wasm
 
 # Build and run an executable
-./docker/llvm/run.sh ori build src/main.ori -o myapp && ./myapp
+ori build src/main.ori -o myapp && ./myapp
 
 # Build for WASM
-./docker/llvm/run.sh ori build --wasm src/main.ori -o myapp.wasm
+ori build --wasm src/main.ori -o myapp.wasm
 ```

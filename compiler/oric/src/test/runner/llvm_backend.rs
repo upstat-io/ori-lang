@@ -242,16 +242,19 @@ impl TestRunner {
         // construction. This ensures imported `pub` and `#repr(...)` types are
         // correctly exempted from integer narrowing. See CROSS-04-014.
         //
-        // Note: Each module's `exported_type_metadata` contains only its own
-        // locally-declared types. Transitive re-exports (A→B→C where B
-        // re-exports C's type) are NOT forwarded in the JIT path because
-        // `resolve_imports()` only resolves direct `use` statements — transitive
-        // modules aren't loaded at all. The AOT pipeline handles transitive
-        // forwarding via `merge_forwarded_metadata()` in `build/multi.rs`.
-        // See TPR-04-016.
+        // Each module's `exported_type_metadata` now includes transitive metadata
+        // (forwarded from dependencies via generate_exported_type_metadata merge
+        // in the type checker's finish_with_pool). See CROSS-04-017.
         let imported_type_metadata: Vec<ori_types::ExportedTypeMetadata> = imported_type_results
             .iter()
             .flat_map(|tc| tc.typed.exported_type_metadata.iter().cloned())
+            .collect();
+
+        // Collect imported collection surface hashes for cross-module ABI
+        // protection. See TPR-04-032.
+        let imported_collection_surfaces: Vec<u64> = imported_type_results
+            .iter()
+            .flat_map(|tc| tc.typed.exported_collection_surfaces.iter().copied())
             .collect();
 
         // ARC lowering + borrow inference + compilation, wrapped in catch_unwind
@@ -284,6 +287,7 @@ impl TestRunner {
                 arc_cache,
                 None, // JIT: use env var fallback for narrowing policy
                 &imported_type_metadata,
+                &imported_collection_surfaces,
                 &type_result.typed.trait_impl_fn_names,
             )
         }));

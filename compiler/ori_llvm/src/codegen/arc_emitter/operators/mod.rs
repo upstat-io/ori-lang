@@ -45,7 +45,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         if matches!(op, BinaryOp::Add) {
             if let TypeInfo::List { element } = self.type_info.get(lhs_ty) {
                 let cm = self.cow_mode_const(arc_func);
-                if let Some(val) = self.emit_list_concat_cow(lhs, rhs, element, cm) {
+                if let Some(val) = self.emit_list_concat_cow(lhs, rhs, element, cm, lhs_ty) {
                     return val;
                 }
             }

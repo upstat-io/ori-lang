@@ -15,7 +15,7 @@
 
 use ori_arc::ir::{ArcInstr, CtorKind};
 use ori_arc::ArcVarId;
-use ori_types::{Idx, Pool};
+use ori_types::{Idx, Pool, Tag};
 use rustc_hash::FxHashMap;
 
 use super::{is_int_typed, ValueRange};
@@ -97,6 +97,77 @@ impl Default for FieldSummaryTable {
     }
 }
 
+/// Aggregates element value ranges across all collection construction and
+/// reuse sites for a collection type (e.g., `[int]`).
+///
+/// Each entry `collection_type_idx → ValueRange` represents the join of
+/// all observed element values across `Construct(ListLiteral|SetLiteral)`
+/// and `CollectionReuse` instructions building that collection type.
+/// This is the evidence base for §04 Phase C (collection element narrowing).
+#[derive(Debug)]
+pub struct ElementSummaryTable {
+    element_ranges: FxHashMap<Idx, ValueRange>,
+}
+
+impl ElementSummaryTable {
+    /// Create an empty table.
+    #[must_use]
+    pub fn new() -> Self {
+        Self {
+            element_ranges: FxHashMap::default(),
+        }
+    }
+
+    /// Clear all accumulated element ranges.
+    pub fn clear(&mut self) {
+        self.element_ranges.clear();
+    }
+
+    /// Record element value ranges from a collection construction site.
+    ///
+    /// Each `arg_ranges[i]` is joined with the existing range for
+    /// `collection_type_idx`. Only int-typed elements contribute;
+    /// non-int elements cause the range to become `Top` (no narrowing).
+    pub fn observe_elements(&mut self, collection_type_idx: Idx, arg_ranges: &[ValueRange]) {
+        // Join all element values into a single range for this collection type.
+        // An empty literal `[]` contributes nothing (no evidence either way).
+        for &range in arg_ranges {
+            self.element_ranges
+                .entry(collection_type_idx)
+                .and_modify(|existing| *existing = existing.join(range))
+                .or_insert(range);
+        }
+    }
+
+    /// Query the aggregated element range for a collection type.
+    ///
+    /// Returns `Top` if no construction sites were observed.
+    #[must_use]
+    pub fn element_range(&self, collection_type_idx: Idx) -> ValueRange {
+        self.element_ranges
+            .get(&collection_type_idx)
+            .copied()
+            .unwrap_or(ValueRange::Top)
+    }
+
+    /// Persist all element ranges into `ReprPlan::element_range_summaries`.
+    ///
+    /// Called once after the fixpoint completes for all functions. Each
+    /// entry is joined (not overwritten) into the plan, so results from
+    /// multiple functions accumulate correctly.
+    pub fn flush_to_repr_plan(&self, repr_plan: &mut crate::plan::ReprPlan) {
+        for (&idx, &range) in &self.element_ranges {
+            repr_plan.join_element_range(idx, range);
+        }
+    }
+}
+
+impl Default for ElementSummaryTable {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 /// Update the field-summary table when a `Construct` instruction is encountered.
 ///
 /// Only processes `Struct`, `Tuple`, and `EnumVariant` constructors.
@@ -135,4 +206,59 @@ pub fn update_field_summaries<S: std::hash::BuildHasher>(
         .collect();
 
     table.observe_construct(*ty, &arg_ranges);
+}
+
+/// Update the element-summary table when a collection construction or reuse
+/// instruction is encountered.
+///
+/// Tracks element value ranges from `Construct(ListLiteral|SetLiteral)` and
+/// `CollectionReuse` instructions. Only int-typed elements contribute bounded
+/// ranges; non-int elements cause `Top` (no narrowing).
+///
+/// Note: `.push()` and other runtime mutations are lowered to `Apply` calls,
+/// not ARC IR instructions — their element ranges are conservatively `Top`.
+pub fn update_element_summaries<S: std::hash::BuildHasher>(
+    instr: &ArcInstr,
+    ranges: &std::collections::HashMap<ArcVarId, ValueRange, S>,
+    var_types: &[Idx],
+    pool: &Pool,
+    table: &mut ElementSummaryTable,
+) {
+    let (ty, args) = match instr {
+        ArcInstr::Construct {
+            ty,
+            ctor: CtorKind::ListLiteral | CtorKind::SetLiteral,
+            args,
+            ..
+        }
+        | ArcInstr::CollectionReuse { ty, args, .. } => (*ty, args.as_slice()),
+        _ => return,
+    };
+
+    // Check if the collection's inner element type is int.
+    // For `[int]`, `ty` is the list type idx; we need the inner element type.
+    let inner_ty = match pool.tag(ty) {
+        Tag::List => Some(pool.list_elem(ty)),
+        Tag::Set => Some(pool.set_elem(ty)),
+        _ => None,
+    };
+    let is_int_collection = inner_ty.is_some_and(|t| is_int_typed(t, pool));
+
+    if !is_int_collection {
+        return;
+    }
+
+    let arg_ranges: Vec<ValueRange> = args
+        .iter()
+        .map(|arg| {
+            let arg_ty = var_types.get(arg.index()).copied();
+            if arg_ty.is_some_and(|t| is_int_typed(t, pool)) {
+                ranges.get(arg).copied().unwrap_or(ValueRange::Top)
+            } else {
+                ValueRange::Top
+            }
+        })
+        .collect();
+
+    table.observe_elements(ty, &arg_ranges);
 }

@@ -468,6 +468,16 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
         self.type_resolver.resolve(idx)
     }
 
+    /// Borrow the type pool.
+    pub(crate) fn pool(&self) -> &Pool {
+        self.pool
+    }
+
+    /// Access the repr plan (if present) for element narrowing queries.
+    pub(crate) fn repr_plan(&self) -> Option<&ori_repr::ReprPlan> {
+        self.type_resolver.repr_plan()
+    }
+
     /// Look up an interned name.
     pub(crate) fn lookup_name(&self, name: Name) -> &str {
         self.interner.lookup(name)

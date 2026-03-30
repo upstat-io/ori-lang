@@ -206,7 +206,8 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             // When a variable has a known source pointer (borrowed parameter),
             // forward it directly instead of alloca+store.
             let is_list_push = callee_name_str == "ori_list_push";
-            let coerced_args: Vec<ValueId> = args
+            let is_list_new = callee_name_str == "ori_list_new";
+            let mut coerced_args: Vec<ValueId> = args
                 .iter()
                 .zip(arg_vals.iter())
                 .enumerate()
@@ -231,6 +232,29 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                     }
                 })
                 .collect();
+
+            // §04.4 Phase C: replace elem_size in for-yield list runtime calls
+            // with narrowed size when the accumulator element type is int.
+            // ARC IR lowering bakes canonical elem_size=8 at lowering time
+            // (before the ReprPlan exists), so the LLVM emitter must override it.
+            // The elem_size_var is shared between ori_list_new and ori_list_push
+            // in the same for-yield — the pre-scan identifies which vars belong
+            // to int-element for-yields.
+            if let Some(width) = self.narrowed_int_collection_element_width() {
+                let narrowed_size = self.builder.const_i64(i64::from(width.size_bytes()));
+                if is_list_new
+                    && args.len() == 2
+                    && self.for_yield_int_elem_sizes.contains(&args[1])
+                {
+                    coerced_args[1] = narrowed_size;
+                } else if is_list_push
+                    && args.len() == 3
+                    && self.for_yield_int_elem_sizes.contains(&args[2])
+                {
+                    coerced_args[2] = narrowed_size;
+                }
+            }
+
             // Large struct returns (Str, List, Map) use sret convention.
             if crate::codegen::runtime_decl::rt_fn_needs_sret(callee_name_str) {
                 let ret_ty = self.resolve_type(func.var_type(dst));

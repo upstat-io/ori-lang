@@ -27,51 +27,51 @@ pub struct ReprDecision {
 pub enum DecisionSource {
     /// Default: canonical representation (no optimization).
     Canonical,
-    /// §02: Transitive triviality analysis.
+    /// Transitive triviality analysis.
     Triviality,
-    /// §03/§04: Value range → integer narrowing.
+    /// Value range analysis → integer narrowing.
     IntegerNarrowing,
-    /// §03/§05: Precision analysis → float narrowing.
+    /// Precision analysis → float narrowing.
     FloatNarrowing,
-    /// §06: Struct field reordering.
+    /// Struct field reordering.
     StructLayout,
-    /// §07: Enum niche/discriminant.
+    /// Enum niche/discriminant.
     EnumRepr,
-    /// §08: Escape analysis.
+    /// Escape analysis.
     EscapeAnalysis,
-    /// §09: ARC header compression.
+    /// ARC header compression.
     ArcHeader,
-    /// §10: Thread-local ARC.
+    /// Thread-local ARC.
     ThreadLocal,
-    /// §11: Collection specialization.
+    /// Collection specialization.
     CollectionSpec,
 }
 
 /// Reason for a narrowing decision — used in audit trail and debug tracing.
 ///
-/// `ValueRange` is a placeholder in §01 (replaced by the real interval
-/// lattice in §03).
+/// `ValueRange` is a placeholder populated by the canonical pass (replaced by
+/// the real interval lattice in the range analysis pass).
 #[derive(Debug, Clone)]
 pub enum DecisionReason {
     /// Type is canonically this width (no narrowing applied).
     Canonical,
     /// Value range fits in a narrower type.
     RangeFits {
-        /// The computed value range from §03.
+        /// The computed value range from range analysis.
         range: ValueRange,
         /// The narrowest `IntWidth` that covers the range.
         min_width: IntWidth,
     },
     /// All fields are trivial — no RC needed.
     TransitivelyTrivial,
-    /// Value never escapes function scope (from §08).
+    /// Value never escapes function scope (from escape analysis).
     DoesNotEscape,
-    /// Sharing bound is within RC width (from §09).
+    /// Sharing bound is within RC width (from ARC header compression).
     BoundedSharing {
         /// Maximum number of simultaneous references.
         max_refs: u32,
     },
-    /// Niche available in field (from §07).
+    /// Niche available in field (from enum repr pass).
     NicheAvailable {
         /// Field index containing the niche.
         field: u32,
