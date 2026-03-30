@@ -420,7 +420,16 @@ fn propagate_layout_to_aliases(
                 .zip(source_elems.iter())
                 .all(|(&a, &b)| structural_type_eq(pool, a, b))
         {
-            // Same structural type — propagate the reordered layout.
+            // TPR-06-001b: don't propagate to types with fixed-layout attrs.
+            // A reorderable struct must not poison a same-shape #repr("c") struct.
+            if source_tag == ori_types::Tag::Struct {
+                if let Some(attr) = plan.repr_attr(idx) {
+                    if !matches!(attr, crate::plan::ReprAttribute::Default) {
+                        continue;
+                    }
+                }
+            }
+            // Same structural type, compatible attributes — propagate.
             plan.set_repr(
                 idx,
                 ReprDecision {
