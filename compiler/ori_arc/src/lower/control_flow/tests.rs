@@ -578,9 +578,9 @@ fn type_store_size_containers() {
     let opt_int = pool.option(Idx::INT);
     assert_eq!(pool_type_store_size(opt_int, &pool, 0), 16, "Option<int>");
 
-    // Option<bool> = {i64 tag, bool payload} = 8 + 1 = 9
+    // Option<bool> = {i64 tag, bool payload} = round_up(8 + 1, 8) = 16
     let opt_bool = pool.option(Idx::BOOL);
-    assert_eq!(pool_type_store_size(opt_bool, &pool, 0), 9, "Option<bool>");
+    assert_eq!(pool_type_store_size(opt_bool, &pool, 0), 16, "Option<bool>");
 
     // Result<int, str> = {i64 tag, max(8, 24)} = 8 + 24 = 32
     let res = pool.result(Idx::INT, Idx::STR);
@@ -686,6 +686,83 @@ fn type_store_size_extended_types() {
         pool_type_store_size(str_enum, &pool, 0),
         32,
         "A(str) | B = {{i64 tag, max(24, 0)}} = 32"
+    );
+}
+
+/// Regression: TPR-06-013 — Option/Result trailing alignment padding.
+/// `Option<T>` is `{i64 tag, T payload}` in LLVM. Store size must include
+/// trailing alignment padding to match LLVM's `size_of()`. Without it,
+/// outer aggregates containing Option/Result fields are undersized.
+#[test]
+fn type_store_size_option_result_trailing_padding() {
+    let mut pool = Pool::new();
+    let interner = ori_ir::StringInterner::new();
+
+    // Option<bool> = {i64 tag, i1 payload} → LLVM pads to 16 bytes (alignment 8)
+    let opt_bool = pool.option(Idx::BOOL);
+    assert_eq!(
+        pool_type_store_size(opt_bool, &pool, 0),
+        16,
+        "Option<bool> must include trailing padding to alignment 8"
+    );
+
+    // Option<int> = {i64 tag, i64 payload} → 16, already aligned
+    let opt_int = pool.option(Idx::INT);
+    assert_eq!(
+        pool_type_store_size(opt_int, &pool, 0),
+        16,
+        "Option<int> is 16 (no trailing padding needed)"
+    );
+
+    // Option<char> = {i64 tag, i32 payload} → round_up(12, 8) = 16
+    let opt_char = pool.option(Idx::CHAR);
+    assert_eq!(
+        pool_type_store_size(opt_char, &pool, 0),
+        16,
+        "Option<char> must pad to 16"
+    );
+
+    // Result<bool, bool> = {i64 tag, max(1, 1) payload} → round_up(9, 8) = 16
+    let res_bb = pool.result(Idx::BOOL, Idx::BOOL);
+    assert_eq!(
+        pool_type_store_size(res_bb, &pool, 0),
+        16,
+        "Result<bool, bool> must pad to 16"
+    );
+
+    // Result<int, str> = {i64 tag, max(8, 24) = 24} → round_up(32, 8) = 32 (already aligned)
+    let res_is = pool.result(Idx::INT, Idx::STR);
+    assert_eq!(
+        pool_type_store_size(res_is, &pool, 0),
+        32,
+        "Result<int, str> is 32 (no trailing padding needed)"
+    );
+
+    // Nested: (Option<bool>, bool) — Option<bool>=16, then bool at 16 → 17, pad to 24
+    let tup_opt_bool = pool.tuple(&[opt_bool, Idx::BOOL]);
+    assert_eq!(
+        pool_type_store_size(tup_opt_bool, &pool, 0),
+        24,
+        "(Option<bool>, bool) must use padded Option size"
+    );
+
+    // Struct { left: Option<bool>, right: bool } — same as tuple: 24
+    let left_name = interner.intern("left");
+    let right_name = interner.intern("right");
+    let s_name = interner.intern("OptStruct");
+    let opt_struct = pool.struct_type(s_name, &[(left_name, opt_bool), (right_name, Idx::BOOL)]);
+    assert_eq!(
+        pool_type_store_size(opt_struct, &pool, 0),
+        24,
+        "Struct {{Option<bool>, bool}} must use padded Option size"
+    );
+
+    // Option<Option<bool>> — inner=16, outer=round_up(8+16, 8)=24
+    let opt_opt_bool = pool.option(opt_bool);
+    assert_eq!(
+        pool_type_store_size(opt_opt_bool, &pool, 0),
+        24,
+        "Option<Option<bool>> must compose correctly"
     );
 }
 
