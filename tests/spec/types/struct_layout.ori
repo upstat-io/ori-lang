@@ -84,3 +84,29 @@ type Mixed = { flag: bool, label: str, score: float }
     assert_eq(actual: m.flag, expected: true);
     assert_eq(actual: m.label, expected: "test")
 }
+
+// Regression: TPR-06-005 — for-yield identity on reordered struct.
+// The for...yield path stores elements via ARC-lowered elem_size.
+// If the StructRepr size disagrees with the LLVM type size, the
+// buffer is underallocated and the second element corrupts memory.
+@test_for_yield_identity_reordered tests @make_record () -> void = {
+    let items = [
+        Record { flag: true, name: "first", count: 10 },
+        Record { flag: false, name: "second", count: 20 },
+    ];
+    let collected = for item in items yield item;
+    assert_eq(actual: collected.length(), expected: 2)
+}
+
+// Regression: for-yield with field access on reordered struct
+@test_for_yield_field_access tests @make_record () -> void = {
+    let items = [
+        Record { flag: true, name: "a", count: 10 },
+        Record { flag: false, name: "b", count: 20 },
+        Record { flag: true, name: "c", count: 30 },
+    ];
+    let totals = for item in items yield item.count;
+    let sum = 0;
+    for t in totals do sum = sum + t;
+    assert_eq(actual: sum, expected: 60)
+}
