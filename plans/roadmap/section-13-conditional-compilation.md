@@ -2,7 +2,8 @@
 section: 13
 title: Conditional Compilation
 status: in-progress
-reviewed: false
+reviewed: true
+last_verified: "2026-03-29"
 tier: 5
 goal: Enable platform-specific code and feature flags
 spec:
@@ -10,31 +11,31 @@ spec:
 sections:
   - id: "13.1"
     title: Target Attribute
-    status: not-started
+    status: partial
   - id: "13.2"
     title: OR Conditions
-    status: not-started
+    status: partial
   - id: "13.3"
     title: Negation
-    status: not-started
+    status: partial
   - id: "13.4"
     title: Cfg Attribute
-    status: not-started
+    status: partial
   - id: "13.5"
     title: Feature Flags
-    status: not-started
+    status: partial
   - id: "13.6"
     title: File-Level Conditions
-    status: not-started
+    status: partial
   - id: "13.7"
     title: Compile-Time Constants
     status: not-started
   - id: "13.8"
     title: Build Configuration
-    status: not-started
+    status: partial
   - id: "13.9"
     title: Diagnostics
-    status: not-started
+    status: partial
   - id: "13.10"
     title: compile_error Built-in
     status: not-started
@@ -119,23 +120,26 @@ sections:
 
 ### Implementation
 
-- [ ] **Spec**: Add `spec/25-conditional-compilation.md`
-  - [ ] Target attribute syntax
-  - [ ] OS, arch, family values
-  - [ ] Scope rules
+- [x] **Spec**: `spec/25-conditional-compilation.md` Clause 25.2 (verified 2026-03-29)
+  - [x] Target attribute syntax
+  - [x] OS, arch, family values
+  - [x] Scope rules
 
-- [ ] **Lexer/Parser**: Parse target attributes
-  - [ ] `#target(...)` syntax
-  - [ ] Named arguments: `os:`, `arch:`, `family:`
-  - [ ] Apply to items
+- [x] **Lexer/Parser**: Parse target attributes (verified 2026-03-29)
+  - [x] `#target(...)` syntax — `conditional.rs:parse_target_attr_body()`
+  - [x] Named arguments: `os:`, `arch:`, `family:` — plus `not_os`, `not_arch`, `not_family`, `any_os`, `any_arch`
+  - [x] Apply to items — `Function`, `TypeDecl`, `ImplDef`, `ConstDef`, `UseDef` all have `target_attr: Option<TargetAttr>`
+  - [x] IR: `TargetAttr` struct in `ori_ir/src/ast/items/function.rs`
+  - [x] Attribute dispatch: `AttrKind::Target` in `attr/mod.rs`
+  - [x] Placement validation: `has_non_conditional_attrs()` + rejection for trait/extend/extern
+  - [x] **Rust Tests**: 85+ parser tests pass — `attr_validation.rs` (32 tests), `file_attr.rs` (53 tests), semantic pins, diagnostic pins, negative tests (verified 2026-03-29)
 
-- [ ] **Compiler**: Target evaluation
-  - [ ] Evaluate against build target
-  - [ ] Prune false branches from AST
+- [ ] **Compiler**: Target evaluation — GAP-13-001
+  - [ ] Evaluate against build target — no `evaluate_target()` function exists
+  - [ ] Prune false branches from AST — all items type-checked regardless of target conditions
   - [ ] Track for error messages
-  - [ ] **Rust Tests**: Target attribute parsing and evaluation
 
-- [ ] **Ori Tests**: `tests/spec/conditional/target_basic.ori`
+- [ ] **Ori Tests**: `tests/spec/conditional/target_basic.ori` — GAP-13-006: no Ori spec tests exist
   - [ ] OS-specific code
   - [ ] Arch-specific code
   - [ ] Family-specific code
@@ -165,19 +169,19 @@ sections:
 
 ### Implementation
 
-- [ ] **Spec**: OR condition semantics
-  - [ ] `any_os`, `any_arch`, `any_family`
-  - [ ] List syntax
+- [x] **Spec**: OR condition semantics — Clause 25.2.5 (verified 2026-03-29)
+  - [x] `any_os`, `any_arch` with list syntax
+  - [x] List syntax
 
-- [ ] **Parser**: Parse any_* variants
-  - [ ] Array literal values
-  - [ ] Validate all elements are strings
+- [x] **Parser**: Parse any_* variants (verified 2026-03-29)
+  - [x] Array literal values — `conditional.rs:parse_attr_string_list()`
+  - [x] IR: `TargetAttr::any_os` and `TargetAttr::any_arch` are `Vec<Name>`
+  - [x] **Rust Tests**: 4 parse tests pass — 2-element list, single element, trailing comma (verified 2026-03-29)
 
-- [ ] **Evaluator**: Evaluate OR conditions
-  - [ ] Match if any element matches
-  - [ ] **Rust Tests**: OR condition evaluation
+- [ ] **Evaluator**: Evaluate OR conditions — GAP-13-001
+  - [ ] Match if any element matches — no evaluation exists
 
-- [ ] **Ori Tests**: `tests/spec/conditional/target_or.ori`
+- [ ] **Ori Tests**: `tests/spec/conditional/target_or.ori` — GAP-13-006
   - [ ] any_os conditions
   - [ ] any_arch conditions
   - [ ] Combined with AND
@@ -211,18 +215,20 @@ sections:
 
 ### Implementation
 
-- [ ] **Spec**: Negation semantics
-  - [ ] `not_*` prefix for all condition types
-  - [ ] Interaction with OR conditions
+- [x] **Spec**: Negation semantics — Clause 25.2.6 (verified 2026-03-29)
+  - [x] `not_*` prefix for all condition types
+  - [x] Interaction with OR conditions
 
-- [ ] **Parser**: Parse not_* variants
-  - [ ] Recognize all negation forms
+- [x] **Parser**: Parse not_* variants (verified 2026-03-29)
+  - [x] Target: `not_os`, `not_arch`, `not_family` — `conditional.rs:99-101`
+  - [x] Cfg: `not_debug` (bare), `not_feature` (keyed) — `conditional.rs:173-193`
+  - [x] IR: `TargetAttr::not_os/not_arch/not_family`, `CfgAttr::not_debug/not_feature`
+  - [x] **Rust Tests**: 5 parse tests pass — target negation (3), cfg negation (2) (verified 2026-03-29)
 
-- [ ] **Evaluator**: Evaluate negation
-  - [ ] Boolean NOT of underlying condition
-  - [ ] **Rust Tests**: Negation evaluation
+- [ ] **Evaluator**: Evaluate negation — GAP-13-001
+  - [ ] Boolean NOT of underlying condition — no evaluation exists
 
-- [ ] **Ori Tests**: `tests/spec/conditional/negation.ori`
+- [ ] **Ori Tests**: `tests/spec/conditional/negation.ori` — GAP-13-006
   - [ ] not_os, not_arch, not_family
   - [ ] not_debug, not_release
   - [ ] not_feature
@@ -257,23 +263,25 @@ sections:
 
 ### Implementation
 
-- [ ] **Spec**: Cfg attribute semantics
-  - [ ] `debug`, `release` flags
-  - [ ] `feature: "name"` syntax
-  - [ ] `any_feature`, `not_feature`
+- [x] **Spec**: Cfg attribute semantics — Clause 25.3 (verified 2026-03-29)
+  - [x] `debug`, `release` flags
+  - [x] `feature: "name"` syntax
+  - [x] `any_feature`, `not_feature`
 
-- [ ] **Parser**: Parse cfg attributes
-  - [ ] Boolean flags (debug, release)
-  - [ ] Keyed flags (feature: "...")
-  - [ ] OR and negation variants
+- [x] **Parser**: Parse cfg attributes (verified 2026-03-29)
+  - [x] Boolean flags (debug, release) — `conditional.rs:parse_cfg_attr_body()`
+  - [x] Keyed flags (feature: "...") — handles `feature`, `not_feature`, `any_feature`
+  - [x] OR and negation variants
+  - [x] IR: `CfgAttr` struct in `ori_ir/src/ast/items/function.rs`
+  - [x] **Rust Tests**: 13+ parse tests pass — cfg on function/type/const/impl/use, feature variants, semantic pins (verified 2026-03-29)
 
-- [ ] **Compiler**: Cfg evaluation
-  - [ ] Accept `--debug` / `--release` flags
-  - [ ] Accept `--feature name` flags
-  - [ ] Prune based on configuration
-  - [ ] **Rust Tests**: Cfg attribute evaluation
+- [ ] **Compiler**: Cfg evaluation — GAP-13-001, GAP-13-002
+  - [x] `--release` flag exists in `BuildOptions` (verified 2026-03-29) — but NOT connected to cfg evaluation
+  - [ ] Accept `--debug` flag — debug is default but no explicit flag
+  - [ ] Accept `--feature name` flags — current `--features` is for CPU features, not language features
+  - [ ] Prune based on configuration — no cfg evaluation logic exists
 
-- [ ] **Ori Tests**: `tests/spec/conditional/cfg_basic.ori`
+- [ ] **Ori Tests**: `tests/spec/conditional/cfg_basic.ori` — GAP-13-006
   - [ ] debug/release flags
   - [ ] feature flags
   - [ ] any_feature, not_feature
@@ -327,25 +335,25 @@ Feature names must be valid Ori identifiers:
 
 ### Implementation
 
-- [ ] **Spec**: Feature flag semantics
+- [x] **Spec**: Feature flag semantics — Clause 25.3.2 (verified 2026-03-29)
   - [ ] Declaration in ori.toml
   - [ ] Dependency resolution
   - [ ] Default features
-  - [ ] Feature name validation
+  - [x] Feature name validation — `is_valid_feature_name()` in `conditional.rs`
 
-- [ ] **Build system**: Feature processing
-  - [ ] Parse ori.toml features
+- [ ] **Build system**: Feature processing — GAP-13-002
+  - [ ] Parse ori.toml features — no ori.toml parser exists
   - [ ] Resolve feature dependencies
   - [ ] Pass to compiler
-  - [ ] Validate feature names
+  - [x] Validate feature names — parser-level validation with E0932 (verified 2026-03-29)
 
-- [ ] **Compiler**: Feature evaluation
-  - [ ] `--feature` flag
+- [ ] **Compiler**: Feature evaluation — GAP-13-002
+  - [ ] `--feature` flag — not implemented (current `--features` is for CPU features)
   - [ ] `--no-default-features` flag
   - [ ] `--all-features` flag
-  - [ ] **Rust Tests**: Feature flag processing
+  - [x] **Rust Tests**: 11 feature name validation tests pass — valid names (3), invalid names (5), negation/list contexts (3) (verified 2026-03-29)
 
-- [ ] **Ori Tests**: `tests/spec/conditional/features.ori`
+- [ ] **Ori Tests**: `tests/spec/conditional/features.ori` — GAP-13-006
   - [ ] Basic feature gating
   - [ ] Feature dependencies
   - [ ] Default features
@@ -375,24 +383,25 @@ The `#!` prefix indicates a file-level condition. It must appear before any decl
 
 ### Implementation
 
-- [ ] **Spec**: File-level condition semantics
-  - [ ] `#!` syntax
-  - [ ] Position requirements
-  - [ ] Interaction with imports
+- [x] **Spec**: File-level condition semantics — Clause 25.5 (verified 2026-03-29)
+  - [x] `#!` syntax
+  - [x] Position requirements
+  - [x] Interaction with imports
 
-- [ ] **Lexer**: Recognize `#!` token
-  - [ ] Only at file start
+- [x] **Lexer**: Recognize `#!` token (verified 2026-03-29)
+  - [x] `TokenKind::HashBang` exists, tested in `ori_lexer/src/tests.rs:850-885`
 
-- [ ] **Parser**: Parse file-level conditions
-  - [ ] `#!target(...)`, `#!cfg(...)`
-  - [ ] Apply to entire file
+- [x] **Parser**: Parse file-level conditions (verified 2026-03-29)
+  - [x] `#!target(...)`, `#!cfg(...)` — `mod.rs:parse_file_attribute()` handles both, rejects other attrs
+  - [x] IR: `FileAttr` enum with Target/Cfg variants, `Module::file_attr: Option<FileAttr>`
+  - [x] Grammar: `grammar.ebnf:185` has `file_attribute` production
+  - [x] **Rust Tests**: 25+ parse tests pass — target/cfg variants, edge cases, rejection tests (verified 2026-03-29)
 
-- [ ] **Compiler**: File-level evaluation
-  - [ ] Skip entire file if condition false
+- [ ] **Compiler**: File-level evaluation — GAP-13-001
+  - [ ] Skip entire file if condition false — files with false conditions still fully type-checked
   - [ ] Track for IDE support
-  - [ ] **Rust Tests**: File-level condition processing
 
-- [ ] **Ori Tests**: `tests/spec/conditional/file_level.ori`
+- [ ] **Ori Tests**: `tests/spec/conditional/file_level.ori` — GAP-13-006
   - [ ] File-level target
   - [ ] File-level cfg
 
@@ -446,17 +455,17 @@ Branches conditioned on compile-time constants are eliminated and not type-check
 
 ### Implementation
 
-- [ ] **Spec**: Compile-time constant semantics
+- [ ] **Spec**: Compile-time constant semantics — GAP-13-003: zero implementation across all 4 crates (verified 2026-03-29)
   - [ ] Built-in constant names and types
   - [ ] DCE rules
   - [ ] Type-checking behavior
 
 - [ ] **Lexer/Parser**: Recognize built-in constants
-  - [ ] `$target_os`, `$target_arch`, etc.
+  - [ ] `$target_os`, `$target_arch`, etc. — no AST representation distinct from user `$` constants
   - [ ] Treat as config variables
 
 - [ ] **Type checker**: Compile-time evaluation
-  - [ ] Evaluate comparisons at compile time
+  - [ ] Evaluate comparisons at compile time — no type signatures in `infer_ident()`
   - [ ] Skip type-checking false branches
   - [ ] Eliminate dead code
   - [ ] **Rust Tests**: Compile-time constant evaluation
@@ -467,7 +476,7 @@ Branches conditioned on compile-time constants are eliminated and not type-check
   - [ ] $debug/$release checks
   - [ ] Dead branch elimination
 
-- [ ] **LLVM Support**: LLVM codegen for compile-time constants
+- [ ] **LLVM Support**: LLVM codegen for compile-time constants — no constant folding or DCE
 - [ ] **LLVM Rust Tests**: `ori_llvm/tests/conditional_tests.rs` — compile-time constants codegen
 - [ ] **AOT Tests**: No AOT coverage yet
 
@@ -520,24 +529,26 @@ dependencies = ["winapi"]
 
 ### Implementation
 
-- [ ] **Spec**: Build configuration
+- [ ] **Spec**: Build configuration — Clauses 25.8-25.9 (verified 2026-03-29)
   - [ ] ori.toml format
   - [ ] CLI flag reference
   - [ ] Precedence rules
 
-- [ ] **Build system**: Configuration processing
-  - [ ] Parse ori.toml
+- [ ] **Build system**: Configuration processing — GAP-13-002
+  - [ ] Parse ori.toml — no ori.toml parser exists
   - [ ] Merge with CLI flags
-  - [ ] Pass to compiler
+  - [ ] Pass to compiler — build config not connected to conditional compilation evaluator
   - [ ] **Rust Tests**: Build configuration processing
 
 - [ ] **Compiler**: Accept configuration
-  - [ ] `--target` flag
-  - [ ] `--feature` flag
-  - [ ] `--debug` / `--release` flags
+  - [x] `--target` flag — `parse_args.rs:20`, parsed into `BuildOptions::target` (verified 2026-03-29)
+  - [ ] `--feature` flag — not implemented for conditional compilation
+  - [x] `--release` flag — `parse_args.rs:16-19` (verified 2026-03-29) — but not connected to cfg evaluation
+  - [ ] `--debug` flag — not implemented as explicit flag (debug is default)
+  - [ ] `--no-default-features` / `--all-features` flags
   - [ ] `--cfg` flag
 
-- [ ] **Ori Tests**: Integration tests
+- [ ] **Ori Tests**: Integration tests — GAP-13-006
   - [ ] Build with features
   - [ ] Cross-compilation cfg
   - [ ] Custom cfg values
@@ -588,15 +599,22 @@ dependencies = ["winapi"]
 - [ ] **Diagnostics**: Condition-aware error messages
   - [ ] Show active configuration when relevant
   - [ ] Suggest alternative platforms/features
-  - [ ] Validate feature names
+  - [x] Validate feature names — E0932 registered and emitted by parser (verified 2026-03-29)
 
 - [ ] **Lints**: Condition validation
   - [ ] Warn on impossible conditions
-  - [ ] Warn on unknown OS/arch values
-  - [ ] Error on invalid feature names
-  - [ ] **Rust Tests**: Diagnostic generation
+  - [ ] Warn on unknown OS/arch values — no validation of OS/arch string values
+  - [x] Error on invalid feature names — E0932 (verified 2026-03-29)
+  - [x] **Rust Tests**: Feature name validation tests pass (verified 2026-03-29)
 
-- [ ] **Ori Tests**: `tests/compile-fail/conditional/`
+- [ ] **Error codes**: GAP-13-005 — missing error codes from spec
+  - [ ] E0930: Invalid target OS — spec defines it, not registered in `ori_diagnostic`
+  - [ ] E0931: Invalid target architecture — spec defines it, not registered in `ori_diagnostic`
+  - [x] E0932: Invalid feature name — registered and working (verified 2026-03-29)
+  - [ ] E0933: File-level condition must be first — spec defines it, not registered in `ori_diagnostic`
+  - [ ] BUG: Parser uses generic E1006 for target parameter errors instead of domain-specific E0930/E0931
+
+- [ ] **Ori Tests**: `tests/compile-fail/conditional/` — GAP-13-006
   - [ ] Platform mismatch errors
   - [ ] Invalid feature names
   - [ ] Unknown condition values
@@ -641,15 +659,17 @@ Causes a compile-time error with the given message. Valid only in compile-time e
 
 ### Implementation
 
-- [ ] **Spec**: Add `compile_error` to `spec/annex-c-built-in-functions.md`
-  - [ ] Syntax and return type
+- [ ] **Spec**: Add `compile_error` to `spec/annex-c-built-in-functions.md` — GAP-13-004: zero implementation (verified 2026-03-29)
+  - [ ] Syntax and return type — listed in ori-syntax.md prelude but not in Annex C
   - [ ] Context restrictions (conditional compilation only)
   - [ ] Error message format
 
 - [ ] **Lexer/Parser**: Reserve `compile_error` as built-in
-  - [ ] Cannot define function with this name
+  - [ ] Cannot define function with this name — not reserved, no parser recognition
 
 - [ ] **Compiler**: compile_error evaluation
+  - [ ] Type checker: not registered in `infer_ident()`, no type signature `(str) -> Never`
+  - [ ] Evaluator: not registered in `function_val.rs`, not in eval dispatch
   - [ ] Detect in conditional compilation branches
   - [ ] Verify not in runtime-reachable code
   - [ ] Emit compile-time error with user message
@@ -667,11 +687,28 @@ Causes a compile-time error with the given message. Valid only in compile-time e
 
 ---
 
+## Verification Summary (2026-03-29)
+
+**Overall**: ~30% complete. Parser layer substantially done with 85+ passing Rust tests. Semantic evaluation entirely absent.
+
+### GAP Items
+
+- [ ] **GAP-13-001**: Parse-to-Evaluation Gap [CRITICAL] — Parsed `TargetAttr`/`CfgAttr` structs stored on AST nodes but never evaluated. All conditional code always type-checked and compiled. Need evaluation/pruning pass before type-checking. Affects 13.1-13.6.
+- [ ] **GAP-13-002**: Build System Integration Gap [MAJOR] — No `--feature name` flag (current `--features` is CPU features), no `--no-default-features`/`--all-features`/`--cfg`/`--debug` flags, no ori.toml parser, build config not passed to evaluator. Affects 13.4, 13.5, 13.8.
+- [ ] **GAP-13-003**: Compile-Time Constants Not Implemented [MAJOR] — `$target_os`/`$target_arch`/`$target_family`/`$debug`/`$release` have zero implementation across ori_ir, ori_types, ori_eval, ori_llvm. Affects 13.7.
+- [ ] **GAP-13-004**: compile_error Built-in Not Implemented [MAJOR] — Documented in prelude/ori-syntax.md but has no implementation in any phase. Cross-ref with Section 11.8. Affects 13.10.
+- [ ] **GAP-13-005**: Error Codes Not Registered [MINOR] — Spec defines E0930 (Invalid target OS), E0931 (Invalid target arch), E0933 (File-level condition must be first), but only E0932 is registered. Parser uses generic E1006 for target param errors. Affects 13.9.
+- [ ] **GAP-13-006**: No Ori-Level Spec Tests [MINOR] — `tests/spec/conditional/` does not exist. All testing is Rust-level parser tests. Affects all subsections.
+
+---
+
 ## Section Completion Checklist
 
-- [ ] All items above have all checkboxes marked `[ ]`
-- [ ] Spec updated: `spec/25-conditional-compilation.md` complete
-- [ ] CLAUDE.md updated with conditional compilation syntax
+- [ ] All items above have all checkboxes marked `[x]`
+- [x] Spec written: `spec/25-conditional-compilation.md` (verified 2026-03-29)
+- [x] Grammar: `grammar.ebnf` has `file_attribute` production (verified 2026-03-29)
+- [x] Proposal: `proposals/approved/conditional-compilation-proposal.md` exists (verified 2026-03-29)
+- [x] CLAUDE.md updated with conditional compilation syntax — ori-syntax.md has Conditional Compilation section (verified 2026-03-29)
 - [ ] `#target(...)` works on items
 - [ ] `#cfg(...)` works on items
 - [ ] `#!target(...)` works on files

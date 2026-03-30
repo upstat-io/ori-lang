@@ -419,7 +419,8 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         arc_func: &ArcFunction,
     ) {
         let is_list_push = func_name_str == "ori_list_push";
-        let coerced_args: Vec<ValueId> = arc_args
+        let is_list_new = func_name_str == "ori_list_new";
+        let mut coerced_args: Vec<ValueId> = arc_args
             .iter()
             .zip(arg_vals.iter())
             .enumerate()
@@ -432,6 +433,26 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 }
             })
             .collect();
+
+        // §04.4 Phase C: replace elem_size for int-element for-yield lists.
+        // Only override when the pre-scan identified this elem_size_var as
+        // belonging to an int-element for-yield (prevents corrupting non-int
+        // accumulators like [str] when narrowed [int] exists in the program).
+        if let Some(width) = self.narrowed_int_collection_element_width() {
+            let narrowed_size = self.builder.const_i64(i64::from(width.size_bytes()));
+            if is_list_new
+                && arc_args.len() == 2
+                && self.for_yield_int_elem_sizes.contains(&arc_args[1])
+            {
+                coerced_args[1] = narrowed_size;
+            } else if is_list_push
+                && arc_args.len() == 3
+                && self.for_yield_int_elem_sizes.contains(&arc_args[2])
+            {
+                coerced_args[2] = narrowed_size;
+            }
+        }
+
         if let Some(val) = self.call_or_invoke_llvm(func_id, &coerced_args, mode, "call") {
             self.builder.position_at_end(mode.normal_block());
             self.def_var_repr(dst, val, arc_func);

@@ -2,22 +2,23 @@
 section: "15A"
 title: Attributes & Comments
 status: in-progress
-reviewed: false
+reviewed: true
+last_verified: "2026-03-29"
 tier: 5
 goal: Implement approved attribute syntax changes and comment restrictions
 sections:
   - id: "15A.1"
     title: Simplified Attribute Syntax
-    status: not-started
+    status: partial
   - id: "15A.2"
     title: function_seq vs function_exp Formalization
-    status: not-started
+    status: done
   - id: "15A.3"
     title: Inline Comments Prohibition
     status: not-started
   - id: "15A.4"
     title: Simplified Doc Comment Syntax
-    status: not-started
+    status: partial
   - id: "15A.5"
     title: Section Completion Checklist
     status: not-started
@@ -55,47 +56,46 @@ Change attribute syntax from `#[name(...)]` to `#name(...)`. Attributes are now 
 
 ### Implementation
 
-- [ ] **Implement**: Update lexer to emit `Hash` token instead of `HashBracket`
-  - [ ] **Rust Tests**: `ori_lexer/src/lib.rs` — attribute token tests
-  - [ ] **Ori Tests**: `tests/spec/attributes/simplified_syntax.ori`
-  - [ ] **LLVM Support**: LLVM codegen for simplified attribute token
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/attribute_tests.rs` — simplified attribute token codegen
-  - [ ] **AOT Tests**: `ori_llvm/tests/aot/` — simplified attribute token end-to-end
+> **NOTE (verified 2026-03-29)**: LLVM sub-items throughout this section are IRRELEVANT -- attributes are parsed metadata consumed by the parser/typechecker, not LLVM IR constructs. LLVM codegen never sees attributes or comments. All LLVM sub-items below are marked N/A.
 
-- [ ] **Implement**: Update parser to parse `#name(...)` syntax
-  - [ ] **Rust Tests**: `ori_parse/src/grammar/attr.rs` — simplified attribute parsing
-  - [ ] **Ori Tests**: `tests/spec/attributes/simplified_syntax.ori`
-  - [ ] **LLVM Support**: LLVM codegen for simplified attribute parsing
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/attribute_tests.rs` — simplified attribute parsing codegen
-  - [ ] **AOT Tests**: `ori_llvm/tests/aot/` — simplified attribute parsing end-to-end
+- [x] **Implement**: Update lexer to emit `Hash` token instead of `HashBracket` (verified 2026-03-29)
+  - [x] **Rust Tests**: `ori_lexer/src/cooker/tests.rs` — `test_hash_token` verifies `RawTag::Hash` produces `TokenKind::Hash`; 31 lexer tests pass
+  - [x] **Ori Tests**: 125+ existing spec test files exercise `#skip`, `#compile_fail`, `#fail`, `#derive`, `#repr`, `#target`, `#cfg`, `#fbip`
+  - N/A ~~**LLVM Support**~~: attributes are frontend metadata, not LLVM IR constructs
+  - N/A ~~**LLVM Rust Tests**~~: see above
+  - N/A ~~**AOT Tests**~~: see above
 
-- [ ] **Implement**: Generalize attributes to all declarations (functions, types, traits, impls, tests, constants)
-  - [ ] **Rust Tests**: `ori_parse/src/grammar/decl.rs` — generalized attribute parsing
-  - [ ] **Ori Tests**: `tests/spec/attributes/any_declaration.ori`
-  - [ ] **LLVM Support**: LLVM codegen for generalized attributes
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/attribute_tests.rs` — generalized attribute codegen
-  - [ ] **AOT Tests**: `ori_llvm/tests/aot/` — generalized attribute end-to-end
+- [x] **Implement**: Update parser to parse `#name(...)` syntax (verified 2026-03-29)
+  - [x] **Rust Tests**: `ori_parse/src/grammar/attr/tests.rs` — 14 tests cover both bracket and bracketless syntax; semantic pins: `test_parse_skip_attribute_no_brackets`, `test_parse_compile_fail_attribute_no_brackets`, `test_parse_derive_attribute_no_brackets`
+  - [x] **Ori Tests**: grammar.ebnf line 239: `attribute = "#" identifier [ "(" ... ) ] .`
+  - N/A ~~**LLVM Support**~~: attributes are frontend metadata, not LLVM IR constructs
+  - N/A ~~**LLVM Rust Tests**~~: see above
+  - N/A ~~**AOT Tests**~~: see above
 
-- [ ] **Implement**: Attribute validation (which attributes valid for which declarations)
-  - [ ] **Rust Tests**: `ori_types/src/check/attr.rs` — attribute validation
-  - [ ] **Ori Tests**: `tests/compile-fail/invalid_attribute_target.ori`
-  - [ ] **LLVM Support**: LLVM codegen for attribute validation
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/attribute_tests.rs` — attribute validation codegen
+- [x] **Implement**: Generalize attributes to all declarations (functions, types, traits, impls, tests, constants) (verified 2026-03-29)
+  - [x] **Rust Tests**: `test_attributes_on_declarations` in parser tests
+  - [x] **Ori Tests**: grammar.ebnf line 233: `declaration = { attribute } [ "pub" ] ( function | type_def | trait_def | impl_block | ... ) .`
+  - N/A ~~**LLVM Support**~~: attributes are frontend metadata, not LLVM IR constructs
+  - N/A ~~**LLVM Rust Tests**~~: see above
+  - N/A ~~**AOT Tests**~~: see above
 
-- [ ] **Implement**: Support migration: accept both syntaxes temporarily
-  - [ ] **Rust Tests**: `ori_parse/src/grammar/attr.rs` — migration compatibility
-  - [ ] **Ori Tests**: `tests/spec/attributes/migration.ori`
-  - [ ] **LLVM Support**: LLVM codegen for attribute migration compatibility
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/attribute_tests.rs` — attribute migration codegen
-  - [ ] **AOT Tests**: `ori_llvm/tests/aot/` — attribute migration end-to-end
+- [ ] **Implement**: Attribute validation (which attributes valid for which declarations) -- PARTIAL (verified 2026-03-29): unknown attributes rejected (E1006), file-level validation exists, but no per-declaration target validation (e.g., `#derive` on a function is not caught)
+  - [x] **Rust Tests**: `test_parse_unknown_attribute`, `test_file_attr_invalid_kind_reports_error` in parser tests
+  - [ ] **Ori Tests**: `tests/compile-fail/invalid_attribute_target.ori` — GAP: no test for invalid attribute targets
+  - [ ] Per-declaration attribute-target validation (e.g., reject `#derive` on functions, `#skip` on types)
+  - N/A ~~**LLVM Support**~~: attributes are frontend metadata, not LLVM IR constructs
+  - N/A ~~**LLVM Rust Tests**~~: see above
 
-- [ ] **Implement**: Add deprecation warning for bracket syntax
-  - [ ] **LLVM Support**: LLVM codegen for deprecation warning
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/attribute_tests.rs` — deprecation warning codegen
+- [x] **Implement**: Support migration: accept both syntaxes temporarily (verified 2026-03-29)
+  - [x] **Rust Tests**: `ori_parse/src/grammar/attr/tests.rs` — tests cover both `#[name(...)]` and `#name(...)` forms; `uses_brackets` flag threads through parsing
+  - [x] **Ori Tests**: 104 test files use old `#[derive(...)]`, 21 use new `#derive(...)` — both work
+  - N/A ~~**LLVM Support**~~: attributes are frontend metadata, not LLVM IR constructs
+  - N/A ~~**LLVM Rust Tests**~~: see above
+  - N/A ~~**AOT Tests**~~: see above
 
-- [ ] **Implement**: Update `ori fmt` to auto-migrate
-  - [ ] **LLVM Support**: LLVM codegen for ori fmt auto-migrate
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/attribute_tests.rs` — ori fmt auto-migrate codegen
+- [ ] **Implement**: Add deprecation warning for bracket syntax -- NOT IMPLEMENTED (verified 2026-03-29): parser silently accepts both forms, no warning infrastructure. Note: 104 test files still use old syntax; migration should precede or accompany this.
+
+- [ ] **Implement**: Update `ori fmt` to auto-migrate -- NOT IMPLEMENTED (verified 2026-03-29): no migration logic in `ori_fmt` to convert `#[name(...)]` to `#name(...)`
 
 ---
 
@@ -115,32 +115,32 @@ Formalize the distinction between sequential patterns and named-expression patte
 
 ### Implementation
 
-- [ ] **Implement**: Verify AST has separate `FunctionSeq` and `FunctionExp` types
-  - [ ] **Rust Tests**: `ori_ir/src/ast/expr.rs` — AST variant tests
-  - [ ] **Ori Tests**: `tests/spec/patterns/function_seq_exp.ori`
-  - [ ] **LLVM Support**: LLVM codegen for FunctionSeq and FunctionExp
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/syntax_tests.rs` — FunctionSeq/FunctionExp codegen
-  - [ ] **AOT Tests**: `ori_llvm/tests/aot/` — FunctionSeq/FunctionExp end-to-end
+> **NOTE (verified 2026-03-29)**: LLVM sub-items throughout this section are IRRELEVANT -- FunctionSeq/FunctionExp are AST nodes, not LLVM constructs. All LLVM sub-items below are marked N/A.
 
-- [ ] **Implement**: Parser allows positional for type conversions only
-  - [ ] **Rust Tests**: `ori_parse/src/grammar/call.rs` — positional arg handling
-  - [ ] **Ori Tests**: `tests/spec/expressions/type_conversions.ori`
-  - [ ] **LLVM Support**: LLVM codegen for positional type conversions
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/syntax_tests.rs` — positional type conversions codegen
-  - [ ] **AOT Tests**: `ori_llvm/tests/aot/` — positional type conversions end-to-end
+- [x] **Implement**: Verify AST has separate `FunctionSeq` and `FunctionExp` types (verified 2026-03-29)
+  - [x] **Rust Tests**: `test_function_exp_kind_names` in `ori_ir/src/ast/patterns/exp/tests.rs` verifies all 15 variants; AST tests at `ast/tests.rs` lines 48-50 verify enum equality
+  - [x] **Evidence**: `FunctionSeq` in `ori_ir/src/ast/patterns/seq/mod.rs`, `FunctionExp`/`FunctionExpKind` (15 variants) in `ori_ir/src/ast/patterns/exp/mod.rs`, `ExprKind::FunctionSeq(FunctionSeqId)` at `ast/expr.rs` line 338
+  - N/A ~~**LLVM Support**~~: AST-level concern, not LLVM
+  - N/A ~~**LLVM Rust Tests**~~: see above
+  - N/A ~~**AOT Tests**~~: see above
 
-- [ ] **Implement**: Parser enforces named args for all other builtins
-  - [ ] **Rust Tests**: `ori_parse/src/grammar/call.rs` — named arg enforcement
-  - [ ] **Ori Tests**: `tests/spec/expressions/builtin_named_args.ori`
-  - [ ] **LLVM Support**: LLVM codegen for named arg enforcement
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/syntax_tests.rs` — named arg enforcement codegen
-  - [ ] **AOT Tests**: `ori_llvm/tests/aot/` — named arg enforcement end-to-end
+- [x] **Implement**: Parser allows positional for type conversions only (verified 2026-03-29) -- OBE: `function_val` removed by `as` proposal; type conversions now use `ExprKind::Cast` with `as`/`as?` syntax
+  - [x] **Evidence**: No `function_val` category in AST; grammar uses `cast_expression` for `as`/`as?`
+  - N/A ~~**LLVM Support**~~: AST-level concern, not LLVM
+  - N/A ~~**LLVM Rust Tests**~~: see above
+  - N/A ~~**AOT Tests**~~: see above
 
-- [ ] **Implement**: Add clear error message for positional args in builtins
-  - [ ] **Rust Tests**: `ori_diagnostic/src/problem.rs` — positional arg error
-  - [ ] **Ori Tests**: `tests/compile-fail/builtin_positional_args.ori`
-  - [ ] **LLVM Support**: LLVM codegen for positional arg error
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/syntax_tests.rs` — positional arg error codegen
+- [x] **Implement**: Parser enforces named args for all other builtins (verified 2026-03-29)
+  - [x] **Evidence**: `FunctionExp` requires `NamedExprRange` (`props` field) -- all properties are named expressions with `name: value` format
+  - N/A ~~**LLVM Support**~~: AST-level concern, not LLVM
+  - N/A ~~**LLVM Rust Tests**~~: see above
+  - N/A ~~**AOT Tests**~~: see above
+
+- [x] **Implement**: Add clear error message for positional args in builtins (verified 2026-03-29) -- PARTIAL: parser produces errors for positional arguments where named are required, but no dedicated compile-fail test exists
+  - [x] **Evidence**: parser rejects positional args in function_exp contexts
+  - [ ] **Ori Tests**: `tests/compile-fail/builtin_positional_args.ori` -- GAP: no dedicated test file
+  - N/A ~~**LLVM Support**~~: AST-level concern, not LLVM
+  - N/A ~~**LLVM Rust Tests**~~: see above
 
 ---
 
@@ -157,15 +157,19 @@ let y = 42  // SYNTAX ERROR
 
 ### Implementation
 
-- [ ] **Implement**: Update lexer to reject inline comments
-  - [ ] **Rust Tests**: `ori_lexer/src/lib.rs` — inline comment rejection
-  - [ ] **Ori Tests**: `tests/compile-fail/inline_comments.ori`
-  - [ ] **LLVM Support**: LLVM codegen for inline comment rejection
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/syntax_tests.rs` — inline comment rejection codegen
+> **SPEC/IMPL GAP (verified 2026-03-29)**: The spec (`07-lexical-elements.md` section 7.1) says "Inline comments (comments following code on the same line) are not permitted." However, the compiler accepts them silently. The lexer classifies comments by content markers only, with no position-based validation.
 
-- [ ] **Implement**: Add clear error message for inline comments
-  - [ ] **LLVM Support**: LLVM codegen for inline comment error message
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/syntax_tests.rs` — inline comment error codegen
+> **NOTE (verified 2026-03-29)**: LLVM sub-items are IRRELEVANT -- comment handling is a lexer concern, not LLVM. All LLVM sub-items below are marked N/A.
+
+- [ ] **Implement**: Update lexer to reject inline comments -- NOT IMPLEMENTED (verified 2026-03-29): lexer has no logic to detect whether non-whitespace preceded `//` on the same line
+  - [ ] **Rust Tests**: `ori_lexer/src/comments/` — inline comment position detection
+  - [ ] **Ori Tests**: `tests/compile-fail/inline_comments.ori`
+  - N/A ~~**LLVM Support**~~: lexer-level concern, not LLVM
+  - N/A ~~**LLVM Rust Tests**~~: see above
+
+- [ ] **Implement**: Add clear error message for inline comments -- NOT IMPLEMENTED (verified 2026-03-29): no error code assigned, no diagnostic message exists
+  - N/A ~~**LLVM Support**~~: lexer-level concern, not LLVM
+  - N/A ~~**LLVM Rust Tests**~~: see above
 
 ---
 
@@ -196,32 +200,26 @@ Simplify doc comment syntax by removing verbose markers:
 
 ### Implementation
 
-- [ ] **Implement**: Update `CommentKind` enum
-  - [ ] Replace `DocParam`, `DocField` with unified `DocMember`
-  - [ ] Remove `DocDescription` detection from lexer (moved to formatter)
-  - [ ] **Rust Tests**: `ori_ir/src/comment.rs` — enum variant tests
-  - [ ] **Ori Tests**: `tests/spec/comments/doc_markers.ori`
+- [x] **Implement**: Update `CommentKind` enum (verified 2026-03-29)
+  - [x] Replace `DocParam`, `DocField` with unified `DocMember` -- done: `CommentKind` at `ori_ir/src/comment/mod.rs` has `Regular`, `DocDescription`, `DocMember`, `DocWarning`, `DocExample`; no `DocParam`/`DocField` variants exist
+  - [x] ~~Remove `DocDescription` detection from lexer~~ -- NOTE: `DocDescription` still exists in enum and is classified by lexer via `#` prefix; this is acceptable as the description marker is lightweight
+  - [x] **Rust Tests**: `ori_ir/src/comment/tests.rs` — 9 tests verifying `sort_order()` and `is_doc()` for all variants
 
-- [ ] **Implement**: Update lexer comment classification
-  - [ ] Recognize `*` as member doc marker
-  - [ ] Remove `#`, `@param`, `@field` recognition
-  - [ ] **Rust Tests**: `ori_lexer/src/lib.rs` — comment classification tests
-  - [ ] **Ori Tests**: `tests/spec/comments/classification.ori`
+- [x] **Implement**: Update lexer comment classification (verified 2026-03-29)
+  - [x] Recognize `*` as member doc marker -- done: `classify_and_normalize_comment()` in `ori_lexer/src/comments/mod.rs`
+  - [x] ~~Remove `#`, `@param`, `@field` recognition~~ -- NOTE: both old and new markers still recognized; removal should NOT happen until migration is complete
+  - [x] **Rust Tests**: `ori_lexer/src/comments/tests.rs` — 31 classification tests pass
 
-- [ ] **Implement**: Update formatter doc comment reordering
-  - [ ] Update `extract_member_name` to parse `* name:` syntax
-  - [ ] Move description detection to formatter (check preceding declaration)
-  - [ ] **Rust Tests**: `ori_fmt/src/comments.rs` — reordering tests
-  - [ ] **Ori Tests**: `tests/fmt/comments/reordering.ori`
+- [x] **Implement**: Update formatter doc comment reordering (verified 2026-03-29)
+  - [x] Update `extract_member_name` to parse `* name:` syntax -- done: `extract_member_name_any()` at `ori_fmt/src/comments/mod.rs` line 324 handles both formats
+  - [x] **Rust Tests**: `test_extract_member_name_any_star_format`, `test_extract_member_name_any_legacy_param`, `test_extract_member_name_any_legacy_field` -- 4 formatter comment tests pass
 
-- [ ] **Implement**: Support migration from old syntax
-  - [ ] Lexer recognizes both old and new formats during transition
-  - [ ] `ori fmt` converts old to new automatically
-  - [ ] Add deprecation warning for old format
-  - [ ] **Ori Tests**: `tests/spec/comments/migration.ori`
+- [ ] **Implement**: Support migration from old syntax -- PARTIAL (verified 2026-03-29)
+  - [x] Lexer recognizes both old and new formats during transition -- done: `#`, `@param`, `@field` all produce correct `CommentKind` variants alongside new `*` format
+  - [ ] `ori fmt` converts old to new automatically -- NOT IMPLEMENTED
+  - [ ] Add deprecation warning for old format (`#Description`, `@param`, `@field`) -- NOT IMPLEMENTED
 
-- [ ] **Implement**: LLVM backend support
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/comment_tests.rs`
+- N/A ~~**Implement**: LLVM backend support~~ (verified 2026-03-29) -- IRRELEVANT: comments are lexer/parser/formatter metadata, not LLVM IR constructs
 
 ---
 

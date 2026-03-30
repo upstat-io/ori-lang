@@ -66,6 +66,9 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             let elem = self
                 .builder
                 .load(elem_llvm_ty, scratch_ptr, &format!("proj.{field}"));
+            // §04.4 Phase C: sign-extend narrowed int element back to canonical i64.
+            let dst_ty = func.var_type(dst);
+            let elem = self.sext_narrowed_int_element(elem, dst_ty, "iter_next.sext");
             self.def_var_repr(dst, elem, func);
             // Register scratch pointer for borrowed-parameter forwarding:
             // downstream calls (e.g., ori_str_len) can forward the scratch
@@ -213,9 +216,13 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             return;
         }
 
-        if let Some(extracted) = self
-            .builder
-            .extract_value(val, field, &format!("proj.{field}"))
+        // §06: remap declaration-order field index to memory-order for LLVM.
+        let val_ty = func.var_type(value);
+        let mem_field = self.remap_struct_field(val_ty, field);
+
+        if let Some(extracted) =
+            self.builder
+                .extract_value(val, mem_field, &format!("proj.{field}"))
         {
             // §04.4: sign-extend narrowed int fields (i8/i16/i32) back to
             // canonical width (i64) for computation. Only applies when the
@@ -226,11 +233,10 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             self.def_var_repr(dst, widened, func);
         } else {
             // Fallback: GEP-based field access for heap-allocated types
-            let val_ty = func.var_type(value);
             let llvm_val_ty = self.resolve_type(val_ty);
             let gep =
                 self.builder
-                    .struct_gep(llvm_val_ty, val, field, &format!("proj.{field}.gep"));
+                    .struct_gep(llvm_val_ty, val, mem_field, &format!("proj.{field}.gep"));
             let loaded = self.builder.load(result_ty, gep, &format!("proj.{field}"));
             self.def_var_repr(dst, loaded, func);
         }
@@ -413,12 +419,15 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                     let base_ty = func.var_type(*base);
                     let llvm_ty = self.resolve_type(base_ty);
 
+                    // §06: remap declaration-order field to memory-order.
+                    let mem_field = self.remap_struct_field(base_ty, *field);
+
                     // GEP + store for heap-allocated RC'd objects.
                     // The base is a pointer to the struct data on the heap.
                     let field_ptr = self.builder.struct_gep(
                         llvm_ty,
                         base_val,
-                        *field,
+                        mem_field,
                         &format!("set.{field}.ptr"),
                     );
                     self.builder.store(new_val, field_ptr);

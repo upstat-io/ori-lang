@@ -3,6 +3,7 @@ section: "20A"
 title: "Compile-Time Struct Construction"
 status: not-started
 reviewed: true
+last_verified: "2026-03-29"
 tier: 8
 goal: "$construct<T> and $construct_partial<T> expand to direct struct literals during monomorphization — zero overhead, fully typed, complete field coverage"
 inspired_by:
@@ -32,7 +33,7 @@ sections:
 
 # Section 20A: Compile-Time Struct Construction
 
-**Status:** Not Started
+**Status:** Not Started (verified 2026-03-29 -- all file paths, line numbers, line counts, ExprKind match sites, arena APIs, error code ranges, dependency chain, and proposal confirmed accurate)
 **Goal:** `$construct<T>` and `$construct_partial<T: Default>` expand during monomorphization to direct `ExprKind::Struct` literals (or `ExprKind::Call` for newtypes) — identical codegen to hand-written `T { field1: val1, ... }`. The existing struct pipeline (type checker completeness check, canonical lowering, eval, ARC, LLVM) handles everything downstream. Adding the `ExprKind::Construct` variant requires match arms in 11 files with exhaustive `ExprKind` dispatch, but no semantic changes to downstream phases (eval, ARC, LLVM operate on `CanExpr`, which never sees `Construct`).
 
 **Context:** The approved `compile-time-construction-proposal.md` (2026-03-26) completes the compile-time reflection story by adding **construction** to complement the **inspection** primitives from Section 20 (`fields_of`, `$for`, splice). Without construction, generic deserialization is impossible — you can iterate fields and parse values, but cannot assemble them into a typed struct. The flagship use case is a pure Ori JSON parser (`pub def impl FromJson`) that uses `$construct<Self>` with `$for field in fields_of(Self)`.
@@ -89,7 +90,7 @@ $construct<T>(                     ExprKind::Construct
 
 ---
 
-## 20A.1 Parser: $construct and $construct_partial Syntax
+## 20A.1 Parser: $construct and $construct_partial Syntax (verified 2026-03-29 -- 11/11 items not-started, all file paths and line numbers confirmed accurate)
 
 **File(s):** `compiler/ori_ir/src/ast/expr.rs`, `compiler/ori_parse/src/grammar/expr/primary/literals.rs`
 
@@ -126,7 +127,7 @@ $construct<T>(                     ExprKind::Construct
   - `compiler/ori_parse/src/incremental/copier.rs` (1595 lines — BLOAT) — add to copy_expr match (line ~112): `ExprKind::Construct { type_param, args, is_partial } => { let new_args = self.copy_expr(args, new_arena); ExprKind::Construct { type_param, args: new_args, is_partial } }`
   - Adding the variant to `ExprKind` (which derives `Copy, Clone, Eq, PartialEq, Hash`) is safe: `Name`, `ExprId`, and `bool` all implement these traits
   - **Size budget**: variant payload is 9 bytes (`Name(u32)` + `ExprId(u32)` + `bool`), well within the 24-byte `ExprKind` budget enforced by `static_assert_size!(ExprKind, 24)` at `ori_ir/src/ast/expr.rs:508`
-  - **Non-exhaustive matches (no changes needed)**: `ori_fmt/src/rules/*.rs`, `ori_fmt/src/width/control.rs`, `ori_arc/src/decision_tree/flatten.rs`, `oric/src/ast_dump/expr.rs` inline match at line 536 (`_ =>` wildcard)
+  - **Non-exhaustive matches (no changes needed)**: `ori_fmt/src/rules/*.rs`, `ori_fmt/src/width/control.rs`, `ori_arc/src/decision_tree/flatten.rs`, `oric/src/ast_dump/expr.rs` inline match at line 536 (`_ =>` wildcard), `ori_canon/src/desugar/calls.rs` at line 141 (`_ =>` wildcard) (added from verification finding 3)
 
 ### Parser Implementation
 
@@ -213,7 +214,7 @@ TDD: Write failing test matrix BEFORE implementation. Verify tests fail first, t
 
 ---
 
-## 20A.2 Monomorphization: Expansion to Struct Literal
+## 20A.2 Monomorphization: Expansion to Struct Literal (verified 2026-03-29 -- 14/14 items not-started, arena API references confirmed accurate)
 
 **File(s):** `compiler/ori_types/src/infer/expr/calls/monomorphization.rs` (or new sibling `expansion.rs`), `compiler/ori_types/src/infer/expr/structs/mod.rs`
 
@@ -390,7 +391,7 @@ TDD: Write failing test matrix BEFORE implementation. Verify tests fail first, t
 
 ---
 
-## 20A.3 Integration, Error Messages, and Verification
+## 20A.3 Integration, Error Messages, and Verification (verified 2026-03-29 -- 21/21 items not-started, error code range E0470-E0473 confirmed unused and safe)
 
 **File(s):** `compiler/ori_diagnostic/src/error_code/mod.rs`, `tests/spec/reflection/construct/`, `compiler/ori_eval/src/`, `compiler/ori_llvm/src/`
 
@@ -402,7 +403,7 @@ TDD: Write failing test matrix BEFORE implementation. Verify tests fail first, t
 
 - [ ] **Register error codes E0470-E0473** (`compiler/ori_diagnostic/src/error_code/mod.rs`)
 
-  **Note on error code range:** E0470-E0473 are in the E0xxx range which is nominally the "Lexer errors" range per the `define_error_codes!` comment in `error_code/mod.rs` (line 29). These are actually monomorphization/expansion errors. This follows Section 20's convention (E0460-E0464 for reflection errors). Both sections use the E0xxx range because they represent compile-time intrinsic errors that occur before type checking proper. The E0xxx range currently only uses E0001-E0015, E0911, E0932 — so E0460-E0473 are safely in unused territory with no collision risk. If the error code naming convention is revised to give compile-time intrinsics their own range, both Section 20 and 20A codes should move together.
+  **Note on error code range:** E0470-E0473 are in the E0xxx range which is nominally the "Lexer errors" range per the `define_error_codes!` comment in `error_code/mod.rs` (line 29). These are actually monomorphization/expansion errors. This follows Section 20's convention (E0460-E0464 for reflection errors). Both sections use the E0xxx range because they represent compile-time intrinsic errors that occur before type checking proper. The E0xxx range currently only uses E0001-E0015, E0911, E0932 — so E0460-E0473 are safely in unused territory with no collision risk (verified 2026-03-29). If the error code naming convention is revised to give compile-time intrinsics their own range, both Section 20 and 20A codes should move together. **ACTION (from verification finding 1):** When implementing, update the `define_error_codes!` comment at line 29 to reflect that E04xx now includes compile-time intrinsic errors, not just lexer errors.
 
   | Code | Message | Context |
   |------|---------|---------|
@@ -542,7 +543,27 @@ All flagship tests go in `tests/spec/reflection/construct/`.
 
 ## 20A.R Third Party Review Findings
 
-- None.
+- None. (verified 2026-03-29 -- correct, no implementation exists to review)
+
+---
+
+### Verification Findings (2026-03-29)
+
+Seven minor findings from independent verification. No blockers; all informational or minor quality items to address during implementation:
+
+1. **Error code range comment** (NOTE) -- E0470-E0473 are in the E0xxx range documented as "Lexer errors" in `error_code/mod.rs` line 29. When implementing, update the `define_error_codes!` comment to reflect expanded range usage for compile-time intrinsic errors (follows Section 20's E0460-E0464 convention).
+
+2. **Missing plan annotation cleanup section** (DRIFT) -- Per CLAUDE.md: "Every plan MUST include a final cleanup section to strip all its code annotations." The 20A.4 Completion Checklist does not include a cleanup step to remove `20A.x` code annotations. Added below.
+
+3. **Missing `ori_canon/src/desugar/calls.rs` in non-exhaustive list** (NOTE) -- `compiler/ori_canon/src/desugar/calls.rs` has ExprKind references with a wildcard match (`_ =>` at line 141). Not mentioned in the "Non-exhaustive matches (no changes needed)" list. No change needed (wildcard handles it), but noted for completeness.
+
+4. **Missing interaction testing spec** (WEAK TESTS) -- Test matrices focus on type x construction-pattern dimensions but do not explicitly plan interaction tests with closures, error handling (`?`), pattern matching, or trait default impl bodies. The FromJson flagship covers some interactions, but explicit interaction test items should be added during implementation.
+
+5. **Newtype `$construct_partial` behavior under-specified** (GAP) -- The test matrix marks newtype + `$construct_partial` as "n/a" without specifying the behavior of `$construct_partial<UserId>([])`. Should clarify: either error (no Default for newtypes) or fill with `Default.default()` for the inner type. The expansion logic suggests Default-fill would work if the inner type has Default, but the plan's test matrix omits coverage.
+
+6. **`alloc_expr_range` non-existence note accurate** (NOTE) -- The plan correctly notes that `alloc_expr_range` does not exist and `alloc_expr_list_inline` must be used instead. Verified accurate.
+
+7. **Section 20.3 arena access uncertainty properly flagged** (NOTE) -- The plan correctly identifies the load-bearing dependency on Section 20.3's arena allocation mechanism and offers two approaches. This is proper dependency documentation, not a gap.
 
 ---
 
@@ -564,7 +585,7 @@ These are not blocking issues for 20A, but implementers should extract where pra
 
 ---
 
-## 20A.4 Completion Checklist
+## 20A.4 Completion Checklist (verified 2026-03-29 -- all 21 items confirmed not-started, correct for section status)
 
 **Functional correctness:**
 - [ ] `$construct<User>($for field in fields_of(User) yield (field, value))` produces correct `User` struct
@@ -605,5 +626,8 @@ These are not blocking issues for 20A, but implementers should extract where pra
 - [ ] `grammar.ebnf` updated with $construct productions
 - [ ] `.claude/rules/ori-syntax.md` updated with $construct in Compile-Time Reflection section
 - [ ] `/tpr-review` passed — independent Codex review found no critical or major issues (or all findings triaged)
+
+**Cleanup:**
+- [ ] Remove all `20A.x` code annotations from source files (per CLAUDE.md: plan annotations are temporary scaffolding)
 
 **Exit Criteria:** `$construct<User>($for field in fields_of(User) yield (field, parse(field.name)))` compiles to identical LLVM IR as `User { name: parse("name"), age: parse("age") }`. `$construct<UserId>(...)` expands to `UserId(value)` via constructor call (not struct literal). All 4 error codes (E0470-E0473) produce clear diagnostics. Generic, newtype, partial, and empty-struct construction all work. Eval and LLVM paths match. All tests pass in debug and release. `./test-all.sh` and `./clippy-all.sh` green.

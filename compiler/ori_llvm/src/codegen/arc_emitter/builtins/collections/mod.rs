@@ -99,7 +99,7 @@ declare_builtins! { emitter, ctx;
         if ctx.arg_vals.len() >= 2 {
             if let TypeInfo::List { element } = ctx.type_info {
                 let cm = emitter.cow_mode_const(ctx.arc_func);
-                let r = emitter.emit_list_concat_cow(ctx.arg_vals[0], ctx.arg_vals[1], *element, cm);
+                let r = emitter.emit_list_concat_cow(ctx.arg_vals[0], ctx.arg_vals[1], *element, cm, ctx.receiver_ty);
                 if r.is_some() { emitter.mark_cow_data_noalias_if_unique(ctx.arc_func); }
                 r
             } else {
@@ -113,7 +113,7 @@ declare_builtins! { emitter, ctx;
         if ctx.arg_vals.len() >= 2 {
             if let TypeInfo::List { element } = ctx.type_info {
                 let cm = emitter.cow_mode_const(ctx.arc_func);
-                let r = emitter.emit_list_concat_cow(ctx.arg_vals[0], ctx.arg_vals[1], *element, cm);
+                let r = emitter.emit_list_concat_cow(ctx.arg_vals[0], ctx.arg_vals[1], *element, cm, ctx.receiver_ty);
                 if r.is_some() { emitter.mark_cow_data_noalias_if_unique(ctx.arc_func); }
                 r
             } else {
@@ -127,7 +127,7 @@ declare_builtins! { emitter, ctx;
         if ctx.arg_vals.len() >= 2 {
             if let TypeInfo::List { element } = ctx.type_info {
                 let cm = emitter.cow_mode_const(ctx.arc_func);
-                let r = emitter.emit_list_push_cow(ctx.arg_vals[0], ctx.arg_vals[1], *element, cm);
+                let r = emitter.emit_list_push_cow(ctx.arg_vals[0], ctx.arg_vals[1], *element, cm, ctx.receiver_ty);
                 if r.is_some() { emitter.mark_cow_data_noalias_if_unique(ctx.arc_func); }
                 r
             } else {
@@ -139,14 +139,14 @@ declare_builtins! { emitter, ctx;
     },
     ("list", "first") => {
         if let TypeInfo::List { element } = ctx.type_info {
-            emitter.emit_list_first(ctx.arg_vals[0], *element)
+            emitter.emit_list_first(ctx.arg_vals[0], *element, ctx.receiver_ty)
         } else {
             None
         }
     },
     ("list", "last") => {
         if let TypeInfo::List { element } = ctx.type_info {
-            emitter.emit_list_last(ctx.arg_vals[0], *element)
+            emitter.emit_list_last(ctx.arg_vals[0], *element, ctx.receiver_ty)
         } else {
             None
         }
@@ -156,7 +156,7 @@ declare_builtins! { emitter, ctx;
             // pop() returns Option<T> in the type checker — COW list mutation
             // for pop requires ARC pipeline cooperation (dual return: element + modified list).
             // For now, return the last element as Option<T>.
-            emitter.emit_list_last(ctx.arg_vals[0], *element)
+            emitter.emit_list_last(ctx.arg_vals[0], *element, ctx.receiver_ty)
         } else {
             None
         }
@@ -164,7 +164,7 @@ declare_builtins! { emitter, ctx;
     ("list", "contains") => {
         if ctx.arg_vals.len() >= 2 {
             if let TypeInfo::List { element } = ctx.type_info {
-                emitter.emit_list_contains(ctx.arg_vals[0], ctx.arg_vals[1], *element)
+                emitter.emit_list_contains(ctx.arg_vals[0], ctx.arg_vals[1], *element, ctx.receiver_ty)
             } else {
                 None
             }
@@ -175,7 +175,7 @@ declare_builtins! { emitter, ctx;
     ("list", "reverse") => {
         if let TypeInfo::List { element } = ctx.type_info {
             let cm = emitter.cow_mode_const(ctx.arc_func);
-            let r = emitter.emit_list_reverse_cow(ctx.arg_vals[0], *element, cm);
+            let r = emitter.emit_list_reverse_cow(ctx.arg_vals[0], *element, cm, ctx.receiver_ty);
             if r.is_some() { emitter.mark_cow_data_noalias_if_unique(ctx.arc_func); }
             r
         } else {
@@ -185,7 +185,7 @@ declare_builtins! { emitter, ctx;
     ("list", "sort") => {
         if let TypeInfo::List { element } = ctx.type_info {
             let cm = emitter.cow_mode_const(ctx.arc_func);
-            let r = emitter.emit_list_sort_cow(ctx.arg_vals[0], *element, cm);
+            let r = emitter.emit_list_sort_cow(ctx.arg_vals[0], *element, cm, ctx.receiver_ty);
             if r.is_some() { emitter.mark_cow_data_noalias_if_unique(ctx.arc_func); }
             r
         } else {
@@ -195,7 +195,7 @@ declare_builtins! { emitter, ctx;
     ("list", "sort_stable") => {
         if let TypeInfo::List { element } = ctx.type_info {
             let cm = emitter.cow_mode_const(ctx.arc_func);
-            let r = emitter.emit_list_sort_stable_cow(ctx.arg_vals[0], *element, cm);
+            let r = emitter.emit_list_sort_stable_cow(ctx.arg_vals[0], *element, cm, ctx.receiver_ty);
             if r.is_some() { emitter.mark_cow_data_noalias_if_unique(ctx.arc_func); }
             r
         } else {
@@ -206,7 +206,7 @@ declare_builtins! { emitter, ctx;
         if ctx.arg_vals.len() >= 3 {
             if let TypeInfo::List { element } = ctx.type_info {
                 let cm = emitter.cow_mode_const(ctx.arc_func);
-                let r = emitter.emit_list_set_cow(ctx.arg_vals[0], ctx.arg_vals[1], ctx.arg_vals[2], *element, cm);
+                let r = emitter.emit_list_set_cow(ctx.arg_vals[0], ctx.arg_vals[1], ctx.arg_vals[2], *element, cm, ctx.receiver_ty);
                 if r.is_some() { emitter.mark_cow_data_noalias_if_unique(ctx.arc_func); }
                 r
             } else {
@@ -220,7 +220,7 @@ declare_builtins! { emitter, ctx;
         if ctx.arg_vals.len() >= 3 {
             if let TypeInfo::List { element } = ctx.type_info {
                 let cm = emitter.cow_mode_const(ctx.arc_func);
-                let r = emitter.emit_list_insert_cow(ctx.arg_vals[0], ctx.arg_vals[1], ctx.arg_vals[2], *element, cm);
+                let r = emitter.emit_list_insert_cow(ctx.arg_vals[0], ctx.arg_vals[1], ctx.arg_vals[2], *element, cm, ctx.receiver_ty);
                 if r.is_some() { emitter.mark_cow_data_noalias_if_unique(ctx.arc_func); }
                 r
             } else {
@@ -234,7 +234,7 @@ declare_builtins! { emitter, ctx;
         if ctx.arg_vals.len() >= 2 {
             if let TypeInfo::List { element } = ctx.type_info {
                 let cm = emitter.cow_mode_const(ctx.arc_func);
-                let r = emitter.emit_list_remove_cow(ctx.arg_vals[0], ctx.arg_vals[1], *element, cm);
+                let r = emitter.emit_list_remove_cow(ctx.arg_vals[0], ctx.arg_vals[1], *element, cm, ctx.receiver_ty);
                 if r.is_some() { emitter.mark_cow_data_noalias_if_unique(ctx.arc_func); }
                 r
             } else {
@@ -247,7 +247,7 @@ declare_builtins! { emitter, ctx;
     ("list", "slice") => {
         if ctx.arg_vals.len() >= 3 {
             if let TypeInfo::List { element } = ctx.type_info {
-                emitter.emit_list_slice(ctx.arg_vals[0], ctx.arg_vals[1], ctx.arg_vals[2], *element)
+                emitter.emit_list_slice(ctx.arg_vals[0], ctx.arg_vals[1], ctx.arg_vals[2], *element, ctx.receiver_ty)
             } else {
                 None
             }
@@ -258,7 +258,7 @@ declare_builtins! { emitter, ctx;
     ("list", "take") => {
         if ctx.arg_vals.len() >= 2 {
             if let TypeInfo::List { element } = ctx.type_info {
-                emitter.emit_list_take_slice(ctx.arg_vals[0], ctx.arg_vals[1], *element)
+                emitter.emit_list_take_slice(ctx.arg_vals[0], ctx.arg_vals[1], *element, ctx.receiver_ty)
             } else {
                 None
             }
@@ -269,7 +269,7 @@ declare_builtins! { emitter, ctx;
     ("list", "drop") => {
         if ctx.arg_vals.len() >= 2 {
             if let TypeInfo::List { element } = ctx.type_info {
-                emitter.emit_list_drop_slice(ctx.arg_vals[0], ctx.arg_vals[1], *element)
+                emitter.emit_list_drop_slice(ctx.arg_vals[0], ctx.arg_vals[1], *element, ctx.receiver_ty)
             } else {
                 None
             }
@@ -292,7 +292,7 @@ declare_builtins! { emitter, ctx;
     ("map", "contains_key") => {
         if ctx.arg_vals.len() >= 2 {
             if let TypeInfo::Map { key, .. } = ctx.type_info {
-                emitter.emit_map_contains_key(ctx.arg_vals[0], ctx.arg_vals[1], *key)
+                emitter.emit_map_contains_key(ctx.arg_vals[0], ctx.arg_vals[1], *key, ctx.receiver_ty)
             } else {
                 None
             }
@@ -302,14 +302,14 @@ declare_builtins! { emitter, ctx;
     },
     ("map", "keys") => {
         if let TypeInfo::Map { key, .. } = ctx.type_info {
-            emitter.emit_map_keys(ctx.arg_vals[0], *key)
+            emitter.emit_map_keys(ctx.arg_vals[0], *key, ctx.receiver_ty)
         } else {
             None
         }
     },
     ("map", "values") => {
         if let TypeInfo::Map { key, value } = ctx.type_info {
-            emitter.emit_map_values(ctx.arg_vals[0], *key, *value)
+            emitter.emit_map_values(ctx.arg_vals[0], *key, *value, ctx.receiver_ty)
         } else {
             None
         }
@@ -317,7 +317,7 @@ declare_builtins! { emitter, ctx;
     ("map", "get") => {
         if ctx.arg_vals.len() >= 2 {
             if let TypeInfo::Map { key, value } = ctx.type_info {
-                emitter.emit_map_get(ctx.arg_vals[0], ctx.arg_vals[1], *key, *value)
+                emitter.emit_map_get(ctx.arg_vals[0], ctx.arg_vals[1], *key, *value, Some(ctx.receiver_ty))
             } else {
                 None
             }
@@ -329,7 +329,7 @@ declare_builtins! { emitter, ctx;
         if ctx.arg_vals.len() >= 3 {
             if let TypeInfo::Map { key, value } = ctx.type_info {
                 let cm = emitter.cow_mode_const(ctx.arc_func);
-                let r = emitter.emit_map_insert(ctx.arg_vals[0], ctx.arg_vals[1], ctx.arg_vals[2], *key, *value, cm);
+                let r = emitter.emit_map_insert(ctx.arg_vals[0], ctx.arg_vals[1], ctx.arg_vals[2], *key, *value, cm, ctx.receiver_ty);
                 if r.is_some() { emitter.mark_cow_data_noalias_if_unique(ctx.arc_func); }
                 r
             } else {
@@ -341,7 +341,7 @@ declare_builtins! { emitter, ctx;
     },
     ("map", "iter") => {
         if let TypeInfo::Map { key, value } = ctx.type_info {
-            emitter.emit_map_iter(ctx.arg_vals[0], *key, *value)
+            emitter.emit_map_iter(ctx.arg_vals[0], *key, *value, ctx.receiver_ty)
         } else {
             None
         }
@@ -350,7 +350,7 @@ declare_builtins! { emitter, ctx;
         if ctx.arg_vals.len() >= 2 {
             if let TypeInfo::Map { key, value } = ctx.type_info {
                 let cm = emitter.cow_mode_const(ctx.arc_func);
-                let r = emitter.emit_map_remove(ctx.arg_vals[0], ctx.arg_vals[1], *key, *value, cm);
+                let r = emitter.emit_map_remove(ctx.arg_vals[0], ctx.arg_vals[1], *key, *value, cm, ctx.receiver_ty);
                 if r.is_some() { emitter.mark_cow_data_noalias_if_unique(ctx.arc_func); }
                 r
             } else {

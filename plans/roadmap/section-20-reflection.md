@@ -2,7 +2,8 @@
 section: 20
 title: Compile-Time Reflection
 status: not-started
-reviewed: false
+last_verified: "2026-03-29"
+reviewed: true
 tier: 8
 goal: Enable zero-cost compile-time structural reflection via fields_of, variants_of, $for expansion, $if branching, and splice access
 spec:
@@ -14,31 +15,44 @@ depends_on: ["18", "2", "3"]
 third_party_review:
   status: none
   updated: null
+verification_notes:
+  - "ERROR CODE DRIFT: E0460-E0464/W0461 are in the E0xxx (lexer) range but these are type checker/monomorphization errors — should be E2xxx per diagnostic conventions. When implementing, use E2042+ or document E04xx as a deliberate compile-time expansion sub-range."
+  - "SPEC STALE: spec/27-reflection.md contains the OLD runtime Reflect model (Reflect trait, TypeInfo, Unknown, #derive(Reflect)). Has SUPERSEDED header but body not rewritten. grammar.ebnf has no $for/$if/splice productions."
+  - "DEPENDENCY BLOCKED: Section 18.0 (const eval bridge) is not-started. Registration (20.1) and parsing (20.2) can proceed independently, but expansion (20.3) and resolution (20.4) are blocked on it."
+  - "ori-syntax.md documents reflection features that have zero implementation — correct as design target documentation, not a hygiene violation."
 sections:
   - id: "20.1"
     title: Compile-Time Metadata Types and Intrinsics
     status: not-started
+    verified: "2026-03-29"
   - id: "20.2"
     title: "Parser: $for, $if, and Splice Syntax"
     status: not-started
+    verified: "2026-03-29"
   - id: "20.3"
     title: "$for Expansion During Monomorphization"
     status: not-started
+    verified: "2026-03-29"
   - id: "20.4"
     title: "$if Dead Branch Elimination and Splice Resolution"
     status: not-started
+    verified: "2026-03-29"
   - id: "20.5"
     title: Type Classification Intrinsics
     status: not-started
+    verified: "2026-03-29"
   - id: "20.6"
     title: Integration and Verification
     status: not-started
+    verified: "2026-03-29"
   - id: "20.R"
     title: Third Party Review Findings
-    status: not-started
+    status: done
+    verified: "2026-03-29"
   - id: "20.7"
     title: Completion Checklist
     status: not-started
+    verified: "2026-03-29"
 ---
 
 # Section 20: Compile-Time Reflection
@@ -82,6 +96,8 @@ Parse ──→ Type Check ──→ Monomorphize ──→ ARC Lower ──→ 
 ---
 
 ## 20.1 Compile-Time Metadata Types and Intrinsics
+
+> Verified not-started (2026-03-29): No `$FieldMeta`, `$VariantMeta`, `Tag::FieldMeta`, `Tag::VariantMeta` in type pool. No `fields_of`/`variants_of`/`name_of` intrinsic registration. No test files or `tests/spec/reflection/` directory.
 
 **File(s):** `compiler/ori_ir/src/ast/expr.rs`, `compiler/ori_types/src/output/mod.rs`, `compiler/ori_types/src/infer/expr/identifiers.rs`, `compiler/ori_types/src/check/registration/mod.rs`
 
@@ -134,6 +150,8 @@ Parse ──→ Type Check ──→ Monomorphize ──→ ARC Lower ──→ 
 ---
 
 ## 20.2 Parser: $for, $if, and Splice Syntax
+
+> Verified not-started (2026-03-29): No `ExprKind::CompFor`, `CompIf`, or `Splice` variants in AST. No `parse_comp_for`/`parse_comp_if` functions. Parser `$` dispatch only produces `ExprKind::Const(name)`. No parse tests for reflection syntax.
 
 **File(s):** `compiler/ori_parse/src/grammar/expr/primary/control_flow.rs`, `compiler/ori_parse/src/grammar/expr/postfix.rs`, `compiler/ori_ir/src/ast/expr.rs`, `compiler/ori_ir/src/token/kind.rs`
 
@@ -210,6 +228,8 @@ Parse ──→ Type Check ──→ Monomorphize ──→ ARC Lower ──→ 
 
 ## 20.3 $for Expansion During Monomorphization
 
+> Verified not-started (2026-03-29): No expansion logic in monomorphization. No `CompFor` handling. BLOCKED on Section 18.0 (const eval bridge, also not-started).
+
 **File(s):** `compiler/ori_types/src/infer/expr/calls/monomorphization.rs`, `compiler/ori_types/src/infer/mod.rs`, `compiler/ori_types/src/pool/substitute/mod.rs`
 
 **Goal:** When monomorphizer encounters `$for` with concrete `T`, expand the loop body N times (once per field/variant), producing independently type-checked expressions.
@@ -265,6 +285,8 @@ Parse ──→ Type Check ──→ Monomorphize ──→ ARC Lower ──→ 
 
 ## 20.4 $if Dead Branch Elimination and Splice Resolution
 
+> Verified not-started (2026-03-29): No compile-time branch elimination, no splice resolution logic. None of E0462/E0463/E0464 error codes registered. BLOCKED on Section 18.0. ERROR CODE DRIFT: E0462-E0464 are type checker errors but assigned to E0xxx (lexer) range -- should be E2xxx per diagnostic conventions.
+
 **File(s):** `compiler/ori_types/src/infer/expr/`, `compiler/ori_types/src/infer/expr/calls/monomorphization.rs`
 
 **Goal:** `$if` conditions resolve at monomorphization time; dead branches are not type-checked. Splice `value.[field]` resolves to direct `ExprKind::Field` access.
@@ -315,6 +337,8 @@ Parse ──→ Type Check ──→ Monomorphize ──→ ARC Lower ──→ 
 
 ## 20.5 Type Classification Intrinsics
 
+> Verified not-started (2026-03-29): No Ori-level `is_struct`/`is_enum`/`is_primitive`/`is_collection`/`is_option`/`is_result`/`is_tuple` intrinsic registration. Existing Rust-internal `Tag::is_primitive()` etc. are unrelated (operator dispatch, not Ori compile-time predicates).
+
 **File(s):** `compiler/ori_types/src/check/registration/mod.rs`, `compiler/ori_types/src/infer/expr/identifiers.rs`
 
 **Goal:** `is_struct(T)`, `is_enum(T)`, `is_primitive(T)`, `is_collection(T)`, `is_option(T)`, `is_result(T)`, `is_tuple(T)` — compile-time predicates for type classification, usable in `$if` conditions.
@@ -354,6 +378,8 @@ Parse ──→ Type Check ──→ Monomorphize ──→ ARC Lower ──→ 
 ---
 
 ## 20.6 Integration and Verification
+
+> Verified not-started (2026-03-29): No evaluator or LLVM handling for reflection constructs (AST variants do not exist). Spec Clause 27 still contains OLD runtime Reflect model -- body not rewritten despite SUPERSEDED header. ori-syntax.md update is done (design target documentation). `tests/spec/reflection/` directory does not exist. None of E0460/W0461 error codes registered. ERROR CODE DRIFT: E0460/W0461 should be E2xxx range.
 
 **File(s):** `tests/spec/reflection/`, `compiler/ori_eval/src/`, `compiler/ori_llvm/src/`
 
@@ -402,11 +428,15 @@ Parse ──→ Type Check ──→ Monomorphize ──→ ARC Lower ──→ 
 
 ## 20.R Third Party Review Findings
 
+> Verified done (2026-03-29): "None" is correct -- no implementation exists to review.
+
 - None.
 
 ---
 
 ## 20.7 Completion Checklist
+
+> Verified not-started (2026-03-29): All 15 items unimplemented. No reflection functionality exists in any compiler phase.
 
 - [ ] `fields_of(T)` returns correct metadata for structs, newtypes, and empty for non-struct types
 - [ ] `variants_of(T)` returns correct metadata for sum types
@@ -425,3 +455,31 @@ Parse ──→ Type Check ──→ Monomorphize ──→ ARC Lower ──→ 
 - [ ] `/tpr-review` passed — independent Codex review found no critical or major issues (or all findings triaged)
 
 **Exit Criteria:** `$for field in fields_of(User) yield field.name` evaluated at compile time produces `["name", "age", "email"]` with zero runtime overhead. LLVM IR for reflection-using code is identical to hand-written field-by-field code. All 5 error codes produce clear, actionable diagnostics. Eval and LLVM paths match for all tests. `./test-all.sh` and `./clippy-all.sh` green.
+
+---
+
+## Verification Notes (2026-03-29)
+
+### ERROR CODE DRIFT
+
+Error codes E0460-E0464 and W0461 are assigned in the E0xxx range (lexer errors per diagnostic conventions), but all reflection errors are type checker/monomorphization errors and belong in the **E2xxx** range. Current highest E2xxx code is E2041. When implementing, either:
+1. Reassign to E2042-E2046 (consistent with type checker convention), or
+2. Document E04xx as a deliberate "compile-time expansion" sub-range in `.claude/rules/diagnostic.md`.
+
+### SPEC CLAUSE 27 STALE
+
+`docs/ori_lang/v2026/spec/27-reflection.md` contains the OLD runtime Reflect model (`Reflect` trait, `TypeInfo`, `Unknown`, `FieldInfo`, `VariantInfo`, `field_by_index`/`field_by_name`, `#derive(Reflect)`). Has a `SUPERSEDED (2026-03-26)` header but the body has not been rewritten. The `grammar.ebnf` has no `$for`, `$if`, or splice productions. This is tracked in 20.6 but is a significant documentation gap.
+
+### DEPENDENCY: SECTION 18.0 NOT STARTED
+
+The const eval bridge (Section 18.0) is entirely unchecked. This blocks 20.3 (expansion) and 20.4 (resolution) but does NOT block 20.1 (registration) or 20.2 (parsing).
+
+### PLAN QUALITY GAPS (from verification)
+
+The plan is well-structured but has these gaps to address when implementing:
+- **Missing negative test specifications**: Positive test matrices lack explicit negative pins (e.g., `$for` with runtime iterable must fail).
+- **Missing interaction testing**: No cross-feature interaction tests specified (reflection + closures, reflection + generics, reflection + traits).
+- **Missing ARC/memory testing**: No `ORI_CHECK_LEAKS=1` verification mentioned for expanded code.
+- **Missing cleanup section**: No final annotation cleanup section per CLAUDE.md requirements.
+- **Missing dual-execution verification mechanism**: Completion checklist mentions eval/LLVM parity but does not specify the tool (`/code-journey` or `dual-exec-verify.sh`).
+- **Heterogeneous yield type unification**: Plan does not specify what "unified type" means for `$for...yield` when field types differ (Ori has no implicit conversions).

@@ -1,11 +1,13 @@
 //! Codegen pipeline implementation for AOT compilation.
 //!
-//! Extracted from `compile_common.rs` to keep both files under 500 lines.
 //! Contains the heavy implementation details:
 //! - ARC borrow inference (`run_borrow_inference`)
 //! - LLVM codegen orchestration (`run_codegen_pipeline`)
 //!
-//! These are called from `compile_common::compile_to_llvm` and
+//! Helpers extracted into sibling modules:
+//! - `repr_setup`: repr plan computation and impl-method ARC lowering for analysis
+//!
+//! Called from `compile_common::compile_to_llvm` and
 //! `compile_common::compile_to_llvm_with_imports`.
 
 #[cfg(feature = "llvm")]
@@ -220,11 +222,7 @@ pub(super) fn run_borrow_inference(
 #[allow(unsafe_code, reason = "LLVM C API requires unsafe FFI calls")]
 #[expect(
     clippy::too_many_lines,
-    reason = "sequential pipeline — splitting would fragment the compilation flow"
-)]
-#[expect(
-    clippy::cognitive_complexity,
-    reason = "impl-method ordinal tracking adds nesting — extracting would split the iterator alignment"
+    reason = "sequential pipeline — further splitting would fragment the compilation flow"
 )]
 pub(super) fn run_codegen_pipeline<'ctx>(
     context: &'ctx Context,
@@ -240,6 +238,7 @@ pub(super) fn run_codegen_pipeline<'ctx>(
     target_triple: Option<&str>,
     narrowing_policy: ori_repr::NarrowingPolicy,
     imported_type_metadata: &[ori_types::ExportedTypeMetadata],
+    imported_collection_surfaces: &[u64],
 ) -> Result<ori_llvm::inkwell::module::Module<'ctx>, String> {
     use ori_llvm::codegen::eh_model::EhModel;
     use ori_llvm::codegen::function_compiler::FunctionCompiler;
@@ -309,174 +308,20 @@ pub(super) fn run_codegen_pipeline<'ctx>(
             crate::arc_dot::emit_arc_dot(&arc_cache, &annotated_sigs, &classifier, pool, interner);
         });
 
-        // 3a. Compute representation plan (§01 — canonical reprs only).
-        // Include impl methods in the analysis set so §03.5 range analysis
-        // sees their call sites (TPR-03-041). They are ARC-lowered into a
-        // separate vec (not the codegen arc_cache) to avoid interfering with
+        // 3a. Compute representation plan.
+        // Include impl methods in the analysis set so interprocedural range
+        // analysis sees their call sites. They are ARC-lowered into a separate
+        // vec (not the codegen arc_cache) to avoid interfering with
         // compile_impls() which does its own ARC lowering for LLVM emission.
         let all_arc_funcs = {
             let mut funcs = super::repr_setup::collect_all_arc_functions(&arc_cache);
-            let mut impl_arc_problems = Vec::new();
-            // Ordinal counter: tracks how many times each (self_type, method_name)
-            // pair has been seen, for disambiguating same-type same-name impls
-            // like `impl Index<int, V>` and `impl Index<str, V>` (TPR-03-051).
-            let mut method_ordinals: rustc_hash::FxHashMap<(ori_types::Idx, Name), usize> =
-                rustc_hash::FxHashMap::default();
-            let mut sig_iter = type_result.typed.impl_sigs.iter();
-            for impl_def in &parse_result.module.impls {
-                // Resolve the self-type Name and Idx for this impl block.
-                let type_name_name = impl_def.self_path.last().copied();
-                let self_type_idx = type_name_name.and_then(|name| {
-                    type_result
-                        .typed
-                        .types
-                        .iter()
-                        .find(|te| te.name == name)
-                        .map(|te| te.idx)
-                });
-                for method in &impl_def.methods {
-                    let Some((_, sig)) = sig_iter.next() else {
-                        break;
-                    };
-                    if sig.is_generic() {
-                        continue;
-                    }
-                    // Type-qualified name with ordinal for same-type same-name
-                    // disambiguation (TPR-03-047, TPR-03-051).
-                    let ordinal = if let Some(idx) = self_type_idx {
-                        let entry = method_ordinals.entry((idx, method.name)).or_insert(0);
-                        let ord = *entry;
-                        *entry += 1;
-                        ord
-                    } else {
-                        0
-                    };
-                    let qualified_name = if let Some(idx) = self_type_idx {
-                        let method_str = interner.lookup(method.name);
-                        if ordinal == 0 {
-                            interner.intern(&format!("__impl_{}_{method_str}", idx.raw()))
-                        } else {
-                            interner.intern(&format!(
-                                "__impl_{}_{}_{ordinal}",
-                                idx.raw(),
-                                method_str
-                            ))
-                        }
-                    } else {
-                        method.name
-                    };
-                    // Use lower_impl_method_to_arc for correct body lookup
-                    // with ordinal-aware method_root_for_nth (TPR-03-049/051).
-                    let (arc_fn, lambdas) = if let Some(tn) = type_name_name {
-                        crate::arc_lowering::lower_impl_method_to_arc_nth(
-                            qualified_name,
-                            sig,
-                            method.name,
-                            tn,
-                            ordinal,
-                            canon,
-                            interner,
-                            pool,
-                            &mut impl_arc_problems,
-                            None,
-                        )
-                    } else {
-                        crate::arc_lowering::lower_to_arc(
-                            qualified_name,
-                            sig,
-                            method.name,
-                            canon,
-                            interner,
-                            pool,
-                            &mut impl_arc_problems,
-                            None,
-                        )
-                    };
-                    funcs.push(arc_fn);
-                    funcs.extend(lambdas);
-                }
-                // Skip default trait methods in sig_iter (they don't have
-                // parse-level method definitions but are in impl_sigs).
-                if let Some(trait_path) = &impl_def.trait_path {
-                    if let Some(&trait_name) = trait_path.last() {
-                        let overridden: rustc_hash::FxHashSet<Name> =
-                            impl_def.methods.iter().map(|m| m.name).collect();
-                        if let Some(trait_def) = parse_result
-                            .module
-                            .traits
-                            .iter()
-                            .find(|t| t.name == trait_name)
-                        {
-                            for item in &trait_def.items {
-                                if let ori_ir::TraitItem::DefaultMethod(default) = item {
-                                    if !overridden.contains(&default.name) {
-                                        let Some((_, sig)) = sig_iter.next() else {
-                                            break;
-                                        };
-                                        if sig.is_generic() {
-                                            continue;
-                                        }
-                                        let def_ordinal = if let Some(idx) = self_type_idx {
-                                            let entry = method_ordinals
-                                                .entry((idx, default.name))
-                                                .or_insert(0);
-                                            let ord = *entry;
-                                            *entry += 1;
-                                            ord
-                                        } else {
-                                            0
-                                        };
-                                        let qualified_name = if let Some(idx) = self_type_idx {
-                                            let method_str = interner.lookup(default.name);
-                                            if def_ordinal == 0 {
-                                                interner.intern(&format!(
-                                                    "__impl_{}_{method_str}",
-                                                    idx.raw()
-                                                ))
-                                            } else {
-                                                interner.intern(&format!(
-                                                    "__impl_{}_{}_{def_ordinal}",
-                                                    idx.raw(),
-                                                    method_str
-                                                ))
-                                            }
-                                        } else {
-                                            default.name
-                                        };
-                                        let (arc_fn, lambdas) = if let Some(tn) = type_name_name {
-                                            crate::arc_lowering::lower_impl_method_to_arc_nth(
-                                                qualified_name,
-                                                sig,
-                                                default.name,
-                                                tn,
-                                                def_ordinal,
-                                                canon,
-                                                interner,
-                                                pool,
-                                                &mut impl_arc_problems,
-                                                None,
-                                            )
-                                        } else {
-                                            crate::arc_lowering::lower_to_arc(
-                                                qualified_name,
-                                                sig,
-                                                default.name,
-                                                canon,
-                                                interner,
-                                                pool,
-                                                &mut impl_arc_problems,
-                                                None,
-                                            )
-                                        };
-                                        funcs.push(arc_fn);
-                                        funcs.extend(lambdas);
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
+            funcs.extend(super::repr_setup::lower_impl_methods_for_analysis(
+                parse_result,
+                type_result,
+                interner,
+                canon,
+                pool,
+            ));
             funcs
         };
         // Only count non-generic impl methods — generic ones are skipped by
@@ -493,10 +338,11 @@ pub(super) fn run_codegen_pipeline<'ctx>(
             type_result,
             Some(interner),
             imported_type_metadata,
+            imported_collection_surfaces,
             has_impl_methods,
         );
 
-        // Create type store with repr plan for triviality delegation (§02 Phase B).
+        // Create type store with repr plan for triviality delegation.
         let store = TypeInfoStore::new_with_plan(pool, &repr_plan);
         // Create type resolver with the repr plan.
         let resolver = TypeLayoutResolver::new(&store, scx_ref, Some(interner), Some(&repr_plan));

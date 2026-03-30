@@ -112,7 +112,7 @@ range_add, range_sub, range_mul, range_literal, transfer_primop
 ---
 
 ### Section 04: Integer Narrowing Pipeline
-**File:** `section-04-integer-narrowing.md` | **Status:** In Progress
+**File:** `section-04-integer-narrowing.md` | **Status:** Complete
 
 ```
 integer narrowing, int → i32, int → i16, int → i8
@@ -133,14 +133,28 @@ Zig comptime_int, Roc NumericRange, LLVM InstCombine
 ---
 
 ### Section 05: Float Narrowing Pipeline
-**File:** `section-05-float-narrowing.md` | **Status:** Not Started
+**File:** `section-05-float-narrowing.md` | **Status:** Complete
 
 ```
 float narrowing, f64 → f32, FloatWidth, precision
 is_f32_exact, fpext, fptrunc, precision loss
-FloatRange, F32Exact, integer-valued float
-storage-only narrowing, computation narrowing
-IEEE 754, double to float, f32 representable
+FloatRange, F32Exact, Bottom, Top, observe, observe_arithmetic
+FloatFieldSummaryTable, collect_float_field_summaries
+storage-only narrowing, Phase A, literal-only
+narrow_float_fields, narrowing/float.rs
+IEEE 754, double to float, f32 representable, roundtrip
+NaN, infinity, negative zero, subnormal, out-of-range
+MachineRepr::Float { width: F32 }, try_repr_to_llvm_type
+ArcIrEmitter, Construct fptrunc, Project fpext
+trunc_for_narrowed_struct, sext_narrowed_field, float_trunc, float_ext
+try_lower_narrowed_aggregate, all-scalar-primitives guard
+DecisionSource::FloatNarrowing, has_fixed_layout_attr
+combined int+float narrowing, §04 codegen extension
+§05→§07 handoff, f32 niche skip, NaN-based niche
+NarrowingPolicy, Disabled, Conservative, Aggressive
+apply_float_narrowing, arc_functions parameter
+find_literal_float_value, narrowing_codegen.rs, float/tests.rs
+is_narrowing_safe_for_codegen rename, float_field_range_summary_string
 ```
 
 ---

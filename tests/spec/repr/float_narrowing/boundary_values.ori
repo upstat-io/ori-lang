@@ -1,0 +1,43 @@
+// Spec: Annex E (System Considerations) — float narrowing transparency
+// Boundary values at the edge of f32 representation. The compiler must
+// correctly handle values near f32 limits.
+
+use std.testing { assert_eq }
+
+type Boundary = { value: float }
+
+// Powers of 2 are always f32-exact
+@store_large_power_of_two () -> Boundary = Boundary { value: 16777216.0 };
+
+@test_large_power_of_two tests @store_large_power_of_two () -> void = {
+    let b = store_large_power_of_two();
+    // 2^24 = 16777216 — largest integer where all ints up to it are f32-exact
+    assert_eq(actual: b.value, expected: 16777216.0)
+}
+
+// Small fractions that are f32-exact (negative powers of 2)
+@store_small_fraction () -> Boundary = Boundary { value: 0.0625 };
+
+@test_small_fraction tests @store_small_fraction () -> void = {
+    let b = store_small_fraction();
+    // 2^-4 = 0.0625
+    assert_eq(actual: b.value, expected: 0.0625)
+}
+
+// Very small f32-exact value
+@store_tiny () -> Boundary = Boundary { value: 0.000244140625 };
+
+@test_tiny_roundtrip tests @store_tiny () -> void = {
+    let b = store_tiny();
+    // 2^-12 = 0.000244140625
+    assert_eq(actual: b.value, expected: 0.000244140625)
+}
+
+// Integer-valued float at the f32 precision boundary
+@store_at_precision_edge () -> Boundary = Boundary { value: 16777215.0 };
+
+@test_precision_edge tests @store_at_precision_edge () -> void = {
+    let b = store_at_precision_edge();
+    // 2^24 - 1 = 16777215 — last consecutive integer f32 can represent
+    assert_eq(actual: b.value, expected: 16777215.0)
+}

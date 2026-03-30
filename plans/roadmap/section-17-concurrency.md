@@ -2,7 +2,8 @@
 section: 17
 title: Concurrency Extended
 status: not-started
-reviewed: false
+reviewed: true
+last_verified: "2026-03-29"
 tier: 6
 goal: Complete concurrency support with Sendable trait, role-based channels, nursery pattern, and structured concurrency
 sections:
@@ -53,7 +54,22 @@ sections:
 
 **Dependencies**: Section 16 (Async Support), Section 3 (Traits — Sendable trait definition), Section 5 (Type Declarations — sum types for NurseryErrorMode, CancellationReason), Section 6 (Capabilities — `uses Suspend`/`uses Async`)
 
-
+> **Verification (2026-03-29)**: Status `not-started` CONFIRMED. No substantive implementation exists.
+> Existing scaffolding (FunctionExpKind variants for channel/parallel/spawn/timeout, Tag::Channel,
+> Sendable registered in well-known traits, sequential stubs in evaluator) does not constitute
+> meaningful progress. Section 16 (Async Support) is also not-started -- a prerequisite blocker.
+>
+> **10 gaps identified** (see .verify-results/section-17-results.md):
+> - GAP-17-001: `nursery` not parseable -- no FunctionExpKind::Nursery variant
+> - GAP-17-002: Channel constructor evaluator gap -- parsed but no eval dispatch
+> - GAP-17-003: Spec clause numbering drift -- plan says 23, actual is 22 (FIXED in this update)
+> - GAP-17-004: No Sendable auto-derivation logic (expected for not-started)
+> - GAP-17-005: Channel type representation incomplete -- single Tag::Channel vs 4 role-based types
+> - GAP-17-006: No stdlib concurrency types -- CancellationError/CancellationReason/NurseryErrorMode missing from prelude
+> - GAP-17-007: is_cancelled() not implemented in any compiler crate
+> - GAP-17-008: Section 16 dependency not started -- prerequisite blocker
+> - GAP-17-009: 30+ planned Rust test file paths reference non-existent modules/directories
+> - GAP-17-010: All concurrency spec tests commented out (3 files with extensive inactive test code)
 
 ### Sync Points: New Types (multi-crate sync required)
 
@@ -87,6 +103,11 @@ Adding the following types requires updates across **all** these crates:
 **Proposal**: `proposals/approved/task-async-context-proposal.md`
 
 Foundational definitions for tasks, async contexts, and suspension points that the rest of Section 17 depends on.
+
+> **Verification (2026-03-29)**: 0/10 done, 1 partial (closure capture-by-value exists in eval
+> via `environment/mod.rs` `capture()` but has no dedicated test/verification infrastructure).
+> No task abstraction, async context, or suspension analysis exists in any crate.
+> `ori_rt` uses non-atomic refcounting throughout. No `tests/spec/concurrency/` directory exists.
 
 ### Implementation
 
@@ -161,6 +182,12 @@ Foundational definitions for tasks, async contexts, and suspension points that t
 
 Auto-implemented marker trait for types that can safely cross task boundaries.
 
+> **Verification (2026-03-29)**: 0/5 done, 1 partial. `Sendable` IS registered in well-known
+> traits (`ori_types/src/check/well_known/mod.rs:108`, Duration/Size have it in trait sets).
+> However: no auto-implementation logic, no field-recursive analysis, no enforcement at
+> channel/spawn boundaries. Registered as a trait name only -- NOT semantically implemented.
+> Commented-out `#compile_fail("not Sendable")` test exists in `channels.ori` line 162-166.
+
 ```ori
 trait Sendable {}
 
@@ -216,6 +243,11 @@ Interior mutability does not exist in user-defined Ori types. Only runtime-provi
 ## 17.2 Role-Based Channel Types
 
 Split channels into Producer and Consumer roles with compile-time enforcement.
+
+> **Verification (2026-03-29)**: 0/5 done. No `Producer<T>`, `Consumer<T>`, `CloneableProducer<T>`,
+> `CloneableConsumer<T>` types exist. `Tag::Channel` (value 19) in `ori_types/src/tag/mod.rs` is
+> a single generic `chan<T>` -- the old undifferentiated channel, not the role-based split.
+> All channel type tests in `channels.ori` are commented out.
 
 ```ori
 // Role-specific types
@@ -282,6 +314,11 @@ impl<T: Sendable> Iterable for Consumer<T> { ... }
 
 Four constructors for different concurrency patterns.
 
+> **Verification (2026-03-29)**: 0/5 done, 1 partial. `FunctionExpKind` has `Channel`/`ChannelIn`/
+> `ChannelOut`/`ChannelAll` variants (parser can parse them), but the evaluator
+> (`function_exp.rs`) has NO match arms for these -- any Ori program using `channel<T>(buffer: N)`
+> would hit a missing match arm at runtime. GAP-17-002.
+
 ```ori
 // One-to-one (exclusive, fastest)
 @channel<T: Sendable> (buffer: int) -> (Producer<T>, Consumer<T>)
@@ -336,6 +373,9 @@ Four constructors for different concurrency patterns.
 
 Values are consumed when sent, preventing data races.
 
+> **Verification (2026-03-29)**: 0/3 done. No move semantics on channel send. No use-after-send
+> analysis. `tests/compile-fail/use_after_send.ori` does not exist.
+
 ```ori
 @producer (p: Producer<Data>) -> void uses Async = {
     let data = create_data()
@@ -369,6 +409,12 @@ Values are consumed when sent, preventing data races.
 ## 17.5 nursery Pattern
 
 Structured concurrency with guaranteed task completion.
+
+> **Verification (2026-03-29)**: 0/8 done. PREREQUISITE GAP: `FunctionExpKind` has NO `Nursery`
+> variant -- the parser CANNOT parse `nursery(...)`. GAP-17-001. The formatter
+> (`ori_fmt/src/packing/construct.rs`) recognizes `ConstructKind::Nursery` for formatting
+> scaffolding only. No `Nursery` type, no `NurseryErrorMode` sum type, no nursery evaluation.
+> All nursery tests in `channels.ori` (lines 172-246) are commented out.
 
 ```ori
 nursery(
@@ -442,6 +488,12 @@ type NurseryErrorMode = CancelRemaining | CollectAll | FailFast
 
 Specifies execution guarantees for the `parallel` pattern: task ordering, concurrency limits, resource exhaustion, and timeout behavior.
 
+> **Verification (2026-03-29)**: 0/6 done, 1 partial. The stub in `function_exp.rs:219-237`
+> iterates tasks in list order (sequential) -- trivially satisfies start order but is NOT
+> concurrent execution. `max_concurrent`, `timeout`, resource exhaustion, and empty list
+> handling are all unimplemented. All parallel tests in `parallel.ori` are commented out;
+> active tests use `for...yield` as sequential simulation.
+
 ### Implementation
 
 - [ ] **Implement**: Start order guarantee (tasks start in list order)
@@ -492,13 +544,21 @@ Specifies execution guarantees for the `parallel` pattern: task ordering, concur
 
 **Proposal**: `proposals/approved/nursery-cancellation-proposal.md`
 
-**Spec**: `spec/23-concurrency-model.md` § Cancellation (added cooperative model, checkpoints, CancellationError, is_cancelled)
+**Spec**: `spec/22-concurrency-model.md` § Cancellation (added cooperative model, checkpoints, CancellationError, is_cancelled)
 
 Specifies cooperative cancellation model, checkpoints, error mode behaviors, and cleanup guarantees.
 
+> **Verification (2026-03-29)**: 0/8 done. Spec (Clause 22.7) is well-written with checkpoints,
+> CancellationError/CancellationReason types, error mode semantics, timeout cancellation, and
+> cleanup guarantees -- most complete part of the concurrency story. But: `is_cancelled()` is
+> NOT implemented in any compiler crate despite being documented in CLAUDE.md and ori-syntax.md.
+> No `CancellationError` or `CancellationReason` types in `library/std/prelude.ori` or compiler.
+> Single commented-out `is_cancelled` test in `channels.ori` (lines 252-255).
+> DRIFT FIXED: was referencing `spec/23-concurrency-model.md`, actual file is `spec/22-concurrency-model.md`.
+
 ### Implementation
 
-- [ ] **Spec**: Cancellation semantics in `spec/23-concurrency-model.md` DONE
+- [ ] **Spec**: Cancellation semantics in `spec/22-concurrency-model.md` DONE
 
 - [ ] **Implement**: Cooperative cancellation model
   - [ ] **Rust Tests**: `ori_eval/src/interpreter/cancellation.rs` — cooperative cancellation
@@ -563,6 +623,11 @@ Specifies cooperative cancellation model, checkpoints, error mode behaviors, and
 **Proposal**: `proposals/approved/timeout-spawn-patterns-proposal.md`
 
 Formalizes semantics for `timeout` and `spawn` patterns including cancellation behavior, error handling, and task lifetime.
+
+> **Verification (2026-03-29)**: 0/12 done, 2 partial. `timeout` stub executes operation, wraps
+> in `Ok()`, ignores timeout duration -- no `CancellationError` return. `spawn` stub executes
+> tasks sequentially, ignores errors, returns `Void`. Neither implements actual concurrency.
+> All timeout and spawn tests in `concurrency.ori` and `parallel.ori` are commented out.
 
 ### Timeout Pattern Implementation
 
@@ -647,10 +712,12 @@ Formalizes semantics for `timeout` and `spawn` patterns including cancellation b
 
 ## 17.9 Section Completion Checklist
 
+> **Verification (2026-03-29)**: 0/16 done. Consistent with overall not-started status.
+
 - [ ] All items in 17.1-17.8 have checkboxes marked `[ ]`
 - [ ] Spec updated: `spec/08-types.md` — Sendable, Producer, Consumer, CloneableProducer, CloneableConsumer, CancellationError, CancellationReason
 - [ ] Spec updated: `spec/15-patterns.md` — nursery pattern, parallel execution guarantees
-- [ ] Spec updated: `spec/23-concurrency-model.md` — cancellation model
+- [ ] Spec updated: `spec/22-concurrency-model.md` — cancellation model
 - [ ] CLAUDE.md updated with channel constructors, nursery syntax, is_cancelled()
 - [ ] Sendable trait working (auto-implemented)
 - [ ] Role-based channels working (Producer/Consumer)

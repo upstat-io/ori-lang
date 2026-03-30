@@ -206,6 +206,10 @@ pub(super) struct CompiledModuleInfo {
     /// that `pub` and `#repr(...)` types are not incorrectly narrowed.
     /// See CROSS-04-014 and CROSS-04-015.
     pub(super) exported_type_metadata: Vec<ori_types::ExportedTypeMetadata>,
+    /// Merkle hashes of collection types in public function signatures.
+    /// Enables cross-module protection of collection element layouts from
+    /// narrowing. See TPR-04-032.
+    pub(super) exported_collection_surfaces: Vec<u64>,
 }
 
 /// Compile a single module to an object file.
@@ -276,6 +280,8 @@ fn compile_single_module(
     // correctly exempted from integer narrowing. See CROSS-04-015.
     let imported_type_metadata =
         collect_imported_type_metadata(source_path, ctx.graph, compiled_modules);
+    let imported_collection_surfaces =
+        collect_imported_collection_surfaces(source_path, ctx.graph, compiled_modules);
 
     // Compile to LLVM IR (with ARC cache if available).
     // Salsa/ArtifactCache boundary: typed() results flow into codegen via
@@ -292,6 +298,7 @@ fn compile_single_module(
         &module_name,
         &imported_functions,
         &imported_type_metadata,
+        &imported_collection_surfaces,
         ctx.arc_cache.as_ref(),
         ctx.module_hash
             .as_ref()
@@ -311,20 +318,15 @@ fn compile_single_module(
     // Configure target, optimize, and emit object/bitcode
     let obj_path = emit_module_artifact(ctx, &llvm_module, &module_name)?;
 
-    // Merge imported metadata into this module's exports so that re-exported
-    // `pub` / `#repr(...)` types propagate transitively through module chains.
-    // Without this, A→B→C loses C's metadata when A imports only B.
-    // See TPR-04-016.
-    let exported_type_metadata = merge_forwarded_metadata(
-        type_result.typed.exported_type_metadata.clone(),
-        &imported_type_metadata,
-    );
-
+    // Transitive metadata forwarding now happens in the type checker
+    // (generate_exported_type_metadata merges imported metadata at finish_with_pool).
+    // No post-check merge needed here. See CROSS-04-017.
     let module_info = CompiledModuleInfo {
         path: source_path.to_path_buf(),
         module_name,
         public_functions,
-        exported_type_metadata,
+        exported_type_metadata: type_result.typed.exported_type_metadata.clone(),
+        exported_collection_surfaces: type_result.typed.exported_collection_surfaces.clone(),
     };
 
     Some((obj_path, module_info))
@@ -433,38 +435,6 @@ fn build_import_infos(
 /// When module B imports module C, C's `ExportedTypeMetadata` (repr attrs,
 /// public visibility) must be forwarded into B's exports. This ensures that
 /// when module A imports only B, it still receives C's metadata transitively.
-/// Without this forwarding, A's `ReprPlan` could incorrectly narrow C's
-/// `pub` or `#repr(...)` types. See TPR-04-016.
-///
-/// Deduplicates by `merkle_hash` — local entries take priority (first seen wins).
-pub(super) fn merge_forwarded_metadata(
-    local: Vec<ori_types::ExportedTypeMetadata>,
-    imported: &[ori_types::ExportedTypeMetadata],
-) -> Vec<ori_types::ExportedTypeMetadata> {
-    if imported.is_empty() {
-        return local;
-    }
-
-    let mut seen = rustc_hash::FxHashSet::default();
-    let mut result = Vec::with_capacity(local.len() + imported.len());
-
-    // Local entries first (take priority)
-    for entry in local {
-        if seen.insert(entry.merkle_hash) {
-            result.push(entry);
-        }
-    }
-
-    // Forwarded imports (skip duplicates)
-    for entry in imported {
-        if seen.insert(entry.merkle_hash) {
-            result.push(entry.clone());
-        }
-    }
-
-    result
-}
-
 /// Collect exported type metadata from all modules this module imports.
 ///
 /// Mirrors `build_import_infos()` but collects `ExportedTypeMetadata` instead
@@ -492,4 +462,34 @@ pub(super) fn collect_imported_type_metadata(
         }
     }
     metadata
+}
+
+/// Collect imported collection surface hashes from dependency modules.
+///
+/// Parallel to `collect_imported_type_metadata()` but collects merkle hashes
+/// of collection types (List, Set) that appear in imported public function
+/// signatures. Used for transitive forwarding metadata (A→B→C propagation).
+/// After TPR-04-042, imported surfaces no longer suppress narrowing — they
+/// are forwarded for downstream metadata only. See TPR-04-032.
+pub(super) fn collect_imported_collection_surfaces(
+    source_path: &Path,
+    graph: &ori_llvm::aot::incremental::deps::DependencyGraph,
+    compiled_modules: &[CompiledModuleInfo],
+) -> Vec<u64> {
+    let Some(imports) = graph.get_imports(source_path) else {
+        return Vec::new();
+    };
+
+    let module_index: rustc_hash::FxHashMap<&Path, &CompiledModuleInfo> = compiled_modules
+        .iter()
+        .map(|m| (m.path.as_path(), m))
+        .collect();
+
+    let mut surfaces = Vec::new();
+    for import_path in imports {
+        if let Some(module_info) = module_index.get(import_path.as_path()) {
+            surfaces.extend(module_info.exported_collection_surfaces.iter().copied());
+        }
+    }
+    surfaces
 }

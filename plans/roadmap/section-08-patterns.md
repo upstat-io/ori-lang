@@ -2,24 +2,36 @@
 section: 8
 title: Pattern Evaluation
 status: in-progress
-reviewed: false
+reviewed: true
+last_verified: "2026-03-29"
 tier: 3
 goal: All patterns evaluate correctly
 spec:
   - spec/15-patterns.md
+verification_notes: |
+  Verified 2026-03-29. 9 items verified, 3 stale checkboxes fixed, 3 weak-test
+  annotations added. Added missing catch (8.10, done) and nursery (8.11,
+  not-started) sections. 5 commented-out test files provide zero CI protection
+  (try.ori, with.ori, for.ori, concurrency.ori, parallel.ori actual tests).
+  Hygiene leak: eval_can_function_exp bypasses PatternRegistry for most patterns
+  — inline dispatch could drift from ori_patterns PatternDefinition impls.
+  No compile_fail tests for any pattern error code.
 sections:
   - id: "8.1"
     title: run (Sequential Execution)
     status: in-progress
+    verified: "2026-03-29"
   - id: "8.2"
     title: try (Error Propagation)
     status: not-started
   - id: "8.3"
     title: recurse (Recursive Functions)
     status: in-progress
+    verified: "2026-03-29"
   - id: "8.4"
     title: parallel (All-Settled Concurrent Execution)
     status: in-progress
+    verified: "2026-03-29"
   - id: "8.5"
     title: spawn (Fire and Forget)
     status: not-started
@@ -36,12 +48,27 @@ sections:
     title: for (Iteration with Early Exit)
     status: not-started
   - id: "8.10"
-    title: Data Transformation — MOVED TO STDLIB
-    status: not-started
+    title: catch (Error Capture)
+    status: done
+    verified: "2026-03-29"
   - id: "8.11"
-    title: Resilience Patterns — MOVED TO STDLIB
+    title: nursery (Structured Concurrency)
     status: not-started
   - id: "8.12"
+    title: CancellationError Type
+    status: not-started
+  - id: "8.13"
+    title: Data Transformation — MOVED TO STDLIB
+    status: done
+    verified: "2026-03-29"
+  - id: "8.14"
+    title: Resilience Patterns — MOVED TO STDLIB
+    status: done
+    verified: "2026-03-29"
+  - id: "8.15"
+    title: Hygiene Notes
+    status: in-progress
+  - id: "8.16"
     title: Section Completion Checklist
     status: not-started
 ---
@@ -67,8 +94,9 @@ The spec formalizes two distinct pattern categories:
 
 ### function_exp (Named Expressions)
 - `recurse` — Recursive computation
-- `parallel`, `spawn`, `timeout`, `cache` — Concurrency/resilience
+- `parallel`, `spawn`, `timeout`, `nursery`, `cache` — Concurrency/resilience
 - `with` — Resource management
+- `catch` — Error capture
 
 > **NOTE**: `map`, `filter`, `fold`, `find`, `collect`, `retry` are now stdlib functions.
 
@@ -77,22 +105,28 @@ The spec formalizes two distinct pattern categories:
 ## 8.1 run (Sequential Execution) [function_seq]
 
 > **Future Enhancement**: Approved proposal `proposals/approved/checks-proposal.md` adds function-level `pre()` and `post()` contract declarations. See Section 15.5.
+>
+> **NOTE**: The roadmap refers to "run" pattern but the implementation uses block expressions (`{ }` syntax). The `run()` function syntax was removed. Implementation is correct — block expressions are the canonical form.
 
-- [x] **Implement**: Grammar `run_expr = "run" "(" { binding "," } expression ")"` — spec/15-patterns.md § run [done] (2026-02-10)
-  - [x] **Rust Tests**: Evaluator pattern execution — run pattern tests
-  - [x] **Ori Tests**: `tests/spec/patterns/run.ori` — 12 tests pass
-  - [ ] **LLVM Support**: LLVM codegen for run pattern
+- [x] **Implement**: Grammar `run_expr = "run" "(" { binding "," } expression ")"` — spec/15-patterns.md § run [done] (2026-02-10) (verified 2026-03-29)
+  - [x] **Rust Tests**: Evaluator pattern execution — run pattern tests (verified 2026-03-29)
+  - [x] **Ori Tests**: `tests/spec/patterns/run.ori` — 12 tests pass (verified 2026-03-29)
+  - [ ] **LLVM Support**: LLVM codegen for run pattern — NEEDS TESTS (low priority: block expressions fundamental to all AOT codegen, broadly tested)
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/pattern_tests.rs` — run pattern codegen
-  - [ ] **AOT Tests**: No AOT coverage yet
+  - [ ] **AOT Tests**: No dedicated AOT coverage yet — blocks broadly tested in AOT
 
-- [x] **Implement**: Binding `let [ "mut" ] identifier [ ":" type ] "=" expression` — spec/15-patterns.md § run [done] (2026-02-10)
-- [x] **Implement**: Evaluate each binding in order — spec/15-patterns.md § run [done] (2026-02-10)
-- [x] **Implement**: Each binding introduces variable into scope — spec/15-patterns.md § run [done] (2026-02-10)
-- [x] **Implement**: Final expression is the result — spec/15-patterns.md § run [done] (2026-02-10)
+- [x] **Implement**: Binding `let [ "mut" ] identifier [ ":" type ] "=" expression` — spec/15-patterns.md § run [done] (2026-02-10) (verified 2026-03-29)
+- [x] **Implement**: Evaluate each binding in order — spec/15-patterns.md § run [done] (2026-02-10) (verified 2026-03-29)
+- [x] **Implement**: Each binding introduces variable into scope — spec/15-patterns.md § run [done] (2026-02-10) (verified 2026-03-29)
+- [x] **Implement**: Final expression is the result — spec/15-patterns.md § run [done] (2026-02-10) (verified 2026-03-29)
+- [ ] **Test Gap**: Missing `#compile_fail` negative tests for run pattern — NEEDS TESTS
+- [ ] **Test Gap**: Type coverage narrow (only int, void tested) — missing str, float, bool, struct, Option, Result, list, closures — NEEDS TESTS
 
 ---
 
 ## 8.2 try (Error Propagation)
+
+> **Commented-out tests**: `tests/spec/patterns/try.ori` is entirely commented out (208 lines, zero active tests). Blocked on type checker features (`try` pattern, `?` operator, Result polymorphism).
 
 - [ ] **Implement**: Grammar `try_expr = "try" "(" { binding "," } expression ")"` — spec/15-patterns.md § try
   - [ ] **Rust Tests**: `ori_patterns/src/try.rs` — try pattern execution tests
@@ -113,18 +147,19 @@ The spec formalizes two distinct pattern categories:
 
 ### Basic Implementation (complete)
 
-- [x] **Implement**: `.condition:` property type `bool` — spec/15-patterns.md § recurse [done] (2026-02-10)
-  - [x] **Rust Tests**: Evaluator pattern execution — recurse pattern tests
-  - [x] **Ori Tests**: `tests/spec/patterns/recurse.ori` — 18 tests pass
+- [x] **Implement**: `.condition:` property type `bool` — spec/15-patterns.md § recurse [done] (2026-02-10) (verified 2026-03-29)
+  - [x] **Rust Tests**: Evaluator pattern execution — 6 Rust tests pass (verified 2026-03-29)
+  - [x] **Ori Tests**: `tests/spec/patterns/recurse.ori` — 18 tests pass (verified 2026-03-29)
+  - [x] **AOT Tests**: 2 dedicated recurse pattern AOT tests (`test_tail_rec_recurse_pattern`, `test_tail_rec_recurse_deep` at 200K depth) (verified 2026-03-29)
 
-- [x] **Implement**: `.base:` property type `T` — spec/15-patterns.md § recurse [done] (2026-02-10)
-- [x] **Implement**: `.step:` property uses `self()` — spec/15-patterns.md § recurse [done] (2026-02-10)
-- [ ] **Implement**: Optional `.memo:` default false — spec/15-patterns.md § recurse
-- [ ] **Implement**: Optional `.parallel:` threshold — spec/15-patterns.md § recurse (stub: executes sequentially)
-- [x] **Implement**: When `.condition` true, return `.base` — spec/15-patterns.md § recurse [done] (2026-02-10)
-- [x] **Implement**: Otherwise evaluate `.step` — spec/15-patterns.md § recurse [done] (2026-02-10)
-- [x] **Implement**: `self(...)` refers to recursive function — spec/15-patterns.md § recurse [done] (2026-02-10)
-- [ ] **Implement**: Memoization caches during top-level call — spec/15-patterns.md § recurse
+- [x] **Implement**: `.base:` property type `T` — spec/15-patterns.md § recurse [done] (2026-02-10) (verified 2026-03-29)
+- [x] **Implement**: `.step:` property uses `self()` — spec/15-patterns.md § recurse [done] (2026-02-10) (verified 2026-03-29)
+- [x] **Implement**: Optional `.memo:` default false — spec/15-patterns.md § recurse [done] (2026-02-10) (verified 2026-03-29) — STALE CHECKBOX fixed: memo IS implemented and tested (`fib_memo`, `fib_large`, `ackermann` tests pass with `memo: true`)
+- [ ] **Implement**: Optional `.parallel:` threshold — spec/15-patterns.md § recurse (stub: executes sequentially, `fib_parallel` test runs sequentially)
+- [x] **Implement**: When `.condition` true, return `.base` — spec/15-patterns.md § recurse [done] (2026-02-10) (verified 2026-03-29)
+- [x] **Implement**: Otherwise evaluate `.step` — spec/15-patterns.md § recurse [done] (2026-02-10) (verified 2026-03-29)
+- [x] **Implement**: `self(...)` refers to recursive function — spec/15-patterns.md § recurse [done] (2026-02-10) (verified 2026-03-29)
+- [x] **Implement**: Memoization caches during top-level call — spec/15-patterns.md § recurse [done] (2026-02-10) (verified 2026-03-29) — STALE CHECKBOX fixed: memoization IS working, `MemoizedFunctionValue` wraps self when `memo: true`
 
 ### Self Scoping (from approved proposal)
 
@@ -226,9 +261,9 @@ The spec formalizes two distinct pattern categories:
 >
 > **STUB**: Evaluator has a loud stub in `can_eval.rs:eval_can_function_exp` (sequential execution + `tracing::warn!`). When implementing for real, replace the stub there.
 
-- [x] **Implement**: `.tasks:` property (required) — spec/15-patterns.md § parallel [done] (2026-02-10)
-  - [x] **Rust Tests**: Evaluator pattern execution — parallel pattern tests
-  - [x] **Ori Tests**: `tests/spec/patterns/parallel.ori` — 5 tests pass
+- [x] **Implement**: `.tasks:` property (required) — spec/15-patterns.md § parallel [done] (2026-02-10) (verified 2026-03-29)
+  - [x] **Rust Tests**: Evaluator pattern execution — parallel pattern tests (verified 2026-03-29)
+  - [x] **Ori Tests**: `tests/spec/patterns/parallel.ori` — 5 tests pass (verified 2026-03-29) — WEAK TESTS: all 5 active tests use `for...yield` comprehensions, NOT `parallel()`. Actual `parallel(tasks: [...])` calls are commented out. Tests do not exercise the parallel pattern.
   - [ ] **LLVM Support**: LLVM codegen for parallel pattern
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/pattern_tests.rs` — parallel pattern codegen
   - [ ] **AOT Tests**: No AOT coverage yet
@@ -236,7 +271,7 @@ The spec formalizes two distinct pattern categories:
 - [ ] **Implement**: Returns `[Result<T, E>]` — spec/15-patterns.md § parallel
 - [ ] **Implement**: Optional `.timeout:` (per-task) — spec/15-patterns.md § parallel
 - [ ] **Implement**: Optional `.max_concurrent:` — spec/15-patterns.md § parallel
-- [ ] **Implement**: Stub — Execute sequentially, wrap each result in Ok/Err
+- [x] **Implement**: Stub — Execute sequentially, wrap each result in Ok/Err [done] (2026-02-10) (verified 2026-03-29) — STALE CHECKBOX fixed: stub IS implemented in evaluator (`eval_can_function_exp`, sequential execution + `tracing::warn!`)
 
 ---
 
@@ -245,10 +280,12 @@ The spec formalizes two distinct pattern categories:
 > **NEW**: spawn executes tasks without waiting. Returns void immediately. Errors discarded.
 >
 > **STUB**: Evaluator has a loud stub in `can_eval.rs:eval_can_function_exp` (synchronous execution + `tracing::warn!`). When implementing for real, replace the stub there.
+>
+> **Commented-out tests**: `tests/spec/patterns/concurrency.ori` spawn section entirely commented out. 5 Rust unit tests for pattern struct exist.
 
 - [ ] **Implement**: `.tasks:` property (required) — spec/15-patterns.md § spawn
   - [ ] **Rust Tests**: `ori_patterns/src/spawn.rs` — spawn pattern execution tests
-  - [ ] **Ori Tests**: `tests/spec/patterns/concurrency.ori` — 3 tests pass
+  - [ ] **Ori Tests**: `tests/spec/patterns/concurrency.ori` — all spawn tests commented out
   - [ ] **LLVM Support**: LLVM codegen for spawn pattern
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/pattern_tests.rs` — spawn pattern codegen
   - [ ] **AOT Tests**: No AOT coverage yet
@@ -263,10 +300,12 @@ The spec formalizes two distinct pattern categories:
 > **NOTE**: Stub implementation — timeout not enforced in evaluator, always returns Ok(result).
 >
 > **STUB**: Evaluator has a loud stub in `can_eval.rs:eval_can_function_exp` (no timeout enforcement + `tracing::warn!`). When implementing for real, replace the stub there.
+>
+> **Commented-out tests**: `tests/spec/patterns/concurrency.ori` timeout section entirely commented out. 4 Rust unit tests for pattern struct exist.
 
 - [ ] **Implement**: `.operation:` property — spec/15-patterns.md § timeout
   - [ ] **Rust Tests**: `ori_patterns/src/timeout.rs` — timeout pattern execution tests
-  - [ ] **Ori Tests**: `tests/spec/patterns/concurrency.ori` — 4 tests pass
+  - [ ] **Ori Tests**: `tests/spec/patterns/concurrency.ori` — all timeout tests commented out
   - [ ] **LLVM Support**: LLVM codegen for timeout pattern
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/pattern_tests.rs` — timeout pattern codegen
   - [ ] **AOT Tests**: No AOT coverage yet
@@ -288,8 +327,8 @@ The spec formalizes two distinct pattern categories:
 ### Basic Semantics (complete)
 
 - [ ] **Implement**: `.key:` property — spec/15-patterns.md § cache
-  - [ ] **Rust Tests**: `ori_patterns/src/cache.rs` — cache pattern execution tests
-  - [ ] **Ori Tests**: `tests/spec/patterns/concurrency.ori` — 2 tests pass
+  - [ ] **Rust Tests**: `ori_patterns/src/cache.rs` — cache pattern execution tests (4 Rust unit tests for pattern struct exist)
+  - [ ] **Ori Tests**: `tests/spec/patterns/concurrency.ori` — all cache tests commented out
 
 - [ ] **Implement**: `.op:` property — spec/15-patterns.md § cache
 - [ ] **Implement**: Stub — Execute `.op` without caching
@@ -377,13 +416,15 @@ The spec formalizes two distinct pattern categories:
 
 > **NOTE**: Uses `.action:` instead of spec's `.use:` (`use` is reserved keyword).
 >
-> **STUB**: Evaluator has a loud stub in `can_eval.rs:eval_can_function_exp` (RAII acquire/action/release + `tracing::warn!`). The RAII semantics are real but blocked on type checker for lambda inference. When implementing fully, replace the stub there.
+> **STUB**: Evaluator stub actually implements basic RAII semantics (acquire/action/release with release guarantee on error). More functional than "not-started" implies. Blocked on type checker lambda inference for Ori test cases.
+>
+> **Commented-out tests**: `tests/spec/patterns/with.ori` is entirely commented out (99 lines, zero active tests). 4 Rust unit tests for pattern struct exist.
 
 ### Basic Implementation (complete)
 
 - [ ] **Implement**: Parse `with` pattern in parser
   - [ ] **Rust Tests**: `ori_patterns/src/with.rs` — with pattern execution tests
-  - [ ] **Ori Tests**: `tests/spec/patterns/with.ori` — 4 tests pass
+  - [ ] **Ori Tests**: `tests/spec/patterns/with.ori` — all tests commented out (blocked on type checker lambda inference)
 
 - [ ] **Implement**: `.acquire:` property — spec/15-patterns.md § with
 - [ ] **Implement**: `.action:` property (spec uses `.use:`) — spec/15-patterns.md § with
@@ -430,10 +471,12 @@ The spec formalizes two distinct pattern categories:
 >
 > **NOTE**: This is the `for(over:, match:, default:)` **pattern** with named arguments.
 > The `for x in items do/yield expr` **expression** syntax is a separate construct in Section 10 (Control Flow).
+>
+> **Commented-out tests**: `tests/spec/patterns/for.ori` is entirely commented out (462 lines, zero active tests). `FunctionSeq::ForPattern` exists in IR but pattern form is untested.
 
 - [ ] **Implement**: `.over:` property — spec/15-patterns.md § for
   - [ ] **Rust Tests**: `ori_patterns/src/for.rs` — for pattern execution tests
-  - [ ] **Ori Tests**: `tests/spec/patterns/for.ori` — 8 tests pass
+  - [ ] **Ori Tests**: `tests/spec/patterns/for.ori` — all tests commented out
   - [ ] **LLVM Support**: LLVM codegen for for pattern
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/pattern_tests.rs` — for pattern codegen
   - [ ] **AOT Tests**: No AOT coverage yet
@@ -445,9 +488,58 @@ The spec formalizes two distinct pattern categories:
 
 ---
 
-## 8.10 Data Transformation — MOVED TO STDLIB
+## 8.10 catch (Error Capture)
 
-> **MOVED**: Per "Lean Core, Rich Libraries", these are now stdlib functions (Section 7 - Stdlib).
+> **IMPLEMENTED**: `catch(expr:)` captures panics and returns `Result<T, str>`. Has `FunctionExpKind::Catch`, `CatchPattern` in `ori_patterns`, and dedicated `eval_can_catch()` method.
+>
+> **Spec**: spec/15-patterns.md section 15.6.1
+
+- [x] **Implement**: `catch(expr:)` pattern — spec/15-patterns.md § catch [done] (verified 2026-03-29)
+  - [x] **Ori Tests**: `tests/spec/patterns/catch.ori` — 7 tests pass: success, panic, message, div-by-zero, value, string, nested (verified 2026-03-29)
+  - [x] **Rust Tests**: `CatchPattern` in `ori_patterns` + `eval_can_catch()` in evaluator (verified 2026-03-29)
+  - [ ] **LLVM Support**: LLVM codegen for catch pattern
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/pattern_tests.rs` — catch pattern codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
+- [ ] **Test Gap**: Missing `#compile_fail` negative tests for catch pattern
+
+---
+
+## 8.11 nursery (Structured Concurrency)
+
+> **MISSING FROM ROADMAP**: Spec 15.4.4 defines nursery as a core structured concurrency pattern with guaranteed task completion. No `FunctionExpKind::Nursery` variant exists. No pattern struct. No evaluator stub.
+>
+> **Spec**: `nursery(body:, on_error:, timeout:)` — `Nursery` type, `n.spawn()` API, error modes (`CancelRemaining`/`CollectAll`/`FailFast`)
+
+- [ ] **Implement**: `nursery(body:, on_error:, timeout:)` pattern — spec/15-patterns.md § nursery
+  - [ ] Add `FunctionExpKind::Nursery` variant
+  - [ ] Add `NurseryPattern` in `ori_patterns`
+  - [ ] Add evaluator stub in `eval_can_function_exp`
+  - [ ] **Rust Tests**: `ori_patterns/src/nursery.rs` — nursery pattern execution tests
+  - [ ] **Ori Tests**: `tests/spec/patterns/nursery.ori`
+  - [ ] **LLVM Support**: LLVM codegen for nursery pattern
+  - [ ] **AOT Tests**: No AOT coverage yet
+
+- [ ] **Implement**: `Nursery` type with `n.spawn()` API — spec/15-patterns.md § nursery
+- [ ] **Implement**: `NurseryErrorMode` (`CancelRemaining | CollectAll | FailFast`) — spec/15-patterns.md § nursery
+- [ ] **Implement**: Guaranteed task completion semantics — spec/15-patterns.md § nursery
+- [ ] **Implement**: Requires `uses Suspend` capability — spec/15-patterns.md § nursery
+
+---
+
+## 8.12 CancellationError Type
+
+> **MISSING FROM ROADMAP**: Required by nursery, parallel, and timeout patterns. `CancellationError` and `CancellationReason` are prelude types per spec.
+
+- [ ] **Implement**: `CancellationError` type — prelude type for structured concurrency
+- [ ] **Implement**: `CancellationReason` enum — prelude type for cancellation semantics
+- [ ] **Implement**: `is_cancelled()` built-in — prelude function
+- [ ] **Ori Tests**: `tests/spec/patterns/cancellation.ori`
+
+---
+
+## 8.13 Data Transformation — MOVED TO STDLIB
+
+> **MOVED**: Per "Lean Core, Rich Libraries", these are now stdlib functions (Section 7 - Stdlib). (verified 2026-03-29)
 
 | Pattern | Stdlib Location | Notes |
 |---------|-----------------|-------|
@@ -459,9 +551,9 @@ The spec formalizes two distinct pattern categories:
 
 ---
 
-## 8.11 Resilience Patterns — MOVED TO STDLIB
+## 8.14 Resilience Patterns — MOVED TO STDLIB
 
-> **MOVED**: Per "Lean Core, Rich Libraries", these are now stdlib functions (Section 7 - Stdlib).
+> **MOVED**: Per "Lean Core, Rich Libraries", these are now stdlib functions (Section 7 - Stdlib). (verified 2026-03-29)
 
 | Pattern | Stdlib Location | Notes |
 |---------|-----------------|-------|
@@ -471,11 +563,27 @@ The spec formalizes two distinct pattern categories:
 
 ---
 
-## 8.12 Section Completion Checklist
+## 8.15 Hygiene Notes
+
+> **LEAK: scattered-knowledge** (Minor): The canonical evaluator `eval_can_function_exp` bypasses the `PatternRegistry` for most patterns -- it pre-evaluates props and dispatches inline. Only `Recurse` and `Catch` use dedicated lazy-evaluation methods. This means `ori_patterns` crate's `PatternDefinition::evaluate()` implementations are largely dead code for canonical IR evaluation. The two code paths (pattern registry vs. inline evaluator) could drift.
+
+> **Commented-out test files** (5 files, zero CI protection): `try.ori` (208 lines), `with.ori` (99 lines), `for.ori` (462 lines), `concurrency.ori` (parallel/spawn/timeout/cache sections), `parallel.ori` (actual `parallel()` calls). All are blocked on type checker features.
+
+> **No compile_fail tests** for any pattern-specific error code: E0860, E0861, E0990-E0992, E1000-E1003.
+
+---
+
+## 8.16 Section Completion Checklist
 
 - [ ] All compiler patterns implemented
 - [ ] Data transformation patterns moved to stdlib
 - [ ] Resilience patterns moved to stdlib
+- [ ] catch pattern tracked (added 2026-03-29)
+- [ ] nursery pattern implemented (added 2026-03-29)
+- [ ] CancellationError type implemented (added 2026-03-29)
+- [ ] Hygiene leak resolved: unify PatternRegistry and evaluator dispatch
+- [ ] All 5 commented-out test files activated
+- [ ] compile_fail tests for all pattern error codes
 - [ ] Run full test suite: `./test-all.sh`
 - [ ] `/tpr-review` passed — independent Codex review found no critical or major issues (or all findings triaged)
 

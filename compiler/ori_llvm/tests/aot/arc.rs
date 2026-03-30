@@ -274,7 +274,7 @@ fn test_arc_string_loop_concat() {
 /// Uses `@main () -> int = 2` as a proxy since deliberate runtime leaks
 /// require `extern "c"` FFI to call `ori_rc_alloc` without free (not yet
 /// supported in AOT). The runtime-level leak-to-exit-code-2 chain is verified
-/// by `ori_rt::tests::leak_detection_positive_control`. (TPR-05-008)
+/// by `ori_rt::tests::leak_detection_positive_control`.
 #[test]
 fn test_arc_leak_detected_exit_code_2() {
     let (exit_code, _, _) = compile_and_run_capture(
@@ -292,7 +292,7 @@ fn test_arc_leak_detected_exit_code_2() {
 /// code 2 (leak detected). Proves the harness catches leak regressions.
 ///
 /// Uses `@main () -> int = 2` as a proxy (see `test_arc_leak_detected_exit_code_2`
-/// for rationale). The panic message must contain "leaked memory". (TPR-05-008)
+/// for rationale). The panic message must contain "leaked memory".
 #[test]
 fn test_arc_assert_aot_success_catches_leak() {
     let result = std::panic::catch_unwind(|| {
@@ -318,9 +318,9 @@ fn test_arc_assert_aot_success_catches_leak() {
 }
 
 /// Structural verification: the LLVM-generated main wrapper emits a call to
-/// `ori_check_leaks`. This is the missing link that TPR-05-009 identified —
-/// the proxy tests above prove exit code semantics, but only this test proves
-/// the codegen actually wires the leak-check call into the wrapper.
+/// `ori_check_leaks`. The proxy tests above prove exit code semantics, but
+/// only this test proves the codegen actually wires the leak-check call into
+/// the wrapper.
 ///
 /// Combined with `ori_rt::tests::leak_detection_positive_control` (which proves
 /// the runtime function detects leaks and returns exit code 2), this creates
@@ -926,7 +926,7 @@ fn test_arc_borrowed_param_cow_push_str_list() {
 
 /// Borrowed string parameter with concat — must NOT get COW `RcInc` guard.
 /// String concat is a borrowing operation (produces new string), not COW.
-/// Regression: TPR-05-003 — pre-pass emitted `RcInc` with `HeapPointer` strategy
+/// Regression: COW pre-pass emitted `RcInc` with `HeapPointer` strategy
 /// on a `FatPointer` (string) variable, causing `debug_assert` abort in `rc_ops.rs`.
 #[test]
 fn test_arc_borrowed_param_str_concat_not_cow() {
@@ -947,8 +947,8 @@ fn test_arc_borrowed_param_str_concat_not_cow() {
 
 /// Borrowed string parameter with add — must NOT get COW `RcInc` guard.
 /// String add is a borrowing operation, not COW.
-/// Regression: TPR-05-003 — "add" is in `all_cow_method_names` but is
-/// type-qualified (COW for lists, borrowing for strings).
+/// Regression: "add" is in `all_cow_method_names` but is type-qualified
+/// (COW for lists, borrowing for strings).
 #[test]
 fn test_arc_borrowed_param_str_add_not_cow() {
     assert_aot_success(

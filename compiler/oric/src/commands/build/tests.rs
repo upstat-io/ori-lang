@@ -9,7 +9,9 @@ use ori_llvm::aot::incremental::deps::DependencyGraph;
 use ori_llvm::aot::incremental::ContentHash;
 use ori_types::ExportedTypeMetadata;
 
-use super::multi::{collect_imported_type_metadata, merge_forwarded_metadata, CompiledModuleInfo};
+use super::multi::{
+    collect_imported_collection_surfaces, collect_imported_type_metadata, CompiledModuleInfo,
+};
 
 /// Helper to create a `CompiledModuleInfo` with specified metadata.
 fn module_info(path: &str, metadata: Vec<ExportedTypeMetadata>) -> CompiledModuleInfo {
@@ -18,6 +20,22 @@ fn module_info(path: &str, metadata: Vec<ExportedTypeMetadata>) -> CompiledModul
         module_name: path.to_string(),
         public_functions: Vec::new(),
         exported_type_metadata: metadata,
+        exported_collection_surfaces: Vec::new(),
+    }
+}
+
+/// Helper to create a `CompiledModuleInfo` with both type metadata and collection surfaces.
+fn module_info_with_surfaces(
+    path: &str,
+    metadata: Vec<ExportedTypeMetadata>,
+    surfaces: Vec<u64>,
+) -> CompiledModuleInfo {
+    CompiledModuleInfo {
+        path: PathBuf::from(path),
+        module_name: path.to_string(),
+        public_functions: Vec::new(),
+        exported_type_metadata: metadata,
+        exported_collection_surfaces: surfaces,
     }
 }
 
@@ -139,147 +157,75 @@ fn collect_metadata_dependency_with_no_types() {
     assert!(result.is_empty());
 }
 
-// --- Transitive metadata forwarding tests (TPR-04-016) ---
-//
-// These test `merge_forwarded_metadata()`, which merges imported metadata into
-// a module's own exports so that re-exported `pub` / `#repr(...)` types
-// propagate transitively through module chains (A → B → C).
+// =============================================================================
+// Collection surface collection (TPR-04-032, TPR-04-038, TPR-04-039)
+// =============================================================================
 
-/// Semantic pin (TPR-04-016): merge adds imported metadata to local exports.
-///
-/// B has one local type. It imports C which has `#repr("c")` type.
-/// After merging, B's exports must include both its own type AND C's.
-/// Without this merge, A (which imports only B) would never see C's metadata.
+/// Semantic pin: `collect_imported_collection_surfaces` gathers hashes from
+/// compiled dependency modules.
 #[test]
-fn merge_forwards_imported_repr_c_metadata() {
-    let b_local = vec![ExportedTypeMetadata {
-        merkle_hash: 0xB001,
-        repr: None,
-        is_public: true,
-    }];
-    let c_imported = vec![ExportedTypeMetadata {
-        merkle_hash: 0xC001,
-        repr: Some(ReprAttrKind::C),
-        is_public: true,
-    }];
+fn collect_collection_surfaces_from_single_dependency() {
+    let compiled = vec![module_info_with_surfaces(
+        "/src/lib.ori",
+        Vec::new(),
+        vec![0xABCD_1234, 0xDEAD_BEEF],
+    )];
+    let graph = test_graph("/src/main.ori", &["/src/lib.ori"]);
 
-    let result = merge_forwarded_metadata(b_local, &c_imported);
+    let result =
+        collect_imported_collection_surfaces(&PathBuf::from("/src/main.ori"), &graph, &compiled);
 
-    assert_eq!(result.len(), 2, "expected B's own + C's forwarded");
-    assert!(
-        result.iter().any(|m| m.merkle_hash == 0xB001),
-        "B's own metadata must be preserved"
-    );
-    assert!(
-        result
-            .iter()
-            .any(|m| m.merkle_hash == 0xC001 && m.repr == Some(ReprAttrKind::C)),
-        "C's #repr(c) metadata must be forwarded into B's exports"
-    );
+    assert_eq!(result.len(), 2);
+    assert!(result.contains(&0xABCD_1234));
+    assert!(result.contains(&0xDEAD_BEEF));
 }
 
-/// Semantic pin (TPR-04-016): merge forwards `pub` visibility metadata.
+/// Multiple dependencies — collection surfaces are aggregated.
 #[test]
-fn merge_forwards_imported_pub_metadata() {
-    let local = Vec::new(); // module has no local types
-    let imported = vec![ExportedTypeMetadata {
-        merkle_hash: 0xC002,
-        repr: None,
-        is_public: true,
-    }];
-
-    let result = merge_forwarded_metadata(local, &imported);
-
-    assert_eq!(result.len(), 1);
-    assert!(result[0].is_public);
-    assert_eq!(result[0].merkle_hash, 0xC002);
-}
-
-/// Deduplication: if local and imported have the same `merkle_hash`, keep one.
-///
-/// This happens when a module both declares a type and imports it (shouldn't
-/// normally occur, but the function must be robust).
-#[test]
-fn merge_deduplicates_by_merkle_hash() {
-    let local = vec![ExportedTypeMetadata {
-        merkle_hash: 0xABC,
-        repr: Some(ReprAttrKind::C),
-        is_public: true,
-    }];
-    let imported = vec![ExportedTypeMetadata {
-        merkle_hash: 0xABC,
-        repr: Some(ReprAttrKind::C),
-        is_public: true,
-    }];
-
-    let result = merge_forwarded_metadata(local, &imported);
-
-    assert_eq!(
-        result.len(),
-        1,
-        "duplicate merkle_hash should be deduped to one entry"
-    );
-    assert_eq!(result[0].merkle_hash, 0xABC);
-}
-
-/// Diamond deps: imported metadata from two sources with overlapping hashes.
-///
-/// When B imports both C and D, and both export the same type from E,
-/// the imported slice may contain duplicates. Merge should dedup.
-#[test]
-fn merge_deduplicates_diamond_imports() {
-    let local = vec![ExportedTypeMetadata {
-        merkle_hash: 0xB001,
-        repr: None,
-        is_public: true,
-    }];
-    // Imported metadata has two copies of E's type (from C and D paths)
-    let imported = vec![
-        ExportedTypeMetadata {
-            merkle_hash: 0xE001,
-            repr: Some(ReprAttrKind::C),
-            is_public: true,
-        },
-        ExportedTypeMetadata {
-            merkle_hash: 0xE001,
-            repr: Some(ReprAttrKind::C),
-            is_public: true,
-        },
+fn collect_collection_surfaces_from_multiple_dependencies() {
+    let compiled = vec![
+        module_info_with_surfaces("/src/a.ori", Vec::new(), vec![0x1111]),
+        module_info_with_surfaces("/src/b.ori", Vec::new(), vec![0x2222, 0x3333]),
     ];
+    let graph = test_graph("/src/main.ori", &["/src/a.ori", "/src/b.ori"]);
 
-    let result = merge_forwarded_metadata(local, &imported);
+    let result =
+        collect_imported_collection_surfaces(&PathBuf::from("/src/main.ori"), &graph, &compiled);
 
-    assert_eq!(result.len(), 2, "B's own + one copy of E's metadata");
-    let e_count = result.iter().filter(|m| m.merkle_hash == 0xE001).count();
-    assert_eq!(e_count, 1, "E's metadata should appear exactly once");
+    assert_eq!(result.len(), 3);
+    assert!(result.contains(&0x1111));
+    assert!(result.contains(&0x2222));
+    assert!(result.contains(&0x3333));
 }
 
-/// Empty imports: merge with no imported metadata returns local unchanged.
+/// No imports → empty collection surfaces.
 #[test]
-fn merge_with_no_imports_returns_local() {
-    let local = vec![ExportedTypeMetadata {
-        merkle_hash: 0xA001,
-        repr: None,
-        is_public: true,
-    }];
+fn collect_collection_surfaces_no_imports() {
+    let compiled = vec![module_info_with_surfaces(
+        "/src/lib.ori",
+        Vec::new(),
+        vec![0xFFFF],
+    )];
+    let graph = DependencyGraph::new();
 
-    let result = merge_forwarded_metadata(local, &[]);
+    let result =
+        collect_imported_collection_surfaces(&PathBuf::from("/src/main.ori"), &graph, &compiled);
 
-    assert_eq!(result.len(), 1);
-    assert_eq!(result[0].merkle_hash, 0xA001);
+    assert!(result.is_empty());
 }
 
-/// Empty local: merge with no local metadata returns forwarded imports.
+/// Dependency with empty collection surfaces → no contribution.
 #[test]
-fn merge_with_no_local_returns_imported() {
-    let imported = vec![ExportedTypeMetadata {
-        merkle_hash: 0xC001,
-        repr: Some(ReprAttrKind::Packed),
-        is_public: true,
-    }];
+fn collect_collection_surfaces_dependency_with_none() {
+    let compiled = vec![module_info_with_surfaces(
+        "/src/lib.ori",
+        Vec::new(),
+        Vec::new(),
+    )];
+    let graph = test_graph("/src/main.ori", &["/src/lib.ori"]);
 
-    let result = merge_forwarded_metadata(Vec::new(), &imported);
+    let result =
+        collect_imported_collection_surfaces(&PathBuf::from("/src/main.ori"), &graph, &compiled);
 
-    assert_eq!(result.len(), 1);
-    assert_eq!(result[0].repr, Some(ReprAttrKind::Packed));
+    assert!(result.is_empty());
 }

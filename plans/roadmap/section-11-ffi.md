@@ -2,24 +2,36 @@
 section: 11
 title: Foreign Function Interface (FFI)
 status: in-progress
-reviewed: false
+last_verified: "2026-03-29"
+verified_by: "Claude Opus 4.6 (1M context)"
+reviewed: true
 tier: 4
 goal: Enable Ori to call C libraries, system APIs, and JavaScript APIs (WASM target)
+estimated_completion: "~30% infrastructure, ~0% end-to-end functionality"
 spec:
   - spec/26-ffi.md
+verification_notes:
+  - "11.1 parser/IR/formatter COMPLETE (20 Rust tests), typeck/codegen NEEDS IMPLEMENTATION"
+  - "11.3 parser/IR/typeck COMPLETE (17+ spec tests incl 14 compile-fail), codegen NEEDS IMPLEMENTATION"
+  - "11.4 parser/typeck/eval/ARC COMPLETE (6 spec tests), WEAK TESTS on capability enforcement"
+  - "Zero E2E FFI capability -- no Ori program can call a C function today"
+  - "Stale plan annotation TPR-01-043 in ori_parse/src/grammar/attr/repr.rs:5"
 sections:
   - id: "11.1"
     title: Extern Block Syntax
-    status: not-started
+    status: partial
+    notes: "parse+IR+fmt complete, typeck+codegen missing"
   - id: "11.2"
     title: C ABI Types
     status: not-started
   - id: "11.3"
     title: "#repr Attribute"
-    status: not-started
+    status: partial
+    notes: "parse+IR+typeck+repr-opt complete (57 repr tests, 17+ spec tests), codegen missing"
   - id: "11.4"
     title: Unsafe Blocks
-    status: not-started
+    status: partial
+    notes: "parse+typeck+eval+ARC complete (6 spec tests), capability enforcement missing, WEAK TESTS"
   - id: "11.5"
     title: FFI Capability
     status: not-started
@@ -32,14 +44,16 @@ sections:
   - id: "11.8"
     title: compile_error Built-in
     status: not-started
+    notes: "cross-ref Section 13.10"
   - id: "11.9"
     title: WASM Target (Section 2)
     status: not-started
+    notes: "WASM infra exists in ori_llvm but not connected to user FFI"
   - id: "11.10"
     title: JsValue and Async (Section 3-4)
     status: not-started
   - id: "11.11"
-    title: Deep FFI — Higher-Level FFI Abstractions
+    title: Deep FFI -- Higher-Level FFI Abstractions
     status: not-started
 ---
 
@@ -47,22 +61,24 @@ sections:
 
 **Goal**: Enable Ori to call C libraries, system APIs, and JavaScript APIs (WASM target)
 
-**Criticality**: **CRITICAL** — Without FFI, Ori cannot integrate with the software ecosystem
+**Criticality**: **CRITICAL** -- Without FFI, Ori cannot integrate with the software ecosystem
 
 **Proposal**: `proposals/approved/platform-ffi-proposal.md`
 
-**Dependencies**: Section 6 (Capabilities — `uses FFI` capability system must be in place)
+**Dependencies**: Section 6 (Capabilities -- `uses FFI` capability system must be in place), Section 18 (Const Generics -- Deep FFI Phase 5)
+
+> **Verification summary (2026-03-29)**: ~30% infrastructure exists (parser/IR/formatter/typeck), concentrated in 11.1, 11.3, and 11.4. Zero end-to-end FFI capability -- no Ori program can call a C function today. The heavy lifting (codegen, linking, CPtr type system, capability enforcement) remains. Grammar (`grammar.ebnf`) and spec (`spec/26-ffi.md`, 554 lines) are comprehensive.
 
 ### Sync Points: CPtr and C ABI Types (multi-crate sync required)
 
 
 Adding `CPtr` and C ABI types requires updates across these crates:
 
-1. **`ori_ir`** — Add `CPtr` type variant, C type aliases (`c_int`, `c_long`, etc.)
-2. **`ori_types`** — Register CPtr type, FFI-safety validation, `Option<CPtr>` nullability handling
-3. **`ori_eval`** — CPtr runtime value representation, pointer operations in unsafe blocks
-4. **`ori_llvm`** — CPtr maps to LLVM opaque `ptr` type, C calling convention codegen
-5. **`library/std/ffi.ori`** — CPtr type definition, FfiError type (for Deep FFI)
+1. **`ori_ir`** -- Add `CPtr` type variant, C type aliases (`c_int`, `c_long`, etc.)
+2. **`ori_types`** -- Register CPtr type, FFI-safety validation, `Option<CPtr>` nullability handling
+3. **`ori_eval`** -- CPtr runtime value representation, pointer operations in unsafe blocks
+4. **`ori_llvm`** -- CPtr maps to LLVM opaque `ptr` type, C calling convention codegen
+5. **`library/std/ffi.ori`** -- CPtr type definition, FfiError type (for Deep FFI)
 
 ---
 
@@ -108,40 +124,46 @@ extern "js" from "./utils.js" {
 
 ### Implementation
 
-- [ ] **Spec**: Add `spec/26-ffi.md` with extern block syntax
-  - [ ] Define extern block grammar
-  - [ ] Define calling conventions ("c", "js")
-  - [ ] Define linkage semantics
+- [x] **Spec**: Add `spec/26-ffi.md` with extern block syntax (verified 2026-03-29)
+  - [x] Define extern block grammar -- `grammar.ebnf` lines 209-215 (verified 2026-03-29)
+  - [x] Define calling conventions ("c", "js") (verified 2026-03-29)
+  - [x] Define linkage semantics (verified 2026-03-29)
 
-- [ ] **Lexer**: Add tokens
-  - [ ] `extern` keyword
-  - [ ] String literals for ABI ("c", "js")
+- [x] **Lexer**: Add tokens (verified 2026-03-29)
+  - [x] `extern` keyword -- `TokenKind::Extern` reserved keyword (verified 2026-03-29)
+  - [x] String literals for ABI ("c", "js") -- standard string tokens, validated in parser (verified 2026-03-29)
 
-- [ ] **Parser**: Parse extern blocks
-  - [ ] `parse_extern_block()` in parser
-  - [ ] Add `ExternBlock` to AST
-  - [ ] Add `ExternItem` variants
-  - [ ] `from "lib"` library specification
-  - [ ] `as "name"` name mapping
+- [x] **Parser**: Parse extern blocks (verified 2026-03-29) -- 20 Rust parser phase tests pass in `oric/tests/phases/parse/extern_def.rs`
+  - [x] `parse_extern_block()` in parser -- `ori_parse/src/grammar/item/extern_def.rs:22` (verified 2026-03-29)
+  - [x] Add `ExternBlock` to AST -- `ori_ir/src/ast/items/extern_def.rs:64` (verified 2026-03-29)
+  - [x] Add `ExternItem` variants -- `ori_ir/src/ast/items/extern_def.rs:37` (verified 2026-03-29)
+  - [x] `from "lib"` library specification -- contextual keyword check (verified 2026-03-29)
+  - [x] `as "name"` name mapping (verified 2026-03-29)
+  - [x] C variadic (`...`) parsing with `is_c_variadic` flag (verified 2026-03-29)
+  - [x] Unknown convention warning emitted (verified 2026-03-29)
+  - [x] Formatter: `ori_fmt/src/declarations/extern_def.rs` (verified 2026-03-29)
 
-- [ ] **Type checker**: Validate extern declarations
+- [ ] **Type checker**: Validate extern declarations -- NEEDS IMPLEMENTATION
   - [ ] Ensure types are FFI-safe
   - [ ] Check for `uses FFI` in callers
 
-- [ ] **Codegen**: Generate external references
+- [ ] **Codegen**: Generate external references -- NEEDS IMPLEMENTATION (GAP: parsed ExternBlock AST is never consumed by codegen; `declare_extern_function` exists only for runtime functions)
   - [ ] Emit LLVM `declare` for C functions
   - [ ] Handle calling convention
   - [ ] Link external symbols
 
 - [ ] **LLVM Support**: LLVM codegen for extern blocks
-- [ ] **LLVM Rust Tests**: `ori_llvm/tests/ffi_tests.rs` — extern blocks codegen
+- [ ] **LLVM Rust Tests**: `ori_llvm/tests/ffi_tests.rs` -- extern blocks codegen (NOTE: file does not exist yet)
 - [ ] **AOT Tests**: No AOT coverage yet
 
-- [ ] **Test**: `tests/spec/ffi/extern_blocks.ori`
+- [ ] **Test**: `tests/spec/ffi/extern_blocks.ori` -- NEEDS TESTS (no spec tests exist; only 20 Rust parser phase tests)
   - [ ] Basic extern function declaration
   - [ ] Multiple functions in one block
   - [ ] Name mapping with `as`
   - [ ] Library specification with `from`
+  - [ ] End-to-end test (parse -> typeck -> codegen -> execute C call)
+
+> **NOTE**: Zero end-to-end FFI capability -- no Ori program can actually call a C function today. Parser infrastructure is complete but codegen gap means extern blocks are parsed and stored but never processed into callable functions.
 
 ---
 
@@ -196,7 +218,7 @@ extern "c" from "foo" {
   - [ ] Validate CPtr usage
 
 - [ ] **LLVM Support**: LLVM codegen for C ABI types
-- [ ] **LLVM Rust Tests**: `ori_llvm/tests/ffi_tests.rs` — C ABI types codegen
+- [ ] **LLVM Rust Tests**: `ori_llvm/tests/ffi_tests.rs` -- C ABI types codegen
 - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Test**: `tests/spec/ffi/c_types.ori`
@@ -240,41 +262,61 @@ type CacheAligned = { value: int }
 
 ### Implementation
 
-- [ ] **IR**: Add `ReprKind` enum to struct type definitions
-  - [ ] `Default`, `C`, `Packed`, `Transparent`, `Aligned(u32)`, `CAligned(u32)`
+- [x] **IR**: `ReprAttrKind` enum in `ori_ir/src/ast/items/types.rs` -- C, Packed, Transparent, Aligned(u64) (verified 2026-03-29)
 
-- [ ] **Parser**: Parse `#repr` attribute variants
-  - [ ] `#repr("c")` — existing
-  - [ ] `#repr("packed")` — new
-  - [ ] `#repr("transparent")` — new
-  - [ ] `#repr("aligned", N)` — new, validate power of two
+- [x] **Parser**: Parse `#repr` attribute variants (verified 2026-03-29) -- `ori_parse/src/grammar/attr/repr.rs:77`
+  - [x] `#repr("c")` (verified 2026-03-29)
+  - [x] `#repr("packed")` (verified 2026-03-29)
+  - [x] `#repr("transparent")` (verified 2026-03-29)
+  - [x] `#repr("aligned", N)` -- validate power of two (verified 2026-03-29)
+  - [x] Combined syntax `#repr("c", "aligned", 16)` (verified 2026-03-29)
+  - [x] Unknown repr value error reporting (verified 2026-03-29)
 
-- [ ] **Type checker**: Validate #repr usage
-  - [ ] Only valid on struct types (not sum types)
-  - [ ] `transparent` requires exactly one field
-  - [ ] `aligned` N must be power of two
-  - [ ] Reject `packed` + `aligned` combination
+- [x] **Type checker**: Validate #repr usage (verified 2026-03-29) -- `validate_and_merge_repr_attrs` in `ori_types/src/check/registration/user_types.rs`
+  - [x] Only valid on struct types, not sum types -- E2041 (verified 2026-03-29)
+  - [x] `transparent` requires exactly one field -- E2041 (verified 2026-03-29)
+  - [x] `aligned` N must be power of two -- E2041 (verified 2026-03-29)
+  - [x] Reject `packed` + `aligned` combination -- E2041 (verified 2026-03-29)
+  - [x] Reject `c` + `packed` combination -- E2041 (verified 2026-03-29)
+  - [x] Reject duplicate attrs -- E2041 (verified 2026-03-29)
+  - [x] Reject repr on newtypes -- E2041 (verified 2026-03-29)
 
-- [ ] **Codegen**: Generate appropriate LLVM layout
-  - [ ] `#repr("c")` — default struct, no packed
-  - [ ] `#repr("packed")` — LLVM packed struct type
-  - [ ] `#repr("transparent")` — same type as inner field
-  - [ ] `#repr("aligned", N)` — align N on allocations
+- [x] **Repr-opt crate**: `ori_repr` has `ReprAttribute` enum and `StructRepr` with layout computation -- 57 tests pass (verified 2026-03-29)
+
+- [ ] **Codegen**: Generate appropriate LLVM layout -- NEEDS IMPLEMENTATION
+  - [ ] `#repr("c")` -- default struct, no packed
+  - [ ] `#repr("packed")` -- LLVM packed struct type
+  - [ ] `#repr("transparent")` -- same type as inner field
+  - [ ] `#repr("aligned", N)` -- align N on allocations
 
 - [ ] **LLVM Support**: LLVM codegen for #repr structs
-- [ ] **LLVM Rust Tests**: `ori_llvm/tests/ffi_tests.rs` — #repr struct codegen
+- [ ] **LLVM Rust Tests**: `ori_llvm/tests/ffi_tests.rs` -- #repr struct codegen (NOTE: file does not exist yet)
 - [ ] **AOT Tests**: No AOT coverage yet
 
-- [ ] **Test**: `tests/spec/ffi/repr.ori`
-  - [ ] `#repr("c")` struct
-  - [ ] `#repr("packed")` struct
-  - [ ] `#repr("transparent")` single-field struct
-  - [ ] `#repr("aligned", 16)` struct
-  - [ ] `#repr("c")` + `#repr("aligned", N)` combination
-  - [ ] Invalid: `#repr` on sum type (compile error)
-  - [ ] Invalid: `#repr("transparent")` with multiple fields (compile error)
-  - [ ] Invalid: `#repr("aligned", 7)` non-power-of-two (compile error)
-  - [ ] Invalid: `#repr("packed")` + `#repr("aligned")` (compile error)
+- [x] **Spec tests** (verified 2026-03-29) -- 17+ tests in `tests/spec/types/repr_attr*.ori`
+  - [x] Positive: `repr_attr.ori` (c, packed, transparent, aligned)
+  - [x] Positive: `repr_attr_c_aligned.ori` (stacked c + aligned)
+  - [x] Positive: `repr_attr_c_aligned_combined.ori` (combined syntax)
+  - [x] Negative (compile-fail): `repr_attr_aligned_not_power_of_two.ori` (E2041)
+  - [x] Negative: `repr_attr_transparent_two_fields.ori` (E2041)
+  - [x] Negative: `repr_attr_transparent_zero_fields.ori` (E2041)
+  - [x] Negative: `repr_attr_aligned_zero.ori` (E2041)
+  - [x] Negative: `repr_attr_packed_aligned.ori` (E2041)
+  - [x] Negative: `repr_attr_c_packed.ori` (E2041)
+  - [x] Negative: `repr_attr_duplicate_c.ori` (E2041)
+  - [x] Negative: `repr_attr_duplicate_aligned.ori` (E2041)
+  - [x] Negative: `repr_attr_c_on_sum.ori` (E2041)
+  - [x] Negative: `repr_attr_aligned_on_sum.ori` (E2041)
+  - [x] Negative: `repr_attr_c_on_newtype.ori` (E2041)
+  - [x] Negative: `repr_attr_packed_on_newtype.ori` (E2041)
+  - [x] Negative: `repr_attr_aligned_on_newtype.ori` (E2041)
+  - [x] Negative: `repr_attr_transparent_on_newtype.ori` (E2041)
+  - [x] Fmt tests: `tests/fmt/declarations/types/repr_attr.ori`, `repr_with_target.ori`
+  - [ ] Codegen verification tests -- deferred until codegen implemented
+
+> **NOTE**: E2041 compile-fail tests serve as semantic pins -- they would break if repr validation logic is removed. Good positive + negative pairing (3 positive, 14 negative).
+>
+> **HYGIENE**: `ori_parse/src/grammar/attr/repr.rs` line 5 contains stale plan annotation `(TPR-01-043)` -- should be cleaned up per CLAUDE.md plan annotation rules.
 
 ---
 
@@ -305,26 +347,36 @@ Inside `unsafe`:
   - [ ] Scoping rules
   - [ ] Interaction with FFI capability
 
-- [ ] **Parser**: Parse unsafe blocks
-  - [ ] `unsafe` keyword
-  - [ ] Block expression
+- [x] **Parser**: Parse unsafe blocks (verified 2026-03-29) -- `parse_unsafe_expr` at `ori_parse/src/grammar/expr/primary/specials.rs:111`
+  - [x] `unsafe` keyword -- parses `unsafe { block_body }` into `ExprKind::Unsafe(inner)` (verified 2026-03-29)
+  - [x] Block expression (verified 2026-03-29)
 
-- [ ] **Type checker**: Track unsafe context
-  - [ ] Set `in_unsafe` flag
-  - [ ] Allow unsafe operations only in context
+- [x] **Type checker**: Transparent pass-through (verified 2026-03-29) -- `ExprKind::Unsafe(inner) => infer_expr(engine, arena, *inner)` at `ori_types/src/infer/expr/mod.rs:216`
+  - [ ] Set `in_unsafe` flag -- NOT IMPLEMENTED
+  - [ ] Allow unsafe operations only in context -- NOT IMPLEMENTED (no `uses Unsafe` capability enforcement)
 
-- [ ] **Evaluator**: Execute unsafe operations
-  - [ ] Pointer dereference
-  - [ ] Raw memory access
+- [x] **Evaluator**: Execute unsafe blocks (verified 2026-03-29) -- `CanExpr::Unsafe(inner) => self.eval_can(inner)` at `ori_eval/src/interpreter/can_eval/mod.rs:337`
+  - [ ] Pointer dereference -- NOT IMPLEMENTED (pointer ops do not exist yet)
+  - [ ] Raw memory access -- NOT IMPLEMENTED
 
-- [ ] **LLVM Support**: LLVM codegen for unsafe blocks
-- [ ] **LLVM Rust Tests**: `ori_llvm/tests/ffi_tests.rs` — unsafe blocks codegen
+- [x] **ARC lowering**: `CanExpr::Unsafe(inner) => self.lower_expr(inner)` at `ori_arc/src/lower/expr/mod.rs:297` (verified 2026-03-29)
+
+- [ ] **LLVM Support**: LLVM codegen for unsafe blocks (transparent -- same as eval)
+- [ ] **LLVM Rust Tests**: `ori_llvm/tests/ffi_tests.rs` -- unsafe blocks codegen (NOTE: file does not exist yet)
 - [ ] **AOT Tests**: No AOT coverage yet
 
-- [ ] **Test**: `tests/spec/ffi/unsafe_blocks.ori`
-  - [ ] Basic unsafe block
-  - [ ] Nested unsafe
-  - [ ] Unsafe operations outside block (compile error)
+- [x] **Spec tests**: `tests/spec/capabilities/unsafe_block.ori` -- 6 tests pass (verified 2026-03-29) WEAK TESTS
+  - [x] test_unsafe_single_expr (verified 2026-03-29)
+  - [x] test_unsafe_multi_stmt (verified 2026-03-29)
+  - [x] test_unsafe_nested (verified 2026-03-29)
+  - [x] test_unsafe_in_block (verified 2026-03-29)
+  - [x] test_unsafe_type (str) (verified 2026-03-29)
+  - [x] test_unsafe_bool (verified 2026-03-29)
+  - [ ] Capability enforcement tests -- NEEDS TESTS
+  - [ ] Compile-fail: unsafe ops outside unsafe block -- NEEDS TESTS
+  - [ ] Interaction with closures, loops, match -- NEEDS TESTS
+
+> **WEAK TESTS**: Current tests only verify `unsafe { expr }` preserves expression type. No tests for capability enforcement (`uses Unsafe`), no tests for operations that should require unsafe context, no interaction tests. Tests are correct for what they verify but incomplete for safety enforcement.
 
 - [ ] **Test**: `tests/compile-fail/ffi/unsafe_required.ori`
   - [ ] Pointer deref outside unsafe
@@ -372,7 +424,7 @@ Inside `unsafe`:
   - [ ] Require `uses FFI` for unsafe blocks
 
 - [ ] **LLVM Support**: LLVM codegen for FFI capability
-- [ ] **LLVM Rust Tests**: `ori_llvm/tests/ffi_tests.rs` — FFI capability codegen
+- [ ] **LLVM Rust Tests**: `ori_llvm/tests/ffi_tests.rs` -- FFI capability codegen
 - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Test**: `tests/spec/ffi/ffi_capability.ori`
@@ -418,7 +470,7 @@ qsort(base: data, nmemb: len, size: 4, compar: compare_ints)
   - [ ] ABI adaptation
 
 - [ ] **LLVM Support**: LLVM codegen for callbacks
-- [ ] **LLVM Rust Tests**: `ori_llvm/tests/ffi_tests.rs` — callbacks codegen
+- [ ] **LLVM Rust Tests**: `ori_llvm/tests/ffi_tests.rs` -- callbacks codegen
 - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Test**: `tests/spec/ffi/callbacks.ori`
@@ -466,7 +518,7 @@ libraries = ["msvcrt"]
   - [ ] pkg-config integration
 
 - [ ] **LLVM Support**: LLVM codegen for link directives
-- [ ] **LLVM Rust Tests**: `ori_llvm/tests/ffi_tests.rs` — linking codegen
+- [ ] **LLVM Rust Tests**: `ori_llvm/tests/ffi_tests.rs` -- linking codegen
 - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Test**: `tests/spec/ffi/linking.ori`
@@ -586,7 +638,7 @@ extern "js" {
 
 ---
 
-## 11.11 Deep FFI — Higher-Level FFI Abstractions
+## 11.11 Deep FFI -- Higher-Level FFI Abstractions
 
 **Proposal**: `proposals/approved/deep-ffi-proposal.md`
 
@@ -599,7 +651,7 @@ Deep FFI layers five opt-in abstractions on top of the base FFI syntax: error pr
   - [ ] **IR**: Represent error protocol in extern block IR
   - [ ] **Type checker**: Transform return types when error protocol is active
   - [ ] **Codegen**: Generate error check + `Result` wrapping code after C calls
-  - [ ] **Rust Tests**: `ori_parse/src/tests/` — error protocol parsing
+  - [ ] **Rust Tests**: `ori_parse/src/tests/` -- error protocol parsing
   - [ ] **Ori Tests**: `tests/spec/ffi/error_protocol.ori`
 - [ ] **Implement**: `FfiError` type in `std.ffi`
   - [ ] **Library**: Define `FfiError` type in `library/std/ffi.ori`
@@ -608,13 +660,13 @@ Deep FFI layers five opt-in abstractions on top of the base FFI syntax: error pr
   - [ ] **IR**: Represent `out` params in extern item IR
   - [ ] **Type checker**: Fold `out` params into return type
   - [ ] **Codegen**: Allocate stack slot, pass address, extract value
-  - [ ] **Rust Tests**: `ori_parse/src/tests/` — `out` param parsing
+  - [ ] **Rust Tests**: `ori_parse/src/tests/` -- `out` param parsing
   - [ ] **Ori Tests**: `tests/spec/ffi/out_params.ori`
 - [ ] **Implement**: Errno reading infrastructure
   - [ ] **Runtime**: `get_errno()` as compiler intrinsic
   - [ ] **Codegen**: Read errno after C calls when `#error(errno)` active
   - [ ] **LLVM Support**: LLVM codegen for errno reading
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/ffi_tests.rs` — errno codegen
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/ffi_tests.rs` -- errno codegen
   - [ ] **AOT Tests**: No AOT coverage yet
 
 ### 11.11.2 Ownership Annotations (Phase 2)
@@ -623,7 +675,7 @@ Deep FFI layers five opt-in abstractions on top of the base FFI syntax: error pr
   - [ ] **Parser**: Parse ownership annotations on extern params and return types
   - [ ] **IR**: Represent ownership in extern item IR
   - [ ] **Type checker**: Validate ownership combinations
-  - [ ] **Rust Tests**: `ori_parse/src/tests/` — ownership annotation parsing
+  - [ ] **Rust Tests**: `ori_parse/src/tests/` -- ownership annotation parsing
   - [ ] **Ori Tests**: `tests/spec/ffi/ownership.ori`
 - [ ] **Implement**: `#free(fn)` attribute (block-level and per-function)
   - [ ] **Parser**: Parse `#free(...)` on extern blocks and items
@@ -632,7 +684,7 @@ Deep FFI layers five opt-in abstractions on top of the base FFI syntax: error pr
   - [ ] **Type checker**: Generate synthetic Drop impl for owned CPtr types
   - [ ] **Codegen**: Emit cleanup call on scope exit
   - [ ] **LLVM Support**: LLVM codegen for auto-Drop
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/ffi_tests.rs` — ownership codegen
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/ffi_tests.rs` -- ownership codegen
   - [ ] **AOT Tests**: No AOT coverage yet
 - [ ] **Implement**: `str` return defaults to borrowed (copy, don't free)
   - [ ] **Ori Tests**: `tests/spec/ffi/str_return_borrowed.ori`
@@ -640,15 +692,15 @@ Deep FFI layers five opt-in abstractions on top of the base FFI syntax: error pr
 
 ### 11.11.3 Declarative Marshalling Extensions (Phase 3)
 
-- [ ] **Implement**: `[byte]` length elision — adjacent `(ptr, len)` pair insertion
+- [ ] **Implement**: `[byte]` length elision -- adjacent `(ptr, len)` pair insertion
   - [ ] **Type checker**: Detect `[byte]` params and expand to two C args
   - [ ] **Codegen**: Insert length argument at call site
   - [ ] **Ori Tests**: `tests/spec/ffi/byte_length_elision.ori`
-- [ ] **Implement**: `mut [byte]` parameter handling — adjacent `(ptr, &len)` pair
+- [ ] **Implement**: `mut [byte]` parameter handling -- adjacent `(ptr, &len)` pair
 - [ ] **Implement**: `int` ↔ `c_int` automatic narrowing/widening with bounds checks
 - [ ] **Implement**: `bool` ↔ `c_int` conversion
   - [ ] **LLVM Support**: LLVM codegen for marshalling extensions
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/ffi_tests.rs` — marshalling codegen
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/ffi_tests.rs` -- marshalling codegen
   - [ ] **AOT Tests**: No AOT coverage yet
 
 ### 11.11.4 Capability-Gated Testability (Phase 4)
@@ -664,7 +716,7 @@ Deep FFI layers five opt-in abstractions on top of the base FFI syntax: error pr
   - [ ] Fall-through to real C implementation for unmocked functions
   - [ ] **Ori Tests**: `tests/spec/ffi/mock_handler.ori`
 
-### 11.11.5 Const-Generic Safety (Phase 5 — Future)
+### 11.11.5 Const-Generic Safety (Phase 5 -- Future)
 
 - [ ] **Design**: Where clauses on extern items with const expressions
   - [ ] Depends on Section 18 (Const Generics) being complete
@@ -685,7 +737,7 @@ Deep FFI layers five opt-in abstractions on top of the base FFI syntax: error pr
 - [ ] All tests pass: `./test-all.sh`
 - [ ] `uses FFI` properly enforced
 - [ ] `unsafe` blocks working
-- [ ] `/tpr-review` passed — independent Codex review found no critical or major issues (or all findings triaged)
+- [ ] `/tpr-review` passed -- independent Codex review found no critical or major issues (or all findings triaged)
 
 **Exit Criteria**: Can write a program that opens and queries a SQLite database
 

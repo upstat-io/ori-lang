@@ -129,11 +129,15 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let struct_llvm_ty = self.resolve_type(ty);
 
         for &(field_index, field_type) in fields {
+            // §06: remap declaration-order field index to memory-order.
+            // Closure envs are not subject to reordering (remap_struct_field
+            // checks Tag::Struct/Tuple, closure envs have a different tag).
+            let mem_index = self.remap_struct_field(ty, field_index);
             let field_llvm_ty = self.resolve_type(field_type);
             let field_ptr = self.builder.struct_gep(
                 struct_llvm_ty,
                 data_ptr,
-                field_index,
+                mem_index,
                 &format!("f{field_index}.ptr"),
             );
             let field_val = self
@@ -181,7 +185,9 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         self.emit_drop_element_loop(func_id, elem_data, len, element_type, elem_drop_fn, "elem");
 
         // Free element buffer + collection struct
-        self.emit_drop_list_free_data(elem_data, cap, element_type);
+        // §04.4 Phase C: pass collection type for narrowed element size.
+        let resolved_ty = self.pool.resolve_fully(ty);
+        self.emit_drop_list_free_data(elem_data, cap, element_type, Some(resolved_ty));
         self.emit_drop_rc_free(data_ptr, ty);
         self.builder.ret_void();
     }
@@ -373,8 +379,22 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     }
 
     /// Emit `ori_list_free_data(data, cap, elem_size)` to free a collection buffer.
-    fn emit_drop_list_free_data(&mut self, data: ValueId, cap: ValueId, element_type: Idx) {
-        let elem_size = self.element_store_size(element_type);
+    ///
+    /// `collection_ty` is the resolved collection type (e.g., `[int]`), used
+    /// for §04.4 Phase C narrowed element size lookup. Falls back to canonical
+    /// size when `None`.
+    fn emit_drop_list_free_data(
+        &mut self,
+        data: ValueId,
+        cap: ValueId,
+        element_type: Idx,
+        collection_ty: Option<Idx>,
+    ) {
+        let elem_size = if let Some(coll_ty) = collection_ty {
+            self.collection_elem_size(coll_ty, element_type)
+        } else {
+            self.element_store_size(element_type)
+        };
         let elem_size_val = self.builder.const_i64(elem_size as i64);
 
         let func_id = self.builder.runtime_fn("ori_list_free_data");

@@ -103,6 +103,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     ///
     /// Loads values from pointers, compares with `icmp eq` (integers) or
     /// `fcmp oeq` (floats), and returns `i1`.
+    ///
     fn gen_primitive_eq(
         &mut self,
         a_ptr: ValueId,
