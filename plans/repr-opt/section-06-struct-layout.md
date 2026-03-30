@@ -496,6 +496,12 @@ Rust unit tests in `compiler/ori_repr/src/layout/tests.rs`. AOT integration test
 - [x] `[TPR-06-012][medium]` `tests/spec/types/struct_layout.ori:127-209` — The new TPR-06-007 / TPR-06-008 spec pins are not currently LLVM-backend coverage. A fresh `./target/debug/ori test --backend=llvm tests/spec/types/struct_layout.ori` reports `14 llvm compile fail`, with repeated `unresolved function \`assert_eq\`` and `ArcIrEmitter: variable not yet defined` diagnostics, so the section's resolution notes still overstate backend parity and test totals for this work.
   Resolved: Fixed on 2026-03-30. Corrected resolved notes for TPR-06-007/008/009 to specify "Rust+interpreter tests" instead of implying full LLVM coverage. Updated dual-execution parity checklist item to accurately describe which backend is blocked and why. The underlying `assert_eq` monomorphization gap is system-wide (affects ALL spec tests using `use std.testing`) and tracked as P0 in `plans/test-suite-health/section-02-roadmap-reprioritization.md` and `plans/roadmap/section-07A-core-builtins.md:182`.
 
+- [x] `[TPR-06-013][high]` `compiler/ori_arc/src/lower/control_flow/type_layout.rs:60-70`, `compiler/ori_arc/src/lower/control_flow/type_layout.rs:127-140`, `compiler/ori_llvm/src/codegen/type_info/type_size.rs:18-56` — `pool_type_store_size()` still disagrees with LLVM for nested tagged-union fields. `Option<bool>` is intentionally pinned as `9` bytes in `compiler/ori_arc/src/lower/control_flow/tests.rs:581-583`, but the LLVM side computes `{ i64 tag, i1 payload }` as a 16-byte struct including trailing padding. The new `aggregate_size_with_padding()` helper then composes outer structs/tuples using the ARC-side `9`, so shapes like `{ left: Option<bool>, right: bool }` remain under-sized in ARC/for-yield element sizing even after TPR-06-007/008.
+  Resolved: Fixed on 2026-03-30. Added `round_up_i64(8 + payload, 8)` trailing alignment padding to both `Option<T>` and `Result<T, E>` branches in `pool_type_store_size()`. Updated existing test assertion (`Option<bool>` from 9→16). Added `type_store_size_option_result_trailing_padding` unit test with 8 cases: `Option<bool>` (16), `Option<int>` (16), `Option<char>` (16), `Result<bool, bool>` (16), `Result<int, str>` (32), `(Option<bool>, bool)` (24), `Struct{Option<bool>, bool}` (24), `Option<Option<bool>>` (24). Added Ori spec test `test_for_yield_option_field`. All 14,617 tests pass.
+
+- [x] `[TPR-06-014][medium]` `tests/spec/types/struct_layout.ori:188-202`, `plans/repr-opt/section-06-struct-layout.md:492-494` — The strengthened `test_for_yield_padded_enum` pin still does not assert `active` for `collected[0]`, yet the resolution note now claims the test verifies “all fields” on both `collected[0]` and `collected[1]`. That leaves one payload slot unpinned in the exact regression area and keeps the plan text overstated.
+  Resolved: Fixed on 2026-03-30. Added `assert_eq(actual: active, expected: false)` for `collected[0]` in `test_for_yield_padded_enum`. All fields now verified for both `collected[0]` and `collected[1]`.
+
 ---
 
 ## 06.5 Completion Checklist
@@ -558,7 +564,7 @@ Tests are primarily Rust unit tests in `compiler/ori_repr/src/layout/tests.rs` (
 - [x] `./clippy-all.sh` green — passes in pre-commit hook (2026-03-29)
 - [x] `./diagnostics/valgrind-aot.sh` — 87/90 pass. 3 failures are pre-existing COW bugs (BUG-05-001), not §06 regressions. No struct-reordering-related memory issues. (2026-03-30)
 - [x] Dual-execution parity: 4,217 interpreter spec tests pass. LLVM backend for struct_layout.ori blocked by system-wide `assert_eq` monomorphization gap (14 llvm compile fail — see TPR-06-012); non-struct-layout LLVM spec tests unaffected (2026-03-29, updated 2026-03-30)
-- [x] `/tpr-review` passed — clean on 2026-03-30. TPR-06-012 (last open finding) resolved by correcting plan text accuracy. No code bugs found.
+- [x] `/tpr-review` passed — clean on iteration 3 (2026-03-30). TPR-06-013 (Option/Result trailing padding) fixed with code + 8-case unit test + spec test. TPR-06-014 (missing assertion) fixed. All 14,617 tests pass.
 
 - [x] **Negative pin tests**: `test_c_layout_preserves_order` asserts size 24 (NOT 16 reordered); `test_reorder_bool_int_bool` asserts size 16 (NOT 24 unreordered); transparent with >1 non-ZST rejected (2026-03-29)
 - [x] **`ORI_CHECK_LEAKS=1` verification**: Phase 2 verified — `{ flag: bool, name: str }` in lists: zero leaks after element_store_size fix (uses ReprPlan size for reordered structs). (2026-03-30)
@@ -573,4 +579,4 @@ Tests are primarily Rust unit tests in `compiler/ori_repr/src/layout/tests.rs` (
 - `#repr("c")` structs are unaffected (declaration order preserved, size matches C ABI)
 - Interpreter and LLVM produce identical results for ALL new test files (dual-execution parity) — **caveat**: struct_layout.ori LLVM verification blocked by system-wide `assert_eq` monomorphization gap (P0, tracked in test-suite-health plan); non-`assert_eq` tests verified
 - `ORI_CHECK_LEAKS=1` reports zero leaks on all spec tests with RC-containing structs
-- `/tpr-review` passed with no critical or major unresolved findings
+- `/tpr-review` passed with no critical or major unresolved findings — clean on iteration 3 (2026-03-30)
