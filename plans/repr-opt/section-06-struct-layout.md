@@ -24,7 +24,7 @@ sections:
     status: complete
   - id: "06.4"
     title: "Tuple Layout"
-    status: complete
+    status: in-progress
   - id: "06.5"
     title: "Completion Checklist"
     status: in-progress
@@ -446,6 +446,7 @@ Rust unit tests in `compiler/ori_repr/src/layout/tests.rs`. AOT integration test
 - [x] AOT integration verified: `test_aot_generic_three_type_params` exercises `(int, bool, int)` tuple destructuring in AOT — passes after alias propagation fix (2026-03-29)
 - [x] `optimize_tuple_layout()` and `TupleRepr::memory_index()` implemented and tested (2026-03-29)
 - [x] Dual-execution parity: 4217 interpreter + 257 LLVM spec tests all pass (2026-03-29)
+- [ ] **Pipeline activation deferred**: tuple reordering is NOT activated in `compute_struct_layouts()` — tuples cross the runtime boundary in map iteration where `next_map()` writes key+value in declaration order. Activation requires either runtime layout awareness or per-element scratch loading. Algorithm and tests retained for future use.
 
 **Done criteria for §06.4:**
 - `optimize_tuple_layout()` implemented in `layout/tuple_layout.rs`
@@ -461,6 +462,12 @@ Rust unit tests in `compiler/ori_repr/src/layout/tests.rs`. AOT integration test
 
 - [x] `[TPR-06-001][high]` `compiler/ori_repr/src/pipeline/mod.rs` — Alias propagation `structural_type_eq()` treats any non-Struct/Tuple tag match as equal, unsound for payload-dependent tags (Option, Result, Enum).
   Resolved: Fixed on 2026-03-30. Added recursive comparison for Option (inner), Result (ok+err), List (elem), Set (elem), Map (key+value), Iterator (elem). Default changed from `true` to `false` for unhandled tags. All tests pass.
+
+- [x] `[TPR-06-002][high]` `compiler/ori_repr/src/pipeline/mod.rs` — Alias propagation copies reordered layout without checking target's `#repr` attribute. Could poison `#repr("c")` structs.
+  Resolved: Fixed on 2026-03-30. Added `repr_attr()` check in propagation — targets with non-Default attrs (C, Packed, Transparent, Aligned) are skipped.
+
+- [x] `[TPR-06-003][medium]` `plans/repr-opt/section-06-struct-layout.md` — §06.4 marked complete but tuple reordering disabled in pipeline.
+  Resolved: Fixed on 2026-03-30. Changed §06.4 status to in-progress, added deferred activation note.
 
 ---
 
