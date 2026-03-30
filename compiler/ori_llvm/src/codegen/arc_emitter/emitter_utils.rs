@@ -125,34 +125,24 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// Compute the store size in bytes for a type index.
     ///
     /// Uses `TypeInfo::size()` for well-known types (primitives, str=16, list=24, etc.).
-    /// §06: for REORDERED structs, uses `ReprPlan` size (includes alignment padding
-    /// between differently-sized fields). Non-reordered structs use the original
-    /// `type_store_size` which matches LLVM's store behavior (no trailing padding).
+    /// For structs/tuples with `ReprPlan` entries, uses the `ReprPlan` size
+    /// which includes trailing alignment padding (matching `pool_type_store_size`).
     pub(crate) fn element_store_size(&self, ty: Idx) -> u64 {
         if let Some(sz) = self.type_info.get(ty).size() {
             return sz;
         }
-        // §06: for reordered structs, use ReprPlan size which includes
-        // inter-field and trailing alignment padding. Reordering can place
-        // differently-sized fields adjacent, creating padding that
-        // type_store_size (naive field sum) would miss.
+        // Use ReprPlan size for structs/tuples — includes trailing alignment
+        // padding, matching pool_type_store_size in the ARC lowerer.
         if let Some(plan) = self.repr_plan {
             let resolved = self.pool.resolve_fully(ty);
             if let Some(repr) = plan.get_repr(resolved) {
-                let is_reordered = match repr {
-                    ori_repr::MachineRepr::Struct(s) => s.is_reordered(),
-                    ori_repr::MachineRepr::Tuple(t) => t.is_reordered(),
-                    _ => false,
+                let repr_size = match repr {
+                    ori_repr::MachineRepr::Struct(s) => Some(u64::from(s.size)),
+                    ori_repr::MachineRepr::Tuple(t) => Some(u64::from(t.size)),
+                    _ => None,
                 };
-                if is_reordered {
-                    let repr_size = match repr {
-                        ori_repr::MachineRepr::Struct(s) => Some(u64::from(s.size)),
-                        ori_repr::MachineRepr::Tuple(t) => Some(u64::from(t.size)),
-                        _ => None,
-                    };
-                    if let Some(sz) = repr_size {
-                        return sz;
-                    }
+                if let Some(sz) = repr_size {
+                    return sz;
                 }
             }
         }

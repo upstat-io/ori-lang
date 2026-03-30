@@ -1,6 +1,6 @@
 //! Pool-based type store-size computation.
 //!
-//! Sums field sizes without trailing alignment padding. Must stay in sync with
+//! Computes type sizes with trailing alignment padding. Must stay in sync with
 //! `TypeLayoutResolver::type_store_size()` in `ori_llvm` — both compute the
 //! same logical size for every type, just at different abstraction levels
 //! (Pool indices here vs LLVM `BasicTypeEnum` there).
@@ -45,20 +45,37 @@ pub(crate) fn pool_type_store_size(ty: Idx, pool: &ori_types::Pool, depth: u32) 
         Tag::Function => 16,
         // 24-byte fat values: {i64, i64, ptr}
         Tag::Str | Tag::List | Tag::Set | Tag::Map => 24,
-        // Composite types: sum of fields (no trailing padding).
-        // This must match ori_llvm's type_store_size for non-reordered types.
-        // Reordered structs get their padded size from the ReprPlan in
-        // element_store_size() on the LLVM side.
-        Tag::Struct => pool
-            .struct_fields(ty)
-            .iter()
-            .map(|(_, field_ty)| pool_type_store_size(*field_ty, pool, depth + 1))
-            .sum(),
-        Tag::Tuple => pool
-            .tuple_elems(ty)
-            .iter()
-            .map(|&field_ty| pool_type_store_size(field_ty, pool, depth + 1))
-            .sum(),
+        // Composite types: sum of fields, rounded up to max field alignment.
+        // The trailing padding is required for correct array element stride.
+        // Both this function and ori_llvm's type_store_size/element_store_size
+        // must agree — type_store_size now uses LLVM's size_of() which also
+        // includes trailing padding.
+        Tag::Struct => {
+            let fields = pool.struct_fields(ty);
+            let sum: i64 = fields
+                .iter()
+                .map(|(_, field_ty)| pool_type_store_size(*field_ty, pool, depth + 1))
+                .sum();
+            let max_align = fields
+                .iter()
+                .map(|(_, field_ty)| pool_type_alignment(*field_ty, pool))
+                .max()
+                .unwrap_or(1);
+            round_up_i64(sum, max_align)
+        }
+        Tag::Tuple => {
+            let elems = pool.tuple_elems(ty);
+            let sum: i64 = elems
+                .iter()
+                .map(|&field_ty| pool_type_store_size(field_ty, pool, depth + 1))
+                .sum();
+            let max_align = elems
+                .iter()
+                .map(|&field_ty| pool_type_alignment(field_ty, pool))
+                .max()
+                .unwrap_or(1);
+            round_up_i64(sum, max_align)
+        }
         Tag::Option => {
             // Option<T> = {i64 tag, T payload}
             8 + pool_type_store_size(pool.option_inner(ty), pool, depth + 1)
@@ -108,4 +125,23 @@ pub(crate) fn pool_type_store_size(ty: Idx, pool: &ori_types::Pool, depth: u32) 
             8
         }
     }
+}
+
+/// Alignment of a Pool type in bytes.
+fn pool_type_alignment(ty: Idx, pool: &ori_types::Pool) -> i64 {
+    let resolved = pool.resolve_fully(ty);
+    let tag = pool.tag(resolved);
+    match tag {
+        Tag::Bool | Tag::Byte | Tag::Ordering => 1,
+        Tag::Char => 4,
+        _ => 8,
+    }
+}
+
+/// Round `value` up to the next multiple of `align`.
+fn round_up_i64(value: i64, align: i64) -> i64 {
+    if align <= 1 {
+        return value;
+    }
+    (value + align - 1) / align * align
 }

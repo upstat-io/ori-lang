@@ -586,9 +586,9 @@ fn type_store_size_containers() {
     let res = pool.result(Idx::INT, Idx::STR);
     assert_eq!(pool_type_store_size(res, &pool, 0), 32, "Result<int, str>");
 
-    // Tuple (int, bool) = 8 + 1 = 9
+    // Tuple (int, bool) = round_up(8 + 1, 8) = 16 (padded to max align)
     let tup = pool.tuple(&[Idx::INT, Idx::BOOL]);
-    assert_eq!(pool_type_store_size(tup, &pool, 0), 9, "(int, bool)");
+    assert_eq!(pool_type_store_size(tup, &pool, 0), 16, "(int, bool)");
 
     // Tuple (int, int, int) = 24
     let tup3 = pool.tuple(&[Idx::INT, Idx::INT, Idx::INT]);
