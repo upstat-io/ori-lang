@@ -95,7 +95,13 @@ type Mixed = { flag: bool, label: str, score: float }
         Record { flag: false, name: "second", count: 20 },
     ];
     let collected = for item in items yield item;
-    assert_eq(actual: collected.length(), expected: 2)
+    assert_eq(actual: collected.length(), expected: 2);
+    assert_eq(actual: collected[0].flag, expected: true);
+    assert_eq(actual: collected[0].name, expected: "first");
+    assert_eq(actual: collected[0].count, expected: 10);
+    assert_eq(actual: collected[1].flag, expected: false);
+    assert_eq(actual: collected[1].name, expected: "second");
+    assert_eq(actual: collected[1].count, expected: 20)
 }
 
 // Regression: for-yield with field access on reordered struct
@@ -185,6 +191,19 @@ type PaddedEnum = A(flag: bool, count: int, active: bool, label: str) | B;
             assert_eq(actual: count, expected: 1);
             assert_eq(actual: label, expected: "x")
         },
-        B -> panic(msg: "expected A"),
+        B -> panic(msg: "expected A at [0]"),
+    };
+    match collected[1] {
+        A(flag:, count:, active:, label:) -> {
+            assert_eq(actual: flag, expected: false);
+            assert_eq(actual: count, expected: 2);
+            assert_eq(actual: active, expected: true);
+            assert_eq(actual: label, expected: "y")
+        },
+        B -> panic(msg: "expected A at [1]"),
+    };
+    match collected[2] {
+        A(flag:, count:, active:, label:) -> panic(msg: "expected B at [2]"),
+        B -> assert(cond: true),
     }
 }
