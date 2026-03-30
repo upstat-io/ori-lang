@@ -58,16 +58,19 @@ pub(crate) fn pool_type_store_size(ty: Idx, pool: &ori_types::Pool, depth: u32) 
             aggregate_size_with_padding(elems.iter().copied(), pool, depth)
         }
         Tag::Option => {
-            // Option<T> = {i64 tag, T payload}
-            8 + pool_type_store_size(pool.option_inner(ty), pool, depth + 1)
+            // Option<T> = {i64 tag, T payload} — include trailing alignment padding.
+            // LLVM represents this as a struct; size_of includes padding to alignment.
+            // The tag is i64 (align 8), so the struct alignment is at least 8.
+            let payload_size = pool_type_store_size(pool.option_inner(ty), pool, depth + 1);
+            round_up_i64(8 + payload_size, 8)
         }
         Tag::Result => {
-            // Result<T, E> = {i64 tag, max(T, E) payload}
+            // Result<T, E> = {i64 tag, max(T, E) payload} — include trailing alignment padding.
             let ok_ty = pool.result_ok(ty);
             let err_ty = pool.result_err(ty);
             let ok_size = pool_type_store_size(ok_ty, pool, depth + 1);
             let err_size = pool_type_store_size(err_ty, pool, depth + 1);
-            8 + ok_size.max(err_size)
+            round_up_i64(8 + ok_size.max(err_size), 8)
         }
         Tag::Enum => {
             // Enum = {i64 tag, max(variant payloads in i64-slot layout)}
