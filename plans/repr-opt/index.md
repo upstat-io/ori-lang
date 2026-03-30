@@ -160,7 +160,7 @@ is_narrowing_safe_for_codegen rename, float_field_range_summary_string
 ---
 
 ### Section 06: Struct & Tuple Layout Optimization
-**File:** `section-06-struct-layout.md` | **Status:** Not Started
+**File:** `section-06-struct-layout.md` | **Status:** In Progress
 
 ```
 struct layout, field reordering, padding minimization
