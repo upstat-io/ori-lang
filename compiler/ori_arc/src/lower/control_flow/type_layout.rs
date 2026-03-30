@@ -73,7 +73,7 @@ pub(crate) fn pool_type_store_size(ty: Idx, pool: &ori_types::Pool, depth: u32) 
             round_up_i64(8 + ok_size.max(err_size), 8)
         }
         Tag::Enum => {
-            // Enum = {i64 tag, max(variant payloads in i64-slot layout)}
+            // §07.1: Enum tags are narrowed by variant count (i8/i16/i32/i64).
             // Enum payloads use [M x i64] array layout where each field
             // occupies ceil(field_size / 8) * 8 bytes (at least one i64 slot).
             // This differs from struct/tuple natural alignment padding.
@@ -83,7 +83,17 @@ pub(crate) fn pool_type_store_size(ty: Idx, pool: &ori_types::Pool, depth: u32) 
                 .map(|(_, fields)| enum_payload_size(fields.iter().copied(), pool, depth))
                 .max()
                 .unwrap_or(0);
-            8 + max_payload
+            let tag_bytes = enum_tag_bytes(variants.len());
+            if max_payload == 0 {
+                // All-unit enum: just the tag, no payload.
+                // LLVM: { i8 } → size 1 for ≤256 variants.
+                tag_bytes
+            } else {
+                // Payload enum: { iN_tag, [M x i64] }.
+                // The [M x i64] payload has alignment 8, so the tag is always
+                // padded up to 8 regardless of tag width. Total = 8 + payload.
+                8 + max_payload
+            }
         }
         // Meta-types should not appear in for-yield element positions.
         // If they do, it's a compiler bug — panic rather than silently missize.
@@ -144,6 +154,17 @@ fn pool_type_alignment_inner(ty: Idx, pool: &ori_types::Pool, depth: u32) -> i64
                 .max()
                 .unwrap_or(1)
         }
+        Tag::Enum => {
+            // §07.1: all-unit enums have narrowed tag alignment.
+            let variants = pool.enum_variants(resolved);
+            let has_payload = variants.iter().any(|(_, fields)| !fields.is_empty());
+            if has_payload {
+                8 // Payload enum: [M x i64] array dominates alignment.
+            } else {
+                // All-unit enum: alignment = tag width.
+                enum_tag_bytes(variants.len())
+            }
+        }
         _ => 8,
     }
 }
@@ -183,6 +204,27 @@ fn enum_payload_size(fields: impl Iterator<Item = Idx>, pool: &ori_types::Pool, 
             round_up_i64(field_size, 8)
         })
         .sum()
+}
+
+/// Enum tag size in bytes based on variant count.
+///
+/// Must stay in sync with `ori_repr::min_tag_width()`. Inlined here to avoid
+/// a circular dependency (`ori_repr` depends on `ori_arc`).
+///
+/// §07.1: all enums with ≤256 variants use i8 tags (1 byte).
+fn enum_tag_bytes(variant_count: usize) -> i64 {
+    match variant_count {
+        0 | 1 => 1,
+        n => {
+            let bits_needed = usize::BITS - (n - 1).leading_zeros();
+            match bits_needed {
+                0..=8 => 1,
+                9..=16 => 2,
+                17..=32 => 4,
+                _ => 8,
+            }
+        }
+    }
 }
 
 /// Round `value` up to the next multiple of `align`.
