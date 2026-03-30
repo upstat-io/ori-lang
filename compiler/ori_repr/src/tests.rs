@@ -485,11 +485,11 @@ fn canonical_option_int() {
     let repr = canonical(&pool, opt_idx);
     if let MachineRepr::Enum(ref e) = repr {
         assert_eq!(e.variants.len(), 2, "Option should have 2 variants");
-        // §07.1: 2 variants → I8 tag
+        // Option uses I64 tag (not narrowed) for ori_rt runtime compatibility
         assert_eq!(
             e.tag,
             EnumTag::Explicit {
-                width: IntWidth::I8
+                width: IntWidth::I64
             }
         );
         // None variant has no fields
@@ -1216,7 +1216,7 @@ fn canonical_struct_unit_field() {
     }
 }
 
-/// `Option<()>` — tag + 0 payload. Size = 1 (just the i8 tag, §07.1).
+/// `Option<()>` — i64 tag + 0 payload. Size = 8 (i64 tag, not narrowed for Option).
 #[test]
 fn canonical_option_unit_zero_payload() {
     let mut pool = Pool::new();
@@ -1224,8 +1224,8 @@ fn canonical_option_unit_zero_payload() {
     let repr = canonical(&pool, opt_idx);
     if let MachineRepr::Enum(ref e) = repr {
         assert_eq!(
-            e.size, 1,
-            "Option<()> must be 1 byte — i8 tag only, zero payload"
+            e.size, 8,
+            "Option<()> must be 8 bytes — i64 tag (not narrowed for runtime compat)"
         );
     } else {
         panic!("expected Enum for Option<()>, got {repr:?}");
@@ -2329,8 +2329,11 @@ fn storage_equivalence_zst_divergence() {
 
     let opt_unit = pool.option(Idx::UNIT);
     if let MachineRepr::Enum(ref e) = canonical(&pool, opt_unit) {
-        // §07.1: i8 tag, zero payload → 1 byte
-        assert_eq!(e.size, 1, "Option<()> = 1 byte (i8 tag only, zero payload)");
+        // Option uses i64 tag (not narrowed for runtime compat), zero payload → 8 bytes
+        assert_eq!(
+            e.size, 8,
+            "Option<()> = 8 bytes (i64 tag, not narrowed for runtime compat)"
+        );
     } else {
         panic!("Option<()> must be Enum");
     }

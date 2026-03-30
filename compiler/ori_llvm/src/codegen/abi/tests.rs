@@ -159,8 +159,39 @@ fn enum_with_payload_abi_size() {
     );
     let store = TypeInfoStore::new(&pool);
 
-    // §07.1: { i8 tag, i64 payload } = 1 + 8 = 9 bytes
-    assert_eq!(abi_size(color, &store), 9);
+    // §07.1: { i8 tag, [1 x i64] payload } — tag padded to 8 due to
+    // payload alignment. Total = 8 + 8 = 16 bytes.
+    assert_eq!(abi_size(color, &store), 16);
+}
+
+/// Regression: TPR-07-003 — `abi_size` for payload enums must account for
+/// [M x i64] slot layout. A(int, bool) | B has payload [2 x i64] = 16,
+/// total = 8 (padded tag) + 16 = 24.
+#[test]
+fn enum_with_mixed_payload_abi_size() {
+    let mut pool = Pool::new();
+    let mixed = pool.enum_type(
+        Name::from_raw(300),
+        &[
+            EnumVariant {
+                name: Name::from_raw(301),
+                field_types: vec![Idx::INT, Idx::BOOL],
+            },
+            EnumVariant {
+                name: Name::from_raw(302),
+                field_types: vec![],
+            },
+        ],
+    );
+    let store = TypeInfoStore::new(&pool);
+
+    // { i8, [2 x i64] } = 8 + 16 = 24 bytes
+    assert_eq!(abi_size(mixed, &store), 24);
+    // 24 > 16 → Sret, not Direct
+    assert_eq!(
+        compute_return_passing(mixed, &store),
+        ReturnPassing::Sret { alignment: 8 }
+    );
 }
 
 // -- Param passing tests --
