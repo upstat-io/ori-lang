@@ -115,7 +115,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         }
     }
 
-    /// Extract RC data pointers from a struct's fields.
+    /// Extract RC data pointers from a struct's fields (§06: remap to memory order).
     fn extract_rc_from_struct_fields(&mut self, val: ValueId, ty: Idx) -> Vec<ValueId> {
         let fields = self.pool.struct_fields(ty);
         let mut ptrs = Vec::new();
@@ -125,9 +125,10 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         )]
         for (i, (_, field_ty)) in fields.into_iter().enumerate() {
             if self.classifier.needs_rc(field_ty) {
+                let mem_i = self.remap_struct_field(ty, i as u32);
                 if let Some(field_val) =
                     self.builder
-                        .extract_value(val, i as u32, &format!("rc.field.{i}"))
+                        .extract_value(val, mem_i, &format!("rc.field.{i}"))
                 {
                     ptrs.extend(self.extract_rc_data_ptrs(field_val, field_ty));
                 }
@@ -136,7 +137,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         ptrs
     }
 
-    /// Extract RC data pointers from a tuple's elements.
+    /// Extract RC data pointers from a tuple's elements (§06: remap to memory order).
     fn extract_rc_from_tuple_elems(&mut self, val: ValueId, ty: Idx) -> Vec<ValueId> {
         let elems = self.pool.tuple_elems(ty);
         let mut ptrs = Vec::new();
@@ -146,9 +147,10 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         )]
         for (i, elem_ty) in elems.into_iter().enumerate() {
             if self.classifier.needs_rc(elem_ty) {
+                let mem_i = self.remap_struct_field(ty, i as u32);
                 if let Some(elem_val) =
                     self.builder
-                        .extract_value(val, i as u32, &format!("rc.elem.{i}"))
+                        .extract_value(val, mem_i, &format!("rc.elem.{i}"))
                 {
                     ptrs.extend(self.extract_rc_data_ptrs(elem_val, elem_ty));
                 }
