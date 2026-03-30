@@ -27,6 +27,16 @@ fn type_store_size_inner(ty: BasicTypeEnum<'_>, depth: u32) -> u64 {
             if st.is_opaque() {
                 return 8;
             }
+            // Use LLVM's own store size which includes alignment padding.
+            // The naive sum-of-fields misses inter-field and trailing padding
+            // for structs with mixed-size fields (e.g., {str, bool} → 25 not 32).
+            if let Some(sz) = st
+                .size_of()
+                .and_then(inkwell::values::IntValue::get_zero_extended_constant)
+            {
+                return sz;
+            }
+            // Fallback: sum field sizes (may undercount for padded structs).
             let mut total = 0u64;
             for i in 0..st.count_fields() {
                 if let Some(field) = st.get_field_type_at_index(i) {
