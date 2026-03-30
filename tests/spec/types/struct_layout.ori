@@ -110,3 +110,58 @@ type Mixed = { flag: bool, label: str, score: float }
     for t in totals do sum = sum + t;
     assert_eq(actual: sum, expected: 60)
 }
+
+// Regression: TPR-06-007 — inter-field alignment padding.
+// pool_type_store_size() summed field sizes without inter-field alignment,
+// undercounting tuples like (bool, str, int, bool) by 8 bytes (40 vs 48).
+// for...yield allocated undersized element buffers → memory corruption.
+
+// Tuple with inter-field padding: (bool, str, int, bool)
+// ABI: bool@0(1B), pad→8, str@8(24B), int@32(8B), bool@40(1B) → 48 bytes
+@test_for_yield_tuple_padding tests @make_record () -> void = {
+    let items = [
+        (true, "hello", 1, false),
+        (false, "world", 2, true),
+        (true, "test", 3, false),
+    ];
+    let collected = for item in items yield item;
+    assert_eq(actual: collected.length(), expected: 3);
+    assert_eq(actual: collected[0].0, expected: true);
+    assert_eq(actual: collected[0].1, expected: "hello");
+    assert_eq(actual: collected[0].2, expected: 1);
+    assert_eq(actual: collected[0].3, expected: false);
+    assert_eq(actual: collected[2].1, expected: "test");
+    assert_eq(actual: collected[2].2, expected: 3)
+}
+
+// Tuple with two padding gaps: (bool, int, bool, str)
+// ABI: bool@0(1B), pad→8, int@8(8B), bool@16(1B), pad→24, str@24(24B) → 48 bytes
+@test_for_yield_tuple_two_gaps tests @make_record () -> void = {
+    let items = [
+        (true, 10, false, "alpha"),
+        (false, 20, true, "beta"),
+    ];
+    let collected = for item in items yield item;
+    assert_eq(actual: collected.length(), expected: 2);
+    assert_eq(actual: collected[0].0, expected: true);
+    assert_eq(actual: collected[0].1, expected: 10);
+    assert_eq(actual: collected[0].2, expected: false);
+    assert_eq(actual: collected[0].3, expected: "alpha");
+    assert_eq(actual: collected[1].3, expected: "beta")
+}
+
+// Struct with inter-field padding in for-yield (4-field variant)
+type Padded = { flag: bool, label: str, count: int, active: bool }
+
+@test_for_yield_padded_struct tests @make_record () -> void = {
+    let items = [
+        Padded { flag: true, label: "x", count: 1, active: false },
+        Padded { flag: false, label: "y", count: 2, active: true },
+    ];
+    let collected = for item in items yield item;
+    assert_eq(actual: collected.length(), expected: 2);
+    assert_eq(actual: collected[0].flag, expected: true);
+    assert_eq(actual: collected[0].label, expected: "x");
+    assert_eq(actual: collected[1].label, expected: "y");
+    assert_eq(actual: collected[1].active, expected: true)
+}
