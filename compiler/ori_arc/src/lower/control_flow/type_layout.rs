@@ -45,36 +45,17 @@ pub(crate) fn pool_type_store_size(ty: Idx, pool: &ori_types::Pool, depth: u32) 
         Tag::Function => 16,
         // 24-byte fat values: {i64, i64, ptr}
         Tag::Str | Tag::List | Tag::Set | Tag::Map => 24,
-        // Composite types: sum of fields, rounded up to max field alignment.
-        // The trailing padding is required for correct array element stride.
-        // Both this function and ori_llvm's type_store_size/element_store_size
-        // must agree — type_store_size now uses LLVM's size_of() which also
-        // includes trailing padding.
+        // Composite types: walk fields with inter-field alignment padding,
+        // then round up to max alignment for trailing padding (array stride).
+        // Must match the ABI layout in ori_repr::layout::compute_field_layout()
+        // and ori_llvm's type_store_size (which uses LLVM's size_of()).
         Tag::Struct => {
             let fields = pool.struct_fields(ty);
-            let sum: i64 = fields
-                .iter()
-                .map(|(_, field_ty)| pool_type_store_size(*field_ty, pool, depth + 1))
-                .sum();
-            let max_align = fields
-                .iter()
-                .map(|(_, field_ty)| pool_type_alignment(*field_ty, pool))
-                .max()
-                .unwrap_or(1);
-            round_up_i64(sum, max_align)
+            aggregate_size_with_padding(fields.iter().map(|(_, field_ty)| *field_ty), pool, depth)
         }
         Tag::Tuple => {
             let elems = pool.tuple_elems(ty);
-            let sum: i64 = elems
-                .iter()
-                .map(|&field_ty| pool_type_store_size(field_ty, pool, depth + 1))
-                .sum();
-            let max_align = elems
-                .iter()
-                .map(|&field_ty| pool_type_alignment(field_ty, pool))
-                .max()
-                .unwrap_or(1);
-            round_up_i64(sum, max_align)
+            aggregate_size_with_padding(elems.iter().copied(), pool, depth)
         }
         Tag::Option => {
             // Option<T> = {i64 tag, T payload}
@@ -89,16 +70,11 @@ pub(crate) fn pool_type_store_size(ty: Idx, pool: &ori_types::Pool, depth: u32) 
             8 + ok_size.max(err_size)
         }
         Tag::Enum => {
-            // Enum = {i64 tag, max(variant payloads)}
+            // Enum = {i64 tag, max(variant payloads with inter-field padding)}
             let variants = pool.enum_variants(ty);
             let max_payload: i64 = variants
                 .iter()
-                .map(|(_, fields)| {
-                    fields
-                        .iter()
-                        .map(|&fty| pool_type_store_size(fty, pool, depth + 1))
-                        .sum::<i64>()
-                })
+                .map(|(_, fields)| aggregate_size_with_padding(fields.iter().copied(), pool, depth))
                 .max()
                 .unwrap_or(0);
             8 + max_payload
@@ -136,6 +112,29 @@ fn pool_type_alignment(ty: Idx, pool: &ori_types::Pool) -> i64 {
         Tag::Char => 4,
         _ => 8,
     }
+}
+
+/// Compute total size of an aggregate (struct/tuple/enum-variant payload)
+/// with proper inter-field alignment padding.
+///
+/// Each field is aligned to its natural alignment before placement, matching
+/// the ABI layout in `ori_repr::layout::compute_field_layout()` and LLVM's
+/// own struct size computation. The result includes trailing padding to the
+/// max field alignment (correct array element stride).
+fn aggregate_size_with_padding(
+    fields: impl Iterator<Item = Idx>,
+    pool: &ori_types::Pool,
+    depth: u32,
+) -> i64 {
+    let mut offset = 0i64;
+    let mut max_align = 1i64;
+    for field_ty in fields {
+        let fa = pool_type_alignment(field_ty, pool);
+        offset = round_up_i64(offset, fa);
+        offset += pool_type_store_size(field_ty, pool, depth + 1);
+        max_align = max_align.max(fa);
+    }
+    round_up_i64(offset, max_align)
 }
 
 /// Round `value` up to the next multiple of `align`.
