@@ -1,4 +1,6 @@
 use super::*;
+use ori_ir::Name;
+use ori_types::EnumVariant;
 use ori_types::Pool;
 
 fn test_store() -> (&'static Pool, TypeInfoStore<'static>) {
@@ -104,6 +106,64 @@ fn mixed_alignment_tuple_ignores_padding() {
         ParamPassing::Direct,
         "known limitation: mixed-alignment tuple classified as Direct due to padding-unaware size"
     );
+}
+
+// -- Enum abi_size tests --
+
+#[test]
+fn all_unit_enum_abi_size_is_tag_size() {
+    // Regression: §07.0 — abi_size_inner returned 1 for all-unit enums but
+    // the actual LLVM layout is { i64 } = 8 bytes (i64 tag, no payload).
+    // The tag is currently i64; after §07.1 (discriminant narrowing) it will
+    // be i8, at which point this test should be updated to expect 1.
+    let mut pool = Pool::new();
+    let dir = pool.enum_type(
+        Name::from_raw(100),
+        &[
+            EnumVariant {
+                name: Name::from_raw(101),
+                field_types: vec![],
+            },
+            EnumVariant {
+                name: Name::from_raw(102),
+                field_types: vec![],
+            },
+            EnumVariant {
+                name: Name::from_raw(103),
+                field_types: vec![],
+            },
+            EnumVariant {
+                name: Name::from_raw(104),
+                field_types: vec![],
+            },
+        ],
+    );
+    let store = TypeInfoStore::new(&pool);
+
+    // All-unit enum: { i64 tag } = 8 bytes (NOT 1)
+    assert_eq!(abi_size(dir, &store), 8);
+}
+
+#[test]
+fn enum_with_payload_abi_size() {
+    let mut pool = Pool::new();
+    let color = pool.enum_type(
+        Name::from_raw(200),
+        &[
+            EnumVariant {
+                name: Name::from_raw(201),
+                field_types: vec![Idx::INT],
+            },
+            EnumVariant {
+                name: Name::from_raw(202),
+                field_types: vec![],
+            },
+        ],
+    );
+    let store = TypeInfoStore::new(&pool);
+
+    // { i64 tag, i64 payload } = 16 bytes
+    assert_eq!(abi_size(color, &store), 16);
 }
 
 // -- Param passing tests --

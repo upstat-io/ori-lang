@@ -1,11 +1,11 @@
 ---
 section: "07"
 title: "Enum Representation Optimization"
-status: not-started
-reviewed: false
+status: in-progress
+reviewed: true
 third_party_review:
-  status: findings
-  updated: 2026-03-23
+  status: resolved
+  updated: 2026-03-30
 goal: "Optimize enum layout with niche filling, discriminant narrowing, tagged pointers, and payload compression — matching Rust's enum layout optimizations"
 inspired_by:
   - "Rust niche optimization (compiler/rustc_abi/src/layout.rs, Niche struct)"
@@ -14,11 +14,14 @@ inspired_by:
   - "Zig optional representation (src/Type.zig)"
 depends_on: ["04", "05"]
 sections:
+  - id: "07.0"
+    title: "Prerequisites: Codegen Consumer Inventory"
+    status: complete
   - id: "07.1"
-    title: "Niche Filling"
+    title: "Discriminant Narrowing"
     status: not-started
   - id: "07.2"
-    title: "Discriminant Narrowing"
+    title: "Niche Filling"
     status: not-started
   - id: "07.3"
     title: "Tagged Pointers"
@@ -37,6 +40,7 @@ sections:
 - `Option<int>`: 16 bytes (i64 tag + i64 value) → could be 8 bytes via niche or tagged pointer
 - `Option<bool>`: 16 bytes (i64 tag + padded i1 value) → could be 1 byte (value 2 = None)
 - `Option<str>`: 32 bytes (i64 tag + 24-byte str payload) → could be 24 bytes (null ptr = None)
+- `Option<[int]>`: 32 bytes (i64 tag + 24-byte list payload) → remains 32 bytes (empty lists use null data ptr — no niche available)
 - All-unit enum with N variants: 8 bytes (i64 tag only, no payload) → could be 1 byte (i8 tag)
 
 Rust's niche optimization is the gold standard. We study and match it.
@@ -48,20 +52,198 @@ Rust's niche optimization is the gold standard. We study and match it.
 
 **Depends on:** §04 (narrowed integer types create new niches — e.g., a narrowed `i8` field with range `[0, 2]` has 253 unused values as niches), §05 (float-narrowed fields may have niche patterns — e.g., `f32` has NaN spare bits usable for Option optimization, though the value must be checked carefully against IEEE 754 NaN semantics before use).
 
+**Terminology:** This section uses "tag" and "discriminant" with the following distinction: the **discriminant** is the logical variant index (0, 1, 2, ...) that identifies which variant an enum value holds. The **tag** is the physical encoding of the discriminant in memory — this may be an explicit integer field (`EnumTag::Explicit`), a niche value in an existing field (`EnumTag::Niche`), bits stolen from a pointer (`EnumTag::Tagged`), or absent entirely (`EnumTag::None` for single-variant enums). `TagAccess` abstracts over all tag encodings; it loads/stores discriminants regardless of how the tag is physically encoded.
+
 ---
 
-## 07.1 Niche Filling
+## 07.0 Prerequisites: Codegen Consumer Inventory
 
-**File(s):** `compiler/ori_repr/src/layout/enum_repr.rs`, `compiler/ori_repr/src/layout/niche.rs`
+**Context:** Changing the enum tag from i64 to a narrowed width (i8/i16) or a niche encoding requires updating EVERY codegen consumer that reads/writes enum tags or accesses variant payloads. Missing any one consumer causes silent data corruption. This is the same coordination problem as §06 field reordering.
+
+**Codegen consumers that emit/read enum tags (ALL must be updated for §07):**
+
+1. **`layout_resolver.rs` → `resolve_enum()`** — constructs the LLVM struct type. Currently `{i64 tag, [M x i64] payload}`. Must emit narrowed tag type (i8/i16/i32) for discriminant narrowing, and entirely different layouts for niche-optimized enums.
+2. **`arc_emitter/construction.rs` → `emit_construct()`** — stores tag via `const_i64(variant)`. Must use narrowed constant width and niche-based construction for niche-optimized enums.
+3. **`arc_emitter/instr_dispatch.rs` → `ArcInstr::SetTag`** — stores tag via `const_i64(*tag)` + GEP to field 0. Must use narrowed width and write to niche location for niche-optimized enums.
+4. **`arc_emitter/instr_dispatch.rs` → `ArcInstr::Project { field: 0 }`** — extracts tag as i64 from field 0. Must extract narrowed-width tag and decode niche.
+5. **`arc_emitter/instr_dispatch.rs` → `ArcTerminator::Switch`** — emits LLVM switch on i64 scrutinee. Must switch on narrowed tag or niche-decoded discriminant.
+6. **`arc_emitter/drop_enum.rs` → `emit_enum_drop()`** — loads i64 tag at field 0, switches on it, drops per-variant fields at i64-slot offsets. Must use narrowed tag and correct payload offsets.
+7. **`arc_emitter/rc_helpers.rs` → `emit_inline_enum_inc/dec()`** — loads i64 tag, switches per-variant for field RC ops. Must use narrowed tag.
+8. **`arc_emitter/rc_value_traversal.rs` → `emit_inline_enum_inc/dec()`** — same pattern as rc_helpers.
+9. **`arc_emitter/builtins/option_result.rs`** — Option/Result-specific builtins hardcode `{i64 tag, T payload}` layout. Must handle niche-optimized layout.
+10. **`arc_emitter/builtins/compound_traits.rs`** — Eq/Comparable/Debug etc. for Option/Result hardcode tag-first layout.
+11. **`arc_emitter/builtins/compound_type_impls.rs`** — clone/hash/etc. for Option/Result.
+12. **`arc_emitter/builtins/iterator_consumers.rs`** — constructs Option from iterator next.
+13. **`arc_emitter/builtins/collections/list_builtins.rs`** — `first()`/`last()` return Option with hardcoded layout.
+14. **`arc_emitter/variant_construction.rs`** — variant construction for Option/Result/Enum.
+15. **`codegen/abi/mod.rs`** — ABI size computation references `{i64 tag, payload}`.
+16. **`arc_emitter/operators/strategy.rs` → `emit_coalesce()`** — `??` operator extracts tag via `extract_value(lhs, 0, "coal.tag")` + compares with `const_i64(0)`. Must use TagAccess for niche-aware tag comparison.
+
+**Strategy:** Introduce a `TagAccess` helper in `ori_llvm` that encapsulates tag read/write/switch for a given `EnumRepr`. Codegen consumers call `TagAccess::load_discriminant()`, `TagAccess::store_tag()`, `TagAccess::emit_switch()` instead of hardcoding i64 GEP+load+switch. This localizes the tag encoding change to one place.
+
+```rust
+/// Encapsulates all tag encoding/decoding for a given enum layout.
+/// Lives in `ori_llvm::codegen::arc_emitter::tag_access.rs`.
+pub struct TagAccess<'a, 'll> {
+    enum_repr: &'a EnumRepr,
+    builder: &'a IrBuilder<'ll>,
+}
+
+impl<'a, 'll> TagAccess<'a, 'll> {
+    /// Load the discriminant value from an enum pointer.
+    /// For Explicit tags: GEP to field 0, load with narrowed width.
+    /// For Niche tags: load the niche field, decode to discriminant.
+    /// For None: returns a constant 0 (single-variant).
+    pub fn load_discriminant(&self, enum_ptr: ValueId) -> ValueId;
+
+    /// Store a tag for a given variant index.
+    /// For Explicit: store narrowed-width constant at field 0.
+    /// For Niche: store the niche value if this is the niche variant,
+    ///            otherwise the payload write implicitly sets the tag.
+    /// For None: no-op.
+    pub fn store_tag(&self, enum_ptr: ValueId, variant_idx: u32);
+
+    /// Emit an LLVM switch on the discriminant.
+    /// For Explicit: switch on narrowed-width tag.
+    /// For Niche: compare niche field against niche value, branch.
+    /// For None: unconditional branch to the single variant.
+    pub fn emit_switch(
+        &self, enum_ptr: ValueId,
+        cases: &[(u32, BlockId)],
+        default: BlockId,
+    );
+
+    /// Get the LLVM type for the tag (i8/i16/i32/i64 or none).
+    pub fn tag_llvm_type(&self) -> Option<BasicTypeEnum<'ll>>;
+
+    /// Get the GEP offset to the payload for a given variant.
+    /// For Explicit tags: always after the tag field.
+    /// For Niche tags: offset 0 (payload IS the entire value).
+    pub fn payload_offset(&self, variant_idx: u32) -> u32;
+}
+```
+**ABI module stale comments (`abi/mod.rs`):** The `abi_size_inner()` function in `codegen/abi/mod.rs` has comments saying "1 byte tag" but the actual LLVM layout uses i64. The comments and size computation must be updated alongside the tag width change in §07.1. This is consumer #16 (not listed in the original inventory).
+
+**`TagAccess` data source:** `ArcIrEmitter` already has `repr_plan: Option<&ReprPlan>` (line 214 in `arc_emitter/mod.rs`). `TagAccess` obtains `EnumRepr` via `repr_plan.get_repr(type_idx)` → match `MachineRepr::Enum(e)` → use `e.tag` to determine encoding strategy. For types without a `ReprPlan` entry (pre-§07 or when repr_plan is None), fall back to `EnumTag::Explicit { width: IntWidth::I64 }` (the current default). This fallback path ensures backward compatibility during incremental migration.
+
+**Evaluator is unaffected:** `ori_eval` uses `Value::Variant { tag, fields, ... }` — a Rust-native enum representation with no concept of machine layout, niches, or tag widths. All §07 optimizations are LLVM-only. The evaluator does not need any changes, and dual-execution parity tests (interpreter vs LLVM) verify that the optimized layout produces identical observable behavior.
+
+- [x] Audit ALL codegen consumers listed above and verify completeness. Found 16 direct consumers (items 1-16). Consumer #16 (`operators/strategy.rs` → `emit_coalesce()`) was discovered during audit — `??` operator extracts tag via `extract_value(lhs, 0)`. Note: `terminators.rs` `Switch` already adapts to scrutinee width via `const_int_matching()`. `compound_traits.rs` delegates to `compound_type_impls.rs` (indirect). `rc_value_traversal.rs` delegates to `rc_helpers.rs` (indirect). (2026-03-30)
+- [x] **[BUG]** `abi/mod.rs:165-182` — `abi_size_inner` for `TypeInfo::Enum` returned `1` for all-unit enums but actual LLVM layout is `{ i64 }` = 8 bytes. Fixed: all-unit enum size now returns `8`. Stale "1 byte tag" comments replaced with "i64 tag". Regression test `all_unit_enum_abi_size_is_tag_size` added. (2026-03-30)
+- [x] Design `TagAccess` abstraction in `compiler/ori_llvm/src/codegen/arc_emitter/tag_access/mod.rs` (~150 lines). `TagEncoding` struct with pure encoding logic for Explicit/Niche/None tags. 11 methods: `from_enum_repr`, `new`, `tag_width`, `tag_gep_index`, `variant_to_tag_value`, `payload_gep_index`, `needs_tag_store`, `is_niche`, `is_tagless`, `niche_field_index`, `niche_value`. Wired into `arc_emitter/mod.rs` via `pub(super) mod tag_access;`. (2026-03-30)
+- [x] Create empty files for new modules: `compiler/ori_repr/src/layout/niche.rs` (niche analysis) and `compiler/ori_repr/src/layout/tagged_ptr.rs` (tagged pointer analysis). Registered in `layout/mod.rs` via `pub(crate) mod niche;` and `pub(crate) mod tagged_ptr;`. Module docs added. (2026-03-30)
+- [x] **ARC IR tag width assumption:** Documented in TagEncoding design. `ArcTerminator::Switch` already adapts to scrutinee width via `const_int_matching()`. `ArcInstr::SetTag` must be updated to use `TagEncoding::variant_to_tag_value()` + narrowed-width constant in §07.1. (2026-03-30)
+- [x] Plan incremental migration: discriminant narrowing (§07.1) BEFORE niche filling (§07.2). Subsections already reordered by plan review. (2026-03-30)
+
+**§07.0 Tests (TDD — write before implementation):**
+
+- [x] **Rust unit tests** (`compiler/ori_llvm/src/codegen/arc_emitter/tag_access/tests.rs`): 22 tests covering all 3 EnumTag variants: Explicit {I64/I8/I16} (tag_width, tag_gep_index, variant_to_tag_value, payload_gep_index, needs_tag_store), Niche (field_index, niche_value, niche-vs-non-niche variant semantics), None (tagless, constant 0, no-op store). Plus `from_enum_repr` integration test. All pass. (2026-03-30)
+- [x] **ABI bug regression test** (`compiler/ori_llvm/src/codegen/abi/tests.rs`): `all_unit_enum_abi_size_is_tag_size` asserts `abi_size == 8` (not 1). `enum_with_payload_abi_size` asserts `abi_size == 16`. Both pass. (2026-03-30)
+- [x] TDD verified: ABI regression test failed before fix (returned 1), passed after fix (returns 8). TagEncoding tests pass on initial implementation. (2026-03-30)
+
+---
+
+## 07.1 Discriminant Narrowing
+
+**File(s):** `compiler/ori_repr/src/enum_repr.rs` (existing — add `min_tag_width()` here near `EnumTag`), `compiler/ori_llvm/src/codegen/arc_emitter/tag_access.rs` (new), `compiler/ori_llvm/src/codegen/type_info/layout_resolver.rs` (update `resolve_enum()`), `compiler/ori_repr/src/canonical/type_repr.rs` (update `canonical_enum()`/`canonical_option()`/`canonical_result()`), `compiler/ori_llvm/src/codegen/abi/mod.rs` (fix `abi_size_inner()`)
+
+**Why first:** Discriminant narrowing is the safest starting point because the tag remains an explicit field at offset 0 — only its width changes (i64 -> i8/i16/i32). The layout structure `{tag, payload}` is preserved. This makes it the ideal first consumer of the `TagAccess` abstraction from §07.0, validating the abstraction before niche filling changes the layout structure entirely.
+
+The discriminant (tag) should use the minimum width needed.
+
+- [ ] Compute minimum tag width:
+  ```rust
+  pub fn min_tag_width(variant_count: usize) -> IntWidth {
+      match variant_count {
+          0 | 1 => IntWidth::I8, // single variant or empty → minimal tag (or EnumTag::None)
+          n => {
+              // Bits needed = ceil(log2(n)), computed without floating point:
+              // (n - 1).leading_zeros() counts unused high bits in usize;
+              // usize::BITS - leading_zeros = bits needed.
+              let bits_needed = usize::BITS - (n - 1).leading_zeros();
+              match bits_needed {
+                  0..=8 => IntWidth::I8,    // up to 256 variants
+                  9..=16 => IntWidth::I16,  // up to 65536 variants
+                  17..=32 => IntWidth::I32, // up to 4 billion variants
+                  _ => IntWidth::I64,
+              }
+          }
+      }
+  }
+  ```
+
+- [ ] Current behavior: always `i64` — every enum uses a full 8-byte tag (confirmed in `canonical_enum()` → `EnumTag::Explicit { width: IntWidth::I64 }`, `resolve_enum()` → `scx.type_i64()`, and all codegen paths in `arc_emitter/`). The overview's baseline claim about "i8 tags" was stale/incorrect.
+- [ ] Narrow tag to `i8` for enums with ≤256 variants (the vast majority), `i16` for ≤65536, `i32` for larger
+- [ ] For single-variant enums (newtypes), eliminate tag entirely (`EnumTag::None`)
+- [ ] Add `min_tag_width()` function to `compiler/ori_repr/src/enum_repr.rs` (near `EnumTag` definition, ~15 lines). This is the canonical source of truth for tag width computation — all consumers query it.
+- [ ] Implement `TagAccess` in `compiler/ori_llvm/src/codegen/arc_emitter/tag_access.rs` (new file, ~150 lines). Methods: `load_discriminant()`, `store_tag()`, `emit_switch()`, `tag_llvm_type()`, `payload_offset()`. Requires access to `IrBuilder` and `EnumRepr`. Register in `arc_emitter/mod.rs` as `pub(super) mod tag_access;`
+- [ ] Migrate codegen consumers to `TagAccess` — work through the 16 consumers in order. Each migration is: (1) replace hardcoded `const_i64(tag)` / `struct_gep(..., 0, ...)` / `load(i64_ty, ...)` with `TagAccess` calls, (2) verify `./test-all.sh` still passes after each consumer migration. Consumers to migrate:
+  - `construction.rs:emit_construct()` line 42 — `const_i64(i64::from(*variant))` → `tag_access.store_tag()`
+  - `instr_dispatch.rs:SetTag` lines 452-463 — `const_i64(*tag as i64)` + `struct_gep(0)` → `tag_access.store_tag()`
+  - `instr_dispatch.rs:emit_project(field=0)` — tag extraction via `extract_value(val, 0, ...)` → `tag_access.load_discriminant()`
+  - `terminators.rs:Switch` lines 130-149 — already uses `const_int_matching` (adapts to scrutinee width), but scrutinee must be loaded via `TagAccess`
+  - `drop_enum.rs:emit_drop_enum()` lines 33-36 — `struct_gep(0)` + `load(i64_ty)` → `tag_access.load_discriminant()`; switch cases use `const_i64` → `tag_access.emit_switch()`
+  - `rc_helpers.rs:emit_inline_enum_inc/dec()` — tag load via `extract_value(val, 0, ...)` → `tag_access`
+  - `rc_value_traversal.rs:inc/dec_value_rc_inner()` — enum tag via `extract_value` → `tag_access`
+  - `variant_construction.rs:emit_variant_via_alloca()` line 122 — `struct_gep(0)` + `store(tag_val)` → `tag_access.store_tag()`
+  - `builtins/option_result.rs` — Option/Result tag via `extract_value(val, 0, ...)` → `tag_access`
+  - `builtins/compound_traits.rs` — Option/Result equals/compare/hash tag extraction → `tag_access`
+  - `builtins/compound_type_impls.rs` — same pattern as compound_traits
+  - `builtins/iterator_consumers.rs` — Option construction from iterator next → `tag_access`
+  - `builtins/collections/list_builtins.rs` — `first()`/`last()` return Option → `tag_access`
+- [ ] Update `resolve_enum()` in `compiler/ori_llvm/src/codegen/type_info/layout_resolver.rs` line 341 — change `self.scx.type_i64()` to narrowed tag type based on variant count. Add `IntWidth::to_llvm_type()` helper or match `I8→type_i8, I16→type_i16, I32→type_i32, I64→type_i64`
+- [ ] Update `abi_size_inner()` in `compiler/ori_llvm/src/codegen/abi/mod.rs` lines 165-183 — fix all-unit enum from `1` to `tag_width.size_bytes()` (8 currently, 1 after narrowing). Fix stale "1 byte tag" comments. The `8 + max_payload` for non-unit enums becomes `round_up(tag_size, payload_align) + max_payload` after narrowing.
+- [ ] Update `canonical_enum()` in `compiler/ori_repr/src/canonical/type_repr.rs` line 185 — replace `IntWidth::I64` with `min_tag_width(variants.len())`. Update line 181: alignment from `.max(8)` to `.max(tag_width.alignment())`. Update size from `8 + round_up(...)` to `tag_width.size_bytes() + padding + max_payload` with proper alignment
+- [ ] Update `canonical_option()` in `compiler/ori_repr/src/canonical/type_repr.rs` line 212-213 — replace `IntWidth::I64` with `IntWidth::I8` (Option always has 2 variants). Update alignment from `.max(8)` to `.max(1)`. Update size accordingly
+- [ ] Update `canonical_result()` in `compiler/ori_repr/src/canonical/type_repr.rs` line 246-247 — same as Option (Result always has 2 variants)
+- [ ] Verify all-unit enum path preserved: when `max_payload_bytes == 0`, `resolve_enum()` (layout_resolver.rs line 342) already omits payload array — verify this still works with narrowed i8 tag (just `{ i8 }` instead of `{ i64 }`)
+- [ ] **[BLOAT]** `compiler/ori_llvm/src/codegen/arc_emitter/builtins/compound_type_impls.rs` is 517 lines — exceeds 500-line limit. When migrating its tag extraction to `TagAccess`, split into `compound_type_impls/option.rs` + `compound_type_impls/result.rs` + `compound_type_impls/tuple.rs`
+- [ ] **[BLOAT]** `compiler/ori_llvm/src/codegen/arc_emitter/builtins/collections/list_builtins.rs` is 712 lines — exceeds 500-line limit. When migrating its Option construction to `TagAccess`, split read-only accessors from iterator/higher-order methods
+- [ ] Run `./test-all.sh` in both debug and release — discriminant narrowing alone should produce no behavioral changes (tag values are the same, just stored in fewer bytes)
+
+**§07.1 Tests (TDD — write BEFORE implementation, verify they fail):**
+
+- [ ] **Rust unit tests** (`compiler/ori_repr/src/layout/tests.rs`):
+  - `min_tag_width(0)` = I8, `min_tag_width(1)` = I8, `min_tag_width(2)` = I8, `min_tag_width(256)` = I8, `min_tag_width(257)` = I16, `min_tag_width(65536)` = I16, `min_tag_width(65537)` = I32
+  - `canonical_enum()` for 2-variant enum returns `EnumTag::Explicit { width: I8 }` (semantic pin — currently I64)
+  - `canonical_enum()` for single-variant enum returns `EnumTag::None` (semantic pin)
+  - `canonical_option()` returns `IntWidth::I8` tag (negative pin: NOT I64)
+  - `canonical_result()` returns `IntWidth::I8` tag (negative pin: NOT I64)
+  - `EnumRepr.size` for all-unit 4-variant enum = 1 byte (semantic pin — currently 8)
+  - `EnumRepr.align` for all-unit enum = 1 (negative pin: NOT 8)
+- [ ] **Ori spec tests** (`tests/spec/types/enum/discriminant_narrowing.ori`):
+  - All-unit enum `Dir = N|S|E|W` match works correctly in both interpreter and LLVM
+  - `Option<int>` match with `Some(42)` and `None` produces correct values
+  - `Result<int, str>` match with `Ok(1)` and `Err("fail")` produces correct values
+  - Enum with 257+ variants (generated) matches correctly on first, last, and middle variants
+  - Cross-feature: `for x in [Some(1), None, Some(2)] yield match x { Some(v) -> v, None -> 0 }` = `[1, 0, 2]`
+  - Cross-feature: closure capturing `Option<int>`, returning match result
+  - Cross-feature: `?` operator on `Result<int, str>` with narrowed tag
+- [ ] **AOT tests** (`compiler/ori_llvm/tests/aot/enum_discriminant.rs`):
+  - LLVM IR inspection: all-unit enum type is `{ i8 }` (not `{ i64 }`)
+  - LLVM IR inspection: `Option<int>` type has `i8` tag field (not `i64`)
+  - Verify both debug and release produce identical behavior (FastISel vs full optimization)
+- [ ] **Dual-execution parity**: every Ori spec test must produce identical output in interpreter and LLVM
+- [ ] **Leak check**: `ORI_CHECK_LEAKS=1` on all enum spec tests
+
+---
+
+## 07.2 Niche Filling
+
+**File(s):** `compiler/ori_repr/src/layout/niche.rs` (new, ~200 lines — `Niche` struct, `find_niches()`, `find_enum_niches()`, `optimize_option_repr()`, `optimize_result_repr()`), `compiler/ori_repr/src/enum_repr.rs` (add `EnumTag::Niche` support — already defined), `compiler/ori_repr/src/canonical/type_repr.rs` (update `canonical_option()`/`canonical_result()` to call niche optimization), `compiler/ori_llvm/src/codegen/arc_emitter/tag_access.rs` (extend for niche encoding)
+
+**Depends on:** §07.1 (the `TagAccess` abstraction must be implemented and validated with explicit narrowed tags before niche encoding changes the layout structure)
 
 A "niche" is an invalid bit pattern in a type. If an enum variant's payload has a niche, we can use it to encode a different variant, eliminating the explicit tag.
 
 **Layout boundary note:** Internal runtime representations such as `FatPointer`, `str`, `[T]`, `{K:V}`, `Set<T>`, closures, and ranges are exempt from §06 field reordering. They are represented by dedicated `MachineRepr` / `TypeInfo` variants, not by `MachineRepr::Struct`, so `field_index: 2` on `FatPointer` is stable unless this section explicitly changes that dedicated runtime layout.
 
-- [ ] Define `Niche`:
+- [ ] Define `Niche` struct in `compiler/ori_repr/src/layout/niche.rs`. Note: `EnumTag::Niche { field_index, niche_value }` is already defined in `compiler/ori_repr/src/enum_repr.rs` — the `Niche` struct here is the analysis result that feeds into `EnumTag::Niche` construction:
   ```rust
+  /// A niche (invalid bit pattern) discovered in a type's representation.
+  /// Used to eliminate explicit discriminant tags in enum layouts.
   pub struct Niche {
-      /// Which field contains the niche
+      /// Which field contains the niche (for fat pointers: 2 = data ptr)
       pub field_index: u32,
       /// Byte offset within the field
       pub offset: u32,
@@ -82,39 +264,66 @@ A "niche" is an invalid bit pattern in a type. If an enum variant's payload has 
           }],
 
           // Ordering: values 0,1,2 → niche at 3..=255 (253 niches)
-          MachineRepr::Int { width: IntWidth::I8, .. }
-              if /* is ordering */ => vec![Niche { available: 253, start: 3, .. }],
+          // MachineRepr::Ordering is a dedicated variant (NOT Int { I8 })
+          MachineRepr::Ordering => vec![Niche {
+              field_index: 0, offset: 0, available: 253, start: 3,
+          }],
 
-          // Narrowed int i8 with range [0, N] → niche at N+1..=255
-          MachineRepr::Int { width: IntWidth::I8, signed: false }
-              => /* depends on range */,
+          // Byte: all 256 values valid → no niche (unless range-narrowed)
+          MachineRepr::Byte => vec![],
+
+          // Narrowed int i8 with known range [lo, hi] → niche at hi+1..=i8::MAX
+          // or lo-1..=i8::MIN (requires range info from ReprPlan)
+          MachineRepr::Int { width: IntWidth::I8, .. } => {
+              // Must query ReprPlan for the actual value range.
+              // Without range info, conservatively return empty.
+              // The caller (optimize_enum_repr) passes range info separately.
+              vec![]
+          }
 
           // Reference/pointer: null (0) is never a valid heap pointer
+          // (ori_rc_alloc guarantees non-null, min 8-byte aligned)
           MachineRepr::RcPointer(_) => vec![Niche {
               field_index: 0, offset: 0, available: 1, start: 0, // null = niche
           }],
 
-          // Fat pointer (str, [T], {K:V}): layout is {i64 len, i64 cap, ptr data}
-          // Niche is at field_index 2 (the data pointer, field 0=len, 1=cap, 2=data)
-          // null data pointer (0) indicates None — heap data is never null
-          MachineRepr::FatPointer(_) => vec![Niche {
+          // Fat pointer — ONLY str has a null-ptr niche.
+          // str uses SSO for empty strings (OriStr::EMPTY has SSO_FLAG set in
+          // byte 23, making the data-pointer-slot always non-zero). Therefore
+          // null data pointer (all-zero in bytes 16-23) is an invalid str.
+          //
+          // [T], {K:V}, Set<T> use {0, 0, null} for empty collections, so
+          // null data pointer IS a valid value — NO niche available.
+          MachineRepr::FatPointer(FatRepr::Str) => vec![Niche {
               field_index: 2, offset: 0, available: 1, start: 0,
           }],
+          MachineRepr::FatPointer(FatRepr::Collection { .. })
+          | MachineRepr::FatPointer(FatRepr::Map { .. }) => vec![],
 
           // Nested enum: if it has unused discriminant values
           MachineRepr::Enum(e) => find_enum_niches(e),
 
           // Char: 0x110000..=0xFFFFFFFF are invalid Unicode (huge niche space)
-          MachineRepr::Int { width: IntWidth::I32, .. }
-              if /* is char */ => vec![Niche { available: 0xFFFFFFFF - 0x10FFFF, start: 0x110000, .. }],
+          // MachineRepr::Char is a dedicated variant (NOT Int { I32 })
+          MachineRepr::Char => vec![Niche {
+              field_index: 0, offset: 0,
+              available: 0xFFFF_FFFF - 0x10_FFFF, start: 0x11_0000,
+          }],
 
           _ => vec![],
       }
   }
   ```
 
-- [ ] Apply niche to `Option<T>`:
+- [ ] Implement `find_enum_niches()` for nested enums:
+  - If an enum has N variants and a tag with width W, the unused tag values `N..=(2^(W*8) - 1)` are niches
+  - Example: `Option<bool>` after niche filling is an i8 with values 0, 1, 2 — wrapping it in another `Option` can use value 3 as niche for the outer `None`
+  - For niche-encoded enums (no explicit tag), compute from the niche field's remaining capacity
+
+- [ ] Implement `optimize_option_repr()` in `compiler/ori_repr/src/layout/niche.rs`. Call from `canonical_option()` in `compiler/ori_repr/src/canonical/type_repr.rs` — replace the current always-explicit-tag construction with: try niche optimization first, fall back to explicit tag:
   ```rust
+  use crate::layout::{repr_size, repr_align};
+
   pub fn optimize_option_repr(inner: &MachineRepr) -> EnumRepr {
       let niches = find_niches(inner);
       if let Some(niche) = niches.first() {
@@ -126,73 +335,123 @@ A "niche" is an invalid bit pattern in a type. If an enum variant's payload has 
                       niche_value: niche.start as u64,
                   },
                   variants: vec![/* Some payload */, /* None = niche */],
-                  size: inner.size(),
-                  align: inner.alignment(),
+                  size: repr_size(inner),
+                  align: repr_align(inner),
               };
           }
       }
-      // Fallback: explicit tag
+      // Fallback: explicit tag (current canonical representation)
       default_option_repr(inner)
   }
   ```
+  **Integration point:** `canonical_option()` in `type_repr.rs` currently returns `MachineRepr::Enum(EnumRepr { tag: EnumTag::Explicit { width: IntWidth::I8 }, ... })` after §07.1. After §07.2, change to: `let repr = optimize_option_repr(&inner_repr); MachineRepr::Enum(repr)` where `optimize_option_repr` is in `crate::layout::niche`.
 
-- [ ] Apply niche to `Result<T, E>`:
+- [ ] Apply niche to `Result<T, E>` in `compiler/ori_repr/src/layout/niche.rs`:
   - If T has a niche, Err variant uses it (or vice versa)
   - If both have niches, prefer the one that eliminates more padding
+  - Update `canonical_result()` in `compiler/ori_repr/src/canonical/type_repr.rs` to call this optimization after constructing the default repr
 
----
+- [ ] Update `resolve_enum()` in `compiler/ori_llvm/src/codegen/type_info/layout_resolver.rs` to handle `EnumTag::Niche` — niche-encoded enums have NO tag field; the LLVM struct is just the payload type (e.g., `Option<bool>` = `i8`, `Option<str>` = `%ori.str`). The current `{ tag, [M x i64] }` layout is only for `EnumTag::Explicit`. Must branch on `EnumRepr.tag` variant.
+- [ ] Pattern matching codegen for niche-encoded variants:
+  - `TagAccess::emit_switch()` for niche-encoded enums must: (1) load the niche field, (2) compare against the niche value, (3) branch to the niche variant if equal, (4) otherwise fall through to the data variant
+  - For `Option<bool>` with niche repr: load i8, compare against 2 → None branch; values 0/1 → `Some(false)`/`Some(true)` (switch on the same loaded value)
+  - For `Option<str>` with null-ptr niche: load ptr from field 2, compare against null → None; non-null → Some (no further decoding needed — the payload IS the str)
+  - For `Option<Option<bool>>` (nested niche): load i8, compare against 3 → outer None; compare against 2 → `Some(None)`; 0/1 → `Some(Some(false/true))`
+  - Exhaustiveness: the switch must cover ALL niche values, not just the "main" niche — if `Option<bool>` uses niche 2 for None, values 3..=255 are unreachable (LLVM `unreachable` in default case)
 
-## 07.2 Discriminant Narrowing
+- [ ] RC inc/dec for niche-encoded variants:
+  - `emit_inline_enum_inc/dec()` in `rc_helpers.rs` and `rc_value_traversal.rs` must check whether the current value is the niche variant BEFORE attempting to inc/dec the payload's RC
+  - For `Option<str>` with null-ptr niche: `if ptr == null { skip } else { ori_str_rc_inc(str) }`
+  - For `Option<RcPointer>`: `if ptr == null { skip } else { ori_rc_inc(ptr) }`
+  - For `Option<bool>`: no RC ops needed (bool is trivial) — but the niche check is still needed to avoid reading garbage from the payload when variant is None
 
-**File(s):** `compiler/ori_repr/src/layout/enum_repr.rs`
+- [ ] Drop for niche-encoded variants:
+  - `emit_drop_enum()` in `drop_enum.rs` must decode the niche before deciding which variant's fields to drop
+  - Same pattern as RC: check niche value first, skip drop for the niche variant (it has no payload to drop)
 
-The discriminant (tag) should use the minimum width needed.
+**§07.2 Tests (TDD — write BEFORE implementation, verify they fail):**
 
-- [ ] Compute minimum tag width:
-  ```rust
-  pub fn min_tag_width(variant_count: usize) -> IntWidth {
-      if variant_count <= 1 { return IntWidth::I8; } // or no tag at all
-      let bits_needed = (variant_count as f64).log2().ceil() as u32;
-      match bits_needed {
-          0..=8 => IntWidth::I8,    // up to 256 variants
-          9..=16 => IntWidth::I16,  // up to 65536 variants
-          17..=32 => IntWidth::I32, // up to 4 billion variants
-          _ => IntWidth::I64,
-      }
-  }
-  ```
-
-- [ ] Current behavior: always `i8` — already handles ≤256 variants
-- [ ] Extension: for enums with >256 variants (rare but possible), use `i16`/`i32`
-- [ ] For single-variant enums (newtypes), eliminate tag entirely
+- [ ] **Rust unit tests** (`compiler/ori_repr/src/layout/tests.rs`):
+  - `find_niches(Bool)` returns 254 niches starting at 2
+  - `find_niches(Ordering)` returns 253 niches starting at 3
+  - `find_niches(Char)` returns niches starting at 0x110000
+  - `find_niches(FatPointer(Str))` returns 1 niche (null ptr) at field_index 2
+  - `find_niches(FatPointer(Collection))` returns empty (negative pin — no niche for lists)
+  - `find_niches(RcPointer)` returns 1 niche (null ptr)
+  - `find_niches(Byte)` returns empty (all 256 values valid)
+  - `find_niches(Int { I64 })` returns empty (all values valid)
+  - `find_enum_niches()` for 4-variant i8-tagged enum returns 252 niches (256 - 4)
+  - `optimize_option_repr(Bool)` returns `EnumTag::Niche` with niche_value 2 (semantic pin)
+  - `optimize_option_repr(Str)` returns `EnumTag::Niche` with field_index 2, niche_value 0 (semantic pin)
+  - `optimize_option_repr(Int { I64 })` returns `EnumTag::Explicit` (negative pin — no niche available)
+  - `optimize_option_repr(FatPointer(Collection))` returns `EnumTag::Explicit` (negative pin)
+  - `optimize_option_repr(Option<Bool>)` returns niche (nested niche — value 3 for outer None)
+  - `EnumRepr.size` for `Option<bool>` = 1 byte (semantic pin — currently 16)
+  - `EnumRepr.size` for `Option<str>` = 24 bytes (semantic pin — currently 32)
+- [ ] **Ori spec tests** (`tests/spec/types/enum/niche/`):
+  - `option_bool.ori`: `Some(true)`, `Some(false)`, `None` match correctly; roundtrip through list and back
+  - `option_ordering.ori`: all four values (`Some(Less)`, `Some(Equal)`, `Some(Greater)`, `None`) match correctly
+  - `option_char.ori`: `Some('a')`, `Some('\u{10FFFF}')`, `None` match correctly (boundary: last valid Unicode)
+  - `option_str.ori`: `Some("hello")`, `Some("")`, `None` match correctly (empty string uses SSO, not null ptr)
+  - `option_list.ori`: `Some([1,2])`, `Some([])`, `None` all distinct (negative pin: no niche)
+  - `option_option_bool.ori`: all four values of `Option<Option<bool>>` are distinct
+  - `result_niche.ori`: `Result<bool, Ordering>` match with all variant combinations
+  - `niche_rc.ori`: `Option<str>` created in loop, verify no leaks (RC correctness with niche encoding)
+  - Cross-feature: `for x in [Some("a"), None, Some("b")] yield match x { Some(s) -> s, None -> "" }` = `["a", "", "b"]`
+  - Cross-feature: `?` on niche-encoded `Result<str, Error>` in closure
+  - Cross-feature: closure capturing `Option<bool>`, pattern match inside closure body
+- [ ] **AOT tests** (`compiler/ori_llvm/tests/aot/enum_niche.rs`):
+  - LLVM IR inspection: `Option<bool>` compiles to `i8` (not `{ i8, i8 }`)
+  - LLVM IR inspection: `Option<str>` compiles to `%ori.str` (not `{ i8, %ori.str }`)
+  - LLVM IR inspection: `Option<[int]>` still has explicit tag (negative pin)
+  - RC inc/dec for `Option<str>` includes null-ptr check before `ori_str_rc_inc`
+- [ ] **Dual-execution parity**: every Ori spec test must produce identical output in interpreter and LLVM
+- [ ] **Leak check**: `ORI_CHECK_LEAKS=1` on all niche spec tests (critical — niche encoding changes RC paths)
+- [ ] **Valgrind**: `./diagnostics/valgrind-aot.sh` on niche-related tests (niche encoding is a memory-safety-sensitive change)
 
 ---
 
 ## 07.3 Tagged Pointers
 
-**File(s):** `compiler/ori_repr/src/layout/tagged_ptr.rs`
+**File(s):** `compiler/ori_repr/src/layout/tagged_ptr.rs` (new, ~100 lines — `can_use_tagged_pointer()`, `is_taggable_pointer()`), `compiler/ori_llvm/src/codegen/arc_emitter/tag_access.rs` (extend `TagAccess` for tagged pointer encoding/decoding)
 
 On 64-bit systems, heap pointers have alignment ≥8, meaning the low 3 bits are always zero. These bits can store a 3-bit tag (up to 8 variants).
 
 - [ ] Implement tagged pointer optimization:
   ```rust
+  /// Check if a variant payload is a single-word pointer suitable for tagging.
+  ///
+  /// FatPointer (str, [T], {K:V}, Set<T>) is 24 bytes — NOT taggable.
+  /// Only single-word pointers (RcPointer, OpaquePtr, UnmanagedPtr) qualify.
+  fn is_taggable_pointer(repr: &MachineRepr) -> bool {
+      matches!(repr,
+          MachineRepr::RcPointer(_)
+          | MachineRepr::OpaquePtr
+          | MachineRepr::UnmanagedPtr
+      )
+  }
+
   pub fn can_use_tagged_pointer(enum_repr: &EnumRepr) -> bool {
       // At most 8 variants (3 bits for tag)
       if enum_repr.variants.len() > 8 {
           return false;
       }
-      // Every non-unit variant must be a pointer type with alignment ≥ 8.
+      // Every non-unit variant must have exactly one single-word pointer field.
+      // FatPointer/Closure/Struct/Tuple are excluded — they are multi-word.
       // The decode path uses `value & ~0x7` to recover the pointer, which
       // would corrupt non-pointer payloads (e.g., masking int(5) gives 0).
-      // Unit variants (size == 0) are fine — they carry no payload, just a tag.
+      // Unit variants (no fields) are fine — they carry no payload, just a tag.
       enum_repr.variants.iter().all(|v| {
-          v.size == 0 || (v.is_pointer() && v.alignment >= 8)
+          v.fields.is_empty()
+              || (v.fields.len() == 1 && is_taggable_pointer(&v.fields[0]))
       })
-      // At least one variant must actually be a pointer (otherwise
-      // there's no benefit — use discriminant narrowing instead)
-      && enum_repr.variants.iter().any(|v| v.is_pointer())
+      // At least one variant must have a pointer (otherwise no benefit)
+      && enum_repr.variants.iter().any(|v| {
+          v.fields.len() == 1 && is_taggable_pointer(&v.fields[0])
+      })
   }
   ```
+  Note: `VariantRepr::is_pointer()` (in `enum_repr.rs`) includes `FatPointer` which is correct for general "is this a pointer type?" queries but NOT correct for tagged pointer optimization. §07.3 uses `is_taggable_pointer()` (single-word only) instead.
 
 - [ ] Tagged pointer layout:
   ```
@@ -208,69 +467,174 @@ On 64-bit systems, heap pointers have alignment ≥8, meaning the low 3 bits are
   - Non-pointer scalar payloads (int, bool, float) are **excluded** — their low bits carry data that `& ~0x7` would destroy
   - Future: could support scalar payloads by shifting them left 3 bits during encode and right 3 bits during decode, at the cost of reducing the usable range (61 bits instead of 64)
 
+**§07.3 Tests (TDD — write BEFORE implementation, verify they fail):**
+
+- [ ] **Rust unit tests** (`compiler/ori_repr/src/layout/tests.rs`):
+  - `is_taggable_pointer(RcPointer)` = true
+  - `is_taggable_pointer(FatPointer(Str))` = false (negative pin — 24 bytes, not single-word)
+  - `is_taggable_pointer(FatPointer(Collection))` = false
+  - `is_taggable_pointer(Int { I64 })` = false (negative pin — scalar, not pointer)
+  - `is_taggable_pointer(Bool)` = false
+  - `can_use_tagged_pointer()` for enum with 2 variants (unit + RcPointer) = true
+  - `can_use_tagged_pointer()` for enum with 9 variants = false (exceeds 3-bit tag)
+  - `can_use_tagged_pointer()` for enum with int payload = false (negative pin)
+  - `can_use_tagged_pointer()` for enum with FatPointer payload = false (negative pin — 24 bytes)
+  - `can_use_tagged_pointer()` for all-unit enum = false (no pointer, no benefit)
+- [ ] **Ori spec tests** (`tests/spec/types/enum/tagged_ptr.ori`):
+  - Enum with unit + RcPointer variants: construct, match, RC correct
+  - Roundtrip: store tagged pointer in list, retrieve, match — value preserved
+  - RC stress: create many tagged-pointer enum values in a loop, verify `ORI_CHECK_LEAKS=1` reports zero
+- [ ] **AOT tests** (`compiler/ori_llvm/tests/aot/enum_tagged_ptr.rs`):
+  - LLVM IR inspection: tagged pointer enum fits in single `i64` (not `{ i8, ptr }`)
+  - Verify tag bits extracted correctly: `value & 0x7` gives correct variant index
+  - Verify pointer recovered correctly: `value & ~0x7` gives valid heap pointer
+- [ ] **Dual-execution parity**: every spec test produces identical output in interpreter and LLVM
+- [ ] **Leak check and Valgrind**: tagged pointer encoding changes how RC pointers are accessed — mandatory memory verification
+
 ---
 
 ## 07.4 Payload Compression
 
-**File(s):** `compiler/ori_repr/src/layout/enum_repr.rs`
+**File(s):** `compiler/ori_repr/src/canonical/type_repr.rs` (update `canonical_enum()` payload sizing), `compiler/ori_llvm/src/codegen/type_info/layout_resolver.rs` (update `resolve_enum()` payload layout), `compiler/ori_llvm/src/codegen/arc_emitter/drop_enum.rs` (update `compute_variant_field_offsets()`)
 
-When variant payloads have different sizes, the current approach uses `max(sizeof(variant))` for all. We can do better.
+When variant payloads have different sizes, the current approach uses `max(sizeof(variant))` for all, padded to i64 slot boundaries. §07.4 addresses the achievable payload optimizations.
 
-- [ ] Shared prefix optimization:
-  - If multiple variants start with the same fields, share that prefix
-  - Example: `enum Shape { Circle(float), Rect(float, float) }` — `float` prefix shared
-
-- [ ] Size-class bucketing:
-  - Group variants by payload size class
-  - Small variants (≤ 8 bytes): inline in the enum
-  - Large variants (> threshold): heap-allocate payload, store pointer
-  - This prevents one large variant from bloating all others
-
-- [ ] All-unit variant detection (already implemented):
+- [ ] All-unit variant detection (already implemented in `resolve_enum`):
   - Enums where every variant is unit → tag only, no payload
-  - Verify this path is still used and correct
+  - `resolve_enum` already omits the payload array when `max_payload_bytes == 0`
+  - Verify this path is preserved when changing the tag width from i64 to i8
+  - After §07.1, all-unit enums shrink from 8 bytes (i64 tag) to 1 byte (i8 tag)
+
+- [ ] Payload alignment optimization:
+  - Current layout pads every field to i64 slot boundary (`size.div_ceil(8) * 8`)
+  - With narrowed fields from §04/§05, variant payloads can use tighter packing
+  - Example: `type Color = RGB(r: i8, g: i8, b: i8) | HSL(h: i16, s: i8, l: i8)` — RGB payload = 3 bytes (not 24), HSL = 4 bytes (not 24)
+  - Must match payload access offsets in `drop_enum.rs:compute_variant_field_offsets()` and `arc_emitter/construction.rs`
+
+- [ ] **Shared prefix optimization (future work — NOT in §07 scope):**
+  - Sharing field prefixes across variants requires fundamentally different codegen (shared GEP paths) and complicates pattern matching
+  - Defer to a future section when benchmarks show the padding cost is significant
+  - Rust does implement this (`Variants::Multiple { offsets }`) but it's one of their most complex codegen paths
+
+- [ ] **Size-class bucketing (future work — NOT in §07 scope):**
+  - Heap-allocating large variant payloads requires runtime changes (new allocation paths, drop function changes, RC interaction)
+  - The overhead of indirection (extra pointer chase + allocation) often exceeds the memory savings
+  - Rust chose NOT to implement this; Swift does (for multi-payload enums with spare bits exhausted)
+  - Defer until escape analysis (§08) can determine which enums are stack-only (where boxing hurts) vs heap-only (where boxing helps)
+
+**§07.4 Tests (TDD — write BEFORE implementation, verify they fail):**
+
+- [ ] **Rust unit tests** (`compiler/ori_repr/src/layout/tests.rs`):
+  - All-unit 4-variant enum: payload size = 0, total size = tag width (1 byte after §07.1)
+  - `Color = RGB(r: i8, g: i8, b: i8) | HSL(h: i16, s: i8, l: i8)`: max payload = 4 bytes (not 24)
+  - Enum with one unit variant and one 1-byte payload variant: payload = 1 byte
+  - Enum with mixed narrowed fields: payload size = max of all variant payload sizes with correct alignment
+- [ ] **Ori spec tests** (`tests/spec/types/enum/payload_compression.ori`):
+  - Mixed-size variant enum: construct each variant, match, verify values preserved
+  - Narrowed-field enum from §04: field values survive construction + match roundtrip
+- [ ] **AOT tests** (`compiler/ori_llvm/tests/aot/enum_payload.rs`):
+  - LLVM IR inspection: payload array uses narrowed element types, not `[M x i64]`
+  - Verify `compute_variant_field_offsets()` matches actual LLVM struct offsets
+- [ ] **Dual-execution parity**: every spec test produces identical output in interpreter and LLVM
+- [ ] **Leak check**: `ORI_CHECK_LEAKS=1` on all payload compression spec tests
 
 ---
 
 ## 07.5 Completion Checklist
 
+**Implementation order:** §07.0 (prerequisites) → §07.1 (discriminant narrowing — safe, validates TagAccess) → §07.2 (niche filling — layout-changing, uses validated TagAccess) → §07.3 (tagged pointers — alternative encoding for pointer-heavy enums) → §07.4 (payload compression — padding reduction). Each subsection must pass `./test-all.sh` before proceeding to the next.
+
 **Test matrix for §07 (write failing tests FIRST, verify they fail, then implement):**
 
-| Type | Expected representation | Semantic pin |
+**Phase 1 tests (§07.1 — discriminant narrowing only, no niche filling):**
+
+| Type | Expected after §07.1 | Semantic pin |
+|---|---|---|
+| All-unit enum `type Dir = North \| South \| East \| West` | `{ i8 tag }` — no payload, tag narrowed from i64 | Yes — `sizeof == 1` (down from 8) |
+| `Option<int>` | `{ i8 tag, i64 payload }` — 16 bytes (tag narrowed, padding between i8 tag and i64 payload) | Yes — tag is i8, not i64 |
+| `Option<bool>` | `{ i8 tag, i8 payload }` — 2 bytes (or padded to alignment) | Yes — smaller than current 16 bytes |
+| Single-variant enum `type Wrapper(val: int)` | `EnumTag::None` — newtype erasure, same as `int` | Yes — `sizeof == 8` |
+| Enum with 257 variants | `{ i16 tag, payload }` — tag auto-widens to i16 | Yes — i16 not i8 |
+
+**Phase 2 tests (§07.2 — niche filling, builds on §07.1):**
+
+| Type | Expected after §07.2 | Semantic pin |
 |---|---|---|
 | `Option<bool>` | 1 byte `i8`: `Some(false)=0`, `Some(true)=1`, `None=2` | Yes — `sizeof == 1`, no struct wrapper |
 | `Option<Ordering>` | 1 byte `i8`: `Some(Less)=0`, `Some(Equal)=1`, `Some(Greater)=2`, `None=3` | Yes — `sizeof == 1` |
 | `Option<str>` | 24 bytes (null data ptr niche for None, no tag field) | Yes — `sizeof == sizeof(str)` |
-| `Option<[int]>` | 24 bytes (null data ptr niche for None) | Yes — `sizeof == sizeof([int])` |
-| `Option<int>` | 16 bytes (no niche available in i64 — must use explicit tag) | Yes — `sizeof == 16` |
-| All-unit enum `type Dir = North \| South \| East \| West` | `i8` tag, no payload | Yes — `sizeof == 1` |
-| Single-variant enum `type Wrapper(val: int)` | newtype erasure — same as `int` (no tag) | Yes — `sizeof == 8` |
+| `Option<[int]>` | 32 bytes (i8 tag + 24-byte payload — no niche, empty lists use null ptr) | Yes — `sizeof == 32` (only tag narrowing i64->i8 from §07.1) |
+| `Option<int>` | 16 bytes (no niche available in i64 — must use explicit tag, narrowed to i8) | Yes — `sizeof == 16` |
+| `Option<char>` | 4 bytes (char niche: 0x110000+ encodes None) | Yes — `sizeof == 4` |
 | `Result<bool, Ordering>` | 1 byte (niche from bool payload covers Ordering variants) | Yes — niche across Result arms |
 | Narrowed `i8` field with range `[0, 2]` after §04 | 253 niche values available | Yes — §04+§07 interaction |
 | `f32`-typed field after §05 | NaN niches conservatively skipped | Yes — no NaN-based niche |
 | Pattern match on `Option<bool>` with niche repr | Correct values: `None` = 2, `Some(false)` = 0 | Yes — match produces correct results |
+| `Option<Option<bool>>` | 1 byte (nested niche: `None(outer)` = 3, `Some(None)` = 2) | Yes — recursive niche |
+| RC inc/dec on `Option<str>` | Correct: inc/dec only on Some, not on None (null ptr) | Yes — niche-aware RC |
+| Drop on `Result<str, [int]>` | Correct per-variant cleanup with niche encoding | Yes — niche-aware drop |
 
-- [ ] Write failing test matrix BEFORE implementation (verify tests fail with current `{ i64 tag, payload }` layout)
+**Phase 1 checkboxes (§07.1 — discriminant narrowing):**
+
+- [ ] Write failing test matrix for §07.1 BEFORE implementation. Tests go in `compiler/ori_repr/src/layout/tests.rs` (Rust unit tests for `min_tag_width()` and canonical repr sizes) and `tests/spec/types/enum/` (Ori spec tests for enum sizeof). Verify they fail with current i64 tags.
+- [ ] All-unit enums → tag-only (no payload), tag narrowed from i64 to i8 — verify `resolve_enum` all-unit path preserved with narrowed tag
+- [ ] Single-variant enums → newtype erasure (no tag) — `EnumTag::None`. Note: this changes `MachineRepr::Enum(EnumRepr { tag: EnumTag::None, ... })` which downstream code must handle (codegen must skip tag read/write entirely)
+- [ ] Discriminant uses minimum width (i8 for <=256, i16 for <=65536) — this alone saves 7 bytes per non-niche enum
+- [ ] ALL 16 codegen consumers from §07.0 migrated to `TagAccess` and tested with narrowed tags
+- [ ] `./test-all.sh` green in both debug and release — no behavioral changes from narrowing alone
+
+**Phase 2 checkboxes (§07.2 — niche filling):**
+
+- [ ] Write failing test matrix for §07.2 BEFORE implementation. Tests go in `compiler/ori_repr/src/layout/tests.rs` (Rust unit tests for `find_niches()` and `optimize_option_repr()`) and `tests/spec/types/enum/niche/` (Ori spec tests for niche-optimized types). Verify tests fail without niche optimization.
 - [ ] `Option<bool>` → 1 byte (niche value 2 for None)
 - [ ] `Option<Ordering>` → 1 byte (niche value 3+ for None)
+- [ ] `Option<char>` → 4 bytes (char niche 0x110000 for None)
 - [ ] `Option<str>` → 24 bytes (null ptr niche for None, no tag byte — same size as str itself)
-- [ ] `Option<[int]>` → 24 bytes (null ptr niche — same size as [int] itself)
-- [ ] All-unit enums → tag-only (no payload) — already working, verify preserved
-- [ ] Single-variant enums → newtype erasure (no tag)
-- [ ] Discriminant uses minimum width (i8 for ≤256, i16 for ≤65536)
+- [ ] `Option<[int]>` → 32 bytes (no niche available — empty lists have null data ptr; only tag narrowing from §07.1 applies)
+- [ ] `Option<Option<bool>>` → 1 byte (nested niche: outer None = 3, inner None = 2)
 - [ ] Niche analysis queries `ReprPlan` for narrowed field types, not canonical types (§04+§07 interaction)
 - [ ] `f32`-typed fields (from §05) use empty niche list (NaN-based niches conservatively skipped)
 - [ ] Pattern matching codegen correctly reads niche-encoded variants (the match is the most dangerous codegen path)
-- [ ] Add semantic pin test: `Option<bool>` LLVM type is `i8` (not `{ i64, i1 }`), with `None` encoded as integer 2. This test can ONLY pass with niche optimization enabled.
-- [ ] `./test-all.sh` green in both debug (`cargo b`) and release (`cargo b --release`) builds
-- [ ] `./clippy-all.sh` green
-- [ ] `./diagnostics/valgrind-aot.sh` clean
-- [ ] `/tpr-review` passed — independent Codex review found no critical or major issues (or all findings triaged)
+- [ ] RC inc/dec correctly checks for niche variant before touching payload RC
+- [ ] Drop correctly checks for niche variant before dropping payload fields
+- [ ] ALL codegen consumers from §07.0 updated and tested with niche encoding: construction, SetTag, Project(tag), Switch, drop, RC inc/dec, builtins
 
-**Exit Criteria:** `Option<bool>` compiles to a single `i8` in LLVM IR (no struct wrapper), with `None = 2`, `Some(false) = 0`, `Some(true) = 1`. Verified by inspecting LLVM IR and running all Option-related spec tests.
+**Cross-feature interaction tests (MANDATORY per CLAUDE.md §Interaction Testing):**
+
+These test enum representations interacting with other language features. Each must pass in both interpreter and LLVM.
+
+| Feature interaction | Test description | Where |
+|---|---|---|
+| Pattern matching + niche | `match opt_bool { Some(true) -> 1, Some(false) -> 2, None -> 3 }` all branches hit | `tests/spec/types/enum/niche/` |
+| `?` operator + narrowed Result | `@f () -> Result<int, str> = { let $x = ok_or_err()?; Ok(x + 1) }` — narrowed tag on error propagation | `tests/spec/types/enum/` |
+| for-yield + Option | `for x in [Some(1), None, Some(3)] yield match x { Some(v) -> v, None -> 0 }` = `[1, 0, 3]` | `tests/spec/types/enum/` |
+| Closures + niche capture | Closure captures `Option<str>`, matches inside body — RC correct on capture/release | `tests/spec/types/enum/niche/` |
+| Nested match + niche | `match opt_opt { Some(Some(v)) -> v, Some(None) -> 0, None -> -1 }` | `tests/spec/types/enum/niche/` |
+| Generic functions + enum | `@identity<T> (x: T) -> T = x` called with `Option<bool>` — niche repr survives generic instantiation | `tests/spec/types/enum/` |
+| List of niche-encoded enums | `[Option<bool>]` — push, iterate, collect, verify values preserved | `tests/spec/types/enum/niche/` |
+| Map with niche-encoded keys | `{Option<char>: int}` — insert, lookup, verify (Hashable interaction) | `tests/spec/types/enum/niche/` |
+| Derived traits + niche enum | `#derive(Eq, Clone, Debug)` on struct containing `Option<bool>` field | `tests/spec/types/enum/niche/` |
+
+**Final checkboxes (all phases):**
+
+- [ ] Add semantic pin test: `Option<bool>` LLVM type is `i8` (not `{ i64, i1 }`), with `None` encoded as integer 2. This test can ONLY pass with niche optimization enabled.
+- [ ] Add negative pin test: verify `Option<[int]>` does NOT use niche optimization (empty list = null data ptr)
+- [ ] Add negative pin test: verify `Option<int>` does NOT use niche optimization (all i64 values valid)
+- [ ] Add semantic pin for discriminant narrowing: all-unit enum tag is `i8` (not `i64`) — verified via LLVM IR inspection
+- [ ] Dual-execution parity: ALL new spec tests produce identical results in interpreter and LLVM (evaluator uses `Value::Variant`, unaffected by §07)
+- [ ] `./test-all.sh` green in both debug (`cargo b`) and release (`cargo b --release`) builds — FastISel (debug) and full optimization (release) can differ in code generation; both must produce correct results
+- [ ] `./clippy-all.sh` green
+- [ ] `./diagnostics/valgrind-aot.sh` clean on all new enum test programs
+- [ ] `ORI_CHECK_LEAKS=1` reports zero leaks on all enum-related test programs (critical for niche-encoded types where RC paths change)
+- [ ] Cross-feature interaction tests from the table above all pass
+- [ ] `/tpr-review` passed — independent Codex review found no critical or major issues (or all findings triaged)
+- [ ] Remove all `§07` plan annotations from code (per CLAUDE.md plan annotation cleanup requirement)
+
+**Exit Criteria:** `Option<bool>` compiles to a single `i8` in LLVM IR (no struct wrapper), with `None = 2`, `Some(false) = 0`, `Some(true) = 1`. Verified by inspecting LLVM IR and running all Option-related spec tests. All cross-feature interaction tests pass. Zero leaks under `ORI_CHECK_LEAKS=1`. Dual-execution parity confirmed.
 
 ---
 
 ## 07.R Third Party Review Findings
 
-- [ ] `[TPR-07-001][minor]` `section-07-enum-repr.md:92-97` — **FatPointer niche `field_index: 2` assumes fixed `{len, cap, data}` order; no explicit exemption from §06 reordering.** The niche analysis hard-codes `field_index: 2` for the data pointer. While FatPointer types use dedicated `TypeInfo` variants (`TypeInfo::Str`, `TypeInfo::List`, etc.) — NOT `TypeInfo::Struct` — and therefore are inherently exempt from §06's struct reordering algorithm, this exemption is implicit. **Action:** Add a note to §07.1 stating that internal representations (FatPointer, str, list, map, set, closure, range) are exempt from §06 field reordering because they are handled by dedicated `TypeInfo` variants, not `TypeInfo::Struct`. This prevents a future implementer from accidentally applying §06's layout algorithm to internal types.
+- [x] `[TPR-07-001][minor]` `section-07-enum-repr.md` — **FatPointer niche `field_index: 2` assumes fixed `{len, cap, data}` order; no explicit exemption from §06 reordering.**
+  Resolved: Validated on 2026-03-30. The layout boundary note is in §07.2 (niche filling) explicitly stating that internal runtime representations (FatPointer, str, [T], {K:V}, Set<T>, closures, ranges) are exempt from §06 field reordering because they use dedicated `MachineRepr`/`TypeInfo` variants, not `MachineRepr::Struct`.
