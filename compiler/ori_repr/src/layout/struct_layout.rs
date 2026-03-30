@@ -17,13 +17,6 @@ use crate::struct_repr::StructRepr;
 ///
 /// Skips types with `#repr("c")`, `#repr("packed")`, or
 /// `#repr("transparent")` attributes — those have user-controlled layout.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "activated when compute_struct_layouts enables reordering"
-    )
-)]
 pub(crate) fn optimize_struct_layout(
     struct_repr: &StructRepr,
     repr_attr: Option<&ReprAttribute>,
