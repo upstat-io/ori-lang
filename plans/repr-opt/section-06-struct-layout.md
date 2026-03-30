@@ -24,7 +24,7 @@ sections:
     status: complete
   - id: "06.4"
     title: "Tuple Layout"
-    status: in-progress
+    status: complete
   - id: "06.5"
     title: "Completion Checklist"
     status: in-progress
@@ -446,7 +446,7 @@ Rust unit tests in `compiler/ori_repr/src/layout/tests.rs`. AOT integration test
 - [x] AOT integration verified: `test_aot_generic_three_type_params` exercises `(int, bool, int)` tuple destructuring in AOT — passes after alias propagation fix (2026-03-29)
 - [x] `optimize_tuple_layout()` and `TupleRepr::memory_index()` implemented and tested (2026-03-29)
 - [x] Dual-execution parity: 4217 interpreter + 257 LLVM spec tests all pass (2026-03-29)
-- [ ] **Pipeline activation deferred**: tuple reordering is NOT activated in `compute_struct_layouts()` — tuples cross the runtime boundary in map iteration where `next_map()` writes key+value in declaration order. Activation requires either runtime layout awareness or per-element scratch loading. Algorithm and tests retained for future use.
+- [x] **Pipeline activation**: tuple reordering activated for 3+ element tuples in `compute_struct_layouts()`. 2-element tuples safely skipped: (a) all runtime-boundary tuples are 2-element (`next_map`, `next_zipped`, `next_enumerated`), (b) 2-element tuple total size is identical regardless of field order when field sizes are multiples of alignment (all Ori types). 4 new Rust unit tests + 12 Ori spec tests in `tests/spec/types/tuple_layout.ori`. 14,635 tests pass, 0 failures. (2026-03-30)
 
 **Done criteria for §06.4:**
 - `optimize_tuple_layout()` implemented in `layout/tuple_layout.rs`

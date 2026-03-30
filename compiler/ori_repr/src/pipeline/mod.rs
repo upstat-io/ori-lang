@@ -322,6 +322,7 @@ fn apply_float_narrowing(plan: &mut ReprPlan, pool: &Pool, arc_functions: &[ArcF
 /// strategies (no reordering for C, no padding for packed, etc.).
 fn compute_struct_layouts(plan: &mut ReprPlan, pool: &Pool) {
     use crate::layout::struct_layout::optimize_struct_layout;
+    use crate::layout::tuple_layout::optimize_tuple_layout;
 
     let indices: Vec<Idx> = plan.decision_indices().collect();
     // Collect (idx, optimized_repr) to write back after iteration.
@@ -331,10 +332,20 @@ fn compute_struct_layouts(plan: &mut ReprPlan, pool: &Pool) {
         let Some(repr) = plan.get_repr(idx) else {
             continue;
         };
-        // Only reorder structs. Tuple reordering is deferred: tuples cross
-        // the runtime boundary in map iteration (runtime writes key+value
-        // in declaration order).
-        if let MachineRepr::Struct(s) = repr {
+        // Reorder structs and 3+ element tuples for optimal alignment.
+        //
+        // 2-element tuples are skipped because:
+        // (a) All runtime-boundary tuples are 2-element (next_map, next_zipped,
+        //     next_enumerated write key+value at hardcoded byte offsets).
+        // (b) For types where size is a multiple of alignment (all Ori types),
+        //     2-element tuple total size is identical regardless of field order
+        //     — internal padding shifts but trailing padding compensates.
+        if let MachineRepr::Tuple(t) = repr {
+            if t.elements.len() >= 3 {
+                let optimized = optimize_tuple_layout(t);
+                updates.push((idx, MachineRepr::Tuple(optimized)));
+            }
+        } else if let MachineRepr::Struct(s) = repr {
             // §04+§06 interaction: for structs with non-scalar fields,
             // try_lower_narrowed_aggregate won't create the LLVM type with
             // narrowed widths — the LLVM type uses canonical widths. If §04
