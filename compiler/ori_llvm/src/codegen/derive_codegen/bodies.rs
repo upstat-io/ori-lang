@@ -24,6 +24,49 @@ use super::string_helpers::{
 };
 use super::{emit_derive_return, setup_derive_function, DeriveSetup};
 
+/// §06: Translate a declaration-order field index to memory-order for LLVM.
+///
+/// Looks up the `StructRepr` from the `ReprPlan`; if the type has a reordered
+/// layout, returns the memory-order position. Otherwise returns the original
+/// index unchanged. Only applies to structs and tuples.
+fn remap_derive_field<'a>(
+    fc: &FunctionCompiler<'_, 'a, 'a, '_>,
+    type_idx: Idx,
+    decl_index: u32,
+) -> u32 {
+    let Some(plan) = fc.repr_plan() else {
+        return decl_index;
+    };
+    let pool = fc.type_info().pool();
+    let resolved = pool.resolve_fully(type_idx);
+    let tag = pool.tag(resolved);
+    if tag != ori_types::Tag::Struct && tag != ori_types::Tag::Tuple {
+        return decl_index;
+    }
+    let Some(repr) = plan.get_repr(resolved) else {
+        return decl_index;
+    };
+    match repr {
+        ori_repr::MachineRepr::Struct(s) => s.memory_index(decl_index).map_or(decl_index, |i| {
+            #[expect(
+                clippy::cast_possible_truncation,
+                reason = "struct fields always < u32::MAX"
+            )]
+            let idx = i as u32;
+            idx
+        }),
+        ori_repr::MachineRepr::Tuple(t) => t.memory_index(decl_index).map_or(decl_index, |i| {
+            #[expect(
+                clippy::cast_possible_truncation,
+                reason = "tuple elements always < u32::MAX"
+            )]
+            let idx = i as u32;
+            idx
+        }),
+        _ => decl_index,
+    }
+}
+
 /// FNV-1a offset basis (64-bit).
 const FNV_OFFSET_BASIS: u64 = 14_695_981_039_346_656_037;
 /// FNV-1a prime (64-bit).
@@ -79,12 +122,18 @@ fn emit_all_true_body<'a>(
 
     for (i, field) in fields.iter().enumerate() {
         let field_name = fc.lookup_name(field.name).to_owned();
+        // §06: remap declaration-order index to memory-order for LLVM extract.
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "struct fields always < u32::MAX"
+        )]
+        let mem_i = remap_derive_field(fc, setup.type_idx, i as u32);
         let self_field =
             fc.builder_mut()
-                .extract_value(self_val, i as u32, &format!("eq.self.{field_name}"));
+                .extract_value(self_val, mem_i, &format!("eq.self.{field_name}"));
         let other_field =
             fc.builder_mut()
-                .extract_value(other_val, i as u32, &format!("eq.other.{field_name}"));
+                .extract_value(other_val, mem_i, &format!("eq.other.{field_name}"));
 
         let (Some(sf), Some(of)) = (self_field, other_field) else {
             warn!(field = %field_name, "extract_value failed in derive AllTrue");
@@ -143,12 +192,18 @@ fn emit_lexicographic_body<'a>(
 
     for (i, field) in fields.iter().enumerate() {
         let field_name = fc.lookup_name(field.name).to_owned();
+        // §06: remap declaration-order index to memory-order for LLVM extract.
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "struct fields always < u32::MAX"
+        )]
+        let mem_i = remap_derive_field(fc, setup.type_idx, i as u32);
         let self_field =
             fc.builder_mut()
-                .extract_value(self_val, i as u32, &format!("cmp.self.{field_name}"));
+                .extract_value(self_val, mem_i, &format!("cmp.self.{field_name}"));
         let other_field =
             fc.builder_mut()
-                .extract_value(other_val, i as u32, &format!("cmp.other.{field_name}"));
+                .extract_value(other_val, mem_i, &format!("cmp.other.{field_name}"));
 
         let (Some(sf), Some(of)) = (self_field, other_field) else {
             warn!(field = %field_name, "extract_value failed in derive Lexicographic");
@@ -206,9 +261,15 @@ fn emit_hash_combine_body<'a>(
 
     for (i, field) in fields.iter().enumerate() {
         let field_name = fc.lookup_name(field.name).to_owned();
+        // §06: remap declaration-order index to memory-order for LLVM extract.
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "struct fields always < u32::MAX"
+        )]
+        let mem_i = remap_derive_field(fc, setup.type_idx, i as u32);
         let field_val =
             fc.builder_mut()
-                .extract_value(self_val, i as u32, &format!("hash.{field_name}"));
+                .extract_value(self_val, mem_i, &format!("hash.{field_name}"));
 
         let Some(fv) = field_val else {
             warn!(field = %field_name, "extract_value failed in derive HashCombine");
@@ -277,9 +338,15 @@ pub(super) fn compile_format_fields<'a>(
             emit_str_rc_dec(fc, label_str, &format!("dec.label.{i}"));
         }
 
+        // §06: remap declaration-order index to memory-order for LLVM extract.
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "struct fields always < u32::MAX"
+        )]
+        let mem_i = remap_derive_field(fc, setup.type_idx, i as u32);
         let field_val =
             fc.builder_mut()
-                .extract_value(self_val, i as u32, &format!("fmt.{field_name_str}"));
+                .extract_value(self_val, mem_i, &format!("fmt.{field_name_str}"));
         if let Some(fv) = field_val {
             let field_str = emit_field_to_string(
                 fc,
@@ -343,9 +410,11 @@ pub(super) fn compile_clone_fields<'a>(
         let resolved = pool.resolve_fully(field.ty);
         let tag = pool.tag(resolved);
 
+        // §06: remap declaration-order index to memory-order for LLVM extract.
+        let mem_i = remap_derive_field(fc, setup.type_idx, i as u32);
         let field_val = fc
             .builder_mut()
-            .extract_value(self_val, i as u32, &format!("clone.f.{i}"));
+            .extract_value(self_val, mem_i, &format!("clone.f.{i}"));
         let Some(fv) = field_val else {
             continue;
         };
