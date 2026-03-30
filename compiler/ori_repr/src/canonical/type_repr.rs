@@ -11,7 +11,7 @@ use rustc_hash::{FxHashMap, FxHashSet};
 
 use crate::enum_repr::{min_tag_width, EnumRepr, EnumTag, VariantRepr};
 use crate::layout::{
-    compute_field_layout, compute_payload_layout, field_align, field_size, is_trivial_repr,
+    compute_enum_payload_layout, compute_field_layout, field_align, field_size, is_trivial_repr,
     round_up,
 };
 use crate::repr::IntWidth;
@@ -162,7 +162,7 @@ pub(super) fn canonical_enum(
                 .map(|fi| canonical_inner(pool, fi, visiting, cache))
                 .collect();
             let fields = fields?;
-            let (size, alignment) = compute_payload_layout(&fields);
+            let (size, alignment) = compute_enum_payload_layout(&fields);
             Some(VariantRepr {
                 name,
                 fields,

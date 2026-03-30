@@ -165,17 +165,22 @@ pub(crate) fn compute_field_layout(fields: &[FieldRepr]) -> (u32, u32) {
     (round_up(offset, align), align)
 }
 
-/// Compute ABI-correct layout (size, alignment) for bare repr fields
-/// (used by enum variant payloads which store `Vec<MachineRepr>`).
-pub(crate) fn compute_payload_layout(fields: &[MachineRepr]) -> (u32, u32) {
-    let align = fields.iter().map(field_align).max().unwrap_or(1);
-    let mut offset = 0u32;
-    for f in fields {
-        let fa = field_align(f);
-        offset = round_up(offset, fa);
-        offset += field_size(f);
-    }
-    (round_up(offset, align), align)
+/// Compute layout for an enum variant's payload using `[M x i64]` slot packing.
+///
+/// Each field occupies at least one full i64 slot (8 bytes), regardless of its
+/// natural alignment. This matches `resolve_enum()` in `ori_llvm` and
+/// `enum_payload_size()` / `pool_type_store_size()` in `ori_arc`.
+pub(crate) fn compute_enum_payload_layout(fields: &[MachineRepr]) -> (u32, u32) {
+    let payload: u32 = fields
+        .iter()
+        .map(|f| {
+            let size = field_size(f);
+            // Round up to 8-byte i64 slot boundary
+            size.div_ceil(8) * 8
+        })
+        .sum();
+    let align = if payload > 0 { 8 } else { 1 };
+    (payload, align)
 }
 
 impl TupleRepr {
