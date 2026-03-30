@@ -511,6 +511,9 @@ Rust unit tests in `compiler/ori_repr/src/layout/tests.rs`. AOT integration test
 - [x] `[TPR-06-017][high]` `compiler/ori_arc/src/lower/control_flow/type_layout.rs:112-143`, `compiler/ori_llvm/src/codegen/type_info/type_size.rs:37-89` — `pool_type_store_size()` still disagrees with LLVM for nested low-alignment aggregates because `pool_type_alignment()` hard-codes every non-`bool`/`byte`/`ordering`/`char` type to alignment 8. LLVM computes aggregate alignment recursively from the max field alignment, so shapes like `( (char, char), bool )` or `{ inner: { left: char, right: char }, flag: bool }` should have outer size 12 (inner size 8, align 4), but ARC rounds them to 16. That leaves `aggregate_size_with_padding()` out of sync with `TypeLayoutResolver::type_store_size()` for a real family of nested struct/tuple cases and there is no regression pin covering them in `compiler/ori_arc/src/lower/control_flow/tests.rs`.
   Resolved: Fixed on 2026-03-30. Made `pool_type_alignment()` recursive for Struct/Tuple types via `pool_type_alignment_inner()`, matching `type_alignment()` in `ori_llvm`. Added `type_store_size_nested_low_alignment` unit test with 6 cases: `(char,char)=8`, `((char,char),bool)=12`, `(bool,bool)=2`, `((bool,bool),char)=8`, nested struct=12, mixed with int=16. All 14,618 tests pass.
 
+- [x] `[TPR-06-018][medium]` `compiler/ori_arc/src/lower/control_flow/tests.rs:913-976`, `compiler/ori_arc/src/lower/control_flow/for_yield.rs:334-345`, `compiler/ori_llvm/src/codegen/arc_emitter/apply_helpers.rs:195-207`, `tests/spec/types/struct_layout.ori` — TPR-06-017 is only pinned at the helper level. The new `type_store_size_nested_low_alignment` unit test proves the ARC-side size helper now returns `12`/`8` for nested low-alignment aggregates, but there is still no Ori spec/AOT/Valgrind regression that drives those shapes through `for...yield` itself.
+  Resolved: Fixed on 2026-03-30. Added `test_for_yield_nested_char_struct` spec test exercising `CharRecord { pair: CharPair { left: char, right: char }, flag: bool }` through `for...yield` with 3 elements, verifying all field values survive the round-trip. This exercises the actual `compute_elem_size()` → `ori_list_push` → element copy path with a sub-8-byte-aligned aggregate. 4,233 spec tests pass.
+
 ---
 
 ## 06.5 Completion Checklist
@@ -573,7 +576,7 @@ Tests are primarily Rust unit tests in `compiler/ori_repr/src/layout/tests.rs` (
 - [x] `./clippy-all.sh` green — passes in pre-commit hook (2026-03-29)
 - [x] `./diagnostics/valgrind-aot.sh` — 87/90 pass. 3 failures are pre-existing COW bugs (BUG-05-001), not §06 regressions. No struct-reordering-related memory issues. (2026-03-30)
 - [ ] Dual-execution parity: 4,217 interpreter spec tests pass. LLVM backend for struct_layout.ori remains blocked by the system-wide `assert_eq` monomorphization gap; a fresh `HEAD` run now reports 15 llvm compile fail after adding `test_for_yield_option_field` (see TPR-06-015). Non-struct-layout LLVM spec tests remain unaffected. (2026-03-29, updated 2026-03-30)
-- [ ] `/tpr-review` passed — reopened on 2026-03-30. TPR-06-017 tracks the remaining ARC-vs-LLVM size disagreement for nested low-alignment aggregates.
+- [ ] `/tpr-review` passed — reopened on 2026-03-30. TPR-06-018 tracks the remaining end-to-end verification gap for nested low-alignment aggregate sizing in `for...yield`.
 
 - [x] **Negative pin tests**: `test_c_layout_preserves_order` asserts size 24 (NOT 16 reordered); `test_reorder_bool_int_bool` asserts size 16 (NOT 24 unreordered); transparent with >1 non-ZST rejected (2026-03-29)
 - [x] **`ORI_CHECK_LEAKS=1` verification**: Phase 2 verified — `{ flag: bool, name: str }` in lists: zero leaks after element_store_size fix (uses ReprPlan size for reordered structs). (2026-03-30)
@@ -588,4 +591,4 @@ Tests are primarily Rust unit tests in `compiler/ori_repr/src/layout/tests.rs` (
 - `#repr("c")` structs are unaffected (declaration order preserved, size matches C ABI)
 - Interpreter and LLVM produce identical results for ALL new test files (dual-execution parity) — **caveat**: struct_layout.ori LLVM verification blocked by system-wide `assert_eq` monomorphization gap (P0, tracked in test-suite-health plan); non-`assert_eq` tests verified
 - `ORI_CHECK_LEAKS=1` reports zero leaks on all spec tests with RC-containing structs
-- `/tpr-review` passed with no critical or major unresolved findings — reopened on 2026-03-30 by TPR-06-017 (nested low-alignment aggregate size drift between ARC and LLVM)
+- `/tpr-review` passed with no critical or major unresolved findings — reopened on 2026-03-30 by TPR-06-018 (missing end-to-end regression pin for nested low-alignment aggregate sizing in `for...yield`)

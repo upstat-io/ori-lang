@@ -241,3 +241,29 @@ type OptRecord = { left: Option<bool>, active: bool }
         None -> panic(msg: "expected Some at [2]"),
     }
 }
+
+// Regression: TPR-06-017 — nested all-char structs have alignment 4, not 8.
+// Without recursive alignment, pool_type_store_size over-sizes the struct,
+// causing ARC/LLVM layout disagreement. This end-to-end for-yield pin
+// exercises the actual memory copy path with a sub-8-byte-aligned aggregate.
+type CharPair = { left: char, right: char }
+type CharRecord = { pair: CharPair, flag: bool }
+
+@test_for_yield_nested_char_struct tests @make_record () -> void = {
+    let items = [
+        CharRecord { pair: CharPair { left: 'a', right: 'b' }, flag: true },
+        CharRecord { pair: CharPair { left: 'x', right: 'y' }, flag: false },
+        CharRecord { pair: CharPair { left: '1', right: '2' }, flag: true },
+    ];
+    let collected = for item in items yield item;
+    assert_eq(actual: collected.length(), expected: 3);
+    assert_eq(actual: collected[0].pair.left, expected: 'a');
+    assert_eq(actual: collected[0].pair.right, expected: 'b');
+    assert_eq(actual: collected[0].flag, expected: true);
+    assert_eq(actual: collected[1].pair.left, expected: 'x');
+    assert_eq(actual: collected[1].pair.right, expected: 'y');
+    assert_eq(actual: collected[1].flag, expected: false);
+    assert_eq(actual: collected[2].pair.left, expected: '1');
+    assert_eq(actual: collected[2].pair.right, expected: '2');
+    assert_eq(actual: collected[2].flag, expected: true)
+}
