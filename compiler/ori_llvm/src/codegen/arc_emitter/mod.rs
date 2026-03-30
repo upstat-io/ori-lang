@@ -70,7 +70,7 @@ use context::EmittedValue;
 use ori_arc::ir::ArcVarId;
 use ori_arc::ArcClassification;
 use ori_ir::StringInterner;
-use ori_types::{Idx, Pool};
+use ori_types::{Idx, Pool, Tag};
 use rustc_hash::{FxHashMap, FxHashSet};
 
 use super::ir_builder::IrBuilder;
@@ -277,6 +277,88 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
     /// sub-pointer increment (borrowed → yes, consumed → no).
     pub(super) fn is_var_borrowed_rooted(&self, var: ArcVarId) -> bool {
         self.borrowed_rooted_vars.contains(&var)
+    }
+
+    // §06 struct layout remapping
+
+    /// Translate a declaration-order field index to the memory-order index
+    /// for the LLVM struct type.
+    ///
+    /// After §06 field reordering, `StructRepr.fields` are sorted by alignment
+    /// (memory order), but ARC IR uses declaration-order indices. This helper
+    /// bridges the two: if the type has a `StructRepr` in the `ReprPlan`, look
+    /// up the memory position; otherwise return the original index unchanged.
+    ///
+    /// Only applies to user structs/tuples — enum payloads, closure envs,
+    /// and collection internals are not subject to §06 reordering.
+    pub(super) fn remap_struct_field(&self, ty: Idx, decl_field: u32) -> u32 {
+        let Some(plan) = self.repr_plan else {
+            return decl_field;
+        };
+        let resolved = self.pool.resolve_fully(ty);
+        let tag = self.pool.tag(resolved);
+        if tag != Tag::Struct && tag != Tag::Tuple {
+            return decl_field;
+        }
+        let Some(repr) = plan.get_repr(resolved) else {
+            return decl_field;
+        };
+        match repr {
+            ori_repr::MachineRepr::Struct(s) => {
+                s.memory_index(decl_field).map_or(decl_field, |i| {
+                    #[expect(
+                        clippy::cast_possible_truncation,
+                        reason = "struct fields always < u32::MAX"
+                    )]
+                    let idx = i as u32;
+                    idx
+                })
+            }
+            ori_repr::MachineRepr::Tuple(t) => t.memory_index(decl_field).map_or(decl_field, |i| {
+                #[expect(
+                    clippy::cast_possible_truncation,
+                    reason = "tuple elements always < u32::MAX"
+                )]
+                let idx = i as u32;
+                idx
+            }),
+            _ => decl_field,
+        }
+    }
+
+    /// Reorder args from declaration order to memory order for struct
+    /// construction. Returns a new vec with args in LLVM struct field order.
+    ///
+    /// If the type has no `StructRepr` in the `ReprPlan` (or no reordering),
+    /// returns the args unchanged.
+    pub(super) fn reorder_args_to_memory_order(&self, args: &[ValueId], ty: Idx) -> Vec<ValueId> {
+        let Some(plan) = self.repr_plan else {
+            return args.to_vec();
+        };
+        let resolved = self.pool.resolve_fully(ty);
+        let tag = self.pool.tag(resolved);
+        if tag != Tag::Struct && tag != Tag::Tuple {
+            return args.to_vec();
+        }
+        let Some(repr) = plan.get_repr(resolved) else {
+            return args.to_vec();
+        };
+        let fields = match repr {
+            ori_repr::MachineRepr::Struct(s) => &s.fields[..],
+            ori_repr::MachineRepr::Tuple(t) => &t.elements[..],
+            _ => return args.to_vec(),
+        };
+        // fields is in memory order; fields[mem_pos].original_index is the
+        // declaration-order index. Build a vec where result[mem_pos] =
+        // args[original_index].
+        fields
+            .iter()
+            .map(|f| {
+                args.get(f.original_index as usize)
+                    .copied()
+                    .unwrap_or(args[0]) // defensive — should never happen
+            })
+            .collect()
     }
 }
 

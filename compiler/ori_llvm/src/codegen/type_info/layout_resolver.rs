@@ -289,10 +289,24 @@ impl<'a, 'll, 'tcx> TypeLayoutResolver<'a, 'll, 'tcx> {
             }
 
             // Tuple: struct of recursively-resolved element types.
+            // §06: if the tuple is reordered, use memory-order from TupleRepr.
             TypeInfo::Tuple { elements } => {
                 self.resolving.borrow_mut().insert(idx);
                 let field_types: Vec<BasicTypeEnum<'ll>> =
-                    elements.iter().map(|&e| self.resolve(e)).collect();
+                    if let Some(ori_repr::MachineRepr::Tuple(t)) =
+                        self.repr_plan.and_then(|p| p.get_repr(idx))
+                    {
+                        if t.is_reordered() {
+                            t.elements
+                                .iter()
+                                .map(|f| self.resolve(elements[f.original_index as usize]))
+                                .collect()
+                        } else {
+                            elements.iter().map(|&e| self.resolve(e)).collect()
+                        }
+                    } else {
+                        elements.iter().map(|&e| self.resolve(e)).collect()
+                    };
                 self.resolving.borrow_mut().remove(&idx);
                 self.scx.type_struct(&field_types, false).into()
             }
@@ -373,6 +387,11 @@ impl<'a, 'll, 'tcx> TypeLayoutResolver<'a, 'll, 'tcx> {
     }
 
     /// Resolve a struct type with two-phase creation for cycle safety.
+    ///
+    /// §06: when the struct is reordered in the `ReprPlan`, creates the LLVM
+    /// type with fields in memory order (sorted by alignment) rather than
+    /// declaration order. This ensures the LLVM struct layout matches the
+    /// `StructRepr` that codegen's field-index remapping expects.
     fn resolve_struct(&self, idx: Idx, fields: &[(Name, Idx)]) -> BasicTypeEnum<'ll> {
         if self.resolving.borrow().contains(&idx) {
             if let Some(&named) = self.named_structs.borrow().get(&idx) {
@@ -386,8 +405,21 @@ impl<'a, 'll, 'tcx> TypeLayoutResolver<'a, 'll, 'tcx> {
         self.named_structs.borrow_mut().insert(idx, named_struct);
         self.resolving.borrow_mut().insert(idx);
 
-        let field_types: Vec<BasicTypeEnum<'ll>> =
-            fields.iter().map(|&(_, ty)| self.resolve(ty)).collect();
+        // §06: if the struct is reordered, build LLVM type in memory order.
+        let field_types: Vec<BasicTypeEnum<'ll>> = if let Some(ori_repr::MachineRepr::Struct(s)) =
+            self.repr_plan.and_then(|p| p.get_repr(idx))
+        {
+            if s.is_reordered() {
+                s.fields
+                    .iter()
+                    .map(|f| self.resolve(fields[f.original_index as usize].1))
+                    .collect()
+            } else {
+                fields.iter().map(|&(_, ty)| self.resolve(ty)).collect()
+            }
+        } else {
+            fields.iter().map(|&(_, ty)| self.resolve(ty)).collect()
+        };
 
         self.scx.set_struct_body(named_struct, &field_types, false);
         self.resolving.borrow_mut().remove(&idx);

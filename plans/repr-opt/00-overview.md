@@ -341,7 +341,7 @@ This is intentional (internal to `ori_arc`). §08.5's option (b) — passing esc
 | 03 | Value Range Analysis Framework | `section-03-range-analysis.md` | Complete (13 TPR findings resolved) |
 | 04 | Integer Narrowing Pipeline | `section-04-integer-narrowing.md` | Complete |
 | 05 | Float Narrowing Pipeline | `section-05-float-narrowing.md` | Complete (19 TPR findings resolved) |
-| 06 | Struct & Tuple Layout Optimization | `section-06-struct-layout.md` | Not Started |
+| 06 | Struct & Tuple Layout Optimization | `section-06-struct-layout.md` | In Progress |
 | 07 | Enum Representation Optimization | `section-07-enum-repr.md` | Not Started |
 | 08 | Escape Analysis & Stack Promotion | `section-08-escape-analysis.md` | Not Started |
 | 09 | ARC Header Compression | `section-09-arc-header.md` | Not Started |
