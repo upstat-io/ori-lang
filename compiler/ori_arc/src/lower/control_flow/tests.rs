@@ -644,7 +644,7 @@ fn type_store_size_extended_types() {
         "Never = void"
     );
 
-    // Simple enum: A | B(x: int) → {i64 tag, max(0, 8)} = 8 + 8 = 16
+    // Payload enum: A | B(x: int) → {i8 tag (padded to 8), [1 x i64]} = 8 + 8 = 16
     let variant_a_name = interner.intern("A");
     let variant_b_name = interner.intern("B");
     let enum_name = interner.intern("SimpleEnum");
@@ -664,10 +664,10 @@ fn type_store_size_extended_types() {
     assert_eq!(
         pool_type_store_size(simple_enum, &pool, 0),
         16,
-        "A | B(int) = {{i64 tag, max(0, 8)}} = 16"
+        "A | B(int) = {{i8 tag padded to 8, [1 x i64]}} = 16"
     );
 
-    // Enum with str payload: A(s: str) | B → {i64 tag, max(24, 0)} = 8 + 24 = 32
+    // Payload enum: A(s: str) | B → {i8 tag (padded to 8), max(24, 0)} = 8 + 24 = 32
     let enum2_name = interner.intern("StrEnum");
     let str_enum = pool.enum_type(
         enum2_name,
@@ -685,7 +685,7 @@ fn type_store_size_extended_types() {
     assert_eq!(
         pool_type_store_size(str_enum, &pool, 0),
         32,
-        "A(str) | B = {{i64 tag, max(24, 0)}} = 32"
+        "A(str) | B = {{i8 tag padded to 8, max(24, 0)}} = 32"
     );
 }
 
@@ -972,5 +972,152 @@ fn type_store_size_nested_low_alignment() {
         pool_type_store_size(tup_cci, &pool, 0),
         16,
         "((char, char), int) is 16 — int dominates alignment"
+    );
+}
+
+/// Regression: TPR-07-002 — all-unit enums use narrowed i8 tags after §07.1.
+///
+/// `pool_type_store_size()` was hardcoding 8-byte (i64) enum tags for all enums,
+/// but §07.1 narrowed all-unit enums to i8 (1 byte). This caused `for...yield`
+/// over all-unit enums to allocate 8 bytes per element in `ori_list_new` /
+/// `ori_list_push`, but LLVM lowered them as 1-byte `{ i8 }` structs — resulting
+/// in out-of-bounds reads/writes and segfaults.
+#[test]
+fn type_store_size_all_unit_enum_narrowed_tag() {
+    let mut pool = Pool::new();
+    let interner = ori_ir::StringInterner::new();
+
+    // North | South | East | West — 4 variants, all unit → i8 tag, no payload.
+    // LLVM: %ori.Dir = type { i8 } → size 1
+    let dir_enum = pool.enum_type(
+        interner.intern("Dir"),
+        &[
+            ori_types::EnumVariant {
+                name: interner.intern("North"),
+                field_types: vec![],
+            },
+            ori_types::EnumVariant {
+                name: interner.intern("South"),
+                field_types: vec![],
+            },
+            ori_types::EnumVariant {
+                name: interner.intern("East"),
+                field_types: vec![],
+            },
+            ori_types::EnumVariant {
+                name: interner.intern("West"),
+                field_types: vec![],
+            },
+        ],
+    );
+    assert_eq!(
+        pool_type_store_size(dir_enum, &pool, 0),
+        1,
+        "All-unit enum (4 variants) = {{i8}} = 1 byte after §07.1 narrowing"
+    );
+
+    // Semantic pin: 2-variant all-unit enum → still i8 tag → 1 byte
+    let bool_enum = pool.enum_type(
+        interner.intern("MyBool"),
+        &[
+            ori_types::EnumVariant {
+                name: interner.intern("True"),
+                field_types: vec![],
+            },
+            ori_types::EnumVariant {
+                name: interner.intern("False"),
+                field_types: vec![],
+            },
+        ],
+    );
+    assert_eq!(
+        pool_type_store_size(bool_enum, &pool, 0),
+        1,
+        "All-unit enum (2 variants) = {{i8}} = 1 byte"
+    );
+
+    // Single-variant enum (newtype-like, no payload) → i8 tag → 1 byte
+    let single = pool.enum_type(
+        interner.intern("Single"),
+        &[ori_types::EnumVariant {
+            name: interner.intern("Only"),
+            field_types: vec![],
+        }],
+    );
+    assert_eq!(
+        pool_type_store_size(single, &pool, 0),
+        1,
+        "Single-variant unit enum = {{i8}} = 1 byte"
+    );
+
+    // Payload enum: A | B(int) → i8 tag + [1 x i64] payload.
+    // LLVM: { i8, [1 x i64] } → size = 8 (tag padded) + 8 (payload) = 16
+    // Same as before — payload alignment dominates.
+    let payload_enum = pool.enum_type(
+        interner.intern("PayloadEnum"),
+        &[
+            ori_types::EnumVariant {
+                name: interner.intern("A"),
+                field_types: vec![],
+            },
+            ori_types::EnumVariant {
+                name: interner.intern("B"),
+                field_types: vec![Idx::INT],
+            },
+        ],
+    );
+    assert_eq!(
+        pool_type_store_size(payload_enum, &pool, 0),
+        16,
+        "Payload enum A | B(int) = {{i8, [1 x i64]}} = 16 (tag padded to 8)"
+    );
+}
+
+/// Regression: TPR-07-002 — all-unit enum as field in struct/tuple.
+///
+/// `pool_type_alignment_inner()` returned 8 for all enums, but all-unit enums
+/// with narrowed tags have alignment 1. This over-sizes containing aggregates.
+#[test]
+fn type_store_size_all_unit_enum_in_aggregate() {
+    let mut pool = Pool::new();
+    let interner = ori_ir::StringInterner::new();
+
+    // All-unit enum: { i8 } → size 1, alignment 1
+    let dir_enum = pool.enum_type(
+        interner.intern("Dir2"),
+        &[
+            ori_types::EnumVariant {
+                name: interner.intern("N"),
+                field_types: vec![],
+            },
+            ori_types::EnumVariant {
+                name: interner.intern("S"),
+                field_types: vec![],
+            },
+        ],
+    );
+
+    // (Dir, Dir) — both alignment 1, so size = 1 + 1 = 2
+    let tup_dd = pool.tuple(&[dir_enum, dir_enum]);
+    assert_eq!(
+        pool_type_store_size(tup_dd, &pool, 0),
+        2,
+        "(Dir, Dir) = 2 bytes (alignment 1 for all-unit enums)"
+    );
+
+    // (Dir, char) — Dir=1 align=1, pad to 4 (char align), char=4 → total 8
+    let tup_dc = pool.tuple(&[dir_enum, Idx::CHAR]);
+    assert_eq!(
+        pool_type_store_size(tup_dc, &pool, 0),
+        8,
+        "(Dir, char) = 8 bytes"
+    );
+
+    // (Dir, int) — Dir=1 align=1, pad to 8 (int align), int=8 → total 16
+    let tup_di = pool.tuple(&[dir_enum, Idx::INT]);
+    assert_eq!(
+        pool_type_store_size(tup_di, &pool, 0),
+        16,
+        "(Dir, int) = 16 bytes"
     );
 }

@@ -2018,3 +2018,91 @@ type Threshold = { low: float, high: float }
         "float_narrowed_comparison_after_load",
     );
 }
+
+// §07.1 Regression: TPR-07-002 — for...yield over narrowed all-unit enums.
+//
+// After §07.1 discriminant narrowing, all-unit enums lower to `{ i8 }` (1 byte)
+// in LLVM. But `pool_type_store_size()` in `ori_arc` still sized them as 8 bytes
+// (i64 tag), causing `ori_list_new`/`ori_list_push` to allocate/copy 8 bytes per
+// element from 1-byte values — resulting in out-of-bounds memory access and
+// segfaults when the collected values were read back.
+
+/// Semantic pin: for...yield over an all-unit enum list must work correctly.
+/// This is the exact reproducer from the TPR-07-002 finding.
+#[test]
+fn test_for_yield_all_unit_enum() {
+    assert_aot_success(
+        r"
+type Dir = North | South | East | West;
+
+@dir_to_int (d: Dir) -> int = {
+    match d {
+        North -> 0,
+        South -> 1,
+        East -> 2,
+        West -> 3,
+    }
+}
+
+@main () -> int = {
+    let dirs = [North, South, East, West];
+    let copy = for d in dirs yield d;
+    if copy.len() != 4 then 1
+    else {
+        let sum = 0;
+        for d in copy do { sum = sum + dir_to_int(d: d) };
+        // 0+1+2+3 = 6
+        if sum == 6 then 0 else 2
+    }
+}
+",
+        "for_yield_all_unit_enum",
+    );
+}
+
+/// For...yield with transformation over all-unit enum.
+#[test]
+fn test_for_yield_all_unit_enum_transform() {
+    assert_aot_success(
+        r"
+type Color = Red | Green | Blue;
+
+@color_to_int (c: Color) -> int = {
+    match c {
+        Red -> 1,
+        Green -> 2,
+        Blue -> 3,
+    }
+}
+
+@main () -> int = {
+    let colors = [Red, Green, Blue];
+    let nums = for c in colors yield color_to_int(c: c);
+    if nums.len() == 3 then {
+        let sum = 0;
+        for n in nums do { sum = sum + n };
+        if sum == 6 then 0 else 1
+    } else 1
+}
+",
+        "for_yield_all_unit_enum_transform",
+    );
+}
+
+/// For...yield over range producing all-unit enum values.
+#[test]
+fn test_for_yield_range_to_enum() {
+    assert_aot_success(
+        r"
+type Bit = Zero | One;
+
+@main () -> int = {
+    let bits = for i in 0..4 yield {
+        if i % 2 == 0 then Zero else One
+    };
+    if bits.len() == 4 then 0 else 1
+}
+",
+        "for_yield_range_to_enum",
+    );
+}
