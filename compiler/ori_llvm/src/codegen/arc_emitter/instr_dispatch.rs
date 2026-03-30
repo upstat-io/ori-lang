@@ -62,12 +62,76 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         if field == 0 {
             self.def_var_repr(dst, tag, func);
         } else {
-            // Load element from scratch buffer (deferred from emit_iter_next).
-            let elem = self
-                .builder
-                .load(elem_llvm_ty, scratch_ptr, &format!("proj.{field}"));
-            // §04.4 Phase C: sign-extend narrowed int element back to canonical i64.
             let dst_ty = func.var_type(dst);
+            let resolved = self.pool.resolve_fully(dst_ty);
+            let pool_tag = self.pool.tag(resolved);
+
+            // §06: the runtime writes iterator elements in declaration order.
+            // If the element type is a reordered tuple/struct, we must load
+            // with a declaration-order LLVM type and then reorder fields.
+            let needs_reorder = (pool_tag == ori_types::Tag::Tuple
+                || pool_tag == ori_types::Tag::Struct)
+                && self
+                    .repr_plan
+                    .and_then(|p| p.get_repr(resolved))
+                    .is_some_and(|r| match r {
+                        ori_repr::MachineRepr::Tuple(t) => t.is_reordered(),
+                        ori_repr::MachineRepr::Struct(s) => s.is_reordered(),
+                        _ => false,
+                    });
+
+            let elem = if needs_reorder {
+                // Build a declaration-order LLVM type for the load.
+                let field_types: Vec<_> = if pool_tag == ori_types::Tag::Tuple {
+                    self.pool
+                        .tuple_elems(resolved)
+                        .iter()
+                        .map(|&e| self.type_resolver.resolve(e))
+                        .collect()
+                } else {
+                    self.pool
+                        .struct_fields(resolved)
+                        .iter()
+                        .map(|&(_, ty)| self.type_resolver.resolve(ty))
+                        .collect()
+                };
+                let decl_struct = self.builder.scx().type_struct(&field_types, false);
+                let decl_ty_id = self.builder.register_type(decl_struct.into());
+
+                // Load from scratch in declaration order.
+                let decl_val =
+                    self.builder
+                        .load(decl_ty_id, scratch_ptr, &format!("proj.{field}.decl"));
+
+                // Reorder: extract from declaration positions, insert at memory positions.
+                let mem_ty = self.resolve_type(dst_ty);
+                let mut result = self.builder.const_zero_ty(mem_ty);
+                #[expect(
+                    clippy::cast_possible_truncation,
+                    reason = "field count bounded by struct/tuple definition"
+                )]
+                for decl_i in 0..field_types.len() {
+                    let mem_i = self.remap_struct_field(resolved, decl_i as u32);
+                    if let Some(fv) = self.builder.extract_value(
+                        decl_val,
+                        decl_i as u32,
+                        &format!("reorder.{decl_i}"),
+                    ) {
+                        result = self.builder.insert_value(
+                            result,
+                            fv,
+                            mem_i,
+                            &format!("reorder.ins.{mem_i}"),
+                        );
+                    }
+                }
+                result
+            } else {
+                // Non-reordered: load entire element directly.
+                self.builder
+                    .load(elem_llvm_ty, scratch_ptr, &format!("proj.{field}"))
+            };
+            // §04.4 Phase C: sign-extend narrowed int element back to canonical i64.
             let elem = self.sext_narrowed_int_element(elem, dst_ty, "iter_next.sext");
             self.def_var_repr(dst, elem, func);
             // Register scratch pointer for borrowed-parameter forwarding:
