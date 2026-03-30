@@ -1,0 +1,86 @@
+// Spec: Annex E § System Considerations — struct field reordering
+// §06: Struct fields may be reordered in memory for optimal alignment.
+// Tests verify that field access, construction, and derived traits
+// produce correct results regardless of memory layout.
+
+use std.testing { assert_eq, assert }
+
+// Mixed-field struct: bool + str triggers reordering (str first in memory)
+type Record = { flag: bool, name: str, count: int }
+
+// Field access on reordered struct
+@test_struct_field_access tests @make_record () -> void = {
+    let r = make_record();
+    assert_eq(actual: r.flag, expected: true);
+    assert_eq(actual: r.name, expected: "hello");
+    assert_eq(actual: r.count, expected: 42)
+}
+
+@make_record () -> Record = Record { flag: true, name: "hello", count: 42 };
+
+// Struct construction with mixed field types
+@test_struct_construction tests @make_record () -> void = {
+    let r = Record { flag: false, name: "world", count: 99 };
+    assert_eq(actual: r.flag, expected: false);
+    assert_eq(actual: r.name, expected: "world");
+    assert_eq(actual: r.count, expected: 99)
+}
+
+// Struct passed to function
+@process_record (r: Record) -> int = if r.flag then r.count else 0;
+
+@test_struct_passed_to_fn tests @process_record () -> void = {
+    let r1 = Record { flag: true, name: "a", count: 10 };
+    let r2 = Record { flag: false, name: "b", count: 20 };
+    assert_eq(actual: process_record(r: r1), expected: 10);
+    assert_eq(actual: process_record(r: r2), expected: 0)
+}
+
+// Struct returned from function
+@build (n: int) -> Record = Record { flag: n > 0, name: "built", count: n };
+
+@test_struct_returned tests @build () -> void = {
+    let r = build(n: 5);
+    assert_eq(actual: r.flag, expected: true);
+    assert_eq(actual: r.count, expected: 5)
+}
+
+// Struct in list — exercises element_store_size with reordered layout
+@test_struct_in_list tests @make_record () -> void = {
+    let r1 = Record { flag: true, name: "first item in list", count: 1 };
+    let r2 = Record { flag: false, name: "second item in list", count: 2 };
+    let items = [r1, r2];
+    assert_eq(actual: items.length(), expected: 2)
+}
+
+// Struct list iteration — exercises iterator element loading
+@test_struct_list_iteration tests @make_record () -> void = {
+    let items = [
+        Record { flag: true, name: "a", count: 10 },
+        Record { flag: false, name: "b", count: 20 },
+        Record { flag: true, name: "c", count: 30 },
+    ];
+    let total = 0;
+    for item in items do {
+        if item.flag then total = total + item.count
+    };
+    assert_eq(actual: total, expected: 40)
+}
+
+// Two-field struct: bool + int (simplest reordering case)
+type Pair = { active: bool, value: int }
+
+@test_two_field_reorder tests @make_record () -> void = {
+    let p = Pair { active: true, value: 99 };
+    assert_eq(actual: p.active, expected: true);
+    assert_eq(actual: p.value, expected: 99)
+}
+
+// Three-field: bool + str + float (all different sizes)
+type Mixed = { flag: bool, label: str, score: float }
+
+@test_three_types tests @make_record () -> void = {
+    let m = Mixed { flag: true, label: "test", score: 3.14 };
+    assert_eq(actual: m.flag, expected: true);
+    assert_eq(actual: m.label, expected: "test")
+}

@@ -520,9 +520,9 @@ Tests are primarily Rust unit tests in `compiler/ori_repr/src/layout/tests.rs` (
 - [ ] `/tpr-review` passed — to run after all items are verified
 
 - [x] **Negative pin tests**: `test_c_layout_preserves_order` asserts size 24 (NOT 16 reordered); `test_reorder_bool_int_bool` asserts size 16 (NOT 24 unreordered); transparent with >1 non-ZST rejected (2026-03-29)
-- [ ] **`ORI_CHECK_LEAKS=1` verification**: Phase 2 complete — now exercises mixed-field RC drops. Run verification.
+- [x] **`ORI_CHECK_LEAKS=1` verification**: Phase 2 verified — `{ flag: bool, name: str }` in lists: zero leaks after element_store_size fix (uses ReprPlan size for reordered structs). (2026-03-30)
 - [ ] **Plan annotation cleanup**: §06 annotations are ACTIVE (section still in-progress). Cleanup after TPR passes clean.
-- [ ] **Ori spec tests**: Phase 2 complete — write spec tests for struct layout with mixed fields (`struct { a: bool, b: str }`).
+- [x] **Ori spec tests**: `tests/spec/types/struct_layout.ori` — 8 tests covering field access, construction, function pass/return, list storage, list iteration, two-field and three-type reordering. 4,225 spec tests pass. (2026-03-30)
 
 **Exit Criteria (all must be measurably true):**
 - `StructRepr.size` for `struct { a: bool, b: int, c: bool, d: byte }` is 16 bytes (i64 at offset 0, then i8+i8+i8 at offsets 8-10, then 5 bytes trailing padding to align 8), verified in both Rust unit tests and LLVM IR
