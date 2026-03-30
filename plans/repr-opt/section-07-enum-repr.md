@@ -181,17 +181,17 @@ The discriminant (tag) should use the minimum width needed.
 - [x] Updated `abi_size_inner()` — uses `min_tag_width().size_bytes()` for tag size. (2026-03-30)
 - [x] Updated `canonical_enum()`, `canonical_option()`, `canonical_result()` — all use `min_tag_width()`. Non-unit enum sizes unchanged (LLVM `[M x i64]` padding absorbs the difference). All-unit enum sizes shrink from 8 to 1. (2026-03-30)
 - [x] All-unit enum path preserved: `resolve_enum()` emits `{ i8 }` (no payload array). (2026-03-30)
-- [ ] **[BLOAT]** `compound_type_impls.rs` (517 lines) — split deferred to separate cleanup pass
-- [ ] **[BLOAT]** `list_builtins.rs` (712 lines) — split deferred to separate cleanup pass
-- [x] `./test-all.sh` passes: 14,666 tests, 0 failures. Debug and release builds verified. (2026-03-30)
+- [x] **[BLOAT]** `compound_type_impls.rs` (519→4 files): `mod.rs` (15), `option.rs` (102), `result.rs` (246), `str_map.rs` (91), `tuple.rs` (112). All under 500. (2026-03-30)
+- [x] **[BLOAT]** `list_builtins.rs` (712→3 files): `mod.rs` (356), `helpers.rs` (157), `sort_thunks.rs` (229). All under 500. (2026-03-30)
+- [x] `./test-all.sh` passes: 14,678 tests, 0 failures. Debug and release builds verified. (2026-03-30)
 
 **§07.1 Tests (TDD — write BEFORE implementation, verify they fail):**
 
 - [x] **Rust unit tests**: `min_tag_width` boundary tests (7 tests in `layout/tests.rs`), `canonical_enum` updated to expect I8 tag, `canonical_option_int` updated to expect I8 tag, all-unit enum size = 1, ABI tests updated. 22 TagEncoding tests. All pass. (2026-03-30)
-- [ ] **Ori spec tests** (`tests/spec/types/enum/discriminant_narrowing.ori`) — dedicated narrowing tests not yet written (existing 4,245 spec tests exercise enums thoroughly and all pass)
+- [x] **Ori spec tests** (`tests/spec/types/sum/test_discriminant_narrowing.ori`) — 12 tests: all-unit enum match, Option int/str match, Result match, for-yield with Option, closure capturing Option, `?` on Result, nested enum match, Option predicates, Result predicates, unwrap_or, coalesce `??`. All pass. (2026-03-30)
 - [ ] **AOT tests** (`compiler/ori_llvm/tests/aot/enum_discriminant.rs`) — LLVM IR inspection tests not yet written (existing 2,017 AOT tests all pass)
 - [x] **Dual-execution parity**: 14,666 tests pass in both interpreter and LLVM. (2026-03-30)
-- [ ] **Leak check**: `ORI_CHECK_LEAKS=1` not yet run on enum-specific tests
+- [x] **Leak check**: Valgrind 87/90 pass (3 failures are pre-existing COW bugs BUG-05-001). `diagnose-aot.sh` on custom enum test: compilation pass, execution clean, leak check clean. No regressions from discriminant narrowing. (2026-03-30)
 
 ---
 
