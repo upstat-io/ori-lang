@@ -3,9 +3,11 @@
 //! Tuples are anonymous structs — the same reordering algorithm applies.
 //! No `#repr` attributes apply to tuples (they are always reorderable).
 //!
-//! Note: tuple reordering is currently disabled in the pipeline (§06 only
-//! reorders structs) because tuple elements cross the runtime boundary in
-//! map iteration. The algorithm is retained for future use and tests.
+//! Only 3+ element tuples are reordered. 2-element tuples are skipped because:
+//! - All runtime-boundary tuples are 2-element (`next_map`, `next_zipped`,
+//!   `next_enumerated` write fields at hardcoded byte offsets).
+//! - For types where size is a multiple of alignment (all Ori types),
+//!   2-element tuple total size is identical regardless of field order.
 
 use crate::layout::{field_align, field_size, round_up};
 use crate::struct_repr::TupleRepr;
@@ -15,15 +17,6 @@ use crate::struct_repr::TupleRepr;
 /// Same algorithm as struct reordering but operates on `TupleRepr.elements`.
 /// `original_index` is the tuple position (0, 1, 2, ...) for codegen
 /// remapping of `.0`, `.1`, `.2` accesses.
-///
-/// Currently used only in tests — the pipeline skips tuple reordering.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "pipeline skips tuple reordering; retained for tests and future use"
-    )
-)]
 pub(crate) fn optimize_tuple_layout(tuple_repr: &TupleRepr) -> TupleRepr {
     if tuple_repr.elements.is_empty() {
         return TupleRepr {
