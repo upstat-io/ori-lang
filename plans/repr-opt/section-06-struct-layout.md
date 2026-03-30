@@ -506,8 +506,8 @@ Tests are primarily Rust unit tests in `compiler/ori_repr/src/layout/tests.rs` (
 - [x] **[GAP] FIXED**: `resolve_struct()` and `TypeInfo::Tuple` path updated to use memory-order fields from `StructRepr`/`TupleRepr` when `is_reordered()` (2026-03-29)
 - [x] Derived Eq on `Record { id: int, active: bool, score: float }` — `test_aot_derive_eq_mixed_types` passes (2026-03-29)
 - [x] Derived Clone, Debug, Hashable — verified by existing AOT derive tests (no regressions in 2,017 AOT tests) (2026-03-29)
-- [ ] **Struct update syntax**: `{ ...p, x: 10 }` — Phase 2 (mixed-field structs, currently scalar-only guard)
-- [ ] **Drop function remapping with RC fields**: `{ flag: bool, name: str }` — Phase 2 (non-scalar fields not reordered yet)
+- [x] **Struct update syntax**: `{ ...p, x: 10 }` — Phase 2 complete. Mixed-field structs now reordered; all codegen paths remapped (2026-03-30)
+- [x] **Drop function remapping with RC fields**: `{ flag: bool, name: str }` — Phase 2 complete. RC traversal, clone, thunks all remapped. 2,017 AOT tests pass including closure+struct tests (2026-03-30)
 - [x] Narrowing + layout interaction: narrowed field sizes used for sorting — verified in unit test `test_reorder_narrowed_fields` (2026-03-29)
 - [x] Empty struct: size 0, align 1 — verified in unit test `test_reorder_empty_struct` (2026-03-29)
 - [x] Single-field struct: size 8, align 8 — verified in unit test `test_reorder_single_field` (2026-03-29)
@@ -515,14 +515,14 @@ Tests are primarily Rust unit tests in `compiler/ori_repr/src/layout/tests.rs` (
 - [x] **[BLOAT] FIXED**: `layout_resolver.rs` extracted to 387 lines + `repr_lowering.rs` 151 lines (2026-03-29)
 - [x] `./test-all.sh` green: 14,584 passed, 0 failed. Debug + release builds verified (2026-03-29)
 - [x] `./clippy-all.sh` green — passes in pre-commit hook (2026-03-29)
-- [ ] `./diagnostics/valgrind-aot.sh` clean — to verify
+- [x] `./diagnostics/valgrind-aot.sh` — 87/90 pass. 3 failures are pre-existing COW bugs (BUG-05-001), not §06 regressions. No struct-reordering-related memory issues. (2026-03-30)
 - [x] Dual-execution parity: 4,217 interpreter + 257 LLVM spec tests all pass (2026-03-29)
 - [ ] `/tpr-review` passed — to run after all items are verified
 
 - [x] **Negative pin tests**: `test_c_layout_preserves_order` asserts size 24 (NOT 16 reordered); `test_reorder_bool_int_bool` asserts size 16 (NOT 24 unreordered); transparent with >1 non-ZST rejected (2026-03-29)
-- [ ] **`ORI_CHECK_LEAKS=1` verification**: Phase 1 (scalar-only) doesn't touch RC-managed fields — drop remapping is wired but only exercises trivial drops. Full leak verification deferred to Phase 2 (mixed-field reordering).
+- [ ] **`ORI_CHECK_LEAKS=1` verification**: Phase 2 complete — now exercises mixed-field RC drops. Run verification.
 - [ ] **Plan annotation cleanup**: §06 annotations are ACTIVE (section still in-progress). Cleanup after TPR passes clean.
-- [ ] **Ori spec tests**: Phase 1 scope covers scalar-only structs — existing AOT tests verify codegen correctness. Ori spec tests for struct layout deferred to Phase 2 when mixed-field structs are supported (spec tests need `struct { a: bool, b: str }` to meaningfully test the full pipeline).
+- [ ] **Ori spec tests**: Phase 2 complete — write spec tests for struct layout with mixed fields (`struct { a: bool, b: str }`).
 
 **Exit Criteria (all must be measurably true):**
 - `StructRepr.size` for `struct { a: bool, b: int, c: bool, d: byte }` is 16 bytes (i64 at offset 0, then i8+i8+i8 at offsets 8-10, then 5 bytes trailing padding to align 8), verified in both Rust unit tests and LLVM IR
