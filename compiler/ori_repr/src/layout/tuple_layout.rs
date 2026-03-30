@@ -11,13 +11,6 @@ use crate::struct_repr::TupleRepr;
 /// Same algorithm as struct reordering but operates on `TupleRepr.elements`.
 /// `original_index` is the tuple position (0, 1, 2, ...) for codegen
 /// remapping of `.0`, `.1`, `.2` accesses.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "activated when compute_struct_layouts enables reordering"
-    )
-)]
 pub(crate) fn optimize_tuple_layout(tuple_repr: &TupleRepr) -> TupleRepr {
     if tuple_repr.elements.is_empty() {
         return TupleRepr {

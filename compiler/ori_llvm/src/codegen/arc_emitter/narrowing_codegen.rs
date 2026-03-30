@@ -329,10 +329,11 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             return args.to_vec();
         };
 
-        // Get the struct/tuple field types from the pool.
+        // Get the struct/tuple field types from the pool (declaration order),
+        // then reorder to memory order to match the reordered args.
         let resolved = self.pool.resolve_fully(ctor_type);
         let pool_tag = self.pool.tag(resolved);
-        let field_pool_types: Vec<Idx> = if pool_tag == Tag::Struct {
+        let decl_pool_types: Vec<Idx> = if pool_tag == Tag::Struct {
             self.pool
                 .struct_fields(resolved)
                 .into_iter()
@@ -343,6 +344,22 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         } else {
             return args.to_vec();
         };
+
+        // §06: reorder pool field types to memory order (matching arg order).
+        let field_pool_types: Vec<Idx> =
+            if let Some(repr) = self.repr_plan.and_then(|p| p.get_repr(resolved)) {
+                let fields = match repr {
+                    ori_repr::MachineRepr::Struct(s) => &s.fields[..],
+                    ori_repr::MachineRepr::Tuple(t) => &t.elements[..],
+                    _ => return args.to_vec(),
+                };
+                fields
+                    .iter()
+                    .map(|f| decl_pool_types[f.original_index as usize])
+                    .collect()
+            } else {
+                decl_pool_types
+            };
 
         args.iter()
             .enumerate()

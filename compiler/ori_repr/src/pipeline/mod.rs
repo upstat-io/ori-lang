@@ -13,7 +13,7 @@ use ori_ir::ReprAttrKind;
 use ori_types::{Idx, Pool};
 
 use crate::plan::{NarrowingPolicy, ReprAttribute, ReprPlan};
-use crate::{narrowing, range};
+use crate::{narrowing, range, DecisionReason, DecisionSource, MachineRepr, ReprDecision};
 
 use metadata::{propagate_metadata_to_applied_resolutions, seed_imported_metadata};
 
@@ -314,14 +314,150 @@ fn apply_float_narrowing(plan: &mut ReprPlan, pool: &Pool, arc_functions: &[ArcF
 
 /// Struct and tuple field reordering for padding minimization.
 ///
-/// **Currently a no-op.** Activated after codegen field-index remapping
-/// is wired (§06.0 prerequisite). The layout algorithms exist in
-/// `layout::struct_layout` and `layout::tuple_layout` — this function
-/// will iterate all struct/tuple types in the plan and apply them.
-fn compute_struct_layouts(_plan: &mut ReprPlan, _pool: &Pool) {
-    // Activated after codegen remapping is wired.
-    // See layout::struct_layout::optimize_struct_layout() and
-    // layout::tuple_layout::optimize_tuple_layout().
+/// Iterates all struct/tuple types in the `ReprPlan`, applies the field
+/// reordering algorithm (descending alignment, then descending size),
+/// and writes the optimized layout back. `#repr("c")`, `#repr("packed")`,
+/// and `#repr("transparent")` structs are handled with their own layout
+/// strategies (no reordering for C, no padding for packed, etc.).
+fn compute_struct_layouts(plan: &mut ReprPlan, pool: &Pool) {
+    use crate::layout::struct_layout::optimize_struct_layout;
+    use crate::layout::tuple_layout::optimize_tuple_layout;
+
+    let indices: Vec<Idx> = plan.decision_indices().collect();
+    // Collect (idx, optimized_repr) to write back after iteration.
+    let mut updates: Vec<(Idx, MachineRepr)> = Vec::new();
+
+    for idx in indices {
+        let Some(repr) = plan.get_repr(idx) else {
+            continue;
+        };
+        match repr {
+            MachineRepr::Struct(s) => {
+                // Phase 1: only reorder all-scalar structs where codegen
+                // goes through try_lower_narrowed_aggregate (fully remapped).
+                // Mixed-field structs (containing str, lists, other structs)
+                // require additional remapping in sret, pattern matching, and
+                // other codegen paths — deferred to §06.5 completion checklist.
+                if !all_scalar_fields(&s.fields) {
+                    continue;
+                }
+                let attr = plan.repr_attr(idx);
+                let optimized = optimize_struct_layout(s, attr);
+                updates.push((idx, MachineRepr::Struct(optimized)));
+            }
+            MachineRepr::Tuple(t) => {
+                if !all_scalar_fields(&t.elements) {
+                    continue;
+                }
+                let optimized = optimize_tuple_layout(t);
+                updates.push((idx, MachineRepr::Tuple(optimized)));
+            }
+            _ => {}
+        }
+    }
+
+    // Write back reordered layouts. Also propagate to resolved aliases
+    // so that different Pool Idx values for the same logical type (common
+    // with monomorphized generics) share the same reordered layout.
+    for (idx, repr) in updates {
+        let decision = ReprDecision {
+            source: DecisionSource::StructLayout,
+            type_idx: idx,
+            repr: repr.clone(),
+            reason: DecisionReason::Custom("field reordering".into()),
+        };
+        plan.set_repr(idx, decision);
+
+        // Propagate to all Pool entries that resolve to this type.
+        // Monomorphization creates multiple Idx values for the same
+        // concrete type — without propagation, call sites may use a
+        // different Idx than the function body, causing layout mismatch.
+        propagate_layout_to_aliases(plan, pool, idx, &repr);
+    }
+}
+
+/// Propagate a reordered layout to all Pool entries that share the same
+/// concrete type structure. This handles the Pool aliasing issue where
+/// monomorphized generics create multiple Idx values for the same logical type.
+fn propagate_layout_to_aliases(
+    plan: &mut ReprPlan,
+    pool: &Pool,
+    source_idx: Idx,
+    repr: &MachineRepr,
+) {
+    let pool_len = u32::try_from(pool.len()).unwrap_or(u32::MAX);
+    let source_tag = pool.tag(source_idx);
+
+    // Only propagate tuples and structs.
+    if source_tag != ori_types::Tag::Tuple && source_tag != ori_types::Tag::Struct {
+        return;
+    }
+
+    // Get the structural signature of the source type (resolved element types).
+    let source_elems: Vec<Idx> = if source_tag == ori_types::Tag::Tuple {
+        pool.tuple_elems(source_idx)
+            .into_iter()
+            .map(|e| pool.resolve_fully(e))
+            .collect()
+    } else {
+        pool.struct_fields(source_idx)
+            .into_iter()
+            .map(|(_, ty)| pool.resolve_fully(ty))
+            .collect()
+    };
+
+    // Scan for matching types that don't yet have the reordered layout.
+    for raw in Idx::FIRST_DYNAMIC..pool_len {
+        let idx = Idx::from_raw(raw);
+        if idx == source_idx {
+            continue;
+        }
+        if pool.tag(idx) != source_tag {
+            continue;
+        }
+        // Check structural match (comparing resolved element types).
+        let elems: Vec<Idx> = if source_tag == ori_types::Tag::Tuple {
+            pool.tuple_elems(idx)
+                .into_iter()
+                .map(|e| pool.resolve_fully(e))
+                .collect()
+        } else {
+            pool.struct_fields(idx)
+                .into_iter()
+                .map(|(_, ty)| pool.resolve_fully(ty))
+                .collect()
+        };
+        if elems == source_elems {
+            // Same structural type — propagate the reordered layout.
+            plan.set_repr(
+                idx,
+                ReprDecision {
+                    source: DecisionSource::StructLayout,
+                    type_idx: idx,
+                    repr: repr.clone(),
+                    reason: DecisionReason::Custom("field reordering (alias propagation)".into()),
+                },
+            );
+        }
+    }
+}
+
+/// Check if all fields of a struct/tuple are scalar types (no composites).
+///
+/// Matches the guard in `try_lower_narrowed_aggregate` — only scalar-field
+/// aggregates go through the fully-remapped codegen path.
+fn all_scalar_fields(fields: &[crate::struct_repr::FieldRepr]) -> bool {
+    fields.iter().all(|f| {
+        matches!(
+            f.repr,
+            MachineRepr::Int { .. }
+                | MachineRepr::Float { .. }
+                | MachineRepr::Bool
+                | MachineRepr::Char
+                | MachineRepr::Byte
+                | MachineRepr::Unit
+        )
+    })
 }
 
 /// Enum niche optimization and discriminant narrowing.
