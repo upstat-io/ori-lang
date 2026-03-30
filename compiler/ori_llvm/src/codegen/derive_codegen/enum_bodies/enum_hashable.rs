@@ -82,6 +82,10 @@ fn emit_enum_payload_hash<'a>(
         .extract_value(self_val, 0, "hash.switch.tag")
         .expect("tag extraction for hash switch");
 
+    // Default block for switch: unreachable (all tags are covered by cases).
+    // Cannot use merge_bb as default — its PHI has no incoming from this edge.
+    let default_bb = fc.builder_mut().append_block(func_id, "hash.default");
+
     let mut cases = Vec::with_capacity(variants.len());
     let mut variant_bbs = Vec::with_capacity(variants.len());
     for (tag_idx, variant) in variants.iter().enumerate() {
@@ -94,7 +98,9 @@ fn emit_enum_payload_hash<'a>(
         variant_bbs.push(bb);
     }
 
-    fc.builder_mut().switch(tag, merge_bb, &cases);
+    fc.builder_mut().switch(tag, default_bb, &cases);
+    fc.builder_mut().position_at_end(default_bb);
+    fc.builder_mut().unreachable();
 
     let i64_ty = fc.builder_mut().i64_type();
     let prime = fc.builder_mut().const_i64(FNV_PRIME as i64);

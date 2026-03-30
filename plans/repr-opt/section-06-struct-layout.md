@@ -29,7 +29,7 @@ sections:
     title: "Completion Checklist"
     status: in-progress
 third_party_review:
-  status: resolved
+  status: clean
   updated: 2026-03-30
 ---
 
@@ -483,6 +483,9 @@ Rust unit tests in `compiler/ori_repr/src/layout/tests.rs`. AOT integration test
 
 - [x] `[TPR-06-008][high]` `compiler/ori_llvm/src/codegen/type_info/layout_resolver.rs`, `compiler/ori_llvm/src/codegen/arc_emitter/drop_enum.rs` — General enum payload sizing still undercounts multi-gap variants. `resolve_enum()` sizes `{ i64 tag, [M x i64] payload }` by summing field store sizes and only rounding once at the end, but variant construction/drop code uses per-field 8-byte slot offsets.
   Resolved: Fixed on 2026-03-30. Both `resolve_enum()` in `layout_resolver.rs` and `pool_type_store_size()` Enum branch in `type_layout.rs` now round each field to 8-byte i64 slot boundaries before summing, matching `compute_variant_field_offsets()`. Added `enum_payload_size()` helper in ARC side. Added unit tests for `A(bool, bool, int) | B` (32 bytes) and `A(bool, int, bool, str) | B` (56 bytes). Added Ori spec test `test_for_yield_padded_enum`. Valgrind-verified: 0 errors, 0 leaks. All 14,605 tests pass.
+
+- [x] `[TPR-06-009][high]` `compiler/ori_llvm/src/codegen/derive_codegen/enum_bodies/enum_hashable.rs:67-171` — `emit_enum_payload_hash()` generates malformed LLVM IR for payload enums. The `switch(tag, merge_bb, &cases)` uses `merge_bb` as default but PHI has no incoming from that edge.
+  Resolved: Fixed on 2026-03-30. Changed switch default to a separate `hash.default` block with `unreachable` terminator (all variants are covered by cases). Verified with both simple payload enum `Circle(int) | Rectangle(int, int)` and padded enum `A(bool, int, bool, str) | B` — both compile and run correctly. Valgrind clean. The fix also enabled 9 additional LLVM backend spec tests. All 14,615 tests pass.
 
 ---
 
