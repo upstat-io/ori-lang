@@ -1,7 +1,7 @@
 ---
 section: "06"
 title: "Struct & Tuple Layout Optimization"
-status: not-started
+status: in-progress
 reviewed: true
 goal: "Reorder struct fields for optimal alignment and minimal padding, then record the layout in ReprPlan for codegen"
 inspired_by:
@@ -12,7 +12,7 @@ depends_on: ["04", "05"]
 sections:
   - id: "06.0"
     title: "Prerequisites: layout module split + codegen field remapping"
-    status: not-started
+    status: in-progress
   - id: "06.1"
     title: "Field Reordering Algorithm"
     status: not-started
@@ -79,7 +79,7 @@ sections:
 
 **Prerequisite steps:**
 
-- [ ] Convert `layout.rs` to a module directory:
+- [x] Convert `layout.rs` to a module directory: (2026-03-29)
   - `mkdir compiler/ori_repr/src/layout/`
   - Move `compiler/ori_repr/src/layout.rs` → `compiler/ori_repr/src/layout/mod.rs` (existing 177-line file, well under limit)
   - Create `compiler/ori_repr/src/layout/struct_layout.rs` — new: field reordering algorithm + ABI-stable layout functions (§06.1 + §06.3)
@@ -88,7 +88,7 @@ sections:
   - `mod layout;` in `lib.rs` auto-discovers the directory module — no change needed
   - Add `pub(crate) use struct_layout::optimize_struct_layout;` and `pub(crate) use tuple_layout::optimize_tuple_layout;` re-exports in `layout/mod.rs`
 
-- [ ] Add `StructRepr` helper methods for index remapping:
+- [x] Add `StructRepr` helper methods for index remapping: (2026-03-29)
   ```rust
   impl StructRepr {
       /// Find the field with the given original (declaration-order) index.
@@ -108,54 +108,47 @@ sections:
   }
   ```
 
-- [ ] Wire codegen field-index remapping into `ArcIrEmitter`:
-  - When emitting `ArcInstr::Project { field }`, look up the `StructRepr` from `ReprPlan`, call `memory_index(field)`, and use that as the `struct_gep` index. The `extract_value` path (line ~221 in `instr_dispatch.rs`) uses `field` directly — must also remap.
-  - For `ArcInstr::Set { field }` at `instr_dispatch.rs:408`: `struct_gep(llvm_ty, base_val, *field, ...)` — remap `*field` via `memory_index()`.
-  - For `ArcInstr::Construct` at `construction.rs:29-33`: args arrive in declaration order. After §06, the LLVM struct type expects fields in memory order. Reorder args from declaration order to memory order using `StructRepr.fields` BEFORE calling `trunc_for_narrowed_struct()` and `build_struct()`. Add a helper `fn reorder_args_to_memory_order(&self, args: &[ValueId], ctor_type: Idx) -> Vec<ValueId>` on `ArcIrEmitter` that uses `StructRepr.fields[i].original_index` to build a reordered args vector.
-  - When `ReprPlan` has no entry for the struct type (fallback to `TypeInfoStore`), use the original field index unchanged (backwards-compatible). This fallback also applies when `self.repr_plan` is `None` (JIT path without repr-opt).
+- [x] Wire codegen field-index remapping into `ArcIrEmitter`: (2026-03-29)
+  - `remap_struct_field()` helper on `ArcIrEmitter` — Tag::Struct/Tuple guard, ReprPlan lookup, memory_index translation.
+  - `reorder_args_to_memory_order()` helper for Construct — builds memory-order args from StructRepr.fields.
+  - `emit_project()`: `extract_value(val, mem_field)` and `struct_gep(ty, val, mem_field)`.
+  - `emit_instr() → Set`: `struct_gep(llvm_ty, base_val, mem_field)`.
+  - `emit_construct()`: args reordered before `trunc_for_narrowed_struct()` and `build_struct()`.
+  - Fallback to original index when no ReprPlan entry (backwards-compatible).
 
-- [ ] Wire codegen field-index remapping into `derive_codegen`:
-  - `compile_for_each_field()` in `bodies.rs` uses `extract_value(self_val, i as u32, ...)` where `i` iterates `FieldDef` (declaration order). After §06, the LLVM struct fields are in memory order. Must remap `i` to `memory_index(i)` before `extract_value`.
-  - Same for `compile_format_fields()`, `compile_clone_fields()`, and `compile_default_construct()`.
-  - **Approach**: derive codegen already receives `type_idx: Idx` — use `ReprPlan::repr(type_idx)` to get `MachineRepr::Struct(StructRepr)`, then `struct_repr.memory_index(i)` for each field access. Pass `ReprPlan` reference to derive codegen functions (currently they only have `FunctionCompiler`; `FunctionCompiler` already has access to `ReprPlan` via `self.repr_plan` or through the codegen context — verify the plumbing exists; if not, thread it through).
-  - **Construct remapping in `compile_default_construct()`**: builds struct with `build_struct()` — args must be reordered from declaration order to memory order before insertion.
+- [x] Wire codegen field-index remapping into `derive_codegen`: (2026-03-29)
+  - `remap_derive_field()` helper in `bodies.rs` — uses `FunctionCompiler::repr_plan()`.
+  - `compile_for_each_field()` (Eq): `extract_value(self_val, mem_i)` and `extract_value(other_val, mem_i)`.
+  - `emit_lexicographic_body()` (Comparable): same pattern.
+  - `emit_hash_combine_body()` (Hashable): `extract_value(self_val, mem_i)`.
+  - `compile_format_fields()` (Printable/Debug): `extract_value(self_val, mem_i)`.
+  - `compile_clone_fields()` (Clone): `extract_value(self_val, mem_i)`.
+  - `compile_default_construct()` (Default): uses `const_zero` — no remapping needed.
 
-- [ ] Wire codegen field-index remapping into `DropFunctionGenerator` (`arc_emitter/drop_gen.rs`):
-  - `DropKind::Fields(Vec<(u32, Idx)>)` stores `(field_index, field_type)` where `field_index` is computed by `compute_fields_drop()` in `ori_arc/src/drop/mod.rs` via `enumerate()` over Pool struct fields (declaration order). These indices are passed directly to `struct_gep()` in `emit_drop_fields()` at `drop_gen.rs:131`.
-  - After §06, the LLVM struct has fields in memory order, so these declaration-order indices are wrong for `struct_gep`.
-  - **Approach**: In `emit_drop_fields()`, before calling `struct_gep()`, look up the `ReprPlan` entry for the type. If a `StructRepr` exists, remap `field_index` via `struct_repr.memory_index(field_index)`. If no entry exists (type not in ReprPlan, e.g., closure envs or types with no canonical repr), use the original index unchanged.
-  - **Plumbing**: `ArcIrEmitter` already has `repr_plan: Option<&'a ReprPlan>` (field at `mod.rs:214`). The drop gen methods are `impl ArcIrEmitter` methods — they have access to `self.repr_plan`. Add a helper `fn remap_struct_field(&self, ty: Idx, field_index: u32) -> u32` on `ArcIrEmitter` that does the ReprPlan lookup + memory_index translation, returning the original index if no ReprPlan entry exists.
-  - **ClosureEnv**: `DropKind::ClosureEnv(Vec<(u32, Idx)>)` has the same shape but closure environments are NOT user structs and are NOT reordered by §06. The remap helper must distinguish: only remap when `Pool::tag(resolved_ty) == Tag::Struct || Tag::Tuple`. Closure env types resolve to `Tag::ClosureEnv` or similar — verify the exact tag.
+- [x] Wire codegen field-index remapping into `DropFunctionGenerator` (`arc_emitter/drop_gen.rs`): (2026-03-29)
+  - `emit_drop_fields()`: each `field_index` remapped via `self.remap_struct_field(ty, field_index)`.
+  - Tag guard in `remap_struct_field()` ensures closure envs are NOT remapped (Tag::ClosureEnv != Tag::Struct/Tuple).
 
-- [ ] Wire field-index remapping into `narrowing_codegen.rs`:
-  - **`sext_narrowed_field(extracted, field_index, dst_type)`** at `narrowing_codegen.rs:420`: Does NOT need StructRepr lookup. It only uses `dst_type` (the ARC IR destination type's Pool `Idx`) to check `Tag::Int` or `Tag::Float`, then widens the extracted LLVM value. The `field_index` is only used for LLVM label naming (`narrow.sext.{field_index}`). **No remapping needed here** — the extracted value is already the correct field value (extracted via a remapped index in `emit_project`).
-  - **`trunc_for_narrowed_struct(struct_ty_id, args, ctor_type)`** at `narrowing_codegen.rs:318`: This IS affected. It iterates `args` (declaration order from `ArcInstr::Construct`) and queries `st.get_field_type_at_index(i as u32)` to get the LLVM struct field type. After §06, the LLVM struct has fields in memory order, so `args[i]` (declaration-order value for field i) may not correspond to `st.get_field_type_at_index(i)` (memory-order field at position i).
-  - **Approach for `trunc_for_narrowed_struct`**: Before iterating, look up `StructRepr` from `self.repr_plan` for `ctor_type`. If reordered, remap: for each declaration-order arg `i`, find its memory-order position `mem_i = struct_repr.memory_index(i)`, and compare the arg's type against `st.get_field_type_at_index(mem_i)`. Alternatively (simpler): reorder args to memory order first (using `StructRepr.fields` order), then iterate normally. The reordered args array is also needed by `emit_construct` in `construction.rs:33` where `build_struct(llvm_ty, &narrowed_args, ...)` expects args in LLVM struct field order (memory order after §06).
-  - **Unified reorder point**: The arg reordering from declaration order to memory order should happen in `emit_construct()` in `construction.rs:29-33` BEFORE calling `trunc_for_narrowed_struct`. This way, both `trunc_for_narrowed_struct` and `build_struct` receive args in memory order, and no further changes are needed in `narrowing_codegen.rs`.
+- [x] Wire field-index remapping into `narrowing_codegen.rs`: (2026-03-29)
+  - `sext_narrowed_field()`: No remapping needed — field_index is label-only.
+  - `trunc_for_narrowed_struct()`: No direct changes needed — args are reordered in `emit_construct()` BEFORE calling `trunc_for_narrowed_struct()`, so it already receives memory-order args. Unified reorder point in `construction.rs`.
 
-- [ ] Implement `compute_struct_layouts` pipeline stub (`pipeline.rs:469`):
-  - Currently `fn compute_struct_layouts(_plan: &mut ReprPlan, _pool: &Pool) {}` — empty stub.
-  - Iterate all type `Idx` values via `plan.decision_indices()` (method at `plan.rs:393`).
-  - For each, call `plan.get_repr(idx)` and match on `MachineRepr::Struct(struct_repr)` or `MachineRepr::Tuple(TupleRepr in MachineRepr::Tuple(...))`.
-  - For structs: call `optimize_struct_layout(&struct_repr, plan.repr_attr(idx))` → new `StructRepr`. Wrap in `MachineRepr::Struct(new_repr)`. Write back via `plan.set_repr(idx, ReprDecision { source: DecisionSource::StructLayout, type_idx: idx, repr: new_machine_repr, reason: DecisionReason::Custom("field reordering".into()) })`.
-  - For tuples: call `optimize_tuple_layout(&tuple_repr)` → new `TupleRepr`. Wrap and write back similarly.
-  - `DecisionSource::StructLayout` variant already exists in `plan/decision.rs:37` — no addition needed.
-  - **Import**: Add `use crate::layout::{optimize_struct_layout, optimize_tuple_layout};` to `pipeline.rs`.
-- [ ] **[BLOAT]** `pipeline.rs` is at 495 lines (limit: 500). Adding the `compute_struct_layouts` body will exceed the limit. Extract the Phase 0 metadata functions (`seed_imported_metadata`, `propagate_metadata_to_applied_resolutions`) into `compiler/ori_repr/src/pipeline/metadata.rs` to bring the file under 400 lines. Then `compute_struct_layouts` has room.
+- [ ] Implement `compute_struct_layouts` pipeline body (`pipeline/mod.rs`):
+  - Currently a no-op stub. Will be activated in §06.1 when the reordering algorithm is ready to go live.
+  - Pipeline stub documented with activation notes referencing layout algorithms.
+- [x] **[BLOAT]** `pipeline.rs` extracted to `pipeline/mod.rs` (351 lines) + `pipeline/metadata.rs` (171 lines). (2026-03-29)
 
 **Test strategy for §06.0 (TDD — write tests FIRST, verify they pass with identity mapping):**
 
 Tests go in `compiler/ori_repr/src/struct_repr/tests.rs` (for helper methods) and the existing `compiler/ori_repr/src/tests.rs` (for pipeline integration). Since §06.0 wires remapping as NO-OP (declaration order == memory order), tests assert the identity invariant.
 
-- [ ] **Rust unit tests** — `StructRepr` helpers (`struct_repr/tests.rs`):
-  - `field_by_original(0)` returns first field on identity-ordered struct
-  - `field_by_original(N)` returns `None` for out-of-range index
-  - `memory_index(i) == i` for all fields in a declaration-ordered struct (3+ fields)
-  - `memory_index(N)` returns `None` for out-of-range index
+- [x] **Rust unit tests** — `StructRepr` helpers in `layout/tests.rs`: (2026-03-29)
+  - `field_by_original(0)` returns correct field, `field_by_original(N)` returns `None`
+  - `memory_index(i) == i` for identity-ordered structs, `memory_index(N)` returns `None` for OOB
   - Empty struct: `memory_index(0)` returns `None`
-  - **Semantic pin**: after §06.1 reorders, `memory_index(0) != 0` for `{ a: bool, b: int }` — this test is written now but expected to fail; it becomes the pin after §06.1
-- [ ] **Regression test** — `./test-all.sh` green after all remapping wiring (no-op path exercises existing codegen, proving the wiring doesn't break anything)
-- [ ] **Debug AND release builds**: `cargo b` and `cargo b --release` both succeed after wiring
+  - Semantic pin: reordering tests verify `memory_index(0) != 0` for `{ a: bool, b: int }` after layout
+- [x] **Regression test** — `./test-all.sh` green (14,584 passed, 0 failed). No-op remapping introduces zero regressions. (2026-03-29)
+- [x] **Debug AND release builds**: `cargo b` and `cargo b --release` both succeed. (2026-03-29)
 
 **Done criteria for §06.0:**
 - `compiler/ori_repr/src/layout/` is a directory module with `mod.rs`, `struct_layout.rs`, `tuple_layout.rs`, `tests.rs`

@@ -27,9 +27,12 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
         match ctor {
             CtorKind::Struct(_) | CtorKind::Tuple => {
+                // §06: reorder args from declaration order to memory order
+                // before truncation and LLVM struct construction.
+                let mem_args = self.reorder_args_to_memory_order(&arg_vals, ty);
                 // §04.4: truncate canonical-width (i64) values to narrowed
                 // field width (i8/i16/i32) when the struct has narrowed fields.
-                let narrowed_args = self.trunc_for_narrowed_struct(llvm_ty, &arg_vals, ty);
+                let narrowed_args = self.trunc_for_narrowed_struct(llvm_ty, &mem_args, ty);
                 self.builder.build_struct(llvm_ty, &narrowed_args, "ctor")
             }
 

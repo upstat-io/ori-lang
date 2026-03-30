@@ -129,11 +129,15 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let struct_llvm_ty = self.resolve_type(ty);
 
         for &(field_index, field_type) in fields {
+            // §06: remap declaration-order field index to memory-order.
+            // Closure envs are not subject to reordering (remap_struct_field
+            // checks Tag::Struct/Tuple, closure envs have a different tag).
+            let mem_index = self.remap_struct_field(ty, field_index);
             let field_llvm_ty = self.resolve_type(field_type);
             let field_ptr = self.builder.struct_gep(
                 struct_llvm_ty,
                 data_ptr,
-                field_index,
+                mem_index,
                 &format!("f{field_index}.ptr"),
             );
             let field_val = self
