@@ -508,6 +508,9 @@ Rust unit tests in `compiler/ori_repr/src/layout/tests.rs`. AOT integration test
 - [x] `[TPR-06-016][medium]` `tests/spec/types/struct_layout.ori:212-240`, `plans/repr-opt/section-06-struct-layout.md:499-500` — The new TPR-06-013 spec pin does not exercise the bug it claims to cover. `test_for_yield_option_field` uses `Option<int>`, but `Option<int>` is already 16 bytes without trailing-padding fixes (`8 + 8`), so `OptRecord { left: Option<int>, active: bool }` still lays out to 24 bytes even on the broken implementation. The real regression surface is sub-8-byte tagged-union payloads such as `Option<bool>`, `Option<char>`, `Result<bool, bool>`, or outer aggregates that contain them. That leaves the repo without a spec-level semantic pin for the actual nested tagged-union padding bug and makes the TPR-06-013 resolution note overstated.
   Resolved: Fixed on 2026-03-30. Changed `OptRecord` from `Option<int>` to `Option<bool>` — `Option<bool>` is 9 bytes without trailing padding vs 16 with, making this a genuine semantic pin for the trailing-padding bug. Updated test values from `Some(1)/Some(42)` to `Some(true)/Some(false)`. Added comment explaining why `Option<bool>` is the correct regression surface.
 
+- [x] `[TPR-06-017][high]` `compiler/ori_arc/src/lower/control_flow/type_layout.rs:112-143`, `compiler/ori_llvm/src/codegen/type_info/type_size.rs:37-89` — `pool_type_store_size()` still disagrees with LLVM for nested low-alignment aggregates because `pool_type_alignment()` hard-codes every non-`bool`/`byte`/`ordering`/`char` type to alignment 8. LLVM computes aggregate alignment recursively from the max field alignment, so shapes like `( (char, char), bool )` or `{ inner: { left: char, right: char }, flag: bool }` should have outer size 12 (inner size 8, align 4), but ARC rounds them to 16. That leaves `aggregate_size_with_padding()` out of sync with `TypeLayoutResolver::type_store_size()` for a real family of nested struct/tuple cases and there is no regression pin covering them in `compiler/ori_arc/src/lower/control_flow/tests.rs`.
+  Resolved: Fixed on 2026-03-30. Made `pool_type_alignment()` recursive for Struct/Tuple types via `pool_type_alignment_inner()`, matching `type_alignment()` in `ori_llvm`. Added `type_store_size_nested_low_alignment` unit test with 6 cases: `(char,char)=8`, `((char,char),bool)=12`, `(bool,bool)=2`, `((bool,bool),char)=8`, nested struct=12, mixed with int=16. All 14,618 tests pass.
+
 ---
 
 ## 06.5 Completion Checklist
@@ -570,7 +573,7 @@ Tests are primarily Rust unit tests in `compiler/ori_repr/src/layout/tests.rs` (
 - [x] `./clippy-all.sh` green — passes in pre-commit hook (2026-03-29)
 - [x] `./diagnostics/valgrind-aot.sh` — 87/90 pass. 3 failures are pre-existing COW bugs (BUG-05-001), not §06 regressions. No struct-reordering-related memory issues. (2026-03-30)
 - [ ] Dual-execution parity: 4,217 interpreter spec tests pass. LLVM backend for struct_layout.ori remains blocked by the system-wide `assert_eq` monomorphization gap; a fresh `HEAD` run now reports 15 llvm compile fail after adding `test_for_yield_option_field` (see TPR-06-015). Non-struct-layout LLVM spec tests remain unaffected. (2026-03-29, updated 2026-03-30)
-- [ ] `/tpr-review` passed — reopened on 2026-03-30. TPR-06-015 tracks the regressed LLVM coverage/count drift in struct_layout.ori, and TPR-06-016 tracks the missing spec-level semantic pin for the actual trailing-padding bug.
+- [ ] `/tpr-review` passed — reopened on 2026-03-30. TPR-06-017 tracks the remaining ARC-vs-LLVM size disagreement for nested low-alignment aggregates.
 
 - [x] **Negative pin tests**: `test_c_layout_preserves_order` asserts size 24 (NOT 16 reordered); `test_reorder_bool_int_bool` asserts size 16 (NOT 24 unreordered); transparent with >1 non-ZST rejected (2026-03-29)
 - [x] **`ORI_CHECK_LEAKS=1` verification**: Phase 2 verified — `{ flag: bool, name: str }` in lists: zero leaks after element_store_size fix (uses ReprPlan size for reordered structs). (2026-03-30)
@@ -585,4 +588,4 @@ Tests are primarily Rust unit tests in `compiler/ori_repr/src/layout/tests.rs` (
 - `#repr("c")` structs are unaffected (declaration order preserved, size matches C ABI)
 - Interpreter and LLVM produce identical results for ALL new test files (dual-execution parity) — **caveat**: struct_layout.ori LLVM verification blocked by system-wide `assert_eq` monomorphization gap (P0, tracked in test-suite-health plan); non-`assert_eq` tests verified
 - `ORI_CHECK_LEAKS=1` reports zero leaks on all spec tests with RC-containing structs
-- `/tpr-review` passed with no critical or major unresolved findings — reopened on 2026-03-30 by TPR-06-015/016 (struct_layout.ori LLVM coverage/count drift + weak TPR-06-013 spec pin)
+- `/tpr-review` passed with no critical or major unresolved findings — reopened on 2026-03-30 by TPR-06-017 (nested low-alignment aggregate size drift between ARC and LLVM)

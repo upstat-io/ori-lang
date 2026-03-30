@@ -110,12 +110,40 @@ pub(crate) fn pool_type_store_size(ty: Idx, pool: &ori_types::Pool, depth: u32) 
 }
 
 /// Alignment of a Pool type in bytes.
+///
+/// Recursively computes alignment for composite types (struct/tuple) as the
+/// max field alignment, matching `type_alignment()` in `ori_llvm`. Without
+/// recursion, nested aggregates of small fields (e.g., `(char, char)`) would
+/// incorrectly default to alignment 8 instead of their actual max alignment.
 fn pool_type_alignment(ty: Idx, pool: &ori_types::Pool) -> i64 {
+    pool_type_alignment_inner(ty, pool, 0)
+}
+
+fn pool_type_alignment_inner(ty: Idx, pool: &ori_types::Pool, depth: u32) -> i64 {
+    if depth > 16 {
+        return 8;
+    }
     let resolved = pool.resolve_fully(ty);
     let tag = pool.tag(resolved);
     match tag {
-        Tag::Bool | Tag::Byte | Tag::Ordering => 1,
+        Tag::Unit | Tag::Never | Tag::Bool | Tag::Byte | Tag::Ordering => 1,
         Tag::Char => 4,
+        Tag::Struct => {
+            let fields = pool.struct_fields(resolved);
+            fields
+                .iter()
+                .map(|(_, field_ty)| pool_type_alignment_inner(*field_ty, pool, depth + 1))
+                .max()
+                .unwrap_or(1)
+        }
+        Tag::Tuple => {
+            let elems = pool.tuple_elems(resolved);
+            elems
+                .iter()
+                .map(|elem_ty| pool_type_alignment_inner(*elem_ty, pool, depth + 1))
+                .max()
+                .unwrap_or(1)
+        }
         _ => 8,
     }
 }
