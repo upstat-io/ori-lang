@@ -472,11 +472,28 @@ fn structural_type_eq(pool: &Pool, a: Idx, b: Idx) -> bool {
                     .zip(b_fields.iter())
                     .all(|((_, tx), (_, ty))| structural_type_eq(pool, *tx, *ty))
         }
-        // Primitives, collections, etc.: same tag + same resolved Idx should
-        // have been caught by the Idx equality check above. Different Idx with
-        // same tag for non-composite types means different types (e.g., two
-        // different Applied types). Conservatively return true for leaf types.
-        _ => true,
+        // Parametric tags: compare inner types recursively.
+        // Without this, Option<int> would match Option<str> (same tag, different payload).
+        ori_types::Tag::Option => {
+            structural_type_eq(pool, pool.option_inner(a), pool.option_inner(b))
+        }
+        ori_types::Tag::Result => {
+            structural_type_eq(pool, pool.result_ok(a), pool.result_ok(b))
+                && structural_type_eq(pool, pool.result_err(a), pool.result_err(b))
+        }
+        ori_types::Tag::List => structural_type_eq(pool, pool.list_elem(a), pool.list_elem(b)),
+        ori_types::Tag::Set => structural_type_eq(pool, pool.set_elem(a), pool.set_elem(b)),
+        ori_types::Tag::Map => {
+            structural_type_eq(pool, pool.map_key(a), pool.map_key(b))
+                && structural_type_eq(pool, pool.map_value(a), pool.map_value(b))
+        }
+        ori_types::Tag::Iterator | ori_types::Tag::DoubleEndedIterator => {
+            structural_type_eq(pool, pool.iterator_elem(a), pool.iterator_elem(b))
+        }
+        // Primitive/leaf tags (Int, Float, Bool, etc.): same tag + different
+        // resolved Idx should not happen (singletons). If it does, reject the
+        // match — the Idx equality check at the top already handles true equality.
+        _ => false,
     }
 }
 
