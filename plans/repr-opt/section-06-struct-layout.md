@@ -29,7 +29,7 @@ sections:
     title: "Completion Checklist"
     status: in-progress
 third_party_review:
-  status: clean
+  status: findings
   updated: 2026-03-30
 ---
 
@@ -486,6 +486,12 @@ Rust unit tests in `compiler/ori_repr/src/layout/tests.rs`. AOT integration test
 
 - [x] `[TPR-06-009][high]` `compiler/ori_llvm/src/codegen/derive_codegen/enum_bodies/enum_hashable.rs:67-171` — `emit_enum_payload_hash()` generates malformed LLVM IR for payload enums. The `switch(tag, merge_bb, &cases)` uses `merge_bb` as default but PHI has no incoming from that edge.
   Resolved: Fixed on 2026-03-30. Changed switch default to a separate `hash.default` block with `unreachable` terminator (all variants are covered by cases). Verified with both simple payload enum `Circle(int) | Rectangle(int, int)` and padded enum `A(bool, int, bool, str) | B` — both compile and run correctly. Valgrind clean. The fix also enabled 9 additional LLVM backend spec tests. All 14,615 tests pass.
+
+- [x] `[TPR-06-010][medium]` `tests/spec/types/struct_layout.ori:92-99` — `test_for_yield_identity_reordered` only asserts list length, not element integrity.
+  Resolved: Fixed on 2026-03-30. Test now verifies all 6 field values (flag, name, count) on both collected elements.
+
+- [x] `[TPR-06-011][medium]` `tests/spec/types/struct_layout.ori:174-190` — `test_for_yield_padded_enum` only validates `collected[0]`, not later entries.
+  Resolved: Fixed on 2026-03-30. Test now verifies all fields of `collected[0]` and `collected[1]` (both `A` variants), and confirms `collected[2]` is `B`.
 
 ---
 
