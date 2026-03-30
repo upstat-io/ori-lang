@@ -24,6 +24,24 @@ Bugs in LLVM IR generation, JIT/AOT compilation, monomorphization, ARC pipeline 
   Found: 2026-03-28 | Source: manual
   Note: Also applies to `--target=x86_64-pc-windows-gnu` (needs `x86_64-w64-mingw32-gcc`).
 
+- [ ] `[BUG-04-003][high]` **Trait impl methods that access `self` struct fields produce LLVM verification errors in AOT** — found by continue-roadmap.
+  Repro: `type Box = { w: int, h: int }` with `impl Printable for Box { @to_str (self) -> str = \`{self.w}x{self.h}\`; }` — LLVM verification: "Call parameter type does not match function signature!" Codegen extracts field 0 and passes it as the `self` parameter instead of passing the whole struct. Inherent impl methods with field access work fine; only trait impl methods are affected.
+  Subsystem: `compiler/ori_llvm/src/codegen/` — `compile_impls()` trait method calling convention
+  Found: 2026-03-28 | Source: continue-roadmap
+  Note: Active work in roadmap section 03 (traits) and 21A (LLVM backend) touches this area.
+
+- [x] `[BUG-04-004][high]` **AOT test `test_arc_loop_allocation` fails with exit code 1** — found by continue-roadmap.
+  Resolved: OBE on 2026-03-29. Same stale release binary pattern as BUG-04-002 — a fresh `cargo build` during §06 work rebuilt the release binary, and all 4 AOT tests now pass (14,584 total, 0 failures).
+
+- [x] `[BUG-04-005][critical]` **AOT test `test_aot_derive_eq_mixed_types` segfaults (exit code -139)** — found by continue-roadmap.
+  Resolved: OBE on 2026-03-29. Stale release binary — same root cause as BUG-04-004.
+
+- [x] `[BUG-04-006][high]` **Derived comparison codegen uses `icmp` on narrowed float fields** — found by continue-roadmap.
+  Resolved: OBE on 2026-03-29. Stale release binary — same root cause as BUG-04-004.
+
+- [x] `[BUG-04-007][high]` **AOT test `test_float_narrowed_mixed_exact_non_exact` fails with exit code 1** — found by continue-roadmap.
+  Resolved: OBE on 2026-03-29. Stale release binary — same root cause as BUG-04-004.
+
 ---
 
 ## Resolved Bugs

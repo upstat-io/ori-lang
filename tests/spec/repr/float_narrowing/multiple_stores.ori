@@ -1,0 +1,44 @@
+// Spec: Annex E (System Considerations) — float narrowing transparency
+// Same struct field written at multiple call sites with different f32-exact
+// values. All must roundtrip correctly. The compiler joins multiple
+// observations to decide narrowing.
+
+use std.testing { assert_eq }
+
+type Config = { threshold: float }
+
+@config_zero () -> Config = Config { threshold: 0.0 };
+@config_one () -> Config = Config { threshold: 1.0 };
+@config_half () -> Config = Config { threshold: 0.5 };
+@config_big () -> Config = Config { threshold: 255.0 };
+
+@test_store_zero tests @config_zero () -> void = {
+    let c = config_zero();
+    assert_eq(actual: c.threshold, expected: 0.0)
+}
+
+@test_store_one tests @config_one () -> void = {
+    let c = config_one();
+    assert_eq(actual: c.threshold, expected: 1.0)
+}
+
+@test_store_half tests @config_half () -> void = {
+    let c = config_half();
+    assert_eq(actual: c.threshold, expected: 0.5)
+}
+
+@test_store_big tests @config_big () -> void = {
+    let c = config_big();
+    assert_eq(actual: c.threshold, expected: 255.0)
+}
+
+// All four constructors create the same type with different f32-exact values.
+// The compiler must handle multiple observation sites correctly.
+@test_multiple_configs tests @config_zero () -> void = {
+    let a = config_zero();
+    let b = config_one();
+    let c = config_half();
+    let d = config_big();
+    let sum = a.threshold + b.threshold + c.threshold + d.threshold;
+    assert_eq(actual: sum, expected: 256.5)
+}

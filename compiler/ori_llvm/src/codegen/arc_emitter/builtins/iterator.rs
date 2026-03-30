@@ -189,11 +189,12 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     ) -> Option<(ValueId, ValueId, LLVMTypeId)> {
         let func_id = self.builder.runtime_fn("ori_iter_next");
 
-        let elem_size = self.element_store_size(elem_ty);
+        // §04.4 Phase C: use narrowed element size/type for int elements.
+        let elem_size = self.int_element_store_size(elem_ty);
         let elem_size_val = self.builder.const_i64(elem_size as i64);
 
-        // Allocate scratch buffer for the element.
-        let elem_llvm_ty = self.resolve_type(elem_ty);
+        // Allocate scratch buffer for the element (narrowed type if applicable).
+        let elem_llvm_ty = self.int_element_llvm_type(elem_ty);
         let scratch = self.builder.create_entry_alloca(
             self.current_function,
             "iter_next.scratch",
@@ -258,7 +259,8 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             return None;
         }
         let other = arg_vals[1];
-        let elem_size = self.element_store_size(elem_ty);
+        // §04.4 Phase C: use narrowed element size for int elements.
+        let elem_size = self.int_element_store_size(elem_ty);
         let elem_size_val = self.builder.const_i64(elem_size as i64);
         let func_id = self.builder.runtime_fn("ori_iter_zip");
         self.builder
@@ -291,7 +293,8 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let (tramp_fn, closure_env) =
             self.build_trampoline(closure, elem_ty, TrampolineKind::Map, result_ty);
 
-        let elem_size = self.element_store_size(elem_ty);
+        // §04.4 Phase C: use narrowed element size for int elements.
+        let elem_size = self.int_element_store_size(elem_ty);
         let elem_size_val = self.builder.const_i64(elem_size as i64);
 
         let func_id = self.builder.runtime_fn("ori_iter_map");
@@ -318,7 +321,8 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let (tramp_fn, closure_env) =
             self.build_trampoline(closure, elem_ty, TrampolineKind::Predicate, None);
 
-        let elem_size = self.element_store_size(elem_ty);
+        // §04.4 Phase C: use narrowed element size for int elements.
+        let elem_size = self.int_element_store_size(elem_ty);
         let elem_size_val = self.builder.const_i64(elem_size as i64);
 
         let func_id = self.builder.runtime_fn("ori_iter_filter");

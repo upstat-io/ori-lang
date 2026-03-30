@@ -2,7 +2,8 @@
 section: 12
 title: Variadic Functions
 status: in-progress
-reviewed: false
+last_verified: "2026-03-29"
+reviewed: true
 tier: 4
 goal: Enable functions with variable number of arguments
 spec:
@@ -11,7 +12,7 @@ spec:
 sections:
   - id: "12.1"
     title: Homogeneous Variadics
-    status: not-started
+    status: partial
   - id: "12.2"
     title: Minimum Argument Count
     status: not-started
@@ -20,10 +21,10 @@ sections:
     status: not-started
   - id: "12.4"
     title: C Variadic Interop
-    status: not-started
+    status: partial
   - id: "12.5"
     title: Variadic in Patterns
-    status: not-started
+    status: deferred
 ---
 
 # Section 12: Variadic Functions
@@ -40,11 +41,13 @@ sections:
 
 Adding variadic parameter support requires updates across these crates:
 
-1. **`ori_ir`** — Add `ParamKind::Variadic(Type)` or `is_variadic` flag on `Param` in AST
-2. **`ori_parse`** — Parse `...T` in parameter position, `...expr` spread in call position
-3. **`ori_types`** — Convert `...T` to `[T]` internally, validate spread type compatibility, enforce "last param only" rule
-4. **`ori_eval`** — Collect variadic args into list at call site, expand spread operator
-5. **`ori_llvm`** — Codegen for variadic arg collection (stack allocation or heap list), C variadic ABI (`va_list`) for extern functions
+1. **`ori_ir`** — `Param.is_variadic`, `CallArg.is_spread`, `ExternItem.is_c_variadic`, `ListElement::Spread`, `MapElement::Spread`, `StructLitField::Spread` all defined (COMPLETE, verified 2026-03-29)
+2. **`ori_parse`** — Parse `...T` in parameter position, `...expr` spread in call position, C variadic `...` in extern blocks; incremental copier handles `is_variadic` (COMPLETE, verified 2026-03-29)
+3. **`ori_types`** — Convert `...T` to `[T]` internally, validate spread type compatibility, enforce "last param only" rule, reject spread in non-variadic calls (GAP-12-003: `is_variadic` never read by typeck)
+4. **`ori_eval`** — Collect variadic args into list at call site, expand spread operator (GAP-12-004: `is_spread` on `CallArg` never handled)
+5. **`ori_llvm`** — Codegen for variadic arg collection (stack allocation or heap list), C variadic ABI (`va_list`) for extern functions (GAP-12-005: no variadic codegen)
+6. **`ori_canon`** — Collection spread desugaring exists (`ori_canon/src/desugar/spread.rs`) but no variadic-specific call-site desugaring
+7. **`ori_fmt`** — `is_c_variadic` handled for extern blocks; `is_variadic` on regular params NOT handled (GAP-12-001); `is_spread` in call args NOT handled (GAP-12-002)
 
 ---
 
@@ -131,31 +134,45 @@ SpreadExpr       = '...' Expression ;
 
 ### Implementation
 
-- [ ] **Spec**: Add variadic parameter syntax
-  - [ ] Parameter syntax `...T`
-  - [ ] Spread operator `...expr`
-  - [ ] Type rules
+- [x] **Spec**: Variadic parameter syntax (verified 2026-03-29)
+  - [x] Parameter syntax `...T` — `spec/10-declarations.md` Section 10.1.3
+  - [x] Spread operator `...expr` — `spec/10-declarations.md`
+  - [x] Type rules — constraints, type inference rules, function type representation
+  - [x] Grammar — `grammar.ebnf` lines 304-305: `variadic_param`, `spread_arg` productions
 
-- [ ] **Lexer**: Add `...` token (if not exists)
-  - [ ] Three-dot token
-  - [ ] Distinguish from range `..`
+- [x] **Lexer**: `DotDotDot` token (verified 2026-03-29)
+  - [x] Three-dot token — `ori_lexer_core` raw scanner, `ori_lexer` cooker
+  - [x] Distinguish from range `..` — separate `DotDot` vs `DotDotDot` tokens
 
-- [ ] **Parser**: Parse variadic parameters
-  - [ ] In function signatures
-  - [ ] Spread in call expressions
-  - [ ] Validation (last param only)
+- [x] **IR (AST)**: Variadic AST nodes (verified 2026-03-29)
+  - [x] `Param.is_variadic: bool` at `ori_ir/src/ast/items/function.rs:97`
+  - [x] `CallArg.is_spread` at `ori_ir/src/ast/collections.rs:143`
+  - [x] `ListElement::Spread`, `MapElement::Spread`, `StructLitField::Spread`
 
-- [ ] **Type checker**: Variadic type rules
+- [x] **Parser**: Parse variadic parameters (verified 2026-03-29)
+  - [x] In function signatures — `ori_parse/src/grammar/item/function/mod.rs:489-494`
+  - [x] Spread in call expressions — `ori_parse/src/grammar/expr/postfix.rs:392-423`
+  - [x] `is_variadic` copied in `ori_parse/src/incremental/copier.rs:861`
+
+- [ ] **Type checker**: Variadic type rules (GAP-12-003: `is_variadic` never read in `ori_types`)
   - [ ] Convert `...T` to `[T]` internally
   - [ ] Check spread type compatibility
   - [ ] Infer element type
+  - [ ] Reject spread in non-variadic calls (GAP-12-007: spec requires error, not implemented)
 
-- [ ] **Evaluator**: Handle variadic calls
+- [ ] **Evaluator**: Handle variadic calls (GAP-12-004: `is_spread` on `CallArg` never handled)
   - [ ] Collect args into list
   - [ ] Handle spread expansion
   - [ ] Mixed literal and spread
 
-- [ ] **LLVM Support**: LLVM codegen for homogeneous variadics
+- [ ] **Formatter**: Emit variadic/spread syntax (GAP-12-001, GAP-12-002)
+  - [ ] Emit `...` before type for `is_variadic` params — round-tripping would lose variadic marker
+  - [ ] Emit `...` before spread args in calls — round-tripping would lose spread syntax
+
+- [ ] **ori_canon**: Call-site variadic spread desugaring
+  - [ ] Update `ori_canon/src/desugar/spread.rs` for variadic call-site spread (collection spread exists)
+
+- [ ] **LLVM Support**: LLVM codegen for homogeneous variadics (GAP-12-005)
 - [ ] **LLVM Rust Tests**: `ori_llvm/tests/variadic_tests.rs` — homogeneous variadics codegen
 - [ ] **AOT Tests**: No AOT coverage yet
 
@@ -164,6 +181,8 @@ SpreadExpr       = '...' Expression ;
   - [ ] With required parameters
   - [ ] Spread operator
   - [ ] Empty variadic call
+
+HYGIENE: `tests/spec/declarations/functions.ori` lines 92-120 contain commented-out variadic test code. These should be converted to `#skip` tests or removed with a plan item tracking them.
 
 ---
 
@@ -268,8 +287,8 @@ print_any(1, "hello", true)     // OK: all Printable
 
 ```ori
 // Declare C variadic function
-extern "C" {
-    @printf (format: *byte, ...) -> c_int  // C-style variadic
+extern "c" {
+    @printf (format: CPtr, ...) -> c_int  // C-style variadic
 }
 
 // Call with any types (unsafe, no type checking)
@@ -286,16 +305,22 @@ unsafe { printf("Number: %d, String: %s\n".as_c_str(), 42, "hello".as_c_str()) }
 
 ### Implementation
 
-- [ ] **Spec**: C variadic syntax
-  - [ ] Extern function with `...`
-  - [ ] No type after `...`
-  - [ ] Unsafe requirement
+- [x] **Spec**: C variadic syntax (verified 2026-03-29)
+  - [x] Extern function with `...` — `spec/26-ffi.md` Section 26.4.11
+  - [x] No type after `...` — `grammar.ebnf` lines 214-216: `c_variadic = "," "..."`
+  - [x] Unsafe requirement
 
-- [ ] **Parser**: Parse C variadics
-  - [ ] `...` without type in extern
-  - [ ] Distinguish from Ori variadics
+- [x] **IR (AST)**: `ExternItem.is_c_variadic: bool` at `ori_ir/src/ast/items/extern_def.rs:47` (verified 2026-03-29)
 
-- [ ] **Type checker**: C variadic rules
+- [x] **Parser**: Parse C variadics (verified 2026-03-29)
+  - [x] `...` without type in extern — `ori_parse/src/grammar/item/extern_def.rs`
+  - [x] Distinguish from Ori variadics
+
+- [x] **Formatter**: `ori_fmt/src/declarations/extern_def.rs:55-60` handles `is_c_variadic` (verified 2026-03-29)
+
+- [x] **Debug output**: `oric/src/commands/debug.rs:57` displays variadic in debug (verified 2026-03-29)
+
+- [ ] **Type checker**: C variadic rules (GAP-12-006: no unsafe enforcement for C variadic callers)
   - [ ] Must be in extern block
   - [ ] Caller must be unsafe
   - [ ] No type inference
@@ -307,6 +332,8 @@ unsafe { printf("Number: %d, String: %s\n".as_c_str(), 42, "hello".as_c_str()) }
 - [ ] **LLVM Support**: LLVM codegen for C variadic interop
 - [ ] **LLVM Rust Tests**: `ori_llvm/tests/variadic_tests.rs` — C variadic interop codegen
 - [ ] **AOT Tests**: No AOT coverage yet
+
+- [x] **Parser Tests**: `test_extern_c_variadic` and `test_extern_c_variadic_no_params` in `oric/tests/phases/parse/extern_def.rs:97-112` -- 2 tests, both pass (verified 2026-03-29) WEAK TESTS — parse-only, no codegen/end-to-end
 
 - [ ] **Test**: `tests/spec/ffi/c_variadics.ori`
   - [ ] printf call
@@ -339,16 +366,47 @@ Defer to future consideration. Current section focuses on function parameters on
 
 ## Section Completion Checklist
 
-- [ ] All items above have all checkboxes marked `[ ]`
-- [ ] Spec updated: `spec/10-declarations.md` variadic section complete
+- [ ] All implementation items above have checkboxes marked `[x]`
+- [x] Spec updated: `spec/10-declarations.md` variadic section complete (verified 2026-03-29)
 - [ ] CLAUDE.md updated with variadic syntax
-- [ ] Homogeneous variadics work
-- [ ] Spread operator works
+- [ ] Homogeneous variadics work (typeck/eval/codegen not started)
+- [ ] Spread operator works (typeck/eval/codegen not started)
 - [ ] C variadic interop works (after Section 11)
+- [ ] Commented-out test code in `tests/spec/declarations/functions.ori` lines 92-120 cleaned up
 - [ ] All tests pass: `./test-all.sh`
 - [ ] `/tpr-review` passed — independent Codex review found no critical or major issues (or all findings triaged)
 
 **Exit Criteria**: Can implement `format()` and call C's `printf()`
+
+---
+
+## Verification Summary (2026-03-29)
+
+**Overall completion**: ~20% — parse/IR infrastructure exists but no typeck/eval/codegen/tests
+
+| Subsection | Plan Status | Actual Status | Test Classification |
+|------------|-------------|---------------|---------------------|
+| 12.1 Homogeneous Variadics | partial | PARTIAL (parse/IR only) | NEEDS TESTS |
+| 12.2 Minimum Argument Count | not-started | NOT STARTED | NEEDS TESTS |
+| 12.3 Trait Bounds on Variadics | not-started | NOT STARTED | NEEDS TESTS |
+| 12.4 C Variadic Interop | partial | PARTIAL (parse only) | WEAK TESTS (parse-only, 2 tests) |
+| 12.5 Variadic in Patterns | deferred | NOT APPLICABLE | NOT APPLICABLE |
+
+### Gap Registry
+
+| Gap ID | Description | Phases | Severity |
+|--------|-------------|--------|----------|
+| GAP-12-001 | `ori_fmt` does not handle `is_variadic` on function params — round-trip loses variadic | Parse -> Fmt | Major |
+| GAP-12-002 | `ori_fmt` does not handle `is_spread` in call args — round-trip loses spread | Parse -> Fmt | Major |
+| GAP-12-003 | Type checker never reads `is_variadic` — params parsed but not type-checked as variadic | Parse -> Typeck | Critical |
+| GAP-12-004 | Evaluator never handles `is_spread` on `CallArg` — spread parsed but not evaluated | Parse -> Eval | Critical |
+| GAP-12-005 | No LLVM codegen for variadic arg collection or spread in calls | Typeck -> Codegen | Critical |
+| GAP-12-006 | No unsafe enforcement for C variadic callers | Typeck | Major |
+| GAP-12-007 | Spread in non-variadic calls not rejected (spec says it should be an error) | Typeck | Major |
+
+### Hygiene Issues
+
+- HYGIENE VIOLATION: `tests/spec/declarations/functions.ori` lines 92-120 contain commented-out variadic test code. Should be `#skip` tests or removed with plan item tracking.
 
 ---
 

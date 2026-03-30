@@ -1,8 +1,7 @@
 //! `TypeLayoutResolver` — recursive LLVM type resolution with cycle detection.
 //!
 //! Resolves `Idx` → `BasicTypeEnum` with two-phase struct creation for
-//! recursive types. Extracted from `type_info/mod.rs` for file size hygiene
-//! (§04 HYGIENE-04-001).
+//! recursive types. Extracted from `type_info/mod.rs` for file size hygiene.
 
 use std::cell::{Cell, RefCell};
 
@@ -233,10 +232,10 @@ impl<'a, 'll, 'tcx> TypeLayoutResolver<'a, 'll, 'tcx> {
             if let Some(llvm_ty) = self.try_repr_to_llvm_type(repr) {
                 return llvm_ty;
             }
-            // §04.4: If this is a narrowed Struct/Tuple (has int fields with
-            // width < I64 from integer narrowing), resolve directly using the
-            // narrowed FieldRepr widths. Non-narrowed structs fall through to
-            // TypeInfoStore's named struct path below.
+            // If this is a narrowed Struct/Tuple (has int fields with width < I64
+            // from integer narrowing), resolve directly using the narrowed FieldRepr
+            // widths. Non-narrowed structs fall through to TypeInfoStore's named
+            // struct path below.
             if let Some(llvm_ty) = self.try_lower_narrowed_aggregate(repr) {
                 return llvm_ty;
             }
@@ -290,10 +289,24 @@ impl<'a, 'll, 'tcx> TypeLayoutResolver<'a, 'll, 'tcx> {
             }
 
             // Tuple: struct of recursively-resolved element types.
+            // §06: if the tuple is reordered, use memory-order from TupleRepr.
             TypeInfo::Tuple { elements } => {
                 self.resolving.borrow_mut().insert(idx);
                 let field_types: Vec<BasicTypeEnum<'ll>> =
-                    elements.iter().map(|&e| self.resolve(e)).collect();
+                    if let Some(ori_repr::MachineRepr::Tuple(t)) =
+                        self.repr_plan.and_then(|p| p.get_repr(idx))
+                    {
+                        if t.is_reordered() {
+                            t.elements
+                                .iter()
+                                .map(|f| self.resolve(elements[f.original_index as usize]))
+                                .collect()
+                        } else {
+                            elements.iter().map(|&e| self.resolve(e)).collect()
+                        }
+                    } else {
+                        elements.iter().map(|&e| self.resolve(e)).collect()
+                    };
                 self.resolving.borrow_mut().remove(&idx);
                 self.scx.type_struct(&field_types, false).into()
             }
@@ -328,17 +341,15 @@ impl<'a, 'll, 'tcx> TypeLayoutResolver<'a, 'll, 'tcx> {
         };
 
         // Only enter the narrowed path if at least one field was actually
-        // narrowed. The canonical (non-narrowed) path for all int fields is
-        // Int { width: I64, signed: true }. Any Int with width < I64 must
-        // have come from the §04 narrowing pass — natural narrow types
-        // (Byte, Char, Bool) use their own MachineRepr variants.
+        // narrowed. Check for both integer narrowing (Int width < I64)
+        // and float narrowing (Float width F32).
         let has_narrowed = fields.iter().any(|f| {
             matches!(
                 f.repr,
-                MachineRepr::Int {
-                    width,
-                    ..
-                } if width != ori_repr::IntWidth::I64
+                MachineRepr::Int { width, .. } if width != ori_repr::IntWidth::I64
+            ) || matches!(
+                f.repr,
+                MachineRepr::Float { width } if width != ori_repr::FloatWidth::F64
             )
         });
         if !has_narrowed {
@@ -346,12 +357,12 @@ impl<'a, 'll, 'tcx> TypeLayoutResolver<'a, 'll, 'tcx> {
         }
 
         // Safety: only create narrowed LLVM types when ALL fields are
-        // scalar int types. Mixed structs (e.g., { str, int }) change
-        // the overall struct size, which breaks element_store_size() and
+        // scalar types. Mixed structs (e.g., { str, int }) change the
+        // overall struct size, which breaks element_store_size() and
         // elem_dec_fn assumptions in collection codegen (list element
         // GEP stride, RC cleanup offsets). Mixed-field narrowing requires
-        // Phase C element_store_size integration (§04.4).
-        let all_scalar_int = fields.iter().all(|f| {
+        // Integer narrowing phase C: element_store_size integration.
+        let all_scalar_fields = fields.iter().all(|f| {
             matches!(
                 f.repr,
                 MachineRepr::Int { .. }
@@ -362,7 +373,7 @@ impl<'a, 'll, 'tcx> TypeLayoutResolver<'a, 'll, 'tcx> {
                     | MachineRepr::Unit
             )
         });
-        if !all_scalar_int {
+        if !all_scalar_fields {
             return None;
         }
 
@@ -376,6 +387,11 @@ impl<'a, 'll, 'tcx> TypeLayoutResolver<'a, 'll, 'tcx> {
     }
 
     /// Resolve a struct type with two-phase creation for cycle safety.
+    ///
+    /// §06: when the struct is reordered in the `ReprPlan`, creates the LLVM
+    /// type with fields in memory order (sorted by alignment) rather than
+    /// declaration order. This ensures the LLVM struct layout matches the
+    /// `StructRepr` that codegen's field-index remapping expects.
     fn resolve_struct(&self, idx: Idx, fields: &[(Name, Idx)]) -> BasicTypeEnum<'ll> {
         if self.resolving.borrow().contains(&idx) {
             if let Some(&named) = self.named_structs.borrow().get(&idx) {
@@ -389,8 +405,21 @@ impl<'a, 'll, 'tcx> TypeLayoutResolver<'a, 'll, 'tcx> {
         self.named_structs.borrow_mut().insert(idx, named_struct);
         self.resolving.borrow_mut().insert(idx);
 
-        let field_types: Vec<BasicTypeEnum<'ll>> =
-            fields.iter().map(|&(_, ty)| self.resolve(ty)).collect();
+        // §06: if the struct is reordered, build LLVM type in memory order.
+        let field_types: Vec<BasicTypeEnum<'ll>> = if let Some(ori_repr::MachineRepr::Struct(s)) =
+            self.repr_plan.and_then(|p| p.get_repr(idx))
+        {
+            if s.is_reordered() {
+                s.fields
+                    .iter()
+                    .map(|f| self.resolve(fields[f.original_index as usize].1))
+                    .collect()
+            } else {
+                fields.iter().map(|&(_, ty)| self.resolve(ty)).collect()
+            }
+        } else {
+            fields.iter().map(|&(_, ty)| self.resolve(ty)).collect()
+        };
 
         self.scx.set_struct_body(named_struct, &field_types, false);
         self.resolving.borrow_mut().remove(&idx);

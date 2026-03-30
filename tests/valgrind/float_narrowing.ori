@@ -1,0 +1,53 @@
+// Valgrind test: float narrowing fptrunc/fpext must not cause memory errors.
+// Exercises all 8 spec test scenarios: basic roundtrip, arithmetic, mixed
+// exact/non-exact fields, multiple stores, combined int+float, negative zero,
+// boundary values, and comparison after load.
+
+type Color = { r: float, g: float, b: float }
+type Signed = { value: float }
+type Boundary = { large: float, small: float }
+type Config = { threshold: float }
+type Mixed = { exact: float, imprecise: float }
+type Pixel = { r: int, x: float }
+
+@make_color () -> Color = Color { r: 0.5, g: 0.25, b: 1.0 };
+@make_neg_zero () -> Signed = Signed { value: -0.0 };
+@make_boundary () -> Boundary = Boundary { large: 16777216.0, small: 0.0625 };
+@config_a () -> Config = Config { threshold: 0.0 };
+@config_b () -> Config = Config { threshold: 255.0 };
+@make_mixed () -> Mixed = Mixed { exact: 0.5, imprecise: 0.1 };
+@make_pixel () -> Pixel = Pixel { r: 128, x: 0.5 };
+
+@main () -> int = {
+    // Basic roundtrip (f32-exact fields)
+    let c = make_color();
+    let sum = c.r + c.g + c.b;
+
+    // Negative zero preservation
+    let s = make_neg_zero();
+    let neg_result = 1.0 / s.value;
+
+    // Boundary values
+    let b = make_boundary();
+    let ok_boundary = b.large == 16777216.0;
+
+    // Multiple stores
+    let a = config_a();
+    let d = config_b();
+    let total = a.threshold + d.threshold;
+
+    // Mixed exact/non-exact float fields
+    let m = make_mixed();
+    let ok_exact = m.exact == 0.5;
+    let ok_imprecise = m.imprecise == 0.1;
+
+    // Combined int+float narrowing
+    let p = make_pixel();
+    let ok_int = p.r == 128;
+    let ok_float = p.x == 0.5;
+
+    // Comparison after load
+    let cmp = c.r < c.b;
+
+    if sum == 1.75 && neg_result < 0.0 && ok_boundary && total == 255.0 && ok_exact && ok_imprecise && ok_int && ok_float && cmp then 0 else 1
+}

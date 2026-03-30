@@ -75,6 +75,7 @@ impl<'tcx> super::OwnedLLVMEvaluator<'tcx> {
         mut arc_cache: FxHashMap<Name, (ori_arc::ArcFunction, Vec<ori_arc::ArcFunction>)>,
         narrowing_policy: Option<ori_repr::NarrowingPolicy>,
         imported_type_metadata: &[ori_types::ExportedTypeMetadata],
+        imported_collection_surfaces: &[u64],
         trait_impl_fn_names: &[(ori_types::Idx, Name)],
     ) -> Result<CompiledTestModule<'a>, LLVMEvalError> {
         // --- V2 pipeline ---
@@ -114,6 +115,7 @@ impl<'tcx> super::OwnedLLVMEvaluator<'tcx> {
                 &mut arc_cache,
                 narrowing_policy,
                 imported_type_metadata,
+                imported_collection_surfaces,
                 trait_impl_fn_names,
             )
         };
@@ -153,6 +155,7 @@ impl<'tcx> super::OwnedLLVMEvaluator<'tcx> {
         arc_cache: &mut FxHashMap<Name, (ori_arc::ArcFunction, Vec<ori_arc::ArcFunction>)>,
         narrowing_policy: Option<ori_repr::NarrowingPolicy>,
         imported_type_metadata: &[ori_types::ExportedTypeMetadata],
+        imported_collection_surfaces: &[u64],
         trait_impl_fn_names: &[(ori_types::Idx, Name)],
     ) -> (FxHashMap<Name, String>, u32, Vec<String>) {
         // Type infrastructure
@@ -177,11 +180,29 @@ impl<'tcx> super::OwnedLLVMEvaluator<'tcx> {
             .filter_map(|te| te.repr.map(|r| (te.idx, r)))
             .collect();
         // Extract public type indices for ABI-safe narrowing (TPR-04-005).
-        let pub_type_indices: Vec<ori_types::Idx> = user_types
+        let mut pub_type_indices: Vec<ori_types::Idx> = user_types
             .iter()
             .filter(|te| te.visibility == ori_types::Visibility::Public)
             .map(|te| te.idx)
             .collect();
+        // TPR-04-027/028: Mark collection wrapper types from public function
+        // signatures as public, recursively walking into nested types.
+        for sig in function_sigs {
+            if sig.is_public {
+                for &param_ty in &sig.param_types {
+                    ori_types::walk_collection_types(self.pool, param_ty, &mut |idx| {
+                        if !pub_type_indices.contains(&idx) {
+                            pub_type_indices.push(idx);
+                        }
+                    });
+                }
+                ori_types::walk_collection_types(self.pool, sig.return_type, &mut |idx| {
+                    if !pub_type_indices.contains(&idx) {
+                        pub_type_indices.push(idx);
+                    }
+                });
+            }
+        }
         // Collect unconstrained function names (pub + trait impl) for §03.5.
         // Uses trait_impl_fn_names (not all impl_sigs) per TPR-03-038.
         let unconstrained_fn_names = crate::collect_unconstrained_fn_names(
@@ -197,6 +218,7 @@ impl<'tcx> super::OwnedLLVMEvaluator<'tcx> {
             Some(interner),
             &pub_type_indices,
             imported_type_metadata,
+            imported_collection_surfaces,
             &unconstrained_fn_names,
             // JIT also has analysis-only impl methods (TPR-03-048).
             impl_sigs.iter().any(|(_, sig)| !sig.is_generic()),

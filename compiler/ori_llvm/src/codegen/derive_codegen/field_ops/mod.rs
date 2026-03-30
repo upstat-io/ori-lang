@@ -37,8 +37,8 @@ pub(super) fn emit_field_operation<'a>(
     let info = fc.type_info().get(field_type);
     match &info {
         // Integer-like signed: signed compare, sext to i64 for hash.
-        // §04 integer narrowing may produce i8/i16/i32 struct fields for
-        // types with bounded ranges. Hash requires canonical i64 width.
+        // Integer narrowing may produce i8/i16/i32 struct fields for types
+        // with bounded ranges. Hash requires canonical i64 width.
         TypeInfo::Int | TypeInfo::Duration | TypeInfo::Size => match op {
             FieldOp::Equals => fc.builder_mut().icmp_eq(lhs, expect_rhs(rhs), name),
             FieldOp::Compare => {
@@ -80,15 +80,21 @@ pub(super) fn emit_field_operation<'a>(
                 .builder_mut()
                 .emit_fcmp_ordering(lhs, expect_rhs(rhs), name),
             FieldOp::Hash => {
+                // Float narrowing: widen f32 back to f64 before hashing.
+                // This ensures hash(narrowed_struct) == hash(canonical_struct).
+                let hash_val = fc.builder_mut().fpext_to_f64_if_narrower(lhs, name);
                 // Normalize ±0.0 → +0.0 before bitcast to preserve hash contract:
                 // (-0.0).equals(0.0) is true, so their hashes must match.
                 let pos_zero = fc.builder_mut().const_f64(0.0);
-                let is_zero = fc
-                    .builder_mut()
-                    .fcmp_oeq(lhs, pos_zero, &format!("{name}.is_zero"));
-                let normalized =
+                let is_zero =
                     fc.builder_mut()
-                        .select(is_zero, pos_zero, lhs, &format!("{name}.normalized"));
+                        .fcmp_oeq(hash_val, pos_zero, &format!("{name}.is_zero"));
+                let normalized = fc.builder_mut().select(
+                    is_zero,
+                    pos_zero,
+                    hash_val,
+                    &format!("{name}.normalized"),
+                );
                 let i64_ty = fc.builder_mut().i64_type();
                 fc.builder_mut().bitcast(normalized, i64_ty, name)
             }
@@ -431,6 +437,29 @@ fn compute_elem_size<'a>(fc: &FunctionCompiler<'_, 'a, 'a, '_>, ty: Idx, info: &
             let llvm_ty = fc.resolve_type(ty);
             crate::codegen::TypeLayoutResolver::type_store_size(llvm_ty) as i64
         }
-        _ => 8,
+        _ => {
+            // Integer narrowing phase C: check if this element type is narrowed
+            // as a collection element. For `int` elements in narrowed
+            // collections, the element size is 1/2/4 instead of canonical 8.
+            if let Some(plan) = fc.repr_plan() {
+                let resolved = fc.pool().resolve_fully(ty);
+                if fc.pool().tag(resolved) == ori_types::Tag::Int {
+                    for idx in plan.decision_indices() {
+                        if let Some(ori_repr::MachineRepr::FatPointer(
+                            ori_repr::FatRepr::Collection { ref element_repr },
+                        )) = plan.get_repr(idx)
+                        {
+                            if let ori_repr::MachineRepr::Int { width, .. } = element_repr.as_ref()
+                            {
+                                if *width != ori_repr::IntWidth::I64 {
+                                    return i64::from(width.size_bytes());
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            8
+        }
     }
 }

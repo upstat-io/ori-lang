@@ -140,9 +140,9 @@ Information flow — each stage enriches the ReprPlan:
   │                                                           │
   ├──→ §02 Transitive Triviality ─────────────────────────┐   │
   │                                                       │   │
-  ├──→ §03 Range Analysis Framework ──┬──→ §04 Int Narrow │   │
-  │   (§03.1-§03.4 first,             └──→ §05 Float      │   │
-  │    then §03.5 interprocedural)                        │   │
+  ├──→ §03 Range Analysis Framework ──→ §04 Int Narrow ──→ §05 Float
+  │   (§03.1-§03.4 first,             (§05.1-3 analysis can overlap §04;
+  │    then §03.5 interprocedural)      §05.4 codegen extends §04's emitter)
   │                                                       │   │
   ├──→ §06 Struct Layout ◄────────────── (§04, §05)       │   │
   │                                                       │   │
@@ -162,7 +162,7 @@ Information flow — each stage enriches the ReprPlan:
 - **§01** is the foundation — everything depends on it; includes `--no-repr-opt` flag and `ori_repr` workspace registration. §01 establishes the complete query surface (`int_width`, `float_width`, `is_trivial`, `escapes(ArcVarId)`, `rc_strategy`, `var_range`, `repr_attr`, `narrowing_policy`) and writer surface (`set_repr`, `set_var_ranges`, `set_escape_info`, `set_rc_strategy`, `set_repr_attr`), `NarrowingPolicy` and `RcStrategy` enums, `FieldRepr.name` field, `range/mod.rs` and `escape/mod.rs` placeholder modules, and `compute_repr_plan(pool, arc_functions, policy, repr_attrs)` signature with 10 empty pass stubs — all needed so §02–§11 can be developed without changing §01's API.
 - **§02, §03** are independent of each other and can be developed in parallel
 - **§03** subsections have an internal sequencing requirement: §03.1→§03.2→§03.2b→§03.4→§03.3→§03.5 (see §03.3 for why §03.4 must precede §03.3; §03.2b provides field-summary types consumed by §03.3's fixpoint loop)
-- **§04, §05** both depend on §03 (range analysis) and can be developed in parallel
+- **§04, §05** both depend on §03 (range analysis). §05.1-§05.3 (analysis) can be developed in parallel with §04, but §05.4 (LLVM codegen) extends §04's codegen infrastructure (`trunc_for_narrowed_struct`, `sext_narrowed_field`, `try_lower_narrowed_aggregate`) and must be implemented after §04 is complete
 - **§06** depends on §04/§05 (needs to know narrowed field types for layout)
 - **§07** depends on §04 and §05 (integer narrowing affects discriminant sizing; float narrowing may affect niche patterns in f32-typed fields)
 - **§08** depends on §02 (triviality affects escape classification)
@@ -173,6 +173,8 @@ Information flow — each stage enriches the ReprPlan:
 
 **Cross-section interactions (must be co-implemented):**
 - **§04 + §06**: Integer narrowing changes field sizes, which changes struct layout. If narrowing lands without layout update, struct padding wastes the savings.
+- **§05 + §06**: Float narrowing (f64 → f32) also changes field sizes and alignments, affecting struct layout. §06 must run after both §04 and §05 to see final narrowed field sizes. <!-- reviewed: cohesion fix -->
+- **§06 + ori_llvm codegen**: Field reordering creates a mismatch between ARC IR field indices (declaration order) and LLVM struct field indices (memory order). ALL codegen consumers of field indices must remap via `StructRepr::memory_index()`: `ArcIrEmitter` (Project, Construct, Set), `derive_codegen` (extract_value, build_struct), `DropFunctionGenerator` (struct_gep), and `narrowing_codegen` (sext_narrowed_field, trunc_for_narrowed_struct). Missing any one consumer causes silent data corruption. <!-- reviewed: cohesion fix -->
 - **§08 + §09**: Escape analysis determines which allocations are stack-local (no RC header) vs heap (need RC header). If escape analysis lands without header compression, heap allocations still use i64 headers unnecessarily.
 - **§02 + ori_arc pipeline**: Transitive triviality must agree with `ori_arc::ArcClassifier` (defined in `ori_arc/src/classify/mod.rs`, re-exported at crate root via `pub use classify::ArcClassifier`). The ARC pipeline uses the `ArcClassification` trait (`ori_arc/src/lib.rs`) as the abstraction; `compute_drop_info()` and `run_arc_pipeline()` accept `&dyn ArcClassification`. If triviality and ArcClassifier disagree, codegen either emits unnecessary RC ops or skips needed ones. Both must use the same classification — `ori_types::triviality::classify_triviality()` is the single source of truth.
 - **§01.7 + §06**: `#repr` attributes (c, packed, transparent, aligned) are stored in ReprPlan by §01 but consumed by §06's layout algorithm. The layout pass must check `repr_attrs` before reordering fields. If §01 stores attrs but §06 ignores them, C-ABI structs get silently reordered → FFI bugs.
@@ -183,7 +185,8 @@ Information flow — each stage enriches the ReprPlan:
 - **§03 + §01 (function_var_ranges + field_range_summaries)**: §03's range analysis outputs per-variable ranges AND per-field summaries. Per-variable: stored in `ReprPlan::function_var_ranges` via `set_var_ranges()` (live in `plan.rs:146`), queried via `var_range(func, var)` (live in `plan.rs:155`). Per-field: stored in `ReprPlan::field_range_summaries` via `join_field_range()` (new — §03.2b deliverable), queried via `field_range(type_idx, field)` (new). The field-summary is the critical §03→§04 contract for struct field narrowing — without it, §04's `Pixel { r, g, b, a: int }` target is unachievable. §03 must also make three `ori_arc::graph` functions `pub` (currently `pub(crate)`): `compute_predecessors`, `successor_block_ids`, `compute_postorder` — see [NOTE] in Codebase Findings above.
 - **§04 + §07**: Integer narrowing (§04) reduces field sizes, which changes what invalid bit patterns are available as niches. §07's `find_niches()` must query `ReprPlan` for the narrowed `MachineRepr` of each field, not the canonical one. If §07 runs niche analysis on canonical (pre-narrowing) types, it will miss niches created by narrowing (e.g., a field narrowed to `i8` with range `[0, 2]` has 253 niche values that the canonical `i64` version does not).
 - **§05 + §07**: Float narrowing (§05) may produce `f32`-typed fields. `f32` NaN bit patterns (quiet NaN: `0x7FC00000` through `0x7FFFFFFF` and `0xFFC00000` through `0xFFFFFFFF`) are technically invalid "values" but IEEE 754 semantics make them complex to use as niches. §07 must conservatively skip NaN-based niches for `f32` fields unless it has verified the platform's NaN handling (leave as `vec![]` for `MachineRepr::Float { width: F32 }`).
-- **§05 + §01 (float_width query)**: §05's float narrowing writes `Float { width: F32 }` into `ReprPlan` and reads it back via `ReprPlan::float_width(idx)` (live in `plan/query.rs:81`, default `F64`). Analogous to `int_width()` for §04.
+- **§05 + §01 (float_width query)**: §05's float narrowing writes `Float { width: F32 }` into `ReprPlan` and reads it back via `ReprPlan::float_width(idx)` (live in `plan/query.rs:81`, default `F64`). Analogous to `int_width()` for §04. Note: `float_width()` is a type-level query. §05's field-level narrowing is stored inside `MachineRepr::Struct` field entries, not at the type level. Codegen reads the narrowed width from `FieldRepr.repr`, not from `float_width()`.
+- **§05 + §04 (codegen extension)**: §05.4 extends three functions that §04 created: `trunc_for_narrowed_struct()` (adds `Tag::Float` branch for `fptrunc`), `sext_narrowed_field()` (adds `Tag::Float` branch for `fpext`), and `try_lower_narrowed_aggregate()` (relaxes "all-scalar-int" guard to "all-scalar-primitives" to accept f32 fields). §04 must be complete before §05.4 can begin.
 - **§09 + §01 (set_rc_strategy writer)**: §09 computes `SharingBound` per allocation and stores the resulting `RcStrategy` in `ReprPlan` via `set_rc_strategy(idx, strategy, source)` (live in `plan.rs:183`). Stored in a **separate** `rc_strategies` map (not merged into `MachineRepr` — TPR-01-022). §10's `rc_strategy()` query reads from this map; default is `Atomic { I64 }`.
 - **§08 + §01 (set_escape_info writer + escapes query body)**: §08 computes `EscapeInfo` per function and needs to store it in `ReprPlan::escape_info`. §01.2 has the field, and `set_escape_info(func, info)` is a `pub` writer. However, §08 must ALSO update the `escapes()` query body in `plan/query.rs` — it currently hardcodes `true` (safe default: "everything escapes") and does not consult `escape_info`. §08 must replace the hardcoded `true` with an actual lookup into `self.escape_info` for the given function and variable. Without both the writer AND the query body update, §09 always sees `escapes = true` and cannot compress headers.
 - **§10 + §01 (thread-locality via RcStrategy)**: §10's thread-locality analysis result is expressed through `RcStrategy::NonAtomic` (vs `Atomic`). There is no separate `ThreadLocality` storage field — the RC strategy IS the thread-locality decision. §10 writes via `set_rc_strategy(idx, NonAtomic { width }, ThreadLocal)` and §10/codegen reads via `rc_strategy(idx)`. This is architecturally correct: thread-locality and RC width are a single decision.
@@ -203,9 +206,9 @@ Phase 1 — Foundation (parallel)
   └─ §03: Range analysis framework (abstract interpretation engine)
   Gate: `./test-all.sh` green, no behavioral changes, ReprPlan populated with triviality + ranges
 
-Phase 2 — Core Narrowing (parallel)
-  ├─ §04: Integer narrowing (i64 → i32/i16/i8 where safe)
-  └─ §05: Float narrowing (f64 → f32 where safe)
+Phase 2 — Core Narrowing (§04 first, then §05)
+  §04: Integer narrowing (i64 → i32/i16/i8 where safe)
+    → §05: Float narrowing (f64 → f32 where safe) [§05.1-§05.3 analysis can overlap §04; §05.4 codegen extends §04's emitter functions]
   Gate: narrowed types visible in LLVM IR, dual-exec shows identical results
 
 Phase 3 — Layout Optimization (partially parallel)
@@ -300,10 +303,17 @@ This is intentional (internal to `ori_arc`). §08.5's option (b) — passing esc
 |   ↳ 04.1 Width selection | ~200 | Medium | §03 |
 |   ↳ 04.2 ABI boundary widening | ~150 | Medium | §03 |
 |   ↳ 04.3 Overflow guards | ~250 | High | §03 |
-| 05 Float Narrowing | ~500 | High | §03 |
-| 06 Struct Layout | ~700 | Medium | §04, §05 |
-|   ↳ 06.1 Field reordering | ~300 | Medium | §04 |
-|   ↳ 06.2 Padding minimization | ~200 | Medium | §04 |
+| 05 Float Narrowing | ~500 | High | §03, §04 |
+|   ↳ 05.1 Precision analysis | ~100 | Medium | §03 |
+|   ↳ 05.2 Float range collection | ~150 | Medium | §03 |
+|   ↳ 05.3 Float field narrowing | ~100 | Medium | §03 |
+|   ↳ 05.4 LLVM fpext/fptrunc codegen | ~150 | High | §04 |
+| 06 Struct Layout | ~900 | Medium-High | §04, §05 | <!-- reviewed: cohesion fix — expanded for codegen remapping across derive, drop, narrowing -->
+|   ↳ 06.0 Prerequisites + codegen remapping | ~350 | Medium-High | §04, §05 |
+|   ↳ 06.1 Field reordering algorithm | ~200 | Medium | §04 |
+|   ↳ 06.2 Padding tracking & diagnostics | ~50 | Low | §04 |
+|   ↳ 06.3 ABI-stable opt-out | ~150 | Medium | §04 |
+|   ↳ 06.4 Tuple layout | ~100 | Low | §04 |
 | 07 Enum Repr | ~900 | High | §04, §05 |
 |   ↳ 07.1 Niche filling | ~400 | High | §04 |
 |   ↳ 07.2 Discriminant narrowing | ~200 | Medium | §04 |
@@ -329,9 +339,9 @@ This is intentional (internal to `ori_arc`). §08.5's option (b) — passing esc
 | 01 | Representation IR & Decision Framework | `section-01-repr-ir.md` | In Progress (99%) |
 | 02 | Transitive Triviality & ARC Elision | `section-02-transitive-triviality.md` | Complete |
 | 03 | Value Range Analysis Framework | `section-03-range-analysis.md` | Complete (13 TPR findings resolved) |
-| 04 | Integer Narrowing Pipeline | `section-04-integer-narrowing.md` | In Progress (33%) |
-| 05 | Float Narrowing Pipeline | `section-05-float-narrowing.md` | Not Started |
-| 06 | Struct & Tuple Layout Optimization | `section-06-struct-layout.md` | Not Started |
+| 04 | Integer Narrowing Pipeline | `section-04-integer-narrowing.md` | Complete |
+| 05 | Float Narrowing Pipeline | `section-05-float-narrowing.md` | Complete (19 TPR findings resolved) |
+| 06 | Struct & Tuple Layout Optimization | `section-06-struct-layout.md` | In Progress |
 | 07 | Enum Representation Optimization | `section-07-enum-repr.md` | Not Started |
 | 08 | Escape Analysis & Stack Promotion | `section-08-escape-analysis.md` | Not Started |
 | 09 | ARC Header Compression | `section-09-arc-header.md` | Not Started |

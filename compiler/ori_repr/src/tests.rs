@@ -1987,7 +1987,7 @@ fn repr_c_aligned_stored_and_retrieved() {
 fn repr_convert_c_aligned_roundtrip() {
     // §01.7 semantic pin: CAligned survives the ReprAttrKind → ReprAttribute conversion.
     let kind = ori_ir::ReprAttrKind::CAligned(32);
-    let attr = crate::convert_repr_attr_kind(&kind);
+    let attr = crate::pipeline::convert_repr_attr_kind(&kind);
     assert_eq!(attr, ReprAttribute::CAligned(32));
 }
 
@@ -2936,6 +2936,7 @@ fn pub_type_propagates_to_resolved_struct_idx() {
         &[named_idx],
         &[],
         &[],
+        &[],
         false,
     );
 
@@ -3039,6 +3040,7 @@ fn pub_resolved_idx_not_narrowed_semantic_pin() {
         &[],
         None,
         &[named_idx],
+        &[],
         &[],
         &[],
         false,
@@ -3147,6 +3149,7 @@ fn pub_type_propagates_through_applied_to_concrete_struct() {
         &[named_idx],
         &[],
         &[],
+        &[],
         false,
     );
 
@@ -3234,6 +3237,7 @@ fn pub_applied_concrete_struct_not_narrowed_semantic_pin() {
         &[],
         None,
         &[named_idx],
+        &[],
         &[],
         &[],
         false,
@@ -3335,6 +3339,7 @@ fn multiple_applied_instantiations_all_protected() {
         &[named_idx],
         &[],
         &[],
+        &[],
         false,
     );
 
@@ -3375,6 +3380,7 @@ fn imported_pub_type_seeded_via_metadata() {
         &[], // No local pub types
         &imported_meta,
         &[],
+        &[],
         false,
     );
 
@@ -3410,6 +3416,7 @@ fn imported_repr_c_type_seeded_via_metadata() {
         None,
         &[], // No local pub types
         &imported_meta,
+        &[],
         &[],
         false,
     );
@@ -3448,6 +3455,7 @@ fn imported_pub_type_not_narrowed_semantic_pin() {
         None,
         &[], // No local pub types — only imported metadata
         &imported_meta,
+        &[],
         &[],
         false,
     );
@@ -3502,6 +3510,7 @@ fn imported_repr_c_type_not_narrowed_semantic_pin() {
         &[],
         &imported_meta,
         &[],
+        &[],
         false,
     );
 
@@ -3548,6 +3557,7 @@ fn no_imported_metadata_allows_narrowing() {
         None,
         &[], // No pub types
         &[], // No imported metadata
+        &[],
         &[],
         false,
     );
@@ -3596,6 +3606,246 @@ fn imported_metadata_hash_not_in_pool_ignored() {
         &[],
         &imported_meta,
         &[],
+        &[],
         false,
+    );
+}
+
+// =============================================================================
+// Cross-module collection surface protection (TPR-04-032)
+// =============================================================================
+
+/// Imported collection surface hash does NOT suppress element narrowing
+/// (TPR-04-042 fix). Imported surfaces are for transitive forwarding metadata
+/// (A→B→C), not for narrowing suppression. Private `[int]` in the importing
+/// module can narrow independently of imported public `[int]` APIs.
+#[test]
+fn imported_collection_surface_does_not_suppress_narrowing() {
+    let mut pool = Pool::new();
+    let interner = ori_ir::StringInterner::new();
+
+    // Build a narrowable struct so the plan has something to process.
+    let type_name = interner.intern("Wrapper");
+    let field_xs = interner.intern("xs");
+    let list_int = pool.list(Idx::INT);
+    let _struct_idx = pool.struct_type(type_name, &[(field_xs, list_int)]);
+
+    // Get the merkle hash of List<int> — simulates what the exporting module
+    // would have computed via generate_exported_collection_surfaces().
+    let list_int_hash = pool.hash(list_int);
+
+    let plan = crate::compute_repr_plan_with_interner(
+        &pool,
+        &[],
+        NarrowingPolicy::Aggressive,
+        &[],
+        None,
+        &[],              // No local pub types
+        &[],              // No imported type metadata
+        &[list_int_hash], // Imported collection surface
+        &[],
+        false,
+    );
+
+    // Imported surfaces should NOT mark the type as public.
+    // They're for transitive forwarding, not narrowing suppression.
+    assert!(
+        !plan.is_public_type(list_int),
+        "Imported collection surface should NOT suppress narrowing (TPR-04-042)"
+    );
+}
+
+/// Imported collection surface hash that doesn't match any local pool type
+/// is safely ignored (no panic).
+#[test]
+fn imported_collection_surface_unknown_hash_no_panic() {
+    let pool = Pool::new();
+    let bogus_hash = 0xDEAD_BEEF_CAFE_BABE;
+
+    let _plan = crate::compute_repr_plan_with_interner(
+        &pool,
+        &[],
+        NarrowingPolicy::Aggressive,
+        &[],
+        None,
+        &[],
+        &[],
+        &[bogus_hash],
+        &[],
+        false,
+    );
+    // No panic — unknown hash is silently skipped.
+}
+
+/// Empty imported collection surfaces behave identically to no surfaces.
+#[test]
+fn imported_collection_surface_empty_is_noop() {
+    let mut pool = Pool::new();
+    let interner = ori_ir::StringInterner::new();
+    let type_name = interner.intern("Pixel");
+    let field_r = interner.intern("r");
+    let named_idx = pool.named(type_name);
+    let struct_idx = pool.struct_type(type_name, &[(field_r, Idx::INT)]);
+    pool.set_resolution(named_idx, struct_idx);
+
+    let plan_without = crate::compute_repr_plan_with_interner(
+        &pool,
+        &[],
+        NarrowingPolicy::Aggressive,
+        &[],
+        None,
+        &[named_idx],
+        &[],
+        &[], // No collection surfaces
+        &[],
+        false,
+    );
+
+    let plan_with_empty = crate::compute_repr_plan_with_interner(
+        &pool,
+        &[],
+        NarrowingPolicy::Aggressive,
+        &[],
+        None,
+        &[named_idx],
+        &[],
+        &[], // Explicitly empty collection surfaces
+        &[],
+        false,
+    );
+
+    // Both plans should treat the struct identically.
+    assert_eq!(
+        plan_without.get_repr(struct_idx),
+        plan_with_empty.get_repr(struct_idx),
+        "Empty collection surfaces should not change narrowing behavior"
+    );
+}
+
+/// Multiple imported collection surface hashes are resolved without panic.
+/// After TPR-04-042, imported surfaces don't mark types as public (they're
+/// for forwarding metadata only), but the resolution still succeeds.
+#[test]
+fn imported_collection_surfaces_multiple_hashes_no_panic() {
+    let mut pool = Pool::new();
+
+    let list_int = pool.list(Idx::INT);
+    let set_int = pool.set(Idx::INT);
+
+    let list_hash = pool.hash(list_int);
+    let set_hash = pool.hash(set_int);
+
+    let plan = crate::compute_repr_plan_with_interner(
+        &pool,
+        &[],
+        NarrowingPolicy::Aggressive,
+        &[],
+        None,
+        &[],
+        &[],
+        &[list_hash, set_hash],
+        &[],
+        false,
+    );
+
+    // After TPR-04-042: imported surfaces no longer mark types as public.
+    assert!(
+        !plan.is_public_type(list_int),
+        "Imported surface should NOT mark List<int> as public (TPR-04-042)"
+    );
+    assert!(
+        !plan.is_public_type(set_int),
+        "Imported surface should NOT mark Set<int> as public (TPR-04-042)"
+    );
+}
+
+/// Verifies the TPR-04-042 fix: imported collection surfaces do NOT suppress
+/// element narrowing for the importing module's private `[int]` usage.
+///
+/// The per-Idx limitation is RESOLVED: imported surfaces are no longer added
+/// to `pub_type_indices`. Only same-module public functions suppress narrowing.
+///
+/// Regression: TPR-04-042
+#[test]
+fn imported_collection_surface_allows_private_narrowing() {
+    let mut pool = Pool::new();
+
+    // One `[int]` Idx — shared by both imported public API and private local usage.
+    let list_int = pool.list(Idx::INT);
+    let list_hash = pool.hash(list_int);
+
+    // Plan WITH imported surface: simulates a module importing a public [int] API.
+    let plan_with_import = crate::compute_repr_plan_with_interner(
+        &pool,
+        &[],
+        NarrowingPolicy::Aggressive,
+        &[],
+        None,
+        &[], // No local pub types
+        &[],
+        &[list_hash], // Imported public [int] surface
+        &[],
+        false,
+    );
+
+    // Plan WITHOUT imported surface: private-only usage.
+    let plan_without_import = crate::compute_repr_plan_with_interner(
+        &pool,
+        &[],
+        NarrowingPolicy::Aggressive,
+        &[],
+        None,
+        &[],
+        &[],
+        &[], // No imported surfaces
+        &[],
+        false,
+    );
+
+    // With import: the shared Idx is NOT marked public. Imported surfaces
+    // don't suppress narrowing — they're for forwarding metadata only.
+    assert!(
+        !plan_with_import.is_public_type(list_int),
+        "Imported surface should NOT mark [int] as public (TPR-04-042 fix)"
+    );
+
+    // Without import: same — private [int] is not public.
+    assert!(
+        !plan_without_import.is_public_type(list_int),
+        "Without imports, private [int] is not marked public"
+    );
+
+    // Both plans treat [int] identically — imported surfaces have no effect
+    // on narrowing. This verifies the fix: private [int] in a module that
+    // imports a public [int] API can now narrow independently.
+}
+
+/// Verifies that same-module public functions still correctly suppress
+/// narrowing. This is the positive counterpart to the TPR-04-042 fix —
+/// we removed imported surface suppression but kept local public suppression.
+#[test]
+fn local_public_function_still_suppresses_narrowing() {
+    let mut pool = Pool::new();
+
+    let list_int = pool.list(Idx::INT);
+
+    // Plan with local pub type: simulates `pub @f(xs: [int])` in this module.
+    let plan = crate::compute_repr_plan_with_interner(
+        &pool,
+        &[],
+        NarrowingPolicy::Aggressive,
+        &[],
+        None,
+        &[list_int], // Local pub type — [int] appears in own public signature
+        &[],
+        &[], // No imported surfaces
+        &[],
+        false,
+    );
+
+    // Local public function's collection type MUST suppress narrowing.
+    assert!(
+        plan.is_public_type(list_int),
+        "Local public function should suppress [int] narrowing"
     );
 }

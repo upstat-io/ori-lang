@@ -1,25 +1,28 @@
-//! Integer narrowing pipeline (§04).
+//! Narrowing pipeline — integer and float narrowing passes.
 //!
-//! Narrows `int` (semantic i64) to the smallest machine integer (i8/i16/i32)
-//! that preserves correctness, based on value ranges computed by §03.
+//! Narrows semantic types to smaller machine representations when the
+//! compiler can prove no loss of precision or correctness:
+//! - `int` (i64) → i8/i16/i32 via value range analysis
+//! - `float` (f64) → f32 via precision analysis
 //!
 //! # Architecture
 //!
-//! The narrowing pass reads ranges from `ReprPlan::field_range()` and
-//! `ReprPlan::var_range()`, applies conservatism rules, and writes back
-//! narrowed `MachineRepr` into the plan.
+//! The narrowing passes read from `ReprPlan` (ranges, field summaries)
+//! and write back narrowed `MachineRepr` into the plan.
 //!
-//! Four modules:
-//! - **`abi`** (§04.2): ABI boundary classification and widening policy
-//! - **`int`** (§04.1): Struct/tuple field narrowing (Phase A)
-//! - **`overflow`** (§04.3, future): Overflow guard insertion
+//! Five modules:
+//! - **`abi`**: ABI boundary classification and widening policy
+//! - **`int`**: Integer struct/tuple field narrowing
+//! - **`float`**: Float precision analysis and field narrowing
+//! - **`overflow`** (future): Overflow guard insertion
 //!
-//! Three narrowing phases:
-//! - **Phase A** (§04.1): Struct/tuple field narrowing via field-summary ranges
-//! - **Phase B** (§04.2–§04.3): Local variable narrowing + overflow guards
-//! - **Phase C** (§04.4): Collection element narrowing
+//! Narrowing phases:
+//! - **Phase A**: Struct field narrowing via field-summary ranges/precision
+//! - **Phase B**: Local variable narrowing + overflow guards
+//! - **Phase C**: Collection element narrowing
 
 pub mod abi;
+pub mod float;
 pub mod int;
 pub mod overflow;
 

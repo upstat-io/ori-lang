@@ -92,7 +92,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
         let (data_ptr, len, cap) = self.extract_set_components(receiver);
         let elem_ptr = self.elem_to_ptr(elem, elem_ty, "insert.elem");
-        let (elem_size, elem_align) = self.elem_size_and_align(elem_ty);
+        let (elem_size, elem_align) = self.elem_size_and_align(elem_ty, None);
         let elem_eq = self.get_or_create_eq_thunk(elem_ty)?;
         let elem_hash = self.get_or_create_hash_thunk(elem_ty)?;
         let inc_fn = self.get_or_generate_elem_inc_fn(elem_ty);
@@ -132,7 +132,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
         let (data_ptr, len, cap) = self.extract_set_components(receiver);
         let elem_ptr = self.elem_to_ptr(elem, elem_ty, "remove.elem");
-        let (elem_size, elem_align) = self.elem_size_and_align(elem_ty);
+        let (elem_size, elem_align) = self.elem_size_and_align(elem_ty, None);
         let elem_eq = self.get_or_create_eq_thunk(elem_ty)?;
         let elem_hash = self.get_or_create_hash_thunk(elem_ty)?;
         let inc_fn = self.get_or_generate_elem_inc_fn(elem_ty);
@@ -197,7 +197,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             .extract_value(other, 1, "set2.cap")
             .unwrap_or_else(|| self.builder.const_i64(0));
 
-        let (elem_size, elem_align) = self.elem_size_and_align(elem_ty);
+        let (elem_size, elem_align) = self.elem_size_and_align(elem_ty, None);
         let elem_eq = self.get_or_create_eq_thunk(elem_ty)?;
         let elem_hash = self.get_or_create_hash_thunk(elem_ty)?;
         let inc_fn = self.get_or_generate_elem_inc_fn(elem_ty);

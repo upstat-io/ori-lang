@@ -1,7 +1,8 @@
-//! Tests for integer narrowing (§04.1–§04.2).
+//! Tests for integer narrowing (§04.1–§04.2, §04.4 Phase C).
 //!
 //! - Phase A tests (§04.1): struct/tuple field narrowing
 //! - ABI boundary tests (§04.2): boundary classification, widening policy
+//! - Phase C tests (§04.4): collection element narrowing
 
 use ori_ir::Name;
 use ori_types::{Idx, Pool};
@@ -11,14 +12,14 @@ use ori_ir::BinaryOp;
 use crate::narrowing::abi::{
     self, AbiBoundary, CrossModuleAgreement, FunctionBoundaryInfo, WidthRequirement,
 };
-use crate::narrowing::int::narrow_struct_fields;
+use crate::narrowing::int::{narrow_collection_elements, narrow_struct_fields};
 use crate::narrowing::overflow::{self, OverflowStrategy};
 use crate::plan::{
     DecisionReason, DecisionSource, NarrowingPolicy, ReprAttribute, ReprDecision, ReprPlan,
 };
 use crate::range::ValueRange;
 use crate::repr::{IntWidth, MachineRepr};
-use crate::struct_repr::{FieldRepr, StructRepr, TupleRepr};
+use crate::struct_repr::{FatRepr, FieldRepr, StructRepr, TupleRepr};
 
 /// Helper: create a `FieldRepr` with canonical i64 int type.
 fn int_field(index: u32) -> FieldRepr {
@@ -1438,4 +1439,391 @@ fn semantic_pin_all_arithmetic_ops_overflow_detection() {
         big_shift,
         IntWidth::I8
     ));
+}
+
+// Phase C — Collection element narrowing
+
+/// Helper: set up a list collection type `[int]` in the plan.
+fn setup_list_collection(plan: &mut ReprPlan, collection_idx: Idx) {
+    plan.set_repr(
+        collection_idx,
+        ReprDecision {
+            source: DecisionSource::Canonical,
+            type_idx: collection_idx,
+            repr: MachineRepr::FatPointer(FatRepr::Collection {
+                element_repr: Box::new(MachineRepr::Int {
+                    width: IntWidth::I64,
+                    signed: true,
+                }),
+            }),
+            reason: DecisionReason::Canonical,
+        },
+    );
+}
+
+/// Helper: get the element int width of a collection after narrowing.
+fn collection_element_width(plan: &ReprPlan, idx: Idx) -> Option<IntWidth> {
+    match plan.get_repr(idx)? {
+        MachineRepr::FatPointer(FatRepr::Collection { element_repr }) => {
+            match element_repr.as_ref() {
+                MachineRepr::Int { width, .. } => Some(*width),
+                _ => None,
+            }
+        }
+        _ => None,
+    }
+}
+
+#[test]
+fn phase_c_list_bounded_elements_narrow_to_i8() {
+    let mut pool = Pool::default();
+    let list_int = pool.list(Idx::INT);
+
+    let mut plan = ReprPlan::new(NarrowingPolicy::Aggressive);
+    setup_list_collection(&mut plan, list_int);
+
+    // All elements in [-128, 127] → should narrow to i8.
+    plan.join_element_range(list_int, ValueRange::Bounded { lo: -128, hi: 127 });
+
+    narrow_collection_elements(&mut plan, &pool);
+
+    assert_eq!(
+        collection_element_width(&plan, list_int),
+        Some(IntWidth::I8),
+        "list [int] with elements [-128, 127] should narrow to i8"
+    );
+}
+
+#[test]
+fn phase_c_list_bounded_elements_narrow_to_i16() {
+    let mut pool = Pool::default();
+    let list_int = pool.list(Idx::INT);
+
+    let mut plan = ReprPlan::new(NarrowingPolicy::Aggressive);
+    setup_list_collection(&mut plan, list_int);
+
+    // Elements in [0, 255] → signed i8 max is 127, so → i16.
+    plan.join_element_range(list_int, ValueRange::Bounded { lo: 0, hi: 255 });
+
+    narrow_collection_elements(&mut plan, &pool);
+
+    assert_eq!(
+        collection_element_width(&plan, list_int),
+        Some(IntWidth::I16),
+        "list [int] with elements [0, 255] should narrow to i16 (signed)"
+    );
+}
+
+#[test]
+fn phase_c_list_top_range_stays_i64() {
+    let mut pool = Pool::default();
+    let list_int = pool.list(Idx::INT);
+
+    let mut plan = ReprPlan::new(NarrowingPolicy::Aggressive);
+    setup_list_collection(&mut plan, list_int);
+
+    // No element observations → Top → stays i64.
+    narrow_collection_elements(&mut plan, &pool);
+
+    assert_eq!(
+        collection_element_width(&plan, list_int),
+        Some(IntWidth::I64),
+        "list [int] with Top range should stay i64"
+    );
+}
+
+#[test]
+fn phase_c_public_collection_not_narrowed() {
+    let mut pool = Pool::default();
+    let list_int = pool.list(Idx::INT);
+
+    let mut plan = ReprPlan::new(NarrowingPolicy::Aggressive);
+    setup_list_collection(&mut plan, list_int);
+    plan.set_pub_type_indices([list_int]);
+
+    // Even with bounded elements, public types are not narrowed.
+    plan.join_element_range(list_int, ValueRange::Bounded { lo: 0, hi: 10 });
+
+    narrow_collection_elements(&mut plan, &pool);
+
+    assert_eq!(
+        collection_element_width(&plan, list_int),
+        Some(IntWidth::I64),
+        "public [int] should not be narrowed"
+    );
+}
+
+#[test]
+fn phase_c_disabled_policy_suppresses_narrowing() {
+    let mut pool = Pool::default();
+    let list_int = pool.list(Idx::INT);
+
+    let mut plan = ReprPlan::new(NarrowingPolicy::Disabled);
+    setup_list_collection(&mut plan, list_int);
+    plan.join_element_range(list_int, ValueRange::Bounded { lo: 0, hi: 10 });
+
+    narrow_collection_elements(&mut plan, &pool);
+
+    assert_eq!(
+        collection_element_width(&plan, list_int),
+        Some(IntWidth::I64),
+        "NarrowingPolicy::Disabled should suppress all collection narrowing"
+    );
+}
+
+#[test]
+fn phase_c_repr_c_collection_not_narrowed() {
+    let mut pool = Pool::default();
+    let list_int = pool.list(Idx::INT);
+
+    let mut plan = ReprPlan::new(NarrowingPolicy::Aggressive);
+    setup_list_collection(&mut plan, list_int);
+    plan.set_repr_attr(list_int, ReprAttribute::C);
+    plan.join_element_range(list_int, ValueRange::Bounded { lo: 0, hi: 10 });
+
+    narrow_collection_elements(&mut plan, &pool);
+
+    assert_eq!(
+        collection_element_width(&plan, list_int),
+        Some(IntWidth::I64),
+        "#repr(\"c\") collection should not be narrowed"
+    );
+}
+
+#[test]
+fn phase_c_semantic_pin_only_passes_with_narrowing() {
+    // Semantic pin: this test ONLY passes if collection element narrowing is
+    // active. Without it, the element width would remain I64.
+    let mut pool = Pool::default();
+    let list_int = pool.list(Idx::INT);
+
+    let mut plan = ReprPlan::new(NarrowingPolicy::Aggressive);
+    setup_list_collection(&mut plan, list_int);
+
+    // Bounded elements [-50, 50] fit in i8.
+    plan.join_element_range(list_int, ValueRange::Bounded { lo: -50, hi: 50 });
+
+    // Before narrowing: i64.
+    assert_eq!(
+        collection_element_width(&plan, list_int),
+        Some(IntWidth::I64)
+    );
+
+    narrow_collection_elements(&mut plan, &pool);
+
+    // After narrowing: i8 — this assertion fails without the Phase C code.
+    assert_eq!(
+        collection_element_width(&plan, list_int),
+        Some(IntWidth::I8),
+        "semantic pin: narrowing must change element width from I64 to I8"
+    );
+}
+
+#[test]
+fn phase_c_negative_pin_wide_range_stays_canonical() {
+    // Negative pin: full i64 range stays at i64.
+    let mut pool = Pool::default();
+    let list_int = pool.list(Idx::INT);
+
+    let mut plan = ReprPlan::new(NarrowingPolicy::Aggressive);
+    setup_list_collection(&mut plan, list_int);
+
+    plan.join_element_range(
+        list_int,
+        ValueRange::Bounded {
+            lo: i64::MIN,
+            hi: i64::MAX,
+        },
+    );
+
+    narrow_collection_elements(&mut plan, &pool);
+
+    assert_eq!(
+        collection_element_width(&plan, list_int),
+        Some(IntWidth::I64),
+        "negative pin: full i64 range must stay canonical"
+    );
+}
+
+#[test]
+fn phase_c_multiple_construction_sites_join_ranges() {
+    // Two construction sites with different ranges → joined range.
+    let mut pool = Pool::default();
+    let list_int = pool.list(Idx::INT);
+
+    let mut plan = ReprPlan::new(NarrowingPolicy::Aggressive);
+    setup_list_collection(&mut plan, list_int);
+
+    // Site A: [0, 50], Site B: [-100, 0] → joined: [-100, 50] → i8.
+    plan.join_element_range(list_int, ValueRange::Bounded { lo: 0, hi: 50 });
+    plan.join_element_range(list_int, ValueRange::Bounded { lo: -100, hi: 0 });
+
+    narrow_collection_elements(&mut plan, &pool);
+
+    assert_eq!(
+        collection_element_width(&plan, list_int),
+        Some(IntWidth::I8),
+        "joined range [-100, 50] should narrow to i8"
+    );
+}
+
+#[test]
+fn phase_c_multiple_sites_one_wide_prevents_narrowing() {
+    // One construction site with wide range prevents narrowing.
+    let mut pool = Pool::default();
+    let list_int = pool.list(Idx::INT);
+
+    let mut plan = ReprPlan::new(NarrowingPolicy::Aggressive);
+    setup_list_collection(&mut plan, list_int);
+
+    // Site A: [0, 50], Site B: Top → joined: Top → no narrowing.
+    plan.join_element_range(list_int, ValueRange::Bounded { lo: 0, hi: 50 });
+    plan.join_element_range(list_int, ValueRange::Top);
+
+    narrow_collection_elements(&mut plan, &pool);
+
+    assert_eq!(
+        collection_element_width(&plan, list_int),
+        Some(IntWidth::I64),
+        "one Top site should prevent narrowing"
+    );
+}
+
+#[test]
+fn phase_c_i32_boundary_narrows_correctly() {
+    let mut pool = Pool::default();
+    let list_int = pool.list(Idx::INT);
+
+    let mut plan = ReprPlan::new(NarrowingPolicy::Aggressive);
+    setup_list_collection(&mut plan, list_int);
+
+    // Range fits in i32 but not i16.
+    plan.join_element_range(
+        list_int,
+        ValueRange::Bounded {
+            lo: -100_000,
+            hi: 100_000,
+        },
+    );
+
+    narrow_collection_elements(&mut plan, &pool);
+
+    assert_eq!(
+        collection_element_width(&plan, list_int),
+        Some(IntWidth::I32),
+        "range [-100000, 100000] should narrow to i32"
+    );
+}
+
+/// Negative pin: `Set<int>` is excluded from Phase C narrowing because
+/// eq/hash thunks always load canonical-width (i64) values from element
+/// pointers. Narrowing set elements would cause the thunks to read past
+/// the narrowed slot.
+#[test]
+fn phase_c_set_int_not_narrowed() {
+    let mut pool = Pool::default();
+    let set_int = pool.set(Idx::INT);
+
+    let mut plan = ReprPlan::new(NarrowingPolicy::Aggressive);
+    setup_list_collection(&mut plan, set_int); // same repr shape as list
+
+    // Even with a tight range that would normally narrow to i8...
+    plan.join_element_range(set_int, ValueRange::Bounded { lo: 0, hi: 10 });
+
+    narrow_collection_elements(&mut plan, &pool);
+
+    // ...Set<int> stays at canonical i64 (not narrowed).
+    assert_eq!(
+        collection_element_width(&plan, set_int),
+        Some(IntWidth::I64),
+        "Set<int> must NOT be narrowed — eq/hash thunks are not narrowing-aware"
+    );
+}
+
+/// When both `[int]` and `Set<int>` have element ranges, only the list
+/// is narrowed. The set stays canonical.
+#[test]
+fn phase_c_list_narrowed_but_set_stays_canonical() {
+    let mut pool = Pool::default();
+    let list_int = pool.list(Idx::INT);
+    let set_int = pool.set(Idx::INT);
+
+    let mut plan = ReprPlan::new(NarrowingPolicy::Aggressive);
+    setup_list_collection(&mut plan, list_int);
+    setup_list_collection(&mut plan, set_int);
+
+    plan.join_element_range(list_int, ValueRange::Bounded { lo: 0, hi: 100 });
+    plan.join_element_range(set_int, ValueRange::Bounded { lo: 0, hi: 100 });
+
+    narrow_collection_elements(&mut plan, &pool);
+
+    assert_eq!(
+        collection_element_width(&plan, list_int),
+        Some(IntWidth::I8),
+        "List<int> with range [0, 100] should narrow to i8"
+    );
+    assert_eq!(
+        collection_element_width(&plan, set_int),
+        Some(IntWidth::I64),
+        "Set<int> must stay at canonical i64 even with same tight range"
+    );
+}
+
+/// Semantic pin: imported collection surface does NOT suppress Phase C narrowing.
+/// This drives `narrow_collection_elements()` with an imported surface and
+/// proves the element width actually changes to i8 (not just `!is_public_type()`).
+/// Regression: TPR-04-042
+#[test]
+fn phase_c_imported_surface_allows_narrowing() {
+    let mut pool = Pool::default();
+    let list_int = pool.list(Idx::INT);
+    let list_hash = pool.hash(list_int);
+
+    // Build a plan that simulates an imported collection surface.
+    // After TPR-04-042 fix, imported surfaces don't add to pub_type_indices.
+    let mut plan = crate::compute_repr_plan_with_interner(
+        &pool,
+        &[],
+        NarrowingPolicy::Aggressive,
+        &[],
+        None,
+        &[], // No local pub types
+        &[],
+        &[list_hash], // Imported collection surface
+        &[],
+        false,
+    );
+
+    // Seed element range and run Phase C narrowing.
+    plan.join_element_range(list_int, ValueRange::Bounded { lo: -128, hi: 127 });
+    narrow_collection_elements(&mut plan, &pool);
+
+    // The imported surface should NOT block narrowing — elements narrow to i8.
+    assert_eq!(
+        collection_element_width(&plan, list_int),
+        Some(IntWidth::I8),
+        "Imported surface must not block Phase C narrowing (TPR-04-042 semantic pin)"
+    );
+}
+
+/// Negative pin: local public function DOES suppress Phase C narrowing.
+/// Counterpart to `phase_c_imported_surface_allows_narrowing` — proves
+/// the `is_public_type()` gate is still active for same-module public APIs.
+#[test]
+fn phase_c_local_public_blocks_narrowing() {
+    let mut pool = Pool::default();
+    let list_int = pool.list(Idx::INT);
+
+    let mut plan = ReprPlan::new(NarrowingPolicy::Aggressive);
+    setup_list_collection(&mut plan, list_int);
+    plan.set_pub_type_indices([list_int]); // Local public function has [int] in signature
+
+    plan.join_element_range(list_int, ValueRange::Bounded { lo: -128, hi: 127 });
+    narrow_collection_elements(&mut plan, &pool);
+
+    assert_eq!(
+        collection_element_width(&plan, list_int),
+        Some(IntWidth::I64),
+        "Local public [int] must suppress narrowing (ABI safety)"
+    );
 }

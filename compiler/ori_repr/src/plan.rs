@@ -99,6 +99,13 @@ pub struct ReprPlan {
     /// Populated by §03.2b (`FieldSummaryTable::flush_to_repr_plan`),
     /// consumed by §04 (struct field narrowing).
     field_range_summaries: FxHashMap<(Idx, u32), ValueRange>,
+    /// Per-collection-type element range summaries from §03 element analysis.
+    ///
+    /// Key: collection type `Idx` (e.g., `[int]`) → joined `ValueRange` of
+    /// all observed element values across `Construct(ListLiteral)` and
+    /// `CollectionReuse` sites. Consumed by §04 Phase C (collection element
+    /// narrowing).
+    element_range_summaries: FxHashMap<Idx, ValueRange>,
     /// Audit trail — all decisions in insertion order.
     audit: Vec<ReprDecision>,
     /// Narrowing policy controlling optimization aggressiveness.
@@ -146,6 +153,7 @@ impl ReprPlan {
             escape_info: FxHashMap::default(),
             function_var_ranges: FxHashMap::default(),
             field_range_summaries: FxHashMap::default(),
+            element_range_summaries: FxHashMap::default(),
             audit: Vec::new(),
             narrowing_policy: policy,
             pub_type_indices: FxHashSet::default(),
@@ -227,6 +235,29 @@ impl ReprPlan {
             .unwrap_or_default()
     }
 
+    /// Join an element range into the persistent summary for a collection type.
+    ///
+    /// Called by `ElementSummaryTable::flush_to_repr_plan()` after the
+    /// fixpoint completes for each function. Multiple functions accumulate
+    /// evidence by joining (not overwriting).
+    pub fn join_element_range(&mut self, collection_idx: Idx, range: ValueRange) {
+        self.element_range_summaries
+            .entry(collection_idx)
+            .and_modify(|existing| *existing = existing.join(range))
+            .or_insert(range);
+    }
+
+    /// Query the aggregated element range for a collection type.
+    ///
+    /// Returns `Top` if no construction sites were observed for this collection.
+    #[must_use]
+    pub fn element_range(&self, collection_idx: Idx) -> ValueRange {
+        self.element_range_summaries
+            .get(&collection_idx)
+            .copied()
+            .unwrap_or_default()
+    }
+
     /// Store a `#repr` attribute for a type.
     pub fn set_repr_attr(&mut self, idx: Idx, attr: ReprAttribute) {
         self.repr_attrs.insert(idx, attr);
@@ -291,10 +322,11 @@ impl ReprPlan {
 
     /// Check if this specific function (by its ARC-lowered name) is unconstrained.
     ///
-    /// Used as a fallback for trait associated functions (no `self` param)
-    /// and for analysis-only ARC functions with type-qualified names
-    /// (TPR-03-044, TPR-03-046). The qualified name `__impl_{idx}_{method}`
-    /// is stored as `(None, qualified_name)` in the unconstrained set.
+    /// Used for analysis-only ARC functions with type-qualified names
+    /// (TPR-03-044, TPR-03-046). Both base names (`__impl_42_index`) and
+    /// ordinal-suffixed names (`__impl_42_index_1`) are registered by
+    /// `collect_unconstrained_fn_names()`, so exact match is sufficient
+    /// (TPR-03-053).
     #[must_use]
     pub fn is_qualified_unconstrained(&self, qualified_name: Name) -> bool {
         self.unconstrained_fn_names
@@ -313,14 +345,14 @@ impl ReprPlan {
     /// When no analysis-only functions are present, narrowing is safe because
     /// all analyzed functions go through the same codegen path.
     #[must_use]
-    pub fn is_integer_narrowing_safe_for_codegen(&self) -> bool {
+    pub fn is_narrowing_safe_for_codegen(&self) -> bool {
         !self.has_analysis_only_functions
     }
 
     /// Mark that the analysis set includes functions not fully integrated
     /// into the codegen pipeline (TPR-03-041).
     ///
-    /// When set, §04 integer narrowing and per-variable range storage are
+    /// When set, integer/float narrowing and per-variable range storage are
     /// suppressed to prevent ABI-mismatched struct layouts.
     pub fn set_has_analysis_only_functions(&mut self) {
         self.has_analysis_only_functions = true;

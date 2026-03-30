@@ -2,7 +2,8 @@
 section: 19
 title: Existential Types (impl Trait)
 status: not-started
-reviewed: false
+last_verified: "2026-03-29"
+reviewed: true
 tier: 7
 goal: Enable returning opaque types that implement a trait without exposing concrete type
 spec:
@@ -34,6 +35,8 @@ sections:
 **Dependencies**: Section 3 (Traits), Monomorphization infrastructure (for AOT compilation — `impl Trait` is statically dispatched/monomorphized)
 
 **Proposal**: `proposals/approved/existential-types-proposal.md`
+
+> **Verified 2026-03-29**: Status `not-started` confirmed accurate -- zero implementation exists across all compiler phases (no `ExistentialType` in ParsedType, no parser support, no type pool tag, no typeck machinery). Spec section 8.15, grammar EBNF, and proposal are all written and ready. Error codes E0810/E0811/E0812 defined in spec but not implemented in `ori_diagnostic`. NOTE: LLVM sub-items throughout this section are inflated -- `impl Trait` is erased at type-check time to concrete types, so no special LLVM codegen is needed (standard ARC + LLVM pipeline handles it automatically). NOTE: existing test file `tests/spec/types/existential.ori` references wrong spec section (`06-types.md` instead of `08-types.md`), has commented-out code (hygiene violation), and decorative banners.
 
 ### Sync Points: Opaque Type Representation (multi-crate sync required)
 
@@ -82,7 +85,9 @@ Adding `impl Trait` return types requires updates across these crates:
 <!-- unblocks:0.4.2 -->
 <!-- unblocks:0.9.1 -->
 
-**Spec section**: `spec/08-types.md § Existential Types`
+**Spec section**: `spec/08-types.md § 8.15 Existential Types`
+
+> (verified 2026-03-29) Not started. No `ExistentialType` variant in `ParsedType` enum (13 variants, none for impl Trait). Parser type grammar never references `TokenKind::Impl`. No opaque type tag in type pool. LLVM sub-items below are inflated -- `impl Trait` is erased to concrete type before codegen, no special LLVM handling needed. Missing error codes: E0810 (invalid position), E0811 (different concrete types), E0812 (associated type mismatch) -- defined in spec but not in `ori_diagnostic`.
 
 ### Syntax
 
@@ -114,39 +119,32 @@ for x in iter do print(msg: `{x}`)  // Works via Iterator trait
   - [ ] `impl Trait` in return position
   - [ ] Multiple bounds with `+`
   - [ ] Associated type constraints
-  - [ ] **LLVM Support**: LLVM codegen for existential type syntax
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/impl_trait_tests.rs` — existential type syntax codegen
-  - [ ] **AOT Tests**: No AOT coverage yet
+  - [ ] **LLVM/AOT**: Auto-satisfied once typeck resolves `impl Trait` to concrete types (no special codegen needed -- static dispatch, erased before LLVM)
 
 - [ ] **Parser**: Parse impl Trait
-  - [ ] In return type position
-  - [ ] Trait bounds parsing
-  - [ ] Associated types
-  - [ ] **LLVM Support**: LLVM codegen for parsed impl Trait
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/impl_trait_tests.rs` — impl Trait parsing codegen
-  - [ ] **AOT Tests**: No AOT coverage yet
+  - [ ] In return type position (`TokenKind::Impl` exists but type parser does not consume it)
+  - [ ] Trait bounds parsing in type context
+  - [ ] Associated types (`where Assoc == Type` in impl-trait context)
 
 - [ ] **Type checker**: Existential type handling
   - [ ] Infer concrete type from body
-  - [ ] Verify all returns same type
+  - [ ] Verify all returns same type (E0811 on mismatch)
   - [ ] Check trait bounds satisfied
-  - [ ] **LLVM Support**: LLVM codegen for existential type handling
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/impl_trait_tests.rs` — existential type handling codegen
-  - [ ] **AOT Tests**: No AOT coverage yet
+  - [ ] Register error codes E0810, E0811, E0812 in `ori_diagnostic`
 
-- [ ] **Test**: `tests/spec/types/impl_trait.ori`
+- [ ] **Test**: `tests/spec/types/impl_trait.ori` (existing `existential.ori` has all `impl Trait` tests commented out -- only generic/trait fallbacks pass)
   - [ ] Basic impl Trait return
   - [ ] Multiple bounds
   - [ ] Associated type constraints
-  - [ ] **LLVM Support**: LLVM codegen for impl Trait tests
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/impl_trait_tests.rs` — impl Trait tests codegen
-  - [ ] **AOT Tests**: No AOT coverage yet
+  - [ ] **LLVM/AOT**: Standard dual-execution parity tests (no special codegen tests needed)
 
 ---
 
 ## 19.2 Type Inference
 
-**Spec section**: `spec/08-types.md § Existential Type Inference`
+> (verified 2026-03-29) Not started. No opaque type representation, no inference machinery, no same-concrete-type unification.
+
+**Spec section**: `spec/08-types.md § 8.15.2 Existential Type Inference`
 
 ### Rules
 
@@ -179,38 +177,29 @@ for x in iter do print(msg: `{x}`)  // Works via Iterator trait
 - [ ] **Spec**: Inference rules
   - [ ] Single concrete type requirement
   - [ ] Branch unification
-  - [ ] Error messages
-  - [ ] **LLVM Support**: LLVM codegen for impl Trait inference rules
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/impl_trait_tests.rs` — inference rules codegen
-  - [ ] **AOT Tests**: No AOT coverage yet
+  - [ ] Error messages (E0811: different concrete types in return paths)
 
 - [ ] **Type checker**: Unify return types
   - [ ] Track expected opaque type
   - [ ] Unify concrete returns
-  - [ ] Clear error on mismatch
-  - [ ] **LLVM Support**: LLVM codegen for return type unification
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/impl_trait_tests.rs` — return type unification codegen
-  - [ ] **AOT Tests**: No AOT coverage yet
+  - [ ] Clear error on mismatch (E0811)
 
 - [ ] **Diagnostics**: Helpful errors
-  - [ ] Show both concrete types
-  - [ ] Suggest Box<dyn Trait>
-  - [ ] **LLVM Support**: LLVM codegen for impl Trait diagnostics
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/impl_trait_tests.rs` — diagnostics codegen
-  - [ ] **AOT Tests**: No AOT coverage yet
+  - [ ] Show both concrete types on E0811
+  - [ ] Suggest `Trait` object when different concrete types needed
 
 - [ ] **Test**: `tests/spec/types/impl_trait_inference.ori`
   - [ ] Multiple return paths same type
-  - [ ] Error on different types
-  - [ ] **LLVM Support**: LLVM codegen for impl Trait inference tests
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/impl_trait_tests.rs` — impl Trait inference tests codegen
-  - [ ] **AOT Tests**: No AOT coverage yet
+  - [ ] Error on different types (`#compile_fail`)
+  - [ ] **LLVM/AOT**: Dual-execution parity tests (no special codegen)
 
 ---
 
 ## 19.3 Associated Type Constraints
 
-**Spec section**: `spec/08-types.md § Existential Associated Types`
+> (verified 2026-03-29) Not started. Grammar EBNF has `impl_where_clause` and `assoc_constraint` productions but no parser or typeck implementation.
+
+**Spec section**: `spec/08-types.md § 8.15 Existential Associated Types`
 
 ### Syntax
 
@@ -234,31 +223,25 @@ trait Mapping {
 ### Implementation
 
 - [ ] **Spec**: Associated type syntax
-  - [ ] `<Assoc = Type>` constraint
+  - [ ] `where Assoc == Type` constraint (Ori uses `==` not `=`)
   - [ ] Multiple constraints
-  - [ ] **LLVM Support**: LLVM codegen for associated type syntax
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/impl_trait_tests.rs` — associated type syntax codegen
-  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Type checker**: Validate associated types
-  - [ ] Match concrete type's assoc types
-  - [ ] Error on mismatch
-  - [ ] **LLVM Support**: LLVM codegen for associated type validation
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/impl_trait_tests.rs` — associated type validation codegen
-  - [ ] **AOT Tests**: No AOT coverage yet
+  - [ ] Match concrete type's assoc types against constraints
+  - [ ] Error on mismatch (E0812)
 
 - [ ] **Test**: `tests/spec/types/impl_trait_assoc.ori`
-  - [ ] Iterator with Item
+  - [ ] Iterator with `where Item == int`
   - [ ] Custom trait with assoc types
-  - [ ] **LLVM Support**: LLVM codegen for associated type tests
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/impl_trait_tests.rs` — associated type tests codegen
-  - [ ] **AOT Tests**: No AOT coverage yet
+  - [ ] **LLVM/AOT**: Dual-execution parity tests (no special codegen)
 
 ---
 
 ## 19.4 Limitations and Errors
 
-**Spec section**: `spec/08-types.md § Existential Limitations`
+> (verified 2026-03-29) Not started. PLAN INACCURACY CORRECTED: "Not in traits" was wrong -- spec 8.15.3 ALLOWS `impl Trait` in trait method returns with specific semantics. Corrected to "Validate impl Trait in trait method returns" below. Error code E0810 (invalid position) defined in spec but not implemented.
+
+**Spec section**: `spec/08-types.md § 8.15.3 Existential Limitations`
 
 ### Not Supported
 
@@ -291,41 +274,31 @@ error: `impl Trait` is only allowed in return position
 ### Implementation
 
 - [ ] **Spec**: Document limitations
-  - [ ] Return position only
-  - [ ] Not in structs
-  - [ ] Not in traits
-  - [ ] **LLVM Support**: LLVM codegen for impl Trait limitations
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/impl_trait_tests.rs` — limitations codegen
-  - [ ] **AOT Tests**: No AOT coverage yet
+  - [ ] Return position only (E0810 on invalid position)
+  - [ ] Not in struct fields
+  - [ ] Allowed in trait method returns (with constraints -- spec 8.15.3)
 
 - [ ] **Type checker**: Reject invalid positions
-  - [ ] Error on arg position
-  - [ ] Error in struct fields
-  - [ ] Error in trait methods
-  - [ ] **LLVM Support**: LLVM codegen for invalid position rejection
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/impl_trait_tests.rs` — invalid position rejection codegen
-  - [ ] **AOT Tests**: No AOT coverage yet
+  - [ ] Error on arg position (E0810, suggest generic parameter)
+  - [ ] Error in struct fields (E0810, suggest generic type parameter)
+  - [ ] Validate `impl Trait` in trait method returns (allowed per spec, not "error")
 
 - [ ] **Diagnostics**: Suggest alternatives
-  - [ ] Generic parameter
-  - [ ] Associated type
-  - [ ] **LLVM Support**: LLVM codegen for alternative suggestions
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/impl_trait_tests.rs` — alternative suggestions codegen
-  - [ ] **AOT Tests**: No AOT coverage yet
+  - [ ] Generic parameter suggestion on E0810 (arg position)
+  - [ ] Generic type parameter suggestion on E0810 (struct field)
 
 - [ ] **Test**: `tests/compile-fail/types/impl_trait_position.ori`
-  - [ ] Arg position error
-  - [ ] Struct field error
-  - [ ] Trait method error
-  - [ ] **LLVM Support**: LLVM codegen for position error tests
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/impl_trait_tests.rs` — position error tests codegen
-  - [ ] **AOT Tests**: No AOT coverage yet
+  - [ ] Arg position error (`#compile_fail`)
+  - [ ] Struct field error (`#compile_fail`)
+  - [ ] Trait method return (should compile -- positive test, not error)
 
 ---
 
 ## 19.5 impl Trait vs dyn Trait
 
-**Spec section**: `spec/08-types.md § Static vs Dynamic Dispatch`
+> (verified 2026-03-29) Not started. Documentation/comparison subsection -- spec 8.15.4 has comparison table.
+
+**Spec section**: `spec/08-types.md § 8.15.4 Static vs Dynamic Dispatch`
 
 ### Comparison
 
@@ -356,40 +329,35 @@ error: `impl Trait` is only allowed in return position
 
 - [ ] **Spec**: Compare impl vs dyn
   - [ ] Use cases
-  - [ ] Performance implications
+  - [ ] Performance implications (static dispatch vs vtable)
   - [ ] When each is appropriate
-  - [ ] **LLVM Support**: LLVM codegen for impl vs dyn comparison
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/impl_trait_tests.rs` — impl vs dyn comparison codegen
-  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Documentation**: Best practices guide
   - [ ] Decision flowchart
   - [ ] Common patterns
-  - [ ] **LLVM Support**: LLVM codegen for best practices examples
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/impl_trait_tests.rs` — best practices examples codegen
-  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Test**: `tests/spec/types/impl_vs_dyn.ori`
-  - [ ] impl Trait usage
-  - [ ] dyn Trait usage
-  - [ ] Conversion between them
-  - [ ] **LLVM Support**: LLVM codegen for impl vs dyn tests
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/impl_trait_tests.rs` — impl vs dyn tests codegen
-  - [ ] **AOT Tests**: No AOT coverage yet
+  - [ ] impl Trait usage (static dispatch)
+  - [ ] Trait object usage (dynamic dispatch)
+  - [ ] When to choose each
+  - [ ] **LLVM/AOT**: Dual-execution parity tests
 
 ---
 
 ## Section Completion Checklist
 
 - [ ] All items above have all checkboxes marked `[ ]`
-- [ ] Spec updated: `spec/08-types.md` existential types section
-- [ ] CLAUDE.md updated with impl Trait syntax
+- [x] Spec updated: `spec/08-types.md` section 8.15 existential types (written, defines E0810/E0811/E0812) (verified 2026-03-29)
+- [x] CLAUDE.md updated with impl Trait syntax (ori-syntax.md has "Existential Types" subsection) (verified 2026-03-29)
 - [ ] Return position `impl Trait` works
 - [ ] Type inference correct
 - [ ] Associated type constraints work
-- [ ] Clear errors for invalid positions
+- [ ] Clear errors for invalid positions (E0810/E0811/E0812)
 - [ ] All tests pass: `./test-all.sh`
 - [ ] `/tpr-review` passed — independent Codex review found no critical or major issues (or all findings triaged)
+- [ ] Fix `tests/spec/types/existential.ori` line 1 wrong spec reference (`06-types.md` -> `08-types.md`) DRIFT
+- [ ] Fix `tests/spec/types/existential.ori` commented-out code (replace with `#skip` tests or remove) HYGIENE
+- [ ] Fix `tests/spec/types/existential.ori` decorative banners HYGIENE
 
 **Exit Criteria**: Can write iterator-returning functions with clean APIs
 
