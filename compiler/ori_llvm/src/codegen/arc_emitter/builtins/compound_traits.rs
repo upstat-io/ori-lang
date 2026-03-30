@@ -122,7 +122,7 @@ declare_builtins! { emitter, ctx;
     ("tuple", "equals") => {
         if let TypeInfo::Tuple { elements } = ctx.type_info {
             if ctx.arg_vals.len() >= 2 {
-                emitter.emit_tuple_equals(ctx.arg_vals[0], ctx.arg_vals[1], elements)
+                emitter.emit_tuple_equals(ctx.arg_vals[0], ctx.arg_vals[1], elements, ctx.receiver_ty)
             } else {
                 None
             }
@@ -133,7 +133,7 @@ declare_builtins! { emitter, ctx;
     ("tuple", "compare") => {
         if let TypeInfo::Tuple { elements } = ctx.type_info {
             if ctx.arg_vals.len() >= 2 {
-                emitter.emit_tuple_compare(ctx.arg_vals[0], ctx.arg_vals[1], elements)
+                emitter.emit_tuple_compare(ctx.arg_vals[0], ctx.arg_vals[1], elements, ctx.receiver_ty)
             } else {
                 None
             }
@@ -143,7 +143,7 @@ declare_builtins! { emitter, ctx;
     },
     ("tuple", "hash") => {
         if let TypeInfo::Tuple { elements } = ctx.type_info {
-            emitter.emit_tuple_hash(ctx.arg_vals[0], elements)
+            emitter.emit_tuple_hash(ctx.arg_vals[0], elements, ctx.receiver_ty)
         } else {
             None
         }
@@ -187,7 +187,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 let err = *err;
                 self.emit_result_equals(lhs, rhs, elem_ty, ok, err)
             }
-            TypeInfo::Tuple { elements } => self.emit_tuple_equals(lhs, rhs, elements),
+            TypeInfo::Tuple { elements } => self.emit_tuple_equals(lhs, rhs, elements, elem_ty),
             TypeInfo::List { element } => {
                 let elem = *element;
                 self.emit_list_equals(lhs, rhs, elem)
@@ -248,7 +248,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 let err = *err;
                 self.emit_result_compare(lhs, rhs, elem_ty, ok, err)
             }
-            TypeInfo::Tuple { elements } => self.emit_tuple_compare(lhs, rhs, elements),
+            TypeInfo::Tuple { elements } => self.emit_tuple_compare(lhs, rhs, elements, elem_ty),
             TypeInfo::List { element } => {
                 let elem = *element;
                 self.emit_list_compare(lhs, rhs, elem)
@@ -305,7 +305,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 let err = *err;
                 self.emit_result_hash(val, elem_ty, ok, err)
             }
-            TypeInfo::Tuple { elements } => self.emit_tuple_hash(val, elements),
+            TypeInfo::Tuple { elements } => self.emit_tuple_hash(val, elements, elem_ty),
             TypeInfo::List { element } => {
                 let elem = *element;
                 self.emit_list_hash(val, elem)

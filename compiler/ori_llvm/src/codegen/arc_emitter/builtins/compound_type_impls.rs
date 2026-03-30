@@ -339,12 +339,13 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
     /// `Tuple.equals(other) -> bool`
     ///
-    /// All fields must be equal (conjunction).
+    /// All fields must be equal (conjunction). §06: remap to memory order.
     pub(in crate::codegen::arc_emitter) fn emit_tuple_equals(
         &mut self,
         lhs: ValueId,
         rhs: ValueId,
         elements: &[Idx],
+        tuple_ty: Idx,
     ) -> Option<ValueId> {
         let mut result = self.builder.const_bool(true);
 
@@ -353,8 +354,9 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             reason = "tuple field count fits u32"
         )]
         for (i, &elem_ty) in elements.iter().enumerate() {
-            let lhs_field = self.builder.extract_value(lhs, i as u32, "tup.lhs")?;
-            let rhs_field = self.builder.extract_value(rhs, i as u32, "tup.rhs")?;
+            let mem_i = self.remap_struct_field(tuple_ty, i as u32);
+            let lhs_field = self.builder.extract_value(lhs, mem_i, "tup.lhs")?;
+            let rhs_field = self.builder.extract_value(rhs, mem_i, "tup.rhs")?;
             let field_eq = self.emit_element_equals(lhs_field, rhs_field, elem_ty)?;
             result = self.builder.and(result, field_eq, "tup_eq");
         }
@@ -365,11 +367,13 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// `Tuple.compare(other) -> Ordering`
     ///
     /// Lexicographic: compare field 0, if Equal compare field 1, etc.
+    /// §06: remap to memory order.
     pub(super) fn emit_tuple_compare(
         &mut self,
         lhs: ValueId,
         rhs: ValueId,
         elements: &[Idx],
+        tuple_ty: Idx,
     ) -> Option<ValueId> {
         if elements.is_empty() {
             return Some(self.builder.const_i8(1)); // Equal
@@ -383,8 +387,9 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             reason = "tuple field count fits u32"
         )]
         for (i, &elem_ty) in elements.iter().enumerate() {
-            let lhs_field = self.builder.extract_value(lhs, i as u32, "tup.lhs")?;
-            let rhs_field = self.builder.extract_value(rhs, i as u32, "tup.rhs")?;
+            let mem_i = self.remap_struct_field(tuple_ty, i as u32);
+            let lhs_field = self.builder.extract_value(lhs, mem_i, "tup.lhs")?;
+            let rhs_field = self.builder.extract_value(rhs, mem_i, "tup.rhs")?;
             let field_cmp = self.emit_element_compare(lhs_field, rhs_field, elem_ty)?;
 
             // If previous result was Equal, use this field's comparison.
@@ -399,13 +404,19 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
     /// `Tuple.hash() -> int`
     ///
-    /// Fold `hash_combine` over field hashes.
-    pub(super) fn emit_tuple_hash(&mut self, val: ValueId, elements: &[Idx]) -> Option<ValueId> {
+    /// Fold `hash_combine` over field hashes. §06: remap to memory order.
+    pub(super) fn emit_tuple_hash(
+        &mut self,
+        val: ValueId,
+        elements: &[Idx],
+        tuple_ty: Idx,
+    ) -> Option<ValueId> {
         if elements.is_empty() {
             return Some(self.builder.const_i64(0));
         }
 
-        let first_field = self.builder.extract_value(val, 0, "tup.f0")?;
+        let mem_0 = self.remap_struct_field(tuple_ty, 0);
+        let first_field = self.builder.extract_value(val, mem_0, "tup.f0")?;
         let mut result = self.emit_element_hash(first_field, elements[0])?;
 
         #[expect(
@@ -413,7 +424,8 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             reason = "tuple field count fits u32"
         )]
         for (i, &elem_ty) in elements.iter().enumerate().skip(1) {
-            let field = self.builder.extract_value(val, i as u32, "tup.f")?;
+            let mem_i = self.remap_struct_field(tuple_ty, i as u32);
+            let field = self.builder.extract_value(val, mem_i, "tup.f")?;
             let field_hash = self.emit_element_hash(field, elem_ty)?;
             result = self.emit_hash_combine(result, field_hash);
         }
