@@ -672,3 +672,86 @@ fn test_semantic_pin_struct_reorder() {
         "first field should be Int(I64)"
     );
 }
+
+// ─── Tuple pipeline activation tests ──────────────────────────
+
+#[test]
+fn test_two_element_tuple_size_invariant() {
+    // For 2-element tuples where field sizes are multiples of alignment
+    // (all Ori types), reordering never changes total size.
+    // This is why the pipeline safely skips 2-element tuples.
+    let pairs: Vec<(MachineRepr, MachineRepr)> = vec![
+        (bool_repr(), int_repr()),
+        (byte_repr(), int_repr()),
+        (int_repr(), bool_repr()),
+        (MachineRepr::Char, int_repr()),
+        (bool_repr(), bool_repr()),
+    ];
+    for (a, b) in &pairs {
+        let forward = make_tuple(vec![field(0, a.clone()), field(1, b.clone())]);
+        let forward_opt = optimize_tuple_layout(&forward);
+        let reverse = make_tuple(vec![field(0, b.clone()), field(1, a.clone())]);
+        let reverse_opt = optimize_tuple_layout(&reverse);
+        assert_eq!(
+            forward_opt.size, reverse_opt.size,
+            "2-element tuple: size must be identical regardless of field order"
+        );
+    }
+}
+
+#[test]
+fn test_three_element_tuple_reorder_saves_space() {
+    // (bool, int, bool): optimize_tuple_layout computes the reordered layout.
+    // Declaration order would be 24 bytes; reordered is 16.
+    // Semantic pin: 3+ element tuples benefit from reordering.
+    let input = make_tuple(vec![
+        field(0, bool_repr()),
+        field(1, int_repr()),
+        field(2, bool_repr()),
+    ]);
+    let result = optimize_tuple_layout(&input);
+    assert_eq!(
+        result.size, 16,
+        "§06.4 semantic pin: 3-element tuple must be 16 bytes, not 24"
+    );
+    // int moved to front
+    assert_eq!(result.elements[0].original_index, 1);
+    assert_eq!(result.elements[1].original_index, 0);
+    assert_eq!(result.elements[2].original_index, 2);
+}
+
+#[test]
+fn test_four_element_tuple_reorder() {
+    // (bool, int, byte, float) → reordered: int(8), float(8), bool(1), byte(1)
+    let input = make_tuple(vec![
+        field(0, bool_repr()),
+        field(1, int_repr()),
+        field(2, byte_repr()),
+        field(3, float_repr()),
+    ]);
+    let result = optimize_tuple_layout(&input);
+    assert_eq!(result.size, 24);
+    assert_eq!(result.align, 8);
+    // int and float (both align 8) first, then bool and byte (align 1)
+    assert_eq!(result.elements[0].original_index, 1); // int
+    assert_eq!(result.elements[1].original_index, 3); // float
+    assert_eq!(result.elements[2].original_index, 0); // bool
+    assert_eq!(result.elements[3].original_index, 2); // byte
+}
+
+#[test]
+fn test_three_element_tuple_memory_index_remapping() {
+    // Verify codegen can remap .0/.1/.2 after reorder.
+    let input = make_tuple(vec![
+        field(0, bool_repr()),
+        field(1, int_repr()),
+        field(2, bool_repr()),
+    ]);
+    let result = optimize_tuple_layout(&input);
+    // .0 (bool) → memory position 1
+    assert_eq!(result.memory_index(0), Some(1));
+    // .1 (int) → memory position 0
+    assert_eq!(result.memory_index(1), Some(0));
+    // .2 (bool) → memory position 2
+    assert_eq!(result.memory_index(2), Some(2));
+}
