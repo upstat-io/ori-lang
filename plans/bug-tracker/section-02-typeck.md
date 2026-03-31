@@ -31,9 +31,9 @@ Bugs in type inference, unification, trait resolution, method dispatch, generics
   Resolved: Fixed across 2026-03-30/31 (typeck: 3a9bf319, codegen: 11a26626, chain fix: 402d0770, unwrap fix: 55352b60). Type checker uses tag-based detection with unification for chain vs unwrap. ARC lowering uses `lhs_ty == result_ty`. Unwrap path now rejects invalid RHS types. 16 positive spec tests + 4 negative compile_fail pins + 5 Rust unit tests + 17 AOT tests for LLVM dual-execution parity.
 
 - [ ] `[BUG-02-003][medium]` **Comparison operators accepted on user types without Eq/Comparable** — found by tpr-review.
-  Repro: `type Box = { x: int }` then `Box { x: 1 } < Box { x: 2 }` passes `ori check` but fails at runtime (E6011/E6012). Same for `==` on structs without `#derive(Eq)`.
-  Subsystem: `compiler/ori_types/src/infer/expr/operators.rs` — comparison arm unifies operands without verifying trait satisfaction.
-  Root cause: trait registry not fully populated during inference (derived traits register in later passes), so a simple `lookup_method` check fails for types that DO have Eq. Full fix requires a post-inference trait satisfaction pass.
+  Repro: `type Box = { x: int }` then `Box { x: 1 } < Box { x: 2 }` passes `ori check` but fails at runtime (E6011/E6012). Also affects compound types: `[1,2] < [1,3]`, `(1,2) < (1,3)`, `Ok(1) < Ok(2)` all pass `ori check` but fail at runtime. Equality (`==`/`!=`) works correctly for compound types that implement Eq.
+  Subsystem: `compiler/ori_types/src/infer/expr/operators.rs` — comparison arm unifies operands without verifying trait satisfaction for ordering operators.
+  Root cause: trait registry not fully populated during inference (derived traits register in later passes), so a simple `lookup_method` check fails for types that DO have Eq. Full fix requires a post-inference trait satisfaction pass that distinguishes equality (Eq) from ordering (Comparable).
   Found: 2026-03-31 | Source: tpr-review (hygiene-full §01, TPR-01-001)
   Note: Pre-existing issue exposed by registry SSOT work. Primitives now correctly validated via registry OpDefs; compound/user types need separate mechanism.
 
