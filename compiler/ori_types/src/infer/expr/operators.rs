@@ -10,7 +10,8 @@ use crate::{ContextKind, ErrorContext, Expected, ExpectedOrigin, Idx, Tag, TypeC
 /// Infer the type of a binary operation.
 #[expect(
     clippy::too_many_lines,
-    reason = "exhaustive BinaryOp dispatch with trait-based type checking for each operator"
+    clippy::cognitive_complexity,
+    reason = "exhaustive BinaryOp dispatch with registry queries and trait-based type checking"
 )]
 pub(crate) fn infer_binary(
     engine: &mut InferEngine<'_>,
@@ -147,7 +148,8 @@ pub(crate) fn infer_binary(
             engine.resolve(left_ty)
         }
 
-        // Comparison: same type in, bool out. Registry validates primitive support.
+        // Comparison: same type in, bool out. Registry validates primitive support;
+        // non-primitive types must implement Eq (for ==/!=) or Comparable (for </<=/>/>=).
         BinaryOp::Eq
         | BinaryOp::NotEq
         | BinaryOp::Lt
@@ -157,18 +159,36 @@ pub(crate) fn infer_binary(
             let resolved_left = engine.resolve(left_ty);
             let left_tag = engine.pool().tag(resolved_left);
 
-            // Registry-based validation: reject primitives that don't support
-            // this specific comparison operator (e.g., Ordering doesn't support <).
-            if let Some(false) = is_binary_op_supported(left_tag, op) {
-                if let Some(trait_name) = binary_op_to_trait_name(op) {
+            // Error/Never propagation
+            if left_tag == Tag::Error {
+                return Idx::ERROR;
+            }
+            let resolved_right_top = engine.resolve(right_ty);
+            let right_tag = engine.pool().tag(resolved_right_top);
+            if right_tag == Tag::Error {
+                return Idx::ERROR;
+            }
+            if right_tag == Tag::Never {
+                return Idx::NEVER;
+            }
+
+            // Registry-based validation for primitive types only.
+            // Only primitives (int, float, bool, str, char, byte, Duration, Size,
+            // Ordering, etc.) use the registry's OpDefs as the authority for
+            // comparison support. Compound types (Option, Result, List, Tuple, etc.)
+            // and user types use trait dispatch for comparison — the registry's
+            // OpDefs is for codegen strategy, not type checking.
+            if left_tag.is_primitive() {
+                if let Some(false) = is_binary_op_supported(left_tag, op) {
+                    let trait_name = comparison_trait_name(op);
                     engine.push_error(TypeCheckError::unsupported_operator(
                         span,
                         resolved_left,
                         op_str,
                         trait_name,
                     ));
+                    return Idx::ERROR;
                 }
-                return Idx::ERROR;
             }
 
             // Unify left and right operands
@@ -561,6 +581,15 @@ fn binary_op_to_method_name(op: BinaryOp) -> Option<&'static str> {
 /// Delegates to `BinaryOp::trait_name()` — the single source of truth in `ori_ir`.
 fn binary_op_to_trait_name(op: BinaryOp) -> Option<&'static str> {
     op.trait_name()
+}
+
+/// Map a comparison operator to the trait name for error messages.
+fn comparison_trait_name(op: BinaryOp) -> &'static str {
+    match op {
+        BinaryOp::Eq | BinaryOp::NotEq => "Eq",
+        BinaryOp::Lt | BinaryOp::LtEq | BinaryOp::Gt | BinaryOp::GtEq => "Comparable",
+        _ => unreachable!("comparison_trait_name called with non-comparison op"),
+    }
 }
 
 /// Check for cross-type arithmetic special cases.

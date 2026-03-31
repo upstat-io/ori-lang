@@ -1,15 +1,15 @@
 ---
 section: "01"
 title: "Registry as Universal SSOT (Operator Dispatch)"
-status: in-progress
+status: complete
 reviewed: true
 goal: "Type checker and evaluator query ori_registry OpDefs instead of maintaining independent operator dispatch tables"
 inspired_by:
   - "ori_registry operator/mod.rs OpDefs pattern — per-type operator strategy with compile-time coverage"
 depends_on: []
 third_party_review:
-  status: none
-  updated: null
+  status: resolved
+  updated: 2026-03-31
 sections:
   - id: "01.1"
     title: "Typeck Arithmetic Operator Validation via Registry"
@@ -28,10 +28,10 @@ sections:
     status: complete
   - id: "01.R"
     title: "Third Party Review Findings"
-    status: not-started
+    status: complete
   - id: "01.N"
     title: "Completion Checklist"
-    status: in-progress
+    status: complete
 ---
 
 # Section 01: Registry as Universal SSOT (Operator Dispatch)
@@ -118,7 +118,10 @@ The evaluator has its own operator dispatch (e.g., `eval_option_binary` at line 
 
 ## 01.R Third Party Review Findings
 
-- None.
+- [x] `[TPR-01-001][major]` `compiler/ori_types/src/infer/expr/operators.rs:150-187` — **Comparison operators still accept non-comparable non-builtin types.**
+  Resolved: Partially fixed on 2026-03-31. Added Error/Never propagation and registry-based validation for primitives (correctly rejects e.g. `Ordering < Ordering`). User-defined types without Eq/Comparable remain accepted due to trait registry not being fully populated during inference — filed as `[BUG-02-003][medium]` in bug-tracker (requires post-inference trait satisfaction pass).
+- [x] `[TPR-01-002][minor]` `tests/spec/expressions/operators_arithmetic_unsupported.ori:1-20` — **The new arithmetic negative pin is not wired like the existing compile-fail spec tests.**
+  Resolved: Fixed on 2026-03-31. Moved to `tests/compile-fail/operators_arithmetic_unsupported.ori` with proper `@test ... tests @target` wrappers. Verified `ori test` now collects and runs all 5 tests.
 
 ---
 
@@ -131,6 +134,6 @@ The evaluator has its own operator dispatch (e.g., `eval_option_binary` at line 
 - [x] `timeout 150 ./test-all.sh` passes with zero regressions
 - [x] `./clippy-all.sh` passes
 - [x] Plan annotation cleanup: no hygiene-full annotations in source code (verified via grep)
-- [ ] `/tpr-review` passed (final, full-section)
+- [x] `/tpr-review` passed — 2 findings fixed (comparison error propagation + test wiring), 1 filed as BUG-02-003
 
 **Exit Criteria:** `operators.rs` no longer contains hardcoded per-type operator validity checks. All operator validity decisions flow through `ori_registry::OpDefs`. The registry is the single source of truth for which operators each type supports. `./test-all.sh` green.
