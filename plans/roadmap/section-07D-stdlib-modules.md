@@ -1508,5 +1508,6 @@ High-level byte search functions backed by SIMD internally. No `uses Intrinsics`
 - [ ] **LLVM Support**: All LLVM codegen tests pass
 - [ ] **LLVM Rust Tests**: `ori_llvm/tests/` — full stdlib LLVM test coverage
 - [ ] `/tpr-review` passed — independent Codex review found no critical or major issues (or all findings triaged)
+- [ ] `/impl-hygiene-review last commit` passed — implementation hygiene review clean (phase boundaries, SSOT, algorithmic DRY, naming). MUST run AFTER `/tpr-review` is clean.
 
 **Exit Criteria**: Basic programs can use stdlib modules

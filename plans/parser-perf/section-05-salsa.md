@@ -254,6 +254,7 @@ Evaluate whether finer-grained Salsa queries (per-function rather than per-file)
 - [ ] Debug AND release builds pass: `timeout 150 cargo t -p oric --release`
 - [ ] If incremental parsing activated: behavioral equivalence verified (incremental parse output == full parse output for all test cases)
 - [ ] `/tpr-review` passed — independent Codex review found no critical or major issues (or all findings triaged)
+- [ ] `/impl-hygiene-review last commit` passed — implementation hygiene review clean (phase boundaries, SSOT, algorithmic DRY, naming). MUST run AFTER `/tpr-review` is clean.
 
 **Correctness verification:** Section 05.2 introduces a significant behavioral change -- the Salsa `parsed()` query will sometimes return incrementally-reparsed ASTs instead of fully-reparsed ASTs. These MUST be semantically equivalent. Testing strategy:
 

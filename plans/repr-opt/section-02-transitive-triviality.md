@@ -675,5 +675,6 @@ Generic types interact with triviality classification in a specific way: trivial
 - [x] Update `TypeInfo::is_trivial()` in `info.rs` to classify Iterator as trivial (Box-allocated, no RC header — `UnmanagedPtr`) (2026-03-25)
 - [x] `./test-all.sh` green — 13,983 passed, 0 failed. Release build clean. (2026-03-25)
 - [x] `/tpr-review` passed (2026-03-28) — TPR-02-007 and TPR-02-008 found and fixed. Fallback classifier removed (SSOT), 4 AOT regression tests added (trivial/non-trivial positive/negative pairs). Re-run: pending (findings confirmed resolved via test suite, 14,345 tests pass).
+- [ ] `/impl-hygiene-review last commit` passed — implementation hygiene review clean (phase boundaries, SSOT, algorithmic DRY, naming). MUST run AFTER `/tpr-review` is clean.
 
 **Exit Criteria:** `ori build` on a program using `Option<int>`, `(int, float)`, and `struct Point { x: int, y: int }` produces LLVM IR with zero `ori_rc_*` calls for these types, verified by `grep -c "ori_rc" output.ll` returning 0 for trivial-only programs. Note: this should already pass today (ArcClassifier already handles these types transitively). The exit criteria verify that §02's unification preserves this behavior and adds the iterator classification fix.

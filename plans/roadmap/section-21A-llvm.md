@@ -1065,6 +1065,7 @@ ori_llvm/src/
 *Open:*
 - [ ] Enum variant constructors not declared as LLVM functions <!-- test: test_aot_enum_variant_constructors --> (no test found by listed name, but many enum tests pass via derives and pattern matching)
 - [ ] `/tpr-review` passed — independent Codex review found no critical or major issues (or all findings triaged)
+- [ ] `/impl-hygiene-review last commit` passed — implementation hygiene review clean (phase boundaries, SSOT, algorithmic DRY, naming). MUST run AFTER `/tpr-review` is clean.
 
 Cross-references to existing items:
 - Generic monomorphization → § 21.7 -- RESOLVED (verified 2026-03-29)

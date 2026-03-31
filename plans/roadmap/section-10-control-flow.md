@@ -724,6 +724,7 @@ If desugared in the parser to `loop { if !condition then break; body }`, only st
 - [ ] 80+% test coverage
 - [ ] Run full test suite: `./test-all.sh`
 - [ ] `/tpr-review` passed — independent Codex review found no critical or major issues (or all findings triaged)
+- [ ] `/impl-hygiene-review last commit` passed — implementation hygiene review clean (phase boundaries, SSOT, algorithmic DRY, naming). MUST run AFTER `/tpr-review` is clean.
 - [ ] NEGATIVE TESTS GAP: Add `#compile_fail` negative tests for control flow features (zero exist as of 2026-03-29) — non-bool condition, branch type mismatch, non-void if-without-else, break type mismatch in loop, continue-with-value in loop, `?` in non-Result/Option function
 
 **Exit Criteria**: All control flow constructs work including labeled loops, scoping, and panic handling
