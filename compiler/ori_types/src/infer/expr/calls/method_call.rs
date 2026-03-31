@@ -3,7 +3,7 @@
 use ori_ir::{ExprArena, ExprId, ExprKind, Name, Span};
 
 use super::super::super::InferEngine;
-use super::super::{infer_expr, resolve_builtin_method, RANGE_FLOAT_ITERATION_METHODS};
+use super::super::{infer_expr, range_method_requires_iteration, resolve_builtin_method};
 use super::impl_lookup::{
     emit_into_not_implemented, lookup_impl_method, resolve_impl_signature, ImplMethodSig,
 };
@@ -377,7 +377,7 @@ fn check_range_float_iteration(
         return None;
     }
     let name_str = method_str?;
-    if !RANGE_FLOAT_ITERATION_METHODS.contains(&name_str) {
+    if !range_method_requires_iteration(name_str) {
         return None;
     }
     let elem = engine.pool().range_elem(resolved);

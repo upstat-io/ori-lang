@@ -458,7 +458,7 @@ fn extract_elem(engine: &InferEngine<'_>, receiver_ty: Idx) -> Idx {
 /// Only handles concrete types with pre-interned Idx constants. Panics on
 /// parameterized types — those require pool construction and should not
 /// appear inside `ReturnTag::List(TypeTag)` wrappers.
-fn type_tag_to_idx(tag: TypeTag) -> Idx {
+pub(in crate::infer::expr) fn type_tag_to_idx(tag: TypeTag) -> Idx {
     match tag {
         TypeTag::Int => Idx::INT,
         TypeTag::Float => Idx::FLOAT,
