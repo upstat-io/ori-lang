@@ -97,6 +97,32 @@ The complement of SSOT. Defined in detail in the "Side Logic" section below. Sid
 - **Evaluator**: accumulates errors, skips dependent evaluations
 - **Codegen**: aborts if any type errors remain — requires error-free input
 
+### Error Recovery Monotonicity
+
+Recovery in one phase must not *create work* for a later phase. Error types and error nodes should propagate silently without generating cascading diagnostics.
+
+- **TyError is a poison type**: once introduced, it unifies with everything and produces no further type errors. Any code path that generates a new error involving TyError is a monotonicity violation.
+- **Error nodes are terminal**: an error node in the AST should be skipped by subsequent phases (eval, codegen), not re-diagnosed. If codegen encounters an error node that wasn't filtered, that's a phase contract violation.
+- **Recovery must be conservative**: a recovered parse tree may contain structurally invalid subtrees. Later phases must handle these gracefully (skip, not crash). If a recovered tree causes a later phase to panic, the recovery is incorrect.
+
+### Lowering Completeness
+
+Every language construct must be lowered in **both** backends (evaluator and LLVM codegen). A construct that works in eval but crashes in codegen (or vice versa) is a **GAP** that's invisible until a user hits it.
+
+- **Dual-execution parity**: for every new IR node, expression kind, or language feature — verify that both eval and LLVM produce identical observable results. `dual-exec-verify.sh` automates this.
+- **New variant checklist**: when adding a new `ExprKind`, `CanExpr`, or `StmtKind` variant, update ALL of: canonicalization lowering, evaluator dispatch, ARC lowering, LLVM codegen emission. A variant handled in only some phases is a **GAP**.
+- **Strategy dispatch ≠ exhaustive match**: if a backend uses strategy-driven dispatch (e.g., `DeriveStrategy`) rather than direct pattern matching on IR variants, ensure the strategy table covers all variants. Strategy dispatch can silently ignore new variants that direct matching would catch.
+- **Catch-all arms hide gaps**: `_ => unreachable!()` or `_ => todo!()` in IR dispatch matches are deferred GAPs. Each should either handle the variant or be tracked as a known gap with a plan item.
+
+### Span Provenance Through Lowering
+
+Spans must survive every IR transformation. Each lowering step (AST → CanExpr → ARC IR → LLVM IR) must propagate spans to their destination nodes.
+
+- **No span-free IR nodes**: every node in every IR must carry a span back to source. A node with `Span::DUMMY` outside of compiler-generated code (e.g., protocol functions, builtin desugaring) is a provenance violation.
+- **Lowering preserves spans**: when transforming `ExprKind::If` into `CanExpr::If`, the span of the source `if` expression propagates to the canonical form. The lowering step doesn't invent new spans.
+- **Error attribution**: if a runtime error or codegen error points to a nonsensical source location, the span was likely dropped during a lowering step. Trace backward through the IR chain to find where.
+- **ARC-inserted operations**: RC increments, decrements, and drops inserted by the ARC pass don't have "natural" source spans. They should carry the span of the expression that caused the insertion (e.g., the function call that requires an RC increment on an argument).
+
 ## Side Logic — Root of Architectural Decay
 
 Side logic is any logic that lives outside its canonical home. It is the primary mechanism by which clean architectures degrade into historical drift. Each instance creates a second source of truth that can diverge from the canonical one. In a compiler with strong architectural centers (registry for builtin behavior, pool for type structure, AIMS for memory facts, repr-opt for representation decisions), leaked logic directly undermines global coherence.
