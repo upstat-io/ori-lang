@@ -2,6 +2,12 @@
 //!
 //! Tuples are anonymous structs — the same reordering algorithm applies.
 //! No `#repr` attributes apply to tuples (they are always reorderable).
+//!
+//! Only 3+ element tuples are reordered. 2-element tuples are skipped because:
+//! - All runtime-boundary tuples are 2-element (`next_map`, `next_zipped`,
+//!   `next_enumerated` write fields at hardcoded byte offsets).
+//! - For types where size is a multiple of alignment (all Ori types),
+//!   2-element tuple total size is identical regardless of field order.
 
 use crate::layout::{field_align, field_size, round_up};
 use crate::struct_repr::TupleRepr;

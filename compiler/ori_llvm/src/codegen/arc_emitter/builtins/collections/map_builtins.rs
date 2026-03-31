@@ -189,7 +189,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let key_eq = self.get_or_create_eq_thunk(key_ty)?;
         let key_hash = self.get_or_create_hash_thunk(key_ty)?;
 
-        // Option<V> layout: {i64 tag, V value}
+        // Option<V> layout: {i64 tag, V value} — runtime (ori_rt) writes i64 tags
         let val_llvm_ty = self.resolve_type(val_ty);
         let raw_val_ty = self.builder.raw_type(val_llvm_ty);
         let option_ty = self.builder.register_type(

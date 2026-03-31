@@ -1,0 +1,159 @@
+use std.testing { assert_eq, assert }
+
+// Regression: §07.1 — discriminant narrowing (i64 → i8 enum tags)
+// Verifies that narrowed tags produce correct match behavior, Option/Result
+// operations, and cross-feature interactions.
+
+// === All-unit enum match ===
+
+type Direction = North | South | East | West;
+
+@dir_name (d: Direction) -> str = match d {
+    North -> "N",
+    South -> "S",
+    East -> "E",
+    West -> "W",
+}
+
+@test_all_unit_enum_match tests @dir_name () -> void = {
+    assert_eq(actual: dir_name(d: North), expected: "N");
+    assert_eq(actual: dir_name(d: South), expected: "S");
+    assert_eq(actual: dir_name(d: East), expected: "E");
+    assert_eq(actual: dir_name(d: West), expected: "W")
+}
+
+// === Option match ===
+
+@test_option_int_match tests _ () -> void = {
+    let some_val = Some(42);
+    let none_val: Option<int> = None;
+    let r1 = match some_val {
+        Some(v) -> v,
+        None -> 0,
+    };
+    let r2 = match none_val {
+        Some(v) -> v,
+        None -> -1,
+    };
+    assert_eq(actual: r1, expected: 42);
+    assert_eq(actual: r2, expected: -1)
+}
+
+@test_option_str_match tests _ () -> void = {
+    let opt = Some("hello");
+    let val = match opt {
+        Some(s) -> s,
+        None -> "default",
+    };
+    assert_eq(actual: val, expected: "hello")
+}
+
+// === Result match ===
+
+@test_result_match tests _ () -> void = {
+    let ok_val: Result<int, str> = Ok(100);
+    let err_val: Result<int, str> = Err("fail");
+    let r1 = match ok_val {
+        Ok(v) -> v,
+        Err(_) -> -1,
+    };
+    let r2 = match err_val {
+        Ok(_) -> -1,
+        Err(msg) -> len(collection: msg),
+    };
+    assert_eq(actual: r1, expected: 100);
+    assert_eq(actual: r2, expected: 4)
+}
+
+// === Cross-feature: for-yield with Option match ===
+
+@test_for_yield_option_match tests _ () -> void = {
+    let items = [Some(1), None, Some(3), None, Some(5)];
+    let result = for x in items yield match x {
+        Some(v) -> v,
+        None -> 0,
+    };
+    assert_eq(actual: result, expected: [1, 0, 3, 0, 5])
+}
+
+// === Cross-feature: closure capturing Option ===
+
+@test_closure_option tests _ () -> void = {
+    let opt = Some(10);
+    let extract = () -> int = match opt {
+        Some(v) -> v * 2,
+        None -> 0,
+    };
+    assert_eq(actual: extract(), expected: 20)
+}
+
+// === Cross-feature: ? operator on Result ===
+
+@try_add (a: Result<int, str>, b: Result<int, str>) -> Result<int, str> = {
+    let x = a?;
+    let y = b?;
+    Ok(x + y)
+}
+
+@test_result_question_mark tests @try_add () -> void = {
+    let r1 = try_add(a: Ok(10), b: Ok(20));
+    let r2 = try_add(a: Ok(10), b: Err("nope"));
+    assert(condition: is_ok(result: r1));
+    assert(condition: is_err(result: r2));
+    assert_eq(actual: match r1 { Ok(v) -> v, Err(_) -> -1 }, expected: 30)
+}
+
+// === Nested enum match ===
+
+type Shape = Circle(radius: float) | Rect(w: float, h: float) | Point;
+
+@shape_area (s: Shape) -> float = match s {
+    Circle(radius:) -> 3.14159 * radius * radius,
+    Rect(w:, h:) -> w * h,
+    Point -> 0.0,
+}
+
+@test_nested_enum_match tests @shape_area () -> void = {
+    assert_eq(actual: shape_area(s: Point), expected: 0.0);
+    assert_eq(actual: shape_area(s: Rect(w: 3.0, h: 4.0)), expected: 12.0)
+}
+
+// === Option is_some/is_none ===
+
+@test_option_predicates tests _ () -> void = {
+    let some_val = Some(1);
+    let none_val: Option<int> = None;
+    assert(condition: is_some(option: some_val));
+    assert(condition: is_none(option: none_val));
+    assert(condition: !is_none(option: some_val));
+    assert(condition: !is_some(option: none_val))
+}
+
+// === Result is_ok/is_err ===
+
+@test_result_predicates tests _ () -> void = {
+    let ok_val: Result<int, str> = Ok(1);
+    let err_val: Result<int, str> = Err("e");
+    assert(condition: is_ok(result: ok_val));
+    assert(condition: is_err(result: err_val));
+    assert(condition: !is_err(result: ok_val));
+    assert(condition: !is_ok(result: err_val))
+}
+
+// === unwrap_or ===
+
+@test_option_unwrap_or tests _ () -> void = {
+    let some_val = Some(42);
+    let none_val: Option<int> = None;
+    assert_eq(actual: some_val.unwrap_or(default: 0), expected: 42);
+    assert_eq(actual: none_val.unwrap_or(default: 99), expected: 99)
+}
+
+// === Coalesce operator (??) ===
+
+@test_coalesce tests _ () -> void = {
+    let some_val = Some(10);
+    let none_val: Option<int> = None;
+    assert_eq(actual: some_val ?? 0, expected: 10);
+    assert_eq(actual: none_val ?? 99, expected: 99)
+}

@@ -90,7 +90,8 @@ fn emit_enum_payload_eq<'a>(
             })
         });
 
-    // Build switch cases — one block per variant
+    // Build switch cases — one block per variant.
+    // Use const_int_matching to match the narrowed tag type (§07.1).
     let mut cases = Vec::with_capacity(variants.len());
     let mut variant_bbs = Vec::with_capacity(variants.len());
     for (tag_idx, variant) in variants.iter().enumerate() {
@@ -98,7 +99,9 @@ fn emit_enum_payload_eq<'a>(
         let bb = fc
             .builder_mut()
             .append_block(func_id, &format!("eq.v.{variant_name}"));
-        let tag_val = fc.builder_mut().const_i64(tag_idx as i64);
+        let tag_val = fc
+            .builder_mut()
+            .const_int_matching(tag_self, tag_idx as u64);
         cases.push((tag_val, bb));
         variant_bbs.push(bb);
     }

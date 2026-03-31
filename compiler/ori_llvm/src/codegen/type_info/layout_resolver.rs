@@ -30,9 +30,9 @@ use crate::context::SimpleCx;
 /// - Roc's `gen_llvm/src/llvm/convert.rs` (`basic_type_from_layout`)
 pub struct TypeLayoutResolver<'a, 'll, 'tcx> {
     /// Type info store for looking up `TypeInfo` by `Idx`.
-    store: &'a TypeInfoStore<'tcx>,
+    pub(super) store: &'a TypeInfoStore<'tcx>,
     /// LLVM simple context for type construction.
-    scx: &'a SimpleCx<'ll>,
+    pub(super) scx: &'a SimpleCx<'ll>,
     /// String interner for resolving `Name` → human-readable strings.
     ///
     /// When present, struct/enum types get meaningful LLVM names like `%ori.Point`.
@@ -137,78 +137,7 @@ impl<'a, 'll, 'tcx> TypeLayoutResolver<'a, 'll, 'tcx> {
         resolved
     }
 
-    /// Try to convert a `MachineRepr` to an LLVM type for non-recursive types.
-    ///
-    /// Returns `Some` for primitives, fat pointers, opaque pointers, closures,
-    /// and ranges — these have fixed LLVM layouts independent of child type
-    /// resolution. Returns `None` for recursive types (Struct, Enum, Tuple,
-    /// `StackPromoted`) that require `TypeInfoStore`'s two-phase creation pattern.
-    fn try_repr_to_llvm_type(&self, repr: &ori_repr::MachineRepr) -> Option<BasicTypeEnum<'ll>> {
-        use ori_repr::{FloatWidth, IntWidth, MachineRepr};
-
-        match repr {
-            MachineRepr::Int { width, .. } => Some(match width {
-                IntWidth::I8 => self.scx.type_i8().into(),
-                IntWidth::I16 => self.scx.type_i16().into(),
-                IntWidth::I32 => self.scx.type_i32().into(),
-                IntWidth::I64 => self.scx.type_i64().into(),
-            }),
-            MachineRepr::Float { width } => Some(match width {
-                FloatWidth::F32 => self.scx.type_f32().into(),
-                FloatWidth::F64 => self.scx.type_f64().into(),
-            }),
-            MachineRepr::Bool => Some(self.scx.type_i1().into()),
-            MachineRepr::Char => Some(self.scx.type_i32().into()),
-            MachineRepr::Byte | MachineRepr::Ordering => Some(self.scx.type_i8().into()),
-            MachineRepr::Duration | MachineRepr::Size | MachineRepr::Unit | MachineRepr::Never => {
-                Some(self.scx.type_i64().into())
-            }
-            MachineRepr::Range => Some(
-                self.scx
-                    .type_struct(
-                        &[
-                            self.scx.type_i64().into(),
-                            self.scx.type_i64().into(),
-                            self.scx.type_i64().into(),
-                            self.scx.type_i64().into(),
-                        ],
-                        false,
-                    )
-                    .into(),
-            ),
-            MachineRepr::FatPointer(_) => Some(
-                self.scx
-                    .type_struct(
-                        &[
-                            self.scx.type_i64().into(),
-                            self.scx.type_i64().into(),
-                            self.scx.type_ptr().into(),
-                        ],
-                        false,
-                    )
-                    .into(),
-            ),
-            MachineRepr::OpaquePtr | MachineRepr::UnmanagedPtr | MachineRepr::RcPointer(_) => {
-                Some(self.scx.type_ptr().into())
-            }
-            MachineRepr::Closure(_) => Some(
-                self.scx
-                    .type_struct(
-                        &[self.scx.type_ptr().into(), self.scx.type_ptr().into()],
-                        false,
-                    )
-                    .into(),
-            ),
-            // Recursive types — require two-phase creation via TypeInfoStore.
-            // Narrowed Struct/Tuple types are handled in resolve_inner() by
-            // try_lower_narrowed_aggregate(), not here — that ensures only
-            // actually-narrowed structs bypass the named struct path.
-            MachineRepr::Struct(_)
-            | MachineRepr::Enum(_)
-            | MachineRepr::Tuple(_)
-            | MachineRepr::StackPromoted { .. } => None,
-        }
-    }
+    // try_repr_to_llvm_type and try_lower_narrowed_aggregate live in repr_lowering.rs.
 
     /// Inner resolve implementation, separated for depth guard.
     fn resolve_inner(&self, idx: Idx) -> BasicTypeEnum<'ll> {
@@ -270,6 +199,11 @@ impl<'a, 'll, 'tcx> TypeLayoutResolver<'a, 'll, 'tcx> {
                 self.resolving.borrow_mut().insert(idx);
                 let payload = self.resolve(*inner);
                 self.resolving.borrow_mut().remove(&idx);
+                // Option/Result use i64 tag in LLVM layout to match ori_rt runtime
+                // expectations. Runtime functions (ori_list_first, ori_map_get, etc.)
+                // write {i64 tag, T payload} to sret pointers. Narrowing Option/Result
+                // tags to i8 requires a coordinated ori_rt update.
+                // User-defined enums are narrowed via resolve_enum().
                 self.scx
                     .type_struct(&[self.scx.type_i64().into(), payload], false)
                     .into()
@@ -283,6 +217,7 @@ impl<'a, 'll, 'tcx> TypeLayoutResolver<'a, 'll, 'tcx> {
                 let ok_size = Self::type_store_size(ok_ty);
                 let err_size = Self::type_store_size(err_ty);
                 let payload = if ok_size >= err_size { ok_ty } else { err_ty };
+                // See Option comment above — i64 tag for runtime compatibility.
                 self.scx
                     .type_struct(&[self.scx.type_i64().into(), payload], false)
                     .into()
@@ -322,70 +257,6 @@ impl<'a, 'll, 'tcx> TypeLayoutResolver<'a, 'll, 'tcx> {
         result
     }
 
-    /// Try to lower a narrowed Struct/Tuple from the `ReprPlan` to an LLVM type.
-    ///
-    /// Returns `Some` only if the aggregate has at least one narrowed int field
-    /// (`MachineRepr::Int { width != I64 }`) and all field types can be resolved
-    /// without recursive type resolution. Non-narrowed aggregates return `None`
-    /// to preserve the existing named-struct creation path.
-    fn try_lower_narrowed_aggregate(
-        &self,
-        repr: &ori_repr::MachineRepr,
-    ) -> Option<BasicTypeEnum<'ll>> {
-        use ori_repr::MachineRepr;
-
-        let fields = match repr {
-            MachineRepr::Struct(s) => &s.fields[..],
-            MachineRepr::Tuple(t) => &t.elements[..],
-            _ => return None,
-        };
-
-        // Only enter the narrowed path if at least one field was actually
-        // narrowed. Check for both integer narrowing (Int width < I64)
-        // and float narrowing (Float width F32).
-        let has_narrowed = fields.iter().any(|f| {
-            matches!(
-                f.repr,
-                MachineRepr::Int { width, .. } if width != ori_repr::IntWidth::I64
-            ) || matches!(
-                f.repr,
-                MachineRepr::Float { width } if width != ori_repr::FloatWidth::F64
-            )
-        });
-        if !has_narrowed {
-            return None;
-        }
-
-        // Safety: only create narrowed LLVM types when ALL fields are
-        // scalar types. Mixed structs (e.g., { str, int }) change the
-        // overall struct size, which breaks element_store_size() and
-        // elem_dec_fn assumptions in collection codegen (list element
-        // GEP stride, RC cleanup offsets). Mixed-field narrowing requires
-        // Integer narrowing phase C: element_store_size integration.
-        let all_scalar_fields = fields.iter().all(|f| {
-            matches!(
-                f.repr,
-                MachineRepr::Int { .. }
-                    | MachineRepr::Float { .. }
-                    | MachineRepr::Bool
-                    | MachineRepr::Char
-                    | MachineRepr::Byte
-                    | MachineRepr::Unit
-            )
-        });
-        if !all_scalar_fields {
-            return None;
-        }
-
-        // Resolve all field types. If any field can't be resolved (nested
-        // Struct/Enum), return None to fall through to TypeInfoStore.
-        let field_types: Option<Vec<BasicTypeEnum<'ll>>> = fields
-            .iter()
-            .map(|f| self.try_repr_to_llvm_type(&f.repr))
-            .collect();
-        field_types.map(|ft| self.scx.type_struct(&ft, false).into())
-    }
-
     /// Resolve a struct type with two-phase creation for cycle safety.
     ///
     /// §06: when the struct is reordered in the `ReprPlan`, creates the LLVM
@@ -406,13 +277,23 @@ impl<'a, 'll, 'tcx> TypeLayoutResolver<'a, 'll, 'tcx> {
         self.resolving.borrow_mut().insert(idx);
 
         // §06: if the struct is reordered, build LLVM type in memory order.
+        // Match fields by NAME (not original_index) to handle Pool entries
+        // where struct_fields() returns fields in a different order than
+        // the canonical entry that was optimized.
         let field_types: Vec<BasicTypeEnum<'ll>> = if let Some(ori_repr::MachineRepr::Struct(s)) =
             self.repr_plan.and_then(|p| p.get_repr(idx))
         {
             if s.is_reordered() {
                 s.fields
                     .iter()
-                    .map(|f| self.resolve(fields[f.original_index as usize].1))
+                    .map(|f| {
+                        // Match by field name for robustness across Pool entries.
+                        let ty = fields
+                            .iter()
+                            .find(|(n, _)| *n == f.name)
+                            .map_or(fields[f.original_index as usize].1, |(_, ty)| *ty);
+                        self.resolve(ty)
+                    })
                     .collect()
             } else {
                 fields.iter().map(|&(_, ty)| self.resolve(ty)).collect()
@@ -444,6 +325,10 @@ impl<'a, 'll, 'tcx> TypeLayoutResolver<'a, 'll, 'tcx> {
         self.named_structs.borrow_mut().insert(idx, named_struct);
         self.resolving.borrow_mut().insert(idx);
 
+        // Enum payloads use [M x i64] layout where each field occupies
+        // at least one full i64 slot (8 bytes). Must match
+        // compute_variant_field_offsets() in drop_enum.rs and
+        // enum_payload_size() / pool_type_store_size() in ori_arc.
         let mut max_payload_bytes: u64 = 0;
         for variant in variants {
             let variant_bytes: u64 = variant
@@ -451,13 +336,21 @@ impl<'a, 'll, 'tcx> TypeLayoutResolver<'a, 'll, 'tcx> {
                 .iter()
                 .map(|&f| {
                     let ty = self.resolve(f);
-                    Self::type_store_size(ty)
+                    let size = Self::type_store_size(ty);
+                    // Round up to 8-byte i64 slot boundary
+                    size.div_ceil(8) * 8
                 })
                 .sum();
             max_payload_bytes = max_payload_bytes.max(variant_bytes);
         }
 
-        let tag_ty = self.scx.type_i64();
+        // §07.1: Use narrowed tag type (i8 for ≤256 variants) instead of i64.
+        let tag_ty = match ori_repr::min_tag_width(variants.len()) {
+            ori_repr::IntWidth::I8 => self.scx.type_i8(),
+            ori_repr::IntWidth::I16 => self.scx.type_i16(),
+            ori_repr::IntWidth::I32 => self.scx.type_i32(),
+            ori_repr::IntWidth::I64 => self.scx.type_i64(),
+        };
         if max_payload_bytes == 0 {
             self.scx
                 .set_struct_body(named_struct, &[tag_ty.into()], false);

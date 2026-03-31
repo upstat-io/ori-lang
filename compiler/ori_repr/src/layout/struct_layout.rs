@@ -80,6 +80,18 @@ fn reorder_and_layout(struct_repr: &StructRepr) -> StructRepr {
 
     let total_size = round_up(offset, max_align);
 
+    // Padding diagnostic: emit when padding exceeds 25% of total size.
+    let data_bytes: u32 = fields.iter().map(|f| field_size(&f.repr)).sum();
+    let padding = total_size.saturating_sub(data_bytes);
+    if total_size > 0 && padding > total_size / 4 {
+        tracing::debug!(
+            total_size,
+            padding,
+            data_bytes,
+            "struct has >25% padding despite field reordering"
+        );
+    }
+
     StructRepr {
         fields,
         size: total_size,
