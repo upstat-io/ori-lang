@@ -78,10 +78,12 @@ impl TagEncoding {
     pub(crate) fn variant_to_tag_value(&self, variant_idx: u32) -> u64 {
         match &self.tag {
             EnumTag::Explicit { .. } => u64::from(variant_idx),
-            EnumTag::Niche { niche_value, .. } => {
-                // The niche variant is always the LAST variant (by convention:
-                // None for Option, Err for Result when Ok has the niche).
-                if variant_idx == self.variant_count - 1 {
+            EnumTag::Niche {
+                niche_value,
+                niche_variant_idx,
+                ..
+            } => {
+                if variant_idx == *niche_variant_idx {
                     *niche_value
                 } else {
                     // Non-niche variants: the payload IS the value.
@@ -113,7 +115,9 @@ impl TagEncoding {
     pub(crate) fn needs_tag_store(&self, variant_idx: u32) -> bool {
         match &self.tag {
             EnumTag::Explicit { .. } => true,
-            EnumTag::Niche { .. } => variant_idx == self.variant_count - 1,
+            EnumTag::Niche {
+                niche_variant_idx, ..
+            } => variant_idx == *niche_variant_idx,
             EnumTag::None => false,
         }
     }
@@ -145,6 +149,16 @@ impl TagEncoding {
     pub(crate) fn niche_value(&self) -> Option<u64> {
         match &self.tag {
             EnumTag::Niche { niche_value, .. } => Some(*niche_value),
+            _ => None,
+        }
+    }
+
+    /// For niche encoding: which variant is encoded by the niche value.
+    pub(crate) fn niche_variant_idx(&self) -> Option<u32> {
+        match &self.tag {
+            EnumTag::Niche {
+                niche_variant_idx, ..
+            } => Some(*niche_variant_idx),
             _ => None,
         }
     }
