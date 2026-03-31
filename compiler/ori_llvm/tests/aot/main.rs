@@ -7,6 +7,7 @@
 pub mod aims_interactions;
 pub mod arc;
 pub mod cli;
+pub mod coalesce;
 pub mod codegen;
 pub mod collections_ext;
 pub mod conversions;

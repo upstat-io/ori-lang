@@ -1,0 +1,7 @@
+// Chain then unwrap when all None: (None ?? None) ?? 99 = 99
+@main () -> int = {
+    let a: Option<int> = None;
+    let b: Option<int> = None;
+    let v = (a ?? b) ?? 99;
+    if v == 99 then 0 else 1
+}
