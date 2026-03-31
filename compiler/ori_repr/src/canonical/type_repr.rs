@@ -9,12 +9,13 @@ use ori_ir::Name;
 use ori_types::{Idx, Pool};
 use rustc_hash::{FxHashMap, FxHashSet};
 
-use crate::enum_repr::{EnumRepr, EnumTag, VariantRepr};
+use crate::enum_repr::{min_tag_width, EnumRepr, EnumTag, VariantRepr};
 use crate::layout::{
-    compute_field_layout, compute_payload_layout, field_align, field_size, is_trivial_repr,
+    compute_enum_payload_layout, compute_field_layout, field_align, field_size, is_trivial_repr,
     round_up,
 };
-use crate::repr::{IntWidth, MachineRepr};
+use crate::repr::IntWidth;
+use crate::repr::MachineRepr;
 use crate::struct_repr::{ClosureRepr, FatRepr, FieldRepr, StructRepr, TupleRepr};
 
 use super::canonical_inner;
@@ -161,7 +162,7 @@ pub(super) fn canonical_enum(
                 .map(|fi| canonical_inner(pool, fi, visiting, cache))
                 .collect();
             let fields = fields?;
-            let (size, alignment) = compute_payload_layout(&fields);
+            let (size, alignment) = compute_enum_payload_layout(&fields);
             Some(VariantRepr {
                 name,
                 fields,
@@ -172,26 +173,37 @@ pub(super) fn canonical_enum(
         .collect();
     let variants = variants?;
 
+    let tag_width = min_tag_width(variants.len());
+    let tag_size = tag_width.size_bytes();
     let max_payload = variants.iter().map(|v| v.size).max().unwrap_or(0);
-    let max_align = variants
-        .iter()
-        .map(|v| v.alignment)
-        .max()
-        .unwrap_or(1)
-        .max(8); // tag is i64 → 8-byte aligned
-    let size = 8 + round_up(max_payload, max_align);
+    let max_variant_align = variants.iter().map(|v| v.alignment).max().unwrap_or(1);
+    // Non-unit enums: LLVM uses [M x i64] payload with alignment 8, so the
+    // tag is always padded to 8 bytes regardless of tag width. All-unit enums
+    // have no payload, so the tag determines the entire size and alignment.
+    let (size, align) = if max_payload == 0 {
+        (tag_size, tag_size) // All-unit enum: just the narrowed tag
+    } else {
+        // Payload alignment is at least 8 because of LLVM's [M x i64] convention
+        let payload_align = max_variant_align.max(8);
+        let align = payload_align;
+        let size = 8 + round_up(max_payload, align); // 8 = padded tag slot
+        (size, align)
+    };
 
     Some(MachineRepr::Enum(EnumRepr {
-        tag: EnumTag::Explicit {
-            width: IntWidth::I64,
-        },
+        tag: EnumTag::Explicit { width: tag_width },
         variants,
         size,
-        align: max_align,
+        align,
     }))
 }
 
 /// Build canonical `Option<T>` as a 2-variant enum: None (unit) + Some(T).
+///
+/// Uses `I64` tag width (not narrowed) to match the `ori_rt` runtime layout.
+/// Runtime functions (`ori_list_first`, `ori_map_get`, etc.) write `{i64, T}`
+/// to sret pointers. Narrowing Option/Result tags requires a coordinated
+/// `ori_rt` update — see `layout_resolver.rs` comment at `TypeInfo::Option`.
 pub(super) fn canonical_option(inner_repr: MachineRepr) -> MachineRepr {
     let none_variant = VariantRepr {
         name: Name::new(0, 0), // "None" — exact interning handled at call sites
@@ -208,14 +220,19 @@ pub(super) fn canonical_option(inner_repr: MachineRepr) -> MachineRepr {
         alignment: some_align,
     };
 
+    // I64 tag — NOT narrowed. Must match ori_rt runtime layout.
+    let tag_width = IntWidth::I64;
+    let tag_size = tag_width.size_bytes();
     let max_payload = some_size;
-    let align = some_align.max(8); // i64 tag
-    let size = 8 + round_up(max_payload, align);
+    let (size, align) = if max_payload == 0 {
+        (tag_size, tag_size) // Option<void>: just the tag
+    } else {
+        let payload_align = some_align.max(8);
+        (8 + round_up(max_payload, payload_align), payload_align)
+    };
 
     MachineRepr::Enum(EnumRepr {
-        tag: EnumTag::Explicit {
-            width: IntWidth::I64,
-        },
+        tag: EnumTag::Explicit { width: tag_width },
         variants: vec![none_variant, some_variant],
         size,
         align,
@@ -223,6 +240,9 @@ pub(super) fn canonical_option(inner_repr: MachineRepr) -> MachineRepr {
 }
 
 /// Build canonical `Result<T, E>` as a 2-variant enum: Ok(T) + Err(E).
+///
+/// Uses `I64` tag width (not narrowed) to match the `ori_rt` runtime layout.
+/// See `canonical_option` for the rationale.
 pub(super) fn canonical_result(ok_repr: MachineRepr, err_repr: MachineRepr) -> MachineRepr {
     let ok_size = field_size(&ok_repr);
     let ok_align = field_align(&ok_repr);
@@ -242,14 +262,20 @@ pub(super) fn canonical_result(ok_repr: MachineRepr, err_repr: MachineRepr) -> M
         alignment: err_align,
     };
 
+    // I64 tag — NOT narrowed. Must match ori_rt runtime layout.
+    let tag_width = IntWidth::I64;
+    let tag_size = tag_width.size_bytes();
     let max_payload = ok_size.max(err_size);
-    let align = ok_align.max(err_align).max(8); // i64 tag
-    let size = 8 + round_up(max_payload, align);
+    let max_variant_align = ok_align.max(err_align);
+    let (size, align) = if max_payload == 0 {
+        (tag_size, tag_size)
+    } else {
+        let payload_align = max_variant_align.max(8);
+        (8 + round_up(max_payload, payload_align), payload_align)
+    };
 
     MachineRepr::Enum(EnumRepr {
-        tag: EnumTag::Explicit {
-            width: IntWidth::I64,
-        },
+        tag: EnumTag::Explicit { width: tag_width },
         variants: vec![ok_variant, err_variant],
         size,
         align,

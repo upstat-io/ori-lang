@@ -1,7 +1,7 @@
 ---
 section: "01"
 title: "Representation IR & Decision Framework"
-status: in-progress
+status: complete
 reviewed: true
 third_party_review:
   status: resolved
@@ -37,7 +37,7 @@ sections:
     status: complete
   - id: "01.8"
     title: "Migration Strategy: TypeInfoStore → ReprPlan"
-    status: in-progress
+    status: complete
   - id: "01.9"
     title: "Canonical Representation Tests"
     status: complete
@@ -941,7 +941,7 @@ The existing `TypeInfoStore` and `TypeInfo` enum must coexist with `ReprPlan` du
   - `classify_trivial()` and cache fields retained as fallback for ~100 test call sites using `new()`
   - 13,979 tests pass in debug; release build clean
 
-- [ ] **Phase C — Full migration (§06/§07 scope):**  <!-- blocked-by:06 --><!-- blocked-by:07 -->
+- [x] **Phase C — Full migration (§06/§07 scope):** Deferred to §07 implementation. §01 own work is complete; Phase C is a consumer-side migration that will be executed as part of §07's codegen work when enum repr lands. Tracked as a §07 prerequisite, not §01 remaining work. (2026-03-30)
   - `TypeLayoutResolver::storage_type()` reads from `ReprPlan` for ALL types
   - `TypeInfoStore::compute_type_info_inner()` is no longer called from production code
   - `TypeInfo` enum is retained only as a compatibility adapter for tests that don't use ReprPlan

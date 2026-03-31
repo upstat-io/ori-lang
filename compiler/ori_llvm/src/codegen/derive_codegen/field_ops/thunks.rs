@@ -379,13 +379,31 @@ fn get_or_create_tuple_eq_thunk<'a>(
 
         let mut result = fc.builder_mut().const_bool(true);
         for (i, &thunk) in elem_thunks.iter().enumerate() {
+            // §06: remap declaration-order index to memory order.
+            let mem_i = fc
+                .repr_plan()
+                .and_then(|plan| {
+                    let resolved = fc.pool().resolve_fully(ty);
+                    let repr = plan.get_repr(resolved)?;
+                    let fields = match repr {
+                        ori_repr::MachineRepr::Tuple(t) => &t.elements[..],
+                        ori_repr::MachineRepr::Struct(s) => &s.fields[..],
+                        _ => return None,
+                    };
+                    #[expect(clippy::cast_possible_truncation, reason = "field index fits u32")]
+                    fields
+                        .iter()
+                        .position(|f| f.original_index == i as u32)
+                        .map(|p| p as u32)
+                })
+                .unwrap_or(i as u32);
             // Get field pointers using struct_gep
-            let a_field_ptr =
-                fc.builder_mut()
-                    .struct_gep(ty_id, a_ptr, i as u32, &format!("a_f{i}"));
-            let b_field_ptr =
-                fc.builder_mut()
-                    .struct_gep(ty_id, b_ptr, i as u32, &format!("b_f{i}"));
+            let a_field_ptr = fc
+                .builder_mut()
+                .struct_gep(ty_id, a_ptr, mem_i, &format!("a_f{i}"));
+            let b_field_ptr = fc
+                .builder_mut()
+                .struct_gep(ty_id, b_ptr, mem_i, &format!("b_f{i}"));
             // Call eq thunk on field pointers (indirect call through fn ptr)
             let field_eq = fc
                 .builder_mut()

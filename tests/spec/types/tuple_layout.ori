@@ -1,0 +1,141 @@
+// Spec: Annex E § System Considerations — tuple element reordering
+// §06.4: Tuple elements with 3+ fields may be reordered in memory
+// for optimal alignment. 2-element tuples are never reordered
+// (runtime boundary safety + no size benefit).
+// Tests verify field access, destructuring, and function pass/return
+// produce correct results regardless of memory layout.
+
+use std.testing { assert_eq, assert }
+
+// 3-element tuple: (bool, int, bool) — reordered to (int, bool, bool)
+// saves 8 bytes (24 → 16 due to packing bools after int)
+@test_three_elem_tuple_field_access tests @make_triple () -> void = {
+    let t = make_triple();
+    assert_eq(actual: t.0, expected: true);
+    assert_eq(actual: t.1, expected: 42);
+    assert_eq(actual: t.2, expected: false)
+}
+
+@make_triple () -> (bool, int, bool) = (true, 42, false);
+
+// Construction and immediate field access
+@test_three_elem_construction tests @make_triple () -> void = {
+    let t = (false, 99, true);
+    assert_eq(actual: t.0, expected: false);
+    assert_eq(actual: t.1, expected: 99);
+    assert_eq(actual: t.2, expected: true)
+}
+
+// Tuple passed to function
+@sum_if (t: (bool, int, bool)) -> int = {
+    if t.0 then t.1
+    else if t.2 then t.1 * 2
+    else 0
+};
+
+@test_three_elem_pass_to_fn tests @sum_if () -> void = {
+    assert_eq(actual: sum_if(t: (true, 10, false)), expected: 10);
+    assert_eq(actual: sum_if(t: (false, 10, true)), expected: 20);
+    assert_eq(actual: sum_if(t: (false, 10, false)), expected: 0)
+}
+
+// Tuple returned from function
+@build_triple (n: int) -> (bool, int, bool) = (n > 0, n, n > 10);
+
+@test_three_elem_returned tests @build_triple () -> void = {
+    let t = build_triple(n: 15);
+    assert_eq(actual: t.0, expected: true);
+    assert_eq(actual: t.1, expected: 15);
+    assert_eq(actual: t.2, expected: true)
+}
+
+// Tuple in list — exercises element_store_size with reordered layout
+@test_three_elem_in_list tests @make_triple () -> void = {
+    let items = [(true, 1, false), (false, 2, true), (true, 3, false)];
+    assert_eq(actual: items.length(), expected: 3);
+    assert_eq(actual: items[0].0, expected: true);
+    assert_eq(actual: items[0].1, expected: 1);
+    assert_eq(actual: items[1].2, expected: true);
+    assert_eq(actual: items[2].1, expected: 3)
+}
+
+// for-yield with 3-element tuple — exercises element copy with reordered layout
+@test_three_elem_for_yield tests @make_triple () -> void = {
+    let items = [(true, 10, false), (false, 20, true), (true, 30, false)];
+    let collected = for item in items yield item;
+    assert_eq(actual: collected.length(), expected: 3);
+    assert_eq(actual: collected[0].0, expected: true);
+    assert_eq(actual: collected[0].1, expected: 10);
+    assert_eq(actual: collected[0].2, expected: false);
+    assert_eq(actual: collected[1].0, expected: false);
+    assert_eq(actual: collected[1].1, expected: 20);
+    assert_eq(actual: collected[2].1, expected: 30)
+}
+
+// for-yield with field projection — map 3-element tuple to extracted field
+@test_three_elem_for_yield_project tests @make_triple () -> void = {
+    let items = [(true, 10, false), (false, 20, true), (true, 30, false)];
+    let values = for item in items yield item.1;
+    let sum = 0;
+    for v in values do sum = sum + v;
+    assert_eq(actual: sum, expected: 60)
+}
+
+// Destructuring 3-element tuple via let binding
+@test_three_elem_destructure tests @make_triple () -> void = {
+    let t = (true, 42, false);
+    let (a, b, c) = t;
+    assert_eq(actual: a, expected: true);
+    assert_eq(actual: b, expected: 42);
+    assert_eq(actual: c, expected: false)
+}
+
+// 4-element tuple: (bool, int, bool, int) — exercises 4-way reorder
+@test_four_elem_tuple tests @make_triple () -> void = {
+    let t = (true, 42, false, 99);
+    assert_eq(actual: t.0, expected: true);
+    assert_eq(actual: t.1, expected: 42);
+    assert_eq(actual: t.2, expected: false);
+    assert_eq(actual: t.3, expected: 99)
+}
+
+// 2-element tuple: should NOT be reordered (runtime boundary safe)
+// This test verifies 2-element tuples work correctly regardless
+@test_two_elem_unchanged tests @make_triple () -> void = {
+    let t = (true, 42);
+    assert_eq(actual: t.0, expected: true);
+    assert_eq(actual: t.1, expected: 42)
+}
+
+// Map iteration produces 2-element tuples — must remain unreordered
+@test_map_iter_two_elem tests @make_triple () -> void = {
+    let m = {"a": 1, "b": 2};
+    let count = 0;
+    for (k, v) in m do {
+        count = count + v
+    };
+    assert_eq(actual: count, expected: 3)
+}
+
+// Semantic pin: 3-element tuple in list iterated with for-yield,
+// then re-destructured — exercises the full pipeline: construction
+// → reorder → store → copy → load → project
+@test_semantic_pin_three_elem_round_trip tests @make_triple () -> void = {
+    let items = [
+        (false, 100, true),
+        (true, 200, false),
+        (false, 300, true),
+    ];
+    let doubled = for (a, b, c) in items yield (a, b * 2, c);
+    assert_eq(actual: doubled.length(), expected: 3);
+    let (a0, b0, c0) = doubled[0];
+    let (a1, b1, c1) = doubled[1];
+    let (a2, b2, c2) = doubled[2];
+    assert_eq(actual: a0, expected: false);
+    assert_eq(actual: b0, expected: 200);
+    assert_eq(actual: c0, expected: true);
+    assert_eq(actual: a1, expected: true);
+    assert_eq(actual: b1, expected: 400);
+    assert_eq(actual: c1, expected: false);
+    assert_eq(actual: b2, expected: 600)
+}

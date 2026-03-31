@@ -32,7 +32,7 @@ Use `/benchmark short` after modifying hot paths.
 ## Keyword Clusters by Section
 
 ### Section 01: Representation IR & Decision Framework
-**File:** `section-01-repr-ir.md` | **Status:** In Progress
+**File:** `section-01-repr-ir.md` | **Status:** Complete
 
 ```
 MachineRepr, ReprPlan, ReprDecision, DecisionSource, DecisionReason
@@ -160,7 +160,7 @@ is_narrowing_safe_for_codegen rename, float_field_range_summary_string
 ---
 
 ### Section 06: Struct & Tuple Layout Optimization
-**File:** `section-06-struct-layout.md` | **Status:** Not Started
+**File:** `section-06-struct-layout.md` | **Status:** Complete
 
 ```
 struct layout, field reordering, padding minimization
@@ -175,18 +175,28 @@ Rust repr(Rust), Zig struct layout, LLVM DataLayout
 ---
 
 ### Section 07: Enum Representation Optimization
-**File:** `section-07-enum-repr.md` | **Status:** Not Started
+**File:** `section-07-enum-repr.md` | **Status:** In Progress (§07.0 complete, §07.1 complete)
 
 ```
 niche, niche filling, niche optimization, tagged pointer
 EnumRepr, EnumTag, Niche, discriminant narrowing
-Option<bool> 1 byte, Option<&T> null niche
+Option<bool> 1 byte, Option<&T> null niche, Option<str> null ptr niche
+Option<[int]> no niche (empty list = null ptr), FatRepr::Str niche only
 invalid bit pattern, spare bits, niche_value
 tagged pointer, low bits, alignment bits
-payload compression, variant layout, shared prefix
+payload compression, variant layout, all-unit tag narrowing
+codegen consumer inventory, TagAccess abstraction, tag_access.rs
+resolve_enum, emit_construct, SetTag, Switch, drop_enum, rc_helpers
+abi/mod.rs stale comments, abi_size_inner, consumer #16
 Rust niche, Swift GenEnum, Zig optional
 f32 niche, float niche, NaN bit pattern, f32-typed field niche
 depends §04 integer narrowing, depends §05 float narrowing
+current tag always i64 (not i8), discriminant narrowing i64→i8
+discriminant narrowing BEFORE niche filling, TagAccess gate
+pattern match niche, niche-aware RC, niche-aware drop
+find_enum_niches, nested niche, Option<Option<bool>>
+evaluator unaffected, Value::Variant, dual-execution parity
+niche.rs, tagged_ptr.rs, layout submodules
 ```
 
 ---

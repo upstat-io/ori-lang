@@ -1,4 +1,6 @@
 use super::*;
+use ori_ir::Name;
+use ori_types::EnumVariant;
 use ori_types::Pool;
 
 fn test_store() -> (&'static Pool, TypeInfoStore<'static>) {
@@ -103,6 +105,92 @@ fn mixed_alignment_tuple_ignores_padding() {
         compute_param_passing(tup, &store),
         ParamPassing::Direct,
         "known limitation: mixed-alignment tuple classified as Direct due to padding-unaware size"
+    );
+}
+
+// -- Enum abi_size tests --
+
+#[test]
+fn all_unit_enum_abi_size_is_tag_size() {
+    // §07.1: all-unit enum with ≤256 variants has an i8 tag → 1 byte.
+    let mut pool = Pool::new();
+    let dir = pool.enum_type(
+        Name::from_raw(100),
+        &[
+            EnumVariant {
+                name: Name::from_raw(101),
+                field_types: vec![],
+            },
+            EnumVariant {
+                name: Name::from_raw(102),
+                field_types: vec![],
+            },
+            EnumVariant {
+                name: Name::from_raw(103),
+                field_types: vec![],
+            },
+            EnumVariant {
+                name: Name::from_raw(104),
+                field_types: vec![],
+            },
+        ],
+    );
+    let store = TypeInfoStore::new(&pool);
+
+    // All-unit enum with 4 variants: { i8 tag } = 1 byte
+    assert_eq!(abi_size(dir, &store), 1);
+}
+
+#[test]
+fn enum_with_payload_abi_size() {
+    let mut pool = Pool::new();
+    let color = pool.enum_type(
+        Name::from_raw(200),
+        &[
+            EnumVariant {
+                name: Name::from_raw(201),
+                field_types: vec![Idx::INT],
+            },
+            EnumVariant {
+                name: Name::from_raw(202),
+                field_types: vec![],
+            },
+        ],
+    );
+    let store = TypeInfoStore::new(&pool);
+
+    // §07.1: { i8 tag, [1 x i64] payload } — tag padded to 8 due to
+    // payload alignment. Total = 8 + 8 = 16 bytes.
+    assert_eq!(abi_size(color, &store), 16);
+}
+
+/// Regression: TPR-07-003 — `abi_size` for payload enums must account for
+/// [M x i64] slot layout. A(int, bool) | B has payload [2 x i64] = 16,
+/// total = 8 (padded tag) + 16 = 24.
+#[test]
+fn enum_with_mixed_payload_abi_size() {
+    let mut pool = Pool::new();
+    let mixed = pool.enum_type(
+        Name::from_raw(300),
+        &[
+            EnumVariant {
+                name: Name::from_raw(301),
+                field_types: vec![Idx::INT, Idx::BOOL],
+            },
+            EnumVariant {
+                name: Name::from_raw(302),
+                field_types: vec![],
+            },
+        ],
+    );
+    let store = TypeInfoStore::new(&pool);
+
+    // { i8, [2 x i64] } = 8 + 16 = 24 bytes
+    assert_eq!(abi_size(mixed, &store), 24);
+    // 24 > 16 → Sret, not Direct
+    assert_eq!(
+        compute_return_passing(mixed, &store),
+        ReturnPassing::Sret { alignment: 8 }
     );
 }
 

@@ -501,6 +501,23 @@ Based on user choice:
 
 **The ONLY valid reason to not implement an item is if you literally cannot** (missing information that requires user input, blocked on external dependency). In that case, use `AskUserQuestion` immediately — do not silently skip.
 
+### ALL Deferrals Must Have Implementation Anchors
+
+**When an item IS deferred (with valid reason), it MUST point to a concrete `- [ ]` item where the work WILL be done.** Valid deferral reasons and their anchor requirements:
+
+1. **Dependency** — blocked by work in another section. The deferred item MUST have `<!-- blocked-by:X -->` pointing to a specific `- [ ]` item in section X that, when completed, unblocks this item.
+2. **Better location** — the work fits more naturally in a future section. The deferred item MUST reference a specific `- [ ]` item in that section. If no such item exists, CREATE it before deferring.
+
+**Anchor-free deferrals are banned.** A deferred item with no pointer to where it will actually get done is invisible — it will never be implemented. The following rationalizations for skipping WITHOUT an anchor are ALL banned:
+
+- "Nice-to-have" / "not blocking" — if the user approved it in the plan, it is mandatory
+- "Existing tests already cover it" — approved test items are not redundant by definition
+- "Test gap but not a blocker" — an unchecked checkbox IS a blocker for section completion
+- "Deferred to separate cleanup pass" — what cleanup pass? Where is the `- [ ]` item?
+- Scope, effort, complexity, difficulty, number of call sites — irrelevant per CLAUDE.md
+
+**Before marking any item as deferred, verify:** Does a concrete `- [ ]` item exist in the target section that will produce the deferred work? If not, either (a) create the item in the target section, or (b) do the work now.
+
 ### Plan Boundary Integrity
 
 **Fixes must not silently cross section boundaries.** When implementing a task in Section X:
@@ -722,6 +739,12 @@ When completing a roadmap item:
   - [ ] Update subsection `status` in YAML frontmatter if subsection is now complete
   - [ ] Update section `status` in YAML frontmatter if all subsections are now complete
 - [ ] Run `/tpr-review` — MUST PASS CLEAN (zero unresolved findings). If findings surface: fix, re-run, repeat until clean. This is definitive — no reasoning about "close enough" or "minor remaining". Clean or open, no middle ground.
+- [ ] **Plan-wide accuracy audit** (MANDATORY on every section completion):
+  - [ ] Read the ENTIRE `00-overview.md` — verify every section's status in the Quick Reference table matches reality (check frontmatter of each section file). Fix any stale statuses.
+  - [ ] Read the ENTIRE `index.md` — verify every section's status matches reality. Fix any stale statuses.
+  - [ ] Verify the Estimated Effort table (if it exists) reflects actual status for ALL sections, not just the one you completed.
+  - [ ] Check for sections that are effectively complete but still marked "In Progress" due to external blockers (not their own remaining work). If a section's own implementation is done and the only remaining items are blocked by OTHER sections or cross-cutting infrastructure issues, mark it `complete` with a note on the blocker.
+  - [ ] Verify `00-overview.md` frontmatter `status` is consistent with overall plan progress (e.g., don't leave it as `not-started` when 6/12 sections are complete).
 - [ ] Update parent plan files (if section status changed):
   - [ ] Update `00-overview.md` effort table and Quick Reference table
   - [ ] Update `index.md` section status and Quick Reference table

@@ -83,7 +83,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 }
             }
 
-            // Struct: traverse RC fields
+            // Struct: traverse RC fields (§06: remap to memory order)
             Tag::Struct => {
                 let fields = self.pool.struct_fields(resolved);
                 #[expect(
@@ -92,9 +92,10 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 )]
                 for (i, (_, field_ty)) in fields.into_iter().enumerate() {
                     if self.classifier.needs_rc(field_ty) {
+                        let mem_i = self.remap_struct_field(resolved, i as u32);
                         if let Some(fv) =
                             self.builder
-                                .extract_value(val, i as u32, &format!("rc_inc.f.{i}"))
+                                .extract_value(val, mem_i, &format!("rc_inc.f.{i}"))
                         {
                             self.inc_value_rc(fv, field_ty, count);
                         }
@@ -102,7 +103,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 }
             }
 
-            // Tuple: traverse RC elements
+            // Tuple: traverse RC elements (§06: remap to memory order)
             Tag::Tuple => {
                 let elems = self.pool.tuple_elems(resolved);
                 #[expect(
@@ -111,9 +112,10 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 )]
                 for (i, elem_ty) in elems.into_iter().enumerate() {
                     if self.classifier.needs_rc(elem_ty) {
+                        let mem_i = self.remap_struct_field(resolved, i as u32);
                         if let Some(ev) =
                             self.builder
-                                .extract_value(val, i as u32, &format!("rc_inc.e.{i}"))
+                                .extract_value(val, mem_i, &format!("rc_inc.e.{i}"))
                         {
                             self.inc_value_rc(ev, elem_ty, count);
                         }
@@ -195,7 +197,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 self.emit_buffer_rc_dec_map(val, resolved);
             }
 
-            // Struct: traverse RC fields, per-field drop functions
+            // Struct: traverse RC fields, per-field drop functions (§06: remap)
             Tag::Struct => {
                 let fields = self.pool.struct_fields(resolved);
                 #[expect(
@@ -204,9 +206,10 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 )]
                 for (i, (_, field_ty)) in fields.into_iter().enumerate() {
                     if self.classifier.needs_rc(field_ty) {
+                        let mem_i = self.remap_struct_field(resolved, i as u32);
                         if let Some(fv) =
                             self.builder
-                                .extract_value(val, i as u32, &format!("rc_dec.f.{i}"))
+                                .extract_value(val, mem_i, &format!("rc_dec.f.{i}"))
                         {
                             self.dec_value_rc(fv, field_ty);
                         }
@@ -214,7 +217,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 }
             }
 
-            // Tuple: traverse RC elements
+            // Tuple: traverse RC elements (§06: remap)
             Tag::Tuple => {
                 let elems = self.pool.tuple_elems(resolved);
                 #[expect(
@@ -223,9 +226,10 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 )]
                 for (i, elem_ty) in elems.into_iter().enumerate() {
                     if self.classifier.needs_rc(elem_ty) {
+                        let mem_i = self.remap_struct_field(resolved, i as u32);
                         if let Some(ev) =
                             self.builder
-                                .extract_value(val, i as u32, &format!("rc_dec.e.{i}"))
+                                .extract_value(val, mem_i, &format!("rc_dec.e.{i}"))
                         {
                             self.dec_value_rc(ev, elem_ty);
                         }

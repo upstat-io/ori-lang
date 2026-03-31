@@ -22,6 +22,7 @@
 
 mod info;
 mod layout_resolver;
+mod repr_lowering;
 mod store;
 pub(crate) mod type_size;
 

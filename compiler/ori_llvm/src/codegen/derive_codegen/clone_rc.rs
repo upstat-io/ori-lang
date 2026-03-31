@@ -354,9 +354,27 @@ fn emit_clone_composite_rc_inc<'a>(
         ) {
             continue;
         }
-        let inner_fv =
-            fc.builder_mut()
-                .extract_value(field_val, idx, &format!("clone.sub.{field_idx}.{idx}"));
+        // §06: remap declaration-order index to memory order.
+        let mem_idx = fc
+            .repr_plan()
+            .and_then(|plan| {
+                let repr = plan.get_repr(resolved)?;
+                let fields = match repr {
+                    ori_repr::MachineRepr::Struct(s) => &s.fields[..],
+                    ori_repr::MachineRepr::Tuple(t) => &t.elements[..],
+                    _ => return None,
+                };
+                fields
+                    .iter()
+                    .position(|f| f.original_index == idx)
+                    .map(|p| p as u32)
+            })
+            .unwrap_or(idx);
+        let inner_fv = fc.builder_mut().extract_value(
+            field_val,
+            mem_idx,
+            &format!("clone.sub.{field_idx}.{idx}"),
+        );
         if let Some(ifv) = inner_fv {
             emit_clone_field_rc_inc(
                 fc,

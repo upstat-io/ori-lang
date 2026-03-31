@@ -115,7 +115,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         }
     }
 
-    /// Extract RC data pointers from a struct's fields.
+    /// Extract RC data pointers from a struct's fields (§06: remap to memory order).
     fn extract_rc_from_struct_fields(&mut self, val: ValueId, ty: Idx) -> Vec<ValueId> {
         let fields = self.pool.struct_fields(ty);
         let mut ptrs = Vec::new();
@@ -125,9 +125,10 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         )]
         for (i, (_, field_ty)) in fields.into_iter().enumerate() {
             if self.classifier.needs_rc(field_ty) {
+                let mem_i = self.remap_struct_field(ty, i as u32);
                 if let Some(field_val) =
                     self.builder
-                        .extract_value(val, i as u32, &format!("rc.field.{i}"))
+                        .extract_value(val, mem_i, &format!("rc.field.{i}"))
                 {
                     ptrs.extend(self.extract_rc_data_ptrs(field_val, field_ty));
                 }
@@ -136,7 +137,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         ptrs
     }
 
-    /// Extract RC data pointers from a tuple's elements.
+    /// Extract RC data pointers from a tuple's elements (§06: remap to memory order).
     fn extract_rc_from_tuple_elems(&mut self, val: ValueId, ty: Idx) -> Vec<ValueId> {
         let elems = self.pool.tuple_elems(ty);
         let mut ptrs = Vec::new();
@@ -146,9 +147,10 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         )]
         for (i, elem_ty) in elems.into_iter().enumerate() {
             if self.classifier.needs_rc(elem_ty) {
+                let mem_i = self.remap_struct_field(ty, i as u32);
                 if let Some(elem_val) =
                     self.builder
-                        .extract_value(val, i as u32, &format!("rc.elem.{i}"))
+                        .extract_value(val, mem_i, &format!("rc.elem.{i}"))
                 {
                     ptrs.extend(self.extract_rc_data_ptrs(elem_val, elem_ty));
                 }
@@ -237,11 +239,15 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let alloca = self.builder.alloca(enum_llvm_ty, "rc_inc.enum");
         self.builder.store(val, alloca);
 
-        let i64_ty = self.builder.i64_type();
+        // Load tag (narrowed type at field 0 — §07.1)
+        let tag_ty = self
+            .builder
+            .struct_field_type(enum_llvm_ty, 0)
+            .unwrap_or_else(|| self.builder.i64_type());
         let tag_ptr = self
             .builder
             .struct_gep(enum_llvm_ty, alloca, 0, "rc_inc.tag.ptr");
-        let tag_val = self.builder.load(i64_ty, tag_ptr, "rc_inc.tag");
+        let tag_val = self.builder.load(tag_ty, tag_ptr, "rc_inc.tag");
 
         let done_block = self
             .builder
@@ -266,7 +272,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             let block = self
                 .builder
                 .append_block(self.current_function, &format!("rc_inc.v{i}"));
-            let tag_const = self.builder.const_i64(i as i64);
+            let tag_const = self.builder.const_int_matching(tag_val, i as u64);
             cases.push((tag_const, block, fields.as_slice(), i));
         }
 
@@ -354,12 +360,15 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let alloca = self.builder.alloca(enum_llvm_ty, "rc_dec.enum");
         self.builder.store(val, alloca);
 
-        // Load tag (i64 at field 0)
-        let i64_ty = self.builder.i64_type();
+        // Load tag (narrowed type at field 0 — §07.1)
+        let tag_ty = self
+            .builder
+            .struct_field_type(enum_llvm_ty, 0)
+            .unwrap_or_else(|| self.builder.i64_type());
         let tag_ptr = self
             .builder
             .struct_gep(enum_llvm_ty, alloca, 0, "rc_dec.tag.ptr");
-        let tag_val = self.builder.load(i64_ty, tag_ptr, "rc_dec.tag");
+        let tag_val = self.builder.load(tag_ty, tag_ptr, "rc_dec.tag");
 
         // Convergence block
         let done_block = self
@@ -386,7 +395,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             let block = self
                 .builder
                 .append_block(self.current_function, &format!("rc_dec.v{i}"));
-            let tag_const = self.builder.const_i64(i as i64);
+            let tag_const = self.builder.const_int_matching(tag_val, i as u64);
             cases.push((tag_const, block, fields.as_slice(), i));
         }
 
