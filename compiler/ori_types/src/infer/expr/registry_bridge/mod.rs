@@ -13,7 +13,7 @@
 //! to pool constructors for type resolution, while this bridge maps type *tags*
 //! to registry queries for method resolution.
 
-use ori_ir::BinaryOp;
+use ori_ir::{BinaryOp, UnaryOp};
 use ori_registry::{OpStrategy, ReturnTag, TypeProjection, TypeTag};
 
 use crate::{Idx, Tag};
@@ -128,6 +128,31 @@ pub(crate) fn binary_op_strategy(tag: Tag, op: BinaryOp) -> Option<OpStrategy> {
 #[must_use]
 pub(crate) fn is_binary_op_supported(tag: Tag, op: BinaryOp) -> Option<bool> {
     binary_op_strategy(tag, op).map(|s| s != OpStrategy::Unsupported)
+}
+
+/// Look up the [`OpStrategy`] for a unary operator on a builtin type.
+///
+/// Returns `None` if the type has no registry `TypeDef` or the operator
+/// has no `OpDefs` field (`Try` has dedicated dispatch).
+#[must_use]
+pub(crate) fn unary_op_strategy(tag: Tag, op: UnaryOp) -> Option<OpStrategy> {
+    let type_tag = tag_to_type_tag(tag)?;
+    let type_def = ori_registry::find_type(type_tag)?;
+    let ops = &type_def.operators;
+    let strategy = match op {
+        UnaryOp::Neg => ops.neg,
+        UnaryOp::Not => ops.not,
+        UnaryOp::BitNot => ops.bit_not,
+        // Try (?) has dedicated dispatch — not an OpDefs field.
+        UnaryOp::Try => return None,
+    };
+    Some(strategy)
+}
+
+/// Check if a unary operator is supported for a builtin type via the registry.
+#[must_use]
+pub(crate) fn is_unary_op_supported(tag: Tag, op: UnaryOp) -> Option<bool> {
+    unary_op_strategy(tag, op).map(|s| s != OpStrategy::Unsupported)
 }
 
 /// Convert a registry [`ReturnTag`] to a pool [`Idx`], using the receiver type

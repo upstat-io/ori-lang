@@ -582,3 +582,72 @@ fn str_add_strategy_is_runtime_call() {
         other => panic!("expected RuntimeCall, got {other:?}"),
     }
 }
+
+// ── unary_op_strategy: semantic pin tests ──
+
+use ori_ir::UnaryOp;
+
+use super::{is_unary_op_supported, unary_op_strategy};
+
+/// Int supports negation and bitwise NOT but not logical NOT.
+#[test]
+fn int_unary_support() {
+    assert_eq!(is_unary_op_supported(Tag::Int, UnaryOp::Neg), Some(true));
+    assert_eq!(is_unary_op_supported(Tag::Int, UnaryOp::BitNot), Some(true));
+    assert_eq!(is_unary_op_supported(Tag::Int, UnaryOp::Not), Some(false));
+}
+
+/// Float supports negation only.
+#[test]
+fn float_unary_support() {
+    assert_eq!(is_unary_op_supported(Tag::Float, UnaryOp::Neg), Some(true));
+    assert_eq!(is_unary_op_supported(Tag::Float, UnaryOp::Not), Some(false));
+    assert_eq!(
+        is_unary_op_supported(Tag::Float, UnaryOp::BitNot),
+        Some(false)
+    );
+}
+
+/// Bool supports logical NOT only.
+#[test]
+fn bool_unary_support() {
+    assert_eq!(is_unary_op_supported(Tag::Bool, UnaryOp::Not), Some(true));
+    assert_eq!(is_unary_op_supported(Tag::Bool, UnaryOp::Neg), Some(false));
+    assert_eq!(
+        is_unary_op_supported(Tag::Bool, UnaryOp::BitNot),
+        Some(false)
+    );
+}
+
+/// Duration supports negation but not NOT or `BitNot`.
+#[test]
+fn duration_unary_support() {
+    assert_eq!(
+        is_unary_op_supported(Tag::Duration, UnaryOp::Neg),
+        Some(true)
+    );
+    assert_eq!(
+        is_unary_op_supported(Tag::Duration, UnaryOp::Not),
+        Some(false)
+    );
+}
+
+/// Size does NOT support negation (non-negative by design).
+#[test]
+fn size_unary_support() {
+    assert_eq!(is_unary_op_supported(Tag::Size, UnaryOp::Neg), Some(false));
+}
+
+/// `Try` operator returns `None` (dedicated dispatch, not in `OpDefs`).
+#[test]
+fn try_op_returns_none() {
+    assert_eq!(unary_op_strategy(Tag::Int, UnaryOp::Try), None);
+    assert_eq!(unary_op_strategy(Tag::Option, UnaryOp::Try), None);
+}
+
+/// Non-builtin tags return `None` for unary ops.
+#[test]
+fn non_builtin_unary_returns_none() {
+    assert_eq!(is_unary_op_supported(Tag::Struct, UnaryOp::Neg), None);
+    assert_eq!(is_unary_op_supported(Tag::Enum, UnaryOp::Not), None);
+}
