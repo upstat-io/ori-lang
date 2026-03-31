@@ -3,7 +3,7 @@
 use ori_ir::{BinaryOp, ExprArena, ExprId, ExprKind, Span, UnaryOp};
 
 use super::super::InferEngine;
-use super::registry_bridge::is_binary_op_supported;
+use super::registry_bridge::{is_binary_op_supported, is_unary_op_supported};
 use super::{infer_expr, resolve_and_check_parsed_type};
 use crate::{ContextKind, ErrorContext, Expected, ExpectedOrigin, Idx, Tag, TypeCheckError};
 
@@ -147,13 +147,30 @@ pub(crate) fn infer_binary(
             engine.resolve(left_ty)
         }
 
-        // Comparison: same type in, bool out
+        // Comparison: same type in, bool out. Registry validates primitive support.
         BinaryOp::Eq
         | BinaryOp::NotEq
         | BinaryOp::Lt
         | BinaryOp::LtEq
         | BinaryOp::Gt
         | BinaryOp::GtEq => {
+            let resolved_left = engine.resolve(left_ty);
+            let left_tag = engine.pool().tag(resolved_left);
+
+            // Registry-based validation: reject primitives that don't support
+            // this specific comparison operator (e.g., Ordering doesn't support <).
+            if let Some(false) = is_binary_op_supported(left_tag, op) {
+                if let Some(trait_name) = binary_op_to_trait_name(op) {
+                    engine.push_error(TypeCheckError::unsupported_operator(
+                        span,
+                        resolved_left,
+                        op_str,
+                        trait_name,
+                    ));
+                }
+                return Idx::ERROR;
+            }
+
             // Unify left and right operands
             engine.push_context(ContextKind::ComparisonRight);
             let left_span = arena.get_expr(left).span;
@@ -170,17 +187,18 @@ pub(crate) fn infer_binary(
             Idx::BOOL
         }
 
-        // Boolean: bool in, bool out
+        // Boolean: bool in, bool out.
+        // And/Or are not tracked in OpDefs (they're language-level boolean
+        // operators, not overloadable). The bool restriction is inherent.
         BinaryOp::And | BinaryOp::Or => {
             let left_span = arena.get_expr(left).span;
             let right_span = arena.get_expr(right).span;
 
-            // Check left is bool — produce operator-specific message on failure
+            // Check left is bool
             let resolved_left = engine.resolve(left_ty);
             let left_tag = engine.pool().tag(resolved_left);
             match left_tag {
                 Tag::Bool | Tag::Error | Tag::Var | Tag::Never => {
-                    // Bool is correct, Error/Never propagate silently, Var defers
                     if left_tag != Tag::Never {
                         let bool_expected = Expected {
                             ty: Idx::BOOL,
@@ -225,52 +243,76 @@ pub(crate) fn infer_binary(
             Idx::BOOL
         }
 
-        // Bitwise operations: int operands only
+        // Bitwise operations: query registry for support
         BinaryOp::BitAnd | BinaryOp::BitOr | BinaryOp::BitXor | BinaryOp::Shl | BinaryOp::Shr => {
             let left_span = arena.get_expr(left).span;
 
-            // Check left operand is int (skip Error/Never to prevent cascading)
             let resolved_left = engine.resolve(left_ty);
             let left_tag = engine.pool().tag(resolved_left);
-            match left_tag {
-                Tag::Int | Tag::Var => {}
-                Tag::Error => return Idx::ERROR,
-                Tag::Never => return Idx::NEVER,
-                _ => {
-                    // Try trait dispatch for user-defined types
-                    if !left_tag.is_primitive() && !left_tag.is_type_variable() {
-                        if let Some(ret) = resolve_binary_op_via_trait(
-                            engine,
-                            arena,
-                            resolved_left,
-                            right_ty,
-                            right,
-                            op,
+
+            // Error/Never propagation
+            if left_tag == Tag::Error {
+                return Idx::ERROR;
+            }
+            if left_tag == Tag::Never {
+                return Idx::NEVER;
+            }
+
+            // Registry-based validation for builtin types.
+            if let Some(supported) = is_binary_op_supported(left_tag, op) {
+                if !supported {
+                    if let Some(trait_name) = binary_op_to_trait_name(op) {
+                        engine.push_error(TypeCheckError::unsupported_operator(
                             span,
-                        ) {
-                            return ret;
-                        }
-                        if let Some(trait_name) = binary_op_to_trait_name(op) {
-                            engine.push_error(TypeCheckError::unsupported_operator(
-                                span,
-                                resolved_left,
-                                op_str,
-                                trait_name,
-                            ));
-                            return Idx::ERROR;
-                        }
+                            resolved_left,
+                            op_str,
+                            trait_name,
+                        ));
+                    } else {
+                        engine.push_error(TypeCheckError::bad_binary_operand(
+                            left_span,
+                            "bitwise",
+                            "int",
+                            resolved_left,
+                        ));
                     }
-                    engine.push_error(TypeCheckError::bad_binary_operand(
-                        left_span,
-                        "bitwise",
-                        "int",
+                    return Idx::ERROR;
+                }
+                // Supported — fall through to unification below.
+            } else if left_tag == Tag::Var {
+                // Unresolved variable — fall through to unification.
+            } else if !left_tag.is_primitive() && !left_tag.is_type_variable() {
+                // Trait dispatch for user-defined types.
+                if let Some(ret) = resolve_binary_op_via_trait(
+                    engine,
+                    arena,
+                    resolved_left,
+                    right_ty,
+                    right,
+                    op,
+                    span,
+                ) {
+                    return ret;
+                }
+                if let Some(trait_name) = binary_op_to_trait_name(op) {
+                    engine.push_error(TypeCheckError::unsupported_operator(
+                        span,
                         resolved_left,
+                        op_str,
+                        trait_name,
                     ));
                     return Idx::ERROR;
                 }
+                engine.push_error(TypeCheckError::bad_binary_operand(
+                    left_span,
+                    "bitwise",
+                    "int",
+                    resolved_left,
+                ));
+                return Idx::ERROR;
             }
 
-            // Check right operand (also skip Error/Never)
+            // Check right operand (Error/Never propagation)
             let resolved_right = engine.resolve(right_ty);
             match engine.pool().tag(resolved_right) {
                 Tag::Error => return Idx::ERROR,
@@ -378,10 +420,6 @@ pub(crate) fn infer_binary(
 }
 
 /// Infer the type of a unary operation.
-#[expect(
-    clippy::too_many_lines,
-    reason = "exhaustive UnaryOp dispatch with type-specific error reporting"
-)]
 pub(crate) fn infer_unary(
     engine: &mut InferEngine<'_>,
     arena: &ExprArena,
@@ -393,120 +431,79 @@ pub(crate) fn infer_unary(
     let operand_span = arena.get_expr(operand).span;
 
     match op {
-        // Negation: numeric/duration/size -> same type
-        UnaryOp::Neg => {
+        // Negation, logical NOT, bitwise NOT: query registry for primitive support.
+        UnaryOp::Neg | UnaryOp::Not | UnaryOp::BitNot => {
             let resolved = engine.resolve(operand_ty);
             let tag = engine.pool().tag(resolved);
-            match tag {
-                Tag::Int | Tag::Float | Tag::Duration => resolved,
-                Tag::Error => Idx::ERROR,
-                Tag::Var => {
-                    let _ = engine.unify_types(operand_ty, Idx::INT);
-                    engine.resolve(operand_ty)
+
+            // Error/Never propagation
+            if tag == Tag::Error {
+                return Idx::ERROR;
+            }
+            if tag == Tag::Never {
+                return Idx::NEVER;
+            }
+
+            // Registry-based validation for builtin types.
+            if let Some(supported) = is_unary_op_supported(tag, op) {
+                if supported {
+                    return resolved;
                 }
-                _ => {
-                    if !tag.is_primitive() && !tag.is_type_variable() {
-                        if let Some(ret) = resolve_unary_op_via_trait(engine, resolved, op) {
-                            return ret;
-                        }
-                        if let Some(trait_name) = op.trait_name() {
-                            engine.push_error(TypeCheckError::unsupported_operator(
-                                operand_span,
-                                resolved,
-                                op.as_symbol(),
-                                trait_name,
-                            ));
-                            return Idx::ERROR;
-                        }
-                    }
+                // Registry says unsupported — emit error.
+                if let Some(trait_name) = op.trait_name() {
+                    engine.push_error(TypeCheckError::unsupported_operator(
+                        operand_span,
+                        resolved,
+                        op.as_symbol(),
+                        trait_name,
+                    ));
+                } else {
                     engine.push_error(TypeCheckError::bad_unary_operand(
                         operand_span,
                         op.as_symbol(),
                         resolved,
                     ));
-                    Idx::ERROR
                 }
+                return Idx::ERROR;
             }
-        }
 
-        // Logical not: bool -> bool
-        UnaryOp::Not => {
-            let resolved = engine.resolve(operand_ty);
-            let tag = engine.pool().tag(resolved);
-            match tag {
-                Tag::Bool => Idx::BOOL,
-                Tag::Error => Idx::ERROR,
-                Tag::Var => {
-                    let _ = engine.unify_types(operand_ty, Idx::BOOL);
+            // Unresolved type variables: infer a default type.
+            if tag == Tag::Var {
+                let default_ty = match op {
+                    UnaryOp::Not => Idx::BOOL,
+                    _ => Idx::INT, // Neg, BitNot default to int
+                };
+                let _ = engine.unify_types(operand_ty, default_ty);
+                return if op == UnaryOp::Not {
                     Idx::BOOL
-                }
-                _ => {
-                    if !tag.is_primitive() && !tag.is_type_variable() {
-                        if let Some(ret) = resolve_unary_op_via_trait(engine, resolved, op) {
-                            return ret;
-                        }
-                        if let Some(trait_name) = op.trait_name() {
-                            engine.push_error(TypeCheckError::unsupported_operator(
-                                operand_span,
-                                resolved,
-                                op.as_symbol(),
-                                trait_name,
-                            ));
-                            return Idx::ERROR;
-                        }
-                    }
-                    engine.push_error(TypeCheckError::bad_unary_operand(
-                        operand_span,
-                        op.as_symbol(),
-                        resolved,
-                    ));
-                    Idx::ERROR
-                }
+                } else {
+                    engine.resolve(operand_ty)
+                };
             }
-        }
 
-        // Bitwise not: int -> int
-        UnaryOp::BitNot => {
-            let resolved = engine.resolve(operand_ty);
-            let tag = engine.pool().tag(resolved);
-            match tag {
-                Tag::Int | Tag::Var => {
-                    engine.push_context(ContextKind::UnaryOpOperand { op: op.as_symbol() });
-                    let expected = Expected {
-                        ty: Idx::INT,
-                        origin: ExpectedOrigin::NoExpectation,
-                    };
-                    let _ = engine.check_type(operand_ty, &expected, operand_span);
-                    engine.pop_context();
-                    Idx::INT
+            // Trait dispatch for non-primitive, non-variable types.
+            if !tag.is_primitive() && !tag.is_type_variable() {
+                if let Some(ret) = resolve_unary_op_via_trait(engine, resolved, op) {
+                    return ret;
                 }
-                Tag::Error => Idx::ERROR,
-                Tag::Never => Idx::NEVER,
-                _ => {
-                    if !tag.is_primitive() && !tag.is_type_variable() {
-                        if let Some(ret) = resolve_unary_op_via_trait(engine, resolved, op) {
-                            return ret;
-                        }
-                        if let Some(trait_name) = op.trait_name() {
-                            engine.push_error(TypeCheckError::unsupported_operator(
-                                operand_span,
-                                resolved,
-                                op.as_symbol(),
-                                trait_name,
-                            ));
-                            return Idx::ERROR;
-                        }
-                    }
-                    engine.push_context(ContextKind::UnaryOpOperand { op: op.as_symbol() });
-                    let expected = Expected {
-                        ty: Idx::INT,
-                        origin: ExpectedOrigin::NoExpectation,
-                    };
-                    let _ = engine.check_type(operand_ty, &expected, operand_span);
-                    engine.pop_context();
-                    Idx::INT
+                if let Some(trait_name) = op.trait_name() {
+                    engine.push_error(TypeCheckError::unsupported_operator(
+                        operand_span,
+                        resolved,
+                        op.as_symbol(),
+                        trait_name,
+                    ));
+                    return Idx::ERROR;
                 }
             }
+
+            // Fallthrough: unsupported
+            engine.push_error(TypeCheckError::bad_unary_operand(
+                operand_span,
+                op.as_symbol(),
+                resolved,
+            ));
+            Idx::ERROR
         }
 
         // Try operator: Option<T> -> T or Result<T, E> -> T
