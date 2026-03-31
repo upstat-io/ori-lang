@@ -429,9 +429,20 @@ impl ArcLowerer<'_> {
     /// Lower `lhs ?? rhs` with lazy RHS evaluation.
     ///
     /// Generates: extract tag from LHS → branch on tag == 0 (Some/Ok) →
-    /// then: extract payload → merge; else: evaluate RHS → merge.
+    /// then: extract payload (or pass-through if chaining) → merge;
+    /// else: evaluate RHS → merge.
+    ///
+    /// Chaining detection: if the result type `ty` is `Option`/`Result`, the
+    /// expression is `Option<T> ?? Option<T> -> Option<T>` (COALESCE-CHAIN) or
+    /// `Result<T,E> ?? Result<T,E> -> Result<T,E>` (COALESCE-RESULT-CHAIN).
+    /// In this case the Some/Ok branch passes LHS through directly instead of
+    /// extracting the payload.
     fn lower_coalesce(&mut self, left: CanId, right: CanId, ty: Idx, span: Span) -> ArcVarId {
         let lhs = self.lower_expr(left);
+
+        // Detect chaining: result type is a wrapper (same as LHS wrapper type).
+        let resolved_ty = self.pool.resolve_fully(ty);
+        let is_chaining = matches!(self.pool.tag(resolved_ty), Tag::Option | Tag::Result);
 
         // Extract tag (field 0) and compare to 0 (Some/Ok).
         let tag = self.builder.emit_project(Idx::INT, lhs, 0, Some(span));
@@ -456,10 +467,14 @@ impl ArcLowerer<'_> {
 
         let pre_scope = self.scope.clone();
 
-        // Some/Ok branch: extract payload (field 1).
+        // Some/Ok branch: pass-through LHS if chaining, extract payload otherwise.
         self.builder.position_at(some_block);
         self.scope = pre_scope.clone();
-        let payload = self.builder.emit_project(ty, lhs, 1, Some(span));
+        let some_val = if is_chaining {
+            lhs
+        } else {
+            self.builder.emit_project(ty, lhs, 1, Some(span))
+        };
         let some_terminated = self.builder.is_terminated();
         let some_exit = self.builder.current_block();
 
@@ -475,7 +490,7 @@ impl ArcLowerer<'_> {
 
         if !some_terminated {
             self.builder.position_at(some_exit);
-            self.builder.terminate_jump(merge_block, vec![payload]);
+            self.builder.terminate_jump(merge_block, vec![some_val]);
         }
         if !none_terminated {
             self.builder.position_at(none_exit);
