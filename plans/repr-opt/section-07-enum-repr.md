@@ -206,7 +206,7 @@ A "niche" is an invalid bit pattern in a type. If an enum variant's payload has 
 
 **Layout boundary note:** Internal runtime representations such as `FatPointer`, `str`, `[T]`, `{K:V}`, `Set<T>`, closures, and ranges are exempt from §06 field reordering. They are represented by dedicated `MachineRepr` / `TypeInfo` variants, not by `MachineRepr::Struct`, so `field_index: 2` on `FatPointer` is stable unless this section explicitly changes that dedicated runtime layout.
 
-- [ ] Define `Niche` struct in `compiler/ori_repr/src/layout/niche.rs`. Note: `EnumTag::Niche { field_index, niche_value }` is already defined in `compiler/ori_repr/src/enum_repr.rs` — the `Niche` struct here is the analysis result that feeds into `EnumTag::Niche` construction:
+- [x] Define `Niche` struct in `compiler/ori_repr/src/layout/niche.rs`. Also extended `EnumTag::Niche` with `niche_variant_idx: u32` to support niche at any variant position (not just last). Updated `TagEncoding` and all tests. (2026-03-31)
   ```rust
   /// A niche (invalid bit pattern) discovered in a type's representation.
   /// Used to eliminate explicit discriminant tags in enum layouts.
@@ -222,7 +222,7 @@ A "niche" is an invalid bit pattern in a type. If an enum variant's payload has 
   }
   ```
 
-- [ ] Identify niches for each type:
+- [x] Identify niches for each type (implemented as `find_niches()` in `niche.rs` — handles Bool, Ordering, Char, RcPointer, FatPointer(Str), nested Enum; conservatively skips Byte, Int, Float, collections): (2026-03-31)
   ```rust
   pub fn find_niches(repr: &MachineRepr) -> Vec<Niche> {
       match repr {
@@ -283,41 +283,11 @@ A "niche" is an invalid bit pattern in a type. If an enum variant's payload has 
   }
   ```
 
-- [ ] Implement `find_enum_niches()` for nested enums:
-  - If an enum has N variants and a tag with width W, the unused tag values `N..=(2^(W*8) - 1)` are niches
-  - Example: `Option<bool>` after niche filling is an i8 with values 0, 1, 2 — wrapping it in another `Option` can use value 3 as niche for the outer `None`
-  - For niche-encoded enums (no explicit tag), compute from the niche field's remaining capacity
+- [x] Implement `find_enum_niches()` for nested enums: handles Explicit (unused tag values), Niche (remaining capacity after one value consumed), and None (delegates to payload). Verified with `Option<Option<bool>>` → niche value 3. (2026-03-31)
 
-- [ ] Implement `optimize_option_repr()` in `compiler/ori_repr/src/layout/niche.rs`. Call from `canonical_option()` in `compiler/ori_repr/src/canonical/type_repr.rs` — replace the current always-explicit-tag construction with: try niche optimization first, fall back to explicit tag:
-  ```rust
-  use crate::layout::{repr_size, repr_align};
+- [x] Implement `optimize_option_repr()` in `niche.rs`. Wired into `canonical_option()` in `type_repr.rs` — delegates fully. Variant order matches type checker (None=0, Some=1). Uses `niche_variant_idx: 0` for None. Falls back to explicit I64 tag for types without niches. (2026-03-31)
 
-  pub fn optimize_option_repr(inner: &MachineRepr) -> EnumRepr {
-      let niches = find_niches(inner);
-      if let Some(niche) = niches.first() {
-          if niche.available >= 1 {
-              // None variant uses the niche value — no tag needed!
-              return EnumRepr {
-                  tag: EnumTag::Niche {
-                      field_index: niche.field_index,
-                      niche_value: niche.start as u64,
-                  },
-                  variants: vec![/* Some payload */, /* None = niche */],
-                  size: repr_size(inner),
-                  align: repr_align(inner),
-              };
-          }
-      }
-      // Fallback: explicit tag (current canonical representation)
-      default_option_repr(inner)
-  }
-  ```
-  **Integration point:** `canonical_option()` in `type_repr.rs` currently returns `MachineRepr::Enum(EnumRepr { tag: EnumTag::Explicit { width: IntWidth::I8 }, ... })` after §07.1. After §07.2, change to: `let repr = optimize_option_repr(&inner_repr); MachineRepr::Enum(repr)` where `optimize_option_repr` is in `crate::layout::niche`.
-
-- [ ] Apply niche to `Result<T, E>` in `compiler/ori_repr/src/layout/niche.rs`:
-  - If T has a niche, Err variant uses it (or vice versa)
-  - If both have niches, prefer the one that eliminates more padding
-  - Update `canonical_result()` in `compiler/ori_repr/src/canonical/type_repr.rs` to call this optimization after constructing the default repr
+- [x] Apply niche to `Result<T, E>` via `optimize_result_repr()` in `niche.rs`. Wired into `canonical_result()` in `type_repr.rs`. Tries Ok's niches first (Err encoded via Ok's niche), then Err's niches. Falls back to explicit I64 tag. (2026-03-31)
 
 - [ ] Update `resolve_enum()` in `compiler/ori_llvm/src/codegen/type_info/layout_resolver.rs` to handle `EnumTag::Niche` AND `EnumTag::None` — both produce enums with NO explicit tag field; the LLVM struct is just the payload type. The current `{ tag, [M x i64] }` layout is only for `EnumTag::Explicit`. Must branch on `EnumRepr.tag` variant. <!-- unblocks:07.1 EnumTag::None for newtypes -->
 - [ ] **Single-variant enum (newtype) erasure**: in `canonical_enum()`, when `variants.len() == 1`, emit `EnumTag::None` instead of `EnumTag::Explicit { I8 }`. The enum's LLVM layout becomes just the payload (no tag field). All 16 codegen consumers must handle `EnumTag::None` — `TagEncoding` already does (tested in §07.0). This is the same codegen path as niche-encoded enums (tagless layout). <!-- blocked from 07.1, anchored here -->
@@ -340,23 +310,7 @@ A "niche" is an invalid bit pattern in a type. If an enum variant's payload has 
 
 **§07.2 Tests (TDD — write BEFORE implementation, verify they fail):**
 
-- [ ] **Rust unit tests** (`compiler/ori_repr/src/layout/tests.rs`):
-  - `find_niches(Bool)` returns 254 niches starting at 2
-  - `find_niches(Ordering)` returns 253 niches starting at 3
-  - `find_niches(Char)` returns niches starting at 0x110000
-  - `find_niches(FatPointer(Str))` returns 1 niche (null ptr) at field_index 2
-  - `find_niches(FatPointer(Collection))` returns empty (negative pin — no niche for lists)
-  - `find_niches(RcPointer)` returns 1 niche (null ptr)
-  - `find_niches(Byte)` returns empty (all 256 values valid)
-  - `find_niches(Int { I64 })` returns empty (all values valid)
-  - `find_enum_niches()` for 4-variant i8-tagged enum returns 252 niches (256 - 4)
-  - `optimize_option_repr(Bool)` returns `EnumTag::Niche` with niche_value 2 (semantic pin)
-  - `optimize_option_repr(Str)` returns `EnumTag::Niche` with field_index 2, niche_value 0 (semantic pin)
-  - `optimize_option_repr(Int { I64 })` returns `EnumTag::Explicit` (negative pin — no niche available)
-  - `optimize_option_repr(FatPointer(Collection))` returns `EnumTag::Explicit` (negative pin)
-  - `optimize_option_repr(Option<Bool>)` returns niche (nested niche — value 3 for outer None)
-  - `EnumRepr.size` for `Option<bool>` = 1 byte (semantic pin — currently 16)
-  - `EnumRepr.size` for `Option<str>` = 24 bytes (semantic pin — currently 32)
+- [x] **Rust unit tests** (`compiler/ori_repr/src/layout/tests.rs`): 22 niche tests covering all `find_niches` types (Bool/254, Ordering/253, Char/0x110000, Str/null-ptr, RcPointer/null, Byte/empty, Int/empty, Float/empty, Unit/empty, List/empty), `find_enum_niches` (4-variant i8 → 252), `optimize_option_repr` semantic pins (Bool→1 byte, Ordering→1 byte, Char→4 bytes, Str→24 bytes, RcPointer→8 bytes), negative pins (Int→explicit, List→explicit), nested niche (Option<Option<Bool>>→1 byte with niche 3), and `optimize_result_repr` (Bool×Ordering→niche, Int×Int→explicit). Also 3 new `TagEncoding` tests for `niche_variant_idx: 0`. All pass. (2026-03-31)
 - [ ] **Ori spec tests** (`tests/spec/types/enum/niche/`):
   - `option_bool.ori`: `Some(true)`, `Some(false)`, `None` match correctly; roundtrip through list and back
   - `option_ordering.ori`: all four values (`Some(Less)`, `Some(Equal)`, `Some(Greater)`, `None`) match correctly
@@ -617,4 +571,6 @@ These test enum representations interacting with other language features. Each m
 - [x] `[TPR-07-005][high]` `compiler/ori_repr/src/canonical/type_repr.rs:165` — **`canonical_enum()` sized payload enums with natural aggregate packing instead of LLVM's `[M x i64]` slot layout.**
   Resolved: Fixed on 2026-03-30. Added `compute_enum_payload_layout()` function that rounds each field to 8-byte i64 slot boundaries, matching LLVM's `resolve_enum()` and `ori_arc`'s `enum_payload_size()`. Replaced `compute_payload_layout()` call in `canonical_enum()`. Removed now-dead `compute_payload_layout()` (was only used by enum path). All 14,694 tests pass.
 - [x] `[TPR-07-006][high]` `compiler/ori_llvm/src/codegen/derive_codegen/enum_bodies/enum_eq.rs:124` — **Derived enum `Eq` still treats zero-sized payload fields as occupied i64 slots, so `#derive(Eq)` panics on enums like `A(u: void, x: int) | B`.**
-  Resolved: Fixed on 2026-03-30 (commit e0d360ce). Added `variant_non_void_field_types()` helper that filters void/Never fields before payload traversal. Applied to all 3 ForEachField-strategy derives (Eq, Comparable, Hashable). Verified: `#derive(Eq) type E = A(u: void, x: int) | B` compiles and runs correctly in both interpreter and AOT. Existing AOT tests in `enum_zst.rs` cover the fix. All tests pass.
+  Resolved: Fixed on 2026-03-30 (commit e0d360ce). Added `variant_non_void_field_types()` helper that filters void/Never fields before payload traversal. Applied to all 3 ForEachField-strategy derives (Eq, Comparable, Hashable). Verified: `#derive(Eq) type E = A(u: void, x: int) | B` compiles and runs correctly in both interpreter and AOT. AOT tests in `compiler/ori_llvm/tests/aot/enum_zero_payload.rs` cover the fix. All tests pass.
+- [x] `[TPR-07-007][low]` `plans/repr-opt/section-07-enum-repr.md:575` — The TPR-07-006 resolution note points to a non-existent test file (`enum_zst.rs`) instead of the actual AOT coverage in `compiler/ori_llvm/tests/aot/enum_zero_payload.rs`.
+  Resolved: Fixed on 2026-03-31. Updated TPR-07-006 note to reference correct file `enum_zero_payload.rs`.
