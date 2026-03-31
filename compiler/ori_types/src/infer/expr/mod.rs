@@ -44,6 +44,7 @@ mod identifiers;
 mod methods;
 mod operators;
 mod registry_bridge;
+pub(crate) use registry_bridge::OP_TRAIT_MAP;
 mod sequences;
 mod structs;
 mod type_resolution;
