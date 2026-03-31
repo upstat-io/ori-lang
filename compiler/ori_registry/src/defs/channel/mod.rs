@@ -33,13 +33,14 @@ const fn chan(
     params: &'static [ParamDef],
     returns: ReturnTag,
     receiver: Ownership,
+    trait_name: Option<&'static str>,
 ) -> MethodDef {
     MethodDef {
         name,
         receiver,
         params,
         returns,
-        trait_name: None,
+        trait_name,
         pure: false,
         backend_required: false,
         kind: MethodKind::Instance,
@@ -50,15 +51,21 @@ const fn chan(
 
 // All 9 methods alphabetically sorted.
 static CHANNEL_METHODS: &[MethodDef] = &[
-    chan("close", &[], ReturnTag::Unit, Ownership::Borrow),
-    chan("is_closed", &[], BOOL, Ownership::Borrow),
-    chan("is_empty", &[], BOOL, Ownership::Borrow),
-    chan("len", &[], INT, Ownership::Borrow),
-    chan("receive", &[], OPT_ELEM, Ownership::Borrow),
-    chan("recv", &[], OPT_ELEM, Ownership::Borrow),
-    chan("send", &ELEMENT_PARAM, ReturnTag::Unit, Ownership::Borrow),
-    chan("try_receive", &[], OPT_ELEM, Ownership::Borrow),
-    chan("try_recv", &[], OPT_ELEM, Ownership::Borrow),
+    chan("close", &[], ReturnTag::Unit, Ownership::Borrow, None),
+    chan("is_closed", &[], BOOL, Ownership::Borrow, None),
+    chan("is_empty", &[], BOOL, Ownership::Borrow, Some("IsEmpty")),
+    chan("len", &[], INT, Ownership::Borrow, Some("Len")),
+    chan("receive", &[], OPT_ELEM, Ownership::Borrow, None),
+    chan("recv", &[], OPT_ELEM, Ownership::Borrow, None),
+    chan(
+        "send",
+        &ELEMENT_PARAM,
+        ReturnTag::Unit,
+        Ownership::Borrow,
+        None,
+    ),
+    chan("try_receive", &[], OPT_ELEM, Ownership::Borrow, None),
+    chan("try_recv", &[], OPT_ELEM, Ownership::Borrow, None),
 ];
 
 pub static CHANNEL: TypeDef = TypeDef {
@@ -68,6 +75,7 @@ pub static CHANNEL: TypeDef = TypeDef {
     type_params: TypeParamArity::Fixed(1),
     methods: CHANNEL_METHODS,
     operators: OpDefs::UNSUPPORTED,
+    traits: &[],
 };
 
 #[cfg(test)]

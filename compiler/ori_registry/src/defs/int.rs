@@ -281,4 +281,5 @@ pub static INT: TypeDef = TypeDef {
         shl: OpStrategy::IntInstr,
         shr: OpStrategy::IntInstr,
     },
+    traits: &["Default"],
 };

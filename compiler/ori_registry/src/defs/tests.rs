@@ -378,6 +378,10 @@ fn str_trait_methods_have_trait_name() {
         ("to_str", "Printable"),
         ("debug", "Debug"),
         ("add", "Add"),
+        ("len", "Len"),
+        ("length", "Len"),
+        ("is_empty", "IsEmpty"),
+        ("iter", "Iterable"),
     ];
     for (method_name, trait_name) in expected {
         let m = STR.methods.iter().find(|m| m.name == method_name);
@@ -674,5 +678,123 @@ fn self_type_returns_valid() {
                 );
             }
         }
+    }
+}
+
+// Trait coverage enforcement tests (02.1)
+
+/// Every `len` method across all types must have `trait_name: Some("Len")`.
+/// Every `is_empty` method must have `trait_name: Some("IsEmpty")`.
+/// Every `iter` method must have `trait_name: Some("Iterable")`.
+/// This prevents future drift when new types are added.
+#[test]
+fn trait_methods_have_correct_trait_name() {
+    let expected: &[(&str, &str)] = &[
+        ("len", "Len"),
+        ("is_empty", "IsEmpty"),
+        ("iter", "Iterable"),
+    ];
+
+    for type_def in BUILTIN_TYPES {
+        for method in type_def.methods {
+            for &(method_name, expected_trait) in expected {
+                if method.name == method_name {
+                    assert_eq!(
+                        method.trait_name,
+                        Some(expected_trait),
+                        "Method `{}.{}` must have trait_name Some(\"{}\"), got {:?}",
+                        type_def.name,
+                        method.name,
+                        expected_trait,
+                        method.trait_name,
+                    );
+                }
+            }
+        }
+    }
+}
+
+/// Every `length` alias method must also have `trait_name: Some("Len")`.
+/// Aliases should carry the same `trait_name` as the canonical method.
+#[test]
+fn alias_methods_have_correct_trait_name() {
+    let alias_pairs: &[(&str, &str)] = &[("length", "Len")];
+
+    for type_def in BUILTIN_TYPES {
+        for method in type_def.methods {
+            for &(alias_name, expected_trait) in alias_pairs {
+                if method.name == alias_name {
+                    assert_eq!(
+                        method.trait_name,
+                        Some(expected_trait),
+                        "Alias method `{}.{}` must have trait_name Some(\"{}\"), got {:?}",
+                        type_def.name,
+                        method.name,
+                        expected_trait,
+                        method.trait_name,
+                    );
+                }
+            }
+        }
+    }
+}
+
+/// Semantic pin: `TypeDef`s with non-empty `traits` field contain exactly
+/// the expected marker traits. Reverting `traits` to `&[]` would fail.
+#[test]
+fn marker_traits_populated_correctly() {
+    let expected: &[(TypeTag, &[&str])] = &[
+        (TypeTag::Int, &["Default"]),
+        (TypeTag::Float, &["Default"]),
+        (TypeTag::Bool, &["Default"]),
+        (TypeTag::Str, &["Default"]),
+        (TypeTag::Duration, &["Default", "Sendable"]),
+        (TypeTag::Size, &["Default", "Sendable"]),
+        (TypeTag::Option, &["Default"]),
+        (TypeTag::Iterator, &["Iterator"]),
+    ];
+
+    for &(tag, expected_traits) in expected {
+        let type_def = BUILTIN_TYPES
+            .iter()
+            .find(|td| td.tag == tag)
+            .unwrap_or_else(|| panic!("TypeDef for {tag:?} should exist"));
+        assert_eq!(
+            type_def.traits, expected_traits,
+            "TypeDef `{}` traits should be {:?}, got {:?}",
+            type_def.name, expected_traits, type_def.traits,
+        );
+    }
+}
+
+/// Negative pin: types that should NOT have marker traits must have
+/// empty `traits` field. Prevents accidental trait additions.
+#[test]
+fn non_marker_types_have_empty_traits() {
+    let should_be_empty: &[TypeTag] = &[
+        TypeTag::Char,
+        TypeTag::Byte,
+        TypeTag::Ordering,
+        TypeTag::Error,
+        TypeTag::List,
+        TypeTag::Map,
+        TypeTag::Set,
+        TypeTag::Range,
+        TypeTag::Tuple,
+        TypeTag::Result,
+        TypeTag::Channel,
+    ];
+
+    for &tag in should_be_empty {
+        let type_def = BUILTIN_TYPES
+            .iter()
+            .find(|td| td.tag == tag)
+            .unwrap_or_else(|| panic!("TypeDef for {tag:?} should exist"));
+        assert!(
+            type_def.traits.is_empty(),
+            "TypeDef `{}` should have empty traits, got {:?}",
+            type_def.name,
+            type_def.traits,
+        );
     }
 }

@@ -197,4 +197,5 @@ pub static BYTE: TypeDef = TypeDef {
         shl: OpStrategy::IntInstr,
         shr: OpStrategy::IntInstr,
     },
+    traits: &[],
 };
