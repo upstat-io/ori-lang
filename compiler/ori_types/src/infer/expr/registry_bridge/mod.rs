@@ -13,7 +13,8 @@
 //! to pool constructors for type resolution, while this bridge maps type *tags*
 //! to registry queries for method resolution.
 
-use ori_registry::{ReturnTag, TypeProjection, TypeTag};
+use ori_ir::BinaryOp;
+use ori_registry::{OpStrategy, ReturnTag, TypeProjection, TypeTag};
 
 use crate::{Idx, Tag};
 
@@ -75,6 +76,58 @@ pub(crate) fn tag_to_type_tag(tag: Tag) -> Option<TypeTag> {
         | Tag::Infer
         | Tag::SelfType => None,
     }
+}
+
+/// Look up the [`OpStrategy`] for a binary operator on a builtin type.
+///
+/// Maps `BinaryOp` to the corresponding [`OpDefs`] field and returns the
+/// strategy. Returns `None` if:
+/// - The `Tag` has no registry `TypeDef` (non-builtin types use trait dispatch)
+/// - The `BinaryOp` has no corresponding `OpDefs` field (`And`, `Or`, `Range`,
+///   `RangeInclusive`, `Coalesce`, `MatMul` — these have dedicated dispatch paths)
+#[must_use]
+pub(crate) fn binary_op_strategy(tag: Tag, op: BinaryOp) -> Option<OpStrategy> {
+    let type_tag = tag_to_type_tag(tag)?;
+    let type_def = ori_registry::find_type(type_tag)?;
+    let ops = &type_def.operators;
+    let strategy = match op {
+        BinaryOp::Add => ops.add,
+        BinaryOp::Sub => ops.sub,
+        BinaryOp::Mul => ops.mul,
+        BinaryOp::Div => ops.div,
+        BinaryOp::Mod => ops.rem,
+        BinaryOp::FloorDiv => ops.floor_div,
+        BinaryOp::Eq => ops.eq,
+        BinaryOp::NotEq => ops.neq,
+        BinaryOp::Lt => ops.lt,
+        BinaryOp::LtEq => ops.lt_eq,
+        BinaryOp::Gt => ops.gt,
+        BinaryOp::GtEq => ops.gt_eq,
+        BinaryOp::BitAnd => ops.bit_and,
+        BinaryOp::BitOr => ops.bit_or,
+        BinaryOp::BitXor => ops.bit_xor,
+        BinaryOp::Shl => ops.shl,
+        BinaryOp::Shr => ops.shr,
+        // These operators don't map to OpDefs fields — they use dedicated
+        // dispatch paths (logical, range, coalesce) or trait dispatch (MatMul).
+        BinaryOp::And
+        | BinaryOp::Or
+        | BinaryOp::Range
+        | BinaryOp::RangeInclusive
+        | BinaryOp::Coalesce
+        | BinaryOp::MatMul => return None,
+    };
+    Some(strategy)
+}
+
+/// Check if a binary operator is supported for a builtin type via the registry.
+///
+/// Returns `Some(true)` if the registry says the operator is supported,
+/// `Some(false)` if explicitly unsupported, or `None` if the registry
+/// doesn't cover this type/operator combination.
+#[must_use]
+pub(crate) fn is_binary_op_supported(tag: Tag, op: BinaryOp) -> Option<bool> {
+    binary_op_strategy(tag, op).map(|s| s != OpStrategy::Unsupported)
 }
 
 /// Convert a registry [`ReturnTag`] to a pool [`Idx`], using the receiver type

@@ -3,6 +3,7 @@
 use ori_ir::{BinaryOp, ExprArena, ExprId, ExprKind, Span, UnaryOp};
 
 use super::super::InferEngine;
+use super::registry_bridge::is_binary_op_supported;
 use super::{infer_expr, resolve_and_check_parsed_type};
 use crate::{ContextKind, ErrorContext, Expected, ExpectedOrigin, Idx, Tag, TypeCheckError};
 
@@ -44,35 +45,64 @@ pub(crate) fn infer_binary(
             let left_tag = engine.pool().tag(resolved_left);
             let right_tag = engine.pool().tag(resolved_right);
 
-            // Special case: Duration/Size * Int, Int * Duration/Size, Duration/Size / Int
-            let mixed_result = match (left_tag, right_tag, op) {
-                // Duration + Duration, Duration * int, Duration / int, int * Duration = Duration
-                (Tag::Duration, Tag::Duration, _)
-                | (Tag::Duration, Tag::Int, BinaryOp::Mul | BinaryOp::Div | BinaryOp::FloorDiv)
-                | (Tag::Int, Tag::Duration, BinaryOp::Mul) => Some(Idx::DURATION),
-                // Size + Size, Size * int, Size / int, int * Size = Size
-                (Tag::Size, Tag::Size, _)
-                | (Tag::Size, Tag::Int, BinaryOp::Mul | BinaryOp::Div | BinaryOp::FloorDiv)
-                | (Tag::Int, Tag::Size, BinaryOp::Mul) => Some(Idx::SIZE),
-                // String concatenation
-                (Tag::Str, Tag::Str, BinaryOp::Add) => Some(Idx::STR),
-                // List concatenation: [T] + [T] = [T]
-                (Tag::List, Tag::List, BinaryOp::Add) => {
-                    // Unify element types and return the left list type
-                    let left_elem = engine.pool().list_elem(resolved_left);
-                    let right_elem = engine.pool().list_elem(resolved_right);
-                    let _ = engine.unify_types(left_elem, right_elem);
-                    Some(engine.resolve(left_ty))
-                }
-                // Never propagation: right operand diverges
-                (_, Tag::Never, _) => Some(Idx::NEVER),
-                // Error propagation
-                (_, Tag::Error, _) | (Tag::Error, _, _) => Some(Idx::ERROR),
-                _ => None,
-            };
+            // Never/Error propagation (check before registry queries)
+            match (left_tag, right_tag) {
+                (Tag::Error, _) | (_, Tag::Error) => return Idx::ERROR,
+                (_, Tag::Never) => return Idx::NEVER,
+                _ => {}
+            }
 
-            if let Some(result) = mixed_result {
+            // Cross-type special cases: Duration/Size mixed with Int.
+            // These are cross-type rules the per-type registry can't express.
+            if let Some(result) = check_cross_type_arithmetic(left_tag, right_tag, op) {
                 return result;
+            }
+
+            // Same-type builtin operators: query the registry to validate.
+            // For same-type pairs where both sides are the same builtin type
+            // (Duration+Duration, Str+Str, List+List, etc.), the registry
+            // determines whether the operator is supported.
+            if left_tag == right_tag {
+                if let Some(supported) = is_binary_op_supported(left_tag, op) {
+                    if !supported {
+                        if let Some(trait_name) = binary_op_to_trait_name(op) {
+                            engine.push_error(TypeCheckError::unsupported_operator(
+                                span,
+                                resolved_left,
+                                op_str,
+                                trait_name,
+                            ));
+                        } else {
+                            engine.push_error(TypeCheckError::bad_binary_operand(
+                                arena.get_expr(left).span,
+                                "arithmetic",
+                                "numeric",
+                                resolved_left,
+                            ));
+                        }
+                        return Idx::ERROR;
+                    }
+                    // Operator supported — handle list concatenation specially
+                    // (needs element type unification), others unify and return.
+                    if left_tag == Tag::List && op == BinaryOp::Add {
+                        let left_elem = engine.pool().list_elem(resolved_left);
+                        let right_elem = engine.pool().list_elem(resolved_right);
+                        let _ = engine.unify_types(left_elem, right_elem);
+                        return engine.resolve(left_ty);
+                    }
+                    engine.push_context(ContextKind::BinaryOpRight { op: op_str });
+                    let left_span = arena.get_expr(left).span;
+                    let expected = Expected {
+                        ty: left_ty,
+                        origin: ExpectedOrigin::Context {
+                            span: left_span,
+                            kind: ContextKind::BinaryOpLeft { op: op_str },
+                        },
+                    };
+                    let _ = engine.check_type(right_ty, &expected, arena.get_expr(right).span);
+                    engine.pop_context();
+                    return engine.resolve(left_ty);
+                }
             }
 
             // Try trait dispatch for non-primitive, non-variable types
@@ -534,6 +564,41 @@ fn binary_op_to_method_name(op: BinaryOp) -> Option<&'static str> {
 /// Delegates to `BinaryOp::trait_name()` — the single source of truth in `ori_ir`.
 fn binary_op_to_trait_name(op: BinaryOp) -> Option<&'static str> {
     op.trait_name()
+}
+
+/// Check for cross-type arithmetic special cases.
+///
+/// Handles mixed-type arithmetic that the per-type registry can't express:
+/// - `Duration * int`, `int * Duration`, `Duration / int`, `Duration div int`
+/// - `Size * int`, `int * Size`, `Size / int`, `Size div int`
+///
+/// These are cross-type rules where the result type differs from at least one
+/// operand type. The registry validates whether each individual type supports
+/// the operator; this function handles the cross-type pairing.
+///
+/// Returns `Some(result_idx)` if a cross-type rule matched, `None` otherwise.
+fn check_cross_type_arithmetic(left_tag: Tag, right_tag: Tag, op: BinaryOp) -> Option<Idx> {
+    // Validate that the operator is supported for the non-int side via the
+    // registry. This prevents accepting e.g. Duration @ int (MatMul).
+    let (unit_tag, unit_idx) = match (left_tag, right_tag) {
+        (Tag::Duration, Tag::Int) | (Tag::Int, Tag::Duration) => (Tag::Duration, Idx::DURATION),
+        (Tag::Size, Tag::Int) | (Tag::Int, Tag::Size) => (Tag::Size, Idx::SIZE),
+        _ => return None,
+    };
+
+    // Only specific operators are valid for cross-type arithmetic.
+    // Duration/Size: mul (both directions), div and floor_div (unit / int only).
+    let unit_is_left = left_tag == unit_tag;
+    match op {
+        BinaryOp::Mul => Some(unit_idx),
+        BinaryOp::Div | BinaryOp::FloorDiv if unit_is_left => {
+            // Duration/Size supports div: check registry.
+            is_binary_op_supported(unit_tag, op)
+                .filter(|&supported| supported)
+                .map(|_| unit_idx)
+        }
+        _ => None,
+    }
 }
 
 /// Try to resolve a binary operator via trait dispatch.
