@@ -1,0 +1,11 @@
+// Triple chain: None ?? None ?? Some(3) — right-associative
+@main () -> int = {
+    let a: Option<int> = None;
+    let b: Option<int> = None;
+    let c: Option<int> = Some(3);
+    let result: Option<int> = a ?? b ?? c;
+    match result {
+        Some(v) -> if v == 3 then 0 else 1,
+        None -> 2,
+    }
+}

@@ -1,0 +1,11 @@
+// Regression: BUG-02-002 — Result<int, str> ?? Result<int, str> preserves wrapper
+// Ok short-circuits
+@main () -> int = {
+    let a: Result<int, str> = Ok(1);
+    let b: Result<int, str> = Ok(2);
+    let c: Result<int, str> = a ?? b;
+    match c {
+        Ok(v) -> if v == 1 then 0 else 1,
+        Err(e) -> 2,
+    }
+}
