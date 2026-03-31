@@ -750,7 +750,13 @@ fn marker_traits_populated_correctly() {
         (TypeTag::Str, &["Default"]),
         (TypeTag::Duration, &["Default", "Sendable"]),
         (TypeTag::Size, &["Default", "Sendable"]),
-        (TypeTag::Option, &["Default"]),
+        (TypeTag::List, &["Printable"]),
+        (TypeTag::Map, &["Printable"]),
+        (TypeTag::Set, &["Printable"]),
+        (TypeTag::Range, &["Printable"]),
+        (TypeTag::Option, &["Default", "Printable"]),
+        (TypeTag::Result, &["Comparable", "Printable"]),
+        (TypeTag::Tuple, &["Comparable", "Printable"]),
         (TypeTag::Iterator, &["Iterator"]),
     ];
 
@@ -776,12 +782,6 @@ fn non_marker_types_have_empty_traits() {
         TypeTag::Byte,
         TypeTag::Ordering,
         TypeTag::Error,
-        TypeTag::List,
-        TypeTag::Map,
-        TypeTag::Set,
-        TypeTag::Range,
-        TypeTag::Tuple,
-        TypeTag::Result,
         TypeTag::Channel,
     ];
 

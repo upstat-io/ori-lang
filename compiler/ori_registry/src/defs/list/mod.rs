@@ -131,7 +131,7 @@ pub static LIST: TypeDef = TypeDef {
         },
         ..OpDefs::UNSUPPORTED
     },
-    traits: &[],
+    traits: &["Printable"],
 };
 
 #[cfg(test)]

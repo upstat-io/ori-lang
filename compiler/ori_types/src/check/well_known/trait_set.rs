@@ -125,12 +125,13 @@ pub(super) fn build_prim_trait_sets() -> [TraitSet; Idx::PRIMITIVE_COUNT as usiz
         tb::SHR,
     ]));
 
-    // FLOAT: core + default + basic arithmetic
+    // FLOAT: core + default + basic arithmetic + rem (Spec: float supports %)
     sets[Idx::FLOAT.raw() as usize] = core_bundle.union(default).union(TraitSet::from_bits(&[
         tb::ADD,
         tb::SUB,
         tb::MUL,
         tb::DIV,
+        tb::REM,
         tb::NEG,
     ]));
 
@@ -223,30 +224,33 @@ pub(super) fn build_compound_trait_sets() -> (
 ) {
     use trait_bits as tb;
 
-    // List: eq, clone, hashable, printable, len, is_empty, comparable, iterable
+    // List: eq, comparable, clone, hashable, printable, debug, add, len, is_empty, iterable
     let list = TraitSet::from_bits(&[
         tb::EQ,
+        tb::COMPARABLE,
         tb::CLONE,
         tb::HASHABLE,
         tb::PRINTABLE,
+        tb::DEBUG,
+        tb::ADD,
         tb::LEN,
         tb::IS_EMPTY,
-        tb::COMPARABLE,
         tb::ITERABLE,
     ]);
 
-    // Map/Set: eq, clone, hashable, printable, len, is_empty, iterable
+    // Map/Set: eq, clone, hashable, printable, debug, len, is_empty, iterable
     let map_set = TraitSet::from_bits(&[
         tb::EQ,
         tb::CLONE,
         tb::HASHABLE,
         tb::PRINTABLE,
+        tb::DEBUG,
         tb::LEN,
         tb::IS_EMPTY,
         tb::ITERABLE,
     ]);
 
-    // Option: eq, comparable, clone, hashable, printable, default
+    // Option: eq, comparable, clone, hashable, printable, default, debug, iterable
     let option = TraitSet::from_bits(&[
         tb::EQ,
         tb::COMPARABLE,
@@ -254,29 +258,33 @@ pub(super) fn build_compound_trait_sets() -> (
         tb::HASHABLE,
         tb::PRINTABLE,
         tb::DEFAULT,
+        tb::DEBUG,
+        tb::ITERABLE,
     ]);
 
-    // Result: eq, comparable, clone, hashable, printable
+    // Result: eq, comparable, clone, hashable, printable, debug
     let result = TraitSet::from_bits(&[
         tb::EQ,
         tb::COMPARABLE,
         tb::CLONE,
         tb::HASHABLE,
         tb::PRINTABLE,
+        tb::DEBUG,
     ]);
 
-    // Tuple: eq, comparable, clone, hashable, printable, len
+    // Tuple: eq, comparable, clone, hashable, printable, debug, len
     let tuple = TraitSet::from_bits(&[
         tb::EQ,
         tb::COMPARABLE,
         tb::CLONE,
         tb::HASHABLE,
         tb::PRINTABLE,
+        tb::DEBUG,
         tb::LEN,
     ]);
 
-    // Range: printable, len, iterable
-    let range = TraitSet::from_bits(&[tb::PRINTABLE, tb::LEN, tb::ITERABLE]);
+    // Range: printable, len, is_empty, iterable
+    let range = TraitSet::from_bits(&[tb::PRINTABLE, tb::LEN, tb::IS_EMPTY, tb::ITERABLE]);
 
     // Str (compound-level): iterable only (primitive str already handles the rest)
     let str_compound = TraitSet::from_bits(&[tb::ITERABLE]);
