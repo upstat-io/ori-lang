@@ -27,6 +27,13 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
         match ctor {
             CtorKind::Struct(_) | CtorKind::Tuple => {
+                // BUG-04-008: Unit/void tuples resolve to i64 in LLVM (not a struct),
+                // because LLVM void can't be stored. Return a zero constant directly
+                // instead of calling build_struct on a non-struct type.
+                let resolved_ty = self.pool.resolve_fully(ty);
+                if matches!(self.pool.tag(resolved_ty), Tag::Unit | Tag::Never) {
+                    return self.builder.const_zero_ty(llvm_ty);
+                }
                 // §06: reorder args from declaration order to memory order
                 // before truncation and LLVM struct construction.
                 let mem_args = self.reorder_args_to_memory_order(&arg_vals, ty);
@@ -56,7 +63,37 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 } else {
                     Vec::new()
                 };
-                let has_boxed_fields = variant_field_types
+
+                // BUG-04-008: For user-defined enums (Tag::Enum), filter out
+                // Unit/Never args — they are zero-sized and don't occupy payload
+                // space. For Option/Result (where variant_field_types is empty
+                // because they're not Tag::Enum), use args unchanged.
+                let (eff_args, eff_arc_args, eff_field_types);
+                if !variant_field_types.is_empty()
+                    && variant_field_types.iter().any(|ft| {
+                        let r = self.pool.resolve_fully(*ft);
+                        matches!(self.pool.tag(r), Tag::Unit | Tag::Never)
+                    })
+                {
+                    let non_void: Vec<usize> = variant_field_types
+                        .iter()
+                        .enumerate()
+                        .filter(|(_, ft)| {
+                            let r = self.pool.resolve_fully(**ft);
+                            !matches!(self.pool.tag(r), Tag::Unit | Tag::Never)
+                        })
+                        .map(|(i, _)| i)
+                        .collect();
+                    eff_args = non_void.iter().map(|&i| arg_vals[i]).collect();
+                    eff_arc_args = non_void.iter().map(|&i| args[i]).collect();
+                    eff_field_types = non_void.iter().map(|&i| variant_field_types[i]).collect();
+                } else {
+                    eff_args = arg_vals.clone();
+                    eff_arc_args = args.to_vec();
+                    eff_field_types = variant_field_types.clone();
+                }
+
+                let has_boxed_fields = eff_field_types
                     .iter()
                     .any(|&ft| is_boxed_enum_field(self.pool, ty, ft));
 
@@ -67,9 +104,9 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                         llvm_ty,
                         ty,
                         tag_val,
-                        &arg_vals,
-                        args,
-                        &variant_field_types,
+                        &eff_args,
+                        &eff_arc_args,
+                        &eff_field_types,
                     )
                 } else {
                     // Optimized case: pure insertvalue chain (no memory roundtrip).
@@ -79,9 +116,9 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                         llvm_ty,
                         ty,
                         tag_val,
-                        &arg_vals,
-                        args,
-                        &variant_field_types,
+                        &eff_args,
+                        &eff_arc_args,
+                        &eff_field_types,
                     )
                 }
             }

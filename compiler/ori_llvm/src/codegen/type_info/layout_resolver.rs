@@ -329,12 +329,22 @@ impl<'a, 'll, 'tcx> TypeLayoutResolver<'a, 'll, 'tcx> {
         // at least one full i64 slot (8 bytes). Must match
         // compute_variant_field_offsets() in drop_enum.rs and
         // enum_payload_size() / pool_type_store_size() in ori_arc.
+        //
+        // BUG-04-008: Unit/Never fields are zero-sized in Ori's type system
+        // but map to i64 in LLVM (because LLVM void can't be stored/phi'd).
+        // Skip them here so they don't inflate the payload size.
+        let pool = self.store.pool();
         let mut max_payload_bytes: u64 = 0;
         for variant in variants {
             let variant_bytes: u64 = variant
                 .fields
                 .iter()
                 .map(|&f| {
+                    let resolved_f = pool.resolve_fully(f);
+                    let tag = pool.tag(resolved_f);
+                    if matches!(tag, Tag::Unit | Tag::Never) {
+                        return 0;
+                    }
                     let ty = self.resolve(f);
                     let size = Self::type_store_size(ty);
                     // Round up to 8-byte i64 slot boundary

@@ -106,6 +106,15 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             return false;
         }
 
+        // BUG-04-008: If the projected field is Unit/Never, it's zero-sized
+        // and doesn't exist in the LLVM payload. Return a zero constant.
+        let resolved_field_ty = self.pool.resolve_fully(ty);
+        if matches!(self.pool.tag(resolved_field_ty), Tag::Unit | Tag::Never) {
+            let zero = self.builder.const_zero_ty(result_ty);
+            self.def_var_repr(dst, zero, func);
+            return true;
+        }
+
         let is_general_enum = matches!(
             val_type_info,
             super::super::type_info::TypeInfo::Enum { .. }
