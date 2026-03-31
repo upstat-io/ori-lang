@@ -87,5 +87,6 @@ sections:
 - [ ] Stripped on publish
 - [ ] Run full test suite
 - [ ] `/tpr-review` passed — independent Codex review found no critical or major issues (or all findings triaged)
+- [ ] `/impl-hygiene-review last commit` passed — implementation hygiene review clean (phase boundaries, SSOT, algorithmic DRY, naming). MUST run AFTER `/tpr-review` is clean.
 
 **Exit Criteria**: `ori run` works like `npm run`

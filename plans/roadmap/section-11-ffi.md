@@ -738,6 +738,7 @@ Deep FFI layers five opt-in abstractions on top of the base FFI syntax: error pr
 - [ ] `uses FFI` properly enforced
 - [ ] `unsafe` blocks working
 - [ ] `/tpr-review` passed -- independent Codex review found no critical or major issues (or all findings triaged)
+- [ ] `/impl-hygiene-review last commit` passed — implementation hygiene review clean (phase boundaries, SSOT, algorithmic DRY, naming). MUST run AFTER `/tpr-review` is clean.
 
 **Exit Criteria**: Can write a program that opens and queries a SQLite database
 

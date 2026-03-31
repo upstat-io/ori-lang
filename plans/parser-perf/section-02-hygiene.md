@@ -176,5 +176,6 @@ The following files are modified by Sections 03-05 and also exceed the 500-line 
 - [ ] Debug AND release builds pass: `timeout 150 cargo t -p ori_parse --release`
 - [ ] Zero net behavioral changes (diffs are purely `mod`/`use` additions)
 - [ ] `/tpr-review` passed — independent Codex review found no critical or major issues (or all findings triaged)
+- [ ] `/impl-hygiene-review last commit` passed — implementation hygiene review clean (phase boundaries, SSOT, algorithmic DRY, naming). MUST run AFTER `/tpr-review` is clean.
 
 **Exit Criteria:** `find compiler/ori_parse/src -name '*.rs' ! -path '*/tests*' ! -name 'tests.rs' | xargs wc -l | sort -rn | head -10` shows no file exceeding 500 lines. All test suites green.

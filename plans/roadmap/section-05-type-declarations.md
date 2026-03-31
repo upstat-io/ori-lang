@@ -469,6 +469,7 @@ Generalize associated functions to work for ANY type with an `impl` block, remov
 - [ ] Commented-out `collections.ori` cleanup — hygiene violation
 - [ ] Run full test suite: `./test-all.sh`
 - [ ] `/tpr-review` passed — independent Codex review found no critical or major issues (or all findings triaged)
+- [ ] `/impl-hygiene-review last commit` passed — implementation hygiene review clean (phase boundaries, SSOT, algorithmic DRY, naming). MUST run AFTER `/tpr-review` is clean.
 
 **Exit Criteria**: User-defined structs and enums work
 **Status**: Evaluator and AOT support complete for core features. All 7 derivable traits verified with eval + AOT coverage (43 AOT derive tests in derives.rs). Type checker compound inference, capability unification syntax, and newtype `.inner` accessor pending. Verified 2026-03-29.

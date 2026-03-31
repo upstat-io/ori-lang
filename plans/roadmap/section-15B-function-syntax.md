@@ -494,6 +494,7 @@ conv2d(input:, weight:, bias:, stride: 2)
 - [ ] Migration tools working (`ori migrate remove-dot-prefix` not implemented)
 - [ ] All tests pass: `./test-all.sh` -- 4181 pass, 0 fail, but ~350 lines of tests in `clause_params.ori` are COMMENTED OUT (verified 2026-03-29)
 - [ ] `/tpr-review` passed -- independent Codex review found no critical or major issues (or all findings triaged)
+- [ ] `/impl-hygiene-review last commit` passed — implementation hygiene review clean (phase boundaries, SSOT, algorithmic DRY, naming). MUST run AFTER `/tpr-review` is clean.
 - [ ] Commented-out tests in `clause_params.ori` un-commented or converted to `#skip("reason")` -- per coding rules, commented-out code is never acceptable
 
 **Exit Criteria**: Function syntax proposals implemented

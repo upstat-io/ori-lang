@@ -552,6 +552,7 @@ These test enum representations interacting with other language features. Each m
 - [ ] `ORI_CHECK_LEAKS=1` reports zero leaks on all enum-related test programs (critical for niche-encoded types where RC paths change)
 - [ ] Cross-feature interaction tests from the table above all pass
 - [ ] `/tpr-review` passed — independent Codex review found no critical or major issues (or all findings triaged)
+- [ ] `/impl-hygiene-review last commit` passed — implementation hygiene review clean (phase boundaries, SSOT, algorithmic DRY, naming). MUST run AFTER `/tpr-review` is clean.
 - [ ] Remove all `§07` plan annotations from code (per CLAUDE.md plan annotation cleanup requirement)
 
 **Exit Criteria:** `Option<bool>` compiles to a single `i8` in LLVM IR (no struct wrapper), with `None = 2`, `Some(false) = 0`, `Some(true) = 1`. Verified by inspecting LLVM IR and running all Option-related spec tests. All cross-feature interaction tests pass. Zero leaks under `ORI_CHECK_LEAKS=1`. Dual-execution parity confirmed.

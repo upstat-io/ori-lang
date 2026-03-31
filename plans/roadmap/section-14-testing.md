@@ -686,5 +686,6 @@ The following gaps were identified during independent verification:
 - [ ] 80+% test coverage, tests against spec/design
 - [ ] Run full test suite: `./test-all.sh`
 - [ ] `/tpr-review` passed — independent Codex review found no critical or major issues (or all findings triaged)
+- [ ] `/impl-hygiene-review last commit` passed — implementation hygiene review clean (phase boundaries, SSOT, algorithmic DRY, naming). MUST run AFTER `/tpr-review` is clean.
 
 **Exit Criteria**: Tests are mandatory, dependency-aware, and run correctly

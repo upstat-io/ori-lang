@@ -180,5 +180,6 @@ The lock file contains **only checksums** for security verification, not for ver
 - [ ] Formatting integration
 - [ ] Run full test suite: `./test-all.sh`
 - [ ] `/tpr-review` passed — independent Codex review found no critical or major issues (or all findings triaged)
+- [ ] `/impl-hygiene-review last commit` passed — implementation hygiene review clean (phase boundaries, SSOT, algorithmic DRY, naming). MUST run AFTER `/tpr-review` is clean.
 
 **Exit Criteria**: Can parse and validate oripk.toml and oripk.lock files

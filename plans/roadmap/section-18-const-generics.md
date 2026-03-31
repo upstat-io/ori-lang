@@ -684,6 +684,7 @@ impl [int, max 5]: FixedSize {
 - [ ] Const bounds work — parser only, type checker silently ignores (GAP-18-001)
 - [ ] All tests pass: `./test-all.sh`
 - [ ] `/tpr-review` passed — independent Codex review found no critical or major issues (or all findings triaged)
+- [ ] `/impl-hygiene-review last commit` passed — implementation hygiene review clean (phase boundaries, SSOT, algorithmic DRY, naming). MUST run AFTER `/tpr-review` is clean.
 
 **Exit Criteria**: Can implement a matrix library with compile-time dimension checking
 

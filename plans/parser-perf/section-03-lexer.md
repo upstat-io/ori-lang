@@ -141,6 +141,7 @@ The `try_trivial()` function intercepts operators and delimiters before they rea
 - [ ] `./test-all.sh` green
 - [ ] Debug AND release builds pass: `timeout 150 cargo t -p ori_lexer --release`
 - [ ] `/tpr-review` passed — independent Codex review found no critical or major issues (or all findings triaged)
+- [ ] `/impl-hygiene-review last commit` passed — implementation hygiene review clean (phase boundaries, SSOT, algorithmic DRY, naming). MUST run AFTER `/tpr-review` is clean.
 
 **Correctness verification:** All changes in this section are performance-only (adding `#[inline]`, tuning allocation sizes, moving token kinds between fast paths). No behavioral change is expected. The existing lexer test suite (unit tests + spec tests) serves as the correctness regression guard. Run the full suite BEFORE any optimization to establish a green baseline, then after each change to verify zero regressions. If any test fails after an optimization, the optimization introduced a bug -- revert and investigate.
 

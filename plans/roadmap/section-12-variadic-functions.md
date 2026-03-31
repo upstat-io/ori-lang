@@ -375,6 +375,7 @@ Defer to future consideration. Current section focuses on function parameters on
 - [ ] Commented-out test code in `tests/spec/declarations/functions.ori` lines 92-120 cleaned up
 - [ ] All tests pass: `./test-all.sh`
 - [ ] `/tpr-review` passed — independent Codex review found no critical or major issues (or all findings triaged)
+- [ ] `/impl-hygiene-review last commit` passed — implementation hygiene review clean (phase boundaries, SSOT, algorithmic DRY, naming). MUST run AFTER `/tpr-review` is clean.
 
 **Exit Criteria**: Can implement `format()` and call C's `printf()`
 

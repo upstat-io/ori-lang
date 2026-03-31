@@ -1142,6 +1142,7 @@ For cross-function narrowing, we need to propagate range information through fun
 - [x] **`.copied()` in `ReprPlan::var_range()`** — already uses `.copied()` at `plan.rs:162` (2026-03-25)
 - [x] **`pub use` re-exports in `lib.rs`** — `ValueRange`, `RangeAnalysisConfig`, `FieldSummaryTable`, `RangeFixpointResult`, `KnownBuiltins` (2026-03-26)
 - [x] `/tpr-review` passed with no open findings — 2026-03-28 review reopened as TPR-03-040; resolved 2026-03-28 with end-to-end tests in `check/api/tests.rs`.
+- [ ] `/impl-hygiene-review last commit` passed — implementation hygiene review clean (phase boundaries, SSOT, algorithmic DRY, naming). MUST run AFTER `/tpr-review` is clean.
 
 **Global Testing Requirements (CLAUDE.md compliance):**
 - **TDD ordering**: Every subsection (03.1 through 03.5) must write tests BEFORE implementation. Verify tests fail (compile error or assertion). Implement. Tests must pass unchanged. Needing to change tests = wrong tests or wrong fix.

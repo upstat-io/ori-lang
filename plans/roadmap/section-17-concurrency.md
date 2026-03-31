@@ -730,6 +730,7 @@ Formalizes semantics for `timeout` and `spawn` patterns including cancellation b
 - [ ] Spawn pattern working (fire-and-forget, task escapes scope, errors discarded)
 - [ ] All tests pass: `./test-all.sh`
 - [ ] `/tpr-review` passed — independent Codex review found no critical or major issues (or all findings triaged)
+- [ ] `/impl-hygiene-review last commit` passed — implementation hygiene review clean (phase boundaries, SSOT, algorithmic DRY, naming). MUST run AFTER `/tpr-review` is clean.
 
 **Exit Criteria**: Can write producer/consumer pipeline with ownership safety and proper cancellation
 
