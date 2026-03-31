@@ -1,0 +1,9 @@
+@main () -> int = {
+    let a = "alias chain comparison string";
+    let b = a;
+    let c = b;
+    let $r1 = a == b;
+    let $r2 = b == c;
+    let $r3 = a == c;
+    if r1 && r2 && r3 then 0 else 1
+}

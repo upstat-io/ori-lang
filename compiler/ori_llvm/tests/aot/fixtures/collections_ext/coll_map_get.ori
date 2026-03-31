@@ -1,0 +1,5 @@
+@main () -> int = {
+    let m = {"a": 1, "b": 2};
+    let v = m.get("a");
+    if v.is_some() && v.unwrap() == 1 then 0 else 1
+}

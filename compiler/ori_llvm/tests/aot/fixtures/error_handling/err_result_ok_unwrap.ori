@@ -1,0 +1,4 @@
+@main () -> int = {
+    let r: Result<int, str> = Ok(42);
+    if r.is_ok() && r.unwrap() == 42 then 0 else 1
+}

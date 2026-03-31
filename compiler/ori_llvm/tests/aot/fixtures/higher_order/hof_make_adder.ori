@@ -1,0 +1,9 @@
+@make_adder (base: int) -> (int) -> int = {
+    (n: int) -> base + n
+};
+
+@main () -> int = {
+    let add5 = make_adder(base: 5);
+    let add10 = make_adder(base: 10);
+    if add5(3) == 8 && add10(3) == 13 then 0 else 1
+}

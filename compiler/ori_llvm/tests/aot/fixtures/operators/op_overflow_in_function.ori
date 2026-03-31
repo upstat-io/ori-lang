@@ -1,0 +1,5 @@
+@add_one (x: int) -> int = x + 1;
+
+@main () -> int = {
+    add_one(x: 9223372036854775807)
+}

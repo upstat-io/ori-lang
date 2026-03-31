@@ -1,0 +1,4 @@
+@main () -> int = {
+    let result = "a" + "b" + "c" + "d";
+    if result == "abcd" then 0 else 1
+}

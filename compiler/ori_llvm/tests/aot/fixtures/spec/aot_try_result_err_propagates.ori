@@ -1,0 +1,11 @@
+@fail_early () -> Result<int, str> = Err("oops");
+
+@try_it () -> Result<int, str> = {
+    let x = fail_early()?;
+    Ok(x * 2)
+}
+
+@main () -> int = {
+    let r = try_it();
+    if r.is_err() then 0 else 1
+}

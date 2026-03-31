@@ -1,0 +1,19 @@
+@main () -> int = {
+    let ok1: Result<int, str> = Ok(42);
+    let ok2: Result<int, str> = Ok(42);
+    let ok3: Result<int, str> = Ok(99);
+    let err1: Result<int, str> = Err("hello");
+    let err2: Result<int, str> = Err("hello");
+    let err3: Result<int, str> = Err("world");
+    // Same Ok values are equal
+    let r1 = ok1.equals(ok2);
+    // Different Ok values are not equal
+    let r2 = !ok1.equals(ok3);
+    // Same Err strings are equal
+    let r3 = err1.equals(err2);
+    // Different Err strings are not equal
+    let r4 = !err1.equals(err3);
+    // Ok != Err
+    let r5 = !ok1.equals(err1);
+    if r1 && r2 && r3 && r4 && r5 then 0 else 1
+}

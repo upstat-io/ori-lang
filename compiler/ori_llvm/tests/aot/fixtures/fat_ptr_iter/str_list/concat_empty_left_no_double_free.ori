@@ -1,0 +1,6 @@
+@main () -> int = {
+    let s = "the quick brown fox jumps over the lazy dog";
+    let t = "" + s;
+    let total = s.len() + t.len();
+    if total == 86 then 0 else 1
+}

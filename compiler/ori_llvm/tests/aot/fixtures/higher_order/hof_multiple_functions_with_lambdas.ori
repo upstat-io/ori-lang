@@ -1,0 +1,22 @@
+@double_it (x: int) -> int = {
+    let $f = (n: int) -> n * 2;
+    f(x)
+}
+
+@triple_it (x: int) -> int = {
+    let $f = (n: int) -> n * 3;
+    f(x)
+}
+
+@add_ten (x: int) -> int = {
+    let $offset = 10;
+    let $f = (n: int) -> n + offset;
+    f(x)
+}
+
+@main () -> int = {
+    let $a = double_it(x: 5);
+    let $b = triple_it(x: 5);
+    let $c = add_ten(x: 5);
+    if a == 10 && b == 15 && c == 15 then 0 else 1
+}

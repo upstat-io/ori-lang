@@ -1,0 +1,39 @@
+trait Describable {
+    @describe (self) -> str = "base";
+}
+
+trait Categorizable {
+    @category (self) -> str
+}
+
+trait Printable {
+    @to_str (self) -> str
+}
+
+type Config = { value: int, name: str }
+
+impl Describable for Config {
+}
+
+impl Categorizable for Config {
+    @category (self) -> str = "config";
+}
+
+impl Printable for Config {
+    @to_str (self) -> str = "cfg";
+}
+
+impl Config {
+    @get_value (self) -> int = self.value;
+    @get_name (self) -> str = self.name;
+}
+
+@main () -> int = {
+    let c = Config { value: 10, name: "port" };
+    let ok1 = c.get_value() == 10;
+    let ok2 = c.get_name() == "port";
+    let ok3 = c.describe() == "base";
+    let ok4 = c.category() == "config";
+    let ok5 = c.to_str() == "cfg";
+    if ok1 && ok2 && ok3 && ok4 && ok5 then 0 else 1
+}

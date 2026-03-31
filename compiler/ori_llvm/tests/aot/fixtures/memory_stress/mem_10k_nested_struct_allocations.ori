@@ -1,0 +1,12 @@
+type Inner = { val: int }
+type Outer = { inner: Inner, name: str }
+
+@main () -> int = {
+    let sum = 0;
+    for i in 0..10000 do {
+        let o = Outer { inner: Inner { val: i }, name: "test" };
+        sum = sum + o.inner.val
+    };
+    // sum(0..9999) = 9999 * 10000 / 2 = 49995000
+    if sum == 49995000 then 0 else 1
+}

@@ -1,0 +1,4 @@
+@main () -> void = {
+    let x: int = "not an int";
+    print(msg: "should fail")
+}

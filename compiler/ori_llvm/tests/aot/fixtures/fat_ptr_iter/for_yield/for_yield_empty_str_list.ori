@@ -1,0 +1,5 @@
+@main () -> int = {
+    let words: [str] = [];
+    let result = for w in words yield w.length();
+    if result.length() == 0 then 0 else 1
+}

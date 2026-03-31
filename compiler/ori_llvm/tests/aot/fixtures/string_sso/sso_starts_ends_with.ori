@@ -1,0 +1,4 @@
+@main () -> int = {
+    let s = "hello world";
+    if s.starts_with("hello") && s.ends_with("world") then 0 else 1
+}

@@ -1,0 +1,7 @@
+@pick (b: bool) -> int = if b then -50 else -100;
+
+@main () -> int = {
+    let sum = pick(b: true) + pick(b: false);
+    // -50 + -100 = -150
+    if sum == -150 then 0 else 1
+}

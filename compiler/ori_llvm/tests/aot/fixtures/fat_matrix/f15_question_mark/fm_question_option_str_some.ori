@@ -1,0 +1,11 @@
+@get_len (opt: Option<str>) -> Option<int> = {
+    let s = opt?;
+    Some(s.length())
+};
+
+@main () -> int = {
+    match get_len(opt: Some("hello")) {
+        Some(n) -> if n == 5 then 0 else 1,
+        None -> 2,
+    }
+}

@@ -1,0 +1,15 @@
+@step1 (x: int) -> Result<int, str> = Ok(x + 1);
+@step2 (x: int) -> Result<int, str> = Err("fail at step2");
+@step3 (x: int) -> Result<int, str> = Ok(x * 100);
+
+@pipeline (x: int) -> Result<int, str> = {
+    let a = step1(x: x)?;
+    let b = step2(x: a)?;
+    let c = step3(x: b)?;
+    Ok(c)
+}
+
+@main () -> int = {
+    let r = pipeline(x: 1);
+    if r.is_err() then 0 else 1
+}

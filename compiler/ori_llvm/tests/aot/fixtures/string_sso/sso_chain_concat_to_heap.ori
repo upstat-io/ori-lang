@@ -1,0 +1,9 @@
+@main () -> int = {
+    // Start SSO, grow through concatenation to heap
+    let s = "abc";
+    let s = s + "defgh";
+    let s = s + "ijklmnop";
+    let s = s + "qrstuvwxyz";
+    // 3 + 5 + 8 + 10 = 26 bytes > 23 → heap
+    if s.length() == 26 then 0 else 1
+}

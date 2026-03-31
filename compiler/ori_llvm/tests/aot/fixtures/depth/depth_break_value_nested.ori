@@ -1,0 +1,9 @@
+@main () -> int = {
+    let result = loop {
+        let inner = loop {
+            break 42
+        };
+        break inner + 8
+    };
+    if result == 50 then 0 else 1
+}

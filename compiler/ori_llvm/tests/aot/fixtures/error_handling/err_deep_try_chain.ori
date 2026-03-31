@@ -1,0 +1,18 @@
+@a (x: int) -> Result<int, str> = Ok(x + 1);
+@b (x: int) -> Result<int, str> = Ok(x + 2);
+@c (x: int) -> Result<int, str> = Ok(x + 3);
+@d (x: int) -> Result<int, str> = Ok(x + 4);
+
+@deep_chain (x: int) -> Result<int, str> = {
+    let v1 = a(x: x)?;
+    let v2 = b(x: v1)?;
+    let v3 = c(x: v2)?;
+    let v4 = d(x: v3)?;
+    Ok(v4)
+}
+
+@main () -> int = {
+    let r = deep_chain(x: 0);
+    // 0 + 1 + 2 + 3 + 4 = 10
+    if r.is_ok() && r.unwrap() == 10 then 0 else 1
+}

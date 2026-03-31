@@ -1,0 +1,10 @@
+#derive(Eq, Clone)
+type Named = { name: str, id: int }
+
+@main () -> int = {
+    let a = Named { name: "alice", id: 1 };
+    let b = a.clone();
+    if a == b then {
+        if b.name.length() == 5 then 0 else 1
+    } else 2
+}

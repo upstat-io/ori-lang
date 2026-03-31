@@ -1,0 +1,5 @@
+@main () -> int = {
+    let a = -(-(-5));
+    let b = !(!(!true));
+    if a == -5 && b == false then 0 else 1
+}

@@ -1,0 +1,14 @@
+@count_chars (words: [str]) -> int = {
+    let total = 0;
+    for w in words do total += w.length();
+    total
+}
+
+@total_items (xs: [str]) -> int = xs.length();
+
+@main () -> int = {
+    let words = ["hello", "world", "12345"];
+    let a = count_chars(words: words);
+    let b = total_items(xs: words);
+    a + b
+}

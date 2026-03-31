@@ -1,0 +1,9 @@
+#[derive(Eq)]
+type Wrapper = { value: int }
+
+@main () -> int = {
+    let a = Wrapper { value: 42 };
+    let b = Wrapper { value: 42 };
+    let c = Wrapper { value: 99 };
+    if a.eq(other: b) && !a.eq(other: c) then 0 else 1
+}

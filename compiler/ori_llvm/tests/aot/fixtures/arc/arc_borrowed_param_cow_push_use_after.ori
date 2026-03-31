@@ -1,0 +1,9 @@
+@check (list: [int]) -> bool = {
+    let modified = list.push(99);
+    modified.len() == 4 && list.len() == 3
+}
+
+@main () -> int = {
+    let result = check(list: [1, 2, 3]);
+    if result then 0 else 1
+}

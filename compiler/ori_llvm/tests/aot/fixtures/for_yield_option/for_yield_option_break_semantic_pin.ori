@@ -1,0 +1,9 @@
+@main () -> int = {
+    let opt = Some("this string exceeds SSO threshold by being very long indeed");
+    let result = for x in opt yield {
+        break x.len()
+    };
+    // With LoopContext: result = [len], length == 1, exit 0
+    // Without LoopContext: warning + exit 1 (failure)
+    if result.length() == 1 then 0 else 1
+}

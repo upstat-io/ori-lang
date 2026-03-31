@@ -1,0 +1,11 @@
+#derive(Eq)
+type Config = { m: {str: Option<str>} }
+
+@main () -> int = {
+    let a = Config { m: {"key": Some("a long heap allocated value!!!")} };
+    let b = Config { m: {"key": Some("a long heap allocated value!!!")} };
+    let c = Config { m: {"key": Some("different heap allocated value!")} };
+    if a == b then {
+        if a != c then 0 else 1
+    } else 2
+}

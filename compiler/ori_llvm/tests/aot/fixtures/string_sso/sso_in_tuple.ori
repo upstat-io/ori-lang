@@ -1,0 +1,5 @@
+@main () -> int = {
+    let t = ("hello", "world");
+    let (a, b) = t;
+    if a == "hello" && b == "world" then 0 else 1
+}

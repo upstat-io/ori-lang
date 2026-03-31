@@ -1,0 +1,14 @@
+type Shape = Circle(radius: float) | Rect(width: float, height: float);
+
+@extract (s: Shape) -> float = match s {
+    Circle(radius) -> radius,
+    Rect(width, height) -> width + height,
+};
+
+@main () -> int = {
+    let c = Circle(radius: 3.14);
+    let r = Rect(width: 2.0, height: 5.0);
+    let x = extract(s: c);
+    let y = extract(s: r);
+    0
+}

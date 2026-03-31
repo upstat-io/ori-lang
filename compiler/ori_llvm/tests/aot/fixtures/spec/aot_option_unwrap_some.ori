@@ -1,0 +1,5 @@
+@main () -> int = {
+    let x = Some(42);
+    let val = x.unwrap();
+    if val == 42 then 0 else 1
+}

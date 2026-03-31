@@ -1,0 +1,6 @@
+@main () -> int = {
+    let c = 'a';
+    let offset = c.to_int() - 'A'.to_int();
+    // 'a' = 97, 'A' = 65, difference = 32
+    if offset == 32 then 0 else 1
+}

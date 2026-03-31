@@ -1,0 +1,4 @@
+@main () -> int = {
+    let s = "line1\nline2";
+    if s.length() == 11 then 0 else 1
+}

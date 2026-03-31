@@ -1,0 +1,4 @@
+@main () -> int = {
+    let x = int(3.7);
+    if x == 3 then 0 else 1
+}

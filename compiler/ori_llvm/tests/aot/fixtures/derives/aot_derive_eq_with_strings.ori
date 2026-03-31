@@ -1,0 +1,9 @@
+#[derive(Eq)]
+type Config = { name: str }
+
+@main () -> int = {
+    let a = Config { name: "hello" };
+    let b = Config { name: "hello" };
+    let c = Config { name: "world" };
+    if a.eq(other: b) && !a.eq(other: c) then 0 else 1
+}

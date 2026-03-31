@@ -1,0 +1,7 @@
+@main () -> int = {
+    let lt = 'a' < 'b';
+    let le = 'a' <= 'a';
+    let gt = 'z' > 'a';
+    let ge = 'z' >= 'z';
+    if lt && le && gt && ge then 0 else 1
+}

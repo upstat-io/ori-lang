@@ -1,0 +1,5 @@
+@main () -> int = {
+    let not_true = !true;
+    let not_false = !false;
+    if !not_true && not_false then 0 else 1
+}

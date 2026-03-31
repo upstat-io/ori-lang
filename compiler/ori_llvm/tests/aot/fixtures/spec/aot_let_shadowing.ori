@@ -1,0 +1,6 @@
+@main () -> int = {
+    let x = 1;
+    let x = x + 1;
+    let x = x * 2;
+    if x == 4 then 0 else 1
+}

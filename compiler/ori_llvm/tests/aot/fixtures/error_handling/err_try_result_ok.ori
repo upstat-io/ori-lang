@@ -1,0 +1,11 @@
+@parse (x: int) -> Result<int, str> = Ok(x * 2);
+
+@process () -> Result<int, str> = {
+    let v = parse(x: 21)?;
+    Ok(v)
+}
+
+@main () -> int = {
+    let r = process();
+    if r.is_ok() && r.unwrap() == 42 then 0 else 1
+}

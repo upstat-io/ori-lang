@@ -1,0 +1,6 @@
+@main () -> int = {
+    let m = {"a": 1, "b": 2};
+    let m2 = m.insert("c", 3);
+    // Original must be unchanged, copy must have the new entry
+    if m.len() == 2 && m2.len() == 3 then 0 else 1
+}

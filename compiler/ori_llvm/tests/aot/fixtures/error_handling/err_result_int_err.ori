@@ -1,0 +1,9 @@
+@divide (a: int, b: int) -> Result<int, int> = {
+    if b == 0 then Err(-1) else Ok(a / b)
+}
+
+@main () -> int = {
+    let r1 = divide(a: 10, b: 2);
+    let r2 = divide(a: 10, b: 0);
+    if r1.is_ok() && r1.unwrap() == 5 && r2.is_err() then 0 else 1
+}

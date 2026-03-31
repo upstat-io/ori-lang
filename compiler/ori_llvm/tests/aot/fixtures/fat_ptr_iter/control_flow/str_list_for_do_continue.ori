@@ -1,0 +1,14 @@
+@main () -> int = {
+    let words = [
+        "this is a very long string that exceeds SSO threshold",
+        "skip this very long string because starts with skip xx",
+        "another very long string that also exceeds the threshold"
+    ];
+    let total = 0;
+    for w in words do {
+        if w.starts_with(prefix: "skip") then { continue; };
+        total = total + w.len();
+    };
+    // First (53) + third (56) = 109, skip middle.
+    if total == 109 then 0 else 1
+}

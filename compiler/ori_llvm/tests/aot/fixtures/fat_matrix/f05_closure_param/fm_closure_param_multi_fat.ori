@@ -1,0 +1,4 @@
+@main () -> int = {
+    let f = (a: str, b: str) -> int = a.length() + b.length();
+    if f("hello", "world") == 10 then 0 else 1
+}

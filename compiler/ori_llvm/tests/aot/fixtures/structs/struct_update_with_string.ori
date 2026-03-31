@@ -1,0 +1,7 @@
+type Entry = { key: str, value: int };
+
+@main () -> int = {
+    let e1 = Entry { key: "x", value: 1 };
+    let e2 = Entry { ...e1, value: 42 };
+    if e2.key == "x" && e2.value == 42 then 0 else 1
+}

@@ -1,0 +1,17 @@
+@maybe_int (x: int) -> Result<int, str> = {
+    if x > 0 then Ok(x) else Err("negative value")
+};
+
+@main () -> int = {
+    let r1 = maybe_int(5);
+    let r2 = maybe_int(-1);
+    let $ok_val = match r1 {
+        Ok(v) -> v,
+        Err(_) -> -1,
+    };
+    let $err_msg = match r2 {
+        Ok(_) -> "",
+        Err(e) -> e,
+    };
+    if ok_val == 5 && err_msg == "negative value" then 0 else 1
+}

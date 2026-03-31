@@ -1,0 +1,33 @@
+type Stream = End | Left(v: int, next: Stream) | Right(v: int, next: Stream);
+
+@build (n: int) -> Stream = {
+    if n <= 0 then End
+    else {
+        let $tail = build(n: n - 1);
+        if n % 2 == 0 then Left(v: n, next: tail) else Right(v: n, next: tail)
+    }
+};
+
+@rewrite (s: Stream, flip: bool) -> Stream = match s {
+    End -> End,
+    Left(v, next) -> {
+        let $next_v = if flip then v + 1 else v + 1;
+        Left(v: next_v, next: rewrite(s: next, flip: flip))
+    },
+    Right(v, next) -> {
+        let $next_v = if flip then v + 1 else v + 1;
+        Right(v: next_v, next: rewrite(s: next, flip: flip))
+    },
+};
+
+@sum (s: Stream) -> int = match s {
+    End -> 0,
+    Left(v, next) -> v + sum(s: next),
+    Right(v, next) -> v + sum(s: next),
+};
+
+@main () -> int = {
+    let $input = build(n: 70);
+    let $output = rewrite(s: input, flip: true);
+    if sum(s: output) == 2555 then 0 else 1
+}

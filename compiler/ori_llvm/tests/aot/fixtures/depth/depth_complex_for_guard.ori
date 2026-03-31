@@ -1,0 +1,7 @@
+@main () -> int = {
+    // Collect numbers divisible by both 3 and 7
+    let xs = for i in 0..100 if i % 3 == 0 && i % 7 == 0 yield i;
+    let count = xs.iter().count();
+    // 0, 21, 42, 63, 84 = 5 values
+    if count == 5 then 0 else 1
+}

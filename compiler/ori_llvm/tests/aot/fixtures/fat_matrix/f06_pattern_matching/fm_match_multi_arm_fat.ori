@@ -1,0 +1,15 @@
+type Shape = Circle(radius: int) | Rect(name: str, w: int, h: int);
+
+@area (s: Shape) -> int =
+    match s {
+        Circle(radius) -> radius * radius,
+        Rect(name, w, h) -> w * h,
+    };
+
+@main () -> int = {
+    let a = area(s: Circle(radius: 5));
+    let b = area(s: Rect(name: "box", w: 3, h: 4));
+    if a == 25 then {
+        if b == 12 then 0 else 1
+    } else 2
+}

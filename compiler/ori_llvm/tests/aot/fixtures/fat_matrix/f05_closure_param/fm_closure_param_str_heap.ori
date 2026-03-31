@@ -1,0 +1,4 @@
+@main () -> int = {
+    let f = (s: str) -> int = s.length();
+    if f("abcdefghijklmnopqrstuvwxyz1234") == 30 then 0 else 1
+}

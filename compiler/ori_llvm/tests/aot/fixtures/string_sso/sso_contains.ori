@@ -1,0 +1,4 @@
+@main () -> int = {
+    let s = "hello world";
+    if s.contains("world") && !s.contains("xyz") then 0 else 1
+}

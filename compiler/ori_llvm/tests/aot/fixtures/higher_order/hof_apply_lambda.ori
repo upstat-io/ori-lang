@@ -1,0 +1,6 @@
+@apply (f: (int) -> int, x: int) -> int = f(x);
+
+@main () -> int = {
+    let triple = (n: int) -> n * 3;
+    if apply(f: triple, x: 14) == 42 then 0 else 1
+}

@@ -1,0 +1,5 @@
+@main () -> int = {
+    let m = {"a": 10, "b": 20, "c": 30};
+    let vs = m.values();
+    if vs.length() == 3 then 0 else 1
+}

@@ -1,0 +1,6 @@
+@main () -> int = {
+    let xs = [10, 20, 30];
+    let ys = xs.set(1, 99);
+    // xs should still have 20 at index 1
+    if xs.last().unwrap() == 30 && ys.length() == 3 then 0 else 1
+}

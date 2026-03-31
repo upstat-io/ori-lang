@@ -1,0 +1,2 @@
+@count (xs: [int]) -> int = xs.length();
+@main () -> int = count(xs: [10, 20, 30]);

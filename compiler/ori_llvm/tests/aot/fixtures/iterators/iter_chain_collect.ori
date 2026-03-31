@@ -1,0 +1,4 @@
+@main () -> int = {
+    let result = [1, 2].iter().chain([3, 4].iter()).collect();
+    if result.length() == 4 then 0 else 1
+}

@@ -1,0 +1,4 @@
+@main () -> int = {
+    let evens = for x in [1, 2, 3, 4, 5, 6] if x % 2 == 0 yield x;
+    if evens.length() == 3 then 0 else 1
+}

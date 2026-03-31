@@ -1,0 +1,8 @@
+@main () -> int = {
+    let $s = "hello world and then some extra text for heap allocation";
+    let $outer = () -> int = {
+        let $inner = () -> int = s.length();
+        inner()
+    };
+    if outer() == 56 then 0 else 1
+}

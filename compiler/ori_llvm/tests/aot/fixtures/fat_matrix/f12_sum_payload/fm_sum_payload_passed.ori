@@ -1,0 +1,12 @@
+type Value = Text(content: str) | Empty;
+
+@extract_len (v: Value) -> int =
+    match v {
+        Text(content) ->content.length(),
+        Empty -> 0,
+    };
+
+@main () -> int = {
+    let v = Text(content: "hello");
+    if extract_len(v: v) == 5 then 0 else 1
+}

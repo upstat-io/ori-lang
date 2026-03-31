@@ -1,0 +1,6 @@
+@main () -> int = {
+    let base = 100;
+    let offset = 23;
+    let compute = (x: int) -> base + offset + x;
+    if compute(0) == 123 then 0 else 1
+}

@@ -1,0 +1,7 @@
+@main () -> int = {
+    let a = 'a';
+    let b = 'b';
+    let eq = a == 'a';
+    let ne = a != b;
+    if eq && ne then 0 else 1
+}

@@ -1,0 +1,6 @@
+@main () -> int = {
+    let x = 10;
+    let x = 20;
+    let get_x = () -> x;
+    if get_x() == 20 then 0 else 1
+}

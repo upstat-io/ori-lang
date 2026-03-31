@@ -1,0 +1,8 @@
+@main () -> int = {
+    let s: Set<str> = [
+        "this is a long heap string exceeding SSO threshold for testing purposes",
+        "another long heap string to verify set to_list creates proper list buffer"
+    ].iter().collect();
+    let items = s.to_list();
+    if items.len() == 2 then 0 else 1
+}

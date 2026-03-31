@@ -1,0 +1,5 @@
+@main () -> int = {
+    let x: int = 42;
+    let y: bool = true;
+    if x == 42 && y then 0 else 1
+}

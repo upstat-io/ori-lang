@@ -1,0 +1,7 @@
+@main () -> int = {
+    let s1 = "hello";
+    let s2 = s1.clone();
+    let s3 = s1 + " world";
+    // s2 should still be "hello" even though s3 was built from s1
+    if s2 == "hello" && s3 == "hello world" then 0 else 1
+}

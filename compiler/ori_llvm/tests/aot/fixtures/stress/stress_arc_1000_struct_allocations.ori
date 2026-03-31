@@ -1,0 +1,11 @@
+type Point = { x: int, y: int }
+
+@main () -> int = {
+    let sum = 0;
+    for i in 0..1000 do {
+        let p = Point { x: i, y: i * 2 };
+        sum = sum + p.x + p.y
+    };
+    // sum = Σ(i + 2i) for i=0..999 = 3 * Σi = 3 * 999*1000/2 = 1498500
+    if sum == 1498500 then 0 else 1
+}

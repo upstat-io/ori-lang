@@ -1,0 +1,16 @@
+@main () -> int = {
+    let i = 0;
+    let sum = 0;
+    loop {
+        if i >= 5 then break;
+        let contribution = match i {
+            0 -> 1,
+            1 -> 2,
+            2 -> 4,
+            _ -> 8,
+        };
+        sum = sum + contribution;
+        i = i + 1
+    };
+    if sum == 23 then 0 else 1
+}

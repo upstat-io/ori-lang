@@ -1,0 +1,12 @@
+@main () -> int = {
+    let xs = [10, 20, 30];
+    let f = xs.first();
+    let l = xs.last();
+    let ok = is_some(option: f) && is_some(option: l);
+    if !ok then 1
+    else {
+        let fv = f.unwrap_or(default: -1);
+        let lv = l.unwrap_or(default: -1);
+        if fv == 10 && lv == 30 then 0 else 2
+    }
+}

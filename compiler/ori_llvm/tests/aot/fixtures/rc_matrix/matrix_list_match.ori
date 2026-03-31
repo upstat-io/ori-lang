@@ -1,0 +1,8 @@
+@main () -> int = {
+    let $x = Some(3);
+    let $xs = match x {
+        Some(n) -> [1, 2, 3, 4, 5].take(count: n),
+        None -> [],
+    };
+    if xs.len() == 3 then 0 else 1
+}

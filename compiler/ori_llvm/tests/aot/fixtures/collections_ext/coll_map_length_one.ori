@@ -1,0 +1,4 @@
+@main () -> int = {
+    let m = {"key": 42};
+    if m.length() == 1 then 0 else 1
+}

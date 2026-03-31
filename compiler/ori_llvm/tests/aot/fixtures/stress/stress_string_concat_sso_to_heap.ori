@@ -1,0 +1,9 @@
+@main () -> int = {
+    // Start within SSO (23 bytes), cross to heap, keep going
+    let s = "abcdefghij";
+    for i in 0..30 do {
+        s = s + "xy"
+    };
+    // 10 + 30*2 = 70
+    if s.len() == 70 then 0 else 1
+}

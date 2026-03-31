@@ -1,0 +1,8 @@
+@main () -> int = {
+    let xs = [1, 2, 3];
+    for i in 0..30 do {
+        xs = xs.push(i);
+    };
+    // 3 original + 30 pushed = 33
+    if xs.len() == 33 then 0 else 1
+}

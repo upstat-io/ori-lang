@@ -1,0 +1,19 @@
+type List = Nil | Cons(head: int, tail: List);
+
+@map_square (list: List) -> List = match list {
+    Nil -> Nil,
+    Cons(h, t) -> Cons(head: h * h, tail: map_square(list: t)),
+};
+
+@list_sum (list: List) -> int = match list {
+    Nil -> 0,
+    Cons(h, t) -> h + list_sum(list: t),
+};
+
+@main () -> int = {
+    let $list = Cons(head: 1, tail: Cons(head: 2, tail: Cons(head: 3,
+        tail: Cons(head: 4, tail: Cons(head: 5, tail: Nil)))));
+    let $squared = map_square(list: list);
+    // 1+4+9+16+25 = 55
+    if list_sum(list: squared) == 55 then 0 else 1
+}

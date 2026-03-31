@@ -1,0 +1,21 @@
+@count_some (items: [Option<str>]) -> int = {
+    let count = 0;
+    for item in items do {
+        match item {
+            Some(_) -> { count = count + 1; },
+            None -> { 0; }
+        };
+    };
+    count
+}
+
+@main () -> int = {
+    let items: [Option<str>] = [
+        Some("this is a very long string that exceeds SSO threshold"),
+        None,
+        Some("another very long string that also exceeds the threshold")
+    ];
+    let a = count_some(items: items);
+    let b = count_some(items: items);
+    if a == 2 && b == 2 then 0 else 1
+}

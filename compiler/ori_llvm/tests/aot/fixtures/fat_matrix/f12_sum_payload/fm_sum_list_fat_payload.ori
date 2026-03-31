@@ -1,0 +1,9 @@
+type Data = Words(items: [str]) | Empty;
+
+@main () -> int = {
+    let d = Words(items: ["hello", "world"]);
+    match d {
+        Words(items) ->if items.length() == 2 then 0 else 1,
+        Empty -> 2,
+    }
+}

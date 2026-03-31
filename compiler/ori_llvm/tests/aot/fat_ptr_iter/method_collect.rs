@@ -9,25 +9,7 @@ fn test_iter_collect_str_list() {
     // .iter().collect() exercises ori_iter_collect with elem_inc_fn (RcInc per element).
     // Distinct from for-yield which uses ori_list_push (per-element push).
     assert_aot_success(
-        r#"
-@main () -> int = {
-    let words = [
-        "this is a very long string that exceeds SSO threshold",
-        "another very long string that also exceeds the threshold"
-    ];
-    let collected: [str] = words.iter().collect();
-    let total = 0;
-    for w in collected do {
-        total = total + w.len();
-    };
-    // Verify original is still valid
-    let orig_total = 0;
-    for w in words do {
-        orig_total = orig_total + w.len();
-    };
-    if total == 109 && orig_total == 109 then 0 else 1
-}
-"#,
+        include_str!("../fixtures/fat_ptr_iter/method_collect/iter_collect_str_list.ori"),
         "iter_collect_str_list",
     );
 }
@@ -38,20 +20,7 @@ fn test_iter_collect_str_list() {
 fn test_iter_collect_set_str() {
     // ori_iter_collect_set with elem_inc_fn (Section 02.3 TPR-02-009 fix).
     assert_aot_success(
-        r#"
-@main () -> int = {
-    let original: Set<str> = [
-        "this is a very long string that exceeds SSO threshold",
-        "another very long string that also exceeds the threshold"
-    ].iter().collect();
-    let collected: Set<str> = original.iter().collect();
-    let total = 0;
-    for item in collected do {
-        total = total + item.len();
-    };
-    if total == 109 then 0 else 1
-}
-"#,
+        include_str!("../fixtures/fat_ptr_iter/method_collect/iter_collect_set_str.ori"),
         "iter_collect_set_str",
     );
 }

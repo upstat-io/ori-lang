@@ -1,0 +1,6 @@
+@main () -> int = {
+    let a = -10;
+    let b = 10;
+    // abs makes them equal
+    if a.abs() == b.abs() then 0 else 1
+}

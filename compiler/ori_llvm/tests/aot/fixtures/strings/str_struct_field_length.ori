@@ -1,0 +1,6 @@
+type Message = { text: str }
+
+@main () -> int = {
+    let m = Message { text: "hello world" };
+    if m.text.length() == 11 then 0 else 1
+}

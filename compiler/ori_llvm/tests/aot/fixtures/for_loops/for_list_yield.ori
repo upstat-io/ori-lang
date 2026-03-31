@@ -1,0 +1,4 @@
+@main () -> int = {
+    let doubled = for x in [1, 2, 3] yield x * 2;
+    if doubled.length() == 3 then 0 else 1
+}

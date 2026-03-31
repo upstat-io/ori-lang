@@ -1,0 +1,19 @@
+trait Describable {
+    @describe (self) -> str = "unknown";
+}
+
+type Widget = { id: int }
+
+impl Describable for Widget {
+}
+
+impl Widget {
+    @label (self) -> str = `widget-{self.id}`;
+}
+
+@main () -> int = {
+    let w = Widget { id: 42 };
+    let ok1 = w.describe() == "unknown";
+    let ok2 = w.label() == "widget-42";
+    if ok1 && ok2 then 0 else 1
+}

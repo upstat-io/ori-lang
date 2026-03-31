@@ -1,0 +1,9 @@
+@main () -> int = {
+    let result = {
+        let a = 10;
+        let b = a * 2;
+        let c = b - 3;
+        c
+    };
+    if result == 17 then 0 else 1
+}

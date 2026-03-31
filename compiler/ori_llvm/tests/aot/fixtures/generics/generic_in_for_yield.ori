@@ -1,0 +1,8 @@
+@identity <T> (x: T) -> T = x;
+
+@main () -> int = {
+    let nums = [1, 2, 3, 4, 5];
+    let mapped = for n in nums yield identity(x: n);
+    let sum = mapped.iter().fold(start: 0, f: (acc, n) -> acc + n);
+    if sum == 15 then 0 else 1
+}

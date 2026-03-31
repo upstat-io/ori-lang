@@ -1,0 +1,6 @@
+@main () -> int = {
+    let nums = [3, 7, 2];
+    let total = 0;
+    for n in nums do total += n;
+    total
+}

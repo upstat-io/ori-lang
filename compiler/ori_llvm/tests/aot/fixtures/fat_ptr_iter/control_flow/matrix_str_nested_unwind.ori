@@ -1,0 +1,29 @@
+@process_word (w: str) -> int = {
+    if w.starts_with(prefix: "panic") then {
+        panic(msg: "word triggered panic")
+    };
+    w.len()
+}
+
+@process_all (words: [str]) -> int = {
+    let total = 0;
+    for w in words do {
+        total = total + process_word(w: w)
+    };
+    total
+}
+
+@main () -> int = {
+    let words = [
+        "this is a very long string that exceeds SSO threshold",
+        "panic trigger long string for heap allocation needed",
+        "unreachable very long string that is also on the heap"
+    ];
+    let r1 = catch(expr: process_all(words: words));
+    let r2 = process_all(words: [
+        "first safe long string exceeding SSO threshold here",
+        "second safe long string also exceeding the threshold"
+    ]);
+    let caught = match r1 { Ok(_) -> false, Err(_) -> true };
+    if caught && r2 == 103 then 0 else 1
+}

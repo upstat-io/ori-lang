@@ -1,0 +1,9 @@
+type Point = { x: int, y: int }
+
+@main () -> int = {
+    let total = 0;
+    for p in [Point { x: 1, y: 2 }, Point { x: 3, y: 4 }] do {
+        total = total + p.x + p.y;
+    };
+    if total == 10 then 0 else 1
+}

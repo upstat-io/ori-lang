@@ -1,0 +1,24 @@
+type Chain = Done | Link(a: int, b: int, next: Chain);
+
+@transform (c: Chain) -> Chain = match c {
+    Done -> Done,
+    Link(a, b, next) -> Link(a: a * 2, b: b + 1, next: transform(c: next)),
+};
+
+@chain_sum (c: Chain) -> int = match c {
+    Done -> 0,
+    Link(a, b, next) -> a + b + chain_sum(c: next),
+};
+
+@build (n: int) -> Chain = {
+    if n <= 0 then Done
+    else Link(a: n, b: n * 10, next: build(n: n - 1))
+};
+
+@main () -> int = {
+    let $input = build(n: 60);
+    let $output = transform(c: input);
+    // a_sum = 2*(1+..+60)=3660, b_sum = (10+20+..+600)+60=18360
+    // total = 3660 + 18360 = 22020
+    if chain_sum(c: output) == 22020 then 0 else 1
+}

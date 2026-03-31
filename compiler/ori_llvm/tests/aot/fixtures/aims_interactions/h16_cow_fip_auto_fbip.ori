@@ -1,0 +1,23 @@
+type Node = End | Cell(value: int, next: Node);
+
+@double_values (node: Node) -> Node = match node {
+    End -> End,
+    Cell(v, next) -> Cell(value: v * 2, next: double_values(node: next)),
+};
+
+@sum (node: Node) -> int = match node {
+    End -> 0,
+    Cell(v, next) -> v + sum(node: next),
+};
+
+@build (n: int) -> Node = {
+    if n <= 0 then End
+    else Cell(value: n, next: build(n: n - 1))
+};
+
+@main () -> int = {
+    let $input = build(n: 40);
+    let $output = double_values(node: input);
+    // 2 * (1+2+...+40) = 2 * 820 = 1640
+    if sum(node: output) == 1640 then 0 else 1
+}

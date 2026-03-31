@@ -1,0 +1,4 @@
+@main () -> int = {
+    let found = [1, 2, 3].iter().any((x) -> x == 2);
+    if found then 0 else 1
+}

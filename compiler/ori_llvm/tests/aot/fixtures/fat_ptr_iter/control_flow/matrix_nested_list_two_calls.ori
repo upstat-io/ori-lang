@@ -1,0 +1,16 @@
+@sum_nested (lists: [[int]]) -> int = {
+    let total = 0;
+    for inner in lists do {
+        for n in inner do {
+            total = total + n
+        }
+    };
+    total
+}
+
+@main () -> int = {
+    let nested = [[1, 2], [3, 4], [5, 6]];
+    let r1 = sum_nested(lists: nested);
+    let r2 = sum_nested(lists: nested);
+    if r1 == 21 && r2 == 21 then 0 else 1
+}

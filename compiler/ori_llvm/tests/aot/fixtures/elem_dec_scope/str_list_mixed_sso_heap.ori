@@ -1,0 +1,11 @@
+@main () -> int = {
+    let mixed = [
+        "hi",
+        "a very long string that definitely exceeds the twenty three byte SSO threshold",
+        "ok",
+        "another heap allocated string that is much longer than twenty three bytes",
+        "x"
+    ];
+    let total = mixed.len();
+    if total == 5 then 0 else 1
+}

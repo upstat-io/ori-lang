@@ -1,0 +1,15 @@
+@wrap (x: Option<int>) -> Option<Option<int>> = Some(x);
+
+@main () -> int = {
+    let a = wrap(x: Some(42));
+    let b = wrap(x: Some(42));
+    let c = wrap(x: Some(99));
+    let h1 = a.hash();
+    let h2 = b.hash();
+    let h3 = c.hash();
+    // Same value → same hash
+    let r1 = h1 == h2;
+    // Different value → different hash
+    let r2 = h1 != h3;
+    if r1 && r2 then 0 else 1
+}

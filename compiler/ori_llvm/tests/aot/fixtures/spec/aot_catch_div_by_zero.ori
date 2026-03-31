@@ -1,0 +1,4 @@
+@main () -> int = {
+    let result = catch(expr: 1 / 0);
+    if result.is_err() then 0 else 1
+}

@@ -1,0 +1,9 @@
+@hanoi_moves (n: int) -> int = {
+    if n <= 0 then 0
+    else 1 + 2 * hanoi_moves(n: n - 1)
+};
+
+@main () -> int = {
+    // 2^n - 1 moves: n=5 → 31
+    if hanoi_moves(n: 5) == 31 then 0 else 1
+}

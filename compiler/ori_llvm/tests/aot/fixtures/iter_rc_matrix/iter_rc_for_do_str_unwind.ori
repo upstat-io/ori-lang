@@ -1,0 +1,17 @@
+@main () -> int = {
+    let items = [
+        "this string exceeds SSO threshold by being very long indeed",
+        "panic: this string triggers panic and is long enough for heap alloc",
+        "third string that should not be visited after panic fires at all"
+    ];
+    let result = catch(expr: () -> {
+        for s in items do {
+            if s.starts_with(prefix: "panic") then panic(msg: "test unwind");
+        };
+        0
+    });
+    match result {
+        Ok(_) -> 1,
+        Err(_) -> 0,
+    }
+}

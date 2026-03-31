@@ -1,0 +1,5 @@
+@main () -> int = {
+    let x = if true then if true then 1 else 2 else 3;
+    let y = if false then 1 else if true then 2 else 3;
+    if x == 1 && y == 2 then 0 else 1
+}

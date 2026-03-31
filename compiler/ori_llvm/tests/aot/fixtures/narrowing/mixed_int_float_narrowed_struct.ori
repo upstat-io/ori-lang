@@ -1,0 +1,9 @@
+type Particle = { mass: float, health: int }
+
+@read_mass (p: Particle) -> float = p.mass;
+
+@main () -> int = {
+    let p = Particle { mass: 0.5, health: 100 };
+    let m = read_mass(p:);
+    if m == 0.5 && p.health == 100 then 0 else 1
+}

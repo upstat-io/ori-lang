@@ -1,0 +1,8 @@
+@main () -> int = {
+    let strings = ["alpha", "beta", "gamma", "delta", "epsilon",
+                    "zeta", "eta", "theta", "iota", "kappa"];
+    let total_len = 0;
+    for s in strings do total_len = total_len + s.length();
+    // 5+4+5+5+7+4+3+5+4+5 = 47
+    if total_len == 47 then 0 else 1
+}

@@ -1,0 +1,8 @@
+@fact (n: int, acc: int) -> int = {
+    if n <= 1 then acc else fact(n: n - 1, acc: acc * n)
+};
+
+@main () -> int = {
+    // fact(20) = 2432902008176640000
+    if fact(n: 20, acc: 1) == 2432902008176640000 then 0 else 1
+}

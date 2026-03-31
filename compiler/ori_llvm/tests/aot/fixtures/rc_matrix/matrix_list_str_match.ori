@@ -1,0 +1,8 @@
+@main () -> int = {
+    let $x: Result<int, str> = Ok(42);
+    let $xs = match x {
+        Ok(_) -> ["ok_heap_string_value_xx", "ok_heap_second_string_x"],
+        Err(_) -> ["err_heap_string_value_x"],
+    };
+    if xs.len() == 2 then 0 else 1
+}

@@ -1,0 +1,9 @@
+type FloatColor = { r: float, g: float, b: float }
+
+@read_r (c: FloatColor) -> float = c.r;
+
+@main () -> int = {
+    let c = FloatColor { r: 0.5, g: 0.25, b: 1.0 };
+    let v = read_r(c:);
+    if v == 0.5 then 0 else 1
+}

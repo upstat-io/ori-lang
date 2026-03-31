@@ -1,0 +1,10 @@
+@main () -> int = {
+    let s = "";
+    let i = 0;
+    loop {
+        if i >= 30 then break;
+        s = s + "a";
+        i = i + 1
+    };
+    if s.len() == 30 then 0 else 1
+}

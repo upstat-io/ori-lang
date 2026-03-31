@@ -1,0 +1,6 @@
+@make_long_str () -> str = "abcdefghijklmnopqrstuvwxyz1234";
+
+@main () -> int = {
+    let s = make_long_str();
+    if s.length() == 30 then 0 else 1
+}

@@ -1,0 +1,5 @@
+@main () -> int = {
+    let xs = [1, 2].push(3).reverse();
+    let f = xs.first();
+    if xs.length() == 3 && f.is_some() && f.unwrap() == 3 then 0 else 1
+}

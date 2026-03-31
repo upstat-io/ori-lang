@@ -1,0 +1,5 @@
+@main () -> int = {
+    let m = {"a": 1};
+    let m2 = m.insert("b", 2);
+    if m2.length() == 2 then 0 else 1
+}

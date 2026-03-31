@@ -1,0 +1,14 @@
+@multi_inv (n: int, a: int, b: int, c: int) -> int = {
+    let total = 0;
+    let x = a;
+    let y = b;
+    let z = c;
+    let i = 0;
+    loop {
+        if i >= n then break total;
+        total += x + y + z;
+        i += 1
+    }
+}
+
+@main () -> int = multi_inv(n: 3, a: 1, b: 2, c: 3);

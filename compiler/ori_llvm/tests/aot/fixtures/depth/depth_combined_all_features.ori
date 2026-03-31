@@ -1,0 +1,31 @@
+type Point = { x: int, y: int }
+
+@make_point (i: int) -> Point = Point { x: i, y: i * 2 };
+
+@classify (p: Point) -> int = match p.x % 3 {
+    0 -> 0,
+    1 -> 1,
+    _ -> 2,
+};
+
+@safe_sum (a: int, b: int) -> Result<int, str> =
+    if a + b > 1000 then Err("overflow") else Ok(a + b);
+
+@main () -> int = {
+    let points = for i in 0..20 yield make_point(i: i);
+    let total = 0;
+    let errors = 0;
+    for p in points do {
+        let cat = classify(p: p);
+        let contribution = if cat == 0 then p.x * 10
+            else if cat == 1 then p.y
+            else 1;
+        let r = safe_sum(a: total, b: contribution);
+        match r.is_ok() {
+            true -> total = r.unwrap(),
+            false -> errors = errors + 1,
+        }
+    };
+    // Verify it ran without crashing and total is reasonable
+    if total >= 0 && errors == 0 then 0 else 1
+}

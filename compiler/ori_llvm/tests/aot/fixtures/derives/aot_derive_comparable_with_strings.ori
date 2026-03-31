@@ -1,0 +1,11 @@
+#[derive(Eq, Comparable)]
+type Named = { name: str, id: int }
+
+@main () -> int = {
+    let a = Named { name: "alice", id: 1 };
+    let b = Named { name: "bob", id: 1 };
+    let c = Named { name: "alice", id: 2 };
+    let ab = a.compare(other: b);
+    let ac = a.compare(other: c);
+    if ab.is_less() && ac.is_less() then 0 else 1
+}

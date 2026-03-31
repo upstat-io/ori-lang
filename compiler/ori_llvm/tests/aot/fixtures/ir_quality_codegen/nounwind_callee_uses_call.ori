@@ -1,0 +1,6 @@
+@get_len (s: str) -> int = s.length();
+@check () -> int = {
+    let s = "hello";
+    get_len(s: s)
+};
+@main () -> int = check();

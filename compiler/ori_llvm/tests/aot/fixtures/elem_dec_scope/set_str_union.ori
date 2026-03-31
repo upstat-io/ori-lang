@@ -1,0 +1,10 @@
+@main () -> int = {
+    let a: Set<str> = [
+        "alpha long heap string exceeding SSO threshold for testing purposes"
+    ].iter().collect();
+    let b: Set<str> = [
+        "beta long heap string exceeding SSO threshold for testing purposes"
+    ].iter().collect();
+    let u = a.union(other: b);
+    if u.len() == 2 then 0 else 1
+}

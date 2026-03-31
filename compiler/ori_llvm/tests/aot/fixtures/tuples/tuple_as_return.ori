@@ -1,0 +1,6 @@
+@make_pair (a: int, b: int) -> (int, int) = (a, b);
+
+@main () -> int = {
+    let (x, y) = make_pair(a: 3, b: 7);
+    if x == 3 && y == 7 then 0 else 1
+}

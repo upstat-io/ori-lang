@@ -1,0 +1,8 @@
+@main () -> int = {
+    let s = "x";
+    for i in 0..100 do {
+        s = s + "." + "y"
+    };
+    // 1 + 100*2 = 201
+    if s.len() == 201 then 0 else 1
+}

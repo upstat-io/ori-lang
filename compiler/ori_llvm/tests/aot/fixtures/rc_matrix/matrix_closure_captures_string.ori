@@ -1,0 +1,6 @@
+@main () -> int = {
+    let $s = "captured_heap_string_val";
+    let $f = () -> int = s.len();
+    let $result = f();
+    if result == 24 then 0 else 1
+}

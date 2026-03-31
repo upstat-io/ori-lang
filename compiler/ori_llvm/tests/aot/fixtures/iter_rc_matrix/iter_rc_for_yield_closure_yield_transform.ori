@@ -1,0 +1,8 @@
+@main () -> int = {
+    let fns = [x -> x + 1, x -> x * 2, x -> x - 1];
+    let results = for f in fns yield f(5) * 2;
+    // (5+1)*2=12, (5*2)*2=20, (5-1)*2=8 → sum=40
+    let sum = 0;
+    for n in results do sum = sum + n;
+    if sum == 40 then 0 else 1
+}

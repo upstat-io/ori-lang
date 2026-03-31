@@ -1,0 +1,8 @@
+@main () -> int = {
+    let items = [[1, 2, 3], [4, 5, 6]];
+    let count1 = 0;
+    for inner in items do count1 = count1 + 1;
+    let count2 = 0;
+    for inner in items do count2 = count2 + 1;
+    if count1 == 2 && count2 == 2 then 0 else 1
+}

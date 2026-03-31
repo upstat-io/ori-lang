@@ -1,0 +1,9 @@
+@main () -> int = {
+    let m = {
+        "a very long key string that exceeds the twenty three byte SSO threshold": 1,
+        "another long key string to test map keys element cleanup properly": 2
+    };
+    let keys = m.keys();
+    let ok = keys.len() == 2;
+    if ok then 0 else 1
+}

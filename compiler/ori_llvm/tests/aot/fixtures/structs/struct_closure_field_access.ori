@@ -1,0 +1,7 @@
+type Point = { x: int, y: int };
+
+@main () -> int = {
+    let p = Point { x: 10, y: 20 };
+    let get_sum = (extra: int) -> p.x + p.y + extra;
+    if get_sum(12) == 42 then 0 else 1
+}

@@ -1,0 +1,7 @@
+@main () -> int = {
+    let h1 = hash_combine(0, 42);
+    let h2 = hash_combine(0, 42);
+    let h3 = hash_combine(0, 99);
+    // Deterministic
+    if h1 == h2 && h1 != h3 then 0 else 1
+}

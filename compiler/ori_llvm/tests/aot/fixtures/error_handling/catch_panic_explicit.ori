@@ -1,0 +1,6 @@
+@always_panics () -> int = panic(msg: "always fails");
+
+@main () -> int = {
+    let result = catch(expr: always_panics());
+    if result.is_err() then 0 else 1
+}

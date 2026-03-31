@@ -1,0 +1,18 @@
+type Item = { label: str, value: int }
+
+@sum_values (items: [Item]) -> int = {
+    let total = 0;
+    for item in items do {
+        total = total + item.value;
+    };
+    total
+}
+
+@main () -> int = {
+    let items = [
+        Item { label: "this is a very long label exceeding SSO threshold", value: 10 },
+        Item { label: "another very long label also exceeding SSO threshold", value: 20 }
+    ];
+    let r = sum_values(items: items);
+    if r == 30 then 0 else 1
+}

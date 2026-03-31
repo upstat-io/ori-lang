@@ -1,0 +1,11 @@
+@find_index (x: int) -> Option<int> = {
+    if x > 0 then Some(x * 10) else None
+}
+
+@main () -> int = {
+    let a = find_index(x: 3);
+    let b = find_index(x: -1);
+    let av = a.unwrap_or(0);
+    let bv = b.unwrap_or(-1);
+    if av == 30 && bv == -1 then 0 else 1
+}

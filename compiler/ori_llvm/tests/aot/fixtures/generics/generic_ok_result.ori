@@ -1,0 +1,9 @@
+@wrap_ok <T> (x: T) -> Result<T, str> = Ok(x);
+
+@main () -> int = {
+    let r = wrap_ok(x: 42);
+    match r {
+        Ok(n) -> if n == 42 then 0 else 1,
+        Err(_) -> 2,
+    }
+}

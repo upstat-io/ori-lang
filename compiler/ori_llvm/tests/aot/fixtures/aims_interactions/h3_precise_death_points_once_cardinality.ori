@@ -1,0 +1,13 @@
+@main () -> int = {
+    let $a = "alpha";
+    let $b = "beta-beta";
+    let $xs = [10, 20, 30];
+    let $ys = [1, 2];
+
+    let $first = len(collection: a);
+    let $second = xs[0] + xs[1] + xs[2];
+    let $third = len(collection: b);
+    let $fourth = ys[0] + ys[1];
+
+    if first == 5 && second == 60 && third == 9 && fourth == 3 then 0 else 1
+}

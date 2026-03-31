@@ -1,0 +1,5 @@
+@main () -> int = {
+    let ord = 1.compare(other: 5);
+    let rev = ord.reverse();
+    if rev.is_greater() then 0 else 1
+}

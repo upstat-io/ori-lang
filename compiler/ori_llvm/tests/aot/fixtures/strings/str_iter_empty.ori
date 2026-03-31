@@ -1,0 +1,5 @@
+@main () -> int = {
+    let s = "";
+    let count = s.iter().count();
+    if count == 0 then 0 else 1
+}

@@ -1,0 +1,14 @@
+@validate (x: int) -> Result<int, str> = {
+    if x >= 0 then Ok(x) else Err("negative")
+}
+
+@main () -> int = {
+    let all_ok = true;
+    for i in 0..5 do {
+        let r = validate(x: i);
+        if r.is_err() then {
+            all_ok = false;
+        }
+    };
+    if all_ok then 0 else 1
+}

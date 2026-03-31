@@ -1,0 +1,8 @@
+@id (x: int) -> int = x;
+
+@use_wide () -> int = {
+    let x = 3_000_000_000;
+    id(x:)
+}
+
+@main () -> int = use_wide();

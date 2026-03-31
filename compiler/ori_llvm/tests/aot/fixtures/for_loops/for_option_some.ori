@@ -1,0 +1,5 @@
+@main () -> int = {
+    let sum = 0;
+    for x in Some(42) do sum = sum + x;
+    if sum == 42 then 0 else 1
+}

@@ -1,0 +1,14 @@
+type Color = Red | Green | Blue;
+
+@to_int (c: Color) -> int = match c {
+    Red -> 0,
+    Green -> 1,
+    Blue -> 2,
+};
+
+@main () -> int = {
+    let r = Red;
+    let g = Green;
+    let b = Blue;
+    if to_int(c: r) == 0 && to_int(c: g) == 1 && to_int(c: b) == 2 then 0 else 1
+}

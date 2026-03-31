@@ -1,0 +1,8 @@
+#[derive(Eq, Hashable)]
+type Point = { x: int, y: int }
+
+@main () -> int = {
+    let a = Point { x: 1, y: 2 };
+    let b = Point { x: 1, y: 2 };
+    if a.hash() == b.hash() then 0 else 1
+}

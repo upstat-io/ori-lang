@@ -1,0 +1,7 @@
+@main () -> int = {
+    let $x = 42;
+    let $s = if x > 20
+        then "this_is_the_true_branch_heap"
+        else "this_is_false_branch_heap_x";
+    if s.len() == 28 then 0 else 1
+}

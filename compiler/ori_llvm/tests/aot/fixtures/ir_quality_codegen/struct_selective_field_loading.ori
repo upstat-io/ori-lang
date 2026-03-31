@@ -1,0 +1,5 @@
+type Point = { x: int, y: int, z: int, w: int };
+
+@get_x (p: Point) -> int = p.x;
+
+@main () -> int = get_x(p: Point { x: 42, y: 0, z: 0, w: 0 });

@@ -1,0 +1,7 @@
+@main () -> int = {
+    let $s = "first_heap_string_shadow";
+    let $n = s.len();
+    let $s = "second_heap_string_value_shadow";
+    let $m = s.len();
+    if n == 24 && m == 31 then 0 else 1
+}

@@ -1,0 +1,5 @@
+@main () -> int = {
+    let s: Set<str> = ["a", "b", "c"].iter().collect();
+    let total = s.fold(initial: 0, op: (acc, _x) -> acc + 1);
+    if total == 3 then 0 else 1
+}

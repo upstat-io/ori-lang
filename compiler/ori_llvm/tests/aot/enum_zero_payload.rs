@@ -9,37 +9,18 @@ use crate::util::{compile_and_run, compile_and_run_capture, compile_to_llvm_ir};
 /// Exact failing case from BUG-04-008: `A(u: void) | B` should compile and run.
 #[test]
 fn test_void_payload_enum_compiles() {
-    let exit_code = compile_and_run(
-        r"
-type E = A(u: void) | B;
-
-@main () -> int = {
-    let x = A(u: ());
-    0
-}
-",
-    );
+    let exit_code = compile_and_run(include_str!(
+        "fixtures/enum_zero_payload/void_payload_enum_compiles.ori"
+    ));
     assert_eq!(exit_code, 0, "void-payload enum should compile and run");
 }
 
 /// Match on void-payload variant should produce correct result.
 #[test]
 fn test_void_payload_enum_match() {
-    let (exit_code, stdout, _) = compile_and_run_capture(
-        r#"
-type E = UnitA(u: void) | UnitB;
-
-@check (e: E) -> str = match e {
-    UnitA(u:) -> "a",
-    UnitB -> "b",
-}
-
-@main () -> void = {
-    print(msg: check(e: UnitA(u: ())));
-    print(msg: check(e: UnitB));
-}
-"#,
-    );
+    let (exit_code, stdout, _) = compile_and_run_capture(include_str!(
+        "fixtures/enum_zero_payload/void_payload_enum_match.ori"
+    ));
     assert_eq!(exit_code, 0, "compilation should succeed");
     assert_eq!(
         stdout.trim(),
@@ -80,18 +61,9 @@ type Mixed = Real(x: int) | Empty(u: void) | Plain;
 /// as an all-unit enum (tag only, no payload array).
 #[test]
 fn test_void_payload_enum_layout_is_tag_only() {
-    let ir = compile_to_llvm_ir(
-        r"
-type WithVoid = VA(u: void) | VB;
-
-@pick (e: WithVoid) -> int = match e {
-    VA(u:) -> 1,
-    VB -> 2,
-}
-
-@main () -> int = pick(e: VA(u: ()));
-",
-    )
+    let ir = compile_to_llvm_ir(include_str!(
+        "fixtures/enum_zero_payload/void_payload_enum_layout_is_tag_only.ori"
+    ))
     .expect("compilation should succeed");
 
     // Void-payload enum should be tag-only `{ i8 }`, same as all-unit enum.
@@ -112,20 +84,106 @@ type WithVoid = VA(u: void) | VB;
 /// All variants with void payloads should be equivalent to all-unit enum.
 #[test]
 fn test_all_void_payload_variants() {
-    let exit_code = compile_and_run(
-        r"
-type AllVoid = X(v: void) | Y(w: void) | Z;
-
-@main () -> int = {
-    let a = X(v: ());
-    let b = Y(w: ());
-    let c = Z;
-    let ra = match a { X(v:) -> 1, Y(w:) -> 2, Z -> 3 };
-    let rb = match b { X(v:) -> 1, Y(w:) -> 2, Z -> 3 };
-    let rc = match c { X(v:) -> 1, Y(w:) -> 2, Z -> 3 };
-    if ra == 1 then { if rb == 2 then { if rc == 3 then 0 else 1 } else 1 } else 1
-}
-",
-    );
+    let exit_code = compile_and_run(include_str!(
+        "fixtures/enum_zero_payload/all_void_payload_variants.ori"
+    ));
     assert_eq!(exit_code, 0, "all-void-payload enum should work correctly");
+}
+
+// TPR-07-006: Derived traits (Eq, Comparable, Hashable) on enums with
+// zero-sized payload fields crash in LLVM codegen because the derive
+// paths count void fields as occupied i64 slots, drifting offsets.
+
+/// Exact repro from TPR-07-006: derived Eq on enum with void field.
+#[test]
+fn test_derive_eq_void_payload() {
+    let (exit_code, stdout, _) = compile_and_run_capture(include_str!(
+        "fixtures/enum_zero_payload/derive_eq_void_payload.ori"
+    ));
+    assert_eq!(
+        exit_code, 0,
+        "derive Eq on void-payload enum should compile"
+    );
+    assert_eq!(
+        stdout.trim(),
+        "eq\nne\nne\neq",
+        "derive Eq should compare non-void fields correctly"
+    );
+}
+
+/// Derived Eq on all-void-payload enum (tag-only layout, no payload array).
+#[test]
+fn test_derive_eq_all_void_payload() {
+    let (exit_code, stdout, _) = compile_and_run_capture(include_str!(
+        "fixtures/enum_zero_payload/derive_eq_all_void_payload.ori"
+    ));
+    assert_eq!(exit_code, 0, "derive Eq on all-void enum should compile");
+    assert_eq!(
+        stdout.trim(),
+        "eq\nne\nne\neq",
+        "all-void Eq should compare by tag only"
+    );
+}
+
+/// Derived Comparable on enum with void field.
+#[test]
+fn test_derive_comparable_void_payload() {
+    let (exit_code, stdout, _) = compile_and_run_capture(include_str!(
+        "fixtures/enum_zero_payload/derive_comparable_void_payload.ori"
+    ));
+    assert_eq!(
+        exit_code, 0,
+        "derive Comparable on void-payload enum should compile"
+    );
+    assert_eq!(
+        stdout.trim(),
+        "lt\nge\neq",
+        "Comparable should compare non-void fields correctly"
+    );
+}
+
+/// Derived Hashable on enum with void field.
+#[test]
+fn test_derive_hashable_void_payload() {
+    let (exit_code, stdout, _) = compile_and_run_capture(include_str!(
+        "fixtures/enum_zero_payload/derive_hashable_void_payload.ori"
+    ));
+    assert_eq!(
+        exit_code, 0,
+        "derive Hashable on void-payload enum should compile"
+    );
+    assert_eq!(
+        stdout.trim(),
+        "same\ndiff\ndiff",
+        "Hashable should hash non-void fields only"
+    );
+}
+
+/// Mixed: void field between non-void fields — offset must be correct.
+#[test]
+fn test_derive_eq_void_between_fields() {
+    let (exit_code, stdout, _) = compile_and_run_capture(include_str!(
+        "fixtures/enum_zero_payload/derive_eq_void_between_fields.ori"
+    ));
+    assert_eq!(exit_code, 0, "void between non-void fields should compile");
+    assert_eq!(
+        stdout.trim(),
+        "eq\nne",
+        "Eq should skip void gap and compare both int fields"
+    );
+}
+
+/// Semantic pin: derived Eq on void-payload enum must behave
+/// identically to an all-unit enum.
+#[test]
+fn test_derive_eq_semantic_pin_void_vs_unit() {
+    let (exit_code, stdout, _) = compile_and_run_capture(include_str!(
+        "fixtures/enum_zero_payload/derive_eq_semantic_pin_void_vs_unit.ori"
+    ));
+    assert_eq!(exit_code, 0);
+    assert_eq!(
+        stdout.trim(),
+        "eq\nne\neq\nne",
+        "void-payload Eq must match all-unit Eq behavior"
+    );
 }

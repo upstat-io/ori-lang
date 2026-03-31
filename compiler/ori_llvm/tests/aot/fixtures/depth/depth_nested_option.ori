@@ -1,0 +1,12 @@
+@inner (x: int) -> Option<int> = if x > 0 then Some(x) else None;
+@outer (x: int) -> Option<Option<int>> = if x >= 0 then Some(inner(x: x)) else None;
+
+@main () -> int = {
+    let r1 = outer(x: 5);
+    let r2 = outer(x: 0);
+    let r3 = outer(x: -1);
+    let ok1 = r1.is_some();
+    let ok2 = r2.is_some();
+    let ok3 = r3.is_none();
+    if ok1 && ok2 && ok3 then 0 else 1
+}

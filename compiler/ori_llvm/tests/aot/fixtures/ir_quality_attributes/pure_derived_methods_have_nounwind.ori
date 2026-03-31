@@ -1,0 +1,10 @@
+#derive(Eq, Comparable, Hashable)
+type Shape = { sides: int, area: float };
+
+@main () -> int = {
+    let a = Shape { sides: 4, area: 16.0 };
+    let b = Shape { sides: 4, area: 16.0 };
+    let c = a.compare(other: b);
+    let h = a.hash();
+    if a == b then 1 else 0
+}

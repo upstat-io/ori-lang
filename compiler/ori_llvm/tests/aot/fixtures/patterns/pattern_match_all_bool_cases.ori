@@ -1,0 +1,8 @@
+@to_int (b: bool) -> int = match b {
+    true -> 1,
+    false -> 0,
+};
+
+@main () -> int = {
+    if to_int(b: true) == 1 && to_int(b: false) == 0 then 0 else 1
+}

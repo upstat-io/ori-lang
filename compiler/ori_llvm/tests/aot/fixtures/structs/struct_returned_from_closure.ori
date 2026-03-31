@@ -1,0 +1,7 @@
+type Point = { x: int, y: int };
+
+@main () -> int = {
+    let make = (n: int) -> Point { x: n, y: n * 2 };
+    let p = make(5);
+    if p.x == 5 && p.y == 10 then 0 else 1
+}

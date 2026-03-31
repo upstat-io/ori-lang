@@ -1,0 +1,5 @@
+@main () -> int = {
+    let xs = [3, 1, 4, 1, 5];
+    let sorted = xs.sort_stable();
+    if sorted.length() == 5 && sorted.first().unwrap() == 1 && sorted.last().unwrap() == 5 then 0 else 1
+}

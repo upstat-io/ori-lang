@@ -1,0 +1,10 @@
+@main () -> int = {
+    let s = "hello_world_this_is_heap";
+    let i = 0;
+    loop {
+        if i >= 30 then break;
+        s = s + "x";
+        i = i + 1;
+    };
+    if s.len() == 54 then 0 else 1
+}

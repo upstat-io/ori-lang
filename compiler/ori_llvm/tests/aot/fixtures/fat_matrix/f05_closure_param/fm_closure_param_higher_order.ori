@@ -1,0 +1,6 @@
+@apply_to_str (f: (str) -> int, s: str) -> int = f(s);
+
+@main () -> int = {
+    let f = (s: str) -> int = s.length();
+    if apply_to_str(f: f, s: "hello") == 5 then 0 else 1
+}

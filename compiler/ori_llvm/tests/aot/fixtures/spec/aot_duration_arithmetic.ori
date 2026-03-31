@@ -1,0 +1,9 @@
+@main () -> int = {
+    let add_ok = 1s + 500ms == 1500ms;
+    let sub_ok = 2s - 1s == 1s;
+    let mul_ok = 100ms * 3 == 300ms;
+    let int_mul_ok = 2 * 500ms == 1s;
+    let div_ok = 1s / 2 == 500ms;
+    let mod_ok = 1500ms % 1s == 500ms;
+    if add_ok && sub_ok && mul_ok && int_mul_ok && div_ok && mod_ok then 0 else 1
+}

@@ -1,0 +1,8 @@
+@main () -> int = {
+    let $x = Some(42);
+    let $s = match x {
+        Some(v) -> "matched_some_heap_value_" + str(v),
+        None -> "matched_none_heap_fallback",
+    };
+    if s.starts_with(prefix: "matched_some") then 0 else 1
+}

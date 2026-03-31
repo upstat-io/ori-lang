@@ -1,0 +1,4 @@
+@main () -> int = {
+    let c = (0..10).iter().count();
+    if c == 10 then 0 else 1
+}

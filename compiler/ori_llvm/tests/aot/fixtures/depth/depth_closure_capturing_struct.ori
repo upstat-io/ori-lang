@@ -1,0 +1,9 @@
+type Config = { multiplier: int, offset: int }
+
+@main () -> int = {
+    let cfg = Config { multiplier: 3, offset: 10 };
+    let transform = (x: int) -> cfg.multiplier * x + cfg.offset;
+    let result = transform(5);
+    // 3 * 5 + 10 = 25
+    if result == 25 then 0 else 1
+}

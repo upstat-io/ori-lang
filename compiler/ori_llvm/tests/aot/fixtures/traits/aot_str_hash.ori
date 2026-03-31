@@ -1,0 +1,10 @@
+@main () -> int = {
+    let a = "hello";
+    let b = "hello";
+    let c = "world";
+    let h1 = a.hash();
+    let h2 = b.hash();
+    let h3 = c.hash();
+    // Same strings produce same hash
+    if h1 == h2 && h1 != h3 then 0 else 1
+}

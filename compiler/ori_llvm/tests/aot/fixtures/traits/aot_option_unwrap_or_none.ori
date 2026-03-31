@@ -1,0 +1,7 @@
+@get () -> Option<int> = None;
+
+@main () -> int = {
+    let o = get();
+    let v = o.unwrap_or(default: 99);
+    if v == 99 then 0 else 1
+}

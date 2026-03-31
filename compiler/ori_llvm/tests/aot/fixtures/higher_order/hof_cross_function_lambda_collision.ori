@@ -1,0 +1,10 @@
+@apply (f: (int) -> int, x: int) -> int = f(x);
+@make_adder (n: int) -> (int) -> int = (x: int) -> x + n;
+
+@main () -> int = {
+    let $double = (x: int) -> x * 2;
+    let $a = apply(f: double, x: 5);
+    let $add10 = make_adder(n: 10);
+    let $b = add10(7);
+    if a == 10 && b == 17 then 0 else 1
+}

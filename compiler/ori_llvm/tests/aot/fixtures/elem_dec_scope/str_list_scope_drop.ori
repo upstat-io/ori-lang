@@ -1,0 +1,9 @@
+@main () -> int = {
+    let words = [
+        "this is a very long string that exceeds the SSO threshold of twenty three bytes",
+        "another long heap string for testing element cleanup on scope exit",
+        "third heap allocated string to verify all elements are cleaned up properly"
+    ];
+    let total = words.len();
+    if total == 3 then 0 else 1
+}

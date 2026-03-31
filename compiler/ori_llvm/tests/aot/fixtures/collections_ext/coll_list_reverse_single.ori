@@ -1,0 +1,5 @@
+@main () -> int = {
+    let xs = [7];
+    let rev = xs.reverse();
+    if rev.length() == 1 then 0 else 1
+}

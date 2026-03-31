@@ -1,0 +1,4 @@
+@main () -> int = {
+    let xs = [1].push(2).push(3);
+    if xs.length() == 3 && xs.first().unwrap() == 1 && xs.last().unwrap() == 3 then 0 else 1
+}

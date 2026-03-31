@@ -16,24 +16,9 @@ use crate::util::{compile_and_capture_ir, compile_and_run, extract_function_ir};
 /// array, then extract element) plus an optional bitcast for non-i64 types.
 #[test]
 fn test_enum_payload_uses_extractvalue() {
-    let ir = compile_and_capture_ir(
-        r"
-type Shape = Circle(radius: float) | Rect(width: float, height: float);
-
-@extract (s: Shape) -> float = match s {
-    Circle(radius) -> radius,
-    Rect(width, height) -> width + height,
-};
-
-@main () -> int = {
-    let c = Circle(radius: 3.14);
-    let r = Rect(width: 2.0, height: 5.0);
-    let x = extract(s: c);
-    let y = extract(s: r);
-    0
-}
-",
-    );
+    let ir = compile_and_capture_ir(include_str!(
+        "fixtures/ir_quality_codegen/enum_payload_uses_extractvalue.ori"
+    ));
 
     let fn_ir = extract_function_ir(&ir, "_ori_extract");
 
@@ -55,18 +40,9 @@ type Shape = Circle(radius: float) | Rect(width: float, height: float);
 /// Enum with int fields: extractvalue needs no bitcast (i64 → i64 is identity).
 #[test]
 fn test_enum_int_payload_extractvalue() {
-    let ir = compile_and_capture_ir(
-        r"
-type IntEnum = A(x: int) | B(x: int, y: int);
-
-@extract_b (e: IntEnum) -> int = match e {
-    A(x) -> x,
-    B(x, y) -> x + y,
-};
-
-@main () -> int = extract_b(e: B(x: 10, y: 20));
-",
-    );
+    let ir = compile_and_capture_ir(include_str!(
+        "fixtures/ir_quality_codegen/enum_int_payload_extractvalue.ori"
+    ));
 
     let fn_ir = extract_function_ir(&ir, "_ori_extract_b");
 
@@ -86,15 +62,9 @@ type IntEnum = A(x: int) | B(x: int, y: int);
 /// (not 4 GEP+load+insertvalue sequences).
 #[test]
 fn test_struct_selective_field_loading() {
-    let ir = compile_and_capture_ir(
-        r"
-type Point = { x: int, y: int, z: int, w: int };
-
-@get_x (p: Point) -> int = p.x;
-
-@main () -> int = get_x(p: Point { x: 42, y: 0, z: 0, w: 0 });
-",
-    );
+    let ir = compile_and_capture_ir(include_str!(
+        "fixtures/ir_quality_codegen/struct_selective_field_loading.ori"
+    ));
 
     let fn_ir = extract_function_ir(&ir, "_ori_get_x");
 
@@ -118,15 +88,9 @@ type Point = { x: int, y: int, z: int, w: int };
 /// Function accessing 2 of 4 struct fields should emit exactly 2 GEP+load.
 #[test]
 fn test_struct_selective_two_fields() {
-    let ir = compile_and_capture_ir(
-        r"
-type Rect = { x: int, y: int, width: int, height: int };
-
-@area (r: Rect) -> int = r.width * r.height;
-
-@main () -> int = area(r: Rect { x: 0, y: 0, width: 3, height: 4 });
-",
-    );
+    let ir = compile_and_capture_ir(include_str!(
+        "fixtures/ir_quality_codegen/struct_selective_two_fields.ori"
+    ));
 
     let fn_ir = extract_function_ir(&ir, "_ori_area");
 
@@ -147,17 +111,9 @@ type Rect = { x: int, y: int, width: int, height: int };
 /// Uses a 4-field struct to ensure Indirect passing (>16 bytes).
 #[test]
 fn test_struct_whole_passthrough_no_load() {
-    let ir = compile_and_capture_ir(
-        r"
-type Big = { a: int, b: int, c: int, d: int };
-
-@sum_big (p: Big) -> int = p.a + p.b + p.c + p.d;
-
-@forward (p: Big) -> int = sum_big(p: p);
-
-@main () -> int = forward(p: Big { a: 1, b: 2, c: 3, d: 4 });
-",
-    );
+    let ir = compile_and_capture_ir(include_str!(
+        "fixtures/ir_quality_codegen/struct_whole_passthrough_no_load.ori"
+    ));
 
     let fn_ir = extract_function_ir(&ir, "_ori_forward");
 
@@ -186,24 +142,9 @@ type Big = { a: int, b: int, c: int, d: int };
 /// heap memory — which only works through a pointer, not extractvalue.
 #[test]
 fn test_boxed_enum_field_uses_alloca() {
-    let ir = compile_and_capture_ir(
-        r"
-type Tree = Leaf(value: int) | Node(left: Tree, right: Tree);
-
-@left_val (t: Tree) -> int = match t {
-    Leaf(value) -> value,
-    Node(left, right) -> match left {
-        Leaf(value) -> value,
-        _ -> -1,
-    },
-};
-
-@main () -> int = {
-    let t = Node(left: Leaf(value: 42), right: Leaf(value: 0));
-    left_val(t: t)
-}
-",
-    );
+    let ir = compile_and_capture_ir(include_str!(
+        "fixtures/ir_quality_codegen/boxed_enum_field_uses_alloca.ori"
+    ));
 
     let fn_ir = extract_function_ir(&ir, "_ori_left_val");
 
@@ -228,15 +169,9 @@ type Tree = Leaf(value: int) | Node(left: Tree, right: Tree);
 /// `unreachable` with nothing in between.
 #[test]
 fn test_noreturn_panic_has_unreachable_no_cleanup() {
-    let ir = compile_and_capture_ir(
-        r#"
-@may_panic (x: int) -> int = {
-    if x == 0 then panic(msg: "zero") else x
-};
-
-@main () -> int = may_panic(x: 5);
-"#,
-    );
+    let ir = compile_and_capture_ir(include_str!(
+        "fixtures/ir_quality_codegen/noreturn_panic_has_unreachable_no_cleanup.ori"
+    ));
 
     let fn_ir = extract_function_ir(&ir, "_ori_may_panic");
 
@@ -290,15 +225,9 @@ fn test_noreturn_panic_has_unreachable_no_cleanup() {
 /// normally — the noreturn pruning must not affect the non-panic path.
 #[test]
 fn test_noreturn_panic_else_arm_continues() {
-    let ir = compile_and_capture_ir(
-        r#"
-@may_panic (x: int) -> int = {
-    if x == 0 then panic(msg: "zero") else x
-};
-
-@main () -> int = may_panic(x: 5);
-"#,
-    );
+    let ir = compile_and_capture_ir(include_str!(
+        "fixtures/ir_quality_codegen/noreturn_panic_else_arm_continues.ori"
+    ));
 
     let fn_ir = extract_function_ir(&ir, "_ori_may_panic");
 
@@ -317,13 +246,9 @@ fn test_noreturn_panic_else_arm_continues() {
 /// accidentally breaking it while implementing noreturn pruning.
 #[test]
 fn test_checked_binop_overflow_still_has_unreachable() {
-    let ir = compile_and_capture_ir(
-        r"
-@add_checked (a: int, b: int) -> int = a + b;
-
-@main () -> int = add_checked(a: 9223372036854775807, b: 1);
-",
-    );
+    let ir = compile_and_capture_ir(include_str!(
+        "fixtures/ir_quality_codegen/checked_binop_overflow_still_has_unreachable.ori"
+    ));
 
     let fn_ir = extract_function_ir(&ir, "_ori_add_checked");
 
@@ -363,15 +288,9 @@ fn test_checked_binop_overflow_still_has_unreachable() {
 /// `br label` loop back-edge instead of `call @_ori_gcd`.
 #[test]
 fn test_tail_recursive_gcd_has_no_self_call() {
-    let ir = compile_and_capture_ir(
-        r"
-@gcd (a: int, b: int) -> int = {
-    if b == 0 then a else gcd(a: b, b: a % b)
-};
-
-@main () -> int = gcd(a: 48, b: 18);
-",
-    );
+    let ir = compile_and_capture_ir(include_str!(
+        "fixtures/ir_quality_codegen/tail_recursive_gcd_has_no_self_call.ori"
+    ));
 
     let fn_ir = extract_function_ir(&ir, "_ori_gcd");
 
@@ -405,17 +324,9 @@ fn test_tail_recursive_gcd_has_no_self_call() {
 /// per operation site.
 #[test]
 fn test_overflow_string_dedup_single_global_per_message() {
-    let ir = compile_and_capture_ir(
-        r"
-@main () -> int = {
-    let a = 1 + 2;
-    let b = 3 + 4;
-    let c = a * b;
-    let d = 5 * 6;
-    c + d
-}
-",
-    );
+    let ir = compile_and_capture_ir(include_str!(
+        "fixtures/ir_quality_codegen/overflow_string_dedup_single_global_per_message.ori"
+    ));
 
     // Count occurrences of the addition overflow message.
     // With dedup, "integer overflow on addition" appears exactly once as
@@ -445,12 +356,9 @@ fn test_overflow_string_dedup_single_global_per_message() {
 /// which takes the pointer directly.
 #[test]
 fn test_str_param_pointer_only_no_load() {
-    let ir = compile_and_capture_ir(
-        r#"
-@get_len (s: str) -> int = s.length();
-@main () -> int = get_len(s: "hello");
-"#,
-    );
+    let ir = compile_and_capture_ir(include_str!(
+        "fixtures/ir_quality_codegen/str_param_pointer_only_no_load.ori"
+    ));
     let fn_ir = extract_function_ir(&ir, "_ori_get_len");
     // No aggregate load — pointer forwarding handles everything.
     assert!(
@@ -467,16 +375,9 @@ fn test_str_param_pointer_only_no_load() {
 /// Two str params forwarded only by pointer emit no aggregate loads.
 #[test]
 fn test_multi_str_param_pointer_only_no_loads() {
-    let ir = compile_and_capture_ir(
-        r#"
-@longer (a: str, b: str) -> int = {
-    let la = a.length();
-    let lb = b.length();
-    if la > lb then la else lb
-};
-@main () -> int = longer(a: "hi", b: "hello");
-"#,
-    );
+    let ir = compile_and_capture_ir(include_str!(
+        "fixtures/ir_quality_codegen/multi_str_param_pointer_only_no_loads.ori"
+    ));
     let fn_ir = extract_function_ir(&ir, "_ori_longer");
     // Both str params are pointer-only (only used for .length()).
     let agg_loads = fn_ir.matches("load { i64, i64, ptr }").count();
@@ -489,15 +390,9 @@ fn test_multi_str_param_pointer_only_no_loads() {
 /// str param used BOTH by pointer (length) AND by value (concat) MUST still load.
 #[test]
 fn test_str_param_mixed_use_still_loads() {
-    let ir = compile_and_capture_ir(
-        r#"
-@process (s: str) -> int = {
-    let greeting = "Hi, " + s;
-    greeting.length()
-};
-@main () -> int = process(s: "world");
-"#,
-    );
+    let ir = compile_and_capture_ir(include_str!(
+        "fixtures/ir_quality_codegen/str_param_mixed_use_still_loads.ori"
+    ));
     let fn_ir = extract_function_ir(&ir, "_ori_process");
     // `s` is used in string concat (needs loaded value) AND length (pointer-only).
     // The concat forces a load — param is NOT pointer-only.
@@ -510,40 +405,27 @@ fn test_str_param_mixed_use_still_loads() {
 /// Semantic pin: pointer-only str param produces correct runtime output.
 #[test]
 fn test_str_pointer_only_correct_output() {
-    let exit_code = compile_and_run(
-        r#"
-@get_len (s: str) -> int = s.length();
-@main () -> int = get_len(s: "hello");
-"#,
-    );
+    let exit_code = compile_and_run(include_str!(
+        "fixtures/ir_quality_codegen/str_pointer_only_correct_output.ori"
+    ));
     assert_eq!(exit_code, 5, "get_len(\"hello\") should return 5");
 }
 
 /// Semantic pin: two pointer-only str params produce correct runtime output.
 #[test]
 fn test_multi_str_pointer_only_correct_output() {
-    let exit_code = compile_and_run(
-        r#"
-@longer (a: str, b: str) -> int = {
-    let la = a.length();
-    let lb = b.length();
-    if la > lb then la else lb
-};
-@main () -> int = longer(a: "hi", b: "hello");
-"#,
-    );
+    let exit_code = compile_and_run(include_str!(
+        "fixtures/ir_quality_codegen/multi_str_pointer_only_correct_output.ori"
+    ));
     assert_eq!(exit_code, 5, "longer(\"hi\", \"hello\") should return 5");
 }
 
 /// [int] param forwarded to list.length — pointer-only optimization.
 #[test]
 fn test_list_param_forwarded_to_length() {
-    let exit_code = compile_and_run(
-        r"
-@count (xs: [int]) -> int = xs.length();
-@main () -> int = count(xs: [10, 20, 30]);
-",
-    );
+    let exit_code = compile_and_run(include_str!(
+        "fixtures/ir_quality_codegen/list_param_forwarded_to_length.ori"
+    ));
     assert_eq!(exit_code, 3, "count([10, 20, 30]) should return 3");
 }
 
@@ -552,16 +434,9 @@ fn test_list_param_forwarded_to_length() {
 /// Calling a nounwind user function uses `call`, not `invoke`.
 #[test]
 fn test_nounwind_callee_uses_call() {
-    let ir = compile_and_capture_ir(
-        r#"
-@get_len (s: str) -> int = s.length();
-@check () -> int = {
-    let s = "hello";
-    get_len(s: s)
-};
-@main () -> int = check();
-"#,
-    );
+    let ir = compile_and_capture_ir(include_str!(
+        "fixtures/ir_quality_codegen/nounwind_callee_uses_call.ori"
+    ));
     let fn_ir = extract_function_ir(&ir, "_ori_check");
     // get_len is nounwind (only calls builtin length method),
     // so check should use `call`, not `invoke`.
@@ -585,16 +460,9 @@ fn test_nounwind_callee_uses_call() {
 /// Unconditional br to single-predecessor successor should be merged.
 #[test]
 fn test_single_predecessor_block_merged() {
-    let ir = compile_and_capture_ir(
-        r#"
-@get_len (s: str) -> int = s.length();
-@check () -> int = {
-    let s = "hello";
-    get_len(s: s)
-};
-@main () -> int = check();
-"#,
-    );
+    let ir = compile_and_capture_ir(include_str!(
+        "fixtures/ir_quality_codegen/single_predecessor_block_merged.ori"
+    ));
     let fn_ir = extract_function_ir(&ir, "_ori_check");
     // After nounwind downgrade + block merging, check should have
     // no unconditional `br label %bb1` followed by a single-predecessor bb1.
@@ -615,15 +483,9 @@ fn test_single_predecessor_block_merged() {
 /// SSO guard ptrtoint is never duplicated.
 #[test]
 fn test_sso_guard_single_ptrtoint() {
-    let ir = compile_and_capture_ir(
-        r#"
-@check () -> int = {
-    let s = "hello";
-    s.length()
-};
-@main () -> int = check();
-"#,
-    );
+    let ir = compile_and_capture_ir(include_str!(
+        "fixtures/ir_quality_codegen/sso_guard_single_ptrtoint.ori"
+    ));
     let fn_ir = extract_function_ir(&ir, "_ori_check");
     // Each SSO guard should have exactly 1 ptrtoint. Count per-guard:
     // the pattern is `ptrtoint ptr %X to i64` followed by sso_flag/is_null checks.

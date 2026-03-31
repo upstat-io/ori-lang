@@ -1,0 +1,6 @@
+type Container = { items: [str] }
+
+@main () -> int = {
+    let c = Container { items: ["hello", "world"] };
+    if c.items.length() == 2 then 0 else 1
+}

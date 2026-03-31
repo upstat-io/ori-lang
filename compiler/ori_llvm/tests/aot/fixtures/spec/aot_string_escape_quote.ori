@@ -1,0 +1,4 @@
+@main () -> int = {
+    let s = "say \"hi\"";
+    if s.length() == 8 then 0 else 1
+}

@@ -1,0 +1,16 @@
+type Point = { x: int, y: int }
+
+impl Sub for Point {
+    type Output = Point;
+    @subtract (self, rhs: Point) -> Point = Point {
+        x: self.x - rhs.x,
+        y: self.y - rhs.y,
+    }
+}
+
+@main () -> int = {
+    let a = Point { x: 5, y: 8 };
+    let b = Point { x: 2, y: 3 };
+    let c = a - b;
+    if c.x == 3 && c.y == 5 then 0 else 1
+}

@@ -1,0 +1,10 @@
+#[derive(Printable)]
+type SignedPoint = { x: int, y: int }
+
+@main () -> int = {
+    let p = SignedPoint { x: -50, y: -120 };
+    let s = p.to_str();
+    let has_neg50 = s.contains(substr: "-50");
+    let has_neg120 = s.contains(substr: "-120");
+    if has_neg50 && has_neg120 then 0 else 1
+}

@@ -1,0 +1,9 @@
+type Boundary = { large: float, small: float, edge: float }
+
+@main () -> int = {
+    let b = Boundary { large: 16777216.0, small: 0.0625, edge: 16777215.0 };
+    let ok1 = b.large == 16777216.0;
+    let ok2 = b.small == 0.0625;
+    let ok3 = b.edge == 16777215.0;
+    if ok1 && ok2 && ok3 then 0 else 1
+}

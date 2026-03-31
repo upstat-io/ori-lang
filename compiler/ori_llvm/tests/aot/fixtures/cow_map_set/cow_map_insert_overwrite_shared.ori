@@ -1,0 +1,8 @@
+@main () -> int = {
+    let m = {"a": 1, "b": 2};
+    let m2 = m.insert("a", 99);
+    // Original key "a" must still be 1, copy must have 99
+    let orig_val = m.get("a").unwrap();
+    let new_val = m2.get("a").unwrap();
+    if orig_val == 1 && new_val == 99 && m.len() == 2 && m2.len() == 2 then 0 else 1
+}

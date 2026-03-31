@@ -1,0 +1,11 @@
+#derive(Eq)
+type Doc = { content: str }
+
+@main () -> int = {
+    let a = Doc { content: "abcdefghijklmnopqrstuvwxyz1234" };
+    let b = Doc { content: "abcdefghijklmnopqrstuvwxyz1234" };
+    let c = Doc { content: "abcdefghijklmnopqrstuvwxyz9999" };
+    if a == b then {
+        if a != c then 0 else 1
+    } else 2
+}

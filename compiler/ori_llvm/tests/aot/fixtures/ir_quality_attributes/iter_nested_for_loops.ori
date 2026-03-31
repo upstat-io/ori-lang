@@ -1,0 +1,8 @@
+@main () -> int = {
+    let lists = [[1, 2], [3]];
+    let total = 0;
+    for xs in lists do {
+        for x in xs do total += x
+    };
+    total
+}

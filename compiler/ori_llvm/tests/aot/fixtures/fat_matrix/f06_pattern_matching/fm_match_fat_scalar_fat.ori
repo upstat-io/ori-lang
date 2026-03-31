@@ -1,0 +1,12 @@
+type Row = Full(name: str, age: int, city: str) | Blank;
+
+@info (r: Row) -> int =
+    match r {
+        Full(name, age, city) -> name.length() + age + city.length(),
+        Blank -> 0,
+    };
+
+@main () -> int = {
+    let r = info(r: Full(name: "Bob", age: 30, city: "NYC"));
+    if r == 36 then 0 else 1
+}

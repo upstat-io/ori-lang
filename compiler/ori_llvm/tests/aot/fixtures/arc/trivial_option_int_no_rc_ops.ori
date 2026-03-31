@@ -1,0 +1,7 @@
+@main () -> int = {
+    let $x = Some(42);
+    match x {
+        Some(v) -> v,
+        None -> 0
+    }
+}

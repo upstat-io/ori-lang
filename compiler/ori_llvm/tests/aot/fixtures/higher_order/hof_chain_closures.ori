@@ -1,0 +1,8 @@
+@main () -> int = {
+    let step1 = (x: int) -> x + 10;
+    let step2 = (x: int) -> x * 2;
+    let step3 = (x: int) -> x - 5;
+    let result = step3(step2(step1(0)));
+    // 0 → 10 → 20 → 15
+    if result == 15 then 0 else 1
+}

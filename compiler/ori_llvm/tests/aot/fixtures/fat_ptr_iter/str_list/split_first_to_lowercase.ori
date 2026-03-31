@@ -1,0 +1,7 @@
+@main () -> int = {
+    let s = "AAAAAAAAAAAAAAAAAAAAAAAAA|BBBBBBBBBBBBBBBBBBBBBBBBB";
+    let parts = s.split(sep: "|");
+    let first = parts[0];
+    let lower = first.to_lowercase();
+    if lower == "aaaaaaaaaaaaaaaaaaaaaaaaa" then 0 else 1
+}

@@ -1,0 +1,8 @@
+#[derive(Debug)]
+type Tag = { label: str }
+
+@main () -> int = {
+    let t = Tag { label: "ok" };
+    let s = t.debug();
+    if s.contains(substr: "ok") then 0 else 1
+}

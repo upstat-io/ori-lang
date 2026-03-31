@@ -1,0 +1,15 @@
+@find (key: int) -> Result<Option<int>, str> = {
+    if key < 0 then Err("invalid key")
+    else if key == 0 then Ok(None)
+    else Ok(Some(key * 100))
+}
+
+@main () -> int = {
+    let r1 = find(key: 5);
+    let r2 = find(key: 0);
+    let r3 = find(key: -1);
+    let ok1 = r1.is_ok() && r1.unwrap().is_some() && r1.unwrap().unwrap() == 500;
+    let ok2 = r2.is_ok() && r2.unwrap().is_none();
+    let ok3 = r3.is_err();
+    if ok1 && ok2 && ok3 then 0 else 1
+}

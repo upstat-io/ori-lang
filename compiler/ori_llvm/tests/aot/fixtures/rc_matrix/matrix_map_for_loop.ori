@@ -1,0 +1,8 @@
+@main () -> int = {
+    let m = {"init": 0};
+    for i in 0..30 do {
+        m = m.insert("key_" + str(i), i);
+    };
+    // 1 original + 30 inserted = 31
+    if m.len() == 31 then 0 else 1
+}

@@ -1,0 +1,10 @@
+@find_positive (n: int) -> Option<int> =
+    if n > 0 then Some(n) else None;
+
+@main () -> int = {
+    let a = find_positive(n: 42);
+    let b = find_positive(n: -1);
+    if is_some(option: a) then {
+        if is_none(option: b) then 0 else 1
+    } else 2
+}

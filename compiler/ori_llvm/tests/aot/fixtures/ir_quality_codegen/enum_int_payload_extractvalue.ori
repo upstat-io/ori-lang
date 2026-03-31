@@ -1,0 +1,8 @@
+type IntEnum = A(x: int) | B(x: int, y: int);
+
+@extract_b (e: IntEnum) -> int = match e {
+    A(x) -> x,
+    B(x, y) -> x + y,
+};
+
+@main () -> int = extract_b(e: B(x: 10, y: 20));

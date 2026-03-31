@@ -1,0 +1,13 @@
+@main () -> int = {
+    let base = "AAAAAAAAAAAAAAAAAAAAAAAA,BBBBBBBBBBBBBBBBBBBBBBBB,CCCCCCCCCCCC";
+    // Take a substring that contains a comma — it's a seamless slice
+    let sub = base.substring(start: 0, end: 49);
+    // Now split the slice-backed string — this is the TPR-04-006 regression case
+    let parts = sub.split(sep: ",");
+    let total = 0;
+    for p in parts do {
+        total = total + p.len();
+    };
+    // "AAAAAAAAAAAAAAAAAAAAAAAA" (24) + "BBBBBBBBBBBBBBBBBBBBBBBB" (24) = 48
+    if total == 48 then 0 else 1
+}

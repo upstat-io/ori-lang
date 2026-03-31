@@ -1,0 +1,9 @@
+#derive(Eq, Comparable)
+type Score = { points: int, bonus: int };
+
+@main () -> int = {
+    let a = Score { points: 10, bonus: 5 };
+    let b = Score { points: 20, bonus: 3 };
+    let c = Score { points: 10, bonus: 5 };
+    if a < b && b > a && a <= c && a >= c then 0 else 1
+}

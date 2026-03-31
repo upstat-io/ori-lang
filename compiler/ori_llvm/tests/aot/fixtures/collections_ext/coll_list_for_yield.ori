@@ -1,0 +1,4 @@
+@main () -> int = {
+    let xs = for i in 0..5 yield i * 10;
+    if xs.length() == 5 then 0 else 1
+}

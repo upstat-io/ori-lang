@@ -1,0 +1,17 @@
+@get_lengths (words: [str]) -> [int] = {
+    for w in words yield w.len()
+}
+
+@main () -> int = {
+    let words = [
+        "this is a very long string that exceeds SSO threshold",
+        "another very long string that also exceeds the threshold"
+    ];
+    let a = get_lengths(words: words);
+    let b = get_lengths(words: words);
+    let sum_a = 0;
+    for n in a do { sum_a = sum_a + n; };
+    let sum_b = 0;
+    for n in b do { sum_b = sum_b + n; };
+    if sum_a == 109 && sum_b == 109 then 0 else 1
+}

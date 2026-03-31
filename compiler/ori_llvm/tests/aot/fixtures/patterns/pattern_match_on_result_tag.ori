@@ -1,0 +1,16 @@
+@safe_div (a: int, b: int) -> Result<int, str> =
+    if b == 0 then Err("divide by zero") else Ok(a / b);
+
+@main () -> int = {
+    let r1 = safe_div(a: 10, b: 2);
+    let r2 = safe_div(a: 10, b: 0);
+    let v1 = match r1.is_ok() {
+        true -> r1.unwrap(),
+        false -> -1,
+    };
+    let v2 = match r2.is_err() {
+        true -> 0,
+        false -> -1,
+    };
+    if v1 == 5 && v2 == 0 then 0 else 1
+}

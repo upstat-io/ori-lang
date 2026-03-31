@@ -1,0 +1,4 @@
+@main () -> int = {
+    let x: int = if true then 42 else panic(msg: "unreachable");
+    if x == 42 then 0 else 1
+}

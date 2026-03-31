@@ -1,0 +1,5 @@
+@main () -> int = {
+    let $inner = (x: int) -> int = x * 2;
+    let $outer = () -> int = inner(x: 21);
+    if outer() == 42 then 0 else 1
+}

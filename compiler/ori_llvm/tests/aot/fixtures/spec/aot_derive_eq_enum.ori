@@ -1,0 +1,9 @@
+#derive(Eq)
+type Color = Red | Green | Blue;
+
+@main () -> int = {
+    let a = Red;
+    let b = Red;
+    let c = Blue;
+    if a == b && a != c then 0 else 1
+}

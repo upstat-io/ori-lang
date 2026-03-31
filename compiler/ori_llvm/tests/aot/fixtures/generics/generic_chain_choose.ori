@@ -1,0 +1,7 @@
+@identity <T> (x: T) -> T = x;
+@pick_first <T> (a: T, b: T) -> T = identity(x: a);
+
+@main () -> int = {
+    let n = pick_first(a: 10, b: 20);
+    if n == 10 then 0 else 1
+}

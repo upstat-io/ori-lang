@@ -1,0 +1,6 @@
+@main () -> int = {
+    let m = {"a": 1, "b": 2};
+    let m2 = m.remove("z");
+    // Removing nonexistent key should return same contents
+    if m2.len() == 2 && m2.contains_key("a") && m2.contains_key("b") then 0 else 1
+}

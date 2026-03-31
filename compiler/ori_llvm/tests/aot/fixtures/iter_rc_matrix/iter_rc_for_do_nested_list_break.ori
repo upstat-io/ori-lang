@@ -1,0 +1,9 @@
+@main () -> int = {
+    let items = [[1, 2], [3, 4], [5, 6]];
+    let count = 0;
+    for inner in items do {
+        if count == 1 then break;
+        count = count + 1;
+    };
+    if count == 1 then 0 else 1
+}

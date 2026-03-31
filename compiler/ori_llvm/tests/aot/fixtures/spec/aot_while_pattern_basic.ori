@@ -1,0 +1,8 @@
+@main () -> int = {
+    let i = 0;
+    loop {
+        if i >= 10 then break;
+        i = i + 1
+    };
+    if i == 10 then 0 else 1
+}

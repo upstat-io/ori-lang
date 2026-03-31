@@ -1,0 +1,6 @@
+@main () -> int = {
+    let x = 10;
+    let add_x = (n: int) -> int = n + x;
+    let result = add_x(n: 32);
+    if result == 42 then 0 else 1
+}

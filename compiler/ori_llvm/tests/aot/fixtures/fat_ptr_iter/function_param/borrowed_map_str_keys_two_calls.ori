@@ -1,0 +1,17 @@
+@sum_values (m: {str: int}) -> int = {
+    let total = 0;
+    for (k, v) in m do {
+        total = total + v;
+    };
+    total
+}
+
+@main () -> int = {
+    let m = {
+        "this is a very long key exceeding SSO threshold here": 10,
+        "another very long key that also exceeds the SSO thresh": 20
+    };
+    let a = sum_values(m: m);
+    let b = sum_values(m: m);
+    if a == 30 && b == 30 then 0 else 1
+}

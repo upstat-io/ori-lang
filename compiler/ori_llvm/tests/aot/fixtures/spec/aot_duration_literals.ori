@@ -1,0 +1,9 @@
+@main () -> int = {
+    let ns_ok = 100ns == 100ns;
+    let us_ok = 1us == 1000ns;
+    let ms_ok = 1ms == 1000us;
+    let s_ok = 1s == 1000ms;
+    let m_ok = 1m == 60s;
+    let h_ok = 1h == 60m;
+    if ns_ok && us_ok && ms_ok && s_ok && m_ok && h_ok then 0 else 1
+}

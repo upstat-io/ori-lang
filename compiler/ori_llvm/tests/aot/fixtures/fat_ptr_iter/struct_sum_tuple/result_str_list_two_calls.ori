@@ -1,0 +1,21 @@
+@count_ok (items: [Result<str, str>]) -> int = {
+    let count = 0;
+    for r in items do {
+        match r {
+            Ok(_) -> { count = count + 1; },
+            Err(_) -> { 0; }
+        };
+    };
+    count
+}
+
+@main () -> int = {
+    let items: [Result<str, str>] = [
+        Ok("this is a very long ok string that exceeds SSO threshold"),
+        Err("this is a very long error string exceeding SSO threshold"),
+        Ok("another very long ok string also exceeds the SSO thresh")
+    ];
+    let a = count_ok(items: items);
+    let b = count_ok(items: items);
+    if a == 2 && b == 2 then 0 else 1
+}

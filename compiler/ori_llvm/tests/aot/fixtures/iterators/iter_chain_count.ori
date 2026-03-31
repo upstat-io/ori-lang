@@ -1,0 +1,4 @@
+@main () -> int = {
+    let c = (0..3).iter().chain((10..13).iter()).count();
+    if c == 6 then 0 else 1
+}

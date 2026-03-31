@@ -1,0 +1,5 @@
+type Rect = { x: int, y: int, width: int, height: int };
+
+@area (r: Rect) -> int = r.width * r.height;
+
+@main () -> int = area(r: Rect { x: 0, y: 0, width: 3, height: 4 });

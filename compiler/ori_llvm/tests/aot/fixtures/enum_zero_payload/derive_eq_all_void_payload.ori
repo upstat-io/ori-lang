@@ -1,0 +1,12 @@
+#derive(Eq)
+type AllVoid = X(v: void) | Y(w: void) | Z;
+
+@main () -> void = {
+    let x = X(v: ());
+    let y = Y(w: ());
+    let z = Z;
+    print(msg: if x == x then "eq" else "ne");
+    print(msg: if x == y then "eq" else "ne");
+    print(msg: if y == z then "eq" else "ne");
+    print(msg: if z == z then "eq" else "ne");
+}

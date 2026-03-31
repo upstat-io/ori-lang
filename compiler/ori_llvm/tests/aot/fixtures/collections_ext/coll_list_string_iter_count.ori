@@ -1,0 +1,5 @@
+@main () -> int = {
+    let names = ["hello", "world"];
+    let count = names.iter().count();
+    if count == 2 then 0 else 1
+}

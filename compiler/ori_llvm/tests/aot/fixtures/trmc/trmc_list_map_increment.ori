@@ -1,0 +1,18 @@
+type List = Nil | Cons(head: int, tail: List);
+
+@map_inc (list: List) -> List = match list {
+    Nil -> Nil,
+    Cons(h, t) -> Cons(head: h + 1, tail: map_inc(list: t)),
+};
+
+@to_array (list: List) -> [int] = match list {
+    Nil -> [],
+    Cons(h, t) -> [h, ...to_array(list: t)],
+};
+
+@main () -> int = {
+    let $list = Cons(head: 1, tail: Cons(head: 2, tail: Cons(head: 3, tail: Nil)));
+    let $mapped = map_inc(list: list);
+    let $arr = to_array(list: mapped);
+    if arr.len() == 3 && arr[0] == 2 && arr[1] == 3 && arr[2] == 4 then 0 else 1
+}

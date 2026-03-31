@@ -1,0 +1,6 @@
+@make5 (x: int) -> (int, int, int, int, int) = (x, x * 2, x * 3, x * 4, x * 5);
+
+@main () -> int = {
+    let (a, b, c, d, e) = make5(x: 3);
+    if a == 3 && b == 6 && c == 9 && d == 12 && e == 15 then 0 else 1
+}

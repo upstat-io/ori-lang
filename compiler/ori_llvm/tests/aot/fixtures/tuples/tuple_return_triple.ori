@@ -1,0 +1,11 @@
+@stats (a: int, b: int, c: int) -> (int, int, int) = {
+    let min = if a < b then { if a < c then a else c } else { if b < c then b else c };
+    let max = if a > b then { if a > c then a else c } else { if b > c then b else c };
+    let sum = a + b + c;
+    (min, max, sum)
+};
+
+@main () -> int = {
+    let (mn, mx, s) = stats(a: 5, b: 2, c: 8);
+    if mn == 2 && mx == 8 && s == 15 then 0 else 1
+}

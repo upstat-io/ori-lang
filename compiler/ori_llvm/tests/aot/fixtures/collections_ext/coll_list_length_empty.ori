@@ -1,0 +1,4 @@
+@main () -> int = {
+    let xs: [int] = [];
+    if xs.length() == 0 then 0 else 1
+}

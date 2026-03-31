@@ -1,0 +1,16 @@
+@main () -> int = {
+    let x = 3;
+    let y = 7;
+    let r = match x {
+        1 -> match y {
+            1 -> 11,
+            _ -> 10,
+        },
+        3 -> match y {
+            7 -> 37,
+            _ -> 30,
+        },
+        _ -> 0,
+    };
+    if r == 37 then 0 else 1
+}

@@ -1,0 +1,23 @@
+type Data = { x: int, label: str }
+
+@add_one (d: Data) -> Data = Data { x: d.x + 1, label: d.label };
+@add_two (d: Data) -> Data = Data { x: d.x + 2, label: d.label };
+@add_three (d: Data) -> Data = Data { x: d.x + 3, label: d.label };
+
+@pipeline (d: Data) -> int = {
+    let d2 = add_one(d: d);
+    let d3 = add_two(d: d2);
+    let d4 = add_three(d: d3);
+    d4.x
+}
+
+@main () -> int = {
+    let total = 0;
+    for i in 0..500 do {
+        let d = Data { x: i, label: "pipe" };
+        total = total + pipeline(d: d)
+    };
+    // sum((i + 1 + 2 + 3) for i in 0..500) = sum(i+6) = sum(i) + 3000
+    // = 499*500/2 + 3000 = 124750 + 3000 = 127750
+    if total == 127750 then 0 else 1
+}

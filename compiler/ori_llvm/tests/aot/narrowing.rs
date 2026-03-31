@@ -59,16 +59,7 @@ fn compile_and_capture_ir_no_repr_opt(source: &str) -> String {
 #[test]
 fn test_narrowed_struct_pixel_round_trip() {
     assert_aot_success(
-        r"
-type Pixel = { r: int, g: int, b: int, a: int }
-
-@main () -> int = {
-    let p = Pixel { r: -128, g: 0, b: 127, a: 42 };
-    let sum = p.r + p.g + p.b + p.a;
-    // -128 + 0 + 127 + 42 = 41
-    if sum == 41 then 0 else 1
-}
-",
+        include_str!("fixtures/narrowing/narrowed_struct_pixel_round_trip.ori"),
         "narrowed_pixel_round_trip",
     );
 }
@@ -78,15 +69,7 @@ type Pixel = { r: int, g: int, b: int, a: int }
 #[test]
 fn test_narrowed_struct_update() {
     assert_aot_success(
-        r"
-type Point = { x: int, y: int }
-
-@main () -> int = {
-    let p1 = Point { x: 10, y: 20 };
-    let p2 = Point { ...p1, x: 30 };
-    if p2.x == 30 && p2.y == 20 then 0 else 1
-}
-",
+        include_str!("fixtures/narrowing/narrowed_struct_update.ori"),
         "narrowed_struct_update",
     );
 }
@@ -96,17 +79,7 @@ type Point = { x: int, y: int }
 #[test]
 fn test_narrowed_struct_mixed_types() {
     assert_aot_success(
-        r#"
-type Record = { count: int, name: str, active: bool }
-
-@main () -> int = {
-    let r = Record { count: 42, name: "hello", active: true };
-    let ok_count = r.count == 42;
-    let ok_name = r.name == "hello";
-    let ok_active = r.active;
-    if ok_count && ok_name && ok_active then 0 else 1
-}
-"#,
+        include_str!("fixtures/narrowing/narrowed_struct_mixed_types.ori"),
         "narrowed_struct_mixed_types",
     );
 }
@@ -116,17 +89,7 @@ type Record = { count: int, name: str, active: bool }
 #[test]
 fn test_narrowed_struct_field_mutation() {
     assert_aot_success(
-        r"
-type Counter = { value: int, step: int }
-
-@main () -> int = {
-    let c = Counter { value: 0, step: 5 };
-    let c = Counter { ...c, value: c.value + c.step };
-    let c = Counter { ...c, value: c.value + c.step };
-    // 0 + 5 + 5 = 10
-    if c.value == 10 then 0 else 1
-}
-",
+        include_str!("fixtures/narrowing/narrowed_struct_field_mutation.ori"),
         "narrowed_struct_field_mutation",
     );
 }
@@ -136,17 +99,7 @@ type Counter = { value: int, step: int }
 #[test]
 fn test_narrowed_struct_i8_boundaries() {
     assert_aot_success(
-        r"
-type Bounds = { lo: int, hi: int }
-
-@main () -> int = {
-    let b = Bounds { lo: -128, hi: 127 };
-    let ok1 = b.lo == -128;
-    let ok2 = b.hi == 127;
-    let ok3 = b.hi - b.lo == 255;
-    if ok1 && ok2 && ok3 then 0 else 1
-}
-",
+        include_str!("fixtures/narrowing/narrowed_struct_i8_boundaries.ori"),
         "narrowed_struct_i8_boundaries",
     );
 }
@@ -165,14 +118,7 @@ type Bounds = { lo: int, hi: int }
 #[test]
 fn test_non_narrowed_struct_wide_range() {
     assert_aot_success(
-        r"
-type Wide = { a: int, b: int }
-
-@main () -> int = {
-    let w = Wide { a: 1_000_000_000, b: -1_000_000_000 };
-    if w.a + w.b == 0 then 0 else 1
-}
-",
+        include_str!("fixtures/narrowing/non_narrowed_struct_wide_range.ori"),
         "non_narrowed_struct_wide_range",
     );
 }
@@ -190,18 +136,9 @@ type Wide = { a: int, b: int }
 /// field extraction to appear in the function's IR (not folded away in main).
 #[test]
 fn test_narrowed_struct_ir_pin_sext_on_field_load() {
-    let ir = compile_and_capture_ir(
-        r"
-type Pixel = { r: int, g: int, b: int, a: int }
-
-@sum_channels (p: Pixel) -> int = p.r + p.g + p.b + p.a;
-
-@main () -> int = {
-    let p = Pixel { r: 10, g: 20, b: 30, a: 40 };
-    sum_channels(p:)
-}
-",
-    );
+    let ir = compile_and_capture_ir(include_str!(
+        "fixtures/narrowing/narrowed_struct_ir_pin_sext_on_field_load.ori"
+    ));
 
     let fn_ir = extract_function_ir(&ir, "_ori_sum_channels");
 
@@ -225,18 +162,9 @@ type Pixel = { r: int, g: int, b: int, a: int }
 /// propagation for function parameters is not yet implemented).
 #[test]
 fn test_narrowed_struct_ir_pin_trunc_on_construction() {
-    let ir = compile_and_capture_ir(
-        r"
-type Color = { r: int, g: int, b: int }
-
-@read_r (c: Color) -> int = c.r;
-
-@main () -> int = {
-    let c = Color { r: 10, g: 20, b: 30 };
-    read_r(c:)
-}
-",
-    );
+    let ir = compile_and_capture_ir(include_str!(
+        "fixtures/narrowing/narrowed_struct_ir_pin_trunc_on_construction.ori"
+    ));
 
     let main_ir = extract_function_ir(&ir, "_ori_main");
 
@@ -262,18 +190,9 @@ type Color = { r: int, g: int, b: int }
 /// rather than the canonical `{ i64, i64, i64, i64 }`.
 #[test]
 fn test_narrowed_struct_ir_pin_type_layout() {
-    let ir = compile_and_capture_ir(
-        r"
-type Pixel = { r: int, g: int, b: int, a: int }
-
-@read_pixel (p: Pixel) -> int = p.r;
-
-@main () -> int = {
-    let p = Pixel { r: 42, g: 0, b: 0, a: 0 };
-    read_pixel(p:)
-}
-",
-    );
+    let ir = compile_and_capture_ir(include_str!(
+        "fixtures/narrowing/narrowed_struct_ir_pin_type_layout.ori"
+    ));
 
     let fn_ir = extract_function_ir(&ir, "_ori_read_pixel");
 
@@ -298,18 +217,9 @@ type Pixel = { r: int, g: int, b: int, a: int }
 /// that would indicate incorrect narrowing.
 #[test]
 fn test_non_narrowed_struct_ir_pin_wide_range() {
-    let ir = compile_and_capture_ir(
-        r"
-type Wide = { a: int, b: int }
-
-@sum_wide (w: Wide) -> int = w.a + w.b;
-
-@main () -> int = {
-    let w = Wide { a: 3_000_000_000, b: -3_000_000_000 };
-    sum_wide(w:)
-}
-",
-    );
+    let ir = compile_and_capture_ir(include_str!(
+        "fixtures/narrowing/non_narrowed_struct_ir_pin_wide_range.ori"
+    ));
 
     let fn_ir = extract_function_ir(&ir, "_ori_sum_wide");
 
@@ -338,19 +248,7 @@ type Wide = { a: int, b: int }
 #[test]
 fn test_narrowed_derive_hash_negative_values() {
     assert_aot_success(
-        r"
-#[derive(Eq, Hashable)]
-type SignedPixel = { r: int, g: int, b: int }
-
-@main () -> int = {
-    let a = SignedPixel { r: -50, g: -120, b: 100 };
-    let b = SignedPixel { r: -50, g: -120, b: 100 };
-    let c = SignedPixel { r: 50, g: 120, b: -100 };
-    let same = a.hash() == b.hash();
-    let diff = a.hash() != c.hash();
-    if same && diff then 0 else 1
-}
-",
+        include_str!("fixtures/narrowing/narrowed_derive_hash_negative_values.ori"),
         "narrowed_derive_hash_negative",
     );
 }
@@ -363,18 +261,7 @@ type SignedPixel = { r: int, g: int, b: int }
 #[test]
 fn test_narrowed_derive_printable_negative_values() {
     assert_aot_success(
-        r#"
-#[derive(Printable)]
-type SignedPoint = { x: int, y: int }
-
-@main () -> int = {
-    let p = SignedPoint { x: -50, y: -120 };
-    let s = p.to_str();
-    let has_neg50 = s.contains(substr: "-50");
-    let has_neg120 = s.contains(substr: "-120");
-    if has_neg50 && has_neg120 then 0 else 1
-}
-"#,
+        include_str!("fixtures/narrowing/narrowed_derive_printable_negative_values.ori"),
         "narrowed_derive_printable_negative",
     );
 }
@@ -386,19 +273,7 @@ type SignedPoint = { x: int, y: int }
 #[test]
 fn test_narrowed_derive_debug_negative_values() {
     assert_aot_success(
-        r#"
-#[derive(Debug)]
-type SignedColor = { r: int, g: int, b: int }
-
-@main () -> int = {
-    let c = SignedColor { r: -1, g: -128, b: 127 };
-    let s = c.debug();
-    let has_neg1 = s.contains(substr: "-1");
-    let has_neg128 = s.contains(substr: "-128");
-    let has_127 = s.contains(substr: "127");
-    if has_neg1 && has_neg128 && has_127 then 0 else 1
-}
-"#,
+        include_str!("fixtures/narrowing/narrowed_derive_debug_negative_values.ori"),
         "narrowed_derive_debug_negative",
     );
 }
@@ -410,19 +285,9 @@ type SignedColor = { r: int, g: int, b: int }
 /// for evidence that the hash function sign-extends narrowed fields.
 #[test]
 fn test_narrowed_derive_ir_pin_sext_in_hash() {
-    let ir = compile_and_capture_ir(
-        r"
-#[derive(Eq, Hashable)]
-type NarrowHash = { a: int, b: int }
-
-@compute_hash (p: NarrowHash) -> int = p.hash();
-
-@main () -> int = {
-    let p = NarrowHash { a: -50, b: -120 };
-    compute_hash(p:)
-}
-",
-    );
+    let ir = compile_and_capture_ir(include_str!(
+        "fixtures/narrowing/narrowed_derive_ir_pin_sext_in_hash.ori"
+    ));
 
     // The hash function for NarrowHash must extract i8 fields and sext them
     // to i64 before passing to hash_combine. Look for sext in any function
@@ -451,18 +316,9 @@ type NarrowHash = { a: int, b: int }
 /// canonical i64 width in the LLVM type layout.
 #[test]
 fn test_mixed_field_struct_ir_pin_no_narrowing() {
-    let ir = compile_and_capture_ir(
-        r#"
-type Record = { count: int, name: str, active: bool }
-
-@read_count (r: Record) -> int = r.count;
-
-@main () -> int = {
-    let r = Record { count: 42, name: "hello", active: true };
-    read_count(r:)
-}
-"#,
-    );
+    let ir = compile_and_capture_ir(include_str!(
+        "fixtures/narrowing/mixed_field_struct_ir_pin_no_narrowing.ori"
+    ));
 
     let fn_ir = extract_function_ir(&ir, "_ori_read_count");
 
@@ -485,19 +341,7 @@ type Record = { count: int, name: str, active: bool }
 #[test]
 fn test_phase_b_loop_behavioral() {
     assert_aot_success(
-        r"
-@main () -> int = {
-    let sum = 0;
-    let i = 0;
-    loop {
-        if i >= 10 then break;
-        sum = sum + i;
-        i = i + 1;
-    };
-    // 0+1+2+...+9 = 45
-    if sum == 45 then 0 else 1
-}
-",
+        include_str!("fixtures/narrowing/phase_b_loop_behavioral.ori"),
         "phase_b_loop_behavioral",
     );
 }
@@ -506,15 +350,7 @@ fn test_phase_b_loop_behavioral() {
 #[test]
 fn test_phase_b_for_range_behavioral() {
     assert_aot_success(
-        r"
-@main () -> int = {
-    let sum = 0;
-    for i in 0..10 do {
-        sum = sum + i;
-    };
-    if sum == 45 then 0 else 1
-}
-",
+        include_str!("fixtures/narrowing/phase_b_for_range_behavioral.ori"),
         "phase_b_for_range_behavioral",
     );
 }
@@ -523,19 +359,7 @@ fn test_phase_b_for_range_behavioral() {
 #[test]
 fn test_phase_b_negative_loop_behavioral() {
     assert_aot_success(
-        r"
-@main () -> int = {
-    let sum = 0;
-    let i = -5;
-    loop {
-        if i > 5 then break;
-        sum = sum + i;
-        i = i + 1;
-    };
-    // -5+-4+-3+-2+-1+0+1+2+3+4+5 = 0
-    if sum == 0 then 0 else 1
-}
-",
+        include_str!("fixtures/narrowing/phase_b_negative_loop_behavioral.ori"),
         "phase_b_negative_loop_behavioral",
     );
 }
@@ -545,22 +369,9 @@ fn test_phase_b_negative_loop_behavioral() {
 // This test ONLY passes with Phase B local variable narrowing.
 #[test]
 fn test_phase_b_ir_pin_loop_counter_phi() {
-    let ir = compile_and_capture_ir(
-        r"
-@sum_loop () -> int = {
-    let sum = 0;
-    let i = 0;
-    loop {
-        if i >= 10 then break;
-        sum = sum + i;
-        i = i + 1;
-    };
-    sum
-}
-
-@main () -> int = sum_loop();
-",
-    );
+    let ir = compile_and_capture_ir(include_str!(
+        "fixtures/narrowing/phase_b_ir_pin_loop_counter_phi.ori"
+    ));
 
     let fn_ir = extract_function_ir(&ir, "_ori_sum_loop");
 
@@ -580,22 +391,9 @@ fn test_phase_b_ir_pin_loop_counter_phi() {
 // before canonical-width arithmetic (overflow-checked i64 add).
 #[test]
 fn test_phase_b_ir_pin_loop_sext() {
-    let ir = compile_and_capture_ir(
-        r"
-@sum_loop () -> int = {
-    let sum = 0;
-    let i = 0;
-    loop {
-        if i >= 10 then break;
-        sum = sum + i;
-        i = i + 1;
-    };
-    sum
-}
-
-@main () -> int = sum_loop();
-",
-    );
+    let ir = compile_and_capture_ir(include_str!(
+        "fixtures/narrowing/phase_b_ir_pin_loop_sext.ori"
+    ));
 
     let fn_ir = extract_function_ir(&ir, "_ori_sum_loop");
 
@@ -615,22 +413,9 @@ fn test_phase_b_ir_pin_loop_sext() {
 // Loop counter up to 50000 exceeds i8 range, should stay i64 (or i16).
 #[test]
 fn test_phase_b_ir_pin_wide_range_no_i8() {
-    let ir = compile_and_capture_ir(
-        r"
-@sum_wide () -> int = {
-    let sum = 0;
-    let i = 0;
-    loop {
-        if i >= 50000 then break;
-        sum = sum + i;
-        i = i + 1;
-    };
-    sum
-}
-
-@main () -> int = sum_wide();
-",
-    );
+    let ir = compile_and_capture_ir(include_str!(
+        "fixtures/narrowing/phase_b_ir_pin_wide_range_no_i8.ori"
+    ));
 
     let fn_ir = extract_function_ir(&ir, "_ori_sum_wide");
 
@@ -657,25 +442,7 @@ fn test_phase_b_ir_pin_wide_range_no_i8() {
 #[test]
 fn test_narrowed_comparison_signed_semantics() {
     assert_aot_success(
-        r"
-type SignedPair = { a: int, b: int }
-
-@compare (p: SignedPair) -> int = {
-    // a = -50, b = 20
-    let lt = p.a < p.b;     // -50 < 20 = true (zext would give 206 < 20 = false)
-    let le = p.a <= p.b;    // -50 <= 20 = true
-    let gt = p.b > p.a;     // 20 > -50 = true
-    let ge = p.b >= p.a;    // 20 >= -50 = true
-    let eq = p.a == p.a;    // -50 == -50 = true
-    let ne = p.a != p.b;    // -50 != 20 = true
-    if lt && le && gt && ge && eq && ne then 0 else 1
-}
-
-@main () -> int = {
-    let p = SignedPair { a: -50, b: 20 };
-    compare(p:)
-}
-",
+        include_str!("fixtures/narrowing/narrowed_comparison_signed_semantics.ori"),
         "narrowed_comparison_signed",
     );
 }
@@ -687,19 +454,7 @@ type SignedPair = { a: int, b: int }
 #[test]
 fn test_narrowed_comparison_i8_boundary_values() {
     assert_aot_success(
-        r"
-type Bounds = { lo: int, hi: int, zero: int }
-
-@main () -> int = {
-    let b = Bounds { lo: -128, hi: 127, zero: 0 };
-    let ok1 = b.lo < b.hi;     // -128 < 127 = true
-    let ok2 = b.lo < b.zero;   // -128 < 0 = true (zext: 128 < 0 = false!)
-    let ok3 = b.hi > b.zero;   // 127 > 0 = true
-    let ok4 = b.lo <= b.lo;    // -128 <= -128 = true
-    let ok5 = b.hi >= b.hi;    // 127 >= 127 = true
-    if ok1 && ok2 && ok3 && ok4 && ok5 then 0 else 1
-}
-",
+        include_str!("fixtures/narrowing/narrowed_comparison_i8_boundary_values.ori"),
         "narrowed_comparison_i8_boundaries",
     );
 }
@@ -710,22 +465,7 @@ type Bounds = { lo: int, hi: int, zero: int }
 #[test]
 fn test_narrowed_comparison_ordering_chain() {
     assert_aot_success(
-        r"
-type Triple = { x: int, y: int, z: int }
-
-@min_of_three (t: Triple) -> int = {
-    let m = t.x;
-    let m = if t.y < m then t.y else m;
-    if t.z < m then t.z else m
-}
-
-@main () -> int = {
-    let t = Triple { x: -10, y: -100, z: -1 };
-    let m = min_of_three(t:);
-    // min(-10, -100, -1) = -100
-    if m == -100 then 0 else 1
-}
-",
+        include_str!("fixtures/narrowing/narrowed_comparison_ordering_chain.ori"),
         "narrowed_comparison_ordering_chain",
     );
 }
@@ -745,19 +485,9 @@ type Triple = { x: int, y: int, z: int }
 /// This test ONLY passes with Phase B straight-line local narrowing.
 #[test]
 fn test_phase_b_ir_pin_straight_line_add_narrowed() {
-    let ir = compile_and_capture_ir(
-        r"
-@id (x: int) -> int = x;
-
-@use_literal () -> int = {
-    let x = 50;
-    let y = x + 25;
-    id(x: y)
-}
-
-@main () -> int = use_literal();
-",
-    );
+    let ir = compile_and_capture_ir(include_str!(
+        "fixtures/narrowing/phase_b_ir_pin_straight_line_add_narrowed.ori"
+    ));
 
     let fn_ir = extract_function_ir(&ir, "_ori_use_literal");
 
@@ -777,20 +507,9 @@ fn test_phase_b_ir_pin_straight_line_add_narrowed() {
 /// Each narrowed variable definition inserts its own trunc+sext pair.
 #[test]
 fn test_phase_b_ir_pin_multiple_narrowed_locals() {
-    let ir = compile_and_capture_ir(
-        r"
-@id (x: int) -> int = x;
-
-@compute () -> int = {
-    let x = 50;
-    let y = x + 25;
-    let z = y + 10;
-    id(x: z)
-}
-
-@main () -> int = compute();
-",
-    );
+    let ir = compile_and_capture_ir(include_str!(
+        "fixtures/narrowing/phase_b_ir_pin_multiple_narrowed_locals.ori"
+    ));
 
     let fn_ir = extract_function_ir(&ir, "_ori_compute");
 
@@ -811,13 +530,9 @@ fn test_phase_b_ir_pin_multiple_narrowed_locals() {
 /// external callers might pass any value.
 #[test]
 fn test_phase_b_negative_public_param_not_narrowed() {
-    let ir = compile_and_capture_ir(
-        r"
-pub @add_one (n: int) -> int = n + 1;
-
-@main () -> int = add_one(n: 5);
-",
-    );
+    let ir = compile_and_capture_ir(include_str!(
+        "fixtures/narrowing/phase_b_negative_public_param_not_narrowed.ori"
+    ));
 
     let fn_ir = extract_function_ir(&ir, "_ori_add_one");
 
@@ -835,18 +550,9 @@ pub @add_one (n: int) -> int = n + 1;
 /// Range [3B, 3B] does not fit in i32 [-2^31, 2^31-1].
 #[test]
 fn test_phase_b_negative_wide_constant_stays_i64() {
-    let ir = compile_and_capture_ir(
-        r"
-@id (x: int) -> int = x;
-
-@use_wide () -> int = {
-    let x = 3_000_000_000;
-    id(x:)
-}
-
-@main () -> int = use_wide();
-",
-    );
+    let ir = compile_and_capture_ir(include_str!(
+        "fixtures/narrowing/phase_b_negative_wide_constant_stays_i64.ori"
+    ));
 
     let fn_ir = extract_function_ir(&ir, "_ori_use_wide");
 
@@ -867,13 +573,9 @@ fn test_phase_b_negative_wide_constant_stays_i64() {
 /// This test ONLY passes once the Select path uses `def_var_repr()`.
 #[test]
 fn test_phase_b_ir_pin_select_narrowed() {
-    let ir = compile_and_capture_ir(
-        r"
-@pick (b: bool) -> int = if b then 1 else 2;
-
-@main () -> int = pick(b: true);
-",
-    );
+    let ir = compile_and_capture_ir(include_str!(
+        "fixtures/narrowing/phase_b_ir_pin_select_narrowed.ori"
+    ));
 
     let fn_ir = extract_function_ir(&ir, "_ori_pick");
 
@@ -898,15 +600,7 @@ fn test_phase_b_ir_pin_select_narrowed() {
 #[test]
 fn test_phase_b_select_narrowed_behavior() {
     assert_aot_success(
-        r"
-@pick (b: bool) -> int = if b then 10 else 20;
-
-@main () -> int = {
-    let t = pick(b: true);
-    let f = pick(b: false);
-    if t == 10 && f == 20 then 0 else 1
-}
-",
+        include_str!("fixtures/narrowing/phase_b_select_narrowed_behavior.ori"),
         "select_narrowed_behavior",
     );
 }
@@ -916,15 +610,7 @@ fn test_phase_b_select_narrowed_behavior() {
 #[test]
 fn test_phase_b_select_narrowed_negative_values() {
     assert_aot_success(
-        r"
-@pick (b: bool) -> int = if b then -50 else -100;
-
-@main () -> int = {
-    let sum = pick(b: true) + pick(b: false);
-    // -50 + -100 = -150
-    if sum == -150 then 0 else 1
-}
-",
+        include_str!("fixtures/narrowing/phase_b_select_narrowed_negative_values.ori"),
         "select_narrowed_negative_values",
     );
 }
@@ -936,19 +622,9 @@ fn test_phase_b_select_narrowed_negative_values() {
 /// No explicit overflow guard is needed.
 #[test]
 fn test_phase_b_overflow_guard_widens_to_i16() {
-    let ir = compile_and_capture_ir(
-        r"
-@id (x: int) -> int = x;
-
-@compute () -> int = {
-    let x = 100;
-    let y = x + 50;
-    id(x: y)
-}
-
-@main () -> int = compute();
-",
-    );
+    let ir = compile_and_capture_ir(include_str!(
+        "fixtures/narrowing/phase_b_overflow_guard_widens_to_i16.ori"
+    ));
 
     let fn_ir = extract_function_ir(&ir, "_ori_compute");
 
@@ -972,16 +648,7 @@ fn test_phase_b_overflow_guard_widens_to_i16() {
 #[test]
 fn test_phase_b_overflow_guard_behavior() {
     assert_aot_success(
-        r"
-@compute () -> int = {
-    let x = 100;
-    let y = x + 50;
-    // 150 exceeds i8 range but fits i16 — value must be preserved
-    if y == 150 then 0 else 1
-}
-
-@main () -> int = compute();
-",
+        include_str!("fixtures/narrowing/phase_b_overflow_guard_behavior.ori"),
         "overflow_guard_behavior",
     );
 }
@@ -995,19 +662,9 @@ fn test_phase_b_overflow_guard_behavior() {
 /// Without Disabled, the Pixel struct would show `i8` fields in IR.
 #[test]
 fn test_narrowing_policy_disabled_suppresses_struct_narrowing() {
-    let ir = compile_and_capture_ir_no_repr_opt(
-        r"
-type Pixel = { r: int, g: int, b: int, a: int }
-
-@read_pixel (p: Pixel) -> int = p.r + p.g + p.b + p.a;
-
-@main () -> int = {
-    let p = Pixel { r: 10, g: 20, b: 30, a: 40 };
-    let sum = read_pixel(p:);
-    if sum == 100 then 0 else 1
-}
-",
-    );
+    let ir = compile_and_capture_ir_no_repr_opt(include_str!(
+        "fixtures/narrowing/narrowing_policy_disabled_suppresses_struct_narrowing.ori"
+    ));
 
     let fn_ir = extract_function_ir(&ir, "_ori_read_pixel");
 
@@ -1024,19 +681,9 @@ type Pixel = { r: int, g: int, b: int, a: int }
 /// Loop counters and straight-line locals stay canonical i64.
 #[test]
 fn test_narrowing_policy_disabled_suppresses_local_narrowing() {
-    let ir = compile_and_capture_ir_no_repr_opt(
-        r"
-@id (x: int) -> int = x;
-
-@compute () -> int = {
-    let x = 50;
-    let y = x + 25;
-    id(x: y)
-}
-
-@main () -> int = compute();
-",
-    );
+    let ir = compile_and_capture_ir_no_repr_opt(include_str!(
+        "fixtures/narrowing/narrowing_policy_disabled_suppresses_local_narrowing.ori"
+    ));
 
     let fn_ir = extract_function_ir(&ir, "_ori_compute");
 
@@ -1068,15 +715,7 @@ fn test_narrowing_policy_disabled_behavioral_correctness() {
 
     std::fs::write(
         &source_path,
-        r"
-type Pixel = { r: int, g: int, b: int, a: int }
-
-@main () -> int = {
-    let p = Pixel { r: -128, g: 0, b: 127, a: 42 };
-    let sum = p.r + p.g + p.b + p.a;
-    if sum == 41 then 0 else 1
-}
-",
+        include_str!("fixtures/narrowing/narrowing_policy_disabled_behavioral_correctness.ori"),
     )
     .unwrap();
 
@@ -1123,14 +762,9 @@ type Pixel = { r: int, g: int, b: int, a: int }
 /// Verifies LLVM IR contains narrowed `elem_size` (1) instead of canonical (8).
 #[test]
 fn test_narrowed_list_i8_ir_pin() {
-    let ir = compile_and_capture_ir(
-        r"
-@main () -> int = {
-    let xs: [int] = [1, 2, 3];
-    xs[0]
-}
-",
-    );
+    let ir = compile_and_capture_ir(include_str!(
+        "fixtures/narrowing/narrowed_list_i8_ir_pin.ori"
+    ));
 
     let main_ir = extract_function_ir(&ir, "_ori_main");
     // Construction: ori_list_alloc_data with elem_size=1 (i8), not 8 (i64)
@@ -1160,13 +794,7 @@ fn test_narrowed_list_i8_ir_pin() {
 #[test]
 fn test_narrowed_list_index_round_trip() {
     assert_aot_success(
-        r"
-@main () -> int = {
-    let xs: [int] = [-128, 0, 127, 42];
-    let ok = xs[0] == -128 && xs[1] == 0 && xs[2] == 127 && xs[3] == 42;
-    if ok then 0 else 1
-}
-",
+        include_str!("fixtures/narrowing/narrowed_list_index_round_trip.ori"),
         "narrowed_list_index_round_trip",
     );
 }
@@ -1176,13 +804,7 @@ fn test_narrowed_list_index_round_trip() {
 #[test]
 fn test_narrowed_list_for_yield() {
     assert_aot_success(
-        r"
-@main () -> int = {
-    let result = for x in [10, 20, 30] yield x;
-    let ok = result[0] == 10 && result[1] == 20 && result[2] == 30;
-    if ok then 0 else 1
-}
-",
+        include_str!("fixtures/narrowing/narrowed_list_for_yield.ori"),
         "narrowed_list_for_yield",
     );
 }
@@ -1191,13 +813,7 @@ fn test_narrowed_list_for_yield() {
 #[test]
 fn test_narrowed_list_for_yield_transform() {
     assert_aot_success(
-        r"
-@main () -> int = {
-    let result = for x in [1, 2, 3] yield x * 10;
-    let ok = result[0] == 10 && result[1] == 20 && result[2] == 30;
-    if ok then 0 else 1
-}
-",
+        include_str!("fixtures/narrowing/narrowed_list_for_yield_transform.ori"),
         "narrowed_list_for_yield_transform",
     );
 }
@@ -1206,14 +822,7 @@ fn test_narrowed_list_for_yield_transform() {
 #[test]
 fn test_narrowed_list_iteration_sum() {
     assert_aot_success(
-        r"
-@main () -> int = {
-    let xs = [10, 20, 30, 40];
-    let sum = 0;
-    for x in xs do { sum = sum + x };
-    if sum == 100 then 0 else 1
-}
-",
+        include_str!("fixtures/narrowing/narrowed_list_iteration_sum.ori"),
         "narrowed_list_iteration_sum",
     );
 }
@@ -1222,19 +831,7 @@ fn test_narrowed_list_iteration_sum() {
 #[test]
 fn test_narrowed_list_derived_eq() {
     assert_aot_success(
-        r"
-#derive(Eq)
-type Container = { items: [int] }
-
-@main () -> int = {
-    let a = Container { items: [1, 2, 3] };
-    let b = Container { items: [1, 2, 3] };
-    let c = Container { items: [1, 2, 4] };
-    let eq = a == b;
-    let neq = a != c;
-    if eq && neq then 0 else 1
-}
-",
+        include_str!("fixtures/narrowing/narrowed_list_derived_eq.ori"),
         "narrowed_list_derived_eq",
     );
 }
@@ -1243,20 +840,7 @@ type Container = { items: [int] }
 #[test]
 fn test_narrowed_list_first_last() {
     assert_aot_success(
-        r"
-@main () -> int = {
-    let xs = [10, 20, 30];
-    let f = xs.first();
-    let l = xs.last();
-    let ok = is_some(option: f) && is_some(option: l);
-    if !ok then 1
-    else {
-        let fv = f.unwrap_or(default: -1);
-        let lv = l.unwrap_or(default: -1);
-        if fv == 10 && lv == 30 then 0 else 2
-    }
-}
-",
+        include_str!("fixtures/narrowing/narrowed_list_first_last.ori"),
         "narrowed_list_first_last",
     );
 }
@@ -1265,14 +849,7 @@ fn test_narrowed_list_first_last() {
 #[test]
 fn test_narrowed_list_sort() {
     assert_aot_success(
-        r"
-@main () -> int = {
-    let xs = [30, 10, 20];
-    let sorted = xs.sort();
-    let ok = sorted[0] == 10 && sorted[1] == 20 && sorted[2] == 30;
-    if ok then 0 else 1
-}
-",
+        include_str!("fixtures/narrowing/narrowed_list_sort.ori"),
         "narrowed_list_sort",
     );
 }
@@ -1281,14 +858,9 @@ fn test_narrowed_list_sort() {
 /// canonical i64 element storage — no i8 GEP in the LLVM IR.
 #[test]
 fn test_narrowed_list_disabled_ir_pin() {
-    let ir = compile_and_capture_ir_no_repr_opt(
-        r"
-@main () -> int = {
-    let xs: [int] = [1, 2, 3];
-    xs[0]
-}
-",
-    );
+    let ir = compile_and_capture_ir_no_repr_opt(include_str!(
+        "fixtures/narrowing/narrowed_list_disabled_ir_pin.ori"
+    ));
 
     let main_ir = extract_function_ir(&ir, "_ori_main");
     // With narrowing disabled, element GEP should NOT use i8
@@ -1314,15 +886,9 @@ fn test_narrowed_list_disabled_ir_pin() {
 /// Sets are created via `.iter().collect()` — canonical element sizes.
 #[test]
 fn test_set_int_canonical_with_narrowed_list_ir() {
-    let ir = compile_and_capture_ir(
-        r"
-@main () -> int = {
-    let xs: [int] = [1, 2, 3];
-    let s: Set<int> = xs.iter().collect();
-    if s.contains(value: xs[0]) then 0 else 1
-}
-",
-    );
+    let ir = compile_and_capture_ir(include_str!(
+        "fixtures/narrowing/set_int_canonical_with_narrowed_list_ir.ori"
+    ));
 
     let main_ir = extract_function_ir(&ir, "_ori_main");
     // List should be narrowed (elem_size=1 for i8)
@@ -1341,17 +907,7 @@ fn test_set_int_canonical_with_narrowed_list_ir() {
 #[test]
 fn test_set_int_operations_canonical() {
     assert_aot_success(
-        r"
-use std.testing { assert_eq, assert }
-@main () -> void = {
-    let s: Set<int> = [10, 20, 30].iter().collect();
-    assert(condition: s.contains(value: 10));
-    assert(condition: s.contains(value: 20));
-    assert(condition: s.contains(value: 30));
-    assert(condition: !s.contains(value: 40));
-    assert_eq(actual: s.len(), expected: 3);
-}
-",
+        include_str!("fixtures/narrowing/set_int_operations_canonical.ori"),
         "set_int_operations_canonical",
     );
 }
@@ -1360,25 +916,7 @@ use std.testing { assert_eq, assert }
 #[test]
 fn test_narrowed_list_and_canonical_set_coexist() {
     assert_aot_success(
-        r"
-use std.testing { assert_eq, assert }
-@main () -> void = {
-    // List gets narrowed (all values fit in i8)
-    let xs: [int] = [1, 2, 3, 4, 5];
-    assert_eq(actual: xs[0], expected: 1);
-    assert_eq(actual: xs[4], expected: 5);
-
-    // Set uses canonical sizes (not narrowed)
-    let s: Set<int> = [1, 2, 3, 4, 5].iter().collect();
-    assert(condition: s.contains(value: 1));
-    assert(condition: s.contains(value: 5));
-    assert(condition: !s.contains(value: 6));
-    assert_eq(actual: s.len(), expected: 5);
-
-    // Cross-check: list element lookup in set
-    assert(condition: s.contains(value: xs[2]));
-}
-",
+        include_str!("fixtures/narrowing/narrowed_list_and_canonical_set_coexist.ori"),
         "narrowed_list_and_canonical_set_coexist",
     );
 }
@@ -1387,18 +925,7 @@ use std.testing { assert_eq, assert }
 #[test]
 fn test_set_insert_with_narrowed_list_context() {
     assert_aot_success(
-        r"
-use std.testing { assert_eq, assert }
-@main () -> void = {
-    let xs: [int] = [10, 20, 30];
-    let s: Set<int> = [10, 20].iter().collect();
-    let s2 = s.insert(value: 30);
-    assert_eq(actual: s2.len(), expected: 3);
-    assert(condition: s2.contains(value: 30));
-    // Original set unchanged
-    assert_eq(actual: s.len(), expected: 2);
-}
-",
+        include_str!("fixtures/narrowing/set_insert_with_narrowed_list_context.ori"),
         "set_insert_with_narrowed_list_context",
     );
 }
@@ -1415,20 +942,7 @@ use std.testing { assert_eq, assert }
 #[test]
 fn test_for_yield_str_with_narrowed_int_list() {
     assert_aot_success(
-        r"
-use std.testing { assert_eq }
-@main () -> void = {
-    // Narrowed [int] literal (all values fit in i8)
-    let xs: [int] = [1, 2, 3];
-    assert_eq(actual: xs[0], expected: 1);
-
-    // for-yield producing [str] — must NOT use narrowed elem_size
-    let ys: [str] = for x in xs.iter() yield if x == 1 then `a` else `bb`;
-    assert_eq(actual: ys[0], expected: `a`);
-    assert_eq(actual: ys[1], expected: `bb`);
-    assert_eq(actual: ys[2], expected: `bb`);
-}
-",
+        include_str!("fixtures/narrowing/for_yield_str_with_narrowed_int_list.ori"),
         "for_yield_str_with_narrowed_int_list",
     );
 }
@@ -1437,16 +951,7 @@ use std.testing { assert_eq }
 #[test]
 fn test_for_yield_int_from_narrowed_int_list() {
     assert_aot_success(
-        r"
-use std.testing { assert_eq }
-@main () -> void = {
-    let xs: [int] = [1, 2, 3];
-    let ys: [int] = for x in xs.iter() yield x * 2;
-    assert_eq(actual: ys[0], expected: 2);
-    assert_eq(actual: ys[1], expected: 4);
-    assert_eq(actual: ys[2], expected: 6);
-}
-",
+        include_str!("fixtures/narrowing/for_yield_int_from_narrowed_int_list.ori"),
         "for_yield_int_from_narrowed_int_list",
     );
 }
@@ -1455,20 +960,7 @@ use std.testing { assert_eq }
 #[test]
 fn test_mixed_for_yield_int_and_str() {
     assert_aot_success(
-        r"
-use std.testing { assert_eq }
-@main () -> void = {
-    let xs: [int] = [1, 2, 3];
-    // Int for-yield — safe to narrow
-    let doubled: [int] = for x in xs.iter() yield x * 2;
-    // Str for-yield — must NOT narrow
-    let names: [str] = for x in xs.iter() yield if x == 1 then `one` else `other`;
-    assert_eq(actual: doubled[0], expected: 2);
-    assert_eq(actual: doubled[2], expected: 6);
-    assert_eq(actual: names[0], expected: `one`);
-    assert_eq(actual: names[1], expected: `other`);
-}
-",
+        include_str!("fixtures/narrowing/mixed_for_yield_int_and_str.ori"),
         "mixed_for_yield_int_and_str",
     );
 }
@@ -1485,17 +977,7 @@ use std.testing { assert_eq }
 #[test]
 fn test_float_narrowed_struct_roundtrip() {
     assert_aot_success(
-        r"
-type FloatPoint = { x: float, y: float, z: float }
-
-@main () -> int = {
-    let p = FloatPoint { x: 0.0, y: 0.5, z: 1.0 };
-    let ok1 = p.x == 0.0;
-    let ok2 = p.y == 0.5;
-    let ok3 = p.z == 1.0;
-    if ok1 && ok2 && ok3 then 0 else 1
-}
-",
+        include_str!("fixtures/narrowing/float_narrowed_struct_roundtrip.ori"),
         "float_narrowed_struct_roundtrip",
     );
 }
@@ -1504,19 +986,9 @@ type FloatPoint = { x: float, y: float, z: float }
 /// A struct with all f32-exact fields should produce `{ float, float, float }` in LLVM IR.
 #[test]
 fn test_float_narrowed_struct_ir_pin_type_layout() {
-    let ir = compile_and_capture_ir(
-        r"
-type FloatColor = { r: float, g: float, b: float }
-
-@read_r (c: FloatColor) -> float = c.r;
-
-@main () -> int = {
-    let c = FloatColor { r: 0.5, g: 0.25, b: 1.0 };
-    let v = read_r(c:);
-    if v == 0.5 then 0 else 1
-}
-",
-    );
+    let ir = compile_and_capture_ir(include_str!(
+        "fixtures/narrowing/float_narrowed_struct_ir_pin_type_layout.ori"
+    ));
 
     let fn_ir = extract_function_ir(&ir, "_ori_read_r");
 
@@ -1535,19 +1007,9 @@ type FloatColor = { r: float, g: float, b: float }
 /// IR semantic pin: narrowed float struct construction must insert `fptrunc double ... to float`.
 #[test]
 fn test_float_narrowed_struct_ir_pin_fptrunc_on_construction() {
-    let ir = compile_and_capture_ir(
-        r"
-type FVec2 = { x: float, y: float }
-
-@read_x (v: FVec2) -> float = v.x;
-
-@main () -> int = {
-    let v = FVec2 { x: 0.5, y: 0.25 };
-    let r = read_x(v:);
-    if r == 0.5 then 0 else 1
-}
-",
-    );
+    let ir = compile_and_capture_ir(include_str!(
+        "fixtures/narrowing/float_narrowed_struct_ir_pin_fptrunc_on_construction.ori"
+    ));
 
     let main_ir = extract_function_ir(&ir, "_ori_main");
 
@@ -1568,19 +1030,9 @@ type FVec2 = { x: float, y: float }
 /// IR semantic pin: narrowed float struct field loads must produce `fpext float ... to double`.
 #[test]
 fn test_float_narrowed_struct_ir_pin_fpext_on_field_load() {
-    let ir = compile_and_capture_ir(
-        r"
-type FVec2 = { x: float, y: float }
-
-@sum_fields (v: FVec2) -> float = v.x + v.y;
-
-@main () -> int = {
-    let v = FVec2 { x: 0.5, y: 0.25 };
-    let s = sum_fields(v:);
-    if s == 0.75 then 0 else 1
-}
-",
-    );
+    let ir = compile_and_capture_ir(include_str!(
+        "fixtures/narrowing/float_narrowed_struct_ir_pin_fpext_on_field_load.ori"
+    ));
 
     let fn_ir = extract_function_ir(&ir, "_ori_sum_fields");
 
@@ -1599,19 +1051,9 @@ type FVec2 = { x: float, y: float }
 /// `1e300` exceeds f32 range — fields must stay double.
 #[test]
 fn test_float_non_narrowed_struct_ir_pin_wide_value() {
-    let ir = compile_and_capture_ir(
-        r"
-type WideFloat = { a: float, b: float }
-
-@sum_wide (w: WideFloat) -> float = w.a + w.b;
-
-@main () -> int = {
-    let w = WideFloat { a: 1e300, b: -1e300 };
-    let s = sum_wide(w:);
-    if s == 0.0 then 0 else 1
-}
-",
-    );
+    let ir = compile_and_capture_ir(include_str!(
+        "fixtures/narrowing/float_non_narrowed_struct_ir_pin_wide_value.ori"
+    ));
 
     let fn_ir = extract_function_ir(&ir, "_ori_sum_wide");
 
@@ -1628,21 +1070,9 @@ type WideFloat = { a: float, b: float }
 /// Even if the result is f32-exact, the analysis deems arithmetic as Top.
 #[test]
 fn test_float_arithmetic_not_narrowed() {
-    let ir = compile_and_capture_ir(
-        r"
-type Result = { val: float }
-
-@compute (r: Result) -> float = r.val;
-
-@main () -> int = {
-    let x = 0.5;
-    let y = x + 0.0;
-    let r = Result { val: y };
-    let v = compute(r:);
-    if v == 0.5 then 0 else 1
-}
-",
-    );
+    let ir = compile_and_capture_ir(include_str!(
+        "fixtures/narrowing/float_arithmetic_not_narrowed.ori"
+    ));
 
     let fn_ir = extract_function_ir(&ir, "_ori_compute");
 
@@ -1659,22 +1089,9 @@ type Result = { val: float }
 /// Only literal values are analyzed for f32-exactness.
 #[test]
 fn test_float_variable_not_narrowed() {
-    let ir = compile_and_capture_ir(
-        r"
-type Wrap = { val: float }
-
-@identity (x: float) -> float = x;
-
-@compute (w: Wrap) -> float = w.val;
-
-@main () -> int = {
-    let x = identity(x: 0.5);
-    let w = Wrap { val: x };
-    let v = compute(w:);
-    if v == 0.5 then 0 else 1
-}
-",
-    );
+    let ir = compile_and_capture_ir(include_str!(
+        "fixtures/narrowing/float_variable_not_narrowed.ori"
+    ));
 
     let fn_ir = extract_function_ir(&ir, "_ori_compute");
 
@@ -1691,19 +1108,9 @@ type Wrap = { val: float }
 /// Verifies combined integer+float narrowing in one struct.
 #[test]
 fn test_mixed_int_float_narrowed_struct() {
-    let ir = compile_and_capture_ir(
-        r"
-type Particle = { mass: float, health: int }
-
-@read_mass (p: Particle) -> float = p.mass;
-
-@main () -> int = {
-    let p = Particle { mass: 0.5, health: 100 };
-    let m = read_mass(p:);
-    if m == 0.5 && p.health == 100 then 0 else 1
-}
-",
-    );
+    let ir = compile_and_capture_ir(include_str!(
+        "fixtures/narrowing/mixed_int_float_narrowed_struct.ori"
+    ));
 
     let fn_ir = extract_function_ir(&ir, "_ori_read_mass");
 
@@ -1724,20 +1131,9 @@ type Particle = { mass: float, health: int }
 /// C ABI compatibility requires canonical double layout.
 #[test]
 fn test_float_repr_c_not_narrowed() {
-    let ir = compile_and_capture_ir(
-        r#"
-#[repr("c")]
-type CPoint = { x: float, y: float }
-
-@read_x (p: CPoint) -> float = p.x;
-
-@main () -> int = {
-    let p = CPoint { x: 0.5, y: 0.25 };
-    let v = read_x(p:);
-    if v == 0.5 then 0 else 1
-}
-"#,
-    );
+    let ir = compile_and_capture_ir(include_str!(
+        "fixtures/narrowing/float_repr_c_not_narrowed.ori"
+    ));
 
     let fn_ir = extract_function_ir(&ir, "_ori_read_x");
 
@@ -1761,18 +1157,7 @@ type CPoint = { x: float, y: float }
 #[test]
 fn test_float_narrowed_derive_printable() {
     assert_aot_success(
-        r#"
-#[derive(Printable)]
-type FPoint = { x: float, y: float }
-
-@main () -> int = {
-    let p = FPoint { x: 0.5, y: 0.25 };
-    let s = p.to_str();
-    let has_05 = s.contains(substr: "0.5");
-    let has_025 = s.contains(substr: "0.25");
-    if has_05 && has_025 then 0 else 1
-}
-"#,
+        include_str!("fixtures/narrowing/float_narrowed_derive_printable.ori"),
         "float_narrowed_derive_printable",
     );
 }
@@ -1783,20 +1168,7 @@ type FPoint = { x: float, y: float }
 #[test]
 fn test_float_narrowed_derive_debug() {
     assert_aot_success(
-        r#"
-#[derive(Debug)]
-type FColor = { r: float, g: float, b: float }
-
-@main () -> int = {
-    let c = FColor { r: 0.5, g: 0.25, b: 1.0 };
-    let s = c.debug();
-    let has_05 = s.contains(substr: "0.5");
-    let has_025 = s.contains(substr: "0.25");
-    // Runtime formats 1.0 as "1" (no trailing .0)
-    let has_b = s.contains(substr: "b: 1");
-    if has_05 && has_025 && has_b then 0 else 1
-}
-"#,
+        include_str!("fixtures/narrowing/float_narrowed_derive_debug.ori"),
         "float_narrowed_derive_debug",
     );
 }
@@ -1807,19 +1179,7 @@ type FColor = { r: float, g: float, b: float }
 #[test]
 fn test_float_narrowed_derive_hash() {
     assert_aot_success(
-        r"
-#[derive(Eq, Hashable)]
-type FPair = { x: float, y: float }
-
-@main () -> int = {
-    let a = FPair { x: 0.5, y: 0.25 };
-    let b = FPair { x: 0.5, y: 0.25 };
-    let c = FPair { x: 1.0, y: 0.0 };
-    let same = a.hash() == b.hash();
-    let diff = a.hash() != c.hash();
-    if same && diff then 0 else 1
-}
-",
+        include_str!("fixtures/narrowing/float_narrowed_derive_hash.ori"),
         "float_narrowed_derive_hash",
     );
 }
@@ -1829,19 +1189,7 @@ type FPair = { x: float, y: float }
 #[test]
 fn test_float_narrowed_derive_eq() {
     assert_aot_success(
-        r"
-#[derive(Eq)]
-type FVec = { x: float, y: float }
-
-@main () -> int = {
-    let a = FVec { x: 0.5, y: 0.25 };
-    let b = FVec { x: 0.5, y: 0.25 };
-    let c = FVec { x: 1.0, y: 0.0 };
-    let ok1 = a == b;
-    let ok2 = a != c;
-    if ok1 && ok2 then 0 else 1
-}
-",
+        include_str!("fixtures/narrowing/float_narrowed_derive_eq.ori"),
         "float_narrowed_derive_eq",
     );
 }
@@ -1851,19 +1199,7 @@ type FVec = { x: float, y: float }
 #[test]
 fn test_float_narrowed_derive_comparable() {
     assert_aot_success(
-        r"
-#[derive(Eq, Comparable)]
-type Measure = { value: float }
-
-@main () -> int = {
-    let a = Measure { value: 0.25 };
-    let b = Measure { value: 0.5 };
-    let ok1 = a < b;
-    let ok2 = b > a;
-    let ok3 = a <= a;
-    if ok1 && ok2 && ok3 then 0 else 1
-}
-",
+        include_str!("fixtures/narrowing/float_narrowed_derive_comparable.ori"),
         "float_narrowed_derive_comparable",
     );
 }
@@ -1873,20 +1209,9 @@ type Measure = { value: float }
 /// Directly verifies at the IR level that float widening occurs before formatting.
 #[test]
 fn test_float_narrowed_derive_ir_pin_fpext_in_printable() {
-    let ir = compile_and_capture_ir(
-        r#"
-#[derive(Printable)]
-type FmtFloat = { x: float }
-
-@format_it (f: FmtFloat) -> str = f.to_str();
-
-@main () -> int = {
-    let f = FmtFloat { x: 0.5 };
-    let s = format_it(f:);
-    if s.contains(substr: "0.5") then 0 else 1
-}
-"#,
-    );
+    let ir = compile_and_capture_ir(include_str!(
+        "fixtures/narrowing/float_narrowed_derive_ir_pin_fpext_in_printable.ori"
+    ));
 
     // The derive Printable function must fpext narrowed float fields to double
     // before calling ori_str_from_float. Without the fix, LLVM verification fails.
@@ -1911,19 +1236,7 @@ type FmtFloat = { x: float }
 #[test]
 fn test_float_narrowed_negative_zero() {
     assert_aot_success(
-        r"
-type Signed = { value: float }
-
-@main () -> int = {
-    let s = Signed { value: -0.0 };
-    // -0.0 == 0.0 per IEEE 754 equality
-    let eq_zero = s.value == 0.0;
-    // 1.0 / -0.0 = -infinity (negative)
-    let div_result = 1.0 / s.value;
-    let neg_inf = div_result < 0.0;
-    if eq_zero && neg_inf then 0 else 1
-}
-",
+        include_str!("fixtures/narrowing/float_narrowed_negative_zero.ori"),
         "float_narrowed_negative_zero",
     );
 }
@@ -1933,17 +1246,7 @@ type Signed = { value: float }
 #[test]
 fn test_float_narrowed_boundary_values() {
     assert_aot_success(
-        r"
-type Boundary = { large: float, small: float, edge: float }
-
-@main () -> int = {
-    let b = Boundary { large: 16777216.0, small: 0.0625, edge: 16777215.0 };
-    let ok1 = b.large == 16777216.0;
-    let ok2 = b.small == 0.0625;
-    let ok3 = b.edge == 16777215.0;
-    if ok1 && ok2 && ok3 then 0 else 1
-}
-",
+        include_str!("fixtures/narrowing/float_narrowed_boundary_values.ori"),
         "float_narrowed_boundary_values",
     );
 }
@@ -1953,23 +1256,7 @@ type Boundary = { large: float, small: float, edge: float }
 #[test]
 fn test_float_narrowed_multiple_stores() {
     assert_aot_success(
-        r"
-type Config = { threshold: float }
-
-@config_a () -> Config = Config { threshold: 0.0 };
-@config_b () -> Config = Config { threshold: 1.0 };
-@config_c () -> Config = Config { threshold: 0.5 };
-@config_d () -> Config = Config { threshold: 255.0 };
-
-@main () -> int = {
-    let a = config_a();
-    let b = config_b();
-    let c = config_c();
-    let d = config_d();
-    let sum = a.threshold + b.threshold + c.threshold + d.threshold;
-    if sum == 256.5 then 0 else 1
-}
-",
+        include_str!("fixtures/narrowing/float_narrowed_multiple_stores.ori"),
         "float_narrowed_multiple_stores",
     );
 }
@@ -1980,19 +1267,7 @@ type Config = { threshold: float }
 #[test]
 fn test_float_narrowed_mixed_exact_non_exact() {
     assert_aot_success(
-        r"
-type Measurement = { exact: float, imprecise: float }
-
-@main () -> int = {
-    let m = Measurement { exact: 0.5, imprecise: 0.1 };
-    let ok_exact = m.exact == 0.5;
-    let ok_imprecise = m.imprecise == 0.1;
-    // Use exact field in arithmetic
-    let doubled = m.exact * 2.0;
-    let ok_arith = doubled == 1.0;
-    if ok_exact && ok_imprecise && ok_arith then 0 else 1
-}
-",
+        include_str!("fixtures/narrowing/float_narrowed_mixed_exact_non_exact.ori"),
         "float_narrowed_mixed_exact_non_exact",
     );
 }
@@ -2002,19 +1277,7 @@ type Measurement = { exact: float, imprecise: float }
 #[test]
 fn test_float_narrowed_comparison_after_load() {
     assert_aot_success(
-        r"
-type Threshold = { low: float, high: float }
-
-@main () -> int = {
-    let t = Threshold { low: 0.25, high: 0.75 };
-    let lt = t.low < 1.0;
-    let gt = t.high > 0.5;
-    let cmp = t.low < t.high;
-    let eq = t.low == 0.25;
-    let neq = t.low != t.high;
-    if lt && gt && cmp && eq && neq then 0 else 1
-}
-",
+        include_str!("fixtures/narrowing/float_narrowed_comparison_after_load.ori"),
         "float_narrowed_comparison_after_load",
     );
 }
@@ -2032,30 +1295,7 @@ type Threshold = { low: float, high: float }
 #[test]
 fn test_for_yield_all_unit_enum() {
     assert_aot_success(
-        r"
-type Dir = North | South | East | West;
-
-@dir_to_int (d: Dir) -> int = {
-    match d {
-        North -> 0,
-        South -> 1,
-        East -> 2,
-        West -> 3,
-    }
-}
-
-@main () -> int = {
-    let dirs = [North, South, East, West];
-    let copy = for d in dirs yield d;
-    if copy.len() != 4 then 1
-    else {
-        let sum = 0;
-        for d in copy do { sum = sum + dir_to_int(d: d) };
-        // 0+1+2+3 = 6
-        if sum == 6 then 0 else 2
-    }
-}
-",
+        include_str!("fixtures/narrowing/for_yield_all_unit_enum.ori"),
         "for_yield_all_unit_enum",
     );
 }
@@ -2064,27 +1304,7 @@ type Dir = North | South | East | West;
 #[test]
 fn test_for_yield_all_unit_enum_transform() {
     assert_aot_success(
-        r"
-type Color = Red | Green | Blue;
-
-@color_to_int (c: Color) -> int = {
-    match c {
-        Red -> 1,
-        Green -> 2,
-        Blue -> 3,
-    }
-}
-
-@main () -> int = {
-    let colors = [Red, Green, Blue];
-    let nums = for c in colors yield color_to_int(c: c);
-    if nums.len() == 3 then {
-        let sum = 0;
-        for n in nums do { sum = sum + n };
-        if sum == 6 then 0 else 1
-    } else 1
-}
-",
+        include_str!("fixtures/narrowing/for_yield_all_unit_enum_transform.ori"),
         "for_yield_all_unit_enum_transform",
     );
 }
@@ -2093,16 +1313,7 @@ type Color = Red | Green | Blue;
 #[test]
 fn test_for_yield_range_to_enum() {
     assert_aot_success(
-        r"
-type Bit = Zero | One;
-
-@main () -> int = {
-    let bits = for i in 0..4 yield {
-        if i % 2 == 0 then Zero else One
-    };
-    if bits.len() == 4 then 0 else 1
-}
-",
+        include_str!("fixtures/narrowing/for_yield_range_to_enum.ori"),
         "for_yield_range_to_enum",
     );
 }

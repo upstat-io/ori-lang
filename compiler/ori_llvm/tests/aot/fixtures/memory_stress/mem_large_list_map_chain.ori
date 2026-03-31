@@ -1,0 +1,12 @@
+@main () -> int = {
+    let xs = for i in 1..=10000 yield i;
+    let result = xs.iter()
+        .map(x -> x * 2)
+        .filter(x -> x % 4 == 0)
+        .map(x -> x + 1)
+        .take(1000)
+        .fold(start: 0, f: (acc: int, x: int) -> int = acc + x);
+    // Items: 4+1, 8+1, 12+1, ..., first 1000 multiples of 4: (4k+1) for k=1..1000
+    // = 4*sum(1..1000) + 1000 = 4*500500 + 1000 = 2003000
+    if result == 2003000 then 0 else 1
+}

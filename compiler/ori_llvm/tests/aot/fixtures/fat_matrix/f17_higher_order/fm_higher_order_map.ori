@@ -1,0 +1,8 @@
+@apply_to_map (f: ({str: int}) -> int, m: {str: int}) -> int = f(m);
+
+@map_size (m: {str: int}) -> int = m.length();
+
+@main () -> int = {
+    let m = {"a": 1, "b": 2};
+    if apply_to_map(f: map_size, m: m) == 2 then 0 else 1
+}

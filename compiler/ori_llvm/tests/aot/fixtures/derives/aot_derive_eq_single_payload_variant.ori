@@ -1,0 +1,13 @@
+#[derive(Eq)]
+type Wrapper = Val(x: int) | Empty;
+
+@main () -> int = {
+    let v1 = Val(x: 42);
+    let v2 = Val(x: 42);
+    let v3 = Val(x: 99);
+    let e = Empty;
+    let same_val = v1 == v2;
+    let diff_val = v1 != v3;
+    let val_vs_empty = v1 != e;
+    if same_val && diff_val && val_vs_empty then 0 else 1
+}

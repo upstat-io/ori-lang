@@ -1,0 +1,4 @@
+@main () -> int = {
+    let f = (xs: [str]) -> int = xs.length();
+    if f(["hello", "world"]) == 2 then 0 else 1
+}

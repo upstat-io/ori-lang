@@ -1,0 +1,11 @@
+#[derive(Eq, Hashable)]
+type FPair = { x: float, y: float }
+
+@main () -> int = {
+    let a = FPair { x: 0.5, y: 0.25 };
+    let b = FPair { x: 0.5, y: 0.25 };
+    let c = FPair { x: 1.0, y: 0.0 };
+    let same = a.hash() == b.hash();
+    let diff = a.hash() != c.hash();
+    if same && diff then 0 else 1
+}

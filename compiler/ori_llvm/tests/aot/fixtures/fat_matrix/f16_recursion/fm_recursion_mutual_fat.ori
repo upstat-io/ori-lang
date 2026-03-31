@@ -1,0 +1,16 @@
+@is_even (n: int) -> int = {
+    let tag = "even";
+    if n == 0 then tag.length()
+    else is_odd(n: n - 1)
+};
+
+@is_odd (n: int) -> int = {
+    let tag = "odd";
+    if n == 0 then tag.length()
+    else is_even(n: n - 1)
+};
+
+@main () -> int = {
+    let r = is_even(n: 4);
+    if r == 4 then 0 else 1
+}

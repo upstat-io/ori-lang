@@ -1,0 +1,6 @@
+@double (x: int) -> int = x * 2;
+@apply (f: (int) -> int, x: int) -> int = f(x);
+
+@main () -> int = {
+    if apply(f: double, x: 21) == 42 then 0 else 1
+}

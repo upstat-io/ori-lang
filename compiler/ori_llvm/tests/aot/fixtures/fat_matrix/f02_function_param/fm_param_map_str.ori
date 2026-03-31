@@ -1,0 +1,6 @@
+@map_size (m: {str: int}) -> int = m.length();
+
+@main () -> int = {
+    let m = {"a": 1, "b": 2};
+    if map_size(m: m) == 2 then 0 else 1
+}

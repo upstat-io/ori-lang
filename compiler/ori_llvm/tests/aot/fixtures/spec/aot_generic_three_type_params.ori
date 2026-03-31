@@ -1,0 +1,7 @@
+@triple <A, B, C> (a: A, b: B, c: C) -> (A, B, C) = (a, b, c);
+
+@main () -> int = {
+    let t = triple(a: 1, b: true, c: 42);
+    let (x, y, z) = t;
+    if x == 1 && y && z == 42 then 0 else 1
+}

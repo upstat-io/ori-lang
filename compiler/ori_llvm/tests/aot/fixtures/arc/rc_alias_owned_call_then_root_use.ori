@@ -1,0 +1,8 @@
+@take_and_return (s: str) -> str = s;
+
+@main () -> int = {
+    let a = "owned call alias test string";
+    let b = a;
+    let $result = take_and_return(b);
+    if result == a then 0 else 1
+}

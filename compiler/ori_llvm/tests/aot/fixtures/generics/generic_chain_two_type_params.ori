@@ -1,0 +1,7 @@
+@make_pair <A, B> (a: A, b: B) -> (A, B) = (a, b);
+@wrap_with_int <T> (x: T) -> (T, int) = make_pair(a: x, b: 99);
+
+@main () -> int = {
+    let (s, n) = wrap_with_int(x: "hello");
+    if s == "hello" && n == 99 then 0 else 1
+}

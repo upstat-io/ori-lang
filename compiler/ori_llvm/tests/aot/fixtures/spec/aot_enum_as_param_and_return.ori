@@ -1,0 +1,17 @@
+type Dir = Left | Right;
+
+@flip (d: Dir) -> Dir = match d {
+    Left -> Right,
+    Right -> Left,
+};
+
+@is_left (d: Dir) -> bool = match d {
+    Left -> true,
+    Right -> false,
+};
+
+@main () -> int = {
+    let d = Left;
+    let d2 = flip(d: d);
+    if is_left(d: d) && !is_left(d: d2) then 0 else 1
+}

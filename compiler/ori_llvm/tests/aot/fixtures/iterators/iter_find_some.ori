@@ -1,0 +1,4 @@
+@main () -> int = {
+    let result = [1, 2, 3, 4].iter().find((x) -> x > 2);
+    if result.is_some() then 0 else 1
+}

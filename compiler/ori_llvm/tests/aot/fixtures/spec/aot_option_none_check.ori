@@ -1,0 +1,6 @@
+@make_none () -> Option<int> = None;
+
+@main () -> int = {
+    let o = make_none();
+    if o.is_none() then 0 else 1
+}

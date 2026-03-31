@@ -1,0 +1,24 @@
+type List = Nil | Cons(head: int, tail: List);
+
+@build (n: int) -> List = {
+    if n <= 0 then Nil
+    else Cons(head: n, tail: build(n: n - 1))
+};
+
+@list_sum (list: List) -> int = match list {
+    Nil -> 0,
+    Cons(h, t) -> h + list_sum(list: t),
+};
+
+@list_len (list: List) -> int = match list {
+    Nil -> 0,
+    Cons(_, t) -> 1 + list_len(list: t),
+};
+
+@main () -> int = {
+    // Build and consume — context root at base case gets drop hint.
+    let $list = build(n: 50);
+    let $sum_ok = list_sum(list: list) == 1275;
+    let $len_ok = list_len(list: list) == 50;
+    if sum_ok && len_ok then 0 else 1
+}

@@ -1,0 +1,5 @@
+@main () -> int = {
+    let s = "a,b,c";
+    let parts = s.split(",");
+    if parts.length() == 3 then 0 else 1
+}

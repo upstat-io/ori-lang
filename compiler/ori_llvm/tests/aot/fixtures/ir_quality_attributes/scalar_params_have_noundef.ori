@@ -1,0 +1,8 @@
+@add (a: int, b: int) -> int = a + b;
+
+@scale (x: float, factor: float) -> float = x * factor;
+
+@main () -> int = {
+    let s = scale(x: 3.0, factor: 2.0);
+    add(a: 1, b: 2)
+}

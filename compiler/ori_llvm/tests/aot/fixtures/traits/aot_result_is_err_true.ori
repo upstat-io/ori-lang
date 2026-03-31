@@ -1,0 +1,6 @@
+@get () -> Result<int, str> = Err("bad");
+
+@main () -> int = {
+    let r = get();
+    if r.is_err() then 0 else 1
+}

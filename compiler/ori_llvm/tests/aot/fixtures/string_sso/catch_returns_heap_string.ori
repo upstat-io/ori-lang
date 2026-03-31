@@ -1,0 +1,7 @@
+@main () -> int = {
+    let result = catch(expr: "this is a heap string for catch");
+    match result {
+        Ok(v) -> if v == "this is a heap string for catch" then 0 else 1,
+        Err(_) -> 2
+    }
+}

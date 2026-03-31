@@ -1,0 +1,4 @@
+@main () -> int = {
+    let (n, flag) = (42, true);
+    if n == 42 && flag then 0 else 1
+}

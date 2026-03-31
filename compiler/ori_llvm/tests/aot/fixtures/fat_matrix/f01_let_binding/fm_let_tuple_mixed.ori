@@ -1,0 +1,5 @@
+@main () -> int = {
+    let t = ("hello", 42);
+    let (s, n) = t;
+    if s.length() + n == 47 then 0 else 1
+}

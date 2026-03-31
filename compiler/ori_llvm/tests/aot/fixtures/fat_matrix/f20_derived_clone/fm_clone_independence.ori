@@ -1,0 +1,14 @@
+#derive(Clone)
+type Named = { name: str, id: int }
+
+@consume (n: Named) -> int = n.name.length();
+
+@main () -> int = {
+    let a = Named { name: "hello", id: 1 };
+    let b = a.clone();
+    let len_a = consume(n: a);
+    let len_b = b.name.length();
+    if len_a == 5 then {
+        if len_b == 5 then 0 else 1
+    } else 2
+}

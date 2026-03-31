@@ -1,0 +1,5 @@
+@main () -> int = {
+    let n = 42;
+    let f: float = n.into();
+    if f == 42.0 then 0 else 1
+}

@@ -1,0 +1,11 @@
+@level3 (f: (int) -> int, x: int) -> int = f(x);
+@level2 (f: (int) -> int, x: int) -> int = level3(f: f, x: x + 1);
+@level1 (f: (int) -> int, x: int) -> int = level2(f: f, x: x + 1);
+
+@main () -> int = {
+    let base = 100;
+    let add_base = (n: int) -> base + n;
+    let result = level1(f: add_base, x: 0);
+    // level1: x=1, level2: x=2, level3: f(2) = 102
+    if result == 102 then 0 else 1
+}

@@ -1,0 +1,11 @@
+@main () -> int = {
+    let s: Set<str> = [
+        "this is a long heap string exceeding SSO threshold for testing purposes",
+        "another long heap string to verify set iteration cleanup works correctly"
+    ].iter().collect();
+    let count = 0;
+    for item in s do {
+        count = count + 1;
+    };
+    if count == 2 then 0 else 1
+}

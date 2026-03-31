@@ -1,0 +1,8 @@
+type Point = { x: int, y: int };
+
+@main () -> int = {
+    let points = [Point { x: 3, y: 4 }, Point { x: 7, y: 1 }];
+    let total = 0;
+    for p in points do total += p.x;
+    total
+}

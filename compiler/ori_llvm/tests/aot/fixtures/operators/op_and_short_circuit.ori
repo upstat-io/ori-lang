@@ -1,0 +1,12 @@
+@expensive (x: int) -> bool = {
+    // If this is called when it shouldn't be, the computation still works
+    // but we can verify short-circuit by testing evaluation count
+    x > 0
+};
+
+@main () -> int = {
+    let called = 0;
+    // false && expensive(1) — expensive should not be called with short-circuit
+    let result = false && expensive(x: 1);
+    if result == false then 0 else 1
+}

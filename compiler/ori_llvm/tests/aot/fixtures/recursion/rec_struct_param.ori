@@ -1,0 +1,16 @@
+type Point = { x: int, y: int };
+
+@move_towards_origin (p: Point) -> int = {
+    if p.x == 0 && p.y == 0 then 0
+    else {
+        let nx = if p.x > 0 then p.x - 1 else if p.x < 0 then p.x + 1 else 0;
+        let ny = if p.y > 0 then p.y - 1 else if p.y < 0 then p.y + 1 else 0;
+        1 + move_towards_origin(p: Point { x: nx, y: ny })
+    }
+};
+
+@main () -> int = {
+    let steps = move_towards_origin(p: Point { x: 3, y: 4 });
+    // max(3, 4) = 4 steps to reach origin
+    if steps == 4 then 0 else 1
+}

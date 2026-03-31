@@ -1,0 +1,16 @@
+type Box = { val: int }
+
+@main () -> int = {
+    let sum = 0;
+    sum = sum + { let b = Box { val: 1 }; b.val };
+    sum = sum + { let b = Box { val: 2 }; b.val };
+    sum = sum + { let b = Box { val: 3 }; b.val };
+    sum = sum + { let b = Box { val: 4 }; b.val };
+    sum = sum + { let b = Box { val: 5 }; b.val };
+    sum = sum + { let b = Box { val: 6 }; b.val };
+    sum = sum + { let b = Box { val: 7 }; b.val };
+    sum = sum + { let b = Box { val: 8 }; b.val };
+    sum = sum + { let b = Box { val: 9 }; b.val };
+    sum = sum + { let b = Box { val: 10 }; b.val };
+    if sum == 55 then 0 else 1
+}

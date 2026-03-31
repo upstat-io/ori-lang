@@ -1,0 +1,14 @@
+type Value = Nothing | Single(x: int) | Pair(x: int, y: int);
+
+@sum (v: Value) -> int = match v {
+    Nothing -> 0,
+    Single(x) -> x,
+    Pair(x, y) -> x + y,
+};
+
+@main () -> int = {
+    let a = Nothing;
+    let b = Single(x: 10);
+    let c = Pair(x: 3, y: 7);
+    if sum(v: a) == 0 && sum(v: b) == 10 && sum(v: c) == 10 then 0 else 1
+}

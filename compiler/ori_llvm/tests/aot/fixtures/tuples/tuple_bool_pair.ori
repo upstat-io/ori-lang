@@ -1,0 +1,4 @@
+@main () -> int = {
+    let t = (true, false);
+    if t.0 && !t.1 then 0 else 1
+}

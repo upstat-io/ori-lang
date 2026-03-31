@@ -1,0 +1,12 @@
+@main () -> int = {
+    let items = [
+        Some("this string exceeds SSO threshold by being very long indeed"),
+        None,
+        Some("third string that is also long enough to require heap allocation")
+    ];
+    let count = 0;
+    for opt in items do {
+        if is_some(option: opt) then count = count + 1;
+    };
+    if count == 2 then 0 else 1
+}
