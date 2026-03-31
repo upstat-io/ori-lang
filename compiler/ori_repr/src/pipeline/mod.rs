@@ -13,6 +13,7 @@ use ori_ir::ReprAttrKind;
 use ori_types::{Idx, Pool};
 
 use crate::plan::{NarrowingPolicy, ReprAttribute, ReprPlan};
+use crate::repr::{FloatWidth, IntWidth};
 use crate::{narrowing, range, DecisionReason, DecisionSource, MachineRepr, ReprDecision};
 
 use metadata::{propagate_metadata_to_applied_resolutions, seed_imported_metadata};
@@ -331,28 +332,63 @@ fn compute_struct_layouts(plan: &mut ReprPlan, pool: &Pool) {
         let Some(repr) = plan.get_repr(idx) else {
             continue;
         };
-        match repr {
-            MachineRepr::Struct(s) => {
-                // Phase 1: only reorder all-scalar structs where codegen
-                // goes through try_lower_narrowed_aggregate (fully remapped).
-                // Mixed-field structs (containing str, lists, other structs)
-                // require additional remapping in sret, pattern matching, and
-                // other codegen paths — deferred to §06.5 completion checklist.
-                if !all_scalar_fields(&s.fields) {
-                    continue;
-                }
-                let attr = plan.repr_attr(idx);
-                let optimized = optimize_struct_layout(s, attr);
-                updates.push((idx, MachineRepr::Struct(optimized)));
-            }
-            MachineRepr::Tuple(t) => {
-                if !all_scalar_fields(&t.elements) {
-                    continue;
-                }
+        // Reorder structs and 3+ element tuples for optimal alignment.
+        //
+        // 2-element tuples are skipped because:
+        // (a) All runtime-boundary tuples are 2-element (next_map, next_zipped,
+        //     next_enumerated write key+value at hardcoded byte offsets).
+        // (b) For types where size is a multiple of alignment (all Ori types),
+        //     2-element tuple total size is identical regardless of field order
+        //     — internal padding shifts but trailing padding compensates.
+        if let MachineRepr::Tuple(t) = repr {
+            if t.elements.len() >= 3 {
                 let optimized = optimize_tuple_layout(t);
                 updates.push((idx, MachineRepr::Tuple(optimized)));
             }
-            _ => {}
+        } else if let MachineRepr::Struct(s) = repr {
+            // §04+§06 interaction: for structs with non-scalar fields,
+            // try_lower_narrowed_aggregate won't create the LLVM type with
+            // narrowed widths — the LLVM type uses canonical widths. If §04
+            // narrowed an int field to I8/I16/I32 in the StructRepr, the
+            // layout size would be smaller than the LLVM type's actual size.
+            // Fix: widen narrowed fields back to canonical width for mixed structs.
+            let has_non_scalar = s.fields.iter().any(|f| {
+                !matches!(
+                    f.repr,
+                    MachineRepr::Int { .. }
+                        | MachineRepr::Float { .. }
+                        | MachineRepr::Bool
+                        | MachineRepr::Char
+                        | MachineRepr::Byte
+                        | MachineRepr::Unit
+                )
+            });
+            let layout_input = if has_non_scalar {
+                let mut widened = s.clone();
+                for f in &mut widened.fields {
+                    if let MachineRepr::Int { width, signed } = &f.repr {
+                        if *width != IntWidth::I64 {
+                            f.repr = MachineRepr::Int {
+                                width: IntWidth::I64,
+                                signed: *signed,
+                            };
+                        }
+                    }
+                    if let MachineRepr::Float { width } = &f.repr {
+                        if *width != FloatWidth::F64 {
+                            f.repr = MachineRepr::Float {
+                                width: FloatWidth::F64,
+                            };
+                        }
+                    }
+                }
+                widened
+            } else {
+                s.clone()
+            };
+            let attr = plan.repr_attr(idx);
+            let optimized = optimize_struct_layout(&layout_input, attr);
+            updates.push((idx, MachineRepr::Struct(optimized)));
         }
     }
 
@@ -367,6 +403,17 @@ fn compute_struct_layouts(plan: &mut ReprPlan, pool: &Pool) {
             reason: DecisionReason::Custom("field reordering".into()),
         };
         plan.set_repr(idx, decision);
+
+        // TPR-06-004: only propagate from DEFAULT-attr sources.
+        // Fixed-layout types (#repr("c"), packed, etc.) must not overwrite
+        // reordered default-layout aliases — order-dependent FxHashMap
+        // iteration could let a C-layout source clobber a correct reorder.
+        let source_attr = plan.repr_attr(idx);
+        let is_default = source_attr.is_none()
+            || matches!(source_attr, Some(crate::plan::ReprAttribute::Default));
+        if !is_default {
+            continue;
+        }
 
         // Propagate to all Pool entries that resolve to this type.
         // Monomorphization creates multiple Idx values for the same
@@ -415,7 +462,10 @@ fn propagate_layout_to_aliases(
         if pool.tag(idx) != source_tag {
             continue;
         }
-        // Check structural match (comparing resolved element types).
+        // Check structural match using deep structural equality.
+        // Plain Idx comparison fails for monomorphized generics where
+        // nested composite children (e.g., inner tuples) get different
+        // Pool Idx values despite being structurally identical.
         let elems: Vec<Idx> = if source_tag == ori_types::Tag::Tuple {
             pool.tuple_elems(idx)
                 .into_iter()
@@ -427,8 +477,39 @@ fn propagate_layout_to_aliases(
                 .map(|(_, ty)| pool.resolve_fully(ty))
                 .collect()
         };
-        if elems == source_elems {
-            // Same structural type — propagate the reordered layout.
+        if elems.len() == source_elems.len()
+            && elems
+                .iter()
+                .zip(source_elems.iter())
+                .all(|(&a, &b)| structural_type_eq(pool, a, b))
+        {
+            // For structs: verify field NAMES match in the same order.
+            // Different Pool entries for the same struct can have fields
+            // in different orders — the StructRepr's original_index values
+            // assume the source's field order and would be wrong for a target
+            // with different ordering.
+            if source_tag == ori_types::Tag::Struct {
+                let source_names: Vec<_> = pool
+                    .struct_fields(source_idx)
+                    .into_iter()
+                    .map(|(name, _)| name)
+                    .collect();
+                let target_names: Vec<_> = pool
+                    .struct_fields(idx)
+                    .into_iter()
+                    .map(|(name, _)| name)
+                    .collect();
+                if source_names != target_names {
+                    continue;
+                }
+                // Don't propagate to types with fixed-layout attrs.
+                if let Some(attr) = plan.repr_attr(idx) {
+                    if !matches!(attr, crate::plan::ReprAttribute::Default) {
+                        continue;
+                    }
+                }
+            }
+            // Same structural type, compatible attributes and field order — propagate.
             plan.set_repr(
                 idx,
                 ReprDecision {
@@ -442,22 +523,67 @@ fn propagate_layout_to_aliases(
     }
 }
 
-/// Check if all fields of a struct/tuple are scalar types (no composites).
+/// Deep structural type equality for alias propagation.
 ///
-/// Matches the guard in `try_lower_narrowed_aggregate` — only scalar-field
-/// aggregates go through the fully-remapped codegen path.
-fn all_scalar_fields(fields: &[crate::struct_repr::FieldRepr]) -> bool {
-    fields.iter().all(|f| {
-        matches!(
-            f.repr,
-            MachineRepr::Int { .. }
-                | MachineRepr::Float { .. }
-                | MachineRepr::Bool
-                | MachineRepr::Char
-                | MachineRepr::Byte
-                | MachineRepr::Unit
-        )
-    })
+/// Two resolved Idx values are structurally equal if they have the same tag
+/// and their children are structurally equal. This handles the case where
+/// monomorphized generics create distinct Pool entries for the same logical
+/// type (e.g., two `(int, int)` tuples from different generic instantiations).
+fn structural_type_eq(pool: &Pool, a: Idx, b: Idx) -> bool {
+    let a = pool.resolve_fully(a);
+    let b = pool.resolve_fully(b);
+    if a == b {
+        return true;
+    }
+
+    let a_tag = pool.tag(a);
+    let b_tag = pool.tag(b);
+    if a_tag != b_tag {
+        return false;
+    }
+
+    match a_tag {
+        ori_types::Tag::Tuple => {
+            let a_elems = pool.tuple_elems(a);
+            let b_elems = pool.tuple_elems(b);
+            a_elems.len() == b_elems.len()
+                && a_elems
+                    .iter()
+                    .zip(b_elems.iter())
+                    .all(|(&x, &y)| structural_type_eq(pool, x, y))
+        }
+        ori_types::Tag::Struct => {
+            let a_fields = pool.struct_fields(a);
+            let b_fields = pool.struct_fields(b);
+            a_fields.len() == b_fields.len()
+                && a_fields
+                    .iter()
+                    .zip(b_fields.iter())
+                    .all(|((_, tx), (_, ty))| structural_type_eq(pool, *tx, *ty))
+        }
+        // Parametric tags: compare inner types recursively.
+        // Without this, Option<int> would match Option<str> (same tag, different payload).
+        ori_types::Tag::Option => {
+            structural_type_eq(pool, pool.option_inner(a), pool.option_inner(b))
+        }
+        ori_types::Tag::Result => {
+            structural_type_eq(pool, pool.result_ok(a), pool.result_ok(b))
+                && structural_type_eq(pool, pool.result_err(a), pool.result_err(b))
+        }
+        ori_types::Tag::List => structural_type_eq(pool, pool.list_elem(a), pool.list_elem(b)),
+        ori_types::Tag::Set => structural_type_eq(pool, pool.set_elem(a), pool.set_elem(b)),
+        ori_types::Tag::Map => {
+            structural_type_eq(pool, pool.map_key(a), pool.map_key(b))
+                && structural_type_eq(pool, pool.map_value(a), pool.map_value(b))
+        }
+        ori_types::Tag::Iterator | ori_types::Tag::DoubleEndedIterator => {
+            structural_type_eq(pool, pool.iterator_elem(a), pool.iterator_elem(b))
+        }
+        // Primitive/leaf tags (Int, Float, Bool, etc.): same tag + different
+        // resolved Idx should not happen (singletons). If it does, reject the
+        // match — the Idx equality check at the top already handles true equality.
+        _ => false,
+    }
 }
 
 /// Enum niche optimization and discriminant narrowing.

@@ -1,0 +1,269 @@
+// Spec: Annex E § System Considerations — struct field reordering
+// §06: Struct fields may be reordered in memory for optimal alignment.
+// Tests verify that field access, construction, and derived traits
+// produce correct results regardless of memory layout.
+
+use std.testing { assert_eq, assert }
+
+// Mixed-field struct: bool + str triggers reordering (str first in memory)
+type Record = { flag: bool, name: str, count: int }
+
+// Field access on reordered struct
+@test_struct_field_access tests @make_record () -> void = {
+    let r = make_record();
+    assert_eq(actual: r.flag, expected: true);
+    assert_eq(actual: r.name, expected: "hello");
+    assert_eq(actual: r.count, expected: 42)
+}
+
+@make_record () -> Record = Record { flag: true, name: "hello", count: 42 };
+
+// Struct construction with mixed field types
+@test_struct_construction tests @make_record () -> void = {
+    let r = Record { flag: false, name: "world", count: 99 };
+    assert_eq(actual: r.flag, expected: false);
+    assert_eq(actual: r.name, expected: "world");
+    assert_eq(actual: r.count, expected: 99)
+}
+
+// Struct passed to function
+@process_record (r: Record) -> int = if r.flag then r.count else 0;
+
+@test_struct_passed_to_fn tests @process_record () -> void = {
+    let r1 = Record { flag: true, name: "a", count: 10 };
+    let r2 = Record { flag: false, name: "b", count: 20 };
+    assert_eq(actual: process_record(r: r1), expected: 10);
+    assert_eq(actual: process_record(r: r2), expected: 0)
+}
+
+// Struct returned from function
+@build (n: int) -> Record = Record { flag: n > 0, name: "built", count: n };
+
+@test_struct_returned tests @build () -> void = {
+    let r = build(n: 5);
+    assert_eq(actual: r.flag, expected: true);
+    assert_eq(actual: r.count, expected: 5)
+}
+
+// Struct in list — exercises element_store_size with reordered layout
+@test_struct_in_list tests @make_record () -> void = {
+    let r1 = Record { flag: true, name: "first item in list", count: 1 };
+    let r2 = Record { flag: false, name: "second item in list", count: 2 };
+    let items = [r1, r2];
+    assert_eq(actual: items.length(), expected: 2)
+}
+
+// Struct list iteration — exercises iterator element loading
+@test_struct_list_iteration tests @make_record () -> void = {
+    let items = [
+        Record { flag: true, name: "a", count: 10 },
+        Record { flag: false, name: "b", count: 20 },
+        Record { flag: true, name: "c", count: 30 },
+    ];
+    let total = 0;
+    for item in items do {
+        if item.flag then total = total + item.count
+    };
+    assert_eq(actual: total, expected: 40)
+}
+
+// Two-field struct: bool + int (simplest reordering case)
+type Pair = { active: bool, value: int }
+
+@test_two_field_reorder tests @make_record () -> void = {
+    let p = Pair { active: true, value: 99 };
+    assert_eq(actual: p.active, expected: true);
+    assert_eq(actual: p.value, expected: 99)
+}
+
+// Three-field: bool + str + float (all different sizes)
+type Mixed = { flag: bool, label: str, score: float }
+
+@test_three_types tests @make_record () -> void = {
+    let m = Mixed { flag: true, label: "test", score: 3.14 };
+    assert_eq(actual: m.flag, expected: true);
+    assert_eq(actual: m.label, expected: "test")
+}
+
+// Regression: TPR-06-005 — for-yield identity on reordered struct.
+// The for...yield path stores elements via ARC-lowered elem_size.
+// If the StructRepr size disagrees with the LLVM type size, the
+// buffer is underallocated and the second element corrupts memory.
+@test_for_yield_identity_reordered tests @make_record () -> void = {
+    let items = [
+        Record { flag: true, name: "first", count: 10 },
+        Record { flag: false, name: "second", count: 20 },
+    ];
+    let collected = for item in items yield item;
+    assert_eq(actual: collected.length(), expected: 2);
+    assert_eq(actual: collected[0].flag, expected: true);
+    assert_eq(actual: collected[0].name, expected: "first");
+    assert_eq(actual: collected[0].count, expected: 10);
+    assert_eq(actual: collected[1].flag, expected: false);
+    assert_eq(actual: collected[1].name, expected: "second");
+    assert_eq(actual: collected[1].count, expected: 20)
+}
+
+// Regression: for-yield with field access on reordered struct
+@test_for_yield_field_access tests @make_record () -> void = {
+    let items = [
+        Record { flag: true, name: "a", count: 10 },
+        Record { flag: false, name: "b", count: 20 },
+        Record { flag: true, name: "c", count: 30 },
+    ];
+    let totals = for item in items yield item.count;
+    let sum = 0;
+    for t in totals do sum = sum + t;
+    assert_eq(actual: sum, expected: 60)
+}
+
+// Regression: TPR-06-007 — inter-field alignment padding.
+// pool_type_store_size() summed field sizes without inter-field alignment,
+// undercounting tuples like (bool, str, int, bool) by 8 bytes (40 vs 48).
+// for...yield allocated undersized element buffers → memory corruption.
+
+// Tuple with inter-field padding: (bool, str, int, bool)
+// ABI: bool@0(1B), pad→8, str@8(24B), int@32(8B), bool@40(1B) → 48 bytes
+@test_for_yield_tuple_padding tests @make_record () -> void = {
+    let items = [
+        (true, "hello", 1, false),
+        (false, "world", 2, true),
+        (true, "test", 3, false),
+    ];
+    let collected = for item in items yield item;
+    assert_eq(actual: collected.length(), expected: 3);
+    assert_eq(actual: collected[0].0, expected: true);
+    assert_eq(actual: collected[0].1, expected: "hello");
+    assert_eq(actual: collected[0].2, expected: 1);
+    assert_eq(actual: collected[0].3, expected: false);
+    assert_eq(actual: collected[2].1, expected: "test");
+    assert_eq(actual: collected[2].2, expected: 3)
+}
+
+// Tuple with two padding gaps: (bool, int, bool, str)
+// ABI: bool@0(1B), pad→8, int@8(8B), bool@16(1B), pad→24, str@24(24B) → 48 bytes
+@test_for_yield_tuple_two_gaps tests @make_record () -> void = {
+    let items = [
+        (true, 10, false, "alpha"),
+        (false, 20, true, "beta"),
+    ];
+    let collected = for item in items yield item;
+    assert_eq(actual: collected.length(), expected: 2);
+    assert_eq(actual: collected[0].0, expected: true);
+    assert_eq(actual: collected[0].1, expected: 10);
+    assert_eq(actual: collected[0].2, expected: false);
+    assert_eq(actual: collected[0].3, expected: "alpha");
+    assert_eq(actual: collected[1].3, expected: "beta")
+}
+
+// Struct with inter-field padding in for-yield (4-field variant)
+type Padded = { flag: bool, label: str, count: int, active: bool }
+
+@test_for_yield_padded_struct tests @make_record () -> void = {
+    let items = [
+        Padded { flag: true, label: "x", count: 1, active: false },
+        Padded { flag: false, label: "y", count: 2, active: true },
+    ];
+    let collected = for item in items yield item;
+    assert_eq(actual: collected.length(), expected: 2);
+    assert_eq(actual: collected[0].flag, expected: true);
+    assert_eq(actual: collected[0].label, expected: "x");
+    assert_eq(actual: collected[1].label, expected: "y");
+    assert_eq(actual: collected[1].active, expected: true)
+}
+
+// Regression: TPR-06-008 — enum payload uses [M x i64] slot layout.
+// Each variant field occupies at least one full i64 slot (8 bytes).
+// A(bool, int, bool, str) payload = 6 slots = 48 bytes + 8 tag = 56.
+type PaddedEnum = A(flag: bool, count: int, active: bool, label: str) | B;
+
+@test_for_yield_padded_enum tests @make_record () -> void = {
+    let items = [
+        A(flag: true, count: 1, active: false, label: "x"),
+        A(flag: false, count: 2, active: true, label: "y"),
+        B,
+    ];
+    let collected = for item in items yield item;
+    assert_eq(actual: collected.length(), expected: 3);
+    match collected[0] {
+        A(flag:, count:, active:, label:) -> {
+            assert_eq(actual: flag, expected: true);
+            assert_eq(actual: count, expected: 1);
+            assert_eq(actual: active, expected: false);
+            assert_eq(actual: label, expected: "x")
+        },
+        B -> panic(msg: "expected A at [0]"),
+    };
+    match collected[1] {
+        A(flag:, count:, active:, label:) -> {
+            assert_eq(actual: flag, expected: false);
+            assert_eq(actual: count, expected: 2);
+            assert_eq(actual: active, expected: true);
+            assert_eq(actual: label, expected: "y")
+        },
+        B -> panic(msg: "expected A at [1]"),
+    };
+    match collected[2] {
+        A(flag:, count:, active:, label:) -> panic(msg: "expected B at [2]"),
+        B -> assert(cond: true),
+    }
+}
+
+// Regression: TPR-06-013 — Option/Result fields in structs must include
+// trailing alignment padding. Without it, for-yield element buffers are
+// undersized, causing memory corruption for nested tagged unions.
+// Uses Option<bool> (not Option<int>) because Option<int> is 16 bytes
+// naturally (8+8), masking the bug. Option<bool> is 9 bytes without
+// trailing padding vs 16 with it — the actual regression surface.
+type OptRecord = { left: Option<bool>, active: bool }
+
+@test_for_yield_option_field tests @make_record () -> void = {
+    let items = [
+        OptRecord { left: Some(true), active: true },
+        OptRecord { left: None, active: false },
+        OptRecord { left: Some(false), active: true },
+    ];
+    let collected = for item in items yield item;
+    assert_eq(actual: collected.length(), expected: 3);
+    assert_eq(actual: collected[0].active, expected: true);
+    match collected[0].left {
+        Some(v) -> assert_eq(actual: v, expected: true),
+        None -> panic(msg: "expected Some at [0]"),
+    };
+    assert_eq(actual: collected[1].active, expected: false);
+    match collected[1].left {
+        Some(v) -> panic(msg: "expected None at [1]"),
+        None -> assert(cond: true),
+    };
+    assert_eq(actual: collected[2].active, expected: true);
+    match collected[2].left {
+        Some(v) -> assert_eq(actual: v, expected: false),
+        None -> panic(msg: "expected Some at [2]"),
+    }
+}
+
+// Regression: TPR-06-017 — nested all-char structs have alignment 4, not 8.
+// Without recursive alignment, pool_type_store_size over-sizes the struct,
+// causing ARC/LLVM layout disagreement. This end-to-end for-yield pin
+// exercises the actual memory copy path with a sub-8-byte-aligned aggregate.
+type CharPair = { left: char, right: char }
+type CharRecord = { pair: CharPair, flag: bool }
+
+@test_for_yield_nested_char_struct tests @make_record () -> void = {
+    let items = [
+        CharRecord { pair: CharPair { left: 'a', right: 'b' }, flag: true },
+        CharRecord { pair: CharPair { left: 'x', right: 'y' }, flag: false },
+        CharRecord { pair: CharPair { left: '1', right: '2' }, flag: true },
+    ];
+    let collected = for item in items yield item;
+    assert_eq(actual: collected.length(), expected: 3);
+    assert_eq(actual: collected[0].pair.left, expected: 'a');
+    assert_eq(actual: collected[0].pair.right, expected: 'b');
+    assert_eq(actual: collected[0].flag, expected: true);
+    assert_eq(actual: collected[1].pair.left, expected: 'x');
+    assert_eq(actual: collected[1].pair.right, expected: 'y');
+    assert_eq(actual: collected[1].flag, expected: false);
+    assert_eq(actual: collected[2].pair.left, expected: '1');
+    assert_eq(actual: collected[2].pair.right, expected: '2');
+    assert_eq(actual: collected[2].flag, expected: true)
+}

@@ -14,6 +14,13 @@ impl<'ctx> IrBuilder<'_, 'ctx> {
         self.arena.push_value(v.into())
     }
 
+    /// Create an i16 constant.
+    #[inline]
+    pub fn const_i16(&mut self, val: i16) -> ValueId {
+        let v = self.scx.type_i16().const_int(val as u64, val < 0);
+        self.arena.push_value(v.into())
+    }
+
     /// Create an i32 constant.
     #[inline]
     pub fn const_i32(&mut self, val: i32) -> ValueId {

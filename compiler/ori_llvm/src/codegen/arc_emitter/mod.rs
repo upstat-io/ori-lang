@@ -60,6 +60,7 @@ mod rc_helpers;
 mod rc_ops;
 mod rc_value_traversal;
 mod rpo;
+pub(super) mod tag_access;
 mod terminators;
 mod value_emission;
 mod variant_construction;

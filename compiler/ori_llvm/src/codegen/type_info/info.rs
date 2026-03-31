@@ -129,7 +129,7 @@ impl TypeInfo {
                 )
                 .into(),
 
-            // Tagged unions: {i64 tag, i64 payload} placeholder.
+            // Tagged unions: {i64 tag, i64 payload} placeholder — runtime uses i64.
             // This is a fallback for contexts without Pool access. The real
             // type (with correct max(ok, err) payload) is computed by
             // TypeInfoStore::resolve() which has access to inner types.

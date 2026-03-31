@@ -496,6 +496,151 @@ fn test_tuple_all_same_type() {
     assert_eq!(result.elements[2].original_index, 2);
 }
 
+// ─── Mixed-field (non-scalar) struct reordering ─────────────
+
+fn fat_ptr_str_repr() -> MachineRepr {
+    MachineRepr::FatPointer(crate::struct_repr::FatRepr::Str)
+}
+
+fn rc_ptr_repr() -> MachineRepr {
+    MachineRepr::RcPointer(crate::struct_repr::RcRepr {
+        rc_width: IntWidth::I64,
+        atomic: false,
+        inner: Box::new(MachineRepr::Unit),
+        stack_promotable: false,
+    })
+}
+
+fn closure_repr() -> MachineRepr {
+    MachineRepr::Closure(crate::struct_repr::ClosureRepr {
+        params: vec![],
+        ret: Box::new(MachineRepr::Unit),
+    })
+}
+
+#[test]
+fn test_reorder_mixed_bool_str_int_bool() {
+    // { flag: bool, name: str, count: int, active: bool }
+    // str is FatPointer(24 bytes, align 8), int is 8, bool is 1
+    // Declaration: bool(1) pad 7 + str(24) + int(8) + bool(1) pad 7 = 48
+    // Reordered (desc align, desc size): str(24) + int(8) + bool(1) + bool(1) pad 6 = 40
+    let input = make_struct(vec![
+        field(0, bool_repr()),        // 1 byte, align 1
+        field(1, fat_ptr_str_repr()), // 24 bytes, align 8
+        field(2, int_repr()),         // 8 bytes, align 8
+        field(3, bool_repr()),        // 1 byte, align 1
+    ]);
+    let result = optimize_struct_layout(&input, None);
+
+    assert_eq!(result.size, 40, "mixed struct should be 40 bytes, not 48");
+    assert_eq!(result.align, 8);
+    // str (24 bytes) first, then int (8 bytes), then bool, bool
+    assert_eq!(
+        result.fields[0].original_index, 1,
+        "str should be first (largest at align 8)"
+    );
+    assert_eq!(result.fields[1].original_index, 2, "int should be second");
+    assert_eq!(result.fields[0].offset, 0);
+    assert_eq!(result.fields[1].offset, 24);
+    assert_eq!(result.fields[2].offset, 32);
+    assert_eq!(result.fields[3].offset, 33);
+}
+
+#[test]
+fn test_reorder_mixed_rc_and_scalars() {
+    // { a: bool, b: RcPointer, c: int, d: byte }
+    // RcPointer = 8 bytes, same as int. Both at align 8.
+    // Reordered: RcPointer(8), int(8), bool(1), byte(1) pad 6 = 24
+    let input = StructRepr {
+        fields: vec![
+            field(0, bool_repr()),   // 1, align 1
+            field(1, rc_ptr_repr()), // 8, align 8
+            field(2, int_repr()),    // 8, align 8
+            field(3, byte_repr()),   // 1, align 1
+        ],
+        size: 0,
+        align: 1,
+        trivial: false, // non-trivial: contains RC field
+    };
+    let result = optimize_struct_layout(&input, None);
+
+    assert_eq!(result.size, 24);
+    assert_eq!(result.align, 8);
+    // RcPointer and int are same size+align — stable sort preserves order
+    assert_eq!(result.fields[0].original_index, 1, "rc_ptr first");
+    assert_eq!(result.fields[1].original_index, 2, "int second");
+    assert_eq!(result.fields[2].original_index, 0, "bool third");
+    assert_eq!(result.fields[3].original_index, 3, "byte fourth");
+    assert!(!result.trivial, "struct with RC field is non-trivial");
+}
+
+#[test]
+fn test_reorder_mixed_closure_field() {
+    // { a: bool, b: Closure(16), c: int }
+    // Reordered: Closure(16), int(8), bool(1) pad 7 = 32
+    let input = make_struct(vec![
+        field(0, bool_repr()),    // 1, align 1
+        field(1, closure_repr()), // 16, align 8
+        field(2, int_repr()),     // 8, align 8
+    ]);
+    let result = optimize_struct_layout(&input, None);
+
+    assert_eq!(result.size, 32);
+    assert_eq!(
+        result.fields[0].original_index, 1,
+        "closure first (largest at align 8)"
+    );
+    assert_eq!(result.fields[1].original_index, 2, "int second");
+    assert_eq!(result.fields[2].original_index, 0, "bool last");
+}
+
+#[test]
+fn test_reorder_mixed_preserves_original_index() {
+    // Verify original_index is correctly preserved through reordering
+    let input = make_struct(vec![
+        field(0, byte_repr()),        // 1, align 1
+        field(1, fat_ptr_str_repr()), // 24, align 8
+        field(2, bool_repr()),        // 1, align 1
+    ]);
+    let result = optimize_struct_layout(&input, None);
+
+    // str should be first in memory, but original_index should be 1
+    assert_eq!(result.fields[0].original_index, 1);
+    assert_eq!(result.memory_index(1), Some(0)); // str decl idx 1 → mem pos 0
+    assert_eq!(result.memory_index(0), Some(1)); // byte decl idx 0 → mem pos 1
+    assert_eq!(result.memory_index(2), Some(2)); // bool decl idx 2 → mem pos 2
+}
+
+#[test]
+fn test_reorder_mixed_nontrivial_flag() {
+    // Struct with non-scalar fields should NOT be marked trivial
+    let input = StructRepr {
+        fields: vec![field(0, int_repr()), field(1, fat_ptr_str_repr())],
+        size: 0,
+        align: 1,
+        trivial: false, // non-trivial input
+    };
+    let result = optimize_struct_layout(&input, None);
+
+    assert!(!result.trivial, "non-trivial flag must be preserved");
+}
+
+#[test]
+fn test_reorder_mixed_tuple() {
+    // (bool, str, int) — same layout optimization as struct
+    let input = make_tuple(vec![
+        field(0, bool_repr()),
+        field(1, fat_ptr_str_repr()),
+        field(2, int_repr()),
+    ]);
+    let result = optimize_tuple_layout(&input);
+
+    assert_eq!(result.size, 40);
+    assert_eq!(result.elements[0].original_index, 1, "str first");
+    assert_eq!(result.elements[1].original_index, 2, "int second");
+    assert_eq!(result.elements[2].original_index, 0, "bool last");
+}
+
 // ─── Semantic pin: the canonical §06 proof ───────────────────
 
 #[test]
@@ -526,4 +671,129 @@ fn test_semantic_pin_struct_reorder() {
         ),
         "first field should be Int(I64)"
     );
+}
+
+// ─── Tuple pipeline activation tests ──────────────────────────
+
+#[test]
+fn test_two_element_tuple_size_invariant() {
+    // For 2-element tuples where field sizes are multiples of alignment
+    // (all Ori types), reordering never changes total size.
+    // This is why the pipeline safely skips 2-element tuples.
+    let pairs: Vec<(MachineRepr, MachineRepr)> = vec![
+        (bool_repr(), int_repr()),
+        (byte_repr(), int_repr()),
+        (int_repr(), bool_repr()),
+        (MachineRepr::Char, int_repr()),
+        (bool_repr(), bool_repr()),
+    ];
+    for (a, b) in &pairs {
+        let forward = make_tuple(vec![field(0, a.clone()), field(1, b.clone())]);
+        let forward_opt = optimize_tuple_layout(&forward);
+        let reverse = make_tuple(vec![field(0, b.clone()), field(1, a.clone())]);
+        let reverse_opt = optimize_tuple_layout(&reverse);
+        assert_eq!(
+            forward_opt.size, reverse_opt.size,
+            "2-element tuple: size must be identical regardless of field order"
+        );
+    }
+}
+
+#[test]
+fn test_three_element_tuple_reorder_saves_space() {
+    // (bool, int, bool): optimize_tuple_layout computes the reordered layout.
+    // Declaration order would be 24 bytes; reordered is 16.
+    // Semantic pin: 3+ element tuples benefit from reordering.
+    let input = make_tuple(vec![
+        field(0, bool_repr()),
+        field(1, int_repr()),
+        field(2, bool_repr()),
+    ]);
+    let result = optimize_tuple_layout(&input);
+    assert_eq!(
+        result.size, 16,
+        "§06.4 semantic pin: 3-element tuple must be 16 bytes, not 24"
+    );
+    // int moved to front
+    assert_eq!(result.elements[0].original_index, 1);
+    assert_eq!(result.elements[1].original_index, 0);
+    assert_eq!(result.elements[2].original_index, 2);
+}
+
+#[test]
+fn test_four_element_tuple_reorder() {
+    // (bool, int, byte, float) → reordered: int(8), float(8), bool(1), byte(1)
+    let input = make_tuple(vec![
+        field(0, bool_repr()),
+        field(1, int_repr()),
+        field(2, byte_repr()),
+        field(3, float_repr()),
+    ]);
+    let result = optimize_tuple_layout(&input);
+    assert_eq!(result.size, 24);
+    assert_eq!(result.align, 8);
+    // int and float (both align 8) first, then bool and byte (align 1)
+    assert_eq!(result.elements[0].original_index, 1); // int
+    assert_eq!(result.elements[1].original_index, 3); // float
+    assert_eq!(result.elements[2].original_index, 0); // bool
+    assert_eq!(result.elements[3].original_index, 2); // byte
+}
+
+#[test]
+fn test_three_element_tuple_memory_index_remapping() {
+    // Verify codegen can remap .0/.1/.2 after reorder.
+    let input = make_tuple(vec![
+        field(0, bool_repr()),
+        field(1, int_repr()),
+        field(2, bool_repr()),
+    ]);
+    let result = optimize_tuple_layout(&input);
+    // .0 (bool) → memory position 1
+    assert_eq!(result.memory_index(0), Some(1));
+    // .1 (int) → memory position 0
+    assert_eq!(result.memory_index(1), Some(0));
+    // .2 (bool) → memory position 2
+    assert_eq!(result.memory_index(2), Some(2));
+}
+
+// -- min_tag_width tests (§07.1) --
+
+use crate::enum_repr::min_tag_width;
+
+#[test]
+fn min_tag_width_zero_variants() {
+    assert_eq!(min_tag_width(0), IntWidth::I8);
+}
+
+#[test]
+fn min_tag_width_single_variant() {
+    assert_eq!(min_tag_width(1), IntWidth::I8);
+}
+
+#[test]
+fn min_tag_width_two_variants() {
+    assert_eq!(min_tag_width(2), IntWidth::I8);
+}
+
+#[test]
+fn min_tag_width_256_variants() {
+    // 256 = 2^8, fits in u8 (values 0..255)
+    assert_eq!(min_tag_width(256), IntWidth::I8);
+}
+
+#[test]
+fn min_tag_width_257_variants_needs_i16() {
+    // 257 > 256 → needs i16
+    assert_eq!(min_tag_width(257), IntWidth::I16);
+}
+
+#[test]
+fn min_tag_width_65536_variants() {
+    // 65536 = 2^16, fits in u16
+    assert_eq!(min_tag_width(65536), IntWidth::I16);
+}
+
+#[test]
+fn min_tag_width_65537_variants_needs_i32() {
+    assert_eq!(min_tag_width(65537), IntWidth::I32);
 }

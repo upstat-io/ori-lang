@@ -37,9 +37,11 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             }
 
             CtorKind::EnumVariant { variant, .. } => {
-                // Enum layout is { i64 tag, [M x i64] payload } where M is
-                // sized for the largest variant.
-                let tag_val = self.builder.const_i64(i64::from(*variant));
+                // Enum layout is { tag, [M x i64] payload } where the tag
+                // type is narrowed via min_tag_width (§07.1).
+                let tag_val =
+                    self.builder
+                        .const_int_for_struct_field(llvm_ty, 0, u64::from(*variant));
 
                 // Check for recursive enum fields that need RC allocation.
                 // These require the alloca roundtrip because we need to store

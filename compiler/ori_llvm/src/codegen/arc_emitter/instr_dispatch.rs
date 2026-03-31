@@ -63,6 +63,10 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             self.def_var_repr(dst, tag, func);
         } else {
             // Load element from scratch buffer (deferred from emit_iter_next).
+            // Note: tuple reordering is currently disabled (§06 Phase 2 only
+            // reorders structs). If tuple reordering is enabled in the future,
+            // map iterator elements need special handling because the runtime
+            // writes (key, value) in declaration order.
             let elem = self
                 .builder
                 .load(elem_llvm_ty, scratch_ptr, &format!("proj.{field}"));
@@ -447,13 +451,13 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
             ArcInstr::SetTag { base, tag } => {
                 // In-place tag update for enum variants.
-                // Tag is field 0 of the enum representation: { i64 tag, ... }
+                // Tag is field 0 of the enum representation: { narrowed_tag, ... }
                 let base_val = self.var(*base);
                 let base_ty = func.var_type(*base);
                 let llvm_ty = self.resolve_type(base_ty);
 
                 let tag_ptr = self.builder.struct_gep(llvm_ty, base_val, 0, "set.tag.ptr");
-                let tag_val = self.builder.const_i64(*tag as i64);
+                let tag_val = self.builder.const_int_for_struct_field(llvm_ty, 0, *tag);
                 self.builder.store(tag_val, tag_ptr);
                 // base pointer unchanged — mutation is in-place
             }

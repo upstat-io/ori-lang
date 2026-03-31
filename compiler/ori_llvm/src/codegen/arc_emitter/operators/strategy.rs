@@ -139,7 +139,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             .builder
             .extract_value(lhs, 1, "coal.val")
             .unwrap_or(lhs);
-        let zero = self.builder.const_i64(0);
+        let zero = self.builder.const_int_matching(tag, 0);
         let is_some = self.builder.icmp_eq(tag, zero, "is_some");
         self.builder.select(is_some, payload, rhs, "coal")
     }
