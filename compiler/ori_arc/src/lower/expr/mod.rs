@@ -432,17 +432,19 @@ impl ArcLowerer<'_> {
     /// then: extract payload (or pass-through if chaining) → merge;
     /// else: evaluate RHS → merge.
     ///
-    /// Chaining detection: if the result type `ty` is `Option`/`Result`, the
-    /// expression is `Option<T> ?? Option<T> -> Option<T>` (COALESCE-CHAIN) or
-    /// `Result<T,E> ?? Result<T,E> -> Result<T,E>` (COALESCE-RESULT-CHAIN).
-    /// In this case the Some/Ok branch passes LHS through directly instead of
-    /// extracting the payload.
+    /// Chaining detection: the result type `ty` must equal the LHS type
+    /// (same Idx via pool interning). This correctly distinguishes:
+    /// - `Option<T> ?? Option<T> -> Option<T>` (CHAIN: ty == `lhs_ty`)
+    /// - `Option<Option<T>> ?? Option<T> -> Option<T>` (UNWRAP: ty != `lhs_ty`)
     fn lower_coalesce(&mut self, left: CanId, right: CanId, ty: Idx, span: Span) -> ArcVarId {
         let lhs = self.lower_expr(left);
 
-        // Detect chaining: result type is a wrapper (same as LHS wrapper type).
+        // Detect chaining: result type equals LHS type (both are the same wrapper).
+        // Pool interning guarantees structural equality via Idx identity.
+        // Uses expr_type() to correctly convert TypeId→Idx with type substitution.
+        let lhs_ty = self.pool.resolve_fully(self.expr_type(left));
         let resolved_ty = self.pool.resolve_fully(ty);
-        let is_chaining = matches!(self.pool.tag(resolved_ty), Tag::Option | Tag::Result);
+        let is_chaining = lhs_ty == resolved_ty;
 
         // Extract tag (field 0) and compare to 0 (Some/Ok).
         let tag = self.builder.emit_project(Idx::INT, lhs, 0, Some(span));
