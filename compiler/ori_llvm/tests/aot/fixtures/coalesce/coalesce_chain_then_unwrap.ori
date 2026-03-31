@@ -1,0 +1,8 @@
+// Chain then unwrap: (Option<int> ?? Option<int>) ?? int
+// First ?? chains wrapper, second ?? unwraps
+@main () -> int = {
+    let a: Option<int> = None;
+    let b: Option<int> = Some(2);
+    let v = (a ?? b) ?? 99;
+    if v == 2 then 0 else 1
+}

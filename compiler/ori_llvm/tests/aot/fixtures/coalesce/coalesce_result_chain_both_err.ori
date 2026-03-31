@@ -1,0 +1,11 @@
+// Regression: BUG-02-002 — Result<int, str> ?? Result<int, str> when both Err
+// Second Err wins
+@main () -> int = {
+    let a: Result<int, str> = Err("first");
+    let b: Result<int, str> = Err("second");
+    let c: Result<int, str> = a ?? b;
+    match c {
+        Ok(v) -> 1,
+        Err(e) -> if e == "second" then 0 else 2,
+    }
+}

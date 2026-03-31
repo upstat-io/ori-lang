@@ -1,0 +1,6 @@
+// Option<int> ?? int — Some unwraps to payload
+@main () -> int = {
+    let a: Option<int> = Some(42);
+    let v = a ?? 0;
+    if v == 42 then 0 else 1
+}
