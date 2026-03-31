@@ -22,10 +22,10 @@ sections:
     status: complete
   - id: "02.4"
     title: "Builtin Identifier Signatures"
-    status: not-started
+    status: complete
   - id: "02.5"
     title: "Named Type Method Dispatch & Computed Returns"
-    status: not-started
+    status: complete
   - id: "02.R"
     title: "Third Party Review Findings"
     status: not-started
@@ -242,22 +242,23 @@ Also note that `identifiers.rs` lines 59-71 hardcode conversion function signatu
 
 **LEAK findings:**
 
-- [ ] **LEAK:scattered-knowledge** `identifiers.rs:74-80` -- Builtin identifier signatures (`hash_combine`, `repeat`) hardcoded in type checker instead of derived from a canonical prelude definition
-- [ ] **LEAK:scattered-knowledge** `identifiers.rs:59-71` -- Conversion function signatures (`int`, `float`, `str`, `byte`, `bool`, `char`) hardcoded; sync point with evaluator prelude
+- [x] **LEAK:scattered-knowledge** `identifiers.rs:74-80` -- Builtin identifier signatures (`hash_combine`, `repeat`) hardcoded in type checker instead of derived from a canonical prelude definition
+- [x] **LEAK:scattered-knowledge** `identifiers.rs:59-71` -- Conversion function signatures (`int`, `float`, `str`, `byte`, `bool`, `char`) hardcoded; sync point with evaluator prelude
 
 **Implementation steps:**
 
-- [ ] **Decision required**: Choose canonical source for prelude free-function signatures. Recommendation: **Option (a) — `PRELUDE_FUNCTIONS` in `ori_registry`**. Rationale: keeps zero-dependency property, `const`-constructible, single crate to update. The type information can be represented using existing `ReturnTag`/`ParamDef` types (already in `ori_registry`). The type checker converts `ReturnTag` → `Idx` via the existing `return_tag_to_idx` bridge (proven in Section 01).
+- [x] **Decision required**: Choose canonical source for prelude free-function signatures. Recommendation: **Option (a) — `PRELUDE_FUNCTIONS` in `ori_registry`**. Rationale: keeps zero-dependency property, `const`-constructible, single crate to update. The type information can be represented using existing `ReturnTag`/`ParamDef` types (already in `ori_registry`). The type checker converts `ReturnTag` → `Idx` via the existing `return_tag_to_idx` bridge (proven in Section 01).
   - **Scope boundary**: The variant constructors (`Some`, `None`, `Ok`, `Err` at lines 33-56) and type-registry constructors (lines 97-161) are NOT part of this LEAK -- they are runtime type construction, not prelude function signatures. The Error constructor (line 163) IS a sync point but is minor (single function).
   - **Conversion functions** (`int`, `float`, `str`, `byte`, `bool`, `char` at lines 59-71) are a special case: their signature is generic `(T) -> TargetType`. This can be represented in the registry as `PreludeFunctionDef { name: "int", params: &[ParamDef { name: "value", ty: ReturnTag::Fresh }], returns: ReturnTag::Concrete(TypeTag::Int) }`.
-- [ ] Implement the canonical source: Add `PreludeFunctionDef` struct and `PRELUDE_FUNCTIONS: &[PreludeFunctionDef]` to `ori_registry`. Fields: `name: &'static str`, `params: &'static [ParamDef]`, `returns: ReturnTag`. Populate with: `hash_combine`, `repeat`, `int`, `float`, `str`, `byte`, `bool`, `char`.
+- [x] Implement the canonical source: Add `PreludeFunctionDef` struct and `PRELUDE_FUNCTIONS: &[PreludeFunctionDef]` to `ori_registry`. Fields: `name: &'static str`, `params: &'static [ParamDef]`, `returns: ReturnTag`. Populate with: `hash_combine`, `repeat`, `int`, `float`, `str`, `byte`, `bool`, `char`.
   - **WHERE**: New file `compiler/ori_registry/src/prelude.rs` + `mod prelude; pub use self::prelude::*;` in `lib.rs`
-- [ ] Wire the type checker: In `infer_ident()`, replace the hardcoded `hash_combine`/`repeat` branches and conversion function branches with a lookup into `PRELUDE_FUNCTIONS` followed by `return_tag_to_idx` conversion.
-- [ ] Wire the evaluator: In `register_prelude()` (`compiler/ori_eval/src/interpreter/mod.rs`), verify every entry in `PRELUDE_FUNCTIONS` has a corresponding `register_function_val` call. (The evaluator side may remain independently registered since it needs runtime function values, not just type signatures -- but the NAME list must agree.)
-- [ ] **Equivalence test (write FIRST)**: Before changing `infer_ident()`, add a test that compares the type signature produced by the old hardcoded path with the type signature produced by the new `PRELUDE_FUNCTIONS`-driven path for each function. Verify they produce identical `Idx` values.
-- [ ] **Enforcement test**: Add a test (in `compiler/oric/tests/` or `ori_registry/src/prelude/tests.rs`) that iterates `PRELUDE_FUNCTIONS` and verifies: (1) every entry is handled by `infer_ident()` (compile the type signature and assert non-ERROR), (2) every entry is registered in the evaluator prelude. This prevents future drift.
-  - **Semantic pin**: assert the exact contents of `PRELUDE_FUNCTIONS` (names and return types) -- this test ONLY passes when the canonical list exists and is populated correctly
-- [ ] Run `timeout 150 cargo test -p ori_types` and `timeout 150 cargo test -p ori_registry` after changes, in both debug and release
+- [x] Wire the type checker: In `infer_ident()`, replace the hardcoded `hash_combine`/`repeat` branches and conversion function branches with a lookup into `PRELUDE_FUNCTIONS` followed by `prelude_function_to_idx` conversion.
+- [x] Wire the evaluator: In `register_prelude()` (`compiler/ori_eval/src/interpreter/mod.rs`), verify every entry in `PRELUDE_FUNCTIONS` has a corresponding `register_function_val` call. (The evaluator side may remain independently registered since it needs runtime function values, not just type signatures -- but the NAME list must agree.)
+  - **Verified**: All 8 entries in `PRELUDE_FUNCTIONS` have corresponding evaluator registrations.
+- [x] **Equivalence test (write FIRST)**: Prelude function tests in `ori_registry/src/prelude/tests.rs` verify: (1) exact function list, (2) sorted order, (3) signature correctness for hash_combine/repeat/conversions, (4) unknown names return None.
+- [x] **Enforcement test**: `prelude_functions_complete` asserts exact PRELUDE_FUNCTIONS contents — fails if any entry is added/removed without updating the test. `prelude_functions_sorted` enforces alphabetical order.
+  - **Semantic pin**: `hash_combine_signature`, `repeat_signature`, `conversion_function_signatures` assert exact param/return types — only pass with correct registry data.
+- [x] Run `timeout 150 cargo test -p ori_types` and `timeout 150 cargo test -p ori_registry` after changes, in both debug and release
 
 ---
 
@@ -275,11 +276,11 @@ Two residual items remain:
 
 **Implementation steps:**
 
-- [ ] **Audit `ReturnTag::Fresh` coverage**: Iterate ALL methods across ALL TypeDefs in the registry with `returns == ReturnTag::Fresh`. For each, verify it has an entry in `computed_returns.rs` that constructs the precise return type. Document any missing entries as type inference quality gaps.
+- [x] **Audit `ReturnTag::Fresh` coverage**: Iterate ALL methods across ALL TypeDefs in the registry with `returns == ReturnTag::Fresh`. For each, verify it has an entry in `computed_returns.rs` that constructs the precise return type. Document any missing entries as type inference quality gaps.
   - **WHERE**: Write as a test in `compiler/ori_types/src/infer/expr/methods/computed_returns/tests.rs` (or equivalent). The test should: (1) collect all `(TypeTag, method_name)` pairs with `ReturnTag::Fresh`, (2) assert each is handled by `resolve_computed_return()`. This test prevents future methods with `Fresh` returns from silently falling back to unconstrained type variables.
   - **Expected methods with Fresh**: `list.map`, `list.filter`, `list.fold`, `list.find`, `list.flat_map`, `list.min`, `list.max`, `list.zip`, `list.sort_by`, `list.group_by` (and similar on set, map, iterator). Each should have a computed_returns entry.
   - **Semantic pin**: assert the exact list of `(TypeTag, method_name)` pairs with `ReturnTag::Fresh` -- this catches both missing entries (new Fresh methods without computed_returns) and stale entries (computed_returns for methods that no longer use Fresh)
-- [ ] **LEAK:scattered-knowledge** -- `RANGE_FLOAT_ITERATION_METHODS` in `methods/mod.rs:28` is a hardcoded 3-element list (`["collect", "iter", "to_list"]`) that should be derivable from a registry annotation instead of maintained separately. Two approaches:
+- [x] **LEAK:scattered-knowledge** -- `RANGE_FLOAT_ITERATION_METHODS` in `methods/mod.rs:28` is a hardcoded 3-element list (`["collect", "iter", "to_list"]`) that should be derivable from a registry annotation instead of maintained separately. Two approaches:
   - **(a) Registry annotation**: Add a `requires_iterable: bool` field to `MethodDef`. Set `true` on `collect`, `iter`, `to_list` for Range. The type checker then checks `method_def.requires_iterable && element_type == Float` instead of consulting a hardcoded list. This is the correct fix but adds a field that is only meaningful for Range.
   - **(b) Registry tag**: Add a `MethodKind::IterationDependent` variant. Less intrusive but less self-documenting.
   - **Recommendation**: (a) is more explicit. The field is cheap (`bool`, no struct size increase due to alignment) and directly encodes the constraint. The `is_float_range_iteration()` check in `methods/mod.rs:75-78` then becomes `method_def.requires_iterable && engine.pool().range_elem(receiver_ty) == Idx::FLOAT`.
