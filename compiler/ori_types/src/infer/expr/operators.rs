@@ -291,12 +291,23 @@ pub(crate) fn infer_binary(
             match left_tag {
                 Tag::Option | Tag::Result => {
                     let resolved_right = engine.resolve(right_ty);
-                    // CHAIN: both operands are the exact same wrapper type.
-                    // Pool interning guarantees structural equality via Idx identity.
-                    // e.g. Option<int> == Option<int> → CHAIN,
-                    //      Option<Option<int>> != Option<int> → UNWRAP.
-                    if resolved_left == resolved_right {
-                        engine.resolve(resolved_left)
+                    let right_tag = engine.pool().tag(resolved_right);
+
+                    // CHAIN vs UNWRAP detection:
+                    // When both sides have the same wrapper tag, try to unify
+                    // them. This handles polymorphic RHS (bare `None`, `Err("x")`)
+                    // where the type variable hasn't resolved yet.
+                    //
+                    // Spec: operator-rules.md §Coalesce
+                    //   CHAIN:  Option<T> ?? Option<T> -> Option<T>
+                    //   UNWRAP: Option<T> ?? T -> T
+                    //
+                    // Edge case: `Option<Option<int>> ?? Option<int>` — both are
+                    // Option, but unifying them fails (inner mismatch), so we
+                    // correctly fall through to UNWRAP.
+                    if right_tag == left_tag && engine.unify_types(left_ty, right_ty).is_ok() {
+                        // Unification succeeded: CHAIN. Re-resolve for canonical Idx.
+                        engine.resolve(left_ty)
                     } else {
                         // UNWRAP: extract inner type and unify with RHS.
                         let inner = if left_tag == Tag::Option {
