@@ -270,12 +270,12 @@ fn canonical_inner(
         // Composite types
         Tag::Option => {
             let inner = canonical_inner(pool, pool.option_inner(resolved), visiting, cache)?;
-            Some(canonical_option(inner))
+            Some(canonical_option(&inner))
         }
         Tag::Result => {
             let ok = canonical_inner(pool, pool.result_ok(resolved), visiting, cache)?;
             let err = canonical_inner(pool, pool.result_err(resolved), visiting, cache)?;
-            Some(canonical_result(ok, err))
+            Some(canonical_result(&ok, &err))
         }
         Tag::Function => canonical_function(pool, resolved, visiting, cache),
         Tag::Tuple => canonical_tuple(pool, resolved, visiting, cache),

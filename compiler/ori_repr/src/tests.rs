@@ -211,14 +211,17 @@ fn enum_tag_niche() {
     let tag = EnumTag::Niche {
         field_index: 0,
         niche_value: 0,
+        niche_variant_idx: 0,
     };
     if let EnumTag::Niche {
         field_index,
         niche_value,
+        niche_variant_idx,
     } = tag
     {
         assert_eq!(field_index, 0);
         assert_eq!(niche_value, 0);
+        assert_eq!(niche_variant_idx, 0);
     } else {
         panic!("expected Niche");
     }

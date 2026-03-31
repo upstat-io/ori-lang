@@ -109,6 +109,7 @@ fn niche_tag_width_is_none() {
         EnumTag::Niche {
             field_index: 0,
             niche_value: 2,
+            niche_variant_idx: 1,
         },
         2, // e.g. Option<bool>: Some(0/1), None(niche=2)
     );
@@ -121,6 +122,7 @@ fn niche_tag_gep_index_is_none() {
         EnumTag::Niche {
             field_index: 0,
             niche_value: 2,
+            niche_variant_idx: 1,
         },
         2,
     );
@@ -134,6 +136,7 @@ fn niche_payload_gep_index_is_zero() {
         EnumTag::Niche {
             field_index: 0,
             niche_value: 2,
+            niche_variant_idx: 1,
         },
         2,
     );
@@ -147,6 +150,7 @@ fn niche_variant_to_tag_value_niche_variant() {
         EnumTag::Niche {
             field_index: 0,
             niche_value: 2,
+            niche_variant_idx: 1,
         },
         2,
     );
@@ -162,6 +166,7 @@ fn niche_needs_tag_store() {
         EnumTag::Niche {
             field_index: 0,
             niche_value: 2,
+            niche_variant_idx: 1,
         },
         2,
     );
@@ -176,6 +181,7 @@ fn niche_is_niche() {
         EnumTag::Niche {
             field_index: 0,
             niche_value: 2,
+            niche_variant_idx: 1,
         },
         2,
     );
@@ -189,11 +195,57 @@ fn niche_field_and_value() {
         EnumTag::Niche {
             field_index: 2,
             niche_value: 0,
+            niche_variant_idx: 1,
         },
         2,
     );
     assert_eq!(enc.niche_field_index(), Some(2));
     assert_eq!(enc.niche_value(), Some(0));
+}
+
+// -- Niche at index 0 (Option<bool> with type-checker ordering: None=0, Some=1) --
+
+#[test]
+fn niche_at_index_zero_variant_to_tag_value() {
+    let enc = TagEncoding::new(
+        EnumTag::Niche {
+            field_index: 0,
+            niche_value: 2,
+            niche_variant_idx: 0,
+        },
+        2,
+    );
+    assert_eq!(enc.variant_to_tag_value(0), 2);
+    assert_eq!(enc.variant_to_tag_value(1), 1);
+}
+
+#[test]
+fn niche_at_index_zero_needs_tag_store() {
+    let enc = TagEncoding::new(
+        EnumTag::Niche {
+            field_index: 0,
+            niche_value: 2,
+            niche_variant_idx: 0,
+        },
+        2,
+    );
+    assert!(enc.needs_tag_store(0));
+    assert!(!enc.needs_tag_store(1));
+}
+
+#[test]
+fn niche_at_index_zero_accessors() {
+    let enc = TagEncoding::new(
+        EnumTag::Niche {
+            field_index: 0,
+            niche_value: 2,
+            niche_variant_idx: 0,
+        },
+        2,
+    );
+    assert_eq!(enc.niche_variant_idx(), Some(0));
+    assert_eq!(enc.niche_field_index(), Some(0));
+    assert_eq!(enc.niche_value(), Some(2));
 }
 
 // -- TagEncoding from None (single-variant / newtype erasure) --

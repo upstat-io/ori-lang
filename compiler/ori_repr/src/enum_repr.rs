@@ -36,6 +36,13 @@ pub enum EnumTag {
         field_index: u32,
         /// Bit pattern used as the niche value.
         niche_value: u64,
+        /// Which variant is encoded by the niche value.
+        ///
+        /// For `Option<bool>`: None is variant 0 and uses niche value 2.
+        /// The variant order in `EnumRepr.variants` matches the type checker's
+        /// logical variant indices — this field eliminates the need to reorder
+        /// variants for niche encoding.
+        niche_variant_idx: u32,
     },
     /// No tag needed (single inhabited variant, e.g. newtype).
     None,
