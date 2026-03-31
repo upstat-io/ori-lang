@@ -1,15 +1,16 @@
 ---
 section: "02"
 title: "Registry as Universal SSOT (Methods & Traits)"
-status: in-progress
+status: complete
 reviewed: true
 goal: "Type checker queries ori_registry for trait satisfaction and builtin method signatures instead of maintaining parallel hardcoded arrays"
 inspired_by:
   - "ori_registry defs/*.rs TypeDef pattern -- methods and operator defs per type"
 depends_on: []
 third_party_review:
-  status: findings
+  status: clean
   updated: 2026-03-31
+  iterations: 4
 sections:
   - id: "02.1"
     title: "Registry Trait Coverage Gaps"
@@ -343,6 +344,6 @@ Two residual items remain:
 - [x] `timeout 150 cargo test -p ori_types --release` passes (debug/release parity)
 - [x] `./clippy-all.sh` passes
 - [x] Plan annotation cleanup: no hygiene-full section-02 annotations in source code (verified via grep)
-- [ ] `/tpr-review` passed (final, full-section)
+- [x] `/tpr-review` passed (4 iterations: critical bool/char prelude mismatch fixed, Range<float> cross-phase GAP closed, computed_returns coverage strengthened, cross-crate sync tests added)
 
 **Exit Criteria:** All three parallel trait satisfaction implementations (string arrays, bitfield tables, and the `constraints.rs` dual-path) derive from `ori_registry` queries. The 13 hardcoded trait arrays in `traits.rs` are deleted. The hardcoded bitfield tables in `trait_set.rs` are replaced by registry-derived construction. Registry `MethodDef.trait_name` correctly encodes `Len`, `IsEmpty`, `Iterable`. `Default`, `Sendable`, `Iterator`, and `DoubleEndedIterator` are represented in the registry via `TypeDef.traits`. `Formattable` is derivable from method `trait_name` (no separate `traits` entry needed). `./test-all.sh` green.
