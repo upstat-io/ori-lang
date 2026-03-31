@@ -8,16 +8,7 @@ fn prelude_functions_complete() {
     let names: Vec<&str> = PRELUDE_FUNCTIONS.iter().map(|f| f.name).collect();
     assert_eq!(
         names,
-        [
-            "bool",
-            "byte",
-            "char",
-            "float",
-            "hash_combine",
-            "int",
-            "repeat",
-            "str"
-        ],
+        ["byte", "float", "hash_combine", "int", "repeat", "str"],
         "PRELUDE_FUNCTIONS must contain exactly these entries in alphabetical order"
     );
 }
@@ -66,8 +57,6 @@ fn conversion_function_signatures() {
         ("float", TypeTag::Float),
         ("str", TypeTag::Str),
         ("byte", TypeTag::Byte),
-        ("bool", TypeTag::Bool),
-        ("char", TypeTag::Char),
     ];
     for (name, expected_tag) in conversions {
         let f = find_prelude_function(name).unwrap_or_else(|| panic!("{name} should exist"));

@@ -48,22 +48,16 @@ static GENERIC_PARAM: [ParamDef; 1] = [ParamDef {
 ///
 /// Sorted alphabetically by name. The type checker and evaluator both
 /// reference this list as the canonical source for prelude function names.
+///
+/// Note: `bool` and `char` are NOT included — they have no evaluator
+/// implementation (`register_prelude` doesn't register them). Including
+/// them would cause type-check-but-crash-at-runtime bugs.
 pub static PRELUDE_FUNCTIONS: &[PreludeFunctionDef] = &[
     // Conversion functions: (T) -> TargetType
-    PreludeFunctionDef {
-        name: "bool",
-        params: &GENERIC_PARAM,
-        returns: ReturnTag::Concrete(TypeTag::Bool),
-    },
     PreludeFunctionDef {
         name: "byte",
         params: &GENERIC_PARAM,
         returns: ReturnTag::Concrete(TypeTag::Byte),
-    },
-    PreludeFunctionDef {
-        name: "char",
-        params: &GENERIC_PARAM,
-        returns: ReturnTag::Concrete(TypeTag::Char),
     },
     PreludeFunctionDef {
         name: "float",

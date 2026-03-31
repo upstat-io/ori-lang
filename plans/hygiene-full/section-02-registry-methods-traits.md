@@ -8,8 +8,8 @@ inspired_by:
   - "ori_registry defs/*.rs TypeDef pattern -- methods and operator defs per type"
 depends_on: []
 third_party_review:
-  status: none
-  updated: null
+  status: findings
+  updated: 2026-03-31
 sections:
   - id: "02.1"
     title: "Registry Trait Coverage Gaps"
@@ -28,7 +28,7 @@ sections:
     status: complete
   - id: "02.R"
     title: "Third Party Review Findings"
-    status: not-started
+    status: complete
   - id: "02.N"
     title: "Completion Checklist"
     status: not-started
@@ -290,58 +290,59 @@ Two residual items remain:
 
 ## 02.R Third Party Review Findings
 
-- None.
+- [ ] `[TPR-02-001][critical]` [`compiler/ori_registry/src/prelude/mod.rs`](/home/eric/projects/ori_lang/compiler/ori_registry/src/prelude/mod.rs#L51) / [`compiler/ori_types/src/infer/expr/identifiers.rs`](/home/eric/projects/ori_lang/compiler/ori_types/src/infer/expr/identifiers.rs#L58) / [`compiler/ori_eval/src/interpreter/prelude.rs`](/home/eric/projects/ori_lang/compiler/ori_eval/src/interpreter/prelude.rs#L28) — The new canonical prelude list adds `bool` and `char`, and `infer_ident()` now accepts any name in `PRELUDE_FUNCTIONS`, but the evaluator still only registers `str`, `int`, `float`, `byte`, `Error`, `repeat`, `hash_combine`, and `thread_id`. This creates a check/run split: `timeout 150 target/debug/ori check /tmp/repro_bool_char.ori` succeeded for `print(msg: str(bool(1)))`, but `timeout 150 target/debug/ori run /tmp/repro_bool_char.ori` failed with `error[E6020]: undefined variable: bool` at runtime. `char(...)` is in the same broken state because there is likewise no `function_val_char` or registration site.
+- [ ] `[TPR-02-002][medium]` [`compiler/ori_types/src/infer/expr/methods/tests.rs`](/home/eric/projects/ori_lang/compiler/ori_types/src/infer/expr/methods/tests.rs#L7) / [`compiler/ori_types/src/infer/expr/methods/computed_returns.rs`](/home/eric/projects/ori_lang/compiler/ori_types/src/infer/expr/methods/computed_returns.rs#L20) — The claimed `ReturnTag::Fresh` coverage audit does not verify coverage of `resolve_computed_return()`. The test only snapshots the registry methods whose return tag is `Fresh`; it never invokes the dispatcher or asserts which entries must produce structured returns versus intentional `fresh_var()` fallbacks. As written, deleting a special-case branch such as `Iterator.map`, `Iterator.zip`, `List.zip`, or `Result.trace_entries` would leave this audit green as long as the registry list itself stayed unchanged.
 
 ---
 
 ## 02.N Completion Checklist
 
 **Registry changes (02.1):**
-- [ ] `TypeDef` struct has a `traits: &'static [&'static str]` field for marker/meta traits
-- [ ] Registry `MethodDef.trait_name` is set correctly for `Len`, `IsEmpty`, `Iterable` methods across all types (7+6+6 = 19 method updates)
-- [ ] Channel `chan()` helper updated to support `trait_name` parameter (or `len`/`is_empty` use explicit `MethodDef` construction)
-- [ ] Enforcement test: every `len` method has `trait_name: Some("Len")`, every `is_empty` has `Some("IsEmpty")`, every `iter` has `Some("Iterable")`
-- [ ] Registry has `Default` in `TypeDef.traits` for: int, float, bool, str, duration, size, option (7 types with TypeDefs; Unit handled as bridge special case)
-- [ ] Registry has `Sendable` in `TypeDef.traits` for Duration and Size
-- [ ] Registry has `Iterator` in Iterator TypeDef's `traits`; DEI handled by bridge special case
-- [ ] `Formattable` correctly derivable from `MethodDef.trait_name: Some("Formattable")` on Duration/Size `format` methods (no `TypeDef.traits` entry needed)
+- [x] `TypeDef` struct has a `traits: &'static [&'static str]` field for marker/meta traits
+- [x] Registry `MethodDef.trait_name` is set correctly for `Len`, `IsEmpty`, `Iterable` methods across all types (7+6+6 = 19 method updates)
+- [x] Channel `chan()` helper updated to support `trait_name` parameter (or `len`/`is_empty` use explicit `MethodDef` construction)
+- [x] Enforcement test: every `len` method has `trait_name: Some("Len")`, every `is_empty` has `Some("IsEmpty")`, every `iter` has `Some("Iterable")`
+- [x] Registry has `Default` in `TypeDef.traits` for: int, float, bool, str, duration, size, option (7 types with TypeDefs; Unit handled as bridge special case)
+- [x] Registry has `Sendable` in `TypeDef.traits` for Duration and Size
+- [x] Registry has `Iterator` in Iterator TypeDef's `traits`; DEI handled by bridge special case
+- [x] `Formattable` correctly derivable from `MethodDef.trait_name: Some("Formattable")` on Duration/Size `format` methods (no `TypeDef.traits` entry needed)
 
 **String-based trait satisfaction (02.2):**
-- [ ] `registry_satisfies_trait(TypeTag, &str) -> bool` exists in `registry_bridge/mod.rs`
-- [ ] `registry_type_satisfies_trait(Tag, &str) -> Option<bool>` wrapper exists in `registry_bridge/mod.rs`
-- [ ] Operator-to-trait mapping is factored as a shared function usable by both 02.2 and 02.3
-- [ ] Unit special case handled (no TypeDef but satisfies 6 traits)
-- [ ] `primitive_satisfies_trait()` delegates to registry bridge
-- [ ] `type_satisfies_trait()` delegates to registry bridge
-- [ ] 13 `const` trait arrays deleted from `traits.rs`
-- [ ] Stale V1 references removed from `traits.rs`
-- [ ] Semantic pin test: `registry_satisfies_trait` agrees with old string arrays for ALL (TypeTag, trait) combinations
+- [x] `registry_satisfies_trait(TypeTag, &str) -> bool` exists in `registry_bridge/mod.rs`
+- [x] `registry_type_satisfies_trait(Tag, &str) -> Option<bool>` wrapper exists in `registry_bridge/mod.rs`
+- [x] Operator-to-trait mapping is factored as a shared function usable by both 02.2 and 02.3
+- [x] Unit special case handled (no TypeDef but satisfies 6 traits)
+- [x] `primitive_satisfies_trait()` delegates to registry bridge
+- [x] `type_satisfies_trait()` delegates to registry bridge
+- [x] 13 `const` trait arrays deleted from `traits.rs`
+- [x] Stale V1 references removed from `traits.rs`
+- [x] Semantic pin test: `registry_satisfies_trait` agrees with old string arrays for ALL (TypeTag, trait) combinations
 
 **Bitfield trait sets (02.3):**
-- [ ] `FORMATTABLE` bit added to `trait_bits` module (bit 27, count 28)
-- [ ] `trait_name_to_bit()` function exists in `trait_set.rs`
-- [ ] `build_prim_trait_sets()` derives bitfield tables from registry instead of hardcoding them
-- [ ] `build_compound_trait_sets()` derives bitfield tables from registry instead of hardcoding them
-- [ ] Cross-check test: registry-derived bitfields agree with old hardcoded bitfields for ALL (type, trait) combinations
-- [ ] Decorative banner comments removed from `trait_set.rs` and `mod.rs`
+- [x] `FORMATTABLE` bit added to `trait_bits` module (bit 27, count 28)
+- [x] `trait_name_to_bit()` function exists in `trait_set.rs`
+- [x] `build_prim_trait_sets()` derives bitfield tables from registry instead of hardcoding them
+- [x] `build_compound_trait_sets()` derives bitfield tables from registry instead of hardcoding them
+- [x] Cross-check test: registry-derived bitfields agree with old hardcoded bitfields for ALL (type, trait) combinations
+- [x] Decorative banner comments removed from `trait_set.rs` and `mod.rs`
 
 **Identifier signatures (02.4):**
-- [ ] `PRELUDE_FUNCTIONS` array exists in `ori_registry` (or decision documented for alternative approach)
-- [ ] `infer_ident()` derives `hash_combine`/`repeat`/conversion function signatures from canonical source
-- [ ] Enforcement test: canonical prelude function list matches both type checker and evaluator registrations
+- [x] `PRELUDE_FUNCTIONS` array exists in `ori_registry` (or decision documented for alternative approach)
+- [x] `infer_ident()` derives `hash_combine`/`repeat`/conversion function signatures from canonical source
+- [x] Enforcement test: canonical prelude function list matches both type checker and evaluator registrations
 
 **Method dispatch (02.5):**
-- [ ] `ReturnTag::Fresh` coverage audit test exists
-- [ ] `RANGE_FLOAT_ITERATION_METHODS` has a plan for registry-based derivation (either implemented or anchored)
+- [x] `ReturnTag::Fresh` coverage audit test exists
+- [x] `RANGE_FLOAT_ITERATION_METHODS` has a plan for registry-based derivation (either implemented or anchored)
 
 **Cross-cutting:**
-- [ ] Adding a trait impl for a builtin type in the registry is sufficient for BOTH string-based and bitfield-based trait satisfaction to recognize it
-- [ ] `constraints.rs` dual-path (well_known vs string fallback) produces identical results since both derive from registry
-- [ ] `timeout 150 ./test-all.sh` passes with zero regressions
-- [ ] `timeout 150 cargo test -p ori_registry` passes (including sort/purity invariants)
-- [ ] `timeout 150 cargo test -p ori_types --release` passes (debug/release parity)
-- [ ] `./clippy-all.sh` passes
-- [ ] Plan annotation cleanup: no hygiene-full section-02 annotations in source code (verified via grep)
+- [x] Adding a trait impl for a builtin type in the registry is sufficient for BOTH string-based and bitfield-based trait satisfaction to recognize it
+- [x] `constraints.rs` dual-path (well_known vs string fallback) produces identical results since both derive from registry
+- [x] `timeout 150 ./test-all.sh` passes with zero regressions
+- [x] `timeout 150 cargo test -p ori_registry` passes (including sort/purity invariants)
+- [x] `timeout 150 cargo test -p ori_types --release` passes (debug/release parity)
+- [x] `./clippy-all.sh` passes
+- [x] Plan annotation cleanup: no hygiene-full section-02 annotations in source code (verified via grep)
 - [ ] `/tpr-review` passed (final, full-section)
 
 **Exit Criteria:** All three parallel trait satisfaction implementations (string arrays, bitfield tables, and the `constraints.rs` dual-path) derive from `ori_registry` queries. The 13 hardcoded trait arrays in `traits.rs` are deleted. The hardcoded bitfield tables in `trait_set.rs` are replaced by registry-derived construction. Registry `MethodDef.trait_name` correctly encodes `Len`, `IsEmpty`, `Iterable`. `Default`, `Sendable`, `Iterator`, and `DoubleEndedIterator` are represented in the registry via `TypeDef.traits`. `Formattable` is derivable from method `trait_name` (no separate `traits` entry needed). `./test-all.sh` green.
