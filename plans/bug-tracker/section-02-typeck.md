@@ -28,11 +28,17 @@ Bugs in type inference, unification, trait resolution, method dispatch, generics
 - [x] `[BUG-02-002][high]` **Coalesce (`??`) same-type wrapper forms typed as `T` instead of wrapper** — found by tpr-review.
   Repro: `let a: Option<int> = Some(1); let b: Option<int> = Some(2); let c: Option<int> = a ?? b;` — fails with `expected int?, found int`. Same for `Result<T,E> ?? Result<T,E>`.
   Spec: `operator-rules.md` §Coalesce defines `Option<T> ?? Option<T> -> Option<T>` and `Result<T,E> ?? Result<T,E> -> Result<T,E>`.
-  Resolved: Fixed across 2026-03-30/31 (typeck: 3a9bf319, codegen: 11a26626, chain fix: 402d0770, unwrap fix: 55352b60). Type checker uses tag-based detection with unification for chain vs unwrap. ARC lowering uses `lhs_ty == result_ty`. Unwrap path now rejects invalid RHS types. 16 positive spec tests + 4 negative compile_fail pins + 6 Rust unit tests + 17 AOT tests for LLVM dual-execution parity.
+  Resolved: Fixed across 2026-03-30/31 (typeck: 3a9bf319, codegen: 11a26626, chain fix: 402d0770, unwrap fix: 55352b60). Type checker uses tag-based detection with unification for chain vs unwrap. ARC lowering uses `lhs_ty == result_ty`. Unwrap path now rejects invalid RHS types. 16 positive spec tests + 4 negative compile_fail pins + 5 Rust unit tests + 17 AOT tests for LLVM dual-execution parity.
 
 ---
 
 ## 02.R Third Party Review Findings
+
+- [x] `[TPR-02-006][low]` `tests/spec/expressions/coalesce.ori:623` — The new coalesce negative pins still key on message substrings instead of exact diagnostic codes.
+  Resolved: Not applicable — the Ori test runner's `#compile_fail` attribute matches against error message text, not error codes. The existing codebase convention (`#compile_fail(“type mismatch”)`, `#compile_fail(“non-exhaustive”)`) uses message substrings throughout. Error-code pinning would require a test runner enhancement.
+
+- [x] `[TPR-02-007][low]` `plans/bug-tracker/section-02-typeck.md:31` — BUG-02-002's “final test inventory” is still numerically wrong about Rust unit coverage.
+  Resolved: Fixed on 2026-03-31. Updated count from 6 to 5 Rust unit tests.
 
 - [x] `[TPR-02-004][high]` `compiler/ori_types/src/infer/expr/operators.rs:318` — Coalesce still accepts invalid RHS wrapper types when the unwrap-path unification fails.
   Resolved: Rejected after validation on 2026-03-31. The current tree now rejects both nested-wrapper repros with `error[E2001]: type mismatch: expected int?, found result<int, bool>` under `timeout 150 cargo run -q -p oric --bin ori -- check /tmp/coalesce_invalid_option_rhs.ori` and `... /tmp/coalesce_invalid_result_rhs.ori`. Regression coverage also exists in `tests/spec/expressions/coalesce.ori` (`@test_coalesce_nested_wrapper_mismatch`, `@test_coalesce_result_nested_mismatch`), and fresh verification passed via `timeout 150 cargo run -q -p oric --bin ori -- test tests/spec/expressions/coalesce.ori` (51 passed) plus `timeout 150 cargo test -p ori_llvm coalesce -- --nocapture` (17 AOT tests passed). The stale evidence predates `55352b60`, which added unwrap-path mismatch reporting and the nested-wrapper negative pins.

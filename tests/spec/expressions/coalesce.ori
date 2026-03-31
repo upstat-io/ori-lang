@@ -627,7 +627,7 @@ use std.testing { assert, assert_eq }
     result
 }
 
-// Negative pin: mismatched wrapper types should produce a type error
+// Negative pin: mismatched wrapper types should produce type mismatch
 #compile_fail("type mismatch")
 @test_coalesce_option_vs_result tests _ () -> void = {
     let a: Option<int> = Some(1);
