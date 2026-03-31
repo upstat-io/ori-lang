@@ -4,7 +4,7 @@ use ori_ir::{BinaryOp, ExprArena, ExprId, ExprKind, Span, UnaryOp};
 
 use super::super::InferEngine;
 use super::{infer_expr, resolve_and_check_parsed_type};
-use crate::{ContextKind, Expected, ExpectedOrigin, Idx, Tag, TypeCheckError};
+use crate::{ContextKind, ErrorContext, Expected, ExpectedOrigin, Idx, Tag, TypeCheckError};
 
 /// Infer the type of a binary operation.
 #[expect(
@@ -315,8 +315,22 @@ pub(crate) fn infer_binary(
                         } else {
                             engine.pool().result_ok(resolved_left)
                         };
-                        let _ = engine.unify_types(inner, right_ty);
-                        engine.resolve(inner)
+                        if engine.unify_types(inner, right_ty).is_err() {
+                            // RHS doesn't match inner type — report mismatch.
+                            // Spec: only T or the same wrapper type are valid RHS.
+                            let expected = engine.resolve(inner);
+                            let found = engine.resolve(right_ty);
+                            engine.push_error(TypeCheckError::mismatch(
+                                span,
+                                expected,
+                                found,
+                                vec![],
+                                ErrorContext::default(),
+                            ));
+                            Idx::ERROR
+                        } else {
+                            engine.resolve(inner)
+                        }
                     }
                 }
                 // Unresolved variable — defer via fresh var

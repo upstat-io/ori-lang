@@ -5,7 +5,7 @@ status: in-progress
 goal: "Track and resolve all known type checker bugs"
 sections: []
 third_party_review:
-  status: clean
+  status: findings
   updated: 2026-03-31
 ---
 
@@ -33,6 +33,11 @@ Bugs in type inference, unification, trait resolution, method dispatch, generics
 ---
 
 ## 02.R Third Party Review Findings
+
+- [ ] `[TPR-02-004][high]` `compiler/ori_types/src/infer/expr/operators.rs:318` — Coalesce still accepts invalid RHS wrapper types when the unwrap-path unification fails.
+  Evidence: the fallback unwrap branch discards `engine.unify_types(inner, right_ty)` errors and returns `engine.resolve(inner)` anyway. Fresh repro on 2026-03-31: `let a: Option<Option<int>> = Some(Some(1)); let b: Result<int, bool> = Err(false); let c: Option<int> = a ?? b;` compiles successfully under `timeout 150 cargo run -q -p oric --bin ori -- check /tmp/coalesce_invalid_option_rhs.ori`, and typed IR reports `Binary(??) : int?`. `operator-rules.md §Coalesce` only permits `Option<T> ?? T` and `Option<T> ?? Option<T>` for `Option`, so `Option<Option<int>> ?? Result<int, bool>` should be rejected. The same silent acceptance occurs for `Result<Option<int>, str> ?? Result<int, bool>`, which the current tree infers as `int?`.
+  Impact: the reviewed BUG-02-002 / TPR-02-003 work still leaves `??` unsound for nested-wrapper mismatch cases while the section marks the coalesce bug resolved, and the new negative coverage in `tests/spec/expressions/coalesce.ori` only pins the simplest `Option<int> ?? Result<int, str>` mismatch.
+  Required plan update: make the unwrap path report a type error when unification with the RHS fails instead of discarding the error, then add negative pins for nested-wrapper mismatches on both `Option` and `Result` plus matching Rust and AOT regression coverage.
 
 - [x] `[TPR-02-001][medium]` `plans/bug-tracker/section-02-typeck.md:25` — BUG-02-002 is marked resolved even though the new coalesce regression coverage was not verified on LLVM/AOT.
   Evidence: this range adds wrapper-chain and negative-pin cases in `tests/spec/expressions/coalesce.ori:434` and `tests/spec/expressions/coalesce.ori:568`, but `timeout 150 ./target/debug/ori test --backend=llvm tests/spec/expressions/coalesce.ori` still reports `42 llvm compile fail` and skips the file. The pre-change file also failed under LLVM (`31 llvm compile fail` on `HEAD~3`), so this is a carried-forward verification gap rather than a new backend regression.
