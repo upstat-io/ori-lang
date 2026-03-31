@@ -1,7 +1,7 @@
 ---
 section: "01"
 title: "Registry as Universal SSOT (Operator Dispatch)"
-status: not-started
+status: in-progress
 reviewed: true
 goal: "Type checker and evaluator query ori_registry OpDefs instead of maintaining independent operator dispatch tables"
 inspired_by:
@@ -13,7 +13,7 @@ third_party_review:
 sections:
   - id: "01.1"
     title: "Typeck Arithmetic Operator Validation via Registry"
-    status: not-started
+    status: complete
   - id: "01.2"
     title: "Typeck Unary Operator Validation via Registry"
     status: not-started
@@ -61,10 +61,10 @@ sections:
 
 The `infer_binary()` function hardcodes arithmetic operator behavior for Duration/Size/Int/Float/Str/List combinations in a `match (left_tag, right_tag, op)` block (lines 48-72). These special-case rules should be derivable from the registry's `OpDefs` -- the registry already knows which types support which arithmetic operators.
 
-- [ ] **LEAK:scattered-knowledge** `operators.rs:48-72` -- Duration/Size mixed-type arithmetic rules hardcoded in type checker instead of queried from registry OpDefs
-- [ ] **LEAK:scattered-knowledge** `operators.rs:58` -- String concatenation (`Tag::Str, Tag::Str, BinaryOp::Add`) hardcoded instead of driven by `str` TypeDef's `operators.add: RuntimeCall { fn_name: "ori_str_concat" }`
-- [ ] **LEAK:scattered-knowledge** `operators.rs:60-66` -- List concatenation hardcoded instead of driven by list TypeDef's `operators.add`
-- [ ] Add a query helper (e.g., `fn operator_supported(tag: TypeTag, op: BinaryOp) -> bool`) that checks the registry and use it as the primary validation path in `infer_binary()`
+- [x] **LEAK:scattered-knowledge** `operators.rs:48-72` -- Duration/Size mixed-type arithmetic rules extracted to `check_cross_type_arithmetic()`, same-type validated via registry `OpDefs`
+- [x] **LEAK:scattered-knowledge** `operators.rs:58` -- String concatenation now validated via registry query (`str.operators.add: RuntimeCall`)
+- [x] **LEAK:scattered-knowledge** `operators.rs:60-66` -- List concatenation now validated via registry query (added `list.operators.add: RuntimeCall` to registry)
+- [x] Added `binary_op_strategy()` and `is_binary_op_supported()` in `registry_bridge/mod.rs` as the primary registry query path for `infer_binary()`
 
 ---
 
