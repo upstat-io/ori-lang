@@ -20,7 +20,7 @@ Eliminate all implementation hygiene violations discovered during a full-project
                     ori_registry (SSOT)
                     ┌──────────────────┐
                     │ TypeDef + OpDefs │ ◄── Sections 01, 02, 09
-                    │ MethodDef        │
+                    │ MethodDef+traits │
                     │ OpStrategy       │
                     └──────┬───────────┘
                            │ query
@@ -113,7 +113,7 @@ Phase 4 - Enforcement & cleanup
 | Section | Est. Lines Changed | Complexity | Depends On |
 |---------|-------------------|------------|------------|
 | 01 Registry SSOT (Operators) | ~400 | Medium | -- |
-| 02 Registry SSOT (Methods & Traits) | ~300 | Medium | -- |
+| 02 Registry SSOT (Methods & Traits) | ~500 | Medium-High | -- |
 | 03 Cross-Backend DRY | ~500 | High | 01, 02 |
 | 04 Named Constants | ~200 | Low | -- |
 | 05 Layout Unification | ~150 | Medium | -- |
@@ -124,7 +124,7 @@ Phase 4 - Enforcement & cleanup
 | 10 Scattered Knowledge | ~300 | Medium | 01, 02 |
 | 11 Stale Annotations | ~180 deletions | Low | -- |
 | 12 Surface Hygiene | ~400 | Low | all |
-| **Total** | **~3280** | | |
+| **Total** | **~3480** | | |
 
 ## Quick Reference
 
