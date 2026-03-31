@@ -44,6 +44,10 @@ Bugs in type inference, unification, trait resolution, method dispatch, generics
   Impact: the authoritative bug-tracker entry now describes an intermediate implementation that was already corrected by `11a26626`, which obscures the real codegen condition and the cross-section nature of the fix.
   Resolved: Fixed on 2026-03-31. Updated BUG-02-002 resolution note with correct `lhs_ty == result_ty` logic, accurate commit references, and correct test inventory (11 positive + 2 negative + 3 unit + 14 AOT).
 
+- [x] `[TPR-02-003][high]` `compiler/ori_types/src/infer/expr/operators.rs:292` — Coalesce wrapper-chain inference still rejects polymorphic RHS constructors like `None` and `Err(...)`, so BUG-02-002 is not actually fixed for the full `COALESCE-CHAIN` / `COALESCE-RESULT-CHAIN` surface.
+  Evidence: `infer_binary()` decides chain vs unwrap by comparing `resolve(left_ty)` and `resolve(right_ty)` before it has unified the RHS wrapper with the LHS wrapper. That works for explicitly typed RHS operands, but it misclassifies constructor-polymorphic wrappers. Repros on the current tree: `let a = Some(1); let b: Option<int> = a ?? None;` fails with `expected int?, found int`, and `let a = Ok(1); let b: Result<int, str> = a ?? Err("x");` fails with `expected result<int, str>, found int`.
+  Resolved: Fixed on 2026-03-31. Changed chain detection from Idx identity to tag-based detection with unification: when both sides have the same wrapper tag (Option/Result), try `unify_types(left, right)` — if it succeeds, it's CHAIN; if it fails (e.g. `Option<Option<int>> ?? Option<int>`), fall through to UNWRAP. Added 1 Rust unit test, 5 spec tests, 3 AOT tests. 14,794 tests pass.
+
 ---
 
 ## Resolved Bugs

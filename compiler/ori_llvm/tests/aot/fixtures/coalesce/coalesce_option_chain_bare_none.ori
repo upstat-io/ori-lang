@@ -1,0 +1,9 @@
+// Regression: TPR-02-003 — Option<int> ?? None must chain (bare constructor)
+@main () -> int = {
+    let a: Option<int> = Some(42);
+    let b: Option<int> = a ?? None;
+    match b {
+        Some(v) -> if v == 42 then 0 else 1,
+        None -> 2,
+    }
+}

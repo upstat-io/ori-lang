@@ -560,6 +560,62 @@ use std.testing { assert, assert_eq }
 }
 
 // =============================================================================
+// Polymorphic RHS Constructors (bare None / Err on RHS)
+// Regression: TPR-02-003 — chain detection must work when RHS has unresolved
+// type variables (e.g. bare `None`, `Err("x")` without annotation)
+// =============================================================================
+
+// Option<int> ?? None — bare None on RHS should chain (type inferred)
+@test_option_chain_bare_none tests @option_chain_bare_none () -> void = {
+    assert_eq(actual: option_chain_bare_none(), expected: None)
+}
+
+@option_chain_bare_none () -> Option<int> = {
+    let a: Option<int> = None;
+    a ?? None
+}
+
+// Option<int> ?? None — Some on LHS, bare None on RHS (Some short-circuits)
+@test_option_chain_some_bare_none tests @option_chain_some_bare_none () -> void = {
+    assert_eq(actual: option_chain_some_bare_none(), expected: Some(42))
+}
+
+@option_chain_some_bare_none () -> Option<int> = {
+    let a: Option<int> = Some(42);
+    a ?? None
+}
+
+// Result<int, str> ?? Err("x") — bare Err on RHS should chain
+@test_result_chain_bare_err tests @result_chain_bare_err () -> void = {
+    assert_eq(actual: result_chain_bare_err(), expected: Err("fallback"))
+}
+
+@result_chain_bare_err () -> Result<int, str> = {
+    let a: Result<int, str> = Err("first");
+    a ?? Err("fallback")
+}
+
+// Result<int, str> ?? Ok(99) — bare Ok on RHS should chain
+@test_result_chain_bare_ok tests @result_chain_bare_ok () -> void = {
+    assert_eq(actual: result_chain_bare_ok(), expected: Ok(99))
+}
+
+@result_chain_bare_ok () -> Result<int, str> = {
+    let a: Result<int, str> = Err("first");
+    a ?? Ok(99)
+}
+
+// Result Ok short-circuits, bare Err never evaluated
+@test_result_chain_ok_bare_err tests @result_chain_ok_bare_err () -> void = {
+    assert_eq(actual: result_chain_ok_bare_err(), expected: Ok(1))
+}
+
+@result_chain_ok_bare_err () -> Result<int, str> = {
+    let a: Result<int, str> = Ok(1);
+    a ?? Err("should not matter")
+}
+
+// =============================================================================
 // Negative Tests (compile_fail pins)
 // =============================================================================
 

@@ -128,6 +128,32 @@ fn test_coalesce_chain_then_unwrap_all_none() {
     );
 }
 
+// ─── Polymorphic RHS constructors (TPR-02-003 regression pins) ───
+
+#[test]
+fn test_coalesce_option_chain_bare_none() {
+    assert_aot_success(
+        include_str!("fixtures/coalesce/coalesce_option_chain_bare_none.ori"),
+        "coalesce_option_chain_bare_none",
+    );
+}
+
+#[test]
+fn test_coalesce_result_chain_bare_err() {
+    assert_aot_success(
+        include_str!("fixtures/coalesce/coalesce_result_chain_bare_err.ori"),
+        "coalesce_result_chain_bare_err",
+    );
+}
+
+#[test]
+fn test_coalesce_result_chain_bare_ok() {
+    assert_aot_success(
+        include_str!("fixtures/coalesce/coalesce_result_chain_bare_ok.ori"),
+        "coalesce_result_chain_bare_ok",
+    );
+}
+
 // ─── Triple chain ───
 
 #[test]

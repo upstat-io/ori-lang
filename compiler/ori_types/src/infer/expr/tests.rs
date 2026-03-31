@@ -1715,6 +1715,48 @@ fn test_infer_coalesce_result_chain() {
     );
 }
 
+/// COALESCE-CHAIN with polymorphic RHS: `Option<int> ?? None -> Option<int>`
+/// Regression: TPR-02-003 — chain detection must work when RHS is bare `None`
+/// (type variable not yet unified before comparison).
+#[test]
+fn test_infer_coalesce_option_chain_bare_none() {
+    test_engine!(pool, engine);
+    let mut arena = ExprArena::new();
+
+    // Bind 'a' to Option<int>
+    let opt_ty = engine.infer_option(Idx::INT);
+    engine.env_mut().bind(name(1), opt_ty);
+
+    let left = alloc(&mut arena, ExprKind::Ident(name(1)));
+    let right = alloc(&mut arena, ExprKind::None); // bare None → Option<_>
+    let coalesce = alloc(
+        &mut arena,
+        ExprKind::Binary {
+            op: BinaryOp::Coalesce,
+            left,
+            right,
+        },
+    );
+
+    let ty = infer_expr(&mut engine, &arena, coalesce);
+    assert!(!engine.has_errors(), "Option<int> ?? None should not error");
+
+    drop(engine);
+
+    let tag = pool.tag(pool.resolve_fully(ty));
+    assert_eq!(
+        tag,
+        Tag::Option,
+        "Option<int> ?? None = Option<int> (chain, not unwrap)"
+    );
+    let inner = pool.option_inner(pool.resolve_fully(ty));
+    assert_eq!(
+        pool.resolve_fully(inner),
+        Idx::INT,
+        "inner type should be int"
+    );
+}
+
 /// Original unwrap behavior preserved: `Option<int> ?? int -> int`
 /// Semantic pin: would fail if we always returned wrapper type.
 #[test]
