@@ -21,12 +21,18 @@ use crate::{Idx, Tag};
 use crate::infer::InferEngine;
 
 /// Accessor function type for extracting an operator strategy from `OpDefs`.
-type OpAccessor = fn(&ori_registry::OpDefs) -> ori_registry::OpStrategy;
+pub(crate) type OpAccessor = fn(&ori_registry::OpDefs) -> ori_registry::OpStrategy;
 
-// Operator-to-trait mapping: maps `OpDefs` fields to the trait name they represent.
-// This is the shared join point used by both 02.2 (trait satisfaction) and
-// 02.3 (bitfield trait sets).
-const OP_TRAIT_MAP: &[(&str, OpAccessor)] = &[
+/// Operator-to-trait mapping: maps `OpDefs` fields to the trait name they represent.
+///
+/// Shared by both the string-based trait satisfaction bridge (02.2) and
+/// the bitfield trait set builder (02.3). Adding a new operator trait
+/// requires adding an entry here — both consumers derive from this table.
+///
+/// Note: Eq (from `ops.eq`) and Comparable (from `ops.lt`) are NOT in
+/// this table — they use dedicated checks because they map from different
+/// operator fields than their trait name suggests.
+pub(crate) const OP_TRAIT_MAP: &[(&str, OpAccessor)] = &[
     ("Add", |o| o.add),
     ("Sub", |o| o.sub),
     ("Mul", |o| o.mul),
