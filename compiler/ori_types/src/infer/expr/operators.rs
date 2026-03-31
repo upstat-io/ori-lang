@@ -281,20 +281,32 @@ pub(crate) fn infer_binary(
             engine.pool_mut().range(elem_ty)
         }
 
-        // Coalesce: Option<T> ?? T -> T  or  Result<T, E> ?? T -> T
+        // Coalesce: Option<T> ?? T -> T, Option<T> ?? Option<T> -> Option<T>,
+        //           Result<T,E> ?? T -> T, Result<T,E> ?? Result<T,E> -> Result<T,E>
+        // Spec: operator-rules.md §Coalesce (COALESCE-UNWRAP / COALESCE-CHAIN /
+        //        COALESCE-RESULT-UNWRAP / COALESCE-RESULT-CHAIN)
         BinaryOp::Coalesce => {
             let resolved_left = engine.resolve(left_ty);
             let left_tag = engine.pool().tag(resolved_left);
             match left_tag {
-                Tag::Option => {
-                    let inner = engine.pool().option_inner(resolved_left);
-                    let _ = engine.unify_types(inner, right_ty);
-                    engine.resolve(inner)
-                }
-                Tag::Result => {
-                    let ok_ty = engine.pool().result_ok(resolved_left);
-                    let _ = engine.unify_types(ok_ty, right_ty);
-                    engine.resolve(ok_ty)
+                Tag::Option | Tag::Result => {
+                    let resolved_right = engine.resolve(right_ty);
+                    // CHAIN: both operands are the exact same wrapper type.
+                    // Pool interning guarantees structural equality via Idx identity.
+                    // e.g. Option<int> == Option<int> → CHAIN,
+                    //      Option<Option<int>> != Option<int> → UNWRAP.
+                    if resolved_left == resolved_right {
+                        engine.resolve(resolved_left)
+                    } else {
+                        // UNWRAP: extract inner type and unify with RHS.
+                        let inner = if left_tag == Tag::Option {
+                            engine.pool().option_inner(resolved_left)
+                        } else {
+                            engine.pool().result_ok(resolved_left)
+                        };
+                        let _ = engine.unify_types(inner, right_ty);
+                        engine.resolve(inner)
+                    }
                 }
                 // Unresolved variable — defer via fresh var
                 Tag::Var => engine.fresh_var(),
