@@ -2,7 +2,9 @@ use ori_registry::{ReturnTag, TypeProjection, TypeTag};
 
 use crate::{Idx, Pool, Tag};
 
-use super::{return_tag_to_idx, tag_to_type_tag};
+use super::{
+    registry_satisfies_trait, registry_type_satisfies_trait, return_tag_to_idx, tag_to_type_tag,
+};
 
 // Helper: create a minimal InferEngine for testing return_tag_to_idx.
 fn with_engine(f: impl FnOnce(&mut crate::InferEngine<'_>)) {
@@ -650,4 +652,338 @@ fn try_op_returns_none() {
 fn non_builtin_unary_returns_none() {
     assert_eq!(is_unary_op_supported(Tag::Struct, UnaryOp::Neg), None);
     assert_eq!(is_unary_op_supported(Tag::Enum, UnaryOp::Not), None);
+}
+
+// ── registry_satisfies_trait: equivalence tests ──
+// These verify the bridge produces identical results to the old
+// hardcoded arrays in traits.rs for every (type, trait) combination.
+
+/// All trait names that appear in the old hardcoded arrays.
+const ALL_TRAIT_NAMES: &[&str] = &[
+    "Eq",
+    "Comparable",
+    "Clone",
+    "Hashable",
+    "Default",
+    "Printable",
+    "Debug",
+    "Add",
+    "Sub",
+    "Mul",
+    "Div",
+    "FloorDiv",
+    "Rem",
+    "Neg",
+    "Not",
+    "BitAnd",
+    "BitOr",
+    "BitXor",
+    "BitNot",
+    "Shl",
+    "Shr",
+    "Sendable",
+    "Len",
+    "IsEmpty",
+    "Iterable",
+    "Iterator",
+    "DoubleEndedIterator",
+];
+
+/// Expected trait sets per type — the equivalence truth table.
+#[expect(clippy::too_many_lines, reason = "exhaustive type × trait truth table")]
+fn expected_traits(tag: TypeTag) -> &'static [&'static str] {
+    match tag {
+        TypeTag::Int => &[
+            "Eq",
+            "Comparable",
+            "Clone",
+            "Hashable",
+            "Default",
+            "Printable",
+            "Debug",
+            "Add",
+            "Sub",
+            "Mul",
+            "Div",
+            "FloorDiv",
+            "Rem",
+            "Neg",
+            "BitAnd",
+            "BitOr",
+            "BitXor",
+            "BitNot",
+            "Shl",
+            "Shr",
+        ],
+        TypeTag::Float => &[
+            "Eq",
+            "Comparable",
+            "Clone",
+            "Hashable",
+            "Default",
+            "Printable",
+            "Debug",
+            "Add",
+            "Sub",
+            "Mul",
+            "Div",
+            "Rem",
+            "Neg",
+        ],
+        TypeTag::Bool => &[
+            "Eq",
+            "Comparable",
+            "Clone",
+            "Hashable",
+            "Default",
+            "Printable",
+            "Debug",
+            "Not",
+        ],
+        TypeTag::Str => &[
+            "Eq",
+            "Comparable",
+            "Clone",
+            "Hashable",
+            "Default",
+            "Printable",
+            "Debug",
+            "Add",
+            "Len",
+            "IsEmpty",
+            "Iterable",
+        ],
+        TypeTag::Char | TypeTag::Ordering | TypeTag::Result => &[
+            "Eq",
+            "Comparable",
+            "Clone",
+            "Hashable",
+            "Printable",
+            "Debug",
+        ],
+        TypeTag::Byte => &[
+            "Eq",
+            "Comparable",
+            "Clone",
+            "Hashable",
+            "Printable",
+            "Debug",
+            "Add",
+            "Sub",
+            "Mul",
+            "Div",
+            "Rem",
+            "BitAnd",
+            "BitOr",
+            "BitXor",
+            "BitNot",
+            "Shl",
+            "Shr",
+        ],
+        TypeTag::Unit => &["Eq", "Comparable", "Hashable", "Clone", "Default", "Debug"],
+        TypeTag::Duration => &[
+            "Eq",
+            "Comparable",
+            "Clone",
+            "Hashable",
+            "Default",
+            "Printable",
+            "Debug",
+            "Sendable",
+            "Add",
+            "Sub",
+            "Mul",
+            "Div",
+            "Rem",
+            "Neg",
+        ],
+        TypeTag::Size => &[
+            "Eq",
+            "Comparable",
+            "Clone",
+            "Hashable",
+            "Default",
+            "Printable",
+            "Debug",
+            "Sendable",
+            "Add",
+            "Sub",
+            "Mul",
+            "Div",
+            "Rem",
+        ],
+        // Compound types — derived from registry TypeDef
+        TypeTag::List => &[
+            "Eq",
+            "Comparable",
+            "Clone",
+            "Hashable",
+            "Printable",
+            "Debug",
+            "Add",
+            "Len",
+            "IsEmpty",
+            "Iterable",
+        ],
+        TypeTag::Map | TypeTag::Set => &[
+            "Eq",
+            "Clone",
+            "Hashable",
+            "Printable",
+            "Debug",
+            "Len",
+            "IsEmpty",
+            "Iterable",
+        ],
+        TypeTag::Option => &[
+            "Eq",
+            "Comparable",
+            "Clone",
+            "Hashable",
+            "Printable",
+            "Default",
+            "Debug",
+            "Iterable",
+        ],
+        TypeTag::Tuple => &[
+            "Eq",
+            "Comparable",
+            "Clone",
+            "Hashable",
+            "Printable",
+            "Debug",
+            "Len",
+        ],
+        TypeTag::Range => &["Printable", "Len", "IsEmpty", "Iterable"],
+        TypeTag::Iterator => &["Iterator"],
+        TypeTag::DoubleEndedIterator => &["Iterator", "DoubleEndedIterator"],
+        // Error has methods (clone, debug, to_str, etc.) — registry encodes them
+        TypeTag::Error => &["Clone", "Printable", "Debug"],
+        // Channel has Len/IsEmpty from trait_name on len/is_empty methods
+        TypeTag::Channel => &["Len", "IsEmpty"],
+        // Types with no trait satisfaction
+        TypeTag::Never | TypeTag::Function => &[],
+    }
+}
+
+/// Equivalence test: registry bridge matches expected trait sets for ALL
+/// (`TypeTag`, `trait_name`) combinations.
+#[test]
+fn registry_bridge_matches_old_trait_arrays() {
+    let type_tags = TypeTag::all();
+    let mut checked = 0;
+    let mut mismatches = Vec::new();
+
+    for &type_tag in type_tags {
+        let expected = expected_traits(type_tag);
+        for &trait_name in ALL_TRAIT_NAMES {
+            let bridge_result = registry_satisfies_trait(type_tag, trait_name);
+            let old_result = expected.contains(&trait_name);
+            if bridge_result != old_result {
+                mismatches.push(format!(
+                    "TypeTag::{type_tag:?} x \"{trait_name}\": bridge={bridge_result}, expected={old_result}"
+                ));
+            }
+            checked += 1;
+        }
+    }
+
+    assert!(
+        mismatches.is_empty(),
+        "Found {} mismatches:\n{}",
+        mismatches.len(),
+        mismatches.join("\n")
+    );
+
+    // Verify matrix completeness
+    let expected_count = type_tags.len() * ALL_TRAIT_NAMES.len();
+    assert_eq!(
+        checked, expected_count,
+        "Expected {expected_count} checks, got {checked}"
+    );
+}
+
+/// Semantic pin: specific positive assertions per type.
+#[test]
+fn registry_satisfies_trait_positive_pins() {
+    // Int: arithmetic + bitwise + comparison
+    assert!(registry_satisfies_trait(TypeTag::Int, "BitNot"));
+    assert!(registry_satisfies_trait(TypeTag::Int, "FloorDiv"));
+    assert!(registry_satisfies_trait(TypeTag::Int, "Shl"));
+    assert!(registry_satisfies_trait(TypeTag::Int, "Default"));
+
+    // Str: Len + IsEmpty + Iterable + Add
+    assert!(registry_satisfies_trait(TypeTag::Str, "Len"));
+    assert!(registry_satisfies_trait(TypeTag::Str, "IsEmpty"));
+    assert!(registry_satisfies_trait(TypeTag::Str, "Iterable"));
+    assert!(registry_satisfies_trait(TypeTag::Str, "Add"));
+
+    // Duration: Sendable + Neg
+    assert!(registry_satisfies_trait(TypeTag::Duration, "Sendable"));
+    assert!(registry_satisfies_trait(TypeTag::Duration, "Neg"));
+
+    // Iterator: just "Iterator" meta-trait
+    assert!(registry_satisfies_trait(TypeTag::Iterator, "Iterator"));
+
+    // DEI: both Iterator and DoubleEndedIterator
+    assert!(registry_satisfies_trait(
+        TypeTag::DoubleEndedIterator,
+        "Iterator"
+    ));
+    assert!(registry_satisfies_trait(
+        TypeTag::DoubleEndedIterator,
+        "DoubleEndedIterator"
+    ));
+}
+
+/// Negative pin: specific assertions per type that traits are NOT satisfied.
+#[test]
+fn registry_satisfies_trait_negative_pins() {
+    // Int: no Not (logical)
+    assert!(!registry_satisfies_trait(TypeTag::Int, "Not"));
+    // Bool: no Add
+    assert!(!registry_satisfies_trait(TypeTag::Bool, "Add"));
+    // Char: no Default
+    assert!(!registry_satisfies_trait(TypeTag::Char, "Default"));
+    // Byte: no Neg
+    assert!(!registry_satisfies_trait(TypeTag::Byte, "Neg"));
+    // Unit: no Printable
+    assert!(!registry_satisfies_trait(TypeTag::Unit, "Printable"));
+    // Iterator: not Clone, not Eq
+    assert!(!registry_satisfies_trait(TypeTag::Iterator, "Clone"));
+    assert!(!registry_satisfies_trait(TypeTag::Iterator, "Eq"));
+    // Channel: no traits
+    assert!(!registry_satisfies_trait(TypeTag::Channel, "Eq"));
+    assert!(!registry_satisfies_trait(TypeTag::Channel, "Clone"));
+    // Error: no Eq
+    assert!(!registry_satisfies_trait(TypeTag::Error, "Eq"));
+}
+
+/// `registry_type_satisfies_trait` returns `None` for non-builtin tags.
+#[test]
+fn registry_type_satisfies_non_builtin_returns_none() {
+    assert_eq!(registry_type_satisfies_trait(Tag::Named, "Eq"), None);
+    assert_eq!(registry_type_satisfies_trait(Tag::Struct, "Clone"), None);
+    assert_eq!(registry_type_satisfies_trait(Tag::Enum, "Hashable"), None);
+    assert_eq!(
+        registry_type_satisfies_trait(Tag::Function, "Printable"),
+        None
+    );
+}
+
+/// `registry_type_satisfies_trait` returns `Some` for builtin tags,
+/// including Unit and Never which have no `TypeDef`.
+#[test]
+fn registry_type_satisfies_builtin_returns_some() {
+    assert_eq!(registry_type_satisfies_trait(Tag::Int, "Add"), Some(true));
+    assert_eq!(registry_type_satisfies_trait(Tag::Int, "Not"), Some(false));
+    assert_eq!(
+        registry_type_satisfies_trait(Tag::Unit, "Default"),
+        Some(true)
+    );
+    assert_eq!(
+        registry_type_satisfies_trait(Tag::Unit, "Printable"),
+        Some(false)
+    );
+    assert_eq!(registry_type_satisfies_trait(Tag::Never, "Eq"), Some(false));
 }

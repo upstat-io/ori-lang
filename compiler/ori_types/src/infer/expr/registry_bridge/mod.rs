@@ -20,6 +20,120 @@ use crate::{Idx, Tag};
 
 use crate::infer::InferEngine;
 
+/// Accessor function type for extracting an operator strategy from `OpDefs`.
+type OpAccessor = fn(&ori_registry::OpDefs) -> ori_registry::OpStrategy;
+
+// Operator-to-trait mapping: maps `OpDefs` fields to the trait name they represent.
+// This is the shared join point used by both 02.2 (trait satisfaction) and
+// 02.3 (bitfield trait sets).
+const OP_TRAIT_MAP: &[(&str, OpAccessor)] = &[
+    ("Add", |o| o.add),
+    ("Sub", |o| o.sub),
+    ("Mul", |o| o.mul),
+    ("Div", |o| o.div),
+    ("FloorDiv", |o| o.floor_div),
+    ("Rem", |o| o.rem),
+    ("Neg", |o| o.neg),
+    ("Not", |o| o.not),
+    ("BitAnd", |o| o.bit_and),
+    ("BitOr", |o| o.bit_or),
+    ("BitXor", |o| o.bit_xor),
+    ("BitNot", |o| o.bit_not),
+    ("Shl", |o| o.shl),
+    ("Shr", |o| o.shr),
+];
+
+/// Check if a builtin type satisfies a trait, using the registry as SSOT.
+///
+/// Combines four knowledge sources:
+/// 1. `OpDefs` fields — operator traits (Add, Sub, Neg, etc.)
+/// 2. `MethodDef.trait_name` — method traits (Clone, Eq, Hashable, Len, etc.)
+/// 3. `TypeDef.traits` — marker traits (Default, Sendable, Iterator)
+/// 4. Special cases: Eq/Comparable from operators, Unit/Never without `TypeDef`
+///
+/// For types without a registry `TypeDef` (Unit, Never), hardcoded fallbacks
+/// are used. These will be eliminated when Unit/Never get `TypeDef`s.
+#[must_use]
+pub(crate) fn registry_satisfies_trait(type_tag: TypeTag, trait_name: &str) -> bool {
+    // Special case: Unit has no TypeDef but satisfies these traits.
+    if type_tag == TypeTag::Unit {
+        return matches!(
+            trait_name,
+            "Eq" | "Comparable" | "Hashable" | "Clone" | "Default" | "Debug"
+        );
+    }
+
+    // Special case: Never has no TypeDef and satisfies no traits.
+    if type_tag == TypeTag::Never {
+        return false;
+    }
+
+    // Special case: DoubleEndedIterator aliases to Iterator's TypeDef
+    // but also satisfies the "DoubleEndedIterator" meta-trait.
+    if type_tag == TypeTag::DoubleEndedIterator {
+        if trait_name == "DoubleEndedIterator" {
+            return true;
+        }
+        return registry_satisfies_trait(TypeTag::Iterator, trait_name);
+    }
+
+    let Some(type_def) = ori_registry::find_type(type_tag) else {
+        return false;
+    };
+
+    type_def_satisfies_trait(type_def, trait_name)
+}
+
+/// Check if a `TypeDef` satisfies a trait via operators, methods, or marker traits.
+fn type_def_satisfies_trait(type_def: &ori_registry::TypeDef, trait_name: &str) -> bool {
+    let ops = &type_def.operators;
+
+    // Eq: derived from `eq != Unsupported`
+    if trait_name == "Eq" && ops.eq != OpStrategy::Unsupported {
+        return true;
+    }
+
+    // Comparable: derived from `lt != Unsupported`
+    if trait_name == "Comparable" && ops.lt != OpStrategy::Unsupported {
+        return true;
+    }
+
+    // Other operator traits
+    for &(op_trait, accessor) in OP_TRAIT_MAP {
+        if trait_name == op_trait && accessor(ops) != OpStrategy::Unsupported {
+            return true;
+        }
+    }
+
+    // Method traits via `MethodDef.trait_name`
+    for method in type_def.methods {
+        if method.trait_name == Some(trait_name) {
+            return true;
+        }
+    }
+
+    // Marker traits via `TypeDef.traits`
+    type_def.traits.contains(&trait_name)
+}
+
+/// Check if a type (by Pool tag) satisfies a trait via the registry.
+///
+/// Returns `Some(bool)` for registry-backed types, `None` for types that
+/// need trait/impl dispatch (Named, Applied, Struct, Enum, etc.).
+#[must_use]
+pub(crate) fn registry_type_satisfies_trait(tag: Tag, trait_name: &str) -> Option<bool> {
+    // Unit and Never are special — they have no TypeDef but are builtin.
+    if tag == Tag::Unit {
+        return Some(registry_satisfies_trait(TypeTag::Unit, trait_name));
+    }
+    if tag == Tag::Never {
+        return Some(false);
+    }
+
+    let type_tag = tag_to_type_tag(tag)?;
+    Some(registry_satisfies_trait(type_tag, trait_name))
+}
+
 /// Map the type checker's [`Tag`] to the registry's [`TypeTag`].
 ///
 /// Returns `None` for tags that are not builtin types (Named, Applied,

@@ -95,7 +95,7 @@ pub static RANGE: TypeDef = TypeDef {
     type_params: TypeParamArity::Fixed(1),
     methods: RANGE_METHODS,
     operators: OpDefs::UNSUPPORTED,
-    traits: &[],
+    traits: &["Printable"],
 };
 
 #[cfg(test)]

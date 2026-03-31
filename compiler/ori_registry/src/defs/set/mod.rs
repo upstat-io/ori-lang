@@ -122,7 +122,7 @@ pub static SET: TypeDef = TypeDef {
     type_params: TypeParamArity::Fixed(1),
     methods: SET_METHODS,
     operators: OpDefs::UNSUPPORTED,
-    traits: &[],
+    traits: &["Printable"],
 };
 
 #[cfg(test)]
