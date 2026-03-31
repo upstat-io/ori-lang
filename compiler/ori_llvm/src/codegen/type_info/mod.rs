@@ -13,6 +13,7 @@
 //! - **[`info`]** — `TypeInfo` enum + methods (`storage_type`, `size`, `alignment`, triviality)
 //! - **[`store`]** — `TypeInfoStore` cached `Idx` → `TypeInfo` mapping
 //! - **[`layout_resolver`]** — `TypeLayoutResolver`: recursive LLVM type resolution with cycle detection
+//! - **[`enum_layout`]** — Enum-specific LLVM type resolution (tagless, niche, explicit)
 //!
 //! # References
 //!
@@ -20,6 +21,7 @@
 //! - Roc `gen_llvm/src/llvm/convert.rs` (`basic_type_from_layout`)
 //! - Zig `src/codegen/llvm.zig` (`lowerType` with `TypeMap` cache)
 
+mod enum_layout;
 mod info;
 mod layout_resolver;
 mod repr_lowering;
