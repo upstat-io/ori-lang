@@ -427,3 +427,137 @@ use std.testing { assert, assert_eq }
     let opt: Option<[int]> = Some([]);
     opt ?? [1, 2, 3]
 }
+
+// =============================================================================
+// Same-Type Wrapper Chaining (COALESCE-CHAIN / COALESCE-RESULT-CHAIN)
+// Spec: operator-rules.md — Option<T> ?? Option<T> -> Option<T>
+//                           Result<T,E> ?? Result<T,E> -> Result<T,E>
+// =============================================================================
+
+// Option<int> ?? Option<int> — Some short-circuits, preserves wrapper
+@test_option_chain_some tests @option_chain_some () -> void = {
+    assert_eq(actual: option_chain_some(), expected: Some(1))
+}
+
+@option_chain_some () -> Option<int> = {
+    let a: Option<int> = Some(1);
+    let b: Option<int> = Some(2);
+    a ?? b
+}
+
+// Option<int> ?? Option<int> — None falls through to RHS
+@test_option_chain_none tests @option_chain_none () -> void = {
+    assert_eq(actual: option_chain_none(), expected: Some(2))
+}
+
+@option_chain_none () -> Option<int> = {
+    let a: Option<int> = None;
+    let b: Option<int> = Some(2);
+    a ?? b
+}
+
+// Option<int> ?? Option<int> — both None
+@test_option_chain_both_none tests @option_chain_both_none () -> void = {
+    assert_eq(actual: option_chain_both_none(), expected: None)
+}
+
+@option_chain_both_none () -> Option<int> = {
+    let a: Option<int> = None;
+    let b: Option<int> = None;
+    a ?? b
+}
+
+// Result<int, str> ?? Result<int, str> — Ok short-circuits, preserves wrapper
+@test_result_chain_ok tests @result_chain_ok () -> void = {
+    assert_eq(actual: result_chain_ok(), expected: Ok(1))
+}
+
+@result_chain_ok () -> Result<int, str> = {
+    let a: Result<int, str> = Ok(1);
+    let b: Result<int, str> = Ok(2);
+    a ?? b
+}
+
+// Result<int, str> ?? Result<int, str> — Err falls through to RHS
+@test_result_chain_err tests @result_chain_err () -> void = {
+    assert_eq(actual: result_chain_err(), expected: Ok(2))
+}
+
+@result_chain_err () -> Result<int, str> = {
+    let a: Result<int, str> = Err("first");
+    let b: Result<int, str> = Ok(2);
+    a ?? b
+}
+
+// Result<int, str> ?? Result<int, str> — both Err
+@test_result_chain_both_err tests @result_chain_both_err () -> void = {
+    assert_eq(actual: result_chain_both_err(), expected: Err("second"))
+}
+
+@result_chain_both_err () -> Result<int, str> = {
+    let a: Result<int, str> = Err("first");
+    let b: Result<int, str> = Err("second");
+    a ?? b
+}
+
+// Option chain with short-circuit: Some skips RHS evaluation.
+// RHS must be a function call (not a let binding) for lazy evaluation.
+@option_chain_short_circuit_rhs () -> Option<int> = panic(msg: "should not execute");
+
+@test_option_chain_short_circuit tests @option_chain_short_circuit () -> void = {
+    assert_eq(actual: option_chain_short_circuit(), expected: Some(42))
+}
+
+@option_chain_short_circuit () -> Option<int> = {
+    let a: Option<int> = Some(42);
+    a ?? option_chain_short_circuit_rhs()
+}
+
+// Option<str> ?? Option<str> — string type chaining
+@test_option_chain_str tests @option_chain_str () -> void = {
+    assert_eq(actual: option_chain_str(), expected: Some("hello"))
+}
+
+@option_chain_str () -> Option<str> = {
+    let a: Option<str> = None;
+    let b: Option<str> = Some("hello");
+    a ?? b
+}
+
+// Mixed chain + unwrap: (Option<int> ?? Option<int>) then ?? int
+// Since ?? is right-associative, explicit parens needed for chain-then-unwrap
+@test_chain_then_unwrap tests @chain_then_unwrap () -> void = {
+    assert_eq(actual: chain_then_unwrap(), expected: 2)
+}
+
+@chain_then_unwrap () -> int = {
+    let a: Option<int> = None;
+    let b: Option<int> = Some(2);
+    // (a ?? b) is Option<int>, then ?? 99 unwraps to int
+    (a ?? b) ?? 99
+}
+
+// Chain then unwrap — both None
+@test_chain_then_unwrap_all_none tests @chain_then_unwrap_all_none () -> void = {
+    assert_eq(actual: chain_then_unwrap_all_none(), expected: 99)
+}
+
+@chain_then_unwrap_all_none () -> int = {
+    let a: Option<int> = None;
+    let b: Option<int> = None;
+    (a ?? b) ?? 99
+}
+
+// Triple Option chain
+@test_triple_option_chain tests @triple_option_chain () -> void = {
+    assert_eq(actual: triple_option_chain(), expected: Some(3))
+}
+
+@triple_option_chain () -> Option<int> = {
+    let a: Option<int> = None;
+    let b: Option<int> = None;
+    let c: Option<int> = Some(3);
+    // Right-assoc: a ?? (b ?? c), but b ?? c is Option<int> ?? Option<int> = Option<int>
+    // Then a ?? Option<int> = Option<int> (chain)
+    a ?? b ?? c
+}
