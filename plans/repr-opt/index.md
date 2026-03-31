@@ -175,7 +175,7 @@ Rust repr(Rust), Zig struct layout, LLVM DataLayout
 ---
 
 ### Section 07: Enum Representation Optimization
-**File:** `section-07-enum-repr.md` | **Status:** Not Started
+**File:** `section-07-enum-repr.md` | **Status:** In Progress (§07.0 complete, §07.1 complete)
 
 ```
 niche, niche filling, niche optimization, tagged pointer
