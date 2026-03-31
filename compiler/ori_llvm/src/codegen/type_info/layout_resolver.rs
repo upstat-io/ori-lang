@@ -11,7 +11,6 @@ use rustc_hash::{FxHashMap, FxHashSet};
 use ori_ir::{Name, StringInterner};
 use ori_types::{Idx, Tag};
 
-use super::info::EnumVariantInfo;
 use super::store::TypeInfoStore;
 use super::TypeInfo;
 use crate::context::SimpleCx;
@@ -44,16 +43,16 @@ pub struct TypeLayoutResolver<'a, 'll, 'tcx> {
     /// types (primitives, fat pointers, opaque pointers). When absent (or when
     /// the plan has no entry for a type, or the type requires recursive
     /// resolution), falls back to `TypeInfoStore`.
-    repr_plan: Option<&'a ori_repr::ReprPlan>,
+    pub(super) repr_plan: Option<&'a ori_repr::ReprPlan>,
     /// Types currently being resolved (cycle detection).
     ///
     /// When we encounter an `Idx` already in this set, we've found a cycle
     /// and return the previously created opaque struct instead of recursing.
-    resolving: RefCell<FxHashSet<Idx>>,
+    pub(super) resolving: RefCell<FxHashSet<Idx>>,
     /// Resolved LLVM types cache.
     cache: RefCell<FxHashMap<Idx, BasicTypeEnum<'ll>>>,
     /// Named struct types created during resolution (for body filling).
-    named_structs: RefCell<FxHashMap<Idx, StructType<'ll>>>,
+    pub(super) named_structs: RefCell<FxHashMap<Idx, StructType<'ll>>>,
     /// Recursion depth counter for indirect cycle detection.
     ///
     /// The `resolving` set catches direct cycles (same `Idx`), but misses
@@ -137,7 +136,11 @@ impl<'a, 'll, 'tcx> TypeLayoutResolver<'a, 'll, 'tcx> {
         resolved
     }
 
-    // try_repr_to_llvm_type and try_lower_narrowed_aggregate live in repr_lowering.rs.
+    // `try_repr_to_llvm_type` and `try_lower_narrowed_aggregate` are defined in
+    // `type_info/repr_lowering.rs` (same `impl TypeLayoutResolver` block).
+    // Enum resolution methods (resolve_enum, resolve_enum_explicit,
+    // resolve_enum_tagless, resolve_enum_niche, is_non_void_field)
+    // live in `type_info/enum_layout.rs`.
 
     /// Inner resolve implementation, separated for depth guard.
     fn resolve_inner(&self, idx: Idx) -> BasicTypeEnum<'ll> {
@@ -308,203 +311,12 @@ impl<'a, 'll, 'tcx> TypeLayoutResolver<'a, 'll, 'tcx> {
         named_struct.into()
     }
 
-    /// Resolve an enum type with two-phase creation for cycle safety.
-    ///
-    /// Layout: `{ i64 tag, [M x i64] payload }` where M is enough i64s to
-    /// hold the largest variant's fields. All-unit enums omit the payload.
-    fn resolve_enum(&self, idx: Idx, variants: &[EnumVariantInfo]) -> BasicTypeEnum<'ll> {
-        if self.resolving.borrow().contains(&idx) {
-            if let Some(&named) = self.named_structs.borrow().get(&idx) {
-                return named.into();
-            }
-            return self.scx.type_ptr().into();
-        }
-
-        // §07.2: Check ReprPlan for niche/tagless encoding.
-        if let Some(ori_repr::MachineRepr::Enum(enum_repr)) =
-            self.repr_plan.and_then(|p| p.get_repr(idx))
-        {
-            match &enum_repr.tag {
-                ori_repr::EnumTag::None => {
-                    return self.resolve_enum_tagless(idx, variants);
-                }
-                ori_repr::EnumTag::Niche { .. } => {
-                    return self.resolve_enum_niche(idx, variants, enum_repr);
-                }
-                ori_repr::EnumTag::Explicit { .. } => {
-                    // Fall through to existing behavior.
-                }
-            }
-        }
-
-        self.resolve_enum_explicit(idx, variants)
-    }
-
-    /// Resolve enum with explicit tag: `{ tag, [M x i64] payload }`.
-    fn resolve_enum_explicit(&self, idx: Idx, variants: &[EnumVariantInfo]) -> BasicTypeEnum<'ll> {
-        let name = self.type_name(idx, "Enum");
-        let named_struct = self.scx.type_named_struct(&name);
-        self.named_structs.borrow_mut().insert(idx, named_struct);
-        self.resolving.borrow_mut().insert(idx);
-
-        // Enum payloads use [M x i64] layout where each field occupies
-        // at least one full i64 slot (8 bytes). Must match
-        // compute_variant_field_offsets() in drop_enum.rs and
-        // enum_payload_size() / pool_type_store_size() in ori_arc.
-        //
-        // BUG-04-008: Unit/Never fields are zero-sized in Ori's type system
-        // but map to i64 in LLVM (because LLVM void can't be stored/phi'd).
-        // Skip them here so they don't inflate the payload size.
-        let pool = self.store.pool();
-        let mut max_payload_bytes: u64 = 0;
-        for variant in variants {
-            let variant_bytes: u64 = variant
-                .fields
-                .iter()
-                .map(|&f| {
-                    let resolved_f = pool.resolve_fully(f);
-                    let tag = pool.tag(resolved_f);
-                    if matches!(tag, Tag::Unit | Tag::Never) {
-                        return 0;
-                    }
-                    let ty = self.resolve(f);
-                    let size = Self::type_store_size(ty);
-                    // Round up to 8-byte i64 slot boundary
-                    size.div_ceil(8) * 8
-                })
-                .sum();
-            max_payload_bytes = max_payload_bytes.max(variant_bytes);
-        }
-
-        // §07.1: Use narrowed tag type (i8 for ≤256 variants) instead of i64.
-        let tag_ty = match ori_repr::min_tag_width(variants.len()) {
-            ori_repr::IntWidth::I8 => self.scx.type_i8(),
-            ori_repr::IntWidth::I16 => self.scx.type_i16(),
-            ori_repr::IntWidth::I32 => self.scx.type_i32(),
-            ori_repr::IntWidth::I64 => self.scx.type_i64(),
-        };
-        if max_payload_bytes == 0 {
-            self.scx
-                .set_struct_body(named_struct, &[tag_ty.into()], false);
-        } else {
-            let payload_i64_count = max_payload_bytes.div_ceil(8);
-            let payload_ty = self.scx.type_i64().array_type(payload_i64_count as u32);
-            self.scx
-                .set_struct_body(named_struct, &[tag_ty.into(), payload_ty.into()], false);
-        }
-
-        self.resolving.borrow_mut().remove(&idx);
-        named_struct.into()
-    }
-
-    /// Resolve single-variant enum (newtype erasure): no tag, struct IS the payload.
-    ///
-    /// §07.2: `EnumTag::None` means a single-variant enum. The LLVM type is
-    /// just the payload fields — no tag field at all.
-    fn resolve_enum_tagless(&self, idx: Idx, variants: &[EnumVariantInfo]) -> BasicTypeEnum<'ll> {
-        let name = self.type_name(idx, "Enum");
-        let named_struct = self.scx.type_named_struct(&name);
-        self.named_structs.borrow_mut().insert(idx, named_struct);
-        self.resolving.borrow_mut().insert(idx);
-
-        // Single variant — resolve its fields as the struct body.
-        let pool = self.store.pool();
-        if let Some(variant) = variants.first() {
-            let field_types: Vec<BasicTypeEnum<'ll>> = variant
-                .fields
-                .iter()
-                .filter(|&&f| {
-                    let resolved_f = pool.resolve_fully(f);
-                    let tag = pool.tag(resolved_f);
-                    !matches!(tag, Tag::Unit | Tag::Never)
-                })
-                .map(|&f| self.resolve(f))
-                .collect();
-
-            if field_types.is_empty() {
-                // Unit newtype — use i8 as a placeholder (ZST in Ori, but
-                // LLVM needs a non-empty struct for named types).
-                self.scx
-                    .set_struct_body(named_struct, &[self.scx.type_i8().into()], false);
-            } else {
-                self.scx.set_struct_body(named_struct, &field_types, false);
-            }
-        } else {
-            // Empty enum (no variants) — shouldn't happen, but handle gracefully.
-            self.scx
-                .set_struct_body(named_struct, &[self.scx.type_i8().into()], false);
-        }
-
-        self.resolving.borrow_mut().remove(&idx);
-        named_struct.into()
-    }
-
-    /// Resolve niche-encoded enum: no explicit tag field, payload IS the struct.
-    ///
-    /// §07.2: `EnumTag::Niche` means the discriminant is encoded in an invalid
-    /// bit pattern of a payload field. The LLVM type is the data variant's
-    /// payload (same layout as the inner type for simple cases like `Option<bool>`).
-    fn resolve_enum_niche(
-        &self,
-        idx: Idx,
-        variants: &[EnumVariantInfo],
-        enum_repr: &ori_repr::EnumRepr,
-    ) -> BasicTypeEnum<'ll> {
-        let name = self.type_name(idx, "Enum");
-        let named_struct = self.scx.type_named_struct(&name);
-        self.named_structs.borrow_mut().insert(idx, named_struct);
-        self.resolving.borrow_mut().insert(idx);
-
-        // Find the data variant (the non-niche variant with payload fields).
-        let niche_variant_idx = match &enum_repr.tag {
-            ori_repr::EnumTag::Niche {
-                niche_variant_idx, ..
-            } => *niche_variant_idx as usize,
-            _ => 0,
-        };
-
-        let pool = self.store.pool();
-        let data_variant = variants
-            .iter()
-            .enumerate()
-            .find(|(i, _)| *i != niche_variant_idx)
-            .map(|(_, v)| v);
-
-        if let Some(variant) = data_variant {
-            let field_types: Vec<BasicTypeEnum<'ll>> = variant
-                .fields
-                .iter()
-                .filter(|&&f| {
-                    let resolved_f = pool.resolve_fully(f);
-                    let tag = pool.tag(resolved_f);
-                    !matches!(tag, Tag::Unit | Tag::Never)
-                })
-                .map(|&f| self.resolve(f))
-                .collect();
-
-            if field_types.is_empty() {
-                // Niche on a unit type — use the niche field type directly.
-                self.scx
-                    .set_struct_body(named_struct, &[self.scx.type_i8().into()], false);
-            } else if field_types.len() == 1 {
-                // Single-field data variant (e.g., Option<bool> → i8).
-                self.scx.set_struct_body(named_struct, &field_types, false);
-            } else {
-                // Multi-field data variant — struct of all fields.
-                self.scx.set_struct_body(named_struct, &field_types, false);
-            }
-        } else {
-            // All variants are niche variants — shouldn't happen.
-            self.scx
-                .set_struct_body(named_struct, &[self.scx.type_i8().into()], false);
-        }
-
-        self.resolving.borrow_mut().remove(&idx);
-        named_struct.into()
-    }
+    // Enum resolution methods (resolve_enum, resolve_enum_explicit,
+    // resolve_enum_tagless, resolve_enum_niche, is_non_void_field)
+    // live in enum_layout.rs.
 
     /// Get a human-readable name for an LLVM named struct.
-    fn type_name(&self, idx: Idx, fallback: &str) -> String {
+    pub(super) fn type_name(&self, idx: Idx, fallback: &str) -> String {
         let pool = self.store.pool();
         if idx.raw() as usize >= pool.len() {
             return format!("ori.{}.{}", fallback, idx.raw());
@@ -525,7 +337,7 @@ impl<'a, 'll, 'tcx> TypeLayoutResolver<'a, 'll, 'tcx> {
     }
 
     /// Resolve a `Name` to its string representation.
-    fn resolve_name(&self, name: Name) -> String {
+    pub(super) fn resolve_name(&self, name: Name) -> String {
         if let Some(interner) = self.interner {
             if let Some(s) = interner.try_lookup(name) {
                 return s.to_owned();

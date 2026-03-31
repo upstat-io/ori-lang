@@ -44,6 +44,7 @@ pub mod panic;
 pub mod patterns;
 pub mod rc_matrix;
 pub mod recursion;
+pub mod repr;
 pub mod scoping;
 pub mod sets;
 pub mod slices;

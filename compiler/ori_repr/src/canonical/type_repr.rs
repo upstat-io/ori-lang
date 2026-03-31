@@ -10,7 +10,10 @@ use ori_types::{Idx, Pool};
 use rustc_hash::{FxHashMap, FxHashSet};
 
 use crate::enum_repr::{min_tag_width, EnumRepr, EnumTag, VariantRepr};
-use crate::layout::{compute_enum_payload_layout, compute_field_layout, is_trivial_repr, round_up};
+use crate::layout::{
+    compute_enum_payload_layout, compute_field_layout, compute_tagless_enum_layout,
+    is_trivial_repr, round_up,
+};
 use crate::repr::MachineRepr;
 use crate::struct_repr::{ClosureRepr, FatRepr, FieldRepr, StructRepr, TupleRepr};
 
@@ -171,12 +174,12 @@ pub(super) fn canonical_enum(
 
     // §07.2: Single-variant enum (newtype erasure) — no tag needed.
     if variants.len() == 1 {
-        let variant = &variants[0];
-        let (size, align) = if variant.size == 0 {
-            (1, 1) // Unit newtype: minimal size for LLVM struct
-        } else {
-            (variant.size, variant.alignment.max(1))
-        };
+        debug_assert!(
+            variants.len() == 1,
+            "EnumTag::None requires exactly 1 variant, got {}",
+            variants.len()
+        );
+        let (size, align) = compute_tagless_enum_layout(&variants[0]);
         return Some(MachineRepr::Enum(EnumRepr {
             tag: EnumTag::None,
             variants,
