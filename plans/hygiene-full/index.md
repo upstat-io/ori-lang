@@ -50,6 +50,11 @@ emit_option_method, emit_result_method, eval_option_binary, eval_result_binary
 emit_equals, emit_compare, emit_hash, derived methods
 Option routing, Result routing, Ordering predicates
 derive processing, exhaustiveness guards, iterator method lists
+FNV_OFFSET_BASIS, FNV_PRIME, hash constants, ori_patterns
+OpStrategy, evaluate_binary, op_strategy_for_binary
+flatten, flat_map, cycle, rev, last, rfind, rfold, join, missing LLVM arms
+is_iterator_method, auto-iter promotion, registry-driven
+StructBody, SumBody, non_exhaustive, derive sync
 ```
 
 ---

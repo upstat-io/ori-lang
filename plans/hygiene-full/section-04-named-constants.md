@@ -3,7 +3,7 @@ section: "04"
 title: "Named Constants for Tag Values & Field Indices"
 status: not-started
 reviewed: false
-goal: "Replace magic numbers (Option/Result tags, collection field indices, FNV constants, struct sizes) with named constants in canonical locations"
+goal: "Replace magic numbers (Option/Result tags, collection field indices, struct sizes) with named constants in canonical locations"
 inspired_by:
   - "Rust compiler discriminant constants -- named rather than inline literals"
 depends_on: []
@@ -19,7 +19,7 @@ sections:
     status: not-started
   - id: "04.3"
     title: "FNV Hash Constants Unification"
-    status: not-started
+    status: superseded
   - id: "04.4"
     title: "FatPointer/Closure/Range Size Constants"
     status: not-started
@@ -34,9 +34,9 @@ sections:
 # Section 04: Named Constants for Tag Values & Field Indices
 
 **Status:** Not Started
-**Goal:** All magic numbers for Option/Result tag discriminants, collection struct field indices, FNV hash constants, and struct sizes are replaced by named constants defined in one canonical location. After this section, changing a tag value or field layout requires modifying exactly one constant definition.
+**Goal:** All magic numbers for Option/Result tag discriminants, collection struct field indices, and struct sizes are replaced by named constants defined in one canonical location. After this section, changing a tag value or field layout requires modifying exactly one constant definition.
 
-**Context:** The Option tag convention (Some=0, None=1) appears as bare `0`/`1` literals in 11+ files across `ori_llvm`, `ori_arc`, `ori_eval`, and `ori_rt`. Collection field indices (len=0, cap=1, data=2) appear in 8+ files. FNV-1a hash constants are independently defined in 3 crates. These magic numbers are invisible invariants -- changing one without finding all others silently corrupts behavior.
+**Context:** The Option tag convention (Some=0, None=1) appears as bare `0`/`1` literals in 11+ files across `ori_llvm`, `ori_arc`, `ori_eval`, and `ori_rt`. Collection field indices (len=0, cap=1, data=2) appear in 8+ files. These magic numbers are invisible invariants -- changing one without finding all others silently corrupts behavior. (FNV-1a hash constants are handled in Section 03.3 as a cross-backend DRY consolidation in `ori_ir::hash_constants`.)
 
 **Depends on:** None.
 
@@ -85,20 +85,7 @@ Collection struct field indices (len=0, cap=1, data=2 for `{ len, cap, data }` l
 
 ## 04.3 FNV Hash Constants Unification
 
-**File(s):** `compiler/ori_eval/src/methods/compare.rs`, `compiler/ori_llvm/src/codegen/derive_codegen/bodies.rs`, `compiler/ori_llvm/src/codegen/derive_codegen/enum_bodies/enum_hashable.rs`, `compiler/ori_rt/src/string/ops.rs`
-
-FNV-1a constants are independently defined in 4 locations:
-- `ori_eval/src/methods/compare.rs:201,207` -- `FNV_OFFSET_BASIS`, `FNV_PRIME` (with comment "Must match ori_llvm")
-- `ori_llvm/src/codegen/derive_codegen/bodies.rs:71,73` -- `FNV_OFFSET_BASIS`, `FNV_PRIME`
-- `ori_llvm/src/codegen/derive_codegen/enum_bodies/enum_hashable.rs:17,19` -- `FNV_OFFSET_BASIS`, `FNV_PRIME` (duplicate within ori_llvm)
-- `ori_rt/src/string/ops.rs:314,315` -- `FNV_OFFSET_BASIS`, `FNV_PRIME` (within `ori_str_hash`)
-
-The "Must match" comments in `compare.rs` explicitly acknowledge the duplication.
-
-- [ ] **LEAK:inline-policy** -- FNV-1a constants (`FNV_OFFSET_BASIS = 14_695_981_039_346_656_037`, `FNV_PRIME = 1_099_511_628_211`) independently defined in 4 locations across 3 crates with manual "must match" comments
-- [ ] Define canonical FNV constants in `ori_ir` (e.g., `ori_ir::hash_constants` module) -- confirmed: `ori_rt` depends on `ori_ir` (Cargo.toml), `ori_eval` depends on `ori_ir`, `ori_llvm` depends on `ori_ir`, so all 4 consumers can import from `ori_ir`
-- [ ] Replace all 4 independent definitions with imports from the canonical location
-- [ ] Remove the "Must match" comments (the import relationship enforces consistency)
+**Status: SUPERSEDED by Section 03.3** — Implemented as `ori_ir::hash_constants` in Section 03.3, which is the correct cross-backend DRY location for constants shared between `ori_eval`, `ori_llvm`, and `ori_rt`. All 4 consumer sites and the canonical `ori_ir::hash_constants` definition are handled in Section 03.3. Nothing to do here.
 
 ---
 

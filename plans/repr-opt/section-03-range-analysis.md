@@ -1,7 +1,7 @@
 ---
 section: "03"
 title: "Value Range Analysis Framework"
-status: complete
+status: in-progress
 reviewed: true
 third_party_review:
   status: resolved
@@ -35,7 +35,7 @@ sections:
     status: complete
   - id: "03.6"
     title: "Completion Checklist"
-    status: complete
+    status: in-progress
   - id: "03.R"
     title: "Third Party Review Findings"
     status: complete

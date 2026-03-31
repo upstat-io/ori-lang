@@ -1,7 +1,7 @@
 ---
 section: "01"
 title: "Representation IR & Decision Framework"
-status: complete
+status: in-progress
 reviewed: true
 third_party_review:
   status: resolved
@@ -43,7 +43,7 @@ sections:
     status: complete
   - id: "01.10"
     title: "Completion Checklist"
-    status: complete
+    status: in-progress
 ---
 
 # Section 01: Representation IR & Decision Framework
