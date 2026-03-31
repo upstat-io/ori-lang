@@ -399,6 +399,7 @@ When all findings are triaged:
 - [ ] Plan annotation cleanup: `bash .claude/skills/impl-hygiene-review/plan-annotations.sh --plan {NN}` returns 0 annotations — all temporary scaffolding (TPR, CROSS, BUG, §, Phase, section- refs) removed from `.rs` files
 - [ ] All intermediate TPR checkpoint findings resolved (see checkpoint items in subsections above)
 - [ ] `/tpr-review` passed (final, full-section) — independent Codex review found no critical or major issues (or all findings triaged)
+- [ ] `/impl-hygiene-review last commit` passed — implementation hygiene review found no critical or major findings (or all findings triaged and fixed). MUST run AFTER `/tpr-review` is clean.
 
 **Exit Criteria:** {Paragraph describing the measurable, testable condition
 that proves this section is complete. Include specific commands, test names,
@@ -513,6 +514,8 @@ escalation to map the exact boundary of what works.
 - [ ] Plan annotation cleanup: `plan-annotations.sh` returns 0 annotations for this plan's sections
 - [ ] `./test-all.sh` green
 - [ ] `./clippy-all.sh` green
+- [ ] `/tpr-review` passed — independent Codex review clean
+- [ ] `/impl-hygiene-review last commit` passed — hygiene review clean. MUST run AFTER `/tpr-review` is clean.
 
 **Exit Criteria:** {Final measurable proof. Include test counts, metric
 thresholds, and the specific commands that demonstrate completion.}

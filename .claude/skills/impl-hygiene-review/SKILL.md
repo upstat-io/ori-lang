@@ -224,6 +224,17 @@ This pass reads the code *across boundaries* — it's looking at how data crosse
 - [ ] No silent workarounds for missing capabilities?
 - [ ] Full pipeline works end-to-end for each feature?
 
+**Compiler-Specific Invariants:**
+- [ ] **IR variant exhaustiveness**: New ExprKind/CanExpr/StmtKind variants handled in ALL consuming phases? No `_ => unreachable!()` catch-all arms hiding unhandled variants?
+- [ ] **Cross-phase invariant contracts**: Does each phase boundary have explicit validation? ARC→Codegen: RC ops balanced? TypeCheck→Codegen: no unresolved type variables? Canon→All: no sugar variants, no TypeId::INFER?
+- [ ] **Lowering completeness**: Every language construct lowered in BOTH eval AND LLVM codegen? No construct that works in one backend but crashes/panics in the other?
+- [ ] **Span provenance**: Spans survive every lowering step (AST → CanExpr → ARC IR → LLVM IR)? No IR nodes with DUMMY spans outside of compiler-generated code?
+- [ ] **Error recovery monotonicity**: TyError propagates silently without generating cascading diagnostics? Error nodes skipped (not re-diagnosed) by later phases?
+- [ ] **Debug/release parity**: No `#[cfg(debug_assertions)]` blocks that change semantics (only verification)? Both debug and release builds produce identical observable output?
+- [ ] **Interning discipline**: All identifier comparisons use `Name` (not `String`)? All type comparisons use `Idx` (not structure)? No string-based identity checks in non-test code?
+- [ ] **Layout computation**: Type layout computed once and cached, not recomputed per-consumer? Codegen queries layout facts, never re-derives from field types?
+- [ ] **Strategy dispatch coverage**: Strategy tables (e.g., DeriveStrategy) cover all IR variants? Test iterating ALL variants asserts each has a strategy entry?
+
 #### Pass 4: Surface Hygiene Scan (Polish Pass)
 
 **Goal**: Find file organization violations, naming issues, comment problems, visibility leaks, and style violations.

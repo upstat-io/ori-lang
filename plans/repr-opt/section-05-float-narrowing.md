@@ -546,6 +546,7 @@ These are end-to-end behavioral tests. The Ori code itself does not observe the 
 - [x] `./clippy-all.sh` green (2026-03-29)
 - [x] `./diagnostics/valgrind-aot.sh` clean — `tests/valgrind/float_narrowing.ori` passes Valgrind with zero memory errors (exercises f32 storage, negative zero, boundary values, multiple stores, comparison); spec tests can't AOT-compile due to `assert_eq` mono gap (2026-03-29)
 - [x] `/tpr-review` passed — 6 iterations, 10 findings (TPR-05-009 through TPR-05-018), all resolved. Zero code correctness bugs; all findings were evidence/documentation accuracy. Accepted clean on 2026-03-29.
+- [ ] `/impl-hygiene-review last commit` passed — implementation hygiene review clean (phase boundaries, SSOT, algorithmic DRY, naming). MUST run AFTER `/tpr-review` is clean.
 - [x] Memory safety verified: (1) Valgrind clean on `tests/valgrind/float_narrowing.ori` (dedicated `@main` program exercising all scenarios); (2) 20 AOT tests pass without memory errors in debug+release; (3) `ORI_CHECK_LEAKS=1` is a runtime-binary feature — spec test files (interpreter-only, `@test` functions without `@main`) do not exercise this path (2026-03-29)
 
 **Cleanup (after §05 is complete):**

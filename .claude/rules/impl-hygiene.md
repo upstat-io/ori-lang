@@ -213,6 +213,38 @@ Hot: lexer scan loop, parser expression/statement parsing, type inference unific
 - **No shared mutable state between passes**: inter-pass communication via IR only. Exception: diagnostic accumulation is append-only — passes may append but not read/mutate each other's diagnostics.
 - **Boundary validation**: `debug_assert!` invariants before crossing to next phase. Examples: all type variables resolved before codegen, no unreachable blocks in IR, RC ops balanced after ARC pass.
 
+### Cross-Phase Invariant Contracts
+
+Each phase produces output that downstream phases *assume* satisfies certain invariants. These assumptions must be **explicit and validated**, not implicit and hoped-for. An implicit invariant is a silent corruption vector.
+
+**Known contracts (each must have a `debug_assert!` or validation pass):**
+
+| Producer | Consumer | Contract |
+|----------|----------|----------|
+| Type Checker → Codegen | All type variables resolved | No `Idx` with `Tag::Var` in typed IR |
+| Type Checker → Eval | All types concrete | No unresolved inference variables |
+| ARC Pass → Codegen | RC ops balanced per function | Every `rc_inc` has a matching `rc_dec` on all paths |
+| ARC Pass → Codegen | Drop placement correct | Drops at end-of-scope, not use-site |
+| ARC Pass → Codegen | COW patterns valid | Uniqueness checks before mutation |
+| Canon → All | No sugar variants | CanExpr contains no desugared-away variants |
+| Canon → All | All TypeIds resolved | No `TypeId::INFER` in canonical IR |
+| Parser → TypeChecker | Error nodes marked | Error recovery nodes carry error marker |
+
+**Rules:**
+- Every contract must be validatable by a `debug_assert!` at the consumer's entry point or a dedicated validation pass
+- If a contract is violated in release builds (where `debug_assert!` is stripped), the consumer must produce a clear internal error, not silently emit wrong code
+- When adding a new invariant that a downstream phase relies on, add the `debug_assert!` in the *consumer*, not just the producer — the consumer is where the assumption becomes dangerous
+- Cross-phase contracts are the **most fragile** invariants in the compiler. A change to the ARC pass that subtly breaks RC balance will not be caught until codegen emits wrong code, which may not be caught until runtime. Defense in depth: validate at producer exit AND consumer entry.
+
+### Debug/Release Parity
+
+Debug and release builds must produce **identical observable output** for the same input program. Verification-only `debug_assert!` and validation passes are exempt (they add checks, not change behavior).
+
+- **No semantic divergence**: `#[cfg(debug_assertions)]` blocks must not change codegen logic, control flow, or observable output. They may only add verification, logging, or assertions.
+- **FastISel awareness**: LLVM's FastISel (used in debug/JIT) can produce different instruction selection than the full optimization pipeline. Known divergences must be documented and tested (e.g., the "never load >16B struct in JIT" rule).
+- **Test both modes**: `cargo test` (debug) and `cargo test --release` must both pass. A test that passes in debug but fails in release (or vice versa) indicates a parity violation.
+- **Optimization-sensitive codegen**: if codegen emits different IR depending on optimization level (e.g., inlining thresholds, loop unrolling hints), document why and ensure the semantic output is identical.
+
 ## Invariant Explicitness
 
 - **Implicit invariants are invisible regressions.** If correctness depends on a property (RC balanced after loop, scope restored after block, phantom var inserted before iteration, elem_dec_fn non-NULL for heap types), it MUST be either:
@@ -243,6 +275,90 @@ Application of the SSOT paradigm to enum variants, lookup tables, and parallel d
 - **Cross-phase capability mismatch = GAP**: one phase supports a feature, another blocks it
 - **Never silently work around a gap**: flag immediately
 - **Audit across phases**: when adding capability, verify full pipeline: lexer → parser → typeck → eval → codegen
+
+## Compiler-Specific Hygiene
+
+Compiler codebases have failure modes that generic software engineering rules don't catch. These rules address patterns unique to multi-phase compilation pipelines.
+
+### IR Variant Exhaustiveness
+
+When a new expression kind, statement kind, or type tag is added to any IR, **every consuming phase must handle it**. Rust's exhaustive match catches this within a single crate, but cross-crate consumers using strategy dispatch, visitor patterns, or catch-all arms can silently ignore new variants.
+
+- **Exhaustive match preferred**: direct pattern matching on IR enums (no `_` catch-all) is the strongest enforcement. The compiler itself becomes the exhaustiveness checker.
+- **Strategy dispatch must be validated**: if a phase uses strategy-driven dispatch (e.g., `DeriveStrategy`) rather than direct matching, add a test that iterates `ALL` variants and asserts each has a corresponding strategy entry. Strategy tables are manually maintained — they don't get compiler-enforced exhaustiveness for free.
+- **Cross-crate exhaustiveness test**: for every IR enum that is consumed by 2+ crates, add a test in each consumer that iterates the `ALL` constant (or a generated list) and asserts coverage. This catches the case where a new variant is added to `ori_ir` but not handled in `ori_eval` or `ori_llvm`.
+- **`_ => unreachable!()` is a deferred GAP**: every such arm is a variant the consumer has not thought about. Track as a gap. `_ => todo!()` is worse — it compiles but panics at runtime.
+
+### Layout Computation
+
+Type layout (size, alignment, field offsets, discriminant encoding) must be computed **once** and cached, not recomputed by each consumer.
+
+- **Single computation point**: layout is computed after type checking (when all struct fields and enum variants are finalized) and before codegen.
+- **Cache via Salsa or interning**: layout results keyed by `TypeId`. Same type = same layout, always. No non-determinism.
+- **Consumers query, never compute**: codegen queries layout facts from the cache, never re-derives them from field types. If two codegen functions both need the size of a struct, they query the same cached result.
+- **Repr pragmas are inputs**: `#repr("c")`, `#repr("packed")`, `#repr("aligned", N)` feed into layout computation as configuration, not as ad-hoc overrides scattered through codegen.
+
+### Interning Discipline
+
+All identifiers, types, and expressions that are compared for equality or used as keys must be interned. String comparison for semantic identity is a bug.
+
+- **Identifiers**: always `Name` (interned at lex time). Never compare identifier `String`s directly. Name equality is pointer/index equality (O(1)).
+- **Types**: always `Idx` (interned in Pool). Never compare type structures directly. Type equality is index equality.
+- **Expressions**: always `ExprId` / `CanId` (arena-allocated). Never compare AST subtrees by structure.
+- **Violation detection**: grep for `== "identifier_name"` in non-test code. Any string comparison that should be a `Name` comparison is a LEAK:scattered-knowledge — the interning layer is being bypassed.
+- **Pre-interned constants**: frequently-used names (keywords, builtins, common method names) should be pre-interned at startup for O(1) lookup. If the same string is interned per-call-site, that's a WASTE.
+
+### Aspirational Patterns (from Reference Compilers)
+
+Patterns used by established compilers that Ori should grow toward. Not current violations — these are architectural north stars for future hygiene reviews to measure against.
+
+#### Type Folding (Rust: `TypeFolder<TyCtxt>`)
+
+Rust separates *traversal* (visiting types read-only) from *transformation* (folding types into new types). Ori has `Visitor<'ast>` for traversal but no equivalent `TypeFolder` for recursive type transformation.
+
+**Current state**: Type substitution (`pool/substitute/`, `unify/substitute.rs`) uses ad-hoc recursive matching. Each consumer of type transformation rolls its own walk.
+
+**North star**: A `TypeFolder` trait where consumers implement only the interesting cases and `super_fold_with()` handles recursion. This would eliminate the algorithmic duplication in substitution (§Algorithmic DRY) and provide a single canonical recursion skeleton for all type-to-type transformations.
+
+**Adoption path**: Extract the shared recursion skeleton from the 2-3 existing substitution implementations into a trait. Consumers implement `fold_var()`, `fold_named()`, etc. Default methods recurse via `super_fold_with()`.
+
+#### Packed Symbol Representation (Roc: `Symbol = (ModuleId, IdentId)`)
+
+Roc packs module identity and identifier identity into a single `u64`, enabling O(1) equality and perfect hashing without indirection. Ori's `Name` is interned (O(1) equality) but doesn't encode module provenance — cross-module name resolution requires secondary lookups.
+
+**North star**: A `Symbol` type that encodes both the defining module and the identifier in a single word. This eliminates the need for separate "which module does this name come from?" lookups during type checking and codegen.
+
+**Adoption path**: Design a `Symbol = (ModuleId, Name)` pair with niche optimization for `Option<Symbol>`. Migrate cross-module name resolution to use `Symbol` instead of `Name` + context.
+
+#### Deduplication by (Code, Span) with Follow-On Suppression (Rust)
+
+Rust deduplicates diagnostics by `(error_code, primary_span)` and suppresses follow-on errors that involve `TyError` at child spans. This prevents the "100 errors from one typo" problem.
+
+**Current state**: Ori has `DiagnosticQueue` with dedup + follow-on filtering, but the suppression logic may not be as aggressive as Rust's child-span-based suppression.
+
+**North star**: Every error involving a type that transitively contains `TyError` is suppressed if a prior error at an ancestor span already reported the root cause. Users see the *root* error, not the cascade.
+
+**Adoption path**: Audit `DiagnosticQueue` dedup logic. Add child-span suppression: if error at span `S` produces `TyError`, suppress errors at spans contained within `S` that mention `TyError`.
+
+#### Explicit Phase Job Queue (Zig: `Compilation.zig`)
+
+Zig defines compilation as a queue of jobs, each tagged with a stage that determines execution order. This makes phase ordering explicit and auditable — you can inspect the queue to see what runs when.
+
+**Current state**: Ori uses Salsa's demand-driven model, which handles ordering implicitly via query dependencies. This is correct but makes phase ordering invisible — you can't easily answer "what order do these phases run in?" without tracing query calls.
+
+**North star**: A documented phase graph (even if Salsa handles execution) that explicitly lists: phase name → input type → output type → invariants guaranteed. This is documentation, not code — but it makes the implicit explicit and gives hygiene reviews a reference to audit against.
+
+**Adoption path**: Add a `//!` module doc in the Salsa query module that lists all tracked functions in execution order with their contracts. This is a documentation task, not an architecture change.
+
+#### Layout Caching via Query (Rust: `TyCtxt::layout_of`)
+
+Rust computes type layout via a memoized query on `TyCtxt`. The layout is computed once (lazily, on first query), cached, and never recomputed. All layout consumers go through `layout_of()`.
+
+**Current state**: Ori's layout computation lives in `ori_llvm` (codegen-time). No cross-phase caching.
+
+**North star**: A Salsa-tracked `layout_of(TypeId) -> Layout` query that any phase can call. Codegen queries it for emission. ARC queries it for alignment-aware optimization. Future optimization passes query it for size-based decisions.
+
+**Adoption path**: Extract layout computation from `ori_llvm` into a shared query (possibly in `ori_types` or a new `ori_layout` crate). Wire it through Salsa for memoization.
 
 ## Cascading Fix Detection
 

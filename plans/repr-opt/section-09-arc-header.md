@@ -274,6 +274,7 @@ The runtime must support multiple header widths without code bloat.
 - [ ] `./diagnostics/valgrind-aot.sh` clean
 - [ ] The implementation keeps Option A explicit in code comments, layout assertions, and §12 benchmark expectations
 - [ ] `/tpr-review` passed — independent Codex review found no critical or major issues (or all findings triaged)
+- [ ] `/impl-hygiene-review last commit` passed — implementation hygiene review clean (phase boundaries, SSOT, algorithmic DRY, naming). MUST run AFTER `/tpr-review` is clean.
 
 **Exit Criteria:** A smaller-than-32-byte header strategy is implemented and verified end-to-end for bounded-count variants. The memory reduction is measured and documented from the real layout chosen in `rc/narrow.rs`, with payload alignment and drop-path correctness preserved. Valgrind clean.
 

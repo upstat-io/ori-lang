@@ -395,6 +395,7 @@ These features have working **parser support** (Section 0.9.1 complete), but nee
 - [ ] Stdlib types (23.6) — Queue/Stack not implemented (aspirational, not spec types)
 - [ ] Run `cargo st tests/` — 4181 passed, 42 skipped (skips are mostly LLVM/capability issues)
 - [ ] `/tpr-review` passed — independent Codex review found no critical or major issues (or all findings triaged)
+- [ ] `/impl-hygiene-review last commit` passed — implementation hygiene review clean (phase boundaries, SSOT, algorithmic DRY, naming). MUST run AFTER `/tpr-review` is clean.
 
 **Exit Criteria**: Every Ori spec semantic is correctly implemented in the evaluator. All spec tests must pass — no skipped tests allowed.
 

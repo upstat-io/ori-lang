@@ -233,6 +233,7 @@ Implements Result trace methods and context storage for error propagation debugg
 - [ ] Run full test suite: `./test-all.sh`
 - [ ] **LLVM Support**: All LLVM codegen tests pass
 - [ ] `/tpr-review` passed — independent Codex review found no critical or major issues (or all findings triaged)
+- [ ] `/impl-hygiene-review last commit` passed — implementation hygiene review clean (phase boundaries, SSOT, algorithmic DRY, naming). MUST run AFTER `/tpr-review` is clean.
 - [ ] **Hygiene**: Fix STALE TODO at `tests/spec/inference/generics.ori` line 191 — comment says "Result.unwrap_or not implemented yet" but method IS implemented; uncomment test at lines 192-197
 - [ ] **Hygiene**: Fix bare TODOs at `tests/spec/inference/generics.ori` lines 139, 149, 159, 169 — add plan references (format: `// TODO(eval): section-07B -- Option.map not implemented yet`)
 - [ ] **Hygiene**: Remove decorative banners (`// =============`) from `tests/spec/traits/core/option.ori` and `tests/spec/traits/core/result.ori`
