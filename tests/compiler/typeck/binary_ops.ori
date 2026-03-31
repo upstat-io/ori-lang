@@ -152,14 +152,14 @@ use std.testing { assert, assert_eq, assert_ne }
 }
 
 // Invalid: bitwise with float
-#[compile_fail("left operand of bitwise operator must be `int`")]
+#[compile_fail("cannot apply operator `&` to type `float`")]
 @test_float_bitwise tests _ () -> void = {
     let result = 5.0 & 3.0;
     ()
 }
 
 // Invalid: shift with float
-#[compile_fail("left operand of bitwise operator must be `int`")]
+#[compile_fail("cannot apply operator `<<` to type `float`")]
 @test_float_shift tests _ () -> void = {
     let result = 1.0 << 4;
     ()
@@ -322,14 +322,14 @@ use std.testing { assert, assert_eq, assert_ne }
 }
 
 // Invalid: negate string
-#[compile_fail("cannot apply `-` to `str`")]
+#[compile_fail("cannot apply operator `-` to type `str`")]
 @test_str_negate tests _ () -> void = {
     let result = -"hello";
     ()
 }
 
 // Invalid: logical not on int
-#[compile_fail("cannot apply `!` to `int`")]
+#[compile_fail("cannot apply operator `!` to type `int`")]
 @test_int_not tests _ () -> void = {
     let result = !42;
     ()
