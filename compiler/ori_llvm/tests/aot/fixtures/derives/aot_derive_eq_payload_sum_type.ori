@@ -1,0 +1,11 @@
+#[derive(Eq)]
+type Shape = Circle(radius: int) | Rect(w: int, h: int);
+
+@main () -> int = {
+    let s1 = Circle(radius: 10);
+    let s2 = Circle(radius: 10);
+    let s3 = Rect(w: 5, h: 8);
+    let same = s1 == s2;
+    let diff = s1 != s3;
+    if same && diff then 0 else 1
+}

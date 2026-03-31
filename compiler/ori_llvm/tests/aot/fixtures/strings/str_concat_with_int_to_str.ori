@@ -1,0 +1,6 @@
+@main () -> int = {
+    let name = "item";
+    let num = 42;
+    let label = name + " #" + num.to_str();
+    if label == "item #42" then 0 else 1
+}

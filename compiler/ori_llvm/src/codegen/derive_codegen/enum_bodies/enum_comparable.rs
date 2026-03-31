@@ -12,7 +12,7 @@ use super::super::super::value_id::ValueId;
 use super::super::field_ops::emit_field_operation;
 use super::super::{emit_derive_return, DeriveSetup};
 
-use super::variant_field_types;
+use super::variant_non_void_field_types;
 
 /// Enum Comparable: compare tags first, then per-variant lexicographic ordering.
 ///
@@ -45,7 +45,10 @@ pub(super) fn emit_enum_lexicographic<'a>(
         .builder_mut()
         .emit_icmp_ordering(ts, to, "cmp.tags", false);
 
-    let has_payload = variants.iter().any(|v| !v.fields.is_unit());
+    // TPR-07-006: check for non-void payload fields, not just non-unit variants.
+    let has_payload = variants
+        .iter()
+        .any(|v| !variant_non_void_field_types(&v.fields, fc.pool()).is_empty());
 
     if has_payload {
         // If tags differ, return tag ordering. If same, compare payloads.
@@ -125,7 +128,8 @@ fn emit_enum_payload_cmp<'a>(
     for (tag_idx, variant) in variants.iter().enumerate() {
         fc.builder_mut().position_at_end(variant_bbs[tag_idx]);
 
-        let field_types = variant_field_types(&variant.fields);
+        // TPR-07-006: filter zero-sized fields to match LLVM layout.
+        let field_types = variant_non_void_field_types(&variant.fields, fc.pool());
         if field_types.is_empty() {
             fc.builder_mut().br(equal_result_bb);
             continue;

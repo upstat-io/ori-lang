@@ -1,0 +1,15 @@
+@main () -> int = {
+    let ok1: Result<int, int> = Ok(10);
+    let ok2: Result<int, int> = Ok(20);
+    let err1: Result<int, int> = Err(5);
+    let err2: Result<int, int> = Err(15);
+    // Ok < Err
+    let r1 = ok1.compare(err1).is_less();
+    // Ok(10) < Ok(20)
+    let r2 = ok1.compare(ok2).is_less();
+    // Err(5) < Err(15)
+    let r3 = err1.compare(err2).is_less();
+    // Err > Ok
+    let r4 = err1.compare(ok1).is_greater();
+    if r1 && r2 && r3 && r4 then 0 else 1
+}

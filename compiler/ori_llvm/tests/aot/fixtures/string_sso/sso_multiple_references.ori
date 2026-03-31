@@ -1,0 +1,7 @@
+@main () -> int = {
+    let a = "short";
+    let b = a;
+    let c = a;
+    let d = a;
+    if b == "short" && c == "short" && d == "short" then 0 else 1
+}

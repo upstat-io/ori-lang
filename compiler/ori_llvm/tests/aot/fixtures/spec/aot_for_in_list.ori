@@ -1,0 +1,7 @@
+@main () -> int = {
+    let count = 0;
+    for i in [1, 2, 3, 4, 5] do {
+        count = count + 1;
+    };
+    if count == 5 then 0 else 1
+}

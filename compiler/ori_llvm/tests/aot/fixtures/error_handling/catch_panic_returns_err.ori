@@ -1,0 +1,7 @@
+@might_panic (n: int) -> int =
+    if n < 0 then panic(msg: "negative") else n * 2;
+
+@main () -> int = {
+    let result = catch(expr: might_panic(-1));
+    if result.is_err() then 0 else 1
+}

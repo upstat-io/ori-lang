@@ -1,0 +1,5 @@
+@main () -> int = {
+    let s = "hello";
+    let empty = "";
+    if s.length() == 5 && empty.length() == 0 then 0 else 1
+}

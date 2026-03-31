@@ -1,0 +1,9 @@
+type WideFloat = { a: float, b: float }
+
+@sum_wide (w: WideFloat) -> float = w.a + w.b;
+
+@main () -> int = {
+    let w = WideFloat { a: 1e300, b: -1e300 };
+    let s = sum_wide(w:);
+    if s == 0.0 then 0 else 1
+}

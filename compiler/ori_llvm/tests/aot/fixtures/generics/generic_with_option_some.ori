@@ -1,0 +1,6 @@
+@identity <T> (x: T) -> T = x;
+
+@main () -> int = {
+    let opt = identity(x: Some(42));
+    if opt.is_some() && opt.unwrap() == 42 then 0 else 1
+}

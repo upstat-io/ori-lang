@@ -1,0 +1,16 @@
+@safe_div (a: int, b: int) -> Result<int, str> =
+    if b == 0 then Err("div by zero") else Ok(a / b);
+
+@main () -> int = {
+    let ops = [10, 20, 30, 0, 40];
+    let successes = 0;
+    let failures = 0;
+    for divisor in ops do {
+        let r = safe_div(a: 100, b: divisor);
+        match r.is_ok() {
+            true -> successes = successes + 1,
+            false -> failures = failures + 1,
+        }
+    };
+    if successes == 4 && failures == 1 then 0 else 1
+}

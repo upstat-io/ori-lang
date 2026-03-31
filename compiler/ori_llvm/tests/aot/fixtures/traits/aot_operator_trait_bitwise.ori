@@ -1,0 +1,19 @@
+type Mask = { bits: int }
+
+impl BitAnd for Mask {
+    type Output = Mask;
+    @bit_and (self, rhs: Mask) -> Mask = Mask { bits: self.bits & rhs.bits }
+}
+
+impl BitOr for Mask {
+    type Output = Mask;
+    @bit_or (self, rhs: Mask) -> Mask = Mask { bits: self.bits | rhs.bits }
+}
+
+@main () -> int = {
+    let a = Mask { bits: 0b1100 };
+    let b = Mask { bits: 0b1010 };
+    let and_result = a & b;
+    let or_result = a | b;
+    if and_result.bits == 0b1000 && or_result.bits == 0b1110 then 0 else 1
+}

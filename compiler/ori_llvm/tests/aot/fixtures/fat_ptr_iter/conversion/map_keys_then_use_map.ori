@@ -1,0 +1,16 @@
+@main () -> int = {
+    let m = {
+        "this is a very long key exceeding SSO threshold here": 10,
+        "another very long key that also exceeds the SSO thresh": 20
+    };
+    let keys = m.keys();
+    let val_total = 0;
+    for (_, v) in m do {
+        val_total = val_total + v;
+    };
+    let key_total = 0;
+    for k in keys do {
+        key_total = key_total + k.len();
+    };
+    if val_total == 30 && key_total == 106 then 0 else 1
+}

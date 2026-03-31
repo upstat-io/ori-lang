@@ -1,0 +1,7 @@
+@main () -> int = {
+    let xs = [1, 2, 3, 4, 5];
+    let ys = xs.take(count: 4).drop(count: 1);
+    if ys.length() == 3 && ys.first().unwrap() == 2 && ys.last().unwrap() == 4
+        then 0
+        else 1
+}

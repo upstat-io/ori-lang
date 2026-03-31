@@ -1,0 +1,12 @@
+@main () -> int = {
+    let items = [
+        "this string exceeds SSO threshold by being very long indeed",
+        "stop: this string triggers break and is also long enough for heap",
+        "third string that should never be visited after the break fires"
+    ];
+    let result = for s in items yield {
+        if s.starts_with(prefix: "stop") then break;
+        s.len()
+    };
+    if result.length() == 1 then 0 else 1
+}

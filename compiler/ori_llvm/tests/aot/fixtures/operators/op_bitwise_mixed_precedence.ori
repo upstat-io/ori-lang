@@ -1,0 +1,5 @@
+@main () -> int = {
+    let a = 0xFF & 0x0F | 0xF0;
+    // & has higher precedence than |: (0xFF & 0x0F) | 0xF0 = 0x0F | 0xF0 = 0xFF = 255
+    if a == 255 then 0 else 1
+}

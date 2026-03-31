@@ -1,0 +1,9 @@
+@main () -> int = {
+    let a = 3.14;
+    let b = 0.5;
+    let c = 1.5e2;
+    let ok1 = a == 3.14;
+    let ok2 = b == 0.5;
+    let ok3 = c == 150.0;
+    if ok1 && ok2 && ok3 then 0 else 1
+}

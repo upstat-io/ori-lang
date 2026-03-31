@@ -1,0 +1,6 @@
+@make_str () -> str = "a_heap_string_returned_from_fn";
+
+@main () -> int = {
+    let $s = make_str();
+    if s.len() == 30 then 0 else 1
+}

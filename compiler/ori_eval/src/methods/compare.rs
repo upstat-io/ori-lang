@@ -39,7 +39,7 @@ pub(crate) fn compare_values(
         (Value::Byte(a), Value::Byte(b)) => Ok(a.cmp(b)),
         (Value::Duration(a), Value::Duration(b)) => Ok(a.cmp(b)),
         (Value::Size(a), Value::Size(b)) => Ok(a.cmp(b)),
-        (Value::None, Value::None) => Ok(Ordering::Equal),
+        (Value::Void, Value::Void) | (Value::None, Value::None) => Ok(Ordering::Equal),
         (Value::None, Value::Some(_)) | (Value::Ok(_), Value::Err(_)) => Ok(Ordering::Less),
         (Value::Some(_), Value::None) | (Value::Err(_), Value::Ok(_)) => Ok(Ordering::Greater),
         (Value::Some(a_inner), Value::Some(b_inner))
@@ -247,8 +247,8 @@ pub(crate) fn hash_value(v: &Value, interner: &StringInterner) -> Result<i64, Ev
         Value::Duration(d) => Ok(*d),
         Value::Size(s) => Ok((*s).cast_signed()),
         Value::Ordering(o) => Ok(i64::from(o.to_tag())),
-        // Option: None → 0, Some(x) → hash_combine(1, hash(x))
-        Value::None => Ok(0),
+        // void and None both hash to 0 (zero-information values)
+        Value::Void | Value::None => Ok(0),
         Value::Some(inner) => {
             let inner_hash = hash_value(inner, interner)?;
             Ok(hash_combine(1, inner_hash))

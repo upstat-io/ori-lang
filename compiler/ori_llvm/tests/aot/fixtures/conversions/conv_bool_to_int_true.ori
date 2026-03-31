@@ -1,0 +1,5 @@
+@main () -> int = {
+    let b = true;
+    let x = b.to_int();
+    if x == 1 then 0 else 1
+}

@@ -1,0 +1,6 @@
+@make_list () -> [int] = [10, 20, 30];
+
+@main () -> int = {
+    let xs = make_list();
+    if xs.length() == 3 then 0 else 1
+}

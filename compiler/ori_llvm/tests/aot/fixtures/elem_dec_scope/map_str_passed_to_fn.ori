@@ -1,0 +1,17 @@
+@sum_values (m: {str: int}) -> int = {
+    let total = 0;
+    for entry in m do {
+        let (k, v) = entry;
+        total = total + v
+    };
+    total
+};
+
+@main () -> int = {
+    let m = {
+        "a very long key string that exceeds the twenty three byte SSO threshold for testing": 10,
+        "another long key string to exercise function parameter map cleanup": 20
+    };
+    let result = sum_values(m: m);
+    if result == 30 then 0 else 1
+}

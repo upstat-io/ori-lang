@@ -1,0 +1,9 @@
+#derive(Eq)
+type Point = { x: int, y: int };
+
+@main () -> int = {
+    let a = Point { x: 1, y: 2 };
+    let b = Point { x: 1, y: 2 };
+    let c = Point { x: 3, y: 4 };
+    if a == b && a != c then 0 else 1
+}

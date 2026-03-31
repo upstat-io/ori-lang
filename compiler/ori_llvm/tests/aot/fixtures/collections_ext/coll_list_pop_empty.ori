@@ -1,0 +1,5 @@
+@main () -> int = {
+    let xs: [int] = [];
+    let p = xs.pop();
+    if p.is_none() then 0 else 1
+}

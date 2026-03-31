@@ -1,0 +1,9 @@
+@main () -> int = {
+    let x = 3;
+    let result = match x {
+        1 -> if true then 10 else 11,
+        2 -> if false then 20 else 21,
+        _ -> if x > 2 then 30 else 31,
+    };
+    if result == 30 then 0 else 1
+}

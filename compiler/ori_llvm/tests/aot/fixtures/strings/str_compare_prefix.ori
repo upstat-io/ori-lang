@@ -1,0 +1,6 @@
+@main () -> int = {
+    let a = "hello";
+    let b = "hello world";
+    // "hello" < "hello world" (prefix is less)
+    if a < b then 0 else 1
+}

@@ -1,0 +1,6 @@
+@main () -> int = {
+    let xs = for i in 0..10000 yield i;
+    let sum = xs.iter().fold(start: 0, f: (acc: int, x: int) -> int = acc + x);
+    // sum(0..9999) = 9999 * 10000 / 2 = 49995000
+    if sum == 49995000 then 0 else 1
+}

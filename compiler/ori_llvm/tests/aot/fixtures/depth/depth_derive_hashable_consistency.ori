@@ -1,0 +1,13 @@
+#derive(Eq, Hashable)
+type Pair = { x: int, y: int }
+
+@main () -> int = {
+    let a = Pair { x: 1, y: 2 };
+    let b = Pair { x: 1, y: 2 };
+    let c = Pair { x: 2, y: 1 };
+    // Equal values must have equal hashes
+    let contract_ok = a.hash() == b.hash();
+    // Different values should have different hashes (not guaranteed, but likely)
+    let different = a.hash() != c.hash();
+    if contract_ok && different then 0 else 1
+}

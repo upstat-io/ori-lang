@@ -1,0 +1,3 @@
+@main () -> int = {
+    if `{true:>10}` == "      true" && `{false:<10}` == "false     " then 0 else 1
+}

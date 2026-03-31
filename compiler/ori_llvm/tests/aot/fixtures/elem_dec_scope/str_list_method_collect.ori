@@ -1,0 +1,9 @@
+@main () -> int = {
+    let words = [
+        "this is a very long string that exceeds the SSO threshold of twenty three bytes",
+        "another long heap string for testing iter collect element cleanup"
+    ];
+    let collected = words.iter().collect();
+    let ok = collected.len() == 2;
+    if ok then 0 else 1
+}

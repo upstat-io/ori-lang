@@ -1,4 +1,5 @@
 too-many-lines-threshold = 100
+array-size-threshold = 65536
 
 # Clippy configuration for oric
 #

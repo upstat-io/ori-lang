@@ -1,0 +1,18 @@
+@main () -> int = {
+    let items = [
+        Some("this is a very long string that exceeds SSO threshold"),
+        None,
+        Some("another very long string that also exceeds the threshold")
+    ];
+    let lengths = for item in items yield {
+        match item {
+            Some(s) -> s.len(),
+            None -> 0
+        }
+    };
+    let total = 0;
+    for n in lengths do {
+        total = total + n
+    };
+    if total == 109 then 0 else 1
+}

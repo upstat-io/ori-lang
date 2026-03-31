@@ -1,0 +1,14 @@
+type Counter = { value: int }
+
+impl Counter {
+    @add (self, n: int) -> int = self.value + n;
+    @is_above (self, threshold: int) -> bool = self.value > threshold;
+}
+
+@main () -> int = {
+    let c = Counter { value: 10 };
+    let ok1 = c.add(n: 5) == 15;
+    let ok2 = c.is_above(threshold: 5);
+    let ok3 = !c.is_above(threshold: 15);
+    if ok1 && ok2 && ok3 then 0 else 1
+}

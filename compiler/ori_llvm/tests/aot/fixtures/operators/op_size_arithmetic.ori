@@ -1,0 +1,7 @@
+@main () -> int = {
+    let a = 500kb;
+    let b = 500kb;
+    let c = a + b;
+    // 500kb = 500,000 bytes (SI), 1mb = 1,000,000 bytes (SI)
+    if c == 1mb then 0 else 1
+}

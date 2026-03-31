@@ -1,0 +1,13 @@
+#[derive(Eq, Hashable)]
+type Named = { name: str }
+
+@main () -> int = {
+    let a = Named { name: "abc" };
+    let b = Named { name: "abc" };
+    let c = Named { name: "xyz" };
+    // Same string → same hash
+    let r1 = a.hash() == b.hash();
+    // Different string (same length) → different hash
+    let r2 = a.hash() != c.hash();
+    if r1 && r2 then 0 else 1
+}

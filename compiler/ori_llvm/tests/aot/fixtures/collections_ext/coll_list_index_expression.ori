@@ -1,0 +1,5 @@
+@main () -> int = {
+    let xs = [10, 20, 30, 40, 50];
+    let i = 2;
+    if xs[i + 1] == 40 then 0 else 1
+}

@@ -1,0 +1,8 @@
+#[derive(Printable)]
+type Point = { x: int, y: int }
+
+@main () -> int = {
+    let p = Point { x: 1, y: 2 };
+    let s = p.to_str();
+    if s.len() > 0 then 0 else 1
+}

@@ -1,0 +1,8 @@
+type Point = { x: int, y: int };
+
+@identity <T> (x: T) -> T = x;
+
+@main () -> int = {
+    let p = identity(x: Point { x: 10, y: 20 });
+    if p.x == 10 && p.y == 20 then 0 else 1
+}

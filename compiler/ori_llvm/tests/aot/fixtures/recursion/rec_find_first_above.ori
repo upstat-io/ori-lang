@@ -1,0 +1,10 @@
+@find_above (start: int, limit: int, threshold: int) -> Option<int> = {
+    if start >= limit then None
+    else if start > threshold then Some(start)
+    else find_above(start: start + 1, limit: limit, threshold: threshold)
+};
+
+@main () -> int = {
+    let r = find_above(start: 0, limit: 100, threshold: 42);
+    if r.is_some() && r.unwrap() == 43 then 0 else 1
+}

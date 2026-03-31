@@ -1,0 +1,8 @@
+@prefix (s: str) -> str = {
+    s + "!"
+}
+
+@main () -> int = {
+    let $result = prefix(s: "hi");
+    if result == "hi!" then 0 else 1
+}

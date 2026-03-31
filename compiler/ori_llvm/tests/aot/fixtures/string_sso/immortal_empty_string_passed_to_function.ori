@@ -1,0 +1,6 @@
+@check (s: str) -> bool = s.is_empty();
+
+@main () -> int = {
+    let $empty = "";
+    if check(s: empty) && check(s: "") then 0 else 1
+}

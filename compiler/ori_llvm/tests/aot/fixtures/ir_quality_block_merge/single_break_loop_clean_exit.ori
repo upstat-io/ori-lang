@@ -1,0 +1,11 @@
+@sum_loop (n: int) -> int = {
+    let i = 0;
+    let total = 0;
+    loop {
+        if i >= n then break total;
+        total += i + 1;
+        i += 1
+    }
+};
+
+@main () -> int = sum_loop(n: 5);

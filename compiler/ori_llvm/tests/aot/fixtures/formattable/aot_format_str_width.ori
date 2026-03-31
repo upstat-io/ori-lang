@@ -1,0 +1,5 @@
+@main () -> int = {
+    let right = `{"hi":>10}`;
+    let left = `{"hi":<10}`;
+    if right == "        hi" && left == "hi        " then 0 else 1
+}

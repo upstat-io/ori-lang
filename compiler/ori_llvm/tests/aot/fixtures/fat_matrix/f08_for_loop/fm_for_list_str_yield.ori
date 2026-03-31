@@ -1,0 +1,8 @@
+@main () -> int = {
+    let lengths = for s in ["hello", "world"] yield s.length();
+    let total = 0;
+    for n in lengths do {
+        total = total + n;
+    };
+    if total == 10 then 0 else 1
+}

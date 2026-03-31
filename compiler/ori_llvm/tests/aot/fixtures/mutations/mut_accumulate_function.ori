@@ -1,0 +1,10 @@
+@square (n: int) -> int = n * n;
+
+@main () -> int = {
+    let sum = 0;
+    for i in 1..=4 do {
+        sum = sum + square(n: i);
+    };
+    // 1+4+9+16 = 30
+    if sum == 30 then 0 else 1
+}

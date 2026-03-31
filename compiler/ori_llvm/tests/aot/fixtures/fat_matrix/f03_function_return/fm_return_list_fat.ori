@@ -1,0 +1,6 @@
+@make_words () -> [str] = ["hello", "world"];
+
+@main () -> int = {
+    let ws = make_words();
+    if ws.length() == 2 then 0 else 1
+}

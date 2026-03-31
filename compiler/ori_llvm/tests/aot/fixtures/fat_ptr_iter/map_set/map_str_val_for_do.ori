@@ -1,0 +1,12 @@
+@main () -> int = {
+    let m = {
+        10: "this is a very long value exceeding SSO",
+        20: "another very long value that exceeds SSO too",
+        30: "third long value exceeding SSO threshold"
+    };
+    let total = 0;
+    for (k, v) in m do {
+        total = total + k;
+    };
+    if total == 60 then 0 else 1
+}

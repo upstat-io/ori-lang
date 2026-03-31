@@ -1,0 +1,12 @@
+@make_adder (n: int) -> (int) -> int = {
+    (x: int) -> n + x
+};
+
+@main () -> int = {
+    let sum = 0;
+    for i in 0..100 do {
+        let $f = make_adder(i);
+        sum = sum + f(1)
+    };
+    if sum == 5050 then 0 else 1
+}

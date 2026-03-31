@@ -1,0 +1,14 @@
+type Point = { x: int, y: int };
+
+@distance_sq (a: Point, b: Point) -> int = {
+    let dx = a.x - b.x;
+    let dy = a.y - b.y;
+    dx * dx + dy * dy
+};
+
+@main () -> int = {
+    let p1 = Point { x: 0, y: 0 };
+    let p2 = Point { x: 3, y: 4 };
+    // 9 + 16 = 25
+    if distance_sq(a: p1, b: p2) == 25 then 0 else 1
+}

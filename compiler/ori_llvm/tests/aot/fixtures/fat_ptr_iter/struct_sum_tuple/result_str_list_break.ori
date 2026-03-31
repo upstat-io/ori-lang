@@ -1,0 +1,15 @@
+@main () -> int = {
+    let items: [Result<str, str>] = [
+        Ok("this is a very long ok string that exceeds SSO threshold"),
+        Err("stop error string that is also long enough for the heap"),
+        Ok("third long string not visited because we broke on error")
+    ];
+    let count = 0;
+    for r in items do {
+        match r {
+            Err(_) -> break,
+            Ok(_) -> { count = count + 1; }
+        };
+    };
+    if count == 1 then 0 else 1
+}

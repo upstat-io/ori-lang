@@ -1,0 +1,9 @@
+type Person = { name: str, role: str }
+
+@greet (p: Person) -> str = p.name + " (" + p.role + ")";
+
+@main () -> int = {
+    let p = Person { name: "Alice", role: "dev" };
+    let g = greet(p: p);
+    if g.length() > 0 then 0 else 1
+}

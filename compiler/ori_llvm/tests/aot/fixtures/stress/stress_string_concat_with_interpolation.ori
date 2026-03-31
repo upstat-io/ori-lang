@@ -1,0 +1,7 @@
+@main () -> int = {
+    let s = "";
+    for i in 0..50 do {
+        s = s + "-"
+    };
+    if s.len() == 50 then 0 else 1
+}

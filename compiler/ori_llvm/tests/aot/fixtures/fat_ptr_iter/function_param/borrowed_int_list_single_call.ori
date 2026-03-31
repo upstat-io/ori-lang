@@ -1,0 +1,13 @@
+@sum_list (xs: [int]) -> int = {
+    let total = 0;
+    for x in xs do {
+        total = total + x;
+    };
+    total
+}
+
+@main () -> int = {
+    let xs = [10, 20, 30, 40];
+    let r = sum_list(xs: xs);
+    if r == 100 then 0 else 1
+}

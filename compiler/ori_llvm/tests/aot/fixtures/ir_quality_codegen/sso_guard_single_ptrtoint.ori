@@ -1,0 +1,5 @@
+@check () -> int = {
+    let s = "hello";
+    s.length()
+};
+@main () -> int = check();

@@ -1,0 +1,5 @@
+@main () -> int = {
+    let pair = (10, 20);
+    let (a, b) = pair;
+    if a == 10 && b == 20 then 0 else 1
+}

@@ -1,0 +1,14 @@
+type Tree = Leaf(value: int) | Node(left: Tree, right: Tree);
+
+@left_val (t: Tree) -> int = match t {
+    Leaf(value) -> value,
+    Node(left, right) -> match left {
+        Leaf(value) -> value,
+        _ -> -1,
+    },
+};
+
+@main () -> int = {
+    let t = Node(left: Leaf(value: 42), right: Leaf(value: 0));
+    left_val(t: t)
+}

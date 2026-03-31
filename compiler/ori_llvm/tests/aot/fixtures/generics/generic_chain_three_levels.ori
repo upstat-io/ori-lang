@@ -1,0 +1,8 @@
+@id <T> (x: T) -> T = x;
+@wrap <T> (x: T) -> T = id(x: x);
+@double_wrap <T> (x: T) -> T = wrap(x: x);
+
+@main () -> int = {
+    let n = double_wrap(x: 42);
+    if n == 42 then 0 else 1
+}

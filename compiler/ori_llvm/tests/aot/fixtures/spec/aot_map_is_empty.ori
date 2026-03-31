@@ -1,0 +1,5 @@
+@main () -> int = {
+    let m = {"key": 42};
+    let empty: {str: int} = {};
+    if !m.is_empty() && empty.is_empty() then 0 else 1
+}

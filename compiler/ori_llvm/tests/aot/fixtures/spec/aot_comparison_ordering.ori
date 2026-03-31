@@ -1,0 +1,9 @@
+@main () -> int = {
+    let lt = 3 < 5;
+    let le1 = 5 <= 5;
+    let le2 = 4 <= 5;
+    let gt = 7 > 3;
+    let ge1 = 7 >= 7;
+    let ge2 = 8 >= 7;
+    if lt && le1 && le2 && gt && ge1 && ge2 then 0 else 1
+}

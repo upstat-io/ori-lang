@@ -16,12 +16,7 @@ use crate::util::assert_aot_success;
 #[test]
 fn test_scope_let_basic() {
     assert_aot_success(
-        r#"
-@main () -> int = {
-    let x = 42;
-    if x == 42 then 0 else 1
-}
-"#,
+        include_str!("fixtures/scoping/scope_let_basic.ori"),
         "scope_let_basic",
     );
 }
@@ -29,14 +24,7 @@ fn test_scope_let_basic() {
 #[test]
 fn test_scope_let_type_annotation() {
     assert_aot_success(
-        r#"
-@main () -> int = {
-    let x: int = 42;
-    let f: float = 3.14;
-    let b: bool = true;
-    if x == 42 && f > 3.0 && b then 0 else 1
-}
-"#,
+        include_str!("fixtures/scoping/scope_let_type_annotation.ori"),
         "scope_let_type_ann",
     );
 }
@@ -44,16 +32,7 @@ fn test_scope_let_type_annotation() {
 #[test]
 fn test_scope_let_chain() {
     assert_aot_success(
-        r#"
-@main () -> int = {
-    let a = 1;
-    let b = a + 1;
-    let c = b + 1;
-    let d = c + 1;
-    let e = d + 1;
-    if e == 5 then 0 else 1
-}
-"#,
+        include_str!("fixtures/scoping/scope_let_chain.ori"),
         "scope_let_chain",
     );
 }
@@ -63,13 +42,7 @@ fn test_scope_let_chain() {
 #[test]
 fn test_scope_shadow_same_type() {
     assert_aot_success(
-        r#"
-@main () -> int = {
-    let x = 10;
-    let x = 20;
-    if x == 20 then 0 else 1
-}
-"#,
+        include_str!("fixtures/scoping/scope_shadow_same_type.ori"),
         "scope_shadow_same",
     );
 }
@@ -77,13 +50,7 @@ fn test_scope_shadow_same_type() {
 #[test]
 fn test_scope_shadow_different_type() {
     assert_aot_success(
-        r#"
-@main () -> int = {
-    let x = 42;
-    let x = "hello";
-    if x == "hello" then 0 else 1
-}
-"#,
+        include_str!("fixtures/scoping/scope_shadow_different_type.ori"),
         "scope_shadow_diff_type",
     );
 }
@@ -91,15 +58,7 @@ fn test_scope_shadow_different_type() {
 #[test]
 fn test_scope_shadow_uses_previous() {
     assert_aot_success(
-        r#"
-@main () -> int = {
-    let x = 10;
-    let x = x + 5;
-    let x = x * 2;
-    // 10 -> 15 -> 30
-    if x == 30 then 0 else 1
-}
-"#,
+        include_str!("fixtures/scoping/scope_shadow_uses_previous.ori"),
         "scope_shadow_uses_prev",
     );
 }
@@ -107,17 +66,7 @@ fn test_scope_shadow_uses_previous() {
 #[test]
 fn test_scope_shadow_in_nested_block() {
     assert_aot_success(
-        r#"
-@main () -> int = {
-    let x = 10;
-    let y = {
-        let x = 20;
-        x + 1
-    };
-    // x is still 10 outside, y = 21
-    if x == 10 && y == 21 then 0 else 1
-}
-"#,
+        include_str!("fixtures/scoping/scope_shadow_in_nested_block.ori"),
         "scope_shadow_nested",
     );
 }
@@ -125,21 +74,7 @@ fn test_scope_shadow_in_nested_block() {
 #[test]
 fn test_scope_shadow_three_levels() {
     assert_aot_success(
-        r#"
-@main () -> int = {
-    let x = 1;
-    let a = {
-        let x = 2;
-        let b = {
-            let x = 3;
-            x
-        };
-        x + b
-    };
-    // a = 2 + 3 = 5, x still 1
-    if x == 1 && a == 5 then 0 else 1
-}
-"#,
+        include_str!("fixtures/scoping/scope_shadow_three_levels.ori"),
         "scope_shadow_three",
     );
 }
@@ -149,16 +84,7 @@ fn test_scope_shadow_three_levels() {
 #[test]
 fn test_scope_block_as_value() {
     assert_aot_success(
-        r#"
-@main () -> int = {
-    let x = {
-        let a = 10;
-        let b = 20;
-        a + b
-    };
-    if x == 30 then 0 else 1
-}
-"#,
+        include_str!("fixtures/scoping/scope_block_as_value.ori"),
         "scope_block_value",
     );
 }
@@ -166,12 +92,7 @@ fn test_scope_block_as_value() {
 #[test]
 fn test_scope_block_single_expression() {
     assert_aot_success(
-        r#"
-@main () -> int = {
-    let x = { 42 };
-    if x == 42 then 0 else 1
-}
-"#,
+        include_str!("fixtures/scoping/scope_block_single_expression.ori"),
         "scope_block_single",
     );
 }
@@ -179,19 +100,7 @@ fn test_scope_block_single_expression() {
 #[test]
 fn test_scope_nested_blocks_as_values() {
     assert_aot_success(
-        r#"
-@main () -> int = {
-    let x = {
-        let inner = {
-            let deep = 5;
-            deep * 2
-        };
-        inner + 3
-    };
-    // 5 * 2 = 10, + 3 = 13
-    if x == 13 then 0 else 1
-}
-"#,
+        include_str!("fixtures/scoping/scope_nested_blocks_as_values.ori"),
         "scope_nested_blocks",
     );
 }
@@ -199,17 +108,7 @@ fn test_scope_nested_blocks_as_values() {
 #[test]
 fn test_scope_block_with_side_effects() {
     assert_aot_success(
-        r#"
-@main () -> int = {
-    let result = {
-        let a = 10;
-        let b = a * 2;
-        let c = b - 3;
-        c
-    };
-    if result == 17 then 0 else 1
-}
-"#,
+        include_str!("fixtures/scoping/scope_block_with_side_effects.ori"),
         "scope_block_side_effects",
     );
 }
@@ -219,12 +118,7 @@ fn test_scope_block_with_side_effects() {
 #[test]
 fn test_scope_if_else_value() {
     assert_aot_success(
-        r#"
-@main () -> int = {
-    let x = if true then 42 else 0;
-    if x == 42 then 0 else 1
-}
-"#,
+        include_str!("fixtures/scoping/scope_if_else_value.ori"),
         "scope_if_value",
     );
 }
@@ -232,13 +126,7 @@ fn test_scope_if_else_value() {
 #[test]
 fn test_scope_if_else_computed() {
     assert_aot_success(
-        r#"
-@main () -> int = {
-    let a = 10;
-    let x = if a > 5 then a * 2 else a * 3;
-    if x == 20 then 0 else 1
-}
-"#,
+        include_str!("fixtures/scoping/scope_if_else_computed.ori"),
         "scope_if_computed",
     );
 }
@@ -246,16 +134,7 @@ fn test_scope_if_else_computed() {
 #[test]
 fn test_scope_nested_if_expression() {
     assert_aot_success(
-        r#"
-@main () -> int = {
-    let x = 15;
-    let category = if x > 20 then 3
-                   else if x > 10 then 2
-                   else if x > 0 then 1
-                   else 0;
-    if category == 2 then 0 else 1
-}
-"#,
+        include_str!("fixtures/scoping/scope_nested_if_expression.ori"),
         "scope_nested_if_expr",
     );
 }
@@ -263,20 +142,7 @@ fn test_scope_nested_if_expression() {
 #[test]
 fn test_scope_if_block_branches() {
     assert_aot_success(
-        r#"
-@main () -> int = {
-    let condition = true;
-    let result = if condition then {
-        let a = 10;
-        let b = 20;
-        a + b
-    } else {
-        let c = 100;
-        c
-    };
-    if result == 30 then 0 else 1
-}
-"#,
+        include_str!("fixtures/scoping/scope_if_block_branches.ori"),
         "scope_if_block_branches",
     );
 }
@@ -286,18 +152,7 @@ fn test_scope_if_block_branches() {
 #[test]
 fn test_scope_match_expression_value() {
     assert_aot_success(
-        r#"
-@main () -> int = {
-    let x = 2;
-    let result = match x {
-        1 -> 10,
-        2 -> 20,
-        3 -> 30,
-        _ -> 0,
-    };
-    if result == 20 then 0 else 1
-}
-"#,
+        include_str!("fixtures/scoping/scope_match_expression_value.ori"),
         "scope_match_value",
     );
 }
@@ -305,16 +160,7 @@ fn test_scope_match_expression_value() {
 #[test]
 fn test_scope_match_in_let() {
     assert_aot_success(
-        r#"
-@main () -> int = {
-    let label = match 42 {
-        0 -> "zero",
-        1 -> "one",
-        _ -> "other",
-    };
-    if label == "other" then 0 else 1
-}
-"#,
+        include_str!("fixtures/scoping/scope_match_in_let.ori"),
         "scope_match_in_let",
     );
 }
@@ -322,27 +168,7 @@ fn test_scope_match_in_let() {
 #[test]
 fn test_scope_match_block_arms() {
     assert_aot_success(
-        r#"
-@main () -> int = {
-    let x = 3;
-    let result = match x {
-        1 -> {
-            let a = 10;
-            a + 1
-        },
-        2 -> {
-            let a = 20;
-            a + 2
-        },
-        3 -> {
-            let a = 30;
-            a + 3
-        },
-        _ -> 0,
-    };
-    if result == 33 then 0 else 1
-}
-"#,
+        include_str!("fixtures/scoping/scope_match_block_arms.ori"),
         "scope_match_block_arms",
     );
 }
@@ -352,14 +178,7 @@ fn test_scope_match_block_arms() {
 #[test]
 fn test_scope_expression_in_function_arg() {
     assert_aot_success(
-        r#"
-@add (a: int, b: int) -> int = a + b;
-
-@main () -> int = {
-    let result = add(a: { let x = 10; x }, b: { let y = 20; y });
-    if result == 30 then 0 else 1
-}
-"#,
+        include_str!("fixtures/scoping/scope_expression_in_function_arg.ori"),
         "scope_expr_in_arg",
     );
 }
@@ -367,12 +186,7 @@ fn test_scope_expression_in_function_arg() {
 #[test]
 fn test_scope_expression_in_arithmetic() {
     assert_aot_success(
-        r#"
-@main () -> int = {
-    let x = { 10 } + { 20 };
-    if x == 30 then 0 else 1
-}
-"#,
+        include_str!("fixtures/scoping/scope_expression_in_arithmetic.ori"),
         "scope_expr_in_arith",
     );
 }
@@ -380,12 +194,7 @@ fn test_scope_expression_in_arithmetic() {
 #[test]
 fn test_scope_expression_in_comparison() {
     assert_aot_success(
-        r#"
-@main () -> int = {
-    let ok = { 10 + 5 } == { 3 * 5 };
-    if ok then 0 else 1
-}
-"#,
+        include_str!("fixtures/scoping/scope_expression_in_comparison.ori"),
         "scope_expr_in_cmp",
     );
 }
@@ -395,17 +204,7 @@ fn test_scope_expression_in_comparison() {
 #[test]
 fn test_scope_shadow_in_loop() {
     assert_aot_success(
-        r#"
-@main () -> int = {
-    let x = 0;
-    for i in 0..5 do {
-        let x = i * 2;
-        x
-    };
-    // After loop, x is still 0
-    if x == 0 then 0 else 1
-}
-"#,
+        include_str!("fixtures/scoping/scope_shadow_in_loop.ori"),
         "scope_shadow_loop",
     );
 }
@@ -413,21 +212,7 @@ fn test_scope_shadow_in_loop() {
 #[test]
 fn test_scope_let_in_match_arm() {
     assert_aot_success(
-        r#"
-@main () -> int = {
-    let x = 2;
-    let result = match x {
-        n if n > 0 -> {
-            let doubled = n * 2;
-            let tripled = n * 3;
-            doubled + tripled
-        },
-        _ -> 0,
-    };
-    // n=2: doubled=4, tripled=6, result=10
-    if result == 10 then 0 else 1
-}
-"#,
+        include_str!("fixtures/scoping/scope_let_in_match_arm.ori"),
         "scope_let_in_match",
     );
 }
@@ -435,21 +220,7 @@ fn test_scope_let_in_match_arm() {
 #[test]
 fn test_scope_block_in_loop_body() {
     assert_aot_success(
-        r#"
-@main () -> int = {
-    let total = 0;
-    for i in 0..5 do {
-        let contribution = {
-            let base = i * 10;
-            let bonus = 1;
-            base + bonus
-        };
-        total = total + contribution;
-    };
-    // 1 + 11 + 21 + 31 + 41 = 105
-    if total == 105 then 0 else 1
-}
-"#,
+        include_str!("fixtures/scoping/scope_block_in_loop_body.ori"),
         "scope_block_in_loop",
     );
 }
@@ -459,14 +230,7 @@ fn test_scope_block_in_loop_body() {
 #[test]
 fn test_scope_closure_captures_outer() {
     assert_aot_success(
-        r#"
-@main () -> int = {
-    let x = 10;
-    let add_x = (y: int) -> x + y;
-    let result = add_x(5);
-    if result == 15 then 0 else 1
-}
-"#,
+        include_str!("fixtures/scoping/scope_closure_captures_outer.ori"),
         "scope_closure_captures",
     );
 }
@@ -474,14 +238,7 @@ fn test_scope_closure_captures_outer() {
 #[test]
 fn test_scope_shadow_before_closure() {
     assert_aot_success(
-        r#"
-@main () -> int = {
-    let x = 10;
-    let x = 20;
-    let get_x = () -> x;
-    if get_x() == 20 then 0 else 1
-}
-"#,
+        include_str!("fixtures/scoping/scope_shadow_before_closure.ori"),
         "scope_shadow_before_closure",
     );
 }
@@ -489,22 +246,7 @@ fn test_scope_shadow_before_closure() {
 #[test]
 fn test_scope_many_lets_same_name() {
     assert_aot_success(
-        r#"
-@main () -> int = {
-    let x = 1;
-    let x = x + 1;
-    let x = x + 1;
-    let x = x + 1;
-    let x = x + 1;
-    let x = x + 1;
-    let x = x + 1;
-    let x = x + 1;
-    let x = x + 1;
-    let x = x + 1;
-    // 1 + 9 increments = 10
-    if x == 10 then 0 else 1
-}
-"#,
+        include_str!("fixtures/scoping/scope_many_lets_same_name.ori"),
         "scope_many_shadows",
     );
 }
@@ -512,13 +254,7 @@ fn test_scope_many_lets_same_name() {
 #[test]
 fn test_scope_string_shadow() {
     assert_aot_success(
-        r#"
-@main () -> int = {
-    let s = "hello";
-    let s = s + " world";
-    if s == "hello world" then 0 else 1
-}
-"#,
+        include_str!("fixtures/scoping/scope_string_shadow.ori"),
         "scope_string_shadow",
     );
 }
@@ -526,13 +262,7 @@ fn test_scope_string_shadow() {
 #[test]
 fn test_scope_tuple_destructure() {
     assert_aot_success(
-        r#"
-@main () -> int = {
-    let pair = (10, 20);
-    let (a, b) = pair;
-    if a == 10 && b == 20 then 0 else 1
-}
-"#,
+        include_str!("fixtures/scoping/scope_tuple_destructure.ori"),
         "scope_tuple_destr",
     );
 }
@@ -540,13 +270,7 @@ fn test_scope_tuple_destructure() {
 #[test]
 fn test_scope_if_else_string_value() {
     assert_aot_success(
-        r#"
-@main () -> int = {
-    let x = 5;
-    let label = if x > 10 then "big" else "small";
-    if label == "small" then 0 else 1
-}
-"#,
+        include_str!("fixtures/scoping/scope_if_else_string_value.ori"),
         "scope_if_str_value",
     );
 }
@@ -554,18 +278,7 @@ fn test_scope_if_else_string_value() {
 #[test]
 fn test_scope_block_returning_struct() {
     assert_aot_success(
-        r#"
-type Point = { x: int, y: int }
-
-@main () -> int = {
-    let p = {
-        let a = 3;
-        let b = 4;
-        Point { x: a, y: b }
-    };
-    if p.x == 3 && p.y == 4 then 0 else 1
-}
-"#,
+        include_str!("fixtures/scoping/scope_block_returning_struct.ori"),
         "scope_block_struct",
     );
 }
@@ -573,20 +286,7 @@ type Point = { x: int, y: int }
 #[test]
 fn test_scope_let_in_each_branch() {
     assert_aot_success(
-        r#"
-@main () -> int = {
-    let flag = true;
-    let result = if flag then {
-        let a = 100;
-        let b = 200;
-        a + b
-    } else {
-        let c = 999;
-        c
-    };
-    if result == 300 then 0 else 1
-}
-"#,
+        include_str!("fixtures/scoping/scope_let_in_each_branch.ori"),
         "scope_let_each_branch",
     );
 }
@@ -596,16 +296,7 @@ fn test_scope_let_in_each_branch() {
 #[test]
 fn test_scope_match_bool_expression() {
     assert_aot_success(
-        r#"
-@main () -> int = {
-    let x = true;
-    let result = match x {
-        true -> 100,
-        false -> 200,
-    };
-    if result == 100 then 0 else 1
-}
-"#,
+        include_str!("fixtures/scoping/scope_match_bool_expression.ori"),
         "scope_match_bool",
     );
 }
@@ -613,19 +304,7 @@ fn test_scope_match_bool_expression() {
 #[test]
 fn test_scope_match_nested_in_if() {
     assert_aot_success(
-        r#"
-@main () -> int = {
-    let x = 5;
-    let result = if x > 0 then
-        match x {
-            1 -> 10,
-            5 -> 50,
-            _ -> 0,
-        }
-    else 0;
-    if result == 50 then 0 else 1
-}
-"#,
+        include_str!("fixtures/scoping/scope_match_nested_in_if.ori"),
         "scope_match_in_if",
     );
 }
@@ -633,16 +312,7 @@ fn test_scope_match_nested_in_if() {
 #[test]
 fn test_scope_if_in_match_arm() {
     assert_aot_success(
-        r#"
-@main () -> int = {
-    let x = 3;
-    let result = match x {
-        n if n > 0 -> if n > 2 then n * 10 else n,
-        _ -> 0,
-    };
-    if result == 30 then 0 else 1
-}
-"#,
+        include_str!("fixtures/scoping/scope_if_in_match_arm.ori"),
         "scope_if_in_match",
     );
 }

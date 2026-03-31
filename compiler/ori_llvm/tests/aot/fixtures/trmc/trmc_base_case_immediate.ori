@@ -1,0 +1,16 @@
+type List = Nil | Cons(head: int, tail: List);
+
+@map_inc (list: List) -> List = match list {
+    Nil -> Nil,
+    Cons(h, t) -> Cons(head: h + 1, tail: map_inc(list: t)),
+};
+
+@list_len (list: List) -> int = match list {
+    Nil -> 0,
+    Cons(_, t) -> 1 + list_len(list: t),
+};
+
+@main () -> int = {
+    let $mapped = map_inc(list: Nil);
+    if list_len(list: mapped) == 0 then 0 else 1
+}

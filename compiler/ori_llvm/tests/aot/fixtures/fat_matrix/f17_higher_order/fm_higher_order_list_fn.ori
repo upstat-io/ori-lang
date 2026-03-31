@@ -1,0 +1,7 @@
+@apply_to_list (f: ([int]) -> int, xs: [int]) -> int = f(xs);
+
+@list_len (xs: [int]) -> int = xs.length();
+
+@main () -> int = {
+    if apply_to_list(f: list_len, xs: [10, 20, 30]) == 3 then 0 else 1
+}

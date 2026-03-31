@@ -1,0 +1,5 @@
+@main () -> int = {
+    let $s = "abcdef";
+    let $sub = s.slice(start: 1, end: 4);
+    if sub == "bcd" then 0 else 1
+}

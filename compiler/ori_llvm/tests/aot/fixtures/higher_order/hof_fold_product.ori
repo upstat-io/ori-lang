@@ -1,0 +1,13 @@
+@fold (init: int, f: (int, int) -> int) -> int = {
+    let acc = init;
+    for i in 1..=5 do {
+        acc = f(acc, i);
+    };
+    acc
+}
+
+@main () -> int = {
+    let product = fold(init: 1, f: (a: int, b: int) -> a * b);
+    // 1*2*3*4*5 = 120
+    if product == 120 then 0 else 1
+}

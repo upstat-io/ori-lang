@@ -1,0 +1,5 @@
+@main () -> int = {
+    // Exactly 23 bytes — max SSO capacity
+    let s = "12345678901234567890123";
+    if s.length() == 23 then 0 else 1
+}

@@ -1,0 +1,9 @@
+@power (base: int, exp: int) -> int = {
+    if exp == 0 then 1
+    else base * power(base: base, exp: exp - 1)
+};
+
+@main () -> int = {
+    // 2^10 = 1024
+    if power(base: 2, exp: 10) == 1024 then 0 else 1
+}

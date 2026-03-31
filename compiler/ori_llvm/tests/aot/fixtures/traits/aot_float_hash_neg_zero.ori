@@ -1,0 +1,10 @@
+@main () -> int = {
+    let pos = 0.0;
+    let neg = -0.0;
+    // -0.0 == 0.0 must be true
+    let eq = pos == neg;
+    // Their hashes must also match
+    let h1 = pos.hash();
+    let h2 = neg.hash();
+    if eq && h1 == h2 then 0 else 1
+}

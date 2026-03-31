@@ -1,0 +1,9 @@
+@apply2 (f: (int, int) -> int, a: int, b: int) -> int = f(a, b);
+
+@main () -> int = {
+    let add = (x: int, y: int) -> x + y;
+    let mul = (x: int, y: int) -> x * y;
+    let s = apply2(f: add, a: 3, b: 4);
+    let p = apply2(f: mul, a: 3, b: 4);
+    if s == 7 && p == 12 then 0 else 1
+}

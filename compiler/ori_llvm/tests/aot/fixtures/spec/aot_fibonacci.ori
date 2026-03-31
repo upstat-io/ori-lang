@@ -1,0 +1,9 @@
+@fib (n: int) -> int = if n <= 1 then n else fib(n: n - 1) + fib(n: n - 2);
+
+@main () -> int = {
+    let f0 = fib(n: 0);
+    let f1 = fib(n: 1);
+    let f5 = fib(n: 5);
+    let f10 = fib(n: 10);
+    if f0 == 0 && f1 == 1 && f5 == 5 && f10 == 55 then 0 else 1
+}

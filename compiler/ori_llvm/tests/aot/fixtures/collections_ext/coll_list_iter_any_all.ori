@@ -1,0 +1,6 @@
+@main () -> int = {
+    let xs = [2, 4, 6, 8];
+    let all_even = xs.iter().all(x -> x % 2 == 0);
+    let any_ten = xs.iter().any(x -> x == 10);
+    if all_even && !any_ten then 0 else 1
+}

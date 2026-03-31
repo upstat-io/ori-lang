@@ -1,0 +1,9 @@
+#derive(Eq)
+type Named = { name: str, value: int };
+
+@main () -> int = {
+    let a = Named { name: "hello", value: 42 };
+    let b = Named { name: "hello", value: 42 };
+    let c = Named { name: "world", value: 42 };
+    if a == b && a != c then 0 else 1
+}

@@ -1,0 +1,4 @@
+@main () -> int = {
+    let nested = [[1, 2], [3, 4, 5], [6]];
+    if nested.length() == 3 then 0 else 1
+}

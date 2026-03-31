@@ -1,0 +1,24 @@
+@panicking_iter (words: [str]) -> int = {
+    let total = 0;
+    for w in words do {
+        if w.starts_with(prefix: "boom") then {
+            panic(msg: "cycle panic")
+        };
+        total = total + w.len()
+    };
+    total
+}
+
+@main () -> int = {
+    let words = [
+        "boom this is a long enough string for heap allocation",
+        "second very long string that also exceeds the threshold"
+    ];
+    let r1 = catch(expr: panicking_iter(words: words));
+    let r2 = catch(expr: panicking_iter(words: words));
+    let r3 = catch(expr: panicking_iter(words: words));
+    let all_err = match r1 { Ok(_) -> false, Err(_) -> true }
+        && match r2 { Ok(_) -> false, Err(_) -> true }
+        && match r3 { Ok(_) -> false, Err(_) -> true };
+    if all_err then 0 else 1
+}

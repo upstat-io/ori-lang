@@ -1,0 +1,4 @@
+@main () -> int = {
+    let sum = [1, 2, 3].iter().fold(0, (acc, x) -> acc + x);
+    if sum == 6 then 0 else 1
+}

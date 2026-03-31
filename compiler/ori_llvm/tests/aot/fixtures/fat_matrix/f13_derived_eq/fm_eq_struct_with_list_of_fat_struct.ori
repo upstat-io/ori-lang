@@ -1,0 +1,14 @@
+#derive(Eq)
+type Named = { name: str, id: int }
+
+#derive(Eq)
+type Container = { items: [Named] }
+
+@main () -> int = {
+    let a = Container { items: [Named { name: "heap string that is long enough!", id: 1 }] };
+    let b = Container { items: [Named { name: "heap string that is long enough!", id: 1 }] };
+    let c = Container { items: [Named { name: "different heap string content!!", id: 9 }] };
+    if a == b then {
+        if a != c then 0 else 1
+    } else 2
+}

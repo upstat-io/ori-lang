@@ -1,0 +1,14 @@
+type Task = { priority: int, done: bool }
+
+@process (t: Task) -> int = match t.done {
+    true -> 0,
+    false -> t.priority,
+};
+
+@main () -> int = {
+    let tasks = for i in 1..=10 yield Task { priority: i, done: i % 3 == 0 };
+    let total = 0;
+    for t in tasks do total = total + process(t: t);
+    // done: 3,6,9 -> priority 0; rest: 1+2+4+5+7+8+10 = 37
+    if total == 37 then 0 else 1
+}

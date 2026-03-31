@@ -1,0 +1,8 @@
+@main () -> int = {
+    let first = "hello";
+    let sep = " ";
+    let last = "world";
+    let combine = () -> first + sep + last;
+    let result = combine();
+    if result == "hello world" then 0 else 1
+}

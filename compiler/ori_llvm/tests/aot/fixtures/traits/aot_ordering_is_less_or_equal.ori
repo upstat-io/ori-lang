@@ -1,0 +1,9 @@
+@main () -> int = {
+    let less = 1.compare(other: 2);
+    let equal = 3.compare(other: 3);
+    let greater = 5.compare(other: 1);
+    let ok1 = less.is_less_or_equal();
+    let ok2 = equal.is_less_or_equal();
+    let ok3 = !greater.is_less_or_equal();
+    if ok1 && ok2 && ok3 then 0 else 1
+}

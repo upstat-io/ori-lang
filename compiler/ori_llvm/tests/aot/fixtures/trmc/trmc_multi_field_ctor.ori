@@ -1,0 +1,24 @@
+type Chain = End | Link(a: int, b: int, next: Chain);
+
+@chain_len (c: Chain) -> int = match c {
+    End -> 0,
+    Link(_, _, next) -> 1 + chain_len(c: next),
+};
+
+@chain_sum (c: Chain) -> int = match c {
+    End -> 0,
+    Link(a, b, next) -> a + b + chain_sum(c: next),
+};
+
+@build_chain (n: int) -> Chain = {
+    if n <= 0 then End
+    else Link(a: n, b: n * 10, next: build_chain(n: n - 1))
+};
+
+@main () -> int = {
+    let $chain = build_chain(n: 5);
+    let $len_ok = chain_len(c: chain) == 5;
+    // a: 1+2+3+4+5=15, b: 10+20+30+40+50=150, total=165
+    let $sum_ok = chain_sum(c: chain) == 165;
+    if len_ok && sum_ok then 0 else 1
+}

@@ -1,0 +1,8 @@
+#[derive(Eq, Clone)]
+type Point = { x: int, y: int }
+
+@main () -> int = {
+    let a = Point { x: 10, y: 20 };
+    let b = a.clone();
+    if a.eq(other: b) then 0 else 1
+}

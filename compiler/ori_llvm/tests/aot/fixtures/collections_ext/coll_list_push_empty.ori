@@ -1,0 +1,5 @@
+@main () -> int = {
+    let xs: [int] = [];
+    let ys = xs.push(42);
+    if ys.length() == 1 then 0 else 1
+}

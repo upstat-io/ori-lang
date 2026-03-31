@@ -1,0 +1,12 @@
+@main () -> int = {
+    let s1: Set<str> = [
+        "this is a very long heap string that exceeds the SSO threshold for sure",
+        "another long heap allocated string for difference testing purposes here",
+        "third heap string only in set1 should remain after difference operation"
+    ].iter().collect();
+    let s2: Set<str> = [
+        "this is a very long heap string that exceeds the SSO threshold for sure"
+    ].iter().collect();
+    let result = s1.difference(other: s2);
+    if result.len() == 2 then 0 else 1
+}

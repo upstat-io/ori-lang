@@ -1,0 +1,10 @@
+type Named = { name: str, id: int }
+
+@main () -> int = {
+    let s = "abcdefghijklmnopqrstuvwxyz1234";
+    let xs = [1, 2, 3];
+    let n = Named { name: "alice", id: 1 };
+    let m = {"x": 10};
+    let result = s.length() + xs.length() + n.name.length() + m.length();
+    if result == 39 then 0 else 1
+}

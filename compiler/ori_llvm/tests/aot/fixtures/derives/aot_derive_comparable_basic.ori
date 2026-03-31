@@ -1,0 +1,11 @@
+#[derive(Eq, Comparable)]
+type Point = { x: int, y: int }
+
+@main () -> int = {
+    let a = Point { x: 1, y: 2 };
+    let b = Point { x: 1, y: 3 };
+    let c = Point { x: 1, y: 2 };
+    let ab = a.compare(other: b);
+    let ac = a.compare(other: c);
+    if ab.is_less() && ac.is_equal() then 0 else 1
+}

@@ -1,0 +1,5 @@
+@main () -> int = {
+    let xs: [int] = [-128, 0, 127, 42];
+    let ok = xs[0] == -128 && xs[1] == 0 && xs[2] == 127 && xs[3] == 42;
+    if ok then 0 else 1
+}

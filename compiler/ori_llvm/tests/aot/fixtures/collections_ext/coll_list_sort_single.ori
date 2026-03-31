@@ -1,0 +1,5 @@
+@main () -> int = {
+    let xs = [42];
+    let sorted = xs.sort();
+    if sorted.length() == 1 && sorted.first().unwrap() == 42 then 0 else 1
+}

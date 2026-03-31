@@ -1,0 +1,9 @@
+@main () -> int = {
+    let a = "apple";
+    let b = "banana";
+    let c = "apple";
+    let r1 = a.compare(b).is_less();
+    let r2 = a.compare(c).is_equal();
+    let r3 = b.compare(a).is_greater();
+    if r1 && r2 && r3 then 0 else 1
+}

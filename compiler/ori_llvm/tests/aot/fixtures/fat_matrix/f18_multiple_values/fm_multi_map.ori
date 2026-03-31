@@ -1,0 +1,5 @@
+@main () -> int = {
+    let m1 = {"a": 1, "b": 2};
+    let m2 = {"x": 10, "y": 20, "z": 30};
+    if m1.length() + m2.length() == 5 then 0 else 1
+}

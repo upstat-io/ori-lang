@@ -1,0 +1,8 @@
+@sum_to (n: int, acc: int) -> int =
+    if n == 0 then acc else sum_to(n: n - 1, acc: acc + n);
+
+@main () -> int = {
+    let result = sum_to(n: 500, acc: 0);
+    // sum(1..500) = 500*501/2 = 125250
+    if result == 125250 then 0 else 1
+}

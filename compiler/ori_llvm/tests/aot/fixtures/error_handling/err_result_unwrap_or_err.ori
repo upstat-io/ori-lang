@@ -1,0 +1,5 @@
+@main () -> int = {
+    let r: Result<int, str> = Err("fail");
+    let v = r.unwrap_or(99);
+    if v == 99 then 0 else 1
+}

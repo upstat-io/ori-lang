@@ -1,0 +1,16 @@
+@main () -> int = {
+    let items = [
+        "string number one exceeds SSO by being incredibly long here",
+        "string number two exceeds SSO by being incredibly long here",
+        "string number three exceeds SSO by being incredibly long too",
+        "string number four exceeds SSO by being incredibly long here",
+        "string number five exceeds SSO by being incredibly long here",
+        "string number six exceeds SSO by being incredibly long there",
+        "string number seven exceeds SSO by being incredibly long yep",
+        "string number eight exceeds SSO by being incredibly long too",
+        "string number nine exceeds SSO by being incredibly long here",
+        "string number ten exceeds SSO by being incredibly long right"
+    ];
+    let result = for s in items yield s;
+    if result.length() == 10 then 0 else 1
+}

@@ -1,0 +1,10 @@
+#[derive(Printable)]
+type FPoint = { x: float, y: float }
+
+@main () -> int = {
+    let p = FPoint { x: 0.5, y: 0.25 };
+    let s = p.to_str();
+    let has_05 = s.contains(substr: "0.5");
+    let has_025 = s.contains(substr: "0.25");
+    if has_05 && has_025 then 0 else 1
+}

@@ -1,0 +1,6 @@
+@main () -> int = {
+    let m = {"a": 1};
+    let m2 = m.insert("b", 2);
+    let ks = m2.keys();
+    if ks.len() == 2 then 0 else 1
+}

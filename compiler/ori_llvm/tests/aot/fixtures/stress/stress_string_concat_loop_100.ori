@@ -1,0 +1,7 @@
+@main () -> int = {
+    let s = "";
+    for i in 0..100 do {
+        s = s + "a"
+    };
+    if s.len() == 100 then 0 else 1
+}

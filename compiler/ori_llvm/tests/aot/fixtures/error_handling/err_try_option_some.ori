@@ -1,0 +1,11 @@
+@find (x: int) -> Option<int> = Some(x * 3);
+
+@lookup () -> Option<int> = {
+    let v = find(x: 10)?;
+    Some(v + 1)
+}
+
+@main () -> int = {
+    let o = lookup();
+    if o.is_some() && o.unwrap() == 31 then 0 else 1
+}

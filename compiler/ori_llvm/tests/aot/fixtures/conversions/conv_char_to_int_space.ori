@@ -1,0 +1,5 @@
+@main () -> int = {
+    let c = ' ';
+    let x = c.to_int();
+    if x == 32 then 0 else 1
+}

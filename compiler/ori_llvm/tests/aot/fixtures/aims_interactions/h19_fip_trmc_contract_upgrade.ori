@@ -1,0 +1,23 @@
+type List = Nil | Cons(head: int, tail: List);
+
+@map_triple (list: List) -> List = match list {
+    Nil -> Nil,
+    Cons(h, t) -> Cons(head: h * 3, tail: map_triple(list: t)),
+};
+
+@list_sum (list: List) -> int = match list {
+    Nil -> 0,
+    Cons(h, t) -> h + list_sum(list: t),
+};
+
+@build (n: int) -> List = {
+    if n <= 0 then Nil
+    else Cons(head: n, tail: build(n: n - 1))
+};
+
+@main () -> int = {
+    let $input = build(n: 30);
+    let $output = map_triple(list: input);
+    // 3 * (1+2+...+30) = 3 * 465 = 1395
+    if list_sum(list: output) == 1395 then 0 else 1
+}

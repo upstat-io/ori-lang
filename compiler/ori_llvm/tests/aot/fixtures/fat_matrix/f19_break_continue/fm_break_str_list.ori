@@ -1,0 +1,8 @@
+@main () -> int = {
+    let count = 0;
+    for s in ["alpha", "beta", "gamma"] do {
+        if s.length() == 4 then break;
+        count = count + 1;
+    };
+    if count == 1 then 0 else 1
+}

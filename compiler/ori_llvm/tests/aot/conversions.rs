@@ -17,13 +17,7 @@ use crate::util::assert_aot_success;
 #[test]
 fn test_conv_int_to_float() {
     assert_aot_success(
-        r#"
-@main () -> int = {
-    let x = 42;
-    let f = x.to_float();
-    if f == 42.0 then 0 else 1
-}
-"#,
+        include_str!("fixtures/conversions/conv_int_to_float.ori"),
         "conv_int_to_float",
     );
 }
@@ -31,13 +25,7 @@ fn test_conv_int_to_float() {
 #[test]
 fn test_conv_int_f_shorthand() {
     assert_aot_success(
-        r#"
-@main () -> int = {
-    let x = 10;
-    let f = x.f();
-    if f == 10.0 then 0 else 1
-}
-"#,
+        include_str!("fixtures/conversions/conv_int_f_shorthand.ori"),
         "conv_int_f",
     );
 }
@@ -45,13 +33,7 @@ fn test_conv_int_f_shorthand() {
 #[test]
 fn test_conv_int_to_float_negative() {
     assert_aot_success(
-        r#"
-@main () -> int = {
-    let x = -100;
-    let f = x.to_float();
-    if f == -100.0 then 0 else 1
-}
-"#,
+        include_str!("fixtures/conversions/conv_int_to_float_negative.ori"),
         "conv_int_to_float_neg",
     );
 }
@@ -59,13 +41,7 @@ fn test_conv_int_to_float_negative() {
 #[test]
 fn test_conv_int_to_float_zero() {
     assert_aot_success(
-        r#"
-@main () -> int = {
-    let x = 0;
-    let f = x.to_float();
-    if f == 0.0 then 0 else 1
-}
-"#,
+        include_str!("fixtures/conversions/conv_int_to_float_zero.ori"),
         "conv_int_to_float_zero",
     );
 }
@@ -73,13 +49,7 @@ fn test_conv_int_to_float_zero() {
 #[test]
 fn test_conv_int_to_float_large() {
     assert_aot_success(
-        r#"
-@main () -> int = {
-    let x = 1000000000;
-    let f = x.to_float();
-    if f > 999999999.0 && f < 1000000001.0 then 0 else 1
-}
-"#,
+        include_str!("fixtures/conversions/conv_int_to_float_large.ori"),
         "conv_int_to_float_large",
     );
 }
@@ -89,13 +59,7 @@ fn test_conv_int_to_float_large() {
 #[test]
 fn test_conv_float_to_int() {
     assert_aot_success(
-        r#"
-@main () -> int = {
-    let f = 42.0;
-    let x = f.to_int();
-    if x == 42 then 0 else 1
-}
-"#,
+        include_str!("fixtures/conversions/conv_float_to_int.ori"),
         "conv_float_to_int",
     );
 }
@@ -103,14 +67,7 @@ fn test_conv_float_to_int() {
 #[test]
 fn test_conv_float_to_int_truncates() {
     assert_aot_success(
-        r#"
-@main () -> int = {
-    let f = 3.7;
-    let x = f.to_int();
-    // fptosi truncates toward zero: 3.7 -> 3
-    if x == 3 then 0 else 1
-}
-"#,
+        include_str!("fixtures/conversions/conv_float_to_int_truncates.ori"),
         "conv_float_to_int_trunc",
     );
 }
@@ -118,14 +75,7 @@ fn test_conv_float_to_int_truncates() {
 #[test]
 fn test_conv_float_to_int_negative_truncates() {
     assert_aot_success(
-        r#"
-@main () -> int = {
-    let f = -3.7;
-    let x = f.to_int();
-    // fptosi truncates toward zero: -3.7 -> -3
-    if x == -3 then 0 else 1
-}
-"#,
+        include_str!("fixtures/conversions/conv_float_to_int_negative_truncates.ori"),
         "conv_float_to_int_neg_trunc",
     );
 }
@@ -133,13 +83,7 @@ fn test_conv_float_to_int_negative_truncates() {
 #[test]
 fn test_conv_float_to_int_zero() {
     assert_aot_success(
-        r#"
-@main () -> int = {
-    let f = 0.0;
-    let x = f.to_int();
-    if x == 0 then 0 else 1
-}
-"#,
+        include_str!("fixtures/conversions/conv_float_to_int_zero.ori"),
         "conv_float_to_int_zero",
     );
 }
@@ -147,13 +91,7 @@ fn test_conv_float_to_int_zero() {
 #[test]
 fn test_conv_float_to_int_negative_zero() {
     assert_aot_success(
-        r#"
-@main () -> int = {
-    let f = -0.0;
-    let x = f.to_int();
-    if x == 0 then 0 else 1
-}
-"#,
+        include_str!("fixtures/conversions/conv_float_to_int_negative_zero.ori"),
         "conv_float_to_int_neg_zero",
     );
 }
@@ -163,13 +101,7 @@ fn test_conv_float_to_int_negative_zero() {
 #[test]
 fn test_conv_int_into_float() {
     assert_aot_success(
-        r#"
-@main () -> int = {
-    let x = 7;
-    let f: float = x.into();
-    if f == 7.0 then 0 else 1
-}
-"#,
+        include_str!("fixtures/conversions/conv_int_into_float.ori"),
         "conv_int_into_float",
     );
 }
@@ -179,13 +111,7 @@ fn test_conv_int_into_float() {
 #[test]
 fn test_conv_bool_to_int_true() {
     assert_aot_success(
-        r#"
-@main () -> int = {
-    let b = true;
-    let x = b.to_int();
-    if x == 1 then 0 else 1
-}
-"#,
+        include_str!("fixtures/conversions/conv_bool_to_int_true.ori"),
         "conv_bool_to_int_true",
     );
 }
@@ -193,13 +119,7 @@ fn test_conv_bool_to_int_true() {
 #[test]
 fn test_conv_bool_to_int_false() {
     assert_aot_success(
-        r#"
-@main () -> int = {
-    let b = false;
-    let x = b.to_int();
-    if x == 0 then 0 else 1
-}
-"#,
+        include_str!("fixtures/conversions/conv_bool_to_int_false.ori"),
         "conv_bool_to_int_false",
     );
 }
@@ -209,13 +129,7 @@ fn test_conv_bool_to_int_false() {
 #[test]
 fn test_conv_char_to_int_ascii() {
     assert_aot_success(
-        r#"
-@main () -> int = {
-    let c = 'A';
-    let x = c.to_int();
-    if x == 65 then 0 else 1
-}
-"#,
+        include_str!("fixtures/conversions/conv_char_to_int_ascii.ori"),
         "conv_char_to_int_ascii",
     );
 }
@@ -223,14 +137,7 @@ fn test_conv_char_to_int_ascii() {
 #[test]
 fn test_conv_char_to_int_zero() {
     assert_aot_success(
-        r#"
-@main () -> int = {
-    let c = '0';
-    let x = c.to_int();
-    // '0' is Unicode codepoint 48
-    if x == 48 then 0 else 1
-}
-"#,
+        include_str!("fixtures/conversions/conv_char_to_int_zero.ori"),
         "conv_char_to_int_zero",
     );
 }
@@ -238,13 +145,7 @@ fn test_conv_char_to_int_zero() {
 #[test]
 fn test_conv_char_to_int_space() {
     assert_aot_success(
-        r#"
-@main () -> int = {
-    let c = ' ';
-    let x = c.to_int();
-    if x == 32 then 0 else 1
-}
-"#,
+        include_str!("fixtures/conversions/conv_char_to_int_space.ori"),
         "conv_char_to_int_space",
     );
 }
@@ -254,13 +155,7 @@ fn test_conv_char_to_int_space() {
 #[test]
 fn test_conv_byte_to_int() {
     assert_aot_success(
-        r#"
-@main () -> int = {
-    let b: byte = 200;
-    let x = b.to_int();
-    if x == 200 then 0 else 1
-}
-"#,
+        include_str!("fixtures/conversions/conv_byte_to_int.ori"),
         "conv_byte_to_int",
     );
 }
@@ -268,13 +163,7 @@ fn test_conv_byte_to_int() {
 #[test]
 fn test_conv_byte_to_int_zero() {
     assert_aot_success(
-        r#"
-@main () -> int = {
-    let b: byte = 0;
-    let x = b.to_int();
-    if x == 0 then 0 else 1
-}
-"#,
+        include_str!("fixtures/conversions/conv_byte_to_int_zero.ori"),
         "conv_byte_to_int_zero",
     );
 }
@@ -282,13 +171,7 @@ fn test_conv_byte_to_int_zero() {
 #[test]
 fn test_conv_byte_to_int_max() {
     assert_aot_success(
-        r#"
-@main () -> int = {
-    let b: byte = 255;
-    let x = b.to_int();
-    if x == 255 then 0 else 1
-}
-"#,
+        include_str!("fixtures/conversions/conv_byte_to_int_max.ori"),
         "conv_byte_to_int_max",
     );
 }
@@ -298,14 +181,7 @@ fn test_conv_byte_to_int_max() {
 #[test]
 fn test_conv_int_to_byte() {
     assert_aot_success(
-        r#"
-@main () -> int = {
-    let x = 42;
-    let b = x.byte();
-    let back = b.to_int();
-    if back == 42 then 0 else 1
-}
-"#,
+        include_str!("fixtures/conversions/conv_int_to_byte.ori"),
         "conv_int_to_byte",
     );
 }
@@ -313,15 +189,7 @@ fn test_conv_int_to_byte() {
 #[test]
 fn test_conv_int_to_byte_truncates() {
     assert_aot_success(
-        r#"
-@main () -> int = {
-    let x = 256;
-    let b = x.byte();
-    let back = b.to_int();
-    // 256 truncated to byte = 0
-    if back == 0 then 0 else 1
-}
-"#,
+        include_str!("fixtures/conversions/conv_int_to_byte_truncates.ori"),
         "conv_int_to_byte_trunc",
     );
 }
@@ -329,14 +197,7 @@ fn test_conv_int_to_byte_truncates() {
 #[test]
 fn test_conv_int_to_byte_max() {
     assert_aot_success(
-        r#"
-@main () -> int = {
-    let x = 255;
-    let b = x.byte();
-    let back = b.to_int();
-    if back == 255 then 0 else 1
-}
-"#,
+        include_str!("fixtures/conversions/conv_int_to_byte_max.ori"),
         "conv_int_to_byte_max",
     );
 }
@@ -346,12 +207,7 @@ fn test_conv_int_to_byte_max() {
 #[test]
 fn test_conv_int_abs_positive() {
     assert_aot_success(
-        r#"
-@main () -> int = {
-    let x = 42;
-    if x.abs() == 42 then 0 else 1
-}
-"#,
+        include_str!("fixtures/conversions/conv_int_abs_positive.ori"),
         "conv_int_abs_pos",
     );
 }
@@ -359,12 +215,7 @@ fn test_conv_int_abs_positive() {
 #[test]
 fn test_conv_int_abs_negative() {
     assert_aot_success(
-        r#"
-@main () -> int = {
-    let x = -42;
-    if x.abs() == 42 then 0 else 1
-}
-"#,
+        include_str!("fixtures/conversions/conv_int_abs_negative.ori"),
         "conv_int_abs_neg",
     );
 }
@@ -372,12 +223,7 @@ fn test_conv_int_abs_negative() {
 #[test]
 fn test_conv_int_abs_zero() {
     assert_aot_success(
-        r#"
-@main () -> int = {
-    let x = 0;
-    if x.abs() == 0 then 0 else 1
-}
-"#,
+        include_str!("fixtures/conversions/conv_int_abs_zero.ori"),
         "conv_int_abs_zero",
     );
 }
@@ -385,12 +231,7 @@ fn test_conv_int_abs_zero() {
 #[test]
 fn test_conv_float_abs_positive() {
     assert_aot_success(
-        r#"
-@main () -> int = {
-    let x = 3.14;
-    if x.abs() == 3.14 then 0 else 1
-}
-"#,
+        include_str!("fixtures/conversions/conv_float_abs_positive.ori"),
         "conv_float_abs_pos",
     );
 }
@@ -398,12 +239,7 @@ fn test_conv_float_abs_positive() {
 #[test]
 fn test_conv_float_abs_negative() {
     assert_aot_success(
-        r#"
-@main () -> int = {
-    let x = -3.14;
-    if x.abs() == 3.14 then 0 else 1
-}
-"#,
+        include_str!("fixtures/conversions/conv_float_abs_negative.ori"),
         "conv_float_abs_neg",
     );
 }
@@ -411,12 +247,7 @@ fn test_conv_float_abs_negative() {
 #[test]
 fn test_conv_float_abs_zero() {
     assert_aot_success(
-        r#"
-@main () -> int = {
-    let x = 0.0;
-    if x.abs() == 0.0 then 0 else 1
-}
-"#,
+        include_str!("fixtures/conversions/conv_float_abs_zero.ori"),
         "conv_float_abs_zero",
     );
 }
@@ -426,12 +257,7 @@ fn test_conv_float_abs_zero() {
 #[test]
 fn test_conv_int_to_str() {
     assert_aot_success(
-        r#"
-@main () -> int = {
-    let s = 42.to_str();
-    if s == "42" then 0 else 1
-}
-"#,
+        include_str!("fixtures/conversions/conv_int_to_str.ori"),
         "conv_int_to_str",
     );
 }
@@ -439,12 +265,7 @@ fn test_conv_int_to_str() {
 #[test]
 fn test_conv_int_to_str_negative() {
     assert_aot_success(
-        r#"
-@main () -> int = {
-    let s = (-7).to_str();
-    if s == "-7" then 0 else 1
-}
-"#,
+        include_str!("fixtures/conversions/conv_int_to_str_negative.ori"),
         "conv_int_to_str_neg",
     );
 }
@@ -452,12 +273,7 @@ fn test_conv_int_to_str_negative() {
 #[test]
 fn test_conv_int_to_str_zero() {
     assert_aot_success(
-        r#"
-@main () -> int = {
-    let s = 0.to_str();
-    if s == "0" then 0 else 1
-}
-"#,
+        include_str!("fixtures/conversions/conv_int_to_str_zero.ori"),
         "conv_int_to_str_zero",
     );
 }
@@ -465,13 +281,7 @@ fn test_conv_int_to_str_zero() {
 #[test]
 fn test_conv_float_to_str() {
     assert_aot_success(
-        r#"
-@main () -> int = {
-    let s = 3.14.to_str();
-    // Float to_str should produce a reasonable representation
-    if s.length() > 0 then 0 else 1
-}
-"#,
+        include_str!("fixtures/conversions/conv_float_to_str.ori"),
         "conv_float_to_str",
     );
 }
@@ -479,12 +289,7 @@ fn test_conv_float_to_str() {
 #[test]
 fn test_conv_bool_to_str_true() {
     assert_aot_success(
-        r#"
-@main () -> int = {
-    let s = true.to_str();
-    if s == "true" then 0 else 1
-}
-"#,
+        include_str!("fixtures/conversions/conv_bool_to_str_true.ori"),
         "conv_bool_to_str_true",
     );
 }
@@ -492,12 +297,7 @@ fn test_conv_bool_to_str_true() {
 #[test]
 fn test_conv_bool_to_str_false() {
     assert_aot_success(
-        r#"
-@main () -> int = {
-    let s = false.to_str();
-    if s == "false" then 0 else 1
-}
-"#,
+        include_str!("fixtures/conversions/conv_bool_to_str_false.ori"),
         "conv_bool_to_str_false",
     );
 }
@@ -507,16 +307,7 @@ fn test_conv_bool_to_str_false() {
 #[test]
 fn test_conv_ordering_to_int() {
     assert_aot_success(
-        r#"
-@main () -> int = {
-    let a = 1;
-    let b = 2;
-    let ord = a.compare(other: b);
-    let x = ord.to_int();
-    // Less should be a non-zero value
-    if x != 1 then 0 else 1
-}
-"#,
+        include_str!("fixtures/conversions/conv_ordering_to_int.ori"),
         "conv_ordering_to_int",
     );
 }
@@ -526,13 +317,7 @@ fn test_conv_ordering_to_int() {
 #[test]
 fn test_conv_int_to_float_to_int() {
     assert_aot_success(
-        r#"
-@main () -> int = {
-    let x = 42;
-    let roundtrip = x.to_float().to_int();
-    if roundtrip == 42 then 0 else 1
-}
-"#,
+        include_str!("fixtures/conversions/conv_int_to_float_to_int.ori"),
         "conv_roundtrip_int_float",
     );
 }
@@ -540,13 +325,7 @@ fn test_conv_int_to_float_to_int() {
 #[test]
 fn test_conv_int_to_byte_to_int() {
     assert_aot_success(
-        r#"
-@main () -> int = {
-    let x = 100;
-    let roundtrip = x.byte().to_int();
-    if roundtrip == 100 then 0 else 1
-}
-"#,
+        include_str!("fixtures/conversions/conv_int_to_byte_to_int.ori"),
         "conv_roundtrip_int_byte",
     );
 }
@@ -554,13 +333,7 @@ fn test_conv_int_to_byte_to_int() {
 #[test]
 fn test_conv_bool_to_int_to_float() {
     assert_aot_success(
-        r#"
-@main () -> int = {
-    let b = true;
-    let f = b.to_int().to_float();
-    if f == 1.0 then 0 else 1
-}
-"#,
+        include_str!("fixtures/conversions/conv_bool_to_int_to_float.ori"),
         "conv_chain_bool_int_float",
     );
 }
@@ -568,14 +341,7 @@ fn test_conv_bool_to_int_to_float() {
 #[test]
 fn test_conv_char_to_int_arithmetic() {
     assert_aot_success(
-        r#"
-@main () -> int = {
-    let c = 'a';
-    let offset = c.to_int() - 'A'.to_int();
-    // 'a' = 97, 'A' = 65, difference = 32
-    if offset == 32 then 0 else 1
-}
-"#,
+        include_str!("fixtures/conversions/conv_char_to_int_arithmetic.ori"),
         "conv_char_to_int_arith",
     );
 }
@@ -585,14 +351,7 @@ fn test_conv_char_to_int_arithmetic() {
 #[test]
 fn test_conv_in_comparison() {
     assert_aot_success(
-        r#"
-@main () -> int = {
-    let x = 5;
-    let y = 5.0;
-    // Compare by converting int to float
-    if x.to_float() == y then 0 else 1
-}
-"#,
+        include_str!("fixtures/conversions/conv_in_comparison.ori"),
         "conv_in_comparison",
     );
 }
@@ -600,14 +359,7 @@ fn test_conv_in_comparison() {
 #[test]
 fn test_conv_in_arithmetic() {
     assert_aot_success(
-        r#"
-@main () -> int = {
-    let x = 3;
-    let y = 0.14;
-    let pi_approx = x.to_float() + y;
-    if pi_approx > 3.13 && pi_approx < 3.15 then 0 else 1
-}
-"#,
+        include_str!("fixtures/conversions/conv_in_arithmetic.ori"),
         "conv_in_arithmetic",
     );
 }
@@ -615,14 +367,7 @@ fn test_conv_in_arithmetic() {
 #[test]
 fn test_conv_abs_in_expression() {
     assert_aot_success(
-        r#"
-@main () -> int = {
-    let a = -10;
-    let b = 10;
-    // abs makes them equal
-    if a.abs() == b.abs() then 0 else 1
-}
-"#,
+        include_str!("fixtures/conversions/conv_abs_in_expression.ori"),
         "conv_abs_in_expr",
     );
 }
@@ -630,13 +375,7 @@ fn test_conv_abs_in_expression() {
 #[test]
 fn test_conv_to_str_concat() {
     assert_aot_success(
-        r#"
-@main () -> int = {
-    let n = 42;
-    let s = "value: " + n.to_str();
-    if s == "value: 42" then 0 else 1
-}
-"#,
+        include_str!("fixtures/conversions/conv_to_str_concat.ori"),
         "conv_to_str_concat",
     );
 }
@@ -644,15 +383,7 @@ fn test_conv_to_str_concat() {
 #[test]
 fn test_conv_multiple_to_str() {
     assert_aot_success(
-        r#"
-@main () -> int = {
-    let a = 1.to_str();
-    let b = 2.to_str();
-    let c = 3.to_str();
-    let result = a + b + c;
-    if result == "123" then 0 else 1
-}
-"#,
+        include_str!("fixtures/conversions/conv_multiple_to_str.ori"),
         "conv_multiple_to_str",
     );
 }

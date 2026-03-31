@@ -1,0 +1,7 @@
+@main () -> int = {
+    let a: byte = 200;
+    let b: byte = 55;
+    let c: byte = 255;
+    let d: byte = 0;
+    if a != b && c != d then 0 else 1
+}

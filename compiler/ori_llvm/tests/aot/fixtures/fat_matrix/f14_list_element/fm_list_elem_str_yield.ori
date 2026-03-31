@@ -1,0 +1,9 @@
+@main () -> int = {
+    let words = ["hello", "world", "test"];
+    let lengths = for s in words yield s.length();
+    let total = 0;
+    for n in lengths do {
+        total = total + n;
+    };
+    if total == 14 then 0 else 1
+}

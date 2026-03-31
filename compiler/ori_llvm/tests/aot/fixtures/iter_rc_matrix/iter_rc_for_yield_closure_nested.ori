@@ -1,0 +1,7 @@
+@main () -> int = {
+    let outer = [[x -> x + 1, x -> x * 2], [x -> x - 1]];
+    let counts = for inner in outer yield inner.length();
+    let total = 0;
+    for n in counts do total = total + n;
+    if total == 3 then 0 else 1
+}

@@ -1,0 +1,18 @@
+type Ctx = { value: int, tag: str }
+
+@step1 (c: Ctx) -> int = step2(c: c);
+@step2 (c: Ctx) -> int = step3(c: c);
+@step3 (c: Ctx) -> int = step4(c: c);
+@step4 (c: Ctx) -> int = step5(c: c);
+@step5 (c: Ctx) -> int = step6(c: c);
+@step6 (c: Ctx) -> int = step7(c: c);
+@step7 (c: Ctx) -> int = step8(c: c);
+@step8 (c: Ctx) -> int = step9(c: c);
+@step9 (c: Ctx) -> int = step10(c: c);
+@step10 (c: Ctx) -> int = c.value;
+
+@main () -> int = {
+    let c = Ctx { value: 99, tag: "chain" };
+    let result = step1(c: c);
+    if result == 99 then 0 else 1
+}

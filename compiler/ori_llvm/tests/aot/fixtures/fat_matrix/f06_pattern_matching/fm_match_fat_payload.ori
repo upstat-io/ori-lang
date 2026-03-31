@@ -1,0 +1,15 @@
+type Value = Text(content: str) | Number(n: int);
+
+@get_len (v: Value) -> int =
+    match v {
+        Text(content) -> content.length(),
+        Number(n) -> n,
+    };
+
+@main () -> int = {
+    let a = get_len(v: Text(content: "hello"));
+    let b = get_len(v: Number(n: 42));
+    if a == 5 then {
+        if b == 42 then 0 else 1
+    } else 2
+}

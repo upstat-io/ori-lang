@@ -1,0 +1,5 @@
+@main () -> int = {
+    let b = byte(65);
+    let back = b.to_int();
+    if back == 65 then 0 else 1
+}

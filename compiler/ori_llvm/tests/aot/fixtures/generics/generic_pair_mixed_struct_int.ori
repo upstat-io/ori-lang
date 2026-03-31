@@ -1,0 +1,9 @@
+type Point = { x: int, y: int };
+
+@make_pair <A, B> (a: A, b: B) -> (A, B) = (a, b);
+
+@main () -> int = {
+    let p = make_pair(a: Point { x: 1, y: 2 }, b: 42);
+    let (pt, n) = p;
+    if pt.x == 1 && pt.y == 2 && n == 42 then 0 else 1
+}

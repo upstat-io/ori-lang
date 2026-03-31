@@ -1,0 +1,18 @@
+@step1 (x: int) -> Result<int, str> = {
+    if x > 0 then Ok(x * 2) else Err("must be positive")
+}
+
+@step2 (x: int) -> Result<int, str> = {
+    if x < 100 then Ok(x + 1) else Err("too large")
+}
+
+@pipeline (x: int) -> Result<int, str> = {
+    let a = step1(x: x)?;
+    let b = step2(x: a)?;
+    Ok(b)
+}
+
+@main () -> int = {
+    let r = pipeline(x: -1);
+    if r.is_err() then 0 else 1
+}

@@ -1,0 +1,8 @@
+@main () -> int = {
+    let xs = ["hello", "world"];
+    for i in 0..100 do {
+        xs = xs.push("item_" + str(i));
+        if i >= 29 then break;
+    };
+    if xs.len() == 32 then 0 else 1
+}

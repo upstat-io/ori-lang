@@ -1,0 +1,7 @@
+@main () -> int = {
+    let total = 0;
+    for (k, v) in {"a": 10, "b": 20} do {
+        total = total + v;
+    };
+    if total == 30 then 0 else 1
+}

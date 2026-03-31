@@ -1,0 +1,8 @@
+type Named = { name: str, id: int }
+
+@make_named () -> Named = Named { name: "alice", id: 42 };
+
+@main () -> int = {
+    let n = make_named();
+    if n.name.length() + n.id == 47 then 0 else 1
+}

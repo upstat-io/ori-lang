@@ -1,0 +1,5 @@
+@main () -> int = {
+    let xs = [1, 2, 3, 4, 5, 6];
+    let evens = xs.iter().filter(x -> x % 2 == 0).count();
+    if evens == 3 then 0 else 1
+}

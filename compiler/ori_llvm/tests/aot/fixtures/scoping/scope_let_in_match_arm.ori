@@ -1,0 +1,13 @@
+@main () -> int = {
+    let x = 2;
+    let result = match x {
+        n if n > 0 -> {
+            let doubled = n * 2;
+            let tripled = n * 3;
+            doubled + tripled
+        },
+        _ -> 0,
+    };
+    // n=2: doubled=4, tripled=6, result=10
+    if result == 10 then 0 else 1
+}

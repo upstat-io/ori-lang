@@ -1,0 +1,9 @@
+@main () -> int = {
+    let total = 0;
+    for s1 in ["hello", "world"] do {
+        for s2 in ["a", "bb"] do {
+            total = total + s1.length() + s2.length();
+        };
+    };
+    if total == 26 then 0 else 1
+}

@@ -1,0 +1,18 @@
+type Container = Empty | WithStr(val: str) | WithList(items: [int]);
+
+@extract (c: Container) -> str = match c {
+    Empty -> "empty",
+    WithStr(val:) -> val,
+    WithList(items:) -> `list of {len(collection: items)}`,
+}
+
+@main () -> int = {
+    let c1 = extract(c: Empty);
+    let c2 = extract(c: WithStr(val: "hello"));
+    let c3 = extract(c: WithList(items: [1, 2, 3]));
+    if c1 == "empty" then {
+        if c2 == "hello" then {
+            if c3 == "list of 3" then 0 else 3
+        } else 2
+    } else 1
+}

@@ -1,0 +1,9 @@
+@main () -> int = {
+    let a = 'A';
+    let b = 'A';
+    let c = 'Z';
+    let h1 = a.hash();
+    let h2 = b.hash();
+    let h3 = c.hash();
+    if h1 == h2 && h1 != h3 then 0 else 1
+}

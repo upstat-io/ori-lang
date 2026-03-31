@@ -1,0 +1,14 @@
+@mixed (n: int, acc: int) -> int = {
+    if n <= 0 then acc
+    else if n % 7 == 0 then 1 + mixed(n: n - 1, acc: acc)
+    else mixed(n: n - 1, acc: acc + 1)
+};
+
+@main () -> int = {
+    // Verify correctness: count non-multiples-of-7 in 1..50
+    // and add 1 for each multiple of 7 hit.
+    let r = mixed(n: 50, acc: 0);
+    // n=50: 7 multiples of 7 (7,14,21,28,35,42,49), each adds 1 to result.
+    // Remaining 43 iterations add 1 to acc each. Total = 43 + 7 = 50.
+    if r == 50 then 0 else 1
+}

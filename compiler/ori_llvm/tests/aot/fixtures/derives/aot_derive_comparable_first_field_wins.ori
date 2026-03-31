@@ -1,0 +1,9 @@
+#[derive(Eq, Comparable)]
+type Pair = { x: int, y: int }
+
+@main () -> int = {
+    let a = Pair { x: 5, y: 1 };
+    let b = Pair { x: 3, y: 999 };
+    let cmp = a.compare(other: b);
+    if cmp.is_greater() then 0 else 1
+}

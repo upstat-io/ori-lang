@@ -1,0 +1,14 @@
+type Record = { id: int, score: int }
+
+@make_record (i: int) -> Record = Record { id: i, score: i * 10 };
+
+@main () -> int = {
+    let records = for i in 1..=20 yield make_record(i: i);
+    let total = records.iter()
+        .map(r -> r.score)
+        .filter(s -> s > 50)
+        .fold(start: 0, f: (acc: int, s: int) -> int = acc + s);
+    // scores: 10,20,30,40,50,60,70,80,90,100,110,120,130,140,150,160,170,180,190,200
+    // filtered (>50): 60+70+80+90+100+110+120+130+140+150+160+170+180+190+200 = 1950
+    if total == 1950 then 0 else 1
+}

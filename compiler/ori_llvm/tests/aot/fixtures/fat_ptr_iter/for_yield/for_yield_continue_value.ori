@@ -1,0 +1,12 @@
+@main () -> int = {
+    let result = for x in [1, 2, 3, 4, 5] yield {
+        if x == 3 then continue 0;
+        x
+    };
+    // Expected: [1, 2, 0, 4, 5] (x=3→continue 0 pushes 0 instead)
+    let ok = result.length() == 5;
+    if ok then {
+        ok = result[2] == 0
+    };
+    if ok then 0 else 1
+}

@@ -1,0 +1,13 @@
+#derive(Eq, Comparable, Hashable, Clone, Default)
+type Entry = { key: int, value: int }
+
+@main () -> int = {
+    let a = Entry { key: 1, value: 100 };
+    let b = a.clone();
+    let d = Entry.default();
+    let eq_ok = a == b;
+    let cmp_ok = a > d;
+    let hash_ok = a.hash() == b.hash();
+    let default_ok = d.key == 0 && d.value == 0;
+    if eq_ok && cmp_ok && hash_ok && default_ok then 0 else 1
+}

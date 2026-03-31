@@ -1,0 +1,9 @@
+#derive(Printable, Debug)
+type Point = { x: int, y: int };
+
+@main () -> int = {
+    let p = Point { x: 1, y: 2 };
+    let s = p.to_str();
+    let d = p.debug();
+    0
+}

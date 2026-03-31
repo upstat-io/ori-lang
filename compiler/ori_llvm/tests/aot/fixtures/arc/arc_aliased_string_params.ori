@@ -1,0 +1,6 @@
+@both_equal (a: str, b: str) -> bool = a == b;
+
+@main () -> int = {
+    let s = "hello world";
+    if both_equal(a: s, b: s) then 0 else 1
+}

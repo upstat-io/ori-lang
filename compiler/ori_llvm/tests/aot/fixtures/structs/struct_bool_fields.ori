@@ -1,0 +1,6 @@
+type Flags = { enabled: bool, visible: bool };
+
+@main () -> int = {
+    let f = Flags { enabled: true, visible: false };
+    if f.enabled && !f.visible then 0 else 1
+}

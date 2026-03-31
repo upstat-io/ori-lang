@@ -1,0 +1,6 @@
+type FullName = { first: str, last: str };
+
+@main () -> int = {
+    let n = FullName { first: "Alice", last: "Smith" };
+    if n.first == "Alice" && n.last == "Smith" then 0 else 1
+}

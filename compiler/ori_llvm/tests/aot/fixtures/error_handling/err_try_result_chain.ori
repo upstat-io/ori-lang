@@ -1,0 +1,14 @@
+@step1 (x: int) -> Result<int, str> = Ok(x + 10);
+@step2 (x: int) -> Result<int, str> = Ok(x * 2);
+
+@pipeline (x: int) -> Result<int, str> = {
+    let a = step1(x: x)?;
+    let b = step2(x: a)?;
+    Ok(b)
+}
+
+@main () -> int = {
+    let r = pipeline(x: 5);
+    // 5 + 10 = 15, 15 * 2 = 30
+    if r.is_ok() && r.unwrap() == 30 then 0 else 1
+}

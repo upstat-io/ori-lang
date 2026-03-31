@@ -1,0 +1,5 @@
+@main () -> int = {
+    let m = {"a": 1, "b": 2};
+    let f = (n: int) -> int = m.length() + n;
+    if f(8) == 10 then 0 else 1
+}

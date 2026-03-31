@@ -1,0 +1,7 @@
+@main () -> int = {
+    let sum = 0;
+    for (a, b) in [(1, 10), (2, 20), (3, 30)] do {
+        sum = sum + a + b;
+    };
+    if sum == 66 then 0 else 1
+}

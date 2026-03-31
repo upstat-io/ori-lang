@@ -1,0 +1,9 @@
+@count_up (n: int) -> int = {
+    let count = 0;
+    for i in 0..n do {
+        count += 1
+    };
+    count
+}
+
+@main () -> int = count_up(n: 10);

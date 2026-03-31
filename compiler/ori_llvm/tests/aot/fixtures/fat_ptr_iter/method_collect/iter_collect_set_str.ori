@@ -1,0 +1,12 @@
+@main () -> int = {
+    let original: Set<str> = [
+        "this is a very long string that exceeds SSO threshold",
+        "another very long string that also exceeds the threshold"
+    ].iter().collect();
+    let collected: Set<str> = original.iter().collect();
+    let total = 0;
+    for item in collected do {
+        total = total + item.len();
+    };
+    if total == 109 then 0 else 1
+}

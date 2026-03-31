@@ -1,0 +1,13 @@
+@main () -> int = {
+    let items = [[1, 2, 3], [4, 5, 6], [7, 8, 9]];
+    let result = catch(expr: () -> {
+        for inner in items do {
+            if inner.length() == 3 then panic(msg: "test unwind nested list");
+        };
+        0
+    });
+    match result {
+        Ok(_) -> 1,
+        Err(_) -> 0,
+    }
+}

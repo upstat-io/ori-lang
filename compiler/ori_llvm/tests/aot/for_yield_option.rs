@@ -8,11 +8,6 @@
 //!   Type:    str (heap, RC-tracked), int (scalar)
 //!   Pattern: break, break-value, continue, continue-value, guard+break
 
-#![expect(
-    clippy::needless_raw_string_hashes,
-    reason = "readability in test program literals"
-)]
-
 use crate::util::assert_aot_success;
 
 // -----------------------------------------------------------------------
@@ -23,15 +18,7 @@ use crate::util::assert_aot_success;
 #[test]
 fn test_for_yield_option_str_break() {
     assert_aot_success(
-        r#"
-@main () -> int = {
-    let opt = Some("this string exceeds SSO threshold by being very long indeed");
-    let result = for x in opt yield {
-        break
-    };
-    if result.length() == 0 then 0 else 1
-}
-"#,
+        include_str!("fixtures/for_yield_option/for_yield_option_str_break.ori"),
         "for_yield_option_str_break",
     );
 }
@@ -40,15 +27,7 @@ fn test_for_yield_option_str_break() {
 #[test]
 fn test_for_yield_option_str_break_value() {
     assert_aot_success(
-        r#"
-@main () -> int = {
-    let opt = Some("this string exceeds SSO threshold by being very long indeed");
-    let result = for x in opt yield {
-        break 42
-    };
-    if result.length() == 1 then 0 else 1
-}
-"#,
+        include_str!("fixtures/for_yield_option/for_yield_option_str_break_value.ori"),
         "for_yield_option_str_break_value",
     );
 }
@@ -57,15 +36,7 @@ fn test_for_yield_option_str_break_value() {
 #[test]
 fn test_for_yield_option_str_continue() {
     assert_aot_success(
-        r#"
-@main () -> int = {
-    let opt = Some("this string exceeds SSO threshold by being very long indeed");
-    let result = for x in opt yield {
-        continue
-    };
-    if result.length() == 0 then 0 else 1
-}
-"#,
+        include_str!("fixtures/for_yield_option/for_yield_option_str_continue.ori"),
         "for_yield_option_str_continue",
     );
 }
@@ -74,15 +45,7 @@ fn test_for_yield_option_str_continue() {
 #[test]
 fn test_for_yield_option_str_continue_value() {
     assert_aot_success(
-        r#"
-@main () -> int = {
-    let opt = Some("this string exceeds SSO threshold by being very long indeed");
-    let result = for x in opt yield {
-        continue 42
-    };
-    if result.length() == 1 then 0 else 1
-}
-"#,
+        include_str!("fixtures/for_yield_option/for_yield_option_str_continue_value.ori"),
         "for_yield_option_str_continue_value",
     );
 }
@@ -91,15 +54,7 @@ fn test_for_yield_option_str_continue_value() {
 #[test]
 fn test_for_yield_option_str_break_none() {
     assert_aot_success(
-        r#"
-@main () -> int = {
-    let opt: Option<str> = None;
-    let result = for x in opt yield {
-        break
-    };
-    if result.length() == 0 then 0 else 1
-}
-"#,
+        include_str!("fixtures/for_yield_option/for_yield_option_str_break_none.ori"),
         "for_yield_option_str_break_none",
     );
 }
@@ -108,17 +63,7 @@ fn test_for_yield_option_str_break_none() {
 #[test]
 fn test_for_yield_option_str_conditional_break() {
     assert_aot_success(
-        r#"
-@main () -> int = {
-    let opt = Some("this string exceeds SSO threshold by being very long indeed");
-    let result = for x in opt yield {
-        if x.len() > 10 then break;
-        x.len()
-    };
-    // break fires (len > 10), so result is empty
-    if result.length() == 0 then 0 else 1
-}
-"#,
+        include_str!("fixtures/for_yield_option/for_yield_option_str_conditional_break.ori"),
         "for_yield_option_str_conditional_break",
     );
 }
@@ -127,17 +72,9 @@ fn test_for_yield_option_str_conditional_break() {
 #[test]
 fn test_for_yield_option_str_conditional_continue_value() {
     assert_aot_success(
-        r#"
-@main () -> int = {
-    let opt = Some("this string exceeds SSO threshold by being very long indeed");
-    let result = for x in opt yield {
-        if x.len() > 10 then continue 99;
-        x.len()
-    };
-    // continue 99 fires, so result is [99]
-    if result.length() == 1 then 0 else 1
-}
-"#,
+        include_str!(
+            "fixtures/for_yield_option/for_yield_option_str_conditional_continue_value.ori"
+        ),
         "for_yield_option_str_conditional_continue_value",
     );
 }
@@ -150,15 +87,7 @@ fn test_for_yield_option_str_conditional_continue_value() {
 #[test]
 fn test_for_yield_option_int_break() {
     assert_aot_success(
-        r#"
-@main () -> int = {
-    let opt = Some(42);
-    let result = for x in opt yield {
-        break
-    };
-    if result.length() == 0 then 0 else 1
-}
-"#,
+        include_str!("fixtures/for_yield_option/for_yield_option_int_break.ori"),
         "for_yield_option_int_break",
     );
 }
@@ -167,16 +96,7 @@ fn test_for_yield_option_int_break() {
 #[test]
 fn test_for_yield_option_int_break_value() {
     assert_aot_success(
-        r#"
-@main () -> int = {
-    let opt = Some(42);
-    let result = for x in opt yield {
-        break x * 2
-    };
-    // result should be [84]
-    if result.length() == 1 then 0 else 1
-}
-"#,
+        include_str!("fixtures/for_yield_option/for_yield_option_int_break_value.ori"),
         "for_yield_option_int_break_value",
     );
 }
@@ -185,16 +105,7 @@ fn test_for_yield_option_int_break_value() {
 #[test]
 fn test_for_yield_option_int_continue_value() {
     assert_aot_success(
-        r#"
-@main () -> int = {
-    let opt = Some(42);
-    let result = for x in opt yield {
-        continue x + 1
-    };
-    // result should be [43]
-    if result.length() == 1 then 0 else 1
-}
-"#,
+        include_str!("fixtures/for_yield_option/for_yield_option_int_continue_value.ori"),
         "for_yield_option_int_continue_value",
     );
 }
@@ -209,17 +120,7 @@ fn test_for_yield_option_int_continue_value() {
 #[test]
 fn test_for_yield_option_break_semantic_pin() {
     assert_aot_success(
-        r#"
-@main () -> int = {
-    let opt = Some("this string exceeds SSO threshold by being very long indeed");
-    let result = for x in opt yield {
-        break x.len()
-    };
-    // With LoopContext: result = [len], length == 1, exit 0
-    // Without LoopContext: warning + exit 1 (failure)
-    if result.length() == 1 then 0 else 1
-}
-"#,
+        include_str!("fixtures/for_yield_option/for_yield_option_break_semantic_pin.ori"),
         "for_yield_option_break_semantic_pin",
     );
 }

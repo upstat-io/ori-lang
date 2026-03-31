@@ -1,0 +1,10 @@
+type Named = { name: str, id: int }
+
+@main () -> int = {
+    let count = 0;
+    for i in 0..50 do {
+        let n = Named { name: "test", id: i };
+        count = count + n.id - n.id + 1
+    };
+    if count == 50 then 0 else 1
+}

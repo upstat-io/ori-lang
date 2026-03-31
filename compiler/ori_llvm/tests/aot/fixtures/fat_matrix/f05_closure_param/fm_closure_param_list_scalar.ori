@@ -1,0 +1,4 @@
+@main () -> int = {
+    let f = (xs: [int]) -> int = xs.length();
+    if f([10, 20, 30]) == 3 then 0 else 1
+}

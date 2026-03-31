@@ -1,0 +1,5 @@
+@process (s: str) -> int = {
+    let greeting = "Hi, " + s;
+    greeting.length()
+};
+@main () -> int = process(s: "world");

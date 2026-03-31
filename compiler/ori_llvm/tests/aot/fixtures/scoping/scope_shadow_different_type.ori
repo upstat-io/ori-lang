@@ -1,0 +1,5 @@
+@main () -> int = {
+    let x = 42;
+    let x = "hello";
+    if x == "hello" then 0 else 1
+}

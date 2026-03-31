@@ -1,0 +1,5 @@
+@main () -> int = {
+    let neg = -5;
+    let double_neg = -(-10);
+    if neg == -5 && double_neg == 10 then 0 else 1
+}

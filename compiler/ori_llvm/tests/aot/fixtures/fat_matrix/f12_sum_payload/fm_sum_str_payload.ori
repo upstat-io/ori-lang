@@ -1,0 +1,9 @@
+type Value = Text(content: str) | Empty;
+
+@main () -> int = {
+    let v = Text(content: "hello");
+    match v {
+        Text(content) ->if content.length() == 5 then 0 else 1,
+        Empty -> 2,
+    }
+}

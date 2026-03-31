@@ -1,0 +1,8 @@
+@main () -> int = {
+    let s: Set<str> = [
+        "this is a very long heap string that exceeds the SSO threshold for testing"
+    ].iter().collect();
+    let s2 = s;
+    let empty = s2.remove(value: "this is a very long heap string that exceeds the SSO threshold for testing");
+    if s.len() == 1 && empty.len() == 0 then 0 else 1
+}

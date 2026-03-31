@@ -1,0 +1,14 @@
+type Triple = { x: int, y: int, z: int }
+
+@min_of_three (t: Triple) -> int = {
+    let m = t.x;
+    let m = if t.y < m then t.y else m;
+    if t.z < m then t.z else m
+}
+
+@main () -> int = {
+    let t = Triple { x: -10, y: -100, z: -1 };
+    let m = min_of_three(t:);
+    // min(-10, -100, -1) = -100
+    if m == -100 then 0 else 1
+}

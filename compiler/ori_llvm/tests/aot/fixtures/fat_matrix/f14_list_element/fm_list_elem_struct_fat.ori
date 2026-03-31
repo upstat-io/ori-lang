@@ -1,0 +1,6 @@
+type Named = { name: str, id: int }
+
+@main () -> int = {
+    let items = [Named { name: "alice", id: 1 }, Named { name: "bob", id: 2 }];
+    if items.length() == 2 then 0 else 1
+}

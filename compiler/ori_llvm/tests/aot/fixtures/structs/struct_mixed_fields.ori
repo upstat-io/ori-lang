@@ -1,0 +1,6 @@
+type Person = { age: int, active: bool };
+
+@main () -> int = {
+    let p = Person { age: 30, active: true };
+    if p.age == 30 && p.active then 0 else 1
+}

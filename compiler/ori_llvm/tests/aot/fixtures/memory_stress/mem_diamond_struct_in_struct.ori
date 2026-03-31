@@ -1,0 +1,9 @@
+type Inner = { data: str }
+type Container = { a: Inner, b: Inner }
+
+@main () -> int = {
+    let shared = Inner { data: "shared-inner" };
+    let c = Container { a: shared, b: shared };
+    let ok = c.a.data == "shared-inner" && c.b.data == "shared-inner";
+    if ok then 0 else 1
+}

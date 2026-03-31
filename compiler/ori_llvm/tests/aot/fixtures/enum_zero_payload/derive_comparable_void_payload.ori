@@ -1,0 +1,10 @@
+#derive(Eq, Comparable)
+type Cmp = A(u: void, x: int) | B(y: int) | C;
+
+@main () -> void = {
+    let a1 = A(u: (), x: 5);
+    let a2 = A(u: (), x: 10);
+    print(msg: if a1 < a2 then "lt" else "ge");
+    print(msg: if a2 < a1 then "lt" else "ge");
+    print(msg: if a1 == A(u: (), x: 5) then "eq" else "ne");
+}

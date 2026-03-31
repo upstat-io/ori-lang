@@ -1,0 +1,10 @@
+#derive(Eq)
+type Mid = V(a: int, gap: void, b: int) | W;
+
+@main () -> void = {
+    let v1 = V(a: 1, gap: (), b: 2);
+    let v2 = V(a: 1, gap: (), b: 2);
+    let v3 = V(a: 1, gap: (), b: 9);
+    print(msg: if v1 == v2 then "eq" else "ne");
+    print(msg: if v1 == v3 then "eq" else "ne");
+}

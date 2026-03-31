@@ -4,7 +4,7 @@ title: "Enum Representation Optimization"
 status: in-progress
 reviewed: true
 third_party_review:
-  status: resolved
+  status: findings
   updated: 2026-03-30
 goal: "Optimize enum layout with niche filling, discriminant narrowing, tagged pointers, and payload compression — matching Rust's enum layout optimizations"
 inspired_by:
@@ -616,3 +616,7 @@ These test enum representations interacting with other language features. Each m
   Resolved: Fixed on 2026-03-30. Changed `canonical_option()` and `canonical_result()` to use `IntWidth::I64` directly, matching the `ori_rt` runtime layout. Updated 3 tests (`canonical_option_int`, `canonical_option_unit_zero_payload`, `storage_equivalence_zst_divergence`) to expect I64 tag and 8-byte size for Option<()>. ReprPlan now agrees with LLVM lowering for Option/Result.
 - [x] `[TPR-07-005][high]` `compiler/ori_repr/src/canonical/type_repr.rs:165` — **`canonical_enum()` sized payload enums with natural aggregate packing instead of LLVM's `[M x i64]` slot layout.**
   Resolved: Fixed on 2026-03-30. Added `compute_enum_payload_layout()` function that rounds each field to 8-byte i64 slot boundaries, matching LLVM's `resolve_enum()` and `ori_arc`'s `enum_payload_size()`. Replaced `compute_payload_layout()` call in `canonical_enum()`. Removed now-dead `compute_payload_layout()` (was only used by enum path). All 14,694 tests pass.
+- [ ] `[TPR-07-006][high]` `compiler/ori_llvm/src/codegen/derive_codegen/enum_bodies/enum_eq.rs:124` — **Derived enum `Eq` still treats zero-sized payload fields as occupied i64 slots, so `#derive(Eq)` panics on enums like `A(u: void, x: int) | B`.**
+  Evidence: `variant_field_types()` keeps `void`/`Never` fields, but both Eq payload walks advance `i64_offset` by `type_store_size(field_llvm_ty).div_ceil(8).max(1)` for every field. For `A(u: void, x: int)`, the real payload has one slot (`x`) because `resolve_enum()` and `compute_variant_field_offsets()` skip zero-sized fields, yet `emit_enum_payload_eq()` reads slot 0 for `u`, increments to slot 1, then hits `extract_value on array: ExtractOutOfRange` at `ir_builder/aggregates.rs:110` when comparing `x`. Fresh repro on 2026-03-30: compiling `#derive(Eq) type E = A(u: void, x: int) | B; @main () -> int = if A(u: (), x: 5) == A(u: (), x: 5) then 0 else 1` panics in LLVM codegen.
+  Impact: BUG-04-008 fixed construction/project/drop for zero-sized enum payloads, but derived equality still crashes on the same layout class. Any enum derive path that walks payload slots must share the same zero-sized-field filtering/offset computation as the runtime enum consumers.
+  Required plan update: Rework enum derive payload traversal to compute offsets from the concrete variant layout (`compute_variant_field_offsets()` or an equivalent shared helper) and add derive coverage for zero-sized enum payload variants in the §07.1/derive test matrix.

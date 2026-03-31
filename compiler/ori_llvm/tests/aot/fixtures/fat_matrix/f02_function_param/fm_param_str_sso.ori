@@ -1,0 +1,6 @@
+@get_len (s: str) -> int = s.length();
+
+@main () -> int = {
+    let s = "hello";
+    if get_len(s: s) == 5 then 0 else 1
+}

@@ -1,0 +1,6 @@
+type Config = { settings: {str: int}, name: str }
+
+@main () -> int = {
+    let c = Config { settings: {"a": 1}, name: "cfg" };
+    if c.settings.length() + c.name.length() == 4 then 0 else 1
+}

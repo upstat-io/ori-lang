@@ -1,0 +1,5 @@
+@main () -> int = {
+    let scale = (x: int) -> x * 10;
+    let total = scale(1) + scale(2) + scale(3);
+    if total == 60 then 0 else 1
+}

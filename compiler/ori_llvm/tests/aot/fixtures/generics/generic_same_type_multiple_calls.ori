@@ -1,0 +1,8 @@
+@identity <T> (x: T) -> T = x;
+
+@main () -> int = {
+    let a = identity(x: 10);
+    let b = identity(x: 20);
+    let c = identity(x: 30);
+    if a + b + c == 60 then 0 else 1
+}

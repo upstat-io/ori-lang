@@ -1,0 +1,8 @@
+type Item = { name: str, score: int }
+
+@make_item () -> Item = Item { name: "returned_item_heap_name", score: 42 };
+
+@main () -> int = {
+    let $item = make_item();
+    if item.score == 42 then 0 else 1
+}

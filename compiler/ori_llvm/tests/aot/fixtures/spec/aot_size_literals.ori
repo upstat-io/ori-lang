@@ -1,0 +1,8 @@
+@main () -> int = {
+    let b_ok = 100b == 100b;
+    let kb_ok = 1kb == 1000b;
+    let mb_ok = 1mb == 1000kb;
+    let gb_ok = 1gb == 1000mb;
+    let tb_ok = 1tb == 1000gb;
+    if b_ok && kb_ok && mb_ok && gb_ok && tb_ok then 0 else 1
+}

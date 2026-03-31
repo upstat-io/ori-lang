@@ -1,0 +1,18 @@
+@safe_div (n: int, d: int) -> Result<int, str> = {
+    if d == 0 then Err("division by zero")
+    else Ok(n / d)
+};
+
+@repeated_halve (n: int, times: int) -> Result<int, str> = {
+    if times <= 0 then Ok(n)
+    else {
+        let half = safe_div(n: n, d: 2)?;
+        repeated_halve(n: half, times: times - 1)
+    }
+};
+
+@main () -> int = {
+    let r = repeated_halve(n: 64, times: 3);
+    // 64 / 2 / 2 / 2 = 8
+    if r.is_ok() && r.unwrap() == 8 then 0 else 1
+}

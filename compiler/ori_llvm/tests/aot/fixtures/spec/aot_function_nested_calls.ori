@@ -1,0 +1,7 @@
+@double (n: int) -> int = n * 2;
+@add_one (n: int) -> int = n + 1;
+
+@main () -> int = {
+    let result = double(n: add_one(n: 20));
+    if result == 42 then 0 else 1
+}

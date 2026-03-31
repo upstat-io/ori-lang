@@ -1,0 +1,21 @@
+@collect_words (words: [str]) -> [str] = {
+    let result: [str] = [];
+    for w in words do {
+        result = result.push(value: w);
+    };
+    result
+}
+
+@main () -> int = {
+    let words = [
+        "this is a very long string that exceeds SSO threshold",
+        "another very long string that also exceeds the threshold"
+    ];
+    let a = collect_words(words: words);
+    let b = collect_words(words: words);
+    let sa = 0;
+    for w in a do { sa = sa + w.len(); };
+    let sb = 0;
+    for w in b do { sb = sb + w.len(); };
+    if sa == 109 && sb == 109 then 0 else 1
+}

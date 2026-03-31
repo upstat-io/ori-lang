@@ -1,0 +1,18 @@
+@find (x: int) -> Option<int> = if x > 0 then Some(x) else None;
+@double_if_even (x: int) -> Option<int> = if x % 2 == 0 then Some(x * 2) else None;
+@cap (x: int) -> Option<int> = if x < 100 then Some(x) else None;
+
+@pipeline (x: int) -> Option<int> = {
+    let a = find(x: x)?;
+    let b = double_if_even(x: a)?;
+    let c = cap(x: b)?;
+    Some(c)
+}
+
+@main () -> int = {
+    let r = pipeline(x: 4);
+    if r.is_some() then {
+        let v = r.unwrap();
+        if v == 8 then 0 else 1
+    } else 1
+}

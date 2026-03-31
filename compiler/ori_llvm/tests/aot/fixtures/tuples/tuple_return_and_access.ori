@@ -1,0 +1,8 @@
+@min_max (a: int, b: int) -> (int, int) = {
+    if a < b then (a, b) else (b, a)
+};
+
+@main () -> int = {
+    let result = min_max(a: 7, b: 3);
+    if result.0 == 3 && result.1 == 7 then 0 else 1
+}

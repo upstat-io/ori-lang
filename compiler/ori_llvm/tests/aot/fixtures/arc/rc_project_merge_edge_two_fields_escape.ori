@@ -1,0 +1,12 @@
+type Pair = { first: str, second: str }
+
+@make_pair () -> Pair =
+    Pair { first: "first-field-value-over-twenty-three!", second: "second-field-value-over-twenty-three!" };
+
+@main () -> int = {
+    let $p = make_pair();
+    let { first, second } = p;
+    if first == "first-field-value-over-twenty-three!"
+        then (if second == "second-field-value-over-twenty-three!" then 0 else 1)
+        else 2
+}

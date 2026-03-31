@@ -5,35 +5,7 @@ use crate::util::assert_aot_success;
 #[test]
 fn test_unwind_panic_during_str_iteration() {
     assert_aot_success(
-        r#"
-@might_panic (s: str) -> int = {
-    if s == "boom this is a long enough string for heap allocation" then {
-        panic(msg: "kaboom during iteration")
-    };
-    s.len()
-}
-
-@process (words: [str]) -> int = {
-    let total = 0;
-    for w in words do {
-        total = total + might_panic(s: w)
-    };
-    total
-}
-
-@main () -> int = {
-    let words = [
-        "this is a very long string that exceeds SSO threshold",
-        "boom this is a long enough string for heap allocation",
-        "third long string that should never be reached at all"
-    ];
-    let result = catch(expr: process(words: words));
-    match result {
-        Ok(_) -> 1,
-        Err(_) -> 0
-    }
-}
-"#,
+        include_str!("../fixtures/fat_ptr_iter/unwind/unwind_panic_during_str_iteration.ori"),
         "unwind_panic_during_str_iteration",
     );
 }
@@ -43,40 +15,7 @@ fn test_unwind_panic_during_str_iteration() {
 #[test]
 fn test_unwind_list_reusable_after_catch() {
     assert_aot_success(
-        r#"
-@panicking_iter (words: [str]) -> int = {
-    let total = 0;
-    for w in words do {
-        if w == "boom this is a long enough string for heap allocation" then {
-            panic(msg: "kaboom")
-        };
-        total = total + w.len()
-    };
-    total
-}
-
-@safe_iter (words: [str]) -> int = {
-    let total = 0;
-    for w in words do {
-        total = total + w.len()
-    };
-    total
-}
-
-@main () -> int = {
-    let words = [
-        "this is a very long string that exceeds SSO threshold",
-        "boom this is a long enough string for heap allocation",
-        "third long string that should also be on the heap here"
-    ];
-    let r1 = catch(expr: panicking_iter(words: words));
-    let r2 = safe_iter(words: words);
-    match r1 {
-        Ok(_) -> 1,
-        Err(_) -> if r2 == 160 then 0 else 1
-    }
-}
-"#,
+        include_str!("../fixtures/fat_ptr_iter/unwind/unwind_list_reusable_after_catch.ori"),
         "unwind_list_reusable_after_catch",
     );
 }
@@ -86,40 +25,7 @@ fn test_unwind_list_reusable_after_catch() {
 #[test]
 fn test_unwind_multiple_invokes_with_panic() {
     assert_aot_success(
-        r#"
-@count_lengths (words: [str]) -> int = {
-    let total = 0;
-    for w in words do {
-        total = total + w.len()
-    };
-    total
-}
-
-@panicking_count (words: [str]) -> int = {
-    let total = 0;
-    for w in words do {
-        if w == "boom this is a long enough string for heap allocation" then {
-            panic(msg: "kaboom in second call")
-        };
-        total = total + w.len()
-    };
-    total
-}
-
-@main () -> int = {
-    let words = [
-        "this is a very long string that exceeds SSO threshold",
-        "boom this is a long enough string for heap allocation",
-        "third long string that should also be on the heap here"
-    ];
-    let r1 = count_lengths(words: words);
-    let r2 = catch(expr: panicking_count(words: words));
-    match r2 {
-        Ok(_) -> 1,
-        Err(_) -> if r1 == 160 then 0 else 1
-    }
-}
-"#,
+        include_str!("../fixtures/fat_ptr_iter/unwind/unwind_multiple_invokes_with_panic.ori"),
         "unwind_multiple_invokes_with_panic",
     );
 }
@@ -129,39 +35,7 @@ fn test_unwind_multiple_invokes_with_panic() {
 #[test]
 fn test_unwind_nested_call_chain_panic() {
     assert_aot_success(
-        r#"
-@inner (s: str) -> int = {
-    if s == "boom this is a long enough string for heap allocation" then {
-        panic(msg: "deep panic")
-    };
-    s.len()
-}
-
-@middle (words: [str]) -> int = {
-    let total = 0;
-    for w in words do {
-        total = total + inner(s: w)
-    };
-    total
-}
-
-@outer (words: [str]) -> int = {
-    middle(words: words)
-}
-
-@main () -> int = {
-    let words = [
-        "this is a very long string that exceeds SSO threshold",
-        "boom this is a long enough string for heap allocation",
-        "third long string that should also be on the heap here"
-    ];
-    let result = catch(expr: outer(words: words));
-    match result {
-        Ok(_) -> 1,
-        Err(_) -> 0
-    }
-}
-"#,
+        include_str!("../fixtures/fat_ptr_iter/unwind/unwind_nested_call_chain_panic.ori"),
         "unwind_nested_call_chain_panic",
     );
 }
@@ -171,34 +45,7 @@ fn test_unwind_nested_call_chain_panic() {
 #[test]
 fn test_unwind_break_then_panic() {
     assert_aot_success(
-        r#"
-@partial_iter (words: [str]) -> int = {
-    let total = 0;
-    for w in words do {
-        if w.len() > 60 then break;
-        total = total + w.len()
-    };
-    total
-}
-
-@panicking_func (words: [str]) -> int = {
-    panic(msg: "always panics")
-}
-
-@main () -> int = {
-    let words = [
-        "this is a very long string that exceeds SSO threshold",
-        "another very long string that also exceeds the threshold plus",
-        "third long string that should also be on the heap here now"
-    ];
-    let r1 = partial_iter(words: words);
-    let r2 = catch(expr: panicking_func(words: words));
-    match r2 {
-        Ok(_) -> 1,
-        Err(_) -> if r1 == 53 then 0 else 1
-    }
-}
-"#,
+        include_str!("../fixtures/fat_ptr_iter/unwind/unwind_break_then_panic.ori"),
         "unwind_break_then_panic",
     );
 }
@@ -209,31 +56,7 @@ fn test_unwind_break_then_panic() {
 #[test]
 fn test_unwind_panic_at_first_element() {
     assert_aot_success(
-        r#"
-@process (words: [str]) -> int = {
-    let total = 0;
-    for w in words do {
-        if w.starts_with(prefix: "boom") then {
-            panic(msg: "panic at first element")
-        };
-        total = total + w.len()
-    };
-    total
-}
-
-@main () -> int = {
-    let words = [
-        "boom this is a long enough string for heap allocation",
-        "second very long string that also exceeds the threshold",
-        "third long string that should also be on the heap here"
-    ];
-    let result = catch(expr: process(words: words));
-    match result {
-        Ok(_) -> 1,
-        Err(_) -> 0
-    }
-}
-"#,
+        include_str!("../fixtures/fat_ptr_iter/unwind/unwind_panic_at_first_element.ori"),
         "unwind_panic_at_first_element",
     );
 }
@@ -243,32 +66,7 @@ fn test_unwind_panic_at_first_element() {
 #[test]
 fn test_unwind_repeated_catch_cycles() {
     assert_aot_success(
-        r#"
-@panicking_iter (words: [str]) -> int = {
-    let total = 0;
-    for w in words do {
-        if w.starts_with(prefix: "boom") then {
-            panic(msg: "cycle panic")
-        };
-        total = total + w.len()
-    };
-    total
-}
-
-@main () -> int = {
-    let words = [
-        "boom this is a long enough string for heap allocation",
-        "second very long string that also exceeds the threshold"
-    ];
-    let r1 = catch(expr: panicking_iter(words: words));
-    let r2 = catch(expr: panicking_iter(words: words));
-    let r3 = catch(expr: panicking_iter(words: words));
-    let all_err = match r1 { Ok(_) -> false, Err(_) -> true }
-        && match r2 { Ok(_) -> false, Err(_) -> true }
-        && match r3 { Ok(_) -> false, Err(_) -> true };
-    if all_err then 0 else 1
-}
-"#,
+        include_str!("../fixtures/fat_ptr_iter/unwind/unwind_repeated_catch_cycles.ori"),
         "unwind_repeated_catch_cycles",
     );
 }
@@ -278,24 +76,7 @@ fn test_unwind_repeated_catch_cycles() {
 #[test]
 fn test_unwind_callee_local_heap_value() {
     assert_aot_success(
-        r#"
-@process (input: str) -> int = {
-    let local_copy = input + " extra text to ensure heap allocation";
-    if local_copy.len() > 50 then {
-        panic(msg: "callee local panic")
-    };
-    local_copy.len()
-}
-
-@main () -> int = {
-    let s = "this is a very long string that exceeds SSO threshold";
-    let result = catch(expr: process(input: s));
-    match result {
-        Ok(_) -> 1,
-        Err(_) -> 0
-    }
-}
-"#,
+        include_str!("../fixtures/fat_ptr_iter/unwind/unwind_callee_local_heap_value.ori"),
         "unwind_callee_local_heap_value",
     );
 }

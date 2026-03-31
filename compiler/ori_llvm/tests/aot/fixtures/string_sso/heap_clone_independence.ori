@@ -1,0 +1,6 @@
+@main () -> int = {
+    let a = "this is a heap-allocated string!";
+    let b = a.clone();
+    let a2 = a + " extended";
+    if b == "this is a heap-allocated string!" && a2 == "this is a heap-allocated string! extended" then 0 else 1
+}

@@ -1,0 +1,4 @@
+@main () -> int = {
+    let c = (0..100).iter().map((x) -> x * 2).filter((x) -> x % 4 == 0).take(5).count();
+    if c == 5 then 0 else 1
+}

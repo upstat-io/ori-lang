@@ -1,0 +1,12 @@
+@make_pair (x: int) -> (int, bool) = (x, x > 0);
+
+@classify (p: (int, bool)) -> int = match p {
+    (_, true) -> 1,
+    (_, false) -> 0,
+};
+
+@main () -> int = {
+    let a = classify(p: make_pair(x: 5));
+    let b = classify(p: make_pair(x: -1));
+    if a == 1 && b == 0 then 0 else 1
+}

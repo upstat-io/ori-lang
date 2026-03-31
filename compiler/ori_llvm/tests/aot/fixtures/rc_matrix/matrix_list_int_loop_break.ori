@@ -1,0 +1,8 @@
+@main () -> int = {
+    let xs = [1, 2, 3];
+    for i in 0..100 do {
+        xs = xs.push(i);
+        if i >= 29 then break;
+    };
+    if xs.len() == 33 then 0 else 1
+}

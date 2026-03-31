@@ -1,0 +1,18 @@
+@main () -> int = {
+    let maybe_words: Option<[str]> = Some([
+        "this is a very long string that exceeds SSO threshold",
+        "another very long string that also exceeds the threshold"
+    ]);
+    let total = match maybe_words {
+        Some(words) -> {
+            let t = 0;
+            for w in words do {
+                t = t + w.len();
+            };
+            t
+        },
+        None -> 0
+    };
+    // 53 + 56 = 109
+    if total == 109 then 0 else 1
+}

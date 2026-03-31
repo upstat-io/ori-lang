@@ -1,0 +1,4 @@
+@main () -> int = {
+    let t = ("hello", 42);
+    if t.1 == 42 then 0 else 1
+}

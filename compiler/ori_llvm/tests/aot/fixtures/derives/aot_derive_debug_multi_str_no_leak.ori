@@ -1,0 +1,10 @@
+#[derive(Debug)]
+type Pair = { first: str, second: str }
+
+@main () -> int = {
+    let p = Pair { first: "aaaaaaaaaaaaaaaaaaaaaaaaa", second: "bbbbbbbbbbbbbbbbbbbbbbbbb" };
+    let s = p.debug();
+    let ok = s.contains(substr: "aaaaaaaaaaaaaaaaaaaaaaaaa")
+        && s.contains(substr: "bbbbbbbbbbbbbbbbbbbbbbbbb");
+    if ok then 0 else 1
+}

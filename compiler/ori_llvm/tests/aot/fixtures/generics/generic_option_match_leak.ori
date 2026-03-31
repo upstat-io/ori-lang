@@ -1,0 +1,7 @@
+@main () -> int = {
+    let opt: Option<int> = Some(42);
+    match opt {
+        Some(n) -> if n == 42 then 0 else 1,
+        None -> 2,
+    }
+}

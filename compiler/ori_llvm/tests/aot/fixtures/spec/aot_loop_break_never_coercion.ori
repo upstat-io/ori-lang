@@ -1,0 +1,8 @@
+@main () -> int = {
+    let count = 0;
+    let result = loop {
+        count = count + 1;
+        if count > 5 then break count else count
+    };
+    if result == 6 then 0 else 1
+}

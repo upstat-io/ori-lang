@@ -1,0 +1,10 @@
+@main () -> int = {
+    let s = "this is a very long string that exceeds SSO threshold,another very long string also exceeds";
+    let parts = s.split(sep: ",");
+    let total = 0;
+    for p in parts do {
+        total = total + p.len();
+    };
+    // 53 + 37 = 90
+    if total == 90 then 0 else 1
+}

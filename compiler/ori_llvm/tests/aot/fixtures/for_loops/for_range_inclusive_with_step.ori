@@ -1,0 +1,6 @@
+@main () -> int = {
+    let sum = 0;
+    for i in 0..=10 by 2 do sum = sum + i;
+    // 0 + 2 + 4 + 6 + 8 + 10 = 30
+    if sum == 30 then 0 else 1
+}

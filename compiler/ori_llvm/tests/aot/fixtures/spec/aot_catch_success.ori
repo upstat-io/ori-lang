@@ -1,0 +1,7 @@
+@main () -> int = {
+    let result = catch(expr: 42);
+    if result.is_ok() then {
+        let v = result.unwrap();
+        if v == 42 then 0 else 1
+    } else 1
+}

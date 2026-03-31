@@ -1,0 +1,5 @@
+@main () -> int = {
+    let mul = 6 * 7;
+    let div_result = 42 / 6;
+    if mul == 42 && div_result == 7 then 0 else 1
+}

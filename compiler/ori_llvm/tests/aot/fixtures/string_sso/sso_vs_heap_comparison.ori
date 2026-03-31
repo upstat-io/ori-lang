@@ -1,0 +1,7 @@
+@main () -> int = {
+    // SSO string vs heap string with same prefix
+    let sso = "hello";
+    let heap = "hello is a greeting word many use";
+    // "hello" < "hello is..." (prefix is less)
+    if sso < heap && sso != heap then 0 else 1
+}

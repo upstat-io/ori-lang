@@ -1,0 +1,10 @@
+#derive(Eq, Clone)
+type Words = { items: [str] }
+
+@main () -> int = {
+    let a = Words { items: ["hello", "world"] };
+    let b = a.clone();
+    if a == b then {
+        if b.items.length() == 2 then 0 else 1
+    } else 2
+}

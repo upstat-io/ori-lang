@@ -1,0 +1,10 @@
+#[derive(Printable)]
+type FmtFloat = { x: float }
+
+@format_it (f: FmtFloat) -> str = f.to_str();
+
+@main () -> int = {
+    let f = FmtFloat { x: 0.5 };
+    let s = format_it(f:);
+    if s.contains(substr: "0.5") then 0 else 1
+}

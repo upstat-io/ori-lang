@@ -1,0 +1,19 @@
+type List = Nil | Cons(head: int, tail: List);
+
+@map_negate (list: List) -> List = match list {
+    Nil -> Nil,
+    Cons(h, t) -> Cons(head: 0 - h, tail: map_negate(list: t)),
+};
+
+@list_sum (list: List) -> int = match list {
+    Nil -> 0,
+    Cons(h, t) -> h + list_sum(list: t),
+};
+
+@main () -> int = {
+    let $list = Cons(head: 1, tail: Cons(head: 2, tail: Cons(head: 3,
+        tail: Cons(head: 4, tail: Nil))));
+    let $negated = map_negate(list: list);
+    // -(1+2+3+4) = -10
+    if list_sum(list: negated) == 0 - 10 then 0 else 1
+}

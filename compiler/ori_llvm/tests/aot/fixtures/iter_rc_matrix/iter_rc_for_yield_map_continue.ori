@@ -1,0 +1,13 @@
+@main () -> int = {
+    let m = {
+        "long key string that exceeds the SSO threshold of twenty three": 10,
+        "another long key string that also exceeds SSO threshold clearly": 20,
+        "third long key string also exceeds SSO threshold needs heap too": 30
+    };
+    // continue 0 substitutes for entries with val == 20
+    let vals = for entry in m yield {
+        if entry.1 == 20 then continue 0;
+        entry.1
+    };
+    if vals.length() == 3 then 0 else 1
+}

@@ -1,0 +1,13 @@
+@use_str (s: str) -> int = s.len();
+
+@main () -> int = {
+    let text = "this is a long string part that exceeds SSO limit easily,and so does this second part";
+    let parts = text.split(sep: ",");
+    let total = 0;
+    for p in parts do {
+        let n = use_str(s: p);
+        total = total + n;
+    };
+    // "this is a long string part that exceeds SSO limit easily" (56) + "and so does this second part" (28) = 84
+    if total == 84 then 0 else 1
+}

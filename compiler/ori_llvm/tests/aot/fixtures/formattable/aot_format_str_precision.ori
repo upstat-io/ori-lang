@@ -1,0 +1,3 @@
+@main () -> int = {
+    if `{"hello world":.5}` == "hello" then 0 else 1
+}

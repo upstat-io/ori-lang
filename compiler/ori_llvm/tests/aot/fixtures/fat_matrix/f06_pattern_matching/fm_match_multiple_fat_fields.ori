@@ -1,0 +1,12 @@
+type Pair = Both(first: str, second: str) | Neither;
+
+@total_len (p: Pair) -> int =
+    match p {
+        Both(first, second) -> first.length() + second.length(),
+        Neither -> 0,
+    };
+
+@main () -> int = {
+    let r = total_len(p: Both(first: "hello", second: "world!"));
+    if r == 11 then 0 else 1
+}

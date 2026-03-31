@@ -1,0 +1,12 @@
+type Point = { x: int, y: int };
+
+@manhattan (p: Point) -> int = {
+    let ax = if p.x < 0 then -p.x else p.x;
+    let ay = if p.y < 0 then -p.y else p.y;
+    ax + ay
+};
+
+@main () -> int = {
+    let p = Point { x: -3, y: 4 };
+    if manhattan(p: p) == 7 then 0 else 1
+}

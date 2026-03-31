@@ -1,0 +1,6 @@
+@main () -> int = {
+    let xs = [10, 20, 30, 40];
+    let sum = 0;
+    for x in xs do { sum = sum + x };
+    if sum == 100 then 0 else 1
+}

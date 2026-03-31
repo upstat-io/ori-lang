@@ -1,0 +1,6 @@
+@make_err () -> Result<int, str> = Err("bad");
+
+@main () -> int = {
+    let r = make_err();
+    if r.is_err() then 0 else 1
+}

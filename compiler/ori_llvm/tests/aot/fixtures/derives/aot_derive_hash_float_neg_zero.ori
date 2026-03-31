@@ -1,0 +1,9 @@
+#[derive(Eq, Hashable)]
+type Wrapper = { value: float }
+
+@main () -> int = {
+    let a = Wrapper { value: 0.0 };
+    let b = Wrapper { value: -0.0 };
+    // 0.0 and -0.0 are equal, so their hashes must match
+    if a.hash() == b.hash() then 0 else 1
+}

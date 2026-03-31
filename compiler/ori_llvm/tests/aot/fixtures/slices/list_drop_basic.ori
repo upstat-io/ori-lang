@@ -1,0 +1,7 @@
+@main () -> int = {
+    let xs = [10, 20, 30, 40, 50];
+    let ys = xs.drop(count: 2);
+    if ys.length() == 3 && ys.first().unwrap() == 30 && ys.last().unwrap() == 50
+        then 0
+        else 1
+}

@@ -1,0 +1,10 @@
+@wrap (t: (int, int)) -> Option<(int, int)> = Some(t);
+
+@main () -> int = {
+    let a = wrap(t: (1, 2));
+    let b = wrap(t: (1, 2));
+    let c = wrap(t: (3, 4));
+    let r1 = a.equals(b);
+    let r2 = !a.equals(c);
+    if r1 && r2 then 0 else 1
+}

@@ -1,0 +1,10 @@
+@main () -> int = {
+    let f = (opt: Option<int>) -> int = {
+        if is_some(option: opt) then 1 else 0
+    };
+    let a = f(Some(42));
+    let b = f(None);
+    if a == 1 then {
+        if b == 0 then 0 else 1
+    } else 2
+}

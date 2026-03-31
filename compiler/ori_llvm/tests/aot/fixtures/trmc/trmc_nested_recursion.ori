@@ -1,0 +1,20 @@
+type List = Nil | Cons(head: int, tail: List);
+
+@list_reverse_helper (list: List, acc: List) -> List = match list {
+    Nil -> acc,
+    Cons(h, t) -> list_reverse_helper(list: t, acc: Cons(head: h, tail: acc)),
+};
+
+@list_reverse (list: List) -> List = list_reverse_helper(list: list, acc: Nil);
+
+@to_array (list: List) -> [int] = match list {
+    Nil -> [],
+    Cons(h, t) -> [h, ...to_array(list: t)],
+};
+
+@main () -> int = {
+    let $list = Cons(head: 1, tail: Cons(head: 2, tail: Cons(head: 3, tail: Nil)));
+    let $rev = list_reverse(list: list);
+    let $arr = to_array(list: rev);
+    if arr.len() == 3 && arr[0] == 3 && arr[1] == 2 && arr[2] == 1 then 0 else 1
+}

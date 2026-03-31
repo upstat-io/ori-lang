@@ -1,0 +1,5 @@
+@main () -> int = {
+    let sum = 0;
+    for i in 0..=10 by 0 do sum = sum + i;
+    0
+}

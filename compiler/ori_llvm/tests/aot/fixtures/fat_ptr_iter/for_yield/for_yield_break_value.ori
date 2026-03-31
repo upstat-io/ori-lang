@@ -1,0 +1,13 @@
+@main () -> int = {
+    let result = for x in [1, 2, 3, 4, 5] yield {
+        if x == 4 then break 99;
+        x
+    };
+    // Expected: [1, 2, 3, 99] (x=4→break 99 pushes 99)
+    let ok = result.length() == 4;
+    if ok then {
+        // Verify last element is 99
+        ok = result[3] == 99
+    };
+    if ok then 0 else 1
+}

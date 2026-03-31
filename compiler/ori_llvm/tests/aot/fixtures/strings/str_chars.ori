@@ -1,0 +1,5 @@
+@main () -> int = {
+    let s = "abc";
+    let chars = s.chars();
+    if chars.count() == 3 then 0 else 1
+}

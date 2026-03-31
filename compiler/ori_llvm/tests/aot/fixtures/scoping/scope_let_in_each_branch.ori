@@ -1,0 +1,12 @@
+@main () -> int = {
+    let flag = true;
+    let result = if flag then {
+        let a = 100;
+        let b = 200;
+        a + b
+    } else {
+        let c = 999;
+        c
+    };
+    if result == 300 then 0 else 1
+}

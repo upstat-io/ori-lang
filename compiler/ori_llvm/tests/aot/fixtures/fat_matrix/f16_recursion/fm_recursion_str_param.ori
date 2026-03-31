@@ -1,0 +1,8 @@
+@count_down (s: str, n: int) -> int = {
+    if n <= 0 then s.length()
+    else count_down(s: s, n: n - 1)
+};
+
+@main () -> int = {
+    if count_down(s: "hello", n: 3) == 5 then 0 else 1
+}

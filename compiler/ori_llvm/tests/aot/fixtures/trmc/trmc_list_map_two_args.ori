@@ -1,0 +1,18 @@
+type List = Nil | Cons(head: int, tail: List);
+
+@list_map (f: (int) -> int, list: List) -> List = match list {
+    Nil -> Nil,
+    Cons(h, t) -> Cons(head: f(h), tail: list_map(f: f, list: t)),
+};
+
+@to_array (list: List) -> [int] = match list {
+    Nil -> [],
+    Cons(h, t) -> [h, ...to_array(list: t)],
+};
+
+@main () -> int = {
+    let $list = Cons(head: 10, tail: Cons(head: 20, tail: Cons(head: 30, tail: Nil)));
+    let $mapped = list_map(f: x -> x * 2, list: list);
+    let $arr = to_array(list: mapped);
+    if arr.len() == 3 && arr[0] == 20 && arr[1] == 40 && arr[2] == 60 then 0 else 1
+}

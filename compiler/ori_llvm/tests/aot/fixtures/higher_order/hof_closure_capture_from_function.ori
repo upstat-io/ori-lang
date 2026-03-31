@@ -1,0 +1,8 @@
+@compute (x: int) -> int = x * x + 1;
+
+@main () -> int = {
+    let val = compute(x: 5);
+    let use_val = (offset: int) -> val + offset;
+    // compute(5) = 26, 26 + 4 = 30
+    if use_val(4) == 30 then 0 else 1
+}

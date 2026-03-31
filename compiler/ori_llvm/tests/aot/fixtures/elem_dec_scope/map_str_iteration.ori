@@ -1,0 +1,13 @@
+@main () -> int = {
+    let m = {
+        "a very long key string that exceeds the twenty three byte SSO threshold for testing": 1,
+        "another long key string to exercise map iteration with fat pointer elements": 2,
+        "third key string also exceeding the SSO threshold for complete coverage": 3
+    };
+    let total = 0;
+    for entry in m do {
+        let (k, v) = entry;
+        total = total + v
+    };
+    if total == 6 then 0 else 1
+}

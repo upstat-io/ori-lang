@@ -1,0 +1,8 @@
+type Bit = Zero | One;
+
+@main () -> int = {
+    let bits = for i in 0..4 yield {
+        if i % 2 == 0 then Zero else One
+    };
+    if bits.len() == 4 then 0 else 1
+}

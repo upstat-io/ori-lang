@@ -1,0 +1,10 @@
+@main () -> int = {
+    let xs = for i in 0..20 yield i;
+    let sum = 0;
+    for x in xs do {
+        if x >= 5 then break;
+        sum = sum + x;
+    };
+    // 0 + 1 + 2 + 3 + 4 = 10
+    if sum == 10 then 0 else 1
+}

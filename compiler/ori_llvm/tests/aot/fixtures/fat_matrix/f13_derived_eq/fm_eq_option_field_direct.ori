@@ -1,0 +1,14 @@
+#derive(Eq)
+type MaybeNamed = { name: Option<str>, id: int }
+
+@main () -> int = {
+    let a = MaybeNamed { name: Some("alice has a long name here!!!"), id: 1 };
+    let b = MaybeNamed { name: Some("alice has a long name here!!!"), id: 1 };
+    let c = MaybeNamed { name: None, id: 1 };
+    let d = MaybeNamed { name: None, id: 1 };
+    if a == b then {
+        if a != c then {
+            if c == d then 0 else 3
+        } else 2
+    } else 1
+}

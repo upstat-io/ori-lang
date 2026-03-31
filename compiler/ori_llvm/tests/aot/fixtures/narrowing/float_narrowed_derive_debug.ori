@@ -1,0 +1,12 @@
+#[derive(Debug)]
+type FColor = { r: float, g: float, b: float }
+
+@main () -> int = {
+    let c = FColor { r: 0.5, g: 0.25, b: 1.0 };
+    let s = c.debug();
+    let has_05 = s.contains(substr: "0.5");
+    let has_025 = s.contains(substr: "0.25");
+    // Runtime formats 1.0 as "1" (no trailing .0)
+    let has_b = s.contains(substr: "b: 1");
+    if has_05 && has_025 && has_b then 0 else 1
+}

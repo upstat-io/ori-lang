@@ -1,0 +1,5 @@
+@main () -> int = {
+    let opt = Some(42);
+    let opt2 = opt.clone();
+    if (opt2 ?? 0) == 42 then 0 else 1
+}
