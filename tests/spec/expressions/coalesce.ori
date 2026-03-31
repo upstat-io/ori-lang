@@ -635,3 +635,23 @@ use std.testing { assert, assert_eq }
     let c = a ?? b;
     c
 }
+
+// Negative pin: nested wrapper mismatch must be rejected
+// Option<Option<int>> ?? Result<int, bool> — inner is Option<int>, not Result
+#compile_fail("type mismatch")
+@test_coalesce_nested_wrapper_mismatch tests _ () -> void = {
+    let a: Option<Option<int>> = Some(Some(1));
+    let b: Result<int, bool> = Err(false);
+    let c: Option<int> = a ?? b;
+    c
+}
+
+// Negative pin: Result nested wrapper mismatch
+// Result<Option<int>, str> ?? Result<int, bool> — Err types don't match
+#compile_fail("type mismatch")
+@test_coalesce_result_nested_mismatch tests _ () -> void = {
+    let a: Result<Option<int>, str> = Ok(Some(1));
+    let b: Result<int, bool> = Err(false);
+    let c: Option<int> = a ?? b;
+    c
+}
