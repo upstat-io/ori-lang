@@ -1,0 +1,42 @@
+// Test that Range<float> construction is rejected at compile time.
+// Spec: ranges are int-only — float bounds are a type error.
+// Semantic pin: this test ONLY passes if the type checker rejects
+// float range construction (the old compiler accepted it).
+
+// Basic float range literals
+#[compile_fail("Range<float>")]
+@test_float_range_exclusive tests _ () -> void = {
+    let _r = 0.0..10.0
+}
+
+// Inclusive float range
+#[compile_fail("Range<float>")]
+@test_float_range_inclusive tests _ () -> void = {
+    let _r = 0.0..=10.0
+}
+
+// Float range with step
+#[compile_fail("Range<float>")]
+@test_float_range_with_step tests _ () -> void = {
+    let _r = 0.0..10.0 by 0.5
+}
+
+// Float variable as range bound
+#[compile_fail("Range<float>")]
+@test_float_var_range tests _ () -> void = {
+    let x: float = 1.0;
+    let _r = x..10.0
+}
+
+// Non-iteration methods on Range<float> should also be rejected
+// (the range construction itself is now the error, but these
+// verify that the compiler doesn't silently accept these programs)
+#[compile_fail("Range<float>")]
+@test_float_range_len tests _ () -> void = {
+    let _n = (0.0..10.0).len()
+}
+
+#[compile_fail("Range<float>")]
+@test_float_range_contains tests _ () -> void = {
+    let _b = (0.0..10.0).contains(value: 5.0)
+}

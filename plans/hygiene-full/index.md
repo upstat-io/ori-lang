@@ -26,7 +26,7 @@ bitwise, arithmetic, comparison, negation, BitNot, Not
 ---
 
 ### Section 02: Registry as Universal SSOT (Methods & Traits)
-**File:** `section-02-registry-methods-traits.md` | **Status:** Not Started
+**File:** `section-02-registry-methods-traits.md` | **Status:** Complete
 
 ```
 primitive_satisfies_trait, type_satisfies_trait, trait satisfaction

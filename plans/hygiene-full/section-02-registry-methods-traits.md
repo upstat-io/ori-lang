@@ -8,9 +8,9 @@ inspired_by:
   - "ori_registry defs/*.rs TypeDef pattern -- methods and operator defs per type"
 depends_on: []
 third_party_review:
-  status: clean
+  status: resolved
   updated: 2026-03-31
-  iterations: 4
+  iterations: 5
 sections:
   - id: "02.1"
     title: "Registry Trait Coverage Gaps"
@@ -32,7 +32,7 @@ sections:
     status: complete
   - id: "02.N"
     title: "Completion Checklist"
-    status: not-started
+    status: complete
 ---
 
 # Section 02: Registry as Universal SSOT (Methods & Traits)
@@ -285,14 +285,16 @@ Two residual items remain:
   - **(a) Registry annotation**: Add a `requires_iterable: bool` field to `MethodDef`. Set `true` on `collect`, `iter`, `to_list` for Range. The type checker then checks `method_def.requires_iterable && element_type == Float` instead of consulting a hardcoded list. This is the correct fix but adds a field that is only meaningful for Range.
   - **(b) Registry tag**: Add a `MethodKind::IterationDependent` variant. Less intrusive but less self-documenting.
   - **Recommendation**: (a) is more explicit. The field is cheap (`bool`, no struct size increase due to alignment) and directly encodes the constraint. The `is_float_range_iteration()` check in `methods/mod.rs:75-78` then becomes `method_def.requires_iterable && engine.pool().range_elem(receiver_ty) == Idx::FLOAT`.
-  - **Alternative**: If adding a field to `MethodDef` is too invasive for this section, defer to a "cleanup" subsection with a concrete `- [ ]` anchor here. But the current 3-element hardcoded list IS a LEAK that will drift when new iteration-dependent methods are added.
+  - **Alternative**: If adding a field to `MethodDef` is too invasive for this section, defer to a "cleanup" subsection with a concrete checkbox anchor here. But the current 3-element hardcoded list IS a LEAK that will drift when new iteration-dependent methods are added.
 
 ---
 
 ## 02.R Third Party Review Findings
 
-- [ ] `[TPR-02-002][medium]` [`compiler/ori_types/src/infer/expr/methods/tests.rs`](/home/eric/projects/ori_lang/compiler/ori_types/src/infer/expr/methods/tests.rs#L127) / [`compiler/ori_types/src/infer/expr/methods/tests.rs`](/home/eric/projects/ori_lang/compiler/ori_types/src/infer/expr/methods/tests.rs#L184) / [`compiler/ori_types/src/infer/expr/methods/computed_returns.rs`](/home/eric/projects/ori_lang/compiler/ori_types/src/infer/expr/methods/computed_returns.rs#L35) — The 02.5 audit is still not strong enough to prove the `trace_entries()` branches in `resolve_computed_return()`. `fresh_return_methods_are_documented()` only snapshots the registry list, and `computed_returns_produce_structured_types()` explicitly accepts either `Tag::List` or `Tag::Var` for both `Result.trace_entries()` and `Error.trace_entries()`. In the isolated test setup, deleting the structured-return arm at [`computed_returns.rs`](/home/eric/projects/ori_lang/compiler/ori_types/src/infer/expr/methods/computed_returns.rs#L35) would still leave the section-local audit green because the fallback `fresh_var()` path also yields `Tag::Var`. The broader spec suite currently protects runtime behavior, but the section’s claimed unit-level coverage audit remains incomplete.
-- [ ] `[TPR-02-004][high]` [`compiler/ori_types/src/infer/expr/methods/mod.rs`](/home/eric/projects/ori_lang/compiler/ori_types/src/infer/expr/methods/mod.rs#L26) / [`compiler/ori_types/src/infer/expr/methods/mod.rs`](/home/eric/projects/ori_lang/compiler/ori_types/src/infer/expr/methods/mod.rs#L71) / [`compiler/ori_types/src/infer/expr/calls/method_call.rs`](/home/eric/projects/ori_lang/compiler/ori_types/src/infer/expr/calls/method_call.rs#L319) / [`compiler/ori_types/src/infer/expr/calls/method_call.rs`](/home/eric/projects/ori_lang/compiler/ori_types/src/infer/expr/calls/method_call.rs#L353) / [`compiler/ori_types/src/infer/expr/collections.rs`](/home/eric/projects/ori_lang/compiler/ori_types/src/infer/expr/collections.rs#L222) / [`compiler/ori_eval/src/operators/mod.rs`](/home/eric/projects/ori_lang/compiler/ori_eval/src/operators/mod.rs#L160) — The latest follow-up claims that all `Range<float>` methods are now rejected at dispatch time, but the user-visible gap is still present. [`resolve_builtin_method()`](/home/eric/projects/ori_lang/compiler/ori_types/src/infer/expr/methods/mod.rs#L53) returns `None` for every `Range<float>` method, yet [`resolve_receiver_and_builtin()`](/home/eric/projects/ori_lang/compiler/ori_types/src/infer/expr/calls/method_call.rs#L319) only emits an error for iteration-tagged methods and otherwise falls through to impl/trait lookup. Fresh repros from this review: `target/debug/ori check` accepts both `let r = 0.0..10.0; r.contains(value: 5.0)` and `let r = 0.0..10.0; r.count()`, while `target/debug/ori run` still fails with `error[E6099]: range start must be an integer`; even bare `let r = 0.0..10.0` passes type checking and dies the same way at runtime. That leaves two real cross-phase bugs in place: float range construction is still accepted by [`infer_range()`](/home/eric/projects/ori_lang/compiler/ori_types/src/infer/expr/collections.rs#L222) despite the evaluator only implementing integer range operators, and the new “reject all methods” guard is ineffective for non-iteration methods because method-call fallback bypasses it.
+- [x] `[TPR-02-002][medium]` [`compiler/ori_types/src/infer/expr/methods/tests.rs`](/home/eric/projects/ori_lang/compiler/ori_types/src/infer/expr/methods/tests.rs#L127) / [`compiler/ori_types/src/infer/expr/methods/computed_returns.rs`](/home/eric/projects/ori_lang/compiler/ori_types/src/infer/expr/methods/computed_returns.rs#L35) — trace_entries test coverage gap.
+  Resolved: Fixed on 2026-03-31. Test now creates a `StringInterner` and sets it on the engine so `computed_trace_entries()` takes the structured `[TraceEntry]` path. Assertions changed from `Tag::List || Tag::Var` to exact `Tag::List` + `Tag::Named` element verification. Deleting the trace_entries branch now causes the test to fail.
+- [x] `[TPR-02-004][high]` [`compiler/ori_types/src/infer/expr/collections.rs`](/home/eric/projects/ori_lang/compiler/ori_types/src/infer/expr/collections.rs#L222) / [`compiler/ori_types/src/infer/expr/calls/method_call.rs`](/home/eric/projects/ori_lang/compiler/ori_types/src/infer/expr/calls/method_call.rs#L353) — Range<float> cross-phase bugs.
+  Resolved: Fixed on 2026-03-31. Two fixes: (1) `infer_range()` now rejects float element types at construction with `range_float_not_constructible()` error — `0.0..10.0` is a compile error. (2) Non-iteration methods on Range<float> in `method_call.rs` now emit a diagnostic instead of silently returning `Idx::ERROR`. 6 new `#compile_fail` spec tests in `tests/compile-fail/range_float_construction.ori` pin the rejection. All 14,867 tests pass.
 
 ---
 
