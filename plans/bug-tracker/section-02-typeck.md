@@ -22,6 +22,15 @@ Bugs in type inference, unification, trait resolution, method dispatch, generics
   Found: 2026-03-28 | Source: verify-roadmap
   Note: Active work in roadmap section 10 (control flow) touches this area.
 
+- [ ] `[BUG-02-002][high]` **Coalesce (`??`) same-type wrapper forms typed as `T` instead of wrapper** — found by tpr-review.
+  Repro: `let a: Option<int> = Some(1); let b: Option<int> = Some(2); let c: Option<int> = a ?? b;` — fails with `expected int?, found int`. Same for `Result<T,E> ?? Result<T,E>`.
+  Spec: `operator-rules.md` §Coalesce defines `Option<T> ?? Option<T> -> Option<T>` and `Result<T,E> ?? Result<T,E> -> Result<T,E>`.
+  Root cause: `infer_coalesce()` in `compiler/ori_types/src/infer/expr/operators.rs:284` always unifies result with the unwrapped inner type `T`. ARC lowering in `compiler/ori_arc/src/lower/expr/mod.rs:429` always projects payload field 1.
+  Subsystem: `compiler/ori_types/src/infer/expr/operators.rs`, `compiler/ori_arc/src/lower/expr/mod.rs`
+  Found: 2026-03-30 | Source: tpr-review
+  Related: BUG-04-009 (resolved) fixed eager RHS evaluation but did not restore wrapper-preserving semantics.
+  Note: Roadmap section 15C (literals/operators) and section 10 (control flow) touch this area.
+
 ---
 
 ## Resolved Bugs
