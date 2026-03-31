@@ -1,0 +1,6 @@
+@count_down (n: int) -> int = if n == 0 then 0 else count_down(n: n - 1);
+
+@main () -> int = {
+    let result = count_down(n: 1000);
+    if result == 0 then 0 else 1
+}

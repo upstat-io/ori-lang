@@ -1,0 +1,12 @@
+@find_zero (lo: int, hi: int) -> int = {
+    if lo >= hi then lo
+    else {
+        let mid = lo + (hi - lo) / 2;
+        if mid > 50 then find_zero(lo: lo, hi: mid)
+        else find_zero(lo: mid + 1, hi: hi)
+    }
+};
+
+@main () -> int = {
+    if find_zero(lo: 0, hi: 100) == 51 then 0 else 1
+}

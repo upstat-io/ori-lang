@@ -1,0 +1,13 @@
+type Item = { name: str, val: int }
+
+@main () -> int = {
+    let items = [
+        Item { name: "this item name exceeds the SSO threshold by being long", val: 10 },
+        Item { name: "second item name also exceeds the SSO threshold for heap", val: 20 }
+    ];
+    let count1 = 0;
+    for item in items do count1 = count1 + 1;
+    let count2 = 0;
+    for item in items do count2 = count2 + 1;
+    if count1 == 2 && count2 == 2 then 0 else 1
+}

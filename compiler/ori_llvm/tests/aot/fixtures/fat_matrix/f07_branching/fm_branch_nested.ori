@@ -1,0 +1,8 @@
+@main () -> int = {
+    let a = true;
+    let b = false;
+    let s = if a then {
+        if b then "inner_true" else "inner_false"
+    } else "outer_false";
+    if s.length() == 11 then 0 else 1
+}

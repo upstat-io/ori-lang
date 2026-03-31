@@ -1,0 +1,8 @@
+#[derive(Default, Eq)]
+type Point = { x: int, y: int }
+
+@main () -> int = {
+    let a = Point.default();
+    let b = Point.default();
+    if a.eq(other: b) then 0 else 1
+}

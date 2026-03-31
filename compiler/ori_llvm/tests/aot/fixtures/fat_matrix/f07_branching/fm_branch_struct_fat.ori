@@ -1,0 +1,9 @@
+type Named = { name: str, id: int }
+
+@main () -> int = {
+    let flag = true;
+    let n = if flag
+        then Named { name: "alice", id: 1 }
+        else Named { name: "bob", id: 2 };
+    if n.name.length() == 5 then 0 else 1
+}

@@ -1,0 +1,14 @@
+@classify (c: char) -> int = match c {
+    'a' -> 1,
+    'b' -> 2,
+    'z' -> 26,
+    _ -> 0,
+};
+
+@main () -> int = {
+    let a = classify(c: 'a');
+    let b = classify(c: 'b');
+    let z = classify(c: 'z');
+    let other = classify(c: 'x');
+    if a == 1 && b == 2 && z == 26 && other == 0 then 0 else 1
+}

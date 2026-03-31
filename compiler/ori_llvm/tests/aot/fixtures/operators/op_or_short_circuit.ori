@@ -1,0 +1,7 @@
+@main () -> int = {
+    // true || (anything) should return true without evaluating rhs
+    let result = true || false;
+    let result2 = false || true;
+    let result3 = false || false;
+    if result && result2 && !result3 then 0 else 1
+}

@@ -1,0 +1,8 @@
+type Color = { r: int, g: int, b: int }
+
+@read_r (c: Color) -> int = c.r;
+
+@main () -> int = {
+    let c = Color { r: 10, g: 20, b: 30 };
+    read_r(c:)
+}

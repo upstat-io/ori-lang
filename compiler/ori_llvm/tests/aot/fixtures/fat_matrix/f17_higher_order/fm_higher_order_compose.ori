@@ -1,0 +1,7 @@
+@apply_then_add (f: (str) -> int, s: str, n: int) -> int = f(s) + n;
+
+@get_len (s: str) -> int = s.length();
+
+@main () -> int = {
+    if apply_then_add(f: get_len, s: "hello", n: 5) == 10 then 0 else 1
+}

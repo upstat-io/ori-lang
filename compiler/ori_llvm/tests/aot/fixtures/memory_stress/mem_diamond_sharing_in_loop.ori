@@ -1,0 +1,15 @@
+type Payload = { text: str, num: int }
+
+@main () -> int = {
+    let total = 0;
+    for i in 0..1000 do {
+        let p = Payload { text: "loop", num: i };
+        let r1 = p;
+        let r2 = p;
+        let r3 = p;
+        // All 4 refs (p, r1, r2, r3) must be properly freed each iteration
+        total = total + r1.num + r2.num + r3.num
+    };
+    // total = sum(3*i for i in 0..1000) = 3 * 999*1000/2 = 1498500
+    if total == 1498500 then 0 else 1
+}

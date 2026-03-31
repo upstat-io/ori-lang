@@ -1,0 +1,7 @@
+type Wide = { a: int, b: int, c: int, d: int, e: int, f: int, g: int, h: int }
+
+@main () -> int = {
+    let w = Wide { a: 1, b: 2, c: 3, d: 4, e: 5, f: 6, g: 7, h: 8 };
+    let sum = w.a + w.b + w.c + w.d + w.e + w.f + w.g + w.h;
+    if sum == 36 then 0 else 1
+}

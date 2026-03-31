@@ -1,0 +1,9 @@
+type Counter = { value: int, step: int }
+
+@main () -> int = {
+    let c = Counter { value: 0, step: 5 };
+    let c = Counter { ...c, value: c.value + c.step };
+    let c = Counter { ...c, value: c.value + c.step };
+    // 0 + 5 + 5 = 10
+    if c.value == 10 then 0 else 1
+}

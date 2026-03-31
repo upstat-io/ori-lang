@@ -1,0 +1,8 @@
+@main () -> int = {
+    let label = match 42 {
+        0 -> "zero",
+        1 -> "one",
+        _ -> "other",
+    };
+    if label == "other" then 0 else 1
+}

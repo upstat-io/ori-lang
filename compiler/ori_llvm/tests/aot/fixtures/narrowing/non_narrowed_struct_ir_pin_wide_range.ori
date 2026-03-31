@@ -1,0 +1,8 @@
+type Wide = { a: int, b: int }
+
+@sum_wide (w: Wide) -> int = w.a + w.b;
+
+@main () -> int = {
+    let w = Wide { a: 3_000_000_000, b: -3_000_000_000 };
+    sum_wide(w:)
+}

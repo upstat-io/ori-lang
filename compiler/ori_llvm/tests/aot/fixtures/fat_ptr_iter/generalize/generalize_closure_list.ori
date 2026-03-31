@@ -1,0 +1,12 @@
+@make_adder (n: int) -> (int) -> int = {
+    x -> x + n
+}
+
+@main () -> int = {
+    let fns = [make_adder(n: 10), make_adder(n: 20), make_adder(n: 30)];
+    let total = 0;
+    for f in fns do {
+        total = total + f(1)
+    };
+    if total == 63 then 0 else 1
+}

@@ -1,0 +1,17 @@
+@sum_values (items: [(str, int)]) -> int = {
+    let total = 0;
+    for (_, n) in items do {
+        total = total + n;
+    };
+    total
+}
+
+@main () -> int = {
+    let items = [
+        ("this is a very long string that exceeds SSO threshold", 10),
+        ("another very long string that also exceeds the threshold", 20)
+    ];
+    let a = sum_values(items: items);
+    let b = sum_values(items: items);
+    if a == 30 && b == 30 then 0 else 1
+}

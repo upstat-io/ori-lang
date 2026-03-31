@@ -1,0 +1,11 @@
+@is_even (n: int) -> bool = {
+    if n == 0 then true else is_odd(n: n - 1)
+};
+
+@is_odd (n: int) -> bool = {
+    if n == 0 then false else is_even(n: n - 1)
+};
+
+@main () -> int = {
+    if is_even(n: 10) && is_odd(n: 7) && !is_even(n: 3) then 0 else 1
+}

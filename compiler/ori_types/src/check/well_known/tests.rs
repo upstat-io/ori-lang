@@ -298,7 +298,7 @@ const REFERENCE_TRUTH: &[(Idx, &str, &[&str])] = &[
         "Add", "Sub", "Mul", "Div", "Rem",
         "BitAnd", "BitOr", "BitXor", "BitNot", "Shl", "Shr",
     ]),
-    (Idx::UNIT, "unit", &["Eq", "Clone", "Default", "Debug"]),
+    (Idx::UNIT, "unit", &["Eq", "Comparable", "Hashable", "Clone", "Default", "Debug"]),
     (Idx::NEVER, "never", &[]),
     (Idx::ERROR, "error", &[]),
     (Idx::DURATION, "duration", &[
@@ -420,8 +420,10 @@ fn int_satisfies_expected_traits() {
 fn unit_satisfies_only_eq_clone_default_debug() {
     let (interner, wk) = make_wk();
 
-    let yes = ["Eq", "Clone", "Default", "Debug"];
-    let no = ["Comparable", "Hashable", "Printable", "Add", "Sendable"];
+    // TPR-07-006: void/() now satisfies Comparable and Hashable (trivially —
+    // always Equal, constant hash). Matches Rust's () which impls Ord + Hash.
+    let yes = ["Eq", "Comparable", "Hashable", "Clone", "Default", "Debug"];
+    let no = ["Printable", "Add", "Sendable"];
 
     for name in yes {
         assert!(

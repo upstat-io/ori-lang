@@ -1,0 +1,4 @@
+@main () -> int = {
+    let c = [10, 20, 30, 40, 50].iter().skip(3).count();
+    if c == 2 then 0 else 1
+}

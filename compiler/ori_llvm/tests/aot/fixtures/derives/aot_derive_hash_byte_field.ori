@@ -1,0 +1,13 @@
+#[derive(Eq, Hashable)]
+type ByteBox = { b: byte }
+
+@main () -> int = {
+    let a = ByteBox { b: byte(200) };
+    let b = ByteBox { b: byte(200) };
+    let c = ByteBox { b: byte(100) };
+    // Same byte → same hash
+    let r1 = a.hash() == b.hash();
+    // Different byte → different hash
+    let r2 = a.hash() != c.hash();
+    if r1 && r2 then 0 else 1
+}

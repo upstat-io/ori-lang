@@ -1,0 +1,6 @@
+@double (n: int) -> int = n * 2;
+
+@main () -> int = {
+    let result = catch(expr: double(21));
+    if result.is_ok() && result.unwrap() == 42 then 0 else 1
+}

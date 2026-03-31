@@ -1,0 +1,8 @@
+type Point = { x: int, y: int }
+
+@sum (p: Point) -> int = p.x + p.y;
+
+@main () -> int = {
+    let p = Point { x: 3, y: 4 };
+    if sum(p) == 7 then 0 else 1
+}

@@ -1,0 +1,5 @@
+@main () -> int = {
+    let s = "abcdefghijklmnopqrstuvwxyz1234";
+    let s = "short";
+    if s.length() == 5 then 0 else 1
+}

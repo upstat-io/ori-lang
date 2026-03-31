@@ -1,0 +1,7 @@
+@swap <X, Y> (a: X, b: Y) -> (Y, X) = (b, a);
+@swap_twice <A, B> (a: A, b: B) -> (A, B) = swap(a: b, b: a);
+
+@main () -> int = {
+    let (x, y) = swap_twice(a: 10, b: 20);
+    if x == 10 && y == 20 then 0 else 1
+}

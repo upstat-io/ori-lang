@@ -1,0 +1,10 @@
+#derive(Eq, Clone)
+type Config = { settings: {str: int} }
+
+@main () -> int = {
+    let a = Config { settings: {"x": 1, "y": 2} };
+    let b = a.clone();
+    if a == b then {
+        if b.settings.length() == 2 then 0 else 1
+    } else 2
+}

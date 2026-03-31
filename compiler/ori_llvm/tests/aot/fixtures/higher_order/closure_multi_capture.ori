@@ -1,0 +1,6 @@
+@main () -> int = {
+    let s = "hello world with extra padding to exceed SSO threshold";
+    let xs = [1, 2, 3];
+    let f = () -> s.length() + xs.length();
+    if f() == 57 then 0 else 1
+}

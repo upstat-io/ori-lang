@@ -1,0 +1,4 @@
+@main () -> int = {
+    let words = ["abcdefghijklmnopqrstuvwxyz1234", "another_heap_string_here_now!"];
+    if words.length() == 2 then 0 else 1
+}

@@ -1,0 +1,12 @@
+@fork (base: [int], val: int) -> [int] = {
+    base.push(val)
+}
+
+@main () -> int = {
+    let base = [10, 20, 30];
+    let a = fork(base: base, val: 40);
+    let b = fork(base: base, val: 50);
+    if base.len() == 3 && a.len() == 4 && b.len() == 4
+        && a[3] == 40 && b[3] == 50
+    then 0 else 1
+}

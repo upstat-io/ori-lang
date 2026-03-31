@@ -1,0 +1,5 @@
+@main () -> int = {
+    let n = 42;
+    let s = "value: " + n.to_str();
+    if s == "value: 42" then 0 else 1
+}

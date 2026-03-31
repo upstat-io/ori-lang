@@ -1,0 +1,9 @@
+type Pair<A, B> = { first: A, second: B };
+
+@make_pair <A, B> (a: A, b: B) -> Pair<A, B> =
+    Pair { first: a, second: b };
+
+@main () -> int = {
+    let p = make_pair(a: 10, b: 20);
+    if p.first == 10 && p.second == 20 then 0 else 1
+}

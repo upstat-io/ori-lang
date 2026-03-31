@@ -1,0 +1,12 @@
+@use_loop (n: int, m: int) -> int = {
+    let total = 0;
+    let limit = m;
+    let i = 0;
+    loop {
+        if i >= n then break total;
+        total += limit;
+        i += 1
+    }
+}
+
+@main () -> int = use_loop(n: 5, m: 10);

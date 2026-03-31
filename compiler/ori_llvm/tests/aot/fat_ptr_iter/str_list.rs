@@ -5,19 +5,7 @@ use crate::util::assert_aot_success;
 #[test]
 fn test_str_list_full_iteration() {
     assert_aot_success(
-        r#"
-@main () -> int = {
-    let words = [
-        "this is a very long string that exceeds SSO threshold",
-        "another very long string that also exceeds the threshold"
-    ];
-    let total = 0;
-    for w in words do {
-        total = total + w.len();
-    };
-    if total == 109 then 0 else 1
-}
-"#,
+        include_str!("../fixtures/fat_ptr_iter/str_list/str_list_full_iteration.ori"),
         "str_list_full_iteration",
     );
 }
@@ -25,21 +13,7 @@ fn test_str_list_full_iteration() {
 #[test]
 fn test_str_list_partial_break() {
     assert_aot_success(
-        r#"
-@main () -> int = {
-    let words = [
-        "this is a very long string that exceeds SSO threshold",
-        "stop marker string that is also long enough to be heap",
-        "third long string that should not be visited early break"
-    ];
-    let count = 0;
-    for w in words do {
-        if w.starts_with(prefix: "stop") then break;
-        count = count + 1;
-    };
-    if count == 1 then 0 else 1
-}
-"#,
+        include_str!("../fixtures/fat_ptr_iter/str_list/str_list_partial_break.ori"),
         "str_list_partial_break",
     );
 }
@@ -47,20 +21,7 @@ fn test_str_list_partial_break() {
 #[test]
 fn test_str_list_yield_lengths() {
     assert_aot_success(
-        r#"
-@main () -> int = {
-    let words = [
-        "this is a very long string that exceeds SSO threshold",
-        "another very long string that also exceeds the threshold"
-    ];
-    let lengths = for w in words yield w.len();
-    let total = 0;
-    for n in lengths do {
-        total = total + n;
-    };
-    if total == 109 then 0 else 1
-}
-"#,
+        include_str!("../fixtures/fat_ptr_iter/str_list/str_list_yield_lengths.ori"),
         "str_list_yield_lengths",
     );
 }
@@ -68,27 +29,7 @@ fn test_str_list_yield_lengths() {
 #[test]
 fn test_str_list_passed_to_two_functions() {
     assert_aot_success(
-        r#"
-@count_chars (words: [str]) -> int = {
-    let total = 0;
-    for w in words do {
-        total = total + w.len();
-    };
-    total
-}
-
-@main () -> int = {
-    let words = [
-        "this is a very long string that exceeds SSO threshold",
-        "another very long string that also exceeds the threshold"
-    ];
-    let a = count_chars(words: words);
-    let b = count_chars(words: words);
-    if a == 109 then {
-        if b == 109 then 0 else 1
-    } else 1
-}
-"#,
+        include_str!("../fixtures/fat_ptr_iter/str_list/str_list_passed_to_two_functions.ori"),
         "str_list_passed_to_two_functions",
     );
 }
@@ -101,23 +42,7 @@ fn test_str_list_mixed_sso_heap() {
     // The elem_dec_fn thunk must correctly skip SSO strings (no RC to dec) and
     // only dec heap strings. If the SSO check is broken, this leaks or double-frees.
     assert_aot_success(
-        r#"
-@main () -> int = {
-    let words = [
-        "hi",
-        "this is a very long string that exceeds SSO threshold",
-        "ok",
-        "another very long string that also exceeds the threshold",
-        "x"
-    ];
-    let total = 0;
-    for w in words do {
-        total = total + w.len();
-    };
-    // "hi"=2 + 53 + "ok"=2 + 56 + "x"=1 = 114
-    if total == 114 then 0 else 1
-}
-"#,
+        include_str!("../fixtures/fat_ptr_iter/str_list/str_list_mixed_sso_heap.ori"),
         "str_list_mixed_sso_heap",
     );
 }
@@ -130,14 +55,7 @@ fn test_str_list_mixed_sso_heap() {
 #[test]
 fn test_substring_to_uppercase() {
     assert_aot_success(
-        r#"
-@main () -> int = {
-    let s = "the quick brown fox jumps over the lazy dog";
-    let sub = s.substring(start: 4, end: 43);
-    let upper = sub.to_uppercase();
-    if upper == "QUICK BROWN FOX JUMPS OVER THE LAZY DOG" then 0 else 1
-}
-"#,
+        include_str!("../fixtures/fat_ptr_iter/str_list/substring_to_uppercase.ori"),
         "substring_to_uppercase",
     );
 }
@@ -146,15 +64,7 @@ fn test_substring_to_uppercase() {
 #[test]
 fn test_split_first_to_lowercase() {
     assert_aot_success(
-        r#"
-@main () -> int = {
-    let s = "AAAAAAAAAAAAAAAAAAAAAAAAA|BBBBBBBBBBBBBBBBBBBBBBBBB";
-    let parts = s.split(sep: "|");
-    let first = parts[0];
-    let lower = first.to_lowercase();
-    if lower == "aaaaaaaaaaaaaaaaaaaaaaaaa" then 0 else 1
-}
-"#,
+        include_str!("../fixtures/fat_ptr_iter/str_list/split_first_to_lowercase.ori"),
         "split_first_to_lowercase",
     );
 }
@@ -166,15 +76,7 @@ fn test_split_first_to_lowercase() {
 #[test]
 fn test_repeat_one_no_double_free() {
     assert_aot_success(
-        r#"
-@main () -> int = {
-    let s = "the quick brown fox jumps over the lazy dog";
-    let t = s.repeat(count: 1);
-    // Both s and t must stay live — no double-free
-    let total = s.len() + t.len();
-    if total == 86 then 0 else 1
-}
-"#,
+        include_str!("../fixtures/fat_ptr_iter/str_list/repeat_one_no_double_free.ori"),
         "repeat_one_no_double_free",
     );
 }
@@ -183,15 +85,7 @@ fn test_repeat_one_no_double_free() {
 #[test]
 fn test_substring_repeat_one() {
     assert_aot_success(
-        r#"
-@main () -> int = {
-    let s = "the quick brown fox jumps over the lazy dog";
-    let sub = s.substring(start: 4, end: 43);
-    let t = sub.repeat(count: 1);
-    let total = sub.len() + t.len();
-    if total == 78 then 0 else 1
-}
-"#,
+        include_str!("../fixtures/fat_ptr_iter/str_list/substring_repeat_one.ori"),
         "substring_repeat_one",
     );
 }
@@ -202,15 +96,7 @@ fn test_substring_repeat_one() {
 #[test]
 fn test_concat_empty_right_no_double_free() {
     assert_aot_success(
-        r#"
-@main () -> int = {
-    let s = "the quick brown fox jumps over the lazy dog";
-    let t = s + "";
-    // Both s and t must stay live — no double-free
-    let total = s.len() + t.len();
-    if total == 86 then 0 else 1
-}
-"#,
+        include_str!("../fixtures/fat_ptr_iter/str_list/concat_empty_right_no_double_free.ori"),
         "concat_empty_right_no_double_free",
     );
 }
@@ -219,14 +105,7 @@ fn test_concat_empty_right_no_double_free() {
 #[test]
 fn test_concat_empty_left_no_double_free() {
     assert_aot_success(
-        r#"
-@main () -> int = {
-    let s = "the quick brown fox jumps over the lazy dog";
-    let t = "" + s;
-    let total = s.len() + t.len();
-    if total == 86 then 0 else 1
-}
-"#,
+        include_str!("../fixtures/fat_ptr_iter/str_list/concat_empty_left_no_double_free.ori"),
         "concat_empty_left_no_double_free",
     );
 }

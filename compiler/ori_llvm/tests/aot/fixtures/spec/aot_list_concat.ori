@@ -1,0 +1,6 @@
+@main () -> int = {
+    let a = [1, 2];
+    let b = [3, 4];
+    let c = a.concat(b);
+    if c.length() == 4 then 0 else 1
+}

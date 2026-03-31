@@ -1,0 +1,12 @@
+@multi_break (n: int) -> int = {
+    let i = 0;
+    let total = 0;
+    loop {
+        if i >= n then break total;
+        if total > 100 then break -1;
+        total += i + 1;
+        i += 1
+    }
+};
+
+@main () -> int = multi_break(n: 5);

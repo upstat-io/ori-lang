@@ -1,0 +1,14 @@
+@sum_lengths (words: [str]) -> int = {
+    let total = 0;
+    for s in words do {
+        total = total + s.length();
+    };
+    total
+}
+
+@main () -> int = {
+    let words = ["hello", "world"];
+    let a = sum_lengths(words: words);
+    let b = sum_lengths(words: words);
+    if a + b == 20 then 0 else 1
+}

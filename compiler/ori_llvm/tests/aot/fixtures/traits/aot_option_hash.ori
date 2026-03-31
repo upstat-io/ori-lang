@@ -1,0 +1,17 @@
+@main () -> int = {
+    let none: Option<int> = None;
+    let some1 = Some(42);
+    let some2 = Some(42);
+    let some3 = Some(99);
+    let h_none = none.hash();
+    let h1 = some1.hash();
+    let h2 = some2.hash();
+    let h3 = some3.hash();
+    // None.hash() == 0
+    let r1 = h_none == 0;
+    // Same value → same hash
+    let r2 = h1 == h2;
+    // Different value → different hash (with overwhelming probability)
+    let r3 = h1 != h3;
+    if r1 && r2 && r3 then 0 else 1
+}

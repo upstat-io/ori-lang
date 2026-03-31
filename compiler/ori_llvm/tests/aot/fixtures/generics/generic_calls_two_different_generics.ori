@@ -1,0 +1,12 @@
+@identity <T> (x: T) -> T = x;
+@duplicate <T> (x: T) -> (T, T) = (x, x);
+@id_and_dup <T> (x: T) -> (T, (T, T)) = {
+    let a = identity(x: x);
+    let b = duplicate(x: x);
+    (a, b)
+};
+
+@main () -> int = {
+    let (a, (b, c)) = id_and_dup(x: 42);
+    if a == 42 && b == 42 && c == 42 then 0 else 1
+}

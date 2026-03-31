@@ -1,0 +1,6 @@
+@main () -> int = {
+    let a = 4611686018427387903;
+    let b = 4611686018427387903;
+    // a + b + 2 = INT_MAX + 1 (overflow on the second addition)
+    a + b + 2
+}

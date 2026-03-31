@@ -1,0 +1,13 @@
+@main () -> int = {
+    let err1: Result<int, str> = Err("hello");
+    let err2: Result<int, str> = Err("hello");
+    let err3: Result<int, str> = Err("world");
+    let ok1: Result<int, str> = Ok(42);
+    // Same Err strings → same hash
+    let r1 = err1.hash() == err2.hash();
+    // Different Err strings → different hash (not guaranteed but overwhelmingly likely)
+    let r2 = err1.hash() != err3.hash();
+    // Ok vs Err with same-ish content → different hash
+    let r3 = ok1.hash() != err1.hash();
+    if r1 && r2 && r3 then 0 else 1
+}

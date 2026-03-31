@@ -1,0 +1,3 @@
+@identity <T> (x: T) -> T = x;
+
+@main () -> int = identity(x: 42);

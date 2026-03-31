@@ -1,0 +1,8 @@
+@add (a: int, b: int) -> int = a + b;
+
+@main () -> int = {
+    let x = add(a: 1, b: 2);
+    let y = add(a: x, b: 3);
+    let z = add(a: y, b: 4);
+    z
+}

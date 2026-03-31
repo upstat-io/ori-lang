@@ -1,0 +1,7 @@
+@main () -> int = {
+    let a = "hello";
+    let b = a.clone();
+    // Modify a via concat — b should be unaffected
+    let a2 = a + " world";
+    if b == "hello" && a2 == "hello world" then 0 else 1
+}

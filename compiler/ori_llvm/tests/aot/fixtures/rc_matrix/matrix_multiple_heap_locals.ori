@@ -1,0 +1,8 @@
+@main () -> int = {
+    let $s = "a_heap_string_for_testing";
+    let $xs = [1, 2, 3, 4, 5];
+    let $m = {"key": 42};
+    let $sum = s.len() + xs.len() + m.len();
+    // 25 + 5 + 1 = 31
+    if sum == 31 then 0 else 1
+}

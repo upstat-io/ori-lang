@@ -1,0 +1,9 @@
+#derive(Eq)
+type Multi = { n: int, b: bool, s: str }
+
+@main () -> int = {
+    let a = Multi { n: 42, b: true, s: "hello" };
+    let b = Multi { n: 42, b: true, s: "hello" };
+    let c = Multi { n: 42, b: true, s: "world" };
+    if a == b && a != c then 0 else 1
+}

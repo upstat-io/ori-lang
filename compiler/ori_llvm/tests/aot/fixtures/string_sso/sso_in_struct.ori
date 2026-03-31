@@ -1,0 +1,6 @@
+type Pair = { name: str, value: str }
+
+@main () -> int = {
+    let p = Pair { name: "key", value: "val" };
+    if p.name == "key" && p.value == "val" then 0 else 1
+}

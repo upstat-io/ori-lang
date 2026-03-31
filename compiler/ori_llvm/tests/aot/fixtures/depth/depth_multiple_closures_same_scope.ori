@@ -1,0 +1,7 @@
+@main () -> int = {
+    let x = 10;
+    let add = (n: int) -> x + n;
+    let mul = (n: int) -> x * n;
+    let sub = (n: int) -> x - n;
+    if add(5) == 15 && mul(3) == 30 && sub(7) == 3 then 0 else 1
+}

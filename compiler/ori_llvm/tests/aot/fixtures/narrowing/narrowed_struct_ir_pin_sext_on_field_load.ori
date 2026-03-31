@@ -1,0 +1,8 @@
+type Pixel = { r: int, g: int, b: int, a: int }
+
+@sum_channels (p: Pixel) -> int = p.r + p.g + p.b + p.a;
+
+@main () -> int = {
+    let p = Pixel { r: 10, g: 20, b: 30, a: 40 };
+    sum_channels(p:)
+}

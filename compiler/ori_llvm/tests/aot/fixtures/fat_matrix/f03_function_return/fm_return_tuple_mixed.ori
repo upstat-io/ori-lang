@@ -1,0 +1,6 @@
+@make_pair () -> (str, int) = ("hello", 42);
+
+@main () -> int = {
+    let (s, n) = make_pair();
+    if s.length() + n == 47 then 0 else 1
+}

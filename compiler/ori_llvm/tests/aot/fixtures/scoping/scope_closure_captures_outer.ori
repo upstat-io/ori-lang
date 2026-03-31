@@ -1,0 +1,6 @@
+@main () -> int = {
+    let x = 10;
+    let add_x = (y: int) -> x + y;
+    let result = add_x(5);
+    if result == 15 then 0 else 1
+}

@@ -1,0 +1,4 @@
+@main () -> int = {
+    let m = {"a": 1, "b": 2, "c": 3}.remove("b");
+    if m.len() == 2 && !m.contains_key("b") then 0 else 1
+}

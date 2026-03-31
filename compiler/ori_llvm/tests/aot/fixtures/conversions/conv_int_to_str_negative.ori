@@ -1,0 +1,4 @@
+@main () -> int = {
+    let s = (-7).to_str();
+    if s == "-7" then 0 else 1
+}

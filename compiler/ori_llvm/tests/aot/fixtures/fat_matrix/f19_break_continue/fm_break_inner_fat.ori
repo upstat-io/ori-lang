@@ -1,0 +1,9 @@
+@main () -> int = {
+    let result = 0;
+    for i in [1, 2, 3, 4, 5] do {
+        let s = "hello";
+        if i == 3 then break;
+        result = result + s.length();
+    };
+    if result == 10 then 0 else 1
+}

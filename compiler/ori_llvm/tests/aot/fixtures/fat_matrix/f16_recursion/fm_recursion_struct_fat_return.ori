@@ -1,0 +1,16 @@
+type Named = { name: str, count: int }
+
+@build (n: int) -> Named = {
+    if n <= 0 then Named { name: "done", count: 0 }
+    else {
+        let inner = build(n: n - 1);
+        Named { name: inner.name, count: inner.count + 1 }
+    }
+};
+
+@main () -> int = {
+    let result = build(n: 3);
+    if result.count == 3 then {
+        if result.name.length() == 4 then 0 else 1
+    } else 2
+}

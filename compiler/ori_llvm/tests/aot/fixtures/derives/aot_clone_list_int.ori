@@ -1,0 +1,5 @@
+@main () -> int = {
+    let items = [1, 2, 3];
+    let items2 = items.clone();
+    if items2.len() == 3 then 0 else 1
+}

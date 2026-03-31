@@ -1,0 +1,7 @@
+@get () -> Option<int> = Some(42);
+
+@main () -> int = {
+    let o = get();
+    let v = o.unwrap();
+    if v == 42 then 0 else 1
+}

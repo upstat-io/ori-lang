@@ -1,0 +1,6 @@
+@make_strs () -> [str] = ["returned_heap_string_a", "returned_heap_string_b"];
+
+@main () -> int = {
+    let $xs = make_strs();
+    if xs.len() == 2 then 0 else 1
+}

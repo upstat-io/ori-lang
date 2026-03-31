@@ -1,0 +1,11 @@
+#derive(Eq)
+type Wrap = { items: [Option<str>] }
+
+@main () -> int = {
+    let a = Wrap { items: [Some("hello world long heap string!"), None, Some("another long str here!")] };
+    let b = Wrap { items: [Some("hello world long heap string!"), None, Some("another long str here!")] };
+    let c = Wrap { items: [Some("hello world long heap string!"), None, Some("DIFFERENT long string!")] };
+    if a == b then {
+        if a != c then 0 else 1
+    } else 2
+}

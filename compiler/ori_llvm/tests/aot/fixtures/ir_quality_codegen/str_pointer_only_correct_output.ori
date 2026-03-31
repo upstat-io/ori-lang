@@ -1,0 +1,2 @@
+@get_len (s: str) -> int = s.length();
+@main () -> int = get_len(s: "hello");

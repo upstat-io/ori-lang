@@ -1,0 +1,17 @@
+@main () -> int = {
+    let m = {
+        "long key string that exceeds the SSO threshold of twenty three": 10,
+        "another long key string that also exceeds SSO threshold clearly": 20,
+        "third long key string also exceeds SSO threshold needs heap too": 30
+    };
+    let result = catch(expr: () -> {
+        for entry in m do {
+            if entry.1 == 20 then panic(msg: "test unwind map");
+        };
+        0
+    });
+    match result {
+        Ok(_) -> 1,
+        Err(_) -> 0,
+    }
+}

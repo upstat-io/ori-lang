@@ -1,0 +1,8 @@
+@main () -> int = {
+    let outer = [[x -> x + 1, x -> x * 2], [x -> x - 1]];
+    let count = 0;
+    for inner in outer do {
+        for f in inner do count = count + 1;
+    };
+    if count == 3 then 0 else 1
+}

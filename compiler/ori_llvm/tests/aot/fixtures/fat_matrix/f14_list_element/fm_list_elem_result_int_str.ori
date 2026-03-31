@@ -1,0 +1,4 @@
+@main () -> int = {
+    let a = [Ok(42), Err("failure long heap string here")];
+    if a.length() == 2 then 0 else 1
+}

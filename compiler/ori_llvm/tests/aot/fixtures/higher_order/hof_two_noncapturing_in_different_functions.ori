@@ -1,0 +1,15 @@
+@apply_double (x: int) -> int = {
+    let $f = (n: int) -> n * 2;
+    f(x)
+}
+
+@apply_square (x: int) -> int = {
+    let $f = (n: int) -> n * n;
+    f(x)
+}
+
+@main () -> int = {
+    let $a = apply_double(x: 5);
+    let $b = apply_square(x: 5);
+    if a == 10 && b == 25 then 0 else 1
+}

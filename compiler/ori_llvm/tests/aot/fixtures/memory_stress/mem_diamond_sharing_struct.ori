@@ -1,0 +1,18 @@
+type Shared = { data: str, id: int }
+
+@use_shared (s: Shared) -> int = s.id;
+
+@main () -> int = {
+    let shared = Shared { data: "diamond", id: 42 };
+    // Create 5 independent references
+    let a = shared;
+    let b = shared;
+    let c = shared;
+    // Pass each through a function (tests RC across call boundary)
+    let r1 = use_shared(s: a);
+    let r2 = use_shared(s: b);
+    let r3 = use_shared(s: c);
+    // Also use the original
+    let r4 = use_shared(s: shared);
+    if r1 + r2 + r3 + r4 == 168 then 0 else 1
+}

@@ -1,0 +1,20 @@
+@sum_lengths (lists: [[str]]) -> int = {
+    let total = 0;
+    for inner in lists do {
+        for s in inner do {
+            total = total + s.len();
+        };
+    };
+    total
+}
+
+@main () -> int = {
+    let lists = [
+        ["this is a very long string that exceeds SSO threshold", "also long enough to be on the heap here"],
+        ["third very long string exceeding SSO threshold bytes", "fourth long string on the heap too"]
+    ];
+    let r1 = sum_lengths(lists: lists);
+    let r2 = sum_lengths(lists: lists);
+    // 53 + 39 + 52 + 34 = 178 each call
+    if r1 == 178 && r2 == 178 then 0 else 1
+}

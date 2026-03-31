@@ -1,0 +1,15 @@
+type Vec2 = { x: int, y: int }
+
+impl Mul<int> for Vec2 {
+    type Output = Vec2;
+    @multiply (self, rhs: int) -> Vec2 = Vec2 {
+        x: self.x * rhs,
+        y: self.y * rhs,
+    }
+}
+
+@main () -> int = {
+    let v = Vec2 { x: 2, y: 3 };
+    let scaled = v * 5;
+    if scaled.x == 10 && scaled.y == 15 then 0 else 1
+}

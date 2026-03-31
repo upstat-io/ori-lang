@@ -1,0 +1,11 @@
+type AllVoid = X(v: void) | Y(w: void) | Z;
+
+@main () -> int = {
+    let a = X(v: ());
+    let b = Y(w: ());
+    let c = Z;
+    let ra = match a { X(v:) -> 1, Y(w:) -> 2, Z -> 3 };
+    let rb = match b { X(v:) -> 1, Y(w:) -> 2, Z -> 3 };
+    let rc = match c { X(v:) -> 1, Y(w:) -> 2, Z -> 3 };
+    if ra == 1 then { if rb == 2 then { if rc == 3 then 0 else 1 } else 1 } else 1
+}

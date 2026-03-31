@@ -1,0 +1,6 @@
+@main () -> int = {
+    let base = 10;
+    let add = (x: int) -> base + x;
+    let mul = (x: int) -> base * x;
+    if add(5) == 15 && mul(5) == 50 then 0 else 1
+}

@@ -1,0 +1,15 @@
+@main () -> int = {
+    let base = {"a": 1, "b": 2};
+    let fork1 = base.insert("c", 3);
+    let fork2 = base.insert("d", 4);
+    let fork3 = base.remove("a");
+    // All forks diverge; base unchanged
+    if base.len() == 2
+        && fork1.len() == 3
+        && fork2.len() == 3
+        && fork3.len() == 1
+        && fork1.contains_key("c")
+        && fork2.contains_key("d")
+        && !fork3.contains_key("a")
+    then 0 else 1
+}

@@ -1,0 +1,12 @@
+@sum_wide () -> int = {
+    let sum = 0;
+    let i = 0;
+    loop {
+        if i >= 50000 then break;
+        sum = sum + i;
+        i = i + 1;
+    };
+    sum
+}
+
+@main () -> int = sum_wide();

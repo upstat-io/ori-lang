@@ -1,0 +1,14 @@
+#derive(Eq)
+type Named = { name: str, id: int }
+
+#derive(Eq)
+type Lookup = { data: {int: Named} }
+
+@main () -> int = {
+    let a = Lookup { data: {1: Named { name: "very long heap string here!!!", id: 10 }} };
+    let b = Lookup { data: {1: Named { name: "very long heap string here!!!", id: 10 }} };
+    let c = Lookup { data: {1: Named { name: "different string content!!!", id: 99 }} };
+    if a == b then {
+        if a != c then 0 else 1
+    } else 2
+}

@@ -1,0 +1,8 @@
+#derive(Eq)
+type Vec2 = { x: int, y: int };
+
+@main () -> int = {
+    let a = Vec2 { x: 1, y: 2 };
+    let b = Vec2 { x: 3, y: 4 };
+    if a != b then 0 else 1
+}

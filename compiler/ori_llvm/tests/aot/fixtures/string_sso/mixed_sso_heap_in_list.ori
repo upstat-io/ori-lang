@@ -1,0 +1,9 @@
+@main () -> int = {
+    let xs = [
+        "short",
+        "this is a heap allocated string!!!",
+        "also short",
+        "another heap string that is quite long indeed"
+    ];
+    if xs.length() == 4 then 0 else 1
+}

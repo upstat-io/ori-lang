@@ -1,0 +1,6 @@
+@main () -> int = {
+    let flag = true;
+    let t = if flag then ("hello", 1) else ("world", 2);
+    let (s, n) = t;
+    if s.length() + n == 6 then 0 else 1
+}

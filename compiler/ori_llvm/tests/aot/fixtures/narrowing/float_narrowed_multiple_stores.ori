@@ -1,0 +1,15 @@
+type Config = { threshold: float }
+
+@config_a () -> Config = Config { threshold: 0.0 };
+@config_b () -> Config = Config { threshold: 1.0 };
+@config_c () -> Config = Config { threshold: 0.5 };
+@config_d () -> Config = Config { threshold: 255.0 };
+
+@main () -> int = {
+    let a = config_a();
+    let b = config_b();
+    let c = config_c();
+    let d = config_d();
+    let sum = a.threshold + b.threshold + c.threshold + d.threshold;
+    if sum == 256.5 then 0 else 1
+}

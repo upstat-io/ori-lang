@@ -1,0 +1,10 @@
+@main () -> int = {
+    let xs = [10, 20, 30];
+    let f = xs.first();
+    let l = xs.last();
+    if f.is_some() && l.is_some() then {
+        let fv = f.unwrap();
+        let lv = l.unwrap();
+        if fv == 10 && lv == 30 then 0 else 1
+    } else 1
+}

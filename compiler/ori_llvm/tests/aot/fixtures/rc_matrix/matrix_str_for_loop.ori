@@ -1,0 +1,8 @@
+@main () -> int = {
+    let s = "hello_world_this_is_heap";
+    for i in 0..30 do {
+        s = s + "x";
+    };
+    // 24 original chars + 30 'x' = 54
+    if s.len() == 54 then 0 else 1
+}

@@ -1,0 +1,11 @@
+@main () -> int = {
+    let items = [
+        Some("this string exceeds SSO threshold by being very long indeed"),
+        None,
+        Some("third string that is also long enough to require heap allocation")
+    ];
+    let flags = for opt in items yield if is_some(option: opt) then 1 else 0;
+    let sum = 0;
+    for n in flags do sum = sum + n;
+    if sum == 2 then 0 else 1
+}

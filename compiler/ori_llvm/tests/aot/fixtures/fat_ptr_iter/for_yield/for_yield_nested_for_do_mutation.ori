@@ -1,0 +1,12 @@
+@main () -> int = {
+    let total = 0;
+    let result = for x in [1, 2, 3] yield {
+        for y in [10, 20] do {
+            total = total + y
+        };
+        total
+    };
+    // Each iteration adds 30 to total: [30, 60, 90]
+    // total ends at 90
+    if total == 90 && result[0] == 30 && result[2] == 90 then 0 else 1
+}

@@ -1,0 +1,4 @@
+@main () -> int = {
+    let items: [Option<str>] = [Some("hello"), None, Some("world")];
+    if items.length() == 3 then 0 else 1
+}

@@ -1,0 +1,9 @@
+@tuple_sum (t: (str, int)) -> int = {
+    let (s, n) = t;
+    s.length() + n
+}
+
+@main () -> int = {
+    let t = ("hello", 10);
+    if tuple_sum(t: t) == 15 then 0 else 1
+}

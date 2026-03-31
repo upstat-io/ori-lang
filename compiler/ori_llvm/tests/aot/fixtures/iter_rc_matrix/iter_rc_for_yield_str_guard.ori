@@ -1,0 +1,9 @@
+@main () -> int = {
+    let items = [
+        "this string exceeds SSO threshold by being very long indeed",
+        "keep: passes the guard filter and is also long enough for heap",
+        "third string that is also long enough to require heap allocation"
+    ];
+    let kept = for s in items if s.starts_with(prefix: "keep") yield s.len();
+    if kept.length() == 1 then 0 else 1
+}

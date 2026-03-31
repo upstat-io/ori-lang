@@ -1,0 +1,12 @@
+type Tagged = Data(x: int, y: int, label: str) | Empty;
+
+@get_label_len (t: Tagged) -> int =
+    match t {
+        Data(x, y, label) -> x + y + label.length(),
+        Empty -> 0,
+    };
+
+@main () -> int = {
+    let d = get_label_len(t: Data(x: 1, y: 2, label: "hello"));
+    if d == 8 then 0 else 1
+}

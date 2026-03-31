@@ -1,0 +1,9 @@
+type FloatPoint = { x: float, y: float, z: float }
+
+@main () -> int = {
+    let p = FloatPoint { x: 0.0, y: 0.5, z: 1.0 };
+    let ok1 = p.x == 0.0;
+    let ok2 = p.y == 0.5;
+    let ok3 = p.z == 1.0;
+    if ok1 && ok2 && ok3 then 0 else 1
+}

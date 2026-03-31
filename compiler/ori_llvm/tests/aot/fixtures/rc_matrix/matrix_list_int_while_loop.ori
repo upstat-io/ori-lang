@@ -1,0 +1,10 @@
+@main () -> int = {
+    let xs = [1, 2, 3];
+    let i = 0;
+    loop {
+        if i >= 30 then break;
+        xs = xs.push(i);
+        i = i + 1;
+    };
+    if xs.len() == 33 then 0 else 1
+}

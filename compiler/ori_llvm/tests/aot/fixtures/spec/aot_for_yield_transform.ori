@@ -1,0 +1,5 @@
+@main () -> int = {
+    let squares = for x in 1..=5 yield x * x;
+    let sum = squares.iter().fold(start: 0, f: (acc: int, x: int) -> int = acc + x);
+    if sum == 55 then 0 else 1
+}

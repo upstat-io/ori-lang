@@ -1,0 +1,11 @@
+#derive(Eq)
+type Doc = { lines: [str] }
+
+@main () -> int = {
+    let a = Doc { lines: ["aaaaaaaaaaaaaaaaaaaaaaaaa1", "bbbbbbbbbbbbbbbbbbbbbbbbb2"] };
+    let b = Doc { lines: ["aaaaaaaaaaaaaaaaaaaaaaaaa1", "bbbbbbbbbbbbbbbbbbbbbbbbb2"] };
+    let c = Doc { lines: ["aaaaaaaaaaaaaaaaaaaaaaaaa1", "ccccccccccccccccccccccccc3"] };
+    if a == b then {
+        if a != c then 0 else 1
+    } else 2
+}

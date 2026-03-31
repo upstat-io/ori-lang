@@ -1,0 +1,11 @@
+@main () -> int = {
+    let count = 0;
+    let sum = 0;
+    loop {
+        count = count + 1;
+        if count > 10 then break;
+        if count % 2 == 0 then continue;
+        sum = sum + count
+    };
+    if sum == 25 then 0 else 1
+}

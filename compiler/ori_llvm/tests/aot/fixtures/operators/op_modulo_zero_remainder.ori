@@ -1,0 +1,6 @@
+@main () -> int = {
+    let a = 10 % 5;
+    let b = -10 % 5;
+    let c = 10 % -5;
+    if a == 0 && b == 0 && c == 0 then 0 else 1
+}

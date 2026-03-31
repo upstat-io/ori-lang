@@ -1,0 +1,10 @@
+@add_n (n: int) -> (int) -> int = x -> x + n;
+
+@main () -> int = {
+    let $f = add_n(n: 10);
+    let $outer = () -> int = {
+        let $inner = () -> int = f(5);
+        inner()
+    };
+    if outer() == 15 then 0 else 1
+}

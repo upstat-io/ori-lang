@@ -1,0 +1,5 @@
+@main () -> int = {
+    let m = {10: "a", 20: "b", 30: "c"};
+    let m2 = m.remove(20);
+    if m.len() == 3 && m2.len() == 2 && !m2.contains_key(20) then 0 else 1
+}

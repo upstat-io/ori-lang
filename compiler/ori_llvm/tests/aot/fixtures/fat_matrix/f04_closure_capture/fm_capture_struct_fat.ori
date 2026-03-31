@@ -1,0 +1,7 @@
+type Named = { name: str, id: int }
+
+@main () -> int = {
+    let n = Named { name: "alice", id: 1 };
+    let f = (x: int) -> int = n.name.length() + n.id + x;
+    if f(4) == 10 then 0 else 1
+}

@@ -1,0 +1,9 @@
+type FVec2 = { x: float, y: float }
+
+@read_x (v: FVec2) -> float = v.x;
+
+@main () -> int = {
+    let v = FVec2 { x: 0.5, y: 0.25 };
+    let r = read_x(v:);
+    if r == 0.5 then 0 else 1
+}

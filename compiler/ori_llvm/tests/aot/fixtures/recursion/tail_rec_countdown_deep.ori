@@ -1,0 +1,7 @@
+@countdown (n: int, acc: int) -> int = {
+    if n <= 0 then acc else countdown(n: n - 1, acc: acc + 1)
+};
+
+@main () -> int = {
+    if countdown(n: 200000, acc: 0) == 200000 then 0 else 1
+}

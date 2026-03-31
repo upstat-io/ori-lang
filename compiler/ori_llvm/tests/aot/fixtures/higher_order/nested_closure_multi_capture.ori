@@ -1,0 +1,9 @@
+@main () -> int = {
+    let $s = "hello world plus extra text to force heap allocation here";
+    let $n = 42;
+    let $outer = () -> int = {
+        let $inner = () -> int = s.length() + n;
+        inner()
+    };
+    if outer() == 99 then 0 else 1
+}

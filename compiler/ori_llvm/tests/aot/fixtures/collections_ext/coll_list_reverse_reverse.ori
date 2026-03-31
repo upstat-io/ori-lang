@@ -1,0 +1,4 @@
+@main () -> int = {
+    let xs = [1, 2, 3].reverse().reverse();
+    if xs.length() == 3 && xs.first().unwrap() == 1 && xs.last().unwrap() == 3 then 0 else 1
+}

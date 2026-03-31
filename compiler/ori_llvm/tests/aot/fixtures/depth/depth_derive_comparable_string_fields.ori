@@ -1,0 +1,9 @@
+#derive(Eq, Comparable)
+type Named = { name: str, rank: int }
+
+@main () -> int = {
+    let alice = Named { name: "alice", rank: 1 };
+    let bob = Named { name: "bob", rank: 2 };
+    // Lexicographic: "alice" < "bob"
+    if alice < bob then 0 else 1
+}

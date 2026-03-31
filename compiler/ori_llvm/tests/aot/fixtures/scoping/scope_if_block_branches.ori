@@ -1,0 +1,12 @@
+@main () -> int = {
+    let condition = true;
+    let result = if condition then {
+        let a = 10;
+        let b = 20;
+        a + b
+    } else {
+        let c = 100;
+        c
+    };
+    if result == 30 then 0 else 1
+}

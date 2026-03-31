@@ -1,0 +1,10 @@
+@main () -> int = {
+    let xs = for i in 0..100 yield i;
+    let result = xs.iter()
+        .filter(x -> x % 2 == 0)
+        .map(x -> x * 3)
+        .filter(x -> x % 4 == 0)
+        .take(10)
+        .count();
+    if result == 10 then 0 else 1
+}

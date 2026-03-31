@@ -1,0 +1,4 @@
+@main () -> void = {
+    if !false then () else panic(msg: "unreachable");
+    if !true then () else panic(msg: "assert failed: expected false, got true")
+}

@@ -1,0 +1,7 @@
+@main () -> int = {
+    let a = "this is definitely a heap string";
+    let b = a;
+    let c = a;
+    let d = a;
+    if b == "this is definitely a heap string" && c == d then 0 else 1
+}

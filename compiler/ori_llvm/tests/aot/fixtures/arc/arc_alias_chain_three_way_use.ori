@@ -1,0 +1,11 @@
+@check (x: str, y: str) -> bool = x == y;
+
+@main () -> int = {
+    let a = "shared heap string";
+    let b = a;
+    let c = b;
+    let $r1 = check(x: a, y: b);
+    let $r2 = check(x: b, y: c);
+    let $r3 = check(x: a, y: c);
+    if r1 && r2 && r3 then 0 else 1
+}

@@ -1,0 +1,14 @@
+@main () -> int = {
+    let x = 1;
+    let x = x + 1;
+    let x = x + 1;
+    let x = x + 1;
+    let x = x + 1;
+    let x = x + 1;
+    let x = x + 1;
+    let x = x + 1;
+    let x = x + 1;
+    let x = x + 1;
+    // 1 + 9 increments = 10
+    if x == 10 then 0 else 1
+}

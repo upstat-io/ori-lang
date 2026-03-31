@@ -1,0 +1,5 @@
+@main () -> void = {
+    let $actual = "hello";
+    let $expected = "world";
+    if actual != expected then panic(msg: "assert failed: hello != world")
+}

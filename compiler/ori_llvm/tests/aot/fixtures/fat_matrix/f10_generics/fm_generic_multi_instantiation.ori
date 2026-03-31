@@ -1,0 +1,7 @@
+@identity<T> (x: T) -> T = x;
+
+@main () -> int = {
+    let s = identity(x: "hello");
+    let xs = identity(x: [1, 2, 3]);
+    if s.length() + xs.length() == 8 then 0 else 1
+}

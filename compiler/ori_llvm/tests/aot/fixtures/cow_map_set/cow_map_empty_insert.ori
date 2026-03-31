@@ -1,0 +1,5 @@
+@main () -> int = {
+    let m: {str: int} = {};
+    let m2 = m.insert("first", 1);
+    if m.is_empty() && m2.len() == 1 then 0 else 1
+}

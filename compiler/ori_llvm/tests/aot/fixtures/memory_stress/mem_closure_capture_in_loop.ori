@@ -1,0 +1,12 @@
+type Env = { factor: int, label: str }
+
+@main () -> int = {
+    let total = 0;
+    for i in 0..1000 do {
+        let env = Env { factor: i, label: "closure" };
+        let f = (x: int) -> int = x * env.factor;
+        total = total + f(x: 2)
+    };
+    // total = sum(2*i for i in 0..1000) = 2 * 999*1000/2 = 999000
+    if total == 999000 then 0 else 1
+}

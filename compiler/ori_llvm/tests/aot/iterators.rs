@@ -19,12 +19,7 @@ use crate::util::assert_aot_success;
 #[test]
 fn test_list_iter_count() {
     assert_aot_success(
-        r#"
-@main () -> int = {
-    let c = [10, 20, 30].iter().count();
-    if c == 3 then 0 else 1
-}
-"#,
+        include_str!("fixtures/iterators/list_iter_count.ori"),
         "list_iter_count",
     );
 }
@@ -32,12 +27,7 @@ fn test_list_iter_count() {
 #[test]
 fn test_list_iter_collect() {
     assert_aot_success(
-        r#"
-@main () -> int = {
-    let result = [1, 2, 3].iter().collect();
-    if result.length() == 3 then 0 else 1
-}
-"#,
+        include_str!("fixtures/iterators/list_iter_collect.ori"),
         "list_iter_collect",
     );
 }
@@ -49,12 +39,7 @@ fn test_list_iter_collect() {
 #[test]
 fn test_range_iter_count() {
     assert_aot_success(
-        r#"
-@main () -> int = {
-    let c = (0..5).iter().count();
-    if c == 5 then 0 else 1
-}
-"#,
+        include_str!("fixtures/iterators/range_iter_count.ori"),
         "range_iter_count",
     );
 }
@@ -62,12 +47,7 @@ fn test_range_iter_count() {
 #[test]
 fn test_range_iter_collect() {
     assert_aot_success(
-        r#"
-@main () -> int = {
-    let result = (0..5).iter().collect();
-    if result.length() == 5 then 0 else 1
-}
-"#,
+        include_str!("fixtures/iterators/range_iter_collect.ori"),
         "range_iter_collect",
     );
 }
@@ -78,15 +58,7 @@ fn test_range_iter_collect() {
 
 #[test]
 fn test_iter_map() {
-    assert_aot_success(
-        r#"
-@main () -> int = {
-    let result = [1, 2, 3].iter().map((x) -> x * 2).collect();
-    if result.length() == 3 then 0 else 1
-}
-"#,
-        "iter_map",
-    );
+    assert_aot_success(include_str!("fixtures/iterators/iter_map.ori"), "iter_map");
 }
 
 // -----------------------------------------------------------------------
@@ -96,12 +68,7 @@ fn test_iter_map() {
 #[test]
 fn test_iter_filter() {
     assert_aot_success(
-        r#"
-@main () -> int = {
-    let result = [1, 2, 3, 4, 5, 6].iter().filter((x) -> x % 2 == 0).count();
-    if result == 3 then 0 else 1
-}
-"#,
+        include_str!("fixtures/iterators/iter_filter.ori"),
         "iter_filter",
     );
 }
@@ -113,12 +80,7 @@ fn test_iter_filter() {
 #[test]
 fn test_iter_take() {
     assert_aot_success(
-        r#"
-@main () -> int = {
-    let c = (0..100).iter().take(5).count();
-    if c == 5 then 0 else 1
-}
-"#,
+        include_str!("fixtures/iterators/iter_take.ori"),
         "iter_take",
     );
 }
@@ -130,12 +92,7 @@ fn test_iter_take() {
 #[test]
 fn test_iter_skip() {
     assert_aot_success(
-        r#"
-@main () -> int = {
-    let c = [10, 20, 30, 40, 50].iter().skip(3).count();
-    if c == 2 then 0 else 1
-}
-"#,
+        include_str!("fixtures/iterators/iter_skip.ori"),
         "iter_skip",
     );
 }
@@ -147,12 +104,7 @@ fn test_iter_skip() {
 #[test]
 fn test_iter_count_range() {
     assert_aot_success(
-        r#"
-@main () -> int = {
-    let c = (0..10).iter().count();
-    if c == 10 then 0 else 1
-}
-"#,
+        include_str!("fixtures/iterators/iter_count_range.ori"),
         "iter_count_range",
     );
 }
@@ -164,13 +116,7 @@ fn test_iter_count_range() {
 #[test]
 fn test_for_over_iterator() {
     assert_aot_success(
-        r#"
-@main () -> int = {
-    let sum = 0;
-    for x in [1, 2, 3].iter() do sum = sum + x;
-    if sum == 6 then 0 else 1
-}
-"#,
+        include_str!("fixtures/iterators/for_over_iterator.ori"),
         "for_over_iterator",
     );
 }
@@ -178,13 +124,7 @@ fn test_for_over_iterator() {
 #[test]
 fn test_for_over_range_iterator() {
     assert_aot_success(
-        r#"
-@main () -> int = {
-    let sum = 0;
-    for i in (0..5).iter() do sum = sum + i;
-    if sum == 10 then 0 else 1
-}
-"#,
+        include_str!("fixtures/iterators/for_over_range_iterator.ori"),
         "for_over_range_iterator",
     );
 }
@@ -196,12 +136,7 @@ fn test_for_over_range_iterator() {
 #[test]
 fn test_chained_map_filter_take() {
     assert_aot_success(
-        r#"
-@main () -> int = {
-    let c = (0..100).iter().map((x) -> x * 2).filter((x) -> x % 4 == 0).take(5).count();
-    if c == 5 then 0 else 1
-}
-"#,
+        include_str!("fixtures/iterators/chained_map_filter_take.ori"),
         "chained_map_filter_take",
     );
 }
@@ -213,12 +148,7 @@ fn test_chained_map_filter_take() {
 #[test]
 fn test_iter_any_true() {
     assert_aot_success(
-        r#"
-@main () -> int = {
-    let found = [1, 2, 3].iter().any((x) -> x == 2);
-    if found then 0 else 1
-}
-"#,
+        include_str!("fixtures/iterators/iter_any_true.ori"),
         "iter_any_true",
     );
 }
@@ -226,12 +156,7 @@ fn test_iter_any_true() {
 #[test]
 fn test_iter_any_false() {
     assert_aot_success(
-        r#"
-@main () -> int = {
-    let found = [1, 3, 5].iter().any((x) -> x == 2);
-    if found then 1 else 0
-}
-"#,
+        include_str!("fixtures/iterators/iter_any_false.ori"),
         "iter_any_false",
     );
 }
@@ -243,12 +168,7 @@ fn test_iter_any_false() {
 #[test]
 fn test_iter_all_true() {
     assert_aot_success(
-        r#"
-@main () -> int = {
-    let result = [2, 4, 6].iter().all((x) -> x % 2 == 0);
-    if result then 0 else 1
-}
-"#,
+        include_str!("fixtures/iterators/iter_all_true.ori"),
         "iter_all_true",
     );
 }
@@ -256,12 +176,7 @@ fn test_iter_all_true() {
 #[test]
 fn test_iter_all_false() {
     assert_aot_success(
-        r#"
-@main () -> int = {
-    let result = [2, 3, 4].iter().all((x) -> x % 2 == 0);
-    if result then 1 else 0
-}
-"#,
+        include_str!("fixtures/iterators/iter_all_false.ori"),
         "iter_all_false",
     );
 }
@@ -273,12 +188,7 @@ fn test_iter_all_false() {
 #[test]
 fn test_iter_find_some() {
     assert_aot_success(
-        r#"
-@main () -> int = {
-    let result = [1, 2, 3, 4].iter().find((x) -> x > 2);
-    if result.is_some() then 0 else 1
-}
-"#,
+        include_str!("fixtures/iterators/iter_find_some.ori"),
         "iter_find_some",
     );
 }
@@ -286,12 +196,7 @@ fn test_iter_find_some() {
 #[test]
 fn test_iter_find_none() {
     assert_aot_success(
-        r#"
-@main () -> int = {
-    let result = [1, 2, 3].iter().find((x) -> x > 10);
-    if result.is_none() then 0 else 1
-}
-"#,
+        include_str!("fixtures/iterators/iter_find_none.ori"),
         "iter_find_none",
     );
 }
@@ -303,12 +208,7 @@ fn test_iter_find_none() {
 #[test]
 fn test_iter_fold_sum() {
     assert_aot_success(
-        r#"
-@main () -> int = {
-    let sum = [1, 2, 3].iter().fold(0, (acc, x) -> acc + x);
-    if sum == 6 then 0 else 1
-}
-"#,
+        include_str!("fixtures/iterators/iter_fold_sum.ori"),
         "iter_fold_sum",
     );
 }
@@ -316,12 +216,7 @@ fn test_iter_fold_sum() {
 #[test]
 fn test_iter_fold_with_filter() {
     assert_aot_success(
-        r#"
-@main () -> int = {
-    let sum = [1, 2, 3, 4, 5, 6].iter().filter((x) -> x % 2 == 0).fold(0, (a, x) -> a + x);
-    if sum == 12 then 0 else 1
-}
-"#,
+        include_str!("fixtures/iterators/iter_fold_with_filter.ori"),
         "iter_fold_with_filter",
     );
 }
@@ -333,12 +228,7 @@ fn test_iter_fold_with_filter() {
 #[test]
 fn test_iter_for_each() {
     assert_aot_success(
-        r#"
-@main () -> int = {
-    [1, 2, 3].iter().for_each((x) -> x * 2);
-    0
-}
-"#,
+        include_str!("fixtures/iterators/iter_for_each.ori"),
         "iter_for_each",
     );
 }
@@ -350,12 +240,7 @@ fn test_iter_for_each() {
 #[test]
 fn test_iter_zip_count() {
     assert_aot_success(
-        r#"
-@main () -> int = {
-    let c = [1, 2, 3].iter().zip([10, 20, 30].iter()).count();
-    if c == 3 then 0 else 1
-}
-"#,
+        include_str!("fixtures/iterators/iter_zip_count.ori"),
         "iter_zip_count",
     );
 }
@@ -363,12 +248,7 @@ fn test_iter_zip_count() {
 #[test]
 fn test_iter_zip_unequal() {
     assert_aot_success(
-        r#"
-@main () -> int = {
-    let c = [1, 2, 3].iter().zip([10, 20].iter()).count();
-    if c == 2 then 0 else 1
-}
-"#,
+        include_str!("fixtures/iterators/iter_zip_unequal.ori"),
         "iter_zip_unequal",
     );
 }
@@ -380,12 +260,7 @@ fn test_iter_zip_unequal() {
 #[test]
 fn test_iter_chain_count() {
     assert_aot_success(
-        r#"
-@main () -> int = {
-    let c = (0..3).iter().chain((10..13).iter()).count();
-    if c == 6 then 0 else 1
-}
-"#,
+        include_str!("fixtures/iterators/iter_chain_count.ori"),
         "iter_chain_count",
     );
 }
@@ -393,12 +268,7 @@ fn test_iter_chain_count() {
 #[test]
 fn test_iter_chain_collect() {
     assert_aot_success(
-        r#"
-@main () -> int = {
-    let result = [1, 2].iter().chain([3, 4].iter()).collect();
-    if result.length() == 4 then 0 else 1
-}
-"#,
+        include_str!("fixtures/iterators/iter_chain_collect.ori"),
         "iter_chain_collect",
     );
 }

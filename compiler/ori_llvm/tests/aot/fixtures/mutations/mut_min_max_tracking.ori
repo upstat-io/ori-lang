@@ -1,0 +1,9 @@
+@main () -> int = {
+    let min = 999;
+    let max = -999;
+    for x in [3, 7, 1, 9, 2, 8, 4] do {
+        if x < min then min = x;
+        if x > max then max = x;
+    };
+    if min == 1 && max == 9 then 0 else 1
+}

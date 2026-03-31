@@ -1,0 +1,11 @@
+@main () -> int = {
+    let a = Some("hello");
+    let b = Some("hello");
+    let c = Some("world");
+    let d: Option<str> = None;
+    if a == b then {
+        if a != c then {
+            if a != d then 0 else 1
+        } else 2
+    } else 3
+}

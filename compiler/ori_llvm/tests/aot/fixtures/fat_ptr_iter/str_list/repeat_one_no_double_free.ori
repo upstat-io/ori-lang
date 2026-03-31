@@ -1,0 +1,7 @@
+@main () -> int = {
+    let s = "the quick brown fox jumps over the lazy dog";
+    let t = s.repeat(count: 1);
+    // Both s and t must stay live — no double-free
+    let total = s.len() + t.len();
+    if total == 86 then 0 else 1
+}

@@ -1,0 +1,10 @@
+#[derive(Debug)]
+type Record = { name: str, count: int }
+
+@main () -> int = {
+    let r = Record { name: "a]long]record]name]value!!", count: 42 };
+    let s = r.debug();
+    let ok = s.contains(substr: "a]long]record]name]value!!")
+        && s.contains(substr: "42");
+    if ok then 0 else 1
+}

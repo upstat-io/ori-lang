@@ -1,0 +1,11 @@
+@extract (opt: Option<int>) -> Option<int> = {
+    let v = opt?;
+    Some(v + 1)
+};
+
+@main () -> int = {
+    match extract(opt: Some(9)) {
+        Some(v) -> if v == 10 then 0 else 1,
+        None -> 2,
+    }
+}

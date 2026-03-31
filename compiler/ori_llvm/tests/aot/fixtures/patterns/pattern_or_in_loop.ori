@@ -1,0 +1,12 @@
+@main () -> int = {
+    let count = 0;
+    for i in 0..20 do {
+        let x = match i % 4 {
+            0 | 2 -> 1,
+            _ -> 0,
+        };
+        count = count + x
+    };
+    // i%4 == 0 or 2: at i=0,2,4,6,8,10,12,14,16,18 → 10 values
+    if count == 10 then 0 else 1
+}

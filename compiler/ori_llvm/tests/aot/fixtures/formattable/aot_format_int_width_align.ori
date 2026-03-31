@@ -1,0 +1,6 @@
+@main () -> int = {
+    let right = `{42:>8}`;
+    let left = `{42:<8}`;
+    let center = `{42:^8}`;
+    if right == "      42" && left == "42      " && center == "   42   " then 0 else 1
+}

@@ -1,0 +1,11 @@
+@unwrap_or (opt: Option<int>, default: int) -> int =
+    match opt { Some(v) -> v, None -> default }
+
+@main () -> int = {
+    let some_val = unwrap_or(opt: Some(42), default: 0);
+    let none_val = unwrap_or(opt: None, default: 99);
+    // some_val should be 42 (not 0), none_val should be 99 (not garbage)
+    if some_val == 42 then {
+        if none_val == 99 then 0 else 1
+    } else 1
+}

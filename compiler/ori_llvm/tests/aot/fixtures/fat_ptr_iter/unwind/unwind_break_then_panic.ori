@@ -1,0 +1,26 @@
+@partial_iter (words: [str]) -> int = {
+    let total = 0;
+    for w in words do {
+        if w.len() > 60 then break;
+        total = total + w.len()
+    };
+    total
+}
+
+@panicking_func (words: [str]) -> int = {
+    panic(msg: "always panics")
+}
+
+@main () -> int = {
+    let words = [
+        "this is a very long string that exceeds SSO threshold",
+        "another very long string that also exceeds the threshold plus",
+        "third long string that should also be on the heap here now"
+    ];
+    let r1 = partial_iter(words: words);
+    let r2 = catch(expr: panicking_func(words: words));
+    match r2 {
+        Ok(_) -> 1,
+        Err(_) -> if r1 == 53 then 0 else 1
+    }
+}

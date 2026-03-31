@@ -1,0 +1,7 @@
+@double (n: int) -> int = n * 2;
+@apply_double <T> (x: T, n: int) -> int = double(n: n);
+
+@main () -> int = {
+    let result = apply_double(x: true, n: 21);
+    if result == 42 then 0 else 1
+}

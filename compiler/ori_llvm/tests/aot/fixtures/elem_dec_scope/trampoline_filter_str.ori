@@ -1,0 +1,9 @@
+@main () -> int = {
+    let words = [
+        "this is a very long heap string that exceeds the SSO threshold of twenty three bytes",
+        "short",
+        "another long heap allocated string for testing predicate trampoline ABI"
+    ];
+    let long = words.iter().filter(predicate: s -> s.len() > 10).collect();
+    if long.len() == 2 then 0 else 1
+}

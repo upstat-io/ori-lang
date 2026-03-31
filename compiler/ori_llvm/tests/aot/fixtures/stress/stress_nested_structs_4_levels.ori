@@ -1,0 +1,22 @@
+type L1 = { value: int }
+type L2 = { inner: L1, tag: int }
+type L3 = { inner: L2, label: str }
+type L4 = { inner: L3, count: int }
+
+@main () -> int = {
+    let deep = L4 {
+        inner: L3 {
+            inner: L2 {
+                inner: L1 { value: 42 },
+                tag: 1,
+            },
+            label: "deep",
+        },
+        count: 99,
+    };
+    let ok1 = deep.inner.inner.inner.value == 42;
+    let ok2 = deep.inner.inner.tag == 1;
+    let ok3 = deep.inner.label == "deep";
+    let ok4 = deep.count == 99;
+    if ok1 && ok2 && ok3 && ok4 then 0 else 1
+}

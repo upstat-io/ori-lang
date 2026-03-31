@@ -1,0 +1,11 @@
+type Named = { name: str, id: int }
+
+@get_name_len (n: Named) -> int =
+    match n {
+        { name, id: _ } -> name.length(),
+    };
+
+@main () -> int = {
+    let n = Named { name: "alice", id: 1 };
+    if get_name_len(n: n) == 5 then 0 else 1
+}

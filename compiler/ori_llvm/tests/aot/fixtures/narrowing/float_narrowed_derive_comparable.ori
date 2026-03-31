@@ -1,0 +1,11 @@
+#[derive(Eq, Comparable)]
+type Measure = { value: float }
+
+@main () -> int = {
+    let a = Measure { value: 0.25 };
+    let b = Measure { value: 0.5 };
+    let ok1 = a < b;
+    let ok2 = b > a;
+    let ok3 = a <= a;
+    if ok1 && ok2 && ok3 then 0 else 1
+}

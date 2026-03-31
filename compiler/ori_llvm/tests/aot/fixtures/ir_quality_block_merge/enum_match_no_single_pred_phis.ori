@@ -1,0 +1,9 @@
+type Status = Active | Inactive | Pending;
+
+@to_code (s: Status) -> int = match s {
+    Active -> 1,
+    Inactive -> 2,
+    Pending -> 3,
+};
+
+@main () -> int = to_code(s: Active);

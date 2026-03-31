@@ -11,7 +11,7 @@ use super::super::super::value_id::{BlockId, ValueId};
 use super::super::field_ops::emit_field_operation;
 use super::super::{emit_derive_return, DeriveSetup};
 
-use super::variant_field_types;
+use super::variant_non_void_field_types;
 
 /// FNV-1a offset basis (64-bit).
 const FNV_OFFSET_BASIS: u64 = 14_695_981_039_346_656_037;
@@ -44,7 +44,10 @@ pub(super) fn emit_enum_hash_combine<'a>(
         hash = fc.builder_mut().mul(xored, prime, "hash.mul.tag");
     }
 
-    let has_payload = variants.iter().any(|v| !v.fields.is_unit());
+    // TPR-07-006: check for non-void payload fields, not just non-unit variants.
+    let has_payload = variants
+        .iter()
+        .any(|v| !variant_non_void_field_types(&v.fields, fc.pool()).is_empty());
 
     if has_payload {
         emit_enum_payload_hash(fc, setup, variants, field_op, hash);
@@ -114,9 +117,10 @@ fn emit_enum_payload_hash<'a>(
     for (tag_idx, variant) in variants.iter().enumerate() {
         fc.builder_mut().position_at_end(variant_bbs[tag_idx]);
 
-        let field_types = variant_field_types(&variant.fields);
+        // TPR-07-006: filter zero-sized fields to match LLVM layout.
+        let field_types = variant_non_void_field_types(&variant.fields, fc.pool());
         if field_types.is_empty() {
-            // Unit: just use tag hash
+            // Unit or all-void: just use tag hash
             phi_incoming.push((tag_hash, variant_bbs[tag_idx]));
             fc.builder_mut().br(merge_bb);
             continue;

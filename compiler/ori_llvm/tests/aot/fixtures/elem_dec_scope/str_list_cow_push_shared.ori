@@ -1,0 +1,12 @@
+@main () -> int = {
+    let original = [
+        "this is a very long string that exceeds the SSO threshold of twenty three bytes",
+        "another long heap string for testing COW push on shared buffer"
+    ];
+    let shared = original;
+    // `shared` and `original` alias the same buffer.
+    // Push on `shared` triggers COW (new buffer), both must clean up.
+    shared = [...shared, "third long string added via COW push exceeds SSO threshold"];
+    let ok = original.len() == 2 && shared.len() == 3;
+    if ok then 0 else 1
+}

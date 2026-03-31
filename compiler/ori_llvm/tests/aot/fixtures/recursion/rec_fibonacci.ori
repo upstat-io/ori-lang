@@ -1,0 +1,10 @@
+@fib (n: int) -> int = {
+    if n <= 0 then 0
+    else if n == 1 then 1
+    else fib(n: n - 1) + fib(n: n - 2)
+};
+
+@main () -> int = {
+    // fib(10) = 55
+    if fib(n: 10) == 55 then 0 else 1
+}

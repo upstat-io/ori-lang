@@ -1,0 +1,10 @@
+@main () -> int = {
+    let fns = [x -> x + 1, x -> x * 2, x -> x - 1];
+    let sum = 0;
+    let idx = 0;
+    for f in fns do {
+        if idx == 1 then sum = sum + f(10);
+        idx = idx + 1;
+    };
+    if sum == 20 then 0 else 1
+}

@@ -1,0 +1,5 @@
+@main () -> int = {
+    let m = {1: "one", 2: "two"};
+    let m2 = m.insert(3, "three");
+    if m.len() == 2 && m2.len() == 3 then 0 else 1
+}

@@ -1,0 +1,9 @@
+type Item = { name: str, score: int }
+
+@get_score (item: Item) -> int = item.score;
+
+@main () -> int = {
+    let $item = Item { name: "passed_as_arg_heap_name", score: 99 };
+    let $s = get_score(item: item);
+    if s == 99 then 0 else 1
+}

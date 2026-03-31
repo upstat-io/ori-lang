@@ -1,0 +1,6 @@
+@main () -> int = {
+    let a = 'x';
+    let b = 'x';
+    let c = 'y';
+    if a == b && a != c then 0 else 1
+}

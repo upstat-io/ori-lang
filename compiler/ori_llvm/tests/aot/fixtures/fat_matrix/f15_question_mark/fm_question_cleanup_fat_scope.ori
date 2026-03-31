@@ -1,0 +1,12 @@
+@process (opt: Option<int>) -> Option<int> = {
+    let name = "abcdefghijklmnopqrstuvwxyz1234";
+    let v = opt?;
+    Some(v + name.length())
+};
+
+@main () -> int = {
+    match process(opt: None) {
+        Some(_) -> 1,
+        None -> 0,
+    }
+}

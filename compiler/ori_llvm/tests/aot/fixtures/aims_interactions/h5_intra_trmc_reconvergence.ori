@@ -1,0 +1,25 @@
+type List = Nil | Cons(head: int, tail: List);
+
+@map_add (list: List, offset: int) -> List = match list {
+    Nil -> Nil,
+    Cons(h, t) -> Cons(head: h + offset, tail: map_add(list: t, offset: offset)),
+};
+
+@list_sum (list: List) -> int = match list {
+    Nil -> 0,
+    Cons(h, t) -> h + list_sum(list: t),
+};
+
+@list_len (list: List) -> int = match list {
+    Nil -> 0,
+    Cons(_, t) -> 1 + list_len(list: t),
+};
+
+@main () -> int = {
+    let $list = Cons(head: 1, tail: Cons(head: 2, tail: Cons(head: 3,
+        tail: Cons(head: 4, tail: Cons(head: 5, tail: Nil)))));
+    let $mapped = map_add(list: list, offset: 10);
+    let $sum_ok = list_sum(list: mapped) == 65;
+    let $len_ok = list_len(list: mapped) == 5;
+    if sum_ok && len_ok then 0 else 1
+}

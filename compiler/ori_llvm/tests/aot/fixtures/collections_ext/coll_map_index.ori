@@ -1,0 +1,5 @@
+@main () -> int = {
+    let m = {"x": 42, "y": 99};
+    let val = m["x"];
+    if val.is_some() && val.unwrap() == 42 then 0 else 1
+}

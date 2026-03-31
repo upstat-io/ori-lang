@@ -1,0 +1,9 @@
+@main () -> int = {
+    let $s = "this string is long enough to be heap allocated definitely";
+    let $outer = () -> int = {
+        let $inner = () -> int = s.length();
+        inner()
+    };
+    let $result = outer();
+    if result == 58 then 0 else 1
+}

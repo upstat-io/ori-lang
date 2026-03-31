@@ -1,0 +1,13 @@
+@main () -> int = {
+    let m = {
+        1: "this is a very long value exceeding SSO threshold here",
+        2: "another very long value that also exceeds the SSO thresh"
+    };
+    let vals = m.values();
+    let total = 0;
+    for v in vals do {
+        total = total + v.len();
+    };
+    // 54 + 56 = 110
+    if total == 110 then 0 else 1
+}

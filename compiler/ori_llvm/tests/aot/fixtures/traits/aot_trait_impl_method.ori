@@ -1,0 +1,15 @@
+trait Describable {
+    @describe (self) -> str
+}
+
+type Widget = { name: str }
+
+impl Describable for Widget {
+    @describe (self) -> str = self.name;
+}
+
+@main () -> int = {
+    let w = Widget { name: "button" };
+    let d = w.describe();
+    if d == "button" then 0 else 1
+}

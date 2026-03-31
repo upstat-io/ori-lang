@@ -1,0 +1,11 @@
+type Bounds = { lo: int, hi: int, zero: int }
+
+@main () -> int = {
+    let b = Bounds { lo: -128, hi: 127, zero: 0 };
+    let ok1 = b.lo < b.hi;     // -128 < 127 = true
+    let ok2 = b.lo < b.zero;   // -128 < 0 = true (zext: 128 < 0 = false!)
+    let ok3 = b.hi > b.zero;   // 127 > 0 = true
+    let ok4 = b.lo <= b.lo;    // -128 <= -128 = true
+    let ok5 = b.hi >= b.hi;    // 127 >= 127 = true
+    if ok1 && ok2 && ok3 && ok4 && ok5 then 0 else 1
+}

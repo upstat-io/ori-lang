@@ -1,0 +1,12 @@
+@double (x: int) -> int = x + x;
+@triple (x: int) -> int = x + x + x;
+@quad (x: int) -> int = x + x + x + x;
+
+@dispatch (op: int, val: int) -> int = match op {
+    0 -> double(x: val),
+    1 -> triple(x: val),
+    2 -> quad(x: val),
+    _ -> val,
+};
+
+@main () -> int = dispatch(op: 1, val: 5);

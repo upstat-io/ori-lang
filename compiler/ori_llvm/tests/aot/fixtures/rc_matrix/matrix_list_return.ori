@@ -1,0 +1,6 @@
+@make_list () -> [int] = [10, 20, 30, 40, 50];
+
+@main () -> int = {
+    let $xs = make_list();
+    if xs.len() == 5 then 0 else 1
+}

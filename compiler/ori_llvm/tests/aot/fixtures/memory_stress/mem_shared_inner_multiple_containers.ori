@@ -1,0 +1,15 @@
+type Core = { data: str }
+type Wrapper = { core: Core, id: int }
+
+@main () -> int = {
+    let sum = 0;
+    for i in 0..500 do {
+        let c = Core { data: "shared" };
+        let w1 = Wrapper { core: c, id: i };
+        let w2 = Wrapper { core: c, id: i + 1 };
+        sum = sum + w1.id + w2.id
+    };
+    // sum((i + i+1) for i in 0..500) = sum(2i+1) = 2*sum(i) + 500
+    // = 2 * 124750 + 500 = 249500 + 500 = 250000
+    if sum == 250000 then 0 else 1
+}

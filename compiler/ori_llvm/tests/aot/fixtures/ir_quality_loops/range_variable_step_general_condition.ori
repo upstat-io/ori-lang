@@ -1,0 +1,9 @@
+@count_step (n: int, s: int) -> int = {
+    let count = 0;
+    for i in 0..n by s do {
+        count += 1
+    };
+    count
+}
+
+@main () -> int = count_step(n: 10, s: 2);

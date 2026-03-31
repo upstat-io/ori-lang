@@ -1,0 +1,5 @@
+@main () -> int = {
+    let r: Result<int, str> = Err("fail");
+    let r2 = r.clone();
+    if r2.is_err() then 0 else 1
+}

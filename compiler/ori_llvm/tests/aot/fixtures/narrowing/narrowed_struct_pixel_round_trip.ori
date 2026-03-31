@@ -1,0 +1,8 @@
+type Pixel = { r: int, g: int, b: int, a: int }
+
+@main () -> int = {
+    let p = Pixel { r: -128, g: 0, b: 127, a: 42 };
+    let sum = p.r + p.g + p.b + p.a;
+    // -128 + 0 + 127 + 42 = 41
+    if sum == 41 then 0 else 1
+}

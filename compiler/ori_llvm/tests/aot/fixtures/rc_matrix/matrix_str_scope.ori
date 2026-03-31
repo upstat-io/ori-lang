@@ -1,0 +1,7 @@
+@main () -> int = {
+    let $result = {
+        let s = "a_heap_string_longer_than_sso";
+        s.len()
+    };
+    if result == 29 then 0 else 1
+}

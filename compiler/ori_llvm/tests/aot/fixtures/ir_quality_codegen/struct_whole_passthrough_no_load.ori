@@ -1,0 +1,7 @@
+type Big = { a: int, b: int, c: int, d: int };
+
+@sum_big (p: Big) -> int = p.a + p.b + p.c + p.d;
+
+@forward (p: Big) -> int = sum_big(p: p);
+
+@main () -> int = forward(p: Big { a: 1, b: 2, c: 3, d: 4 });

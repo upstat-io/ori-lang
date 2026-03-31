@@ -1,0 +1,7 @@
+#[derive(Default)]
+type Config = { count: int, enabled: bool, score: float }
+
+@main () -> int = {
+    let c = Config.default();
+    if c.count == 0 && c.enabled == false && c.score == 0.0 then 0 else 1
+}

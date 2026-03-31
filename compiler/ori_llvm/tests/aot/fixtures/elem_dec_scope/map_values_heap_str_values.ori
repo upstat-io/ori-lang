@@ -1,0 +1,8 @@
+@main () -> int = {
+    let m: {int: str} = {};
+    let m = m.insert(1, "this is a very long heap string value that exceeds the SSO threshold for sure");
+    let m = m.insert(2, "another long heap allocated string value for map values testing purposes");
+    let m = m.insert(3, "third heap string value to check all elements are inc'd by val_inc_fn");
+    let vals = m.values();
+    if vals.len() == 3 then 0 else 1
+}

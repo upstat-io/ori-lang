@@ -1,0 +1,7 @@
+@main () -> int = {
+    let a = 1.0 / 3.0;
+    let b = 2.0 / 3.0;
+    let c = a + b;
+    // Should be approximately 1.0
+    if c > 0.99 && c < 1.01 then 0 else 1
+}

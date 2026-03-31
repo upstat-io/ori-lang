@@ -1,0 +1,17 @@
+@main () -> int = {
+    let fns = [x -> x + 1, x -> x * 2, x -> x - 1];
+    let result = catch(expr: () -> {
+        let idx = 0;
+        let _ = for f in fns yield {
+            if idx == 1 then panic(msg: "test unwind closure yield");
+            let r = f(10);
+            idx = idx + 1;
+            r
+        };
+        0
+    });
+    match result {
+        Ok(_) -> 1,
+        Err(_) -> 0,
+    }
+}

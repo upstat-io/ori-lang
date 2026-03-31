@@ -1,0 +1,10 @@
+@main () -> int = {
+    let lists = [[1, 2, 3], [4, 5, 6]];
+    let total = 0;
+    for inner in lists do {
+        for n in inner do {
+            total = total + n;
+        };
+    };
+    if total == 21 then 0 else 1
+}

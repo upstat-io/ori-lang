@@ -1,0 +1,9 @@
+@main () -> int = {
+    let lt = 1.5 < 2.5;
+    let le = 3.0 <= 3.0;
+    let gt = 5.5 > 4.5;
+    let ge = 7.0 >= 7.0;
+    let eq = 1.0 == 1.0;
+    let ne = 1.0 != 2.0;
+    if lt && le && gt && ge && eq && ne then 0 else 1
+}

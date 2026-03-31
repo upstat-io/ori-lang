@@ -1,0 +1,9 @@
+#[derive(Eq)]
+type Record = { id: int, active: bool, score: float }
+
+@main () -> int = {
+    let a = Record { id: 1, active: true, score: 3.14 };
+    let b = Record { id: 1, active: true, score: 3.14 };
+    let c = Record { id: 1, active: false, score: 3.14 };
+    if a.eq(other: b) && !a.eq(other: c) then 0 else 1
+}

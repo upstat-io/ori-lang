@@ -1,0 +1,11 @@
+#derive(Eq)
+type Container = { items: [int] }
+
+@main () -> int = {
+    let a = Container { items: [1, 2, 3] };
+    let b = Container { items: [1, 2, 3] };
+    let c = Container { items: [1, 2, 4] };
+    if a == b then {
+        if a != c then 0 else 1
+    } else 2
+}

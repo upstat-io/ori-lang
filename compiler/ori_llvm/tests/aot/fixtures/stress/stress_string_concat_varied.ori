@@ -1,0 +1,8 @@
+@main () -> int = {
+    let s = "start";
+    for i in 0..50 do {
+        s = s + "-" + "x"
+    };
+    // "start" + 50 * "-x" = 5 + 50*2 = 105
+    if s.length() == 105 then 0 else 1
+}

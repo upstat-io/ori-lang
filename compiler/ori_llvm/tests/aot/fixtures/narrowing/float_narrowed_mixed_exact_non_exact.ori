@@ -1,0 +1,11 @@
+type Measurement = { exact: float, imprecise: float }
+
+@main () -> int = {
+    let m = Measurement { exact: 0.5, imprecise: 0.1 };
+    let ok_exact = m.exact == 0.5;
+    let ok_imprecise = m.imprecise == 0.1;
+    // Use exact field in arithmetic
+    let doubled = m.exact * 2.0;
+    let ok_arith = doubled == 1.0;
+    if ok_exact && ok_imprecise && ok_arith then 0 else 1
+}

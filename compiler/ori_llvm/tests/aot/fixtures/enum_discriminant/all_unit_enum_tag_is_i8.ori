@@ -1,0 +1,9 @@
+type Color = Red | Green | Blue;
+
+@pick (c: Color) -> int = match c {
+    Red -> 1,
+    Green -> 2,
+    Blue -> 3,
+}
+
+@main () -> int = pick(c: Green);

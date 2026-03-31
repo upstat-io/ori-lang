@@ -1,0 +1,9 @@
+@main () -> int = {
+    let xs = [1, 2, 3, 4, 5];
+    let ys = xs.slice(start: 1, end: 4);
+    // Both xs and ys should be valid — slice shares the buffer
+    if xs.length() == 5 && ys.length() == 3
+        && xs.first().unwrap() == 1 && ys.first().unwrap() == 2
+        then 0
+        else 1
+}

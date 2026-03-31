@@ -1,0 +1,14 @@
+@category (n: int) -> int = match n % 5 {
+    0 -> 10,
+    1 -> 20,
+    2 -> 30,
+    3 -> 40,
+    _ -> 50,
+};
+
+@main () -> int = {
+    let sum = 0;
+    for i in 0..100 do sum = sum + category(n: i);
+    // each group of 5: 10+20+30+40+50 = 150, 20 groups = 3000
+    if sum == 3000 then 0 else 1
+}

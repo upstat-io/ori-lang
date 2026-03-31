@@ -1,0 +1,12 @@
+@count_a (n: int) -> int = {
+    if n <= 0 then 0 else 1 + count_b(n: n - 1)
+};
+
+@count_b (n: int) -> int = {
+    if n <= 0 then 0 else 1 + count_a(n: n - 1)
+};
+
+@main () -> int = {
+    // Both should count to 20
+    if count_a(n: 20) == 20 then 0 else 1
+}

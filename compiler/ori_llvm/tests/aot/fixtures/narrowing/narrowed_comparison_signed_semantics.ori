@@ -1,0 +1,17 @@
+type SignedPair = { a: int, b: int }
+
+@compare (p: SignedPair) -> int = {
+    // a = -50, b = 20
+    let lt = p.a < p.b;     // -50 < 20 = true (zext would give 206 < 20 = false)
+    let le = p.a <= p.b;    // -50 <= 20 = true
+    let gt = p.b > p.a;     // 20 > -50 = true
+    let ge = p.b >= p.a;    // 20 >= -50 = true
+    let eq = p.a == p.a;    // -50 == -50 = true
+    let ne = p.a != p.b;    // -50 != 20 = true
+    if lt && le && gt && ge && eq && ne then 0 else 1
+}
+
+@main () -> int = {
+    let p = SignedPair { a: -50, b: 20 };
+    compare(p:)
+}

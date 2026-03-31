@@ -1,0 +1,8 @@
+type WithVoid = VA(u: void) | VB;
+
+@pick (e: WithVoid) -> int = match e {
+    VA(u:) -> 1,
+    VB -> 2,
+}
+
+@main () -> int = pick(e: VA(u: ()));

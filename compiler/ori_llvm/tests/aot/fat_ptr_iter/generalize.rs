@@ -8,19 +8,7 @@ use crate::util::assert_aot_success;
 #[test]
 fn test_generalize_str_list() {
     assert_aot_success(
-        r#"
-@main () -> int = {
-    let words = [
-        "this is a very long string that exceeds SSO threshold",
-        "another very long string that also exceeds the threshold"
-    ];
-    let total = 0;
-    for w in words do {
-        total = total + w.len()
-    };
-    if total == 109 then 0 else 1
-}
-"#,
+        include_str!("../fixtures/fat_ptr_iter/generalize/generalize_str_list.ori"),
         "generalize_str_list",
     );
 }
@@ -29,18 +17,7 @@ fn test_generalize_str_list() {
 #[test]
 fn test_generalize_nested_int_list() {
     assert_aot_success(
-        r#"
-@main () -> int = {
-    let nested = [[1, 2, 3], [4, 5], [6, 7, 8, 9]];
-    let total = 0;
-    for inner in nested do {
-        for n in inner do {
-            total = total + n
-        }
-    };
-    if total == 45 then 0 else 1
-}
-"#,
+        include_str!("../fixtures/fat_ptr_iter/generalize/generalize_nested_int_list.ori"),
         "generalize_nested_int_list",
     );
 }
@@ -49,20 +26,7 @@ fn test_generalize_nested_int_list() {
 #[test]
 fn test_generalize_closure_list() {
     assert_aot_success(
-        r#"
-@make_adder (n: int) -> (int) -> int = {
-    x -> x + n
-}
-
-@main () -> int = {
-    let fns = [make_adder(n: 10), make_adder(n: 20), make_adder(n: 30)];
-    let total = 0;
-    for f in fns do {
-        total = total + f(1)
-    };
-    if total == 63 then 0 else 1
-}
-"#,
+        include_str!("../fixtures/fat_ptr_iter/generalize/generalize_closure_list.ori"),
         "generalize_closure_list",
     );
 }
@@ -71,21 +35,7 @@ fn test_generalize_closure_list() {
 #[test]
 fn test_generalize_struct_with_str_fields() {
     assert_aot_success(
-        r#"
-type Person = { name: str, age: int }
-
-@main () -> int = {
-    let people = [
-        Person { name: "alice with a very long name for heap allocation", age: 30 },
-        Person { name: "bob with another very long name for heap allocation", age: 25 }
-    ];
-    let total_age = 0;
-    for p in people do {
-        total_age = total_age + p.age
-    };
-    if total_age == 55 then 0 else 1
-}
-"#,
+        include_str!("../fixtures/fat_ptr_iter/generalize/generalize_struct_with_str_fields.ori"),
         "generalize_struct_with_str_fields",
     );
 }
@@ -94,23 +44,7 @@ type Person = { name: str, age: int }
 #[test]
 fn test_generalize_option_str_list() {
     assert_aot_success(
-        r#"
-@main () -> int = {
-    let items = [
-        Some("this is a very long string that exceeds SSO threshold"),
-        None,
-        Some("another very long string that also exceeds the threshold")
-    ];
-    let count = 0;
-    for item in items do {
-        match item {
-            Some(_) -> { count = count + 1 },
-            None -> ()
-        }
-    };
-    if count == 2 then 0 else 1
-}
-"#,
+        include_str!("../fixtures/fat_ptr_iter/generalize/generalize_option_str_list.ori"),
         "generalize_option_str_list",
     );
 }
@@ -120,21 +54,7 @@ fn test_generalize_option_str_list() {
 #[test]
 fn test_generalize_partial_break_str() {
     assert_aot_success(
-        r#"
-@main () -> int = {
-    let words = [
-        "this is a very long string that exceeds SSO threshold",
-        "stop marker string that is also long enough to be heap",
-        "third long string that should not be visited early break"
-    ];
-    let count = 0;
-    for w in words do {
-        if w.starts_with(prefix: "stop") then break;
-        count = count + 1
-    };
-    if count == 1 then 0 else 1
-}
-"#,
+        include_str!("../fixtures/fat_ptr_iter/generalize/generalize_partial_break_str.ori"),
         "generalize_partial_break_str",
     );
 }
@@ -143,20 +63,7 @@ fn test_generalize_partial_break_str() {
 #[test]
 fn test_generalize_yield_str_lengths() {
     assert_aot_success(
-        r#"
-@main () -> int = {
-    let words = [
-        "this is a very long string that exceeds SSO threshold",
-        "another very long string that also exceeds the threshold"
-    ];
-    let lengths = for w in words yield w.len();
-    let total = 0;
-    for n in lengths do {
-        total = total + n
-    };
-    if total == 109 then 0 else 1
-}
-"#,
+        include_str!("../fixtures/fat_ptr_iter/generalize/generalize_yield_str_lengths.ori"),
         "generalize_yield_str_lengths",
     );
 }
@@ -166,25 +73,7 @@ fn test_generalize_yield_str_lengths() {
 #[test]
 fn test_generalize_str_list_two_calls() {
     assert_aot_success(
-        r#"
-@count_lengths (words: [str]) -> int = {
-    let total = 0;
-    for w in words do {
-        total = total + w.len()
-    };
-    total
-}
-
-@main () -> int = {
-    let words = [
-        "this is a very long string that exceeds SSO threshold",
-        "another very long string that also exceeds the threshold"
-    ];
-    let r1 = count_lengths(words: words);
-    let r2 = count_lengths(words: words);
-    if r1 == 109 && r2 == 109 then 0 else 1
-}
-"#,
+        include_str!("../fixtures/fat_ptr_iter/generalize/generalize_str_list_two_calls.ori"),
         "generalize_str_list_two_calls",
     );
 }
@@ -194,16 +83,7 @@ fn test_generalize_str_list_two_calls() {
 #[test]
 fn test_generalize_string_iteration() {
     assert_aot_success(
-        r#"
-@main () -> int = {
-    let s = "hello world this is a very long string for heap allocation";
-    let count = 0;
-    for c in s do {
-        count = count + 1
-    };
-    if count == 58 then 0 else 1
-}
-"#,
+        include_str!("../fixtures/fat_ptr_iter/generalize/generalize_string_iteration.ori"),
         "generalize_string_iteration",
     );
 }

@@ -1,0 +1,11 @@
+@main () -> int = {
+    let words = [
+        "this is a very long heap string that exceeds the SSO threshold of twenty three bytes",
+        "another long heap allocated string to exercise for_each trampoline ABI"
+    ];
+    words.iter().for_each(action: s -> {
+        let $n = s.len();
+        n
+    });
+    0
+}

@@ -1,0 +1,10 @@
+@append_world (s: str) -> str = {
+    s.concat(other: " world")
+}
+
+@main () -> int = {
+    let $original = "hello";
+    let $extended = append_world(s: original);
+    if original == "hello" && extended == "hello world"
+    then 0 else 1
+}

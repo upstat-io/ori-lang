@@ -1,0 +1,13 @@
+@main () -> int = {
+    let s: Set<str> = [
+        "this is a very long string that exceeds SSO threshold",
+        "another very long string that also exceeds the threshold"
+    ].iter().collect();
+    let copy = s;
+    copy = copy.remove(value: "this is a very long string that exceeds SSO threshold");
+    let orig_count = 0;
+    for item in s do { orig_count = orig_count + 1; };
+    let copy_count = 0;
+    for item in copy do { copy_count = copy_count + 1; };
+    if orig_count == 2 && copy_count == 1 then 0 else 1
+}

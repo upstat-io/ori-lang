@@ -1,0 +1,8 @@
+@main () -> int = {
+    let result = for x in [1, 2, 3, 4, 5] yield {
+        if x == 3 then continue;
+        x
+    };
+    // Expected: [1, 2, 4, 5] (x=3 skipped)
+    if result.length() == 4 then 0 else 1
+}

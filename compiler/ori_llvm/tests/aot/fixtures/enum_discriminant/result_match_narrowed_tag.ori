@@ -1,0 +1,7 @@
+@main () -> void = {
+    let ok_val: Result<int, str> = Ok(100);
+    let err_val: Result<int, str> = Err("fail");
+    let r1 = match ok_val { Ok(v) -> v, Err(_) -> -1 };
+    let r2 = match err_val { Ok(_) -> -1, Err(msg) -> len(collection: msg) };
+    print(msg: `{r1},{r2}`)
+}

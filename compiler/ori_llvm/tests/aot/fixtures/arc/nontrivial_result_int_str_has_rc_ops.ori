@@ -1,0 +1,7 @@
+@main () -> int = {
+    let $x: Result<int, str> = Ok(42);
+    match x {
+        Ok(v) -> v,
+        Err(_) -> -1
+    }
+}

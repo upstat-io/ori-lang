@@ -1,0 +1,7 @@
+@main () -> int = {
+    let $result = {
+        let m = {"alpha": 1, "beta": 2, "gamma": 3};
+        m.len()
+    };
+    if result == 3 then 0 else 1
+}

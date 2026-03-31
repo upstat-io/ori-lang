@@ -1,0 +1,6 @@
+@main () -> int = {
+    let xs = [1, 2, 3];
+    let ys = xs.push(4);
+    // xs should still be length 3, ys should be length 4
+    if xs.length() == 3 && ys.length() == 4 then 0 else 1
+}

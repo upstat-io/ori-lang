@@ -1,0 +1,7 @@
+@factorial (n: int) -> int = {
+    if n <= 1 then 1 else n * factorial(n: n - 1)
+};
+
+@main () -> int = {
+    if factorial(n: 10) == 3628800 then 0 else 1
+}

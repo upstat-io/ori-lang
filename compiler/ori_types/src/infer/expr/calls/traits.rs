@@ -98,7 +98,8 @@ fn primitive_satisfies_trait(ty: Idx, trait_name: &str) -> bool {
         "Shl",
         "Shr",
     ];
-    const UNIT_TRAITS: &[&str] = &["Eq", "Clone", "Default", "Debug"];
+    // TPR-07-006: void/() is trivially comparable (Equal) and hashable (0).
+    const UNIT_TRAITS: &[&str] = &["Eq", "Comparable", "Hashable", "Clone", "Default", "Debug"];
     const DURATION_TRAITS: &[&str] = &[
         "Eq",
         "Comparable",

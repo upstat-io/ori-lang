@@ -1,0 +1,11 @@
+#[derive(Eq, Comparable)]
+type Wrapper = { value: int }
+
+@main () -> int = {
+    let a = Wrapper { value: 10 };
+    let b = Wrapper { value: 20 };
+    let c = Wrapper { value: 10 };
+    let ab = a.compare(other: b);
+    let ac = a.compare(other: c);
+    if ab.is_less() && ac.is_equal() then 0 else 1
+}

@@ -1,0 +1,12 @@
+@main () -> int = {
+    let s1: Set<str> = [
+        "this is a very long heap string that exceeds the SSO threshold for sure",
+        "another long heap allocated string for intersection testing purposes here",
+        "third heap string only in set1 should be cleaned up during intersection"
+    ].iter().collect();
+    let s2: Set<str> = [
+        "this is a very long heap string that exceeds the SSO threshold for sure"
+    ].iter().collect();
+    let result = s1.intersection(other: s2);
+    if result.len() == 1 then 0 else 1
+}

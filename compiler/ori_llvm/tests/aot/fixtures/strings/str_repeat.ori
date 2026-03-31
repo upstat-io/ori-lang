@@ -1,0 +1,5 @@
+@main () -> int = {
+    let s = "ab";
+    let r = s.repeat(3);
+    if r == "ababab" then 0 else 1
+}

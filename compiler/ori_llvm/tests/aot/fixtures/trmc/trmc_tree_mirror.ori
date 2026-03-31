@@ -1,0 +1,31 @@
+type Tree = Leaf(value: int) | Branch(left: Tree, right: Tree);
+
+@tree_sum (t: Tree) -> int = match t {
+    Leaf(v) -> v,
+    Branch(l, r) -> tree_sum(t: l) + tree_sum(t: r),
+};
+
+@tree_depth (t: Tree) -> int = match t {
+    Leaf(_) -> 1,
+    Branch(l, r) -> {
+        let $ld = tree_depth(t: l);
+        let $rd = tree_depth(t: r);
+        1 + (if ld > rd then ld else rd)
+    },
+};
+
+@main () -> int = {
+    // Build asymmetric tree: left-heavy
+    let $tree = Branch(
+        left: Branch(
+            left: Leaf(value: 1),
+            right: Leaf(value: 2),
+        ),
+        right: Leaf(value: 3),
+    );
+    // Sum should be 6 regardless of structure
+    let $sum_ok = tree_sum(t: tree) == 6;
+    // Depth should be 3 (left branch is deeper)
+    let $depth_ok = tree_depth(t: tree) == 3;
+    if sum_ok && depth_ok then 0 else 1
+}

@@ -1,0 +1,5 @@
+@main () -> int = {
+    let flag = true;
+    let s = if flag then "hello" else "world";
+    if s.length() == 5 then 0 else 1
+}

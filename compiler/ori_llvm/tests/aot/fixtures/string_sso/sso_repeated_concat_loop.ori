@@ -1,0 +1,8 @@
+@main () -> int = {
+    let s = "";
+    for i in 0..50 do {
+        s = s + "x";
+    };
+    // After 50 iterations: "xxx...x" (50 chars) — well past SSO
+    if s.length() == 50 then 0 else 1
+}

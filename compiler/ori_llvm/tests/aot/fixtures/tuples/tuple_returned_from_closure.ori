@@ -1,0 +1,5 @@
+@main () -> int = {
+    let make = (x: int) -> (x, x * 2);
+    let (a, b) = make(5);
+    if a == 5 && b == 10 then 0 else 1
+}

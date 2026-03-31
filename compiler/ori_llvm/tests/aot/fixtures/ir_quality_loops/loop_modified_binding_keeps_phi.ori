@@ -1,0 +1,11 @@
+@sum_to (n: int) -> int = {
+    let total = 0;
+    let i = 0;
+    loop {
+        if i >= n then break total;
+        total += i;
+        i += 1
+    }
+}
+
+@main () -> int = sum_to(n: 10);

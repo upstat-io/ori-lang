@@ -1,0 +1,4 @@
+@main () -> int = {
+    let ord = 7.compare(other: 7);
+    if ord.is_equal() then 0 else 1
+}

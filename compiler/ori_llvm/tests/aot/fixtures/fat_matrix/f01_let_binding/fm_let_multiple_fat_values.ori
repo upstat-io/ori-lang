@@ -1,0 +1,7 @@
+@main () -> int = {
+    let s1 = "abcdefghijklmnopqrstuvwxyz1234";
+    let s2 = "another_long_string_for_heap_alloc";
+    let xs = [1, 2, 3];
+    let result = s1.length() + s2.length() + xs.length();
+    if result == 67 then 0 else 1
+}

@@ -1,0 +1,7 @@
+@main () -> int = {
+    let a = -10 / 3;
+    let b = -7 / 2;
+    let c = -1 / 2;
+    // Truncation toward zero: -10/3 = -3, -7/2 = -3, -1/2 = 0
+    if a == -3 && b == -3 && c == 0 then 0 else 1
+}

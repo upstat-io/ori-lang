@@ -1,0 +1,18 @@
+@process (words: [str]) -> int = {
+    let total = 0;
+    for w in words do {
+        total = total + w.len();
+    };
+    let first = words[0];
+    total + first.len()
+}
+
+@main () -> int = {
+    let words = [
+        "this is a very long string that exceeds SSO threshold",
+        "another very long string that also exceeds the threshold"
+    ];
+    let a = process(words: words);
+    let b = process(words: words);
+    if a == 162 && b == 162 then 0 else 1
+}

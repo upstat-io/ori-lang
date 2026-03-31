@@ -1,0 +1,31 @@
+@inner (s: str) -> int = {
+    if s == "boom this is a long enough string for heap allocation" then {
+        panic(msg: "deep panic")
+    };
+    s.len()
+}
+
+@middle (words: [str]) -> int = {
+    let total = 0;
+    for w in words do {
+        total = total + inner(s: w)
+    };
+    total
+}
+
+@outer (words: [str]) -> int = {
+    middle(words: words)
+}
+
+@main () -> int = {
+    let words = [
+        "this is a very long string that exceeds SSO threshold",
+        "boom this is a long enough string for heap allocation",
+        "third long string that should also be on the heap here"
+    ];
+    let result = catch(expr: outer(words: words));
+    match result {
+        Ok(_) -> 1,
+        Err(_) -> 0
+    }
+}

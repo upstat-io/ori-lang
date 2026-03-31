@@ -1,0 +1,10 @@
+@main () -> int = {
+    let total = 0;
+    for s in ["hello", "world"] do {
+        for i in [1, 2, 3] do {
+            if i == 2 then break;
+            total = total + s.length();
+        };
+    };
+    if total == 10 then 0 else 1
+}

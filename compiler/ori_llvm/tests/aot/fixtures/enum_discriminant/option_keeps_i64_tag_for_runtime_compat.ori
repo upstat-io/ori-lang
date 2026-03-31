@@ -1,0 +1,9 @@
+@get () -> Option<str> = Some("hello");
+
+@main () -> int = {
+    let o = get();
+    match o {
+        Some(_) -> 0,
+        None -> 1,
+    }
+}

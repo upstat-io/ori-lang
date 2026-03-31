@@ -1,0 +1,4 @@
+@main () -> int = {
+    let s = "  hello  ";
+    if s.trim() == "hello" then 0 else 1
+}

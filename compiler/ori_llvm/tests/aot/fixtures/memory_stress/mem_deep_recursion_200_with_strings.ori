@@ -1,0 +1,11 @@
+type State = { label: str, depth: int, acc: int }
+
+@descend (s: State) -> int =
+    if s.depth == 0 then s.acc
+    else descend(s: State { label: "level", depth: s.depth - 1, acc: s.acc + s.depth });
+
+@main () -> int = {
+    let result = descend(s: State { label: "start", depth: 200, acc: 0 });
+    // sum(1..200) = 200*201/2 = 20100
+    if result == 20100 then 0 else 1
+}

@@ -1,0 +1,8 @@
+@main () -> int = {
+    let a = 42;
+    let b = 42;
+    let c = 99;
+    let r1 = a.equals(b);
+    let r2 = !a.equals(c);
+    if r1 && r2 then 0 else 1
+}

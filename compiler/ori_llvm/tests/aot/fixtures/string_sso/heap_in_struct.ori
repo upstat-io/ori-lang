@@ -1,0 +1,9 @@
+type Article = { title: str, body: str }
+
+@main () -> int = {
+    let a = Article {
+        title: "A Title That Exceeds The SSO Limit",
+        body: "And a body that is even longer than the title for sure"
+    };
+    if a.title == "A Title That Exceeds The SSO Limit" && a.body.length() > 23 then 0 else 1
+}

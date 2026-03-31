@@ -1,0 +1,9 @@
+@might_panic<T> (x: T) -> T = {
+    if true then panic(msg: "boom");
+    x
+}
+
+@main () -> int = {
+    let s = might_panic(x: "hello");
+    s.length()
+}

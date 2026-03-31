@@ -1,0 +1,11 @@
+@extend_list (items: [str]) -> [str] = {
+    items.push("added")
+}
+
+@main () -> int = {
+    let original = ["hello", "world"];
+    let extended = extend_list(items: original);
+    if original.len() == 2 && extended.len() == 3
+        && original[0] == "hello" && extended[2] == "added"
+    then 0 else 1
+}

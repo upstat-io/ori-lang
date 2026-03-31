@@ -1,0 +1,6 @@
+@main () -> int = {
+    let xs = [3, 1, 2];
+    let ys = xs.sort();
+    // xs should still be [3,1,2], ys should be [1,2,3]
+    if xs.first().unwrap() == 3 && ys.first().unwrap() == 1 then 0 else 1
+}

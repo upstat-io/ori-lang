@@ -1,0 +1,8 @@
+@main () -> int = {
+    let x = {
+        let a = 10;
+        let b = 20;
+        a + b
+    };
+    if x == 30 then 0 else 1
+}

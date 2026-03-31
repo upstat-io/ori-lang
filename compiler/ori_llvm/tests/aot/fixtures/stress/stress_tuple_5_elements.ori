@@ -1,0 +1,5 @@
+@main () -> int = {
+    let t = (10, 20, 30, 40, 50);
+    let (a, b, c, d, e) = t;
+    if a + b + c + d + e == 150 then 0 else 1
+}

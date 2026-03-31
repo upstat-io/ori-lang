@@ -163,9 +163,17 @@ pub(super) fn build_prim_trait_sets() -> [TraitSet; Idx::PRIMITIVE_COUNT as usiz
         tb::SHR,
     ]));
 
-    // UNIT: eq + clone + default + debug (no comparable, no printable, no hashable)
-    sets[Idx::UNIT.raw() as usize] =
-        TraitSet::from_bits(&[tb::EQ, tb::CLONE, tb::DEFAULT, tb::DEBUG]);
+    // UNIT: eq + comparable + hashable + clone + default + debug
+    // void/() is trivially comparable (always Equal) and hashable (constant hash),
+    // matching Rust's () which implements Eq, Ord, and Hash.
+    sets[Idx::UNIT.raw() as usize] = TraitSet::from_bits(&[
+        tb::EQ,
+        tb::COMPARABLE,
+        tb::HASHABLE,
+        tb::CLONE,
+        tb::DEFAULT,
+        tb::DEBUG,
+    ]);
 
     // NEVER: no traits (index 7) — stays EMPTY
 

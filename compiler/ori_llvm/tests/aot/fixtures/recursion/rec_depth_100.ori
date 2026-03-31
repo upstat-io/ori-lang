@@ -1,0 +1,7 @@
+@depth (n: int) -> int = {
+    if n <= 0 then 0 else 1 + depth(n: n - 1)
+};
+
+@main () -> int = {
+    if depth(n: 100) == 100 then 0 else 1
+}

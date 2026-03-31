@@ -1,0 +1,5 @@
+@main () -> int = {
+    let prefix = "hello";
+    let f = (s: str) -> int = prefix.length() + s.length();
+    if f("world") == 10 then 0 else 1
+}

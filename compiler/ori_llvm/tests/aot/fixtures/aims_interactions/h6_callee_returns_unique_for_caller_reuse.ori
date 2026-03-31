@@ -1,0 +1,15 @@
+type Bundle = { values: [int], marker: int };
+
+@build_bundle (seed: int) -> Bundle = {
+    Bundle { values: [seed, seed + 1, seed + 2], marker: seed * 10 }
+};
+
+@main () -> int = {
+    let $bundle = build_bundle(seed: 7);
+    let $ok = bundle.marker == 70
+        && bundle.values.len() == 3
+        && bundle.values[0] == 7
+        && bundle.values[1] == 8
+        && bundle.values[2] == 9;
+    if ok then 0 else 1
+}

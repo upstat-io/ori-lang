@@ -1,0 +1,15 @@
+@main () -> int = {
+    let none: Option<int> = None;
+    let some1 = Some(10);
+    let some2 = Some(20);
+    let some3 = Some(10);
+    // None < Some
+    let r1 = none.compare(some1).is_less();
+    // Some(10) < Some(20)
+    let r2 = some1.compare(some2).is_less();
+    // Some(10) == Some(10)
+    let r3 = some1.compare(some3).is_equal();
+    // Some > None
+    let r4 = some1.compare(none).is_greater();
+    if r1 && r2 && r3 && r4 then 0 else 1
+}

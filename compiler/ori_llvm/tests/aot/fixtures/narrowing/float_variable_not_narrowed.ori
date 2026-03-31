@@ -1,0 +1,12 @@
+type Wrap = { val: float }
+
+@identity (x: float) -> float = x;
+
+@compute (w: Wrap) -> float = w.val;
+
+@main () -> int = {
+    let x = identity(x: 0.5);
+    let w = Wrap { val: x };
+    let v = compute(w:);
+    if v == 0.5 then 0 else 1
+}

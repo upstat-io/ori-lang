@@ -1,0 +1,6 @@
+@do_nothing () -> void = ();
+
+@main () -> int = {
+    do_nothing();
+    0
+}

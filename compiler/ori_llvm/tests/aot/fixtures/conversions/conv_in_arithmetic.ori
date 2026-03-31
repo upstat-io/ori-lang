@@ -1,0 +1,6 @@
+@main () -> int = {
+    let x = 3;
+    let y = 0.14;
+    let pi_approx = x.to_float() + y;
+    if pi_approx > 3.13 && pi_approx < 3.15 then 0 else 1
+}

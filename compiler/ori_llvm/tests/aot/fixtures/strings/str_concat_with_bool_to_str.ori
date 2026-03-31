@@ -1,0 +1,6 @@
+@main () -> int = {
+    let prefix = "active: ";
+    let flag = true;
+    let msg = prefix + flag.to_str();
+    if msg == "active: true" then 0 else 1
+}
