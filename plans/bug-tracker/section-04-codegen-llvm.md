@@ -42,6 +42,13 @@ Bugs in LLVM IR generation, JIT/AOT compilation, monomorphization, ARC pipeline 
 - [x] `[BUG-04-007][high]` **AOT test `test_float_narrowed_mixed_exact_non_exact` fails with exit code 1** — found by continue-roadmap.
   Resolved: OBE on 2026-03-29. Stale release binary — same root cause as BUG-04-004.
 
+- [ ] `[BUG-04-008][high]` **Zero-sized enum payload mismatch: `A(()) | B` triggers build_struct error and inconsistent sizing** — found by tpr-review.
+  Repro: `type E = A(u: ()) | B; @main () -> int = { let x = A(()); 0 }` — hits `build_struct called with non-struct LLVM type ... i64`
+  Root cause: LLVM `resolve_enum()` resolves `Idx::UNIT` to an LLVM type (likely `i64` representation) and computes non-zero payload, while `pool_type_store_size()` in `ori_arc` returns 0 for Unit, and `compute_enum_payload_layout()` in `ori_repr` also returns 0 for Unit fields. The variant `A(())` is treated as all-unit by Pool-level sizing but as payload variant by LLVM resolution. Three-way disagreement: ori_arc=0, ori_repr=0, LLVM=8.
+  Subsystem: `compiler/ori_llvm/src/codegen/type_info/layout_resolver.rs` (resolve_enum), `compiler/ori_arc/src/lower/control_flow/type_layout.rs` (pool_type_store_size), `compiler/ori_repr/src/canonical/type_repr.rs` (canonical_enum)
+  Found: 2026-03-30 | Source: tpr-review
+  Note: Active work in repr-opt section-07 (enum repr) touches this area. Also affects `A(Never) | B`.
+
 ---
 
 ## Resolved Bugs
