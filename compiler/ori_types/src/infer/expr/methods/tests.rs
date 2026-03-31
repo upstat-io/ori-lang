@@ -121,3 +121,71 @@ fn range_iteration_methods_derived_from_registry() {
         "is_empty should not require iteration"
     );
 }
+
+// Computed returns verification
+
+/// Verify `resolve_computed_return` produces structured types (not bare `fresh_var`)
+/// for methods that require specific type construction.
+///
+/// This catches regressions where `computed_returns.rs` branches are removed
+/// or the dispatch is broken, even if the Fresh-return method list stays the same.
+#[test]
+fn computed_returns_produce_structured_types() {
+    use super::computed_returns::resolve_computed_return;
+    use crate::{Idx, Pool, Tag};
+
+    let mut pool = Pool::new();
+    let mut engine = crate::InferEngine::new(&mut pool);
+
+    // List.zip should return List<(T, U)>, not bare fresh
+    let list_int = engine.pool_mut().list(Idx::INT);
+    let zip_ret = resolve_computed_return(&mut engine, list_int, Tag::List, "zip");
+    assert_eq!(
+        engine.pool().tag(zip_ret),
+        Tag::List,
+        "List.zip should return a List, not a bare type variable"
+    );
+
+    // Iterator.map should return Iterator<U>, not bare fresh
+    let iter_int = engine.pool_mut().iterator(Idx::INT);
+    let map_ret = resolve_computed_return(&mut engine, iter_int, Tag::Iterator, "map");
+    assert_eq!(
+        engine.pool().tag(map_ret),
+        Tag::Iterator,
+        "Iterator.map should return an Iterator, not a bare type variable"
+    );
+
+    // DEI.map should return DEI<U>, preserving DEI-ness
+    let dei_int = engine.pool_mut().double_ended_iterator(Idx::INT);
+    let dei_map_ret =
+        resolve_computed_return(&mut engine, dei_int, Tag::DoubleEndedIterator, "map");
+    assert_eq!(
+        engine.pool().tag(dei_map_ret),
+        Tag::DoubleEndedIterator,
+        "DEI.map should return a DoubleEndedIterator"
+    );
+
+    // Iterator.zip should return Iterator<(T, U)>
+    let zip_ret = resolve_computed_return(&mut engine, iter_int, Tag::Iterator, "zip");
+    assert_eq!(
+        engine.pool().tag(zip_ret),
+        Tag::Iterator,
+        "Iterator.zip should return an Iterator"
+    );
+
+    // Iterator.flatten should return Iterator<U>
+    let flatten_ret = resolve_computed_return(&mut engine, iter_int, Tag::Iterator, "flatten");
+    assert_eq!(
+        engine.pool().tag(flatten_ret),
+        Tag::Iterator,
+        "Iterator.flatten should return an Iterator"
+    );
+
+    // Unhandled methods should return Var (fresh)
+    let fold_ret = resolve_computed_return(&mut engine, list_int, Tag::List, "fold");
+    assert_eq!(
+        engine.pool().tag(fold_ret),
+        Tag::Var,
+        "List.fold should return a fresh type variable"
+    );
+}
