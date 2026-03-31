@@ -48,6 +48,19 @@ pub struct TypeDef {
 
     /// Operator lowering strategies for this type.
     pub operators: OpDefs,
+
+    /// Marker/meta traits this type satisfies that have no method representation.
+    ///
+    /// Traits like `Default`, `Sendable`, and `Iterator` are type-level
+    /// capabilities — they don't correspond to a callable method in the
+    /// registry. This field lists them so the trait satisfaction bridge
+    /// can query the registry for ALL trait knowledge, not just
+    /// method-derived traits.
+    ///
+    /// Traits derivable from `MethodDef.trait_name` (e.g., `Clone` from
+    /// the `clone` method) or from `OpDefs` (e.g., `Add` from `add != Unsupported`)
+    /// should NOT be duplicated here.
+    pub traits: &'static [&'static str],
 }
 
 /// Describes a variant of an enum type (e.g., Ordering's Less/Equal/Greater).

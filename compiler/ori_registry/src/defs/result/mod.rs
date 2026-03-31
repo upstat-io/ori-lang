@@ -171,6 +171,7 @@ pub static RESULT: TypeDef = TypeDef {
     type_params: TypeParamArity::Fixed(2),
     methods: RESULT_METHODS,
     operators: OpDefs::UNSUPPORTED,
+    traits: &[],
 };
 
 #[cfg(test)]

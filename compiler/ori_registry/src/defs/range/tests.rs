@@ -87,13 +87,27 @@ fn range_step_by_takes_int_returns_self() {
 }
 
 #[test]
-fn range_no_trait_methods() {
+fn range_trait_methods() {
+    let expected_traits: &[(&str, &str)] = &[
+        ("is_empty", "IsEmpty"),
+        ("iter", "Iterable"),
+        ("len", "Len"),
+    ];
     for m in RANGE.methods {
-        assert!(
-            m.trait_name.is_none(),
-            "Range.{} should have no trait_name (generic trait dispatch handles these)",
-            m.name
-        );
+        let expected = expected_traits
+            .iter()
+            .find(|(name, _)| *name == m.name)
+            .map(|(_, t)| Some(*t));
+        if let Some(expected_trait) = expected {
+            assert_eq!(
+                m.trait_name, expected_trait,
+                "Range.{} should have trait_name {:?}",
+                m.name, expected_trait
+            );
+        } else {
+            // Non-trait methods (clone, compare, count, debug, step_by, to_str)
+            // still have their own trait names or None.
+        }
     }
 }
 

@@ -149,6 +149,7 @@ pub static ITERATOR: TypeDef = TypeDef {
     type_params: TypeParamArity::Fixed(1),
     methods: ITERATOR_METHODS,
     operators: OpDefs::UNSUPPORTED,
+    traits: &["Iterator"],
 };
 
 #[cfg(test)]
