@@ -62,7 +62,7 @@ pub static TUPLE: TypeDef = TypeDef {
     type_params: TypeParamArity::Variadic,
     methods: TUPLE_METHODS,
     operators: OpDefs::UNSUPPORTED,
-    traits: &[],
+    traits: &["Comparable", "Printable"],
 };
 
 #[cfg(test)]

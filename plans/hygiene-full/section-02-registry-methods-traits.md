@@ -16,7 +16,7 @@ sections:
     status: complete
   - id: "02.2"
     title: "Trait Satisfaction via Registry (calls/traits.rs)"
-    status: not-started
+    status: complete
   - id: "02.3"
     title: "WellKnown Bitfield Trait Sets via Registry"
     status: not-started
@@ -118,20 +118,20 @@ The `primitive_satisfies_trait()` function (lines 14-176) maintains 10 parallel 
 
 **LEAK findings (to be eliminated by the bridge function):**
 
-- [ ] **LEAK:scattered-knowledge** `traits.rs:16-141` -- 10 per-primitive `const` trait arrays (`INT_TRAITS`, `FLOAT_TRAITS`, etc.) duplicate knowledge derivable from registry `TypeDef.operators`, `TypeDef.methods`, and `TypeDef.traits`
-- [ ] **LEAK:scattered-knowledge** `traits.rs:184-194` -- 3 compound-type trait arrays (`COLLECTION_TRAITS`, `WRAPPER_TRAITS`, `RESULT_TRAITS`) duplicate knowledge derivable from registry
-- [ ] **LEAK:scattered-knowledge** `traits.rs:202-218` -- Per-tag trait satisfaction (`Tag::List`, `Tag::Map`, `Tag::Option`, etc.) hardcoded instead of registry-driven
+- [x] **LEAK:scattered-knowledge** `traits.rs:16-141` -- 10 per-primitive `const` trait arrays (`INT_TRAITS`, `FLOAT_TRAITS`, etc.) duplicate knowledge derivable from registry `TypeDef.operators`, `TypeDef.methods`, and `TypeDef.traits`
+- [x] **LEAK:scattered-knowledge** `traits.rs:184-194` -- 3 compound-type trait arrays (`COLLECTION_TRAITS`, `WRAPPER_TRAITS`, `RESULT_TRAITS`) duplicate knowledge derivable from registry
+- [x] **LEAK:scattered-knowledge** `traits.rs:202-218` -- Per-tag trait satisfaction (`Tag::List`, `Tag::Map`, `Tag::Option`, etc.) hardcoded instead of registry-driven
 
 **Implementation steps (in order):**
 
-- [ ] **Design**: Define the operator-trait mapping used by `registry_satisfies_trait`. The mapping from `OpDefs` field to trait name is:
+- [x] **Design**: Define the operator-trait mapping used by `registry_satisfies_trait`. The mapping from `OpDefs` field to trait name is:
   - `add != Unsupported` => `"Add"` | `sub` => `"Sub"` | `mul` => `"Mul"` | `div` => `"Div"` | `floor_div` => `"FloorDiv"` | `rem` => `"Rem"`
   - `neg` => `"Neg"` | `not` => `"Not"`
   - `bit_and` => `"BitAnd"` | `bit_or` => `"BitOr"` | `bit_xor` => `"BitXor"` | `bit_not` => `"BitNot"` | `shl` => `"Shl"` | `shr` => `"Shr"`
   - `eq != Unsupported` => `"Eq"` (implies `!=` too) | `lt != Unsupported` => `"Comparable"` (all comparison operators share one trait)
   - **WHERE**: Add a `const fn op_trait_name(field_name: &str) -> Option<&str>` or a `const` lookup table in `registry_bridge/mod.rs`
   - **NOTE**: `"Comparable"` derives from `lt` (not from `eq`). `"Hashable"` derives from the `hash` method's `trait_name`, not from operators.
-- [ ] Add `registry_satisfies_trait(tag: TypeTag, trait_name: &str) -> bool` to `compiler/ori_types/src/infer/expr/registry_bridge/mod.rs`. The function combines four sources:
+- [x] Add `registry_satisfies_trait(tag: TypeTag, trait_name: &str) -> bool` to `compiler/ori_types/src/infer/expr/registry_bridge/mod.rs`. The function combines four sources:
   1. `OpDefs` fields for operator traits (using the mapping above)
   2. `MethodDef.trait_name` for method traits (scan methods, check if any has matching `trait_name`)
   3. `TypeDef.traits` for marker traits (`Default`, `Sendable`, `Iterator`, `DoubleEndedIterator`)
@@ -140,18 +140,24 @@ The `primitive_satisfies_trait()` function (lines 14-176) maintains 10 parallel 
     - Unit/Never have no `TypeDef` in the registry. Unit satisfies `Eq, Comparable, Hashable, Clone, Default, Debug` (per `traits.rs:102`). The bridge must hardcode this OR `Unit`/`Never` must get TypeDefs (preferred long-term but out of scope for this section).
     - Str appears as both a primitive (`Idx::STR`) and a compound tag (`Tag::Str` with `Iterable`). The bridge must check both the `STR` TypeDef and compound-level traits.
     - `"Debug"` trait: VERIFIED — all primitives and compound types have a `debug` method with `trait_name: Some("Debug")` in the registry. No special handling needed.
-- [ ] Add `registry_type_satisfies_trait(tag: Tag, trait_name: &str) -> Option<bool>` wrapper that calls `tag_to_type_tag` then `registry_satisfies_trait` -- returns `None` for non-registry types (Named, Applied, Var, etc.)
+- [x] Add `registry_type_satisfies_trait(tag: Tag, trait_name: &str) -> Option<bool>` wrapper that calls `tag_to_type_tag` then `registry_satisfies_trait` -- returns `None` for non-registry types (Named, Applied, Var, etc.)
   - **WHERE**: `compiler/ori_types/src/infer/expr/registry_bridge/mod.rs`
-- [ ] **Equivalence test (write FIRST, before replacing function bodies)**: Write in `compiler/ori_types/src/infer/expr/registry_bridge/tests.rs`. Iterate ALL TypeTag variants x all trait names from the old arrays (`INT_TRAITS`, `FLOAT_TRAITS`, ..., `RESULT_TRAITS`), assert `registry_satisfies_trait` returns the same result as the old function for every combination. This test must run BEFORE removing the old code -- verify it passes with both old and new paths to establish equivalence.
-  - **Matrix**: 20 TypeTags x ~27 trait names = ~540 combinations
-  - **Semantic pin**: at least one assertion per primitive type that captures the exact trait set (e.g., `assert!(registry_satisfies_trait(TypeTag::Int, "BitNot"))` and `assert!(!registry_satisfies_trait(TypeTag::Int, "Not"))`)
-  - **Negative pin**: at least one test per primitive type that verifies a trait the type does NOT satisfy (e.g., `assert!(!registry_satisfies_trait(TypeTag::Bool, "Add"))`) -- proves the bridge rejects unsupported traits, not just accepts supported ones
-- [ ] Replace `primitive_satisfies_trait()` body with registry bridge call. Keep the function signature stable (callers still use `Idx`-based API).
-- [ ] Replace `type_satisfies_trait()` body with registry bridge call. The `pool.tag(ty)` dispatch remains but delegates to the bridge instead of per-tag hardcoded arrays.
-- [ ] Delete the 13 `const` arrays (`INT_TRAITS`, `FLOAT_TRAITS`, ..., `RESULT_TRAITS`)
-- [ ] **STYLE**: Remove stale V1 references in `traits.rs` — line 7 "Mirrors V1's `primitive_implements_trait()` from `bound_checking.rs`" and line 15 "matching V1's const arrays" are references to a defunct codebase version. Replace with registry-referencing doc comments.
-- [ ] **STYLE**: Remove the `#[expect(clippy::too_many_lines)]` on `primitive_satisfies_trait` (line 10-13) — after the rewrite, the function should be well under 100 lines since it delegates to the bridge.
-- [ ] Run `timeout 150 cargo test -p ori_types` and `timeout 150 cargo test -p ori_types --release` to verify debug/release parity after replacement
+- [x] **Equivalence test (write FIRST, before replacing function bodies)**: Write in `compiler/ori_types/src/infer/expr/registry_bridge/tests.rs`. Iterate ALL TypeTag variants x all trait names from the old arrays (`INT_TRAITS`, `FLOAT_TRAITS`, ..., `RESULT_TRAITS`), assert `registry_satisfies_trait` returns the same result as the old function for every combination. This test must run BEFORE removing the old code -- verify it passes with both old and new paths to establish equivalence.
+  - **Matrix**: 23 TypeTags x 27 trait names = 621 combinations verified
+  - **Semantic pin**: positive pins per primitive type (BitNot on Int, Sendable on Duration, etc.)
+  - **Negative pin**: negative pins per primitive type (Not on Int, Add on Bool, Default on Char, etc.)
+- [x] Replace `primitive_satisfies_trait()` body with registry bridge call. Keep the function signature stable (callers still use `Idx`-based API).
+- [x] Replace `type_satisfies_trait()` body with registry bridge call. The `pool.tag(ty)` dispatch remains but delegates to the bridge instead of per-tag hardcoded arrays.
+- [x] Delete the 13 `const` arrays (`INT_TRAITS`, `FLOAT_TRAITS`, ..., `RESULT_TRAITS`)
+- [x] **STYLE**: Remove stale V1 references in `traits.rs` — line 7 "Mirrors V1's `primitive_implements_trait()` from `bound_checking.rs`" and line 15 "matching V1's const arrays" are references to a defunct codebase version. Replace with registry-referencing doc comments.
+- [x] **STYLE**: Remove the `#[expect(clippy::too_many_lines)]` on `primitive_satisfies_trait` (line 10-13) — after the rewrite, the function should be well under 100 lines since it delegates to the bridge.
+- [x] Run `timeout 150 cargo test -p ori_types` and `timeout 150 cargo test -p ori_types --release` to verify debug/release parity after replacement
+  - **Bonus fixes discovered during equivalence testing**:
+    - Fixed Float missing `Rem` in WellKnown bitfield table (trait_set.rs)
+    - Added `Printable` to `TypeDef.traits` for compound types (List, Map, Set, Option, Result, Tuple, Range) — these are printable via generic trait impls, not type-specific `to_str` methods
+    - Added `Comparable` to `TypeDef.traits` for Result and Tuple — comparison via generic lexicographic dispatch
+    - Added `Debug`, `Add`, `IsEmpty`, `Iterable` to compound type bitfields to match registry truth
+    - Updated well_known/tests.rs reference truth tables to match corrected trait sets
 
 ---
 

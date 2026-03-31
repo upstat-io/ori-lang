@@ -175,7 +175,7 @@ pub static MAP: TypeDef = TypeDef {
     type_params: TypeParamArity::Fixed(2),
     methods: MAP_METHODS,
     operators: OpDefs::UNSUPPORTED,
-    traits: &[],
+    traits: &["Printable"],
 };
 
 #[cfg(test)]

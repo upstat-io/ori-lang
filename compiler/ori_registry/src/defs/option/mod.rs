@@ -145,7 +145,7 @@ pub static OPTION: TypeDef = TypeDef {
     type_params: TypeParamArity::Fixed(1),
     methods: OPTION_METHODS,
     operators: OpDefs::UNSUPPORTED,
-    traits: &["Default"],
+    traits: &["Default", "Printable"],
 };
 
 #[cfg(test)]
