@@ -1,7 +1,7 @@
 ---
 plan: "hygiene-full"
 title: "Full Project Implementation Hygiene: Exhaustive Implementation Plan"
-status: not-started
+status: in-progress
 references:
   - ".claude/rules/impl-hygiene.md"
   - ".claude/rules/registry.md"
@@ -130,7 +130,7 @@ Phase 4 - Enforcement & cleanup
 
 | ID | Title | File | Status |
 |----|-------|------|--------|
-| 01 | Registry SSOT (Operator Dispatch) | `section-01-registry-operator-dispatch.md` | Not Started |
+| 01 | Registry SSOT (Operator Dispatch) | `section-01-registry-operator-dispatch.md` | Complete |
 | 02 | Registry SSOT (Methods & Traits) | `section-02-registry-methods-traits.md` | Not Started |
 | 03 | Cross-Backend DRY (eval / LLVM) | `section-03-cross-backend-dry.md` | Not Started |
 | 04 | Named Constants | `section-04-named-constants.md` | Not Started |
