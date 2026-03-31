@@ -181,32 +181,44 @@ fn computed_returns_produce_structured_types() {
         "Iterator.flatten should return an Iterator"
     );
 
-    // Result.trace_entries — dispatches to the trace_entries branch (not generic fresh).
-    // Without an interner, trace_entries falls back to fresh_var. But we verify the
-    // dispatch path is taken by checking that OTHER Result methods (map, map_err)
-    // also produce fresh. The key test is that trace_entries DOESN'T return something
-    // unexpected (like List when no interner is available, or ERROR).
+    // Result.trace_entries — must return [TraceEntry] (Tag::List with Named element).
+    // We set up a StringInterner so computed_trace_entries() takes the structured path
+    // instead of falling back to fresh_var(). This pins the exact return type and
+    // would detect deletion of the trace_entries branch in computed_returns.rs.
+    let interner = ori_ir::StringInterner::new();
+    engine.set_interner(&interner);
+
     let result_ok = engine.pool_mut().result(Idx::INT, Idx::STR);
     let trace_ret = resolve_computed_return(&mut engine, result_ok, Tag::Result, "trace_entries");
-    assert!(
-        engine.pool().tag(trace_ret) == Tag::List || engine.pool().tag(trace_ret) == Tag::Var,
-        "Result.trace_entries: got {:?}, expected List or Var",
-        engine.pool().tag(trace_ret)
+    assert_eq!(
+        engine.pool().tag(trace_ret),
+        Tag::List,
+        "Result.trace_entries must return [TraceEntry] (List), not a bare type variable"
+    );
+    // Verify the element is Named (i.e., TraceEntry, not a fresh var)
+    let trace_elem = engine.pool().list_elem(trace_ret);
+    assert_eq!(
+        engine.pool().tag(trace_elem),
+        Tag::Named,
+        "Result.trace_entries element must be Named (TraceEntry), not Var"
     );
 
-    // Error.trace_entries exercises the same branch
+    // Error.trace_entries exercises the same branch — must also return [TraceEntry]
     let error_ret = resolve_computed_return(&mut engine, Idx::ERROR, Tag::Error, "trace_entries");
-    assert!(
-        engine.pool().tag(error_ret) == Tag::List || engine.pool().tag(error_ret) == Tag::Var,
-        "Error.trace_entries: got {:?}, expected List or Var",
-        engine.pool().tag(error_ret)
+    assert_eq!(
+        engine.pool().tag(error_ret),
+        Tag::List,
+        "Error.trace_entries must return [TraceEntry] (List), not a bare type variable"
+    );
+    let error_trace_elem = engine.pool().list_elem(error_ret);
+    assert_eq!(
+        engine.pool().tag(error_trace_elem),
+        Tag::Named,
+        "Error.trace_entries element must be Named (TraceEntry), not Var"
     );
 
-    // Verify trace_entries dispatch is DIFFERENT from unhandled methods:
-    // "map" on Result should always be Var (no computed return).
-    // "trace_entries" should be Var OR List — but if we deleted the trace_entries
-    // branch, both would be Var. So we also test that the trace_entries branch
-    // doesn't affect the unhandled fallback, proving the dispatch IS reached.
+    // Verify unhandled methods still produce fresh Var — proves trace_entries
+    // dispatch is reached (not a no-op that returns fresh for everything).
     let other_ret = resolve_computed_return(&mut engine, result_ok, Tag::Result, "unhandled_xyz");
     assert_eq!(
         engine.pool().tag(other_ret),
