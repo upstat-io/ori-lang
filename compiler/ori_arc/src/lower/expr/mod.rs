@@ -407,6 +407,13 @@ impl ArcLowerer<'_> {
         ty: Idx,
         span: Span,
     ) -> ArcVarId {
+        // BUG-04-009: Coalesce (??) requires lazy RHS evaluation — the RHS
+        // must only be evaluated if the LHS is None/Err. Eager evaluation
+        // would trigger panics/side-effects unconditionally.
+        if op == ori_ir::BinaryOp::Coalesce {
+            return self.lower_coalesce(left, right, ty, span);
+        }
+
         let lhs = self.lower_expr(left);
         let rhs = self.lower_expr(right);
         self.builder.emit_let(
@@ -417,6 +424,67 @@ impl ArcLowerer<'_> {
             },
             Some(span),
         )
+    }
+
+    /// Lower `lhs ?? rhs` with lazy RHS evaluation.
+    ///
+    /// Generates: extract tag from LHS → branch on tag == 0 (Some/Ok) →
+    /// then: extract payload → merge; else: evaluate RHS → merge.
+    fn lower_coalesce(&mut self, left: CanId, right: CanId, ty: Idx, span: Span) -> ArcVarId {
+        let lhs = self.lower_expr(left);
+
+        // Extract tag (field 0) and compare to 0 (Some/Ok).
+        let tag = self.builder.emit_project(Idx::INT, lhs, 0, Some(span));
+        let zero = self
+            .builder
+            .emit_let(Idx::INT, ArcValue::Literal(LitValue::Int(0)), Some(span));
+        let is_some = self.builder.emit_let(
+            Idx::BOOL,
+            ArcValue::PrimOp {
+                op: PrimOp::Binary(ori_ir::BinaryOp::Eq),
+                args: vec![tag, zero],
+            },
+            Some(span),
+        );
+
+        // Create blocks for the two branches + merge.
+        let some_block = self.builder.new_block();
+        let none_block = self.builder.new_block();
+        let merge_block = self.builder.new_block();
+        self.builder
+            .terminate_branch(is_some, some_block, none_block);
+
+        let pre_scope = self.scope.clone();
+
+        // Some/Ok branch: extract payload (field 1).
+        self.builder.position_at(some_block);
+        self.scope = pre_scope.clone();
+        let payload = self.builder.emit_project(ty, lhs, 1, Some(span));
+        let some_terminated = self.builder.is_terminated();
+        let some_exit = self.builder.current_block();
+
+        // None/Err branch: evaluate RHS lazily.
+        self.builder.position_at(none_block);
+        self.scope = pre_scope.clone();
+        let rhs_val = self.lower_expr(right);
+        let none_terminated = self.builder.is_terminated();
+        let none_exit = self.builder.current_block();
+
+        // Merge block with result parameter.
+        let result_param = self.builder.add_block_param(merge_block, ty);
+
+        if !some_terminated {
+            self.builder.position_at(some_exit);
+            self.builder.terminate_jump(merge_block, vec![payload]);
+        }
+        if !none_terminated {
+            self.builder.position_at(none_exit);
+            self.builder.terminate_jump(merge_block, vec![rhs_val]);
+        }
+
+        self.builder.position_at(merge_block);
+        self.scope = pre_scope;
+        result_param
     }
 
     fn lower_unary(
