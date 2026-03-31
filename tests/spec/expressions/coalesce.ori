@@ -558,3 +558,24 @@ use std.testing { assert, assert_eq }
     // Then a ?? Option<int> = Option<int> (chain)
     a ?? b ?? c
 }
+
+// =============================================================================
+// Negative Tests (compile_fail pins)
+// =============================================================================
+
+// Negative pin: ?? requires Option or Result on the LHS
+#compile_fail("expected an Option type")
+@test_coalesce_non_option tests _ () -> void = {
+    let x = 42;
+    let result = x ?? 0;
+    result
+}
+
+// Negative pin: mismatched wrapper types should produce a type error
+#compile_fail("type mismatch")
+@test_coalesce_option_vs_result tests _ () -> void = {
+    let a: Option<int> = Some(1);
+    let b: Result<int, str> = Ok(2);
+    let c = a ?? b;
+    c
+}
