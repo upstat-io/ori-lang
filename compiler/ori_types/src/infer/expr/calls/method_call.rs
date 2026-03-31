@@ -350,10 +350,20 @@ fn resolve_receiver_and_builtin(
         }
     }
 
-    // 1c. Reject iteration methods on Range<float>
-    if let Some(err) = check_range_float_iteration(engine, resolved, tag, method_str, span) {
+    // 1c. Reject ALL methods on Range<float> — the evaluator only supports integer ranges.
+    // Float range creation (0.0..10.0) passes type checking but fails at runtime (E6099),
+    // so methods must be rejected early. Iteration methods get a specific diagnostic;
+    // other methods get the generic "no such method" error from the fallthrough.
+    if tag == Tag::Range && engine.pool().range_elem(resolved) == Idx::FLOAT {
+        if let Some(err) = check_range_float_iteration(engine, resolved, tag, method_str, span) {
+            return ReceiverDispatch::Return {
+                ret_ty: err,
+                receiver_ty: resolved,
+            };
+        }
+        // Non-iteration methods: return error immediately instead of falling through
         return ReceiverDispatch::Return {
-            ret_ty: err,
+            ret_ty: Idx::ERROR,
             receiver_ty: resolved,
         };
     }
