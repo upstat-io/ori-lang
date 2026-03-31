@@ -13,7 +13,7 @@
 ## Keyword Clusters by Section
 
 ### Section 01: Registry as Universal SSOT (Operator Dispatch)
-**File:** `section-01-registry-operator-dispatch.md` | **Status:** Not Started
+**File:** `section-01-registry-operator-dispatch.md` | **Status:** Complete
 
 ```
 OpDefs, OpStrategy, BinaryOp, UnaryOp, operator dispatch, infer_binary
@@ -31,8 +31,11 @@ bitwise, arithmetic, comparison, negation, BitNot, Not
 ```
 primitive_satisfies_trait, type_satisfies_trait, trait satisfaction
 INT_TRAITS, FLOAT_TRAITS, BOOL_TRAITS, STR_TRAITS, hardcoded arrays
+WellKnownNames, TraitSet, build_prim_trait_sets, build_compound_trait_sets
+trait_set.rs, well_known/mod.rs, bitfield trait satisfaction
 infer_ident, builtin identifiers, hash_combine, repeat
-WellKnownNames, named type methods, DEI propagation
+named type methods, DEI propagation, constraints.rs dual-path
+TypeDef.traits, marker traits, Default, Sendable, Formattable
 ori_types, ori_registry, SSOT, scattered knowledge
 ```
 
