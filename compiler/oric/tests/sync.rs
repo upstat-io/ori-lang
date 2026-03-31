@@ -17,5 +17,7 @@
 //! cargo test -p oric --test sync
 //! ```
 
+#[path = "sync/prelude_functions.rs"]
+mod prelude_functions;
 #[path = "sync/prelude_traits.rs"]
 mod prelude_traits;
