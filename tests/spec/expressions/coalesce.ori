@@ -1,12 +1,9 @@
 // Spec: 09-expressions.md § Binary Expressions (??), § Short-Circuit Evaluation
 // Tests for the null coalescing operator ??
 //
-// STATUS: Lexer [OK], Parser [OK], Evaluator [PARTIAL]
-// The ?? operator is implemented in ori_eval/src/interpreter/mod.rs with short-circuit.
-// 26/31 tests pass. Remaining failures:
-// - 3 chaining tests: `a ?? b ?? c` with Option variables needs type info to avoid
-//   unwrapping intermediate values. Workaround: use .unwrap_or() or .or() chains.
-// - 2 map tests: depend on map lookup returning Option<V> (Section 23.3.1).
+// Covers: COALESCE-UNWRAP, COALESCE-CHAIN, COALESCE-RESULT-UNWRAP,
+//         COALESCE-RESULT-CHAIN, COALESCE-NEVER-LEFT, COALESCE-NEVER-RIGHT
+//         (see operator-rules.md §Coalesce)
 
 use std.testing { assert, assert_eq }
 
