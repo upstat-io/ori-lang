@@ -393,3 +393,192 @@ fn iterator_of_tuple_int_element_on_iterator() {
         assert_eq!(pair_elems, &[Idx::INT, Idx::STR]);
     });
 }
+
+// ── binary_op_strategy: semantic pin tests ──
+// These verify that the registry bridge correctly maps BinaryOp to OpDefs
+// for each primitive type. This is the permanent guard that ensures the
+// type checker's registry-based validation matches expected behavior.
+
+use ori_ir::BinaryOp;
+use ori_registry::OpStrategy;
+
+use super::{binary_op_strategy, is_binary_op_supported};
+
+/// Int supports all arithmetic and bitwise operators.
+#[test]
+fn int_arithmetic_ops_supported() {
+    let arithmetic = [
+        BinaryOp::Add,
+        BinaryOp::Sub,
+        BinaryOp::Mul,
+        BinaryOp::Div,
+        BinaryOp::Mod,
+        BinaryOp::FloorDiv,
+    ];
+    for op in arithmetic {
+        assert_eq!(
+            is_binary_op_supported(Tag::Int, op),
+            Some(true),
+            "int should support {op:?}",
+        );
+    }
+}
+
+/// Int supports all bitwise operators.
+#[test]
+fn int_bitwise_ops_supported() {
+    let bitwise = [
+        BinaryOp::BitAnd,
+        BinaryOp::BitOr,
+        BinaryOp::BitXor,
+        BinaryOp::Shl,
+        BinaryOp::Shr,
+    ];
+    for op in bitwise {
+        assert_eq!(
+            is_binary_op_supported(Tag::Int, op),
+            Some(true),
+            "int should support {op:?}",
+        );
+    }
+}
+
+/// Float supports arithmetic but not bitwise.
+#[test]
+fn float_arithmetic_supported_bitwise_not() {
+    assert_eq!(
+        is_binary_op_supported(Tag::Float, BinaryOp::Add),
+        Some(true)
+    );
+    assert_eq!(
+        is_binary_op_supported(Tag::Float, BinaryOp::BitAnd),
+        Some(false)
+    );
+    assert_eq!(
+        is_binary_op_supported(Tag::Float, BinaryOp::Shl),
+        Some(false)
+    );
+}
+
+/// Bool does NOT support arithmetic.
+#[test]
+fn bool_arithmetic_not_supported() {
+    assert_eq!(
+        is_binary_op_supported(Tag::Bool, BinaryOp::Add),
+        Some(false)
+    );
+    assert_eq!(
+        is_binary_op_supported(Tag::Bool, BinaryOp::Sub),
+        Some(false)
+    );
+    assert_eq!(
+        is_binary_op_supported(Tag::Bool, BinaryOp::Mul),
+        Some(false)
+    );
+}
+
+/// Duration supports add/sub/mul/div/rem but NOT `floor_div`.
+#[test]
+fn duration_operator_support() {
+    assert_eq!(
+        is_binary_op_supported(Tag::Duration, BinaryOp::Add),
+        Some(true)
+    );
+    assert_eq!(
+        is_binary_op_supported(Tag::Duration, BinaryOp::Sub),
+        Some(true)
+    );
+    assert_eq!(
+        is_binary_op_supported(Tag::Duration, BinaryOp::Mul),
+        Some(true)
+    );
+    assert_eq!(
+        is_binary_op_supported(Tag::Duration, BinaryOp::FloorDiv),
+        Some(false)
+    );
+    assert_eq!(
+        is_binary_op_supported(Tag::Duration, BinaryOp::BitAnd),
+        Some(false)
+    );
+}
+
+/// Size supports add/sub/mul/div/rem but NOT neg or `floor_div`.
+#[test]
+fn size_operator_support() {
+    assert_eq!(is_binary_op_supported(Tag::Size, BinaryOp::Add), Some(true));
+    assert_eq!(is_binary_op_supported(Tag::Size, BinaryOp::Mul), Some(true));
+    assert_eq!(
+        is_binary_op_supported(Tag::Size, BinaryOp::FloorDiv),
+        Some(false)
+    );
+    assert_eq!(
+        is_binary_op_supported(Tag::Size, BinaryOp::BitAnd),
+        Some(false)
+    );
+}
+
+/// Str supports add (concatenation) but nothing else arithmetic.
+#[test]
+fn str_only_add_supported() {
+    assert_eq!(is_binary_op_supported(Tag::Str, BinaryOp::Add), Some(true));
+    assert_eq!(is_binary_op_supported(Tag::Str, BinaryOp::Sub), Some(false));
+    assert_eq!(is_binary_op_supported(Tag::Str, BinaryOp::Mul), Some(false));
+}
+
+/// List supports add (concatenation) but nothing else.
+#[test]
+fn list_only_add_supported() {
+    assert_eq!(is_binary_op_supported(Tag::List, BinaryOp::Add), Some(true));
+    assert_eq!(
+        is_binary_op_supported(Tag::List, BinaryOp::Sub),
+        Some(false)
+    );
+}
+
+/// `MatMul`, `And`, `Or`, `Range`, `Coalesce` return `None` (not tracked by `OpDefs`).
+#[test]
+fn non_opdefs_operators_return_none() {
+    let non_tracked = [
+        BinaryOp::MatMul,
+        BinaryOp::And,
+        BinaryOp::Or,
+        BinaryOp::Range,
+        BinaryOp::RangeInclusive,
+        BinaryOp::Coalesce,
+    ];
+    for op in non_tracked {
+        assert_eq!(
+            binary_op_strategy(Tag::Int, op),
+            None,
+            "{op:?} should not be tracked by OpDefs",
+        );
+    }
+}
+
+/// Non-builtin tags return None.
+#[test]
+fn non_builtin_tag_returns_none_for_ops() {
+    assert_eq!(is_binary_op_supported(Tag::Struct, BinaryOp::Add), None);
+    assert_eq!(is_binary_op_supported(Tag::Enum, BinaryOp::Eq), None);
+    assert_eq!(is_binary_op_supported(Tag::Named, BinaryOp::Sub), None);
+}
+
+/// Int add strategy is `IntInstr` (specific variant check).
+#[test]
+fn int_add_strategy_is_int_instr() {
+    assert_eq!(
+        binary_op_strategy(Tag::Int, BinaryOp::Add),
+        Some(OpStrategy::IntInstr)
+    );
+}
+
+/// Str add strategy is a `RuntimeCall` (specific variant check).
+#[test]
+fn str_add_strategy_is_runtime_call() {
+    match binary_op_strategy(Tag::Str, BinaryOp::Add) {
+        Some(OpStrategy::RuntimeCall { fn_name, .. }) => {
+            assert_eq!(fn_name, "ori_str_concat");
+        }
+        other => panic!("expected RuntimeCall, got {other:?}"),
+    }
+}

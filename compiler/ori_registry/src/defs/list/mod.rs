@@ -9,8 +9,8 @@
 //! to mutate in-place.
 
 use crate::{
-    MemoryStrategy, MethodDef, OpDefs, Ownership, ParamDef, ReturnTag, TypeDef, TypeParamArity,
-    TypeProjection, TypeTag, ONE_SELF_BORROW,
+    MemoryStrategy, MethodDef, OpDefs, OpStrategy, Ownership, ParamDef, ReturnTag, TypeDef,
+    TypeParamArity, TypeProjection, TypeTag, ONE_SELF_BORROW,
 };
 
 use super::params::{
@@ -124,7 +124,13 @@ pub static LIST: TypeDef = TypeDef {
     memory: MemoryStrategy::Arc,
     type_params: TypeParamArity::Fixed(1),
     methods: LIST_METHODS,
-    operators: OpDefs::UNSUPPORTED,
+    operators: OpDefs {
+        add: OpStrategy::RuntimeCall {
+            fn_name: "list_concat",
+            returns_bool: false,
+        },
+        ..OpDefs::UNSUPPORTED
+    },
 };
 
 #[cfg(test)]
