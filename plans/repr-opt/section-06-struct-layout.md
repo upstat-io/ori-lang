@@ -1,7 +1,7 @@
 ---
 section: "06"
 title: "Struct & Tuple Layout Optimization"
-status: complete
+status: in-progress
 reviewed: true
 goal: "Reorder struct fields for optimal alignment and minimal padding, then record the layout in ReprPlan for codegen"
 inspired_by:
@@ -27,9 +27,9 @@ sections:
     status: complete
   - id: "06.5"
     title: "Completion Checklist"
-    status: complete
+    status: in-progress
 third_party_review:
-  status: clean
+  status: resolved
   updated: 2026-03-30
 ---
 

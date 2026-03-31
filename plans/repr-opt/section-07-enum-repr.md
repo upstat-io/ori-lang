@@ -22,7 +22,7 @@ sections:
     status: in-progress
   - id: "07.2"
     title: "Niche Filling"
-    status: not-started
+    status: in-progress
   - id: "07.3"
     title: "Tagged Pointers"
     status: not-started
@@ -174,7 +174,7 @@ The discriminant (tag) should use the minimum width needed.
 
 - [x] Tag narrowed from i64 to i8 for USER-DEFINED enums with ≤256 variants via `resolve_enum()`. (2026-03-30)
 - [ ] **Option/Result tag narrowing** — Option/Result keep i64 tags for `ori_rt` runtime compatibility. <!-- blocked-by:07.5 "ori_rt Option/Result tag narrowing" item -->
-- [ ] For single-variant enums (newtypes), eliminate tag entirely (`EnumTag::None`) <!-- blocked-by:07.2 "Single-variant enum (newtype) erasure" item — same codegen path as niche (tagless layout) -->
+- [x] For single-variant enums (newtypes), eliminate tag entirely (`EnumTag::None`) — implemented in §07.2 (canonical_enum emits EnumTag::None when variants.len() == 1, resolve_enum_tagless omits tag field). (2026-03-31)
 - [x] Added `min_tag_width()` to `compiler/ori_repr/src/enum_repr.rs` with 7 boundary-value unit tests. (2026-03-30)
 - [x] `TagEncoding` abstraction implemented in `tag_access/mod.rs` (§07.0). Consumer migration used `const_int_matching` + `struct_field_type` + `const_int_for_struct_field` helpers instead of full TagAccess LLVM emission — simpler and equally correct. (2026-03-30)
 - [x] All 16 codegen consumers migrated from hardcoded `const_i64`/`type_i64` to narrowed tag types. Changes across 15 files: `construction.rs`, `instr_dispatch.rs`, `drop_enum.rs`, `rc_helpers.rs`, `variant_construction.rs`, `option_result.rs`, `compound_type_impls.rs`, `iterator_consumers.rs`, `list_builtins.rs`, `operators/strategy.rs`, `enum_eq.rs`, `enum_comparable.rs`, `enum_hashable.rs`, `abi/mod.rs`, `layout_resolver.rs`. Key helpers added: `IrBuilder::struct_field_type()`, `IrBuilder::const_int_for_struct_field()`, `IrBuilder::const_i16()`, `IrBuilder::i16_type()`. (2026-03-30)
