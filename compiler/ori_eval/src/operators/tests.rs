@@ -75,6 +75,26 @@ fn eval_bool_handles_all_registry_supported_ops() {
     check_type_ops(TypeTag::Bool, &Value::Bool(true), &Value::Bool(false));
 }
 
+/// Str: only `add` (concatenation) and comparison ops supported.
+#[test]
+fn eval_str_handles_all_registry_supported_ops() {
+    check_type_ops(
+        TypeTag::Str,
+        &Value::string("hello"),
+        &Value::string("world"),
+    );
+}
+
+/// Char: comparison ops only (no arithmetic).
+#[test]
+fn eval_char_handles_all_registry_supported_ops() {
+    check_type_ops(TypeTag::Char, &Value::Char('a'), &Value::Char('b'));
+}
+
+// NOTE: Byte binary operations are not yet implemented in the evaluator
+// (no `(Value::Byte, Value::Byte)` match arm in evaluate_binary).
+// Tracked as BUG-03-001. Test added when evaluator supports byte ops.
+
 /// Verify that the evaluator rejects operators the registry marks as unsupported
 /// for `int` (there should be very few — int supports almost everything).
 #[test]

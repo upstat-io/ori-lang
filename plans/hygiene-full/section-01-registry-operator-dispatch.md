@@ -36,7 +36,7 @@ sections:
 
 # Section 01: Registry as Universal SSOT (Operator Dispatch)
 
-**Status:** Not Started
+**Status:** Complete
 **Goal:** The type checker (`ori_types`) and evaluator (`ori_eval`) query `ori_registry` `OpDefs` for operator validity instead of maintaining three independent operator dispatch tables. After this section, changing which operators a type supports requires modifying only the registry.
 
 **Context:** The type checker's `infer_binary()` and `infer_unary()` in `compiler/ori_types/src/infer/expr/operators.rs` hardcode operator behavior per primitive type using inline `match` arms and tag checks. The registry already defines `OpDefs` with `OpStrategy` per operator per type (`compiler/ori_registry/src/operator/mod.rs`), but the type checker does not query it. This creates three independent sources of truth for operator validity: the registry, the type checker, and the evaluator.
