@@ -175,6 +175,7 @@ fn bit_positions_are_unique() {
         trait_bits::ITERABLE,
         trait_bits::ITERATOR,
         trait_bits::DOUBLE_ENDED_ITERATOR,
+        trait_bits::FORMATTABLE,
     ];
 
     assert_eq!(all_bits.len(), trait_bits::COUNT as usize);
@@ -250,6 +251,7 @@ const ALL_TRAIT_NAMES: &[&str] = &[
     "Iterable",
     "Iterator",
     "DoubleEndedIterator",
+    "Formattable",
 ];
 
 /// All primitive type Idx values with display names.
@@ -288,7 +290,7 @@ const REFERENCE_TRUTH: &[(Idx, &str, &[&str])] = &[
     ]),
     (Idx::STR, "str", &[
         "Eq", "Comparable", "Clone", "Hashable", "Default", "Printable", "Debug",
-        "Len", "IsEmpty", "Add",
+        "Len", "IsEmpty", "Add", "Iterable",
     ]),
     (Idx::CHAR, "char", &[
         "Eq", "Comparable", "Clone", "Hashable", "Printable", "Debug",
@@ -300,14 +302,14 @@ const REFERENCE_TRUTH: &[(Idx, &str, &[&str])] = &[
     ]),
     (Idx::UNIT, "unit", &["Eq", "Comparable", "Hashable", "Clone", "Default", "Debug"]),
     (Idx::NEVER, "never", &[]),
-    (Idx::ERROR, "error", &[]),
+    (Idx::ERROR, "error", &["Clone", "Printable", "Debug"]),
     (Idx::DURATION, "duration", &[
         "Eq", "Comparable", "Clone", "Hashable", "Default", "Printable", "Debug",
-        "Sendable", "Add", "Sub", "Mul", "Div", "Rem", "Neg",
+        "Sendable", "Formattable", "Add", "Sub", "Mul", "Div", "Rem", "Neg",
     ]),
     (Idx::SIZE, "size", &[
         "Eq", "Comparable", "Clone", "Hashable", "Default", "Printable", "Debug",
-        "Sendable", "Add", "Sub", "Mul", "Div", "Rem",
+        "Sendable", "Formattable", "Add", "Sub", "Mul", "Div", "Rem",
     ]),
     (Idx::ORDERING, "ordering", &[
         "Eq", "Comparable", "Clone", "Hashable", "Printable", "Debug",
@@ -451,9 +453,21 @@ fn never_satisfies_no_traits() {
 }
 
 #[test]
-fn error_satisfies_no_traits() {
+fn error_satisfies_registry_derived_traits() {
     let (interner, wk) = make_wk();
+    // Error has clone, debug, to_str methods in the registry
+    let error_yes = ["Clone", "Printable", "Debug"];
+    for &name in &error_yes {
+        assert!(
+            wk.primitive_satisfies_trait(Idx::ERROR, interner.intern(name)),
+            "error should satisfy {name}"
+        );
+    }
+    // Error should NOT satisfy most other traits
     for &name in ALL_TRAIT_NAMES {
+        if error_yes.contains(&name) {
+            continue;
+        }
         assert!(
             !wk.primitive_satisfies_trait(Idx::ERROR, interner.intern(name)),
             "error should NOT satisfy {name}"

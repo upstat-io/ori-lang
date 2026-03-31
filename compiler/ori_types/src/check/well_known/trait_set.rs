@@ -39,11 +39,51 @@ pub(super) mod trait_bits {
     pub const ITERABLE: u32 = 24;
     pub const ITERATOR: u32 = 25;
     pub const DOUBLE_ENDED_ITERATOR: u32 = 26;
-    // Room for 37 more traits before needing u128
+    pub const FORMATTABLE: u32 = 27;
 
     /// Total number of trait bits currently assigned.
     #[cfg(test)]
-    pub const COUNT: u32 = 27;
+    pub const COUNT: u32 = 28;
+}
+
+/// Map a trait name string to its bit position in [`TraitSet`].
+///
+/// Returns `None` for trait names that are not tracked in the bitfield system.
+/// This is the join point between registry string-based trait names and
+/// bitfield positions.
+pub(super) fn trait_name_to_bit(name: &str) -> Option<u32> {
+    use trait_bits as tb;
+    match name {
+        "Eq" => Some(tb::EQ),
+        "Comparable" => Some(tb::COMPARABLE),
+        "Clone" => Some(tb::CLONE),
+        "Hashable" => Some(tb::HASHABLE),
+        "Default" => Some(tb::DEFAULT),
+        "Printable" => Some(tb::PRINTABLE),
+        "Debug" => Some(tb::DEBUG),
+        "Sendable" => Some(tb::SENDABLE),
+        "Add" => Some(tb::ADD),
+        "Sub" => Some(tb::SUB),
+        "Mul" => Some(tb::MUL),
+        "Div" => Some(tb::DIV),
+        "FloorDiv" => Some(tb::FLOOR_DIV),
+        "Rem" => Some(tb::REM),
+        "Neg" => Some(tb::NEG),
+        "BitAnd" => Some(tb::BIT_AND),
+        "BitOr" => Some(tb::BIT_OR),
+        "BitXor" => Some(tb::BIT_XOR),
+        "BitNot" => Some(tb::BIT_NOT),
+        "Shl" => Some(tb::SHL),
+        "Shr" => Some(tb::SHR),
+        "Not" => Some(tb::NOT),
+        "Len" => Some(tb::LEN),
+        "IsEmpty" => Some(tb::IS_EMPTY),
+        "Iterable" => Some(tb::ITERABLE),
+        "Iterator" => Some(tb::ITERATOR),
+        "DoubleEndedIterator" => Some(tb::DOUBLE_ENDED_ITERATOR),
+        "Formattable" => Some(tb::FORMATTABLE),
+        _ => None,
+    }
 }
 
 /// A bitfield representing a set of well-known traits.
@@ -92,208 +132,150 @@ impl TraitSet {
     }
 }
 
-// ── Satisfaction table builders ─────────────────────────────────────
+// Satisfaction table builders — derived from ori_registry
+
+/// Derive a `TraitSet` from a registry `TypeDef`.
+///
+/// Combines three knowledge sources:
+/// 1. `OpDefs` fields → operator trait bits (Eq, Comparable, Add, etc.)
+/// 2. `MethodDef.trait_name` → method trait bits (Clone, Hashable, Len, etc.)
+/// 3. `TypeDef.traits` → marker trait bits (Default, Sendable, etc.)
+fn type_def_to_trait_set(type_def: &ori_registry::TypeDef) -> TraitSet {
+    use crate::infer::OP_TRAIT_MAP;
+    use ori_registry::OpStrategy;
+
+    let mut bits = Vec::new();
+    let ops = &type_def.operators;
+
+    // Operator traits: Eq from ops.eq, Comparable from ops.lt
+    if ops.eq != OpStrategy::Unsupported {
+        if let Some(b) = trait_name_to_bit("Eq") {
+            bits.push(b);
+        }
+    }
+    if ops.lt != OpStrategy::Unsupported {
+        if let Some(b) = trait_name_to_bit("Comparable") {
+            bits.push(b);
+        }
+    }
+
+    // Other operator traits via the shared mapping
+    for &(trait_name, accessor) in OP_TRAIT_MAP {
+        if accessor(ops) != OpStrategy::Unsupported {
+            if let Some(b) = trait_name_to_bit(trait_name) {
+                bits.push(b);
+            }
+        }
+    }
+
+    // Method traits
+    for method in type_def.methods {
+        if let Some(name) = method.trait_name {
+            if let Some(b) = trait_name_to_bit(name) {
+                bits.push(b);
+            }
+        }
+    }
+
+    // Marker traits from TypeDef.traits
+    for &name in type_def.traits {
+        if let Some(b) = trait_name_to_bit(name) {
+            bits.push(b);
+        }
+    }
+
+    TraitSet::from_bits(&bits)
+}
 
 /// Build pre-computed trait sets for all 12 primitive types.
 ///
+/// Derived from `ori_registry` `TypeDef` data. Each primitive's trait set
+/// is computed by scanning its operators, methods, and marker traits.
 /// Indexed by `Idx::raw()` (INT=0, FLOAT=1, ..., ORDERING=11).
 pub(super) fn build_prim_trait_sets() -> [TraitSet; Idx::PRIMITIVE_COUNT as usize] {
-    use trait_bits as tb;
+    use ori_registry::TypeTag;
+
+    // Map Idx positions to TypeTags for registry lookup
+    const PRIM_MAP: &[(usize, ori_registry::TypeTag)] = &[
+        (0, TypeTag::Int),
+        (1, TypeTag::Float),
+        (2, TypeTag::Bool),
+        (3, TypeTag::Str),
+        (4, TypeTag::Char),
+        (5, TypeTag::Byte),
+        // 6 = Unit (no TypeDef)
+        // 7 = Never (no TypeDef)
+        // 8 = Error — has TypeDef but skipped by old code (no standard traits)
+        (9, TypeTag::Duration),
+        (10, TypeTag::Size),
+        (11, TypeTag::Ordering),
+    ];
 
     let mut sets = [TraitSet::EMPTY; Idx::PRIMITIVE_COUNT as usize];
 
-    // Reusable trait bundles
-    let eq_cmp_clone_hash = TraitSet::from_bits(&[tb::EQ, tb::COMPARABLE, tb::CLONE, tb::HASHABLE]);
-    let print_debug = TraitSet::from_bits(&[tb::PRINTABLE, tb::DEBUG]);
-    let default = TraitSet::from_bits(&[tb::DEFAULT]);
-    let core_bundle = eq_cmp_clone_hash.union(print_debug);
+    for &(idx, type_tag) in PRIM_MAP {
+        if let Some(type_def) = ori_registry::find_type(type_tag) {
+            sets[idx] = type_def_to_trait_set(type_def);
+        }
+    }
 
-    // INT: core + default + arithmetic + bitwise
-    sets[Idx::INT.raw() as usize] = core_bundle.union(default).union(TraitSet::from_bits(&[
-        tb::ADD,
-        tb::SUB,
-        tb::MUL,
-        tb::DIV,
-        tb::FLOOR_DIV,
-        tb::REM,
-        tb::NEG,
-        tb::BIT_AND,
-        tb::BIT_OR,
-        tb::BIT_XOR,
-        tb::BIT_NOT,
-        tb::SHL,
-        tb::SHR,
-    ]));
+    // Error: has methods (clone, debug, to_str) but not standard primitive traits.
+    // Derive from registry like any other type.
+    if let Some(error_def) = ori_registry::find_type(TypeTag::Error) {
+        sets[Idx::ERROR.raw() as usize] = type_def_to_trait_set(error_def);
+    }
 
-    // FLOAT: core + default + basic arithmetic + rem (Spec: float supports %)
-    sets[Idx::FLOAT.raw() as usize] = core_bundle.union(default).union(TraitSet::from_bits(&[
-        tb::ADD,
-        tb::SUB,
-        tb::MUL,
-        tb::DIV,
-        tb::REM,
-        tb::NEG,
-    ]));
-
-    // BOOL: core + default + not
-    sets[Idx::BOOL.raw() as usize] = core_bundle
-        .union(default)
-        .union(TraitSet::from_bits(&[tb::NOT]));
-
-    // STR: core + default + len/is_empty/add
-    sets[Idx::STR.raw() as usize] =
-        core_bundle
-            .union(default)
-            .union(TraitSet::from_bits(&[tb::LEN, tb::IS_EMPTY, tb::ADD]));
-
-    // CHAR: eq + comparable + clone + hashable + printable + debug (no default)
-    sets[Idx::CHAR.raw() as usize] = core_bundle;
-
-    // BYTE: core (no default) + arithmetic + bitwise (no floor_div, no neg)
-    sets[Idx::BYTE.raw() as usize] = core_bundle.union(TraitSet::from_bits(&[
-        tb::ADD,
-        tb::SUB,
-        tb::MUL,
-        tb::DIV,
-        tb::REM,
-        tb::BIT_AND,
-        tb::BIT_OR,
-        tb::BIT_XOR,
-        tb::BIT_NOT,
-        tb::SHL,
-        tb::SHR,
-    ]));
-
-    // UNIT: eq + comparable + hashable + clone + default + debug
-    // void/() is trivially comparable (always Equal) and hashable (constant hash),
-    // matching Rust's () which implements Eq, Ord, and Hash.
+    // Unit: no TypeDef in the registry. Hardcode until Unit gets a TypeDef.
     sets[Idx::UNIT.raw() as usize] = TraitSet::from_bits(&[
-        tb::EQ,
-        tb::COMPARABLE,
-        tb::HASHABLE,
-        tb::CLONE,
-        tb::DEFAULT,
-        tb::DEBUG,
+        trait_bits::EQ,
+        trait_bits::COMPARABLE,
+        trait_bits::HASHABLE,
+        trait_bits::CLONE,
+        trait_bits::DEFAULT,
+        trait_bits::DEBUG,
     ]);
 
-    // NEVER: no traits (index 7) — stays EMPTY
-
-    // ERROR: no traits (index 8) — stays EMPTY
-
-    // DURATION: core + default + sendable + arithmetic (no floor_div, no bitwise)
-    sets[Idx::DURATION.raw() as usize] = core_bundle.union(default).union(TraitSet::from_bits(&[
-        tb::SENDABLE,
-        tb::ADD,
-        tb::SUB,
-        tb::MUL,
-        tb::DIV,
-        tb::REM,
-        tb::NEG,
-    ]));
-
-    // SIZE: core + default + sendable + arithmetic (no neg, no floor_div, no bitwise)
-    sets[Idx::SIZE.raw() as usize] = core_bundle.union(default).union(TraitSet::from_bits(&[
-        tb::SENDABLE,
-        tb::ADD,
-        tb::SUB,
-        tb::MUL,
-        tb::DIV,
-        tb::REM,
-    ]));
-
-    // ORDERING: eq + comparable + clone + hashable + printable + debug (no default)
-    sets[Idx::ORDERING.raw() as usize] = core_bundle;
+    // Never: no traits — stays EMPTY
 
     sets
 }
 
 /// Build pre-computed trait sets for compound types.
 ///
-/// Returns one `TraitSet` per compound type category: List, Map/Set,
-/// Option, Result, Tuple, Range, Str (compound), `DoubleEndedIterator`, Iterator.
+/// Derived from `ori_registry` `TypeDef` data. Returns one `TraitSet`
+/// per compound type category.
 pub(super) fn build_compound_trait_sets() -> (
     TraitSet, // list
-    TraitSet, // map/set
+    TraitSet, // map_set
     TraitSet, // option
     TraitSet, // result
     TraitSet, // tuple
     TraitSet, // range
-    TraitSet, // str (compound-level: Iterable)
+    TraitSet, // str (compound-level: Iterable only)
     TraitSet, // DoubleEndedIterator
     TraitSet, // Iterator
 ) {
-    use trait_bits as tb;
+    use ori_registry::TypeTag;
 
-    // List: eq, comparable, clone, hashable, printable, debug, add, len, is_empty, iterable
-    let list = TraitSet::from_bits(&[
-        tb::EQ,
-        tb::COMPARABLE,
-        tb::CLONE,
-        tb::HASHABLE,
-        tb::PRINTABLE,
-        tb::DEBUG,
-        tb::ADD,
-        tb::LEN,
-        tb::IS_EMPTY,
-        tb::ITERABLE,
-    ]);
+    let derive = |tag: TypeTag| -> TraitSet {
+        ori_registry::find_type(tag).map_or(TraitSet::EMPTY, type_def_to_trait_set)
+    };
 
-    // Map/Set: eq, clone, hashable, printable, debug, len, is_empty, iterable
-    let map_set = TraitSet::from_bits(&[
-        tb::EQ,
-        tb::CLONE,
-        tb::HASHABLE,
-        tb::PRINTABLE,
-        tb::DEBUG,
-        tb::LEN,
-        tb::IS_EMPTY,
-        tb::ITERABLE,
-    ]);
+    let list = derive(TypeTag::List);
+    let map_set = derive(TypeTag::Map); // Map and Set share traits
+    let option = derive(TypeTag::Option);
+    let result = derive(TypeTag::Result);
+    let tuple = derive(TypeTag::Tuple);
+    let range = derive(TypeTag::Range);
 
-    // Option: eq, comparable, clone, hashable, printable, default, debug, iterable
-    let option = TraitSet::from_bits(&[
-        tb::EQ,
-        tb::COMPARABLE,
-        tb::CLONE,
-        tb::HASHABLE,
-        tb::PRINTABLE,
-        tb::DEFAULT,
-        tb::DEBUG,
-        tb::ITERABLE,
-    ]);
+    // Str compound-level: only Iterable (primitive str handles the rest).
+    // The full STR TypeDef traits are in prim_trait_sets; here we add
+    // compound-level traits that the Tag::Str dispatch path checks.
+    let str_compound = TraitSet::from_bits(&[trait_bits::ITERABLE]);
 
-    // Result: eq, comparable, clone, hashable, printable, debug
-    let result = TraitSet::from_bits(&[
-        tb::EQ,
-        tb::COMPARABLE,
-        tb::CLONE,
-        tb::HASHABLE,
-        tb::PRINTABLE,
-        tb::DEBUG,
-    ]);
-
-    // Tuple: eq, comparable, clone, hashable, printable, debug, len
-    let tuple = TraitSet::from_bits(&[
-        tb::EQ,
-        tb::COMPARABLE,
-        tb::CLONE,
-        tb::HASHABLE,
-        tb::PRINTABLE,
-        tb::DEBUG,
-        tb::LEN,
-    ]);
-
-    // Range: printable, len, is_empty, iterable
-    let range = TraitSet::from_bits(&[tb::PRINTABLE, tb::LEN, tb::IS_EMPTY, tb::ITERABLE]);
-
-    // Str (compound-level): iterable only (primitive str already handles the rest)
-    let str_compound = TraitSet::from_bits(&[tb::ITERABLE]);
-
-    // DoubleEndedIterator: iterator + double_ended_iterator
-    let dei = TraitSet::from_bits(&[tb::ITERATOR, tb::DOUBLE_ENDED_ITERATOR]);
-
-    // Iterator: iterator
-    let iterator_compound = TraitSet::from_bits(&[tb::ITERATOR]);
+    // DoubleEndedIterator: inherits Iterator's traits + DoubleEndedIterator
+    let iterator = derive(TypeTag::Iterator);
+    let dei = iterator.union(TraitSet::from_bits(&[trait_bits::DOUBLE_ENDED_ITERATOR]));
 
     (
         list,
@@ -304,6 +286,6 @@ pub(super) fn build_compound_trait_sets() -> (
         range,
         str_compound,
         dei,
-        iterator_compound,
+        iterator,
     )
 }

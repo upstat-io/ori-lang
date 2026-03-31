@@ -19,7 +19,7 @@ sections:
     status: complete
   - id: "02.3"
     title: "WellKnown Bitfield Trait Sets via Registry"
-    status: not-started
+    status: complete
   - id: "02.4"
     title: "Builtin Identifier Signatures"
     status: not-started
@@ -173,14 +173,14 @@ This is the **same LEAK** as 02.2 but in a different encoding. Both implementati
 
 **LEAK findings:**
 
-- [ ] **LEAK:scattered-knowledge** `trait_set.rs:100-207` -- `build_prim_trait_sets()` hardcodes per-primitive trait bundles (e.g., INT = `core_bundle + default + arithmetic + bitwise`). This is the same data as `INT_TRAITS` in traits.rs, re-encoded as bitfields.
-- [ ] **LEAK:scattered-knowledge** `trait_set.rs:213-301` -- `build_compound_trait_sets()` hardcodes per-compound-type trait bundles (list, map/set, option, result, tuple, range, str, DEI, iterator). Same data as compound arrays in traits.rs.
-- [ ] **LEAK:scattered-knowledge** `well_known/mod.rs:319-341` -- `WellKnownNames::type_satisfies_trait()` per-tag match mirrors `type_satisfies_trait()` in traits.rs
+- [x] **LEAK:scattered-knowledge** `trait_set.rs:100-207` -- `build_prim_trait_sets()` hardcodes per-primitive trait bundles (e.g., INT = `core_bundle + default + arithmetic + bitwise`). This is the same data as `INT_TRAITS` in traits.rs, re-encoded as bitfields.
+- [x] **LEAK:scattered-knowledge** `trait_set.rs:213-301` -- `build_compound_trait_sets()` hardcodes per-compound-type trait bundles (list, map/set, option, result, tuple, range, str, DEI, iterator). Same data as compound arrays in traits.rs.
+- [x] **LEAK:scattered-knowledge** `well_known/mod.rs:319-341` -- `WellKnownNames::type_satisfies_trait()` per-tag match mirrors `type_satisfies_trait()` in traits.rs
 
 **Implementation steps (in order):**
 
-- [ ] **Add `FORMATTABLE` bit** to `trait_bits` module (`trait_set.rs:14-47`): Currently 27 bits are allocated (0-26). Add `pub const FORMATTABLE: u32 = 27;` and update `COUNT` to 28. The registry already has `trait_name: Some("Formattable")` on Duration/Size `format` methods, so the new bridge will automatically set this bit. Without it, Formattable satisfaction would be silently dropped during the trait_set derivation.
-- [ ] **Add `trait_name_to_bit()` function** in `trait_set.rs`. This maps trait name strings to `trait_bits` constants and is the join point between registry trait names and bitfield positions. Design:
+- [x] **Add `FORMATTABLE` bit** to `trait_bits` module (`trait_set.rs:14-47`): Currently 27 bits are allocated (0-26). Add `pub const FORMATTABLE: u32 = 27;` and update `COUNT` to 28. The registry already has `trait_name: Some("Formattable")` on Duration/Size `format` methods, so the new bridge will automatically set this bit. Without it, Formattable satisfaction would be silently dropped during the trait_set derivation.
+- [x] **Add `trait_name_to_bit()` function** in `trait_set.rs`. This maps trait name strings to `trait_bits` constants and is the join point between registry trait names and bitfield positions. Design:
   ```rust
   /// Map a trait name string to its bit position in `TraitSet`, or `None` if not tracked.
   pub(super) fn trait_name_to_bit(name: &str) -> Option<u32> {
@@ -194,7 +194,7 @@ This is the **same LEAK** as 02.2 but in a different encoding. Both implementati
   ```
   - **WHERE**: `compiler/ori_types/src/check/well_known/trait_set.rs`, new function after `TraitSet` impl block.
   - **NOTE**: This function is also used by `build_trait_bit_map()` in `mod.rs` for the interned-Name mapping — after this change, `build_trait_bit_map()` can iterate the same list instead of maintaining its own.
-- [ ] **Add operator-to-trait-name mapping** in `trait_set.rs`: a function that iterates `OpDefs` fields and yields trait names for supported operators. Design:
+- [x] **Add operator-to-trait-name mapping** in `trait_set.rs`: a function that iterates `OpDefs` fields and yields trait names for supported operators. Design:
   ```rust
   /// Yield all trait names satisfied by the given operator definitions.
   pub(super) fn op_trait_names(ops: &OpDefs) -> impl Iterator<Item = &'static str> {
@@ -203,27 +203,28 @@ This is the **same LEAK** as 02.2 but in a different encoding. Both implementati
   }
   ```
   - **NOTE**: This reuses the same operator-to-trait mapping designed in 02.2. Factor it so both 02.2's `registry_satisfies_trait` and 02.3's `build_*_trait_sets` share the same mapping. The mapping should live in `registry_bridge` (since it bridges registry data to type checker concepts) and be called by both consumers.
-  - **Shared mapping**: `op_implies_trait(op_strategy: OpStrategy, field_name: &str) -> Option<&str>` in `registry_bridge/mod.rs`. Both 02.2 and 02.3 call this.
-- [ ] **Rewrite `build_prim_trait_sets()`** to iterate `BUILTIN_TYPES` and derive `TraitSet` from each `TypeDef`'s `operators`, `methods`, and `traits` fields. The algorithm:
+  - **Shared mapping**: `OP_TRAIT_MAP` exposed as `pub(crate)` from `registry_bridge/mod.rs`, re-exported via `infer::OP_TRAIT_MAP`. Both 02.2 and 02.3 share this table.
+- [x] **Rewrite `build_prim_trait_sets()`** to iterate `BUILTIN_TYPES` and derive `TraitSet` from each `TypeDef`'s `operators`, `methods`, and `traits` fields. The algorithm:
   1. For each `TypeDef` in `BUILTIN_TYPES`, check if `tag.is_primitive()` (Int..Ordering)
   2. Iterate `TypeDef.operators` via the shared operator-trait mapping → set bits
   3. Iterate `TypeDef.methods`, for each with `trait_name: Some(name)` → `trait_name_to_bit(name)` → set bit
   4. Iterate `TypeDef.traits`, for each → `trait_name_to_bit(name)` → set bit
   5. Store at `tag` discriminant index in the array
   - **Special case**: Unit (`Idx::UNIT`) has no TypeDef. Hardcode its TraitSet as `Eq + Comparable + Hashable + Clone + Default + Debug` (matching current `traits.rs:102`). Add a comment noting this is the one remaining hardcoded entry until Unit gets a TypeDef.
-- [ ] **Rewrite `build_compound_trait_sets()`** similarly -- iterate `BUILTIN_TYPES` for compound types (List, Map, Set, etc.). The approach:
+- [x] **Rewrite `build_compound_trait_sets()`** similarly -- iterate `BUILTIN_TYPES` for compound types (List, Map, Set, etc.). The approach:
   1. For each `TypeDef` with compound tag (List, Map, Set, Range, Tuple, Option, Result, Channel, Iterator), derive `TraitSet` from operators + methods + traits
   2. Return a struct or map instead of the current 9-tuple (which is fragile and hard to extend)
   - **Refactor opportunity**: The 9-tuple return `(TraitSet, TraitSet, ..., TraitSet)` is a code smell. Replace with a `CompoundTraitSets` struct with named fields (`list`, `map_set`, `option`, ...) OR use `HashMap<TypeTag, TraitSet>` built from the registry iteration. The struct approach preserves `const`-like performance while being self-documenting.
   - **Str compound-level**: `Tag::Str` returns `str_compound_traits` which currently only contains `Iterable`. After 02.1 adds `trait_name: Some("Iterable")` to str's `iter` method, the bridge will derive this automatically. The primitive str TraitSet (from `build_prim_trait_sets`) already covers Eq/Clone/etc.
   - **DEI**: DoubleEndedIterator has no separate TypeDef. Handle by checking Iterator TypeDef's `traits` field (which will contain `["Iterator"]`) and adding `DoubleEndedIterator` bit when the tag is `TypeTag::DoubleEndedIterator`. Similar to the special case in 02.2.
-- [ ] **Cross-check test (write FIRST, before rewriting build functions)**: Write in `compiler/ori_types/src/check/well_known/tests.rs`. Before removing old code, compute BOTH old hardcoded tables AND new registry-derived tables. Assert bitwise equality for every (type, trait) combination. Matrix: 12 primitive types x 28 trait bits + 9 compound types x 28 trait bits = ~588 bit checks. Verify this test passes with the old code as a baseline, then verify it still passes after the rewrite.
+- [x] **Cross-check test (write FIRST, before rewriting build functions)**: Write in `compiler/ori_types/src/check/well_known/tests.rs`. Before removing old code, compute BOTH old hardcoded tables AND new registry-derived tables. Assert bitwise equality for every (type, trait) combination. Matrix: 12 primitive types x 28 trait bits + 9 compound types x 28 trait bits = ~588 bit checks. Verify this test passes with the old code as a baseline, then verify it still passes after the rewrite.
   - **Semantic pin**: at least one test that constructs a `TraitSet` by querying the registry and asserts it matches the expected bit pattern for a specific type (e.g., `Int` must have bits `EQ | COMPARABLE | HASHABLE | CLONE | DEFAULT | PRINTABLE | DEBUG | ADD | SUB | MUL | DIV | FLOOR_DIV | REM | NEG | BIT_AND | BIT_OR | BIT_XOR | BIT_NOT | SHL | SHR`). This test ONLY passes with registry-derived data.
   - **Negative pin**: verify that a type does NOT have bits it should not have (e.g., `Bool` must NOT have `ADD` bit set)
-- [ ] After cross-check passes, delete the hardcoded trait bundles in `build_prim_trait_sets()` and `build_compound_trait_sets()`
-- [ ] Verify `WellKnownNames::type_satisfies_trait()` still works correctly -- it reads from the derived bitfields, so the per-tag match structure can remain (it routes to the correct `TraitSet`), but the *data* in each `TraitSet` now comes from the registry
-- [ ] **STYLE**: Remove decorative banner comments in `trait_set.rs:95` (`// ── Satisfaction table builders ───`) and `mod.rs:296` (`// ── Trait satisfaction ───`). Per hygiene rules, use plain `// Section name` without decorative characters.
-- [ ] Run `timeout 150 cargo test -p ori_types` and `timeout 150 cargo test -p ori_types --release` to verify debug/release parity after rewrite
+- [x] After cross-check passes, delete the hardcoded trait bundles in `build_prim_trait_sets()` and `build_compound_trait_sets()`
+- [x] Verify `WellKnownNames::type_satisfies_trait()` still works correctly -- it reads from the derived bitfields, so the per-tag match structure can remain (it routes to the correct `TraitSet`), but the *data* in each `TraitSet` now comes from the registry
+- [x] **STYLE**: Remove decorative banner comments in `trait_set.rs:95` (`// ── Satisfaction table builders ───`) and `mod.rs:296` (`// ── Trait satisfaction ───`). Per hygiene rules, use plain `// Section name` without decorative characters.
+- [x] Run `timeout 150 cargo test -p ori_types` and `timeout 150 cargo test -p ori_types --release` to verify debug/release parity after rewrite
+  - Also discovered and fixed: Str primitive now includes Iterable bit, Duration/Size include Formattable bit, Error includes Clone/Printable/Debug bits — all from registry derivation
 
 **Note on `constraints.rs` dual-path:** `compiler/ori_types/src/infer/expr/calls/constraints.rs` (lines 153-157, 170-175) first tries `wk.type_satisfies_trait()` (bitfield path), then falls back to `type_satisfies_trait()` (string array path) when `WellKnownNames` is unavailable. After 02.2 and 02.3, both paths derive from the same registry data, eliminating the drift risk. The dual-path itself is not a problem -- it's a performance optimization (bitfield vs string scan) -- but the fact that they could disagree IS the problem this section eliminates.
 

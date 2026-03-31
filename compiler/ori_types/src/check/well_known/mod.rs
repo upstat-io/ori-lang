@@ -75,7 +75,7 @@ pub(crate) struct WellKnownNames {
     pub self_kw: Name,
 
     // Trait satisfaction bitfields (pre-computed at construction)
-    trait_bit_map: [(Name, u32); 27],
+    trait_bit_map: [(Name, u32); 28],
     prim_trait_sets: [TraitSet; Idx::PRIMITIVE_COUNT as usize],
 
     // Compound type trait sets
@@ -90,8 +90,8 @@ pub(crate) struct WellKnownNames {
     iterator_compound_traits: TraitSet,
 }
 
-/// Intern all 27 trait names and build the Name → bit position map.
-fn build_trait_bit_map(interner: &StringInterner) -> ([(Name, u32); 27], Name, Name) {
+/// Intern all 28 trait names and build the Name → bit position map.
+fn build_trait_bit_map(interner: &StringInterner) -> ([(Name, u32); 28], Name, Name) {
     use trait_bits as tb;
 
     let hashable = interner.intern("Hashable");
@@ -128,6 +128,7 @@ fn build_trait_bit_map(interner: &StringInterner) -> ([(Name, u32); 27], Name, N
             interner.intern("DoubleEndedIterator"),
             tb::DOUBLE_ENDED_ITERATOR,
         ),
+        (interner.intern("Formattable"), tb::FORMATTABLE),
     ];
 
     (map, hashable, printable)
