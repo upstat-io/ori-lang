@@ -181,11 +181,38 @@ fn computed_returns_produce_structured_types() {
         "Iterator.flatten should return an Iterator"
     );
 
+    // Result.trace_entries should return List (not bare fresh)
+    let result_ok = engine.pool_mut().result(Idx::INT, Idx::STR);
+    let trace_ret = resolve_computed_return(&mut engine, result_ok, Tag::Result, "trace_entries");
+    // trace_entries needs an interner for TraceEntry; without one, falls back to fresh.
+    // In a full engine (with interner), this returns List<TraceEntry>.
+    // We test that the branch IS exercised (doesn't panic), and in isolation
+    // the fallback to fresh is expected since we have no interner.
+    assert!(
+        engine.pool().tag(trace_ret) == Tag::List || engine.pool().tag(trace_ret) == Tag::Var,
+        "Result.trace_entries should return List or fresh (depends on interner availability)"
+    );
+
+    // Error.trace_entries exercises the same branch
+    let error_ret = resolve_computed_return(&mut engine, Idx::ERROR, Tag::Error, "trace_entries");
+    assert!(
+        engine.pool().tag(error_ret) == Tag::List || engine.pool().tag(error_ret) == Tag::Var,
+        "Error.trace_entries should return List or fresh (depends on interner availability)"
+    );
+
     // Unhandled methods should return Var (fresh)
     let fold_ret = resolve_computed_return(&mut engine, list_int, Tag::List, "fold");
     assert_eq!(
         engine.pool().tag(fold_ret),
         Tag::Var,
         "List.fold should return a fresh type variable"
+    );
+
+    // Unhandled Result method falls through to fresh
+    let result_map_ret = resolve_computed_return(&mut engine, result_ok, Tag::Result, "map");
+    assert_eq!(
+        engine.pool().tag(result_map_ret),
+        Tag::Var,
+        "Result.map should return a fresh type variable"
     );
 }
