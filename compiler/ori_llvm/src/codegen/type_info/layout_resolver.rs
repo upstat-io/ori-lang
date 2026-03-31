@@ -320,6 +320,28 @@ impl<'a, 'll, 'tcx> TypeLayoutResolver<'a, 'll, 'tcx> {
             return self.scx.type_ptr().into();
         }
 
+        // §07.2: Check ReprPlan for niche/tagless encoding.
+        if let Some(ori_repr::MachineRepr::Enum(enum_repr)) =
+            self.repr_plan.and_then(|p| p.get_repr(idx))
+        {
+            match &enum_repr.tag {
+                ori_repr::EnumTag::None => {
+                    return self.resolve_enum_tagless(idx, variants);
+                }
+                ori_repr::EnumTag::Niche { .. } => {
+                    return self.resolve_enum_niche(idx, variants, enum_repr);
+                }
+                ori_repr::EnumTag::Explicit { .. } => {
+                    // Fall through to existing behavior.
+                }
+            }
+        }
+
+        self.resolve_enum_explicit(idx, variants)
+    }
+
+    /// Resolve enum with explicit tag: `{ tag, [M x i64] payload }`.
+    fn resolve_enum_explicit(&self, idx: Idx, variants: &[EnumVariantInfo]) -> BasicTypeEnum<'ll> {
         let name = self.type_name(idx, "Enum");
         let named_struct = self.scx.type_named_struct(&name);
         self.named_structs.borrow_mut().insert(idx, named_struct);
@@ -369,6 +391,112 @@ impl<'a, 'll, 'tcx> TypeLayoutResolver<'a, 'll, 'tcx> {
             let payload_ty = self.scx.type_i64().array_type(payload_i64_count as u32);
             self.scx
                 .set_struct_body(named_struct, &[tag_ty.into(), payload_ty.into()], false);
+        }
+
+        self.resolving.borrow_mut().remove(&idx);
+        named_struct.into()
+    }
+
+    /// Resolve single-variant enum (newtype erasure): no tag, struct IS the payload.
+    ///
+    /// §07.2: `EnumTag::None` means a single-variant enum. The LLVM type is
+    /// just the payload fields — no tag field at all.
+    fn resolve_enum_tagless(&self, idx: Idx, variants: &[EnumVariantInfo]) -> BasicTypeEnum<'ll> {
+        let name = self.type_name(idx, "Enum");
+        let named_struct = self.scx.type_named_struct(&name);
+        self.named_structs.borrow_mut().insert(idx, named_struct);
+        self.resolving.borrow_mut().insert(idx);
+
+        // Single variant — resolve its fields as the struct body.
+        let pool = self.store.pool();
+        if let Some(variant) = variants.first() {
+            let field_types: Vec<BasicTypeEnum<'ll>> = variant
+                .fields
+                .iter()
+                .filter(|&&f| {
+                    let resolved_f = pool.resolve_fully(f);
+                    let tag = pool.tag(resolved_f);
+                    !matches!(tag, Tag::Unit | Tag::Never)
+                })
+                .map(|&f| self.resolve(f))
+                .collect();
+
+            if field_types.is_empty() {
+                // Unit newtype — use i8 as a placeholder (ZST in Ori, but
+                // LLVM needs a non-empty struct for named types).
+                self.scx
+                    .set_struct_body(named_struct, &[self.scx.type_i8().into()], false);
+            } else {
+                self.scx.set_struct_body(named_struct, &field_types, false);
+            }
+        } else {
+            // Empty enum (no variants) — shouldn't happen, but handle gracefully.
+            self.scx
+                .set_struct_body(named_struct, &[self.scx.type_i8().into()], false);
+        }
+
+        self.resolving.borrow_mut().remove(&idx);
+        named_struct.into()
+    }
+
+    /// Resolve niche-encoded enum: no explicit tag field, payload IS the struct.
+    ///
+    /// §07.2: `EnumTag::Niche` means the discriminant is encoded in an invalid
+    /// bit pattern of a payload field. The LLVM type is the data variant's
+    /// payload (same layout as the inner type for simple cases like `Option<bool>`).
+    fn resolve_enum_niche(
+        &self,
+        idx: Idx,
+        variants: &[EnumVariantInfo],
+        enum_repr: &ori_repr::EnumRepr,
+    ) -> BasicTypeEnum<'ll> {
+        let name = self.type_name(idx, "Enum");
+        let named_struct = self.scx.type_named_struct(&name);
+        self.named_structs.borrow_mut().insert(idx, named_struct);
+        self.resolving.borrow_mut().insert(idx);
+
+        // Find the data variant (the non-niche variant with payload fields).
+        let niche_variant_idx = match &enum_repr.tag {
+            ori_repr::EnumTag::Niche {
+                niche_variant_idx, ..
+            } => *niche_variant_idx as usize,
+            _ => 0,
+        };
+
+        let pool = self.store.pool();
+        let data_variant = variants
+            .iter()
+            .enumerate()
+            .find(|(i, _)| *i != niche_variant_idx)
+            .map(|(_, v)| v);
+
+        if let Some(variant) = data_variant {
+            let field_types: Vec<BasicTypeEnum<'ll>> = variant
+                .fields
+                .iter()
+                .filter(|&&f| {
+                    let resolved_f = pool.resolve_fully(f);
+                    let tag = pool.tag(resolved_f);
+                    !matches!(tag, Tag::Unit | Tag::Never)
+                })
+                .map(|&f| self.resolve(f))
+                .collect();
+
+            if field_types.is_empty() {
+                // Niche on a unit type — use the niche field type directly.
+                self.scx
+                    .set_struct_body(named_struct, &[self.scx.type_i8().into()], false);
+            } else if field_types.len() == 1 {
+                // Single-field data variant (e.g., Option<bool> → i8).
+                self.scx.set_struct_body(named_struct, &field_types, false);
+            } else {
+                // Multi-field data variant — struct of all fields.
+                self.scx.set_struct_body(named_struct, &field_types, false);
+            }
+        } else {
+            // All variants are niche variants — shouldn't happen.
+            self.scx
+                .set_struct_body(named_struct, &[self.scx.type_i8().into()], false);
         }
 
         self.resolving.borrow_mut().remove(&idx);

@@ -169,6 +169,22 @@ pub(super) fn canonical_enum(
         .collect();
     let variants = variants?;
 
+    // §07.2: Single-variant enum (newtype erasure) — no tag needed.
+    if variants.len() == 1 {
+        let variant = &variants[0];
+        let (size, align) = if variant.size == 0 {
+            (1, 1) // Unit newtype: minimal size for LLVM struct
+        } else {
+            (variant.size, variant.alignment.max(1))
+        };
+        return Some(MachineRepr::Enum(EnumRepr {
+            tag: EnumTag::None,
+            variants,
+            size,
+            align,
+        }));
+    }
+
     let tag_width = min_tag_width(variants.len());
     let tag_size = tag_width.size_bytes();
     let max_payload = variants.iter().map(|v| v.size).max().unwrap_or(0);
