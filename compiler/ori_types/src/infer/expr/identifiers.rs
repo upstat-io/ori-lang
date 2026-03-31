@@ -55,33 +55,10 @@ pub(crate) fn infer_ident(engine: &mut InferEngine<'_>, name: Name, span: Span) 
             _ => {}
         }
 
-        // 4. Built-in conversion functions
-        let conversion_target = match s {
-            "int" => Some(Idx::INT),
-            "float" => Some(Idx::FLOAT),
-            "str" => Some(Idx::STR),
-            "byte" => Some(Idx::BYTE),
-            "bool" => Some(Idx::BOOL),
-            "char" => Some(Idx::CHAR),
-            _ => None,
-        };
-        if let Some(target) = conversion_target {
-            let t = engine.pool_mut().fresh_var();
-            return engine.pool_mut().function(&[t], target);
-        }
-
-        // 5a. Hash utility function
-        if s == "hash_combine" {
-            // hash_combine: (int, int) -> int
-            return engine.pool_mut().function(&[Idx::INT, Idx::INT], Idx::INT);
-        }
-
-        // 5b. Built-in iterator constructors
-        if s == "repeat" {
-            // repeat: (T) -> Iterator<T>
-            let t = engine.pool_mut().fresh_var();
-            let iter_t = engine.pool_mut().iterator(t);
-            return engine.pool_mut().function(&[t], iter_t);
+        // 4. Prelude free functions (conversion, hash_combine, repeat)
+        // Canonical signatures live in ori_registry::PRELUDE_FUNCTIONS.
+        if let Some(prelude_fn) = ori_registry::find_prelude_function(s) {
+            return prelude_function_to_idx(engine, prelude_fn);
         }
 
         // 6. Type names used as expression-level receivers for associated functions
@@ -330,4 +307,48 @@ pub(crate) fn find_similar_type_names(
 
     matches.sort_by(|a, b| a.1.cmp(&b.1).then_with(|| a.0.cmp(&b.0)));
     matches.into_iter().take(3).map(|(n, _)| n).collect()
+}
+
+/// Convert a `PreludeFunctionDef` to a Pool function type.
+///
+/// Handles generic parameters (`Fresh` → fresh type variable) and
+/// parameterized return types (`IteratorOf(Element)` → `Iterator<T>`
+/// using the first param's fresh var).
+fn prelude_function_to_idx(
+    engine: &mut InferEngine<'_>,
+    def: &ori_registry::PreludeFunctionDef,
+) -> Idx {
+    use ori_registry::ReturnTag;
+
+    // Build parameter types, tracking fresh vars for generic params
+    let mut param_types = Vec::with_capacity(def.params.len());
+    let mut first_fresh: Option<Idx> = None;
+
+    for param in def.params {
+        let ty = match param.ty {
+            ReturnTag::Fresh => {
+                let var = engine.pool_mut().fresh_var();
+                if first_fresh.is_none() {
+                    first_fresh = Some(var);
+                }
+                var
+            }
+            ReturnTag::Concrete(tag) => super::registry_bridge::type_tag_to_idx(tag),
+            _ => engine.pool_mut().fresh_var(),
+        };
+        param_types.push(ty);
+    }
+
+    // Build return type
+    let ret = match def.returns {
+        ReturnTag::Concrete(tag) => super::registry_bridge::type_tag_to_idx(tag),
+        ReturnTag::IteratorOf(_) => {
+            // For repeat: (T) -> Iterator<T>, use the first fresh var
+            let elem = first_fresh.unwrap_or_else(|| engine.pool_mut().fresh_var());
+            engine.pool_mut().iterator(elem)
+        }
+        _ => engine.pool_mut().fresh_var(),
+    };
+
+    engine.pool_mut().function(&param_types, ret)
 }
