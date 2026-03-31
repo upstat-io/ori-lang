@@ -1,7 +1,7 @@
 ---
 section: "02"
 title: "Registry as Universal SSOT (Methods & Traits)"
-status: not-started
+status: in-progress
 reviewed: true
 goal: "Type checker queries ori_registry for trait satisfaction and builtin method signatures instead of maintaining parallel hardcoded arrays"
 inspired_by:
@@ -13,7 +13,7 @@ third_party_review:
 sections:
   - id: "02.1"
     title: "Registry Trait Coverage Gaps"
-    status: not-started
+    status: complete
   - id: "02.2"
     title: "Trait Satisfaction via Registry (calls/traits.rs)"
     status: not-started
@@ -81,32 +81,32 @@ Before the bridge function can replace the hardcoded arrays and bitfield tables,
 
 **Step 1 — Add `traits` field to `TypeDef` (do this FIRST, before any per-type changes)**
 
-- [ ] Update `TypeDef` struct in `compiler/ori_registry/src/type_def/mod.rs`: add `pub traits: &'static [&'static str]` field after `operators`. Default `&[]` for types with no extra marker traits. This is a compile-time breaking change -- every `TypeDef` definition (`compiler/ori_registry/src/defs/{int,float,bool,char,byte,str,duration,size,ordering,error,list,map,set,range,tuple,option,result,channel,iterator}/mod.rs` or `.rs`) will need `traits: &[]` added. This is the correct enforcement mechanism (structural, not test-based).
+- [x] Update `TypeDef` struct in `compiler/ori_registry/src/type_def/mod.rs`: add `pub traits: &'static [&'static str]` field after `operators`. Default `&[]` for types with no extra marker traits. This is a compile-time breaking change -- every `TypeDef` definition (`compiler/ori_registry/src/defs/{int,float,bool,char,byte,str,duration,size,ordering,error,list,map,set,range,tuple,option,result,channel,iterator}/mod.rs` or `.rs`) will need `traits: &[]` added. This is the correct enforcement mechanism (structural, not test-based).
 
 **Step 2 — Fix `trait_name: None` on existing methods**
 
-- [ ] **Registry fix**: Set `trait_name: Some("Len")` on all `len` methods -- currently `None` in: `str.rs:190`, `list/mod.rs:90`, `map/mod.rs:128`, `set/mod.rs:83`, `range/mod.rs:65`, `tuple/mod.rs:55`, `channel/mod.rs:56` (7 types). Also update `length` alias methods in str, list, map, set to match.
+- [x] **Registry fix**: Set `trait_name: Some("Len")` on all `len` methods -- currently `None` in: `str.rs:190`, `list/mod.rs:90`, `map/mod.rs:128`, `set/mod.rs:83`, `range/mod.rs:65`, `tuple/mod.rs:55`, `channel/mod.rs:56` (7 types). Also update `length` alias methods in str, list, map, set to match.
   - **WHERE**: Each type's `METHODS` static array. For channel, update the `chan()` helper invocations to use explicit `MethodDef` construction (since `chan()` hardcodes `trait_name: None`) OR add a `trait_name` parameter to the `chan()` helper.
-- [ ] **Registry fix**: Set `trait_name: Some("IsEmpty")` on all `is_empty` methods -- currently `None` in: `str.rs:175`, `list/mod.rs:86`, `map/mod.rs:111`, `set/mod.rs:74`, `range/mod.rs:56`, `channel/mod.rs:55` (6 types).
+- [x] **Registry fix**: Set `trait_name: Some("IsEmpty")` on all `is_empty` methods -- currently `None` in: `str.rs:175`, `list/mod.rs:86`, `map/mod.rs:111`, `set/mod.rs:74`, `range/mod.rs:56`, `channel/mod.rs:55` (6 types).
   - **WHERE**: Same pattern as `len` above. Channel needs explicit construction or `chan()` helper update.
-- [ ] **Registry fix**: Set `trait_name: Some("Iterable")` on all `iter` methods -- currently `None` in: `str.rs:177-180`, `list/mod.rs:87`, `map/mod.rs:113-116`, `set/mod.rs:76-79`, `range/mod.rs:58-61`, `option/mod.rs:105-108` (6 types).
+- [x] **Registry fix**: Set `trait_name: Some("Iterable")` on all `iter` methods -- currently `None` in: `str.rs:177-180`, `list/mod.rs:87`, `map/mod.rs:113-116`, `set/mod.rs:76-79`, `range/mod.rs:58-61`, `option/mod.rs:105-108` (6 types).
   - **WHERE**: Same pattern. These methods use `MethodDef::compound()` or `MethodDef::primitive()` which take `trait_name` as the 4th parameter -- change `None` to `Some("Iterable")`.
-- [ ] **STYLE**: Channel's `chan()` helper (`channel/mod.rs:31-49`) hardcodes `trait_name: None` for ALL methods. After adding trait names to `len`/`is_empty`, either: (a) add a `trait_name: Option<&'static str>` parameter to `chan()`, or (b) replace the `len`/`is_empty` entries with explicit `MethodDef` construction. Option (a) is cleaner since only 2 of 9 methods need trait names.
+- [x] **STYLE**: Channel's `chan()` helper (`channel/mod.rs:31-49`) hardcodes `trait_name: None` for ALL methods. After adding trait names to `len`/`is_empty`, either: (a) add a `trait_name: Option<&'static str>` parameter to `chan()`, or (b) replace the `len`/`is_empty` entries with explicit `MethodDef` construction. Option (a) is cleaner since only 2 of 9 methods need trait names.
 
 **Step 3 — Add marker traits to `TypeDef.traits`**
 
-- [ ] **Registry addition**: Add `Default` to `traits` field. Populate for: int (`defs/int.rs`), float (`defs/float.rs`), bool (`defs/bool.rs`), str (`defs/str.rs`), unit (has no TypeDef -- see NOTE below), duration (`defs/duration/mod.rs`), size (`defs/size/mod.rs`), option (`defs/option/mod.rs`) — 7 types with TypeDefs + 1 without. Rationale: `Default` is not a method -- it's a type-level capability. Adding a phantom `default` method to every primitive type would pollute the method namespace and violate the registry's "methods are callable" invariant.
+- [x] **Registry addition**: Add `Default` to `traits` field. Populate for: int (`defs/int.rs`), float (`defs/float.rs`), bool (`defs/bool.rs`), str (`defs/str.rs`), unit (has no TypeDef -- see NOTE below), duration (`defs/duration/mod.rs`), size (`defs/size/mod.rs`), option (`defs/option/mod.rs`) — 7 types with TypeDefs + 1 without. Rationale: `Default` is not a method -- it's a type-level capability. Adding a phantom `default` method to every primitive type would pollute the method namespace and violate the registry's "methods are callable" invariant.
   - **NOTE**: `Unit` and `Never` have no `TypeDef` in the registry (excluded from `BUILTIN_TYPES`). The bridge function must handle `Default` for Unit as a special case (same as current `traits.rs:102` which lists Unit with Default).
-- [ ] **Registry addition**: Add `Sendable` to the `traits` field for Duration (`defs/duration/mod.rs`) and Size (`defs/size/mod.rs`). `Sendable` is a marker trait with no method.
-- [ ] **REMOVED**: ~~Add `Formattable` to `traits` field for Duration and Size~~ — `Formattable` is ALREADY derivable from `MethodDef.trait_name: Some("Formattable")` on the `format` method in both Duration (`duration/mod.rs:85`) and Size (`size/mod.rs:82`). Neither the `traits.rs` string arrays NOR the `trait_set.rs` bitfields currently include `Formattable` -- it flows through the generic trait impl mechanism, not the builtin satisfaction path. Adding it to `TypeDef.traits` would introduce data that no current consumer queries. The bridge function will pick it up automatically from `MethodDef.trait_name`.
-- [ ] **Registry addition**: Add `Iterator` to the `traits` field for Iterator TypeDef (`defs/iterator/mod.rs`). Add both `Iterator` AND `DoubleEndedIterator` to DEI's `traits`. Since DEI has no separate TypeDef (it aliases to Iterator via `TypeTag::base_type()`), the bridge function must handle DEI trait satisfaction by checking both the base TypeDef's `traits` and adding `DoubleEndedIterator` for `TypeTag::DoubleEndedIterator`. This encodes the meta-trait satisfaction currently hardcoded in `traits.rs:214-215`.
+- [x] **Registry addition**: Add `Sendable` to the `traits` field for Duration (`defs/duration/mod.rs`) and Size (`defs/size/mod.rs`). `Sendable` is a marker trait with no method.
+- [x] **REMOVED**: ~~Add `Formattable` to `traits` field for Duration and Size~~ — `Formattable` is ALREADY derivable from `MethodDef.trait_name: Some("Formattable")` on the `format` method in both Duration (`duration/mod.rs:85`) and Size (`size/mod.rs:82`). Neither the `traits.rs` string arrays NOR the `trait_set.rs` bitfields currently include `Formattable` -- it flows through the generic trait impl mechanism, not the builtin satisfaction path. Adding it to `TypeDef.traits` would introduce data that no current consumer queries. The bridge function will pick it up automatically from `MethodDef.trait_name`.
+- [x] **Registry addition**: Add `Iterator` to the `traits` field for Iterator TypeDef (`defs/iterator/mod.rs`). Add both `Iterator` AND `DoubleEndedIterator` to DEI's `traits`. Since DEI has no separate TypeDef (it aliases to Iterator via `TypeTag::base_type()`), the bridge function must handle DEI trait satisfaction by checking both the base TypeDef's `traits` and adding `DoubleEndedIterator` for `TypeTag::DoubleEndedIterator`. This encodes the meta-trait satisfaction currently hardcoded in `traits.rs:214-215`.
 
 **Step 4 — Verify**
 
-- [ ] **Enforcement test (write FIRST, before Step 2/3 changes)**: Add a test in `compiler/ori_registry/src/defs/tests.rs` that iterates ALL methods across ALL TypeDefs and verifies: every `len` has `trait_name: Some("Len")`, every `is_empty` has `trait_name: Some("IsEmpty")`, every `iter` has `trait_name: Some("Iterable")`. This test should FAIL before Step 2 changes and PASS after. This prevents future drift when new types are added.
-- [ ] **Semantic pin test**: Add a test in `compiler/ori_registry/src/defs/tests.rs` that verifies each TypeDef with a non-empty `traits` field contains exactly the expected marker traits (e.g., `INT.traits` contains `["Default"]`). This test ONLY passes with the registry `traits` field populated -- reverting to `&[]` would fail it.
-- [ ] Run `timeout 150 cargo test -p ori_registry` to verify sorted alphabetical order and all invariants after additions
-- [ ] Run `timeout 150 cargo test -p ori_registry --release` to verify debug/release parity
+- [x] **Enforcement test (write FIRST, before Step 2/3 changes)**: Add a test in `compiler/ori_registry/src/defs/tests.rs` that iterates ALL methods across ALL TypeDefs and verifies: every `len` has `trait_name: Some("Len")`, every `is_empty` has `trait_name: Some("IsEmpty")`, every `iter` has `trait_name: Some("Iterable")`. This test should FAIL before Step 2 changes and PASS after. This prevents future drift when new types are added.
+- [x] **Semantic pin test**: Add a test in `compiler/ori_registry/src/defs/tests.rs` that verifies each TypeDef with a non-empty `traits` field contains exactly the expected marker traits (e.g., `INT.traits` contains `["Default"]`). This test ONLY passes with the registry `traits` field populated -- reverting to `&[]` would fail it.
+- [x] Run `timeout 150 cargo test -p ori_registry` to verify sorted alphabetical order and all invariants after additions
+- [x] Run `timeout 150 cargo test -p ori_registry --release` to verify debug/release parity
 
 ---
 

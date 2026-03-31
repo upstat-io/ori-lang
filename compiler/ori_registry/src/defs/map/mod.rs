@@ -108,12 +108,19 @@ static MAP_METHODS: &[MethodDef] = &[
         Ownership::Borrow,
         false,
     ),
-    MethodDef::compound("is_empty", &[], BOOL, None, Ownership::Borrow, false),
+    MethodDef::compound(
+        "is_empty",
+        &[],
+        BOOL,
+        Some("IsEmpty"),
+        Ownership::Borrow,
+        false,
+    ),
     MethodDef::compound(
         "iter",
         &[],
         ReturnTag::MapIterator,
-        None,
+        Some("Iterable"),
         Ownership::Borrow,
         false,
     ),
@@ -125,8 +132,8 @@ static MAP_METHODS: &[MethodDef] = &[
         Ownership::Borrow,
         false,
     ),
-    MethodDef::compound("len", &[], INT, None, Ownership::Borrow, false),
-    MethodDef::compound("length", &[], INT, None, Ownership::Borrow, false),
+    MethodDef::compound("len", &[], INT, Some("Len"), Ownership::Borrow, false),
+    MethodDef::compound("length", &[], INT, Some("Len"), Ownership::Borrow, false),
     MethodDef::compound(
         "merge",
         &ONE_SELF_BORROW,
@@ -168,6 +175,7 @@ pub static MAP: TypeDef = TypeDef {
     type_params: TypeParamArity::Fixed(2),
     methods: MAP_METHODS,
     operators: OpDefs::UNSUPPORTED,
+    traits: &[],
 };
 
 #[cfg(test)]

@@ -128,6 +128,7 @@ pub static ORDERING: TypeDef = TypeDef {
         shl: OpStrategy::Unsupported,
         shr: OpStrategy::Unsupported,
     },
+    traits: &[],
 };
 
 /// Ordering enum variants: Less=0, Equal=1, Greater=2.

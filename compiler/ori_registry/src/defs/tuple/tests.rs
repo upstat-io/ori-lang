@@ -42,13 +42,17 @@ fn tuple_trait_methods() {
 }
 
 #[test]
-fn tuple_len_is_inherent() {
+fn tuple_len_has_trait_name() {
     let m = TUPLE
         .methods
         .iter()
         .find(|m| m.name == "len")
         .unwrap_or_else(|| panic!("len method should exist"));
-    assert!(m.trait_name.is_none(), "len is an inherent method");
+    assert_eq!(
+        m.trait_name,
+        Some("Len"),
+        "Tuple.len should have trait_name Some(\"Len\")"
+    );
 }
 
 #[test]

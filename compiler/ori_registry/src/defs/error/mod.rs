@@ -79,6 +79,7 @@ pub static ERROR: TypeDef = TypeDef {
     type_params: TypeParamArity::Fixed(0),
     methods: ERROR_METHODS,
     operators: OpDefs::UNSUPPORTED,
+    traits: &[],
 };
 
 #[cfg(test)]
