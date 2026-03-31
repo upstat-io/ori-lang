@@ -23,6 +23,15 @@ pub struct EnumRepr {
 }
 
 /// Discriminant encoding strategy.
+///
+/// # Construction
+///
+/// `EnumTag` should only be constructed in:
+/// - `canonical::type_repr::canonical_enum()` (initial explicit/tagless tag)
+/// - `layout::niche::optimize_option_repr()` / `optimize_result_repr()` (niche tags)
+///
+/// Consumers should use predicate methods (`is_niche()`, `is_tagless()`,
+/// `needs_tag_field()`, `payload_gep_index()`) rather than matching variants.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum EnumTag {
     /// Explicit tag field at offset 0.
@@ -48,6 +57,38 @@ pub enum EnumTag {
     None,
 }
 
+impl EnumTag {
+    /// Whether this is a niche-encoded tag.
+    #[must_use]
+    pub fn is_niche(&self) -> bool {
+        matches!(self, Self::Niche { .. })
+    }
+
+    /// Whether this is a tagless (single-variant) enum.
+    #[must_use]
+    pub fn is_tagless(&self) -> bool {
+        matches!(self, Self::None)
+    }
+
+    /// Whether the enum has a dedicated tag field (explicit encoding).
+    #[must_use]
+    pub fn needs_tag_field(&self) -> bool {
+        matches!(self, Self::Explicit { .. })
+    }
+
+    /// GEP index for the payload in the LLVM struct.
+    ///
+    /// - `Explicit`: payload is at index 1 (after tag at index 0)
+    /// - `Niche` / `None`: payload starts at index 0 (no tag field)
+    #[must_use]
+    pub fn payload_gep_index(&self) -> u32 {
+        match self {
+            Self::Explicit { .. } => 1,
+            Self::Niche { .. } | Self::None => 0,
+        }
+    }
+}
+
 /// Physical representation of a single enum variant.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct VariantRepr {
@@ -66,7 +107,8 @@ pub struct VariantRepr {
 /// This is the canonical source of truth for tag width computation.
 /// All consumers (codegen, canonical repr, ABI) derive the tag width from this function.
 ///
-/// - 0 or 1 variants → `I8` (single variant may use `EnumTag::None` instead)
+/// - 0 or 1 variants → `I8` (single variant uses `EnumTag::None` instead,
+///   bypassing this function entirely — see `canonical_enum()`)
 /// - 2–256 variants → `I8`
 /// - 257–65536 variants → `I16`
 /// - 65537–4294967296 variants → `I32`
@@ -91,7 +133,11 @@ pub fn min_tag_width(variant_count: usize) -> IntWidth {
 }
 
 impl VariantRepr {
-    /// Whether this variant is a pointer type (for tagged pointer optimization).
+    /// Whether this variant's payload is a single pointer type.
+    ///
+    /// Used by §07.3 (tagged pointer optimization) to identify variants
+    /// where the tag can be stored in pointer alignment bits. Not relevant
+    /// for §07.1 (discriminant narrowing) or §07.2 (niche filling).
     #[must_use]
     pub fn is_pointer(&self) -> bool {
         self.fields.len() == 1

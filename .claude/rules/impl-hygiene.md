@@ -17,6 +17,7 @@ These rules cover **code quality**: structure, naming, types, errors, performanc
   - **Scattered knowledge**: type/method/operator behavior encoded ad hoc instead of read from the registry or canonical source
   - **Validation bypass**: validation rules implemented at consumption sites instead of at the canonical validation point
   - **Inline policy**: business logic (defaults, thresholds, formatting rules) hardcoded at call sites instead of centralized
+  - **Algorithmic duplication**: two or more sites performing the same multi-step operation (even on different types) where the control-flow skeleton is identical — the algorithm has no canonical home
   Default: **Critical**. Every LEAK creates a second source of truth that WILL drift. Fix immediately — never defer.
 - **DRIFT** — Registration data present in one location but missing from a parallel sync point. Default: **Major**.
 - **GAP** — Feature supported in one phase but blocked/missing in another. Default: **Major**.
@@ -106,7 +107,7 @@ Side logic is any logic that lives outside its canonical home. It is the primary
 
 1. **The "where would I look?" test**: If someone asks "where is X's behavior defined?" and the answer isn't a single location, there's a LEAK.
 2. **The "what if it changes?" test**: If changing behavior X requires edits in N locations and N > 1 (excluding tests and docs), there's a LEAK. The registry enforcement pattern (one source + validation tests) is the correct alternative.
-3. **The "copy-paste smell" test**: If a match arm, if-chain, or lookup table mirrors structure from another file, one of them is side logic.
+3. **The "copy-paste smell" test**: If a match arm, if-chain, or lookup table mirrors structure from another file, one of them is side logic. If the duplication is *algorithmic* (same control-flow skeleton, different types/operations), see also §Algorithmic DRY.
 4. **The "special case" test**: If a function has `if type == SomeSpecificType { ... }` outside the canonical dispatch point for that type, it's side logic.
 
 ### Common Side Logic Patterns (All Are LEAK)
@@ -223,6 +224,58 @@ Application of the SSOT paradigm to enum variants, lookup tables, and parallel d
 - **Three-strike rule**: same fix at 3+ callsites = missing abstraction; fix at boundary
 - **More heuristics**: >3-4 params → config struct. Same enum matched in 3+ files → centralize dispatch. Same error string in 3+ places → error factory function.
 - **Present options**: (1) architectural issue, (2) why per-site patches won't scale, (3) 2-3 options
+
+## Algorithmic DRY — No Duplicated Algorithms
+
+SSOT ensures every piece of **knowledge** has one canonical home. This section ensures every **algorithm** — a multi-step operation with a recognizable control-flow skeleton — also has one home. Duplicated algorithms are `LEAK:algorithmic-duplication` findings.
+
+An algorithm is duplicated when two or more sites share the same control-flow skeleton (loop structure, branch conditions, error handling shape) and differ only in:
+- **Types** — same traversal over different type parameters
+- **Operations** — same loop harness with different per-element callbacks
+- **Field names** — same structural access pattern on different structs
+- **Phase context** — same validation/dispatch logic in eval and codegen
+
+Knowledge duplication drifts when facts change. Algorithmic duplication drifts when the *protocol* changes — a new step is added to one copy but not the others. Both are equally dangerous.
+
+### Detection Heuristics
+
+1. **The "diff the bodies" test**: If two function bodies differ only in type names, field names, or closure bodies but share the same control-flow skeleton (loops, branches, error paths), the skeleton is an extractable algorithm.
+2. **The "count the steps" test**: If 3+ call sites perform the same sequence of 2+ operations (even with different arguments), extract a higher-order function.
+3. **The "inline lambda" test**: If you could copy-paste a block and only change the closures/callbacks, the surrounding scaffold is the algorithm to extract.
+4. **The "cross-backend mirror" test**: If eval and codegen (or any two phases) maintain parallel dispatch tables, match arms, or routing logic with the same structure, the shared structure needs a single source. This is the most dangerous form — cross-crate duplication drifts silently because no single-crate test catches the desync.
+5. **The "match arm count" test**: If the same enum/tag is matched in N files with similar arm structure, N-1 of those matches are candidates for consolidation into a canonical dispatcher.
+
+### Thresholds
+
+- **2 instances, >5 lines of shared skeleton**: extract immediately. Two non-trivial copies is already one too many.
+- **3+ instances, any size**: always extract. No exceptions. This is the "missing abstraction" threshold.
+- **Cross-crate duplication**: even 2 instances = extract to a shared crate or shared metadata source. Cross-crate copy-paste is the most dangerous because drift is invisible — different test suites, different maintainers, different change cadences.
+- **Cross-backend (eval ↔ codegen)**: parallel dispatch tables of any size = extract method metadata to a shared registry. Both backends must query the single source for method names, arg counts, valid receiver types, and routing keys.
+
+### Remediation Hierarchy
+
+When algorithmic duplication is found, select the **first** approach that fits:
+
+1. **Generic function** (`<T>` / trait bounds) — steps identical, only types differ. Example: `substitute_single_child()` generalized over all single-child container tags.
+2. **Higher-order function** (closure parameters) — skeleton identical, per-element operations differ. Example: iterator consumer loop with a `folder: FnMut(Acc, Item) -> Acc` parameter replacing 11 separate consumer functions.
+3. **Trait + blanket impl** — pattern crosses type families with shared interface. Example: `ResolutionContext` trait unifying 4 type-resolution functions that differ only in parameter/self-type handling.
+4. **Data-driven dispatch** (registry table) — routing structure identical, entries differ. Example: method dispatch tables replaced by a `HashMap<(TypeTag, Name), Handler>` populated from a single registry.
+5. **Macro** — last resort, when duplication is syntactic (identical token structure) rather than semantic. Example: `define_require_arg!` for 11 type-specific argument extractors. Prefer any of the above when the shared structure is semantic.
+
+### What This Is NOT
+
+- **Not "never repeat a line"** — three similar `map.insert()` calls aren't duplication. The bar is *structural*: same multi-step algorithm with the same control-flow shape.
+- **Not speculative generalization** — extract only when you have 2+ concrete instances. Never for a hypothetical future need. "Might need this later" is not a reason to abstract.
+- **Not "every helper is good"** — a helper called once that just relocates code is noise, not DRY. The test: does the extraction eliminate a *second copy*, or does it just move a single copy?
+- **Not a license to over-abstract** — `fold_iterator(init, folder)` is good. `AbstractIteratorConsumerStrategyFactory` is not. The extraction should be simpler than the duplication it replaces. If the abstraction is harder to understand than the copies, the copies are better.
+
+### Interaction with SSOT
+
+Algorithmic DRY is the complement of SSOT:
+- **SSOT** asks: "where is this *fact* defined?" — answer must be one place
+- **Algorithmic DRY** asks: "where is this *operation* defined?" — answer must be one place
+
+When both apply (e.g., a dispatch table that encodes both facts and routing), fix the SSOT violation first (centralize the data), then the algorithmic violation (consolidate the routing logic that queries it). The data-driven dispatch pattern often fixes both at once.
 
 ## File Organization
 
