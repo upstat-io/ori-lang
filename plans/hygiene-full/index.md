@@ -98,7 +98,7 @@ pre-interned names, rc_helpers.rs, rc_ops.rs
 ---
 
 ### Section 07: Runtime RC Protocol DRY + Correctness
-**File:** `section-07-runtime-rc-protocol.md` | **Status:** In Progress (18%)
+**File:** `section-07-runtime-rc-protocol.md` | **Status:** In Progress (93%, TPR pending)
 
 ```
 ori_rc_dec, ori_buffer_rc_dec, ori_str_rc_dec

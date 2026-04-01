@@ -2,16 +2,12 @@
 
 use super::debug::rc_trace_dec;
 use super::{
-    call_drop_fn, load_elem_dec_fn, ori_rc_free, rc_trace_enabled, rc_underflow_abort,
-    rt_debug_validate_rc, store_elem_dec_fn_once,
+    call_drop_fn, load_elem_dec_fn, ori_rc_free, rc_trace_enabled, rt_debug_validate_rc,
+    store_elem_dec_fn_once,
 };
 
 #[cfg(debug_assertions)]
 use super::debug::rt_debug_check_not_freed;
-
-#[cfg(not(feature = "single-threaded"))]
-use std::sync::atomic;
-use std::sync::atomic::{AtomicI64, Ordering};
 
 /// Decrement the refcount of a set's hash table data buffer.
 ///
@@ -42,47 +38,11 @@ pub extern "C" fn ori_set_buffer_rc_dec(
     let es = elem_size.max(1) as usize;
     let c = cap.max(0) as usize;
 
-    #[cfg(not(feature = "single-threaded"))]
-    {
-        // SAFETY: data was returned by ori_rc_alloc, so data - 8 is valid and 8-byte aligned.
-        let prev = unsafe {
-            let rc_ptr = data.sub(8).cast::<AtomicI64>();
-            (*rc_ptr).fetch_sub(1, Ordering::Release)
-        };
-
-        if prev <= 0 {
-            rc_underflow_abort(data);
-        }
-
-        if rc_trace_enabled() {
-            rc_trace_dec(data.cast_const(), prev - 1);
-        }
-
-        if prev <= 1 {
-            atomic::fence(Ordering::Acquire);
-            set_buffer_cleanup(data, c, es);
-        }
-    }
-
-    #[cfg(feature = "single-threaded")]
-    {
-        // SAFETY: data was returned by ori_rc_alloc, so data - 8 is valid and 8-byte aligned.
-        let (should_drop, new_rc) = unsafe {
-            let rc_ptr = data.sub(8).cast::<i64>();
-            if *rc_ptr <= 0 {
-                rc_underflow_abort(data);
-            }
-            *rc_ptr -= 1;
-            (*rc_ptr <= 0, *rc_ptr)
-        };
-
-        if rc_trace_enabled() {
-            rc_trace_dec(data.cast_const(), new_rc);
-        }
-
-        if should_drop {
-            set_buffer_cleanup(data, c, es);
-        }
+    // SAFETY: data is non-null (checked above) and was returned by ori_rc_alloc.
+    // Note: before this refactor, both single-threaded and multi-threaded paths
+    // were missing the immortal sentinel check — rc_dec_to_zero includes it.
+    if unsafe { super::rc_dec_to_zero(data) } {
+        set_buffer_cleanup(data, c, es);
     }
 }
 
