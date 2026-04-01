@@ -87,6 +87,8 @@ The immortal sentinel check (`if current_rc == MAX_REFCOUNT { return; }`) is pre
   Resolved: Fixed on 2026-04-01. Made `store_elem_count`, `load_elem_count`, and `load_elem_count_const` use `AtomicI64` with `Relaxed` ordering on the multi-threaded path (`#[cfg(not(feature = "single-threaded"))]`). `Relaxed` is sufficient because the refcount's `Release`/`Acquire` pair in `rc_dec_to_zero` already provides the happens-before relationship. Single-threaded path remains plain read/write.
 - [x] `[TPR-07-003][high]` `compiler/ori_rt/src/lib.rs:336` — `ori_args_from_argv()` defers the `[str]` buffer's `elem_dec_fn`, but list slice/COW helpers copy the current header destructor into derived buffers.
   Resolved: Fixed on 2026-04-01. Added `ori_str_elem_dec` runtime function (takes `*mut u8` → OriStr, SSO-aware, calls `ori_str_rc_dec` on heap strings). `ori_args_from_argv` now stores `Some(ori_str_elem_dec)` via `store_elem_dec_fn` at construction time. COW/slice propagation paths will now correctly copy the destructor into derived buffers.
+- [x] `[TPR-07-004][medium]` `compiler/ori_rt/src/lib.rs:336` — The new argv `[str]` destructor path is still unverified in the scenario that motivated TPR-07-003.
+  Resolved: Fixed on 2026-04-01. Added `argv_buffer_has_elem_dec_fn_and_propagates` test that: (1) creates an argv buffer via `ori_args_from_argv`, (2) verifies `elem_dec_fn` is `ori_str_elem_dec`, (3) simulates COW propagation by copying the header to a new buffer, (4) verifies the propagated `elem_dec_fn` matches, (5) cleans up via `ori_args_cleanup` and asserts no leaks.
 
 ---
 

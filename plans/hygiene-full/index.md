@@ -73,7 +73,7 @@ FatPointer, Closure, Range, struct sizes
 ---
 
 ### Section 05: Layout Computation Unification
-**File:** `section-05-layout-unification.md` | **Status:** In Progress (91%, TPR pending)
+**File:** `section-05-layout-unification.md` | **Status:** Complete
 
 ```
 enum_tag_bytes, type layout, layout computation

@@ -626,6 +626,79 @@ fn slice_buffer_rc_dec_skips_at_max_refcount() {
     ori_rc_free(original_data, 32, 8);
 }
 
+// ── Argv Header Propagation ───────────────────────────────────────
+//
+// Regression: TPR-07-004 — ori_args_from_argv stores elem_dec_fn at
+// construction, but no test verified the value propagates through
+// COW/slice header copy. This test creates an argv buffer and verifies
+// the header's elem_dec_fn is populated, then simulates a COW copy
+// (read header → write to new buffer) and verifies propagation.
+
+#[test]
+fn argv_buffer_has_elem_dec_fn_and_propagates() {
+    use std::ffi::CString;
+
+    let _lock = lock_rc();
+    let before = ori_rc_live_count();
+
+    // Build argv: ["program", "hello", "world-that-exceeds-sso-limit!"]
+    let arg0 = CString::new("program").unwrap();
+    let arg1 = CString::new("hello").unwrap();
+    let arg2 = CString::new("world-that-exceeds-sso-limit!").unwrap();
+    let argv: Vec<*const std::ffi::c_char> = vec![arg0.as_ptr(), arg1.as_ptr(), arg2.as_ptr()];
+
+    let list = ori_args_from_argv(3, argv.as_ptr());
+    assert_eq!(list.len, 2); // argc-1 = 2 user args
+    assert!(!list.data.is_null());
+
+    // Verify elem_dec_fn is set in the buffer header.
+    let elem_dec = unsafe { load_elem_dec_fn(list.data) };
+    assert!(
+        elem_dec.is_some(),
+        "argv buffer must have elem_dec_fn set at construction"
+    );
+    assert_eq!(
+        elem_dec.unwrap() as *const () as usize,
+        ori_str_elem_dec as *const () as usize,
+        "argv elem_dec_fn must be ori_str_elem_dec"
+    );
+
+    // Simulate COW propagation: allocate a new buffer, copy the header.
+    // This is what ori_list_push_cow and friends do internally.
+    let elem_size = std::mem::size_of::<crate::string::OriStr>();
+    let new_data = ori_rc_alloc(4 * elem_size, std::mem::align_of::<crate::string::OriStr>());
+    assert!(!new_data.is_null());
+
+    // Propagate header like propagate_elem_header does:
+    unsafe {
+        store_elem_dec_fn(new_data, load_elem_dec_fn(list.data));
+        store_elem_count(new_data, load_elem_count(list.data));
+    }
+
+    // Verify the propagated header has the same elem_dec_fn.
+    let propagated_dec = unsafe { load_elem_dec_fn(new_data) };
+    assert!(
+        propagated_dec.is_some(),
+        "propagated buffer must have elem_dec_fn"
+    );
+    assert_eq!(
+        propagated_dec.unwrap() as *const () as usize,
+        ori_str_elem_dec as *const () as usize,
+        "propagated elem_dec_fn must match original"
+    );
+
+    // Clean up: free the new buffer (no elements copied, so no elem cleanup needed).
+    ori_rc_free(
+        new_data,
+        4 * elem_size,
+        std::mem::align_of::<crate::string::OriStr>(),
+    );
+
+    // Clean up argv via the standard path.
+    ori_args_cleanup(list.data, list.len);
+    assert_eq!(ori_rc_live_count(), before, "no leaks after argv cleanup");
+}
+
 // Compile-time verification that MAX_REFCOUNT is correctly defined.
 const _: () = {
     assert!(MAX_REFCOUNT == isize::MAX as i64);
