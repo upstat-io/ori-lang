@@ -1,8 +1,8 @@
 ---
 section: "07"
 title: "Runtime RC Protocol DRY + Correctness"
-status: not-started
-reviewed: false
+status: in-progress
+reviewed: true
 goal: "RC dec protocol defined once and reused by all dec functions; immortal object check present in all dec paths"
 inspired_by:
   - "Swift runtime/HeapObject.cpp -- single reference counting protocol with per-type hooks"
@@ -16,7 +16,7 @@ sections:
     status: not-started
   - id: "07.2"
     title: "Immortal Object Check in Collection Decs"
-    status: not-started
+    status: complete
   - id: "07.R"
     title: "Third Party Review Findings"
     status: not-started
@@ -72,9 +72,9 @@ The core protocol (null check, immortal check, fetch_sub, underflow abort, trace
 
 The immortal sentinel check (`if current_rc == MAX_REFCOUNT { return; }`) is present in `ori_rc_dec()` (line 210-217) and `ori_rc_inc()` but may be missing from `ori_buffer_rc_dec()` and the map RC dec function. An immortal object (e.g., a compile-time constant list or string) whose buffer goes through `ori_buffer_rc_dec()` would have its refcount decremented despite being immortal.
 
-- [ ] **GAP** -- Immortal object check (`MAX_REFCOUNT` sentinel) potentially missing from `ori_buffer_rc_dec()` and map RC dec, which could decrement refcount of immortal objects
-- [ ] Verify whether `ori_buffer_rc_dec` at `list_rc.rs:72` checks for `MAX_REFCOUNT` before the `fetch_sub`
-- [ ] If missing, add immortal checks to all collection dec functions
+- [x] **GAP** -- Immortal object check (`MAX_REFCOUNT` sentinel) was MISSING from `ori_buffer_rc_dec()`, `slice_buffer_rc_dec()`, and `ori_map_buffer_rc_dec()` (2026-04-01)
+- [x] Verified: `ori_buffer_rc_dec` at `list_rc.rs:72` did NOT check `MAX_REFCOUNT`. Fixed. (2026-04-01)
+- [x] Added immortal checks to all collection dec functions: `ori_buffer_rc_dec` (both paths), `slice_buffer_rc_dec`, `ori_map_buffer_rc_dec` (both paths) (2026-04-01)
 - [ ] Add a test that creates an immortal buffer and verifies its refcount is unchanged after dec calls
 
 ---
