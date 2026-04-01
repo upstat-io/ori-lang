@@ -540,7 +540,7 @@ All subsections must also satisfy:
 - [x] `declare_builtins!` block in `iterator.rs` registers all 24 methods (8 new entries added) (2026-04-01)
 - [x] `is_iterator_method()` is driven by `ori_registry::has_method()` calls, not a hardcoded `matches!` list; `__iter_next` remains handled by `try_emit_protocol` (not registry-driven) (2026-04-01)
 - [x] Enforcement test `iterator_emit_covers_all_registry_methods` in `builtins/tests.rs` passes (2026-04-01)
-- [ ] Spec tests for all 8 new methods in `tests/spec/traits/iterator/` cover: happy path, edge case (empty/single-element input), and at least one semantic pin per method. Eval passes, but LLVM still compile-fails under the spec harness for `tests/spec/traits/iterator/builtin_impls.ori` (`18 llvm compile fail` on 2026-04-01), so this line remains open pending the LLVM test-runner/codegen gaps.
+- [ ] Spec tests for all 8 new methods in `tests/spec/traits/iterator/` cover: happy path, edge case (empty/single-element input), and at least one semantic pin per method. Eval passes, but LLVM still compile-fails under the spec harness for `tests/spec/traits/iterator/builtin_impls.ori` (`18 llvm compile fail` on 2026-04-01), so this line remains open pending the LLVM test-runner/codegen gaps. <!-- blocked-by:roadmap-21A -->
 - [x] `timeout 150 diagnostics/dual-exec-verify.sh tests/spec/traits/iterator/` shows zero new mismatches (2026-04-01)
 - [x] Debug build (`cargo b`) and release build (`cargo b --release`) both pass (2026-04-01)
 

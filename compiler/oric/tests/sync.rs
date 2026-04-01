@@ -8,7 +8,7 @@
 //!
 //! These tests verify that all consuming crates stay in sync with the
 //! canonical `DerivedTrait` definitions in `ori_ir`. They complement
-//! the per-crate unit tests (Section 05.1) with integration-level
+//! the per-crate unit tests with integration-level
 //! validation that reads actual source files.
 //!
 //! # Running
