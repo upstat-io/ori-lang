@@ -82,7 +82,7 @@ impl ArcLowerer<'_> {
             ty,
             CtorKind::EnumVariant {
                 enum_name: result_name,
-                variant: 0,
+                variant: ori_ir::RESULT_VARIANT_OK,
             },
             vec![arg],
             Some(span),
@@ -101,7 +101,7 @@ impl ArcLowerer<'_> {
             ty,
             CtorKind::EnumVariant {
                 enum_name: result_name,
-                variant: 1,
+                variant: ori_ir::RESULT_VARIANT_ERR,
             },
             vec![arg],
             Some(span),
@@ -116,7 +116,7 @@ impl ArcLowerer<'_> {
             ty,
             CtorKind::EnumVariant {
                 enum_name: option_name,
-                variant: 0,
+                variant: ori_ir::OPTION_VARIANT_SOME,
             },
             vec![arg],
             Some(span),
@@ -130,7 +130,7 @@ impl ArcLowerer<'_> {
             ty,
             CtorKind::EnumVariant {
                 enum_name: option_name,
-                variant: 1,
+                variant: ori_ir::OPTION_VARIANT_NONE,
             },
             vec![],
             Some(span),
