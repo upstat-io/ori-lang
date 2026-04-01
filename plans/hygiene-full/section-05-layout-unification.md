@@ -1,7 +1,7 @@
 ---
 section: "05"
 title: "Layout Computation Unification"
-status: in-progress
+status: complete
 reviewed: true
 goal: "Type layout computed once in ori_repr and queried by ori_arc and ori_llvm -- no duplicated computation"
 inspired_by:
@@ -22,7 +22,7 @@ sections:
     status: complete
   - id: "05.N"
     title: "Completion Checklist"
-    status: in-progress
+    status: complete
 ---
 
 # Section 05: Layout Computation Unification
@@ -84,6 +84,6 @@ Layout computation happens in `ori_repr` (`ReprPlan`), is re-derived in `ori_arc
 - [x] `timeout 150 ./test-all.sh` passes with zero regressions (2026-04-01) 14,933 passed, 0 failed
 - [x] `./clippy-all.sh` passes (2026-04-01)
 - [x] Plan annotation cleanup: `bash .claude/skills/impl-hygiene-review/plan-annotations.sh --plan 05` returns 0 annotations (2026-04-01) Removed 4 hygiene-full Section 05.1/05.2 annotations from test files; remaining annotations are from active repr-opt and roadmap plans
-- [ ] `/tpr-review` passed (final, full-section)
+- [x] `/tpr-review` passed (final, full-section) (2026-04-01) Clean pass — Codex found zero Section 05 findings. One unrelated finding filed as TPR-07-001 in Section 07.
 
 **Exit Criteria:** `grep -rn 'enum_tag_bytes\|Must stay in sync.*min_tag_width' compiler/ --include="*.rs"` returns only the canonical definition. `./test-all.sh` green.
