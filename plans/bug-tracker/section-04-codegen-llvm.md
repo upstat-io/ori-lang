@@ -58,6 +58,25 @@ Bugs in LLVM IR generation, JIT/AOT compilation, monomorphization, ARC pipeline 
   Found: 2026-04-01 | Source: continue-roadmap (hygiene-full Section 03 TPR triage)
   Note: Individual Option/Result methods work in standalone `@main` AOT tests (verified for `ok_or`, `map`, `expect`). The failures appear to be test-runner/spec-framework issues with `assert_eq` monomorphization and generic type variable resolution, not specific to Option/Result method codegen. Active work in repr-opt and hygiene-full touches this area.
 
+- [x] `[BUG-04-012][critical]` **Borrowed `Option`/`Result` AOT projections duplicate RC payload bits without retaining, causing double-free** — found by review-work.
+  Resolved: Fixed on 2026-04-01. Added conditional `inc_value_rc` in `emit_option_iter()`, `Result.ok()`, and `Result.err()` codegen paths — guarded by tag check (only when Some/Ok/Err respectively). Remaining extraction methods (unwrap_or, expect, first, etc.) tracked as BUG-04-013.
+  Repro:
+  - `timeout 150 diagnostics/diagnose-aot.sh --valgrind /tmp/option_iter_heap_str.ori`
+  - `timeout 150 diagnostics/diagnose-aot.sh --valgrind /tmp/result_err_projection_heap_str.ori`
+  - `timeout 150 diagnostics/diagnose-aot.sh --valgrind /tmp/result_ok_projection_heap_str.ori`
+  All three abort with `ori_rc_dec called on already-freed allocation` when the payload is a heap string (>SSO).
+  Root cause: new LLVM paths for `Option.iter()` and `Result.ok()/err()` memcpy payload bytes out of borrowed wrappers into a fresh iterator/result wrapper without cloning or `RcInc` on nested RC fields. The interpreter clones these values instead, so AOT violates the established ownership contract.
+  Subsystem: `compiler/ori_llvm/src/codegen/arc_emitter/builtins/compound_type_impls/option.rs`, `compiler/ori_llvm/src/codegen/arc_emitter/builtins/option_result.rs`, `compiler/ori_llvm/src/codegen/arc_emitter/builtins/option_result_helpers.rs`, `compiler/ori_llvm/src/codegen/arc_emitter/builtins/result_monadic.rs`, `compiler/ori_rt/src/iterator/sources.rs`
+  Found: 2026-04-01 | Source: review-work
+  Note: The immediate crashes were reproduced for heap `str`; audit any other borrowed wrapper methods added in the same section that forward payloads into new wrappers or closure calls.
+
+- [ ] `[BUG-04-013][critical]` **AOT wrapper extraction methods (unwrap_or, first, expect, etc.) copy payload bytes without RC retain** — found by tpr-review.
+  Repro: `let r: Result<str, str> = Ok("heap string exceeding 23 char SSO limit"); let val = r.ok().unwrap_or(default: "x");` → crashes with `ori_rc_dec called on already-freed allocation` in AOT. Interpreter works (clones values). Any method that extracts an inner value from Option/Result/List by byte-copy in the LLVM codegen is affected: `unwrap_or`, `unwrap`, `expect`, `expect_err`, `first`, `last`, and any runtime function (e.g., `ori_list_first`) that returns elements by memcpy.
+  Root cause: Same class as BUG-04-012 but broader — the codegen and runtime extract values from containers by copying raw bytes (via `extract_value`, `load`, or `memcpy`) without incrementing inner RC fields. The ARC pipeline treats these as opaque builtins and can't see inside.
+  Subsystem: `compiler/ori_llvm/src/codegen/arc_emitter/builtins/option_result.rs` (unwrap_or, expect), `compiler/ori_rt/src/list/query.rs` (ori_list_first, ori_list_last)
+  Found: 2026-04-01 | Source: tpr-review (hygiene-full §04)
+  Note: BUG-04-012 fixes cover `Option.iter()`, `Result.ok()`, `Result.err()` specifically. This bug tracks the remaining extraction methods. Active work in repr-opt touches codegen area.
+
 ---
 
 ## Resolved Bugs
