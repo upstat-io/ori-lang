@@ -240,18 +240,18 @@ impl TestRunner {
 
         // Collect exported type metadata from imported modules for repr plan
         // construction. This ensures imported `pub` and `#repr(...)` types are
-        // correctly exempted from integer narrowing. See CROSS-04-014.
+        // correctly exempted from integer narrowing.
         //
         // Each module's `exported_type_metadata` now includes transitive metadata
         // (forwarded from dependencies via generate_exported_type_metadata merge
-        // in the type checker's finish_with_pool). See CROSS-04-017.
+        // in the type checker's finish_with_pool).
         let imported_type_metadata: Vec<ori_types::ExportedTypeMetadata> = imported_type_results
             .iter()
             .flat_map(|tc| tc.typed.exported_type_metadata.iter().cloned())
             .collect();
 
         // Collect imported collection surface hashes for cross-module ABI
-        // protection. See TPR-04-032.
+        // protection.
         let imported_collection_surfaces: Vec<u64> = imported_type_results
             .iter()
             .flat_map(|tc| tc.typed.exported_collection_surfaces.iter().copied())

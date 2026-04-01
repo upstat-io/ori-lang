@@ -214,7 +214,6 @@ pub struct ModuleChecker<'a> {
     /// `exported_type_metadata`, these entries are merged in so that re-exported
     /// types propagate transitively through module chains (A→B→C). Without this,
     /// A would lose C's `pub`/`#repr` metadata when importing only B.
-    /// See CROSS-04-017.
     imported_type_metadata: Vec<crate::output::ExportedTypeMetadata>,
     imported_collection_surfaces: Vec<u64>,
 }
@@ -300,7 +299,6 @@ impl<'a> ModuleChecker<'a> {
     /// to provide metadata from imported modules. When this module finishes type
     /// checking, its `exported_type_metadata` will include both local types and
     /// forwarded imported entries (deduped by Merkle hash, local priority).
-    /// See CROSS-04-017.
     pub fn set_imported_type_metadata(
         &mut self,
         metadata: Vec<crate::output::ExportedTypeMetadata>,
@@ -313,7 +311,6 @@ impl<'a> ModuleChecker<'a> {
     /// These merkle hashes identify collection types (List, Set) that appear
     /// in imported public function signatures. They are merged with local
     /// collection surfaces during export for transitive forwarding.
-    /// See TPR-04-032.
     pub fn set_imported_collection_surfaces(&mut self, surfaces: Vec<u64>) {
         self.imported_collection_surfaces = surfaces;
     }
@@ -971,13 +968,13 @@ impl<'a> ModuleChecker<'a> {
 
         // Generate exported type metadata for cross-module repr plan construction.
         // Merges local types (repr/public) with forwarded imported metadata so that
-        // transitive chains (A→B→C) propagate correctly. See CROSS-04-014, CROSS-04-017.
+        // transitive chains (A→B→C) propagate correctly.
         let exported_type_metadata =
             generate_exported_type_metadata(&types, &self.imported_type_metadata);
 
         // Generate collection surface hashes for cross-module ABI protection.
         // Walks public function signatures to find List/Set types, merges with
-        // imported surfaces for transitive forwarding. See TPR-04-032.
+        // imported surfaces for transitive forwarding.
         let exported_collection_surfaces = generate_exported_collection_surfaces(
             &pool,
             &functions,
@@ -1036,8 +1033,7 @@ fn generate_export_descriptors(
 /// transitive chains (A→B→C) propagate correctly — B's exports include C's
 /// forwarded metadata, so A receives everything transitively.
 ///
-/// Deduplication: local entries take priority (by Merkle hash). See CROSS-04-014,
-/// CROSS-04-017.
+/// Deduplication: local entries take priority (by Merkle hash).
 fn generate_exported_type_metadata(
     types: &[crate::registry::TypeEntry],
     imported: &[crate::output::ExportedTypeMetadata],
@@ -1084,7 +1080,6 @@ fn generate_exported_type_metadata(
 /// This parallels `collect_public_collection_types()` in `repr_setup.rs` but
 /// outputs merkle hashes (for cross-module transport) instead of Pool Idx values
 /// (for same-module use). Both use the shared `walk_collection_types()` walker.
-/// See TPR-04-032.
 fn generate_exported_collection_surfaces(
     pool: &Pool,
     functions: &[crate::output::FunctionSig],
