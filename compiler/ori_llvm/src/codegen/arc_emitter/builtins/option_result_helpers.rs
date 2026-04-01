@@ -1,8 +1,7 @@
 //! Helper methods for Option/Result LLVM codegen.
 //!
-//! Extracted from `option_result.rs` to stay under the 500-line limit.
-//! Contains: debug formatting, expect panic branches, ok/err projection,
-//! and string construction utilities.
+//! Contains: niche dispatch, expect panic branches, and closure call utilities.
+//! Debug formatting lives in `debug_helpers.rs`.
 
 use ori_arc::ir::{ArcFunction, ArcVarId};
 use ori_ir::{CLOSURE_FIELD_ENV, CLOSURE_FIELD_FN};
@@ -137,71 +136,6 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         }
     }
 
-    /// Emit `Result.debug()`.
-    ///
-    /// - `Ok(v)` → `"Ok(" + v.to_str() + ")"`
-    /// - `Err(e)` → `"Err(" + e.to_str() + ")"`
-    pub(crate) fn emit_result_debug(
-        &mut self,
-        arg_vals: &[ValueId],
-        receiver_ty: Idx,
-    ) -> Option<ValueId> {
-        let receiver = arg_vals[0];
-        let tag = self.builder.extract_value(receiver, 0, "res.tag")?;
-        let ok_const = self
-            .builder
-            .const_int_matching(tag, ori_ir::RESULT_TAG_OK as u64);
-        let is_ok = self.builder.icmp_eq(tag, ok_const, "is_ok");
-
-        let TypeInfo::Result {
-            ok: ok_ty,
-            err: err_ty,
-        } = self.type_info.get(receiver_ty)
-        else {
-            return None;
-        };
-
-        // Extract both payloads and their string representations
-        let ok_payload = self.extract_tagged_union_payload(receiver, receiver_ty, 1, ok_ty)?;
-        let ok_str = self.emit_element_to_str(ok_payload, ok_ty)?;
-        let err_payload = self.extract_tagged_union_payload(receiver, receiver_ty, 1, err_ty)?;
-        let err_str = self.emit_element_to_str(err_payload, err_ty)?;
-
-        let ok_bb = self.builder.append_block(self.current_function, "rdbg.ok");
-        let err_bb = self.builder.append_block(self.current_function, "rdbg.err");
-        let merge_bb = self
-            .builder
-            .append_block(self.current_function, "rdbg.merge");
-
-        self.builder.cond_br(is_ok, ok_bb, err_bb);
-
-        // Ok block: "Ok(" + ok_str + ")"
-        self.builder.position_at_end(ok_bb);
-        let ok_prefix = self.emit_literal_ori_str("Ok(")?;
-        let ok_suffix = self.emit_literal_ori_str(")")?;
-        let ok_tmp = self.emit_str_concat(ok_prefix, ok_str)?;
-        let ok_result = self.emit_str_concat(ok_tmp, ok_suffix)?;
-        let ok_bb_final = self.builder.current_block().unwrap();
-        self.builder.br(merge_bb);
-
-        // Err block: "Err(" + err_str + ")"
-        self.builder.position_at_end(err_bb);
-        let err_prefix = self.emit_literal_ori_str("Err(")?;
-        let err_suffix = self.emit_literal_ori_str(")")?;
-        let err_tmp = self.emit_str_concat(err_prefix, err_str)?;
-        let err_result = self.emit_str_concat(err_tmp, err_suffix)?;
-        let err_bb_final = self.builder.current_block().unwrap();
-        self.builder.br(merge_bb);
-
-        // Merge
-        self.builder.position_at_end(merge_bb);
-        let str_ty = self.resolve_type(ori_types::Idx::STR);
-        let phi = self.builder.phi(str_ty, "rdbg.result");
-        self.builder
-            .add_phi_incoming(phi, &[(ok_result, ok_bb_final), (err_result, err_bb_final)]);
-        Some(phi)
-    }
-
     /// Build an `Option<T>` struct `{i64 tag, T payload}` from tag and payload values.
     pub(super) fn build_option_struct(
         &mut self,
@@ -218,97 +152,6 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let zero = self.builder.const_zero_ty(opt_ty);
         let with_tag = self.builder.insert_value(zero, tag, 0, "opt");
         Some(self.builder.insert_value(with_tag, payload, 1, "opt.val"))
-    }
-
-    /// Emit `Option.debug()` / `Option.to_str()` with branching.
-    ///
-    /// - None → "None" literal
-    /// - Some(v) → "Some(" + `v.to_str()` + ")"
-    pub(super) fn emit_option_debug_branch(
-        &mut self,
-        is_some: ValueId,
-        payload: ValueId,
-        inner_ty: Idx,
-        _is_debug: bool,
-    ) -> Option<ValueId> {
-        let inner_str = self.emit_element_to_str(payload, inner_ty)?;
-
-        let some_bb = self.builder.append_block(self.current_function, "dbg.some");
-        let none_bb = self.builder.append_block(self.current_function, "dbg.none");
-        let merge_bb = self
-            .builder
-            .append_block(self.current_function, "dbg.merge");
-
-        self.builder.cond_br(is_some, some_bb, none_bb);
-
-        // None block: produce "None"
-        self.builder.position_at_end(none_bb);
-        let none_str = self.emit_literal_ori_str("None")?;
-        let none_bb_current = self.builder.current_block().unwrap();
-        self.builder.br(merge_bb);
-
-        // Some block: produce "Some(" + inner_str + ")"
-        self.builder.position_at_end(some_bb);
-        let prefix = self.emit_literal_ori_str("Some(")?;
-        let suffix = self.emit_literal_ori_str(")")?;
-        let tmp = self.emit_str_concat(prefix, inner_str)?;
-        let some_str = self.emit_str_concat(tmp, suffix)?;
-        let some_bb_current = self.builder.current_block().unwrap();
-        self.builder.br(merge_bb);
-
-        // Merge block: phi
-        self.builder.position_at_end(merge_bb);
-        let str_ty = self.resolve_type(ori_types::Idx::STR);
-        let phi = self.builder.phi(str_ty, "dbg.result");
-        self.builder.add_phi_incoming(
-            phi,
-            &[(none_str, none_bb_current), (some_str, some_bb_current)],
-        );
-        Some(phi)
-    }
-
-    /// Create an `OriStr` from a string literal via `ori_str_from_raw`.
-    pub(super) fn emit_literal_ori_str(&mut self, text: &str) -> Option<ValueId> {
-        let ptr = self.builder.build_global_string_ptr(text, "lit.str");
-        let len = self.builder.const_i64(text.len() as i64);
-        let func_id = self.builder.runtime_fn("ori_str_from_raw");
-        let str_ty = self.resolve_type(ori_types::Idx::STR);
-        self.builder
-            .call_with_sret(func_id, &[ptr, len], str_ty, "lit")
-    }
-
-    /// Concatenate two `OriStr` values via `ori_str_concat`.
-    pub(super) fn emit_str_concat(&mut self, a: ValueId, b: ValueId) -> Option<ValueId> {
-        let str_ty = self.resolve_type(ori_types::Idx::STR);
-        let a_ptr = self
-            .builder
-            .create_entry_alloca(self.current_function, "cat.a", str_ty);
-        self.builder.store(a, a_ptr);
-        let b_ptr = self
-            .builder
-            .create_entry_alloca(self.current_function, "cat.b", str_ty);
-        self.builder.store(b, b_ptr);
-        let func_id = self.builder.runtime_fn("ori_str_concat");
-        self.builder
-            .call_with_sret(func_id, &[a_ptr, b_ptr], str_ty, "cat")
-    }
-
-    /// Emit `to_str` for an element of any supported type.
-    ///
-    /// Handles primitives (int, float, bool, Duration, Size) and str.
-    /// Returns None for complex types (structs, enums) — caller should
-    /// fall through to the unresolved function path.
-    pub(super) fn emit_element_to_str(&mut self, val: ValueId, ty: Idx) -> Option<ValueId> {
-        let type_info = self.type_info.get(ty);
-        match &type_info {
-            TypeInfo::Int
-            | TypeInfo::Duration
-            | TypeInfo::Size
-            | TypeInfo::Float
-            | TypeInfo::Bool => self.emit_to_str(val, &type_info),
-            TypeInfo::Str => Some(val),
-            _ => None,
-        }
     }
 
     /// Emit a conditional panic branch for `expect`/`expect_err`.

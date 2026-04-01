@@ -15,7 +15,7 @@
     reason = "readability in test program literals"
 )]
 
-use crate::util::assert_aot_success;
+use crate::util::{assert_aot_success, compile_and_run_capture};
 
 // 3.0.1: Len Trait — .len() codegen
 
@@ -841,5 +841,97 @@ fn test_aot_impl_analysis_multiple_types() {
     assert_aot_success(
         include_str!("fixtures/traits/aot_impl_analysis_multiple_types.ori"),
         "impl_analysis_multiple_types",
+    );
+}
+
+// TPR-03-009 / TPR-03-010: Wrapper debug with compound/str payloads
+
+/// Regression: TPR-03-010 — `Option<str>.debug()` must use Debug semantics (quotes).
+/// Interpreter prints `Some("hi")`, AOT was printing `Some(hi)`.
+#[test]
+fn test_aot_option_debug_str_payload() {
+    let (exit_code, stdout, stderr) = compile_and_run_capture(include_str!(
+        "fixtures/traits/aot_option_debug_str_payload.ori"
+    ));
+    assert_eq!(exit_code, 0, "option_debug_str_payload failed: {stderr}");
+    assert!(
+        stdout.contains(r#"Some("hi")"#),
+        "Expected 'Some(\"hi\")' in output, got: '{stdout}'"
+    );
+}
+
+/// Regression: TPR-03-009 — `Option<[int]>.debug()` must format list payloads.
+/// Interpreter prints `Some([1, 2, 3])`, AOT was printing empty line.
+#[test]
+fn test_aot_option_debug_list_payload() {
+    let (exit_code, stdout, stderr) = compile_and_run_capture(include_str!(
+        "fixtures/traits/aot_option_debug_list_payload.ori"
+    ));
+    assert_eq!(exit_code, 0, "option_debug_list_payload failed: {stderr}");
+    assert!(
+        stdout.contains("Some([1, 2, 3])"),
+        "Expected 'Some([1, 2, 3])' in output, got: '{stdout}'"
+    );
+}
+
+/// Regression: TPR-03-009 — `Result<[int], str>.debug()` must format list payloads.
+#[test]
+fn test_aot_result_debug_list_payload() {
+    let (exit_code, stdout, stderr) = compile_and_run_capture(include_str!(
+        "fixtures/traits/aot_result_debug_list_payload.ori"
+    ));
+    assert_eq!(exit_code, 0, "result_debug_list_payload failed: {stderr}");
+    assert!(
+        stdout.contains("Ok([4, 5])"),
+        "Expected 'Ok([4, 5])' in output, got: '{stdout}'"
+    );
+}
+
+/// Edge case: `None.debug()` must produce "None".
+#[test]
+fn test_aot_option_debug_none() {
+    let (exit_code, stdout, stderr) =
+        compile_and_run_capture(include_str!("fixtures/traits/aot_option_debug_none.ori"));
+    assert_eq!(exit_code, 0, "option_debug_none failed: {stderr}");
+    assert!(
+        stdout.contains("None"),
+        "Expected 'None' in output, got: '{stdout}'"
+    );
+}
+
+/// Regression: TPR-03-010 — `Err(str).debug()` must quote the string.
+#[test]
+fn test_aot_result_debug_err_str() {
+    let (exit_code, stdout, stderr) =
+        compile_and_run_capture(include_str!("fixtures/traits/aot_result_debug_err_str.ori"));
+    assert_eq!(exit_code, 0, "result_debug_err_str failed: {stderr}");
+    assert!(
+        stdout.contains(r#"Err("oops")"#),
+        "Expected 'Err(\"oops\")' in output, got: '{stdout}'"
+    );
+}
+
+/// Regression: TPR-03-009 — nested `Option<Option<int>>.debug()` must work recursively.
+#[test]
+fn test_aot_option_debug_nested() {
+    let (exit_code, stdout, stderr) =
+        compile_and_run_capture(include_str!("fixtures/traits/aot_option_debug_nested.ori"));
+    assert_eq!(exit_code, 0, "option_debug_nested failed: {stderr}");
+    assert!(
+        stdout.contains("Some(Some(42))"),
+        "Expected 'Some(Some(42))' in output, got: '{stdout}'"
+    );
+}
+
+/// Edge case: `Option<[int]>.debug()` with empty list must produce "Some([])".
+#[test]
+fn test_aot_option_debug_empty_list() {
+    let (exit_code, stdout, stderr) = compile_and_run_capture(include_str!(
+        "fixtures/traits/aot_option_debug_empty_list.ori"
+    ));
+    assert_eq!(exit_code, 0, "option_debug_empty_list failed: {stderr}");
+    assert!(
+        stdout.contains("Some([])"),
+        "Expected 'Some([])' in output, got: '{stdout}'"
     );
 }

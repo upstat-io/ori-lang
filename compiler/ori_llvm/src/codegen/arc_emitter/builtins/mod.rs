@@ -73,6 +73,7 @@ macro_rules! declare_builtins {
 mod collections;
 mod compound_traits;
 mod compound_type_impls;
+mod debug_helpers;
 mod iterator;
 mod iterator_consumers;
 mod iterators_guard;

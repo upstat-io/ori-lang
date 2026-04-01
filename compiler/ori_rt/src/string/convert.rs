@@ -43,3 +43,61 @@ pub extern "C" fn ori_str_from_bool(b: bool) -> OriStr {
 pub extern "C" fn ori_str_from_float(f: f64) -> OriStr {
     OriStr::from_owned(&f.to_string())
 }
+
+/// Format a string with Debug semantics: wraps in quotes and escapes special chars.
+///
+/// `"hello"` → `"\"hello\""`, `"a\nb"` → `"\"a\\nb\""`.
+/// Matches the evaluator's `escape_debug_str` + quote wrapping.
+#[no_mangle]
+pub extern "C" fn ori_str_debug_format(s: *const OriStr) -> OriStr {
+    if s.is_null() {
+        return OriStr::from_sso(b"\"\"");
+    }
+    // SAFETY: Caller ensures s points to a valid OriStr.
+    let input = unsafe { &*s };
+    let src = unsafe { input.as_str() };
+    let mut result = String::with_capacity(src.len() + 2);
+    result.push('"');
+    for c in src.chars() {
+        match c {
+            '\n' => result.push_str("\\n"),
+            '\r' => result.push_str("\\r"),
+            '\t' => result.push_str("\\t"),
+            '\\' => result.push_str("\\\\"),
+            '"' => result.push_str("\\\""),
+            '\0' => result.push_str("\\0"),
+            c => result.push(c),
+        }
+    }
+    result.push('"');
+    OriStr::from_owned(&result)
+}
+
+/// Format a char with Debug semantics: wraps in single quotes and escapes special chars.
+///
+/// `'a'` → `"'a'"`, `'\n'` → `"'\\n'"`.
+#[no_mangle]
+pub extern "C" fn ori_char_debug_format(ch: u32) -> OriStr {
+    let c = char::from_u32(ch).unwrap_or('\u{FFFD}');
+    let result = match c {
+        '\n' => "'\\n'".to_string(),
+        '\r' => "'\\r'".to_string(),
+        '\t' => "'\\t'".to_string(),
+        '\\' => "'\\\\'".to_string(),
+        '\'' => "'\\''".to_string(),
+        '\0' => "'\\0'".to_string(),
+        c => format!("'{c}'"),
+    };
+    OriStr::from_owned(&result)
+}
+
+/// Format a byte with Debug semantics: `0x{:02x}`.
+///
+/// `65` → `"0x41"`, `0` → `"0x00"`.
+#[no_mangle]
+pub extern "C" fn ori_byte_debug_format(b: i64) -> OriStr {
+    // Truncate to u8 range
+    let byte = (b & 0xFF) as u8;
+    let result = format!("0x{byte:02x}");
+    OriStr::from_owned(&result)
+}
