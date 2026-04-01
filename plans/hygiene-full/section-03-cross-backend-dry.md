@@ -20,10 +20,10 @@ sections:
     status: in-progress
   - id: "03.3"
     title: "FNV Constant Consolidation"
-    status: not-started
+    status: complete
   - id: "03.4"
     title: "Derive Processing Skeleton Sync Verification"
-    status: not-started
+    status: complete
   - id: "03.5"
     title: "Eval Operator Dispatch via Registry OpStrategy"
     status: not-started
@@ -285,7 +285,7 @@ All subsections must also satisfy:
 
 **Implementation steps (in order):**
 
-- [ ] **Step 0 — Write the conformance test FIRST (TDD):**
+- [x] **Step 0 — Write the conformance test FIRST (TDD):** (2026-04-01) Added `fnv_constants_match_canonical_values` test in `ori_rt/src/tests.rs` using `ori_ir` dev-dependency. Passes.
   WHERE: `compiler/ori_rt/` (check for `tests.rs` in same dir as `lib.rs`; create if absent with `#[cfg(test)] mod tests;` in `lib.rs`).
   Write the following test BEFORE making any changes to production code. Because `ori_str_hash` uses function-local `const` values that cannot be referenced by name from tests, the initial test uses the known-correct literal values as the baseline anchor:
   ```rust
@@ -301,10 +301,10 @@ All subsections must also satisfy:
   ```
   Note: This test uses `ori_ir` as a dev-dependency (already present in `ori_rt`'s `[dev-dependencies]`). It will compile-fail until Step 2 adds the `ori_ir::hash_constants` module — this is intentional. Add it now so it acts as a failing TDD anchor, confirming the canonical location does not yet exist. Run `timeout 150 cargo test -p ori_rt` and **confirm this test fails** (because `ori_ir::FNV_OFFSET_BASIS` does not exist yet). After Step 2 it will pass, and must stay green through all subsequent steps.
 
-- [ ] **Step 1 — Verify `section-04-named-constants.md` 04.3 status:**
+- [x] **Step 1 — Verify `section-04-named-constants.md` 04.3 status:** (2026-04-01) Confirmed 04.3 is covered by this section.
   Open `plans/hygiene-full/section-04-named-constants.md` and confirm `04.3` is already marked `status: superseded`. If not, mark it now with the note: "Superseded by Section 03.3. Nothing to implement here."
 
-- [ ] **Step 2 — Add canonical constants to `ori_ir`:**
+- [x] **Step 2 — Add canonical constants to `ori_ir`:** (2026-04-01) Created `compiler/ori_ir/src/hash_constants.rs` with `FNV_OFFSET_BASIS` and `FNV_PRIME`. Added `pub mod hash_constants;` and re-exports in lib.rs.
   WHERE: create `compiler/ori_ir/src/hash_constants.rs`.
   ```rust
   //! FNV-1a hash algorithm constants — canonical definition.
@@ -320,7 +320,7 @@ All subsections must also satisfy:
   ```
   Add `pub mod hash_constants;` in `compiler/ori_ir/src/lib.rs` (before the existing `pub use` block) and `pub use hash_constants::{FNV_OFFSET_BASIS, FNV_PRIME};` in the re-exports.
 
-- [ ] **Step 3 — Update `ori_eval` to import from `ori_ir`:**
+- [x] **Step 3 — Update `ori_eval` to import from `ori_ir`:** (2026-04-01) Replaced local const definitions in `compare.rs` with `pub(crate) use ori_ir::{FNV_OFFSET_BASIS, FNV_PRIME}`. Removed stale "Must match" comments.
   WHERE: `compiler/ori_eval/src/methods/compare.rs` lines 199–207.
   Replace the two local `const` definitions and the stale `// Must match ...` comments with:
   ```rust
@@ -328,7 +328,7 @@ All subsections must also satisfy:
   ```
   Verify all uses of `FNV_OFFSET_BASIS` and `FNV_PRIME` in `compare.rs` and `derived_methods.rs` now resolve via the `use` statement (they import from `crate::methods::compare::{FNV_OFFSET_BASIS, FNV_PRIME}` in `derived_methods.rs` — those re-exports will continue to work once the source is `ori_ir`).
 
-- [ ] **Step 4 — Update `ori_llvm` to import from `ori_ir`:**
+- [x] **Step 4 — Update `ori_llvm` to import from `ori_ir`:** (2026-04-01) Replaced local consts in `bodies.rs` and `enum_hashable.rs` with `use ori_ir::{FNV_OFFSET_BASIS, FNV_PRIME}`.
   WHERE: `compiler/ori_llvm/src/codegen/derive_codegen/bodies.rs` lines 71, 73 and `compiler/ori_llvm/src/codegen/derive_codegen/enum_bodies/enum_hashable.rs` lines 17, 19.
   In each file, replace the private `const FNV_OFFSET_BASIS` / `const FNV_PRIME` with:
   ```rust
@@ -336,15 +336,14 @@ All subsections must also satisfy:
   ```
   `ori_llvm`'s `Cargo.toml` already depends on `ori_ir`. Verify `bodies.rs` (447 lines) does not exceed 500 lines after the edit.
 
-- [ ] **Step 5 — Confirm conformance test from Step 0 now passes:**
+- [x] **Step 5 — Confirm conformance test from Step 0 now passes:** (2026-04-01) `cargo test -p ori_rt -- fnv` passes.
   The `fnv_constants_match_canonical_values` test written in Step 0 was failing (the `ori_ir::FNV_OFFSET_BASIS` import didn't exist yet). Now that Step 2 added the canonical constants, run `timeout 150 cargo test -p ori_rt` and confirm the test passes. No new test code is needed — Step 0 already set it up. This uses `ori_ir` only in `dev-dependencies` (already present), enforcing sync without production dependency bloat.
 
-- [ ] **Step 6 — Verify no remaining duplicate definitions in production code:**
+- [x] **Step 6 — Verify no remaining duplicate definitions in production code:** (2026-04-01) grep shows exactly 2 canonical lines (`ori_ir`) + 2 intentional `ori_rt` lines (runtime isolation, conformance-tested).
   Run: `grep -rn "14_695_981_039_346_656_037\|= 1_099_511_628_211" compiler/ --include="*.rs"`.
   Expected: exactly two lines (the canonical definitions in `ori_ir/src/hash_constants.rs`) and any test files. Any additional `const` definitions in non-test production code are drift — remove them.
 
-- [ ] **Step 7 — Run tests:**
-  `timeout 150 cargo test -p ori_ir -p ori_eval -p ori_llvm -p ori_rt` passes. Confirm the stale "Must match" comment is gone from `compare.rs`.
+- [x] **Step 7 — Run tests:** (2026-04-01) `./test-all.sh`: 14,901 passed, 0 failed. "Must match" comments removed from `compare.rs`.
 
 ---
 
@@ -363,7 +362,7 @@ All subsections must also satisfy:
 
 **Implementation steps (in order):**
 
-- [ ] **Step 1 — Verify `StructBody` match arm sync in both backends:**
+- [x] **Step 1 — Verify `StructBody` match arm sync in both backends:** (2026-04-01) Verified: both eval (derived_methods.rs:30-42) and LLVM (derive_codegen/mod.rs:124-169) exhaustively match all 4 variants (ForEachField, FormatFields, CloneFields, DefaultConstruct). No catch-all arms.
   Open `compiler/ori_eval/src/interpreter/derived_methods.rs` (around line 30) and `compiler/ori_llvm/src/codegen/derive_codegen/mod.rs` (around line 124). Verify both exhaustively match all 4 `StructBody` variants using their actual Rust field names:
   - `ForEachField { field_op, combine }` — present in both? Both call field iteration helpers?
   - `FormatFields { open, separator, suffix, include_names }` — present in both? (Note: NOT `close`/`field_format`/`include_field_names`)
@@ -371,10 +370,10 @@ All subsections must also satisfy:
   - `DefaultConstruct` — present in both?
   If any variant is missing from either backend, that is a GAP — fix it before proceeding to Step 2.
 
-- [ ] **Step 2 — Verify `SumBody` match arm sync in both backends:**
+- [x] **Step 2 — Verify `SumBody` match arm sync in both backends:** (2026-04-01) Verified: LLVM exhaustively matches MatchVariants and NotSupported (mod.rs:197-216). Eval handles SumBody implicitly via variant handlers. No catch-all arms.
   Verify `eval_derived_method()` and `compile_enum_derives()` in `compiler/ori_llvm/src/codegen/derive_codegen/mod.rs` (around line 174) cover all current `SumBody` variants (`MatchVariants`, `NotSupported`). Both are present in `compiler/ori_ir/src/derives/strategy.rs`. If either backend has a `_ =>` arm where it should be exhaustive, that is a DRIFT — fix to exhaustive match.
 
-- [ ] **Step 3 — Add invariant documentation to `strategy.rs`:**
+- [x] **Step 3 — Add invariant documentation to `strategy.rs`:** (2026-04-01) Added "Sync Invariant" section to module doc explaining why `#[non_exhaustive]` must not be added.
   WHERE: `compiler/ori_ir/src/derives/strategy.rs` — the `//!` module-level doc block (lines 1–9).
   Append the following to the existing module doc:
   ```rust
@@ -388,7 +387,7 @@ All subsections must also satisfy:
   //! DO NOT add `#[non_exhaustive]` to `StructBody` or `SumBody`.
   ```
 
-- [ ] **Step 4 — Add cross-crate exhaustiveness test in LLVM:**
+- [x] **Step 4 — Add cross-crate exhaustiveness test in LLVM:** (2026-04-01) Created `derive_codegen/tests.rs` with `derive_strategy_all_struct_body_variants_handled` test. Passes.
   WHERE: `compiler/ori_llvm/src/codegen/derive_codegen/` — check if a `tests.rs` file exists in this directory. If not, create `compiler/ori_llvm/src/codegen/derive_codegen/tests.rs` and add `#[cfg(test)] mod tests;` to `mod.rs`.
   Add a test `derive_strategy_all_struct_body_variants_handled` that:
   1. Creates a `DeriveStrategy` for each `DerivedTrait` variant using `DerivedTrait::strategy()`
@@ -396,12 +395,11 @@ All subsections must also satisfy:
   3. Asserts the `sum_body` variant is not an unhandled arm
   This is defense-in-depth — the Rust exhaustive match already catches most drift, but this test will fire if a new trait is added with a novel strategy variant.
 
-- [ ] **Step 5 — Add cross-crate exhaustiveness test in eval:**
+- [x] **Step 5 — Add cross-crate exhaustiveness test in eval:** (2026-04-01) Added `derive_strategy_all_struct_body_variants_handled` to `interpreter/tests.rs`. Passes.
   WHERE: `compiler/ori_eval/src/interpreter/tests.rs` (existing file).
   Add a test `derive_strategy_all_struct_body_variants_handled` with the same structure as Step 4 but importing from eval's perspective. Confirm `ori_ir::DerivedTrait` is accessible from `ori_eval`.
 
-- [ ] **Step 6 — Run tests:**
-  `timeout 150 cargo test -p ori_ir -p ori_eval -p ori_llvm` passes.
+- [x] **Step 6 — Run tests:** (2026-04-01) All tests pass including both new exhaustiveness tests.
 
 ---
 
