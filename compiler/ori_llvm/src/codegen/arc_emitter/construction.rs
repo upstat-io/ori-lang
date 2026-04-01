@@ -44,7 +44,13 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             }
 
             CtorKind::EnumVariant { variant, .. } => {
-                // Enum layout is { tag, [M x i64] payload } where the tag
+                // §07.2: Niche-encoded enum — no tag field, payload at index 0.
+                if let Some(encoding) = self.get_niche_encoding(ty) {
+                    return self
+                        .emit_niche_variant_construct(llvm_ty, &arg_vals, &encoding, *variant);
+                }
+
+                // Explicit tag layout: { tag, [M x i64] payload } where the tag
                 // type is narrowed via min_tag_width (§07.1).
                 let tag_val =
                     self.builder
@@ -424,5 +430,34 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         // Build result struct: {i64 len, i64 cap, ptr data}
         self.builder
             .build_struct(llvm_ty, &[new_len_val, result_cap, new_data], "reuse.list")
+    }
+
+    /// §07.2: Construct a niche-encoded enum variant.
+    ///
+    /// Niche layout has no tag field — payload fields start at struct index 0.
+    /// For the niche variant (e.g., None): create a zeroinit struct; `SetTag`
+    /// will write the niche value afterward.
+    /// For the data variant (e.g., Some(val)): insert payload at index 0.
+    fn emit_niche_variant_construct(
+        &mut self,
+        llvm_ty: super::super::value_id::LLVMTypeId,
+        arg_vals: &[ValueId],
+        encoding: &super::tag_access::TagEncoding,
+        variant: u32,
+    ) -> ValueId {
+        let mut result = self.builder.const_zero_ty(llvm_ty);
+        if encoding.needs_tag_store(variant) {
+            // Niche variant (no payload): return zeroinit — SetTag stores the niche value.
+            return result;
+        }
+        // Data variant: insert payload fields starting at index 0.
+        for (i, &val) in arg_vals.iter().enumerate() {
+            #[expect(clippy::cast_possible_truncation, reason = "field index fits u32")]
+            let idx = i as u32;
+            result = self
+                .builder
+                .insert_value(result, val, idx, &format!("niche.val.{i}"));
+        }
+        result
     }
 }

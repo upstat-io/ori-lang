@@ -291,22 +291,19 @@ A "niche" is an invalid bit pattern in a type. If an enum variant's payload has 
 
 - [x] Update `resolve_enum()` in `layout_resolver.rs` to handle `EnumTag::Niche` AND `EnumTag::None`. Refactored into 4 methods: `resolve_enum()` (dispatcher), `resolve_enum_explicit()` (existing `{ tag, payload }`), `resolve_enum_tagless()` (single-variant, payload only), `resolve_enum_niche()` (data variant payload only). Consults `ReprPlan` for tag encoding. (2026-03-31)
 - [x] **Single-variant enum (newtype) erasure**: `canonical_enum()` emits `EnumTag::None` when `variants.len() == 1`. The LLVM layout via `resolve_enum_tagless()` omits the tag field. All 14,798 tests pass. (2026-03-31)
-- [ ] Pattern matching codegen for niche-encoded variants:
-  - `TagAccess::emit_switch()` for niche-encoded enums must: (1) load the niche field, (2) compare against the niche value, (3) branch to the niche variant if equal, (4) otherwise fall through to the data variant
-  - For `Option<bool>` with niche repr: load i8, compare against 2 → None branch; values 0/1 → `Some(false)`/`Some(true)` (switch on the same loaded value)
-  - For `Option<str>` with null-ptr niche: load ptr from field 2, compare against null → None; non-null → Some (no further decoding needed — the payload IS the str)
-  - For `Option<Option<bool>>` (nested niche): load i8, compare against 3 → outer None; compare against 2 → `Some(None)`; 0/1 → `Some(Some(false/true))`
-  - Exhaustiveness: the switch must cover ALL niche values, not just the "main" niche — if `Option<bool>` uses niche 2 for None, values 3..=255 are unreachable (LLVM `unreachable` in default case)
+- [x] Pattern matching codegen for niche-encoded variants — implemented in `terminators.rs` via `emit_niche_switch()`: loads niche field, compares against niche_value (with `ptrtoint` for pointer niches), conditional branch to niche/data blocks. Project (field 0) in `instr_dispatch.rs` extracts niche field and records in `niche_scrutinees` map. SetTag handles niche/tagless/explicit paths. Gated by `NICHE_CODEGEN_READY` flag. (2026-03-31)
 
-- [ ] RC inc/dec for niche-encoded variants:
-  - `emit_inline_enum_inc/dec()` in `rc_helpers.rs` and `rc_value_traversal.rs` must check whether the current value is the niche variant BEFORE attempting to inc/dec the payload's RC
-  - For `Option<str>` with null-ptr niche: `if ptr == null { skip } else { ori_str_rc_inc(str) }`
-  - For `Option<RcPointer>`: `if ptr == null { skip } else { ori_rc_inc(ptr) }`
-  - For `Option<bool>`: no RC ops needed (bool is trivial) — but the niche check is still needed to avoid reading garbage from the payload when variant is None
+- [x] RC inc/dec for niche-encoded variants — implemented in `rc_helpers.rs` via shared `emit_niche_enum_rc()`: stores to alloca, loads niche field, compares against niche_value, conditionally skips RC for niche variant. Handles both pointer and integer niche fields. (2026-03-31)
 
-- [ ] Drop for niche-encoded variants:
-  - `emit_drop_enum()` in `drop_enum.rs` must decode the niche before deciding which variant's fields to drop
-  - Same pattern as RC: check niche value first, skip drop for the niche variant (it has no payload to drop)
+- [x] Drop for niche-encoded variants — implemented in `drop_enum.rs` via `emit_drop_enum_niche()`: loads niche field, compares against niche_value, skips to done for niche variant, drops data variant fields at struct offset 0 (no tag field). (2026-03-31)
+
+- [x] **[BUG]** Fixed Option variant ordering mismatch: `canonical_option()` was creating `[None=0, Some=1]` but type checker assigns `[Some=0, None=1]`. This would have caused `niche_variant_idx` to map to the wrong variant. Fixed: `[Some=0, None=1]` everywhere, `niche_variant_idx: 1` for None. (2026-03-31)
+
+- [ ] **Remaining codegen consumers** — `NICHE_CODEGEN_READY` gate (in `canonical/type_repr.rs`) must be flipped to `true` after these consumers are niche-aware:
+  - [ ] `option_result.rs` — Option/Result builtins (`is_some`, `is_none`, `unwrap`, `unwrap_or`) hardcode `extract_value(receiver, 0)` for tag and `extract_value(receiver, 1)` for payload
+  - [ ] `operators/strategy.rs` — `emit_coalesce()` (`??` operator) hardcodes `extract_value(lhs, 0)` for tag
+  - [ ] `instr_dispatch.rs` — `try_emit_project_enum_payload()` hardcodes payload at struct index 1 for Result/Enum
+  - [ ] `variant_construction.rs` — enum construction via `emit_variant_via_insertvalue`/`alloca` may hardcode tag at index 0
 
 **§07.2 Tests (TDD — write BEFORE implementation, verify they fail):**
 

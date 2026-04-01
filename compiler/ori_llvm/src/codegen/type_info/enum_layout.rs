@@ -33,7 +33,9 @@ impl<'ll> TypeLayoutResolver<'_, 'll, '_> {
         }
 
         // §07.2: Check ReprPlan for niche/tagless encoding.
-        if let Some(enum_repr) = self.repr_plan.and_then(|p| p.get_enum_repr(idx)) {
+        // Use resolve_fully to match the Idx used by canonical population.
+        let resolved_idx = self.store.pool().resolve_fully(idx);
+        if let Some(enum_repr) = self.repr_plan.and_then(|p| p.get_enum_repr(resolved_idx)) {
             if enum_repr.tag.is_tagless() {
                 return self.resolve_enum_tagless(idx, variants.first());
             }
