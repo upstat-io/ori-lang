@@ -120,13 +120,28 @@ pub unsafe fn store_elem_dec_fn_once(data: *mut u8, f: Option<extern "C" fn(*mut
 /// current `len`. Slices never write to this field. At RC → 0, the stored value
 /// reflects the element count from the most recent non-slice owner's dec call.
 ///
+/// Thread-safe: uses an atomic store on the multi-threaded path. `Relaxed`
+/// ordering is sufficient because the refcount's `Release`/`Acquire` pair
+/// (in `rc_dec_to_zero`) already establishes the happens-before relationship
+/// between this store and the cleanup thread's load.
+///
 /// # Safety
 ///
 /// `data` must have been returned by `ori_rc_alloc` (so `data - 16` is valid
 /// and 8-byte aligned within the RC header).
 pub unsafe fn store_elem_count(data: *mut u8, count: i64) {
-    let slot = data.sub(ELEM_COUNT_OFFSET).cast::<i64>();
-    slot.write(count);
+    #[cfg(not(feature = "single-threaded"))]
+    {
+        use std::sync::atomic::AtomicI64;
+        let atomic_slot = data.sub(ELEM_COUNT_OFFSET).cast::<AtomicI64>();
+        (*atomic_slot).store(count, Ordering::Relaxed);
+    }
+
+    #[cfg(feature = "single-threaded")]
+    {
+        let slot = data.sub(ELEM_COUNT_OFFSET).cast::<i64>();
+        slot.write(count);
+    }
 }
 
 /// Load the initialized element count from the RC header.
@@ -137,13 +152,27 @@ pub unsafe fn store_elem_count(data: *mut u8, count: i64) {
 /// Used by `slice_buffer_rc_dec` to determine how many elements to clean up
 /// when a slice is the last owner of a buffer.
 ///
+/// Thread-safe: uses an atomic load on the multi-threaded path. `Relaxed`
+/// ordering pairs with the `Relaxed` store in [`store_elem_count`] —
+/// synchronization is provided by the refcount's `Release`/`Acquire` pair.
+///
 /// # Safety
 ///
 /// `data` must have been returned by `ori_rc_alloc` (so `data - 16` is valid
 /// and 8-byte aligned within the RC header).
 pub unsafe fn load_elem_count(data: *mut u8) -> i64 {
-    let slot = data.sub(ELEM_COUNT_OFFSET).cast::<i64>();
-    slot.read()
+    #[cfg(not(feature = "single-threaded"))]
+    {
+        use std::sync::atomic::AtomicI64;
+        let atomic_slot = data.sub(ELEM_COUNT_OFFSET).cast::<AtomicI64>();
+        (*atomic_slot).load(Ordering::Relaxed)
+    }
+
+    #[cfg(feature = "single-threaded")]
+    {
+        let slot = data.sub(ELEM_COUNT_OFFSET).cast::<i64>();
+        slot.read()
+    }
 }
 
 /// Load the initialized element count from a `*const u8` data pointer.
@@ -151,12 +180,24 @@ pub unsafe fn load_elem_count(data: *mut u8) -> i64 {
 /// Identical to [`load_elem_count`] but accepts `*const u8` for callers that
 /// only have an immutable pointer. The read is logically immutable.
 ///
+/// Thread-safe: uses an atomic load on the multi-threaded path.
+///
 /// # Safety
 ///
 /// `data` must have been returned by `ori_rc_alloc`.
 pub unsafe fn load_elem_count_const(data: *const u8) -> i64 {
-    let slot = data.sub(ELEM_COUNT_OFFSET).cast::<i64>();
-    slot.read()
+    #[cfg(not(feature = "single-threaded"))]
+    {
+        use std::sync::atomic::AtomicI64;
+        let atomic_slot = data.sub(ELEM_COUNT_OFFSET).cast::<AtomicI64>();
+        (*atomic_slot).load(Ordering::Relaxed)
+    }
+
+    #[cfg(feature = "single-threaded")]
+    {
+        let slot = data.sub(ELEM_COUNT_OFFSET).cast::<i64>();
+        slot.read()
+    }
 }
 
 // FFI wrappers callable from LLVM-generated code

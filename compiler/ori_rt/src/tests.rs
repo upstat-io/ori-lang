@@ -575,6 +575,55 @@ fn set_buffer_rc_dec_skips_at_max_refcount() {
     ori_rc_free(data, 128, 8);
 }
 
+#[test]
+fn slice_buffer_rc_dec_skips_at_max_refcount() {
+    let _lock = lock_rc();
+
+    // Allocate a buffer large enough for 4 × 8-byte elements.
+    let original_data = ori_rc_alloc(32, 8);
+
+    // Bump refcount to 2 (original + slice), then set to MAX_REFCOUNT.
+    ori_rc_inc(original_data);
+    unsafe {
+        let rc_ptr = original_data.sub(8).cast::<i64>();
+        *rc_ptr = MAX_REFCOUNT;
+    }
+
+    // Create a slice: data pointer offset by 16 bytes (skipping 2 elements).
+    let slice_data = unsafe { original_data.add(16) };
+    let slice_cap = crate::slice_encoding::make_slice_cap(16);
+
+    static ELEM_DEC_CALLS: AtomicUsize = AtomicUsize::new(0);
+    ELEM_DEC_CALLS.store(0, Ordering::SeqCst);
+    extern "C" fn track_elem_dec(_ptr: *mut u8) {
+        ELEM_DEC_CALLS.fetch_add(1, Ordering::SeqCst);
+    }
+
+    // Call ori_buffer_rc_dec with slice cap — triggers slice_buffer_rc_dec path.
+    // Should be a no-op on the original buffer because it's immortal.
+    ori_buffer_rc_dec(slice_data, 2, slice_cap, 8, Some(track_elem_dec));
+
+    unsafe {
+        let rc_ptr = original_data.sub(8).cast::<i64>();
+        assert_eq!(
+            *rc_ptr, MAX_REFCOUNT,
+            "original buffer refcount should remain at MAX_REFCOUNT after slice dec"
+        );
+    }
+    assert_eq!(
+        ELEM_DEC_CALLS.load(Ordering::SeqCst),
+        0,
+        "elem_dec_fn must not be called when slice's original buffer is immortal"
+    );
+
+    // Clean up: reset refcount to 1 so we can free.
+    unsafe {
+        let rc_ptr = original_data.sub(8).cast::<i64>();
+        *rc_ptr = 1;
+    }
+    ori_rc_free(original_data, 32, 8);
+}
+
 // Compile-time verification that MAX_REFCOUNT is correctly defined.
 const _: () = {
     assert!(MAX_REFCOUNT == isize::MAX as i64);
