@@ -1,0 +1,7 @@
+type Inner = { label: str };
+type Outer = { inner: Inner, count: int };
+
+@main () -> int = {
+    let o = Outer { inner: Inner { label: "ok" }, count: 5 };
+    if o.count == 5 then 0 else 1
+}

@@ -1,0 +1,5 @@
+@main () -> int = {
+    let xs = [10, 20, 30];
+    let l = xs.last();
+    if l.is_some() && l.unwrap() == 30 then 0 else 1
+}

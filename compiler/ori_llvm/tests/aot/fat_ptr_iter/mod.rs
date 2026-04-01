@@ -17,11 +17,6 @@
 //! - `generalize`: `elem_dec_fn` generalization across all Drop types
 //! - `control_flow`: cross-type regression matrix (type × pattern)
 
-#![expect(
-    clippy::needless_raw_string_hashes,
-    reason = "readability in test program literals"
-)]
-
 mod control_flow;
 mod conversion;
 mod cow;

@@ -1,0 +1,7 @@
+@main () -> int = {
+    let result = catch(expr: "ok");
+    match result {
+        Ok(v) -> if v == "ok" then 0 else 1,
+        Err(_) -> 2
+    }
+}

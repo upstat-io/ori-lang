@@ -1,0 +1,8 @@
+type Pixel = { r: int, g: int, b: int, a: int }
+
+@read_pixel (p: Pixel) -> int = p.r;
+
+@main () -> int = {
+    let p = Pixel { r: 42, g: 0, b: 0, a: 0 };
+    read_pixel(p:)
+}

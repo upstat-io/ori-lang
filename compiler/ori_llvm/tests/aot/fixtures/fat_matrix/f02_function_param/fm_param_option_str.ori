@@ -1,0 +1,10 @@
+@has_value (opt: Option<str>) -> int =
+    if is_some(option: opt) then 1 else 0;
+
+@main () -> int = {
+    let x = Some("hello");
+    let y: Option<str> = None;
+    if has_value(opt: x) == 1 then {
+        if has_value(opt: y) == 0 then 0 else 1
+    } else 2
+}

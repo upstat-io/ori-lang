@@ -626,6 +626,7 @@ These are not blocking issues for 20A, but implementers should extract where pra
 - [ ] `grammar.ebnf` updated with $construct productions
 - [ ] `.claude/rules/ori-syntax.md` updated with $construct in Compile-Time Reflection section
 - [ ] `/tpr-review` passed — independent Codex review found no critical or major issues (or all findings triaged)
+- [ ] `/impl-hygiene-review last commit` passed — implementation hygiene review clean (phase boundaries, SSOT, algorithmic DRY, naming). MUST run AFTER `/tpr-review` is clean.
 
 **Cleanup:**
 - [ ] Remove all `20A.x` code annotations from source files (per CLAUDE.md: plan annotations are temporary scaffolding)

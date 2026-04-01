@@ -7,19 +7,7 @@ use crate::util::assert_aot_success;
 #[test]
 fn test_map_str_key_iteration() {
     assert_aot_success(
-        r#"
-@main () -> int = {
-    let m = {
-        "this is a very long key exceeding SSO threshold here": 10,
-        "another very long key that also exceeds the SSO thresh": 20
-    };
-    let total = 0;
-    for (k, v) in m do {
-        total = total + v;
-    };
-    if total == 30 then 0 else 1
-}
-"#,
+        include_str!("../fixtures/fat_ptr_iter/map_set/map_str_key_iteration.ori"),
         "map_str_key_iteration",
     );
 }
@@ -29,20 +17,7 @@ fn test_map_str_key_iteration() {
 #[test]
 fn test_map_str_key_for_do_full() {
     assert_aot_success(
-        r#"
-@main () -> int = {
-    let m = {
-        "this is a very long key exceeding SSO": 10,
-        "another very long key that exceeds SSO too": 20,
-        "third long key exceeding SSO threshold": 30
-    };
-    let total = 0;
-    for (k, v) in m do {
-        total = total + v;
-    };
-    if total == 60 then 0 else 1
-}
-"#,
+        include_str!("../fixtures/fat_ptr_iter/map_set/map_str_key_for_do_full.ori"),
         "map_str_key_for_do_full",
     );
 }
@@ -52,21 +27,7 @@ fn test_map_str_key_for_do_full() {
 #[test]
 fn test_map_str_key_for_do_break() {
     assert_aot_success(
-        r#"
-@main () -> int = {
-    let m = {
-        "this is a very long key exceeding SSO": 10,
-        "another very long key that exceeds SSO too": 20,
-        "third long key exceeding SSO threshold": 30
-    };
-    let total = 0;
-    for (k, v) in m do {
-        total = total + v;
-        if total >= 10 then break;
-    };
-    if total >= 10 then 0 else 1
-}
-"#,
+        include_str!("../fixtures/fat_ptr_iter/map_set/map_str_key_for_do_break.ori"),
         "map_str_key_for_do_break",
     );
 }
@@ -75,20 +36,7 @@ fn test_map_str_key_for_do_break() {
 #[test]
 fn test_map_str_val_for_do() {
     assert_aot_success(
-        r#"
-@main () -> int = {
-    let m = {
-        10: "this is a very long value exceeding SSO",
-        20: "another very long value that exceeds SSO too",
-        30: "third long value exceeding SSO threshold"
-    };
-    let total = 0;
-    for (k, v) in m do {
-        total = total + k;
-    };
-    if total == 60 then 0 else 1
-}
-"#,
+        include_str!("../fixtures/fat_ptr_iter/map_set/map_str_val_for_do.ori"),
         "map_str_val_for_do",
     );
 }
@@ -98,19 +46,7 @@ fn test_map_str_val_for_do() {
 #[test]
 fn test_map_str_key_str_val_for_do() {
     assert_aot_success(
-        r#"
-@main () -> int = {
-    let m = {
-        "this is a very long key exceeding SSO": "long value exceeding SSO threshold too",
-        "another very long key that exceeds SSO": "another long value exceeding threshold"
-    };
-    let count = 0;
-    for (k, v) in m do {
-        count = count + 1;
-    };
-    if count == 2 then 0 else 1
-}
-"#,
+        include_str!("../fixtures/fat_ptr_iter/map_set/map_str_key_str_val_for_do.ori"),
         "map_str_key_str_val_for_do",
     );
 }
@@ -121,21 +57,7 @@ fn test_map_str_key_str_val_for_do() {
 #[test]
 fn test_map_str_key_for_yield() {
     assert_aot_success(
-        r#"
-@main () -> int = {
-    let m = {
-        "this is a very long key exceeding SSO": 10,
-        "another very long key that exceeds SSO too": 20,
-        "third long key exceeding SSO threshold": 30
-    };
-    let values = for (k, v) in m yield v;
-    let total = 0;
-    for v in values do {
-        total = total + v;
-    };
-    if total == 60 then 0 else 1
-}
-"#,
+        include_str!("../fixtures/fat_ptr_iter/map_set/map_str_key_for_yield.ori"),
         "map_str_key_for_yield",
     );
 }
@@ -147,20 +69,7 @@ fn test_set_str_iteration() {
     // Set<str> converts to contiguous list via ori_set_to_list before iterating.
     // The output list needs elem_dec_fn for proper string cleanup.
     assert_aot_success(
-        r#"
-@main () -> int = {
-    let s: Set<str> = [
-        "this is a very long string that exceeds SSO threshold",
-        "another very long string that also exceeds the threshold"
-    ].iter().collect();
-    let total = 0;
-    for item in s do {
-        total = total + item.len();
-    };
-    // 53 + 56 = 109
-    if total == 109 then 0 else 1
-}
-"#,
+        include_str!("../fixtures/fat_ptr_iter/map_set/set_str_iteration.ori"),
         "set_str_iteration",
     );
 }
@@ -171,21 +80,7 @@ fn test_set_str_iteration() {
 #[test]
 fn test_set_str_for_yield() {
     assert_aot_success(
-        r#"
-@main () -> int = {
-    let s: Set<str> = [
-        "this is a very long string that exceeds SSO threshold",
-        "another very long string that also exceeds the threshold"
-    ].iter().collect();
-    let lengths = for item in s yield item.len();
-    let total = 0;
-    for n in lengths do {
-        total = total + n;
-    };
-    // 53 + 56 = 109
-    if total == 109 then 0 else 1
-}
-"#,
+        include_str!("../fixtures/fat_ptr_iter/map_set/set_str_for_yield.ori"),
         "set_str_for_yield",
     );
 }

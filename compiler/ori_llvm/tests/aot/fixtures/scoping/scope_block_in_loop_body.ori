@@ -1,0 +1,13 @@
+@main () -> int = {
+    let total = 0;
+    for i in 0..5 do {
+        let contribution = {
+            let base = i * 10;
+            let bonus = 1;
+            base + bonus
+        };
+        total = total + contribution;
+    };
+    // 1 + 11 + 21 + 31 + 41 = 105
+    if total == 105 then 0 else 1
+}

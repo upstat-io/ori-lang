@@ -1,0 +1,7 @@
+@main () -> int = {
+    let items = [[1, 2, 3], [4, 5, 6]];
+    let doubled_lens = for inner in items yield inner.length() * 2;
+    let sum = 0;
+    for n in doubled_lens do sum = sum + n;
+    if sum == 12 then 0 else 1
+}

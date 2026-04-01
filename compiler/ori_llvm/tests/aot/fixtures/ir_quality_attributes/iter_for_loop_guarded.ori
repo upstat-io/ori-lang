@@ -1,0 +1,6 @@
+@main () -> int = {
+    let words = ["hi", "hello", "go", "world"];
+    let total = 0;
+    for w in words if w.length() > 3 do total += w.length();
+    total
+}

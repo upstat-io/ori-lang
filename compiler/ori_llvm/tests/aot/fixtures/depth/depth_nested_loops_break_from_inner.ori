@@ -1,0 +1,15 @@
+@main () -> int = {
+    let total = 0;
+    for i in 0..5 do {
+        let inner_sum = 0;
+        let j = 0;
+        loop {
+            if j >= 10 then break;
+            inner_sum = inner_sum + j;
+            j = j + 1
+        };
+        total = total + inner_sum
+    };
+    // inner_sum = 0+1+...+9 = 45 per outer iteration, 5 iterations = 225
+    if total == 225 then 0 else 1
+}

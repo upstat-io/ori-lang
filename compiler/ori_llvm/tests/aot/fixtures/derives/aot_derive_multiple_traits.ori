@@ -1,0 +1,8 @@
+#[derive(Eq, Clone)]
+type Pair = { x: int, y: int }
+
+@main () -> int = {
+    let a = Pair { x: 5, y: 10 };
+    let b = a.clone();
+    if a.eq(other: b) then 0 else 1
+}

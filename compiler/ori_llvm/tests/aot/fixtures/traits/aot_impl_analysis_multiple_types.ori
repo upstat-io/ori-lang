@@ -1,0 +1,32 @@
+trait Printable {
+    @to_str (self) -> str
+}
+
+type Point = { x: int, y: int }
+type Color = { r: int, g: int, b: int }
+
+impl Printable for Point {
+    @to_str (self) -> str = "point";
+}
+
+impl Point {
+    @distance_sq (self) -> int = self.x * self.x + self.y * self.y;
+}
+
+impl Printable for Color {
+    @to_str (self) -> str = "color";
+}
+
+impl Color {
+    @brightness (self) -> int = (self.r + self.g + self.b) / 3;
+}
+
+@main () -> int = {
+    let p = Point { x: 3, y: 4 };
+    let c = Color { r: 100, g: 150, b: 200 };
+    let ok1 = p.to_str() == "point";
+    let ok2 = p.distance_sq() == 25;
+    let ok3 = c.to_str() == "color";
+    let ok4 = c.brightness() == 150;
+    if ok1 && ok2 && ok3 && ok4 then 0 else 1
+}

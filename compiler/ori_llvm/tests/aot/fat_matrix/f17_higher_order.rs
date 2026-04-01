@@ -3,26 +3,13 @@
 //! Tests indirect call codegen, type erasure, and RC handling when fat pointer
 //! values flow through higher-order function parameters.
 
-#![expect(
-    clippy::needless_raw_string_hashes,
-    reason = "readability in test program literals"
-)]
-
 use crate::util::assert_aot_success;
 
 // Higher-order: function taking str -> int
 #[test]
 fn test_fm_higher_order_str_fn() {
     assert_aot_success(
-        r#"
-@apply_to_str (f: (str) -> int, s: str) -> int = f(s);
-
-@get_len (s: str) -> int = s.length();
-
-@main () -> int = {
-    if apply_to_str(f: get_len, s: "hello") == 5 then 0 else 1
-}
-"#,
+        include_str!("../fixtures/fat_matrix/f17_higher_order/fm_higher_order_str_fn.ori"),
         "fm_higher_order_str_fn",
     );
 }
@@ -31,15 +18,7 @@ fn test_fm_higher_order_str_fn() {
 #[test]
 fn test_fm_higher_order_list_fn() {
     assert_aot_success(
-        r#"
-@apply_to_list (f: ([int]) -> int, xs: [int]) -> int = f(xs);
-
-@list_len (xs: [int]) -> int = xs.length();
-
-@main () -> int = {
-    if apply_to_list(f: list_len, xs: [10, 20, 30]) == 3 then 0 else 1
-}
-"#,
+        include_str!("../fixtures/fat_matrix/f17_higher_order/fm_higher_order_list_fn.ori"),
         "fm_higher_order_list_fn",
     );
 }
@@ -48,15 +27,9 @@ fn test_fm_higher_order_list_fn() {
 #[test]
 fn test_fm_higher_order_lambda_fat_capture() {
     assert_aot_success(
-        r#"
-@apply (f: (int) -> int, x: int) -> int = f(x);
-
-@main () -> int = {
-    let prefix = "hello";
-    let f = (n: int) -> int = prefix.length() + n;
-    if apply(f: f, x: 5) == 10 then 0 else 1
-}
-"#,
+        include_str!(
+            "../fixtures/fat_matrix/f17_higher_order/fm_higher_order_lambda_fat_capture.ori"
+        ),
         "fm_higher_order_lambda_fat_capture",
     );
 }
@@ -65,18 +38,7 @@ fn test_fm_higher_order_lambda_fat_capture() {
 #[test]
 fn test_fm_higher_order_called_twice() {
     assert_aot_success(
-        r#"
-@apply (f: (str) -> int, s: str) -> int = f(s);
-
-@get_len (s: str) -> int = s.length();
-
-@main () -> int = {
-    let s = "abcdefghijklmnopqrstuvwxyz1234";
-    let a = apply(f: get_len, s: s);
-    let b = apply(f: get_len, s: s);
-    if a + b == 60 then 0 else 1
-}
-"#,
+        include_str!("../fixtures/fat_matrix/f17_higher_order/fm_higher_order_called_twice.ori"),
         "fm_higher_order_called_twice",
     );
 }
@@ -85,15 +47,7 @@ fn test_fm_higher_order_called_twice() {
 #[test]
 fn test_fm_higher_order_compose() {
     assert_aot_success(
-        r#"
-@apply_then_add (f: (str) -> int, s: str, n: int) -> int = f(s) + n;
-
-@get_len (s: str) -> int = s.length();
-
-@main () -> int = {
-    if apply_then_add(f: get_len, s: "hello", n: 5) == 10 then 0 else 1
-}
-"#,
+        include_str!("../fixtures/fat_matrix/f17_higher_order/fm_higher_order_compose.ori"),
         "fm_higher_order_compose",
     );
 }
@@ -102,18 +56,7 @@ fn test_fm_higher_order_compose() {
 #[test]
 fn test_fm_higher_order_struct_fat() {
     assert_aot_success(
-        r#"
-type Named = { name: str, id: int }
-
-@apply_to_named (f: (Named) -> int, n: Named) -> int = f(n);
-
-@name_len (n: Named) -> int = n.name.length();
-
-@main () -> int = {
-    let n = Named { name: "alice", id: 1 };
-    if apply_to_named(f: name_len, n: n) == 5 then 0 else 1
-}
-"#,
+        include_str!("../fixtures/fat_matrix/f17_higher_order/fm_higher_order_struct_fat.ori"),
         "fm_higher_order_struct_fat",
     );
 }
@@ -122,16 +65,7 @@ type Named = { name: str, id: int }
 #[test]
 fn test_fm_higher_order_map() {
     assert_aot_success(
-        r#"
-@apply_to_map (f: ({str: int}) -> int, m: {str: int}) -> int = f(m);
-
-@map_size (m: {str: int}) -> int = m.length();
-
-@main () -> int = {
-    let m = {"a": 1, "b": 2};
-    if apply_to_map(f: map_size, m: m) == 2 then 0 else 1
-}
-"#,
+        include_str!("../fixtures/fat_matrix/f17_higher_order/fm_higher_order_map.ori"),
         "fm_higher_order_map",
     );
 }
@@ -140,21 +74,7 @@ fn test_fm_higher_order_map() {
 #[test]
 fn test_fm_higher_order_different_fns() {
     assert_aot_success(
-        r#"
-@apply (f: (str) -> int, s: str) -> int = f(s);
-
-@get_len (s: str) -> int = s.length();
-@first_byte (s: str) -> int = if s.length() > 0 then 1 else 0;
-
-@main () -> int = {
-    let s = "hello";
-    let a = apply(f: get_len, s: s);
-    let b = apply(f: first_byte, s: s);
-    if a == 5 then {
-        if b == 1 then 0 else 1
-    } else 2
-}
-"#,
+        include_str!("../fixtures/fat_matrix/f17_higher_order/fm_higher_order_different_fns.ori"),
         "fm_higher_order_different_fns",
     );
 }

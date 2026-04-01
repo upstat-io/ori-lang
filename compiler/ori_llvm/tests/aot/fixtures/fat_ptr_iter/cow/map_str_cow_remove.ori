@@ -1,0 +1,13 @@
+@main () -> int = {
+    let m = {
+        "this is a very long key exceeding SSO threshold here": 10,
+        "another very long key that also exceeds the SSO thresh": 20
+    };
+    let copy = m;
+    copy = copy.remove(key: "this is a very long key exceeding SSO threshold here");
+    let orig_count = 0;
+    for (k, v) in m do { orig_count = orig_count + 1; };
+    let copy_count = 0;
+    for (k, v) in copy do { copy_count = copy_count + 1; };
+    if orig_count == 2 && copy_count == 1 then 0 else 1
+}

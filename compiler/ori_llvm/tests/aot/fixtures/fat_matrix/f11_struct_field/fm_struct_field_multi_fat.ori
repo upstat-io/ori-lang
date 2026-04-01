@@ -1,0 +1,6 @@
+type Person = { first: str, last: str, age: int }
+
+@main () -> int = {
+    let p = Person { first: "alice", last: "smith", age: 30 };
+    if p.first.length() + p.last.length() + p.age == 40 then 0 else 1
+}

@@ -138,15 +138,33 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                      funclets must exit via catchret/cleanupret, not switch"
                 );
                 let scrut_val = self.var(*scrutinee);
-                let llvm_cases: Vec<(ValueId, BlockId)> = cases
-                    .iter()
-                    .map(|&(tag, block_id)| {
-                        let tag_val = self.builder.const_int_matching(scrut_val, tag);
-                        (tag_val, self.block(block_id))
-                    })
-                    .collect();
-                self.builder
-                    .switch(scrut_val, self.block(*default), &llvm_cases);
+
+                // §07.2: Niche-encoded enum — emit icmp + cond_br instead of switch.
+                let handled_niche = self
+                    .niche_scrutinees
+                    .get(scrutinee)
+                    .copied()
+                    .and_then(|enum_ty| self.get_niche_encoding(enum_ty));
+                if let Some(encoding) = handled_niche {
+                    if encoding.is_tagless() {
+                        let target = cases
+                            .first()
+                            .map_or_else(|| self.block(*default), |(_, b)| self.block(*b));
+                        self.builder.br(target);
+                    } else {
+                        self.emit_niche_switch(scrut_val, &encoding, cases, *default);
+                    }
+                } else {
+                    let llvm_cases: Vec<(ValueId, BlockId)> = cases
+                        .iter()
+                        .map(|&(tag, block_id)| {
+                            let tag_val = self.builder.const_int_matching(scrut_val, tag);
+                            (tag_val, self.block(block_id))
+                        })
+                        .collect();
+                    self.builder
+                        .switch(scrut_val, self.block(*default), &llvm_cases);
+                }
             }
 
             ArcTerminator::Invoke {
@@ -217,6 +235,40 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
     /// Emit an `Invoke` terminator (ABI-aware function call with unwind).
     ///
+    /// §07.2: Emit a niche-aware switch as `icmp eq` + `cond_br`.
+    ///
+    /// For 2-variant niche enums (Option, Result): compare the raw niche field
+    /// value against the niche sentinel, then branch to the niche variant block
+    /// or the data variant block.
+    fn emit_niche_switch(
+        &mut self,
+        scrut_val: ValueId,
+        encoding: &super::tag_access::TagEncoding,
+        cases: &[(u64, ori_arc::ir::ArcBlockId)],
+        default: ori_arc::ir::ArcBlockId,
+    ) {
+        let niche_value = encoding.niche_value().unwrap();
+        let niche_variant_idx = encoding.niche_variant_idx().unwrap();
+
+        // Find blocks for each logical variant.
+        let niche_block = cases
+            .iter()
+            .find(|(tag, _)| *tag == u64::from(niche_variant_idx))
+            .map(|(_, b)| self.block(*b));
+        let data_block = cases
+            .iter()
+            .find(|(tag, _)| *tag != u64::from(niche_variant_idx))
+            .map_or_else(|| self.block(default), |(_, b)| self.block(*b));
+
+        let is_niche = self.niche_is_sentinel(scrut_val, niche_value, "is.niche");
+        if let Some(nb) = niche_block {
+            self.builder.cond_br(is_niche, nb, data_block);
+        } else {
+            // No case for the niche variant — branch directly to data.
+            self.builder.br(data_block);
+        }
+    }
+
     /// When the callee is in [`nounwind_functions`], emits `call` + `br` instead
     /// of `invoke`, eliminating the unwind edge and its associated landing pad.
     fn emit_invoke(

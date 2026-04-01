@@ -1,0 +1,16 @@
+@step1 () -> Result<int, str> = Ok(10);
+@step2 () -> Result<int, str> = Err("fail at step 2");
+@step3 () -> Result<int, str> = Ok(30);
+
+@pipeline () -> Result<int, str> = {
+    let a = step1()?;
+    let b = step2()?;
+    let c = step3()?;
+    Ok(a + b + c)
+}
+
+@main () -> int = {
+    let r = pipeline();
+    // step2 fails, so step3 is never reached
+    if r.is_err() then 0 else 1
+}

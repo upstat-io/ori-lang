@@ -1,0 +1,16 @@
+@count_matching (pred: (int) -> bool) -> int = {
+    let count = 0;
+    for i in 0..10 do {
+        if pred(i) then {
+            count = count + 1;
+        }
+    };
+    count
+}
+
+@main () -> int = {
+    let is_even = (n: int) -> n % 2 == 0;
+    let c = count_matching(pred: is_even);
+    // 0,2,4,6,8 = 5 even numbers
+    if c == 5 then 0 else 1
+}

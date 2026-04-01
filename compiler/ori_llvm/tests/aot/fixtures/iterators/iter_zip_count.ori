@@ -1,0 +1,4 @@
+@main () -> int = {
+    let c = [1, 2, 3].iter().zip([10, 20, 30].iter()).count();
+    if c == 3 then 0 else 1
+}

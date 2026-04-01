@@ -1,0 +1,7 @@
+@main () -> int = {
+    let m: {int: str} = {};
+    let m = m.insert(1, "first value that is a long heap string for testing purposes");
+    let m = m.insert(1, "second value that is a long heap string for testing purposes");
+    let m = m.insert(1, "third value that is a long heap string for testing purposes");
+    if m.len() == 1 then 0 else 1
+}

@@ -1,0 +1,9 @@
+@is_even (n: int) -> bool = if n == 0 then true else is_odd(n: n - 1);
+@is_odd (n: int) -> bool = if n == 0 then false else is_even(n: n - 1);
+
+@main () -> int = {
+    let e50 = is_even(n: 50);
+    let o49 = is_odd(n: 49);
+    let e51 = is_even(n: 51);
+    if e50 && o49 && !e51 then 0 else 1
+}

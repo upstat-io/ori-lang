@@ -1,0 +1,6 @@
+type Config = { name: str, values: [int] };
+
+@main () -> int = {
+    let c = Config { name: "test", values: [1, 2, 3] };
+    if c.name.length() == 4 then 0 else 1
+}

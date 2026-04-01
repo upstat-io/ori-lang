@@ -338,13 +338,13 @@ This is intentional (internal to `ori_arc`). §08.5's option (b) — passing esc
 
 | ID | Title | File | Status |
 |----|-------|------|--------|
-| 01 | Representation IR & Decision Framework | `section-01-repr-ir.md` | Complete |
-| 02 | Transitive Triviality & ARC Elision | `section-02-transitive-triviality.md` | Complete |
-| 03 | Value Range Analysis Framework | `section-03-range-analysis.md` | Complete (13 TPR findings resolved) |
-| 04 | Integer Narrowing Pipeline | `section-04-integer-narrowing.md` | Complete |
-| 05 | Float Narrowing Pipeline | `section-05-float-narrowing.md` | Complete (19 TPR findings resolved) |
-| 06 | Struct & Tuple Layout Optimization | `section-06-struct-layout.md` | Complete |
-| 07 | Enum Representation Optimization | `section-07-enum-repr.md` | Not Started |
+| 01 | Representation IR & Decision Framework | `section-01-repr-ir.md` | In Progress (hygiene gate) |
+| 02 | Transitive Triviality & ARC Elision | `section-02-transitive-triviality.md` | In Progress (hygiene gate) |
+| 03 | Value Range Analysis Framework | `section-03-range-analysis.md` | In Progress (hygiene gate) |
+| 04 | Integer Narrowing Pipeline | `section-04-integer-narrowing.md` | In Progress (hygiene gate) |
+| 05 | Float Narrowing Pipeline | `section-05-float-narrowing.md` | In Progress (hygiene gate) |
+| 06 | Struct & Tuple Layout Optimization | `section-06-struct-layout.md` | In Progress (hygiene gate) |
+| 07 | Enum Representation Optimization | `section-07-enum-repr.md` | In Progress |
 | 08 | Escape Analysis & Stack Promotion | `section-08-escape-analysis.md` | Not Started |
 | 09 | ARC Header Compression | `section-09-arc-header.md` | Not Started |
 | 10 | Thread-Local Non-Atomic ARC | `section-10-thread-local-arc.md` | Not Started |

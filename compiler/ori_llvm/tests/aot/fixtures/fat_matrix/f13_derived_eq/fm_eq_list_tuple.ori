@@ -1,0 +1,11 @@
+#derive(Eq)
+type Pairs = { items: [(int, str)] }
+
+@main () -> int = {
+    let a = Pairs { items: [(1, "long heap allocated string here!")] };
+    let b = Pairs { items: [(1, "long heap allocated string here!")] };
+    let c = Pairs { items: [(1, "DIFFERENT heap allocated string!")] };
+    if a == b then {
+        if a != c then 0 else 1
+    } else 2
+}

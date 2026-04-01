@@ -1,0 +1,15 @@
+@wrap (x: Option<int>) -> Option<Option<int>> = Some(x);
+@wrap_none () -> Option<Option<int>> = None;
+
+@main () -> int = {
+    let a = wrap(x: Some(10));
+    let b = wrap(x: Some(20));
+    let c = wrap_none();
+    // Some(Some(10)) < Some(Some(20))
+    let r1 = a.compare(b).is_less();
+    // None < Some(anything)
+    let r2 = c.compare(a).is_less();
+    // Some(anything) > None
+    let r3 = a.compare(c).is_greater();
+    if r1 && r2 && r3 then 0 else 1
+}

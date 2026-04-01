@@ -71,17 +71,24 @@ static SET_METHODS: &[MethodDef] = &[
         Ownership::Borrow,
         false,
     ),
-    MethodDef::compound("is_empty", &[], BOOL, None, Ownership::Borrow, false),
+    MethodDef::compound(
+        "is_empty",
+        &[],
+        BOOL,
+        Some("IsEmpty"),
+        Ownership::Borrow,
+        false,
+    ),
     MethodDef::compound(
         "iter",
         &[],
         ReturnTag::IteratorOf(TypeProjection::Element),
-        None,
+        Some("Iterable"),
         Ownership::Borrow,
         false,
     ),
-    MethodDef::compound("len", &[], INT, None, Ownership::Borrow, false),
-    MethodDef::compound("length", &[], INT, None, Ownership::Borrow, false),
+    MethodDef::compound("len", &[], INT, Some("Len"), Ownership::Borrow, false),
+    MethodDef::compound("length", &[], INT, Some("Len"), Ownership::Borrow, false),
     MethodDef::compound(
         "remove",
         &ELEMENT_BORROW_PARAM,
@@ -115,6 +122,7 @@ pub static SET: TypeDef = TypeDef {
     type_params: TypeParamArity::Fixed(1),
     methods: SET_METHODS,
     operators: OpDefs::UNSUPPORTED,
+    traits: &["Printable"],
 };
 
 #[cfg(test)]

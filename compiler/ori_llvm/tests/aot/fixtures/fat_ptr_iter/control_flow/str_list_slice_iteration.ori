@@ -1,0 +1,14 @@
+@main () -> int = {
+    let words = [
+        "this is a very long string that exceeds SSO threshold",
+        "another very long string that also exceeds the threshold",
+        "third very long string also well exceeding SSO threshold"
+    ];
+    let slice = words.slice(start: 0, end: 2);
+    let total = 0;
+    for w in slice do {
+        total = total + w.len();
+    };
+    // First two: 53 + 56 = 109
+    if total == 109 then 0 else 1
+}

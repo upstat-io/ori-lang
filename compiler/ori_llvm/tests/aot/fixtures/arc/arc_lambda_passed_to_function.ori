@@ -1,0 +1,7 @@
+@apply (f: (int) -> int, x: int) -> int = f(x);
+
+@main () -> int = {
+    let base = 40;
+    let adder = (n: int) -> base + n;
+    if apply(adder, 2) == 42 then 0 else 1
+}

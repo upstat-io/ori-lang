@@ -1,0 +1,12 @@
+#derive(Eq, Comparable, Hashable)
+type Score = { points: int, bonus: int }
+
+@main () -> int = {
+    let a = Score { points: 10, bonus: 5 };
+    let b = Score { points: 10, bonus: 5 };
+    let c = Score { points: 20, bonus: 3 };
+    let eq_ok = a == b;
+    let cmp_ok = a < c;
+    let hash_ok = a.hash() == b.hash();
+    if eq_ok && cmp_ok && hash_ok then 0 else 1
+}

@@ -1,0 +1,5 @@
+@main () -> int = {
+    let sum = 0;
+    for entry in {"a": 10, "b": 20, "c": 30} do sum = sum + entry.1;
+    if sum == 60 then 0 else 1
+}

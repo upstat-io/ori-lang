@@ -1,0 +1,17 @@
+use std.testing { assert_eq, assert }
+@main () -> void = {
+    // List gets narrowed (all values fit in i8)
+    let xs: [int] = [1, 2, 3, 4, 5];
+    assert_eq(actual: xs[0], expected: 1);
+    assert_eq(actual: xs[4], expected: 5);
+
+    // Set uses canonical sizes (not narrowed)
+    let s: Set<int> = [1, 2, 3, 4, 5].iter().collect();
+    assert(condition: s.contains(value: 1));
+    assert(condition: s.contains(value: 5));
+    assert(condition: !s.contains(value: 6));
+    assert_eq(actual: s.len(), expected: 5);
+
+    // Cross-check: list element lookup in set
+    assert(condition: s.contains(value: xs[2]));
+}

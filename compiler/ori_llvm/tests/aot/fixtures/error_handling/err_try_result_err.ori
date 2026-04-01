@@ -1,0 +1,11 @@
+@fail () -> Result<int, str> = Err("broken");
+
+@process () -> Result<int, str> = {
+    let v = fail()?;
+    Ok(v + 1)
+}
+
+@main () -> int = {
+    let r = process();
+    if r.is_err() then 0 else 1
+}

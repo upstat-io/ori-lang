@@ -1,0 +1,4 @@
+@main () -> int = {
+    let pairs = [(1, "a"), (2, "b"), (3, "c")];
+    if pairs.length() == 3 then 0 else 1
+}

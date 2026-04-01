@@ -1,0 +1,8 @@
+@main () -> int = {
+    let $x = Some(5);
+    let $m = match x {
+        Some(v) -> {"value": v, "doubled": v * 2},
+        None -> {"value": 0},
+    };
+    if m.len() == 2 then 0 else 1
+}

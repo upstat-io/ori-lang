@@ -1,0 +1,13 @@
+#derive(Eq)
+type E = A(u: void, x: int) | B;
+
+@main () -> void = {
+    let a1 = A(u: (), x: 5);
+    let a2 = A(u: (), x: 5);
+    let a3 = A(u: (), x: 7);
+    let b = B;
+    print(msg: if a1 == a2 then "eq" else "ne");
+    print(msg: if a1 == a3 then "eq" else "ne");
+    print(msg: if a1 == b then "eq" else "ne");
+    print(msg: if b == b then "eq" else "ne");
+}

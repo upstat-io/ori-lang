@@ -1,0 +1,13 @@
+@main () -> int = {
+    let ok1: Result<int, int> = Ok(42);
+    let ok2: Result<int, int> = Ok(42);
+    let err1: Result<int, int> = Err(42);
+    let h1 = ok1.hash();
+    let h2 = ok2.hash();
+    let h3 = err1.hash();
+    // Same variant+value → same hash
+    let r1 = h1 == h2;
+    // Ok(42) vs Err(42) → different hash (different seed)
+    let r2 = h1 != h3;
+    if r1 && r2 then 0 else 1
+}

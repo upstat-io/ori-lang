@@ -1,0 +1,7 @@
+@main () -> int = {
+    let words = ["hello", "world"];
+    let lengths = for w in words yield w.length();
+    let total = 0;
+    for n in lengths do total += n;
+    total
+}

@@ -1,0 +1,5 @@
+@main () -> int = {
+    let xs: [int] = [1, 2, 3];
+    let s: Set<int> = xs.iter().collect();
+    if s.contains(value: xs[0]) then 0 else 1
+}

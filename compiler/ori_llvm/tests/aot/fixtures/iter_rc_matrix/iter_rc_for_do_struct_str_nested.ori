@@ -1,0 +1,14 @@
+type Item = { name: str, val: int }
+
+@main () -> int = {
+    let outer = [
+        [Item { name: "this item name exceeds the SSO threshold by being long", val: 10 },
+         Item { name: "second item name also exceeds the SSO threshold heap", val: 20 }],
+        [Item { name: "third item name that is also long enough for heap alloc", val: 30 }]
+    ];
+    let count = 0;
+    for inner in outer do {
+        for item in inner do count = count + 1;
+    };
+    if count == 3 then 0 else 1
+}

@@ -1,0 +1,19 @@
+@char_val (c: char) -> int = match c {
+    'a' -> 1,
+    'b' -> 2,
+    'c' -> 3,
+    'd' -> 4,
+    'e' -> 5,
+    'f' -> 6,
+    'g' -> 7,
+    'h' -> 8,
+    'i' -> 9,
+    'j' -> 10,
+    _ -> 0,
+};
+
+@main () -> int = {
+    let sum = char_val(c: 'a') + char_val(c: 'e') + char_val(c: 'j') + char_val(c: 'z');
+    // 1 + 5 + 10 + 0 = 16
+    if sum == 16 then 0 else 1
+}

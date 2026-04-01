@@ -1,0 +1,14 @@
+type Point = { x: int, y: int }
+
+@make_point (x: int, y: int) -> Point = Point { x: x, y: y };
+@sum_point (p: Point) -> int = p.x + p.y;
+
+@main () -> int = {
+    let total = 0;
+    for i in 0..200 do {
+        let p = make_point(x: i, y: i + 1);
+        total = total + sum_point(p: p)
+    };
+    // sum((i + i+1) for i=0..199) = sum(2i+1) = 2*Σi + 200 = 2*199*200/2 + 200 = 39800 + 200 = 40000
+    if total == 40000 then 0 else 1
+}

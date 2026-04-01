@@ -1,0 +1,7 @@
+type Shape = Circle(radius: int) | Rectangle(width: int, height: int);
+
+@main () -> int = {
+    let c = Circle(radius: 5);
+    let r = Rectangle(width: 3, height: 4);
+    0
+}

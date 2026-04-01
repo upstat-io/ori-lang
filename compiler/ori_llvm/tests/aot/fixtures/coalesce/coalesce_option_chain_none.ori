@@ -1,0 +1,11 @@
+// Regression: BUG-02-002 — Option<int> ?? Option<int> when LHS is None
+// Falls through to RHS, preserves wrapper
+@main () -> int = {
+    let a: Option<int> = None;
+    let b: Option<int> = Some(2);
+    let c: Option<int> = a ?? b;
+    match c {
+        Some(v) -> if v == 2 then 0 else 1,
+        None -> 2,
+    }
+}

@@ -1,0 +1,10 @@
+@main () -> int = {
+    let x = 2;
+    let result = match x {
+        1 -> 10,
+        2 -> 20,
+        3 -> 30,
+        _ -> 0,
+    };
+    if result == 20 then 0 else 1
+}

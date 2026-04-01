@@ -1,0 +1,6 @@
+@main () -> int = {
+    let a = "abcdefghijklmnopqrstuvwxyz1234";
+    let b = "another_heap_string_for_testing";
+    let c = "third_heap_string_goes_here_now";
+    if a.length() + b.length() + c.length() == 92 then 0 else 1
+}

@@ -1,0 +1,22 @@
+type Dir = North | South | East | West;
+
+@dir_to_int (d: Dir) -> int = {
+    match d {
+        North -> 0,
+        South -> 1,
+        East -> 2,
+        West -> 3,
+    }
+}
+
+@main () -> int = {
+    let dirs = [North, South, East, West];
+    let copy = for d in dirs yield d;
+    if copy.len() != 4 then 1
+    else {
+        let sum = 0;
+        for d in copy do { sum = sum + dir_to_int(d: d) };
+        // 0+1+2+3 = 6
+        if sum == 6 then 0 else 2
+    }
+}

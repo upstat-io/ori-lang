@@ -1,0 +1,5 @@
+@main () -> int = {
+    let prefix = "hello world prefix that exceeds SSO limit by far";
+    let f = s -> prefix.length() + s.length();
+    if f("world") == 53 then 0 else 1
+}

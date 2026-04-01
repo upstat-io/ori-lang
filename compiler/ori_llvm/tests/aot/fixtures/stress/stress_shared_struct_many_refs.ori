@@ -1,0 +1,11 @@
+type Data = { value: int, label: str }
+
+@main () -> int = {
+    let d = Data { value: 42, label: "shared" };
+    let a = d;
+    let b = d;
+    let c = d;
+    let e = d;
+    let f = d;
+    if a.value + b.value + c.value + e.value + f.value == 210 then 0 else 1
+}

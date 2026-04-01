@@ -61,6 +61,7 @@ static TEST_TYPE_DEF: TypeDef = TypeDef {
         shl: OpStrategy::IntInstr,
         shr: OpStrategy::IntInstr,
     },
+    traits: &[],
 };
 
 #[test]
@@ -91,6 +92,7 @@ fn type_def_in_static_slice() {
         type_params: TypeParamArity::Fixed(0),
         methods: &[],
         operators: OpDefs::UNSUPPORTED,
+        traits: &[],
     };
     static TYPES: &[&TypeDef] = &[&TEST_TYPE_DEF, &EMPTY_DEF];
     assert_eq!(TYPES.len(), 2);

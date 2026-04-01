@@ -1,0 +1,14 @@
+@main () -> int = {
+    let words = [
+        "this is a very long string that exceeds SSO threshold",
+        "another very long string that also exceeds the threshold",
+        "third string for good measure and beyond SSO"
+    ];
+    let result = for w in words yield {
+        if w.length() > 55 then break;
+        w
+    };
+    // Expected: ["this is a very long string..."] — first string (53 chars) passes,
+    // second (56 chars) triggers break
+    if result.length() == 1 then 0 else 1
+}

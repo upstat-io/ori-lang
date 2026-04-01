@@ -1,0 +1,12 @@
+@sum_list (xs: [int]) -> int = {
+    let total = 0;
+    for x in xs do {
+        total = total + x;
+    };
+    total
+}
+
+@main () -> int = {
+    let xs = [10, 20, 30];
+    if sum_list(xs: xs) == 60 then 0 else 1
+}

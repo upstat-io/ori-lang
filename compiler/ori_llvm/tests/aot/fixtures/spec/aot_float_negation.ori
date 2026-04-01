@@ -1,0 +1,5 @@
+@main () -> int = {
+    let neg = -5.0;
+    let double_neg = -(-3.5);
+    if neg == -5.0 && double_neg == 3.5 then 0 else 1
+}

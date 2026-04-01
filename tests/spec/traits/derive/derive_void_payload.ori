@@ -1,0 +1,110 @@
+use std.testing { assert_eq, assert }
+
+// TPR-07-006: Derived traits (Eq, Comparable, Hashable) on enums with
+// zero-sized payload fields (void/unit) must skip those fields in LLVM
+// codegen — void fields don't occupy payload slots.
+
+// --- Derived Eq on enum with void field ---
+
+#derive(Eq)
+type EqVoid = EA(u: void, x: int) | EB;
+
+@test_derive_eq_void_same tests _ () -> void = {
+    assert_eq(actual: EA(u: (), x: 5) == EA(u: (), x: 5), expected: true)
+}
+
+@test_derive_eq_void_diff_field tests _ () -> void = {
+    assert_eq(actual: EA(u: (), x: 5) == EA(u: (), x: 7), expected: false)
+}
+
+@test_derive_eq_void_diff_variant tests _ () -> void = {
+    assert_eq(actual: EA(u: (), x: 5) == EB, expected: false)
+}
+
+@test_derive_eq_void_unit_variant tests _ () -> void = {
+    assert_eq(actual: EB == EB, expected: true)
+}
+
+// --- Derived Eq on all-void enum (tag-only layout) ---
+
+#derive(Eq)
+type AllVoidEq = VX(v: void) | VY(w: void) | VZ;
+
+@test_derive_eq_all_void_same tests _ () -> void = {
+    assert_eq(actual: VX(v: ()) == VX(v: ()), expected: true)
+}
+
+@test_derive_eq_all_void_diff tests _ () -> void = {
+    assert_eq(actual: VX(v: ()) == VY(w: ()), expected: false)
+}
+
+// --- Derived Comparable on enum with void field ---
+
+#derive(Eq, Comparable)
+type CmpVoid = CA(u: void, x: int) | CB(y: int) | CC;
+
+@test_derive_cmp_void_less tests _ () -> void = {
+    assert(condition: CA(u: (), x: 5).compare(other: CA(u: (), x: 10)).is_less())
+}
+
+@test_derive_cmp_void_greater tests _ () -> void = {
+    assert(condition: CA(u: (), x: 10).compare(other: CA(u: (), x: 5)).is_greater())
+}
+
+@test_derive_cmp_void_equal tests _ () -> void = {
+    assert(condition: CA(u: (), x: 5).compare(other: CA(u: (), x: 5)).is_equal())
+}
+
+@test_derive_cmp_void_tag_order tests _ () -> void = {
+    // Variant ordering: CA < CB < CC (declaration order)
+    assert(condition: CA(u: (), x: 999).compare(other: CB(y: 0)).is_less())
+}
+
+// --- Derived Hashable on enum with void field ---
+
+#derive(Eq, Hashable)
+type HashVoid = HA(u: void, x: int) | HB;
+
+@test_derive_hash_void_same tests _ () -> void = {
+    // Same values must have same hash
+    assert_eq(actual: HA(u: (), x: 42).hash() == HA(u: (), x: 42).hash(), expected: true)
+}
+
+@test_derive_hash_void_diff tests _ () -> void = {
+    // Different payload should produce different hash (not guaranteed but very likely)
+    assert_eq(actual: HA(u: (), x: 42).hash() == HA(u: (), x: 99).hash(), expected: false)
+}
+
+@test_derive_hash_void_vs_unit tests _ () -> void = {
+    // Unit variant hash should differ from payload variant hash
+    assert_eq(actual: HA(u: (), x: 0).hash() == HB.hash(), expected: false)
+}
+
+// --- Void between non-void fields ---
+
+#derive(Eq)
+type MidVoid = MV(a: int, gap: void, b: int) | MW;
+
+@test_derive_eq_void_between tests _ () -> void = {
+    assert_eq(actual: MV(a: 1, gap: (), b: 2) == MV(a: 1, gap: (), b: 2), expected: true)
+}
+
+@test_derive_eq_void_between_diff tests _ () -> void = {
+    // Void gap must not corrupt second field comparison
+    assert_eq(actual: MV(a: 1, gap: (), b: 2) == MV(a: 1, gap: (), b: 9), expected: false)
+}
+
+// --- Semantic pin: void-payload Eq = all-unit Eq ---
+
+#derive(Eq)
+type PureEnum = PA | PB | PC;
+
+#derive(Eq)
+type VoidEnum = VA(u: void) | VB(w: void) | VC;
+
+@test_semantic_pin_void_eq_matches_unit tests _ () -> void = {
+    assert_eq(actual: PA == PA, expected: true);
+    assert_eq(actual: PA == PB, expected: false);
+    assert_eq(actual: VA(u: ()) == VA(u: ()), expected: true);
+    assert_eq(actual: VA(u: ()) == VB(w: ()), expected: false)
+}

@@ -1,0 +1,9 @@
+@main () -> int = {
+    let m = {
+        "this is a very long heap string that exceeds the SSO threshold for sure": 1,
+        "another long heap allocated string for map remove testing purposes here": 2,
+        "third heap string key to check remaining entries after removal operation": 3
+    };
+    let m2 = m.remove(key: "another long heap allocated string for map remove testing purposes here");
+    if m2.len() == 2 then 0 else 1
+}

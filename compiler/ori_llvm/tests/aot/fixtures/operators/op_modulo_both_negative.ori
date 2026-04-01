@@ -1,0 +1,5 @@
+@main () -> int = {
+    let a = -17 % -5;
+    // -17 % -5 = -2 (remainder follows dividend sign)
+    if a == -2 then 0 else 1
+}

@@ -1,0 +1,10 @@
+@countdown (n: int) -> int = {
+    match n {
+        0 -> 0,
+        _ -> 1 + countdown(n: n - 1),
+    }
+};
+
+@main () -> int = {
+    if countdown(n: 50) == 50 then 0 else 1
+}

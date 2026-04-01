@@ -1,0 +1,8 @@
+@choose <T> (cond: bool, a: T, b: T) -> T =
+    if cond then a else b;
+
+@main () -> int = {
+    let x = choose(cond: true, a: 10, b: 20);
+    let y = choose(cond: false, a: 10, b: 20);
+    if x == 10 && y == 20 then 0 else 1
+}

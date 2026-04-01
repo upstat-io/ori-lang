@@ -1,0 +1,8 @@
+@main () -> int = {
+    let xs = [
+        "this is a heap allocated string one",
+        "this is a heap allocated string two",
+        "this is a heap allocated string three"
+    ];
+    if xs.length() == 3 then 0 else 1
+}

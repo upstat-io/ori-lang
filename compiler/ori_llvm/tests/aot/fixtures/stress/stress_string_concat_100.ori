@@ -1,0 +1,5 @@
+@main () -> int = {
+    let s = "";
+    for _ in 0..100 do s = s + "a";
+    if s.length() == 100 then 0 else 1
+}

@@ -14,13 +14,9 @@ use crate::util::{assert_aot_success, compile_and_run_capture};
 
 #[test]
 fn test_panic_default_nonzero_exit() {
-    let (exit_code, _stdout, stderr) = compile_and_run_capture(
-        r#"
-@main () -> int = {
-    panic(msg: "deliberate test panic")
-}
-"#,
-    );
+    let (exit_code, _stdout, stderr) = compile_and_run_capture(include_str!(
+        "fixtures/panic/panic_default_nonzero_exit.ori"
+    ));
     assert_ne!(exit_code, 0, "panic should cause non-zero exit");
     assert!(
         stderr.contains("deliberate test panic"),
@@ -31,12 +27,7 @@ fn test_panic_default_nonzero_exit() {
 #[test]
 fn test_panic_default_unreachable_branch() {
     assert_aot_success(
-        r#"
-@main () -> int = {
-    let x = 42;
-    if x == 42 then 0 else panic(msg: "unreachable")
-}
-"#,
+        include_str!("fixtures/panic/panic_default_unreachable_branch.ori"),
         "panic_unreachable_branch",
     );
 }
@@ -131,14 +122,8 @@ fn test_panic_handler_ignores_info() {
 
 #[test]
 fn test_assert_false_panics() {
-    let (exit_code, _stdout, stderr) = compile_and_run_capture(
-        r#"
-@main () -> void = {
-    if !false then () else panic(msg: "unreachable");
-    if !true then () else panic(msg: "assert failed: expected false, got true")
-}
-"#,
-    );
+    let (exit_code, _stdout, stderr) =
+        compile_and_run_capture(include_str!("fixtures/panic/assert_false_panics.ori"));
     assert_ne!(exit_code, 0, "assertion should cause non-zero exit");
     assert!(
         stderr.contains("assert failed"),
@@ -148,15 +133,9 @@ fn test_assert_false_panics() {
 
 #[test]
 fn test_assert_eq_int_mismatch_panics() {
-    let (exit_code, _stdout, stderr) = compile_and_run_capture(
-        r#"
-@main () -> void = {
-    let $actual = 1;
-    let $expected = 2;
-    if actual != expected then panic(msg: "assert failed: 1 != 2")
-}
-"#,
-    );
+    let (exit_code, _stdout, stderr) = compile_and_run_capture(include_str!(
+        "fixtures/panic/assert_eq_int_mismatch_panics.ori"
+    ));
     assert_ne!(exit_code, 0, "int mismatch should cause non-zero exit");
     assert!(
         stderr.contains('1') && stderr.contains('2'),
@@ -166,15 +145,9 @@ fn test_assert_eq_int_mismatch_panics() {
 
 #[test]
 fn test_assert_eq_bool_mismatch_panics() {
-    let (exit_code, _stdout, stderr) = compile_and_run_capture(
-        r#"
-@main () -> void = {
-    let $actual = true;
-    let $expected = false;
-    if actual != expected then panic(msg: "assert failed: true != false")
-}
-"#,
-    );
+    let (exit_code, _stdout, stderr) = compile_and_run_capture(include_str!(
+        "fixtures/panic/assert_eq_bool_mismatch_panics.ori"
+    ));
     assert_ne!(exit_code, 0, "bool mismatch should cause non-zero exit");
     assert!(
         stderr.contains("true") && stderr.contains("false"),
@@ -184,15 +157,9 @@ fn test_assert_eq_bool_mismatch_panics() {
 
 #[test]
 fn test_assert_eq_str_mismatch_panics() {
-    let (exit_code, _stdout, stderr) = compile_and_run_capture(
-        r#"
-@main () -> void = {
-    let $actual = "hello";
-    let $expected = "world";
-    if actual != expected then panic(msg: "assert failed: hello != world")
-}
-"#,
-    );
+    let (exit_code, _stdout, stderr) = compile_and_run_capture(include_str!(
+        "fixtures/panic/assert_eq_str_mismatch_panics.ori"
+    ));
     assert_ne!(exit_code, 0, "str mismatch should cause non-zero exit");
     assert!(
         stderr.contains("hello") && stderr.contains("world"),

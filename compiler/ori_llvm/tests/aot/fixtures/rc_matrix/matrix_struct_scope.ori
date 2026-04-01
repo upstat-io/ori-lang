@@ -1,0 +1,9 @@
+type Item = { name: str, tags: [int] }
+
+@main () -> int = {
+    let $result = {
+        let item = Item { name: "scoped_heap_item_name_x", tags: [1, 2, 3] };
+        item.tags.len()
+    };
+    if result == 3 then 0 else 1
+}

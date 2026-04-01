@@ -1,0 +1,5 @@
+@main () -> int = {
+    let a = 1 << 4;
+    let b = 256 >> 3;
+    if a == 16 && b == 32 then 0 else 1
+}

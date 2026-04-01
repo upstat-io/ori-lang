@@ -1,0 +1,13 @@
+@main () -> int = {
+    let s = "this is a long string part one,and this is another very long part two";
+    let parts = s.split(sep: ",");
+    let pairs: [(str, int)] = for p in parts yield (p, p.len());
+    let total = 0;
+    for (text, n) in pairs do {
+        total = total + n + text.len();
+    };
+    // parts: "this is a long string part one" (30), "and this is another very long part two" (38)
+    // pairs: [("this...", 30), ("and...", 38)]
+    // total = 30 + 30 + 38 + 38 = 136
+    if total == 136 then 0 else 1
+}

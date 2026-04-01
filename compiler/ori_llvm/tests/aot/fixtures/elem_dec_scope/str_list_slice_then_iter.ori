@@ -1,0 +1,15 @@
+@main () -> int = {
+    let words = [
+        "this is a very long string that exceeds the SSO threshold of twenty three bytes",
+        "another long heap string for testing slice plus iteration interaction",
+        "third heap allocated string to verify slice and iterator share header correctly"
+    ];
+    let $first_two = words.take(count: 2);
+    // first_two is a seamless slice sharing words' buffer
+    let count = 0;
+    for w in words do {
+        count = count + 1;
+    };
+    let $ft_len = first_two.len();
+    if count == 3 && ft_len == 2 then 0 else 1
+}

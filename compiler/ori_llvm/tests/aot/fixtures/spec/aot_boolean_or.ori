@@ -1,0 +1,7 @@
+@main () -> int = {
+    let tt = true || true;
+    let tf = true || false;
+    let ft = false || true;
+    let ff = false || false;
+    if tt && tf && ft && !ff then 0 else 1
+}

@@ -1,0 +1,9 @@
+@main () -> int = {
+    let sum = 0;
+    let result = for x in [10, 20, 30] yield {
+        sum = sum + x;
+        x
+    };
+    // sum should be 60, result should be [10, 20, 30]
+    if sum == 60 && result[0] == 10 && result[2] == 30 then 0 else 1
+}

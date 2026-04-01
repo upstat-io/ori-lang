@@ -1,0 +1,8 @@
+@main () -> int = {
+    let s = "";
+    for i in 0..5 do {
+        s = s + str(i)
+    };
+    print(msg: s);
+    if s == "01234" then 0 else 1
+}

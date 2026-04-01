@@ -1,0 +1,7 @@
+@main () -> int = {
+    let m: {int: int} = {};
+    for i in 0..100 do {
+        m = m.insert(i, i * 10);
+    };
+    if m.len() == 100 then 0 else 1
+}

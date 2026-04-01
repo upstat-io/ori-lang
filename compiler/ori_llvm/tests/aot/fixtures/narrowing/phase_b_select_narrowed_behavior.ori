@@ -1,0 +1,7 @@
+@pick (b: bool) -> int = if b then 10 else 20;
+
+@main () -> int = {
+    let t = pick(b: true);
+    let f = pick(b: false);
+    if t == 10 && f == 20 then 0 else 1
+}

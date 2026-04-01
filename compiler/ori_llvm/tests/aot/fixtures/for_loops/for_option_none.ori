@@ -1,0 +1,6 @@
+@main () -> int = {
+    let count = 0;
+    let empty: Option<int> = None;
+    for x in empty do count = count + 1;
+    if count == 0 then 0 else 1
+}

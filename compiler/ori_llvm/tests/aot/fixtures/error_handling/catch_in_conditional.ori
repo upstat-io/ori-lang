@@ -1,0 +1,10 @@
+@risky (x: int) -> int =
+    if x == 0 then panic(msg: "zero") else 100 / x;
+
+@main () -> int = {
+    let r1 = catch(expr: risky(10));
+    let r2 = catch(expr: risky(0));
+    let ok1 = r1.is_ok() && r1.unwrap() == 10;
+    let ok2 = r2.is_err();
+    if ok1 && ok2 then 0 else 1
+}

@@ -60,6 +60,7 @@
 pub mod defs;
 mod method;
 mod operator;
+mod prelude;
 mod query;
 mod tags;
 mod type_def;
@@ -69,6 +70,7 @@ pub use method::{
     MethodDef, ParamDef, ONE_SELF_BORROW, ONE_SELF_COPY, ONE_SELF_OWNED, TWO_SELF_COPY,
 };
 pub use operator::OpDefs;
+pub use prelude::{find_prelude_function, PreludeFunctionDef, PRELUDE_FUNCTIONS};
 pub use query::{
     borrowing_method_names, borrowing_methods, dei_only_methods, find_method, find_type,
     find_type_by_name, has_method, is_dei_only, iterator_method_names, legacy_type_name,

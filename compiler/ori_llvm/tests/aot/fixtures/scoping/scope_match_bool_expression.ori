@@ -1,0 +1,8 @@
+@main () -> int = {
+    let x = true;
+    let result = match x {
+        true -> 100,
+        false -> 200,
+    };
+    if result == 100 then 0 else 1
+}

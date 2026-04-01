@@ -1,0 +1,5 @@
+@main () -> int = {
+    let words = ["hello", "world", "test"];
+    let f = (n: int) -> int = words.length() + n;
+    if f(2) == 5 then 0 else 1
+}

@@ -1,0 +1,19 @@
+@nested_check (outer: Option<int>, inner: Option<str>) -> int =
+    match outer {
+        Some(n) -> match inner {
+            Some(s) -> n + s.length(),
+            None -> n,
+        },
+        None -> 0,
+    };
+
+@main () -> int = {
+    let a = nested_check(outer: Some(10), inner: Some("hello"));
+    let b = nested_check(outer: Some(10), inner: None);
+    let c = nested_check(outer: None, inner: Some("x"));
+    if a == 15 then {
+        if b == 10 then {
+            if c == 0 then 0 else 1
+        } else 2
+    } else 3
+}

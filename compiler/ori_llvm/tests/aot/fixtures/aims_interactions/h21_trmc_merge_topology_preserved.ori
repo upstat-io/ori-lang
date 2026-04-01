@@ -1,0 +1,21 @@
+type Tree = Leaf(value: int) | Branch(left: Tree, right: Tree);
+
+@inc_leaves (t: Tree) -> Tree = match t {
+    Leaf(v) -> Leaf(value: v + 1),
+    Branch(l, r) -> Branch(left: inc_leaves(t: l), right: inc_leaves(t: r)),
+};
+
+@tree_sum (t: Tree) -> int = match t {
+    Leaf(v) -> v,
+    Branch(l, r) -> tree_sum(t: l) + tree_sum(t: r),
+};
+
+@main () -> int = {
+    let $tree = Branch(
+        left: Branch(left: Leaf(value: 1), right: Leaf(value: 2)),
+        right: Leaf(value: 3),
+    );
+    let $result = inc_leaves(t: tree);
+    // (1+1)+(2+1)+(3+1) = 2+3+4 = 9
+    if tree_sum(t: result) == 9 then 0 else 1
+}

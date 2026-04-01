@@ -1,0 +1,7 @@
+@inc_twice (x: int) -> int = {
+    let a = x + 1;
+    let b = x + 1;
+    a + b
+}
+
+@main () -> int = inc_twice(x: 5);

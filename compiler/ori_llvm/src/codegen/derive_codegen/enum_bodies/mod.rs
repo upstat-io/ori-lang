@@ -14,7 +14,7 @@ mod enum_eq;
 mod enum_hashable;
 
 use ori_ir::{CombineOp, DerivedTrait, Name, StructBody};
-use ori_types::{Idx, VariantDef, VariantFields};
+use ori_types::{Idx, Pool, Tag, VariantDef, VariantFields};
 
 use super::super::function_compiler::FunctionCompiler;
 use super::{emit_derive_return, setup_derive_function};
@@ -72,4 +72,22 @@ pub(in crate::codegen::derive_codegen) fn variant_field_types(fields: &VariantFi
         VariantFields::Tuple(types) => types.clone(),
         VariantFields::Record(field_defs) => field_defs.iter().map(|f| f.ty).collect(),
     }
+}
+
+/// Extract non-void field type indices from a `VariantFields`.
+///
+/// BUG-04-008 / TPR-07-006: Unit/Never fields are zero-sized and don't
+/// occupy payload space in the LLVM enum layout (`resolve_enum()` skips
+/// them). Derive codegen must also skip them to keep offsets in sync.
+pub(in crate::codegen::derive_codegen) fn variant_non_void_field_types(
+    fields: &VariantFields,
+    pool: &Pool,
+) -> Vec<Idx> {
+    variant_field_types(fields)
+        .into_iter()
+        .filter(|&ft| {
+            let resolved = pool.resolve_fully(ft);
+            !matches!(pool.tag(resolved), Tag::Unit | Tag::Never)
+        })
+        .collect()
 }

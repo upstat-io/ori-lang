@@ -1,8 +1,7 @@
-// §07.0 scaffolding — consumers migrate to TagEncoding in §07.1.
-// Remove this allow when the first consumer is migrated.
-#![allow(dead_code, reason = "§07.0 scaffolding — consumers migrate in §07.1")]
-
 //! Tag encoding/decoding abstraction for enum representation optimization (§07).
+//!
+//! Active since §07.2 — consumed by niche-aware `SetTag`, `Project`, `Switch`,
+//! drop, and RC codegen paths.
 //!
 //! [`TagEncoding`] encapsulates the logic of how an enum's discriminant is
 //! physically encoded in memory. All codegen consumers use this instead of
@@ -31,6 +30,7 @@ pub(crate) struct TagEncoding {
     variant_count: u32,
 }
 
+#[allow(dead_code, reason = "§07.3/§07.4 will consume remaining methods")]
 impl TagEncoding {
     /// Create a `TagEncoding` from an `EnumRepr`.
     pub(crate) fn from_enum_repr(repr: &EnumRepr) -> Self {
@@ -78,10 +78,12 @@ impl TagEncoding {
     pub(crate) fn variant_to_tag_value(&self, variant_idx: u32) -> u64 {
         match &self.tag {
             EnumTag::Explicit { .. } => u64::from(variant_idx),
-            EnumTag::Niche { niche_value, .. } => {
-                // The niche variant is always the LAST variant (by convention:
-                // None for Option, Err for Result when Ok has the niche).
-                if variant_idx == self.variant_count - 1 {
+            EnumTag::Niche {
+                niche_value,
+                niche_variant_idx,
+                ..
+            } => {
+                if variant_idx == *niche_variant_idx {
                     *niche_value
                 } else {
                     // Non-niche variants: the payload IS the value.
@@ -113,7 +115,9 @@ impl TagEncoding {
     pub(crate) fn needs_tag_store(&self, variant_idx: u32) -> bool {
         match &self.tag {
             EnumTag::Explicit { .. } => true,
-            EnumTag::Niche { .. } => variant_idx == self.variant_count - 1,
+            EnumTag::Niche {
+                niche_variant_idx, ..
+            } => variant_idx == *niche_variant_idx,
             EnumTag::None => false,
         }
     }
@@ -145,6 +149,16 @@ impl TagEncoding {
     pub(crate) fn niche_value(&self) -> Option<u64> {
         match &self.tag {
             EnumTag::Niche { niche_value, .. } => Some(*niche_value),
+            _ => None,
+        }
+    }
+
+    /// For niche encoding: which variant is encoded by the niche value.
+    pub(crate) fn niche_variant_idx(&self) -> Option<u32> {
+        match &self.tag {
+            EnumTag::Niche {
+                niche_variant_idx, ..
+            } => Some(*niche_variant_idx),
             _ => None,
         }
     }

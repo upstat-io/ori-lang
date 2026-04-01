@@ -9,8 +9,8 @@
 //! to mutate in-place.
 
 use crate::{
-    MemoryStrategy, MethodDef, OpDefs, Ownership, ParamDef, ReturnTag, TypeDef, TypeParamArity,
-    TypeProjection, TypeTag, ONE_SELF_BORROW,
+    MemoryStrategy, MethodDef, OpDefs, OpStrategy, Ownership, ParamDef, ReturnTag, TypeDef,
+    TypeParamArity, TypeProjection, TypeTag, ONE_SELF_BORROW,
 };
 
 use super::params::{
@@ -83,12 +83,12 @@ static LIST_METHODS: &[MethodDef] = &[
     MethodDef::compound("group_by",   &CLOSURE_PARAM,        FRESH, None,                Ownership::Borrow, false),
     MethodDef::compound("hash",       &[],                   INT,   Some("Hashable"),     Ownership::Borrow, false),
     MethodDef::compound("insert",     &INDEX_ELEMENT_PARAMS,  SELF,  None,                Ownership::Borrow, false),
-    MethodDef::compound("is_empty",   &[],                   BOOL,  None,                Ownership::Borrow, false),
-    MethodDef::compound("iter",       &[],                   ReturnTag::DoubleEndedIteratorOf(TypeProjection::Element), None, Ownership::Borrow, false),
+    MethodDef::compound("is_empty",   &[],                   BOOL,  Some("IsEmpty"),     Ownership::Borrow, false),
+    MethodDef::compound("iter",       &[],                   ReturnTag::DoubleEndedIteratorOf(TypeProjection::Element), Some("Iterable"), Ownership::Borrow, false),
     MethodDef::compound("join",       &SEPARATOR_PARAM,      STR,   None,                Ownership::Borrow, false),
     MethodDef::compound("last",       &[],                   OPT_ELEM, None,             Ownership::Borrow, false),
-    MethodDef::compound("len",        &[],                   INT,   None,                Ownership::Borrow, false),
-    MethodDef::compound("length",     &[],                   INT,   None,                Ownership::Borrow, false),
+    MethodDef::compound("len",        &[],                   INT,   Some("Len"),         Ownership::Borrow, false),
+    MethodDef::compound("length",     &[],                   INT,   Some("Len"),         Ownership::Borrow, false),
     MethodDef::compound("map",        &CLOSURE_PARAM,        FRESH, None,                Ownership::Borrow, false),
     MethodDef::compound("max",        &CLOSURE_PARAM,        FRESH, None,                Ownership::Borrow, false),
     MethodDef::compound("max_by",     &CLOSURE_PARAM,        FRESH, None,                Ownership::Borrow, false),
@@ -124,7 +124,14 @@ pub static LIST: TypeDef = TypeDef {
     memory: MemoryStrategy::Arc,
     type_params: TypeParamArity::Fixed(1),
     methods: LIST_METHODS,
-    operators: OpDefs::UNSUPPORTED,
+    operators: OpDefs {
+        add: OpStrategy::RuntimeCall {
+            fn_name: "list_concat",
+            returns_bool: false,
+        },
+        ..OpDefs::UNSUPPORTED
+    },
+    traits: &["Printable"],
 };
 
 #[cfg(test)]

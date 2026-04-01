@@ -1,0 +1,5 @@
+@main () -> int = {
+    let flag = false;
+    let xs = if flag then ["a", "b"] else ["x", "y", "z"];
+    if xs.length() == 3 then 0 else 1
+}

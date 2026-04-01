@@ -1,0 +1,4 @@
+@main () -> int = {
+    let add = (a: int, b: int) -> int = a + b;
+    if add(a: 3, b: 4) == 7 then 0 else 1
+}

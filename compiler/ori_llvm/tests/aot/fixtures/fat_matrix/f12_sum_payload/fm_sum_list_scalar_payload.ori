@@ -1,0 +1,9 @@
+type Data = Numbers(items: [int]) | Empty;
+
+@main () -> int = {
+    let d = Numbers(items: [10, 20, 30]);
+    match d {
+        Numbers(items) ->if items.length() == 3 then 0 else 1,
+        Empty -> 2,
+    }
+}

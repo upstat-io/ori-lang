@@ -1,0 +1,6 @@
+@add (a: int, b: int) -> int = a + b;
+
+@main () -> int = {
+    let t = (10, 20);
+    if add(a: t.0, b: t.1) == 30 then 0 else 1
+}

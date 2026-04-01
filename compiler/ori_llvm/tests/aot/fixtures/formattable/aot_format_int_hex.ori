@@ -1,0 +1,3 @@
+@main () -> int = {
+    if `{255:x}` == "ff" && `{255:X}` == "FF" then 0 else 1
+}

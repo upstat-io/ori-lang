@@ -1,0 +1,13 @@
+@main () -> int = {
+    let m = {
+        "this is a very long key exceeding SSO": 10,
+        "another very long key that exceeds SSO too": 20,
+        "third long key exceeding SSO threshold": 30
+    };
+    let total = 0;
+    for (k, v) in m do {
+        total = total + v;
+        if total >= 10 then break;
+    };
+    if total >= 10 then 0 else 1
+}

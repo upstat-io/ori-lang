@@ -1,0 +1,7 @@
+type Inner = { name: str }
+type Outer = { inner: Inner, count: int }
+
+@main () -> int = {
+    let o = Outer { inner: Inner { name: "alice" }, count: 5 };
+    if o.inner.name.length() + o.count == 10 then 0 else 1
+}

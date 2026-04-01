@@ -1,0 +1,8 @@
+@main () -> int = {
+    let lists = [
+        ["this is a very long string exceeding SSO threshold here", "short"],
+        ["another very long string that exceeds SSO"]
+    ];
+    let counts = for sublist in lists yield sublist.length();
+    if counts[0] == 2 && counts[1] == 1 then 0 else 1
+}

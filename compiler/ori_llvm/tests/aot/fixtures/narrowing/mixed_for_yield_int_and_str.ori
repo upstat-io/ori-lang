@@ -1,0 +1,12 @@
+use std.testing { assert_eq }
+@main () -> void = {
+    let xs: [int] = [1, 2, 3];
+    // Int for-yield — safe to narrow
+    let doubled: [int] = for x in xs.iter() yield x * 2;
+    // Str for-yield — must NOT narrow
+    let names: [str] = for x in xs.iter() yield if x == 1 then `one` else `other`;
+    assert_eq(actual: doubled[0], expected: 2);
+    assert_eq(actual: doubled[2], expected: 6);
+    assert_eq(actual: names[0], expected: `one`);
+    assert_eq(actual: names[1], expected: `other`);
+}

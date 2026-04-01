@@ -207,5 +207,6 @@ Optimizations at the workspace/build system level can reduce overhead that affec
 - [ ] Optimizations documented with measured impact
 - [ ] `timeout 150 cargo t` green
 - [ ] `/tpr-review` passed — independent Codex review found no critical or major issues (or all findings triaged)
+- [ ] `/impl-hygiene-review last commit` passed — implementation hygiene review clean (phase boundaries, SSOT, algorithmic DRY, naming). MUST run AFTER `/tpr-review` is clean.
 
 **Exit Criteria:** Each identified optimization is individually measured (before/after) and documented. No test code was modified. The flamegraph's top 10 hot functions have been addressed (either optimized or documented as "acceptable -- not optimizable without behavioral changes"). If Section 03's profiling reveals that non-AOT crates fully overlap with AOT execution (i.e., they finish before AOT does), the optimization focus shifts to compilation time reduction, which benefits wall time by reducing the sequential pre-test build phase.

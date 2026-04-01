@@ -33,7 +33,7 @@ ori_parse, ori_lexer
 ---
 
 ### Section 02: Type Checker
-**File:** `section-02-typeck.md` | **Status:** No Open Bugs
+**File:** `section-02-typeck.md` | **Status:** 1 Open Bug
 
 ```
 type checker, type inference, unification

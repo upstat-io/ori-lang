@@ -1,0 +1,10 @@
+// Regression: BUG-02-002 — Option<str> ?? Option<str> cross-type coverage
+@main () -> int = {
+    let a: Option<str> = None;
+    let b: Option<str> = Some("hello");
+    let c: Option<str> = a ?? b;
+    match c {
+        Some(v) -> if v == "hello" then 0 else 1,
+        None -> 2,
+    }
+}

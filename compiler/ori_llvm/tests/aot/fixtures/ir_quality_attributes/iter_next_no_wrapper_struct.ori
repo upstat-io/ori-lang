@@ -1,0 +1,7 @@
+@count (words: [str]) -> int = {
+    let total = 0;
+    for w in words do total += w.length();
+    total
+}
+
+@main () -> int = count(words: ["hello", "world", "test"]);

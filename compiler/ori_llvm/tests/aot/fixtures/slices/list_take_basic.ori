@@ -1,0 +1,7 @@
+@main () -> int = {
+    let xs = [10, 20, 30, 40, 50];
+    let ys = xs.take(count: 3);
+    if ys.length() == 3 && ys.first().unwrap() == 10 && ys.last().unwrap() == 30
+        then 0
+        else 1
+}

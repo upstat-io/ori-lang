@@ -1,0 +1,8 @@
+@main () -> int = {
+    let s = "";
+    for i in 0..50 do {
+        s = s + "a" + "b" + "c"
+    };
+    // 50 * 3 = 150
+    if s.len() == 150 then 0 else 1
+}

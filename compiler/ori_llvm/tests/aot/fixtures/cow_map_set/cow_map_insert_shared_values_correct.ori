@@ -1,0 +1,8 @@
+@main () -> int = {
+    let m = {"a": 1, "b": 2};
+    let m2 = m.insert("c", 3);
+    let a_orig = m.get("a").unwrap();
+    let b_orig = m.get("b").unwrap();
+    let c_new = m2.get("c").unwrap();
+    if a_orig == 1 && b_orig == 2 && c_new == 3 then 0 else 1
+}

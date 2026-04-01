@@ -18,8 +18,15 @@ fn list_is_generic_with_one_param() {
 }
 
 #[test]
-fn list_no_operators() {
-    assert_eq!(LIST.operators, OpDefs::UNSUPPORTED);
+fn list_operators_add_only() {
+    // List supports `+` for concatenation (RuntimeCall to list_concat).
+    // All other operators are unsupported.
+    assert!(LIST.operators.add != OpStrategy::Unsupported);
+    assert_eq!(LIST.operators.sub, OpStrategy::Unsupported);
+    assert_eq!(LIST.operators.mul, OpStrategy::Unsupported);
+    assert_eq!(LIST.operators.eq, OpStrategy::Unsupported);
+    assert_eq!(LIST.operators.neg, OpStrategy::Unsupported);
+    assert_eq!(LIST.operators.bit_and, OpStrategy::Unsupported);
 }
 
 #[test]

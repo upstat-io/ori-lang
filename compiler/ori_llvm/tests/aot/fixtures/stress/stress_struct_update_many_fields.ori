@@ -1,0 +1,7 @@
+type Wide = { a: int, b: int, c: int, d: int, e: int }
+
+@main () -> int = {
+    let w = Wide { a: 1, b: 2, c: 3, d: 4, e: 5 };
+    let w2 = Wide { ...w, a: 10, c: 30, e: 50 };
+    if w2.a == 10 && w2.b == 2 && w2.c == 30 && w2.d == 4 && w2.e == 50 then 0 else 1
+}

@@ -1,0 +1,7 @@
+@check_capture () -> int = {
+    let prefix = "hello";
+    let f = s -> prefix.length() + s.length();
+    f("world")
+}
+
+@main () -> int = check_capture();

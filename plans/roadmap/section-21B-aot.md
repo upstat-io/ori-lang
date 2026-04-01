@@ -831,6 +831,7 @@ Enable AOT compilation of Ori programs with imports. Currently, `ori build` prod
 - [ ] LLVM test utilities (6 tools)
 - [ ] Test infrastructure (3 features)
 - [ ] `/tpr-review` passed — independent Codex review found no critical or major issues (or all findings triaged)
+- [ ] `/impl-hygiene-review last commit` passed — implementation hygiene review clean (phase boundaries, SSOT, algorithmic DRY, naming). MUST run AFTER `/tpr-review` is clean.
 
 **Test Coverage Summary:** (verified 2026-03-29)
 | Priority | Category | Plan Scenarios | Actual Tests | Status |

@@ -1,0 +1,3 @@
+@my_max (a: int, b: int) -> int = if a > b then a else b;
+
+@main () -> int = my_max(a: 3, b: 10);

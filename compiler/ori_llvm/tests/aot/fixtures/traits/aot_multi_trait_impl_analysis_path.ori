@@ -1,0 +1,31 @@
+trait Categorizable {
+    @category (self) -> str
+}
+
+trait Printable {
+    @to_str (self) -> str
+}
+
+type Rect = { w: int, h: int }
+
+impl Categorizable for Rect {
+    @category (self) -> str = "shape";
+}
+
+impl Printable for Rect {
+    @to_str (self) -> str = "rect";
+}
+
+impl Rect {
+    @area (self) -> int = self.w * self.h;
+    @perimeter (self) -> int = 2 * (self.w + self.h);
+}
+
+@main () -> int = {
+    let r = Rect { w: 3, h: 4 };
+    let ok1 = r.category() == "shape";
+    let ok2 = r.to_str() == "rect";
+    let ok3 = r.area() == 12;
+    let ok4 = r.perimeter() == 14;
+    if ok1 && ok2 && ok3 && ok4 then 0 else 1
+}

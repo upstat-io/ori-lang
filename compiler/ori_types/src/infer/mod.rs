@@ -38,6 +38,7 @@ mod env;
 mod expr;
 
 pub use env::TypeEnv;
+pub(crate) use expr::OP_TRAIT_MAP;
 pub use expr::{check_expr, infer_expr, resolve_parsed_type};
 
 use ori_ir::{Name, StringInterner};

@@ -1,0 +1,10 @@
+type Point = { x: int, y: int }
+
+@main () -> int = {
+    let p = {
+        let a = 3;
+        let b = 4;
+        Point { x: a, y: b }
+    };
+    if p.x == 3 && p.y == 4 then 0 else 1
+}

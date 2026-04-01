@@ -1,0 +1,11 @@
+@main () -> int = {
+    let lengths = for s in ["abc", "de", "fghi", "jk"] yield {
+        if s.length() == 4 then break;
+        s.length()
+    };
+    let total = 0;
+    for n in lengths do {
+        total = total + n;
+    };
+    if total == 5 then 0 else 1
+}

@@ -1,0 +1,7 @@
+@main () -> int = {
+    let opt = Some(42);
+    let result = for x in opt yield {
+        break
+    };
+    if result.length() == 0 then 0 else 1
+}

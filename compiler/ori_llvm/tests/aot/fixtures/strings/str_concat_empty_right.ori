@@ -1,0 +1,6 @@
+@main () -> int = {
+    let a = "hello";
+    let b = "";
+    let c = a.concat(b);
+    if c == "hello" then 0 else 1
+}

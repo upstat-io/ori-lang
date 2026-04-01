@@ -1,0 +1,9 @@
+@main () -> int = {
+    let lt = 500b < 1kb;
+    let le = 1kb <= 1000b;
+    let gt = 2kb > 1kb;
+    let ge = 1kb >= 1000b;
+    let eq = 1kb == 1000b;
+    let ne = 1kb != 2kb;
+    if lt && le && gt && ge && eq && ne then 0 else 1
+}

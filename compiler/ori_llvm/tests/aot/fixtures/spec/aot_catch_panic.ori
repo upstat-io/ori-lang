@@ -1,0 +1,4 @@
+@main () -> int = {
+    let result = catch(expr: panic(msg: "test error"));
+    if result.is_err() then 0 else 1
+}

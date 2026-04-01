@@ -1,0 +1,4 @@
+@test_str_list tests _ () -> void = {
+    let $words = ["hello", "world", "test"];
+    let $count = words.len();
+}

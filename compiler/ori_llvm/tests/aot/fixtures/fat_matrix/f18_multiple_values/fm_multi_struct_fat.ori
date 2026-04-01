@@ -1,0 +1,7 @@
+type Named = { name: str, id: int }
+
+@main () -> int = {
+    let a = Named { name: "alice", id: 1 };
+    let b = Named { name: "bob", id: 2 };
+    if a.name.length() + b.name.length() == 8 then 0 else 1
+}

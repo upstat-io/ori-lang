@@ -1,0 +1,8 @@
+@safe () -> int = 42;
+@dangerous () -> int = panic(msg: "boom");
+
+@main () -> int = {
+    let r1 = catch(expr: safe());
+    let r2 = catch(expr: dangerous());
+    if r1.is_ok() && r2.is_err() then 0 else 1
+}

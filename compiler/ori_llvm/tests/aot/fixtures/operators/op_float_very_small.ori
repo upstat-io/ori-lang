@@ -1,0 +1,6 @@
+@main () -> int = {
+    let small = 0.000001;
+    let result = small * 1000000.0;
+    // Should be approximately 1.0
+    if result > 0.99 && result < 1.01 then 0 else 1
+}

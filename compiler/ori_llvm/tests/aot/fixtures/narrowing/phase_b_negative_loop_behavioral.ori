@@ -1,0 +1,11 @@
+@main () -> int = {
+    let sum = 0;
+    let i = -5;
+    loop {
+        if i > 5 then break;
+        sum = sum + i;
+        i = i + 1;
+    };
+    // -5+-4+-3+-2+-1+0+1+2+3+4+5 = 0
+    if sum == 0 then 0 else 1
+}

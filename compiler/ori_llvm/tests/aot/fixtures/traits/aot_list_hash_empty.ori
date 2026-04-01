@@ -1,0 +1,11 @@
+@main () -> int = {
+    let a: [int] = [];
+    let b: [int] = [];
+    let h1 = a.hash();
+    let h2 = b.hash();
+    // Empty lists have same hash
+    let r1 = h1 == h2;
+    // Empty list hash is 0 (initial seed)
+    let r2 = h1 == 0;
+    if r1 && r2 then 0 else 1
+}

@@ -1,0 +1,8 @@
+#derive(Eq)
+type Named = { name: str, id: int }
+
+@main () -> int = {
+    let a: [Named] = [];
+    let b: [Named] = [];
+    if a == b then 0 else 1
+}

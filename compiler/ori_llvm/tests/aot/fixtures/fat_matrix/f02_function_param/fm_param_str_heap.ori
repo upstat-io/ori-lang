@@ -1,0 +1,6 @@
+@get_len (s: str) -> int = s.length();
+
+@main () -> int = {
+    let s = "abcdefghijklmnopqrstuvwxyz1234";
+    if get_len(s: s) == 30 then 0 else 1
+}

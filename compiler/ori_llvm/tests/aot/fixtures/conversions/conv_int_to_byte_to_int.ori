@@ -1,0 +1,5 @@
+@main () -> int = {
+    let x = 100;
+    let roundtrip = x.byte().to_int();
+    if roundtrip == 100 then 0 else 1
+}

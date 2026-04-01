@@ -1,0 +1,8 @@
+@main () -> int = {
+    let base = 10;
+    let make_adder = (n: int) -> (int) -> int = {
+        (x: int) -> int = base + n + x
+    };
+    let add15 = make_adder(n: 5);
+    if add15(x: 2) == 17 then 0 else 1
+}

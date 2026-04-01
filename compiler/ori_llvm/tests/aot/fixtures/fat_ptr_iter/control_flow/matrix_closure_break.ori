@@ -1,0 +1,14 @@
+@make_fn (n: int) -> (int) -> int = {
+    x -> x + n
+}
+
+@main () -> int = {
+    let fns = [make_fn(n: 100), make_fn(n: 200), make_fn(n: 300)];
+    let total = 0;
+    for f in fns do {
+        let result = f(1);
+        if result > 150 then break;
+        total = total + result
+    };
+    if total == 101 then 0 else 1
+}

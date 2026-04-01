@@ -1,0 +1,4 @@
+@main () -> int = {
+    let s = "this is a string that is definitely longer than twenty-three bytes";
+    if s.length() == 66 then 0 else 1
+}

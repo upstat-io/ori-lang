@@ -1,0 +1,13 @@
+@main () -> int = {
+    let x = 1;
+    let a = {
+        let x = 2;
+        let b = {
+            let x = 3;
+            x
+        };
+        x + b
+    };
+    // a = 2 + 3 = 5, x still 1
+    if x == 1 && a == 5 then 0 else 1
+}

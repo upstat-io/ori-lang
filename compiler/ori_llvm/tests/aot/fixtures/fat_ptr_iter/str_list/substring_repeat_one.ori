@@ -1,0 +1,7 @@
+@main () -> int = {
+    let s = "the quick brown fox jumps over the lazy dog";
+    let sub = s.substring(start: 4, end: 43);
+    let t = sub.repeat(count: 1);
+    let total = sub.len() + t.len();
+    if total == 78 then 0 else 1
+}

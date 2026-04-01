@@ -1,0 +1,7 @@
+@main () -> int = {
+    let prefix = "abcdefghijklmnopqrstuvwxyz1234";
+    let f = (n: int) -> int = prefix.length() + n;
+    let a = f(5);
+    let b = f(10);
+    if a + b == 75 then 0 else 1
+}

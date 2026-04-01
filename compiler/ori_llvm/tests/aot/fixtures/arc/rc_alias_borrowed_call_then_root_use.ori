@@ -1,0 +1,8 @@
+@check_length (s: str) -> bool = len(collection: s) > 0;
+
+@main () -> int = {
+    let a = "borrowed call alias test string";
+    let b = a;
+    let $ok = check_length(b);
+    if ok && a == "borrowed call alias test string" then 0 else 1
+}

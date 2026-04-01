@@ -21,11 +21,27 @@ use crate::{Idx, Tag, TypeKind};
 
 use super::registry_bridge;
 
-/// Methods that require iteration and are therefore invalid on `Range<float>`.
+/// Check if a Range method requires iteration (and is thus invalid on `Range<float>`).
 ///
-/// Float ranges are not `Iterable` — these methods must be rejected even though
-/// the registry defines them (the registry is type-parameter agnostic).
-pub(crate) const RANGE_FLOAT_ITERATION_METHODS: &[&str] = &["collect", "iter", "to_list"];
+/// Note: ALL methods on `Range<float>` are now rejected at dispatch time in
+/// `resolve_builtin_method()`. This function is retained for the diagnostic
+/// path in `method_call.rs` which needs to distinguish "iteration method on
+/// float range" (specific error E2xxx) from "any method on float range"
+/// (generic "no such method" error).
+pub(in crate::infer::expr) fn range_method_requires_iteration(method_name: &str) -> bool {
+    use ori_registry::{ReturnTag, TypeTag};
+    let Some(method) = ori_registry::find_method(TypeTag::Range, method_name) else {
+        return false;
+    };
+    matches!(
+        method.returns,
+        ReturnTag::IteratorOf(_)
+            | ReturnTag::DoubleEndedIteratorOf(_)
+            | ReturnTag::ListOf(_)
+            | ReturnTag::ListOfTupleIntElement
+            | ReturnTag::IteratorOfTupleIntElement
+    )
+}
 
 /// Resolve a built-in method call on a known type tag.
 ///
@@ -52,8 +68,10 @@ pub(crate) fn resolve_builtin_method(
     // Look up method in registry (DEI-filtering handled by find_method)
     let method_def = ori_registry::find_method(type_tag, method_name)?;
 
-    // Range<float> iteration rejection: iter/to_list/collect not available on float ranges
-    if tag == Tag::Range && is_float_range_iteration(engine, receiver_ty, method_name) {
+    // Range<float> rejection: ALL methods are unavailable because the evaluator
+    // only supports integer ranges. Float range creation (0.0..10.0) is rejected
+    // at runtime — method dispatch must be rejected at type-check time too.
+    if tag == Tag::Range && engine.pool().range_elem(receiver_ty) == Idx::FLOAT {
         return None;
     }
 
@@ -65,16 +83,6 @@ pub(crate) fn resolve_builtin_method(
     };
 
     Some(return_ty)
-}
-
-/// Returns `true` for Range iteration methods when the range element type is float.
-///
-/// `Range<float>` does not implement `Iterable` — iteration methods must be
-/// rejected even though the registry defines them (the registry is type-parameter
-/// agnostic).
-fn is_float_range_iteration(engine: &InferEngine<'_>, receiver_ty: Idx, method: &str) -> bool {
-    RANGE_FLOAT_ITERATION_METHODS.contains(&method)
-        && engine.pool().range_elem(receiver_ty) == Idx::FLOAT
 }
 
 /// Resolve methods on Named/Applied types (user-defined structs, enums, newtypes).
@@ -123,3 +131,6 @@ fn _enforce_exhaustiveness(tag: ori_registry::TypeTag) {
         TypeTag::Function | TypeTag::Iterator | TypeTag::DoubleEndedIterator => {}
     }
 }
+
+#[cfg(test)]
+mod tests;

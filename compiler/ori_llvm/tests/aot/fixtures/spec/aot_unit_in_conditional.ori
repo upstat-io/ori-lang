@@ -1,0 +1,6 @@
+@side_effect (x: int) -> void = ();
+
+@main () -> int = {
+    if true then side_effect(x: 1) else side_effect(x: 2);
+    0
+}

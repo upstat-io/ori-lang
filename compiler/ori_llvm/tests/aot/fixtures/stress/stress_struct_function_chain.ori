@@ -1,0 +1,13 @@
+type Pt = { x: int, y: int }
+
+@translate (p: Pt, dx: int, dy: int) -> Pt = Pt { x: p.x + dx, y: p.y + dy };
+@scale (p: Pt, factor: int) -> Pt = Pt { x: p.x * factor, y: p.y * factor };
+
+@main () -> int = {
+    let p = Pt { x: 1, y: 2 };
+    let p2 = translate(p: p, dx: 3, dy: 4);
+    let p3 = scale(p: p2, factor: 2);
+    let p4 = translate(p: p3, dx: -1, dy: -1);
+    // p2 = (4, 6), p3 = (8, 12), p4 = (7, 11)
+    if p4.x == 7 && p4.y == 11 then 0 else 1
+}

@@ -19,6 +19,7 @@ use ori_ir::Name;
 use ori_types::{Idx, Pool};
 use rustc_hash::{FxHashMap, FxHashSet};
 
+use crate::enum_repr::EnumRepr;
 use crate::escape::EscapeInfo;
 use crate::range::ValueRange;
 use crate::repr::MachineRepr;
@@ -178,6 +179,19 @@ impl ReprPlan {
     #[must_use]
     pub fn get_repr(&self, idx: Idx) -> Option<&MachineRepr> {
         self.decisions.get(&idx).map(|d| &d.repr)
+    }
+
+    /// Query the enum representation for a type.
+    ///
+    /// Returns `None` if no decision is recorded or the type is not an enum.
+    /// This is the canonical query — all consumers should use this instead
+    /// of pattern-matching `get_repr()` into `MachineRepr::Enum`.
+    #[must_use]
+    pub fn get_enum_repr(&self, idx: Idx) -> Option<&EnumRepr> {
+        match self.get_repr(idx)? {
+            MachineRepr::Enum(e) => Some(e),
+            _ => None,
+        }
     }
 
     /// Record per-variable range analysis results for a function.

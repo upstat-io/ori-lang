@@ -1,0 +1,5 @@
+@main () -> int = {
+    let t = (42, 99);
+    let _t2 = t.clone();
+    0
+}

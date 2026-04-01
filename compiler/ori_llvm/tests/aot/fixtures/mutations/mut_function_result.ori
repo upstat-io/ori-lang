@@ -1,0 +1,9 @@
+@double (x: int) -> int = x * 2;
+
+@main () -> int = {
+    let x = 5;
+    x = double(x: x);
+    x = double(x: x);
+    // 5 -> 10 -> 20
+    if x == 20 then 0 else 1
+}

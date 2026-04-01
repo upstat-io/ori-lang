@@ -1,0 +1,6 @@
+type Wide = { a: int, b: int }
+
+@main () -> int = {
+    let w = Wide { a: 1_000_000_000, b: -1_000_000_000 };
+    if w.a + w.b == 0 then 0 else 1
+}

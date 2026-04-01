@@ -1,0 +1,8 @@
+@sum_recursive (xs: [int], idx: int) -> int = {
+    if idx >= xs.length() then 0
+    else xs[idx] + sum_recursive(xs: xs, idx: idx + 1)
+};
+
+@main () -> int = {
+    if sum_recursive(xs: [10, 20, 30], idx: 0) == 60 then 0 else 1
+}

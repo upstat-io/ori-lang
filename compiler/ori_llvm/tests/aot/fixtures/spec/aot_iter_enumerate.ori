@@ -1,0 +1,4 @@
+@main () -> int = {
+    let c = [10, 20, 30].iter().enumerate().count();
+    if c == 3 then 0 else 1
+}

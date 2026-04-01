@@ -1,0 +1,9 @@
+@main () -> int = {
+    // Build string char by char across the SSO boundary
+    let s = "";
+    for i in 0..24 do {
+        s = s + "a";
+    };
+    // After 24 iterations: "aaa...a" (24 chars) — just past SSO
+    if s.length() == 24 then 0 else 1
+}

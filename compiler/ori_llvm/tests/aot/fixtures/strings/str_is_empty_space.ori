@@ -1,0 +1,5 @@
+@main () -> int = {
+    let s = " ";
+    // A string with a space is NOT empty
+    if !s.is_empty() then 0 else 1
+}

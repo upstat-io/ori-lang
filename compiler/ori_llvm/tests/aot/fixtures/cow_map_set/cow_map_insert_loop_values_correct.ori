@@ -1,0 +1,10 @@
+@main () -> int = {
+    let m: {int: int} = {};
+    for i in 0..10 do {
+        m = m.insert(i, i * 100);
+    };
+    let v0 = m.get(0).unwrap();
+    let v5 = m.get(5).unwrap();
+    let v9 = m.get(9).unwrap();
+    if v0 == 0 && v5 == 500 && v9 == 900 then 0 else 1
+}

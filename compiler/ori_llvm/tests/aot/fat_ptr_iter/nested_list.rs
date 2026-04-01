@@ -7,18 +7,7 @@ use crate::util::assert_aot_success;
 #[test]
 fn test_nested_list_iteration() {
     assert_aot_success(
-        r#"
-@main () -> int = {
-    let lists = [[1, 2, 3], [4, 5, 6]];
-    let total = 0;
-    for inner in lists do {
-        for n in inner do {
-            total = total + n;
-        };
-    };
-    if total == 21 then 0 else 1
-}
-"#,
+        include_str!("../fixtures/fat_ptr_iter/nested_list/nested_list_iteration.ori"),
         "nested_list_iteration",
     );
 }
@@ -31,22 +20,7 @@ fn test_nested_str_list_iteration() {
     // Outer: elem_dec_fn decs inner [str] buffers.
     // Inner: elem_dec_fn decs str elements within each inner list.
     assert_aot_success(
-        r#"
-@main () -> int = {
-    let lists = [
-        ["this is a very long string that exceeds SSO threshold", "also long enough to be on the heap here"],
-        ["third very long string exceeding SSO threshold bytes", "fourth long string on the heap too"]
-    ];
-    let total = 0;
-    for inner in lists do {
-        for s in inner do {
-            total = total + s.len();
-        };
-    };
-    // 53 + 39 + 52 + 34 = 178
-    if total == 178 then 0 else 1
-}
-"#,
+        include_str!("../fixtures/fat_ptr_iter/nested_list/nested_str_list_iteration.ori"),
         "nested_str_list_iteration",
     );
 }
@@ -58,26 +32,7 @@ fn test_nested_str_list_iteration() {
 #[test]
 fn test_nested_str_list_break() {
     assert_aot_success(
-        r#"
-@main () -> int = {
-    let lists = [
-        ["this is a very long string that exceeds SSO threshold", "also long enough to be on the heap here"],
-        ["second inner list with long strings exceeding SSO th", "not reached string also over SSO limit"],
-        ["third list also not reached because outer broke early", "these strings must still be cleaned up"]
-    ];
-    let total = 0;
-    let count = 0;
-    for inner in lists do {
-        for s in inner do {
-            total = total + s.len();
-        };
-        count = count + 1;
-        if count == 1 then break;
-    };
-    // First inner only: 53 + 39 = 92. Second and third un-consumed.
-    if total == 92 then 0 else 1
-}
-"#,
+        include_str!("../fixtures/fat_ptr_iter/nested_list/nested_str_list_break.ori"),
         "nested_str_list_break",
     );
 }
@@ -87,28 +42,7 @@ fn test_nested_str_list_break() {
 #[test]
 fn test_nested_str_list_two_calls() {
     assert_aot_success(
-        r#"
-@sum_lengths (lists: [[str]]) -> int = {
-    let total = 0;
-    for inner in lists do {
-        for s in inner do {
-            total = total + s.len();
-        };
-    };
-    total
-}
-
-@main () -> int = {
-    let lists = [
-        ["this is a very long string that exceeds SSO threshold", "also long enough to be on the heap here"],
-        ["third very long string exceeding SSO threshold bytes", "fourth long string on the heap too"]
-    ];
-    let r1 = sum_lengths(lists: lists);
-    let r2 = sum_lengths(lists: lists);
-    // 53 + 39 + 52 + 34 = 178 each call
-    if r1 == 178 && r2 == 178 then 0 else 1
-}
-"#,
+        include_str!("../fixtures/fat_ptr_iter/nested_list/nested_str_list_two_calls.ori"),
         "nested_str_list_two_calls",
     );
 }

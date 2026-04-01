@@ -1,0 +1,27 @@
+@might_panic (s: str) -> int = {
+    if s == "boom this is a long enough string for heap allocation" then {
+        panic(msg: "kaboom during iteration")
+    };
+    s.len()
+}
+
+@process (words: [str]) -> int = {
+    let total = 0;
+    for w in words do {
+        total = total + might_panic(s: w)
+    };
+    total
+}
+
+@main () -> int = {
+    let words = [
+        "this is a very long string that exceeds SSO threshold",
+        "boom this is a long enough string for heap allocation",
+        "third long string that should never be reached at all"
+    ];
+    let result = catch(expr: process(words: words));
+    match result {
+        Ok(_) -> 1,
+        Err(_) -> 0
+    }
+}

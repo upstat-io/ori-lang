@@ -1,0 +1,6 @@
+type Named = { name: str, value: int }
+
+@main () -> int = {
+    let n = Named { name: "hello", value: 42 };
+    if n.value == 42 then 0 else 1
+}

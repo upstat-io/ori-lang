@@ -1,0 +1,8 @@
+@main () -> int = {
+    let a = 1;
+    let b = a + 1;
+    let c = b + 1;
+    let d = c + 1;
+    let e = d + 1;
+    if e == 5 then 0 else 1
+}

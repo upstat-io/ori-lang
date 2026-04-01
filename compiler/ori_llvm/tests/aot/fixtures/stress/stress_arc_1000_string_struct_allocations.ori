@@ -1,0 +1,10 @@
+type Named = { name: str, id: int }
+
+@main () -> int = {
+    let count = 0;
+    for i in 0..1000 do {
+        let n = Named { name: "item", id: i };
+        count = count + 1
+    };
+    if count == 1000 then 0 else 1
+}

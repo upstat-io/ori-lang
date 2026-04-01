@@ -78,12 +78,18 @@ fn channel_close_and_send_return_unit() {
 }
 
 #[test]
-fn channel_no_trait_methods() {
+fn channel_trait_methods() {
+    let expected_traits: &[(&str, Option<&str>)] =
+        &[("is_empty", Some("IsEmpty")), ("len", Some("Len"))];
     for m in CHANNEL.methods {
-        assert!(
-            m.trait_name.is_none(),
-            "Channel.{} should have no trait_name",
-            m.name
+        let expected = expected_traits
+            .iter()
+            .find(|(name, _)| *name == m.name)
+            .and_then(|(_, t)| *t);
+        assert_eq!(
+            m.trait_name, expected,
+            "Channel.{} trait_name should be {:?}",
+            m.name, expected
         );
     }
 }

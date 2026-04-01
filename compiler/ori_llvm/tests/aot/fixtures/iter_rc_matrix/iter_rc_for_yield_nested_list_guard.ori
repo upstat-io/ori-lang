@@ -1,0 +1,5 @@
+@main () -> int = {
+    let items = [[1, 2, 3], [4], [7, 8, 9]];
+    let long_lens = for inner in items if inner.length() > 1 yield inner.length();
+    if long_lens.length() == 2 then 0 else 1
+}

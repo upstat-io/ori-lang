@@ -27,6 +27,13 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
         match ctor {
             CtorKind::Struct(_) | CtorKind::Tuple => {
+                // BUG-04-008: Unit/void tuples resolve to i64 in LLVM (not a struct),
+                // because LLVM void can't be stored. Return a zero constant directly
+                // instead of calling build_struct on a non-struct type.
+                let resolved_ty = self.pool.resolve_fully(ty);
+                if matches!(self.pool.tag(resolved_ty), Tag::Unit | Tag::Never) {
+                    return self.builder.const_zero_ty(llvm_ty);
+                }
                 // §06: reorder args from declaration order to memory order
                 // before truncation and LLVM struct construction.
                 let mem_args = self.reorder_args_to_memory_order(&arg_vals, ty);
@@ -37,7 +44,13 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             }
 
             CtorKind::EnumVariant { variant, .. } => {
-                // Enum layout is { tag, [M x i64] payload } where the tag
+                // §07.2: Niche-encoded enum — no tag field, payload at index 0.
+                if let Some(encoding) = self.get_niche_encoding(ty) {
+                    return self
+                        .emit_niche_variant_construct(llvm_ty, &arg_vals, &encoding, *variant);
+                }
+
+                // Explicit tag layout: { tag, [M x i64] payload } where the tag
                 // type is narrowed via min_tag_width (§07.1).
                 let tag_val =
                     self.builder
@@ -56,7 +69,37 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 } else {
                     Vec::new()
                 };
-                let has_boxed_fields = variant_field_types
+
+                // BUG-04-008: For user-defined enums (Tag::Enum), filter out
+                // Unit/Never args — they are zero-sized and don't occupy payload
+                // space. For Option/Result (where variant_field_types is empty
+                // because they're not Tag::Enum), use args unchanged.
+                let (eff_args, eff_arc_args, eff_field_types);
+                if !variant_field_types.is_empty()
+                    && variant_field_types.iter().any(|ft| {
+                        let r = self.pool.resolve_fully(*ft);
+                        matches!(self.pool.tag(r), Tag::Unit | Tag::Never)
+                    })
+                {
+                    let non_void: Vec<usize> = variant_field_types
+                        .iter()
+                        .enumerate()
+                        .filter(|(_, ft)| {
+                            let r = self.pool.resolve_fully(**ft);
+                            !matches!(self.pool.tag(r), Tag::Unit | Tag::Never)
+                        })
+                        .map(|(i, _)| i)
+                        .collect();
+                    eff_args = non_void.iter().map(|&i| arg_vals[i]).collect();
+                    eff_arc_args = non_void.iter().map(|&i| args[i]).collect();
+                    eff_field_types = non_void.iter().map(|&i| variant_field_types[i]).collect();
+                } else {
+                    eff_args = arg_vals.clone();
+                    eff_arc_args = args.to_vec();
+                    eff_field_types = variant_field_types.clone();
+                }
+
+                let has_boxed_fields = eff_field_types
                     .iter()
                     .any(|&ft| is_boxed_enum_field(self.pool, ty, ft));
 
@@ -67,9 +110,9 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                         llvm_ty,
                         ty,
                         tag_val,
-                        &arg_vals,
-                        args,
-                        &variant_field_types,
+                        &eff_args,
+                        &eff_arc_args,
+                        &eff_field_types,
                     )
                 } else {
                     // Optimized case: pure insertvalue chain (no memory roundtrip).
@@ -79,9 +122,9 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                         llvm_ty,
                         ty,
                         tag_val,
-                        &arg_vals,
-                        args,
-                        &variant_field_types,
+                        &eff_args,
+                        &eff_arc_args,
+                        &eff_field_types,
                     )
                 }
             }
@@ -387,5 +430,34 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         // Build result struct: {i64 len, i64 cap, ptr data}
         self.builder
             .build_struct(llvm_ty, &[new_len_val, result_cap, new_data], "reuse.list")
+    }
+
+    /// §07.2: Construct a niche-encoded enum variant.
+    ///
+    /// Niche layout has no tag field — payload fields start at struct index 0.
+    /// For the niche variant (e.g., None): create a zeroinit struct; `SetTag`
+    /// will write the niche value afterward.
+    /// For the data variant (e.g., Some(val)): insert payload at index 0.
+    fn emit_niche_variant_construct(
+        &mut self,
+        llvm_ty: super::super::value_id::LLVMTypeId,
+        arg_vals: &[ValueId],
+        encoding: &super::tag_access::TagEncoding,
+        variant: u32,
+    ) -> ValueId {
+        let mut result = self.builder.const_zero_ty(llvm_ty);
+        if encoding.needs_tag_store(variant) {
+            // Niche variant (no payload): return zeroinit — SetTag stores the niche value.
+            return result;
+        }
+        // Data variant: insert payload fields starting at index 0.
+        for (i, &val) in arg_vals.iter().enumerate() {
+            #[expect(clippy::cast_possible_truncation, reason = "field index fits u32")]
+            let idx = i as u32;
+            result = self
+                .builder
+                .insert_value(result, val, idx, &format!("niche.val.{i}"));
+        }
+        result
     }
 }

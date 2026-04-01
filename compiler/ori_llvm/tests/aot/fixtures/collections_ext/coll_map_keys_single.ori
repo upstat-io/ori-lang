@@ -1,0 +1,5 @@
+@main () -> int = {
+    let m = {"only": 42};
+    let ks = m.keys();
+    if ks.length() == 1 then 0 else 1
+}

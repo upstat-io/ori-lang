@@ -1,0 +1,9 @@
+@make_ok () -> Result<int, str> = Ok(42);
+
+@main () -> int = {
+    let r = make_ok();
+    if r.is_ok() then {
+        let v = r.unwrap();
+        if v == 42 then 0 else 1
+    } else 1
+}

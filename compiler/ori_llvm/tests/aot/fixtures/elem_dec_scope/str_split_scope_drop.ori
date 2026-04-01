@@ -1,0 +1,6 @@
+@main () -> int = {
+    let text = "this is a very long string that exceeds the SSO threshold of twenty three bytes and has spaces";
+    let parts = text.split(sep: " ");
+    let ok = parts.len() > 1;
+    if ok then 0 else 1
+}

@@ -1,0 +1,5 @@
+@main () -> int = {
+    let items: [str] = [];
+    let result = for s in items yield s;
+    if result.length() == 0 then 0 else 1
+}

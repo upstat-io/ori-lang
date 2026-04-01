@@ -1,0 +1,5 @@
+@main () -> int = {
+    let xs = [10, 20, 30];
+    let f = xs.first();
+    if f.is_some() && f.unwrap() == 10 then 0 else 1
+}

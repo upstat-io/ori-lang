@@ -1,0 +1,4 @@
+@main () -> int = {
+    let result = [1, 2, 3].iter().find((x) -> x > 10);
+    if result.is_none() then 0 else 1
+}

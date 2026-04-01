@@ -1,0 +1,13 @@
+@check (opt: Option<str>) -> int =
+    match opt {
+        Some(s) -> s.length(),
+        None -> 0,
+    };
+
+@main () -> int = {
+    let a = check(opt: Some("hello"));
+    let b = check(opt: None);
+    if a == 5 then {
+        if b == 0 then 0 else 1
+    } else 2
+}

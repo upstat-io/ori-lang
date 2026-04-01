@@ -1,0 +1,16 @@
+@collatz_steps (n: int) -> int = {
+    let steps = 0;
+    let val = n;
+    for _ in 0..10000 do {
+        if val == 1 then break;
+        if val % 2 == 0 then val = val / 2
+        else val = val * 3 + 1;
+        steps = steps + 1;
+    };
+    steps
+}
+
+@main () -> int = {
+    let result = collatz_steps(n: 27);
+    if result == 111 then 0 else 1
+}

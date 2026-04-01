@@ -172,12 +172,12 @@ static STR_METHODS: &[MethodDef] = &[
         Ownership::Borrow,
     ),
     MethodDef::primitive("into", &[], ERROR_TAG, None, Ownership::Borrow),
-    MethodDef::primitive("is_empty", &[], BOOL, None, Ownership::Borrow),
+    MethodDef::primitive("is_empty", &[], BOOL, Some("IsEmpty"), Ownership::Borrow),
     MethodDef::primitive(
         "iter",
         &[],
         ReturnTag::DoubleEndedIterator(TypeTag::Char),
-        None,
+        Some("Iterable"),
         Ownership::Borrow,
     ),
     MethodDef::primitive(
@@ -187,8 +187,8 @@ static STR_METHODS: &[MethodDef] = &[
         None,
         Ownership::Borrow,
     ),
-    MethodDef::primitive("len", &[], INT, None, Ownership::Borrow),
-    MethodDef::primitive("length", &[], INT, None, Ownership::Borrow),
+    MethodDef::primitive("len", &[], INT, Some("Len"), Ownership::Borrow),
+    MethodDef::primitive("length", &[], INT, Some("Len"), Ownership::Borrow),
     MethodDef::primitive(
         "lines",
         &[],
@@ -372,4 +372,5 @@ pub static STR: TypeDef = TypeDef {
         shl: OpStrategy::Unsupported,
         shr: OpStrategy::Unsupported,
     },
+    traits: &["Default"],
 };

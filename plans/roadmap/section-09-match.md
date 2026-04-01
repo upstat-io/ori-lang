@@ -408,6 +408,7 @@ match shape {
 - [ ] 80+% test coverage (verified 2026-03-29: PARTIAL -- good interpreter coverage, weak AOT for struct/list/at-pattern)
 - [x] Run full test suite: `./test-all.sh` (verified 2026-03-29: 4181 passed, 0 failed, 42 skipped)
 - [ ] `/tpr-review` passed — independent Codex review found no critical or major issues (or all findings triaged)
+- [ ] `/impl-hygiene-review last commit` passed — implementation hygiene review clean (phase boundaries, SSOT, algorithmic DRY, naming). MUST run AFTER `/tpr-review` is clean.
 
 ### Test Gaps (verified 2026-03-29)
 

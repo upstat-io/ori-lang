@@ -1,0 +1,4 @@
+@main () -> int = {
+    let s = "x";
+    if s.length() == 1 then 0 else 1
+}

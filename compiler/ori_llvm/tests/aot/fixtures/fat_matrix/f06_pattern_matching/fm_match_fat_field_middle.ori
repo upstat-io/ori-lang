@@ -1,0 +1,15 @@
+type Entry = Record(id: int, name: str, score: int) | Empty;
+
+@get_name_len (e: Entry) -> int =
+    match e {
+        Record(id, name, score) -> name.length() + id + score,
+        Empty -> 0,
+    };
+
+@main () -> int = {
+    let r = get_name_len(e: Record(id: 10, name: "alice", score: 20));
+    let e = get_name_len(e: Empty);
+    if r == 35 then {
+        if e == 0 then 0 else 1
+    } else 2
+}

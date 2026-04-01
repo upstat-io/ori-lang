@@ -1,0 +1,5 @@
+@main () -> int = {
+    let x = 5;
+    let label = if x > 10 then "big" else "small";
+    if label == "small" then 0 else 1
+}

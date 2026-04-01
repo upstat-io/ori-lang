@@ -1,0 +1,7 @@
+@main () -> int = {
+    // 5 + 5 = 10 bytes — stays SSO
+    let a = "hello";
+    let b = " worl";
+    let c = a + b;
+    if c.length() == 10 && c == "hello worl" then 0 else 1
+}

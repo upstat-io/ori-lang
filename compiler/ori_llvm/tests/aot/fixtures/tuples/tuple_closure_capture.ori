@@ -1,0 +1,5 @@
+@main () -> int = {
+    let t = (10, 20);
+    let sum_it = (extra: int) -> t.0 + t.1 + extra;
+    if sum_it(12) == 42 then 0 else 1
+}

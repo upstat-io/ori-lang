@@ -1,0 +1,4 @@
+@main () -> int = {
+    let result = [2, 3, 4].iter().all((x) -> x % 2 == 0);
+    if result then 1 else 0
+}

@@ -1,0 +1,5 @@
+@main () -> int = {
+    let opt: Option<int> = None;
+    let opt2 = opt.clone();
+    if (opt2 ?? -1) == -1 then 0 else 1
+}

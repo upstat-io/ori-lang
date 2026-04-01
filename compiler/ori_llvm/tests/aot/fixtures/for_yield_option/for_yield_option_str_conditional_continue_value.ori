@@ -1,0 +1,9 @@
+@main () -> int = {
+    let opt = Some("this string exceeds SSO threshold by being very long indeed");
+    let result = for x in opt yield {
+        if x.len() > 10 then continue 99;
+        x.len()
+    };
+    // continue 99 fires, so result is [99]
+    if result.length() == 1 then 0 else 1
+}

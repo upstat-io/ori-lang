@@ -1,0 +1,7 @@
+@main () -> int = {
+    let neg = -(1s);
+    let neg_ok = neg == -1s;
+    let double_neg = -(-(500ms));
+    let double_neg_ok = double_neg == 500ms;
+    if neg_ok && double_neg_ok then 0 else 1
+}

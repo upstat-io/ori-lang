@@ -1,0 +1,6 @@
+@main () -> int = {
+    let m = {"a": 1, "b": 2, "c": 3};
+    let m2 = m.remove("b");
+    // Original must keep all 3, copy must have 2
+    if m.len() == 3 && m2.len() == 2 then 0 else 1
+}

@@ -1,0 +1,8 @@
+@make_gt (threshold: int) -> (int) -> bool = {
+    (n: int) -> n > threshold
+};
+
+@main () -> int = {
+    let gt5 = make_gt(threshold: 5);
+    if gt5(10) && !gt5(3) then 0 else 1
+}

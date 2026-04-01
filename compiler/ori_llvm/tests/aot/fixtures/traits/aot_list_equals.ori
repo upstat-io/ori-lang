@@ -1,0 +1,10 @@
+@main () -> int = {
+    let a = [1, 2, 3];
+    let b = [1, 2, 3];
+    let c = [1, 2, 4];
+    let d = [1, 2];
+    let r1 = a.equals(b);
+    let r2 = !a.equals(c);
+    let r3 = !a.equals(d);
+    if r1 && r2 && r3 then 0 else 1
+}

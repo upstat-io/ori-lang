@@ -1,0 +1,6 @@
+@main () -> int = {
+    let f = -3.7;
+    let x = f.to_int();
+    // fptosi truncates toward zero: -3.7 -> -3
+    if x == -3 then 0 else 1
+}

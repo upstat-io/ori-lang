@@ -1,0 +1,8 @@
+@main () -> int = {
+    let xs = ["initial_heap_string_val"];
+    for i in 0..30 do {
+        xs = xs.push("item_number_" + str(i) + "_heap");
+    };
+    // 1 original + 30 pushed = 31
+    if xs.len() == 31 then 0 else 1
+}

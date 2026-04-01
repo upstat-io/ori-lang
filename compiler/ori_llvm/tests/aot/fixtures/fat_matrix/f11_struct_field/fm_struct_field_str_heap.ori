@@ -1,0 +1,6 @@
+type Wrapper = { value: str }
+
+@main () -> int = {
+    let w = Wrapper { value: "abcdefghijklmnopqrstuvwxyz1234" };
+    if w.value.length() == 30 then 0 else 1
+}

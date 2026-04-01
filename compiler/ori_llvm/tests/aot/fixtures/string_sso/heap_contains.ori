@@ -1,0 +1,4 @@
+@main () -> int = {
+    let s = "this is a heap string with searchable content";
+    if s.contains("searchable") && !s.contains("xyz") then 0 else 1
+}

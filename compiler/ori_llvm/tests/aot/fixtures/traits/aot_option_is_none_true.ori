@@ -1,0 +1,6 @@
+@get () -> Option<int> = None;
+
+@main () -> int = {
+    let o = get();
+    if o.is_none() then 0 else 1
+}

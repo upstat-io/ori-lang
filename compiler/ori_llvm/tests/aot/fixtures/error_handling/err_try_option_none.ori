@@ -1,0 +1,11 @@
+@find_nothing () -> Option<int> = None;
+
+@lookup () -> Option<int> = {
+    let v = find_nothing()?;
+    Some(v + 1)
+}
+
+@main () -> int = {
+    let o = lookup();
+    if o.is_none() then 0 else 1
+}

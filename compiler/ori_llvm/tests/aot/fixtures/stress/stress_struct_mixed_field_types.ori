@@ -1,0 +1,11 @@
+type Mixed = { n: int, f: float, b: bool, s: str, c: char }
+
+@main () -> int = {
+    let m = Mixed { n: 42, f: 3.14, b: true, s: "hello", c: 'x' };
+    let ok1 = m.n == 42;
+    let ok2 = m.f > 3.0 && m.f < 4.0;
+    let ok3 = m.b;
+    let ok4 = m.s == "hello";
+    let ok5 = m.c == 'x';
+    if ok1 && ok2 && ok3 && ok4 && ok5 then 0 else 1
+}

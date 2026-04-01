@@ -1,0 +1,9 @@
+@main () -> int = {
+    let words = ["hello", "world", "test"];
+    let total = 0;
+    for w in words do {
+        if w.length() == 5 then total += 1;
+        if total == 2 then break
+    };
+    total
+}

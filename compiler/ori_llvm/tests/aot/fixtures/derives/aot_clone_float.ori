@@ -1,0 +1,5 @@
+@main () -> int = {
+    let x = 3.14;
+    let y = x.clone();
+    if y == 3.14 then 0 else 1
+}

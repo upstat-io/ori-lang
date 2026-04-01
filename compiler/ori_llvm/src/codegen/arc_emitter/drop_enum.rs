@@ -27,6 +27,12 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         ty: Idx,
         variants: &[Vec<(u32, Idx)>],
     ) {
+        // §07.2: Niche-encoded enum drop — conditional skip instead of switch.
+        if let Some(encoding) = self.get_niche_encoding(ty) {
+            self.emit_drop_enum_niche(func_id, data_ptr, ty, variants, &encoding);
+            return;
+        }
+
         let enum_llvm_ty = self.resolve_type(ty);
 
         // Load tag (narrowed type at field 0 — §07.1 discriminant narrowing)
@@ -200,6 +206,68 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             }
         }
     }
+    /// §07.2: Emit drop body for a niche-encoded enum.
+    ///
+    /// For 2-variant niche enums (Option/Result): load the niche field,
+    /// compare against `niche_value`, skip drop for the niche variant (no
+    /// payload to clean up), and drop fields for the data variant.
+    fn emit_drop_enum_niche(
+        &mut self,
+        func_id: FunctionId,
+        data_ptr: ValueId,
+        ty: Idx,
+        variants: &[Vec<(u32, Idx)>],
+        encoding: &super::tag_access::TagEncoding,
+    ) {
+        let enum_llvm_ty = self.resolve_type(ty);
+        let niche_idx = encoding.niche_field_index().unwrap();
+        let niche_value = encoding.niche_value().unwrap();
+        let niche_variant_idx = encoding.niche_variant_idx().unwrap() as usize;
+
+        // Load niche field
+        let field_ty = self
+            .builder
+            .struct_field_type(enum_llvm_ty, niche_idx)
+            .unwrap_or_else(|| self.builder.i64_type());
+        let field_ptr = self
+            .builder
+            .struct_gep(enum_llvm_ty, data_ptr, niche_idx, "niche.ptr");
+        let field_val = self.builder.load(field_ty, field_ptr, "niche.val");
+
+        let is_niche = self.niche_is_sentinel(field_val, niche_value, "is.niche");
+
+        let drop_data = self.builder.append_block(func_id, "drop.data");
+        let drop_done = self.builder.append_block(func_id, "drop.done");
+
+        // Niche variant → skip to done. Data variant → drop fields.
+        self.builder.cond_br(is_niche, drop_done, drop_data);
+
+        // Emit data variant field drops.
+        self.builder.position_at_end(drop_data);
+        let data_variant_idx = usize::from(niche_variant_idx == 0);
+        if let Some(data_fields) = variants.get(data_variant_idx) {
+            for &(field_index, field_type) in data_fields {
+                // Niche layout: no tag field, payload starts at struct index 0.
+                let field_llvm_ty = self.resolve_type(field_type);
+                let gep = self.builder.struct_gep(
+                    enum_llvm_ty,
+                    data_ptr,
+                    field_index,
+                    &format!("niche.f{field_index}.ptr"),
+                );
+                let val = self
+                    .builder
+                    .load(field_llvm_ty, gep, &format!("niche.f{field_index}"));
+                self.emit_drop_rc_dec(val, field_type);
+            }
+        }
+        self.builder.br(drop_done);
+
+        // done: free + ret
+        self.builder.position_at_end(drop_done);
+        self.emit_drop_rc_free(data_ptr, ty);
+        self.builder.ret_void();
+    }
 }
 
 // Free helpers (no &mut self needed)
@@ -219,6 +287,12 @@ pub(super) fn compute_variant_field_offsets(
 
     for &field_ty in field_types {
         offsets.push(current);
+        // BUG-04-008: Unit/Never fields are zero-sized — they don't occupy
+        // payload space. Skip them so offsets match the LLVM layout.
+        let resolved_ft = emitter.pool.resolve_fully(field_ty);
+        if matches!(emitter.pool.tag(resolved_ft), Tag::Unit | Tag::Never) {
+            continue;
+        }
         let field_size = if is_boxed_enum_field(emitter.pool, enum_type, field_ty) {
             8 // Stored as RC pointer
         } else {

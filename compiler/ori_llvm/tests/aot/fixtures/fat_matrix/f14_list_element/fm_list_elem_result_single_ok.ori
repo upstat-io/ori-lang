@@ -1,0 +1,4 @@
+@main () -> int = {
+    let a: [Result<str, str>] = [Ok("success long heap string here")];
+    if a.length() == 1 then 0 else 1
+}

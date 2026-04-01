@@ -1,0 +1,108 @@
+use std.testing { assert_eq, assert }
+
+// BUG-04-008: Enum variants with void/unit payloads should be zero-sized.
+// A variant like `A(u: void)` should behave identically to `A` (no payload).
+// The bug: LLVM resolve_enum() counted void fields as 8 bytes (i64 placeholder),
+// causing layout mismatch with ori_repr/ori_arc (which correctly count 0).
+
+// --- Exact failing case ---
+
+type WithUnit = UnitA(u: void) | UnitB;
+
+@test_construct_void_variant tests _ () -> void = {
+    let x = UnitA(u: ());
+    let y = UnitB;
+    assert(condition: true)
+}
+
+@test_match_void_variant tests _ () -> void = {
+    let x: WithUnit = UnitA(u: ());
+    let result = match x {
+        UnitA(u:) -> "a",
+        UnitB -> "b"
+    };
+    assert_eq(actual: result, expected: "a")
+}
+
+@test_match_b_variant tests _ () -> void = {
+    let x: WithUnit = UnitB;
+    let result = match x {
+        UnitA(u:) -> "a",
+        UnitB -> "b"
+    };
+    assert_eq(actual: result, expected: "b")
+}
+
+// --- All variants have void payloads ---
+
+type AllVoidPayload = VoidX(v: void) | VoidY(w: void) | VoidZ;
+
+@test_all_void_payload_match tests _ () -> void = {
+    let a: AllVoidPayload = VoidX(v: ());
+    let b: AllVoidPayload = VoidY(w: ());
+    let c: AllVoidPayload = VoidZ;
+    let ra = match a { VoidX(v:) -> "x", VoidY(w:) -> "y", VoidZ -> "z" };
+    let rb = match b { VoidX(v:) -> "x", VoidY(w:) -> "y", VoidZ -> "z" };
+    let rc = match c { VoidX(v:) -> "x", VoidY(w:) -> "y", VoidZ -> "z" };
+    assert_eq(actual: ra, expected: "x");
+    assert_eq(actual: rb, expected: "y");
+    assert_eq(actual: rc, expected: "z")
+}
+
+// --- Mixed: real payload alongside void payload ---
+
+type Mixed = Real(x: int) | Empty(u: void) | Plain;
+
+@test_mixed_payload_match tests _ () -> void = {
+    let a: Mixed = Real(x: 42);
+    let b: Mixed = Empty(u: ());
+    let c: Mixed = Plain;
+    let ra = match a { Real(x:) -> x, Empty(u:) -> -1, Plain -> -2 };
+    let rb = match b { Real(x:) -> x, Empty(u:) -> -1, Plain -> -2 };
+    let rc = match c { Real(x:) -> x, Empty(u:) -> -1, Plain -> -2 };
+    assert_eq(actual: ra, expected: 42);
+    assert_eq(actual: rb, expected: -1);
+    assert_eq(actual: rc, expected: -2)
+}
+
+// --- Void payload with Option wrapping ---
+
+@test_void_variant_in_option tests _ () -> void = {
+    let inner = UnitA(u: ());
+    let x: Option<WithUnit> = Some(inner);
+    let result = match x {
+        Some(value:) -> match value {
+            UnitA(u:) -> "some-a",
+            UnitB -> "some-b"
+        },
+        None -> "none"
+    };
+    assert_eq(actual: result, expected: "some-a")
+}
+
+// --- Semantic pin: void-payload variant behaves same as no-payload ---
+// This test ONLY passes if void fields are correctly zero-sized.
+
+type PureUnit = PureA | PureB;
+type VoidUnit = VoidA(u: void) | VoidB;
+
+@test_semantic_pin_void_is_unit tests _ () -> void = {
+    let u: PureUnit = PureA;
+    let v: VoidUnit = VoidA(u: ());
+    let ru = match u { PureA -> "a", PureB -> "b" };
+    let rv = match v { VoidA(u:) -> "a", VoidB -> "b" };
+    assert_eq(actual: ru, expected: "a");
+    assert_eq(actual: rv, expected: "a")
+}
+
+// --- Negative pin: void payload doesn't affect other variant's data ---
+
+@test_negative_pin_void_no_data_corruption tests _ () -> void = {
+    let x: Mixed = Real(x: 999);
+    let y: Mixed = Empty(u: ());
+    let z: Mixed = Real(x: -123);
+    let rx = match x { Real(x:) -> x, Empty(u:) -> 0, Plain -> 0 };
+    let rz = match z { Real(x:) -> x, Empty(u:) -> 0, Plain -> 0 };
+    assert_eq(actual: rx, expected: 999);
+    assert_eq(actual: rz, expected: -123)
+}

@@ -1,0 +1,10 @@
+@main () -> int = {
+    let s = "start_heap_string_value";
+    for i in 0..30 do {
+        s = if i % 2 == 0
+            then s + "e"
+            else s + "o";
+    };
+    // 23 + 30 = 53
+    if s.len() == 53 then 0 else 1
+}

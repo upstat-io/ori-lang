@@ -1,0 +1,7 @@
+@main () -> int = {
+    let t = (42, 99);
+    let r = match t {
+        (_, _) -> 0,
+    };
+    r
+}

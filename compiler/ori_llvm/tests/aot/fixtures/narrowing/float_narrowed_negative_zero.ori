@@ -1,0 +1,11 @@
+type Signed = { value: float }
+
+@main () -> int = {
+    let s = Signed { value: -0.0 };
+    // -0.0 == 0.0 per IEEE 754 equality
+    let eq_zero = s.value == 0.0;
+    // 1.0 / -0.0 = -infinity (negative)
+    let div_result = 1.0 / s.value;
+    let neg_inf = div_result < 0.0;
+    if eq_zero && neg_inf then 0 else 1
+}

@@ -1,0 +1,9 @@
+@make_multiplier (factor: int) -> (int) -> int = {
+    (n: int) -> factor * n
+};
+
+@main () -> int = {
+    let times3 = make_multiplier(factor: 3);
+    let times7 = make_multiplier(factor: 7);
+    if times3(10) == 30 && times7(6) == 42 then 0 else 1
+}

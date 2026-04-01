@@ -1,0 +1,6 @@
+@main () -> int = {
+    let fns = [x -> x + 1, x -> x * 2, x -> x - 1];
+    let count = 0;
+    for f in fns do count = count + 1;
+    if count == 3 then 0 else 1
+}

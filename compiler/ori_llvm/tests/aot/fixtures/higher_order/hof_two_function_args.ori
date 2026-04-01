@@ -1,0 +1,8 @@
+@combine (f: (int) -> int, g: (int) -> int, x: int) -> int = f(x) + g(x);
+
+@main () -> int = {
+    let dbl = (n: int) -> n * 2;
+    let inc = (n: int) -> n + 1;
+    // combine(3) = 6 + 4 = 10
+    if combine(f: dbl, g: inc, x: 3) == 10 then 0 else 1
+}

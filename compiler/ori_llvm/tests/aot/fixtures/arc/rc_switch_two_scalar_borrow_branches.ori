@@ -1,0 +1,8 @@
+type Pair = { x: int, y: int }
+
+@main () -> int = {
+    let p = Pair { x: 10, y: 20 };
+    let $flag = true;
+    let $result = if flag then p.x else p.y;
+    if result == 10 then 0 else 1
+}

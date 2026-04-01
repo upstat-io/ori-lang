@@ -1,0 +1,12 @@
+type Toggle = { on: bool }
+
+impl Not for Toggle {
+    type Output = Toggle;
+    @not (self) -> Toggle = Toggle { on: !self.on }
+}
+
+@main () -> int = {
+    let t = Toggle { on: true };
+    let f = !t;
+    if f.on == false then 0 else 1
+}

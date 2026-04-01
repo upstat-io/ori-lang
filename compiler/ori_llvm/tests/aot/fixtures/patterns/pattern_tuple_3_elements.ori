@@ -1,0 +1,8 @@
+@main () -> int = {
+    let t = (1, 2, 3);
+    let r = match t {
+        (1, 2, z) -> z * 100,
+        _ -> 0,
+    };
+    if r == 300 then 0 else 1
+}

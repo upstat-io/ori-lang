@@ -1,0 +1,7 @@
+@apply (f: (int) -> int, x: int) -> int = f(x);
+
+@main () -> int = {
+    let prefix = "hello";
+    let f = (n: int) -> int = prefix.length() + n;
+    if apply(f: f, x: 5) == 10 then 0 else 1
+}

@@ -1,0 +1,6 @@
+@main () -> int = {
+    let a = 100;
+    let b = 23;
+    let f = (x: int) -> a + b + x;
+    if f(0) == 123 then 0 else 1
+}

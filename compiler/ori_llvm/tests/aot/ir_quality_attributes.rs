@@ -16,15 +16,9 @@ use crate::util::{compile_and_capture_ir, extract_function_ir};
 /// dead/orphan unreachable blocks are a defect.
 #[test]
 fn test_nounwind_program_has_no_unreachable_blocks() {
-    let ir = compile_and_capture_ir(
-        r"
-@main () -> int = {
-    let x = 10;
-    let y = 3;
-    x * y + 3
-}
-",
-    );
+    let ir = compile_and_capture_ir(include_str!(
+        "fixtures/ir_quality_attributes/nounwind_program_has_no_unreachable_blocks.ori"
+    ));
 
     let main_ir = extract_function_ir(&ir, "_ori_main");
 
@@ -62,13 +56,9 @@ fn test_nounwind_program_has_no_unreachable_blocks() {
 /// call, and the former unwind block should not be emitted at all.
 #[test]
 fn test_nounwind_generic_call_no_unreachable() {
-    let ir = compile_and_capture_ir(
-        r"
-@identity <T> (x: T) -> T = x;
-
-@main () -> int = identity(x: 42);
-",
-    );
+    let ir = compile_and_capture_ir(include_str!(
+        "fixtures/ir_quality_attributes/nounwind_generic_call_no_unreachable.ori"
+    ));
 
     let main_ir = extract_function_ir(&ir, "_ori_main");
 
@@ -87,20 +77,9 @@ fn test_nounwind_generic_call_no_unreachable() {
 /// key property: no dead blocks from invoke splitting remain.
 #[test]
 fn test_mixed_calls_no_dead_unreachable() {
-    let ir = compile_and_capture_ir(
-        r#"
-@add (a: int, b: int) -> int = a + b;
-
-@may_panic (x: int) -> int = {
-    if x == 0 then panic(msg: "zero") else x
-};
-
-@main () -> int = {
-    let sum = add(a: 1, b: 2);
-    may_panic(x: sum)
-}
-"#,
-    );
+    let ir = compile_and_capture_ir(include_str!(
+        "fixtures/ir_quality_attributes/mixed_calls_no_dead_unreachable.ori"
+    ));
 
     let main_ir = extract_function_ir(&ir, "_ori_main");
 
@@ -129,11 +108,9 @@ fn test_mixed_calls_no_dead_unreachable() {
 /// returns 33. No unreachable blocks, no landing pads.
 #[test]
 fn test_constant_main_minimal_ir() {
-    let ir = compile_and_capture_ir(
-        r"
-@main () -> int = 33;
-",
-    );
+    let ir = compile_and_capture_ir(include_str!(
+        "fixtures/ir_quality_attributes/constant_main_minimal_ir.ori"
+    ));
 
     let main_ir = extract_function_ir(&ir, "_ori_main");
 
@@ -161,11 +138,9 @@ fn test_constant_main_minimal_ir() {
 /// marks `_ori_main` as `nounwind`, and the C main wrapper inherits it.
 #[test]
 fn test_trivial_main_wrapper_has_nounwind() {
-    let ir = compile_and_capture_ir(
-        r"
-@main () -> int = 42;
-",
-    );
+    let ir = compile_and_capture_ir(include_str!(
+        "fixtures/ir_quality_attributes/trivial_main_wrapper_has_nounwind.ori"
+    ));
 
     assert_fn_has_attr(&ir, "main", "nounwind");
 }
@@ -176,15 +151,9 @@ fn test_trivial_main_wrapper_has_nounwind() {
 /// be marked `nounwind` or LLVM would treat unwinding as UB.
 #[test]
 fn test_panicking_main_wrapper_lacks_nounwind() {
-    let ir = compile_and_capture_ir(
-        r#"
-@main () -> int = {
-    let x = 42;
-    if x == 0 then panic(msg: "zero");
-    x
-}
-"#,
-    );
+    let ir = compile_and_capture_ir(include_str!(
+        "fixtures/ir_quality_attributes/panicking_main_wrapper_lacks_nounwind.ori"
+    ));
 
     assert_fn_lacks_attr(&ir, "main", "nounwind");
 }
@@ -199,24 +168,9 @@ fn test_panicking_main_wrapper_lacks_nounwind() {
 /// would incorrectly lose the nounwind attribute.
 #[test]
 fn test_function_calling_builtin_method_gets_nounwind() {
-    let ir = compile_and_capture_ir(
-        r#"
-@count_chars (words: [str]) -> int = {
-    let total = 0;
-    for w in words do total += w.length();
-    total
-}
-
-@total_items (xs: [str]) -> int = xs.length();
-
-@main () -> int = {
-    let words = ["hello", "world", "12345"];
-    let a = count_chars(words: words);
-    let b = total_items(xs: words);
-    a + b
-}
-"#,
-    );
+    let ir = compile_and_capture_ir(include_str!(
+        "fixtures/ir_quality_attributes/function_calling_builtin_method_gets_nounwind.ori"
+    ));
 
     assert_fn_has_attr(&ir, "_ori_count_chars", "nounwind");
     assert_fn_has_attr(&ir, "_ori_total_items", "nounwind");
@@ -234,17 +188,9 @@ fn test_function_calling_builtin_method_gets_nounwind() {
 /// `HashMap` iteration order.
 #[test]
 fn test_closure_call_gets_nounwind_via_posthoc() {
-    let ir = compile_and_capture_ir(
-        r#"
-@check_capture () -> int = {
-    let prefix = "hello";
-    let f = s -> prefix.length() + s.length();
-    f("world")
-}
-
-@main () -> int = check_capture();
-"#,
-    );
+    let ir = compile_and_capture_ir(include_str!(
+        "fixtures/ir_quality_attributes/closure_call_gets_nounwind_via_posthoc.ori"
+    ));
 
     assert_fn_has_attr(&ir, "_ori_check_capture", "nounwind");
     assert_fn_has_attr(&ir, "_ori_main", "nounwind");
@@ -262,17 +208,7 @@ fn test_closure_call_gets_nounwind_via_posthoc() {
 #[test]
 fn test_generic_call_with_builtin_arg_not_treated_as_intercepted() {
     let ir = compile_and_capture_ir(
-        r#"
-@might_panic<T> (x: T) -> T = {
-    if true then panic(msg: "boom");
-    x
-}
-
-@main () -> int = {
-    let s = might_panic(x: "hello");
-    s.length()
-}
-"#,
+        include_str!("fixtures/ir_quality_attributes/generic_call_with_builtin_arg_not_treated_as_intercepted.ori"),
     );
 
     // `might_panic` contains `panic()` — it MUST NOT be nounwind.
@@ -291,20 +227,9 @@ fn test_generic_call_with_builtin_arg_not_treated_as_intercepted() {
 /// no string allocation or user code calls. They are provably nounwind.
 #[test]
 fn test_pure_derived_methods_have_nounwind() {
-    let ir = compile_and_capture_ir(
-        r"
-#derive(Eq, Comparable, Hashable)
-type Shape = { sides: int, area: float };
-
-@main () -> int = {
-    let a = Shape { sides: 4, area: 16.0 };
-    let b = Shape { sides: 4, area: 16.0 };
-    let c = a.compare(other: b);
-    let h = a.hash();
-    if a == b then 1 else 0
-}
-",
-    );
+    let ir = compile_and_capture_ir(include_str!(
+        "fixtures/ir_quality_attributes/pure_derived_methods_have_nounwind.ori"
+    ));
 
     assert_fn_has_attr(&ir, "_ori_Shape$eq", "nounwind");
     assert_fn_has_attr(&ir, "_ori_Shape$compare", "nounwind");
@@ -316,19 +241,9 @@ type Shape = { sides: int, area: float };
 /// These methods allocate strings and call non-nounwind runtime functions.
 #[test]
 fn test_impure_derived_methods_lack_nounwind() {
-    let ir = compile_and_capture_ir(
-        r"
-#derive(Printable, Debug)
-type Point = { x: int, y: int };
-
-@main () -> int = {
-    let p = Point { x: 1, y: 2 };
-    let s = p.to_str();
-    let d = p.debug();
-    0
-}
-",
-    );
+    let ir = compile_and_capture_ir(include_str!(
+        "fixtures/ir_quality_attributes/impure_derived_methods_lack_nounwind.ori"
+    ));
 
     assert_fn_lacks_attr(&ir, "_ori_Point$to_str", "nounwind");
     assert_fn_lacks_attr(&ir, "_ori_Point$debug", "nounwind");
@@ -349,15 +264,9 @@ type Point = { x: int, y: int };
 /// references the group number, not the attributes directly.
 #[test]
 fn test_panic_declarations_have_noreturn() {
-    let ir = compile_and_capture_ir(
-        r#"
-@main () -> int = {
-    let x = 42;
-    if x == 0 then panic(msg: "zero");
-    x + 1
-}
-"#,
-    );
+    let ir = compile_and_capture_ir(include_str!(
+        "fixtures/ir_quality_attributes/panic_declarations_have_noreturn.ori"
+    ));
 
     // Check ori_panic_cstr has noreturn via its attribute group
     assert_fn_has_attr(&ir, "ori_panic_cstr", "noreturn");
@@ -377,18 +286,9 @@ fn test_panic_declarations_have_noreturn() {
 /// dead argument elimination, and other scalar optimizations.
 #[test]
 fn test_scalar_params_have_noundef() {
-    let ir = compile_and_capture_ir(
-        r"
-@add (a: int, b: int) -> int = a + b;
-
-@scale (x: float, factor: float) -> float = x * factor;
-
-@main () -> int = {
-    let s = scale(x: 3.0, factor: 2.0);
-    add(a: 1, b: 2)
-}
-",
-    );
+    let ir = compile_and_capture_ir(include_str!(
+        "fixtures/ir_quality_attributes/scalar_params_have_noundef.ori"
+    ));
 
     // _ori_add: both int params and int return should have noundef
     let add_decl = ir
@@ -517,13 +417,9 @@ fn test_indirect_params_have_dereferenceable() {
 /// attributes only apply to pointer params (Indirect/Reference).
 #[test]
 fn test_direct_params_lack_nonnull() {
-    let ir = compile_and_capture_ir(
-        r"
-@add (a: int, b: int) -> int = a + b;
-
-@main () -> int = add(a: 1, b: 2);
-",
-    );
+    let ir = compile_and_capture_ir(include_str!(
+        "fixtures/ir_quality_attributes/direct_params_lack_nonnull.ori"
+    ));
 
     let add_decl = ir
         .lines()
@@ -611,17 +507,9 @@ fn resolve_fn_attrs(ir: &str, func_name: &str) -> String {
 /// from the scratch buffer — no `insertvalue` to build a wrapper struct.
 #[test]
 fn test_iter_next_no_wrapper_struct() {
-    let ir = compile_and_capture_ir(
-        r#"
-@count (words: [str]) -> int = {
-    let total = 0;
-    for w in words do total += w.length();
-    total
-}
-
-@main () -> int = count(words: ["hello", "world", "test"]);
-"#,
-    );
+    let ir = compile_and_capture_ir(include_str!(
+        "fixtures/ir_quality_attributes/iter_next_no_wrapper_struct.ori"
+    ));
 
     let count_ir = extract_function_ir(&ir, "_ori_count");
 
@@ -643,85 +531,45 @@ fn test_iter_next_no_wrapper_struct() {
 /// Semantic pin: for-loop over `[str]` with `.length()` returns correct total.
 #[test]
 fn test_iter_for_loop_str_length_correctness() {
-    let exit = crate::util::compile_and_run(
-        r#"
-@main () -> int = {
-    let words = ["hello", "world"];
-    let total = 0;
-    for w in words do total += w.length();
-    total
-}
-"#,
-    );
+    let exit = crate::util::compile_and_run(include_str!(
+        "fixtures/ir_quality_attributes/iter_for_loop_str_length_correctness.ori"
+    ));
     assert_eq!(exit, 10, "expected total length 10 (5+5)");
 }
 
 /// Semantic pin: for-loop over `[[int]]` with `.length()` returns correct total.
 #[test]
 fn test_iter_for_loop_list_length_correctness() {
-    let exit = crate::util::compile_and_run(
-        r"
-@main () -> int = {
-    let lists = [[1, 2, 3], [4, 5]];
-    let total = 0;
-    for xs in lists do total += xs.length();
-    total
-}
-",
-    );
+    let exit = crate::util::compile_and_run(include_str!(
+        "fixtures/ir_quality_attributes/iter_for_loop_list_length_correctness.ori"
+    ));
     assert_eq!(exit, 5, "expected total length 5 (3+2)");
 }
 
 /// Scalar elements (int) should not be affected by the optimization.
 #[test]
 fn test_iter_for_loop_scalar_element() {
-    let exit = crate::util::compile_and_run(
-        r"
-@main () -> int = {
-    let nums = [3, 7, 2];
-    let total = 0;
-    for n in nums do total += n;
-    total
-}
-",
-    );
+    let exit = crate::util::compile_and_run(include_str!(
+        "fixtures/ir_quality_attributes/iter_for_loop_scalar_element.ori"
+    ));
     assert_eq!(exit, 12, "expected sum 12 (3+7+2)");
 }
 
 /// For-loop with break: element must be valid up to break point.
 #[test]
 fn test_iter_for_loop_with_break() {
-    let exit = crate::util::compile_and_run(
-        r#"
-@main () -> int = {
-    let words = ["hello", "world", "test"];
-    let total = 0;
-    for w in words do {
-        if w.length() == 5 then total += 1;
-        if total == 2 then break
-    };
-    total
-}
-"#,
-    );
+    let exit = crate::util::compile_and_run(include_str!(
+        "fixtures/ir_quality_attributes/iter_for_loop_with_break.ori"
+    ));
     assert_eq!(exit, 2, "expected 2 (break after two 5-char words)");
 }
 
 /// Nested for-loops: outer element used in inner loop body.
 #[test]
 fn test_iter_nested_for_loops() {
-    let exit = crate::util::compile_and_run(
-        r"
-@main () -> int = {
-    let lists = [[1, 2], [3]];
-    let total = 0;
-    for xs in lists do {
-        for x in xs do total += x
-    };
-    total
-}
-",
-    );
+    let exit = crate::util::compile_and_run(include_str!(
+        "fixtures/ir_quality_attributes/iter_nested_for_loops.ori"
+    ));
     assert_eq!(exit, 6, "expected 6 (1+2+3)");
 }
 
@@ -732,18 +580,9 @@ fn test_iter_nested_for_loops() {
 /// handles struct elements with field projection.
 #[test]
 fn test_iter_for_loop_struct_field_access() {
-    let exit = crate::util::compile_and_run(
-        r"
-type Point = { x: int, y: int };
-
-@main () -> int = {
-    let points = [Point { x: 3, y: 4 }, Point { x: 7, y: 1 }];
-    let total = 0;
-    for p in points do total += p.x;
-    total
-}
-",
-    );
+    let exit = crate::util::compile_and_run(include_str!(
+        "fixtures/ir_quality_attributes/iter_for_loop_struct_field_access.ori"
+    ));
     assert_eq!(exit, 10, "expected 10 (3+7)");
 }
 
@@ -755,18 +594,9 @@ type Point = { x: int, y: int };
 /// elements and summing their lengths.
 #[test]
 fn test_iter_for_loop_push_element() {
-    let exit = crate::util::compile_and_run(
-        r#"
-@main () -> int = {
-    let words = ["hello", "world"];
-    let result: [str] = [];
-    for w in words do result = result.push(value: w);
-    let total = 0;
-    for r in result do total += r.length();
-    total
-}
-"#,
-    );
+    let exit = crate::util::compile_and_run(include_str!(
+        "fixtures/ir_quality_attributes/iter_for_loop_push_element.ori"
+    ));
     assert_eq!(
         exit, 10,
         "expected 10 (5+5) — pushed elements must be valid copies"
@@ -781,16 +611,9 @@ fn test_iter_for_loop_push_element() {
 /// buffer isn't overwritten between guard and body evaluation.
 #[test]
 fn test_iter_for_loop_guarded() {
-    let exit = crate::util::compile_and_run(
-        r#"
-@main () -> int = {
-    let words = ["hi", "hello", "go", "world"];
-    let total = 0;
-    for w in words if w.length() > 3 do total += w.length();
-    total
-}
-"#,
-    );
+    let exit = crate::util::compile_and_run(include_str!(
+        "fixtures/ir_quality_attributes/iter_for_loop_guarded.ori"
+    ));
     assert_eq!(
         exit, 10,
         "expected 10 (hello=5 + world=5, hi and go filtered)"
@@ -804,17 +627,9 @@ fn test_iter_for_loop_guarded() {
 /// the element `w` still comes from the scratch buffer via Project.
 #[test]
 fn test_iter_for_yield_lengths() {
-    let exit = crate::util::compile_and_run(
-        r#"
-@main () -> int = {
-    let words = ["hello", "world"];
-    let lengths = for w in words yield w.length();
-    let total = 0;
-    for n in lengths do total += n;
-    total
-}
-"#,
-    );
+    let exit = crate::util::compile_and_run(include_str!(
+        "fixtures/ir_quality_attributes/iter_for_yield_lengths.ori"
+    ));
     assert_eq!(
         exit, 10,
         "expected 10 (5+5) — for-yield must work with scratch forwarding"
@@ -829,18 +644,9 @@ fn test_iter_for_yield_lengths() {
 /// on subsequent iterations.
 #[test]
 fn test_iter_for_loop_element_passed_to_function() {
-    let exit = crate::util::compile_and_run(
-        r#"
-@process (s: str) -> int = s.length() + 1;
-
-@main () -> int = {
-    let words = ["hello", "world"];
-    let total = 0;
-    for w in words do total += process(s: w);
-    total
-}
-"#,
-    );
+    let exit = crate::util::compile_and_run(include_str!(
+        "fixtures/ir_quality_attributes/iter_for_loop_element_passed_to_function.ori"
+    ));
     assert_eq!(
         exit, 12,
         "expected 12 (6+6) — element must be a valid copy in callee"
@@ -854,20 +660,9 @@ fn test_iter_for_loop_element_passed_to_function() {
 /// overwrites it), one call would see corrupt data.
 #[test]
 fn test_iter_for_loop_two_calls_same_element() {
-    let exit = crate::util::compile_and_run(
-        r#"
-@main () -> int = {
-    let words = ["hello", "world"];
-    let total = 0;
-    for w in words do {
-        let a = w.length();
-        let b = w.length();
-        total += a + b
-    };
-    total
-}
-"#,
-    );
+    let exit = crate::util::compile_and_run(include_str!(
+        "fixtures/ir_quality_attributes/iter_for_loop_two_calls_same_element.ori"
+    ));
     assert_eq!(
         exit, 20,
         "expected 20 — both calls must see correct element value"
@@ -881,18 +676,9 @@ fn test_iter_for_loop_two_calls_same_element() {
 /// semantics with the scratch buffer optimization.
 #[test]
 fn test_iter_for_yield_semantic_pin() {
-    let exit = crate::util::compile_and_run(
-        r#"
-@main () -> int = {
-    let lengths = for w in ["a", "bb", "ccc"] yield w.length();
-    if lengths.length() == 3 then {
-        let total = 0;
-        for n in lengths do total += n;
-        total
-    } else 0
-}
-"#,
-    );
+    let exit = crate::util::compile_and_run(include_str!(
+        "fixtures/ir_quality_attributes/iter_for_yield_semantic_pin.ori"
+    ));
     assert_eq!(exit, 6, "expected 6 (1+2+3) — for-yield semantic pin");
 }
 

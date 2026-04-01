@@ -1,0 +1,7 @@
+#[derive(Default)]
+type Record = { name: str, count: int }
+
+@main () -> int = {
+    let r = Record.default();
+    if r.name == "" && r.count == 0 then 0 else 1
+}

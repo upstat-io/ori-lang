@@ -1,0 +1,5 @@
+@main () -> int = {
+    let xs: [int] = [];
+    let l = xs.last();
+    if l.is_none() then 0 else 1
+}

@@ -1,0 +1,4 @@
+@main () -> int = {
+    let chars = for c in "abc" yield 1;
+    if chars.length() == 3 then 0 else 1
+}

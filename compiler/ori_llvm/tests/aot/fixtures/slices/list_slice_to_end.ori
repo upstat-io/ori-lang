@@ -1,0 +1,7 @@
+@main () -> int = {
+    let xs = [1, 2, 3, 4, 5];
+    let ys = xs.slice(start: 3, end: 5);
+    if ys.length() == 2 && ys.first().unwrap() == 4 && ys.last().unwrap() == 5
+        then 0
+        else 1
+}

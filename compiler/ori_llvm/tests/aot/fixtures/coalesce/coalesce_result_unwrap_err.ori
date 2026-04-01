@@ -1,0 +1,6 @@
+// Result<int, str> ?? int — Err falls through to default
+@main () -> int = {
+    let a: Result<int, str> = Err("oops");
+    let v = a ?? 99;
+    if v == 99 then 0 else 1
+}

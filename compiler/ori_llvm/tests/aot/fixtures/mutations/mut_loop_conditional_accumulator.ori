@@ -1,0 +1,10 @@
+@main () -> int = {
+    let sum = 0;
+    for i in 0..10 do {
+        if i % 2 == 0 then {
+            sum = sum + i;
+        }
+    };
+    // 0+2+4+6+8 = 20
+    if sum == 20 then 0 else 1
+}

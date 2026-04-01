@@ -1,0 +1,12 @@
+@main () -> int = {
+    // (a + b) * (c - d) / (e % f)
+    let a = 2;
+    let b = 3;
+    let c = 10;
+    let d = 4;
+    let e = 17;
+    let f = 5;
+    let result = (a + b) * (c - d) / (e % f);
+    // (5) * (6) / (2) = 15
+    if result == 15 then 0 else 1
+}

@@ -1,0 +1,5 @@
+@main () -> int = {
+    let o: Option<int> = None;
+    let v = o.unwrap_or(99);
+    if v == 99 then 0 else 1
+}

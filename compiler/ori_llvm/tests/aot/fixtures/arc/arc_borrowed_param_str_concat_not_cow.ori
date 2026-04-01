@@ -1,0 +1,8 @@
+@grow (s: str) -> str = {
+    s.concat(other: "!")
+}
+
+@main () -> int = {
+    let $result = grow(s: "hello");
+    if result == "hello!" then 0 else 1
+}

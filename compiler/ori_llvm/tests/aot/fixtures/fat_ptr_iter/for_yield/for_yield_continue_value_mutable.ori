@@ -1,0 +1,16 @@
+@main () -> int = {
+    let skipped = 0;
+    let result = for x in [1, 2, 3, 4, 5] yield {
+        if x % 2 == 0 then {
+            skipped = skipped + 1;
+            continue 0
+        };
+        x
+    };
+    // result = [1, 0, 3, 0, 5], skipped = 2
+    let ok = result.length() == 5;
+    if ok then {
+        ok = skipped == 2
+    };
+    if ok then 0 else 1
+}

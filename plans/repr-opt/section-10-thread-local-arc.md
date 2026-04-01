@@ -240,6 +240,7 @@ If a value transitions from thread-local to thread-shared (e.g., sent on a chann
 - [ ] `./clippy-all.sh` green
 - [ ] `./diagnostics/dual-exec-verify.sh` passes
 - [ ] `/tpr-review` passed — independent Codex review found no critical or major issues (or all findings triaged)
+- [ ] `/impl-hygiene-review last commit` passed — implementation hygiene review clean (phase boundaries, SSOT, algorithmic DRY, naming). MUST run AFTER `/tpr-review` is clean.
 
 **Exit Criteria:** A single-threaded benchmark program shows 0 atomic RC operations in LLVM IR (all `ori_rc_*_nonatomic`). Performance benchmark shows ≥20% improvement in RC-heavy workloads vs. atomic-only baseline.
 
