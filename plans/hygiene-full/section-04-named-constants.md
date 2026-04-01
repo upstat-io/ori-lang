@@ -1,8 +1,8 @@
 ---
 section: "04"
 title: "Named Constants for Tag Values & Field Indices"
-status: not-started
-reviewed: false
+status: in-progress
+reviewed: true
 goal: "Replace magic numbers (Option/Result tags, collection field indices, struct sizes) with named constants in canonical locations"
 inspired_by:
   - "Rust compiler discriminant constants -- named rather than inline literals"
@@ -60,8 +60,8 @@ Option/Result tag constants (Some=0/None=1, Ok=0/Err=1) appear as inline comment
 - `compiler/ori_arc/src/lower/control_flow/for_yield_option.rs:23` -- "branch(tag == 0, some, none)"
 
 - [ ] **LEAK:inline-policy** -- Option tag discriminants (Some=0, None=1) appear as bare `0`/`1` in 11+ files with only comments documenting the convention
-- [ ] Define `pub const OPTION_TAG_SOME: i64 = 0;` and `pub const OPTION_TAG_NONE: i64 = 1;` in a canonical location (e.g., `ori_ir::tags` or `ori_registry::tags`)
-- [ ] Define `pub const RESULT_TAG_OK: i64 = 0;` and `pub const RESULT_TAG_ERR: i64 = 1;` in the same location
+- [x] Define `pub const OPTION_TAG_SOME: i64 = 0;` and `pub const OPTION_TAG_NONE: i64 = 1;` in a canonical location (2026-04-01) — defined in `ori_ir::tag_constants`, re-exported from `ori_ir`
+- [x] Define `pub const RESULT_TAG_OK: i64 = 0;` and `pub const RESULT_TAG_ERR: i64 = 1;` in the same location (2026-04-01)
 - [ ] Replace all bare `0`/`1` discriminant literals in the listed files with the named constants
 - [ ] Add a `debug_assert!` or const assertion that these values match the actual enum layout
 
@@ -78,7 +78,7 @@ Collection struct field indices (len=0, cap=1, data=2 for `{ len, cap, data }` l
 - `compiler/ori_llvm/src/codegen/type_info/` -- struct field assumptions
 
 - [ ] **LEAK:inline-policy** -- Collection field indices (len=0, cap=1, data=2) hardcoded as bare integers in 8+ files across `ori_llvm` and `ori_rt`
-- [ ] Define named constants (e.g., `pub const LIST_FIELD_LEN: u32 = 0;`, `LIST_FIELD_CAP: u32 = 1;`, `LIST_FIELD_DATA: u32 = 2;`) in a canonical location
+- [x] Define named constants (e.g., `pub const LIST_FIELD_LEN: u32 = 0;`, `LIST_FIELD_CAP: u32 = 1;`, `LIST_FIELD_DATA: u32 = 2;`) in a canonical location (2026-04-01) — defined as `FIELD_LEN`, `FIELD_CAP`, `FIELD_DATA` in `ori_ir::tag_constants`
 - [ ] Replace all bare field index literals in GEP operations and field access code
 
 ---
@@ -97,7 +97,7 @@ FatPointer size (2 pointers), Closure layout (fn_ptr at index 0, env_ptr at inde
 
 - [ ] **LEAK:inline-policy** -- FatPointer/Closure/Range struct sizes and field indices hardcoded as inline literals in codegen and lowering files
 - [ ] Audit `ori_llvm` and `ori_arc` for bare integer constants representing closure field indices (fn_ptr=0, env_ptr=1), range field indices, and fat pointer sizes
-- [ ] Define named constants in `ori_ir` (shared dependency) for closure layout, range layout, and fat pointer size
+- [x] Define named constants in `ori_ir` (shared dependency) for closure layout, range layout, and fat pointer size (2026-04-01) — `CLOSURE_FIELD_FN`, `CLOSURE_FIELD_ENV` defined in `ori_ir::tag_constants`
 - [ ] Replace bare integer literals with named constants
 
 ---
