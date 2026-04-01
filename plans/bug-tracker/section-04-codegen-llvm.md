@@ -51,12 +51,15 @@ Bugs in LLVM IR generation, JIT/AOT compilation, monomorphization, ARC pipeline 
 - [x] `[BUG-04-010][medium]` **`Option.iter()` has no AOT/LLVM support** — found by continue-roadmap.
   Resolved: Fixed on 2026-04-01. Added `ori_iter_from_option` runtime function + `emit_option_iter()` codegen + dispatch entry. Verified working in both interpreter and LLVM with count, fold, for-loop. No leaks with RC'd elements.
 
-- [ ] `[BUG-04-011][high]` **Option/Result spec tests all fail LLVM compilation: assert_eq unresolved, type variables unresolved at codegen** — found by continue-roadmap.
-  Repro: `timeout 150 cargo run -p oric --bin ori -- test --backend=llvm tests/spec/types/option tests/spec/types/result` → `0 passed, 0 failed, 0 skipped, 11 llvm compile fail` (all 7 files fail). Interpreter passes all tests (4351 passed).
-  Errors include: `unresolved function 'assert_eq' in apply — missing mono instance?`, `unresolved type variable at codegen — type inference bug`, `ArcIrEmitter: variable not yet defined`, `binary op on type with Unsupported strategy`, `icmp on non-int operands`.
-  Subsystem: `compiler/ori_llvm/src/codegen/arc_emitter/` (multiple: monomorphization, type resolution, variable definition ordering)
-  Found: 2026-04-01 | Source: continue-roadmap (hygiene-full Section 03 TPR triage)
-  Note: Individual Option/Result methods work in standalone `@main` AOT tests (verified for `ok_or`, `map`, `expect`). The failures appear to be test-runner/spec-framework issues with `assert_eq` monomorphization and generic type variable resolution, not specific to Option/Result method codegen. Active work in repr-opt and hygiene-full touches this area.
+- [ ] `[BUG-04-011][high]` **LLVM test runner cannot compile imported generic functions (e.g., assert_eq from std.testing)** — found by continue-roadmap.
+  Repro: `timeout 30 cargo run -- test --backend=llvm /tmp/test.ori` where test.ori uses `use std.testing { assert_eq }` and `assert_eq(actual: 42, expected: 42)` in a test. Interpreter passes, LLVM reports `unresolved function 'assert_eq' in apply — missing mono instance?`.
+  Root cause (investigated 2026-04-01): Three-layer issue:
+  1. **Sig lookup** — `collect_mono_functions` in both `arc_lowering.rs` and `compile.rs` only receives `function_sigs` (module-local). Imported generic function sigs (e.g., `assert_eq<T: Eq>`) are filtered at `llvm_backend.rs:199` (`if sig.is_generic() { continue; }`), so the mono collection silently skips them.
+  2. **Canon body lookup** — `lower_to_arc` for mono functions uses the test file's canon, but imported functions' bodies are in the imported module's canon. Using the wrong canon causes stack overflow.
+  3. **ARC codegen correctness** — Even with layers 1-2 fixed, the monomorphized bodies (e.g., `assert_eq<str>` calling `str()`, `!=`, `+`, `panic()`) produce ARC IR with "variable not yet defined" errors, leading to double-frees that crash the test runner.
+  Fix for layers 1-2 was implemented and verified but reverted because layer 3 causes a regression (crashes the LLVM test runner, losing 281 previously-passing tests). Layer 3 needs investigation of `lower_to_arc` with `body_type_map` for imported generic functions.
+  Subsystem: `compiler/oric/src/test/runner/llvm_backend.rs` (sig filter), `compiler/oric/src/test/runner/arc_lowering.rs` (mono collection + canon), `compiler/ori_llvm/src/codegen/arc_emitter/` (ARC variable definition ordering)
+  Found: 2026-04-01 | Source: continue-roadmap (hygiene-full Section 03)
 
 - [x] `[BUG-04-012][critical]` **Borrowed `Option`/`Result` AOT projections duplicate RC payload bits without retaining, causing double-free** — found by review-work.
   Resolved: Fixed on 2026-04-01. Added conditional `inc_value_rc` in `emit_option_iter()`, `Result.ok()`, and `Result.err()` codegen paths — guarded by tag check (only when Some/Ok/Err respectively). Remaining extraction methods (unwrap_or, expect, first, etc.) tracked as BUG-04-013.
