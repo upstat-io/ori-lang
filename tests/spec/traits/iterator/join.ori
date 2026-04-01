@@ -1,0 +1,93 @@
+// Spec: Iterator join method — concatenates elements with separator
+// Tests: happy path, edge cases, semantic pin
+
+use std.testing { assert_eq }
+
+// =============================================================================
+// Happy path: join string iterator with separator
+// =============================================================================
+
+@join_basic () -> str = {
+    ["a", "b", "c"].iter().join(separator: ", ")
+}
+
+@test_join_basic tests @join_basic () -> void = {
+    assert_eq(actual: join_basic(), expected: "a, b, c")
+}
+
+// =============================================================================
+// Edge cases
+// =============================================================================
+
+// Single element — no separator used
+@join_single () -> str = {
+    ["hello"].iter().join(separator: ", ")
+}
+
+@test_join_single tests @join_single () -> void = {
+    assert_eq(actual: join_single(), expected: "hello")
+}
+
+// Empty iterator — returns empty string
+@join_empty () -> str = {
+    let empty: [str] = [];
+    empty.iter().join(separator: ", ")
+}
+
+@test_join_empty tests @join_empty () -> void = {
+    assert_eq(actual: join_empty(), expected: "")
+}
+
+// Empty separator
+@join_empty_separator () -> str = {
+    ["a", "b", "c"].iter().join(separator: "")
+}
+
+@test_join_empty_separator tests @join_empty_separator () -> void = {
+    assert_eq(actual: join_empty_separator(), expected: "abc")
+}
+
+// Multi-char separator
+@join_multi_char_sep () -> str = {
+    ["x", "y", "z"].iter().join(separator: " -- ")
+}
+
+@test_join_multi_char_sep tests @join_multi_char_sep () -> void = {
+    assert_eq(actual: join_multi_char_sep(), expected: "x -- y -- z")
+}
+
+// =============================================================================
+// Semantic pin: join with int elements (calls to_str on non-str elements)
+// =============================================================================
+
+@join_ints () -> str = {
+    [1, 2, 3].iter().join(separator: ", ")
+}
+
+@test_join_ints tests @join_ints () -> void = {
+    assert_eq(actual: join_ints(), expected: "1, 2, 3")
+}
+
+// =============================================================================
+// Cross-feature: join after map adapter
+// =============================================================================
+
+@join_after_map () -> str = {
+    [1, 2, 3].iter().map(x -> x * 10).join(separator: "-")
+}
+
+@test_join_after_map tests @join_after_map () -> void = {
+    assert_eq(actual: join_after_map(), expected: "10-20-30")
+}
+
+// =============================================================================
+// Cross-feature: join after filter adapter
+// =============================================================================
+
+@join_after_filter () -> str = {
+    [1, 2, 3, 4, 5].iter().filter(x -> x % 2 == 0).join(separator: "+")
+}
+
+@test_join_after_filter tests @join_after_filter () -> void = {
+    assert_eq(actual: join_after_filter(), expected: "2+4")
+}
