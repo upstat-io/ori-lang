@@ -213,20 +213,38 @@ pub(super) fn canonical_enum(
     }))
 }
 
+/// §07.2 gate: niche filling for Option/Result.
+///
+/// Disabled until all LLVM codegen consumers are niche-aware:
+/// - `drop_enum.rs` (`emit_enum_drop`)
+/// - `rc_helpers.rs` (`emit_inline_enum_inc/dec`)
+/// - `option_result.rs` (Option/Result builtins)
+/// - `operators/strategy.rs` (`emit_coalesce`)
+/// - `instr_dispatch.rs` (`try_emit_project_enum_payload`)
+///
+/// Enable once §07.2 "RC inc/dec", "Drop", and "Pattern matching" items are all checked.
+const NICHE_CODEGEN_READY: bool = false;
+
 /// Build canonical `Option<T>` as a 2-variant enum: None (unit) + Some(T).
 ///
-/// Attempts niche optimization first (§07.2): if the inner type has a niche,
-/// `None` is encoded via the niche value, eliminating the explicit tag field.
-/// Falls back to `I64` tag for types without niches (e.g., `int`, `[T]`).
+/// Attempts niche optimization (§07.2) when `NICHE_CODEGEN_READY` is true.
+/// Falls back to explicit `I64` tag otherwise.
 pub(super) fn canonical_option(inner_repr: &MachineRepr) -> MachineRepr {
-    crate::layout::niche::optimize_option_repr(inner_repr)
+    if NICHE_CODEGEN_READY {
+        crate::layout::niche::optimize_option_repr(inner_repr)
+    } else {
+        crate::layout::niche::default_option_repr_public(inner_repr)
+    }
 }
 
 /// Build canonical `Result<T, E>` as a 2-variant enum: Ok(T) + Err(E).
 ///
-/// Attempts niche optimization first (§07.2): if either payload has a niche,
-/// the other variant is encoded via that niche value.
-/// Falls back to `I64` tag for types without niches.
+/// Attempts niche optimization (§07.2) when `NICHE_CODEGEN_READY` is true.
+/// Falls back to explicit `I64` tag otherwise.
 pub(super) fn canonical_result(ok_repr: &MachineRepr, err_repr: &MachineRepr) -> MachineRepr {
-    crate::layout::niche::optimize_result_repr(ok_repr, err_repr)
+    if NICHE_CODEGEN_READY {
+        crate::layout::niche::optimize_result_repr(ok_repr, err_repr)
+    } else {
+        crate::layout::niche::default_result_repr_public(ok_repr, err_repr)
+    }
 }
