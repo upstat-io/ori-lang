@@ -9,7 +9,7 @@ inspired_by:
   - "Lean 4 IR/RC.lean -- shared RC decision metadata, backend-specific emission"
 depends_on: ["01", "02"]
 third_party_review:
-  status: resolved
+  status: findings
   updated: 2026-04-01
 sections:
   - id: "03.1"
@@ -29,7 +29,7 @@ sections:
     status: complete
   - id: "03.R"
     title: "Third Party Review Findings"
-    status: complete
+    status: in-progress
   - id: "03.N"
     title: "Completion Checklist"
     status: in-progress
@@ -490,6 +490,21 @@ All subsections must also satisfy:
 
 ## 03.R Third Party Review Findings
 
+- [ ] `[TPR-03-011][critical]` [compiler/ori_llvm/src/codegen/arc_emitter/builtins/debug_helpers.rs](/home/eric/projects/ori_lang/compiler/ori_llvm/src/codegen/arc_emitter/builtins/debug_helpers.rs#L219) formats both `Result` payload arms before branching on the tag, so `Result.debug()` reads and formats inactive union storage.
+  Evidence: `emit_result_debug()` extracts and formats both payloads at lines 239-243, then branches at line 251. Fresh review-work verification on 2026-04-01: `ORI_BIN=./target/release/ori timeout 150 diagnostics/dual-exec-debug.sh --no-color /tmp/review_result_inactive_payload_debug.ori` segfaults in AOT for `let r: Result<[int], str> = Err("oops"); print(msg: r.debug())`, while the interpreter prints `Err("oops")`.
+  Impact: valid AOT programs can crash during wrapper debug when the inactive variant's bytes are reinterpreted as a different payload layout.
+  Required fix: branch on the tag first, then extract and format only the active payload; add standalone AOT regression pins for mixed-layout `Result<[int], str>` / `Result<str, [int]>` debug cases.
+
+- [ ] `[TPR-03-012][medium]` [compiler/ori_llvm/src/codegen/arc_emitter/builtins/debug_helpers.rs](/home/eric/projects/ori_lang/compiler/ori_llvm/src/codegen/arc_emitter/builtins/debug_helpers.rs#L112) and [compiler/ori_rt/src/string/convert.rs](/home/eric/projects/ori_lang/compiler/ori_rt/src/string/convert.rs#L94) force wrapper `byte` payloads through hex formatting, which does not match the current interpreter/spec behavior.
+  Evidence: `emit_element_debug()` routes `TypeInfo::Byte` through `ori_byte_debug_format()`, which returns `0x{:02x}`. Fresh review-work verification on 2026-04-01: `ORI_BIN=./target/release/ori timeout 150 diagnostics/dual-exec-debug.sh --no-color /tmp/review_byte_wrapper_debug.ori` prints `Some(42)` in the interpreter and `Some(0x2a)` in AOT. The current spec pin in [tests/spec/traits/debug/primitives.ori](/home/eric/projects/ori_lang/tests/spec/traits/debug/primitives.ori#L83) still expects decimal byte debug output.
+  Impact: wrapper debug for `Option<byte>` / `Result<byte, _>` no longer has dual-execution parity in the current tree.
+  Required fix: keep wrapper `byte` debug on the current decimal semantics until the byte-debug spec/evaluator/storage migration lands, or update the spec/evaluator/tests in the same change if the language is intentionally moving to hex.
+
+- [ ] `[TPR-03-013][high]` [compiler/ori_llvm/src/codegen/arc_emitter/builtins/debug_helpers.rs](/home/eric/projects/ori_lang/compiler/ori_llvm/src/codegen/arc_emitter/builtins/debug_helpers.rs#L158) falls back to the literal `<?>` for payload types such as maps/sets/user types instead of delegating to the payload's actual Debug implementation.
+  Evidence: `emit_element_debug()` returns `emit_literal_ori_str("<?>")` for the catch-all branch. Fresh review-work verification on 2026-04-01: `ORI_BIN=./target/release/ori timeout 150 diagnostics/dual-exec-debug.sh --no-color /tmp/review_option_map_debug.ori` prints `Some({x: 1})` in the interpreter and `Some(<?>)` in AOT for `let o: Option<{str: int}> = Some({"x": 1}); print(msg: o.debug())`.
+  Impact: wrapper debug remains semantically incomplete for valid payload types that already have Debug behavior outside wrappers, so Section 03's wrapper-debug work is not actually complete.
+  Required fix: route wrapper payload formatting through the payload's real `Debug`/`to_str` implementation for map/set/derived/user-defined types instead of substituting placeholders, then extend the regression matrix beyond `str`, `list`, `tuple`, and nested wrappers.
+
 - [x] `[TPR-03-009][high]` [compiler/ori_llvm/src/codegen/arc_emitter/builtins/option_result_helpers.rs](/home/eric/projects/ori_lang/compiler/ori_llvm/src/codegen/arc_emitter/builtins/option_result_helpers.rs#L301) only formats wrapper-debug payloads through `emit_element_to_str()`, which returns `None` for compound payloads such as lists, tuples, and nested wrappers.
   Resolved: Fixed on 2026-04-01. Extracted debug formatting to new `debug_helpers.rs`. Created `emit_element_debug()` with recursive Debug semantics: handles Option, Result, List (element-wise loop), Tuple (field-wise), Str (quoted+escaped via `ori_str_debug_format` runtime fn), Char (`ori_char_debug_format`), Byte (`ori_byte_debug_format`). `emit_option_debug_branch()` and `emit_result_debug()` now use `emit_element_debug()` for Debug context. Added 7 AOT regression tests covering: str payload (quotes), list payload, Result list payload, None, Err str, nested Option, and empty list. All pass with `ORI_CHECK_LEAKS=1`.
 
@@ -576,6 +591,6 @@ All subsections must also satisfy:
 - [x] `builtins/mod.rs` line count checked — if still over 500 lines after section, extract `is_iterator_method` and related helpers to a new `iterators_guard.rs` submodule (2026-04-01) Was 507 lines; extracted to `iterators_guard.rs` (87 lines). mod.rs now 428 lines.
 - [x] `compiler/ori_eval/src/methods/variants.rs` is NOT touched by this section (it is 586 lines and over limit — flagged for Section 12 surface hygiene) (2026-04-01) 586 lines, untouched
 - [x] Plan annotation cleanup: no hygiene-full annotations remain in source code (2026-04-01) All annotations found are from roadmap section 03 or repr-opt, not hygiene-full
-- [ ] `/tpr-review` / `review-work` is clean for the final section state. Re-opened on 2026-04-01 after TPR-03-007 and TPR-03-008 reproduced in the current tree. TPR-03-009 and TPR-03-010 fixed on 2026-04-01 (recursive Debug in LLVM + str quoting). All 10 TPR items resolved. Needs fresh `/tpr-review` run to confirm clean.
+- [ ] `/tpr-review` / `review-work` is clean for the final section state. Re-opened on 2026-04-01 after TPR-03-011, TPR-03-012, and TPR-03-013 reproduced in the current tree: `Result.debug()` still segfaults on inactive mixed-layout payloads, wrapper `byte` debug drifts from current interpreter/spec behavior, and map/debug-capable payloads still collapse to `<?>` in AOT.
 
 **Exit Criteria:** All registry-defined methods for iterator, Option, and Result have LLVM implementations. FNV constants live in one place. Eval operator dispatch is registry-driven. Derive processing sync is enforced by Rust's exhaustive match and documented. No routing decisions (which methods exist, which ops are valid) are independently maintained in parallel between backends. `./test-all.sh` green.
