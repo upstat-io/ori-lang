@@ -39,6 +39,34 @@ pub const CLOSURE_FIELD_FN: u32 = 0;
 /// Index of the environment pointer in a closure struct.
 pub const CLOSURE_FIELD_ENV: u32 = 1;
 
+// Layout computation primitives
+
+/// Minimum number of bytes needed to represent `variant_count` enum variants.
+///
+/// Returns the smallest power-of-two byte count that can hold all discriminants:
+/// - 0 or 1 variants → 1 byte (i8)
+/// - 2–256 variants → 1 byte (i8)
+/// - 257–65536 → 2 bytes (i16)
+/// - 65537–4294967296 → 4 bytes (i32)
+/// - larger → 8 bytes (i64)
+///
+/// Shared between `ori_arc` (ARC IR lowering) and `ori_repr` (layout optimization).
+#[must_use]
+pub const fn min_tag_bytes(variant_count: usize) -> i64 {
+    match variant_count {
+        0 | 1 => 1,
+        _ => {
+            let bits_needed = usize::BITS - ((variant_count - 1).leading_zeros());
+            match bits_needed {
+                0..=8 => 1,
+                9..=16 => 2,
+                17..=32 => 4,
+                _ => 8,
+            }
+        }
+    }
+}
+
 // Const assertions — these fail at compile time if the values change
 const _: () = assert!(OPTION_TAG_SOME == 0);
 const _: () = assert!(OPTION_TAG_NONE == 1);
