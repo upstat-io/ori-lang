@@ -3,6 +3,10 @@
 //! Provides direct enum-based dispatch for binary operations. The type set
 //! is fixed (not user-extensible), so pattern matching is preferred over
 //! trait objects for better performance and exhaustiveness checking.
+//!
+//! Registry bridge: `value_to_type_tag()` and `op_strategy_from_op()`
+//! connect eval dispatch to the registry's `OpDefs`. Enforcement tests
+//! verify the evaluator handles all registry-declared operators.
 
 mod duration_size;
 
@@ -67,6 +71,59 @@ where
     } else {
         op().map(wrap)
             .ok_or_else(|| integer_overflow(op_name).into())
+    }
+}
+
+// Registry Bridge
+
+/// Convert a `Value` to its registry `TypeTag` for operator dispatch.
+///
+/// Returns `None` for compound types (List, Map, Option, Result, etc.) that
+/// don't have registry-level operator definitions — their operators are
+/// handled by dedicated per-type dispatch functions.
+#[cfg(test)]
+pub(super) fn value_to_type_tag(v: &Value) -> Option<ori_registry::TypeTag> {
+    use ori_registry::TypeTag;
+    match v {
+        Value::Int(_) => Some(TypeTag::Int),
+        Value::Float(_) => Some(TypeTag::Float),
+        Value::Bool(_) => Some(TypeTag::Bool),
+        Value::Str(_) => Some(TypeTag::Str),
+        Value::Char(_) => Some(TypeTag::Char),
+        Value::Byte(_) => Some(TypeTag::Byte),
+        Value::Duration(_) => Some(TypeTag::Duration),
+        Value::Size(_) => Some(TypeTag::Size),
+        _ => None,
+    }
+}
+
+/// Extract the `OpStrategy` for a given `BinaryOp` from a type's `OpDefs`.
+///
+/// Returns `Unsupported` for operators not in the registry (Range, Coalesce, etc.).
+#[cfg(test)]
+pub(super) fn op_strategy_from_op(
+    ops: &ori_registry::OpDefs,
+    op: BinaryOp,
+) -> ori_registry::OpStrategy {
+    match op {
+        BinaryOp::Add => ops.add,
+        BinaryOp::Sub => ops.sub,
+        BinaryOp::Mul => ops.mul,
+        BinaryOp::Div => ops.div,
+        BinaryOp::Mod => ops.rem,
+        BinaryOp::FloorDiv => ops.floor_div,
+        BinaryOp::Eq => ops.eq,
+        BinaryOp::NotEq => ops.neq,
+        BinaryOp::Lt => ops.lt,
+        BinaryOp::Gt => ops.gt,
+        BinaryOp::LtEq => ops.lt_eq,
+        BinaryOp::GtEq => ops.gt_eq,
+        BinaryOp::BitAnd => ops.bit_and,
+        BinaryOp::BitOr => ops.bit_or,
+        BinaryOp::BitXor => ops.bit_xor,
+        BinaryOp::Shl => ops.shl,
+        BinaryOp::Shr => ops.shr,
+        _ => ori_registry::OpStrategy::Unsupported,
     }
 }
 
