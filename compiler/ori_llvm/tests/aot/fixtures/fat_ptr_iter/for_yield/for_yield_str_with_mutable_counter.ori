@@ -1,0 +1,8 @@
+@main () -> int = {
+    let count = 0;
+    let lengths = for s in ["this is a very long string that exceeds SSO threshold", "another very long exceeding SSO"] yield {
+        count = count + 1;
+        s.length()
+    };
+    if count == 2 && lengths[0] == 53 && lengths[1] == 31 then 0 else 1
+}

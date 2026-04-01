@@ -1,0 +1,5 @@
+@main () -> int = {
+    let m1 = 17 % 5;
+    let m2 = 10 % 3;
+    if m1 == 2 && m2 == 1 then 0 else 1
+}

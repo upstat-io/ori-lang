@@ -1,0 +1,10 @@
+@main () -> int = {
+    let x = 0;
+    let flag = true;
+    if flag then {
+        x = 100;
+    } else {
+        x = 200;
+    };
+    if x == 100 then 0 else 1
+}

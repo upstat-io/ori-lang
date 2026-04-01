@@ -1,0 +1,7 @@
+@count_down (items: [int], n: int) -> int = {
+    if n <= 0 then items.len() else count_down(items: items, n: n - 1)
+};
+
+@main () -> int = {
+    if count_down(items: [1, 2, 3], n: 100000) == 3 then 0 else 1
+}

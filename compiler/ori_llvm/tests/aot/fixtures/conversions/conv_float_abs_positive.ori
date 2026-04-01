@@ -1,0 +1,4 @@
+@main () -> int = {
+    let x = 3.14;
+    if x.abs() == 3.14 then 0 else 1
+}

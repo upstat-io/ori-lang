@@ -1,0 +1,11 @@
+#derive(Eq)
+type Wrapper = { m: {str: [int]} }
+
+@main () -> int = {
+    let a = Wrapper { m: {"x": [1, 2, 3]} };
+    let b = Wrapper { m: {"x": [1, 2, 3]} };
+    let c = Wrapper { m: {"x": [1, 2, 4]} };
+    if a == b then {
+        if a != c then 0 else 1
+    } else 2
+}

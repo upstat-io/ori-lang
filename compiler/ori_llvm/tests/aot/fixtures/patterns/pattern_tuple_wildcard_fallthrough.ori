@@ -1,0 +1,10 @@
+@main () -> int = {
+    let t = (99, 88);
+    let r = match t {
+        (1, _) -> 10,
+        (_, 1) -> 20,
+        _ -> 0,
+    };
+    // Neither matches, wildcard fallthrough: 0
+    if r == 0 then 0 else 1
+}

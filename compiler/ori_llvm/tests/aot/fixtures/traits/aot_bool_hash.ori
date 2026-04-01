@@ -1,0 +1,8 @@
+@main () -> int = {
+    let t = true;
+    let f = false;
+    let ht = t.hash();
+    let hf = f.hash();
+    // true.hash() = 1, false.hash() = 0
+    if ht == 1 && hf == 0 then 0 else 1
+}

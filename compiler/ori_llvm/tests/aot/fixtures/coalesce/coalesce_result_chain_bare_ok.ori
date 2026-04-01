@@ -1,0 +1,9 @@
+// Regression: TPR-02-003 — Result<int, str> ?? Ok(99) must chain
+@main () -> int = {
+    let a: Result<int, str> = Err("first");
+    let b: Result<int, str> = a ?? Ok(99);
+    match b {
+        Ok(v) -> if v == 99 then 0 else 1,
+        Err(e) -> 2,
+    }
+}

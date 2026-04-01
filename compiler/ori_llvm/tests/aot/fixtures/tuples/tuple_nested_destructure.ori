@@ -1,0 +1,4 @@
+@main () -> int = {
+    let ((a, b), (c, d)) = ((10, 20), (30, 40));
+    if a + b + c + d == 100 then 0 else 1
+}

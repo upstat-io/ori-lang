@@ -1,0 +1,11 @@
+#derive(Eq)
+type Named = { name: str, id: int }
+
+@main () -> int = {
+    let a = [Named { name: "alice", id: 1 }, Named { name: "bob has a very long name here", id: 2 }];
+    let b = [Named { name: "alice", id: 1 }, Named { name: "bob has a very long name here", id: 2 }];
+    let c = [Named { name: "alice", id: 1 }, Named { name: "charlie", id: 3 }];
+    if a == b then {
+        if a != c then 0 else 1
+    } else 2
+}

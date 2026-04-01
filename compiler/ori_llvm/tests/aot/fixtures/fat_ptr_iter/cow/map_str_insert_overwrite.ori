@@ -1,0 +1,14 @@
+@main () -> int = {
+    let m = {
+        "this is a very long key exceeding SSO threshold here": 10,
+        "another very long key that also exceeds the SSO thresh": 20
+    };
+    let copy = m;
+    copy = copy.insert(key: "this is a very long key exceeding SSO threshold here", value: 99);
+    let orig_total = 0;
+    for (k, v) in m do { orig_total = orig_total + v; };
+    let copy_total = 0;
+    for (k, v) in copy do { copy_total = copy_total + v; };
+    // orig: 10+20=30, copy: 99+20=119
+    if orig_total == 30 && copy_total == 119 then 0 else 1
+}

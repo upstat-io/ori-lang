@@ -1,0 +1,11 @@
+type List = Nil | Cons(head: int, tail: List);
+
+@list_sum (l: List) -> int = match l {
+    Nil -> 0,
+    Cons(h, t) -> h + list_sum(l: t)
+}
+
+@main () -> int = {
+    let list = Cons(head: 1, tail: Cons(head: 2, tail: Cons(head: 3, tail: Nil)));
+    if list_sum(l: list) == 6 then 0 else 1
+}

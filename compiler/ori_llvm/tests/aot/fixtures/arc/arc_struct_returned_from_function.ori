@@ -1,0 +1,8 @@
+type Point = { x: int, y: int }
+
+@make_point (x: int, y: int) -> Point = Point { x: x, y: y }
+
+@main () -> int = {
+    let p = make_point(5, 6);
+    if p.x + p.y == 11 then 0 else 1
+}

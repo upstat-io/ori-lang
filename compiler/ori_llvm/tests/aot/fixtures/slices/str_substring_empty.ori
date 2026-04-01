@@ -1,0 +1,5 @@
+@main () -> int = {
+    let $s = "hello";
+    let $sub = s.substring(start: 2, end: 2);
+    if sub == "" then 0 else 1
+}

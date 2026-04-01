@@ -1,0 +1,5 @@
+@main () -> int = {
+    let xs = [1, 2, 3];
+    let ys = xs.remove(2);
+    if ys.length() == 2 && ys.last().unwrap() == 2 then 0 else 1
+}

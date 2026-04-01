@@ -1,0 +1,7 @@
+@sum_first (a: [int], b: [int]) -> int = a[0] + b[0];
+
+@main () -> int = {
+    let xs = [42, 10, 20];
+    let result = sum_first(a: xs, b: xs);
+    if result == 84 then 0 else 1
+}

@@ -1,0 +1,13 @@
+@main () -> int = {
+    let words = [
+        "this is a very long string that exceeds SSO threshold",
+        "short",
+        "another very long string that also exceeds the threshold"
+    ];
+    let result = for w in words yield {
+        if w.length() < 10 then continue;
+        w
+    };
+    // Expected: 2 elements (both long strings, "short" skipped)
+    if result.length() == 2 then 0 else 1
+}

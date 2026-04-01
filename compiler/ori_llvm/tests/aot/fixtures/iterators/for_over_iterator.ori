@@ -1,0 +1,5 @@
+@main () -> int = {
+    let sum = 0;
+    for x in [1, 2, 3].iter() do sum = sum + x;
+    if sum == 6 then 0 else 1
+}

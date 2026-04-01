@@ -1,0 +1,8 @@
+@main () -> int = {
+    let a = 1;
+    let b = 2;
+    let ord = a.compare(other: b);
+    let x = ord.to_int();
+    // Less should be a non-zero value
+    if x != 1 then 0 else 1
+}

@@ -1,0 +1,5 @@
+@main () -> int = {
+    let $x = 42;
+    let $m = if x > 20 then {"yes": 1} else {"no": 0};
+    if m.len() == 1 then 0 else 1
+}

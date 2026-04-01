@@ -1,0 +1,19 @@
+@main () -> int = {
+    let items: [Option<str>] = [
+        Some("this is a very long string that exceeds SSO threshold"),
+        Some("stop marker string that is also long enough to be heap"),
+        None,
+        Some("fourth long string not visited because we broke early")
+    ];
+    let count = 0;
+    for item in items do {
+        match item {
+            Some(s) -> {
+                if s.starts_with(prefix: "stop") then break;
+                count = count + 1;
+            },
+            None -> { count = count + 1; }
+        };
+    };
+    if count == 1 then 0 else 1
+}

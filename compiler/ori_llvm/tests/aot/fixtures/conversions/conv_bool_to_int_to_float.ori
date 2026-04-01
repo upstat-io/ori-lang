@@ -1,0 +1,5 @@
+@main () -> int = {
+    let b = true;
+    let f = b.to_int().to_float();
+    if f == 1.0 then 0 else 1
+}

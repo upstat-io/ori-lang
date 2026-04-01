@@ -11,10 +11,9 @@ use rustc_hash::{FxHashMap, FxHashSet};
 
 use crate::enum_repr::{min_tag_width, EnumRepr, EnumTag, VariantRepr};
 use crate::layout::{
-    compute_enum_payload_layout, compute_field_layout, field_align, field_size, is_trivial_repr,
-    round_up,
+    compute_enum_payload_layout, compute_field_layout, compute_tagless_enum_layout,
+    is_trivial_repr, round_up,
 };
-use crate::repr::IntWidth;
 use crate::repr::MachineRepr;
 use crate::struct_repr::{ClosureRepr, FatRepr, FieldRepr, StructRepr, TupleRepr};
 
@@ -173,6 +172,22 @@ pub(super) fn canonical_enum(
         .collect();
     let variants = variants?;
 
+    // §07.2: Single-variant enum (newtype erasure) — no tag needed.
+    if variants.len() == 1 {
+        debug_assert!(
+            variants.len() == 1,
+            "EnumTag::None requires exactly 1 variant, got {}",
+            variants.len()
+        );
+        let (size, align) = compute_tagless_enum_layout(&variants[0]);
+        return Some(MachineRepr::Enum(EnumRepr {
+            tag: EnumTag::None,
+            variants,
+            size,
+            align,
+        }));
+    }
+
     let tag_width = min_tag_width(variants.len());
     let tag_size = tag_width.size_bytes();
     let max_payload = variants.iter().map(|v| v.size).max().unwrap_or(0);
@@ -198,86 +213,38 @@ pub(super) fn canonical_enum(
     }))
 }
 
+/// §07.2 gate: niche filling for Option/Result.
+///
+/// Disabled until all LLVM codegen consumers are niche-aware:
+/// - `drop_enum.rs` (`emit_enum_drop`)
+/// - `rc_helpers.rs` (`emit_inline_enum_inc/dec`)
+/// - `option_result.rs` (Option/Result builtins)
+/// - `operators/strategy.rs` (`emit_coalesce`)
+/// - `instr_dispatch.rs` (`try_emit_project_enum_payload`)
+///
+/// Enable once §07.2 "RC inc/dec", "Drop", and "Pattern matching" items are all checked.
+const NICHE_CODEGEN_READY: bool = false;
+
 /// Build canonical `Option<T>` as a 2-variant enum: None (unit) + Some(T).
 ///
-/// Uses `I64` tag width (not narrowed) to match the `ori_rt` runtime layout.
-/// Runtime functions (`ori_list_first`, `ori_map_get`, etc.) write `{i64, T}`
-/// to sret pointers. Narrowing Option/Result tags requires a coordinated
-/// `ori_rt` update — see `layout_resolver.rs` comment at `TypeInfo::Option`.
-pub(super) fn canonical_option(inner_repr: MachineRepr) -> MachineRepr {
-    let none_variant = VariantRepr {
-        name: Name::new(0, 0), // "None" — exact interning handled at call sites
-        fields: vec![],
-        size: 0,
-        alignment: 1,
-    };
-    let some_size = field_size(&inner_repr);
-    let some_align = field_align(&inner_repr);
-    let some_variant = VariantRepr {
-        name: Name::new(0, 1), // "Some"
-        fields: vec![inner_repr],
-        size: some_size,
-        alignment: some_align,
-    };
-
-    // I64 tag — NOT narrowed. Must match ori_rt runtime layout.
-    let tag_width = IntWidth::I64;
-    let tag_size = tag_width.size_bytes();
-    let max_payload = some_size;
-    let (size, align) = if max_payload == 0 {
-        (tag_size, tag_size) // Option<void>: just the tag
+/// Attempts niche optimization (§07.2) when `NICHE_CODEGEN_READY` is true.
+/// Falls back to explicit `I64` tag otherwise.
+pub(super) fn canonical_option(inner_repr: &MachineRepr) -> MachineRepr {
+    if NICHE_CODEGEN_READY {
+        crate::layout::niche::optimize_option_repr(inner_repr)
     } else {
-        let payload_align = some_align.max(8);
-        (8 + round_up(max_payload, payload_align), payload_align)
-    };
-
-    MachineRepr::Enum(EnumRepr {
-        tag: EnumTag::Explicit { width: tag_width },
-        variants: vec![none_variant, some_variant],
-        size,
-        align,
-    })
+        crate::layout::niche::default_option_repr_public(inner_repr)
+    }
 }
 
 /// Build canonical `Result<T, E>` as a 2-variant enum: Ok(T) + Err(E).
 ///
-/// Uses `I64` tag width (not narrowed) to match the `ori_rt` runtime layout.
-/// See `canonical_option` for the rationale.
-pub(super) fn canonical_result(ok_repr: MachineRepr, err_repr: MachineRepr) -> MachineRepr {
-    let ok_size = field_size(&ok_repr);
-    let ok_align = field_align(&ok_repr);
-    let ok_variant = VariantRepr {
-        name: Name::new(0, 0), // "Ok"
-        fields: vec![ok_repr],
-        size: ok_size,
-        alignment: ok_align,
-    };
-
-    let err_size = field_size(&err_repr);
-    let err_align = field_align(&err_repr);
-    let err_variant = VariantRepr {
-        name: Name::new(0, 1), // "Err"
-        fields: vec![err_repr],
-        size: err_size,
-        alignment: err_align,
-    };
-
-    // I64 tag — NOT narrowed. Must match ori_rt runtime layout.
-    let tag_width = IntWidth::I64;
-    let tag_size = tag_width.size_bytes();
-    let max_payload = ok_size.max(err_size);
-    let max_variant_align = ok_align.max(err_align);
-    let (size, align) = if max_payload == 0 {
-        (tag_size, tag_size)
+/// Attempts niche optimization (§07.2) when `NICHE_CODEGEN_READY` is true.
+/// Falls back to explicit `I64` tag otherwise.
+pub(super) fn canonical_result(ok_repr: &MachineRepr, err_repr: &MachineRepr) -> MachineRepr {
+    if NICHE_CODEGEN_READY {
+        crate::layout::niche::optimize_result_repr(ok_repr, err_repr)
     } else {
-        let payload_align = max_variant_align.max(8);
-        (8 + round_up(max_payload, payload_align), payload_align)
-    };
-
-    MachineRepr::Enum(EnumRepr {
-        tag: EnumTag::Explicit { width: tag_width },
-        variants: vec![ok_variant, err_variant],
-        size,
-        align,
-    })
+        crate::layout::niche::default_result_repr_public(ok_repr, err_repr)
+    }
 }

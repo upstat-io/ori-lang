@@ -1,0 +1,10 @@
+// Regression: BUG-02-002 — Option<int> ?? Option<int> when both are None
+@main () -> int = {
+    let a: Option<int> = None;
+    let b: Option<int> = None;
+    let c: Option<int> = a ?? b;
+    match c {
+        Some(v) -> 1,
+        None -> 0,
+    }
+}

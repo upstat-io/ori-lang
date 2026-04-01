@@ -175,6 +175,7 @@ fn bit_positions_are_unique() {
         trait_bits::ITERABLE,
         trait_bits::ITERATOR,
         trait_bits::DOUBLE_ENDED_ITERATOR,
+        trait_bits::FORMATTABLE,
     ];
 
     assert_eq!(all_bits.len(), trait_bits::COUNT as usize);
@@ -250,6 +251,7 @@ const ALL_TRAIT_NAMES: &[&str] = &[
     "Iterable",
     "Iterator",
     "DoubleEndedIterator",
+    "Formattable",
 ];
 
 /// All primitive type Idx values with display names.
@@ -281,14 +283,14 @@ const REFERENCE_TRUTH: &[(Idx, &str, &[&str])] = &[
     ]),
     (Idx::FLOAT, "float", &[
         "Eq", "Comparable", "Clone", "Hashable", "Default", "Printable", "Debug",
-        "Add", "Sub", "Mul", "Div", "Neg",
+        "Add", "Sub", "Mul", "Div", "Rem", "Neg",
     ]),
     (Idx::BOOL, "bool", &[
         "Eq", "Comparable", "Clone", "Hashable", "Default", "Printable", "Debug", "Not",
     ]),
     (Idx::STR, "str", &[
         "Eq", "Comparable", "Clone", "Hashable", "Default", "Printable", "Debug",
-        "Len", "IsEmpty", "Add",
+        "Len", "IsEmpty", "Add", "Iterable",
     ]),
     (Idx::CHAR, "char", &[
         "Eq", "Comparable", "Clone", "Hashable", "Printable", "Debug",
@@ -298,16 +300,16 @@ const REFERENCE_TRUTH: &[(Idx, &str, &[&str])] = &[
         "Add", "Sub", "Mul", "Div", "Rem",
         "BitAnd", "BitOr", "BitXor", "BitNot", "Shl", "Shr",
     ]),
-    (Idx::UNIT, "unit", &["Eq", "Clone", "Default", "Debug"]),
+    (Idx::UNIT, "unit", &["Eq", "Comparable", "Hashable", "Clone", "Default", "Debug"]),
     (Idx::NEVER, "never", &[]),
-    (Idx::ERROR, "error", &[]),
+    (Idx::ERROR, "error", &["Clone", "Printable", "Debug"]),
     (Idx::DURATION, "duration", &[
         "Eq", "Comparable", "Clone", "Hashable", "Default", "Printable", "Debug",
-        "Sendable", "Add", "Sub", "Mul", "Div", "Rem", "Neg",
+        "Sendable", "Formattable", "Add", "Sub", "Mul", "Div", "Rem", "Neg",
     ]),
     (Idx::SIZE, "size", &[
         "Eq", "Comparable", "Clone", "Hashable", "Default", "Printable", "Debug",
-        "Sendable", "Add", "Sub", "Mul", "Div", "Rem",
+        "Sendable", "Formattable", "Add", "Sub", "Mul", "Div", "Rem",
     ]),
     (Idx::ORDERING, "ordering", &[
         "Eq", "Comparable", "Clone", "Hashable", "Printable", "Debug",
@@ -420,8 +422,10 @@ fn int_satisfies_expected_traits() {
 fn unit_satisfies_only_eq_clone_default_debug() {
     let (interner, wk) = make_wk();
 
-    let yes = ["Eq", "Clone", "Default", "Debug"];
-    let no = ["Comparable", "Hashable", "Printable", "Add", "Sendable"];
+    // TPR-07-006: void/() now satisfies Comparable and Hashable (trivially —
+    // always Equal, constant hash). Matches Rust's () which impls Ord + Hash.
+    let yes = ["Eq", "Comparable", "Hashable", "Clone", "Default", "Debug"];
+    let no = ["Printable", "Add", "Sendable"];
 
     for name in yes {
         assert!(
@@ -449,9 +453,21 @@ fn never_satisfies_no_traits() {
 }
 
 #[test]
-fn error_satisfies_no_traits() {
+fn error_satisfies_registry_derived_traits() {
     let (interner, wk) = make_wk();
+    // Error has clone, debug, to_str methods in the registry
+    let error_yes = ["Clone", "Printable", "Debug"];
+    for &name in &error_yes {
+        assert!(
+            wk.primitive_satisfies_trait(Idx::ERROR, interner.intern(name)),
+            "error should satisfy {name}"
+        );
+    }
+    // Error should NOT satisfy most other traits
     for &name in ALL_TRAIT_NAMES {
+        if error_yes.contains(&name) {
+            continue;
+        }
         assert!(
             !wk.primitive_satisfies_trait(Idx::ERROR, interner.intern(name)),
             "error should NOT satisfy {name}"
@@ -483,6 +499,10 @@ fn non_primitive_idx_returns_false() {
 // ── Compound type satisfaction ──────────────────────────────────────
 
 #[test]
+#[expect(
+    clippy::cognitive_complexity,
+    reason = "exhaustive compound type trait matrix"
+)]
 fn compound_type_satisfaction_via_pool() {
     use crate::Pool;
 
@@ -500,18 +520,20 @@ fn compound_type_satisfaction_via_pool() {
     let iter_int = pool.iterator(Idx::INT);
     let dei_int = pool.double_ended_iterator(Idx::INT);
 
-    // List: eq, clone, hashable, printable, len, is_empty, comparable, iterable
+    // List: eq, comparable, clone, hashable, printable, debug, add, len, is_empty, iterable
     let list_yes = [
         "Eq",
+        "Comparable",
         "Clone",
         "Hashable",
         "Printable",
+        "Debug",
+        "Add",
         "Len",
         "IsEmpty",
-        "Comparable",
         "Iterable",
     ];
-    let list_no = ["Default", "Add", "Debug"];
+    let list_no = ["Default"];
     for name in list_yes {
         assert!(
             wk.type_satisfies_trait(list_int, interner.intern(name), &pool),
@@ -525,28 +547,35 @@ fn compound_type_satisfaction_via_pool() {
         );
     }
 
-    // Map: eq, clone, hashable, printable, len, is_empty, iterable (no comparable)
+    // Map: eq, clone, hashable, printable, debug, len, is_empty, iterable (no comparable)
     assert!(wk.type_satisfies_trait(map_str_int, interner.intern("Iterable"), &pool));
+    assert!(wk.type_satisfies_trait(map_str_int, interner.intern("Debug"), &pool));
     assert!(!wk.type_satisfies_trait(map_str_int, interner.intern("Comparable"), &pool));
 
     // Set: same as Map
     assert!(wk.type_satisfies_trait(set_int, interner.intern("Len"), &pool));
+    assert!(wk.type_satisfies_trait(set_int, interner.intern("Debug"), &pool));
     assert!(!wk.type_satisfies_trait(set_int, interner.intern("Comparable"), &pool));
 
-    // Option: eq, comparable, clone, hashable, printable, default
+    // Option: eq, comparable, clone, hashable, printable, default, debug, iterable
     assert!(wk.type_satisfies_trait(opt_int, interner.intern("Default"), &pool));
+    assert!(wk.type_satisfies_trait(opt_int, interner.intern("Debug"), &pool));
+    assert!(wk.type_satisfies_trait(opt_int, interner.intern("Iterable"), &pool));
     assert!(!wk.type_satisfies_trait(opt_int, interner.intern("Len"), &pool));
 
-    // Result: eq, comparable, clone, hashable, printable (no default)
+    // Result: eq, comparable, clone, hashable, printable, debug (no default)
     assert!(wk.type_satisfies_trait(res_int_str, interner.intern("Comparable"), &pool));
+    assert!(wk.type_satisfies_trait(res_int_str, interner.intern("Debug"), &pool));
     assert!(!wk.type_satisfies_trait(res_int_str, interner.intern("Default"), &pool));
 
-    // Tuple: eq, comparable, clone, hashable, printable, len
+    // Tuple: eq, comparable, clone, hashable, printable, debug, len
     assert!(wk.type_satisfies_trait(tuple, interner.intern("Len"), &pool));
+    assert!(wk.type_satisfies_trait(tuple, interner.intern("Debug"), &pool));
     assert!(!wk.type_satisfies_trait(tuple, interner.intern("Iterable"), &pool));
 
-    // Range: printable, len, iterable
+    // Range: printable, len, is_empty, iterable
     assert!(wk.type_satisfies_trait(range_int, interner.intern("Iterable"), &pool));
+    assert!(wk.type_satisfies_trait(range_int, interner.intern("IsEmpty"), &pool));
     assert!(!wk.type_satisfies_trait(range_int, interner.intern("Eq"), &pool));
 
     // Iterator: iterator trait only

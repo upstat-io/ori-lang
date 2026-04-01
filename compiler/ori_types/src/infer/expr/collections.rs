@@ -219,6 +219,9 @@ pub(crate) fn infer_map_spread(
 }
 
 /// Infer the type of a range expression.
+///
+/// Spec: ranges are int-only. Float bounds are rejected at construction
+/// time because float arithmetic is imprecise for stepping.
 pub(crate) fn infer_range(
     engine: &mut InferEngine<'_>,
     arena: &ExprArena,
@@ -226,7 +229,7 @@ pub(crate) fn infer_range(
     end: ExprId,
     step: ExprId,
     _inclusive: bool,
-    _span: Span,
+    span: Span,
 ) -> Idx {
     // Determine element type from provided bounds
     let elem_ty = if start.is_present() {
@@ -252,5 +255,12 @@ pub(crate) fn infer_range(
     }
 
     let resolved = engine.resolve(elem_ty);
+
+    // Reject Range<float> at construction — spec says ranges are int-only.
+    if resolved == Idx::FLOAT {
+        engine.push_error(TypeCheckError::range_float_not_constructible(span));
+        return Idx::ERROR;
+    }
+
     engine.pool_mut().range(resolved)
 }

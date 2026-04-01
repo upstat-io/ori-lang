@@ -1,0 +1,5 @@
+@main () -> int = {
+    let a = 2 + 3 * 4;
+    let b = (2 + 3) * 4;
+    if a == 14 && b == 20 then 0 else 1
+}

@@ -1,0 +1,7 @@
+@main () -> int = {
+    let opt: Option<str> = None;
+    let result = for x in opt yield {
+        break
+    };
+    if result.length() == 0 then 0 else 1
+}

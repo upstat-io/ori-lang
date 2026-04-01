@@ -1,0 +1,7 @@
+@make_adder (n: int) -> (int) -> int = (x: int) -> int = x + n;
+
+@main () -> int = {
+    let add5 = make_adder(n: 5);
+    let result = add5(x: 37);
+    if result == 42 then 0 else 1
+}

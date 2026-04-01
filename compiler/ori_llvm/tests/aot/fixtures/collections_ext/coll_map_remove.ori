@@ -1,0 +1,5 @@
+@main () -> int = {
+    let m = {"a": 1, "b": 2};
+    let m2 = m.remove("a");
+    if m2.length() == 1 then 0 else 1
+}

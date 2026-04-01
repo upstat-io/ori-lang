@@ -1,0 +1,9 @@
+@main () -> int = {
+    let words = [
+        "this is a very long heap string that exceeds the SSO threshold of twenty three bytes",
+        "another long heap string for set collect testing purposes in AOT test",
+        "third heap allocated string to verify ori_iter_collect_set elem_inc_fn"
+    ];
+    let s: Set<str> = words.iter().collect();
+    if s.len() == 3 then 0 else 1
+}

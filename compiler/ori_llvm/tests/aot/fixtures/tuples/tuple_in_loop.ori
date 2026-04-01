@@ -1,0 +1,8 @@
+@main () -> int = {
+    let sum = 0;
+    for t in [(1, 10), (2, 20), (3, 30)] do {
+        sum = sum + t.0 + t.1;
+    };
+    // (1+10) + (2+20) + (3+30) = 66
+    if sum == 66 then 0 else 1
+}

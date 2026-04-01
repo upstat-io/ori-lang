@@ -1,0 +1,11 @@
+@main () -> int = {
+    let lists = [[1, 2, 3], [10, 20, 30], [4, 5]];
+    let total = 0;
+    for inner in lists if inner.len() == 3 do {
+        for n in inner do {
+            total = total + n;
+        };
+    };
+    // [1,2,3] (len=3): 6. [10,20,30] (len=3): 60. [4,5] (len=2): skipped.
+    if total == 66 then 0 else 1
+}

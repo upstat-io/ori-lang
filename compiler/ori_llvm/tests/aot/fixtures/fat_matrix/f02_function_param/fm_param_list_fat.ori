@@ -1,0 +1,12 @@
+@total_len (xs: [str]) -> int = {
+    let total = 0;
+    for s in xs do {
+        total = total + s.length();
+    };
+    total
+}
+
+@main () -> int = {
+    let words = ["hello", "world"];
+    if total_len(xs: words) == 10 then 0 else 1
+}

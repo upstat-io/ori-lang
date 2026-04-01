@@ -1,0 +1,6 @@
+@id (xs: [str]) -> [str] = xs;
+
+@main (args: [str]) -> void = {
+    let _ = id(xs: args);
+    if false then panic(msg: "x");
+}

@@ -1,0 +1,13 @@
+@main () -> int = {
+    let words = [
+        "this is a very long string that exceeds SSO threshold",
+        "stop marker string that is also long enough to be heap",
+        "third long string that should not be visited early break"
+    ];
+    let count = 0;
+    for w in words do {
+        if w.starts_with(prefix: "stop") then break;
+        count = count + 1;
+    };
+    if count == 1 then 0 else 1
+}

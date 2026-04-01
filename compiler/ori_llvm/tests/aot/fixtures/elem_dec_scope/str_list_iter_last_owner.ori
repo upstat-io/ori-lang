@@ -1,0 +1,11 @@
+@main () -> int = {
+    let words = [
+        "this is a very long string that exceeds the SSO threshold of twenty three bytes",
+        "another long heap string for testing iterator as last buffer owner cleanup"
+    ];
+    let count = 0;
+    for w in words do {
+        count = count + 1;
+    };
+    if count == 2 then 0 else 1
+}

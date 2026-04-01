@@ -1,0 +1,10 @@
+type Point = { x: int, y: int };
+type Rect = { width: int, height: int };
+
+@area (r: Rect) -> int = r.width * r.height;
+
+@main () -> int = {
+    let p = Point { x: 1, y: 2 };
+    let r = Rect { width: 3, height: 4 };
+    if p.x + p.y == 3 && area(r: r) == 12 then 0 else 1
+}

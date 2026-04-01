@@ -1,0 +1,6 @@
+@make_map () -> {str: int} = {"x": 1, "y": 2};
+
+@main () -> int = {
+    let m = make_map();
+    if m.length() == 2 then 0 else 1
+}

@@ -1,0 +1,20 @@
+trait Printable {
+    @to_str (self) -> str
+}
+
+type Color = { r: int, g: int, b: int }
+
+impl Color {
+    @brightness (self) -> int = (self.r + self.g + self.b) / 3;
+}
+
+impl Printable for Color {
+    @to_str (self) -> str = "color";
+}
+
+@main () -> int = {
+    let c = Color { r: 100, g: 150, b: 200 };
+    let ok1 = c.brightness() == 150;
+    let ok2 = c.to_str() == "color";
+    if ok1 && ok2 then 0 else 1
+}

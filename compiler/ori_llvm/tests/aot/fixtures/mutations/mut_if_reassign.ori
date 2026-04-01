@@ -1,0 +1,7 @@
+@main () -> int = {
+    let x = 10;
+    if x > 5 then {
+        x = x * 2;
+    };
+    if x == 20 then 0 else 1
+}

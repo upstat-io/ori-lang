@@ -1,0 +1,8 @@
+@main () -> int = {
+    let a = "abc";
+    let b = "xyz";
+    let h1 = a.hash();
+    let h2 = b.hash();
+    // Same-length but different content must produce different hashes
+    if h1 != h2 then 0 else 1
+}

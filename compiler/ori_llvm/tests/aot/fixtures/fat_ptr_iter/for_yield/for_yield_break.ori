@@ -1,0 +1,8 @@
+@main () -> int = {
+    let result = for x in [1, 2, 3, 4, 5] yield {
+        if x == 4 then break;
+        x * 2
+    };
+    // Expected: [2, 4, 6] (x=1→2, x=2→4, x=3→6, x=4→break)
+    if result.length() == 3 then 0 else 1
+}

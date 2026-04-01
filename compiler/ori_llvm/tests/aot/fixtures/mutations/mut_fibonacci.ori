@@ -1,0 +1,11 @@
+@main () -> int = {
+    let a = 0;
+    let b = 1;
+    for i in 0..10 do {
+        let next = a + b;
+        a = b;
+        b = next;
+    };
+    // fib(10) = 55
+    if a == 55 then 0 else 1
+}

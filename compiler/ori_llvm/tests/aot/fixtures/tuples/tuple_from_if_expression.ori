@@ -1,0 +1,5 @@
+@main () -> int = {
+    let flag = true;
+    let t = if flag then (1, 2) else (3, 4);
+    if t.0 == 1 && t.1 == 2 then 0 else 1
+}

@@ -1,0 +1,9 @@
+type Record = { count: int, name: str, active: bool }
+
+@main () -> int = {
+    let r = Record { count: 42, name: "hello", active: true };
+    let ok_count = r.count == 42;
+    let ok_name = r.name == "hello";
+    let ok_active = r.active;
+    if ok_count && ok_name && ok_active then 0 else 1
+}

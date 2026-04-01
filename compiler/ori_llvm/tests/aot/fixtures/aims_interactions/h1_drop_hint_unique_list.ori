@@ -1,0 +1,6 @@
+@main () -> int = {
+    let $xs = for i in 1..61 yield i;
+    let sum = 0;
+    for x in xs do sum = sum + x;
+    if sum == 1830 then 0 else 1
+}

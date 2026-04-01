@@ -1,0 +1,7 @@
+@main () -> int = {
+    let count = 0;
+    for c in "abc" do {
+        count = count + 1;
+    };
+    if count == 3 then 0 else 1
+}

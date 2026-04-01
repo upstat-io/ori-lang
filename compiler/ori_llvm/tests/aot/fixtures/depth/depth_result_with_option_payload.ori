@@ -1,0 +1,15 @@
+@find_positive (x: int) -> Result<Option<int>, str> = {
+    if x < 0 then Err("negative")
+    else if x == 0 then Ok(None)
+    else Ok(Some(x))
+}
+
+@main () -> int = {
+    let r1 = find_positive(x: 5);
+    let r2 = find_positive(x: 0);
+    let r3 = find_positive(x: -1);
+    let ok1 = r1.is_ok();
+    let ok2 = r2.is_ok();
+    let ok3 = r3.is_err();
+    if ok1 && ok2 && ok3 then 0 else 1
+}

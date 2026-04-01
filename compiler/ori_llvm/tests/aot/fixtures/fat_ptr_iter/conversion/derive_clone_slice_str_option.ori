@@ -1,0 +1,15 @@
+#derive(Clone)
+type MaybeNamed = { name: Option<str>, id: int }
+
+@main () -> int = {
+    let text = "this is a long string exceeding SSO by a large amount,and this second part also exceeds it";
+    let parts = text.split(sep: ",");
+    let total = 0;
+    for p in parts do {
+        let w = MaybeNamed { name: Some(p), id: p.len() };
+        let copy = w.clone();
+        total = total + copy.id;
+    };
+    // 53 + 36 = 89
+    if total == 89 then 0 else 1
+}

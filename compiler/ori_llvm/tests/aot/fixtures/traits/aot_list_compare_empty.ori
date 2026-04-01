@@ -1,0 +1,11 @@
+@main () -> int = {
+    let empty: [int] = [];
+    let one = [1];
+    // [] == []
+    let r1 = empty.compare(empty).is_equal();
+    // [] < [1]
+    let r2 = empty.compare(one).is_less();
+    // [1] > []
+    let r3 = one.compare(empty).is_greater();
+    if r1 && r2 && r3 then 0 else 1
+}

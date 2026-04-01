@@ -1,0 +1,6 @@
+@main () -> int = {
+    let t = (3, 4);
+    let sum_sq = t.0 * t.0 + t.1 * t.1;
+    // 9 + 16 = 25
+    if sum_sq == 25 then 0 else 1
+}

@@ -1,0 +1,4 @@
+@main () -> int = {
+    let s = "";
+    if s.is_empty() then 0 else 1
+}

@@ -1,0 +1,3 @@
+@main (args: [str]) -> void = {
+    if args.len() == 0 then panic(msg: "no args");
+}

@@ -1,0 +1,7 @@
+@sum_list (xs: [int]) -> int = xs.fold(initial: 0, op: (acc, x) -> acc + x);
+
+@main () -> int = {
+    let $xs = [10, 20, 30];
+    let $total = sum_list(xs: xs);
+    if total == 60 then 0 else 1
+}

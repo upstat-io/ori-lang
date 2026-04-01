@@ -1,0 +1,10 @@
+@to_int (b: bool) -> int = match b {
+    true -> 1,
+    false -> 0,
+};
+
+@main () -> int = {
+    let a = to_int(b: true);
+    let b = to_int(b: false);
+    if a == 1 && b == 0 then 0 else 1
+}

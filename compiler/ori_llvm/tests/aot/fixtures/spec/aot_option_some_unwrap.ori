@@ -1,0 +1,9 @@
+@make_some () -> Option<int> = Some(42);
+
+@main () -> int = {
+    let o = make_some();
+    if o.is_some() then {
+        let v = o.unwrap();
+        if v == 42 then 0 else 1
+    } else 1
+}

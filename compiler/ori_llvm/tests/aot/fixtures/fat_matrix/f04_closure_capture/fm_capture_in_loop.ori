@@ -1,0 +1,9 @@
+@main () -> int = {
+    let prefix = "hello";
+    let f = (n: int) -> int = prefix.length() + n;
+    let total = 0;
+    for i in [1, 2, 3] do {
+        total = total + f(i);
+    };
+    if total == 21 then 0 else 1
+}

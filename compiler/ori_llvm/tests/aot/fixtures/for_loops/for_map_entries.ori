@@ -1,0 +1,5 @@
+@main () -> int = {
+    let count = 0;
+    for entry in {"a": 1, "b": 2} do count = count + 1;
+    if count == 2 then 0 else 1
+}

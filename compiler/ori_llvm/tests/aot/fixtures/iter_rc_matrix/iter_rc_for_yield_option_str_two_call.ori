@@ -1,0 +1,10 @@
+@main () -> int = {
+    let items = [
+        Some("this string exceeds SSO threshold by being very long indeed"),
+        None,
+        Some("third string that is also long enough to require heap allocation")
+    ];
+    let r1 = for opt in items yield is_some(option: opt);
+    let r2 = for opt in items yield is_some(option: opt);
+    if r1.length() == 3 && r2.length() == 3 then 0 else 1
+}

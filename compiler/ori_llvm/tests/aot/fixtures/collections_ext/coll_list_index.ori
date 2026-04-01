@@ -1,0 +1,4 @@
+@main () -> int = {
+    let xs = [10, 20, 30];
+    if xs[0] == 10 && xs[2] == 30 then 0 else 1
+}

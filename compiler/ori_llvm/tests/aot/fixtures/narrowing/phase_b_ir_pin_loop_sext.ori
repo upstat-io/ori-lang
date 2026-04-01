@@ -1,0 +1,12 @@
+@sum_loop () -> int = {
+    let sum = 0;
+    let i = 0;
+    loop {
+        if i >= 10 then break;
+        sum = sum + i;
+        i = i + 1;
+    };
+    sum
+}
+
+@main () -> int = sum_loop();

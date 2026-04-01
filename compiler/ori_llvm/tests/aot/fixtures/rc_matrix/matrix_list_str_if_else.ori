@@ -1,0 +1,7 @@
+@main () -> int = {
+    let $x = 42;
+    let $xs = if x > 20
+        then ["heap_string_one_xxxxxxx", "heap_string_two_xxxxxxx"]
+        else ["fallback_heap_string_xx"];
+    if xs.len() == 2 then 0 else 1
+}

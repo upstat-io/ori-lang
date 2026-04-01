@@ -1,0 +1,7 @@
+type Point = { x: int, y: int }
+
+@main () -> int = {
+    let flag = true;
+    let p = if flag then Point { x: 1, y: 2 } else Point { x: 3, y: 4 };
+    if p.x == 1 then 0 else 1
+}

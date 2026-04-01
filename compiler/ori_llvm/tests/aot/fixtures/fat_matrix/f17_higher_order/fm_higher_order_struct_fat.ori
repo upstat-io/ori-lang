@@ -1,0 +1,10 @@
+type Named = { name: str, id: int }
+
+@apply_to_named (f: (Named) -> int, n: Named) -> int = f(n);
+
+@name_len (n: Named) -> int = n.name.length();
+
+@main () -> int = {
+    let n = Named { name: "alice", id: 1 };
+    if apply_to_named(f: name_len, n: n) == 5 then 0 else 1
+}

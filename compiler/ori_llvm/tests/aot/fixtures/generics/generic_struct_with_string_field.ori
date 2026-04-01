@@ -1,0 +1,9 @@
+type Pair<A, B> = { first: A, second: B };
+
+@second <A, B> (p: Pair<A, B>) -> B = p.second;
+
+@main () -> int = {
+    let p = Pair { first: 1, second: "hello" };
+    let s = second(p: p);
+    if s == "hello" then 0 else 1
+}

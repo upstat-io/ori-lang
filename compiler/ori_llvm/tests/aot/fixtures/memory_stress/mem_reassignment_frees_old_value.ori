@@ -1,0 +1,9 @@
+type Holder = { val: int, name: str }
+
+@main () -> int = {
+    let h = Holder { val: 0, name: "init" };
+    for i in 1..=10000 do {
+        h = Holder { val: i, name: "updated" }
+    };
+    if h.val == 10000 then 0 else 1
+}

@@ -1,0 +1,9 @@
+type Item = { name: str, count: int }
+
+@main () -> int = {
+    let $x = 42;
+    let $item = if x > 20
+        then Item { name: "true_branch_heap_name_x", count: x }
+        else Item { name: "false_branch_heap_name_", count: 0 };
+    if item.count == 42 then 0 else 1
+}

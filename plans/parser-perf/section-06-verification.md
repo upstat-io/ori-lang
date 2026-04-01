@@ -138,5 +138,6 @@ Update project documentation to reflect changes and record findings.
 - [ ] CLAUDE.md and memory updated with new baselines
 - [ ] Plan documentation updated
 - [ ] `/tpr-review` passed — independent Codex review found no critical or major issues (or all findings triaged)
+- [ ] `/impl-hygiene-review last commit` passed — implementation hygiene review clean (phase boundaries, SSOT, algorithmic DRY, naming). MUST run AFTER `/tpr-review` is clean.
 
 **Exit Criteria:** `baselines.json` contains populated before/after results showing measurable improvement. All test suites green in both debug and release modes. Documentation updated. `parser_raw_throughput_mib_s` final > `parser_raw_throughput_mib_s` baseline.

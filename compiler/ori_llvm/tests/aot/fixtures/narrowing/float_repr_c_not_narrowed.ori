@@ -1,0 +1,10 @@
+#[repr("c")]
+type CPoint = { x: float, y: float }
+
+@read_x (p: CPoint) -> float = p.x;
+
+@main () -> int = {
+    let p = CPoint { x: 0.5, y: 0.25 };
+    let v = read_x(p:);
+    if v == 0.5 then 0 else 1
+}

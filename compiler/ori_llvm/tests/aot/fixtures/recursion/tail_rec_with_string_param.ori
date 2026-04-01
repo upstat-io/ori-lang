@@ -1,0 +1,9 @@
+@find_char (s: str, target: int, idx: int) -> int = {
+    if idx >= s.len() then -1
+    else if idx == target then idx
+    else find_char(s: s, target: target, idx: idx + 1)
+};
+
+@main () -> int = {
+    if find_char(s: "hello", target: 3, idx: 0) == 3 then 0 else 1
+}

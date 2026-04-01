@@ -1,12 +1,9 @@
 // Spec: 09-expressions.md § Binary Expressions (??), § Short-Circuit Evaluation
 // Tests for the null coalescing operator ??
 //
-// STATUS: Lexer [OK], Parser [OK], Evaluator [PARTIAL]
-// The ?? operator is implemented in ori_eval/src/interpreter/mod.rs with short-circuit.
-// 26/31 tests pass. Remaining failures:
-// - 3 chaining tests: `a ?? b ?? c` with Option variables needs type info to avoid
-//   unwrapping intermediate values. Workaround: use .unwrap_or() or .or() chains.
-// - 2 map tests: depend on map lookup returning Option<V> (Section 23.3.1).
+// Covers: COALESCE-UNWRAP, COALESCE-CHAIN, COALESCE-RESULT-UNWRAP,
+//         COALESCE-RESULT-CHAIN, COALESCE-NEVER-LEFT, COALESCE-NEVER-RIGHT
+//         (see operator-rules.md §Coalesce)
 
 use std.testing { assert, assert_eq }
 
@@ -426,4 +423,235 @@ use std.testing { assert, assert_eq }
 @empty_list_some () -> [int] = {
     let opt: Option<[int]> = Some([]);
     opt ?? [1, 2, 3]
+}
+
+// =============================================================================
+// Same-Type Wrapper Chaining (COALESCE-CHAIN / COALESCE-RESULT-CHAIN)
+// Spec: operator-rules.md — Option<T> ?? Option<T> -> Option<T>
+//                           Result<T,E> ?? Result<T,E> -> Result<T,E>
+// =============================================================================
+
+// Option<int> ?? Option<int> — Some short-circuits, preserves wrapper
+@test_option_chain_some tests @option_chain_some () -> void = {
+    assert_eq(actual: option_chain_some(), expected: Some(1))
+}
+
+@option_chain_some () -> Option<int> = {
+    let a: Option<int> = Some(1);
+    let b: Option<int> = Some(2);
+    a ?? b
+}
+
+// Option<int> ?? Option<int> — None falls through to RHS
+@test_option_chain_none tests @option_chain_none () -> void = {
+    assert_eq(actual: option_chain_none(), expected: Some(2))
+}
+
+@option_chain_none () -> Option<int> = {
+    let a: Option<int> = None;
+    let b: Option<int> = Some(2);
+    a ?? b
+}
+
+// Option<int> ?? Option<int> — both None
+@test_option_chain_both_none tests @option_chain_both_none () -> void = {
+    assert_eq(actual: option_chain_both_none(), expected: None)
+}
+
+@option_chain_both_none () -> Option<int> = {
+    let a: Option<int> = None;
+    let b: Option<int> = None;
+    a ?? b
+}
+
+// Result<int, str> ?? Result<int, str> — Ok short-circuits, preserves wrapper
+@test_result_chain_ok tests @result_chain_ok () -> void = {
+    assert_eq(actual: result_chain_ok(), expected: Ok(1))
+}
+
+@result_chain_ok () -> Result<int, str> = {
+    let a: Result<int, str> = Ok(1);
+    let b: Result<int, str> = Ok(2);
+    a ?? b
+}
+
+// Result<int, str> ?? Result<int, str> — Err falls through to RHS
+@test_result_chain_err tests @result_chain_err () -> void = {
+    assert_eq(actual: result_chain_err(), expected: Ok(2))
+}
+
+@result_chain_err () -> Result<int, str> = {
+    let a: Result<int, str> = Err("first");
+    let b: Result<int, str> = Ok(2);
+    a ?? b
+}
+
+// Result<int, str> ?? Result<int, str> — both Err
+@test_result_chain_both_err tests @result_chain_both_err () -> void = {
+    assert_eq(actual: result_chain_both_err(), expected: Err("second"))
+}
+
+@result_chain_both_err () -> Result<int, str> = {
+    let a: Result<int, str> = Err("first");
+    let b: Result<int, str> = Err("second");
+    a ?? b
+}
+
+// Option chain with short-circuit: Some skips RHS evaluation.
+// RHS must be a function call (not a let binding) for lazy evaluation.
+@option_chain_short_circuit_rhs () -> Option<int> = panic(msg: "should not execute");
+
+@test_option_chain_short_circuit tests @option_chain_short_circuit () -> void = {
+    assert_eq(actual: option_chain_short_circuit(), expected: Some(42))
+}
+
+@option_chain_short_circuit () -> Option<int> = {
+    let a: Option<int> = Some(42);
+    a ?? option_chain_short_circuit_rhs()
+}
+
+// Option<str> ?? Option<str> — string type chaining
+@test_option_chain_str tests @option_chain_str () -> void = {
+    assert_eq(actual: option_chain_str(), expected: Some("hello"))
+}
+
+@option_chain_str () -> Option<str> = {
+    let a: Option<str> = None;
+    let b: Option<str> = Some("hello");
+    a ?? b
+}
+
+// Mixed chain + unwrap: (Option<int> ?? Option<int>) then ?? int
+// Since ?? is right-associative, explicit parens needed for chain-then-unwrap
+@test_chain_then_unwrap tests @chain_then_unwrap () -> void = {
+    assert_eq(actual: chain_then_unwrap(), expected: 2)
+}
+
+@chain_then_unwrap () -> int = {
+    let a: Option<int> = None;
+    let b: Option<int> = Some(2);
+    // (a ?? b) is Option<int>, then ?? 99 unwraps to int
+    (a ?? b) ?? 99
+}
+
+// Chain then unwrap — both None
+@test_chain_then_unwrap_all_none tests @chain_then_unwrap_all_none () -> void = {
+    assert_eq(actual: chain_then_unwrap_all_none(), expected: 99)
+}
+
+@chain_then_unwrap_all_none () -> int = {
+    let a: Option<int> = None;
+    let b: Option<int> = None;
+    (a ?? b) ?? 99
+}
+
+// Triple Option chain
+@test_triple_option_chain tests @triple_option_chain () -> void = {
+    assert_eq(actual: triple_option_chain(), expected: Some(3))
+}
+
+@triple_option_chain () -> Option<int> = {
+    let a: Option<int> = None;
+    let b: Option<int> = None;
+    let c: Option<int> = Some(3);
+    // Right-assoc: a ?? (b ?? c), but b ?? c is Option<int> ?? Option<int> = Option<int>
+    // Then a ?? Option<int> = Option<int> (chain)
+    a ?? b ?? c
+}
+
+// =============================================================================
+// Polymorphic RHS Constructors (bare None / Err on RHS)
+// Regression: TPR-02-003 — chain detection must work when RHS has unresolved
+// type variables (e.g. bare `None`, `Err("x")` without annotation)
+// =============================================================================
+
+// Option<int> ?? None — bare None on RHS should chain (type inferred)
+@test_option_chain_bare_none tests @option_chain_bare_none () -> void = {
+    assert_eq(actual: option_chain_bare_none(), expected: None)
+}
+
+@option_chain_bare_none () -> Option<int> = {
+    let a: Option<int> = None;
+    a ?? None
+}
+
+// Option<int> ?? None — Some on LHS, bare None on RHS (Some short-circuits)
+@test_option_chain_some_bare_none tests @option_chain_some_bare_none () -> void = {
+    assert_eq(actual: option_chain_some_bare_none(), expected: Some(42))
+}
+
+@option_chain_some_bare_none () -> Option<int> = {
+    let a: Option<int> = Some(42);
+    a ?? None
+}
+
+// Result<int, str> ?? Err("x") — bare Err on RHS should chain
+@test_result_chain_bare_err tests @result_chain_bare_err () -> void = {
+    assert_eq(actual: result_chain_bare_err(), expected: Err("fallback"))
+}
+
+@result_chain_bare_err () -> Result<int, str> = {
+    let a: Result<int, str> = Err("first");
+    a ?? Err("fallback")
+}
+
+// Result<int, str> ?? Ok(99) — bare Ok on RHS should chain
+@test_result_chain_bare_ok tests @result_chain_bare_ok () -> void = {
+    assert_eq(actual: result_chain_bare_ok(), expected: Ok(99))
+}
+
+@result_chain_bare_ok () -> Result<int, str> = {
+    let a: Result<int, str> = Err("first");
+    a ?? Ok(99)
+}
+
+// Result Ok short-circuits, bare Err never evaluated
+@test_result_chain_ok_bare_err tests @result_chain_ok_bare_err () -> void = {
+    assert_eq(actual: result_chain_ok_bare_err(), expected: Ok(1))
+}
+
+@result_chain_ok_bare_err () -> Result<int, str> = {
+    let a: Result<int, str> = Ok(1);
+    a ?? Err("should not matter")
+}
+
+// =============================================================================
+// Negative Tests (compile_fail pins)
+// =============================================================================
+
+// Negative pin: ?? requires Option or Result on the LHS
+#compile_fail("expected an Option type")
+@test_coalesce_non_option tests _ () -> void = {
+    let x = 42;
+    let result = x ?? 0;
+    result
+}
+
+// Negative pin: mismatched wrapper types should produce type mismatch
+#compile_fail("type mismatch")
+@test_coalesce_option_vs_result tests _ () -> void = {
+    let a: Option<int> = Some(1);
+    let b: Result<int, str> = Ok(2);
+    let c = a ?? b;
+    c
+}
+
+// Negative pin: nested wrapper mismatch must be rejected
+// Option<Option<int>> ?? Result<int, bool> — inner is Option<int>, not Result
+#compile_fail("type mismatch")
+@test_coalesce_nested_wrapper_mismatch tests _ () -> void = {
+    let a: Option<Option<int>> = Some(Some(1));
+    let b: Result<int, bool> = Err(false);
+    let c: Option<int> = a ?? b;
+    c
+}
+
+// Negative pin: Result nested wrapper mismatch
+// Result<Option<int>, str> ?? Result<int, bool> — Err types don't match
+#compile_fail("type mismatch")
+@test_coalesce_result_nested_mismatch tests _ () -> void = {
+    let a: Result<Option<int>, str> = Ok(Some(1));
+    let b: Result<int, bool> = Err(false);
+    let c: Option<int> = a ?? b;
+    c
 }

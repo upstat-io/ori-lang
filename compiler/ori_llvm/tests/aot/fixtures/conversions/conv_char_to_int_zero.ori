@@ -1,0 +1,6 @@
+@main () -> int = {
+    let c = '0';
+    let x = c.to_int();
+    // '0' is Unicode codepoint 48
+    if x == 48 then 0 else 1
+}

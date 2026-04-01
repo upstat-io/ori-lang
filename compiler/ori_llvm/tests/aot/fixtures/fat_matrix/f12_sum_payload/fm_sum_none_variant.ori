@@ -1,0 +1,7 @@
+@main () -> int = {
+    let x: Option<str> = None;
+    match x {
+        Some(_) -> 1,
+        None -> 0,
+    }
+}

@@ -1,0 +1,11 @@
+@main () -> int = {
+    let i = 0;
+    let total = 0;
+    loop {
+        i = i + 1;
+        if i > 20 then break;
+        if i % 3 == 0 then continue;
+        total = total + i
+    };
+    if total == 147 then 0 else 1
+}

@@ -13,19 +13,9 @@ use crate::util::{compile_and_capture_ir, extract_function_ir};
 /// 8-instruction boolean condition reduces to a single comparison.
 #[test]
 fn test_range_ascending_exclusive_single_icmp() {
-    let ir = compile_and_capture_ir(
-        r"
-@count_up (n: int) -> int = {
-    let count = 0;
-    for i in 0..n do {
-        count += 1
-    };
-    count
-}
-
-@main () -> int = count_up(n: 10);
-",
-    );
+    let ir = compile_and_capture_ir(include_str!(
+        "fixtures/ir_quality_loops/range_ascending_exclusive_single_icmp.ori"
+    ));
 
     let fn_ir = extract_function_ir(&ir, "_ori_count_up");
 
@@ -53,19 +43,9 @@ fn test_range_ascending_exclusive_single_icmp() {
 /// Ascending inclusive range (`0..=n`): single `icmp sle` in header.
 #[test]
 fn test_range_ascending_inclusive_single_icmp() {
-    let ir = compile_and_capture_ir(
-        r"
-@count_incl (n: int) -> int = {
-    let count = 0;
-    for i in 0..=n do {
-        count += 1
-    };
-    count
-}
-
-@main () -> int = count_incl(n: 10);
-",
-    );
+    let ir = compile_and_capture_ir(include_str!(
+        "fixtures/ir_quality_loops/range_ascending_inclusive_single_icmp.ori"
+    ));
 
     let fn_ir = extract_function_ir(&ir, "_ori_count_incl");
     let header = find_loop_header(fn_ir);
@@ -84,19 +64,9 @@ fn test_range_ascending_inclusive_single_icmp() {
 /// Descending exclusive range (`n..0 by -1`): single `icmp sgt` in header.
 #[test]
 fn test_range_descending_exclusive_single_icmp() {
-    let ir = compile_and_capture_ir(
-        r"
-@count_down (n: int) -> int = {
-    let count = 0;
-    for i in n..0 by -1 do {
-        count += 1
-    };
-    count
-}
-
-@main () -> int = count_down(n: 10);
-",
-    );
+    let ir = compile_and_capture_ir(include_str!(
+        "fixtures/ir_quality_loops/range_descending_exclusive_single_icmp.ori"
+    ));
 
     let fn_ir = extract_function_ir(&ir, "_ori_count_down");
     let header = find_loop_header(fn_ir);
@@ -115,19 +85,9 @@ fn test_range_descending_exclusive_single_icmp() {
 /// Descending inclusive range (`n..=0 by -1`): single `icmp sge` in header.
 #[test]
 fn test_range_descending_inclusive_single_icmp() {
-    let ir = compile_and_capture_ir(
-        r"
-@count_down_incl (n: int) -> int = {
-    let count = 0;
-    for i in n..=0 by -1 do {
-        count += 1
-    };
-    count
-}
-
-@main () -> int = count_down_incl(n: 10);
-",
-    );
+    let ir = compile_and_capture_ir(include_str!(
+        "fixtures/ir_quality_loops/range_descending_inclusive_single_icmp.ori"
+    ));
 
     let fn_ir = extract_function_ir(&ir, "_ori_count_down_incl");
     let header = find_loop_header(fn_ir);
@@ -146,19 +106,9 @@ fn test_range_descending_inclusive_single_icmp() {
 /// Variable step (`0..n by s`): falls back to general 8-instruction condition.
 #[test]
 fn test_range_variable_step_general_condition() {
-    let ir = compile_and_capture_ir(
-        r"
-@count_step (n: int, s: int) -> int = {
-    let count = 0;
-    for i in 0..n by s do {
-        count += 1
-    };
-    count
-}
-
-@main () -> int = count_step(n: 10, s: 2);
-",
-    );
+    let ir = compile_and_capture_ir(include_str!(
+        "fixtures/ir_quality_loops/range_variable_step_general_condition.ori"
+    ));
 
     let fn_ir = extract_function_ir(&ir, "_ori_count_step");
     let header = find_loop_header(fn_ir);
@@ -189,21 +139,9 @@ fn test_range_variable_step_general_condition() {
 /// `emit_checked_binop` should detect the duplicate and reuse the result.
 #[test]
 fn test_cse_loop_duplicate_add_eliminated() {
-    let ir = compile_and_capture_ir(
-        r"
-@sum_loop (n: int) -> int = {
-    let i = 0;
-    let total = 0;
-    loop {
-        if i >= n then break total;
-        total += i + 1;
-        i += 1
-    }
-}
-
-@main () -> int = sum_loop(n: 10);
-",
-    );
+    let ir = compile_and_capture_ir(include_str!(
+        "fixtures/ir_quality_loops/cse_loop_duplicate_add_eliminated.ori"
+    ));
 
     let fn_ir = extract_function_ir(&ir, "_ori_sum_loop");
 
@@ -224,18 +162,9 @@ fn test_cse_loop_duplicate_add_eliminated() {
 /// the same ARC block.
 #[test]
 fn test_cse_different_operands_not_eliminated() {
-    let ir = compile_and_capture_ir(
-        r"
-@three_adds (a: int, b: int, c: int) -> int = {
-    let x = a + b;
-    let y = a + c;
-    let z = b + c;
-    x + y + z
-}
-
-@main () -> int = three_adds(a: 1, b: 2, c: 3);
-",
-    );
+    let ir = compile_and_capture_ir(include_str!(
+        "fixtures/ir_quality_loops/cse_different_operands_not_eliminated.ori"
+    ));
 
     let fn_ir = extract_function_ir(&ir, "_ori_three_adds");
 
@@ -255,17 +184,9 @@ fn test_cse_different_operands_not_eliminated() {
 /// (sadd vs ssub), so they must not be merged.
 #[test]
 fn test_cse_different_intrinsics_not_merged() {
-    let ir = compile_and_capture_ir(
-        r"
-@add_and_sub (a: int, b: int) -> int = {
-    let sum = a + b;
-    let diff = a - b;
-    sum + diff
-}
-
-@main () -> int = add_and_sub(a: 10, b: 3);
-",
-    );
+    let ir = compile_and_capture_ir(include_str!(
+        "fixtures/ir_quality_loops/cse_different_intrinsics_not_merged.ori"
+    ));
 
     let fn_ir = extract_function_ir(&ir, "_ori_add_and_sub");
 
@@ -288,17 +209,9 @@ fn test_cse_different_intrinsics_not_merged() {
 /// separate `const_i64(1)` calls should match in the cache.
 #[test]
 fn test_cse_identical_constant_operands() {
-    let ir = compile_and_capture_ir(
-        r"
-@inc_twice (x: int) -> int = {
-    let a = x + 1;
-    let b = x + 1;
-    a + b
-}
-
-@main () -> int = inc_twice(x: 5);
-",
-    );
+    let ir = compile_and_capture_ir(include_str!(
+        "fixtures/ir_quality_loops/cse_identical_constant_operands.ori"
+    ));
 
     let fn_ir = extract_function_ir(&ir, "_ori_inc_twice");
 
@@ -323,22 +236,9 @@ fn test_cse_identical_constant_operands() {
 /// should use the function parameter `%1` directly.
 #[test]
 fn test_loop_invariant_binding_no_phi() {
-    let ir = compile_and_capture_ir(
-        r"
-@use_loop (n: int, m: int) -> int = {
-    let total = 0;
-    let limit = m;
-    let i = 0;
-    loop {
-        if i >= n then break total;
-        total += limit;
-        i += 1
-    }
-}
-
-@main () -> int = use_loop(n: 5, m: 10);
-",
-    );
+    let ir = compile_and_capture_ir(include_str!(
+        "fixtures/ir_quality_loops/loop_invariant_binding_no_phi.ori"
+    ));
 
     let fn_ir = extract_function_ir(&ir, "_ori_use_loop");
     let header = find_loop_header(fn_ir);
@@ -359,21 +259,9 @@ fn test_loop_invariant_binding_no_phi() {
 /// retain their phi nodes.
 #[test]
 fn test_loop_modified_binding_keeps_phi() {
-    let ir = compile_and_capture_ir(
-        r"
-@sum_to (n: int) -> int = {
-    let total = 0;
-    let i = 0;
-    loop {
-        if i >= n then break total;
-        total += i;
-        i += 1
-    }
-}
-
-@main () -> int = sum_to(n: 10);
-",
-    );
+    let ir = compile_and_capture_ir(include_str!(
+        "fixtures/ir_quality_loops/loop_modified_binding_keeps_phi.ori"
+    ));
 
     let fn_ir = extract_function_ir(&ir, "_ori_sum_to");
     let header = find_loop_header(fn_ir);
@@ -392,24 +280,9 @@ fn test_loop_modified_binding_keeps_phi() {
 /// Only `total` and `i` are modified inside the loop.
 #[test]
 fn test_multiple_invariant_bindings_no_phi() {
-    let ir = compile_and_capture_ir(
-        r"
-@multi_inv (n: int, a: int, b: int, c: int) -> int = {
-    let total = 0;
-    let x = a;
-    let y = b;
-    let z = c;
-    let i = 0;
-    loop {
-        if i >= n then break total;
-        total += x + y + z;
-        i += 1
-    }
-}
-
-@main () -> int = multi_inv(n: 3, a: 1, b: 2, c: 3);
-",
-    );
+    let ir = compile_and_capture_ir(include_str!(
+        "fixtures/ir_quality_loops/multiple_invariant_bindings_no_phi.ori"
+    ));
 
     let fn_ir = extract_function_ir(&ir, "_ori_multi_inv");
     let header = find_loop_header(fn_ir);
@@ -432,19 +305,9 @@ fn test_multiple_invariant_bindings_no_phi() {
 /// `icmp sle` without needing the runtime inclusive flag.
 #[test]
 fn test_range_constant_inclusive_skips_proj3() {
-    let ir = compile_and_capture_ir(
-        r"
-@sum_incl (n: int) -> int = {
-    let total = 0;
-    for i in 1..=n do {
-        total += i
-    };
-    total
-}
-
-@main () -> int = sum_incl(n: 5);
-",
-    );
+    let ir = compile_and_capture_ir(include_str!(
+        "fixtures/ir_quality_loops/range_constant_inclusive_skips_proj3.ori"
+    ));
 
     let fn_ir = extract_function_ir(&ir, "_ori_sum_incl");
     // Count range-related extractvalues in bb0 (before the loop header).

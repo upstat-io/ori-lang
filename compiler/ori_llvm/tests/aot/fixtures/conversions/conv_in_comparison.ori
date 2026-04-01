@@ -1,0 +1,6 @@
+@main () -> int = {
+    let x = 5;
+    let y = 5.0;
+    // Compare by converting int to float
+    if x.to_float() == y then 0 else 1
+}

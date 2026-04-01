@@ -1,0 +1,4 @@
+@main () -> int = {
+    let x = float(42);
+    if x == 42.0 then 0 else 1
+}

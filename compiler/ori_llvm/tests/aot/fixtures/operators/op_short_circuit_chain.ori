@@ -1,0 +1,8 @@
+@main () -> int = {
+    let x = 10;
+    // All conditions must be checked in order, stopping at first false for &&
+    let ok = x > 0 && x < 100 && x == 10 && x != 5;
+    // At least one must be true for ||, stopping at first true
+    let any = x == 5 || x == 7 || x == 10 || x == 15;
+    if ok && any then 0 else 1
+}

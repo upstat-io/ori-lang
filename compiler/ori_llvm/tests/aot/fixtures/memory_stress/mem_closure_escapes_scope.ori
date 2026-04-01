@@ -1,0 +1,16 @@
+type Config = { multiplier: int, name: str }
+
+@make_multiplier (m: int) -> (int) -> int = {
+    let cfg = Config { multiplier: m, name: "mul" };
+    (x: int) -> int = x * cfg.multiplier
+}
+
+@main () -> int = {
+    let total = 0;
+    for i in 1..=100 do {
+        let mul = make_multiplier(m: i);
+        total = total + mul(x: 3)
+    };
+    // total = sum(3*i for i in 1..100) = 3 * 100*101/2 = 15150
+    if total == 15150 then 0 else 1
+}

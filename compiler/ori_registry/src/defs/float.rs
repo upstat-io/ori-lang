@@ -337,4 +337,5 @@ pub static FLOAT: TypeDef = TypeDef {
         shl: OpStrategy::Unsupported,
         shr: OpStrategy::Unsupported,
     },
+    traits: &["Default"],
 };

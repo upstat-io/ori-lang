@@ -19,6 +19,7 @@ pub(crate) mod tuple_layout;
 #[cfg(test)]
 mod tests;
 
+use crate::enum_repr::VariantRepr;
 use crate::repr::MachineRepr;
 use crate::struct_repr::{FieldRepr, TupleRepr};
 
@@ -163,6 +164,19 @@ pub(crate) fn compute_field_layout(fields: &[FieldRepr]) -> (u32, u32) {
         offset += field_size(&f.repr);
     }
     (round_up(offset, align), align)
+}
+
+/// Compute size and alignment for a tagless (single-variant) enum.
+///
+/// Unit newtypes get minimal size (1, 1) for LLVM struct compatibility.
+/// Non-unit variants use their payload's size and alignment.
+#[must_use]
+pub(crate) fn compute_tagless_enum_layout(variant: &VariantRepr) -> (u32, u32) {
+    if variant.size == 0 {
+        (1, 1) // Unit newtype: minimal size for LLVM struct
+    } else {
+        (variant.size, variant.alignment.max(1))
+    }
 }
 
 /// Compute layout for an enum variant's payload using `[M x i64]` slot packing.

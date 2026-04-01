@@ -1,0 +1,6 @@
+@main () -> int = {
+    let a = "this is already on the heap!";
+    let b = " and so is this one too!!";
+    let c = a + b;
+    if c == "this is already on the heap! and so is this one too!!" then 0 else 1
+}

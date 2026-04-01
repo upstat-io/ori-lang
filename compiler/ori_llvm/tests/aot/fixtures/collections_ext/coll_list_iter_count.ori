@@ -1,0 +1,5 @@
+@main () -> int = {
+    let xs = [10, 20, 30];
+    let count = xs.iter().count();
+    if count == 3 then 0 else 1
+}

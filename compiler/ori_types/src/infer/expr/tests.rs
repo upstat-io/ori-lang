@@ -1632,6 +1632,158 @@ fn test_infer_coalesce() {
     assert!(!engine.has_errors());
 }
 
+/// COALESCE-CHAIN: `Option<T> ?? Option<T> -> Option<T>`
+/// Spec: operator-rules.md §Coalesce
+#[test]
+fn test_infer_coalesce_option_chain() {
+    test_engine!(pool, engine);
+    let mut arena = ExprArena::new();
+
+    // Bind 'a' and 'b' to Option<int>
+    let opt_ty = engine.infer_option(Idx::INT);
+    engine.env_mut().bind(name(1), opt_ty);
+    engine.env_mut().bind(name(2), opt_ty);
+
+    let left = alloc(&mut arena, ExprKind::Ident(name(1)));
+    let right = alloc(&mut arena, ExprKind::Ident(name(2)));
+    let coalesce = alloc(
+        &mut arena,
+        ExprKind::Binary {
+            op: BinaryOp::Coalesce,
+            left,
+            right,
+        },
+    );
+
+    let ty = infer_expr(&mut engine, &arena, coalesce);
+    assert!(!engine.has_errors());
+
+    // Drop engine to release mutable borrow on pool
+    drop(engine);
+
+    let tag = pool.tag(pool.resolve_fully(ty));
+    assert_eq!(tag, Tag::Option, "Option<int> ?? Option<int> = Option<int>");
+    let inner = pool.option_inner(pool.resolve_fully(ty));
+    assert_eq!(
+        pool.resolve_fully(inner),
+        Idx::INT,
+        "inner type should be int"
+    );
+}
+
+/// COALESCE-RESULT-CHAIN: `Result<T,E> ?? Result<T,E> -> Result<T,E>`
+/// Spec: operator-rules.md §Coalesce
+#[test]
+fn test_infer_coalesce_result_chain() {
+    test_engine!(pool, engine);
+    let mut arena = ExprArena::new();
+
+    // Bind 'a' and 'b' to Result<int, str>
+    let res_ty = engine.infer_result(Idx::INT, Idx::STR);
+    engine.env_mut().bind(name(1), res_ty);
+    engine.env_mut().bind(name(2), res_ty);
+
+    let left = alloc(&mut arena, ExprKind::Ident(name(1)));
+    let right = alloc(&mut arena, ExprKind::Ident(name(2)));
+    let coalesce = alloc(
+        &mut arena,
+        ExprKind::Binary {
+            op: BinaryOp::Coalesce,
+            left,
+            right,
+        },
+    );
+
+    let ty = infer_expr(&mut engine, &arena, coalesce);
+    assert!(!engine.has_errors());
+
+    drop(engine);
+
+    let tag = pool.tag(pool.resolve_fully(ty));
+    assert_eq!(
+        tag,
+        Tag::Result,
+        "Result<int,str> ?? Result<int,str> = Result<int,str>"
+    );
+    let ok_ty = pool.result_ok(pool.resolve_fully(ty));
+    let err_ty = pool.result_err(pool.resolve_fully(ty));
+    assert_eq!(pool.resolve_fully(ok_ty), Idx::INT, "ok type should be int");
+    assert_eq!(
+        pool.resolve_fully(err_ty),
+        Idx::STR,
+        "err type should be str"
+    );
+}
+
+/// COALESCE-CHAIN with polymorphic RHS: `Option<int> ?? None -> Option<int>`
+/// Regression: TPR-02-003 — chain detection must work when RHS is bare `None`
+/// (type variable not yet unified before comparison).
+#[test]
+fn test_infer_coalesce_option_chain_bare_none() {
+    test_engine!(pool, engine);
+    let mut arena = ExprArena::new();
+
+    // Bind 'a' to Option<int>
+    let opt_ty = engine.infer_option(Idx::INT);
+    engine.env_mut().bind(name(1), opt_ty);
+
+    let left = alloc(&mut arena, ExprKind::Ident(name(1)));
+    let right = alloc(&mut arena, ExprKind::None); // bare None → Option<_>
+    let coalesce = alloc(
+        &mut arena,
+        ExprKind::Binary {
+            op: BinaryOp::Coalesce,
+            left,
+            right,
+        },
+    );
+
+    let ty = infer_expr(&mut engine, &arena, coalesce);
+    assert!(!engine.has_errors(), "Option<int> ?? None should not error");
+
+    drop(engine);
+
+    let tag = pool.tag(pool.resolve_fully(ty));
+    assert_eq!(
+        tag,
+        Tag::Option,
+        "Option<int> ?? None = Option<int> (chain, not unwrap)"
+    );
+    let inner = pool.option_inner(pool.resolve_fully(ty));
+    assert_eq!(
+        pool.resolve_fully(inner),
+        Idx::INT,
+        "inner type should be int"
+    );
+}
+
+/// Original unwrap behavior preserved: `Option<int> ?? int -> int`
+/// Semantic pin: would fail if we always returned wrapper type.
+#[test]
+fn test_infer_coalesce_unwrap_preserved() {
+    test_engine!(pool, engine);
+    let mut arena = ExprArena::new();
+
+    let opt_ty = engine.infer_option(Idx::INT);
+    engine.env_mut().bind(name(1), opt_ty);
+
+    let left = alloc(&mut arena, ExprKind::Ident(name(1)));
+    let right = alloc(&mut arena, ExprKind::Int(42));
+    let coalesce = alloc(
+        &mut arena,
+        ExprKind::Binary {
+            op: BinaryOp::Coalesce,
+            left,
+            right,
+        },
+    );
+
+    let ty = infer_expr(&mut engine, &arena, coalesce);
+
+    assert_eq!(ty, Idx::INT, "Option<int> ?? int still unwraps to int");
+    assert!(!engine.has_errors());
+}
+
 // ========================================================================
 // Pattern Expression Tests (FunctionSeq)
 // ========================================================================

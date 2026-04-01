@@ -1,0 +1,8 @@
+@main () -> int = {
+    let m: {str: str} = {};
+    let m = m.insert("key one is a heap string that exceeds SSO threshold", "val one is a heap string that exceeds SSO threshold");
+    let m = m.insert("key two is a heap string that exceeds SSO threshold", "val two is a heap string that exceeds SSO threshold");
+    let vals = m.values();
+    let keys = m.keys();
+    if vals.len() == 2 && keys.len() == 2 then 0 else 1
+}

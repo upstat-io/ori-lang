@@ -1,0 +1,4 @@
+@main () -> int = {
+    let result = [1, 2, 3, 4, 5, 6].iter().filter((x) -> x % 2 == 0).count();
+    if result == 3 then 0 else 1
+}

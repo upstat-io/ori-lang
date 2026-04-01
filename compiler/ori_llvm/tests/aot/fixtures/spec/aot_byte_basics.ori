@@ -1,0 +1,10 @@
+@main () -> int = {
+    let a: byte = 65;
+    let b: byte = 65;
+    let c: byte = 0;
+    let d: byte = 255;
+    let eq = a == b;
+    let ne = a != c;
+    let bounds = c != d;
+    if eq && ne && bounds then 0 else 1
+}

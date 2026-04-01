@@ -1,0 +1,4 @@
+@main () -> int = {
+    let t = (1, 2, 3);
+    if t.0 + t.1 + t.2 == 6 then 0 else 1
+}

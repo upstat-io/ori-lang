@@ -1,0 +1,5 @@
+@main () -> int = {
+    let xs = [1, 2, 3];
+    let last = xs.pop();
+    if last.is_some() && last.unwrap() == 3 then 0 else 1
+}

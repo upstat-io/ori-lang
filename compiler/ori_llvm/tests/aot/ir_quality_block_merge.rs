@@ -16,18 +16,9 @@ use crate::util::{
 /// the resulting jump chains, eliminating `br label %bbN` bridge blocks.
 #[test]
 fn test_sequential_calls_no_bridge_blocks() {
-    let ir = compile_and_capture_ir(
-        r"
-@add (a: int, b: int) -> int = a + b;
-
-@main () -> int = {
-    let x = add(a: 1, b: 2);
-    let y = add(a: x, b: 3);
-    let z = add(a: y, b: 4);
-    z
-}
-",
-    );
+    let ir = compile_and_capture_ir(include_str!(
+        "fixtures/ir_quality_block_merge/sequential_calls_no_bridge_blocks.ori"
+    ));
 
     let main_ir = extract_function_ir(&ir, "_ori_main");
     let bridges = count_bridge_blocks(main_ir);
@@ -42,13 +33,9 @@ fn test_sequential_calls_no_bridge_blocks() {
 /// @main calling a function should produce no bridge-only blocks.
 #[test]
 fn test_main_with_call_no_bridge_blocks() {
-    let ir = compile_and_capture_ir(
-        r"
-@double (x: int) -> int = x * 2;
-
-@main () -> int = double(x: 21);
-",
-    );
+    let ir = compile_and_capture_ir(include_str!(
+        "fixtures/ir_quality_block_merge/main_with_call_no_bridge_blocks.ori"
+    ));
 
     let main_ir = extract_function_ir(&ir, "_ori_main");
     let bridges = count_bridge_blocks(main_ir);
@@ -69,19 +56,9 @@ fn test_main_with_call_no_bridge_blocks() {
 /// block with chained `select` instructions. No phi nodes, no bridge blocks.
 #[test]
 fn test_match_pure_values_no_bridge_blocks() {
-    let ir = compile_and_capture_ir(
-        r"
-@classify (x: int) -> int = match x {
-    0 -> 10,
-    1 -> 20,
-    2 -> 30,
-    3 -> 40,
-    _ -> 50,
-};
-
-@main () -> int = classify(x: 2);
-",
-    );
+    let ir = compile_and_capture_ir(include_str!(
+        "fixtures/ir_quality_block_merge/match_pure_values_no_bridge_blocks.ori"
+    ));
 
     let classify_ir = extract_function_ir(&ir, "_ori_classify");
     let bridges = count_bridge_blocks(classify_ir);
@@ -111,22 +88,9 @@ fn test_match_pure_values_no_bridge_blocks() {
 /// a branch to merge — not a separate bridge block that only holds `br`.
 #[test]
 fn test_match_call_arms_no_bridge_blocks() {
-    let ir = compile_and_capture_ir(
-        r"
-@double (x: int) -> int = x + x;
-@triple (x: int) -> int = x + x + x;
-@quad (x: int) -> int = x + x + x + x;
-
-@dispatch (op: int, val: int) -> int = match op {
-    0 -> double(x: val),
-    1 -> triple(x: val),
-    2 -> quad(x: val),
-    _ -> val,
-};
-
-@main () -> int = dispatch(op: 1, val: 5);
-",
-    );
+    let ir = compile_and_capture_ir(include_str!(
+        "fixtures/ir_quality_block_merge/match_call_arms_no_bridge_blocks.ori"
+    ));
 
     let dispatch_ir = extract_function_ir(&ir, "_ori_dispatch");
     let bridges = count_bridge_blocks(dispatch_ir);
@@ -151,13 +115,9 @@ fn test_match_call_arms_no_bridge_blocks() {
 /// this into a single `select` instruction.
 #[test]
 fn test_trivial_if_else_emits_select() {
-    let ir = compile_and_capture_ir(
-        r"
-@pick (x: int, a: int, b: int) -> int = if x > 0 then a else b;
-
-@main () -> int = pick(x: 5, a: 10, b: 20);
-",
-    );
+    let ir = compile_and_capture_ir(include_str!(
+        "fixtures/ir_quality_block_merge/trivial_if_else_emits_select.ori"
+    ));
 
     let pick_ir = extract_function_ir(&ir, "_ori_pick");
 
@@ -187,16 +147,9 @@ fn test_trivial_if_else_emits_select() {
 /// (`is_trivial_body` only accepts `Let { Literal | Var }`).
 #[test]
 fn test_nontrivial_if_else_emits_diamond() {
-    let ir = compile_and_capture_ir(
-        r"
-@f (x: int) -> int = x + 1;
-@g (x: int) -> int = x - 1;
-
-@pick (x: int) -> int = if x > 0 then f(x: x) else g(x: x);
-
-@main () -> int = pick(x: 5);
-",
-    );
+    let ir = compile_and_capture_ir(include_str!(
+        "fixtures/ir_quality_block_merge/nontrivial_if_else_emits_diamond.ori"
+    ));
 
     let pick_ir = extract_function_ir(&ir, "_ori_pick");
 
@@ -213,13 +166,9 @@ fn test_nontrivial_if_else_emits_diamond() {
 /// but not in the trivial whitelist (only `Literal` and `Var`).
 #[test]
 fn test_if_else_with_negation_emits_diamond() {
-    let ir = compile_and_capture_ir(
-        r"
-@pick (x: int) -> int = if x > 0 then -x else x;
-
-@main () -> int = pick(x: 5);
-",
-    );
+    let ir = compile_and_capture_ir(include_str!(
+        "fixtures/ir_quality_block_merge/if_else_with_negation_emits_diamond.ori"
+    ));
 
     let pick_ir = extract_function_ir(&ir, "_ori_pick");
 
@@ -238,19 +187,9 @@ fn test_if_else_with_negation_emits_diamond() {
 /// any single-predecessor phis should be eliminated.
 #[test]
 fn test_enum_match_no_single_pred_phis() {
-    let ir = compile_and_capture_ir(
-        r"
-type Status = Active | Inactive | Pending;
-
-@to_code (s: Status) -> int = match s {
-    Active -> 1,
-    Inactive -> 2,
-    Pending -> 3,
-};
-
-@main () -> int = to_code(s: Active);
-",
-    );
+    let ir = compile_and_capture_ir(include_str!(
+        "fixtures/ir_quality_block_merge/enum_match_no_single_pred_phis.ori"
+    ));
 
     let fn_ir = extract_function_ir(&ir, "_ori_to_code");
     let single_pred = count_single_pred_phis(fn_ir);
@@ -266,21 +205,9 @@ type Status = Active | Inactive | Pending;
 /// single-predecessor phis.
 #[test]
 fn test_option_propagation_no_single_pred_phis() {
-    let ir = compile_and_capture_ir(
-        r"
-@try_div (a: int, b: int) -> Option<int> = {
-    if b == 0 then None else Some(a / b)
-};
-
-@main () -> int = {
-    let r = try_div(a: 10, b: 2);
-    match r {
-        Some(v) -> v,
-        None -> -1,
-    }
-}
-",
-    );
+    let ir = compile_and_capture_ir(include_str!(
+        "fixtures/ir_quality_block_merge/option_propagation_no_single_pred_phis.ori"
+    ));
 
     let fn_ir = extract_function_ir(&ir, "_ori_try_div");
     let single_pred = count_single_pred_phis(fn_ir);
@@ -296,16 +223,9 @@ fn test_option_propagation_no_single_pred_phis() {
 /// direct value reference, not phi.
 #[test]
 fn test_single_entry_merge_uses_direct_value() {
-    let ir = compile_and_capture_ir(
-        r"
-@pick (x: int, a: int, b: int) -> int = {
-    let result = if x > 0 then a else b;
-    result * 2
-};
-
-@main () -> int = pick(x: 1, a: 10, b: 20);
-",
-    );
+    let ir = compile_and_capture_ir(include_str!(
+        "fixtures/ir_quality_block_merge/single_entry_merge_uses_direct_value.ori"
+    ));
 
     let fn_ir = extract_function_ir(&ir, "_ori_pick");
     let single_pred = count_single_pred_phis(fn_ir);
@@ -323,20 +243,9 @@ fn test_single_entry_merge_uses_direct_value() {
 /// lowering. Phase 5 should ensure no single-predecessor phis remain.
 #[test]
 fn test_synthetic_single_pred_phi_eliminated() {
-    let ir = compile_and_capture_ir(
-        r"
-@inc (x: int) -> int = x + 1;
-@dec (x: int) -> int = x - 1;
-
-@synthetic (x: int) -> int = {
-    let a = if x > 0 then inc(x: x) else dec(x: x);
-    let b = a * 2;
-    b
-};
-
-@main () -> int = synthetic(x: 5);
-",
-    );
+    let ir = compile_and_capture_ir(include_str!(
+        "fixtures/ir_quality_block_merge/synthetic_single_pred_phi_eliminated.ori"
+    ));
 
     let fn_ir = extract_function_ir(&ir, "_ori_synthetic");
     let single_pred = count_single_pred_phis(fn_ir);
@@ -357,21 +266,9 @@ fn test_synthetic_single_pred_phi_eliminated() {
 /// bindings and Phase 4 merges the blocks.
 #[test]
 fn test_single_break_loop_clean_exit() {
-    let ir = compile_and_capture_ir(
-        r"
-@sum_loop (n: int) -> int = {
-    let i = 0;
-    let total = 0;
-    loop {
-        if i >= n then break total;
-        total += i + 1;
-        i += 1
-    }
-};
-
-@main () -> int = sum_loop(n: 5);
-",
-    );
+    let ir = compile_and_capture_ir(include_str!(
+        "fixtures/ir_quality_block_merge/single_break_loop_clean_exit.ori"
+    ));
 
     let fn_ir = extract_function_ir(&ir, "_ori_sum_loop");
 
@@ -396,22 +293,9 @@ fn test_single_break_loop_clean_exit() {
 /// after the loop should be eliminated by dead-param analysis.
 #[test]
 fn test_multi_break_loop_no_dead_phis() {
-    let ir = compile_and_capture_ir(
-        r"
-@multi_break (n: int) -> int = {
-    let i = 0;
-    let total = 0;
-    loop {
-        if i >= n then break total;
-        if total > 100 then break -1;
-        total += i + 1;
-        i += 1
-    }
-};
-
-@main () -> int = multi_break(n: 5);
-",
-    );
+    let ir = compile_and_capture_ir(include_str!(
+        "fixtures/ir_quality_block_merge/multi_break_loop_no_dead_phis.ori"
+    ));
 
     let fn_ir = extract_function_ir(&ir, "_ori_multi_break");
 
@@ -430,21 +314,9 @@ fn test_multi_break_loop_no_dead_phis() {
 /// must be preserved. Only unused params should be eliminated.
 #[test]
 fn test_multi_break_loop_preserves_live_params() {
-    let ir = compile_and_capture_ir(
-        r"
-@search (n: int) -> int = {
-    let i = 0;
-    let found = loop {
-        if i >= n then break -1;
-        if i * i > n then break i;
-        i += 1
-    };
-    found + i
-};
-
-@main () -> int = search(n: 10);
-",
-    );
+    let ir = compile_and_capture_ir(include_str!(
+        "fixtures/ir_quality_block_merge/multi_break_loop_preserves_live_params.ori"
+    ));
 
     let fn_ir = extract_function_ir(&ir, "_ori_search");
 

@@ -1,0 +1,6 @@
+@main () -> int = {
+    let xs = [30, 10, 20];
+    let sorted = xs.sort();
+    let ok = sorted[0] == 10 && sorted[1] == 20 && sorted[2] == 30;
+    if ok then 0 else 1
+}

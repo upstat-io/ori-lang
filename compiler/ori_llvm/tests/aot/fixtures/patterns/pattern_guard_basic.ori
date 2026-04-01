@@ -1,0 +1,14 @@
+@classify (n: int) -> int = match n {
+    x if x > 100 -> 3,
+    x if x > 10 -> 2,
+    x if x > 0 -> 1,
+    _ -> 0,
+};
+
+@main () -> int = {
+    let a = classify(n: 200);
+    let b = classify(n: 50);
+    let c = classify(n: 5);
+    let d = classify(n: -1);
+    if a == 3 && b == 2 && c == 1 && d == 0 then 0 else 1
+}

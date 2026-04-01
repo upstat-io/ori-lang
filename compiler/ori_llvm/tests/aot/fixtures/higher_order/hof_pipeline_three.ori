@@ -1,0 +1,9 @@
+@pipe3 (f: (int) -> int, g: (int) -> int, h: (int) -> int, x: int) -> int = h(g(f(x)));
+
+@main () -> int = {
+    let add1 = (n: int) -> n + 1;
+    let dbl = (n: int) -> n * 2;
+    let sub3 = (n: int) -> n - 3;
+    // 5 → 6 → 12 → 9
+    if pipe3(f: add1, g: dbl, h: sub3, x: 5) == 9 then 0 else 1
+}

@@ -1,0 +1,12 @@
+@main () -> int = {
+    let a = 1;
+    let f = (b: int) -> {
+        let g = (c: int) -> {
+            let h = (d: int) -> a + b + c + d;
+            h(4)
+        };
+        g(3)
+    };
+    // 1 + 2 + 3 + 4 = 10
+    if f(2) == 10 then 0 else 1
+}

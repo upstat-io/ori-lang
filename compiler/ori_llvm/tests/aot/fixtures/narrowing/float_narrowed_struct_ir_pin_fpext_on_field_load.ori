@@ -1,0 +1,9 @@
+type FVec2 = { x: float, y: float }
+
+@sum_fields (v: FVec2) -> float = v.x + v.y;
+
+@main () -> int = {
+    let v = FVec2 { x: 0.5, y: 0.25 };
+    let s = sum_fields(v:);
+    if s == 0.75 then 0 else 1
+}

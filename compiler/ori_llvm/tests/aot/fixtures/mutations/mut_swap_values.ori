@@ -1,0 +1,8 @@
+@main () -> int = {
+    let a = 10;
+    let b = 20;
+    let temp = a;
+    a = b;
+    b = temp;
+    if a == 20 && b == 10 then 0 else 1
+}

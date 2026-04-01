@@ -1,0 +1,5 @@
+@main () -> int = {
+    let result = for x in [10, 20, 30] yield x;
+    let ok = result[0] == 10 && result[1] == 20 && result[2] == 30;
+    if ok then 0 else 1
+}

@@ -1,0 +1,5 @@
+@main () -> int = {
+    let s = "this is a long string that exceeds SSO threshold of twenty three bytes";
+    let f = () -> s.length();
+    if f() == 70 then 0 else 1
+}

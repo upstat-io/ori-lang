@@ -1,0 +1,12 @@
+@unwrap_or (opt: Option<int>, default: int) -> int =
+    if is_some(option: opt) then 42 else default;
+
+@main () -> int = {
+    let x = Some(42);
+    let y: Option<int> = None;
+    let a = unwrap_or(opt: x, default: 0);
+    let b = unwrap_or(opt: y, default: 99);
+    if a == 42 then {
+        if b == 99 then 0 else 1
+    } else 2
+}

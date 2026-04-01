@@ -1,0 +1,9 @@
+@id (x: int) -> int = x;
+
+@compute () -> int = {
+    let x = 100;
+    let y = x + 50;
+    id(x: y)
+}
+
+@main () -> int = compute();

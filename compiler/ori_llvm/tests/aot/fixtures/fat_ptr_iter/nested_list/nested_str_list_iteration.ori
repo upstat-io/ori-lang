@@ -1,0 +1,14 @@
+@main () -> int = {
+    let lists = [
+        ["this is a very long string that exceeds SSO threshold", "also long enough to be on the heap here"],
+        ["third very long string exceeding SSO threshold bytes", "fourth long string on the heap too"]
+    ];
+    let total = 0;
+    for inner in lists do {
+        for s in inner do {
+            total = total + s.len();
+        };
+    };
+    // 53 + 39 + 52 + 34 = 178
+    if total == 178 then 0 else 1
+}

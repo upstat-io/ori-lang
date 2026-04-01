@@ -1,0 +1,11 @@
+#[derive(Eq)]
+type FVec = { x: float, y: float }
+
+@main () -> int = {
+    let a = FVec { x: 0.5, y: 0.25 };
+    let b = FVec { x: 0.5, y: 0.25 };
+    let c = FVec { x: 1.0, y: 0.0 };
+    let ok1 = a == b;
+    let ok2 = a != c;
+    if ok1 && ok2 then 0 else 1
+}

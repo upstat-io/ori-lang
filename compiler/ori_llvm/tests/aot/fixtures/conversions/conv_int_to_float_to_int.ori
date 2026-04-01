@@ -1,0 +1,5 @@
+@main () -> int = {
+    let x = 42;
+    let roundtrip = x.to_float().to_int();
+    if roundtrip == 42 then 0 else 1
+}

@@ -1,0 +1,14 @@
+@get_value () -> Result<int, str> = Ok(21);
+
+@double_value () -> Result<int, str> = {
+    let x = get_value()?;
+    Ok(x * 2)
+}
+
+@main () -> int = {
+    let r = double_value();
+    if r.is_ok() then {
+        let v = r.unwrap();
+        if v == 42 then 0 else 1
+    } else 1
+}

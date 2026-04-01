@@ -1,0 +1,8 @@
+#derive(Eq)
+type MixedDoc = { items: [str] }
+
+@main () -> int = {
+    let a = MixedDoc { items: ["hi", "a_very_long_heap_allocated_string_here"] };
+    let b = MixedDoc { items: ["hi", "a_very_long_heap_allocated_string_here"] };
+    if a == b then 0 else 1
+}

@@ -1,0 +1,7 @@
+@apply_to_str (f: (str) -> int, s: str) -> int = f(s);
+
+@get_len (s: str) -> int = s.length();
+
+@main () -> int = {
+    if apply_to_str(f: get_len, s: "hello") == 5 then 0 else 1
+}

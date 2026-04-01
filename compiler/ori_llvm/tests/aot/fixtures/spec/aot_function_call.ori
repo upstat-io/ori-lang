@@ -1,0 +1,6 @@
+@double (n: int) -> int = n * 2;
+
+@main () -> int = {
+    let result = double(n: 21);
+    if result == 42 then 0 else 1
+}

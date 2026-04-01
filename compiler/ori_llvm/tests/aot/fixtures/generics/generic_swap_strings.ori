@@ -1,0 +1,6 @@
+@swap <A, B> (a: A, b: B) -> (B, A) = (b, a);
+
+@main () -> int = {
+    let (b, a) = swap(a: "first", b: "second");
+    if a == "first" && b == "second" then 0 else 1
+}

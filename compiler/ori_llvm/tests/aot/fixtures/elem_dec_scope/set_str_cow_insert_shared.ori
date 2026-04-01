@@ -1,0 +1,9 @@
+@main () -> int = {
+    let base: Set<str> = [
+        "this is a long heap string exceeding SSO threshold for testing purposes"
+    ].iter().collect();
+    let shared = base;
+    let fork = shared.insert("another long heap string to verify set COW insert cleanup");
+    // base has 1 element, fork has 2 — both alive, shared buffer rehashed
+    if base.len() == 1 && fork.len() == 2 then 0 else 1
+}

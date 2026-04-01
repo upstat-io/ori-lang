@@ -106,6 +106,15 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             return false;
         }
 
+        // BUG-04-008: If the projected field is Unit/Never, it's zero-sized
+        // and doesn't exist in the LLVM payload. Return a zero constant.
+        let resolved_field_ty = self.pool.resolve_fully(ty);
+        if matches!(self.pool.tag(resolved_field_ty), Tag::Unit | Tag::Never) {
+            let zero = self.builder.const_zero_ty(result_ty);
+            self.def_var_repr(dst, zero, func);
+            return true;
+        }
+
         let is_general_enum = matches!(
             val_type_info,
             super::super::type_info::TypeInfo::Enum { .. }
@@ -177,10 +186,19 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 self.def_var_repr(dst, loaded, func);
             }
         } else {
-            // Result: payload is a typed field at struct index 1.
-            let gep =
-                self.builder
-                    .struct_gep(llvm_val_ty, alloca, field, &format!("proj.{field}.gep"));
+            // Result/Option: payload is a typed field.
+            // §07.2: niche layout has no tag field → payload at index 0.
+            let struct_idx = if self.get_niche_encoding(val_ty).is_some() {
+                field - 1 // niche: no tag field
+            } else {
+                field // explicit: tag at 0, payload at 1+
+            };
+            let gep = self.builder.struct_gep(
+                llvm_val_ty,
+                alloca,
+                struct_idx,
+                &format!("proj.{field}.gep"),
+            );
             let loaded = self.builder.load(result_ty, gep, &format!("proj.{field}"));
             self.def_var_repr(dst, loaded, func);
         }
@@ -206,6 +224,45 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         if let Some(&(tag, scratch_ptr, elem_llvm_ty)) = self.iter_next_decomposed.get(&value) {
             self.emit_project_iter_next(dst, field, tag, scratch_ptr, elem_llvm_ty, func);
             return;
+        }
+
+        // §07.2: Niche-encoded enum tag extraction.
+        // When Project { field: 0 } targets a niche-encoded enum, extract the
+        // niche field value (not a logical variant index). The raw niche field
+        // value is recorded in `niche_scrutinees` so Switch can emit the
+        // correct comparison.
+        if field == 0 {
+            let val_ty = func.var_type(value);
+            if let Some(encoding) = self.get_niche_encoding(val_ty) {
+                if encoding.is_tagless() {
+                    // Single-variant: tag is always 0.
+                    let zero = self.builder.const_i64(0);
+                    self.def_var_repr(dst, zero, func);
+                    return;
+                }
+                // Niche: extract the niche field from the struct.
+                let niche_idx = encoding.niche_field_index().unwrap();
+                let v = self.var(value);
+                let llvm_ty = self.resolve_type(val_ty);
+                let niche_val = if let Some(extracted) =
+                    self.builder.extract_value(v, niche_idx, "niche.field")
+                {
+                    extracted
+                } else {
+                    // Pointer-based access: GEP + load.
+                    let field_ty = self
+                        .builder
+                        .struct_field_type(llvm_ty, niche_idx)
+                        .unwrap_or_else(|| self.builder.i64_type());
+                    let gep = self
+                        .builder
+                        .struct_gep(llvm_ty, v, niche_idx, "niche.field.gep");
+                    self.builder.load(field_ty, gep, "niche.field")
+                };
+                self.niche_scrutinees.insert(dst, val_ty);
+                self.def_var(dst, super::EmittedValue::Immediate(niche_val));
+                return;
+            }
         }
 
         let val = self.var(value);
@@ -450,16 +507,35 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             }
 
             ArcInstr::SetTag { base, tag } => {
-                // In-place tag update for enum variants.
-                // Tag is field 0 of the enum representation: { narrowed_tag, ... }
                 let base_val = self.var(*base);
                 let base_ty = func.var_type(*base);
                 let llvm_ty = self.resolve_type(base_ty);
 
-                let tag_ptr = self.builder.struct_gep(llvm_ty, base_val, 0, "set.tag.ptr");
-                let tag_val = self.builder.const_int_for_struct_field(llvm_ty, 0, *tag);
-                self.builder.store(tag_val, tag_ptr);
-                // base pointer unchanged — mutation is in-place
+                // §07.2: Niche/tagless encoding — conditional tag store.
+                if let Some(encoding) = self.get_niche_encoding(base_ty) {
+                    if encoding.is_tagless() {
+                        // Single-variant enum: no tag to store.
+                    } else if encoding.needs_tag_store(*tag as u32) {
+                        // Niche variant: store niche_value into the niche field.
+                        let niche_idx = encoding.niche_field_index().unwrap();
+                        let niche_value = encoding.variant_to_tag_value(*tag as u32);
+                        let field_ptr =
+                            self.builder
+                                .struct_gep(llvm_ty, base_val, niche_idx, "set.niche.ptr");
+                        let field_val = self.builder.const_int_for_struct_field(
+                            llvm_ty,
+                            niche_idx,
+                            niche_value,
+                        );
+                        self.builder.store(field_val, field_ptr);
+                    }
+                    // Non-niche variant: no-op — payload implicitly identifies variant.
+                } else {
+                    // Explicit tag: field 0 of { narrowed_tag, ... }
+                    let tag_ptr = self.builder.struct_gep(llvm_ty, base_val, 0, "set.tag.ptr");
+                    let tag_val = self.builder.const_int_for_struct_field(llvm_ty, 0, *tag);
+                    self.builder.store(tag_val, tag_ptr);
+                }
             }
 
             ArcInstr::Select {

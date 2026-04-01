@@ -1,0 +1,8 @@
+#[derive(Eq, Clone)]
+type Big = { a: int, b: int, c: int }
+
+@main () -> int = {
+    let x = Big { a: 1, b: 2, c: 3 };
+    let y = x.clone();
+    if x.eq(other: y) then 0 else 1
+}

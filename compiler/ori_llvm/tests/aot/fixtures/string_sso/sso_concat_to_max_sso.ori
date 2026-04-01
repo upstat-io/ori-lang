@@ -1,0 +1,7 @@
+@main () -> int = {
+    // 11 + 12 = 23 bytes — exactly at SSO limit
+    let a = "12345678901";
+    let b = "234567890123";
+    let c = a + b;
+    if c.length() == 23 then 0 else 1
+}

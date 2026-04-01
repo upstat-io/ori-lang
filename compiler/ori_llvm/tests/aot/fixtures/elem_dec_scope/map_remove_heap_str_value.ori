@@ -1,0 +1,8 @@
+@main () -> int = {
+    let m: {int: str} = {};
+    let m = m.insert(1, "first heap string value that exceeds the SSO threshold of twenty three");
+    let m = m.insert(2, "second heap string value that exceeds the SSO threshold for testing");
+    let m = m.insert(3, "third heap string value that exceeds the SSO threshold for removal");
+    let m2 = m.remove(key: 2);
+    if m2.len() == 2 then 0 else 1
+}

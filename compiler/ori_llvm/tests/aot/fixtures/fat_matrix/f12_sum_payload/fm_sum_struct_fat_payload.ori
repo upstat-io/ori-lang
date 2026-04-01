@@ -1,0 +1,10 @@
+type Named = { name: str, id: int }
+type Value = Person(info: Named) | Unknown;
+
+@main () -> int = {
+    let v = Person(info: Named { name: "alice", id: 1 });
+    match v {
+        Person(info) ->if info.name.length() + info.id == 6 then 0 else 1,
+        Unknown -> 2,
+    }
+}

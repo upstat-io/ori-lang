@@ -1,0 +1,18 @@
+type Record = { name: str, data: str }
+
+@make_alpha () -> Record =
+    Record { name: "alpha-record-name-over-23-bytes!", data: "alpha-data-payload-over-23-bytes!" };
+
+@make_beta () -> Record =
+    Record { name: "beta-record-name-over-23-bytes!", data: "beta-data-payload-over-23-bytes!" };
+
+@main () -> int = {
+    let $a = make_alpha();
+    let $b = make_beta();
+    // Runtime-variable condition: a.name is 32 chars, b.name is 31 chars
+    let $pick = if a.name.len() > b.name.len()
+        then a.name
+        else b.name;
+    // Untaken branch's parent must be cleaned up without double-free or leak
+    if pick == "alpha-record-name-over-23-bytes!" then 0 else 1
+}

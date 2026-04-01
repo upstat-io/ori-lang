@@ -1,0 +1,11 @@
+@try_div (a: int, b: int) -> Option<int> = {
+    if b == 0 then None else Some(a / b)
+};
+
+@main () -> int = {
+    let r = try_div(a: 10, b: 2);
+    match r {
+        Some(v) -> v,
+        None -> -1,
+    }
+}

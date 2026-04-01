@@ -1,0 +1,6 @@
+@main () -> int = {
+    let a: int = if false then panic(msg: "nope") else 1;
+    let b: str = if true then "hello" else panic(msg: "nope");
+    let c: bool = if true then true else panic(msg: "nope");
+    if a == 1 && b == "hello" && c then 0 else 1
+}

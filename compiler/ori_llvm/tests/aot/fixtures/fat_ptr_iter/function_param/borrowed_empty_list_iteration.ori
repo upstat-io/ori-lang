@@ -1,0 +1,14 @@
+@sum_lens (words: [str]) -> int = {
+    let total = 0;
+    for w in words do {
+        total = total + w.len();
+    };
+    total
+}
+
+@main () -> int = {
+    let empty: [str] = [];
+    let a = sum_lens(words: empty);
+    let b = sum_lens(words: empty);
+    if a == 0 && b == 0 then 0 else 1
+}

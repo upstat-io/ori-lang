@@ -1,0 +1,6 @@
+@main () -> int = {
+    let m: {str: int} = {};
+    let count = 0;
+    for (k, v) in m do count += 1;
+    if count == 0 then 0 else 1
+}

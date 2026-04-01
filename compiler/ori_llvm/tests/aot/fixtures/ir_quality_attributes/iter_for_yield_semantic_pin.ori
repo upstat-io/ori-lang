@@ -1,0 +1,8 @@
+@main () -> int = {
+    let lengths = for w in ["a", "bb", "ccc"] yield w.length();
+    if lengths.length() == 3 then {
+        let total = 0;
+        for n in lengths do total += n;
+        total
+    } else 0
+}

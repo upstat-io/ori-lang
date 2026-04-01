@@ -1,0 +1,9 @@
+@sum_incl (n: int) -> int = {
+    let total = 0;
+    for i in 1..=n do {
+        total += i
+    };
+    total
+}
+
+@main () -> int = sum_incl(n: 5);

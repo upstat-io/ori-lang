@@ -1,0 +1,21 @@
+@wrap (x: Option<int>) -> Option<Option<int>> = Some(x);
+@wrap_none () -> Option<Option<int>> = None;
+
+@main () -> int = {
+    let a = wrap(x: Some(42));
+    let b = wrap(x: Some(42));
+    let c = wrap(x: Some(99));
+    let d = wrap(x: None);
+    let e = wrap_none();
+    // Same value → equals
+    let r1 = a.equals(b);
+    // Different inner value → not equals
+    let r2 = !a.equals(c);
+    // Some(Some(42)) != Some(None)
+    let r3 = !a.equals(d);
+    // Some(None) != None
+    let r4 = !d.equals(e);
+    // None == None
+    let r5 = e.equals(wrap_none());
+    if r1 && r2 && r3 && r4 && r5 then 0 else 1
+}

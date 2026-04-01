@@ -11,7 +11,6 @@ use rustc_hash::{FxHashMap, FxHashSet};
 use ori_ir::{Name, StringInterner};
 use ori_types::{Idx, Tag};
 
-use super::info::EnumVariantInfo;
 use super::store::TypeInfoStore;
 use super::TypeInfo;
 use crate::context::SimpleCx;
@@ -44,16 +43,16 @@ pub struct TypeLayoutResolver<'a, 'll, 'tcx> {
     /// types (primitives, fat pointers, opaque pointers). When absent (or when
     /// the plan has no entry for a type, or the type requires recursive
     /// resolution), falls back to `TypeInfoStore`.
-    repr_plan: Option<&'a ori_repr::ReprPlan>,
+    pub(super) repr_plan: Option<&'a ori_repr::ReprPlan>,
     /// Types currently being resolved (cycle detection).
     ///
     /// When we encounter an `Idx` already in this set, we've found a cycle
     /// and return the previously created opaque struct instead of recursing.
-    resolving: RefCell<FxHashSet<Idx>>,
+    pub(super) resolving: RefCell<FxHashSet<Idx>>,
     /// Resolved LLVM types cache.
     cache: RefCell<FxHashMap<Idx, BasicTypeEnum<'ll>>>,
     /// Named struct types created during resolution (for body filling).
-    named_structs: RefCell<FxHashMap<Idx, StructType<'ll>>>,
+    pub(super) named_structs: RefCell<FxHashMap<Idx, StructType<'ll>>>,
     /// Recursion depth counter for indirect cycle detection.
     ///
     /// The `resolving` set catches direct cycles (same `Idx`), but misses
@@ -137,9 +136,17 @@ impl<'a, 'll, 'tcx> TypeLayoutResolver<'a, 'll, 'tcx> {
         resolved
     }
 
-    // try_repr_to_llvm_type and try_lower_narrowed_aggregate live in repr_lowering.rs.
+    // `try_repr_to_llvm_type` and `try_lower_narrowed_aggregate` are defined in
+    // `type_info/repr_lowering.rs` (same `impl TypeLayoutResolver` block).
+    // Enum resolution methods (resolve_enum, resolve_enum_explicit,
+    // resolve_enum_tagless, resolve_enum_niche, is_non_void_field)
+    // live in `type_info/enum_layout.rs`.
 
     /// Inner resolve implementation, separated for depth guard.
+    #[expect(
+        clippy::too_many_lines,
+        reason = "§07.2 niche checks on Option/Result add 30 lines to dispatch"
+    )]
     fn resolve_inner(&self, idx: Idx) -> BasicTypeEnum<'ll> {
         // Cycle detection: if we're already resolving this type, we've
         // found a recursive reference. For Struct/Enum this is handled by
@@ -196,28 +203,59 @@ impl<'a, 'll, 'tcx> TypeLayoutResolver<'a, 'll, 'tcx> {
 
             // Tagged unions with possible recursive payloads.
             TypeInfo::Option { inner } => {
+                // §07.2: Check ReprPlan for niche encoding.
+                let resolved_idx = self.store.pool().resolve_fully(idx);
+                if let Some(enum_repr) = self.repr_plan.and_then(|p| p.get_enum_repr(resolved_idx))
+                {
+                    if enum_repr.tag.is_niche() {
+                        // Niche layout: struct IS the inner type (no tag field).
+                        self.resolving.borrow_mut().insert(idx);
+                        let payload = self.resolve(*inner);
+                        self.resolving.borrow_mut().remove(&idx);
+                        let name = self.type_name(idx, "Enum");
+                        let named_struct = self.scx.type_named_struct(&name);
+                        self.named_structs.borrow_mut().insert(idx, named_struct);
+                        self.scx.set_struct_body(named_struct, &[payload], false);
+                        return named_struct.into();
+                    }
+                }
+                // Explicit tag: { i64, T }
                 self.resolving.borrow_mut().insert(idx);
                 let payload = self.resolve(*inner);
                 self.resolving.borrow_mut().remove(&idx);
-                // Option/Result use i64 tag in LLVM layout to match ori_rt runtime
-                // expectations. Runtime functions (ori_list_first, ori_map_get, etc.)
-                // write {i64 tag, T payload} to sret pointers. Narrowing Option/Result
-                // tags to i8 requires a coordinated ori_rt update.
-                // User-defined enums are narrowed via resolve_enum().
                 self.scx
                     .type_struct(&[self.scx.type_i64().into(), payload], false)
                     .into()
             }
             TypeInfo::Result { ok, err } => {
+                // §07.2: Check ReprPlan for niche encoding.
+                let resolved_idx = self.store.pool().resolve_fully(idx);
+                if let Some(enum_repr) = self.repr_plan.and_then(|p| p.get_enum_repr(resolved_idx))
+                {
+                    if enum_repr.tag.is_niche() {
+                        self.resolving.borrow_mut().insert(idx);
+                        let ok_ty = self.resolve(*ok);
+                        let err_ty = self.resolve(*err);
+                        self.resolving.borrow_mut().remove(&idx);
+                        // Niche: data variant's payload. Use the larger type.
+                        let ok_size = Self::type_store_size(ok_ty);
+                        let err_size = Self::type_store_size(err_ty);
+                        let payload = if ok_size >= err_size { ok_ty } else { err_ty };
+                        let name = self.type_name(idx, "Enum");
+                        let named_struct = self.scx.type_named_struct(&name);
+                        self.named_structs.borrow_mut().insert(idx, named_struct);
+                        self.scx.set_struct_body(named_struct, &[payload], false);
+                        return named_struct.into();
+                    }
+                }
+                // Explicit tag: { i64, payload }
                 self.resolving.borrow_mut().insert(idx);
                 let ok_ty = self.resolve(*ok);
                 let err_ty = self.resolve(*err);
                 self.resolving.borrow_mut().remove(&idx);
-                // Use the larger of the two as the payload type.
                 let ok_size = Self::type_store_size(ok_ty);
                 let err_size = Self::type_store_size(err_ty);
                 let payload = if ok_size >= err_size { ok_ty } else { err_ty };
-                // See Option comment above — i64 tag for runtime compatibility.
                 self.scx
                     .type_struct(&[self.scx.type_i64().into(), payload], false)
                     .into()
@@ -308,65 +346,12 @@ impl<'a, 'll, 'tcx> TypeLayoutResolver<'a, 'll, 'tcx> {
         named_struct.into()
     }
 
-    /// Resolve an enum type with two-phase creation for cycle safety.
-    ///
-    /// Layout: `{ i64 tag, [M x i64] payload }` where M is enough i64s to
-    /// hold the largest variant's fields. All-unit enums omit the payload.
-    fn resolve_enum(&self, idx: Idx, variants: &[EnumVariantInfo]) -> BasicTypeEnum<'ll> {
-        if self.resolving.borrow().contains(&idx) {
-            if let Some(&named) = self.named_structs.borrow().get(&idx) {
-                return named.into();
-            }
-            return self.scx.type_ptr().into();
-        }
-
-        let name = self.type_name(idx, "Enum");
-        let named_struct = self.scx.type_named_struct(&name);
-        self.named_structs.borrow_mut().insert(idx, named_struct);
-        self.resolving.borrow_mut().insert(idx);
-
-        // Enum payloads use [M x i64] layout where each field occupies
-        // at least one full i64 slot (8 bytes). Must match
-        // compute_variant_field_offsets() in drop_enum.rs and
-        // enum_payload_size() / pool_type_store_size() in ori_arc.
-        let mut max_payload_bytes: u64 = 0;
-        for variant in variants {
-            let variant_bytes: u64 = variant
-                .fields
-                .iter()
-                .map(|&f| {
-                    let ty = self.resolve(f);
-                    let size = Self::type_store_size(ty);
-                    // Round up to 8-byte i64 slot boundary
-                    size.div_ceil(8) * 8
-                })
-                .sum();
-            max_payload_bytes = max_payload_bytes.max(variant_bytes);
-        }
-
-        // §07.1: Use narrowed tag type (i8 for ≤256 variants) instead of i64.
-        let tag_ty = match ori_repr::min_tag_width(variants.len()) {
-            ori_repr::IntWidth::I8 => self.scx.type_i8(),
-            ori_repr::IntWidth::I16 => self.scx.type_i16(),
-            ori_repr::IntWidth::I32 => self.scx.type_i32(),
-            ori_repr::IntWidth::I64 => self.scx.type_i64(),
-        };
-        if max_payload_bytes == 0 {
-            self.scx
-                .set_struct_body(named_struct, &[tag_ty.into()], false);
-        } else {
-            let payload_i64_count = max_payload_bytes.div_ceil(8);
-            let payload_ty = self.scx.type_i64().array_type(payload_i64_count as u32);
-            self.scx
-                .set_struct_body(named_struct, &[tag_ty.into(), payload_ty.into()], false);
-        }
-
-        self.resolving.borrow_mut().remove(&idx);
-        named_struct.into()
-    }
+    // Enum resolution methods (resolve_enum, resolve_enum_explicit,
+    // resolve_enum_tagless, resolve_enum_niche, is_non_void_field)
+    // live in enum_layout.rs.
 
     /// Get a human-readable name for an LLVM named struct.
-    fn type_name(&self, idx: Idx, fallback: &str) -> String {
+    pub(super) fn type_name(&self, idx: Idx, fallback: &str) -> String {
         let pool = self.store.pool();
         if idx.raw() as usize >= pool.len() {
             return format!("ori.{}.{}", fallback, idx.raw());
@@ -387,7 +372,7 @@ impl<'a, 'll, 'tcx> TypeLayoutResolver<'a, 'll, 'tcx> {
     }
 
     /// Resolve a `Name` to its string representation.
-    fn resolve_name(&self, name: Name) -> String {
+    pub(super) fn resolve_name(&self, name: Name) -> String {
         if let Some(interner) = self.interner {
             if let Some(s) = interner.try_lookup(name) {
                 return s.to_owned();

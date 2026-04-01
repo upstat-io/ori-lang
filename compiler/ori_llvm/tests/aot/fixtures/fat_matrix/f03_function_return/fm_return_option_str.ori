@@ -1,0 +1,10 @@
+@maybe_greet (do_greet: bool) -> Option<str> =
+    if do_greet then Some("hello") else None;
+
+@main () -> int = {
+    let a = maybe_greet(do_greet: true);
+    let b = maybe_greet(do_greet: false);
+    if is_some(option: a) then {
+        if is_none(option: b) then 0 else 1
+    } else 2
+}

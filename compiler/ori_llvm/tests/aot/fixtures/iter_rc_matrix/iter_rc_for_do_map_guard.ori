@@ -1,0 +1,12 @@
+@main () -> int = {
+    let m = {
+        "long key string that exceeds the SSO threshold of twenty three": 10,
+        "another long key string that also exceeds SSO threshold clearly": 20,
+        "third long key string also exceeds SSO threshold needs heap too": 30
+    };
+    let sum = 0;
+    for entry in m do {
+        if entry.1 > 15 then sum = sum + entry.1;
+    };
+    if sum == 50 then 0 else 1
+}

@@ -1,0 +1,9 @@
+#[derive(Eq, Hashable)]
+type NarrowHash = { a: int, b: int }
+
+@compute_hash (p: NarrowHash) -> int = p.hash();
+
+@main () -> int = {
+    let p = NarrowHash { a: -50, b: -120 };
+    compute_hash(p:)
+}

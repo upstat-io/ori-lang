@@ -1,0 +1,6 @@
+@identity<T> (x: T) -> T = x;
+
+@main () -> int = {
+    let xs = identity(x: [10, 20, 30]);
+    if xs.length() == 3 then 0 else 1
+}

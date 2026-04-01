@@ -1,0 +1,3 @@
+@count (xs: [str]) -> int = xs.len();
+
+@main (args: [str]) -> int = count(xs: args);

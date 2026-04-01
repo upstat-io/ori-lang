@@ -1,0 +1,4 @@
+@main () -> int = {
+    let m = {1: "one", 2: "two", 3: "three"};
+    if m.length() == 3 then 0 else 1
+}

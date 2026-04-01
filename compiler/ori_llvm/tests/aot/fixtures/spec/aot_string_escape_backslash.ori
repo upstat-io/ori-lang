@@ -1,0 +1,4 @@
+@main () -> int = {
+    let s = "a\\b";
+    if s.length() == 3 then 0 else 1
+}

@@ -1,0 +1,4 @@
+@main () -> int = {
+    let xs = [1].push(2).push(3).push(4).push(5);
+    if xs.length() == 5 then 0 else 1
+}

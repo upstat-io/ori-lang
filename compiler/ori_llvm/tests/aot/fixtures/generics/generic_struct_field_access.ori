@@ -1,0 +1,9 @@
+type Pair<A, B> = { first: A, second: B };
+
+@first <A, B> (p: Pair<A, B>) -> A = p.first;
+
+@main () -> int = {
+    let p = Pair { first: 42, second: 10 };
+    let f = first(p: p);
+    if f + 1 == 43 then 0 else 1
+}

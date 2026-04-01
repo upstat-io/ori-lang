@@ -1,0 +1,11 @@
+@main () -> int = {
+    let total = 0;
+    for i in 0..10 do {
+        let $s = "loop_capture_heap_str_" + str(i);
+        let $f = () -> int = s.len();
+        total = total + f();
+    };
+    // "loop_capture_heap_str_" is 22 chars + 1 digit = 23 per iteration
+    // 10 iterations × 23 = 230
+    if total == 230 then 0 else 1
+}

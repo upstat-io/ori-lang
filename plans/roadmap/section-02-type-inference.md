@@ -126,6 +126,7 @@ All 39 compile-fail test files pass: `cargo st tests/compile-fail/` (count updat
 - [x] Spec and compile-fail tests pass — ~97 active Ori spec tests + 39 compile-fail files [done] (2026-02-10, counts updated 2026-03-29)
 - [x] Run full test suite: `./test-all.sh` — all pass [done] (2026-02-10)
 - [ ] `/tpr-review` passed — independent Codex review found no critical or major issues (or all findings triaged)
+- [ ] `/impl-hygiene-review last commit` passed — implementation hygiene review clean (phase boundaries, SSOT, algorithmic DRY, naming). MUST run AFTER `/tpr-review` is clean.
 
 **Exit Criteria Met**: Complete type inference with error messages and hints.
 

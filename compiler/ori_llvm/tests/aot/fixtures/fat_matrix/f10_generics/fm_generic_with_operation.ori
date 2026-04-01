@@ -1,0 +1,8 @@
+@get_len (xs: [int]) -> int = xs.length();
+
+@apply<T> (f: (T) -> int, x: T) -> int = f(x);
+
+@main () -> int = {
+    let result = apply(f: get_len, x: [10, 20, 30]);
+    if result == 3 then 0 else 1
+}

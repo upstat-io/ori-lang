@@ -1,0 +1,13 @@
+type Person = { name: str, age: int }
+
+@main () -> int = {
+    let people = [
+        Person { name: "this is a very long name exceeding SSO threshold", age: 30 },
+        Person { name: "another very long name exceeding SSO threshold too", age: 25 }
+    ];
+    let total_age = 0;
+    for p in people do {
+        total_age = total_age + p.age;
+    };
+    if total_age == 55 then 0 else 1
+}

@@ -1,0 +1,5 @@
+@main () -> int = {
+    let greeting = "hello";
+    let f = (n: int) -> int = greeting.length() + n;
+    if f(5) == 10 then 0 else 1
+}

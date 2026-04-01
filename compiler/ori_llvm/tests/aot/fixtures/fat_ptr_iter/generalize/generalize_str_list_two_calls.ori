@@ -1,0 +1,17 @@
+@count_lengths (words: [str]) -> int = {
+    let total = 0;
+    for w in words do {
+        total = total + w.len()
+    };
+    total
+}
+
+@main () -> int = {
+    let words = [
+        "this is a very long string that exceeds SSO threshold",
+        "another very long string that also exceeds the threshold"
+    ];
+    let r1 = count_lengths(words: words);
+    let r2 = count_lengths(words: words);
+    if r1 == 109 && r2 == 109 then 0 else 1
+}

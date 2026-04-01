@@ -1,0 +1,30 @@
+type Chain = Done | Link(a: int, b: int, next: Chain);
+
+@build (n: int) -> Chain = {
+    if n <= 0 then Done
+    else Link(a: n, b: n * 3, next: build(n: n - 1))
+};
+
+@rewrite (c: Chain) -> Chain = match c {
+    Done -> Done,
+    Link(a, b, next) -> Link(a: a + 1, b: b - 1, next: rewrite(c: next)),
+};
+
+@score (c: Chain) -> int = match c {
+    Done -> 0,
+    Link(a, b, next) -> a + b + score(c: next),
+};
+
+@len (c: Chain) -> int = match c {
+    Done -> 0,
+    Link(_, _, next) -> 1 + len(c: next),
+};
+
+@main () -> int = {
+    let $input = build(n: 80);
+    let $before = score(c: input);
+    let $output = rewrite(c: input);
+    let $after = score(c: output);
+    let $len_ok = len(c: output) == 80;
+    if before == after && len_ok then 0 else 1
+}

@@ -1,0 +1,16 @@
+type Temp = { x: int, s: str }
+
+@compute (n: int) -> int = {
+    let t = Temp { x: n, s: "temporary" };
+    t.x * 2
+}
+
+@main () -> int = {
+    let sum = 0;
+    for i in 0..5000 do {
+        // Each call allocates and frees a Temp
+        sum = sum + compute(n: i)
+    };
+    // sum(2i for i in 0..5000) = 2 * 4999*5000/2 = 24995000
+    if sum == 24995000 then 0 else 1
+}

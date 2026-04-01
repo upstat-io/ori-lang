@@ -1,0 +1,11 @@
+#[derive(Eq, Hashable)]
+type SignedPixel = { r: int, g: int, b: int }
+
+@main () -> int = {
+    let a = SignedPixel { r: -50, g: -120, b: 100 };
+    let b = SignedPixel { r: -50, g: -120, b: 100 };
+    let c = SignedPixel { r: 50, g: 120, b: -100 };
+    let same = a.hash() == b.hash();
+    let diff = a.hash() != c.hash();
+    if same && diff then 0 else 1
+}

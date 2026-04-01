@@ -1,0 +1,16 @@
+trait Summarizable {
+    @name (self) -> str
+    @summary (self) -> str = "Item: " + self.name();
+}
+
+type Item = { label: str }
+
+impl Summarizable for Item {
+    @name (self) -> str = self.label;
+}
+
+@main () -> int = {
+    let item = Item { label: "widget" };
+    let s = item.summary();
+    if s == "Item: widget" then 0 else 1
+}

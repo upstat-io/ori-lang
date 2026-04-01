@@ -1,0 +1,10 @@
+@main () -> int = {
+    let t = (1, 2);
+    let r = match t {
+        (1, y) -> y,
+        (x, 2) -> x * 10,
+        _ -> 0,
+    };
+    // First arm matches: y = 2
+    if r == 2 then 0 else 1
+}

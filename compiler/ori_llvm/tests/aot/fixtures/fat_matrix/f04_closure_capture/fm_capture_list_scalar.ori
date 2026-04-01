@@ -1,0 +1,5 @@
+@main () -> int = {
+    let xs = [10, 20, 30];
+    let f = (n: int) -> int = xs.length() + n;
+    if f(7) == 10 then 0 else 1
+}

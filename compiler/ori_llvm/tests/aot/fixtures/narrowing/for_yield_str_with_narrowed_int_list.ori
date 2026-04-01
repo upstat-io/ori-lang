@@ -1,0 +1,12 @@
+use std.testing { assert_eq }
+@main () -> void = {
+    // Narrowed [int] literal (all values fit in i8)
+    let xs: [int] = [1, 2, 3];
+    assert_eq(actual: xs[0], expected: 1);
+
+    // for-yield producing [str] — must NOT use narrowed elem_size
+    let ys: [str] = for x in xs.iter() yield if x == 1 then `a` else `bb`;
+    assert_eq(actual: ys[0], expected: `a`);
+    assert_eq(actual: ys[1], expected: `bb`);
+    assert_eq(actual: ys[2], expected: `bb`);
+}

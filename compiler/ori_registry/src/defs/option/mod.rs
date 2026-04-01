@@ -105,7 +105,7 @@ static OPTION_METHODS: &[MethodDef] = &[
         "iter",
         &[],
         ReturnTag::IteratorOf(TypeProjection::Element),
-        None,
+        Some("Iterable"),
         Ownership::Borrow,
         false,
     ),
@@ -145,6 +145,7 @@ pub static OPTION: TypeDef = TypeDef {
     type_params: TypeParamArity::Fixed(1),
     methods: OPTION_METHODS,
     operators: OpDefs::UNSUPPORTED,
+    traits: &["Default", "Printable"],
 };
 
 #[cfg(test)]

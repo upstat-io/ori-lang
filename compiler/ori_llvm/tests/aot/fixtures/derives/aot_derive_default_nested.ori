@@ -1,0 +1,10 @@
+#[derive(Default)]
+type Inner = { x: int, y: int }
+
+#[derive(Default)]
+type Outer = { inner: Inner, label: str }
+
+@main () -> int = {
+    let o = Outer.default();
+    if o.inner.x == 0 && o.inner.y == 0 && o.label == "" then 0 else 1
+}

@@ -1,0 +1,10 @@
+@id <T> (x: T) -> T = x;
+@wrap <T> (x: T) -> T = id(x: x);
+
+@main () -> int = {
+    let a = wrap(x: 42);
+    let b = wrap(x: true);
+    let c = wrap(x: "test");
+    let d = wrap(x: 3.14);
+    if a == 42 && b && c == "test" && d > 3.0 then 0 else 1
+}

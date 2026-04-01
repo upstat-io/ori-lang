@@ -1,0 +1,7 @@
+@main () -> int = {
+    let x = Some("hello");
+    let y: Option<str> = None;
+    if is_some(option: x) then {
+        if is_none(option: y) then 0 else 1
+    } else 2
+}

@@ -1,0 +1,8 @@
+@compose (f: (int) -> int, g: (int) -> int, x: int) -> int = f(g(x));
+
+@main () -> int = {
+    let dbl = (n: int) -> n * 2;
+    let inc = (n: int) -> n + 1;
+    // compose(5) = (5*2)+1 = 11
+    if compose(f: inc, g: dbl, x: 5) == 11 then 0 else 1
+}

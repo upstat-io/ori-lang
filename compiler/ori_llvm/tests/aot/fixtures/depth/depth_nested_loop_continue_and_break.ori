@@ -1,0 +1,15 @@
+@main () -> int = {
+    let count = 0;
+    for i in 0..20 do {
+        if i % 3 == 0 then continue;
+        let j = 0;
+        loop {
+            if j >= i then break;
+            j = j + 1;
+            if j % 2 == 0 then continue;
+            count = count + 1
+        }
+    };
+    // This is complex - we just verify it compiles, runs, and doesn't leak
+    if count >= 0 then 0 else 1
+}

@@ -7,21 +7,7 @@ use crate::util::assert_aot_success;
 #[test]
 fn test_map_keys_str() {
     assert_aot_success(
-        r#"
-@main () -> int = {
-    let m = {
-        "this is a very long key exceeding SSO threshold here": 10,
-        "another very long key that also exceeds the SSO thresh": 20
-    };
-    let keys = m.keys();
-    let total = 0;
-    for k in keys do {
-        total = total + k.len();
-    };
-    // 53 + 53 = 106
-    if total == 106 then 0 else 1
-}
-"#,
+        include_str!("../fixtures/fat_ptr_iter/conversion/map_keys_str.ori"),
         "map_keys_str",
     );
 }
@@ -31,21 +17,7 @@ fn test_map_keys_str() {
 #[test]
 fn test_map_values_str() {
     assert_aot_success(
-        r#"
-@main () -> int = {
-    let m = {
-        1: "this is a very long value exceeding SSO threshold here",
-        2: "another very long value that also exceeds the SSO thresh"
-    };
-    let vals = m.values();
-    let total = 0;
-    for v in vals do {
-        total = total + v.len();
-    };
-    // 54 + 56 = 110
-    if total == 110 then 0 else 1
-}
-"#,
+        include_str!("../fixtures/fat_ptr_iter/conversion/map_values_str.ori"),
         "map_values_str",
     );
 }
@@ -55,18 +27,7 @@ fn test_map_values_str() {
 #[test]
 fn test_str_split() {
     assert_aot_success(
-        r#"
-@main () -> int = {
-    let s = "this is a very long string that exceeds SSO threshold,another very long string also exceeds";
-    let parts = s.split(sep: ",");
-    let total = 0;
-    for p in parts do {
-        total = total + p.len();
-    };
-    // 53 + 37 = 90
-    if total == 90 then 0 else 1
-}
-"#,
+        include_str!("../fixtures/fat_ptr_iter/conversion/str_split.ori"),
         "str_split",
     );
 }
@@ -80,21 +41,7 @@ fn test_str_split() {
 #[test]
 fn test_str_split_in_tuple_list() {
     assert_aot_success(
-        r#"
-@main () -> int = {
-    let s = "this is a long string part one,and this is another very long part two";
-    let parts = s.split(sep: ",");
-    let pairs: [(str, int)] = for p in parts yield (p, p.len());
-    let total = 0;
-    for (text, n) in pairs do {
-        total = total + n + text.len();
-    };
-    // parts: "this is a long string part one" (30), "and this is another very long part two" (38)
-    // pairs: [("this...", 30), ("and...", 38)]
-    // total = 30 + 30 + 38 + 38 = 136
-    if total == 136 then 0 else 1
-}
-"#,
+        include_str!("../fixtures/fat_ptr_iter/conversion/str_split_in_tuple_list.ori"),
         "str_split_in_tuple_list",
     );
 }
@@ -105,22 +52,7 @@ fn test_str_split_in_tuple_list() {
 #[test]
 fn test_str_split_in_option_list() {
     assert_aot_success(
-        r#"
-@main () -> int = {
-    let s = "hello this is a long enough string to exceed SSO,world and another long one";
-    let parts = s.split(sep: ",");
-    let opts: [Option<str>] = for p in parts yield Some(p);
-    let total = 0;
-    for opt in opts do {
-        match opt {
-            Some(text) -> { total = total + text.len(); },
-            None -> ()
-        };
-    };
-    // "hello this is a long enough string to exceed SSO" (48) + "world and another long one" (26) = 74
-    if total == 74 then 0 else 1
-}
-"#,
+        include_str!("../fixtures/fat_ptr_iter/conversion/str_split_in_option_list.ori"),
         "str_split_in_option_list",
     );
 }
@@ -133,21 +65,7 @@ fn test_str_split_in_option_list() {
 #[test]
 fn test_str_split_function_param() {
     assert_aot_success(
-        r#"
-@use_str (s: str) -> int = s.len();
-
-@main () -> int = {
-    let text = "this is a long string part that exceeds SSO limit easily,and so does this second part";
-    let parts = text.split(sep: ",");
-    let total = 0;
-    for p in parts do {
-        let n = use_str(s: p);
-        total = total + n;
-    };
-    // "this is a long string part that exceeds SSO limit easily" (56) + "and so does this second part" (28) = 84
-    if total == 84 then 0 else 1
-}
-"#,
+        include_str!("../fixtures/fat_ptr_iter/conversion/str_split_function_param.ori"),
         "str_split_function_param",
     );
 }
@@ -157,24 +75,7 @@ fn test_str_split_function_param() {
 #[test]
 fn test_map_keys_then_use_map() {
     assert_aot_success(
-        r#"
-@main () -> int = {
-    let m = {
-        "this is a very long key exceeding SSO threshold here": 10,
-        "another very long key that also exceeds the SSO thresh": 20
-    };
-    let keys = m.keys();
-    let val_total = 0;
-    for (_, v) in m do {
-        val_total = val_total + v;
-    };
-    let key_total = 0;
-    for k in keys do {
-        key_total = key_total + k.len();
-    };
-    if val_total == 30 && key_total == 106 then 0 else 1
-}
-"#,
+        include_str!("../fixtures/fat_ptr_iter/conversion/map_keys_then_use_map.ori"),
         "map_keys_then_use_map",
     );
 }
@@ -189,20 +90,7 @@ fn test_map_keys_then_use_map() {
 #[test]
 fn test_str_split_clone() {
     assert_aot_success(
-        r#"
-@main () -> int = {
-    let text = "this is a long string exceeding SSO by a large amount,and this second part also exceeds it";
-    let parts = text.split(sep: ",");
-    let total = 0;
-    for p in parts do {
-        let copy = p.clone();
-        total = total + copy.len();
-    };
-    // "this is a long string exceeding SSO by a large amount" (53) +
-    // "and this second part also exceeds it" (36) = 89
-    if total == 89 then 0 else 1
-}
-"#,
+        include_str!("../fixtures/fat_ptr_iter/conversion/str_split_clone.ori"),
         "str_split_clone",
     );
 }
@@ -216,21 +104,7 @@ fn test_str_split_clone() {
 #[test]
 fn test_str_split_auto_iter() {
     assert_aot_success(
-        r#"
-@main () -> int = {
-    let text = "this is a long string exceeding SSO by a large amount,and this second part also exceeds it";
-    let parts = text.split(sep: ",");
-    let total = 0;
-    for p in parts do {
-        let n = p.iter().count();
-        total = total + n;
-    };
-    // "this is a long string exceeding SSO by a large amount" = 53 chars
-    // "and this second part also exceeds it" = 36 chars
-    // total = 89
-    if total == 89 then 0 else 1
-}
-"#,
+        include_str!("../fixtures/fat_ptr_iter/conversion/str_split_auto_iter.ori"),
         "str_split_auto_iter",
     );
 }
@@ -240,21 +114,7 @@ fn test_str_split_auto_iter() {
 #[test]
 fn test_set_to_list_str() {
     assert_aot_success(
-        r#"
-@main () -> int = {
-    let s: Set<str> = [
-        "this is a very long string that exceeds SSO threshold",
-        "another very long string that also exceeds the threshold"
-    ].iter().collect();
-    let list = s.to_list();
-    let total = 0;
-    for item in list do {
-        total = total + item.len();
-    };
-    // 53 + 56 = 109
-    if total == 109 then 0 else 1
-}
-"#,
+        include_str!("../fixtures/fat_ptr_iter/conversion/set_to_list_str.ori"),
         "set_to_list_str",
     );
 }
@@ -266,21 +126,7 @@ fn test_set_to_list_str() {
 #[test]
 fn test_str_split_on_substring() {
     assert_aot_success(
-        r#"
-@main () -> int = {
-    let base = "AAAAAAAAAAAAAAAAAAAAAAAA,BBBBBBBBBBBBBBBBBBBBBBBB,CCCCCCCCCCCC";
-    // Take a substring that contains a comma — it's a seamless slice
-    let sub = base.substring(start: 0, end: 49);
-    // Now split the slice-backed string — this is the TPR-04-006 regression case
-    let parts = sub.split(sep: ",");
-    let total = 0;
-    for p in parts do {
-        total = total + p.len();
-    };
-    // "AAAAAAAAAAAAAAAAAAAAAAAA" (24) + "BBBBBBBBBBBBBBBBBBBBBBBB" (24) = 48
-    if total == 48 then 0 else 1
-}
-"#,
+        include_str!("../fixtures/fat_ptr_iter/conversion/str_split_on_substring.ori"),
         "str_split_on_substring",
     );
 }
@@ -293,23 +139,7 @@ fn test_str_split_on_substring() {
 #[test]
 fn test_derive_clone_slice_str_struct() {
     assert_aot_success(
-        r#"
-#derive(Clone)
-type Wrapper = { s: str, n: int }
-
-@main () -> int = {
-    let text = "this is a long string exceeding SSO by a large amount,and this second part also exceeds it";
-    let parts = text.split(sep: ",");
-    let total = 0;
-    for p in parts do {
-        let w = Wrapper { s: p, n: p.len() };
-        let copy = w.clone();
-        total = total + copy.n;
-    };
-    // 53 + 36 = 89
-    if total == 89 then 0 else 1
-}
-"#,
+        include_str!("../fixtures/fat_ptr_iter/conversion/derive_clone_slice_str_struct.ori"),
         "derive_clone_slice_str_struct",
     );
 }
@@ -322,23 +152,7 @@ type Wrapper = { s: str, n: int }
 #[test]
 fn test_derive_clone_slice_str_option() {
     assert_aot_success(
-        r#"
-#derive(Clone)
-type MaybeNamed = { name: Option<str>, id: int }
-
-@main () -> int = {
-    let text = "this is a long string exceeding SSO by a large amount,and this second part also exceeds it";
-    let parts = text.split(sep: ",");
-    let total = 0;
-    for p in parts do {
-        let w = MaybeNamed { name: Some(p), id: p.len() };
-        let copy = w.clone();
-        total = total + copy.id;
-    };
-    // 53 + 36 = 89
-    if total == 89 then 0 else 1
-}
-"#,
+        include_str!("../fixtures/fat_ptr_iter/conversion/derive_clone_slice_str_option.ori"),
         "derive_clone_slice_str_option",
     );
 }
@@ -351,23 +165,7 @@ type MaybeNamed = { name: Option<str>, id: int }
 #[test]
 fn test_derive_clone_slice_str_tuple() {
     assert_aot_success(
-        r#"
-#derive(Clone)
-type Pair = { data: (str, int) }
-
-@main () -> int = {
-    let text = "this is a long string exceeding SSO by a large amount,and this second part also exceeds it";
-    let parts = text.split(sep: ",");
-    let total = 0;
-    for p in parts do {
-        let w = Pair { data: (p, p.len()) };
-        let copy = w.clone();
-        total = total + copy.data.1;
-    };
-    // 53 + 36 = 89
-    if total == 89 then 0 else 1
-}
-"#,
+        include_str!("../fixtures/fat_ptr_iter/conversion/derive_clone_slice_str_tuple.ori"),
         "derive_clone_slice_str_tuple",
     );
 }
@@ -380,25 +178,7 @@ type Pair = { data: (str, int) }
 #[test]
 fn test_derive_clone_result_str_str() {
     assert_aot_success(
-        r#"
-#derive(Clone)
-type Holder = { payload: Result<str, str>, id: int }
-
-@main () -> int = {
-    let text = "this is a long string exceeding SSO by a large amount,and this second part also exceeds it";
-    let parts = text.split(sep: ",");
-    let total = 0;
-    for p in parts do {
-        let ok_holder = Holder { payload: Ok(p), id: p.len() };
-        let ok_copy = ok_holder.clone();
-        let err_holder = Holder { payload: Err(p), id: p.len() };
-        let err_copy = err_holder.clone();
-        total = total + ok_copy.id + err_copy.id;
-    };
-    // (53 + 53) + (36 + 36) = 178
-    if total == 178 then 0 else 1
-}
-"#,
+        include_str!("../fixtures/fat_ptr_iter/conversion/derive_clone_result_str_str.ori"),
         "derive_clone_result_str_str",
     );
 }
@@ -409,25 +189,7 @@ type Holder = { payload: Result<str, str>, id: int }
 #[test]
 fn test_derive_clone_result_str_int() {
     assert_aot_success(
-        r#"
-#derive(Clone)
-type MaybeError = { result: Result<str, int>, n: int }
-
-@main () -> int = {
-    let text = "this is a long string exceeding SSO by a large amount,and this second part also exceeds it";
-    let parts = text.split(sep: ",");
-    let total = 0;
-    for p in parts do {
-        let ok_val = MaybeError { result: Ok(p), n: p.len() };
-        let ok_copy = ok_val.clone();
-        let err_val = MaybeError { result: Err(42), n: 42 };
-        let err_copy = err_val.clone();
-        total = total + ok_copy.n + err_copy.n;
-    };
-    // (53 + 42) + (36 + 42) = 173
-    if total == 173 then 0 else 1
-}
-"#,
+        include_str!("../fixtures/fat_ptr_iter/conversion/derive_clone_result_str_int.ori"),
         "derive_clone_result_str_int",
     );
 }

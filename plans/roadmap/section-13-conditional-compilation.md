@@ -721,6 +721,7 @@ Causes a compile-time error with the given message. Valid only in compile-time e
 - [ ] Build system integration complete
 - [ ] All tests pass: `./test-all.sh`
 - [ ] `/tpr-review` passed — independent Codex review found no critical or major issues (or all findings triaged)
+- [ ] `/impl-hygiene-review last commit` passed — implementation hygiene review clean (phase boundaries, SSOT, algorithmic DRY, naming). MUST run AFTER `/tpr-review` is clean.
 
 **Exit Criteria**: Can build a cross-platform CLI tool with platform-specific implementations
 

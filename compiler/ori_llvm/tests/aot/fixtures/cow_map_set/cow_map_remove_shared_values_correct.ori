@@ -1,0 +1,10 @@
+@main () -> int = {
+    let m = {"a": 1, "b": 2, "c": 3};
+    let m2 = m.remove("b");
+    // Original still has "b", copy does not
+    let orig_has_b = m.contains_key("b");
+    let copy_no_b = !m2.contains_key("b");
+    let copy_has_a = m2.contains_key("a");
+    let copy_has_c = m2.contains_key("c");
+    if orig_has_b && copy_no_b && copy_has_a && copy_has_c then 0 else 1
+}

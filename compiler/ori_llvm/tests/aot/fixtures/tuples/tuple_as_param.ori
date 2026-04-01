@@ -1,0 +1,6 @@
+@sum_pair (p: (int, int)) -> int = p.0 + p.1;
+
+@main () -> int = {
+    let t = (15, 27);
+    if sum_pair(p: t) == 42 then 0 else 1
+}

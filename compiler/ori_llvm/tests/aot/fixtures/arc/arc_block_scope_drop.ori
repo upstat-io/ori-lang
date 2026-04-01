@@ -1,0 +1,13 @@
+type Point = { x: int, y: int }
+
+@main () -> int = {
+    let a = {
+        let p = Point { x: 1, y: 2 };
+        p.x + p.y
+    };
+    let b = {
+        let q = Point { x: 3, y: 4 };
+        q.x + q.y
+    };
+    if a + b == 10 then 0 else 1
+}

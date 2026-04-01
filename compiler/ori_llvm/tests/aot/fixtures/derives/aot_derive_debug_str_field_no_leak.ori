@@ -1,0 +1,9 @@
+#[derive(Debug)]
+type Wrapper = { msg: str }
+
+@main () -> int = {
+    // 28 chars — exceeds 23-byte SSO threshold, forces heap allocation
+    let w = Wrapper { msg: "this is a long string value!" };
+    let s = w.debug();
+    if s.contains(substr: "this is a long string value!") then 0 else 1
+}

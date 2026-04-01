@@ -1,0 +1,11 @@
+#derive(Eq)
+type Outcomes = { results: [Result<str, str>] }
+
+@main () -> int = {
+    let a = Outcomes { results: [Ok("success"), Err("fail")] };
+    let b = Outcomes { results: [Ok("success"), Err("fail")] };
+    let c = Outcomes { results: [Ok("success"), Err("DIFF")] };
+    if a == b then {
+        if a != c then 0 else 1
+    } else 2
+}

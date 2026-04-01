@@ -1,0 +1,16 @@
+@process (input: str) -> int = {
+    let local_copy = input + " extra text to ensure heap allocation";
+    if local_copy.len() > 50 then {
+        panic(msg: "callee local panic")
+    };
+    local_copy.len()
+}
+
+@main () -> int = {
+    let s = "this is a very long string that exceeds SSO threshold";
+    let result = catch(expr: process(input: s));
+    match result {
+        Ok(_) -> 1,
+        Err(_) -> 0
+    }
+}

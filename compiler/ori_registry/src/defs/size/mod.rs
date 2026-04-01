@@ -159,6 +159,7 @@ pub static SIZE: TypeDef = TypeDef {
         shl: OpStrategy::Unsupported,
         shr: OpStrategy::Unsupported,
     },
+    traits: &["Default", "Sendable"],
 };
 
 #[cfg(test)]

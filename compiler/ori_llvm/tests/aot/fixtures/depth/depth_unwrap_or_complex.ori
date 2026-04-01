@@ -1,0 +1,7 @@
+@maybe (x: int) -> Option<int> = if x > 0 then Some(x * 10) else None;
+
+@main () -> int = {
+    let a = maybe(x: 5).unwrap_or(default: 0);
+    let b = maybe(x: -1).unwrap_or(default: 99);
+    if a == 50 && b == 99 then 0 else 1
+}

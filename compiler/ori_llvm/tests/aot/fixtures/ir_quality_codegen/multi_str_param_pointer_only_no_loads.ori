@@ -1,0 +1,6 @@
+@longer (a: str, b: str) -> int = {
+    let la = a.length();
+    let lb = b.length();
+    if la > lb then la else lb
+};
+@main () -> int = longer(a: "hi", b: "hello");

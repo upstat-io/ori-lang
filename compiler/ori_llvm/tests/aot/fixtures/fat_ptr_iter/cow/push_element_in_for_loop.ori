@@ -1,0 +1,15 @@
+@main () -> int = {
+    let words = [
+        "this is a very long string that exceeds SSO threshold",
+        "another very long string that also exceeds the threshold"
+    ];
+    let result: [str] = [];
+    for w in words do {
+        result = result.push(value: w);
+    };
+    let total = 0;
+    for w in result do {
+        total = total + w.len();
+    };
+    if total == 109 then 0 else 1
+}

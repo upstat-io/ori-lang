@@ -1,0 +1,6 @@
+type Point = { x: int, y: int }
+
+@main () -> int = {
+    let p = Point { x: 10, y: 20 };
+    if p.x + p.y == 30 then 0 else 1
+}

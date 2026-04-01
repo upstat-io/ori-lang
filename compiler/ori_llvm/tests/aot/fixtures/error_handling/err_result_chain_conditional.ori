@@ -1,0 +1,12 @@
+@check_range (x: int) -> Result<int, str> = {
+    if x < 0 then Err("too small")
+    else if x > 100 then Err("too big")
+    else Ok(x)
+}
+
+@main () -> int = {
+    let r1 = check_range(x: 50);
+    let r2 = check_range(x: -5);
+    let r3 = check_range(x: 200);
+    if r1.is_ok() && r2.is_err() && r3.is_err() then 0 else 1
+}

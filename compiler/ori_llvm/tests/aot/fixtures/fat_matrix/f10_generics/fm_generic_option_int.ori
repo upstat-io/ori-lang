@@ -1,0 +1,6 @@
+@identity<T> (x: T) -> T = x;
+
+@main () -> int = {
+    let opt = identity(x: Some(42));
+    if is_some(option: opt) then 0 else 1
+}

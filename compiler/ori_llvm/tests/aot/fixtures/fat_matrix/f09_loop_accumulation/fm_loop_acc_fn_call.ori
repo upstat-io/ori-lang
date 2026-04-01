@@ -1,0 +1,9 @@
+@get_len (s: str) -> int = s.length();
+
+@main () -> int = {
+    let total = 0;
+    for s in ["abc", "de", "fghi"] do {
+        total = total + get_len(s: s);
+    };
+    if total == 9 then 0 else 1
+}

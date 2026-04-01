@@ -1,0 +1,12 @@
+@abs_classify (n: int) -> int = match n {
+    x if x > 0 -> x,
+    x if x < 0 -> -x,
+    _ -> 0,
+};
+
+@main () -> int = {
+    let a = abs_classify(n: 5);
+    let b = abs_classify(n: -5);
+    let c = abs_classify(n: 0);
+    if a == 5 && b == 5 && c == 0 then 0 else 1
+}

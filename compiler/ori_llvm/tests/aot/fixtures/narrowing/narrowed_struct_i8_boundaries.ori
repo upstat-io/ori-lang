@@ -1,0 +1,9 @@
+type Bounds = { lo: int, hi: int }
+
+@main () -> int = {
+    let b = Bounds { lo: -128, hi: 127 };
+    let ok1 = b.lo == -128;
+    let ok2 = b.hi == 127;
+    let ok3 = b.hi - b.lo == 255;
+    if ok1 && ok2 && ok3 then 0 else 1
+}

@@ -1,0 +1,14 @@
+type Config = { base: int }
+
+@main () -> int = {
+    let cfg = Config { base: 100 };
+    let flag = true;
+    let label = "test";
+    let f = (x: int) -> {
+        let adjusted = if flag then cfg.base + x else x;
+        adjusted
+    };
+    let result = f(42);
+    // flag is true, so 100 + 42 = 142
+    if result == 142 then 0 else 1
+}

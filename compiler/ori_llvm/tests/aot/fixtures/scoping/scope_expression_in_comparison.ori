@@ -1,0 +1,4 @@
+@main () -> int = {
+    let ok = { 10 + 5 } == { 3 * 5 };
+    if ok then 0 else 1
+}

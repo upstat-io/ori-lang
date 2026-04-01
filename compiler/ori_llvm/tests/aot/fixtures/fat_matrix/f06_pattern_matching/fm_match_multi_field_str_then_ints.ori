@@ -1,0 +1,15 @@
+type Msg = Alert(text: str, level: int, code: int) | Ack(id: int);
+
+@process (m: Msg) -> int =
+    match m {
+        Alert(text, level, code) -> text.length() + level + code,
+        Ack(id) -> id,
+    };
+
+@main () -> int = {
+    let a = process(m: Alert(text: "error", level: 3, code: 42));
+    let b = process(m: Ack(id: 99));
+    if a == 50 then {
+        if b == 99 then 0 else 1
+    } else 2
+}

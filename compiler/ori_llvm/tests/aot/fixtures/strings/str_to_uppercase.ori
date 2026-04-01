@@ -1,0 +1,4 @@
+@main () -> int = {
+    let s = "hello";
+    if s.to_uppercase() == "HELLO" then 0 else 1
+}

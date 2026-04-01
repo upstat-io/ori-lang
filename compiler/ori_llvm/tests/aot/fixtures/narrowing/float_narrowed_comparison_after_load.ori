@@ -1,0 +1,11 @@
+type Threshold = { low: float, high: float }
+
+@main () -> int = {
+    let t = Threshold { low: 0.25, high: 0.75 };
+    let lt = t.low < 1.0;
+    let gt = t.high > 0.5;
+    let cmp = t.low < t.high;
+    let eq = t.low == 0.25;
+    let neq = t.low != t.high;
+    if lt && gt && cmp && eq && neq then 0 else 1
+}

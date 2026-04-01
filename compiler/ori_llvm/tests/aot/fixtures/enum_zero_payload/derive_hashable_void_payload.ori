@@ -1,0 +1,17 @@
+#derive(Eq, Hashable)
+type H = A(u: void, x: int) | B;
+
+@main () -> void = {
+    let a1 = A(u: (), x: 42);
+    let a2 = A(u: (), x: 42);
+    let a3 = A(u: (), x: 99);
+    let b = B;
+    // Same values should have same hash
+    let h1 = a1.hash();
+    let h2 = a2.hash();
+    let h3 = a3.hash();
+    let hb = b.hash();
+    print(msg: if h1 == h2 then "same" else "diff");
+    print(msg: if h1 == h3 then "same" else "diff");
+    print(msg: if h1 == hb then "same" else "diff");
+}

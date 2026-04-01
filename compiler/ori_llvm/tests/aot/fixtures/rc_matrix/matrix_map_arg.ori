@@ -1,0 +1,7 @@
+@count_entries (m: {str: int}) -> int = m.len();
+
+@main () -> int = {
+    let $m = {"a": 1, "b": 2, "c": 3};
+    let $n = count_entries(m: m);
+    if n == 3 then 0 else 1
+}

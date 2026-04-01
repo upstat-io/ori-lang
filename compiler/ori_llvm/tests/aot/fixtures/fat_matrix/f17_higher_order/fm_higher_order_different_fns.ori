@@ -1,0 +1,13 @@
+@apply (f: (str) -> int, s: str) -> int = f(s);
+
+@get_len (s: str) -> int = s.length();
+@first_byte (s: str) -> int = if s.length() > 0 then 1 else 0;
+
+@main () -> int = {
+    let s = "hello";
+    let a = apply(f: get_len, s: s);
+    let b = apply(f: first_byte, s: s);
+    if a == 5 then {
+        if b == 1 then 0 else 1
+    } else 2
+}

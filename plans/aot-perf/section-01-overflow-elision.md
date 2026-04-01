@@ -202,3 +202,4 @@ No changes needed in this file — the elision happens inside `checked_add`/`che
 - [ ] `./test-all.sh` passes in debug and release
 - [ ] Benchmark re-run shows measurable improvement
 - [ ] `/tpr-review` passed — independent Codex review found no critical or major issues (or all findings triaged)
+- [ ] `/impl-hygiene-review last commit` passed — implementation hygiene review clean (phase boundaries, SSOT, algorithmic DRY, naming). MUST run AFTER `/tpr-review` is clean.

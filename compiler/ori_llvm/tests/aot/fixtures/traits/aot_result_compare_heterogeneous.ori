@@ -1,0 +1,17 @@
+@main () -> int = {
+    let ok1: Result<int, str> = Ok(10);
+    let ok2: Result<int, str> = Ok(20);
+    let err_a: Result<int, str> = Err("aaa");
+    let err_b: Result<int, str> = Err("bbb");
+    // Ok < Err
+    let r1 = ok1.compare(err_a).is_less();
+    // Ok(10) < Ok(20)
+    let r2 = ok1.compare(ok2).is_less();
+    // Err("aaa") < Err("bbb") — string comparison
+    let r3 = err_a.compare(err_b).is_less();
+    // Err > Ok
+    let r4 = err_a.compare(ok1).is_greater();
+    // Err("bbb") > Err("aaa")
+    let r5 = err_b.compare(err_a).is_greater();
+    if r1 && r2 && r3 && r4 && r5 then 0 else 1
+}

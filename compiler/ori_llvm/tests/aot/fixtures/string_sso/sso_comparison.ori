@@ -1,0 +1,5 @@
+@main () -> int = {
+    let a = "apple";
+    let b = "banana";
+    if a < b && b > a then 0 else 1
+}

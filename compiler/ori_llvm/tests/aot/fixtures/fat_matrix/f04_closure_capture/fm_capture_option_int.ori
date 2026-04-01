@@ -1,0 +1,5 @@
+@main () -> int = {
+    let opt = Some(42);
+    let f = (n: int) -> int = if is_some(option: opt) then n + 1 else n;
+    if f(9) == 10 then 0 else 1
+}

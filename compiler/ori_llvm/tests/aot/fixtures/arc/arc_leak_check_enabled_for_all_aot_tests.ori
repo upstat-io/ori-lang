@@ -1,0 +1,7 @@
+type Wrapper = { value: int }
+
+@main () -> int = {
+    let w = Wrapper { value: 42 };
+    let w2 = w;
+    if w.value + w2.value == 84 then 0 else 1
+}

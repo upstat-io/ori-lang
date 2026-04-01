@@ -1,0 +1,7 @@
+@get () -> Result<int, str> = Ok(42);
+
+@main () -> int = {
+    let r = get();
+    let v = r.unwrap();
+    if v == 42 then 0 else 1
+}

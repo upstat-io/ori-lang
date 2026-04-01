@@ -1,0 +1,8 @@
+type A = { val: int };
+type B = { a: A };
+type C = { b: B };
+
+@main () -> int = {
+    let c = C { b: B { a: A { val: 99 } } };
+    if c.b.a.val == 99 then 0 else 1
+}

@@ -1,0 +1,7 @@
+@pair (a: int, b: int) -> (int, int) = (a, b);
+
+@main () -> int = {
+    let p = pair(a: 3, b: 7);
+    let (x, y) = p;
+    if x == 3 && y == 7 then 0 else 1
+}

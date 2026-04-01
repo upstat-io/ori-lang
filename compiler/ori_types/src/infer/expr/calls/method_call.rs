@@ -3,7 +3,7 @@
 use ori_ir::{ExprArena, ExprId, ExprKind, Name, Span};
 
 use super::super::super::InferEngine;
-use super::super::{infer_expr, resolve_builtin_method, RANGE_FLOAT_ITERATION_METHODS};
+use super::super::{infer_expr, range_method_requires_iteration, resolve_builtin_method};
 use super::impl_lookup::{
     emit_into_not_implemented, lookup_impl_method, resolve_impl_signature, ImplMethodSig,
 };
@@ -350,10 +350,22 @@ fn resolve_receiver_and_builtin(
         }
     }
 
-    // 1c. Reject iteration methods on Range<float>
-    if let Some(err) = check_range_float_iteration(engine, resolved, tag, method_str, span) {
+    // 1c. Reject ALL methods on Range<float> — ranges are int-only per spec.
+    // Float range construction is now rejected in infer_range(), but this guard
+    // is defense-in-depth in case Range<float> is constructed through other means.
+    // Iteration methods get a specific diagnostic; other methods get a generic
+    // "Range<float> not supported" error with a diagnostic (not silent).
+    if tag == Tag::Range && engine.pool().range_elem(resolved) == Idx::FLOAT {
+        if let Some(err) = check_range_float_iteration(engine, resolved, tag, method_str, span) {
+            return ReceiverDispatch::Return {
+                ret_ty: err,
+                receiver_ty: resolved,
+            };
+        }
+        // Non-iteration methods: emit diagnostic, then return error
+        engine.push_error(TypeCheckError::range_float_not_constructible(span));
         return ReceiverDispatch::Return {
-            ret_ty: err,
+            ret_ty: Idx::ERROR,
             receiver_ty: resolved,
         };
     }
@@ -377,7 +389,7 @@ fn check_range_float_iteration(
         return None;
     }
     let name_str = method_str?;
-    if !RANGE_FLOAT_ITERATION_METHODS.contains(&name_str) {
+    if !range_method_requires_iteration(name_str) {
         return None;
     }
     let elem = engine.pool().range_elem(resolved);

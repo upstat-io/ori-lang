@@ -1,0 +1,5 @@
+@main () -> int = {
+    let r: Result<int, str> = Ok(42);
+    let v = r.unwrap_or(0);
+    if v == 42 then 0 else 1
+}

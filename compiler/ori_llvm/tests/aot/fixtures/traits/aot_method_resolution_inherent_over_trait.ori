@@ -1,0 +1,19 @@
+trait Greetable {
+    @greet (self) -> str
+}
+
+type Person = { name: str }
+
+impl Person {
+    @greet (self) -> str = "Hi, I'm " + self.name;
+}
+
+impl Greetable for Person {
+    @greet (self) -> str = "Hello from " + self.name;
+}
+
+@main () -> int = {
+    let p = Person { name: "Alice" };
+    let g = p.greet();
+    if g == "Hi, I'm Alice" then 0 else 1
+}

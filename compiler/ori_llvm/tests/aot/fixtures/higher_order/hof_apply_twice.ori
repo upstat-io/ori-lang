@@ -1,0 +1,7 @@
+@apply_twice (f: (int) -> int, x: int) -> int = f(f(x));
+
+@main () -> int = {
+    let add10 = (n: int) -> n + 10;
+    // 0 + 10 + 10 = 20
+    if apply_twice(f: add10, x: 0) == 20 then 0 else 1
+}

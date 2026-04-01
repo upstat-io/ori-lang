@@ -1,0 +1,9 @@
+type Point = { x: int, y: int }
+
+@make_point (i: int) -> Point = Point { x: i, y: i * 10 };
+
+@main () -> int = {
+    let points = for i in 0..50 yield make_point(i: i);
+    let count = points.iter().count();
+    if count == 50 then 0 else 1
+}

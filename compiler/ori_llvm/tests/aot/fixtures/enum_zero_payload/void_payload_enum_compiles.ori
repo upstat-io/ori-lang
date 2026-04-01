@@ -1,0 +1,6 @@
+type E = A(u: void) | B;
+
+@main () -> int = {
+    let x = A(u: ());
+    0
+}

@@ -1,0 +1,9 @@
+@main () -> int = {
+    let words = [
+        "this is a very long heap string that exceeds the SSO threshold",
+        "another long heap string here",
+        "third one"
+    ];
+    let count = words.iter().fold(initial: 0, op: (acc, s) -> acc + 1);
+    if count == 3 then 0 else 1
+}

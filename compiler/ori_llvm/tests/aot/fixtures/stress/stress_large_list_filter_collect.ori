@@ -1,0 +1,5 @@
+@main () -> int = {
+    let xs = for i in 0..200 yield i;
+    let evens = xs.iter().filter(x -> x % 2 == 0).count();
+    if evens == 100 then 0 else 1
+}

@@ -1,0 +1,6 @@
+@main () -> int = {
+    let a: Set<int> = [1, 2].iter().collect();
+    let b: Set<int> = [3, 4].iter().collect();
+    let c = a.intersection(b);
+    if c.is_empty() then 0 else 1
+}

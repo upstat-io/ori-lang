@@ -3,28 +3,13 @@
 //! Tests tag + payload layout, extractvalue for payloads, and RC handling
 //! when fat pointer values are wrapped in sum type variants.
 
-#![expect(
-    clippy::needless_raw_string_hashes,
-    reason = "readability in test program literals"
-)]
-
 use crate::util::assert_aot_success;
 
 // T4/T5: Sum type with str payload
 #[test]
 fn test_fm_sum_str_payload() {
     assert_aot_success(
-        r#"
-type Value = Text(content: str) | Empty;
-
-@main () -> int = {
-    let v = Text(content: "hello");
-    match v {
-        Text(content) ->if content.length() == 5 then 0 else 1,
-        Empty -> 2,
-    }
-}
-"#,
+        include_str!("../fixtures/fat_matrix/f12_sum_payload/fm_sum_str_payload.ori"),
         "fm_sum_str_payload",
     );
 }
@@ -33,17 +18,7 @@ type Value = Text(content: str) | Empty;
 #[test]
 fn test_fm_sum_str_heap_payload() {
     assert_aot_success(
-        r#"
-type Value = Text(content: str) | Empty;
-
-@main () -> int = {
-    let v = Text(content: "abcdefghijklmnopqrstuvwxyz1234");
-    match v {
-        Text(content) ->if content.length() == 30 then 0 else 1,
-        Empty -> 2,
-    }
-}
-"#,
+        include_str!("../fixtures/fat_matrix/f12_sum_payload/fm_sum_str_heap_payload.ori"),
         "fm_sum_str_heap_payload",
     );
 }
@@ -52,17 +27,7 @@ type Value = Text(content: str) | Empty;
 #[test]
 fn test_fm_sum_list_scalar_payload() {
     assert_aot_success(
-        r#"
-type Data = Numbers(items: [int]) | Empty;
-
-@main () -> int = {
-    let d = Numbers(items: [10, 20, 30]);
-    match d {
-        Numbers(items) ->if items.length() == 3 then 0 else 1,
-        Empty -> 2,
-    }
-}
-"#,
+        include_str!("../fixtures/fat_matrix/f12_sum_payload/fm_sum_list_scalar_payload.ori"),
         "fm_sum_list_scalar_payload",
     );
 }
@@ -71,17 +36,7 @@ type Data = Numbers(items: [int]) | Empty;
 #[test]
 fn test_fm_sum_list_fat_payload() {
     assert_aot_success(
-        r#"
-type Data = Words(items: [str]) | Empty;
-
-@main () -> int = {
-    let d = Words(items: ["hello", "world"]);
-    match d {
-        Words(items) ->if items.length() == 2 then 0 else 1,
-        Empty -> 2,
-    }
-}
-"#,
+        include_str!("../fixtures/fat_matrix/f12_sum_payload/fm_sum_list_fat_payload.ori"),
         "fm_sum_list_fat_payload",
     );
 }
@@ -90,18 +45,7 @@ type Data = Words(items: [str]) | Empty;
 #[test]
 fn test_fm_sum_struct_fat_payload() {
     assert_aot_success(
-        r#"
-type Named = { name: str, id: int }
-type Value = Person(info: Named) | Unknown;
-
-@main () -> int = {
-    let v = Person(info: Named { name: "alice", id: 1 });
-    match v {
-        Person(info) ->if info.name.length() + info.id == 6 then 0 else 1,
-        Unknown -> 2,
-    }
-}
-"#,
+        include_str!("../fixtures/fat_matrix/f12_sum_payload/fm_sum_struct_fat_payload.ori"),
         "fm_sum_struct_fat_payload",
     );
 }
@@ -110,27 +54,7 @@ type Value = Person(info: Named) | Unknown;
 #[test]
 fn test_fm_sum_multi_fat_variant() {
     assert_aot_success(
-        r#"
-type Content = Title(text: str) | Items(list: [int]) | Nothing;
-
-@get_size (c: Content) -> int =
-    match c {
-        Title(text) ->text.length(),
-        Items(list) ->list.length(),
-        Nothing -> 0,
-    };
-
-@main () -> int = {
-    let a = get_size(c: Title(text: "hello"));
-    let b = get_size(c: Items(list: [1, 2, 3]));
-    let c = get_size(c: Nothing);
-    if a == 5 then {
-        if b == 3 then {
-            if c == 0 then 0 else 1
-        } else 2
-    } else 3
-}
-"#,
+        include_str!("../fixtures/fat_matrix/f12_sum_payload/fm_sum_multi_fat_variant.ori"),
         "fm_sum_multi_fat_variant",
     );
 }
@@ -139,15 +63,7 @@ type Content = Title(text: str) | Items(list: [int]) | Nothing;
 #[test]
 fn test_fm_sum_none_variant() {
     assert_aot_success(
-        r#"
-@main () -> int = {
-    let x: Option<str> = None;
-    match x {
-        Some(_) -> 1,
-        None -> 0,
-    }
-}
-"#,
+        include_str!("../fixtures/fat_matrix/f12_sum_payload/fm_sum_none_variant.ori"),
         "fm_sum_none_variant",
     );
 }
@@ -156,20 +72,7 @@ fn test_fm_sum_none_variant() {
 #[test]
 fn test_fm_sum_payload_passed() {
     assert_aot_success(
-        r#"
-type Value = Text(content: str) | Empty;
-
-@extract_len (v: Value) -> int =
-    match v {
-        Text(content) ->content.length(),
-        Empty -> 0,
-    };
-
-@main () -> int = {
-    let v = Text(content: "hello");
-    if extract_len(v: v) == 5 then 0 else 1
-}
-"#,
+        include_str!("../fixtures/fat_matrix/f12_sum_payload/fm_sum_payload_passed.ori"),
         "fm_sum_payload_passed",
     );
 }

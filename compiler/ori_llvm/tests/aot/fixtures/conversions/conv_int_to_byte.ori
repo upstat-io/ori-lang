@@ -1,0 +1,6 @@
+@main () -> int = {
+    let x = 42;
+    let b = x.byte();
+    let back = b.to_int();
+    if back == 42 then 0 else 1
+}
