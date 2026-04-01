@@ -379,7 +379,7 @@ fn get_or_create_tuple_eq_thunk<'a>(
 
         let mut result = fc.builder_mut().const_bool(true);
         for (i, &thunk) in elem_thunks.iter().enumerate() {
-            // §06: remap declaration-order index to memory order.
+            // Remap declaration-order index to memory order.
             let mem_i = fc
                 .repr_plan()
                 .and_then(|plan| {

@@ -3,7 +3,7 @@
 //! Maps every `Tag` variant to its canonical `MachineRepr` — the
 //! representation before any optimization. This is the starting point
 //! for the `ReprPlan`: every type gets its canonical repr first,
-//! then §02–§11 narrow it.
+//! then optimization passes narrow it.
 
 mod type_repr;
 

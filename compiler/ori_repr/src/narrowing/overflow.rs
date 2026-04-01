@@ -1,4 +1,4 @@
-//! Overflow guard insertion for narrowed integers (§04.3).
+//! Overflow guard insertion for narrowed integers.
 //!
 //! When a value is narrowed from i64 to a smaller type (i8/i16/i32),
 //! arithmetic operations might overflow the narrow type even though they
@@ -19,8 +19,8 @@
 //! # Usage
 //!
 //! Phase B (local variable narrowing) will call `recommend_strategy()` for
-//! each arithmetic operation on narrowed variables. The LLVM emitter (§04.4)
-//! will use the strategy to decide how to emit the operation.
+//! each arithmetic operation on narrowed variables. The LLVM emitter will
+//! use the strategy to decide how to emit the operation.
 
 use ori_ir::BinaryOp;
 
@@ -113,7 +113,7 @@ pub fn recommend_strategy(
 
 /// Compute the result range of a binary operation given operand ranges.
 ///
-/// Delegates to the transfer functions from §03's range analysis.
+/// Delegates to the transfer functions from range analysis.
 /// Non-arithmetic operations conservatively return `Top` — overflow
 /// detection is only meaningful for operations that produce integer
 /// results (not booleans or ranges).

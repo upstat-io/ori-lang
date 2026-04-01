@@ -1,8 +1,8 @@
 //! Core machine representation types.
 //!
 //! `MachineRepr` captures the physical representation chosen for each type.
-//! It is rich enough to express all optimizations in §02–§11 but simple
-//! enough that codegen can pattern-match exhaustively.
+//! It is rich enough to express all optimization passes but simple enough
+//! that codegen can pattern-match exhaustively.
 
 use crate::enum_repr::EnumRepr;
 use crate::struct_repr::{ClosureRepr, FatRepr, RcRepr, StructRepr, TupleRepr};
@@ -32,8 +32,8 @@ pub enum FloatWidth {
 /// The physical representation of a type in generated code.
 ///
 /// Every `Idx` in the `Pool` maps to exactly one `MachineRepr`.
-/// Optimization passes (§02–§11) refine canonical representations
-/// into narrower ones; codegen reads the final `MachineRepr`.
+/// Optimization passes refine canonical representations into narrower
+/// ones; codegen reads the final `MachineRepr`.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum MachineRepr {
     /// Fixed-width integer (narrowed from semantic i64).

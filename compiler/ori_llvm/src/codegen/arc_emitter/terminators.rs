@@ -96,7 +96,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                     };
                     for (i, &arg) in args.iter().enumerate() {
                         let val = self.var(arg);
-                        // §04.4 Phase B: trunc i64 → narrow for narrowed phi targets
+                        // Trunc i64 → narrow for narrowed phi targets
                         let val = {
                             let target_var = arc_func.blocks[target_idx].params[i].0;
                             if let Some(&width) = self.narrowed_vars.get(&target_var) {
@@ -486,7 +486,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             })
             .collect();
 
-        // §04.4 Phase C: replace elem_size for int-element for-yield lists.
+        // Replace elem_size for int-element for-yield lists.
         // Only override when the pre-scan identified this elem_size_var as
         // belonging to an int-element for-yield (prevents corrupting non-int
         // accumulators like [str] when narrowed [int] exists in the program).

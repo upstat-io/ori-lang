@@ -189,7 +189,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     ) -> Option<(ValueId, ValueId, LLVMTypeId)> {
         let func_id = self.builder.runtime_fn("ori_iter_next");
 
-        // §04.4 Phase C: use narrowed element size/type for int elements.
+        // Use narrowed element size/type for int elements.
         let elem_size = self.int_element_store_size(elem_ty);
         let elem_size_val = self.builder.const_i64(elem_size as i64);
 
@@ -259,7 +259,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             return None;
         }
         let other = arg_vals[1];
-        // §04.4 Phase C: use narrowed element size for int elements.
+        // Use narrowed element size for int elements.
         let elem_size = self.int_element_store_size(elem_ty);
         let elem_size_val = self.builder.const_i64(elem_size as i64);
         let func_id = self.builder.runtime_fn("ori_iter_zip");
@@ -293,7 +293,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let (tramp_fn, closure_env) =
             self.build_trampoline(closure, elem_ty, TrampolineKind::Map, result_ty);
 
-        // §04.4 Phase C: use narrowed element size for int elements.
+        // Use narrowed element size for int elements.
         let elem_size = self.int_element_store_size(elem_ty);
         let elem_size_val = self.builder.const_i64(elem_size as i64);
 
@@ -321,7 +321,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let (tramp_fn, closure_env) =
             self.build_trampoline(closure, elem_ty, TrampolineKind::Predicate, None);
 
-        // §04.4 Phase C: use narrowed element size for int elements.
+        // Use narrowed element size for int elements.
         let elem_size = self.int_element_store_size(elem_ty);
         let elem_size_val = self.builder.const_i64(elem_size as i64);
 

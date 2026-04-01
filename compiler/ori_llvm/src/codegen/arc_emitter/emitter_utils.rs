@@ -200,7 +200,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// Bind an ARC variable to a raw LLVM value, inferring its [`EmittedValue`]
     /// variant from the variable's [`ValueRepr`] in the ARC function.
     ///
-    /// §04.4 Phase B: If the variable is in `narrowed_vars`, the incoming i64
+    /// If the variable is in `narrowed_vars`, the incoming i64
     /// value is truncated to the narrow width and immediately sign-extended back
     /// to i64. This trunc+sext pair (a) validates the value fits in the narrow
     /// range and (b) informs LLVM of the restricted range for optimization.

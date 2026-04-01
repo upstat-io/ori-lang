@@ -228,7 +228,7 @@ pub struct TypedModule {
     /// Trait impl method identities: `(self_type_idx, method_name)`.
     ///
     /// Trait impl methods may be called via dynamic dispatch with unknown
-    /// arguments — their parameter ranges must stay Top in §03.5
+    /// arguments — their parameter ranges must stay Top in
     /// interprocedural range analysis. Inherent impl methods are NOT
     /// included (they have known call sites).
     ///

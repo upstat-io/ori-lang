@@ -233,7 +233,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 })
                 .collect();
 
-            // §04.4 Phase C: replace elem_size in for-yield list runtime calls
+            // Replace elem_size in for-yield list runtime calls
             // with narrowed size when the accumulator element type is int.
             // ARC IR lowering bakes canonical elem_size=8 at lowering time
             // (before the ReprPlan exists), so the LLVM emitter must override it.

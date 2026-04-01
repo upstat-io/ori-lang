@@ -99,7 +99,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         // Resize var_map to hold all variables
         self.var_map.resize(func.var_types.len(), None);
 
-        // §04.4 Phase C: pre-scan for-yield loops to find which elem_size
+        // Pre-scan for-yield loops to find which elem_size
         // ArcVarIds belong to int-element accumulators. Only those are safe
         // to override with narrowed sizes.
         if self.narrowed_int_collection_element_width().is_some() {
@@ -194,7 +194,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let entry = self.block(func.entry);
         self.builder.position_at_end(entry);
 
-        // §04.4 Phase B: compute which local int variables can be narrowed.
+        // Compute which local int variables can be narrowed.
         self.compute_narrowed_vars(func);
 
         // Create phi nodes for blocks with parameters (skip dead unwind blocks).
@@ -209,7 +209,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             if !block.params.is_empty() && !dead_unwind.contains(&block.id.index()) {
                 self.builder.position_at_end(self.block(block.id));
                 for &(var, ty) in &block.params {
-                    // §04.4 Phase B: use narrow type for narrowed int phis
+                    // Use narrow type for narrowed int phis
                     if let Some(&width) = self.narrowed_vars.get(&var) {
                         let narrow_ty = self.llvm_type_for_int_width(width);
                         let phi_val = self.builder.phi(narrow_ty, &format!("v{}.n", var.raw()));
@@ -227,7 +227,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             phi_nodes.push(block_phis);
         }
 
-        // §04.4 Phase B: emit sext instructions AFTER all phis are created.
+        // Emit sext instructions AFTER all phis are created.
         // Position after the last phi in each block, then emit sext.
         for (var, phi_val, block_id) in narrowed_phis {
             self.builder.position_at_end(self.block(block_id));
