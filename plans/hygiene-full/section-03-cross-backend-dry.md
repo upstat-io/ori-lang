@@ -1,7 +1,7 @@
 ---
 section: "03"
 title: "Cross-Backend Algorithmic DRY (eval / LLVM)"
-status: complete
+status: in-progress
 reviewed: true
 goal: "Extract shared dispatch metadata between eval and LLVM backends so algorithmic skeletons are defined once"
 inspired_by:
@@ -9,7 +9,7 @@ inspired_by:
   - "Lean 4 IR/RC.lean -- shared RC decision metadata, backend-specific emission"
 depends_on: ["01", "02"]
 third_party_review:
-  status: resolved
+  status: in-progress
   updated: 2026-04-01
 sections:
   - id: "03.1"
@@ -490,6 +490,12 @@ All subsections must also satisfy:
 
 ## 03.R Third Party Review Findings
 
+- [x] `[TPR-03-007][critical]` [compiler/ori_llvm/src/codegen/arc_emitter/builtins/option_result.rs](/home/eric/projects/ori_lang/compiler/ori_llvm/src/codegen/arc_emitter/builtins/option_result.rs#L95) still returns RC-backed payloads from `Option.unwrap_or`, `Option.expect`, `Result.unwrap_or`, and `Result.expect` by raw extract/load without retaining inner RC fields first.
+  Resolved: Fixed on 2026-04-01. Added conditional `inc_value_rc` for `Option.unwrap_or` (guarded by is_some), unconditional `inc_value_rc` for `Option.expect` (post-branch, guaranteed Some), and equivalent fixes for `Result.unwrap_or` (conditional on is_ok), `Result.expect` (unconditional post-branch), `Result.expect_err` (unconditional post-branch). All verified clean with standalone AOT repros using heap strings.
+
+- [x] `[TPR-03-008][medium]` [plans/hygiene-full/section-03-cross-backend-dry.md](/home/eric/projects/ori_lang/plans/hygiene-full/section-03-cross-backend-dry.md#L520) still overstates LLVM verification for the new iterator / Option / Result spec coverage.
+  Resolved: Acknowledged on 2026-04-01. The LLVM compile failures in spec tests (`builtin_impls.ori`, `ok_or.ori`, `ok_err.ori`) are all pre-existing BUG-04-011 (assert_eq monomorphization, unresolved type variables) — not introduced by Section 03. The checklist already explicitly documents this at lines 534 and 546. Individual methods verified working in LLVM via standalone `@main` tests. The remaining LLVM spec test gaps are tracked in BUG-04-011.
+
 - [x] `[TPR-03-005][critical]` [compiler/ori_llvm/src/codegen/arc_emitter/builtins/compound_type_impls/option.rs](/home/eric/projects/ori_lang/compiler/ori_llvm/src/codegen/arc_emitter/builtins/compound_type_impls/option.rs#L121), [compiler/ori_llvm/src/codegen/arc_emitter/builtins/option_result.rs](/home/eric/projects/ori_lang/compiler/ori_llvm/src/codegen/arc_emitter/builtins/option_result.rs#L224), [compiler/ori_llvm/src/codegen/arc_emitter/builtins/option_result_helpers.rs](/home/eric/projects/ori_lang/compiler/ori_llvm/src/codegen/arc_emitter/builtins/option_result_helpers.rs#L205), and [compiler/ori_llvm/src/codegen/arc_emitter/builtins/result_monadic.rs](/home/eric/projects/ori_lang/compiler/ori_llvm/src/codegen/arc_emitter/builtins/result_monadic.rs#L330) copy RC-backed payloads out of borrowed `Option`/`Result` wrappers without retaining them first.
   Resolved: Fixed on 2026-04-01. Added conditional `inc_value_rc` in `emit_option_iter()` (guarded by is_some), `Result.ok()` (guarded by is_ok), and `Result.err()` (guarded by is_err) in codegen. Verified with standalone AOT tests using heap strings (.count(), .is_some()). Remaining extraction methods (unwrap_or, expect, first, etc.) tracked as BUG-04-013.
 
@@ -517,7 +523,7 @@ All subsections must also satisfy:
 - [x] `declare_builtins!` block in `iterator.rs` registers all 24 methods (8 new entries added) (2026-04-01)
 - [x] `is_iterator_method()` is driven by `ori_registry::has_method()` calls, not a hardcoded `matches!` list; `__iter_next` remains handled by `try_emit_protocol` (not registry-driven) (2026-04-01)
 - [x] Enforcement test `iterator_emit_covers_all_registry_methods` in `builtins/tests.rs` passes (2026-04-01)
-- [x] Spec tests for all 8 new methods in `tests/spec/traits/iterator/` cover: happy path, edge case (empty/single-element input), and at least one semantic pin per method — all pass in both eval and LLVM (2026-04-01)
+- [ ] Spec tests for all 8 new methods in `tests/spec/traits/iterator/` cover: happy path, edge case (empty/single-element input), and at least one semantic pin per method. Eval passes, but LLVM still compile-fails under the spec harness for `tests/spec/traits/iterator/builtin_impls.ori` (`18 llvm compile fail` on 2026-04-01), so this line remains open pending the LLVM test-runner/codegen gaps.
 - [x] `timeout 150 diagnostics/dual-exec-verify.sh tests/spec/traits/iterator/` shows zero new mismatches (2026-04-01)
 - [x] Debug build (`cargo b`) and release build (`cargo b --release`) both pass (2026-04-01)
 
@@ -564,6 +570,6 @@ All subsections must also satisfy:
 - [x] `builtins/mod.rs` line count checked — if still over 500 lines after section, extract `is_iterator_method` and related helpers to a new `iterators_guard.rs` submodule (2026-04-01) Was 507 lines; extracted to `iterators_guard.rs` (87 lines). mod.rs now 428 lines.
 - [x] `compiler/ori_eval/src/methods/variants.rs` is NOT touched by this section (it is 586 lines and over limit — flagged for Section 12 surface hygiene) (2026-04-01) 586 lines, untouched
 - [x] Plan annotation cleanup: no hygiene-full annotations remain in source code (2026-04-01) All annotations found are from roadmap section 03 or repr-opt, not hygiene-full
-- [x] `/tpr-review` passed (final, full-section) (2026-04-01) Clean on iteration 1, zero findings. Codex confirmed iterators_guard.rs extraction is correct.
+- [ ] `/tpr-review` / `review-work` is clean for the final section state. Re-opened on 2026-04-01 after TPR-03-007 and TPR-03-008 reproduced in the current tree.
 
 **Exit Criteria:** All registry-defined methods for iterator, Option, and Result have LLVM implementations. FNV constants live in one place. Eval operator dispatch is registry-driven. Derive processing sync is enforced by Rust's exhaustive match and documented. No routing decisions (which methods exist, which ops are valid) are independently maintained in parallel between backends. `./test-all.sh` green.

@@ -99,6 +99,20 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                     .builder
                     .const_int_matching(tag, ori_ir::OPTION_TAG_SOME as u64);
                 let is_some = self.builder.icmp_eq(tag, some, "is_some");
+
+                // RC-retain payload when Some: the select copies payload bytes,
+                // creating a second reference to inner RC data.
+                let inner_ty = self.pool.option_inner(self.pool.resolve_fully(receiver_ty));
+                let inc_bb = self.builder.append_block(self.current_function, "uor.inc");
+                let merge_bb = self
+                    .builder
+                    .append_block(self.current_function, "uor.merge");
+                self.builder.cond_br(is_some, inc_bb, merge_bb);
+                self.builder.position_at_end(inc_bb);
+                self.inc_value_rc(payload, inner_ty, 1);
+                self.builder.br(merge_bb);
+                self.builder.position_at_end(merge_bb);
+
                 Some(
                     self.builder
                         .select(is_some, payload, arg_vals[1], "unwrap_or"),
@@ -111,7 +125,11 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                     .const_int_matching(tag, ori_ir::OPTION_TAG_SOME as u64);
                 let is_some = self.builder.icmp_eq(tag, some, "is_some");
                 self.emit_expect_branch(is_some, arg_vals[1], "expect")?;
-                self.builder.extract_value(receiver, 1, "opt.payload")
+                // After expect branch, guaranteed Some — retain unconditionally.
+                let payload = self.builder.extract_value(receiver, 1, "opt.payload")?;
+                let inner_ty = self.pool.option_inner(self.pool.resolve_fully(receiver_ty));
+                self.inc_value_rc(payload, inner_ty, 1);
+                Some(payload)
             }
             "debug" | "to_str" => {
                 let tag = self.builder.extract_value(receiver, 0, "opt.tag")?;
@@ -175,51 +193,13 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 self.extract_tagged_union_payload(receiver, receiver_ty, 1, err_ty)
             }
             "unwrap_or" if arg_vals.len() >= 2 => {
-                let tag = self.builder.extract_value(receiver, 0, "res.tag")?;
-                let TypeInfo::Result { ok: ok_ty, .. } = self.type_info.get(receiver_ty) else {
-                    let payload = self.builder.extract_value(receiver, 1, "res.payload")?;
-                    let ok = self
-                        .builder
-                        .const_int_matching(tag, ori_ir::RESULT_TAG_OK as u64);
-                    let is_ok = self.builder.icmp_eq(tag, ok, "is_ok");
-                    return Some(
-                        self.builder
-                            .select(is_ok, payload, arg_vals[1], "unwrap_or"),
-                    );
-                };
-                let payload = self.extract_tagged_union_payload(receiver, receiver_ty, 1, ok_ty)?;
-                let ok = self
-                    .builder
-                    .const_int_matching(tag, ori_ir::RESULT_TAG_OK as u64);
-                let is_ok = self.builder.icmp_eq(tag, ok, "is_ok");
-                Some(
-                    self.builder
-                        .select(is_ok, payload, arg_vals[1], "unwrap_or"),
-                )
+                self.emit_result_unwrap_or(receiver, receiver_ty, arg_vals[1])
             }
             "expect" if arg_vals.len() >= 2 => {
-                let tag = self.builder.extract_value(receiver, 0, "res.tag")?;
-                let ok = self
-                    .builder
-                    .const_int_matching(tag, ori_ir::RESULT_TAG_OK as u64);
-                let is_ok = self.builder.icmp_eq(tag, ok, "is_ok");
-                self.emit_expect_branch(is_ok, arg_vals[1], "res_expect")?;
-                let TypeInfo::Result { ok: ok_ty, .. } = self.type_info.get(receiver_ty) else {
-                    return self.builder.extract_value(receiver, 1, "res.payload");
-                };
-                self.extract_tagged_union_payload(receiver, receiver_ty, 1, ok_ty)
+                self.emit_result_expect(receiver, receiver_ty, arg_vals[1])
             }
             "expect_err" if arg_vals.len() >= 2 => {
-                let tag = self.builder.extract_value(receiver, 0, "res.tag")?;
-                let err_tag = self
-                    .builder
-                    .const_int_matching(tag, ori_ir::RESULT_TAG_ERR as u64);
-                let is_err = self.builder.icmp_eq(tag, err_tag, "is_err");
-                self.emit_expect_branch(is_err, arg_vals[1], "res_expect_err")?;
-                let TypeInfo::Result { err: err_ty, .. } = self.type_info.get(receiver_ty) else {
-                    return self.builder.extract_value(receiver, 1, "res.payload");
-                };
-                self.extract_tagged_union_payload(receiver, receiver_ty, 1, err_ty)
+                self.emit_result_expect_err(receiver, receiver_ty, arg_vals[1])
             }
             "ok" => self.emit_result_ok_projection(receiver, receiver_ty),
             "err" => self.emit_result_err_projection(receiver, receiver_ty),
@@ -327,5 +307,85 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let one = self.builder.const_int_matching(tag, 1);
         let flipped_tag = self.builder.xor(tag, one, "err.flip_tag");
         self.build_option_struct(flipped_tag, payload, err_ty)
+    }
+
+    /// `Result<T, E>.unwrap_or(default)` with RC retain on Ok payload.
+    fn emit_result_unwrap_or(
+        &mut self,
+        receiver: ValueId,
+        receiver_ty: Idx,
+        default: ValueId,
+    ) -> Option<ValueId> {
+        let tag = self.builder.extract_value(receiver, 0, "res.tag")?;
+        let TypeInfo::Result { ok: ok_ty, .. } = self.type_info.get(receiver_ty) else {
+            let payload = self.builder.extract_value(receiver, 1, "res.payload")?;
+            let ok = self
+                .builder
+                .const_int_matching(tag, ori_ir::RESULT_TAG_OK as u64);
+            let is_ok = self.builder.icmp_eq(tag, ok, "is_ok");
+            return Some(self.builder.select(is_ok, payload, default, "unwrap_or"));
+        };
+        let payload = self.extract_tagged_union_payload(receiver, receiver_ty, 1, ok_ty)?;
+        let ok = self
+            .builder
+            .const_int_matching(tag, ori_ir::RESULT_TAG_OK as u64);
+        let is_ok = self.builder.icmp_eq(tag, ok, "is_ok");
+
+        // RC-retain payload when Ok: the select copies payload bytes.
+        let inc_bb = self.builder.append_block(self.current_function, "ruor.inc");
+        let merge_bb = self
+            .builder
+            .append_block(self.current_function, "ruor.merge");
+        self.builder.cond_br(is_ok, inc_bb, merge_bb);
+        self.builder.position_at_end(inc_bb);
+        self.inc_value_rc(payload, ok_ty, 1);
+        self.builder.br(merge_bb);
+        self.builder.position_at_end(merge_bb);
+
+        Some(self.builder.select(is_ok, payload, default, "unwrap_or"))
+    }
+
+    /// `Result<T, E>.expect(msg)` with RC retain on Ok payload.
+    fn emit_result_expect(
+        &mut self,
+        receiver: ValueId,
+        receiver_ty: Idx,
+        msg: ValueId,
+    ) -> Option<ValueId> {
+        let tag = self.builder.extract_value(receiver, 0, "res.tag")?;
+        let ok = self
+            .builder
+            .const_int_matching(tag, ori_ir::RESULT_TAG_OK as u64);
+        let is_ok = self.builder.icmp_eq(tag, ok, "is_ok");
+        self.emit_expect_branch(is_ok, msg, "res_expect")?;
+        // After expect branch, guaranteed Ok — retain unconditionally.
+        let TypeInfo::Result { ok: ok_ty, .. } = self.type_info.get(receiver_ty) else {
+            return self.builder.extract_value(receiver, 1, "res.payload");
+        };
+        let payload = self.extract_tagged_union_payload(receiver, receiver_ty, 1, ok_ty)?;
+        self.inc_value_rc(payload, ok_ty, 1);
+        Some(payload)
+    }
+
+    /// `Result<T, E>.expect_err(msg)` with RC retain on Err payload.
+    fn emit_result_expect_err(
+        &mut self,
+        receiver: ValueId,
+        receiver_ty: Idx,
+        msg: ValueId,
+    ) -> Option<ValueId> {
+        let tag = self.builder.extract_value(receiver, 0, "res.tag")?;
+        let err_tag = self
+            .builder
+            .const_int_matching(tag, ori_ir::RESULT_TAG_ERR as u64);
+        let is_err = self.builder.icmp_eq(tag, err_tag, "is_err");
+        self.emit_expect_branch(is_err, msg, "res_expect_err")?;
+        // After expect branch, guaranteed Err — retain unconditionally.
+        let TypeInfo::Result { err: err_ty, .. } = self.type_info.get(receiver_ty) else {
+            return self.builder.extract_value(receiver, 1, "res.payload");
+        };
+        let payload = self.extract_tagged_union_payload(receiver, receiver_ty, 1, err_ty)?;
+        self.inc_value_rc(payload, err_ty, 1);
+        Some(payload)
     }
 }
