@@ -85,6 +85,8 @@ The immortal sentinel check (`if current_rc == MAX_REFCOUNT { return; }`) is pre
   Resolved: Fixed on 2026-04-01. Added 4 new tests: `buffer_rc_dec_skips_at_max_refcount`, `map_buffer_rc_dec_skips_at_max_refcount`, `set_buffer_rc_dec_skips_at_max_refcount`, `slice_buffer_rc_dec_skips_at_max_refcount`. Each test verifies: (1) refcount remains MAX_REFCOUNT after collection dec call, (2) cleanup functions are NOT called on immortal objects. All 6 immortal-path tests pass.
 - [x] `[TPR-07-002][high]` `compiler/ori_rt/src/rc/elem_header.rs:127` — `store_elem_count` uses a plain `slot.write()` which creates a data race when two threads drop references to the same buffer concurrently.
   Resolved: Fixed on 2026-04-01. Made `store_elem_count`, `load_elem_count`, and `load_elem_count_const` use `AtomicI64` with `Relaxed` ordering on the multi-threaded path (`#[cfg(not(feature = "single-threaded"))]`). `Relaxed` is sufficient because the refcount's `Release`/`Acquire` pair in `rc_dec_to_zero` already provides the happens-before relationship. Single-threaded path remains plain read/write.
+- [x] `[TPR-07-003][high]` `compiler/ori_rt/src/lib.rs:336` — `ori_args_from_argv()` defers the `[str]` buffer's `elem_dec_fn`, but list slice/COW helpers copy the current header destructor into derived buffers.
+  Resolved: Fixed on 2026-04-01. Added `ori_str_elem_dec` runtime function (takes `*mut u8` → OriStr, SSO-aware, calls `ori_str_rc_dec` on heap strings). `ori_args_from_argv` now stores `Some(ori_str_elem_dec)` via `store_elem_dec_fn` at construction time. COW/slice propagation paths will now correctly copy the destructor into derived buffers.
 
 ---
 

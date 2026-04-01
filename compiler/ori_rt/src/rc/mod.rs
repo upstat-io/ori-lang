@@ -365,6 +365,36 @@ pub extern "C" fn ori_str_drop_buffer(data_ptr: *mut u8) {
     ori_rc_free(data_ptr, size, 8);
 }
 
+/// Element destructor for `[str]` buffers (runtime-resident).
+///
+/// Takes a pointer to an `OriStr` within a buffer and decrements the string's
+/// data RC if it's a heap-backed string. SSO strings are no-ops.
+///
+/// This is the runtime equivalent of the LLVM-generated `elem_dec` thunk for
+/// string elements. It is used by `ori_args_from_argv` to populate the argv
+/// buffer's `elem_dec_fn` header slot at construction time, so that COW and
+/// slice propagation paths correctly install the destructor into derived buffers.
+///
+/// # Safety
+///
+/// `elem_ptr` must point to a valid `OriStr` within an RC-managed buffer.
+#[no_mangle]
+pub extern "C" fn ori_str_elem_dec(elem_ptr: *mut u8) {
+    if elem_ptr.is_null() {
+        return;
+    }
+    // SAFETY: elem_ptr points to an OriStr within the buffer's data region.
+    let s = unsafe { &*elem_ptr.cast::<crate::string::OriStr>() };
+    if s.is_sso() {
+        return;
+    }
+    // Heap string: dec the data buffer's RC.
+    let heap = unsafe { s.heap };
+    if !heap.data.is_null() {
+        ori_str_rc_dec(heap.data, heap.cap, Some(ori_str_drop_buffer));
+    }
+}
+
 /// Call a drop function with abort-on-panic guard.
 ///
 /// `ori_rc_dec` is declared `nounwind` in LLVM IR, meaning unwinding through
