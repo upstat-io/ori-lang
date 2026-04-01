@@ -7,6 +7,15 @@
 //! the need to duplicate composition logic.
 //!
 //! See `DerivedTrait::strategy()` for the mapping from trait to strategy.
+//!
+//! # Sync Invariant
+//!
+//! [`StructBody`] and [`SumBody`] are intentionally NOT `#[non_exhaustive]`.
+//! Both `ori_eval` (`interpreter/derived_methods.rs`) and `ori_llvm`
+//! (`codegen/derive_codegen/mod.rs`) must exhaustively match these enums.
+//! Adding `#[non_exhaustive]` would allow backends to use `_ =>` catch-all
+//! arms, silently bypassing Rust's compile-time sync enforcement.
+//! DO NOT add `#[non_exhaustive]` to `StructBody` or `SumBody`.
 
 /// The high-level strategy for deriving a trait.
 ///

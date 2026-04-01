@@ -19,6 +19,8 @@ mod clone_rc;
 mod enum_bodies;
 mod field_ops;
 mod string_helpers;
+#[cfg(test)]
+mod tests;
 
 use ori_ir::{DerivedMethodShape, DerivedTrait, Module, Name, StructBody, SumBody, TypeDeclKind};
 use ori_types::{FieldDef, Idx, TypeEntry, TypeKind, VariantDef};

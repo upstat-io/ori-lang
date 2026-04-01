@@ -6913,3 +6913,18 @@ fn full_range_slice_last_owner_cleans_all() {
         "full-range slice should clean all elements"
     );
 }
+
+// FNV constant conformance
+
+/// Verify `ori_rt`'s function-local FNV constants match the canonical
+/// definitions in `ori_ir::hash_constants`. The runtime intentionally keeps
+/// its own copy (no production dependency on `ori_ir`), but they must agree.
+#[test]
+fn fnv_constants_match_canonical_values() {
+    assert_eq!(
+        14_695_981_039_346_656_037_u64,
+        ori_ir::FNV_OFFSET_BASIS,
+        "FNV_OFFSET_BASIS"
+    );
+    assert_eq!(1_099_511_628_211_u64, ori_ir::FNV_PRIME, "FNV_PRIME");
+}
