@@ -1,8 +1,8 @@
 ---
 section: "11"
 title: "Stale Plan Annotations"
-status: not-started
-reviewed: false
+status: complete
+reviewed: true
 goal: "Remove all stale plan annotation references from completed plans (~180 annotations across ori_arc, ori_llvm, ori_types, oric)"
 inspired_by:
   - "CLAUDE.md -- plan annotations are temporary scaffolding, MUST be removed when plan completes"
