@@ -77,6 +77,7 @@ mod iterator;
 mod iterator_consumers;
 mod list_traits;
 mod option_result;
+mod option_result_helpers;
 pub(crate) mod prelude;
 mod primitives;
 mod traits;

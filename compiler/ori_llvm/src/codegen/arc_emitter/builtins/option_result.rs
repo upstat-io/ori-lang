@@ -15,6 +15,8 @@ declare_builtins! { emitter, ctx;
     ("Option", "is_none") => emitter.emit_option_method(ctx.method, ctx.arg_vals, ctx.receiver_ty),
     ("Option", "unwrap") => emitter.emit_option_method(ctx.method, ctx.arg_vals, ctx.receiver_ty),
     ("Option", "unwrap_or") => emitter.emit_option_method(ctx.method, ctx.arg_vals, ctx.receiver_ty),
+    ("Option", "expect") => emitter.emit_option_method(ctx.method, ctx.arg_vals, ctx.receiver_ty),
+    ("Option", "debug") => emitter.emit_option_method(ctx.method, ctx.arg_vals, ctx.receiver_ty),
     ("Option", "clone") => emitter.emit_option_method(ctx.method, ctx.arg_vals, ctx.receiver_ty),
     // Result methods
     ("Result", "is_ok") => emitter.emit_result_method(ctx.method, ctx.arg_vals, ctx.receiver_ty),
@@ -22,6 +24,11 @@ declare_builtins! { emitter, ctx;
     ("Result", "unwrap") => emitter.emit_result_method(ctx.method, ctx.arg_vals, ctx.receiver_ty),
     ("Result", "unwrap_err") => emitter.emit_result_method(ctx.method, ctx.arg_vals, ctx.receiver_ty),
     ("Result", "unwrap_or") => emitter.emit_result_method(ctx.method, ctx.arg_vals, ctx.receiver_ty),
+    ("Result", "expect") => emitter.emit_result_method(ctx.method, ctx.arg_vals, ctx.receiver_ty),
+    ("Result", "expect_err") => emitter.emit_result_method(ctx.method, ctx.arg_vals, ctx.receiver_ty),
+    ("Result", "debug") => emitter.emit_result_debug(ctx.arg_vals, ctx.receiver_ty),
+    ("Result", "ok") => emitter.emit_result_method(ctx.method, ctx.arg_vals, ctx.receiver_ty),
+    ("Result", "err") => emitter.emit_result_method(ctx.method, ctx.arg_vals, ctx.receiver_ty),
     ("Result", "clone") => emitter.emit_result_method(ctx.method, ctx.arg_vals, ctx.receiver_ty),
 }
 
@@ -33,7 +40,7 @@ use crate::codegen::value_id::ValueId;
 use super::super::ArcIrEmitter;
 
 impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
-    /// Emit an Option method (`is_some`, `is_none`, `unwrap`).
+    /// Emit an Option method (`is_some`, `is_none`, `unwrap`, `expect`, `debug`).
     pub(crate) fn emit_option_method(
         &mut self,
         method: &str,
@@ -44,44 +51,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
         // §07.2: Niche-encoded Option — payload IS the struct, no tag field.
         if let Some(encoding) = self.get_niche_encoding(receiver_ty) {
-            let niche_idx = encoding.niche_field_index().unwrap();
-            let niche_value = encoding.niche_value().unwrap();
-            return match method {
-                "is_some" => {
-                    let field = self
-                        .builder
-                        .extract_value(receiver, niche_idx, "opt.niche")?;
-                    let is_niche = self.niche_is_sentinel(field, niche_value, "is_niche");
-                    // is_some = NOT niche (niche = None)
-                    let t = self.builder.const_bool(true);
-                    let f = self.builder.const_bool(false);
-                    Some(self.builder.select(is_niche, f, t, "is_some"))
-                }
-                "is_none" => {
-                    let field = self
-                        .builder
-                        .extract_value(receiver, niche_idx, "opt.niche")?;
-                    Some(self.niche_is_sentinel(field, niche_value, "is_none"))
-                }
-                "unwrap" => {
-                    // Niche layout: payload at field 0 (no tag field).
-                    self.builder.extract_value(receiver, 0, "opt.payload")
-                }
-                "unwrap_or" if arg_vals.len() >= 2 => {
-                    let field = self
-                        .builder
-                        .extract_value(receiver, niche_idx, "opt.niche")?;
-                    let is_niche = self.niche_is_sentinel(field, niche_value, "is_niche");
-                    let payload = self.builder.extract_value(receiver, 0, "opt.payload")?;
-                    // niche (None) → default; non-niche (Some) → payload
-                    Some(
-                        self.builder
-                            .select(is_niche, arg_vals[1], payload, "unwrap_or"),
-                    )
-                }
-                "clone" => Some(receiver),
-                _ => None,
-            };
+            return self.emit_option_niche(method, receiver, arg_vals, receiver_ty, &encoding);
         }
 
         // Explicit tag layout: {tag, payload}
@@ -113,6 +83,27 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                         .select(is_some, payload, arg_vals[1], "unwrap_or"),
                 )
             }
+            "expect" if arg_vals.len() >= 2 => {
+                let tag = self.builder.extract_value(receiver, 0, "opt.tag")?;
+                let some = self
+                    .builder
+                    .const_int_matching(tag, ori_ir::OPTION_TAG_SOME as u64);
+                let is_some = self.builder.icmp_eq(tag, some, "is_some");
+                self.emit_expect_branch(is_some, arg_vals[1], "expect")?;
+                self.builder.extract_value(receiver, 1, "opt.payload")
+            }
+            "debug" | "to_str" => {
+                let tag = self.builder.extract_value(receiver, 0, "opt.tag")?;
+                let some = self
+                    .builder
+                    .const_int_matching(tag, ori_ir::OPTION_TAG_SOME as u64);
+                let is_some = self.builder.icmp_eq(tag, some, "is_some");
+                let payload = self.builder.extract_value(receiver, 1, "opt.payload")?;
+                let TypeInfo::Option { inner } = self.type_info.get(receiver_ty) else {
+                    return None;
+                };
+                self.emit_option_debug_branch(is_some, payload, inner, method == "debug")
+            }
             "clone" => Some(receiver),
             _ => None,
         }
@@ -132,45 +123,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
         // §07.2: Niche-encoded Result — check niche field instead of tag.
         if let Some(encoding) = self.get_niche_encoding(receiver_ty) {
-            let niche_idx = encoding.niche_field_index().unwrap();
-            let niche_value = encoding.niche_value().unwrap();
-            let niche_variant_idx = encoding.niche_variant_idx().unwrap();
-            return match method {
-                "is_ok" => {
-                    let field = self
-                        .builder
-                        .extract_value(receiver, niche_idx, "res.niche")?;
-                    let is_niche = self.niche_is_sentinel(field, niche_value, "res.is_niche");
-                    // Ok = variant 0. If niche_variant_idx == 0 → Ok IS the niche
-                    // (niche → is_ok=true); else Ok is NOT the niche (niche → is_ok=false).
-                    if niche_variant_idx == 0 {
-                        Some(is_niche) // niche = Ok → is_ok = is_niche
-                    } else {
-                        let t = self.builder.const_bool(true);
-                        let f = self.builder.const_bool(false);
-                        Some(self.builder.select(is_niche, f, t, "is_ok"))
-                    }
-                }
-                "is_err" => {
-                    let field = self
-                        .builder
-                        .extract_value(receiver, niche_idx, "res.niche")?;
-                    let is_niche = self.niche_is_sentinel(field, niche_value, "res.is_niche");
-                    if niche_variant_idx == 1 {
-                        Some(is_niche) // niche = Err → is_err = is_niche
-                    } else {
-                        let t = self.builder.const_bool(true);
-                        let f = self.builder.const_bool(false);
-                        Some(self.builder.select(is_niche, f, t, "is_err"))
-                    }
-                }
-                "unwrap" | "unwrap_err" | "unwrap_or" => {
-                    // Niche Result payload at field 0 — delegate to alloca path.
-                    self.builder.extract_value(receiver, 0, "res.payload")
-                }
-                "clone" => Some(receiver),
-                _ => None,
-            };
+            return self.emit_result_niche(method, receiver, arg_vals, &encoding);
         }
 
         match method {
@@ -222,6 +175,54 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                     self.builder
                         .select(is_ok, payload, arg_vals[1], "unwrap_or"),
                 )
+            }
+            "expect" if arg_vals.len() >= 2 => {
+                let tag = self.builder.extract_value(receiver, 0, "res.tag")?;
+                let ok = self
+                    .builder
+                    .const_int_matching(tag, ori_ir::RESULT_TAG_OK as u64);
+                let is_ok = self.builder.icmp_eq(tag, ok, "is_ok");
+                self.emit_expect_branch(is_ok, arg_vals[1], "res_expect")?;
+                let TypeInfo::Result { ok: ok_ty, .. } = self.type_info.get(receiver_ty) else {
+                    return self.builder.extract_value(receiver, 1, "res.payload");
+                };
+                self.extract_tagged_union_payload(receiver, receiver_ty, 1, ok_ty)
+            }
+            "expect_err" if arg_vals.len() >= 2 => {
+                let tag = self.builder.extract_value(receiver, 0, "res.tag")?;
+                let err_tag = self
+                    .builder
+                    .const_int_matching(tag, ori_ir::RESULT_TAG_ERR as u64);
+                let is_err = self.builder.icmp_eq(tag, err_tag, "is_err");
+                self.emit_expect_branch(is_err, arg_vals[1], "res_expect_err")?;
+                let TypeInfo::Result { err: err_ty, .. } = self.type_info.get(receiver_ty) else {
+                    return self.builder.extract_value(receiver, 1, "res.payload");
+                };
+                self.extract_tagged_union_payload(receiver, receiver_ty, 1, err_ty)
+            }
+            "ok" => {
+                // Result<T, E>.ok() -> Option<T>
+                // Tag convention matches: Ok(0)→Some(0), Err(1)→None(1).
+                let tag = self.builder.extract_value(receiver, 0, "res.tag")?;
+                let TypeInfo::Result { ok: ok_ty, .. } = self.type_info.get(receiver_ty) else {
+                    return None;
+                };
+                let payload = self.extract_tagged_union_payload(receiver, receiver_ty, 1, ok_ty)?;
+                self.build_option_struct(tag, payload, ok_ty)
+            }
+            "err" => {
+                // Result<T, E>.err() -> Option<E>
+                // Tag must flip: Err(1)→Some(0), Ok(0)→None(1).
+                let tag = self.builder.extract_value(receiver, 0, "res.tag")?;
+                let TypeInfo::Result { err: err_ty, .. } = self.type_info.get(receiver_ty) else {
+                    return None;
+                };
+                let payload =
+                    self.extract_tagged_union_payload(receiver, receiver_ty, 1, err_ty)?;
+                // Flip tag: 0→1, 1→0 via XOR with 1
+                let one = self.builder.const_int_matching(tag, 1);
+                let flipped_tag = self.builder.xor(tag, one, "err.flip_tag");
+                self.build_option_struct(flipped_tag, payload, err_ty)
             }
             "clone" => Some(receiver),
             _ => None,
