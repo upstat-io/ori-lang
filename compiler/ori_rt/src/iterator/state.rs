@@ -111,6 +111,35 @@ pub(crate) enum IterState {
         first_done: bool,
     },
 
+    /// Flattens a nested iterator (iterator of iterators) into a single stream.
+    ///
+    /// Tracks the outer source iterator and the current inner iterator.
+    /// When the inner is exhausted, advances the outer to get the next inner.
+    Flattened {
+        source: Box<IterState>,
+        inner: Option<Box<IterState>>,
+        inner_elem_size: i64,
+    },
+
+    /// Cycles through elements by buffering the first pass and replaying.
+    ///
+    /// On the first pass, elements are collected into `buffer`. Once the source
+    /// is exhausted, subsequent iterations replay from the buffer.
+    Cycled {
+        source: Option<Box<IterState>>,
+        buffer: Vec<u8>,
+        buf_pos: usize,
+        elem_size: i64,
+        source_exhausted: bool,
+    },
+
+    /// Reverses iteration by collecting all elements then iterating backward.
+    Reversed {
+        elements: Vec<u8>,
+        pos: i64,
+        elem_size: i64,
+    },
+
     /// Iterates over a UTF-8 string, yielding Unicode codepoints (i32/char).
     ///
     /// When `owns_data` is true, the iterator holds an RC reference to the
