@@ -1,0 +1,28 @@
+// Option.map — transform the inner value if Some
+use std.testing { assert_eq }
+
+@map_some () -> Option<int> = {
+    Some(2).map(x -> x * 3)
+}
+
+@test_map_some tests @map_some () -> void = {
+    assert_eq(actual: map_some(), expected: Some(6))
+}
+
+@map_none () -> Option<int> = {
+    let n: Option<int> = None;
+    n.map(x -> x * 3)
+}
+
+@test_map_none tests @map_none () -> void = {
+    assert_eq(actual: map_none(), expected: None)
+}
+
+// Semantic pin: map + unwrap_or confirms transform applied
+@map_pin () -> int = {
+    Some(5).map(x -> x + 1).unwrap_or(default: 0)
+}
+
+@test_map_pin tests @map_pin () -> void = {
+    assert_eq(actual: map_pin(), expected: 6)
+}

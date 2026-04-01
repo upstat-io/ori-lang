@@ -1,0 +1,40 @@
+// Result.expect and Result.expect_err
+use std.testing { assert_eq }
+
+@expect_ok () -> int = {
+    let r: Result<int, str> = Ok(42);
+    r.expect(message: "must be ok")
+}
+
+@test_expect_ok tests @expect_ok () -> void = {
+    assert_eq(actual: expect_ok(), expected: 42)
+}
+
+@expect_fail () -> void = {
+    let r: Result<int, str> = Err("oops");
+    let _ = r.expect(message: "must be ok");
+}
+
+#fail("must be ok")
+@test_expect_fail tests @expect_fail () -> void = {
+    expect_fail()
+}
+
+@expect_err_ok () -> str = {
+    let r: Result<int, str> = Err("oops");
+    r.expect_err(message: "must be err")
+}
+
+@test_expect_err_ok tests @expect_err_ok () -> void = {
+    assert_eq(actual: expect_err_ok(), expected: "oops")
+}
+
+@expect_err_fail () -> void = {
+    let r: Result<int, str> = Ok(42);
+    let _ = r.expect_err(message: "must be err");
+}
+
+#fail("must be err")
+@test_expect_err_fail tests @expect_err_fail () -> void = {
+    expect_err_fail()
+}

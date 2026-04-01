@@ -1,0 +1,32 @@
+// Option: Eq, Comparable, Hashable trait methods
+use std.testing { assert, assert_eq }
+
+// Eq
+@test_some_eq tests _ () -> void = {
+    assert(condition: Some(1) == Some(1))
+}
+
+@test_some_neq tests _ () -> void = {
+    assert(condition: Some(1) != Some(2))
+}
+
+@test_none_eq tests _ () -> void = {
+    let a: Option<int> = None;
+    let b: Option<int> = None;
+    assert(condition: a == b)
+}
+
+@test_some_none_neq tests _ () -> void = {
+    let n: Option<int> = None;
+    assert(condition: Some(1) != n)
+}
+
+// Comparable
+@test_none_less_than_some tests _ () -> void = {
+    let n: Option<int> = None;
+    assert(condition: n < Some(1))
+}
+
+@test_some_ordered tests _ () -> void = {
+    assert(condition: Some(1) < Some(2))
+}
