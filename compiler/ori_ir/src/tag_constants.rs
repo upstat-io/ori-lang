@@ -67,6 +67,22 @@ pub const fn min_tag_bytes(variant_count: usize) -> i64 {
     }
 }
 
+// u32 variants for ARC IR CtorKind::EnumVariant (variant field is u32)
+/// `Option::Some` variant index in ARC IR `CtorKind`.
+pub const OPTION_VARIANT_SOME: u32 = 0;
+/// `Option::None` variant index in ARC IR `CtorKind`.
+pub const OPTION_VARIANT_NONE: u32 = 1;
+/// `Result::Ok` variant index in ARC IR `CtorKind`.
+pub const RESULT_VARIANT_OK: u32 = 0;
+/// `Result::Err` variant index in ARC IR `CtorKind`.
+pub const RESULT_VARIANT_ERR: u32 = 1;
+
+// Cross-type const assertions: u32 variants match i64 tags
+const _: () = assert!(OPTION_VARIANT_SOME as i64 == OPTION_TAG_SOME);
+const _: () = assert!(OPTION_VARIANT_NONE as i64 == OPTION_TAG_NONE);
+const _: () = assert!(RESULT_VARIANT_OK as i64 == RESULT_TAG_OK);
+const _: () = assert!(RESULT_VARIANT_ERR as i64 == RESULT_TAG_ERR);
+
 // Const assertions — these fail at compile time if the values change
 const _: () = assert!(OPTION_TAG_SOME == 0);
 const _: () = assert!(OPTION_TAG_NONE == 1);
