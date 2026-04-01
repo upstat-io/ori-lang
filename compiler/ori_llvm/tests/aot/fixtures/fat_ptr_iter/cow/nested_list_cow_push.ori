@@ -1,0 +1,15 @@
+@main () -> int = {
+    let lists = [[1, 2], [3, 4]];
+    let copy = lists;
+    copy = copy.push(value: [5, 6]);
+    let orig_sum = 0;
+    for inner in lists do {
+        for n in inner do { orig_sum = orig_sum + n; };
+    };
+    let copy_sum = 0;
+    for inner in copy do {
+        for n in inner do { copy_sum = copy_sum + n; };
+    };
+    // orig: 1+2+3+4=10, copy: 1+2+3+4+5+6=21
+    if orig_sum == 10 && copy_sum == 21 then 0 else 1
+}

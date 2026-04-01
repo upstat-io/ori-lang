@@ -1,0 +1,5 @@
+@main () -> int = {
+    let m = {"only": 42};
+    let m2 = m.remove("only");
+    if m.len() == 1 && m2.is_empty() then 0 else 1
+}

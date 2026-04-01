@@ -1,0 +1,10 @@
+type Bundle = { label: str, items: [int] }
+
+@main () -> int = {
+    let b = Bundle { label: "bundle_label_heap_str_x", items: [1] };
+    for i in 0..30 do {
+        b = Bundle { label: b.label, items: b.items.push(i) };
+    };
+    // 1 original + 30 pushed = 31
+    if b.items.len() == 31 then 0 else 1
+}

@@ -1,0 +1,15 @@
+type Item = { label: str, value: int }
+
+@main () -> int = {
+    let items = [
+        Item { label: "first long label exceeding SSO threshold here", value: 10 },
+        Item { label: "second long label also exceeding SSO threshold", value: 20 },
+        Item { label: "third long label should not be reached at all", value: 30 }
+    ];
+    let total = 0;
+    for item in items do {
+        if item.value > 15 then break;
+        total = total + item.value
+    };
+    if total == 10 then 0 else 1
+}

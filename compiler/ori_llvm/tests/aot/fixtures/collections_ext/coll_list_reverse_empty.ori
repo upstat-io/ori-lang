@@ -1,0 +1,5 @@
+@main () -> int = {
+    let xs: [int] = [];
+    let rev = xs.reverse();
+    if rev.length() == 0 then 0 else 1
+}

@@ -1,0 +1,10 @@
+@main () -> int = {
+    let t = (5, 2);
+    let r = match t {
+        (1, y) -> y,
+        (x, 2) -> x * 10,
+        _ -> 0,
+    };
+    // Second arm matches: x = 5, result = 50
+    if r == 50 then 0 else 1
+}

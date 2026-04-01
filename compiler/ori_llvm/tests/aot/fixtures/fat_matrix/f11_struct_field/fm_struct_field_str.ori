@@ -1,0 +1,6 @@
+type Wrapper = { value: str }
+
+@main () -> int = {
+    let w = Wrapper { value: "hello" };
+    if w.value.length() == 5 then 0 else 1
+}

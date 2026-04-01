@@ -1,0 +1,15 @@
+type Point = { x: int, y: int }
+
+impl Point {
+    @get_x (self) -> int = self.x;
+    @get_y (self) -> int = self.y;
+    @sum (self) -> int = self.x + self.y;
+}
+
+@main () -> int = {
+    let p = Point { x: 10, y: 20 };
+    let ok1 = p.get_x() == 10;
+    let ok2 = p.get_y() == 20;
+    let ok3 = p.sum() == 30;
+    if ok1 && ok2 && ok3 then 0 else 1
+}

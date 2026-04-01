@@ -1,0 +1,12 @@
+@apply (f: (int) -> int, x: int) -> int = f(x);
+
+@main () -> int = {
+    let multiplier = 10;
+    let scale = (n: int) -> n * multiplier;
+    let sum = 0;
+    for i in 1..=3 do {
+        sum = sum + apply(f: scale, x: i);
+    };
+    // 10 + 20 + 30 = 60
+    if sum == 60 then 0 else 1
+}

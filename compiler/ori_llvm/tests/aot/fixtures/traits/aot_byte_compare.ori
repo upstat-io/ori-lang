@@ -1,0 +1,8 @@
+@main () -> int = {
+    let a = byte(10);
+    let b = byte(20);
+    let c = byte(10);
+    let r1 = a.compare(b).is_less();
+    let r2 = a.compare(c).is_equal();
+    if r1 && r2 then 0 else 1
+}

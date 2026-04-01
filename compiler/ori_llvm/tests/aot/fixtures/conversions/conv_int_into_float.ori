@@ -1,0 +1,5 @@
+@main () -> int = {
+    let x = 7;
+    let f: float = x.into();
+    if f == 7.0 then 0 else 1
+}

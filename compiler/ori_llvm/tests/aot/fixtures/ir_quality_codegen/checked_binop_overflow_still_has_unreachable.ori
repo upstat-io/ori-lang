@@ -1,0 +1,3 @@
+@add_checked (a: int, b: int) -> int = a + b;
+
+@main () -> int = add_checked(a: 9223372036854775807, b: 1);

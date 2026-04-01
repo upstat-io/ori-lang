@@ -1,0 +1,14 @@
+@main () -> int = {
+    let s = "hello this is a long enough string to exceed SSO,world and another long one";
+    let parts = s.split(sep: ",");
+    let opts: [Option<str>] = for p in parts yield Some(p);
+    let total = 0;
+    for opt in opts do {
+        match opt {
+            Some(text) -> { total = total + text.len(); },
+            None -> ()
+        };
+    };
+    // "hello this is a long enough string to exceed SSO" (48) + "world and another long one" (26) = 74
+    if total == 74 then 0 else 1
+}

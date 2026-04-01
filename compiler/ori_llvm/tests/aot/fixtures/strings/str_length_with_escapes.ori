@@ -1,0 +1,5 @@
+@main () -> int = {
+    let s = "a\tb\nc";
+    // 'a', '\t', 'b', '\n', 'c' = 5 bytes
+    if s.length() == 5 then 0 else 1
+}

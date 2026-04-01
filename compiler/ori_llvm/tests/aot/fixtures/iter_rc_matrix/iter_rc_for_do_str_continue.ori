@@ -1,0 +1,13 @@
+@main () -> int = {
+    let items = [
+        "skip: this string should be skipped via continue in the loop body",
+        "this string exceeds SSO threshold by being very long indeed count",
+        "skip: another string that should also be skipped via continue here"
+    ];
+    let count = 0;
+    for s in items do {
+        if s.starts_with(prefix: "skip") then continue;
+        count = count + 1;
+    };
+    if count == 1 then 0 else 1
+}

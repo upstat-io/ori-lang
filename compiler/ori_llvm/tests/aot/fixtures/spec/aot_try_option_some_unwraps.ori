@@ -1,0 +1,14 @@
+@find_value () -> Option<int> = Some(42);
+
+@try_find () -> Option<int> = {
+    let x = find_value()?;
+    Some(x + 1)
+}
+
+@main () -> int = {
+    let o = try_find();
+    if o.is_some() then {
+        let v = o.unwrap();
+        if v == 43 then 0 else 1
+    } else 1
+}

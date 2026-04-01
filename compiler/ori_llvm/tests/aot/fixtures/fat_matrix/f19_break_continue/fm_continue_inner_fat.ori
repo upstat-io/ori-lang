@@ -1,0 +1,9 @@
+@main () -> int = {
+    let total = 0;
+    for i in [1, 2, 3, 4, 5] do {
+        let s = "hello";
+        if i == 3 then continue;
+        total = total + s.length();
+    };
+    if total == 20 then 0 else 1
+}

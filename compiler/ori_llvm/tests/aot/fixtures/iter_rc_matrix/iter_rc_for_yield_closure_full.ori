@@ -1,0 +1,5 @@
+@main () -> int = {
+    let fns = [x -> x + 1, x -> x * 2, x -> x - 1];
+    let results = for f in fns yield f(10);
+    if results.length() == 3 then 0 else 1
+}

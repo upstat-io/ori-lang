@@ -1,0 +1,5 @@
+@main () -> int = {
+    let flag = true;
+    let opt = if flag then Some(42) else None;
+    if is_some(option: opt) then 0 else 1
+}

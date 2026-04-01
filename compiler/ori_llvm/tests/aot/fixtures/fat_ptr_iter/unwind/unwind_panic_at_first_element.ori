@@ -1,0 +1,23 @@
+@process (words: [str]) -> int = {
+    let total = 0;
+    for w in words do {
+        if w.starts_with(prefix: "boom") then {
+            panic(msg: "panic at first element")
+        };
+        total = total + w.len()
+    };
+    total
+}
+
+@main () -> int = {
+    let words = [
+        "boom this is a long enough string for heap allocation",
+        "second very long string that also exceeds the threshold",
+        "third long string that should also be on the heap here"
+    ];
+    let result = catch(expr: process(words: words));
+    match result {
+        Ok(_) -> 1,
+        Err(_) -> 0
+    }
+}

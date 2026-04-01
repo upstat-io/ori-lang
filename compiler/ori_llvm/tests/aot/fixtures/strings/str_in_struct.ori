@@ -1,0 +1,6 @@
+type Person = { name: str, age: int }
+
+@main () -> int = {
+    let p = Person { name: "Alice", age: 30 };
+    if p.name == "Alice" && p.age == 30 then 0 else 1
+}

@@ -1,0 +1,8 @@
+@apply_both (f: (int) -> int, g: (int) -> int, x: int) -> int = g(f(x));
+
+@main () -> int = {
+    let double = (n: int) -> int = n * 2;
+    let inc = (n: int) -> int = n + 1;
+    let result = apply_both(f: double, g: inc, x: 20);
+    if result == 41 then 0 else 1
+}

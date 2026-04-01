@@ -1,0 +1,7 @@
+@main () -> int = {
+    let m = {
+        "this is a very long heap string that exceeds the SSO threshold for testing": 42
+    };
+    let m2 = m.remove(key: "this is a very long heap string that exceeds the SSO threshold for testing");
+    if m2.len() == 0 then 0 else 1
+}

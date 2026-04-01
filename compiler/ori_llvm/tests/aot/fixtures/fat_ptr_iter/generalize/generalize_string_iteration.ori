@@ -1,0 +1,8 @@
+@main () -> int = {
+    let s = "hello world this is a very long string for heap allocation";
+    let count = 0;
+    for c in s do {
+        count = count + 1
+    };
+    if count == 58 then 0 else 1
+}

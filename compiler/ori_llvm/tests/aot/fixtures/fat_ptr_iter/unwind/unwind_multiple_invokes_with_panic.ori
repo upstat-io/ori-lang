@@ -1,0 +1,32 @@
+@count_lengths (words: [str]) -> int = {
+    let total = 0;
+    for w in words do {
+        total = total + w.len()
+    };
+    total
+}
+
+@panicking_count (words: [str]) -> int = {
+    let total = 0;
+    for w in words do {
+        if w == "boom this is a long enough string for heap allocation" then {
+            panic(msg: "kaboom in second call")
+        };
+        total = total + w.len()
+    };
+    total
+}
+
+@main () -> int = {
+    let words = [
+        "this is a very long string that exceeds SSO threshold",
+        "boom this is a long enough string for heap allocation",
+        "third long string that should also be on the heap here"
+    ];
+    let r1 = count_lengths(words: words);
+    let r2 = catch(expr: panicking_count(words: words));
+    match r2 {
+        Ok(_) -> 1,
+        Err(_) -> if r1 == 160 then 0 else 1
+    }
+}

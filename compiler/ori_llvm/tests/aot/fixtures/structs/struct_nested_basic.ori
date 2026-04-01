@@ -1,0 +1,7 @@
+type Inner = { value: int };
+type Outer = { inner: Inner, extra: int };
+
+@main () -> int = {
+    let o = Outer { inner: Inner { value: 42 }, extra: 10 };
+    if o.inner.value == 42 && o.extra == 10 then 0 else 1
+}

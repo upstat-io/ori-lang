@@ -1,0 +1,10 @@
+@inc (x: int) -> int = x + 1;
+@dec (x: int) -> int = x - 1;
+
+@synthetic (x: int) -> int = {
+    let a = if x > 0 then inc(x: x) else dec(x: x);
+    let b = a * 2;
+    b
+};
+
+@main () -> int = synthetic(x: 5);

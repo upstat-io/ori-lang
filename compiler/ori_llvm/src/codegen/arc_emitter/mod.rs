@@ -222,6 +222,15 @@ pub struct ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
     /// The for-yield narrowing override only fires for variables in this set,
     /// preventing non-int accumulators (e.g., `[str]`) from being corrupted.
     for_yield_int_elem_sizes: FxHashSet<ArcVarId>,
+
+    /// §07.2: Niche-encoded enum tag tracking.
+    ///
+    /// When `Project { field: 0 }` extracts a tag from a niche-encoded enum,
+    /// the destination variable holds the raw niche field value (not a logical
+    /// variant index). This map records `dst_var → source_enum_type_idx` so
+    /// that `Switch` can emit niche-aware comparisons instead of a standard
+    /// LLVM switch instruction.
+    niche_scrutinees: FxHashMap<ArcVarId, Idx>,
 }
 
 impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
@@ -267,6 +276,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
             narrowed_vars: FxHashMap::default(),
             repr_plan: type_resolver.repr_plan(),
             for_yield_int_elem_sizes: FxHashSet::default(),
+            niche_scrutinees: FxHashMap::default(),
         }
     }
 
@@ -290,6 +300,45 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
     /// bridges the two: if the type has a `StructRepr` in the `ReprPlan`, look
     /// up the memory position; otherwise return the original index unchanged.
     ///
+    /// §07.2: Compare a niche field value against the niche sentinel.
+    ///
+    /// Returns an `i1` that is `true` when the value IS the niche (e.g., None).
+    /// Handles both integer niche fields (`icmp eq`) and pointer niche fields
+    /// (`ptrtoint` + `icmp eq`, using the established null-check pattern).
+    pub(super) fn niche_is_sentinel(
+        &mut self,
+        field_val: super::value_id::ValueId,
+        niche_value: u64,
+        name: &str,
+    ) -> super::value_id::ValueId {
+        if self.builder.is_pointer_value(field_val) {
+            let i64_ty = self.builder.i64_type();
+            let as_int = self.builder.ptr_to_int(field_val, i64_ty, "niche.p2i");
+            let niche_const = self.builder.const_i64(niche_value as i64);
+            self.builder.icmp_eq(as_int, niche_const, name)
+        } else {
+            let niche_const = self.builder.const_int_matching(field_val, niche_value);
+            self.builder.icmp_eq(field_val, niche_const, name)
+        }
+    }
+
+    /// §07.2: Get the `TagEncoding` for an enum type, if it uses niche encoding.
+    ///
+    /// Returns `Some(encoding)` only when the type has a niche or tagless `EnumTag`.
+    /// For explicit tags (the common case), returns `None` — callers fall through
+    /// to the existing codegen path.
+    pub(super) fn get_niche_encoding(&self, ty: Idx) -> Option<tag_access::TagEncoding> {
+        let plan = self.repr_plan?;
+        let resolved = self.pool.resolve_fully(ty);
+        let enum_repr = plan.get_enum_repr(resolved)?;
+        match &enum_repr.tag {
+            ori_repr::EnumTag::Niche { .. } | ori_repr::EnumTag::None => {
+                Some(tag_access::TagEncoding::from_enum_repr(enum_repr))
+            }
+            ori_repr::EnumTag::Explicit { .. } => None,
+        }
+    }
+
     /// Only applies to user structs/tuples — enum payloads, closure envs,
     /// and collection internals are not subject to §06 reordering.
     pub(super) fn remap_struct_field(&self, ty: Idx, decl_field: u32) -> u32 {

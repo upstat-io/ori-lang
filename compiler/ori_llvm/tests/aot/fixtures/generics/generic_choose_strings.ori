@@ -1,0 +1,7 @@
+@choose <T> (cond: bool, a: T, b: T) -> T =
+    if cond then a else b;
+
+@main () -> int = {
+    let s = choose(cond: true, a: "yes", b: "no");
+    if s == "yes" then 0 else 1
+}

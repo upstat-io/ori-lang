@@ -1,0 +1,9 @@
+@identity <T> (x: T) -> T = x;
+
+@main () -> int = {
+    let a = identity(x: 42);
+    let b = identity(x: true);
+    let c = identity(x: "hello");
+    let d = identity(x: 3.14);
+    if a == 42 && b && c == "hello" && d > 3.0 then 0 else 1
+}

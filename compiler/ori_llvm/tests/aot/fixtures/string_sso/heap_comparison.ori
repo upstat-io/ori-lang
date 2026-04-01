@@ -1,0 +1,5 @@
+@main () -> int = {
+    let a = "apple is a fruit that grows on trees";
+    let b = "banana is a fruit that grows in bunches";
+    if a < b && b > a then 0 else 1
+}

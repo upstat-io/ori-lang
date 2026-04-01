@@ -1,0 +1,23 @@
+@combine (a: Option<int>, b: Option<int>) -> Option<int> = {
+    let x = a?;
+    let y = b?;
+    Some(x + y)
+};
+
+@main () -> int = {
+    let r1 = combine(a: Some(3), b: Some(7));
+    let r2 = combine(a: Some(3), b: None);
+    let r3 = combine(a: None, b: Some(7));
+    match r1 {
+        Some(n) -> if n == 10 then {
+            match r2 {
+                Some(_) -> 1,
+                None -> match r3 {
+                    Some(_) -> 2,
+                    None -> 0,
+                },
+            }
+        } else 3,
+        None -> 4,
+    }
+}

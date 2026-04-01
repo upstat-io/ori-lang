@@ -1,0 +1,22 @@
+type Record = { id: int, name: str }
+
+@process (r: Record) -> int = r.id + r.name.length();
+
+@main () -> int = {
+    let total = 0;
+    for i in 0..2000 do {
+        // Struct allocation
+        let r = Record { id: i, name: "rec" };
+        // Shared reference
+        let alias = r;
+        // Closure capturing struct
+        let get_id = () -> int = r.id;
+        // String concat
+        let desc = "item-" + i.to_str();
+        // Use everything
+        total = total + process(r: alias) + get_id() + desc.length()
+    };
+    // process: i + 3 (len("rec")), get_id: i, desc.length: 5 + digits(i)
+    // Rough check: just verify it completed without leak
+    if total > 0 then 0 else 1
+}

@@ -1,0 +1,5 @@
+@main () -> int = {
+    let flag = true;
+    let check = (x: int) -> if flag then x * 2 else x;
+    if check(21) == 42 then 0 else 1
+}

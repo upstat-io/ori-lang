@@ -1,0 +1,5 @@
+@main () -> int = {
+    let s = "test";
+    // len() is an alias for length()
+    if s.len() == 4 then 0 else 1
+}

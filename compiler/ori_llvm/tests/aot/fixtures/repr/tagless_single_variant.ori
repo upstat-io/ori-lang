@@ -1,0 +1,12 @@
+// §07.2: Tagless single-variant enum (newtype erasure).
+// Verifies that a single-variant enum compiles and runs correctly
+// without an explicit tag field in the LLVM layout.
+
+type Wrapper = Value(x: int);
+
+@main () -> void = {
+    let $w = Value(x: 42);
+    match w {
+        Value(x:) -> print(msg: x.to_str())
+    }
+}

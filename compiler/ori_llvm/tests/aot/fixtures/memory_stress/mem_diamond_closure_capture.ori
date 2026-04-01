@@ -1,0 +1,10 @@
+type Info = { msg: str, code: int }
+
+@main () -> int = {
+    let info = Info { msg: "captured", code: 7 };
+    let get_msg = () -> str = info.msg;
+    let get_code = () -> int = info.code;
+    let m = get_msg();
+    let c = get_code();
+    if m == "captured" && c == 7 then 0 else 1
+}

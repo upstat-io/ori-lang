@@ -498,7 +498,7 @@ For each section, in order from 01 to N:
 - `depends_on` based on actual crate dependency chain AND section content dependencies
 - `third_party_review: { status: none, updated: null }`
 - `## {NN}.R Third Party Review Findings` block (empty, with `- None.`) before the completion checklist
-- Completion checklist at the end
+- Completion checklist at the end — MUST include both `/tpr-review` AND `/impl-hygiene-review last commit` as final gates (hygiene review runs after TPR is clean, per `plan-schema.md`)
 
 **`reviewed` field rules:**
 - **Section 01**: `reviewed: true` — it is the starting point of implementation and was validated during plan creation against the research findings.

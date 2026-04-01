@@ -1,0 +1,6 @@
+@main () -> int = {
+    let b = byte(200);
+    let h = b.hash();
+    // byte(200) should hash to 200 (unsigned), not -56 (signed)
+    if h == 200 then 0 else 1
+}

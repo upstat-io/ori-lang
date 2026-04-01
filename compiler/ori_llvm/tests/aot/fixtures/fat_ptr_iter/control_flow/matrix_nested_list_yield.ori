@@ -1,0 +1,9 @@
+@main () -> int = {
+    let nested = [[1, 2, 3], [4, 5], [6]];
+    let lengths = for inner in nested yield inner.len();
+    let total = 0;
+    for n in lengths do {
+        total = total + n
+    };
+    if total == 6 then 0 else 1
+}

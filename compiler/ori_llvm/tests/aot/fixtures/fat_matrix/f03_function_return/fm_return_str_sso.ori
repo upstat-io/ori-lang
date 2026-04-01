@@ -1,0 +1,6 @@
+@make_greeting () -> str = "hello";
+
+@main () -> int = {
+    let s = make_greeting();
+    if s.length() == 5 then 0 else 1
+}

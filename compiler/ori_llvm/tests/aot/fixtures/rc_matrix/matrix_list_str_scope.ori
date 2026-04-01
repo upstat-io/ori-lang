@@ -1,0 +1,7 @@
+@main () -> int = {
+    let $result = {
+        let xs = ["hello_world_heap_str", "another_heap_string_x"];
+        xs.len()
+    };
+    if result == 2 then 0 else 1
+}

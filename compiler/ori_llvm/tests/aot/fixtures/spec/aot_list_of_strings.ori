@@ -1,0 +1,6 @@
+@main () -> int = {
+    let xs = ["hello", "world", "foo"];
+    let count = 0;
+    for s in xs do count = count + s.length();
+    if count == 13 then 0 else 1
+}

@@ -1,0 +1,6 @@
+@duplicate <T> (x: T) -> (T, T) = (x, x);
+
+@main () -> int = {
+    let (a, b) = duplicate(x: 42);
+    if a == 42 && b == 42 then 0 else 1
+}

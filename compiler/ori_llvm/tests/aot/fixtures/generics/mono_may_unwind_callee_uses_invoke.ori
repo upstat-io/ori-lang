@@ -1,0 +1,5 @@
+@may_panic <T> (x: T) -> T = {
+    if true then panic(msg: "boom") else x
+};
+
+@main () -> int = may_panic(x: 42);

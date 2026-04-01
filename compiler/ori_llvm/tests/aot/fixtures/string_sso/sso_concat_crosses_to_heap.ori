@@ -1,0 +1,7 @@
+@main () -> int = {
+    // 12 + 12 = 24 bytes — crosses SSO boundary → heap
+    let a = "123456789012";
+    let b = "345678901234";
+    let c = a + b;
+    if c.length() == 24 then 0 else 1
+}

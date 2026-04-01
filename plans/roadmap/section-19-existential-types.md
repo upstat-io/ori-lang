@@ -355,6 +355,7 @@ error: `impl Trait` is only allowed in return position
 - [ ] Clear errors for invalid positions (E0810/E0811/E0812)
 - [ ] All tests pass: `./test-all.sh`
 - [ ] `/tpr-review` passed — independent Codex review found no critical or major issues (or all findings triaged)
+- [ ] `/impl-hygiene-review last commit` passed — implementation hygiene review clean (phase boundaries, SSOT, algorithmic DRY, naming). MUST run AFTER `/tpr-review` is clean.
 - [ ] Fix `tests/spec/types/existential.ori` line 1 wrong spec reference (`06-types.md` -> `08-types.md`) DRIFT
 - [ ] Fix `tests/spec/types/existential.ori` commented-out code (replace with `#skip` tests or remove) HYGIENE
 - [ ] Fix `tests/spec/types/existential.ori` decorative banners HYGIENE

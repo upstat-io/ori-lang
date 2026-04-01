@@ -1,0 +1,10 @@
+@main () -> int = {
+    let $opt = Some("hello");
+    let $f = () -> int = {
+        match opt {
+            Some(s) -> s.length(),
+            None -> 0,
+        }
+    };
+    if f() == 5 then 0 else 1
+}

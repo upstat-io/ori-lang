@@ -1,0 +1,9 @@
+type Point = { x: int, y: int };
+
+@identity <T> (x: T) -> T = x;
+@apply_identity <T> (x: T) -> T = identity(x: x);
+
+@main () -> int = {
+    let p = apply_identity(x: Point { x: 3, y: 4 });
+    if p.x == 3 && p.y == 4 then 0 else 1
+}

@@ -1,0 +1,10 @@
+type Item = { id: int, value: str }
+
+@main () -> int = {
+    let count = 0;
+    for i in 0..10000 do {
+        let item = Item { id: i, value: "data" };
+        count = count + 1
+    };
+    if count == 10000 then 0 else 1
+}

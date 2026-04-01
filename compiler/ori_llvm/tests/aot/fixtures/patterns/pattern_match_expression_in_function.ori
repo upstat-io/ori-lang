@@ -1,0 +1,14 @@
+@fizzbuzz (n: int) -> int = match n {
+    x if x % 15 == 0 -> 3,
+    x if x % 5 == 0 -> 2,
+    x if x % 3 == 0 -> 1,
+    _ -> 0,
+};
+
+@main () -> int = {
+    let fb15 = fizzbuzz(n: 15);
+    let fb5 = fizzbuzz(n: 10);
+    let fb3 = fizzbuzz(n: 9);
+    let fb1 = fizzbuzz(n: 7);
+    if fb15 == 3 && fb5 == 2 && fb3 == 1 && fb1 == 0 then 0 else 1
+}

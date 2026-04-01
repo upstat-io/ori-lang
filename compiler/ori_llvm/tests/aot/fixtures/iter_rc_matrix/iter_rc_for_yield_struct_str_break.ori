@@ -1,0 +1,14 @@
+type Item = { name: str, val: int }
+
+@main () -> int = {
+    let items = [
+        Item { name: "this item name exceeds the SSO threshold by being long", val: 10 },
+        Item { name: "stop: this item triggers break and name is long for heap", val: 20 },
+        Item { name: "third item that should not be visited after break fires", val: 30 }
+    ];
+    let result = for item in items yield {
+        if item.name.starts_with(prefix: "stop") then break;
+        item.val
+    };
+    if result.length() == 1 then 0 else 1
+}

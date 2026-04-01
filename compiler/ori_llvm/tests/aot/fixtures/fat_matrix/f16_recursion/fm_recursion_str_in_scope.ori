@@ -1,0 +1,9 @@
+@countdown (n: int) -> int = {
+    let label = "counting";
+    if n <= 0 then label.length()
+    else countdown(n: n - 1)
+};
+
+@main () -> int = {
+    if countdown(n: 5) == 8 then 0 else 1
+}

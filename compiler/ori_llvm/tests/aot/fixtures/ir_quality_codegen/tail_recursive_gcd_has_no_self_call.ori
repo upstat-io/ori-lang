@@ -1,0 +1,5 @@
+@gcd (a: int, b: int) -> int = {
+    if b == 0 then a else gcd(a: b, b: a % b)
+};
+
+@main () -> int = gcd(a: 48, b: 18);

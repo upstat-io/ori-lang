@@ -1,0 +1,6 @@
+@main () -> int = {
+    let pz = 0.0;
+    let nz = -0.0;
+    // -0.0 == 0.0 (IEEE 754)
+    if pz == nz then 0 else 1
+}

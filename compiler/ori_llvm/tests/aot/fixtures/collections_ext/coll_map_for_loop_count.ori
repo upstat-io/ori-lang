@@ -1,0 +1,8 @@
+@main () -> int = {
+    let m = {"x": 10, "y": 20};
+    let count = 0;
+    for entry in m do {
+        count = count + 1;
+    };
+    if count == 2 then 0 else 1
+}

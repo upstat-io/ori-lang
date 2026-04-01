@@ -1,0 +1,10 @@
+@main () -> int = {
+    let items = ["", "a", "", "b", ""];
+    let count = 0;
+    for item in items do {
+        if item.is_empty() then {
+            count += 1;
+        }
+    };
+    if count == 3 then 0 else 1
+}

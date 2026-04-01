@@ -313,6 +313,7 @@ Run `/code-journey` to test the full pipeline end-to-end with progressively comp
 - [ ] `./test-all.sh` green
 - [ ] `./clippy-all.sh` green
 - [ ] `/tpr-review` passed — independent Codex review found no critical or major issues (or all findings triaged)
+- [ ] `/impl-hygiene-review last commit` passed — implementation hygiene review clean (phase boundaries, SSOT, algorithmic DRY, naming). MUST run AFTER `/tpr-review` is clean.
 
 **Exit Criteria:** Running `./scripts/perf-compare.sh baseline.txt optimized.txt` shows:
 - Runtime: geometric mean ≥ 10% improvement across benchmark suite

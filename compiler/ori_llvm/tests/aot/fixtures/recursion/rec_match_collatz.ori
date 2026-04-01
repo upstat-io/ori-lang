@@ -1,0 +1,14 @@
+@collatz_steps (n: int, steps: int) -> int = {
+    match n {
+        1 -> steps,
+        _ -> {
+            let next = if n % 2 == 0 then n / 2 else n * 3 + 1;
+            collatz_steps(n: next, steps: steps + 1)
+        },
+    }
+};
+
+@main () -> int = {
+    // Collatz sequence for 27 takes 111 steps
+    if collatz_steps(n: 27, steps: 0) == 111 then 0 else 1
+}

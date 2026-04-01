@@ -1,0 +1,5 @@
+@main () -> int = {
+    let prefix = "abcdefghijklmnopqrstuvwxyz1234";
+    let f = (x: int) -> int = prefix.length() + x;
+    if f(5) == 35 then 0 else 1
+}

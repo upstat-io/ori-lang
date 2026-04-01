@@ -1,0 +1,8 @@
+@compute () -> int = {
+    let x = 100;
+    let y = x + 50;
+    // 150 exceeds i8 range but fits i16 — value must be preserved
+    if y == 150 then 0 else 1
+}
+
+@main () -> int = compute();

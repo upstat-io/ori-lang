@@ -1,0 +1,4 @@
+@main () -> int = {
+    let o: Option<int> = Some(42);
+    if o.is_some() && o.unwrap() == 42 then 0 else 1
+}

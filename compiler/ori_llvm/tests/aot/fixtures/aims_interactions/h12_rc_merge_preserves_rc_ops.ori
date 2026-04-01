@@ -1,0 +1,21 @@
+type Wrapper = { name: str, value: int };
+
+@process (w: Wrapper) -> int = {
+    let $base = w.value;
+    let $result = if base > 10 then {
+        let $extra = w.name;
+        len(collection: extra) + base
+    } else {
+        base * 2
+    };
+    result
+};
+
+@main () -> int = {
+    let $w1 = Wrapper { name: "hello world", value: 20 };
+    let $w2 = Wrapper { name: "test", value: 5 };
+    let $r1 = process(w: w1);
+    let $r2 = process(w: w2);
+    // r1 = 11 + 20 = 31, r2 = 5 * 2 = 10
+    if r1 == 31 && r2 == 10 then 0 else 1
+}

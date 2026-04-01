@@ -1,0 +1,7 @@
+@apply (f: (str) -> int, s: str) -> int = f(s);
+
+@main () -> int = {
+    let prefix = "a very long prefix string that exceeds SSO threshold";
+    let f = s -> prefix.length() + s.length();
+    if apply(f: f, s: "world") == 57 then 0 else 1
+}

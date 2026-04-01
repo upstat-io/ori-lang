@@ -1,0 +1,5 @@
+@main () -> int = {
+    let h = hash_combine(0, 42);
+    // hash_combine should produce a non-zero value for non-zero inputs
+    if h != 0 then 0 else 1
+}

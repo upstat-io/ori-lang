@@ -1,0 +1,11 @@
+#derive(Eq)
+type Counts = { m: {str: int} }
+
+@main () -> int = {
+    let a = Counts { m: {"a": 1, "b": 2} };
+    let b = Counts { m: {"a": 1, "b": 2} };
+    let c = Counts { m: {"a": 1, "b": 3} };
+    if a == b then {
+        if a != c then 0 else 1
+    } else 2
+}

@@ -1,0 +1,13 @@
+type Pair = { first: str, second: str }
+
+@main () -> int = {
+    let $p1 = Pair { first: "alpha-heap-string-over-23-bytes!", second: "beta-heap-string-also-over-23-bytes!" };
+    let $p2 = Pair { first: "gamma-heap-string-over-23-bytes!", second: "delta-heap-string-also-over-23-bytes!" };
+    // Branch: merge param receives projection from different parent aggregates.
+    // Branch-local parent (p1 on then-path, p2 on else-path) must be cleaned
+    // up only on its own merge edge, not on the opposite path.
+    let $result = if p1.first.len() > 0
+        then p1.first
+        else p2.first;
+    if result == "alpha-heap-string-over-23-bytes!" then 0 else 1
+}

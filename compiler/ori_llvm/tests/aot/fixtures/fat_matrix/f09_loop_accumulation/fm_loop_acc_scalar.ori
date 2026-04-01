@@ -1,0 +1,7 @@
+@main () -> int = {
+    let total = 0;
+    for i in [10, 20, 30] do {
+        total = total + i;
+    };
+    if total == 60 then 0 else 1
+}

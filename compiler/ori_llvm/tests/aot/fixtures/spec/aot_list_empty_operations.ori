@@ -1,0 +1,7 @@
+@main () -> int = {
+    let empty: [int] = [];
+    let ok1 = empty.is_empty();
+    let ok2 = empty.first().is_none();
+    let ok3 = empty.last().is_none();
+    if ok1 && ok2 && ok3 then 0 else 1
+}

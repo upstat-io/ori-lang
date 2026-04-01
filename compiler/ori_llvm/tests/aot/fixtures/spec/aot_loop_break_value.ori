@@ -1,0 +1,4 @@
+@main () -> int = {
+    let result = loop break 42;
+    if result == 42 then 0 else 1
+}

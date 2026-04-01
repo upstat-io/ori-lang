@@ -1,0 +1,19 @@
+@main () -> int = {
+    let x = 3;
+    let result = match x {
+        1 -> {
+            let a = 10;
+            a + 1
+        },
+        2 -> {
+            let a = 20;
+            a + 2
+        },
+        3 -> {
+            let a = 30;
+            a + 3
+        },
+        _ -> 0,
+    };
+    if result == 33 then 0 else 1
+}

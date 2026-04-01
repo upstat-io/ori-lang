@@ -1,0 +1,9 @@
+@main () -> int = {
+    let found = false;
+    for i in 0..10 do {
+        if i == 7 then {
+            found = true;
+        }
+    };
+    if found then 0 else 1
+}

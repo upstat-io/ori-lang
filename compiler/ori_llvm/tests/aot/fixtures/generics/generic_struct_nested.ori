@@ -1,0 +1,11 @@
+type Pair<A, B> = { first: A, second: B };
+type Wrapper<T> = { inner: T };
+
+@unwrap <T> (w: Wrapper<T>) -> T = w.inner;
+
+@main () -> int = {
+    let p = Pair { first: 42, second: true };
+    let w = Wrapper { inner: p };
+    let p2 = unwrap(w: w);
+    if p2.first == 42 then 0 else 1
+}

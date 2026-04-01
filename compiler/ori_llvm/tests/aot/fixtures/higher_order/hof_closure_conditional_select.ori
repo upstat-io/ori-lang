@@ -1,0 +1,9 @@
+@apply (f: (int) -> int, x: int) -> int = f(x);
+
+@main () -> int = {
+    let use_double = true;
+    let dbl = (n: int) -> n * 2;
+    let triple = (n: int) -> n * 3;
+    let f = if use_double then dbl else triple;
+    if apply(f: f, x: 7) == 14 then 0 else 1
+}

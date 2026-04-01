@@ -1,0 +1,5 @@
+@main () -> int = {
+    let x = -2000000000;
+    let y = x - 1;
+    if y == -2000000001 then 0 else 1
+}

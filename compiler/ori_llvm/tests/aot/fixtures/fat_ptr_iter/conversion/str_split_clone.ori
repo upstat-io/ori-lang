@@ -1,0 +1,12 @@
+@main () -> int = {
+    let text = "this is a long string exceeding SSO by a large amount,and this second part also exceeds it";
+    let parts = text.split(sep: ",");
+    let total = 0;
+    for p in parts do {
+        let copy = p.clone();
+        total = total + copy.len();
+    };
+    // "this is a long string exceeding SSO by a large amount" (53) +
+    // "and this second part also exceeds it" (36) = 89
+    if total == 89 then 0 else 1
+}

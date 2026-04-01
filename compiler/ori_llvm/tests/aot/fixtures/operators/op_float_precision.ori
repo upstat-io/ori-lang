@@ -1,0 +1,7 @@
+@main () -> int = {
+    // Classic floating-point precision test
+    let a = 0.1 + 0.2;
+    // 0.1 + 0.2 is NOT exactly 0.3 in IEEE 754
+    // It should be approximately 0.30000000000000004
+    if a > 0.29 && a < 0.31 then 0 else 1
+}

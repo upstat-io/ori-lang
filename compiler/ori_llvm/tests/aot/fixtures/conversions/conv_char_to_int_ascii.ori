@@ -1,0 +1,5 @@
+@main () -> int = {
+    let c = 'A';
+    let x = c.to_int();
+    if x == 65 then 0 else 1
+}

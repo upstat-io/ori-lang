@@ -1,0 +1,7 @@
+@main () -> int = {
+    let base = {"this is a heap string key exceeding SSO": 10};
+    let shared = base;
+    let fork = shared.insert("another very long heap string key here", 20);
+    // base and fork both alive — shared entries rehashed + inc'd
+    if base.len() == 1 && fork.len() == 2 then 0 else 1
+}

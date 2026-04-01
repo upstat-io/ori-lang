@@ -1,0 +1,7 @@
+@main () -> int = {
+    let a = 100000;
+    let b = 100000;
+    let c = a * b;
+    // 10^10
+    if c == 10000000000 then 0 else 1
+}

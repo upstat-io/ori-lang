@@ -1,0 +1,5 @@
+@main () -> int = {
+    let billion = 1000000000;
+    let two_billion = billion * 2;
+    if two_billion == 2000000000 then 0 else 1
+}

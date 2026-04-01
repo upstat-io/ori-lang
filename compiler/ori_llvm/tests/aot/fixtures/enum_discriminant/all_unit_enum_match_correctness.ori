@@ -1,0 +1,13 @@
+type Dir = North | South | East | West;
+
+@dir_val (d: Dir) -> int = match d {
+    North -> 1,
+    South -> 2,
+    East -> 3,
+    West -> 4,
+}
+
+@main () -> int = {
+    let sum = dir_val(d: North) + dir_val(d: South) + dir_val(d: East) + dir_val(d: West);
+    if sum == 10 then 0 else 1
+}

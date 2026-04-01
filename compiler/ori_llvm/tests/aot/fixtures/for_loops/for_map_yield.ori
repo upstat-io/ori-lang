@@ -1,0 +1,4 @@
+@main () -> int = {
+    let values = for entry in {"x": 1, "y": 2, "z": 3} yield entry.1;
+    if values.length() == 3 then 0 else 1
+}

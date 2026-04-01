@@ -1,0 +1,5 @@
+@main () -> int = {
+    let evens = for x in 0..10 if x % 2 == 0 yield x;
+    let count = evens.iter().count();
+    if count == 5 then 0 else 1
+}

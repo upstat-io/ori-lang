@@ -1,0 +1,4 @@
+@main () -> int = {
+    let m = {"a": 1}.insert("b", 2).insert("c", 3).remove("a");
+    if m.len() == 2 && !m.contains_key("a") && m.get("b").unwrap() == 2 then 0 else 1
+}

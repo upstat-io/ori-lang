@@ -1,0 +1,11 @@
+#[derive(Debug)]
+type SignedColor = { r: int, g: int, b: int }
+
+@main () -> int = {
+    let c = SignedColor { r: -1, g: -128, b: 127 };
+    let s = c.debug();
+    let has_neg1 = s.contains(substr: "-1");
+    let has_neg128 = s.contains(substr: "-128");
+    let has_127 = s.contains(substr: "127");
+    if has_neg1 && has_neg128 && has_127 then 0 else 1
+}

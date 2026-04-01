@@ -1,0 +1,11 @@
+#derive(Eq)
+type Container = { items: [str] }
+
+@main () -> int = {
+    let empty1 = Container { items: [] };
+    let empty2 = Container { items: [] };
+    let nonempty = Container { items: ["hello"] };
+    if empty1 == empty2 then {
+        if empty1 != nonempty then 0 else 1
+    } else 2
+}

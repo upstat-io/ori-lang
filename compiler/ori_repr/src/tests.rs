@@ -211,14 +211,17 @@ fn enum_tag_niche() {
     let tag = EnumTag::Niche {
         field_index: 0,
         niche_value: 0,
+        niche_variant_idx: 0,
     };
     if let EnumTag::Niche {
         field_index,
         niche_value,
+        niche_variant_idx,
     } = tag
     {
         assert_eq!(field_index, 0);
         assert_eq!(niche_value, 0);
+        assert_eq!(niche_variant_idx, 0);
     } else {
         panic!("expected Niche");
     }
@@ -492,17 +495,17 @@ fn canonical_option_int() {
                 width: IntWidth::I64
             }
         );
-        // None variant has no fields
-        assert!(e.variants[0].fields.is_empty());
-        // Some variant has one field = Int
-        assert_eq!(e.variants[1].fields.len(), 1);
+        // Some variant (index 0) has one field = Int
+        assert_eq!(e.variants[0].fields.len(), 1);
         assert_eq!(
-            e.variants[1].fields[0],
+            e.variants[0].fields[0],
             MachineRepr::Int {
                 width: IntWidth::I64,
                 signed: true
             }
         );
+        // None variant (index 1) has no fields
+        assert!(e.variants[1].fields.is_empty());
     } else {
         panic!("expected Enum for Option<int>, got {repr:?}");
     }
@@ -3854,4 +3857,63 @@ fn local_public_function_still_suppresses_narrowing() {
         plan.is_public_type(list_int),
         "Local public function should suppress [int] narrowing"
     );
+}
+
+// ── §07.2: Single-variant enum (tagless) ──────────────────────────
+
+/// Test that canonical mapping for a single-variant enum produces `EnumTag::None`.
+#[test]
+fn canonical_single_variant_enum_is_tagless() {
+    use ori_types::EnumVariant;
+
+    let mut pool = Pool::new();
+    let enum_name = Name::new(0, 400);
+    let variant_name = Name::new(0, 401);
+    let enum_idx = pool.enum_type(
+        enum_name,
+        &[EnumVariant {
+            name: variant_name,
+            field_types: vec![Idx::INT],
+        }],
+    );
+    let repr = canonical(&pool, enum_idx);
+    if let MachineRepr::Enum(ref e) = repr {
+        assert_eq!(e.variants.len(), 1);
+        assert_eq!(
+            e.tag,
+            EnumTag::None,
+            "single-variant enum should be tagless"
+        );
+        assert!(e.tag.is_tagless());
+        assert!(!e.tag.needs_tag_field());
+        assert_eq!(e.tag.payload_gep_index(), 0);
+    } else {
+        panic!("expected Enum, got {repr:?}");
+    }
+}
+
+/// Test that a single-variant unit enum produces `EnumTag::None` with minimal size.
+#[test]
+fn canonical_single_variant_unit_enum_is_tagless() {
+    use ori_types::EnumVariant;
+
+    let mut pool = Pool::new();
+    let enum_name = Name::new(0, 410);
+    let variant_name = Name::new(0, 411);
+    let enum_idx = pool.enum_type(
+        enum_name,
+        &[EnumVariant {
+            name: variant_name,
+            field_types: vec![],
+        }],
+    );
+    let repr = canonical(&pool, enum_idx);
+    if let MachineRepr::Enum(ref e) = repr {
+        assert_eq!(e.tag, EnumTag::None);
+        // Unit newtype: size 1, align 1
+        assert_eq!(e.size, 1);
+        assert_eq!(e.align, 1);
+    } else {
+        panic!("expected Enum, got {repr:?}");
+    }
 }

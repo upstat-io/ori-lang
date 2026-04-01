@@ -1,0 +1,8 @@
+type Named = { name: str, id: int }
+
+@name_len (n: Named) -> int = n.name.length();
+
+@main () -> int = {
+    let n = Named { name: "alice", id: 1 };
+    if name_len(n: n) == 5 then 0 else 1
+}

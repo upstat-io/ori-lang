@@ -1,0 +1,7 @@
+@process (s: str) -> int = s.len();
+
+@main () -> int = {
+    let $s = "a_heap_string_passed_as_argument";
+    let $n = process(s: s);
+    if n == 32 then 0 else 1
+}

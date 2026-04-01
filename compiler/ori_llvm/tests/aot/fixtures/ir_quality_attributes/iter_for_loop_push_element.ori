@@ -1,0 +1,8 @@
+@main () -> int = {
+    let words = ["hello", "world"];
+    let result: [str] = [];
+    for w in words do result = result.push(value: w);
+    let total = 0;
+    for r in result do total += r.length();
+    total
+}

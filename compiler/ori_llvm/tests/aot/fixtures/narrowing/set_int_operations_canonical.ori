@@ -1,0 +1,9 @@
+use std.testing { assert_eq, assert }
+@main () -> void = {
+    let s: Set<int> = [10, 20, 30].iter().collect();
+    assert(condition: s.contains(value: 10));
+    assert(condition: s.contains(value: 20));
+    assert(condition: s.contains(value: 30));
+    assert(condition: !s.contains(value: 40));
+    assert_eq(actual: s.len(), expected: 3);
+}

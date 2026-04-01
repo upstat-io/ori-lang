@@ -1,0 +1,7 @@
+@make_pair <A, B> (a: A, b: B) -> (A, B) = (a, b);
+
+@main () -> int = {
+    let p = make_pair(a: "hello", b: "world");
+    let (x, y) = p;
+    if x == "hello" && y == "world" then 0 else 1
+}

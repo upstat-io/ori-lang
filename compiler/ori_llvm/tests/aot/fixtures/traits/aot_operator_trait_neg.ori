@@ -1,0 +1,15 @@
+type Point = { x: int, y: int }
+
+impl Neg for Point {
+    type Output = Point;
+    @negate (self) -> Point = Point {
+        x: -self.x,
+        y: -self.y,
+    }
+}
+
+@main () -> int = {
+    let a = Point { x: 3, y: -7 };
+    let b = -a;
+    if b.x == -3 && b.y == 7 then 0 else 1
+}

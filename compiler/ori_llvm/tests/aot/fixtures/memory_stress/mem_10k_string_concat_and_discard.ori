@@ -1,0 +1,8 @@
+@main () -> int = {
+    let count = 0;
+    for i in 0..10000 do {
+        let s = "prefix-" + i.to_str();
+        count = count + 1
+    };
+    if count == 10000 then 0 else 1
+}

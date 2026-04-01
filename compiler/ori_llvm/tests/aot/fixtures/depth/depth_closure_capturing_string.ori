@@ -1,0 +1,6 @@
+@main () -> int = {
+    let prefix = "hello";
+    let make_greeting = (name: str) -> prefix + " " + name;
+    let g = make_greeting("world");
+    if g == "hello world" then 0 else 1
+}

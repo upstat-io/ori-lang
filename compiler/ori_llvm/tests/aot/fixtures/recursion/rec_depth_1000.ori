@@ -1,0 +1,7 @@
+@depth (n: int, acc: int) -> int = {
+    if n <= 0 then acc else depth(n: n - 1, acc: acc + 1)
+};
+
+@main () -> int = {
+    if depth(n: 1000, acc: 0) == 1000 then 0 else 1
+}

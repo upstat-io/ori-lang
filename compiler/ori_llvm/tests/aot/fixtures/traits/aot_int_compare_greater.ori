@@ -1,0 +1,4 @@
+@main () -> int = {
+    let ord = 10.compare(other: 3);
+    if ord.is_greater() then 0 else 1
+}

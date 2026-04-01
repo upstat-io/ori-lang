@@ -1,0 +1,13 @@
+#derive(Eq)
+type Inner = { name: str }
+#derive(Eq)
+type Outer = { inner: Inner, count: int }
+
+@main () -> int = {
+    let a = Outer { inner: Inner { name: "alice" }, count: 5 };
+    let b = Outer { inner: Inner { name: "alice" }, count: 5 };
+    let c = Outer { inner: Inner { name: "bob" }, count: 5 };
+    if a == b then {
+        if a != c then 0 else 1
+    } else 2
+}

@@ -1,0 +1,10 @@
+@main () -> int = {
+    let p = (10, 20);
+    let r = match p {
+        (x, y) if x + y > 25 -> 1,
+        (x, y) if x + y > 15 -> 2,
+        _ -> 0,
+    };
+    // 10 + 20 = 30 > 25: first arm
+    if r == 1 then 0 else 1
+}

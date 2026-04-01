@@ -1,0 +1,11 @@
+@search (n: int) -> int = {
+    let i = 0;
+    let found = loop {
+        if i >= n then break -1;
+        if i * i > n then break i;
+        i += 1
+    };
+    found + i
+};
+
+@main () -> int = search(n: 10);

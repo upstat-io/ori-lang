@@ -1,0 +1,29 @@
+type Node = End | Cell(value: int, next: Node);
+
+@build (n: int) -> Node = {
+    if n <= 0 then End
+    else Cell(value: n, next: build(n: n - 1))
+};
+
+@rewrite (node: Node) -> Node = match node {
+    End -> End,
+    Cell(v, next) -> Cell(value: v * 2 - 1, next: rewrite(node: next)),
+};
+
+@sum (node: Node) -> int = match node {
+    End -> 0,
+    Cell(v, next) -> v + sum(node: next),
+};
+
+@len (node: Node) -> int = match node {
+    End -> 0,
+    Cell(_, next) -> 1 + len(node: next),
+};
+
+@main () -> int = {
+    let $input = build(n: 64);
+    let $output = rewrite(node: input);
+    let $sum_ok = sum(node: output) == 4096;
+    let $len_ok = len(node: output) == 64;
+    if sum_ok && len_ok then 0 else 1
+}

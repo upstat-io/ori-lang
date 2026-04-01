@@ -1,0 +1,17 @@
+@clone_list (words: [str]) -> [str] = {
+    for w in words yield w
+}
+
+@main () -> int = {
+    let words = [
+        "this is a very long string that exceeds SSO threshold",
+        "another very long string that also exceeds the threshold"
+    ];
+    let a = clone_list(words: words);
+    let b = clone_list(words: words);
+    let sa = 0;
+    for w in a do { sa = sa + w.len(); };
+    let sb = 0;
+    for w in b do { sb = sb + w.len(); };
+    if sa == 109 && sb == 109 then 0 else 1
+}

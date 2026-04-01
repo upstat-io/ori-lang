@@ -1,0 +1,4 @@
+@main () -> int = {
+    let m = {"a": 1, "b": 2};
+    if m.contains_key("a") && !m.contains_key("z") then 0 else 1
+}

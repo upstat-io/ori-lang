@@ -797,3 +797,329 @@ fn min_tag_width_65536_variants() {
 fn min_tag_width_65537_variants_needs_i32() {
     assert_eq!(min_tag_width(65537), IntWidth::I32);
 }
+
+// ─── Niche analysis tests (§07.2) ──────────────────────────────
+
+use crate::enum_repr::{EnumRepr, EnumTag, VariantRepr};
+use crate::layout::niche::{
+    find_enum_niches, find_niches, optimize_option_repr, optimize_result_repr,
+};
+use crate::struct_repr::{FatRepr, RcRepr};
+
+fn ordering_repr() -> MachineRepr {
+    MachineRepr::Ordering
+}
+
+fn char_repr() -> MachineRepr {
+    MachineRepr::Char
+}
+
+fn str_repr() -> MachineRepr {
+    MachineRepr::FatPointer(FatRepr::Str)
+}
+
+fn list_repr() -> MachineRepr {
+    MachineRepr::FatPointer(FatRepr::Collection {
+        element_repr: Box::new(int_repr()),
+    })
+}
+
+fn rc_repr() -> MachineRepr {
+    MachineRepr::RcPointer(RcRepr {
+        rc_width: IntWidth::I64,
+        atomic: false,
+        inner: Box::new(MachineRepr::Unit),
+        stack_promotable: false,
+    })
+}
+
+#[test]
+fn find_niches_bool_254() {
+    let niches = find_niches(&bool_repr());
+    assert_eq!(niches.len(), 1);
+    assert_eq!(niches[0].available, 254);
+    assert_eq!(niches[0].start, 2);
+    assert_eq!(niches[0].field_index, 0);
+}
+
+#[test]
+fn find_niches_ordering_253() {
+    let niches = find_niches(&ordering_repr());
+    assert_eq!(niches.len(), 1);
+    assert_eq!(niches[0].available, 253);
+    assert_eq!(niches[0].start, 3);
+}
+
+#[test]
+fn find_niches_char_unicode() {
+    let niches = find_niches(&char_repr());
+    assert_eq!(niches.len(), 1);
+    assert_eq!(niches[0].start, 0x11_0000);
+    assert_eq!(
+        niches[0].available,
+        u128::from(0xFFFF_FFFFu32 - 0x10_FFFFu32)
+    );
+}
+
+#[test]
+fn find_niches_str_null_ptr() {
+    let niches = find_niches(&str_repr());
+    assert_eq!(niches.len(), 1);
+    assert_eq!(niches[0].field_index, 2);
+    assert_eq!(niches[0].available, 1);
+    assert_eq!(niches[0].start, 0);
+}
+
+#[test]
+fn find_niches_rc_pointer_null() {
+    let niches = find_niches(&rc_repr());
+    assert_eq!(niches.len(), 1);
+    assert_eq!(niches[0].available, 1);
+    assert_eq!(niches[0].start, 0);
+}
+
+#[test]
+fn find_niches_byte_empty() {
+    assert!(
+        find_niches(&byte_repr()).is_empty(),
+        "byte: all 256 values valid"
+    );
+}
+
+#[test]
+fn find_niches_int_i64_empty() {
+    assert!(find_niches(&int_repr()).is_empty(), "i64: all values valid");
+}
+
+#[test]
+fn find_niches_list_empty() {
+    assert!(
+        find_niches(&list_repr()).is_empty(),
+        "[int]: null is valid for empty"
+    );
+}
+
+#[test]
+fn find_niches_float_empty() {
+    assert!(
+        find_niches(&float_repr()).is_empty(),
+        "float niches skipped"
+    );
+}
+
+#[test]
+fn find_niches_unit_empty() {
+    assert!(find_niches(&MachineRepr::Unit).is_empty());
+}
+
+#[test]
+fn find_enum_niches_4_variant_i8_tag() {
+    let e = EnumRepr {
+        tag: EnumTag::Explicit {
+            width: IntWidth::I8,
+        },
+        variants: vec![
+            VariantRepr {
+                name: Name::from_raw(0),
+                fields: vec![],
+                size: 0,
+                alignment: 1,
+            },
+            VariantRepr {
+                name: Name::from_raw(1),
+                fields: vec![],
+                size: 0,
+                alignment: 1,
+            },
+            VariantRepr {
+                name: Name::from_raw(2),
+                fields: vec![],
+                size: 0,
+                alignment: 1,
+            },
+            VariantRepr {
+                name: Name::from_raw(3),
+                fields: vec![],
+                size: 0,
+                alignment: 1,
+            },
+        ],
+        size: 1,
+        align: 1,
+    };
+    let niches = find_enum_niches(&e);
+    assert_eq!(niches.len(), 1);
+    assert_eq!(niches[0].start, 4);
+    assert_eq!(niches[0].available, 252);
+}
+
+#[test]
+fn option_bool_niche_1_byte() {
+    let repr = optimize_option_repr(&bool_repr());
+    if let MachineRepr::Enum(e) = &repr {
+        assert!(
+            matches!(
+                e.tag,
+                EnumTag::Niche {
+                    niche_value: 2,
+                    niche_variant_idx: 1,
+                    ..
+                }
+            ),
+            "Option<bool> must use niche value 2 for None (variant 1)"
+        );
+        assert_eq!(e.size, 1, "Option<bool> must be 1 byte");
+        assert_eq!(e.variants.len(), 2);
+    } else {
+        panic!("expected Enum, got {repr:?}");
+    }
+}
+
+#[test]
+fn option_ordering_niche_1_byte() {
+    let repr = optimize_option_repr(&ordering_repr());
+    if let MachineRepr::Enum(e) = &repr {
+        assert!(matches!(e.tag, EnumTag::Niche { niche_value: 3, .. }));
+        assert_eq!(e.size, 1, "Option<Ordering> must be 1 byte");
+    } else {
+        panic!("expected Enum");
+    }
+}
+
+#[test]
+fn option_char_niche_4_bytes() {
+    let repr = optimize_option_repr(&char_repr());
+    if let MachineRepr::Enum(e) = &repr {
+        assert!(matches!(
+            e.tag,
+            EnumTag::Niche {
+                niche_value: 0x11_0000,
+                ..
+            }
+        ));
+        assert_eq!(e.size, 4, "Option<char> must be 4 bytes");
+    } else {
+        panic!("expected Enum");
+    }
+}
+
+#[test]
+fn option_str_niche_24_bytes() {
+    let repr = optimize_option_repr(&str_repr());
+    if let MachineRepr::Enum(e) = &repr {
+        assert!(
+            matches!(
+                e.tag,
+                EnumTag::Niche {
+                    field_index: 2,
+                    niche_value: 0,
+                    ..
+                }
+            ),
+            "Option<str> must use null data ptr niche"
+        );
+        assert_eq!(e.size, 24, "Option<str> must be 24 bytes (same as str)");
+    } else {
+        panic!("expected Enum");
+    }
+}
+
+#[test]
+fn option_rc_pointer_niche_8_bytes() {
+    let repr = optimize_option_repr(&rc_repr());
+    if let MachineRepr::Enum(e) = &repr {
+        assert!(matches!(e.tag, EnumTag::Niche { niche_value: 0, .. }));
+        assert_eq!(e.size, 8);
+    } else {
+        panic!("expected Enum");
+    }
+}
+
+#[test]
+fn option_int_explicit_tag() {
+    let repr = optimize_option_repr(&int_repr());
+    if let MachineRepr::Enum(e) = &repr {
+        assert!(
+            matches!(
+                e.tag,
+                EnumTag::Explicit {
+                    width: IntWidth::I64
+                }
+            ),
+            "Option<int> must use explicit i64 tag (no niche for i64)"
+        );
+        assert_eq!(
+            e.size, 16,
+            "Option<int> = {{i64 tag, i64 value}} = 16 bytes"
+        );
+    } else {
+        panic!("expected Enum");
+    }
+}
+
+#[test]
+fn option_list_explicit_tag() {
+    let repr = optimize_option_repr(&list_repr());
+    if let MachineRepr::Enum(e) = &repr {
+        assert!(
+            matches!(e.tag, EnumTag::Explicit { .. }),
+            "Option<[int]> must use explicit tag (empty list = null)"
+        );
+    } else {
+        panic!("expected Enum");
+    }
+}
+
+#[test]
+fn option_option_bool_niche_1_byte() {
+    let inner = optimize_option_repr(&bool_repr());
+    let outer = optimize_option_repr(&inner);
+    if let MachineRepr::Enum(e) = &outer {
+        assert!(
+            matches!(
+                e.tag,
+                EnumTag::Niche {
+                    niche_value: 3,
+                    niche_variant_idx: 1,
+                    ..
+                }
+            ),
+            "Option<Option<bool>> must use niche value 3 for outer None (variant 1)"
+        );
+        assert_eq!(e.size, 1, "Option<Option<bool>> must be 1 byte");
+    } else {
+        panic!("expected Enum, got {outer:?}");
+    }
+}
+
+#[test]
+fn result_bool_ordering_niche() {
+    let repr = optimize_result_repr(&bool_repr(), &ordering_repr());
+    if let MachineRepr::Enum(e) = &repr {
+        assert!(
+            matches!(
+                e.tag,
+                EnumTag::Niche {
+                    niche_variant_idx: 1,
+                    ..
+                }
+            ),
+            "Result<bool, Ordering>: Err encoded via bool's niche"
+        );
+    } else {
+        panic!("expected Enum");
+    }
+}
+
+#[test]
+fn result_int_int_explicit_tag() {
+    let repr = optimize_result_repr(&int_repr(), &int_repr());
+    if let MachineRepr::Enum(e) = &repr {
+        assert!(
+            matches!(e.tag, EnumTag::Explicit { .. }),
+            "Result<int, int> must use explicit tag (neither has niches)"
+        );
+    } else {
+        panic!("expected Enum");
+    }
+}

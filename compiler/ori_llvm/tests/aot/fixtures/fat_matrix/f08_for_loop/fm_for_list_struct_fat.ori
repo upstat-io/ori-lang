@@ -1,0 +1,9 @@
+type Named = { name: str, id: int }
+
+@main () -> int = {
+    let total = 0;
+    for n in [Named { name: "alice", id: 1 }, Named { name: "bob", id: 2 }] do {
+        total = total + n.name.length() + n.id;
+    };
+    if total == 11 then 0 else 1
+}

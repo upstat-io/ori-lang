@@ -1,0 +1,11 @@
+@main () -> int = {
+    let outer = [
+        [Some("this string exceeds SSO threshold by being very long indeed"),
+         None],
+        [Some("third string that is also long enough to require heap alloc")]
+    ];
+    let counts = for inner in outer yield inner.length();
+    let total = 0;
+    for n in counts do total = total + n;
+    if total == 3 then 0 else 1
+}

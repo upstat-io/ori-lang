@@ -1,0 +1,7 @@
+@main () -> int = {
+    let x = 42;
+    let r = match x {
+        n -> n * 2,
+    };
+    if r == 84 then 0 else 1
+}

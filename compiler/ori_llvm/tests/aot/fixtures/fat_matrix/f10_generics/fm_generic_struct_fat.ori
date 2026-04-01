@@ -1,0 +1,8 @@
+type Named = { name: str, id: int }
+
+@identity<T> (x: T) -> T = x;
+
+@main () -> int = {
+    let n = identity(x: Named { name: "alice", id: 1 });
+    if n.name.length() + n.id == 6 then 0 else 1
+}

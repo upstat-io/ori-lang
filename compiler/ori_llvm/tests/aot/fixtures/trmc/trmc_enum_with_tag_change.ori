@@ -1,0 +1,15 @@
+type Expr = Num(value: int) | Add(left: Expr, right: Expr);
+
+@eval_expr (e: Expr) -> int = match e {
+    Num(v) -> v,
+    Add(l, r) -> eval_expr(e: l) + eval_expr(e: r),
+};
+
+@main () -> int = {
+    // (1 + 2) + 3 = 6
+    let $expr = Add(
+        left: Add(left: Num(value: 1), right: Num(value: 2)),
+        right: Num(value: 3),
+    );
+    if eval_expr(e: expr) == 6 then 0 else 1
+}

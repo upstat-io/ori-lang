@@ -32,26 +32,13 @@ fn create_test_source(dir: &TempDir, name: &str, content: &str) -> PathBuf {
 }
 
 /// Simple Ori program that prints a value.
-const SIMPLE_PROGRAM: &str = r#"
-@main () -> void = {
-    let x = 42;
-    let y = x + 1;
-    print(msg: "Hello from Ori!")
-}
-"#;
+const SIMPLE_PROGRAM: &str = include_str!("fixtures/cli/simple_program.ori");
 
 /// Ori program with a type error.
-const INVALID_PROGRAM: &str = r#"
-@main () -> void = {
-    let x: int = "not an int";
-    print(msg: "should fail")
-}
-"#;
+const INVALID_PROGRAM: &str = include_str!("fixtures/cli/invalid_program.ori");
 
 /// Ori program that just returns an exit code.
-const EXIT_CODE_PROGRAM: &str = r"
-@main () -> int = 42;
-";
+const EXIT_CODE_PROGRAM: &str = include_str!("fixtures/cli/exit_code_program.ori");
 
 /// Test: `ori build` produces an executable.
 ///
@@ -716,13 +703,7 @@ fn test_build_unsupported_target() {
 }
 
 /// Ori program that imports a missing module.
-const MISSING_DEPENDENCY_PROGRAM: &str = r#"
-use "./nonexistent_module" { some_function }
-
-@main () -> void = {
-    some_function()
-}
-"#;
+const MISSING_DEPENDENCY_PROGRAM: &str = include_str!("fixtures/cli/build_unsupported_target.ori");
 
 /// Test: `ori build` with missing dependency fails gracefully.
 ///
@@ -865,11 +846,7 @@ fn test_main_args_with_heap_strings() {
 #[test]
 fn test_main_args_void_return() {
     let (exit_code, _, stderr) = compile_and_run_with_args(
-        r#"
-@main (args: [str]) -> void = {
-    let _ = args.len();
-}
-"#,
+        include_str!("fixtures/cli/main_args_void_return.ori"),
         &["hello"],
     );
     assert_eq!(
@@ -939,13 +916,9 @@ fn test_main_args_panic_int_return() {
 fn test_main_args_wrapper_uses_invoke_ir() {
     // Use a program that can unwind (panic triggers exception).
     // A nounwind @main (e.g., only calling print) correctly uses plain call.
-    let ir = compile_and_capture_ir(
-        r#"
-@main (args: [str]) -> void = {
-    if args.len() == 0 then panic(msg: "no args");
-}
-"#,
-    );
+    let ir = compile_and_capture_ir(include_str!(
+        "fixtures/cli/main_args_wrapper_uses_invoke_ir.ori"
+    ));
     let main_fn = ir
         .split("define ")
         .find(|s| s.contains("@main("))
@@ -1064,12 +1037,7 @@ fn test_jit_str_list_construction() {
     // ori_buffer_store_elem_count (3 elements).
     fs::write(
         &source_path,
-        r#"
-@test_str_list tests _ () -> void = {
-    let $words = ["hello", "world", "test"];
-    let $count = words.len();
-}
-"#,
+        include_str!("fixtures/cli/jit_str_list_construction.ori"),
     )
     .expect("Failed to write source");
 
@@ -1104,13 +1072,7 @@ fn test_main_args_owned_path_no_double_free() {
     // ownership — borrow inference promotes args to Owned, ABI uses Indirect.
     // Without the fix, the wrapper double-frees the args buffer.
     let (exit_code, _, stderr) = compile_and_run_with_args(
-        r#"
-@id (xs: [str]) -> [str] = xs;
-
-@main (args: [str]) -> void = {
-    let _ = id(xs: args);
-}
-"#,
+        include_str!("fixtures/cli/main_args_owned_path_no_double_free.ori"),
         &["hello", "world"],
     );
     assert_no_signal_crash(exit_code, "test_main_args_owned_path_no_double_free");
@@ -1125,13 +1087,7 @@ fn test_main_args_owned_path_heap_strings() {
     // Same as above but with heap-allocated strings (>23 bytes, beyond SSO).
     // Exercises the elem_dec_fn path for fat-pointer element cleanup.
     let (exit_code, _, stderr) = compile_and_run_with_args(
-        r#"
-@id (xs: [str]) -> [str] = xs;
-
-@main (args: [str]) -> void = {
-    let _ = id(xs: args);
-}
-"#,
+        include_str!("fixtures/cli/main_args_owned_path_heap_strings.ori"),
         &["a very long string that definitely exceeds the twenty three byte SSO threshold"],
     );
     assert_no_signal_crash(exit_code, "test_main_args_owned_path_heap_strings");
@@ -1145,11 +1101,7 @@ fn test_main_args_owned_path_heap_strings() {
 fn test_main_args_owned_path_int_return() {
     // Owned args path with int return — same double-free risk.
     let (exit_code, _, stderr) = compile_and_run_with_args(
-        r#"
-@count (xs: [str]) -> int = xs.len();
-
-@main (args: [str]) -> int = count(xs: args);
-"#,
+        include_str!("fixtures/cli/main_args_owned_path_int_return.ori"),
         &["a", "b", "c"],
     );
     assert_no_signal_crash(exit_code, "test_main_args_owned_path_int_return");
@@ -1163,13 +1115,7 @@ fn test_main_args_owned_path_int_return() {
 fn test_main_args_owned_path_valgrind_clean() {
     // Valgrind verification: no memory errors on owned args path.
     let result = compile_and_run_valgrind_with_args(
-        r#"
-@id (xs: [str]) -> [str] = xs;
-
-@main (args: [str]) -> void = {
-    let _ = id(xs: args);
-}
-"#,
+        include_str!("fixtures/cli/main_args_owned_path_valgrind_clean.ori"),
         &["a very long string that definitely exceeds the twenty three byte SSO threshold"],
     );
     match result {
@@ -1194,16 +1140,9 @@ fn test_main_args_owned_wrapper_ir_no_normal_cleanup() {
     // This program uses args in an owned way (passed to id()).
     // The wrapper should handle unwind but ori_args_cleanup only
     // appears ONCE (catch/caught path), not twice.
-    let ir = compile_and_capture_ir(
-        r#"
-@id (xs: [str]) -> [str] = xs;
-
-@main (args: [str]) -> void = {
-    let _ = id(xs: args);
-    if false then panic(msg: "x");
-}
-"#,
-    );
+    let ir = compile_and_capture_ir(include_str!(
+        "fixtures/cli/main_args_owned_wrapper_ir_no_normal_cleanup.ori"
+    ));
     let main_fn = ir
         .split("define ")
         .find(|s| s.contains("@main("))

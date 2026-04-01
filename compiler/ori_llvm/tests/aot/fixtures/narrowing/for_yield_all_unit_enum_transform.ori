@@ -1,0 +1,19 @@
+type Color = Red | Green | Blue;
+
+@color_to_int (c: Color) -> int = {
+    match c {
+        Red -> 1,
+        Green -> 2,
+        Blue -> 3,
+    }
+}
+
+@main () -> int = {
+    let colors = [Red, Green, Blue];
+    let nums = for c in colors yield color_to_int(c: c);
+    if nums.len() == 3 then {
+        let sum = 0;
+        for n in nums do { sum = sum + n };
+        if sum == 6 then 0 else 1
+    } else 1
+}

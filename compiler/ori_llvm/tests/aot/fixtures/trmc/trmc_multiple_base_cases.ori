@@ -1,0 +1,20 @@
+type Tree = Leaf(value: int) | Branch(left: Tree, right: Tree);
+
+@count_leaves (t: Tree) -> int = match t {
+    Leaf(_) -> 1,
+    Branch(l, r) -> count_leaves(t: l) + count_leaves(t: r),
+};
+
+@main () -> int = {
+    let $t = Branch(
+        left: Branch(
+            left: Leaf(value: 1),
+            right: Leaf(value: 2),
+        ),
+        right: Branch(
+            left: Leaf(value: 3),
+            right: Leaf(value: 4),
+        ),
+    );
+    if count_leaves(t: t) == 4 then 0 else 1
+}

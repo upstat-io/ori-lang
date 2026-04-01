@@ -1,0 +1,9 @@
+@validate (x: int) -> Result<int, str> = {
+    if x > 0 then Ok(x) else Err("must be positive")
+}
+
+@main () -> int = {
+    let ok = validate(x: 5);
+    let bad = validate(x: -1);
+    if ok.is_ok() && bad.is_err() then 0 else 1
+}

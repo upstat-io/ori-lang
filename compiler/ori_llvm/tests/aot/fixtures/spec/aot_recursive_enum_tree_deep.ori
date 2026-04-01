@@ -1,0 +1,17 @@
+type Tree = Leaf(value: int) | Node(left: Tree, right: Tree);
+
+@tree_sum (t: Tree) -> int = match t {
+    Leaf(v) -> v,
+    Node(l, r) -> tree_sum(t: l) + tree_sum(t: r)
+}
+
+@main () -> int = {
+    let a = Leaf(value: 1);
+    let b = Leaf(value: 2);
+    let c = Leaf(value: 3);
+    let d = Leaf(value: 4);
+    let left = Node(left: a, right: b);
+    let right = Node(left: c, right: d);
+    let root = Node(left: left, right: right);
+    if tree_sum(t: root) == 10 then 0 else 1
+}

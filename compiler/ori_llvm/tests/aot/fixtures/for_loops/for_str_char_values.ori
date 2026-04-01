@@ -1,0 +1,5 @@
+@main () -> int = {
+    let sum = 0;
+    for c in "ABC" do sum = sum + c.to_int();
+    if sum == 198 then 0 else 1
+}

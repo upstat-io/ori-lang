@@ -1,0 +1,6 @@
+@main () -> int = {
+    let name = "abcdefghijklmnopqrstuvwxyz1234";
+    let nums = [1, 2, 3];
+    let f = (x: int) -> int = name.length() + nums.length() + x;
+    if f(7) == 40 then 0 else 1
+}

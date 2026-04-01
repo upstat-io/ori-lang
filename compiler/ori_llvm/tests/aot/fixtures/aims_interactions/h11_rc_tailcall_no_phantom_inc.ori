@@ -1,0 +1,16 @@
+type List = Nil | Cons(head: int, tail: List);
+
+@sum_acc (list: List, acc: int) -> int = match list {
+    Nil -> acc,
+    Cons(h, t) -> sum_acc(list: t, acc: acc + h),
+};
+
+@build (n: int) -> List = {
+    if n <= 0 then Nil
+    else Cons(head: n, tail: build(n: n - 1))
+};
+
+@main () -> int = {
+    let $list = build(n: 80);
+    if sum_acc(list: list, acc: 0) == 3240 then 0 else 1
+}

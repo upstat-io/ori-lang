@@ -1,0 +1,16 @@
+@count_items (items: Set<str>) -> int = {
+    let count = 0;
+    for _ in items do {
+        count = count + 1;
+    };
+    count
+}
+
+@main () -> int = {
+    let s: Set<str> = [
+        "this is a long heap string exceeding SSO threshold for testing purposes",
+        "another long heap string to verify set function parameter cleanup works"
+    ].iter().collect();
+    let n = count_items(items: s);
+    if n == 2 then 0 else 1
+}

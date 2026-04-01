@@ -1,0 +1,5 @@
+@main () -> int = {
+    let x = 1000000000;
+    let f = x.to_float();
+    if f > 999999999.0 && f < 1000000001.0 then 0 else 1
+}

@@ -1,0 +1,6 @@
+@main () -> int = {
+    let m = {"a": 10, "b": 20, "c": 30};
+    let m2 = m.remove("b");
+    let vs = m2.values();
+    if vs.len() == 2 then 0 else 1
+}

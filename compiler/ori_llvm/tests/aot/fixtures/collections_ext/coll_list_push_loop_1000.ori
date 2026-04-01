@@ -1,0 +1,7 @@
+@main () -> int = {
+    let xs: [int] = [];
+    for i in 0..1000 do {
+        xs = xs.push(i);
+    };
+    if xs.length() == 1000 && xs.first().unwrap() == 0 && xs.last().unwrap() == 999 then 0 else 1
+}

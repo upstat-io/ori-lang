@@ -1,0 +1,9 @@
+@classify (x: int) -> int = match x {
+    0 -> 10,
+    1 -> 20,
+    2 -> 30,
+    3 -> 40,
+    _ -> 50,
+};
+
+@main () -> int = classify(x: 2);

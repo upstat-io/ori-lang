@@ -1,0 +1,5 @@
+@main () -> int = {
+    let n = 10;
+    let f = (x: int) -> int = x + n;
+    if f(5) == 15 then 0 else 1
+}

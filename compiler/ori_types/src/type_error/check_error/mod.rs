@@ -1058,6 +1058,21 @@ impl TypeCheckError {
         }
     }
 
+    /// Create an error for constructing a `Range<float>`.
+    ///
+    /// Ranges require integer bounds per the spec. Float ranges are not
+    /// supported because float arithmetic is imprecise for stepping.
+    pub fn range_float_not_constructible(span: Span) -> Self {
+        Self::unsatisfied_bound(
+            span,
+            "`Range<float>` is not supported — ranges require integer bounds \
+             because float arithmetic is imprecise for stepping \
+             (use an int range with conversion, e.g., \
+             `for i in 0..10 do i.to_float() / 10.0`)"
+                .to_string(),
+        )
+    }
+
     /// Create an error for attempting to iterate over `Range<float>`.
     ///
     /// Float ranges are not iterable because float arithmetic is imprecise.

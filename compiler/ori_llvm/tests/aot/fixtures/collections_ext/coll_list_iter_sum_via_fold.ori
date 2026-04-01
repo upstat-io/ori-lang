@@ -1,0 +1,5 @@
+@main () -> int = {
+    let xs = [1, 2, 3, 4, 5];
+    let sum = xs.iter().fold(0, (acc: int, x: int) -> acc + x);
+    if sum == 15 then 0 else 1
+}

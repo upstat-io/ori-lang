@@ -1,0 +1,6 @@
+@identity<T> (x: T) -> T = x;
+
+@main () -> int = {
+    let xs = identity(x: ["hello", "world"]);
+    if xs.length() == 2 then 0 else 1
+}

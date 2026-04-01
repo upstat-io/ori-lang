@@ -1,0 +1,6 @@
+@main () -> int = {
+    let $xs = [10, 20, 30, 40, 50];
+    let $f = () -> int = xs.len();
+    let $result = f();
+    if result == 5 then 0 else 1
+}

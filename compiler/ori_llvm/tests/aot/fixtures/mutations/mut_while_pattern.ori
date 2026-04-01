@@ -1,0 +1,11 @@
+@main () -> int = {
+    let n = 100;
+    let steps = 0;
+    loop {
+        if n <= 1 then break;
+        n = if n % 2 == 0 then n / 2 else n * 3 + 1;
+        steps = steps + 1;
+    };
+    // Collatz sequence for 100: should terminate
+    if steps > 0 then 0 else 1
+}

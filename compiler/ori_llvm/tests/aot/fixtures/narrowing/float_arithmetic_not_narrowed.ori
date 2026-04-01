@@ -1,0 +1,11 @@
+type Result = { val: float }
+
+@compute (r: Result) -> float = r.val;
+
+@main () -> int = {
+    let x = 0.5;
+    let y = x + 0.0;
+    let r = Result { val: y };
+    let v = compute(r:);
+    if v == 0.5 then 0 else 1
+}

@@ -1,0 +1,6 @@
+@main () -> int = {
+    let a = 500ms;
+    let b = 500ms;
+    let c = a + b;
+    if c == 1s then 0 else 1
+}

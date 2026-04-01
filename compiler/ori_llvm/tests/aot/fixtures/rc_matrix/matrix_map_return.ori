@@ -1,0 +1,6 @@
+@make_map () -> {str: int} = {"x": 10, "y": 20, "z": 30};
+
+@main () -> int = {
+    let $m = make_map();
+    if m.len() == 3 then 0 else 1
+}

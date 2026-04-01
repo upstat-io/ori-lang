@@ -1,0 +1,10 @@
+@apply_twice (f: (int) -> int, x: int) -> int = {
+    f(f(x))
+};
+
+@main () -> int = {
+    let $n = 10;
+    let $adder = (x: int) -> x + n;
+    let $result = apply_twice(f: adder, x: 5);
+    if result == 25 then 0 else 1
+}

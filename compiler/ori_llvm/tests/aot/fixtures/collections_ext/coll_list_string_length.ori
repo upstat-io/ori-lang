@@ -1,0 +1,4 @@
+@main () -> int = {
+    let names = ["alice", "bob", "charlie"];
+    if names.length() == 3 then 0 else 1
+}

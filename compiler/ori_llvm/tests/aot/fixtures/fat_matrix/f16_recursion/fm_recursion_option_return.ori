@@ -1,0 +1,12 @@
+@find_positive (xs: [int], idx: int) -> Option<int> = {
+    if idx >= xs.length() then None
+    else if xs[idx] > 0 then Some(xs[idx])
+    else find_positive(xs: xs, idx: idx + 1)
+};
+
+@main () -> int = {
+    match find_positive(xs: [-1, -2, 5, -3], idx: 0) {
+        Some(v) -> if v == 5 then 0 else 1,
+        None -> 2,
+    }
+}

@@ -164,6 +164,7 @@ fn eval_float_binary(a: f64, b: f64, op: BinaryOp) -> EvalResult {
         BinaryOp::Sub => Ok(Value::Float(a - b)),
         BinaryOp::Mul => Ok(Value::Float(a * b)),
         BinaryOp::Div => Ok(Value::Float(a / b)),
+        BinaryOp::Mod => Ok(Value::Float(a % b)),
         // Use partial_cmp for IEEE 754 compliant comparisons
         // (NaN != NaN, -0.0 == 0.0)
         BinaryOp::Eq => Ok(Value::Bool(
@@ -191,10 +192,22 @@ fn eval_float_binary(a: f64, b: f64, op: BinaryOp) -> EvalResult {
 }
 
 /// Binary operations on booleans.
+///
+/// Supports equality, ordering (false < true, unsigned comparison), and
+/// logical operators (&&, ||). Registry: `eq: BoolLogic`, `lt: UnsignedCmp`.
 fn eval_bool_binary(a: bool, b: bool, op: BinaryOp) -> EvalResult {
     match op {
         BinaryOp::Eq => Ok(Value::Bool(a == b)),
         BinaryOp::NotEq => Ok(Value::Bool(a != b)),
+        // Ordering: false=0 < true=1 (unsigned comparison).
+        BinaryOp::Lt => Ok(Value::Bool(!a && b)),
+        BinaryOp::LtEq => Ok(Value::Bool(!a || b)),
+        BinaryOp::Gt => Ok(Value::Bool(a && !b)),
+        BinaryOp::GtEq => Ok(Value::Bool(a || !b)),
+        // Logical operators (short-circuit semantics handled by caller;
+        // we only reach here for the already-evaluated case).
+        BinaryOp::And => Ok(Value::Bool(a && b)),
+        BinaryOp::Or => Ok(Value::Bool(a || b)),
         _ => Err(invalid_binary_op_for("booleans", op).into()),
     }
 }
@@ -390,3 +403,6 @@ fn eval_variant_binary(a: &Value, b: &Value, op: BinaryOp) -> EvalResult {
         _ => Err(invalid_binary_op_for("variant", op).into()),
     }
 }
+
+#[cfg(test)]
+mod tests;

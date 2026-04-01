@@ -1,0 +1,7 @@
+@sum_acc (n: int, acc: int) -> int = {
+    if n <= 0 then acc else sum_acc(n: n - 1, acc: acc + n)
+};
+
+@main () -> int = {
+    if sum_acc(n: 100, acc: 0) == 5050 then 0 else 1
+}

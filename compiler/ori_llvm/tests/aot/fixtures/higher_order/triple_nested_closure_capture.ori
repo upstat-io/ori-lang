@@ -1,0 +1,11 @@
+@main () -> int = {
+    let $s = "triple nested closure test with heap string allocation";
+    let $outer = () -> int = {
+        let $middle = () -> int = {
+            let $inner = () -> int = s.length();
+            inner()
+        };
+        middle()
+    };
+    if outer() == 54 then 0 else 1
+}

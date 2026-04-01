@@ -1,0 +1,12 @@
+@main () -> int = {
+    let none1: Option<int> = None;
+    let none2: Option<int> = None;
+    let some1 = Some(42);
+    let some2 = Some(42);
+    let some3 = Some(99);
+    let r1 = none1.equals(none2);
+    let r2 = some1.equals(some2);
+    let r3 = !some1.equals(some3);
+    let r4 = !none1.equals(some1);
+    if r1 && r2 && r3 && r4 then 0 else 1
+}

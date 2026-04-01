@@ -1,0 +1,6 @@
+@pick (x: int, a: int, b: int) -> int = {
+    let result = if x > 0 then a else b;
+    result * 2
+};
+
+@main () -> int = pick(x: 1, a: 10, b: 20);

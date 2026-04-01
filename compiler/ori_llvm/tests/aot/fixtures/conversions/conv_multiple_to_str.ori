@@ -1,0 +1,7 @@
+@main () -> int = {
+    let a = 1.to_str();
+    let b = 2.to_str();
+    let c = 3.to_str();
+    let result = a + b + c;
+    if result == "123" then 0 else 1
+}

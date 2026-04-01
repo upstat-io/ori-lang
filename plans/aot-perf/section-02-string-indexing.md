@@ -160,3 +160,4 @@ Follow the `emit_list_index` pattern:
 - [ ] `./test-all.sh` passes in debug and release
 - [ ] No regressions in existing string AOT tests
 - [ ] `/tpr-review` passed — independent Codex review found no critical or major issues (or all findings triaged)
+- [ ] `/impl-hygiene-review last commit` passed — implementation hygiene review clean (phase boundaries, SSOT, algorithmic DRY, naming). MUST run AFTER `/tpr-review` is clean.

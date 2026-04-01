@@ -1,0 +1,6 @@
+@wrap_some <T> (x: T) -> Option<T> = Some(x);
+
+@main () -> int = {
+    let a = wrap_some(x: 42);
+    if a.is_some() && a.unwrap() == 42 then 0 else 1
+}

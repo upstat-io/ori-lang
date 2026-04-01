@@ -1,0 +1,4 @@
+@main () -> int = {
+    let xs = [1, 2, 3];
+    if !xs.contains(99) then 0 else 1
+}

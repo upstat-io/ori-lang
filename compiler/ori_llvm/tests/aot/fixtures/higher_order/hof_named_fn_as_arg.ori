@@ -1,0 +1,9 @@
+@square (x: int) -> int = x * x;
+@cube (x: int) -> int = x * x * x;
+@apply (f: (int) -> int, x: int) -> int = f(x);
+
+@main () -> int = {
+    let s = apply(f: square, x: 5);
+    let c = apply(f: cube, x: 3);
+    if s == 25 && c == 27 then 0 else 1
+}

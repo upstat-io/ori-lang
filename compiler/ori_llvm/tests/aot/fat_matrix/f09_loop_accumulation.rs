@@ -3,26 +3,13 @@
 //! Tests phi nodes for mutable bindings, RC correctness when values are
 //! reassigned in loops, and cleanup of replaced values.
 
-#![expect(
-    clippy::needless_raw_string_hashes,
-    reason = "readability in test program literals"
-)]
-
 use crate::util::assert_aot_success;
 
 // Accumulate int sum in loop (scalar baseline)
 #[test]
 fn test_fm_loop_acc_scalar() {
     assert_aot_success(
-        r#"
-@main () -> int = {
-    let total = 0;
-    for i in [10, 20, 30] do {
-        total = total + i;
-    };
-    if total == 60 then 0 else 1
-}
-"#,
+        include_str!("../fixtures/fat_matrix/f09_loop_accumulation/fm_loop_acc_scalar.ori"),
         "fm_loop_acc_scalar",
     );
 }
@@ -31,16 +18,7 @@ fn test_fm_loop_acc_scalar() {
 #[test]
 fn test_fm_loop_acc_list_len() {
     assert_aot_success(
-        r#"
-@main () -> int = {
-    let total = 0;
-    let words = ["hello", "world", "test"];
-    for s in words do {
-        total = total + s.length();
-    };
-    if total == 14 then 0 else 1
-}
-"#,
+        include_str!("../fixtures/fat_matrix/f09_loop_accumulation/fm_loop_acc_list_len.ori"),
         "fm_loop_acc_list_len",
     );
 }
@@ -49,15 +27,7 @@ fn test_fm_loop_acc_list_len() {
 #[test]
 fn test_fm_loop_acc_map() {
     assert_aot_success(
-        r#"
-@main () -> int = {
-    let total = 0;
-    for (k, v) in {"a": 10, "b": 20, "c": 30} do {
-        total = total + v;
-    };
-    if total == 60 then 0 else 1
-}
-"#,
+        include_str!("../fixtures/fat_matrix/f09_loop_accumulation/fm_loop_acc_map.ori"),
         "fm_loop_acc_map",
     );
 }
@@ -66,17 +36,7 @@ fn test_fm_loop_acc_map() {
 #[test]
 fn test_fm_loop_acc_fn_call() {
     assert_aot_success(
-        r#"
-@get_len (s: str) -> int = s.length();
-
-@main () -> int = {
-    let total = 0;
-    for s in ["abc", "de", "fghi"] do {
-        total = total + get_len(s: s);
-    };
-    if total == 9 then 0 else 1
-}
-"#,
+        include_str!("../fixtures/fat_matrix/f09_loop_accumulation/fm_loop_acc_fn_call.ori"),
         "fm_loop_acc_fn_call",
     );
 }

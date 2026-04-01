@@ -1,0 +1,6 @@
+@factorial (n: int) -> int = if n <= 1 then 1 else n * factorial(n: n - 1);
+
+@main () -> int = {
+    let f5 = factorial(n: 5);
+    if f5 == 120 then 0 else 1
+}

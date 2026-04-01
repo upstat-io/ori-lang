@@ -1,0 +1,9 @@
+@inspect (xs: [int]) -> int = xs[0] + xs[1] + xs[2] + xs[3];
+
+@main () -> int = {
+    let xs = [1, 2, 3, 4];
+    let $before = inspect(xs: xs);
+    xs = xs.push(99);
+    let $after_ok = xs.len() == 5 && xs[0] == 1 && xs[1] == 2 && xs[2] == 3 && xs[3] == 4 && xs[4] == 99;
+    if before == 10 && after_ok then 0 else 1
+}

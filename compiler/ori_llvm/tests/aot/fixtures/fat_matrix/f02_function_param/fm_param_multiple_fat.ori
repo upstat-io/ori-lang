@@ -1,0 +1,7 @@
+@combined_len (a: str, b: str) -> int = a.length() + b.length();
+
+@main () -> int = {
+    let s1 = "abcdefghijklmnopqrstuvwxyz1234";
+    let s2 = "hello";
+    if combined_len(a: s1, b: s2) == 35 then 0 else 1
+}

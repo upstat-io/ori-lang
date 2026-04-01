@@ -1,0 +1,17 @@
+#derive(Clone)
+type MaybeError = { result: Result<str, int>, n: int }
+
+@main () -> int = {
+    let text = "this is a long string exceeding SSO by a large amount,and this second part also exceeds it";
+    let parts = text.split(sep: ",");
+    let total = 0;
+    for p in parts do {
+        let ok_val = MaybeError { result: Ok(p), n: p.len() };
+        let ok_copy = ok_val.clone();
+        let err_val = MaybeError { result: Err(42), n: 42 };
+        let err_copy = err_val.clone();
+        total = total + ok_copy.n + err_copy.n;
+    };
+    // (53 + 42) + (36 + 42) = 173
+    if total == 173 then 0 else 1
+}

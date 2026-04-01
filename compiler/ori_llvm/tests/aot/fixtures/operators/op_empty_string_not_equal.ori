@@ -1,0 +1,5 @@
+@main () -> int = {
+    let empty = "";
+    let space = " ";
+    if empty != space then 0 else 1
+}

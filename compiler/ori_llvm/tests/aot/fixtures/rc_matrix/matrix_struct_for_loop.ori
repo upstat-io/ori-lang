@@ -1,0 +1,9 @@
+type Record = { name: str, values: [int] }
+
+@main () -> int = {
+    let r = Record { name: "initial_name_for_heap", values: [1, 2, 3] };
+    for i in 0..30 do {
+        r = Record { name: r.name + "x", values: r.values.push(i) };
+    };
+    if r.values.len() == 33 then 0 else 1
+}

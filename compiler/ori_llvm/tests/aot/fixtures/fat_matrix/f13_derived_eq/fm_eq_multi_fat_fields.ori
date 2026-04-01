@@ -1,0 +1,11 @@
+#derive(Eq)
+type Person = { first: str, last: str }
+
+@main () -> int = {
+    let a = Person { first: "alice", last: "smith" };
+    let b = Person { first: "alice", last: "smith" };
+    let c = Person { first: "alice", last: "jones" };
+    if a == b then {
+        if a != c then 0 else 1
+    } else 2
+}

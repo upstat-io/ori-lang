@@ -1,0 +1,7 @@
+type Outcome = Good(value: int) | Bad(reason: str);
+
+@main () -> int = {
+    let ok = Good(value: 42);
+    let err = Bad(reason: "oops");
+    0
+}

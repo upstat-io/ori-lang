@@ -1,0 +1,16 @@
+@main () -> int = {
+    let results: [Result<str, str>] = [
+        Ok("this is a very long ok string that exceeds SSO threshold"),
+        Err("this is a very long error string exceeding SSO threshold"),
+        Ok("another very long ok string also exceeds the SSO thresh")
+    ];
+    let total = 0;
+    for r in results do {
+        match r {
+            Ok(s) -> { total = total + s.len(); },
+            Err(e) -> { total = total + e.len(); }
+        };
+    };
+    // 56 + 56 + 55 = 167
+    if total == 167 then 0 else 1
+}

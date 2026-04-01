@@ -188,5 +188,6 @@ Capture all benchmark results in a structured format for comparison in Section 0
 - [ ] Baseline throughput values within expected ranges
 - [ ] `./test-all.sh` green (no regressions from benchmark additions)
 - [ ] `/tpr-review` passed — independent Codex review found no critical or major issues (or all findings triaged)
+- [ ] `/impl-hygiene-review last commit` passed — implementation hygiene review clean (phase boundaries, SSOT, algorithmic DRY, naming). MUST run AFTER `/tpr-review` is clean.
 
 **Exit Criteria:** `cargo bench -p oric --bench lexer_core -- "lexer_core/raw"`, `cargo bench -p oric --bench lexer -- "lexer/raw"`, and `cargo bench -p oric --bench parser -- "parser/raw"` all run cleanly. `baselines.json` contains populated results for all metric fields. Results are stable (< 5% variance across 3 runs).

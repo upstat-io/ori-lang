@@ -1,0 +1,8 @@
+type Record = { count: int, name: str, active: bool }
+
+@read_count (r: Record) -> int = r.count;
+
+@main () -> int = {
+    let r = Record { count: 42, name: "hello", active: true };
+    read_count(r:)
+}

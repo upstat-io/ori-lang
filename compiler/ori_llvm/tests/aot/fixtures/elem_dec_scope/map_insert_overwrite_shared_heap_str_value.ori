@@ -1,0 +1,8 @@
+@main () -> int = {
+    let base: {int: str} = {};
+    let base = base.insert(1, "original value heap string exceeding SSO threshold here");
+    let shared = base;
+    let fork = shared.insert(1, "replacement value heap string exceeding SSO threshold");
+    // base still has original value, fork has replacement
+    if base.len() == 1 && fork.len() == 1 then 0 else 1
+}

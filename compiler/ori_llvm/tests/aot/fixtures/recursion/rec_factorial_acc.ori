@@ -1,0 +1,7 @@
+@fact_acc (n: int, acc: int) -> int = {
+    if n <= 1 then acc else fact_acc(n: n - 1, acc: acc * n)
+};
+
+@main () -> int = {
+    if fact_acc(n: 10, acc: 1) == 3628800 then 0 else 1
+}

@@ -1,0 +1,10 @@
+@main () -> int = {
+    let words = [
+        "short",
+        "this is a very long string that exceeds SSO threshold",
+        "hi",
+        "another very long string exceeding SSO for sure here"
+    ];
+    let long_lengths = for w in words if w.length() > 10 yield w.length();
+    if long_lengths[0] == 53 && long_lengths[1] == 52 then 0 else 1
+}

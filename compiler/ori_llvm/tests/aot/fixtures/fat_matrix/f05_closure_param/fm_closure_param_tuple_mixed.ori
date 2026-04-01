@@ -1,0 +1,7 @@
+@main () -> int = {
+    let f = (t: (str, int)) -> int = {
+        let (s, n) = t;
+        s.length() + n
+    };
+    if f(("hello", 5)) == 10 then 0 else 1
+}

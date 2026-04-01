@@ -1,0 +1,12 @@
+@describe (n: int) -> int = match n {
+    0 -> 0,
+    1 -> 1,
+    x -> x + 100,
+};
+
+@main () -> int = {
+    let a = describe(n: 0);
+    let b = describe(n: 1);
+    let c = describe(n: 5);
+    if a == 0 && b == 1 && c == 105 then 0 else 1
+}

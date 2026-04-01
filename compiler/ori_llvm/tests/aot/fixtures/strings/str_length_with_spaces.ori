@@ -1,0 +1,4 @@
+@main () -> int = {
+    let s = "hello world";
+    if s.length() == 11 then 0 else 1
+}

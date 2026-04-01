@@ -1,0 +1,7 @@
+@main () -> int = {
+    let r = catch(expr: "heap string for alias test");
+    match r {
+        Ok(v) -> if v == "heap string for alias test" then 0 else 1,
+        Err(_) -> 2,
+    }
+}

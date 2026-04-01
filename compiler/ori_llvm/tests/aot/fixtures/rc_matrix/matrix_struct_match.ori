@@ -1,0 +1,10 @@
+type Item = { label: str, value: int }
+
+@main () -> int = {
+    let $x: Result<int, str> = Ok(7);
+    let $item = match x {
+        Ok(v) -> Item { label: "ok_label_heap_string_xx", value: v },
+        Err(_) -> Item { label: "err_label_heap_string_x", value: -1 },
+    };
+    if item.value == 7 then 0 else 1
+}

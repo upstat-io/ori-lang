@@ -1,0 +1,9 @@
+@first_len (t: (str, int)) -> int =
+    match t {
+        (s, _) -> s.length(),
+    };
+
+@main () -> int = {
+    let t = ("hello", 42);
+    if first_len(t: t) == 5 then 0 else 1
+}

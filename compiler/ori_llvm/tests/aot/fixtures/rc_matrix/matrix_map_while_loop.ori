@@ -1,0 +1,10 @@
+@main () -> int = {
+    let m = {"init": 0};
+    let i = 0;
+    loop {
+        if i >= 30 then break;
+        m = m.insert("key_" + str(i), i);
+        i = i + 1;
+    };
+    if m.len() == 31 then 0 else 1
+}

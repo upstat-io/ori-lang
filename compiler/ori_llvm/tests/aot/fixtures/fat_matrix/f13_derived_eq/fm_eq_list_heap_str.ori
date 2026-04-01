@@ -1,0 +1,10 @@
+#derive(Eq)
+type Words = { items: [str] }
+
+@main () -> int = {
+    let s1 = "abcdefghijklmnopqrstuvwxyz1234";
+    let s2 = "abcdefghijklmnopqrstuvwxyz1234";
+    let a = Words { items: [s1] };
+    let b = Words { items: [s2] };
+    if a == b then 0 else 1
+}

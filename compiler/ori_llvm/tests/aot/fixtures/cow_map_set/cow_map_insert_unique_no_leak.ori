@@ -1,0 +1,5 @@
+@main () -> int = {
+    // No sharing: m is consumed by insert, triggers fast path
+    let m = {"a": 1}.insert("b", 2).insert("c", 3);
+    if m.len() == 3 then 0 else 1
+}

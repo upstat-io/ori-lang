@@ -4,29 +4,13 @@
 //! lists, and other fat pointer types. Clone must correctly RC-increment all
 //! heap-allocated fields.
 
-#![expect(
-    clippy::needless_raw_string_hashes,
-    reason = "readability in test program literals"
-)]
-
 use crate::util::assert_aot_success;
 
 // T4/T5: Clone struct with str field
 #[test]
 fn test_fm_clone_struct_str() {
     assert_aot_success(
-        r#"
-#derive(Eq, Clone)
-type Named = { name: str, id: int }
-
-@main () -> int = {
-    let a = Named { name: "alice", id: 1 };
-    let b = a.clone();
-    if a == b then {
-        if b.name.length() == 5 then 0 else 1
-    } else 2
-}
-"#,
+        include_str!("../fixtures/fat_matrix/f20_derived_clone/fm_clone_struct_str.ori"),
         "fm_clone_struct_str",
     );
 }
@@ -35,18 +19,7 @@ type Named = { name: str, id: int }
 #[test]
 fn test_fm_clone_struct_str_heap() {
     assert_aot_success(
-        r#"
-#derive(Eq, Clone)
-type Doc = { content: str }
-
-@main () -> int = {
-    let a = Doc { content: "abcdefghijklmnopqrstuvwxyz1234" };
-    let b = a.clone();
-    if a == b then {
-        if b.content.length() == 30 then 0 else 1
-    } else 2
-}
-"#,
+        include_str!("../fixtures/fat_matrix/f20_derived_clone/fm_clone_struct_str_heap.ori"),
         "fm_clone_struct_str_heap",
     );
 }
@@ -55,18 +28,7 @@ type Doc = { content: str }
 #[test]
 fn test_fm_clone_struct_list_scalar() {
     assert_aot_success(
-        r#"
-#derive(Eq, Clone)
-type Container = { items: [int] }
-
-@main () -> int = {
-    let a = Container { items: [1, 2, 3] };
-    let b = a.clone();
-    if a == b then {
-        if b.items.length() == 3 then 0 else 1
-    } else 2
-}
-"#,
+        include_str!("../fixtures/fat_matrix/f20_derived_clone/fm_clone_struct_list_scalar.ori"),
         "fm_clone_struct_list_scalar",
     );
 }
@@ -75,18 +37,7 @@ type Container = { items: [int] }
 #[test]
 fn test_fm_clone_struct_list_fat() {
     assert_aot_success(
-        r#"
-#derive(Eq, Clone)
-type Words = { items: [str] }
-
-@main () -> int = {
-    let a = Words { items: ["hello", "world"] };
-    let b = a.clone();
-    if a == b then {
-        if b.items.length() == 2 then 0 else 1
-    } else 2
-}
-"#,
+        include_str!("../fixtures/fat_matrix/f20_derived_clone/fm_clone_struct_list_fat.ori"),
         "fm_clone_struct_list_fat",
     );
 }
@@ -95,20 +46,7 @@ type Words = { items: [str] }
 #[test]
 fn test_fm_clone_nested_fat() {
     assert_aot_success(
-        r#"
-#derive(Eq, Clone)
-type Inner = { name: str }
-#derive(Eq, Clone)
-type Outer = { inner: Inner, count: int }
-
-@main () -> int = {
-    let a = Outer { inner: Inner { name: "alice" }, count: 5 };
-    let b = a.clone();
-    if a == b then {
-        if b.inner.name.length() == 5 then 0 else 1
-    } else 2
-}
-"#,
+        include_str!("../fixtures/fat_matrix/f20_derived_clone/fm_clone_nested_fat.ori"),
         "fm_clone_nested_fat",
     );
 }
@@ -117,18 +55,7 @@ type Outer = { inner: Inner, count: int }
 #[test]
 fn test_fm_clone_multi_fat_fields() {
     assert_aot_success(
-        r#"
-#derive(Eq, Clone)
-type Person = { first: str, last: str }
-
-@main () -> int = {
-    let a = Person { first: "alice", last: "smith" };
-    let b = a.clone();
-    if a == b then {
-        if b.first.length() + b.last.length() == 10 then 0 else 1
-    } else 2
-}
-"#,
+        include_str!("../fixtures/fat_matrix/f20_derived_clone/fm_clone_multi_fat_fields.ori"),
         "fm_clone_multi_fat_fields",
     );
 }
@@ -137,22 +64,7 @@ type Person = { first: str, last: str }
 #[test]
 fn test_fm_clone_independence() {
     assert_aot_success(
-        r#"
-#derive(Clone)
-type Named = { name: str, id: int }
-
-@consume (n: Named) -> int = n.name.length();
-
-@main () -> int = {
-    let a = Named { name: "hello", id: 1 };
-    let b = a.clone();
-    let len_a = consume(n: a);
-    let len_b = b.name.length();
-    if len_a == 5 then {
-        if len_b == 5 then 0 else 1
-    } else 2
-}
-"#,
+        include_str!("../fixtures/fat_matrix/f20_derived_clone/fm_clone_independence.ori"),
         "fm_clone_independence",
     );
 }
@@ -161,18 +73,7 @@ type Named = { name: str, id: int }
 #[test]
 fn test_fm_clone_map_field() {
     assert_aot_success(
-        r#"
-#derive(Eq, Clone)
-type Config = { settings: {str: int} }
-
-@main () -> int = {
-    let a = Config { settings: {"x": 1, "y": 2} };
-    let b = a.clone();
-    if a == b then {
-        if b.settings.length() == 2 then 0 else 1
-    } else 2
-}
-"#,
+        include_str!("../fixtures/fat_matrix/f20_derived_clone/fm_clone_map_field.ori"),
         "fm_clone_map_field",
     );
 }

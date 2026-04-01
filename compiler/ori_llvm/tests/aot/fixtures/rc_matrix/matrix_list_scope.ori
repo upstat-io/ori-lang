@@ -1,0 +1,7 @@
+@main () -> int = {
+    let $result = {
+        let xs = [1, 2, 3, 4, 5];
+        xs.len()
+    };
+    if result == 5 then 0 else 1
+}

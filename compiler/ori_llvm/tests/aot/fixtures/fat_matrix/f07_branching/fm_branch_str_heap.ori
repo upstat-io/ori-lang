@@ -1,0 +1,7 @@
+@main () -> int = {
+    let flag = true;
+    let s = if flag
+        then "abcdefghijklmnopqrstuvwxyz1234"
+        else "short";
+    if s.length() == 30 then 0 else 1
+}

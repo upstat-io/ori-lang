@@ -52,7 +52,7 @@ static TUPLE_METHODS: &[MethodDef] = &[
         false,
     ),
     MethodDef::compound("hash", &[], INT, Some("Hashable"), Ownership::Borrow, false),
-    MethodDef::compound("len", &[], INT, None, Ownership::Borrow, false),
+    MethodDef::compound("len", &[], INT, Some("Len"), Ownership::Borrow, false),
 ];
 
 pub static TUPLE: TypeDef = TypeDef {
@@ -62,6 +62,7 @@ pub static TUPLE: TypeDef = TypeDef {
     type_params: TypeParamArity::Variadic,
     methods: TUPLE_METHODS,
     operators: OpDefs::UNSUPPORTED,
+    traits: &["Comparable", "Printable"],
 };
 
 #[cfg(test)]

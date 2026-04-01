@@ -1,0 +1,11 @@
+type Acc = { sum: int, depth: int }
+
+@go_deep (a: Acc) -> int =
+    if a.depth == 0 then a.sum
+    else go_deep(a: Acc { sum: a.sum + a.depth, depth: a.depth - 1 });
+
+@main () -> int = {
+    let result = go_deep(a: Acc { sum: 0, depth: 200 });
+    // sum(1..200) = 200*201/2 = 20100
+    if result == 20100 then 0 else 1
+}

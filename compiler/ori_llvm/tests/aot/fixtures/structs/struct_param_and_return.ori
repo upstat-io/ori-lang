@@ -1,0 +1,11 @@
+type Point = { x: int, y: int };
+
+@translate (p: Point, dx: int, dy: int) -> Point = {
+    Point { x: p.x + dx, y: p.y + dy }
+};
+
+@main () -> int = {
+    let p = Point { x: 1, y: 2 };
+    let p2 = translate(p: p, dx: 10, dy: 20);
+    if p2.x == 11 && p2.y == 22 then 0 else 1
+}

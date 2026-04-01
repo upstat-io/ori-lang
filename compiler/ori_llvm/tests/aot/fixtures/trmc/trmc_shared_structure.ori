@@ -1,0 +1,21 @@
+type List = Nil | Cons(head: int, tail: List);
+
+@list_len (list: List) -> int = match list {
+    Nil -> 0,
+    Cons(_, t) -> 1 + list_len(list: t),
+};
+
+@list_sum (list: List) -> int = match list {
+    Nil -> 0,
+    Cons(h, t) -> h + list_sum(list: t),
+};
+
+@main () -> int = {
+    let $list = Cons(head: 1, tail: Cons(head: 2, tail: Cons(head: 3, tail: Nil)));
+    // Read the same list twice — tests RC correctness under sharing.
+    let $len1 = list_len(list: list);
+    let $sum1 = list_sum(list: list);
+    let $len2 = list_len(list: list);
+    let $sum2 = list_sum(list: list);
+    if len1 == 3 && sum1 == 6 && len2 == 3 && sum2 == 6 then 0 else 1
+}

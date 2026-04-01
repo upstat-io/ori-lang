@@ -1,0 +1,4 @@
+@main () -> int = {
+    let m = {"a": 1, "b": 2}.insert("a", 10).remove("b");
+    if m.len() == 1 && m.get("a").unwrap() == 10 then 0 else 1
+}

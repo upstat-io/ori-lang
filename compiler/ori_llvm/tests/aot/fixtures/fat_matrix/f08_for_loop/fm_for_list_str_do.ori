@@ -1,0 +1,7 @@
+@main () -> int = {
+    let total = 0;
+    for s in ["hello", "world", "test"] do {
+        total = total + s.length();
+    };
+    if total == 14 then 0 else 1
+}

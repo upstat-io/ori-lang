@@ -1,0 +1,12 @@
+@make_getter (s: str) -> () -> int = {
+    let $outer = () -> int = {
+        let $inner = () -> int = s.length();
+        inner()
+    };
+    outer
+}
+
+@main () -> int = {
+    let $f = make_getter(s: "borrowed parameter string that is long enough for heap allocation");
+    if f() == 65 then 0 else 1
+}

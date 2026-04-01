@@ -1,0 +1,8 @@
+type Point = { x: int, y: int }
+
+@origin () -> Point = Point { x: 0, y: 0 };
+
+@main () -> int = {
+    let p = origin();
+    if p.x + p.y == 0 then 0 else 1
+}

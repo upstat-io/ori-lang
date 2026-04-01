@@ -465,6 +465,7 @@ Tests at `tests/spec/traits/derive/all_derives.ori` (7 tests pass).
   - [x] Remaining: spec and CLAUDE.md updates verified complete (2026-02-15). Derive for newtypes tracked as optional in 3.21 [done] (2026-02-18)
 - [ ] Proposals (3.8-3.17): Evaluator verified complete for all proposals (verified 2026-03-29). LLVM gaps remain: Debug (3.9 all items), Traceable (3.13), iterator advanced features (3.8 Phase 2+), Index (3.12), derived sum/generic/recursive (3.15). See per-subsection LLVM items for details.
 - [ ] `/tpr-review` passed — independent Codex review found no critical or major issues (or all findings triaged)
+- [ ] `/impl-hygiene-review last commit` passed — implementation hygiene review clean (phase boundaries, SSOT, algorithmic DRY, naming). MUST run AFTER `/tpr-review` is clean.
 - [ ] **HYGIENE**: `compiler/ori_types/src/registry/traits/mod.rs` is 762 source lines -- exceeds the 500-line limit. Split into submodules.
 - [ ] **WEAK TESTS**: `tests/spec/traits/iterator/collect_set.ori` has 6 `#skip` markers with tautological stub bodies (`assert(cond: true)`) -- exceeds 3-skip budget per file. Replace with real tests or remove stubs and track Set collect as a plan item.
 - [ ] **WEAK TESTS**: Default type parameters (3.19) has only 2 spec tests. Add edge case tests (multiple defaults, complex cross-references, error cases for invalid ordering).

@@ -1,0 +1,12 @@
+#derive(Eq)
+type Pure = PA | PB | PC;
+
+#derive(Eq)
+type WithVoid = VA(u: void) | VB(w: void) | VC;
+
+@main () -> void = {
+    print(msg: if PA == PA then "eq" else "ne");
+    print(msg: if PA == PB then "eq" else "ne");
+    print(msg: if VA(u: ()) == VA(u: ()) then "eq" else "ne");
+    print(msg: if VA(u: ()) == VB(w: ()) then "eq" else "ne");
+}

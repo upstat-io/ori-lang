@@ -1,0 +1,5 @@
+@main () -> int = {
+    let add = 3 + 4;
+    let sub = 10 - 3;
+    if add == 7 && sub == 7 then 0 else 1
+}

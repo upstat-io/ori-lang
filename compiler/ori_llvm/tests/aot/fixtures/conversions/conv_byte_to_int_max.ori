@@ -1,0 +1,5 @@
+@main () -> int = {
+    let b: byte = 255;
+    let x = b.to_int();
+    if x == 255 then 0 else 1
+}

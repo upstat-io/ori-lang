@@ -1,0 +1,11 @@
+@fact (n: int, acc: int) -> int = {
+    recurse(
+        condition: n <= 1,
+        base: acc,
+        step: self(n: n - 1, acc: acc * n),
+    )
+};
+
+@main () -> int = {
+    if fact(n: 20, acc: 1) == 2432902008176640000 then 0 else 1
+}

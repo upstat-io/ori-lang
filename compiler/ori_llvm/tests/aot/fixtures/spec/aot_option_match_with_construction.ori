@@ -1,0 +1,14 @@
+@safe_div (a: int, b: int) -> Option<int> =
+    if b == 0 then None else Some(a / b);
+
+@unwrap_or (opt: Option<int>, default: int) -> int =
+    match opt { Some(v) -> v, None -> default }
+
+@main () -> int = {
+    let a = unwrap_or(opt: safe_div(a: 100, b: 5), default: 0);
+    let b = unwrap_or(opt: safe_div(a: 100, b: 0), default: 5);
+    // a should be 20, b should be 5
+    if a == 20 then {
+        if b == 5 then 0 else 1
+    } else 1
+}

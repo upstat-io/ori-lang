@@ -1,0 +1,8 @@
+@main () -> int = {
+    let m = {"init": 0};
+    for i in 0..100 do {
+        m = m.insert("key_" + str(i), i);
+        if i >= 29 then break;
+    };
+    if m.len() == 31 then 0 else 1
+}

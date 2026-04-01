@@ -1,0 +1,5 @@
+@main () -> int = {
+    let s = 3.14.to_str();
+    // Float to_str should produce a reasonable representation
+    if s.length() > 0 then 0 else 1
+}

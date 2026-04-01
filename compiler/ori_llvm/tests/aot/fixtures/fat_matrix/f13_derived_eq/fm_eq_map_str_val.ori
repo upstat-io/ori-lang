@@ -1,0 +1,11 @@
+#derive(Eq)
+type Config = { settings: {int: str} }
+
+@main () -> int = {
+    let a = Config { settings: {1: "hello_world_long_heap_string_here"} };
+    let b = Config { settings: {1: "hello_world_long_heap_string_here"} };
+    let c = Config { settings: {1: "different_heap_string_value_here!"} };
+    if a == b then {
+        if a != c then 0 else 1
+    } else 2
+}

@@ -53,16 +53,23 @@ static RANGE_METHODS: &[MethodDef] = &[
         false,
     ),
     MethodDef::compound("count", &[], INT, None, Ownership::Borrow, false),
-    MethodDef::compound("is_empty", &[], BOOL, None, Ownership::Borrow, false),
+    MethodDef::compound(
+        "is_empty",
+        &[],
+        BOOL,
+        Some("IsEmpty"),
+        Ownership::Borrow,
+        false,
+    ),
     MethodDef::compound(
         "iter",
         &[],
         ReturnTag::DoubleEndedIteratorOf(TypeProjection::Element),
-        None,
+        Some("Iterable"),
         Ownership::Borrow,
         false,
     ),
-    MethodDef::compound("len", &[], INT, None, Ownership::Borrow, false),
+    MethodDef::compound("len", &[], INT, Some("Len"), Ownership::Borrow, false),
     MethodDef::compound(
         "step_by",
         &STEP_PARAM,
@@ -88,6 +95,7 @@ pub static RANGE: TypeDef = TypeDef {
     type_params: TypeParamArity::Fixed(1),
     methods: RANGE_METHODS,
     operators: OpDefs::UNSUPPORTED,
+    traits: &["Printable"],
 };
 
 #[cfg(test)]

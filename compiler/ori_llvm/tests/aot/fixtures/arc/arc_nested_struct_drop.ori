@@ -1,0 +1,8 @@
+type Inner = { a: int, b: int }
+type Outer = { inner: Inner, c: int }
+
+@main () -> int = {
+    let i = Inner { a: 1, b: 2 };
+    let o = Outer { inner: i, c: 3 };
+    if o.inner.a + o.inner.b + o.c == 6 then 0 else 1
+}

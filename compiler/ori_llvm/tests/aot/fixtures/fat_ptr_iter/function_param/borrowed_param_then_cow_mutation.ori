@@ -1,0 +1,15 @@
+@sum_list (xs: [int]) -> int = {
+    let total = 0;
+    for x in xs do {
+        total = total + x;
+    };
+    total
+}
+
+@main () -> int = {
+    let xs = [1, 2, 3, 4];
+    let $before = sum_list(xs: xs);
+    xs = xs.push(99);
+    let $after = sum_list(xs: xs);
+    if before == 10 && after == 109 then 0 else 1
+}

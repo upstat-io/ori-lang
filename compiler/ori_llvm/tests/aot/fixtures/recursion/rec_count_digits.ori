@@ -1,0 +1,8 @@
+@count_digits (n: int, acc: int) -> int = {
+    if n < 10 then acc + 1
+    else count_digits(n: n / 10, acc: acc + 1)
+};
+
+@main () -> int = {
+    if count_digits(n: 12345, acc: 0) == 5 then 0 else 1
+}

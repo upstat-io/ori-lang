@@ -1,0 +1,42 @@
+// Negative pin: unsupported arithmetic operators must be rejected.
+// These tests verify the type checker queries the registry for operator support.
+// Spec: 09-expressions.md § Operator Type Constraints
+
+// Str only supports + (concatenation), not other arithmetic ops.
+@str_sub () -> str = "a";
+@str_mul () -> str = "a";
+@str_div () -> str = "a";
+
+#compile_fail("Sub")
+@test_str_sub tests @str_sub () -> void = {
+    let result = "hello" - "world";
+    ()
+}
+
+#compile_fail("Mul")
+@test_str_mul tests @str_mul () -> void = {
+    let result = "hello" * "world";
+    ()
+}
+
+#compile_fail("Div")
+@test_str_div tests @str_div () -> void = {
+    let result = "hello" / "world";
+    ()
+}
+
+// List only supports + (concatenation), not other arithmetic ops.
+@list_sub () -> [int] = [1];
+@list_mul () -> [int] = [1];
+
+#compile_fail("Sub")
+@test_list_sub tests @list_sub () -> void = {
+    let result = [1, 2] - [3, 4];
+    ()
+}
+
+#compile_fail("Mul")
+@test_list_mul tests @list_mul () -> void = {
+    let result = [1, 2] * [3, 4];
+    ()
+}

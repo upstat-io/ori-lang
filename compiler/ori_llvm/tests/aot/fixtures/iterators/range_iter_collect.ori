@@ -1,0 +1,4 @@
+@main () -> int = {
+    let result = (0..5).iter().collect();
+    if result.length() == 5 then 0 else 1
+}

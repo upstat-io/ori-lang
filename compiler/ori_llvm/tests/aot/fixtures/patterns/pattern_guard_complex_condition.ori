@@ -1,0 +1,13 @@
+@in_range (n: int) -> bool = match n {
+    x if x >= 10 && x <= 20 -> true,
+    _ -> false,
+};
+
+@main () -> int = {
+    let ok1 = in_range(n: 15);
+    let ok2 = !in_range(n: 5);
+    let ok3 = in_range(n: 10);
+    let ok4 = in_range(n: 20);
+    let ok5 = !in_range(n: 21);
+    if ok1 && ok2 && ok3 && ok4 && ok5 then 0 else 1
+}

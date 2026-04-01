@@ -1,0 +1,7 @@
+type Point = { x: int, y: int };
+@double (n: int) -> int = n * 2;
+
+@main () -> int = {
+    let p = Point { x: double(n: 5), y: double(n: 10) };
+    if p.x == 10 && p.y == 20 then 0 else 1
+}

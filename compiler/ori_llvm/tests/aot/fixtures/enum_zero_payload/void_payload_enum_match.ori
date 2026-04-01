@@ -1,0 +1,11 @@
+type E = UnitA(u: void) | UnitB;
+
+@check (e: E) -> str = match e {
+    UnitA(u:) -> "a",
+    UnitB -> "b",
+}
+
+@main () -> void = {
+    print(msg: check(e: UnitA(u: ())));
+    print(msg: check(e: UnitB));
+}

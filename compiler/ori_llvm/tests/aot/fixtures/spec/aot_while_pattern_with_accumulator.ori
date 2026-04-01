@@ -1,0 +1,10 @@
+@main () -> int = {
+    let n = 10;
+    let result = 0;
+    loop {
+        if n == 0 then break;
+        result = result + n;
+        n = n - 1
+    };
+    if result == 55 then 0 else 1
+}

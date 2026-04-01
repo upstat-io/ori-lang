@@ -1,0 +1,9 @@
+@main () -> int = {
+    let x = 10;
+    let y = {
+        let x = 20;
+        x + 1
+    };
+    // x is still 10 outside, y = 21
+    if x == 10 && y == 21 then 0 else 1
+}

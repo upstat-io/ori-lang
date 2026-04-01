@@ -1,0 +1,10 @@
+#derive(Eq, Clone)
+type Doc = { content: str }
+
+@main () -> int = {
+    let a = Doc { content: "abcdefghijklmnopqrstuvwxyz1234" };
+    let b = a.clone();
+    if a == b then {
+        if b.content.length() == 30 then 0 else 1
+    } else 2
+}

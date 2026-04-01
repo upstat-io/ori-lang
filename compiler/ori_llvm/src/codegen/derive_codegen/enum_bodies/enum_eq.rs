@@ -11,7 +11,7 @@ use super::super::super::value_id::{BlockId, ValueId};
 use super::super::field_ops::emit_field_operation;
 use super::super::DeriveSetup;
 
-use super::variant_field_types;
+use super::{variant_field_types, variant_non_void_field_types};
 
 /// Enum Eq: compare tags first, then per-variant payload comparison.
 ///
@@ -42,7 +42,12 @@ pub(super) fn emit_enum_all_true<'a>(
     };
 
     let tags_eq = fc.builder_mut().icmp_eq(ts, to, "eq.tags");
-    let has_payload = variants.iter().any(|v| !v.fields.is_unit());
+    // BUG-04-008 / TPR-07-006: check for non-void payload fields, not just
+    // non-unit variants. A variant like `A(u: void)` has VariantFields::Tuple
+    // but zero payload slots in LLVM.
+    let has_payload = variants
+        .iter()
+        .any(|v| !variant_non_void_field_types(&v.fields, fc.pool()).is_empty());
 
     if has_payload {
         // Tags must match first, then per-variant payload comparison
@@ -121,7 +126,8 @@ fn emit_enum_payload_eq<'a>(
 
         for (tag_idx, variant) in variants.iter().enumerate() {
             fc.builder_mut().position_at_end(variant_bbs[tag_idx]);
-            let field_types = variant_field_types(&variant.fields);
+            // TPR-07-006: filter zero-sized fields to match LLVM layout.
+            let field_types = variant_non_void_field_types(&variant.fields, fc.pool());
             if field_types.is_empty() {
                 fc.builder_mut().br(true_bb);
                 continue;
@@ -198,7 +204,8 @@ fn emit_enum_payload_eq<'a>(
         let i64_ty = fc.builder_mut().i64_type();
         for (tag_idx, variant) in variants.iter().enumerate() {
             fc.builder_mut().position_at_end(variant_bbs[tag_idx]);
-            let field_types = variant_field_types(&variant.fields);
+            // TPR-07-006: filter zero-sized fields to match LLVM layout.
+            let field_types = variant_non_void_field_types(&variant.fields, fc.pool());
             if field_types.is_empty() {
                 fc.builder_mut().br(true_bb);
                 continue;

@@ -1,0 +1,5 @@
+@main () -> int = {
+    let xs = [10, 20, 30];
+    let ys = xs.set(0, 99);
+    if ys.first().unwrap() == 99 then 0 else 1
+}

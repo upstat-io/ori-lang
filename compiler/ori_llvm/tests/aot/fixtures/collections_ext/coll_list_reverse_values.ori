@@ -1,0 +1,6 @@
+@main () -> int = {
+    let xs = [10, 20, 30];
+    let rev = xs.reverse();
+    let f = rev.first();
+    if f.is_some() && f.unwrap() == 30 then 0 else 1
+}

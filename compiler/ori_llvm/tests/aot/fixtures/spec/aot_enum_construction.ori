@@ -1,0 +1,12 @@
+type Shape = Circle(radius: int) | Square(side: int);
+
+@area (s: Shape) -> int = match s {
+    Circle(r) -> r * r,
+    Square(s) -> s * s,
+};
+
+@main () -> int = {
+    let c = Circle(radius: 5);
+    let s = Square(side: 3);
+    if area(s: c) == 25 && area(s: s) == 9 then 0 else 1
+}

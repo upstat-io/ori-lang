@@ -1,0 +1,17 @@
+#derive(Clone)
+type Holder = { payload: Result<str, str>, id: int }
+
+@main () -> int = {
+    let text = "this is a long string exceeding SSO by a large amount,and this second part also exceeds it";
+    let parts = text.split(sep: ",");
+    let total = 0;
+    for p in parts do {
+        let ok_holder = Holder { payload: Ok(p), id: p.len() };
+        let ok_copy = ok_holder.clone();
+        let err_holder = Holder { payload: Err(p), id: p.len() };
+        let err_copy = err_holder.clone();
+        total = total + ok_copy.id + err_copy.id;
+    };
+    // (53 + 53) + (36 + 36) = 178
+    if total == 178 then 0 else 1
+}

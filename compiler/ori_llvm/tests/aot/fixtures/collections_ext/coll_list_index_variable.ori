@@ -1,0 +1,5 @@
+@main () -> int = {
+    let xs = [100, 200, 300];
+    let i = 1;
+    if xs[i] == 200 then 0 else 1
+}

@@ -1,0 +1,15 @@
+type Color = Red | Green | Blue;
+
+@to_num (c: Color) -> int =
+    match c {
+        Red -> 1,
+        Green -> 2,
+        Blue -> 3,
+    };
+
+@main () -> int = {
+    let r = to_num(c: Red);
+    let g = to_num(c: Green);
+    let b = to_num(c: Blue);
+    if r + g + b == 6 then 0 else 1
+}

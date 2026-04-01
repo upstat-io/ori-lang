@@ -1,0 +1,7 @@
+@main () -> int = {
+    let $xs = [10, 20, 30, 40, 50];
+    let $slice = xs.slice(1, 4);
+    let $sum = slice.fold(initial: 0, op: (acc, x) -> acc + x);
+    // slice = [20, 30, 40], sum = 90
+    if sum == 90 then 0 else 1
+}

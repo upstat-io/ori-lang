@@ -216,5 +216,6 @@ Implements error trace preservation across task boundaries in async code. Spec c
 - [ ] 80+% test coverage, tests against spec/design
 - [ ] Run full test suite: `./test-all.sh`
 - [ ] `/tpr-review` passed — independent Codex review found no critical or major issues (or all findings triaged)
+- [ ] `/impl-hygiene-review last commit` passed — implementation hygiene review clean (phase boundaries, SSOT, algorithmic DRY, naming). MUST run AFTER `/tpr-review` is clean.
 
 **Exit Criteria**: Suspend-based concurrent code compiles and runs; parallel/spawn/nursery/timeout/channels all functional with actual concurrency (not sequential stubs)

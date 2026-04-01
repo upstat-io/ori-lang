@@ -1,0 +1,18 @@
+@count_words (words: [str]) -> int = {
+    let count = 0;
+    for _ in words do {
+        count = count + 1;
+    };
+    count
+}
+
+@main () -> int = {
+    let words = [
+        "this is a very long string that exceeds the SSO threshold of twenty three bytes",
+        "another long heap string for testing function parameter iteration cleanup"
+    ];
+    let $n = count_words(words:);
+    // words still alive after call — caller retains ownership
+    let $wlen = words.len();
+    if n == 2 && wlen == 2 then 0 else 1
+}

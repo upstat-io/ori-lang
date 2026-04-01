@@ -1,0 +1,11 @@
+// Regression: BUG-02-002 — Option<int> ?? Option<int> must preserve wrapper
+// Some short-circuits, result is still Option<int>
+@main () -> int = {
+    let a: Option<int> = Some(1);
+    let b: Option<int> = Some(2);
+    let c: Option<int> = a ?? b;
+    match c {
+        Some(v) -> if v == 1 then 0 else 1,
+        None -> 2,
+    }
+}

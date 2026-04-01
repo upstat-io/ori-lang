@@ -1,0 +1,7 @@
+@main () -> int = {
+    // Trivial or-pattern on bool (always matches first)
+    let x = match true {
+        true | false -> 42,
+    };
+    if x == 42 then 0 else 1
+}

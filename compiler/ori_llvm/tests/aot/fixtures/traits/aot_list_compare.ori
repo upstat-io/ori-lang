@@ -1,0 +1,17 @@
+@main () -> int = {
+    let a = [1, 2, 3];
+    let b = [1, 2, 4];
+    let c = [1, 2, 3];
+    let d = [1, 2];
+    // [1,2,3] < [1,2,4] — third element decides
+    let r1 = a.compare(b).is_less();
+    // [1,2,3] == [1,2,3]
+    let r2 = a.compare(c).is_equal();
+    // [1,2,4] > [1,2,3] — third element decides
+    let r3 = b.compare(a).is_greater();
+    // [1,2] < [1,2,3] — shorter list is Less
+    let r4 = d.compare(a).is_less();
+    // [1,2,3] > [1,2] — longer list is Greater
+    let r5 = a.compare(d).is_greater();
+    if r1 && r2 && r3 && r4 && r5 then 0 else 1
+}

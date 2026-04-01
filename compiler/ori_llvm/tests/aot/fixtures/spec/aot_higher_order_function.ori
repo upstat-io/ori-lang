@@ -1,0 +1,7 @@
+@apply (f: (int) -> int, x: int) -> int = f(x);
+
+@main () -> int = {
+    let double = (n: int) -> int = n * 2;
+    let result = apply(f: double, x: 21);
+    if result == 42 then 0 else 1
+}

@@ -13,11 +13,132 @@
 //! to pool constructors for type resolution, while this bridge maps type *tags*
 //! to registry queries for method resolution.
 
-use ori_registry::{ReturnTag, TypeProjection, TypeTag};
+use ori_ir::{BinaryOp, UnaryOp};
+use ori_registry::{OpStrategy, ReturnTag, TypeProjection, TypeTag};
 
 use crate::{Idx, Tag};
 
 use crate::infer::InferEngine;
+
+/// Accessor function type for extracting an operator strategy from `OpDefs`.
+pub(crate) type OpAccessor = fn(&ori_registry::OpDefs) -> ori_registry::OpStrategy;
+
+/// Operator-to-trait mapping: maps `OpDefs` fields to the trait name they represent.
+///
+/// Shared by both the string-based trait satisfaction bridge (02.2) and
+/// the bitfield trait set builder (02.3). Adding a new operator trait
+/// requires adding an entry here — both consumers derive from this table.
+///
+/// Note: Eq (from `ops.eq`) and Comparable (from `ops.lt`) are NOT in
+/// this table — they use dedicated checks because they map from different
+/// operator fields than their trait name suggests.
+pub(crate) const OP_TRAIT_MAP: &[(&str, OpAccessor)] = &[
+    ("Add", |o| o.add),
+    ("Sub", |o| o.sub),
+    ("Mul", |o| o.mul),
+    ("Div", |o| o.div),
+    ("FloorDiv", |o| o.floor_div),
+    ("Rem", |o| o.rem),
+    ("Neg", |o| o.neg),
+    ("Not", |o| o.not),
+    ("BitAnd", |o| o.bit_and),
+    ("BitOr", |o| o.bit_or),
+    ("BitXor", |o| o.bit_xor),
+    ("BitNot", |o| o.bit_not),
+    ("Shl", |o| o.shl),
+    ("Shr", |o| o.shr),
+];
+
+/// Check if a builtin type satisfies a trait, using the registry as SSOT.
+///
+/// Combines four knowledge sources:
+/// 1. `OpDefs` fields — operator traits (Add, Sub, Neg, etc.)
+/// 2. `MethodDef.trait_name` — method traits (Clone, Eq, Hashable, Len, etc.)
+/// 3. `TypeDef.traits` — marker traits (Default, Sendable, Iterator)
+/// 4. Special cases: Eq/Comparable from operators, Unit/Never without `TypeDef`
+///
+/// For types without a registry `TypeDef` (Unit, Never), hardcoded fallbacks
+/// are used. These will be eliminated when Unit/Never get `TypeDef`s.
+#[must_use]
+pub(crate) fn registry_satisfies_trait(type_tag: TypeTag, trait_name: &str) -> bool {
+    // Special case: Unit has no TypeDef but satisfies these traits.
+    if type_tag == TypeTag::Unit {
+        return matches!(
+            trait_name,
+            "Eq" | "Comparable" | "Hashable" | "Clone" | "Default" | "Debug"
+        );
+    }
+
+    // Special case: Never has no TypeDef and satisfies no traits.
+    if type_tag == TypeTag::Never {
+        return false;
+    }
+
+    // Special case: DoubleEndedIterator aliases to Iterator's TypeDef
+    // but also satisfies the "DoubleEndedIterator" meta-trait.
+    if type_tag == TypeTag::DoubleEndedIterator {
+        if trait_name == "DoubleEndedIterator" {
+            return true;
+        }
+        return registry_satisfies_trait(TypeTag::Iterator, trait_name);
+    }
+
+    let Some(type_def) = ori_registry::find_type(type_tag) else {
+        return false;
+    };
+
+    type_def_satisfies_trait(type_def, trait_name)
+}
+
+/// Check if a `TypeDef` satisfies a trait via operators, methods, or marker traits.
+fn type_def_satisfies_trait(type_def: &ori_registry::TypeDef, trait_name: &str) -> bool {
+    let ops = &type_def.operators;
+
+    // Eq: derived from `eq != Unsupported`
+    if trait_name == "Eq" && ops.eq != OpStrategy::Unsupported {
+        return true;
+    }
+
+    // Comparable: derived from `lt != Unsupported`
+    if trait_name == "Comparable" && ops.lt != OpStrategy::Unsupported {
+        return true;
+    }
+
+    // Other operator traits
+    for &(op_trait, accessor) in OP_TRAIT_MAP {
+        if trait_name == op_trait && accessor(ops) != OpStrategy::Unsupported {
+            return true;
+        }
+    }
+
+    // Method traits via `MethodDef.trait_name`
+    for method in type_def.methods {
+        if method.trait_name == Some(trait_name) {
+            return true;
+        }
+    }
+
+    // Marker traits via `TypeDef.traits`
+    type_def.traits.contains(&trait_name)
+}
+
+/// Check if a type (by Pool tag) satisfies a trait via the registry.
+///
+/// Returns `Some(bool)` for registry-backed types, `None` for types that
+/// need trait/impl dispatch (Named, Applied, Struct, Enum, etc.).
+#[must_use]
+pub(crate) fn registry_type_satisfies_trait(tag: Tag, trait_name: &str) -> Option<bool> {
+    // Unit and Never are special — they have no TypeDef but are builtin.
+    if tag == Tag::Unit {
+        return Some(registry_satisfies_trait(TypeTag::Unit, trait_name));
+    }
+    if tag == Tag::Never {
+        return Some(false);
+    }
+
+    let type_tag = tag_to_type_tag(tag)?;
+    Some(registry_satisfies_trait(type_tag, trait_name))
+}
 
 /// Map the type checker's [`Tag`] to the registry's [`TypeTag`].
 ///
@@ -75,6 +196,83 @@ pub(crate) fn tag_to_type_tag(tag: Tag) -> Option<TypeTag> {
         | Tag::Infer
         | Tag::SelfType => None,
     }
+}
+
+/// Look up the [`OpStrategy`] for a binary operator on a builtin type.
+///
+/// Maps `BinaryOp` to the corresponding [`OpDefs`] field and returns the
+/// strategy. Returns `None` if:
+/// - The `Tag` has no registry `TypeDef` (non-builtin types use trait dispatch)
+/// - The `BinaryOp` has no corresponding `OpDefs` field (`And`, `Or`, `Range`,
+///   `RangeInclusive`, `Coalesce`, `MatMul` — these have dedicated dispatch paths)
+#[must_use]
+pub(crate) fn binary_op_strategy(tag: Tag, op: BinaryOp) -> Option<OpStrategy> {
+    let type_tag = tag_to_type_tag(tag)?;
+    let type_def = ori_registry::find_type(type_tag)?;
+    let ops = &type_def.operators;
+    let strategy = match op {
+        BinaryOp::Add => ops.add,
+        BinaryOp::Sub => ops.sub,
+        BinaryOp::Mul => ops.mul,
+        BinaryOp::Div => ops.div,
+        BinaryOp::Mod => ops.rem,
+        BinaryOp::FloorDiv => ops.floor_div,
+        BinaryOp::Eq => ops.eq,
+        BinaryOp::NotEq => ops.neq,
+        BinaryOp::Lt => ops.lt,
+        BinaryOp::LtEq => ops.lt_eq,
+        BinaryOp::Gt => ops.gt,
+        BinaryOp::GtEq => ops.gt_eq,
+        BinaryOp::BitAnd => ops.bit_and,
+        BinaryOp::BitOr => ops.bit_or,
+        BinaryOp::BitXor => ops.bit_xor,
+        BinaryOp::Shl => ops.shl,
+        BinaryOp::Shr => ops.shr,
+        // These operators don't map to OpDefs fields — they use dedicated
+        // dispatch paths (logical, range, coalesce) or trait dispatch (MatMul).
+        BinaryOp::And
+        | BinaryOp::Or
+        | BinaryOp::Range
+        | BinaryOp::RangeInclusive
+        | BinaryOp::Coalesce
+        | BinaryOp::MatMul => return None,
+    };
+    Some(strategy)
+}
+
+/// Check if a binary operator is supported for a builtin type via the registry.
+///
+/// Returns `Some(true)` if the registry says the operator is supported,
+/// `Some(false)` if explicitly unsupported, or `None` if the registry
+/// doesn't cover this type/operator combination.
+#[must_use]
+pub(crate) fn is_binary_op_supported(tag: Tag, op: BinaryOp) -> Option<bool> {
+    binary_op_strategy(tag, op).map(|s| s != OpStrategy::Unsupported)
+}
+
+/// Look up the [`OpStrategy`] for a unary operator on a builtin type.
+///
+/// Returns `None` if the type has no registry `TypeDef` or the operator
+/// has no `OpDefs` field (`Try` has dedicated dispatch).
+#[must_use]
+pub(crate) fn unary_op_strategy(tag: Tag, op: UnaryOp) -> Option<OpStrategy> {
+    let type_tag = tag_to_type_tag(tag)?;
+    let type_def = ori_registry::find_type(type_tag)?;
+    let ops = &type_def.operators;
+    let strategy = match op {
+        UnaryOp::Neg => ops.neg,
+        UnaryOp::Not => ops.not,
+        UnaryOp::BitNot => ops.bit_not,
+        // Try (?) has dedicated dispatch — not an OpDefs field.
+        UnaryOp::Try => return None,
+    };
+    Some(strategy)
+}
+
+/// Check if a unary operator is supported for a builtin type via the registry.
+#[must_use]
+pub(crate) fn is_unary_op_supported(tag: Tag, op: UnaryOp) -> Option<bool> {
+    unary_op_strategy(tag, op).map(|s| s != OpStrategy::Unsupported)
 }
 
 /// Convert a registry [`ReturnTag`] to a pool [`Idx`], using the receiver type
@@ -260,7 +458,7 @@ fn extract_elem(engine: &InferEngine<'_>, receiver_ty: Idx) -> Idx {
 /// Only handles concrete types with pre-interned Idx constants. Panics on
 /// parameterized types — those require pool construction and should not
 /// appear inside `ReturnTag::List(TypeTag)` wrappers.
-fn type_tag_to_idx(tag: TypeTag) -> Idx {
+pub(in crate::infer::expr) fn type_tag_to_idx(tag: TypeTag) -> Idx {
     match tag {
         TypeTag::Int => Idx::INT,
         TypeTag::Float => Idx::FLOAT,

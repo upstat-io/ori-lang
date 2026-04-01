@@ -1,0 +1,9 @@
+@main () -> int = {
+    let x = 0;
+    for i in 0..5 do {
+        let x = i * 2;
+        x
+    };
+    // After loop, x is still 0
+    if x == 0 then 0 else 1
+}

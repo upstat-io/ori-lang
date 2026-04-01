@@ -1,0 +1,9 @@
+@collatz (n: int, steps: int) -> int = {
+    if n == 1 then steps
+    else if n % 2 == 0 then collatz(n: n / 2, steps: steps + 1)
+    else collatz(n: n * 3 + 1, steps: steps + 1)
+};
+
+@main () -> int = {
+    if collatz(n: 27, steps: 0) == 111 then 0 else 1
+}

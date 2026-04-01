@@ -1,0 +1,10 @@
+use std.testing { assert_eq, assert }
+@main () -> void = {
+    let xs: [int] = [10, 20, 30];
+    let s: Set<int> = [10, 20].iter().collect();
+    let s2 = s.insert(value: 30);
+    assert_eq(actual: s2.len(), expected: 3);
+    assert(condition: s2.contains(value: 30));
+    // Original set unchanged
+    assert_eq(actual: s.len(), expected: 2);
+}

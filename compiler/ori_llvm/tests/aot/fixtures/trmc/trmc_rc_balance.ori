@@ -1,0 +1,20 @@
+type List = Nil | Cons(head: int, tail: List);
+
+@map_double (list: List) -> List = match list {
+    Nil -> Nil,
+    Cons(h, t) -> Cons(head: h * 2, tail: map_double(list: t)),
+};
+
+@list_sum (list: List) -> int = match list {
+    Nil -> 0,
+    Cons(h, t) -> h + list_sum(list: t),
+};
+
+@main () -> int = {
+    // Create list, map it, consume result — tests RC lifecycle.
+    let $list = Cons(head: 1, tail: Cons(head: 2, tail: Cons(head: 3, tail: Nil)));
+    let $doubled = map_double(list: list);
+    let $sum = list_sum(list: doubled);
+    // 2 + 4 + 6 = 12
+    if sum == 12 then 0 else 1
+}

@@ -1,0 +1,7 @@
+@add_and_sub (a: int, b: int) -> int = {
+    let sum = a + b;
+    let diff = a - b;
+    sum + diff
+}
+
+@main () -> int = add_and_sub(a: 10, b: 3);
