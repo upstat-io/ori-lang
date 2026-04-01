@@ -1,8 +1,8 @@
 ---
 section: "05"
 title: "Layout Computation Unification"
-status: not-started
-reviewed: false
+status: in-progress
+reviewed: true
 goal: "Type layout computed once in ori_repr and queried by ori_arc and ori_llvm -- no duplicated computation"
 inspired_by:
   - "Rust compiler Layout type -- computed once, cached via Salsa-like query, consumers read-only"
@@ -13,7 +13,7 @@ third_party_review:
 sections:
   - id: "05.1"
     title: "enum_tag_bytes Deduplication"
-    status: not-started
+    status: complete
   - id: "05.2"
     title: "Layout Computation Consolidation"
     status: not-started
@@ -53,9 +53,9 @@ sections:
 
 The `enum_tag_bytes()` function in `ori_arc` at line 219 is explicitly acknowledged as a duplicate of `ori_repr::min_tag_width()`. The comment states: "Inlined here to avoid a circular dependency (`ori_repr` depends on `ori_arc`)."
 
-- [ ] **LEAK:algorithmic-duplication** `type_layout.rs:219` -- `enum_tag_bytes()` duplicates `ori_repr::min_tag_width()`, acknowledged via comment "Must stay in sync"
-- [ ] Resolve the circular dependency by either: (a) extracting `min_tag_width()` to `ori_ir` (shared dependency), (b) making `ori_arc` depend on `ori_repr` for this one function, or (c) creating a tiny shared layout-primitives crate
-- [ ] Remove the duplicate `enum_tag_bytes()` from `ori_arc`
+- [x] **LEAK:algorithmic-duplication** `type_layout.rs:219` -- `enum_tag_bytes()` duplicates `ori_repr::min_tag_width()`, acknowledged via comment "Must stay in sync" (2026-04-01)
+- [x] Resolve the circular dependency by (a) extracting `min_tag_bytes()` to `ori_ir::tag_constants` (shared dependency) (2026-04-01)
+- [x] Remove the duplicate `enum_tag_bytes()` from `ori_arc` — now delegates to `ori_ir::min_tag_bytes()` (2026-04-01)
 - [ ] Remove the `round_up_i64()` helper at line 234 if also duplicated
 
 ---

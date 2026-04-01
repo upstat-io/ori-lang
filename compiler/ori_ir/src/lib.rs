@@ -182,8 +182,8 @@ pub use parsed_type::ParsedType;
 pub use pattern_resolution::{PatternKey, PatternResolution};
 pub use span::{Span, SpanError};
 pub use tag_constants::{
-    CLOSURE_FIELD_ENV, CLOSURE_FIELD_FN, FIELD_CAP, FIELD_DATA, FIELD_LEN, OPTION_TAG_NONE,
-    OPTION_TAG_SOME, RESULT_TAG_ERR, RESULT_TAG_OK,
+    min_tag_bytes, CLOSURE_FIELD_ENV, CLOSURE_FIELD_FN, FIELD_CAP, FIELD_DATA, FIELD_LEN,
+    OPTION_TAG_NONE, OPTION_TAG_SOME, RESULT_TAG_ERR, RESULT_TAG_OK,
 };
 pub use token::{
     DurationUnit, SizeUnit, Token, TokenCapture, TokenFlags, TokenIdx, TokenKind, TokenList,
