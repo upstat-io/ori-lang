@@ -545,20 +545,8 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             .builder
             .load(field_ty, field_ptr, &format!("{prefix}.niche.val"));
 
-        // Compare against niche value
-        let is_niche = if self.builder.is_pointer_value(field_val) {
-            let i64_ty = self.builder.i64_type();
-            let as_int = self
-                .builder
-                .ptr_to_int(field_val, i64_ty, &format!("{prefix}.p2i"));
-            let niche_const = self.builder.const_i64(niche_value as i64);
-            self.builder
-                .icmp_eq(as_int, niche_const, &format!("{prefix}.is_niche"))
-        } else {
-            let niche_const = self.builder.const_int_matching(field_val, niche_value);
-            self.builder
-                .icmp_eq(field_val, niche_const, &format!("{prefix}.is_niche"))
-        };
+        let is_niche =
+            self.niche_is_sentinel(field_val, niche_value, &format!("{prefix}.is_niche"));
 
         let data_block = self
             .builder

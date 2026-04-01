@@ -38,10 +38,53 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         &mut self,
         method: &str,
         arg_vals: &[ValueId],
-        _receiver_ty: Idx,
+        receiver_ty: Idx,
     ) -> Option<ValueId> {
         let receiver = arg_vals[0];
 
+        // §07.2: Niche-encoded Option — payload IS the struct, no tag field.
+        if let Some(encoding) = self.get_niche_encoding(receiver_ty) {
+            let niche_idx = encoding.niche_field_index().unwrap();
+            let niche_value = encoding.niche_value().unwrap();
+            return match method {
+                "is_some" => {
+                    let field = self
+                        .builder
+                        .extract_value(receiver, niche_idx, "opt.niche")?;
+                    let is_niche = self.niche_is_sentinel(field, niche_value, "is_niche");
+                    // is_some = NOT niche (niche = None)
+                    let t = self.builder.const_bool(true);
+                    let f = self.builder.const_bool(false);
+                    Some(self.builder.select(is_niche, f, t, "is_some"))
+                }
+                "is_none" => {
+                    let field = self
+                        .builder
+                        .extract_value(receiver, niche_idx, "opt.niche")?;
+                    Some(self.niche_is_sentinel(field, niche_value, "is_none"))
+                }
+                "unwrap" => {
+                    // Niche layout: payload at field 0 (no tag field).
+                    self.builder.extract_value(receiver, 0, "opt.payload")
+                }
+                "unwrap_or" if arg_vals.len() >= 2 => {
+                    let field = self
+                        .builder
+                        .extract_value(receiver, niche_idx, "opt.niche")?;
+                    let is_niche = self.niche_is_sentinel(field, niche_value, "is_niche");
+                    let payload = self.builder.extract_value(receiver, 0, "opt.payload")?;
+                    // niche (None) → default; non-niche (Some) → payload
+                    Some(
+                        self.builder
+                            .select(is_niche, arg_vals[1], payload, "unwrap_or"),
+                    )
+                }
+                "clone" => Some(receiver),
+                _ => None,
+            };
+        }
+
+        // Explicit tag layout: {tag, payload}
         match method {
             "is_some" => {
                 // Some = variant 0 → tag == 0
@@ -70,10 +113,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                         .select(is_some, payload, arg_vals[1], "unwrap_or"),
                 )
             }
-            "clone" => {
-                // Option clone: clone the whole aggregate
-                Some(receiver)
-            }
+            "clone" => Some(receiver),
             _ => None,
         }
     }
@@ -89,6 +129,49 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         receiver_ty: Idx,
     ) -> Option<ValueId> {
         let receiver = arg_vals[0];
+
+        // §07.2: Niche-encoded Result — check niche field instead of tag.
+        if let Some(encoding) = self.get_niche_encoding(receiver_ty) {
+            let niche_idx = encoding.niche_field_index().unwrap();
+            let niche_value = encoding.niche_value().unwrap();
+            let niche_variant_idx = encoding.niche_variant_idx().unwrap();
+            return match method {
+                "is_ok" => {
+                    let field = self
+                        .builder
+                        .extract_value(receiver, niche_idx, "res.niche")?;
+                    let is_niche = self.niche_is_sentinel(field, niche_value, "res.is_niche");
+                    // Ok = variant 0. If niche_variant_idx == 0 → Ok IS the niche
+                    // (niche → is_ok=true); else Ok is NOT the niche (niche → is_ok=false).
+                    if niche_variant_idx == 0 {
+                        Some(is_niche) // niche = Ok → is_ok = is_niche
+                    } else {
+                        let t = self.builder.const_bool(true);
+                        let f = self.builder.const_bool(false);
+                        Some(self.builder.select(is_niche, f, t, "is_ok"))
+                    }
+                }
+                "is_err" => {
+                    let field = self
+                        .builder
+                        .extract_value(receiver, niche_idx, "res.niche")?;
+                    let is_niche = self.niche_is_sentinel(field, niche_value, "res.is_niche");
+                    if niche_variant_idx == 1 {
+                        Some(is_niche) // niche = Err → is_err = is_niche
+                    } else {
+                        let t = self.builder.const_bool(true);
+                        let f = self.builder.const_bool(false);
+                        Some(self.builder.select(is_niche, f, t, "is_err"))
+                    }
+                }
+                "unwrap" | "unwrap_err" | "unwrap_or" => {
+                    // Niche Result payload at field 0 — delegate to alloca path.
+                    self.builder.extract_value(receiver, 0, "res.payload")
+                }
+                "clone" => Some(receiver),
+                _ => None,
+            };
+        }
 
         match method {
             "is_ok" => {

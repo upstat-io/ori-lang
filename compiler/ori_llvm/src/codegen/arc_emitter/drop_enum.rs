@@ -234,16 +234,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             .struct_gep(enum_llvm_ty, data_ptr, niche_idx, "niche.ptr");
         let field_val = self.builder.load(field_ty, field_ptr, "niche.val");
 
-        // Compare: is this the niche variant?
-        let is_niche = if self.builder.is_pointer_value(field_val) {
-            let i64_ty = self.builder.i64_type();
-            let as_int = self.builder.ptr_to_int(field_val, i64_ty, "niche.p2i");
-            let niche_const = self.builder.const_i64(niche_value as i64);
-            self.builder.icmp_eq(as_int, niche_const, "is.niche")
-        } else {
-            let niche_const = self.builder.const_int_matching(field_val, niche_value);
-            self.builder.icmp_eq(field_val, niche_const, "is.niche")
-        };
+        let is_niche = self.niche_is_sentinel(field_val, niche_value, "is.niche");
 
         let drop_data = self.builder.append_block(func_id, "drop.data");
         let drop_done = self.builder.append_block(func_id, "drop.done");

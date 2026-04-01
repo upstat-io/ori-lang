@@ -186,10 +186,19 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 self.def_var_repr(dst, loaded, func);
             }
         } else {
-            // Result: payload is a typed field at struct index 1.
-            let gep =
-                self.builder
-                    .struct_gep(llvm_val_ty, alloca, field, &format!("proj.{field}.gep"));
+            // Result/Option: payload is a typed field.
+            // §07.2: niche layout has no tag field → payload at index 0.
+            let struct_idx = if self.get_niche_encoding(val_ty).is_some() {
+                field - 1 // niche: no tag field
+            } else {
+                field // explicit: tag at 0, payload at 1+
+            };
+            let gep = self.builder.struct_gep(
+                llvm_val_ty,
+                alloca,
+                struct_idx,
+                &format!("proj.{field}.gep"),
+            );
             let loaded = self.builder.load(result_ty, gep, &format!("proj.{field}"));
             self.def_var_repr(dst, loaded, func);
         }
