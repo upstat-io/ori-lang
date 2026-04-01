@@ -1,0 +1,19 @@
+// Result.map — transform the Ok value
+use std.testing { assert_eq }
+
+@map_ok () -> Result<int, str> = {
+    Ok(2).map(x -> x * 3)
+}
+
+@test_map_ok tests @map_ok () -> void = {
+    assert_eq(actual: map_ok(), expected: Ok(6))
+}
+
+@map_err_passthrough () -> Result<int, str> = {
+    let e: Result<int, str> = Err("e");
+    e.map(x -> x * 3)
+}
+
+@test_map_err_passthrough tests @map_err_passthrough () -> void = {
+    assert_eq(actual: map_err_passthrough(), expected: Err("e"))
+}

@@ -1,0 +1,20 @@
+// Option.expect — unwrap with custom panic message
+use std.testing { assert_eq }
+
+@expect_some () -> int = {
+    Some(42).expect(message: "must be set")
+}
+
+@test_expect_some tests @expect_some () -> void = {
+    assert_eq(actual: expect_some(), expected: 42)
+}
+
+@expect_none () -> void = {
+    let n: Option<int> = None;
+    let _ = n.expect(message: "must be set");
+}
+
+#fail("must be set")
+@test_expect_none tests @expect_none () -> void = {
+    expect_none()
+}

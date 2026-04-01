@@ -97,6 +97,20 @@ impl Interpreter<'_> {
 
             // Ordering — lazy lexicographic chaining
             CollectionMethod::OrderingThenWith => self.eval_ordering_then_with(&receiver, args),
+
+            // Option closure methods
+            CollectionMethod::OptionMap => self.eval_option_map(receiver, args),
+            CollectionMethod::OptionAndThen | CollectionMethod::OptionFlatMap => {
+                self.eval_option_and_then(receiver, args)
+            }
+            CollectionMethod::OptionFilter => self.eval_option_filter(receiver, args),
+            CollectionMethod::OptionOrElse => self.eval_option_or_else(receiver, args),
+
+            // Result closure methods
+            CollectionMethod::ResultMap => self.eval_result_map(receiver, args),
+            CollectionMethod::ResultMapErr => self.eval_result_map_err(receiver, args),
+            CollectionMethod::ResultAndThen => self.eval_result_and_then(receiver, args),
+            CollectionMethod::ResultOrElse => self.eval_result_or_else(receiver, args),
         }
     }
 
@@ -358,5 +372,121 @@ impl Interpreter<'_> {
             return Err(crate::errors::unbounded_range_eager("fold").into());
         }
         self.fold_iterator(range.iter().map(Value::int), args[0].clone(), &args[1])
+    }
+
+    // Option closure methods
+
+    /// `Option<T>.map(f: T -> U) -> Option<U>`
+    fn eval_option_map(&mut self, receiver: Value, args: &[Value]) -> EvalResult {
+        if args.len() != 1 {
+            return Err(wrong_arg_count("map", 1, args.len()).into());
+        }
+        match receiver {
+            Value::Some(v) => {
+                let result = self.eval_call(&args[0], &[(*v).clone()])?;
+                Ok(Value::some(result))
+            }
+            Value::None => Ok(Value::None),
+            _ => unreachable!("OptionMap dispatched on non-Option"),
+        }
+    }
+
+    /// `Option<T>.and_then(f: T -> Option<U>) -> Option<U>`
+    fn eval_option_and_then(&mut self, receiver: Value, args: &[Value]) -> EvalResult {
+        if args.len() != 1 {
+            return Err(wrong_arg_count("and_then", 1, args.len()).into());
+        }
+        match receiver {
+            Value::Some(v) => self.eval_call(&args[0], &[(*v).clone()]),
+            Value::None => Ok(Value::None),
+            _ => unreachable!("OptionAndThen dispatched on non-Option"),
+        }
+    }
+
+    /// `Option<T>.filter(predicate: T -> bool) -> Option<T>`
+    fn eval_option_filter(&mut self, receiver: Value, args: &[Value]) -> EvalResult {
+        if args.len() != 1 {
+            return Err(wrong_arg_count("filter", 1, args.len()).into());
+        }
+        match &receiver {
+            Value::Some(v) => {
+                let keep = self.eval_call(&args[0], std::slice::from_ref(v.as_ref()))?;
+                if keep.is_truthy() {
+                    Ok(receiver)
+                } else {
+                    Ok(Value::None)
+                }
+            }
+            Value::None => Ok(Value::None),
+            _ => unreachable!("OptionFilter dispatched on non-Option"),
+        }
+    }
+
+    /// `Option<T>.or_else(f: () -> Option<T>) -> Option<T>`
+    fn eval_option_or_else(&mut self, receiver: Value, args: &[Value]) -> EvalResult {
+        if args.len() != 1 {
+            return Err(wrong_arg_count("or_else", 1, args.len()).into());
+        }
+        match &receiver {
+            Value::Some(_) => Ok(receiver),
+            Value::None => self.eval_call(&args[0], &[]),
+            _ => unreachable!("OptionOrElse dispatched on non-Option"),
+        }
+    }
+
+    // Result closure methods
+
+    /// `Result<T, E>.map(f: T -> U) -> Result<U, E>`
+    fn eval_result_map(&mut self, receiver: Value, args: &[Value]) -> EvalResult {
+        if args.len() != 1 {
+            return Err(wrong_arg_count("map", 1, args.len()).into());
+        }
+        match receiver {
+            Value::Ok(v) => {
+                let result = self.eval_call(&args[0], &[(*v).clone()])?;
+                Ok(Value::ok(result))
+            }
+            Value::Err(_) => Ok(receiver),
+            _ => unreachable!("ResultMap dispatched on non-Result"),
+        }
+    }
+
+    /// `Result<T, E>.map_err(f: E -> F) -> Result<T, F>`
+    fn eval_result_map_err(&mut self, receiver: Value, args: &[Value]) -> EvalResult {
+        if args.len() != 1 {
+            return Err(wrong_arg_count("map_err", 1, args.len()).into());
+        }
+        match receiver {
+            Value::Err(e) => {
+                let result = self.eval_call(&args[0], &[(*e).clone()])?;
+                Ok(Value::err(result))
+            }
+            Value::Ok(_) => Ok(receiver),
+            _ => unreachable!("ResultMapErr dispatched on non-Result"),
+        }
+    }
+
+    /// `Result<T, E>.and_then(f: T -> Result<U, E>) -> Result<U, E>`
+    fn eval_result_and_then(&mut self, receiver: Value, args: &[Value]) -> EvalResult {
+        if args.len() != 1 {
+            return Err(wrong_arg_count("and_then", 1, args.len()).into());
+        }
+        match receiver {
+            Value::Ok(v) => self.eval_call(&args[0], &[(*v).clone()]),
+            Value::Err(_) => Ok(receiver),
+            _ => unreachable!("ResultAndThen dispatched on non-Result"),
+        }
+    }
+
+    /// `Result<T, E>.or_else(f: E -> Result<T, F>) -> Result<T, F>`
+    fn eval_result_or_else(&mut self, receiver: Value, args: &[Value]) -> EvalResult {
+        if args.len() != 1 {
+            return Err(wrong_arg_count("or_else", 1, args.len()).into());
+        }
+        match receiver {
+            Value::Err(e) => self.eval_call(&args[0], &[(*e).clone()]),
+            Value::Ok(_) => Ok(receiver),
+            _ => unreachable!("ResultOrElse dispatched on non-Result"),
+        }
     }
 }
