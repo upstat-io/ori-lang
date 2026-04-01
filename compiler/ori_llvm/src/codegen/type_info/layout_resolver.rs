@@ -143,6 +143,10 @@ impl<'a, 'll, 'tcx> TypeLayoutResolver<'a, 'll, 'tcx> {
     // live in `type_info/enum_layout.rs`.
 
     /// Inner resolve implementation, separated for depth guard.
+    #[expect(
+        clippy::too_many_lines,
+        reason = "§07.2 niche checks on Option/Result add 30 lines to dispatch"
+    )]
     fn resolve_inner(&self, idx: Idx) -> BasicTypeEnum<'ll> {
         // Cycle detection: if we're already resolving this type, we've
         // found a recursive reference. For Struct/Enum this is handled by
@@ -199,28 +203,59 @@ impl<'a, 'll, 'tcx> TypeLayoutResolver<'a, 'll, 'tcx> {
 
             // Tagged unions with possible recursive payloads.
             TypeInfo::Option { inner } => {
+                // §07.2: Check ReprPlan for niche encoding.
+                let resolved_idx = self.store.pool().resolve_fully(idx);
+                if let Some(enum_repr) = self.repr_plan.and_then(|p| p.get_enum_repr(resolved_idx))
+                {
+                    if enum_repr.tag.is_niche() {
+                        // Niche layout: struct IS the inner type (no tag field).
+                        self.resolving.borrow_mut().insert(idx);
+                        let payload = self.resolve(*inner);
+                        self.resolving.borrow_mut().remove(&idx);
+                        let name = self.type_name(idx, "Enum");
+                        let named_struct = self.scx.type_named_struct(&name);
+                        self.named_structs.borrow_mut().insert(idx, named_struct);
+                        self.scx.set_struct_body(named_struct, &[payload], false);
+                        return named_struct.into();
+                    }
+                }
+                // Explicit tag: { i64, T }
                 self.resolving.borrow_mut().insert(idx);
                 let payload = self.resolve(*inner);
                 self.resolving.borrow_mut().remove(&idx);
-                // Option/Result use i64 tag in LLVM layout to match ori_rt runtime
-                // expectations. Runtime functions (ori_list_first, ori_map_get, etc.)
-                // write {i64 tag, T payload} to sret pointers. Narrowing Option/Result
-                // tags to i8 requires a coordinated ori_rt update.
-                // User-defined enums are narrowed via resolve_enum().
                 self.scx
                     .type_struct(&[self.scx.type_i64().into(), payload], false)
                     .into()
             }
             TypeInfo::Result { ok, err } => {
+                // §07.2: Check ReprPlan for niche encoding.
+                let resolved_idx = self.store.pool().resolve_fully(idx);
+                if let Some(enum_repr) = self.repr_plan.and_then(|p| p.get_enum_repr(resolved_idx))
+                {
+                    if enum_repr.tag.is_niche() {
+                        self.resolving.borrow_mut().insert(idx);
+                        let ok_ty = self.resolve(*ok);
+                        let err_ty = self.resolve(*err);
+                        self.resolving.borrow_mut().remove(&idx);
+                        // Niche: data variant's payload. Use the larger type.
+                        let ok_size = Self::type_store_size(ok_ty);
+                        let err_size = Self::type_store_size(err_ty);
+                        let payload = if ok_size >= err_size { ok_ty } else { err_ty };
+                        let name = self.type_name(idx, "Enum");
+                        let named_struct = self.scx.type_named_struct(&name);
+                        self.named_structs.borrow_mut().insert(idx, named_struct);
+                        self.scx.set_struct_body(named_struct, &[payload], false);
+                        return named_struct.into();
+                    }
+                }
+                // Explicit tag: { i64, payload }
                 self.resolving.borrow_mut().insert(idx);
                 let ok_ty = self.resolve(*ok);
                 let err_ty = self.resolve(*err);
                 self.resolving.borrow_mut().remove(&idx);
-                // Use the larger of the two as the payload type.
                 let ok_size = Self::type_store_size(ok_ty);
                 let err_size = Self::type_store_size(err_ty);
                 let payload = if ok_size >= err_size { ok_ty } else { err_ty };
-                // See Option comment above — i64 tag for runtime compatibility.
                 self.scx
                     .type_struct(&[self.scx.type_i64().into(), payload], false)
                     .into()

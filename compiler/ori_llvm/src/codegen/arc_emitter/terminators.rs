@@ -260,21 +260,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             .find(|(tag, _)| *tag != u64::from(niche_variant_idx))
             .map_or_else(|| self.block(default), |(_, b)| self.block(*b));
 
-        // Compare niche field against the niche sentinel value.
-        // For pointer niche fields (e.g., Option<str> null-ptr niche),
-        // convert to i64 first — icmp_eq only works on integer types.
-        let is_pointer = self.builder.is_pointer_value(scrut_val);
-        let (cmp_val, cmp_const) = if is_pointer {
-            let i64_ty = self.builder.i64_type();
-            let as_int = self.builder.ptr_to_int(scrut_val, i64_ty, "niche.p2i");
-            let niche_const = self.builder.const_i64(niche_value as i64);
-            (as_int, niche_const)
-        } else {
-            let niche_const = self.builder.const_int_matching(scrut_val, niche_value);
-            (scrut_val, niche_const)
-        };
-
-        let is_niche = self.builder.icmp_eq(cmp_val, cmp_const, "is.niche");
+        let is_niche = self.niche_is_sentinel(scrut_val, niche_value, "is.niche");
         if let Some(nb) = niche_block {
             self.builder.cond_br(is_niche, nb, data_block);
         } else {
