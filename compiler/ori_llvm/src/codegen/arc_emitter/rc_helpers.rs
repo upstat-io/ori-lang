@@ -222,6 +222,10 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// appropriate variant's RC fields.
     ///
     /// Mirrors `emit_inline_enum_dec` structurally.
+    #[expect(
+        clippy::too_many_lines,
+        reason = "§07.2 niche early-return adds 8 lines; extracting would split the switch pattern"
+    )]
     pub(super) fn emit_inline_enum_inc(
         &mut self,
         val: ValueId,
@@ -232,6 +236,20 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let variant_rc_fields = self.collect_variant_rc_fields(resolved_ty, pool_tag);
 
         if variant_rc_fields.iter().all(Vec::is_empty) {
+            return;
+        }
+
+        // §07.2: Niche-encoded enum — conditional RC inc.
+        if let Some(encoding) = self.get_niche_encoding(resolved_ty) {
+            self.emit_niche_enum_rc(
+                val,
+                resolved_ty,
+                pool_tag,
+                &variant_rc_fields,
+                &encoding,
+                true,
+                count,
+            );
             return;
         }
 
@@ -348,10 +366,28 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// appropriate variant's RC fields.
     ///
     /// For `Result<int, str>`: tag 0 (Ok) → nothing; tag 1 (Err) → Dec str.
+    #[expect(
+        clippy::too_many_lines,
+        reason = "§07.2 niche early-return adds 8 lines; extracting would split the switch pattern"
+    )]
     pub(super) fn emit_inline_enum_dec(&mut self, val: ValueId, resolved_ty: Idx, pool_tag: Tag) {
         let variant_rc_fields = self.collect_variant_rc_fields(resolved_ty, pool_tag);
 
         if variant_rc_fields.iter().all(Vec::is_empty) {
+            return;
+        }
+
+        // §07.2: Niche-encoded enum — conditional RC dec.
+        if let Some(encoding) = self.get_niche_encoding(resolved_ty) {
+            self.emit_niche_enum_rc(
+                val,
+                resolved_ty,
+                pool_tag,
+                &variant_rc_fields,
+                &encoding,
+                false,
+                1,
+            );
             return;
         }
 
@@ -464,6 +500,105 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
             self.builder.br(done_block);
         }
+
+        self.builder.position_at_end(done_block);
+    }
+
+    /// §07.2: Shared niche-aware RC inc/dec for enum values.
+    ///
+    /// For niche-encoded 2-variant enums: load the niche field, compare
+    /// against `niche_value`, skip RC for the niche variant, emit RC for
+    /// the data variant's fields.
+    fn emit_niche_enum_rc(
+        &mut self,
+        val: ValueId,
+        resolved_ty: Idx,
+        pool_tag: Tag,
+        variant_rc_fields: &[Vec<(u32, Idx)>],
+        encoding: &super::tag_access::TagEncoding,
+        is_inc: bool,
+        count: u32,
+    ) {
+        let enum_llvm_ty = self.resolve_type(resolved_ty);
+        let prefix = if is_inc { "rc_inc" } else { "rc_dec" };
+        let alloca = self
+            .builder
+            .alloca(enum_llvm_ty, &format!("{prefix}.niche"));
+        self.builder.store(val, alloca);
+
+        let niche_idx = encoding.niche_field_index().unwrap();
+        let niche_value = encoding.niche_value().unwrap();
+        let niche_variant_idx = encoding.niche_variant_idx().unwrap() as usize;
+
+        // Load niche field
+        let field_ty = self
+            .builder
+            .struct_field_type(enum_llvm_ty, niche_idx)
+            .unwrap_or_else(|| self.builder.i64_type());
+        let field_ptr = self.builder.struct_gep(
+            enum_llvm_ty,
+            alloca,
+            niche_idx,
+            &format!("{prefix}.niche.ptr"),
+        );
+        let field_val = self
+            .builder
+            .load(field_ty, field_ptr, &format!("{prefix}.niche.val"));
+
+        // Compare against niche value
+        let is_niche = if self.builder.is_pointer_value(field_val) {
+            let i64_ty = self.builder.i64_type();
+            let as_int = self
+                .builder
+                .ptr_to_int(field_val, i64_ty, &format!("{prefix}.p2i"));
+            let niche_const = self.builder.const_i64(niche_value as i64);
+            self.builder
+                .icmp_eq(as_int, niche_const, &format!("{prefix}.is_niche"))
+        } else {
+            let niche_const = self.builder.const_int_matching(field_val, niche_value);
+            self.builder
+                .icmp_eq(field_val, niche_const, &format!("{prefix}.is_niche"))
+        };
+
+        let data_block = self
+            .builder
+            .append_block(self.current_function, &format!("{prefix}.data"));
+        let done_block = self
+            .builder
+            .append_block(self.current_function, &format!("{prefix}.done"));
+        self.builder.cond_br(is_niche, done_block, data_block);
+
+        // Emit RC ops for data variant fields.
+        self.builder.position_at_end(data_block);
+        let data_variant_idx = usize::from(niche_variant_idx == 0);
+        if let Some(data_fields) = variant_rc_fields.get(data_variant_idx) {
+            // Option/Result niche layout: payload fields at struct index 0+.
+            let is_option_result = matches!(pool_tag, Tag::Option | Tag::Result);
+            for &(field_index, field_type) in data_fields {
+                let struct_idx = if is_option_result {
+                    // Niche layout: no tag field, payload at struct index 0.
+                    field_index
+                } else {
+                    field_index
+                };
+                let field_llvm_ty = self.resolve_type(field_type);
+                let gep = self.builder.struct_gep(
+                    enum_llvm_ty,
+                    alloca,
+                    struct_idx,
+                    &format!("{prefix}.f{field_index}.ptr"),
+                );
+                let fval =
+                    self.builder
+                        .load(field_llvm_ty, gep, &format!("{prefix}.f{field_index}"));
+                if is_inc {
+                    self.inc_value_rc(fval, field_type, count);
+                } else {
+                    self.dec_value_rc(fval, field_type);
+                }
+            }
+        }
+        self.builder.br(done_block);
 
         self.builder.position_at_end(done_block);
     }

@@ -1,8 +1,7 @@
-// §07.0 scaffolding — consumers migrate to TagEncoding in §07.1.
-// Remove this allow when the first consumer is migrated.
-#![allow(dead_code, reason = "§07.0 scaffolding — consumers migrate in §07.1")]
-
 //! Tag encoding/decoding abstraction for enum representation optimization (§07).
+//!
+//! Active since §07.2 — consumed by niche-aware `SetTag`, `Project`, `Switch`,
+//! drop, and RC codegen paths.
 //!
 //! [`TagEncoding`] encapsulates the logic of how an enum's discriminant is
 //! physically encoded in memory. All codegen consumers use this instead of
@@ -31,6 +30,7 @@ pub(crate) struct TagEncoding {
     variant_count: u32,
 }
 
+#[allow(dead_code, reason = "§07.3/§07.4 will consume remaining methods")]
 impl TagEncoding {
     /// Create a `TagEncoding` from an `EnumRepr`.
     pub(crate) fn from_enum_repr(repr: &EnumRepr) -> Self {

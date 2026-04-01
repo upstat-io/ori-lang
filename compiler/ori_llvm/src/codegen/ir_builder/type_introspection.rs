@@ -46,6 +46,11 @@ impl IrBuilder<'_, '_> {
         matches!(self.arena.get_value(val), BasicValueEnum::StructValue(_))
     }
 
+    /// Check if a value is a pointer (used by §07.2 niche switch for ptr niches).
+    pub fn is_pointer_value(&self, val: ValueId) -> bool {
+        matches!(self.arena.get_value(val), BasicValueEnum::PointerValue(_))
+    }
+
     /// Reinterpret raw `i64` bits as the target type.
     ///
     /// Enum payloads store all fields as `i64` in a `[N x i64]` array.
