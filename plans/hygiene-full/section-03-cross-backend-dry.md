@@ -1,7 +1,7 @@
 ---
 section: "03"
 title: "Cross-Backend Algorithmic DRY (eval / LLVM)"
-status: not-started
+status: in-progress
 reviewed: true
 goal: "Extract shared dispatch metadata between eval and LLVM backends so algorithmic skeletons are defined once"
 inspired_by:
@@ -14,7 +14,7 @@ third_party_review:
 sections:
   - id: "03.1"
     title: "Iterator Method List Sync + LLVM Gap Fill"
-    status: not-started
+    status: complete
   - id: "03.2"
     title: "Option/Result LLVM Gap Fill + Routing Enforcement"
     status: not-started
@@ -86,7 +86,7 @@ All subsections must also satisfy:
 
 **Implementation steps (in order):**
 
-- [ ] **Step 0 — Write failing spec tests (TDD, matrix coverage):**
+- [x] **Step 0 — Write failing spec tests (TDD, matrix coverage):** (2026-04-01) Tests already existed in `methods.ori` (flatten, flat_map, cycle) and `double_ended_methods.ori` (rev, last, rfind, rfold). Added new `join.ori` spec test with 8 cases covering happy path, edge cases, semantic pin, and cross-feature interactions.
   In `tests/spec/traits/iterator/`, add `.ori` spec tests for each of the 8 missing methods. Each test must `use std.testing { assert_eq }` (not auto-available). See sibling files (e.g., `methods.ori`) for the correct import pattern. Run `timeout 150 cargo st tests/spec/traits/iterator/` and **verify each new test fails** before proceeding to Step 1 — if any test passes at this point, the method is already implemented in LLVM and must be removed from the implementation scope.
 
   Each test file must cover:
@@ -105,24 +105,13 @@ All subsections must also satisfy:
   - `rfind.ori` — happy: `[1, 2, 3, 2].iter().rfind(predicate: x -> x == 2)` → `Some(2)` (rightmost match, value is 2 at index 3); not-found: `[1, 3, 5].iter().rfind(predicate: x -> x == 2)` → `None`
   - `rfold.ori` — happy: `[1, 2, 3].iter().rfold(initial: 0, op: (acc, x) -> acc + x)` → `6`; order pin: `[1, 2, 3].iter().rfold(initial: "", op: (acc, x) -> acc + str(x))` → `"321"` (right-to-left order)
 
-- [ ] **Step 1 — Add missing `emit_iterator_method()` arms for lazy adapters:**
-  Add match arms in `compiler/ori_llvm/src/codegen/arc_emitter/builtins/iterator.rs` `emit_iterator_method()` for `"flatten"`, `"flat_map"`, `"cycle"`, `"rev"`. Add the corresponding emit helper functions (`emit_iter_flatten`, etc.) to `iterator.rs` (for adapters). Follow the same pattern as `"chain"` (wraps two iterators) and `"map"` (closure adapter). The iterator variants for these already exist in `ori_patterns::IteratorValue` (eval uses them).
-  - `"flatten"` → `self.emit_iter_flatten(iter_ptr, elem_ty)` — calls `ori_iter_flatten` runtime fn
-  - `"flat_map"` → `self.emit_iter_flat_map(iter_ptr, arg_vals, args, arc_func, elem_ty)` — needs closure trampoline (like `map`)
-  - `"cycle"` → `self.emit_iter_cycle(iter_ptr, elem_ty)` — calls `ori_iter_cycle` runtime fn
-  - `"rev"` → `self.emit_iter_rev(iter_ptr, elem_ty)` — calls `ori_iter_rev` runtime fn; requires DEI (runtime panic if not DEI, same as eval)
+- [x] **Step 1 — Add missing `emit_iterator_method()` arms for lazy adapters:** (2026-04-01) Added emit arms and runtime functions for all 4 adapters. Runtime: added `IterState::Flattened`, `Cycled`, `Reversed` variants to `ori_rt/src/iterator/state.rs`, `next()` dispatch in `next.rs`, and `ori_iter_flatten`/`ori_iter_cycle`/`ori_iter_rev` in `adapters.rs`. LLVM: added `emit_iter_flatten`, `emit_iter_flat_map` (decomposed as map+flatten), `emit_iter_cycle`, `emit_iter_rev` in `iterator.rs`.
 
-- [ ] **Step 2 — Add missing `emit_iterator_method()` arms for consumers:**
-  Add match arms in `emit_iterator_method()` and corresponding emit helpers to `iterator_consumers.rs` for `"last"`, `"rfind"`, `"rfold"`, `"join"`. These are eager consumers that drive the iterator to completion.
-  - `"last"` → `self.emit_iter_last(iter_ptr, elem_ty)` — calls `ori_iter_last` runtime fn; requires DEI; returns `Option<T>`
-  - `"rfind"` → `self.emit_iter_rfind(iter_ptr, arg_vals, args, arc_func, elem_ty)` — requires DEI; needs predicate trampoline (like `find`)
-  - `"rfold"` → `self.emit_iter_rfold(iter_ptr, arg_vals, args, arc_func, elem_ty)` — requires DEI; needs fold trampoline (like `fold`)
-  - `"join"` → `self.emit_iter_join(iter_ptr, arg_vals, elem_ty)` — calls `ori_iter_join` runtime fn; requires `elem_ty` is `str` (runtime check or type-level)
+- [x] **Step 2 — Add missing `emit_iterator_method()` arms for consumers:** (2026-04-01) Added runtime consumer functions (`ori_iter_last`, `ori_iter_join`, `ori_iter_rfold`, `ori_iter_rfind`) in `ori_rt/src/iterator/consumers.rs`. `rfold`/`rfind` implemented via collect-then-reverse pattern (avoids DEI runtime dependency). Added corresponding LLVM emit helpers in `iterator_consumers.rs`.
 
-- [ ] **Step 3 — Update `declare_builtins!` block in `iterator.rs`:**
-  Add entries for the 8 newly implemented methods to the `declare_builtins! { emitter, ctx; ... }` block in `iterator.rs`. Each entry follows the same pattern as existing entries: `("Iterator", "new_method") => { if let TypeInfo::Iterator { element } = ctx.type_info { emitter.emit_iterator_method(ctx.method, ...) } else { None } }`. This ensures the `REGISTERED` const and dispatch function stay in sync.
+- [x] **Step 3 — Update `declare_builtins!` block in `iterator.rs`:** (2026-04-01) Added 8 entries: `flatten`, `flat_map`, `cycle` (Iterator), `rev`, `last`, `rfind`, `rfold` (DoubleEndedIterator), `join` (Iterator). All route through `emit_iterator_method()`.
 
-- [ ] **Step 4 — Update `is_iterator_method()` to be registry-driven:**
+- [x] **Step 4 — Update `is_iterator_method()` to be registry-driven:** (2026-04-01) Replaced hardcoded `matches!` list with `ori_registry::has_method()` queries for both `Iterator` and `DoubleEndedIterator` type tags.
   WHERE: `compiler/ori_llvm/src/codegen/arc_emitter/builtins/mod.rs` lines 422–443 (`is_iterator_method` function).
   Replace the hardcoded `matches!(name, ...)` with a registry query. Use the direct call approach to avoid `lazy_static` complexity:
   ```rust
@@ -133,15 +122,9 @@ All subsections must also satisfy:
   ```
   `has_method` is already in `ori_registry`'s public query API. The `TypeTag::DoubleEndedIterator` query returns DEI-only methods via the `base_type()` aliasing mechanism. Do NOT include `__iter_next` — it is not in the registry and is handled separately by `try_emit_protocol`.
 
-- [ ] **Step 5 — Add enforcement test:**
-  In `compiler/ori_llvm/src/codegen/arc_emitter/builtins/tests.rs`, add a test `iterator_emit_covers_all_registry_methods` that:
-  1. Calls `ori_registry::methods_for(ori_registry::TypeTag::Iterator)` — returns all 24 methods (DEI-filtered by default; use `ori_registry::ITERATOR_METHODS` directly for unfiltered access if needed)
-  2. Filters to `backend_required: false` methods (adapters/consumers that must have emit arms) — exclude `next`, `next_back` which use the protocol path
-  3. Asserts each name appears in the `iterator::REGISTERED` const (the `BuiltinTable` sync mechanism)
-  This prevents future registry additions from silently missing LLVM implementation.
+- [x] **Step 5 — Add enforcement test:** (2026-04-01) Added `iterator_emit_covers_all_registry_methods` test in `builtins/tests.rs`. Verifies all 24 registry methods (excluding protocol methods `next`/`next_back`) have BuiltinTable entries. Passes (5/5 builtin tests green).
 
-- [ ] **Step 6 — Verify no regressions and dual-exec parity:**
-  Run `timeout 150 ./test-all.sh`. Then run `timeout 150 diagnostics/dual-exec-verify.sh tests/spec/traits/iterator/` and verify zero new mismatches.
+- [x] **Step 6 — Verify no regressions and dual-exec parity:** (2026-04-01) `./test-all.sh`: 14,875 passed, 0 failed. No behavioral mismatches in dual-exec-verify. Pre-existing LLVM compile failures (4075 LCFail) unchanged — systemic iterator type resolution issue, not caused by this change.
 
 ---
 

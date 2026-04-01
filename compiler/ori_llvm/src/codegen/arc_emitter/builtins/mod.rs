@@ -419,27 +419,14 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 }
 
 /// Known iterator method names for auto-iter promotion.
+///
+/// Driven by the registry — queries `ori_registry::has_method()` for both
+/// `Iterator` and `DoubleEndedIterator` type tags. `__iter_next` is NOT in
+/// the registry (compiler-internal protocol) and is handled separately by
+/// `try_emit_protocol`.
 fn is_iterator_method(name: &str) -> bool {
-    matches!(
-        name,
-        "fold"
-            | "map"
-            | "filter"
-            | "any"
-            | "all"
-            | "count"
-            | "find"
-            | "for_each"
-            | "collect"
-            | "take"
-            | "skip"
-            | "chain"
-            | "enumerate"
-            | "zip"
-            | "flat_map"
-            | "flatten"
-            | "join"
-    )
+    ori_registry::has_method(ori_registry::TypeTag::Iterator, name)
+        || ori_registry::has_method(ori_registry::TypeTag::DoubleEndedIterator, name)
 }
 
 /// Extract the element type from a collection's `TypeInfo` for iterator
