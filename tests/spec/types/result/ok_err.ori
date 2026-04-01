@@ -1,0 +1,38 @@
+// Result.ok and Result.err — project to Option
+use std.testing { assert_eq }
+
+@ok_from_ok () -> Option<int> = {
+    let r: Result<int, str> = Ok(5);
+    r.ok()
+}
+
+@test_ok_from_ok tests @ok_from_ok () -> void = {
+    assert_eq(actual: ok_from_ok(), expected: Some(5))
+}
+
+@ok_from_err () -> Option<int> = {
+    let r: Result<int, str> = Err("oops");
+    r.ok()
+}
+
+@test_ok_from_err tests @ok_from_err () -> void = {
+    assert_eq(actual: ok_from_err(), expected: None)
+}
+
+@err_from_err () -> Option<str> = {
+    let r: Result<int, str> = Err("oops");
+    r.err()
+}
+
+@test_err_from_err tests @err_from_err () -> void = {
+    assert_eq(actual: err_from_err(), expected: Some("oops"))
+}
+
+@err_from_ok () -> Option<str> = {
+    let r: Result<int, str> = Ok(5);
+    r.err()
+}
+
+@test_err_from_ok tests @err_from_ok () -> void = {
+    assert_eq(actual: err_from_ok(), expected: None)
+}

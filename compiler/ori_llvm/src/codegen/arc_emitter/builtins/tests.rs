@@ -323,3 +323,50 @@ fn iterator_emit_covers_all_registry_methods() {
         missing.join("\n"),
     );
 }
+
+/// For each Option method with `backend_required: true`, verify the LLVM
+/// `BuiltinTable` has an entry. Forward-looking guard: if a future registry
+/// addition sets `backend_required: true`, this test catches the missing handler.
+#[test]
+fn option_emit_covers_backend_required_methods() {
+    let table = builtin_table();
+    let mut missing = Vec::new();
+
+    for method in ori_registry::methods_for(ori_registry::TypeTag::Option) {
+        if !method.backend_required {
+            continue;
+        }
+        if !table.has("Option", method.name) {
+            missing.push(format!("Option.{}", method.name));
+        }
+    }
+
+    assert!(
+        missing.is_empty(),
+        "Option backend_required methods missing from BuiltinTable:\n{}",
+        missing.join("\n"),
+    );
+}
+
+/// For each Result method with `backend_required: true`, verify the LLVM
+/// `BuiltinTable` has an entry.
+#[test]
+fn result_emit_covers_backend_required_methods() {
+    let table = builtin_table();
+    let mut missing = Vec::new();
+
+    for method in ori_registry::methods_for(ori_registry::TypeTag::Result) {
+        if !method.backend_required {
+            continue;
+        }
+        if !table.has("Result", method.name) {
+            missing.push(format!("Result.{}", method.name));
+        }
+    }
+
+    assert!(
+        missing.is_empty(),
+        "Result backend_required methods missing from BuiltinTable:\n{}",
+        missing.join("\n"),
+    );
+}

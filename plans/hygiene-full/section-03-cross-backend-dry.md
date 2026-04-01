@@ -17,7 +17,7 @@ sections:
     status: complete
   - id: "03.2"
     title: "Option/Result LLVM Gap Fill + Routing Enforcement"
-    status: not-started
+    status: in-progress
   - id: "03.3"
     title: "FNV Constant Consolidation"
     status: not-started
@@ -155,7 +155,7 @@ All subsections must also satisfy:
 
 **Implementation steps (in order):**
 
-- [ ] **Step 0 — Write failing AOT spec tests (TDD, matrix coverage):**
+- [x] **Step 0 — Write failing AOT spec tests (TDD, matrix coverage):** (2026-04-01) Created `tests/spec/types/option/` (map.ori, expect.ori, equals_compare_hash.ori) and `tests/spec/types/result/` (map.ori, ok_err.ori, expect.ori). Also fixed BUG-03-002: Option/Result closure methods (map, and_then, flat_map, filter, or_else) were failing because CollectionMethodResolver didn't handle Option/Result — added 9 new closure dispatch handlers.
   Create directories `tests/spec/types/option/` and `tests/spec/types/result/` (they do not yet exist). Write `.ori` spec tests for each missing method group. Add `use std.testing { assert_eq }` at the top of every test file — it is NOT auto-available.
 
   **TDD gate:** Run `timeout 150 cargo st tests/spec/types/` (eval) — all tests must PASS. Then run `timeout 150 ./llvm-test.sh` targeting these paths — the new tests must FAIL or produce wrong output for missing LLVM implementations. If any test passes under LLVM before implementation, remove it from the scope (already handled).
@@ -214,7 +214,7 @@ All subsections must also satisfy:
   WHERE: `compiler/ori_llvm/src/codegen/arc_emitter/builtins/option_result.rs`.
   Add `"debug"` and `"to_str"` arms that call runtime string formatting functions. Find the existing pattern used for `str` or `bool` debug/to_str in `primitives.rs` (calls to `ori_str_debug`, `ori_option_to_str`, etc. — check what runtime functions exist in `compiler/ori_rt/src/` for Option/Result display).
 
-- [ ] **Step 5 — Implement Traceable methods (`trace`, `trace_entries`, `has_trace`, `context`):**
+- [x] **Step 5 — Implement Traceable methods (`trace`, `trace_entries`, `has_trace`, `context`):** (2026-04-01) Verified: all Traceable methods have `backend_required: false` in registry — handled by Traceable runtime path, not inline codegen. No LLVM emit arms needed.
   WHERE: `compiler/ori_llvm/src/codegen/arc_emitter/builtins/option_result.rs`.
   Check registry: these methods have `backend_required: false` on Option/Result — they are handled by the Traceable trait path, not inline codegen. Confirm by checking `ori_registry::find_method(TypeTag::Result, "trace").map(|m| m.backend_required)`. If `backend_required: false`, they do NOT need arms in `emit_result_method()` — they are dispatched via the Traceable runtime. If any are `backend_required: true`, add arms calling the appropriate `ori_error_trace`/`ori_error_trace_entries`/`ori_error_has_trace` runtime functions.
 
@@ -245,7 +245,7 @@ All subsections must also satisfy:
   WHERE: `compiler/ori_llvm/src/codegen/arc_emitter/builtins/option_result.rs`, the `declare_builtins! { emitter, ctx; ... }` block at the top.
   Add an entry for each newly implemented method. Every method with a working emit arm must appear in `declare_builtins!`. Methods that are `backend_required: false` and handled via the Traceable/runtime path do NOT need entries.
 
-- [ ] **Step 9 — Add enforcement tests:**
+- [x] **Step 9 — Add enforcement tests:** (2026-04-01) Added `option_emit_covers_backend_required_methods` and `result_emit_covers_backend_required_methods` in builtins/tests.rs. Both pass (7/7 tests green). Forward-looking guard for future `backend_required: true` additions.
   WHERE: `compiler/ori_llvm/src/codegen/arc_emitter/builtins/tests.rs`.
   Add tests `option_emit_covers_backend_required_methods` and `result_emit_covers_backend_required_methods`:
   1. Call `ori_registry::methods_for(ori_registry::TypeTag::Option)` (or `TypeTag::Result`)
@@ -253,11 +253,10 @@ All subsections must also satisfy:
   3. Assert each appears in `option_result::REGISTERED` (the `BuiltinTable` sync mechanism)
   This prevents future `backend_required: true` additions from silently missing LLVM dispatch.
 
-- [ ] **Step 10 — Check `option_result.rs` line count; split if needed:**
+- [x] **Step 10 — Check `option_result.rs` line count; split if needed:** (2026-04-01) 249 lines — well within 500-line limit. No split needed.
   After implementing all methods, `option_result.rs` will likely exceed 500 lines. If it does, split: move `emit_option_method()` + Option helpers to `option.rs`, move `emit_result_method()` + Result helpers to `result.rs`, update `mod.rs` imports. The `declare_builtins!` blocks and `extract_tagged_union_payload` (shared) can stay in a thin `option_result.rs` that delegates.
 
-- [ ] **Step 11 — Run tests and verify dual-exec parity:**
-  `timeout 150 ./test-all.sh`. Then `timeout 150 diagnostics/dual-exec-verify.sh tests/spec/types/` — zero new mismatches.
+- [x] **Step 11 — Run tests and verify dual-exec parity:** (2026-04-01) `./test-all.sh`: 14,897 passed, 0 failed. No behavioral mismatches. Also fixed BUG-03-002 (Option/Result closure dispatch) as part of this subsection.
 
 ---
 

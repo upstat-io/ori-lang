@@ -36,6 +36,10 @@ struct MethodNames {
     join: Name,
     // Internal (rewritten by canonicalization)
     collect_set: Name,
+    // Option/Result — closure-taking methods
+    and_then: Name,
+    or_else: Name,
+    map_err: Name,
     // Ordering — closure-taking method
     then_with: Name,
 }
@@ -67,6 +71,9 @@ impl MethodNames {
             rfind: interner.intern("rfind"),
             rfold: interner.intern("rfold"),
             join: interner.intern("join"),
+            and_then: interner.intern("and_then"),
+            or_else: interner.intern("or_else"),
+            map_err: interner.intern("map_err"),
             collect_set: interner
                 .intern(ori_ir::builtin_constants::protocol::ProtocolBuiltin::CollectSet.name()),
             then_with: interner.intern("then_with"),
@@ -214,6 +221,36 @@ impl MethodResolver for CollectionMethodResolver {
                 .map_or(MethodResolution::NotFound, MethodResolution::Collection),
             Value::Ordering(_) if method_name == self.methods.then_with => {
                 MethodResolution::Collection(CollectionMethod::OrderingThenWith)
+            }
+            // Option closure methods — need evaluator access to call closures
+            Value::Some(_) | Value::None => {
+                if method_name == self.methods.map {
+                    MethodResolution::Collection(CollectionMethod::OptionMap)
+                } else if method_name == self.methods.and_then {
+                    MethodResolution::Collection(CollectionMethod::OptionAndThen)
+                } else if method_name == self.methods.flat_map {
+                    MethodResolution::Collection(CollectionMethod::OptionFlatMap)
+                } else if method_name == self.methods.filter {
+                    MethodResolution::Collection(CollectionMethod::OptionFilter)
+                } else if method_name == self.methods.or_else {
+                    MethodResolution::Collection(CollectionMethod::OptionOrElse)
+                } else {
+                    MethodResolution::NotFound
+                }
+            }
+            // Result closure methods — need evaluator access to call closures
+            Value::Ok(_) | Value::Err(_) => {
+                if method_name == self.methods.map {
+                    MethodResolution::Collection(CollectionMethod::ResultMap)
+                } else if method_name == self.methods.map_err {
+                    MethodResolution::Collection(CollectionMethod::ResultMapErr)
+                } else if method_name == self.methods.and_then {
+                    MethodResolution::Collection(CollectionMethod::ResultAndThen)
+                } else if method_name == self.methods.or_else {
+                    MethodResolution::Collection(CollectionMethod::ResultOrElse)
+                } else {
+                    MethodResolution::NotFound
+                }
             }
             _ => MethodResolution::NotFound,
         }
