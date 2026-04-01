@@ -962,11 +962,11 @@ fn option_bool_niche_1_byte() {
                 e.tag,
                 EnumTag::Niche {
                     niche_value: 2,
-                    niche_variant_idx: 0,
+                    niche_variant_idx: 1,
                     ..
                 }
             ),
-            "Option<bool> must use niche value 2 for None (variant 0)"
+            "Option<bool> must use niche value 2 for None (variant 1)"
         );
         assert_eq!(e.size, 1, "Option<bool> must be 1 byte");
         assert_eq!(e.variants.len(), 2);
@@ -1080,11 +1080,11 @@ fn option_option_bool_niche_1_byte() {
                 e.tag,
                 EnumTag::Niche {
                     niche_value: 3,
-                    niche_variant_idx: 0,
+                    niche_variant_idx: 1,
                     ..
                 }
             ),
-            "Option<Option<bool>> must use niche value 3 for outer None"
+            "Option<Option<bool>> must use niche value 3 for outer None (variant 1)"
         );
         assert_eq!(e.size, 1, "Option<Option<bool>> must be 1 byte");
     } else {

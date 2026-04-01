@@ -495,17 +495,17 @@ fn canonical_option_int() {
                 width: IntWidth::I64
             }
         );
-        // None variant has no fields
-        assert!(e.variants[0].fields.is_empty());
-        // Some variant has one field = Int
-        assert_eq!(e.variants[1].fields.len(), 1);
+        // Some variant (index 0) has one field = Int
+        assert_eq!(e.variants[0].fields.len(), 1);
         assert_eq!(
-            e.variants[1].fields[0],
+            e.variants[0].fields[0],
             MachineRepr::Int {
                 width: IntWidth::I64,
                 signed: true
             }
         );
+        // None variant (index 1) has no fields
+        assert!(e.variants[1].fields.is_empty());
     } else {
         panic!("expected Enum for Option<int>, got {repr:?}");
     }
