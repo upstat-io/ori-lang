@@ -299,11 +299,15 @@ A "niche" is an invalid bit pattern in a type. If an enum variant's payload has 
 
 - [x] **[BUG]** Fixed Option variant ordering mismatch: `canonical_option()` was creating `[None=0, Some=1]` but type checker assigns `[Some=0, None=1]`. This would have caused `niche_variant_idx` to map to the wrong variant. Fixed: `[Some=0, None=1]` everywhere, `niche_variant_idx: 1` for None. (2026-03-31)
 
-- [ ] **Remaining codegen consumers** — `NICHE_CODEGEN_READY` gate (in `canonical/type_repr.rs`) must be flipped to `true` after these consumers are niche-aware:
-  - [ ] `option_result.rs` — Option/Result builtins (`is_some`, `is_none`, `unwrap`, `unwrap_or`) hardcode `extract_value(receiver, 0)` for tag and `extract_value(receiver, 1)` for payload
-  - [ ] `operators/strategy.rs` — `emit_coalesce()` (`??` operator) hardcodes `extract_value(lhs, 0)` for tag
-  - [ ] `instr_dispatch.rs` — `try_emit_project_enum_payload()` hardcodes payload at struct index 1 for Result/Enum
-  - [ ] `variant_construction.rs` — enum construction via `emit_variant_via_insertvalue`/`alloca` may hardcode tag at index 0
+- [x] **Codegen consumers updated** — all 4 remaining consumers are niche-aware: (2026-03-31)
+  - [x] `option_result.rs` — Option builtins use niche field comparison for `is_some`/`is_none`/`unwrap`/`unwrap_or`; Result builtins use `niche_variant_idx` for `is_ok`/`is_err`
+  - [x] `operators/strategy.rs` — `emit_coalesce()` is dead code (BUG-04-009 routes `??` through ARC IR control flow), no changes needed
+  - [x] `instr_dispatch.rs` — `try_emit_project_enum_payload()` uses `field - 1` for niche layout
+  - [x] `construction.rs` — `emit_niche_variant_construct()` inserts payload at index 0, skips tag for data variant
+  - [x] `layout_resolver.rs` — `TypeInfo::Option` and `TypeInfo::Result` check ReprPlan for niche, produce named struct with `{ payload }` layout
+  - [x] `niche_is_sentinel()` shared helper eliminates 4 inline ptrtoint+icmp patterns
+
+- [ ] **ABI layer niche awareness** — `NICHE_CODEGEN_READY` gate remains `false`. When enabled, type resolution produces niche layouts correctly, but the **ABI layer** (function declaration, sret parameter types, FunctionAbi computation) still uses explicit `{ i64, T }` layout for Option/Result. This creates a type mismatch: sret-loaded values have the explicit layout, but niche codegen expects the niche layout. Fix requires updating `codegen/abi/mod.rs` (and possibly `function_compiler/declare.rs`) to produce niche-aware function signatures. Additionally, a `repr_plan_canonical_parity_full_matrix` test needs updating for Result<int, str> (which now uses niche encoding).
 
 **§07.2 Tests (TDD — write BEFORE implementation, verify they fail):**
 
