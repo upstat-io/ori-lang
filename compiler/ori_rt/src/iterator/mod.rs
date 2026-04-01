@@ -35,7 +35,10 @@ pub use consumers::{
     ori_iter_all, ori_iter_any, ori_iter_collect, ori_iter_collect_set, ori_iter_count,
     ori_iter_find, ori_iter_fold, ori_iter_for_each,
 };
-pub use sources::{ori_iter_from_list, ori_iter_from_map, ori_iter_from_range, ori_iter_from_str};
+pub use sources::{
+    ori_iter_from_list, ori_iter_from_map, ori_iter_from_option, ori_iter_from_range,
+    ori_iter_from_str,
+};
 
 // Re-export types used by submodules (consumers needs these from state).
 pub(crate) use state::{FoldFn, ForEachFn, IterState, PredicateFn, MAX_ELEM_SIZE};

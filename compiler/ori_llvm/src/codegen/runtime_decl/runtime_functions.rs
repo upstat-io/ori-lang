@@ -1376,6 +1376,14 @@ pub(crate) static RT_FUNCTIONS: &[RtFn] = &[
         attrs: &[Attr::Nounwind],
         jit_allowed: true,
     },
+    RtFn {
+        name: "ori_iter_from_option",
+        // (is_some, payload_ptr, elem_size, elem_dec_fn)
+        params: &[Ty::Bool, Ty::Ptr, Ty::I64, Ty::Ptr],
+        ret: Some(Ty::Ptr),
+        attrs: &[Attr::Nounwind],
+        jit_allowed: true,
+    },
     // Iterator next — extern "C" (callbacks called inside, panics abort at boundary)
     RtFn {
         name: "ori_iter_next",

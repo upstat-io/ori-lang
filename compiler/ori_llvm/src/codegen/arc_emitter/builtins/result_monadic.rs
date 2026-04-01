@@ -328,7 +328,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     // Helpers
 
     /// Build a Result struct `{i64, max(ok, err)}` with correct padding.
-    fn build_result_struct(
+    pub(super) fn build_result_struct(
         &mut self,
         tag_val: i64,
         payload: ValueId,
@@ -366,7 +366,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     }
 
     /// Resolve the LLVM type for `Result<T, E>` = `{i64, max(T, E)}`.
-    fn resolve_type_for_result(
+    pub(super) fn resolve_type_for_result(
         &mut self,
         ok_ty: Idx,
         err_ty: Idx,
