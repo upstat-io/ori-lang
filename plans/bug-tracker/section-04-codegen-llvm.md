@@ -70,12 +70,12 @@ Bugs in LLVM IR generation, JIT/AOT compilation, monomorphization, ARC pipeline 
   Found: 2026-04-01 | Source: review-work
   Note: The immediate crashes were reproduced for heap `str`; audit any other borrowed wrapper methods added in the same section that forward payloads into new wrappers or closure calls.
 
-- [ ] `[BUG-04-013][critical]` **AOT wrapper extraction methods (unwrap_or, first, expect, etc.) copy payload bytes without RC retain** — found by tpr-review.
-  Repro: `let r: Result<str, str> = Ok("heap string exceeding 23 char SSO limit"); let val = r.ok().unwrap_or(default: "x");` → crashes with `ori_rc_dec called on already-freed allocation` in AOT. Interpreter works (clones values). Any method that extracts an inner value from Option/Result/List by byte-copy in the LLVM codegen is affected: `unwrap_or`, `unwrap`, `expect`, `expect_err`, `first`, `last`, and any runtime function (e.g., `ori_list_first`) that returns elements by memcpy.
-  Root cause: Same class as BUG-04-012 but broader — the codegen and runtime extract values from containers by copying raw bytes (via `extract_value`, `load`, or `memcpy`) without incrementing inner RC fields. The ARC pipeline treats these as opaque builtins and can't see inside.
-  Subsystem: `compiler/ori_llvm/src/codegen/arc_emitter/builtins/option_result.rs` (unwrap_or, expect), `compiler/ori_rt/src/list/query.rs` (ori_list_first, ori_list_last)
+- [ ] `[BUG-04-013][critical]` **AOT wrapper extraction methods copy payload bytes without RC retain** — found by tpr-review.
+  Partially fixed on 2026-04-01: `Option.unwrap_or`, `Option.expect`, `Result.unwrap_or`, `Result.expect`, `Result.expect_err` now emit conditional `inc_value_rc` on the extracted payload. Verified clean with standalone AOT repros using heap strings.
+  Remaining: `unwrap`/`unwrap_err` (no tag check, deeper issue — need tag guard + panic first), `first`/`last` (runtime functions `ori_list_first`/`ori_list_last` copy elements without RC retain), niche-encoded Option/Result paths in `option_result_helpers.rs`.
+  Subsystem: `compiler/ori_llvm/src/codegen/arc_emitter/builtins/option_result.rs`, `option_result_helpers.rs`, `compiler/ori_rt/src/list/query.rs`
   Found: 2026-04-01 | Source: tpr-review (hygiene-full §04)
-  Note: BUG-04-012 fixes cover `Option.iter()`, `Result.ok()`, `Result.err()` specifically. This bug tracks the remaining extraction methods. Active work in repr-opt touches codegen area.
+  Note: Active work in repr-opt touches codegen area.
 
 ---
 
