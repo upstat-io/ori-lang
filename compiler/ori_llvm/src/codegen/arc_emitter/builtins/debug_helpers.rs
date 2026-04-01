@@ -109,16 +109,14 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                     .call_with_sret(func_id, &[val], str_ty, "dbg.char.fmt")
             }
 
-            // Byte: Debug formats as 0x{:02x}
+            // Byte: Debug uses decimal (matching current evaluator/spec behavior
+            // where bytes are stored as Value::Int and debug via int path).
             TypeInfo::Byte => {
-                let str_ty = self.resolve_type(ori_types::Idx::STR);
                 let i64_ty = self
                     .builder
                     .register_type(self.builder.scx().type_i64().into());
                 let as_i64 = self.builder.sext(val, i64_ty, "dbg.byte.sext");
-                let func_id = self.builder.runtime_fn("ori_byte_debug_format");
-                self.builder
-                    .call_with_sret(func_id, &[as_i64], str_ty, "dbg.byte.fmt")
+                self.emit_to_str(as_i64, &TypeInfo::Int)
             }
 
             // Option: recursive Debug
@@ -216,6 +214,10 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     ///
     /// - `Ok(v)` -> `"Ok(" + v.debug() + ")"`
     /// - `Err(e)` -> `"Err(" + e.debug() + ")"`
+    ///
+    /// IMPORTANT: Payload extraction and formatting MUST happen inside the
+    /// respective branch blocks, not before the branch. The inactive variant's
+    /// storage may contain garbage pointers that would segfault if formatted.
     pub(crate) fn emit_result_debug(
         &mut self,
         arg_vals: &[ValueId],
@@ -236,12 +238,6 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             return None;
         };
 
-        // Extract both payloads and their debug string representations
-        let ok_payload = self.extract_tagged_union_payload(receiver, receiver_ty, 1, ok_ty)?;
-        let ok_str = self.emit_element_debug(ok_payload, ok_ty)?;
-        let err_payload = self.extract_tagged_union_payload(receiver, receiver_ty, 1, err_ty)?;
-        let err_str = self.emit_element_debug(err_payload, err_ty)?;
-
         let ok_bb = self.builder.append_block(self.current_function, "rdbg.ok");
         let err_bb = self.builder.append_block(self.current_function, "rdbg.err");
         let merge_bb = self
@@ -250,8 +246,10 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
         self.builder.cond_br(is_ok, ok_bb, err_bb);
 
-        // Ok block: "Ok(" + ok_str + ")"
+        // Ok block: extract ACTIVE payload, format "Ok(" + ok_str + ")"
         self.builder.position_at_end(ok_bb);
+        let ok_payload = self.extract_tagged_union_payload(receiver, receiver_ty, 1, ok_ty)?;
+        let ok_str = self.emit_element_debug(ok_payload, ok_ty)?;
         let ok_prefix = self.emit_literal_ori_str("Ok(")?;
         let ok_suffix = self.emit_literal_ori_str(")")?;
         let ok_tmp = self.emit_str_concat(ok_prefix, ok_str)?;
@@ -260,8 +258,10 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let ok_bb_final = self.builder.current_block().unwrap();
         self.builder.br(merge_bb);
 
-        // Err block: "Err(" + err_str + ")"
+        // Err block: extract ACTIVE payload, format "Err(" + err_str + ")"
         self.builder.position_at_end(err_bb);
+        let err_payload = self.extract_tagged_union_payload(receiver, receiver_ty, 1, err_ty)?;
+        let err_str = self.emit_element_debug(err_payload, err_ty)?;
         let err_prefix = self.emit_literal_ori_str("Err(")?;
         let err_suffix = self.emit_literal_ori_str(")")?;
         let err_tmp = self.emit_str_concat(err_prefix, err_str)?;
@@ -283,6 +283,9 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     ///
     /// Variant of `emit_result_debug` that takes pre-resolved type indices
     /// instead of reading from `arg_vals`.
+    ///
+    /// IMPORTANT: Payload extraction happens inside branches, not before —
+    /// inactive variant storage may contain garbage pointers.
     fn emit_nested_result_debug(
         &mut self,
         receiver: ValueId,
@@ -296,11 +299,6 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             .const_int_matching(tag, ori_ir::RESULT_TAG_OK as u64);
         let is_ok = self.builder.icmp_eq(tag, ok_const, "rdbg.n.is_ok");
 
-        let ok_payload = self.extract_tagged_union_payload(receiver, receiver_ty, 1, ok_ty)?;
-        let ok_str = self.emit_element_debug(ok_payload, ok_ty)?;
-        let err_payload = self.extract_tagged_union_payload(receiver, receiver_ty, 1, err_ty)?;
-        let err_str = self.emit_element_debug(err_payload, err_ty)?;
-
         let ok_bb = self
             .builder
             .append_block(self.current_function, "rdbg.n.ok");
@@ -313,7 +311,10 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
         self.builder.cond_br(is_ok, ok_bb, err_bb);
 
+        // Ok branch — only format the ACTIVE Ok payload
         self.builder.position_at_end(ok_bb);
+        let ok_payload = self.extract_tagged_union_payload(receiver, receiver_ty, 1, ok_ty)?;
+        let ok_str = self.emit_element_debug(ok_payload, ok_ty)?;
         let ok_prefix = self.emit_literal_ori_str("Ok(")?;
         let ok_suffix = self.emit_literal_ori_str(")")?;
         let ok_tmp = self.emit_str_concat(ok_prefix, ok_str)?;
@@ -322,7 +323,10 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let ok_bb_final = self.builder.current_block().unwrap();
         self.builder.br(merge_bb);
 
+        // Err branch — only format the ACTIVE Err payload
         self.builder.position_at_end(err_bb);
+        let err_payload = self.extract_tagged_union_payload(receiver, receiver_ty, 1, err_ty)?;
+        let err_str = self.emit_element_debug(err_payload, err_ty)?;
         let err_prefix = self.emit_literal_ori_str("Err(")?;
         let err_suffix = self.emit_literal_ori_str(")")?;
         let err_tmp = self.emit_str_concat(err_prefix, err_str)?;
