@@ -41,6 +41,13 @@ pub extern "C" fn ori_map_buffer_rc_dec(
 
     #[cfg(not(feature = "single-threaded"))]
     {
+        // Immortal sentinel check: immortal objects have MAX_REFCOUNT and must
+        // never be decremented.
+        let current_rc = unsafe { (*data.sub(8).cast::<AtomicI64>()).load(Ordering::Relaxed) };
+        if current_rc == super::MAX_REFCOUNT {
+            return;
+        }
+
         let prev = unsafe {
             let rc_ptr = data.sub(8).cast::<AtomicI64>();
             (*rc_ptr).fetch_sub(1, Ordering::Release)
@@ -62,6 +69,12 @@ pub extern "C" fn ori_map_buffer_rc_dec(
 
     #[cfg(feature = "single-threaded")]
     {
+        // Immortal sentinel check (single-threaded path)
+        let current_rc = unsafe { *data.sub(8).cast::<i64>() };
+        if current_rc == super::MAX_REFCOUNT {
+            return;
+        }
+
         let (should_drop, new_rc) = unsafe {
             let rc_ptr = data.sub(8).cast::<i64>();
             if *rc_ptr <= 0 {
