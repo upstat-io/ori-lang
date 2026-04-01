@@ -118,7 +118,7 @@ fn dispatch_tuple_method(
     // Debug trait - structural representation
     } else if method == n.debug {
         helpers::require_args("debug", 0, args.len())?;
-        Ok(Value::string(helpers::debug_value(&receiver)))
+        Ok(Value::string(helpers::debug_value(&receiver, ctx.interner)))
     } else {
         let method_str = ctx.interner.lookup(method);
         Err(no_such_method(method_str, "tuple").into())
