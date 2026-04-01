@@ -87,27 +87,27 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         // Explicit tag layout: {tag, payload}
         match method {
             "is_some" => {
-                // Some = variant 0 → tag == 0
                 let tag = self.builder.extract_value(receiver, 0, "opt.tag")?;
-                let zero = self.builder.const_int_matching(tag, 0);
-                Some(self.builder.icmp_eq(tag, zero, "is_some"))
+                let some = self
+                    .builder
+                    .const_int_matching(tag, ori_ir::OPTION_TAG_SOME as u64);
+                Some(self.builder.icmp_eq(tag, some, "is_some"))
             }
             "is_none" => {
-                // None = variant 1 → tag == 1
                 let tag = self.builder.extract_value(receiver, 0, "opt.tag")?;
-                let one = self.builder.const_int_matching(tag, 1);
-                Some(self.builder.icmp_eq(tag, one, "is_none"))
+                let none = self
+                    .builder
+                    .const_int_matching(tag, ori_ir::OPTION_TAG_NONE as u64);
+                Some(self.builder.icmp_eq(tag, none, "is_none"))
             }
-            "unwrap" => {
-                // Extract payload (field 1). Panics on None (handled by ARC IR).
-                self.builder.extract_value(receiver, 1, "opt.payload")
-            }
+            "unwrap" => self.builder.extract_value(receiver, 1, "opt.payload"),
             "unwrap_or" if arg_vals.len() >= 2 => {
-                // tag == 0 (Some) → payload, else → default
                 let tag = self.builder.extract_value(receiver, 0, "opt.tag")?;
                 let payload = self.builder.extract_value(receiver, 1, "opt.payload")?;
-                let zero = self.builder.const_int_matching(tag, 0);
-                let is_some = self.builder.icmp_eq(tag, zero, "is_some");
+                let some = self
+                    .builder
+                    .const_int_matching(tag, ori_ir::OPTION_TAG_SOME as u64);
+                let is_some = self.builder.icmp_eq(tag, some, "is_some");
                 Some(
                     self.builder
                         .select(is_some, payload, arg_vals[1], "unwrap_or"),
@@ -175,46 +175,49 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
         match method {
             "is_ok" => {
-                // Ok = variant 0 → tag == 0
                 let tag = self.builder.extract_value(receiver, 0, "res.tag")?;
-                let zero = self.builder.const_int_matching(tag, 0);
-                Some(self.builder.icmp_eq(tag, zero, "is_ok"))
+                let ok = self
+                    .builder
+                    .const_int_matching(tag, ori_ir::RESULT_TAG_OK as u64);
+                Some(self.builder.icmp_eq(tag, ok, "is_ok"))
             }
             "is_err" => {
-                // Err = variant 1 → tag == 1
                 let tag = self.builder.extract_value(receiver, 0, "res.tag")?;
-                let one = self.builder.const_int_matching(tag, 1);
-                Some(self.builder.icmp_eq(tag, one, "is_err"))
+                let err = self
+                    .builder
+                    .const_int_matching(tag, ori_ir::RESULT_TAG_ERR as u64);
+                Some(self.builder.icmp_eq(tag, err, "is_err"))
             }
             "unwrap" => {
-                // Extract Ok payload (field 1) via alloca for type safety.
                 let TypeInfo::Result { ok: ok_ty, .. } = self.type_info.get(receiver_ty) else {
                     return self.builder.extract_value(receiver, 1, "res.payload");
                 };
                 self.extract_tagged_union_payload(receiver, receiver_ty, 1, ok_ty)
             }
             "unwrap_err" => {
-                // Extract Err payload (field 1) via alloca for type safety.
                 let TypeInfo::Result { err: err_ty, .. } = self.type_info.get(receiver_ty) else {
                     return self.builder.extract_value(receiver, 1, "res.payload");
                 };
                 self.extract_tagged_union_payload(receiver, receiver_ty, 1, err_ty)
             }
             "unwrap_or" if arg_vals.len() >= 2 => {
-                // tag == 0 (Ok) → ok_payload, else → default
                 let tag = self.builder.extract_value(receiver, 0, "res.tag")?;
                 let TypeInfo::Result { ok: ok_ty, .. } = self.type_info.get(receiver_ty) else {
                     let payload = self.builder.extract_value(receiver, 1, "res.payload")?;
-                    let zero = self.builder.const_int_matching(tag, 0);
-                    let is_ok = self.builder.icmp_eq(tag, zero, "is_ok");
+                    let ok = self
+                        .builder
+                        .const_int_matching(tag, ori_ir::RESULT_TAG_OK as u64);
+                    let is_ok = self.builder.icmp_eq(tag, ok, "is_ok");
                     return Some(
                         self.builder
                             .select(is_ok, payload, arg_vals[1], "unwrap_or"),
                     );
                 };
                 let payload = self.extract_tagged_union_payload(receiver, receiver_ty, 1, ok_ty)?;
-                let zero = self.builder.const_int_matching(tag, 0);
-                let is_ok = self.builder.icmp_eq(tag, zero, "is_ok");
+                let ok = self
+                    .builder
+                    .const_int_matching(tag, ori_ir::RESULT_TAG_OK as u64);
+                let is_ok = self.builder.icmp_eq(tag, ok, "is_ok");
                 Some(
                     self.builder
                         .select(is_ok, payload, arg_vals[1], "unwrap_or"),
