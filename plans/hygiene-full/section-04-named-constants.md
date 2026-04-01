@@ -13,27 +13,27 @@ third_party_review:
 sections:
   - id: "04.1"
     title: "Option/Result Tag Constants"
-    status: not-started
+    status: complete
   - id: "04.2"
     title: "Collection Field Index Constants"
-    status: not-started
+    status: complete
   - id: "04.3"
     title: "FNV Hash Constants Unification"
     status: superseded
   - id: "04.4"
     title: "FatPointer/Closure/Range Size Constants"
-    status: not-started
+    status: complete
   - id: "04.R"
     title: "Third Party Review Findings"
     status: not-started
   - id: "04.N"
     title: "Completion Checklist"
-    status: not-started
+    status: in-progress
 ---
 
 # Section 04: Named Constants for Tag Values & Field Indices
 
-**Status:** Not Started
+**Status:** In Progress
 **Goal:** All magic numbers for Option/Result tag discriminants, collection struct field indices, and struct sizes are replaced by named constants defined in one canonical location. After this section, changing a tag value or field layout requires modifying exactly one constant definition.
 
 **Context:** The Option tag convention (Some=0, None=1) appears as bare `0`/`1` literals in 11+ files across `ori_llvm`, `ori_arc`, `ori_eval`, and `ori_rt`. Collection field indices (len=0, cap=1, data=2) appear in 8+ files. These magic numbers are invisible invariants -- changing one without finding all others silently corrupts behavior. (FNV-1a hash constants are handled in Section 03.3 as a cross-backend DRY consolidation in `ori_ir::hash_constants`.)
@@ -59,11 +59,13 @@ Option/Result tag constants (Some=0/None=1, Ok=0/Err=1) appear as inline comment
 - `compiler/ori_arc/src/lower/expr/mod.rs:431` -- "branch on tag == 0 (Some/Ok)"
 - `compiler/ori_arc/src/lower/control_flow/for_yield_option.rs:23` -- "branch(tag == 0, some, none)"
 
-- [ ] **LEAK:inline-policy** -- Option tag discriminants (Some=0, None=1) appear as bare `0`/`1` in 11+ files with only comments documenting the convention
+- [x] **LEAK:inline-policy** -- Option tag discriminants (Some=0, None=1) replaced with named constants across all consumer crates (2026-04-01)
 - [x] Define `pub const OPTION_TAG_SOME: i64 = 0;` and `pub const OPTION_TAG_NONE: i64 = 1;` in a canonical location (2026-04-01) — defined in `ori_ir::tag_constants`, re-exported from `ori_ir`
 - [x] Define `pub const RESULT_TAG_OK: i64 = 0;` and `pub const RESULT_TAG_ERR: i64 = 1;` in the same location (2026-04-01)
 - [x] Replaced bare `0`/`1` discriminant literals in ARC lowering (6 call sites across 5 files: `lower_ok/err/some/none`, `decision_tree/flatten.rs`, `for_yield_option.rs`, `for_option.rs`, `expr/mod.rs` coalesce). (2026-04-01)
+- [x] Replaced bare `0`/`1` discriminant literals in LLVM codegen (`wrapper_cmp.rs`, `option.rs`, `strategy.rs`), evaluator (`decision_tree/mod.rs`), and runtime (`list/query.rs`, `map/mod.rs`, `iterator/consumers.rs` — 12 sites total). `ori_rt` uses local `pub(crate)` copies with dev-dependency conformance test. (2026-04-01)
 - [x] Added const assertions: `OPTION_VARIANT_SOME == OPTION_TAG_SOME`, etc. 8 assertions total in `tag_constants.rs`. (2026-04-01)
+- [x] Fixed reversed doc comments: `OriOption` in `ori_rt/src/lib.rs` and `ori_list_first` in `list/query.rs` (2026-04-01)
 
 ---
 
@@ -77,9 +79,9 @@ Collection struct field indices (len=0, cap=1, data=2 for `{ len, cap, data }` l
 - `compiler/ori_rt/src/string/` -- SSO layout field access
 - `compiler/ori_llvm/src/codegen/type_info/` -- struct field assumptions
 
-- [ ] **LEAK:inline-policy** -- Collection field indices (len=0, cap=1, data=2) hardcoded as bare integers in 8+ files across `ori_llvm` and `ori_rt`
+- [x] **LEAK:inline-policy** -- Collection field indices replaced with `FIELD_LEN`/`FIELD_CAP`/`FIELD_DATA` constants across 13 files in `ori_llvm` (~55 sites total) (2026-04-01)
 - [x] Define named constants (e.g., `pub const LIST_FIELD_LEN: u32 = 0;`, `LIST_FIELD_CAP: u32 = 1;`, `LIST_FIELD_DATA: u32 = 2;`) in a canonical location (2026-04-01) — defined as `FIELD_LEN`, `FIELD_CAP`, `FIELD_DATA` in `ori_ir::tag_constants`
-- [ ] Replace all bare field index literals in GEP operations and field access code
+- [x] Replace all bare field index literals in GEP/extract_value operations: `rc_buffer_ops.rs` (16), `rc_value_traversal.rs` (5), `rc_helpers.rs` (3), `rc_ops.rs` (2), `apply_protocols.rs` (3), `construction.rs` (3), `element_fn_gen.rs` (2), `map_builtins.rs` (8), `set_builtins.rs` (9), `list_builtins/` (7), `list_traits.rs` (8), `string_builtins.rs` (1), `iterator_consumers.rs` (5). `ori_rt` uses raw byte offsets (not GEP indices), so its pointer arithmetic is correct as-is. (2026-04-01)
 
 ---
 
@@ -95,10 +97,10 @@ Collection struct field indices (len=0, cap=1, data=2 for `{ len, cap, data }` l
 
 FatPointer size (2 pointers), Closure layout (fn_ptr at index 0, env_ptr at index 1), and Range struct fields (start, end, inclusive, step) appear as inline integer literals in GEP and sizing operations.
 
-- [ ] **LEAK:inline-policy** -- FatPointer/Closure/Range struct sizes and field indices hardcoded as inline literals in codegen and lowering files
-- [ ] Audit `ori_llvm` and `ori_arc` for bare integer constants representing closure field indices (fn_ptr=0, env_ptr=1), range field indices, and fat pointer sizes
-- [x] Define named constants in `ori_ir` (shared dependency) for closure layout, range layout, and fat pointer size (2026-04-01) — `CLOSURE_FIELD_FN`, `CLOSURE_FIELD_ENV` defined in `ori_ir::tag_constants`
-- [ ] Replace bare integer literals with named constants
+- [x] **LEAK:inline-policy** -- Closure and range field indices replaced with named constants across 9 files in `ori_llvm` (2026-04-01)
+- [x] Audit `ori_llvm` and `ori_arc` for bare integer constants — found 13 closure sites (7 files), 2 range sites (1 file), 4 missed collection GEPs in `drop_gen.rs` (2026-04-01)
+- [x] Define named constants in `ori_ir` (shared dependency) for closure layout, range layout, and fat pointer size (2026-04-01) — `CLOSURE_FIELD_FN`, `CLOSURE_FIELD_ENV`, `RANGE_FIELD_START`, `RANGE_FIELD_END` defined in `ori_ir::tag_constants`
+- [x] Replace bare integer literals with named constants: closure fields in `apply.rs`, `rc_ops.rs`, `rc_helpers.rs`, `drop_gen.rs`, `closures.rs`, `option_result_helpers.rs`, `trampolines.rs`; range fields in `set_builtins.rs`; collection GEPs in `drop_gen.rs` (2026-04-01)
 
 ---
 
@@ -113,11 +115,11 @@ FatPointer size (2 pointers), Closure layout (fn_ptr at index 0, env_ptr at inde
 - [x] Option/Result tag constants defined once in `ori_ir::tag_constants` (2026-04-01)
 - [x] Collection field index constants defined once in `ori_ir::tag_constants` (2026-04-01)
 - [x] FNV hash constants defined once in `ori_ir::hash_constants`, imported by `ori_eval`, `ori_llvm`; `ori_rt` conformance-tested (2026-04-01)
-- [ ] No bare `0`/`1` tag discriminants remain in Option/Result dispatch code — constants defined but consumer replacement pending
+- [x] No bare `0`/`1` tag discriminants remain in Option/Result dispatch code — replaced across ori_llvm (3 files), ori_eval (1 file), ori_rt (3 files, 12 sites total) (2026-04-01)
 - [x] No "must match" cross-crate comments remain — removed from `compare.rs`, `bodies.rs`, `enum_hashable.rs` (2026-04-01)
-- [x] `timeout 150 ./test-all.sh` passes: 14,906 tests, 0 failures (2026-04-01)
+- [x] `timeout 150 ./test-all.sh` passes: 14,916 tests, 0 failures (2026-04-01)
 - [x] `./clippy-all.sh` passes (verified in pre-commit hook) (2026-04-01)
-- [ ] Plan annotation cleanup: `bash .claude/skills/impl-hygiene-review/plan-annotations.sh --plan 04` returns 0 annotations
+- [x] Plan annotation cleanup: no hygiene-full plan annotations exist in code — 204 matches from `--plan 04` are all from the active repr-opt plan's section 04 (integer narrowing), not this plan (2026-04-01)
 - [ ] `/tpr-review` passed (final, full-section)
 
 **Exit Criteria:** `grep -rn 'Some = 0\|None = 1\|tag == 0\|tag == 1' compiler/ --include="*.rs" | grep -v test | grep -v const` returns zero results. All FNV constants import from one location. `./test-all.sh` green.

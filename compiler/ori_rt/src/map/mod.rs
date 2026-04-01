@@ -18,6 +18,7 @@ pub mod cow;
 pub(crate) mod hash_table;
 
 use crate::list::write_array_to_list;
+use crate::{OPTION_TAG_NONE, OPTION_TAG_SOME};
 pub(crate) use hash_table::{
     get_meta, needs_rehash, next_hash_capacity, probe_find, probe_find_slot, rehash_map, set_meta,
     HashTableLayout, META_EMPTY, META_OCCUPIED, META_TOMBSTONE,
@@ -216,7 +217,6 @@ pub extern "C" fn ori_map_values_to_list(
 /// Look up a key in a map and return `Option<V>` via sret.
 ///
 /// Uses hash-based probing. Writes `{tag: i64, value}` to `out_ptr`.
-/// Tag 0 = Some (value copied), tag 1 = None.
 #[no_mangle]
 pub extern "C" fn ori_map_get(
     data: *const u8,
@@ -236,7 +236,7 @@ pub extern "C" fn ori_map_get(
     let vs = val_size.max(1) as usize;
 
     if data.is_null() || len <= 0 {
-        unsafe { out_ptr.cast::<i64>().write(1) };
+        unsafe { out_ptr.cast::<i64>().write(OPTION_TAG_NONE) };
         return;
     }
 
@@ -247,15 +247,13 @@ pub extern "C" fn ori_map_get(
     if let Some(bucket) =
         unsafe { probe_find(data, c, layout.keys_offset, needle, hash, ks, key_eq) }
     {
-        // Some: tag = 0, copy value
         unsafe {
-            out_ptr.cast::<i64>().write(0);
+            out_ptr.cast::<i64>().write(OPTION_TAG_SOME);
             let val_src = data.add(layout.vals_offset + bucket * vs);
             std::ptr::copy_nonoverlapping(val_src, out_ptr.add(8), vs);
         }
     } else {
-        // None: tag = 1
-        unsafe { out_ptr.cast::<i64>().write(1) };
+        unsafe { out_ptr.cast::<i64>().write(OPTION_TAG_NONE) };
     }
 }
 

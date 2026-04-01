@@ -6928,3 +6928,11 @@ fn fnv_constants_match_canonical_values() {
     );
     assert_eq!(1_099_511_628_211_u64, ori_ir::FNV_PRIME, "FNV_PRIME");
 }
+
+/// Verify `ori_rt`'s local Option/Result tag constants match the canonical
+/// definitions in `ori_ir::tag_constants`. Same pattern as FNV above.
+#[test]
+fn tag_constants_match_canonical_values() {
+    assert_eq!(OPTION_TAG_SOME, ori_ir::OPTION_TAG_SOME, "OPTION_TAG_SOME");
+    assert_eq!(OPTION_TAG_NONE, ori_ir::OPTION_TAG_NONE, "OPTION_TAG_NONE");
+}

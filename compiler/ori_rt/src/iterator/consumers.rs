@@ -7,6 +7,7 @@ use std::ptr;
 
 use super::state::assert_elem_size;
 use super::{FoldFn, ForEachFn, IterState, PredicateFn, MAX_ELEM_SIZE};
+use crate::{OPTION_TAG_NONE, OPTION_TAG_SOME};
 
 // Collect
 
@@ -293,8 +294,7 @@ pub extern "C" fn ori_iter_find(
     }
 
     if iter.is_null() {
-        // Write None: i64 tag = 1 (ARC convention: None is second variant)
-        unsafe { out_ptr.cast::<i64>().write(1) };
+        unsafe { out_ptr.cast::<i64>().write(OPTION_TAG_NONE) };
         return;
     }
 
@@ -316,9 +316,12 @@ pub extern "C" fn ori_iter_find(
         }
     };
 
-    // Write i64 tag: ARC enum convention — Some=0, None=1
     unsafe {
-        out_ptr.cast::<i64>().write(i64::from(!found));
+        out_ptr.cast::<i64>().write(if found {
+            OPTION_TAG_SOME
+        } else {
+            OPTION_TAG_NONE
+        });
     }
 
     drop(unsafe { Box::from_raw(iter.cast::<IterState>()) });
@@ -436,7 +439,7 @@ pub extern "C" fn ori_iter_last(iter: *mut u8, elem_size: i64, out_ptr: *mut u8)
     }
 
     if iter.is_null() {
-        unsafe { out_ptr.cast::<i64>().write(1) };
+        unsafe { out_ptr.cast::<i64>().write(OPTION_TAG_NONE) };
         return;
     }
 
@@ -452,7 +455,13 @@ pub extern "C" fn ori_iter_last(iter: *mut u8, elem_size: i64, out_ptr: *mut u8)
         found = true;
     }
 
-    unsafe { out_ptr.cast::<i64>().write(i64::from(!found)) };
+    unsafe {
+        out_ptr.cast::<i64>().write(if found {
+            OPTION_TAG_SOME
+        } else {
+            OPTION_TAG_NONE
+        });
+    }
     drop(unsafe { Box::from_raw(iter.cast::<IterState>()) });
 }
 
@@ -634,7 +643,7 @@ pub extern "C" fn ori_iter_rfind(
     }
 
     if iter.is_null() {
-        unsafe { out_ptr.cast::<i64>().write(1) };
+        unsafe { out_ptr.cast::<i64>().write(OPTION_TAG_NONE) };
         return;
     }
 
@@ -659,11 +668,11 @@ pub extern "C" fn ori_iter_rfind(
         if (pred_fn)(pred_env, elem_ptr) {
             unsafe {
                 ptr::copy_nonoverlapping(elem_ptr, payload_ptr, es);
-                out_ptr.cast::<i64>().write(0); // Some
+                out_ptr.cast::<i64>().write(OPTION_TAG_SOME);
             }
             return;
         }
     }
 
-    unsafe { out_ptr.cast::<i64>().write(1) }; // None
+    unsafe { out_ptr.cast::<i64>().write(OPTION_TAG_NONE) };
 }

@@ -109,6 +109,13 @@ pub(crate) use rc::{rt_debug_validate_rc, RT_DEBUG_FORCE};
 use std::ffi::{c_char, CStr};
 use std::sync::atomic::Ordering;
 
+// ARC enum tag convention: Option and Result discriminants.
+// Source of truth: `ori_ir::tag_constants`. These local copies exist because
+// `ori_rt` cannot depend on `ori_ir` at compile time (runtime must be standalone).
+// Dev-dependency tests verify these match `ori_ir` values.
+pub(crate) const OPTION_TAG_SOME: i64 = 0;
+pub(crate) const OPTION_TAG_NONE: i64 = 1;
+
 // ── Exception handling personality ──────────────────────────────────────
 //
 // All EH is implemented in C (`eh_personality.c`), zero Rust panic dependency:
@@ -144,7 +151,7 @@ pub fn ori_eh_personality_addr() -> usize {
 }
 
 /// Ori Option representation: { i8 tag, T value }
-/// tag = 0: None, tag = 1: Some
+/// tag = 0: Some, tag = 1: None
 #[repr(C)]
 pub struct OriOption<T> {
     pub tag: i8,
