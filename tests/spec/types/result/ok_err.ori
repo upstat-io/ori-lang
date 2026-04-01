@@ -36,3 +36,66 @@ use std.testing { assert_eq }
 @test_err_from_ok tests @err_from_ok () -> void = {
     assert_eq(actual: err_from_ok(), expected: None)
 }
+
+// Regression: hygiene-full §04.N TPR — heap string (>23 bytes, non-SSO) payloads
+// exercise RC-managed inner data paths. Without RC retain on projection,
+// both the Result and the new Option share inner RC data → double-free.
+
+@ok_heap_str () -> Option<str> = {
+    let r: Result<str, str> = Ok("this string is long enough to be heap allocated");
+    r.ok()
+}
+
+@test_ok_heap_str tests @ok_heap_str () -> void = {
+    assert_eq(actual: ok_heap_str(), expected: Some("this string is long enough to be heap allocated"))
+}
+
+@err_heap_str () -> Option<str> = {
+    let r: Result<str, str> = Err("another heap string for error variant testing");
+    r.err()
+}
+
+@test_err_heap_str tests @err_heap_str () -> void = {
+    assert_eq(actual: err_heap_str(), expected: Some("another heap string for error variant testing"))
+}
+
+@ok_from_err_heap_str () -> Option<str> = {
+    let r: Result<str, str> = Err("heap allocated error string here too");
+    r.ok()
+}
+
+@test_ok_from_err_heap_str tests @ok_from_err_heap_str () -> void = {
+    assert_eq(actual: ok_from_err_heap_str(), expected: None)
+}
+
+@err_from_ok_heap_str () -> Option<str> = {
+    let r: Result<str, str> = Ok("heap allocated ok string here too");
+    r.err()
+}
+
+@test_err_from_ok_heap_str tests @err_from_ok_heap_str () -> void = {
+    assert_eq(actual: err_from_ok_heap_str(), expected: None)
+}
+
+// Multiple accesses: Result survives after .ok()/.err() projection
+@ok_then_use_result () -> bool = {
+    let r: Result<str, str> = Ok("heap payload that must survive projection");
+    let opt = r.ok();
+    let still_ok = r.is_ok();
+    opt.is_some() && still_ok
+}
+
+@test_ok_then_use_result tests @ok_then_use_result () -> void = {
+    assert_eq(actual: ok_then_use_result(), expected: true)
+}
+
+@err_then_use_result () -> bool = {
+    let r: Result<str, str> = Err("heap error that must survive projection");
+    let opt = r.err();
+    let still_err = r.is_err();
+    opt.is_some() && still_err
+}
+
+@test_err_then_use_result tests @err_then_use_result () -> void = {
+    assert_eq(actual: err_then_use_result(), expected: true)
+}
