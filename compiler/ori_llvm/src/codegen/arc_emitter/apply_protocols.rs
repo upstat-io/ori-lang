@@ -22,6 +22,7 @@
 
 use ori_arc::ir::{ArcFunction, ArcVarId};
 use ori_ir::builtin_constants::protocol::ProtocolBuiltin;
+use ori_ir::{FIELD_CAP, FIELD_DATA, FIELD_LEN};
 
 use super::ArcIrEmitter;
 use crate::codegen::type_info::TypeInfo;
@@ -154,9 +155,15 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let start_val = self.var(start_var);
 
         // Extract list components: {len, cap, data}
-        let len = self.builder.extract_value(list_val, 0, "slice.len")?;
-        let cap = self.builder.extract_value(list_val, 1, "slice.cap")?;
-        let data = self.builder.extract_value(list_val, 2, "slice.data")?;
+        let len = self
+            .builder
+            .extract_value(list_val, FIELD_LEN, "slice.len")?;
+        let cap = self
+            .builder
+            .extract_value(list_val, FIELD_CAP, "slice.cap")?;
+        let data = self
+            .builder
+            .extract_value(list_val, FIELD_DATA, "slice.data")?;
 
         // Compute element size from the list's element type
         // Use narrowed element size if available.

@@ -39,6 +39,7 @@
 //! fully explicit.
 
 use ori_arc::ir::{ArcFunction, ArcVarId, RcStrategy};
+use ori_ir::{CLOSURE_FIELD_ENV, FIELD_CAP, FIELD_DATA};
 use ori_types::Tag;
 
 use super::ArcIrEmitter;
@@ -131,10 +132,10 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         match tag {
             Tag::List | Tag::Set => {
                 // Slice-aware: extract data + cap, call ori_list_rc_inc
-                if let Some(dp) = self.builder.extract_value(val, 2, "rc_inc.data") {
+                if let Some(dp) = self.builder.extract_value(val, FIELD_DATA, "rc_inc.data") {
                     let cap = self
                         .builder
-                        .extract_value(val, 1, "rc_inc.cap")
+                        .extract_value(val, FIELD_CAP, "rc_inc.cap")
                         .unwrap_or_else(|| self.builder.const_i64(0));
                     self.call_list_rc_inc(dp, cap, count);
                 } else {
@@ -216,7 +217,10 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     pub(super) fn emit_rc_inc_closure(&mut self, val: super::ValueId, count: u32) {
         let func_id = self.builder.runtime_fn("ori_rc_inc");
 
-        let Some(env_ptr) = self.builder.extract_value(val, 1, "rc_inc.env") else {
+        let Some(env_ptr) = self
+            .builder
+            .extract_value(val, CLOSURE_FIELD_ENV, "rc_inc.env")
+        else {
             return;
         };
 
@@ -248,7 +252,10 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// Extract `env_ptr`, null-check, then load the drop function pointer
     /// from the env header and call `ori_rc_dec(env_ptr, drop_fn)`.
     pub(super) fn emit_rc_dec_closure(&mut self, val: super::ValueId) {
-        let Some(env_ptr) = self.builder.extract_value(val, 1, "rc_dec.env") else {
+        let Some(env_ptr) = self
+            .builder
+            .extract_value(val, CLOSURE_FIELD_ENV, "rc_dec.env")
+        else {
             return;
         };
 

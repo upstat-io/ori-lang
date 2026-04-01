@@ -6,6 +6,7 @@
 //! function.
 
 use ori_arc::ir::{ArcFunction, ArcVarId};
+use ori_ir::{FIELD_DATA, FIELD_LEN};
 use ori_types::Idx;
 
 use crate::codegen::value_id::ValueId;
@@ -53,11 +54,11 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         // an LLVM-generated thunk — must be stored by codegen after collect.
         let result_data = self
             .builder
-            .extract_value(result, 2, "collect.data")
+            .extract_value(result, FIELD_DATA, "collect.data")
             .unwrap_or_else(|| self.builder.const_null_ptr());
         let result_len = self
             .builder
-            .extract_value(result, 0, "collect.len")
+            .extract_value(result, FIELD_LEN, "collect.len")
             .unwrap_or_else(|| self.builder.const_i64(0));
         let elem_dec_fn = self.get_or_generate_elem_dec_fn(elem_ty);
         let store_dec = self.builder.runtime_fn("ori_buffer_store_elem_dec");
@@ -135,7 +136,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         // elem_dec_fn is needed. The LLVM-generated thunk must be stored by codegen.
         let result_data = self
             .builder
-            .extract_value(result, 2, "collect_set.data")
+            .extract_value(result, FIELD_DATA, "collect_set.data")
             .unwrap_or_else(|| self.builder.const_null_ptr());
         let elem_dec_fn = self.get_or_generate_elem_dec_fn(elem_ty);
         let store_dec = self.builder.runtime_fn("ori_buffer_store_elem_dec");
@@ -506,8 +507,12 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let separator = arg_vals[1];
 
         // Separator is an OriStr — extract data ptr (field 2) and len (field 0)
-        let sep_len = self.builder.extract_value(separator, 0, "join.sep_len")?;
-        let sep_data = self.builder.extract_value(separator, 2, "join.sep_data")?;
+        let sep_len = self
+            .builder
+            .extract_value(separator, FIELD_LEN, "join.sep_len")?;
+        let sep_data = self
+            .builder
+            .extract_value(separator, FIELD_DATA, "join.sep_data")?;
 
         let elem_size = self.int_element_store_size(elem_ty);
         let elem_size_val = self.builder.const_i64(elem_size as i64);
