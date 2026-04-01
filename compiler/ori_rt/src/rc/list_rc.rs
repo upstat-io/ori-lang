@@ -36,9 +36,11 @@ fn drop_elements_and_free(
     // Read elem_dec_fn from the RC header — this is the stored value, not
     // the parameter from the caller. Ensures cleanup happens even when the
     // dec call that reached zero carried NULL.
+    // SAFETY: header_data was returned by ori_rc_alloc, so header_data - 24 is valid.
     let elem_dec_fn = unsafe { load_elem_dec_fn(header_data) };
     if let Some(f) = elem_dec_fn {
         for i in 0..n {
+            // SAFETY: elem_data is valid for n * es bytes (allocated by ori_rc_alloc).
             call_drop_fn(f, unsafe { elem_data.add(i * es) });
         }
     }
@@ -98,6 +100,7 @@ pub extern "C" fn ori_buffer_rc_dec(
     // Store elem_dec_fn in the header (write-once: first non-NULL wins).
     // Defense-in-depth: ensures the header is populated if any caller
     // passes a real fn.
+    // SAFETY: data is non-null (checked above) and was returned by ori_rc_alloc.
     unsafe { store_elem_dec_fn_once(data, elem_dec_fn) };
 
     // Invariant: after store_elem_dec_fn_once, if the caller passed a
@@ -105,6 +108,7 @@ pub extern "C" fn ori_buffer_rc_dec(
     // (either this store succeeded, or a previous store already populated it).
     #[cfg(debug_assertions)]
     if elem_dec_fn.is_some() {
+        // SAFETY: data is non-null and was returned by ori_rc_alloc.
         let header_fn = unsafe { load_elem_dec_fn(data) };
         debug_assert!(
             header_fn.is_some(),
@@ -116,6 +120,7 @@ pub extern "C" fn ori_buffer_rc_dec(
     // Store elem_count so that if a slice is the last owner, it knows how
     // many elements to clean up. Last-write-wins: the most recent non-slice
     // dec's len is the authoritative element count.
+    // SAFETY: data is non-null (checked above) and was returned by ori_rc_alloc.
     unsafe { store_elem_count(data, len) };
 
     let es = elem_size.max(1) as usize;
@@ -126,11 +131,13 @@ pub extern "C" fn ori_buffer_rc_dec(
         // Immortal sentinel check: immortal objects have MAX_REFCOUNT and must
         // never be decremented. Read refcount first to avoid atomic fetch_sub
         // on immortal objects.
+        // SAFETY: data is non-null (checked above), data - 8 is the RC field (V5 layout).
         let current_rc = unsafe { (*data.sub(8).cast::<AtomicI64>()).load(Ordering::Relaxed) };
         if current_rc == super::MAX_REFCOUNT {
             return;
         }
 
+        // SAFETY: data was returned by ori_rc_alloc, so data - 8 is valid and 8-byte aligned.
         let prev = unsafe {
             let rc_ptr = data.sub(8).cast::<AtomicI64>();
             (*rc_ptr).fetch_sub(1, Ordering::Release)
@@ -154,11 +161,13 @@ pub extern "C" fn ori_buffer_rc_dec(
     #[cfg(feature = "single-threaded")]
     {
         // Immortal sentinel check (single-threaded path)
+        // SAFETY: data is non-null (checked above), data - 8 is the RC field (V5 layout).
         let current_rc = unsafe { *data.sub(8).cast::<i64>() };
         if current_rc == super::MAX_REFCOUNT {
             return;
         }
 
+        // SAFETY: data was returned by ori_rc_alloc, so data - 8 is valid and 8-byte aligned.
         let (should_drop, new_rc) = unsafe {
             let rc_ptr = data.sub(8).cast::<i64>();
             if *rc_ptr <= 0 {
@@ -208,6 +217,7 @@ fn slice_buffer_rc_dec(
     rt_debug_check_not_freed(original_data.cast_const(), "slice_buffer_rc_dec");
 
     // Store elem_dec_fn on the ORIGINAL buffer's header (not the slice).
+    // SAFETY: original_data was returned by ori_rc_alloc (resolved from slice offset).
     unsafe { store_elem_dec_fn_once(original_data, elem_dec_fn) };
 
     let es = elem_size.max(1) as usize;
@@ -215,12 +225,14 @@ fn slice_buffer_rc_dec(
     #[cfg(not(feature = "single-threaded"))]
     {
         // Immortal sentinel check
+        // SAFETY: original_data was returned by ori_rc_alloc, data - 8 is the RC field.
         let current_rc =
             unsafe { (*original_data.sub(8).cast::<AtomicI64>()).load(Ordering::Relaxed) };
         if current_rc == super::MAX_REFCOUNT {
             return;
         }
 
+        // SAFETY: original_data - 8 is valid and 8-byte aligned (V5 RC header layout).
         let prev = unsafe {
             let rc_ptr = original_data.sub(8).cast::<AtomicI64>();
             (*rc_ptr).fetch_sub(1, Ordering::Release)
@@ -239,6 +251,7 @@ fn slice_buffer_rc_dec(
             let data_size = ori_rc_data_size(original_data.cast_const()) as usize;
             // Read elem_count from ORIGINAL buffer's header — the full
             // initialized element count, not the slice's visible range.
+            // SAFETY: original_data was returned by ori_rc_alloc, so data - 16 is valid.
             let elem_count = unsafe { load_elem_count(original_data) }.max(0) as usize;
             drop_elements_and_free(
                 original_data,
@@ -253,6 +266,7 @@ fn slice_buffer_rc_dec(
 
     #[cfg(feature = "single-threaded")]
     {
+        // SAFETY: original_data was returned by ori_rc_alloc, data - 8 is valid and aligned.
         let (should_drop, new_rc) = unsafe {
             let rc_ptr = original_data.sub(8).cast::<i64>();
             if *rc_ptr <= 0 {
@@ -269,6 +283,7 @@ fn slice_buffer_rc_dec(
         if should_drop {
             let data_size = ori_rc_data_size(original_data.cast_const()) as usize;
             // Read elem_count from ORIGINAL buffer's header
+            // SAFETY: original_data was returned by ori_rc_alloc, so data - 16 is valid.
             let elem_count = unsafe { load_elem_count(original_data) }.max(0) as usize;
             drop_elements_and_free(
                 original_data,
@@ -318,6 +333,7 @@ pub extern "C" fn ori_buffer_drop_unique(
     rt_debug_check_not_freed(data.cast_const(), "ori_buffer_drop_unique");
 
     // Store elem_dec_fn in header (write-once, defense-in-depth).
+    // SAFETY: data is non-null (checked above) and was returned by ori_rc_alloc.
     unsafe { store_elem_dec_fn_once(data, elem_dec_fn) };
 
     if rc_trace_enabled() {
@@ -328,9 +344,11 @@ pub extern "C" fn ori_buffer_drop_unique(
     let n = len.max(0) as usize;
 
     // Clean up element children — read from header, not parameter.
+    // SAFETY: data was returned by ori_rc_alloc, so data - 24 is valid.
     let stored_fn = unsafe { load_elem_dec_fn(data) };
     if let Some(f) = stored_fn {
         for i in 0..n {
+            // SAFETY: data is valid for n * es bytes (allocated by ori_rc_alloc).
             call_drop_fn(f, unsafe { data.add(i * es) });
         }
     }

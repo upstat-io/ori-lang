@@ -276,6 +276,7 @@ pub(crate) fn rt_debug_validate_rc(data_ptr: *const u8, op: &str) {
 #[cold]
 #[inline(never)]
 fn rt_debug_validate_rc_impl(data_ptr: *const u8, op: &str) {
+    // SAFETY: data_ptr was returned by ori_rc_alloc, so data_ptr - 8 is the RC field.
     unsafe {
         let rc = data_ptr.sub(8).cast::<i64>().read();
         if rc <= 0 || rc >= 1_000_000 {
