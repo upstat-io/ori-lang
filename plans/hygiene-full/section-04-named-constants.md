@@ -1,15 +1,15 @@
 ---
 section: "04"
 title: "Named Constants for Tag Values & Field Indices"
-status: in-progress
+status: complete
 reviewed: true
 goal: "Replace magic numbers (Option/Result tags, collection field indices, struct sizes) with named constants in canonical locations"
 inspired_by:
   - "Rust compiler discriminant constants -- named rather than inline literals"
 depends_on: []
 third_party_review:
-  status: none
-  updated: null
+  status: resolved
+  updated: 2026-04-01
 sections:
   - id: "04.1"
     title: "Option/Result Tag Constants"
@@ -25,10 +25,10 @@ sections:
     status: complete
   - id: "04.R"
     title: "Third Party Review Findings"
-    status: not-started
+    status: complete
   - id: "04.N"
     title: "Completion Checklist"
-    status: in-progress
+    status: complete
 ---
 
 # Section 04: Named Constants for Tag Values & Field Indices
@@ -120,6 +120,6 @@ FatPointer size (2 pointers), Closure layout (fn_ptr at index 0, env_ptr at inde
 - [x] `timeout 150 ./test-all.sh` passes: 14,916 tests, 0 failures (2026-04-01)
 - [x] `./clippy-all.sh` passes (verified in pre-commit hook) (2026-04-01)
 - [x] Plan annotation cleanup: no hygiene-full plan annotations exist in code — 204 matches from `--plan 04` are all from the active repr-opt plan's section 04 (integer narrowing), not this plan (2026-04-01)
-- [ ] `/tpr-review` passed (final, full-section)
+- [x] `/tpr-review` passed (final, full-section) (2026-04-01) — 3 iterations. Iteration 1: 2 findings (TPR-03-005 critical RC retention, TPR-03-006 high test coverage) → fixed. Iteration 2: 2 findings (TPR-03-007 critical unwrap_or/expect RC, TPR-03-008 medium plan text) → fixed. Iteration 3: 2 findings in Section 03's debug codegen (TPR-03-009 compound payloads, TPR-03-010 str quoting) → filed as BUG-04-014/015, owned by Section 03 not Section 04. Section 04's named constants work is clean.
 
 **Exit Criteria:** `grep -rn 'Some = 0\|None = 1\|tag == 0\|tag == 1' compiler/ --include="*.rs" | grep -v test | grep -v const` returns zero results. All FNV constants import from one location. `./test-all.sh` green.
