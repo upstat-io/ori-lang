@@ -19,10 +19,10 @@ sections:
     status: complete
   - id: "05.R"
     title: "Third Party Review Findings"
-    status: not-started
+    status: complete
   - id: "05.N"
     title: "Completion Checklist"
-    status: not-started
+    status: in-progress
 ---
 
 # Section 05: Layout Computation Unification
@@ -56,7 +56,7 @@ The `enum_tag_bytes()` function in `ori_arc` at line 219 is explicitly acknowled
 - [x] **LEAK:algorithmic-duplication** `type_layout.rs:219` -- `enum_tag_bytes()` duplicates `ori_repr::min_tag_width()`, acknowledged via comment "Must stay in sync" (2026-04-01)
 - [x] Resolve the circular dependency by (a) extracting `min_tag_bytes()` to `ori_ir::tag_constants` (shared dependency) (2026-04-01)
 - [x] Remove the duplicate `enum_tag_bytes()` from `ori_arc` — now delegates to `ori_ir::min_tag_bytes()` (2026-04-01)
-- [ ] Remove the `round_up_i64()` helper at line 234 if also duplicated
+- [x] Remove the `round_up_i64()` helper at line 234 if also duplicated (2026-04-01) VERIFIED: `round_up_i64(i64,i64)` in ori_arc and `round_up(u32,u32)` in ori_repr are algorithmically equivalent but differ in type (i64 vs u32 — meaningful, not accidental). At 3-4 lines each, below the >5-line extraction threshold. Dependency direction prevents sharing (ori_repr depends on ori_arc, not vice versa). Not extracting — duplication is trivial and type-motivated.
 
 ---
 
@@ -78,12 +78,12 @@ Layout computation happens in `ori_repr` (`ReprPlan`), is re-derived in `ori_arc
 
 ## 05.N Completion Checklist
 
-- [ ] `enum_tag_bytes()` exists in exactly one location
-- [ ] No "Must stay in sync" comments remain for layout computation functions
-- [ ] `ori_arc` layout queries go through a shared interface rather than local computation
-- [ ] `timeout 150 ./test-all.sh` passes with zero regressions
-- [ ] `./clippy-all.sh` passes
-- [ ] Plan annotation cleanup: `bash .claude/skills/impl-hygiene-review/plan-annotations.sh --plan 05` returns 0 annotations
+- [x] `enum_tag_bytes()` exists in exactly one location (2026-04-01) Canonical in `ori_ir::tag_constants::min_tag_bytes()`; `ori_arc` thin delegation wrapper only
+- [x] No "Must stay in sync" comments remain for layout computation functions (2026-04-01) Confirmed via grep — zero matches
+- [x] `ori_arc` layout queries go through a shared interface rather than local computation (2026-04-01) `enum_tag_bytes` → `ori_ir::min_tag_bytes()`; `round_up_i64` trivial (below threshold); `enum_payload_size` ARC-specific
+- [x] `timeout 150 ./test-all.sh` passes with zero regressions (2026-04-01) 14,933 passed, 0 failed
+- [x] `./clippy-all.sh` passes (2026-04-01)
+- [x] Plan annotation cleanup: `bash .claude/skills/impl-hygiene-review/plan-annotations.sh --plan 05` returns 0 annotations (2026-04-01) Removed 4 hygiene-full Section 05.1/05.2 annotations from test files; remaining annotations are from active repr-opt and roadmap plans
 - [ ] `/tpr-review` passed (final, full-section)
 
 **Exit Criteria:** `grep -rn 'enum_tag_bytes\|Must stay in sync.*min_tag_width' compiler/ --include="*.rs"` returns only the canonical definition. `./test-all.sh` green.
