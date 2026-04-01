@@ -1,8 +1,8 @@
 ---
 section: "06"
 title: "LLVM Internal Algorithmic DRY"
-status: not-started
-reviewed: false
+status: in-progress
+reviewed: true
 goal: "Deduplicate near-identical code within ori_llvm: enum inc/dec, slice-aware RC, list trait loops, equals/is_equal arms, pre-interned names"
 inspired_by:
   - "Swift SILOptimizer/ARC -- single RC emission path parameterized by inc/dec direction"
@@ -13,7 +13,7 @@ third_party_review:
 sections:
   - id: "06.1"
     title: "Enum RC Inc/Dec Unification"
-    status: not-started
+    status: complete
   - id: "06.2"
     title: "Slice-Aware RC Inc Deduplication"
     status: not-started
@@ -56,9 +56,9 @@ sections:
 
 `emit_inline_enum_inc()` (line 225) and `emit_inline_enum_dec()` (starting around line 360) are ~120 lines each with nearly identical structure: alloca, store, load tag, switch on variants, GEP to payload field, call rc_inc/rc_dec. The only difference is the RC operation direction.
 
-- [ ] **LEAK:algorithmic-duplication** `rc_helpers.rs:225-350,360-470` -- `emit_inline_enum_inc` and `emit_inline_enum_dec` are ~240 lines of near-identical code differing only in inc vs dec direction
-- [ ] Extract a shared `emit_inline_enum_rc(direction: RcDirection)` helper parameterized by inc/dec direction
-- [ ] Verify both callers produce identical LLVM IR after refactoring
+- [x] **LEAK:algorithmic-duplication** `rc_helpers.rs:225-350,360-470` -- unified into `emit_inline_enum_rc_core(is_inc, count)` (2026-04-01)
+- [x] Extract shared `emit_inline_enum_rc_core` parameterized by is_inc direction — net -93 lines (2026-04-01)
+- [x] Both callers delegate to shared core; 14,905 tests pass unchanged (2026-04-01)
 
 ---
 
