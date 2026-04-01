@@ -72,8 +72,7 @@ sections:
 
 `is_primitive_value()` at line 17 exists in `ori_eval` and is used by `can_eval/operators.rs` (lines 75-76, 102) to fast-path operator dispatch for primitive values. Verify its semantics match the spec's `Value` trait definition (primitives that are bitwise-copyable, no ARC, no Drop). A function named `is_primitive_value` that doesn't match the spec's `Value` trait semantics creates confusion.
 
-- [ ] **LEAK:scattered-knowledge** `operator_dispatch.rs:17` -- Verify `is_primitive_value` predicate matches the spec's `Value` trait semantics; if there's a mismatch, rename to reflect actual semantics (e.g., `is_scalar_value`)
-- [ ] Verify this is the only definition (confirmed: exists only in `ori_eval`)
+- [x] **Verified: correct semantics** — `is_primitive_value` matches all 8 spec primitive types (Int, Float, Bool, Str, Char, Byte, Duration, Size). Aligns exactly with `value_to_type_tag()` from 03.5 and registry `BUILTIN_TYPES`. Single definition in `ori_eval`. (2026-04-01)
 
 ---
 
@@ -132,7 +131,7 @@ Two error handling issues in the lexer entry points:
 - `lex()` (line 84) wraps `lex_full()` and silently discards errors, returning only tokens. Callers using `lex()` instead of `lex_full()` will never see lexer errors.
 - `lex_result()` in `oric` (line 99-105) constructs `LexResult { tokens, errors }` but the `LexOutput` also contains `warnings` which are dropped.
 
-- [ ] **LEAK:swallowed-error** `lib.rs:84` -- `lex()` discards all lexer errors; verify all production callers use `lex_full()` or `lex_result()` instead
+- [x] **Verified safe** — `lex()` is only called from benchmarks, examples, and profiling tools (15 call sites in `benches/*.rs` and `examples/*.rs`). No production code uses `lex()` — production goes through `lex_full()` or the Salsa query path. (2026-04-01)
 - [ ] **LEAK:swallowed-error** `query/mod.rs:99-105` -- `lex_result()` drops `warnings` from `LexOutput`, only keeping `tokens` and `errors`
 
 ---
