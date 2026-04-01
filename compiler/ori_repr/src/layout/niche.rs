@@ -1,4 +1,4 @@
-//! Niche analysis for enum representation optimization (§07.2).
+//! Niche analysis for enum representation optimization.
 //!
 //! A "niche" is an invalid bit pattern in a type. If an enum variant's payload
 //! has a niche, we can use it to encode a different variant, eliminating the
@@ -23,7 +23,7 @@ use crate::enum_repr::{EnumRepr, EnumTag, VariantRepr};
 use crate::repr::{IntWidth, MachineRepr};
 use crate::struct_repr::FatRepr;
 
-use super::{field_align, field_size, repr_align, repr_size, round_up};
+use super::{field_align, field_size, repr_align, repr_size};
 
 /// A niche (invalid bit pattern) discovered in a type's representation.
 ///
@@ -99,7 +99,7 @@ pub(crate) fn find_niches(repr: &MachineRepr) -> Vec<Niche> {
 
         // No niche available:
         // - Byte: all 256 values valid
-        // - Int: all values valid (without range info from §03)
+        // - Int: all values valid (without range info from range analysis)
         // - Float: NaN-based niches too complex (IEEE 754)
         // - Collections: null data ptr is valid (empty list/map/set)
         // - Duration/Size/Unit/Never/Struct/Tuple/Closure/Range/Ptr: no niche
@@ -208,6 +208,63 @@ pub(crate) fn find_enum_niches(e: &EnumRepr) -> Vec<Niche> {
     }
 }
 
+/// Build `Option<T>` variant representations: `(Some(T), None, some_size, some_align)`.
+///
+/// Shared between [`optimize_option_repr`] and [`default_option_repr_public`].
+/// Variant order: Some=0, None=1 (matches type checker).
+fn build_option_variants(inner: &MachineRepr) -> (VariantRepr, VariantRepr, u32, u32) {
+    let some_size = field_size(inner);
+    let some_align = field_align(inner);
+    let some_variant = VariantRepr {
+        name: Name::new(0, 0), // "Some" — variant 0
+        fields: vec![inner.clone()],
+        size: some_size,
+        alignment: some_align,
+    };
+    let none_variant = VariantRepr {
+        name: Name::new(0, 1), // "None" — variant 1
+        fields: vec![],
+        size: 0,
+        alignment: 1,
+    };
+    (some_variant, none_variant, some_size, some_align)
+}
+
+/// Build `Result<T, E>` variant representations.
+///
+/// Returns `(Ok(T), Err(E), ok_size, ok_align, err_size, err_align)`.
+/// Shared between [`optimize_result_repr`] and [`default_result_repr_public`].
+/// Variant order: Ok=0, Err=1 (matches type checker).
+fn build_result_variants(
+    ok_repr: &MachineRepr,
+    err_repr: &MachineRepr,
+) -> (VariantRepr, VariantRepr, u32, u32, u32, u32) {
+    let ok_size = field_size(ok_repr);
+    let ok_align = field_align(ok_repr);
+    let ok_variant = VariantRepr {
+        name: Name::new(0, 0), // "Ok"
+        fields: vec![ok_repr.clone()],
+        size: ok_size,
+        alignment: ok_align,
+    };
+    let err_size = field_size(err_repr);
+    let err_align = field_align(err_repr);
+    let err_variant = VariantRepr {
+        name: Name::new(0, 1), // "Err"
+        fields: vec![err_repr.clone()],
+        size: err_size,
+        alignment: err_align,
+    };
+    (
+        ok_variant,
+        err_variant,
+        ok_size,
+        ok_align,
+        err_size,
+        err_align,
+    )
+}
+
 /// Optimize `Option<T>` layout using niche filling.
 ///
 /// If the inner type has a niche, `None` is encoded as the niche value
@@ -217,21 +274,7 @@ pub(crate) fn find_enum_niches(e: &EnumRepr) -> Vec<Niche> {
 /// Variant order matches the type checker: Some=0, None=1
 /// (Ori prelude: `type Option<T> = Some(T) | None`).
 pub(crate) fn optimize_option_repr(inner: &MachineRepr) -> MachineRepr {
-    let some_size = field_size(inner);
-    let some_align = field_align(inner);
-    let some_variant = VariantRepr {
-        name: Name::new(0, 0), // "Some" — variant 0
-        fields: vec![inner.clone()],
-        size: some_size,
-        alignment: some_align,
-    };
-
-    let none_variant = VariantRepr {
-        name: Name::new(0, 1), // "None" — variant 1
-        fields: vec![],
-        size: 0,
-        alignment: 1,
-    };
+    let (some_variant, none_variant, some_size, some_align) = build_option_variants(inner);
 
     let niches = find_niches(inner);
     if let Some(niche) = niches.first() {
@@ -264,23 +307,8 @@ pub(crate) fn optimize_option_repr(inner: &MachineRepr) -> MachineRepr {
 ///
 /// Variant order matches the type checker: Ok=0, Err=1.
 pub(crate) fn optimize_result_repr(ok_repr: &MachineRepr, err_repr: &MachineRepr) -> MachineRepr {
-    let ok_size = field_size(ok_repr);
-    let ok_align = field_align(ok_repr);
-    let ok_variant = VariantRepr {
-        name: Name::new(0, 0), // "Ok"
-        fields: vec![ok_repr.clone()],
-        size: ok_size,
-        alignment: ok_align,
-    };
-
-    let err_size = field_size(err_repr);
-    let err_align = field_align(err_repr);
-    let err_variant = VariantRepr {
-        name: Name::new(0, 1), // "Err"
-        fields: vec![err_repr.clone()],
-        size: err_size,
-        alignment: err_align,
-    };
+    let (ok_variant, err_variant, ok_size, ok_align, err_size, err_align) =
+        build_result_variants(ok_repr, err_repr);
 
     let ok_niches = find_niches(ok_repr);
     let err_niches = find_niches(err_repr);
@@ -337,20 +365,7 @@ pub(crate) fn optimize_result_repr(ok_repr: &MachineRepr, err_repr: &MachineRepr
 ///
 /// Variant order: Some=0, None=1 (matches type checker).
 pub(crate) fn default_option_repr_public(inner: &MachineRepr) -> MachineRepr {
-    let some_size = field_size(inner);
-    let some_align = field_align(inner);
-    let some_variant = VariantRepr {
-        name: Name::new(0, 0), // "Some" — variant 0
-        fields: vec![inner.clone()],
-        size: some_size,
-        alignment: some_align,
-    };
-    let none_variant = VariantRepr {
-        name: Name::new(0, 1), // "None" — variant 1
-        fields: vec![],
-        size: 0,
-        alignment: 1,
-    };
+    let (some_variant, none_variant, some_size, some_align) = build_option_variants(inner);
     default_option_repr(some_variant, none_variant, some_size, some_align)
 }
 
@@ -360,22 +375,8 @@ pub(crate) fn default_result_repr_public(
     ok_repr: &MachineRepr,
     err_repr: &MachineRepr,
 ) -> MachineRepr {
-    let ok_size = field_size(ok_repr);
-    let ok_align = field_align(ok_repr);
-    let ok_variant = VariantRepr {
-        name: Name::new(0, 0),
-        fields: vec![ok_repr.clone()],
-        size: ok_size,
-        alignment: ok_align,
-    };
-    let err_size = field_size(err_repr);
-    let err_align = field_align(err_repr);
-    let err_variant = VariantRepr {
-        name: Name::new(0, 1),
-        fields: vec![err_repr.clone()],
-        size: err_size,
-        alignment: err_align,
-    };
+    let (ok_variant, err_variant, ok_size, ok_align, err_size, err_align) =
+        build_result_variants(ok_repr, err_repr);
     default_result_repr(
         ok_variant,
         err_variant,
@@ -396,14 +397,7 @@ fn default_option_repr(
     some_align: u32,
 ) -> MachineRepr {
     let tag_width = IntWidth::I64;
-    let tag_size = tag_width.size_bytes();
-    let max_payload = some_size;
-    let (size, align) = if max_payload == 0 {
-        (tag_size, tag_size)
-    } else {
-        let payload_align = some_align.max(8);
-        (8 + round_up(max_payload, payload_align), payload_align)
-    };
+    let (size, align) = super::compute_explicit_tag_layout(tag_width, some_size, some_align);
     MachineRepr::Enum(EnumRepr {
         tag: EnumTag::Explicit { width: tag_width },
         variants: vec![some_variant, none_variant],
@@ -422,15 +416,10 @@ fn default_result_repr(
     err_align: u32,
 ) -> MachineRepr {
     let tag_width = IntWidth::I64;
-    let tag_size = tag_width.size_bytes();
     let max_payload = ok_size.max(err_size);
     let max_variant_align = ok_align.max(err_align);
-    let (size, align) = if max_payload == 0 {
-        (tag_size, tag_size)
-    } else {
-        let payload_align = max_variant_align.max(8);
-        (8 + round_up(max_payload, payload_align), payload_align)
-    };
+    let (size, align) =
+        super::compute_explicit_tag_layout(tag_width, max_payload, max_variant_align);
     MachineRepr::Enum(EnumRepr {
         tag: EnumTag::Explicit { width: tag_width },
         variants: vec![ok_variant, err_variant],

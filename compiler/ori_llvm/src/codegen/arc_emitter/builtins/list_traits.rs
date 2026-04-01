@@ -54,7 +54,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         self.builder.cond_br(has_more, body, exit_true);
 
         // Body: compare elements[idx].
-        // §04.4 Phase C: use narrowed element type for GEP/load, sext after load.
+        // Use narrowed element type for GEP/load, sext after load.
         self.builder.position_at_end(body);
         let elem_ty_id = self.int_element_llvm_type(elem_ty);
         let lhs_ptr = self.builder.gep(elem_ty_id, lhs_data, &[idx_phi], "lhs.ep");
@@ -133,7 +133,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         self.builder.cond_br(has_more, body, len_cmp_block);
 
         // Body: compare elements[idx].
-        // §04.4 Phase C: use narrowed element type for GEP/load, sext after load.
+        // Use narrowed element type for GEP/load, sext after load.
         self.builder.position_at_end(body);
         let elem_ty_id = self.int_element_llvm_type(elem_ty);
         let lhs_ptr = self.builder.gep(elem_ty_id, lhs_data, &[idx_phi], "lhs.ep");
@@ -208,7 +208,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         self.builder.cond_br(has_more, body, exit);
 
         // Body: hash current element, combine.
-        // §04.4 Phase C: use narrowed element type for GEP/load, sext after load.
+        // Use narrowed element type for GEP/load, sext after load.
         self.builder.position_at_end(body);
         let elem_ty_id = self.int_element_llvm_type(elem_ty);
         let elem_ptr = self.builder.gep(elem_ty_id, data, &[idx_phi], "elem.ptr");

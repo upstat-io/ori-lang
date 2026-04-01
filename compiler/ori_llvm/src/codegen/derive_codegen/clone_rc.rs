@@ -354,7 +354,7 @@ fn emit_clone_composite_rc_inc<'a>(
         ) {
             continue;
         }
-        // §06: remap declaration-order index to memory order.
+        // Remap declaration-order index to memory order.
         let mem_idx = fc
             .repr_plan()
             .and_then(|plan| {

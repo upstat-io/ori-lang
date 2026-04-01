@@ -289,7 +289,7 @@ fn variant_repr_two_fields_not_pointer() {
 
 #[test]
 fn value_range_is_interval_lattice() {
-    // §03: ValueRange is a 3-variant enum (Bottom, Bounded, Top).
+    // ValueRange is a 3-variant enum (Bottom, Bounded, Top).
     // Verify semantic contract only — layout is not part of the API.
     assert_eq!(ValueRange::default(), ValueRange::Top);
     assert_eq!(
@@ -708,7 +708,7 @@ fn canonical_returns_none_for_error() {
     );
 }
 
-/// §01.5: Scheme type returns None (should never reach codegen).
+/// Scheme type returns None (should never reach codegen).
 /// TPR-01-047: canonical must be fallible, not panic-driven.
 #[test]
 fn canonical_returns_none_for_scheme() {
@@ -724,7 +724,7 @@ fn canonical_returns_none_for_scheme() {
     );
 }
 
-/// §01.5: Infer type returns None (should never reach codegen).
+/// Infer type returns None (should never reach codegen).
 /// TPR-01-047: canonical must be fallible, not panic-driven.
 #[test]
 fn canonical_returns_none_for_infer() {
@@ -739,7 +739,7 @@ fn canonical_returns_none_for_infer() {
     );
 }
 
-/// §01.5: Named→Int resolves to same canonical as Int directly.
+/// Named→Int resolves to same canonical as Int directly.
 #[test]
 fn canonical_named_resolves_to_int() {
     let mut pool = Pool::new();
@@ -757,7 +757,7 @@ fn canonical_named_resolves_to_int() {
     );
 }
 
-/// §01.5: Alias chain A = B = int resolves to Int.
+/// Alias chain A = B = int resolves to Int.
 #[test]
 fn canonical_alias_chain_resolves() {
     let mut pool = Pool::new();
@@ -1366,7 +1366,7 @@ fn trivial_scalar_payload_enum() {
     }
 }
 
-// ── §01.2: ReprDecision Tracking ────────────────────────────────
+// ── ReprDecision Tracking ────────────────────────────────────────
 
 #[test]
 fn repr_plan_set_get_round_trip() {
@@ -1542,25 +1542,25 @@ fn repr_plan_dump_audit_contains_tag_and_source() {
     );
 }
 
-// ── §01.4 Query Interface Default Values ──────────────────────────────
+// ── Query Interface Default Values ────────────────────────────────────
 
 #[test]
 fn int_width_default_returns_i64() {
-    // §01.4 test: int_width() defaults to I64 when no decision recorded.
+    // int_width() defaults to I64 when no decision recorded.
     let plan = ReprPlan::new(NarrowingPolicy::Aggressive);
     assert_eq!(plan.int_width(Idx::INT), IntWidth::I64);
 }
 
 #[test]
 fn float_width_default_returns_f64() {
-    // §01.4 test: float_width() defaults to F64 when no decision recorded.
+    // float_width() defaults to F64 when no decision recorded.
     let plan = ReprPlan::new(NarrowingPolicy::Aggressive);
     assert_eq!(plan.float_width(Idx::FLOAT), FloatWidth::F64);
 }
 
 #[test]
 fn is_trivial_default_returns_false() {
-    // §01.4 test: is_trivial() defaults to false when no decision recorded.
+    // is_trivial() defaults to false when no decision recorded.
     // Safe default — never elides RC it shouldn't.
     let plan = ReprPlan::new(NarrowingPolicy::Aggressive);
     assert!(
@@ -1571,7 +1571,7 @@ fn is_trivial_default_returns_false() {
 
 #[test]
 fn escapes_default_returns_true() {
-    // §01.4 test: escapes() defaults to true when no escape info recorded.
+    // escapes() defaults to true when no escape info recorded.
     // Safe default — never stack-promotes when unsure.
     let plan = ReprPlan::new(NarrowingPolicy::Aggressive);
     assert!(
@@ -1587,8 +1587,8 @@ use crate::plan::RcStrategy;
 #[test]
 fn rc_strategy_default_is_atomic_i64() {
     // Semantic pin: rc_strategy() must return Atomic { I64 } when no decision
-    // has been recorded. This is the documented §01 contract — §01 alone
-    // causes zero behavioral change.
+    // has been recorded. This is the documented contract — the repr-opt
+    // infrastructure alone causes zero behavioral change.
     let plan = ReprPlan::new(NarrowingPolicy::Aggressive);
     assert_eq!(
         plan.rc_strategy(Idx::INT),
@@ -1662,7 +1662,7 @@ fn set_rc_strategy_preserves_original_repr() {
 
 #[test]
 fn set_rc_strategy_write_read_round_trip() {
-    // §01.4 test: After set_rc_strategy(idx, RcStrategy::None, ...),
+    // After set_rc_strategy(idx, RcStrategy::None, ...),
     // rc_strategy(idx) returns RcStrategy::None.
     let mut plan = ReprPlan::new(NarrowingPolicy::Aggressive);
     plan.set_rc_strategy(Idx::INT, RcStrategy::None, DecisionSource::Triviality);
@@ -1703,11 +1703,11 @@ fn set_rc_strategy_records_audit_entry() {
     );
 }
 
-// ── §01.3 Pipeline Integration Tests ────────────────────────────────
+// ── Pipeline Integration Tests ───────────────────────────────────────
 
 #[test]
 fn compute_repr_plan_populates_primitives() {
-    // §01.3 test: compute_repr_plan() populates canonical representations
+    // compute_repr_plan() populates canonical representations
     // for all 11 non-error primitive types.
     let pool = ori_types::Pool::new();
     let plan = crate::compute_repr_plan(&pool, &[], NarrowingPolicy::Aggressive, &[]);
@@ -1744,7 +1744,7 @@ fn compute_repr_plan_populates_primitives() {
 
 #[test]
 fn compute_repr_plan_disabled_policy_skips_stubs() {
-    // §01.3 test: NarrowingPolicy::Disabled returns after populate_canonical()
+    // NarrowingPolicy::Disabled returns after populate_canonical()
     // without calling any narrowing stubs.
     let pool = ori_types::Pool::new();
     let plan = crate::compute_repr_plan(&pool, &[], NarrowingPolicy::Disabled, &[]);
@@ -1755,7 +1755,7 @@ fn compute_repr_plan_disabled_policy_skips_stubs() {
 
 #[test]
 fn compute_repr_plan_aggressive_is_default_behavior() {
-    // §01.3 test: NarrowingPolicy::Aggressive is the default — building
+    // NarrowingPolicy::Aggressive is the default — building
     // without --no-repr-opt results in Aggressive.
     let pool = ori_types::Pool::new();
     let plan = crate::compute_repr_plan(&pool, &[], NarrowingPolicy::Aggressive, &[]);
@@ -1772,7 +1772,7 @@ fn compute_repr_plan_aggressive_is_default_behavior() {
 
 #[test]
 fn compute_repr_plan_canonical_int_semantic_pin() {
-    // §01.3 semantic pin: canonical(Int) must be I64/signed.
+    // Semantic pin: canonical(Int) must be I64/signed.
     // This test fails if any future change alters the default int width.
     let pool = ori_types::Pool::new();
     let plan = crate::compute_repr_plan(&pool, &[], NarrowingPolicy::Aggressive, &[]);
@@ -1788,7 +1788,7 @@ fn compute_repr_plan_canonical_int_semantic_pin() {
 
 #[test]
 fn compute_repr_plan_zero_behavioral_change_with_disabled() {
-    // §01.3 test: identical canonical representations regardless of policy.
+    // Identical canonical representations regardless of policy.
     let pool = ori_types::Pool::new();
     let plan_aggressive = crate::compute_repr_plan(&pool, &[], NarrowingPolicy::Aggressive, &[]);
     let plan_disabled = crate::compute_repr_plan(&pool, &[], NarrowingPolicy::Disabled, &[]);
@@ -1893,11 +1893,11 @@ fn env_disabled_rejects_falsey_values() {
     );
 }
 
-// ── §01.7: #repr Attribute Integration tests ──────────────────────
+// ── #repr Attribute Integration tests ─────────────────────────────
 
 #[test]
 fn repr_c_stored_and_retrieved() {
-    // §01.7: #repr("c") on a struct → ReprAttribute::C in repr_attrs.
+    // #repr("c") on a struct → ReprAttribute::C in repr_attrs.
     let mut pool = ori_types::Pool::new();
     let struct_idx = pool.struct_type(ori_ir::Name::from_raw(100), &[]);
     let repr_attrs = [(struct_idx, ori_ir::ReprAttrKind::C)];
@@ -1911,7 +1911,7 @@ fn repr_c_stored_and_retrieved() {
 
 #[test]
 fn repr_packed_stored_and_retrieved() {
-    // §01.7: #repr("packed") → ReprAttribute::Packed stored and retrieved.
+    // #repr("packed") → ReprAttribute::Packed stored and retrieved.
     let mut pool = ori_types::Pool::new();
     let struct_idx = pool.struct_type(ori_ir::Name::from_raw(101), &[]);
     let repr_attrs = [(struct_idx, ori_ir::ReprAttrKind::Packed)];
@@ -1921,7 +1921,7 @@ fn repr_packed_stored_and_retrieved() {
 
 #[test]
 fn repr_transparent_stored_and_retrieved() {
-    // §01.7: #repr("transparent") on a single-field struct → ReprAttribute::Transparent.
+    // #repr("transparent") on a single-field struct → ReprAttribute::Transparent.
     let mut pool = ori_types::Pool::new();
     let field = (ori_ir::Name::from_raw(200), Idx::INT);
     let struct_idx = pool.struct_type(ori_ir::Name::from_raw(102), &[field]);
@@ -1935,7 +1935,7 @@ fn repr_transparent_stored_and_retrieved() {
 
 #[test]
 fn repr_aligned_stored_and_retrieved() {
-    // §01.7: #repr("aligned", 8) → ReprAttribute::Aligned(8).
+    // #repr("aligned", 8) → ReprAttribute::Aligned(8).
     let mut pool = ori_types::Pool::new();
     let struct_idx = pool.struct_type(ori_ir::Name::from_raw(103), &[]);
     let repr_attrs = [(struct_idx, ori_ir::ReprAttrKind::Aligned(8))];
@@ -1945,7 +1945,7 @@ fn repr_aligned_stored_and_retrieved() {
 
 #[test]
 fn no_repr_returns_none() {
-    // §01.7: Struct with no #repr → repr_attrs has no entry.
+    // Struct with no #repr → repr_attrs has no entry.
     let mut pool = ori_types::Pool::new();
     let struct_idx = pool.struct_type(ori_ir::Name::from_raw(104), &[]);
     let plan = crate::compute_repr_plan(&pool, &[], NarrowingPolicy::Aggressive, &[]);
@@ -1958,7 +1958,7 @@ fn no_repr_returns_none() {
 
 #[test]
 fn repr_c_semantic_pin() {
-    // §01.7 semantic pin: #repr("c") stored as ReprAttribute::C.
+    // Semantic pin: #repr("c") stored as ReprAttribute::C.
     // This test establishes the contract: populate_canonical() stores C
     // in repr_attrs, and a subsequent check returns Some(ReprAttribute::C).
     // Fails if the conversion or storage logic is reverted.
@@ -1976,7 +1976,7 @@ fn repr_c_semantic_pin() {
 
 #[test]
 fn repr_c_aligned_stored_and_retrieved() {
-    // §01.7: CAligned(16) from merged c + aligned → ReprAttribute::CAligned(16).
+    // CAligned(16) from merged c + aligned → ReprAttribute::CAligned(16).
     let mut pool = ori_types::Pool::new();
     let struct_idx = pool.struct_type(ori_ir::Name::from_raw(106), &[]);
     let repr_attrs = [(struct_idx, ori_ir::ReprAttrKind::CAligned(16))];
@@ -1990,7 +1990,7 @@ fn repr_c_aligned_stored_and_retrieved() {
 
 #[test]
 fn repr_convert_c_aligned_roundtrip() {
-    // §01.7 semantic pin: CAligned survives the ReprAttrKind → ReprAttribute conversion.
+    // Semantic pin: CAligned survives the ReprAttrKind → ReprAttribute conversion.
     let kind = ori_ir::ReprAttrKind::CAligned(32);
     let attr = crate::pipeline::convert_repr_attr_kind(&kind);
     assert_eq!(attr, ReprAttribute::CAligned(32));
@@ -2056,9 +2056,9 @@ fn repr_attr_named_vs_struct_idx_independent() {
     );
 }
 
-// ── §01.9: Canonical Representation Tests ──────────────────────────
+// ── Canonical Representation Tests ──────────────────────────────────
 
-/// §01.9 Item 4: Named→Struct resolution. Previous tests only covered
+/// Named→Struct resolution. Previous tests only covered
 /// Named→Int; this verifies Named types pointing to structs resolve
 /// through to the struct's representation including field layout.
 #[test]
@@ -2084,7 +2084,7 @@ fn canonical_named_resolves_to_struct() {
     }
 }
 
-/// §01.9 Item 8 (TPR-01-017): Struct containing an all-unit enum must be
+/// Struct containing an all-unit enum must be
 /// trivial. This exercises `is_trivial_repr()` on the `MachineRepr::Enum`
 /// path through a wrapper aggregate. A regression in the enum triviality
 /// branch would make the struct non-trivial, failing this test.
@@ -2127,7 +2127,7 @@ fn trivial_struct_containing_all_unit_enum() {
     }
 }
 
-/// §01.9 Item 10: `SelfType` returns None (should never reach codegen).
+/// `SelfType` returns None (should never reach codegen).
 /// TPR-01-047: canonical must be fallible, not panic-driven.
 #[test]
 fn canonical_returns_none_for_self_type() {
@@ -2142,7 +2142,7 @@ fn canonical_returns_none_for_self_type() {
     );
 }
 
-/// §01.9 Item 11: `FatPointer` structural layout assertion.
+/// `FatPointer` structural layout assertion.
 /// Both `FatRepr::Str` and `FatRepr::Collection` are `FatPointer` variants
 /// that produce `{i64, i64, ptr}` in LLVM. This test verifies the `ori_repr`
 /// level structure — the LLVM equivalence is covered by Phase A tests in
@@ -2181,7 +2181,7 @@ fn fat_pointer_str_and_collection_same_llvm_shape() {
     // LLVM lowering ({i64, i64, ptr}) via try_repr_to_llvm_type.
 }
 
-/// §01.9 Item 6: Storage type equivalence — containers and opaque types.
+/// Storage type equivalence — containers and opaque types.
 ///
 /// Covers 7 simple containers + 2 two-child containers + `DoubleEndedIterator`.
 /// (Borrowed panics in `canonical()` — not a codegen type.)
@@ -2252,7 +2252,7 @@ fn storage_equivalence_containers() {
     );
 }
 
-/// §01.9 Item 6: Storage type equivalence — complex types and resolved names.
+/// Storage type equivalence — complex types and resolved names.
 ///
 /// Covers Function, Tuple, Struct, Enum + Named/Applied/Alias resolution.
 #[test]
@@ -2321,7 +2321,7 @@ fn storage_equivalence_complex_and_resolved() {
     );
 }
 
-/// §01.9 Item 6: Storage type equivalence — ZST-divergence cases.
+/// Storage type equivalence — ZST-divergence cases.
 ///
 /// `canonical()` correctly uses zero-sized fields for `Unit`/`Never` in
 /// aggregates. `TypeInfoStore` uses `i64` for these — the divergence is
@@ -2372,7 +2372,7 @@ fn storage_equivalence_zst_divergence() {
     }
 }
 
-/// §01.9: `Borrowed` returns None — reserved type, not a codegen type.
+/// `Borrowed` returns None — reserved type, not a codegen type.
 #[test]
 fn canonical_returns_none_for_borrowed() {
     use ori_types::{LifetimeId, Tag};
@@ -2387,7 +2387,7 @@ fn canonical_returns_none_for_borrowed() {
     );
 }
 
-/// §01.9: `Projection` returns None — type-checker artifact.
+/// `Projection` returns None — type-checker artifact.
 #[test]
 fn canonical_returns_none_for_projection() {
     use ori_types::Tag;
@@ -2401,7 +2401,7 @@ fn canonical_returns_none_for_projection() {
     );
 }
 
-/// §01.9: `ModuleNs` returns None — module namespace, not a runtime type.
+/// `ModuleNs` returns None — module namespace, not a runtime type.
 #[test]
 fn canonical_returns_none_for_module_ns() {
     use ori_types::Tag;
@@ -2415,10 +2415,10 @@ fn canonical_returns_none_for_module_ns() {
     );
 }
 
-/// §01.10: Storage type equivalence — comprehensive 29-type matrix.
+/// Storage type equivalence — comprehensive 29-type matrix.
 ///
 /// Verifies that `canonical()` produces the correct `MachineRepr` for every
-/// type kind in the matrix from §01.9. Each assertion documents the expected
+/// type kind in the matrix. Each assertion documents the expected
 /// LLVM storage type that `TypeInfo::storage_type()` or `TypeLayoutResolver`
 /// would produce for the same type. This is the parity contract between
 /// `ori_repr` (representation-agnostic) and `ori_llvm` (LLVM-specific).
@@ -2711,7 +2711,7 @@ fn storage_type_equivalence_full_29_type_matrix() {
     );
 }
 
-// §02.2b: analyze_triviality() validation pass produces zero mismatches
+// analyze_triviality() validation pass produces zero mismatches
 
 #[test]
 fn analyze_triviality_validation_zero_mismatches() {
@@ -2780,7 +2780,7 @@ fn analyze_triviality_validation_zero_mismatches() {
     );
 }
 
-// §02 TPR-02-005: Idx::ERROR must be trivial in ReprPlan (parity with classify_triviality)
+// TPR-02-005: Idx::ERROR must be trivial in ReprPlan (parity with classify_triviality)
 
 #[test]
 fn repr_plan_error_type_is_trivial() {
@@ -3004,7 +3004,7 @@ fn repr_c_resolved_idx_not_narrowed_semantic_pin() {
     let repr_attrs = [(named_idx, ori_ir::ReprAttrKind::C)];
     let mut plan = crate::compute_repr_plan(&pool, &[], NarrowingPolicy::Aggressive, &repr_attrs);
 
-    // Manually add field ranges to both indices (simulating §03 output).
+    // Manually add field ranges to both indices (simulating range analysis output).
     plan.join_field_range(named_idx, 0, ValueRange::Bounded { lo: 0, hi: 10 });
     plan.join_field_range(struct_idx, 0, ValueRange::Bounded { lo: 0, hi: 10 });
 
@@ -3197,7 +3197,7 @@ fn repr_c_applied_concrete_struct_not_narrowed_semantic_pin() {
     let repr_attrs = [(named_idx, ori_ir::ReprAttrKind::C)];
     let mut plan = crate::compute_repr_plan(&pool, &[], NarrowingPolicy::Aggressive, &repr_attrs);
 
-    // Simulate bounded field ranges from §03.
+    // Simulate bounded field ranges from range analysis.
     plan.join_field_range(mono_struct_idx, 0, ValueRange::Bounded { lo: 0, hi: 10 });
 
     narrow_struct_fields(&mut plan, &pool);

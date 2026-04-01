@@ -83,7 +83,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 }
             }
 
-            // Struct: traverse RC fields (§06: remap to memory order)
+            // Struct: traverse RC fields (remap to memory order)
             Tag::Struct => {
                 let fields = self.pool.struct_fields(resolved);
                 #[expect(
@@ -103,7 +103,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 }
             }
 
-            // Tuple: traverse RC elements (§06: remap to memory order)
+            // Tuple: traverse RC elements (remap to memory order)
             Tag::Tuple => {
                 let elems = self.pool.tuple_elems(resolved);
                 #[expect(
@@ -197,7 +197,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 self.emit_buffer_rc_dec_map(val, resolved);
             }
 
-            // Struct: traverse RC fields, per-field drop functions (§06: remap)
+            // Struct: traverse RC fields, per-field drop functions (remap to memory order)
             Tag::Struct => {
                 let fields = self.pool.struct_fields(resolved);
                 #[expect(
@@ -217,7 +217,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 }
             }
 
-            // Tuple: traverse RC elements (§06: remap)
+            // Tuple: traverse RC elements (remap to memory order)
             Tag::Tuple => {
                 let elems = self.pool.tuple_elems(resolved);
                 #[expect(

@@ -1,4 +1,4 @@
-//! ABI boundary classification for integer narrowing (§04.2).
+//! ABI boundary classification for integer narrowing.
 //!
 //! At function boundaries, narrowed integers must be widened back to
 //! canonical width (i64) to preserve ABI correctness. This module
@@ -25,7 +25,7 @@
 //!
 //! `abi.rs` provides the **policy layer** — it classifies boundaries and
 //! answers "is narrowing allowed here?" The actual `sext`/`trunc` insertion
-//! is a codegen concern handled by §04.4 (LLVM Codegen Integration).
+//! is a codegen concern handled by the LLVM codegen integration.
 //!
 //! # ARC IR Limitations
 //!

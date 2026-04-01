@@ -1,6 +1,6 @@
 //! Integer narrowing — Phase A: struct/tuple field narrowing.
 //!
-//! Reads field-range summaries from `ReprPlan` (populated by §03) and
+//! Reads field-range summaries from `ReprPlan` (populated by range analysis) and
 //! replaces `Int { width: I64 }` fields with narrower widths when the
 //! range proves it safe.
 //!
@@ -17,7 +17,8 @@
 
 use ori_types::{Idx, Pool, Tag};
 
-use crate::plan::{DecisionReason, DecisionSource, ReprDecision, ReprPlan};
+use super::{commit_narrowing_decision, is_narrowing_candidate};
+use crate::plan::{DecisionReason, DecisionSource, ReprPlan};
 use crate::repr::{IntWidth, MachineRepr};
 use crate::struct_repr::{FatRepr, FieldRepr};
 
@@ -27,9 +28,9 @@ use crate::struct_repr::{FatRepr, FieldRepr};
 /// each `Int { I64, signed: true }` field against the field-range summary,
 /// and narrows the width when the range fits in a smaller type.
 ///
-/// **§04/§06 interface contract:** This pass writes only `FieldRepr.repr`;
-/// `FieldRepr.offset` remains zero (§06 is the authority for layout).
-pub fn narrow_struct_fields(plan: &mut ReprPlan, pool: &Pool) {
+/// **Narrowing/layout interface contract:** This pass writes only `FieldRepr.repr`;
+/// `FieldRepr.offset` remains zero (the layout pass is the authority for offsets).
+pub(crate) fn narrow_struct_fields(plan: &mut ReprPlan, pool: &Pool) {
     let policy = plan.narrowing_policy();
     if policy == crate::plan::NarrowingPolicy::Disabled {
         return;
@@ -55,23 +56,16 @@ pub fn narrow_struct_fields(plan: &mut ReprPlan, pool: &Pool) {
         // Phase A: skip tuples — only narrow named structs.
         // Tuples are used as collection elements, iterator state, and
         // intermediate values where element_store_size() / elem_dec_fn
-        // assume canonical field widths. Tuple narrowing requires Phase C
-        // element_store_size integration (§04.4).
+        // assume canonical field widths. Tuple narrowing requires
+        // element_store_size integration.
         if matches!(kind, CandidateKind::Tuple) {
             tracing::trace!(?idx, "skipping narrowing — tuple (Phase C)");
             continue;
         }
 
-        // Skip types with ABI-fixed layout attributes.
-        if has_fixed_layout_attr(plan, idx) {
-            tracing::trace!(?idx, "skipping narrowing — fixed layout attribute");
-            continue;
-        }
-
-        // Skip public types — their field layout is an ABI contract
-        // with external code (TPR-04-005).
-        if plan.is_public_type(idx) {
-            tracing::trace!(?idx, "skipping narrowing — public type (ABI contract)");
+        // Skip types ineligible for narrowing (fixed layout / public ABI).
+        if !is_narrowing_candidate(plan, idx) {
+            tracing::trace!(?idx, "skipping narrowing — not a candidate");
             continue;
         }
 
@@ -85,31 +79,14 @@ pub fn narrow_struct_fields(plan: &mut ReprPlan, pool: &Pool) {
                 if changed {
                     narrowed_count += 1;
                     let range_info = field_range_summary_string(idx, &struct_repr.fields, plan);
-                    let repr = MachineRepr::Struct(struct_repr);
-                    let decision = ReprDecision {
-                        source: DecisionSource::IntegerNarrowing,
-                        type_idx: idx,
-                        repr: repr.clone(),
-                        reason: DecisionReason::Custom(range_info.clone()),
-                    };
-                    plan.set_repr(idx, decision);
-                    // Codegen canonicalizes via pool.resolve_fully() — if the
-                    // original idx (e.g., Named("Pixel")) resolves to a different
-                    // concrete idx (e.g., Struct(fields)), store the narrowed
-                    // decision there too. Without this, codegen queries the
-                    // resolved idx and finds the original canonical (I64) version.
-                    let resolved = pool.resolve_fully(idx);
-                    if resolved != idx {
-                        plan.set_repr(
-                            resolved,
-                            ReprDecision {
-                                source: DecisionSource::IntegerNarrowing,
-                                type_idx: resolved,
-                                repr,
-                                reason: DecisionReason::Custom(range_info),
-                            },
-                        );
-                    }
+                    commit_narrowing_decision(
+                        plan,
+                        pool,
+                        idx,
+                        DecisionSource::IntegerNarrowing,
+                        MachineRepr::Struct(struct_repr),
+                        DecisionReason::Custom(range_info),
+                    );
                 }
             }
             (CandidateKind::Tuple, MachineRepr::Tuple(mut tuple_repr)) => {
@@ -117,26 +94,14 @@ pub fn narrow_struct_fields(plan: &mut ReprPlan, pool: &Pool) {
                 if changed {
                     narrowed_count += 1;
                     let range_info = field_range_summary_string(idx, &tuple_repr.elements, plan);
-                    let repr = MachineRepr::Tuple(tuple_repr);
-                    let decision = ReprDecision {
-                        source: DecisionSource::IntegerNarrowing,
-                        type_idx: idx,
-                        repr: repr.clone(),
-                        reason: DecisionReason::Custom(range_info.clone()),
-                    };
-                    plan.set_repr(idx, decision);
-                    let resolved = pool.resolve_fully(idx);
-                    if resolved != idx {
-                        plan.set_repr(
-                            resolved,
-                            ReprDecision {
-                                source: DecisionSource::IntegerNarrowing,
-                                type_idx: resolved,
-                                repr,
-                                reason: DecisionReason::Custom(range_info),
-                            },
-                        );
-                    }
+                    commit_narrowing_decision(
+                        plan,
+                        pool,
+                        idx,
+                        DecisionSource::IntegerNarrowing,
+                        MachineRepr::Tuple(tuple_repr),
+                        DecisionReason::Custom(range_info),
+                    );
                 }
             }
             _ => {}
@@ -192,24 +157,6 @@ fn is_canonical_int(repr: &MachineRepr) -> bool {
     )
 }
 
-/// Check if a type has a fixed-layout attribute that prevents narrowing.
-///
-/// `#repr("c")`, `#repr("c", aligned N)`, `#repr("packed")`, and
-/// `#repr("transparent")` all fix the field layout — narrowing would
-/// violate the ABI contract. `#repr("aligned", N)` alone does NOT
-/// prevent narrowing: it sets whole-struct alignment, not field layout.
-pub(crate) fn has_fixed_layout_attr(plan: &ReprPlan, idx: Idx) -> bool {
-    plan.repr_attr(idx).is_some_and(|attr| {
-        matches!(
-            attr,
-            crate::plan::ReprAttribute::C
-                | crate::plan::ReprAttribute::CAligned(_)
-                | crate::plan::ReprAttribute::Packed
-                | crate::plan::ReprAttribute::Transparent
-        )
-    })
-}
-
 /// Build a summary string of field ranges for the audit trail.
 fn field_range_summary_string(idx: Idx, fields: &[FieldRepr], plan: &ReprPlan) -> String {
     use std::fmt::Write;
@@ -253,7 +200,7 @@ enum CandidateKind {
 /// to read past the narrowed slot (e.g., reading 8 bytes from a 1-byte
 /// element), producing garbage comparisons and hashes. Set narrowing
 /// requires narrowing-aware thunks — tracked separately.
-pub fn narrow_collection_elements(plan: &mut ReprPlan, pool: &Pool) {
+pub(crate) fn narrow_collection_elements(plan: &mut ReprPlan, pool: &Pool) {
     let policy = plan.narrowing_policy();
     if policy == crate::plan::NarrowingPolicy::Disabled {
         return;
@@ -287,15 +234,9 @@ pub fn narrow_collection_elements(plan: &mut ReprPlan, pool: &Pool) {
             continue;
         }
 
-        // Skip public collection types — ABI contract with external code.
-        if plan.is_public_type(idx) {
-            tracing::trace!(?idx, "skipping collection narrowing — public type");
-            continue;
-        }
-
-        // Skip types with fixed layout attributes.
-        if has_fixed_layout_attr(plan, idx) {
-            tracing::trace!(?idx, "skipping collection narrowing — fixed layout attr");
+        // Skip types ineligible for narrowing (fixed layout / public ABI).
+        if !is_narrowing_candidate(plan, idx) {
+            tracing::trace!(?idx, "skipping collection narrowing — not a candidate");
             continue;
         }
 
@@ -322,27 +263,14 @@ pub fn narrow_collection_elements(plan: &mut ReprPlan, pool: &Pool) {
         });
 
         let reason = format!("element narrowing: {element_range:?} → {min_width:?}");
-        let decision = ReprDecision {
-            source: DecisionSource::IntegerNarrowing,
-            type_idx: idx,
-            repr: new_repr.clone(),
-            reason: DecisionReason::Custom(reason.clone()),
-        };
-        plan.set_repr(idx, decision);
-
-        // Also store for resolved idx (same pattern as struct narrowing).
-        let resolved = pool.resolve_fully(idx);
-        if resolved != idx {
-            plan.set_repr(
-                resolved,
-                ReprDecision {
-                    source: DecisionSource::IntegerNarrowing,
-                    type_idx: resolved,
-                    repr: new_repr,
-                    reason: DecisionReason::Custom(reason),
-                },
-            );
-        }
+        commit_narrowing_decision(
+            plan,
+            pool,
+            idx,
+            DecisionSource::IntegerNarrowing,
+            new_repr,
+            DecisionReason::Custom(reason),
+        );
 
         narrowed_count += 1;
     }

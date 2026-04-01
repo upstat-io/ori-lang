@@ -4,7 +4,7 @@
 //! false branch knows `x ∈ [100, hi]`. This is the most powerful source of
 //! narrowing information for loop counters and bounds checks.
 //!
-//! Called from the fixpoint loop (§03.3) when processing `Branch` terminators.
+//! Called from the fixpoint loop when processing `Branch` terminators.
 
 use ori_arc::ir::{ArcInstr, ArcValue, PrimOp};
 use ori_arc::ArcVarId;

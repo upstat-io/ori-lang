@@ -190,8 +190,8 @@ pub struct ModuleChecker<'a> {
     /// maps an impl method name to its resolved signature. Codegen needs
     /// these to compute ABI (calling convention, sret, parameter passing).
     impl_sigs: Vec<(Name, FunctionSig)>,
-    /// Trait impl method identities (for §03.5 unconstrained function detection).
-    /// Each entry is `(self_type_idx, method_name)` for disambiguation (TPR-03-042).
+    /// Trait impl method identities (for unconstrained function detection).
+    /// Each entry is `(self_type_idx, method_name)` for disambiguation.
     trait_impl_fn_names: Vec<(Idx, Name)>,
 
     // === Monomorphization ===
@@ -432,7 +432,7 @@ impl<'a> ModuleChecker<'a> {
         self.impl_sigs.push((name, sig));
     }
 
-    /// Record a trait impl method name for §03.5 unconstrained function detection.
+    /// Record a trait impl method name for unconstrained function detection.
     ///
     /// Trait impl methods may be called via dynamic dispatch — their parameter
     /// ranges must stay Top in interprocedural range analysis. Inherent impl

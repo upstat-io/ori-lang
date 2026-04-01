@@ -24,7 +24,7 @@ use super::string_helpers::{
 };
 use super::{emit_derive_return, setup_derive_function, DeriveSetup};
 
-/// §06: Translate a declaration-order field index to memory-order for LLVM.
+/// Translate a declaration-order field index to memory-order for LLVM.
 ///
 /// Looks up the `StructRepr` from the `ReprPlan`; if the type has a reordered
 /// layout, returns the memory-order position. Otherwise returns the original
@@ -122,7 +122,7 @@ fn emit_all_true_body<'a>(
 
     for (i, field) in fields.iter().enumerate() {
         let field_name = fc.lookup_name(field.name).to_owned();
-        // §06: remap declaration-order index to memory-order for LLVM extract.
+        // Remap declaration-order index to memory-order for LLVM extract.
         #[expect(
             clippy::cast_possible_truncation,
             reason = "struct fields always < u32::MAX"
@@ -192,7 +192,7 @@ fn emit_lexicographic_body<'a>(
 
     for (i, field) in fields.iter().enumerate() {
         let field_name = fc.lookup_name(field.name).to_owned();
-        // §06: remap declaration-order index to memory-order for LLVM extract.
+        // Remap declaration-order index to memory-order for LLVM extract.
         #[expect(
             clippy::cast_possible_truncation,
             reason = "struct fields always < u32::MAX"
@@ -261,7 +261,7 @@ fn emit_hash_combine_body<'a>(
 
     for (i, field) in fields.iter().enumerate() {
         let field_name = fc.lookup_name(field.name).to_owned();
-        // §06: remap declaration-order index to memory-order for LLVM extract.
+        // Remap declaration-order index to memory-order for LLVM extract.
         #[expect(
             clippy::cast_possible_truncation,
             reason = "struct fields always < u32::MAX"
@@ -338,7 +338,7 @@ pub(super) fn compile_format_fields<'a>(
             emit_str_rc_dec(fc, label_str, &format!("dec.label.{i}"));
         }
 
-        // §06: remap declaration-order index to memory-order for LLVM extract.
+        // Remap declaration-order index to memory-order for LLVM extract.
         #[expect(
             clippy::cast_possible_truncation,
             reason = "struct fields always < u32::MAX"
@@ -410,7 +410,7 @@ pub(super) fn compile_clone_fields<'a>(
         let resolved = pool.resolve_fully(field.ty);
         let tag = pool.tag(resolved);
 
-        // §06: remap declaration-order index to memory-order for LLVM extract.
+        // Remap declaration-order index to memory-order for LLVM extract.
         let mem_i = remap_derive_field(fc, setup.type_idx, i as u32);
         let field_val = fc
             .builder_mut()

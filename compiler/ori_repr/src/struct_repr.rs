@@ -2,8 +2,7 @@
 //!
 //! These types describe the physical layout of compound types in generated
 //! code. They are populated by `canonical()` with declaration-order layouts,
-//! then refined by §06 (struct layout optimization) and §09 (ARC header
-//! compression).
+//! then refined by struct layout optimization and ARC header compression.
 
 use ori_ir::Name;
 
@@ -27,16 +26,16 @@ pub struct StructRepr {
 pub struct FieldRepr {
     /// Original field name (interned via `Name` from `ori_ir`).
     ///
-    /// Required by §06 for: (1) debug symbol emission (DWARF needs names),
+    /// Required for: (1) debug symbol emission (DWARF needs names),
     /// (2) C-ABI verification (declaration order must match for `#repr("c")`),
     /// (3) tracing output (audit trail logs field names, not indices).
     pub name: Name,
     /// Original field index in declaration order (0-based).
     ///
     /// `fields[i].original_index` tells codegen the source order after
-    /// §06 may have reordered `fields` by alignment/size.
+    /// the layout pass may have reordered `fields` by alignment/size.
     pub original_index: u32,
-    /// Offset in bytes from struct start (set by §06 layout algorithm).
+    /// Offset in bytes from struct start (set by the layout algorithm).
     pub offset: u32,
     /// Machine representation of this field.
     pub repr: MachineRepr,

@@ -306,7 +306,7 @@ impl TypeInfo {
 
     /// True if this type maps to a single LLVM scalar value.
     ///
-    /// Used for the `noundef` attribute (§02.6): Ori's type system guarantees
+    /// Used for the `noundef` attribute: Ori's type system guarantees
     /// scalar values are always initialized, so passing `undef`/`poison` is UB.
     /// Aggregates, pointers, and composite types are excluded.
     pub fn is_llvm_scalar(&self) -> bool {

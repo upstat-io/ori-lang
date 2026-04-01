@@ -68,7 +68,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
         let elem_info = self.type_info.get(elem_ty);
 
-        // §04.4 Phase C: narrowed int elements cannot use the runtime
+        // Narrowed int elements cannot use the runtime
         // `ori_list_contains_int` which hardcodes i64 stride. Generate an
         // inline loop with the correct narrowed element type instead.
         if matches!(&elem_info, TypeInfo::Int) {
@@ -175,7 +175,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// Calls `ori_list_get(data, len, index, elem_size, out_ptr)`.
     /// Panics on out-of-bounds (no Option wrapper — direct element return).
     ///
-    /// `list_ty` is the collection type (e.g., `List<int>`) used for §04.4
+    /// `list_ty` is the collection type (e.g., `List<int>`) used for
     /// Phase C narrowed element size/type lookup.
     pub(crate) fn emit_list_index(
         &mut self,
@@ -188,7 +188,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
         let (data_ptr, len) = self.extract_list_data_and_len(receiver);
 
-        // §04.4 Phase C: use narrowed element size/type if available.
+        // Use narrowed element size/type if available.
         let collection_idx = self.pool.resolve_fully(list_ty);
         let elem_size_val = self
             .builder
@@ -208,7 +208,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
         let elem_val = self.builder.load(elem_llvm_ty, out_alloca, "index.val");
 
-        // §04.4 Phase C: sign-extend narrowed element back to canonical i64.
+        // Sign-extend narrowed element back to canonical i64.
         let elem_val =
             self.sext_narrowed_collection_element(elem_val, collection_idx, "index.sext");
 
@@ -244,7 +244,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let func_id = self.builder.runtime_fn("ori_iter_from_list");
 
         let (data_ptr, len, cap) = self.extract_list_fields(receiver);
-        // §04.4 Phase C: narrowed element size for iterators.
+        // Narrowed element size for iterators.
         let collection_idx = self.pool.resolve_fully(receiver_ty);
         let elem_size_val = self
             .builder
@@ -268,7 +268,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let func_id = self.builder.runtime_fn("ori_list_slice");
 
         let (data_ptr, len, cap) = self.extract_list_fields(receiver);
-        // §04.4 Phase C: use narrowed element size if available.
+        // Use narrowed element size if available.
         let collection_idx = self.pool.resolve_fully(list_ty);
         let elem_size_val = self
             .builder
@@ -301,7 +301,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let func_id = self.builder.runtime_fn("ori_list_slice_take");
 
         let (data_ptr, len, cap) = self.extract_list_fields(receiver);
-        // §04.4 Phase C: use narrowed element size if available.
+        // Use narrowed element size if available.
         let collection_idx = self.pool.resolve_fully(list_ty);
         let elem_size_val = self
             .builder
@@ -334,7 +334,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let func_id = self.builder.runtime_fn("ori_list_slice_drop");
 
         let (data_ptr, len, cap) = self.extract_list_fields(receiver);
-        // §04.4 Phase C: use narrowed element size if available.
+        // Use narrowed element size if available.
         let collection_idx = self.pool.resolve_fully(list_ty);
         let elem_size_val = self
             .builder

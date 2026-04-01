@@ -148,7 +148,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         // Types > 16 bytes (e.g. str = 24 bytes) use indirect parameter
         // passing and sret return in Ori's fastcc ABI.
         //
-        // §04.4 Phase C: use narrowed type for loads from buffer pointers.
+        // Use narrowed type for loads from buffer pointers.
         // The buffer stores narrowed elements, but the Ori closure expects
         // canonical i64 values. Load narrowed, sext, then pass to closure.
         let elem_llvm_ty = self.resolve_type(elem_ty);
@@ -181,7 +181,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 let elem_arg = if elem_is_indirect {
                     in_ptr
                 } else {
-                    // §04.4 Phase C: load with narrowed type, sext to canonical.
+                    // Load with narrowed type, sext to canonical.
                     let raw = self.builder.load(buf_elem_llvm_ty, in_ptr, "tramp.elem");
                     if needs_sext {
                         let i64_ty = self.builder.i64_type();
@@ -229,7 +229,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                         "tramp.pred",
                     )
                 } else {
-                    // §04.4 Phase C: load with narrowed type, sext to canonical.
+                    // Load with narrowed type, sext to canonical.
                     let raw = self.builder.load(buf_elem_llvm_ty, elem_ptr, "tramp.elem");
                     let elem = if needs_sext {
                         let i64_ty = self.builder.i64_type();
@@ -269,7 +269,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                         &[ori_env, elem_ptr],
                     );
                 } else {
-                    // §04.4 Phase C: load with narrowed type, sext to canonical.
+                    // Load with narrowed type, sext to canonical.
                     let raw = self.builder.load(buf_elem_llvm_ty, elem_ptr, "tramp.elem");
                     let elem = if needs_sext {
                         let i64_ty = self.builder.i64_type();
@@ -307,7 +307,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 let elem_arg = if elem_is_indirect {
                     elem_ptr
                 } else {
-                    // §04.4 Phase C: load with narrowed type, sext to canonical.
+                    // Load with narrowed type, sext to canonical.
                     let raw = self.builder.load(buf_elem_llvm_ty, elem_ptr, "tramp.elem");
                     if needs_sext {
                         let i64_ty = self.builder.i64_type();

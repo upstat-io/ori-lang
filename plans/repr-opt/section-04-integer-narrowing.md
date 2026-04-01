@@ -1,7 +1,7 @@
 ---
 section: "04"
 title: "Integer Narrowing Pipeline"
-status: in-progress
+status: complete
 reviewed: true
 third_party_review:
   status: resolved
@@ -28,7 +28,7 @@ sections:
     status: complete
   - id: "04.5"
     title: "Completion Checklist"
-    status: in-progress
+    status: complete
   - id: "04.R"
     title: "Third Party Review Findings"
     status: complete
@@ -317,7 +317,7 @@ The LLVM backend type resolution path via `TypeLayoutResolver` handles `MachineR
 - [x] `./diagnostics/valgrind-aot.sh` clean (2026-03-29): 15/15 tests PASS, no memory errors
 - [x] Performance: struct sizes measurably smaller for bounded-range fields (2026-03-29): Verified by existing AOT IR semantic pin tests — `test_narrowed_struct_ir_pin_type_layout` asserts `{ i8, i8, i8, i8 }` (4 bytes) for Pixel struct with bounded fields. `test_narrowed_list_i8_ir_pin` verifies `elem_size=1` for narrowed list elements.
 - [x] `/tpr-review` passed (2026-03-29) — 4 iterations: TPR-04-041 (transitive test gap) fixed with 3-layer coverage, TPR-04-042 (per-Idx poisoning) fixed by removing imported surfaces from pub_type_indices + Phase C semantic pins. Clean pass on iteration 4. 14,421 tests pass.
-- [ ] `/impl-hygiene-review last commit` passed — implementation hygiene review clean (phase boundaries, SSOT, algorithmic DRY, naming). MUST run AFTER `/tpr-review` is clean.
+- [x] `/impl-hygiene-review last commit` passed — implementation hygiene review clean (phase boundaries, SSOT, algorithmic DRY, naming). MUST run AFTER `/tpr-review` is clean. (2026-03-31)
 
 **Exit Criteria:** Compiling a program with `struct Pixel { r: int, g: int, b: int, a: int }` where all fields are `[-128, 127]` produces a 4-byte struct (4 × i8) instead of 32-byte struct (4 × i64), verified by checking LLVM IR struct definitions. (Under signed narrowing, `0..255` maps to `i16`, producing an 8-byte struct — use `[-128, 127]` for the `i8` pin.)
 

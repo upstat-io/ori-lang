@@ -161,7 +161,7 @@ impl<'tcx> super::OwnedLLVMEvaluator<'tcx> {
         // Type infrastructure
         let classifier = ori_arc::ArcClassifier::new(self.pool);
 
-        // Compute representation plan (§01 — canonical reprs only).
+        // Compute representation plan (canonical reprs only).
         let all_arc_funcs: Vec<ori_arc::ArcFunction> = arc_cache
             .values()
             .flat_map(|(parent, lambdas)| std::iter::once(parent).chain(lambdas.iter()))
@@ -203,7 +203,7 @@ impl<'tcx> super::OwnedLLVMEvaluator<'tcx> {
                 });
             }
         }
-        // Collect unconstrained function names (pub + trait impl) for §03.5.
+        // Collect unconstrained function names (pub + trait impl).
         // Uses trait_impl_fn_names (not all impl_sigs) per TPR-03-038.
         let unconstrained_fn_names = crate::collect_unconstrained_fn_names(
             function_sigs,
