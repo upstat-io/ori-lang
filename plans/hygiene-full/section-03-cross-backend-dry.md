@@ -9,7 +9,7 @@ inspired_by:
   - "Lean 4 IR/RC.lean -- shared RC decision metadata, backend-specific emission"
 depends_on: ["01", "02"]
 third_party_review:
-  status: in-progress
+  status: findings
   updated: 2026-04-01
 sections:
   - id: "03.1"
@@ -489,6 +489,16 @@ All subsections must also satisfy:
 ---
 
 ## 03.R Third Party Review Findings
+
+- [ ] `[TPR-03-009][high]` [compiler/ori_llvm/src/codegen/arc_emitter/builtins/option_result_helpers.rs](/home/eric/projects/ori_lang/compiler/ori_llvm/src/codegen/arc_emitter/builtins/option_result_helpers.rs#L301) only formats wrapper-debug payloads through `emit_element_to_str()`, which returns `None` for compound payloads such as lists, tuples, and nested wrappers.
+  Evidence: `emit_option_debug_branch()` / `emit_result_debug()` both call `emit_element_to_str()` for the inner payload, but that helper only handles primitives plus `str`. Fresh verification on 2026-04-01: interpreter `./target/release/ori run /tmp/wrapper_debug_nested.ori` prints `Some([1, 2, 3])` and `Ok([4, 5])`, while AOT `diagnostics/diagnose-aot.sh /tmp/wrapper_debug_nested.ori` compiles and runs but prints two empty lines.
+  Impact: `Option.debug()` / `Result.debug()` are still semantically wrong for non-primitive payloads in LLVM, so the new wrapper-debug support is incomplete and violates dual-execution parity on valid user programs.
+  Required plan update: Route wrapper debug through recursive Debug semantics instead of the `to_str` helper, then add an AOT regression pin for `Option<[int]>` / `Result<[int], str>` (or equivalent compound payloads).
+
+- [ ] `[TPR-03-010][medium]` [compiler/ori_llvm/src/codegen/arc_emitter/builtins/option_result_helpers.rs](/home/eric/projects/ori_lang/compiler/ori_llvm/src/codegen/arc_emitter/builtins/option_result_helpers.rs#L301) formats `str` payloads with Printable semantics rather than Debug semantics, so wrapper debug output drops the required quotes and escapes.
+  Evidence: `emit_element_to_str()` returns raw `str` values unchanged and the helper docs explicitly describe `Some(v)` / `Ok(v)` as using `v.to_str()`. Fresh verification on 2026-04-01: interpreter `./target/release/ori run /tmp/wrapper_debug_output.ori` prints `Some("hi")` and `Err("oops")`, while AOT `diagnostics/diagnose-aot.sh /tmp/wrapper_debug_output.ori` prints `Some(hi)` and `Err(oops)`.
+  Impact: The LLVM backend violates the existing Debug spec/tests for wrapper values containing strings, so current AOT output is observably wrong even for the simplest `Option<str>` / `Result<_, str>` cases.
+  Required plan update: Reuse the existing string-debug escaping path for wrapper payloads and add a standalone AOT regression pin until the LLVM spec harness can execute `tests/spec/traits/debug/wrappers.ori`.
 
 - [x] `[TPR-03-007][critical]` [compiler/ori_llvm/src/codegen/arc_emitter/builtins/option_result.rs](/home/eric/projects/ori_lang/compiler/ori_llvm/src/codegen/arc_emitter/builtins/option_result.rs#L95) still returns RC-backed payloads from `Option.unwrap_or`, `Option.expect`, `Result.unwrap_or`, and `Result.expect` by raw extract/load without retaining inner RC fields first.
   Resolved: Fixed on 2026-04-01. Added conditional `inc_value_rc` for `Option.unwrap_or` (guarded by is_some), unconditional `inc_value_rc` for `Option.expect` (post-branch, guaranteed Some), and equivalent fixes for `Result.unwrap_or` (conditional on is_ok), `Result.expect` (unconditional post-branch), `Result.expect_err` (unconditional post-branch). All verified clean with standalone AOT repros using heap strings.
