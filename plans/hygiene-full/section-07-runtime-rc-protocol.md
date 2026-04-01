@@ -82,7 +82,9 @@ The immortal sentinel check (`if current_rc == MAX_REFCOUNT { return; }`) is pre
 ## 07.R Third Party Review Findings
 
 - [x] `[TPR-07-001][medium]` `compiler/ori_rt/src/tests.rs:377` — Section 07 marks immortal-buffer coverage as verified, but the test suite only exercises `ori_rc_inc`/`ori_rc_dec` on an immortal allocation.
-  Resolved: Fixed on 2026-04-01. Added 3 new tests: `buffer_rc_dec_skips_at_max_refcount`, `map_buffer_rc_dec_skips_at_max_refcount`, `set_buffer_rc_dec_skips_at_max_refcount`. Each test verifies: (1) refcount remains MAX_REFCOUNT after collection dec call, (2) elem_dec_fn/key_dec_fn/val_dec_fn are NOT called on immortal objects. All 5 immortal-path tests pass.
+  Resolved: Fixed on 2026-04-01. Added 4 new tests: `buffer_rc_dec_skips_at_max_refcount`, `map_buffer_rc_dec_skips_at_max_refcount`, `set_buffer_rc_dec_skips_at_max_refcount`, `slice_buffer_rc_dec_skips_at_max_refcount`. Each test verifies: (1) refcount remains MAX_REFCOUNT after collection dec call, (2) cleanup functions are NOT called on immortal objects. All 6 immortal-path tests pass.
+- [x] `[TPR-07-002][high]` `compiler/ori_rt/src/rc/elem_header.rs:127` — `store_elem_count` uses a plain `slot.write()` which creates a data race when two threads drop references to the same buffer concurrently.
+  Resolved: Fixed on 2026-04-01. Made `store_elem_count`, `load_elem_count`, and `load_elem_count_const` use `AtomicI64` with `Relaxed` ordering on the multi-threaded path (`#[cfg(not(feature = "single-threaded"))]`). `Relaxed` is sufficient because the refcount's `Release`/`Acquire` pair in `rc_dec_to_zero` already provides the happens-before relationship. Single-threaded path remains plain read/write.
 
 ---
 
