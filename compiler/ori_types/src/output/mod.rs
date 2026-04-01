@@ -29,7 +29,6 @@ use crate::{Idx, TypeCheckError, TypeCheckWarning};
 /// Without this sidecar, imported `pub` or `#repr("c")` types lose their
 /// protection when an importing module builds its `ReprPlan`, allowing
 /// their field layouts to be narrowed in violation of ABI guarantees.
-/// See CROSS-04-014.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct ExportedTypeMetadata {
     /// Merkle hash of the type's Pool representation.
@@ -258,7 +257,6 @@ pub struct TypedModule {
     /// Enables importing modules to correctly exempt `pub` and `#repr(...)`
     /// types from integer narrowing when building their `ReprPlan`.
     /// Only includes types with non-default metadata (repr attribute or public).
-    /// See CROSS-04-014.
     pub exported_type_metadata: Vec<ExportedTypeMetadata>,
 
     /// Merkle hashes of collection types (List, Set) reachable from public
@@ -267,7 +265,7 @@ pub struct TypedModule {
     /// Enables importing modules to protect collection element layouts from
     /// narrowing when the collection appears in an exported ABI surface.
     /// Merged with imported collection surfaces for transitive forwarding
-    /// (A→B→C propagation). See TPR-04-032.
+    /// (A→B→C propagation).
     pub exported_collection_surfaces: Vec<u64>,
 }
 

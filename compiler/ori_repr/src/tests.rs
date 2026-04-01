@@ -3359,11 +3359,11 @@ fn multiple_applied_instantiations_all_protected() {
     assert!(plan.is_public_type(mono_2));
 }
 
-// CROSS-04-014: Imported type metadata tests
+// Imported type metadata tests
 
 #[test]
 fn imported_pub_type_seeded_via_metadata() {
-    // CROSS-04-014: A type present in the pool (as if imported via type descriptors)
+    // A type present in the pool (as if imported via type descriptors)
     // with ExportedTypeMetadata marking it `is_public: true` must be protected
     // from narrowing, even though it is NOT in the local module's pub_type_indices.
     let mut pool = ori_types::Pool::new();
@@ -3395,13 +3395,13 @@ fn imported_pub_type_seeded_via_metadata() {
 
     assert!(
         plan.is_public_type(struct_idx),
-        "CROSS-04-014: imported pub type must be seeded as public via metadata"
+        "imported pub type must be seeded as public via metadata"
     );
 }
 
 #[test]
 fn imported_repr_c_type_seeded_via_metadata() {
-    // CROSS-04-014: A type present in the pool with ExportedTypeMetadata
+    // A type present in the pool with ExportedTypeMetadata
     // carrying `repr: Some(ReprAttrKind::C)` must have its repr attr seeded
     // in the plan, even without local repr_attrs.
     let mut pool = ori_types::Pool::new();
@@ -3433,13 +3433,13 @@ fn imported_repr_c_type_seeded_via_metadata() {
     assert_eq!(
         plan.repr_attr(struct_idx),
         Some(&ReprAttribute::C),
-        "CROSS-04-014: imported #repr(\"c\") type must have repr attr seeded via metadata"
+        "imported #repr(\"c\") type must have repr attr seeded via metadata"
     );
 }
 
 #[test]
 fn imported_pub_type_not_narrowed_semantic_pin() {
-    // CROSS-04-014 SEMANTIC PIN: An imported pub struct with bounded fields
+    // Semantic pin: An imported pub struct with bounded fields
     // must NOT be narrowed. This test ONLY passes with imported metadata seeding.
     use crate::narrowing::int::narrow_struct_fields;
 
@@ -3484,7 +3484,7 @@ fn imported_pub_type_not_narrowed_semantic_pin() {
                     width: IntWidth::I64,
                     signed: true,
                 },
-                "CROSS-04-014 semantic pin: imported pub struct must NOT be narrowed"
+                "semantic pin: imported pub struct must NOT be narrowed"
             );
         }
         other => panic!("expected Struct repr, got {other:?}"),
@@ -3493,7 +3493,7 @@ fn imported_pub_type_not_narrowed_semantic_pin() {
 
 #[test]
 fn imported_repr_c_type_not_narrowed_semantic_pin() {
-    // CROSS-04-014 SEMANTIC PIN: An imported #repr("c") struct with bounded
+    // Semantic pin: An imported #repr("c") struct with bounded
     // fields must NOT be narrowed. This test ONLY passes with imported metadata.
     use crate::narrowing::int::narrow_struct_fields;
 
@@ -3538,7 +3538,7 @@ fn imported_repr_c_type_not_narrowed_semantic_pin() {
                     width: IntWidth::I64,
                     signed: true,
                 },
-                "CROSS-04-014 semantic pin: imported #repr(\"c\") struct must NOT be narrowed"
+                "semantic pin: imported #repr(\"c\") struct must NOT be narrowed"
             );
         }
         other => panic!("expected Struct repr, got {other:?}"),
@@ -3547,7 +3547,7 @@ fn imported_repr_c_type_not_narrowed_semantic_pin() {
 
 #[test]
 fn no_imported_metadata_allows_narrowing() {
-    // CROSS-04-014 NEGATIVE TEST: Without imported metadata, a struct with
+    // Negative test: Without imported metadata, a struct with
     // bounded fields IS narrowed. This proves the semantic pins above are
     // testing the right thing — they would fail without the metadata.
     use crate::narrowing::int::narrow_struct_fields;
@@ -3595,7 +3595,7 @@ fn no_imported_metadata_allows_narrowing() {
 
 #[test]
 fn imported_metadata_hash_not_in_pool_ignored() {
-    // CROSS-04-014 EDGE CASE: Imported metadata with a hash that doesn't
+    // Edge case: Imported metadata with a hash that doesn't
     // exist in the local pool is silently ignored (no panic, no effect).
     let pool = ori_types::Pool::new();
 
@@ -3620,12 +3620,10 @@ fn imported_metadata_hash_not_in_pool_ignored() {
     );
 }
 
-// =============================================================================
-// Cross-module collection surface protection (TPR-04-032)
-// =============================================================================
+// Cross-module collection surface protection
 
-/// Imported collection surface hash does NOT suppress element narrowing
-/// (TPR-04-042 fix). Imported surfaces are for transitive forwarding metadata
+/// Imported collection surface hash does NOT suppress element narrowing.
+/// Imported surfaces are for transitive forwarding metadata
 /// (A→B→C), not for narrowing suppression. Private `[int]` in the importing
 /// module can narrow independently of imported public `[int]` APIs.
 #[test]

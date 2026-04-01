@@ -1,8 +1,8 @@
 ---
 section: "12"
 title: "Surface Hygiene"
-status: not-started
-reviewed: false
+status: in-progress
+reviewed: true
 goal: "Address surface hygiene: oversized files, missing SAFETY comments, missing module docs, dead code, large match arms, leaked pool IDs, cold-path allocations"
 inspired_by:
   - "CLAUDE.md -- 500 line limit, unsafe SAFETY comments, module docs"
@@ -104,8 +104,7 @@ At least 4 important modules lack `//!` module-level documentation:
 
 Dead code guarded by `#[allow(dead_code)]` without justification is technical debt. Each instance should either be used or removed.
 
-- [ ] **BLOAT** -- Dead code with `#[allow(dead_code)]` without justification
-- [ ] Audit all `#[allow(dead_code)]` annotations: either use the code, remove it, or add justification (e.g., "used by future section X")
+- [x] **Verified: zero unjustified** — `grep '#[allow(dead_code)]'` on production code (excluding tests) returns 0 results. All dead_code annotations either have `reason` or are in `#[cfg(test)]` blocks. (2026-04-01)
 
 ---
 
@@ -137,7 +136,7 @@ Pool-internal variable IDs (`var_ids`) leak through `FunctionSig` (line 425 comm
 
 String allocations (`format!()`, `String::from()`) on cold error paths are generally acceptable, but any hot-path string allocation should use `write!()` to a buffer instead.
 
-- [ ] **WASTE** -- Verify no hot-path string allocations; cold-path allocations are acceptable per `impl-hygiene.md`
+- [x] **Verified** — `format!()` calls in lexer/parser are in error factories and comment handling (cold paths). No hot-path string allocations found. (2026-04-01)
 
 ---
 

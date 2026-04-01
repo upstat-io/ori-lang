@@ -1,8 +1,8 @@
 ---
 section: "08"
 title: "Cross-Phase Invariant Contracts"
-status: not-started
-reviewed: false
+status: in-progress
+reviewed: true
 goal: "Add debug_assert validation for all cross-phase invariant contracts listed in impl-hygiene.md"
 inspired_by:
   - "Zig Compilation.zig -- explicit validation passes between compiler phases"
@@ -23,7 +23,7 @@ sections:
     status: not-started
   - id: "08.4"
     title: "TypeId/Idx Boundary Sync"
-    status: not-started
+    status: complete
   - id: "08.5"
     title: "ABI FIXME Resolution"
     status: not-started
@@ -96,8 +96,8 @@ If error nodes reach codegen without being filtered, codegen may emit incorrect 
 
 `TypeId::FIRST_COMPOUND = 64` (in `ori_ir`) and `Idx::FIRST_DYNAMIC` (in `ori_types`) represent the boundary between pre-interned primitive types and user-defined types. These must stay in sync. Currently there is no compile-time or test-time assertion relating them.
 
-- [ ] **GAP** -- `TypeId::FIRST_COMPOUND` (64) and `Idx::FIRST_DYNAMIC` are semantically related boundary constants with no sync assertion
-- [ ] Add a const assertion or test that verifies the relationship between `TypeId::FIRST_COMPOUND` and `Idx::FIRST_DYNAMIC` (they should be equal or have a documented mapping)
+- [x] **GAP fixed** — Added `typeid_first_compound_matches_idx_first_dynamic` test in `oric/tests/sync.rs`. Both are 64. Test passes. (2026-04-01)
+- [x] The assertion verifies `TypeId::FIRST_COMPOUND == Idx::FIRST_DYNAMIC` at test time, preventing silent desync. (2026-04-01)
 
 ---
 
