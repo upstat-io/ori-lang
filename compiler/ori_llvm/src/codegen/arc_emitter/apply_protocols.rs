@@ -159,7 +159,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let data = self.builder.extract_value(list_val, 2, "slice.data")?;
 
         // Compute element size from the list's element type
-        // §04.4 Phase C: use narrowed element size if available.
+        // Use narrowed element size if available.
         let resolved = self.pool.resolve_fully(list_ty);
         let elem_ty = if self.pool.tag(resolved) == ori_types::Tag::List {
             self.pool.list_elem(resolved)

@@ -34,10 +34,10 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 if matches!(self.pool.tag(resolved_ty), Tag::Unit | Tag::Never) {
                     return self.builder.const_zero_ty(llvm_ty);
                 }
-                // §06: reorder args from declaration order to memory order
+                // Reorder args from declaration order to memory order
                 // before truncation and LLVM struct construction.
                 let mem_args = self.reorder_args_to_memory_order(&arg_vals, ty);
-                // §04.4: truncate canonical-width (i64) values to narrowed
+                // Truncate canonical-width (i64) values to narrowed
                 // field width (i8/i16/i32) when the struct has narrowed fields.
                 let narrowed_args = self.trunc_for_narrowed_struct(llvm_ty, &mem_args, ty);
                 self.builder.build_struct(llvm_ty, &narrowed_args, "ctor")
@@ -141,7 +141,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                         ori_types::Idx::INT
                     };
 
-                // §04.4 Phase C: use narrowed element type/size if the ReprPlan
+                // Use narrowed element type/size if the ReprPlan
                 // has narrowed this collection's int elements (e.g., i8 for [int]
                 // with elements in [-128, 127]).
                 let collection_idx = self.pool.resolve_fully(ty);
@@ -203,7 +203,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                     };
                 let key_llvm_ty = self.resolve_type(key_idx);
                 let val_llvm_ty = self.resolve_type(val_idx);
-                // §04.4 Phase C: use narrowed element sizes for map buffers.
+                // Use narrowed element sizes for map buffers.
                 let collection_idx = self.pool.resolve_fully(ty);
                 let key_size = self.collection_elem_size(collection_idx, key_idx);
                 let val_size = self.collection_elem_size(collection_idx, val_idx);
@@ -351,7 +351,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             }
         };
 
-        // §04.4 Phase C: narrowed element type/size for collection reuse.
+        // Narrowed element type/size for collection reuse.
         let collection_idx = self.pool.resolve_fully(ty);
         let elem_llvm_ty = self.collection_elem_llvm_type(collection_idx, elem_idx);
         let elem_size = self.collection_elem_size(collection_idx, elem_idx);

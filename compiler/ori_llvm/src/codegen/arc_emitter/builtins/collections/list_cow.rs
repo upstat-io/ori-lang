@@ -328,7 +328,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         cow_mode: ValueId,
         list_ty: Idx,
     ) -> Option<ValueId> {
-        // §04.4 Phase C: use narrowed compare thunk for narrowed int lists.
+        // Use narrowed compare thunk for narrowed int lists.
         let compare_fn_ptr = self
             .get_or_create_narrowed_compare_thunk(elem_ty)
             .or_else(|| self.get_or_create_compare_thunk(elem_ty))?;
@@ -372,7 +372,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         cow_mode: ValueId,
         list_ty: Idx,
     ) -> Option<ValueId> {
-        // §04.4 Phase C: use narrowed compare thunk for narrowed int lists.
+        // Use narrowed compare thunk for narrowed int lists.
         let compare_fn_ptr = self
             .get_or_create_narrowed_compare_thunk(elem_ty)
             .or_else(|| self.get_or_create_compare_thunk(elem_ty))?;

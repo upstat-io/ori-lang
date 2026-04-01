@@ -195,7 +195,7 @@ pub struct ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
     /// (the value is already at the sret destination).
     sret_forwarded_result: Option<ValueId>,
 
-    /// §04.4 Phase B: per-function narrowed local variable widths.
+    /// Per-function narrowed local variable widths.
     ///
     /// Maps `ArcVarId` → `IntWidth` for local `int` variables whose value
     /// range fits in a narrower integer type. Function parameters are excluded
@@ -207,14 +207,14 @@ pub struct ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
     /// - Phi nodes use the narrow type
     narrowed_vars: FxHashMap<ArcVarId, ori_repr::IntWidth>,
 
-    /// §04.4 Phase C: repr plan for collection element narrowing.
+    /// Repr plan for collection element narrowing.
     ///
     /// When present, collection construction and element access paths consult
     /// this plan for narrowed element types (e.g., `[int]` with elements in
     /// `[-128, 127]` uses `i8` element storage instead of `i64`).
     repr_plan: Option<&'a ori_repr::ReprPlan>,
 
-    /// §04.4 Phase C: `elem_size` `ArcVarId`s for int-element for-yield loops.
+    /// `elem_size` `ArcVarId`s for int-element for-yield loops.
     ///
     /// Pre-scanned from `ori_list_push` calls: when a push's element arg
     /// has type `Tag::Int`, the `elem_size` arg (shared between `ori_list_new`
@@ -290,12 +290,12 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
         self.borrowed_rooted_vars.contains(&var)
     }
 
-    // §06 struct layout remapping
+    // Struct layout remapping
 
     /// Translate a declaration-order field index to the memory-order index
     /// for the LLVM struct type.
     ///
-    /// After §06 field reordering, `StructRepr.fields` are sorted by alignment
+    /// After field reordering, `StructRepr.fields` are sorted by alignment
     /// (memory order), but ARC IR uses declaration-order indices. This helper
     /// bridges the two: if the type has a `StructRepr` in the `ReprPlan`, look
     /// up the memory position; otherwise return the original index unchanged.
@@ -340,7 +340,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
     }
 
     /// Only applies to user structs/tuples — enum payloads, closure envs,
-    /// and collection internals are not subject to §06 reordering.
+    /// and collection internals are not subject to reordering.
     pub(super) fn remap_struct_field(&self, ty: Idx, decl_field: u32) -> u32 {
         let Some(plan) = self.repr_plan else {
             return decl_field;

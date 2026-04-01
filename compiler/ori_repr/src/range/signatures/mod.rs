@@ -1,6 +1,6 @@
 //! Interprocedural range propagation via function signatures.
 //!
-//! After intraprocedural range analysis (§03.3) computes per-variable ranges
+//! After intraprocedural range analysis computes per-variable ranges
 //! within each function, this module propagates ranges across function
 //! boundaries: argument ranges at call sites narrow callee parameters, and
 //! callee return ranges narrow the caller's call-result variable.
@@ -94,7 +94,7 @@ impl FunctionRangeInfo {
 
 /// Run interprocedural range propagation across all functions.
 ///
-/// This is the §03.5 entry point. It:
+/// This is the interprocedural propagation entry point. It:
 /// 1. Runs intraprocedural `range_fixpoint()` for each function.
 /// 2. Builds a call graph and decomposes into SCCs.
 /// 3. Propagates argument ranges to callee parameters within each SCC.
@@ -205,11 +205,11 @@ pub fn propagate_ranges(
     );
 
     // Phase 4: Store results in ReprPlan.
-    // Per-variable ranges are only stored when §04 narrowing is safe for codegen.
+    // Per-variable ranges are only stored when narrowing is safe for codegen.
     // The ARC emitter reads var_range() to insert trunc/sext for local variables —
-    // without §04.2 (ABI widening) and §04.3 (overflow guards), applying narrowed
-    // widths to locals is unsound. Field-range summaries are always stored because
-    // they are consumed by §04 itself, not by codegen directly.
+    // without ABI widening and overflow guards, applying narrowed widths to locals
+    // is unsound. Field-range summaries are always stored because they are consumed
+    // by integer narrowing itself, not by codegen directly.
     if plan.is_narrowing_safe_for_codegen() {
         for (name, result) in &results {
             plan.set_var_ranges(*name, result.var_ranges.clone());
@@ -355,7 +355,7 @@ fn collect_param_ranges(
     }
 
     // If no call sites found, parameters stay Bottom (function is dead code
-    // or only called externally — §04 will treat Bottom same as Top for safety).
+    // or only called externally — narrowing will treat Bottom same as Top for safety).
     // Actually, Bottom for "never called internally" should be Top for safety.
     for pr in &mut info.param_ranges {
         if pr.range == ValueRange::Bottom {

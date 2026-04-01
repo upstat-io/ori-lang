@@ -13,7 +13,7 @@
 //!
 //! `ori_repr` reads from `ori_types` and `ori_arc` but neither depends on it.
 //!
-//! # Salsa Integration (§01.6)
+//! # Salsa Integration
 //!
 //! [`compute_repr_plan()`] is **not** a Salsa query. It is a pure function
 //! that runs imperatively after type checking and ARC borrow inference:

@@ -108,7 +108,7 @@ impl FloatRange {
 /// f64 subnormals below f32's smallest subnormal (~1.4e-45) flush to
 /// zero in f32, so the roundtrip produces 0.0 != original. These are
 /// correctly rejected.
-pub fn is_f32_exact(value: f64) -> bool {
+pub(crate) fn is_f32_exact(value: f64) -> bool {
     if value.is_nan() {
         return false;
     }
@@ -144,8 +144,12 @@ pub fn is_f32_exact(value: f64) -> bool {
 /// **Integer narrowing / struct layout interface contract:** This pass
 /// writes only `FieldRepr.repr`; `FieldRepr.offset` remains zero (struct
 /// layout is the authority for offsets).
-pub fn narrow_float_fields(plan: &mut ReprPlan, pool: &Pool, float_table: &FloatFieldSummaryTable) {
-    use crate::plan::{DecisionReason, DecisionSource, ReprDecision};
+pub(crate) fn narrow_float_fields(
+    plan: &mut ReprPlan,
+    pool: &Pool,
+    float_table: &FloatFieldSummaryTable,
+) {
+    use crate::plan::{DecisionReason, DecisionSource};
     use crate::repr::{FloatWidth, MachineRepr};
 
     let mut narrowed_count: u32 = 0;
@@ -169,18 +173,9 @@ pub fn narrow_float_fields(plan: &mut ReprPlan, pool: &Pool, float_table: &Float
         .collect();
 
     for idx in candidates {
-        // Skip types with ABI-fixed layout attributes.
-        if super::int::has_fixed_layout_attr(plan, idx) {
-            tracing::trace!(?idx, "float narrowing: skipping — fixed layout attribute");
-            continue;
-        }
-
-        // Skip public types — their field layout is an ABI contract.
-        if plan.is_public_type(idx) {
-            tracing::trace!(
-                ?idx,
-                "float narrowing: skipping — public type (ABI contract)"
-            );
+        // Skip types ineligible for narrowing (fixed layout / public ABI).
+        if !super::is_narrowing_candidate(plan, idx) {
+            tracing::trace!(?idx, "float narrowing: skipping — not a candidate");
             continue;
         }
 
@@ -218,28 +213,14 @@ pub fn narrow_float_fields(plan: &mut ReprPlan, pool: &Pool, float_table: &Float
         if any_changed {
             narrowed_count += 1;
             let range_info = float_field_summary_string(idx, &struct_repr.fields, float_table);
-            let repr = MachineRepr::Struct(struct_repr);
-            let decision = ReprDecision {
-                source: DecisionSource::FloatNarrowing,
-                type_idx: idx,
-                repr: repr.clone(),
-                reason: DecisionReason::Custom(range_info.clone()),
-            };
-            plan.set_repr(idx, decision);
-
-            // Store under resolved idx too (same pattern as int.rs:101-112).
-            let resolved = pool.resolve_fully(idx);
-            if resolved != idx {
-                plan.set_repr(
-                    resolved,
-                    ReprDecision {
-                        source: DecisionSource::FloatNarrowing,
-                        type_idx: resolved,
-                        repr,
-                        reason: DecisionReason::Custom(range_info),
-                    },
-                );
-            }
+            super::commit_narrowing_decision(
+                plan,
+                pool,
+                idx,
+                DecisionSource::FloatNarrowing,
+                MachineRepr::Struct(struct_repr),
+                DecisionReason::Custom(range_info),
+            );
         }
     }
 
@@ -268,7 +249,7 @@ fn float_field_summary_string(
     s
 }
 
-// ── Float field summary table ───────────────────────────────────────
+// Float field summary table
 
 /// Aggregates float precision evidence per (type, field) pair.
 ///
@@ -315,7 +296,7 @@ impl FloatFieldSummaryTable {
 ///
 /// This is a single-pass scan (no fixpoint needed) because literal values
 /// are statically known from `LitValue::Float`.
-pub fn collect_float_field_summaries(
+pub(crate) fn collect_float_field_summaries(
     _plan: &ReprPlan,
     pool: &Pool,
     arc_functions: &[ArcFunction],

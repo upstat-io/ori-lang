@@ -6,10 +6,10 @@
 //!
 //! # Submodules
 //!
-//! - [`struct_layout`] — field reordering for structs (§06.1 + §06.3)
-//! - [`tuple_layout`] — field reordering for tuples (§06.4)
-//! - [`niche`] — niche analysis for enum optimization (§07.2)
-//! - [`tagged_ptr`] — tagged pointer analysis for enum optimization (§07.3)
+//! - [`struct_layout`] — field reordering for structs
+//! - [`tuple_layout`] — field reordering for tuples
+//! - [`niche`] — niche analysis for enum optimization
+//! - [`tagged_ptr`] — tagged pointer analysis for enum optimization
 
 pub(crate) mod niche;
 pub(crate) mod struct_layout;
@@ -20,7 +20,7 @@ pub(crate) mod tuple_layout;
 mod tests;
 
 use crate::enum_repr::VariantRepr;
-use crate::repr::MachineRepr;
+use crate::repr::{IntWidth, MachineRepr};
 use crate::struct_repr::{FieldRepr, TupleRepr};
 
 /// Whether a repr is trivial (no RC operations needed).
@@ -195,6 +195,75 @@ pub(crate) fn compute_enum_payload_layout(fields: &[MachineRepr]) -> (u32, u32) 
         .sum();
     let align = if payload > 0 { 8 } else { 1 };
     (payload, align)
+}
+
+/// Reorder fields by descending alignment, then descending size.
+///
+/// Returns `(reordered_fields, total_size, max_alignment)`. The returned
+/// fields have their `offset` set to the byte offset in the reordered layout.
+///
+/// This is the shared core of both struct and tuple layout optimization.
+/// Struct-specific concerns (padding diagnostics, `#repr` attributes) are
+/// handled by the callers in [`struct_layout`] and [`tuple_layout`].
+pub(crate) fn reorder_fields(fields: &[FieldRepr]) -> (Vec<FieldRepr>, u32, u32) {
+    if fields.is_empty() {
+        return (vec![], 0, 1);
+    }
+
+    // Build (current_position, size, align) tuples for sorting.
+    let mut indexed: Vec<(usize, u32, u32)> = fields
+        .iter()
+        .enumerate()
+        .map(|(i, f)| {
+            let size = field_size(&f.repr);
+            let align = field_align(&f.repr);
+            (i, size, align)
+        })
+        .collect();
+
+    // Stable sort: fields with equal alignment AND size preserve
+    // declaration order — deterministic, reproducible layout.
+    indexed.sort_by(|a, b| b.2.cmp(&a.2).then(b.1.cmp(&a.1)));
+
+    // Compute offsets in sorted order.
+    let mut offset = 0u32;
+    let mut max_align = 1u32;
+    let mut result = Vec::with_capacity(fields.len());
+
+    for &(src_idx, size, align) in &indexed {
+        offset = round_up(offset, align);
+        let mut field = fields[src_idx].clone();
+        field.offset = offset;
+        result.push(field);
+        offset += size;
+        max_align = max_align.max(align);
+    }
+
+    let total_size = round_up(offset, max_align);
+    (result, total_size, max_align)
+}
+
+/// Compute explicit-tag enum layout from tag width and variant dimensions.
+///
+/// Returns `(total_size, alignment)` for an enum with an explicit discriminant
+/// tag. Used by `canonical_enum`, `default_option_repr`, and `default_result_repr`
+/// to avoid duplicating the tag-padding logic.
+///
+/// Layout rule: all-unit enums (no payload) use the tag width as both size
+/// and alignment. Non-unit enums pad the tag to an 8-byte slot and append
+/// the payload aligned to `max(variant_align, 8)` (LLVM `[M x i64]` convention).
+pub(crate) fn compute_explicit_tag_layout(
+    tag_width: IntWidth,
+    max_payload: u32,
+    max_variant_align: u32,
+) -> (u32, u32) {
+    let tag_size = tag_width.size_bytes();
+    if max_payload == 0 {
+        (tag_size, tag_size)
+    } else {
+        let payload_align = max_variant_align.max(8);
+        (8 + round_up(max_payload, payload_align), payload_align)
+    }
 }
 
 impl TupleRepr {

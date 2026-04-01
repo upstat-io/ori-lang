@@ -53,7 +53,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             .unwrap_or_else(|| self.builder.const_i64(0));
 
         let needle_ptr = self.elem_to_ptr(key, key_ty, "contains_key.needle");
-        // §04.4 Phase C: use narrowed key size if available.
+        // Use narrowed key size if available.
         let collection_idx = self.pool.resolve_fully(map_ty);
         let key_size = self.collection_elem_size(collection_idx, key_ty);
         let key_size_val = self.builder.const_i64(key_size as i64);
@@ -97,7 +97,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             .extract_value(receiver, 0, "map.len")
             .unwrap_or_else(|| self.builder.const_i64(0));
 
-        // §04.4 Phase C: use narrowed key size if available.
+        // Use narrowed key size if available.
         let collection_idx = self.pool.resolve_fully(map_ty);
         let key_size = self.collection_elem_size(collection_idx, key_ty);
         let key_size_val = self.builder.const_i64(key_size as i64);
@@ -223,7 +223,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
     /// Extract map data, cap, len and compute key/val sizes from type info.
     ///
-    /// When `map_ty` is `Some`, uses `collection_elem_size` for §04.4 Phase C
+    /// When `map_ty` is `Some`, uses `collection_elem_size` for
     /// narrowed element sizes. Otherwise falls back to canonical sizes.
     pub(in crate::codegen::arc_emitter) fn extract_map_components(
         &mut self,
@@ -244,7 +244,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             .builder
             .extract_value(receiver, 0, "map.len")
             .unwrap_or_else(|| self.builder.const_i64(0));
-        // §04.4 Phase C: use narrowed element sizes for map buffers.
+        // Use narrowed element sizes for map buffers.
         let (key_size, val_size) = if let Some(mt) = map_ty {
             let collection_idx = self.pool.resolve_fully(mt);
             (

@@ -1,8 +1,8 @@
 //! Struct field reordering for optimal alignment and minimal padding.
 //!
-//! Implements the field reordering algorithm (§06.1) and ABI-stable
-//! layout variants (§06.3: `#repr("c")`, `#repr("packed")`,
-//! `#repr("transparent")`, `#repr("aligned", N)`).
+//! Implements the field reordering algorithm and ABI-stable layout
+//! variants (`#repr("c")`, `#repr("packed")`, `#repr("transparent")`,
+//! `#repr("aligned", N)`).
 
 use crate::layout::{field_align, field_size, round_up};
 use crate::plan::ReprAttribute;
@@ -11,7 +11,7 @@ use crate::struct_repr::StructRepr;
 /// Reorder struct fields for optimal alignment and minimal padding.
 ///
 /// Reads the existing `StructRepr` (already populated by `canonical_struct()`
-/// with narrowed field reprs from §04/§05), reorders fields by descending
+/// with narrowed field reprs from integer/float narrowing), reorders fields by descending
 /// alignment then descending size, computes byte offsets, and returns the
 /// updated `StructRepr`.
 ///
@@ -39,46 +39,7 @@ pub(crate) fn optimize_struct_layout(
 
 /// Core reordering: sort fields by descending alignment, then descending size.
 fn reorder_and_layout(struct_repr: &StructRepr) -> StructRepr {
-    if struct_repr.fields.is_empty() {
-        return StructRepr {
-            fields: vec![],
-            size: 0,
-            align: 1,
-            trivial: struct_repr.trivial,
-        };
-    }
-
-    // Build (current_position, size, align) tuples for sorting.
-    let mut indexed: Vec<(usize, u32, u32)> = struct_repr
-        .fields
-        .iter()
-        .enumerate()
-        .map(|(i, f)| {
-            let size = field_size(&f.repr);
-            let align = field_align(&f.repr);
-            (i, size, align)
-        })
-        .collect();
-
-    // Stable sort: fields with equal alignment AND size preserve
-    // declaration order — deterministic, reproducible layout.
-    indexed.sort_by(|a, b| b.2.cmp(&a.2).then(b.1.cmp(&a.1)));
-
-    // Compute offsets in sorted order.
-    let mut offset = 0u32;
-    let mut max_align = 1u32;
-    let mut fields = Vec::with_capacity(struct_repr.fields.len());
-
-    for &(src_idx, size, align) in &indexed {
-        offset = round_up(offset, align);
-        let mut field = struct_repr.fields[src_idx].clone();
-        field.offset = offset;
-        fields.push(field);
-        offset += size;
-        max_align = max_align.max(align);
-    }
-
-    let total_size = round_up(offset, max_align);
+    let (fields, total_size, max_align) = super::reorder_fields(&struct_repr.fields);
 
     // Padding diagnostic: emit when padding exceeds 25% of total size.
     let data_bytes: u32 = fields.iter().map(|f| field_size(&f.repr)).sum();

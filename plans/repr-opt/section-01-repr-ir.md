@@ -1,7 +1,7 @@
 ---
 section: "01"
 title: "Representation IR & Decision Framework"
-status: in-progress
+status: complete
 reviewed: true
 third_party_review:
   status: resolved
@@ -43,7 +43,7 @@ sections:
     status: complete
   - id: "01.10"
     title: "Completion Checklist"
-    status: in-progress
+    status: complete
 ---
 
 # Section 01: Representation IR & Decision Framework
@@ -1398,6 +1398,6 @@ Canonical representations are the foundation — if they're wrong, every optimiz
 - [x] **Golden tests**: 4 files: `types/repr_attr.ori`, `types/repr_with_target.ori`, `impls/conditional_attrs.ori`, `comments/edge/impl_conditional_attrs.ori` (2026-03-25).
 - [x] `./test-all.sh` green (2026-03-25). 13,933 passed, 0 failed.
 - [x] `/tpr-review` passed (2026-03-28) — TPR-01-065 found and fixed (layout_resolver.rs file size). Re-run confirmed clean: no new findings. 14,341 tests pass.
-- [ ] `/impl-hygiene-review last commit` passed — implementation hygiene review clean (phase boundaries, SSOT, algorithmic DRY, naming). MUST run AFTER `/tpr-review` is clean.
+- [x] `/impl-hygiene-review last commit` passed — implementation hygiene review clean (phase boundaries, SSOT, algorithmic DRY, naming). MUST run AFTER `/tpr-review` is clean. (2026-03-31)
 
 **Exit Criteria:** `ori_repr` crate exists, `ReprPlan` is threaded through the entire LLVM codegen pipeline, all existing tests pass with identical behavior, `cargo test -p ori_repr --release` passes, and `ORI_LOG=ori_repr=trace ori build tests/benchmarks/bench_small.ori` shows `ReprPlan query` events for every type in the program.

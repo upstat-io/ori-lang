@@ -27,7 +27,7 @@ use ori_types::{Idx, Pool};
 use rustc_hash::FxHashMap;
 
 use super::{is_int_typed, ValueRange};
-use ValueRange::{Bounded, Top};
+use ValueRange::{Bottom, Bounded, Top};
 
 pub use arithmetic::{
     range_abs, range_add, range_div, range_floordiv, range_mod, range_mul, range_neg, range_sub,
@@ -40,6 +40,53 @@ pub use bitwise::{range_bitand, range_bitnot, range_bitor, range_bitxor, range_s
 /// is unreachable but satisfies clippy's `cast_sign_loss`/`cast_possible_truncation`.
 fn shift_amount(v: i64) -> u32 {
     u32::try_from(v).unwrap_or(0)
+}
+
+/// Apply a binary operation to two ranges, handling Bottom/Top propagation.
+///
+/// The closure receives `(a_lo, a_hi, b_lo, b_hi)` for the `Bounded × Bounded` case.
+/// Bottom propagates (any Bottom input → Bottom), and any `Top` or mixed
+/// `Top × Bounded` input → Top.
+pub(crate) fn binary_transfer(
+    a: ValueRange,
+    b: ValueRange,
+    f: impl FnOnce(i64, i64, i64, i64) -> ValueRange,
+) -> ValueRange {
+    match (a, b) {
+        (Bottom, _) | (_, Bottom) => Bottom,
+        (Bounded { lo: al, hi: ah }, Bounded { lo: bl, hi: bh }) => f(al, ah, bl, bh),
+        _ => Top,
+    }
+}
+
+/// Evaluate all four corners of a binary operation and take min/max.
+///
+/// Given ranges `[al, ah]` and `[bl, bh]`, computes `op(a, b)` for all
+/// four `(al|ah, bl|bh)` combinations. Returns the tightest enclosing
+/// `Bounded` range, or `Top` if any corner returns `None` (overflow).
+///
+/// Used by `range_mul`, `range_div`, `range_floordiv`, and shift operations
+/// that share the 4-corner evaluation pattern.
+pub(crate) fn four_corner_fold(
+    al: i64,
+    ah: i64,
+    bl: i64,
+    bh: i64,
+    op: impl Fn(i64, i64) -> Option<i64>,
+) -> ValueRange {
+    let corners = [op(al, bl), op(al, bh), op(ah, bl), op(ah, bh)];
+    let mut lo = i64::MAX;
+    let mut hi = i64::MIN;
+    for c in corners {
+        match c {
+            Some(v) => {
+                lo = lo.min(v);
+                hi = hi.max(v);
+            }
+            None => return Top,
+        }
+    }
+    Bounded { lo, hi }
 }
 
 /// Context for the transfer function — bundles per-function state.
@@ -162,7 +209,7 @@ pub fn transfer_known_call(
     None
 }
 
-// ─── PrimOp dispatcher ────────────────────────────────────────
+// PrimOp dispatcher
 
 /// Dispatch a primitive operation to the appropriate transfer function.
 ///
@@ -220,10 +267,10 @@ fn transfer_primop(
     }
 }
 
-// ─── Literals & built-in ranges ───────────────────────────────
+// Literals and built-in ranges
 
 /// Integer literal → exact constant range.
-pub fn range_literal(value: i64) -> ValueRange {
+pub(crate) fn range_literal(value: i64) -> ValueRange {
     Bounded {
         lo: value,
         hi: value,
@@ -231,7 +278,7 @@ pub fn range_literal(value: i64) -> ValueRange {
 }
 
 /// `len()` always returns `>= 0`.
-pub fn range_len() -> ValueRange {
+pub(crate) fn range_len() -> ValueRange {
     Bounded {
         lo: 0,
         hi: i64::MAX,
@@ -239,7 +286,7 @@ pub fn range_len() -> ValueRange {
 }
 
 /// `count()` always returns `>= 0`.
-pub fn range_count() -> ValueRange {
+pub(crate) fn range_count() -> ValueRange {
     Bounded {
         lo: 0,
         hi: i64::MAX,
@@ -247,12 +294,12 @@ pub fn range_count() -> ValueRange {
 }
 
 /// `byte_to_int()` returns `[0, 255]`.
-pub fn range_byte_to_int() -> ValueRange {
+pub(crate) fn range_byte_to_int() -> ValueRange {
     Bounded { lo: 0, hi: 255 }
 }
 
 /// `char_to_int()` returns `[0, 0x10FFFF]`.
-pub fn range_char_to_int() -> ValueRange {
+pub(crate) fn range_char_to_int() -> ValueRange {
     Bounded {
         lo: 0,
         hi: 0x10_FFFF,

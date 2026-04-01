@@ -262,7 +262,7 @@ impl<'a, 'll, 'tcx> TypeLayoutResolver<'a, 'll, 'tcx> {
             }
 
             // Tuple: struct of recursively-resolved element types.
-            // §06: if the tuple is reordered, use memory-order from TupleRepr.
+            // If the tuple is reordered, use memory-order from TupleRepr.
             TypeInfo::Tuple { elements } => {
                 self.resolving.borrow_mut().insert(idx);
                 let field_types: Vec<BasicTypeEnum<'ll>> =
@@ -297,7 +297,7 @@ impl<'a, 'll, 'tcx> TypeLayoutResolver<'a, 'll, 'tcx> {
 
     /// Resolve a struct type with two-phase creation for cycle safety.
     ///
-    /// §06: when the struct is reordered in the `ReprPlan`, creates the LLVM
+    /// When the struct is reordered in the `ReprPlan`, creates the LLVM
     /// type with fields in memory order (sorted by alignment) rather than
     /// declaration order. This ensures the LLVM struct layout matches the
     /// `StructRepr` that codegen's field-index remapping expects.
@@ -314,7 +314,7 @@ impl<'a, 'll, 'tcx> TypeLayoutResolver<'a, 'll, 'tcx> {
         self.named_structs.borrow_mut().insert(idx, named_struct);
         self.resolving.borrow_mut().insert(idx);
 
-        // §06: if the struct is reordered, build LLVM type in memory order.
+        // If the struct is reordered, build LLVM type in memory order.
         // Match fields by NAME (not original_index) to handle Pool entries
         // where struct_fields() returns fields in a different order than
         // the canonical entry that was optimized.
