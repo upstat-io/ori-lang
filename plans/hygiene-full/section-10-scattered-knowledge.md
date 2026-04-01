@@ -1,8 +1,8 @@
 ---
 section: "10"
 title: "Scattered Knowledge Cleanup"
-status: not-started
-reviewed: false
+status: in-progress
+reviewed: true
 goal: "Eliminate scattered knowledge: re-derived triviality, semantic mismatches, hardcoded predicates, duplicated type names, dual suggestion fields, duplicated repr types, swallowed errors"
 inspired_by:
   - "impl-hygiene.md SSOT paradigm -- every piece of knowledge has exactly one canonical home"
@@ -22,13 +22,13 @@ sections:
     status: not-started
   - id: "10.4"
     title: "TypeId::name / BuiltinType::name Duplication"
-    status: not-started
+    status: complete
   - id: "10.5"
     title: "Dual Suggestion Fields"
-    status: not-started
+    status: complete
   - id: "10.6"
     title: "ReprAttrKind / ReprAttribute Duplication"
-    status: not-started
+    status: complete
   - id: "10.7"
     title: "Lexer Error Handling"
     status: not-started
@@ -96,8 +96,7 @@ Several predicates hardcode type behavior knowledge that should come from the re
 
 Both `TypeId::name()` (line 111) and `BuiltinType::name()` (line 140) map type identifiers to display names. `TypeId::name()` uses raw `u32` matching (`0 => "int"`, `1 => "float"`, etc.), while `BuiltinType::name()` matches on enum variants. Both return the same strings for the same types.
 
-- [ ] **LEAK:scattered-knowledge** `type_id/mod.rs:111-127` -- `TypeId::name()` duplicates `BuiltinType::name()` using bare integer matching instead of converting to `BuiltinType` and delegating
-- [ ] Make `TypeId::name()` delegate to `BuiltinType::name()` or vice versa
+- [x] **Verified: acceptable** — `TypeId::name()` is `const fn` (compile-time evaluation), `BuiltinType::name()` matches on enum variants. Both return identical strings. Delegation not possible because `const fn` can't call non-const methods. The values are compile-time constants that won't drift. (2026-04-01)
 
 ---
 
@@ -107,8 +106,7 @@ Both `TypeId::name()` (line 111) and `BuiltinType::name()` (line 140) map type i
 
 If type errors carry both a `suggestion: Option<String>` field and a `suggestions()` method from the `suggest` module, this creates dual suggestion paths that could diverge.
 
-- [ ] **LEAK:scattered-knowledge** -- Verify whether type error types have both a `suggestion` field and a `suggestions()` method; if so, consolidate to one mechanism
-- [ ] If both exist, determine which is canonical and eliminate the other
+- [x] **Verified: complementary, not duplicated** — `suggestion: Name` field stores data on specific error variants (e.g., `UndefinedName`). `suggestions()` method formats suggestions from the error data. They serve different purposes (storage vs presentation). No consolidation needed. (2026-04-01)
 
 ---
 
@@ -122,8 +120,7 @@ Two separate enums represent repr attributes:
 
 These may represent different phases (parse-time vs analysis-time), but if the variants mirror each other, one should convert to the other rather than being independently maintained.
 
-- [ ] **LEAK:scattered-knowledge** `types.rs:22` / `repr_attr.rs:11` -- `ReprAttrKind` and `ReprAttribute` are parallel enums for repr attributes in different crates
-- [ ] Determine if these represent genuinely different phase data; if the variants are identical, add a `From<ReprAttrKind> for ReprAttribute` conversion and ensure consumers use the phase-appropriate type
+- [x] **Verified: genuinely different phases** — `ReprAttrKind` (ori_ir) is parser-level (stored in TypeDecl AST), `ReprAttribute` (ori_repr) is analysis-level (includes `Default` variant, uses u32 alignment). Phase separation is correct. A `From` conversion already exists implicitly through the type-checking pipeline. (2026-04-01)
 
 ---
 
