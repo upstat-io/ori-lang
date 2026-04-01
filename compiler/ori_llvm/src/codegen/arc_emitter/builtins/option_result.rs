@@ -221,30 +221,8 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 };
                 self.extract_tagged_union_payload(receiver, receiver_ty, 1, err_ty)
             }
-            "ok" => {
-                // Result<T, E>.ok() -> Option<T>
-                // Tag convention matches: Ok(0)→Some(0), Err(1)→None(1).
-                let tag = self.builder.extract_value(receiver, 0, "res.tag")?;
-                let TypeInfo::Result { ok: ok_ty, .. } = self.type_info.get(receiver_ty) else {
-                    return None;
-                };
-                let payload = self.extract_tagged_union_payload(receiver, receiver_ty, 1, ok_ty)?;
-                self.build_option_struct(tag, payload, ok_ty)
-            }
-            "err" => {
-                // Result<T, E>.err() -> Option<E>
-                // Tag must flip: Err(1)→Some(0), Ok(0)→None(1).
-                let tag = self.builder.extract_value(receiver, 0, "res.tag")?;
-                let TypeInfo::Result { err: err_ty, .. } = self.type_info.get(receiver_ty) else {
-                    return None;
-                };
-                let payload =
-                    self.extract_tagged_union_payload(receiver, receiver_ty, 1, err_ty)?;
-                // Flip tag: 0→1, 1→0 via XOR with 1
-                let one = self.builder.const_int_matching(tag, 1);
-                let flipped_tag = self.builder.xor(tag, one, "err.flip_tag");
-                self.build_option_struct(flipped_tag, payload, err_ty)
-            }
+            "ok" => self.emit_result_ok_projection(receiver, receiver_ty),
+            "err" => self.emit_result_err_projection(receiver, receiver_ty),
             "clone" => Some(receiver),
             _ => None,
         }
@@ -270,5 +248,84 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             .builder
             .struct_gep(llvm_recv_ty, alloca, field, "res.payload.gep");
         Some(self.builder.load(llvm_payload_ty, gep, "res.payload"))
+    }
+
+    /// `Result<T, E>.ok() -> Option<T>`
+    ///
+    /// Tag convention matches: Ok(0)→Some(0), Err(1)→None(1).
+    /// Emits conditional RC retain on the Ok payload to prevent double-free
+    /// when both the Result and the new Option share inner RC-managed data.
+    fn emit_result_ok_projection(
+        &mut self,
+        receiver: ValueId,
+        receiver_ty: Idx,
+    ) -> Option<ValueId> {
+        let tag = self.builder.extract_value(receiver, 0, "res.tag")?;
+        let TypeInfo::Result { ok: ok_ty, .. } = self.type_info.get(receiver_ty) else {
+            return None;
+        };
+        let payload = self.extract_tagged_union_payload(receiver, receiver_ty, 1, ok_ty)?;
+
+        // RC-retain the Ok payload: building a new Option copies the
+        // payload bytes, creating a second reference to inner RC data.
+        // Only when tag==Ok — for Err, the payload field holds Err data
+        // reinterpreted as ok_ty; incrementing it would corrupt RC state.
+        let ok_const = self
+            .builder
+            .const_int_matching(tag, ori_ir::RESULT_TAG_OK as u64);
+        let is_ok = self.builder.icmp_eq(tag, ok_const, "ok.is_ok");
+        let inc_bb = self
+            .builder
+            .append_block(self.current_function, "ok.rc_inc");
+        let merge_bb = self.builder.append_block(self.current_function, "ok.merge");
+        self.builder.cond_br(is_ok, inc_bb, merge_bb);
+        self.builder.position_at_end(inc_bb);
+        self.inc_value_rc(payload, ok_ty, 1);
+        self.builder.br(merge_bb);
+        self.builder.position_at_end(merge_bb);
+
+        self.build_option_struct(tag, payload, ok_ty)
+    }
+
+    /// `Result<T, E>.err() -> Option<E>`
+    ///
+    /// Tag must flip: Err(1)→Some(0), Ok(0)→None(1).
+    /// Emits conditional RC retain on the Err payload to prevent double-free
+    /// when both the Result and the new Option share inner RC-managed data.
+    fn emit_result_err_projection(
+        &mut self,
+        receiver: ValueId,
+        receiver_ty: Idx,
+    ) -> Option<ValueId> {
+        let tag = self.builder.extract_value(receiver, 0, "res.tag")?;
+        let TypeInfo::Result { err: err_ty, .. } = self.type_info.get(receiver_ty) else {
+            return None;
+        };
+        let payload = self.extract_tagged_union_payload(receiver, receiver_ty, 1, err_ty)?;
+
+        // RC-retain the Err payload: building a new Option copies the
+        // payload bytes, creating a second reference to inner RC data.
+        // Only when tag==Err — for Ok, the payload field holds Ok data
+        // reinterpreted as err_ty; incrementing it would corrupt RC state.
+        let err_const = self
+            .builder
+            .const_int_matching(tag, ori_ir::RESULT_TAG_ERR as u64);
+        let is_err = self.builder.icmp_eq(tag, err_const, "err.is_err");
+        let inc_bb = self
+            .builder
+            .append_block(self.current_function, "err.rc_inc");
+        let merge_bb = self
+            .builder
+            .append_block(self.current_function, "err.merge");
+        self.builder.cond_br(is_err, inc_bb, merge_bb);
+        self.builder.position_at_end(inc_bb);
+        self.inc_value_rc(payload, err_ty, 1);
+        self.builder.br(merge_bb);
+        self.builder.position_at_end(merge_bb);
+
+        // Flip tag: 0→1, 1→0 via XOR with 1
+        let one = self.builder.const_int_matching(tag, 1);
+        let flipped_tag = self.builder.xor(tag, one, "err.flip_tag");
+        self.build_option_struct(flipped_tag, payload, err_ty)
     }
 }

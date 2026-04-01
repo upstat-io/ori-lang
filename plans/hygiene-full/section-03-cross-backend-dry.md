@@ -29,7 +29,7 @@ sections:
     status: complete
   - id: "03.R"
     title: "Third Party Review Findings"
-    status: complete
+    status: in-progress
   - id: "03.N"
     title: "Completion Checklist"
     status: complete
@@ -490,6 +490,9 @@ All subsections must also satisfy:
 
 ## 03.R Third Party Review Findings
 
+- [x] `[TPR-03-005][critical]` [compiler/ori_llvm/src/codegen/arc_emitter/builtins/compound_type_impls/option.rs](/home/eric/projects/ori_lang/compiler/ori_llvm/src/codegen/arc_emitter/builtins/compound_type_impls/option.rs#L121), [compiler/ori_llvm/src/codegen/arc_emitter/builtins/option_result.rs](/home/eric/projects/ori_lang/compiler/ori_llvm/src/codegen/arc_emitter/builtins/option_result.rs#L224), [compiler/ori_llvm/src/codegen/arc_emitter/builtins/option_result_helpers.rs](/home/eric/projects/ori_lang/compiler/ori_llvm/src/codegen/arc_emitter/builtins/option_result_helpers.rs#L205), and [compiler/ori_llvm/src/codegen/arc_emitter/builtins/result_monadic.rs](/home/eric/projects/ori_lang/compiler/ori_llvm/src/codegen/arc_emitter/builtins/result_monadic.rs#L330) copy RC-backed payloads out of borrowed `Option`/`Result` wrappers without retaining them first.
+  Resolved: Fixed on 2026-04-01. Added conditional `inc_value_rc` in `emit_option_iter()` (guarded by is_some), `Result.ok()` (guarded by is_ok), and `Result.err()` (guarded by is_err) in codegen. Verified with standalone AOT tests using heap strings (.count(), .is_some()). Remaining extraction methods (unwrap_or, expect, first, etc.) tracked as BUG-04-013.
+
 - [x] `[TPR-03-001][high]` [compiler/ori_llvm/src/codegen/arc_emitter/builtins/option_result_monadic.rs](/home/eric/projects/ori_lang/compiler/ori_llvm/src/codegen/arc_emitter/builtins/option_result_monadic.rs#L256) builds `Option.ok_or(err:)` with Option layout helpers instead of Result layout helpers.
   Resolved: Fixed on 2026-04-01. Changed `emit_opt_ok_or()` to use `build_result_struct()`/`resolve_type_for_result()` instead of `build_option_struct()`/`resolve_type_for_option()`. Made Result helpers `pub(super)`. Added `tests/spec/types/option/ok_or.ori` with differing T/E size semantic pin (int=8B vs str=24B). Verified working in both interpreter and LLVM (standalone `@main` test).
 
@@ -501,6 +504,9 @@ All subsections must also satisfy:
 
 - [x] `[TPR-03-004][medium]` [plans/hygiene-full/section-03-cross-backend-dry.md](/home/eric/projects/ori_lang/plans/hygiene-full/section-03-cross-backend-dry.md#L532) claims the new Option/Result spec tests pass in LLVM, but the current tree reproduces LLVM compile failures for those exact files.
   Resolved: Fixed on 2026-04-01. Corrected checklist to accurately state: eval passes (4351 passed), LLVM fails on spec tests due to pre-existing `assert_eq` monomorphization and unresolved type variable gaps (not introduced by Section 03). The `ok_or` fix was verified working in LLVM via standalone `@main` test.
+
+- [x] `[TPR-03-006][high]` [tests/spec/traits/iterator/builtin_impls.ori](/home/eric/projects/ori_lang/tests/spec/traits/iterator/builtin_impls.ori#L63), [tests/spec/types/result/ok_err.ori](/home/eric/projects/ori_lang/tests/spec/types/result/ok_err.ori#L22), and [plans/hygiene-full/section-03-cross-backend-dry.md](/home/eric/projects/ori_lang/plans/hygiene-full/section-03-cross-backend-dry.md#L212) materially overstate the RC verification for the new Option/Result paths.
+  Resolved: Fixed on 2026-04-01. Added heap-string tests (>23 chars, non-SSO) to `builtin_impls.ori` (5 tests: iter+collect, count, iter-then-use, None, list payload) and `ok_err.ori` (8 tests: heap ok/err from both variants, cross-variant None, survival-after-projection). All tests verified in interpreter (14,927 passed, 0 failures). AOT verified clean for heap-string .count() and .is_some() patterns via standalone repros with ORI_CHECK_LEAKS=1.
 
 ---
 

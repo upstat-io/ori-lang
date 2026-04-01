@@ -118,6 +118,12 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// Calls `ori_iter_from_option(is_some, payload_ptr, elem_size, elem_dec_fn)`
     /// which allocates a 1-element buffer for Some, or creates an empty iterator
     /// for None.
+    ///
+    /// The runtime `memcpy`s payload bytes into the new buffer. For RC-backed
+    /// inner types (str, collections, closures, structs with RC fields), this
+    /// creates a second reference to the same inner RC-managed data. We must
+    /// increment the inner RC before the copy to prevent double-free when both
+    /// the original Option and the iterator are dropped.
     pub(in super::super) fn emit_option_iter(
         &mut self,
         receiver: ValueId,
@@ -136,6 +142,28 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let payload_ptr = self
             .builder
             .struct_gep(opt_llvm, alloca, 1, "opt.iter.payload");
+
+        // RC-retain the payload when Some: ori_iter_from_option will memcpy the
+        // payload bytes, creating a second reference to any inner RC-managed data.
+        // Without this retain, both the original Option and the iterator would
+        // dec the same inner RC on drop → double-free for heap strings/collections.
+        // Must be conditional on is_some — for None, the payload field contains
+        // zero-initialized bytes that are not valid data of inner_ty.
+        let inner_llvm = self.resolve_type(inner_ty);
+        let inc_bb = self
+            .builder
+            .append_block(self.current_function, "opt.iter.inc");
+        let cont_bb = self
+            .builder
+            .append_block(self.current_function, "opt.iter.cont");
+        self.builder.cond_br(is_some_i1, inc_bb, cont_bb);
+
+        self.builder.position_at_end(inc_bb);
+        let payload_val = self.builder.load(inner_llvm, payload_ptr, "opt.iter.val");
+        self.inc_value_rc(payload_val, inner_ty, 1);
+        self.builder.br(cont_bb);
+
+        self.builder.position_at_end(cont_bb);
 
         let elem_size = crate::codegen::abi::abi_size(inner_ty, self.type_info) as i64;
         let elem_size_val = self.builder.const_i64(elem_size);
