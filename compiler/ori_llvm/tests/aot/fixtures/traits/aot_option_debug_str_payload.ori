@@ -1,0 +1,8 @@
+// TPR-03-010 regression pin: Option<str>.debug() must use Debug semantics
+// (quoted + escaped), not Printable semantics (raw).
+// Interpreter: Some("hi") | AOT must match.
+
+@main () -> void = {
+    let $o = Some("hi");
+    print(msg: o.debug())
+}

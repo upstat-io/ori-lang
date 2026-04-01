@@ -963,6 +963,28 @@ pub(crate) static RT_FUNCTIONS: &[RtFn] = &[
         attrs: &[Attr::Nounwind],
         jit_allowed: true,
     },
+    // String debug formatting — Debug semantics (quotes + escaping)
+    RtFn {
+        name: "ori_str_debug_format",
+        params: &[Ty::Ptr],
+        ret: Some(Ty::Str),
+        attrs: &[Attr::Nounwind],
+        jit_allowed: true,
+    },
+    RtFn {
+        name: "ori_char_debug_format",
+        params: &[Ty::I32],
+        ret: Some(Ty::Str),
+        attrs: &[Attr::Nounwind],
+        jit_allowed: true,
+    },
+    RtFn {
+        name: "ori_byte_debug_format",
+        params: &[Ty::I64],
+        ret: Some(Ty::Str),
+        attrs: &[Attr::Nounwind],
+        jit_allowed: true,
+    },
     // String methods — all extern "C"
     RtFn {
         name: "ori_str_contains",

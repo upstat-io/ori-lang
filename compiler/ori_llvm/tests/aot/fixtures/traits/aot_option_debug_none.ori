@@ -1,0 +1,6 @@
+// Edge case: None.debug() must produce "None".
+
+@main () -> void = {
+    let $o: Option<int> = None;
+    print(msg: o.debug())
+}

@@ -1,0 +1,7 @@
+// TPR-03-009 regression pin: nested Option.debug() must work recursively.
+// Interpreter: Some(Some(42)) | AOT must match.
+
+@main () -> void = {
+    let $o: Option<Option<int>> = Some(Some(42));
+    print(msg: o.debug())
+}

@@ -1,0 +1,8 @@
+// TPR-03-009 regression pin: Result<[int], str>.debug() must format compound
+// payloads recursively.
+// Interpreter: Ok([4, 5]) | AOT must match.
+
+@main () -> void = {
+    let $r: Result<[int], str> = Ok([4, 5]);
+    print(msg: r.debug())
+}
