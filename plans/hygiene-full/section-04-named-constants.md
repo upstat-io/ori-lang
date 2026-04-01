@@ -62,8 +62,8 @@ Option/Result tag constants (Some=0/None=1, Ok=0/Err=1) appear as inline comment
 - [ ] **LEAK:inline-policy** -- Option tag discriminants (Some=0, None=1) appear as bare `0`/`1` in 11+ files with only comments documenting the convention
 - [x] Define `pub const OPTION_TAG_SOME: i64 = 0;` and `pub const OPTION_TAG_NONE: i64 = 1;` in a canonical location (2026-04-01) — defined in `ori_ir::tag_constants`, re-exported from `ori_ir`
 - [x] Define `pub const RESULT_TAG_OK: i64 = 0;` and `pub const RESULT_TAG_ERR: i64 = 1;` in the same location (2026-04-01)
-- [ ] Replace all bare `0`/`1` discriminant literals in the listed files with the named constants
-- [ ] Add a `debug_assert!` or const assertion that these values match the actual enum layout
+- [x] Replaced bare `0`/`1` discriminant literals in ARC lowering (6 call sites across 5 files: `lower_ok/err/some/none`, `decision_tree/flatten.rs`, `for_yield_option.rs`, `for_option.rs`, `expr/mod.rs` coalesce). (2026-04-01)
+- [x] Added const assertions: `OPTION_VARIANT_SOME == OPTION_TAG_SOME`, etc. 8 assertions total in `tag_constants.rs`. (2026-04-01)
 
 ---
 
