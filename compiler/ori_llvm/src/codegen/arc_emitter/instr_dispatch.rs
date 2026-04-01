@@ -516,18 +516,38 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                     if encoding.is_tagless() {
                         // Single-variant enum: no tag to store.
                     } else if encoding.needs_tag_store(*tag as u32) {
-                        // Niche variant: store niche_value into the niche field.
+                        // Niche variant: write niche_value into the niche field.
                         let niche_idx = encoding.niche_field_index().unwrap();
                         let niche_value = encoding.variant_to_tag_value(*tag as u32);
-                        let field_ptr =
-                            self.builder
-                                .struct_gep(llvm_ty, base_val, niche_idx, "set.niche.ptr");
-                        let field_val = self.builder.const_int_for_struct_field(
-                            llvm_ty,
-                            niche_idx,
-                            niche_value,
-                        );
-                        self.builder.store(field_val, field_ptr);
+                        if self.builder.is_struct_value(base_val) {
+                            // Register value: use insert_value + re-bind variable.
+                            let niche_const = self.builder.const_int_for_struct_field(
+                                llvm_ty,
+                                niche_idx,
+                                niche_value,
+                            );
+                            let updated = self.builder.insert_value(
+                                base_val,
+                                niche_const,
+                                niche_idx,
+                                "set.niche",
+                            );
+                            self.def_var(*base, super::EmittedValue::Aggregate(updated));
+                        } else {
+                            // Pointer: GEP + store (in-place mutation).
+                            let field_ptr = self.builder.struct_gep(
+                                llvm_ty,
+                                base_val,
+                                niche_idx,
+                                "set.niche.ptr",
+                            );
+                            let field_val = self.builder.const_int_for_struct_field(
+                                llvm_ty,
+                                niche_idx,
+                                niche_value,
+                            );
+                            self.builder.store(field_val, field_ptr);
+                        }
                     }
                     // Non-niche variant: no-op — payload implicitly identifies variant.
                 } else {

@@ -447,8 +447,16 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     ) -> ValueId {
         let mut result = self.builder.const_zero_ty(llvm_ty);
         if encoding.needs_tag_store(variant) {
-            // Niche variant (no payload): return zeroinit — SetTag stores the niche value.
-            return result;
+            // Niche variant (no payload): insert niche_value directly
+            // so that `SetTag` is not needed (avoids GEP-on-register issues).
+            let niche_idx = encoding.niche_field_index().unwrap();
+            let niche_value = encoding.variant_to_tag_value(variant);
+            let niche_const =
+                self.builder
+                    .const_int_for_struct_field(llvm_ty, niche_idx, niche_value);
+            return self
+                .builder
+                .insert_value(result, niche_const, niche_idx, "niche.tag");
         }
         // Data variant: insert payload fields starting at index 0.
         for (i, &val) in arg_vals.iter().enumerate() {
