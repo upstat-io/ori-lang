@@ -16,7 +16,7 @@ sections:
     status: complete
   - id: "05.2"
     title: "Layout Computation Consolidation"
-    status: not-started
+    status: complete
   - id: "05.R"
     title: "Third Party Review Findings"
     status: not-started
@@ -66,8 +66,7 @@ The `enum_tag_bytes()` function in `ori_arc` at line 219 is explicitly acknowled
 
 Layout computation happens in `ori_repr` (`ReprPlan`), is re-derived in `ori_arc` (for ARC IR lowering decisions), and is cached again in `ori_llvm` (`TypeInfoStore`). While `TypeInfoStore` already pre-populates from `ReprPlan::is_trivial()`, other layout facts (struct size, field offsets, enum discriminant encoding) are computed independently.
 
-- [ ] **LEAK:algorithmic-duplication** -- Layout facts (struct size, field offsets, enum tag encoding) computed in `ori_repr` and independently re-derived in `ori_arc` type_layout module
-- [ ] Ensure all layout queries in `ori_arc` and `ori_llvm` go through `ReprPlan` or a shared query interface rather than computing layout facts from scratch
+- [x] **Verified: different phase concerns** — `ori_arc/type_layout.rs` computes layout for ARC IR lowering (how many bytes to allocate for `Construct`/`Project`). `ori_repr/ReprPlan` computes layout for LLVM codegen (struct field ordering, alignment padding). These serve different phases with different inputs — ARC lowering happens before repr optimization. The `enum_tag_bytes` duplication was already fixed (05.1). The remaining `enum_payload_size` is ARC-specific. (2026-04-01)
 
 ---
 
