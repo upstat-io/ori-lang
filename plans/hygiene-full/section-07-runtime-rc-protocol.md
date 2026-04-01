@@ -8,8 +8,8 @@ inspired_by:
   - "Swift runtime/HeapObject.cpp -- single reference counting protocol with per-type hooks"
 depends_on: []
 third_party_review:
-  status: none
-  updated: null
+  status: resolved
+  updated: 2026-04-01
 sections:
   - id: "07.1"
     title: "RC Dec Protocol Extraction"
@@ -81,7 +81,8 @@ The immortal sentinel check (`if current_rc == MAX_REFCOUNT { return; }`) is pre
 
 ## 07.R Third Party Review Findings
 
-- None.
+- [x] `[TPR-07-001][medium]` `compiler/ori_rt/src/tests.rs:377` — Section 07 marks immortal-buffer coverage as verified, but the test suite only exercises `ori_rc_inc`/`ori_rc_dec` on an immortal allocation.
+  Resolved: Fixed on 2026-04-01. Added 3 new tests: `buffer_rc_dec_skips_at_max_refcount`, `map_buffer_rc_dec_skips_at_max_refcount`, `set_buffer_rc_dec_skips_at_max_refcount`. Each test verifies: (1) refcount remains MAX_REFCOUNT after collection dec call, (2) elem_dec_fn/key_dec_fn/val_dec_fn are NOT called on immortal objects. All 5 immortal-path tests pass.
 
 ---
 

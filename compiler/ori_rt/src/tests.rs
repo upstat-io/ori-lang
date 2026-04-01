@@ -434,6 +434,147 @@ fn rc_dec_skips_at_max_refcount() {
     ori_rc_dec(ptr, None);
 }
 
+// ── Collection Dec Immortal-Path Tests ────────────────────────────
+//
+// Regression: TPR-07-001 — Section 07 extracted rc_dec_to_zero as the
+// shared core, but only ori_rc_inc/ori_rc_dec had immortal-path unit
+// tests. These tests verify that each collection dec entry point
+// correctly skips immortal objects (MAX_REFCOUNT sentinel).
+
+#[test]
+fn buffer_rc_dec_skips_at_max_refcount() {
+    let _lock = lock_rc();
+
+    // Allocate enough for a small list buffer (e.g. 3 × 8-byte elements).
+    let data = ori_rc_alloc(24, 8);
+
+    // Set refcount to MAX_REFCOUNT (immortal sentinel).
+    unsafe {
+        let rc_ptr = data.sub(8).cast::<i64>();
+        *rc_ptr = MAX_REFCOUNT;
+    }
+
+    // Track whether elem_dec_fn is called — it must NOT be for immortal objects.
+    static ELEM_DEC_CALLS: AtomicUsize = AtomicUsize::new(0);
+    ELEM_DEC_CALLS.store(0, Ordering::SeqCst);
+    extern "C" fn track_elem_dec(_ptr: *mut u8) {
+        ELEM_DEC_CALLS.fetch_add(1, Ordering::SeqCst);
+    }
+
+    // This should be a no-op: refcount stays at MAX_REFCOUNT, no cleanup.
+    ori_buffer_rc_dec(data, 3, 3, 8, Some(track_elem_dec));
+
+    unsafe {
+        let rc_ptr = data.sub(8).cast::<i64>();
+        assert_eq!(
+            *rc_ptr, MAX_REFCOUNT,
+            "refcount should remain at MAX_REFCOUNT after ori_buffer_rc_dec"
+        );
+    }
+    assert_eq!(
+        ELEM_DEC_CALLS.load(Ordering::SeqCst),
+        0,
+        "elem_dec_fn must not be called on immortal buffer"
+    );
+
+    // Clean up: reset refcount to 1 so we can free.
+    unsafe {
+        let rc_ptr = data.sub(8).cast::<i64>();
+        *rc_ptr = 1;
+    }
+    ori_rc_free(data, 24, 8);
+}
+
+#[test]
+fn map_buffer_rc_dec_skips_at_max_refcount() {
+    let _lock = lock_rc();
+
+    // Allocate enough for a small map buffer.
+    let data = ori_rc_alloc(256, 8);
+
+    unsafe {
+        let rc_ptr = data.sub(8).cast::<i64>();
+        *rc_ptr = MAX_REFCOUNT;
+    }
+
+    static KEY_DEC_CALLS: AtomicUsize = AtomicUsize::new(0);
+    static VAL_DEC_CALLS: AtomicUsize = AtomicUsize::new(0);
+    KEY_DEC_CALLS.store(0, Ordering::SeqCst);
+    VAL_DEC_CALLS.store(0, Ordering::SeqCst);
+    extern "C" fn track_key_dec(_ptr: *mut u8) {
+        KEY_DEC_CALLS.fetch_add(1, Ordering::SeqCst);
+    }
+    extern "C" fn track_val_dec(_ptr: *mut u8) {
+        VAL_DEC_CALLS.fetch_add(1, Ordering::SeqCst);
+    }
+
+    ori_map_buffer_rc_dec(data, 4, 2, 8, 8, Some(track_key_dec), Some(track_val_dec));
+
+    unsafe {
+        let rc_ptr = data.sub(8).cast::<i64>();
+        assert_eq!(
+            *rc_ptr, MAX_REFCOUNT,
+            "refcount should remain at MAX_REFCOUNT after ori_map_buffer_rc_dec"
+        );
+    }
+    assert_eq!(
+        KEY_DEC_CALLS.load(Ordering::SeqCst),
+        0,
+        "key_dec_fn must not be called on immortal map buffer"
+    );
+    assert_eq!(
+        VAL_DEC_CALLS.load(Ordering::SeqCst),
+        0,
+        "val_dec_fn must not be called on immortal map buffer"
+    );
+
+    unsafe {
+        let rc_ptr = data.sub(8).cast::<i64>();
+        *rc_ptr = 1;
+    }
+    ori_rc_free(data, 256, 8);
+}
+
+#[test]
+fn set_buffer_rc_dec_skips_at_max_refcount() {
+    let _lock = lock_rc();
+
+    // Allocate enough for a small set buffer.
+    let data = ori_rc_alloc(128, 8);
+
+    unsafe {
+        let rc_ptr = data.sub(8).cast::<i64>();
+        *rc_ptr = MAX_REFCOUNT;
+    }
+
+    static ELEM_DEC_CALLS: AtomicUsize = AtomicUsize::new(0);
+    ELEM_DEC_CALLS.store(0, Ordering::SeqCst);
+    extern "C" fn track_elem_dec(_ptr: *mut u8) {
+        ELEM_DEC_CALLS.fetch_add(1, Ordering::SeqCst);
+    }
+
+    ori_set_buffer_rc_dec(data, 4, 2, 8, Some(track_elem_dec));
+
+    unsafe {
+        let rc_ptr = data.sub(8).cast::<i64>();
+        assert_eq!(
+            *rc_ptr, MAX_REFCOUNT,
+            "refcount should remain at MAX_REFCOUNT after ori_set_buffer_rc_dec"
+        );
+    }
+    assert_eq!(
+        ELEM_DEC_CALLS.load(Ordering::SeqCst),
+        0,
+        "elem_dec_fn must not be called on immortal set buffer"
+    );
+
+    unsafe {
+        let rc_ptr = data.sub(8).cast::<i64>();
+        *rc_ptr = 1;
+    }
+    ori_rc_free(data, 128, 8);
+}
+
 // Compile-time verification that MAX_REFCOUNT is correctly defined.
 const _: () = {
     assert!(MAX_REFCOUNT == isize::MAX as i64);
