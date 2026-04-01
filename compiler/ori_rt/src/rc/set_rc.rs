@@ -36,6 +36,7 @@ pub extern "C" fn ori_set_buffer_rc_dec(
     rt_debug_check_not_freed(data.cast_const(), "ori_set_buffer_rc_dec");
 
     // Store elem_dec_fn in header (write-once, defense-in-depth).
+    // SAFETY: data is non-null (checked above) and was returned by ori_rc_alloc.
     unsafe { store_elem_dec_fn_once(data, elem_dec_fn) };
 
     let es = elem_size.max(1) as usize;
@@ -43,6 +44,7 @@ pub extern "C" fn ori_set_buffer_rc_dec(
 
     #[cfg(not(feature = "single-threaded"))]
     {
+        // SAFETY: data was returned by ori_rc_alloc, so data - 8 is valid and 8-byte aligned.
         let prev = unsafe {
             let rc_ptr = data.sub(8).cast::<AtomicI64>();
             (*rc_ptr).fetch_sub(1, Ordering::Release)
@@ -64,6 +66,7 @@ pub extern "C" fn ori_set_buffer_rc_dec(
 
     #[cfg(feature = "single-threaded")]
     {
+        // SAFETY: data was returned by ori_rc_alloc, so data - 8 is valid and 8-byte aligned.
         let (should_drop, new_rc) = unsafe {
             let rc_ptr = data.sub(8).cast::<i64>();
             if *rc_ptr <= 0 {
@@ -104,6 +107,7 @@ pub extern "C" fn ori_set_buffer_drop_unique(
     rt_debug_check_not_freed(data.cast_const(), "ori_set_buffer_drop_unique");
 
     // Store elem_dec_fn in header (write-once, defense-in-depth).
+    // SAFETY: data is non-null (checked above) and was returned by ori_rc_alloc.
     unsafe { store_elem_dec_fn_once(data, elem_dec_fn) };
 
     if rc_trace_enabled() {
@@ -124,10 +128,13 @@ fn set_buffer_cleanup(data: *mut u8, cap: usize, elem_size: usize) {
     let layout = HashTableLayout::for_set(cap, elem_size);
 
     // Read elem_dec_fn from header
+    // SAFETY: data was returned by ori_rc_alloc, so data - 24 is valid.
     let elem_dec_fn = unsafe { load_elem_dec_fn(data) };
     if let Some(f) = elem_dec_fn {
         for bucket in 0..cap {
+            // SAFETY: data + bucket is within the metadata region (allocated by ori_rc_alloc).
             if unsafe { get_meta(data, bucket) } == META_OCCUPIED {
+                // SAFETY: keys_offset + bucket * elem_size is within the element region.
                 call_drop_fn(f, unsafe {
                     data.add(layout.keys_offset + bucket * elem_size)
                 });

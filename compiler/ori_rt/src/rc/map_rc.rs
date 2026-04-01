@@ -43,11 +43,13 @@ pub extern "C" fn ori_map_buffer_rc_dec(
     {
         // Immortal sentinel check: immortal objects have MAX_REFCOUNT and must
         // never be decremented.
+        // SAFETY: data is non-null (checked above), data - 8 is the RC field (V5 layout).
         let current_rc = unsafe { (*data.sub(8).cast::<AtomicI64>()).load(Ordering::Relaxed) };
         if current_rc == super::MAX_REFCOUNT {
             return;
         }
 
+        // SAFETY: data was returned by ori_rc_alloc, so data - 8 is valid and 8-byte aligned.
         let prev = unsafe {
             let rc_ptr = data.sub(8).cast::<AtomicI64>();
             (*rc_ptr).fetch_sub(1, Ordering::Release)
@@ -70,11 +72,13 @@ pub extern "C" fn ori_map_buffer_rc_dec(
     #[cfg(feature = "single-threaded")]
     {
         // Immortal sentinel check (single-threaded path)
+        // SAFETY: data is non-null (checked above), data - 8 is the RC field (V5 layout).
         let current_rc = unsafe { *data.sub(8).cast::<i64>() };
         if current_rc == super::MAX_REFCOUNT {
             return;
         }
 
+        // SAFETY: data was returned by ori_rc_alloc, so data - 8 is valid and 8-byte aligned.
         let (should_drop, new_rc) = unsafe {
             let rc_ptr = data.sub(8).cast::<i64>();
             if *rc_ptr <= 0 {
@@ -117,13 +121,16 @@ fn map_buffer_cleanup(
     // Dec children: scan metadata for OCCUPIED buckets
     if key_dec_fn.is_some() || val_dec_fn.is_some() {
         for bucket in 0..cap {
+            // SAFETY: data + bucket is within the metadata region (allocated by ori_rc_alloc).
             if unsafe { get_meta(data, bucket) } == META_OCCUPIED {
                 if let Some(f) = key_dec_fn {
+                    // SAFETY: keys_offset + bucket * key_size is within the key region.
                     call_drop_fn(f, unsafe {
                         data.add(layout.keys_offset + bucket * key_size)
                     });
                 }
                 if let Some(f) = val_dec_fn {
+                    // SAFETY: vals_offset + bucket * val_size is within the value region.
                     call_drop_fn(f, unsafe {
                         data.add(layout.vals_offset + bucket * val_size)
                     });
