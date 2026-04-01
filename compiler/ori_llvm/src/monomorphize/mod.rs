@@ -49,11 +49,14 @@ pub fn collect_mono_functions(
         function_sigs.iter().map(|s| (s.name, s)).collect();
 
     let mut result = Vec::with_capacity(mono_instances.len());
+    let mut seen_names = rustc_hash::FxHashSet::default();
 
     for instance in mono_instances {
         let Some(generic_sig) = sig_by_name.get(&instance.fn_name) else {
+            let name_str = interner.lookup(instance.fn_name);
             tracing::debug!(
                 fn_name = ?instance.fn_name,
+                name = name_str,
                 "mono instance for unknown function — skipping"
             );
             continue;
@@ -61,6 +64,13 @@ pub fn collect_mono_functions(
 
         let mangled_name =
             mangle_mono_name(instance.fn_name, &instance.generic_args, interner, pool);
+
+        // Skip duplicate specializations (same function + same type args).
+        // The type checker may produce duplicate MonoInstance entries when the
+        // same generic is called from multiple sites.
+        if !seen_names.insert(mangled_name) {
+            continue;
+        }
 
         // Build concrete signature: same structure, but with substituted types
         // and empty type_params (making is_generic() return false).
