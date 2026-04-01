@@ -180,8 +180,9 @@ fn builtin_coverage_above_threshold() {
         100
     };
 
-    // Minimum coverage threshold — raise as more methods are migrated
-    let min_pct = 25;
+    // Minimum coverage threshold — ratcheted to current level minus margin.
+    // Update when coverage increases. Current: ~40% after iterator/option/result gap fill.
+    let min_pct = 35;
     assert!(
         pct >= min_pct,
         "Builtin codegen coverage dropped to {pct}% ({covered}/{total}), \
