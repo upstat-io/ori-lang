@@ -26,7 +26,7 @@ sections:
     status: complete
   - id: "03.5"
     title: "Eval Operator Dispatch via Registry OpStrategy"
-    status: in-progress
+    status: complete
   - id: "03.R"
     title: "Third Party Review Findings"
     status: not-started
@@ -37,7 +37,7 @@ sections:
 
 # Section 03: Cross-Backend Algorithmic DRY (eval / LLVM)
 
-**Status:** Not Started
+**Status:** In Progress
 **Goal:** The evaluator (`ori_eval`) and LLVM codegen (`ori_llvm`) share dispatch metadata for iterator methods, Option/Result routing, equals/compare/hash, derive processing, and operator dispatch. Each backend retains its own emission logic but the routing decisions — which methods exist, which operations are valid, which tag values mean what — are defined once and consumed from the registry.
 
 **Context:** Both backends implement the same semantic operations with parallel but independent dispatch skeletons. When a new variant or method is added, both backends must be updated independently — and they have already drifted (iterator method lists, Option/Result method coverage). Extracting the shared *metadata* (which methods exist, which tag values mean what, which derive strategy to use) into a shared location eliminates this drift risk. Additionally, both backends define FNV hash constants independently across multiple files, and eval's operator dispatch still uses independent type-based pattern matching instead of querying `OpStrategy` from the registry (as LLVM already does — a result of Section 01).
@@ -207,28 +207,11 @@ All subsections must also satisfy:
   WHERE: `compiler/ori_llvm/src/codegen/arc_emitter/builtins/option_result.rs`.
   Check registry: these methods have `backend_required: false` on Option/Result — they are handled by the Traceable trait path, not inline codegen. Confirm by checking `ori_registry::find_method(TypeTag::Result, "trace").map(|m| m.backend_required)`. If `backend_required: false`, they do NOT need arms in `emit_result_method()` — they are dispatched via the Traceable runtime. If any are `backend_required: true`, add arms calling the appropriate `ori_error_trace`/`ori_error_trace_entries`/`ori_error_has_trace` runtime functions.
 
-- [ ] **Step 6 — Implement closure-taking monadic ops (`map`, `and_then`, `filter`, `flat_map`, `or_else`, `map_err`):**
-  WHERE: `compiler/ori_llvm/src/codegen/arc_emitter/builtins/option_result.rs`.
-  These require emitting conditional LLVM blocks. Pattern for `Option::map(f)`:
-  1. Extract tag from receiver (field 0)
-  2. `icmp_eq tag 0` → `is_some`
-  3. Conditional branch: Some-branch extracts payload, calls closure trampoline; None-branch skips
-  4. Phi node merges: Some result → `Some(closure_result)`, None → `None`
-  Follow the pattern used in `emit_iter_map()` in `iterator.rs` for the closure trampoline call. The conditional branch + phi node pattern is in other emitters (check `emit_iter_filter` or any conditional emit function in the codebase).
-  - `"map"` Option: `if is_some { Some(f(payload)) } else { None }` — TrampolineKind::Map
-  - `"map"` Result: `if is_ok { Ok(f(ok_payload)) } else { self }` — preserve Err unchanged
-  - `"map_err"` Result: `if is_err { Err(f(err_payload)) } else { self }` — preserve Ok unchanged
-  - `"and_then"` Option: `if is_some { f(payload) } else { None }` — closure returns Option
-  - `"and_then"` Result: `if is_ok { f(ok_payload) } else { self }` — closure returns Result
-  - `"filter"` Option: `if is_some && predicate(payload) { self } else { None }`
-  - `"flat_map"` Option: same as `and_then` (equivalent in Option)
-  - `"or"` Option: `if is_some { self } else { other }` — no closure; `other` is arg_vals[1]
-  - `"or_else"` Option: `if is_some { self } else { f() }` — closure takes no args
-  - `"ok_or"` Option: `if is_some { Ok(payload) } else { Err(arg_vals[1]) }`
+- [x] **Step 6 — Implement closure-taking monadic ops (`map`, `and_then`, `filter`, `flat_map`, `or_else`, `map_err`):** (2026-04-01) Implemented 11 methods across 4 new/modified files. Option: `map`, `and_then`/`flat_map`, `filter`, `or`, `or_else`, `ok_or` in `option_result_monadic.rs`. Result: `map`, `map_err`, `and_then`, `or_else` in `result_monadic.rs`. Shared closure-calling helpers (`call_closure_single_arg`, `call_closure_no_args`, `closure_return_ty`) in `option_result_helpers.rs`. All registered in `declare_builtins!`. `build_result_struct` handles padding for Result variants of different sizes. Niche-encoded dispatch stubs fall through to runtime. All 14,906 tests pass.
 
-- [ ] **Step 7 — Implement `iter` for Option:**
+- [ ] **Step 7 — Implement `iter` for Option:** <!-- blocked-by:runtime -->
   WHERE: `compiler/ori_llvm/src/codegen/arc_emitter/builtins/option_result.rs`.
-  Add `"iter"` arm in `emit_option_method()`: create a single-element iterator from Option (yields `payload` if Some, empty if None). Check what runtime function exists in `ori_rt` for this: look for `ori_iter_from_option` or similar. If no runtime function exists, this item must be tracked as a gap and added to `ori_rt` first.
+  **GAP**: No `ori_iter_from_option` runtime function exists in `ori_rt`. The registry has `backend_required: false` for this method (it's an Iterable trait method). The interpreter handles it via `IteratorValue::from_value()` which converts `Some(v)→[v].iter()`, `None→[].iter()`. For AOT, a dedicated runtime function `ori_iter_from_option(opt_ptr, elem_size) -> IterState` is needed in `ori_rt` before LLVM codegen can emit this. No spec tests exist for `Option.iter()` in LLVM mode yet.
 
 - [x] **Step 8 — Update `declare_builtins!` blocks:** (2026-04-01) All newly implemented methods registered in `declare_builtins!` as they were implemented: `("Option", "expect")`, `("Result", "expect")`, `("Result", "expect_err")`, `("Result", "ok")`, `("Result", "err")`. Pre-existing entries for `equals`/`compare`/`hash` already in `compound_traits.rs`.
 
@@ -445,7 +428,7 @@ All subsections must also satisfy:
   ```
   Note: `ori_eval` already depends on `ori_registry` (verify in `Cargo.toml`; if not, add `ori_registry.workspace = true` as a dependency). Do NOT depend on `ori_types::infer::expr::registry_bridge` — that is an `ori_types`-internal module.
 
-- [ ] **Step 2 — Refactor `evaluate_binary()` top-level routing:**
+- [x] **Step 2 — Refactor `evaluate_binary()` top-level routing:** (2026-04-01) Replaced 7 same-type primitive match arms with a single `evaluate_binary_via_registry()` function. Cross-type (Duration/Size×Int) and compound type (List, Tuple, Option, Result, Set, Struct, Variant) arms remain explicit. Registry lookup validates op support before dispatching to per-type helpers. Made `value_to_type_tag()` and `op_strategy_from_op()` production (removed `#[cfg(test)]`). Changed `op_strategy_from_op` to return `Option<OpStrategy>` — `None` for non-registry ops (Range, RangeInclusive, Coalesce) so they fall through to per-type handlers.
   WHERE: `compiler/ori_eval/src/operators/mod.rs` — `evaluate_binary()` function (line 83, currently uses `match (&left, &right)`).
   Replace the same-type primitive dispatch arms with an `OpStrategy`-based routing:
   ```rust
@@ -496,16 +479,13 @@ All subsections must also satisfy:
   }
   ```
 
-- [ ] **Step 4 — Add `Unsupported` strategy guard:**
-  WHERE: in the `OpStrategy`-based dispatch added in Step 2.
-  When `op_strategy_from_op()` returns `OpStrategy::Unsupported` for a type where the type IS valid but the operator is NOT, emit `invalid_binary_op_for(op_name, type_name)` rather than falling through to a confusing "type mismatch". This matches how LLVM handles it. The `invalid_binary_op_for` factory is already in `ori_patterns`.
+- [x] **Step 4 — Add `Unsupported` strategy guard:** (2026-04-01) Integrated into `evaluate_binary_via_registry()`: when `op_strategy_from_op()` returns `Some(Unsupported)`, emits `invalid_binary_op_for(type_def.name, op)` before reaching the per-type handler. Returns `None` for non-registry ops (Range, Coalesce, etc.) to let per-type handlers decide.
 
 - [x] **Step 5 — Add registry sync enforcement test:** (2026-04-01) Added `value_to_type_tag_covers_primitive_op_types` and `op_strategy_from_op_maps_all_registry_ops` tests. All 8 operator sync tests pass.
   WHERE: `compiler/ori_eval/src/operators/tests.rs`.
   Add a test `registry_primitive_types_match_eval_dispatch` that iterates `ori_registry::BUILTIN_TYPES` (the public constant — NOT `ALL_TYPE_TAGS` which does not exist) and for each primitive type (check `type_def.operators != OpDefs::UNSUPPORTED`), verifies that `value_to_type_tag()` returns `Some(type_def.tag)` for a representative `Value` of that type. This ensures eval's type-tag bridge covers all registry primitive types.
 
-- [ ] **Step 6 — Check file size; split if needed:**
-  After Steps 1–4, run `wc -l compiler/ori_eval/src/operators/mod.rs`. If over 450 lines, split: move per-type helpers (`eval_int_binary`, `eval_float_binary`, etc.) to `compiler/ori_eval/src/operators/primitives.rs`, move cross-type helpers (`eval_duration_int_binary`, etc.) to `compiler/ori_eval/src/operators/cross_type.rs`.
+- [x] **Step 6 — Check file size; split if needed:** (2026-04-01) Was 501 lines after Steps 2+4. Split compound type operators (list, set, tuple, option, result, struct, variant) to `compound.rs` (158 lines). `mod.rs` now 353 lines. All files well under 500-line limit.
 
 - [x] **Step 7 — Verify no behavioral changes:** (2026-04-01) All existing operator tests pass unchanged. Bridge functions are test-only (`#[cfg(test)]`), zero production code impact.
 

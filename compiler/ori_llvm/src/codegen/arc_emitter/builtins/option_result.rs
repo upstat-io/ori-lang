@@ -10,7 +10,7 @@
 //! `extract_value` which returns the storage type, not the variant type.
 
 declare_builtins! { emitter, ctx;
-    // Option methods
+    // Option — simple methods
     ("Option", "is_some") => emitter.emit_option_method(ctx.method, ctx.arg_vals, ctx.receiver_ty),
     ("Option", "is_none") => emitter.emit_option_method(ctx.method, ctx.arg_vals, ctx.receiver_ty),
     ("Option", "unwrap") => emitter.emit_option_method(ctx.method, ctx.arg_vals, ctx.receiver_ty),
@@ -18,7 +18,15 @@ declare_builtins! { emitter, ctx;
     ("Option", "expect") => emitter.emit_option_method(ctx.method, ctx.arg_vals, ctx.receiver_ty),
     ("Option", "debug") => emitter.emit_option_method(ctx.method, ctx.arg_vals, ctx.receiver_ty),
     ("Option", "clone") => emitter.emit_option_method(ctx.method, ctx.arg_vals, ctx.receiver_ty),
-    // Result methods
+    // Option — monadic/closure methods
+    ("Option", "map") => emitter.emit_option_monadic(ctx.method, ctx.arg_vals, ctx.receiver_ty, ctx.arc_args, ctx.arc_func),
+    ("Option", "and_then") => emitter.emit_option_monadic(ctx.method, ctx.arg_vals, ctx.receiver_ty, ctx.arc_args, ctx.arc_func),
+    ("Option", "flat_map") => emitter.emit_option_monadic(ctx.method, ctx.arg_vals, ctx.receiver_ty, ctx.arc_args, ctx.arc_func),
+    ("Option", "filter") => emitter.emit_option_monadic(ctx.method, ctx.arg_vals, ctx.receiver_ty, ctx.arc_args, ctx.arc_func),
+    ("Option", "or") => emitter.emit_option_monadic(ctx.method, ctx.arg_vals, ctx.receiver_ty, ctx.arc_args, ctx.arc_func),
+    ("Option", "or_else") => emitter.emit_option_monadic(ctx.method, ctx.arg_vals, ctx.receiver_ty, ctx.arc_args, ctx.arc_func),
+    ("Option", "ok_or") => emitter.emit_option_monadic(ctx.method, ctx.arg_vals, ctx.receiver_ty, ctx.arc_args, ctx.arc_func),
+    // Result — simple methods
     ("Result", "is_ok") => emitter.emit_result_method(ctx.method, ctx.arg_vals, ctx.receiver_ty),
     ("Result", "is_err") => emitter.emit_result_method(ctx.method, ctx.arg_vals, ctx.receiver_ty),
     ("Result", "unwrap") => emitter.emit_result_method(ctx.method, ctx.arg_vals, ctx.receiver_ty),
@@ -30,6 +38,11 @@ declare_builtins! { emitter, ctx;
     ("Result", "ok") => emitter.emit_result_method(ctx.method, ctx.arg_vals, ctx.receiver_ty),
     ("Result", "err") => emitter.emit_result_method(ctx.method, ctx.arg_vals, ctx.receiver_ty),
     ("Result", "clone") => emitter.emit_result_method(ctx.method, ctx.arg_vals, ctx.receiver_ty),
+    // Result — monadic/closure methods
+    ("Result", "map") => emitter.emit_result_monadic(ctx.method, ctx.arg_vals, ctx.receiver_ty, ctx.arc_args, ctx.arc_func),
+    ("Result", "map_err") => emitter.emit_result_monadic(ctx.method, ctx.arg_vals, ctx.receiver_ty, ctx.arc_args, ctx.arc_func),
+    ("Result", "and_then") => emitter.emit_result_monadic(ctx.method, ctx.arg_vals, ctx.receiver_ty, ctx.arc_args, ctx.arc_func),
+    ("Result", "or_else") => emitter.emit_result_monadic(ctx.method, ctx.arg_vals, ctx.receiver_ty, ctx.arc_args, ctx.arc_func),
 }
 
 use ori_types::Idx;

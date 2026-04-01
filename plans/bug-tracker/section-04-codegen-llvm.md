@@ -48,6 +48,12 @@ Bugs in LLVM IR generation, JIT/AOT compilation, monomorphization, ARC pipeline 
 - [x] `[BUG-04-009][high]` **Result coalesce (`??`) always takes Err path in AOT/LLVM codegen** — found by continue-roadmap.
   Resolved: Fixed on 2026-03-30. Root cause: `lower_binary()` in ori_arc eagerly evaluated both operands of `??`, causing `panic()` on RHS to fire unconditionally. Fix: intercept `Coalesce` in `lower_binary()` and route to `lower_coalesce()` which generates conditional control flow (branch on tag → lazy RHS evaluation → merge). The LLVM `emit_coalesce()` (which uses `select`) is now dead code for `??` since the ARC IR already has the branch structure.
 
+- [ ] `[BUG-04-010][medium]` **`Option.iter()` has no AOT/LLVM support** — found by continue-roadmap.
+  Repro: No spec test exists yet. Any Ori program using `some_option.iter()` in AOT mode would fail.
+  Subsystem: `compiler/ori_rt` (missing `ori_iter_from_option` runtime fn) + `compiler/ori_llvm/src/codegen/arc_emitter/builtins/option_result.rs` (missing emit arm)
+  Found: 2026-04-01 | Source: continue-roadmap
+  Note: The interpreter handles this via `IteratorValue::from_value()` (Some→`[v].iter()`, None→`[].iter()`). Registry has `backend_required: false`. Active work in hygiene-full Section 03.2 touches this area (Step 7 blocked on this).
+
 ---
 
 ## Resolved Bugs

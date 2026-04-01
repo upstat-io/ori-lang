@@ -42,7 +42,7 @@ ori_types, ori_registry, SSOT, scattered knowledge
 ---
 
 ### Section 03: Cross-Backend Algorithmic DRY (eval / LLVM)
-**File:** `section-03-cross-backend-dry.md` | **Status:** Not Started
+**File:** `section-03-cross-backend-dry.md` | **Status:** In Progress
 
 ```
 eval, LLVM, parallel dispatch, algorithmic duplication

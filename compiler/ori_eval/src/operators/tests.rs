@@ -137,7 +137,8 @@ fn op_strategy_from_op_maps_all_registry_ops() {
     };
     for &(op, get_strategy) in REGISTRY_OPS {
         let expected = get_strategy(&int_def.operators);
-        let actual = op_strategy_from_op(&int_def.operators, op);
+        let actual = op_strategy_from_op(&int_def.operators, op)
+            .unwrap_or_else(|| panic!("REGISTRY_OPS contains non-registry op {op:?}"));
         assert_eq!(
             expected, actual,
             "op_strategy_from_op mismatch for int {op:?}"
