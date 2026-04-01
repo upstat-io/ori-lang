@@ -376,6 +376,7 @@ fn rc_inc_does_not_overflow_under_normal_use() {
 
 #[test]
 fn rc_inc_skips_at_max_refcount() {
+    let _lock = lock_rc();
     // Immortal objects have refcount set to MAX_REFCOUNT.
     // ori_rc_inc should be a no-op — refcount stays at MAX_REFCOUNT.
     let ptr = ori_rc_alloc(16, 8);
@@ -406,6 +407,7 @@ fn rc_inc_skips_at_max_refcount() {
 
 #[test]
 fn rc_dec_skips_at_max_refcount() {
+    let _lock = lock_rc();
     // Immortal objects have refcount set to MAX_REFCOUNT.
     // ori_rc_dec should be a no-op — refcount stays at MAX_REFCOUNT.
     let ptr = ori_rc_alloc(16, 8);
