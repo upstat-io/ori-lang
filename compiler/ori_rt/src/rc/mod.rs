@@ -245,6 +245,8 @@ pub extern "C" fn ori_rc_dec(data_ptr: *mut u8, drop_fn: Option<extern "C" fn(*m
 
     #[cfg(feature = "single-threaded")]
     {
+        // SAFETY: data_ptr was returned by ori_rc_alloc, so data_ptr - 8 is valid
+        // and 8-byte aligned.
         let (should_drop, new_rc) = unsafe {
             let rc_ptr = data_ptr.sub(8).cast::<i64>();
             // Immortal sentinel: skip for immortal objects.
