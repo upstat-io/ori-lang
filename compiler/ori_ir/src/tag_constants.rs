@@ -33,11 +33,17 @@ pub const FIELD_CAP: u32 = 1;
 /// Index of the `data` field in list/str/map structs.
 pub const FIELD_DATA: u32 = 2;
 
-// Closure layout
+// Closure layout: `{ ptr fn_ptr, ptr env_ptr }`
 /// Index of the function pointer in a closure struct.
 pub const CLOSURE_FIELD_FN: u32 = 0;
 /// Index of the environment pointer in a closure struct.
 pub const CLOSURE_FIELD_ENV: u32 = 1;
+
+// Range layout: `{ i64 start, i64 end, ... }`
+/// Index of the `start` field in a range struct.
+pub const RANGE_FIELD_START: u32 = 0;
+/// Index of the `end` field in a range struct.
+pub const RANGE_FIELD_END: u32 = 1;
 
 // Layout computation primitives
 

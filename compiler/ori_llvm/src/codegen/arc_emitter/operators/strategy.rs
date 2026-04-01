@@ -128,8 +128,9 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
     /// Emit the coalesce operation (`??`).
     ///
-    /// `opt ?? default` → extract tag, if `Some(0)` return payload else default.
-    /// Same pattern for `Result`: `Ok(0)` → payload, else default.
+    /// `opt ?? default` → extract tag, if Some return payload else default.
+    /// Same pattern for `Result`: Ok → payload, else default.
+    /// (`OPTION_TAG_SOME` == `RESULT_TAG_OK` == 0)
     fn emit_coalesce(&mut self, lhs: ValueId, rhs: ValueId) -> ValueId {
         let tag = self
             .builder
@@ -139,8 +140,10 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             .builder
             .extract_value(lhs, 1, "coal.val")
             .unwrap_or(lhs);
-        let zero = self.builder.const_int_matching(tag, 0);
-        let is_some = self.builder.icmp_eq(tag, zero, "is_some");
+        let some_tag = self
+            .builder
+            .const_int_matching(tag, ori_ir::OPTION_TAG_SOME as u64);
+        let is_some = self.builder.icmp_eq(tag, some_tag, "is_some");
         self.builder.select(is_some, payload, rhs, "coal")
     }
 

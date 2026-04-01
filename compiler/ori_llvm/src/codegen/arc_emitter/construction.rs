@@ -4,6 +4,7 @@
 //! (with recursive field boxing), list literals, map literals, and set literals.
 
 use ori_arc::ir::{ArcVarId, CtorKind};
+use ori_ir::{FIELD_CAP, FIELD_DATA, FIELD_LEN};
 use ori_types::{Idx, Tag};
 
 use super::context::is_boxed_enum_field;
@@ -359,15 +360,15 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         // Extract old {len, cap, data} from old_var.
         let old_data = self
             .builder
-            .extract_value(old_val, 2, "reuse.old_data")
+            .extract_value(old_val, FIELD_DATA, "reuse.old_data")
             .unwrap_or_else(|| self.builder.const_null_ptr());
         let old_len = self
             .builder
-            .extract_value(old_val, 0, "reuse.old_len")
+            .extract_value(old_val, FIELD_LEN, "reuse.old_len")
             .unwrap_or_else(|| self.builder.const_i64(0));
         let old_cap = self
             .builder
-            .extract_value(old_val, 1, "reuse.old_cap")
+            .extract_value(old_val, FIELD_CAP, "reuse.old_cap")
             .unwrap_or_else(|| self.builder.const_i64(0));
 
         // Build call args for ori_list_reset_buffer.

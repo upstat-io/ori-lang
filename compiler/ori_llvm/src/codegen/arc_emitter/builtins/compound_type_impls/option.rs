@@ -30,9 +30,11 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let rhs_val = self.builder.extract_value(rhs, 1, "opt.rhs.val")?;
         let payload_eq = self.emit_element_equals(lhs_val, rhs_val, inner_ty)?;
 
-        // Both None (tag=1): equal. Both Some (tag=0): check payload.
-        let one = self.builder.const_int_matching(lhs_tag, 1);
-        let is_none = self.builder.icmp_eq(lhs_tag, one, "is_none");
+        // Both None → equal. Both Some → check payload.
+        let none_tag = self
+            .builder
+            .const_int_matching(lhs_tag, ori_ir::OPTION_TAG_NONE as u64);
+        let is_none = self.builder.icmp_eq(lhs_tag, none_tag, "is_none");
         let true_val = self.builder.const_bool(true);
         let same_tag_result = self
             .builder
@@ -70,8 +72,10 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let rhs_val = self.builder.extract_value(rhs, 1, "opt.rhs.val")?;
         let payload_cmp = self.emit_element_compare(lhs_val, rhs_val, inner_ty)?;
 
-        let one = self.builder.const_int_matching(lhs_tag, 1);
-        let is_none = self.builder.icmp_eq(lhs_tag, one, "is_none");
+        let none_tag = self
+            .builder
+            .const_int_matching(lhs_tag, ori_ir::OPTION_TAG_NONE as u64);
+        let is_none = self.builder.icmp_eq(lhs_tag, none_tag, "is_none");
         let equal_ord = self.builder.const_i8(1);
         let same_tag_cmp = self
             .builder
@@ -98,10 +102,15 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let seed = self.builder.const_i64(1);
         let some_hash = self.emit_hash_combine(seed, payload_hash);
 
-        let one = self.builder.const_int_matching(tag, 1);
-        let is_none = self.builder.icmp_eq(tag, one, "is_none");
-        let zero = self.builder.const_i64(0);
-        Some(self.builder.select(is_none, zero, some_hash, "opt_hash"))
+        let none_tag = self
+            .builder
+            .const_int_matching(tag, ori_ir::OPTION_TAG_NONE as u64);
+        let is_none = self.builder.icmp_eq(tag, none_tag, "is_none");
+        let none_hash = self.builder.const_i64(0);
+        Some(
+            self.builder
+                .select(is_none, none_hash, some_hash, "opt_hash"),
+        )
     }
 
     /// `Option<T>.iter()` → iterator over 0 or 1 elements.

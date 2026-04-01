@@ -12,7 +12,7 @@
 //!   and aggregate-to-pointer coercion
 
 use ori_arc::ir::{ArcFunction, ArcVarId};
-use ori_ir::Name;
+use ori_ir::{Name, CLOSURE_FIELD_ENV, CLOSURE_FIELD_FN};
 use ori_types::{Idx, Tag};
 
 use super::ArcIrEmitter;
@@ -293,10 +293,12 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             args = args.len(),
             "emit_apply_indirect"
         );
-        let fn_ptr = self.builder.extract_value(closure_val, 0, "closure.fn_ptr");
+        let fn_ptr = self
+            .builder
+            .extract_value(closure_val, CLOSURE_FIELD_FN, "closure.fn_ptr");
         let env_ptr = self
             .builder
-            .extract_value(closure_val, 1, "closure.env_ptr");
+            .extract_value(closure_val, CLOSURE_FIELD_ENV, "closure.env_ptr");
 
         if let (Some(fn_ptr), Some(env_ptr)) = (fn_ptr, env_ptr) {
             let ptr_ty = self.builder.ptr_type();

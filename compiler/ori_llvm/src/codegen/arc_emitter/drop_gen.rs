@@ -24,6 +24,7 @@
 //! itself for child decrements.
 
 use ori_arc::{DropInfo, DropKind};
+use ori_ir::{CLOSURE_FIELD_ENV, FIELD_CAP, FIELD_DATA, FIELD_LEN};
 use ori_types::Idx;
 
 use super::ArcIrEmitter;
@@ -165,17 +166,17 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         // Load len (field 0), cap (field 1), data pointer (field 2)
         let len_ptr = self
             .builder
-            .struct_gep(list_llvm_ty, data_ptr, 0, "len.ptr");
+            .struct_gep(list_llvm_ty, data_ptr, FIELD_LEN, "len.ptr");
         let len = self.builder.load(i64_ty, len_ptr, "len");
 
         let cap_ptr = self
             .builder
-            .struct_gep(list_llvm_ty, data_ptr, 1, "cap.ptr");
+            .struct_gep(list_llvm_ty, data_ptr, FIELD_CAP, "cap.ptr");
         let cap = self.builder.load(i64_ty, cap_ptr, "cap");
 
-        let data_field_ptr = self
-            .builder
-            .struct_gep(list_llvm_ty, data_ptr, 2, "data.field.ptr");
+        let data_field_ptr =
+            self.builder
+                .struct_gep(list_llvm_ty, data_ptr, FIELD_DATA, "data.field.ptr");
         let elem_data = self.builder.load(ptr_ty, data_field_ptr, "elem_data");
 
         // Get element drop function (may recursively generate)
@@ -212,7 +213,9 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let ptr_ty = self.builder.ptr_type();
 
         // Map layout: { i64 len, i64 cap, ptr keys, ptr values }
-        let len_ptr = self.builder.struct_gep(map_llvm_ty, data_ptr, 0, "len.ptr");
+        let len_ptr = self
+            .builder
+            .struct_gep(map_llvm_ty, data_ptr, FIELD_LEN, "len.ptr");
         let len = self.builder.load(i64_ty, len_ptr, "len");
 
         if dec_keys {
@@ -333,7 +336,10 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// Extracts `env_ptr` (field 1), null-checks it, loads the dynamic
     /// drop function from `env_ptr[0]`, and calls `ori_rc_dec(env_ptr, drop_fn)`.
     fn emit_closure_field_rc_dec(&mut self, closure_val: ValueId) {
-        let Some(env_ptr) = self.builder.extract_value(closure_val, 1, "clos.env") else {
+        let Some(env_ptr) = self
+            .builder
+            .extract_value(closure_val, CLOSURE_FIELD_ENV, "clos.env")
+        else {
             return;
         };
 

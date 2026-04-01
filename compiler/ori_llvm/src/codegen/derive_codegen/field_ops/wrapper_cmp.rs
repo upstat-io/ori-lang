@@ -4,7 +4,7 @@
 //! comparison, and hashing of wrapper types. Each recursively dispatches
 //! to [`super::emit_field_operation`] for payload comparisons.
 
-use ori_ir::FieldOp;
+use ori_ir::{FieldOp, OPTION_TAG_NONE, RESULT_TAG_OK};
 use ori_types::Idx;
 
 use crate::codegen::function_compiler::FunctionCompiler;
@@ -53,11 +53,11 @@ pub(super) fn emit_option_eq<'a>(
         str_ty_id,
     );
 
-    // None tag = 1: both None -> true. Some tag = 0: compare payloads.
-    let one = fc.builder_mut().const_i64(1);
+    // Both None → true. Both Some → compare payloads.
+    let none_tag = fc.builder_mut().const_i64(OPTION_TAG_NONE);
     let is_none = fc
         .builder_mut()
-        .icmp_eq(lhs_tag, one, &format!("{name}.is_none"));
+        .icmp_eq(lhs_tag, none_tag, &format!("{name}.is_none"));
     let true_val = fc.builder_mut().const_bool(true);
     let same_tag_result =
         fc.builder_mut()
@@ -111,10 +111,10 @@ pub(super) fn emit_option_compare<'a>(
         str_ty_id,
     );
 
-    let one = fc.builder_mut().const_i64(1);
+    let none_tag = fc.builder_mut().const_i64(OPTION_TAG_NONE);
     let is_none = fc
         .builder_mut()
-        .icmp_eq(lhs_tag, one, &format!("{name}.is_none"));
+        .icmp_eq(lhs_tag, none_tag, &format!("{name}.is_none"));
     let equal_ord = fc.builder_mut().const_i8(1);
     let same_tag_cmp =
         fc.builder_mut()
@@ -154,13 +154,13 @@ pub(super) fn emit_option_hash<'a>(
     let combined = fc
         .builder_mut()
         .xor(tag, payload_hash, &format!("{name}.hash"));
-    // None (tag=1): use tag as hash; Some (tag=0): use combined
-    let one = fc.builder_mut().const_i64(1);
+    // None: use tag as hash; Some: use combined
+    let none_tag = fc.builder_mut().const_i64(OPTION_TAG_NONE);
     let is_none = fc
         .builder_mut()
-        .icmp_eq(tag, one, &format!("{name}.is_none"));
+        .icmp_eq(tag, none_tag, &format!("{name}.is_none"));
     fc.builder_mut()
-        .select(is_none, one, combined, &format!("{name}.h"))
+        .select(is_none, none_tag, combined, &format!("{name}.h"))
 }
 
 /// Result<T, E> equality: tags must match; same variant -> compare payloads.
@@ -218,11 +218,11 @@ pub(super) fn emit_result_eq<'a>(
         str_ty_id,
     );
 
-    // Ok tag = 0, Err tag = 1
-    let zero = fc.builder_mut().const_i64(0);
+    // Distinguish Ok vs Err for payload type selection
+    let ok_tag = fc.builder_mut().const_i64(RESULT_TAG_OK);
     let is_ok = fc
         .builder_mut()
-        .icmp_eq(lhs_tag, zero, &format!("{name}.is_ok"));
+        .icmp_eq(lhs_tag, ok_tag, &format!("{name}.is_ok"));
     let same_tag_eq = fc
         .builder_mut()
         .select(is_ok, ok_eq, err_eq, &format!("{name}.same_eq"));

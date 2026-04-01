@@ -8,6 +8,7 @@
 //! `emit_inline_enum_rc_core`, called by both `emit_inline_enum_inc`
 //! and `emit_inline_enum_dec`.
 
+use ori_ir::{CLOSURE_FIELD_ENV, FIELD_DATA};
 use ori_types::{Idx, Tag};
 
 use super::context::is_boxed_enum_field;
@@ -51,7 +52,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 // call_rc_inc_all on these pointers, which is incorrect for slices.
                 // The AggregateFields strategy (inc_value_rc) handles this correctly.
                 // See emit_rc_inc_heap for the slice-aware override.
-                if let Some(ptr) = self.builder.extract_value(val, 2, "rc.data_ptr") {
+                if let Some(ptr) = self.builder.extract_value(val, FIELD_DATA, "rc.data_ptr") {
                     vec![ptr]
                 } else {
                     vec![val]
@@ -62,7 +63,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 // SSO strings have inline bytes in field 2, not a valid pointer.
                 // Emit a select that returns null for SSO, so ori_rc_inc/dec
                 // safely skip it (both null-check at entry).
-                if let Some(ptr) = self.builder.extract_value(val, 2, "rc.data_ptr") {
+                if let Some(ptr) = self.builder.extract_value(val, FIELD_DATA, "rc.data_ptr") {
                     let is_sso = self.emit_sso_check(ptr, "rc_str");
                     let null = self.builder.const_null_ptr();
                     let safe_ptr = self.builder.select(is_sso, null, ptr, "rc.str_safe_ptr");
@@ -73,7 +74,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             }
             Tag::Map => {
                 // {i64 len, i64 cap, ptr data} — single data buffer at field 2
-                if let Some(ptr) = self.builder.extract_value(val, 2, "rc.data_ptr") {
+                if let Some(ptr) = self.builder.extract_value(val, FIELD_DATA, "rc.data_ptr") {
                     vec![ptr]
                 } else {
                     vec![val]
@@ -105,7 +106,10 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             Tag::Function => {
                 // Closure: { fn_ptr, env_ptr } — only env_ptr (field 1) is RC-managed.
                 // The fn_ptr is a code pointer, not heap-allocated.
-                if let Some(env_ptr) = self.builder.extract_value(val, 1, "rc.closure_env") {
+                if let Some(env_ptr) =
+                    self.builder
+                        .extract_value(val, CLOSURE_FIELD_ENV, "rc.closure_env")
+                {
                     vec![env_ptr]
                 } else {
                     vec![]

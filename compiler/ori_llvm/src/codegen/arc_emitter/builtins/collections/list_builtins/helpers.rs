@@ -4,6 +4,7 @@
 //! `extract_list_fields`), the `first`/`last` shared implementation, and
 //! the `elem_size_and_align` helper used by COW mutation methods.
 
+use ori_ir::{FIELD_CAP, FIELD_DATA, FIELD_LEN};
 use ori_types::Idx;
 
 use crate::codegen::value_id::ValueId;
@@ -17,11 +18,11 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     pub(super) fn extract_list_data_and_len(&mut self, receiver: ValueId) -> (ValueId, ValueId) {
         let data_ptr = self
             .builder
-            .extract_value(receiver, 2, "list.data")
+            .extract_value(receiver, FIELD_DATA, "list.data")
             .unwrap_or_else(|| self.builder.const_null_ptr());
         let len = self
             .builder
-            .extract_value(receiver, 0, "list.len")
+            .extract_value(receiver, FIELD_LEN, "list.len")
             .unwrap_or_else(|| self.builder.const_i64(0));
         (data_ptr, len)
     }
@@ -35,15 +36,15 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     ) -> (ValueId, ValueId, ValueId) {
         let data_ptr = self
             .builder
-            .extract_value(receiver, 2, "list.data")
+            .extract_value(receiver, FIELD_DATA, "list.data")
             .unwrap_or_else(|| self.builder.const_null_ptr());
         let len = self
             .builder
-            .extract_value(receiver, 0, "list.len")
+            .extract_value(receiver, FIELD_LEN, "list.len")
             .unwrap_or_else(|| self.builder.const_i64(0));
         let cap = self
             .builder
-            .extract_value(receiver, 1, "list.cap")
+            .extract_value(receiver, FIELD_CAP, "list.cap")
             .unwrap_or_else(|| self.builder.const_i64(0));
         (data_ptr, len, cap)
     }

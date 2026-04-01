@@ -5,6 +5,7 @@
 //! and string construction utilities.
 
 use ori_arc::ir::{ArcFunction, ArcVarId};
+use ori_ir::{CLOSURE_FIELD_ENV, CLOSURE_FIELD_FN};
 use ori_types::Idx;
 
 use crate::codegen::arc_emitter::tag_access::TagEncoding;
@@ -363,8 +364,12 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         arg_ty: Idx,
         return_ty: Idx,
     ) -> Option<ValueId> {
-        let fn_ptr = self.builder.extract_value(closure, 0, "clos.fn")?;
-        let env_ptr = self.builder.extract_value(closure, 1, "clos.env")?;
+        let fn_ptr = self
+            .builder
+            .extract_value(closure, CLOSURE_FIELD_FN, "clos.fn")?;
+        let env_ptr = self
+            .builder
+            .extract_value(closure, CLOSURE_FIELD_ENV, "clos.env")?;
 
         let ptr_ty = self.builder.ptr_type();
         let mut args = vec![env_ptr];
@@ -407,8 +412,12 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         closure: ValueId,
         return_ty: Idx,
     ) -> Option<ValueId> {
-        let fn_ptr = self.builder.extract_value(closure, 0, "clos.fn")?;
-        let env_ptr = self.builder.extract_value(closure, 1, "clos.env")?;
+        let fn_ptr = self
+            .builder
+            .extract_value(closure, CLOSURE_FIELD_FN, "clos.fn")?;
+        let env_ptr = self
+            .builder
+            .extract_value(closure, CLOSURE_FIELD_ENV, "clos.env")?;
 
         let ptr_ty = self.builder.ptr_type();
         let ret_ty = self.resolve_type(return_ty);
