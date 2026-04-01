@@ -1,0 +1,62 @@
+// Option.ok_or — convert Option<T> to Result<T, E>
+use std.testing { assert_eq }
+
+// Basic: Some -> Ok
+@ok_or_some () -> Result<int, str> = {
+    Some(42).ok_or(err: "missing")
+}
+
+@test_ok_or_some tests @ok_or_some () -> void = {
+    assert_eq(actual: ok_or_some(), expected: Ok(42))
+}
+
+// Basic: None -> Err
+@ok_or_none () -> Result<int, str> = {
+    let n: Option<int> = None;
+    n.ok_or(err: "missing")
+}
+
+@test_ok_or_none tests @ok_or_none () -> void = {
+    assert_eq(actual: ok_or_none(), expected: Err("missing"))
+}
+
+// Semantic pin: differing T/E sizes (int=8B vs str=24B)
+// This catches the old bug where Option layout was used instead of Result layout.
+// With Option layout {i64, i64} the str payload would be truncated;
+// with correct Result layout {i64, max(8,24)=24B} it works.
+@ok_or_different_sizes () -> Result<int, str> = {
+    let n: Option<int> = None;
+    n.ok_or(err: "error with a longer message")
+}
+
+@test_ok_or_different_sizes tests @ok_or_different_sizes () -> void = {
+    assert_eq(actual: ok_or_different_sizes(), expected: Err("error with a longer message"))
+}
+
+// Pin: Some path with differing sizes also produces correct Result
+@ok_or_some_different_sizes () -> Result<int, str> = {
+    Some(99).ok_or(err: "not used")
+}
+
+@test_ok_or_some_different_sizes tests @ok_or_some_different_sizes () -> void = {
+    assert_eq(actual: ok_or_some_different_sizes(), expected: Ok(99))
+}
+
+// Edge: ok_or with same-sized T and E
+@ok_or_same_size () -> Result<int, int> = {
+    let n: Option<int> = None;
+    n.ok_or(err: -1)
+}
+
+@test_ok_or_same_size tests @ok_or_same_size () -> void = {
+    assert_eq(actual: ok_or_same_size(), expected: Err(-1))
+}
+
+// Chain: ok_or into Result methods
+@ok_or_chain () -> int = {
+    Some(10).ok_or(err: "fail").unwrap_or(default: 0)
+}
+
+@test_ok_or_chain tests @ok_or_chain () -> void = {
+    assert_eq(actual: ok_or_chain(), expected: 10)
+}

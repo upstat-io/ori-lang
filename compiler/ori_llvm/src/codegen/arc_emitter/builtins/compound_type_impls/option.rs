@@ -103,4 +103,42 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let zero = self.builder.const_i64(0);
         Some(self.builder.select(is_none, zero, some_hash, "opt_hash"))
     }
+
+    /// `Option<T>.iter()` → iterator over 0 or 1 elements.
+    ///
+    /// Calls `ori_iter_from_option(is_some, payload_ptr, elem_size, elem_dec_fn)`
+    /// which allocates a 1-element buffer for Some, or creates an empty iterator
+    /// for None.
+    pub(in super::super) fn emit_option_iter(
+        &mut self,
+        receiver: ValueId,
+        inner_ty: Idx,
+    ) -> Option<ValueId> {
+        let tag = self.builder.extract_value(receiver, 0, "opt.tag")?;
+        let some_const = self
+            .builder
+            .const_int_matching(tag, ori_ir::OPTION_TAG_SOME as u64);
+        let is_some_i1 = self.builder.icmp_eq(tag, some_const, "is_some");
+
+        // Alloca the Option struct so we can GEP to the payload field.
+        let opt_llvm = self.resolve_type_for_option(inner_ty);
+        let alloca = self.builder.alloca(opt_llvm, "opt.iter.a");
+        self.builder.store(receiver, alloca);
+        let payload_ptr = self
+            .builder
+            .struct_gep(opt_llvm, alloca, 1, "opt.iter.payload");
+
+        let elem_size = crate::codegen::abi::abi_size(inner_ty, self.type_info) as i64;
+        let elem_size_val = self.builder.const_i64(elem_size);
+
+        // Get elem_dec_fn for proper cleanup of RC'd elements.
+        let elem_dec_fn = self.get_or_generate_elem_dec_fn(inner_ty);
+
+        let func_id = self.builder.runtime_fn("ori_iter_from_option");
+        self.emit_rt_call(
+            func_id,
+            &[is_some_i1, payload_ptr, elem_size_val, elem_dec_fn],
+            "opt.iter",
+        )
+    }
 }

@@ -151,3 +151,52 @@ pub extern "C" fn ori_iter_from_map(
     };
     Box::into_raw(Box::new(state)).cast()
 }
+
+/// Create an iterator from an `Option<T>`.
+///
+/// Mirrors the interpreter's `IteratorValue::from_value()` for Option:
+/// `Some(v)` → 1-element list iterator, `None` → empty list iterator.
+///
+/// For `Some`: allocates a 1-element RC buffer, copies `elem_size` bytes
+/// from `payload_ptr`, stores `elem_dec_fn` and `elem_count=1` in the
+/// V5 header. The iterator owns this buffer (refcount starts at 1).
+///
+/// For `None`: creates an empty `IterState::List` with no allocation.
+#[no_mangle]
+pub extern "C" fn ori_iter_from_option(
+    is_some: bool,
+    payload_ptr: *const u8,
+    elem_size: i64,
+    elem_dec_fn: Option<extern "C" fn(*mut u8)>,
+) -> *mut u8 {
+    assert_elem_size(elem_size, "ori_iter_from_option");
+    if is_some && !payload_ptr.is_null() {
+        let size = elem_size as usize;
+        let data = crate::ori_rc_alloc(size, 8);
+        // SAFETY: ori_rc_alloc returned valid allocation of `size` bytes.
+        // store_elem_dec_fn/store_elem_count write to V5 header fields at
+        // negative offsets from the data pointer, which ori_rc_alloc guarantees.
+        unsafe {
+            std::ptr::copy_nonoverlapping(payload_ptr, data, size);
+            crate::store_elem_dec_fn(data, elem_dec_fn);
+            crate::store_elem_count(data, 1);
+        }
+        let state = IterState::List {
+            data,
+            len: 1,
+            pos: 0,
+            cap: 1,
+            elem_size,
+        };
+        Box::into_raw(Box::new(state)).cast()
+    } else {
+        let state = IterState::List {
+            data: std::ptr::null_mut(),
+            len: 0,
+            pos: 0,
+            cap: 0,
+            elem_size,
+        };
+        Box::into_raw(Box::new(state)).cast()
+    }
+}

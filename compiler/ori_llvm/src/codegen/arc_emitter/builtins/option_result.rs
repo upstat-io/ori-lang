@@ -26,6 +26,14 @@ declare_builtins! { emitter, ctx;
     ("Option", "or") => emitter.emit_option_monadic(ctx.method, ctx.arg_vals, ctx.receiver_ty, ctx.arc_args, ctx.arc_func),
     ("Option", "or_else") => emitter.emit_option_monadic(ctx.method, ctx.arg_vals, ctx.receiver_ty, ctx.arc_args, ctx.arc_func),
     ("Option", "ok_or") => emitter.emit_option_monadic(ctx.method, ctx.arg_vals, ctx.receiver_ty, ctx.arc_args, ctx.arc_func),
+    // Option — iter (Iterable trait)
+    ("Option", "iter") => {
+        if let crate::codegen::type_info::TypeInfo::Option { inner } = ctx.type_info {
+            emitter.emit_option_iter(ctx.arg_vals[0], *inner)
+        } else {
+            None
+        }
+    },
     // Result — simple methods
     ("Result", "is_ok") => emitter.emit_result_method(ctx.method, ctx.arg_vals, ctx.receiver_ty),
     ("Result", "is_err") => emitter.emit_result_method(ctx.method, ctx.arg_vals, ctx.receiver_ty),
