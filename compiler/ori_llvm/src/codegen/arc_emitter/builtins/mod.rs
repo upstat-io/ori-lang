@@ -78,8 +78,10 @@ mod iterator_consumers;
 mod list_traits;
 mod option_result;
 mod option_result_helpers;
+mod option_result_monadic;
 pub(crate) mod prelude;
 mod primitives;
+mod result_monadic;
 mod traits;
 mod trampolines;
 
