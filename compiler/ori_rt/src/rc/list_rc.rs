@@ -3,17 +3,12 @@
 use super::debug::rc_trace_dec;
 use super::{
     call_drop_fn, load_elem_count, load_elem_dec_fn, ori_rc_data_size, ori_rc_free,
-    rc_trace_enabled, rc_underflow_abort, rt_debug_validate_rc, store_elem_count,
-    store_elem_dec_fn_once,
+    rc_trace_enabled, rt_debug_validate_rc, store_elem_count, store_elem_dec_fn_once,
 };
 use crate::slice_encoding::{is_slice_cap, slice_original_data};
 
 #[cfg(debug_assertions)]
 use super::debug::rt_debug_check_not_freed;
-
-#[cfg(not(feature = "single-threaded"))]
-use std::sync::atomic;
-use std::sync::atomic::{AtomicI64, Ordering};
 
 /// Run element cleanup and free a buffer. Shared by both `ori_buffer_rc_dec`
 /// and `slice_buffer_rc_dec` to avoid duplicating the element-iteration +
@@ -126,65 +121,10 @@ pub extern "C" fn ori_buffer_rc_dec(
     let es = elem_size.max(1) as usize;
     let n = len.max(0) as usize;
 
-    #[cfg(not(feature = "single-threaded"))]
-    {
-        // Immortal sentinel check: immortal objects have MAX_REFCOUNT and must
-        // never be decremented. Read refcount first to avoid atomic fetch_sub
-        // on immortal objects.
-        // SAFETY: data is non-null (checked above), data - 8 is the RC field (V5 layout).
-        let current_rc = unsafe { (*data.sub(8).cast::<AtomicI64>()).load(Ordering::Relaxed) };
-        if current_rc == super::MAX_REFCOUNT {
-            return;
-        }
-
-        // SAFETY: data was returned by ori_rc_alloc, so data - 8 is valid and 8-byte aligned.
-        let prev = unsafe {
-            let rc_ptr = data.sub(8).cast::<AtomicI64>();
-            (*rc_ptr).fetch_sub(1, Ordering::Release)
-        };
-
-        if prev <= 0 {
-            rc_underflow_abort(data);
-        }
-
-        if rc_trace_enabled() {
-            rc_trace_dec(data.cast_const(), prev - 1);
-        }
-
-        if prev <= 1 {
-            atomic::fence(Ordering::Acquire);
-            let total = cap.max(0) as usize * es;
-            drop_elements_and_free(data, n, es, data, data, total);
-        }
-    }
-
-    #[cfg(feature = "single-threaded")]
-    {
-        // Immortal sentinel check (single-threaded path)
-        // SAFETY: data is non-null (checked above), data - 8 is the RC field (V5 layout).
-        let current_rc = unsafe { *data.sub(8).cast::<i64>() };
-        if current_rc == super::MAX_REFCOUNT {
-            return;
-        }
-
-        // SAFETY: data was returned by ori_rc_alloc, so data - 8 is valid and 8-byte aligned.
-        let (should_drop, new_rc) = unsafe {
-            let rc_ptr = data.sub(8).cast::<i64>();
-            if *rc_ptr <= 0 {
-                rc_underflow_abort(data);
-            }
-            *rc_ptr -= 1;
-            (*rc_ptr <= 0, *rc_ptr)
-        };
-
-        if rc_trace_enabled() {
-            rc_trace_dec(data.cast_const(), new_rc);
-        }
-
-        if should_drop {
-            let total = cap.max(0) as usize * es;
-            drop_elements_and_free(data, n, es, data, data, total);
-        }
+    // SAFETY: data is non-null (checked above) and was returned by ori_rc_alloc.
+    if unsafe { super::rc_dec_to_zero(data) } {
+        let total = cap.max(0) as usize * es;
+        drop_elements_and_free(data, n, es, data, data, total);
     }
 }
 
@@ -222,78 +162,23 @@ fn slice_buffer_rc_dec(
 
     let es = elem_size.max(1) as usize;
 
-    #[cfg(not(feature = "single-threaded"))]
-    {
-        // Immortal sentinel check
-        // SAFETY: original_data was returned by ori_rc_alloc, data - 8 is the RC field.
-        let current_rc =
-            unsafe { (*original_data.sub(8).cast::<AtomicI64>()).load(Ordering::Relaxed) };
-        if current_rc == super::MAX_REFCOUNT {
-            return;
-        }
-
-        // SAFETY: original_data - 8 is valid and 8-byte aligned (V5 RC header layout).
-        let prev = unsafe {
-            let rc_ptr = original_data.sub(8).cast::<AtomicI64>();
-            (*rc_ptr).fetch_sub(1, Ordering::Release)
-        };
-
-        if prev <= 0 {
-            rc_underflow_abort(original_data);
-        }
-
-        if rc_trace_enabled() {
-            rc_trace_dec(original_data.cast_const(), prev - 1);
-        }
-
-        if prev <= 1 {
-            atomic::fence(Ordering::Acquire);
-            let data_size = ori_rc_data_size(original_data.cast_const()) as usize;
-            // Read elem_count from ORIGINAL buffer's header — the full
-            // initialized element count, not the slice's visible range.
-            // SAFETY: original_data was returned by ori_rc_alloc, so data - 16 is valid.
-            let elem_count = unsafe { load_elem_count(original_data) }.max(0) as usize;
-            drop_elements_and_free(
-                original_data,
-                elem_count,
-                es,
-                original_data,
-                original_data,
-                data_size,
-            );
-        }
-    }
-
-    #[cfg(feature = "single-threaded")]
-    {
-        // SAFETY: original_data was returned by ori_rc_alloc, data - 8 is valid and aligned.
-        let (should_drop, new_rc) = unsafe {
-            let rc_ptr = original_data.sub(8).cast::<i64>();
-            if *rc_ptr <= 0 {
-                rc_underflow_abort(original_data);
-            }
-            *rc_ptr -= 1;
-            (*rc_ptr <= 0, *rc_ptr)
-        };
-
-        if rc_trace_enabled() {
-            rc_trace_dec(original_data.cast_const(), new_rc);
-        }
-
-        if should_drop {
-            let data_size = ori_rc_data_size(original_data.cast_const()) as usize;
-            // Read elem_count from ORIGINAL buffer's header
-            // SAFETY: original_data was returned by ori_rc_alloc, so data - 16 is valid.
-            let elem_count = unsafe { load_elem_count(original_data) }.max(0) as usize;
-            drop_elements_and_free(
-                original_data,
-                elem_count,
-                es,
-                original_data,
-                original_data,
-                data_size,
-            );
-        }
+    // SAFETY: original_data was returned by ori_rc_alloc.
+    // Note: before this refactor, the single-threaded path was missing the
+    // immortal sentinel check — rc_dec_to_zero includes it for both paths.
+    if unsafe { super::rc_dec_to_zero(original_data) } {
+        let data_size = ori_rc_data_size(original_data.cast_const()) as usize;
+        // Read elem_count from ORIGINAL buffer's header — the full
+        // initialized element count, not the slice's visible range.
+        // SAFETY: original_data was returned by ori_rc_alloc, so data - 16 is valid.
+        let elem_count = unsafe { load_elem_count(original_data) }.max(0) as usize;
+        drop_elements_and_free(
+            original_data,
+            elem_count,
+            es,
+            original_data,
+            original_data,
+            data_size,
+        );
     }
 }
 

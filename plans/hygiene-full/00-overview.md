@@ -136,7 +136,7 @@ Phase 4 - Enforcement & cleanup
 | 04 | Named Constants | `section-04-named-constants.md` | Complete |
 | 05 | Layout Computation Unification | `section-05-layout-unification.md` | In Progress (TPR pending) |
 | 06 | LLVM Internal DRY | `section-06-llvm-internal-dry.md` | In Progress (TPR pending) |
-| 07 | Runtime RC Protocol DRY + Correctness | `section-07-runtime-rc-protocol.md` | In Progress |
+| 07 | Runtime RC Protocol DRY + Correctness | `section-07-runtime-rc-protocol.md` | In Progress (TPR pending) |
 | 08 | Cross-Phase Invariant Contracts | `section-08-invariant-contracts.md` | In Progress (TPR pending) |
 | 09 | Registration Sync & Enforcement | `section-09-registration-sync.md` | In Progress (TPR pending) |
 | 10 | Scattered Knowledge Cleanup | `section-10-scattered-knowledge.md` | In Progress (TPR pending) |
