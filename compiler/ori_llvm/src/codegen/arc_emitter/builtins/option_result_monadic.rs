@@ -62,7 +62,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             }
             "or_else" => self.emit_opt_or_else(receiver, is_some, arg_vals, arc_args, arc_func),
             "ok_or" if arg_vals.len() >= 2 => {
-                self.emit_opt_ok_or(receiver, is_some, inner, arg_vals)
+                self.emit_opt_ok_or(receiver, is_some, inner, arg_vals, arc_args, arc_func)
             }
             _ => None,
         }
@@ -254,14 +254,19 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     }
 
     /// `Option.ok_or(err)`: `if Some(v) { Ok(v) } else { Err(err) }`
+    ///
+    /// Returns `Result<T, E>` — must use Result layout helpers, not Option.
     fn emit_opt_ok_or(
         &mut self,
         receiver: ValueId,
         is_some: ValueId,
         inner: Idx,
         arg_vals: &[ValueId],
+        arc_args: &[ArcVarId],
+        arc_func: &ArcFunction,
     ) -> Option<ValueId> {
         let err_val = arg_vals[1];
+        let err_ty = arc_func.var_type(arc_args[1]);
 
         let some_bb = self
             .builder
@@ -274,23 +279,35 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             .append_block(self.current_function, "okor.merge");
         self.builder.cond_br(is_some, some_bb, none_bb);
 
-        // Some: Ok(payload)
+        // Some: Ok(payload) in Result<T, E> layout
         self.builder.position_at_end(some_bb);
         let payload = self.builder.extract_value(receiver, 1, "opt.val")?;
-        let ok_tag = self.builder.const_i64(ori_ir::RESULT_TAG_OK);
-        let ok_result = self.build_option_struct(ok_tag, payload, inner)?;
+        let ok_result = self.build_result_struct(
+            ori_ir::RESULT_TAG_OK,
+            payload,
+            inner,
+            inner,
+            err_ty,
+            "okor.ok",
+        )?;
         let some_bb_final = self.builder.current_block().unwrap();
         self.builder.br(merge_bb);
 
-        // None: Err(err_val)
+        // None: Err(err_val) in Result<T, E> layout
         self.builder.position_at_end(none_bb);
-        let err_tag = self.builder.const_i64(ori_ir::RESULT_TAG_ERR);
-        let err_result = self.build_option_struct(err_tag, err_val, inner)?;
+        let err_result = self.build_result_struct(
+            ori_ir::RESULT_TAG_ERR,
+            err_val,
+            err_ty,
+            inner,
+            err_ty,
+            "okor.err",
+        )?;
         let none_bb_final = self.builder.current_block().unwrap();
         self.builder.br(merge_bb);
 
         self.builder.position_at_end(merge_bb);
-        let result_llvm = self.resolve_type_for_option(inner);
+        let result_llvm = self.resolve_type_for_result(inner, err_ty);
         let phi = self.builder.phi(result_llvm, "okor.result");
         self.builder.add_phi_incoming(
             phi,
@@ -310,7 +327,10 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     }
 
     /// Resolve the LLVM type for `Option<T>` = `{i64, T}`.
-    fn resolve_type_for_option(&mut self, inner_ty: Idx) -> crate::codegen::value_id::LLVMTypeId {
+    pub(super) fn resolve_type_for_option(
+        &mut self,
+        inner_ty: Idx,
+    ) -> crate::codegen::value_id::LLVMTypeId {
         let inner_llvm = self.resolve_type(inner_ty);
         let scx = self.builder.scx();
         let i64_ty = scx.type_i64();

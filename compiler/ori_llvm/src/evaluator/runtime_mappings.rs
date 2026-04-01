@@ -208,6 +208,7 @@ fn lookup_jit_address(name: &str) -> usize {
         "ori_iter_from_range" => runtime::iterator::ori_iter_from_range as *const () as usize,
         "ori_iter_from_str" => runtime::iterator::ori_iter_from_str as *const () as usize,
         "ori_iter_from_map" => runtime::iterator::ori_iter_from_map as *const () as usize,
+        "ori_iter_from_option" => runtime::iterator::ori_iter_from_option as *const () as usize,
         // Iterator core
         "ori_iter_next" => runtime::iterator::ori_iter_next as *const () as usize,
         "ori_iter_drop" => runtime::iterator::ori_iter_drop as *const () as usize,

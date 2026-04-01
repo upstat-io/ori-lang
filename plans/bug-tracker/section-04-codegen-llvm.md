@@ -48,11 +48,15 @@ Bugs in LLVM IR generation, JIT/AOT compilation, monomorphization, ARC pipeline 
 - [x] `[BUG-04-009][high]` **Result coalesce (`??`) always takes Err path in AOT/LLVM codegen** — found by continue-roadmap.
   Resolved: Fixed on 2026-03-30. Root cause: `lower_binary()` in ori_arc eagerly evaluated both operands of `??`, causing `panic()` on RHS to fire unconditionally. Fix: intercept `Coalesce` in `lower_binary()` and route to `lower_coalesce()` which generates conditional control flow (branch on tag → lazy RHS evaluation → merge). The LLVM `emit_coalesce()` (which uses `select`) is now dead code for `??` since the ARC IR already has the branch structure.
 
-- [ ] `[BUG-04-010][medium]` **`Option.iter()` has no AOT/LLVM support** — found by continue-roadmap.
-  Repro: No spec test exists yet. Any Ori program using `some_option.iter()` in AOT mode would fail.
-  Subsystem: `compiler/ori_rt` (missing `ori_iter_from_option` runtime fn) + `compiler/ori_llvm/src/codegen/arc_emitter/builtins/option_result.rs` (missing emit arm)
-  Found: 2026-04-01 | Source: continue-roadmap
-  Note: The interpreter handles this via `IteratorValue::from_value()` (Some→`[v].iter()`, None→`[].iter()`). Registry has `backend_required: false`. Active work in hygiene-full Section 03.2 touches this area (Step 7 blocked on this).
+- [x] `[BUG-04-010][medium]` **`Option.iter()` has no AOT/LLVM support** — found by continue-roadmap.
+  Resolved: Fixed on 2026-04-01. Added `ori_iter_from_option` runtime function + `emit_option_iter()` codegen + dispatch entry. Verified working in both interpreter and LLVM with count, fold, for-loop. No leaks with RC'd elements.
+
+- [ ] `[BUG-04-011][high]` **Option/Result spec tests all fail LLVM compilation: assert_eq unresolved, type variables unresolved at codegen** — found by continue-roadmap.
+  Repro: `timeout 150 cargo run -p oric --bin ori -- test --backend=llvm tests/spec/types/option tests/spec/types/result` → `0 passed, 0 failed, 0 skipped, 11 llvm compile fail` (all 7 files fail). Interpreter passes all tests (4351 passed).
+  Errors include: `unresolved function 'assert_eq' in apply — missing mono instance?`, `unresolved type variable at codegen — type inference bug`, `ArcIrEmitter: variable not yet defined`, `binary op on type with Unsupported strategy`, `icmp on non-int operands`.
+  Subsystem: `compiler/ori_llvm/src/codegen/arc_emitter/` (multiple: monomorphization, type resolution, variable definition ordering)
+  Found: 2026-04-01 | Source: continue-roadmap (hygiene-full Section 03 TPR triage)
+  Note: Individual Option/Result methods work in standalone `@main` AOT tests (verified for `ok_or`, `map`, `expect`). The failures appear to be test-runner/spec-framework issues with `assert_eq` monomorphization and generic type variable resolution, not specific to Option/Result method codegen. Active work in repr-opt and hygiene-full touches this area.
 
 ---
 
