@@ -153,8 +153,12 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 self.emit_tuple_debug(val, &elements)
             }
 
-            // Unsupported compound types: fall back to placeholder
-            _ => self.emit_literal_ori_str("<?>"),
+            // Generic dispatch: look up the type's compiled .debug() method.
+            // Handles user structs/enums with #derive(Debug), and any other
+            // type whose debug method was compiled and registered.
+            _ => self
+                .emit_derived_debug_call(val, ty)
+                .or_else(|| self.emit_literal_ori_str("<?>")),
         }
     }
 
@@ -467,5 +471,35 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let result = self.emit_str_concat(acc, suffix)?;
         self.dec_intermediate_str(acc);
         Some(result)
+    }
+
+    /// Call a compiled `.debug()` method for a type via method dispatch.
+    ///
+    /// Looks up the type's debug function in `method_functions`, applies
+    /// ABI parameter passing (Indirect for large structs), and handles
+    /// sret return (debug returns `str` which is 24 bytes → sret).
+    /// Returns `None` if no compiled debug method exists for the type.
+    fn emit_derived_debug_call(&mut self, val: ValueId, ty: Idx) -> Option<ValueId> {
+        let type_name = *self.ctx.type_idx_to_name.get(&ty)?;
+        let interned_debug = self.interner.intern("debug");
+        let (func_id, abi) = {
+            let (fid, abi) = self
+                .ctx
+                .method_functions
+                .get(&(type_name, interned_debug))?;
+            (*fid, abi.clone())
+        };
+
+        let raw_args = [val];
+        let passed_args = self.apply_param_passing(&raw_args, &abi.params);
+
+        // Debug returns str (24 bytes), which uses sret return convention.
+        match &abi.return_abi.passing {
+            crate::codegen::abi::ReturnPassing::Sret { .. } => {
+                let str_ty = self.resolve_type(Idx::STR);
+                self.call_with_sret(func_id, &passed_args, str_ty, "dbg.derived")
+            }
+            _ => self.emit_rt_call(func_id, &passed_args, "dbg.derived"),
+        }
     }
 }
