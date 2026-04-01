@@ -446,16 +446,18 @@ impl ArcLowerer<'_> {
         let resolved_ty = self.pool.resolve_fully(ty);
         let is_chaining = lhs_ty == resolved_ty;
 
-        // Extract tag (field 0) and compare to 0 (Some/Ok).
+        // Extract tag (field 0) and compare to Some/Ok tag value.
         let tag = self.builder.emit_project(Idx::INT, lhs, 0, Some(span));
-        let zero = self
-            .builder
-            .emit_let(Idx::INT, ArcValue::Literal(LitValue::Int(0)), Some(span));
+        let some_tag = self.builder.emit_let(
+            Idx::INT,
+            ArcValue::Literal(LitValue::Int(ori_ir::OPTION_TAG_SOME)),
+            Some(span),
+        );
         let is_some = self.builder.emit_let(
             Idx::BOOL,
             ArcValue::PrimOp {
                 op: PrimOp::Binary(ori_ir::BinaryOp::Eq),
-                args: vec![tag, zero],
+                args: vec![tag, some_tag],
             },
             Some(span),
         );
