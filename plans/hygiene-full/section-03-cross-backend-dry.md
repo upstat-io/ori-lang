@@ -9,7 +9,7 @@ inspired_by:
   - "Lean 4 IR/RC.lean -- shared RC decision metadata, backend-specific emission"
 depends_on: ["01", "02"]
 third_party_review:
-  status: findings
+  status: resolved
   updated: 2026-04-01
 sections:
   - id: "03.1"
@@ -29,10 +29,10 @@ sections:
     status: complete
   - id: "03.R"
     title: "Third Party Review Findings"
-    status: in-progress
+    status: complete
   - id: "03.N"
     title: "Completion Checklist"
-    status: complete
+    status: in-progress
 ---
 
 # Section 03: Cross-Backend Algorithmic DRY (eval / LLVM)
@@ -490,15 +490,11 @@ All subsections must also satisfy:
 
 ## 03.R Third Party Review Findings
 
-- [ ] `[TPR-03-009][high]` [compiler/ori_llvm/src/codegen/arc_emitter/builtins/option_result_helpers.rs](/home/eric/projects/ori_lang/compiler/ori_llvm/src/codegen/arc_emitter/builtins/option_result_helpers.rs#L301) only formats wrapper-debug payloads through `emit_element_to_str()`, which returns `None` for compound payloads such as lists, tuples, and nested wrappers.
-  Evidence: `emit_option_debug_branch()` / `emit_result_debug()` both call `emit_element_to_str()` for the inner payload, but that helper only handles primitives plus `str`. Fresh verification on 2026-04-01: interpreter `./target/release/ori run /tmp/wrapper_debug_nested.ori` prints `Some([1, 2, 3])` and `Ok([4, 5])`, while AOT `diagnostics/diagnose-aot.sh /tmp/wrapper_debug_nested.ori` compiles and runs but prints two empty lines.
-  Impact: `Option.debug()` / `Result.debug()` are still semantically wrong for non-primitive payloads in LLVM, so the new wrapper-debug support is incomplete and violates dual-execution parity on valid user programs.
-  Required plan update: Route wrapper debug through recursive Debug semantics instead of the `to_str` helper, then add an AOT regression pin for `Option<[int]>` / `Result<[int], str>` (or equivalent compound payloads).
+- [x] `[TPR-03-009][high]` [compiler/ori_llvm/src/codegen/arc_emitter/builtins/option_result_helpers.rs](/home/eric/projects/ori_lang/compiler/ori_llvm/src/codegen/arc_emitter/builtins/option_result_helpers.rs#L301) only formats wrapper-debug payloads through `emit_element_to_str()`, which returns `None` for compound payloads such as lists, tuples, and nested wrappers.
+  Resolved: Fixed on 2026-04-01. Extracted debug formatting to new `debug_helpers.rs`. Created `emit_element_debug()` with recursive Debug semantics: handles Option, Result, List (element-wise loop), Tuple (field-wise), Str (quoted+escaped via `ori_str_debug_format` runtime fn), Char (`ori_char_debug_format`), Byte (`ori_byte_debug_format`). `emit_option_debug_branch()` and `emit_result_debug()` now use `emit_element_debug()` for Debug context. Added 7 AOT regression tests covering: str payload (quotes), list payload, Result list payload, None, Err str, nested Option, and empty list. All pass with `ORI_CHECK_LEAKS=1`.
 
-- [ ] `[TPR-03-010][medium]` [compiler/ori_llvm/src/codegen/arc_emitter/builtins/option_result_helpers.rs](/home/eric/projects/ori_lang/compiler/ori_llvm/src/codegen/arc_emitter/builtins/option_result_helpers.rs#L301) formats `str` payloads with Printable semantics rather than Debug semantics, so wrapper debug output drops the required quotes and escapes.
-  Evidence: `emit_element_to_str()` returns raw `str` values unchanged and the helper docs explicitly describe `Some(v)` / `Ok(v)` as using `v.to_str()`. Fresh verification on 2026-04-01: interpreter `./target/release/ori run /tmp/wrapper_debug_output.ori` prints `Some("hi")` and `Err("oops")`, while AOT `diagnostics/diagnose-aot.sh /tmp/wrapper_debug_output.ori` prints `Some(hi)` and `Err(oops)`.
-  Impact: The LLVM backend violates the existing Debug spec/tests for wrapper values containing strings, so current AOT output is observably wrong even for the simplest `Option<str>` / `Result<_, str>` cases.
-  Required plan update: Reuse the existing string-debug escaping path for wrapper payloads and add a standalone AOT regression pin until the LLVM spec harness can execute `tests/spec/traits/debug/wrappers.ori`.
+- [x] `[TPR-03-010][medium]` [compiler/ori_llvm/src/codegen/arc_emitter/builtins/option_result_helpers.rs](/home/eric/projects/ori_lang/compiler/ori_llvm/src/codegen/arc_emitter/builtins/option_result_helpers.rs#L301) formats `str` payloads with Printable semantics rather than Debug semantics, so wrapper debug output drops the required quotes and escapes.
+  Resolved: Fixed on 2026-04-01. Added `ori_str_debug_format` runtime function in `ori_rt/src/string/convert.rs` that wraps string content in quotes and escapes special chars (`\n`, `\r`, `\t`, `\\`, `\"`, `\0`). `emit_element_debug()` routes Str through this runtime function instead of identity pass-through. AOT regression test `test_aot_option_debug_str_payload` verifies `Some("hi")` output. `test_aot_result_debug_err_str` verifies `Err("oops")` output.
 
 - [x] `[TPR-03-007][critical]` [compiler/ori_llvm/src/codegen/arc_emitter/builtins/option_result.rs](/home/eric/projects/ori_lang/compiler/ori_llvm/src/codegen/arc_emitter/builtins/option_result.rs#L95) still returns RC-backed payloads from `Option.unwrap_or`, `Option.expect`, `Result.unwrap_or`, and `Result.expect` by raw extract/load without retaining inner RC fields first.
   Resolved: Fixed on 2026-04-01. Added conditional `inc_value_rc` for `Option.unwrap_or` (guarded by is_some), unconditional `inc_value_rc` for `Option.expect` (post-branch, guaranteed Some), and equivalent fixes for `Result.unwrap_or` (conditional on is_ok), `Result.expect` (unconditional post-branch), `Result.expect_err` (unconditional post-branch). All verified clean with standalone AOT repros using heap strings.
@@ -580,6 +576,6 @@ All subsections must also satisfy:
 - [x] `builtins/mod.rs` line count checked — if still over 500 lines after section, extract `is_iterator_method` and related helpers to a new `iterators_guard.rs` submodule (2026-04-01) Was 507 lines; extracted to `iterators_guard.rs` (87 lines). mod.rs now 428 lines.
 - [x] `compiler/ori_eval/src/methods/variants.rs` is NOT touched by this section (it is 586 lines and over limit — flagged for Section 12 surface hygiene) (2026-04-01) 586 lines, untouched
 - [x] Plan annotation cleanup: no hygiene-full annotations remain in source code (2026-04-01) All annotations found are from roadmap section 03 or repr-opt, not hygiene-full
-- [ ] `/tpr-review` / `review-work` is clean for the final section state. Re-opened on 2026-04-01 after TPR-03-007 and TPR-03-008 reproduced in the current tree.
+- [ ] `/tpr-review` / `review-work` is clean for the final section state. Re-opened on 2026-04-01 after TPR-03-007 and TPR-03-008 reproduced in the current tree. TPR-03-009 and TPR-03-010 fixed on 2026-04-01 (recursive Debug in LLVM + str quoting). All 10 TPR items resolved. Needs fresh `/tpr-review` run to confirm clean.
 
 **Exit Criteria:** All registry-defined methods for iterator, Option, and Result have LLVM implementations. FNV constants live in one place. Eval operator dispatch is registry-driven. Derive processing sync is enforced by Rust's exhaustive match and documented. No routing decisions (which methods exist, which ops are valid) are independently maintained in parallel between backends. `./test-all.sh` green.

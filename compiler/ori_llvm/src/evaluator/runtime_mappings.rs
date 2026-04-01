@@ -138,6 +138,10 @@ fn lookup_jit_address(name: &str) -> usize {
         "ori_str_from_int" => runtime::ori_str_from_int as *const () as usize,
         "ori_str_from_bool" => runtime::ori_str_from_bool as *const () as usize,
         "ori_str_from_float" => runtime::ori_str_from_float as *const () as usize,
+        // String debug formatting
+        "ori_str_debug_format" => runtime::ori_str_debug_format as *const () as usize,
+        "ori_char_debug_format" => runtime::ori_char_debug_format as *const () as usize,
+        "ori_byte_debug_format" => runtime::ori_byte_debug_format as *const () as usize,
         // String methods
         "ori_str_chars" => runtime::ori_str_chars as *const () as usize,
         "ori_str_split" => runtime::ori_str_split as *const () as usize,

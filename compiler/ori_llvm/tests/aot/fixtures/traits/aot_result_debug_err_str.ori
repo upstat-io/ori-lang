@@ -1,0 +1,7 @@
+// TPR-03-010 regression pin: Result Err(str).debug() must quote the string.
+// Interpreter: Err("oops") | AOT must match.
+
+@main () -> void = {
+    let $r: Result<int, str> = Err("oops");
+    print(msg: r.debug())
+}
