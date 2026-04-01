@@ -1747,19 +1747,21 @@ fn repr_plan_canonical_parity_full_matrix() {
         );
     }
 
-    // Two-child types.
-    let two_child = [
-        (map_str_int, "Map<str, int>"),
-        (res_int_str, "Result<int, str>"),
-    ];
+    // Two-child types (Map only — Result may use niche encoding).
+    assert_eq!(
+        with_plan.resolve(map_str_int),
+        no_plan.resolve(map_str_int),
+        "Canonical parity failed for Map<str, int>"
+    );
 
-    for (idx, name) in two_child {
-        assert_eq!(
-            with_plan.resolve(idx),
-            no_plan.resolve(idx),
-            "Canonical parity failed for {name} (idx {idx:?})"
-        );
-    }
+    // §07.2: When NICHE_CODEGEN_READY is true, Result<int, str> gets niche
+    // encoding (str has null-ptr niche), changing its layout. When false (current),
+    // parity is preserved — both resolvers produce the explicit { i64, payload }.
+    assert_eq!(
+        with_plan.resolve(res_int_str),
+        no_plan.resolve(res_int_str),
+        "Canonical parity failed for Result<int, str>"
+    );
 
     // Function and tuple — direct comparison.
     assert_eq!(

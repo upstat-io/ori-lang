@@ -205,8 +205,8 @@ impl<'a, 'll, 'tcx> TypeLayoutResolver<'a, 'll, 'tcx> {
             TypeInfo::Option { inner } => {
                 // §07.2: Check ReprPlan for niche encoding.
                 let resolved_idx = self.store.pool().resolve_fully(idx);
-                if let Some(enum_repr) = self.repr_plan.and_then(|p| p.get_enum_repr(resolved_idx))
-                {
+                let repr_entry = self.repr_plan.and_then(|p| p.get_enum_repr(resolved_idx));
+                if let Some(enum_repr) = repr_entry {
                     if enum_repr.tag.is_niche() {
                         // Niche layout: struct IS the inner type (no tag field).
                         self.resolving.borrow_mut().insert(idx);
