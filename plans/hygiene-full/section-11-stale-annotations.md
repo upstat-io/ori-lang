@@ -1,7 +1,7 @@
 ---
 section: "11"
 title: "Stale Plan Annotations"
-status: complete
+status: in-progress
 reviewed: true
 goal: "Remove all stale plan annotation references from completed plans (~180 annotations across ori_arc, ori_llvm, ori_types, oric)"
 inspired_by:
@@ -25,7 +25,7 @@ sections:
     status: not-started
   - id: "11.N"
     title: "Completion Checklist"
-    status: complete
+    status: in-progress
 ---
 
 # Section 11: Stale Plan Annotations

@@ -193,24 +193,13 @@ All subsections must also satisfy:
   - `debug_to_str.ori` — `Ok(42).debug()` contains `"42"`; `Err("oops").debug()` contains `"oops"`
   - `trace_has_trace.ori` — `Ok(1).has_trace()` → `false`; tests for `trace()`/`trace_entries()` that verify the runtime path is reachable from AOT
 
-- [ ] **Step 1 — Wire trait methods to existing emit functions:**
-  WHERE: `compiler/ori_llvm/src/codegen/arc_emitter/builtins/option_result.rs` — add arms to `emit_option_method()` and `emit_result_method()`.
-  For `equals`, `compare`, `hash` (all Option + Result), add dispatch that delegates to the existing `emit_equals()`/`emit_compare()`/`emit_hash()` in `traits.rs`. Check what `traits.rs` exports via `use super::traits::*` or specific imports. These functions are already implemented; they need wiring.
-  - Add `"equals"` arm: call `self.emit_equals(receiver, arg_vals[1], receiver_ty)`
-  - Add `"compare"` arm: call `self.emit_compare(receiver, arg_vals[1], receiver_ty)`
-  - Add `"hash"` arm: call `self.emit_hash(receiver, receiver_ty)`
+- [x] **Step 1 — Wire trait methods to existing emit functions:** (2026-04-01) Already implemented in `compound_traits.rs` via `declare_builtins!` — `("Option", "equals")`, `("Option", "compare")`, `("Option", "hash")`, `("Result", "equals")`, `("Result", "compare")`, `("Result", "hash")` all dispatch to `emit_option_equals()`/`emit_option_compare()`/`emit_option_hash()`/`emit_result_equals()`/`emit_result_compare()`/`emit_result_hash()` in `compound_type_impls/`. Verified working in AOT with test.
 
-- [ ] **Step 2 — Implement panic/unwrap variants:**
-  WHERE: `compiler/ori_llvm/src/codegen/arc_emitter/builtins/option_result.rs`.
-  Add `"expect"` arm in `emit_option_method()`: extract tag, icmp_ne tag 0 (Some), conditional branch to panic block with message arg (arg_vals[1] is the message str), else fall-through to extract payload. Follow the exact control flow pattern already used for `"unwrap"` plus the panic-with-message pattern from `traits.rs` or runtime calls.
-  Add `"expect_err"` arm in `emit_result_method()`: same shape, but check tag != 0 (Err = tag 1).
+- [x] **Step 2 — Implement panic/unwrap variants:** (2026-04-01) Added `emit_expect_branch()` helper that creates ok/panic basic blocks, calls `ori_panic` with the user's message string on failure. Added `"expect"` arm to both `emit_option_method()` (niche + explicit tag paths) and `emit_result_method()`. Added `"expect_err"` arm to `emit_result_method()`. All registered in `declare_builtins!`. Verified correct panic messages in both interpreter and AOT.
 
-- [ ] **Step 3 — Implement projection methods (`ok`, `err`):**
-  WHERE: `compiler/ori_llvm/src/codegen/arc_emitter/builtins/option_result.rs`.
-  Add `"ok"` arm in `emit_result_method()`: builds an `Option<T>` from `Result<T, E>` — if tag==0 (Ok), construct `Some(ok_payload)`, else construct `None`. Use `extract_tagged_union_payload` for the Ok payload (already available in this impl block). The Option aggregate is `{i64 tag, T payload}` so construct via `insert_value` (tag=0 for Some, tag=1 for None).
-  Add `"err"` arm: symmetric — if tag==1 (Err), construct `Some(err_payload)`, else `None`.
+- [x] **Step 3 — Implement projection methods (`ok`, `err`):** (2026-04-01) Added `build_option_struct()` helper that constructs `{i64 tag, T payload}` Option struct using `const_zero_ty` + `insert_value`. `"ok"` uses direct tag mapping (Ok/Some=0, Err/None=1). `"err"` uses XOR tag flip (Err→Some, Ok→None). Both use `extract_tagged_union_payload` for correct size-mismatched payload extraction. Verified in AOT with both happy and None paths.
 
-- [ ] **Step 4 — Implement debug/display (`debug`, `to_str`):**
+- [x] **Step 4 — Implement debug/display (`debug`, `to_str`):** (2026-04-01) Added `emit_option_debug_branch()` with conditional branching for Some/None, `emit_result_debug()` with Ok/Err branching. Helpers: `emit_literal_ori_str()` (via `ori_str_from_raw`), `emit_str_concat()` (via `ori_str_concat`), `emit_element_to_str()` (dispatches to primitive `to_str` or identity for str). Only `debug` registered (not `to_str` — Option/Result don't implement Printable). Known limitation: strings in debug output are unquoted in AOT (interpreter quotes them).
   WHERE: `compiler/ori_llvm/src/codegen/arc_emitter/builtins/option_result.rs`.
   Add `"debug"` and `"to_str"` arms that call runtime string formatting functions. Find the existing pattern used for `str` or `bool` debug/to_str in `primitives.rs` (calls to `ori_str_debug`, `ori_option_to_str`, etc. — check what runtime functions exist in `compiler/ori_rt/src/` for Option/Result display).
 
@@ -241,9 +230,7 @@ All subsections must also satisfy:
   WHERE: `compiler/ori_llvm/src/codegen/arc_emitter/builtins/option_result.rs`.
   Add `"iter"` arm in `emit_option_method()`: create a single-element iterator from Option (yields `payload` if Some, empty if None). Check what runtime function exists in `ori_rt` for this: look for `ori_iter_from_option` or similar. If no runtime function exists, this item must be tracked as a gap and added to `ori_rt` first.
 
-- [ ] **Step 8 — Update `declare_builtins!` blocks:**
-  WHERE: `compiler/ori_llvm/src/codegen/arc_emitter/builtins/option_result.rs`, the `declare_builtins! { emitter, ctx; ... }` block at the top.
-  Add an entry for each newly implemented method. Every method with a working emit arm must appear in `declare_builtins!`. Methods that are `backend_required: false` and handled via the Traceable/runtime path do NOT need entries.
+- [x] **Step 8 — Update `declare_builtins!` blocks:** (2026-04-01) All newly implemented methods registered in `declare_builtins!` as they were implemented: `("Option", "expect")`, `("Result", "expect")`, `("Result", "expect_err")`, `("Result", "ok")`, `("Result", "err")`. Pre-existing entries for `equals`/`compare`/`hash` already in `compound_traits.rs`.
 
 - [x] **Step 9 — Add enforcement tests:** (2026-04-01) Added `option_emit_covers_backend_required_methods` and `result_emit_covers_backend_required_methods` in builtins/tests.rs. Both pass (7/7 tests green). Forward-looking guard for future `backend_required: true` additions.
   WHERE: `compiler/ori_llvm/src/codegen/arc_emitter/builtins/tests.rs`.
