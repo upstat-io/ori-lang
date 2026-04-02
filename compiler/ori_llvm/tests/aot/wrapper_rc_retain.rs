@@ -99,16 +99,33 @@ fn test_list_last_list_payload_rc_retain() {
 }
 
 // --- Negative pins: unwrap on wrong variant must panic ---
+//
+// These tests verify that the new `emit_unwrap_branch` actually fires.
+// We reject compile failures (exit_code == -1), clean exits (0), and
+// non-SIGABRT signal crashes (SIGSEGV, SIGBUS). SIGABRT is the expected
+// panic termination path on Linux (ori_panic_cstr → _Unwind_RaiseException
+// → fallback abort).
+
+/// Assert that `exit_code` represents a panic (not compile failure, not clean
+/// exit, not a crash signal other than SIGABRT).
+fn assert_panic_exit(exit_code: i32, label: &str, stderr: &str) {
+    assert_ne!(exit_code, -1, "{label}: compilation failed:\n{stderr}");
+    assert_ne!(exit_code, 0, "{label}: should panic, but exited 0");
+    // Reject SIGSEGV (-139) and SIGBUS (-135) but accept SIGABRT (-134).
+    let is_bad_signal = exit_code <= -128 && exit_code != -134;
+    assert!(
+        !is_bad_signal,
+        "{label}: killed by signal {} (exit {exit_code}), expected clean panic:\n{stderr}",
+        -(exit_code + 128),
+    );
+}
 
 #[test]
 fn test_option_unwrap_none_panics() {
     let (exit_code, _stdout, stderr) = compile_and_run_capture(include_str!(
         "fixtures/wrapper_rc_retain/option_unwrap_none_panics.ori"
     ));
-    assert_ne!(
-        exit_code, 0,
-        "Option.unwrap(None) should panic, but exited 0"
-    );
+    assert_panic_exit(exit_code, "Option.unwrap(None)", &stderr);
     assert!(
         stderr.contains("unwrap") || stderr.contains("None"),
         "panic message should mention unwrap/None, got: {stderr}"
@@ -120,10 +137,7 @@ fn test_result_unwrap_on_err_panics() {
     let (exit_code, _stdout, stderr) = compile_and_run_capture(include_str!(
         "fixtures/wrapper_rc_retain/result_unwrap_err_panics.ori"
     ));
-    assert_ne!(
-        exit_code, 0,
-        "Result.unwrap(Err) should panic, but exited 0"
-    );
+    assert_panic_exit(exit_code, "Result.unwrap(Err)", &stderr);
     assert!(
         stderr.contains("unwrap") || stderr.contains("Err"),
         "panic message should mention unwrap/Err, got: {stderr}"
@@ -135,10 +149,7 @@ fn test_result_unwrap_err_on_ok_panics() {
     let (exit_code, _stdout, stderr) = compile_and_run_capture(include_str!(
         "fixtures/wrapper_rc_retain/result_unwrap_err_on_ok_panics.ori"
     ));
-    assert_ne!(
-        exit_code, 0,
-        "Result.unwrap_err(Ok) should panic, but exited 0"
-    );
+    assert_panic_exit(exit_code, "Result.unwrap_err(Ok)", &stderr);
     assert!(
         stderr.contains("unwrap_err") || stderr.contains("Ok"),
         "panic message should mention unwrap_err/Ok, got: {stderr}"
