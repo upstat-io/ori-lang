@@ -195,6 +195,23 @@ impl Pool {
         self.intern(Tag::Var, id)
     }
 
+    /// Ensure `var_states` has capacity for at least `min_count` `var_ids`.
+    ///
+    /// Used when re-interned types from imported modules carry `var_ids` that
+    /// exceed the merged pool's current `var_state` count. Without this,
+    /// `substitute_in_pool` panics when following links for imported vars.
+    pub fn ensure_var_capacity(&mut self, min_count: u32) {
+        while self.next_var_id < min_count {
+            let id = self.next_var_id;
+            self.next_var_id += 1;
+            self.var_states.push(VarState::Unbound {
+                id,
+                rank: DEFAULT_RANK,
+                name: None,
+            });
+        }
+    }
+
     /// Create a fresh named type variable (for better error messages).
     pub fn fresh_named_var(&mut self, name: ori_ir::Name) -> Idx {
         self.fresh_named_var_with_rank(name, DEFAULT_RANK)

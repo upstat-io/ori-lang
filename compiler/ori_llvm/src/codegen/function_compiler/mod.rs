@@ -285,6 +285,29 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
         sig: &FunctionSig,
         span: Span,
     ) {
+        let (func_id, abi) = self.declare_impl_method(name, symbol, sig, span);
+        self.codegen_ctx.functions.insert(name, (func_id, abi));
+    }
+
+    /// Declare an impl method LLVM function without registering it in the bare
+    /// `functions` map.
+    ///
+    /// Impl methods must be resolved via the type-qualified `method_functions`
+    /// map (keyed by `(type_name, method_name)`). Inserting them into the bare
+    /// `functions` map (keyed by `method_name` alone) causes wrong-function calls:
+    /// when `Box$to_str` is registered under the bare key `to_str`, a later call
+    /// to `to_str` on an `int` field inside `Box$to_str`'s body resolves to the
+    /// struct method instead of the primitive method.
+    ///
+    /// Use this for all impl methods (inherent and trait). The caller is
+    /// responsible for inserting into `method_functions` and `type_idx_to_name`.
+    pub(super) fn declare_impl_method(
+        &mut self,
+        name: Name,
+        symbol: &str,
+        sig: &FunctionSig,
+        span: Span,
+    ) -> (FunctionId, FunctionAbi) {
         let name_str = self.interner.lookup(name);
 
         let abi = compute_function_abi_with_ownership(
@@ -300,7 +323,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
             params = abi.params.len(),
             call_conv = ?abi.call_conv,
             return_passing = ?abi.return_abi.passing,
-            "declaring function"
+            "declaring impl method"
         );
 
         let func_id = self.declare_function_llvm(symbol, &abi);
@@ -314,7 +337,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
             }
         }
 
-        self.codegen_ctx.functions.insert(name, (func_id, abi));
+        (func_id, abi)
     }
 
     /// Enter debug scope for the function being compiled.

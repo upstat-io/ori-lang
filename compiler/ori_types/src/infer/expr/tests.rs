@@ -3045,3 +3045,24 @@ fn dei_only_methods_correct() {
     assert!(!ori_registry::is_dei_only("next"));
     assert!(!ori_registry::is_dei_only("collect"));
 }
+
+/// BUG-02-003: `has_comparable_trait` returns false for Named types without
+/// a trait registry (covers the unit test path; full pipeline coverage is
+/// in `tests/spec/expressions/operators_comparison.ori`).
+#[test]
+fn test_has_comparable_returns_false_without_registry() {
+    let interner = StringInterner::new();
+    let mut pool = Pool::new();
+
+    let user_type_name = interner.intern("MyStruct");
+    let user_ty = pool.named(user_type_name);
+
+    let mut engine = InferEngine::new(&mut pool);
+    engine.set_interner(&interner);
+
+    // Without trait registry, has_comparable_trait should return false
+    assert!(
+        !super::operators::has_comparable_trait(&engine, user_ty),
+        "Named type without Comparable should not pass the check"
+    );
+}

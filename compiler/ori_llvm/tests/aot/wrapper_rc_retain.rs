@@ -111,12 +111,15 @@ fn test_list_last_list_payload_rc_retain() {
 fn assert_panic_exit(exit_code: i32, label: &str, stderr: &str) {
     assert_ne!(exit_code, -1, "{label}: compilation failed:\n{stderr}");
     assert_ne!(exit_code, 0, "{label}: should panic, but exited 0");
-    // Reject SIGSEGV (-139) and SIGBUS (-135) but accept SIGABRT (-134).
-    let is_bad_signal = exit_code <= -128 && exit_code != -134;
+    // Accept SIGABRT as valid panic termination:
+    //   -134 = signal detected via status.signal() (-(128+6))
+    //    134 = exit code via status.code() (128+6, bash convention)
+    // Reject SIGSEGV (-139/139), SIGBUS (-135/135), and arbitrary non-zero
+    // codes like 1 (generic error) that don't indicate SIGABRT termination.
+    let is_sigabrt = exit_code == -134 || exit_code == 134;
     assert!(
-        !is_bad_signal,
-        "{label}: killed by signal {} (exit {exit_code}), expected clean panic:\n{stderr}",
-        -(exit_code + 128),
+        is_sigabrt,
+        "{label}: expected SIGABRT (134 or -134), got exit code {exit_code}:\n{stderr}",
     );
 }
 

@@ -17,6 +17,7 @@ use crate::narrowing::overflow::{self, OverflowStrategy};
 use crate::plan::{
     DecisionReason, DecisionSource, NarrowingPolicy, ReprAttribute, ReprDecision, ReprPlan,
 };
+use crate::range::field_summary::{update_element_summaries, ElementSummaryTable};
 use crate::range::ValueRange;
 use crate::repr::{IntWidth, MachineRepr};
 use crate::struct_repr::{FatRepr, FieldRepr, StructRepr, TupleRepr};
@@ -1825,5 +1826,207 @@ fn phase_c_local_public_blocks_narrowing() {
         collection_element_width(&plan, list_int),
         Some(IntWidth::I64),
         "Local public [int] must suppress narrowing (ABI safety)"
+    );
+}
+
+// Phase C — update_element_summaries: Apply instruction handling (BUG-05-001)
+
+/// Regression: BUG-05-001. An Apply instruction returning [int] must widen
+/// the element summary to Top, preventing unsound narrowing when push/map/
+/// user functions produce elements outside the literal-only range.
+#[test]
+fn phase_c_apply_returning_list_int_widens_to_top() {
+    use ori_arc::ir::{ArcInstr, ArgOwnership};
+    use ori_arc::ArcVarId;
+    use std::collections::HashMap;
+
+    let mut pool = Pool::default();
+    let list_int = pool.list(Idx::INT);
+    let int_ty = Idx::INT;
+
+    // Simulate: let dst: [int] = push(src, elem)
+    let dst = ArcVarId::new(0);
+    let src = ArcVarId::new(1);
+    let elem = ArcVarId::new(2);
+    let func_name = Name::from_raw(42);
+
+    let instr = ArcInstr::Apply {
+        dst,
+        ty: list_int,
+        func: func_name,
+        args: vec![src, elem],
+        arg_ownership: vec![ArgOwnership::Owned, ArgOwnership::Owned],
+    };
+
+    let ranges: HashMap<ArcVarId, ValueRange> = HashMap::new();
+    let var_types = vec![list_int, list_int, int_ty];
+
+    let mut table = ElementSummaryTable::new();
+    update_element_summaries(&instr, &ranges, &var_types, &pool, &mut table);
+
+    assert_eq!(
+        table.element_range(list_int),
+        ValueRange::Top,
+        "Apply returning [int] must widen element range to Top"
+    );
+}
+
+/// When both a literal construction [1] and an Apply returning [int] exist,
+/// the joined element range must be Top (not [1,1]).
+#[test]
+fn phase_c_literal_plus_apply_widens_to_top() {
+    use ori_arc::ir::{ArcInstr, ArgOwnership, CtorKind};
+    use ori_arc::ArcVarId;
+    use std::collections::HashMap;
+
+    let mut pool = Pool::default();
+    let list_int = pool.list(Idx::INT);
+    let int_ty = Idx::INT;
+
+    let elem_var = ArcVarId::new(0);
+    let dst_literal = ArcVarId::new(1);
+    let dst_apply = ArcVarId::new(2);
+    let src_var = ArcVarId::new(3);
+
+    // First: Construct(ListLiteral, [elem_var]) where elem_var range = [1, 1]
+    let literal_instr = ArcInstr::Construct {
+        dst: dst_literal,
+        ty: list_int,
+        ctor: CtorKind::ListLiteral,
+        args: vec![elem_var],
+    };
+
+    // Then: Apply { func: "push", ty: [int] }
+    let apply_instr = ArcInstr::Apply {
+        dst: dst_apply,
+        ty: list_int,
+        func: Name::from_raw(42),
+        args: vec![src_var, elem_var],
+        arg_ownership: vec![ArgOwnership::Owned, ArgOwnership::Owned],
+    };
+
+    let mut ranges: HashMap<ArcVarId, ValueRange> = HashMap::new();
+    ranges.insert(elem_var, ValueRange::Bounded { lo: 1, hi: 1 });
+    let var_types = vec![int_ty, list_int, list_int, list_int];
+
+    let mut table = ElementSummaryTable::new();
+
+    // Process literal first — sets range to [1, 1]
+    update_element_summaries(&literal_instr, &ranges, &var_types, &pool, &mut table);
+    assert_eq!(
+        table.element_range(list_int),
+        ValueRange::Bounded { lo: 1, hi: 1 },
+        "after literal only, range should be [1, 1]"
+    );
+
+    // Process Apply — must widen to Top
+    update_element_summaries(&apply_instr, &ranges, &var_types, &pool, &mut table);
+    assert_eq!(
+        table.element_range(list_int),
+        ValueRange::Top,
+        "after Apply returning [int], range must be Top"
+    );
+}
+
+/// Negative pin: Apply returning a non-collection type (e.g., int) must not
+/// affect element summaries.
+#[test]
+fn phase_c_apply_returning_int_does_not_affect_elements() {
+    use ori_arc::ir::{ArcInstr, ArgOwnership};
+    use ori_arc::ArcVarId;
+    use std::collections::HashMap;
+
+    let pool = Pool::default();
+    let int_ty = Idx::INT;
+
+    let dst = ArcVarId::new(0);
+    let arg = ArcVarId::new(1);
+
+    let instr = ArcInstr::Apply {
+        dst,
+        ty: int_ty,
+        func: Name::from_raw(99),
+        args: vec![arg],
+        arg_ownership: vec![ArgOwnership::Owned],
+    };
+
+    let ranges: HashMap<ArcVarId, ValueRange> = HashMap::new();
+    let var_types = vec![int_ty, int_ty];
+
+    let mut table = ElementSummaryTable::new();
+    update_element_summaries(&instr, &ranges, &var_types, &pool, &mut table);
+
+    // No collection type involved — table must remain truly empty.
+    // We check observation_count() to distinguish "no observations" from
+    // "accidentally inserted Top" (both return Top from element_range()).
+    assert_eq!(
+        table.observation_count(),
+        0,
+        "Apply returning int must not insert any element summary entries"
+    );
+}
+
+/// Invoke (unwinding call) returning [int] must also widen to Top.
+/// This is the most common path for push/insert — they're lowered as
+/// Invoke because they can panic.
+#[test]
+fn phase_c_invoke_returning_list_int_widens_to_top() {
+    use crate::range::field_summary::update_element_summaries_from_terminator;
+    use ori_arc::ir::{ArcTerminator, ArgOwnership};
+    use ori_arc::{ArcBlockId, ArcVarId};
+
+    let mut pool = Pool::default();
+    let list_int = pool.list(Idx::INT);
+
+    let terminator = ArcTerminator::Invoke {
+        dst: ArcVarId::new(0),
+        ty: list_int,
+        func: Name::from_raw(42),
+        args: vec![ArcVarId::new(1), ArcVarId::new(2)],
+        arg_ownership: vec![ArgOwnership::Owned, ArgOwnership::Owned],
+        normal: ArcBlockId::new(1),
+        unwind: ArcBlockId::new(2),
+    };
+
+    let mut table = ElementSummaryTable::new();
+    update_element_summaries_from_terminator(&terminator, &pool, &mut table);
+
+    assert_eq!(
+        table.element_range(list_int),
+        ValueRange::Top,
+        "Invoke returning [int] must widen element range to Top"
+    );
+}
+
+/// `ApplyIndirect` (closure call) returning `[int]` must also widen to Top.
+#[test]
+fn phase_c_apply_indirect_returning_list_int_widens_to_top() {
+    use ori_arc::ir::ArcInstr;
+    use ori_arc::ArcVarId;
+    use std::collections::HashMap;
+
+    let mut pool = Pool::default();
+    let list_int = pool.list(Idx::INT);
+
+    let dst = ArcVarId::new(0);
+    let closure = ArcVarId::new(1);
+
+    let instr = ArcInstr::ApplyIndirect {
+        dst,
+        ty: list_int,
+        closure,
+        args: vec![],
+    };
+
+    let ranges: HashMap<ArcVarId, ValueRange> = HashMap::new();
+    let var_types = vec![list_int, list_int];
+
+    let mut table = ElementSummaryTable::new();
+    update_element_summaries(&instr, &ranges, &var_types, &pool, &mut table);
+
+    assert_eq!(
+        table.element_range(list_int),
+        ValueRange::Top,
+        "ApplyIndirect returning [int] must widen element range to Top"
     );
 }

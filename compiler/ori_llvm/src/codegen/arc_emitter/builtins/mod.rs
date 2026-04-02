@@ -74,6 +74,7 @@ mod collections;
 mod compound_traits;
 mod compound_type_impls;
 mod debug_helpers;
+mod debug_map_set;
 mod iterator;
 mod iterator_consumers;
 mod iterators_guard;

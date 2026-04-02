@@ -1,0 +1,10 @@
+// Positive pin: when a [int] list only uses literal construction
+// (no push/mutation), Phase C narrowing should still apply.
+// This test ensures the fix doesn't disable narrowing entirely.
+@main () -> int = {
+    let xs = [1, 2, 3, 100, -50];
+    let sum = xs.fold(initial: 0, op: (acc, x) -> acc + x);
+
+    // sum = 1 + 2 + 3 + 100 + (-50) = 56
+    if sum == 56 then 0 else 1
+}

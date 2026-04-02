@@ -9,6 +9,7 @@ use std::path::Path;
 
 use ori_llvm::evaluator::{ImportedFunctionForCodegen, OwnedLLVMEvaluator};
 use ori_types::TypeCheckResult;
+use rustc_hash::FxHashMap;
 
 use super::super::result::{FileSummary, TestOutcome, TestResult};
 use super::arc_lowering::lower_and_infer_borrows;
@@ -32,6 +33,10 @@ impl TestRunner {
     #[expect(
         clippy::too_many_lines,
         reason = "JIT test pipeline — splitting would fragment the compile→run flow"
+    )]
+    #[expect(
+        clippy::cognitive_complexity,
+        reason = "JIT pipeline has inherent control flow (sig collection, mono dispatch, error handling)"
     )]
     pub(super) fn run_file_llvm(
         summary: &mut FileSummary,
@@ -214,6 +219,160 @@ impl TestRunner {
             }
         }
 
+        // Collect imported generic sigs for monomorphization resolution.
+        // Generic sigs are skipped for ImportedFunctionForCodegen (they aren't
+        // compiled directly), but we need them to build concrete MonoFunctions
+        // for their call-site instantiations.
+        //
+        // Key by local_name (not original_name): MonoInstance.fn_name uses the
+        // call-site identifier, which is the local/aliased name from the import.
+        // Value: (re_interned_sig, module_index, original_name_in_source_module)
+        let mut imported_generic_sigs: FxHashMap<
+            ori_ir::Name,
+            (ori_types::FunctionSig, usize, ori_ir::Name),
+        > = FxHashMap::default();
+        for func_ref in &resolved.imported_functions {
+            if func_ref.is_module_alias {
+                continue;
+            }
+            let tc = &imported_type_results[func_ref.module_index];
+            if let Some(sig) = tc
+                .typed
+                .functions
+                .iter()
+                .find(|s| s.name == func_ref.original_name)
+            {
+                if !sig.is_generic() {
+                    continue;
+                }
+                let source_pool = &imported_pools[func_ref.module_index];
+                let cache = &mut per_module_caches[func_ref.module_index];
+                let re_interned =
+                    ori_types::re_intern_sig(sig, source_pool, &mut merged_pool, cache);
+                imported_generic_sigs.insert(
+                    func_ref.local_name,
+                    (re_interned, func_ref.module_index, func_ref.original_name),
+                );
+            }
+        }
+
+        // Build imported MonoFunction structs for imported generic instantiations.
+        // For each MonoInstance referencing an imported generic, build a MonoFunction
+        // with a fresh body_type_map keyed to merged-pool Idx values.
+        // (MonoFunction, module_index, source_body_name)
+        // source_body_name is the function's name in the SOURCE module (for canon.root_for()),
+        // while MonoFunction.original_name is the LOCAL/aliased name (for call-site dispatch).
+        let mut imported_mono_fns: Vec<(
+            ori_llvm::monomorphize::MonoFunction,
+            usize,
+            ori_ir::Name,
+        )> = Vec::new();
+        {
+            let mut seen_mono_names = rustc_hash::FxHashSet::default();
+            for instance in &type_result.typed.mono_instances {
+                let Some((generic_sig, module_idx, source_original_name)) =
+                    imported_generic_sigs.get(&instance.fn_name)
+                else {
+                    continue;
+                };
+                let mangled = ori_llvm::monomorphize::mangle_mono_name(
+                    instance.fn_name,
+                    &instance.generic_args,
+                    interner,
+                    &merged_pool,
+                );
+                if !seen_mono_names.insert(mangled) {
+                    continue;
+                }
+
+                // Build concrete sig (same pattern as collect_mono_functions)
+                let param_hashes: Vec<u64> = instance
+                    .concrete_param_types
+                    .iter()
+                    .map(|&idx| merged_pool.hash(idx))
+                    .collect();
+                let return_hash = merged_pool.hash(instance.concrete_return_type);
+                let concrete_sig = ori_types::FunctionSig {
+                    name: mangled,
+                    type_params: vec![],
+                    const_params: vec![],
+                    param_names: generic_sig.param_names.clone(),
+                    param_types: instance.concrete_param_types.clone(),
+                    return_type: instance.concrete_return_type,
+                    capabilities: generic_sig.capabilities.clone(),
+                    is_public: false,
+                    is_test: false,
+                    is_main: false,
+                    is_fbip: generic_sig.is_fbip,
+                    type_param_bounds: vec![],
+                    where_clauses: vec![],
+                    generic_param_mapping: vec![],
+                    scheme_var_ids: vec![],
+                    required_params: generic_sig.required_params,
+                    param_defaults: generic_sig.param_defaults.clone(),
+                    param_hashes,
+                    return_hash,
+                };
+
+                // Build fresh body_type_map from re-interned types.
+                // scheme_var_ids are u32 var_ids preserved by re-interning.
+                // Iterate per_module_cache values only (scoped to imported types,
+                // avoiding var_id collisions with test file types).
+                let mut var_subst: FxHashMap<u32, ori_types::Idx> = FxHashMap::default();
+                for (i, &var_id) in generic_sig.scheme_var_ids.iter().enumerate() {
+                    if let Some(ori_types::GenericArg::Type(concrete)) =
+                        instance.generic_args.get(i)
+                    {
+                        var_subst.insert(var_id, *concrete);
+                    }
+                }
+                // Ensure merged pool has var_states for imported var_ids.
+                // Re-interned Vars carry source var_ids, but the merged pool's
+                // var_states array was cloned from the test file's pool and may
+                // not cover imported var_ids. substitute_in_pool follows links
+                // via var_state(), which panics on out-of-bounds var_ids.
+                let cache_values: Vec<ori_types::Idx> =
+                    per_module_caches[*module_idx].values().copied().collect();
+                let max_imported_var_id = cache_values
+                    .iter()
+                    .filter(|&&idx| merged_pool.tag(idx) == ori_types::Tag::Var)
+                    .map(|&idx| merged_pool.data(idx))
+                    .max();
+                if let Some(max_id) = max_imported_var_id {
+                    merged_pool.ensure_var_capacity(max_id + 1);
+                }
+
+                let mut body_type_map: FxHashMap<ori_types::Idx, ori_types::Idx> =
+                    FxHashMap::default();
+                for merged_idx in cache_values {
+                    if merged_pool
+                        .flags(merged_idx)
+                        .contains(ori_types::TypeFlags::HAS_VAR)
+                    {
+                        let substituted =
+                            ori_types::substitute_in_pool(&mut merged_pool, merged_idx, &var_subst);
+                        if substituted != merged_idx {
+                            body_type_map.insert(merged_idx, substituted);
+                        }
+                    }
+                }
+
+                imported_mono_fns.push((
+                    ori_llvm::monomorphize::MonoFunction {
+                        mangled_name: mangled,
+                        // Use LOCAL name for call-site dispatch (the test's ARC IR
+                        // calls `ae`, not `assert_eq`, when using aliased imports).
+                        original_name: instance.fn_name,
+                        sig: concrete_sig,
+                        body_type_map,
+                    },
+                    *module_idx,
+                    // Source body name for canon.root_for() lookup in imported canon
+                    *source_original_name,
+                ));
+            }
+        }
+
         // Build ImportedFunctionForCodegen — all Idx values are valid in merged_pool
         let imported_for_codegen: Vec<ImportedFunctionForCodegen<'_>> = fn_refs
             .iter()
@@ -271,7 +430,13 @@ impl TestRunner {
                 &imported_for_codegen,
                 &type_result.typed.mono_instances,
                 &type_result.typed.types,
+                &imported_mono_fns,
+                &re_interned_canons,
             );
+
+            // Strip module indices — codegen only needs the MonoFunctions
+            let imported_mono_for_codegen: Vec<ori_llvm::monomorphize::MonoFunction> =
+                imported_mono_fns.into_iter().map(|(mf, _, _)| mf).collect();
 
             llvm_eval.compile_module_with_tests(
                 &parse_result.module,
@@ -289,6 +454,7 @@ impl TestRunner {
                 &imported_type_metadata,
                 &imported_collection_surfaces,
                 &type_result.typed.trait_impl_fn_names,
+                imported_mono_for_codegen,
             )
         }));
 

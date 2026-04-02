@@ -353,16 +353,14 @@ pub @is_err<T, E> (r: Result<T, E>) -> bool = match r {
 // =============================================================================
 // Comparison Functions
 // =============================================================================
-// Compare two integers
-pub @compare (a: int, b: int) -> Ordering = {
-    if a < b then Less else if a > b then Greater else Equal
-}
+// Compare two comparable values
+pub @compare<T: Comparable> (left: T, right: T) -> Ordering = left.compare(other: right);
 
-// Get the minimum of two integers
-pub @min (a: int, b: int) -> int = if a < b then a else b;
+// Get the minimum of two comparable values
+pub @min<T: Comparable> (left: T, right: T) -> T = if left <= right then left else right;
 
-// Get the maximum of two integers
-pub @max (a: int, b: int) -> int = if a > b then a else b;
+// Get the maximum of two comparable values
+pub @max<T: Comparable> (left: T, right: T) -> T = if left >= right then left else right;
 
 // hash_combine(seed, value) -> int
 // Built-in: uses wrapping arithmetic since hash computation overflows by design.

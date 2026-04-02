@@ -28,6 +28,11 @@ Bugs in expression evaluation, method dispatch, iterator machinery, closure hand
   Found: 2026-04-01 | Source: continue-roadmap (hygiene-full §03.2 spec test writing)
   Note: Active work in roadmap section 07B and hygiene-full §03.2 touches this area.
 
+- [x] `[BUG-03-003][medium]` **Ordering binary operators (==, !=) not dispatched in evaluator** — found by review-bugs.
+  Resolved: Fixed on 2026-04-02. Added `Value::Ordering` to `value_to_type_tag()` and `eval_ordering_binary()` handler for `Eq`/`NotEq` operations. Registry already declared `eq: IntInstr, neq: IntInstr` for Ordering. Discovered while fixing BUG-06-002 (generic compare/min/max) — `assert_eq` on Ordering values failed at runtime.
+  Subsystem: `compiler/ori_eval/src/operators/mod.rs`
+  Found: 2026-04-02 | Source: review-bugs (BUG-06-002 fix dependency)
+
 ---
 
 ## Resolved Bugs

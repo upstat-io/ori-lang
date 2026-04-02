@@ -71,6 +71,17 @@ pub(crate) struct WellKnownNames {
     pub printable: Name,
     pub into_method: Name,
 
+    // FFI C type names (resolved to primitives for ARC/codegen classification)
+    pub cptr: Name,
+    pub c_char: Name,
+    pub c_short: Name,
+    pub c_int: Name,
+    pub c_long: Name,
+    pub c_longlong: Name,
+    pub c_float: Name,
+    pub c_double: Name,
+    pub c_size: Name,
+
     // Well-known keyword names
     pub self_kw: Name,
 
@@ -183,6 +194,15 @@ impl WellKnownNames {
             double_ended_iterator,
             hashable,
             printable,
+            cptr: interner.intern("CPtr"),
+            c_char: interner.intern("c_char"),
+            c_short: interner.intern("c_short"),
+            c_int: interner.intern("c_int"),
+            c_long: interner.intern("c_long"),
+            c_longlong: interner.intern("c_longlong"),
+            c_float: interner.intern("c_float"),
+            c_double: interner.intern("c_double"),
+            c_size: interner.intern("c_size"),
             into_method: interner.intern("into"),
             self_kw: interner.intern("self"),
             trait_bit_map,
@@ -289,6 +309,33 @@ impl WellKnownNames {
             Some(Idx::DURATION)
         } else if name == self.size || name == self.size_upper {
             Some(Idx::SIZE)
+        } else {
+            None
+        }
+    }
+
+    /// Resolve an FFI C type name to its concrete primitive `Idx`.
+    ///
+    /// FFI types (`CPtr`, `c_int`, etc.) are created as `Tag::Named` entries
+    /// without Pool resolutions. Downstream phases (ARC classifier, LLVM
+    /// `TypeInfoStore`) need concrete types to classify them correctly.
+    /// Setting a resolution preserves type identity (`CPtr` != int in type
+    /// checking) while giving codegen the information it needs.
+    ///
+    /// Returns `Some(Idx)` for known FFI types, `None` otherwise.
+    #[inline]
+    pub fn resolve_ffi_concrete(&self, name: Name) -> Option<Idx> {
+        if name == self.cptr
+            || name == self.c_int
+            || name == self.c_long
+            || name == self.c_longlong
+            || name == self.c_size
+            || name == self.c_short
+            || name == self.c_char
+        {
+            Some(Idx::INT)
+        } else if name == self.c_float || name == self.c_double {
+            Some(Idx::FLOAT)
         } else {
             None
         }

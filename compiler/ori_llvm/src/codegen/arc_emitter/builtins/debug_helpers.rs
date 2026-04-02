@@ -43,7 +43,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     ///
     /// Extracts `{len, cap, data}` fields and calls `ori_str_rc_dec`.
     /// SSO strings (cap encodes SSO flag) are no-ops in the runtime.
-    fn dec_intermediate_str(&mut self, str_val: ValueId) {
+    pub(super) fn dec_intermediate_str(&mut self, str_val: ValueId) {
         let data = self.builder.extract_value(str_val, 2, "dbg.dec.data");
         let cap = self.builder.extract_value(str_val, 1, "dbg.dec.cap");
         if let (Some(dp), Some(cp)) = (data, cap) {
@@ -52,9 +52,24 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         }
     }
 
+    /// Escape control characters in a string without adding quotes.
+    ///
+    /// Used for map key formatting in `Map.debug()` — matches the
+    /// interpreter's `escape_debug_str` behavior.
+    pub(super) fn emit_escape_control(&mut self, s: ValueId) -> Option<ValueId> {
+        let str_ty = self.resolve_type(ori_types::Idx::STR);
+        let s_ptr = self
+            .builder
+            .create_entry_alloca(self.current_function, "esc.ptr", str_ty);
+        self.builder.store(s, s_ptr);
+        let func_id = self.builder.runtime_fn("ori_str_escape_control");
+        self.builder
+            .call_with_sret(func_id, &[s_ptr], str_ty, "esc.ctrl")
+    }
+
     /// Emit `to_str` for an element of any supported type.
     ///
-    /// Handles primitives (int, float, bool, Duration, Size) and str.
+    /// Handles primitives (int, float, bool, char, Duration, Size) and str.
     /// Returns None for complex types (structs, enums) -- caller should
     /// fall through to the unresolved function path.
     pub(super) fn emit_element_to_str(&mut self, val: ValueId, ty: Idx) -> Option<ValueId> {
@@ -64,7 +79,8 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             | TypeInfo::Duration
             | TypeInfo::Size
             | TypeInfo::Float
-            | TypeInfo::Bool => self.emit_to_str(val, &type_info),
+            | TypeInfo::Bool
+            | TypeInfo::Char => self.emit_to_str(val, &type_info),
             TypeInfo::Str => Some(val),
             _ => None,
         }
@@ -151,6 +167,19 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             TypeInfo::Tuple { elements } => {
                 let elements = elements.clone();
                 self.emit_tuple_debug(val, &elements)
+            }
+
+            // Map: entry-wise Debug as `{key: value, ...}`
+            TypeInfo::Map { key, value } => {
+                let key = *key;
+                let value = *value;
+                self.emit_map_debug(val, ty, key, value)
+            }
+
+            // Set: element-wise Debug as `Set {elem, ...}`
+            TypeInfo::Set { element } => {
+                let element = *element;
+                self.emit_set_debug(val, element)
             }
 
             // Generic dispatch: look up the type's compiled .debug() method.
