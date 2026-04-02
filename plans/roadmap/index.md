@@ -85,6 +85,11 @@ trait, traits, impl, implementation, implements
 associated types, associated functions
 trait bounds, where clause, constraints
 derive, #derive, Eq, Clone, Hashable, Debug, Default, Printable
+structural default, structural equality, structural comparison
+eq rename, equals, method rename, two-tier model
+emit_structural_eq, emit_structural_enum_eq
+structural clone, structural debug, structural to_str
+compound_traits.rs, debug_helpers.rs
 operator traits, Add, Sub, Mul, Div, Neg, Rem
 BitAnd, BitOr, BitXor, Shl, Shr, BitNot
 MatMul, matrix multiplication, @ operator
