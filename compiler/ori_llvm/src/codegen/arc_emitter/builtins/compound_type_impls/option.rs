@@ -30,9 +30,11 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let rhs_val = self.builder.extract_value(rhs, 1, "opt.rhs.val")?;
         let payload_eq = self.emit_element_equals(lhs_val, rhs_val, inner_ty)?;
 
-        // Both None (tag=1): equal. Both Some (tag=0): check payload.
-        let one = self.builder.const_int_matching(lhs_tag, 1);
-        let is_none = self.builder.icmp_eq(lhs_tag, one, "is_none");
+        // Both None → equal. Both Some → check payload.
+        let none_tag = self
+            .builder
+            .const_int_matching(lhs_tag, ori_ir::OPTION_TAG_NONE as u64);
+        let is_none = self.builder.icmp_eq(lhs_tag, none_tag, "is_none");
         let true_val = self.builder.const_bool(true);
         let same_tag_result = self
             .builder
@@ -70,8 +72,10 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let rhs_val = self.builder.extract_value(rhs, 1, "opt.rhs.val")?;
         let payload_cmp = self.emit_element_compare(lhs_val, rhs_val, inner_ty)?;
 
-        let one = self.builder.const_int_matching(lhs_tag, 1);
-        let is_none = self.builder.icmp_eq(lhs_tag, one, "is_none");
+        let none_tag = self
+            .builder
+            .const_int_matching(lhs_tag, ori_ir::OPTION_TAG_NONE as u64);
+        let is_none = self.builder.icmp_eq(lhs_tag, none_tag, "is_none");
         let equal_ord = self.builder.const_i8(1);
         let same_tag_cmp = self
             .builder
@@ -98,9 +102,80 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let seed = self.builder.const_i64(1);
         let some_hash = self.emit_hash_combine(seed, payload_hash);
 
-        let one = self.builder.const_int_matching(tag, 1);
-        let is_none = self.builder.icmp_eq(tag, one, "is_none");
-        let zero = self.builder.const_i64(0);
-        Some(self.builder.select(is_none, zero, some_hash, "opt_hash"))
+        let none_tag = self
+            .builder
+            .const_int_matching(tag, ori_ir::OPTION_TAG_NONE as u64);
+        let is_none = self.builder.icmp_eq(tag, none_tag, "is_none");
+        let none_hash = self.builder.const_i64(0);
+        Some(
+            self.builder
+                .select(is_none, none_hash, some_hash, "opt_hash"),
+        )
+    }
+
+    /// `Option<T>.iter()` → iterator over 0 or 1 elements.
+    ///
+    /// Calls `ori_iter_from_option(is_some, payload_ptr, elem_size, elem_dec_fn)`
+    /// which allocates a 1-element buffer for Some, or creates an empty iterator
+    /// for None.
+    ///
+    /// The runtime `memcpy`s payload bytes into the new buffer. For RC-backed
+    /// inner types (str, collections, closures, structs with RC fields), this
+    /// creates a second reference to the same inner RC-managed data. We must
+    /// increment the inner RC before the copy to prevent double-free when both
+    /// the original Option and the iterator are dropped.
+    pub(in super::super) fn emit_option_iter(
+        &mut self,
+        receiver: ValueId,
+        inner_ty: Idx,
+    ) -> Option<ValueId> {
+        let tag = self.builder.extract_value(receiver, 0, "opt.tag")?;
+        let some_const = self
+            .builder
+            .const_int_matching(tag, ori_ir::OPTION_TAG_SOME as u64);
+        let is_some_i1 = self.builder.icmp_eq(tag, some_const, "is_some");
+
+        // Alloca the Option struct so we can GEP to the payload field.
+        let opt_llvm = self.resolve_type_for_option(inner_ty);
+        let alloca = self.builder.alloca(opt_llvm, "opt.iter.a");
+        self.builder.store(receiver, alloca);
+        let payload_ptr = self
+            .builder
+            .struct_gep(opt_llvm, alloca, 1, "opt.iter.payload");
+
+        // RC-retain the payload when Some: ori_iter_from_option will memcpy the
+        // payload bytes, creating a second reference to any inner RC-managed data.
+        // Without this retain, both the original Option and the iterator would
+        // dec the same inner RC on drop → double-free for heap strings/collections.
+        // Must be conditional on is_some — for None, the payload field contains
+        // zero-initialized bytes that are not valid data of inner_ty.
+        let inner_llvm = self.resolve_type(inner_ty);
+        let inc_bb = self
+            .builder
+            .append_block(self.current_function, "opt.iter.inc");
+        let cont_bb = self
+            .builder
+            .append_block(self.current_function, "opt.iter.cont");
+        self.builder.cond_br(is_some_i1, inc_bb, cont_bb);
+
+        self.builder.position_at_end(inc_bb);
+        let payload_val = self.builder.load(inner_llvm, payload_ptr, "opt.iter.val");
+        self.inc_value_rc(payload_val, inner_ty, 1);
+        self.builder.br(cont_bb);
+
+        self.builder.position_at_end(cont_bb);
+
+        let elem_size = crate::codegen::abi::abi_size(inner_ty, self.type_info) as i64;
+        let elem_size_val = self.builder.const_i64(elem_size);
+
+        // Get elem_dec_fn for proper cleanup of RC'd elements.
+        let elem_dec_fn = self.get_or_generate_elem_dec_fn(inner_ty);
+
+        let func_id = self.builder.runtime_fn("ori_iter_from_option");
+        self.emit_rt_call(
+            func_id,
+            &[is_some_i1, payload_ptr, elem_size_val, elem_dec_fn],
+            "opt.iter",
+        )
     }
 }

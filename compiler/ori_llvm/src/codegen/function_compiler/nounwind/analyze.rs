@@ -227,7 +227,7 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
                 // conservatively treated as may-unwind — we cannot know
                 // the callee's unwind behavior at compile time.
                 //
-                // §02.5 decision: conservative (document limitation).
+                // Conservative decision (document limitation).
                 // Interprocedural proof (tracking all possible callees for
                 // every closure variable) is a significant analysis investment
                 // for a LOW-severity finding. The pessimistic result (using

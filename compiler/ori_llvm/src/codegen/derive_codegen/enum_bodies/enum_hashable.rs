@@ -13,10 +13,8 @@ use super::super::{emit_derive_return, DeriveSetup};
 
 use super::variant_non_void_field_types;
 
-/// FNV-1a offset basis (64-bit).
-const FNV_OFFSET_BASIS: u64 = 14_695_981_039_346_656_037;
-/// FNV-1a prime (64-bit).
-const FNV_PRIME: u64 = 1_099_511_628_211;
+// FNV-1a constants — canonical source: ori_ir::hash_constants
+use ori_ir::{FNV_OFFSET_BASIS, FNV_PRIME};
 
 /// Enum Hashable: FNV-1a hash of tag + per-variant payload fields.
 ///

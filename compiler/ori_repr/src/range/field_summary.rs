@@ -1,7 +1,7 @@
 //! Field-summary infrastructure for struct/tuple field range tracking.
 //!
 //! Aggregates value ranges across all `Construct` sites per (type, field)
-//! pair. This is the evidence base for §04's struct-field narrowing —
+//! pair. This is the evidence base for struct-field narrowing —
 //! without it, `Project` instructions return `Top` for all fields and
 //! the `Pixel { r, g, b, a: int }` → 4 bytes optimization is impossible.
 //!
@@ -24,7 +24,7 @@ use super::{is_int_typed, ValueRange};
 ///
 /// Each entry `(type_idx, field_index) → ValueRange` represents the join of
 /// argument ranges at that position across ALL `Construct` instructions
-/// building that type. This cross-site join is the evidence base for §04.
+/// building that type. This cross-site join is the evidence base for integer narrowing.
 #[derive(Debug)]
 pub struct FieldSummaryTable {
     field_ranges: FxHashMap<(Idx, u32), ValueRange>,
@@ -103,7 +103,7 @@ impl Default for FieldSummaryTable {
 /// Each entry `collection_type_idx → ValueRange` represents the join of
 /// all observed element values across `Construct(ListLiteral|SetLiteral)`
 /// and `CollectionReuse` instructions building that collection type.
-/// This is the evidence base for §04 Phase C (collection element narrowing).
+/// This is the evidence base for collection element narrowing.
 #[derive(Debug)]
 pub struct ElementSummaryTable {
     element_ranges: FxHashMap<Idx, ValueRange>,
@@ -200,7 +200,7 @@ pub fn update_field_summaries<S: std::hash::BuildHasher>(
             if arg_ty.is_some_and(|t| is_int_typed(t, pool)) {
                 ranges.get(arg).copied().unwrap_or(ValueRange::Top)
             } else {
-                ValueRange::Top // non-int fields get Top — §04 ignores them
+                ValueRange::Top // non-int fields get Top — narrowing ignores them
             }
         })
         .collect();

@@ -15,7 +15,7 @@ use ori_ir::DerivedTrait;
 
 use crate::util::assert_aot_success;
 
-// --- Cross-crate sync enforcement (Section 05.1, Test 5) ---
+// --- Cross-crate sync enforcement ---
 
 #[test]
 fn all_derived_traits_have_codegen() {

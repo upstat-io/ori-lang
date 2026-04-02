@@ -212,23 +212,9 @@ fn enum_payload_size(fields: impl Iterator<Item = Idx>, pool: &ori_types::Pool, 
 
 /// Enum tag size in bytes based on variant count.
 ///
-/// Must stay in sync with `ori_repr::min_tag_width()`. Inlined here to avoid
-/// a circular dependency (`ori_repr` depends on `ori_arc`).
-///
-/// §07.1: all enums with ≤256 variants use i8 tags (1 byte).
+/// Minimum tag bytes for an enum — delegates to canonical `ori_ir::min_tag_bytes`.
 fn enum_tag_bytes(variant_count: usize) -> i64 {
-    match variant_count {
-        0 | 1 => 1,
-        n => {
-            let bits_needed = usize::BITS - (n - 1).leading_zeros();
-            match bits_needed {
-                0..=8 => 1,
-                9..=16 => 2,
-                17..=32 => 4,
-                _ => 8,
-            }
-        }
-    }
+    ori_ir::min_tag_bytes(variant_count)
 }
 
 /// Round `value` up to the next multiple of `align`.

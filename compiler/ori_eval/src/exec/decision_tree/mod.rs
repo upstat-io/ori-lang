@@ -16,7 +16,10 @@
 //! because it needs the interpreter's environment.
 
 use ori_ir::canon::tree::{DecisionTree, PathInstruction, ScrutineePath, TestKind, TestValue};
-use ori_ir::{Name, StringInterner};
+use ori_ir::{
+    Name, StringInterner, OPTION_VARIANT_NONE, OPTION_VARIANT_SOME, RESULT_VARIANT_ERR,
+    RESULT_VARIANT_OK,
+};
 use ori_patterns::{EvalError, Value};
 
 /// Result of evaluating a decision tree: the matched arm index and variable bindings.
@@ -254,12 +257,6 @@ fn resolve_bindings(
 // Test matching
 
 /// Check if a runtime value matches a decision tree edge's test value.
-#[expect(
-    clippy::match_same_arms,
-    reason = "Option and Result are independent type families with independently-defined \
-              tag conventions. Merging Some|Ok and None|Err arms hides the per-family \
-              semantics and caused the original C4 tag inversion bug."
-)]
 fn test_matches(
     value: &Value,
     test_kind: TestKind,
@@ -282,12 +279,10 @@ fn test_matches(
                 variant_name: vn, ..
             } => *vn == *variant_name,
             // Some/None/Ok/Err are represented as special Value variants.
-            // Convention: Some = 0, None = 1 (matches lower_some/lower_none)
-            Value::Some(_) => *variant_index == 0,
-            Value::None => *variant_index == 1,
-            // Convention: Ok = 0, Err = 1 (matches lower_ok/lower_err)
-            Value::Ok(_) => *variant_index == 0,
-            Value::Err(_) => *variant_index == 1,
+            Value::Some(_) => *variant_index == OPTION_VARIANT_SOME,
+            Value::None => *variant_index == OPTION_VARIANT_NONE,
+            Value::Ok(_) => *variant_index == RESULT_VARIANT_OK,
+            Value::Err(_) => *variant_index == RESULT_VARIANT_ERR,
             // Convention: Less = 0, Equal = 1, Greater = 2
             Value::Ordering(ord) => {
                 let tag = u32::from(ord.to_tag().unsigned_abs());

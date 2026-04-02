@@ -5,7 +5,7 @@
 //! ## ARC representation
 //!
 //! `Tuple` is a flat struct of resolved element types: `{A, B, ...}`.
-//! Field access uses `remap_struct_field` to account for §06 memory ordering.
+//! Field access uses `remap_struct_field` to account for memory ordering.
 
 use ori_types::Idx;
 
@@ -16,7 +16,7 @@ use super::super::super::ArcIrEmitter;
 impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// `Tuple.equals(other) -> bool`
     ///
-    /// All fields must be equal (conjunction). §06: remap to memory order.
+    /// All fields must be equal (conjunction). Remap to memory order.
     pub(in crate::codegen::arc_emitter) fn emit_tuple_equals(
         &mut self,
         lhs: ValueId,
@@ -44,7 +44,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// `Tuple.compare(other) -> Ordering`
     ///
     /// Lexicographic: compare field 0, if Equal compare field 1, etc.
-    /// §06: remap to memory order.
+    /// Remap to memory order.
     pub(in super::super) fn emit_tuple_compare(
         &mut self,
         lhs: ValueId,
@@ -81,7 +81,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
     /// `Tuple.hash() -> int`
     ///
-    /// Fold `hash_combine` over field hashes. §06: remap to memory order.
+    /// Fold `hash_combine` over field hashes. Remap to memory order.
     pub(in super::super) fn emit_tuple_hash(
         &mut self,
         val: ValueId,

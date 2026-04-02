@@ -92,16 +92,18 @@ impl ArcLowerer<'_> {
             exit_mut_params.push((name, param));
         }
 
-        // Check tag: project field 0. ARC convention: Some=0, None=1.
+        // Check tag: project field 0. Compare to OPTION_TAG_SOME.
         let tag = self.builder.emit_project(Idx::INT, option_val, 0, None);
-        let zero = self
-            .builder
-            .emit_let(Idx::INT, ArcValue::Literal(LitValue::Int(0)), None);
+        let some_tag = self.builder.emit_let(
+            Idx::INT,
+            ArcValue::Literal(LitValue::Int(ori_ir::OPTION_TAG_SOME)),
+            None,
+        );
         let is_some = self.builder.emit_let(
             Idx::BOOL,
             ArcValue::PrimOp {
                 op: PrimOp::Binary(ori_ir::BinaryOp::Eq),
-                args: vec![tag, zero],
+                args: vec![tag, some_tag],
             },
             None,
         );

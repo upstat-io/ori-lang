@@ -6,7 +6,7 @@
 
 use ori_arc::ir::{ArcFunction, ArcVarId};
 use ori_arc::ownership::Ownership;
-use ori_ir::Name;
+use ori_ir::{Name, CLOSURE_FIELD_ENV};
 use ori_types::Idx;
 
 use super::context::EmittedValue;
@@ -258,10 +258,11 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                     ori_types::Tag::Function => {
                         // Closure: { fn_ptr, env_ptr } — extract env_ptr,
                         // null-check, load dynamic drop_fn from env header.
-                        if let Some(env_ptr) =
-                            self.builder
-                                .extract_value(field_val, 1, &format!("cap.{i}.env"))
-                        {
+                        if let Some(env_ptr) = self.builder.extract_value(
+                            field_val,
+                            CLOSURE_FIELD_ENV,
+                            &format!("cap.{i}.env"),
+                        ) {
                             if !self.builder.is_const_null_ptr(env_ptr) {
                                 let is_null =
                                     self.builder.is_null_ptr(env_ptr, &format!("cap.{i}.null"));

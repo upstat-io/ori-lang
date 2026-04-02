@@ -1,4 +1,4 @@
-//! Prelude sync validation — Section 05.2.
+//! Prelude sync validation.
 //!
 //! Verifies that `library/std/prelude.ori` defines all derived traits
 //! with matching trait names, method names, and supertrait constraints

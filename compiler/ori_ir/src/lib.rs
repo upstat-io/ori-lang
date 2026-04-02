@@ -55,6 +55,7 @@ mod comment;
 mod derives;
 mod expr_id;
 pub mod format_spec;
+pub mod hash_constants;
 pub mod incremental;
 mod interner;
 mod metadata;
@@ -62,6 +63,7 @@ mod name;
 mod parsed_type;
 mod pattern_resolution;
 mod span;
+pub mod tag_constants;
 mod token;
 mod traits;
 mod type_id;
@@ -172,12 +174,18 @@ pub use expr_id::{
     BindingPatternId, ExprId, ExprRange, FunctionExpId, FunctionSeqId, MatchPatternId,
     MatchPatternRange, ParsedTypeId, ParsedTypeRange, StmtId, StmtRange,
 };
+pub use hash_constants::{FNV_OFFSET_BASIS, FNV_PRIME};
 pub use interner::{InternError, SharedInterner, StringInterner, StringLookup};
 pub use metadata::ModuleExtra;
 pub use name::Name;
 pub use parsed_type::ParsedType;
 pub use pattern_resolution::{PatternKey, PatternResolution};
 pub use span::{Span, SpanError};
+pub use tag_constants::{
+    min_tag_bytes, CLOSURE_FIELD_ENV, CLOSURE_FIELD_FN, FIELD_CAP, FIELD_DATA, FIELD_LEN,
+    OPTION_TAG_NONE, OPTION_TAG_SOME, OPTION_VARIANT_NONE, OPTION_VARIANT_SOME, RANGE_FIELD_END,
+    RANGE_FIELD_START, RESULT_TAG_ERR, RESULT_TAG_OK, RESULT_VARIANT_ERR, RESULT_VARIANT_OK,
+};
 pub use token::{
     DurationUnit, SizeUnit, Token, TokenCapture, TokenFlags, TokenIdx, TokenKind, TokenList,
     TokenTag,

@@ -136,3 +136,57 @@ use std.testing { assert, assert_eq }
 @test_option_zip tests @option_zip () -> void = {
     assert_eq(actual: option_zip(), expected: [(1, "a")])
 }
+
+// =============================================================================
+// Regression: hygiene-full §04.N TPR — heap string RC retention
+// Option.iter() memcpy's payload into a new buffer. For RC-backed inner types
+// (heap strings >23 bytes), the inner RC must be incremented to prevent
+// double-free when both the original Option and the iterator are dropped.
+// =============================================================================
+
+@option_heap_str_iter () -> [str] = {
+    Some("this is a heap-allocated string that exceeds SSO").iter().collect()
+}
+
+@test_option_heap_str_iter tests @option_heap_str_iter () -> void = {
+    assert_eq(actual: option_heap_str_iter(), expected: ["this is a heap-allocated string that exceeds SSO"])
+}
+
+@option_heap_str_count () -> int = {
+    Some("another heap string that is definitely not SSO sized").iter().count()
+}
+
+@test_option_heap_str_count tests @option_heap_str_count () -> void = {
+    assert_eq(actual: option_heap_str_count(), expected: 1)
+}
+
+// Option survives after .iter() — both hold references to the same RC data
+@option_heap_str_iter_then_use () -> bool = {
+    let opt = Some("heap string payload used after iter call");
+    let count = opt.iter().count();
+    let still_some = opt.is_some();
+    count == 1 && still_some
+}
+
+@test_option_heap_str_iter_then_use tests @option_heap_str_iter_then_use () -> void = {
+    assert_eq(actual: option_heap_str_iter_then_use(), expected: true)
+}
+
+// None with heap-string type — no RC work needed
+@option_none_heap_str_iter () -> [str] = {
+    let x: Option<str> = None;
+    x.iter().collect()
+}
+
+@test_option_none_heap_str_iter tests @option_none_heap_str_iter () -> void = {
+    assert_eq(actual: option_none_heap_str_iter(), expected: [])
+}
+
+// Option<[int]> — list payload is also RC-managed
+@option_list_iter () -> [[int]] = {
+    Some([1, 2, 3]).iter().collect()
+}
+
+@test_option_list_iter tests @option_list_iter () -> void = {
+    assert_eq(actual: option_list_iter(), expected: [[1, 2, 3]])
+}

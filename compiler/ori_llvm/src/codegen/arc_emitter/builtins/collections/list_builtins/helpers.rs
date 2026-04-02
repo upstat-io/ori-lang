@@ -4,6 +4,7 @@
 //! `extract_list_fields`), the `first`/`last` shared implementation, and
 //! the `elem_size_and_align` helper used by COW mutation methods.
 
+use ori_ir::{FIELD_CAP, FIELD_DATA, FIELD_LEN};
 use ori_types::Idx;
 
 use crate::codegen::value_id::ValueId;
@@ -17,11 +18,11 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     pub(super) fn extract_list_data_and_len(&mut self, receiver: ValueId) -> (ValueId, ValueId) {
         let data_ptr = self
             .builder
-            .extract_value(receiver, 2, "list.data")
+            .extract_value(receiver, FIELD_DATA, "list.data")
             .unwrap_or_else(|| self.builder.const_null_ptr());
         let len = self
             .builder
-            .extract_value(receiver, 0, "list.len")
+            .extract_value(receiver, FIELD_LEN, "list.len")
             .unwrap_or_else(|| self.builder.const_i64(0));
         (data_ptr, len)
     }
@@ -35,15 +36,15 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     ) -> (ValueId, ValueId, ValueId) {
         let data_ptr = self
             .builder
-            .extract_value(receiver, 2, "list.data")
+            .extract_value(receiver, FIELD_DATA, "list.data")
             .unwrap_or_else(|| self.builder.const_null_ptr());
         let len = self
             .builder
-            .extract_value(receiver, 0, "list.len")
+            .extract_value(receiver, FIELD_LEN, "list.len")
             .unwrap_or_else(|| self.builder.const_i64(0));
         let cap = self
             .builder
-            .extract_value(receiver, 1, "list.cap")
+            .extract_value(receiver, FIELD_CAP, "list.cap")
             .unwrap_or_else(|| self.builder.const_i64(0));
         (data_ptr, len, cap)
     }
@@ -60,7 +61,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let func_id = self.builder.runtime_fn(func_name);
 
         let (data_ptr, len) = self.extract_list_data_and_len(receiver);
-        // §04.4 Phase C: use narrowed element size/type if available.
+        // Use narrowed element size/type if available.
         let collection_idx = self.pool.resolve_fully(list_ty);
         let elem_size_val = self
             .builder
@@ -90,7 +91,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             .builder
             .load(option_ty, out_alloca, &format!("{label}.val"));
 
-        // §04.4 Phase C: sign-extend the narrowed value field back to canonical
+        // Sign-extend the narrowed value field back to canonical
         // i64 so downstream code (unwrap, comparison) sees the expected type.
         if self
             .narrowed_collection_element_width(collection_idx)
@@ -134,7 +135,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
     /// Build `(elem_size, elem_align)` constant pair for COW runtime calls.
     ///
-    /// When `collection_ty` is `Some`, uses `collection_elem_size` for §04.4
+    /// When `collection_ty` is `Some`, uses `collection_elem_size` for
     /// Phase C narrowed element sizes. Otherwise falls back to canonical size.
     pub(in crate::codegen::arc_emitter::builtins::collections) fn elem_size_and_align(
         &mut self,

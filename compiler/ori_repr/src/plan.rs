@@ -1,6 +1,6 @@
 //! `ReprPlan` — the central decision document for representation optimization.
 //!
-//! Each optimization pass (§02–§11) writes narrowing decisions into the
+//! Each optimization pass writes narrowing decisions into the
 //! `ReprPlan` with full provenance tracking. Codegen reads the final
 //! plan to determine the machine representation of every type.
 //!
@@ -9,10 +9,10 @@
 //! - **Audit trail**: every decision is recorded in order, even when
 //!   overridden — useful for debugging why a type was narrowed.
 //! - **Safe defaults**: queries return canonical (un-narrowed) values
-//!   when no decision has been recorded — §01 alone causes zero
+//!   when no decision has been recorded — the canonical pass alone causes zero
 //!   behavioral change.
 //! - **Placeholder fields**: `escape_info` and `function_var_ranges`
-//!   use stub types until §03 and §08 replace them.
+//!   use stub types until range analysis and escape analysis replace them.
 
 use ori_arc::ArcVarId;
 use ori_ir::Name;
@@ -38,7 +38,7 @@ mod repr_attr;
 /// Computed after type checking and before LLVM codegen. The type checker
 /// never sees `ReprPlan`; codegen reads from it but never writes.
 ///
-/// # Salsa Integration (§01.6)
+/// # Salsa Integration
 ///
 /// `ReprPlan` is **not** a Salsa tracked struct. It is computed imperatively
 /// by [`compute_repr_plan()`] as a forward pass that mutates state across
@@ -70,7 +70,7 @@ mod repr_attr;
 #[derive(Debug)]
 #[expect(
     clippy::zero_sized_map_values,
-    reason = "EscapeInfo is placeholder ZST — replaced by §08"
+    reason = "EscapeInfo is placeholder ZST — replaced when escape analysis is implemented"
 )]
 pub struct ReprPlan {
     /// Per-type decisions (indexed by Pool `Idx`).
@@ -82,41 +82,40 @@ pub struct ReprPlan {
     /// Stored **separately** from `decisions` because RC strategy is metadata
     /// about how a value is reference-counted, not a replacement for its
     /// layout. Writing an RC decision must not destroy the type's
-    /// `MachineRepr` (TPR-01-022). Populated by §09 (ARC header compression)
-    /// and §10 (thread-local ARC).
+    /// `MachineRepr` (TPR-01-022). Populated by ARC header compression
+    /// and thread-local ARC passes.
     rc_strategies: FxHashMap<Idx, RcStrategy>,
     /// Per-function escape info (indexed by function `Name`).
     ///
-    /// Empty until §08 populates it.
+    /// Empty until escape analysis populates it.
     escape_info: FxHashMap<Name, EscapeInfo>,
-    /// Per-function, per-variable ranges from §03 range analysis.
+    /// Per-function, per-variable ranges from range analysis.
     ///
     /// Key: function `Name` → (`ArcVarId` → `ValueRange`).
-    /// Populated by §03, consumed by §04.
+    /// Populated by range analysis, consumed by integer narrowing.
     function_var_ranges: FxHashMap<Name, FxHashMap<ArcVarId, ValueRange>>,
-    /// Per-type-field range summaries from §03 field-summary analysis.
+    /// Per-type-field range summaries from field-summary analysis.
     ///
     /// Key: `(struct/tuple Idx, field_index)` → joined `ValueRange`.
-    /// Populated by §03.2b (`FieldSummaryTable::flush_to_repr_plan`),
-    /// consumed by §04 (struct field narrowing).
+    /// Populated by `FieldSummaryTable::flush_to_repr_plan`,
+    /// consumed by struct field narrowing.
     field_range_summaries: FxHashMap<(Idx, u32), ValueRange>,
-    /// Per-collection-type element range summaries from §03 element analysis.
+    /// Per-collection-type element range summaries from element analysis.
     ///
     /// Key: collection type `Idx` (e.g., `[int]`) → joined `ValueRange` of
     /// all observed element values across `Construct(ListLiteral)` and
-    /// `CollectionReuse` sites. Consumed by §04 Phase C (collection element
-    /// narrowing).
+    /// `CollectionReuse` sites. Consumed by collection element narrowing.
     element_range_summaries: FxHashMap<Idx, ValueRange>,
     /// Audit trail — all decisions in insertion order.
     audit: Vec<ReprDecision>,
     /// Narrowing policy controlling optimization aggressiveness.
     narrowing_policy: NarrowingPolicy,
     /// Type indices declared `pub` — their layout is part of the ABI
-    /// contract and must NOT be narrowed by §04 (TPR-04-005).
+    /// contract and must NOT be narrowed (TPR-04-005).
     ///
     /// Populated at plan construction from type checker visibility info.
     pub_type_indices: FxHashSet<Idx>,
-    /// Function identities whose parameters must NOT be narrowed by §03.5
+    /// Function identities whose parameters must NOT be narrowed by
     /// interprocedural range analysis.
     ///
     /// Entries are `(Option<self_type_idx>, method_name)`:
@@ -133,9 +132,9 @@ pub struct ReprPlan {
     /// the codegen pipeline (e.g., impl methods ARC-lowered for range analysis
     /// only, not for borrow inference or LLVM emission).
     ///
-    /// When true, §04 integer narrowing is suppressed because the field-range
+    /// When true, integer narrowing is suppressed because the field-range
     /// summaries from analysis-only functions may trigger narrowing for structs
-    /// that cross ABI boundaries without proper widening (§04.2 not complete).
+    /// that cross ABI boundaries without proper widening.
     has_analysis_only_functions: bool,
 }
 
@@ -144,7 +143,7 @@ impl ReprPlan {
     #[must_use]
     #[expect(
         clippy::zero_sized_map_values,
-        reason = "EscapeInfo is placeholder ZST — replaced by §08"
+        reason = "EscapeInfo is placeholder ZST — replaced when escape analysis is implemented"
     )]
     pub fn new(policy: NarrowingPolicy) -> Self {
         Self {
@@ -196,7 +195,7 @@ impl ReprPlan {
 
     /// Record per-variable range analysis results for a function.
     ///
-    /// Called by §03 after `range_fixpoint()` completes for a function.
+    /// Called by range analysis after `range_fixpoint()` completes for a function.
     pub fn set_var_ranges(&mut self, func: Name, ranges: FxHashMap<ArcVarId, ValueRange>) {
         self.function_var_ranges.insert(func, ranges);
     }
@@ -217,8 +216,8 @@ impl ReprPlan {
     /// Get mutable access to a function's per-variable range map.
     ///
     /// Returns `None` if no ranges have been recorded for this function.
-    /// Used by §03.5 to merge interprocedural parameter ranges into existing
-    /// intraprocedural results.
+    /// Used by interprocedural propagation to merge parameter ranges into
+    /// existing intraprocedural results.
     pub fn function_var_ranges_mut(
         &mut self,
         func: Name,
@@ -286,7 +285,7 @@ impl ReprPlan {
     /// Register type indices that are declared `pub`.
     ///
     /// Public types have ABI contracts with external code — their field
-    /// layouts must not be narrowed by §04 integer narrowing (TPR-04-005).
+    /// layouts must not be narrowed by integer narrowing (TPR-04-005).
     pub fn set_pub_type_indices(&mut self, indices: impl IntoIterator<Item = Idx>) {
         self.pub_type_indices.extend(indices);
     }
@@ -308,7 +307,7 @@ impl ReprPlan {
     ///
     /// Unconstrained functions may be called from external code or via
     /// dynamic dispatch — their parameter ranges must not be narrowed
-    /// by §03.5 interprocedural range analysis. Closures are handled
+    /// by interprocedural range analysis. Closures are handled
     /// separately via `ArcFunction::num_captures`.
     pub fn set_unconstrained_fn_names(
         &mut self,
@@ -347,7 +346,7 @@ impl ReprPlan {
             .contains(&(None, qualified_name))
     }
 
-    /// Whether §04 integer narrowing is safe to apply at the codegen level.
+    /// Whether integer narrowing is safe to apply at the codegen level.
     ///
     /// Returns `false` when the analysis set includes functions not fully
     /// integrated into the codegen pipeline (e.g., impl methods ARC-lowered
@@ -372,12 +371,12 @@ impl ReprPlan {
         self.has_analysis_only_functions = true;
     }
 
-    /// Record per-function escape analysis info (§08 output).
+    /// Record per-function escape analysis info.
     pub fn set_escape_info(&mut self, func: Name, info: EscapeInfo) {
         self.escape_info.insert(func, info);
     }
 
-    /// Record an RC strategy decision for a type (§09/§10 output).
+    /// Record an RC strategy decision for a type.
     ///
     /// Stores the strategy in a **separate map** so the type's `MachineRepr`
     /// layout is preserved. The audit trail records the decision for debugging.
@@ -402,7 +401,7 @@ impl ReprPlan {
 
     /// Iterate over all type indices that have a stored representation decision.
     ///
-    /// Used by narrowing passes (§04) to find struct/tuple types to narrow
+    /// Used by narrowing passes to find struct/tuple types to narrow
     /// without depending on pool iteration order.
     pub fn decision_indices(&self) -> impl Iterator<Item = Idx> + '_ {
         self.decisions.keys().copied()
@@ -423,7 +422,7 @@ impl ReprPlan {
     }
 }
 
-// §01.6 Thread safety: compile-time assertion that ReprPlan is Send + Sync.
+// Thread safety: compile-time assertion that ReprPlan is Send + Sync.
 // ReprPlan has no interior mutability (no RefCell, no Mutex), so &ReprPlan
 // can be safely shared across threads. This assertion catches regressions
 // if a future field introduces non-Send/Sync types.

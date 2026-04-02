@@ -8,6 +8,7 @@
 //! owned (RC == 1), mutation happens in-place; when shared, a copy is made
 //! first. Each mutating method returns a `{i64 len, i64 cap, ptr data}` struct.
 
+use ori_ir::{FIELD_CAP, FIELD_DATA, FIELD_LEN, RANGE_FIELD_END, RANGE_FIELD_START};
 use ori_types::Idx;
 
 use crate::codegen::value_id::ValueId;
@@ -17,12 +18,12 @@ use super::super::super::ArcIrEmitter;
 impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// Emit `set.length` — extract field 0 (len) from `{i64 len, i64 cap, ptr data}`.
     pub(crate) fn emit_set_length(&mut self, receiver: ValueId) -> Option<ValueId> {
-        self.builder.extract_value(receiver, 0, "set.len")
+        self.builder.extract_value(receiver, FIELD_LEN, "set.len")
     }
 
     /// Emit `set.is_empty()` — `len == 0`.
     pub(crate) fn emit_set_is_empty(&mut self, receiver: ValueId) -> Option<ValueId> {
-        let len = self.builder.extract_value(receiver, 0, "set.len")?;
+        let len = self.builder.extract_value(receiver, FIELD_LEN, "set.len")?;
         let zero = self.builder.const_i64(0);
         Some(self.builder.icmp_eq(len, zero, "set.is_empty"))
     }
@@ -31,15 +32,15 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     fn extract_set_components(&mut self, receiver: ValueId) -> (ValueId, ValueId, ValueId) {
         let data_ptr = self
             .builder
-            .extract_value(receiver, 2, "set.data")
+            .extract_value(receiver, FIELD_DATA, "set.data")
             .unwrap_or_else(|| self.builder.const_null_ptr());
         let len = self
             .builder
-            .extract_value(receiver, 0, "set.len")
+            .extract_value(receiver, FIELD_LEN, "set.len")
             .unwrap_or_else(|| self.builder.const_i64(0));
         let cap = self
             .builder
-            .extract_value(receiver, 1, "set.cap")
+            .extract_value(receiver, FIELD_CAP, "set.cap")
             .unwrap_or_else(|| self.builder.const_i64(0));
         (data_ptr, len, cap)
     }
@@ -186,15 +187,15 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         // Second set: need data, len, and cap for hash table lookups
         let d2 = self
             .builder
-            .extract_value(other, 2, "set2.data")
+            .extract_value(other, FIELD_DATA, "set2.data")
             .unwrap_or_else(|| self.builder.const_null_ptr());
         let l2 = self
             .builder
-            .extract_value(other, 0, "set2.len")
+            .extract_value(other, FIELD_LEN, "set2.len")
             .unwrap_or_else(|| self.builder.const_i64(0));
         let c2 = self
             .builder
-            .extract_value(other, 1, "set2.cap")
+            .extract_value(other, FIELD_CAP, "set2.cap")
             .unwrap_or_else(|| self.builder.const_i64(0));
 
         let (elem_size, elem_align) = self.elem_size_and_align(elem_ty, None);
@@ -356,11 +357,11 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
         let start = self
             .builder
-            .extract_value(receiver, 0, "range.start")
+            .extract_value(receiver, RANGE_FIELD_START, "range.start")
             .unwrap_or_else(|| self.builder.const_i64(0));
         let end = self
             .builder
-            .extract_value(receiver, 1, "range.end")
+            .extract_value(receiver, RANGE_FIELD_END, "range.end")
             .unwrap_or_else(|| self.builder.const_i64(0));
         let step = self
             .builder

@@ -42,7 +42,7 @@ ori_types, ori_registry, SSOT, scattered knowledge
 ---
 
 ### Section 03: Cross-Backend Algorithmic DRY (eval / LLVM)
-**File:** `section-03-cross-backend-dry.md` | **Status:** Not Started
+**File:** `section-03-cross-backend-dry.md` | **Status:** In Progress (98%)
 
 ```
 eval, LLVM, parallel dispatch, algorithmic duplication
@@ -60,7 +60,7 @@ StructBody, SumBody, non_exhaustive, derive sync
 ---
 
 ### Section 04: Named Constants for Tag Values & Field Indices
-**File:** `section-04-named-constants.md` | **Status:** Not Started
+**File:** `section-04-named-constants.md` | **Status:** Complete
 
 ```
 Some tag 0, None tag 1, Ok tag 0, Err tag 1, magic numbers
@@ -73,7 +73,7 @@ FatPointer, Closure, Range, struct sizes
 ---
 
 ### Section 05: Layout Computation Unification
-**File:** `section-05-layout-unification.md` | **Status:** Not Started
+**File:** `section-05-layout-unification.md` | **Status:** Complete
 
 ```
 enum_tag_bytes, type layout, layout computation
@@ -85,7 +85,7 @@ MachineRepr, ReprPlan, TypeInfo
 ---
 
 ### Section 06: LLVM Internal Algorithmic DRY
-**File:** `section-06-llvm-internal-dry.md` | **Status:** Not Started
+**File:** `section-06-llvm-internal-dry.md` | **Status:** In Progress (94%, TPR pending)
 
 ```
 emit_inline_enum_inc, emit_inline_enum_dec, enum RC
@@ -98,7 +98,7 @@ pre-interned names, rc_helpers.rs, rc_ops.rs
 ---
 
 ### Section 07: Runtime RC Protocol DRY + Correctness
-**File:** `section-07-runtime-rc-protocol.md` | **Status:** Not Started
+**File:** `section-07-runtime-rc-protocol.md` | **Status:** In Progress (93%, TPR pending)
 
 ```
 ori_rc_dec, ori_buffer_rc_dec, ori_str_rc_dec
@@ -110,7 +110,7 @@ rc_underflow_abort, call_drop_fn, ori_rt
 ---
 
 ### Section 08: Cross-Phase Invariant Contracts
-**File:** `section-08-invariant-contracts.md` | **Status:** Not Started
+**File:** `section-08-invariant-contracts.md` | **Status:** In Progress (93%, TPR pending)
 
 ```
 debug_assert, type variable resolution, Tag::Var
@@ -122,7 +122,7 @@ ABI FIXME, codegen preconditions, phase contracts
 ---
 
 ### Section 09: Registration Sync & Enforcement
-**File:** `section-09-registration-sync.md` | **Status:** Not Started
+**File:** `section-09-registration-sync.md` | **Status:** In Progress (94%, TPR pending)
 
 ```
 iterator methods, sync points, coverage threshold
@@ -135,7 +135,7 @@ ori_registry, ori_types, ori_eval, ori_llvm
 ---
 
 ### Section 10: Scattered Knowledge Cleanup
-**File:** `section-10-scattered-knowledge.md` | **Status:** Not Started
+**File:** `section-10-scattered-knowledge.md` | **Status:** In Progress (95%, TPR pending)
 
 ```
 TypeInfo::is_trivial, ReprPlan::is_trivial, triviality
@@ -150,7 +150,7 @@ lex, lex_full, swallowed errors, warnings dropped
 ---
 
 ### Section 11: Stale Plan Annotations
-**File:** `section-11-stale-annotations.md` | **Status:** Not Started
+**File:** `section-11-stale-annotations.md` | **Status:** In Progress (93%, TPR pending)
 
 ```
 TPR-, CROSS-04, plan annotations, stale references
@@ -161,7 +161,7 @@ section references, phase annotations, cleanup
 ---
 
 ### Section 12: Surface Hygiene
-**File:** `section-12-surface-hygiene.md` | **Status:** Not Started
+**File:** `section-12-surface-hygiene.md` | **Status:** In Progress (7%)
 
 ```
 file size, 500 line limit, unsafe SAFETY comment

@@ -7,6 +7,7 @@
 //! owned (RC == 1), mutation happens in-place; when shared, a copy is made
 //! first. Each mutating method returns a `{i64 len, i64 cap, ptr data}` struct.
 
+use ori_ir::{FIELD_CAP, FIELD_DATA, FIELD_LEN};
 use ori_types::Idx;
 
 use crate::codegen::value_id::{LLVMTypeId, ValueId};
@@ -16,12 +17,12 @@ use super::super::super::ArcIrEmitter;
 impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// Emit `map.length` — extract field 0 (len) from `{i64 len, i64 cap, ptr data}`.
     pub(crate) fn emit_map_length(&mut self, receiver: ValueId) -> Option<ValueId> {
-        self.builder.extract_value(receiver, 0, "map.len")
+        self.builder.extract_value(receiver, FIELD_LEN, "map.len")
     }
 
     /// Emit `map.is_empty()` — `len == 0`.
     pub(crate) fn emit_map_is_empty(&mut self, receiver: ValueId) -> Option<ValueId> {
-        let len = self.builder.extract_value(receiver, 0, "map.len")?;
+        let len = self.builder.extract_value(receiver, FIELD_LEN, "map.len")?;
         let zero = self.builder.const_i64(0);
         Some(self.builder.icmp_eq(len, zero, "map.is_empty"))
     }
@@ -41,19 +42,19 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
         let data = self
             .builder
-            .extract_value(receiver, 2, "map.data")
+            .extract_value(receiver, FIELD_DATA, "map.data")
             .unwrap_or_else(|| self.builder.const_null_ptr());
         let cap = self
             .builder
-            .extract_value(receiver, 1, "map.cap")
+            .extract_value(receiver, FIELD_CAP, "map.cap")
             .unwrap_or_else(|| self.builder.const_i64(0));
         let len = self
             .builder
-            .extract_value(receiver, 0, "map.len")
+            .extract_value(receiver, FIELD_LEN, "map.len")
             .unwrap_or_else(|| self.builder.const_i64(0));
 
         let needle_ptr = self.elem_to_ptr(key, key_ty, "contains_key.needle");
-        // §04.4 Phase C: use narrowed key size if available.
+        // Use narrowed key size if available.
         let collection_idx = self.pool.resolve_fully(map_ty);
         let key_size = self.collection_elem_size(collection_idx, key_ty);
         let key_size_val = self.builder.const_i64(key_size as i64);
@@ -86,18 +87,18 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
         let data = self
             .builder
-            .extract_value(receiver, 2, "map.data")
+            .extract_value(receiver, FIELD_DATA, "map.data")
             .unwrap_or_else(|| self.builder.const_null_ptr());
         let cap = self
             .builder
-            .extract_value(receiver, 1, "map.cap")
+            .extract_value(receiver, FIELD_CAP, "map.cap")
             .unwrap_or_else(|| self.builder.const_i64(0));
         let len = self
             .builder
-            .extract_value(receiver, 0, "map.len")
+            .extract_value(receiver, FIELD_LEN, "map.len")
             .unwrap_or_else(|| self.builder.const_i64(0));
 
-        // §04.4 Phase C: use narrowed key size if available.
+        // Use narrowed key size if available.
         let collection_idx = self.pool.resolve_fully(map_ty);
         let key_size = self.collection_elem_size(collection_idx, key_ty);
         let key_size_val = self.builder.const_i64(key_size as i64);
@@ -223,7 +224,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
     /// Extract map data, cap, len and compute key/val sizes from type info.
     ///
-    /// When `map_ty` is `Some`, uses `collection_elem_size` for §04.4 Phase C
+    /// When `map_ty` is `Some`, uses `collection_elem_size` for
     /// narrowed element sizes. Otherwise falls back to canonical sizes.
     pub(in crate::codegen::arc_emitter) fn extract_map_components(
         &mut self,
@@ -234,17 +235,17 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     ) -> (ValueId, ValueId, ValueId, ValueId, ValueId) {
         let data = self
             .builder
-            .extract_value(receiver, 2, "map.data")
+            .extract_value(receiver, FIELD_DATA, "map.data")
             .unwrap_or_else(|| self.builder.const_null_ptr());
         let cap = self
             .builder
-            .extract_value(receiver, 1, "map.cap")
+            .extract_value(receiver, FIELD_CAP, "map.cap")
             .unwrap_or_else(|| self.builder.const_i64(0));
         let len = self
             .builder
-            .extract_value(receiver, 0, "map.len")
+            .extract_value(receiver, FIELD_LEN, "map.len")
             .unwrap_or_else(|| self.builder.const_i64(0));
-        // §04.4 Phase C: use narrowed element sizes for map buffers.
+        // Use narrowed element sizes for map buffers.
         let (key_size, val_size) = if let Some(mt) = map_ty {
             let collection_idx = self.pool.resolve_fully(mt);
             (

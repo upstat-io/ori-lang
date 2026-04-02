@@ -163,6 +163,7 @@ pub extern "C" fn ori_rc_realloc(
     }
 
     // Return data pointer (32 bytes past the header)
+    // SAFETY: new_base is valid for new_total bytes, so new_base + 32 is valid.
     let new_data = unsafe { new_base.add(RC_HEADER_SIZE) };
 
     // Update leak tracker metadata.

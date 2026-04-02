@@ -252,12 +252,18 @@ impl<'a> FlattenCtx<'a> {
                 }
             }
             Tag::Option => {
-                // Convention: Some = 0, None = 1 (matches construction in lower_some/lower_none)
-                return u32::from(self.interner.lookup(variant_name) == "None");
+                return if self.interner.lookup(variant_name) == "None" {
+                    ori_ir::OPTION_VARIANT_NONE
+                } else {
+                    ori_ir::OPTION_VARIANT_SOME
+                };
             }
             Tag::Result => {
-                // Convention: Ok = 0, Err = 1 (matches evaluator's Value::Ok/Err)
-                return u32::from(self.interner.lookup(variant_name) == "Err");
+                return if self.interner.lookup(variant_name) == "Err" {
+                    ori_ir::RESULT_VARIANT_ERR
+                } else {
+                    ori_ir::RESULT_VARIANT_OK
+                };
             }
             Tag::Ordering => {
                 // Convention: Less = 0, Equal = 1, Greater = 2

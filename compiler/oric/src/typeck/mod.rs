@@ -228,7 +228,7 @@ fn register_resolved_imports(
         .map(|m| m.source_file.map(|sf| crate::query::typed(db, sf)))
         .collect();
 
-    // 3a. Collect imported metadata for transitive forwarding (CROSS-04-017, TPR-04-038).
+    // 3a. Collect imported metadata for transitive forwarding.
     // Both type metadata and collection surfaces flow through the same sources.
     {
         let prelude_result = resolved
@@ -394,7 +394,6 @@ fn dummy_sig(name: Name) -> FunctionSig {
 ///
 /// Gathers `ExportedTypeMetadata` from the prelude (if present) and all
 /// imported module `TypeCheckResult` objects for transitive forwarding.
-/// See TPR-04-038.
 pub(crate) fn collect_metadata_from_results(
     prelude: Option<&ori_types::TypeCheckResult>,
     module_results: &[Option<ori_types::TypeCheckResult>],
@@ -415,7 +414,6 @@ pub(crate) fn collect_metadata_from_results(
 /// present) and all imported module `TypeCheckResult` objects for transitive
 /// forwarding. The collected hashes are passed to `ModuleChecker::set_imported_collection_surfaces()`
 /// which feeds them into `generate_exported_collection_surfaces()` for A→B→C propagation.
-/// See TPR-04-038, TPR-04-041.
 pub(crate) fn collect_surfaces_from_results(
     prelude: Option<&ori_types::TypeCheckResult>,
     module_results: &[Option<ori_types::TypeCheckResult>],

@@ -4,101 +4,54 @@
 //! Each function computes the output `ValueRange` for the corresponding
 //! arithmetic operation on integer intervals.
 
-use super::ValueRange;
+use super::{binary_transfer, four_corner_fold, ValueRange};
 use ValueRange::{Bottom, Bounded, Top};
 
 /// `a + b` with checked overflow.
 pub fn range_add(a: ValueRange, b: ValueRange) -> ValueRange {
-    match (a, b) {
-        (Bottom, _) | (_, Bottom) => Bottom,
-        (Bounded { lo: al, hi: ah }, Bounded { lo: bl, hi: bh }) => {
-            match (al.checked_add(bl), ah.checked_add(bh)) {
-                (Some(lo), Some(hi)) => Bounded { lo, hi },
-                _ => Top,
-            }
+    binary_transfer(a, b, |al, ah, bl, bh| {
+        match (al.checked_add(bl), ah.checked_add(bh)) {
+            (Some(lo), Some(hi)) => Bounded { lo, hi },
+            _ => Top,
         }
-        _ => Top,
-    }
+    })
 }
 
 /// `a - b` with checked overflow.
 pub fn range_sub(a: ValueRange, b: ValueRange) -> ValueRange {
-    match (a, b) {
-        (Bottom, _) | (_, Bottom) => Bottom,
-        (Bounded { lo: al, hi: ah }, Bounded { lo: bl, hi: bh }) => {
-            // a - b: lo = a.lo - b.hi, hi = a.hi - b.lo
-            match (al.checked_sub(bh), ah.checked_sub(bl)) {
-                (Some(lo), Some(hi)) => Bounded { lo, hi },
-                _ => Top,
-            }
+    binary_transfer(a, b, |al, ah, bl, bh| {
+        // a - b: lo = a.lo - b.hi, hi = a.hi - b.lo
+        match (al.checked_sub(bh), ah.checked_sub(bl)) {
+            (Some(lo), Some(hi)) => Bounded { lo, hi },
+            _ => Top,
         }
-        _ => Top,
-    }
+    })
 }
 
 /// `a * b` — must consider all four quadrant combinations.
 pub fn range_mul(a: ValueRange, b: ValueRange) -> ValueRange {
-    match (a, b) {
-        (Bottom, _) | (_, Bottom) => Bottom,
-        (Bounded { lo: al, hi: ah }, Bounded { lo: bl, hi: bh }) => {
-            // All four products may be the min or max.
-            let products = [
-                al.checked_mul(bl),
-                al.checked_mul(bh),
-                ah.checked_mul(bl),
-                ah.checked_mul(bh),
-            ];
-            let mut lo = i64::MAX;
-            let mut hi = i64::MIN;
-            for p in &products {
-                match p {
-                    Some(v) => {
-                        lo = lo.min(*v);
-                        hi = hi.max(*v);
-                    }
-                    None => return Top,
-                }
-            }
-            Bounded { lo, hi }
-        }
-        _ => Top,
-    }
+    binary_transfer(a, b, |al, ah, bl, bh| {
+        four_corner_fold(al, ah, bl, bh, i64::checked_mul)
+    })
 }
 
 /// `a / b` — returns Top if divisor spans zero or any corner overflows.
 pub fn range_div(a: ValueRange, b: ValueRange) -> ValueRange {
-    match (a, b) {
-        (Bottom, _) | (_, Bottom) => Bottom,
-        (Bounded { lo: al, hi: ah }, Bounded { lo: bl, hi: bh }) => {
-            // Division by zero possible → Top
-            if bl <= 0 && bh >= 0 {
-                return Top;
-            }
-            // All four quotients — checked to handle i64::MIN / -1 overflow.
-            let quotients = [
-                al.checked_div(bl),
-                al.checked_div(bh),
-                ah.checked_div(bl),
-                ah.checked_div(bh),
-            ];
-            let mut lo = i64::MAX;
-            let mut hi = i64::MIN;
-            for q in &quotients {
-                match q {
-                    Some(v) => {
-                        lo = lo.min(*v);
-                        hi = hi.max(*v);
-                    }
-                    None => return Top,
-                }
-            }
-            Bounded { lo, hi }
+    binary_transfer(a, b, |al, ah, bl, bh| {
+        // Division by zero possible → Top
+        if bl <= 0 && bh >= 0 {
+            return Top;
         }
-        _ => Top,
-    }
+        // All four quotients — checked to handle i64::MIN / -1 overflow.
+        four_corner_fold(al, ah, bl, bh, i64::checked_div)
+    })
 }
 
 /// `a % b` — result bounded by `|b| - 1`.
+///
+/// Note: this does NOT use `binary_transfer` because it only needs the
+/// divisor to be `Bounded` — the dividend range is ignored (result is
+/// bounded solely by the divisor magnitude).
 pub fn range_mod(a: ValueRange, b: ValueRange) -> ValueRange {
     match (a, b) {
         (Bottom, _) | (_, Bottom) => Bottom,
@@ -139,35 +92,14 @@ fn checked_floor_div(a: i64, b: i64) -> Option<i64> {
 /// division for mixed-sign operands: `-7 div 2 == -4` (not `-3`).
 /// Computes all 4 corners using floor semantics, then takes min/max.
 pub fn range_floordiv(a: ValueRange, b: ValueRange) -> ValueRange {
-    match (a, b) {
-        (Bottom, _) | (_, Bottom) => Bottom,
-        (Bounded { lo: al, hi: ah }, Bounded { lo: bl, hi: bh }) => {
-            // Division by zero possible → Top
-            if bl <= 0 && bh >= 0 {
-                return Top;
-            }
-            // All four corners — checked for overflow (i64::MIN div -1).
-            let quotients = [
-                checked_floor_div(al, bl),
-                checked_floor_div(al, bh),
-                checked_floor_div(ah, bl),
-                checked_floor_div(ah, bh),
-            ];
-            let mut lo = i64::MAX;
-            let mut hi = i64::MIN;
-            for q in &quotients {
-                match q {
-                    Some(v) => {
-                        lo = lo.min(*v);
-                        hi = hi.max(*v);
-                    }
-                    None => return Top,
-                }
-            }
-            Bounded { lo, hi }
+    binary_transfer(a, b, |al, ah, bl, bh| {
+        // Division by zero possible → Top
+        if bl <= 0 && bh >= 0 {
+            return Top;
         }
-        _ => Top,
-    }
+        // All four corners — checked for overflow (i64::MIN div -1).
+        four_corner_fold(al, ah, bl, bh, checked_floor_div)
+    })
 }
 
 /// Unary negation: `-a`.

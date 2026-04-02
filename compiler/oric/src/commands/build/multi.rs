@@ -204,7 +204,6 @@ pub(super) struct CompiledModuleInfo {
     /// Exported type metadata (repr attrs + visibility) for cross-module repr
     /// plan construction. Imported modules' metadata is fed into `ReprPlan` so
     /// that `pub` and `#repr(...)` types are not incorrectly narrowed.
-    /// See CROSS-04-014 and CROSS-04-015.
     pub(super) exported_type_metadata: Vec<ori_types::ExportedTypeMetadata>,
     /// Merkle hashes of collection types in public function signatures.
     /// Enables cross-module protection of collection element layouts from
@@ -320,7 +319,7 @@ fn compile_single_module(
 
     // Transitive metadata forwarding now happens in the type checker
     // (generate_exported_type_metadata merges imported metadata at finish_with_pool).
-    // No post-check merge needed here. See CROSS-04-017.
+    // No post-check merge needed here.
     let module_info = CompiledModuleInfo {
         path: source_path.to_path_buf(),
         module_name,
@@ -440,7 +439,6 @@ fn build_import_infos(
 /// Mirrors `build_import_infos()` but collects `ExportedTypeMetadata` instead
 /// of function signatures. This metadata enables `ReprPlan` to correctly exempt
 /// imported `pub` and `#repr(...)` types from integer narrowing.
-/// See CROSS-04-014 and CROSS-04-015.
 pub(super) fn collect_imported_type_metadata(
     source_path: &Path,
     graph: &ori_llvm::aot::incremental::deps::DependencyGraph,
