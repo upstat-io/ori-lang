@@ -8,8 +8,8 @@ inspired_by:
   - "impl-hygiene.md SSOT paradigm -- every piece of knowledge has exactly one canonical home"
 depends_on: ["01", "02"]
 third_party_review:
-  status: none
-  updated: null
+  status: resolved
+  updated: 2026-04-01
 sections:
   - id: "10.1"
     title: "TypeInfo::is_trivial Re-Derivation"
@@ -34,7 +34,7 @@ sections:
     status: complete
   - id: "10.R"
     title: "Third Party Review Findings"
-    status: complete
+    status: in-progress
   - id: "10.N"
     title: "Completion Checklist"
     status: in-progress
@@ -131,13 +131,14 @@ Two error handling issues in the lexer entry points:
 - `lex_result()` in `oric` (line 99-105) constructs `LexResult { tokens, errors }` but the `LexOutput` also contains `warnings` which are dropped.
 
 - [x] **Verified safe** — `lex()` is only called from benchmarks, examples, and profiling tools (15 call sites in `benches/*.rs` and `examples/*.rs`). No production code uses `lex()` — production goes through `lex_full()` or the Salsa query path. (2026-04-01)
-- [x] **Verified: minor gap** — `lex_result()` drops `DetachedDocWarning` from `LexOutput`. Confirmed: `DetachedDocWarning` is never consumed by `oric` at all. This is a feature gap (doc comment warnings not surfaced to users), not a correctness issue. The warnings exist in the lexer but the pipeline never reports them. (2026-04-01)
+- [x] **Verified: intentional query split** — `lex_result()` drops `warnings` from `LexOutput`, but `report_frontend_errors()` separately calls `tokens_with_metadata()` which preserves and emits `lex_output.warnings` (including `DetachedDocWarning`). Warnings ARE consumed by oric through a different Salsa query path. This is an intentional architectural split: `lex_result()` provides minimal (tokens + errors) for downstream phases, `tokens_with_metadata()` provides the full diagnostic surface for reporting. (2026-04-01)
 
 ---
 
 ## 10.R Third Party Review Findings
 
-- None.
+- [x] `[TPR-10-001][low]` `compiler/oric/src/query/mod.rs:99` — Section 10.7 checks off "Lexer warnings not silently dropped in lex_result()", but the current tree still drops warnings from `lex_result()` and the section rationale misstates how warnings are surfaced.
+  Resolved: Fixed on 2026-04-01. Corrected factual error in 10.7 rationale: warnings ARE consumed by oric through `report_frontend_errors()` → `tokens_with_metadata()`, not dropped entirely. Updated both the subsection text and completion checklist to document the intentional Salsa query split (minimal lex_result for downstream, full tokens_with_metadata for diagnostics).
 
 ---
 
@@ -151,7 +152,7 @@ Two error handling issues in the lexer entry points:
 - [x] Dual suggestion fields resolved (2026-04-01) Per 10.5: complementary not duplicated — field stores data, method formats presentation
 - [x] `ReprAttrKind`/`ReprAttribute` relationship documented or consolidated (2026-04-01) Per 10.6: genuinely different phases (parser-level vs analysis-level), From conversion exists through pipeline
 - [x] Lexer error handling audited: no production callers use error-swallowing `lex()` (2026-04-01) Per 10.7: `lex()` only called from benchmarks/examples/profiling (15 call sites in benches/ and examples/)
-- [x] Lexer warnings not silently dropped in `lex_result()` (2026-04-01) Per 10.7: DetachedDocWarning never consumed by oric — feature gap (doc warnings not surfaced), not correctness issue
+- [x] Lexer warnings surfaced via intentional query split (2026-04-01) Per 10.7: `lex_result()` drops warnings (minimal path for downstream phases), but `report_frontend_errors()` → `tokens_with_metadata()` preserves and emits them. Intentional architectural split, not a bug.
 - [x] `timeout 150 ./test-all.sh` passes with zero regressions (2026-04-01) 14,933 passed, 0 failed
 - [x] `./clippy-all.sh` passes (2026-04-01)
 - [x] Plan annotation cleanup: `bash .claude/skills/impl-hygiene-review/plan-annotations.sh --plan 10` returns 0 annotations (2026-04-01) 0 hygiene-full section 10 annotations
