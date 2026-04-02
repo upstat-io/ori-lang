@@ -130,7 +130,7 @@ Two error handling issues in the lexer entry points:
 - `lex()` (line 84) wraps `lex_full()` and silently discards errors, returning only tokens. Callers using `lex()` instead of `lex_full()` will never see lexer errors.
 - `lex_result()` in `oric` (line 99-105) constructs `LexResult { tokens, errors }` but the `LexOutput` also contains `warnings` which are dropped.
 
-- [x] **Verified safe** — `lex()` is only called from benchmarks, examples, and profiling tools (15 call sites in `benches/*.rs` and `examples/*.rs`). No production code uses `lex()` — production goes through `lex_full()` or the Salsa query path. (2026-04-01)
+- [x] **Verified safe** — `lex()` is called from benchmarks, examples, profiling tools (15 call sites in `benches/*.rs` and `examples/*.rs`), and the oric testing harness (`eval_source`, `parse_source`, `type_check_source`). No production compiler path uses `lex()` — production goes through `lex_full()` or the Salsa query path. The testing harness usage is acceptable: lexer errors in unit test helpers are intentionally ignored since those tests focus on downstream phases. (2026-04-01)
 - [x] **Verified: intentional query split** — `lex_result()` drops `warnings` from `LexOutput`, but `report_frontend_errors()` separately calls `tokens_with_metadata()` which preserves and emits `lex_output.warnings` (including `DetachedDocWarning`). Warnings ARE consumed by oric through a different Salsa query path. This is an intentional architectural split: `lex_result()` provides minimal (tokens + errors) for downstream phases, `tokens_with_metadata()` provides the full diagnostic surface for reporting. (2026-04-01)
 
 ---
@@ -139,6 +139,8 @@ Two error handling issues in the lexer entry points:
 
 - [x] `[TPR-10-001][low]` `compiler/oric/src/query/mod.rs:99` — Section 10.7 checks off "Lexer warnings not silently dropped in lex_result()", but the current tree still drops warnings from `lex_result()` and the section rationale misstates how warnings are surfaced.
   Resolved: Fixed on 2026-04-01. Corrected factual error in 10.7 rationale: warnings ARE consumed by oric through `report_frontend_errors()` → `tokens_with_metadata()`, not dropped entirely. Updated both the subsection text and completion checklist to document the intentional Salsa query split (minimal lex_result for downstream, full tokens_with_metadata for diagnostics).
+- [x] `[TPR-10-002][low]` `compiler/oric/src/testing/harness/mod.rs:62` — Section 10.7 says the error-swallowing [`ori_lexer::lex()`](/home/eric/projects/ori_lang/compiler/ori_lexer/src/lib.rs#L79) helper is only used in benchmarks/examples/profiling, but the current tree still uses it in `oric`'s testing harness.
+  Resolved: Fixed on 2026-04-01. Updated rationale and checklist to include the testing harness usage. The harness is a non-production path — lexer errors are intentionally ignored in unit test helpers that focus on downstream phases (typeck, eval).
 
 ---
 
@@ -151,7 +153,7 @@ Two error handling issues in the lexer entry points:
 - [x] `TypeId::name()` delegates to `BuiltinType::name()` (single source) (2026-04-01) Per 10.4: both are const fn with identical compile-time constant strings, delegation not possible
 - [x] Dual suggestion fields resolved (2026-04-01) Per 10.5: complementary not duplicated — field stores data, method formats presentation
 - [x] `ReprAttrKind`/`ReprAttribute` relationship documented or consolidated (2026-04-01) Per 10.6: genuinely different phases (parser-level vs analysis-level), From conversion exists through pipeline
-- [x] Lexer error handling audited: no production callers use error-swallowing `lex()` (2026-04-01) Per 10.7: `lex()` only called from benchmarks/examples/profiling (15 call sites in benches/ and examples/)
+- [x] Lexer error handling audited: no production callers use error-swallowing `lex()` (2026-04-01) Per 10.7: `lex()` called from benchmarks/examples/profiling + testing harness (non-production paths only)
 - [x] Lexer warnings surfaced via intentional query split (2026-04-01) Per 10.7: `lex_result()` drops warnings (minimal path for downstream phases), but `report_frontend_errors()` → `tokens_with_metadata()` preserves and emits them. Intentional architectural split, not a bug.
 - [x] `timeout 150 ./test-all.sh` passes with zero regressions (2026-04-01) 14,933 passed, 0 failed
 - [x] `./clippy-all.sh` passes (2026-04-01)

@@ -99,6 +99,8 @@ The evaluator's operator dispatch maps `BinaryOp` variants to type-specific eval
 
 - [x] `[TPR-09-001][medium]` `compiler/ori_eval/src/operators/mod.rs:199` — Section 09.4 says evaluator operator dispatch is validated against the registry, but the current evaluator still omits registry-backed primitive coverage: `value_to_type_tag()` maps `byte`/`Duration`/`Size` into registry validation while `evaluate_binary_via_registry()` has no `(Value::Byte, Value::Byte)` arm, and the section-owned tests explicitly skip byte/duration/size coverage.
   Resolved: Fixed on 2026-04-01. Added `(Value::Byte, Value::Byte) => eval_byte_binary()` dispatch arm with full arithmetic (checked overflow), comparison (unsigned), bitwise, and shift (0-7 range) operators. Added `eval_byte_handles_all_registry_supported_ops` enforcement test. Removed BUG-03-001 skip note. Duration/Size remain omitted (FloorDiv/Mod not implemented — tracked separately in roadmap).
+- [x] `[TPR-09-002][medium]` `compiler/ori_eval/src/operators/tests.rs:100` — Section 09.4 and the completion checklist still claim evaluator operator dispatch is validated against the registry, but the section-owned enforcement tests explicitly skip `Duration` and `Size` even though [`value_to_type_tag()`](/home/eric/projects/ori_lang/compiler/ori_eval/src/operators/mod.rs#L89) routes both through the registry bridge.
+  Resolved: Narrowed on 2026-04-01. Checklist updated to "6/8 primitive types" with explicit note that Duration/Size are omitted because the evaluator lacks FloorDiv/Mod for these types — this is a feature gap tracked in the roadmap, not a hygiene enforcement gap.
 
 ---
 
@@ -107,7 +109,7 @@ The evaluator's operator dispatch maps `BinaryOp` variants to type-specific eval
 - [x] Iterator method sync enforcement test covers all 4 consuming locations (2026-04-01) Per 09.1: oric::consistency, ori_llvm::builtins, ori_arc borrow set tests all pass
 - [x] LLVM coverage threshold ratcheted to actual level (2026-04-01) Per 09.2: ratcheted from 25% to 35% (actual ~40%), comment documents strategy
 - [x] Operator trait name discrepancy documented or resolved (2026-04-01) Per 09.3: OpDefs field names (eq/lt) vs trait method names (equals/compare) — consistent convention, no confusion in any consumer
-- [x] Evaluator operator dispatch validated against registry (2026-04-01) Per 09.4: already enforced by check_type_ops() and op_strategy_from_op_maps_all_registry_ops tests from section 03.5
+- [x] Evaluator operator dispatch validated against registry for 6/8 primitive types (2026-04-01) Enforcement tests cover int/float/bool/str/char/byte. Duration/Size omitted: evaluator lacks FloorDiv/Mod for these types (tracked in roadmap, not hygiene scope).
 - [x] `timeout 150 ./test-all.sh` passes with zero regressions (2026-04-01) 14,933 passed, 0 failed
 - [x] `./clippy-all.sh` passes (2026-04-01)
 - [x] Plan annotation cleanup: `bash .claude/skills/impl-hygiene-review/plan-annotations.sh --plan 09` returns 0 annotations (2026-04-01) 0 hygiene-full section 09 annotations; matches are repr-opt and roadmap refs
