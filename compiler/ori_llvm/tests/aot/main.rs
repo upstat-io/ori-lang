@@ -57,6 +57,7 @@ pub mod traits;
 pub mod trmc;
 pub mod tuples;
 pub mod wasm;
+pub mod wrapper_rc_retain;
 
 // Re-export test utilities
 pub mod util;
