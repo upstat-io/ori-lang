@@ -74,24 +74,34 @@ Bugs in LLVM IR generation, JIT/AOT compilation, monomorphization, ARC pipeline 
   Found: 2026-04-01 | Source: review-work
   Note: The immediate crashes were reproduced for heap `str`; audit any other borrowed wrapper methods added in the same section that forward payloads into new wrappers or closure calls.
 
-- [ ] `[BUG-04-013][critical]` **AOT wrapper extraction methods copy payload bytes without RC retain** — found by tpr-review.
-  Partially fixed on 2026-04-01: `Option.unwrap_or`, `Option.expect`, `Result.unwrap_or`, `Result.expect`, `Result.expect_err` now emit conditional `inc_value_rc` on the extracted payload. Verified clean with standalone AOT repros using heap strings.
-  Remaining: `unwrap`/`unwrap_err` (no tag check, deeper issue — need tag guard + panic first), `first`/`last` (runtime functions `ori_list_first`/`ori_list_last` copy elements without RC retain), niche-encoded Option/Result paths in `option_result_helpers.rs`.
-  Subsystem: `compiler/ori_llvm/src/codegen/arc_emitter/builtins/option_result.rs`, `option_result_helpers.rs`, `compiler/ori_rt/src/list/query.rs`
+- [x] `[BUG-04-013][critical]` **AOT wrapper extraction methods copy payload bytes without RC retain (explicit-tag paths)** — found by tpr-review.
+  Resolved: Fixed on 2026-04-02. Three fixes for explicit-tag codegen paths:
+  (1) `Option.unwrap`, `Result.unwrap`, `Result.unwrap_err` — added `emit_unwrap_branch` (tag guard + `ori_panic_cstr`) + unconditional `inc_value_rc` after guard in `option_result.rs`.
+  (2) `List.first`/`List.last` — added conditional `inc_value_rc` on the element payload (guarded by `OPTION_TAG_SOME` tag check) after runtime memcpy in `list_builtins/helpers.rs`.
+  (3) Previously fixed: `unwrap_or`, `expect`, `expect_err` explicit-tag paths.
+  Tests: AOT tests in `wrapper_rc_retain.rs` covering heap str and list payloads + panic-path negative pins. 14,953+ tests passing.
+  Subsystem: `compiler/ori_llvm/src/codegen/arc_emitter/builtins/option_result.rs`, `compiler/ori_llvm/src/codegen/arc_emitter/builtins/collections/list_builtins/helpers.rs`
   Found: 2026-04-01 | Source: tpr-review (hygiene-full §04)
-  Note: Active work in repr-opt touches codegen area.
 
-- [ ] `[BUG-04-014][high]` **AOT Option/Result debug output wrong for compound payloads** — found by tpr-review.
+- [ ] `[BUG-04-019][medium]` **Niche-encoded Option/Result extraction paths missing RC retain and tag guards** — found by tpr-review.
+  Niche-encoded `Option.unwrap` (option_result_helpers.rs:44), `Result.unwrap`/`unwrap_err`/`unwrap_or` (option_result_helpers.rs:124), and `Result.expect`/`expect_err` (option_result_helpers.rs:127-131) all extract payload via raw `extract_value` without `inc_value_rc` or tag guards. Currently not triggered for common RC types (str, [T]) because niche encoding applies to pointer-niche types, but represents a correctness gap for future niche-optimized layouts.
+  Subsystem: `compiler/ori_llvm/src/codegen/arc_emitter/builtins/option_result_helpers.rs`
+  Found: 2026-04-02 | Source: tpr-review (BUG-04-013 follow-up)
+
+- [x] `[BUG-04-014][high]` **AOT Option/Result debug output wrong for compound payloads** — found by tpr-review.
+  Resolved: OBE on 2026-04-02. Fixed by `53d3f1df` (recursive Debug formatting for Option/Result compound payloads). Verified: both interpreter and AOT now print `Some([1, 2, 3])`.
   Repro: `@main () -> void = { let x = Some([1, 2, 3]); print(msg: x.debug()) }` — interpreter prints `Some([1, 2, 3])`, AOT prints empty string. `emit_element_to_str()` only handles primitives and `str`, returns `None` for lists/tuples/nested wrappers.
   Subsystem: `compiler/ori_llvm/src/codegen/arc_emitter/builtins/option_result_helpers.rs` (`emit_option_debug_branch`, `emit_result_debug`)
   Found: 2026-04-01 | Source: tpr-review (hygiene-full §03)
 
-- [ ] `[BUG-04-015][medium]` **AOT Option/Result debug uses Printable semantics for str payloads instead of Debug** — found by tpr-review.
+- [x] `[BUG-04-015][medium]` **AOT Option/Result debug uses Printable semantics for str payloads instead of Debug** — found by tpr-review.
+  Resolved: OBE on 2026-04-02. Fixed by debug delegation commits (`d0c4b008`, `53d3f1df`). Verified: both interpreter and AOT now print `Some("hi")` with quotes.
   Repro: `@main () -> void = { let x = Some("hi"); print(msg: x.debug()) }` — interpreter prints `Some("hi")`, AOT prints `Some(hi)` (missing quotes). The debug path calls `to_str` on inner values instead of `debug`.
   Subsystem: `compiler/ori_llvm/src/codegen/arc_emitter/builtins/option_result_helpers.rs` (`emit_option_debug_branch`)
   Found: 2026-04-01 | Source: tpr-review (hygiene-full §03)
 
-- [ ] `[BUG-04-016][critical]` **AOT `Result.debug()` formats the inactive payload variant and can segfault on mixed-layout payloads** — found by review-work.
+- [x] `[BUG-04-016][critical]` **AOT `Result.debug()` formats the inactive payload variant and can segfault on mixed-layout payloads** — found by review-work.
+  Resolved: OBE on 2026-04-02. Fixed by `88ce5ae0` (branch before payload extract in Result.debug). Verified: `Err("oops")` with `Result<[int], str>` payload now prints correctly in both interpreter and AOT, no segfault.
   Repro: `ORI_BIN=./target/release/ori timeout 150 diagnostics/dual-exec-debug.sh --no-color /tmp/review_result_inactive_payload_debug.ori` with `@main () -> void = { let r: Result<[int], str> = Err("oops"); print(msg: r.debug()) }` — interpreter prints `Err("oops")`, AOT exits 139 (segfault).
   Root cause: `emit_result_debug()` in `debug_helpers.rs` extracts and formats both payload arms before branching on `tag`, so the inactive variant's bytes are reinterpreted as the wrong layout and passed into recursive debug formatting.
   Subsystem: `compiler/ori_llvm/src/codegen/arc_emitter/builtins/debug_helpers.rs`
@@ -103,7 +113,8 @@ Bugs in LLVM IR generation, JIT/AOT compilation, monomorphization, ARC pipeline 
   Subsystem: `compiler/ori_llvm/src/codegen/arc_emitter/builtins/debug_helpers.rs`
   Found: 2026-04-01 | Source: review-work (hygiene-full §03)
 
-- [ ] `[BUG-04-018][medium]` **AOT wrapper debug formats `byte` payloads as hex, diverging from current interpreter/spec behavior** — found by review-work.
+- [x] `[BUG-04-018][medium]` **AOT wrapper debug formats `byte` payloads as hex, diverging from current interpreter/spec behavior** — found by review-work.
+  Resolved: OBE on 2026-04-02. Fixed by `88ce5ae0` (fix byte debug format). Verified: both interpreter and AOT now print `Some(42)` for byte payloads.
   Repro: `ORI_BIN=./target/release/ori timeout 150 diagnostics/dual-exec-debug.sh --no-color /tmp/review_byte_wrapper_debug.ori` with `@main () -> void = { let b: byte = 42; let o: Option<byte> = Some(b); print(msg: o.debug()) }` — interpreter prints `Some(42)`, AOT prints `Some(0x2a)`.
   Root cause: `emit_element_debug()` routes `TypeInfo::Byte` through `ori_byte_debug_format()`, but the current spec/tests still pin byte debug to decimal output until byte storage semantics change.
   Subsystem: `compiler/ori_llvm/src/codegen/arc_emitter/builtins/debug_helpers.rs`, `compiler/ori_rt/src/string/convert.rs`, `tests/spec/traits/debug/primitives.ori`

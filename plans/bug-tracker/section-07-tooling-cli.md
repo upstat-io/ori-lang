@@ -16,7 +16,8 @@ Bugs in the CLI (`ori run`, `ori check`, `ori test`, `ori fmt`), formatter, diag
 
 ## Open Bugs
 
-- [ ] `[BUG-07-001][medium]` **`--target` with missing/invalid value should show valid targets** — found by manual.
+- [x] `[BUG-07-001][medium]` **`--target` with missing/invalid value should show valid targets** — found by manual.
+  Resolved: OBE on 2026-04-02. Target validation now active — `ori build --target=foo` emits `error[E5004]: target 'foo' is not supported` with full list of supported targets.
   Repro: `ori build hello.ori --target=` or `ori build hello.ori --target=foo`
   Expected: error listing valid targets (from `SUPPORTED_TARGETS` / `list_targets()`)
   Actual: proceeds with invalid target, fails cryptically at link time
