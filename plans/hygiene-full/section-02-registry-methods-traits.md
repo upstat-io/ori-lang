@@ -37,7 +37,7 @@ sections:
 
 # Section 02: Registry as Universal SSOT (Methods & Traits)
 
-**Status:** Not Started
+**Status:** Complete
 **Goal:** The type checker queries `ori_registry` for builtin trait satisfaction and method signatures instead of maintaining parallel hardcoded arrays. After this section, adding a trait impl for a builtin type requires modifying only the registry.
 
 **Context:** The type checker maintains **three independent** parallel data structures encoding which traits each type satisfies:

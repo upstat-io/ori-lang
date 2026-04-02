@@ -9,7 +9,7 @@ inspired_by:
   - "Rust compiler -- data-driven dispatch for large match arms"
 depends_on: ["01", "02", "03", "04", "05", "06", "07", "08", "09", "10", "11"]
 third_party_review:
-  status: resolved
+  status: findings
   updated: 2026-04-01
 sections:
   - id: "12.1"
@@ -43,7 +43,7 @@ sections:
 
 # Section 12: Surface Hygiene
 
-**Status:** Not Started
+**Status:** Complete
 **Goal:** Address surface-level hygiene findings: split oversized files, add SAFETY comments to unsafe blocks, add module docs, remove dead code, convert large match arms to data-driven dispatch, fix pool var ID leakage through FunctionSig, and eliminate unnecessary cold-path string allocations.
 
 **Context:** These are BLOAT findings that individually are minor but collectively degrade code quality. Per CLAUDE.md: 500 line limit for non-test files, `unsafe` blocks require `// SAFETY:` comments, module-level `//!` docs required.
@@ -144,16 +144,20 @@ String allocations (`format!()`, `String::from()`) on cold error paths are gener
 
 - [x] `[TPR-12-001][medium]` `plans/hygiene-full/section-12-surface-hygiene.md:39` — Section 12.1 is marked complete even though the repo still has 69 non-test Rust files over the 500-line limit.
   Resolved: Narrowed on 2026-04-01. Section 12.1 checklist updated to explicitly scope the work to >1000-line files (5 split + 1 exempt), with remaining 64 files (500-1000 lines) tracked for ongoing maintenance via CLAUDE.md's "split when touching" rule. The hygiene plan's scope was always the worst offenders, not a full codebase sweep.
+- [x] `[TPR-12-002][low]` `plans/hygiene-full/section-12-surface-hygiene.md:46` — The section summary/checklist still overstate what landed.
+  Evidence: The body still says `**Status:** Not Started`; checklist line 153 says all `unsafe` blocks have `// SAFETY:` comments even though 12.2 says four are covered by adjacent group comments; checklist line 156 says the 100+ arm match was converted to data-driven dispatch even though 12.5 says it was resolved by splitting files into smaller modules.
+  Impact: The section is not a faithful record of the implemented resolution, which makes future hygiene follow-up harder to scope correctly.
+  Required plan update: Rewrite the top-level status and checklist so they describe the actual outcomes (group-comment coverage and file splitting) instead of stronger claims that did not land.
 
 ---
 
 ## 12.N Completion Checklist
 
 - [x] Top 5 oversized files (>1000 lines) split into submodules (2026-04-01) check_error/mod.rs (2225→7 files), copier.rs (1595→6 files), lib.rs (1326→5 files), check/mod.rs (1286→4 files), error/kind.rs (1041→4 files)
-- [x] All `unsafe` blocks in `ori_rt` have `// SAFETY:` comments (2026-04-01) ~150 comments added; 4 remaining are covered by adjacent group-level comments
+- [x] `unsafe` blocks in `ori_rt` have `// SAFETY:` comments (2026-04-01) ~150 comments added; 4 remaining covered by adjacent group-level comments (UTF-8 multi-byte, map eq)
 - [x] Key modules have `//!` module docs (2026-04-01) verified all crate roots and mod.rs files documented
 - [x] Dead code removed or justified (2026-04-01) verified zero unjustified `#[allow(dead_code)]` in production code
-- [x] 100+ arm match converted to data-driven dispatch (2026-04-01) resolved via file split; exhaustive enum matches exempt per coding guidelines
+- [x] 100+ arm match resolved via file split into smaller modules (2026-04-01) exhaustive enum matches exempt per coding guidelines; split approach preferred over data-driven dispatch for type safety
 - [x] Pool var ID leakage assessed and resolved or documented (2026-04-01) assessed — intentional, used by monomorphizer
 - [x] No hot-path string allocations (2026-04-01) verified all `format!()` on cold error paths only
 - [x] `timeout 150 ./test-all.sh` passes with zero regressions (2026-04-01) 14,943 passed, 0 failed

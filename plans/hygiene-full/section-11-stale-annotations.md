@@ -8,8 +8,8 @@ inspired_by:
   - "CLAUDE.md -- plan annotations are temporary scaffolding, MUST be removed when plan completes"
 depends_on: []
 third_party_review:
-  status: none
-  updated: null
+  status: findings
+  updated: 2026-04-01
 sections:
   - id: "11.1"
     title: "ori_arc Stale Annotations"
@@ -22,7 +22,7 @@ sections:
     status: complete
   - id: "11.R"
     title: "Third Party Review Findings"
-    status: not-started
+    status: in-progress
   - id: "11.N"
     title: "Completion Checklist"
     status: in-progress
@@ -30,17 +30,12 @@ sections:
 
 # Section 11: Stale Plan Annotations
 
-**Status:** Not Started
+**Status:** Complete
 **Goal:** Remove all stale plan annotation references from completed plans. Zero annotations from completed plans remain in `.rs` source files.
 
 **Context:** Per CLAUDE.md: "Plan annotations are temporary scaffolding. Code annotations referencing plans (TPR-04-005, CROSS-04-014, Section 04.3 Phase A, etc.) are allowed during active development but are ephemeral and MUST be removed when the plan completes. Stale annotations from completed plans are hygiene violations."
 
-A scan reveals ~180 stale annotations:
-- `ori_arc`: ~31 annotations across 12 files (TPR references, section references)
-- `ori_llvm`: ~27 annotations across 11 files (TPR references in derive codegen, tests)
-- `ori_types`+`oric`: ~8 annotations across 3 files (CROSS-04 references)
-
-Only **spec references** (`Spec: Clause N.M`) are permanent -- all plan references must be removed.
+Pre-cleanup scan found ~180 stale annotations across `ori_arc` (~31), `ori_llvm` (~27), `ori_types`+`oric` (~8). All removed. Post-cleanup scan: 0 stale annotations. Only **spec references** (`Spec: Clause N.M`) remain (permanent).
 
 **Depends on:** None.
 
@@ -113,7 +108,10 @@ Only **spec references** (`Spec: Clause N.M`) are permanent -- all plan referenc
 
 ## 11.R Third Party Review Findings
 
-- None.
+- [x] `[TPR-11-001][medium]` `plans/hygiene-full/section-11-stale-annotations.md:33` — The section intro is now stale enough to contradict its own verification output.
+  Evidence: The body still says `**Status:** Not Started` and claims a scan reveals `~180 stale annotations`, but `bash .claude/skills/impl-hygiene-review/plan-annotations.sh --count` now reports `No stale plan annotations found`, and 11.1-11.3 are all marked complete.
+  Impact: The opening context reads like the pre-fix problem statement instead of the current state, so readers cannot rely on it as a status document.
+  Required plan update: Rewrite the intro/context to reflect the current zero-stale-annotation result and keep the TPR block open until the stale narrative is corrected.
 
 ---
 

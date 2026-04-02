@@ -8,7 +8,7 @@ inspired_by:
   - "impl-hygiene.md SSOT paradigm -- every piece of knowledge has exactly one canonical home"
 depends_on: ["01", "02"]
 third_party_review:
-  status: resolved
+  status: findings
   updated: 2026-04-01
 sections:
   - id: "10.1"
@@ -42,7 +42,7 @@ sections:
 
 # Section 10: Scattered Knowledge Cleanup
 
-**Status:** Not Started
+**Status:** Complete
 **Goal:** Eliminate 9 scattered knowledge findings: re-derived facts, semantic mismatches, hardcoded predicates that should query the registry, duplicated name functions, dual suggestion fields, duplicated repr types, and swallowed lexer errors.
 
 **Context:** These are individual LEAK/DRIFT findings that don't form a coherent section on their own but all violate the SSOT principle. Each represents knowledge that has two homes or no canonical home.
@@ -141,6 +141,10 @@ Two error handling issues in the lexer entry points:
   Resolved: Fixed on 2026-04-01. Corrected factual error in 10.7 rationale: warnings ARE consumed by oric through `report_frontend_errors()` → `tokens_with_metadata()`, not dropped entirely. Updated both the subsection text and completion checklist to document the intentional Salsa query split (minimal lex_result for downstream, full tokens_with_metadata for diagnostics).
 - [x] `[TPR-10-002][low]` `compiler/oric/src/testing/harness/mod.rs:62` — Section 10.7 says the error-swallowing [`ori_lexer::lex()`](/home/eric/projects/ori_lang/compiler/ori_lexer/src/lib.rs#L79) helper is only used in benchmarks/examples/profiling, but the current tree still uses it in `oric`'s testing harness.
   Resolved: Fixed on 2026-04-01. Updated rationale and checklist to include the testing harness usage. The harness is a non-production path — lexer errors are intentionally ignored in unit test helpers that focus on downstream phases (typeck, eval).
+- [x] `[TPR-10-003][medium]` `plans/hygiene-full/section-10-scattered-knowledge.md:151` — The completion checklist still records three implementation outcomes that the section text explicitly says did not happen.
+  Evidence: Checklist lines 151-153 say `BuiltinType::is_comparable()` queries the registry, `is_builtin_indexable()` queries the registry, and `TypeId::name()` delegates to `BuiltinType::name()`, but 10.3 and 10.4 both conclude those current implementations remain in place and were only validated as acceptable.
+  Impact: The checklist is materially misleading about what changed versus what was reviewed and left alone, so it is not a trustworthy implementation summary.
+  Required plan update: Reword the checklist items to match the subsection conclusions, e.g. "verified acceptable without registry query/delegation" rather than claiming those refactors landed.
 
 ---
 
@@ -148,9 +152,9 @@ Two error handling issues in the lexer entry points:
 
 - [x] `TypeInfo::is_trivial()` either removed or validated against `TypeInfoStore` (2026-04-01) Per 10.1: documented conservative fast-path for primitives, doc comment warns to use TypeInfoStore for compounds
 - [x] `is_primitive_value` semantics verified and documented (2026-04-01) Per 10.2: matches all 8 spec primitives, aligns with value_to_type_tag() and registry BUILTIN_TYPES
-- [x] `BuiltinType::is_comparable()` queries registry (2026-04-01) Per 10.3: const fn in ori_ir (can't depend on registry), has own test + cross-crate consistency tests catch drift
-- [x] `is_builtin_indexable()` queries registry (2026-04-01) Per 10.3: correct crate (ori_eval), matches spec; registry doesn't define Index method set for these types
-- [x] `TypeId::name()` delegates to `BuiltinType::name()` (single source) (2026-04-01) Per 10.4: both are const fn with identical compile-time constant strings, delegation not possible
+- [x] `BuiltinType::is_comparable()` verified acceptable without registry query (2026-04-01) Per 10.3: const fn in ori_ir (can't depend on registry), has own test + cross-crate consistency tests catch drift
+- [x] `is_builtin_indexable()` verified acceptable without registry query (2026-04-01) Per 10.3: correct crate (ori_eval), matches spec; registry doesn't define Index method set for these types
+- [x] `TypeId::name()` verified acceptable without delegation to `BuiltinType::name()` (2026-04-01) Per 10.4: both are const fn with identical compile-time constant strings, delegation not possible
 - [x] Dual suggestion fields resolved (2026-04-01) Per 10.5: complementary not duplicated — field stores data, method formats presentation
 - [x] `ReprAttrKind`/`ReprAttribute` relationship documented or consolidated (2026-04-01) Per 10.6: genuinely different phases (parser-level vs analysis-level), From conversion exists through pipeline
 - [x] Lexer error handling audited: no production callers use error-swallowing `lex()` (2026-04-01) Per 10.7: `lex()` called from benchmarks/examples/profiling + testing harness (non-production paths only)

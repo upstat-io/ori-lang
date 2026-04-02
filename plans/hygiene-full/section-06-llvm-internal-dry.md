@@ -8,7 +8,7 @@ inspired_by:
   - "Swift SILOptimizer/ARC -- single RC emission path parameterized by inc/dec direction"
 depends_on: ["04"]
 third_party_review:
-  status: resolved
+  status: findings
   updated: 2026-04-01
 sections:
   - id: "06.1"
@@ -36,8 +36,8 @@ sections:
 
 # Section 06: LLVM Internal Algorithmic DRY
 
-**Status:** Not Started
-**Goal:** Near-identical code patterns within `ori_llvm` are extracted into shared helpers. Enum RC inc/dec share a parameterized implementation, slice-aware RC inc is defined once, list trait loop scaffolding is extracted, and pre-interned names are consolidated.
+**Status:** Complete
+**Goal:** Audit and resolve internal algorithmic duplication within `ori_llvm`. Enum RC inc/dec unified into parameterized `emit_inline_enum_rc_core`. Slice-aware RC inc verified as single implementation. List trait loop scaffolding, Option/Result trait dispatch, and pre-interned names reviewed and determined acceptable without extraction (structurally different loop bodies, incompatible builder contexts, below extraction threshold respectively).
 
 **Context:** Within `ori_llvm`, several code patterns are duplicated with only minor differences (inc vs dec direction, method name strings, element iteration vs accumulation). These are not cross-crate issues but internal DRY violations within the LLVM codegen crate.
 
@@ -111,6 +111,10 @@ Pre-interned method names (string constants like `"equals"`, `"compare"`, `"hash
 
 - [x] `[TPR-06-001][low]` `plans/hygiene-full/section-06-llvm-internal-dry.md:128` — Section 06 still advertises ``rc_helpers.rs`` under 350 lines as an exit criterion, but the current tree's [`rc_helpers.rs`](/home/eric/projects/ori_lang/compiler/ori_llvm/src/codegen/arc_emitter/rc_helpers.rs) is 490 lines.
   Resolved: Fixed on 2026-04-01. Updated exit criteria to reflect actual state: the DRY extraction (parameterized enum RC core) was completed successfully, but the file grew from additional COW/ARC codegen work in repr-opt plan. The line count criterion was stale — replaced with the actual deliverable (shared `emit_inline_enum_rc_core`).
+- [x] `[TPR-06-002][low]` `plans/hygiene-full/section-06-llvm-internal-dry.md:39` — The section summary/checklist still describe extraction work that the subsection conclusions explicitly rejected as unnecessary.
+  Evidence: The body still says `**Status:** Not Started`, while frontmatter marks 06.1-06.5 complete. Checklist items at lines 121-123 say the list-trait scaffold was extracted and pre-interned names were centralized, but 06.3 and 06.5 both conclude the current code is acceptable without either change.
+  Impact: The section no longer distinguishes "implemented" from "reviewed and left as-is", so the checklist is not a factual record of the current tree.
+  Required plan update: Rewrite the section status/goal/checklist to reflect the actual outcomes: enum RC unification landed, while the other duplication candidates were validated as acceptable without extraction.
 
 ---
 
@@ -118,9 +122,9 @@ Pre-interned method names (string constants like `"equals"`, `"compare"`, `"hash
 
 - [x] Enum RC inc/dec share a single parameterized implementation (2026-04-01) `emit_inline_enum_rc_core(is_inc, count)` at rc_helpers.rs:253; both inc and dec delegate to it
 - [x] Slice-aware RC inc has exactly one implementation, used by all call sites (2026-04-01) Single definition at builtins/mod.rs:342; 2 call sites use it consistently; finding was false positive
-- [x] List trait loop scaffold is extracted into a shared helper (2026-04-01) Verified acceptable: 3 functions in list_traits.rs (~70 lines each) have structurally different loop bodies (equals: early-exit mismatch, compare: early-exit non-equal, hash: accumulate). Extraction would add complexity. File under 500 lines.
-- [x] Option/Result equals/compare/hash duplication is resolved (2026-04-01) Verified acceptable: `compound_type_impls/option.rs` operates on `ArcIrEmitter`, `wrapper_cmp.rs` on `FunctionCompiler` — incompatible contexts make unification impractical without a builder-abstraction trait
-- [x] Pre-interned names are centralized (2026-04-01) Only 3 inline `intern()` calls in LLVM codegen — below the 3-instance extraction threshold. No centralization needed.
+- [x] List trait loop scaffold reviewed — acceptable without extraction (2026-04-01) 3 functions in list_traits.rs (~70 lines each) have structurally different loop bodies (equals: early-exit mismatch, compare: early-exit non-equal, hash: accumulate). Extraction would add complexity. File under 500 lines.
+- [x] Option/Result equals/compare/hash duplication reviewed — acceptable without extraction (2026-04-01) `compound_type_impls/option.rs` operates on `ArcIrEmitter`, `wrapper_cmp.rs` on `FunctionCompiler` — incompatible contexts make unification impractical without a builder-abstraction trait
+- [x] Pre-interned names reviewed — acceptable without centralization (2026-04-01) Only 3 inline `intern()` calls in LLVM codegen — below the 3-instance extraction threshold.
 - [x] `timeout 150 ./test-all.sh` passes with zero regressions (2026-04-01) 14,933 passed, 0 failed
 - [x] `./clippy-all.sh` passes (2026-04-01)
 - [x] Plan annotation cleanup: `bash .claude/skills/impl-hygiene-review/plan-annotations.sh --plan 06` returns 0 annotations (2026-04-01) 0 hygiene-full section 06 annotations; remaining matches are roadmap architecture docs (Section 06.2 = borrow inference) and repr-opt Phase refs

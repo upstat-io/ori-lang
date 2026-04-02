@@ -9,7 +9,7 @@ inspired_by:
   - "Swift SILVerifier -- invariant verification at phase boundaries"
 depends_on: []
 third_party_review:
-  status: resolved
+  status: findings
   updated: 2026-04-01
 sections:
   - id: "08.1"
@@ -37,8 +37,8 @@ sections:
 
 # Section 08: Cross-Phase Invariant Contracts
 
-**Status:** Not Started
-**Goal:** Every cross-phase invariant contract listed in `impl-hygiene.md` has a corresponding `debug_assert!` or validation pass at the consumer's entry point. No implicit invariants remain.
+**Status:** Complete
+**Goal:** Cross-phase invariant contracts from `impl-hygiene.md` are validated through a combination of: point-of-use detection with `tracing::error!` + graceful degradation (type variables), multi-layer verification passes (RC balance), and fault-tolerant error handling (error nodes). Entry-point `debug_assert!` was evaluated but rejected where it caused interference.
 
 **Context:** The `impl-hygiene.md` rules document explicit cross-phase contracts (type checker -> codegen: all type variables resolved, ARC pass -> codegen: RC ops balanced, canon -> all: no sugar variants). Currently, many of these contracts are implicit -- violated silently in release builds. Adding explicit validation catches corruption at the phase boundary rather than at the point of wrong code emission.
 
@@ -114,6 +114,10 @@ Review and resolve any ABI-related FIXME comments that represent deferred invari
   Resolved: Fixed on 2026-04-01. Added cross-phase invariant contract documentation in the `Tag::Var` arm of `compute_type_info_inner()` referencing impl-hygiene.md § Cross-Phase Invariant Contracts. The `tracing::error!` + `TypeInfo::Error` fallback satisfies the "clear internal error" requirement for release builds. An inline `debug_assert!(false)` was evaluated but rejected — it causes interference with 5 AOT tests that have unresolved type variables reaching codegen from type inference gaps in zip/set operations. A targeted entry-point validation (walking function signatures at codegen entry) is noted as the correct enforcement mechanism for future work. The existing point-of-use detection is defense in depth.
 - [x] `[TPR-08-002][medium]` `compiler/ori_llvm/src/codegen/type_info/store.rs:327` — The iteration-2 "fix" for TPR-08-001 only adds commentary; the section still does not implement the boundary validation it claims.
   Resolved: Narrowed on 2026-04-01. Checklist item 08.1 updated to accurately reflect the point-of-use detection (tracing::error + TypeInfo::Error) rather than claiming entry-point validation. Entry-point debug_assert causes interference (5 AOT tests with unresolved type variables from type inference gaps in zip/set) — full entry-point validation requires fixing the type inference gaps first, tracked separately.
+- [x] `[TPR-08-003][medium]` `plans/hygiene-full/section-08-invariant-contracts.md:41` — The section description still overstates the invariant enforcement that actually landed.
+  Evidence: The goal/test strategy still frame Section 08 as `debug_assert!` work at consumer entry points, and checklist line 124 still says ``debug_assert!` at codegen entry: no error nodes in IR`, but 08.1/08.3 explicitly conclude that the current tree relies on point-of-use `Tag::Var` detection plus fault-tolerant `TypeInfo::Error` handling instead of entry-point assertions.
+  Impact: The plan advertises stronger boundary validation than the code currently provides, which can mislead later work into assuming these contracts are already enforced at phase entry.
+  Required plan update: Narrow the section summary and checklist to the validation mechanisms that actually exist today, and leave missing entry-point validation tracked as future work rather than completed work.
 
 ---
 
@@ -121,7 +125,7 @@ Review and resolve any ABI-related FIXME comments that represent deferred invari
 
 - [x] Point-of-use detection for unresolved type variables at codegen (2026-04-01) Per 08.1: `TypeInfoStore::compute_type_info_inner()` detects `Tag::Var`, logs `tracing::error!`, and degrades to `TypeInfo::Error`. Entry-point `debug_assert!` evaluated but rejected (interference with 5 AOT tests — type inference gaps in zip/set). Full entry-point validation tracked for future work.
 - [x] `debug_assert!` or verification pass: RC ops balanced after ARC pipeline (2026-04-01) Per 08.2: multi-layer verification (run_verify, run_aims_verify, rc_count) + runtime ORI_CHECK_LEAKS — standard approach matching Swift/Lean
-- [x] `debug_assert!` at codegen entry: no error nodes in IR (2026-04-01) Per 08.3: 29 TypeInfo::Error handlers across 6 codegen files — deliberate fault tolerance for multi-error reporting
+- [x] Fault-tolerant error node handling in codegen (2026-04-01) Per 08.3: 29 TypeInfo::Error handlers across 6 codegen files — deliberate fault tolerance for multi-error reporting. Entry-point assertion not added: codegen intentionally accepts error nodes to report all errors, not just the first.
 - [x] Const assertion or test: `TypeId::FIRST_COMPOUND` and `Idx::FIRST_DYNAMIC` sync (2026-04-01) Test in `oric/tests/sync.rs:25` — both are 64
 - [x] ABI FIXME comments audited and resolved or documented (2026-04-01) Per 08.5: one FIXME documented with test coverage, references roadmap:section-05
 - [x] `timeout 150 ./test-all.sh` passes in both debug and release (2026-04-01) 14,933 passed, 0 failed

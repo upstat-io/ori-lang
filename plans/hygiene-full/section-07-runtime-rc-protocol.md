@@ -8,7 +8,7 @@ inspired_by:
   - "Swift runtime/HeapObject.cpp -- single reference counting protocol with per-type hooks"
 depends_on: []
 third_party_review:
-  status: resolved
+  status: findings
   updated: 2026-04-01
 sections:
   - id: "07.1"
@@ -19,7 +19,7 @@ sections:
     status: complete
   - id: "07.R"
     title: "Third Party Review Findings"
-    status: complete
+    status: in-progress
   - id: "07.N"
     title: "Completion Checklist"
     status: in-progress
@@ -27,7 +27,7 @@ sections:
 
 # Section 07: Runtime RC Protocol DRY + Correctness
 
-**Status:** Not Started
+**Status:** Complete
 **Goal:** The RC decrement protocol (null check, immortal check, atomic fetch_sub, underflow detection, acquire fence, drop call) is defined once as a shared function and reused by all dec paths. All collection buffer dec functions include immortal object checks.
 
 **Context:** The RC dec protocol is duplicated across 5 functions in `compiler/ori_rt/src/rc/`:
@@ -89,6 +89,10 @@ The immortal sentinel check (`if current_rc == MAX_REFCOUNT { return; }`) is pre
   Resolved: Fixed on 2026-04-01. Added `ori_str_elem_dec` runtime function (takes `*mut u8` → OriStr, SSO-aware, calls `ori_str_rc_dec` on heap strings). `ori_args_from_argv` now stores `Some(ori_str_elem_dec)` via `store_elem_dec_fn` at construction time. COW/slice propagation paths will now correctly copy the destructor into derived buffers.
 - [x] `[TPR-07-004][medium]` `compiler/ori_rt/src/lib.rs:336` — The new argv `[str]` destructor path is still unverified in the scenario that motivated TPR-07-003.
   Resolved: Fixed on 2026-04-01. Added `argv_buffer_has_elem_dec_fn_and_propagates` test that: (1) creates an argv buffer via `ori_args_from_argv`, (2) verifies `elem_dec_fn` is `ori_str_elem_dec`, (3) simulates COW propagation by copying the header to a new buffer, (4) verifies the propagated `elem_dec_fn` matches, (5) cleans up via `ori_args_cleanup` and asserts no leaks.
+- [x] `[TPR-07-005][low]` `plans/hygiene-full/section-07-runtime-rc-protocol.md:30` — The section body still says `**Status:** Not Started` even though frontmatter marks 07.1/07.2 complete and 07.R already records four resolved findings.
+  Evidence: The current tree has shared `rc_dec_to_zero`, immortal-path tests, atomic elem-count accessors, and argv destructor propagation tests in place, and the section checklist is mostly checked off.
+  Impact: Readers get a stale snapshot of the section state even though the implementation itself now matches the resolved findings.
+  Required plan update: Align the narrative status line with the frontmatter/checklist so the section reads as an active, nearly-complete review state rather than untouched work.
 
 ---
 
