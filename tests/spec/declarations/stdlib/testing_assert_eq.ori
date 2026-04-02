@@ -1,0 +1,92 @@
+// BUG-06-001: assert_eq should use debug() not str() for error messages
+// BUG-06-003: assert_some/assert_ok/assert_err should return inner value
+use std.testing { assert, assert_eq, assert_ne }
+use std.testing { assert_some, assert_ok, assert_err }
+
+// Placeholder target function (needed for test attachment)
+@target () -> void = ();
+
+// --- BUG-06-001: assert_eq debug format ---
+// Semantic pin: assert_eq error message uses debug() for strings (shows quotes)
+@test_assert_eq_debug_format_strings tests @target () -> void = {
+    let result = catch(
+        expr: assert_eq(actual: "hello", expected: "world"),
+    );
+    let msg = match result {
+        Err(e) -> e,
+        Ok(_) -> panic(msg: "should have panicked"),
+    };
+    assert(condition: msg.contains(substr: "\"hello\""));
+    assert(condition: msg.contains(substr: "\"world\""));
+}
+
+// debug() shows: "hello" != "world" (with quotes)
+// str() shows: hello != world (without quotes)
+// The message should contain quoted strings from debug()
+// Semantic pin: assert_ne error message uses debug() for strings
+@test_assert_ne_debug_format_strings tests @target () -> void = {
+    let result = catch(
+        expr: assert_ne(actual: "same", unexpected: "same"),
+    );
+    let msg = match result {
+        Err(e) -> e,
+        Ok(_) -> panic(msg: "should have panicked"),
+    };
+    assert(condition: msg.contains(substr: "\"same\""));
+}
+
+// Positive: assert_eq still works for equal values (no regression)
+@test_assert_eq_equal_values tests @target () -> void = {
+    assert_eq(actual: 42, expected: 42);
+    assert_eq(actual: "hello", expected: "hello");
+    assert_eq(actual: true, expected: true);
+}
+
+// --- BUG-06-003: assert_some/ok/err return inner value ---
+// Semantic pin: assert_some returns the inner value
+@test_assert_some_returns_inner tests @target () -> void = {
+    let x = assert_some(opt: Some(42));
+    assert_eq(actual: x, expected: 42);
+}
+
+// Semantic pin: assert_some returns inner value for strings
+@test_assert_some_returns_inner_str tests @target () -> void = {
+    let x = assert_some(opt: Some("hello"));
+    assert_eq(actual: x, expected: "hello");
+}
+
+// Semantic pin: assert_ok returns the Ok value
+@test_assert_ok_returns_inner tests @target () -> void = {
+    let x = assert_ok(result: Ok(99));
+    assert_eq(actual: x, expected: 99);
+}
+
+// Semantic pin: assert_err returns the Err value
+@test_assert_err_returns_inner tests @target () -> void = {
+    let x = assert_err(result: Err("oops"));
+    assert_eq(actual: x, expected: "oops");
+}
+
+// Negative: assert_some still panics on None
+@test_assert_some_panics_on_none tests @target () -> void = {
+    let result = catch(
+        expr: assert_some(opt: None),
+    );
+    assert(condition: is_err(result: result));
+}
+
+// Negative: assert_ok still panics on Err
+@test_assert_ok_panics_on_err tests @target () -> void = {
+    let result = catch(
+        expr: assert_ok(result: Err("bad")),
+    );
+    assert(condition: is_err(result: result));
+}
+
+// Negative: assert_err still panics on Ok
+@test_assert_err_panics_on_ok tests @target () -> void = {
+    let result = catch(
+        expr: assert_err(result: Ok(1)),
+    );
+    assert(condition: is_err(result: result));
+}

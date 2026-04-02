@@ -1,0 +1,12 @@
+// Regression: BUG-04-021 — All FFI C types (c_int, c_float, etc.) must be
+// resolvable by codegen. Tests the full set of FFI types inside Option.
+@main () -> int = {
+    let a: Option<CPtr> = None;
+    let b: Option<c_int> = None;
+    let c: Option<c_float> = None;
+    let d: Option<c_long> = None;
+    let e: Option<c_double> = None;
+    let f: Option<c_char> = None;
+    let g: Option<c_size> = None;
+    0
+}

@@ -1,0 +1,4 @@
+@main () -> void = {
+    let o: Option<{str: int}> = Some({"x": 1});
+    print(msg: o.debug())
+}

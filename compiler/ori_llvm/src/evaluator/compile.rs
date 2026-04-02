@@ -77,6 +77,7 @@ impl<'tcx> super::OwnedLLVMEvaluator<'tcx> {
         imported_type_metadata: &[ori_types::ExportedTypeMetadata],
         imported_collection_surfaces: &[u64],
         trait_impl_fn_names: &[(ori_types::Idx, Name)],
+        imported_mono_functions: Vec<crate::monomorphize::MonoFunction>,
     ) -> Result<CompiledTestModule<'a>, LLVMEvalError> {
         // --- V2 pipeline ---
 
@@ -117,6 +118,7 @@ impl<'tcx> super::OwnedLLVMEvaluator<'tcx> {
                 imported_type_metadata,
                 imported_collection_surfaces,
                 trait_impl_fn_names,
+                imported_mono_functions,
             )
         };
 
@@ -157,6 +159,7 @@ impl<'tcx> super::OwnedLLVMEvaluator<'tcx> {
         imported_type_metadata: &[ori_types::ExportedTypeMetadata],
         imported_collection_surfaces: &[u64],
         trait_impl_fn_names: &[(ori_types::Idx, Name)],
+        imported_mono_functions: Vec<crate::monomorphize::MonoFunction>,
     ) -> (FxHashMap<Name, String>, u32, Vec<String>) {
         // Type infrastructure
         let classifier = ori_arc::ArcClassifier::new(self.pool);
@@ -228,12 +231,13 @@ impl<'tcx> super::OwnedLLVMEvaluator<'tcx> {
         let mut builder = IrBuilder::new_jit(scx_ref);
         type_registration::register_user_types(&resolver, user_types);
 
-        let mono_functions = crate::monomorphize::collect_mono_functions(
+        let mut mono_functions = crate::monomorphize::collect_mono_functions(
             mono_instances,
             function_sigs,
             interner,
             self.pool,
         );
+        mono_functions.extend(imported_mono_functions);
 
         let (uniqueness_summaries, aims_contracts) =
             Self::run_interprocedural_analyses(arc_cache, &classifier, interner);

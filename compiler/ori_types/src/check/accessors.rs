@@ -61,6 +61,12 @@ impl<'a> ModuleChecker<'a> {
         self.well_known.resolve_registration_primitive(name)
     }
 
+    /// Resolve an FFI type name to its concrete primitive Idx.
+    #[inline]
+    pub fn resolve_ffi_concrete(&self, name: Name) -> Option<Idx> {
+        self.well_known.resolve_ffi_concrete(name)
+    }
+
     /// Get the type pool.
     #[inline]
     pub fn pool(&self) -> &Pool {

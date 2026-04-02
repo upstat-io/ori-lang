@@ -1,0 +1,70 @@
+// BUG-06-002: compare/min/max should be generic T: Comparable, not int-only
+use std.testing { assert_eq }
+
+// --- compare: generic T: Comparable ---
+
+// Positive: compare works with int (existing behavior, regression guard)
+@test_compare_int tests @target () -> void = {
+    assert_eq(actual: compare(left: 1, right: 2), expected: Less);
+    assert_eq(actual: compare(left: 2, right: 2), expected: Equal);
+    assert_eq(actual: compare(left: 3, right: 2), expected: Greater);
+}
+
+// Semantic pin: compare works with str (generic — would fail without fix)
+@test_compare_str tests @target () -> void = {
+    assert_eq(actual: compare(left: "a", right: "b"), expected: Less);
+    assert_eq(actual: compare(left: "b", right: "b"), expected: Equal);
+    assert_eq(actual: compare(left: "c", right: "b"), expected: Greater);
+}
+
+// Semantic pin: compare works with float (generic — would fail without fix)
+@test_compare_float tests @target () -> void = {
+    assert_eq(actual: compare(left: 1.0, right: 2.0), expected: Less);
+    assert_eq(actual: compare(left: 2.0, right: 2.0), expected: Equal);
+    assert_eq(actual: compare(left: 3.0, right: 2.0), expected: Greater);
+}
+
+// --- min: generic T: Comparable ---
+
+// Positive: min works with int (existing behavior, regression guard)
+@test_min_int tests @target () -> void = {
+    assert_eq(actual: min(left: 1, right: 2), expected: 1);
+    assert_eq(actual: min(left: 5, right: 3), expected: 3);
+    assert_eq(actual: min(left: 4, right: 4), expected: 4);
+}
+
+// Semantic pin: min works with str (generic)
+@test_min_str tests @target () -> void = {
+    assert_eq(actual: min(left: "apple", right: "banana"), expected: "apple");
+    assert_eq(actual: min(left: "z", right: "a"), expected: "a");
+}
+
+// Semantic pin: min works with float (generic)
+@test_min_float tests @target () -> void = {
+    assert_eq(actual: min(left: 1.5, right: 2.5), expected: 1.5);
+    assert_eq(actual: min(left: 3.0, right: 1.0), expected: 1.0);
+}
+
+// --- max: generic T: Comparable ---
+
+// Positive: max works with int (existing behavior, regression guard)
+@test_max_int tests @target () -> void = {
+    assert_eq(actual: max(left: 1, right: 2), expected: 2);
+    assert_eq(actual: max(left: 5, right: 3), expected: 5);
+    assert_eq(actual: max(left: 4, right: 4), expected: 4);
+}
+
+// Semantic pin: max works with str (generic)
+@test_max_str tests @target () -> void = {
+    assert_eq(actual: max(left: "apple", right: "banana"), expected: "banana");
+    assert_eq(actual: max(left: "z", right: "a"), expected: "z");
+}
+
+// Semantic pin: max works with float (generic)
+@test_max_float tests @target () -> void = {
+    assert_eq(actual: max(left: 1.5, right: 2.5), expected: 2.5);
+    assert_eq(actual: max(left: 3.0, right: 1.0), expected: 3.0);
+}
+
+// Placeholder target function (needed for test attachment)
+@target () -> void = ();

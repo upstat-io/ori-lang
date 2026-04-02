@@ -197,9 +197,12 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 let value = *value;
                 self.emit_map_equals(lhs, rhs, key, value)
             }
-            TypeInfo::Struct { .. } | TypeInfo::Enum { .. } => {
+            TypeInfo::Struct { fields } => {
+                let fields = fields.clone();
                 self.emit_derived_eq_call(lhs, rhs, elem_ty)
+                    .or_else(|| self.emit_structural_eq(lhs, rhs, &fields))
             }
+            TypeInfo::Enum { .. } => self.emit_derived_eq_call(lhs, rhs, elem_ty),
             _ => None,
         }
     }
@@ -218,6 +221,48 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let raw_args = [lhs, rhs];
         let passed_args = self.apply_param_passing(&raw_args, &params);
         self.emit_rt_call(func_id, &passed_args, "derived_eq")
+    }
+
+    /// Emit structural field-by-field equality for a struct without `#derive(Eq)`.
+    ///
+    /// Compares each field using `emit_element_equals` recursively, with
+    /// short-circuit AND semantics (returns false on first mismatch).
+    /// Falls back to integer comparison if field types are unknown.
+    fn emit_structural_eq(
+        &mut self,
+        lhs: ValueId,
+        rhs: ValueId,
+        fields: &[(ori_ir::Name, ori_types::Idx)],
+    ) -> Option<ValueId> {
+        if fields.is_empty() {
+            return Some(self.builder.const_bool(true));
+        }
+
+        // Multi-field: accumulate AND of all field comparisons.
+        // Branch-free AND chain — most structs have 2-5 fields.
+        let mut result = None;
+        for (i, &(_, field_ty)) in fields.iter().enumerate() {
+            #[expect(
+                clippy::cast_possible_truncation,
+                reason = "field index from type definition, always small"
+            )]
+            let idx = i as u32;
+            let lhs_f = self.builder.extract_value(lhs, idx, &format!("seq.l.{i}"));
+            let rhs_f = self.builder.extract_value(rhs, idx, &format!("seq.r.{i}"));
+            let (Some(lhs_f), Some(rhs_f)) = (lhs_f, rhs_f) else {
+                continue; // Skip fields that can't be extracted (void/unit)
+            };
+            let Some(field_eq) = self.emit_element_equals(lhs_f, rhs_f, field_ty) else {
+                // Field type can't be compared (e.g., enum without #derive(Eq)).
+                // Structural equality is not possible for this struct.
+                return None;
+            };
+            result = Some(match result {
+                None => field_eq,
+                Some(acc) => self.builder.and(acc, field_eq, &format!("seq.and.{i}")),
+            });
+        }
+        Some(result.unwrap_or_else(|| self.builder.const_bool(true)))
     }
 
     /// Emit `lhs.compare(rhs)` for any type, dispatching recursively.
