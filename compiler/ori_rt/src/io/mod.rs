@@ -48,6 +48,7 @@ pub extern "C" fn ori_print(s: *const OriStr) {
 
     // SAFETY: Caller ensures s points to a valid OriStr
     let ori_str = unsafe { &*s };
+    // SAFETY: OriStr::as_str reads from the inline SSO buffer or heap data pointer.
     let text = unsafe { ori_str.as_str() };
     println!("{text}");
 }
@@ -86,6 +87,7 @@ pub extern "C-unwind" fn ori_panic(s: *const OriStr) {
     } else {
         // SAFETY: Caller ensures s points to a valid OriStr
         let ori_str = unsafe { &*s };
+        // SAFETY: OriStr::as_str reads from the inline SSO buffer or heap data pointer.
         let text = unsafe { ori_str.as_str() };
         text.to_string()
     };
@@ -180,6 +182,7 @@ fn aot_raise_exception(_msg: String) -> ! {
 pub extern "C" fn ori_catch_cleanup(exc_ptr: *mut u8) {
     #[cfg(not(all(target_os = "windows", target_env = "msvc")))]
     if !exc_ptr.is_null() {
+        // SAFETY: exc_ptr is a non-null Itanium exception object from a landingpad.
         unsafe {
             jit_recovery::_Unwind_DeleteException(exc_ptr);
         }
@@ -266,11 +269,13 @@ pub extern "C-unwind" fn ori_assert_eq_str(actual: *const OriStr, expected: *con
     let actual_str = if actual.is_null() {
         ""
     } else {
+        // SAFETY: Pointer validated non-null; caller guarantees valid OriStr.
         unsafe { (*actual).as_str() }
     };
     let expected_str = if expected.is_null() {
         ""
     } else {
+        // SAFETY: Pointer validated non-null; caller guarantees valid OriStr.
         unsafe { (*expected).as_str() }
     };
 

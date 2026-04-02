@@ -17,7 +17,7 @@ sections:
     status: complete
   - id: "12.2"
     title: "Unsafe SAFETY Comments"
-    status: not-started
+    status: complete
   - id: "12.3"
     title: "Missing Module Docs"
     status: not-started
@@ -80,9 +80,9 @@ Some of these are legitimately large (error variant definitions, runtime functio
 
 The runtime crate (`ori_rt`) contains 20+ `unsafe` blocks, many without `// SAFETY:` comments explaining the safety invariants. While `ori_rt` is inherently unsafe (C-ABI functions, raw pointer manipulation), each `unsafe` block should document what invariants make the operation safe.
 
-- [ ] **BLOAT** -- 20+ unsafe blocks in `ori_rt` without `// SAFETY:` comments
-- [ ] Add `// SAFETY:` comments to each unsafe block explaining the invariant that makes the operation sound
-- [ ] Focus on `rc/mod.rs`, `rc/allocate.rs`, `rc/list_rc.rs`, `rc/map_rc.rs`, `rc/elem_header.rs`, `io/mod.rs`, `io/jit_recovery.rs`
+- [x] **BLOAT** -- 20+ unsafe blocks in `ori_rt` without `// SAFETY:` comments (2026-04-01) 155 missing SAFETY comments across 13 files
+- [x] Add `// SAFETY:` comments to each unsafe block explaining the invariant that makes the operation sound (2026-04-01) Added ~150 SAFETY comments across all ori_rt source files; remaining 4 are covered by adjacent group comments (UTF-8 multi-byte, map eq)
+- [x] Focus on `rc/mod.rs`, `rc/allocate.rs`, `rc/list_rc.rs`, `rc/map_rc.rs`, `rc/elem_header.rs`, `io/mod.rs`, `io/jit_recovery.rs` (2026-04-01) Priority files done + extended to string/, list/, map/, set/, iterator/, lib.rs
 
 ---
 
@@ -149,7 +149,7 @@ String allocations (`format!()`, `String::from()`) on cold error paths are gener
 ## 12.N Completion Checklist
 
 - [x] Top 5 oversized files (>1000 lines) split into submodules (2026-04-01) check_error/mod.rs (2225→7 files), copier.rs (1595→6 files), lib.rs (1326→5 files), check/mod.rs (1286→4 files), error/kind.rs (1041→4 files)
-- [ ] All `unsafe` blocks in `ori_rt` have `// SAFETY:` comments
+- [x] All `unsafe` blocks in `ori_rt` have `// SAFETY:` comments (2026-04-01) ~150 comments added; 4 remaining are covered by adjacent group-level comments
 - [ ] Key modules have `//!` module docs
 - [x] Dead code removed or justified (2026-04-01) verified zero unjustified `#[allow(dead_code)]` in production code
 - [ ] 100+ arm match converted to data-driven dispatch

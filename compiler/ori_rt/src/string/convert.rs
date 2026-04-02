@@ -55,6 +55,7 @@ pub extern "C" fn ori_str_debug_format(s: *const OriStr) -> OriStr {
     }
     // SAFETY: Caller ensures s points to a valid OriStr.
     let input = unsafe { &*s };
+    // SAFETY: OriStr bytes are valid UTF-8 by construction.
     let src = unsafe { input.as_str() };
     let mut result = String::with_capacity(src.len() + 2);
     result.push('"');
