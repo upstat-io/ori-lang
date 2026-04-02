@@ -45,7 +45,7 @@ pub(super) fn run_narrowing_pass(
 
         // Narrow block parameters from predecessor jump args.
         // Skip entry block parameters with no predecessors — they may be seeded
-        // from interprocedural analysis (§03.5), and narrowing against Bottom
+        // from interprocedural analysis, and narrowing against Bottom
         // (which means "no info from predecessors") would destroy those seeds.
         for (param_idx, (param_var, _)) in block.params.iter().enumerate() {
             if predecessors[block_idx].is_empty() {
@@ -175,7 +175,7 @@ pub(super) fn recompute_element_summaries(
 ///
 /// During forward iterations, `return_range` accumulates pre-narrowing values.
 /// After narrowing recovers precision for loop variables, `return_range` must
-/// be recomputed so the §03.5 interprocedural handoff uses the tightened ranges.
+/// be recomputed so the interprocedural handoff uses the tightened ranges.
 /// See TPR-03-021.
 ///
 /// TPR-03-023: Only iterates reachable blocks (via `rpo`). Unreachable blocks

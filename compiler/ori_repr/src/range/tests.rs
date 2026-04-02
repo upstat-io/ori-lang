@@ -3,6 +3,7 @@
 //! TDD: written BEFORE implementation — initially these fail (compile errors
 //! or assertion failures). Implementation in `mod.rs` makes them pass unchanged.
 
+use super::transfer::{range_add, range_mul, range_neg, range_sub};
 use super::*;
 
 // ─── join ──────────────────────────────────────────────────────

@@ -66,6 +66,65 @@ declare_builtins! { emitter, ctx;
             None
         }
     },
+    // Closure/simple adapters: new
+    ("Iterator", "flatten") => {
+        if let TypeInfo::Iterator { element } = ctx.type_info {
+            emitter.emit_iterator_method(ctx.method, ctx.arg_vals, ctx.arc_args, ctx.arc_func, *element)
+        } else {
+            None
+        }
+    },
+    ("Iterator", "flat_map") => {
+        if let TypeInfo::Iterator { element } = ctx.type_info {
+            emitter.emit_iterator_method(ctx.method, ctx.arg_vals, ctx.arc_args, ctx.arc_func, *element)
+        } else {
+            None
+        }
+    },
+    ("Iterator", "cycle") => {
+        if let TypeInfo::Iterator { element } = ctx.type_info {
+            emitter.emit_iterator_method(ctx.method, ctx.arg_vals, ctx.arc_args, ctx.arc_func, *element)
+        } else {
+            None
+        }
+    },
+    // DEI adapters/consumers
+    ("DoubleEndedIterator", "rev") => {
+        if let TypeInfo::Iterator { element } = ctx.type_info {
+            emitter.emit_iterator_method(ctx.method, ctx.arg_vals, ctx.arc_args, ctx.arc_func, *element)
+        } else {
+            None
+        }
+    },
+    ("DoubleEndedIterator", "last") => {
+        if let TypeInfo::Iterator { element } = ctx.type_info {
+            emitter.emit_iterator_method(ctx.method, ctx.arg_vals, ctx.arc_args, ctx.arc_func, *element)
+        } else {
+            None
+        }
+    },
+    ("DoubleEndedIterator", "rfind") => {
+        if let TypeInfo::Iterator { element } = ctx.type_info {
+            emitter.emit_iterator_method(ctx.method, ctx.arg_vals, ctx.arc_args, ctx.arc_func, *element)
+        } else {
+            None
+        }
+    },
+    ("DoubleEndedIterator", "rfold") => {
+        if let TypeInfo::Iterator { element } = ctx.type_info {
+            emitter.emit_iterator_method(ctx.method, ctx.arg_vals, ctx.arc_args, ctx.arc_func, *element)
+        } else {
+            None
+        }
+    },
+    // Consumer: join (Iterator, not DEI)
+    ("Iterator", "join") => {
+        if let TypeInfo::Iterator { element } = ctx.type_info {
+            emitter.emit_iterator_method(ctx.method, ctx.arg_vals, ctx.arc_args, ctx.arc_func, *element)
+        } else {
+            None
+        }
+    },
     // Consumers
     ("Iterator", "collect") => {
         if let TypeInfo::Iterator { element } = ctx.type_info {
@@ -157,6 +216,12 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             "map" => self.emit_iter_map(iter_ptr, arg_vals, args, arc_func, elem_ty),
             "filter" => self.emit_iter_filter(iter_ptr, arg_vals, args, arc_func, elem_ty),
 
+            // Adapters: new (runtime-backed)
+            "flatten" => self.emit_iter_flatten(iter_ptr, elem_ty),
+            "flat_map" => self.emit_iter_flat_map(iter_ptr, arg_vals, args, arc_func, elem_ty),
+            "cycle" => self.emit_iter_cycle(iter_ptr, elem_ty),
+            "rev" => self.emit_iter_rev(iter_ptr, elem_ty),
+
             // Consumers
             "collect" => self.emit_iter_collect(iter_ptr, elem_ty),
             "count" => self.emit_iter_count(iter_ptr, elem_ty),
@@ -165,6 +230,12 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             "find" => self.emit_iter_find(iter_ptr, arg_vals, args, arc_func, elem_ty),
             "for_each" => self.emit_iter_for_each(iter_ptr, arg_vals, args, arc_func, elem_ty),
             "fold" => self.emit_iter_fold(iter_ptr, arg_vals, args, arc_func, elem_ty),
+
+            // Consumers: new (runtime-backed)
+            "last" => self.emit_iter_last(iter_ptr, elem_ty),
+            "rfind" => self.emit_iter_rfind(iter_ptr, arg_vals, args, arc_func, elem_ty),
+            "rfold" => self.emit_iter_rfold(iter_ptr, arg_vals, args, arc_func, elem_ty),
+            "join" => self.emit_iter_join(iter_ptr, arg_vals, elem_ty),
 
             _ => None,
         }
@@ -189,7 +260,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     ) -> Option<(ValueId, ValueId, LLVMTypeId)> {
         let func_id = self.builder.runtime_fn("ori_iter_next");
 
-        // §04.4 Phase C: use narrowed element size/type for int elements.
+        // Use narrowed element size/type for int elements.
         let elem_size = self.int_element_store_size(elem_ty);
         let elem_size_val = self.builder.const_i64(elem_size as i64);
 
@@ -259,7 +330,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             return None;
         }
         let other = arg_vals[1];
-        // §04.4 Phase C: use narrowed element size for int elements.
+        // Use narrowed element size for int elements.
         let elem_size = self.int_element_store_size(elem_ty);
         let elem_size_val = self.builder.const_i64(elem_size as i64);
         let func_id = self.builder.runtime_fn("ori_iter_zip");
@@ -293,7 +364,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let (tramp_fn, closure_env) =
             self.build_trampoline(closure, elem_ty, TrampolineKind::Map, result_ty);
 
-        // §04.4 Phase C: use narrowed element size for int elements.
+        // Use narrowed element size for int elements.
         let elem_size = self.int_element_store_size(elem_ty);
         let elem_size_val = self.builder.const_i64(elem_size as i64);
 
@@ -321,7 +392,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let (tramp_fn, closure_env) =
             self.build_trampoline(closure, elem_ty, TrampolineKind::Predicate, None);
 
-        // §04.4 Phase C: use narrowed element size for int elements.
+        // Use narrowed element size for int elements.
         let elem_size = self.int_element_store_size(elem_ty);
         let elem_size_val = self.builder.const_i64(elem_size as i64);
 
@@ -331,5 +402,48 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             &[iter_ptr, tramp_fn, closure_env, elem_size_val],
             "iter.filter",
         )
+    }
+
+    // New adapters (runtime-backed)
+
+    fn emit_iter_flatten(&mut self, iter_ptr: ValueId, elem_ty: Idx) -> Option<ValueId> {
+        let elem_size = self.int_element_store_size(elem_ty);
+        let elem_size_val = self.builder.const_i64(elem_size as i64);
+        let func_id = self.builder.runtime_fn("ori_iter_flatten");
+        self.emit_rt_call(func_id, &[iter_ptr, elem_size_val], "iter.flatten")
+    }
+
+    fn emit_iter_flat_map(
+        &mut self,
+        iter_ptr: ValueId,
+        arg_vals: &[ValueId],
+        args: &[ArcVarId],
+        arc_func: &ArcFunction,
+        elem_ty: Idx,
+    ) -> Option<ValueId> {
+        if arg_vals.len() < 2 {
+            return None;
+        }
+        // flat_map(f) = map(f).flatten()
+        // First apply map, then flatten the result
+        let mapped = self.emit_iter_map(iter_ptr, arg_vals, args, arc_func, elem_ty)?;
+        let elem_size = self.int_element_store_size(elem_ty);
+        let elem_size_val = self.builder.const_i64(elem_size as i64);
+        let func_id = self.builder.runtime_fn("ori_iter_flatten");
+        self.emit_rt_call(func_id, &[mapped, elem_size_val], "iter.flat_map")
+    }
+
+    fn emit_iter_cycle(&mut self, iter_ptr: ValueId, elem_ty: Idx) -> Option<ValueId> {
+        let elem_size = self.int_element_store_size(elem_ty);
+        let elem_size_val = self.builder.const_i64(elem_size as i64);
+        let func_id = self.builder.runtime_fn("ori_iter_cycle");
+        self.emit_rt_call(func_id, &[iter_ptr, elem_size_val], "iter.cycle")
+    }
+
+    fn emit_iter_rev(&mut self, iter_ptr: ValueId, elem_ty: Idx) -> Option<ValueId> {
+        let elem_size = self.int_element_store_size(elem_ty);
+        let elem_size_val = self.builder.const_i64(elem_size as i64);
+        let func_id = self.builder.runtime_fn("ori_iter_rev");
+        self.emit_rt_call(func_id, &[iter_ptr, elem_size_val], "iter.rev")
     }
 }

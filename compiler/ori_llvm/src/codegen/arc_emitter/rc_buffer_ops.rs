@@ -11,6 +11,7 @@
 //! Also includes SSO (Small String Optimization) detection for fat pointer
 //! RC operations.
 
+use ori_ir::{FIELD_CAP, FIELD_DATA, FIELD_LEN};
 use ori_types::Tag;
 
 use super::ArcIrEmitter;
@@ -32,13 +33,13 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         resolved: ori_types::Idx,
         tag: Tag,
     ) {
-        let Some(data) = self.builder.extract_value(val, 2, "rc.data_ptr") else {
+        let Some(data) = self.builder.extract_value(val, FIELD_DATA, "rc.data_ptr") else {
             return;
         };
-        let Some(len) = self.builder.extract_value(val, 0, "rc.len") else {
+        let Some(len) = self.builder.extract_value(val, FIELD_LEN, "rc.len") else {
             return;
         };
-        let Some(cap) = self.builder.extract_value(val, 1, "rc.cap") else {
+        let Some(cap) = self.builder.extract_value(val, FIELD_CAP, "rc.cap") else {
             return;
         };
 
@@ -47,7 +48,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         } else {
             self.pool.set_elem(resolved)
         };
-        // §04.4 Phase C: use narrowed element size for collection buffers.
+        // Use narrowed element size for collection buffers.
         let elem_size = self.collection_elem_size(resolved, elem_type);
         let elem_size_val = self.builder.const_i64(elem_size as i64);
         let elem_dec_fn = self.get_or_generate_elem_dec_fn(elem_type);
@@ -69,20 +70,20 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// 1-byte metadata per bucket, one RC header. The runtime function handles
     /// cleaning up both key and value children at their respective offsets.
     pub(super) fn emit_buffer_rc_dec_map(&mut self, val: super::ValueId, resolved: ori_types::Idx) {
-        let Some(len) = self.builder.extract_value(val, 0, "rc.len") else {
+        let Some(len) = self.builder.extract_value(val, FIELD_LEN, "rc.len") else {
             return;
         };
-        let Some(cap) = self.builder.extract_value(val, 1, "rc.cap") else {
+        let Some(cap) = self.builder.extract_value(val, FIELD_CAP, "rc.cap") else {
             return;
         };
-        let Some(data) = self.builder.extract_value(val, 2, "rc.data_ptr") else {
+        let Some(data) = self.builder.extract_value(val, FIELD_DATA, "rc.data_ptr") else {
             return;
         };
 
         let key_type = self.pool.map_key(resolved);
         let val_type = self.pool.map_value(resolved);
 
-        // §04.4 Phase C: use narrowed element sizes for map buffers.
+        // Use narrowed element sizes for map buffers.
         let key_size = self.collection_elem_size(resolved, key_type);
         let val_size = self.collection_elem_size(resolved, val_type);
         let key_size_val = self.builder.const_i64(key_size as i64);
@@ -119,13 +120,16 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         resolved: ori_types::Idx,
         tag: Tag,
     ) {
-        let Some(data) = self.builder.extract_value(val, 2, "udrop.data_ptr") else {
+        let Some(data) = self
+            .builder
+            .extract_value(val, FIELD_DATA, "udrop.data_ptr")
+        else {
             return;
         };
-        let Some(len) = self.builder.extract_value(val, 0, "udrop.len") else {
+        let Some(len) = self.builder.extract_value(val, FIELD_LEN, "udrop.len") else {
             return;
         };
-        let Some(cap) = self.builder.extract_value(val, 1, "udrop.cap") else {
+        let Some(cap) = self.builder.extract_value(val, FIELD_CAP, "udrop.cap") else {
             return;
         };
 
@@ -134,7 +138,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         } else {
             self.pool.set_elem(resolved)
         };
-        // §04.4 Phase C: use narrowed element size for collection buffers.
+        // Use narrowed element size for collection buffers.
         let elem_size = self.collection_elem_size(resolved, elem_type);
         let elem_size_val = self.builder.const_i64(elem_size as i64);
         let elem_dec_fn = self.get_or_generate_elem_dec_fn(elem_type);
@@ -159,20 +163,23 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         val: super::ValueId,
         resolved: ori_types::Idx,
     ) {
-        let Some(len) = self.builder.extract_value(val, 0, "udrop.len") else {
+        let Some(len) = self.builder.extract_value(val, FIELD_LEN, "udrop.len") else {
             return;
         };
-        let Some(cap) = self.builder.extract_value(val, 1, "udrop.cap") else {
+        let Some(cap) = self.builder.extract_value(val, FIELD_CAP, "udrop.cap") else {
             return;
         };
-        let Some(data) = self.builder.extract_value(val, 2, "udrop.data_ptr") else {
+        let Some(data) = self
+            .builder
+            .extract_value(val, FIELD_DATA, "udrop.data_ptr")
+        else {
             return;
         };
 
         let key_type = self.pool.map_key(resolved);
         let val_type = self.pool.map_value(resolved);
 
-        // §04.4 Phase C: use narrowed element sizes for map buffers.
+        // Use narrowed element sizes for map buffers.
         let key_size = self.collection_elem_size(resolved, key_type);
         let val_size = self.collection_elem_size(resolved, val_type);
         let key_size_val = self.builder.const_i64(key_size as i64);
@@ -205,12 +212,15 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// in cap and finds the original buffer for slices.
     pub(super) fn emit_rc_inc_fat(&mut self, var: ori_arc::ir::ArcVarId, count: u32) {
         let val = self.var(var);
-        let Some(data_ptr) = self.builder.extract_value(val, 2, "rc_inc.fat_data") else {
+        let Some(data_ptr) = self
+            .builder
+            .extract_value(val, FIELD_DATA, "rc_inc.fat_data")
+        else {
             return;
         };
         let cap = self
             .builder
-            .extract_value(val, 1, "rc_inc.fat_cap")
+            .extract_value(val, FIELD_CAP, "rc_inc.fat_cap")
             .unwrap_or_else(|| self.builder.const_i64(0));
         self.call_str_rc_inc(data_ptr, cap, count);
     }
@@ -227,12 +237,15 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     ) {
         let val = self.var(var);
         let ty = func.var_type(var);
-        let Some(data_ptr) = self.builder.extract_value(val, 2, "rc_dec.fat_data") else {
+        let Some(data_ptr) = self
+            .builder
+            .extract_value(val, FIELD_DATA, "rc_dec.fat_data")
+        else {
             return;
         };
         let cap = self
             .builder
-            .extract_value(val, 1, "rc_dec.fat_cap")
+            .extract_value(val, FIELD_CAP, "rc_dec.fat_cap")
             .unwrap_or_else(|| self.builder.const_i64(0));
         let drop_fn = self.get_or_generate_drop_fn(ty);
         self.call_str_rc_dec(data_ptr, cap, drop_fn);

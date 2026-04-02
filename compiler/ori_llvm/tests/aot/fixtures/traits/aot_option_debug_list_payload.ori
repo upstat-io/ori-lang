@@ -1,0 +1,8 @@
+// TPR-03-009 regression pin: Option<[int]>.debug() must format compound
+// payloads recursively, not produce empty output.
+// Interpreter: Some([1, 2, 3]) | AOT must match.
+
+@main () -> void = {
+    let $o: Option<[int]> = Some([1, 2, 3]);
+    print(msg: o.debug())
+}

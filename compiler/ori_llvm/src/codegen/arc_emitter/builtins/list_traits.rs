@@ -9,6 +9,7 @@
 //! `List<T>`: `{i64 len, i64 cap, ptr data}` — element-wise iteration
 //! via GEP into the data pointer.
 
+use ori_ir::{FIELD_DATA, FIELD_LEN};
 use ori_types::Idx;
 
 use crate::codegen::value_id::ValueId;
@@ -26,12 +27,16 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         rhs: ValueId,
         elem_ty: Idx,
     ) -> Option<ValueId> {
-        let lhs_len = self.builder.extract_value(lhs, 0, "list.lhs.len")?;
-        let rhs_len = self.builder.extract_value(rhs, 0, "list.rhs.len")?;
+        let lhs_len = self.builder.extract_value(lhs, FIELD_LEN, "list.lhs.len")?;
+        let rhs_len = self.builder.extract_value(rhs, FIELD_LEN, "list.rhs.len")?;
         let lens_eq = self.builder.icmp_eq(lhs_len, rhs_len, "lens_eq");
 
-        let lhs_data = self.builder.extract_value(lhs, 2, "list.lhs.data")?;
-        let rhs_data = self.builder.extract_value(rhs, 2, "list.rhs.data")?;
+        let lhs_data = self
+            .builder
+            .extract_value(lhs, FIELD_DATA, "list.lhs.data")?;
+        let rhs_data = self
+            .builder
+            .extract_value(rhs, FIELD_DATA, "list.rhs.data")?;
 
         let func = self.current_function;
         let pre_header = self.builder.current_block().expect("current block");
@@ -54,7 +59,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         self.builder.cond_br(has_more, body, exit_true);
 
         // Body: compare elements[idx].
-        // §04.4 Phase C: use narrowed element type for GEP/load, sext after load.
+        // Use narrowed element type for GEP/load, sext after load.
         self.builder.position_at_end(body);
         let elem_ty_id = self.int_element_llvm_type(elem_ty);
         let lhs_ptr = self.builder.gep(elem_ty_id, lhs_data, &[idx_phi], "lhs.ep");
@@ -102,10 +107,14 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         rhs: ValueId,
         elem_ty: Idx,
     ) -> Option<ValueId> {
-        let lhs_len = self.builder.extract_value(lhs, 0, "list.lhs.len")?;
-        let rhs_len = self.builder.extract_value(rhs, 0, "list.rhs.len")?;
-        let lhs_data = self.builder.extract_value(lhs, 2, "list.lhs.data")?;
-        let rhs_data = self.builder.extract_value(rhs, 2, "list.rhs.data")?;
+        let lhs_len = self.builder.extract_value(lhs, FIELD_LEN, "list.lhs.len")?;
+        let rhs_len = self.builder.extract_value(rhs, FIELD_LEN, "list.rhs.len")?;
+        let lhs_data = self
+            .builder
+            .extract_value(lhs, FIELD_DATA, "list.lhs.data")?;
+        let rhs_data = self
+            .builder
+            .extract_value(rhs, FIELD_DATA, "list.rhs.data")?;
 
         // min_len = min(lhs_len, rhs_len)
         let lhs_shorter = self.builder.icmp_slt(lhs_len, rhs_len, "lhs_shorter");
@@ -133,7 +142,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         self.builder.cond_br(has_more, body, len_cmp_block);
 
         // Body: compare elements[idx].
-        // §04.4 Phase C: use narrowed element type for GEP/load, sext after load.
+        // Use narrowed element type for GEP/load, sext after load.
         self.builder.position_at_end(body);
         let elem_ty_id = self.int_element_llvm_type(elem_ty);
         let lhs_ptr = self.builder.gep(elem_ty_id, lhs_data, &[idx_phi], "lhs.ep");
@@ -186,8 +195,8 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         val: ValueId,
         elem_ty: Idx,
     ) -> Option<ValueId> {
-        let len = self.builder.extract_value(val, 0, "list.len")?;
-        let data = self.builder.extract_value(val, 2, "list.data")?;
+        let len = self.builder.extract_value(val, FIELD_LEN, "list.len")?;
+        let data = self.builder.extract_value(val, FIELD_DATA, "list.data")?;
 
         let func = self.current_function;
         let pre_header = self.builder.current_block().expect("current block");
@@ -208,7 +217,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         self.builder.cond_br(has_more, body, exit);
 
         // Body: hash current element, combine.
-        // §04.4 Phase C: use narrowed element type for GEP/load, sext after load.
+        // Use narrowed element type for GEP/load, sext after load.
         self.builder.position_at_end(body);
         let elem_ty_id = self.int_element_llvm_type(elem_ty);
         let elem_ptr = self.builder.gep(elem_ty_id, data, &[idx_phi], "elem.ptr");

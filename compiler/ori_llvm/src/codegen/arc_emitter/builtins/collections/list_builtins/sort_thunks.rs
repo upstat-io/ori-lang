@@ -135,7 +135,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         }
     }
 
-    /// §04.4 Phase C: Get or generate a narrowed compare thunk for sorting.
+    /// Get or generate a narrowed compare thunk for sorting.
     ///
     /// Like `get_or_create_compare_thunk`, but loads elements at the narrowed
     /// width (i8/i16/i32) and sign-extends to i64 before comparing. Used for

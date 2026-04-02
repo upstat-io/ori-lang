@@ -192,6 +192,9 @@ pub(super) fn rc_underflow_abort(data_ptr: *mut u8) -> ! {
 ///
 /// This is the standard ARC pattern from Rust's `Arc::drop` and Swift's
 /// `swift_release`.
+///
+/// Uses the shared `rc_dec_to_zero` core for the protocol, then calls
+/// the type-specific drop function if RC reached zero.
 #[no_mangle]
 pub extern "C" fn ori_rc_dec(data_ptr: *mut u8, drop_fn: Option<extern "C" fn(*mut u8)>) {
     if data_ptr.is_null() {
@@ -202,21 +205,38 @@ pub extern "C" fn ori_rc_dec(data_ptr: *mut u8, drop_fn: Option<extern "C" fn(*m
     #[cfg(debug_assertions)]
     rt_debug_check_not_freed(data_ptr.cast_const(), "ori_rc_dec");
 
-    // SAFETY: data_ptr was returned by ori_rc_alloc, so data_ptr - 8 is valid
-    // and 8-byte aligned. AtomicI64 has the same layout as i64.
+    // SAFETY: data_ptr is non-null (checked above) and was returned by ori_rc_alloc.
+    if unsafe { rc_dec_to_zero(data_ptr) } {
+        if let Some(f) = drop_fn {
+            call_drop_fn(f, data_ptr);
+        }
+    }
+}
+
+/// Core RC decrement protocol. Returns `true` if RC reached zero and
+/// the caller should perform type-specific cleanup.
+///
+/// Handles: immortal sentinel check, atomic (or non-atomic) decrement,
+/// underflow detection, trace logging, and acquire fence.
+///
+/// This is the single canonical implementation of the ARC decrement
+/// protocol, inspired by Swift's `swift_release_n` and Rust's `Arc::drop`.
+///
+/// # Safety
+/// `data_ptr` must be non-null and point to data returned by `ori_rc_alloc`.
+/// The RC header at `data_ptr - 8` must be valid and aligned.
+#[inline]
+pub(crate) unsafe fn rc_dec_to_zero(data_ptr: *mut u8) -> bool {
     #[cfg(not(feature = "single-threaded"))]
     {
         // Immortal sentinel check: read refcount first. If MAX_REFCOUNT,
         // this is an immortal object — skip the decrement entirely.
-        let current_rc = unsafe {
-            let rc_ptr = data_ptr.sub(8).cast::<AtomicI64>();
-            (*rc_ptr).load(Ordering::Relaxed)
-        };
+        let current_rc = (*data_ptr.sub(8).cast::<AtomicI64>()).load(Ordering::Relaxed);
         if current_rc == MAX_REFCOUNT {
-            return;
+            return false;
         }
 
-        let prev = unsafe {
+        let prev = {
             let rc_ptr = data_ptr.sub(8).cast::<AtomicI64>();
             (*rc_ptr).fetch_sub(1, Ordering::Release)
         };
@@ -236,38 +256,31 @@ pub extern "C" fn ori_rc_dec(data_ptr: *mut u8, drop_fn: Option<extern "C" fn(*m
             // threads. This ensures the drop function sees all writes that any
             // thread made through their reference before decrementing.
             atomic::fence(Ordering::Acquire);
-
-            if let Some(f) = drop_fn {
-                call_drop_fn(f, data_ptr);
-            }
+            true
+        } else {
+            false
         }
     }
 
     #[cfg(feature = "single-threaded")]
     {
-        let (should_drop, new_rc) = unsafe {
-            let rc_ptr = data_ptr.sub(8).cast::<i64>();
-            // Immortal sentinel: skip for immortal objects.
-            if *rc_ptr == MAX_REFCOUNT {
-                return;
-            }
-            // Release-mode underflow detection (single-threaded path)
-            if *rc_ptr <= 0 {
-                rc_underflow_abort(data_ptr);
-            }
-            *rc_ptr -= 1;
-            (*rc_ptr <= 0, *rc_ptr)
-        };
+        let rc_ptr = data_ptr.sub(8).cast::<i64>();
+        // Immortal sentinel: skip for immortal objects.
+        if *rc_ptr == MAX_REFCOUNT {
+            return false;
+        }
+        // Release-mode underflow detection (single-threaded path)
+        if *rc_ptr <= 0 {
+            rc_underflow_abort(data_ptr);
+        }
+        *rc_ptr -= 1;
+        let new_rc = *rc_ptr;
 
         if rc_trace_enabled() {
             rc_trace_dec(data_ptr.cast_const(), new_rc);
         }
 
-        if should_drop {
-            if let Some(f) = drop_fn {
-                call_drop_fn(f, data_ptr);
-            }
-        }
+        new_rc <= 0
     }
 }
 
@@ -350,6 +363,36 @@ pub extern "C" fn ori_str_drop_buffer(data_ptr: *mut u8) {
     }
     let size = ori_rc_data_size(data_ptr) as usize;
     ori_rc_free(data_ptr, size, 8);
+}
+
+/// Element destructor for `[str]` buffers (runtime-resident).
+///
+/// Takes a pointer to an `OriStr` within a buffer and decrements the string's
+/// data RC if it's a heap-backed string. SSO strings are no-ops.
+///
+/// This is the runtime equivalent of the LLVM-generated `elem_dec` thunk for
+/// string elements. It is used by `ori_args_from_argv` to populate the argv
+/// buffer's `elem_dec_fn` header slot at construction time, so that COW and
+/// slice propagation paths correctly install the destructor into derived buffers.
+///
+/// # Safety
+///
+/// `elem_ptr` must point to a valid `OriStr` within an RC-managed buffer.
+#[no_mangle]
+pub extern "C" fn ori_str_elem_dec(elem_ptr: *mut u8) {
+    if elem_ptr.is_null() {
+        return;
+    }
+    // SAFETY: elem_ptr points to an OriStr within the buffer's data region.
+    let s = unsafe { &*elem_ptr.cast::<crate::string::OriStr>() };
+    if s.is_sso() {
+        return;
+    }
+    // Heap string: dec the data buffer's RC.
+    let heap = unsafe { s.heap };
+    if !heap.data.is_null() {
+        ori_str_rc_dec(heap.data, heap.cap, Some(ori_str_drop_buffer));
+    }
 }
 
 /// Call a drop function with abort-on-panic guard.

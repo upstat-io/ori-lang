@@ -12,6 +12,7 @@
 //! bytes" for SSO.
 
 use ori_arc::ir::ArcVarId;
+use ori_ir::FIELD_CAP;
 use ori_types::Idx;
 
 use crate::codegen::value_id::ValueId;
@@ -180,7 +181,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         // For heap strings cap >= 0. For slices cap has SLICE_FLAG.
         let str_cap = self
             .builder
-            .extract_value(receiver, 1, "split.self.cap")
+            .extract_value(receiver, FIELD_CAP, "split.self.cap")
             .unwrap_or_else(|| self.builder.const_i64(0));
 
         // Separator string

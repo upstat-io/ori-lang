@@ -1,8 +1,8 @@
 //! `#repr` attribute types for user-specified layout control.
 //!
 //! These attributes gate optimization passes: `#repr("c")` prevents
-//! field reordering (§06), `#repr("packed")` disables padding, etc.
-//! Defined here in §01; consumed by §06 (struct layout) and §07 (enum repr).
+//! field reordering, `#repr("packed")` disables padding, etc.
+//! Consumed by struct layout and enum repr passes.
 
 /// User-specified representation attribute (`#repr(...)`).
 ///

@@ -156,3 +156,30 @@ fn call_method_builtin_println_uses_handler() {
     assert!(result.is_ok());
     assert_eq!(interpreter.get_print_output(), "builtin test\n");
 }
+
+/// Every `DerivedTrait` must produce a `DeriveStrategy` whose `struct_body`
+/// and `sum_body` variants are all recognized. Defense-in-depth for eval backend.
+#[test]
+#[expect(
+    clippy::match_same_arms,
+    reason = "exhaustive enumeration is the point of this test"
+)]
+fn derive_strategy_all_struct_body_variants_handled() {
+    use ori_ir::{DerivedTrait, StructBody, SumBody};
+
+    for &trait_variant in DerivedTrait::ALL {
+        let strategy = trait_variant.strategy();
+
+        match strategy.struct_body {
+            StructBody::ForEachField { .. } => {}
+            StructBody::FormatFields { .. } => {}
+            StructBody::CloneFields => {}
+            StructBody::DefaultConstruct => {}
+        }
+
+        match strategy.sum_body {
+            SumBody::MatchVariants => {}
+            SumBody::NotSupported => {}
+        }
+    }
+}

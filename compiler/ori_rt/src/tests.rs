@@ -376,6 +376,7 @@ fn rc_inc_does_not_overflow_under_normal_use() {
 
 #[test]
 fn rc_inc_skips_at_max_refcount() {
+    let _lock = lock_rc();
     // Immortal objects have refcount set to MAX_REFCOUNT.
     // ori_rc_inc should be a no-op — refcount stays at MAX_REFCOUNT.
     let ptr = ori_rc_alloc(16, 8);
@@ -406,6 +407,7 @@ fn rc_inc_skips_at_max_refcount() {
 
 #[test]
 fn rc_dec_skips_at_max_refcount() {
+    let _lock = lock_rc();
     // Immortal objects have refcount set to MAX_REFCOUNT.
     // ori_rc_dec should be a no-op — refcount stays at MAX_REFCOUNT.
     let ptr = ori_rc_alloc(16, 8);
@@ -432,6 +434,269 @@ fn rc_dec_skips_at_max_refcount() {
         *rc_ptr = 1;
     }
     ori_rc_dec(ptr, None);
+}
+
+// ── Collection Dec Immortal-Path Tests ────────────────────────────
+//
+// Regression: TPR-07-001 — Section 07 extracted rc_dec_to_zero as the
+// shared core, but only ori_rc_inc/ori_rc_dec had immortal-path unit
+// tests. These tests verify that each collection dec entry point
+// correctly skips immortal objects (MAX_REFCOUNT sentinel).
+
+#[test]
+fn buffer_rc_dec_skips_at_max_refcount() {
+    let _lock = lock_rc();
+
+    // Allocate enough for a small list buffer (e.g. 3 × 8-byte elements).
+    let data = ori_rc_alloc(24, 8);
+
+    // Set refcount to MAX_REFCOUNT (immortal sentinel).
+    unsafe {
+        let rc_ptr = data.sub(8).cast::<i64>();
+        *rc_ptr = MAX_REFCOUNT;
+    }
+
+    // Track whether elem_dec_fn is called — it must NOT be for immortal objects.
+    static ELEM_DEC_CALLS: AtomicUsize = AtomicUsize::new(0);
+    ELEM_DEC_CALLS.store(0, Ordering::SeqCst);
+    extern "C" fn track_elem_dec(_ptr: *mut u8) {
+        ELEM_DEC_CALLS.fetch_add(1, Ordering::SeqCst);
+    }
+
+    // This should be a no-op: refcount stays at MAX_REFCOUNT, no cleanup.
+    ori_buffer_rc_dec(data, 3, 3, 8, Some(track_elem_dec));
+
+    unsafe {
+        let rc_ptr = data.sub(8).cast::<i64>();
+        assert_eq!(
+            *rc_ptr, MAX_REFCOUNT,
+            "refcount should remain at MAX_REFCOUNT after ori_buffer_rc_dec"
+        );
+    }
+    assert_eq!(
+        ELEM_DEC_CALLS.load(Ordering::SeqCst),
+        0,
+        "elem_dec_fn must not be called on immortal buffer"
+    );
+
+    // Clean up: reset refcount to 1 so we can free.
+    unsafe {
+        let rc_ptr = data.sub(8).cast::<i64>();
+        *rc_ptr = 1;
+    }
+    ori_rc_free(data, 24, 8);
+}
+
+#[test]
+fn map_buffer_rc_dec_skips_at_max_refcount() {
+    let _lock = lock_rc();
+
+    // Allocate enough for a small map buffer.
+    let data = ori_rc_alloc(256, 8);
+
+    unsafe {
+        let rc_ptr = data.sub(8).cast::<i64>();
+        *rc_ptr = MAX_REFCOUNT;
+    }
+
+    static KEY_DEC_CALLS: AtomicUsize = AtomicUsize::new(0);
+    static VAL_DEC_CALLS: AtomicUsize = AtomicUsize::new(0);
+    KEY_DEC_CALLS.store(0, Ordering::SeqCst);
+    VAL_DEC_CALLS.store(0, Ordering::SeqCst);
+    extern "C" fn track_key_dec(_ptr: *mut u8) {
+        KEY_DEC_CALLS.fetch_add(1, Ordering::SeqCst);
+    }
+    extern "C" fn track_val_dec(_ptr: *mut u8) {
+        VAL_DEC_CALLS.fetch_add(1, Ordering::SeqCst);
+    }
+
+    ori_map_buffer_rc_dec(data, 4, 2, 8, 8, Some(track_key_dec), Some(track_val_dec));
+
+    unsafe {
+        let rc_ptr = data.sub(8).cast::<i64>();
+        assert_eq!(
+            *rc_ptr, MAX_REFCOUNT,
+            "refcount should remain at MAX_REFCOUNT after ori_map_buffer_rc_dec"
+        );
+    }
+    assert_eq!(
+        KEY_DEC_CALLS.load(Ordering::SeqCst),
+        0,
+        "key_dec_fn must not be called on immortal map buffer"
+    );
+    assert_eq!(
+        VAL_DEC_CALLS.load(Ordering::SeqCst),
+        0,
+        "val_dec_fn must not be called on immortal map buffer"
+    );
+
+    unsafe {
+        let rc_ptr = data.sub(8).cast::<i64>();
+        *rc_ptr = 1;
+    }
+    ori_rc_free(data, 256, 8);
+}
+
+#[test]
+fn set_buffer_rc_dec_skips_at_max_refcount() {
+    let _lock = lock_rc();
+
+    // Allocate enough for a small set buffer.
+    let data = ori_rc_alloc(128, 8);
+
+    unsafe {
+        let rc_ptr = data.sub(8).cast::<i64>();
+        *rc_ptr = MAX_REFCOUNT;
+    }
+
+    static ELEM_DEC_CALLS: AtomicUsize = AtomicUsize::new(0);
+    ELEM_DEC_CALLS.store(0, Ordering::SeqCst);
+    extern "C" fn track_elem_dec(_ptr: *mut u8) {
+        ELEM_DEC_CALLS.fetch_add(1, Ordering::SeqCst);
+    }
+
+    ori_set_buffer_rc_dec(data, 4, 2, 8, Some(track_elem_dec));
+
+    unsafe {
+        let rc_ptr = data.sub(8).cast::<i64>();
+        assert_eq!(
+            *rc_ptr, MAX_REFCOUNT,
+            "refcount should remain at MAX_REFCOUNT after ori_set_buffer_rc_dec"
+        );
+    }
+    assert_eq!(
+        ELEM_DEC_CALLS.load(Ordering::SeqCst),
+        0,
+        "elem_dec_fn must not be called on immortal set buffer"
+    );
+
+    unsafe {
+        let rc_ptr = data.sub(8).cast::<i64>();
+        *rc_ptr = 1;
+    }
+    ori_rc_free(data, 128, 8);
+}
+
+#[test]
+fn slice_buffer_rc_dec_skips_at_max_refcount() {
+    let _lock = lock_rc();
+
+    // Allocate a buffer large enough for 4 × 8-byte elements.
+    let original_data = ori_rc_alloc(32, 8);
+
+    // Bump refcount to 2 (original + slice), then set to MAX_REFCOUNT.
+    ori_rc_inc(original_data);
+    unsafe {
+        let rc_ptr = original_data.sub(8).cast::<i64>();
+        *rc_ptr = MAX_REFCOUNT;
+    }
+
+    // Create a slice: data pointer offset by 16 bytes (skipping 2 elements).
+    let slice_data = unsafe { original_data.add(16) };
+    let slice_cap = crate::slice_encoding::make_slice_cap(16);
+
+    static ELEM_DEC_CALLS: AtomicUsize = AtomicUsize::new(0);
+    ELEM_DEC_CALLS.store(0, Ordering::SeqCst);
+    extern "C" fn track_elem_dec(_ptr: *mut u8) {
+        ELEM_DEC_CALLS.fetch_add(1, Ordering::SeqCst);
+    }
+
+    // Call ori_buffer_rc_dec with slice cap — triggers slice_buffer_rc_dec path.
+    // Should be a no-op on the original buffer because it's immortal.
+    ori_buffer_rc_dec(slice_data, 2, slice_cap, 8, Some(track_elem_dec));
+
+    unsafe {
+        let rc_ptr = original_data.sub(8).cast::<i64>();
+        assert_eq!(
+            *rc_ptr, MAX_REFCOUNT,
+            "original buffer refcount should remain at MAX_REFCOUNT after slice dec"
+        );
+    }
+    assert_eq!(
+        ELEM_DEC_CALLS.load(Ordering::SeqCst),
+        0,
+        "elem_dec_fn must not be called when slice's original buffer is immortal"
+    );
+
+    // Clean up: reset refcount to 1 so we can free.
+    unsafe {
+        let rc_ptr = original_data.sub(8).cast::<i64>();
+        *rc_ptr = 1;
+    }
+    ori_rc_free(original_data, 32, 8);
+}
+
+// ── Argv Header Propagation ───────────────────────────────────────
+//
+// Regression: TPR-07-004 — ori_args_from_argv stores elem_dec_fn at
+// construction, but no test verified the value propagates through
+// COW/slice header copy. This test creates an argv buffer and verifies
+// the header's elem_dec_fn is populated, then simulates a COW copy
+// (read header → write to new buffer) and verifies propagation.
+
+#[test]
+fn argv_buffer_has_elem_dec_fn_and_propagates() {
+    use std::ffi::CString;
+
+    let _lock = lock_rc();
+    let before = ori_rc_live_count();
+
+    // Build argv: ["program", "hello", "world-that-exceeds-sso-limit!"]
+    let arg0 = CString::new("program").unwrap();
+    let arg1 = CString::new("hello").unwrap();
+    let arg2 = CString::new("world-that-exceeds-sso-limit!").unwrap();
+    let argv: Vec<*const std::ffi::c_char> = vec![arg0.as_ptr(), arg1.as_ptr(), arg2.as_ptr()];
+
+    let list = ori_args_from_argv(3, argv.as_ptr());
+    assert_eq!(list.len, 2); // argc-1 = 2 user args
+    assert!(!list.data.is_null());
+
+    // Verify elem_dec_fn is set in the buffer header.
+    let elem_dec = unsafe { load_elem_dec_fn(list.data) };
+    assert!(
+        elem_dec.is_some(),
+        "argv buffer must have elem_dec_fn set at construction"
+    );
+    assert_eq!(
+        elem_dec.unwrap() as *const () as usize,
+        ori_str_elem_dec as *const () as usize,
+        "argv elem_dec_fn must be ori_str_elem_dec"
+    );
+
+    // Simulate COW propagation: allocate a new buffer, copy the header.
+    // This is what ori_list_push_cow and friends do internally.
+    let elem_size = std::mem::size_of::<crate::string::OriStr>();
+    let new_data = ori_rc_alloc(4 * elem_size, std::mem::align_of::<crate::string::OriStr>());
+    assert!(!new_data.is_null());
+
+    // Propagate header like propagate_elem_header does:
+    unsafe {
+        store_elem_dec_fn(new_data, load_elem_dec_fn(list.data));
+        store_elem_count(new_data, load_elem_count(list.data));
+    }
+
+    // Verify the propagated header has the same elem_dec_fn.
+    let propagated_dec = unsafe { load_elem_dec_fn(new_data) };
+    assert!(
+        propagated_dec.is_some(),
+        "propagated buffer must have elem_dec_fn"
+    );
+    assert_eq!(
+        propagated_dec.unwrap() as *const () as usize,
+        ori_str_elem_dec as *const () as usize,
+        "propagated elem_dec_fn must match original"
+    );
+
+    // Clean up: free the new buffer (no elements copied, so no elem cleanup needed).
+    ori_rc_free(
+        new_data,
+        4 * elem_size,
+        std::mem::align_of::<crate::string::OriStr>(),
+    );
+
+    // Clean up argv via the standard path.
+    ori_args_cleanup(list.data, list.len);
+    assert_eq!(ori_rc_live_count(), before, "no leaks after argv cleanup");
 }
 
 // Compile-time verification that MAX_REFCOUNT is correctly defined.
@@ -6912,4 +7177,27 @@ fn full_range_slice_last_owner_cleans_all() {
         4,
         "full-range slice should clean all elements"
     );
+}
+
+// FNV constant conformance
+
+/// Verify `ori_rt`'s function-local FNV constants match the canonical
+/// definitions in `ori_ir::hash_constants`. The runtime intentionally keeps
+/// its own copy (no production dependency on `ori_ir`), but they must agree.
+#[test]
+fn fnv_constants_match_canonical_values() {
+    assert_eq!(
+        14_695_981_039_346_656_037_u64,
+        ori_ir::FNV_OFFSET_BASIS,
+        "FNV_OFFSET_BASIS"
+    );
+    assert_eq!(1_099_511_628_211_u64, ori_ir::FNV_PRIME, "FNV_PRIME");
+}
+
+/// Verify `ori_rt`'s local Option/Result tag constants match the canonical
+/// definitions in `ori_ir::tag_constants`. Same pattern as FNV above.
+#[test]
+fn tag_constants_match_canonical_values() {
+    assert_eq!(OPTION_TAG_SOME, ori_ir::OPTION_TAG_SOME, "OPTION_TAG_SOME");
+    assert_eq!(OPTION_TAG_NONE, ori_ir::OPTION_TAG_NONE, "OPTION_TAG_NONE");
 }

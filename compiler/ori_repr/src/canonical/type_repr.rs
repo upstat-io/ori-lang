@@ -11,8 +11,8 @@ use rustc_hash::{FxHashMap, FxHashSet};
 
 use crate::enum_repr::{min_tag_width, EnumRepr, EnumTag, VariantRepr};
 use crate::layout::{
-    compute_enum_payload_layout, compute_field_layout, compute_tagless_enum_layout,
-    is_trivial_repr, round_up,
+    compute_enum_payload_layout, compute_explicit_tag_layout, compute_field_layout,
+    compute_tagless_enum_layout, is_trivial_repr,
 };
 use crate::repr::MachineRepr;
 use crate::struct_repr::{ClosureRepr, FatRepr, FieldRepr, StructRepr, TupleRepr};
@@ -98,7 +98,7 @@ pub(super) fn canonical_tuple(
             Some(FieldRepr {
                 name: Name::new(0, idx_u32),
                 original_index: idx_u32,
-                offset: 0, // Set by §06 layout
+                offset: 0, // Set by struct layout pass
                 repr,
             })
         })
@@ -127,7 +127,7 @@ pub(super) fn canonical_struct(
             Some(FieldRepr {
                 name,
                 original_index: idx_u32,
-                offset: 0, // Set by §06 layout
+                offset: 0, // Set by struct layout pass
                 repr,
             })
         })
@@ -172,13 +172,8 @@ pub(super) fn canonical_enum(
         .collect();
     let variants = variants?;
 
-    // §07.2: Single-variant enum (newtype erasure) — no tag needed.
+    // Single-variant enum (newtype erasure) — no tag needed.
     if variants.len() == 1 {
-        debug_assert!(
-            variants.len() == 1,
-            "EnumTag::None requires exactly 1 variant, got {}",
-            variants.len()
-        );
         let (size, align) = compute_tagless_enum_layout(&variants[0]);
         return Some(MachineRepr::Enum(EnumRepr {
             tag: EnumTag::None,
@@ -189,21 +184,9 @@ pub(super) fn canonical_enum(
     }
 
     let tag_width = min_tag_width(variants.len());
-    let tag_size = tag_width.size_bytes();
     let max_payload = variants.iter().map(|v| v.size).max().unwrap_or(0);
     let max_variant_align = variants.iter().map(|v| v.alignment).max().unwrap_or(1);
-    // Non-unit enums: LLVM uses [M x i64] payload with alignment 8, so the
-    // tag is always padded to 8 bytes regardless of tag width. All-unit enums
-    // have no payload, so the tag determines the entire size and alignment.
-    let (size, align) = if max_payload == 0 {
-        (tag_size, tag_size) // All-unit enum: just the narrowed tag
-    } else {
-        // Payload alignment is at least 8 because of LLVM's [M x i64] convention
-        let payload_align = max_variant_align.max(8);
-        let align = payload_align;
-        let size = 8 + round_up(max_payload, align); // 8 = padded tag slot
-        (size, align)
-    };
+    let (size, align) = compute_explicit_tag_layout(tag_width, max_payload, max_variant_align);
 
     Some(MachineRepr::Enum(EnumRepr {
         tag: EnumTag::Explicit { width: tag_width },
@@ -213,7 +196,7 @@ pub(super) fn canonical_enum(
     }))
 }
 
-/// §07.2 gate: niche filling for Option/Result.
+/// Niche codegen gate: niche filling for Option/Result.
 ///
 /// Disabled until all LLVM codegen consumers are niche-aware:
 /// - `drop_enum.rs` (`emit_enum_drop`)
@@ -222,12 +205,12 @@ pub(super) fn canonical_enum(
 /// - `operators/strategy.rs` (`emit_coalesce`)
 /// - `instr_dispatch.rs` (`try_emit_project_enum_payload`)
 ///
-/// Enable once §07.2 "RC inc/dec", "Drop", and "Pattern matching" items are all checked.
+/// Enable once niche-aware "RC inc/dec", "Drop", and "Pattern matching" items are all checked.
 const NICHE_CODEGEN_READY: bool = false;
 
 /// Build canonical `Option<T>` as a 2-variant enum: None (unit) + Some(T).
 ///
-/// Attempts niche optimization (§07.2) when `NICHE_CODEGEN_READY` is true.
+/// Attempts niche optimization when `NICHE_CODEGEN_READY` is true.
 /// Falls back to explicit `I64` tag otherwise.
 pub(super) fn canonical_option(inner_repr: &MachineRepr) -> MachineRepr {
     if NICHE_CODEGEN_READY {
@@ -239,7 +222,7 @@ pub(super) fn canonical_option(inner_repr: &MachineRepr) -> MachineRepr {
 
 /// Build canonical `Result<T, E>` as a 2-variant enum: Ok(T) + Err(E).
 ///
-/// Attempts niche optimization (§07.2) when `NICHE_CODEGEN_READY` is true.
+/// Attempts niche optimization when `NICHE_CODEGEN_READY` is true.
 /// Falls back to explicit `I64` tag otherwise.
 pub(super) fn canonical_result(ok_repr: &MachineRepr, err_repr: &MachineRepr) -> MachineRepr {
     if NICHE_CODEGEN_READY {

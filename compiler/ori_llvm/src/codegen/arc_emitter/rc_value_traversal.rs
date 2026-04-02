@@ -8,6 +8,7 @@
 //! [`emit_inline_enum_dec`](super::ArcIrEmitter::emit_inline_enum_dec)
 //! for per-variant cleanup.
 
+use ori_ir::{FIELD_CAP, FIELD_DATA};
 use ori_types::Tag;
 
 use super::ArcIrEmitter;
@@ -52,10 +53,10 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             // Str: slice-aware RC inc via ori_str_rc_inc(data, cap)
             // Handles SSO, heap, and seamless slices from str.split().
             Tag::Str => {
-                if let Some(dp) = self.builder.extract_value(val, 2, "rc_inc.data") {
+                if let Some(dp) = self.builder.extract_value(val, FIELD_DATA, "rc_inc.data") {
                     let cap = self
                         .builder
-                        .extract_value(val, 1, "rc_inc.str_cap")
+                        .extract_value(val, FIELD_CAP, "rc_inc.str_cap")
                         .unwrap_or_else(|| self.builder.const_i64(0));
                     self.call_str_rc_inc(dp, cap, count);
                 }
@@ -66,10 +67,10 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
             // Collections: slice-aware RC inc via ori_list_rc_inc(data, cap)
             Tag::List | Tag::Set => {
-                if let Some(dp) = self.builder.extract_value(val, 2, "rc_inc.data") {
+                if let Some(dp) = self.builder.extract_value(val, FIELD_DATA, "rc_inc.data") {
                     let cap = self
                         .builder
-                        .extract_value(val, 1, "rc_inc.cap")
+                        .extract_value(val, FIELD_CAP, "rc_inc.cap")
                         .unwrap_or_else(|| self.builder.const_i64(0));
                     self.call_list_rc_inc(dp, cap, count);
                 } else {
@@ -78,12 +79,12 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             }
             Tag::Map => {
                 // Single data buffer at field 2 — same as List/Set
-                if let Some(dp) = self.builder.extract_value(val, 2, "rc_inc.data") {
+                if let Some(dp) = self.builder.extract_value(val, FIELD_DATA, "rc_inc.data") {
                     self.call_rc_inc_all(&[dp], count);
                 }
             }
 
-            // Struct: traverse RC fields (§06: remap to memory order)
+            // Struct: traverse RC fields (remap to memory order)
             Tag::Struct => {
                 let fields = self.pool.struct_fields(resolved);
                 #[expect(
@@ -103,7 +104,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 }
             }
 
-            // Tuple: traverse RC elements (§06: remap to memory order)
+            // Tuple: traverse RC elements (remap to memory order)
             Tag::Tuple => {
                 let elems = self.pool.tuple_elems(resolved);
                 #[expect(
@@ -176,10 +177,10 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             // Str: slice-aware RC dec via ori_str_rc_dec(data, cap, drop_fn)
             // Handles SSO, heap, and seamless slices from str.split().
             Tag::Str => {
-                if let Some(dp) = self.builder.extract_value(val, 2, "rc_dec.data") {
+                if let Some(dp) = self.builder.extract_value(val, FIELD_DATA, "rc_dec.data") {
                     let cap = self
                         .builder
-                        .extract_value(val, 1, "rc_dec.str_cap")
+                        .extract_value(val, FIELD_CAP, "rc_dec.str_cap")
                         .unwrap_or_else(|| self.builder.const_i64(0));
                     let drop_fn = self.get_or_generate_drop_fn(ty);
                     self.call_str_rc_dec(dp, cap, drop_fn);
@@ -197,7 +198,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 self.emit_buffer_rc_dec_map(val, resolved);
             }
 
-            // Struct: traverse RC fields, per-field drop functions (§06: remap)
+            // Struct: traverse RC fields, per-field drop functions (remap to memory order)
             Tag::Struct => {
                 let fields = self.pool.struct_fields(resolved);
                 #[expect(
@@ -217,7 +218,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 }
             }
 
-            // Tuple: traverse RC elements (§06: remap)
+            // Tuple: traverse RC elements (remap to memory order)
             Tag::Tuple => {
                 let elems = self.pool.tuple_elems(resolved);
                 #[expect(

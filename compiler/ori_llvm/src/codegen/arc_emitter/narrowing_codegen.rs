@@ -345,7 +345,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             return args.to_vec();
         };
 
-        // §06: reorder pool field types to memory order (matching arg order).
+        // Reorder pool field types to memory order (matching arg order).
         let field_pool_types: Vec<Idx> =
             if let Some(repr) = self.repr_plan.and_then(|p| p.get_repr(resolved)) {
                 let fields = match repr {

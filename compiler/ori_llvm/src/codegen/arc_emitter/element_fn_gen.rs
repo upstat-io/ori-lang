@@ -9,6 +9,7 @@
 //! and recursive types require the cache entry to exist before body generation
 //! to break cycles.
 
+use ori_ir::{FIELD_CAP, FIELD_DATA};
 use ori_types::Idx;
 
 use super::ArcIrEmitter;
@@ -138,7 +139,10 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let resolved = self.pool.resolve_fully(element_type);
         let tag = self.pool.tag(resolved);
         if tag == ori_types::Tag::Str {
-            if let Some(dp) = self.builder.extract_value(elem_val, 2, "elem.data") {
+            if let Some(dp) = self
+                .builder
+                .extract_value(elem_val, FIELD_DATA, "elem.data")
+            {
                 let do_dec = self
                     .builder
                     .append_block(self.current_function, "elem_dec.str_heap");
@@ -152,7 +156,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 let drop_fn = self.get_or_generate_drop_fn(element_type);
                 let cap = self
                     .builder
-                    .extract_value(elem_val, 1, "elem.cap")
+                    .extract_value(elem_val, FIELD_CAP, "elem.cap")
                     .expect("str must have cap field");
                 self.call_str_rc_dec(dp, cap, drop_fn);
                 self.builder.br(skip);

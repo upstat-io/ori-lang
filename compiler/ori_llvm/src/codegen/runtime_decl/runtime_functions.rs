@@ -50,7 +50,7 @@ pub(crate) fn is_rt_fn_nounwind(name: &str) -> Option<bool> {
 /// to its caller), `Some(false)` if it is a known runtime function WITHOUT
 /// noreturn, or `None` if the name is not a runtime function at all.
 ///
-/// Used by §06.2 to skip codegen after noreturn calls.
+/// Used to skip codegen after noreturn calls.
 pub(crate) fn is_rt_fn_noreturn(name: &str) -> Option<bool> {
     lookup(name).map(|spec| spec.attrs.iter().any(|a| matches!(a, Attr::Noreturn)))
 }
@@ -963,6 +963,28 @@ pub(crate) static RT_FUNCTIONS: &[RtFn] = &[
         attrs: &[Attr::Nounwind],
         jit_allowed: true,
     },
+    // String debug formatting — Debug semantics (quotes + escaping)
+    RtFn {
+        name: "ori_str_debug_format",
+        params: &[Ty::Ptr],
+        ret: Some(Ty::Str),
+        attrs: &[Attr::Nounwind],
+        jit_allowed: true,
+    },
+    RtFn {
+        name: "ori_char_debug_format",
+        params: &[Ty::I32],
+        ret: Some(Ty::Str),
+        attrs: &[Attr::Nounwind],
+        jit_allowed: true,
+    },
+    RtFn {
+        name: "ori_byte_debug_format",
+        params: &[Ty::I64],
+        ret: Some(Ty::Str),
+        attrs: &[Attr::Nounwind],
+        jit_allowed: true,
+    },
     // String methods — all extern "C"
     RtFn {
         name: "ori_str_contains",
@@ -1372,6 +1394,14 @@ pub(crate) static RT_FUNCTIONS: &[RtFn] = &[
             Ty::Ptr,
         ],
         //        data   cap    len   ks     vs     owns_data  k_dec  v_dec
+        ret: Some(Ty::Ptr),
+        attrs: &[Attr::Nounwind],
+        jit_allowed: true,
+    },
+    RtFn {
+        name: "ori_iter_from_option",
+        // (is_some, payload_ptr, elem_size, elem_dec_fn)
+        params: &[Ty::Bool, Ty::Ptr, Ty::I64, Ty::Ptr],
         ret: Some(Ty::Ptr),
         attrs: &[Attr::Nounwind],
         jit_allowed: true,

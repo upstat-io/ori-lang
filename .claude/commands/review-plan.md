@@ -6,7 +6,7 @@ allowed-tools: Read, Grep, Glob, Agent, AskUserQuestion, Bash, Edit, Write
 
 # Review Plan Command
 
-Review and improve a plan so that it is accurate, correct, feasible, and forms one cohesive strategy that can be worked sequentially. The goal is to ensure the plan as a whole and each section is executable, fulfills the mission in its entirety, and meets CLAUDE.md testing rigor requirements. If something cannot be fulfilled, the plan must be **expanded** (add sections, add checkboxes, add detail) — never scoped down. 4 sequential review agents each edit the plan directly.
+Review and improve a plan so that it is accurate, correct, feasible, and forms one cohesive strategy that can be worked sequentially. The goal is to ensure the plan as a whole and each section is executable, fulfills the mission in its entirety, and meets CLAUDE.md testing rigor requirements. If something cannot be fulfilled, the plan must be **expanded** (add sections, add checkboxes, add detail) — never scoped down. 4 sequential review agents each edit the plan directly. **Every agent has full authority** to restructure, reorganize, add/remove/merge/split sections — not just fix details within the existing structure. Each agent brings a different primary lens but is not restricted to it.
 
 ## Reviewed Field Semantics — CRITICAL
 
@@ -97,21 +97,41 @@ Before launching agents, do a quick read-through and report to the user:
 Run **4 review agents in sequence** (NOT parallel). Each agent:
 
 - Receives **only the plan files** — no conversation context, no reasoning behind the plan
+- Has **FULL AUTHORITY** to restructure, reorganize, add sections, remove sections, merge sections, split sections, reorder sections, rewrite the overview/index, and make any structural change they deem necessary
 - Is instructed to **read the plan, review it, and edit the files directly** to fix issues
 - Sees edits made by all previous agents (because they run sequentially)
+- Brings a **primary lens** (what they focus on most deeply) but is NOT restricted to that lens — if they see something wrong outside their primary focus, they fix it
 
-This creates an iterative refinement pipeline: each reviewer builds on the last.
+This creates an iterative refinement pipeline: each reviewer builds on the last with escalating structural authority. Agent 1 might fix paths; Agent 2 might reorganize the entire plan; Agent 3 might split oversized sections; Agent 4 ties it all together.
 
 **IMPORTANT**: Run these agents ONE AT A TIME. Wait for each to complete before starting the next.
 
-#### Agent 1: Technical Accuracy & Feasibility
+#### Agent 1: Primary Lens — Technical Accuracy & Feasibility
 
 Spawn an Agent with the following prompt (substitute `{plan_dir}` with the actual plan directory path):
 
 ```
 You are reviewing an existing plan for the Ori compiler at {plan_dir}/.
 
-YOUR MISSION: Verify every technical claim is accurate AND every step is actually feasible. Don't just check that files exist — assess whether the proposed approach will work. If something is infeasible, fix the approach. Never scope down — expand or redesign the approach to make it work.
+PRIMARY LENS: Technical accuracy and feasibility — verify every technical claim is accurate AND every step is actually feasible. But this is your LENS, not your BOUNDARY.
+
+## FULL AUTHORITY — READ THIS FIRST
+
+You have FULL AUTHORITY to make ANY structural change to this plan. You are not limited to fixing inaccuracies within the existing structure. If the plan's structure is wrong, fix the structure. Specifically, you may and should:
+
+- **Add new sections** if coverage gaps exist
+- **Remove sections** that are redundant or misguided
+- **Merge sections** that are artificially split
+- **Split sections** that try to do too much
+- **Reorder sections** if the dependency flow is wrong
+- **Rewrite the overview and index** to match structural changes
+- **Restructure the entire plan** if the current organization doesn't serve the mission
+- **Rewrite checklist items** that are vague, wrong, or missing the point
+- **Change section boundaries** — move items between sections if they belong elsewhere
+
+The plan exists to serve the mission. If the structure fights the mission, change the structure. You are not a proofreader — you are an architect with editing authority. Think about whether this plan, as structured, is the RIGHT plan — not just whether its details are correct.
+
+Never scope down — expand or redesign the approach to make it work.
 
 CRITICAL PREREQUISITE: Before starting, read the ENTIRE CLAUDE.md file (every word):
 ```
@@ -120,7 +140,7 @@ Read file: CLAUDE.md
 
 INSTRUCTIONS:
 
-## Part 1: Technical Accuracy
+## Part 1: Technical Accuracy (Primary Focus)
 1. Read ALL files in {plan_dir}/ (index.md, 00-overview.md, and all section-*.md files)
 2. Cross-reference every technical claim against the actual codebase:
    - Do referenced files, types, functions, modules exist?
@@ -144,8 +164,15 @@ INSTRUCTIONS:
    - EXPAND it with additional checklist items covering the missing scope
    - Add detail on what was missing and why it matters
 
-## Part 3: TPR Findings
-9. When reviewing TPR (Third Party Review) findings: you MUST NOT dismiss findings because they are "not related" to the current plan, "out of scope", or "pre-existing." Per CLAUDE.md there is no "unrelated" or "out of scope." If a finding identifies a real issue, it must be accepted. Only reject findings that are factually incorrect (the issue does not actually exist).
+## Part 3: Structural Assessment
+9. Step back and assess the plan AS A WHOLE:
+   - Is this the right set of sections? Would a different decomposition serve the mission better?
+   - Are sections at the right granularity? (Too fine = overhead; too coarse = unexecutable)
+   - Does the section ordering reflect actual implementation dependencies?
+   - If you see a better structure, IMPLEMENT IT — don't just note it
+
+## Part 4: TPR Findings
+10. When reviewing TPR (Third Party Review) findings: you MUST NOT dismiss findings because they are "not related" to the current plan, "out of scope", or "pre-existing." Per CLAUDE.md there is no "unrelated" or "out of scope." If a finding identifies a real issue, it must be accepted. Only reject findings that are factually incorrect (the issue does not actually exist).
 
 ## CRITICAL: `reviewed` field in frontmatter
 
@@ -167,15 +194,33 @@ Do NOT change any `reviewed` values. Fix inaccuracies in content, but leave `rev
 - Sections already `reviewed: true`: verify they're still accurate. If stale, flip to `false` and note why.
 
 Add a brief comment near each fix: <!-- reviewed: accuracy/feasibility fix -->
-After editing, list what you changed and why.
+After editing, list what you changed and why — including any structural changes (sections added, removed, merged, split, reordered).
 ```
 
-#### Agent 2: Strategic Cohesion & Mission Fulfillment
+#### Agent 2: Primary Lens — Strategic Cohesion & Mission Fulfillment
 
 ```
 You are reviewing an existing plan for the Ori compiler at {plan_dir}/.
 
-YOUR MISSION: Ensure the entire plan works as ONE cohesive strategy that can be worked sequentially from first section to last. Every section must build on prior sections. The plan as a whole must fulfill its stated mission completely — if it doesn't, EXPAND it until it does.
+PRIMARY LENS: Strategic cohesion and mission fulfillment — ensure the plan works as ONE cohesive strategy that delivers its mission completely. But this is your LENS, not your BOUNDARY.
+
+## FULL AUTHORITY — READ THIS FIRST
+
+You have FULL AUTHORITY to make ANY structural change to this plan. You are not limited to gap-filling within the existing structure. If the plan's structure is wrong, fix the structure. Specifically, you may and should:
+
+- **Add new sections** if coverage gaps exist
+- **Remove sections** that are redundant or misguided
+- **Merge sections** that are artificially split
+- **Split sections** that try to do too much
+- **Reorder sections** if the dependency flow is wrong
+- **Rewrite the overview and index** to match structural changes
+- **Restructure the entire plan** if the current organization doesn't serve the mission
+- **Rewrite checklist items** that are vague, wrong, or missing the point
+- **Change section boundaries** — move items between sections if they belong elsewhere
+
+The plan exists to serve the mission. If the structure fights the mission, change the structure. You are not a gap-filler — you are an architect with editing authority. Think about whether this plan, as structured, is the RIGHT plan — not just whether it covers enough.
+
+A previous agent (Agent 1) may have already made structural changes. Build on those changes — validate them, improve them, or redo them if they don't serve the mission.
 
 CRITICAL PREREQUISITE: Before starting, read the ENTIRE CLAUDE.md file (every word):
 ```
@@ -219,15 +264,31 @@ INSTRUCTIONS:
 13. Check the overview (00-overview.md) and index.md — do they accurately reflect all sections? Update them if sections were added or restructured.
 
 Add a brief comment near each addition: <!-- reviewed: cohesion fix -->
-After editing, list what you changed and why — especially any new sections added or significant scope expansions.
+After editing, list what you changed and why — especially any structural changes (sections added, removed, merged, split, reordered) and significant scope expansions.
 ```
 
-#### Agent 3: Section Executability & Codebase Hygiene
+#### Agent 3: Primary Lens — Section Executability & Codebase Hygiene
 
 ```
 You are reviewing an existing plan for the Ori compiler at {plan_dir}/.
 
-YOUR MISSION: Ensure every section is independently executable (when worked in order) and that every checklist item is a concrete, actionable task that an implementer can complete without guessing. Also scan the codebase to find existing issues in files the plan touches — the plan must leave code better than it found it.
+PRIMARY LENS: Section executability and codebase hygiene — ensure every checklist item is a concrete, actionable task and that the plan accounts for existing code issues. But this is your LENS, not your BOUNDARY.
+
+## FULL AUTHORITY — READ THIS FIRST
+
+You have FULL AUTHORITY to make ANY structural change to this plan. You are not limited to expanding items within the existing structure. If the plan's structure is wrong, fix the structure. Specifically, you may and should:
+
+- **Add new sections** if coverage gaps exist
+- **Remove sections** that are redundant or misguided
+- **Merge sections** that are artificially split
+- **Split sections** that try to do too much (especially sections with 20+ checklist items)
+- **Reorder sections** if the dependency flow is wrong
+- **Rewrite the overview and index** to match structural changes
+- **Restructure the entire plan** if the current organization doesn't serve the mission
+- **Rewrite checklist items** that are vague, wrong, or missing the point
+- **Change section boundaries** — move items between sections if they belong elsewhere
+
+The plan exists to serve the mission. If the structure fights executability, change the structure. Previous agents (1-2) may have already made structural changes. Build on those — validate, improve, or redo as needed.
 
 CRITICAL PREREQUISITE: Before starting, read the ENTIRE CLAUDE.md file (every word):
 ```
@@ -236,7 +297,7 @@ Read file: CLAUDE.md
 
 INSTRUCTIONS:
 
-## Part 1: Section Executability
+## Part 1: Section Executability (Primary Focus)
 
 1. Read ALL files in {plan_dir}/ (index.md, 00-overview.md, and all section-*.md files)
 2. For each section, assess executability — could an implementer sit down and work through every checklist item in order?
@@ -252,15 +313,16 @@ INSTRUCTIONS:
    - Research the codebase to understand what the section actually requires
    - Add concrete checklist items based on what you find
    - A section that says "implement X" with one checkbox is not executable — it needs the HOW
-5. Check for items that would violate implementation hygiene:
+5. If a section is too large to be worked in one sitting (20+ items, or mixes unrelated concerns), SPLIT IT into focused sections
+6. Check for items that would violate implementation hygiene:
    - Read the hygiene rules at .claude/rules/impl-hygiene.md and compiler guidelines at .claude/rules/compiler.md
    - Does the plan respect file size limits (500 lines)?
    - Does it maintain phase boundary discipline?
    - Are implementation steps ordered correctly (upstream crates before downstream)?
    - Does it follow test file conventions (sibling tests.rs)?
-6. Reorder items within sections if they violate crate dependency ordering (ori_lexer → ori_parse → ori_ir → ori_types → ori_eval → ori_llvm → oric)
-7. Add warnings for steps that are particularly complex or risky
-8. Verify every code-modifying section includes matrix testing requirements:
+7. Reorder items within sections if they violate crate dependency ordering (ori_lexer → ori_parse → ori_ir → ori_types → ori_eval → ori_llvm → oric)
+8. Add warnings for steps that are particularly complex or risky
+9. Verify every code-modifying section includes matrix testing requirements:
    - Does the section specify its test matrix dimensions (which types x which patterns)?
    - Does it include at least one semantic pin requirement (a test that ONLY passes with the new semantics)?
    - Does it specify TDD ordering (failing tests FIRST, debug+release verification LAST)?
@@ -268,37 +330,55 @@ INSTRUCTIONS:
 
 ## Part 2: Codebase Scan — "Leave It Better Than You Found It"
 
-8. Extract from the plan every file path, crate, and module that will be touched
-9. Actually READ those files (up to 30 files; prioritize files mentioned in multiple sections)
-10. Audit each file against the hygiene rules, looking for existing issues:
+10. Extract from the plan every file path, crate, and module that will be touched
+11. Actually READ those files (up to 30 files; prioritize files mentioned in multiple sections)
+12. Audit each file against the hygiene rules, looking for existing issues:
     - **BLOAT**: Files over 500 lines that the plan will touch but doesn't plan to split
     - **WASTE**: Unnecessary clones, allocations, stale comments, dead code, commented-out code
     - **DRIFT**: Registration sync points that are already out of sync
     - **EXPOSURE**: Internal state leaking through boundary types
     - **LEAK**: Phase bleeding in files the plan modifies
     - **STYLE**: Missing docs on pub items, bare TODOs, decorative banners, inline test modules
-11. EDIT the plan files to weave "fix along the way" checklist items into the appropriate sections, using:
+13. EDIT the plan files to weave "fix along the way" checklist items into the appropriate sections, using:
     - [ ] **[BLOAT]** `file:line` — Split into submodules (currently N lines, exceeds 500-line limit)
     - [ ] **[WASTE]** `file:line` — Remove stale comment / dead code / unnecessary clone
     - [ ] **[DRIFT]** `file:line` — Sync missing variant with parallel location at `other_file:line`
     Place these near existing items that touch the same file. Group under "Cleanup" sub-heading if 3+ findings per section.
-12. If findings cluster (5+ in one module), add: "⚠ Clustered findings suggest deeper design issue — consider architectural review before proceeding"
-13. Do NOT fabricate findings. Every finding must reference a real file:line with a real issue.
+14. If findings cluster (5+ in one module), add: "⚠ Clustered findings suggest deeper design issue — consider architectural review before proceeding"
+15. Do NOT fabricate findings. Every finding must reference a real file:line with a real issue.
 
 Add a brief comment near each change: <!-- reviewed: executability/hygiene fix -->
 After editing, list:
+- Structural changes (sections added, removed, merged, split, reordered)
 - Sections expanded and how many items added
 - Vague items made concrete
 - Codebase findings woven in, by category
 - Files scanned vs files with findings
 ```
 
-#### Agent 4: Testing Rigor, Clarity & Final Polish
+#### Agent 4: Primary Lens — Testing Rigor, Clarity & Final Integration
 
 ```
 You are reviewing an existing plan for the Ori compiler at {plan_dir}/.
 
-YOUR MISSION: Ensure every section meets CLAUDE.md testing rigor requirements, verify clarity and consistency across the whole plan, and perform final cleanup. Testing is the highest priority — a plan without adequate test strategy is not executable.
+PRIMARY LENS: Testing rigor, clarity, and final integration — ensure every section has adequate test strategy, the plan reads coherently, and all prior agents' changes are consistent. But this is your LENS, not your BOUNDARY.
+
+## FULL AUTHORITY — READ THIS FIRST
+
+You have FULL AUTHORITY to make ANY structural change to this plan. You are the final agent — you see the cumulative work of Agents 1-3. If their structural changes created inconsistencies, or if you see a better structure now that the dust has settled, FIX IT. Specifically, you may and should:
+
+- **Add new sections** if coverage gaps exist
+- **Remove sections** that are redundant or misguided
+- **Merge sections** that are artificially split
+- **Split sections** that try to do too much
+- **Reorder sections** if the dependency flow is wrong
+- **Rewrite the overview and index** to match structural changes
+- **Restructure the entire plan** if the current organization doesn't serve the mission
+- **Rewrite checklist items** that are vague, wrong, or missing the point
+- **Change section boundaries** — move items between sections if they belong elsewhere
+- **Undo or revise changes from Agents 1-3** if they made the plan worse
+
+You are the final architect. The plan that exists after you are done is the plan that gets executed. Make it right.
 
 CRITICAL PREREQUISITE: Before starting, read the ENTIRE CLAUDE.md file (every word):
 ```
@@ -307,7 +387,7 @@ Read file: CLAUDE.md
 
 INSTRUCTIONS:
 
-## Part 1: Testing Rigor (CRITICAL — per CLAUDE.md)
+## Part 1: Testing Rigor (Primary Focus — per CLAUDE.md)
 
 1. Read ALL files in {plan_dir}/ (index.md, 00-overview.md, and all section-*.md files)
 2. For EVERY section that modifies compiler code, verify it has a test strategy that meets CLAUDE.md requirements:
@@ -348,18 +428,22 @@ INSTRUCTIONS:
 7. Fix inconsistent terminology
 8. Update the overview and index if sections have changed during prior reviews
 
-## Part 3: Final Cleanup
+## Part 3: Final Integration & Cleanup
 
 9. Remove all <!-- reviewed: ... --> comments left by previous reviewers
-10. Verify and finalize `reviewed` field in frontmatter:
+10. **Validate Agents 1-3's structural changes**: Read the plan as a whole. Do the structural changes made by prior agents (added sections, reordering, merging, splitting) create a coherent plan? If not:
+    - Fix inconsistencies between sections
+    - Ensure new sections added by prior agents have proper frontmatter, numbering, and are reflected in overview/index
+    - If a prior agent's structural change was misguided, undo or revise it
+11. Verify and finalize `reviewed` field in frontmatter:
     - Every section file MUST have a `reviewed: true/false` field
     - If a section is missing the field, add `reviewed: false`
     - **Single-section review (Mode A):** After your final coherence check, set `reviewed: true` — the 4-agent pipeline has validated the section. Exception: if any agent flagged unfixable issues requiring human judgement, leave `reviewed: false`.
     - **Whole-plan review (Mode B):** Do NOT change any `reviewed` values.
     - Report any sections missing the field
-11. Final coherence check: read through the entire plan one more time. Does it tell a complete, sequential story from start to finish? If the previous agents added sections or expanded scope, verify the additions are consistent with the rest.
+12. Final coherence check: read through the entire plan one more time. Does it tell a complete, sequential story from start to finish? Is this the RIGHT plan for the mission — not just a cleaned-up version of whatever was there before?
 
-After editing, list what you changed and why — especially any test strategy gaps that were filled.
+After editing, list what you changed and why — especially any test strategy gaps filled, any structural changes, and any corrections to prior agents' work.
 ```
 
 ### Step 5: Present Verdict
@@ -371,16 +455,16 @@ After all four agents complete, consolidate their findings into a summary ranked
 
 ### Changes Made
 
-#### Agent 1 — Technical Accuracy & Feasibility
+#### Agent 1 — Technical Accuracy & Feasibility (+ structural changes)
 - {list of edits made}
 
-#### Agent 2 — Strategic Cohesion & Mission Fulfillment
+#### Agent 2 — Strategic Cohesion & Mission Fulfillment (+ structural changes)
 - {list of edits made}
 
-#### Agent 3 — Section Executability & Codebase Hygiene
+#### Agent 3 — Section Executability & Codebase Hygiene (+ structural changes)
 - {list of edits made}
 
-#### Agent 4 — Testing Rigor, Clarity & Final Polish
+#### Agent 4 — Testing Rigor, Final Integration (+ structural changes)
 - {list of edits made}
 
 ### Review Status
@@ -411,19 +495,21 @@ requires human judgement rather than mechanical fixes.}
 - **CLEAN**: No issues found. Plan is ready for implementation.
 - **MINOR FIXES APPLIED**: Small corrections made (typos, wrong paths, minor gaps). Plan is ready.
 - **SIGNIFICANT REWORK APPLIED**: Substantial edits (reordered steps, added missing sections, fixed incorrect assumptions). Review the diff before proceeding.
+- **RESTRUCTURED**: Plan structure was fundamentally changed (sections added/removed/merged/split/reordered). Review the new structure before proceeding.
 - **NEEDS MANUAL ATTENTION**: Issues found that require human judgement — architectural decisions, ambiguous scope, conflicting requirements. Cannot be auto-fixed.
 
 ## Important Rules
 
-1. **Agents edit directly** — This is not a report-only review. Agents fix what they find.
-2. **Sequential, not parallel** — Each agent sees prior agents' edits. Order matters.
-3. **Be specific** — Every change needs evidence: a spec clause, a file:line, or concrete reasoning.
-4. **Cross-reference, don't guess** — Agents must actually read spec files and source code.
-5. **Check crate dependency order** — Implementation steps must respect: `ori_lexer → ori_parse → ori_ir → ori_types → ori_eval → ori_llvm → oric`.
-6. **Clean up after yourself** — Agent 4 removes all `<!-- reviewed: ... -->` markers.
-7. **Flag what can't be auto-fixed** — Architectural decisions and scope questions go in "Remaining Concerns" for human review.
-8. **NEVER scope down — always expand** — If the plan doesn't fulfill its mission, grow the plan. Add sections, add checkboxes, add detail. "Requires architectural change" is not a reason to defer — it IS the work. Every gap in mission fulfillment must be filled with concrete, actionable items.
-9. **No deferral traps** — Flag any plan items that create temptation to defer during implementation. Items labeled "bonus", "future", "lower priority", or "requires architectural change" are red flags. Every checkbox in a section must be implementable by the agent executing the section. If an item genuinely cannot be implemented within the section's scope (missing language feature, external dependency), it should be marked `<!-- blocked-by:X -->` with a concrete blocker — not soft language that invites skipping. Agents should rewrite soft deferral language into concrete, actionable tasks or explicit blockers.
-10. **No dismissing TPR findings as "unrelated"** — When triaging Third Party Review findings, you MUST NOT dismiss a finding because it is "not related" to the current plan, "out of scope", or "pre-existing." Per CLAUDE.md: there is no "unrelated", "pre-existing", or "out of scope." If a TPR finding identifies a real issue in the codebase, it must be accepted and addressed. The ONLY valid reason to reject a TPR finding is that the described issue does not actually exist in the codebase (factually incorrect).
-11. **Testing rigor is non-negotiable** — Every section that modifies code must have a test strategy meeting CLAUDE.md requirements: matrix tests (type x pattern coverage with explicit dimension names), semantic pins (tests that ONLY pass with the new semantics), TDD ordering (failing tests as first item, debug+release as last item), and cross-section coverage when touching shared code paths. Plans should arrive with these from `/create-plan`, but if missing, Agent 3 and Agent 4 must add them — a section without matrix dimensions and semantic pins is not executable.
-12. **Cohesive sequential strategy** — The plan must read as one continuous strategy. Each section builds on prior sections. No orphan sections, no circular dependencies, no implicit prerequisites.
+1. **Every agent has FULL AUTHORITY** — Each agent can add, remove, merge, split, reorder sections, restructure the entire plan, rewrite the overview/index, and make any change they deem necessary. The "primary lens" shapes what they focus on, NOT what they're permitted to do. A review agent that notices a structural problem but doesn't fix it because "that's not my focus area" has failed.
+2. **Agents edit directly** — This is not a report-only review. Agents fix what they find.
+3. **Sequential, not parallel** — Each agent sees prior agents' edits. Order matters. Later agents validate, build on, or undo earlier agents' structural changes.
+4. **Be specific** — Every change needs evidence: a spec clause, a file:line, or concrete reasoning.
+5. **Cross-reference, don't guess** — Agents must actually read spec files and source code.
+6. **Check crate dependency order** — Implementation steps must respect: `ori_lexer → ori_parse → ori_ir → ori_types → ori_eval → ori_llvm → oric`.
+7. **Clean up after yourself** — Agent 4 removes all `<!-- reviewed: ... -->` markers.
+8. **Flag what can't be auto-fixed** — Architectural decisions and scope questions go in "Remaining Concerns" for human review.
+9. **NEVER scope down — always expand** — If the plan doesn't fulfill its mission, grow the plan. Add sections, add checkboxes, add detail. "Requires architectural change" is not a reason to defer — it IS the work. Every gap in mission fulfillment must be filled with concrete, actionable items.
+10. **No deferral traps** — Flag any plan items that create temptation to defer during implementation. Items labeled "bonus", "future", "lower priority", or "requires architectural change" are red flags. Every checkbox in a section must be implementable by the agent executing the section. If an item genuinely cannot be implemented within the section's scope (missing language feature, external dependency), it should be marked `<!-- blocked-by:X -->` with a concrete blocker — not soft language that invites skipping. Agents should rewrite soft deferral language into concrete, actionable tasks or explicit blockers.
+11. **No dismissing TPR findings as "unrelated"** — When triaging Third Party Review findings, you MUST NOT dismiss a finding because it is "not related" to the current plan, "out of scope", or "pre-existing." Per CLAUDE.md: there is no "unrelated", "pre-existing", or "out of scope." If a TPR finding identifies a real issue in the codebase, it must be accepted and addressed. The ONLY valid reason to reject a TPR finding is that the described issue does not actually exist in the codebase (factually incorrect).
+12. **Testing rigor is non-negotiable** — Every section that modifies code must have a test strategy meeting CLAUDE.md requirements: matrix tests (type x pattern coverage with explicit dimension names), semantic pins (tests that ONLY pass with the new semantics), TDD ordering (failing tests as first item, debug+release as last item), and cross-section coverage when touching shared code paths. Plans should arrive with these from `/create-plan`, but if missing, Agent 3 and Agent 4 must add them — a section without matrix dimensions and semantic pins is not executable.
+13. **Cohesive sequential strategy** — The plan must read as one continuous strategy. Each section builds on prior sections. No orphan sections, no circular dependencies, no implicit prerequisites.

@@ -1,0 +1,7 @@
+// Edge case: Option<[int]>.debug() with empty list payload.
+// Interpreter: Some([]) | AOT must match.
+
+@main () -> void = {
+    let $o: Option<[int]> = Some([]);
+    print(msg: o.debug())
+}

@@ -18,7 +18,7 @@
 //! This is safe (using `invoke` is always correct) but generates unnecessary
 //! overhead. A future refactor could fold impl methods into the two-pass batch.
 //!
-//! # NOTE: Derived methods handled separately (§02.3)
+//! # NOTE: Derived methods handled separately
 //!
 //! Derived trait methods (`$eq`, `$compare`, `$hash`, `$clone`, `$default`)
 //! are emitted by `derive_codegen` outside this two-pass pipeline. Pure

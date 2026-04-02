@@ -94,7 +94,7 @@ pub fn dispatch_list_method(
     // Debug trait - shows list structure
     } else if method == n.debug {
         require_args("debug", 0, args.len())?;
-        let parts: Vec<String> = list.iter().map(debug_value).collect();
+        let parts: Vec<String> = list.iter().map(|v| debug_value(v, ctx.interner)).collect();
         Ok(Value::string(format!("[{}]", parts.join(", "))))
     // Additional list methods (cold path — string-based dispatch)
     } else {

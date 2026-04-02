@@ -406,7 +406,7 @@ fn option_of_generic_trivial_struct_is_trivial() {
     assert_eq!(classify_triviality(opt, &pool), Triviality::Trivial);
 }
 
-// §02.6: Result<Pair<int>, Pair<float>> → both arms trivial → Trivial
+// Result<Pair<int>, Pair<float>> → both arms trivial → Trivial
 
 #[test]
 fn result_of_two_trivial_structs_is_trivial() {
@@ -430,7 +430,7 @@ fn out_of_bounds_idx_is_unknown() {
     assert_eq!(classify_triviality(oob, &pool), Triviality::Unknown);
 }
 
-// Recursive type — cycle detection (semantic pin for §02.2)
+// Recursive type — cycle detection
 
 #[test]
 fn recursive_struct_via_option_is_non_trivial() {
@@ -572,7 +572,7 @@ fn alias_unresolvable_is_unknown() {
     assert_eq!(classify_triviality(a, &pool), Triviality::Unknown);
 }
 
-// §02.5: Newtype wrapping list → NonTrivial
+// Newtype wrapping list → NonTrivial
 
 #[test]
 fn newtype_wrapping_list_is_non_trivial() {
@@ -583,7 +583,7 @@ fn newtype_wrapping_list_is_non_trivial() {
     assert_eq!(classify_triviality(wrapper, &pool), Triviality::NonTrivial);
 }
 
-// §02.5: Simulated FFI types — Named types resolved to primitives/opaques
+// Simulated FFI types — Named types resolved to primitives/opaques
 
 #[test]
 fn simulated_cptr_resolved_to_int_is_trivial() {
@@ -628,7 +628,7 @@ fn simulated_ffi_struct_all_c_types_is_trivial() {
     assert_eq!(classify_triviality(ffi_struct, &pool), Triviality::Trivial);
 }
 
-// §02.5: Unresolved generic newtype → Unknown
+// Unresolved generic newtype → Unknown
 
 #[test]
 fn unresolved_generic_newtype_is_unknown() {

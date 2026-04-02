@@ -95,6 +95,57 @@ fn eval_char_handles_all_registry_supported_ops() {
 // (no `(Value::Byte, Value::Byte)` match arm in evaluate_binary).
 // Tracked as BUG-03-001. Test added when evaluator supports byte ops.
 
+// NOTE: Duration and Size same-type op tests are omitted because the
+// evaluator doesn't implement all registry-declared ops for these types
+// (e.g., FloorDiv, Mod). Tracked for fix in roadmap.
+// When fixed, uncomment:
+// #[test] fn eval_duration_handles_all_registry_supported_ops() { ... }
+// #[test] fn eval_size_handles_all_registry_supported_ops() { ... }
+
+/// `value_to_type_tag()` covers all primitive types with operator support.
+#[test]
+fn value_to_type_tag_covers_primitive_op_types() {
+    use super::value_to_type_tag;
+
+    // Verify each primitive type maps correctly
+    assert_eq!(
+        value_to_type_tag(&Value::Int(ScalarInt::new(0))),
+        Some(TypeTag::Int)
+    );
+    assert_eq!(value_to_type_tag(&Value::Float(0.0)), Some(TypeTag::Float));
+    assert_eq!(value_to_type_tag(&Value::Bool(false)), Some(TypeTag::Bool));
+    assert_eq!(value_to_type_tag(&Value::string("")), Some(TypeTag::Str));
+    assert_eq!(value_to_type_tag(&Value::Char(' ')), Some(TypeTag::Char));
+    assert_eq!(value_to_type_tag(&Value::Byte(0)), Some(TypeTag::Byte));
+    assert_eq!(
+        value_to_type_tag(&Value::Duration(0)),
+        Some(TypeTag::Duration)
+    );
+    assert_eq!(value_to_type_tag(&Value::Size(0)), Some(TypeTag::Size));
+    // Compound types return None
+    assert_eq!(value_to_type_tag(&Value::list(vec![])), None);
+    assert_eq!(value_to_type_tag(&Value::None), None);
+}
+
+/// Verify `op_strategy_from_op()` maps every `REGISTRY_OPS` entry correctly.
+#[test]
+fn op_strategy_from_op_maps_all_registry_ops() {
+    use super::op_strategy_from_op;
+
+    let Some(int_def) = ori_registry::find_type(TypeTag::Int) else {
+        panic!("int TypeDef not found");
+    };
+    for &(op, get_strategy) in REGISTRY_OPS {
+        let expected = get_strategy(&int_def.operators);
+        let actual = op_strategy_from_op(&int_def.operators, op)
+            .unwrap_or_else(|| panic!("REGISTRY_OPS contains non-registry op {op:?}"));
+        assert_eq!(
+            expected, actual,
+            "op_strategy_from_op mismatch for int {op:?}"
+        );
+    }
+}
+
 /// Verify that the evaluator rejects operators the registry marks as unsupported
 /// for `int` (there should be very few — int supports almost everything).
 #[test]

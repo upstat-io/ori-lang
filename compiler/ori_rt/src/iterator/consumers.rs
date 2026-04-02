@@ -7,6 +7,7 @@ use std::ptr;
 
 use super::state::assert_elem_size;
 use super::{FoldFn, ForEachFn, IterState, PredicateFn, MAX_ELEM_SIZE};
+use crate::{OPTION_TAG_NONE, OPTION_TAG_SOME};
 
 // Collect
 
@@ -293,8 +294,7 @@ pub extern "C" fn ori_iter_find(
     }
 
     if iter.is_null() {
-        // Write None: i64 tag = 1 (ARC convention: None is second variant)
-        unsafe { out_ptr.cast::<i64>().write(1) };
+        unsafe { out_ptr.cast::<i64>().write(OPTION_TAG_NONE) };
         return;
     }
 
@@ -316,9 +316,12 @@ pub extern "C" fn ori_iter_find(
         }
     };
 
-    // Write i64 tag: ARC enum convention — Some=0, None=1
     unsafe {
-        out_ptr.cast::<i64>().write(i64::from(!found));
+        out_ptr.cast::<i64>().write(if found {
+            OPTION_TAG_SOME
+        } else {
+            OPTION_TAG_NONE
+        });
     }
 
     drop(unsafe { Box::from_raw(iter.cast::<IterState>()) });
@@ -417,4 +420,259 @@ pub extern "C" fn ori_iter_fold(
     unsafe { ptr::copy_nonoverlapping(current.as_ptr(), out_ptr, as_) };
 
     drop(unsafe { Box::from_raw(iter.cast::<IterState>()) });
+}
+
+// Last
+
+/// Return the last element of the iterator, consuming it.
+///
+/// Writes `Option<T>` to `out_ptr`: `{ i64 tag, T payload }`.
+/// Tag convention: Some=0, None=1. Iterates forward keeping the last element.
+#[no_mangle]
+pub extern "C" fn ori_iter_last(iter: *mut u8, elem_size: i64, out_ptr: *mut u8) {
+    assert_elem_size(elem_size, "ori_iter_last");
+    if out_ptr.is_null() {
+        if !iter.is_null() {
+            drop(unsafe { Box::from_raw(iter.cast::<IterState>()) });
+        }
+        return;
+    }
+
+    if iter.is_null() {
+        unsafe { out_ptr.cast::<i64>().write(OPTION_TAG_NONE) };
+        return;
+    }
+
+    let state = unsafe { &mut *iter.cast::<IterState>() };
+    let payload_ptr = unsafe { out_ptr.add(8) };
+    let mut elem_buf = [0u8; MAX_ELEM_SIZE];
+    let mut found = false;
+
+    while unsafe { state.next(elem_buf.as_mut_ptr(), elem_size) } {
+        unsafe {
+            ptr::copy_nonoverlapping(elem_buf.as_ptr(), payload_ptr, elem_size as usize);
+        }
+        found = true;
+    }
+
+    unsafe {
+        out_ptr.cast::<i64>().write(if found {
+            OPTION_TAG_SOME
+        } else {
+            OPTION_TAG_NONE
+        });
+    }
+    drop(unsafe { Box::from_raw(iter.cast::<IterState>()) });
+}
+
+// Join
+
+/// Join iterator elements into a single string with separator.
+///
+/// Each element is expected to already be an `OriStr` (24 bytes).
+/// The `to_str_fn` trampoline converts non-string elements to strings.
+/// If `to_str_fn` is null, elements are assumed to be strings.
+///
+/// Writes the resulting `OriStr` to `out_ptr` (sret pattern, 24 bytes).
+#[no_mangle]
+pub extern "C" fn ori_iter_join(
+    iter: *mut u8,
+    sep_data: *const u8,
+    sep_len: i64,
+    to_str_fn: Option<extern "C" fn(*mut u8, *const u8, *mut u8)>,
+    to_str_env: *mut u8,
+    elem_size: i64,
+    out_ptr: *mut u8,
+) {
+    use crate::string::OriStr;
+
+    if out_ptr.is_null() {
+        if !iter.is_null() {
+            drop(unsafe { Box::from_raw(iter.cast::<IterState>()) });
+        }
+        return;
+    }
+
+    if iter.is_null() {
+        // Empty iterator — return empty string (SSO empty)
+        let empty = OriStr::from_bytes(b"");
+        unsafe {
+            ptr::copy_nonoverlapping(
+                std::ptr::from_ref::<OriStr>(&empty).cast::<u8>(),
+                out_ptr,
+                24,
+            );
+        }
+        let _ = empty;
+        return;
+    }
+
+    let state = unsafe { &mut *iter.cast::<IterState>() };
+    let sep = if sep_data.is_null() || sep_len <= 0 {
+        ""
+    } else {
+        unsafe {
+            std::str::from_utf8_unchecked(std::slice::from_raw_parts(sep_data, sep_len as usize))
+        }
+    };
+
+    let mut result = String::new();
+    let mut elem_buf = [0u8; MAX_ELEM_SIZE];
+    let mut first = true;
+
+    while unsafe { state.next(elem_buf.as_mut_ptr(), elem_size) } {
+        if !first {
+            result.push_str(sep);
+        }
+
+        // Convert element to string via trampoline or direct string read
+        if let Some(to_str) = to_str_fn {
+            let mut str_buf = [0u8; 24]; // OriStr is 24 bytes
+            (to_str)(to_str_env, elem_buf.as_ptr(), str_buf.as_mut_ptr());
+            let s = unsafe { &*(str_buf.as_ptr().cast::<OriStr>()) };
+            result.push_str(unsafe { s.as_str() });
+        } else {
+            // Element is already an OriStr (24 bytes)
+            let s = unsafe { &*(elem_buf.as_ptr().cast::<OriStr>()) };
+            result.push_str(unsafe { s.as_str() });
+        }
+
+        first = false;
+    }
+
+    let ori_str = OriStr::from_owned(&result);
+    unsafe {
+        ptr::copy_nonoverlapping(
+            std::ptr::from_ref::<OriStr>(&ori_str).cast::<u8>(),
+            out_ptr,
+            24,
+        );
+    }
+    let _ = ori_str;
+
+    drop(unsafe { Box::from_raw(iter.cast::<IterState>()) });
+}
+
+// Rfold
+
+/// Fold the iterator from right-to-left, consuming it.
+///
+/// Collects all elements into a buffer, then folds right-to-left.
+/// This is the simplest correct implementation without DEI runtime support.
+#[no_mangle]
+pub extern "C" fn ori_iter_rfold(
+    iter: *mut u8,
+    init_ptr: *const u8,
+    fold_fn: FoldFn,
+    fold_env: *mut u8,
+    elem_size: i64,
+    acc_size: i64,
+    out_ptr: *mut u8,
+) {
+    assert_elem_size(elem_size, "ori_iter_rfold");
+    assert_elem_size(acc_size, "ori_iter_rfold(acc)");
+    if out_ptr.is_null() {
+        if !iter.is_null() {
+            drop(unsafe { Box::from_raw(iter.cast::<IterState>()) });
+        }
+        return;
+    }
+
+    let as_ = acc_size.max(1) as usize;
+    let es = elem_size.max(1) as usize;
+
+    if iter.is_null() {
+        if !init_ptr.is_null() {
+            unsafe { ptr::copy_nonoverlapping(init_ptr, out_ptr, as_) };
+        }
+        return;
+    }
+
+    let state = unsafe { &mut *iter.cast::<IterState>() };
+
+    // Collect all elements into a Vec
+    let mut elements: Vec<u8> = Vec::new();
+    let mut elem_buf = [0u8; MAX_ELEM_SIZE];
+    while unsafe { state.next(elem_buf.as_mut_ptr(), elem_size) } {
+        elements.extend_from_slice(&elem_buf[..es]);
+    }
+
+    drop(unsafe { Box::from_raw(iter.cast::<IterState>()) });
+
+    // Fold right-to-left
+    let mut acc_a = [0u8; MAX_ELEM_SIZE];
+    let mut acc_b = [0u8; MAX_ELEM_SIZE];
+
+    if !init_ptr.is_null() {
+        unsafe { ptr::copy_nonoverlapping(init_ptr, acc_a.as_mut_ptr(), as_) };
+    }
+
+    let mut current = &mut acc_a;
+    let mut next = &mut acc_b;
+    let count = elements.len() / es;
+
+    for i in (0..count).rev() {
+        let elem_ptr = elements[i * es..].as_ptr();
+        (fold_fn)(fold_env, current.as_ptr(), elem_ptr, next.as_mut_ptr());
+        std::mem::swap(&mut current, &mut next);
+    }
+
+    unsafe { ptr::copy_nonoverlapping(current.as_ptr(), out_ptr, as_) };
+}
+
+// Rfind
+
+/// Find the last element matching a predicate, consuming the iterator.
+///
+/// Collects all elements, then searches right-to-left.
+/// Writes `Option<T>` to `out_ptr`: `{ i64 tag, T payload }`.
+#[no_mangle]
+pub extern "C" fn ori_iter_rfind(
+    iter: *mut u8,
+    pred_fn: PredicateFn,
+    pred_env: *mut u8,
+    elem_size: i64,
+    out_ptr: *mut u8,
+) {
+    assert_elem_size(elem_size, "ori_iter_rfind");
+    if out_ptr.is_null() {
+        if !iter.is_null() {
+            drop(unsafe { Box::from_raw(iter.cast::<IterState>()) });
+        }
+        return;
+    }
+
+    if iter.is_null() {
+        unsafe { out_ptr.cast::<i64>().write(OPTION_TAG_NONE) };
+        return;
+    }
+
+    let state = unsafe { &mut *iter.cast::<IterState>() };
+    let es = elem_size.max(1) as usize;
+
+    // Collect all elements
+    let mut elements: Vec<u8> = Vec::new();
+    let mut elem_buf = [0u8; MAX_ELEM_SIZE];
+    while unsafe { state.next(elem_buf.as_mut_ptr(), elem_size) } {
+        elements.extend_from_slice(&elem_buf[..es]);
+    }
+
+    drop(unsafe { Box::from_raw(iter.cast::<IterState>()) });
+
+    // Search right-to-left
+    let count = elements.len() / es;
+    let payload_ptr = unsafe { out_ptr.add(8) };
+
+    for i in (0..count).rev() {
+        let elem_ptr = elements[i * es..].as_ptr();
+        if (pred_fn)(pred_env, elem_ptr) {
+            unsafe {
+                ptr::copy_nonoverlapping(elem_ptr, payload_ptr, es);
+                out_ptr.cast::<i64>().write(OPTION_TAG_SOME);
+            }
+            return;
+        }
+    }
+
+    unsafe { out_ptr.cast::<i64>().write(OPTION_TAG_NONE) };
 }

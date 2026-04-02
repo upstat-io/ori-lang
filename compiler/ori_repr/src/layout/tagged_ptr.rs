@@ -1,4 +1,4 @@
-//! Tagged pointer analysis for enum representation optimization (§07.3).
+//! Tagged pointer analysis for enum representation optimization.
 //!
 //! On 64-bit systems, heap pointers have alignment ≥8, meaning the low 3 bits
 //! are always zero. These bits can store a 3-bit tag (up to 8 variants).
