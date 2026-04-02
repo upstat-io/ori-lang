@@ -161,7 +161,7 @@ section references, phase annotations, cleanup
 ---
 
 ### Section 12: Surface Hygiene
-**File:** `section-12-surface-hygiene.md` | **Status:** In Progress (7%)
+**File:** `section-12-surface-hygiene.md` | **Status:** In Progress (96%, TPR pending)
 
 ```
 file size, 500 line limit, unsafe SAFETY comment
