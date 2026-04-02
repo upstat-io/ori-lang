@@ -1,7 +1,7 @@
 ---
 section: "08"
 title: "Cross-Phase Invariant Contracts"
-status: in-progress
+status: complete
 reviewed: true
 goal: "Add debug_assert validation for all cross-phase invariant contracts listed in impl-hygiene.md"
 inspired_by:
@@ -9,7 +9,7 @@ inspired_by:
   - "Swift SILVerifier -- invariant verification at phase boundaries"
 depends_on: []
 third_party_review:
-  status: findings
+  status: resolved
   updated: 2026-04-01
 sections:
   - id: "08.1"
@@ -131,6 +131,6 @@ Review and resolve any ABI-related FIXME comments that represent deferred invari
 - [x] `timeout 150 ./test-all.sh` passes in both debug and release (2026-04-01) 14,933 passed, 0 failed
 - [x] `./clippy-all.sh` passes (2026-04-01)
 - [x] Plan annotation cleanup: `bash .claude/skills/impl-hygiene-review/plan-annotations.sh --plan 08` returns 0 annotations (2026-04-01) 0 hygiene-full section 08 annotations; matches are repr-opt Phase B/C refs
-- [ ] `/tpr-review` passed (final, full-section)
+- [x] `/tpr-review` passed (final, full-section) (2026-04-01) Clean after 4 Codex iterations: 12 findings surfaced and resolved (1 code fix, 1 documentation, 9 plan accuracy corrections). 14,944 tests passing.
 
 **Exit Criteria:** Every cross-phase contract in the `impl-hygiene.md` table has a corresponding validation mechanism. `./test-all.sh` green in both debug (assertions active) and release (assertions stripped).
