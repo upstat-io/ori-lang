@@ -1,14 +1,14 @@
 ---
 section: "06"
 title: "LLVM Internal Algorithmic DRY"
-status: in-progress
+status: complete
 reviewed: true
 goal: "Deduplicate near-identical code within ori_llvm: enum inc/dec, slice-aware RC, list trait loops, equals/is_equal arms, pre-interned names"
 inspired_by:
   - "Swift SILOptimizer/ARC -- single RC emission path parameterized by inc/dec direction"
 depends_on: ["04"]
 third_party_review:
-  status: findings
+  status: resolved
   updated: 2026-04-01
 sections:
   - id: "06.1"
@@ -128,6 +128,6 @@ Pre-interned method names (string constants like `"equals"`, `"compare"`, `"hash
 - [x] `timeout 150 ./test-all.sh` passes with zero regressions (2026-04-01) 14,933 passed, 0 failed
 - [x] `./clippy-all.sh` passes (2026-04-01)
 - [x] Plan annotation cleanup: `bash .claude/skills/impl-hygiene-review/plan-annotations.sh --plan 06` returns 0 annotations (2026-04-01) 0 hygiene-full section 06 annotations; remaining matches are roadmap architecture docs (Section 06.2 = borrow inference) and repr-opt Phase refs
-- [ ] `/tpr-review` passed (final, full-section)
+- [x] `/tpr-review` passed (final, full-section) (2026-04-01) Clean after 4 Codex iterations: 12 findings surfaced and resolved (1 code fix, 1 documentation, 9 plan accuracy corrections). 14,944 tests passing.
 
 **Exit Criteria:** Enum RC inc/dec share parameterized core (`emit_inline_enum_rc_core`). No duplicated Option/Result trait dispatch exists within `ori_llvm`. `./test-all.sh` green. Note: `rc_helpers.rs` grew to 490 lines from additional COW/ARC codegen work in repr-opt — the DRY extraction was completed but the file size increased from other sections' work.

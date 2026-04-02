@@ -1,14 +1,14 @@
 ---
 section: "10"
 title: "Scattered Knowledge Cleanup"
-status: in-progress
+status: complete
 reviewed: true
 goal: "Eliminate scattered knowledge: re-derived triviality, semantic mismatches, hardcoded predicates, duplicated type names, dual suggestion fields, duplicated repr types, swallowed errors"
 inspired_by:
   - "impl-hygiene.md SSOT paradigm -- every piece of knowledge has exactly one canonical home"
 depends_on: ["01", "02"]
 third_party_review:
-  status: findings
+  status: resolved
   updated: 2026-04-01
 sections:
   - id: "10.1"
@@ -162,6 +162,6 @@ Two error handling issues in the lexer entry points:
 - [x] `timeout 150 ./test-all.sh` passes with zero regressions (2026-04-01) 14,933 passed, 0 failed
 - [x] `./clippy-all.sh` passes (2026-04-01)
 - [x] Plan annotation cleanup: `bash .claude/skills/impl-hygiene-review/plan-annotations.sh --plan 10` returns 0 annotations (2026-04-01) 0 hygiene-full section 10 annotations
-- [ ] `/tpr-review` passed (final, full-section)
+- [x] `/tpr-review` passed (final, full-section) (2026-04-01) Clean after 4 Codex iterations: 12 findings surfaced and resolved (1 code fix, 1 documentation, 9 plan accuracy corrections). 14,944 tests passing.
 
 **Exit Criteria:** All 9 scattered knowledge findings resolved. No predicate re-derives facts available from a canonical source. No duplicate name functions. `./test-all.sh` green.

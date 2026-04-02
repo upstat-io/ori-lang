@@ -1,7 +1,7 @@
 ---
 section: "12"
 title: "Surface Hygiene"
-status: in-progress
+status: complete
 reviewed: true
 goal: "Address surface hygiene: oversized files, missing SAFETY comments, missing module docs, dead code, large match arms, leaked pool IDs, cold-path allocations"
 inspired_by:
@@ -9,7 +9,7 @@ inspired_by:
   - "Rust compiler -- data-driven dispatch for large match arms"
 depends_on: ["01", "02", "03", "04", "05", "06", "07", "08", "09", "10", "11"]
 third_party_review:
-  status: findings
+  status: resolved
   updated: 2026-04-01
 sections:
   - id: "12.1"
@@ -163,6 +163,6 @@ String allocations (`format!()`, `String::from()`) on cold error paths are gener
 - [x] `timeout 150 ./test-all.sh` passes with zero regressions (2026-04-01) 14,943 passed, 0 failed
 - [x] `./clippy-all.sh` passes (2026-04-01) clean
 - [x] Plan annotation cleanup: `bash .claude/skills/impl-hygiene-review/plan-annotations.sh --plan 12` returns 0 annotations (2026-04-01) 4 matches are roadmap Section 12 references (not hygiene-full annotations); hygiene-full plan uses no code annotations
-- [ ] `/tpr-review` passed (final, full-section)
+- [x] `/tpr-review` passed (final, full-section) (2026-04-01) Clean after 4 Codex iterations: 12 findings surfaced and resolved (1 code fix, 1 documentation, 9 plan accuracy corrections). 14,944 tests passing.
 
 **Exit Criteria:** Top 5 oversized files are under 1000 lines each. All `unsafe` blocks documented. `./test-all.sh` green.

@@ -1,14 +1,14 @@
 ---
 section: "11"
 title: "Stale Plan Annotations"
-status: in-progress
+status: complete
 reviewed: true
 goal: "Remove all stale plan annotation references from completed plans (~180 annotations across ori_arc, ori_llvm, ori_types, oric)"
 inspired_by:
   - "CLAUDE.md -- plan annotations are temporary scaffolding, MUST be removed when plan completes"
 depends_on: []
 third_party_review:
-  status: findings
+  status: resolved
   updated: 2026-04-01
 sections:
   - id: "11.1"
@@ -124,6 +124,6 @@ Pre-cleanup scan found ~180 stale annotations across `ori_arc` (~31), `ori_llvm`
 - [x] `./test-all.sh` passes: 14,906 tests, 0 failures (2026-04-01)
 - [x] `./clippy-all.sh` passes (verified in pre-commit hook) (2026-04-01)
 - [x] Plan annotation scanner: 0 stale annotations from completed plans (2026-04-01)
-- [ ] `/tpr-review` passed (final, full-section)
+- [x] `/tpr-review` passed (final, full-section) (2026-04-01) Clean after 4 Codex iterations: 12 findings surfaced and resolved (1 code fix, 1 documentation, 9 plan accuracy corrections). 14,944 tests passing.
 
 **Exit Criteria:** `bash .claude/skills/impl-hygiene-review/plan-annotations.sh` returns 0 stale annotations from completed plans. `./test-all.sh` green.
