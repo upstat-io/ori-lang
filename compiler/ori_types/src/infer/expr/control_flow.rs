@@ -51,16 +51,14 @@ pub(crate) fn infer_if(
 
         engine.resolve(then_ty)
     } else {
-        // No else: if without else has type unit
-        // (unless then_branch has type unit or never)
-        let resolved_then = engine.resolve(then_ty);
-        if resolved_then == Idx::UNIT || resolved_then == Idx::NEVER {
-            Idx::UNIT
-        } else {
-            // Warning: if without else where then is not unit
-            // For now, just return unit
-            Idx::UNIT
-        }
+        // No else: then-branch must be void or Never (Spec: Clause 16, §16.1).
+        // "the then-branch shall have type void or Never"
+        let expected = Expected {
+            ty: Idx::UNIT,
+            origin: ExpectedOrigin::NoExpectation,
+        };
+        let _ = engine.check_type(then_ty, &expected, arena.get_expr(then_branch).span);
+        Idx::UNIT
     }
 }
 

@@ -19,11 +19,10 @@ Bugs in type inference, unification, trait resolution, method dispatch, generics
 
 ## Open Bugs
 
-- [ ] `[BUG-02-001][high]` **infer_if() allows non-void then-branch without else** — found by verify-roadmap.
-  Repro: `@main () -> void = { if true then 42 }` — compiles without error, but spec requires `if` without `else` to have type `void` or `Never` in the then-branch.
-  Subsystem: `compiler/ori_types/src/infer/expr/control_flow.rs` (lines 53-63)
+- [x] `[BUG-02-001][high]` **infer_if() allows non-void then-branch without else** — found by verify-roadmap.
+  Resolved: Fixed on 2026-04-02. Changed `infer_if()` to call `engine.check_type(then_ty, void)` when no else-branch is present, emitting E2001 type mismatch for non-void then-branches. Tests: 1 Rust unit test (`test_infer_if_without_else_non_void_then`) + 3 Ori spec `#compile_fail` negative pins (int, str, list). 14,966 tests passing.
+  Subsystem: `compiler/ori_types/src/infer/expr/control_flow.rs`
   Found: 2026-03-28 | Source: verify-roadmap
-  Note: Active work in roadmap section 10 (control flow) touches this area.
 
 - [x] `[BUG-02-002][high]` **Coalesce (`??`) same-type wrapper forms typed as `T` instead of wrapper** — found by tpr-review.
   Repro: `let a: Option<int> = Some(1); let b: Option<int> = Some(2); let c: Option<int> = a ?? b;` — fails with `expected int?, found int`. Same for `Result<T,E> ?? Result<T,E>`.
