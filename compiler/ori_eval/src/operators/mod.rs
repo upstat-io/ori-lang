@@ -202,6 +202,7 @@ fn evaluate_binary_via_registry(left: Value, right: Value, op: BinaryOp) -> Eval
                 (Value::Bool(a), Value::Bool(b)) => eval_bool_binary(*a, *b, op),
                 (Value::Str(a), Value::Str(b)) => eval_string_binary(a, b, op),
                 (Value::Char(a), Value::Char(b)) => eval_char_binary(*a, *b, op),
+                (Value::Byte(a), Value::Byte(b)) => eval_byte_binary(*a, *b, op),
                 (Value::Duration(a), Value::Duration(b)) => eval_duration_binary(*a, *b, op),
                 (Value::Size(a), Value::Size(b)) => eval_size_binary(*a, *b, op),
                 _ => Err(binary_type_mismatch(left.type_name(), right.type_name()).into()),
@@ -341,12 +342,79 @@ fn eval_char_binary(a: char, b: char, op: BinaryOp) -> EvalResult {
     }
 }
 
+/// Binary operations on bytes.
+///
+/// Supports arithmetic (checked for overflow), comparison (unsigned ordering),
+/// and bitwise operations. Registry: arithmetic `IntInstr`, comparison `UnsignedCmp`.
+fn eval_byte_binary(a: u8, b: u8, op: BinaryOp) -> EvalResult {
+    match op {
+        BinaryOp::Add => a
+            .checked_add(b)
+            .map(Value::Byte)
+            .ok_or_else(|| integer_overflow("addition").into()),
+        BinaryOp::Sub => a
+            .checked_sub(b)
+            .map(Value::Byte)
+            .ok_or_else(|| integer_overflow("subtraction").into()),
+        BinaryOp::Mul => a
+            .checked_mul(b)
+            .map(Value::Byte)
+            .ok_or_else(|| integer_overflow("multiplication").into()),
+        BinaryOp::Div => {
+            if b == 0 {
+                Err(division_by_zero().into())
+            } else {
+                #[expect(clippy::arithmetic_side_effects, reason = "guarded by zero check")]
+                Ok(Value::Byte(a / b))
+            }
+        }
+        BinaryOp::Mod => {
+            if b == 0 {
+                Err(modulo_by_zero().into())
+            } else {
+                #[expect(clippy::arithmetic_side_effects, reason = "guarded by zero check")]
+                Ok(Value::Byte(a % b))
+            }
+        }
+        BinaryOp::Eq => Ok(Value::Bool(a == b)),
+        BinaryOp::NotEq => Ok(Value::Bool(a != b)),
+        BinaryOp::Lt => Ok(Value::Bool(a < b)),
+        BinaryOp::LtEq => Ok(Value::Bool(a <= b)),
+        BinaryOp::Gt => Ok(Value::Bool(a > b)),
+        BinaryOp::GtEq => Ok(Value::Bool(a >= b)),
+        BinaryOp::BitAnd => Ok(Value::Byte(a & b)),
+        BinaryOp::BitOr => Ok(Value::Byte(a | b)),
+        BinaryOp::BitXor => Ok(Value::Byte(a ^ b)),
+        BinaryOp::Shl => {
+            let shift = u32::from(b);
+            if shift >= 8 {
+                return Err(byte_shift_out_of_range(i64::from(b)).into());
+            }
+            Ok(Value::Byte(a << shift))
+        }
+        BinaryOp::Shr => {
+            let shift = u32::from(b);
+            if shift >= 8 {
+                return Err(byte_shift_out_of_range(i64::from(b)).into());
+            }
+            Ok(Value::Byte(a >> shift))
+        }
+        _ => Err(invalid_binary_op_for("byte", op).into()),
+    }
+}
+
 // Operator Error Factories
 
 /// Shift amount is outside the valid range for 64-bit integers.
 #[cold]
 fn shift_out_of_range(amount: i64) -> EvalError {
     EvalError::new(format!("shift amount {amount} out of range (0-63)"))
+}
+
+/// Shift amount is outside the valid range for 8-bit bytes.
+#[cold]
+fn byte_shift_out_of_range(amount: i64) -> EvalError {
+    EvalError::new(format!("shift amount {amount} out of range (0-7)"))
 }
 
 #[cfg(test)]

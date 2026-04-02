@@ -132,7 +132,7 @@ Phase 4 - Enforcement & cleanup
 |----|-------|------|--------|
 | 01 | Registry SSOT (Operator Dispatch) | `section-01-registry-operator-dispatch.md` | Complete |
 | 02 | Registry SSOT (Methods & Traits) | `section-02-registry-methods-traits.md` | Complete |
-| 03 | Cross-Backend DRY (eval / LLVM) | `section-03-cross-backend-dry.md` | In Progress |
+| 03 | Cross-Backend DRY (eval / LLVM) | `section-03-cross-backend-dry.md` | In Progress (1 blocked by roadmap-21A) |
 | 04 | Named Constants | `section-04-named-constants.md` | Complete |
 | 05 | Layout Computation Unification | `section-05-layout-unification.md` | Complete |
 | 06 | LLVM Internal DRY | `section-06-llvm-internal-dry.md` | In Progress (TPR pending) |
@@ -141,7 +141,7 @@ Phase 4 - Enforcement & cleanup
 | 09 | Registration Sync & Enforcement | `section-09-registration-sync.md` | In Progress (TPR pending) |
 | 10 | Scattered Knowledge Cleanup | `section-10-scattered-knowledge.md` | In Progress (TPR pending) |
 | 11 | Stale Plan Annotations | `section-11-stale-annotations.md` | In Progress (TPR pending) |
-| 12 | Surface Hygiene | `section-12-surface-hygiene.md` | In Progress |
+| 12 | Surface Hygiene | `section-12-surface-hygiene.md` | In Progress (TPR pending) |
 
 ## Cleanup
 

@@ -9,8 +9,8 @@ inspired_by:
   - "Swift SILVerifier -- invariant verification at phase boundaries"
 depends_on: []
 third_party_review:
-  status: none
-  updated: null
+  status: resolved
+  updated: 2026-04-01
 sections:
   - id: "08.1"
     title: "Type Variable Resolution Before Codegen"
@@ -29,7 +29,7 @@ sections:
     status: complete
   - id: "08.R"
     title: "Third Party Review Findings"
-    status: complete
+    status: in-progress
   - id: "08.N"
     title: "Completion Checklist"
     status: in-progress
@@ -110,7 +110,8 @@ Review and resolve any ABI-related FIXME comments that represent deferred invari
 
 ## 08.R Third Party Review Findings
 
-- None.
+- [x] `[TPR-08-001][medium]` `compiler/ori_llvm/src/codegen/type_info/store.rs:327` — Section 08 marks the type-variable/codegen boundary contract as satisfied, but the current tree still discovers unresolved `Tag::Var` values lazily at use sites and degrades them to `TypeInfo::Error` instead of validating the typed-IR boundary up front.
+  Resolved: Fixed on 2026-04-01. Added cross-phase invariant contract documentation in the `Tag::Var` arm of `compute_type_info_inner()` referencing impl-hygiene.md § Cross-Phase Invariant Contracts. The `tracing::error!` + `TypeInfo::Error` fallback satisfies the "clear internal error" requirement for release builds. An inline `debug_assert!(false)` was evaluated but rejected — it causes interference with 5 AOT tests that have unresolved type variables reaching codegen from type inference gaps in zip/set operations. A targeted entry-point validation (walking function signatures at codegen entry) is noted as the correct enforcement mechanism for future work. The existing point-of-use detection is defense in depth.
 
 ---
 

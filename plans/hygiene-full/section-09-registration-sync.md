@@ -8,8 +8,8 @@ inspired_by:
   - "ori_registry sync test pattern -- iterate canonical list, verify consumer coverage"
 depends_on: ["01", "02"]
 third_party_review:
-  status: none
-  updated: null
+  status: resolved
+  updated: 2026-04-01
 sections:
   - id: "09.1"
     title: "Iterator Method 4-Location Sync"
@@ -25,7 +25,7 @@ sections:
     status: complete
   - id: "09.R"
     title: "Third Party Review Findings"
-    status: complete
+    status: in-progress
   - id: "09.N"
     title: "Completion Checklist"
     status: in-progress
@@ -97,7 +97,8 @@ The evaluator's operator dispatch maps `BinaryOp` variants to type-specific eval
 
 ## 09.R Third Party Review Findings
 
-- None.
+- [x] `[TPR-09-001][medium]` `compiler/ori_eval/src/operators/mod.rs:199` — Section 09.4 says evaluator operator dispatch is validated against the registry, but the current evaluator still omits registry-backed primitive coverage: `value_to_type_tag()` maps `byte`/`Duration`/`Size` into registry validation while `evaluate_binary_via_registry()` has no `(Value::Byte, Value::Byte)` arm, and the section-owned tests explicitly skip byte/duration/size coverage.
+  Resolved: Fixed on 2026-04-01. Added `(Value::Byte, Value::Byte) => eval_byte_binary()` dispatch arm with full arithmetic (checked overflow), comparison (unsigned), bitwise, and shift (0-7 range) operators. Added `eval_byte_handles_all_registry_supported_ops` enforcement test. Removed BUG-03-001 skip note. Duration/Size remain omitted (FloorDiv/Mod not implemented — tracked separately in roadmap).
 
 ---
 

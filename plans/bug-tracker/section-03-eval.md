@@ -16,7 +16,8 @@ Bugs in expression evaluation, method dispatch, iterator machinery, closure hand
 
 ## Open Bugs
 
-- [ ] `[BUG-03-001][medium]` **Byte binary operations not implemented in evaluator** — found by tpr-review.
+- [x] `[BUG-03-001][medium]` **Byte binary operations not implemented in evaluator** — found by tpr-review.
+  Resolved: Fixed on 2026-04-01. Added `eval_byte_binary()` with full arithmetic (checked overflow), comparison (unsigned), bitwise, and shift (0-7 range) operators. Added enforcement test `eval_byte_handles_all_registry_supported_ops`.
   Repro: `10 as byte == 10 as byte` fails at runtime with "cannot apply operator to `byte` and `byte`". All byte binary ops (arithmetic, comparison, bitwise) fail.
   Subsystem: `compiler/ori_eval/src/operators/mod.rs` — `evaluate_binary()` has no `(Value::Byte, Value::Byte)` match arm.
   Found: 2026-03-31 | Source: tpr-review (hygiene-full §01 eval sync tests)
