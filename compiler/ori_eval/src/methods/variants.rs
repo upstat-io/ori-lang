@@ -372,7 +372,7 @@ pub fn dispatch_option_method(
     // Debug trait - structural representation
     } else if method == n.debug {
         require_args("debug", 0, args.len())?;
-        Ok(Value::string(debug_value(&receiver)))
+        Ok(Value::string(debug_value(&receiver, ctx.interner)))
     // Higher-order methods (cold path — string-based dispatch)
     } else {
         let method_str = ctx.interner.lookup(method);
@@ -471,7 +471,7 @@ pub fn dispatch_result_method(
     // Debug trait - structural representation
     } else if method == n.debug {
         require_args("debug", 0, args.len())?;
-        Ok(Value::string(debug_value(&receiver)))
+        Ok(Value::string(debug_value(&receiver, ctx.interner)))
     // Traceable delegation: forward to inner Error if present
     } else if method == n.trace {
         require_args("trace", 0, args.len())?;

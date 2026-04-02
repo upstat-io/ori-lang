@@ -58,6 +58,23 @@ impl IterState {
                 second,
                 first_done,
             } => Self::next_chained(first, second, first_done, elem_size, out_ptr),
+            Self::Flattened {
+                source,
+                inner,
+                inner_elem_size,
+            } => Self::next_flattened(source, inner, *inner_elem_size, out_ptr),
+            Self::Cycled {
+                source,
+                buffer,
+                buf_pos,
+                elem_size: es,
+                source_exhausted,
+            } => Self::next_cycled(source, buffer, buf_pos, *es, source_exhausted, out_ptr),
+            Self::Reversed {
+                elements,
+                pos,
+                elem_size: es,
+            } => Self::next_reversed(elements, pos, *es, out_ptr),
             Self::Str {
                 data,
                 len,
@@ -268,6 +285,100 @@ impl IterState {
             size_of::<i32>(),
         );
         *byte_offset = result.next_offset;
+        true
+    }
+
+    /// Flatten: advance through nested iterators.
+    ///
+    /// Each element from the outer `source` is itself an iterator pointer.
+    /// We keep a current `inner` iterator and advance it. When inner is
+    /// exhausted, get the next inner from source.
+    unsafe fn next_flattened(
+        source: &mut IterState,
+        inner: &mut Option<Box<IterState>>,
+        inner_elem_size: i64,
+        out_ptr: *mut u8,
+    ) -> bool {
+        loop {
+            // Try advancing current inner iterator
+            if let Some(ref mut inner_state) = inner {
+                if inner_state.next(out_ptr, inner_elem_size) {
+                    return true;
+                }
+                // Inner exhausted — drop it
+                *inner = None;
+            }
+
+            // Get next inner iterator from source
+            // The source yields iterator pointers (ptr-sized = 8 bytes)
+            let mut iter_ptr_buf = [0u8; 8];
+            if !source.next(iter_ptr_buf.as_mut_ptr(), 8) {
+                return false;
+            }
+            let iter_ptr = ptr::read(iter_ptr_buf.as_ptr().cast::<*mut u8>());
+            if iter_ptr.is_null() {
+                continue; // Skip null inner iterators
+            }
+            *inner = Some(Box::from_raw(iter_ptr.cast::<IterState>()));
+        }
+    }
+
+    /// Cycle: buffer elements on first pass, then replay from buffer.
+    unsafe fn next_cycled(
+        source: &mut Option<Box<IterState>>,
+        buffer: &mut Vec<u8>,
+        buf_pos: &mut usize,
+        elem_size: i64,
+        source_exhausted: &mut bool,
+        out_ptr: *mut u8,
+    ) -> bool {
+        let es = elem_size.max(1) as usize;
+
+        if !*source_exhausted {
+            if let Some(ref mut src) = source {
+                let mut elem_buf = [0u8; MAX_ELEM_SIZE];
+                if src.next(elem_buf.as_mut_ptr(), elem_size) {
+                    // Buffer the element for future cycles
+                    buffer.extend_from_slice(&elem_buf[..es]);
+                    ptr::copy_nonoverlapping(elem_buf.as_ptr(), out_ptr, es);
+                    return true;
+                }
+            }
+            // Source exhausted
+            *source_exhausted = true;
+            *source = None;
+            *buf_pos = 0;
+        }
+
+        // Replay from buffer
+        if buffer.is_empty() {
+            return false; // Empty source = empty cycle
+        }
+        let idx = *buf_pos * es;
+        if idx >= buffer.len() {
+            // Wrap around
+            *buf_pos = 0;
+        }
+        let idx = *buf_pos * es;
+        ptr::copy_nonoverlapping(buffer[idx..].as_ptr(), out_ptr, es);
+        *buf_pos += 1;
+        true
+    }
+
+    /// Reversed: iterate backward through pre-collected elements.
+    unsafe fn next_reversed(
+        elements: &[u8],
+        pos: &mut i64,
+        elem_size: i64,
+        out_ptr: *mut u8,
+    ) -> bool {
+        if *pos <= 0 {
+            return false;
+        }
+        *pos -= 1;
+        let es = elem_size.max(1) as usize;
+        let offset = (*pos as usize) * es;
+        ptr::copy_nonoverlapping(elements[offset..].as_ptr(), out_ptr, es);
         true
     }
 

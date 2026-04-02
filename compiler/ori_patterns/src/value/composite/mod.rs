@@ -56,6 +56,11 @@ impl StructLayout {
         self.field_indices.is_empty()
     }
 
+    /// Iterate over (`field_name`, `field_index`) pairs.
+    pub fn field_names(&self) -> impl Iterator<Item = (Name, usize)> + '_ {
+        self.field_indices.iter().map(|(&name, &idx)| (name, idx))
+    }
+
     /// Iterate over field names and their indices.
     pub fn iter(&self) -> impl Iterator<Item = (Name, usize)> + '_ {
         self.field_indices.iter().map(|(&n, &i)| (n, i))

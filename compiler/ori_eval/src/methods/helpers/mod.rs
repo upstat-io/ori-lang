@@ -2,6 +2,7 @@
 
 use std::fmt::Write;
 
+use ori_ir::StringLookup;
 use ori_patterns::{wrong_arg_count, wrong_arg_type, EvalError, EvalResult, ScalarInt, Value};
 
 /// Validate expected argument count.
@@ -157,8 +158,10 @@ pub fn escape_debug_char(c: char) -> String {
 /// Format a `Value` using Debug semantics (developer-facing structural output).
 ///
 /// This is the recursive workhorse for `.debug()` on collections, Option, Result,
-/// and tuples. Each value is formatted as it would appear in a `.debug()` call.
-pub fn debug_value(val: &Value) -> String {
+/// tuples, structs, and variants. Each value is formatted as it would appear in
+/// a `.debug()` call. The `interner` parameter enables proper formatting of
+/// struct/variant field and type names.
+pub fn debug_value(val: &Value, interner: &dyn StringLookup) -> String {
     match val {
         Value::Int(n) => n.raw().to_string(),
         Value::Float(f) => f.to_string(),
@@ -168,11 +171,11 @@ pub fn debug_value(val: &Value) -> String {
         Value::Byte(b) => format!("0x{b:02x}"),
         Value::Void => "void".to_string(),
         Value::None => "None".to_string(),
-        Value::Some(v) => format!("Some({})", debug_value(v)),
-        Value::Ok(v) => format!("Ok({})", debug_value(v)),
-        Value::Err(v) => format!("Err({})", debug_value(v)),
+        Value::Some(v) => format!("Some({})", debug_value(v, interner)),
+        Value::Ok(v) => format!("Ok({})", debug_value(v, interner)),
+        Value::Err(v) => format!("Err({})", debug_value(v, interner)),
         Value::List(items) => {
-            let parts: Vec<String> = items.iter().map(debug_value).collect();
+            let parts: Vec<String> = items.iter().map(|v| debug_value(v, interner)).collect();
             format!("[{}]", parts.join(", "))
         }
         Value::Map(map) => {
@@ -190,25 +193,56 @@ pub fn debug_value(val: &Value) -> String {
                     result,
                     "{}: {}",
                     escape_debug_str(display_key),
-                    debug_value(v)
+                    debug_value(v, interner)
                 );
             }
             result.push('}');
             result
         }
         Value::Set(items) => {
-            let parts: Vec<String> = items.values().map(debug_value).collect();
+            let parts: Vec<String> = items.values().map(|v| debug_value(v, interner)).collect();
             format!("Set {{{}}}", parts.join(", "))
         }
         Value::Tuple(elems) => {
-            let parts: Vec<String> = elems.iter().map(debug_value).collect();
+            let parts: Vec<String> = elems.iter().map(|v| debug_value(v, interner)).collect();
             format!("({})", parts.join(", "))
+        }
+        Value::Struct(s) => {
+            let type_name = interner.lookup(s.type_name);
+            let mut sorted_fields: Vec<_> = s.layout.field_names().collect();
+            sorted_fields.sort_by_key(|&(_, idx)| idx);
+            let fields_str: Vec<String> = sorted_fields
+                .iter()
+                .map(|&(name, idx)| {
+                    let field_name = interner.lookup(name);
+                    let field_val = &s.fields[idx];
+                    format!("{field_name}: {}", debug_value(field_val, interner))
+                })
+                .collect();
+            format!("{type_name} {{ {} }}", fields_str.join(", "))
+        }
+        Value::Variant {
+            variant_name,
+            fields,
+            ..
+        } => {
+            let name = interner.lookup(*variant_name);
+            if fields.is_empty() {
+                name.to_string()
+            } else {
+                let parts: Vec<String> = fields.iter().map(|v| debug_value(v, interner)).collect();
+                format!("{name}({})", parts.join(", "))
+            }
+        }
+        Value::Newtype { type_name, inner } => {
+            let name = interner.lookup(*type_name);
+            format!("{name}({})", debug_value(inner, interner))
         }
         Value::Duration(ns) => super::units::format_duration_debug(*ns),
         Value::Size(bytes) => super::units::format_size_debug(*bytes),
         Value::Ordering(ord) => ord.name().to_string(),
         Value::Range(r) => format!("{r:?}"),
-        // Struct, Closure, Iterator, etc. — fall back to Display
+        // Closure, Iterator, etc. — fall back to Display
         other => format!("{other}"),
     }
 }

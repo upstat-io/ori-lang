@@ -1,16 +1,10 @@
 //! Map buffer RC operations: decrement and unique-drop.
 
 use super::debug::rc_trace_dec;
-use super::{
-    call_drop_fn, ori_rc_free, rc_trace_enabled, rc_underflow_abort, rt_debug_validate_rc,
-};
+use super::{call_drop_fn, ori_rc_free, rc_trace_enabled, rt_debug_validate_rc};
 
 #[cfg(debug_assertions)]
 use super::debug::rt_debug_check_not_freed;
-
-#[cfg(not(feature = "single-threaded"))]
-use std::sync::atomic;
-use std::sync::atomic::{AtomicI64, Ordering};
 
 /// Decrement the refcount of a map's hash table data buffer.
 ///
@@ -39,45 +33,9 @@ pub extern "C" fn ori_map_buffer_rc_dec(
     let vs = val_size.max(1) as usize;
     let c = cap.max(0) as usize;
 
-    #[cfg(not(feature = "single-threaded"))]
-    {
-        let prev = unsafe {
-            let rc_ptr = data.sub(8).cast::<AtomicI64>();
-            (*rc_ptr).fetch_sub(1, Ordering::Release)
-        };
-
-        if prev <= 0 {
-            rc_underflow_abort(data);
-        }
-
-        if rc_trace_enabled() {
-            rc_trace_dec(data.cast_const(), prev - 1);
-        }
-
-        if prev <= 1 {
-            atomic::fence(Ordering::Acquire);
-            map_buffer_cleanup(data, c, ks, vs, key_dec_fn, val_dec_fn);
-        }
-    }
-
-    #[cfg(feature = "single-threaded")]
-    {
-        let (should_drop, new_rc) = unsafe {
-            let rc_ptr = data.sub(8).cast::<i64>();
-            if *rc_ptr <= 0 {
-                rc_underflow_abort(data);
-            }
-            *rc_ptr -= 1;
-            (*rc_ptr <= 0, *rc_ptr)
-        };
-
-        if rc_trace_enabled() {
-            rc_trace_dec(data.cast_const(), new_rc);
-        }
-
-        if should_drop {
-            map_buffer_cleanup(data, c, ks, vs, key_dec_fn, val_dec_fn);
-        }
+    // SAFETY: data is non-null (checked above) and was returned by ori_rc_alloc.
+    if unsafe { super::rc_dec_to_zero(data) } {
+        map_buffer_cleanup(data, c, ks, vs, key_dec_fn, val_dec_fn);
     }
 }
 
@@ -104,13 +62,16 @@ fn map_buffer_cleanup(
     // Dec children: scan metadata for OCCUPIED buckets
     if key_dec_fn.is_some() || val_dec_fn.is_some() {
         for bucket in 0..cap {
+            // SAFETY: data + bucket is within the metadata region (allocated by ori_rc_alloc).
             if unsafe { get_meta(data, bucket) } == META_OCCUPIED {
                 if let Some(f) = key_dec_fn {
+                    // SAFETY: keys_offset + bucket * key_size is within the key region.
                     call_drop_fn(f, unsafe {
                         data.add(layout.keys_offset + bucket * key_size)
                     });
                 }
                 if let Some(f) = val_dec_fn {
+                    // SAFETY: vals_offset + bucket * val_size is within the value region.
                     call_drop_fn(f, unsafe {
                         data.add(layout.vals_offset + bucket * val_size)
                     });

@@ -19,6 +19,8 @@ mod clone_rc;
 mod enum_bodies;
 mod field_ops;
 mod string_helpers;
+#[cfg(test)]
+mod tests;
 
 use ori_ir::{DerivedMethodShape, DerivedTrait, Module, Name, StructBody, SumBody, TypeDeclKind};
 use ori_types::{FieldDef, Idx, TypeEntry, TypeKind, VariantDef};
@@ -263,7 +265,7 @@ fn setup_derive_function<'a>(
     let (func_id, self_val, param_vals) =
         fc.declare_and_bind_derive(&symbol, &abi, type_name, method_name, type_idx);
 
-    // Approach (b.1) from §02.3: mark pure derived methods as nounwind directly.
+    // Approach (b.1): mark pure derived methods as nounwind directly.
     // Eq, Comparable, Hashable, Clone, Default only do field operations and
     // call nounwind runtime functions (ori_rc_inc, etc.). Printable and Debug
     // allocate strings and may call non-nounwind runtime functions.

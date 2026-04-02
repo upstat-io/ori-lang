@@ -75,7 +75,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                         // Surgical loading: only load fields actually used.
                         // `None` in the map = all fields needed, `Some(set)` = selective.
                         let field_set = used_fields.get(&param.var);
-                        // §06: remap declaration-order field indices to memory-order.
+                        // Remap declaration-order field indices to memory-order.
                         let remapped_set = field_set.and_then(|opt| {
                             opt.as_ref().map(|set| {
                                 set.iter()

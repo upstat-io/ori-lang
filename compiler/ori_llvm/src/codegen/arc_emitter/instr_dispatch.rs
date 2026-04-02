@@ -63,14 +63,14 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             self.def_var_repr(dst, tag, func);
         } else {
             // Load element from scratch buffer (deferred from emit_iter_next).
-            // Note: tuple reordering is currently disabled (§06 Phase 2 only
-            // reorders structs). If tuple reordering is enabled in the future,
+            // Note: tuple reordering is currently disabled (only structs are
+            // reordered). If tuple reordering is enabled in the future,
             // map iterator elements need special handling because the runtime
             // writes (key, value) in declaration order.
             let elem = self
                 .builder
                 .load(elem_llvm_ty, scratch_ptr, &format!("proj.{field}"));
-            // §04.4 Phase C: sign-extend narrowed int element back to canonical i64.
+            // Sign-extend narrowed int element back to canonical i64.
             let dst_ty = func.var_type(dst);
             let elem = self.sext_narrowed_int_element(elem, dst_ty, "iter_next.sext");
             self.def_var_repr(dst, elem, func);
@@ -277,7 +277,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             return;
         }
 
-        // §06: remap declaration-order field index to memory-order for LLVM.
+        // Remap declaration-order field index to memory-order for LLVM.
         let val_ty = func.var_type(value);
         let mem_field = self.remap_struct_field(val_ty, field);
 
@@ -285,7 +285,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             self.builder
                 .extract_value(val, mem_field, &format!("proj.{field}"))
         {
-            // §04.4: sign-extend narrowed int fields (i8/i16/i32) back to
+            // Sign-extend narrowed int fields (i8/i16/i32) back to
             // canonical width (i64) for computation. Only applies when the
             // ARC IR destination expects i64 (Tag::Int) but the struct field
             // is narrower due to integer narrowing.
@@ -313,7 +313,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         match instr {
             ArcInstr::Let { dst, ty, value } => {
                 let val = self.emit_value(value, *ty, func);
-                // §04.4 Phase B: only narrow computation results (PrimOps),
+                // Only narrow computation results (PrimOps),
                 // not copies (Var) or literals (Literal). Narrowing copies
                 // or literals creates new SSA values that break CSE cache
                 // coherence — two `x + 1` expressions using different
@@ -480,7 +480,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                     let base_ty = func.var_type(*base);
                     let llvm_ty = self.resolve_type(base_ty);
 
-                    // §06: remap declaration-order field to memory-order.
+                    // Remap declaration-order field to memory-order.
                     let mem_field = self.remap_struct_field(base_ty, *field);
 
                     // GEP + store for heap-allocated RC'd objects.
@@ -516,18 +516,38 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                     if encoding.is_tagless() {
                         // Single-variant enum: no tag to store.
                     } else if encoding.needs_tag_store(*tag as u32) {
-                        // Niche variant: store niche_value into the niche field.
+                        // Niche variant: write niche_value into the niche field.
                         let niche_idx = encoding.niche_field_index().unwrap();
                         let niche_value = encoding.variant_to_tag_value(*tag as u32);
-                        let field_ptr =
-                            self.builder
-                                .struct_gep(llvm_ty, base_val, niche_idx, "set.niche.ptr");
-                        let field_val = self.builder.const_int_for_struct_field(
-                            llvm_ty,
-                            niche_idx,
-                            niche_value,
-                        );
-                        self.builder.store(field_val, field_ptr);
+                        if self.builder.is_struct_value(base_val) {
+                            // Register value: use insert_value + re-bind variable.
+                            let niche_const = self.builder.const_int_for_struct_field(
+                                llvm_ty,
+                                niche_idx,
+                                niche_value,
+                            );
+                            let updated = self.builder.insert_value(
+                                base_val,
+                                niche_const,
+                                niche_idx,
+                                "set.niche",
+                            );
+                            self.def_var(*base, super::EmittedValue::Aggregate(updated));
+                        } else {
+                            // Pointer: GEP + store (in-place mutation).
+                            let field_ptr = self.builder.struct_gep(
+                                llvm_ty,
+                                base_val,
+                                niche_idx,
+                                "set.niche.ptr",
+                            );
+                            let field_val = self.builder.const_int_for_struct_field(
+                                llvm_ty,
+                                niche_idx,
+                                niche_value,
+                            );
+                            self.builder.store(field_val, field_ptr);
+                        }
                     }
                     // Non-niche variant: no-op — payload implicitly identifies variant.
                 } else {
@@ -549,7 +569,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 let t = self.var(*true_val);
                 let f = self.var(*false_val);
                 let result = self.builder.select(c, t, f, "sel");
-                // §04.4 Phase B: Select is a computation (branchless conditional),
+                // Select is a computation (branchless conditional),
                 // route through def_var_repr() for local narrowing.
                 self.def_var_repr(*dst, result, func);
             }

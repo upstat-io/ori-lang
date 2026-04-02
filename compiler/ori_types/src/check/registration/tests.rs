@@ -704,7 +704,7 @@ fn resolve_type_with_params_nested_self_in_list_of_tuples() {
     assert_eq!(checker.pool().tag(first), crate::Tag::Named);
 }
 
-// --- Cross-crate sync enforcement (Section 05.1, Tests 2 and 3) ---
+// --- Cross-crate sync enforcement ---
 
 #[test]
 fn all_derived_traits_have_type_signatures() {

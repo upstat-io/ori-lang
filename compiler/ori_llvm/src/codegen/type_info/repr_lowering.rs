@@ -134,6 +134,10 @@ impl<'ll> TypeLayoutResolver<'_, 'll, '_> {
                     | MachineRepr::Char
                     | MachineRepr::Byte
                     | MachineRepr::Unit
+                    | MachineRepr::Duration
+                    | MachineRepr::Size
+                    | MachineRepr::Ordering
+                    | MachineRepr::Never
             )
         });
         if !all_scalar_fields {

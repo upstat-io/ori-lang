@@ -4,6 +4,7 @@
 //! (with recursive field boxing), list literals, map literals, and set literals.
 
 use ori_arc::ir::{ArcVarId, CtorKind};
+use ori_ir::{FIELD_CAP, FIELD_DATA, FIELD_LEN};
 use ori_types::{Idx, Tag};
 
 use super::context::is_boxed_enum_field;
@@ -34,10 +35,10 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 if matches!(self.pool.tag(resolved_ty), Tag::Unit | Tag::Never) {
                     return self.builder.const_zero_ty(llvm_ty);
                 }
-                // §06: reorder args from declaration order to memory order
+                // Reorder args from declaration order to memory order
                 // before truncation and LLVM struct construction.
                 let mem_args = self.reorder_args_to_memory_order(&arg_vals, ty);
-                // §04.4: truncate canonical-width (i64) values to narrowed
+                // Truncate canonical-width (i64) values to narrowed
                 // field width (i8/i16/i32) when the struct has narrowed fields.
                 let narrowed_args = self.trunc_for_narrowed_struct(llvm_ty, &mem_args, ty);
                 self.builder.build_struct(llvm_ty, &narrowed_args, "ctor")
@@ -141,7 +142,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                         ori_types::Idx::INT
                     };
 
-                // §04.4 Phase C: use narrowed element type/size if the ReprPlan
+                // Use narrowed element type/size if the ReprPlan
                 // has narrowed this collection's int elements (e.g., i8 for [int]
                 // with elements in [-128, 127]).
                 let collection_idx = self.pool.resolve_fully(ty);
@@ -203,7 +204,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                     };
                 let key_llvm_ty = self.resolve_type(key_idx);
                 let val_llvm_ty = self.resolve_type(val_idx);
-                // §04.4 Phase C: use narrowed element sizes for map buffers.
+                // Use narrowed element sizes for map buffers.
                 let collection_idx = self.pool.resolve_fully(ty);
                 let key_size = self.collection_elem_size(collection_idx, key_idx);
                 let val_size = self.collection_elem_size(collection_idx, val_idx);
@@ -351,7 +352,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             }
         };
 
-        // §04.4 Phase C: narrowed element type/size for collection reuse.
+        // Narrowed element type/size for collection reuse.
         let collection_idx = self.pool.resolve_fully(ty);
         let elem_llvm_ty = self.collection_elem_llvm_type(collection_idx, elem_idx);
         let elem_size = self.collection_elem_size(collection_idx, elem_idx);
@@ -359,15 +360,15 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         // Extract old {len, cap, data} from old_var.
         let old_data = self
             .builder
-            .extract_value(old_val, 2, "reuse.old_data")
+            .extract_value(old_val, FIELD_DATA, "reuse.old_data")
             .unwrap_or_else(|| self.builder.const_null_ptr());
         let old_len = self
             .builder
-            .extract_value(old_val, 0, "reuse.old_len")
+            .extract_value(old_val, FIELD_LEN, "reuse.old_len")
             .unwrap_or_else(|| self.builder.const_i64(0));
         let old_cap = self
             .builder
-            .extract_value(old_val, 1, "reuse.old_cap")
+            .extract_value(old_val, FIELD_CAP, "reuse.old_cap")
             .unwrap_or_else(|| self.builder.const_i64(0));
 
         // Build call args for ori_list_reset_buffer.
@@ -447,8 +448,16 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     ) -> ValueId {
         let mut result = self.builder.const_zero_ty(llvm_ty);
         if encoding.needs_tag_store(variant) {
-            // Niche variant (no payload): return zeroinit — SetTag stores the niche value.
-            return result;
+            // Niche variant (no payload): insert niche_value directly
+            // so that `SetTag` is not needed (avoids GEP-on-register issues).
+            let niche_idx = encoding.niche_field_index().unwrap();
+            let niche_value = encoding.variant_to_tag_value(variant);
+            let niche_const =
+                self.builder
+                    .const_int_for_struct_field(llvm_ty, niche_idx, niche_value);
+            return self
+                .builder
+                .insert_value(result, niche_const, niche_idx, "niche.tag");
         }
         // Data variant: insert payload fields starting at index 0.
         for (i, &val) in arg_vals.iter().enumerate() {

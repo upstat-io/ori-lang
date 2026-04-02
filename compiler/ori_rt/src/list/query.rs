@@ -7,6 +7,7 @@
 use crate::io::ori_panic_cstr;
 use crate::rc::{load_elem_dec_fn_const, ori_rc_alloc, store_elem_count, store_elem_dec_fn};
 use crate::string::{deref_str, OriStr};
+use crate::{OPTION_TAG_NONE, OPTION_TAG_SOME};
 
 /// Bounds-checked element access: copy `elem_size` bytes at `data[index]` to `out_ptr`.
 ///
@@ -31,8 +32,8 @@ pub extern "C-unwind" fn ori_list_get(
 
 /// Return the first element of a list, or write a None tag if empty.
 ///
-/// Writes `{tag, value}` to `out_ptr` where tag=1 (Some) with element
-/// copied, or tag=0 (None). The value region is `elem_size` bytes.
+/// Writes `{tag, value}` to `out_ptr` where tag=`OPTION_TAG_SOME` with
+/// element copied, or tag=`OPTION_TAG_NONE`. The value region is `elem_size` bytes.
 #[no_mangle]
 pub extern "C" fn ori_list_first(data: *const u8, len: i64, elem_size: i64, out_ptr: *mut u8) {
     if out_ptr.is_null() {
@@ -40,15 +41,13 @@ pub extern "C" fn ori_list_first(data: *const u8, len: i64, elem_size: i64, out_
     }
     let es = elem_size.max(1) as usize;
     if data.is_null() || len <= 0 {
-        // None: tag = 1 (Ori convention: 0=Some, 1=None)
         unsafe {
-            out_ptr.cast::<i64>().write(1);
+            out_ptr.cast::<i64>().write(OPTION_TAG_NONE);
         }
         return;
     }
-    // Some: tag = 0, copy first element
     unsafe {
-        out_ptr.cast::<i64>().write(0);
+        out_ptr.cast::<i64>().write(OPTION_TAG_SOME);
         std::ptr::copy_nonoverlapping(data, out_ptr.add(8), es);
     }
 }
@@ -56,7 +55,6 @@ pub extern "C" fn ori_list_first(data: *const u8, len: i64, elem_size: i64, out_
 /// Return the last element of a list, or write a None tag if empty.
 ///
 /// Same layout as `ori_list_first`: `{tag: i64, value: [elem_size]}`.
-/// Ori convention: tag 0=Some, 1=None.
 #[no_mangle]
 pub extern "C" fn ori_list_last(data: *const u8, len: i64, elem_size: i64, out_ptr: *mut u8) {
     if out_ptr.is_null() {
@@ -65,13 +63,13 @@ pub extern "C" fn ori_list_last(data: *const u8, len: i64, elem_size: i64, out_p
     let es = elem_size.max(1) as usize;
     if data.is_null() || len <= 0 {
         unsafe {
-            out_ptr.cast::<i64>().write(1);
+            out_ptr.cast::<i64>().write(OPTION_TAG_NONE);
         }
         return;
     }
     let last_offset = (len as usize - 1) * es;
     unsafe {
-        out_ptr.cast::<i64>().write(0);
+        out_ptr.cast::<i64>().write(OPTION_TAG_SOME);
         std::ptr::copy_nonoverlapping(data.add(last_offset), out_ptr.add(8), es);
     }
 }

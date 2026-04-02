@@ -194,17 +194,8 @@ pub(crate) fn equals_values(
     }
 }
 
-/// FNV-1a offset basis (64-bit).
-///
-/// Must match `FNV_OFFSET_BASIS` in `ori_llvm/codegen/derive_codegen/mod.rs`
-/// and `ori_rt/src/lib.rs` (`ori_str_hash`).
-pub(crate) const FNV_OFFSET_BASIS: u64 = 14_695_981_039_346_656_037;
-
-/// FNV-1a prime (64-bit).
-///
-/// Must match `FNV_PRIME` in `ori_llvm/codegen/derive_codegen/mod.rs`
-/// and `ori_rt/src/lib.rs` (`ori_str_hash`).
-pub(crate) const FNV_PRIME: u64 = 1_099_511_628_211;
+// FNV-1a constants — canonical source: ori_ir::hash_constants
+pub(crate) use ori_ir::{FNV_OFFSET_BASIS, FNV_PRIME};
 
 /// FNV-1a hash over a byte slice.
 ///

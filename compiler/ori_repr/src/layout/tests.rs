@@ -641,7 +641,7 @@ fn test_reorder_mixed_tuple() {
     assert_eq!(result.elements[2].original_index, 0, "bool last");
 }
 
-// ─── Semantic pin: the canonical §06 proof ───────────────────
+// ─── Semantic pin: canonical layout proof ────────────────────
 
 #[test]
 fn test_semantic_pin_struct_reorder() {
@@ -658,7 +658,7 @@ fn test_semantic_pin_struct_reorder() {
 
     assert_eq!(
         result.size, 16,
-        "§06 semantic pin: struct must be 16 bytes, not 32"
+        "Semantic pin: struct must be 16 bytes, not 32"
     );
     assert_eq!(result.fields[0].original_index, 1, "int should be first");
     assert!(
@@ -712,7 +712,7 @@ fn test_three_element_tuple_reorder_saves_space() {
     let result = optimize_tuple_layout(&input);
     assert_eq!(
         result.size, 16,
-        "§06.4 semantic pin: 3-element tuple must be 16 bytes, not 24"
+        "Semantic pin: 3-element tuple must be 16 bytes, not 24"
     );
     // int moved to front
     assert_eq!(result.elements[0].original_index, 1);

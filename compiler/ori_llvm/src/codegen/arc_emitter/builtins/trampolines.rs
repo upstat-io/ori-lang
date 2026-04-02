@@ -17,6 +17,7 @@
 // No method registrations — trampolines are helper functions, not method handlers.
 declare_builtins! { _emitter, _ctx; }
 
+use ori_ir::{CLOSURE_FIELD_ENV, CLOSURE_FIELD_FN};
 use ori_types::Idx;
 
 use crate::codegen::abi::abi_size;
@@ -135,20 +136,26 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
         // Unpack the Ori closure from env_ptr: { fn_ptr: ptr, env_ptr: ptr }
         let closure_struct_ty = self.builder.closure_type();
-        let fn_ptr_gep = self
-            .builder
-            .struct_gep(closure_struct_ty, env_ptr, 0, "tramp.fn_ptr.gep");
+        let fn_ptr_gep = self.builder.struct_gep(
+            closure_struct_ty,
+            env_ptr,
+            CLOSURE_FIELD_FN,
+            "tramp.fn_ptr.gep",
+        );
         let ori_fn = self.builder.load(ptr_ty, fn_ptr_gep, "tramp.fn_ptr");
-        let env_gep = self
-            .builder
-            .struct_gep(closure_struct_ty, env_ptr, 1, "tramp.env.gep");
+        let env_gep = self.builder.struct_gep(
+            closure_struct_ty,
+            env_ptr,
+            CLOSURE_FIELD_ENV,
+            "tramp.env.gep",
+        );
         let ori_env = self.builder.load(ptr_ty, env_gep, "tramp.env");
 
         // Resolve element LLVM type and determine ABI passing mode.
         // Types > 16 bytes (e.g. str = 24 bytes) use indirect parameter
         // passing and sret return in Ori's fastcc ABI.
         //
-        // §04.4 Phase C: use narrowed type for loads from buffer pointers.
+        // Use narrowed type for loads from buffer pointers.
         // The buffer stores narrowed elements, but the Ori closure expects
         // canonical i64 values. Load narrowed, sext, then pass to closure.
         let elem_llvm_ty = self.resolve_type(elem_ty);
@@ -181,7 +188,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 let elem_arg = if elem_is_indirect {
                     in_ptr
                 } else {
-                    // §04.4 Phase C: load with narrowed type, sext to canonical.
+                    // Load with narrowed type, sext to canonical.
                     let raw = self.builder.load(buf_elem_llvm_ty, in_ptr, "tramp.elem");
                     if needs_sext {
                         let i64_ty = self.builder.i64_type();
@@ -229,7 +236,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                         "tramp.pred",
                     )
                 } else {
-                    // §04.4 Phase C: load with narrowed type, sext to canonical.
+                    // Load with narrowed type, sext to canonical.
                     let raw = self.builder.load(buf_elem_llvm_ty, elem_ptr, "tramp.elem");
                     let elem = if needs_sext {
                         let i64_ty = self.builder.i64_type();
@@ -269,7 +276,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                         &[ori_env, elem_ptr],
                     );
                 } else {
-                    // §04.4 Phase C: load with narrowed type, sext to canonical.
+                    // Load with narrowed type, sext to canonical.
                     let raw = self.builder.load(buf_elem_llvm_ty, elem_ptr, "tramp.elem");
                     let elem = if needs_sext {
                         let i64_ty = self.builder.i64_type();
@@ -307,7 +314,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 let elem_arg = if elem_is_indirect {
                     elem_ptr
                 } else {
-                    // §04.4 Phase C: load with narrowed type, sext to canonical.
+                    // Load with narrowed type, sext to canonical.
                     let raw = self.builder.load(buf_elem_llvm_ty, elem_ptr, "tramp.elem");
                     if needs_sext {
                         let i64_ty = self.builder.i64_type();

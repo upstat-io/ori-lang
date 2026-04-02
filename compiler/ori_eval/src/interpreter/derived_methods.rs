@@ -292,7 +292,7 @@ impl Interpreter<'_> {
     ) -> EvalResult {
         let fmt = |val: &Value| -> String {
             if include_names {
-                crate::methods::helpers::debug_value(val)
+                crate::methods::helpers::debug_value(val, self.interner())
             } else {
                 self.format_value_printable(val, 0)
             }

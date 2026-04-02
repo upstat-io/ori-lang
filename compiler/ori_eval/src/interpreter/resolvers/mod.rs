@@ -129,6 +129,28 @@ pub enum CollectionMethod {
 
     /// `Ordering.then_with(f: () -> Ordering) -> Ordering` (lazy lexicographic chaining)
     OrderingThenWith,
+
+    // Option closure methods
+    /// `Option<T>.map(f: T -> U) -> Option<U>`
+    OptionMap,
+    /// `Option<T>.and_then(f: T -> Option<U>) -> Option<U>`
+    OptionAndThen,
+    /// `Option<T>.flat_map(f: T -> Option<U>) -> Option<U>` (alias for `and_then`)
+    OptionFlatMap,
+    /// `Option<T>.filter(predicate: T -> bool) -> Option<T>`
+    OptionFilter,
+    /// `Option<T>.or_else(f: () -> Option<T>) -> Option<T>`
+    OptionOrElse,
+
+    // Result closure methods
+    /// `Result<T, E>.map(f: T -> U) -> Result<U, E>`
+    ResultMap,
+    /// `Result<T, E>.map_err(f: E -> F) -> Result<T, F>`
+    ResultMapErr,
+    /// `Result<T, E>.and_then(f: T -> Result<U, E>) -> Result<U, E>`
+    ResultAndThen,
+    /// `Result<T, E>.or_else(f: E -> Result<T, F>) -> Result<T, F>`
+    ResultOrElse,
 }
 
 impl CollectionMethod {

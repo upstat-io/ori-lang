@@ -138,6 +138,10 @@ fn lookup_jit_address(name: &str) -> usize {
         "ori_str_from_int" => runtime::ori_str_from_int as *const () as usize,
         "ori_str_from_bool" => runtime::ori_str_from_bool as *const () as usize,
         "ori_str_from_float" => runtime::ori_str_from_float as *const () as usize,
+        // String debug formatting
+        "ori_str_debug_format" => runtime::ori_str_debug_format as *const () as usize,
+        "ori_char_debug_format" => runtime::ori_char_debug_format as *const () as usize,
+        "ori_byte_debug_format" => runtime::ori_byte_debug_format as *const () as usize,
         // String methods
         "ori_str_chars" => runtime::ori_str_chars as *const () as usize,
         "ori_str_split" => runtime::ori_str_split as *const () as usize,
@@ -208,6 +212,7 @@ fn lookup_jit_address(name: &str) -> usize {
         "ori_iter_from_range" => runtime::iterator::ori_iter_from_range as *const () as usize,
         "ori_iter_from_str" => runtime::iterator::ori_iter_from_str as *const () as usize,
         "ori_iter_from_map" => runtime::iterator::ori_iter_from_map as *const () as usize,
+        "ori_iter_from_option" => runtime::iterator::ori_iter_from_option as *const () as usize,
         // Iterator core
         "ori_iter_next" => runtime::iterator::ori_iter_next as *const () as usize,
         "ori_iter_drop" => runtime::iterator::ori_iter_drop as *const () as usize,

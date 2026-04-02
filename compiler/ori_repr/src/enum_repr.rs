@@ -3,7 +3,7 @@
 //! These types describe the physical layout of enum (sum) types,
 //! including discriminant strategy and per-variant payload layout.
 //! They are populated by `canonical()` with explicit i64 tags,
-//! then refined by §07 (niche filling, discriminant narrowing).
+//! then refined by niche filling and discriminant narrowing.
 
 use ori_ir::Name;
 
@@ -135,9 +135,9 @@ pub fn min_tag_width(variant_count: usize) -> IntWidth {
 impl VariantRepr {
     /// Whether this variant's payload is a single pointer type.
     ///
-    /// Used by §07.3 (tagged pointer optimization) to identify variants
-    /// where the tag can be stored in pointer alignment bits. Not relevant
-    /// for §07.1 (discriminant narrowing) or §07.2 (niche filling).
+    /// Used by tagged pointer optimization to identify variants where the
+    /// tag can be stored in pointer alignment bits. Not relevant for
+    /// discriminant narrowing or niche filling.
     #[must_use]
     pub fn is_pointer(&self) -> bool {
         self.fields.len() == 1

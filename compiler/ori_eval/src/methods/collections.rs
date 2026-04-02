@@ -487,7 +487,7 @@ pub fn dispatch_map_method(
     // Debug trait - shows map structure
     } else if method == n.debug {
         require_args("debug", 0, args.len())?;
-        Ok(Value::string(debug_value(&Value::Map(map))))
+        Ok(Value::string(debug_value(&Value::Map(map), ctx.interner)))
     // Additional map methods (cold path — string-based dispatch)
     } else {
         let method_str = ctx.interner.lookup(method);
@@ -624,7 +624,7 @@ pub fn dispatch_set_method(
     // Debug trait - shows set structure
     } else if method == n.debug {
         require_args("debug", 0, args.len())?;
-        Ok(Value::string(debug_value(&Value::Set(items))))
+        Ok(Value::string(debug_value(&Value::Set(items), ctx.interner)))
     } else {
         Err(no_such_method(ctx.interner.lookup(method), "Set").into())
     }

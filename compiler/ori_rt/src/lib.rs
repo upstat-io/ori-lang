@@ -109,6 +109,13 @@ pub(crate) use rc::{rt_debug_validate_rc, RT_DEBUG_FORCE};
 use std::ffi::{c_char, CStr};
 use std::sync::atomic::Ordering;
 
+// ARC enum tag convention: Option and Result discriminants.
+// Source of truth: `ori_ir::tag_constants`. These local copies exist because
+// `ori_rt` cannot depend on `ori_ir` at compile time (runtime must be standalone).
+// Dev-dependency tests verify these match `ori_ir` values.
+pub(crate) const OPTION_TAG_SOME: i64 = 0;
+pub(crate) const OPTION_TAG_NONE: i64 = 1;
+
 // ── Exception handling personality ──────────────────────────────────────
 //
 // All EH is implemented in C (`eh_personality.c`), zero Rust panic dependency:
@@ -144,7 +151,7 @@ pub fn ori_eh_personality_addr() -> usize {
 }
 
 /// Ori Option representation: { i8 tag, T value }
-/// tag = 0: None, tag = 1: Some
+/// tag = 0: Some, tag = 1: None
 #[repr(C)]
 pub struct OriOption<T> {
     pub tag: i8,
@@ -326,11 +333,13 @@ pub extern "C" fn ori_args_from_argv(argc: i32, argv: *const *const c_char) -> O
         unsafe { elements.add(i).write(element) };
     }
 
-    // Store elem_count in the RC header so slice-based cleanup knows the
-    // element count. elem_dec_fn is deferred — the LLVM-generated str thunk
-    // will be stored by the first ori_buffer_rc_dec via store_elem_dec_fn_once.
+    // Store elem_count and elem_dec_fn in the RC header so slice/COW
+    // propagation and cleanup paths have the destructor available immediately.
     // SAFETY: data was just returned by ori_rc_alloc — header offsets are valid.
-    unsafe { rc::store_elem_count(data, count as i64) };
+    unsafe {
+        rc::store_elem_count(data, count as i64);
+        rc::store_elem_dec_fn(data, Some(rc::ori_str_elem_dec));
+    };
 
     OriList {
         len: count as i64,

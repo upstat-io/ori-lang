@@ -180,8 +180,9 @@ fn builtin_coverage_above_threshold() {
         100
     };
 
-    // Minimum coverage threshold — raise as more methods are migrated
-    let min_pct = 25;
+    // Minimum coverage threshold — ratcheted to current level minus margin.
+    // Update when coverage increases. Current: ~40% after iterator/option/result gap fill.
+    let min_pct = 35;
     assert!(
         pct >= min_pct,
         "Builtin codegen coverage dropped to {pct}% ({covered}/{total}), \
@@ -282,4 +283,172 @@ fn registry_op_strategies_cover_all_operators() {
             }
         }
     }
+}
+
+/// All registry iterator methods (except protocol methods `next` and
+/// `next_back`) must have entries in the `BuiltinTable`.
+///
+/// Protocol methods are intercepted by `try_emit_protocol` before reaching
+/// builtin method dispatch — they are NOT in the registry and do not need
+/// `BuiltinTable` entries.
+///
+/// This is stricter than `backend_required_methods_in_llvm` — it verifies
+/// ALL iterator methods are registered, regardless of `backend_required`.
+#[test]
+fn iterator_emit_covers_all_registry_methods() {
+    let table = builtin_table();
+
+    let mut missing = Vec::new();
+
+    for method in ori_registry::methods_for(ori_registry::TypeTag::Iterator) {
+        // Protocol methods are handled by try_emit_protocol, not BuiltinTable
+        if method.name == "next" || method.name == "next_back" {
+            continue;
+        }
+
+        let type_name = if method.dei_only {
+            "DoubleEndedIterator"
+        } else {
+            "Iterator"
+        };
+
+        if !table.has(type_name, method.name) {
+            missing.push(format!("{type_name}.{}", method.name));
+        }
+    }
+
+    assert!(
+        missing.is_empty(),
+        "Registry iterator methods missing from BuiltinTable ({} missing):\n{}",
+        missing.len(),
+        missing.join("\n"),
+    );
+}
+
+/// Internal aliases that the compiler dispatches via `==`/`!=` desugaring.
+/// These are valid `BuiltinTable` entries that don't appear in the registry.
+const INTERNAL_ALIASES: &[&str] = &["is_equal"];
+
+/// Verify every Option handler registered in the `BuiltinTable` corresponds
+/// to a real registry method (or a known internal alias). Catches stale
+/// handlers and typos. Also asserts a minimum count so the test can't
+/// vacuously pass.
+#[test]
+fn option_builtin_handlers_match_registry() {
+    let table = builtin_table();
+    let registered: Vec<_> = table
+        .all_registered()
+        .into_iter()
+        .filter(|(ty, _)| *ty == "Option")
+        .collect();
+
+    // Minimum coverage: we inline at least 15 Option methods currently.
+    // Bump this when adding new inline handlers.
+    assert!(
+        registered.len() >= 15,
+        "Expected at least 15 registered Option handlers, found {}",
+        registered.len(),
+    );
+
+    let registry_methods: Vec<_> = ori_registry::methods_for(ori_registry::TypeTag::Option)
+        .iter()
+        .map(|m| m.name)
+        .collect();
+
+    let mut stale = Vec::new();
+    for (_, method) in &registered {
+        if !registry_methods.contains(method) && !INTERNAL_ALIASES.contains(method) {
+            stale.push(format!("Option.{method}"));
+        }
+    }
+
+    assert!(
+        stale.is_empty(),
+        "BuiltinTable has Option handlers for non-existent registry methods:\n{}",
+        stale.join("\n"),
+    );
+}
+
+/// Verify every Result handler registered in the `BuiltinTable` corresponds
+/// to a real registry method (or a known internal alias). Same reverse-check
+/// as Option above.
+#[test]
+fn result_builtin_handlers_match_registry() {
+    let table = builtin_table();
+    let registered: Vec<_> = table
+        .all_registered()
+        .into_iter()
+        .filter(|(ty, _)| *ty == "Result")
+        .collect();
+
+    // Minimum coverage: we inline at least 15 Result methods currently.
+    assert!(
+        registered.len() >= 15,
+        "Expected at least 15 registered Result handlers, found {}",
+        registered.len(),
+    );
+
+    let registry_methods: Vec<_> = ori_registry::methods_for(ori_registry::TypeTag::Result)
+        .iter()
+        .map(|m| m.name)
+        .collect();
+
+    let mut stale = Vec::new();
+    for (_, method) in &registered {
+        if !registry_methods.contains(method) && !INTERNAL_ALIASES.contains(method) {
+            stale.push(format!("Result.{method}"));
+        }
+    }
+
+    assert!(
+        stale.is_empty(),
+        "BuiltinTable has Result handlers for non-existent registry methods:\n{}",
+        stale.join("\n"),
+    );
+}
+
+/// Forward-looking guard: if a future registry addition sets
+/// `backend_required: true` on an Option method, this test catches
+/// a missing `BuiltinTable` handler for it.
+#[test]
+fn option_backend_required_methods_have_handlers() {
+    let table = builtin_table();
+    let mut missing = Vec::new();
+
+    for method in ori_registry::methods_for(ori_registry::TypeTag::Option) {
+        if !method.backend_required {
+            continue;
+        }
+        if !table.has("Option", method.name) {
+            missing.push(format!("Option.{}", method.name));
+        }
+    }
+
+    assert!(
+        missing.is_empty(),
+        "Option backend_required methods missing from BuiltinTable:\n{}",
+        missing.join("\n"),
+    );
+}
+
+/// Forward-looking guard: same as above for Result methods.
+#[test]
+fn result_backend_required_methods_have_handlers() {
+    let table = builtin_table();
+    let mut missing = Vec::new();
+
+    for method in ori_registry::methods_for(ori_registry::TypeTag::Result) {
+        if !method.backend_required {
+            continue;
+        }
+        if !table.has("Result", method.name) {
+            missing.push(format!("Result.{}", method.name));
+        }
+    }
+
+    assert!(
+        missing.is_empty(),
+        "Result backend_required methods missing from BuiltinTable:\n{}",
+        missing.join("\n"),
+    );
 }

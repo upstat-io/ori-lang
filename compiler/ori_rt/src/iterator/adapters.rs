@@ -149,3 +149,77 @@ pub extern "C" fn ori_iter_chain(first: *mut u8, second: *mut u8) -> *mut u8 {
     };
     Box::into_raw(Box::new(state)).cast()
 }
+
+/// Create a flatten adapter — flattens iterator of iterators into a single stream.
+///
+/// The source iterator must yield iterator pointers (ptr-sized = 8 bytes).
+/// `inner_elem_size` is the byte size of elements in the inner iterators.
+#[no_mangle]
+pub extern "C" fn ori_iter_flatten(iter: *mut u8, inner_elem_size: i64) -> *mut u8 {
+    if iter.is_null() {
+        return ptr::null_mut();
+    }
+    assert_elem_size(inner_elem_size, "ori_iter_flatten");
+    let source = unsafe { Box::from_raw(iter.cast::<IterState>()) };
+    let state = IterState::Flattened {
+        source,
+        inner: None,
+        inner_elem_size,
+    };
+    Box::into_raw(Box::new(state)).cast()
+}
+
+/// Create a cycle adapter — repeats the source iterator infinitely.
+///
+/// Buffers elements on the first pass, then replays from the buffer.
+/// Empty sources produce an empty cycle (no infinite loop).
+#[no_mangle]
+pub extern "C" fn ori_iter_cycle(iter: *mut u8, elem_size: i64) -> *mut u8 {
+    if iter.is_null() {
+        return ptr::null_mut();
+    }
+    assert_elem_size(elem_size, "ori_iter_cycle");
+    let source = unsafe { Box::from_raw(iter.cast::<IterState>()) };
+    let state = IterState::Cycled {
+        source: Some(source),
+        buffer: Vec::new(),
+        buf_pos: 0,
+        elem_size,
+        source_exhausted: false,
+    };
+    Box::into_raw(Box::new(state)).cast()
+}
+
+/// Create a reversed iterator by collecting all elements and iterating backward.
+///
+/// This is an eager operation — all elements are collected into memory.
+#[no_mangle]
+pub extern "C" fn ori_iter_rev(iter: *mut u8, elem_size: i64) -> *mut u8 {
+    use super::state::MAX_ELEM_SIZE;
+
+    if iter.is_null() {
+        return ptr::null_mut();
+    }
+    assert_elem_size(elem_size, "ori_iter_rev");
+    let state = unsafe { &mut *iter.cast::<IterState>() };
+    let es = elem_size.max(1) as usize;
+
+    // Collect all elements
+    let mut elements = Vec::new();
+    let mut elem_buf = [0u8; MAX_ELEM_SIZE];
+    while unsafe { state.next(elem_buf.as_mut_ptr(), elem_size) } {
+        elements.extend_from_slice(&elem_buf[..es]);
+    }
+
+    let count = (elements.len() / es) as i64;
+
+    // Free the source iterator
+    drop(unsafe { Box::from_raw(iter.cast::<IterState>()) });
+
+    let rev_state = IterState::Reversed {
+        elements,
+        pos: count,
+        elem_size,
+    };
+    Box::into_raw(Box::new(rev_state)).cast()
+}

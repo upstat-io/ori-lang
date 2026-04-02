@@ -1,3 +1,5 @@
+use ori_ir::Span;
+
 use super::*;
 
 #[test]
@@ -126,7 +128,7 @@ fn module_checker_finish_with_pool() {
     assert_eq!(pool.tag(list_int), crate::Tag::List);
 }
 
-// --- Transitive metadata forwarding tests (CROSS-04-017) ---
+// --- Transitive metadata forwarding tests ---
 
 #[test]
 fn exported_metadata_includes_imported_entries() {
