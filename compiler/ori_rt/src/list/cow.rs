@@ -96,6 +96,7 @@ pub extern "C" fn ori_list_push_cow(
 
         if old_cap >= new_len {
             // Has capacity — write element in place, same buffer
+            // SAFETY: Uniqueness verified; old_len * es < old_cap * es (has capacity); out_ptr non-null.
             unsafe {
                 std::ptr::copy_nonoverlapping(elem_ptr, data.add(old_len * es), es);
                 out_ptr.cast::<i64>().write(new_len as i64);
@@ -110,6 +111,7 @@ pub extern "C" fn ori_list_push_cow(
         let new_data = ori_rc_realloc(data, old_cap * es, new_cap * es, ea);
         if new_data.is_null() {
             // Realloc failed — return original unchanged (data still valid)
+            // SAFETY: out_ptr validated non-null at function entry.
             unsafe {
                 out_ptr.cast::<i64>().write(len);
                 out_ptr.cast::<i64>().add(1).write(cap);
@@ -117,6 +119,7 @@ pub extern "C" fn ori_list_push_cow(
             }
             return;
         }
+        // SAFETY: new_data has new_cap * es bytes; old_len * es < new_cap * es; out_ptr non-null.
         unsafe {
             std::ptr::copy_nonoverlapping(elem_ptr, new_data.add(old_len * es), es);
             out_ptr.cast::<i64>().write(new_len as i64);
@@ -141,6 +144,7 @@ pub extern "C" fn ori_list_push_cow(
 
     // Copy old elements and increment their RC (they're now in a new buffer)
     if !data.is_null() && old_len > 0 {
+        // SAFETY: data has old_len * es valid bytes; new_data has new_cap * es >= old_len * es bytes.
         unsafe {
             std::ptr::copy_nonoverlapping(data, new_data, old_len * es);
         }
@@ -148,12 +152,14 @@ pub extern "C" fn ori_list_push_cow(
     }
 
     // Write new element
+    // SAFETY: new_data has new_cap * es bytes; old_len * es < new_cap * es.
     unsafe {
         std::ptr::copy_nonoverlapping(elem_ptr, new_data.add(old_len * es), es);
     }
 
     // Propagate elem_dec_fn and elem_count from old header to new buffer
     if !data.is_null() {
+        // SAFETY: data is a valid RC-allocated (or slice) buffer; new_data from ori_rc_alloc.
         unsafe { propagate_elem_header(data, cap, new_data, new_len as i64) };
     }
 
@@ -164,6 +170,7 @@ pub extern "C" fn ori_list_push_cow(
     dec_list_buffer(data, cap);
 
     // Write result
+    // SAFETY: out_ptr validated non-null at function entry; writing {len, cap, data} triple.
     unsafe {
         out_ptr.cast::<i64>().write(new_len as i64);
         out_ptr.cast::<i64>().add(1).write(new_cap as i64);
@@ -219,6 +226,7 @@ pub extern "C" fn ori_list_pop_cow(
         if data.is_null() {
             rt_debug_null_cow_warning("ori_list_pop_cow");
         }
+        // SAFETY: out_ptr validated non-null above; writing empty list triple.
         unsafe {
             out_ptr.cast::<i64>().write(0);
             out_ptr.cast::<i64>().add(1).write(0);
@@ -239,6 +247,7 @@ pub extern "C" fn ori_list_pop_cow(
     let is_unique =
         !is_slice_cap(cap) && (cow_mode == 1 || (cow_mode != 2 && ori_rc_is_unique(data)));
     if is_unique {
+        // SAFETY: Uniqueness verified; buffer remains valid; just decrements logical len.
         unsafe {
             out_ptr.cast::<i64>().write(new_len as i64);
             out_ptr.cast::<i64>().add(1).write(cap);
@@ -251,6 +260,7 @@ pub extern "C" fn ori_list_pop_cow(
     if new_len == 0 {
         // Popping last element from shared/slice list → empty sentinel
         dec_list_buffer(data, cap);
+        // SAFETY: out_ptr validated non-null; writing empty list triple.
         unsafe {
             out_ptr.cast::<i64>().write(0);
             out_ptr.cast::<i64>().add(1).write(0);
@@ -266,17 +276,20 @@ pub extern "C" fn ori_list_pop_cow(
     let new_data = ori_rc_alloc(new_cap * es, ea);
 
     // Copy all-but-last elements and increment their RC
+    // SAFETY: data has len * es valid bytes; new_data has new_len * es bytes; new_len < len.
     unsafe {
         std::ptr::copy_nonoverlapping(data, new_data, new_len * es);
     }
     inc_copied_elements(new_data, new_len, es, inc_fn);
 
     // Propagate elem_dec_fn and elem_count from old header
+    // SAFETY: data is a valid RC-allocated (or slice) buffer; new_data from ori_rc_alloc.
     unsafe { propagate_elem_header(data, cap, new_data, new_len as i64) };
 
     // Release our reference to the old buffer (slice-aware)
     dec_list_buffer(data, cap);
 
+    // SAFETY: out_ptr validated non-null; writing {len, cap, data} triple.
     unsafe {
         out_ptr.cast::<i64>().write(new_len as i64);
         out_ptr.cast::<i64>().add(1).write(new_cap as i64);
@@ -325,6 +338,7 @@ pub extern "C" fn ori_list_set_cow(
         } else {
             rt_debug_bounds_warning("ori_list_set_cow", index, len);
         }
+        // SAFETY: out_ptr validated non-null; returning input unchanged on bounds error.
         unsafe {
             out_ptr.cast::<i64>().write(len);
             out_ptr.cast::<i64>().add(1).write(cap);
@@ -342,6 +356,7 @@ pub extern "C" fn ori_list_set_cow(
     let is_unique =
         !is_slice_cap(cap) && (cow_mode == 1 || (cow_mode != 2 && ori_rc_is_unique(data)));
     if is_unique {
+        // SAFETY: Uniqueness verified; idx < len so idx * es is within the buffer.
         unsafe {
             std::ptr::copy_nonoverlapping(elem_ptr, data.add(idx * es), es);
             out_ptr.cast::<i64>().write(len);
@@ -355,6 +370,7 @@ pub extern "C" fn ori_list_set_cow(
     let old_len = len as usize;
     let new_data = ori_rc_alloc(old_len * es, ea);
 
+    // SAFETY: data has old_len * es bytes; new_data has old_len * es bytes; idx < old_len.
     unsafe {
         // Copy all elements
         std::ptr::copy_nonoverlapping(data, new_data, old_len * es);
@@ -366,6 +382,7 @@ pub extern "C" fn ori_list_set_cow(
     inc_copied_elements(new_data, idx, es, inc_fn);
     if idx + 1 < old_len {
         inc_copied_elements(
+            // SAFETY: (idx + 1) * es is within new_data's allocation of old_len * es bytes.
             unsafe { new_data.add((idx + 1) * es) },
             old_len - idx - 1,
             es,
@@ -374,11 +391,13 @@ pub extern "C" fn ori_list_set_cow(
     }
 
     // Propagate elem_dec_fn and elem_count from old header
+    // SAFETY: data is a valid RC-allocated (or slice) buffer; new_data from ori_rc_alloc.
     unsafe { propagate_elem_header(data, cap, new_data, old_len as i64) };
 
     // Release our reference to the old buffer (slice-aware)
     dec_list_buffer(data, cap);
 
+    // SAFETY: out_ptr validated non-null; writing {len, cap, data} triple.
     unsafe {
         out_ptr.cast::<i64>().write(len);
         out_ptr.cast::<i64>().add(1).write(old_len as i64); // cap = len (tight fit)

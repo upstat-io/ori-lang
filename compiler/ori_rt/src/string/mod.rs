@@ -104,8 +104,10 @@ impl OriStr {
     #[must_use]
     pub fn len(&self) -> usize {
         if self.is_sso() {
+            // SAFETY: is_sso() returned true, so the sso variant is active.
             unsafe { (self.sso.flags & SSO_LEN_MASK) as usize }
         } else {
+            // SAFETY: is_sso() returned false, so the heap variant is active.
             unsafe { self.heap.len as usize }
         }
     }
@@ -123,8 +125,11 @@ impl OriStr {
     pub fn as_bytes(&self) -> &[u8] {
         if self.is_sso() {
             let len = self.len();
+            // SAFETY: is_sso() returned true, so the sso variant is active; len <= 23.
             unsafe { &self.sso.bytes[..len] }
         } else {
+            // SAFETY: is_sso() returned false, so the heap variant is active.
+            // data/len validated before creating the slice.
             unsafe {
                 if self.heap.data.is_null() || self.heap.len <= 0 {
                     &[]
@@ -154,6 +159,7 @@ impl OriStr {
         if self.is_sso() {
             None
         } else {
+            // SAFETY: is_sso() returned false, so the heap variant is active.
             unsafe {
                 if self.heap.data.is_null() {
                     None
@@ -285,6 +291,8 @@ impl OriStr {
     /// `self` must be a uniquely-owned heap string (not SSO, not shared).
     pub fn ensure_capacity(&mut self, required: usize) {
         debug_assert!(!self.is_sso(), "ensure_capacity called on SSO string");
+        // SAFETY: Precondition: self is a heap string (not SSO), so heap variant is active.
+        // Caller guarantees unique ownership, making realloc safe.
         unsafe {
             if self.heap.cap as usize >= required {
                 return;
@@ -319,6 +327,7 @@ pub extern "C" fn ori_str_ensure_capacity(s: *mut OriStr, required: i64) {
     if s.is_null() || required <= 0 {
         return;
     }
+    // SAFETY: s validated non-null above; pointer from LLVM codegen is valid per runtime protocol.
     let str_ref = unsafe { &mut *s };
     if str_ref.is_sso() {
         // SSO strings don't have capacity -- promotion handled by caller

@@ -31,6 +31,7 @@ pub extern "C" fn ori_str_substring(s: *const OriStr, start: i64, end: i64) -> O
     if s.is_null() {
         return OriStr::EMPTY;
     }
+    // SAFETY: s validated non-null above; pointer from LLVM codegen is valid per runtime protocol.
     let s_ref = unsafe { &*s };
     let s_len = s_ref.len() as i64;
 
@@ -50,6 +51,7 @@ pub extern "C" fn ori_str_substring(s: *const OriStr, start: i64, end: i64) -> O
     }
 
     // Heap path: create a seamless slice
+    // SAFETY: is_sso() returned false, so the heap variant is active.
     let heap = unsafe { &s_ref.heap };
     if heap.data.is_null() {
         return OriStr::EMPTY;
@@ -57,6 +59,8 @@ pub extern "C" fn ori_str_substring(s: *const OriStr, start: i64, end: i64) -> O
 
     // If result fits in SSO, copy is cheaper than RC management
     if result_len <= SSO_MAX_LEN {
+        // SAFETY: heap.data is non-null (checked above); start..start+result_len is within
+        // the allocated buffer (clamped to s_len).
         let bytes =
             unsafe { std::slice::from_raw_parts(heap.data.add(start as usize), result_len) };
         return OriStr::from_sso(bytes);
@@ -65,6 +69,8 @@ pub extern "C" fn ori_str_substring(s: *const OriStr, start: i64, end: i64) -> O
     // Compute the original allocation's data pointer and total byte offset.
     let (original_data, total_byte_offset) = if is_slice_cap(heap.cap) {
         let existing_offset = slice_byte_offset(heap.cap);
+        // SAFETY: heap.data is an interior pointer into the original allocation;
+        // subtracting the slice byte offset recovers the original base pointer.
         let orig = unsafe { heap.data.sub(existing_offset) };
         (orig, existing_offset + start as usize)
     } else {
@@ -74,6 +80,8 @@ pub extern "C" fn ori_str_substring(s: *const OriStr, start: i64, end: i64) -> O
     // Increment RC on the original buffer (new slice reference)
     ori_rc_inc(original_data);
 
+    // SAFETY: total_byte_offset is within the original allocation's bounds
+    // (clamped start + any existing slice offset).
     let slice_data = unsafe { original_data.add(total_byte_offset) };
 
     OriStr {
@@ -88,6 +96,7 @@ pub extern "C" fn ori_str_substring(s: *const OriStr, start: i64, end: i64) -> O
 /// Check if a string contains a substring.
 #[no_mangle]
 pub extern "C" fn ori_str_contains(s: *const OriStr, needle: *const OriStr) -> bool {
+    // SAFETY: deref_str handles null (returns ""); non-null pointers valid per C-ABI protocol.
     let (s, needle) = unsafe { (deref_str(s), deref_str(needle)) };
     s.contains(needle)
 }
@@ -95,6 +104,7 @@ pub extern "C" fn ori_str_contains(s: *const OriStr, needle: *const OriStr) -> b
 /// Check if a string starts with a prefix.
 #[no_mangle]
 pub extern "C" fn ori_str_starts_with(s: *const OriStr, prefix: *const OriStr) -> bool {
+    // SAFETY: deref_str handles null (returns ""); non-null pointers valid per C-ABI protocol.
     let (s, prefix) = unsafe { (deref_str(s), deref_str(prefix)) };
     s.starts_with(prefix)
 }
@@ -102,6 +112,7 @@ pub extern "C" fn ori_str_starts_with(s: *const OriStr, prefix: *const OriStr) -
 /// Check if a string ends with a suffix.
 #[no_mangle]
 pub extern "C" fn ori_str_ends_with(s: *const OriStr, suffix: *const OriStr) -> bool {
+    // SAFETY: deref_str handles null (returns ""); non-null pointers valid per C-ABI protocol.
     let (s, suffix) = unsafe { (deref_str(s), deref_str(suffix)) };
     s.ends_with(suffix)
 }
@@ -116,6 +127,7 @@ pub extern "C" fn ori_str_trim(s: *const OriStr) -> OriStr {
     if s.is_null() {
         return OriStr::EMPTY;
     }
+    // SAFETY: s validated non-null above; pointer from LLVM codegen is valid per runtime protocol.
     let s_ref = unsafe { &*s };
     let bytes = s_ref.as_bytes();
     let start = bytes
@@ -140,6 +152,7 @@ pub extern "C" fn ori_str_to_uppercase(s: *const OriStr) -> OriStr {
     let s_ref = if s.is_null() {
         return OriStr::EMPTY;
     } else {
+        // SAFETY: s validated non-null by the if-branch above.
         unsafe { &*s }
     };
     let bytes = s_ref.as_bytes();
@@ -150,11 +163,13 @@ pub extern "C" fn ori_str_to_uppercase(s: *const OriStr) -> OriStr {
 
     // Non-ASCII: fall through to Rust (length may change, e.g. ss -> SS)
     if !bytes.is_ascii() {
+        // SAFETY: OriStr bytes are valid UTF-8 by construction.
         return OriStr::from_owned(&unsafe { s_ref.as_str() }.to_uppercase());
     }
 
     // ASCII: byte length is preserved -- can do in-place or SSO
     if s_ref.is_sso() {
+        // SAFETY: is_sso() returned true, so the sso variant is active.
         let mut sso = unsafe { s_ref.sso };
         for b in &mut sso.bytes[..len] {
             b.make_ascii_uppercase();
@@ -163,8 +178,10 @@ pub extern "C" fn ori_str_to_uppercase(s: *const OriStr) -> OriStr {
     }
 
     // Heap: try in-place if unique (not a slice — slices share parent buffer)
+    // SAFETY: is_sso() returned false, so the heap variant is active.
     let heap = unsafe { &s_ref.heap };
     if !heap.data.is_null() && !is_slice_cap(heap.cap) && ori_rc_is_unique(heap.data) {
+        // SAFETY: heap.data is non-null, uniquely owned, and allocated with at least `len` bytes.
         let data = unsafe { std::slice::from_raw_parts_mut(heap.data, len) };
         data.make_ascii_uppercase();
         return *s_ref;
@@ -184,6 +201,7 @@ pub extern "C" fn ori_str_to_lowercase(s: *const OriStr) -> OriStr {
     let s_ref = if s.is_null() {
         return OriStr::EMPTY;
     } else {
+        // SAFETY: s validated non-null by the if-branch above.
         unsafe { &*s }
     };
     let bytes = s_ref.as_bytes();
@@ -193,10 +211,12 @@ pub extern "C" fn ori_str_to_lowercase(s: *const OriStr) -> OriStr {
     }
 
     if !bytes.is_ascii() {
+        // SAFETY: OriStr bytes are valid UTF-8 by construction.
         return OriStr::from_owned(&unsafe { s_ref.as_str() }.to_lowercase());
     }
 
     if s_ref.is_sso() {
+        // SAFETY: is_sso() returned true, so the sso variant is active.
         let mut sso = unsafe { s_ref.sso };
         for b in &mut sso.bytes[..len] {
             b.make_ascii_lowercase();
@@ -204,8 +224,10 @@ pub extern "C" fn ori_str_to_lowercase(s: *const OriStr) -> OriStr {
         return OriStr { sso };
     }
 
+    // SAFETY: is_sso() returned false, so the heap variant is active.
     let heap = unsafe { &s_ref.heap };
     if !heap.data.is_null() && !is_slice_cap(heap.cap) && ori_rc_is_unique(heap.data) {
+        // SAFETY: heap.data is non-null, uniquely owned, and allocated with at least `len` bytes.
         let data = unsafe { std::slice::from_raw_parts_mut(heap.data, len) };
         data.make_ascii_lowercase();
         return *s_ref;
@@ -229,16 +251,21 @@ pub extern "C" fn ori_str_replace(
     let s_ref = if s.is_null() {
         return OriStr::EMPTY;
     } else {
+        // SAFETY: s validated non-null by the if-branch above.
         unsafe { &*s }
     };
+    // SAFETY: deref_str handles null (returns ""); non-null pointers valid per C-ABI protocol.
     let from_str = unsafe { deref_str(from) };
+    // SAFETY: deref_str handles null (returns ""); non-null pointers valid per C-ABI protocol.
     let to_str = unsafe { deref_str(to) };
 
     // Same-length replacement on unique heap -> in-place (not slices)
     if from_str.len() == to_str.len() && !from_str.is_empty() && !s_ref.is_sso() {
+        // SAFETY: is_sso() returned false, so the heap variant is active.
         let heap = unsafe { &s_ref.heap };
         if !heap.data.is_null() && !is_slice_cap(heap.cap) && ori_rc_is_unique(heap.data) {
             let len = s_ref.len();
+            // SAFETY: heap.data is non-null, uniquely owned, and allocated with at least `len` bytes.
             let data = unsafe { std::slice::from_raw_parts_mut(heap.data, len) };
             let from_bytes = from_str.as_bytes();
             let to_bytes = to_str.as_bytes();
@@ -257,6 +284,7 @@ pub extern "C" fn ori_str_replace(
     }
 
     // General case: use Rust's replace and wrap result
+    // SAFETY: OriStr bytes are valid UTF-8 by construction.
     let s_str = unsafe { s_ref.as_str() };
     OriStr::from_bytes(s_str.replace(from_str, to_str).as_bytes())
 }
@@ -270,6 +298,7 @@ pub extern "C" fn ori_str_repeat(s: *const OriStr, count: i64) -> OriStr {
     let s_ref = if s.is_null() {
         return OriStr::EMPTY;
     } else {
+        // SAFETY: s validated non-null by the if-branch above.
         unsafe { &*s }
     };
     let bytes = s_ref.as_bytes();
@@ -300,6 +329,8 @@ pub extern "C" fn ori_str_repeat(s: *const OriStr, count: i64) -> OriStr {
     // Heap: allocate exact capacity
     let data = ori_rc_alloc(total, 1);
     for i in 0..n {
+        // SAFETY: data is freshly allocated with `total` bytes; each write at
+        // offset i*len is within bounds since i*len + len <= total.
         unsafe {
             std::ptr::copy_nonoverlapping(bytes.as_ptr(), data.add(i * len), len);
         }
@@ -325,6 +356,7 @@ pub extern "C" fn ori_str_push_char(s: *const OriStr, ch: u32) -> OriStr {
     let s_ref = if s.is_null() {
         &OriStr::EMPTY
     } else {
+        // SAFETY: s validated non-null by the if-branch above.
         unsafe { &*s }
     };
 
@@ -352,10 +384,13 @@ pub extern "C" fn ori_str_push_char(s: *const OriStr, ch: u32) -> OriStr {
 
     // Cases 2-3: heap and uniquely owned (not slices — can't mutate parent)
     if !s_ref.is_sso() {
+        // SAFETY: is_sso() returned false, so the heap variant is active.
         let heap = unsafe { &s_ref.heap };
         if !heap.data.is_null() && !is_slice_cap(heap.cap) && ori_rc_is_unique(heap.data) {
             if (heap.cap as usize) >= combined {
                 // Case 2: has capacity
+                // SAFETY: heap.data is uniquely owned with cap >= combined; writing
+                // ch_len bytes at offset s_len is within the allocated capacity.
                 unsafe {
                     std::ptr::copy_nonoverlapping(ch_bytes.as_ptr(), heap.data.add(s_len), ch_len);
                 }
@@ -370,6 +405,8 @@ pub extern "C" fn ori_str_push_char(s: *const OriStr, ch: u32) -> OriStr {
             // Case 3: realloc
             let new_cap = next_capacity(heap.cap as usize, combined);
             let new_data = ori_rc_realloc(heap.data, s_len, new_cap, 1);
+            // SAFETY: new_data is freshly reallocated with new_cap >= combined bytes;
+            // writing ch_len bytes at offset s_len is within capacity.
             unsafe {
                 std::ptr::copy_nonoverlapping(ch_bytes.as_ptr(), new_data.add(s_len), ch_len);
             }
@@ -386,6 +423,8 @@ pub extern "C" fn ori_str_push_char(s: *const OriStr, ch: u32) -> OriStr {
     // Case 4: allocate new
     let new_cap = next_capacity(0, combined);
     let new_data = ori_rc_alloc(new_cap, 1);
+    // SAFETY: new_data is freshly allocated with new_cap >= combined bytes;
+    // s_len + ch_len == combined, so both writes are within bounds.
     unsafe {
         std::ptr::copy_nonoverlapping(s_bytes.as_ptr(), new_data, s_len);
         std::ptr::copy_nonoverlapping(ch_bytes.as_ptr(), new_data.add(s_len), ch_len);
@@ -437,11 +476,13 @@ pub extern "C" fn ori_str_next_char(data: *const u8, len: i64, byte_offset: i64)
         };
     } else if lead < 0xE0 && remaining >= 2 {
         // 2-byte: 110xxxxx 10xxxxxx
+        // SAFETY: remaining >= 2 guarantees offset+1 < len; data valid for len bytes.
         let b1 = unsafe { *data.add(offset + 1) };
         let cp = (i32::from(lead & 0x1F) << 6) | i32::from(b1 & 0x3F);
         (cp, 2)
     } else if lead < 0xF0 && remaining >= 3 {
         // 3-byte: 1110xxxx 10xxxxxx 10xxxxxx
+        // SAFETY: remaining >= 3 guarantees offset+1..offset+2 < len; data valid for len bytes.
         let b1 = unsafe { *data.add(offset + 1) };
         let b2 = unsafe { *data.add(offset + 2) };
         let cp =
@@ -449,6 +490,7 @@ pub extern "C" fn ori_str_next_char(data: *const u8, len: i64, byte_offset: i64)
         (cp, 3)
     } else if lead < 0xF8 && remaining >= 4 {
         // 4-byte: 11110xxx 10xxxxxx 10xxxxxx 10xxxxxx
+        // SAFETY: remaining >= 4 guarantees offset+1..offset+3 < len; data valid for len bytes.
         let b1 = unsafe { *data.add(offset + 1) };
         let b2 = unsafe { *data.add(offset + 2) };
         let b3 = unsafe { *data.add(offset + 3) };
