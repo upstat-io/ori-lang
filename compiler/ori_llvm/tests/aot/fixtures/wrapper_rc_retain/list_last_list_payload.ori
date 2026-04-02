@@ -1,0 +1,9 @@
+// Matrix coverage: List.last with nested [int] payload
+@make () -> [[int]] = [[1, 2], [3, 4, 5]];
+
+@main () -> int = {
+    let items = make();
+    let l = items.last();
+    let v = l.unwrap();
+    if v == [3, 4, 5] then 0 else 1
+}

@@ -1,0 +1,9 @@
+// Regression: BUG-04-013 — List.last must RC-retain heap string element
+@make () -> [str] = ["hello world this is a long heap string", "another long heap string here"];
+
+@main () -> int = {
+    let items = make();
+    let l = items.last();
+    let v = l.unwrap();
+    if v == "another long heap string here" then 0 else 1
+}
