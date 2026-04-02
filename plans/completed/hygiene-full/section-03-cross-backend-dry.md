@@ -1,7 +1,7 @@
 ---
 section: "03"
 title: "Cross-Backend Algorithmic DRY (eval / LLVM)"
-status: in-progress
+status: complete
 reviewed: true
 goal: "Extract shared dispatch metadata between eval and LLVM backends so algorithmic skeletons are defined once"
 inspired_by:

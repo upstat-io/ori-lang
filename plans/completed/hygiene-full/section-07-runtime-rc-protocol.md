@@ -1,14 +1,14 @@
 ---
 section: "07"
 title: "Runtime RC Protocol DRY + Correctness"
-status: in-progress
+status: complete
 reviewed: true
 goal: "RC dec protocol defined once and reused by all dec functions; immortal object check present in all dec paths"
 inspired_by:
   - "Swift runtime/HeapObject.cpp -- single reference counting protocol with per-type hooks"
 depends_on: []
 third_party_review:
-  status: findings
+  status: resolved
   updated: 2026-04-01
 sections:
   - id: "07.1"
@@ -105,6 +105,6 @@ The immortal sentinel check (`if current_rc == MAX_REFCOUNT { return; }`) is pre
 - [x] `timeout 150 ./test-all.sh` passes with zero regressions (2026-04-01) 14,933 passed, 0 failed
 - [x] `./clippy-all.sh` passes (2026-04-01)
 - [x] Plan annotation cleanup (2026-04-01) No hygiene-full section 07 annotations in source code
-- [ ] `/tpr-review` passed (final, full-section)
+- [x] `/tpr-review` passed (final, full-section) (2026-04-01) Clean after 4 Codex iterations: 12 findings surfaced and resolved (1 code fix, 1 documentation, 9 plan accuracy corrections). 14,944 tests passing.
 
 **Exit Criteria:** `grep -c 'fetch_sub' compiler/ori_rt/src/rc/ --include="*.rs"` returns at most 2 (one for multi-threaded core, one for single-threaded core). All dec functions delegate to the shared core. `./test-all.sh` green.

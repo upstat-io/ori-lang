@@ -1,14 +1,14 @@
 ---
 section: "09"
 title: "Registration Sync & Enforcement"
-status: in-progress
+status: complete
 reviewed: true
 goal: "All registration sync points have enforcement tests; coverage thresholds ratcheted up; naming discrepancies resolved"
 inspired_by:
   - "ori_registry sync test pattern -- iterate canonical list, verify consumer coverage"
 depends_on: ["01", "02"]
 third_party_review:
-  status: findings
+  status: resolved
   updated: 2026-04-01
 sections:
   - id: "09.1"
@@ -117,6 +117,6 @@ The evaluator's operator dispatch maps `BinaryOp` variants to type-specific eval
 - [x] `timeout 150 ./test-all.sh` passes with zero regressions (2026-04-01) 14,933 passed, 0 failed
 - [x] `./clippy-all.sh` passes (2026-04-01)
 - [x] Plan annotation cleanup: `bash .claude/skills/impl-hygiene-review/plan-annotations.sh --plan 09` returns 0 annotations (2026-04-01) 0 hygiene-full section 09 annotations; matches are repr-opt and roadmap refs
-- [ ] `/tpr-review` passed (final, full-section)
+- [x] `/tpr-review` passed (final, full-section) (2026-04-01) Clean after 4 Codex iterations: 12 findings surfaced and resolved (1 code fix, 1 documentation, 9 plan accuracy corrections). 14,944 tests passing.
 
 **Exit Criteria:** Adding a new method or operator to the registry with `backend_required: true` causes enforcement test failures in any consumer that doesn't handle it. Coverage threshold matches actual level. `./test-all.sh` green.

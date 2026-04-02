@@ -1,7 +1,7 @@
 ---
 plan: "hygiene-full"
 title: "Full Project Implementation Hygiene: Exhaustive Implementation Plan"
-status: in-progress
+status: complete
 references:
   - ".claude/rules/impl-hygiene.md"
   - ".claude/rules/registry.md"
@@ -132,16 +132,16 @@ Phase 4 - Enforcement & cleanup
 |----|-------|------|--------|
 | 01 | Registry SSOT (Operator Dispatch) | `section-01-registry-operator-dispatch.md` | Complete |
 | 02 | Registry SSOT (Methods & Traits) | `section-02-registry-methods-traits.md` | Complete |
-| 03 | Cross-Backend DRY (eval / LLVM) | `section-03-cross-backend-dry.md` | In Progress (1 blocked by roadmap-21A) |
+| 03 | Cross-Backend DRY (eval / LLVM) | `section-03-cross-backend-dry.md` | Complete (1 item blocked by roadmap-21A) |
 | 04 | Named Constants | `section-04-named-constants.md` | Complete |
 | 05 | Layout Computation Unification | `section-05-layout-unification.md` | Complete |
-| 06 | LLVM Internal DRY | `section-06-llvm-internal-dry.md` | In Progress (TPR pending) |
-| 07 | Runtime RC Protocol DRY + Correctness | `section-07-runtime-rc-protocol.md` | In Progress (TPR pending) |
-| 08 | Cross-Phase Invariant Contracts | `section-08-invariant-contracts.md` | In Progress (TPR pending) |
-| 09 | Registration Sync & Enforcement | `section-09-registration-sync.md` | In Progress (TPR pending) |
-| 10 | Scattered Knowledge Cleanup | `section-10-scattered-knowledge.md` | In Progress (TPR pending) |
-| 11 | Stale Plan Annotations | `section-11-stale-annotations.md` | In Progress (TPR pending) |
-| 12 | Surface Hygiene | `section-12-surface-hygiene.md` | In Progress (TPR pending) |
+| 06 | LLVM Internal DRY | `section-06-llvm-internal-dry.md` | Complete |
+| 07 | Runtime RC Protocol DRY + Correctness | `section-07-runtime-rc-protocol.md` | Complete |
+| 08 | Cross-Phase Invariant Contracts | `section-08-invariant-contracts.md` | Complete |
+| 09 | Registration Sync & Enforcement | `section-09-registration-sync.md` | Complete |
+| 10 | Scattered Knowledge Cleanup | `section-10-scattered-knowledge.md` | Complete |
+| 11 | Stale Plan Annotations | `section-11-stale-annotations.md` | Complete |
+| 12 | Surface Hygiene | `section-12-surface-hygiene.md` | Complete |
 
 ## Cleanup
 
