@@ -52,14 +52,12 @@
 //! - Uses `Pool` for interned type storage
 //! - Uses `InferEngine` for Hindley-Milner inference
 
-use ori_ir::{ExprArena, Name, Span, StringInterner};
+use ori_ir::{ExprArena, Name, StringInterner};
 use rustc_hash::{FxHashMap, FxHashSet};
 
-use crate::pool::TypeDescriptor;
 use crate::{
-    FunctionSig, Idx, InferEngine, MethodRegistry, PatternKey, PatternResolution, Pool,
-    TraitRegistry, TypeCheckError, TypeCheckResult, TypeCheckWarning, TypeEnv, TypeRegistry,
-    TypedModule,
+    FunctionSig, Idx, MethodRegistry, PatternKey, PatternResolution, Pool, TraitRegistry,
+    TypeCheckResult, TypeCheckWarning, TypeEnv, TypeRegistry, TypedModule,
 };
 
 // Re-export main API
@@ -69,8 +67,11 @@ pub use api::{
 
 mod api;
 mod bodies;
+mod exports;
+mod imports;
 mod object_safety;
 mod registration;
+mod scope;
 mod signatures;
 mod well_known;
 
@@ -175,7 +176,7 @@ pub struct ModuleChecker<'a> {
 
     // === Diagnostics ===
     /// Accumulated type check errors.
-    errors: Vec<TypeCheckError>,
+    errors: Vec<crate::TypeCheckError>,
     /// Accumulated type check warnings.
     warnings: Vec<TypeCheckWarning>,
 
@@ -219,6 +220,8 @@ pub struct ModuleChecker<'a> {
 }
 
 impl<'a> ModuleChecker<'a> {
+    // Constructors
+
     /// Create a new module checker.
     pub fn new(arena: &'a ExprArena, interner: &'a StringInterner) -> Self {
         let well_known = WellKnownNames::new(interner);
@@ -293,6 +296,8 @@ impl<'a> ModuleChecker<'a> {
         }
     }
 
+    // Import/Setup Setters
+
     /// Set imported type metadata for transitive forwarding.
     ///
     /// Called during the `register_fn` closure in [`check_module_with_imports`]
@@ -315,9 +320,7 @@ impl<'a> ModuleChecker<'a> {
         self.imported_collection_surfaces = surfaces;
     }
 
-    // ========================================
     // Accessors
-    // ========================================
 
     /// Get the expression arena.
     ///
@@ -411,517 +414,7 @@ impl<'a> ModuleChecker<'a> {
         &self.methods
     }
 
-    /// Get a function signature by name.
-    pub fn get_signature(&self, name: Name) -> Option<&FunctionSig> {
-        self.signatures.get(&name)
-    }
-
-    /// Register a function signature.
-    ///
-    /// Called during Pass 1 (signature collection) to store signatures
-    /// for later call resolution during body checking.
-    pub fn register_signature(&mut self, sig: FunctionSig) {
-        self.signatures.insert(sig.name, sig);
-    }
-
-    /// Store an impl method signature for codegen.
-    pub fn register_impl_sig(&mut self, name: Name, sig: FunctionSig) {
-        self.impl_sigs.push((name, sig));
-    }
-
-    /// Record a trait impl method name for unconstrained function detection.
-    ///
-    /// Trait impl methods may be called via dynamic dispatch — their parameter
-    /// ranges must stay Top in interprocedural range analysis. Inherent impl
-    /// methods are NOT recorded (they have known call sites).
-    pub fn register_trait_impl_fn_name(&mut self, self_type: Idx, name: Name) {
-        self.trait_impl_fn_names.push((self_type, name));
-    }
-
-    /// Accumulate mono instances from an inference engine pass.
-    pub fn accumulate_mono_instances(&mut self, instances: Vec<crate::MonoInstance>) {
-        self.mono_instances.extend(instances);
-    }
-
-    /// Accumulate deferred mono calls from an inference engine pass.
-    pub fn accumulate_deferred_mono_calls(&mut self, calls: Vec<crate::DeferredMonoCall>) {
-        self.deferred_mono_calls.extend(calls);
-    }
-
-    /// Get all registered signatures.
-    pub fn signatures(&self) -> &FxHashMap<Name, FunctionSig> {
-        &self.signatures
-    }
-
-    /// Get the import environment.
-    ///
-    /// Contains bindings for imported functions, populated before signature
-    /// collection via `register_imported_function()`.
-    pub fn import_env(&self) -> &TypeEnv {
-        &self.import_env
-    }
-
-    /// Get the module alias map.
-    ///
-    /// Maps alias names to the public function signatures from the aliased module.
-    pub fn module_aliases(&self) -> &FxHashMap<Name, Vec<FunctionSig>> {
-        &self.module_aliases
-    }
-
-    // ========================================
-    // Import Registration
-    // ========================================
-
-    /// Register an imported function for cross-module type checking.
-    ///
-    /// If `imported_sig` is provided (from the source module's `TypeCheckResult`),
-    /// attempts hash-first resolution: looks up each parameter/return type by
-    /// Merkle hash in the local pool (O(1) per type). Falls back to AST
-    /// re-walking if any type is missing from the local pool or the function
-    /// is generic (type variables are pool-local).
-    ///
-    /// Call this before `collect_signatures()` / `check_module_impl()` so
-    /// that imported bindings are visible as the parent scope of local
-    /// function signatures.
-    pub fn register_imported_function(
-        &mut self,
-        func: &ori_ir::Function,
-        foreign_arena: &ExprArena,
-        imported_sig: Option<&FunctionSig>,
-    ) {
-        // Fast path: resolve non-generic signatures by Merkle hash
-        if let Some(ext_sig) = imported_sig {
-            if let Some(local_sig) = self.try_resolve_sig_by_hash(ext_sig) {
-                tracing::debug!(
-                    name = ?self.interner.lookup(local_sig.name),
-                    "import: hash-first hit"
-                );
-                self.bind_imported_sig(local_sig);
-                return;
-            }
-            tracing::debug!(
-                name = ?self.interner.lookup(ext_sig.name),
-                generic = !ext_sig.scheme_var_ids.is_empty(),
-                "import: hash-first miss → AST fallback"
-            );
-        }
-
-        // Slow path: AST re-walking (creates types in local pool)
-        let (sig, var_ids) = signatures::infer_function_signature_from(self, func, foreign_arena);
-        self.bind_imported_sig_with_vars(sig, &var_ids);
-    }
-
-    /// Register an imported function under a different local name.
-    ///
-    /// Like [`register_imported_function`], but overrides the name used for
-    /// binding in the import environment and signature map. Used for aliased
-    /// imports (`use './mod' { foo as bar }`) — avoids cloning the entire
-    /// `Function` AST node just to change its name.
-    pub fn register_imported_function_as(
-        &mut self,
-        func: &ori_ir::Function,
-        foreign_arena: &ExprArena,
-        alias: Name,
-        imported_sig: Option<&FunctionSig>,
-    ) {
-        // Fast path: resolve non-generic signatures by Merkle hash
-        if let Some(ext_sig) = imported_sig {
-            if let Some(mut local_sig) = self.try_resolve_sig_by_hash(ext_sig) {
-                tracing::debug!(
-                    name = ?self.interner.lookup(ext_sig.name),
-                    alias = ?self.interner.lookup(alias),
-                    "import: hash-first hit (aliased)"
-                );
-                local_sig.name = alias;
-                self.bind_imported_sig(local_sig);
-                return;
-            }
-            tracing::debug!(
-                name = ?self.interner.lookup(ext_sig.name),
-                alias = ?self.interner.lookup(alias),
-                generic = !ext_sig.scheme_var_ids.is_empty(),
-                "import: hash-first miss → AST fallback (aliased)"
-            );
-        }
-
-        // Slow path: AST re-walking
-        let (mut sig, var_ids) =
-            signatures::infer_function_signature_from(self, func, foreign_arena);
-        sig.name = alias;
-        self.bind_imported_sig_with_vars(sig, &var_ids);
-    }
-
-    /// Try to resolve all types in an imported signature by Merkle hash lookup.
-    ///
-    /// Returns `Some(local_sig)` if every param/return type already exists in
-    /// the local pool. Returns `None` if any lookup misses (caller should fall
-    /// back to AST re-walking).
-    ///
-    /// Generic functions (non-empty `scheme_var_ids`) always return `None`
-    /// because type variable hashes are pool-local and won't match across pools.
-    fn try_resolve_sig_by_hash(&self, ext_sig: &FunctionSig) -> Option<FunctionSig> {
-        // Generic functions: type variables are pool-local, hash won't match
-        if !ext_sig.scheme_var_ids.is_empty() {
-            return None;
-        }
-
-        // Try to resolve every param type by hash
-        let mut local_param_types = Vec::with_capacity(ext_sig.param_types.len());
-        for &hash in &ext_sig.param_hashes {
-            local_param_types.push(self.pool.lookup_by_hash(hash)?);
-        }
-
-        // Try to resolve return type by hash
-        let local_return_type = self.pool.lookup_by_hash(ext_sig.return_hash)?;
-
-        // All types resolved — build local FunctionSig
-        Some(FunctionSig {
-            name: ext_sig.name,
-            type_params: ext_sig.type_params.clone(),
-            const_params: ext_sig.const_params.clone(),
-            param_names: ext_sig.param_names.clone(),
-            param_types: local_param_types,
-            return_type: local_return_type,
-            capabilities: ext_sig.capabilities.clone(),
-            is_public: ext_sig.is_public,
-            is_test: ext_sig.is_test,
-            is_main: ext_sig.is_main,
-            is_fbip: ext_sig.is_fbip,
-            type_param_bounds: ext_sig.type_param_bounds.clone(),
-            where_clauses: ext_sig.where_clauses.clone(),
-            generic_param_mapping: ext_sig.generic_param_mapping.clone(),
-            scheme_var_ids: ext_sig.scheme_var_ids.clone(),
-            required_params: ext_sig.required_params,
-            param_defaults: ext_sig.param_defaults.clone(),
-            param_hashes: ext_sig.param_hashes.clone(),
-            return_hash: ext_sig.return_hash,
-        })
-    }
-
-    /// Bind an imported signature into the import environment (non-generic path).
-    ///
-    /// Used by the hash-first resolution path where we know `scheme_var_ids` is empty.
-    fn bind_imported_sig(&mut self, sig: FunctionSig) {
-        let fn_type = self.pool.function(&sig.param_types, sig.return_type);
-        self.import_env.bind(sig.name, fn_type);
-        self.signatures.insert(sig.name, sig);
-    }
-
-    /// Bind an imported signature, wrapping generic functions in a type scheme.
-    ///
-    /// Used by the AST fallback path where we have explicit var IDs.
-    fn bind_imported_sig_with_vars(&mut self, sig: FunctionSig, var_ids: &[u32]) {
-        let fn_type = self.pool.function(&sig.param_types, sig.return_type);
-
-        // Wrap generic functions in a type scheme so each call gets fresh
-        // type variables via instantiation (prevents shared-variable pollution).
-        let bound_type = if var_ids.is_empty() {
-            fn_type
-        } else {
-            self.pool.scheme(var_ids, fn_type)
-        };
-
-        self.import_env.bind(sig.name, bound_type);
-        self.signatures.insert(sig.name, sig);
-    }
-
-    /// Register traits from an imported module (e.g., prelude).
-    ///
-    /// Uses the foreign module's arena to resolve generic params and method
-    /// signatures. Only public traits are registered.
-    pub fn register_imported_traits(&mut self, module: &ori_ir::Module, foreign_arena: &ExprArena) {
-        registration::register_imported_traits(self, module, foreign_arena);
-    }
-
-    /// Register a built-in function directly by type signature.
-    ///
-    /// Used for native functions (like `int()`, `str()`, `float()`) that are
-    /// implemented in the evaluator but need type information during checking.
-    ///
-    /// `generic_var_ids` lists the var IDs of type parameters that should be
-    /// quantified. Pass empty slice for monomorphic functions.
-    pub fn register_builtin_function(
-        &mut self,
-        name: Name,
-        param_types: &[Idx],
-        return_type: Idx,
-        generic_var_ids: &[u32],
-    ) {
-        let fn_type = self.pool.function(param_types, return_type);
-        let bound_type = if generic_var_ids.is_empty() {
-            fn_type
-        } else {
-            self.pool.scheme(generic_var_ids, fn_type)
-        };
-        self.import_env.bind(name, bound_type);
-    }
-
-    /// Register a built-in value (like `Less`, `Equal`, `Greater`).
-    pub fn register_builtin_value(&mut self, name: Name, ty: Idx) {
-        self.import_env.bind(name, ty);
-    }
-
-    /// Register a module alias for qualified access.
-    ///
-    /// Collects signatures for all public functions in the given module and
-    /// stores them under the alias name. Also binds the alias in the import
-    /// environment as a named type placeholder.
-    ///
-    /// **Note:** Full qualified-access resolution (`alias.func(...)`) is deferred —
-    /// it requires inference engine changes for `ExprKind::FieldAccess` on
-    /// namespace types. The data storage is in place for when that's needed.
-    pub fn register_module_alias(
-        &mut self,
-        alias: Name,
-        module: &ori_ir::Module,
-        foreign_arena: &ExprArena,
-    ) {
-        let sigs: Vec<FunctionSig> = module
-            .functions
-            .iter()
-            .filter(|f| f.visibility == ori_ir::Visibility::Public)
-            .map(|f| {
-                let (sig, _var_ids) =
-                    signatures::infer_function_signature_from(self, f, foreign_arena);
-                sig
-            })
-            .collect();
-
-        self.module_aliases.insert(alias, sigs);
-
-        // Bind alias as a named type placeholder in the import env.
-        // This makes the alias name resolvable (as a namespace marker).
-        let alias_ty = self.pool.named(alias);
-        self.import_env.bind(alias, alias_ty);
-    }
-
-    // ========================================
-    // Scope Context
-    // ========================================
-
-    /// Get the current function type (for `recurse`).
-    #[inline]
-    pub fn current_function(&self) -> Option<Idx> {
-        self.current_function
-    }
-
-    /// Get the current impl self type.
-    #[inline]
-    pub fn current_impl_self(&self) -> Option<Idx> {
-        self.current_impl_self
-    }
-
-    /// Check if a capability is available (declared or provided).
-    pub fn has_capability(&self, cap: Name) -> bool {
-        self.current_capabilities.contains(&cap) || self.provided_capabilities.contains(&cap)
-    }
-
-    /// Get the type of a constant.
-    pub fn const_type(&self, name: Name) -> Option<Idx> {
-        self.const_types.get(&name).copied()
-    }
-
-    /// Register a constant type.
-    pub fn register_const_type(&mut self, name: Name, ty: Idx) {
-        self.const_types.insert(name, ty);
-    }
-
-    // ========================================
-    // Environment Management
-    // ========================================
-
-    /// Freeze the current environment as the base.
-    ///
-    /// Called after signature collection to preserve function bindings.
-    /// Function body checking creates child environments from this base.
-    pub fn freeze_base_env(&mut self, env: TypeEnv) {
-        self.base_env = Some(env);
-    }
-
-    /// Get a child of the frozen base environment.
-    ///
-    /// Returns `None` if the base hasn't been frozen yet.
-    pub fn child_of_base(&self) -> Option<TypeEnv> {
-        self.base_env.as_ref().map(TypeEnv::child)
-    }
-
-    /// Get the frozen base environment.
-    pub fn base_env(&self) -> Option<&TypeEnv> {
-        self.base_env.as_ref()
-    }
-
-    // ========================================
-    // Error Management
-    // ========================================
-
-    /// Check if any errors have been accumulated.
-    #[inline]
-    pub fn has_errors(&self) -> bool {
-        !self.errors.is_empty()
-    }
-
-    /// Get accumulated errors.
-    #[inline]
-    pub fn errors(&self) -> &[TypeCheckError] {
-        &self.errors
-    }
-
-    /// Push a type check error.
-    pub fn push_error(&mut self, error: TypeCheckError) {
-        self.errors.push(error);
-    }
-
-    /// Push a type check warning.
-    pub fn push_warning(&mut self, warning: TypeCheckWarning) {
-        self.warnings.push(warning);
-    }
-
-    /// Report an undefined identifier error.
-    pub fn error_undefined(&mut self, name: Name, span: Span) {
-        self.errors
-            .push(TypeCheckError::undefined_identifier(name, span));
-    }
-
-    // ========================================
-    // Expression Types
-    // ========================================
-
-    /// Store the inferred type for an expression.
-    ///
-    /// Expression indices are assumed to be sequential starting from 0.
-    /// If the index exceeds current capacity, the vector is extended.
-    pub fn store_expr_type(&mut self, expr_index: usize, ty: Idx) {
-        if expr_index >= self.expr_types.len() {
-            self.expr_types.resize(expr_index + 1, Idx::ERROR);
-        }
-        self.expr_types[expr_index] = ty;
-    }
-
-    /// Get the inferred type for an expression.
-    pub fn get_expr_type(&self, expr_index: usize) -> Option<Idx> {
-        self.expr_types.get(expr_index).copied()
-    }
-
-    // ========================================
-    // Inference Engine Creation
-    // ========================================
-
-    /// Create an inference engine for checking a scope.
-    ///
-    /// The engine borrows the pool mutably and starts with a fresh environment.
-    /// Propagates capability state so the engine can validate call-site capabilities.
-    pub fn create_engine(&mut self) -> InferEngine<'_> {
-        let interner = self.interner;
-        let well_known = &self.well_known;
-        // Split borrow: pool (mut) + traits, signatures, types, consts (shared)
-        let traits = &self.traits;
-        let sigs = &self.signatures;
-        let types = &self.types;
-        let consts = &self.const_types;
-        let impl_self = self.current_impl_self;
-        let current_caps = self.current_capabilities.clone();
-        let provided_caps = self.provided_capabilities.clone();
-        let mut engine = InferEngine::new(&mut self.pool);
-        engine.set_interner(interner);
-        engine.set_well_known(well_known);
-        engine.set_trait_registry(traits);
-        engine.set_signatures(sigs);
-        engine.set_type_registry(types);
-        engine.set_const_types(consts);
-        engine.set_capabilities(current_caps, provided_caps);
-        if let Some(self_ty) = impl_self {
-            engine.set_impl_self_type(self_ty);
-        }
-        engine
-    }
-
-    /// Create an inference engine with a specific environment.
-    ///
-    /// Use this when you need to start with pre-bound variables
-    /// (e.g., function parameters).
-    /// Propagates capability state so the engine can validate call-site capabilities.
-    pub fn create_engine_with_env(&mut self, env: TypeEnv) -> InferEngine<'_> {
-        let interner = self.interner;
-        let well_known = &self.well_known;
-        // Split borrow: pool (mut) + traits, signatures, types, consts (shared)
-        let traits = &self.traits;
-        let sigs = &self.signatures;
-        let types = &self.types;
-        let consts = &self.const_types;
-        let impl_self = self.current_impl_self;
-        let current_caps = self.current_capabilities.clone();
-        let provided_caps = self.provided_capabilities.clone();
-        let mut engine = InferEngine::with_env(&mut self.pool, env);
-        engine.set_interner(interner);
-        engine.set_well_known(well_known);
-        engine.set_trait_registry(traits);
-        engine.set_signatures(sigs);
-        engine.set_type_registry(types);
-        engine.set_const_types(consts);
-        engine.set_capabilities(current_caps, provided_caps);
-        if let Some(self_ty) = impl_self {
-            engine.set_impl_self_type(self_ty);
-        }
-        engine
-    }
-
-    // ========================================
-    // Context Management (RAII-style)
-    // ========================================
-
-    /// Execute a closure with a function scope.
-    ///
-    /// Sets up `current_function` and `current_capabilities` for the duration.
-    pub fn with_function_scope<T, F>(
-        &mut self,
-        fn_type: Idx,
-        capabilities: FxHashSet<Name>,
-        f: F,
-    ) -> T
-    where
-        F: FnOnce(&mut Self) -> T,
-    {
-        let saved_fn = self.current_function.replace(fn_type);
-        let saved_caps = std::mem::replace(&mut self.current_capabilities, capabilities);
-
-        let result = f(self);
-
-        self.current_function = saved_fn;
-        self.current_capabilities = saved_caps;
-
-        result
-    }
-
-    /// Execute a closure with an impl scope.
-    ///
-    /// Sets up `current_impl_self` for the duration.
-    pub fn with_impl_scope<T, F>(&mut self, self_ty: Idx, f: F) -> T
-    where
-        F: FnOnce(&mut Self) -> T,
-    {
-        let saved = self.current_impl_self.replace(self_ty);
-        let result = f(self);
-        self.current_impl_self = saved;
-        result
-    }
-
-    /// Execute a closure with additional provided capabilities.
-    ///
-    /// Used for `with...in` expressions.
-    pub fn with_provided_capabilities<T, F>(&mut self, caps: FxHashSet<Name>, f: F) -> T
-    where
-        F: FnOnce(&mut Self) -> T,
-    {
-        let saved = std::mem::take(&mut self.provided_capabilities);
-        self.provided_capabilities = caps;
-        let result = f(self);
-        self.provided_capabilities = saved;
-        result
-    }
-
-    // ========================================
     // Output Generation
-    // ========================================
 
     /// Finalize checking and produce the result.
     ///
@@ -954,7 +447,11 @@ impl<'a> ModuleChecker<'a> {
         // Resolve transitive mono calls (generic calling generic) before dedup.
         let mut mono_instances = self.mono_instances;
         if !deferred_mono_calls.is_empty() {
-            resolve_deferred_mono_calls(&mut pool, &mut mono_instances, &deferred_mono_calls);
+            exports::resolve_deferred_mono_calls(
+                &mut pool,
+                &mut mono_instances,
+                &deferred_mono_calls,
+            );
         }
 
         // Dedup mono instances by (fn_name, generic_args).
@@ -964,18 +461,18 @@ impl<'a> ModuleChecker<'a> {
 
         // Generate portable type descriptors for all public function signatures.
         // These enable cross-module type reconstruction without AST access.
-        let type_descriptors = generate_export_descriptors(&pool, &functions);
+        let type_descriptors = exports::generate_export_descriptors(&pool, &functions);
 
         // Generate exported type metadata for cross-module repr plan construction.
         // Merges local types (repr/public) with forwarded imported metadata so that
         // transitive chains (A→B→C) propagate correctly.
         let exported_type_metadata =
-            generate_exported_type_metadata(&types, &self.imported_type_metadata);
+            exports::generate_exported_type_metadata(&types, &self.imported_type_metadata);
 
         // Generate collection surface hashes for cross-module ABI protection.
         // Walks public function signatures to find List/Set types, merges with
         // imported surfaces for transitive forwarding.
-        let exported_collection_surfaces = generate_exported_collection_surfaces(
+        let exported_collection_surfaces = exports::generate_exported_collection_surfaces(
             &pool,
             &functions,
             &self.imported_collection_surfaces,
@@ -997,288 +494,6 @@ impl<'a> ModuleChecker<'a> {
         };
 
         (TypeCheckResult::from_typed(typed), pool)
-    }
-}
-
-/// Generate portable type descriptors for all types in public function signatures.
-///
-/// Iterates public functions, collecting descriptors for every param type and
-/// return type. Deduplicates by Merkle hash via `describe_recursive`'s visited set.
-/// The result is topologically sorted: leaves (primitives) first.
-fn generate_export_descriptors(
-    pool: &Pool,
-    functions: &[FunctionSig],
-) -> Vec<(u64, TypeDescriptor)> {
-    let mut descriptors = Vec::new();
-    let mut visited = FxHashSet::default();
-
-    for sig in functions {
-        if !sig.is_public {
-            continue;
-        }
-        for &idx in &sig.param_types {
-            pool.describe_recursive(idx, &mut descriptors, &mut visited);
-        }
-        pool.describe_recursive(sig.return_type, &mut descriptors, &mut visited);
-    }
-
-    descriptors
-}
-
-/// Generate exported type metadata for cross-module repr plan construction.
-///
-/// For each user-defined type that has a `#repr` attribute or public visibility,
-/// emits an [`ExportedTypeMetadata`] entry carrying the Merkle hash, repr, and
-/// visibility. Merges in `imported` metadata from dependency modules so that
-/// transitive chains (A→B→C) propagate correctly — B's exports include C's
-/// forwarded metadata, so A receives everything transitively.
-///
-/// Deduplication: local entries take priority (by Merkle hash).
-fn generate_exported_type_metadata(
-    types: &[crate::registry::TypeEntry],
-    imported: &[crate::output::ExportedTypeMetadata],
-) -> Vec<crate::output::ExportedTypeMetadata> {
-    let local: Vec<crate::output::ExportedTypeMetadata> = types
-        .iter()
-        .filter(|te| te.repr.is_some() || te.visibility == crate::Visibility::Public)
-        .map(|te| crate::output::ExportedTypeMetadata {
-            merkle_hash: te.merkle_hash,
-            repr: te.repr,
-            is_public: te.visibility == crate::Visibility::Public,
-        })
-        .collect();
-
-    if imported.is_empty() {
-        return local;
-    }
-
-    // Merge: local entries first (take priority), then imported (skip duplicates).
-    let mut seen = FxHashSet::default();
-    let mut result = Vec::with_capacity(local.len() + imported.len());
-
-    for entry in local {
-        if seen.insert(entry.merkle_hash) {
-            result.push(entry);
-        }
-    }
-    for entry in imported {
-        if seen.insert(entry.merkle_hash) {
-            result.push(entry.clone());
-        }
-    }
-
-    result
-}
-
-/// Generate merkle hashes of collection types in public function signatures.
-///
-/// Walks public function parameter and return types to discover List/Set types
-/// (including nested inside Option, Result, Tuple, Map, Struct, Enum). Returns
-/// the merkle hashes of discovered collection types, merged with imported
-/// collection surfaces for transitive forwarding (A→B→C propagation).
-///
-/// This parallels `collect_public_collection_types()` in `repr_setup.rs` but
-/// outputs merkle hashes (for cross-module transport) instead of Pool Idx values
-/// (for same-module use). Both use the shared `walk_collection_types()` walker.
-fn generate_exported_collection_surfaces(
-    pool: &Pool,
-    functions: &[crate::output::FunctionSig],
-    imported: &[u64],
-) -> Vec<u64> {
-    let mut hashes = FxHashSet::default();
-
-    for sig in functions {
-        if !sig.is_public {
-            continue;
-        }
-        for &param_ty in &sig.param_types {
-            crate::pool::walk_collection_types(pool, param_ty, &mut |idx| {
-                hashes.insert(pool.hash(idx));
-            });
-        }
-        crate::pool::walk_collection_types(pool, sig.return_type, &mut |idx| {
-            hashes.insert(pool.hash(idx));
-        });
-    }
-
-    // Merge imported collection surfaces for transitive forwarding.
-    for &hash in imported {
-        hashes.insert(hash);
-    }
-
-    hashes.into_iter().collect()
-}
-
-/// Resolve deferred mono calls transitively.
-///
-/// When a generic function calls another generic, the type checker records a
-/// [`DeferredMonoCall`] instead of a direct [`MonoInstance`] (because the type
-/// arguments are still variables at checking time). This function resolves those
-/// deferred calls using the body type maps from concrete `MonoInstance`s.
-///
-/// Uses a fixed-point worklist: each newly discovered `MonoInstance` may trigger
-/// further deferred calls (e.g., `double_wrap<int>` → `wrap<int>` → `id<int>`).
-///
-/// # Algorithm
-///
-/// For each `MonoInstance` (e.g., `apply_identity<int>`):
-/// 1. Find deferred calls from that function (e.g., `identity` from `apply_identity`)
-/// 2. Apply the caller's body type map to resolve deferred variable mappings
-///    (e.g., `identity`'s `T` → `apply_identity`'s `T` → `int`)
-/// 3. Use `substitute_in_pool` to build concrete types and body type map
-/// 4. Create new `MonoInstance` for the callee
-/// 5. Repeat until no new instances are discovered
-fn resolve_deferred_mono_calls(
-    pool: &mut Pool,
-    mono_instances: &mut Vec<crate::MonoInstance>,
-    deferred_calls: &[crate::DeferredMonoCall],
-) {
-    use rustc_hash::{FxHashMap, FxHashSet};
-
-    use crate::{GenericArg, Idx};
-
-    // Track already-seen (fn_name, generic_args) to avoid duplicates.
-    let mut seen: FxHashSet<(Name, Vec<GenericArg>)> = mono_instances
-        .iter()
-        .map(|m| (m.fn_name, m.generic_args.clone()))
-        .collect();
-
-    tracing::debug!(
-        instances = mono_instances.len(),
-        deferred = deferred_calls.len(),
-        "resolve_deferred_mono_calls: starting"
-    );
-
-    // Fixed-point worklist: process all instances including newly discovered ones.
-    let mut i = 0;
-    while i < mono_instances.len() {
-        let caller_name = mono_instances[i].fn_name;
-        let caller_generic_args = mono_instances[i].generic_args.clone();
-
-        for deferred in deferred_calls.iter().filter(|d| d.caller == caller_name) {
-            tracing::trace!(
-                caller = ?caller_name,
-                callee = ?deferred.callee,
-                caller_generic_args = ?caller_generic_args,
-                var_subst = ?deferred.var_subst,
-                "processing deferred call"
-            );
-
-            // Resolve the callee's var_subst: map each callee var_id to a concrete
-            // type by looking up the caller's generic_args at the stored position.
-            let mut resolved_var_subst: FxHashMap<u32, Idx> = FxHashMap::with_capacity_and_hasher(
-                deferred.var_subst.len(),
-                rustc_hash::FxBuildHasher,
-            );
-            let mut all_concrete = true;
-
-            for (callee_var_id, binding) in &deferred.var_subst {
-                let concrete = match binding {
-                    crate::DeferredVarBinding::CallerSchemeVar(pos) => {
-                        let Some(GenericArg::Type(idx)) = caller_generic_args.get(*pos) else {
-                            all_concrete = false;
-                            break;
-                        };
-                        *idx
-                    }
-                    crate::DeferredVarBinding::Concrete(idx) => *idx,
-                };
-
-                tracing::trace!(callee_var_id, ?binding, ?concrete, "resolved deferred var");
-
-                if pool.tag(concrete) == crate::Tag::Var {
-                    all_concrete = false;
-                    break;
-                }
-                resolved_var_subst.insert(*callee_var_id, concrete);
-            }
-
-            if !all_concrete {
-                continue;
-            }
-
-            // Build generic_args in scheme_var_ids order.
-            let generic_args: Vec<GenericArg> = deferred
-                .callee_scheme_var_ids
-                .iter()
-                .filter_map(|var_id| {
-                    resolved_var_subst
-                        .get(var_id)
-                        .map(|&idx| GenericArg::Type(idx))
-                })
-                .collect();
-
-            if generic_args.len() != deferred.callee_scheme_var_ids.len() {
-                continue;
-            }
-
-            let key = (deferred.callee, generic_args.clone());
-            if !seen.insert(key) {
-                continue;
-            }
-
-            let instance = build_mono_instance(
-                pool,
-                deferred.callee,
-                generic_args,
-                &deferred.callee_param_types,
-                deferred.callee_return_type,
-                &resolved_var_subst,
-            );
-
-            tracing::debug!(
-                callee = ?deferred.callee,
-                args = ?instance.generic_args,
-                "resolved transitive mono instance"
-            );
-
-            mono_instances.push(instance);
-        }
-
-        i += 1;
-    }
-}
-
-/// Build a `MonoInstance` by substituting type variables with concrete types.
-///
-/// Computes concrete param/return types and scans the pool for entries that
-/// need substitution (the `body_type_map` for ARC lowering).
-fn build_mono_instance(
-    pool: &mut Pool,
-    fn_name: Name,
-    generic_args: Vec<crate::GenericArg>,
-    param_types: &[crate::Idx],
-    return_type: crate::Idx,
-    var_subst: &rustc_hash::FxHashMap<u32, crate::Idx>,
-) -> crate::MonoInstance {
-    use crate::pool::substitute::substitute_in_pool;
-    use crate::{Idx, TypeFlags};
-
-    let concrete_param_types: Vec<Idx> = param_types
-        .iter()
-        .map(|&pt| substitute_in_pool(pool, pt, var_subst))
-        .collect();
-    let concrete_return_type = substitute_in_pool(pool, return_type, var_subst);
-
-    let mut body_type_map = Vec::new();
-    let pool_len = u32::try_from(pool.len()).unwrap_or(u32::MAX);
-    for raw in Idx::FIRST_DYNAMIC..pool_len {
-        let idx = Idx::from_raw(raw);
-        if pool.flags(idx).contains(TypeFlags::HAS_VAR) {
-            let substituted = substitute_in_pool(pool, idx, var_subst);
-            if substituted != idx {
-                body_type_map.push((idx, substituted));
-            }
-        }
-    }
-    body_type_map.sort_by_key(|(k, _)| k.raw());
-
-    crate::MonoInstance {
-        fn_name,
-        generic_args,
-        concrete_param_types,
-        concrete_return_type,
-        body_type_map,
     }
 }
 
