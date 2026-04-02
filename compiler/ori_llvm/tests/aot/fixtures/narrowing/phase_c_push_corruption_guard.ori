@@ -1,0 +1,14 @@
+// Regression: BUG-05-001 — integer narrowing Phase C must not narrow
+// collection element types when the program uses push/mutation methods
+// that can insert values outside the literal-only observed range.
+//
+// Without the fix: `root = [1]` narrows [int] element type to i8,
+// then `xs.push(i)` where i >= 128 truncates to i8 → data corruption.
+@main () -> int = {
+    let root = [1];
+    let xs: [int] = [];
+    for i in 0..200 do { xs = xs.push(i) };
+    // xs[128] should be 128. If narrowed to i8, it becomes -128.
+    let val = xs[128];
+    if val == 128 then 0 else 1
+}

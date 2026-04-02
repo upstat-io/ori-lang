@@ -21,6 +21,7 @@ pub mod enum_zero_payload;
 pub mod error_handling;
 pub mod fat_matrix;
 pub mod fat_ptr_iter;
+pub mod ffi_types;
 pub mod for_loops;
 pub mod for_yield_option;
 pub mod formattable;

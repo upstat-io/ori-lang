@@ -972,6 +972,20 @@ pub(crate) static RT_FUNCTIONS: &[RtFn] = &[
         jit_allowed: true,
     },
     RtFn {
+        name: "ori_str_escape_control",
+        params: &[Ty::Ptr],
+        ret: Some(Ty::Str),
+        attrs: &[Attr::Nounwind],
+        jit_allowed: true,
+    },
+    RtFn {
+        name: "ori_str_from_char",
+        params: &[Ty::I32],
+        ret: Some(Ty::Str),
+        attrs: &[Attr::Nounwind],
+        jit_allowed: true,
+    },
+    RtFn {
         name: "ori_char_debug_format",
         params: &[Ty::I32],
         ret: Some(Ty::Str),

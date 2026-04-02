@@ -87,9 +87,10 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
     /// This ensures different types can define methods with the same name without
     /// LLVM symbol collision (e.g., `Point.distance` → `_ori_Point$distance`).
     ///
-    /// Methods are inserted into both:
-    /// - `functions` (bare `method.name` key, for backward compat)
-    /// - `method_functions` (`(type_name, method_name)` key, for type-qualified dispatch)
+    /// Methods are inserted ONLY into `method_functions` (`(type_name, method_name)` key),
+    /// NOT into the bare `functions` map. This prevents name collisions where a bare
+    /// lookup for `to_str` inside `Box$to_str` would find itself instead of the
+    /// correct `int$to_str` (BUG-04-003).
     ///
     /// `type_idx_to_name` is also populated to map `sig.param_types[0]` (the self
     /// parameter type) to the type name, enabling receiver type → type name resolution
@@ -195,12 +196,13 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
             self.mangler
                 .mangle_method(self.module_path, type_name, method_str)
         };
-        self.declare_function_with_symbol(method_name, &symbol, sig, method_span);
-
-        let Some(&(func_id, ref abi)) = self.codegen_ctx.functions.get(&method_name) else {
-            return;
-        };
-        let abi = abi.clone();
+        // Declare the LLVM function but do NOT insert into the bare `functions`
+        // map. Impl methods must be resolved only through the type-qualified
+        // `method_functions` map to prevent wrong-callee dispatch: registering
+        // `Box$to_str` under the bare key `to_str` would cause any unresolved
+        // `to_str` call (e.g., on an `int` field inside `Box$to_str`) to
+        // incorrectly resolve to the struct method.
+        let (func_id, abi) = self.declare_impl_method(method_name, &symbol, sig, method_span);
 
         // Populate type-qualified method map for dispatch
         if let Some(tnn) = type_name_name {

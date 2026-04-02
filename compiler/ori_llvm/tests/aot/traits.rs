@@ -337,6 +337,17 @@ fn test_aot_impl_method_field_access() {
     );
 }
 
+// 3.2: Trait impl method accessing self struct fields — regression for BUG-04-003.
+// Trait impl methods must not be registered in the bare `functions` map or
+// field-type method calls inside the impl body resolve to the wrong function.
+#[test]
+fn test_aot_trait_impl_field_access() {
+    assert_aot_success(
+        include_str!("fixtures/traits/aot_trait_impl_field_access.ori"),
+        "trait_impl_field_access",
+    );
+}
+
 // 3.2: Multiple impl blocks on same type
 
 #[test]
@@ -933,5 +944,81 @@ fn test_aot_option_debug_empty_list() {
     assert!(
         stdout.contains("Some([])"),
         "Expected 'Some([])' in output, got: '{stdout}'"
+    );
+}
+
+// Map debug formatting tests — BUG-04-017
+
+/// BUG-04-017: Map debug should format as `{key: value, ...}` not `<?>`.
+/// Keys use Printable semantics (unquoted strings), values use Debug semantics.
+#[test]
+fn test_aot_map_debug_str_keys() {
+    let (exit_code, stdout, stderr) =
+        compile_and_run_capture(include_str!("fixtures/traits/aot_map_debug_str_keys.ori"));
+    assert_eq!(exit_code, 0, "map_debug_str_keys failed: {stderr}");
+    // Map iteration order may vary; check both entries are present
+    assert!(
+        stdout.contains("x: 1") && stdout.contains("y: 2"),
+        "Expected map entries 'x: 1' and 'y: 2' in output, got: '{stdout}'"
+    );
+}
+
+/// BUG-04-017: Empty map debug should produce `{}`.
+#[test]
+fn test_aot_map_debug_empty() {
+    let (exit_code, stdout, stderr) =
+        compile_and_run_capture(include_str!("fixtures/traits/aot_map_debug_empty.ori"));
+    assert_eq!(exit_code, 0, "map_debug_empty failed: {stderr}");
+    assert!(
+        stdout.contains("{}"),
+        "Expected '{{}}' in output, got: '{stdout}'"
+    );
+}
+
+/// BUG-04-017: Map debug with int keys and string values — values must be quoted.
+#[test]
+fn test_aot_map_debug_int_keys_str_values() {
+    let (exit_code, stdout, stderr) = compile_and_run_capture(include_str!(
+        "fixtures/traits/aot_map_debug_int_keys_str_values.ori"
+    ));
+    assert_eq!(
+        exit_code, 0,
+        "map_debug_int_keys_str_values failed: {stderr}"
+    );
+    assert!(
+        stdout.contains(r#""hello""#) && stdout.contains(r#""world""#),
+        "Expected quoted string values in output, got: '{stdout}'"
+    );
+}
+
+/// BUG-04-017: Map debug with nested list values — recursive formatting.
+#[test]
+fn test_aot_map_debug_nested_list_value() {
+    let (exit_code, stdout, stderr) = compile_and_run_capture(include_str!(
+        "fixtures/traits/aot_map_debug_nested_list_value.ori"
+    ));
+    assert_eq!(exit_code, 0, "map_debug_nested_list_value failed: {stderr}");
+    assert!(
+        stdout.contains("a: [1, 2]"),
+        "Expected 'a: [1, 2]' in output, got: '{stdout}'"
+    );
+}
+
+/// BUG-04-017 semantic pin: Option<Map> must format map payload, not `<?>`.
+/// This is the exact bug repro from the issue.
+#[test]
+fn test_aot_option_debug_map_payload() {
+    let (exit_code, stdout, stderr) = compile_and_run_capture(include_str!(
+        "fixtures/traits/aot_option_debug_map_payload.ori"
+    ));
+    assert_eq!(exit_code, 0, "option_debug_map_payload failed: {stderr}");
+    assert!(
+        stdout.contains("Some({x: 1})"),
+        "Expected 'Some({{x: 1}})' in output, got: '{stdout}'"
+    );
+    // Negative pin: must NOT contain the old broken output
+    assert!(
+        !stdout.contains("<?>"),
+        "Must not contain '<?>' placeholder, got: '{stdout}'"
     );
 }

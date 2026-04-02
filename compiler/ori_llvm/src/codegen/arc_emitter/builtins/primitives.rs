@@ -161,6 +161,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             TypeInfo::Int | TypeInfo::Duration | TypeInfo::Size => "ori_str_from_int",
             TypeInfo::Float => "ori_str_from_float",
             TypeInfo::Bool => "ori_str_from_bool",
+            TypeInfo::Char => "ori_str_from_char",
             _ => return None,
         };
 

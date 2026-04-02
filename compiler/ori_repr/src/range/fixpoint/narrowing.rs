@@ -12,7 +12,8 @@ use ori_types::Pool;
 use rustc_hash::FxHashMap;
 
 use super::super::field_summary::{
-    update_element_summaries, update_field_summaries, ElementSummaryTable, FieldSummaryTable,
+    update_element_summaries, update_element_summaries_from_terminator, update_field_summaries,
+    ElementSummaryTable, FieldSummaryTable,
 };
 use super::super::transfer::{transfer, transfer_known_call, TransferContext};
 use super::super::{is_int_typed, ValueRange};
@@ -168,6 +169,12 @@ pub(super) fn recompute_element_summaries(
         for instr in &func.blocks[block_idx].body {
             update_element_summaries(instr, ranges, &func.var_types, pool, element_summary_table);
         }
+        // BUG-05-001: also check terminators for Invoke calls returning collections.
+        update_element_summaries_from_terminator(
+            &func.blocks[block_idx].terminator,
+            pool,
+            element_summary_table,
+        );
     }
 }
 

@@ -13,7 +13,7 @@
 //! 3. `Project` instructions query `table.as_map()` through `TransferContext`
 //! 4. After fixpoint completes, `flush_to_repr_plan()` persists results
 
-use ori_arc::ir::{ArcInstr, CtorKind};
+use ori_arc::ir::{ArcInstr, ArcTerminator, CtorKind};
 use ori_arc::ArcVarId;
 use ori_types::{Idx, Pool, Tag};
 use rustc_hash::FxHashMap;
@@ -139,6 +139,12 @@ impl ElementSummaryTable {
         }
     }
 
+    /// Returns the number of collection types that have observed element ranges.
+    #[must_use]
+    pub fn observation_count(&self) -> usize {
+        self.element_ranges.len()
+    }
+
     /// Query the aggregated element range for a collection type.
     ///
     /// Returns `Top` if no construction sites were observed.
@@ -208,15 +214,17 @@ pub fn update_field_summaries<S: std::hash::BuildHasher>(
     table.observe_construct(*ty, &arg_ranges);
 }
 
-/// Update the element-summary table when a collection construction or reuse
-/// instruction is encountered.
+/// Update the element-summary table when a collection construction, reuse,
+/// or mutation instruction is encountered.
 ///
 /// Tracks element value ranges from `Construct(ListLiteral|SetLiteral)` and
 /// `CollectionReuse` instructions. Only int-typed elements contribute bounded
 /// ranges; non-int elements cause `Top` (no narrowing).
 ///
-/// Note: `.push()` and other runtime mutations are lowered to `Apply` calls,
-/// not ARC IR instructions — their element ranges are conservatively `Top`.
+/// Any `Apply` or `ApplyIndirect` returning a collection with int elements
+/// widens the element range to `Top`. This prevents unsound narrowing when
+/// push, map, or user functions produce elements outside the literal-only
+/// range (BUG-05-001).
 pub fn update_element_summaries<S: std::hash::BuildHasher>(
     instr: &ArcInstr,
     ranges: &std::collections::HashMap<ArcVarId, ValueRange, S>,
@@ -224,6 +232,25 @@ pub fn update_element_summaries<S: std::hash::BuildHasher>(
     pool: &Pool,
     table: &mut ElementSummaryTable,
 ) {
+    // BUG-05-001: function calls returning collection types with int elements
+    // widen the element range to Top. Push, map, user functions, and closures
+    // can produce elements outside the literal-only observed range.
+    let call_ty = match instr {
+        ArcInstr::Apply { ty, .. } | ArcInstr::ApplyIndirect { ty, .. } => Some(*ty),
+        _ => None,
+    };
+    if let Some(ty) = call_ty {
+        let inner_ty = match pool.tag(ty) {
+            Tag::List => Some(pool.list_elem(ty)),
+            Tag::Set => Some(pool.set_elem(ty)),
+            _ => None,
+        };
+        if inner_ty.is_some_and(|t| is_int_typed(t, pool)) {
+            table.observe_elements(ty, &[ValueRange::Top]);
+        }
+        return;
+    }
+
     let (ty, args) = match instr {
         ArcInstr::Construct {
             ty,
@@ -261,4 +288,31 @@ pub fn update_element_summaries<S: std::hash::BuildHasher>(
         .collect();
 
     table.observe_elements(ty, &arg_ranges);
+}
+
+/// Update the element-summary table for block terminators.
+///
+/// Handles `Invoke` terminators (function calls that may unwind) the same
+/// way `update_element_summaries` handles `Apply` — any Invoke returning a
+/// collection with int elements widens the element range to `Top`.
+///
+/// This is critical because collection-mutating methods like `push` are
+/// lowered as `Invoke` (they can panic), not `Apply` (BUG-05-001).
+pub fn update_element_summaries_from_terminator(
+    terminator: &ArcTerminator,
+    pool: &Pool,
+    table: &mut ElementSummaryTable,
+) {
+    let ty = match terminator {
+        ArcTerminator::Invoke { ty, .. } => *ty,
+        _ => return,
+    };
+    let inner_ty = match pool.tag(ty) {
+        Tag::List => Some(pool.list_elem(ty)),
+        Tag::Set => Some(pool.set_elem(ty)),
+        _ => None,
+    };
+    if inner_ty.is_some_and(|t| is_int_typed(t, pool)) {
+        table.observe_elements(ty, &[ValueRange::Top]);
+    }
 }

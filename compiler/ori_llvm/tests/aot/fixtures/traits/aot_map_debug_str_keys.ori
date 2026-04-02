@@ -1,0 +1,4 @@
+@main () -> void = {
+    let m = {"x": 1, "y": 2};
+    print(msg: m.debug())
+}

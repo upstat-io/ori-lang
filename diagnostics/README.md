@@ -10,6 +10,7 @@ Quick-access debugging tools for the Ori compiler's AOT/codegen pipeline. These 
 |--------|---------|-------------|
 | `diagnose-aot.sh` | All-in-one: compile + run + leak check + RC stats + IR | First tool to reach for on any AOT bug |
 | `dual-exec-debug.sh` | Compare interpreter vs AOT output | Wrong output — is it eval or codegen? |
+| `dual-exec-verify.sh` | Batch interpreter vs LLVM verification | CI parity gate, coverage audits |
 | `codegen-audit.sh` | Static RC/COW/ABI analysis of LLVM IR | RC corruption, double-free, ABI mismatch |
 | `rc-stats.sh` | RC operation count per function | Leak or over-release suspicion |
 | `ir-dump.sh` | Annotated LLVM IR with color-coded RC ops | Understanding what codegen actually emits |
@@ -39,6 +40,30 @@ diagnostics/dual-exec-debug.sh --verbose file.ori   # + ORI_LOG=debug traces on 
 ```
 
 On mismatch, automatically runs `ir-dump.sh` and `rc-stats.sh` to diagnose the difference.
+
+### dual-exec-verify.sh — Batch Dual-Execution Verification
+
+```bash
+diagnostics/dual-exec-verify.sh                          # All spec tests
+diagnostics/dual-exec-verify.sh tests/spec/expressions/  # Specific directory
+diagnostics/dual-exec-verify.sh --test-only              # Skip @main programs
+diagnostics/dual-exec-verify.sh --main-only              # Skip @test functions
+diagnostics/dual-exec-verify.sh --json                   # Emit JSON report
+diagnostics/dual-exec-verify.sh -v                       # Show every verified test
+```
+
+Runs all spec tests through both interpreter and LLVM backends, cross-references results to detect behavioral mismatches.
+
+**Exit codes:**
+
+| Code | Meaning |
+|------|---------|
+| `0` | All verified — at least one test compared, no mismatches |
+| `1` | Behavioral mismatches found (PASS in one backend, FAIL in other) |
+| `2` | Infrastructure error (build failure, binary not found) |
+| `3` | Zero verifications — no tests were actually compared across backends |
+
+Exit code `3` guards against false confidence: a directory where all tests hit LLVM compile failures produces zero verifications, which is distinct from "all tests passed."
 
 ### codegen-audit.sh — Static IR Analysis
 

@@ -147,6 +147,31 @@ pub fn resolve_parsed_type(
                 return engine.instantiate(ty);
             }
 
+            // FFI types (CPtr, c_int, etc.) are not in the TypeRegistry but are
+            // valid concrete types. Create a Named Pool entry with a resolution
+            // so downstream phases (ARC, LLVM) can classify them correctly.
+            // Without this, they become unbound type variables that crash codegen.
+            // BUG-04-021.
+            if let Some(wk) = engine.well_known() {
+                if let Some(concrete_idx) = wk.resolve_ffi_concrete(*name) {
+                    let named_idx = engine.pool_mut().named(*name);
+                    engine.pool_mut().set_resolution(named_idx, concrete_idx);
+                    return named_idx;
+                }
+            } else if let Some(name_str) = engine.lookup_name(*name) {
+                let concrete = match name_str {
+                    "CPtr" | "c_int" | "c_long" | "c_longlong" | "c_size" | "c_short"
+                    | "c_char" => Some(Idx::INT),
+                    "c_float" | "c_double" => Some(Idx::FLOAT),
+                    _ => None,
+                };
+                if let Some(concrete_idx) = concrete {
+                    let named_idx = engine.pool_mut().named(*name);
+                    engine.pool_mut().set_resolution(named_idx, concrete_idx);
+                    return named_idx;
+                }
+            }
+
             // Unknown type — create a named var for inference
             engine.fresh_named_var(*name)
         }

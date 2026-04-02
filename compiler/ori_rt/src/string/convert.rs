@@ -74,6 +74,53 @@ pub extern "C" fn ori_str_debug_format(s: *const OriStr) -> OriStr {
     OriStr::from_owned(&result)
 }
 
+/// Escape control characters in a string without adding quotes.
+///
+/// `"a\nb"` → `"a\\nb"`, `"hello"` → `"hello"` (unchanged).
+/// Used for map key formatting in `Map.debug()` — keys are displayed with
+/// Printable semantics but control characters must be escaped for readability.
+/// Matches the evaluator's `escape_debug_str` behavior.
+#[no_mangle]
+pub extern "C" fn ori_str_escape_control(s: *const OriStr) -> OriStr {
+    if s.is_null() {
+        return OriStr::from_sso(b"");
+    }
+    // SAFETY: Caller ensures s points to a valid OriStr.
+    let input = unsafe { &*s };
+    // SAFETY: OriStr bytes are valid UTF-8 by construction.
+    let src = unsafe { input.as_str() };
+    // Fast path: if no control chars, return as-is
+    if !src
+        .chars()
+        .any(|c| matches!(c, '\n' | '\r' | '\t' | '\\' | '\0'))
+    {
+        return OriStr::from_owned(src);
+    }
+    let mut result = String::with_capacity(src.len());
+    for c in src.chars() {
+        match c {
+            '\n' => result.push_str("\\n"),
+            '\r' => result.push_str("\\r"),
+            '\t' => result.push_str("\\t"),
+            '\\' => result.push_str("\\\\"),
+            '\0' => result.push_str("\\0"),
+            c => result.push(c),
+        }
+    }
+    OriStr::from_owned(&result)
+}
+
+/// Convert a char to its Printable string representation (no quotes).
+///
+/// `'a'` → `"a"`, `'\n'` → `"\n"` (the actual newline character).
+#[no_mangle]
+pub extern "C" fn ori_str_from_char(ch: u32) -> OriStr {
+    let c = char::from_u32(ch).unwrap_or('\u{FFFD}');
+    let mut buf = [0u8; 4];
+    let s = c.encode_utf8(&mut buf);
+    OriStr::from_owned(s)
+}
+
 /// Format a char with Debug semantics: wraps in single quotes and escapes special chars.
 ///
 /// `'a'` → `"'a'"`, `'\n'` → `"'\\n'"`.

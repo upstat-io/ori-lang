@@ -285,6 +285,13 @@ declare_builtins! { emitter, ctx;
         }
     },
     // map
+    ("map", "debug") => {
+        if let TypeInfo::Map { key, value } = ctx.type_info {
+            emitter.emit_map_debug(ctx.arg_vals[0], ctx.receiver_ty, *key, *value)
+        } else {
+            None
+        }
+    },
     ("map", "clone") => emitter.emit_rc_inc_clone(ctx.arg_vals[0], ctx.receiver_ty),
     ("map", "length") => emitter.emit_map_length(ctx.arg_vals[0]),
     ("map", "len") => emitter.emit_map_length(ctx.arg_vals[0]),
@@ -361,6 +368,13 @@ declare_builtins! { emitter, ctx;
         }
     },
     // Set
+    ("Set", "debug") => {
+        if let TypeInfo::Set { element } = ctx.type_info {
+            emitter.emit_set_debug(ctx.arg_vals[0], *element)
+        } else {
+            None
+        }
+    },
     ("Set", "clone") => emitter.emit_rc_inc_clone(ctx.arg_vals[0], ctx.receiver_ty),
     ("Set", "length") => emitter.emit_set_length(ctx.arg_vals[0]),
     ("Set", "len") => emitter.emit_set_length(ctx.arg_vals[0]),

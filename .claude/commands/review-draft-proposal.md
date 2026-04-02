@@ -6,6 +6,12 @@ Review a draft proposal, analyze implications, and (if approved) integrate into 
 - With argument: `/review-draft-proposal as-conversion` reviews `as-conversion-proposal.md`
 - Without argument: Auto-selects best draft to review
 
+## Execution Rules — MANDATORY
+
+- **NEVER enter plan mode** (`EnterPlanMode`) — execute everything inline in the main conversation
+- **NEVER launch background agents** — all sub-skills and commands run inline (foreground), showing progress and waiting for results
+- **Sub-skill invocations** use the `Skill` tool directly (e.g., `Skill(skill: "create-plan", args: "...")`) — call them inline, wait for completion, then continue
+
 ---
 
 ## Core Principle
@@ -213,32 +219,19 @@ Execute only after user confirms approval AND no blockers exist.
 
 ### Step 12: Add to Roadmap via `/create-plan` (MANDATORY — Full Process)
 
-**CRITICAL: Do NOT manually add sections to the roadmap.** Instead, invoke `/create-plan` in roadmap mode. This runs the full research-first, architecture-second process — multi-pass research, architecture design, user review, sequential section writing, cohesion checks, and `/review-plan`.
+**CRITICAL: Do NOT manually add sections to the roadmap.** Invoke `/create-plan` inline using the Skill tool. This runs the full research-first, architecture-second process.
 
-**Invoke the skill:**
-
+**Invoke inline** — call the Skill tool directly and wait for completion:
 ```
-Skill: create-plan
-Args: add <proposal-name> to roadmap
+Skill(skill: "create-plan", args: "add <proposal-name> to roadmap")
 ```
-
-**What this does:**
-1. Reads the entire roadmap (overview, index, all sections)
-2. Runs multi-pass research on the proposal's scope (breadth scan, deep read, pattern study, prior art)
-3. Determines where the new section fits — dependencies, numbering, impact on existing sections
-4. Designs the architecture and presents it to the user for approval
-5. Writes the new section(s) with full research grounding — real file paths, real type signatures, real sync points, matrix testing strategy
-6. Updates existing sections affected by the new section (dependencies, cross-references)
-7. Updates `00-overview.md` and `index.md`
-8. Runs cohesion check across the full roadmap
-9. Runs `/review-plan plans/roadmap/` for formal review
 
 **Before invoking**, provide context to help the research phase:
 - Reference the approved proposal: `proposals/approved/<name>-proposal.md`
 - Summarize the key decisions made during proposal review (from Step 10)
 - Note any implementation constraints or dependencies identified during analysis
 
-**After `/create-plan` completes**, verify:
+**After it completes** (inline — you will see the output), verify:
 - [ ] New section(s) added to roadmap with proper numbering and dependencies
 - [ ] Existing sections updated where affected
 - [ ] Overview dependency graph and implementation sequence updated
@@ -302,23 +295,17 @@ If proposal introduces new syntax/types/semantics, **invoke the sync skills**:
 
 **Step 14a: Sync Spec (if semantics changed)**
 
-If the proposal affects language semantics, types, or behavior:
-
+If the proposal affects language semantics, types, or behavior, invoke inline and wait:
 ```
-Invoke: `Skill(skill: "sync-spec")`
+Skill(skill: "sync-spec")
 ```
-
-This ensures spec files use formal, declarative language and follow `.claude/rules/spec.md`.
 
 **Step 14b: Sync Grammar (if syntax changed)**
 
-If the proposal introduces or modifies syntax:
-
+If the proposal introduces or modifies syntax, invoke inline and wait:
 ```
-Invoke: `Skill(skill: "sync-grammar")`
+Skill(skill: "sync-grammar")
 ```
-
-This ensures `grammar.ebnf` stays synchronized as the single source of truth.
 
 **Step 14c: Update Ori Syntax Reference (manual)**
 
@@ -373,7 +360,10 @@ Use `AskUserQuestion` to resolve each formatting issue before proceeding.
 
 ### Step 16: Commit and Push
 
-Invoke: `Skill(skill: "commit-push")`
+Invoke inline and wait:
+```
+Skill(skill: "commit-push")
+```
 
 Commit message format:
 ```
