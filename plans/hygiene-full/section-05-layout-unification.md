@@ -27,7 +27,7 @@ sections:
 
 # Section 05: Layout Computation Unification
 
-**Status:** Not Started
+**Status:** Complete
 **Goal:** Type layout (size, alignment, tag bytes, field offsets) is computed once in `ori_repr` and queried by `ori_arc` and `ori_llvm`. No duplicated layout computation functions exist outside `ori_repr`.
 
 **Context:** `enum_tag_bytes()` is duplicated between `ori_arc` (at `compiler/ori_arc/src/lower/control_flow/type_layout.rs:219`) and `ori_repr` (as `min_tag_width()`). The `ori_arc` copy has a comment explicitly acknowledging the duplication: "Must stay in sync with `ori_repr::min_tag_width()`. Inlined here to avoid a circular dependency." The layout computation in `ori_repr` (via `ReprPlan`) and `ori_llvm` (via `TypeInfo`/`TypeInfoStore`) also has overlap, with `TypeInfoStore::is_trivial()` pre-caching values from `ReprPlan::is_trivial()`.

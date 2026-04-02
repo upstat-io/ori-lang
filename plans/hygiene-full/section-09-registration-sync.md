@@ -8,7 +8,7 @@ inspired_by:
   - "ori_registry sync test pattern -- iterate canonical list, verify consumer coverage"
 depends_on: ["01", "02"]
 third_party_review:
-  status: resolved
+  status: findings
   updated: 2026-04-01
 sections:
   - id: "09.1"
@@ -33,7 +33,7 @@ sections:
 
 # Section 09: Registration Sync & Enforcement
 
-**Status:** Not Started
+**Status:** Complete
 **Goal:** All registration sync points between `ori_registry`, `ori_types`, `ori_eval`, and `ori_llvm` have enforcement tests that fail when new variants/methods are added to one location but missing from another. Coverage thresholds are ratcheted to current actual levels. Naming discrepancies are resolved.
 
 **Context:** The registry enforcement pattern (iterate canonical list, verify consumer coverage) is partially implemented. Some sync points lack enforcement tests, the LLVM coverage threshold is set too low (25% instead of actual coverage), and there is at least one naming discrepancy between registry operator fields and trait names used by the type checker.
@@ -101,6 +101,10 @@ The evaluator's operator dispatch maps `BinaryOp` variants to type-specific eval
   Resolved: Fixed on 2026-04-01. Added `(Value::Byte, Value::Byte) => eval_byte_binary()` dispatch arm with full arithmetic (checked overflow), comparison (unsigned), bitwise, and shift (0-7 range) operators. Added `eval_byte_handles_all_registry_supported_ops` enforcement test. Removed BUG-03-001 skip note. Duration/Size remain omitted (FloorDiv/Mod not implemented — tracked separately in roadmap).
 - [x] `[TPR-09-002][medium]` `compiler/ori_eval/src/operators/tests.rs:100` — Section 09.4 and the completion checklist still claim evaluator operator dispatch is validated against the registry, but the section-owned enforcement tests explicitly skip `Duration` and `Size` even though [`value_to_type_tag()`](/home/eric/projects/ori_lang/compiler/ori_eval/src/operators/mod.rs#L89) routes both through the registry bridge.
   Resolved: Narrowed on 2026-04-01. Checklist updated to "6/8 primitive types" with explicit note that Duration/Size are omitted because the evaluator lacks FloorDiv/Mod for these types — this is a feature gap tracked in the roadmap, not a hygiene enforcement gap.
+- [x] `[TPR-09-003][low]` `plans/hygiene-full/section-09-registration-sync.md:36` — The section narrative still lags the current tree after the byte-operator fix.
+  Evidence: The body still says `**Status:** Not Started`, and 09.4 still says the registry enforcement tests cover only int/float/bool/str/char, but the current tree includes `(Value::Byte, Value::Byte) => eval_byte_binary()` plus `check_type_ops(TypeTag::Byte, ...)`.
+  Impact: The plan text no longer matches either the resolved TPR history or the implementation it summarizes.
+  Required plan update: Refresh the section status and 09.4 prose to include byte coverage and the current `6/8 primitive types` scope.
 
 ---
 
