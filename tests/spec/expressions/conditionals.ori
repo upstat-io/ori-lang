@@ -208,3 +208,22 @@ use std.testing { assert_eq, assert }
 
 @if_returns_unit (cond: bool) -> void =
     if cond then () else ();
+
+// =============================================================================
+// Negative: if-without-else non-void then-branch (Spec: Clause 16, §16.1)
+// =============================================================================
+
+// Regression: BUG-02-001 — if without else with non-void then-branch must be rejected.
+// Spec: "the then-branch shall have type void or Never"
+
+#compile_fail("type mismatch")
+@test_if_no_else_non_void_int tests _ () -> void =
+    if true then 42;
+
+#compile_fail("type mismatch")
+@test_if_no_else_non_void_str tests _ () -> void =
+    if true then "hello";
+
+#compile_fail("type mismatch")
+@test_if_no_else_non_void_list tests _ () -> void =
+    if true then [1, 2, 3];

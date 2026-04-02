@@ -676,6 +676,34 @@ fn test_infer_if_without_else() {
     assert!(!engine.has_errors());
 }
 
+/// Regression: BUG-02-001 — if without else with non-void then-branch
+/// must produce a type error (Spec: Clause 16, §16.1).
+#[test]
+fn test_infer_if_without_else_non_void_then() {
+    test_engine!(pool, engine);
+    let mut arena = ExprArena::new();
+
+    let cond = alloc(&mut arena, ExprKind::Bool(true));
+    let then_branch = alloc(&mut arena, ExprKind::Int(42));
+
+    let if_expr = alloc(
+        &mut arena,
+        ExprKind::If {
+            cond,
+            then_branch,
+            else_branch: ExprId::INVALID,
+        },
+    );
+
+    let ty = infer_expr(&mut engine, &arena, if_expr);
+
+    assert_eq!(ty, Idx::UNIT, "if without else should have type void");
+    assert!(
+        engine.has_errors(),
+        "Non-void then-branch without else must be a type error"
+    );
+}
+
 #[test]
 fn test_infer_if_branch_mismatch() {
     test_engine!(pool, engine);
