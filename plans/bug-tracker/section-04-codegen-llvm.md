@@ -83,10 +83,16 @@ Bugs in LLVM IR generation, JIT/AOT compilation, monomorphization, ARC pipeline 
   Subsystem: `compiler/ori_llvm/src/codegen/arc_emitter/builtins/option_result.rs`, `compiler/ori_llvm/src/codegen/arc_emitter/builtins/collections/list_builtins/helpers.rs`
   Found: 2026-04-01 | Source: tpr-review (hygiene-full §04)
 
-- [ ] `[BUG-04-019][medium]` **Niche-encoded Option/Result extraction paths missing RC retain and tag guards** — found by tpr-review.
-  Niche-encoded `Option.unwrap` (option_result_helpers.rs:44), `Result.unwrap`/`unwrap_err`/`unwrap_or` (option_result_helpers.rs:124), and `Result.expect`/`expect_err` (option_result_helpers.rs:127-131) all extract payload via raw `extract_value` without `inc_value_rc` or tag guards. Currently not triggered for common RC types (str, [T]) because niche encoding applies to pointer-niche types, but represents a correctness gap for future niche-optimized layouts.
+- [ ] `[BUG-04-019][high]` **Niche-encoded Option/Result extraction paths missing RC retain and tag guards** — found by tpr-review.
+  Niche-encoded `Option.unwrap` (option_result_helpers.rs:44), `Result.unwrap`/`unwrap_err`/`unwrap_or` (option_result_helpers.rs:124), and `Result.expect`/`expect_err` (option_result_helpers.rs:127-131) all extract payload via raw `extract_value` without `inc_value_rc` or tag guards. Reachable today via `Option<CPtr>` (see BUG-04-021) — not just a future concern. Blocked by BUG-04-021 (niche compilation must work first before RC retain can be tested).
   Subsystem: `compiler/ori_llvm/src/codegen/arc_emitter/builtins/option_result_helpers.rs`
   Found: 2026-04-02 | Source: tpr-review (BUG-04-013 follow-up)
+
+- [ ] `[BUG-04-021][high]` **AOT fails to compile trivial niche-encoded `Option<CPtr>` values** — found by review-work.
+  Repro: `ORI_BIN=./target/release/ori timeout 150 diagnostics/dual-exec-debug.sh --no-color /tmp/cptr_bare.ori` with `@main () -> int = { let o: Option<CPtr> = None; 0 }` — interpreter exits 0, AOT build fails with `unresolved type variable at codegen — type inference bug idx=Idx(202)` followed by malformed LLVM IR (`call void @ori_rc_dec(i64 %rc_dec.payload, ptr @"_ori_drop$204")`).
+  Root cause: niche-encoded pointer wrappers are already reachable today, but the current LLVM type-info/drop path still treats the payload as an unresolved/RC-managed value during codegen. That makes BUG-04-019 a currently reachable surface, not just a future-layout concern.
+  Subsystem: `compiler/ori_llvm/src/codegen/type_info/store.rs`, `compiler/ori_llvm/src/codegen/arc_emitter/builtins/option_result_helpers.rs`
+  Found: 2026-04-02 | Source: review-work
 
 - [x] `[BUG-04-020][medium]` **`wrapper_rc_retain` panic-path regression tests accept compile failures and signal crashes as passing** — found by review-work.
   Resolved: Fixed on 2026-04-02. Added `assert_panic_exit()` helper that rejects compile failure (-1), clean exit (0), and non-SIGABRT signal crashes (SIGSEGV=-139, SIGBUS=-135), while accepting SIGABRT (-134) as the expected panic termination path on Linux. All 3 negative-pin tests now use this helper.
