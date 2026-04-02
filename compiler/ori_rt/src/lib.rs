@@ -365,6 +365,7 @@ pub extern "C" fn ori_args_cleanup(data: *mut u8, len: i64) {
         // SAFETY: elements[i] is within the allocated array (len <= capacity)
         let s = unsafe { &*elements.add(i) };
         if !s.is_sso() {
+            // SAFETY: s.is_sso() is false, so the heap union variant is active.
             let heap = unsafe { s.heap };
             if !heap.data.is_null() {
                 rc::ori_rc_free(heap.data, heap.cap as usize, 8);
@@ -394,6 +395,7 @@ extern "C" {
 /// propagate through this thunk into `ori_try_call`'s catch handler.
 #[cfg(all(target_os = "windows", target_env = "msvc"))]
 unsafe extern "C-unwind" fn run_main_thunk(ctx: *mut u8) {
+    // SAFETY: ctx was cast from a valid `extern "C" fn()` pointer in ori_run_main.
     let main_fn: extern "C" fn() = unsafe { std::mem::transmute(ctx) };
     main_fn();
 }
@@ -416,6 +418,7 @@ unsafe extern "C-unwind" fn run_main_thunk(ctx: *mut u8) {
 pub extern "C" fn ori_run_main(main_fn: extern "C" fn()) -> i32 {
     #[cfg(all(target_os = "windows", target_env = "msvc"))]
     {
+        // SAFETY: ori_try_call is the C++ SEH wrapper; run_main_thunk and main_fn are valid.
         let succeeded = unsafe { ori_try_call(run_main_thunk, main_fn as *mut u8) };
         if succeeded == 1 {
             return check_leaks_and_exit();
@@ -490,6 +493,7 @@ mod forced_unwind_tests {
     #[test]
     fn forced_unwind_personality_behavior() {
         // Catch-all pads must NOT be installed during forced unwind
+        // SAFETY: Calls C test harness function linked via build.rs; no preconditions.
         let result = unsafe { test_forced_unwind_skips_catch() };
         assert_eq!(
             result, 0,
@@ -497,6 +501,7 @@ mod forced_unwind_tests {
         );
 
         // Cleanup pads MUST still run during forced unwind
+        // SAFETY: Calls C test harness function linked via build.rs; no preconditions.
         let result = unsafe { test_forced_unwind_runs_cleanup() };
         assert_eq!(
             result, 0,

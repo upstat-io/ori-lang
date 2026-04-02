@@ -24,7 +24,9 @@ pub extern "C" fn ori_str_chars(str_ptr: *const u8, str_len: i64, out_ptr: *mut 
         write_array_to_list(std::ptr::null(), 0, 4, None, out_ptr);
         return;
     }
+    // SAFETY: str_ptr validated non-null above; caller guarantees valid data for str_len bytes.
     let bytes = unsafe { std::slice::from_raw_parts(str_ptr, str_len as usize) };
+    // SAFETY: Ori strings are valid UTF-8 by construction.
     let s = unsafe { std::str::from_utf8_unchecked(bytes) };
 
     let chars: Vec<i32> = s.chars().map(|c| c as i32).collect();
@@ -65,12 +67,15 @@ pub extern "C" fn ori_str_split(
         return;
     }
 
+    // SAFETY: str_ptr validated non-null above; caller guarantees valid data for str_len bytes.
     let bytes = unsafe { std::slice::from_raw_parts(str_ptr, str_len as usize) };
+    // SAFETY: Ori strings are valid UTF-8 by construction.
     let s = unsafe { std::str::from_utf8_unchecked(bytes) };
 
     let sep_bytes = if sep_ptr.is_null() || sep_len <= 0 {
         ""
     } else {
+        // SAFETY: sep_ptr validated non-null; caller guarantees valid UTF-8 data for sep_len bytes.
         unsafe {
             std::str::from_utf8_unchecked(std::slice::from_raw_parts(sep_ptr, sep_len as usize))
         }
@@ -134,6 +139,7 @@ pub extern "C" fn ori_str_split(
                 heap: OriStrHeap {
                     len: part_len as i64,
                     cap: make_slice_cap(base_offset + part_start),
+                    // SAFETY: str_ptr is valid; part_start is within the source string bounds.
                     data: unsafe { (str_ptr as *mut u8).add(part_start) },
                 },
             }
@@ -141,6 +147,7 @@ pub extern "C" fn ori_str_split(
             // SSO source or short piece: copy bytes
             OriStr::from_bytes(&bytes[part_start..part_end])
         };
+        // SAFETY: elements points to freshly allocated memory for n OriStr values; i < n.
         unsafe { elements.add(i).write(element) };
     }
 
@@ -168,11 +175,13 @@ pub extern "C" fn ori_str_concat(a: *const OriStr, b: *const OriStr) -> OriStr {
     let a_ref = if a.is_null() {
         &OriStr::EMPTY
     } else {
+        // SAFETY: a validated non-null; pointer from LLVM codegen is valid per runtime protocol.
         unsafe { &*a }
     };
     let b_ref = if b.is_null() {
         &OriStr::EMPTY
     } else {
+        // SAFETY: b validated non-null; pointer from LLVM codegen is valid per runtime protocol.
         unsafe { &*b }
     };
 
@@ -213,6 +222,7 @@ pub extern "C" fn ori_str_concat(a: *const OriStr, b: *const OriStr) -> OriStr {
     //   fall through to Case 4 (fresh allocation) so the caller's dec
     //   cleanly frees the old allocation.
     if !a_ref.is_sso() {
+        // SAFETY: is_sso() returned false, so the heap variant is active.
         let heap = unsafe { &a_ref.heap };
         if !heap.data.is_null()
             && !is_slice_cap(heap.cap)
@@ -220,6 +230,8 @@ pub extern "C" fn ori_str_concat(a: *const OriStr, b: *const OriStr) -> OriStr {
             && (heap.cap as usize) >= combined
         {
             // Case 2: has capacity -- append in place, inc RC for caller's dec
+            // SAFETY: heap.data is uniquely owned with cap >= combined; writing
+            // b_len bytes at offset a_len is within allocated capacity.
             unsafe {
                 std::ptr::copy_nonoverlapping(b_bytes.as_ptr(), heap.data.add(a_len), b_len);
             }
@@ -245,6 +257,8 @@ pub extern "C" fn ori_str_concat(a: *const OriStr, b: *const OriStr) -> OriStr {
     if new_data.is_null() {
         crate::ori_panic_cstr(c"out of memory in string concatenation".as_ptr());
     }
+    // SAFETY: new_data is freshly allocated with new_cap >= combined bytes and validated
+    // non-null above; a_len + b_len == combined, so both writes are within bounds.
     unsafe {
         std::ptr::copy_nonoverlapping(a_bytes.as_ptr(), new_data, a_len);
         std::ptr::copy_nonoverlapping(b_bytes.as_ptr(), new_data.add(a_len), b_len);
@@ -264,11 +278,13 @@ pub extern "C" fn ori_str_eq(a: *const OriStr, b: *const OriStr) -> bool {
     let a_str = if a.is_null() {
         ""
     } else {
+        // SAFETY: a validated non-null; OriStr bytes are valid UTF-8 by construction.
         unsafe { (*a).as_str() }
     };
     let b_str = if b.is_null() {
         ""
     } else {
+        // SAFETY: b validated non-null; OriStr bytes are valid UTF-8 by construction.
         unsafe { (*b).as_str() }
     };
 
@@ -289,11 +305,13 @@ pub extern "C" fn ori_str_compare(a: *const OriStr, b: *const OriStr) -> i8 {
     let a_str = if a.is_null() {
         ""
     } else {
+        // SAFETY: a validated non-null; OriStr bytes are valid UTF-8 by construction.
         unsafe { (*a).as_str() }
     };
     let b_str = if b.is_null() {
         ""
     } else {
+        // SAFETY: b validated non-null; OriStr bytes are valid UTF-8 by construction.
         unsafe { (*b).as_str() }
     };
 
@@ -317,6 +335,7 @@ pub extern "C" fn ori_str_hash(s: *const OriStr) -> i64 {
     let bytes: &[u8] = if s.is_null() {
         &[]
     } else {
+        // SAFETY: s validated non-null; pointer from LLVM codegen is valid per runtime protocol.
         unsafe { (*s).as_bytes() }
     };
 
@@ -338,6 +357,7 @@ pub extern "C" fn ori_str_len(s: *const OriStr) -> i64 {
     if s.is_null() {
         return 0;
     }
+    // SAFETY: s validated non-null above; pointer from LLVM codegen is valid per runtime protocol.
     unsafe { &*s }.len() as i64
 }
 
@@ -356,10 +376,13 @@ pub extern "C" fn ori_str_data(s: *const OriStr) -> *const u8 {
     if s.is_null() {
         return std::ptr::null();
     }
+    // SAFETY: s validated non-null above; pointer from LLVM codegen is valid per runtime protocol.
     let s = unsafe { &*s };
     if s.is_sso() {
+        // SAFETY: is_sso() returned true, so the sso variant is active.
         unsafe { s.sso.bytes.as_ptr() }
     } else {
+        // SAFETY: is_sso() returned false, so the heap variant is active.
         unsafe { s.heap.data }
     }
 }
