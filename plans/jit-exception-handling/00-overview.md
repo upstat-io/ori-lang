@@ -65,9 +65,9 @@ CURRENT STATE (implemented):
 - ~~**04.5**: AIMS borrowed-def propagation~~ — **FIXED**: `propagate_borrowed_closure` unanimity rule for Jump param propagation to merge blocks. Root cause of 04.4b.
 - ~~**04.6**: Panic handler exception propagation~~ — **FIXED**: 3 sub-issues: (1) main wrapper `invoke` for no-args `@main`, (2) `extern "C-unwind"` for `dispatch_panic`/`aot_raise_exception`, (3) PanicInfo field index remapping via `ReprPlan`.
 
-**Section 04B (Polymorphic Lambda Monomorphization) — NOT STARTED:**
-- Scheme unwrapping in ARC lowering, BoundVar→concrete substitution in LLVM codegen
-- Root cause of 2639 LCFails: polymorphic lambda bodies retain `forall t14` types through codegen
+**Section 04B (Polymorphic Lambda Monomorphization) — IN PROGRESS:**
+- Scheme unwrapping in ARC lowering, BoundVar→concrete substitution, and nested capture resolution have landed
+- Open review finding: return-type-only instantiations still alias a single specialization, so `ori test --backend=llvm tests/spec/expressions/lambda_mono.ori` still fails LLVM verification
 
 **Section 05 (Verification) — NOT STARTED:**
 - Full test matrix, dual-exec parity, TPR review
@@ -129,5 +129,5 @@ The Itanium path in `ori_run_main` (lib.rs:430-443) still uses `std::panic::catc
 | 02 | ARC IR InvokeIndirect | `section-02-arc-ir.md` | Complete |
 | 03 | LLVM Emission & Wrappers | `section-03-llvm-emission.md` | Complete |
 | 04 | Exposed Bug Fixes | `section-04-exposed-bugs.md` | In Progress (8/8 fixed, verification pending) |
-| 04B | Polymorphic Lambda Monomorphization | `section-04b-lambda-mono.md` | Not Started |
+| 04B | Polymorphic Lambda Monomorphization | `section-04b-lambda-mono.md` | In Progress (open TPR findings; in-tree LLVM verification failing) |
 | 05 | Verification | `section-05-verification.md` | Not Started |
