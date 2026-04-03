@@ -7,29 +7,29 @@
 pub @assert (cond: bool) -> void = if !cond then panic(msg: "assertion failed");
 
 // Assert that two values are equal
-pub @assert_eq<T: Eq> (actual: T, expected: T) -> void =
+pub @assert_eq<T: Eq + Debug> (actual: T, expected: T) -> void =
     if actual != expected then
-        panic(msg: "assertion failed: " + str(actual) + " != " + str(expected));
+        panic(msg: "assertion failed: " + actual.debug() + " != " + expected.debug());
 
 // Assert that two values are not equal
-pub @assert_ne<T: Eq> (actual: T, unexpected: T) -> void =
-    if actual == unexpected then panic(msg: "assertion failed: values are equal: " + str(actual));
+pub @assert_ne<T: Eq + Debug> (actual: T, unexpected: T) -> void =
+    if actual == unexpected then panic(msg: "assertion failed: values are equal: " + actual.debug());
 
-// Assert that an Option is Some
-pub @assert_some<T> (opt: Option<T>) -> void =
-    match opt { Some(_) -> (), None -> panic(msg: "assertion failed: expected Some, got None")}
+// Assert that an Option is Some, returning the inner value
+pub @assert_some<T> (opt: Option<T>) -> T =
+    match opt { Some(v) -> v, None -> panic(msg: "assertion failed: expected Some, got None") }
 
 // Assert that an Option is None
 pub @assert_none<T> (opt: Option<T>) -> void =
-    match opt { Some(_) -> panic(msg: "assertion failed: expected None, got Some"), None -> ()}
+    match opt { Some(_) -> panic(msg: "assertion failed: expected None, got Some"), None -> () }
 
-// Assert that a Result is Ok
-pub @assert_ok<T, E> (result: Result<T, E>) -> void =
-    match result { Ok(_) -> (), Err(_) -> panic(msg: "assertion failed: expected Ok, got Err")}
+// Assert that a Result is Ok, returning the inner value
+pub @assert_ok<T, E> (result: Result<T, E>) -> T =
+    match result { Ok(v) -> v, Err(_) -> panic(msg: "assertion failed: expected Ok, got Err") }
 
-// Assert that a Result is Err
-pub @assert_err<T, E> (result: Result<T, E>) -> void =
-    match result { Ok(_) -> panic(msg: "assertion failed: expected Err, got Ok"), Err(_) -> ()}
+// Assert that a Result is Err, returning the error value
+pub @assert_err<T, E> (result: Result<T, E>) -> E =
+    match result { Ok(_) -> panic(msg: "assertion failed: expected Err, got Ok"), Err(e) -> e }
 
 // Assert that an expression panics
 pub @assert_panics<T> (f: () -> T) -> void = {

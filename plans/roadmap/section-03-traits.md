@@ -88,6 +88,27 @@ sections:
   - id: "3.24"
     title: Value Trait (ARC-Free Value Types)
     status: not-started
+  - id: "3.25"
+    title: Structural Trait Defaults
+    status: not-started
+  - id: "3.25.1"
+    title: "eq → equals Method Rename"
+    status: not-started
+  - id: "3.25.2"
+    title: LLVM Enum Structural Equality
+    status: not-started
+  - id: "3.25.3"
+    title: LLVM Structural Clone/Debug/Printable Fallbacks
+    status: not-started
+  - id: "3.25.4"
+    title: Spec and Documentation Updates
+    status: not-started
+  - id: "3.25.R"
+    title: Third Party Review Findings
+    status: not-started
+  - id: "3.25.N"
+    title: Completion Checklist
+    status: not-started
 ---
 
 # Section 3: Traits and Implementations
@@ -1738,3 +1759,221 @@ Marker trait guaranteeing inline storage, bitwise copy, no ARC, and no Drop. Sup
 
 - [ ] **Implement**: `Value + Hashable` types eligible as const generic parameters
   - [ ] **Ori Tests**: Const generic with Value types
+
+---
+
+## 3.25 Structural Trait Defaults
+
+**Status:** Not Started
+**Goal:** Formalize and complete structural trait defaults — Eq/Clone/Debug/Printable work without declaration on all types; `eq` → `equals` method rename; LLVM codegen parity with evaluator for enum structural equality and structural Clone/Debug/Printable fallbacks.
+
+**Context:** Ori is a pure value-type language. The evaluator has always performed structural equality for all types without requiring `#derive(Eq)`. The type checker does not gate `==`/`!=` on the Eq trait. The LLVM codegen has structural eq fallback for structs but not enums. This subsection formalizes this behavior per the approved `structural-trait-defaults-proposal` (2026-04-02) and closes the LLVM codegen gaps.
+
+**Proposal:** `docs/ori_lang/proposals/approved/structural-trait-defaults-proposal.md`
+
+**Reference implementations:**
+- **Gleam** `compiler-core/src/type_/expression.rs`: all types structurally comparable — no Eq trait requirement
+- **Elm** `compiler/src/Type/Error.hs`: structural equality built-in for all values
+- **Roc** `crates/compiler/mono/src/ir.rs`: structural equality as default for all types
+
+**Depends on:** None (evaluator and type checker already implement this behavior).
+
+**Key design decisions:**
+1. **Two-tier model**: Structural `==`/`!=` works on all types without declaration. Declaring `type T: Eq = {...}` generates a named `equals` method for trait dispatch in generic `T: Eq` contexts.
+2. **Comparable/Hashable/Default require explicit declaration** — no structural default (field ordering is semantic, not structural).
+3. **`eq` → `equals` method rename** — unifies a partial rename already in progress (evaluator and mangling use `"equals"`, IR and codegen use `"eq"`).
+
+---
+
+### 3.25.1 `eq` → `equals` Method Rename
+
+**File(s):** `ori_ir/src/derives/mod.rs`, `library/std/prelude.ori`, `ori_llvm/src/codegen/arc_emitter/builtins/compound_traits.rs`, `ori_llvm/src/codegen/arc_emitter/operators/mod.rs`, `ori_llvm/src/codegen/derive_codegen/field_ops/thunks.rs`, `ori_eval/src/derives/tests.rs`, `ori_ir/src/derives/tests.rs`
+
+The codebase has a partial inconsistency: the evaluator runtime (`MethodNames.equals`), mangling (`$equals`), type checker registration, and some test files already use `"equals"`. The IR source of truth (`DerivedTrait::Eq.method_name()`) and LLVM codegen hardcode `"eq"`. This subsection unifies to `"equals"` everywhere.
+
+**Rename targets (must change):**
+
+| File | Current | Change To |
+|------|---------|-----------|
+| `compiler/ori_ir/src/derives/mod.rs` line 145 | `"eq"` in `define_derived_traits!` macro | `"equals"` |
+| `library/std/prelude.ori` line 20 | `@eq (self, other: Self) -> bool` | `@equals (self, other: Self) -> bool` |
+| `compiler/ori_ir/src/derives/tests.rs` line 29 | `assert_eq!(DerivedTrait::Eq.method_name(), "eq")` | `"equals"` |
+| `compiler/ori_llvm/src/codegen/arc_emitter/operators/mod.rs` lines 203-204 | `"eq"` in operator dispatch | `"equals"` |
+| `compiler/ori_llvm/src/codegen/arc_emitter/builtins/compound_traits.rs` line 216 | `self.interner.intern("eq")` | `self.interner.intern("equals")` |
+| `compiler/ori_llvm/src/codegen/derive_codegen/field_ops/thunks.rs` | `fc.intern("eq")` | `fc.intern("equals")` |
+| `compiler/ori_eval/src/derives/tests.rs` (3 occurrences) | `interner.intern("eq")` | `interner.intern("equals")` |
+
+**Already correct (no change needed):**
+- Evaluator runtime `MethodNames.equals` — already uses `"equals"`
+- Mangling (`_ori_int$$Eq$equals`) — already uses `"equals"`
+- Type checker registration — already uses `"equals"`
+- `BinaryOp::Eq` enum variant — this is the operator, not the method name
+- LLVM IR builder labels (e.g., `icmp_eq(a, b, "eq")`) — these are IR instruction names, not method names
+
+- [ ] **Write failing tests first**: Add test in `ori_ir/src/derives/tests.rs` asserting `DerivedTrait::Eq.method_name() == "equals"`; verify it fails
+- [ ] **Rename source of truth**: Change `"eq"` to `"equals"` in `ori_ir/src/derives/mod.rs` line 145 (`define_derived_traits!` macro entry for Eq)
+- [ ] **Update prelude**: Change `@eq` to `@equals` in `library/std/prelude.ori`
+- [ ] **Update LLVM codegen**: Change all `intern("eq")` to `intern("equals")` in:
+  - [ ] `compound_traits.rs` — `emit_derived_eq_call`
+  - [ ] `operators/mod.rs` — operator dispatch tuple
+  - [ ] `derive_codegen/field_ops/thunks.rs` — derive thunk emit
+- [ ] **Update evaluator tests**: Change `interner.intern("eq")` → `interner.intern("equals")` in `ori_eval/src/derives/tests.rs` (3 occurrences)
+- [ ] **Update pattern tests**: Change `method_name() == "eq"` → `"equals"` in `ori_patterns/src/user_methods/tests.rs`
+- [ ] **Verify existing tests pass**: `timeout 150 cargo t` — all existing tests must pass after rename (evaluator/mangling already use "equals")
+- [ ] **Semantic pin**: Add Ori spec test `tests/spec/traits/derive/eq_method_name.ori` that calls `.equals()` directly on a derived Eq type — proves the method is accessible by the new name
+
+**Test matrix:**
+- Types: struct (single-field, multi-field), newtype, enum (unit variants, payload variants)
+- Patterns: direct `==`, direct `!=`, method call `.equals(other:)`, use in generic `T: Eq` context
+- Backends: eval + LLVM (debug + release)
+
+---
+
+### 3.25.2 LLVM Enum Structural Equality
+
+**File(s):** `compiler/ori_llvm/src/codegen/arc_emitter/builtins/compound_traits.rs`
+
+Currently, when `emit_element_equals` encounters an enum type at line 205, it only tries `emit_derived_eq_call` — there is no structural fallback. Structs have this fallback (line 200-203: try derived, `.or_else(|| self.emit_structural_eq(...))`). This means enums without `#derive(Eq)` cannot be compared in LLVM codegen, even though the evaluator compares them structurally.
+
+**Pattern to follow:** `compiler/ori_llvm/src/codegen/derive_codegen/enum_bodies/enum_comparable.rs` (lines 21-73) — `emit_enum_lexicographic()` shows the exact tag-extraction + payload-switch pattern for enum comparison in LLVM IR.
+
+**Algorithm for `emit_structural_enum_eq`:**
+1. Extract discriminant (tag) from both `lhs` and `rhs` via `extract_value(val, 0, ...)`
+2. Compare tags with `icmp_eq`
+3. If tags differ → return `false`
+4. If tags match → switch on tag value, for each variant:
+   - If unit variant (no payload) → contribute `true`
+   - If payload variant → extract payload fields, recursively call `emit_element_equals` on each, accumulate with AND
+5. Return accumulated result via phi node
+
+- [ ] **Write failing test first**: Add AOT test `compiler/ori_llvm/tests/aot/structural_eq.rs` with enum type having no `#derive(Eq)`, assert `==`/`!=` work correctly
+  - [ ] Unit-variant enum: `type Color = Red | Green | Blue`
+  - [ ] Payload enum: `type Shape = Circle(r: float) | Rect(w: float, h: float)`
+  - [ ] Verify test fails (LLVM can't emit structural enum eq)
+- [ ] **Implement `emit_structural_enum_eq`** in `compound_traits.rs`:
+  - [ ] Add function signature: `fn emit_structural_enum_eq(&mut self, lhs: ValueId, rhs: ValueId, variants: &[...], ty: Idx) -> Option<ValueId>`
+  - [ ] Implement tag extraction and comparison
+  - [ ] Implement variant-switch payload comparison (reuse `emit_element_equals` for recursion)
+  - [ ] Handle edge cases: all-unit enum (no payload switch needed), single-variant enum
+- [ ] **Wire into dispatch**: Change line 205 from:
+  ```rust
+  TypeInfo::Enum { .. } => self.emit_derived_eq_call(lhs, rhs, elem_ty),
+  ```
+  to:
+  ```rust
+  TypeInfo::Enum { variants, .. } => {
+      let variants = variants.clone();
+      self.emit_derived_eq_call(lhs, rhs, elem_ty)
+          .or_else(|| self.emit_structural_enum_eq(lhs, rhs, &variants, elem_ty))
+  }
+  ```
+- [ ] **Verify tests pass**: All new AOT tests pass in debug and release
+- [ ] **Dual-execution parity**: Run `diagnostics/dual-exec-verify.sh` on test programs — evaluator and LLVM must produce identical results
+- [ ] **Semantic pin**: Test that verifies enum structural eq works WITHOUT `#derive(Eq)` — would fail if fallback is removed
+- [ ] **Negative pin**: Test that verifies a type with custom `impl T: Eq` uses the custom method, not structural default
+
+**Test matrix:**
+- Types: unit enum, payload enum (single field, multi-field), nested enum (enum containing enum), enum with struct payload, Option-like enum, Result-like enum
+- Patterns: `==` same variant, `==` different variant, `!=`, nested comparison
+- Backends: LLVM debug + release (FastISel divergence check)
+
+---
+
+### 3.25.3 LLVM Structural Clone/Debug/Printable Fallbacks
+
+**File(s):** `compiler/ori_llvm/src/codegen/arc_emitter/builtins/compound_traits.rs`, `compiler/ori_llvm/src/codegen/arc_emitter/builtins/debug_helpers.rs`
+
+Currently:
+- **Clone**: No structural fallback. Types without `#derive(Clone)` cannot be cloned in LLVM codegen (evaluator clones all types structurally).
+- **Debug**: Falls back to `"<?>"` literal when no derived debug method exists (line 189-190 of `debug_helpers.rs`). Should produce `TypeName { field: value, ... }` structurally.
+- **Printable**: Same as Debug — falls back to `"<?>"`. Should produce the same structural format as Debug default.
+
+**Implementation order:** Clone first (simplest — no string building), then Debug (requires string concatenation), then Printable (identical to Debug structural default).
+
+#### Phase A: Structural Clone
+
+- [ ] **Write failing test**: AOT test with struct/enum without `#derive(Clone)`, call `.clone()` structurally
+- [ ] **Implement `emit_structural_clone`** in `compound_traits.rs`:
+  - [ ] For structs: extract each field, recursively clone, rebuild struct via `insert_value`
+  - [ ] For enums: extract tag + payload, switch on tag, clone payload fields per variant, rebuild
+  - [ ] Wire into clone dispatch with `.or_else(|| self.emit_structural_clone(...))`
+- [ ] **Verify**: Tests pass, dual-exec parity
+
+#### Phase B: Structural Debug
+
+- [ ] **Write failing test**: AOT test with struct/enum without `#derive(Debug)`, call `.debug()`, verify output format
+- [ ] **Implement `emit_structural_debug`** in `debug_helpers.rs`:
+  - [ ] Build string: `TypeName { field1: <debug(f1)>, field2: <debug(f2)>, ... }`
+  - [ ] Use `emit_literal_ori_str` for type/field names, `emit_element_debug` for field values
+  - [ ] Concatenate via `emit_str_concat` (runtime call `ori_str_concat`)
+  - [ ] Handle enums: `VariantName` (unit) or `VariantName(field1: <debug>, ...)`
+  - [ ] Handle Sret return convention (debug returns `str` = 24 bytes)
+- [ ] **Wire into dispatch**: Replace `"<?>"` fallback at line 189-190 with structural debug
+- [ ] **Verify**: Tests pass, dual-exec parity, output matches evaluator format
+
+#### Phase C: Structural Printable (to_str)
+
+- [ ] **Write failing test**: AOT test with struct/enum without `#derive(Printable)`, call `.to_str()` or use in string interpolation
+- [ ] **Implement `emit_structural_to_str`**: Identical to structural debug (same format per proposal)
+- [ ] **Wire into dispatch** in the to_str emission path
+- [ ] **Verify**: Tests pass, dual-exec parity
+
+**Test matrix (all three phases):**
+- Types: empty struct, single-field struct, multi-field struct, newtype, unit enum, payload enum, nested types (struct containing enum), generic types
+- Patterns: direct method call (`.clone()`, `.debug()`, `.to_str()`), use in string interpolation (Printable), use in `dbg()` (Debug)
+- Backends: eval + LLVM (debug + release)
+- Format verification: structural output matches `TypeName { field: value }` format exactly
+
+---
+
+### 3.25.4 Spec and Documentation Updates
+
+**File(s):** `docs/ori_lang/v2026/spec/operator-rules.md`, `docs/ori_lang/v2026/spec/09-properties-of-types.md`, `.claude/rules/ori-syntax.md`
+
+- [ ] **Update `operator-rules.md`**: Remove `T : Eq` precondition from EQ type rule (Annex B, Comparison section)
+  - [ ] Change from: `e1 : T    e2 : T    T : Eq  →  e1 ==|!= e2 : bool`
+  - [ ] Change to: `e1 : T    e2 : T  →  e1 ==|!= e2 : bool`
+  - [ ] Add NOTE: structural equality is the default; declaring `Eq` enables trait dispatch
+  - [ ] ORD rule (Comparable) remains unchanged
+- [ ] **Update `09-properties-of-types.md`**: Redefine Eq as "custom equality override" rather than "enables equality"
+  - [ ] Document structural defaults for Eq, Clone, Debug, Printable
+  - [ ] Document that Comparable/Hashable/Default require explicit declaration
+  - [ ] Document the two-tier model
+  - [ ] Rename `@eq` to `@equals` in trait definition
+- [ ] **Update `08-types.md`** Newtype section: Document that newtypes inherit structural comparison from inner type
+- [ ] **Update `.claude/rules/ori-syntax.md`**:
+  - [ ] Update Eq trait description to reflect structural defaults
+  - [ ] Update method name from `eq` to `equals`
+  - [ ] Add note about two-tier model (structural vs declared)
+- [ ] **Update design doc**: Remove Eq requirement from binary operations diagram in `docs/compiler/design/05-type-system/index.md` (line ~250: `T == T → bool (where T: Eq)`)
+- [ ] **Update LLVM codegen comment**: Remove stale comment in `ori_llvm/src/codegen/arc_emitter/operators/mod.rs` line 201 referencing old "eq" method name
+- [ ] **Verify spec consistency**: No contradictions between operator-rules.md, 09-properties-of-types.md, and ori-syntax.md
+
+---
+
+### 3.25.R Third Party Review Findings
+
+<!-- Reserved for Codex or other external reviewers. -->
+
+- None.
+
+---
+
+### 3.25.N Completion Checklist
+
+- [ ] `eq` → `equals` rename complete across all crates (ori_ir, ori_llvm, prelude.ori, all tests)
+- [ ] Enum structural equality works in LLVM codegen without `#derive(Eq)`
+- [ ] Structural Clone fallback works in LLVM codegen without `#derive(Clone)`
+- [ ] Structural Debug fallback works in LLVM codegen without `#derive(Debug)` (produces `TypeName { field: value }` format)
+- [ ] Structural Printable fallback works in LLVM codegen without `#derive(Printable)`
+- [ ] Spec updated: EQ rule no longer requires `T : Eq`
+- [ ] `09-properties-of-types.md` documents structural defaults and two-tier model
+- [ ] `.claude/rules/ori-syntax.md` updated with `equals` method name
+- [ ] All AOT tests pass in both debug and release: `timeout 150 cargo b && timeout 150 cargo b --release && timeout 150 ./test-all.sh`
+- [ ] Dual-execution parity verified for all new test programs
+- [ ] `ORI_CHECK_LEAKS=1` reports zero leaks on all new test programs
+- [ ] Plan annotation cleanup: no stale plan annotations in `.rs` files
+- [ ] `/tpr-review` passed
+- [ ] `/impl-hygiene-review last commit` passed
+
+**Exit Criteria:** All types (structs, enums, newtypes) support `==`/`!=`, `.clone()`, `.debug()`, and `.to_str()` structurally in both evaluator and LLVM codegen without requiring `#derive(...)`. The `equals` method name is consistent across all compiler crates. Spec reflects structural defaults. Zero regressions in `./test-all.sh` (debug and release). Dual-execution parity confirmed for all new test programs.

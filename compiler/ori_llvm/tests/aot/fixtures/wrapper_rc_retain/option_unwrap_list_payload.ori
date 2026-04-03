@@ -1,0 +1,8 @@
+// Regression: BUG-04-013 — Option.unwrap must RC-retain list payload
+@make () -> Option<[int]> = Some([1, 2, 3, 4, 5]);
+
+@main () -> int = {
+    let o = make();
+    let v = o.unwrap();
+    if v == [1, 2, 3, 4, 5] then 0 else 1
+}

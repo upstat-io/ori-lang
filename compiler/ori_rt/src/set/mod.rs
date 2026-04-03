@@ -43,6 +43,7 @@ pub extern "C" fn ori_set_contains(
     let c = cap as usize;
     let layout = HashTableLayout::for_set(c, es);
     let hash = elem_hash(needle);
+    // SAFETY: data/cap validated non-null and positive; layout offsets derived from cap/elem_size.
     let found = unsafe { probe_find(data, c, layout.keys_offset, needle, hash, es, elem_eq) };
     i64::from(found.is_some())
 }
@@ -80,8 +81,11 @@ pub extern "C" fn ori_set_to_list(
     let list_data = crate::rc::ori_rc_alloc(n * es, 8);
     let mut write_pos = 0usize;
     for bucket in 0..c {
+        // SAFETY: bucket < c, so metadata index is within the allocated buffer.
         if unsafe { get_meta(data, bucket) } == META_OCCUPIED {
+            // SAFETY: write_pos < n and list_data has n * es bytes allocated.
             let dst = unsafe { list_data.add(write_pos * es) };
+            // SAFETY: src is within the set's element region (bucket < c); dst within list_data.
             unsafe {
                 let src = data.add(layout.keys_offset + bucket * es);
                 std::ptr::copy_nonoverlapping(src, dst, es);
@@ -120,6 +124,7 @@ pub extern "C" fn ori_set_to_list(
 pub extern "C" fn ori_set_literal_alloc(count: i64, elem_size: i64, out_cap: *mut i64) -> *mut u8 {
     if count <= 0 {
         if !out_cap.is_null() {
+            // SAFETY: out_cap validated non-null by enclosing check.
             unsafe { out_cap.write(0) };
         }
         return std::ptr::null_mut();
@@ -129,6 +134,7 @@ pub extern "C" fn ori_set_literal_alloc(count: i64, elem_size: i64, out_cap: *mu
     // elem_dec_fn is stored by codegen after literal construction completes
     let data = alloc_set_hash_buffer(cap, es, None);
     if !out_cap.is_null() {
+        // SAFETY: out_cap validated non-null by enclosing check.
         unsafe { out_cap.write(cap as i64) };
     }
     data
@@ -159,8 +165,10 @@ pub extern "C" fn ori_set_literal_put(
     let layout = HashTableLayout::for_set(c, es);
 
     let hash = elem_hash(elem);
+    // SAFETY: data is a valid hash table buffer; cap > 0; probe finds an EMPTY slot.
     let bucket = unsafe { crate::map::hash_table::probe_find_slot(data, c, hash) };
 
+    // SAFETY: bucket is within [0, c); element region is within the allocated buffer.
     unsafe {
         let dst = data.add(layout.keys_offset + bucket * es);
         std::ptr::copy_nonoverlapping(elem, dst, es);
@@ -170,6 +178,7 @@ pub extern "C" fn ori_set_literal_put(
 
 /// Write a set struct `{i64 len, i64 cap, ptr data}` to `out_ptr`.
 pub(crate) fn write_set_struct(out_ptr: *mut u8, len: i64, cap: i64, data: *mut u8) {
+    // SAFETY: out_ptr is caller-provided sret buffer with space for {i64, i64, *mut u8}.
     unsafe {
         out_ptr.cast::<i64>().write(len);
         out_ptr.cast::<i64>().add(1).write(cap);
@@ -193,6 +202,7 @@ pub(crate) fn alloc_set_hash_buffer(
     }
     let data = crate::rc::ori_rc_alloc(layout.total_size, 8);
     if !data.is_null() {
+        // SAFETY: data was just returned by ori_rc_alloc with total_size >= metadata_bytes.
         unsafe {
             std::ptr::write_bytes(data, META_EMPTY, layout.metadata_bytes);
             crate::rc::store_elem_dec_fn(data, elem_dec_fn);
@@ -215,6 +225,7 @@ pub(crate) fn hash_set_contains(
     }
     let layout = HashTableLayout::for_set(cap, elem_size);
     let hash = elem_hash(needle);
+    // SAFETY: data validated non-null; cap > 0; layout offsets derived from cap/elem_size.
     unsafe {
         probe_find(
             data,

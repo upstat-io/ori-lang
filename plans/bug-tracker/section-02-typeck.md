@@ -5,8 +5,8 @@ status: in-progress
 goal: "Track and resolve all known type checker bugs"
 sections: []
 third_party_review:
-  status: clean
-  updated: 2026-03-31
+  status: findings
+  updated: 2026-04-02
 ---
 
 # Section 02: Type Checker
@@ -19,27 +19,42 @@ Bugs in type inference, unification, trait resolution, method dispatch, generics
 
 ## Open Bugs
 
-- [ ] `[BUG-02-001][high]` **infer_if() allows non-void then-branch without else** — found by verify-roadmap.
-  Repro: `@main () -> void = { if true then 42 }` — compiles without error, but spec requires `if` without `else` to have type `void` or `Never` in the then-branch.
-  Subsystem: `compiler/ori_types/src/infer/expr/control_flow.rs` (lines 53-63)
+- [x] `[BUG-02-001][high]` **infer_if() allows non-void then-branch without else** — found by verify-roadmap.
+  Resolved: Fixed on 2026-04-02. Changed `infer_if()` to call `engine.check_type(then_ty, void)` when no else-branch is present, emitting E2001 type mismatch for non-void then-branches. Tests: 1 Rust unit test (`test_infer_if_without_else_non_void_then`) + 3 Ori spec `#compile_fail` negative pins (int, str, list). 14,966 tests passing.
+  Subsystem: `compiler/ori_types/src/infer/expr/control_flow.rs`
   Found: 2026-03-28 | Source: verify-roadmap
-  Note: Active work in roadmap section 10 (control flow) touches this area.
 
 - [x] `[BUG-02-002][high]` **Coalesce (`??`) same-type wrapper forms typed as `T` instead of wrapper** — found by tpr-review.
   Repro: `let a: Option<int> = Some(1); let b: Option<int> = Some(2); let c: Option<int> = a ?? b;` — fails with `expected int?, found int`. Same for `Result<T,E> ?? Result<T,E>`.
   Spec: `operator-rules.md` §Coalesce defines `Option<T> ?? Option<T> -> Option<T>` and `Result<T,E> ?? Result<T,E> -> Result<T,E>`.
   Resolved: Fixed across 2026-03-30/31 (typeck: 3a9bf319, codegen: 11a26626, chain fix: 402d0770, unwrap fix: 55352b60). Type checker uses tag-based detection with unification for chain vs unwrap. ARC lowering uses `lhs_ty == result_ty`. Unwrap path now rejects invalid RHS types. 16 positive spec tests + 4 negative compile_fail pins + 5 Rust unit tests + 17 AOT tests for LLVM dual-execution parity.
 
-- [ ] `[BUG-02-003][medium]` **Comparison operators accepted on user types without Eq/Comparable** — found by tpr-review.
-  Repro: `type Box = { x: int }` then `Box { x: 1 } < Box { x: 2 }` passes `ori check` but fails at runtime (E6011/E6012). Also affects compound types: `[1,2] < [1,3]`, `(1,2) < (1,3)`, `Ok(1) < Ok(2)` all pass `ori check` but fail at runtime. Equality (`==`/`!=`) works correctly for compound types that implement Eq.
-  Subsystem: `compiler/ori_types/src/infer/expr/operators.rs` — comparison arm unifies operands without verifying trait satisfaction for ordering operators.
-  Root cause: trait registry not fully populated during inference (derived traits register in later passes), so a simple `lookup_method` check fails for types that DO have Eq. Full fix requires a post-inference trait satisfaction pass that distinguishes equality (Eq) from ordering (Comparable).
+- [x] `[BUG-02-003][medium]` **Comparison operators accepted on user types without Eq/Comparable** — found by tpr-review.
+  Resolved: Fixed on 2026-04-02. Two-part fix:
+  (1) **Type checker**: Added `has_comparable_trait()` check in `infer_binary()` comparison arm for ordering operators (`<`, `<=`, `>`, `>=`) on `Tag::Named` types. Uses `lookup_method("compare")` on the trait registry to detect Comparable impls (covers both `#derive(Comparable)` and manual impls). Emits E2020 unsupported operator error with "implement Comparable" suggestion.
+  (2) **Evaluator**: Added ordering operator dispatch through derived `compare` method in `eval_can_binary()`. For structs/variants with Comparable, calls `compare` and converts Ordering result to bool. Added `compare` to pre-interned `OpNames`.
+  Equality operators (`==`, `!=`) intentionally NOT gated — the evaluator provides structural equality for all types.
+  Tests: 1 Rust unit test + 5 `#compile_fail` negative pins + 4 positive ordering tests + 1 regression guard in `operators_comparison.ori`. 15,018 tests passing.
+  Subsystem: `compiler/ori_types/src/infer/expr/operators.rs`, `compiler/ori_eval/src/interpreter/can_eval/operators.rs`, `compiler/ori_eval/src/interpreter/interned_names.rs`
   Found: 2026-03-31 | Source: tpr-review (hygiene-full §01, TPR-01-001)
-  Note: Pre-existing issue exposed by registry SSOT work. Primitives now correctly validated via registry OpDefs; compound/user types need separate mechanism.
+
+- [ ] `[BUG-02-004][medium]` **FFI C type resolution maps c_* types to full-width Ori primitives, losing C ABI widths** — found by tpr-review.
+  The BUG-04-021 fix added `resolve_ffi_concrete()` in `well_known/mod.rs` which maps `c_int`/`c_long`/`c_size` → `Idx::INT` (i64) and `c_float`/`c_double` → `Idx::FLOAT` (f64). This is correct for ARC classification (scalars, no RC), but downstream `TypeInfoStore` calls `resolve_fully()` on Named types, making `c_int` appear as 64-bit int in layout and codegen. The C ABI spec (`docs/ori_lang/v2026/spec/26-ffi.md`) defines `c_int` as platform-dependent (typically 32-bit). Current tests only cover `Option<CPtr>` wrapper compilation, not actual `extern "c"` boundary calls where width matters. The resolution mechanism was designed for ARC classification, not layout — it needs a separate path for FFI width preservation.
+  Subsystem: `compiler/ori_types/src/check/well_known/mod.rs`, `compiler/ori_llvm/src/codegen/type_info/store.rs`
+  Found: 2026-04-02 | Source: tpr-review
 
 ---
 
 ## 02.R Third Party Review Findings
+
+- [x] `[TPR-02-010][high]` [tests/spec/expressions/operators_comparison.ori](/home/eric/projects/ori_lang/tests/spec/expressions/operators_comparison.ori#L574) and [plans/bug-tracker/section-02-typeck.md](/home/eric/projects/ori_lang/plans/bug-tracker/section-02-typeck.md#L32) — BUG-02-003 now documents structural equality without `#derive(Eq)` as supported, but the LLVM backend still panics on that exact case.
+  Resolved: Fixed on 2026-04-02. Added `emit_structural_eq` in `compound_traits.rs` — field-by-field comparison using `emit_element_equals` recursively with AND accumulation. When `emit_derived_eq_call` returns None (no compiled `eq` method), falls back to structural comparison. Also marked BUG-04-023 as resolved. Verified: `type Point = { x: int, y: int }; a == b` now works through LLVM (prints "equal").
+
+- [x] `[TPR-02-009][high]` [compiler/ori_types/src/infer/expr/operators.rs](/home/eric/projects/ori_lang/compiler/ori_types/src/infer/expr/operators.rs#L200) — the new Comparable gate only checks `Tag::Named`, so generic user-defined types still bypass the compile-time rejection for `<`, `<=`, `>`, `>=`.
+  Resolved: Fixed on 2026-04-02. Extended the Comparable gate from `left_tag == Tag::Named` to `matches!(left_tag, Tag::Named | Tag::Applied)`. Generic instantiations like `Box<int>` now correctly rejected at compile time with E2020.
+
+- [x] `[TPR-02-008][high]` `compiler/ori_eval/src/interpreter/can_eval/operators.rs:91` — BUG-02-003 still misses Comparable newtypes, so ordering operators remain broken for one class of user-defined types.
+  Resolved: Fixed on 2026-04-02. Added `Value::Newtype` arm to `evaluate_binary()` in `operators/mod.rs` that delegates to inner value comparison. Newtypes are transparent wrappers — `Wrap(1) < Wrap(2)` compares `1 < 2` via inner delegation. The ordering dispatch in `can_eval/operators.rs` does NOT match newtypes (they use inner delegation, not `compare` method dispatch). Both equality and ordering now work for newtypes.
 
 - [x] `[TPR-02-006][low]` `tests/spec/expressions/coalesce.ori:623` — The new coalesce negative pins still key on message substrings instead of exact diagnostic codes.
   Resolved: Not applicable — the Ori test runner's `#compile_fail` attribute matches against error message text, not error codes. The existing codebase convention (`#compile_fail(“type mismatch”)`, `#compile_fail(“non-exhaustive”)`) uses message substrings throughout. Error-code pinning would require a test runner enhancement.

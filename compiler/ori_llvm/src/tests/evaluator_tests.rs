@@ -110,10 +110,11 @@ fn test_compile_module_with_tests_empty() {
         &[],
         &empty_sigs,
         rustc_hash::FxHashMap::default(),
-        None, // JIT: use env var fallback for narrowing policy
-        &[],  // No imported type metadata for empty module test
-        &[],  // No imported collection surfaces for empty module test
-        &[],  // No trait impl fn names for empty module test
+        None,   // JIT: use env var fallback for narrowing policy
+        &[],    // No imported type metadata for empty module test
+        &[],    // No imported collection surfaces for empty module test
+        &[],    // No trait impl fn names for empty module test
+        vec![], // No imported mono functions for empty module test
     );
 
     assert!(

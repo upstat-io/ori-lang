@@ -16,7 +16,8 @@ Bugs in expression evaluation, method dispatch, iterator machinery, closure hand
 
 ## Open Bugs
 
-- [ ] `[BUG-03-001][medium]` **Byte binary operations not implemented in evaluator** — found by tpr-review.
+- [x] `[BUG-03-001][medium]` **Byte binary operations not implemented in evaluator** — found by tpr-review.
+  Resolved: Fixed on 2026-04-01. Added `eval_byte_binary()` with full arithmetic (checked overflow), comparison (unsigned), bitwise, and shift (0-7 range) operators. Added enforcement test `eval_byte_handles_all_registry_supported_ops`.
   Repro: `10 as byte == 10 as byte` fails at runtime with "cannot apply operator to `byte` and `byte`". All byte binary ops (arithmetic, comparison, bitwise) fail.
   Subsystem: `compiler/ori_eval/src/operators/mod.rs` — `evaluate_binary()` has no `(Value::Byte, Value::Byte)` match arm.
   Found: 2026-03-31 | Source: tpr-review (hygiene-full §01 eval sync tests)
@@ -26,6 +27,11 @@ Bugs in expression evaluation, method dispatch, iterator machinery, closure hand
   Subsystem: `compiler/ori_eval/src/methods/variants.rs:390-393` — `dispatch_option_method_str` catches these methods and returns `wrong_arg_type("function")` instead of deferring to the `CollectionMethodResolver` which has evaluator access for closure evaluation. The string-based dispatch path runs before the collection resolver and short-circuits.
   Found: 2026-04-01 | Source: continue-roadmap (hygiene-full §03.2 spec test writing)
   Note: Active work in roadmap section 07B and hygiene-full §03.2 touches this area.
+
+- [x] `[BUG-03-003][medium]` **Ordering binary operators (==, !=) not dispatched in evaluator** — found by review-bugs.
+  Resolved: Fixed on 2026-04-02. Added `Value::Ordering` to `value_to_type_tag()` and `eval_ordering_binary()` handler for `Eq`/`NotEq` operations. Registry already declared `eq: IntInstr, neq: IntInstr` for Ordering. Discovered while fixing BUG-06-002 (generic compare/min/max) — `assert_eq` on Ordering values failed at runtime.
+  Subsystem: `compiler/ori_eval/src/operators/mod.rs`
+  Found: 2026-04-02 | Source: review-bugs (BUG-06-002 fix dependency)
 
 ---
 

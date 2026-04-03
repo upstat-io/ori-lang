@@ -70,6 +70,7 @@ pub extern "C" fn ori_iter_from_str(s: *const crate::OriStr) -> *mut u8 {
         };
         return Box::into_raw(Box::new(state)).cast();
     }
+    // SAFETY: s validated non-null above; caller guarantees valid OriStr pointer.
     let str_ref = unsafe { &*s };
     let len = str_ref.len() as i64;
 
@@ -88,6 +89,7 @@ pub extern "C" fn ori_iter_from_str(s: *const crate::OriStr) -> *mut u8 {
         }
         let size = len as usize;
         let heap_copy = crate::ori_rc_alloc(size, 1);
+        // SAFETY: str_ref is SSO with len > 0; heap_copy is freshly allocated with `size` bytes.
         unsafe {
             std::ptr::copy_nonoverlapping(str_ref.sso.bytes.as_ptr(), heap_copy, size);
         }
@@ -104,7 +106,9 @@ pub extern "C" fn ori_iter_from_str(s: *const crate::OriStr) -> *mut u8 {
         // For slice strings from str.split(), data is an interior pointer
         // and cap has SLICE_FLAG set — ori_str_rc_inc finds the original
         // buffer and increments that.
+        // SAFETY: str_ref.is_sso() is false, so the heap union variant is active.
         let data = unsafe { str_ref.heap.data };
+        // SAFETY: Same as above — heap union variant is active.
         let cap = unsafe { str_ref.heap.cap };
         if !data.is_null() {
             crate::ori_str_rc_inc(data, cap);

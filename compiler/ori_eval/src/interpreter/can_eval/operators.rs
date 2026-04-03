@@ -86,6 +86,34 @@ impl Interpreter<'_> {
             return self.eval_method_call(left_val, method, vec![right_val]);
         }
 
+        // Ordering operators on user types: dispatch through compare method.
+        // The compare method returns Ordering, which we convert to bool.
+        if matches!(
+            op,
+            BinaryOp::Lt | BinaryOp::LtEq | BinaryOp::Gt | BinaryOp::GtEq
+        ) && matches!(left_val, Value::Struct(_) | Value::Variant { .. })
+        {
+            let compare_result =
+                self.eval_method_call(left_val, self.op_names.compare, vec![right_val]);
+            return match compare_result {
+                Ok(Value::Ordering(ord)) => {
+                    use ori_patterns::OrderingValue;
+                    let result = match op {
+                        BinaryOp::Lt => ord == OrderingValue::Less,
+                        BinaryOp::LtEq => ord != OrderingValue::Greater,
+                        BinaryOp::Gt => ord == OrderingValue::Greater,
+                        BinaryOp::GtEq => ord != OrderingValue::Less,
+                        _ => unreachable!(),
+                    };
+                    Ok(Value::Bool(result))
+                }
+                Ok(_) => {
+                    Err(EvalError::new("compare method must return Ordering".to_string()).into())
+                }
+                Err(e) => Err(e),
+            };
+        }
+
         evaluate_binary(left_val, right_val, op).map_err(|e| Self::attach_span(e, span))
     }
 

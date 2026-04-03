@@ -1,0 +1,9 @@
+// Negative pin: Result.unwrap_err on Ok must panic
+@make () -> Result<str, str> = Ok("this is a success with a long string");
+
+@main () -> int = {
+    let r = make();
+    let v = r.unwrap_err();
+    // Should never reach here
+    0
+}

@@ -21,9 +21,10 @@
 #              if the binary has LLVM support; interpreter-only otherwise)
 #
 # Exit codes:
-#   0 = No behavioral mismatches detected
+#   0 = No behavioral mismatches detected (with at least one verification)
 #   1 = Behavioral mismatches found (PASS in one backend, FAIL in other)
 #   2 = Infrastructure error (build failure, binary not found)
+#   3 = Zero verifications (no tests were actually compared — misleading "all clear")
 
 set -uo pipefail
 # Note: NOT using set -e because functions return mismatch counts as exit codes
@@ -266,17 +267,13 @@ run_test_comparison() {
     llvm_lcfail=$(grep -oP '\d+(?= llvm compile fail)' "$LLVM_OUTPUT" | tail -1)
     : "${interp_total:=0}" "${llvm_total:=0}" "${llvm_lcfail:=0}"
 
-    # compile_fail tests pass at type checker (no PASS: line in verbose output)
-    # so they're verified by definition — both backends use the same type checker
-    local compile_fail_verified=$(( llvm_total - VERIFIED ))
-    if [[ $compile_fail_verified -lt 0 ]]; then compile_fail_verified=0; fi
-
-    local total_verified=$((VERIFIED + compile_fail_verified))
+    # Only count tests that were actually runtime-compared (both PASS with matching output).
+    # Previous logic inflated "compile_fail_verified" by counting all non-compared LLVM passes.
+    TOTAL_VERIFIED=$((TOTAL_VERIFIED + VERIFIED))
     local total_mismatches=$((MISMATCH_INTERP + MISMATCH_LLVM))
 
     printf "${C_BOLD}  Results:${C_NC}\n"
     printf "    ${C_GREEN}Verified (runtime, both PASS)${C_NC}:  %d\n" "$VERIFIED"
-    printf "    ${C_GREEN}Verified (compile-fail)${C_NC}:        %d\n" "$compile_fail_verified"
     printf "    ${C_CYAN}LLVM coverage gap${C_NC}:              %d\n" "$INTERP_ONLY"
     printf "    ${C_DIM}Both skip${C_NC}:                      %d\n" "$BOTH_SKIP"
     if [[ $BOTH_FAIL -gt 0 ]]; then
@@ -298,7 +295,7 @@ run_test_comparison() {
     printf "  ${C_BOLD}Interpreter${C_NC}: %s tests | ${C_BOLD}LLVM${C_NC}: %s pass + %s compile-fail\n" \
         "$interp_total" "$llvm_total" "$llvm_lcfail"
     printf "  ${C_BOLD}Total verified${C_NC}: %d / %s (%d%%)\n\n" \
-        "$total_verified" "$llvm_total" "$((total_verified * 100 / (llvm_total > 0 ? llvm_total : 1)))"
+        "$VERIFIED" "$llvm_total" "$((VERIFIED * 100 / (llvm_total > 0 ? llvm_total : 1)))"
 
     return $total_mismatches
 }
@@ -466,6 +463,7 @@ printf "${C_DIM}Comparing interpreter vs LLVM backend for behavioral equivalence
 
 TEST_MISMATCHES=0
 MAIN_MISMATCHES=0
+TOTAL_VERIFIED=0
 
 if [[ $RUN_TESTS -eq 1 ]]; then
     run_test_comparison || TEST_MISMATCHES=$?
@@ -477,12 +475,16 @@ fi
 
 # Final summary
 TOTAL_MISMATCHES=$((TEST_MISMATCHES + MAIN_MISMATCHES))
+TOTAL_VERIFIED=$((TOTAL_VERIFIED + MAIN_VERIFIED))
 
 echo "=============================================="
-if [[ $TOTAL_MISMATCHES -eq 0 ]]; then
-    printf "${C_GREEN}${C_BOLD}  DUAL-EXECUTION: ALL VERIFIED${C_NC}\n"
-else
+if [[ $TOTAL_MISMATCHES -gt 0 ]]; then
     printf "${C_RED}${C_BOLD}  DUAL-EXECUTION: %d MISMATCHES FOUND${C_NC}\n" "$TOTAL_MISMATCHES"
+elif [[ $TOTAL_VERIFIED -eq 0 ]]; then
+    printf "${C_YELLOW}${C_BOLD}  DUAL-EXECUTION: WARNING — ZERO VERIFICATIONS${C_NC}\n"
+    printf "${C_YELLOW}  No tests were actually compared across backends.${C_NC}\n"
+else
+    printf "${C_GREEN}${C_BOLD}  DUAL-EXECUTION: ALL VERIFIED (%d tests)${C_NC}\n" "$TOTAL_VERIFIED"
 fi
 echo "=============================================="
 echo ""
@@ -491,4 +493,10 @@ if [[ $EMIT_JSON -eq 1 ]]; then
     emit_json_report "$JSON_PATH"
 fi
 
-exit $((TOTAL_MISMATCHES > 0 ? 1 : 0))
+if [[ $TOTAL_MISMATCHES -gt 0 ]]; then
+    exit 1
+elif [[ $TOTAL_VERIFIED -eq 0 ]]; then
+    exit 3
+else
+    exit 0
+fi

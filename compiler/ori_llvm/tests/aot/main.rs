@@ -21,6 +21,7 @@ pub mod enum_zero_payload;
 pub mod error_handling;
 pub mod fat_matrix;
 pub mod fat_ptr_iter;
+pub mod ffi_types;
 pub mod for_loops;
 pub mod for_yield_option;
 pub mod formattable;
@@ -57,6 +58,7 @@ pub mod traits;
 pub mod trmc;
 pub mod tuples;
 pub mod wasm;
+pub mod wrapper_rc_retain;
 
 // Re-export test utilities
 pub mod util;

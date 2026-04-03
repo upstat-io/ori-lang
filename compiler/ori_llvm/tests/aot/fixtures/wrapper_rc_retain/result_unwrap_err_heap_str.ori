@@ -1,0 +1,8 @@
+// Regression: BUG-04-013 — Result.unwrap_err must RC-retain heap string payload
+@make () -> Result<str, str> = Err("hello world this is a long heap string");
+
+@main () -> int = {
+    let r = make();
+    let v = r.unwrap_err();
+    if v == "hello world this is a long heap string" then 0 else 1
+}

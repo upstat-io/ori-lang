@@ -91,9 +91,11 @@ fn eval_char_handles_all_registry_supported_ops() {
     check_type_ops(TypeTag::Char, &Value::Char('a'), &Value::Char('b'));
 }
 
-// NOTE: Byte binary operations are not yet implemented in the evaluator
-// (no `(Value::Byte, Value::Byte)` match arm in evaluate_binary).
-// Tracked as BUG-03-001. Test added when evaluator supports byte ops.
+/// For each supported operator on `byte`, verify the evaluator produces `Ok`.
+#[test]
+fn eval_byte_handles_all_registry_supported_ops() {
+    check_type_ops(TypeTag::Byte, &Value::Byte(10), &Value::Byte(3));
+}
 
 // NOTE: Duration and Size same-type op tests are omitted because the
 // evaluator doesn't implement all registry-declared ops for these types

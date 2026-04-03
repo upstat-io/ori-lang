@@ -260,31 +260,40 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         rhs: ValueId,
         lhs_ty: Idx,
     ) -> Option<ValueId> {
-        let type_name = *self.ctx.type_idx_to_name.get(&lhs_ty)?;
-        let interned_method = self.interner.intern("compare");
-        let (func_id, params, ret_passing, ret_ty_idx) = {
-            let (fid, abi) = self
-                .ctx
-                .method_functions
-                .get(&(type_name, interned_method))?;
-            (
-                *fid,
-                abi.params.clone(),
-                abi.return_abi.passing,
-                abi.return_abi.ty,
-            )
-        };
+        // Compound type ordering: inline comparison for built-in generic
+        // types (Option, Result, Tuple, List) that don't have compiled
+        // derived Comparable methods. Uses recursive element comparison
+        // via emit_element_compare() — same pattern as equality path.
+        let ordering = if let Some(ord) = self.emit_element_compare(lhs, rhs, lhs_ty) {
+            ord
+        } else {
+            // Fall back to compiled Comparable.compare() method
+            let type_name = *self.ctx.type_idx_to_name.get(&lhs_ty)?;
+            let interned_method = self.interner.intern("compare");
+            let (func_id, params, ret_passing, ret_ty_idx) = {
+                let (fid, abi) = self
+                    .ctx
+                    .method_functions
+                    .get(&(type_name, interned_method))?;
+                (
+                    *fid,
+                    abi.params.clone(),
+                    abi.return_abi.passing,
+                    abi.return_abi.ty,
+                )
+            };
 
-        let raw_args = [lhs, rhs];
-        let passed_args = self.apply_param_passing(&raw_args, &params);
+            let raw_args = [lhs, rhs];
+            let passed_args = self.apply_param_passing(&raw_args, &params);
 
-        let ordering = match &ret_passing {
-            ReturnPassing::Sret { .. } => {
-                let ret_ty = self.resolve_type(ret_ty_idx);
-                self.call_with_sret(func_id, &passed_args, ret_ty, "cmp_trait")?
-            }
-            ReturnPassing::Direct | ReturnPassing::Void => {
-                self.emit_rt_call(func_id, &passed_args, "cmp_trait")?
+            match &ret_passing {
+                ReturnPassing::Sret { .. } => {
+                    let ret_ty = self.resolve_type(ret_ty_idx);
+                    self.call_with_sret(func_id, &passed_args, ret_ty, "cmp_trait")?
+                }
+                ReturnPassing::Direct | ReturnPassing::Void => {
+                    self.emit_rt_call(func_id, &passed_args, "cmp_trait")?
+                }
             }
         };
 

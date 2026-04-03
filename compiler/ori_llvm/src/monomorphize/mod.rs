@@ -122,7 +122,7 @@ pub fn collect_mono_functions(
 /// Format: `{fn_name}$m${type1}_{type2}_{typeN}`
 ///
 /// Example: `identity$m$int`, `make_pair$m$int_bool`, `filter$m$Lint`
-fn mangle_mono_name(
+pub fn mangle_mono_name(
     fn_name: Name,
     generic_args: &[GenericArg],
     interner: &StringInterner,

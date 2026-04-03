@@ -362,7 +362,6 @@ use std.testing { assert, assert_eq, assert_ne }
 
 @option_ne_some_none () -> bool = Some(42) != None;
 
-// STATUS: Lexer [OK], Parser [OK], Evaluator [BROKEN] - operator '<' not implemented for Option
 @test_option_order tests @option_order () -> void = {
     // None < Some(x) for all x
     let none: Option<int> = None;
@@ -452,9 +451,6 @@ use std.testing { assert, assert_eq, assert_ne }
 // =============================================================================
 // Struct Equality (with #derive(Eq))
 // =============================================================================
-//
-// STATUS: Lexer [OK], Parser [OK], Evaluator [BROKEN] - cannot apply operator to struct
-// #derive(Eq) not generating equality implementation for user-defined structs.
 
 type Point = { x: int, y: int }
 #derive(Eq) type PointEq = { x: int, y: int }
@@ -481,6 +477,121 @@ type Point = { x: int, y: int }
     let a = PointEq { x: 1, y: 2 };
     let b = PointEq { x: 1, y: 3 };
     a != b
+}
+
+// =============================================================================
+// Ordering on User Types — Comparable Trait Required (BUG-02-003)
+// =============================================================================
+//
+// User-defined types require #derive(Comparable) to use ordering operators.
+// Without Comparable, <, <=, >, >= must be rejected at compile time.
+
+#derive(Eq, Comparable) type Ordered = { x: int, y: int }
+
+// Positive: type with #derive(Comparable) supports all ordering operators
+@test_struct_ordered_lt tests @struct_ordered_lt () -> void = {
+    let a = Ordered { x: 1, y: 2 };
+    let b = Ordered { x: 1, y: 3 };
+    assert(cond: a < b)
+}
+
+@struct_ordered_lt () -> bool = {
+    let a = Ordered { x: 1, y: 2 };
+    let b = Ordered { x: 1, y: 3 };
+    a < b
+}
+
+@test_struct_ordered_gt tests @struct_ordered_gt () -> void = {
+    let a = Ordered { x: 2, y: 0 };
+    let b = Ordered { x: 1, y: 0 };
+    assert(cond: a > b)
+}
+
+@struct_ordered_gt () -> bool = {
+    let a = Ordered { x: 2, y: 0 };
+    let b = Ordered { x: 1, y: 0 };
+    a > b
+}
+
+@test_struct_ordered_le tests @struct_ordered_le () -> void = {
+    let a = Ordered { x: 1, y: 2 };
+    let b = Ordered { x: 1, y: 2 };
+    assert(cond: a <= b)
+}
+
+@struct_ordered_le () -> bool = {
+    let a = Ordered { x: 1, y: 2 };
+    let b = Ordered { x: 1, y: 2 };
+    a <= b
+}
+
+@test_struct_ordered_ge tests @struct_ordered_ge () -> void = {
+    let a = Ordered { x: 1, y: 2 };
+    let b = Ordered { x: 1, y: 2 };
+    assert(cond: a >= b)
+}
+
+@struct_ordered_ge () -> bool = {
+    let a = Ordered { x: 1, y: 2 };
+    let b = Ordered { x: 1, y: 2 };
+    a >= b
+}
+
+// Negative: type WITHOUT Comparable rejects ordering operators (BUG-02-003 semantic pin)
+// Point has no derives at all — ordering must be rejected at compile time.
+#compile_fail("Comparable")
+@test_no_comparable_lt tests @no_comparable_lt () -> void = {
+    let a = Point { x: 1, y: 2 };
+    let b = Point { x: 1, y: 3 };
+    let r = a < b;
+    print(msg: r.debug())
+}
+
+#compile_fail("Comparable")
+@test_no_comparable_le tests @no_comparable_le () -> void = {
+    let a = Point { x: 1, y: 2 };
+    let b = Point { x: 1, y: 3 };
+    let r = a <= b;
+    print(msg: r.debug())
+}
+
+#compile_fail("Comparable")
+@test_no_comparable_gt tests @no_comparable_gt () -> void = {
+    let a = Point { x: 1, y: 2 };
+    let b = Point { x: 1, y: 3 };
+    let r = a > b;
+    print(msg: r.debug())
+}
+
+#compile_fail("Comparable")
+@test_no_comparable_ge tests @no_comparable_ge () -> void = {
+    let a = Point { x: 1, y: 2 };
+    let b = Point { x: 1, y: 3 };
+    let r = a >= b;
+    print(msg: r.debug())
+}
+
+// Regression guard: equality (==, !=) still works without Eq derive —
+// the evaluator provides structural equality for all types.
+@test_struct_eq_no_derive tests @struct_eq_no_derive () -> void = {
+    let a = Point { x: 1, y: 2 };
+    let b = Point { x: 1, y: 2 };
+    assert(cond: a == b)
+}
+
+@struct_eq_no_derive () -> bool = {
+    let a = Point { x: 1, y: 2 };
+    let b = Point { x: 1, y: 2 };
+    a == b
+}
+
+// Negative: type with Eq but NOT Comparable rejects ordering
+#compile_fail("Comparable")
+@test_eq_only_no_ordering tests @eq_only_no_ordering () -> void = {
+    let a = PointEq { x: 1, y: 2 };
+    let b = PointEq { x: 1, y: 3 };
+    let r = a < b;
+    print(msg: r.debug())
 }
 
 // =============================================================================

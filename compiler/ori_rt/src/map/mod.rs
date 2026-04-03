@@ -48,6 +48,7 @@ impl OriMap {
         let data = crate::rc::ori_rc_alloc(layout.total_size, 8);
         if !data.is_null() {
             // Initialize all metadata to EMPTY
+            // SAFETY: data was just returned by ori_rc_alloc with total_size >= metadata_bytes.
             unsafe { std::ptr::write_bytes(data, META_EMPTY, layout.metadata_bytes) };
         }
         data
@@ -85,6 +86,7 @@ pub extern "C" fn ori_map_contains_key(
     let c = cap as usize;
     let layout = HashTableLayout::for_map(c, ks, 1);
     let hash = key_hash(needle);
+    // SAFETY: data/cap validated non-null and positive; layout offsets derived from cap/key_size.
     let found = unsafe { probe_find(data, c, layout.keys_offset, needle, hash, ks, key_eq) };
     i64::from(found.is_some())
 }
@@ -129,8 +131,11 @@ pub extern "C" fn ori_map_keys_to_list(
     }
     let mut write_pos = 0usize;
     for bucket in 0..c {
+        // SAFETY: bucket < c, so metadata index is within the allocated buffer.
         if unsafe { get_meta(data, bucket) } == META_OCCUPIED {
+            // SAFETY: write_pos < n and list_data has n*ks bytes allocated.
             let dst = unsafe { list_data.add(write_pos * ks) };
+            // SAFETY: src is within the map's key region (bucket < c); dst within list_data.
             unsafe {
                 let src = data.add(layout.keys_offset + bucket * ks);
                 std::ptr::copy_nonoverlapping(src, dst, ks);
@@ -193,8 +198,11 @@ pub extern "C" fn ori_map_values_to_list(
     }
     let mut write_pos = 0usize;
     for bucket in 0..c {
+        // SAFETY: bucket < c, so metadata index is within the allocated buffer.
         if unsafe { get_meta(data, bucket) } == META_OCCUPIED {
+            // SAFETY: write_pos < n and list_data has n*vs bytes allocated.
             let dst = unsafe { list_data.add(write_pos * vs) };
+            // SAFETY: src is within the map's value region (bucket < c); dst within list_data.
             unsafe {
                 let src = data.add(layout.vals_offset + bucket * vs);
                 std::ptr::copy_nonoverlapping(src, dst, vs);
@@ -236,6 +244,7 @@ pub extern "C" fn ori_map_get(
     let vs = val_size.max(1) as usize;
 
     if data.is_null() || len <= 0 {
+        // SAFETY: out_ptr validated non-null above; writing i64 tag at aligned offset.
         unsafe { out_ptr.cast::<i64>().write(OPTION_TAG_NONE) };
         return;
     }
@@ -244,15 +253,18 @@ pub extern "C" fn ori_map_get(
     let layout = HashTableLayout::for_map(c, ks, vs);
     let hash = key_hash(needle);
 
+    // SAFETY: data/cap validated non-null and positive; layout offsets derived from cap/sizes.
     if let Some(bucket) =
         unsafe { probe_find(data, c, layout.keys_offset, needle, hash, ks, key_eq) }
     {
+        // SAFETY: bucket is a valid index within the hash table; out_ptr is non-null.
         unsafe {
             out_ptr.cast::<i64>().write(OPTION_TAG_SOME);
             let val_src = data.add(layout.vals_offset + bucket * vs);
             std::ptr::copy_nonoverlapping(val_src, out_ptr.add(8), vs);
         }
     } else {
+        // SAFETY: out_ptr validated non-null at function entry.
         unsafe { out_ptr.cast::<i64>().write(OPTION_TAG_NONE) };
     }
 }
@@ -275,6 +287,7 @@ pub extern "C" fn ori_map_literal_alloc(
 ) -> *mut u8 {
     if count <= 0 {
         if !out_cap.is_null() {
+            // SAFETY: out_cap validated non-null by enclosing check.
             unsafe { out_cap.write(0) };
         }
         return std::ptr::null_mut();
@@ -284,6 +297,7 @@ pub extern "C" fn ori_map_literal_alloc(
     let cap = next_hash_capacity(count as usize);
     let data = OriMap::alloc_hash_buffer(cap, ks, vs);
     if !out_cap.is_null() {
+        // SAFETY: out_cap validated non-null by enclosing check.
         unsafe { out_cap.write(cap as i64) };
     }
     data
@@ -318,8 +332,10 @@ pub extern "C" fn ori_map_literal_put(
     let layout = HashTableLayout::for_map(c, ks, vs);
 
     let hash = key_hash(key);
+    // SAFETY: data is a valid hash table buffer; cap > 0; probe finds an EMPTY slot.
     let bucket = unsafe { probe_find_slot(data, c, hash) };
 
+    // SAFETY: bucket is within [0, c); key/val regions are non-overlapping within the buffer.
     unsafe {
         let dst_key = data.add(layout.keys_offset + bucket * ks);
         std::ptr::copy_nonoverlapping(key, dst_key, ks);
@@ -331,6 +347,7 @@ pub extern "C" fn ori_map_literal_put(
 
 /// Write a map struct `{i64 len, i64 cap, ptr data}` to `out_ptr`.
 pub(crate) fn write_map_struct(out_ptr: *mut u8, len: i64, cap: i64, data: *mut u8) {
+    // SAFETY: out_ptr is caller-provided sret buffer with space for {i64, i64, *mut u8}.
     unsafe {
         out_ptr.cast::<i64>().write(len);
         out_ptr.cast::<i64>().add(1).write(cap);
@@ -347,7 +364,7 @@ fn write_array_to_list_from_data(data: *mut u8, len: i64, out_ptr: *mut u8) {
         return;
     }
     if len <= 0 || data.is_null() {
-        // Write empty list
+        // SAFETY: out_ptr validated non-null above; writing empty list triple.
         unsafe {
             out_ptr.cast::<i64>().write(0);
             out_ptr.cast::<i64>().add(1).write(0);
@@ -358,6 +375,7 @@ fn write_array_to_list_from_data(data: *mut u8, len: i64, out_ptr: *mut u8) {
         }
         return;
     }
+    // SAFETY: out_ptr validated non-null above; writing {len, cap, data} triple.
     unsafe {
         out_ptr.cast::<i64>().write(len);
         out_ptr.cast::<i64>().add(1).write(len); // cap = len
@@ -380,6 +398,7 @@ pub extern "C" fn ori_map_eq(
     key_hash: extern "C" fn(*const u8) -> i64,
     val_eq: extern "C" fn(*const u8, *const u8) -> bool,
 ) -> bool {
+    // SAFETY: After null checks, a and b are valid OriMap pointers per C-ABI contract.
     let (a_map, b_map) = unsafe {
         if a.is_null() || b.is_null() {
             return a.is_null() && b.is_null();
@@ -414,19 +433,23 @@ pub extern "C" fn ori_map_eq(
     let n = a_map.len as usize;
 
     for bucket in 0..a_cap {
+        // SAFETY: bucket < a_cap; metadata region is within a_data buffer.
         if unsafe { get_meta(a_data, bucket) } != META_OCCUPIED {
             continue;
         }
+        // SAFETY: bucket is OCCUPIED, so key and value slots are initialized.
         let a_key = unsafe { a_data.add(a_layout.keys_offset + bucket * ks) };
         let a_val = unsafe { a_data.add(a_layout.vals_offset + bucket * vs) };
         let hash = key_hash(a_key);
 
         // Find the same key in B
+        // SAFETY: b_data/b_cap are valid; layout offsets derived from b_cap/sizes.
         let b_bucket =
             unsafe { probe_find(b_data, b_cap, b_layout.keys_offset, a_key, hash, ks, key_eq) };
         let Some(b_idx) = b_bucket else {
             return false; // key not in B
         };
+        // SAFETY: b_idx is a valid OCCUPIED bucket index within b_data.
         let b_val = unsafe { b_data.add(b_layout.vals_offset + b_idx * vs) };
         if !val_eq(a_val, b_val) {
             return false; // values differ
