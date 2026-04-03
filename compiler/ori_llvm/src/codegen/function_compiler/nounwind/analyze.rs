@@ -195,6 +195,9 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
                         }
                     }
                 }
+                // Indirect calls through closures cannot be statically
+                // resolved — conservatively assume they may unwind.
+                ori_arc::ir::ArcTerminator::InvokeIndirect { .. } => false,
                 _ => true,
             };
             let instrs_ok = block.body.iter().all(|instr| match instr {

@@ -369,6 +369,16 @@ Spawn a **separate Agent** to generate the fix plan. This agent should use `/cre
 
 1. **All compiled findings** from Phase 5
 2. **The plan name**: `hygiene-{target-short-name}` (e.g., `hygiene-ori-types`, `hygiene-lexer-parser`, `hygiene-last-commit`, `hygiene-full`)
+3. **The mission statement** — The plan's `## Mission` MUST express the architectural end state, not enumerate findings. The mission is about what the code should **become**: a cohesive architecture with clean design, clear phase boundaries, correct solutions, and every piece of knowledge in its canonical home. Then describe the **specific design problems** in each area — what's architecturally wrong, not category counts. The standard is `.claude/rules/impl-hygiene.md`.
+
+   **Pattern:**
+   > Achieve {architectural end state description}. This sweep addresses {area A} — where {design problem in A}; {area B} — where {design problem in B}; and {area C} — where {design problem in C}. The standard is `.claude/rules/impl-hygiene.md`.
+
+   **Rules:**
+   - Frame as the **architectural destination**, not a task manifest — "cohesive architecture with clean design and correct solutions", not "eliminate N LEAKs"
+   - Describe each area's **design problem** — "scattered cow_mode checks with no canonical dispatch", not "5 LEAK findings in ori_rt"
+   - Finding counts, category breakdowns, and priority ordering belong in `## Metrics`, NOT in the mission
+   - The mission must read as a design vision that someone could evaluate the code against when the work is done
 
 The agent should create a plan that:
 

@@ -118,15 +118,13 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
         // Build args and prepare cleanup info
         let (call_args, args_cleanup) = self.build_main_args(has_args, c_main_id, &abi);
 
-        // Determine if _ori_main can unwind. When it can AND args exist,
-        // use invoke+landingpad to clean up the args buffer on the unwind path.
-        // Even when the callee takes ownership (Indirect ABI), we need invoke
-        // for unwind cleanup — the callee's ARC dec hasn't run if it unwinds.
+        // Determine if _ori_main can unwind. When it can, ALWAYS use
+        // invoke+landingpad — the landingpad catches panics and exits cleanly.
+        // Without invoke, `_Unwind_RaiseException` finds no handler and returns
+        // `_URC_END_OF_STACK` (code 5), causing a fatal error.
         let can_unwind = !self.codegen_ctx.nounwind_functions.contains(&main_name);
-        let use_invoke = can_unwind && args_cleanup.is_some();
 
-        if use_invoke {
-            let args = args_cleanup.unwrap();
+        if can_unwind {
             match self.builder.eh_model() {
                 EhModel::Itanium => self.emit_main_call_with_invoke(
                     c_main_id,
@@ -135,17 +133,35 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
                     abi.return_abi.passing,
                     returns_int,
                     i32_ty,
-                    &args,
+                    args_cleanup.as_ref(),
                 ),
-                EhModel::Seh => self.emit_main_call_with_seh_try(
-                    c_main_id,
-                    ori_main_id,
-                    &call_args,
-                    abi.return_abi.passing,
-                    returns_int,
-                    i32_ty,
-                    &args,
-                ),
+                EhModel::Seh => {
+                    // SEH thunk requires args context. For no-args @main on
+                    // MSVC, use ori_try_call directly without a context struct.
+                    if let Some(ref cleanup) = args_cleanup {
+                        self.emit_main_call_with_seh_try(
+                            c_main_id,
+                            ori_main_id,
+                            &call_args,
+                            abi.return_abi.passing,
+                            returns_int,
+                            i32_ty,
+                            cleanup,
+                        );
+                    } else {
+                        // Fallback: direct call on MSVC without args.
+                        // ori_try_call still catches SEH exceptions from
+                        // _ori_main even without a context struct.
+                        self.emit_main_call_direct(
+                            ori_main_id,
+                            &call_args,
+                            abi.return_abi.passing,
+                            returns_int,
+                            i32_ty,
+                            None,
+                        );
+                    }
+                }
             }
         } else {
             self.emit_main_call_direct(
@@ -259,16 +275,8 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
         return_passing: ReturnPassing,
         returns_int: bool,
         i32_ty: crate::codegen::value_id::LLVMTypeId,
-        args_cleanup: &MainArgsCleanup,
+        args_cleanup: Option<&MainArgsCleanup>,
     ) {
-        let MainArgsCleanup {
-            cleanup_fn,
-            data,
-            len,
-            wrapper_owns_on_normal,
-            ..
-        } = *args_cleanup;
-
         let personality_id = self.builder.runtime_fn("ori_eh_personality");
         self.builder.set_personality(c_main_id, personality_id);
 
@@ -297,8 +305,11 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
             (true, Some(val)) => self.builder.trunc(val, i32_ty, "exit_code"),
             _ => self.builder.const_i32(0),
         };
-        if wrapper_owns_on_normal {
-            self.builder.call(cleanup_fn, &[data, len], "");
+        if let Some(cleanup) = args_cleanup {
+            if cleanup.wrapper_owns_on_normal {
+                self.builder
+                    .call(cleanup.cleanup_fn, &[cleanup.data, cleanup.len], "");
+            }
         }
         self.emit_leak_check_and_ret(main_exit_code);
 
@@ -311,7 +322,10 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
             let catch_cleanup = self.builder.runtime_fn("ori_catch_cleanup");
             self.builder.call(catch_cleanup, &[exc_ptr], "");
         }
-        self.builder.call(cleanup_fn, &[data, len], "");
+        if let Some(cleanup) = args_cleanup {
+            self.builder
+                .call(cleanup.cleanup_fn, &[cleanup.data, cleanup.len], "");
+        }
         let panic_exit = self.builder.const_i32(1);
         self.builder.ret(panic_exit);
     }

@@ -37,6 +37,21 @@ Read CLAUDE.md (the project root one)
 
 **"Future improvement" requires a concrete artifact.** If you ever say something will be tracked, you MUST in the same response create: a bug-tracker entry (`/add-bug`), plan section `- [ ]` item, or roadmap checkbox. Ask yourself: "When would this get done? Who would find it?" If nobody/never, fix it now.
 
+## ABSOLUTE: Correct Architectural Solutions Only
+
+**Before fixing ANY finding, read `.claude/rules/impl-hygiene.md`.** This is non-negotiable. The hygiene rules define SSOT (Single Source of Truth), No Side Logic, canonical homes, phase boundaries, and finding categories (LEAK, DRIFT, GAP, etc.). Every fix must respect these principles.
+
+**Fixes must be the correct, proper architectural solution — never quick fixes, workarounds, counters, flags, or hacks.** Specifically:
+
+- **SSOT**: if the finding reveals scattered knowledge or duplicated dispatch, the fix is to establish/use the canonical home — not to patch each copy
+- **No Side Logic**: if logic lives outside its canonical home, the fix is to move it — not to add another copy that "works"
+- **Canonical Homes**: every behavioral decision has exactly ONE file that defines it. If a fix would create a second source of truth, it is wrong
+- **Phase Boundaries**: fixes must not bleed phase responsibilities. If fixing a codegen bug requires adding type-checking logic to the codegen pass, that's the wrong fix — the type checker should provide the information
+- **Registry as Source of Truth**: builtin type behavior (methods, operators, memory) lives in `ori_registry`. Fixes that hardcode type behavior outside the registry are LEAKs
+- **Enforcement**: when a fix adds a new variant, sync point, or dispatch arm, it MUST have enforcement (exhaustive match, exhaustiveness test, or registry-driven generation) to prevent future drift
+
+**The "quick fix" test**: if your fix would not survive a code review by someone who has read `impl-hygiene.md`, it's wrong. The correct fix may touch 10 files across 3 crates — that IS the fix. A workaround that passes tests is not a fix.
+
 ## When to Trigger — Bias Toward Running
 
 **Run this skill after completing ANY of the following:**
@@ -96,6 +111,8 @@ Read CLAUDE.md (the project root one)
 ## Steps (Per Iteration)
 
 ### 1. Run Codex
+
+**IMPORTANT: If using an Agent, it MUST be foreground (NOT `run_in_background`).** The user wants to see all Codex output as it runs.
 
 ```bash
 codex exec "run the /review-work skill" --full-auto --json 2>/dev/null | tail -200
@@ -179,9 +196,12 @@ For each validated finding:
 
 **YOU (Claude) fix the code.** This means actual implementation — not just filing. Not scope notes. Not rationalizations. CODE CHANGES.
 
+- **Read `.claude/rules/impl-hygiene.md` before fixing** — understand SSOT, canonical homes, no side logic, phase boundaries. Every fix must be the correct architectural solution, not a quick patch.
 - Read the affected code and understand the issue
+- Identify the **canonical home** for the knowledge/logic involved — fix must respect it
 - Follow TDD if appropriate (write failing test -> fix -> test passes)
 - Run `timeout 150 ./test-all.sh` after fixes
+- **Self-check**: would this fix survive a `/impl-hygiene-review`? If it introduces scattered knowledge, duplicated dispatch, or a shadow source of truth, it's wrong — find the proper architectural fix
 - Mark the TPR finding as `[x]` resolved in the plan with a note:
   ```md
   - [x] `[TPR-03-038][medium]` ...

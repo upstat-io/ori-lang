@@ -312,7 +312,16 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         tracing::trace!(?instr, "emit_instr");
         match instr {
             ArcInstr::Let { dst, ty, value } => {
-                let val = self.emit_value(value, *ty, func);
+                let val = if let Some(&elem_ty) = self.for_yield_elem_size_types.get(dst) {
+                    // Override ARC-emitted pool_type_store_size with the LLVM
+                    // struct store size. Required for reordered structs/tuples
+                    // where the ARC size (original layout) differs from the
+                    // LLVM size (reordered layout).
+                    let llvm_size = self.element_store_size(elem_ty);
+                    self.builder.const_i64(llvm_size as i64)
+                } else {
+                    self.emit_value(value, *ty, func)
+                };
                 // Only narrow computation results (PrimOps),
                 // not copies (Var) or literals (Literal). Narrowing copies
                 // or literals creates new SSA values that break CSE cache

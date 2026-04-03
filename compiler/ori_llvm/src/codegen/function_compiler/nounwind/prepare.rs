@@ -155,6 +155,14 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
             "preparing function (ARC pipeline, no emit)"
         );
 
+        // Resolve BoundVar types in polymorphic lambdas before preparation.
+        let mut lambdas = lambdas;
+        crate::codegen::function_compiler::define_phase::resolve_all_lambda_bound_vars(
+            &arc_func,
+            &mut lambdas,
+            self.pool,
+        );
+
         // Prepare lambdas: declare + ARC pipeline (no LLVM emission).
         // declare_and_process_lambda renames each lambda to a globally unique
         // name. We collect the (old → new) mapping so we can update the

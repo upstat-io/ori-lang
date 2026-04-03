@@ -93,10 +93,11 @@ thread_local! {
 ///
 /// If the handler returns normally, we proceed with default behavior.
 /// If the handler itself panics (re-entrancy), we skip it to avoid loops.
-pub(super) fn call_panic_trampoline(msg: &str) {
+/// Returns `true` if a handler was called, `false` if no handler was registered.
+pub(super) fn call_panic_trampoline(msg: &str) -> bool {
     let ptr = ORI_PANIC_TRAMPOLINE.load(Ordering::Relaxed);
     if ptr.is_null() {
-        return;
+        return false;
     }
     // SAFETY: Non-null pointer was set by ori_register_panic_handler which
     // transmuted a valid PanicTrampoline function pointer.
@@ -105,7 +106,7 @@ pub(super) fn call_panic_trampoline(msg: &str) {
     // Re-entrancy guard: if @panic handler panics, skip it
     let already_in_handler = IN_PANIC_HANDLER.with(std::cell::Cell::get);
     if already_in_handler {
-        return;
+        return false;
     }
 
     IN_PANIC_HANDLER.with(|h| h.set(true));
@@ -117,6 +118,7 @@ pub(super) fn call_panic_trampoline(msg: &str) {
     trampoline(msg_ptr, msg_len, empty_ptr, 0, 0, 0);
 
     IN_PANIC_HANDLER.with(|h| h.set(false));
+    true
 }
 
 /// Register a panic trampoline function.

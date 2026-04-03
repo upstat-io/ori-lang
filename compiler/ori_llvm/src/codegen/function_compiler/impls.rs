@@ -16,10 +16,18 @@ use crate::codegen::abi::{CallConv, FunctionAbi, ReturnAbi, ReturnPassing};
 use crate::codegen::value_id::{FunctionId, ValueId};
 
 impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
-    /// Compile test definitions as void → void wrapper functions.
+    /// Compile test definitions as two-layer wrapper functions.
     ///
-    /// Returns a map of `test_name → wrapper_function_name` for the JIT to call.
-    /// Each test is compiled through the full ARC pipeline.
+    /// Each test produces:
+    /// 1. **Inner body** (`_ori_test_<name>_body`): the actual test code compiled
+    ///    through the full ARC pipeline, using `fastcc`.
+    /// 2. **Outer wrapper** (`_ori_test_<name>`): uses `invoke` to call the inner
+    ///    body with a catch-all `landingpad`. Uncaught panics are caught here
+    ///    and stored via `ori_catch_cleanup` so the JIT runner can read the
+    ///    panic message. This replaces `setjmp/longjmp` recovery with proper
+    ///    LLVM exception handling, ensuring `catch(expr:)` inside tests works.
+    ///
+    /// Returns a map of `test_name → outer_wrapper_name` for the JIT to call.
     pub fn compile_tests(
         &mut self,
         tests: &[&TestDef],
@@ -32,21 +40,17 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
             let wrapper_name = self
                 .mangler
                 .mangle_function(self.module_path, &format!("test_{test_name_str}"));
+            let body_name = format!("{wrapper_name}_body");
 
             debug!(name = test_name_str, wrapper = %wrapper_name, "compiling test");
 
             let body = canon.root_for(test.name).unwrap_or(canon.root);
 
-            // Declare void → void wrapper.
-            // Test wrappers use C calling convention because they are called
-            // directly from Rust (JIT: `extern "C" fn()` in evaluator.rs).
-            // Using `fastcc` here would cause a calling convention mismatch
-            // that corrupts the stack frame, especially with invoke/landingpad.
-            let func_id = self.builder.declare_void_function(&wrapper_name, &[]);
-            self.builder.set_ccc(func_id);
-            self.builder.set_current_function(func_id);
+            // --- Inner body function (the actual test code) ---
+            let body_func_id = self.builder.declare_void_function(&body_name, &[]);
+            self.builder.set_ccc(body_func_id);
+            self.builder.set_current_function(body_func_id);
 
-            // Build void → void ABI
             let abi = FunctionAbi {
                 params: vec![],
                 return_abi: ReturnAbi {
@@ -56,7 +60,7 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
                 call_conv: CallConv::C,
             };
 
-            // Lower CanExpr → ARC IR
+            // Lower CanExpr → ARC IR → LLVM IR for the body
             let mut problems = Vec::new();
             let (arc_func, lambdas) = lower_function_can(
                 test.name,
@@ -67,13 +71,44 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
                 self.interner,
                 self.pool,
                 &mut problems,
-                false, // tests are never #fbip
-                None,  // non-generic: no type substitution
+                false,
+                None,
             );
 
-            // Delegate to shared pipeline: borrow annotation → lambdas →
-            // ARC pipeline → nounwind analysis → LLVM emission
-            self.emit_arc_function(test.name, func_id, &abi, arc_func, lambdas);
+            self.emit_arc_function(test.name, body_func_id, &abi, arc_func, lambdas);
+
+            // --- Outer wrapper with catch-all exception handling ---
+            let outer_func_id = self.builder.declare_void_function(&wrapper_name, &[]);
+            self.builder.set_ccc(outer_func_id);
+            self.builder.set_current_function(outer_func_id);
+
+            let eh_model = self.builder.eh_model();
+            let personality_name = eh_model.personality_name();
+            let personality_id = self.builder.runtime_fn(personality_name);
+            self.builder.set_personality(outer_func_id, personality_id);
+
+            let entry_block = self.builder.append_block(outer_func_id, "entry");
+            let normal_block = self.builder.append_block(outer_func_id, "normal");
+            let catch_block = self.builder.append_block(outer_func_id, "catch");
+
+            // Entry: invoke the body function
+            self.builder.position_at_end(entry_block);
+            self.builder
+                .invoke(body_func_id, &[], normal_block, catch_block, "");
+
+            // Normal: test passed, return void
+            self.builder.position_at_end(normal_block);
+            self.builder.ret_void();
+
+            // Catch: exception caught — clean up and store panic state
+            self.builder.position_at_end(catch_block);
+            let lp = self.builder.landingpad_catch_all(personality_id, "lp.test");
+            // Extract exception pointer (field 0 of { i8*, i32 })
+            if let Some(exc_ptr) = self.builder.extract_value(lp, 0, "exc.ptr") {
+                let cleanup_fn = self.builder.runtime_fn("ori_catch_cleanup");
+                self.builder.call(cleanup_fn, &[exc_ptr], "");
+            }
+            self.builder.ret_void();
 
             test_wrappers.insert(test.name, wrapper_name);
         }

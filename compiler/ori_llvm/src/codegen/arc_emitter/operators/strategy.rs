@@ -103,9 +103,9 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             BinaryOp::Add => self.builder.checked_add(lhs, rhs, "add"),
             BinaryOp::Sub => self.builder.checked_sub(lhs, rhs, "sub"),
             BinaryOp::Mul => self.builder.checked_mul(lhs, rhs, "mul"),
-            BinaryOp::Div => self.builder.sdiv(lhs, rhs, "div"),
-            BinaryOp::Mod => self.builder.srem(lhs, rhs, "rem"),
-            BinaryOp::FloorDiv => self.builder.sdiv(lhs, rhs, "floordiv"),
+            BinaryOp::Div => self.builder.checked_div(lhs, rhs, "div"),
+            BinaryOp::Mod => self.builder.checked_rem(lhs, rhs, "rem"),
+            BinaryOp::FloorDiv => self.builder.checked_div(lhs, rhs, "floordiv"),
             BinaryOp::Eq => self.builder.icmp_eq(lhs, rhs, "eq"),
             BinaryOp::NotEq => self.builder.icmp_ne(lhs, rhs, "ne"),
             BinaryOp::Lt => self.builder.icmp_slt(lhs, rhs, "lt"),
@@ -117,8 +117,8 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             BinaryOp::BitAnd => self.builder.and(lhs, rhs, "bitand"),
             BinaryOp::BitOr => self.builder.or(lhs, rhs, "bitor"),
             BinaryOp::BitXor => self.builder.xor(lhs, rhs, "bitxor"),
-            BinaryOp::Shl => self.builder.shl(lhs, rhs, "shl"),
-            BinaryOp::Shr => self.builder.ashr(lhs, rhs, "shr"),
+            BinaryOp::Shl => self.builder.checked_shl(lhs, rhs, "shl"),
+            BinaryOp::Shr => self.builder.checked_shr(lhs, rhs, "shr"),
             BinaryOp::Coalesce => self.emit_coalesce(lhs, rhs),
             BinaryOp::Range | BinaryOp::RangeInclusive | BinaryOp::MatMul => {
                 unreachable!("desugared op {op:?} should not reach emit_int_binary_op")
