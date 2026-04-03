@@ -1,7 +1,7 @@
 ---
 plan: "imported-generic-mono"
 title: "Imported Generic Monomorphization: Fix LLVM Test Runner"
-status: in-progress
+status: complete
 references:
   - "plans/bug-tracker/section-04-codegen-llvm.md"
 ---
@@ -133,4 +133,4 @@ The AOT path compiles each module independently and links via symbol resolution.
 
 | ID | Title | File | Status |
 |----|-------|------|--------|
-| 01 | JIT Imported Generic Mono | `section-01-jit-imported-mono.md` | Not Started |
+| 01 | JIT Imported Generic Mono | `section-01-jit-imported-mono.md` | Complete |

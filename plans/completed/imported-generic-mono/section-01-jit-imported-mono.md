@@ -1,7 +1,7 @@
 ---
 section: "01"
 title: "JIT Imported Generic Monomorphization"
-status: in-progress
+status: complete
 reviewed: true
 goal: "Imported generic functions (e.g., assert_eq from std.testing) compile and execute correctly through the LLVM JIT test runner"
 inspired_by:
@@ -32,7 +32,7 @@ sections:
     status: complete
   - id: "01.N"
     title: "Completion Checklist"
-    status: not-started
+    status: complete
 ---
 
 # Section 01: JIT Imported Generic Monomorphization
@@ -456,7 +456,7 @@ The codegen path independently calls `collect_mono_functions` (line 231) and use
 - [x] Bug tracker `section-04-codegen-llvm.md` updated: BUG-04-011 already marked resolved with full resolution note
 - [x] Plan annotation cleanup: `bash .claude/skills/impl-hygiene-review/plan-annotations.sh --plan 01` — 0 annotations from this plan (all matches are from repr-opt/narrowing plans)
 - [x] `mangle_mono_name` visibility change verified: only called from `llvm_backend.rs` and `monomorphize/mod.rs` + `monomorphize/tests.rs` — no unintended consumers
-- [ ] `/tpr-review` passed — independent review found no critical or major issues
-- [ ] `/impl-hygiene-review last commit` passed — hygiene review clean
+- [x] `/tpr-review` passed — 3 iterations. Zero findings on the imported mono implementation itself. Adjacent LLVM codegen issues (BUG-04-025/026/027, BUG-07-003, TPR-06-002) found and fixed. Net: +74 tests, -72 LCFail.
+- [x] `/impl-hygiene-review last commit` passed — zero findings. Changes follow existing patterns (emit_element_compare dispatch, extract_value_any for enum payloads, IEEE 754 fcmp predicates). All files under 500 lines.
 
 **Exit Criteria:** `timeout 30 cargo run -q -p oric --bin ori -- test --backend=llvm /tmp/test_imported_generic.ori` exits 0 with "1 passed", where test_imported_generic.ori calls `assert_eq(actual: 42, expected: 42)` from `std.testing`. Cross-type matrix test (int, str, [int], Option<str>, struct with derived Eq+Debug, assert_ne — 6 tests) passes through both LLVM JIT and interpreter. Aliased import test passes. Negative pin test fails correctly. Full test suite passes with 0 new failures. LCFail count in LLVM backend decreases.
