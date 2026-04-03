@@ -107,12 +107,28 @@ Three integer cookers (`cook_int`, `cook_hex_int`, `cook_bin_int`) share: slice 
 
 ---
 
+## 06.T Test Strategy
+
+This section is low-risk parameterization of self-contained functions. The existing lexer/parser test suites are comprehensive and serve as the primary regression gate.
+
+- [ ] Add unit tests for `cook_template_segment()`: verify it produces the same TokenKind for each of the 4 template positions (head, middle, tail, complete)
+- [ ] Add unit tests for `cook_int_with_radix()`: verify decimal, hex (0x prefix), and binary (0b prefix) all parse correctly; verify overflow error on `9999999999999999999`
+- [ ] Add unit tests for `try_compound_eq()`: verify `+` alone returns single, `+=` returns compound, for each of the 6 operator types
+- [ ] Add unit test for `expect_name()`: verify Ident mode accepts identifiers only, MemberName accepts identifiers and integers, IdentOrKeyword accepts both
+- [ ] Verify `timeout 150 cargo test -p ori_lexer_core` passes after 06.3
+- [ ] Verify `timeout 150 cargo test -p ori_lexer` passes after 06.1, 06.2
+- [ ] Verify `timeout 150 cargo test -p ori_parse` passes after 06.4
+- [ ] Verify `timeout 150 ./test-all.sh` passes after all sub-sections complete
+
+---
+
 ## 06.N Completion Checklist
 
-- [ ] Template cooking functions parameterized (4 → 1 + 4 wrappers)
-- [ ] Numeric cooking functions parameterized (5 → 2 + 5 wrappers)
-- [ ] Compound-assignment operators extracted (6 → 1 + 6 one-liners)
-- [ ] Parser identifier acceptance unified (3 → 1 + 3 wrappers)
+- [ ] Template cooking functions parameterized (4 -> 1 + 4 wrappers)
+- [ ] Numeric cooking functions parameterized (5 -> 2 + 5 wrappers)
+- [ ] Compound-assignment operators extracted (6 -> 1 + 6 one-liners)
+- [ ] Parser identifier acceptance unified (3 -> 1 + 3 wrappers)
+- [ ] Unit tests for all new canonical functions pass
 - [ ] `timeout 150 cargo test -p ori_lexer_core` passes
 - [ ] `timeout 150 cargo test -p ori_lexer` passes
 - [ ] `timeout 150 cargo test -p ori_parse` passes

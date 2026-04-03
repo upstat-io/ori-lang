@@ -18,10 +18,10 @@ sections:
     status: complete
   - id: "04B.2"
     title: "BoundVar/Var substitution in LLVM codegen"
-    status: complete
+    status: in-progress
   - id: "04B.3"
     title: "Capture type resolution"
-    status: complete
+    status: not-started
   - id: "04B.4"
     title: "Test matrix"
     status: not-started

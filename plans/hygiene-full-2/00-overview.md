@@ -25,7 +25,7 @@ Hygiene fixes touch ALL compiler phases but do NOT change behavior:
   ori_llvm (codegen DRY)    ─── Section 05: extract shared codegen helpers
   ori_lexer/ori_parse       ─── Section 06: parameterize cooking/parsing functions
   ALL crates                ─── Section 07: remove stale annotations + banners
-  ALL crates                ─── Section 08: split oversized files
+  ALL crates                ─── Section 08: split oversized files + decompose oversized functions
   ori_rt                    ─── Section 09: add SAFETY comments to ~512 unsafe blocks
 ```
 
@@ -42,15 +42,21 @@ Hygiene fixes touch ALL compiler phases but do NOT change behavior:
 ```
   01 (rt COW)     02 (eval DRY)     04 (type DRY)     06 (lexer DRY)
        |               |                  |                  |
-       v               v                  v                  v
+       v               v                  |                  v
   09 (SAFETY)     03 (cross-backend)      |             07 (annotations)
                        |                  |                  |
-                       v                  v                  v
-                  05 (LLVM DRY)      08 (file sizes)       10 (cleanup)
-                       |                  |
-                       v                  v
-                      10 (cleanup) <──────┘
+                       v                  |                  |
+                  05 (LLVM DRY)           |                  |
+                       |                  |                  |
+                       +------+------+----+------+-----------+
+                              |
+                              v
+                     08 (file+fn sizes) ← depends on 01-07
+                              |
+                              v
+                         10 (cleanup)
 ```
+<!-- reviewed: cohesion fix — dependency graph now accurately shows 08 depending on all of 01-07 -->
 
 - Sections 01, 02, 04, 06 are independent — can be worked in any order.
 - Section 03 benefits from 02 (eval dispatch is cleaner after DRY extraction).
@@ -81,12 +87,13 @@ Phase 3 - DRIFTs + EXPOSURE
   Gate: zero stale annotations, all unsafe blocks documented
 
 Phase 4 - BLOAT
-  └─ Section 08: File size violations
-  Gate: zero files >500 lines (production, excluding exempt data tables)
+  └─ Section 08: File and function size violations
+  Gate: zero files >500 lines, zero functions >100 lines (production, excluding exempt data tables)
 
 Phase 5 - Verification + Cleanup
   └─ Section 10: Final verification and plan deletion
-  Gate: ./test-all.sh green, ./clippy-all.sh clean, plan directory deleted
+  Gate: ./test-all.sh green (debug AND release), ./clippy-all.sh clean, plan directory deleted
+  <!-- reviewed: executability/hygiene fix — release testing mandatory per CLAUDE.md -->
 ```
 
 ## Metrics (Current State)
@@ -97,7 +104,7 @@ Phase 5 - Verification + Cleanup
 | GAP findings | 10 |
 | DRIFT findings | 14 |
 | WASTE findings | 5 |
-| EXPOSURE findings (missing SAFETY) | 8+ (covering ~510 unsafe blocks in production code) | <!-- reviewed: accuracy fix -->
+| EXPOSURE findings (missing SAFETY) | ~289 undocumented unsafe blocks across ~17 files (of ~512 total; ~223 already documented) | <!-- reviewed: executability/hygiene fix — precise counts from script -->
 | Files >500 lines | 69 | <!-- reviewed: cohesion fix — re-measured, was 58 -->
 | Functions >100 lines | 31+ |
 | Decorative banners | ~198 | <!-- reviewed: cohesion fix — was ~37 -->
@@ -112,11 +119,11 @@ Phase 5 - Verification + Cleanup
 | 04 Type Resolution DRY | ~400 | High | -- |
 | 05 LLVM DRY | ~250 | Medium | -- |
 | 06 Lexer/Parser DRY | ~200 | Low | -- |
-| 07 Stale Annotations | ~100 (deletions) | Low | -- |
-| 08 File Sizes | ~500 (splits) | Medium | 01-07 |
-| 09 SAFETY Comments | ~1200 (comments) | Medium | 01 | <!-- reviewed: accuracy fix — ~512 unsafe blocks, not ~80 -->
+| 07 Stale Annotations | ~300 (deletions) | Low | -- | <!-- reviewed: cohesion fix — ~198 banners, not ~37; ~85 TPR annotations -->
+| 08 File Sizes | ~600 (splits) | Medium | 01-07 | <!-- reviewed: cohesion fix — 69 files, not 58 -->
+| 09 SAFETY Comments | ~600 (comments for ~289 blocks) | Medium | 01 | <!-- reviewed: executability/hygiene fix — 289 blocks need SAFETY, not 510 (223 already documented) -->
 | 10 Cleanup | ~10 | Low | all |
-| **Total** | **~3300** | | | <!-- reviewed: accuracy fix — increased due to SAFETY comment scope expansion -->
+| **Total** | **~3010** | | | <!-- reviewed: executability/hygiene fix — decreased from 3610: SAFETY scope reduced from ~1200 to ~600 (223 blocks already documented) -->
 
 ## Quick Reference
 
@@ -129,6 +136,6 @@ Phase 5 - Verification + Cleanup
 | 05 | LLVM Codegen Internal DRY | `section-05-llvm-dry.md` | Not Started |
 | 06 | Lexer/Parser DRY | `section-06-lexer-parser-dry.md` | Not Started |
 | 07 | Stale Annotations and Decorative Banners | `section-07-stale-annotations.md` | Not Started |
-| 08 | File Size Violations | `section-08-file-size.md` | Not Started |
+| 08 | File and Function Size Violations | `section-08-file-size.md` | Not Started |
 | 09 | SAFETY Comments for ori_rt | `section-09-safety-comments.md` | Not Started |
 | 10 | Cleanup | `section-10-cleanup.md` | Not Started |
