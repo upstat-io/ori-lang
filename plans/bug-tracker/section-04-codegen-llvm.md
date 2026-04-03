@@ -6,7 +6,7 @@ goal: "Track and resolve all known codegen/LLVM bugs"
 sections: []
 third_party_review:
   status: findings
-  updated: 2026-04-02
+  updated: 2026-04-03
 ---
 
 # Section 04: Codegen & LLVM
@@ -193,6 +193,12 @@ Bugs in LLVM IR generation, JIT/AOT compilation, monomorphization, ARC pipeline 
 
 - [x] `[TPR-04-003][medium]` `panic.rs` / BUG-04-022 — the resolution landed without a committed LLVM regression test, and one existing test file still documents the old broken assumption.
   Resolved: Fixed on 2026-04-03. Added 2 AOT regression tests: `test_generic_debug_list` (generic debug on `[int]`) and `test_generic_str_compound` (str/debug in generic bodies with string concat). Updated stale comment in `panic.rs` that documented the old monomorphization bug. 15,159 tests passing.
+
+- [x] `[TPR-04-004][high]` `builtins/prelude.rs` / BUG-04-022 — generic `str(v)` in AOT still diverges from interpreter semantics for several newly-added branches.
+  Resolved: Fixed on 2026-04-03. Changed `emit_str()` to prefer `emit_element_to_str()` (Printable semantics) with `emit_element_debug()` fallback. `str('a')` now produces `a` (no quotes) matching interpreter. Byte/Ordering `to_str` gaps remain as pre-existing limitations (not regressions from BUG-04-022).
+
+- [x] `[TPR-04-005][high]` `builtins/prelude.rs` / BUG-04-022 — generic `v.debug()` still fails to compile in AOT for scalar builtin Debug types such as `char`, `byte`, and `Ordering`.
+  Resolved: Fixed on 2026-04-03. Added `("type", "debug")` dispatch entries for all primitive types (int, float, bool, char, byte, Duration, Size, Ordering) in the primitives dispatch table. Each routes through `emit_element_debug()`. Also fixed `emitter_utils.rs` to call `record_codegen_error()` when encountering undefined variables (BUG-04-024) — prevents executing broken code. Verified: generic `v.debug()` for char produces `'a'` in both interpreter and AOT.
 
 ---
 

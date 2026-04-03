@@ -11,31 +11,40 @@ declare_builtins! { emitter, ctx;
     ("int", "to_float") => emitter.emit_primitive_method(ctx.method, ctx.arg_vals, ctx.type_info),
     ("int", "into") => emitter.emit_primitive_method(ctx.method, ctx.arg_vals, ctx.type_info),
     ("int", "to_str") => emitter.emit_primitive_method(ctx.method, ctx.arg_vals, ctx.type_info),
+    ("int", "debug") => emitter.emit_element_debug(ctx.arg_vals[0], ctx.receiver_ty),
     ("int", "abs") => emitter.emit_primitive_method(ctx.method, ctx.arg_vals, ctx.type_info),
     // float
     ("float", "clone") => emitter.emit_primitive_method(ctx.method, ctx.arg_vals, ctx.type_info),
     ("float", "to_int") => emitter.emit_primitive_method(ctx.method, ctx.arg_vals, ctx.type_info),
     ("float", "to_str") => emitter.emit_primitive_method(ctx.method, ctx.arg_vals, ctx.type_info),
+    ("float", "debug") => emitter.emit_element_debug(ctx.arg_vals[0], ctx.receiver_ty),
     ("float", "abs") => emitter.emit_primitive_method(ctx.method, ctx.arg_vals, ctx.type_info),
     // bool
     ("bool", "clone") => emitter.emit_primitive_method(ctx.method, ctx.arg_vals, ctx.type_info),
     ("bool", "to_int") => emitter.emit_primitive_method(ctx.method, ctx.arg_vals, ctx.type_info),
     ("bool", "to_str") => emitter.emit_primitive_method(ctx.method, ctx.arg_vals, ctx.type_info),
+    ("bool", "debug") => emitter.emit_element_debug(ctx.arg_vals[0], ctx.receiver_ty),
     // char
     ("char", "clone") => emitter.emit_primitive_method(ctx.method, ctx.arg_vals, ctx.type_info),
     ("char", "to_int") => emitter.emit_primitive_method(ctx.method, ctx.arg_vals, ctx.type_info),
+    ("char", "to_str") => emitter.emit_primitive_method(ctx.method, ctx.arg_vals, ctx.type_info),
+    ("char", "debug") => emitter.emit_element_debug(ctx.arg_vals[0], ctx.receiver_ty),
     // byte
     ("byte", "clone") => emitter.emit_primitive_method(ctx.method, ctx.arg_vals, ctx.type_info),
     ("byte", "to_int") => emitter.emit_primitive_method(ctx.method, ctx.arg_vals, ctx.type_info),
+    ("byte", "debug") => emitter.emit_element_debug(ctx.arg_vals[0], ctx.receiver_ty),
     // Duration
     ("Duration", "clone") => emitter.emit_primitive_method(ctx.method, ctx.arg_vals, ctx.type_info),
     ("Duration", "to_str") => emitter.emit_primitive_method(ctx.method, ctx.arg_vals, ctx.type_info),
+    ("Duration", "debug") => emitter.emit_element_debug(ctx.arg_vals[0], ctx.receiver_ty),
     // Size
     ("Size", "clone") => emitter.emit_primitive_method(ctx.method, ctx.arg_vals, ctx.type_info),
     ("Size", "to_str") => emitter.emit_primitive_method(ctx.method, ctx.arg_vals, ctx.type_info),
+    ("Size", "debug") => emitter.emit_element_debug(ctx.arg_vals[0], ctx.receiver_ty),
     // Ordering
     ("Ordering", "clone") => emitter.emit_primitive_method(ctx.method, ctx.arg_vals, ctx.type_info),
     ("Ordering", "to_int") => emitter.emit_primitive_method(ctx.method, ctx.arg_vals, ctx.type_info),
+    ("Ordering", "debug") => emitter.emit_element_debug(ctx.arg_vals[0], ctx.receiver_ty),
 }
 
 use crate::codegen::type_info::TypeInfo;
