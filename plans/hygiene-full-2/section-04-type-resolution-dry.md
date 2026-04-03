@@ -39,14 +39,22 @@ sections:
 
 **File(s):** `compiler/ori_types/src/check/registration/type_resolution.rs`, `compiler/ori_types/src/check/signatures/mod.rs`, `compiler/ori_types/src/infer/expr/type_resolution.rs`
 
-- [ ] Design a `ResolveConfig` struct or trait that parameterizes:
+<!-- reviewed: feasibility fix — the 5 resolution functions operate on two different context types (ModuleChecker vs InferEngine). A shared trait needs to abstract pool_mut(), interner(), resolve_well_known_generic_cached(), and resolve_registration_primitive(). The InferEngine version also handles variants the ModuleChecker ones don't (FixedList, Option, Result, Set, AssociatedType, ExistentialType, ConstGeneric). The trait abstraction is more complex than a simple config struct. -->
+
+- [ ] Design a `TypeResolveContext` trait that abstracts:
+  - `pool_mut() -> &mut Pool` — access to type pool (both ModuleChecker and InferEngine have this)
+  - `interner() -> &StringInterner` — name interning
+  - `resolve_well_known_generic(name: Name, args: &[Idx]) -> Option<Idx>` — well-known type lookup
+  - `resolve_registration_primitive(name: Name) -> Option<Idx>` — primitive name resolution
+- [ ] Design a `ResolveConfig` struct that parameterizes:
   - `resolve_type_param(name: Name) -> Idx` — how to handle type parameters
   - `resolve_self() -> Idx` — how to handle Self type
   - `resolve_unknown_name(name: Name) -> Idx` — fresh var vs Idx::ERROR
   - `check_bounds: bool` — whether to validate trait bounds
-- [ ] Implement `resolve_parsed_type_with<C: ResolveConfig>()` as the single canonical tree walk
-- [ ] Rewrite all 5 existing functions as thin wrappers that construct the appropriate `ResolveConfig` and call the canonical function
-- [ ] Verify: the canonical function handles all `ParsedType` variants (Primitive, List, Map, Tuple, Function, Named, Option, Result, Set, TraitBounds, SelfType, etc.)
+- [ ] Implement `resolve_parsed_type_with<C: TypeResolveContext>()` as the single canonical tree walk
+- [ ] Handle the variant coverage gap: the InferEngine version handles FixedList, Option, Result, Set, AssociatedType, ExistentialType, ConstGeneric — these MUST be supported in the canonical function (likely as optional handlers in the config)
+- [ ] Rewrite all 5 existing functions as thin wrappers that construct the appropriate config and call the canonical function
+- [ ] Verify: the canonical function handles ALL `ParsedType` variants (Primitive, List, FixedList, Map, Tuple, Function, Named, Option, Result, Set, TraitBounds, SelfType, AssociatedType, ExistentialType, ConstGeneric, etc.)
 - [ ] Verify: all existing type checker tests pass unchanged
 
 ---

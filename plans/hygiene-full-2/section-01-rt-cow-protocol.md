@@ -64,7 +64,8 @@ pub(crate) fn cow_can_mutate_in_place(data: *const u8, cap: i64, cow_mode: i32) 
 - [ ] Replace all 17 inline copies across these files:
   - `list/cow.rs` — `ori_list_push_cow`, `ori_list_pop_cow`, `ori_list_set_cow`
   - `list/cow_structural.rs` — `ori_list_insert_cow`, `ori_list_remove_cow`
-  - `list/cow_sort/mod.rs` — `ori_list_concat_cow`, `ori_list_reverse_cow`, `ori_list_sort_cow`
+  - `list/cow_sort/mod.rs` — `ori_list_concat_cow`, `ori_list_reverse_cow`
+  - `list/cow_sort/sort.rs` — `ori_list_sort_cow` <!-- reviewed: accuracy fix — sort is in sort.rs, not mod.rs -->
   - `map/cow.rs` — `ori_map_insert_cow`, `ori_map_remove_cow`
   - `set/cow/basic.rs` — `ori_set_insert_cow`, `ori_set_remove_cow`
   - `set/cow/algebra.rs` — `ori_set_union_cow`, `ori_set_intersection_cow`, `ori_set_difference_cow`

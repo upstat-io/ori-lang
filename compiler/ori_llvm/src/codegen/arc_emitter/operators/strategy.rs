@@ -17,15 +17,25 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// Look up the [`OpStrategy`] for a binary operation on a builtin type.
     ///
     /// Maps `(TypeTag, BinaryOp)` to the corresponding strategy field in the
-    /// registry's [`OpDefs`](ori_registry::OpDefs). Structural operations
-    /// (`And`/`Or`/`Coalesce`) bypass the registry lookup entirely.
+    /// registry's [`OpDefs`](ori_registry::OpDefs). `And`/`Or` bypass the
+    /// registry (they use integer instructions regardless of type).
+    /// `Coalesce` is always lowered to control flow by `ori_arc`.
     pub(in crate::codegen::arc_emitter) fn op_strategy_for_binary(
         type_tag: TypeTag,
         op: BinaryOp,
     ) -> OpStrategy {
-        // Structural ops: not type-dependent, bypass registry lookup.
         match op {
-            BinaryOp::And | BinaryOp::Or | BinaryOp::Coalesce => return OpStrategy::IntInstr,
+            // And/Or bypass registry — they use integer AND/OR regardless of type.
+            // User-written &&/|| are intercepted by ARC lowering for short-circuit
+            // semantics, but compiler-generated And/Or (e.g., range step conditions)
+            // reach here as eager PrimOps.
+            BinaryOp::And | BinaryOp::Or => return OpStrategy::IntInstr,
+            // Coalesce is always lowered to control flow by ori_arc.
+            BinaryOp::Coalesce => {
+                unreachable!(
+                    "Coalesce is lowered to control flow by ori_arc and should never reach op_strategy_for_binary"
+                )
+            }
             BinaryOp::Range | BinaryOp::RangeInclusive | BinaryOp::MatMul => {
                 return OpStrategy::Unsupported;
             }
@@ -92,7 +102,9 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// Emit a binary op using signed integer LLVM instructions.
     ///
     /// Handles arithmetic (`checked_add`, `checked_sub`, etc.), signed comparison
-    /// (`icmp slt`), bitwise ops, and structural ops (`And`/`Or`/`Coalesce`).
+    /// (`icmp slt`), bitwise ops, and logical `And`/`Or` (from compiler-generated
+    /// `PrimOps` like range step conditions). `Coalesce` is lowered to control flow
+    /// by `ori_arc` and never reaches this function.
     pub(in crate::codegen::arc_emitter) fn emit_int_binary_op(
         &mut self,
         op: BinaryOp,
@@ -114,37 +126,19 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             BinaryOp::GtEq => self.builder.icmp_sge(lhs, rhs, "ge"),
             BinaryOp::And => self.builder.and(lhs, rhs, "and"),
             BinaryOp::Or => self.builder.or(lhs, rhs, "or"),
+            // Coalesce is always lowered to control flow by ori_arc.
+            BinaryOp::Coalesce => unreachable!(
+                "Coalesce is lowered to control flow by ori_arc and should never reach emit_int_binary_op"
+            ),
             BinaryOp::BitAnd => self.builder.and(lhs, rhs, "bitand"),
             BinaryOp::BitOr => self.builder.or(lhs, rhs, "bitor"),
             BinaryOp::BitXor => self.builder.xor(lhs, rhs, "bitxor"),
             BinaryOp::Shl => self.builder.checked_shl(lhs, rhs, "shl"),
             BinaryOp::Shr => self.builder.checked_shr(lhs, rhs, "shr"),
-            BinaryOp::Coalesce => self.emit_coalesce(lhs, rhs),
             BinaryOp::Range | BinaryOp::RangeInclusive | BinaryOp::MatMul => {
                 unreachable!("desugared op {op:?} should not reach emit_int_binary_op")
             }
         }
-    }
-
-    /// Emit the coalesce operation (`??`).
-    ///
-    /// `opt ?? default` → extract tag, if Some return payload else default.
-    /// Same pattern for `Result`: Ok → payload, else default.
-    /// (`OPTION_TAG_SOME` == `RESULT_TAG_OK` == 0)
-    fn emit_coalesce(&mut self, lhs: ValueId, rhs: ValueId) -> ValueId {
-        let tag = self
-            .builder
-            .extract_value(lhs, 0, "coal.tag")
-            .unwrap_or(lhs);
-        let payload = self
-            .builder
-            .extract_value(lhs, 1, "coal.val")
-            .unwrap_or(lhs);
-        let some_tag = self
-            .builder
-            .const_int_matching(tag, ori_ir::OPTION_TAG_SOME as u64);
-        let is_some = self.builder.icmp_eq(tag, some_tag, "is_some");
-        self.builder.select(is_some, payload, rhs, "coal")
     }
 
     /// Emit a binary op using floating-point LLVM instructions.

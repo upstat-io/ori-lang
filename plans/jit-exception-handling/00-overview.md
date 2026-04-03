@@ -55,7 +55,7 @@ CURRENT STATE (implemented):
 
 ## Remaining Work
 
-**Section 04 (Exposed Bug Fixes) — IN PROGRESS (8/8 bugs fixed, verification pending):**
+**Section 04 (Exposed Bug Fixes) — COMPLETE:**
 - ~~04.1: Division by zero~~ — **FIXED**: added `checked_div`/`checked_rem` to `checked_ops.rs`
 - ~~04.2: COW nested collections double-free~~ — **FIXED**: `ori_map_get` shallow byte-copy without `RcInc` for RC-managed value types. Fix: conditional `RcInc` in `emit_map_get` on the Some path.
 - ~~04.3: Tuple/struct for-yield type confusion~~ — **FIXED**: override ARC pool_type_store_size with LLVM struct store size via `for_yield_elem_size_types` pre-scan
@@ -81,7 +81,7 @@ CURRENT STATE (implemented):
        ↓
   §03 LLVM      ─── COMPLETE
        ↓
-  §04 Exposed bug fixes (8 bugs):  ← ALL FIXED, verification pending
+  §04 Exposed bug fixes (8 bugs):  ← COMPLETE (all fixed + verified)
        ↓
   §04B Polymorphic lambda monomorphization  ← NEW
        (2639 LCFails from unresolved type variables)
@@ -97,12 +97,12 @@ CURRENT STATE (implemented):
 
 | Bug | Root Cause | Fix Location | Status |
 |-----|-----------|-------------|--------|
-| LLVM sdiv/srem no zero check | Checked arithmetic only covers add/sub/mul/neg overflow; `sdiv`/`srem` emit UB on zero divisor | §04.1 (`checked_ops.rs` + `strategy.rs`) | Not Started |
-| COW double-free nested map/list | RC codegen missing inner collection RC inc during outer COW copy | §04.2 (`builtins/collections/`, `ori_rt/list/cow.rs`) | Not Started |
-| Tuple/struct for-yield type confusion crash | RC inc on misaligned pointer (`0x74736574` = "test" in ASCII) -- string data treated as RC pointer | §04.3 (LLVM arc_emitter element copy / `emitter_utils.rs`) | Not Started |
-| Negative range iteration | `i64::MAX` sentinel for unbounded end fails with negative step: `0 > i64::MAX` is immediately false | §04.4a (`lower/collections/mod.rs` + `ori_rt/iterator/next.rs`) | Not Started |
-| Coalesce ARC leak | Missing RC dec on Option wrapper after payload extraction in `lower_coalesce` | §04.4b (`lower/expr/mod.rs`) | Not Started |
-| Coalesce None path | Coalesce branch codegen fails when LHS is None with side-effecting RHS block | §04.4c (`lower/expr/mod.rs`) | Not Started |
+| LLVM sdiv/srem no zero check | Checked arithmetic only covers add/sub/mul/neg overflow; `sdiv`/`srem` emit UB on zero divisor | §04.1 (`checked_ops.rs` + `strategy.rs`) | **Fixed** (2026-04-03) |
+| COW double-free nested map/list | RC codegen missing inner collection RC inc during outer COW copy | §04.2 (`emit_map_get` conditional RcInc) | **Fixed** (2026-04-03) |
+| Tuple/struct for-yield type confusion crash | RC inc on misaligned pointer (`0x74736574` = "test" in ASCII) -- string data treated as RC pointer | §04.3 (`for_yield_elem_size_types` pre-scan) | **Fixed** (2026-04-03) |
+| Negative range iteration | `i64::MAX` sentinel for unbounded end fails with negative step: `0 > i64::MAX` is immediately false | §04.4a (`next_range` sentinel detection) | **Fixed** (2026-04-03) |
+| Coalesce ARC leak | Over-conservative borrowed-def marking on merge block params | §04.4b (fixed via §04.5 `propagate_borrowed_closure` unanimity) | **Fixed** (2026-04-03) |
+| Coalesce None path | Missing `merge_mutable_vars` in `lower_coalesce` | §04.4c (`lower/expr/short_circuit.rs`) | **Fixed** (2026-04-03) |
 
 ## Live Test Results (2026-04-02 snapshot)
 
