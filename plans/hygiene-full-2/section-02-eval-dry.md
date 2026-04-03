@@ -32,9 +32,9 @@ sections:
 # Section 02: Evaluator Algorithmic DRY
 
 **Status:** Not Started
-**Goal:** Extract shared control-flow skeletons into canonical helpers. Eliminate the 7-way iterator consumer duplication, 8-way Option/Result handler duplication, and 3-way iterator method name list duplication.
+**Goal:** Extract shared control-flow skeletons into canonical helpers. Eliminate the 9-way iterator consumer duplication, 8-way Option/Result handler duplication, and 3-way iterator method name list duplication. <!-- reviewed: accuracy fix — 9 not 7 -->
 
-**Context:** The evaluator has the most algorithmic duplication of any crate. Seven iterator consumers share an identical `loop { eval_iter_next → match Some/None }` skeleton. Eight Option/Result method handlers share an identical `validate → extract → call closure → wrap` skeleton. Iterator method names are maintained in 3 independent lists that must be manually kept in sync.
+**Context:** The evaluator has the most algorithmic duplication of any crate. Nine iterator consumers share an identical `loop { eval_iter_next → match Some/None }` skeleton. Eight Option/Result method handlers share an identical `validate → extract → call closure → wrap` skeleton. Iterator method names are maintained in 3 independent lists that must be manually kept in sync. <!-- reviewed: accuracy fix — 9 consumers, not 7 -->
 
 ---
 
@@ -42,7 +42,7 @@ sections:
 
 **File(s):** `compiler/ori_eval/src/interpreter/method_dispatch/iterator/consumers.rs`
 
-Seven functions share identical loop harness: `eval_iter_fold`, `eval_iter_count`, `eval_iter_find`, `eval_iter_any`, `eval_iter_all`, `eval_iter_for_each`, `eval_iter_collect`.
+Nine functions share identical loop harness: `eval_iter_fold`, `eval_iter_count`, `eval_iter_find`, `eval_iter_any`, `eval_iter_all`, `eval_iter_for_each`, `eval_iter_collect`, `eval_iter_collect_set`, `eval_iter_join`. <!-- reviewed: accuracy fix — 9 consumers, not 7; collect_set and join were missed -->
 
 - [ ] Create `drive_iterator()` method on Interpreter:
   ```rust
@@ -55,7 +55,7 @@ Seven functions share identical loop harness: `eval_iter_fold`, `eval_iter_count
   where
       F: FnMut(&mut Self, A, Value) -> EvalResult<ControlFlow<A, A>>,
   ```
-- [ ] Rewrite all 7 consumers using `drive_iterator()`
+- [ ] Rewrite all 9 consumers using `drive_iterator()` (fold, count, find, any, all, for_each, collect, collect_set, join) <!-- reviewed: accuracy fix -->
 - [ ] Verify each consumer still produces identical results (existing tests)
 
 ---
@@ -107,7 +107,7 @@ Three independent lists enumerate iterator methods: `CollectionMethod::all_itera
 
 ## 02.N Completion Checklist
 
-- [ ] `drive_iterator()` extracted — 7 consumers use it
+- [ ] `drive_iterator()` extracted — 9 consumers use it <!-- reviewed: accuracy fix -->
 - [ ] Option/Result handler extracted — 8 functions use it
 - [ ] Iterator method name lists reduced to 1 canonical source
 - [ ] No runtime interning of known method names in derived_methods.rs

@@ -26,7 +26,7 @@ Hygiene fixes touch ALL compiler phases but do NOT change behavior:
   ori_lexer/ori_parse       ─── Section 06: parameterize cooking/parsing functions
   ALL crates                ─── Section 07: remove stale annotations + banners
   ALL crates                ─── Section 08: split oversized files
-  ori_rt                    ─── Section 09: add SAFETY comments to ~80 unsafe blocks
+  ori_rt                    ─── Section 09: add SAFETY comments to ~512 unsafe blocks
 ```
 
 ## Design Principles
@@ -97,9 +97,10 @@ Phase 5 - Verification + Cleanup
 | GAP findings | 10 |
 | DRIFT findings | 14 |
 | WASTE findings | 5 |
-| EXPOSURE findings (missing SAFETY) | 8 (covering ~80 unsafe blocks) |
-| Files >500 lines | 58 |
+| EXPOSURE findings (missing SAFETY) | 8+ (covering ~510 unsafe blocks in production code) | <!-- reviewed: accuracy fix -->
+| Files >500 lines | 69 | <!-- reviewed: cohesion fix — re-measured, was 58 -->
 | Functions >100 lines | 31+ |
+| Decorative banners | ~198 | <!-- reviewed: cohesion fix — was ~37 -->
 
 ## Estimated Effort
 
@@ -113,9 +114,9 @@ Phase 5 - Verification + Cleanup
 | 06 Lexer/Parser DRY | ~200 | Low | -- |
 | 07 Stale Annotations | ~100 (deletions) | Low | -- |
 | 08 File Sizes | ~500 (splits) | Medium | 01-07 |
-| 09 SAFETY Comments | ~200 (comments) | Low | 01 |
+| 09 SAFETY Comments | ~1200 (comments) | Medium | 01 | <!-- reviewed: accuracy fix — ~512 unsafe blocks, not ~80 -->
 | 10 Cleanup | ~10 | Low | all |
-| **Total** | **~2300** | | |
+| **Total** | **~3300** | | | <!-- reviewed: accuracy fix — increased due to SAFETY comment scope expansion -->
 
 ## Quick Reference
 
