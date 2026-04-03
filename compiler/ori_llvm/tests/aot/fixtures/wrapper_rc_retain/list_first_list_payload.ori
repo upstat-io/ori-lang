@@ -1,0 +1,9 @@
+// Regression: BUG-04-013 — List.first with nested list payload
+@make () -> [[int]] = [[1, 2, 3], [4, 5, 6]];
+
+@main () -> int = {
+    let items = make();
+    let f = items.first();
+    let v = f.unwrap();
+    if v == [1, 2, 3] then 0 else 1
+}

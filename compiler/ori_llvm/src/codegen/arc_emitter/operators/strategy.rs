@@ -161,7 +161,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             BinaryOp::Div => self.builder.fdiv(lhs, rhs, "div"),
             BinaryOp::Mod => self.builder.frem(lhs, rhs, "rem"),
             BinaryOp::Eq => self.builder.fcmp_oeq(lhs, rhs, "eq"),
-            BinaryOp::NotEq => self.builder.fcmp_one(lhs, rhs, "ne"),
+            BinaryOp::NotEq => self.builder.fcmp_une(lhs, rhs, "ne"),
             BinaryOp::Lt => self.builder.fcmp_olt(lhs, rhs, "lt"),
             BinaryOp::Gt => self.builder.fcmp_ogt(lhs, rhs, "gt"),
             BinaryOp::LtEq => self.builder.fcmp_ole(lhs, rhs, "le"),

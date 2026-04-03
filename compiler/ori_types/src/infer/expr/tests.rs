@@ -676,6 +676,34 @@ fn test_infer_if_without_else() {
     assert!(!engine.has_errors());
 }
 
+/// Regression: BUG-02-001 — if without else with non-void then-branch
+/// must produce a type error (Spec: Clause 16, §16.1).
+#[test]
+fn test_infer_if_without_else_non_void_then() {
+    test_engine!(pool, engine);
+    let mut arena = ExprArena::new();
+
+    let cond = alloc(&mut arena, ExprKind::Bool(true));
+    let then_branch = alloc(&mut arena, ExprKind::Int(42));
+
+    let if_expr = alloc(
+        &mut arena,
+        ExprKind::If {
+            cond,
+            then_branch,
+            else_branch: ExprId::INVALID,
+        },
+    );
+
+    let ty = infer_expr(&mut engine, &arena, if_expr);
+
+    assert_eq!(ty, Idx::UNIT, "if without else should have type void");
+    assert!(
+        engine.has_errors(),
+        "Non-void then-branch without else must be a type error"
+    );
+}
+
 #[test]
 fn test_infer_if_branch_mismatch() {
     test_engine!(pool, engine);
@@ -3016,4 +3044,25 @@ fn dei_only_methods_correct() {
     assert!(!ori_registry::is_dei_only("filter"));
     assert!(!ori_registry::is_dei_only("next"));
     assert!(!ori_registry::is_dei_only("collect"));
+}
+
+/// BUG-02-003: `has_comparable_trait` returns false for Named types without
+/// a trait registry (covers the unit test path; full pipeline coverage is
+/// in `tests/spec/expressions/operators_comparison.ori`).
+#[test]
+fn test_has_comparable_returns_false_without_registry() {
+    let interner = StringInterner::new();
+    let mut pool = Pool::new();
+
+    let user_type_name = interner.intern("MyStruct");
+    let user_ty = pool.named(user_type_name);
+
+    let mut engine = InferEngine::new(&mut pool);
+    engine.set_interner(&interner);
+
+    // Without trait registry, has_comparable_trait should return false
+    assert!(
+        !super::operators::has_comparable_trait(&engine, user_ty),
+        "Named type without Comparable should not pass the check"
+    );
 }

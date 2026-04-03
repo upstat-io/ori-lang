@@ -1,0 +1,15 @@
+// Edge case: push values that span the full i16 range boundary.
+// Without the fix, element narrowing to i8 would corrupt values >= 128.
+@main () -> int = {
+    let root = [0];
+    let xs: [int] = [];
+    for i in 0..500 do { xs = xs.push(i) };
+    // Check multiple boundary values
+    let ok = xs[0] == 0
+        && xs[127] == 127
+        && xs[128] == 128
+        && xs[255] == 255
+        && xs[256] == 256
+        && xs[499] == 499;
+    if ok then 0 else 1
+}

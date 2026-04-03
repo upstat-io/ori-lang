@@ -16,12 +16,10 @@ Bugs in the runtime library: reference counting, COW operations, slice handling,
 
 ## Open Bugs
 
-- [ ] `[BUG-05-001][high]` **COW list operations produce wrong results in valgrind tests** — found by continue-roadmap.
-  Repro: `./diagnostics/valgrind-aot.sh tests/valgrind/cow/cow_list_push.ori` (also `cow_list_set.ori`, `cow_iterator_collect.ori`)
-  Error: Exit code 1 (wrong result), not valgrind memory errors. Tests exercise shared/unique push, set, and collect with `[int]`/`[str]` lists.
-  Subsystem: `compiler/ori_rt/src/list/cow.rs`, `cow_structural.rs`
-  Found: 2026-03-30 | Source: continue-roadmap
-  Note: Pre-existing — not caused by §06 struct reordering (tests use plain lists, no struct types). May be related to known COW slice propagation issues.
+- [x] `[BUG-05-001][critical]` **Integer narrowing Phase C applied to `push` destinations, corrupting elements ≥ narrow range** — found by continue-roadmap, root-caused and fixed 2026-04-02.
+  Resolved: Fixed on 2026-04-02. Root cause: `update_element_summaries` only tracked `Construct(ListLiteral)` and `CollectionReuse`, missing `Apply` and `Invoke` calls returning `[int]`. Fix: (1) `update_element_summaries` now widens element range to `Top` for any `Apply`/`ApplyIndirect` returning a collection with int elements, (2) new `update_element_summaries_from_terminator` handles `Invoke` terminators (the actual path for `push` — it can panic, so it's an Invoke). Both the fixpoint loop and the post-narrowing recompute pass now check terminators. Tests: 6 Rust unit tests (Apply/ApplyIndirect/Invoke widening, literal+Apply combined, negative pin for non-collection Apply) + 3 AOT regression tests (push corruption guard, push large values, literal-only still narrows). All 3 originally-failing COW valgrind tests now exit 0.
+  Subsystem: `compiler/ori_repr/src/range/field_summary.rs`, `compiler/ori_repr/src/range/fixpoint/mod.rs`, `compiler/ori_repr/src/range/fixpoint/narrowing.rs`
+  Found: 2026-03-30 | Root-caused: 2026-04-02 | Fixed: 2026-04-02 | Source: continue-roadmap + OBE investigation
 
 ---
 

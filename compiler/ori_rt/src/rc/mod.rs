@@ -389,6 +389,7 @@ pub extern "C" fn ori_str_elem_dec(elem_ptr: *mut u8) {
         return;
     }
     // Heap string: dec the data buffer's RC.
+    // SAFETY: s.is_sso() is false (checked above), so the heap union variant is active.
     let heap = unsafe { s.heap };
     if !heap.data.is_null() {
         ori_str_rc_dec(heap.data, heap.cap, Some(ori_str_drop_buffer));

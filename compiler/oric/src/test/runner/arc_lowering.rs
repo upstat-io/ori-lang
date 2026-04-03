@@ -46,6 +46,8 @@ pub(crate) fn lower_and_infer_borrows(
     imported_functions: &[ori_llvm::evaluator::ImportedFunctionForCodegen<'_>],
     mono_instances: &[ori_types::MonoInstance],
     user_types: &[ori_types::TypeEntry],
+    imported_mono_fns: &[(ori_llvm::monomorphize::MonoFunction, usize, Name)],
+    re_interned_canons: &[ori_ir::canon::CanonResult],
 ) -> ArcLoweringResult {
     let classifier = ori_arc::ArcClassifier::new(pool);
     let mut local_lowered: Vec<(ori_arc::ArcFunction, Vec<ori_arc::ArcFunction>)> = Vec::new();
@@ -91,6 +93,29 @@ pub(crate) fn lower_and_infer_borrows(
         );
         // Borrow inference uses the main pool's classifier — all types are
         // in the same pool after re-interning.
+        let imp_flat: Vec<ori_arc::ArcFunction> = std::iter::once(&arc_fn)
+            .chain(lambdas.iter())
+            .cloned()
+            .collect();
+        let imp_borrow_sigs = ori_arc::infer_borrows_scc(&imp_flat, &classifier, &builtins);
+        imported_sigs.extend(imp_borrow_sigs);
+        imported_lowered.push((arc_fn, lambdas));
+    }
+
+    // Lower imported monomorphized generic functions with their module's canon.
+    // Uses per-function borrow inference (same pattern as imported non-generics above)
+    // because imported functions are independent compilation units.
+    for (mono_fn, canon_idx, source_body_name) in imported_mono_fns {
+        let (arc_fn, lambdas) = crate::arc_lowering::lower_to_arc(
+            mono_fn.mangled_name,
+            &mono_fn.sig,
+            *source_body_name, // Use SOURCE name for canon.root_for() lookup
+            &re_interned_canons[*canon_idx],
+            interner,
+            pool,
+            &mut arc_problems,
+            Some(&mono_fn.body_type_map),
+        );
         let imp_flat: Vec<ori_arc::ArcFunction> = std::iter::once(&arc_fn)
             .chain(lambdas.iter())
             .cloned()

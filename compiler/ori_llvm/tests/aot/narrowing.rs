@@ -1317,3 +1317,33 @@ fn test_for_yield_range_to_enum() {
         "for_yield_range_to_enum",
     );
 }
+
+// Phase C — Collection element narrowing with mutations
+
+/// Regression: BUG-05-001. A program with `[1]` literal + push of values
+/// >= 128 must not corrupt data via i8 narrowing.
+#[test]
+fn test_phase_c_push_corruption_guard() {
+    assert_aot_success(
+        include_str!("fixtures/narrowing/phase_c_push_corruption_guard.ori"),
+        "phase_c_push_corruption_guard",
+    );
+}
+
+/// Positive pin: literal-only [int] lists should still benefit from narrowing.
+#[test]
+fn test_phase_c_only_literals_still_narrows() {
+    assert_aot_success(
+        include_str!("fixtures/narrowing/phase_c_only_literals_still_narrows.ori"),
+        "phase_c_only_literals_still_narrows",
+    );
+}
+
+/// Edge case: push values spanning i8/i16 boundaries.
+#[test]
+fn test_phase_c_push_large_values() {
+    assert_aot_success(
+        include_str!("fixtures/narrowing/phase_c_push_large_values.ori"),
+        "phase_c_push_large_values",
+    );
+}

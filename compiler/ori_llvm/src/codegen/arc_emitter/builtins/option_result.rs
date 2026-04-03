@@ -91,7 +91,23 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                     .const_int_matching(tag, ori_ir::OPTION_TAG_NONE as u64);
                 Some(self.builder.icmp_eq(tag, none, "is_none"))
             }
-            "unwrap" => self.builder.extract_value(receiver, 1, "opt.payload"),
+            "unwrap" => {
+                let tag = self.builder.extract_value(receiver, 0, "opt.tag")?;
+                let some = self
+                    .builder
+                    .const_int_matching(tag, ori_ir::OPTION_TAG_SOME as u64);
+                let is_some = self.builder.icmp_eq(tag, some, "is_some");
+                self.emit_unwrap_branch(
+                    is_some,
+                    "called `Option.unwrap()` on a `None` value",
+                    "opt_unwrap",
+                )?;
+                // After unwrap branch, guaranteed Some — retain unconditionally.
+                let payload = self.builder.extract_value(receiver, 1, "opt.payload")?;
+                let inner_ty = self.pool.option_inner(self.pool.resolve_fully(receiver_ty));
+                self.inc_value_rc(payload, inner_ty, 1);
+                Some(payload)
+            }
             "unwrap_or" if arg_vals.len() >= 2 => {
                 let tag = self.builder.extract_value(receiver, 0, "opt.tag")?;
                 let payload = self.builder.extract_value(receiver, 1, "opt.payload")?;
@@ -181,16 +197,43 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 Some(self.builder.icmp_eq(tag, err, "is_err"))
             }
             "unwrap" => {
+                let tag = self.builder.extract_value(receiver, 0, "res.tag")?;
+                let ok = self
+                    .builder
+                    .const_int_matching(tag, ori_ir::RESULT_TAG_OK as u64);
+                let is_ok = self.builder.icmp_eq(tag, ok, "is_ok");
+                self.emit_unwrap_branch(
+                    is_ok,
+                    "called `Result.unwrap()` on an `Err` value",
+                    "res_unwrap",
+                )?;
+                // After unwrap branch, guaranteed Ok — retain unconditionally.
                 let TypeInfo::Result { ok: ok_ty, .. } = self.type_info.get(receiver_ty) else {
                     return self.builder.extract_value(receiver, 1, "res.payload");
                 };
-                self.extract_tagged_union_payload(receiver, receiver_ty, 1, ok_ty)
+                let payload = self.extract_tagged_union_payload(receiver, receiver_ty, 1, ok_ty)?;
+                self.inc_value_rc(payload, ok_ty, 1);
+                Some(payload)
             }
             "unwrap_err" => {
+                let tag = self.builder.extract_value(receiver, 0, "res.tag")?;
+                let err_tag = self
+                    .builder
+                    .const_int_matching(tag, ori_ir::RESULT_TAG_ERR as u64);
+                let is_err = self.builder.icmp_eq(tag, err_tag, "is_err");
+                self.emit_unwrap_branch(
+                    is_err,
+                    "called `Result.unwrap_err()` on an `Ok` value",
+                    "res_unwrap_err",
+                )?;
+                // After unwrap branch, guaranteed Err — retain unconditionally.
                 let TypeInfo::Result { err: err_ty, .. } = self.type_info.get(receiver_ty) else {
                     return self.builder.extract_value(receiver, 1, "res.payload");
                 };
-                self.extract_tagged_union_payload(receiver, receiver_ty, 1, err_ty)
+                let payload =
+                    self.extract_tagged_union_payload(receiver, receiver_ty, 1, err_ty)?;
+                self.inc_value_rc(payload, err_ty, 1);
+                Some(payload)
             }
             "unwrap_or" if arg_vals.len() >= 2 => {
                 self.emit_result_unwrap_or(receiver, receiver_ty, arg_vals[1])

@@ -4,7 +4,7 @@
 //! `extract_list_fields`), the `first`/`last` shared implementation, and
 //! the `elem_size_and_align` helper used by COW mutation methods.
 
-use ori_ir::{FIELD_CAP, FIELD_DATA, FIELD_LEN};
+use ori_ir::{FIELD_CAP, FIELD_DATA, FIELD_LEN, OPTION_TAG_SOME};
 use ori_types::Idx;
 
 use crate::codegen::value_id::ValueId;
@@ -129,6 +129,29 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 .insert_value(result, wide_val, 1, &format!("{label}.opt.val"));
             Some(result)
         } else {
+            // RC-retain the element payload when Some — the runtime memcpy
+            // duplicates payload bytes without incrementing RC on inner fields.
+            let tag = self
+                .builder
+                .extract_value(opt_val, 0, &format!("{label}.tag"))?;
+            let some = self.builder.const_int_matching(tag, OPTION_TAG_SOME as u64);
+            let is_some = self.builder.icmp_eq(tag, some, &format!("{label}.is_some"));
+            let payload = self
+                .builder
+                .extract_value(opt_val, 1, &format!("{label}.payload"))?;
+
+            let inc_bb = self
+                .builder
+                .append_block(self.current_function, &format!("{label}.rc_inc"));
+            let merge_bb = self
+                .builder
+                .append_block(self.current_function, &format!("{label}.rc_merge"));
+            self.builder.cond_br(is_some, inc_bb, merge_bb);
+            self.builder.position_at_end(inc_bb);
+            self.inc_value_rc(payload, elem_ty, 1);
+            self.builder.br(merge_bb);
+            self.builder.position_at_end(merge_bb);
+
             Some(opt_val)
         }
     }

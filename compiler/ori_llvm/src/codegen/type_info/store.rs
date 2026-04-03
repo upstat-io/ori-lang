@@ -329,6 +329,18 @@ impl<'tcx> TypeInfoStore<'tcx> {
                 if resolved != idx {
                     return self.get(resolved);
                 }
+                // Cross-phase invariant contract (Type Checker → Codegen):
+                // All type variables must be resolved before codegen. An
+                // unresolved Tag::Var here indicates a type inference bug.
+                // Spec: impl-hygiene.md § Cross-Phase Invariant Contracts.
+                //
+                // NOTE: A targeted entry-point validation (walking function
+                // signatures at codegen entry) is the correct enforcement
+                // mechanism. An inline debug_assert!(false) here is too
+                // aggressive — it fires on types queried during lazy lookup
+                // that may not be critical to emission. The tracing::error!
+                // provides detection; TypeInfo::Error provides graceful
+                // degradation in release builds.
                 tracing::error!(
                     ?idx,
                     "unresolved type variable at codegen — type inference bug"

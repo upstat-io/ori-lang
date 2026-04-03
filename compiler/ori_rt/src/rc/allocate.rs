@@ -150,6 +150,7 @@ pub extern "C" fn ori_rc_realloc(
     // >= 32 always, all header fields are preserved. Only data_size at offset 0
     // is overwritten below.
     let base = unsafe { data_ptr.sub(RC_HEADER_SIZE) };
+    // SAFETY: base is the original allocation pointer with valid old_layout.
     let new_base = unsafe { std::alloc::realloc(base, old_layout, new_total) };
 
     if new_base.is_null() {

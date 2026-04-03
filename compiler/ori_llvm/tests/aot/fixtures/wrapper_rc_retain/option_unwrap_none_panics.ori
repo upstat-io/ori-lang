@@ -1,0 +1,9 @@
+// Negative pin: Option.unwrap on None must panic
+@make () -> Option<str> = None;
+
+@main () -> int = {
+    let o = make();
+    let v = o.unwrap();
+    // Should never reach here
+    0
+}
