@@ -108,7 +108,8 @@ Count RC operations at each pipeline stage by scanning the IR instruction lists.
   // Returns RcOpCount { inc, dec } with inc summing batched counts.
   // Use .total() for the combined inc+dec count.
   ```
-  Also note `emit_unified.rs` has a private `count_rc_ops()` that returns `usize` (simple count without batching). For statistics, prefer the `rc_count` module version since it respects batched `RcInc` counts.
+
+- [ ] **Fix hygiene: eliminate duplicate `count_rc_ops()`** — `realize/emit_unified.rs:242` has a private `count_rc_ops()` that returns `usize` (simple count without batching). The pipeline version in `pipeline/rc_count/mod.rs` returns `RcOpCount { inc, dec }` with batched `RcInc` count handling (respects `count > 1`). Replace the private copy in `emit_unified.rs` with `crate::pipeline::rc_count::count_rc_ops(func).total()` and delete the private function. This fixes a LEAK:algorithmic-duplication finding.
 
 - [ ] Instrument the pipeline — two separate sites:
 
@@ -117,9 +118,9 @@ Count RC operations at each pipeline stage by scanning the IR instruction lists.
   - After step 5 (`realize_rc_reuse`) returns: capture `rc_ops_post_coalesce` via `count_rc_ops(func).total()`. Note: `realize_rc_reuse` internally calls `emit_rc_unified` which calls `coalesce_block_rc`, so by the time step 5 returns, coalescing has already happened. This count IS the post-coalesce count, not pre-coalesce.
 
   **Site 2: `realize/emit_unified.rs`** (inside `emit_rc_unified()`):
-  - Capture `rc_ops_post_emission` (pre-coalesce) count BEFORE the Phase 3 coalescing loop at line ~106. Use the local `count_rc_ops()` (line ~242) which returns `usize`.
+  - Capture `rc_ops_post_emission` (pre-coalesce) count BEFORE the Phase 3 coalescing loop at line ~106. After the hygiene fix above, use `crate::pipeline::rc_count::count_rc_ops(func).total()`.
   - Return the pre-coalesce count from `emit_rc_unified()` alongside the existing return tuple (add it as a 5th element or add it to the `SynergyMetrics` directly).
-  - The coalescing loop at line ~107 then runs, after which `count_rc_ops()` at line ~111 gives the post-coalesce count.
+  - The coalescing loop at line ~107 then runs, after which `count_rc_ops(func).total()` at line ~111 gives the post-coalesce count.
   - Both counts must reach `SynergyMetrics`.
 
 - [ ] Verify with: `ORI_LOG=ori_arc=info ori build tests/spec/traits/iterator/map.ori` shows per-function metrics.
@@ -129,6 +130,8 @@ Count RC operations at each pipeline stage by scanning the IR instruction lists.
 - **Patterns**: simple function, loop with RC, nested calls, COW mutation
 
 **Semantic pin:** Test that counts str and [int] programs as having `rc_ops_post_emission > 0` and int-only programs as having `rc_ops_post_emission == 0`.
+
+**Negative pin:** Test that `rc_ops_post_emission` for a program containing only `let $x = 42; x + 1` is exactly 0 — rejects the possibility that the instrumentation introduces spurious non-zero counts for scalar-only code. If this test ever passes with a non-zero value, the counting logic is wrong.
 
 ---
 
@@ -178,6 +181,8 @@ Thread metrics through the coalescing pass to count barrier events.
 
 **Semantic pin:** Test that `flush_all_count` equals the number of Apply/ApplyIndirect instructions in a block (before Section 02 changes the barrier behavior).
 
+**Negative pin:** Test that `pairs_cancelled` for a block containing `RcInc(x); Apply(f, x); RcDec(x)` is exactly 0 — the intervening call barrier prevents cancellation. If this ever reports `pairs_cancelled > 0`, the barrier-respecting logic in coalescing is broken.
+
 ---
 
 ## 01.R Third Party Review Findings
@@ -194,6 +199,7 @@ Thread metrics through the coalescing pass to count barrier events.
 - [ ] Scalar-only programs show `rc_ops_post_emission == 0`
 - [ ] Programs with heap types show `rc_ops_post_emission > 0`
 - [ ] `coalesce_reduction_percent()` returns correct values for test cases
+- [ ] Duplicate `count_rc_ops()` in `emit_unified.rs` deleted — single canonical version in `pipeline/rc_count/mod.rs`
 - [ ] All existing tests pass unchanged (`./test-all.sh` green)
 - [ ] No spurious warnings in normal compilation
 - [ ] Plan annotation cleanup: `bash .claude/skills/impl-hygiene-review/plan-annotations.sh --plan 01` returns 0 annotations

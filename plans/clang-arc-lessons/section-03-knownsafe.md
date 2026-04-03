@@ -60,6 +60,8 @@ Define the per-variable physical refcount state tracked during post-emission ana
 
 - [ ] Create `compiler/ori_arc/src/aims/knownsafe/` directory with `mod.rs`
 
+- [ ] Add `pub mod knownsafe;` to `compiler/ori_arc/src/aims/mod.rs` (alongside the existing `pub mod verify;` etc.) and add a `//!` doc line to the module doc header describing the new module.
+
 - [ ] Define `PhysicalRcState`:
   ```rust
   /// Physical refcount state for a single variable at a program point.
@@ -133,7 +135,12 @@ Walk the post-emission ARC IR forward (top-down through instructions), tracking 
   }
   ```
 
-- [ ] Implement forward walk per block (uses Section 02's `callee_may_observe_rc()`):
+- [ ] Implement forward walk per block (uses Section 02's `callee_may_observe_rc()`).
+
+  **Cross-module dependency:** `callee_may_observe_rc()` is defined in `aims/emit_rc/coalesce/mod.rs` (Section 02). The KnownSafe analysis needs to call it from `aims/knownsafe/analysis.rs`. Either:
+  - (a) Make `callee_may_observe_rc()` `pub(crate)` and re-export via `aims/emit_rc/mod.rs`, or
+  - (b) Extract it to a shared location (e.g., `aims/emit_rc/barrier_query.rs`) that both coalesce and knownsafe can import.
+  Option (a) is simpler. Add re-export: `pub(crate) use coalesce::callee_may_observe_rc;` in `aims/emit_rc/mod.rs`.
   ```rust
   fn analyze_block(
       &mut self,
@@ -148,6 +155,7 @@ Walk the post-emission ARC IR forward (top-down through instructions), tracking 
           match instr {
               ArcInstr::RcInc { var, count, .. } => {
                   let info = var_states.entry(*var).or_default();
+                  // Note: `count` can be > 1 (batched by coalescing).
                   info.net_delta += *count as i32;
                   if info.net_delta > 0 {
                       info.state = PhysicalRcState::Positive;
@@ -155,6 +163,8 @@ Walk the post-emission ARC IR forward (top-down through instructions), tracking 
                   }
               }
               ArcInstr::RcDec { var, .. } => {
+                  // Note: RcDec has no count field — each RcDec is 1.
+                  // Multiple decs are emitted as separate instructions.
                   let info = var_states.entry(*var).or_default();
                   info.net_delta -= 1;
                   if info.net_delta <= 0 {
@@ -197,7 +207,11 @@ Walk the post-emission ARC IR forward (top-down through instructions), tracking 
 
 - [ ] Handle control flow merges using `VarRcInfo::merge()`.
 
-- [ ] Unit tests: simple linear block, diamond CFG, loop.
+  **Fixpoint convergence:** For loops (back-edges), the analysis must iterate until the state stabilizes. Use a worklist algorithm: add all blocks to the worklist initially, and re-add a block's successors when its exit state changes.
+
+- [ ] Thread `contracts: &FxHashMap<Name, MemoryContract>` into `KnownSafeAnalysis` — needed by `callee_may_observe_rc()` in the Apply handler. This is the same contracts map from `AimsPipelineConfig.contracts`.
+
+- [ ] Unit tests: simple linear block, diamond CFG, loop (verifies fixpoint convergence).
 
 - [ ] **TPR checkpoint** — `/tpr-review` covering 03.1–03.2 implementation work
 
@@ -233,13 +247,17 @@ Use the analysis results to eliminate redundant inner RC pairs.
   4. If found with no intervening use that requires positive refcount, eliminate both
   5. Track eliminated count for statistics
 
-- [ ] Unit tests:
+- [ ] Unit tests (TDD: write BEFORE implementing `eliminate_knownsafe_pairs()` -- tests must fail initially, then pass after implementation):
   - Nested `RcInc(x); RcInc(x); use(x); RcDec(x); RcDec(x)` → inner pair eliminated
   - `RcInc(x); call(); RcDec(x)` → NOT eliminated (call may observe)
   - `RcInc(x); RcInc(x); call(); RcDec(x); RcDec(x)` with call barrier reset → inner pair NOT eliminated
   - Two separate variables, only one known_safe → correct variable's pair eliminated
 
 **Semantic pin:** Test that creates nested inc/dec pattern, verifies inner pair is eliminated, and the resulting program still runs correctly with `ORI_CHECK_LEAKS=1`.
+
+**Negative pin:** Test that a non-nested pattern (`RcInc(x); call_that_may_dec(x); RcDec(x)`) is NOT eliminated -- the call breaks the positivity guarantee. Assert `knownsafe_pairs_eliminated == 0` for this case. A second negative pin: test that `RcInc(x); RcDec(x)` at nesting depth 1 (no outer bracket) is NOT eliminated -- only INNER pairs within a known-positive bracket are safe to remove.
+
+- [ ] **TPR checkpoint** -- `/tpr-review` covering 03.3 elimination pass implementation
 
 ---
 
