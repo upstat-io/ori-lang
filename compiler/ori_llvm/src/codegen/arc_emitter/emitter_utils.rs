@@ -184,6 +184,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             *val
         } else {
             tracing::error!(var = v.raw(), "ArcIrEmitter: variable not yet defined");
+            self.builder.record_codegen_error();
             EmittedValue::Immediate(ValueId::NONE)
         }
     }
