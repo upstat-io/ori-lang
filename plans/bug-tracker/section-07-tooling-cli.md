@@ -30,11 +30,11 @@ Bugs in the CLI (`ori run`, `ori check`, `ori test`, `ori fmt`), formatter, diag
   Subsystem: `diagnostics/dual-exec-verify.sh`
   Found: 2026-03-29 | Source: tpr-review (TPR-05-016)
 
-- [ ] `[BUG-07-003][medium]` **`dual-exec-verify.sh` compile_fail_verified counter inflates LLVM PASS totals as verified** — found by tpr-review.
-  Repro: `timeout 150 diagnostics/dual-exec-verify.sh --test-only tests/spec/expressions/operators_comparison.ori` exits 0 with "ALL VERIFIED (5 tests)" but shows "Verified (runtime, both PASS): 0" and "66 llvm compile fail". The `compile_fail_verified` counter (line ~270) counts `llvm_total - VERIFIED` which includes plain LLVM PASS totals, then the final success path (line ~481) uses that inflated count.
+- [x] `[BUG-07-003][medium]` **`dual-exec-verify.sh` compile_fail_verified counter inflates LLVM PASS totals as verified** — found by tpr-review.
+  Resolved: Fixed on 2026-04-02. Removed the `compile_fail_verified = llvm_total - VERIFIED` calculation that incorrectly counted all non-compared LLVM passes as verified. `TOTAL_VERIFIED` now only accumulates `VERIFIED` (runtime cross-compared) and `MAIN_VERIFIED`. The `total_verified` display line uses `VERIFIED` directly. Verified: `operators_comparison.ori` now correctly shows "0 / 5 (0%)" and triggers the zero-verification warning (exit code 3) instead of falsely claiming "ALL VERIFIED (5 tests)".
   Subsystem: `diagnostics/dual-exec-verify.sh`
   Found: 2026-04-02 | Source: tpr-review
-  Note: BUG-07-002 fix (exit code 3 for zero verifications) was incomplete — the `TOTAL_VERIFIED` counter is still inflated by the compile_fail_verified miscalculation.
+  Note: BUG-07-002 fix (exit code 3 for zero verifications) was incomplete — the `TOTAL_VERIFIED` counter was still inflated by the compile_fail_verified miscalculation. Now fixed.
 
 ---
 
