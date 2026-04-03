@@ -195,6 +195,12 @@ Captures in nested lambdas inherit types from the outer scope's variable table. 
 - [x] `[TPR-04B-004][medium]` `plans/jit-exception-handling/section-04b-lambda-mono.md:176` — Section 04B still claims LLVM verification and TPR completion that are not reproducible on the current tree.
   Resolved: Fixed on 2026-04-03. Completion checklist items were already reopened. Now resolved via TPR-04B-003 fix — all 17 tests pass from /tmp via LLVM in both debug and release. In-tree path still blocked by BUG-04-030 (pre-existing stdlib issue affecting all test files using std.testing).
 
+- [x] `[TPR-04B-005][high]` `compiler/ori_llvm/src/codegen/function_compiler/define_phase.rs:875` — `find_partial_apply_concrete_type()` can bind a lambda to the wrong concrete instantiation when the parent contains multiple polymorphic lambdas.
+  Resolved: Fixed on 2026-04-03. Replaced `find_concrete_copy_type()` (unscoped var_types scan) with `find_concrete_copy_of()` that only searches Let copies of the specific PartialApply dst variable. Added `find_any_concrete_fn_type()` as last-resort fallback for nested lambdas. Verified with two-ids repro.
+
+- [x] `[TPR-04B-006][high]` `compiler/ori_llvm/src/codegen/function_compiler/define_phase.rs:541` — single-instantiation return-type-only lambdas still leave nested `var_types`/`Construct` types unresolved.
+  Resolved: Fixed on 2026-04-03. Added `contains_nested_var()` to detect Var inside container return types (Option/Result/List). Phase 2 now tracks `ret_type_resolutions` and applies `resolve_lambda_return_types()` (shared with multi-inst path) to update return_type, var_types, and Construct instructions. Uses `find_apply_indirect_result_type()` to get the concrete return type from parent's ApplyIndirect results (avoids Var-containing pool types).
+
 ---
 
 ## 04B.N Completion Checklist
