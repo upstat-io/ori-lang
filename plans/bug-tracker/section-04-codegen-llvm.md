@@ -103,6 +103,13 @@ Bugs in LLVM IR generation, JIT/AOT compilation, monomorphization, ARC pipeline 
   Found: 2026-04-02 | Source: continue-roadmap (BUG-04-011 implementation)
   Note: Pre-existing limitation exposed by imported generic mono fix. Affects both imported and local generics when instantiated with compound types.
 
+- [ ] `[BUG-04-024][medium]` **ARC emitter "variable not yet defined var=2" in imported mono functions** — found by continue-roadmap.
+  Repro: `ORI_LOG=ori_llvm=debug timeout 30 cargo run -- test --backend=llvm /tmp/test.ori` where test.ori uses `use std.testing { assert_eq }` and `assert_eq(actual: 42, expected: 42)`. ERROR log emitted consistently for every imported mono function compilation. Tests pass — emitter recovers via `ValueId::NONE` fallback.
+  Root cause: Residual of BUG-04-011 layer 3. The `body_type_map` built from `per_module_cache` values + `scheme_var_ids` doesn't cover all internal ARC variables in the imported function's IR. Variable 2 (likely a comparison result or intermediate in `assert_eq`'s body) is referenced before being defined in the emitter's `var_map`. The substitution only covers types that appear in the per_module_cache (cross-module re-interned types), not purely-local variables created during ARC lowering.
+  Subsystem: `compiler/ori_llvm/src/codegen/arc_emitter/emitter_utils.rs`, `compiler/oric/src/test/runner/llvm_backend.rs` (body_type_map construction)
+  Found: 2026-04-02 | Source: continue-roadmap (imported-generic-mono verification)
+  Note: Active work in `plans/imported-generic-mono/` directly related. Non-crashing — graceful recovery produces correct results for primitive type instantiations.
+
 - [x] `[BUG-04-023][high]` **LLVM codegen still panics on structural `==`/`!=` for user-defined types without `#derive(Eq)`** — found by review-work.
   Resolved: Fixed on 2026-04-02. Added `emit_structural_eq` in `compound_traits.rs` that performs field-by-field comparison using `emit_element_equals` recursively with AND accumulation. When `emit_derived_eq_call` returns None (no compiled `eq` method), `emit_element_equals` now falls back to structural comparison for Struct types. Verified: `type Point = { x: int, y: int }; a == b` works through LLVM. 15,018 tests passing.
   Repro: `timeout 150 cargo run -q -p oric --bin ori -- test --backend=llvm /tmp/struct_eq_no_derive.ori` with:
