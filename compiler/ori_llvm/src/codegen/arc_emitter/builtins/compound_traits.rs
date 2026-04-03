@@ -303,6 +303,17 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             return None;
         }
 
+        // Restrict to scalar-only payloads — aggregate fields (lists, maps, sets,
+        // tuples, structs) are stored as multi-slot i64 arrays and can't be
+        // reinterpreted via reinterpret_from_i64. Use #derive(Eq) for those.
+        let all_scalar = first_fields.iter().all(|ty| {
+            let llvm_ty = self.resolve_type(*ty);
+            self.builder.is_single_slot_type(llvm_ty)
+        });
+        if !all_scalar {
+            return None;
+        }
+
         // Extract payload (index 1) then compare fields within it.
         // Enum LLVM layout: {i64 tag, [N x i64] payload_union}
         // Payload is array type — use extract_value_any (handles arrays + structs).

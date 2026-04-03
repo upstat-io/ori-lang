@@ -74,7 +74,24 @@ fn emit_str<'scx: 'ctx, 'ctx>(
         TypeInfo::Int | TypeInfo::Float | TypeInfo::Bool | TypeInfo::Duration | TypeInfo::Size => {
             emitter.emit_to_str(arg_val, &type_info)
         }
-        // Other types (struct, enum, etc.) need derived Printable::to_str — deferred.
+        // Compound types: delegate to emit_element_debug which handles
+        // lists, maps, sets, options, results, tuples recursively.
+        // This path is hit when imported generic function bodies contain
+        // `.debug()` calls that the type checker desugars to `str()`.
+        TypeInfo::List { .. }
+        | TypeInfo::Map { .. }
+        | TypeInfo::Set { .. }
+        | TypeInfo::Option { .. }
+        | TypeInfo::Result { .. }
+        | TypeInfo::Tuple { .. }
+        | TypeInfo::Char
+        | TypeInfo::Byte
+        | TypeInfo::Ordering => emitter.emit_element_debug(arg_val, arg_ty),
+        // User types with compiled debug method: try derived method dispatch.
+        TypeInfo::Struct { .. } | TypeInfo::Enum { .. } => emitter
+            .emit_derived_debug_call(arg_val, arg_ty)
+            .or_else(|| emitter.emit_element_debug(arg_val, arg_ty)),
+        // Other types (Function, Error, etc.) — still deferred.
         _ => None,
     }
 }
