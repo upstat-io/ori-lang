@@ -104,7 +104,7 @@ Bugs in LLVM IR generation, JIT/AOT compilation, monomorphization, ARC pipeline 
   Found: 2026-04-03 | Source: tpr-review (imported-generic-mono iteration 3)
 
 - [x] `[BUG-04-026][medium]` **Structural equality incomplete for payload enums without `#derive(Eq)` in LLVM** — found by tpr-review.
-  Resolved: Fixed on 2026-04-03. Extended `emit_structural_eq_enum` to handle homogeneous payload enums (all payload variants share the same field types). Extracts payload via `extract_value_any` (handles array type payloads), reinterprets i64 slots to field types, and compares recursively via `emit_element_equals`. Heterogeneous payload enums still need `#derive(Eq)`. Tests: `aot_payload_enum_structural_eq.ori`.
+  Resolved: Fixed on 2026-04-03 (scalar payloads), narrowed on 2026-04-03 (TPR-04-002). Extended `emit_structural_eq_enum` to handle homogeneous payload enums with SCALAR fields (int, float, bool, char, byte, ptr). Extracts payload via `extract_value_any`, reinterprets i64 slots to field types, and compares recursively via `emit_element_equals`. Aggregate payload fields (lists, maps, sets, tuples) and heterogeneous payload enums still need `#derive(Eq)`. Tests: `aot_payload_enum_structural_eq.ori`.
   Repro: `type Shape = Circle(r: int) | Square(s: int); Circle(r: 1) == Circle(r: 1)` — interpreter passes, `--backend=llvm` panics with "binary op Eq on unmapped type idx". `emit_structural_eq_enum` handles unit-only enums (tag comparison) but returns None for payload variants. Needs tag-switch + per-variant field comparison.
   Subsystem: `compiler/ori_llvm/src/codegen/arc_emitter/builtins/compound_traits.rs`
   Found: 2026-04-03 | Source: tpr-review (imported-generic-mono iteration 3)
@@ -114,11 +114,10 @@ Bugs in LLVM IR generation, JIT/AOT compilation, monomorphization, ARC pipeline 
   Subsystem: `compiler/ori_llvm/src/codegen/arc_emitter/operators/strategy.rs`
   Found: 2026-04-03 | Source: continue-roadmap (imported-generic-mono TPR)
 
-- [ ] `[BUG-04-022][medium]` **LLVM JIT cannot resolve free function calls in monomorphized generic bodies (e.g., `str()`, `debug()` for compound types)** — found by continue-roadmap.
-  Repro: `assert_eq(actual: [1, 2], expected: [1, 2])` through `--backend=llvm` fails with "unresolved function `str` in invoke". Also affects LOCAL generics: `@check_eq<T: Eq>(a: T, b: T) -> bool` with `[int]` args panics. Root cause: monomorphized generic function bodies reference free functions (e.g., `str()` from prelude, `debug()` on compound types) that aren't declared in the JIT LLVM module. Works for primitive types (int, str, bool) whose debug/to_str uses runtime functions that ARE declared. Compound types (list, map, set) need additional function resolution.
-  Subsystem: `compiler/ori_llvm/src/codegen/arc_emitter/`, `compiler/ori_llvm/src/evaluator/compile.rs`
+- [x] `[BUG-04-022][medium]` **LLVM JIT cannot resolve free function calls in monomorphized generic bodies (e.g., `str()`, `debug()` for compound types)** — found by continue-roadmap.
+  Resolved: Fixed on 2026-04-03. Two root causes: (1) `("list", "debug")` was missing from the LLVM builtin collections dispatch table — `emit_list_debug()` existed but wasn't wired up. (2) `emit_str()` in the prelude handler only handled primitives — compound types (List, Map, Set, Option, Result, Tuple) returned None, causing "unresolved function `str`" in imported generic bodies where the type checker desugars `.debug()` to `str()` calls. Fix: added `("list", "debug")` and `("str", "debug")` dispatch entries, extended `emit_str()` to handle all compound types via `emit_element_debug`. LCFail decreased 4065→4000 (65 newly-compilable LLVM tests). Both local and imported generics with compound types now work through JIT test runner (`--backend=llvm`).
+  Subsystem: `compiler/ori_llvm/src/codegen/arc_emitter/builtins/collections/mod.rs`, `compiler/ori_llvm/src/codegen/arc_emitter/builtins/prelude.rs`, `compiler/ori_llvm/src/codegen/arc_emitter/builtins/debug_helpers.rs`
   Found: 2026-04-02 | Source: continue-roadmap (BUG-04-011 implementation)
-  Note: Pre-existing limitation exposed by imported generic mono fix. Affects both imported and local generics when instantiated with compound types.
 
 - [ ] `[BUG-04-024][medium]` **ARC emitter "variable not yet defined var=2" in imported mono functions** — found by continue-roadmap.
   Repro: `ORI_LOG=ori_llvm=debug timeout 30 cargo run -- test --backend=llvm /tmp/test.ori` where test.ori uses `use std.testing { assert_eq }` and `assert_eq(actual: 42, expected: 42)`. ERROR log emitted consistently for every imported mono function compilation. Tests pass — emitter recovers via `ValueId::NONE` fallback.
@@ -188,6 +187,12 @@ Bugs in LLVM IR generation, JIT/AOT compilation, monomorphization, ARC pipeline 
   Resolved: Fixed on 2026-04-02 in two steps:
   (1) Added `ori_str_from_char` runtime function + `TypeInfo::Char` to `emit_to_str`/`emit_element_to_str` — fixes plain char keys (`{'a': 1}` → `{a: 1}`).
   (2) Added `ori_str_escape_control` runtime function + `emit_escape_control()` helper — post-processes all map key strings to escape control characters (`\n`→`\\n`, `\\`→`\\\\`), matching the interpreter's `escape_debug_str` behavior. Wired into `emit_map_entry_str()` in `debug_map_set.rs`. Plain char key parity confirmed via dual-exec. 15,002 tests passing.
+
+- [x] `[TPR-04-002][high]` `compound_traits.rs` — BUG-04-026's homogeneous payload enum equality path breaks on non-scalar payload fields.
+  Resolved: Fixed on 2026-04-03. Added `is_single_slot_type()` guard in `emit_structural_eq_enum()` — restricts structural equality to scalar-only payload fields. Aggregate payloads (lists, maps, sets, tuples, structs) correctly fall through to require `#derive(Eq)`. Also changed the `unreachable!` panic in `emit_binary_op` (operators/mod.rs:56) to a graceful codegen error — compilation no longer crashes for enum types without trait dispatch.
+
+- [x] `[TPR-04-003][medium]` `panic.rs` / BUG-04-022 — the resolution landed without a committed LLVM regression test, and one existing test file still documents the old broken assumption.
+  Resolved: Fixed on 2026-04-03. Added 2 AOT regression tests: `test_generic_debug_list` (generic debug on `[int]`) and `test_generic_str_compound` (str/debug in generic bodies with string concat). Updated stale comment in `panic.rs` that documented the old monomorphization bug. 15,159 tests passing.
 
 ---
 
