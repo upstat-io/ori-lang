@@ -52,6 +52,7 @@ Capabilities must come before Stdlib to unblock Pattern cache (Section 8) and FF
 | 7B | Option & Result |
 | 7C | Collections & Iteration |
 | 7D | Stdlib Modules |
+| 7E | std.text — Text Processing |
 
 ### Tier 3: Core Patterns (Sections 8-10)
 
@@ -128,7 +129,7 @@ Section 23 (Evaluator) — Full evaluator support for all spec semantics
 **Main Sequence** (dependency-ordered for sequential execution):
 ```
 Section 1 (Types) → Section 2 (Inference) → Section 3 (Traits) → Section 4 (Modules)
-    → Section 5 (Type Decls) → Section 6 (Capabilities) → Section 7A-D (Stdlib)
+    → Section 5 (Type Decls) → Section 6 (Capabilities) → Section 7A-E (Stdlib)
     → Section 8 (Patterns) → Section 9 (Match) → Section 10 (Control Flow)
     → Section 11 (FFI) → Section 12 (Variadics) → Section 13 (Conditional Compilation)
     → Section 14 (Testing) → Section 15A-D (Syntax Proposals)
@@ -154,7 +155,8 @@ Core Complete (1-15) ──→ Section 21A-B (Codegen) → Section 22 (Tooling)
 
 **Key Dependencies**:
 - Section 6 (Capabilities) requires Section 3 (Traits) — placed after Section 5 to unblock Section 8 cache
-- Section 7A-D (Stdlib) requires Section 3 (Traits) AND Section 6 (Capabilities)
+- Section 7A-E (Stdlib) requires Section 3 (Traits) AND Section 6 (Capabilities)
+- Section 7E (std.text) additionally requires Section 7A (Core Built-ins for runtime FFI integration)
 - Section 8 (Patterns) cache feature requires Section 6 (Capabilities)
 - Section 11 (FFI) requires Section 6 (Unsafe capability)
 - Section 14 (Testing) requires Section 6 (Capabilities) and Section 7 (Stdlib)

@@ -281,6 +281,22 @@ fn test_aot_enum_structural_eq() {
     );
 }
 
+#[test]
+fn test_aot_payload_enum_structural_eq() {
+    assert_aot_success(
+        include_str!("fixtures/traits/aot_payload_enum_structural_eq.ori"),
+        "payload_enum_structural_eq",
+    );
+}
+
+#[test]
+fn test_aot_option_ordering() {
+    assert_aot_success(
+        include_str!("fixtures/traits/aot_option_ordering.ori"),
+        "option_ordering",
+    );
+}
+
 // 3.2: Trait Implementations — Inherent impl codegen
 
 #[test]
