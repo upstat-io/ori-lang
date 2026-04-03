@@ -219,6 +219,51 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             "get",
         );
 
+        // ori_map_get does a shallow byte-copy of the value from the map's
+        // internal storage. For RC-managed value types (lists, maps, strings,
+        // closures), the caller needs its own reference — emit RcInc on the
+        // value when the tag is Some. Without this, the returned value shares
+        // the map's internal pointer: when the map is freed (elem cleanup frees
+        // the inner value), the caller's copy becomes a dangling pointer.
+        let val_tag = self.pool.tag(self.pool.resolve_fully(val_ty));
+        let needs_rc = !matches!(
+            val_tag,
+            ori_types::Tag::Int
+                | ori_types::Tag::Float
+                | ori_types::Tag::Bool
+                | ori_types::Tag::Char
+                | ori_types::Tag::Byte
+                | ori_types::Tag::Unit
+                | ori_types::Tag::Never
+                | ori_types::Tag::Duration
+                | ori_types::Tag::Size
+        );
+
+        if needs_rc {
+            // Conditionally inc: only when tag == SOME (0)
+            let tag_ptr = self
+                .builder
+                .struct_gep(option_ty, out_alloca, 0, "get.tag.ptr");
+            let i64_ty = self.builder.i64_type();
+            let tag_val = self.builder.load(i64_ty, tag_ptr, "get.tag");
+            let zero = self.builder.const_i64(0);
+            let is_some = self.builder.icmp_eq(tag_val, zero, "get.is_some");
+
+            let inc_bb = self.builder.append_block(self.current_function, "get.inc");
+            let cont_bb = self.builder.append_block(self.current_function, "get.cont");
+            self.builder.cond_br(is_some, inc_bb, cont_bb);
+
+            self.builder.position_at_end(inc_bb);
+            let val_ptr = self
+                .builder
+                .struct_gep(option_ty, out_alloca, 1, "get.val.ptr");
+            let val_loaded = self.builder.load(val_llvm_ty, val_ptr, "get.val.rc");
+            self.inc_value_rc(val_loaded, val_ty, 1);
+            self.builder.br(cont_bb);
+
+            self.builder.position_at_end(cont_bb);
+        }
+
         Some(self.builder.load(option_ty, out_alloca, "get.val"))
     }
 

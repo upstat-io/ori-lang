@@ -215,4 +215,329 @@ impl IrBuilder<'_, '_> {
 
         result_id
     }
+
+    /// Build checked integer division: panics on division by zero or overflow.
+    ///
+    /// Checks: (1) `rhs == 0` → panic "division by zero",
+    /// (2) `lhs == i64::MIN && rhs == -1` → panic "integer overflow in division".
+    /// Both cases are UB in LLVM's `sdiv`.
+    pub fn checked_div(&mut self, lhs: ValueId, rhs: ValueId, name: &str) -> ValueId {
+        self.emit_checked_div_rem(lhs, rhs, name, true)
+    }
+
+    /// Build checked integer remainder: panics on division by zero.
+    ///
+    /// Checks: `rhs == 0` → panic "remainder by zero".
+    /// No overflow check needed: `i64::MIN % -1 == 0` is well-defined.
+    pub fn checked_rem(&mut self, lhs: ValueId, rhs: ValueId, name: &str) -> ValueId {
+        self.emit_checked_div_rem(lhs, rhs, name, false)
+    }
+
+    /// Emit a panic block: call `ori_panic_cstr(msg)` + `unreachable`.
+    ///
+    /// Positions the builder at the given block, emits the panic call, and
+    /// adds an `unreachable` terminator. Does NOT reposition the builder
+    /// after — caller must position at the next block.
+    fn emit_panic_block(
+        &mut self,
+        block: inkwell::basic_block::BasicBlock<'_>,
+        msg: &str,
+        label: &str,
+    ) {
+        self.builder.position_at_end(block);
+        let msg_id = self.build_global_string_ptr(msg, label);
+        let panic_fn_id = self.runtime_fn("ori_panic_cstr");
+        self.call(panic_fn_id, &[msg_id], "");
+        self.builder.build_unreachable().expect("unreachable");
+    }
+
+    /// Shared implementation for checked div/rem.
+    ///
+    /// Emits a zero-check branch (panic on `rhs == 0`), and for division
+    /// an additional MIN/-1 overflow check. The final block contains the
+    /// `sdiv` or `srem` instruction.
+    fn emit_checked_div_rem(
+        &mut self,
+        lhs: ValueId,
+        rhs: ValueId,
+        name: &str,
+        is_div: bool,
+    ) -> ValueId {
+        let (l, r) = (self.arena.get_value(lhs), self.arena.get_value(rhs));
+        if !l.is_int_value() || !r.is_int_value() {
+            tracing::error!(lhs_type = ?l.get_type(), rhs_type = ?r.get_type(),
+                name, "checked div/rem on non-int operands");
+            self.record_codegen_error();
+            return self.const_i64(0);
+        }
+        let (lhs_int, rhs_int) = (l.into_int_value(), r.into_int_value());
+        let i64_ty = self.scx.llcx.i64_type();
+
+        let func_id = self.current_function.expect("no current function");
+        let func_llvm = self.arena.get_function(func_id);
+
+        // Create blocks.
+        let panic_zero_bb = self
+            .scx
+            .llcx
+            .append_basic_block(func_llvm, &format!("{name}.div0_panic"));
+        let continue_bb = self
+            .scx
+            .llcx
+            .append_basic_block(func_llvm, &format!("{name}.ok"));
+
+        // For div: also create an overflow check block between zero-check and continue.
+        let after_zero_bb = if is_div {
+            self.scx
+                .llcx
+                .append_basic_block(func_llvm, &format!("{name}.check_ovf"))
+        } else {
+            continue_bb
+        };
+
+        // 1. Zero check: rhs == 0 → panic.
+        let zero = i64_ty.const_zero();
+        let is_zero = self
+            .builder
+            .build_int_compare(
+                inkwell::IntPredicate::EQ,
+                rhs_int,
+                zero,
+                &format!("{name}.rhs_z"),
+            )
+            .expect("icmp eq zero");
+        self.builder
+            .build_conditional_branch(is_zero, panic_zero_bb, after_zero_bb)
+            .expect("zero check branch");
+
+        // 2. Panic-zero block.
+        let zero_msg = if is_div {
+            "division by zero"
+        } else {
+            "remainder by zero"
+        };
+        self.emit_panic_block(panic_zero_bb, zero_msg, &format!("{name}.dz_msg"));
+
+        // 3. For div: overflow check (MIN / -1).
+        if is_div {
+            let panic_ovf_bb = self
+                .scx
+                .llcx
+                .append_basic_block(func_llvm, &format!("{name}.ovf_panic"));
+
+            self.builder.position_at_end(after_zero_bb);
+            let min_val = i64_ty.const_int(i64::MIN as u64, false);
+            let neg_one = i64_ty.const_all_ones();
+            let is_min = self
+                .builder
+                .build_int_compare(
+                    inkwell::IntPredicate::EQ,
+                    lhs_int,
+                    min_val,
+                    &format!("{name}.is_min"),
+                )
+                .expect("icmp eq MIN");
+            let is_neg1 = self
+                .builder
+                .build_int_compare(
+                    inkwell::IntPredicate::EQ,
+                    rhs_int,
+                    neg_one,
+                    &format!("{name}.is_n1"),
+                )
+                .expect("icmp eq -1");
+            let is_ovf = self
+                .builder
+                .build_and(is_min, is_neg1, &format!("{name}.ovf"))
+                .expect("and");
+            self.builder
+                .build_conditional_branch(is_ovf, panic_ovf_bb, continue_bb)
+                .expect("overflow branch");
+
+            self.emit_panic_block(
+                panic_ovf_bb,
+                "integer overflow in division",
+                &format!("{name}.ovf_msg"),
+            );
+        }
+
+        // 4. Continue block: emit the actual sdiv/srem.
+        self.builder.position_at_end(continue_bb);
+        let result = if is_div {
+            self.builder
+                .build_int_signed_div(lhs_int, rhs_int, name)
+                .expect("sdiv")
+        } else {
+            self.builder
+                .build_int_signed_rem(lhs_int, rhs_int, name)
+                .expect("srem")
+        };
+
+        let continue_block_id = self.arena.push_block(continue_bb);
+        self.current_block = Some(continue_block_id);
+        self.arena.push_value(result.into())
+    }
+
+    /// Build checked shift left: panics if count < 0 or count >= 64.
+    ///
+    /// Spec: Clause 9 — shift by negative count or by >= bit width panics.
+    /// LLVM's `shl` produces poison for count >= bit width, which is UB.
+    pub fn checked_shl(&mut self, lhs: ValueId, rhs: ValueId, name: &str) -> ValueId {
+        self.emit_checked_shift(lhs, rhs, name, true)
+    }
+
+    /// Build checked shift right (arithmetic): panics if count < 0 or count >= 64.
+    pub fn checked_shr(&mut self, lhs: ValueId, rhs: ValueId, name: &str) -> ValueId {
+        self.emit_checked_shift(lhs, rhs, name, false)
+    }
+
+    /// Shared implementation for checked shl/shr.
+    ///
+    /// Checks: (1) `rhs < 0` → panic "shift by negative count",
+    /// (2) `rhs >= 64` → panic "shift count overflow",
+    /// (3) for shl: `(result >> count) != lhs` → panic "integer overflow".
+    /// All three cases produce poison or UB in LLVM.
+    #[expect(
+        clippy::too_many_lines,
+        reason = "count validation + shift + overflow check is one indivisible operation"
+    )]
+    fn emit_checked_shift(
+        &mut self,
+        lhs: ValueId,
+        rhs: ValueId,
+        name: &str,
+        is_left: bool,
+    ) -> ValueId {
+        let (l, r) = (self.arena.get_value(lhs), self.arena.get_value(rhs));
+        if !l.is_int_value() || !r.is_int_value() {
+            tracing::error!(lhs_type = ?l.get_type(), rhs_type = ?r.get_type(),
+                name, "checked shift on non-int operands");
+            self.record_codegen_error();
+            return self.const_i64(0);
+        }
+        let (lhs_int, rhs_int) = (l.into_int_value(), r.into_int_value());
+        let i64_ty = self.scx.llcx.i64_type();
+
+        let func_id = self.current_function.expect("no current function");
+        let func_llvm = self.arena.get_function(func_id);
+
+        let dir = if is_left { "shl" } else { "shr" };
+
+        // Create blocks.
+        let panic_neg_bb = self
+            .scx
+            .llcx
+            .append_basic_block(func_llvm, &format!("{name}.{dir}_neg_panic"));
+        let check_width_bb = self
+            .scx
+            .llcx
+            .append_basic_block(func_llvm, &format!("{name}.{dir}_check_width"));
+        let panic_width_bb = self
+            .scx
+            .llcx
+            .append_basic_block(func_llvm, &format!("{name}.{dir}_width_panic"));
+        let continue_bb = self
+            .scx
+            .llcx
+            .append_basic_block(func_llvm, &format!("{name}.{dir}_ok"));
+
+        // 1. Negative count check: rhs < 0 → panic.
+        let zero = i64_ty.const_zero();
+        let is_neg = self
+            .builder
+            .build_int_compare(
+                inkwell::IntPredicate::SLT,
+                rhs_int,
+                zero,
+                &format!("{name}.rhs_neg"),
+            )
+            .expect("icmp slt zero");
+        self.builder
+            .build_conditional_branch(is_neg, panic_neg_bb, check_width_bb)
+            .expect("neg check branch");
+
+        self.emit_panic_block(
+            panic_neg_bb,
+            "shift by negative count",
+            &format!("{name}.neg_msg"),
+        );
+
+        // 2. Width check: rhs >= 64 → panic.
+        self.builder.position_at_end(check_width_bb);
+        let bit_width = i64_ty.const_int(64, false);
+        let is_too_wide = self
+            .builder
+            .build_int_compare(
+                inkwell::IntPredicate::SGE,
+                rhs_int,
+                bit_width,
+                &format!("{name}.rhs_wide"),
+            )
+            .expect("icmp sge 64");
+        self.builder
+            .build_conditional_branch(is_too_wide, panic_width_bb, continue_bb)
+            .expect("width check branch");
+
+        self.emit_panic_block(
+            panic_width_bb,
+            "shift count overflow",
+            &format!("{name}.width_msg"),
+        );
+
+        // 3. Continue block: emit the actual shift.
+        self.builder.position_at_end(continue_bb);
+        if is_left {
+            // Left shift: check for signed overflow.
+            // `(result >> count) != lhs` means bits were lost (overflow).
+            let result = self
+                .builder
+                .build_left_shift(lhs_int, rhs_int, name)
+                .expect("shl");
+            let roundtrip = self
+                .builder
+                .build_right_shift(result, rhs_int, true, &format!("{name}.rt"))
+                .expect("ashr roundtrip");
+            let lost_bits = self
+                .builder
+                .build_int_compare(
+                    inkwell::IntPredicate::NE,
+                    roundtrip,
+                    lhs_int,
+                    &format!("{name}.ovf"),
+                )
+                .expect("icmp ne roundtrip");
+
+            let panic_ovf_bb = self
+                .scx
+                .llcx
+                .append_basic_block(func_llvm, &format!("{name}.shl_ovf_panic"));
+            let done_bb = self
+                .scx
+                .llcx
+                .append_basic_block(func_llvm, &format!("{name}.shl_done"));
+            self.builder
+                .build_conditional_branch(lost_bits, panic_ovf_bb, done_bb)
+                .expect("ovf branch");
+
+            self.emit_panic_block(
+                panic_ovf_bb,
+                "integer overflow on left shift",
+                &format!("{name}.shl_ovf_msg"),
+            );
+
+            self.builder.position_at_end(done_bb);
+            let done_block_id = self.arena.push_block(done_bb);
+            self.current_block = Some(done_block_id);
+            self.arena.push_value(result.into())
+        } else {
+            // Right shift: no value overflow possible (arithmetic shift preserves sign).
+            let result = self
+                .builder
+                .build_right_shift(lhs_int, rhs_int, true, name)
+                .expect("ashr");
+            let continue_block_id = self.arena.push_block(continue_bb);
+            self.current_block = Some(continue_block_id);
+            self.arena.push_value(result.into())
+        }
+    }
 }

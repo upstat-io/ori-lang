@@ -132,7 +132,8 @@ fn remap_terminator_targets(term: &mut ArcTerminator, remap: &[Option<usize>]) {
             }
             remap_id(default, remap);
         }
-        ArcTerminator::Invoke { normal, unwind, .. } => {
+        ArcTerminator::Invoke { normal, unwind, .. }
+        | ArcTerminator::InvokeIndirect { normal, unwind, .. } => {
             remap_id(normal, remap);
             remap_id(unwind, remap);
         }

@@ -223,6 +223,14 @@ pub struct ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
     /// preventing non-int accumulators (e.g., `[str]`) from being corrupted.
     for_yield_int_elem_sizes: FxHashSet<ArcVarId>,
 
+    /// Elem-size `ArcVarId` → element `Idx` for all for-yield loops.
+    ///
+    /// Used to override ARC-emitted `pool_type_store_size` values with
+    /// the LLVM struct store size (which accounts for field reordering).
+    /// Without this, reordered structs/tuples get a size mismatch between
+    /// the runtime list stride and LLVM GEP stride.
+    for_yield_elem_size_types: FxHashMap<ArcVarId, Idx>,
+
     /// §07.2: Niche-encoded enum tag tracking.
     ///
     /// When `Project { field: 0 }` extracts a tag from a niche-encoded enum,
@@ -276,6 +284,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
             narrowed_vars: FxHashMap::default(),
             repr_plan: type_resolver.repr_plan(),
             for_yield_int_elem_sizes: FxHashSet::default(),
+            for_yield_elem_size_types: FxHashMap::default(),
             niche_scrutinees: FxHashMap::default(),
         }
     }

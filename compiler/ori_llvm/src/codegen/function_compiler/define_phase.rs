@@ -118,7 +118,7 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
         func_id: FunctionId,
         abi: &FunctionAbi,
         mut arc_func: ori_arc::ArcFunction,
-        lambdas: Vec<ori_arc::ArcFunction>,
+        mut lambdas: Vec<ori_arc::ArcFunction>,
     ) {
         // Compile lambda ArcFunctions (closures).
         // Each lambda is compiled as a separate LLVM function, registered in
@@ -127,6 +127,12 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
         // declare_and_process_lambda renames each lambda to a globally unique
         // name. We collect the (old → new) mapping so we can update the
         // parent function's PartialApply references.
+        // Resolve BoundVar types in polymorphic lambdas before compilation.
+        // Must resolve ALL lambdas before compiling ANY, because nested lambdas
+        // may reference sibling lambdas' types (e.g., inner lambda's PartialApply
+        // is in outer lambda's body, not the parent function's body).
+        resolve_all_lambda_bound_vars(&arc_func, &mut lambdas, self.pool);
+
         let mut lambda_renames: Vec<(Name, Name)> = Vec::new();
         for mut lambda in lambdas {
             let original_name = lambda.name;
@@ -413,4 +419,257 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
 
         (unique_name, func_id, abi)
     }
+}
+
+/// Resolve `BoundVar` types in ALL lambdas to concrete types.
+///
+/// Uses a two-phase approach:
+/// 1. Build a global `BoundVar` → concrete mapping by finding `PartialApply`
+///    instructions in the parent that have concrete types at call sites
+/// 2. Apply the mapping to ALL lambdas (handles nested lambdas because
+///    all `BoundVars` from the same Scheme share the same variable IDs)
+pub(super) fn resolve_all_lambda_bound_vars(
+    parent: &ori_arc::ArcFunction,
+    lambdas: &mut [ori_arc::ArcFunction],
+    pool: &ori_types::Pool,
+) {
+    use ori_types::Tag;
+
+    // Check if ANY lambda has BoundVar params.
+    let any_bound = lambdas.iter().any(|l| {
+        l.params
+            .iter()
+            .any(|p| matches!(pool.tag(p.ty), Tag::BoundVar | Tag::Var))
+    });
+    if !any_bound {
+        return;
+    }
+
+    // Build a global BoundVar → concrete mapping from the parent function.
+    // The parent function has concrete types from call-site instantiation
+    // (e.g., `%4: (int) -> (int) -> int` from `Ident(f)`).
+    // We extract BoundVar mappings by finding concrete Function types and
+    // matching them structurally against the lambda param types.
+    let mut global_map: rustc_hash::FxHashMap<u32, Idx> = rustc_hash::FxHashMap::default();
+
+    // Strategy: for each lambda that has BoundVar params, search the parent
+    // for the PartialApply and its concrete instantiation type.
+    for i in 0..lambdas.len() {
+        let has_bound_vars = lambdas[i]
+            .params
+            .iter()
+            .any(|p| matches!(pool.tag(p.ty), Tag::BoundVar | Tag::Var));
+        if !has_bound_vars {
+            continue;
+        }
+
+        let lambda_name = lambdas[i].name;
+        let concrete_fn_ty =
+            find_partial_apply_concrete_type(parent, lambdas, i, lambda_name, pool);
+
+        if let Some(concrete_ty) = concrete_fn_ty {
+            build_bound_var_map(pool, concrete_ty, &lambdas[i].params, &mut global_map);
+        }
+    }
+
+    // Apply the global map to ALL lambdas.
+    for lambda in lambdas.iter_mut() {
+        apply_bound_var_map(lambda, &global_map, pool);
+    }
+
+    // Final fallback: any remaining BoundVars → Idx::INT.
+    for lambda in lambdas.iter_mut() {
+        fallback_bound_vars_to_int(lambda, pool);
+    }
+}
+
+/// Search parent + all sibling lambdas for a `PartialApply` that references the
+/// given lambda, and return the concrete instantiated function type.
+fn find_partial_apply_concrete_type(
+    parent: &ori_arc::ArcFunction,
+    lambdas: &[ori_arc::ArcFunction],
+    skip_idx: usize,
+    lambda_name: Name,
+    pool: &ori_types::Pool,
+) -> Option<Idx> {
+    use ori_types::Tag;
+
+    // Search a single function's blocks for a PartialApply of the target lambda.
+    let search_func = |func: &ori_arc::ArcFunction| -> Option<Idx> {
+        for block in &func.blocks {
+            for instr in &block.body {
+                if let ori_arc::ir::ArcInstr::PartialApply {
+                    dst, func: callee, ..
+                } = instr
+                {
+                    if *callee == lambda_name {
+                        let pa_ty = func.var_type(*dst);
+                        let resolved = pool.resolve_fully(pa_ty);
+                        if pool.tag(resolved) == Tag::Function {
+                            return Some(resolved);
+                        }
+                        // PartialApply type is Scheme — scan for a concrete copy.
+                        return find_concrete_copy_type(func, pool);
+                    }
+                }
+            }
+        }
+        None
+    };
+
+    // Search parent first.
+    if let Some(ty) = search_func(parent) {
+        return Some(ty);
+    }
+
+    // Search sibling lambdas (skip self to avoid confusion).
+    for (j, sibling) in lambdas.iter().enumerate() {
+        if j == skip_idx {
+            continue;
+        }
+        if let Some(ty) = search_func(sibling) {
+            return Some(ty);
+        }
+    }
+
+    None
+}
+
+/// Apply a `BoundVar` → concrete mapping to a lambda's types.
+fn apply_bound_var_map(
+    lambda: &mut ori_arc::ArcFunction,
+    map: &rustc_hash::FxHashMap<u32, Idx>,
+    pool: &ori_types::Pool,
+) {
+    use ori_types::Tag;
+
+    if map.is_empty() {
+        return;
+    }
+
+    for param in &mut lambda.params {
+        if matches!(pool.tag(param.ty), Tag::BoundVar | Tag::Var) {
+            let var_id = pool.data(param.ty);
+            if let Some(&concrete) = map.get(&var_id) {
+                param.ty = concrete;
+            }
+        }
+    }
+
+    for ty in &mut lambda.var_types {
+        if matches!(pool.tag(*ty), Tag::BoundVar | Tag::Var) {
+            let var_id = pool.data(*ty);
+            if let Some(&concrete) = map.get(&var_id) {
+                *ty = concrete;
+            }
+        }
+    }
+
+    if matches!(pool.tag(lambda.return_type), Tag::BoundVar | Tag::Var) {
+        let var_id = pool.data(lambda.return_type);
+        if let Some(&concrete) = map.get(&var_id) {
+            lambda.return_type = concrete;
+        }
+    }
+}
+
+/// Fall back: any remaining `BoundVar`s/`Var`s → `Idx::INT`.
+fn fallback_bound_vars_to_int(lambda: &mut ori_arc::ArcFunction, pool: &ori_types::Pool) {
+    use ori_types::Tag;
+
+    for param in &mut lambda.params {
+        if matches!(pool.tag(param.ty), Tag::BoundVar | Tag::Var) {
+            param.ty = Idx::INT;
+        }
+    }
+    for ty in &mut lambda.var_types {
+        if matches!(pool.tag(*ty), Tag::BoundVar | Tag::Var) {
+            *ty = Idx::INT;
+        }
+    }
+    if matches!(pool.tag(lambda.return_type), Tag::BoundVar | Tag::Var) {
+        lambda.return_type = Idx::INT;
+    }
+}
+
+/// Find a concrete Function type in the parent's `var_types` that is an
+/// instantiation of a polymorphic lambda type.
+///
+/// In ARC IR, polymorphic let-bindings produce:
+///   `%0: Scheme = PartialApply @lambda()`
+///   `%4: (int) -> int = %0`  ← concrete instantiation from call site
+/// We scan the parent's `var_types` for a concrete Function type.
+fn find_concrete_copy_type(func: &ori_arc::ArcFunction, pool: &ori_types::Pool) -> Option<Idx> {
+    use ori_types::Tag;
+    // Scan var_types for concrete Function types. The parent function
+    // has variables from the call-site instantiation with concrete types.
+    for ty in &func.var_types {
+        let resolved = pool.resolve_fully(*ty);
+        if pool.tag(resolved) == Tag::Function {
+            // Found a concrete function type. Check that it has no
+            // BoundVars or Schemes in its params (truly concrete).
+            let params = pool.function_params(resolved);
+            let all_concrete = params.iter().all(|p| {
+                let pt = pool.resolve_fully(*p);
+                !matches!(pool.tag(pt), Tag::BoundVar | Tag::Var | Tag::Scheme)
+            });
+            if all_concrete {
+                return Some(resolved);
+            }
+        }
+    }
+    None
+}
+
+/// Build a `BoundVar` → concrete type mapping by comparing the concrete function
+/// type's parameter types with the lambda's BoundVar-typed parameters.
+fn build_bound_var_map(
+    pool: &ori_types::Pool,
+    concrete_fn_ty: Idx,
+    lambda_params: &[ori_arc::ir::ArcParam],
+    map: &mut rustc_hash::FxHashMap<u32, Idx>,
+) {
+    use ori_types::Tag;
+
+    if pool.tag(concrete_fn_ty) != Tag::Function {
+        return;
+    }
+
+    let concrete_params = pool.function_params(concrete_fn_ty);
+    let concrete_ret = pool.function_return(concrete_fn_ty);
+
+    // Map lambda param BoundVars to concrete param types.
+    // Lambda params include captures (leading) + user params.
+    // The concrete function type only has user params (no captures).
+    // So we align from the END of the lambda params.
+    let num_captures = lambda_params.len().saturating_sub(concrete_params.len());
+
+    for (i, concrete_ty) in concrete_params.iter().enumerate() {
+        let lambda_idx = num_captures + i;
+        if lambda_idx < lambda_params.len() {
+            let param_ty = lambda_params[lambda_idx].ty;
+            if matches!(pool.tag(param_ty), Tag::BoundVar | Tag::Var) {
+                let var_id = pool.data(param_ty);
+                let resolved_concrete = pool.resolve_fully(*concrete_ty);
+                map.insert(var_id, resolved_concrete);
+            }
+        }
+    }
+
+    // Map the return type BoundVar.
+    let resolved_ret = pool.resolve_fully(concrete_ret);
+    // Check if any lambda param with same BoundVar ID was already mapped.
+    // If return type is a different BoundVar, we need to handle it.
+    // For now, check if return BoundVar matches any param BoundVar (common case).
+    // If it's a new BoundVar, try to map from the concrete return type.
+    // We handle this in the caller by checking lambda.return_type.
+
+    // Also map capture BoundVars: captures precede user params.
+    // Their concrete types come from the captured values' types in the parent.
+    // The PartialApply args in the parent have concrete types.
+    // For now, captures that share a BoundVar ID with a user param are
+    // resolved by the map built from user params (same BoundVar ID = same type).
+    // Captures with unique BoundVar IDs (not present in user params) aren't
+    // resolved here — they'll use the INT fallback.
+    let _ = resolved_ret; // used indirectly through map
 }

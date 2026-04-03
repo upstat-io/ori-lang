@@ -15,7 +15,7 @@ use ori_arc::ir::{ArcFunction, ArcVarId};
 use ori_ir::{Name, CLOSURE_FIELD_ENV, CLOSURE_FIELD_FN};
 use ori_types::{Idx, Tag};
 
-use super::ArcIrEmitter;
+use super::{ArcIrEmitter, EmittedValue};
 use crate::codegen::abi::{FunctionAbi, ReturnPassing};
 use crate::codegen::value_id::{FunctionId, ValueId};
 
@@ -273,6 +273,13 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
         if let Some(val) = result {
             self.def_var_repr(dst, val, func);
+        } else if !self.builder.has_codegen_errors() {
+            // Void-returning call: ARC IR still expects dst to be defined
+            // (uniform SSA — every Apply produces a variable). Bind to a
+            // unit constant so successor blocks can reference it.
+            // Same pattern as emit_abi_resolved_call() for Invoke terminators.
+            let unit = self.builder.const_i64(0);
+            self.def_var(dst, EmittedValue::Immediate(unit));
         }
     }
 

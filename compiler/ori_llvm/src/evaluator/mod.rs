@@ -120,9 +120,15 @@ pub struct CompiledTestModule<'ll> {
 impl CompiledTestModule<'_> {
     /// Run a single test from this compiled module.
     ///
-    /// Uses `setjmp`/`longjmp` to recover from panics in JIT-compiled code.
-    /// When JIT code calls `ori_panic` or `ori_panic_cstr`, it `longjmp`s back
-    /// here instead of calling `exit(1)`, preserving the test runner process.
+    /// The test wrapper function has a built-in catch-all `landingpad` that
+    /// catches uncaught panics via LLVM's exception handling mechanism. This
+    /// ensures `catch(expr:)` inside tests works correctly — panics propagate
+    /// through `_Unwind_RaiseException`, caught by `invoke`/`landingpad` at
+    /// both the `catch(expr:)` scope and the test wrapper boundary.
+    ///
+    /// After the wrapper returns, we check `did_panic()` to detect whether
+    /// an exception was caught at the wrapper boundary (test failure) vs
+    /// normal completion (test pass).
     ///
     /// # Safety
     ///
@@ -148,13 +154,17 @@ impl CompiledTestModule<'_> {
                 .map_err(|e| LLVMEvalError::new(format!("Test function not found: {e}")))?
         };
 
-        // Run with platform-appropriate panic recovery:
-        // - Itanium (Linux, macOS): setjmp/longjmp via JIT mode
-        // - MSVC (Windows): ori_try_call via __try/__except
-        //
+        // Reset panic state before running
+        runtime::reset_panic_state();
+
+        // Call the wrapper directly. The wrapper's catch-all landingpad handles
+        // uncaught panics — no setjmp/longjmp needed.
         // SAFETY: test_fn has signature () -> void, compiled by us
-        let raw_fn: unsafe extern "C" fn() = unsafe { test_fn.as_raw() };
-        if let Err(msg) = unsafe { runtime::jit_run_protected(raw_fn) } {
+        unsafe { test_fn.call() };
+
+        // Check if the test panicked (caught by the wrapper's landingpad)
+        if runtime::did_panic() {
+            let msg = runtime::get_panic_message().unwrap_or_else(|| "unknown panic".to_string());
             return Err(LLVMEvalError::new(msg));
         }
 
