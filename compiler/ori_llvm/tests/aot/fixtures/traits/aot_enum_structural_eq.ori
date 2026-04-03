@@ -1,0 +1,12 @@
+type Color = Red | Green | Blue;
+
+@main () -> int = {
+    // Same variant: should be equal
+    let eq1 = Red == Red;
+    // Different variants: should not be equal
+    let neq1 = Red == Blue;
+    // != operator
+    let neq2 = Green != Blue;
+
+    if eq1 && !neq1 && neq2 then 0 else 1
+}
