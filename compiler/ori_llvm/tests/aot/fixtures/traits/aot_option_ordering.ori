@@ -1,0 +1,17 @@
+@main () -> int = {
+    let a = Some(1);
+    let b = Some(2);
+    let c: Option<int> = None;
+    // None < Some
+    let r1 = c < a;
+    // Some(1) < Some(2)
+    let r2 = a < b;
+    // Some(2) > Some(1)
+    let r3 = b > a;
+    // Some(1) <= Some(1)
+    let r4 = a <= a;
+    // None >= None
+    let r5 = c >= c;
+
+    if r1 && r2 && r3 && r4 && r5 then 0 else 1
+}

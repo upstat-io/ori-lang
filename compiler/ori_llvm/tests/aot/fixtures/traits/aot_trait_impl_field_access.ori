@@ -1,0 +1,15 @@
+// Regression: BUG-04-003 — trait impl methods accessing self struct fields
+// produced LLVM verification errors because impl methods were incorrectly
+// registered in the bare `functions` map, causing `to_str` on an int field
+// inside Box$to_str to resolve to Box$to_str (wrong function, wrong ABI).
+type Box = { w: int, h: int }
+
+impl Printable for Box {
+    @to_str (self) -> str = `{self.w}x{self.h}`;
+}
+
+@main () -> int = {
+    let b = Box { w: 3, h: 4 };
+    let s = b.to_str();
+    if s == "3x4" then 0 else 1
+}

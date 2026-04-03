@@ -191,6 +191,29 @@ pub(crate) fn infer_binary(
                 }
             }
 
+            // For ordering operators on user-defined types: verify Comparable trait.
+            // Equality operators (==, !=) use structural comparison for all types
+            // in the evaluator, so they don't require an Eq derive. Ordering
+            // operators (< <= > >=) require the type to implement Comparable.
+            // Compound types (List, Option, Result, etc.) have their own evaluator
+            // dispatch — we validate Named (non-generic user types) and Applied
+            // (generic instantiations like Box<int>) types.
+            if matches!(
+                op,
+                BinaryOp::Lt | BinaryOp::LtEq | BinaryOp::Gt | BinaryOp::GtEq
+            ) && matches!(left_tag, Tag::Named | Tag::Applied)
+                && !has_comparable_trait(engine, resolved_left)
+            {
+                let trait_name = comparison_trait_name(op);
+                engine.push_error(TypeCheckError::unsupported_operator(
+                    span,
+                    resolved_left,
+                    op_str,
+                    trait_name,
+                ));
+                return Idx::ERROR;
+            }
+
             // Unify left and right operands
             engine.push_context(ContextKind::ComparisonRight);
             let left_span = arena.get_expr(left).span;
@@ -624,6 +647,40 @@ fn check_cross_type_arithmetic(left_tag: Tag, right_tag: Tag, op: BinaryOp) -> O
                 .map(|_| unit_idx)
         }
         _ => None,
+    }
+}
+
+/// Check if a user-defined type implements the Comparable trait specifically.
+///
+/// Verifies the `compare` method comes from a trait impl whose trait is
+/// actually named "Comparable" — not just any trait with a `compare` method.
+/// This prevents types implementing `trait Weird { @compare(...) -> int }`
+/// from bypassing the ordering operator gate.
+pub(crate) fn has_comparable_trait(engine: &InferEngine<'_>, ty: Idx) -> bool {
+    let Some(compare_name) = engine.intern_name("compare") else {
+        return false;
+    };
+    let Some(comparable_name) = engine.intern_name("Comparable") else {
+        return false;
+    };
+
+    let Some(trait_registry) = engine.trait_registry() else {
+        return false;
+    };
+
+    // Check that the compare method comes from the Comparable trait specifically.
+    // lookup_method_checked handles the case where inherent impls shadow trait impls.
+    match trait_registry.lookup_method_checked(ty, compare_name) {
+        crate::MethodLookupResult::Found(crate::MethodLookup::Trait { trait_idx, .. }) => {
+            // Verify the trait is actually Comparable (by name)
+            let tag = engine.pool().tag(trait_idx);
+            if tag == Tag::Named {
+                engine.pool().named_name(trait_idx) == comparable_name
+            } else {
+                false
+            }
+        }
+        _ => false,
     }
 }
 

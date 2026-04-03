@@ -154,6 +154,40 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         Some(self.builder.insert_value(with_tag, payload, 1, "opt.val"))
     }
 
+    /// Emit a conditional panic branch for `unwrap`/`unwrap_err`.
+    ///
+    /// If `is_valid` is false, calls `ori_panic_cstr` with the given static
+    /// message and halts. If true, falls through to the continue block
+    /// (positioned on return). The caller extracts the payload after this.
+    pub(super) fn emit_unwrap_branch(
+        &mut self,
+        is_valid: ValueId,
+        panic_msg: &str,
+        label: &str,
+    ) -> Option<()> {
+        let ok_bb = self
+            .builder
+            .append_block(self.current_function, &format!("{label}.ok"));
+        let panic_bb = self
+            .builder
+            .append_block(self.current_function, &format!("{label}.panic"));
+
+        self.builder.cond_br(is_valid, ok_bb, panic_bb);
+
+        // Panic block: global C string + ori_panic_cstr.
+        self.builder.position_at_end(panic_bb);
+        let msg_ptr = self
+            .builder
+            .build_global_string_ptr(panic_msg, &format!("{label}.msg"));
+        let panic_fn = self.builder.runtime_fn("ori_panic_cstr");
+        self.emit_rt_call(panic_fn, &[msg_ptr], "");
+        self.builder.unreachable();
+
+        // Continue block: position here for payload extraction.
+        self.builder.position_at_end(ok_bb);
+        Some(())
+    }
+
     /// Emit a conditional panic branch for `expect`/`expect_err`.
     ///
     /// If `is_valid` is false, calls `ori_panic` with the message string and

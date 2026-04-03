@@ -68,6 +68,7 @@ pub extern "C" fn ori_list_ensure_capacity(
         return;
     }
 
+    // SAFETY: list validated non-null above; caller guarantees valid OriList pointer.
     let list = unsafe { &mut *list };
     let required = required as usize;
 
@@ -215,7 +216,7 @@ pub extern "C" fn ori_list_len(list: *const OriList) -> i64 {
     if list.is_null() {
         return 0;
     }
-    // SAFETY: Caller ensures list is valid
+    // SAFETY: list validated non-null above; caller guarantees valid OriList pointer.
     unsafe { (*list).len }
 }
 
@@ -229,6 +230,7 @@ pub extern "C" fn ori_list_push(list: *mut u8, elem_ptr: *const u8, elem_size: i
     if list.is_null() || elem_ptr.is_null() {
         return;
     }
+    // SAFETY: list validated non-null above; caller guarantees valid OriList pointer.
     let list = unsafe { &mut *list.cast::<OriList>() };
     let es = elem_size.max(1) as usize;
 
@@ -251,6 +253,7 @@ pub extern "C" fn ori_list_push(list: *mut u8, elem_ptr: *const u8, elem_size: i
     }
 
     // Copy element bytes into the data buffer
+    // SAFETY: list.len < list.cap after growth; data buffer has cap * es bytes.
     unsafe {
         std::ptr::copy_nonoverlapping(elem_ptr, list.data.add(list.len as usize * es), es);
     }
@@ -268,6 +271,7 @@ pub extern "C" fn ori_list_take(list: *mut u8, out_ptr: *mut u8) {
         return;
     }
     if list.is_null() {
+        // SAFETY: out_ptr validated non-null above; writing empty list triple.
         unsafe {
             out_ptr.cast::<i64>().write(0); // len
             out_ptr.cast::<i64>().add(1).write(0); // cap
@@ -278,12 +282,14 @@ pub extern "C" fn ori_list_take(list: *mut u8, out_ptr: *mut u8) {
         }
         return;
     }
+    // SAFETY: list was allocated by ori_list_new (Box::into_raw); taking back ownership.
     let boxed = unsafe { Box::from_raw(list.cast::<OriList>()) };
     let len = boxed.len;
     let cap = boxed.cap;
     let data = boxed.data;
     // Box::drop frees the OriList struct; data buffer is NOT freed
     drop(boxed);
+    // SAFETY: out_ptr validated non-null; writing {len, cap, data} triple.
     unsafe {
         out_ptr.cast::<i64>().write(len);
         out_ptr.cast::<i64>().add(1).write(cap);
@@ -320,17 +326,20 @@ pub extern "C" fn ori_list_push_new(
 
     // Copy old elements
     if !data.is_null() && old_len > 0 {
+        // SAFETY: data has old_len * es valid bytes; new_data has new_len * es bytes.
         unsafe {
             std::ptr::copy_nonoverlapping(data, new_data, old_len * es);
         }
     }
 
     // Copy new element at the end
+    // SAFETY: new_data has new_len * es bytes; old_len * es < new_len * es.
     unsafe {
         std::ptr::copy_nonoverlapping(elem_ptr, new_data.add(old_len * es), es);
     }
 
     // Write result: {len, cap, data}
+    // SAFETY: out_ptr validated non-null at function entry.
     unsafe {
         out_ptr.cast::<i64>().write(new_len as i64);
         out_ptr.cast::<i64>().add(1).write(new_len as i64);
@@ -385,6 +394,7 @@ pub(crate) fn inc_copied_elements(
 ) {
     if let Some(f) = inc_fn {
         for i in 0..count {
+            // SAFETY: i < count; data has count * elem_size bytes from the caller's allocation.
             f(unsafe { data.add(i * elem_size) });
         }
     }
@@ -408,6 +418,7 @@ pub(crate) fn write_array_to_list(
     let n = len.max(0) as usize;
 
     if data.is_null() || n == 0 {
+        // SAFETY: out_ptr validated non-null above; writing empty list triple.
         unsafe {
             out_ptr.cast::<i64>().write(0);
             out_ptr.cast::<i64>().add(1).write(0);
@@ -421,6 +432,7 @@ pub(crate) fn write_array_to_list(
 
     let total = n * es;
     let new_data = ori_rc_alloc(total, 8);
+    // SAFETY: data has at least n * es valid bytes; new_data has total bytes from ori_rc_alloc.
     unsafe {
         std::ptr::copy_nonoverlapping(data, new_data, total);
     }
@@ -429,6 +441,7 @@ pub(crate) fn write_array_to_list(
         crate::rc::store_elem_dec_fn(new_data, elem_dec_fn);
         crate::rc::store_elem_count(new_data, n as i64);
     }
+    // SAFETY: out_ptr validated non-null; writing {len, cap, data} triple.
     unsafe {
         out_ptr.cast::<i64>().write(n as i64);
         out_ptr.cast::<i64>().add(1).write(n as i64);

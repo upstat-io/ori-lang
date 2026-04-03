@@ -125,7 +125,15 @@ pub(crate) fn resolve_parsed_type_simple(
             if let Some(idx) = checker.resolve_registration_primitive(*name) {
                 return idx;
             }
-            checker.pool_mut().named(*name)
+            let named_idx = checker.pool_mut().named(*name);
+            // FFI types (CPtr, c_int, etc.) need Pool resolutions so downstream
+            // phases (ARC classifier, LLVM TypeInfoStore) can classify them as
+            // trivial scalars. Without this, they remain unresolved Named types
+            // that produce TypeInfo::Error in codegen. BUG-04-021.
+            if let Some(concrete) = checker.resolve_ffi_concrete(*name) {
+                checker.pool_mut().set_resolution(named_idx, concrete);
+            }
+            named_idx
         }
 
         ParsedType::FixedList { elem, capacity: _ } => {

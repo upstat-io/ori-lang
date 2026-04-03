@@ -85,6 +85,11 @@ trait, traits, impl, implementation, implements
 associated types, associated functions
 trait bounds, where clause, constraints
 derive, #derive, Eq, Clone, Hashable, Debug, Default, Printable
+structural default, structural equality, structural comparison
+eq rename, equals, method rename, two-tier model
+emit_structural_eq, emit_structural_enum_eq
+structural clone, structural debug, structural to_str
+compound_traits.rs, debug_helpers.rs
 operator traits, Add, Sub, Mul, Div, Neg, Rem
 BitAnd, BitOr, BitXor, Shl, Shr, BitNot
 MatMul, matrix multiplication, @ operator
@@ -280,6 +285,42 @@ key exchange, X25519, Diffie-Hellman
 secure random, CSPRNG
 key derivation, PBKDF2, Argon2
 Duration stdlib, Size stdlib
+```
+
+---
+
+### Section 07E: std.text — Comprehensive Text Processing
+**File:** `section-07E-stdlib-text.md` | **Tier:** 2 | **Status:** Not Started
+
+```
+std.text, text processing, text library, Unicode
+grapheme, grapheme cluster, grapheme segmentation, UAX #29
+display width, terminal width, column width, wcwidth, East Asian Width, UAX #11
+unicode-width, string-width, go-runewidth
+wrap, word wrap, text wrap, line wrap, textwrap
+truncate, truncation, ellipsis, display-width-aware
+pad, padding, alignment, center, left-align, right-align
+indent, dedent, indentation
+normalization, NFC, NFD, NFKC, NFKD, canonical equivalence, UAX #15
+case fold, case folding, case insensitive, Turkish I
+to_uppercase, to_lowercase, to_titlecase, locale-aware case
+similarity, edit distance, Levenshtein, Damerau-Levenshtein
+Jaro-Winkler, fuzzy match, closest match, did you mean
+natural sort, natural compare, version sort
+slug, slugify, URL-safe, transliterate, remove diacritics
+ANSI, strip ANSI, escape codes, terminal colors
+text analysis, Pretext, segment merging, kinsoku
+CJK line break, Arabic punctuation, Myanmar glue
+URL grouping, numeric runs, soft hyphen
+TextMeasure, MonospaceMeasure, TerminalMeasure, CachedMeasure
+prepare, layout, layout_lines, layout_next_line
+PreparedText, LayoutResult, LayoutLine, LayoutCursor
+line breaking, greedy, overflow-wrap, break-word
+inline flow, atomic inline, mixed content, chips, pills
+bidi, bidirectional, RTL, UAX #9, BidiLevel
+confusable, homoglyph, skeleton, UTS #39, mixed script
+encoding, decode, encode, Shift-JIS, GB2312, Big5, EUC-KR, Latin-1
+detect encoding, mojibake, transcoding
 ```
 
 ---

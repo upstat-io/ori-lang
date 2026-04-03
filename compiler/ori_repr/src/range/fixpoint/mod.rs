@@ -30,7 +30,8 @@ use ori_types::Pool;
 use rustc_hash::{FxHashMap, FxHashSet};
 
 use super::field_summary::{
-    update_element_summaries, update_field_summaries, ElementSummaryTable, FieldSummaryTable,
+    update_element_summaries, update_element_summaries_from_terminator, update_field_summaries,
+    ElementSummaryTable, FieldSummaryTable,
 };
 use super::transfer::{transfer, TransferContext};
 use super::{RangeAnalysisConfig, ValueRange};
@@ -237,6 +238,13 @@ fn run_forward_iteration(
         }
 
         restore_block_refinements(&mut state.ranges, saved);
+
+        // BUG-05-001: check terminators for Invoke calls returning collections.
+        update_element_summaries_from_terminator(
+            &block.terminator,
+            pool,
+            &mut state.element_summary_table,
+        );
 
         changed |= process_terminator(
             block,

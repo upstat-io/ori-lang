@@ -1,0 +1,4 @@
+@main () -> void = {
+    let m: {str: int} = {};
+    print(msg: m.debug())
+}
