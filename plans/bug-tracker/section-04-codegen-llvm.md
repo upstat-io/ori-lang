@@ -19,6 +19,14 @@ Bugs in LLVM IR generation, JIT/AOT compilation, monomorphization, ARC pipeline 
 
 ## Open Bugs
 
+- [x] `[BUG-04-028][high]` **AIMS invoke RC analysis: merge block params get RcInc without matching RcDec** — found by continue-roadmap.
+  Repro: Any test body with coalesce (`opt ?? default`) or branch producing RC-managed values followed by `assert_eq`. E.g., `let a = opt ?? [1,2,3]; assert_eq(actual: a, expected: [1,2,3])` in a test function. Works correctly as `@main`.
+  Root cause: `is_live_at_exit` in `helpers.rs` returns true for merge block params (from coalesce/branch) at invoke terminators. AIMS inserts `RcInc` before the `[own]` invoke call but no matching `RcDec` on normal or unwind paths. Merge block param alias (`%13 = %11`) may confuse liveness tracking. Test body functions use immediate-emit path (no nounwind analysis), so calls become `invoke` instead of `call` — regular functions avoid this because two-pass nounwind pipeline converts calls to `call`.
+  Manifests as: 1-allocation leak (coalesce case, `test_coalesce_copy.ori`), double-free crash (COW nested case, `cow/nested.ori`, `cow/sharing.ori`). The double-free crashes the entire LLVM spec test suite.
+  Subsystem: `compiler/ori_arc/src/aims/emit_rc/forward_walk.rs`, `helpers.rs` (`is_live_at_exit`), `arg_ownership.rs`
+  Found: 2026-04-03 | Source: continue-roadmap
+  Note: Active work in JIT Exception Handling plan (Section 04) and repr-opt plan touch this area.
+
 - [ ] `[BUG-04-001][high]` **Cross-compilation to Windows fails: host linker used instead of cross-linker** — found by manual.
   Repro: `ori build hello.ori --target=x86_64-pc-windows-msvc` on Linux host
   Error: `R_AMD64_IMAGEBASE with __ImageBase undefined` — GNU ld receives Windows COFF object
@@ -126,6 +134,13 @@ Bugs in LLVM IR generation, JIT/AOT compilation, monomorphization, ARC pipeline 
   Found: 2026-04-02 | Source: continue-roadmap (imported-generic-mono verification)
   Note: Active work in `plans/imported-generic-mono/` directly related. Non-crashing — graceful recovery produces correct results for primitive type instantiations.
 
+- [ ] `[BUG-04-029][medium]` **LLVM backend missing shift overflow/negative count/bit width runtime checks** — found by continue-roadmap.
+  Repro: `timeout 30 cargo run -q -p oric --bin ori -- test --backend=llvm tests/spec/expressions/operators_bitwise.ori` — 5 tests fail: `test_shl_overflow_panic`, `test_shl_bit_width_panic`, `test_shl_negative_count_panic`, `test_shr_bit_width_panic`, `test_shr_negative_count_panic`. All expect panics but operations succeed silently (UB in LLVM — shift by negative or >= bit width is poison).
+  Root cause: `checked_ops.rs` implements checked div/rem (04.1 fix) but has no shift overflow/negative count/bit width guards. The interpreter has runtime checks; the LLVM backend emits raw `shl`/`ashr` without validation.
+  Subsystem: `compiler/ori_llvm/src/codegen/ir_builder/checked_ops.rs`
+  Found: 2026-04-03 | Source: continue-roadmap (JIT EH §04 verification)
+  Note: Active work in roadmap section 15C (Literals & Operators) and 21A (LLVM Backend) touch this area.
+
 - [x] `[BUG-04-023][high]` **LLVM codegen still panics on structural `==`/`!=` for user-defined types without `#derive(Eq)`** — found by review-work.
   Resolved: Fixed on 2026-04-02 (structs) and 2026-04-03 (enums). Added `emit_structural_eq` in `compound_traits.rs` for structs (field-by-field AND) and `emit_structural_eq_enum` for unit-only enums (tag comparison). When `emit_derived_eq_call` returns None, both Struct and Enum types fall back to structural comparison. Enums with payload variants still require `#derive(Eq)`. Tests: `aot_enum_structural_eq.ori` + prior struct test. 15,019 tests passing.
   Repro: `timeout 150 cargo run -q -p oric --bin ori -- test --backend=llvm /tmp/struct_eq_no_derive.ori` with:
@@ -178,6 +193,17 @@ Bugs in LLVM IR generation, JIT/AOT compilation, monomorphization, ARC pipeline 
   Root cause: `emit_element_debug()` routes `TypeInfo::Byte` through `ori_byte_debug_format()`, but the current spec/tests still pin byte debug to decimal output until byte storage semantics change.
   Subsystem: `compiler/ori_llvm/src/codegen/arc_emitter/builtins/debug_helpers.rs`, `compiler/ori_rt/src/string/convert.rs`, `tests/spec/traits/debug/primitives.ori`
   Found: 2026-04-01 | Source: review-work (hygiene-full §03)
+
+- [ ] `[BUG-04-030][high]` **LLVM JIT spec tests: 2639 LCFails from multiple pre-existing codegen issues** — found by continue-roadmap.
+  Repro: `ori test --backend=llvm tests/` shows 2639 LCFail. Individual test files pass but complex files with many functions trigger failures.
+  Root causes (4 distinct issues, all pre-existing before JIT EH work):
+  (A) **Generalized Vars in generic function bodies** — type checker stores Unbound Vars in expr_types that get `VarState::Generalized` during let-polymorphism, breaking `VarState::Link` chains. These leak to codegen as unresolved types. Manifests as `ori_rc_dec({ i64, i64, ptr }, ptr)` type mismatch (passing struct instead of ptr). ~279 occurrences.
+  (B) **Index out of bounds (u32::MAX)** — dominant pattern (~50+ files). `index out of bounds: the len is N but the index is 4294967295`. Likely a missing block/var ID sentinel from ARC IR emission producing `u32::MAX`.
+  (C) **StructValue vs IntValue type confusion** — 4 files. LLVM emitter produces struct value where int value is expected. Likely a type resolution issue for parameter passing.
+  (D) **Missing JIT runtime functions** — 2 files. `ori_iter_join` and `ori_iter_flatten` not marked `jit_allowed` in `RT_FUNCTIONS`.
+  Subsystem: `compiler/ori_types/src/unify/generalization.rs` (A), `compiler/ori_llvm/src/codegen/arc_emitter/` (B, C), `compiler/ori_llvm/src/codegen/runtime_decl/` (D)
+  Found: 2026-04-03 | Source: continue-roadmap (JIT EH plan §04B investigation)
+  Note: Active work in JIT EH plan §04B and repr-opt plan touch this area. Root cause (A) is partially mitigated by Scheme-unwrapping fix in `ori_arc/src/lower/calls/lambda.rs` (polymorphic lambda params) and BoundVar resolution in `define_phase.rs` + `prepare.rs`. Root cause (D) is a trivial fix (add `jit_allowed: true` to the RT_FUNCTIONS entries).
 
 ---
 

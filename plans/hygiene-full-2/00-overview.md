@@ -11,7 +11,7 @@ references:
 
 ## Mission
 
-Eliminate all implementation hygiene violations found in the April 2026 full-project review: 38 LEAK findings (algorithmic duplication, scattered knowledge, duplicated dispatch), 10 GAPs, 14 DRIFTs, 8 missing SAFETY annotations, and 58 files exceeding the 500-line limit. Priority: LEAKs first (they cascade), then DRIFTs (they silently diverge), then GAPs, then BLOAT.
+Achieve a cohesive, well-architected compiler where every phase has clear boundaries, every piece of knowledge lives in exactly one canonical home, and every solution is the correct one. This sweep addresses the runtime COW protocol — where cow_mode checks are scattered with no canonical dispatch point; evaluator and codegen method dispatch — where iterator consumers duplicate the same algorithmic skeletons and cross-backend routing tables drift independently; type resolution — where parallel ParsedType matching has no shared resolver; and structural cleanliness — oversized files that mix responsibilities, stale plan annotations from completed work, and undocumented unsafe blocks. The standard is `.claude/rules/impl-hygiene.md`.
 
 ## Architecture
 

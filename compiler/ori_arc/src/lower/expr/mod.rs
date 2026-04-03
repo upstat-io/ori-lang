@@ -11,7 +11,7 @@ use rustc_hash::{FxHashMap, FxHashSet};
 
 use crate::ir::{ArcFunction, ArcValue, ArcVarId, CtorKind, LitValue, PrimOp};
 
-use super::scope::ArcScope;
+use super::scope::{merge_mutable_vars, ArcScope};
 use super::{ArcIrBuilder, ArcProblem, VariantCtors};
 
 // Loop context
@@ -414,6 +414,15 @@ impl ArcLowerer<'_> {
             return self.lower_coalesce(left, right, ty, span);
         }
 
+        // Short-circuit: `&&` and `||` must not evaluate the RHS when the
+        // LHS already determines the result. Same pattern as lower_coalesce.
+        if op == ori_ir::BinaryOp::And {
+            return self.lower_short_circuit_and(left, right, ty, span);
+        }
+        if op == ori_ir::BinaryOp::Or {
+            return self.lower_short_circuit_or(left, right, ty, span);
+        }
+
         let lhs = self.lower_expr(left);
         let rhs = self.lower_expr(right);
         self.builder.emit_let(
@@ -470,6 +479,10 @@ impl ArcLowerer<'_> {
             .terminate_branch(is_some, some_block, none_block);
 
         let pre_scope = self.scope.clone();
+        let mut mutable_var_types = FxHashMap::default();
+        for (name, var) in pre_scope.mutable_bindings() {
+            mutable_var_types.insert(name, self.builder.var_type_or_unit(var));
+        }
 
         // Some/Ok branch: pass-through LHS if chaining, extract payload otherwise.
         self.builder.position_at(some_block);
@@ -479,6 +492,7 @@ impl ArcLowerer<'_> {
         } else {
             self.builder.emit_project(ty, lhs, 1, Some(span))
         };
+        let some_scope = self.scope.clone();
         let some_terminated = self.builder.is_terminated();
         let some_exit = self.builder.current_block();
 
@@ -486,24 +500,147 @@ impl ArcLowerer<'_> {
         self.builder.position_at(none_block);
         self.scope = pre_scope.clone();
         let rhs_val = self.lower_expr(right);
+        let none_scope = self.scope.clone();
         let none_terminated = self.builder.is_terminated();
         let none_exit = self.builder.current_block();
 
-        // Merge block with result parameter.
+        // Merge block: result param + mutable variable merge params.
         let result_param = self.builder.add_block_param(merge_block, ty);
+        let rebindings = merge_mutable_vars(
+            self.builder,
+            merge_block,
+            &pre_scope,
+            &[some_scope.clone(), none_scope.clone()],
+            &mutable_var_types,
+        );
 
         if !some_terminated {
             self.builder.position_at(some_exit);
-            self.builder.terminate_jump(merge_block, vec![some_val]);
+            let mut jump_args = vec![some_val];
+            for (name, _) in &rebindings {
+                let var = some_scope.lookup(*name).unwrap_or(some_val);
+                jump_args.push(var);
+            }
+            self.builder.terminate_jump(merge_block, jump_args);
         }
         if !none_terminated {
             self.builder.position_at(none_exit);
-            self.builder.terminate_jump(merge_block, vec![rhs_val]);
+            let mut jump_args = vec![rhs_val];
+            for (name, _) in &rebindings {
+                let var = none_scope.lookup(*name).unwrap_or(rhs_val);
+                jump_args.push(var);
+            }
+            self.builder.terminate_jump(merge_block, jump_args);
         }
 
         self.builder.position_at(merge_block);
         self.scope = pre_scope;
+        for (name, merge_var) in &rebindings {
+            self.scope.bind_mutable(*name, *merge_var);
+        }
         result_param
+    }
+
+    /// Lower `a && b` with short-circuit evaluation.
+    ///
+    /// Generates: evaluate a → branch on a → then: evaluate b → merge;
+    /// else: false → merge. Same pattern as `lower_coalesce`.
+    fn lower_short_circuit_and(
+        &mut self,
+        left: CanId,
+        right: CanId,
+        ty: Idx,
+        span: Span,
+    ) -> ArcVarId {
+        let lhs = self.lower_expr(left);
+
+        let then_block = self.builder.new_block();
+        let else_block = self.builder.new_block();
+        let merge_block = self.builder.new_block();
+        self.builder.terminate_branch(lhs, then_block, else_block);
+
+        let pre_scope = self.scope.clone();
+
+        // Then: evaluate RHS (only when LHS is true)
+        self.builder.position_at(then_block);
+        self.scope = pre_scope.clone();
+        let rhs = self.lower_expr(right);
+        let then_terminated = self.builder.is_terminated();
+        let then_exit = self.builder.current_block();
+
+        // Else: false
+        self.builder.position_at(else_block);
+        self.scope = pre_scope.clone();
+        let false_val = self.builder.emit_let(
+            Idx::BOOL,
+            ArcValue::Literal(LitValue::Bool(false)),
+            Some(span),
+        );
+        let else_exit = self.builder.current_block();
+
+        // Merge
+        let result = self.builder.add_block_param(merge_block, ty);
+        if !then_terminated {
+            self.builder.position_at(then_exit);
+            self.builder.terminate_jump(merge_block, vec![rhs]);
+        }
+        self.builder.position_at(else_exit);
+        self.builder.terminate_jump(merge_block, vec![false_val]);
+
+        self.builder.position_at(merge_block);
+        self.scope = pre_scope;
+        result
+    }
+
+    /// Lower `a || b` with short-circuit evaluation.
+    ///
+    /// Generates: evaluate a → branch on a → then: true → merge;
+    /// else: evaluate b → merge. Same pattern as `lower_coalesce`.
+    fn lower_short_circuit_or(
+        &mut self,
+        left: CanId,
+        right: CanId,
+        ty: Idx,
+        span: Span,
+    ) -> ArcVarId {
+        let lhs = self.lower_expr(left);
+
+        let then_block = self.builder.new_block();
+        let else_block = self.builder.new_block();
+        let merge_block = self.builder.new_block();
+        self.builder.terminate_branch(lhs, then_block, else_block);
+
+        let pre_scope = self.scope.clone();
+
+        // Then: true
+        self.builder.position_at(then_block);
+        self.scope = pre_scope.clone();
+        let true_val = self.builder.emit_let(
+            Idx::BOOL,
+            ArcValue::Literal(LitValue::Bool(true)),
+            Some(span),
+        );
+        let then_exit = self.builder.current_block();
+
+        // Else: evaluate RHS (only when LHS is false)
+        self.builder.position_at(else_block);
+        self.scope = pre_scope.clone();
+        let rhs = self.lower_expr(right);
+        let else_terminated = self.builder.is_terminated();
+        let else_exit = self.builder.current_block();
+
+        // Merge
+        let result = self.builder.add_block_param(merge_block, ty);
+        self.builder.position_at(then_exit);
+        self.builder.terminate_jump(merge_block, vec![true_val]);
+        if !else_terminated {
+            self.builder.position_at(else_exit);
+            self.builder.terminate_jump(merge_block, vec![rhs]);
+        }
+
+        self.builder.position_at(merge_block);
+        self.scope = pre_scope;
+        result
     }
 
     fn lower_unary(

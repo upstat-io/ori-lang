@@ -5,10 +5,10 @@
 //! - **Panic**: `ori_panic`, `ori_panic_cstr` (with JIT recovery + user handler dispatch)
 //! - **Assert**: `ori_assert`, `ori_assert_eq_*`
 //! - **Catch/recover**: `ori_catch_cleanup`, `ori_catch_recover`
-//! - **JIT recovery**: `setjmp`/`longjmp`-based error recovery for test runners (`jit_recovery`)
+//! - **JIT recovery**: LLVM `invoke`/`landingpad` for test wrappers; legacy `setjmp`/`longjmp` fallback in `jit_run_protected` (`jit_recovery`)
 //! - **Panic handler**: `ori_register_panic_handler` for user `@panic` functions (`panic_state`)
 
-mod jit_recovery;
+pub(crate) mod jit_recovery;
 mod panic_state;
 
 use std::ffi::{c_char, CStr};
@@ -78,8 +78,9 @@ pub extern "C" fn ori_print_bool(b: bool) {
 /// Dispatch order:
 /// 1. Store panic state (for JIT test assertions)
 /// 2. If user `@panic` handler registered and not re-entrant: call trampoline
-/// 3. If JIT mode: `longjmp` back to test runner
-/// 4. AOT default: raise C exception via `_Unwind_RaiseException`
+/// 3. Raise C exception (`_Unwind_RaiseException` on Itanium, `RaiseException` on MSVC).
+///    `catch(expr:)` landing pads catch the exception; uncaught panics propagate
+///    to the JIT test wrapper's catch-all landing pad.
 #[no_mangle]
 pub extern "C-unwind" fn ori_panic(s: *const OriStr) {
     let msg = if s.is_null() {
@@ -95,29 +96,18 @@ pub extern "C-unwind" fn ori_panic(s: *const OriStr) {
     // Store panic state in thread-local storage
     panic_state::store_panic(&msg);
 
-    // Call user @panic handler if registered (AOT only, not re-entrant)
-    panic_state::call_panic_trampoline(&msg);
-
-    // On Itanium: if JIT mode, longjmp back to the test runner.
-    // On MSVC: JIT mode is not used — panics go through C++ throw,
-    // caught by ori_try_call's catch(OriPanicException&) in jit_run_protected.
-    #[cfg(not(all(target_os = "windows", target_env = "msvc")))]
-    if jit_recovery::is_jit_mode() {
-        let buf = jit_recovery::JIT_RECOVERY_BUF.with(std::cell::Cell::get);
-        if !buf.is_null() {
-            // SAFETY: buf is valid — set by enter_jit_mode, stack-allocated in run_test
-            unsafe { jit_recovery::longjmp(buf, 1) };
-        }
+    // Call user @panic handler if registered (AOT only, not re-entrant).
+    // If no handler is registered, print the default panic message.
+    if !panic_state::call_panic_trampoline(&msg) {
+        eprintln!("ori panic: {msg}");
     }
 
-    // Raise C exception: _Unwind_RaiseException (Itanium) or RaiseException (MSVC)
-    eprintln!("ori panic: {msg}");
-    aot_raise_exception(msg);
+    dispatch_panic(msg);
 }
 
 /// Panic with a C string message.
 ///
-/// Same dispatch order as `ori_panic`: user handler → JIT longjmp → C exception.
+/// Same dispatch order as `ori_panic`: user handler → C exception.
 #[no_mangle]
 pub extern "C-unwind" fn ori_panic_cstr(s: *const c_char) {
     let msg = if s.is_null() {
@@ -130,22 +120,37 @@ pub extern "C-unwind" fn ori_panic_cstr(s: *const c_char) {
 
     panic_state::store_panic(&msg);
 
-    // Call user @panic handler if registered (AOT only, not re-entrant)
-    panic_state::call_panic_trampoline(&msg);
-
-    // On Itanium: if JIT mode, longjmp back to the test runner.
-    // On MSVC: panics go through C++ throw → ori_try_call.
-    #[cfg(not(all(target_os = "windows", target_env = "msvc")))]
-    if jit_recovery::is_jit_mode() {
-        let buf = jit_recovery::JIT_RECOVERY_BUF.with(std::cell::Cell::get);
-        if !buf.is_null() {
-            // SAFETY: buf is valid — set by enter_jit_mode, stack-allocated in run_test
-            unsafe { jit_recovery::longjmp(buf, 1) };
-        }
+    if !panic_state::call_panic_trampoline(&msg) {
+        eprintln!("ori panic: {msg}");
     }
 
-    // Raise C exception: _Unwind_RaiseException (Itanium) or RaiseException (MSVC)
-    eprintln!("ori panic: {msg}");
+    dispatch_panic(msg);
+}
+
+/// Choose the correct panic recovery mechanism.
+///
+/// - **JIT mode** (Itanium only): `longjmp` back to the Rust caller's `setjmp`
+///   save point. Used when `ori_panic` is called from Rust test infrastructure
+///   or `ori_run_main`, which cannot catch foreign C exceptions.
+/// - **Otherwise**: Raise a C exception via `_Unwind_RaiseException` (Itanium)
+///   or `RaiseException` (MSVC). Caught by LLVM-generated `invoke`/`landingpad`
+///   in `catch(expr:)` blocks and JIT test wrappers.
+#[expect(
+    improper_ctypes_definitions,
+    reason = "C-unwind ABI is for unwind semantics, not actual C interop — String stays in Rust frames"
+)]
+extern "C-unwind" fn dispatch_panic(msg: String) -> ! {
+    #[cfg(not(all(target_os = "windows", target_env = "msvc")))]
+    {
+        if super::jit_recovery::is_jit_mode() {
+            let buf = super::jit_recovery::JIT_RECOVERY_BUF.with(std::cell::Cell::get);
+            if !buf.is_null() {
+                // SAFETY: buf was set by enter_jit_mode and points to a valid JmpBuf
+                // on the caller's stack frame. longjmp never returns.
+                unsafe { super::jit_recovery::longjmp(buf, 1) };
+            }
+        }
+    }
     aot_raise_exception(msg);
 }
 
@@ -157,7 +162,11 @@ pub extern "C-unwind" fn ori_panic_cstr(s: *const c_char) {
 ///
 /// The panic message was already stored in thread-local storage by
 /// `ori_panic`/`ori_panic_cstr` before this is called.
-fn aot_raise_exception(_msg: String) -> ! {
+#[expect(
+    improper_ctypes_definitions,
+    reason = "C-unwind ABI is for unwind semantics, not actual C interop — String stays in Rust frames"
+)]
+extern "C-unwind" fn aot_raise_exception(_msg: String) -> ! {
     // SAFETY: ori_raise_exception is implemented in eh_personality.c,
     // compiled and linked via build.rs. It never returns.
     unsafe { ori_raise_exception() }
@@ -215,8 +224,8 @@ pub extern "C" fn ori_catch_recover() -> OriStr {
 
 /// Assert that a condition is true.
 ///
-/// On failure, routes through `ori_panic_cstr` which handles JIT
-/// (longjmp to test runner) and AOT (unwind via Ori exception) paths.
+/// On failure, routes through `ori_panic_cstr` which unwinds via
+/// Ori exception in both JIT and AOT paths.
 #[no_mangle]
 pub extern "C-unwind" fn ori_assert(condition: bool) {
     if !condition {

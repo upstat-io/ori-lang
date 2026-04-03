@@ -111,6 +111,11 @@ pub extern "C" fn ori_rc_inc(data_ptr: *mut u8) {
         return;
     }
 
+    // Misaligned pointers indicate codegen type confusion — recover in JIT mode.
+    if !(data_ptr as usize).is_multiple_of(8) {
+        rc_misaligned_abort(data_ptr, "ori_rc_inc");
+    }
+
     rt_debug_validate_rc(data_ptr.cast_const(), "ori_rc_inc");
     #[cfg(debug_assertions)]
     rt_debug_check_not_freed(data_ptr.cast_const(), "ori_rc_inc");
@@ -160,16 +165,52 @@ pub extern "C" fn ori_rc_inc(data_ptr: *mut u8) {
 #[cold]
 #[inline(never)]
 pub(super) fn rc_underflow_abort(data_ptr: *mut u8) -> ! {
-    // Use raw write to stderr fd to avoid deadlocking on the stderr lock
-    // held by the Rust test harness (eprintln! acquires that lock).
     use std::io::Write;
     let msg = format!(
         "ori: FATAL — ori_rc_dec called on already-freed allocation at {data_ptr:p}\n\
          ori: this is a double-free bug in the compiler's RC codegen\n"
     );
     let _ = std::io::stderr().write_all(msg.as_bytes());
-    // Use _exit equivalent instead of abort() — abort() raises SIGABRT which
-    // can hang when signal handlers interfere. Exit code mirrors SIGABRT convention.
+
+    // In JIT test mode, recover via longjmp instead of killing the process.
+    #[cfg(not(all(target_os = "windows", target_env = "msvc")))]
+    {
+        if crate::io::jit_recovery::is_jit_mode() {
+            crate::io::set_panic_state_for_test(&msg);
+            let buf = crate::io::jit_recovery::JIT_RECOVERY_BUF.with(std::cell::Cell::get);
+            if !buf.is_null() {
+                unsafe { crate::io::jit_recovery::longjmp(buf, 1) };
+            }
+        }
+    }
+
+    std::process::exit(SIGABRT_EXIT_CODE);
+}
+
+/// Abort on misaligned pointer passed to RC operation.
+///
+/// Indicates a codegen type confusion bug. In JIT mode, recovers via longjmp.
+#[cold]
+#[inline(never)]
+fn rc_misaligned_abort(data_ptr: *mut u8, func: &str) -> ! {
+    use std::io::Write;
+    let msg = format!(
+        "ori: FATAL — {func} called with misaligned pointer {data_ptr:p}\n\
+         ori: this is a type confusion bug in the compiler's codegen\n"
+    );
+    let _ = std::io::stderr().write_all(msg.as_bytes());
+
+    #[cfg(not(all(target_os = "windows", target_env = "msvc")))]
+    {
+        if crate::io::jit_recovery::is_jit_mode() {
+            crate::io::set_panic_state_for_test(&msg);
+            let buf = crate::io::jit_recovery::JIT_RECOVERY_BUF.with(std::cell::Cell::get);
+            if !buf.is_null() {
+                unsafe { crate::io::jit_recovery::longjmp(buf, 1) };
+            }
+        }
+    }
+
     std::process::exit(SIGABRT_EXIT_CODE);
 }
 
@@ -199,6 +240,10 @@ pub(super) fn rc_underflow_abort(data_ptr: *mut u8) -> ! {
 pub extern "C" fn ori_rc_dec(data_ptr: *mut u8, drop_fn: Option<extern "C" fn(*mut u8)>) {
     if data_ptr.is_null() {
         return;
+    }
+
+    if !(data_ptr as usize).is_multiple_of(8) {
+        rc_misaligned_abort(data_ptr, "ori_rc_dec");
     }
 
     rt_debug_validate_rc(data_ptr.cast_const(), "ori_rc_dec");

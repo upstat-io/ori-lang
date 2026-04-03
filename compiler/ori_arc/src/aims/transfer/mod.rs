@@ -364,6 +364,14 @@ pub fn backward_terminator_demands(term: &ArcTerminator) -> SmallVec<[(ArcVarId,
             args.iter().map(|v| (*v, Cardinality::Once)).collect()
         }
 
+        // InvokeIndirect: closure + all args demanded once.
+        ArcTerminator::InvokeIndirect { closure, args, .. } => {
+            let mut d = SmallVec::with_capacity(1 + args.len());
+            d.push((*closure, Cardinality::Once));
+            d.extend(args.iter().map(|v| (*v, Cardinality::Once)));
+            d
+        }
+
         // Terminal: no uses.
         ArcTerminator::Resume | ArcTerminator::Unreachable => SmallVec::new(),
     }

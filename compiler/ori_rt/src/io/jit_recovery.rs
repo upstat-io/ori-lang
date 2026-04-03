@@ -3,7 +3,7 @@
 //! Provides platform-abstracted JIT execution protection:
 //! - **`jit_run_protected`**: Run a JIT-compiled function, catching panics.
 //! - **`JmpBuf`**: Oversized buffer for all platform `jmp_buf` layouts.
-//! - **JIT mode**: Thread-local state that redirects panics to `longjmp` (Itanium only).
+//! - **JIT mode**: Legacy fallback — thread-local state for `longjmp` recovery (Itanium only). The primary JIT recovery mechanism is LLVM `invoke`/`landingpad`.
 //!
 //! On MSVC, `_setjmp` is a compiler intrinsic with a hidden frame pointer argument —
 //! it cannot be called via Rust FFI. Instead, `ori_try_call` uses `__try`/`__except`.
@@ -51,7 +51,7 @@ extern "C" {
     pub(super) fn c_setjmp(buf: *mut JmpBuf) -> i32;
 
     /// Restore execution state saved by `setjmp`. Never returns to caller.
-    pub(super) fn longjmp(buf: *mut JmpBuf, val: i32) -> !;
+    pub(crate) fn longjmp(buf: *mut JmpBuf, val: i32) -> !;
 
     /// Free a caught exception object (Itanium ABI).
     ///
@@ -78,7 +78,7 @@ thread_local! {
 
     /// Pointer to the active `JmpBuf` for JIT recovery.
     /// Only valid when `JIT_MODE` is true.
-    pub(super) static JIT_RECOVERY_BUF: Cell<*mut JmpBuf> = const { Cell::new(std::ptr::null_mut()) };
+    pub(crate) static JIT_RECOVERY_BUF: Cell<*mut JmpBuf> = const { Cell::new(std::ptr::null_mut()) };
 }
 
 /// Enter JIT mode: panics will `longjmp` to `buf` instead of terminating.
@@ -102,7 +102,7 @@ pub fn leave_jit_mode() {
 
 /// Check if we're currently in JIT mode.
 #[cfg(not(all(target_os = "windows", target_env = "msvc")))]
-pub(super) fn is_jit_mode() -> bool {
+pub(crate) fn is_jit_mode() -> bool {
     JIT_MODE.with(std::cell::Cell::get)
 }
 

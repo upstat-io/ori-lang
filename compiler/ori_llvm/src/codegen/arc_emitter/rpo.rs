@@ -42,7 +42,8 @@ fn rpo_dfs(
             }
             rpo_dfs(func, default.index(), visited, post_order, dead);
         }
-        ArcTerminator::Invoke { normal, unwind, .. } => {
+        ArcTerminator::Invoke { normal, unwind, .. }
+        | ArcTerminator::InvokeIndirect { normal, unwind, .. } => {
             rpo_dfs(func, normal.index(), visited, post_order, dead);
             rpo_dfs(func, unwind.index(), visited, post_order, dead);
         }

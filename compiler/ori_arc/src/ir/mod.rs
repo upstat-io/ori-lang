@@ -270,6 +270,18 @@ pub enum ArcTerminator {
         unwind: ArcBlockId,
     },
 
+    /// Indirect call (through closure) that may unwind.
+    /// On success, jumps to `normal`; on unwind, jumps to `unwind`.
+    /// Same as `Invoke` but calls through a closure fat pointer.
+    InvokeIndirect {
+        dst: ArcVarId,
+        ty: Idx,
+        closure: ArcVarId,
+        args: Vec<ArcVarId>,
+        normal: ArcBlockId,
+        unwind: ArcBlockId,
+    },
+
     /// Resume unwinding (post-2026).
     Resume,
 
@@ -296,6 +308,11 @@ impl ArcTerminator {
             ArcTerminator::Jump { args, .. } | ArcTerminator::Invoke { args, .. } => {
                 SmallVec::from_slice(args)
             }
+            ArcTerminator::InvokeIndirect { closure, args, .. } => {
+                let mut vars = SmallVec::from_slice(args);
+                vars.push(*closure);
+                vars
+            }
             ArcTerminator::Branch { cond, .. } => smallvec![*cond],
             ArcTerminator::Switch { scrutinee, .. } => smallvec![*scrutinee],
             ArcTerminator::Resume | ArcTerminator::Unreachable => SmallVec::new(),
@@ -310,6 +327,9 @@ impl ArcTerminator {
             ArcTerminator::Return { value } => *value == target,
             ArcTerminator::Jump { args, .. } | ArcTerminator::Invoke { args, .. } => {
                 args.contains(&target)
+            }
+            ArcTerminator::InvokeIndirect { closure, args, .. } => {
+                *closure == target || args.contains(&target)
             }
             ArcTerminator::Branch { cond, .. } => *cond == target,
             ArcTerminator::Switch { scrutinee, .. } => *scrutinee == target,
@@ -330,6 +350,12 @@ impl ArcTerminator {
         match self {
             ArcTerminator::Return { value } => sub(value, old, new),
             ArcTerminator::Jump { args, .. } | ArcTerminator::Invoke { args, .. } => {
+                for a in args {
+                    sub(a, old, new);
+                }
+            }
+            ArcTerminator::InvokeIndirect { closure, args, .. } => {
+                sub(closure, old, new);
                 for a in args {
                     sub(a, old, new);
                 }

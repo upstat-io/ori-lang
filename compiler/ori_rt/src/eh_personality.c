@@ -415,7 +415,6 @@ static void ori_exception_cleanup(
  * Called by ori_panic/ori_panic_cstr after:
  * 1. Storing the panic message in thread-local storage
  * 2. Calling the user's @panic handler (if registered)
- * 3. Attempting JIT longjmp recovery (if in JIT mode)
  *
  * Allocates an OriException on the heap, sets up the Itanium
  * _Unwind_Exception header, and calls _Unwind_RaiseException.
