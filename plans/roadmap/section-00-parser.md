@@ -23,7 +23,7 @@ sections:
     status: complete
   - id: "0.3"
     title: Declarations
-    status: complete
+    status: in-progress
   - id: "0.4"
     title: Types
     status: in-progress
