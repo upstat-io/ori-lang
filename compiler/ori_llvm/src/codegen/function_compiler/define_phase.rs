@@ -131,7 +131,7 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
         // Must resolve ALL lambdas before compiling ANY, because nested lambdas
         // may reference sibling lambdas' types (e.g., inner lambda's PartialApply
         // is in outer lambda's body, not the parent function's body).
-        resolve_all_lambda_bound_vars(&arc_func, &mut lambdas, self.pool);
+        resolve_all_lambda_bound_vars(&mut arc_func, &mut lambdas, self.pool, self.interner);
 
         let mut lambda_renames: Vec<(Name, Name)> = Vec::new();
         for mut lambda in lambdas {
@@ -434,15 +434,16 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
 
 /// Resolve `BoundVar` types in ALL lambdas to concrete types.
 ///
-/// Uses a two-phase approach:
-/// 1. Build a global `BoundVar` → concrete mapping by finding `PartialApply`
-///    instructions in the parent that have concrete types at call sites
-/// 2. Apply the mapping to ALL lambdas (handles nested lambdas because
-///    all `BoundVars` from the same Scheme share the same variable IDs)
+/// Handles two cases:
+/// 1. **Single-instantiation**: a lambda used at one concrete type → resolve directly
+/// 2. **Multi-instantiation**: a lambda used at multiple concrete types (e.g.,
+///    `let $id = x -> x; id("hello"); id(42)`) → clone per instantiation and
+///    rewrite the parent's ARC IR so each use gets the correct specialization
 pub(super) fn resolve_all_lambda_bound_vars(
-    parent: &ori_arc::ArcFunction,
-    lambdas: &mut [ori_arc::ArcFunction],
+    parent: &mut ori_arc::ArcFunction,
+    lambdas: &mut Vec<ori_arc::ArcFunction>,
     pool: &ori_types::Pool,
+    interner: &ori_ir::StringInterner,
 ) {
     use ori_types::Tag;
 
@@ -456,16 +457,63 @@ pub(super) fn resolve_all_lambda_bound_vars(
         return;
     }
 
-    // Build a global BoundVar → concrete mapping from the parent function.
-    // The parent function has concrete types from call-site instantiation
-    // (e.g., `%4: (int) -> (int) -> int` from `Ident(f)`).
-    // We extract BoundVar mappings by finding concrete Function types and
-    // matching them structurally against the lambda param types.
+    // Phase 1: Detect multi-instantiation and handle it by cloning lambdas.
+    // Must run before the global map build because multi-inst lambdas get
+    // specialized clones that are resolved independently.
+    let orig_len = lambdas.len();
+    let mut multi_inst_lambdas = rustc_hash::FxHashSet::<usize>::default();
+
+    for i in 0..orig_len {
+        let has_bound_vars = lambdas[i]
+            .params
+            .iter()
+            .any(|p| matches!(pool.tag(p.ty), Tag::BoundVar | Tag::Var));
+        if !has_bound_vars {
+            continue;
+        }
+
+        let lambda_name = lambdas[i].name;
+        let instantiations = find_all_instantiation_types(parent, lambda_name, pool);
+
+        if instantiations.len() > 1 {
+            // Multi-instantiation detected. Clone for each and rewrite parent.
+            let pa_args = find_partial_apply_args(parent, lambda_name);
+            for (inst_idx, concrete_fn_ty) in instantiations.iter().enumerate() {
+                let mut clone = lambdas[i].clone();
+                let base = interner.lookup(lambda_name);
+                let spec_name_str = format!("{base}${inst_idx}");
+                clone.name = interner.intern(&spec_name_str);
+
+                // Build per-instantiation map and resolve this clone.
+                let mut inst_map = rustc_hash::FxHashMap::<u32, Idx>::default();
+                build_bound_var_map(pool, *concrete_fn_ty, &clone.params, &mut inst_map);
+                apply_bound_var_map(&mut clone, &inst_map, pool);
+                fallback_bound_vars_to_int(&mut clone, pool);
+
+                lambdas.push(clone);
+            }
+
+            // Rewrite the parent's ARC IR: replace narrowing Let copies with
+            // PartialApply of the correct specialization.
+            rewrite_parent_for_multi_inst(
+                parent,
+                lambda_name,
+                &pa_args,
+                &instantiations,
+                interner,
+                pool,
+            );
+            multi_inst_lambdas.insert(i);
+        }
+    }
+
+    // Phase 2: Build global BoundVar → concrete map for single-inst lambdas.
     let mut global_map: rustc_hash::FxHashMap<u32, Idx> = rustc_hash::FxHashMap::default();
 
-    // Strategy: for each lambda that has BoundVar params, search the parent
-    // for the PartialApply and its concrete instantiation type.
-    for i in 0..lambdas.len() {
+    for i in 0..orig_len {
+        if multi_inst_lambdas.contains(&i) {
+            continue; // Already handled above.
+        }
         let has_bound_vars = lambdas[i]
             .params
             .iter()
@@ -483,14 +531,204 @@ pub(super) fn resolve_all_lambda_bound_vars(
         }
     }
 
-    // Apply the global map to ALL lambdas.
-    for lambda in lambdas.iter_mut() {
+    // Apply the global map to ALL non-multi-inst lambdas.
+    for (i, lambda) in lambdas.iter_mut().enumerate() {
+        if i < orig_len && multi_inst_lambdas.contains(&i) {
+            continue; // Multi-inst originals are not compiled.
+        }
         apply_bound_var_map(lambda, &global_map, pool);
     }
 
     // Final fallback: any remaining BoundVars → Idx::INT.
-    for lambda in lambdas.iter_mut() {
+    for (i, lambda) in lambdas.iter_mut().enumerate() {
+        if i < orig_len && multi_inst_lambdas.contains(&i) {
+            continue;
+        }
         fallback_bound_vars_to_int(lambda, pool);
+    }
+}
+
+/// Find all distinct concrete Function types that a polymorphic lambda is
+/// narrowed to in the parent function's `var_types` (via Let copies).
+fn find_all_instantiation_types(
+    parent: &ori_arc::ArcFunction,
+    lambda_name: Name,
+    pool: &ori_types::Pool,
+) -> Vec<Idx> {
+    use ori_types::Tag;
+
+    // Find the PartialApply dst variable for this lambda.
+    let mut pa_dst = None;
+    for block in &parent.blocks {
+        for instr in &block.body {
+            if let ori_arc::ir::ArcInstr::PartialApply {
+                dst, func: callee, ..
+            } = instr
+            {
+                if *callee == lambda_name {
+                    pa_dst = Some(*dst);
+                    break;
+                }
+            }
+        }
+        if pa_dst.is_some() {
+            break;
+        }
+    }
+
+    let Some(pa_dst) = pa_dst else {
+        return Vec::new();
+    };
+
+    // Find all Let copies: `%N = %pa_dst` where %N has a concrete Function type.
+    let mut instantiations: Vec<Idx> = Vec::new();
+    let mut seen = rustc_hash::FxHashSet::<Vec<Idx>>::default();
+
+    for block in &parent.blocks {
+        for instr in &block.body {
+            if let ori_arc::ir::ArcInstr::Let {
+                dst,
+                value: ori_arc::ir::ArcValue::Var(src),
+                ..
+            } = instr
+            {
+                if *src == pa_dst {
+                    let ty = parent.var_type(*dst);
+                    let resolved = pool.resolve_fully(ty);
+                    if pool.tag(resolved) == Tag::Function {
+                        let params = pool.function_params(resolved);
+                        let all_concrete = params.iter().all(|p| {
+                            let pt = pool.resolve_fully(*p);
+                            !matches!(pool.tag(pt), Tag::BoundVar | Tag::Var | Tag::Scheme)
+                        });
+                        if all_concrete {
+                            // Deduplicate by param types.
+                            let key: Vec<Idx> =
+                                params.iter().map(|p| pool.resolve_fully(*p)).collect();
+                            if seen.insert(key) {
+                                instantiations.push(resolved);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    instantiations
+}
+
+/// Find the capture arguments from a `PartialApply` instruction for a lambda.
+fn find_partial_apply_args(
+    parent: &ori_arc::ArcFunction,
+    lambda_name: Name,
+) -> Vec<ori_arc::ir::ArcVarId> {
+    for block in &parent.blocks {
+        for instr in &block.body {
+            if let ori_arc::ir::ArcInstr::PartialApply {
+                func: callee, args, ..
+            } = instr
+            {
+                if *callee == lambda_name {
+                    return args.clone();
+                }
+            }
+        }
+    }
+    Vec::new()
+}
+
+/// Rewrite the parent's ARC IR for a multi-instantiated lambda: replace
+/// narrowing Let copies with `PartialApply` of the correct specialization.
+fn rewrite_parent_for_multi_inst(
+    parent: &mut ori_arc::ArcFunction,
+    lambda_name: Name,
+    pa_args: &[ori_arc::ir::ArcVarId],
+    instantiations: &[Idx],
+    interner: &ori_ir::StringInterner,
+    pool: &ori_types::Pool,
+) {
+    use ori_types::Tag;
+
+    // Find the PartialApply dst variable.
+    let mut pa_dst = None;
+    for block in &parent.blocks {
+        for instr in &block.body {
+            if let ori_arc::ir::ArcInstr::PartialApply {
+                dst, func: callee, ..
+            } = instr
+            {
+                if *callee == lambda_name {
+                    pa_dst = Some(*dst);
+                    break;
+                }
+            }
+        }
+        if pa_dst.is_some() {
+            break;
+        }
+    }
+    let Some(pa_dst) = pa_dst else { return };
+
+    let base = interner.lookup(lambda_name);
+
+    // Replace narrowing Let copies with PartialApply of the correct clone.
+    for block in &mut parent.blocks {
+        for instr in &mut block.body {
+            if let ori_arc::ir::ArcInstr::Let {
+                dst,
+                value: ori_arc::ir::ArcValue::Var(src),
+                ty,
+            } = instr
+            {
+                if *src == pa_dst {
+                    let var_ty = parent.var_types[dst.index()];
+                    let resolved = pool.resolve_fully(var_ty);
+                    if pool.tag(resolved) == Tag::Function {
+                        let params = pool.function_params(resolved);
+                        let all_concrete = params.iter().all(|p| {
+                            let pt = pool.resolve_fully(*p);
+                            !matches!(
+                                pt,
+                                t if matches!(pool.tag(t), Tag::BoundVar | Tag::Var | Tag::Scheme)
+                            )
+                        });
+                        if all_concrete {
+                            // Find which instantiation index matches.
+                            let key: Vec<Idx> =
+                                params.iter().map(|p| pool.resolve_fully(*p)).collect();
+                            for (idx, inst_ty) in instantiations.iter().enumerate() {
+                                let inst_params = pool.function_params(*inst_ty);
+                                let inst_key: Vec<Idx> =
+                                    inst_params.iter().map(|p| pool.resolve_fully(*p)).collect();
+                                if key == inst_key {
+                                    let spec_name_str = format!("{base}${idx}");
+                                    let spec_name = interner.intern(&spec_name_str);
+                                    *instr = ori_arc::ir::ArcInstr::PartialApply {
+                                        dst: *dst,
+                                        ty: *ty,
+                                        func: spec_name,
+                                        args: pa_args.to_vec(),
+                                    };
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Remove RcInc/RcDec on the original PartialApply result that fed the
+    // now-replaced Let copies. Each specialization creates its own closure.
+    for block in &mut parent.blocks {
+        block.body.retain(|instr| {
+            !matches!(instr,
+                ori_arc::ir::ArcInstr::RcInc { var, .. } | ori_arc::ir::ArcInstr::RcDec { var, .. }
+                if *var == pa_dst
+            )
+        });
     }
 }
 
