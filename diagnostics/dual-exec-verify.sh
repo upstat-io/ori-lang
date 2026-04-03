@@ -267,18 +267,13 @@ run_test_comparison() {
     llvm_lcfail=$(grep -oP '\d+(?= llvm compile fail)' "$LLVM_OUTPUT" | tail -1)
     : "${interp_total:=0}" "${llvm_total:=0}" "${llvm_lcfail:=0}"
 
-    # compile_fail tests pass at type checker (no PASS: line in verbose output)
-    # so they're verified by definition — both backends use the same type checker
-    local compile_fail_verified=$(( llvm_total - VERIFIED ))
-    if [[ $compile_fail_verified -lt 0 ]]; then compile_fail_verified=0; fi
-
-    local total_verified=$((VERIFIED + compile_fail_verified))
-    TOTAL_VERIFIED=$((TOTAL_VERIFIED + total_verified))
+    # Only count tests that were actually runtime-compared (both PASS with matching output).
+    # Previous logic inflated "compile_fail_verified" by counting all non-compared LLVM passes.
+    TOTAL_VERIFIED=$((TOTAL_VERIFIED + VERIFIED))
     local total_mismatches=$((MISMATCH_INTERP + MISMATCH_LLVM))
 
     printf "${C_BOLD}  Results:${C_NC}\n"
     printf "    ${C_GREEN}Verified (runtime, both PASS)${C_NC}:  %d\n" "$VERIFIED"
-    printf "    ${C_GREEN}Verified (compile-fail)${C_NC}:        %d\n" "$compile_fail_verified"
     printf "    ${C_CYAN}LLVM coverage gap${C_NC}:              %d\n" "$INTERP_ONLY"
     printf "    ${C_DIM}Both skip${C_NC}:                      %d\n" "$BOTH_SKIP"
     if [[ $BOTH_FAIL -gt 0 ]]; then
@@ -300,7 +295,7 @@ run_test_comparison() {
     printf "  ${C_BOLD}Interpreter${C_NC}: %s tests | ${C_BOLD}LLVM${C_NC}: %s pass + %s compile-fail\n" \
         "$interp_total" "$llvm_total" "$llvm_lcfail"
     printf "  ${C_BOLD}Total verified${C_NC}: %d / %s (%d%%)\n\n" \
-        "$total_verified" "$llvm_total" "$((total_verified * 100 / (llvm_total > 0 ? llvm_total : 1)))"
+        "$VERIFIED" "$llvm_total" "$((VERIFIED * 100 / (llvm_total > 0 ? llvm_total : 1)))"
 
     return $total_mismatches
 }
