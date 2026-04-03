@@ -1,3 +1,11 @@
+---
+reroute: true
+name: "ARC Opts"
+full_name: "Clang ARC Lessons: AIMS Optimization Enhancements"
+status: queued
+order: 999
+---
+
 # Clang ARC Lessons Index
 
 > **Maintenance Notice:** Update this index when adding/modifying sections.

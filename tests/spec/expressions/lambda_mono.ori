@@ -141,6 +141,36 @@ use std.testing { assert_eq }
 // and will be re-added when BUG-04-030 is fixed.
 
 // =============================================================================
+// Multi-Instantiation (same lambda at multiple concrete types)
+// =============================================================================
+
+// Regression: TPR-04B-001 — a single let-bound polymorphic lambda used at
+// multiple concrete types in the same scope must compile separate specializations.
+// Without per-instantiation cloning, the lambda was compiled once with the first
+// type's ABI, then called with the second type's ABI → segfault.
+@test_multi_inst tests @multi_inst () -> void = {
+    assert_eq(actual: multi_inst(), expected: "hello")
+}
+
+@multi_inst () -> str = {
+    let $id = x -> x;
+    let $a = id("hello");
+    let $b = id(42);
+    a
+}
+
+@test_multi_inst_return_second tests @multi_inst_return_second () -> void = {
+    assert_eq(actual: multi_inst_return_second(), expected: 42)
+}
+
+@multi_inst_return_second () -> int = {
+    let $id = x -> x;
+    let $a = id("hello");
+    let $b = id(42);
+    b
+}
+
+// =============================================================================
 // Chained Calls (f(a)(b) immediate application)
 // =============================================================================
 
