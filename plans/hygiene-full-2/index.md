@@ -117,13 +117,13 @@ ori_types, ori_parse, ori_llvm, ori_repr, ori_rt
 
 ---
 
-### Section 08: File Size Violations
+### Section 08: File and Function Size Violations
 **File:** `section-08-file-size.md` | **Status:** Not Started
 
 ```
-500-line limit, BLOAT, file splitting, submodule extraction
-operators.rs 786, runtime_functions.rs 1606
-infer_binary 449, emit_function 320, emit_construct 302
+500-line limit, 100-line function limit, BLOAT, file splitting
+submodule extraction, function decomposition, helper extraction
+operators.rs 799, runtime_functions.rs 1606, terminators.rs 745
 ori_types, ori_llvm, ori_arc, ori_eval, ori_patterns
 ori_ir, oric, ori_diagnostic, ori_fmt, ori_rt, ori_parse
 ```
@@ -165,6 +165,6 @@ delete plan, hygiene-full-2
 | 05 | LLVM Codegen Internal DRY | `section-05-llvm-dry.md` |
 | 06 | Lexer/Parser DRY | `section-06-lexer-parser-dry.md` |
 | 07 | Stale Annotations and Decorative Banners | `section-07-stale-annotations.md` |
-| 08 | File Size Violations | `section-08-file-size.md` |
+| 08 | File and Function Size Violations | `section-08-file-size.md` |
 | 09 | SAFETY Comments for ori_rt | `section-09-safety-comments.md` |
 | 10 | Cleanup | `section-10-cleanup.md` |

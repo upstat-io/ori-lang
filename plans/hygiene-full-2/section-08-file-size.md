@@ -1,10 +1,10 @@
 ---
 section: "08"
-title: "File Size Violations"
+title: "File and Function Size Violations"
 status: not-started
 reviewed: false
-goal: "Split all 58 production files exceeding the 500-line limit into focused submodules"
-depends_on: ["01", "02", "04", "05", "06"]
+goal: "Split all 69 production files exceeding the 500-line limit into focused submodules, and decompose 31+ functions exceeding the 100-line limit" <!-- reviewed: cohesion fix — 69 files not 58; added function-level violations -->
+depends_on: ["01", "02", "03", "04", "05", "06", "07"] <!-- reviewed: cohesion fix — was missing 03 and 07; all DRY+annotation sections should complete before file splitting -->
 third_party_review:
   status: none
   updated: null
@@ -21,6 +21,9 @@ sections:
   - id: "08.4"
     title: "Split Remaining Crate Files (11 files)"
     status: not-started
+  - id: "08.5"
+    title: "Function Size Violations"
+    status: not-started
   - id: "08.R"
     title: "Third Party Review Findings"
     status: not-started
@@ -29,10 +32,10 @@ sections:
     status: not-started
 ---
 
-# Section 08: File Size Violations
+# Section 08: File and Function Size Violations
 
 **Status:** Not Started
-**Goal:** Split all 58 production source files exceeding the 500-line limit into focused submodules. Each resulting file should be under 500 lines with a single clear responsibility.
+**Goal:** Split all 69 production source files exceeding the 500-line limit into focused submodules, and decompose 31+ functions exceeding the 100-line limit into helper functions. Each resulting file should be under 500 lines with a single clear responsibility; each function under 100 lines (target <50). <!-- reviewed: cohesion fix — 69 files not 58; added function-level violations -->
 
 **Context:** This section runs after Sections 01-06 because those DRY extractions will change file sizes — some files may drop below the limit naturally. Re-measure all files before splitting.
 
@@ -61,10 +64,12 @@ Worst offenders (pre-DRY measurements):
 - `pool/descriptor.rs` — 501 lines
 - Plus 5 more borderline files (507-510 lines)
 
-- [ ] Re-measure all files after Section 04 DRY work
-- [ ] For each file still >500 lines: identify logical split points (use `scripts/extract_tests.py` for test extraction if needed)
+- [ ] Re-measure all files: `find compiler/ori_types -name "*.rs" -not -path "*/test*" | while read f; do lines=$(wc -l < "$f"); if [ "$lines" -gt 500 ]; then echo "$lines $f"; fi; done | sort -rn`
+- [ ] For each file still >500 lines: identify logical split points — look for section comments, distinct impl blocks, or groups of related functions <!-- reviewed: executability fix — clarified how to find split points -->
 - [ ] Split files, update `mod.rs` declarations, verify imports
 - [ ] Use `#[cfg(test)] mod tests;` pattern for test files
+- [ ] `timeout 150 cargo test -p ori_types` after each split to catch broken imports immediately <!-- reviewed: executability fix — intermediate test gate -->
+- [ ] **Priority order:** Start with the worst offenders (operators.rs 799, registry/traits/mod.rs 765, unify/mod.rs 761) — these have the clearest logical split points <!-- reviewed: executability fix -->
 
 ---
 
@@ -72,18 +77,20 @@ Worst offenders (pre-DRY measurements):
 
 Worst offenders (pre-DRY measurements):
 - `runtime_functions.rs` — 1606 lines (claims data table exemption — review if exemption is valid)
+- `arc_emitter/terminators.rs` — 745 lines <!-- reviewed: cohesion fix — was listed as 518, actual is 745 -->
+- `function_compiler/define_phase.rs` — 675 lines <!-- reviewed: cohesion fix — missing from original list -->
 - `derive_codegen/field_ops/thunks.rs` — 592 lines
 - `arc_emitter/instr_dispatch.rs` — 587 lines <!-- reviewed: accuracy fix -->
 - `arc_emitter/builtins/collections/mod.rs` — 566 lines <!-- reviewed: accuracy fix -->
 - `ir_builder/cfg_simplify/mod.rs` — 555 lines
 - `arc_emitter/builtins/iterator_consumers.rs` — 547 lines
 - `function_compiler/mod.rs` — 544 lines
+- `ir_builder/checked_ops.rs` — 543 lines <!-- reviewed: cohesion fix — missing from original list -->
 - `arc_emitter/builtins/debug_helpers.rs` — 534 lines
-- `arc_emitter/terminators.rs` — 518 lines
-- ori_arc: 8 files (state_map 646, aims_pipeline 590, rewrite 573, verify 559, lattice 552, interprocedural 536, transfer 524, extract 517) <!-- reviewed: accuracy fix — lower/expr is 462 (under limit), interprocedural is 536 not 533, transfer is 524 not 516. 8 files corrected from 9 listed items -->
+- ori_arc: 8 files (state_map 646, aims_pipeline 590, rewrite 573, verify 559, lattice 552, interprocedural 536, transfer 524, extract 517) <!-- reviewed: accuracy fix -->
 
 - [ ] Re-measure after Section 05 DRY work
-- [ ] For `runtime_functions.rs`: validate data table exemption — if truly pure static data, add explicit exemption comment; if it contains logic, split
+- [ ] For `runtime_functions.rs` (1606 lines): validate data table exemption. Exemption criteria: file contains ONLY `const`/`static` declarations and their type definitions, with no function bodies containing logic (trivial constructors OK). If it contains runtime logic, dispatch tables, or non-trivial functions, split. Add explicit `// FILE SIZE EXEMPTION: pure static data table — N entries` comment at file top. <!-- reviewed: cohesion fix — made exemption criteria concrete -->
 - [ ] Split remaining files at logical boundaries
 - [ ] Verify: `timeout 150 cargo test -p ori_llvm` and `timeout 150 cargo test -p ori_arc` pass
 
@@ -103,7 +110,12 @@ Worst offenders (pre-DRY measurements):
 - Plus 3 more borderline files
 
 - [ ] Re-measure after Section 02 DRY work
-- [ ] `ori_patterns/src/errors/mod.rs` is the worst — split into error_types.rs + error_factories.rs
+- [ ] `ori_patterns/src/errors/mod.rs` (1018 lines) — worst offender. Contains: type definitions (`ControlAction`, `EvalError`, `EvalErrorKind` enum with ~30 variants), factory functions (~40 `pub fn`), and `Display`/`From` impls. Split into:
+  - `errors/types.rs` — `ControlAction`, `EvalError`, `EvalErrorKind` enum + Display/From impls
+  - `errors/factories.rs` — all `pub fn` error factory functions
+  - `errors/mod.rs` — re-exports only (dispatch hub)
+  <!-- reviewed: executability fix — specified concrete split structure -->
+- [ ] `ori_patterns/src/value/composite/mod.rs` (735 lines) — split composite value types by logical grouping (struct vs enum vs closure)
 - [ ] Split remaining files at logical boundaries
 
 ---
@@ -113,22 +125,52 @@ Worst offenders (pre-DRY measurements):
 Covering ori_rt, oric, ori_diagnostic, ori_fmt, ori_parse, ori_ir:
 
 - `ori_diagnostic/src/emitter/terminal/mod.rs` — 841 lines
+- `ori_parse/src/outcome/mod.rs` — 697 lines
 - `ori_rt/src/iterator/consumers.rs` — 678 lines
+- `ori_parse/src/cursor/mod.rs` — 665 lines
 - `oric/src/ir_dump/expr.rs` — 617 lines
 - `ori_fmt/src/declarations/mod.rs` — 614 lines
+- `ori_ir/src/arena/range_builders.rs` — 608 lines <!-- reviewed: cohesion fix — missing from original list -->
+- `ori_parse/src/grammar/expr/patterns/match_patterns.rs` — 595 lines <!-- reviewed: cohesion fix — was vague "Plus 5 more" -->
 - `oric/src/ast_dump/expr.rs` — 587 lines
 - `oric/src/query/mod.rs` — 582 lines
 - `oric/src/imports/mod.rs` — 580 lines
 - `ori_fmt/src/width/mod.rs` — 579 lines
 - `oric/src/commands/fmt/mod.rs` — 578 lines
-- `ori_parse/src/outcome/mod.rs` — 697 lines
-- `ori_parse/src/cursor/mod.rs` — 665 lines
-- Plus 5 more files from ori_parse (match_patterns, function/mod)
+- `oric/src/test/runner/mod.rs` — 572 lines <!-- reviewed: cohesion fix — missing from original list -->
+- `ori_rt/src/rc/mod.rs` — 554 lines <!-- reviewed: cohesion fix — missing from original list -->
+- `oric/src/problem/codegen/mod.rs` — 551 lines <!-- reviewed: cohesion fix — missing from original list -->
+- `ori_diagnostic/src/diagnostic/mod.rs` — 547 lines <!-- reviewed: cohesion fix — missing from original list -->
+- `oric/src/test/runner/llvm_backend.rs` — 545 lines <!-- reviewed: cohesion fix — missing from original list -->
+- `ori_parse/src/grammar/item/function/mod.rs` — 532 lines <!-- reviewed: cohesion fix — was vague -->
+- `ori_ir/src/arena/mod.rs` — 530 lines <!-- reviewed: cohesion fix — missing from original list -->
+- `ori_fmt/src/formatter/inline.rs` — 520 lines <!-- reviewed: cohesion fix — missing from original list -->
+- `ori_rt/src/string/methods/mod.rs` — 517 lines <!-- reviewed: cohesion fix — missing from original list -->
+- `ori_fmt/src/spacing/category.rs` — 516 lines <!-- reviewed: cohesion fix — missing from original list -->
+- `ori_rt/src/lib.rs` — 512 lines <!-- reviewed: cohesion fix — missing from original list -->
+- `ori_fmt/src/formatter/broken.rs` — 511 lines <!-- reviewed: cohesion fix — missing from original list -->
+- `ori_ir/src/ast/expr.rs` — 510 lines <!-- reviewed: cohesion fix — missing from original list -->
+- `ori_ir/src/canon/expr.rs` — 507 lines <!-- reviewed: cohesion fix — missing from original list -->
+- `ori_ir/src/canon/arena.rs` — 507 lines <!-- reviewed: cohesion fix — missing from original list -->
 
 - [ ] Re-measure after Section 01 and 06 DRY work
 - [ ] `ori_parse/src/outcome/mod.rs` — extract macros to `outcome/macros.rs`
 - [ ] `ori_parse/src/cursor/mod.rs` — extract identifier methods to `cursor/identifiers.rs`
 - [ ] Split remaining files at logical boundaries
+
+---
+
+## 08.5 Function Size Violations (31+ functions >100 lines)
+<!-- reviewed: cohesion fix — this was tracked as a metric in 00-overview.md but had no section addressing it. CLAUDE.md mandates "functions < 100 lines (target < 50)". -->
+
+**Context:** The overview tracks "Functions >100 lines: 31+" as a metric, and CLAUDE.md mandates "functions < 100 lines (target < 50)." These functions violate the coding guidelines and indicate functions that mix concerns or implement complex algorithms without helper extraction.
+
+- [ ] Audit all production files for functions >100 lines. Use a scope-aware tool rather than naive brace matching (which breaks on nested blocks). Approach: use `cargo clippy` with `too_many_lines` lint configured, or manually identify functions in the worst-offender files listed below.
+<!-- reviewed: executability fix — the original awk command was unreliable (nested braces break it); replaced with practical approach -->
+- [ ] For each function >100 lines: extract helper functions, split into logical stages, or decompose into a struct with methods
+- [ ] Priority targets (likely worst offenders based on file sizes): functions in `operators.rs`, `control_flow.rs`, `terminators.rs`, `runtime_functions.rs`, `consumers.rs`, `collections.rs`
+- [ ] Verify: no production function exceeds 100 lines (excluding data tables and generated match arms with explicit exemption comments)
+- [ ] Valid exemptions: pure data tables, exhaustive match arms over large enums where each arm is 1-3 lines. All exemptions require an explicit `// SIZE EXEMPTION:` comment.
 
 ---
 
@@ -138,11 +180,25 @@ Covering ori_rt, oric, ori_diagnostic, ori_fmt, ori_parse, ori_ir:
 
 ---
 
+## 08.T Test Strategy
+
+This section is pure file/function splitting with zero behavioral change. High volume of moves means high risk of broken imports.
+
+- [ ] **Intermediate test gates are mandatory.** Run `timeout 150 cargo test -p <crate>` after EVERY file split within that crate. Do not batch multiple splits before testing.
+- [ ] After completing each sub-section (08.1-08.5), run `timeout 150 ./test-all.sh`
+- [ ] After all splits, verify debug AND release: `timeout 150 cargo b --release && timeout 150 ./test-all.sh`
+- [ ] Structural verification after all splits:
+  - `find compiler/ -name "*.rs" -not -path "*/test*" -not -path "*/bench*" -not -path "*/target/*" | while read f; do lines=$(wc -l < "$f"); if [ "$lines" -gt 500 ]; then echo "$lines $f"; fi; done | sort -rn` shows only exempted files
+
+---
+
 ## 08.N Completion Checklist
 
 - [ ] Zero production files >500 lines (excluding validated data table exemptions)
+- [ ] Zero production functions >100 lines (excluding validated exemptions with `// SIZE EXEMPTION:` comments)
 - [ ] All splits use `mod` + submodule pattern (no re-export hacks)
 - [ ] `timeout 150 ./test-all.sh` passes
+- [ ] Debug AND release builds pass
 - [ ] `./clippy-all.sh` clean
 - [ ] `/tpr-review` covering Section 08
 - [ ] `/impl-hygiene-review last commit`
