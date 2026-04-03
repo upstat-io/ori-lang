@@ -28,6 +28,7 @@ declare_builtins! { emitter, ctx;
         }
     },
     ("str", "to_str") => Some(ctx.arg_vals[0]),
+    ("str", "debug") => emitter.emit_element_debug(ctx.arg_vals[0], ctx.receiver_ty),
     ("str", "contains") => {
         if ctx.arg_vals.len() >= 2 {
             emitter.emit_str_bool_call("ori_str_contains", ctx.arg_vals[0], ctx.arg_vals[1])
@@ -273,6 +274,13 @@ declare_builtins! { emitter, ctx;
             } else {
                 None
             }
+        } else {
+            None
+        }
+    },
+    ("list", "debug") => {
+        if let TypeInfo::List { element } = ctx.type_info {
+            emitter.emit_list_debug(ctx.arg_vals[0], *element)
         } else {
             None
         }

@@ -1,0 +1,10 @@
+// Regression: BUG-04-022 — generic debug() on compound types ([int]) through LLVM.
+// str() prelude function and list debug dispatch must handle compound types.
+
+@show<T: Debug> (v: T) -> str = v.debug();
+
+@main () -> void = {
+    let s = show(v: [1, 2, 3]);
+    if s != "[1, 2, 3]" then
+        panic(msg: "expected [1, 2, 3], got: " + s)
+}
