@@ -111,7 +111,7 @@ Bugs in LLVM IR generation, JIT/AOT compilation, monomorphization, ARC pipeline 
   Note: Active work in `plans/imported-generic-mono/` directly related. Non-crashing — graceful recovery produces correct results for primitive type instantiations.
 
 - [x] `[BUG-04-023][high]` **LLVM codegen still panics on structural `==`/`!=` for user-defined types without `#derive(Eq)`** — found by review-work.
-  Resolved: Fixed on 2026-04-02. Added `emit_structural_eq` in `compound_traits.rs` that performs field-by-field comparison using `emit_element_equals` recursively with AND accumulation. When `emit_derived_eq_call` returns None (no compiled `eq` method), `emit_element_equals` now falls back to structural comparison for Struct types. Verified: `type Point = { x: int, y: int }; a == b` works through LLVM. 15,018 tests passing.
+  Resolved: Fixed on 2026-04-02 (structs) and 2026-04-03 (enums). Added `emit_structural_eq` in `compound_traits.rs` for structs (field-by-field AND) and `emit_structural_eq_enum` for unit-only enums (tag comparison). When `emit_derived_eq_call` returns None, both Struct and Enum types fall back to structural comparison. Enums with payload variants still require `#derive(Eq)`. Tests: `aot_enum_structural_eq.ori` + prior struct test. 15,019 tests passing.
   Repro: `timeout 150 cargo run -q -p oric --bin ori -- test --backend=llvm /tmp/struct_eq_no_derive.ori` with:
   `use std.testing { assert }`
   `type Point = { x: int, y: int }`

@@ -202,7 +202,11 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 self.emit_derived_eq_call(lhs, rhs, elem_ty)
                     .or_else(|| self.emit_structural_eq(lhs, rhs, &fields))
             }
-            TypeInfo::Enum { .. } => self.emit_derived_eq_call(lhs, rhs, elem_ty),
+            TypeInfo::Enum { variants } => {
+                let variants = variants.clone();
+                self.emit_derived_eq_call(lhs, rhs, elem_ty)
+                    .or_else(|| self.emit_structural_eq_enum(lhs, rhs, &variants))
+            }
             _ => None,
         }
     }
@@ -263,6 +267,27 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             });
         }
         Some(result.unwrap_or_else(|| self.builder.const_bool(true)))
+    }
+
+    /// Emit structural equality for an enum without `#derive(Eq)`.
+    ///
+    /// For unit-only enums (all variants have zero fields), compares tags directly.
+    /// For enums with any payload variants, returns None (payload comparison
+    /// requires variant-specific field layout knowledge that needs `#derive(Eq)`).
+    fn emit_structural_eq_enum(
+        &mut self,
+        lhs: ValueId,
+        rhs: ValueId,
+        variants: &[crate::codegen::type_info::EnumVariantInfo],
+    ) -> Option<ValueId> {
+        // Unit-only enums: all variants have zero fields → tag comparison suffices
+        let all_unit = variants.iter().all(|v| v.fields.is_empty());
+        if !all_unit {
+            return None;
+        }
+        let lhs_tag = self.builder.extract_value(lhs, 0, "eeq.ltag")?;
+        let rhs_tag = self.builder.extract_value(rhs, 0, "eeq.rtag")?;
+        Some(self.builder.icmp_eq(lhs_tag, rhs_tag, "eeq.tags"))
     }
 
     /// Emit `lhs.compare(rhs)` for any type, dispatching recursively.

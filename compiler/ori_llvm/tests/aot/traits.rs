@@ -271,6 +271,16 @@ fn test_aot_eq_string() {
     );
 }
 
+// Structural equality for user types without #derive(Eq)
+
+#[test]
+fn test_aot_enum_structural_eq() {
+    assert_aot_success(
+        include_str!("fixtures/traits/aot_enum_structural_eq.ori"),
+        "enum_structural_eq",
+    );
+}
+
 // 3.2: Trait Implementations — Inherent impl codegen
 
 #[test]
