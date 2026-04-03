@@ -3,7 +3,8 @@ section: "04"
 title: "Type Resolution DRY"
 status: not-started
 reviewed: false
-goal: "Reduce 6+ ParsedType resolution functions to a shared TypeResolver pattern — eliminate the most severe algorithmic duplication in the type checker"depends_on: []
+goal: "Reduce 6+ ParsedType resolution functions to a shared TypeResolver pattern -- eliminate the most severe algorithmic duplication in the type checker"
+depends_on: []
 third_party_review:
   status: none
   updated: null
