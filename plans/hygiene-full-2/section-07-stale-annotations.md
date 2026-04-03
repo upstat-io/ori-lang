@@ -29,8 +29,7 @@ sections:
 # Section 07: Stale Annotations and Decorative Banners
 
 **Status:** Not Started
-**Goal:** Remove ~85 stale plan annotations from completed plans, ~198 decorative banner comments, and 8+ bare TODO comments from production code across all compiler crates. Preserve annotations from active plans (repr-opt §07, aot-perf). <!-- reviewed: cohesion fix — banner count was ~37, actual is ~198; annotation count was ~71, actual is ~85 -->
-
+**Goal:** Remove ~85 stale plan annotations from completed plans, ~198 decorative banner comments, and 8+ bare TODO comments from production code across all compiler crates. Preserve annotations from active plans (repr-opt §07, aot-perf).
 **Context:** Plan annotations are temporary scaffolding — they aid navigation during active development but MUST be removed when the plan completes. Stale annotations from completed plans (hygiene-full sections 01/03/04, codegen-purity, rc-header-elem-dec) remain in production code. Decorative banners (`// ===`, `// ---`) violate style rules.
 
 ---
@@ -49,8 +48,7 @@ sections:
 - `TPR-01-*` in `ori_parse/src/incremental/tests.rs` (~11 test name references)
 - `TPR-03-*` in `ori_llvm/src/evaluator/compile.rs` and `lib.rs` — audit each: remove if from completed plan, preserve if from active repr-opt
 - `TPR-04-*` in `ori_llvm/src/evaluator/compile.rs` — audit: remove if from completed plan
-- `TPR-03-*` in `ori_repr/src/range/fixpoint/` — these reference repr-opt Section 03 (range analysis), which is **Complete**. Remove all (~30 annotations in mod.rs, narrowing.rs, terminator.rs) <!-- reviewed: cohesion fix — section IS complete, made action definitive -->
-
+- `TPR-03-*` in `ori_repr/src/range/fixpoint/` — these reference repr-opt Section 03 (range analysis), which is **Complete**. Remove all (~30 annotations in mod.rs, narrowing.rs, terminator.rs)
 - [ ] Run `bash .claude/skills/impl-hygiene-review/plan-annotations.sh` to get the full list
 - [ ] For each annotation: check if the referenced plan section is complete or active
 - [ ] Remove annotations from completed plan sections (keep the behavioral comment, remove the plan reference)
@@ -63,8 +61,7 @@ sections:
 
 **File(s):** Multiple files across ori_types, ori_rt, ori_parse
 
-Decorative banners (`// ===`, `// ---`, `// ───`) in production code violate style rules. Replace with plain `// Section name` comments. There are ~198 instances across the compiler (not 37 as originally estimated). <!-- reviewed: cohesion fix — actual count is ~198, not ~37 -->
-
+Decorative banners (`// ===`, `// ---`, `// ───`) in production code violate style rules. Replace with plain `// Section name` comments. There are ~198 instances across the compiler (not 37 as originally estimated).
 Known high-count locations (representative, not exhaustive):
 - `ori_types/src/unify/mod.rs` — 10 decorative banners
 - `ori_types/src/infer/mod.rs` — 22 decorative banners
@@ -74,13 +71,9 @@ Known high-count locations (representative, not exhaustive):
 - `ori_parse/src/cursor/mod.rs` — 2 banners
 - `ori_parse/src/outcome/mod.rs` — 5 banners
 - `ori_parse/src/error/kind/mod.rs` — 8 banners
-- Plus ~131 more across ori_types, ori_llvm, ori_arc, ori_eval, ori_patterns, ori_ir, oric, ori_diagnostic, ori_fmt, ori_rt <!-- reviewed: cohesion fix -->
-
-- [ ] `grep -rn "// ===\|// ---\|// ───\|// ──" compiler/*/src/ --include="*.rs" | grep -v test` to find all instances (includes unicode dash banners `// ──` which the original grep missed; the `// ` prefix avoids matching legitimate docs) <!-- reviewed: executability/hygiene fix — added unicode dash pattern with // prefix to avoid false positives -->
-- [ ] Replace each with a plain `// Section name` comment (keep the descriptive text, remove the decoration)
-- [ ] **Approach:** Process one crate at a time (ori_types first — highest count at ~50+, then ori_rt, ori_llvm, ori_eval, etc.) to keep commits manageable <!-- reviewed: executability fix — batching guidance -->
-- [ ] Verify: `grep -rn "// ===\|// ---\|// ───\|// ──" compiler/*/src/ --include="*.rs" | grep -v test | wc -l` returns 0 <!-- reviewed: executability/hygiene fix — consistent pattern with search command -->
-
+- Plus ~131 more across ori_types, ori_llvm, ori_arc, ori_eval, ori_patterns, ori_ir, oric, ori_diagnostic, ori_fmt, ori_rt
+- [ ] `grep -rn "// ===\|// ---\|// ───\|// ──" compiler/*/src/ --include="*.rs" | grep -v test` to find all instances (includes unicode dash banners `// ──` which the original grep missed; the `// ` prefix avoids matching legitimate docs)- [ ] Replace each with a plain `// Section name` comment (keep the descriptive text, remove the decoration)
+- [ ] **Approach:** Process one crate at a time (ori_types first — highest count at ~50+, then ori_rt, ori_llvm, ori_eval, etc.) to keep commits manageable- [ ] Verify: `grep -rn "// ===\|// ---\|// ───\|// ──" compiler/*/src/ --include="*.rs" | grep -v test | wc -l` returns 0
 ---
 
 ## 07.3 Resolve Bare TODOs

@@ -212,6 +212,17 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
     ///
     /// Registers the lambda in `self.codegen_ctx.functions` so the emitter can look it up.
     fn compile_lambda_arc(&mut self, lambda: &mut ori_arc::ArcFunction) {
+        // Verify no BoundVar types remain after resolution — captures ARE leading
+        // params, so resolve_all_lambda_bound_vars must have resolved them too.
+        debug_assert!(
+            !lambda
+                .params
+                .iter()
+                .any(|p| matches!(self.pool.tag(p.ty), ori_types::Tag::BoundVar)),
+            "lambda {} has unresolved BoundVar params after resolution",
+            self.interner.lookup(lambda.name),
+        );
+
         // Shared setup: declare, register, run ARC pipeline
         let (lambda_name, func_id, abi) = self.declare_and_process_lambda(lambda);
 
@@ -506,9 +517,17 @@ fn find_partial_apply_concrete_type(
                         let pa_ty = func.var_type(*dst);
                         let resolved = pool.resolve_fully(pa_ty);
                         if pool.tag(resolved) == Tag::Function {
-                            return Some(resolved);
+                            // Validate params are truly concrete (not BoundVar/Var/Scheme).
+                            let params = pool.function_params(resolved);
+                            let all_concrete = params.iter().all(|p| {
+                                let pt = pool.resolve_fully(*p);
+                                !matches!(pool.tag(pt), Tag::BoundVar | Tag::Var | Tag::Scheme)
+                            });
+                            if all_concrete {
+                                return Some(resolved);
+                            }
                         }
-                        // PartialApply type is Scheme — scan for a concrete copy.
+                        // PartialApply type is not concrete — scan for a concrete copy.
                         return find_concrete_copy_type(func, pool);
                     }
                 }

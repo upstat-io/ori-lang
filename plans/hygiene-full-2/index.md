@@ -124,8 +124,10 @@ ori_types, ori_parse, ori_llvm, ori_repr, ori_rt
 500-line limit, 100-line function limit, BLOAT, file splitting
 submodule extraction, function decomposition, helper extraction
 operators.rs 799, runtime_functions.rs 1606, terminators.rs 745
+errors/mod.rs 1018, terminal/mod.rs 841
 ori_types, ori_llvm, ori_arc, ori_eval, ori_patterns
 ori_ir, oric, ori_diagnostic, ori_fmt, ori_rt, ori_parse
+69 files, 31+ functions, SIZE EXEMPTION
 ```
 
 ---
@@ -139,7 +141,8 @@ cow_structural.rs, cow_sort/mod.rs, map/cow.rs
 set/cow/basic.rs, set/cow/algebra.rs
 iterator/consumers.rs, iterator/adapters.rs
 string/methods, string/ops, rc/list_rc, format
-ori_rt, extern "C", FFI
+io/mod.rs, io/jit_recovery.rs, rc/allocate.rs
+ori_rt, extern "C", FFI, ~289 undocumented blocks
 ```
 
 ---
@@ -165,6 +168,6 @@ delete plan, hygiene-full-2
 | 05 | LLVM Codegen Internal DRY | `section-05-llvm-dry.md` |
 | 06 | Lexer/Parser DRY | `section-06-lexer-parser-dry.md` |
 | 07 | Stale Annotations and Decorative Banners | `section-07-stale-annotations.md` |
-| 08 | File and Function Size Violations | `section-08-file-size.md` |
+| 08 | File and Function Size Violations (69 files, 31+ functions) | `section-08-file-size.md` |
 | 09 | SAFETY Comments for ori_rt | `section-09-safety-comments.md` |
 | 10 | Cleanup | `section-10-cleanup.md` |

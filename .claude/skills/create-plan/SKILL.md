@@ -395,6 +395,25 @@ For each design decision:
 
 ---
 
+### Step 6B: Third-Party Architectural Consultation
+
+**After ALL research passes complete**, call `/tp-help` to get a second opinion on the architectural direction before committing to it. This is the highest-leverage consultation point — all research is in, but no architecture is locked.
+
+Build a `/tp-help` prompt that includes:
+- The plan's mission/goal
+- A condensed summary of key research findings (critical files, sync points, design decisions, analogous patterns, existing bugs)
+- The 2-3 most important architectural decisions you're about to make
+- Your preliminary architectural direction
+
+Ask Codex specifically:
+- "Do you see any architectural risks I'm missing?"
+- "Is this the right decomposition for this problem?"
+- "Are there better patterns from the reference compilers for this specific case?"
+
+Evaluate Codex's response against your research — you have deeper codebase context, so filter accordingly. Incorporate useful insights into the architecture design.
+
+---
+
 ## Phase 3: Architecture Design (REQUIRED BEFORE SECTION WRITING)
 
 This phase synthesizes all research into a cohesive architecture. **No sections are written until the architecture is designed and the user approves it.**
@@ -430,6 +449,21 @@ Write `00-overview.md` following the template in `.claude/skills/create-plan/pla
 - **Metrics**: Use actual line counts from the hygiene pre-scan
 
 **Also create `index.md`** with keyword clusters using REAL keywords from the research (actual type names, function names, file names — not placeholders).
+
+### Step 8B: Architecture Sanity Check via /tp-help
+
+**Before presenting to the user**, call `/tp-help` to sanity-check the written overview architecture. This catches issues before the user sees them.
+
+Build a `/tp-help` prompt that includes:
+- The content of `00-overview.md` (or a focused summary of: mission, dependency graph, implementation sequence, key design decisions)
+- The proposed section list with goals and ordering
+
+Ask Codex specifically:
+- "Does this section decomposition and ordering make sense?"
+- "Are there dependency ordering issues I'm missing?"
+- "Would you structure this differently?"
+
+Incorporate feedback into `00-overview.md` before presenting to the user. If Codex flags a fundamental issue, address it now — don't pass known problems to the user review.
 
 ### Step 9: User Review of Architecture (MANDATORY — DO NOT SKIP)
 

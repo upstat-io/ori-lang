@@ -57,5 +57,16 @@ for pattern in "${BANNED_PATTERNS[@]}"; do
   fi
 done
 
+# ── Block timeouts on review/codex commands ──────────────────────────
+# codex exec calls are review tasks, NOT tests. They take 5-15 minutes.
+# Claude keeps adding Bash timeout: parameters despite rules.
+TIMEOUT=$(printf '%s' "$INPUT" | python3 -c "import sys,json; print(json.load(sys.stdin).get('tool_input',{}).get('timeout',''))" 2>/dev/null || true)
+
+if [[ -n "$TIMEOUT" && "$TIMEOUT" != "None" ]]; then
+  if [[ "$COMMAND" == *"codex"* ]]; then
+    deny "Blocked: timeout ($TIMEOUT ms) on codex command. Reviews MUST NOT have timeouts — remove the Bash timeout: parameter."
+  fi
+fi
+
 # No banned pattern found — no output so normal permission system applies.
 exit 0
