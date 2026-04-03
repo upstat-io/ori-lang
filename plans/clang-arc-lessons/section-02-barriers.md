@@ -194,7 +194,7 @@ Replace `flush_all()` with `flush_selective()` that only flushes variables the c
 
 **File(s):** `compiler/ori_arc/src/aims/emit_rc/coalesce/mod.rs`, `compiler/ori_arc/src/aims/realize/mod.rs`, `compiler/ori_arc/src/pipeline/aims_pipeline.rs`
 
-The coalescing pass currently takes only `&mut Vec<ArcInstr>`. It needs access to the `MemoryContract` map to make selective barrier decisions. The call chain is: `run_aims_pipeline()` -> `realize_rc_reuse()` (has `contracts` param) -> `emit_rc_unified()` -> `coalesce_block_rc()` (per block). Threading contracts through requires updating `emit_rc_unified()` as well.
+After Section 01, the coalescing pass takes `&mut Vec<ArcInstr>` and returns `CoalesceStats`. It needs an additional `contracts` parameter to make selective barrier decisions. The call chain is: `run_aims_pipeline()` -> `realize_rc_reuse()` (has `contracts` param) -> `emit_rc_unified()` -> `coalesce_block_rc()` (per block). Threading contracts through requires updating `emit_rc_unified()` as well.
 
 - [ ] Update `coalesce_block_rc()` signature:
   ```rust
@@ -218,6 +218,8 @@ The coalescing pass currently takes only `&mut Vec<ArcInstr>`. It needs access t
 
 **Semantic pin:** Test that with empty contracts, behavior is identical to pre-change (every call triggers `flush_all`). Test that with contracts where all params are `Borrowed`, `flush_all_count` drops to 0 and `selective_barrier_skips` equals the call count.
 
+**Negative pin:** Test that with an all-`Owned` contract, the owned arg's pending RC IS flushed via `flush_selective()` -- the selective path must NOT skip owned arguments. Verify by asserting the flushed variable appears in emitted output and `selective_barrier_skips == 0`. A second negative pin: construct a program where skipping the barrier for an owned parameter would cause use-after-free (e.g., callee takes ownership and drops), compile and run with `ORI_CHECK_LEAKS=1`, and verify zero leaks -- proves selective barriers don't over-optimize.
+
 ---
 
 ## 02.4 Matrix Testing and Measurement
@@ -226,7 +228,7 @@ The coalescing pass currently takes only `&mut Vec<ArcInstr>`. It needs access t
 
 Comprehensive testing across type × call pattern × contract combinations.
 
-- [ ] **Write failing test matrix BEFORE implementation:**
+- [ ] **Write failing test matrix BEFORE implementation** (TDD: tests must fail before 02.2 changes are applied):
   - **Type dimension**: int (scalar), str (heap), [int] (collection), Option\<str\> (enum+heap), closures, structs with heap fields
   - **Call pattern dimension**: single call, chained calls, call in loop, nested calls, call with mixed owned/borrowed params
   - **Contract dimension**: all-borrowed contract, all-owned contract, mixed contract, no contract (FFI/unknown)
@@ -260,6 +262,7 @@ Comprehensive testing across type × call pattern × contract combinations.
 
 ## 02.N Completion Checklist
 
+- [ ] **Fix hygiene:** Remove stale plan annotation from `coalesce/tests.rs:1` — module doc says "Tests for static RC coalescing (Section 07.2)" referencing a different plan's section number. Replace with a neutral description: "Tests for static RC coalescing."
 - [ ] `callee_may_observe_rc()` correctly classifies Borrowed params as non-observing
 - [ ] `flush_selective()` only flushes variables for observed arguments
 - [ ] `coalesce_block_rc()` accepts `&FxHashMap<Name, MemoryContract>`

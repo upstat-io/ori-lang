@@ -76,7 +76,7 @@ Adopt battle-tested ARC optimization patterns from Clang/LLVM and Swift into Ori
   02 Barriers ──────┬──────────┐              │
        │            │          │              │
        ▼            │          ▼              │
-  03 KnownSafe ─────┤    04 COW Contract      │
+  03 KnownSafe ─────┤    04 COW Contraction    │
        │            │          │              │
        ▼            ▼          │              │
   05 RC Motion (requires 01, 02, 03) ◄────────┘
@@ -133,15 +133,17 @@ Phase 4 - Verification
 
 ## Metrics (Current State)
 
-| Component | Production LOC | Test LOC | Total |
-|-----------|---------------|----------|-------|
-| `coalesce/` | ~189 | ~214 | ~403 |
-| `realize/metrics.rs` | ~126 | — | ~126 |
-| `realize/decide.rs` | ~485 | — | ~485 |
-| `realize/mod.rs` | ~464 | ~1572 | ~2036 |
-| `pipeline/aims_pipeline.rs` | ~590 | — | ~590 (exceeds 500-line limit; must split before adding passes) |
-| `emit_rc/cow.rs` | ~79 | — | ~79 |
-| **Total touched** | **~1933** | **~1786** | **~3719** |
+| Component | Production LOC | Test LOC | Total | Notes |
+|-----------|---------------|----------|-------|-------|
+| `coalesce/` | 189 | ~214 | ~403 | Section 01+02 modify |
+| `realize/metrics.rs` | 126 | — | 126 | Section 01 extends |
+| `realize/decide.rs` | 485 | — | 485 | Section 04 reads CowMode from |
+| `realize/mod.rs` | 464 | ~1572 | ~2036 | Section 01 threads stats |
+| `realize/emit_unified.rs` | 484 | — | 484 | Section 01 instruments pre/post coalesce counts |
+| `pipeline/aims_pipeline.rs` | 590 | — | 590 | At 500-line limit; must split before adding passes (Sections 03, 04, 05) |
+| `emit_rc/cow.rs` | 79 | — | 79 | Reference for COW-aware queries |
+| `ir/instr.rs` | 403 | — | 403 | Section 04 adds CowMutate variant |
+| **Total touched** | **~2820** | **~1786** | **~4606** | |
 
 ## Estimated Effort
 
@@ -160,9 +162,16 @@ Phase 4 - Verification
 
 | Task | Reason | Blocking | Owner |
 |------|--------|----------|-------|
-| Split `aims_pipeline.rs` (590 lines, exceeds 500-line limit) | Extract `verify_and_merge()`, `emit_postprocess()`, or second-pass helpers into `pipeline/second_pass.rs` submodule. Must be done before any new pipeline passes are added (Sections 03, 04, 05). | Sections 03, 04, 05 | First section to touch pipeline |
+| Split `aims_pipeline.rs` (590 lines, at 500-line limit) | Extract `run_second_pass()` + helpers (~100 lines) into `pipeline/second_pass.rs` submodule. The remaining `normalize_with_trmc()` and `verify_trmc_soundness()` (~130 lines) could also be extracted to `pipeline/trmc.rs`. Must be done before any new pipeline passes are added (Sections 03, 04, 05). | Sections 03, 04, 05 | First section to touch pipeline |
 
 This is not a separate section — it is a concrete implementation task that MUST be completed by whoever starts Section 03, 04, or 05 (whichever is first). It is tracked here rather than in a section because it crosses section boundaries.
+
+**Concrete extraction plan:**
+1. Create `compiler/ori_arc/src/pipeline/second_pass.rs` — move `run_second_pass()` (lines 463-561) and its helper types
+2. Create `compiler/ori_arc/src/pipeline/trmc.rs` — move `normalize_with_trmc()` (lines 186-248) and `verify_trmc_soundness()` (lines 255-300)
+3. Keep `run_aims_pipeline()`, `run_aims_pipeline_all()`, `apply_aims_ownership()`, `param_contract_to_ownership()` in `aims_pipeline.rs`
+4. Add `mod second_pass;` and `mod trmc;` to `pipeline/mod.rs`
+5. Update import paths and verify `cargo c -p ori_arc` compiles
 
 ## Known Bugs (Pre-existing)
 
@@ -170,6 +179,13 @@ This is not a separate section — it is a concrete implementation task that MUS
 |-----|-----------|-------------|--------|
 | Coalesce flushes all vars at every call | Conservative barrier design | Section 02 | Not Started |
 | No compile-time RC op counts | Missing instrumentation | Section 01 | Not Started |
+
+## Hygiene Issues (Fix Along the Way)
+
+| Issue | Category | File | Fix In | Notes |
+|-------|----------|------|--------|-------|
+| Duplicate `count_rc_ops()` | LEAK:algorithmic-duplication | `realize/emit_unified.rs:242` vs `pipeline/rc_count/mod.rs:28` | Section 01 | The private `count_rc_ops()` in `emit_unified.rs` returns `usize` (simple count); the pipeline version returns `RcOpCount { inc, dec }` with batching. Section 01 should unify these — use `pipeline::rc_count::count_rc_ops().total()` everywhere and delete the private copy. |
+| `coalesce/tests.rs` stale plan annotation | DRIFT | `coalesce/tests.rs:1` | Section 02 | Module doc says "Tests for static RC coalescing (Section 07.2)" — references a different plan's section. Remove the plan reference. |
 
 ## Quick Reference
 
