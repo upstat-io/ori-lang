@@ -1,0 +1,17 @@
+type Shape = Circle(r: int) | Square(s: int);
+
+@main () -> int = {
+    let a = Circle(r: 5);
+    let b = Circle(r: 5);
+    let c = Square(s: 3);
+    // Same variant, same payload → equal
+    let eq1 = a == b;
+    // Same variant, different payload → not equal
+    let neq1 = a == Circle(r: 10);
+    // Different variants → not equal
+    let neq2 = a == c;
+    // != operator
+    let ne1 = a != c;
+
+    if eq1 && !neq1 && !neq2 && ne1 then 0 else 1
+}

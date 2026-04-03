@@ -97,6 +97,23 @@ Bugs in LLVM IR generation, JIT/AOT compilation, monomorphization, ARC pipeline 
   Found: 2026-04-02 | Source: tpr-review (BUG-04-013 follow-up)
   Severity downgraded: 2026-04-02. High→Medium — unreachable while niche gate is disabled. Was incorrectly believed reachable via `Option<CPtr>`; BUG-04-021 root cause was type inference (unresolved Var), not niche encoding.
 
+- [x] `[BUG-04-025][high]` **LLVM codegen lacks compound ordering for built-in wrapper types (Option, Result, Tuple with <, <=, >, >=)** — found by tpr-review.
+  Resolved: Fixed on 2026-04-03. Added inline `emit_element_compare()` dispatch in `emit_ordering_comparison()` before the compiled method fallback. Compound types (Option, Result, Tuple, List) now use their existing recursive comparison implementations for ordering operators. Tests: `aot_option_ordering.ori`. LCFail decreased 4137→4065 (72 newly-compilable tests).
+  Repro: `if Some(1) < Some(2) then print(msg: "ok")` — interpreter passes, `--backend=llvm` warns "Unsupported strategy" and fails with "icmp on non-int operands". `emit_comparison_via_trait()` returns None for built-in wrappers (no compiled `compare` method), falls through to registry fallback which tries integer comparison on aggregate values.
+  Subsystem: `compiler/ori_llvm/src/codegen/arc_emitter/operators/mod.rs`
+  Found: 2026-04-03 | Source: tpr-review (imported-generic-mono iteration 3)
+
+- [x] `[BUG-04-026][medium]` **Structural equality incomplete for payload enums without `#derive(Eq)` in LLVM** — found by tpr-review.
+  Resolved: Fixed on 2026-04-03. Extended `emit_structural_eq_enum` to handle homogeneous payload enums (all payload variants share the same field types). Extracts payload via `extract_value_any` (handles array type payloads), reinterprets i64 slots to field types, and compares recursively via `emit_element_equals`. Heterogeneous payload enums still need `#derive(Eq)`. Tests: `aot_payload_enum_structural_eq.ori`.
+  Repro: `type Shape = Circle(r: int) | Square(s: int); Circle(r: 1) == Circle(r: 1)` — interpreter passes, `--backend=llvm` panics with "binary op Eq on unmapped type idx". `emit_structural_eq_enum` handles unit-only enums (tag comparison) but returns None for payload variants. Needs tag-switch + per-variant field comparison.
+  Subsystem: `compiler/ori_llvm/src/codegen/arc_emitter/builtins/compound_traits.rs`
+  Found: 2026-04-03 | Source: tpr-review (imported-generic-mono iteration 3)
+
+- [x] `[BUG-04-027][high]` **LLVM codegen: `NaN != NaN` evaluates to false (should be true per IEEE 754)** — found by continue-roadmap.
+  Resolved: Fixed on 2026-04-03. Root cause: `strategy.rs:164` used `fcmp_one` (ordered not-equal) which returns false when either operand is NaN. IEEE 754 requires `NaN != NaN` to be true. Fix: changed to `fcmp_une` (unordered not-equal) which correctly returns true for NaN operands. LLVM's constant folder eagerly evaluates `fcmp_une NaN, NaN` → `true` at compile time.
+  Subsystem: `compiler/ori_llvm/src/codegen/arc_emitter/operators/strategy.rs`
+  Found: 2026-04-03 | Source: continue-roadmap (imported-generic-mono TPR)
+
 - [ ] `[BUG-04-022][medium]` **LLVM JIT cannot resolve free function calls in monomorphized generic bodies (e.g., `str()`, `debug()` for compound types)** — found by continue-roadmap.
   Repro: `assert_eq(actual: [1, 2], expected: [1, 2])` through `--backend=llvm` fails with "unresolved function `str` in invoke". Also affects LOCAL generics: `@check_eq<T: Eq>(a: T, b: T) -> bool` with `[int]` args panics. Root cause: monomorphized generic function bodies reference free functions (e.g., `str()` from prelude, `debug()` on compound types) that aren't declared in the JIT LLVM module. Works for primitive types (int, str, bool) whose debug/to_str uses runtime functions that ARE declared. Compound types (list, map, set) need additional function resolution.
   Subsystem: `compiler/ori_llvm/src/codegen/arc_emitter/`, `compiler/ori_llvm/src/evaluator/compile.rs`
