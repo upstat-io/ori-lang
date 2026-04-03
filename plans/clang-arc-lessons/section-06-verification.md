@@ -88,7 +88,12 @@ Verify that optimized programs produce identical output to unoptimized.
 - [ ] **Implement `ORI_SKIP_ARC_OPTS` flag** in the AIMS pipeline:
   - Add environment variable check in `run_aims_pipeline()` to skip Sections 02-05 optimizations (selective barriers, KnownSafe elimination, COW contraction, RC motion) while keeping baseline RC emission
   - This flag enables A/B comparison testing between optimized and unoptimized builds
-  - Implementation: check `std::env::var("ORI_SKIP_ARC_OPTS")` at pipeline entry; when set, skip the new passes but run the existing baseline pipeline
+  - Implementation: check `std::env::var("ORI_SKIP_ARC_OPTS").is_ok()` at pipeline entry; when set, skip the new passes but run the existing baseline pipeline. Use `std::sync::OnceLock` to avoid repeated env var lookups per function:
+    ```rust
+    static SKIP_ARC_OPTS: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    let skip = *SKIP_ARC_OPTS.get_or_init(|| std::env::var("ORI_SKIP_ARC_OPTS").is_ok());
+    ```
+  - The `AimsPipelineConfig` is a better home for this flag — add `skip_new_opts: bool` and set it from env var once in `run_aims_pipeline_all()`, avoiding per-function env var reads
 
 - [ ] Build comparison harness:
   - Compile each test program twice: with and without new optimizations

@@ -57,11 +57,17 @@ Add a compound COW instruction to ARC IR that represents the entire uniqueness-c
 **Scope warning:** `ArcInstr` is matched in **107 files** across `ori_arc`, `ori_llvm`, `ori_repr`, and `oric`. Adding a new variant requires updating every exhaustive match. Most non-test matches use `_ => {}` wildcard for unknown variants, but many key dispatch sites (`defined_var()`, `used_vars()`, `uses_var()`, `is_owned_position()`, `substitute_var()` in `instr.rs`, plus transfer functions, verify, emit_reuse, etc.) require explicit handling. Plan for ~30-50 match arm updates.
 
 - [ ] Add `CowMutate` variant to `ArcInstr` in `ir/instr.rs`:
+
+  **Import requirement:** `CowMode` is defined in `crate::uniqueness::lattice` (`compiler/ori_arc/src/uniqueness/lattice.rs:87`). Add `use crate::uniqueness::CowMode;` to `ir/instr.rs` imports. `CowMode` currently derives `Clone, Copy, Debug, PartialEq, Eq, Hash` — sufficient for `ArcInstr`'s non-cache derives. However, `ArcInstr` also has `#[cfg_attr(feature = "cache", derive(serde::Serialize, serde::Deserialize))]`, so `CowMode` MUST also get this derive. Add it to `CowMode`'s definition in `uniqueness/lattice.rs`.
+
+  **Structural note:** `CowMutate` introduces a `dst` field, unlike `Set` which modifies `base` in-place without a separate destination. This means `CowMutate` is both a definition (`dst`) AND a use (`src`, `value`). This mirrors the COW diamond semantics: the result may be the original or a clone.
+
   ```rust
   /// Compound COW mutation — contracts IsShared+branch+clone+Set.
   ///
-  /// Semantics: if `src` is uniquely referenced, mutate field in-place.
-  /// If shared, clone `src` into `dst`, then mutate the clone's field.
+  /// Semantics: if `src` is uniquely referenced, mutate field in-place
+  /// and bind `dst = src`. If shared, clone `src` into `dst`, then
+  /// mutate the clone's field.
   /// The `cow_mode` annotation from AIMS determines the strategy:
   /// - `StaticUnique`: skip the check, mutate directly
   /// - `Dynamic`: emit the full check+branch+clone+mutate sequence
@@ -79,18 +85,35 @@ Add a compound COW instruction to ARC IR that represents the entire uniqueness-c
 
 - [ ] Implement `defined_var()` (`Some(dst)`), `used_vars()` (`[src, value]`), `uses_var()`, `is_owned_position()`, and `substitute_var()` for the new variant in `instr.rs`.
 
-- [ ] Update all exhaustive match arms on `ArcInstr` (grep for `ArcInstr::` across the codebase to find all 107 files):
-  - `ir/instr.rs` — 5 methods
-  - `verify/mod.rs` — verification rules
+- [ ] Update all exhaustive match arms on `ArcInstr`. The 107 files that reference `ArcInstr::` break into two categories:
+
+  **Category A: Exhaustive matches that MUST be updated** (compiler error if missing):
+  - `ir/instr.rs` — 5 methods: `defined_var()`, `used_vars()`, `uses_var()`, `is_owned_position()`, `substitute_var()`
+  - `verify/mod.rs` — verification rules (must add verification for `CowMutate`)
   - `aims/transfer/mod.rs` — backward transfer functions
-  - `aims/emit_rc/` — forward walk, coalesce, dead cleanup, edge cleanup, etc.
+  - `aims/emit_rc/` — forward walk, dead cleanup, edge cleanup (multiple files)
   - `aims/emit_reuse/` — reuse detection
   - `aims/intraprocedural/` — block analysis
   - `block_merge/` — merge, downgrade, select
   - `liveness/mod.rs`, `drop/mod.rs`, `borrow/` — various analyses
-  - `oric/src/arc_dump/instr.rs` — debug dump
-  - `ori_llvm/src/codegen/arc_emitter/` — LLVM emission (Section 04.3)
+  - `oric/src/arc_dump/instr.rs` — debug dump (must format `CowMutate`)
+  - `ori_llvm/src/codegen/arc_emitter/instr_dispatch.rs` — LLVM emission (Section 04.3)
   - `ori_repr/` — narrowing/range analysis
+
+  **Category B: Wildcard matches (`_ =>`) that compile but should be reviewed:**
+  - Most `ori_repr` range analysis files use `_ => {}` for unknown instructions — no update needed but review for correctness
+  - Test files that construct specific instruction sequences — no update needed
+
+  **Strategy for finding all sites:**
+  1. Add the `CowMutate` variant to `ArcInstr`
+  2. Run `cargo c -p ori_arc` — the compiler reports ALL exhaustive match errors in `ori_arc`
+  3. Fix all `ori_arc` matches
+  4. Run `cargo c -p ori_llvm` — reports `ori_llvm` matches
+  5. Run `cargo c -p ori_repr` — reports `ori_repr` matches
+  6. Run `cargo c` (full build) — catches any remaining
+  7. The Rust compiler is the exhaustiveness checker — no manual grep needed for non-wildcard matches
+
+  **Conservative default for new arms:** In analysis passes that don't need special handling for `CowMutate`, treat it the same as `Set` (mutation semantics). In RC emission, treat the `src` and `value` operands as used, `dst` as defined.
 
 ---
 
@@ -142,19 +165,24 @@ Pattern-match COW sequences and replace with `CowMutate`.
 
   **Pipeline interaction:** `realize_annotations()` computes `CowAnnotations` (a `(block_idx, instr_idx) -> CowMode` map) for each `Set` instruction at a COW site. The contraction pass consumes these annotations: it reads the `CowMode` from the annotation map for each `Set` that participates in a COW diamond, embeds it into the `CowMutate` instruction, and removes the annotation entry (since the CowMode now lives in the instruction). The LLVM emitter handles `CowMutate` directly (reading CowMode from the instruction fields) rather than consulting the annotation map.
 
-  **Prerequisite: `aims_pipeline.rs` splitting** (see overview Prerequisites table). The pipeline file is 590 lines (exceeding the 500-line limit). Before adding contraction invocation, complete the prerequisite extraction task. If Section 03 or 05 is implemented first, they will have already done this.
+  **Annotation index invalidation:** Replacing a 4-block diamond with a single `CowMutate` instruction changes block indices and instruction indices. The contraction pass MUST update `CowAnnotations` indices for any remaining (non-contracted) annotations. Process contractions in reverse block order to avoid invalidating earlier indices.
+
+  **Prerequisite: `aims_pipeline.rs` splitting** (see overview Prerequisites table). The pipeline file is 590 lines — at the 500-line limit. Before adding contraction invocation, complete the prerequisite extraction task. If Section 03 or 05 is implemented first, they will have already done this.
 
 - [ ] Track `cow_contractions` in `SynergyMetrics`.
 
 - [ ] **TPR checkpoint** — `/tpr-review` covering 04.1–04.2 implementation work
 
-- [ ] Unit tests:
+- [ ] Unit tests (TDD: write BEFORE implementing `contract_cow_sequences()`):
   - Simple COW diamond → contracts to `CowMutate`
   - Non-COW diamond (different variables) → no contraction
   - `StaticUnique` annotation → `CowMutate` with `StaticUnique` mode
   - `StaticShared` → `CowMutate` with `StaticShared` mode
+  - Multiple COW diamonds in one function → all contracted
+  - COW diamond with extra instructions in head block → correctly preserves non-COW instructions
+  - **Negative pin:** Diamond where the two paths mutate DIFFERENT fields → must NOT contract (different semantics)
 
-**Semantic pin:** Test that a COW mutation program produces identical output with and without contraction enabled.
+**Semantic pin:** Test that a COW mutation program produces identical output with and without contraction enabled. Use a flag (or the `ORI_SKIP_ARC_OPTS` env var from Section 06) to disable contraction and compare outputs.
 
 ---
 
@@ -164,7 +192,14 @@ Pattern-match COW sequences and replace with `CowMutate`.
 
 Emit efficient LLVM IR for `CowMutate` instructions.
 
-- [ ] Add `emit_cow_mutate()` method to `ArcIrEmitter`:
+- [ ] Add dispatch arm for `CowMutate` in `instr_dispatch.rs`:
+
+  The instruction dispatch file (`codegen/arc_emitter/instr_dispatch.rs`) has the main match on `ArcInstr` variants. Add a `ArcInstr::CowMutate { .. } => self.emit_cow_mutate(..)` arm.
+
+- [ ] Implement `emit_cow_mutate()` method on `ArcIrEmitter`:
+
+  **Architecture note:** The `Dynamic` mode generates new LLVM basic blocks (unique_bb, shared_bb, merge_bb) with a phi node at the merge point. This is the same pattern used by `IsShared` + `Branch` in the existing emitter, but now encapsulated in a single instruction handler. Look at the existing `IsShared` emission and `Branch` terminator emission for the exact LLVM builder API calls (`build_conditional_branch`, `build_phi`, etc.).
+
   ```rust
   fn emit_cow_mutate(&mut self, dst: ArcVarId, src: ArcVarId, ty: Idx,
                       field: u32, value: ArcVarId, cow_mode: CowMode,
@@ -178,10 +213,12 @@ Emit efficient LLVM IR for `CowMutate` instructions.
           CowMode::Dynamic => {
               // Full COW: check + branch + clone-if-shared + mutate
               let is_shared = self.emit_is_shared(src);
-              // branch on is_shared...
-              // unique path: mutate in-place
-              // shared path: clone + mutate
-              // phi merge
+              // Create unique_bb, shared_bb, merge_bb
+              // branch on is_shared → shared_bb / unique_bb
+              // unique_bb: mutate in-place, br merge_bb
+              // shared_bb: clone, mutate clone, br merge_bb
+              // merge_bb: phi(src from unique, clone from shared)
+              // set_var(dst, phi_result)
           }
           CowMode::StaticShared => {
               // Always clone — skip the check
@@ -193,10 +230,18 @@ Emit efficient LLVM IR for `CowMutate` instructions.
   }
   ```
 
-- [ ] AOT tests in `ori_llvm/tests/aot/`:
-  - COW mutation on uniquely-owned struct → no clone
-  - COW mutation on shared struct → clone + mutate
-  - COW mutation in loop → correct behavior across iterations
+  **Note:** `emit_set_field`, `emit_is_shared`, and `emit_clone` are not existing method names — they represent the LLVM operations that must be assembled from the emitter's existing primitives (GEP, load, store, call to `ori_clone_*`, etc.). Review the existing `Set` and `IsShared` instruction handlers in `instr_dispatch.rs` for the exact primitives.
+
+- [ ] AOT tests in `ori_llvm/tests/aot/` (all 3 CowMode variants must be covered):
+  - COW mutation on uniquely-owned struct (`StaticUnique`) → no clone, no branch
+  - COW mutation on shared struct (`Dynamic`) → check + clone-if-shared + mutate
+  - COW mutation on always-shared struct (`StaticShared`) → unconditional clone + mutate
+  - COW mutation in loop → correct behavior across iterations (dynamic uniqueness may change per iteration)
+  - `ORI_CHECK_LEAKS=1` on all AOT tests → zero leaks
+  - Dual-exec parity: interpreter and LLVM produce identical results for all COW test programs (interpreter has no CowMutate -- verifies semantic equivalence)
+  - Debug and release builds produce identical results
+
+- [ ] **TPR checkpoint** -- `/tpr-review` covering 04.3 LLVM emission implementation
 
 ---
 

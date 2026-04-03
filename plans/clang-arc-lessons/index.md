@@ -16,9 +16,10 @@
 **File:** `section-01-statistics.md` | **Status:** Not Started
 
 ```
-SynergyMetrics, rc_ops_before, rc_ops_after, coalesce_reduction
-barrier_flush_count, STATISTIC, tracing::info, compile-time counters
-aims_pipeline.rs, metrics.rs, realize/mod.rs
+SynergyMetrics, rc_ops_input, rc_ops_post_emission, rc_ops_post_coalesce
+coalesce_reduction, barrier_flush_count, CoalesceStats
+STATISTIC, tracing::info, compile-time counters
+aims_pipeline.rs, metrics.rs, realize/mod.rs, emit_unified.rs
 LLVM ObjCARCOpts.cpp NumRRs NumNoops NumRetainsBeforeOpt
 ```
 
@@ -44,11 +45,12 @@ DependencyAnalysis.cpp, CanAlterRefCount, CanDecrementRefCount
 
 ```
 KnownSafe, nested pair, retain release elimination
+PhysicalRcState, VarRcInfo, KnownSafeAnalysis
 physical refcount positive, monotonic flag, KnownPositiveRefCount
-RcInfo, RefcountState, Positive Unknown Decremented
+Positive Unknown MaybeDecremented, net_delta
 PtrState.h, ObjCARCOpts.cpp, MatchWithRetain, MatchWithRelease
 Swift RefCountState.h, ARCSequenceOpts.cpp
-post-emission analysis, refcount bracketing
+post-emission analysis, refcount bracketing, knownsafe/mod.rs
 ```
 
 ---
@@ -73,11 +75,12 @@ ir/instr.rs, emit_rc/cow_contract.rs, instr_dispatch.rs
 
 ```
 PRE, partial redundancy elimination, global code motion
+RcSequence, VarMotionState, BlockMotionState, RcPair
 bidirectional dataflow, bottom-up, top-down, path counting
 VisitBottomUp, VisitTopDown, PairUpRetainsAndReleases
 BBState, TopDownPathCount, BottomUpPathCount, CFGHazardAfflicted
 ReverseInsertPts, retain release placement
-region-aware, loop forest, summarization
+region-aware, loop forest, summarization, rc_motion/mod.rs
 Swift ARCSequenceOpts, GlobalARCSequenceDataflow
 ```
 
@@ -88,9 +91,11 @@ Swift ARCSequenceOpts, GlobalARCSequenceDataflow
 
 ```
 test matrix, behavioral equivalence, dual-exec parity
+ORI_SKIP_ARC_OPTS, A/B comparison, skip_new_opts
 code journey, regression, debug release parity
 ORI_CHECK_LEAKS, ORI_TRACE_RC, rc-stats.sh
-test-all.sh, clippy-all.sh, valgrind
+ORI_AUDIT_CODEGEN, ORI_AUDIT_STRICT
+test-all.sh, clippy-all.sh, valgrind, valgrind-aot.sh
 ```
 
 ---

@@ -20,15 +20,18 @@ sections:
   - id: "05.2"
     title: "Implement Bottom-Up Pass"
     status: not-started
+    note: "Implement AFTER 05.5 path-count computation, or integrate path counts into the BU traversal directly"
   - id: "05.3"
     title: "Implement Top-Down Pass"
     status: not-started
   - id: "05.4"
     title: "Pair Up and Place"
     status: not-started
+    note: "Requires 05.5 cfg_hazard flags — must run after path counts are computed"
   - id: "05.5"
     title: "CFG Hazard Detection"
     status: not-started
+    note: "Implement before or concurrently with 05.2/05.3 — path counts needed by pairing"
   - id: "05.6"
     title: "Integration and Matrix Testing"
     status: not-started
@@ -57,6 +60,8 @@ sections:
 
 **Depends on:** Section 01 (statistics), Section 02 (barrier information), Section 03 (KnownSafe flags).
 
+**Recommended subsection implementation order:** 05.1 → 05.5 → 05.2 → 05.3 → 05.4 → 05.6. Rationale: 05.5 (CFG hazard detection / path counting) must be available before 05.2 and 05.3 can populate the `cfg_hazard` flag, and 05.4 consumes that flag. Alternatively, integrate path-count logic directly into the BU/TD traversals (05.2/05.3), which eliminates 05.5 as a separate step.
+
 **Data flow from dependencies:**
 - **Section 01**: `SynergyMetrics` fields for tracking `rc_pairs_eliminated` / `rc_ops_moved`.
 - **Section 02**: `callee_may_observe_rc()` function from `coalesce/mod.rs`, and `MemoryContract` map from `config.contracts` in `run_aims_pipeline()`.
@@ -71,6 +76,8 @@ sections:
 Define the state tracked per basic block and per variable during bidirectional traversal.
 
 - [ ] Create `compiler/ori_arc/src/aims/rc_motion/` directory
+
+- [ ] Add `pub mod rc_motion;` to `compiler/ori_arc/src/aims/mod.rs` (alongside the existing `pub mod knownsafe;` from Section 03)
 
 - [ ] Define `RcSequence` (analogous to LLVM's `Sequence` enum):
   ```rust
@@ -139,6 +146,8 @@ Define the state tracked per basic block and per variable during bidirectional t
 
 Walk the CFG in reverse post-order, bottom-up, tracking release sequences.
 
+**Reuse existing infrastructure:** `compiler/ori_arc/src/graph/mod.rs` provides `compute_postorder()` (post-order traversal), `compute_predecessors()`, and dominator tree construction. Reverse the postorder result to get reverse post-order (RPO). Use these rather than reimplementing CFG traversal.
+
 - [ ] Implement `visit_bottom_up()`:
   ```rust
   /// Bottom-up pass: walk from exits to entry, tracking RcDec sequences.
@@ -164,7 +173,7 @@ Walk the CFG in reverse post-order, bottom-up, tracking release sequences.
 
 - [ ] Bail out if per-block state grows too large (LLVM's `MaxPtrStates = 4095`).
 
-- [ ] Unit tests: linear block, diamond CFG, loop, irreducible CFG.
+- [ ] Unit tests (TDD: write BEFORE implementing `visit_bottom_up()` -- tests must fail initially): linear block, diamond CFG, loop (verifies back-edge handling), irreducible CFG (verifies conservative behavior).
 
 - [ ] **TPR checkpoint** — `/tpr-review` covering 05.1–05.2 implementation work
 
@@ -191,7 +200,7 @@ Walk the CFG in post-order, top-down, tracking retain sequences.
 
 - [ ] Use same barrier logic as bottom-up (Section 02 integration).
 
-- [ ] Unit tests: mirror of bottom-up tests.
+- [ ] Unit tests (TDD: write BEFORE implementing `visit_top_down()` -- mirror of bottom-up tests).
 
 ---
 
@@ -200,6 +209,8 @@ Walk the CFG in post-order, top-down, tracking retain sequences.
 **File(s):** `compiler/ori_arc/src/aims/rc_motion/placement.rs` (new file)
 
 Match bottom-up pairs with top-down pairs and compute optimal placement.
+
+**Execution order dependency:** This subsection consumes `cfg_hazard` flags from `VarMotionState` (condition 5 below). These flags must be set by 05.5's `check_cfg_hazards()` BEFORE `pair_up_and_place()` runs. Implementation order: **05.1 → 05.5 → 05.2 → 05.3 → 05.4 → 05.6**. Alternatively, integrate path-count computation into the BU/TD passes (05.2/05.3) directly, which is what LLVM does -- path counts are accumulated during the dataflow traversal, not in a separate pass.
 
 - [ ] Implement `pair_up_and_place()`:
   ```rust
@@ -228,7 +239,7 @@ Match bottom-up pairs with top-down pairs and compute optimal placement.
   - Neither can move through a loop back-edge (path count mismatch)
   - Neither can move past a use that requires positive refcount
 
-- [ ] Unit tests: elimination in diamond, movement in triangle, loop preservation.
+- [ ] Unit tests (TDD: write BEFORE implementing `pair_up_and_place()`): elimination in diamond, movement in triangle, loop preservation (back-edge blocks motion).
 
 ---
 
@@ -284,8 +295,15 @@ Integrate the RC motion pass into the AIMS pipeline.
 - [ ] Insert RC motion pass into `run_aims_pipeline()`:
   - After KnownSafe pass (Section 03) and before `verify_and_merge()` which contains steps 6-9 (verify, AIMS-verify, tail calls, unwind cleanup, merge_blocks)
   - This ensures RC motion operates on the pre-merge IR with valid block structure
-  - RC motion must run BEFORE `verify()` (step 6) since it modifies RC instructions -- or `verify()` must be re-run after motion. The cleanest approach: insert between Phase 1 (`realize_rc_reuse`) and `verify_and_merge()`, i.e., after KnownSafe but before the verify+merge bundle.
-  - **Prerequisite: `aims_pipeline.rs` splitting** (see overview Prerequisites table). The pipeline file is 590 lines (exceeding the 500-line limit). This extraction must be done before adding RC motion invocation. If Section 03 or 04 is implemented first, they will have already completed this.
+  - RC motion modifies RC instructions (removes/moves `RcInc`/`RcDec`), so `verify()` (step 6 inside `verify_and_merge`) will validate the modified IR. No separate re-verification needed since `verify_and_merge` runs after RC motion.
+
+  **Data threading:** The RC motion pass needs:
+  1. `&ArcFunction` — the post-emission IR
+  2. `contracts: &FxHashMap<Name, MemoryContract>` — from `config.contracts` (for `callee_may_observe_rc()`)
+  3. `analysis: &KnownSafeAnalysis` — from Section 03's pass (stored as a local between the KnownSafe and RC motion invocations in `run_aims_pipeline()`)
+  4. `metrics: &mut SynergyMetrics` — to record `rc_pairs_eliminated` and `rc_ops_moved`
+
+  **Prerequisite: `aims_pipeline.rs` splitting** (see overview Prerequisites table). The pipeline file is 590 lines — at the 500-line limit. This extraction must be done before adding RC motion invocation. If Section 03 or 04 is implemented first, they will have already completed this.
 
 - [ ] Add `rc_pairs_eliminated` and `rc_ops_moved` to `SynergyMetrics`
 
@@ -312,6 +330,12 @@ Integrate the RC motion pass into the AIMS pipeline.
   - Verify no exponential blowup in analysis time
 
 - [ ] **Verify tests pass in debug and release**
+
+**Semantic pin:** Test that a diamond CFG with `RcInc(x)` in the entry block and `RcDec(x)` in both successors (same variable, no intervening use in the merge block) results in `rc_pairs_eliminated > 0`. This pattern is only optimizable with cross-block motion -- single-block passes cannot see it.
+
+**Negative pin:** Test that a loop containing `RcInc(x)` in the body does NOT get its inc moved outside the loop (path count mismatch would change execution count). Assert `rc_ops_moved == 0` for a loop-body-only RC pattern. A second negative pin: test that a CFG with a use between the inc and dec that requires positive refcount does NOT have the pair eliminated -- the use would fault if the pair were removed.
+
+- [ ] **TPR checkpoint** -- `/tpr-review` covering 05.6 integration and full Section 05 implementation
 
 ---
 

@@ -495,7 +495,8 @@ pub(super) fn resolve_all_lambda_bound_vars(
 }
 
 /// Search parent + all sibling lambdas for a `PartialApply` that references the
-/// given lambda, and return the concrete instantiated function type.
+/// given lambda, and return the concrete instantiated function type and the
+/// capture argument variable IDs (for capture type resolution).
 fn find_partial_apply_concrete_type(
     parent: &ori_arc::ArcFunction,
     lambdas: &[ori_arc::ArcFunction],
@@ -505,8 +506,26 @@ fn find_partial_apply_concrete_type(
 ) -> Option<Idx> {
     use ori_types::Tag;
 
-    // Search a single function's blocks for a PartialApply of the target lambda.
-    let search_func = |func: &ori_arc::ArcFunction| -> Option<Idx> {
+    // Check if PartialApply dst type is concrete.
+    let check_concrete =
+        |func: &ori_arc::ArcFunction, dst: &ori_arc::ir::ArcVarId| -> Option<Idx> {
+            let pa_ty = func.var_type(*dst);
+            let resolved = pool.resolve_fully(pa_ty);
+            if pool.tag(resolved) == Tag::Function {
+                let params = pool.function_params(resolved);
+                let all_concrete = params.iter().all(|p| {
+                    let pt = pool.resolve_fully(*p);
+                    !matches!(pool.tag(pt), Tag::BoundVar | Tag::Var | Tag::Scheme)
+                });
+                if all_concrete {
+                    return Some(resolved);
+                }
+            }
+            None
+        };
+
+    // Find the PartialApply in a function's blocks and return its dst var.
+    let find_pa = |func: &ori_arc::ArcFunction| -> Option<ori_arc::ir::ArcVarId> {
         for block in &func.blocks {
             for instr in &block.body {
                 if let ori_arc::ir::ArcInstr::PartialApply {
@@ -514,21 +533,7 @@ fn find_partial_apply_concrete_type(
                 } = instr
                 {
                     if *callee == lambda_name {
-                        let pa_ty = func.var_type(*dst);
-                        let resolved = pool.resolve_fully(pa_ty);
-                        if pool.tag(resolved) == Tag::Function {
-                            // Validate params are truly concrete (not BoundVar/Var/Scheme).
-                            let params = pool.function_params(resolved);
-                            let all_concrete = params.iter().all(|p| {
-                                let pt = pool.resolve_fully(*p);
-                                !matches!(pool.tag(pt), Tag::BoundVar | Tag::Var | Tag::Scheme)
-                            });
-                            if all_concrete {
-                                return Some(resolved);
-                            }
-                        }
-                        // PartialApply type is not concrete — scan for a concrete copy.
-                        return find_concrete_copy_type(func, pool);
+                        return Some(*dst);
                     }
                 }
             }
@@ -537,17 +542,35 @@ fn find_partial_apply_concrete_type(
     };
 
     // Search parent first.
-    if let Some(ty) = search_func(parent) {
-        return Some(ty);
+    if let Some(dst) = find_pa(parent) {
+        if let Some(ty) = check_concrete(parent, &dst) {
+            return Some(ty);
+        }
+        // PartialApply type not concrete — scan parent's own var_types.
+        if let Some(ty) = find_concrete_copy_type(parent, pool) {
+            return Some(ty);
+        }
     }
 
-    // Search sibling lambdas (skip self to avoid confusion).
+    // Search sibling lambdas (skip self).
     for (j, sibling) in lambdas.iter().enumerate() {
         if j == skip_idx {
             continue;
         }
-        if let Some(ty) = search_func(sibling) {
-            return Some(ty);
+        if let Some(dst) = find_pa(sibling) {
+            if let Some(ty) = check_concrete(sibling, &dst) {
+                return Some(ty);
+            }
+            // PartialApply in sibling but type not concrete — search the
+            // sibling first, then fall back to the parent. For nested lambdas,
+            // the concrete instantiation type often exists in the parent
+            // (from downstream ApplyIndirect results) but not in the sibling.
+            if let Some(ty) = find_concrete_copy_type(sibling, pool) {
+                return Some(ty);
+            }
+            if let Some(ty) = find_concrete_copy_type(parent, pool) {
+                return Some(ty);
+            }
         }
     }
 
