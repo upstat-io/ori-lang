@@ -45,7 +45,7 @@ Add tests that iterate `ori_registry::methods_for(TypeTag::Str)` etc. and verify
 
 - [ ] For each builtin type (Str, List, Map, Set, Iterator, Int, Float, Bool, Char, Byte, Duration, Size, Option, Result):
   - [ ] Add test: `registry methods for {type} are all handled by eval dispatch`
-  - [ ] Add test: `registry methods for {type} are all handled by LLVM dispatch OR marked backend_not_required`
+  - [ ] Add test: `registry methods for {type} are all handled by LLVM dispatch OR have backend_required: false` <!-- reviewed: accuracy fix — field is `backend_required: false`, not `backend_not_required` -->
 - [ ] Verify: adding a new method to `ori_registry` without both backends handling it causes a test failure
 - [ ] Pattern: follow `option_builtin_handlers_match_registry` in LLVM tests as the template
 

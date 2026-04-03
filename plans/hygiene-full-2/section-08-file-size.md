@@ -45,7 +45,7 @@ sections:
 **Before splitting, re-measure all files** — DRY work in Section 04 may have reduced some below the limit.
 
 Worst offenders (pre-DRY measurements):
-- `infer/expr/operators.rs` — 786 lines. Split: arithmetic, comparison, bitwise, pipe into submodules
+- `infer/expr/operators.rs` — 799 lines. Split: arithmetic, comparison, bitwise, pipe into submodules <!-- reviewed: accuracy fix — 799 not 786 -->
 - `registry/traits/mod.rs` — 765 lines. Split: trait lookup, impl resolution, coherence checking
 - `unify/mod.rs` — 761 lines. Split: union-find engine vs structural unification
 - `infer/expr/control_flow.rs` — 746 lines. Split: if/match vs loops (for/while/loop/break/continue)
@@ -73,14 +73,14 @@ Worst offenders (pre-DRY measurements):
 Worst offenders (pre-DRY measurements):
 - `runtime_functions.rs` — 1606 lines (claims data table exemption — review if exemption is valid)
 - `derive_codegen/field_ops/thunks.rs` — 592 lines
-- `arc_emitter/instr_dispatch.rs` — 578 lines
-- `arc_emitter/builtins/collections/mod.rs` — 558 lines
+- `arc_emitter/instr_dispatch.rs` — 587 lines <!-- reviewed: accuracy fix -->
+- `arc_emitter/builtins/collections/mod.rs` — 566 lines <!-- reviewed: accuracy fix -->
 - `ir_builder/cfg_simplify/mod.rs` — 555 lines
 - `arc_emitter/builtins/iterator_consumers.rs` — 547 lines
 - `function_compiler/mod.rs` — 544 lines
 - `arc_emitter/builtins/debug_helpers.rs` — 534 lines
 - `arc_emitter/terminators.rs` — 518 lines
-- ori_arc: 8 files (state_map 646, aims_pipeline 590, rewrite 573, verify 559, lattice 552, interprocedural 533, lower/expr 531, extract 517, transfer 516)
+- ori_arc: 8 files (state_map 646, aims_pipeline 590, rewrite 573, verify 559, lattice 552, interprocedural 536, transfer 524, extract 517) <!-- reviewed: accuracy fix — lower/expr is 462 (under limit), interprocedural is 536 not 533, transfer is 524 not 516. 8 files corrected from 9 listed items -->
 
 - [ ] Re-measure after Section 05 DRY work
 - [ ] For `runtime_functions.rs`: validate data table exemption — if truly pure static data, add explicit exemption comment; if it contains logic, split

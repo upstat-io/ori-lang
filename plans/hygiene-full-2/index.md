@@ -138,6 +138,7 @@ SAFETY comment, unsafe block, raw pointer arithmetic
 cow_structural.rs, cow_sort/mod.rs, map/cow.rs
 set/cow/basic.rs, set/cow/algebra.rs
 iterator/consumers.rs, iterator/adapters.rs
+string/methods, string/ops, rc/list_rc, format
 ori_rt, extern "C", FFI
 ```
 
