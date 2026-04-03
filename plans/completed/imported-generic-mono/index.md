@@ -13,7 +13,7 @@
 ## Keyword Clusters by Section
 
 ### Section 01: JIT Imported Generic Mono
-**File:** `section-01-jit-imported-mono.md` | **Status:** Not Started
+**File:** `section-01-jit-imported-mono.md` | **Status:** Complete
 
 ```
 imported generic, monomorphization, assert_eq, std.testing, LLVM test runner
