@@ -60,16 +60,17 @@ pub(crate) fn cow_can_mutate_in_place(data: *const u8, cap: i64, cow_mode: i32) 
 ```
 
 - [ ] Create `compiler/ori_rt/src/cow_helpers.rs` with `cow_can_mutate_in_place()`
-- [ ] Add `mod cow_helpers;` to `compiler/ori_rt/src/lib.rs`
+- [ ] Add `mod cow_helpers;` to `compiler/ori_rt/src/lib.rs` (note: lib.rs is already 512 lines -- tracked in Section 08.4 for splitting; adding one `mod` line is fine here)
 - [ ] Replace all 17 inline copies across these files:
   - `list/cow.rs` — `ori_list_push_cow`, `ori_list_pop_cow`, `ori_list_set_cow`
   - `list/cow_structural.rs` — `ori_list_insert_cow`, `ori_list_remove_cow`
   - `list/cow_sort/mod.rs` — `ori_list_concat_cow`, `ori_list_reverse_cow`
-  - `list/cow_sort/sort.rs` — `ori_list_sort_cow` <!-- reviewed: accuracy fix — sort is in sort.rs, not mod.rs -->
+  - `list/cow_sort/sort.rs` — `ori_list_sort_cow`
   - `map/cow.rs` — `ori_map_insert_cow`, `ori_map_remove_cow`
   - `set/cow/basic.rs` — `ori_set_insert_cow`, `ori_set_remove_cow`
   - `set/cow/algebra.rs` — `ori_set_union_cow`, `ori_set_intersection_cow`, `ori_set_difference_cow`
 - [ ] Verify: `grep -rn "cow_mode == 1\|cow_mode != 2" compiler/ori_rt/src/ | grep -v cow_helpers | grep -v test` returns 0 matches
+- [ ] `timeout 150 cargo test -p ori_rt` passes after this sub-section
 
 ---
 
@@ -77,9 +78,9 @@ pub(crate) fn cow_can_mutate_in_place(data: *const u8, cap: i64, cow_mode: i32) 
 
 **File(s):** `compiler/ori_rt/src/cow_helpers.rs`, `compiler/ori_rt/src/list/cow.rs`, `compiler/ori_rt/src/list/cow_sort/mod.rs`, `compiler/ori_rt/src/list/cow_structural.rs`
 
-- [ ] Move `propagate_elem_header` from `list/cow.rs` into `cow_helpers.rs` as the single canonical copy
-- [ ] Delete `propagate_header` from `list/cow_sort/mod.rs` (identical body)
-- [ ] Replace the inline copy in `cow_structural.rs` (lines 131-139 in `ori_list_insert_cow` and `ori_list_remove_cow`) with calls to `cow_helpers::propagate_elem_header`
+- [ ] Move `propagate_elem_header` from `list/cow.rs` (line 21) into `cow_helpers.rs` as the single canonical copy
+- [ ] Delete `propagate_header` from `list/cow_sort/mod.rs` (line 23, identical body)
+- [ ] Replace the inline copy in `cow_structural.rs` with calls to `cow_helpers::propagate_elem_header` -- check both `ori_list_insert_cow` and `ori_list_remove_cow` for inline header propagation
 - [ ] Update all import paths
 - [ ] Verify: `grep -rn "fn propagate_header\|fn propagate_elem_header" compiler/ori_rt/src/` shows exactly 1 definition in `cow_helpers.rs`
 
@@ -129,11 +130,37 @@ pub(crate) unsafe fn write_collection_struct(out: *mut u8, len: i64, cap: i64, d
 - [ ] Extract `collect_to_reverse_vec()` for shared collection phase in `ori_iter_rfold` and `ori_iter_rfind`
 - [ ] Verify: `timeout 150 cargo test -p ori_rt` passes
 
+### Cleanup (fix while touching these files)
+
+- [ ] **[WASTE]** `compiler/ori_rt/src/iterator/consumers.rs:232` — Remove decorative unicode dash banner `// ── Backward consumers ...──────────`, replace with plain `// Backward consumers (require double-ended iterators)`
+- [ ] **[WASTE]** `compiler/ori_rt/src/list/cow.rs` — `write_list_output` is still defined here even after `write_collection_struct` extraction; ensure it's fully removed, not left as dead code
+
 ---
 
 ## 01.R Third Party Review Findings
 
 - None.
+
+---
+
+## 01.T Test Strategy
+
+This section is pure structural refactoring with zero behavioral change. The test strategy focuses on:
+1. **Existing test suite as regression gate:** `./test-all.sh` must pass identically before and after each sub-section.
+2. **Unit tests for new canonical functions:** Each extracted function gets direct unit tests verifying it matches the old inline behavior.
+3. **Structural invariant tests:** Grep-based tests that verify no inline copies remain.
+
+- [ ] Add unit tests for `cow_can_mutate_in_place()` in `compiler/ori_rt/src/cow_helpers/tests.rs`:
+  - `cow_mode=1` (static unique) returns `true` regardless of RC
+  - `cow_mode=2` (static shared) returns `false` regardless of RC
+  - `cow_mode=0` (dynamic) returns `true` when `ori_rc_is_unique` returns true
+  - `cow_mode=0` (dynamic) returns `false` when refcount > 1
+  - Slice cap always returns `false` regardless of cow_mode
+- [ ] Add unit tests for `write_collection_struct()`: verify struct layout matches the (len, cap, data) triple at correct offsets (0, 8, 16)
+- [ ] Add unit tests for `consume_iter()`: verify ControlFlow::Break stops iteration, ControlFlow::Continue processes all elements
+- [ ] Verify `timeout 150 cargo test -p ori_rt` passes after each sub-section (01.1, 01.2, 01.3, 01.4)
+- [ ] Verify `timeout 150 ./test-all.sh` passes after all sub-sections complete
+- [ ] Verify `ORI_CHECK_LEAKS=1` reports zero leaks on COW-heavy test programs (e.g., `tests/spec/collections/cow/`)
 
 ---
 
@@ -143,6 +170,7 @@ pub(crate) unsafe fn write_collection_struct(out: *mut u8, len: i64, cap: i64, d
 - [ ] Single `propagate_elem_header` function in `cow_helpers.rs`
 - [ ] Single `write_collection_struct` function in `cow_helpers.rs`
 - [ ] Iterator consumer loop harness extracted
+- [ ] Unit tests for all new canonical functions pass
 - [ ] `timeout 150 cargo test -p ori_rt` passes
 - [ ] `timeout 150 ./test-all.sh` passes (zero behavioral changes)
 - [ ] `./clippy-all.sh` clean

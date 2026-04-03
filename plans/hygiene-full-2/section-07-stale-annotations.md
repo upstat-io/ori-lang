@@ -29,7 +29,7 @@ sections:
 # Section 07: Stale Annotations and Decorative Banners
 
 **Status:** Not Started
-**Goal:** Remove ~71 stale plan annotations from completed plans, ~37 decorative banner comments, and 8+ bare TODO comments from production code across all compiler crates. Preserve annotations from active plans (repr-opt §07, aot-perf).
+**Goal:** Remove ~85 stale plan annotations from completed plans, ~198 decorative banner comments, and 8+ bare TODO comments from production code across all compiler crates. Preserve annotations from active plans (repr-opt §07, aot-perf). <!-- reviewed: cohesion fix — banner count was ~37, actual is ~198; annotation count was ~71, actual is ~85 -->
 
 **Context:** Plan annotations are temporary scaffolding — they aid navigation during active development but MUST be removed when the plan completes. Stale annotations from completed plans (hygiene-full sections 01/03/04, codegen-purity, rc-header-elem-dec) remain in production code. Decorative banners (`// ===`, `// ---`) violate style rules.
 
@@ -49,7 +49,7 @@ sections:
 - `TPR-01-*` in `ori_parse/src/incremental/tests.rs` (~11 test name references)
 - `TPR-03-*` in `ori_llvm/src/evaluator/compile.rs` and `lib.rs` — audit each: remove if from completed plan, preserve if from active repr-opt
 - `TPR-04-*` in `ori_llvm/src/evaluator/compile.rs` — audit: remove if from completed plan
-- `TPR-03-*` in `ori_repr/src/range/fixpoint/` — these reference repr-opt Section 03 (range analysis). Check if section is complete; if so, remove
+- `TPR-03-*` in `ori_repr/src/range/fixpoint/` — these reference repr-opt Section 03 (range analysis), which is **Complete**. Remove all (~30 annotations in mod.rs, narrowing.rs, terminator.rs) <!-- reviewed: cohesion fix — section IS complete, made action definitive -->
 
 - [ ] Run `bash .claude/skills/impl-hygiene-review/plan-annotations.sh` to get the full list
 - [ ] For each annotation: check if the referenced plan section is complete or active
@@ -63,9 +63,9 @@ sections:
 
 **File(s):** Multiple files across ori_types, ori_rt, ori_parse
 
-Decorative banners (`// ===`, `// ---`, `// ───`) in production code violate style rules. Replace with plain `// Section name` comments.
+Decorative banners (`// ===`, `// ---`, `// ───`) in production code violate style rules. Replace with plain `// Section name` comments. There are ~198 instances across the compiler (not 37 as originally estimated). <!-- reviewed: cohesion fix — actual count is ~198, not ~37 -->
 
-Known locations:
+Known high-count locations (representative, not exhaustive):
 - `ori_types/src/unify/mod.rs` — 10 decorative banners
 - `ori_types/src/infer/mod.rs` — 22 decorative banners
 - `ori_types/src/check/bodies/mod.rs` — 2 banners
@@ -74,10 +74,12 @@ Known locations:
 - `ori_parse/src/cursor/mod.rs` — 2 banners
 - `ori_parse/src/outcome/mod.rs` — 5 banners
 - `ori_parse/src/error/kind/mod.rs` — 8 banners
+- Plus ~131 more across ori_types, ori_llvm, ori_arc, ori_eval, ori_patterns, ori_ir, oric, ori_diagnostic, ori_fmt, ori_rt <!-- reviewed: cohesion fix -->
 
-- [ ] `grep -rn "// ===\|// ---\|// ───" compiler/*/src/ --include="*.rs" | grep -v test` to find all
+- [ ] `grep -rn "// ===\|// ---\|// ───\|// ──" compiler/*/src/ --include="*.rs" | grep -v test` to find all instances (includes unicode dash banners `// ──` which the original grep missed; the `// ` prefix avoids matching legitimate docs) <!-- reviewed: executability/hygiene fix — added unicode dash pattern with // prefix to avoid false positives -->
 - [ ] Replace each with a plain `// Section name` comment (keep the descriptive text, remove the decoration)
-- [ ] Verify: no decorative banners remain in production code
+- [ ] **Approach:** Process one crate at a time (ori_types first — highest count at ~50+, then ori_rt, ori_llvm, ori_eval, etc.) to keep commits manageable <!-- reviewed: executability fix — batching guidance -->
+- [ ] Verify: `grep -rn "// ===\|// ---\|// ───\|// ──" compiler/*/src/ --include="*.rs" | grep -v test | wc -l` returns 0 <!-- reviewed: executability/hygiene fix — consistent pattern with search command -->
 
 ---
 
@@ -105,6 +107,19 @@ Known locations:
 ## 07.R Third Party Review Findings
 
 - None.
+
+---
+
+## 07.T Test Strategy
+
+This section is pure comment/annotation cleanup with zero code changes. The test strategy is lightweight.
+
+- [ ] Verify `timeout 150 ./test-all.sh` passes after each batch of annotation removals (per-crate batching recommended)
+- [ ] Verify `./clippy-all.sh` clean (comment removal should not affect clippy, but verify)
+- [ ] Structural invariant verification commands (run after all changes):
+  - `bash .claude/skills/impl-hygiene-review/plan-annotations.sh` reports only active plan annotations
+  - `grep -rn "// ===\|// ---\|// ───\|// ──" compiler/*/src/ --include="*.rs" | grep -v test | wc -l` returns 0
+  - All bare TODOs either filed, tracked, or removed
 
 ---
 
