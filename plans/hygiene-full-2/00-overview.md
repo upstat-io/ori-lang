@@ -11,31 +11,31 @@ references:
 
 ## Mission
 
-Achieve a cohesive, well-architected compiler where every phase has clear boundaries, every piece of knowledge lives in exactly one canonical home, and every solution is the correct one. This sweep addresses the runtime COW protocol — where cow_mode checks are scattered with no canonical dispatch point; evaluator and codegen method dispatch — where iterator consumers duplicate the same algorithmic skeletons and cross-backend routing tables drift independently; type resolution — where parallel ParsedType matching has no shared resolver; and structural cleanliness — oversized files that mix responsibilities, stale plan annotations from completed work, and undocumented unsafe blocks. The standard is `.claude/rules/impl-hygiene.md`.
+Achieve a cohesive, well-architected compiler where every phase has clear boundaries, every piece of knowledge lives in exactly one canonical home, and every solution is the correct one. This sweep addresses the runtime COW protocol -- where cow_mode checks are scattered with no canonical dispatch point; evaluator and codegen method dispatch -- where iterator consumers duplicate the same algorithmic skeletons and cross-backend routing tables drift independently; type resolution -- where parallel ParsedType matching has no shared resolver; and structural cleanliness -- oversized files that mix responsibilities, stale plan annotations from completed work, and undocumented unsafe blocks. The standard is `.claude/rules/impl-hygiene.md`.
 
 ## Architecture
 
 ```
 Hygiene fixes touch ALL compiler phases but do NOT change behavior:
 
-  ori_rt (COW protocol)     ─── Section 01: centralize cow_mode checks
-  ori_eval (dispatch)       ─── Section 02: extract shared iterator/method skeletons
-  ori_eval ↔ ori_llvm       ─── Section 03: registry-driven enforcement tests
-  ori_types (type resolver) ─── Section 04: TypeResolver trait for ParsedType
-  ori_llvm (codegen DRY)    ─── Section 05: extract shared codegen helpers
-  ori_lexer/ori_parse       ─── Section 06: parameterize cooking/parsing functions
-  ALL crates                ─── Section 07: remove stale annotations + banners
-  ALL crates                ─── Section 08: split oversized files + decompose oversized functions
-  ori_rt                    ─── Section 09: add SAFETY comments to ~512 unsafe blocks
+  ori_rt (COW protocol)     --- Section 01: centralize cow_mode checks
+  ori_eval (dispatch)       --- Section 02: extract shared iterator/method skeletons
+  ori_eval <-> ori_llvm     --- Section 03: registry-driven enforcement tests
+  ori_types (type resolver) --- Section 04: TypeResolver trait for ParsedType
+  ori_llvm (codegen DRY)    --- Section 05: extract shared codegen helpers
+  ori_lexer/ori_parse       --- Section 06: parameterize cooking/parsing functions
+  ALL crates                --- Section 07: remove stale annotations + banners
+  ALL crates                --- Section 08: split oversized files + decompose oversized functions
+  ori_rt                    --- Section 09: add SAFETY comments to ~289 undocumented unsafe blocks
 ```
 
 ## Design Principles
 
-1. **Zero behavioral change.** Every fix is structural — renaming, extracting, centralizing, documenting. No test should change behavior. `./test-all.sh` must pass identically before and after each section.
+1. **Zero behavioral change.** Every fix is structural -- renaming, extracting, centralizing, documenting. No test should change behavior. `./test-all.sh` must pass identically before and after each section.
 
 2. **LEAKs first, separately.** Side logic is how clean architectures decay. Every LEAK creates a second source of truth that WILL drift. Fix LEAKs before DRIFTs, DRIFTs before GAPs, GAPs before BLOAT.
 
-3. **Registry as canonical home.** When multiple backends maintain parallel dispatch tables, the fix is NOT to merge the backends — it's to add enforcement tests that verify both backends cover the same method set as `ori_registry`. The backends need different implementations, but the same coverage.
+3. **Registry as canonical home.** When multiple backends maintain parallel dispatch tables, the fix is NOT to merge the backends -- it's to add enforcement tests that verify both backends cover the same method set as `ori_registry`. The backends need different implementations, but the same coverage.
 
 ## Section Dependency Graph
 
@@ -51,18 +51,17 @@ Hygiene fixes touch ALL compiler phases but do NOT change behavior:
                        +------+------+----+------+-----------+
                               |
                               v
-                     08 (file+fn sizes) ← depends on 01-07
+                     08 (file+fn sizes) <- depends on 01-07
                               |
                               v
                          10 (cleanup)
 ```
-<!-- reviewed: cohesion fix — dependency graph now accurately shows 08 depending on all of 01-07 -->
 
-- Sections 01, 02, 04, 06 are independent — can be worked in any order.
+- Sections 01, 02, 04, 06 are independent -- can be worked in any order.
 - Section 03 benefits from 02 (eval dispatch is cleaner after DRY extraction).
 - Section 05 is independent but logically follows 03 (both touch ori_llvm).
 - Section 07 is independent (pure annotation cleanup).
-- Section 08 (file splitting) is best done last before cleanup — other sections may change file sizes.
+- Section 08 (file splitting) is best done last before cleanup -- other sections may change file sizes.
 - Section 09 depends on 01 (COW code is reorganized before documenting it).
 - Section 10 runs after all others.
 
@@ -70,30 +69,29 @@ Hygiene fixes touch ALL compiler phases but do NOT change behavior:
 
 ```
 Phase 1 - Independent LEAKs (any order)
-  ├─ Section 01: Runtime COW protocol centralization
-  ├─ Section 02: Evaluator algorithmic DRY
-  ├─ Section 04: Type resolution DRY
-  └─ Section 06: Lexer/parser DRY
+  +-- Section 01: Runtime COW protocol centralization
+  +-- Section 02: Evaluator algorithmic DRY
+  +-- Section 04: Type resolution DRY
+  +-- Section 06: Lexer/parser DRY
   Gate: ./test-all.sh green, no behavior changes
 
 Phase 2 - Cross-crate LEAKs
-  ├─ Section 03: Cross-backend dispatch enforcement
-  └─ Section 05: LLVM codegen internal DRY
+  +-- Section 03: Cross-backend dispatch enforcement
+  +-- Section 05: LLVM codegen internal DRY
   Gate: ./test-all.sh green, enforcement tests catch drift
 
 Phase 3 - DRIFTs + EXPOSURE
-  ├─ Section 07: Stale annotations and decorative banners
-  └─ Section 09: SAFETY comments for ori_rt
+  +-- Section 07: Stale annotations and decorative banners
+  +-- Section 09: SAFETY comments for ori_rt
   Gate: zero stale annotations, all unsafe blocks documented
 
 Phase 4 - BLOAT
-  └─ Section 08: File and function size violations
+  +-- Section 08: File and function size violations
   Gate: zero files >500 lines, zero functions >100 lines (production, excluding exempt data tables)
 
 Phase 5 - Verification + Cleanup
-  └─ Section 10: Final verification and plan deletion
+  +-- Section 10: Final verification and plan deletion
   Gate: ./test-all.sh green (debug AND release), ./clippy-all.sh clean, plan directory deleted
-  <!-- reviewed: executability/hygiene fix — release testing mandatory per CLAUDE.md -->
 ```
 
 ## Metrics (Current State)
@@ -104,10 +102,10 @@ Phase 5 - Verification + Cleanup
 | GAP findings | 10 |
 | DRIFT findings | 14 |
 | WASTE findings | 5 |
-| EXPOSURE findings (missing SAFETY) | ~289 undocumented unsafe blocks across ~17 files (of ~512 total; ~223 already documented) | <!-- reviewed: executability/hygiene fix — precise counts from script -->
-| Files >500 lines | 69 | <!-- reviewed: cohesion fix — re-measured, was 58 -->
+| EXPOSURE findings (missing SAFETY) | ~289 undocumented unsafe blocks across ~17 files (of ~512 total; ~223 already documented) |
+| Files >500 lines | 69 |
 | Functions >100 lines | 31+ |
-| Decorative banners | ~198 | <!-- reviewed: cohesion fix — was ~37 -->
+| Decorative banners | ~198 |
 
 ## Estimated Effort
 
@@ -119,11 +117,11 @@ Phase 5 - Verification + Cleanup
 | 04 Type Resolution DRY | ~400 | High | -- |
 | 05 LLVM DRY | ~250 | Medium | -- |
 | 06 Lexer/Parser DRY | ~200 | Low | -- |
-| 07 Stale Annotations | ~300 (deletions) | Low | -- | <!-- reviewed: cohesion fix — ~198 banners, not ~37; ~85 TPR annotations -->
-| 08 File Sizes | ~600 (splits) | Medium | 01-07 | <!-- reviewed: cohesion fix — 69 files, not 58 -->
-| 09 SAFETY Comments | ~600 (comments for ~289 blocks) | Medium | 01 | <!-- reviewed: executability/hygiene fix — 289 blocks need SAFETY, not 510 (223 already documented) -->
+| 07 Stale Annotations | ~300 (deletions) | Low | -- |
+| 08 File Sizes | ~600 (splits) | Medium | 01-07 |
+| 09 SAFETY Comments | ~600 (comments for ~289 blocks) | Medium | 01 |
 | 10 Cleanup | ~10 | Low | all |
-| **Total** | **~3010** | | | <!-- reviewed: executability/hygiene fix — decreased from 3610: SAFETY scope reduced from ~1200 to ~600 (223 blocks already documented) -->
+| **Total** | **~3010** | | |
 
 ## Quick Reference
 
