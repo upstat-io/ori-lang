@@ -334,3 +334,14 @@ $ ori build
 | Long-term commitment | If it's std.*, we maintain it |
 
 **The principle**: A language is only as useful as its standard library. Ori provides comprehensive, trustworthy, maintainable stdlib packages so users can build real software without gambling on third-party maintenance.
+
+---
+
+## Errata (added 2026-04-02)
+
+> **Updated by [stdlib-text-api-proposal](stdlib-text-api-proposal.md)**: The stdlib packages table above lists `std.regex` as a standalone package. Per the approved `std.text` proposal, `std.regex` is now a submodule of the comprehensive `std.text` package (`std.text.regex`). Additionally, the following packages should be added to the table:
+>
+> | Package | Purpose | FFI Backend |
+> |---------|---------|-------------|
+> | `std.text` | Unicode, text processing, layout, similarity | `ori_rt` (Rust tables) + Pure Ori |
+> | `std.i18n` | Internationalization, locale-aware formatting | CLDR data (TBD) |
