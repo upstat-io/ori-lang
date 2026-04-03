@@ -456,6 +456,7 @@ pub(super) fn resolve_all_lambda_bound_vars(
             .iter()
             .any(|p| matches!(pool.tag(p.ty), Tag::BoundVar | Tag::Var))
             || contains_bound_var(pool, l.return_type)
+            || contains_nested_var(pool, l.return_type)
             || l.var_types.iter().any(|ty| contains_bound_var(pool, *ty))
     });
     // Also check if any lambda has multiple narrowing copies in the parent
@@ -475,22 +476,18 @@ pub(super) fn resolve_all_lambda_bound_vars(
     let mut multi_inst_lambdas = rustc_hash::FxHashSet::<usize>::default();
 
     for i in 0..orig_len {
-        let has_bound_vars = lambdas[i]
+        let has_polymorphic = lambdas[i]
             .params
             .iter()
             .any(|p| matches!(pool.tag(p.ty), Tag::BoundVar | Tag::Var))
-            || contains_bound_var(pool, lambdas[i].return_type);
+            || contains_bound_var(pool, lambdas[i].return_type)
+            || contains_nested_var(pool, lambdas[i].return_type);
 
         let lambda_name = lambdas[i].name;
-
-        // Check for multi-instantiation: lambdas with BoundVars always need
-        // this check. Also check lambdas WITHOUT BoundVars if they have a
-        // PartialApply in the parent — they may need cloning when Var-typed
-        // returns resolve to different concrete types at different call sites.
         let instantiations = find_all_instantiation_types(parent, lambda_name, pool);
 
-        if instantiations.len() <= 1 && !has_bound_vars {
-            continue; // Single-inst, no BoundVars — nothing to resolve.
+        if instantiations.len() <= 1 && !has_polymorphic {
+            continue;
         }
 
         if instantiations.len() > 1 {
@@ -509,17 +506,21 @@ pub(super) fn resolve_all_lambda_bound_vars(
 
     // Phase 2: Build global BoundVar → concrete map for single-inst lambdas.
     let mut global_map: rustc_hash::FxHashMap<u32, Idx> = rustc_hash::FxHashMap::default();
+    // Track return type resolutions: lambda index → (schema_ret, concrete_ret).
+    let mut ret_type_resolutions: rustc_hash::FxHashMap<usize, (Idx, Idx)> =
+        rustc_hash::FxHashMap::default();
 
     for i in 0..orig_len {
         if multi_inst_lambdas.contains(&i) {
             continue; // Already handled above.
         }
-        let has_bound_vars = lambdas[i]
+        let has_polymorphic = lambdas[i]
             .params
             .iter()
             .any(|p| matches!(pool.tag(p.ty), Tag::BoundVar | Tag::Var))
-            || contains_bound_var(pool, lambdas[i].return_type);
-        if !has_bound_vars {
+            || contains_bound_var(pool, lambdas[i].return_type)
+            || contains_nested_var(pool, lambdas[i].return_type);
+        if !has_polymorphic {
             continue;
         }
 
@@ -536,22 +537,38 @@ pub(super) fn resolve_all_lambda_bound_vars(
                 &mut global_map,
             );
 
-            // Resolve return types containing BoundVars from the concrete
-            // function type. Handles Option<BoundVar>, Result<BoundVar, E>, etc.
-            if contains_bound_var(pool, lambdas[i].return_type)
-                && pool.tag(concrete_ty) == Tag::Function
-            {
-                lambdas[i].return_type = pool.function_return(concrete_ty);
+            // Track return type resolution: find the concrete return type from
+            // ApplyIndirect results in the parent (not from the function type,
+            // which may still contain unresolved Vars inside containers).
+            // Only resolve return types that contain Vars inside containers
+            // (e.g., Option<Var>, Result<Var>). Direct Var return types are
+            // already handled by apply_bound_var_map.
+            let schema_ret = lambdas[i].return_type;
+            if contains_var(pool, schema_ret) {
+                // The pool's function types may still contain Var indices inside
+                // containers. Get the concrete return type from ApplyIndirect
+                // results in the parent, which use fully-resolved types.
+                if let Some(concrete_ret) =
+                    find_apply_indirect_result_type(parent, lambdas[i].name, pool)
+                {
+                    if concrete_ret != schema_ret {
+                        ret_type_resolutions.insert(i, (schema_ret, concrete_ret));
+                    }
+                }
             }
         }
     }
 
-    // Apply the global map to ALL non-multi-inst lambdas.
+    // Apply the global map + return type resolutions to ALL non-multi-inst lambdas.
     for (i, lambda) in lambdas.iter_mut().enumerate() {
         if i < orig_len && multi_inst_lambdas.contains(&i) {
             continue; // Multi-inst originals are not compiled.
         }
         apply_bound_var_map(lambda, &global_map, pool);
+
+        if let Some(&(schema_ret, concrete_ret)) = ret_type_resolutions.get(&i) {
+            resolve_lambda_return_types(lambda, schema_ret, concrete_ret);
+        }
     }
 
     // Final fallback: any remaining BoundVars → Idx::INT.
@@ -597,21 +614,7 @@ fn clone_multi_inst_lambda(
         // Set return type and matching var_types/instructions from the concrete
         // instantiation. Only exact Idx match to avoid over-replacing.
         let concrete_ret = pool.function_return(*concrete_fn_ty);
-        clone.return_type = concrete_ret;
-        for ty in &mut clone.var_types {
-            if *ty == schema_ret {
-                *ty = concrete_ret;
-            }
-        }
-        for block in &mut clone.blocks {
-            for instr in &mut block.body {
-                if let ori_arc::ir::ArcInstr::Construct { ty, .. } = instr {
-                    if *ty == schema_ret {
-                        *ty = concrete_ret;
-                    }
-                }
-            }
-        }
+        resolve_lambda_return_types(&mut clone, schema_ret, concrete_ret);
 
         fallback_bound_vars_to_int(&mut clone, pool);
         lambdas.push(clone);
@@ -872,8 +875,13 @@ fn find_partial_apply_concrete_type(
         if let Some(ty) = check_concrete(parent, &dst) {
             return Some(ty);
         }
-        // PartialApply type not concrete — scan parent's own var_types.
-        if let Some(ty) = find_concrete_copy_type(parent, pool) {
+        // PartialApply type not concrete — scan narrowing Let copies of this
+        // specific PartialApply dst.
+        if let Some(ty) = find_concrete_copy_of(parent, dst, pool) {
+            return Some(ty);
+        }
+        // Fallback: scan all concrete function types in parent.
+        if let Some(ty) = find_any_concrete_fn_type(parent, pool) {
             return Some(ty);
         }
     }
@@ -887,14 +895,23 @@ fn find_partial_apply_concrete_type(
             if let Some(ty) = check_concrete(sibling, &dst) {
                 return Some(ty);
             }
-            // PartialApply in sibling but type not concrete — search the
-            // sibling first, then fall back to the parent. For nested lambdas,
-            // the concrete instantiation type often exists in the parent
-            // (from downstream ApplyIndirect results) but not in the sibling.
-            if let Some(ty) = find_concrete_copy_type(sibling, pool) {
+            if let Some(ty) = find_concrete_copy_of(sibling, dst, pool) {
                 return Some(ty);
             }
-            if let Some(ty) = find_concrete_copy_type(parent, pool) {
+            // For nested lambdas, the concrete type may be in the parent.
+            // Use scoped search first, fall back to unscoped if only one
+            // polymorphic lambda exists (no ambiguity risk).
+            if let Some(parent_dst) = find_pa(parent) {
+                if let Some(ty) = find_concrete_copy_of(parent, parent_dst, pool) {
+                    return Some(ty);
+                }
+            }
+            // Final fallback: scan all concrete function types in the sibling
+            // and parent. Safe only when there's a single lambda in scope.
+            if let Some(ty) = find_any_concrete_fn_type(sibling, pool) {
+                return Some(ty);
+            }
+            if let Some(ty) = find_any_concrete_fn_type(parent, pool) {
                 return Some(ty);
             }
         }
@@ -960,22 +977,39 @@ fn fallback_bound_vars_to_int(lambda: &mut ori_arc::ArcFunction, pool: &ori_type
     }
 }
 
-/// Find a concrete Function type in the parent's `var_types` that is an
-/// instantiation of a polymorphic lambda type.
-///
-/// In ARC IR, polymorphic let-bindings produce:
-///   `%0: Scheme = PartialApply @lambda()`
-///   `%4: (int) -> int = %0`  ← concrete instantiation from call site
-/// We scan the parent's `var_types` for a concrete Function type.
-fn find_concrete_copy_type(func: &ori_arc::ArcFunction, pool: &ori_types::Pool) -> Option<Idx> {
+/// Resolve a lambda's return type, `var_types`, and `Construct` instruction types
+/// from a schema->concrete mapping. Used by both multi-inst cloning and
+/// single-inst return-type resolution.
+fn resolve_lambda_return_types(
+    lambda: &mut ori_arc::ArcFunction,
+    schema_ret: Idx,
+    concrete_ret: Idx,
+) {
+    lambda.return_type = concrete_ret;
+    for ty in &mut lambda.var_types {
+        if *ty == schema_ret {
+            *ty = concrete_ret;
+        }
+    }
+    for block in &mut lambda.blocks {
+        for instr in &mut block.body {
+            if let ori_arc::ir::ArcInstr::Construct { ty, .. } = instr {
+                if *ty == schema_ret {
+                    *ty = concrete_ret;
+                }
+            }
+        }
+    }
+}
+
+/// Scan all `var_types` for the first concrete Function type. Less precise
+/// than `find_concrete_copy_of` — may match types from unrelated lambdas.
+/// Use only as a last-resort fallback for nested lambda resolution.
+fn find_any_concrete_fn_type(func: &ori_arc::ArcFunction, pool: &ori_types::Pool) -> Option<Idx> {
     use ori_types::Tag;
-    // Scan var_types for concrete Function types. The parent function
-    // has variables from the call-site instantiation with concrete types.
     for ty in &func.var_types {
         let resolved = pool.resolve_fully(*ty);
         if pool.tag(resolved) == Tag::Function {
-            // Found a concrete function type. Check that it has no
-            // BoundVars or Schemes in its params (truly concrete).
             let params = pool.function_params(resolved);
             let all_concrete = params.iter().all(|p| {
                 let pt = pool.resolve_fully(*p);
@@ -983,6 +1017,43 @@ fn find_concrete_copy_type(func: &ori_arc::ArcFunction, pool: &ori_types::Pool) 
             });
             if all_concrete {
                 return Some(resolved);
+            }
+        }
+    }
+    None
+}
+
+/// Find the first concrete Function type from a Let copy of a specific
+/// `PartialApply` dst variable. Only considers `Let { src: pa_dst }` instructions
+/// — avoids matching concrete types from unrelated lambdas.
+fn find_concrete_copy_of(
+    func: &ori_arc::ArcFunction,
+    pa_dst: ori_arc::ir::ArcVarId,
+    pool: &ori_types::Pool,
+) -> Option<Idx> {
+    use ori_types::Tag;
+    for block in &func.blocks {
+        for instr in &block.body {
+            if let ori_arc::ir::ArcInstr::Let {
+                dst,
+                value: ori_arc::ir::ArcValue::Var(src),
+                ..
+            } = instr
+            {
+                if *src == pa_dst {
+                    let ty = func.var_type(*dst);
+                    let resolved = pool.resolve_fully(ty);
+                    if pool.tag(resolved) == Tag::Function {
+                        let params = pool.function_params(resolved);
+                        let all_concrete = params.iter().all(|p| {
+                            let pt = pool.resolve_fully(*p);
+                            !matches!(pool.tag(pt), Tag::BoundVar | Tag::Var | Tag::Scheme)
+                        });
+                        if all_concrete {
+                            return Some(resolved);
+                        }
+                    }
+                }
             }
         }
     }
@@ -1098,6 +1169,110 @@ fn map_types_structural(
             map_types_structural(pool, s_ret, c_ret, map);
         }
         _ => {} // Primitives and other leaf types — nothing to extract.
+    }
+}
+
+/// Find the concrete return type by looking at `ApplyIndirect` results in the
+/// parent function. When a narrowing Let copy of a lambda is called via
+/// `ApplyIndirect`, the result's `var_type` is the concrete return type.
+fn find_apply_indirect_result_type(
+    parent: &ori_arc::ArcFunction,
+    lambda_name: Name,
+    pool: &ori_types::Pool,
+) -> Option<Idx> {
+    use ori_types::Tag;
+
+    // Find the PartialApply dst for this lambda.
+    let mut pa_dst = None;
+    for block in &parent.blocks {
+        for instr in &block.body {
+            if let ori_arc::ir::ArcInstr::PartialApply {
+                dst, func: callee, ..
+            } = instr
+            {
+                if *callee == lambda_name {
+                    pa_dst = Some(*dst);
+                    break;
+                }
+            }
+        }
+        if pa_dst.is_some() {
+            break;
+        }
+    }
+    let pa_dst = pa_dst?;
+
+    // Find Let copies of the PartialApply dst.
+    let mut narrowing_vars = Vec::new();
+    for block in &parent.blocks {
+        for instr in &block.body {
+            if let ori_arc::ir::ArcInstr::Let {
+                dst,
+                value: ori_arc::ir::ArcValue::Var(src),
+                ..
+            } = instr
+            {
+                if *src == pa_dst {
+                    narrowing_vars.push(*dst);
+                }
+            }
+        }
+    }
+
+    // Find ApplyIndirect calls on narrowing vars and return the result type.
+    for block in &parent.blocks {
+        for instr in &block.body {
+            if let ori_arc::ir::ArcInstr::ApplyIndirect { dst, closure, .. } = instr {
+                if narrowing_vars.contains(closure) {
+                    let result_ty = parent.var_type(*dst);
+                    let resolved = pool.resolve_fully(result_ty);
+                    if !matches!(pool.tag(resolved), Tag::BoundVar | Tag::Var | Tag::Scheme) {
+                        return Some(resolved);
+                    }
+                }
+            }
+        }
+    }
+
+    None
+}
+
+/// Check if a type contains a `Var` INSIDE a container (not at the top level).
+/// A bare `Var` return type is handled by `apply_bound_var_map`/`fallback_bound_vars_to_int`.
+/// A `Var` inside `Option<Var>` or `Result<Var, E>` requires explicit return
+/// type resolution because the pool is immutable and can't substitute inside containers.
+fn contains_nested_var(pool: &ori_types::Pool, ty: Idx) -> bool {
+    use ori_types::Tag;
+    match pool.tag(ty) {
+        Tag::Option => contains_var(pool, pool.option_inner(ty)),
+        Tag::Result => {
+            contains_var(pool, pool.result_ok(ty)) || contains_var(pool, pool.result_err(ty))
+        }
+        Tag::List => contains_var(pool, pool.list_elem(ty)),
+        _ => false,
+    }
+}
+
+/// Check if a type contains a `Var` (inference variable) at any nesting level.
+/// Unlike `contains_bound_var`, this checks for `Var` tags WITHOUT resolving —
+/// a `Var` inside `Option<Var>` means the pool Idx is polymorphic and the LLVM
+/// emitter may produce the wrong type layout.
+fn contains_var(pool: &ori_types::Pool, ty: Idx) -> bool {
+    use ori_types::Tag;
+    match pool.tag(ty) {
+        Tag::Var => true,
+        Tag::Option => contains_var(pool, pool.option_inner(ty)),
+        Tag::Result => {
+            contains_var(pool, pool.result_ok(ty)) || contains_var(pool, pool.result_err(ty))
+        }
+        Tag::List => contains_var(pool, pool.list_elem(ty)),
+        Tag::Function => {
+            pool.function_params(ty)
+                .iter()
+                .any(|p| contains_var(pool, *p))
+                || contains_var(pool, pool.function_return(ty))
+        }
+        _ => false,
     }
 }
 
