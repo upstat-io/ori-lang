@@ -171,6 +171,39 @@ use std.testing { assert_eq }
 }
 
 // =============================================================================
+// Return-Type-Only Multi-Instantiation (same params, different return types)
+// =============================================================================
+
+// Semantic pin for TPR-04B-003: a zero-arg polymorphic lambda instantiated at
+// two different return types (Option<int> vs Option<str>) must produce separate
+// specializations. Without return-type-aware dedup, both calls share one clone
+// and LLVM IR verification fails ("Call parameter type does not match").
+@test_return_type_only_multi_inst tests @return_type_only_multi_inst () -> void = {
+    assert_eq(actual: return_type_only_multi_inst(), expected: 0)
+}
+
+@return_type_only_multi_inst () -> int = {
+    let $none = () -> None;
+    let a: Option<int> = none();
+    let b: Option<str> = none();
+    if is_none(option: a) && is_none(option: b) then 0 else 1
+}
+
+// Variant: unary lambda with same param type but different return types.
+@test_return_type_multi_inst_unary tests @return_type_multi_inst_unary () -> void = {
+    assert_eq(actual: return_type_multi_inst_unary(), expected: "42true")
+}
+
+@return_type_multi_inst_unary () -> str = {
+    let $wrap = x -> Some(x);
+    let a: Option<int> = wrap(42);
+    let b: Option<bool> = wrap(true);
+    let $sa = match a { Some(v) -> `{v}`, None -> "" };
+    let $sb = match b { Some(v) -> `{v}`, None -> "" };
+    sa + sb
+}
+
+// =============================================================================
 // Chained Calls (f(a)(b) immediate application)
 // =============================================================================
 

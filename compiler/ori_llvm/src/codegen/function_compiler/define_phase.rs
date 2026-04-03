@@ -447,13 +447,24 @@ pub(super) fn resolve_all_lambda_bound_vars(
 ) {
     use ori_types::Tag;
 
-    // Check if ANY lambda has BoundVar params.
-    let any_bound = lambdas.iter().any(|l| {
+    // Check if ANY lambda has BoundVar/Var in params, return type, or var_types.
+    // Also check for multi-instantiation (multiple distinct narrowing copies in
+    // the parent), which can occur even without BoundVars in the lambda itself
+    // when Var types resolve to different concrete types at different call sites.
+    let any_polymorphic = lambdas.iter().any(|l| {
         l.params
             .iter()
             .any(|p| matches!(pool.tag(p.ty), Tag::BoundVar | Tag::Var))
+            || contains_bound_var(pool, l.return_type)
+            || l.var_types.iter().any(|ty| contains_bound_var(pool, *ty))
     });
-    if !any_bound {
+    // Also check if any lambda has multiple narrowing copies in the parent
+    // (multi-inst detection), which requires cloning regardless of BoundVars.
+    let any_multi_inst = !any_polymorphic
+        && lambdas
+            .iter()
+            .any(|l| find_all_instantiation_types(parent, l.name, pool).len() > 1);
+    if !any_polymorphic && !any_multi_inst {
         return;
     }
 
@@ -467,38 +478,27 @@ pub(super) fn resolve_all_lambda_bound_vars(
         let has_bound_vars = lambdas[i]
             .params
             .iter()
-            .any(|p| matches!(pool.tag(p.ty), Tag::BoundVar | Tag::Var));
-        if !has_bound_vars {
-            continue;
-        }
+            .any(|p| matches!(pool.tag(p.ty), Tag::BoundVar | Tag::Var))
+            || contains_bound_var(pool, lambdas[i].return_type);
 
         let lambda_name = lambdas[i].name;
+
+        // Check for multi-instantiation: lambdas with BoundVars always need
+        // this check. Also check lambdas WITHOUT BoundVars if they have a
+        // PartialApply in the parent — they may need cloning when Var-typed
+        // returns resolve to different concrete types at different call sites.
         let instantiations = find_all_instantiation_types(parent, lambda_name, pool);
 
+        if instantiations.len() <= 1 && !has_bound_vars {
+            continue; // Single-inst, no BoundVars — nothing to resolve.
+        }
+
         if instantiations.len() > 1 {
-            // Multi-instantiation detected. Clone for each and rewrite parent.
-            let pa_args = find_partial_apply_args(parent, lambda_name);
-            for (inst_idx, concrete_fn_ty) in instantiations.iter().enumerate() {
-                let mut clone = lambdas[i].clone();
-                let base = interner.lookup(lambda_name);
-                let spec_name_str = format!("{base}${inst_idx}");
-                clone.name = interner.intern(&spec_name_str);
-
-                // Build per-instantiation map and resolve this clone.
-                let mut inst_map = rustc_hash::FxHashMap::<u32, Idx>::default();
-                build_bound_var_map(pool, *concrete_fn_ty, &clone.params, &mut inst_map);
-                apply_bound_var_map(&mut clone, &inst_map, pool);
-                fallback_bound_vars_to_int(&mut clone, pool);
-
-                lambdas.push(clone);
-            }
-
-            // Rewrite the parent's ARC IR: replace narrowing Let copies with
-            // PartialApply of the correct specialization.
-            rewrite_parent_for_multi_inst(
+            clone_multi_inst_lambda(
                 parent,
+                lambdas,
+                i,
                 lambda_name,
-                &pa_args,
                 &instantiations,
                 interner,
                 pool,
@@ -517,7 +517,8 @@ pub(super) fn resolve_all_lambda_bound_vars(
         let has_bound_vars = lambdas[i]
             .params
             .iter()
-            .any(|p| matches!(pool.tag(p.ty), Tag::BoundVar | Tag::Var));
+            .any(|p| matches!(pool.tag(p.ty), Tag::BoundVar | Tag::Var))
+            || contains_bound_var(pool, lambdas[i].return_type);
         if !has_bound_vars {
             continue;
         }
@@ -527,7 +528,21 @@ pub(super) fn resolve_all_lambda_bound_vars(
             find_partial_apply_concrete_type(parent, lambdas, i, lambda_name, pool);
 
         if let Some(concrete_ty) = concrete_fn_ty {
-            build_bound_var_map(pool, concrete_ty, &lambdas[i].params, &mut global_map);
+            build_bound_var_map(
+                pool,
+                concrete_ty,
+                &lambdas[i].params,
+                lambdas[i].return_type,
+                &mut global_map,
+            );
+
+            // Resolve return types containing BoundVars from the concrete
+            // function type. Handles Option<BoundVar>, Result<BoundVar, E>, etc.
+            if contains_bound_var(pool, lambdas[i].return_type)
+                && pool.tag(concrete_ty) == Tag::Function
+            {
+                lambdas[i].return_type = pool.function_return(concrete_ty);
+            }
         }
     }
 
@@ -546,6 +561,70 @@ pub(super) fn resolve_all_lambda_bound_vars(
         }
         fallback_bound_vars_to_int(lambda, pool);
     }
+}
+
+/// Clone a multi-instantiated lambda: create one clone per distinct concrete
+/// instantiation, resolve each clone's types, and rewrite the parent's ARC IR.
+fn clone_multi_inst_lambda(
+    parent: &mut ori_arc::ArcFunction,
+    lambdas: &mut Vec<ori_arc::ArcFunction>,
+    orig_idx: usize,
+    lambda_name: Name,
+    instantiations: &[Idx],
+    interner: &ori_ir::StringInterner,
+    pool: &ori_types::Pool,
+) {
+    let pa_args = find_partial_apply_args(parent, lambda_name);
+    let schema_ret = lambdas[orig_idx].return_type;
+
+    for (inst_idx, concrete_fn_ty) in instantiations.iter().enumerate() {
+        let mut clone = lambdas[orig_idx].clone();
+        let base = interner.lookup(lambda_name);
+        let spec_name_str = format!("{base}${inst_idx}");
+        clone.name = interner.intern(&spec_name_str);
+
+        // Build per-instantiation BoundVar map and apply it.
+        let mut inst_map = rustc_hash::FxHashMap::<u32, Idx>::default();
+        build_bound_var_map(
+            pool,
+            *concrete_fn_ty,
+            &clone.params,
+            clone.return_type,
+            &mut inst_map,
+        );
+        apply_bound_var_map(&mut clone, &inst_map, pool);
+
+        // Set return type and matching var_types/instructions from the concrete
+        // instantiation. Only exact Idx match to avoid over-replacing.
+        let concrete_ret = pool.function_return(*concrete_fn_ty);
+        clone.return_type = concrete_ret;
+        for ty in &mut clone.var_types {
+            if *ty == schema_ret {
+                *ty = concrete_ret;
+            }
+        }
+        for block in &mut clone.blocks {
+            for instr in &mut block.body {
+                if let ori_arc::ir::ArcInstr::Construct { ty, .. } = instr {
+                    if *ty == schema_ret {
+                        *ty = concrete_ret;
+                    }
+                }
+            }
+        }
+
+        fallback_bound_vars_to_int(&mut clone, pool);
+        lambdas.push(clone);
+    }
+
+    rewrite_parent_for_multi_inst(
+        parent,
+        lambda_name,
+        &pa_args,
+        instantiations,
+        interner,
+        pool,
+    );
 }
 
 /// Find all distinct concrete Function types that a polymorphic lambda is
@@ -597,14 +676,18 @@ fn find_all_instantiation_types(
                     let resolved = pool.resolve_fully(ty);
                     if pool.tag(resolved) == Tag::Function {
                         let params = pool.function_params(resolved);
-                        let all_concrete = params.iter().all(|p| {
+                        let ret = pool.function_return(resolved);
+                        let all_concrete = params.iter().chain(std::iter::once(&ret)).all(|p| {
                             let pt = pool.resolve_fully(*p);
                             !matches!(pool.tag(pt), Tag::BoundVar | Tag::Var | Tag::Scheme)
                         });
                         if all_concrete {
-                            // Deduplicate by param types.
-                            let key: Vec<Idx> =
-                                params.iter().map(|p| pool.resolve_fully(*p)).collect();
+                            // Deduplicate by param types + return type.
+                            let key: Vec<Idx> = params
+                                .iter()
+                                .chain(std::iter::once(&ret))
+                                .map(|p| pool.resolve_fully(*p))
+                                .collect();
                             if seen.insert(key) {
                                 instantiations.push(resolved);
                             }
@@ -686,21 +769,26 @@ fn rewrite_parent_for_multi_inst(
                     let resolved = pool.resolve_fully(var_ty);
                     if pool.tag(resolved) == Tag::Function {
                         let params = pool.function_params(resolved);
-                        let all_concrete = params.iter().all(|p| {
+                        let ret = pool.function_return(resolved);
+                        let all_concrete = params.iter().chain(std::iter::once(&ret)).all(|p| {
                             let pt = pool.resolve_fully(*p);
-                            !matches!(
-                                pt,
-                                t if matches!(pool.tag(t), Tag::BoundVar | Tag::Var | Tag::Scheme)
-                            )
+                            !matches!(pool.tag(pt), Tag::BoundVar | Tag::Var | Tag::Scheme)
                         });
                         if all_concrete {
-                            // Find which instantiation index matches.
-                            let key: Vec<Idx> =
-                                params.iter().map(|p| pool.resolve_fully(*p)).collect();
+                            // Find which instantiation index matches (param types + return type).
+                            let key: Vec<Idx> = params
+                                .iter()
+                                .chain(std::iter::once(&ret))
+                                .map(|p| pool.resolve_fully(*p))
+                                .collect();
                             for (idx, inst_ty) in instantiations.iter().enumerate() {
                                 let inst_params = pool.function_params(*inst_ty);
-                                let inst_key: Vec<Idx> =
-                                    inst_params.iter().map(|p| pool.resolve_fully(*p)).collect();
+                                let inst_ret = pool.function_return(*inst_ty);
+                                let inst_key: Vec<Idx> = inst_params
+                                    .iter()
+                                    .chain(std::iter::once(&inst_ret))
+                                    .map(|p| pool.resolve_fully(*p))
+                                    .collect();
                                 if key == inst_key {
                                     let spec_name_str = format!("{base}${idx}");
                                     let spec_name = interner.intern(&spec_name_str);
@@ -867,7 +955,7 @@ fn fallback_bound_vars_to_int(lambda: &mut ori_arc::ArcFunction, pool: &ori_type
             *ty = Idx::INT;
         }
     }
-    if matches!(pool.tag(lambda.return_type), Tag::BoundVar | Tag::Var) {
+    if contains_bound_var(pool, lambda.return_type) {
         lambda.return_type = Idx::INT;
     }
 }
@@ -907,6 +995,7 @@ fn build_bound_var_map(
     pool: &ori_types::Pool,
     concrete_fn_ty: Idx,
     lambda_params: &[ori_arc::ir::ArcParam],
+    lambda_return_type: Idx,
     map: &mut rustc_hash::FxHashMap<u32, Idx>,
 ) {
     use ori_types::Tag;
@@ -936,20 +1025,103 @@ fn build_bound_var_map(
         }
     }
 
-    // Map the return type BoundVar.
-    let resolved_ret = pool.resolve_fully(concrete_ret);
-    // Check if any lambda param with same BoundVar ID was already mapped.
-    // If return type is a different BoundVar, we need to handle it.
-    // For now, check if return BoundVar matches any param BoundVar (common case).
-    // If it's a new BoundVar, try to map from the concrete return type.
-    // We handle this in the caller by checking lambda.return_type.
+    // Map return type BoundVars by structural comparison with the concrete
+    // return type. Only for multi-inst lambdas where the return type contains
+    // BoundVars that aren't already mapped from params.
+    // Unwrap Scheme if needed to reach the inner type.
+    let schema_ret = if pool.tag(lambda_return_type) == Tag::Scheme {
+        pool.scheme_body(lambda_return_type)
+    } else {
+        lambda_return_type
+    };
+    // Only run structural matching if the return type actually has unmapped
+    // BoundVars. For lambdas where params share BoundVars with the return
+    // type (e.g., `a -> a + b`), the params already populated the map.
+    if contains_bound_var(pool, schema_ret) {
+        map_types_structural(pool, schema_ret, pool.resolve_fully(concrete_ret), map);
+    }
+}
 
-    // Also map capture BoundVars: captures precede user params.
-    // Their concrete types come from the captured values' types in the parent.
-    // The PartialApply args in the parent have concrete types.
-    // For now, captures that share a BoundVar ID with a user param are
-    // resolved by the map built from user params (same BoundVar ID = same type).
-    // Captures with unique BoundVar IDs (not present in user params) aren't
-    // resolved here — they'll use the INT fallback.
-    let _ = resolved_ret; // used indirectly through map
+/// Walk `schema_ty` and `concrete_ty` in parallel. When a `BoundVar` is found
+/// in `schema_ty`, map it to the corresponding type in `concrete_ty`.
+/// Recurses into `Option`, `Result`, `List`, `Function`, and other container types.
+fn map_types_structural(
+    pool: &ori_types::Pool,
+    schema_ty: Idx,
+    concrete_ty: Idx,
+    map: &mut rustc_hash::FxHashMap<u32, Idx>,
+) {
+    use ori_types::Tag;
+
+    let schema_tag = pool.tag(schema_ty);
+
+    // Direct BoundVar/Var → map to the concrete type.
+    if matches!(schema_tag, Tag::BoundVar | Tag::Var) {
+        let var_id = pool.data(schema_ty);
+        map.insert(var_id, concrete_ty);
+        return;
+    }
+
+    let concrete_tag = pool.tag(concrete_ty);
+    if schema_tag != concrete_tag {
+        return; // Structural mismatch — can't extract mappings.
+    }
+
+    // Recurse into container types.
+    match schema_tag {
+        Tag::Option => {
+            let s_inner = pool.option_inner(schema_ty);
+            let c_inner = pool.option_inner(concrete_ty);
+            map_types_structural(pool, s_inner, c_inner, map);
+        }
+        Tag::Result => {
+            let s_ok = pool.result_ok(schema_ty);
+            let c_ok = pool.result_ok(concrete_ty);
+            map_types_structural(pool, s_ok, c_ok, map);
+            let s_err = pool.result_err(schema_ty);
+            let c_err = pool.result_err(concrete_ty);
+            map_types_structural(pool, s_err, c_err, map);
+        }
+        Tag::List => {
+            let s_elem = pool.list_elem(schema_ty);
+            let c_elem = pool.list_elem(concrete_ty);
+            map_types_structural(pool, s_elem, c_elem, map);
+        }
+        Tag::Function => {
+            let s_params = pool.function_params(schema_ty);
+            let c_params = pool.function_params(concrete_ty);
+            for (sp, cp) in s_params.iter().zip(c_params.iter()) {
+                map_types_structural(pool, *sp, *cp, map);
+            }
+            let s_ret = pool.function_return(schema_ty);
+            let c_ret = pool.function_return(concrete_ty);
+            map_types_structural(pool, s_ret, c_ret, map);
+        }
+        _ => {} // Primitives and other leaf types — nothing to extract.
+    }
+}
+
+/// Check if a type contains any unresolvable `BoundVar` (not `Var` — `Var`s may
+/// be resolved through pool links). Only `BoundVar` is truly unresolved.
+/// Recurses into `Option`, `Result`, `List`, `Function`, and `Scheme`.
+fn contains_bound_var(pool: &ori_types::Pool, ty: Idx) -> bool {
+    use ori_types::Tag;
+
+    let resolved = pool.resolve_fully(ty);
+    match pool.tag(resolved) {
+        Tag::BoundVar | Tag::Scheme => true,
+        Tag::Option => contains_bound_var(pool, pool.option_inner(resolved)),
+        Tag::Result => {
+            contains_bound_var(pool, pool.result_ok(resolved))
+                || contains_bound_var(pool, pool.result_err(resolved))
+        }
+        Tag::List => contains_bound_var(pool, pool.list_elem(resolved)),
+        Tag::Function => {
+            pool.function_params(resolved)
+                .iter()
+                .any(|p| contains_bound_var(pool, *p))
+                || contains_bound_var(pool, pool.function_return(resolved))
+        }
+        _ => false,
+    }
 }
