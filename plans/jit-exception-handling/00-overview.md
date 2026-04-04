@@ -92,6 +92,10 @@ CURRENT STATE (implemented):
        (Root Cause A addressed; list-concat crash + in-tree verification blocked by BUG-04-030)
        ↓
   §05 Verification: test matrix, dual-exec parity, TPR  ← IN PROGRESS
+       ↓
+  §06 LCFail Resolution (BUG-04-030/031/032/033)  ← NOT STARTED
+       Root causes D → A → B → E → F → 031/032 → 033 → C
+       Target: reduce 2656 LCFails to <500
 ```
 
 ## Known Bugs (Remaining)
@@ -143,3 +147,4 @@ The Itanium path in `ori_run_main` (lib.rs:430-443) still uses `std::panic::catc
 | 04 | Exposed Bug Fixes | `section-04-exposed-bugs.md` | Complete |
 | 04B | Polymorphic Lambda Monomorphization | `section-04b-lambda-mono.md` | In Progress (blocked by BUG-04-030) |
 | 05 | Verification | `section-05-verification.md` | In Progress |
+| 06 | LCFail Resolution | `section-06-lcfail-resolution.md` | Not Started |
