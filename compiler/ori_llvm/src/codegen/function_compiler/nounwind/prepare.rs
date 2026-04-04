@@ -157,7 +157,7 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
 
         // Resolve BoundVar types in polymorphic lambdas before preparation.
         let mut lambdas = lambdas;
-        crate::codegen::function_compiler::define_phase::resolve_all_lambda_bound_vars(
+        crate::codegen::function_compiler::lambda_mono::resolve_all_lambda_bound_vars(
             &mut arc_func,
             &mut lambdas,
             self.pool,

@@ -67,7 +67,7 @@ CURRENT STATE (implemented):
 
 **Section 04B (Polymorphic Lambda Monomorphization) — IN PROGRESS:**
 - Scheme unwrapping in ARC lowering, BoundVar→concrete substitution, and nested capture resolution have landed
-- Open review findings: the in-tree `lambda_mono.ori` LLVM command still fails in debug and release, and successful multi-inst builds still emit `emit_partial_apply: callee not found` warnings from stale generic closure creation
+- Open review findings: the in-tree `lambda_mono.ori` LLVM command still fails in debug and release, and the touched `define_phase.rs` monomorphization path now violates the repo file-size rule
 
 **Section 05 (Verification) — NOT STARTED:**
 - Full test matrix, dual-exec parity, TPR review
