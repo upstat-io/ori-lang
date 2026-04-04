@@ -117,6 +117,25 @@ operators_logical.ori, operators_bitwise.ori
 
 ---
 
+### Section 06: LCFail Resolution
+**File:** `section-06-lcfail-resolution.md` | **Status:** Not Started
+
+```
+BUG-04-030, BUG-04-031, BUG-04-032, BUG-04-033, LCFail
+Generalized, VarState::Generalized, resolve_fully, generalization.rs
+u32::MAX, index out of bounds, 4294967295, ArcVarId, ArcBlockId
+find_concrete_copy_of, find_concrete_copy_type, arity matching
+ori_iter_join, ori_iter_flatten, jit_allowed, RT_FUNCTIONS
+list concat, ori_list_concat_cow, sret, calling convention
+PHINode predecessor, short-circuit, &&, ||, side-effect propagation
+multi-clause, Ackermann, clause dispatch, build_struct
+StructValue, IntValue, ABI, ParamPassing, Direct, Indirect
+type_resolve.rs, emitter_utils.rs, short_circuit.rs, runtime_functions.rs
+pool/accessors.rs, generalization.rs, abi/mod.rs
+```
+
+---
+
 ## Quick Reference
 
 | ID | Title | File | Status |
@@ -127,3 +146,4 @@ operators_logical.ori, operators_bitwise.ori
 | 04 | Exposed Bug Fixes (8 bugs) | `section-04-exposed-bugs.md` | Complete |
 | 04B | Polymorphic Lambda Monomorphization | `section-04b-lambda-mono.md` | In Progress (blocked by BUG-04-030) |
 | 05 | Verification | `section-05-verification.md` | In Progress |
+| 06 | LCFail Resolution (BUG-04-030/031/032/033) | `section-06-lcfail-resolution.md` | Not Started |

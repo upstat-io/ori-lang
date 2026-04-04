@@ -117,7 +117,7 @@ Verify each category passes through LLVM in BOTH debug and release builds. For e
 - [x] `[TPR-05-002][medium]` [plans/jit-exception-handling/00-overview.md](/home/eric/projects/ori_lang/plans/jit-exception-handling/00-overview.md) — Stale overview contradicting section files.
   Resolved: Fixed on 2026-04-04. Updated 04B status to Complete, 05 to In Progress, dependency graph, Quick Reference table, and Live Test Results with post-fix verification data.
 
-- [ ] `[TPR-05-003][medium]` `type_predicates.rs` — Missing `Tag::Set` AOT regression test for lambda mono type predicates. <!-- blocked-by:BUG-04-030 -->
+- [ ] `[TPR-05-003][medium]` `type_predicates.rs` — Missing `Tag::Set` AOT regression test for lambda mono type predicates. <!-- blocked-by:06 -->
   Validated on 2026-04-04. The `Tag::Set` branches exist in all four helpers but cannot be AOT-tested: polymorphic lambdas involving `Set<T>` crash in AOT (SIGSEGV, exit -139) due to unresolved monomorphization (BUG-04-030 Root Cause A/B). JIT path works (`cargo run --backend=llvm`), but `assert_aot_success` crashes. Test `test_multi_inst_set_lambda` must be added after BUG-04-030 is fixed.
 
 - [x] `[TPR-05-004][medium]` [plans/jit-exception-handling/index.md](/home/eric/projects/ori_lang/plans/jit-exception-handling/index.md) — Stale index contradicting section files.
