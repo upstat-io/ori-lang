@@ -545,4 +545,14 @@ fn test_multi_inst_no_stale_original_in_ir() {
         "compilation produced 'unresolved type variable' error — \
          stale original lambda was compiled"
     );
+
+    // Negative pin for TPR-04B-009: verify no "callee not found" warnings.
+    // The original PartialApply instruction must be removed alongside the
+    // original lambda function, otherwise the emitter falls back to a null
+    // closure for the stale callee reference.
+    assert!(
+        !ir.contains("callee not found"),
+        "compilation produced 'callee not found' warning — \
+         stale PartialApply instruction survived rewriting"
+    );
 }

@@ -832,14 +832,18 @@ fn rewrite_parent_for_multi_inst(
         }
     }
 
-    // Remove RcInc/RcDec on the original PartialApply result that fed the
-    // now-replaced Let copies. Each specialization creates its own closure.
+    // Remove the original PartialApply instruction — all uses have been
+    // rewritten to specialized clones, so the generic closure is dead code.
+    // Also remove RcInc/RcDec on the original result variable.
     for block in &mut parent.blocks {
-        block.body.retain(|instr| {
-            !matches!(instr,
-                ori_arc::ir::ArcInstr::RcInc { var, .. } | ori_arc::ir::ArcInstr::RcDec { var, .. }
-                if *var == pa_dst
-            )
+        block.body.retain(|instr| match instr {
+            ori_arc::ir::ArcInstr::PartialApply { func, .. } if *func == lambda_name => false,
+            ori_arc::ir::ArcInstr::RcInc { var, .. } | ori_arc::ir::ArcInstr::RcDec { var, .. }
+                if *var == pa_dst =>
+            {
+                false
+            }
+            _ => true,
         });
     }
 }
