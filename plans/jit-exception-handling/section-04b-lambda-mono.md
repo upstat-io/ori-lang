@@ -11,7 +11,7 @@ inspired_by:
 depends_on: ["03"]
 third_party_review:
   status: resolved
-  updated: 2026-04-03
+  updated: 2026-04-04
 sections:
   - id: "04B.1"
     title: "Scheme unwrapping in ARC lowering"
@@ -35,7 +35,7 @@ sections:
 
 # Section 04B: Polymorphic Lambda Monomorphization
 
-**Status:** In Progress (04B.1-04B.3 complete, 04B.4 test matrix + 04B.N completion pending)
+**Status:** In Progress (04B.1-04B.4 complete, 04B.R resolved, 04B.N completion pending — awaiting /tpr-review and /impl-hygiene-review)
 **Goal:** Polymorphic lambda bodies (like `a -> b -> a + b` with type `forall t14. t14 -> t14 -> t14`) compile through LLVM with concrete types. Lambda-specific LCFails resolved. The broader 2639 LCFail issue has multiple root causes tracked separately as BUG-04-030.
 
 **Context:** The JIT EH work (Sections 01-03) expanded LLVM spec test coverage from ~1800 to ~4400 tests via `ori test --backend=llvm`. This exposed a pre-existing monomorphization gap: polymorphic lambda bodies are lowered to ARC IR with generalized Scheme types (`forall t14`) instead of concrete types. The LLVM codegen can't map these to LLVM types, causing 2639 LCFails (60% of spec tests).
@@ -201,6 +201,9 @@ Captures in nested lambdas inherit types from the outer scope's variable table. 
 - [x] `[TPR-04B-006][high]` `compiler/ori_llvm/src/codegen/function_compiler/define_phase.rs:541` — single-instantiation return-type-only lambdas still leave nested `var_types`/`Construct` types unresolved.
   Resolved: Fixed on 2026-04-03. Added `contains_nested_var()` to detect Var inside container return types (Option/Result/List). Phase 2 now tracks `ret_type_resolutions` and applies `resolve_lambda_return_types()` (shared with multi-inst path) to update return_type, var_types, and Construct instructions. Uses `find_apply_indirect_result_type()` to get the concrete return type from parent's ApplyIndirect results (avoids Var-containing pool types).
 
+- [x] `[TPR-04B-007][high]` `compiler/ori_llvm/src/codegen/function_compiler/define_phase.rs:137` — multi-instantiation originals are still compiled after cloning, so the build still reaches codegen with unresolved lambda type variables.
+  Resolved: Fixed on 2026-04-04. Added `remove_multi_inst_originals()` at the end of `resolve_all_lambda_bound_vars()` to filter out original multi-inst lambdas from the `lambdas` vec after cloning. The local `FxHashSet<usize>` that tracked originals was consumed to build a sorted removal list (reverse order to preserve indices). Now `emit_arc_function`'s compilation loop only sees non-multi-inst originals + specialized clones. Added 3 AOT tests: `test_multi_inst_none_lambda`, `test_multi_inst_wrap_lambda` (semantic pins), and `test_multi_inst_no_stale_original_in_ir` (IR-level negative pin verifying no stale original and no "unresolved type variable" error). 16,533 tests pass, 0 failures.
+
 ---
 
 ## 04B.N Completion Checklist
@@ -211,8 +214,8 @@ Captures in nested lambdas inherit types from the outer scope's variable table. 
 - [x] All test matrix tests pass through `ori test --backend=llvm` in debug AND release (2026-04-03) 17/17 pass from /tmp in both debug and release. In-tree path blocked by BUG-04-030 (pre-existing).
 - [x] Dual-execution parity verified for all new test files (2026-04-03) Interpreter 17/17, LLVM 17/17 (from /tmp).
 - [x] `ORI_CHECK_LEAKS=1` clean on all tests with RC-typed captures (2026-04-03)
-- [x] `timeout 150 ./test-all.sh` passes (2026-04-03) 16,530 passed, 0 failed, 2656 LCFail (+4 from 2 new return-type test functions)
-- [x] `./clippy-all.sh` passes (2026-04-03)
+- [x] `timeout 150 ./test-all.sh` passes (2026-04-04) 16,533 passed, 0 failed, 2656 LCFail (+3 from TPR-04B-007 AOT tests)
+- [x] `./clippy-all.sh` passes (2026-04-04)
 - [x] Plan annotation cleanup: 0 annotations for plan 04B in source code (2026-04-03)
 - [ ] `/tpr-review` passed — Re-run needed after TPR-04B-003/004 fix.
 - [ ] `/impl-hygiene-review last commit` passed

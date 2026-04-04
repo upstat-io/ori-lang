@@ -9,7 +9,7 @@
     reason = "readability in test program literals"
 )]
 
-use crate::util::assert_aot_success;
+use crate::util::{assert_aot_success, compile_and_capture_ir};
 
 // ─── Functions as arguments ───
 
@@ -477,5 +477,72 @@ fn test_nested_closure_borrowed_list_param() {
     assert_aot_success(
         include_str!("fixtures/higher_order/nested_closure_borrowed_list_param.ori"),
         "nested_closure_borrowed_list_param",
+    );
+}
+
+// ─── Multi-instantiation lambda (TPR-04B-007 regression) ───
+
+/// Semantic pin: zero-arg polymorphic lambda returning None, instantiated at
+/// Option<int> and Option<str>. The original generic lambda must be removed
+/// after cloning — only specialized clones should be compiled.
+#[test]
+fn test_multi_inst_none_lambda() {
+    assert_aot_success(
+        include_str!("fixtures/higher_order/multi_inst_none_lambda.ori"),
+        "multi_inst_none_lambda",
+    );
+}
+
+/// Semantic pin: unary polymorphic lambda wrapping a value in Some, instantiated
+/// at int and bool. Verifies both specializations produce correct results.
+#[test]
+fn test_multi_inst_wrap_lambda() {
+    assert_aot_success(
+        include_str!("fixtures/higher_order/multi_inst_wrap_lambda.ori"),
+        "multi_inst_wrap_lambda",
+    );
+}
+
+/// Negative pin for TPR-04B-007: verify that multi-inst originals are NOT
+/// present in the emitted LLVM IR. Only specialized clones (with `$` suffix)
+/// should survive. The stale original would contain unresolved type variables
+/// and produce `unresolved type variable at codegen` errors.
+#[test]
+fn test_multi_inst_no_stale_original_in_ir() {
+    let ir = compile_and_capture_ir(include_str!(
+        "fixtures/higher_order/multi_inst_none_lambda.ori"
+    ));
+
+    // The original generic lambda should NOT be in the IR.
+    // Only specialized clones with `$NNN` suffixes should exist.
+    let has_original = ir
+        .lines()
+        .any(|l| l.starts_with("define ") && l.contains("@_ori___lambda_main_0("));
+    assert!(
+        !has_original,
+        "stale original multi-inst lambda found in IR — \
+         should have been removed after cloning. \
+         IR functions:\n{}",
+        ir.lines()
+            .filter(|l| l.starts_with("define "))
+            .collect::<Vec<_>>()
+            .join("\n")
+    );
+
+    // Verify specialized clones DO exist (with $NNN suffix).
+    let has_clone = ir
+        .lines()
+        .any(|l| l.starts_with("define ") && l.contains("@\"_ori___lambda_main_0$"));
+    assert!(
+        has_clone,
+        "no specialized lambda clones found in IR — \
+         expected _ori___lambda_main_0$NNN functions"
+    );
+
+    // Verify no "unresolved type variable" error in compilation output.
+    assert!(
+        !ir.contains("unresolved type variable"),
+        "compilation produced 'unresolved type variable' error — \
+         stale original lambda was compiled"
     );
 }

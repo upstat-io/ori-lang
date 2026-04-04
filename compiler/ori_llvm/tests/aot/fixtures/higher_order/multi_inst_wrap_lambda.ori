@@ -1,0 +1,12 @@
+// Regression: TPR-04B-007 — multi-inst original lambda must be removed after cloning.
+// A unary polymorphic lambda wrapping a value in Some is instantiated at two
+// different types (int, bool). The original generic lambda must NOT survive
+// into LLVM IR — only specialized clones should be compiled.
+@main () -> int = {
+    let $wrap = x -> Some(x);
+    let a: Option<int> = wrap(42);
+    let b: Option<bool> = wrap(true);
+    let $sa = match a { Some(v) -> `{v}`, None -> "" };
+    let $sb = match b { Some(v) -> `{v}`, None -> "" };
+    if sa + sb == "42true" then 0 else 1
+}
