@@ -6,15 +6,17 @@
 //! - **Multi-instantiation**: lambda used at multiple types → clone per instantiation,
 //!   rewrite parent ARC IR to use specialized clones
 
+mod type_predicates;
 mod type_resolve;
 
 use ori_ir::Name;
 use ori_types::Idx;
+use type_predicates::contains_var;
 use type_resolve::{
-    apply_bound_var_map, build_bound_var_map, contains_bound_var, contains_nested_var,
-    contains_var, fallback_bound_vars_to_int, find_all_instantiation_types,
-    find_apply_indirect_result_type, find_partial_apply_args, find_partial_apply_concrete_type,
-    resolve_lambda_return_types,
+    apply_bound_var_map, build_bound_var_map, fallback_bound_vars_to_int,
+    find_all_instantiation_types, find_apply_indirect_result_type, find_partial_apply_args,
+    find_partial_apply_concrete_type, find_partial_apply_dst, is_concrete_function,
+    is_polymorphic_lambda, resolve_lambda_return_types,
 };
 
 /// Resolve `BoundVar` types in ALL lambdas to concrete types.
@@ -30,22 +32,8 @@ pub(super) fn resolve_all_lambda_bound_vars(
     pool: &ori_types::Pool,
     interner: &ori_ir::StringInterner,
 ) {
-    use ori_types::Tag;
-
-    // Check if ANY lambda has BoundVar/Var in params, return type, or var_types.
-    // Also check for multi-instantiation (multiple distinct narrowing copies in
-    // the parent), which can occur even without BoundVars in the lambda itself
-    // when Var types resolve to different concrete types at different call sites.
-    let any_polymorphic = lambdas.iter().any(|l| {
-        l.params
-            .iter()
-            .any(|p| matches!(pool.tag(p.ty), Tag::BoundVar | Tag::Var))
-            || contains_bound_var(pool, l.return_type)
-            || contains_nested_var(pool, l.return_type)
-            || l.var_types.iter().any(|ty| contains_bound_var(pool, *ty))
-    });
-    // Also check if any lambda has multiple narrowing copies in the parent
-    // (multi-inst detection), which requires cloning regardless of BoundVars.
+    // Check if ANY lambda has polymorphic types or multi-instantiation.
+    let any_polymorphic = lambdas.iter().any(|l| is_polymorphic_lambda(l, pool));
     let any_multi_inst = !any_polymorphic
         && lambdas
             .iter()
@@ -54,20 +42,48 @@ pub(super) fn resolve_all_lambda_bound_vars(
         return;
     }
 
-    // Phase 1: Detect multi-instantiation and handle it by cloning lambdas.
-    // Must run before the global map build because multi-inst lambdas get
-    // specialized clones that are resolved independently.
+    let orig_len = lambdas.len();
+    let multi_inst_lambdas = detect_and_clone_multi_inst(parent, lambdas, pool, interner);
+    let (global_map, ret_type_resolutions) =
+        build_single_inst_mappings(parent, lambdas, orig_len, &multi_inst_lambdas, pool);
+
+    // Apply the global map + return type resolutions to ALL non-multi-inst lambdas.
+    for (i, lambda) in lambdas.iter_mut().enumerate() {
+        if i < orig_len && multi_inst_lambdas.contains(&i) {
+            continue;
+        }
+        apply_bound_var_map(lambda, &global_map, pool);
+
+        if let Some(&(schema_ret, concrete_ret)) = ret_type_resolutions.get(&i) {
+            resolve_lambda_return_types(lambda, schema_ret, concrete_ret);
+        }
+    }
+
+    // Final fallback: any remaining BoundVars → Idx::INT.
+    for (i, lambda) in lambdas.iter_mut().enumerate() {
+        if i < orig_len && multi_inst_lambdas.contains(&i) {
+            continue;
+        }
+        fallback_bound_vars_to_int(lambda, pool);
+    }
+
+    remove_multi_inst_originals(lambdas, multi_inst_lambdas);
+}
+
+/// Phase 1: Detect multi-instantiation and handle it by cloning lambdas.
+/// Must run before the global map build because multi-inst lambdas get
+/// specialized clones that are resolved independently.
+fn detect_and_clone_multi_inst(
+    parent: &mut ori_arc::ArcFunction,
+    lambdas: &mut Vec<ori_arc::ArcFunction>,
+    pool: &ori_types::Pool,
+    interner: &ori_ir::StringInterner,
+) -> rustc_hash::FxHashSet<usize> {
     let orig_len = lambdas.len();
     let mut multi_inst_lambdas = rustc_hash::FxHashSet::<usize>::default();
 
     for i in 0..orig_len {
-        let has_polymorphic = lambdas[i]
-            .params
-            .iter()
-            .any(|p| matches!(pool.tag(p.ty), Tag::BoundVar | Tag::Var))
-            || contains_bound_var(pool, lambdas[i].return_type)
-            || contains_nested_var(pool, lambdas[i].return_type);
-
+        let has_polymorphic = is_polymorphic_lambda(&lambdas[i], pool);
         let lambda_name = lambdas[i].name;
         let instantiations = find_all_instantiation_types(parent, lambda_name, pool);
 
@@ -89,23 +105,30 @@ pub(super) fn resolve_all_lambda_bound_vars(
         }
     }
 
-    // Phase 2: Build global BoundVar → concrete map for single-inst lambdas.
+    multi_inst_lambdas
+}
+
+/// Phase 2: Build global `BoundVar` -> concrete map for single-inst lambdas.
+/// Returns the global map and per-lambda return type resolutions.
+fn build_single_inst_mappings(
+    parent: &ori_arc::ArcFunction,
+    lambdas: &[ori_arc::ArcFunction],
+    orig_len: usize,
+    multi_inst_lambdas: &rustc_hash::FxHashSet<usize>,
+    pool: &ori_types::Pool,
+) -> (
+    rustc_hash::FxHashMap<u32, Idx>,
+    rustc_hash::FxHashMap<usize, (Idx, Idx)>,
+) {
     let mut global_map: rustc_hash::FxHashMap<u32, Idx> = rustc_hash::FxHashMap::default();
-    // Track return type resolutions: lambda index → (schema_ret, concrete_ret).
     let mut ret_type_resolutions: rustc_hash::FxHashMap<usize, (Idx, Idx)> =
         rustc_hash::FxHashMap::default();
 
     for i in 0..orig_len {
         if multi_inst_lambdas.contains(&i) {
-            continue; // Already handled above.
+            continue;
         }
-        let has_polymorphic = lambdas[i]
-            .params
-            .iter()
-            .any(|p| matches!(pool.tag(p.ty), Tag::BoundVar | Tag::Var))
-            || contains_bound_var(pool, lambdas[i].return_type)
-            || contains_nested_var(pool, lambdas[i].return_type);
-        if !has_polymorphic {
+        if !is_polymorphic_lambda(&lambdas[i], pool) {
             continue;
         }
 
@@ -122,17 +145,11 @@ pub(super) fn resolve_all_lambda_bound_vars(
                 &mut global_map,
             );
 
-            // Track return type resolution: find the concrete return type from
-            // ApplyIndirect results in the parent (not from the function type,
-            // which may still contain unresolved Vars inside containers).
-            // Only resolve return types that contain Vars inside containers
-            // (e.g., Option<Var>, Result<Var>). Direct Var return types are
-            // already handled by apply_bound_var_map.
+            // Track return type resolution from ApplyIndirect results (not from
+            // the function type, which may still contain unresolved Vars inside
+            // containers like Option<Var>, Result<Var>).
             let schema_ret = lambdas[i].return_type;
             if contains_var(pool, schema_ret) {
-                // The pool's function types may still contain Var indices inside
-                // containers. Get the concrete return type from ApplyIndirect
-                // results in the parent, which use fully-resolved types.
                 if let Some(concrete_ret) =
                     find_apply_indirect_result_type(parent, lambdas[i].name, pool)
                 {
@@ -144,28 +161,7 @@ pub(super) fn resolve_all_lambda_bound_vars(
         }
     }
 
-    // Apply the global map + return type resolutions to ALL non-multi-inst lambdas.
-    for (i, lambda) in lambdas.iter_mut().enumerate() {
-        if i < orig_len && multi_inst_lambdas.contains(&i) {
-            continue; // Multi-inst originals are not compiled.
-        }
-        apply_bound_var_map(lambda, &global_map, pool);
-
-        if let Some(&(schema_ret, concrete_ret)) = ret_type_resolutions.get(&i) {
-            resolve_lambda_return_types(lambda, schema_ret, concrete_ret);
-        }
-    }
-
-    // Final fallback: any remaining BoundVars → Idx::INT.
-    for (i, lambda) in lambdas.iter_mut().enumerate() {
-        if i < orig_len && multi_inst_lambdas.contains(&i) {
-            continue;
-        }
-        fallback_bound_vars_to_int(lambda, pool);
-    }
-
-    // Remove multi-inst originals — replaced by specialized clones.
-    remove_multi_inst_originals(lambdas, multi_inst_lambdas);
+    (global_map, ret_type_resolutions)
 }
 
 /// Remove original multi-instantiated lambdas from the vec. These have been
@@ -186,6 +182,17 @@ fn remove_multi_inst_originals(
     }
 }
 
+/// Generate the mangled name for a specialized lambda clone.
+fn specialized_lambda_name(
+    interner: &ori_ir::StringInterner,
+    base_name: Name,
+    inst_idx: usize,
+) -> Name {
+    let base = interner.lookup(base_name);
+    let spec_name_str = format!("{base}${inst_idx}");
+    interner.intern(&spec_name_str)
+}
+
 /// Clone a multi-instantiated lambda: create one clone per distinct concrete
 /// instantiation, resolve each clone's types, and rewrite the parent's ARC IR.
 fn clone_multi_inst_lambda(
@@ -202,9 +209,7 @@ fn clone_multi_inst_lambda(
 
     for (inst_idx, concrete_fn_ty) in instantiations.iter().enumerate() {
         let mut clone = lambdas[orig_idx].clone();
-        let base = interner.lookup(lambda_name);
-        let spec_name_str = format!("{base}${inst_idx}");
-        clone.name = interner.intern(&spec_name_str);
+        clone.name = specialized_lambda_name(interner, lambda_name, inst_idx);
 
         // Build per-instantiation BoundVar map and apply it.
         let mut inst_map = rustc_hash::FxHashMap::<u32, Idx>::default();
@@ -246,29 +251,9 @@ fn rewrite_parent_for_multi_inst(
     interner: &ori_ir::StringInterner,
     pool: &ori_types::Pool,
 ) {
-    use ori_types::Tag;
-
-    // Find the PartialApply dst variable.
-    let mut pa_dst = None;
-    for block in &parent.blocks {
-        for instr in &block.body {
-            if let ori_arc::ir::ArcInstr::PartialApply {
-                dst, func: callee, ..
-            } = instr
-            {
-                if *callee == lambda_name {
-                    pa_dst = Some(*dst);
-                    break;
-                }
-            }
-        }
-        if pa_dst.is_some() {
-            break;
-        }
-    }
-    let Some(pa_dst) = pa_dst else { return };
-
-    let base = interner.lookup(lambda_name);
+    let Some(pa_dst) = find_partial_apply_dst(parent, lambda_name) else {
+        return;
+    };
 
     // Replace narrowing Let copies with PartialApply of the correct clone.
     for block in &mut parent.blocks {
@@ -282,40 +267,20 @@ fn rewrite_parent_for_multi_inst(
                 if *src == pa_dst {
                     let var_ty = parent.var_types[dst.index()];
                     let resolved = pool.resolve_fully(var_ty);
-                    if pool.tag(resolved) == Tag::Function {
-                        let params = pool.function_params(resolved);
-                        let ret = pool.function_return(resolved);
-                        let all_concrete = params.iter().chain(std::iter::once(&ret)).all(|p| {
-                            let pt = pool.resolve_fully(*p);
-                            !matches!(pool.tag(pt), Tag::BoundVar | Tag::Var | Tag::Scheme)
-                        });
-                        if all_concrete {
-                            // Find which instantiation index matches (param types + return type).
-                            let key: Vec<Idx> = params
-                                .iter()
-                                .chain(std::iter::once(&ret))
-                                .map(|p| pool.resolve_fully(*p))
-                                .collect();
-                            for (idx, inst_ty) in instantiations.iter().enumerate() {
-                                let inst_params = pool.function_params(*inst_ty);
-                                let inst_ret = pool.function_return(*inst_ty);
-                                let inst_key: Vec<Idx> = inst_params
-                                    .iter()
-                                    .chain(std::iter::once(&inst_ret))
-                                    .map(|p| pool.resolve_fully(*p))
-                                    .collect();
-                                if key == inst_key {
-                                    let spec_name_str = format!("{base}${idx}");
-                                    let spec_name = interner.intern(&spec_name_str);
-                                    *instr = ori_arc::ir::ArcInstr::PartialApply {
-                                        dst: *dst,
-                                        ty: *ty,
-                                        func: spec_name,
-                                        args: pa_args.to_vec(),
-                                    };
-                                    break;
-                                }
-                            }
+                    if is_concrete_function(pool, resolved) {
+                        if let Some(spec_name) = find_matching_instantiation(
+                            pool,
+                            resolved,
+                            instantiations,
+                            interner,
+                            lambda_name,
+                        ) {
+                            *instr = ori_arc::ir::ArcInstr::PartialApply {
+                                dst: *dst,
+                                ty: *ty,
+                                func: spec_name,
+                                args: pa_args.to_vec(),
+                            };
                         }
                     }
                 }
@@ -337,4 +302,37 @@ fn rewrite_parent_for_multi_inst(
             _ => true,
         });
     }
+}
+
+/// Find which instantiation matches a resolved function type, returning the
+/// specialized lambda name if found.
+fn find_matching_instantiation(
+    pool: &ori_types::Pool,
+    resolved: Idx,
+    instantiations: &[Idx],
+    interner: &ori_ir::StringInterner,
+    lambda_name: Name,
+) -> Option<Name> {
+    let params = pool.function_params(resolved);
+    let ret = pool.function_return(resolved);
+    let key: Vec<Idx> = params
+        .iter()
+        .chain(std::iter::once(&ret))
+        .map(|p| pool.resolve_fully(*p))
+        .collect();
+
+    for (idx, inst_ty) in instantiations.iter().enumerate() {
+        let inst_params = pool.function_params(*inst_ty);
+        let inst_ret = pool.function_return(*inst_ty);
+        let inst_key: Vec<Idx> = inst_params
+            .iter()
+            .chain(std::iter::once(&inst_ret))
+            .map(|p| pool.resolve_fully(*p))
+            .collect();
+        if key == inst_key {
+            return Some(specialized_lambda_name(interner, lambda_name, idx));
+        }
+    }
+
+    None
 }
