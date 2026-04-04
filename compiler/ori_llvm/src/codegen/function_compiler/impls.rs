@@ -88,8 +88,7 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
                 self.emit_arc_function(test.name, body_func_id, &abi, arc_func, lambdas);
 
                 // --- Outer wrapper with catch-all exception handling ---
-                let outer_func_id =
-                    self.builder.declare_void_function(&wrapper_name, &[]);
+                let outer_func_id = self.builder.declare_void_function(&wrapper_name, &[]);
                 self.builder.set_ccc(outer_func_id);
                 self.builder.set_current_function(outer_func_id);
 
@@ -110,8 +109,7 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
                 self.builder.ret_void();
 
                 self.builder.position_at_end(catch_block);
-                let lp =
-                    self.builder.landingpad_catch_all(personality_id, "lp.test");
+                let lp = self.builder.landingpad_catch_all(personality_id, "lp.test");
                 if let Some(exc_ptr) = self.builder.extract_value(lp, 0, "exc.ptr") {
                     let cleanup_fn = self.builder.runtime_fn("ori_catch_cleanup");
                     self.builder.call(cleanup_fn, &[exc_ptr], "");
