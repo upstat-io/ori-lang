@@ -32,7 +32,7 @@ sections:
     status: complete
   - id: "0.5"
     title: Expressions
-    status: complete
+    status: in-progress
   - id: "0.6"
     title: Patterns
     status: in-progress
