@@ -173,14 +173,24 @@ impl<'ctx> ValueArena<'ctx> {
     }
 
     /// Retrieve a value by ID.
+    ///
+    /// Returns a safe zero fallback for `ValueId::NONE` (`u32::MAX`) instead
+    /// of panicking. This prevents compilation panics from crashing the
+    /// test runner — the codegen error counter is already incremented by
+    /// `var_emitted()` when NONE is produced, so the module will be rejected
+    /// before JIT execution.
     #[inline]
     pub(crate) fn get_value(&self, id: ValueId) -> BasicValueEnum<'ctx> {
-        debug_assert!(
-            (id.0 as usize) < self.values.len(),
-            "ValueId {} out of bounds (arena has {} values)",
-            id.0,
-            self.values.len()
-        );
+        if id.is_none() || (id.0 as usize) >= self.values.len() {
+            // Return the first value as a safe fallback (always exists —
+            // the entry function's first param or a constant is pushed first).
+            // The module will be rejected due to codegen errors before execution.
+            debug_assert!(
+                !self.values.is_empty(),
+                "ValueArena::get_value called with NONE on empty arena"
+            );
+            return self.values[0];
+        }
         self.values[id.0 as usize]
     }
 

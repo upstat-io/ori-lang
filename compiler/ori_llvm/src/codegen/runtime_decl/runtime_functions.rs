@@ -1478,6 +1478,30 @@ pub(crate) static RT_FUNCTIONS: &[RtFn] = &[
         attrs: &[Attr::Nounwind],
         jit_allowed: true,
     },
+    RtFn {
+        name: "ori_iter_flatten",
+        // (iter, inner_elem_size)
+        params: &[Ty::Ptr, Ty::I64],
+        ret: Some(Ty::Ptr),
+        attrs: &[Attr::Nounwind],
+        jit_allowed: true,
+    },
+    RtFn {
+        name: "ori_iter_cycle",
+        // (iter, elem_size)
+        params: &[Ty::Ptr, Ty::I64],
+        ret: Some(Ty::Ptr),
+        attrs: &[Attr::Nounwind],
+        jit_allowed: true,
+    },
+    RtFn {
+        name: "ori_iter_rev",
+        // (iter, elem_size)
+        params: &[Ty::Ptr, Ty::I64],
+        ret: Some(Ty::Ptr),
+        attrs: &[Attr::Nounwind],
+        jit_allowed: true,
+    },
     // Iterator consumers — extern "C" (call callbacks internally, panics abort at boundary)
     RtFn {
         name: "ori_iter_collect",
@@ -1538,6 +1562,54 @@ pub(crate) static RT_FUNCTIONS: &[RtFn] = &[
             Ty::Ptr,
             Ty::Ptr,
             Ty::I64,
+            Ty::I64,
+            Ty::Ptr,
+        ],
+        ret: None,
+        attrs: &[Attr::Nounwind],
+        jit_allowed: true,
+    },
+    RtFn {
+        name: "ori_iter_last",
+        // (iter, elem_size, out_ptr)
+        params: &[Ty::Ptr, Ty::I64, Ty::Ptr],
+        ret: None,
+        attrs: &[Attr::Nounwind],
+        jit_allowed: true,
+    },
+    RtFn {
+        name: "ori_iter_rfind",
+        // (iter, pred_fn, pred_env, elem_size, out_ptr)
+        params: &[Ty::Ptr, Ty::Ptr, Ty::Ptr, Ty::I64, Ty::Ptr],
+        ret: None,
+        attrs: &[Attr::Nounwind],
+        jit_allowed: true,
+    },
+    RtFn {
+        name: "ori_iter_rfold",
+        // (iter, init_ptr, fold_fn, fold_env, elem_size, acc_size, out_ptr)
+        params: &[
+            Ty::Ptr,
+            Ty::Ptr,
+            Ty::Ptr,
+            Ty::Ptr,
+            Ty::I64,
+            Ty::I64,
+            Ty::Ptr,
+        ],
+        ret: None,
+        attrs: &[Attr::Nounwind],
+        jit_allowed: true,
+    },
+    RtFn {
+        name: "ori_iter_join",
+        // (iter, sep_data, sep_len, to_str_fn, to_str_env, elem_size, out_ptr)
+        params: &[
+            Ty::Ptr,
+            Ty::Ptr,
+            Ty::I64,
+            Ty::Ptr,
+            Ty::Ptr,
             Ty::I64,
             Ty::Ptr,
         ],
