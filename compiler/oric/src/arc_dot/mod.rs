@@ -154,7 +154,8 @@ fn emit_edges(out: &mut String, src: u32, term: &ArcTerminator) {
             .unwrap();
         }
 
-        ArcTerminator::Invoke { normal, unwind, .. } => {
+        ArcTerminator::Invoke { normal, unwind, .. }
+        | ArcTerminator::InvokeIndirect { normal, unwind, .. } => {
             writeln!(
                 out,
                 "  bb{src} -> bb{} [label=\"normal\" color=\"green4\"];",

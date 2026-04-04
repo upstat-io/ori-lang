@@ -318,6 +318,32 @@ impl ArcIrBuilder {
         });
     }
 
+    /// Terminate with `InvokeIndirect` (indirect call through closure that may unwind).
+    pub fn terminate_invoke_indirect(
+        &mut self,
+        dst: ArcVarId,
+        ty: Idx,
+        closure: ArcVarId,
+        args: Vec<ArcVarId>,
+        normal: ArcBlockId,
+        unwind: ArcBlockId,
+    ) {
+        let block = &mut self.blocks[self.current_block.index()];
+        debug_assert!(
+            block.terminator.is_none(),
+            "block {} already terminated",
+            self.current_block.raw()
+        );
+        block.terminator = Some(ArcTerminator::InvokeIndirect {
+            dst,
+            ty,
+            closure,
+            args,
+            normal,
+            unwind,
+        });
+    }
+
     /// Terminate with `Resume` (re-raise an unwinding panic).
     pub fn terminate_resume(&mut self) {
         let block = &mut self.blocks[self.current_block.index()];

@@ -54,8 +54,18 @@ impl ArcLowerer<'_> {
         // str and calling .length() on the parameter) leave unresolved Idx
         // values in the ARC IR, causing LLVM codegen failures.
         let resolved_ty = self.pool.resolve_fully(ty);
-        let fn_param_types = if self.pool.tag(resolved_ty) == Tag::Function {
-            let params = self.pool.function_params(resolved_ty);
+        // Unwrap Scheme to reach the inner Function type.
+        // Polymorphic lambdas (e.g., `a -> b -> a + b`) have type
+        // `forall t14. t14 -> t14 -> t14` (Tag::Scheme). The inner body is
+        // Function([BoundVar(0)], ...). Without unwrapping, the tag check
+        // below fails and all params default to Idx::UNIT.
+        let fn_ty = if self.pool.tag(resolved_ty) == Tag::Scheme {
+            self.pool.scheme_body(resolved_ty)
+        } else {
+            resolved_ty
+        };
+        let fn_param_types = if self.pool.tag(fn_ty) == Tag::Function {
+            let params = self.pool.function_params(fn_ty);
             params
                 .into_iter()
                 .map(|p| {
@@ -102,7 +112,14 @@ impl ArcLowerer<'_> {
             });
         }
 
-        let body_ty = self.expr_type(body);
+        let raw_body_ty = self.expr_type(body);
+        // Unwrap Scheme for body type too — the body of `b -> a + b` inside
+        // a polymorphic lambda has type `forall t14` (Scheme) not `int`.
+        let body_ty = if self.pool.tag(raw_body_ty) == Tag::Scheme {
+            self.pool.scheme_body(raw_body_ty)
+        } else {
+            raw_body_ty
+        };
         let entry = lambda_builder.entry_block();
 
         // Lower the lambda body

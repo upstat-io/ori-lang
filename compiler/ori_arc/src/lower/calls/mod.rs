@@ -54,6 +54,58 @@ impl ArcLowerer<'_> {
         }
     }
 
+    /// Emit `ApplyIndirect` or `InvokeIndirect` depending on catch context.
+    fn emit_indirect_call(
+        &mut self,
+        ty: Idx,
+        closure_var: ArcVarId,
+        arg_vars: Vec<ArcVarId>,
+        span: Span,
+    ) -> ArcVarId {
+        if self.builder.catch_unwind_target.is_some() {
+            self.builder
+                .emit_invoke_indirect(ty, closure_var, arg_vars, Some(span))
+        } else {
+            self.builder
+                .emit_apply_indirect(ty, closure_var, arg_vars, Some(span))
+        }
+    }
+
+    /// Resolve an `Ident` callee to a function name, handling `self` → enclosing fn.
+    fn resolve_ident_callee(&self, name: Name) -> Name {
+        let self_name = self.interner.intern("self");
+        if name == self_name && self.scope.lookup(self_name).is_none() {
+            self.func_name
+        } else {
+            name
+        }
+    }
+
+    /// Try to emit a variant constructor. Returns `None` if `name` is not a variant.
+    fn try_emit_variant_ctor(
+        &mut self,
+        name: Name,
+        ty: Idx,
+        arg_vars: Vec<ArcVarId>,
+        span: Span,
+    ) -> Option<ArcVarId> {
+        let &(enum_name, variant_idx, _) = self.variant_ctors.get(&name)?;
+        tracing::trace!(
+            variant = self.name_str(name),
+            enum_name = self.name_str(enum_name),
+            "call: enum variant constructor"
+        );
+        Some(self.builder.emit_construct(
+            ty,
+            CtorKind::EnumVariant {
+                enum_name,
+                variant: variant_idx,
+            },
+            arg_vars,
+            Some(span),
+        ))
+    }
+
     // Call (positional -- named args already desugared)
 
     /// Lower a function call expression to ARC IR.
@@ -72,22 +124,8 @@ impl ArcLowerer<'_> {
 
         match func_kind {
             CanExpr::FunctionRef(name) => {
-                // Variant constructor: emit Construct instead of function call
-                if let Some(&(enum_name, variant_idx, _)) = self.variant_ctors.get(&name) {
-                    tracing::trace!(
-                        variant = self.name_str(name),
-                        enum_name = self.name_str(enum_name),
-                        "call: enum variant constructor (FunctionRef)"
-                    );
-                    return self.builder.emit_construct(
-                        ty,
-                        CtorKind::EnumVariant {
-                            enum_name,
-                            variant: variant_idx,
-                        },
-                        arg_vars,
-                        Some(span),
-                    );
+                if let Some(var) = self.try_emit_variant_ctor(name, ty, arg_vars.clone(), span) {
+                    return var;
                 }
                 tracing::trace!(
                     func = self.name_str(name),
@@ -97,8 +135,6 @@ impl ArcLowerer<'_> {
                 self.emit_call_or_invoke(ty, name, arg_vars, span)
             }
             CanExpr::SelfRef => {
-                // Self-recursive call: resolve to the enclosing function name.
-                // This enables TCO detection (Apply.func == arc_func.name).
                 tracing::trace!(
                     func = self.name_str(self.func_name),
                     args = arg_vars.len(),
@@ -107,8 +143,6 @@ impl ArcLowerer<'_> {
                 self.emit_call_or_invoke(ty, self.func_name, arg_vars, span)
             }
             CanExpr::Ident(name) if self.scope.lookup(name).is_some() => {
-                // Local variable holding a closure — indirect call through
-                // the closure fat pointer {fn_ptr, env_ptr}.
                 let closure_var = self.lower_expr(func);
                 tracing::trace!(
                     func = self.name_str(name),
@@ -116,49 +150,18 @@ impl ArcLowerer<'_> {
                     args = arg_vars.len(),
                     "call: indirect (local closure)"
                 );
-                self.builder
-                    .emit_apply_indirect(ty, closure_var, arg_vars, Some(span))
+                self.emit_indirect_call(ty, closure_var, arg_vars, span)
             }
             CanExpr::Ident(name) => {
-                // Variant constructor: emit Construct instead of function call
-                if let Some(&(enum_name, variant_idx, _)) = self.variant_ctors.get(&name) {
-                    tracing::trace!(
-                        variant = self.name_str(name),
-                        enum_name = self.name_str(enum_name),
-                        "call: enum variant constructor (Ident)"
-                    );
-                    return self.builder.emit_construct(
-                        ty,
-                        CtorKind::EnumVariant {
-                            enum_name,
-                            variant: variant_idx,
-                        },
-                        arg_vars,
-                        Some(span),
-                    );
+                if let Some(var) = self.try_emit_variant_ctor(name, ty, arg_vars.clone(), span) {
+                    return var;
                 }
-
-                // Resolve `self` to the enclosing function name only when
-                // `self` is NOT a local variable. In impl methods, `self` is
-                // a parameter — calling `self(...)` would be an indirect call
-                // through a closure value. In recurse() step expressions, the
-                // parser emits `Ident("self")` for self-recursive calls.
-                let self_name = self.interner.intern("self");
-                let resolved = if name == self_name && self.scope.lookup(self_name).is_none() {
-                    self.func_name
-                } else {
-                    name
-                };
-
+                let resolved = self.resolve_ident_callee(name);
                 tracing::trace!(
                     func = self.name_str(resolved),
                     args = arg_vars.len(),
                     "call: direct (Ident)"
                 );
-                // Inline tag-check builtins: canonicalization desugars
-                // `r.is_err()` to `is_err(r)` — a direct Call. These are
-                // compiled inline (tag extraction + compare) and don't
-                // participate in Perceus ownership.
                 if arg_vars.len() == 1 {
                     let arg_ty = self.expr_type(arg_ids[0]);
                     if let Some(var) = self.emit_tag_check(resolved, arg_vars[0], arg_ty, span) {
@@ -168,16 +171,13 @@ impl ArcLowerer<'_> {
                 self.emit_call_or_invoke(ty, resolved, arg_vars, span)
             }
             _ => {
-                // Other expressions (field access, method result, etc.) —
-                // evaluate to get closure value, then indirect call.
                 let closure_var = self.lower_expr(func);
                 tracing::trace!(
                     closure = closure_var.raw(),
                     args = arg_vars.len(),
                     "call: indirect"
                 );
-                self.builder
-                    .emit_apply_indirect(ty, closure_var, arg_vars, Some(span))
+                self.emit_indirect_call(ty, closure_var, arg_vars, span)
             }
         }
     }

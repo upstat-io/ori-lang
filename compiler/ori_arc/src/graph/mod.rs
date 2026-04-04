@@ -69,7 +69,8 @@ pub fn successor_block_ids(terminator: &ArcTerminator) -> SmallVec<[ArcBlockId; 
             targets.push(*default);
             targets
         }
-        ArcTerminator::Invoke { normal, unwind, .. } => smallvec![*normal, *unwind],
+        ArcTerminator::Invoke { normal, unwind, .. }
+        | ArcTerminator::InvokeIndirect { normal, unwind, .. } => smallvec![*normal, *unwind],
     }
 }
 
@@ -82,8 +83,12 @@ pub fn successor_block_ids(terminator: &ArcTerminator) -> SmallVec<[ArcBlockId; 
 pub(crate) fn collect_invoke_defs(func: &ArcFunction) -> FxHashMap<ArcBlockId, Vec<ArcVarId>> {
     let mut map = FxHashMap::default();
     for block in &func.blocks {
-        if let ArcTerminator::Invoke { dst, normal, .. } = &block.terminator {
-            map.entry(*normal).or_insert_with(Vec::new).push(*dst);
+        match &block.terminator {
+            ArcTerminator::Invoke { dst, normal, .. }
+            | ArcTerminator::InvokeIndirect { dst, normal, .. } => {
+                map.entry(*normal).or_insert_with(Vec::new).push(*dst);
+            }
+            _ => {}
         }
     }
     map

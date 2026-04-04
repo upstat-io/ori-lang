@@ -3,9 +3,7 @@
 use std.testing { assert_eq, assert_panics }
 // Spec: 06-types.md § Integer Type
 
-// =============================================================================
 // Integer Overflow — Addition
-// =============================================================================
 
 // MAX + 1 panics
 @test_add_overflow_max tests @add_overflow_max () -> void = {
@@ -32,9 +30,7 @@ use std.testing { assert_eq, assert_panics }
 
 @add_near_boundary_valid () -> int = 9223372036854775806 + 1;
 
-// =============================================================================
 // Integer Overflow — Subtraction
-// =============================================================================
 
 // MIN - 1 panics
 @test_sub_overflow_min tests @sub_overflow_min () -> void = {
@@ -61,9 +57,7 @@ use std.testing { assert_eq, assert_panics }
 
 @sub_near_boundary_valid () -> int = -9223372036854775807 - 1;
 
-// =============================================================================
 // Integer Overflow — Multiplication
-// =============================================================================
 
 // MAX * 2 panics
 @test_mul_overflow_max tests @mul_overflow_max () -> void = {
@@ -79,9 +73,7 @@ use std.testing { assert_eq, assert_panics }
 
 @mul_overflow_min () -> int = -9223372036854775808;
 
-// =============================================================================
 // Division by Zero
-// =============================================================================
 
 // 1 / 0 panics
 @test_div_by_zero tests @div_by_zero () -> void = {
@@ -104,9 +96,7 @@ use std.testing { assert_eq, assert_panics }
 
 @zero_div_zero () -> int = 0;
 
-// =============================================================================
 // Division Overflow — MIN / -1
-// =============================================================================
 
 // MIN / -1 panics (|MIN| > MAX)
 @test_div_overflow_min tests @div_overflow_min () -> void = {
@@ -115,9 +105,7 @@ use std.testing { assert_eq, assert_panics }
 
 @div_overflow_min () -> int = -9223372036854775808;
 
-// =============================================================================
 // Valid Boundary Operations (must NOT panic)
-// =============================================================================
 
 // MAX + 0 = MAX
 @test_max_add_zero tests @max_add_zero () -> void = {
@@ -179,9 +167,7 @@ use std.testing { assert_eq, assert_panics }
 
 @min_sub_self () -> int = -9223372036854775808 - -9223372036854775808;
 
-// =============================================================================
 // Arithmetic Identity Properties at Boundaries
-// =============================================================================
 
 // MAX * 0 = 0
 @test_max_mul_zero tests @max_mul_zero () -> void = {
@@ -223,9 +209,7 @@ use std.testing { assert_eq, assert_panics }
 
 @max_div_self () -> int = 9223372036854775807 / 9223372036854775807;
 
-// =============================================================================
 // Remainder Semantics
-// =============================================================================
 
 // -7 % 3 = -1 (sign follows numerator)
 @test_rem_negative_numerator tests @rem_negative_numerator () -> void = {
@@ -257,9 +241,7 @@ use std.testing { assert_eq, assert_panics }
 
 @max_mod_2 () -> int = 9223372036854775807 % 2;
 
-// =============================================================================
 // Negation Overflow
-// =============================================================================
 
 // -MIN panics (negating MIN overflows)
 @test_neg_min_overflow tests @neg_min_overflow () -> void = {

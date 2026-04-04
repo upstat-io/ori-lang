@@ -35,22 +35,35 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let mut live = FxHashSet::default();
 
         for block in &func.blocks {
-            if let ArcTerminator::Invoke {
-                unwind,
-                func: callee,
-                args,
-                ..
-            } = &block.terminator
-            {
-                all_invoke_unwind.insert(unwind.index());
+            match &block.terminator {
+                ArcTerminator::Invoke {
+                    unwind,
+                    func: callee,
+                    args,
+                    ..
+                } => {
+                    all_invoke_unwind.insert(unwind.index());
 
-                let ub = &func.blocks[unwind.index()];
-                let has_cleanup = has_effective_cleanup(ub, func);
-                let callee_uses_call = self.ctx.nounwind_functions.contains(callee)
-                    || self.callee_will_be_intercepted(*callee, args, func);
-                if !callee_uses_call && has_cleanup {
-                    live.insert(unwind.index());
+                    let ub = &func.blocks[unwind.index()];
+                    let has_cleanup = has_effective_cleanup(ub, func);
+                    let callee_uses_call = self.ctx.nounwind_functions.contains(callee)
+                        || self.callee_will_be_intercepted(*callee, args, func);
+                    if !callee_uses_call && has_cleanup {
+                        live.insert(unwind.index());
+                    }
                 }
+                ArcTerminator::InvokeIndirect { unwind, .. } => {
+                    all_invoke_unwind.insert(unwind.index());
+
+                    let ub = &func.blocks[unwind.index()];
+                    let has_cleanup = has_effective_cleanup(ub, func);
+                    // Indirect calls can't be statically resolved —
+                    // conservatively assume they may unwind.
+                    if has_cleanup {
+                        live.insert(unwind.index());
+                    }
+                }
+                _ => {}
             }
         }
 
@@ -82,7 +95,8 @@ pub(super) fn debug_assert_dead_unwind_unreachable(func: &ArcFunction, dead: &Fx
                         t.push(default.index());
                         t
                     }
-                    ArcTerminator::Invoke { normal, .. } => vec![normal.index()],
+                    ArcTerminator::Invoke { normal, .. }
+                    | ArcTerminator::InvokeIndirect { normal, .. } => vec![normal.index()],
                     _ => vec![],
                 };
                 for target in non_invoke_targets {

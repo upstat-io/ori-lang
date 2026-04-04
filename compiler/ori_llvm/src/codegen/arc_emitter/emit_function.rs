@@ -6,6 +6,7 @@
 
 use ori_arc::ir::{ArcFunction, ArcInstr, ArcTerminator, ArcVarId};
 use ori_ir::Name;
+use ori_types::Idx;
 use rustc_hash::{FxHashMap, FxHashSet};
 
 use super::context::EmittedValue;
@@ -106,6 +107,13 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             self.for_yield_int_elem_sizes =
                 scan_for_yield_int_elem_sizes(func, self.pool, self.interner);
         }
+
+        // Pre-scan ALL for-yield elem_size vars to override ARC-emitted
+        // pool_type_store_size values with the LLVM struct store size.
+        // This is critical for reordered structs/tuples where the ARC side
+        // computes the original layout size (e.g. 48) but LLVM uses the
+        // reordered layout (e.g. 40).
+        self.for_yield_elem_size_types = scan_for_yield_elem_size_types(func, self.interner);
 
         // Pre-scan: determine which struct fields are actually used per variable.
         // This enables surgical struct loading — only accessed fields are loaded.
@@ -405,6 +413,36 @@ fn scan_for_yield_int_elem_sizes(
                     if pool.tag(resolved) == Tag::Int {
                         result.insert(args[2]);
                     }
+                }
+            }
+        }
+    }
+    result
+}
+
+/// Pre-scan: map ALL for-yield `elem_size` `ArcVarId`s to their element type.
+///
+/// For reordered structs/tuples, `pool_type_store_size` (used by ARC lowering)
+/// returns the ORIGINAL layout size, but LLVM's struct layout uses the
+/// REORDERED size. The LLVM emitter overrides the literal with
+/// `element_store_size(elem_ty)` to ensure the runtime list stride matches
+/// LLVM's GEP stride.
+fn scan_for_yield_elem_size_types(
+    func: &ArcFunction,
+    interner: &ori_ir::StringInterner,
+) -> FxHashMap<ArcVarId, Idx> {
+    let mut result = FxHashMap::default();
+    for block in &func.blocks {
+        for instr in &block.body {
+            if let ArcInstr::Apply {
+                func: callee, args, ..
+            } = instr
+            {
+                let name = interner.lookup(*callee);
+                // ori_list_push(list_ptr, elem_val, elem_size_var)
+                if name == "ori_list_push" && args.len() == 3 {
+                    let elem_ty = func.var_type(args[1]);
+                    result.insert(args[2], elem_ty);
                 }
             }
         }

@@ -212,6 +212,12 @@ impl<'scx, 'ctx> IrBuilder<'scx, 'ctx> {
         self.eh_model
     }
 
+    /// Whether this builder is compiling for JIT execution.
+    #[inline]
+    pub fn is_jit(&self) -> bool {
+        self.mode == CompilationMode::Jit
+    }
+
     /// Query the ABI alignment (in bytes) for an LLVM type.
     ///
     /// Uses the module's `DataLayout` to determine the correct alignment

@@ -85,8 +85,11 @@ pub(super) fn compute_defined_at_or_before(
                 set.insert(dst);
             }
         }
-        if let ArcTerminator::Invoke { dst, .. } = &block.terminator {
-            set.insert(*dst);
+        match &block.terminator {
+            ArcTerminator::Invoke { dst, .. } | ArcTerminator::InvokeIndirect { dst, .. } => {
+                set.insert(*dst);
+            }
+            _ => {}
         }
     }
     for param in &func.params {
@@ -129,7 +132,8 @@ fn retarget_terminator(
                 *default = new_target;
             }
         }
-        ArcTerminator::Invoke { normal, unwind, .. } => {
+        ArcTerminator::Invoke { normal, unwind, .. }
+        | ArcTerminator::InvokeIndirect { normal, unwind, .. } => {
             if *normal == old_target {
                 *normal = new_target;
             }
