@@ -9,7 +9,7 @@ inspired_by:
   - "Swift SIL ARC test matrix pattern"
 depends_on: ["01", "02", "03", "04", "04B"]
 third_party_review:
-  status: resolved
+  status: in-progress
   updated: 2026-04-04
 sections:
   - id: "05.0"
@@ -26,7 +26,7 @@ sections:
     status: complete
   - id: "05.R"
     title: "Third Party Review Findings"
-    status: complete
+    status: in-progress
   - id: "05.N"
     title: "Completion Checklist"
     status: in-progress
@@ -116,6 +116,9 @@ Verify each category passes through LLVM in BOTH debug and release builds. For e
 
 - [x] `[TPR-05-002][medium]` [plans/jit-exception-handling/00-overview.md](/home/eric/projects/ori_lang/plans/jit-exception-handling/00-overview.md) — Stale overview contradicting section files.
   Resolved: Fixed on 2026-04-04. Updated 04B status to Complete, 05 to In Progress, dependency graph, Quick Reference table, and Live Test Results with post-fix verification data.
+
+- [ ] `[TPR-05-003][medium]` `type_predicates.rs` — Missing `Tag::Set` AOT regression test for lambda mono type predicates. <!-- blocked-by:BUG-04-030 -->
+  Validated on 2026-04-04. The `Tag::Set` branches exist in all four helpers but cannot be AOT-tested: polymorphic lambdas involving `Set<T>` crash in AOT (SIGSEGV, exit -139) due to unresolved monomorphization (BUG-04-030 Root Cause A/B). JIT path works (`cargo run --backend=llvm`), but `assert_aot_success` crashes. Test `test_multi_inst_set_lambda` must be added after BUG-04-030 is fixed.
 
 ---
 
