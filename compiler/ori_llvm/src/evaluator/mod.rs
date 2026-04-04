@@ -120,15 +120,14 @@ pub struct CompiledTestModule<'ll> {
 impl CompiledTestModule<'_> {
     /// Run a single test from this compiled module.
     ///
-    /// The test wrapper function has a built-in catch-all `landingpad` that
-    /// catches uncaught panics via LLVM's exception handling mechanism. This
-    /// ensures `catch(expr:)` inside tests works correctly — panics propagate
-    /// through `_Unwind_RaiseException`, caught by `invoke`/`landingpad` at
-    /// both the `catch(expr:)` scope and the test wrapper boundary.
+    /// On Linux/macOS the test wrapper has a built-in catch-all `landingpad`
+    /// that catches uncaught panics via LLVM Itanium EH. After the wrapper
+    /// returns, `did_panic()` detects whether an exception was caught at
+    /// the wrapper boundary (test failure) vs normal completion (test pass).
     ///
-    /// After the wrapper returns, we check `did_panic()` to detect whether
-    /// an exception was caught at the wrapper boundary (test failure) vs
-    /// normal completion (test pass).
+    /// On Windows, LLVM's JIT cannot compile Itanium-style `landingpad` for
+    /// MSVC targets, so the wrapper is a plain function and we use
+    /// `jit_run_protected` (C++ try/catch) for panic recovery.
     ///
     /// # Safety
     ///
@@ -154,18 +153,28 @@ impl CompiledTestModule<'_> {
                 .map_err(|e| LLVMEvalError::new(format!("Test function not found: {e}")))?
         };
 
-        // Reset panic state before running
-        runtime::reset_panic_state();
+        // Run the test with platform-appropriate panic recovery
+        #[cfg(target_os = "windows")]
+        {
+            // Windows: no landingpad wrapper — use jit_run_protected
+            let raw_fn: unsafe extern "C" fn() = unsafe { test_fn.as_raw() };
+            if let Err(msg) = unsafe { runtime::jit_run_protected(raw_fn) } {
+                return Err(LLVMEvalError::new(msg));
+            }
+        }
 
-        // Call the wrapper directly. The wrapper's catch-all landingpad handles
-        // uncaught panics — no setjmp/longjmp needed.
-        // SAFETY: test_fn has signature () -> void, compiled by us
-        unsafe { test_fn.call() };
+        #[cfg(not(target_os = "windows"))]
+        {
+            // Linux/macOS: wrapper has invoke/landingpad catch-all
+            runtime::reset_panic_state();
+            // SAFETY: test_fn has signature () -> void, compiled by us
+            unsafe { test_fn.call() };
 
-        // Check if the test panicked (caught by the wrapper's landingpad)
-        if runtime::did_panic() {
-            let msg = runtime::get_panic_message().unwrap_or_else(|| "unknown panic".to_string());
-            return Err(LLVMEvalError::new(msg));
+            if runtime::did_panic() {
+                let msg =
+                    runtime::get_panic_message().unwrap_or_else(|| "unknown panic".to_string());
+                return Err(LLVMEvalError::new(msg));
+            }
         }
 
         // Check for ARC leaks: compare live count after test to snapshot before
