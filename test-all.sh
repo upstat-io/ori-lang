@@ -541,7 +541,7 @@ emit_json() {
 # ORI_LLVM_EXIT is excluded from the primary failure check when it crashed
 # (signal) but all other suites passed. The LLVM backend spec tests crash
 # on pre-existing codegen Root Causes A-C (unresolved type variables →
-# malformed IR → LLVM C++ SIGSEGV). This is tracked in JIT EH plan §06.
+# malformed IR → LLVM C++ SIGSEGV). This is tracked in BUG-04-030.
 # The crash is still prominently displayed in the summary output.
 ANY_CORE_FAILED=$((RUST_EXIT + RUST_RT_EXIT + RUST_LLVM_EXIT + AOT_EXIT + WASM_EXIT + ORI_INTERP_EXIT))
 ANY_FAILED=$((ANY_CORE_FAILED + ORI_LLVM_EXIT))
@@ -554,7 +554,7 @@ if [ "$ANY_FAILED" -eq 0 ]; then
     echo -e "${GREEN}${BOLD}=== All tests passed ===${NC}"
     exit 0
 elif [ "$ANY_CORE_FAILED" -eq 0 ] && [ "${ORI_LLVM_CRASHED:-0}" -eq 1 ]; then
-    echo -e "${YELLOW:-\033[0;33m}${BOLD}=== All tests passed (LLVM backend crashed — known issue, see JIT EH §06) ===${NC}"
+    echo -e "${YELLOW:-\033[0;33m}${BOLD}=== All tests passed (LLVM backend crashed — known issue, see BUG-04-030) ===${NC}"
     exit 0
 else
     echo -e "${RED}${BOLD}=== Some tests failed ===${NC}"

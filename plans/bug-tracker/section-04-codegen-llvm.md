@@ -133,6 +133,7 @@ Bugs in LLVM IR generation, JIT/AOT compilation, monomorphization, ARC pipeline 
   Subsystem: `compiler/ori_llvm/src/codegen/arc_emitter/emitter_utils.rs`, `compiler/oric/src/test/runner/llvm_backend.rs` (body_type_map construction)
   Found: 2026-04-02 | Source: continue-roadmap (imported-generic-mono verification)
   Note: Active work in `plans/imported-generic-mono/` directly related. Non-crashing — graceful recovery produces correct results for primitive type instantiations.
+  Impact (2026-04-04): 6 narrowing AOT tests (`compiler/ori_llvm/tests/aot/fixtures/narrowing/`) used `use std.testing { assert_eq }` — calls silently dropped from IR. 4 tests SIGSEGV (block ends `unreachable` instead of `ret void`), 2 tests false-positive (pass without actually checking assertions). Converted all 6 to exit-code-based assertions as workaround.
 
 - [ ] `[BUG-04-029][medium]` **LLVM backend missing shift overflow/negative count/bit width runtime checks** — found by continue-roadmap.
   Repro: `timeout 30 cargo run -q -p oric --bin ori -- test --backend=llvm tests/spec/expressions/operators_bitwise.ori` — 5 tests fail: `test_shl_overflow_panic`, `test_shl_bit_width_panic`, `test_shl_negative_count_panic`, `test_shr_bit_width_panic`, `test_shr_negative_count_panic`. All expect panics but operations succeed silently (UB in LLVM — shift by negative or >= bit width is poison).
