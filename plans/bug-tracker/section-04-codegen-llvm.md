@@ -207,6 +207,18 @@ Bugs in LLVM IR generation, JIT/AOT compilation, monomorphization, ARC pipeline 
   Found: 2026-04-03 | Source: continue-roadmap (JIT EH plan §04B investigation)
   Note: Active work in JIT EH plan §04B and repr-opt plan touch this area. Root cause (A) is partially mitigated by Scheme-unwrapping fix in `ori_arc/src/lower/calls/lambda.rs` (polymorphic lambda params) and BoundVar resolution in `define_phase.rs` + `prepare.rs`. Root cause (D) is a trivial fix (add `jit_allowed: true` to the RT_FUNCTIONS entries). Root cause (E) needs structural matching — `find_concrete_copy_type` must verify the candidate Function's arity matches the lambda's param count. Fix in `define_phase.rs:find_partial_apply_concrete_type` path 1 added (validate params are concrete before returning), but `find_concrete_copy_type` still lacks arity matching.
 
+- [ ] `[BUG-04-031][high]` **LLVM PHINode error: short-circuit `&&` with Option method calls** — found by continue-roadmap.
+  Repro: `let opt = Some(42); is_some(opt:) && opt.unwrap_or(default: 0) > 0` compiled via `--backend=llvm` → LLVM IR verification: "PHINode should have one entry for each predecessor." Entire file becomes LCFail. Standalone short-circuit with panic/constants works; the trigger is method calls on heap types (`Option`) in short-circuit branches producing missing PHI predecessor entries.
+  Subsystem: `compiler/ori_llvm/src/codegen/` (short-circuit emission, likely `lower/expr/short_circuit.rs` or `arc_emitter/`)
+  Found: 2026-04-03 | Source: continue-roadmap (JIT EH plan §05 verification)
+  Note: Active work in JIT EH plan §02 (short-circuit lowering) completed. This is a residual case not caught by §02 testing — the simple cases work, but Option method dispatch in RHS branches generates incorrect CFG.
+
+- [ ] `[BUG-04-032][high]` **LLVM short-circuit `&&`/`||` side-effect propagation failure** — found by continue-roadmap.
+  Repro: `let order: [int] = []; let result = {order = order + [1]; true} && {order = order + [2]; true}; assert_eq(actual: order, expected: [1, 2])` → LLVM produces `[1]` (right block mutation not propagated). Interpreter correctly produces `[1, 2]`. Variable mutations in block expressions on the evaluated side of `&&`/`||` don't propagate to the outer scope.
+  Subsystem: `compiler/ori_llvm/src/codegen/` (short-circuit emission — variable store/load across basic blocks)
+  Found: 2026-04-03 | Source: continue-roadmap (JIT EH plan §05 verification)
+  Note: Related to BUG-04-031. Both are short-circuit codegen issues. This one compiles and runs but produces wrong output (semantic bug), while BUG-04-031 fails at IR verification (structural bug).
+
 ---
 
 ## 04.R Third Party Review Findings
