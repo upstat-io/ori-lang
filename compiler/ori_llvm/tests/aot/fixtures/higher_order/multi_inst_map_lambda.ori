@@ -1,0 +1,12 @@
+// Regression: TPR-05-001 — lambda mono type_predicates Map branch coverage.
+// A polymorphic lambda returning a map is instantiated at two different value
+// types. Exercises contains_var, contains_bound_var, and map_types_structural
+// for Tag::Map in type_predicates.rs.
+@main () -> int = {
+    let $wrap_map = v -> {"key": v};
+    let m_int = wrap_map(42);
+    let m_str = wrap_map("hello");
+    let $a = match m_int["key"] { Some(v) -> v, None -> 0 };
+    let $b = match m_str["key"] { Some(v) -> v, None -> "" };
+    if a == 42 && b == "hello" then 0 else 1
+}

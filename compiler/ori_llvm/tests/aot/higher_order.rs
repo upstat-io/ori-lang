@@ -503,6 +503,28 @@ fn test_multi_inst_wrap_lambda() {
     );
 }
 
+/// Semantic pin: TPR-05-001 — polymorphic lambda returning a tuple, instantiated
+/// at int and str. Exercises the `Tag::Tuple` branches in `type_predicates.rs`
+/// (`contains_var`, `contains_bound_var`, `map_types_structural`).
+#[test]
+fn test_multi_inst_tuple_lambda() {
+    assert_aot_success(
+        include_str!("fixtures/higher_order/multi_inst_tuple_lambda.ori"),
+        "multi_inst_tuple_lambda",
+    );
+}
+
+/// Semantic pin: TPR-05-001 — polymorphic lambda returning a map, instantiated
+/// at int and str value types. Exercises the `Tag::Map` branches in `type_predicates.rs`
+/// (`contains_var`, `contains_bound_var`, `map_types_structural`).
+#[test]
+fn test_multi_inst_map_lambda() {
+    assert_aot_success(
+        include_str!("fixtures/higher_order/multi_inst_map_lambda.ori"),
+        "multi_inst_map_lambda",
+    );
+}
+
 /// Negative pin for TPR-04B-007: verify that multi-inst originals are NOT
 /// present in the emitted LLVM IR. Only specialized clones (with `$` suffix)
 /// should survive. The stale original would contain unresolved type variables

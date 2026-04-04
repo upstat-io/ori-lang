@@ -9,8 +9,8 @@ inspired_by:
   - "Swift SIL ARC test matrix pattern"
 depends_on: ["01", "02", "03", "04", "04B"]
 third_party_review:
-  status: none
-  updated: null
+  status: resolved
+  updated: 2026-04-04
 sections:
   - id: "05.0"
     title: "Pre-verification checks"
@@ -26,7 +26,7 @@ sections:
     status: complete
   - id: "05.R"
     title: "Third Party Review Findings"
-    status: not-started
+    status: complete
   - id: "05.N"
     title: "Completion Checklist"
     status: in-progress
@@ -111,7 +111,11 @@ Verify each category passes through LLVM in BOTH debug and release builds. For e
 
 ## 05.R Third Party Review Findings
 
-- None.
+- [x] `[TPR-05-001][medium]` [compiler/ori_llvm/src/codegen/function_compiler/lambda_mono/type_predicates.rs](/home/eric/projects/ori_lang/compiler/ori_llvm/src/codegen/function_compiler/lambda_mono/type_predicates.rs) — Missing regression coverage for Tuple/Map/Set branches in lambda mono type predicates.
+  Resolved: Fixed on 2026-04-04. Added `test_multi_inst_tuple_lambda` and `test_multi_inst_map_lambda` AOT tests with corresponding `.ori` fixtures. Both tests exercise the Tag::Tuple and Tag::Map branches in `contains_var`, `contains_bound_var`, and `map_types_structural`. Both pass in debug.
+
+- [x] `[TPR-05-002][medium]` [plans/jit-exception-handling/00-overview.md](/home/eric/projects/ori_lang/plans/jit-exception-handling/00-overview.md) — Stale overview contradicting section files.
+  Resolved: Fixed on 2026-04-04. Updated 04B status to Complete, 05 to In Progress, dependency graph, Quick Reference table, and Live Test Results with post-fix verification data.
 
 ---
 
