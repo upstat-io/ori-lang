@@ -65,10 +65,10 @@ CURRENT STATE (implemented):
 - ~~**04.5**: AIMS borrowed-def propagation~~ — **FIXED**: `propagate_borrowed_closure` unanimity rule for Jump param propagation to merge blocks. Root cause of 04.4b.
 - ~~**04.6**: Panic handler exception propagation~~ — **FIXED**: 3 sub-issues: (1) main wrapper `invoke` for no-args `@main`, (2) `extern "C-unwind"` for `dispatch_panic`/`aot_raise_exception`, (3) PanicInfo field index remapping via `ReprPlan`.
 
-**Section 04B (Polymorphic Lambda Monomorphization) — IN PROGRESS:**
+**Section 04B (Polymorphic Lambda Monomorphization) — COMPLETE:**
 - Scheme unwrapping in ARC lowering, BoundVar→concrete substitution, and nested capture resolution have landed
-- TPR reopened on 2026-04-04 after a fresh list-concat lambda repro still segfaulted in LLVM (BUG-04-030 root cause F)
-- In-tree verification is still blocked by BUG-04-030, and the list-concat lambda crash shows 04B is not yet fully complete
+- TPR resolved (4 iterations, 12 findings fixed). Impl hygiene review passed (15 findings fixed).
+- One checklist item (in-tree LLVM verification) blocked by BUG-04-030, not by lambda monomorphization work itself. The list-concat lambda crash (BUG-04-030 Root Cause F) is a pre-existing codegen issue tracked separately.
 
 **Section 05 (Verification) — IN PROGRESS:**
 - Pre-verification checks complete (01.R, 04.H, annotations, release build)
@@ -88,8 +88,8 @@ CURRENT STATE (implemented):
        ↓
   §04 Exposed bug fixes (8 bugs):  ← COMPLETE
        ↓
-  §04B Polymorphic lambda monomorphization  ← IN PROGRESS
-       (Root Cause A addressed, but list-concat lambda crash remains under BUG-04-030)
+  §04B Polymorphic lambda monomorphization  ← COMPLETE (1 blocked by BUG-04-030)
+       (Root Cause A addressed; list-concat crash is BUG-04-030 Root Cause F)
        ↓
   §05 Verification: test matrix, dual-exec parity, TPR  ← IN PROGRESS
 ```
@@ -141,5 +141,5 @@ The Itanium path in `ori_run_main` (lib.rs:430-443) still uses `std::panic::catc
 | 02 | ARC IR InvokeIndirect | `section-02-arc-ir.md` | Complete |
 | 03 | LLVM Emission & Wrappers | `section-03-llvm-emission.md` | Complete |
 | 04 | Exposed Bug Fixes | `section-04-exposed-bugs.md` | Complete |
-| 04B | Polymorphic Lambda Monomorphization | `section-04b-lambda-mono.md` | In Progress (in-tree verification + list-concat lambda crash blocked by BUG-04-030) |
+| 04B | Polymorphic Lambda Monomorphization | `section-04b-lambda-mono.md` | Complete (1 item blocked by BUG-04-030) |
 | 05 | Verification | `section-05-verification.md` | In Progress |
