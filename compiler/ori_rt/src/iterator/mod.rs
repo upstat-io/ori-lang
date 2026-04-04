@@ -28,12 +28,13 @@ pub(crate) mod state;
 
 // Re-export all `#[no_mangle] extern "C"` functions at module level.
 pub use adapters::{
-    ori_iter_chain, ori_iter_enumerate, ori_iter_filter, ori_iter_map, ori_iter_skip,
-    ori_iter_take, ori_iter_zip,
+    ori_iter_chain, ori_iter_cycle, ori_iter_enumerate, ori_iter_filter, ori_iter_flatten,
+    ori_iter_map, ori_iter_rev, ori_iter_skip, ori_iter_take, ori_iter_zip,
 };
 pub use consumers::{
     ori_iter_all, ori_iter_any, ori_iter_collect, ori_iter_collect_set, ori_iter_count,
-    ori_iter_find, ori_iter_fold, ori_iter_for_each,
+    ori_iter_find, ori_iter_fold, ori_iter_for_each, ori_iter_join, ori_iter_last, ori_iter_rfind,
+    ori_iter_rfold,
 };
 pub use sources::{
     ori_iter_from_list, ori_iter_from_map, ori_iter_from_option, ori_iter_from_range,
