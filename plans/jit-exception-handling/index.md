@@ -64,7 +64,7 @@ dead_unwind.rs, field_scan/mod.rs, rpo.rs, nounwind/analyze.rs
 ---
 
 ### Section 04: Exposed Bug Fixes
-**File:** `section-04-exposed-bugs.md` | **Status:** In Progress (8/8 fixed, verification pending)
+**File:** `section-04-exposed-bugs.md` | **Status:** Complete
 
 ```
 04.1: sdiv, srem, division by zero, checked_div, checked_rem, checked_ops.rs
@@ -87,7 +87,7 @@ tests/spec/traits/iterator/infinite_range.ori
 ---
 
 ### Section 04B: Polymorphic Lambda Monomorphization
-**File:** `section-04b-lambda-mono.md` | **Status:** In Progress (open TPR findings; in-tree LLVM verification failing)
+**File:** `section-04b-lambda-mono.md` | **Status:** Complete (1 item blocked by BUG-04-030)
 
 ```
 polymorphic lambda, forall, Scheme, BoundVar, monomorphization
@@ -103,7 +103,7 @@ Tag::Scheme, Tag::BoundVar, Tag::Var, VarState::Generalized
 ---
 
 ### Section 05: Verification
-**File:** `section-05-verification.md` | **Status:** Not Started
+**File:** `section-05-verification.md` | **Status:** In Progress
 
 ```
 test-all.sh, dual-exec parity, dual-exec-verify.sh, LLVM spec tests
@@ -124,6 +124,6 @@ operators_logical.ori, operators_bitwise.ori
 | 01 | Runtime Panic Path | `section-01-runtime.md` | Complete |
 | 02 | ARC IR InvokeIndirect | `section-02-arc-ir.md` | Complete |
 | 03 | LLVM Emission & Wrappers | `section-03-llvm-emission.md` | Complete |
-| 04 | Exposed Bug Fixes (8 bugs) | `section-04-exposed-bugs.md` | In Progress (8/8 fixed, verification pending) |
-| 04B | Polymorphic Lambda Monomorphization | `section-04b-lambda-mono.md` | In Progress (open TPR findings; in-tree LLVM verification failing) |
-| 05 | Verification | `section-05-verification.md` | Not Started |
+| 04 | Exposed Bug Fixes (8 bugs) | `section-04-exposed-bugs.md` | Complete |
+| 04B | Polymorphic Lambda Monomorphization | `section-04b-lambda-mono.md` | Complete (1 item blocked by BUG-04-030) |
+| 05 | Verification | `section-05-verification.md` | In Progress |
