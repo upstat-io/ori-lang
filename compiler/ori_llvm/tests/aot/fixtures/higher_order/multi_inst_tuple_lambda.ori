@@ -1,0 +1,12 @@
+// Regression: TPR-05-001 — lambda mono type_predicates Tuple branch coverage.
+// A polymorphic lambda returning a tuple is instantiated at two different types.
+// Exercises contains_var, contains_bound_var, and map_types_structural for
+// Tag::Tuple in type_predicates.rs.
+@main () -> int = {
+    let $to_pair = x -> (x, x);
+    let pair_int = to_pair(42);
+    let pair_str = to_pair("hi");
+    let $a = pair_int.0 + pair_int.1;
+    let $b = pair_str.0 + pair_str.1;
+    if a == 84 && b == "hihi" then 0 else 1
+}
