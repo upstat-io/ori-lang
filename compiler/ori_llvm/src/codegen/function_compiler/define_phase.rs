@@ -578,6 +578,27 @@ pub(super) fn resolve_all_lambda_bound_vars(
         }
         fallback_bound_vars_to_int(lambda, pool);
     }
+
+    // Remove multi-inst originals — replaced by specialized clones.
+    remove_multi_inst_originals(lambdas, multi_inst_lambdas);
+}
+
+/// Remove original multi-instantiated lambdas from the vec. These have been
+/// replaced by specialized clones — if left in, `emit_arc_function` compiles
+/// them with unresolved type variables. Removes in reverse index order so
+/// earlier indices remain valid after each removal.
+fn remove_multi_inst_originals(
+    lambdas: &mut Vec<ori_arc::ArcFunction>,
+    multi_inst_indices: rustc_hash::FxHashSet<usize>,
+) {
+    if multi_inst_indices.is_empty() {
+        return;
+    }
+    let mut to_remove: Vec<usize> = multi_inst_indices.into_iter().collect();
+    to_remove.sort_unstable_by(|a, b| b.cmp(a));
+    for idx in to_remove {
+        lambdas.remove(idx);
+    }
 }
 
 /// Clone a multi-instantiated lambda: create one clone per distinct concrete
