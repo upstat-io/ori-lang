@@ -5,6 +5,57 @@
 
 use ori_ir::Name;
 use ori_types::Idx;
+use ori_types::Tag;
+
+use super::type_predicates::{contains_bound_var, contains_nested_var, map_types_structural};
+
+/// Find the `PartialApply` dst variable for a lambda in a function's blocks.
+pub(super) fn find_partial_apply_dst(
+    func: &ori_arc::ArcFunction,
+    lambda_name: Name,
+) -> Option<ori_arc::ir::ArcVarId> {
+    for block in &func.blocks {
+        for instr in &block.body {
+            if let ori_arc::ir::ArcInstr::PartialApply {
+                dst, func: callee, ..
+            } = instr
+            {
+                if *callee == lambda_name {
+                    return Some(*dst);
+                }
+            }
+        }
+    }
+    None
+}
+
+/// Check if a resolved type is a Function with all-concrete params and return type.
+pub(super) fn is_concrete_function(pool: &ori_types::Pool, resolved: Idx) -> bool {
+    if pool.tag(resolved) != Tag::Function {
+        return false;
+    }
+    let params = pool.function_params(resolved);
+    let ret = pool.function_return(resolved);
+    params.iter().chain(std::iter::once(&ret)).all(|p| {
+        let pt = pool.resolve_fully(*p);
+        !matches!(pool.tag(pt), Tag::BoundVar | Tag::Var | Tag::Scheme)
+    })
+}
+
+/// Check if a lambda has any unresolved polymorphic types (`BoundVar`/`Var` in
+/// params, return, or `var_types`).
+pub(super) fn is_polymorphic_lambda(lambda: &ori_arc::ArcFunction, pool: &ori_types::Pool) -> bool {
+    lambda
+        .params
+        .iter()
+        .any(|p| matches!(pool.tag(p.ty), Tag::BoundVar | Tag::Var))
+        || contains_bound_var(pool, lambda.return_type)
+        || contains_nested_var(pool, lambda.return_type)
+        || lambda
+            .var_types
+            .iter()
+            .any(|ty| contains_bound_var(pool, *ty))
+}
 
 /// Search parent + all sibling lambdas for a `PartialApply` that references the
 /// given lambda, and return the concrete instantiated function type.
@@ -15,43 +66,18 @@ pub(super) fn find_partial_apply_concrete_type(
     lambda_name: Name,
     pool: &ori_types::Pool,
 ) -> Option<Idx> {
-    use ori_types::Tag;
-
     let check_concrete =
         |func: &ori_arc::ArcFunction, dst: &ori_arc::ir::ArcVarId| -> Option<Idx> {
             let pa_ty = func.var_type(*dst);
             let resolved = pool.resolve_fully(pa_ty);
-            if pool.tag(resolved) == Tag::Function {
-                let params = pool.function_params(resolved);
-                let all_concrete = params.iter().all(|p| {
-                    let pt = pool.resolve_fully(*p);
-                    !matches!(pool.tag(pt), Tag::BoundVar | Tag::Var | Tag::Scheme)
-                });
-                if all_concrete {
-                    return Some(resolved);
-                }
+            if is_concrete_function(pool, resolved) {
+                return Some(resolved);
             }
             None
         };
 
-    let find_pa = |func: &ori_arc::ArcFunction| -> Option<ori_arc::ir::ArcVarId> {
-        for block in &func.blocks {
-            for instr in &block.body {
-                if let ori_arc::ir::ArcInstr::PartialApply {
-                    dst, func: callee, ..
-                } = instr
-                {
-                    if *callee == lambda_name {
-                        return Some(*dst);
-                    }
-                }
-            }
-        }
-        None
-    };
-
     // Search parent first.
-    if let Some(dst) = find_pa(parent) {
+    if let Some(dst) = find_partial_apply_dst(parent, lambda_name) {
         if let Some(ty) = check_concrete(parent, &dst) {
             return Some(ty);
         }
@@ -68,14 +94,14 @@ pub(super) fn find_partial_apply_concrete_type(
         if j == skip_idx {
             continue;
         }
-        if let Some(dst) = find_pa(sibling) {
+        if let Some(dst) = find_partial_apply_dst(sibling, lambda_name) {
             if let Some(ty) = check_concrete(sibling, &dst) {
                 return Some(ty);
             }
             if let Some(ty) = find_concrete_copy_of(sibling, dst, pool) {
                 return Some(ty);
             }
-            if let Some(parent_dst) = find_pa(parent) {
+            if let Some(parent_dst) = find_partial_apply_dst(parent, lambda_name) {
                 if let Some(ty) = find_concrete_copy_of(parent, parent_dst, pool) {
                     return Some(ty);
                 }
@@ -98,8 +124,6 @@ pub(super) fn apply_bound_var_map(
     map: &rustc_hash::FxHashMap<u32, Idx>,
     pool: &ori_types::Pool,
 ) {
-    use ori_types::Tag;
-
     if map.is_empty() {
         return;
     }
@@ -135,8 +159,6 @@ pub(super) fn fallback_bound_vars_to_int(
     lambda: &mut ori_arc::ArcFunction,
     pool: &ori_types::Pool,
 ) {
-    use ori_types::Tag;
-
     for param in &mut lambda.params {
         if matches!(pool.tag(param.ty), Tag::BoundVar | Tag::Var) {
             param.ty = Idx::INT;
@@ -183,27 +205,7 @@ pub(super) fn find_all_instantiation_types(
     lambda_name: Name,
     pool: &ori_types::Pool,
 ) -> Vec<Idx> {
-    use ori_types::Tag;
-
-    let mut pa_dst = None;
-    for block in &parent.blocks {
-        for instr in &block.body {
-            if let ori_arc::ir::ArcInstr::PartialApply {
-                dst, func: callee, ..
-            } = instr
-            {
-                if *callee == lambda_name {
-                    pa_dst = Some(*dst);
-                    break;
-                }
-            }
-        }
-        if pa_dst.is_some() {
-            break;
-        }
-    }
-
-    let Some(pa_dst) = pa_dst else {
+    let Some(pa_dst) = find_partial_apply_dst(parent, lambda_name) else {
         return Vec::new();
     };
 
@@ -221,22 +223,16 @@ pub(super) fn find_all_instantiation_types(
                 if *src == pa_dst {
                     let ty = parent.var_type(*dst);
                     let resolved = pool.resolve_fully(ty);
-                    if pool.tag(resolved) == Tag::Function {
+                    if is_concrete_function(pool, resolved) {
                         let params = pool.function_params(resolved);
                         let ret = pool.function_return(resolved);
-                        let all_concrete = params.iter().chain(std::iter::once(&ret)).all(|p| {
-                            let pt = pool.resolve_fully(*p);
-                            !matches!(pool.tag(pt), Tag::BoundVar | Tag::Var | Tag::Scheme)
-                        });
-                        if all_concrete {
-                            let key: Vec<Idx> = params
-                                .iter()
-                                .chain(std::iter::once(&ret))
-                                .map(|p| pool.resolve_fully(*p))
-                                .collect();
-                            if seen.insert(key) {
-                                instantiations.push(resolved);
-                            }
+                        let key: Vec<Idx> = params
+                            .iter()
+                            .chain(std::iter::once(&ret))
+                            .map(|p| pool.resolve_fully(*p))
+                            .collect();
+                        if seen.insert(key) {
+                            instantiations.push(resolved);
                         }
                     }
                 }
@@ -273,26 +269,7 @@ pub(super) fn find_apply_indirect_result_type(
     lambda_name: Name,
     pool: &ori_types::Pool,
 ) -> Option<Idx> {
-    use ori_types::Tag;
-
-    let mut pa_dst = None;
-    for block in &parent.blocks {
-        for instr in &block.body {
-            if let ori_arc::ir::ArcInstr::PartialApply {
-                dst, func: callee, ..
-            } = instr
-            {
-                if *callee == lambda_name {
-                    pa_dst = Some(*dst);
-                    break;
-                }
-            }
-        }
-        if pa_dst.is_some() {
-            break;
-        }
-    }
-    let pa_dst = pa_dst?;
+    let pa_dst = find_partial_apply_dst(parent, lambda_name)?;
 
     let mut narrowing_vars = Vec::new();
     for block in &parent.blocks {
@@ -335,8 +312,6 @@ pub(super) fn build_bound_var_map(
     lambda_return_type: Idx,
     map: &mut rustc_hash::FxHashMap<u32, Idx>,
 ) {
-    use ori_types::Tag;
-
     if pool.tag(concrete_fn_ty) != Tag::Function {
         return;
     }
@@ -367,79 +342,14 @@ pub(super) fn build_bound_var_map(
         map_types_structural(pool, schema_ret, pool.resolve_fully(concrete_ret), map);
     }
 }
-
-/// Check if a type contains a `Var` INSIDE a container (not at the top level).
-pub(super) fn contains_nested_var(pool: &ori_types::Pool, ty: Idx) -> bool {
-    use ori_types::Tag;
-    match pool.tag(ty) {
-        Tag::Option => contains_var(pool, pool.option_inner(ty)),
-        Tag::Result => {
-            contains_var(pool, pool.result_ok(ty)) || contains_var(pool, pool.result_err(ty))
-        }
-        Tag::List => contains_var(pool, pool.list_elem(ty)),
-        _ => false,
-    }
-}
-
-/// Check if a type contains a `Var` at any nesting level.
-pub(super) fn contains_var(pool: &ori_types::Pool, ty: Idx) -> bool {
-    use ori_types::Tag;
-    match pool.tag(ty) {
-        Tag::Var => true,
-        Tag::Option => contains_var(pool, pool.option_inner(ty)),
-        Tag::Result => {
-            contains_var(pool, pool.result_ok(ty)) || contains_var(pool, pool.result_err(ty))
-        }
-        Tag::List => contains_var(pool, pool.list_elem(ty)),
-        Tag::Function => {
-            pool.function_params(ty)
-                .iter()
-                .any(|p| contains_var(pool, *p))
-                || contains_var(pool, pool.function_return(ty))
-        }
-        _ => false,
-    }
-}
-
-/// Check if a type contains any unresolvable `BoundVar`.
-pub(super) fn contains_bound_var(pool: &ori_types::Pool, ty: Idx) -> bool {
-    use ori_types::Tag;
-
-    let resolved = pool.resolve_fully(ty);
-    match pool.tag(resolved) {
-        Tag::BoundVar | Tag::Scheme => true,
-        Tag::Option => contains_bound_var(pool, pool.option_inner(resolved)),
-        Tag::Result => {
-            contains_bound_var(pool, pool.result_ok(resolved))
-                || contains_bound_var(pool, pool.result_err(resolved))
-        }
-        Tag::List => contains_bound_var(pool, pool.list_elem(resolved)),
-        Tag::Function => {
-            pool.function_params(resolved)
-                .iter()
-                .any(|p| contains_bound_var(pool, *p))
-                || contains_bound_var(pool, pool.function_return(resolved))
-        }
-        _ => false,
-    }
-}
-
 // Internal helpers
 
 /// Scan all `var_types` for the first concrete Function type.
 fn find_any_concrete_fn_type(func: &ori_arc::ArcFunction, pool: &ori_types::Pool) -> Option<Idx> {
-    use ori_types::Tag;
     for ty in &func.var_types {
         let resolved = pool.resolve_fully(*ty);
-        if pool.tag(resolved) == Tag::Function {
-            let params = pool.function_params(resolved);
-            let all_concrete = params.iter().all(|p| {
-                let pt = pool.resolve_fully(*p);
-                !matches!(pool.tag(pt), Tag::BoundVar | Tag::Var | Tag::Scheme)
-            });
-            if all_concrete {
-                return Some(resolved);
-            }
+        if is_concrete_function(pool, resolved) {
+            return Some(resolved);
         }
     }
     None
@@ -451,7 +361,6 @@ fn find_concrete_copy_of(
     pa_dst: ori_arc::ir::ArcVarId,
     pool: &ori_types::Pool,
 ) -> Option<Idx> {
-    use ori_types::Tag;
     for block in &func.blocks {
         for instr in &block.body {
             if let ori_arc::ir::ArcInstr::Let {
@@ -463,89 +372,12 @@ fn find_concrete_copy_of(
                 if *src == pa_dst {
                     let ty = func.var_type(*dst);
                     let resolved = pool.resolve_fully(ty);
-                    if pool.tag(resolved) == Tag::Function {
-                        let params = pool.function_params(resolved);
-                        let all_concrete = params.iter().all(|p| {
-                            let pt = pool.resolve_fully(*p);
-                            !matches!(pool.tag(pt), Tag::BoundVar | Tag::Var | Tag::Scheme)
-                        });
-                        if all_concrete {
-                            return Some(resolved);
-                        }
+                    if is_concrete_function(pool, resolved) {
+                        return Some(resolved);
                     }
                 }
             }
         }
     }
     None
-}
-
-/// Walk `schema_ty` and `concrete_ty` in parallel to build `BoundVar` mappings.
-fn map_types_structural(
-    pool: &ori_types::Pool,
-    schema_ty: Idx,
-    concrete_ty: Idx,
-    map: &mut rustc_hash::FxHashMap<u32, Idx>,
-) {
-    use ori_types::Tag;
-
-    let schema_tag = pool.tag(schema_ty);
-
-    if matches!(schema_tag, Tag::BoundVar | Tag::Var) {
-        let var_id = pool.data(schema_ty);
-        map.insert(var_id, concrete_ty);
-        return;
-    }
-
-    let concrete_tag = pool.tag(concrete_ty);
-    if schema_tag != concrete_tag {
-        return;
-    }
-
-    match schema_tag {
-        Tag::Option => {
-            map_types_structural(
-                pool,
-                pool.option_inner(schema_ty),
-                pool.option_inner(concrete_ty),
-                map,
-            );
-        }
-        Tag::Result => {
-            map_types_structural(
-                pool,
-                pool.result_ok(schema_ty),
-                pool.result_ok(concrete_ty),
-                map,
-            );
-            map_types_structural(
-                pool,
-                pool.result_err(schema_ty),
-                pool.result_err(concrete_ty),
-                map,
-            );
-        }
-        Tag::List => {
-            map_types_structural(
-                pool,
-                pool.list_elem(schema_ty),
-                pool.list_elem(concrete_ty),
-                map,
-            );
-        }
-        Tag::Function => {
-            let s_params = pool.function_params(schema_ty);
-            let c_params = pool.function_params(concrete_ty);
-            for (sp, cp) in s_params.iter().zip(c_params.iter()) {
-                map_types_structural(pool, *sp, *cp, map);
-            }
-            map_types_structural(
-                pool,
-                pool.function_return(schema_ty),
-                pool.function_return(concrete_ty),
-                map,
-            );
-        }
-        _ => {}
-    }
 }
