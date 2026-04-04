@@ -60,21 +60,10 @@ fn multiple_values_get_distinct_ids() {
 }
 
 #[test]
-#[should_panic(expected = "empty arena")]
-fn value_none_panics_on_empty_arena() {
+#[should_panic(expected = "out of bounds")]
+fn value_out_of_bounds_panics_in_debug() {
     let arena = ValueArena::new();
-    let _ = arena.get_value(ValueId::NONE);
-}
-
-#[test]
-fn value_none_returns_fallback_on_nonempty_arena() {
-    let ctx = Context::create();
-    let mut arena = ValueArena::new();
-    let v = ctx.i64_type().const_int(42, false);
-    let _id = arena.push_value(v.into());
-    // NONE on a non-empty arena returns the first value as fallback (no panic)
-    let fallback = arena.get_value(ValueId::NONE);
-    assert_eq!(fallback.into_int_value(), v);
+    let _ = arena.get_value(ValueId(0));
 }
 
 #[test]

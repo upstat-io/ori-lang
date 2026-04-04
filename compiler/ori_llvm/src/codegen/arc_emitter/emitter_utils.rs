@@ -185,7 +185,11 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         } else {
             tracing::error!(var = v.raw(), "ArcIrEmitter: variable not yet defined");
             self.builder.record_codegen_error();
-            EmittedValue::Immediate(ValueId::NONE)
+            // Return the pre-created i64 zero poison value instead of
+            // ValueId::NONE. NONE (u32::MAX) causes panics in get_value()
+            // which cascade into LLVM C++ crashes that bypass catch_unwind.
+            // The module will be rejected by the codegen error check before JIT.
+            EmittedValue::Immediate(self.builder.poison_value)
         }
     }
 

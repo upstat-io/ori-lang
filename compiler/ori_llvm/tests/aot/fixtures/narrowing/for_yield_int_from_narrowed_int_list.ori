@@ -1,8 +1,10 @@
-use std.testing { assert_eq }
-@main () -> void = {
+// Workaround for BUG-04-024: assert_eq from std.testing silently dropped in AOT.
+// Uses exit-code-based assertions instead.
+@main () -> int = {
     let xs: [int] = [1, 2, 3];
     let ys: [int] = for x in xs.iter() yield x * 2;
-    assert_eq(actual: ys[0], expected: 2);
-    assert_eq(actual: ys[1], expected: 4);
-    assert_eq(actual: ys[2], expected: 6);
+    if ys[0] != 2 then 1
+    else if ys[1] != 4 then 2
+    else if ys[2] != 6 then 3
+    else 0
 }
