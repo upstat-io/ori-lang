@@ -118,7 +118,7 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
         func_id: FunctionId,
         abi: &FunctionAbi,
         mut arc_func: ori_arc::ArcFunction,
-        lambdas: Vec<ori_arc::ArcFunction>,
+        mut lambdas: Vec<ori_arc::ArcFunction>,
     ) {
         // Compile lambda ArcFunctions (closures).
         // Each lambda is compiled as a separate LLVM function, registered in
@@ -127,6 +127,17 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
         // declare_and_process_lambda renames each lambda to a globally unique
         // name. We collect the (old → new) mapping so we can update the
         // parent function's PartialApply references.
+        // Resolve BoundVar types in polymorphic lambdas before compilation.
+        // Must resolve ALL lambdas before compiling ANY, because nested lambdas
+        // may reference sibling lambdas' types (e.g., inner lambda's PartialApply
+        // is in outer lambda's body, not the parent function's body).
+        super::lambda_mono::resolve_all_lambda_bound_vars(
+            &mut arc_func,
+            &mut lambdas,
+            self.pool,
+            self.interner,
+        );
+
         let mut lambda_renames: Vec<(Name, Name)> = Vec::new();
         for mut lambda in lambdas {
             let original_name = lambda.name;
@@ -206,6 +217,17 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
     ///
     /// Registers the lambda in `self.codegen_ctx.functions` so the emitter can look it up.
     fn compile_lambda_arc(&mut self, lambda: &mut ori_arc::ArcFunction) {
+        // Verify no BoundVar types remain after resolution — captures ARE leading
+        // params, so resolve_all_lambda_bound_vars must have resolved them too.
+        debug_assert!(
+            !lambda
+                .params
+                .iter()
+                .any(|p| matches!(self.pool.tag(p.ty), ori_types::Tag::BoundVar)),
+            "lambda {} has unresolved BoundVar params after resolution",
+            self.interner.lookup(lambda.name),
+        );
+
         // Shared setup: declare, register, run ARC pipeline
         let (lambda_name, func_id, abi) = self.declare_and_process_lambda(lambda);
 

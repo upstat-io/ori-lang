@@ -309,6 +309,25 @@ pub fn fmt_terminator(
             write!(out, " normal bb{} unwind bb{}", normal.raw(), unwind.raw()).unwrap();
         }
 
+        ArcTerminator::InvokeIndirect {
+            dst,
+            closure,
+            args,
+            normal,
+            unwind,
+            ..
+        } => {
+            write!(
+                out,
+                "{} = InvokeIndirect {}",
+                fmt_var_typed(func, *dst, pool, interner),
+                fmt_var(func, *closure),
+            )
+            .unwrap();
+            fmt_args_simple(out, args, func);
+            write!(out, " normal bb{} unwind bb{}", normal.raw(), unwind.raw()).unwrap();
+        }
+
         ArcTerminator::Resume => {
             write!(out, "Resume").unwrap();
         }

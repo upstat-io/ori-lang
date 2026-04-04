@@ -104,6 +104,16 @@ pub(super) fn process_terminator(
                 *return_range = return_range.join(ret_range);
             }
         }
+        ArcTerminator::InvokeIndirect { dst, ty, .. } => {
+            // Indirect calls have no known callee — use Top range.
+            if is_int_typed(*ty, pool) {
+                let mut new_range = Top;
+                if let Some(&narrowing) = call_result_narrowings.get(dst) {
+                    new_range = new_range.meet(narrowing);
+                }
+                changed |= update_range(ranges, *dst, new_range, iteration, thresholds);
+            }
+        }
         ArcTerminator::Jump { .. } | ArcTerminator::Resume | ArcTerminator::Unreachable => {}
     }
     changed

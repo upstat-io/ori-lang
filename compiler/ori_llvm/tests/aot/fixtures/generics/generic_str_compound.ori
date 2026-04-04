@@ -1,0 +1,15 @@
+// Regression: BUG-04-022 — str() prelude function on compound types through LLVM.
+// The type checker desugars .debug() to str() in some generic contexts.
+
+@fmt<T: Eq + Debug> (a: T, b: T) -> str =
+    if a != b then "mismatch: " + a.debug() + " != " + b.debug()
+    else "match: " + a.debug();
+
+@main () -> void = {
+    let s1 = fmt(a: [1, 2], b: [1, 2]);
+    if s1 != "match: [1, 2]" then
+        panic(msg: "expected 'match: [1, 2]', got: " + s1);
+    let s2 = fmt(a: [1, 2], b: [1, 3]);
+    if s2 != "mismatch: [1, 2] != [1, 3]" then
+        panic(msg: "expected 'mismatch: [1, 2] != [1, 3]', got: " + s2)
+}

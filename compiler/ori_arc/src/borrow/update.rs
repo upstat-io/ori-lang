@@ -268,7 +268,10 @@ pub(super) fn update_ownership_inner(
             ArcTerminator::Branch { .. }
             | ArcTerminator::Switch { .. }
             | ArcTerminator::Unreachable
-            | ArcTerminator::Resume => {}
+            | ArcTerminator::Resume
+            // InvokeIndirect: closure call — no named callee to look up
+            // ownership for, so treat conservatively (no promotion).
+            | ArcTerminator::InvokeIndirect { .. } => {}
 
             ArcTerminator::Invoke {
                 args, func: callee, ..

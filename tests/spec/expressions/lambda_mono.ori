@@ -1,0 +1,231 @@
+// Spec: 09-expressions.md § Lambda
+// Regression: JIT EH section-04b — polymorphic lambda monomorphization
+// Tests that polymorphic lambdas compile correctly through LLVM with concrete types.
+// BoundVar types in lambda params must be resolved to concrete types before emission.
+
+use std.testing { assert_eq }
+
+// =============================================================================
+// Curried Lambda — Int (basic BoundVar resolution)
+// =============================================================================
+
+// Semantic pin: this test ONLY passes with the monomorphization fix.
+// Without it, the curried lambda's BoundVar params (forall t13) produce
+// incorrect LLVM types and LCFail.
+@test_curried_int tests @curried_int () -> void = {
+    assert_eq(actual: curried_int(), expected: 7)
+}
+
+@curried_int () -> int = {
+    let $add = a -> b -> a + b;
+    add(3)(4)
+}
+
+@test_curried_int_partial tests @curried_int_partial () -> void = {
+    assert_eq(actual: curried_int_partial(), expected: 15)
+}
+
+@curried_int_partial () -> int = {
+    let $add = a -> b -> a + b;
+    let $add5 = add(5);
+    add5(10)
+}
+
+// =============================================================================
+// Curried Lambda — Str (RC correctness for fat pointer captures)
+// =============================================================================
+
+@test_curried_str tests @curried_str () -> void = {
+    assert_eq(actual: curried_str(), expected: "hello world")
+}
+
+@curried_str () -> str = {
+    let $concat = a -> b -> a + b;
+    concat("hello ")("world")
+}
+
+@test_curried_str_partial tests @curried_str_partial () -> void = {
+    assert_eq(actual: curried_str_partial(), expected: "hello world")
+}
+
+@curried_str_partial () -> str = {
+    let $concat = a -> b -> a + b;
+    let $greet = concat("hello ");
+    greet("world")
+}
+
+// =============================================================================
+// Nested Closure — String Capture (closure env drop uses correct type)
+// =============================================================================
+
+@test_nested_closure_str_capture tests @nested_closure_str_capture () -> void = {
+    assert_eq(actual: nested_closure_str_capture(), expected: "hello world!")
+}
+
+@nested_closure_str_capture () -> str = {
+    let $greeting = "hello";
+    let $make_greeter = suffix -> name -> `{greeting} {name}{suffix}`;
+    let $greeter = make_greeter("!");
+    greeter("world")
+}
+
+@test_nested_closure_multiple_captures tests @nested_closure_multiple_captures () -> void = {
+    assert_eq(actual: nested_closure_multiple_captures(), expected: "A-B-C")
+}
+
+@nested_closure_multiple_captures () -> str = {
+    let $a = "A";
+    let $b = "B";
+    let $f = c -> `{a}-{b}-{c}`;
+    f("C")
+}
+
+// =============================================================================
+// Identity Lambda — Polymorphic (applied to various types)
+// =============================================================================
+
+@test_identity_int tests @identity_int () -> void = {
+    assert_eq(actual: identity_int(), expected: 42)
+}
+
+@identity_int () -> int = {
+    let $id = x -> x;
+    id(42)
+}
+
+@test_identity_str tests @identity_str () -> void = {
+    assert_eq(actual: identity_str(), expected: "hello")
+}
+
+@identity_str () -> str = {
+    let $id = x -> x;
+    id("hello")
+}
+
+@test_identity_bool tests @identity_bool () -> void = {
+    assert_eq(actual: identity_bool(), expected: true)
+}
+
+@identity_bool () -> bool = {
+    let $id = x -> x;
+    id(true)
+}
+
+// =============================================================================
+// Lambda Passed as Argument (higher-order function)
+// =============================================================================
+
+@apply_twice (f: (int) -> int, x: int) -> int = f(f(x));
+
+@test_lambda_passed_as_arg tests @lambda_passed_as_arg () -> void = {
+    assert_eq(actual: lambda_passed_as_arg(), expected: 28)
+}
+
+@lambda_passed_as_arg () -> int = {
+    let $double = x -> x * 2;
+    apply_twice(f: double, x: 7)
+}
+
+@test_lambda_inline_as_arg tests @lambda_inline_as_arg () -> void = {
+    assert_eq(actual: lambda_inline_as_arg(), expected: 12)
+}
+
+@lambda_inline_as_arg () -> int = {
+    apply_twice(f: x -> x + 1, x: 10)
+}
+
+// NOTE: Curried Lambda — List tests removed from this file.
+// Polymorphic lambda with list type triggers unresolved type variable in LLVM
+// codegen (BUG-04-030). Even #skip'd tests poison the compilation unit because
+// the function bodies are still compiled. These tests pass in the interpreter
+// and will be re-added when BUG-04-030 is fixed.
+
+// =============================================================================
+// Multi-Instantiation (same lambda at multiple concrete types)
+// =============================================================================
+
+// Regression: TPR-04B-001 — a single let-bound polymorphic lambda used at
+// multiple concrete types in the same scope must compile separate specializations.
+// Without per-instantiation cloning, the lambda was compiled once with the first
+// type's ABI, then called with the second type's ABI → segfault.
+@test_multi_inst tests @multi_inst () -> void = {
+    assert_eq(actual: multi_inst(), expected: "hello")
+}
+
+@multi_inst () -> str = {
+    let $id = x -> x;
+    let $a = id("hello");
+    let $b = id(42);
+    a
+}
+
+@test_multi_inst_return_second tests @multi_inst_return_second () -> void = {
+    assert_eq(actual: multi_inst_return_second(), expected: 42)
+}
+
+@multi_inst_return_second () -> int = {
+    let $id = x -> x;
+    let $a = id("hello");
+    let $b = id(42);
+    b
+}
+
+// =============================================================================
+// Return-Type-Only Multi-Instantiation (same params, different return types)
+// =============================================================================
+
+// Semantic pin for TPR-04B-003: a zero-arg polymorphic lambda instantiated at
+// two different return types (Option<int> vs Option<str>) must produce separate
+// specializations. Without return-type-aware dedup, both calls share one clone
+// and LLVM IR verification fails ("Call parameter type does not match").
+@test_return_type_only_multi_inst tests @return_type_only_multi_inst () -> void = {
+    assert_eq(actual: return_type_only_multi_inst(), expected: 0)
+}
+
+@return_type_only_multi_inst () -> int = {
+    let $none = () -> None;
+    let a: Option<int> = none();
+    let b: Option<str> = none();
+    if is_none(option: a) && is_none(option: b) then 0 else 1
+}
+
+// Variant: unary lambda with same param type but different return types.
+@test_return_type_multi_inst_unary tests @return_type_multi_inst_unary () -> void = {
+    assert_eq(actual: return_type_multi_inst_unary(), expected: "42true")
+}
+
+@return_type_multi_inst_unary () -> str = {
+    let $wrap = x -> Some(x);
+    let a: Option<int> = wrap(42);
+    let b: Option<bool> = wrap(true);
+    let $sa = match a { Some(v) -> `{v}`, None -> "" };
+    let $sb = match b { Some(v) -> `{v}`, None -> "" };
+    sa + sb
+}
+
+// =============================================================================
+// Chained Calls (f(a)(b) immediate application)
+// =============================================================================
+
+@test_chained_curried_call tests @chained_curried_call () -> void = {
+    assert_eq(actual: chained_curried_call(), expected: 30)
+}
+
+@chained_curried_call () -> int = {
+    let $mul = a -> b -> a * b;
+    mul(5)(6)
+}
+
+// =============================================================================
+// Curried Lambda with Closure Capture
+// =============================================================================
+
+@test_curried_with_capture tests @curried_with_capture () -> void = {
+    assert_eq(actual: curried_with_capture(), expected: 16)
+}
+
+@curried_with_capture () -> int = {
+    let $base = 10;
+    let $add_base = a -> b -> base + a + b;
+    add_base(3)(3)
+}

@@ -198,6 +198,37 @@ impl ArcIrBuilder {
         dst
     }
 
+    /// Emit an `InvokeIndirect` terminator for an indirect closure call that may unwind.
+    ///
+    /// Same pattern as [`emit_invoke`] but calls through a closure fat pointer.
+    /// Used when an indirect call is made inside `catch(expr:)`.
+    pub fn emit_invoke_indirect(
+        &mut self,
+        ty: Idx,
+        closure: ArcVarId,
+        args: Vec<ArcVarId>,
+        span: Option<Span>,
+    ) -> ArcVarId {
+        let dst = self.fresh_var(ty);
+        let normal = self.new_block();
+        let unwind = self.new_block();
+
+        let _ = span;
+
+        self.terminate_invoke_indirect(dst, ty, closure, args, normal, unwind);
+
+        // Unwind block: same as emit_invoke — Jump to catch or Resume
+        self.position_at(unwind);
+        if let Some(catch_target) = self.catch_unwind_target {
+            self.terminate_jump(catch_target, vec![]);
+        } else {
+            self.terminate_resume();
+        }
+
+        self.position_at(normal);
+        dst
+    }
+
     /// Set the catch unwind target for `catch(expr:)` lowering.
     ///
     /// When set, [`emit_invoke`](Self::emit_invoke) creates unwind blocks

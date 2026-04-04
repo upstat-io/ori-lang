@@ -35,19 +35,16 @@ sections:
 # Section 05: LLVM Codegen Internal DRY
 
 **Status:** Not Started
-**Goal:** Eliminate algorithmic duplication within ori_llvm: 23 identical iterator dispatch stanzas, 16 identical COW mutation entries, 82-entry trait method Cartesian product, manually mirrored JIT runtime mappings, and duplicate debug helpers.
-
-**Context:** The LLVM codegen backend has significant internal duplication, particularly in the `declare_builtins!` macro invocations and runtime mapping code. The iterator dispatch has 23 stanzas that all check `TypeInfo::Iterator { element }` and delegate to `emitter.emit_iterator_method()`. The COW list mutations repeat a 5-step protocol 16 times. The `runtime_mappings.rs` file has a TODO acknowledging it manually mirrors `RT_FUNCTIONS`.
-
+**Goal:** Eliminate algorithmic duplication within ori_llvm: 19 identical iterator dispatch stanzas, COW list mutation protocol duplication, 75-entry trait method Cartesian product, manually mirrored JIT runtime mappings, and duplicate debug helpers.
+**Context:** The LLVM codegen backend has significant internal duplication, particularly in the `declare_builtins!` macro invocations and runtime mapping code. The iterator dispatch has 19 stanzas that all check `TypeInfo::Iterator { element }` and delegate to `emitter.emit_iterator_method()`. The COW list mutations repeat a multi-step protocol. The `runtime_mappings.rs` file has a TODO acknowledging it manually mirrors `RT_FUNCTIONS`.
 ---
 
 ## 05.1 Consolidate Iterator Builtin Dispatch
 
 **File(s):** `compiler/ori_llvm/src/codegen/arc_emitter/builtins/iterator.rs`
 
-23 iterator method dispatch stanzas all follow the same pattern: check `TypeInfo::Iterator`, delegate to `emitter.emit_iterator_method()`.
-
-- [ ] Replace the 23 individual `declare_builtins!` entries with a single `("Iterator", _)` catch-all handler that checks if the method name is a known iterator method
+19 iterator method dispatch stanzas all follow the same pattern: check `TypeInfo::Iterator`, delegate to `emitter.emit_iterator_method()`.
+- [ ] Replace the 19 individual `declare_builtins!` entries with a single `("Iterator", _)` catch-all handler that checks if the method name is a known iterator method
 - [ ] Use the existing `is_iterator_method()` function (which queries `ori_registry`) to validate method names
 - [ ] Keep the `declare_builtins!` registration entries for discoverability, but make them point to the single handler
 - [ ] Verify: all iterator method tests pass unchanged
@@ -56,10 +53,8 @@ sections:
 
 ## 05.2 Extract COW List Mutation Helper
 
-**File(s):** `compiler/ori_llvm/src/codegen/arc_emitter/builtins/collections/mod.rs`
-
-16 COW list methods repeat: extract element type, get cow_mode, call `emit_list_*_cow`, conditionally call `mark_cow_data_noalias_if_unique`.
-
+**File(s):** `compiler/ori_llvm/src/codegen/arc_emitter/builtins/collections/mod.rs`, `compiler/ori_llvm/src/codegen/arc_emitter/builtins/collections/list_cow.rs`
+9 COW list mutation functions in `list_cow.rs` (push, pop, set, insert, remove, concat, reverse, sort, sort_stable) share the same protocol: extract element type, get cow_mode, call the runtime function, conditionally call `mark_cow_data_noalias_if_unique`. The dispatch stanzas in `collections/mod.rs` also repeat the same `TypeInfo::List { element }` extraction pattern.
 - [ ] Create `emit_cow_list_op()` higher-order function:
   ```rust
   fn emit_cow_list_op<F>(
@@ -78,23 +73,23 @@ sections:
 
 **File(s):** `compiler/ori_llvm/src/codegen/arc_emitter/builtins/traits.rs`, `compiler/ori_llvm/src/codegen/arc_emitter/builtins/primitives.rs`
 
-The `declare_builtins!` in traits.rs lists ~82 entries (7 types x ~12 methods) all calling `emitter.emit_trait_method()` with identical arguments. The primitives.rs file has ~39 entries calling `emitter.emit_primitive_method()` identically.
-
+The `declare_builtins!` in traits.rs lists ~80 entries all calling `emitter.emit_trait_method()` with identical arguments. The primitives.rs file has ~38 entries calling `emitter.emit_primitive_method()` identically.
 - [ ] Generate the Cartesian product programmatically from two lists: types and trait methods
 - [ ] Keep the explicit registration (needed for the `declare_builtins!` macro's map construction) but generate it from arrays/slices
 - [ ] For primitives.rs: same approach — generate from `PRIMITIVE_TYPES` x `PRIMITIVE_METHODS` arrays
-
+- [ ] **WARNING:** `declare_builtins!` is a proc-macro or macro_rules that constructs a HashMap at build time. Understand the macro's expansion before modifying — the generated dispatch map is consumed by `emit_builtin_method()`. Changing the macro signature or its output format will break all builtin dispatch.
 ---
 
 ## 05.4 Generate JIT Runtime Mappings from RT_FUNCTIONS
 
 **File(s):** `compiler/ori_llvm/src/evaluator/runtime_mappings.rs`, `compiler/ori_llvm/src/codegen/runtime_decl/runtime_functions.rs`
 
-The `lookup_jit_address()` function (260 lines) manually mirrors the `RT_FUNCTIONS` table. The file has a TODO at line 66: "Generate this mapping from RT_FUNCTIONS data instead of maintaining a manual mirror."
+The `lookup_jit_address()` function (260 lines) manually mirrors the `RT_FUNCTIONS` table. The file has a TODO at line 65: "Generate this mapping from RT_FUNCTIONS data." The struct is `RtFn` (not `RuntimeFunction`), and it already has a `jit_allowed: bool` field — `jit_symbol_mappings()` already filters by it. The duplication is purely in `lookup_jit_address()` which maintains a manual match-arm-per-function mapping.
+**Implementation note:** Function pointers (`fn as *const () as usize`) are NOT const-evaluable in stable Rust, so storing them directly in the static `RT_FUNCTIONS` array is not possible. The approach must use runtime initialization.
 
-- [ ] Add a `jit_allowed: bool` field to `RuntimeFunction` entries in `RT_FUNCTIONS` (or filter by existing criteria)
-- [ ] Generate `lookup_jit_address()` by iterating `RT_FUNCTIONS` and matching on name, using the function pointer from each entry
-- [ ] Delete the manual 186-line match statement
+- [ ] Create a `LazyLock<HashMap<&'static str, usize>>` that iterates `RT_FUNCTIONS` (filtering by `jit_allowed: true`) and resolves each name to its function pointer at first access. Use a module-level `fn resolve_fn_ptr(name: &str) -> usize` with the existing match arms, or use a registration macro that pairs each `RtFn` entry with its function pointer at initialization time.
+- [ ] Alternatively, use a `build.rs` or proc macro to generate the match statement from the `RT_FUNCTIONS` data, keeping the match but auto-generating it from the canonical source.
+- [ ] Replace `lookup_jit_address()` body with a HashMap lookup from the lazy-initialized mapping.
 - [ ] Verify: JIT tests pass unchanged (`timeout 150 cargo test -p ori_llvm -- jit`)
 
 ---
@@ -105,14 +100,32 @@ The `lookup_jit_address()` function (260 lines) manually mirrors the `RT_FUNCTIO
 
 `emit_result_debug` (lines 254-312) and `emit_nested_result_debug` (lines 322-377) have the same structure: extract tag, branch on Ok/Err, format payload, merge via phi.
 
-- [ ] Have `emit_result_debug` delegate to `emit_nested_result_debug` (or vice versa) after resolving the entry point difference
-- [ ] Verify: debug formatting tests pass unchanged
+- [ ] Have `emit_result_debug` (line 254) delegate to `emit_nested_result_debug` (line 322) — or extract the shared Ok/Err branch+phi pattern into a parameterized helper that both call- [ ] Verify: debug formatting tests pass unchanged
+- [ ] **[BLOAT]** `compiler/ori_llvm/src/codegen/arc_emitter/builtins/debug_helpers.rs` — currently 534 lines, exceeds 500-line limit. After merging duplicate helpers, verify it drops below 500; if not, split into `debug_helpers/mod.rs` + `debug_helpers/result.rs`
+---
+
+### Cleanup (fix while touching these files)
+- [ ] **[WASTE]** `compiler/ori_llvm/src/evaluator/runtime_mappings.rs:65` — TODO comment "Generate this mapping from `RT_FUNCTIONS` data" is exactly what Section 05.4 implements. Remove the TODO after implementing 05.4.
+- [ ] **[BLOAT]** `compiler/ori_llvm/src/codegen/arc_emitter/builtins/collections/mod.rs` — currently 566 lines, exceeds 500-line limit. After COW helper extraction in 05.2, verify it drops below 500; if not, split iterator consumers into a submodule.
 
 ---
 
 ## 05.R Third Party Review Findings
 
 - None.
+
+---
+
+## 05.T Test Strategy
+
+This section refactors LLVM codegen internals. Zero behavioral change, but high risk due to generated code.
+
+- [ ] Add enforcement test: the consolidated iterator handler dispatches all methods listed in `ori_registry` for Iterator type
+- [ ] Add enforcement test: all `RT_FUNCTIONS` entries with `jit_allowed: true` are resolvable via the generated JIT mapping
+- [ ] Add unit test for `emit_cow_list_op()`: verify it produces the same IR structure as the original per-function implementations (compare LLVM IR output for at least `push` and `sort`)
+- [ ] Verify `timeout 150 cargo test -p ori_llvm` passes after each sub-section (05.1-05.5)
+- [ ] Verify debug AND release builds: `timeout 150 cargo test -p ori_llvm` and `timeout 150 cargo test -p ori_llvm --release`
+- [ ] Verify `timeout 150 ./test-all.sh` passes after all sub-sections complete
 
 ---
 
@@ -123,7 +136,8 @@ The `lookup_jit_address()` function (260 lines) manually mirrors the `RT_FUNCTIO
 - [ ] Trait method Cartesian product generated programmatically
 - [ ] JIT runtime mappings generated from RT_FUNCTIONS
 - [ ] Duplicate debug helpers merged
-- [ ] `timeout 150 cargo test -p ori_llvm` passes
+- [ ] Enforcement tests for iterator dispatch and JIT mappings
+- [ ] `timeout 150 cargo test -p ori_llvm` passes (debug and release)
 - [ ] `timeout 150 ./test-all.sh` passes
 - [ ] `./clippy-all.sh` clean
 - [ ] `/tpr-review` covering Section 05

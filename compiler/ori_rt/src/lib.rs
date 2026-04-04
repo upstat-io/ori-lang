@@ -429,12 +429,13 @@ pub extern "C" fn ori_run_main(main_fn: extern "C" fn()) -> i32 {
 
     #[cfg(not(all(target_os = "windows", target_env = "msvc")))]
     {
-        // On Itanium, ori_run_main is typically not called (LLVM main wrapper
-        // invokes @main directly with landingpad-based EH). But if called
-        // (e.g. test infrastructure), use catch_unwind as a safety net.
-        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            main_fn();
-        }));
+        // On Itanium, use JIT mode (setjmp/longjmp) to catch Ori panics.
+        // catch_unwind cannot catch the foreign C exceptions raised by
+        // ori_raise_exception. The LLVM-generated main() wrapper uses
+        // invoke/landingpad instead, so ori_run_main is a fallback for
+        // Rust callers (test infrastructure, AOT without the LLVM wrapper).
+        // SAFETY: jmp_buf is stack-allocated and valid for the fn call.
+        let result = unsafe { io::jit_recovery::jit_run_protected(main_fn) };
         match result {
             Ok(()) => check_leaks_and_exit(),
             Err(_) => 1,

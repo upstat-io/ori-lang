@@ -1,7 +1,7 @@
 ---
 section: 19
 title: Existential Types (impl Trait)
-status: not-started
+status: in-progress
 last_verified: "2026-03-29"
 reviewed: true
 tier: 7

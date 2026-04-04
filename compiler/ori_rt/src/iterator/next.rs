@@ -110,7 +110,13 @@ impl IterState {
         inclusive: bool,
         out_ptr: *mut u8,
     ) -> bool {
-        let in_bounds = if inclusive {
+        // Unbounded descending: ARC lowering emits i64::MAX as sentinel for
+        // unbounded ranges (e.g., `0..`). For ascending, `*current < i64::MAX`
+        // works correctly. For descending, `*current > i64::MAX` is always
+        // false — treat the sentinel as "always in bounds" when step < 0.
+        let in_bounds = if end == i64::MAX && step < 0 {
+            true
+        } else if inclusive {
             if step > 0 {
                 *current <= end
             } else {

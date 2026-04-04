@@ -115,10 +115,9 @@ fn test_panic_handler_ignores_info() {
 // These test the runtime assert functions (ori_assert, ori_assert_eq_int, etc.)
 // by compiling Ori programs that trigger assertion failures via panic().
 //
-// NOTE: std.testing { assert_eq } uses a generic function that has a
-// monomorphization bug in AOT (warns "missing mono instance"). These tests
-// use the comparison + panic() pattern directly to test the panic mechanism
-// without depending on that import.
+// These tests use the comparison + panic() pattern directly to test the
+// panic mechanism. std.testing { assert_eq } also works for compound types
+// through LLVM (BUG-04-022 fixed 2026-04-03).
 
 #[test]
 fn test_assert_false_panics() {

@@ -31,12 +31,16 @@ sections:
 
 ## 10.1 Final Verification
 
-- [ ] `timeout 150 ./test-all.sh` — all tests pass
-- [ ] `./clippy-all.sh` — zero warnings
-- [ ] `./fmt-all.sh` — no formatting changes
-- [ ] `bash .claude/skills/impl-hygiene-review/plan-annotations.sh` — zero stale annotations
-- [ ] No production files >500 lines (excluding validated exemptions)
-- [ ] All unsafe blocks in ori_rt have SAFETY comments
+- [ ] `timeout 150 ./test-all.sh` -- all tests pass
+- [ ] `timeout 150 cargo b --release && timeout 150 ./test-all.sh` -- release build + tests pass (FastISel differences can cause issues)
+- [ ] `./clippy-all.sh` -- zero warnings
+- [ ] `./fmt-all.sh` -- no formatting changes
+- [ ] `bash .claude/skills/impl-hygiene-review/plan-annotations.sh` -- zero stale annotations from THIS plan (hygiene-full-2)
+- [ ] No production files >500 lines: `find compiler/ -name "*.rs" -not -path "*/test*" -not -path "*/bench*" -not -path "*/target/*" | while read f; do lines=$(wc -l < "$f"); if [ "$lines" -gt 500 ]; then echo "$lines $f"; fi; done | sort -rn` (excluding validated exemptions with `// FILE SIZE EXEMPTION:` comments)
+- [ ] No production functions >100 lines (excluding validated exemptions with `// SIZE EXEMPTION:` comments)
+- [ ] `grep -rn "// ===\|// ---\|// ───\|// ──" compiler/*/src/ --include="*.rs" | grep -v test | wc -l` returns 0
+- [ ] All unsafe blocks in ori_rt have SAFETY comments (use the Python verification script from Section 09.N -- output must be empty)
+- [ ] Verify no new stale TODOs introduced: `grep -rn "// TODO" compiler/*/src/ --include="*.rs" | grep -v test | wc -l` is same or lower than before this plan started
 - [ ] Delete this plan directory: `rm -rf plans/hygiene-full-2/`
 
 ---
