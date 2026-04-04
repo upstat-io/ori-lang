@@ -1,0 +1,10 @@
+// Regression: TPR-04B-007 — multi-inst original lambda must be removed after cloning.
+// A zero-arg polymorphic lambda returning None is instantiated at two different
+// Option types. The original generic lambda must NOT survive into LLVM IR —
+// only specialized clones should be compiled.
+@main () -> int = {
+    let $none = () -> None;
+    let a: Option<int> = none();
+    let b: Option<str> = none();
+    if is_none(option: a) && is_none(option: b) then 0 else 1
+}
