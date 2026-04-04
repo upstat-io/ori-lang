@@ -9,6 +9,7 @@ references:
   - "compiler/oric/src/test/result/mod.rs"
   - "compiler/oric/src/commands/test.rs"
   - "compiler/oric/src/main.rs"
+  - "test-all.sh"
 ---
 
 # LLVM Worker Subprocess Isolation
@@ -24,8 +25,9 @@ Isolate the LLVM backend spec test runner from C++ SIGSEGV crashes by running ea
 - [ ] All 4415+ interpreter spec tests pass (unchanged)
 - [ ] All 7379+ Rust unit tests pass (including new tests for this plan)
 - [ ] Worker crashes (SIGSEGV, SIGABRT) are detected and reported as `BackendCrash` — a distinct failure category that blocks the test gate (not `LlvmCompileFail`, not hidden)
-- [ ] `ori test --backend=llvm --json <file>` emits sentinel-framed JSON to stdout for any input (success, failure, compile error, crash) — framing is robust against Ori `print()` output on stdout <!-- reviewed: feasibility fix — print() goes to stdout, needs framing -->
+- [ ] `ori test --backend=llvm --json <file>` emits sentinel-framed JSON to stdout for any input (success, failure, compile error, crash) — framing is robust against Ori `print()` output on stdout
 - [ ] Performance: LLVM backend spec test run completes within 2x of current wall-clock time (subprocess overhead bounded)
+- [ ] **Weakened test gate reverted**: The `ORI_LLVM_CRASHED` exit-0 escape hatch in `test-all.sh` (lines 541-558) is removed — LLVM backend crashes now produce exit code 1 via `BackendCrash` outcomes, making the workaround unnecessary. The gate is restored to full strength: crashes are real failures that block the pre-commit hook, not "known issues" that get a pass.
 
 ## Architecture
 
@@ -106,13 +108,14 @@ Phase 3 - Verification
 
 ## Metrics (Current State)
 
-| File | Production LOC | Role |
-|------|---------------|------|
-| `compiler/oric/src/test/runner/llvm_backend.rs` | 545 | LLVM test runner (in-process JIT pipeline — stays as worker path) |
-| `compiler/oric/src/test/runner/mod.rs` | 572 | Test routing, Backend enum, config |
-| `compiler/oric/src/test/result/mod.rs` | ~327 | TestOutcome, FileSummary, TestSummary, CoverageReport | <!-- reviewed: accuracy fix — was ~240, actual 327 (includes CoverageReport types) -->
-| `compiler/oric/src/commands/test.rs` | 233 | Test command entry point, output formatting |
-| `compiler/oric/src/main.rs` | 405 | CLI dispatch |
+| File | Production LOC | Role | Hygiene |
+|------|---------------|------|---------|
+| `compiler/oric/src/test/runner/llvm_backend.rs` | 545 | LLVM test runner (in-process JIT pipeline — stays as worker path) | **[BLOAT]** 545 lines, over 500-line limit. Has 3 `#[expect(clippy::...)]` suppressions. |
+| `compiler/oric/src/test/runner/mod.rs` | 572 | Test routing, Backend enum, config | **[BLOAT]** 572 lines, over 500-line limit. `run_file_with_interner` has `#[expect(clippy::too_many_lines)]`. |
+| `compiler/oric/src/test/result/mod.rs` | 327 | TestOutcome, FileSummary, TestSummary, CoverageReport | Clean. Under limit. |
+| `compiler/oric/src/commands/test.rs` | 233 | Test command entry point, output formatting | Clean. Under limit. |
+| `compiler/oric/src/main.rs` | 405 | CLI dispatch | `real_main` has `#[expect(clippy::too_many_lines, clippy::cognitive_complexity)]`. |
+| `test-all.sh` | 562 | Test orchestration script | **[BLOAT]** 562 lines. Contains `ORI_LLVM_CRASHED` weakened gate (lines 556-558). |
 
 ## Estimated Effort
 
@@ -123,6 +126,22 @@ Phase 3 - Verification
 | 03 Verification | ~100 new (tests) | Low | 02 |
 | **Total new** | **~500** | | |
 | **Total modified** | **~130** | | |
+
+## Codebase Hygiene Findings
+
+These issues exist in files this plan touches. They should be fixed along the way (per CLAUDE.md "continuous improvement everywhere" rule).
+
+| Tag | File | Line(s) | Finding |
+|-----|------|---------|---------|
+| **[BLOAT]** | `runner/mod.rs` | - | 572 lines, over 500-line limit. `run_file_with_interner` has `#[expect(clippy::too_many_lines)]`. Not addressed in this plan (extraction would be a separate effort), but no net lines should be added. |
+| **[BLOAT]** | `llvm_backend.rs` | - | 545 lines, over 500-line limit. Has 3 `#[expect(clippy::...)]` suppressions. This file stays as-is (worker path). |
+| **[BLOAT]** | `test-all.sh` | - | 562 lines. Weakened gate logic adds ~20 lines of dead-code-to-be. Plan actively removes these (02.4). |
+| **[WASTE]** | `runner/mod.rs` | 116-120 | Stale LLVM sequential execution comment block. Describes old in-process approach. Plan removes this in 02.4. |
+| **[WASTE]** | `test-all.sh` | 458, 526, 556 | `ORI_LLVM_CRASHED` references — dead code after subprocess isolation. Plan removes all in 02.4. |
+| **[WASTE]** | `test-all.sh` | 546 | `ANY_CORE_FAILED` variable — unnecessary with subprocess isolation. Plan removes in 02.4. |
+| **[NOTE]** | `result/mod.rs` | 327 | Tests in sibling `tests.rs` — correct pattern. 148 lines of tests. |
+| **[NOTE]** | `commands/test.rs` | 233 | Clean, well-structured. Under limit. |
+| **[NOTE]** | `main.rs` | 405 | `real_main` has 2 clippy suppressions but is a CLI router — acceptable per pattern. |
 
 ## Known Bugs (Pre-existing)
 

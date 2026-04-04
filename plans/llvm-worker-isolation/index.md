@@ -2,7 +2,7 @@
 reroute: true
 name: "LLVM Isolation"
 full_name: "LLVM Worker Subprocess Isolation"
-status: queued
+status: active
 order: 1
 ---
 
@@ -30,6 +30,7 @@ TestOutcome, TestResult, FileSummary, TestSummary
 BackendCrash, LlvmCompileFail, test outcome
 result/mod.rs, commands/test.rs, print_test_summary
 sentinel framing, ORI_JSON_BEGIN, ORI_JSON_END, stdout pollution
+json_protocol.rs, JsonTestOutcome, JsonFileSummary, JsonTestResult
 ```
 
 ---
@@ -41,9 +42,11 @@ sentinel framing, ORI_JSON_BEGIN, ORI_JSON_END, stdout pollution
 subprocess, worker, isolation, process boundary
 Command::new, current_exe, spawn, wait, try_wait
 exit code, signal, SIGSEGV, SIGABRT, crash detection
-llvm_backend.rs, run_file_llvm, orchestrator
-worker pool, bounded concurrency, parallel, rayon
+llvm_backend.rs, llvm_worker.rs, run_file_llvm, orchestrator
+WaitError, detect_crash, crash_summary, extract_framed_json
+worker pool, bounded concurrency, parallel, WorkerPool
 timeout, hang detection, kill, process tree
+ORI_LLVM_CRASHED, weakened gate, gate reversion, test-all.sh
 ```
 
 ---
@@ -57,14 +60,15 @@ test-all.sh, exit code, crash detection
 performance, overhead, wall clock, subprocess spawn
 dual execution, interpreter, LLVM backend
 BackendCrash, LlvmCompileFail, gate integrity
+ORI_LLVM_CRASHED, weakened gate reversion verified
 ```
 
 ---
 
 ## Quick Reference
 
-| ID | Title | File |
-|----|-------|------|
-| 01 | JSON Output Protocol | `section-01-json-protocol.md` |
-| 02 | Subprocess Orchestrator | `section-02-orchestrator.md` |
-| 03 | Verification | `section-03-verification.md` |
+| ID | Title | File | Items | Tests |
+|----|-------|------|-------|-------|
+| 01 | JSON Output Protocol | `section-01-json-protocol.md` | 3 subsections | 11 unit + 5 integration |
+| 02 | Subprocess Orchestrator | `section-02-orchestrator.md` | 4 subsections | 18 unit + 3 integration |
+| 03 | Verification | `section-03-verification.md` | 4 subsections | Verification tasks (no new code) |

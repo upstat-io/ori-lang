@@ -2,14 +2,15 @@
 section: "02"
 title: "Subprocess Orchestrator"
 status: not-started
-reviewed: false
+reviewed: true
 goal: "Replace in-process LLVM test execution with subprocess-per-file isolation — worker crashes contained, results parsed from JSON"
 success_criteria:
   - "LLVM backend spec test run completes without crashing the parent process"
   - "Worker SIGSEGV/SIGABRT produces BackendCrash outcomes (detected via ExitStatus::signal() on Unix)"
   - "Worker timeout produces BackendCrash with timeout message"
   - "Results match: subprocess-based run produces same pass/fail/skip/lcfail counts as in-process run (for non-crashing files)"
-  - "Bounded concurrency: worker pool limited to CPU count (no fork-bomb)"
+  - "Bounded concurrency: worker pool limited to CPU count (no fork-bomb), verified via --parallel-workers=N and --no-parallel flags"
+  - "Weakened test gate reverted: ORI_LLVM_CRASHED exit-0 escape hatch removed from test-all.sh"
   - "Satisfies mission criteria: test-all.sh passes, crashes reported as real failures"
 inspired_by:
   - "Zig Compilation.zig:6304-6334 subprocess spawn + wait pattern for clang codegen"
@@ -65,40 +66,59 @@ sections:
 
 ## 02.1 Worker Spawning and Result Collection
 
-**File(s):** `compiler/oric/src/test/runner/llvm_backend.rs` (refactor), new `compiler/oric/src/test/runner/llvm_worker.rs`
+**File(s):** new `compiler/oric/src/test/runner/llvm_worker.rs` (orchestrator module)
 
-Extract the subprocess orchestration logic into a new `llvm_worker.rs` module. The existing `llvm_backend.rs` contains the in-process compilation pipeline (545 lines) -- this should remain as the worker's execution path (used when `ori test --backend=llvm --json` is invoked on a single file). The new module handles spawning and result collection.
+Extract the subprocess orchestration logic into a new `llvm_worker.rs` module. The existing `llvm_backend.rs` (545 lines) remains as the worker's in-process execution path (used when `ori test --backend=llvm --json` is invoked on a single file). The new module handles spawning and result collection.
+
+**File size constraint:** `llvm_worker.rs` must stay under 500 lines. Target: ~200-300 lines for spawn + collect + extract + per-file orchestrator. Pool logic is in 02.3 and may need its own submodule if combined total exceeds 500.
+
+**TDD ordering: write tests FIRST, verify they fail, then implement.**
 
 - [ ] Create `compiler/oric/src/test/runner/llvm_worker.rs` — the orchestrator module
-- [ ] Declare `mod llvm_worker;` in `runner/mod.rs`
-- [ ] Binary path resolution: `current_exe()` is resolved once in `run_llvm_tests_isolated()` (see 02.3) and passed to all worker spawn calls. No per-file resolution. Note: `current_exe()` returns the actual binary path (e.g., `target/release/ori` when run from test-all.sh, or `target/debug/ori` in dev). This works correctly because the spawned worker IS the same binary. <!-- reviewed: feasibility note — current_exe() verified correct for self-invocation -->
-- [ ] Implement `spawn_llvm_worker(binary: &Path, file: &Path, config: &TestRunnerConfig) -> std::io::Result<std::process::Child>`:
+- [ ] Declare `#[cfg(feature = "llvm")] mod llvm_worker;` in `runner/mod.rs` (alongside existing `#[cfg(feature = "llvm")] mod llvm_backend;`)
+- [ ] Binary path resolution: `current_exe()` is resolved once in `run_llvm_tests_isolated()` (see 02.3) and passed to all worker spawn calls. No per-file resolution. `current_exe()` returns the actual binary path (e.g., `target/release/ori` from test-all.sh, or `target/debug/ori` in dev).
+- [ ] **02.1.T — Tests first** (in `compiler/oric/src/test/runner/llvm_worker/tests.rs` — sibling `tests.rs` pattern):
+  - [ ] `test_extract_framed_json_success` — stdout with sentinels and JSON between them returns `Some(json_content)`
+  - [ ] `test_extract_framed_json_with_print_pollution` — stdout has Ori `print()` output before/after sentinels, JSON still extracted correctly
+  - [ ] `test_extract_framed_json_missing_begin` — no begin sentinel returns `None`
+  - [ ] `test_extract_framed_json_missing_end` — begin but no end sentinel returns `None`
+  - [ ] `test_extract_framed_json_empty_content` — sentinels with nothing between them returns `Some("")`
+  - [ ] `test_spawn_worker_good_file` — spawn `current_exe() test --backend=llvm --json tests/spec/types/primitives.ori`, verify exit 0 and sentinel-framed JSON in stdout
+  - [ ] `test_spawn_worker_nonexistent_file` — spawn with nonexistent file, verify non-zero exit (1 or 2) and either no sentinel frame or valid JSON with error
+  - [ ] Verify tests fail before implementing
+- [ ] Implement `extract_framed_json(stdout: &str) -> Option<&str>`:
+  - Scan for `JSON_BEGIN_SENTINEL` and `JSON_END_SENTINEL` (imported from `json_protocol`)
+  - Return content between sentinels (trimmed)
+  - Return `None` if either sentinel missing
+- [ ] Implement `spawn_llvm_worker(binary: &Path, file: &Path, config: &TestRunnerConfig) -> std::io::Result<Child>`:
   ```rust
   fn spawn_llvm_worker(
       binary: &Path,
       file: &Path,
       config: &TestRunnerConfig,
   ) -> std::io::Result<Child> {
-      Command::new(binary)
-          .arg("test")
+      let mut cmd = Command::new(binary);
+      cmd.arg("test")
           .arg("--backend=llvm")
           .arg("--json")
           .arg(file)
           .stdout(Stdio::piped())
-          .stderr(Stdio::piped())
-          .spawn()
+          .stderr(Stdio::piped());
+      // Forward filter if present
+      if let Some(ref filter) = config.filter {
+          cmd.arg(format!("--filter={filter}"));
+      }
+      cmd.spawn()
   }
   ```
-- [ ] Implement `collect_worker_result(child: Child, file: &Path, interner: &StringInterner) -> FileSummary`: <!-- reviewed: feasibility fix — must extract sentinel-framed JSON, not parse raw stdout -->
-  - Wait for child to exit (with timeout -- see 02.2)
+- [ ] Implement `collect_worker_result(child: Child, file: &Path, timeout: Duration, interner: &StringInterner) -> FileSummary`:
+  - Wait for child to exit (with timeout — see 02.2 for `wait_with_timeout`)
   - **Signal death** (Unix: `status.signal().is_some()`): worker crashed -> `crash_summary()` (see 02.2)
-  - **Exit code 0 or 1**: extract sentinel-framed JSON from stdout (scan for `---ORI_JSON_BEGIN---` / `---ORI_JSON_END---`, take content between them), parse as `JsonFileSummary` -> `FileSummary`. Anything outside the sentinel frame (Ori `print()` output) is discarded.
+  - **Exit code 0 or 1**: read stdout, call `extract_framed_json()`, parse as `Vec<JsonFileSummary>`, convert first element via `into_file_summary()`. Anything outside sentinel frame is discarded.
   - **Exit code 2**: no tests found -> empty `FileSummary` with `results: []`
-  - **JSON parse failure** (no sentinel frame found, or content between sentinels is malformed -- worker crashed before emitting JSON): fall back to `crash_summary()` with message "worker exited {code} with no JSON output"
-- [ ] Implement `extract_framed_json(stdout: &str) -> Option<&str>` -- scans for sentinel markers, returns the JSON content between them. Returns `None` if markers are missing (worker crashed before emission).
-- [ ] Implement `run_file_llvm_isolated(file: &Path, binary: &Path, config: &TestRunnerConfig, interner: &StringInterner) -> FileSummary` -- the top-level per-file orchestrator function. Note: the `interner` parameter is used only for constructing `crash_summary()` synthetic test results and for `into_file_summary()` re-interning. The worker process creates its own interner internally. <!-- reviewed: feasibility note — clarify interner usage across process boundary -->
-- [ ] Rust unit test: `spawn_llvm_worker` with a known-good test file produces exit 0 and sentinel-framed JSON stdout. Test in `compiler/oric/src/test/runner/llvm_worker/tests.rs`
-- [ ] Rust unit test: `spawn_llvm_worker` with a nonexistent file produces exit 1 (or 2) and parseable output (or no sentinel frame)
+  - **JSON parse failure** (no sentinel frame, or malformed content): fall back to `crash_summary()` with message "worker exited {code} with no JSON output" and include last 5 lines of stderr
+- [ ] Implement `run_file_llvm_isolated(file: &Path, binary: &Path, config: &TestRunnerConfig, interner: &StringInterner) -> FileSummary` — the top-level per-file orchestrator function. The `interner` param is used for `crash_summary()` and `into_file_summary()` re-interning only.
+- [ ] Verify all tests from 02.1.T now PASS
 
 ---
 
@@ -108,10 +128,20 @@ Extract the subprocess orchestration logic into a new `llvm_worker.rs` module. T
 
 Handle the two failure modes that in-process execution can't survive: worker signal death and worker hangs.
 
-- [ ] **Crash detection**: In `collect_worker_result`, check for signal death: <!-- reviewed: accuracy fix — status.code() returns None for signal-killed processes on Unix, not 128+N. The 128+N convention is a shell feature (bash), not an OS/Rust feature. -->
-  - On Unix: use `status.signal()` from `std::os::unix::process::ExitStatusExt`. If `signal()` returns `Some(sig)`, the process was killed by that signal (e.g., SIGSEGV = 11, SIGABRT = 6). `status.code()` returns `None` in this case.
-  - On non-Unix: signal detection is not available via `ExitStatus`. Use `status.code()` and treat unexpected non-zero codes as potential crashes.
-  - Create `BackendCrash` outcomes for all tests in the file:
+**TDD ordering: write tests FIRST for `detect_crash`, `crash_summary`, and `wait_with_timeout`.**
+
+- [ ] **02.2.T — Tests first** (in `compiler/oric/src/test/runner/llvm_worker/tests.rs`):
+  - [ ] `test_detect_crash_sigsegv` — spawn `sh -c "kill -11 $$"`, wait, pass exit status to `detect_crash`, verify returns `Some("worker killed by SIGSEGV (signal 11)")` (Unix-only, `#[cfg(unix)]`)
+  - [ ] `test_detect_crash_sigabrt` — spawn `sh -c "kill -6 $$"`, verify `Some("worker killed by SIGABRT (signal 6)")`
+  - [ ] `test_detect_crash_normal_exit` — spawn a process that exits 0, verify `detect_crash` returns `None`
+  - [ ] `test_detect_crash_error_exit` — spawn a process that exits 1, verify `detect_crash` returns `None`
+  - [ ] `test_wait_with_timeout_completes` — spawn `true` (exits immediately), verify `wait_with_timeout(1s)` returns `Ok(status)`
+  - [ ] `test_wait_with_timeout_kills_slow_process` — spawn `sleep 999`, verify `wait_with_timeout(100ms)` returns `Err(WaitError::Timeout { .. })` promptly
+  - [ ] `test_crash_summary_has_backend_crash` — call `crash_summary`, verify result has `backend_crash == 1`, `has_failures() == true`, and single `BackendCrash` test result
+  - [ ] Verify tests fail before implementing
+- [ ] **Crash detection** (`detect_crash`): In `collect_worker_result`, check for signal death:
+  - On Unix: use `status.signal()` from `std::os::unix::process::ExitStatusExt`. `status.code()` returns `None` for signal-killed processes (the 128+N convention is shell-only, not Rust).
+  - On non-Unix: use `status.code()` and treat unexpected non-zero codes as potential crashes.
   ```rust
   #[cfg(unix)]
   fn detect_crash(status: ExitStatus) -> Option<String> {
@@ -127,65 +157,65 @@ Handle the two failure modes that in-process execution can't survive: worker sig
           None
       }
   }
-  ```
-- [ ] **Crash result construction**: When a crash is detected, produce a `FileSummary` where every test in the file gets `BackendCrash(message)`. The orchestrator doesn't know which tests were in the file (it didn't parse it), so use a single synthetic test result:
-  ```rust
-  fn crash_summary(file: &Path, message: String, interner: &StringInterner) -> FileSummary {
-      FileSummary {
-          path: file.to_owned(),
-          results: vec![TestResult {
-              name: interner.intern("llvm_backend_crash"),
-              targets: vec![],
-              outcome: TestOutcome::BackendCrash(message),
-              duration: Duration::ZERO,
-          }],
-          passed: 0,
-          failed: 0,
-          skipped: 0,
-          llvm_compile_fail: 0,
-          backend_crash: 1,
-          ..Default::default()
-      }
+
+  #[cfg(not(unix))]
+  fn detect_crash(_status: ExitStatus) -> Option<String> {
+      // Signal detection not available on non-Unix.
+      // Crashes in the subprocess won't be distinguished from normal failures.
+      None
   }
   ```
-- [ ] **Timeout detection**: Use `try_wait()` polling with configurable timeout (default 60s per file):
+- [ ] **Crash result construction** (`crash_summary`): Single synthetic test result (orchestrator doesn't know which tests were in the file):
   ```rust
+  fn crash_summary(file: &Path, message: String, interner: &StringInterner) -> FileSummary {
+      let mut summary = FileSummary::new(file.to_path_buf());
+      summary.add_result(TestResult {
+          name: interner.intern("llvm_backend_crash"),
+          targets: vec![],
+          outcome: TestOutcome::BackendCrash(message),
+          duration: Duration::ZERO,
+      });
+      summary
+  }
+  ```
+  Note: using `add_result()` instead of manual field construction ensures counter bookkeeping is always consistent (single source of truth for the `match` in `add_result`).
+- [ ] **Timeout detection** (`wait_with_timeout`): `try_wait()` polling with configurable timeout (default 60s):
+  ```rust
+  enum WaitError {
+      Timeout { elapsed: Duration },
+      Io(std::io::Error),
+  }
+
   fn wait_with_timeout(
       child: &mut Child,
       timeout: Duration,
-  ) -> Result<ExitStatus, TimeoutError> {
+  ) -> Result<ExitStatus, WaitError> {
       let start = Instant::now();
       loop {
-          match child.try_wait()? {
-              Some(status) => return Ok(status),
-              None if start.elapsed() > timeout => {
-                  child.kill()?;
-                  child.wait()?; // reap zombie
-                  return Err(TimeoutError {
-                      elapsed: start.elapsed(),
-                  });
+          match child.try_wait() {
+              Ok(Some(status)) => return Ok(status),
+              Ok(None) if start.elapsed() > timeout => {
+                  let _ = child.kill();
+                  let _ = child.wait(); // reap zombie
+                  return Err(WaitError::Timeout { elapsed: start.elapsed() });
               }
-              None => std::thread::sleep(Duration::from_millis(50)),
+              Ok(None) => std::thread::sleep(Duration::from_millis(50)),
+              Err(e) => return Err(WaitError::Io(e)),
           }
       }
   }
   ```
-- [ ] **Timeout configuration**: Add `worker_timeout: Duration` to `TestRunnerConfig` with default 60 seconds. Allow override via `--worker-timeout=N` CLI flag (parsed in `main.rs`).
-- [ ] **Capture stderr on crash**: When a worker crashes, include the last few lines of stderr in the `BackendCrash` message for diagnostic context: <!-- reviewed: accuracy fix — lines().rev().take(5).collect() needs a separator -->
+  Note: `child.kill()` and `child.wait()` use `let _ =` to avoid propagating IO errors from already-dead processes. `WaitError` is an enum covering both IO errors and timeout, ensuring the `?`-free match on `try_wait()` handles all cases explicitly.
+- [ ] **Timeout configuration**: Add `worker_timeout: Duration` to `TestRunnerConfig` with default 60 seconds. Parse `--worker-timeout=N` CLI flag in `main.rs` (inside "test" match arm):
   ```rust
-  let stderr_output = String::from_utf8_lossy(&child_stderr);
-  let last_lines: String = stderr_output
-      .lines()
-      .rev()
-      .take(5)
-      .collect::<Vec<_>>()
-      .into_iter()
-      .rev() // restore original order
-      .collect::<Vec<_>>()
-      .join("\n");
+  } else if let Some(secs) = arg.strip_prefix("--worker-timeout=") {
+      if let Ok(n) = secs.parse::<u64>() {
+          config.worker_timeout = Duration::from_secs(n);
+      }
+  }
   ```
-- [ ] Rust unit test: simulate crash by spawning a process that calls `std::process::abort()` — verify `detect_crash` returns the correct signal. Use a helper script or `Command::new("sh").arg("-c").arg("kill -11 $$")`.
-- [ ] Rust unit test: simulate timeout by spawning `sleep 999` — verify `wait_with_timeout` returns `TimeoutError` after the configured duration.
+- [ ] **Capture stderr on crash**: Include last 5 lines of stderr in `BackendCrash` message for diagnostic context. Use `String::from_utf8_lossy` since stderr may contain non-UTF8 from LLVM C++.
+- [ ] Verify all tests from 02.2.T now PASS
 
 ---
 
@@ -195,7 +225,7 @@ Handle the two failure modes that in-process execution can't survive: worker sig
 
 The current LLVM backend runs files sequentially because LLVM context creation contends on global state within a single process. With subprocess isolation, each worker has its own address space — parallelism is safe. Use a bounded pool to limit concurrency to ~CPU count.
 
-- [ ] Implement a simple bounded worker pool: <!-- reviewed: feasibility fix — clarified Child ownership and wait_any polling pattern -->
+- [ ] Implement a simple bounded worker pool:
   ```rust
   struct WorkerPool {
       max_workers: usize,
@@ -246,13 +276,19 @@ The current LLVM backend runs files sequentially because LLVM context creation c
 
       /// Wait for all remaining workers to finish.
       fn drain(&mut self) -> Vec<(PathBuf, ExitStatus, Vec<u8>, Vec<u8>)> { ... }
+
+      /// Kill workers that have exceeded the timeout. Called periodically
+      /// from wait_any() and drain(). Uses Instant tracking per-worker
+      /// (store spawn time alongside child in `active` vec).
+      fn kill_timed_out(&mut self) -> Vec<(PathBuf, Vec<u8>, Vec<u8>)> { ... }
   }
   ```
+  **Timeout integration**: The pool must track each child's spawn time (add `Instant` to the `active` tuple: `Vec<(PathBuf, Child, Instant)>`). Both `wait_any()` and `drain()` must call `kill_timed_out()` on each polling iteration to kill children that have exceeded `self.timeout`. A killed child returns `BackendCrash` with a timeout message. Without this, a hung worker would block `wait_any()` indefinitely.
 - [ ] Default pool size: `std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4)` — matches CPU count, falls back to 4
-- [ ] Add `parallel_workers: Option<usize>` and `worker_timeout: Duration` fields to `TestRunnerConfig` (runner/mod.rs). Parse `--parallel-workers=N` CLI flag in `main.rs` to populate `parallel_workers`. `--no-parallel` sets pool size to 1 (sequential, for debugging). <!-- reviewed: accuracy fix — must add fields to config struct, not just CLI flags -->
+- [ ] Add `parallel_workers: Option<usize>` and `worker_timeout: Duration` fields to `TestRunnerConfig` struct (runner/mod.rs line 43-56). Also update `Default` impl (line 58-68) with `parallel_workers: None` and `worker_timeout: Duration::from_secs(60)`. Note: `worker_timeout` was also mentioned in 02.2 for CLI parsing — both the struct field and CLI parsing are needed. The `#[expect(clippy::struct_excessive_bools)]` is unaffected (new fields are `Option<usize>` and `Duration`, not `bool`).
+- [ ] Parse `--parallel-workers=N` CLI flag in `main.rs` (inside "test" match arm, after other flags). `--no-parallel` (already parsed at line 128) sets `config.parallel = false`, which `run_llvm_tests_isolated` uses to set pool size to 1.
 - [ ] When `--no-parallel` is specified, run workers sequentially (spawn, wait, parse, next file) — this is the simplest mode and useful for debugging.
 - [ ] Top-level orchestrator function:
-  <!-- reviewed: accuracy fix — use TestFile not PathBuf to match discovery API -->
   ```rust
   pub fn run_llvm_tests_isolated(
       files: &[TestFile],   // TestFile { path: PathBuf } from discovery
@@ -272,18 +308,28 @@ The current LLVM backend runs files sequentially because LLVM context creation c
       // ... spawn workers through pool, collect results
   }
   ```
-- [ ] File size limit per section: `llvm_worker.rs` must stay under 500 lines. If the pool logic exceeds ~200 lines, extract to a `worker_pool.rs` submodule.
-- [ ] Rust unit test: pool with `max_workers=2` and 5 files never has more than 2 concurrent children (verify via `active.len()` assertions in submit).
+- [ ] **File size enforcement**: After implementing 02.1 + 02.2 + 02.3, check line count:
+  - `llvm_worker.rs` must stay under 500 lines
+  - If pool logic pushes it over, extract `WorkerPool` to `compiler/oric/src/test/runner/worker_pool.rs` and declare `mod worker_pool;` in `llvm_worker.rs`
+- [ ] **02.3.T — Tests** (in `llvm_worker/tests.rs` or `worker_pool/tests.rs`):
+  - [ ] `test_pool_bounds_concurrency` — pool with `max_workers=2`, submit 5 `sleep 1` children, verify `active.len() <= 2` at all times
+  - [ ] `test_pool_sequential_mode` — pool with `max_workers=1`, verify children run one at a time
+  - [ ] `test_pool_drain_collects_all` — submit 3 children, call `drain()`, verify 3 results returned
+  - [ ] `test_pool_kills_timed_out_worker` — pool with `timeout=200ms`, submit `sleep 999` child, verify `wait_any()` or `drain()` kills it within ~200ms and returns the result (not hang forever)
+  - [ ] Verify tests fail before implementing, then pass after
 
 ---
 
 ## 02.4 Integration with Test Runner Dispatch
 
-**File(s):** `compiler/oric/src/test/runner/mod.rs`, `compiler/oric/src/commands/test.rs`
+**File(s):** `compiler/oric/src/test/runner/mod.rs` (lines 113-126), `compiler/oric/src/commands/test.rs`, `test-all.sh`
 
 Wire the new subprocess orchestrator into the existing test runner dispatch, replacing the in-process `run_file_llvm()` path.
 
-- [ ] In `runner/mod.rs`, intercept LLVM dispatch at the `run()` method level (line 113-126), NOT inside `run_file_with_interner()`. When `config.backend == Backend::LLVM` and `!config.json`, route the entire file list to the new orchestrator instead of calling `run_sequential()`/`run_file_with_interner()` per file: <!-- reviewed: accuracy fix — dispatch must happen at run() level, not inside per-file function -->
+**Hygiene note:** `runner/mod.rs` is currently 572 lines — already over the 500-line limit. This subsection must NOT add net lines. The LLVM sequential comment block (lines 116-120) becomes dead code when the orchestrator handles LLVM dispatch, and should be removed. Target: net reduction of ~5 lines.
+
+- [ ] **[BLOAT]** `runner/mod.rs`:116-120 — Remove the stale LLVM sequential execution comment block. It describes the old in-process approach that the orchestrator replaces.
+- [ ] In `runner/mod.rs`, modify `run()` (line 113-126) to intercept LLVM dispatch at the `run()` level. When `config.backend == Backend::LLVM` and `!config.json`, route to orchestrator:
   ```rust
   pub fn run(&self, path: &Path) -> TestSummary {
       let test_files = discover_tests_in(path);
@@ -305,16 +351,27 @@ Wire the new subprocess orchestrator into the existing test runner dispatch, rep
       }
   }
   ```
-  The `config.json == true` path (worker mode) falls through to `run_sequential()`, which calls `run_file_with_interner()` -> `run_file_llvm()` in-process. This is the worker's execution path.
-- [ ] **Self-detection**: The `--json` flag distinguishes worker from orchestrator. When `config.json` is true, the process is a worker — run in-process (the existing `run_file_llvm()` path). When `config.json` is false, the process is the orchestrator — spawn workers.
+  When `config.json == true` (worker mode), it falls through to `run_sequential()` -> `run_file_with_interner()` -> `run_file_llvm()` in-process. This is the worker's execution path.
+- [ ] **Self-detection**: `--json` flag distinguishes worker from orchestrator. `json == true` = worker (in-process). `json == false` = orchestrator (spawn workers).
 - [ ] Update `commands/test.rs` output formatting to handle `BackendCrash` outcomes:
-  - In `print_file_results()`: print crashed files with a distinct marker (e.g., `CRASH` instead of `FAIL`)
-  - In `print_summary_stats()`: include `backend_crash` count in the summary line
-  - In `print_llvm_error_breakdown()`: include crash count
-- [ ] Update `test-all.sh` `parse_ori_results()` function to parse `backend_crash`/`crashed` counts from the summary line (currently parses `passed`, `failed`, `skipped`, `llvm compile fail`). Also update the crash detection logic -- currently `test-all.sh` checks `exit_code > 128` to detect crashes (lines 182-197); with subprocess isolation, the parent process will exit normally with code 0 or 1 instead of being killed by a signal. Remove or adjust the `ORI_LLVM_CRASHED` path. <!-- reviewed: accuracy fix — described actual test-all.sh crash detection logic -->
-- [ ] **Backwards compatibility**: `ori test --backend=llvm <file>` without `--json` now spawns a single worker. This is slightly slower (subprocess overhead) but provides crash isolation. For files that don't crash, behavior is identical. For files that crash, the parent survives and reports `BackendCrash`.
-- [ ] Integration test: run `ori test --backend=llvm tests/spec/types/` (a directory) — verify it spawns workers and collects results. Compare pass/fail counts against interpreter baseline.
-- [ ] Integration test: run `ori test --backend=llvm tests/spec/` (the full spec suite) — verify the parent process survives even when workers crash. The exit code should be 1 (failures from BackendCrash), not 139 (killed by SIGSEGV).
+  - [ ] In `print_file_results()` (line 137): add `TestOutcome::BackendCrash(msg)` match arm with `"  CRASH: {name} - {msg}"` marker
+  - [ ] In `print_summary_stats()` (line 159): add `backend_crash` count to the `parts` vector (after `llvm_compile_fail`, same pattern)
+  - [ ] In `print_llvm_error_breakdown()` (line 198): include crash count in the output
+- [ ] **CRITICAL: Revert the weakened test gate in `test-all.sh`.** With subprocess isolation, the parent process exits normally with code 0 or 1 — never killed by signal. The `ORI_LLVM_CRASHED` escape hatch is unnecessary and must be removed. Specifically:
+  - [ ] `test-all.sh` line 220-228: In `parse_ori_results()`, remove the `exit_code > 128` crash branch that sets `${prefix}_CRASHED=1`. With isolation, the orchestrator always exits normally. Remove the `_CRASHED` variable entirely.
+  - [ ] `test-all.sh` line 236: Remove `eval "${prefix}_CRASHED=0"` in the non-crash branch
+  - [ ] `test-all.sh` line 458: Remove `elif [ "${ORI_LLVM_CRASHED:-0}" -eq 1 ]` display path (shows `CRASHED` status)
+  - [ ] `test-all.sh` lines 524-528: Remove `elif [ "${ORI_LLVM_CRASHED:-0}" -eq 1 ]` in `emit_json()` crash suite path
+  - [ ] `test-all.sh` line 546: Remove `ANY_CORE_FAILED` variable — with isolation, `ANY_FAILED` is the only check needed
+  - [ ] `test-all.sh` lines 556-558: Remove `elif [ "$ANY_CORE_FAILED" -eq 0 ] && [ "${ORI_LLVM_CRASHED:-0}" -eq 1 ]` exit-0 escape hatch
+  - [ ] Simplify final status to just `ANY_FAILED` check: exit 0 if `ANY_FAILED == 0`, exit 1 otherwise
+  - [ ] **Update `parse_ori_results()` to parse `backend_crash` count**: The new summary line from `print_summary_stats()` includes `N backend crash` — parse it alongside `passed`, `failed`, `skipped`, `llvm compile fail`
+  - Satisfies mission criterion: "Weakened test gate reverted"
+- [ ] **Backwards compatibility**: `ori test --backend=llvm <file>` without `--json` now spawns a single worker. Slightly slower (subprocess overhead) but provides crash isolation.
+- [ ] **02.4.T — Integration tests**:
+  - [ ] `test_orchestrator_directory_run` — run `ori test --backend=llvm tests/spec/types/` via `Command::new`, verify parent exits normally and pass counts > 0
+  - [ ] `test_orchestrator_survives_crash` — run `ori test --backend=llvm tests/spec/` via `Command::new`, verify exit code is 0 or 1 (NOT 139), and stdout contains `BackendCrash` if any files crash
+  - [ ] `test_test_all_no_llvm_crashed_var` — `grep -c ORI_LLVM_CRASHED test-all.sh` returns 0 (gate reversion verified at file level)
 
 ---
 
@@ -326,23 +383,31 @@ Wire the new subprocess orchestrator into the existing test runner dispatch, rep
 
 ## 02.N Completion Checklist
 
-- [ ] `llvm_worker.rs` module created with `spawn_llvm_worker`, `collect_worker_result`, `run_llvm_tests_isolated`
-- [ ] Crash detection works: SIGSEGV (signal 11) and SIGABRT (signal 6) produce `BackendCrash` (via `ExitStatus::signal()` on Unix) <!-- reviewed: accuracy fix — signal numbers, not exit codes -->
+- [ ] `llvm_worker.rs` module created with `spawn_llvm_worker`, `collect_worker_result`, `extract_framed_json`, `run_llvm_tests_isolated`
+- [ ] Crash detection works: SIGSEGV (signal 11) and SIGABRT (signal 6) produce `BackendCrash` (via `ExitStatus::signal()` on Unix)
+- [ ] Non-Unix fallback: `detect_crash` compiles on non-Unix (returns `None`)
 - [ ] Timeout detection works: hanging workers killed after configurable timeout
 - [ ] Worker pool bounds concurrency to CPU count (no fork-bomb)
 - [ ] `--parallel-workers=N` and `--no-parallel` flags work
-- [ ] `--worker-timeout=N` flag works
+- [ ] `--worker-timeout=N` flag works (default 60s, parsed in `main.rs`)
 - [ ] Test runner dispatch routes LLVM tests through subprocess orchestrator
-- [ ] `commands/test.rs` output handles `BackendCrash` outcomes
-- [ ] `test-all.sh` parses the updated summary format correctly
+- [ ] `commands/test.rs` output handles `BackendCrash` outcomes in `print_file_results`, `print_summary_stats`, `print_llvm_error_breakdown`
+- [ ] `test-all.sh` parses the updated summary format correctly (including `backend_crash` count)
+- [ ] **Weakened test gate reverted**: `ORI_LLVM_CRASHED` exit-0 escape hatch removed from test-all.sh — `grep -c ORI_LLVM_CRASHED test-all.sh` returns 0
+- [ ] `ANY_CORE_FAILED` variable removed from test-all.sh — only `ANY_FAILED` used
 - [ ] In-process path still works for `--json` mode (worker serving the orchestrator)
+- [ ] **TDD verified**: all tests written before implementation
+- [ ] Unit tests: 7 spawn/extract tests (02.1.T), 7 crash/timeout tests (02.2.T), 4 pool tests (02.3.T)
+- [ ] Integration tests: 3 end-to-end tests (02.4.T)
+- [ ] **[BLOAT] runner/mod.rs**: net zero or negative line change (remove stale LLVM comment block)
+- [ ] `llvm_worker.rs` under 500 lines (extract pool to `worker_pool.rs` submodule if needed)
+- [ ] Debug AND release builds pass: `timeout 150 cargo test` (debug) and `timeout 150 cargo test --release` (release) both succeed
 - [ ] `timeout 150 ./test-all.sh` passes — LLVM backend no longer crashes the parent
 - [ ] `./clippy-all.sh` passes
 - [ ] All 2098+ AOT tests pass (no regressions)
-- [ ] llvm_worker.rs under 500 lines (extract pool to submodule if needed)
 - [ ] Plan annotation cleanup: `bash .claude/skills/impl-hygiene-review/plan-annotations.sh --plan 02` returns 0 annotations
 - [ ] **Plan sync** — update plan metadata
 - [ ] `/tpr-review` passed
 - [ ] `/impl-hygiene-review last commit` passed
 
-**Exit Criteria:** `ori test --backend=llvm tests/spec/` completes without crashing the parent process. Workers that crash (SIGSEGV) produce `BackendCrash` outcomes that appear in the summary and cause exit code 1. `./test-all.sh` reports the LLVM backend line with pass/fail/crash counts instead of `CRASHED`. All AOT integration tests pass unchanged. Total wall-clock time for LLVM spec tests is within 2x of the current sequential in-process time.
+**Exit Criteria:** `ori test --backend=llvm tests/spec/` completes without crashing the parent process. Workers that crash (SIGSEGV) produce `BackendCrash` outcomes that appear in the summary and cause exit code 1. `./test-all.sh` reports the LLVM backend line with pass/fail/crash counts instead of `CRASHED`. The `ORI_LLVM_CRASHED` exit-0 escape hatch is removed from `test-all.sh` — crashes are real failures that block the gate. All AOT integration tests pass unchanged. Total wall-clock time for LLVM spec tests is within 2x of the current sequential in-process time.
