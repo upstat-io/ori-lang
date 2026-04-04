@@ -4,6 +4,8 @@
 //! instructions via [`ArcIrBuilder`]. Each expression lowers to an
 //! [`ArcVarId`] (the SSA variable holding the result).
 
+mod short_circuit;
+
 use ori_ir::canon::{CanArena, CanExpr, CanId, CanonResult};
 use ori_ir::{Name, Span, StringInterner};
 use ori_types::{Idx, Pool, Tag};
@@ -414,6 +416,15 @@ impl ArcLowerer<'_> {
             return self.lower_coalesce(left, right, ty, span);
         }
 
+        // Short-circuit: `&&` and `||` must not evaluate the RHS when the
+        // LHS already determines the result. Same pattern as lower_coalesce.
+        if op == ori_ir::BinaryOp::And {
+            return self.lower_short_circuit_and(left, right, ty, span);
+        }
+        if op == ori_ir::BinaryOp::Or {
+            return self.lower_short_circuit_or(left, right, ty, span);
+        }
+
         let lhs = self.lower_expr(left);
         let rhs = self.lower_expr(right);
         self.builder.emit_let(
@@ -424,86 +435,6 @@ impl ArcLowerer<'_> {
             },
             Some(span),
         )
-    }
-
-    /// Lower `lhs ?? rhs` with lazy RHS evaluation.
-    ///
-    /// Generates: extract tag from LHS → branch on tag == 0 (Some/Ok) →
-    /// then: extract payload (or pass-through if chaining) → merge;
-    /// else: evaluate RHS → merge.
-    ///
-    /// Chaining detection: the result type `ty` must equal the LHS type
-    /// (same Idx via pool interning). This correctly distinguishes:
-    /// - `Option<T> ?? Option<T> -> Option<T>` (CHAIN: ty == `lhs_ty`)
-    /// - `Option<Option<T>> ?? Option<T> -> Option<T>` (UNWRAP: ty != `lhs_ty`)
-    fn lower_coalesce(&mut self, left: CanId, right: CanId, ty: Idx, span: Span) -> ArcVarId {
-        let lhs = self.lower_expr(left);
-
-        // Detect chaining: result type equals LHS type (both are the same wrapper).
-        // Pool interning guarantees structural equality via Idx identity.
-        // Uses expr_type() to correctly convert TypeId→Idx with type substitution.
-        let lhs_ty = self.pool.resolve_fully(self.expr_type(left));
-        let resolved_ty = self.pool.resolve_fully(ty);
-        let is_chaining = lhs_ty == resolved_ty;
-
-        // Extract tag (field 0) and compare to Some/Ok tag value.
-        let tag = self.builder.emit_project(Idx::INT, lhs, 0, Some(span));
-        let some_tag = self.builder.emit_let(
-            Idx::INT,
-            ArcValue::Literal(LitValue::Int(ori_ir::OPTION_TAG_SOME)),
-            Some(span),
-        );
-        let is_some = self.builder.emit_let(
-            Idx::BOOL,
-            ArcValue::PrimOp {
-                op: PrimOp::Binary(ori_ir::BinaryOp::Eq),
-                args: vec![tag, some_tag],
-            },
-            Some(span),
-        );
-
-        // Create blocks for the two branches + merge.
-        let some_block = self.builder.new_block();
-        let none_block = self.builder.new_block();
-        let merge_block = self.builder.new_block();
-        self.builder
-            .terminate_branch(is_some, some_block, none_block);
-
-        let pre_scope = self.scope.clone();
-
-        // Some/Ok branch: pass-through LHS if chaining, extract payload otherwise.
-        self.builder.position_at(some_block);
-        self.scope = pre_scope.clone();
-        let some_val = if is_chaining {
-            lhs
-        } else {
-            self.builder.emit_project(ty, lhs, 1, Some(span))
-        };
-        let some_terminated = self.builder.is_terminated();
-        let some_exit = self.builder.current_block();
-
-        // None/Err branch: evaluate RHS lazily.
-        self.builder.position_at(none_block);
-        self.scope = pre_scope.clone();
-        let rhs_val = self.lower_expr(right);
-        let none_terminated = self.builder.is_terminated();
-        let none_exit = self.builder.current_block();
-
-        // Merge block with result parameter.
-        let result_param = self.builder.add_block_param(merge_block, ty);
-
-        if !some_terminated {
-            self.builder.position_at(some_exit);
-            self.builder.terminate_jump(merge_block, vec![some_val]);
-        }
-        if !none_terminated {
-            self.builder.position_at(none_exit);
-            self.builder.terminate_jump(merge_block, vec![rhs_val]);
-        }
-
-        self.builder.position_at(merge_block);
-        self.scope = pre_scope;
-        result_param
     }
 
     fn lower_unary(

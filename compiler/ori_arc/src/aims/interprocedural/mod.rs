@@ -510,6 +510,9 @@ fn terminator_use_count(term: &crate::ir::ArcTerminator, var: ArcVarId) -> usize
         ArcTerminator::Branch { cond, .. } => usize::from(*cond == var),
         ArcTerminator::Switch { scrutinee, .. } => usize::from(*scrutinee == var),
         ArcTerminator::Invoke { args, .. } => args.iter().filter(|&&v| v == var).count(),
+        ArcTerminator::InvokeIndirect { closure, args, .. } => {
+            usize::from(*closure == var) + args.iter().filter(|&&v| v == var).count()
+        }
         ArcTerminator::Resume | ArcTerminator::Unreachable => 0,
     }
 }

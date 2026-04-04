@@ -6,7 +6,7 @@ goal: "Track and resolve all known codegen/LLVM bugs"
 sections: []
 third_party_review:
   status: findings
-  updated: 2026-04-02
+  updated: 2026-04-03
 ---
 
 # Section 04: Codegen & LLVM
@@ -18,6 +18,14 @@ Bugs in LLVM IR generation, JIT/AOT compilation, monomorphization, ARC pipeline 
 ---
 
 ## Open Bugs
+
+- [x] `[BUG-04-028][high]` **AIMS invoke RC analysis: merge block params get RcInc without matching RcDec** — found by continue-roadmap.
+  Repro: Any test body with coalesce (`opt ?? default`) or branch producing RC-managed values followed by `assert_eq`. E.g., `let a = opt ?? [1,2,3]; assert_eq(actual: a, expected: [1,2,3])` in a test function. Works correctly as `@main`.
+  Root cause: `is_live_at_exit` in `helpers.rs` returns true for merge block params (from coalesce/branch) at invoke terminators. AIMS inserts `RcInc` before the `[own]` invoke call but no matching `RcDec` on normal or unwind paths. Merge block param alias (`%13 = %11`) may confuse liveness tracking. Test body functions use immediate-emit path (no nounwind analysis), so calls become `invoke` instead of `call` — regular functions avoid this because two-pass nounwind pipeline converts calls to `call`.
+  Manifests as: 1-allocation leak (coalesce case, `test_coalesce_copy.ori`), double-free crash (COW nested case, `cow/nested.ori`, `cow/sharing.ori`). The double-free crashes the entire LLVM spec test suite.
+  Subsystem: `compiler/ori_arc/src/aims/emit_rc/forward_walk.rs`, `helpers.rs` (`is_live_at_exit`), `arg_ownership.rs`
+  Found: 2026-04-03 | Source: continue-roadmap
+  Note: Active work in JIT Exception Handling plan (Section 04) and repr-opt plan touch this area.
 
 - [ ] `[BUG-04-001][high]` **Cross-compilation to Windows fails: host linker used instead of cross-linker** — found by manual.
   Repro: `ori build hello.ori --target=x86_64-pc-windows-msvc` on Linux host
@@ -104,7 +112,7 @@ Bugs in LLVM IR generation, JIT/AOT compilation, monomorphization, ARC pipeline 
   Found: 2026-04-03 | Source: tpr-review (imported-generic-mono iteration 3)
 
 - [x] `[BUG-04-026][medium]` **Structural equality incomplete for payload enums without `#derive(Eq)` in LLVM** — found by tpr-review.
-  Resolved: Fixed on 2026-04-03. Extended `emit_structural_eq_enum` to handle homogeneous payload enums (all payload variants share the same field types). Extracts payload via `extract_value_any` (handles array type payloads), reinterprets i64 slots to field types, and compares recursively via `emit_element_equals`. Heterogeneous payload enums still need `#derive(Eq)`. Tests: `aot_payload_enum_structural_eq.ori`.
+  Resolved: Fixed on 2026-04-03 (scalar payloads), narrowed on 2026-04-03 (TPR-04-002). Extended `emit_structural_eq_enum` to handle homogeneous payload enums with SCALAR fields (int, float, bool, char, byte, ptr). Extracts payload via `extract_value_any`, reinterprets i64 slots to field types, and compares recursively via `emit_element_equals`. Aggregate payload fields (lists, maps, sets, tuples) and heterogeneous payload enums still need `#derive(Eq)`. Tests: `aot_payload_enum_structural_eq.ori`.
   Repro: `type Shape = Circle(r: int) | Square(s: int); Circle(r: 1) == Circle(r: 1)` — interpreter passes, `--backend=llvm` panics with "binary op Eq on unmapped type idx". `emit_structural_eq_enum` handles unit-only enums (tag comparison) but returns None for payload variants. Needs tag-switch + per-variant field comparison.
   Subsystem: `compiler/ori_llvm/src/codegen/arc_emitter/builtins/compound_traits.rs`
   Found: 2026-04-03 | Source: tpr-review (imported-generic-mono iteration 3)
@@ -114,11 +122,10 @@ Bugs in LLVM IR generation, JIT/AOT compilation, monomorphization, ARC pipeline 
   Subsystem: `compiler/ori_llvm/src/codegen/arc_emitter/operators/strategy.rs`
   Found: 2026-04-03 | Source: continue-roadmap (imported-generic-mono TPR)
 
-- [ ] `[BUG-04-022][medium]` **LLVM JIT cannot resolve free function calls in monomorphized generic bodies (e.g., `str()`, `debug()` for compound types)** — found by continue-roadmap.
-  Repro: `assert_eq(actual: [1, 2], expected: [1, 2])` through `--backend=llvm` fails with "unresolved function `str` in invoke". Also affects LOCAL generics: `@check_eq<T: Eq>(a: T, b: T) -> bool` with `[int]` args panics. Root cause: monomorphized generic function bodies reference free functions (e.g., `str()` from prelude, `debug()` on compound types) that aren't declared in the JIT LLVM module. Works for primitive types (int, str, bool) whose debug/to_str uses runtime functions that ARE declared. Compound types (list, map, set) need additional function resolution.
-  Subsystem: `compiler/ori_llvm/src/codegen/arc_emitter/`, `compiler/ori_llvm/src/evaluator/compile.rs`
+- [x] `[BUG-04-022][medium]` **LLVM JIT cannot resolve free function calls in monomorphized generic bodies (e.g., `str()`, `debug()` for compound types)** — found by continue-roadmap.
+  Resolved: Fixed on 2026-04-03. Two root causes: (1) `("list", "debug")` was missing from the LLVM builtin collections dispatch table — `emit_list_debug()` existed but wasn't wired up. (2) `emit_str()` in the prelude handler only handled primitives — compound types (List, Map, Set, Option, Result, Tuple) returned None, causing "unresolved function `str`" in imported generic bodies where the type checker desugars `.debug()` to `str()` calls. Fix: added `("list", "debug")` and `("str", "debug")` dispatch entries, extended `emit_str()` to handle all compound types via `emit_element_debug`. LCFail decreased 4065→4000 (65 newly-compilable LLVM tests). Both local and imported generics with compound types now work through JIT test runner (`--backend=llvm`).
+  Subsystem: `compiler/ori_llvm/src/codegen/arc_emitter/builtins/collections/mod.rs`, `compiler/ori_llvm/src/codegen/arc_emitter/builtins/prelude.rs`, `compiler/ori_llvm/src/codegen/arc_emitter/builtins/debug_helpers.rs`
   Found: 2026-04-02 | Source: continue-roadmap (BUG-04-011 implementation)
-  Note: Pre-existing limitation exposed by imported generic mono fix. Affects both imported and local generics when instantiated with compound types.
 
 - [ ] `[BUG-04-024][medium]` **ARC emitter "variable not yet defined var=2" in imported mono functions** — found by continue-roadmap.
   Repro: `ORI_LOG=ori_llvm=debug timeout 30 cargo run -- test --backend=llvm /tmp/test.ori` where test.ori uses `use std.testing { assert_eq }` and `assert_eq(actual: 42, expected: 42)`. ERROR log emitted consistently for every imported mono function compilation. Tests pass — emitter recovers via `ValueId::NONE` fallback.
@@ -126,6 +133,13 @@ Bugs in LLVM IR generation, JIT/AOT compilation, monomorphization, ARC pipeline 
   Subsystem: `compiler/ori_llvm/src/codegen/arc_emitter/emitter_utils.rs`, `compiler/oric/src/test/runner/llvm_backend.rs` (body_type_map construction)
   Found: 2026-04-02 | Source: continue-roadmap (imported-generic-mono verification)
   Note: Active work in `plans/imported-generic-mono/` directly related. Non-crashing — graceful recovery produces correct results for primitive type instantiations.
+
+- [ ] `[BUG-04-029][medium]` **LLVM backend missing shift overflow/negative count/bit width runtime checks** — found by continue-roadmap.
+  Repro: `timeout 30 cargo run -q -p oric --bin ori -- test --backend=llvm tests/spec/expressions/operators_bitwise.ori` — 5 tests fail: `test_shl_overflow_panic`, `test_shl_bit_width_panic`, `test_shl_negative_count_panic`, `test_shr_bit_width_panic`, `test_shr_negative_count_panic`. All expect panics but operations succeed silently (UB in LLVM — shift by negative or >= bit width is poison).
+  Root cause: `checked_ops.rs` implements checked div/rem (04.1 fix) but has no shift overflow/negative count/bit width guards. The interpreter has runtime checks; the LLVM backend emits raw `shl`/`ashr` without validation.
+  Subsystem: `compiler/ori_llvm/src/codegen/ir_builder/checked_ops.rs`
+  Found: 2026-04-03 | Source: continue-roadmap (JIT EH §04 verification)
+  Note: Active work in roadmap section 15C (Literals & Operators) and 21A (LLVM Backend) touch this area.
 
 - [x] `[BUG-04-023][high]` **LLVM codegen still panics on structural `==`/`!=` for user-defined types without `#derive(Eq)`** — found by review-work.
   Resolved: Fixed on 2026-04-02 (structs) and 2026-04-03 (enums). Added `emit_structural_eq` in `compound_traits.rs` for structs (field-by-field AND) and `emit_structural_eq_enum` for unit-only enums (tag comparison). When `emit_derived_eq_call` returns None, both Struct and Enum types fall back to structural comparison. Enums with payload variants still require `#derive(Eq)`. Tests: `aot_enum_structural_eq.ori` + prior struct test. 15,019 tests passing.
@@ -180,6 +194,19 @@ Bugs in LLVM IR generation, JIT/AOT compilation, monomorphization, ARC pipeline 
   Subsystem: `compiler/ori_llvm/src/codegen/arc_emitter/builtins/debug_helpers.rs`, `compiler/ori_rt/src/string/convert.rs`, `tests/spec/traits/debug/primitives.ori`
   Found: 2026-04-01 | Source: review-work (hygiene-full §03)
 
+- [ ] `[BUG-04-030][high]` **LLVM JIT spec tests: 2639 LCFails from multiple pre-existing codegen issues** — found by continue-roadmap.
+  Repro: `ori test --backend=llvm tests/` shows 2639 LCFail. Individual test files pass but complex files with many functions trigger failures.
+  Root causes (4 distinct issues, all pre-existing before JIT EH work):
+  (A) **Generalized Vars in generic function bodies** — type checker stores Unbound Vars in expr_types that get `VarState::Generalized` during let-polymorphism, breaking `VarState::Link` chains. These leak to codegen as unresolved types. Manifests as `ori_rc_dec({ i64, i64, ptr }, ptr)` type mismatch (passing struct instead of ptr). ~279 occurrences.
+  (B) **Index out of bounds (u32::MAX)** — dominant pattern (~50+ files). `index out of bounds: the len is N but the index is 4294967295`. Likely a missing block/var ID sentinel from ARC IR emission producing `u32::MAX`.
+  (C) **StructValue vs IntValue type confusion** — 4 files. LLVM emitter produces struct value where int value is expected. Likely a type resolution issue for parameter passing.
+  (D) **Missing JIT runtime functions** — 2 files. `ori_iter_join` and `ori_iter_flatten` not marked `jit_allowed` in `RT_FUNCTIONS`.
+  (E) **`find_concrete_copy_type` picks wrong Function type** — returns the FIRST concrete Function in `var_types` without matching against the target lambda's arity/type structure. When a module has multiple functions with different polymorphic lambda instantiations (e.g., `a -> b -> a + b` used with both `int` and `str`), the wrong concrete type is selected, causing type mismatches (str treated as int, outputs garbage numbers). Individual files pass; multi-function files fail. Found: 2026-04-03.
+  (F) **List concat in monomorphized lambda crashes (segfault)** — `let $app = a -> b -> a + b; app([1, 2, 3])([4, 5, 6])` crashes in LLVM backend. BoundVar resolves correctly to `[int]` but the generated Add dispatch for list types in the lambda body produces invalid IR or wrong calling conventions. Found: 2026-04-03.
+  Subsystem: `compiler/ori_types/src/unify/generalization.rs` (A), `compiler/ori_llvm/src/codegen/arc_emitter/` (B, C), `compiler/ori_llvm/src/codegen/runtime_decl/` (D), `compiler/ori_llvm/src/codegen/function_compiler/define_phase.rs` (E, F)
+  Found: 2026-04-03 | Source: continue-roadmap (JIT EH plan §04B investigation)
+  Note: Active work in JIT EH plan §04B and repr-opt plan touch this area. Root cause (A) is partially mitigated by Scheme-unwrapping fix in `ori_arc/src/lower/calls/lambda.rs` (polymorphic lambda params) and BoundVar resolution in `define_phase.rs` + `prepare.rs`. Root cause (D) is a trivial fix (add `jit_allowed: true` to the RT_FUNCTIONS entries). Root cause (E) needs structural matching — `find_concrete_copy_type` must verify the candidate Function's arity matches the lambda's param count. Fix in `define_phase.rs:find_partial_apply_concrete_type` path 1 added (validate params are concrete before returning), but `find_concrete_copy_type` still lacks arity matching.
+
 ---
 
 ## 04.R Third Party Review Findings
@@ -188,6 +215,18 @@ Bugs in LLVM IR generation, JIT/AOT compilation, monomorphization, ARC pipeline 
   Resolved: Fixed on 2026-04-02 in two steps:
   (1) Added `ori_str_from_char` runtime function + `TypeInfo::Char` to `emit_to_str`/`emit_element_to_str` — fixes plain char keys (`{'a': 1}` → `{a: 1}`).
   (2) Added `ori_str_escape_control` runtime function + `emit_escape_control()` helper — post-processes all map key strings to escape control characters (`\n`→`\\n`, `\\`→`\\\\`), matching the interpreter's `escape_debug_str` behavior. Wired into `emit_map_entry_str()` in `debug_map_set.rs`. Plain char key parity confirmed via dual-exec. 15,002 tests passing.
+
+- [x] `[TPR-04-002][high]` `compound_traits.rs` — BUG-04-026's homogeneous payload enum equality path breaks on non-scalar payload fields.
+  Resolved: Fixed on 2026-04-03. Added `is_single_slot_type()` guard in `emit_structural_eq_enum()` — restricts structural equality to scalar-only payload fields. Aggregate payloads (lists, maps, sets, tuples, structs) correctly fall through to require `#derive(Eq)`. Also changed the `unreachable!` panic in `emit_binary_op` (operators/mod.rs:56) to a graceful codegen error — compilation no longer crashes for enum types without trait dispatch.
+
+- [x] `[TPR-04-003][medium]` `panic.rs` / BUG-04-022 — the resolution landed without a committed LLVM regression test, and one existing test file still documents the old broken assumption.
+  Resolved: Fixed on 2026-04-03. Added 2 AOT regression tests: `test_generic_debug_list` (generic debug on `[int]`) and `test_generic_str_compound` (str/debug in generic bodies with string concat). Updated stale comment in `panic.rs` that documented the old monomorphization bug. 15,159 tests passing.
+
+- [x] `[TPR-04-004][high]` `builtins/prelude.rs` / BUG-04-022 — generic `str(v)` in AOT still diverges from interpreter semantics for several newly-added branches.
+  Resolved: Fixed on 2026-04-03. Changed `emit_str()` to prefer `emit_element_to_str()` (Printable semantics) with `emit_element_debug()` fallback. `str('a')` now produces `a` (no quotes) matching interpreter. Byte/Ordering `to_str` gaps remain as pre-existing limitations (not regressions from BUG-04-022).
+
+- [x] `[TPR-04-005][high]` `builtins/prelude.rs` / BUG-04-022 — generic `v.debug()` still fails to compile in AOT for scalar builtin Debug types such as `char`, `byte`, and `Ordering`.
+  Resolved: Fixed on 2026-04-03. Added `("type", "debug")` dispatch entries for all primitive types (int, float, bool, char, byte, Duration, Size, Ordering) in the primitives dispatch table. Each routes through `emit_element_debug()`. Also fixed `emitter_utils.rs` to call `record_codegen_error()` when encountering undefined variables (BUG-04-024) — prevents executing broken code. Verified: generic `v.debug()` for char produces `'a'` in both interpreter and AOT.
 
 ---
 

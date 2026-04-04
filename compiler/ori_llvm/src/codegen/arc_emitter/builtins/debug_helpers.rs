@@ -380,7 +380,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     ///
     /// Layout: `{i64 len, i64 cap, ptr data}`.
     /// For empty lists, returns `"[]"` immediately.
-    fn emit_list_debug(&mut self, list: ValueId, elem_ty: Idx) -> Option<ValueId> {
+    pub(super) fn emit_list_debug(&mut self, list: ValueId, elem_ty: Idx) -> Option<ValueId> {
         let len = self.builder.extract_value(list, FIELD_LEN, "ldbg.len")?;
         let data = self.builder.extract_value(list, FIELD_DATA, "ldbg.data")?;
 
@@ -508,7 +508,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// ABI parameter passing (Indirect for large structs), and handles
     /// sret return (debug returns `str` which is 24 bytes → sret).
     /// Returns `None` if no compiled debug method exists for the type.
-    fn emit_derived_debug_call(&mut self, val: ValueId, ty: Idx) -> Option<ValueId> {
+    pub(super) fn emit_derived_debug_call(&mut self, val: ValueId, ty: Idx) -> Option<ValueId> {
         let type_name = *self.ctx.type_idx_to_name.get(&ty)?;
         let interned_debug = self.interner.intern("debug");
         let (func_id, abi) = {

@@ -202,13 +202,33 @@ pub(crate) fn collect_all_borrowed_defs(func: &ArcFunction) -> FxHashSet<ArcVarI
 ///
 /// Computes the transitive closure of the `borrowed` set by following:
 /// 1. `Let { dst, value: Var(src) }` — pointer copy aliases
-/// 2. `Jump { target, args }` — when a borrowed variable is passed as a Jump
-///    argument, the corresponding block parameter inherits borrowed status
+/// 2. `Jump { target, args }` — when ALL predecessors pass borrowed values for
+///    a block parameter, it inherits borrowed status
 ///
-/// This handles any pattern where a borrowed variable is threaded through
-/// loop headers and exit blocks via block parameter passing (e.g., mutable
-/// variable SSA merge in for-loops).
+/// Rule 2 requires unanimity: a merge block param is only borrowed when every
+/// predecessor's Jump arg at that position is borrowed. If ANY predecessor
+/// brings an owned value (e.g., from Construct), the param stays owned so that
+/// edge cleanup emits `RcDec` for it. The borrowed-path predecessors rely on
+/// `emit_project_escape_incs` to add compensating `RcInc`.
 fn propagate_borrowed_closure(func: &ArcFunction, borrowed: &mut FxHashSet<ArcVarId>) {
+    // Pre-collect all Jump predecessors for each (target_block, param_position).
+    // Key: (target_block_idx, param_pos) → Vec<Jump_arg_var>
+    let mut param_incoming: rustc_hash::FxHashMap<(usize, usize), Vec<ArcVarId>> =
+        rustc_hash::FxHashMap::default();
+    for block in &func.blocks {
+        if let ArcTerminator::Jump { target, args } = &block.terminator {
+            let target_idx = target.index();
+            if target_idx < func.blocks.len() {
+                for (pos, &arg) in args.iter().enumerate() {
+                    param_incoming
+                        .entry((target_idx, pos))
+                        .or_default()
+                        .push(arg);
+                }
+            }
+        }
+    }
+
     let mut changed = true;
     while changed {
         changed = false;
@@ -226,15 +246,19 @@ fn propagate_borrowed_closure(func: &ArcFunction, borrowed: &mut FxHashSet<ArcVa
                     }
                 }
             }
-            // Jump arg→param: borrowed variable passed to target block param.
-            if let ArcTerminator::Jump { target, args } = &block.terminator {
-                let target_idx = target.index();
-                if target_idx < func.blocks.len() {
-                    let target_params = &func.blocks[target_idx].params;
-                    for (arg, (param_var, _)) in args.iter().zip(target_params) {
-                        if borrowed.contains(arg) && borrowed.insert(*param_var) {
-                            changed = true;
-                        }
+        }
+
+        // Jump arg→param: only mark param borrowed when ALL incoming args are
+        // borrowed. This prevents merge block params from being treated as
+        // borrowed when some predecessors bring owned values (e.g., coalesce ??
+        // where the Some path projects from Option and the None path constructs
+        // a new value).
+        for (&(target_idx, pos), incoming_args) in &param_incoming {
+            let all_borrowed = incoming_args.iter().all(|arg| borrowed.contains(arg));
+            if all_borrowed {
+                if let Some(&(param_var, _)) = func.blocks[target_idx].params.get(pos) {
+                    if borrowed.insert(param_var) {
+                        changed = true;
                     }
                 }
             }

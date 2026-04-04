@@ -53,10 +53,18 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
         // Registry-driven dispatch for primitive/builtin types.
         let Some(type_tag) = self.idx_to_type_tag(lhs_ty) else {
-            unreachable!(
-                "binary op {op:?} on unmapped type idx {lhs_ty:?} — \
-                 should have used trait dispatch"
+            // Non-primitive type without compiled trait dispatch (e.g., payload
+            // enum with aggregate fields and no #derive(Eq)). Record a codegen
+            // error and return false — the binary result is incorrect but won't
+            // crash the compilation pipeline.
+            tracing::warn!(
+                ?op,
+                ?lhs_ty,
+                "binary op on non-primitive type without trait dispatch — \
+                 likely needs #derive(Eq) or #derive(Comparable)"
             );
+            self.builder.record_codegen_error();
+            return self.builder.const_bool(false);
         };
         let strategy = Self::op_strategy_for_binary(type_tag, op);
 

@@ -3,7 +3,7 @@ section: "04"
 title: "Type Resolution DRY"
 status: not-started
 reviewed: false
-goal: "Reduce 5 ParsedType resolution functions to a shared TypeResolver pattern — eliminate the most severe algorithmic duplication in the type checker"
+goal: "Reduce 6+ ParsedType resolution functions to a shared TypeResolver pattern -- eliminate the most severe algorithmic duplication in the type checker"
 depends_on: []
 third_party_review:
   status: none
@@ -29,8 +29,7 @@ sections:
 # Section 04: Type Resolution DRY
 
 **Status:** Not Started
-**Goal:** The 5 ParsedType resolution functions (`resolve_parsed_type_simple`, `resolve_type_with_params`, `resolve_type_with_self_inner`, `resolve_and_check_type_with_vars`, `resolve_parsed_type`) share an identical match-on-variant structure. Extract the shared tree walk into a generic resolver parameterized by how to handle type variables, Self, and unknown names.
-
+**Goal:** The 6+ ParsedType resolution functions (`resolve_parsed_type_simple`, `resolve_type_with_params`, `resolve_type_with_self`/`resolve_type_with_self_inner`, `resolve_and_check_type_with_vars`, `resolve_parsed_type`, `resolve_parsed_type_list`) share an identical match-on-variant structure. Extract the shared tree walk into a generic resolver parameterized by how to handle type variables, Self, and unknown names.
 **Context:** This is the most severe algorithmic duplication in the type checker. All 5 functions walk the same `ParsedType` enum (Primitive, List, Map, Tuple, Function, Named, etc.) with identical recursive structure, differing only in: (a) how type parameters are resolved (fresh vars, lookup, error), (b) how Self is handled (fresh var, lookup, error), (c) whether to validate bounds. Additionally, dual string/Name well-known type tables create 2 more duplication sites.
 
 ---
@@ -39,14 +38,21 @@ sections:
 
 **File(s):** `compiler/ori_types/src/check/registration/type_resolution.rs`, `compiler/ori_types/src/check/signatures/mod.rs`, `compiler/ori_types/src/infer/expr/type_resolution.rs`
 
-- [ ] Design a `ResolveConfig` struct or trait that parameterizes:
+**Implementation note:** The resolution functions operate on two different context types (ModuleChecker vs InferEngine). The shared trait must abstract `pool_mut()`, `interner()`, `resolve_well_known_generic_cached()`, and `resolve_registration_primitive()`. The InferEngine version handles additional variants (FixedList, Option, Result, Set, AssociatedType, ExistentialType, ConstGeneric) that the ModuleChecker ones do not.
+
+- [ ] Design a `TypeResolveContext` trait that abstracts:
+  - `pool_mut() -> &mut Pool` — access to type pool (both ModuleChecker and InferEngine have this)
+  - `interner() -> &StringInterner` — name interning
+  - `resolve_well_known_generic(name: Name, args: &[Idx]) -> Option<Idx>` — well-known type lookup
+  - `resolve_registration_primitive(name: Name) -> Option<Idx>` — primitive name resolution
+- [ ] Design a `ResolveConfig` struct that parameterizes:
   - `resolve_type_param(name: Name) -> Idx` — how to handle type parameters
   - `resolve_self() -> Idx` — how to handle Self type
   - `resolve_unknown_name(name: Name) -> Idx` — fresh var vs Idx::ERROR
   - `check_bounds: bool` — whether to validate trait bounds
-- [ ] Implement `resolve_parsed_type_with<C: ResolveConfig>()` as the single canonical tree walk
-- [ ] Rewrite all 5 existing functions as thin wrappers that construct the appropriate `ResolveConfig` and call the canonical function
-- [ ] Verify: the canonical function handles all `ParsedType` variants (Primitive, List, Map, Tuple, Function, Named, Option, Result, Set, TraitBounds, SelfType, etc.)
+- [ ] Implement `resolve_parsed_type_with<C: TypeResolveContext>()` as the single canonical tree walk
+- [ ] Handle the variant coverage gap: the InferEngine version handles FixedList, Option, Result, Set, AssociatedType, ExistentialType, ConstGeneric — these MUST be supported in the canonical function (likely as optional handlers in the config)
+- [ ] Rewrite all 6+ existing functions as thin wrappers that construct the appropriate config and call the canonical function (including `resolve_type_with_self`, `resolve_parsed_type_list`)- [ ] Verify: the canonical function handles ALL `ParsedType` variants (Primitive, List, FixedList, Map, Tuple, Function, Named, Option, Result, Set, TraitBounds, SelfType, AssociatedType, ExistentialType, ConstGeneric, etc.)
 - [ ] Verify: all existing type checker tests pass unchanged
 
 ---
@@ -57,9 +63,9 @@ sections:
 
 Two pairs of functions encode the same tables in both string and Name forms: `resolve_well_known_generic()` (string) / `WellKnownNames::resolve_generic()` (Name), and `is_concrete_named_type()` (string) / `WellKnownNames::is_concrete()` (Name).
 
-- [ ] Make the string-based versions derive from the Name-based versions (or vice versa)
-- [ ] If WellKnownNames is not always available (e.g., in isolated tests), provide a `from_str()` lookup that maps through interning rather than maintaining a parallel table
-- [ ] Verify: adding a new well-known type requires updating exactly ONE location
+- [ ] **WHERE:** `compiler/ori_types/src/check/well_known/mod.rs` — find `resolve_well_known_generic()` (string-based) and corresponding `WellKnownNames::resolve_generic()` (Name-based); also find `is_concrete_named_type()` and `WellKnownNames::is_concrete()`
+- [ ] Make the string-based versions derive from the Name-based versions: string function interns the string, then delegates to the Name-based function. This ensures one canonical table.- [ ] If WellKnownNames is not always available (e.g., in isolated tests), provide a `from_str()` lookup that maps through interning rather than maintaining a parallel table
+- [ ] Verify: adding a new well-known type requires updating exactly ONE location — add a test that the string-based and Name-based tables produce identical results for all entries
 
 ---
 
@@ -74,7 +80,7 @@ Unit and Never have no TypeDef in ori_registry, forcing hardcoded trait satisfac
 - [ ] Remove hardcoded Unit trait satisfaction from `trait_set.rs:229-236`
 - [ ] Remove hardcoded Unit/Never fallbacks from `registry_bridge/mod.rs:65-75`
 - [ ] Verify: `registry_satisfies_trait()` correctly resolves Unit and Never traits via registry query
-
+- [ ] **WARNING:** Adding TypeDefs for Unit/Never changes how trait satisfaction is resolved for these types. Run `timeout 150 cargo st` to verify all spec tests pass — any test involving `void` or `Never` types could break if the trait set is wrong.
 ---
 
 ## 04.R Third Party Review Findings
@@ -83,13 +89,37 @@ Unit and Never have no TypeDef in ori_registry, forcing hardcoded trait satisfac
 
 ---
 
+## 04.T Test Strategy
+
+This section refactors the most complex compiler subsystem (type resolution). Zero behavioral change, but high risk of subtle breakage.
+
+- [ ] **Before any code changes:** Snapshot the current `timeout 150 cargo st` output to detect any behavioral drift
+- [ ] Add unit tests for `resolve_parsed_type_with()` covering all `ParsedType` variants:
+  - Primitive (int, float, str, bool, char, byte, void)
+  - List, FixedList, Map, Tuple, Function
+  - Named (user types, well-known generics)
+  - Option, Result, Set
+  - SelfType (with and without Self in scope)
+  - AssociatedType, ExistentialType, ConstGeneric
+  - TraitBounds
+  - Each variant tested with each `ResolveConfig` mode (fresh vars, lookup, error)
+- [ ] Add enforcement test: well-known type string table and Name table produce identical results for all entries
+- [ ] Add enforcement test: Unit and Never trait satisfaction via registry matches the previous hardcoded behavior exactly
+- [ ] Verify `timeout 150 cargo test -p ori_types` passes after each sub-section (04.1, 04.2, 04.3)
+- [ ] Verify `timeout 150 cargo st` output is byte-identical to pre-change snapshot
+- [ ] Verify `timeout 150 ./test-all.sh` passes after all sub-sections complete
+
+---
+
 ## 04.N Completion Checklist
 
 - [ ] Single canonical `resolve_parsed_type_with()` function
-- [ ] 5 existing resolution functions are thin wrappers
+- [ ] 6+ existing resolution functions are thin wrappers
 - [ ] Well-known type tables have single source (not dual string/Name)
 - [ ] Unit and Never have TypeDefs in ori_registry
 - [ ] No hardcoded trait satisfaction for Unit/Never in ori_types
+- [ ] Unit tests for canonical resolver cover all ParsedType variants x ResolveConfig modes
+- [ ] Enforcement tests for well-known tables and Unit/Never trait sets
 - [ ] `timeout 150 cargo test -p ori_types` passes
 - [ ] `timeout 150 cargo test -p ori_registry` passes
 - [ ] `timeout 150 ./test-all.sh` passes

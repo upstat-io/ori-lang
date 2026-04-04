@@ -92,6 +92,25 @@ Before launching agents, do a quick read-through and report to the user:
 - Number of sections/files
 - Note: "Running 4 sequential review passes..."
 
+### Step 3B: Third-Party Blind Spot Check via /tp-help
+
+**SEQUENTIAL & FOREGROUND — MANDATORY.** This `/tp-help` call MUST run in the foreground (NOT `run_in_background`). You MUST wait for it to complete and read its output before proceeding to Step 4. Do NOT launch this in parallel with any other agent or skill invocation.
+
+**Before launching the 4 review agents**, call `/tp-help` to identify blind spots the review should focus on.
+
+Build a `/tp-help` prompt that includes:
+- The plan's mission/goal (from overview)
+- The section list with their goals and statuses
+- A brief summary of the plan's scope (which crates, which subsystems)
+- Whether this is a single-section or whole-plan review
+
+Ask Codex specifically:
+- "Given this plan's scope, what are the most likely failure modes the review should watch for?"
+- "What architectural risks or blind spots would you flag?"
+- "Are there cross-cutting concerns that might fall between section boundaries?"
+
+Use Codex's response to inform the review — add specific items to watch for in the agent prompts if Codex identifies something non-obvious that the standard review lenses might miss.
+
 ### Step 4: Sequential Independent Review (4 Agents)
 
 Run **4 review agents in sequence** (NOT parallel). Each agent:
@@ -266,6 +285,24 @@ INSTRUCTIONS:
 Add a brief comment near each addition: <!-- reviewed: cohesion fix -->
 After editing, list what you changed and why — especially any structural changes (sections added, removed, merged, split, reordered) and significant scope expansions.
 ```
+
+#### Midpoint Check: /tp-help Between Agent 2 and Agent 3
+
+**SEQUENTIAL & FOREGROUND — MANDATORY.** This `/tp-help` call MUST run in the foreground (NOT `run_in_background`). You MUST wait for it to complete and read its output before launching Agent 3. Do NOT launch this in parallel with Agent 3 or any other agent.
+
+**After Agent 2 completes**, call `/tp-help` for a midpoint structural check before the executability and testing passes.
+
+Build a `/tp-help` prompt that includes:
+- The plan's mission (one line)
+- A summary of what Agents 1 and 2 changed (structural changes, accuracy fixes, cohesion fixes, sections added/removed/reordered)
+- The current section list after Agents 1-2's modifications
+
+Ask Codex specifically:
+- "Agents 1-2 made these structural changes. Do you see any executability or hygiene concerns with the resulting structure?"
+- "Are there sections that look too large or too vague to implement in a single session?"
+- "Any cross-section dependency issues in this ordering?"
+
+Feed relevant insights into Agent 3's prompt as additional focus areas. This ensures the executability review is informed by an outside perspective on the post-restructuring state.
 
 #### Agent 3: Primary Lens — Section Executability & Codebase Hygiene
 
@@ -500,6 +537,7 @@ requires human judgement rather than mechanical fixes.}
 
 ## Important Rules
 
+0. **ALL external consultations (`/tp-help`, `/tpr-review`) are SEQUENTIAL and FOREGROUND** — NEVER launch these as background tasks (`run_in_background: true`). NEVER launch them in parallel with each other or with review agents. Each must complete fully and its output must be read and incorporated before proceeding to the next step. The entire pipeline is sequential by design — each step's output informs the next.
 1. **Every agent has FULL AUTHORITY** — Each agent can add, remove, merge, split, reorder sections, restructure the entire plan, rewrite the overview/index, and make any change they deem necessary. The "primary lens" shapes what they focus on, NOT what they're permitted to do. A review agent that notices a structural problem but doesn't fix it because "that's not my focus area" has failed.
 2. **Agents edit directly** — This is not a report-only review. Agents fix what they find.
 3. **Sequential, not parallel** — Each agent sees prior agents' edits. Order matters. Later agents validate, build on, or undo earlier agents' structural changes.

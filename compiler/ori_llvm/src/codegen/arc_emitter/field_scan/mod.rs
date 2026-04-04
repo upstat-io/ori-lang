@@ -145,6 +145,10 @@ pub(super) fn scan_used_fields(func: &ArcFunction) -> FxHashMap<ArcVarId, Option
             ArcTerminator::Jump { args, .. } | ArcTerminator::Invoke { args, .. } => {
                 mark_all_slice(&aliases, &mut usage, args);
             }
+            ArcTerminator::InvokeIndirect { closure, args, .. } => {
+                mark_all(&aliases, &mut usage, *closure);
+                mark_all_slice(&aliases, &mut usage, args);
+            }
             ArcTerminator::Branch { cond, .. } => mark_all(&aliases, &mut usage, *cond),
             ArcTerminator::Switch { scrutinee, .. } => {
                 mark_all(&aliases, &mut usage, *scrutinee);
@@ -322,6 +326,12 @@ pub(super) fn compute_pointer_only_params(
                 if !is_forwarding_safe(*callee, args) {
                     mark_needs_load_slice(args, &var_to_param, &mut needs_load);
                 }
+            }
+            // InvokeIndirect: closure + args all need load (conservative —
+            // we don't know the callee's forwarding behavior).
+            ArcTerminator::InvokeIndirect { closure, args, .. } => {
+                mark_needs_load(*closure, &var_to_param, &mut needs_load);
+                mark_needs_load_slice(args, &var_to_param, &mut needs_load);
             }
             // Jump args transfer values to block params — conservative: needs load.
             ArcTerminator::Jump { args, .. } => {

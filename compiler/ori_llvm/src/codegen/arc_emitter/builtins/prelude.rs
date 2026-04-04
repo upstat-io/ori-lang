@@ -64,19 +64,13 @@ fn emit_str<'scx: 'ctx, 'ctx>(
         return None;
     }
     let arg_ty = arc_func.var_type(args[0]);
-    let type_info = emitter.type_info.get(arg_ty);
     let arg_val = emitter.var(args[0]);
 
-    match &type_info {
-        // str(str_val) → identity
-        TypeInfo::Str => Some(arg_val),
-        // Delegate to emit_to_str for primitive types
-        TypeInfo::Int | TypeInfo::Float | TypeInfo::Bool | TypeInfo::Duration | TypeInfo::Size => {
-            emitter.emit_to_str(arg_val, &type_info)
-        }
-        // Other types (struct, enum, etc.) need derived Printable::to_str — deferred.
-        _ => None,
-    }
+    // Prefer Printable (to_str) semantics — str() is the Printable conversion.
+    // Fall back to Debug for compound types where to_str codegen is missing.
+    emitter
+        .emit_element_to_str(arg_val, arg_ty)
+        .or_else(|| emitter.emit_element_debug(arg_val, arg_ty))
 }
 
 /// Emit `int(value)` — inline LLVM casts.

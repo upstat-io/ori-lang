@@ -85,10 +85,7 @@ PROMPT
 )" --full-auto --json
 ```
 
-**Timeout:** Set a reasonable timeout based on complexity:
-- Simple question: 120s
-- Code analysis: 300s
-- Investigation with test runs: 600s
+**NO TIMEOUT.** Do NOT set a Bash `timeout:` parameter or prefix with `timeout`. Codex reviews legitimately take 5-15 minutes. Let them run to completion.
 
 ### Step 4: Parse Response
 

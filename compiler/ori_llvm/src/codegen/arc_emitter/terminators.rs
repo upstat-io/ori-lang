@@ -4,7 +4,7 @@
 //! `cond_br`, `switch`, `invoke`/`call`, `resume`, and `unreachable`.
 
 use ori_arc::ir::{ArcFunction, ArcTerminator, ArcVarId};
-use ori_ir::Name;
+use ori_ir::{Name, CLOSURE_FIELD_ENV, CLOSURE_FIELD_FN};
 use ori_types::Idx;
 use rustc_hash::FxHashMap;
 
@@ -195,6 +195,17 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 }
             }
 
+            ArcTerminator::InvokeIndirect {
+                dst,
+                ty,
+                closure,
+                args,
+                normal,
+                unwind,
+            } => {
+                self.emit_invoke_indirect(*dst, *ty, *closure, args, *normal, *unwind, arc_func);
+            }
+
             ArcTerminator::Resume => {
                 match self.builder.eh_model() {
                     EhModel::Itanium => {
@@ -373,6 +384,222 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             let unit = self.builder.const_i64(0);
             self.def_var(dst, EmittedValue::Immediate(unit));
             self.builder.record_codegen_error_with_msg(msg);
+        }
+    }
+
+    /// Emit an `InvokeIndirect` terminator — indirect call through a closure
+    /// fat pointer that may unwind.
+    ///
+    /// Mirrors `emit_apply_indirect` for the call mechanics (extract `fn_ptr` +
+    /// `env_ptr`, build param types, handle sret) but uses `invoke` when the
+    /// unwind block has effective cleanup, and `call` + `br` otherwise.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "terminator emission requires all parameters"
+    )]
+    fn emit_invoke_indirect(
+        &mut self,
+        dst: ArcVarId,
+        ty: Idx,
+        closure: ArcVarId,
+        args: &[ArcVarId],
+        normal: ori_arc::ir::ArcBlockId,
+        unwind: ori_arc::ir::ArcBlockId,
+        arc_func: &ArcFunction,
+    ) {
+        let closure_val = self.var(closure);
+        let normal_block = self.block(normal);
+        let unwind_is_empty_cleanup =
+            !super::dead_unwind::has_effective_cleanup(&arc_func.blocks[unwind.index()], arc_func);
+
+        let fn_ptr = self
+            .builder
+            .extract_value(closure_val, CLOSURE_FIELD_FN, "icall.fn_ptr");
+        let env_ptr = self
+            .builder
+            .extract_value(closure_val, CLOSURE_FIELD_ENV, "icall.env_ptr");
+
+        let (Some(fn_ptr), Some(env_ptr)) = (fn_ptr, env_ptr) else {
+            tracing::error!(
+                closure_var = closure.raw(),
+                "emit_invoke_indirect: extract_value failed"
+            );
+            self.builder.record_codegen_error();
+            self.builder.br(normal_block);
+            self.builder.position_at_end(normal_block);
+            let unit = self.builder.const_i64(0);
+            self.def_var(dst, EmittedValue::Immediate(unit));
+            return;
+        };
+
+        let ptr_ty = self.builder.ptr_type();
+        let mut arg_vals = Vec::with_capacity(1 + args.len());
+        let mut param_types = Vec::with_capacity(1 + args.len());
+        arg_vals.push(env_ptr);
+        param_types.push(ptr_ty);
+
+        for &a in args {
+            let arg_ty = arc_func.var_type(a);
+            let passing = crate::codegen::abi::compute_param_passing(arg_ty, self.type_info);
+            match passing {
+                crate::codegen::abi::ParamPassing::Indirect { .. }
+                | crate::codegen::abi::ParamPassing::Reference => {
+                    let llvm_ty = self.resolve_type(arg_ty);
+                    let alloca = self.builder.alloca(llvm_ty, "icall.arg.tmp");
+                    self.builder.store(self.var(a), alloca);
+                    arg_vals.push(alloca);
+                    param_types.push(ptr_ty);
+                }
+                crate::codegen::abi::ParamPassing::Void => {}
+                crate::codegen::abi::ParamPassing::Direct => {
+                    arg_vals.push(self.var(a));
+                    param_types.push(self.resolve_type(arg_ty));
+                }
+            }
+        }
+
+        let ret_ty = self.resolve_type(ty);
+        let ret_is_indirect = crate::codegen::abi::abi_size(ty, self.type_info) > 16;
+
+        if unwind_is_empty_cleanup {
+            // No effective cleanup — emit `call` + `br` (same as ApplyIndirect).
+            self.emit_invoke_indirect_call(
+                dst,
+                ret_ty,
+                ret_is_indirect,
+                fn_ptr,
+                &param_types,
+                &arg_vals,
+                arc_func,
+            );
+            self.br_exiting_catchpad(normal_block);
+            self.builder.position_at_end(normal_block);
+        } else {
+            // Real unwind path — emit LLVM `invoke`.
+            let unwind_block = self.block(unwind);
+            self.emit_invoke_indirect_invoke(
+                dst,
+                ret_ty,
+                ret_is_indirect,
+                fn_ptr,
+                &param_types,
+                &arg_vals,
+                normal_block,
+                unwind_block,
+                arc_func,
+            );
+        }
+    }
+
+    /// Inner helper: emit indirect call (no unwind edge) and define `dst`.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "indirect call emission requires all parameters"
+    )]
+    fn emit_invoke_indirect_call(
+        &mut self,
+        dst: ArcVarId,
+        ret_ty: crate::codegen::value_id::LLVMTypeId,
+        ret_is_indirect: bool,
+        fn_ptr: ValueId,
+        param_types: &[crate::codegen::value_id::LLVMTypeId],
+        arg_vals: &[ValueId],
+        arc_func: &ArcFunction,
+    ) {
+        if ret_is_indirect {
+            let sret_alloca = self.builder.alloca(ret_ty, "icall.sret");
+            if let Some((pad, _kind)) = self.current_funclet_pad {
+                self.builder.call_indirect_with_sret_and_funclet(
+                    ret_ty,
+                    param_types,
+                    fn_ptr,
+                    sret_alloca,
+                    arg_vals,
+                    pad,
+                );
+            } else {
+                self.builder.call_indirect_with_sret(
+                    ret_ty,
+                    param_types,
+                    fn_ptr,
+                    sret_alloca,
+                    arg_vals,
+                );
+            }
+            let loaded = self.builder.load(ret_ty, sret_alloca, "icall.sret.load");
+            self.def_var_repr(dst, loaded, arc_func);
+        } else if let Some((pad, _kind)) = self.current_funclet_pad {
+            let result = self.builder.call_indirect_with_funclet(
+                ret_ty,
+                param_types,
+                fn_ptr,
+                arg_vals,
+                pad,
+                "icall",
+            );
+            if let Some(val) = result {
+                self.def_var_repr(dst, val, arc_func);
+            }
+        } else {
+            let result = self
+                .builder
+                .call_indirect(ret_ty, param_types, fn_ptr, arg_vals, "icall");
+            if let Some(val) = result {
+                self.def_var_repr(dst, val, arc_func);
+            }
+        }
+    }
+
+    /// Inner helper: emit indirect invoke (with unwind edge) and define `dst`.
+    ///
+    /// For sret returns, falls back to `call` + `br` since `invoke_indirect`
+    /// doesn't directly support sret convention. For direct returns, uses a
+    /// real LLVM `invoke` instruction.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "indirect invoke emission requires all parameters"
+    )]
+    fn emit_invoke_indirect_invoke(
+        &mut self,
+        dst: ArcVarId,
+        ret_ty: crate::codegen::value_id::LLVMTypeId,
+        ret_is_indirect: bool,
+        fn_ptr: ValueId,
+        param_types: &[crate::codegen::value_id::LLVMTypeId],
+        arg_vals: &[ValueId],
+        normal_block: BlockId,
+        unwind_block: BlockId,
+        arc_func: &ArcFunction,
+    ) {
+        if ret_is_indirect {
+            // Sret: emit call + br (invoke_indirect doesn't support sret
+            // convention directly). The unwind edge is sacrificed for
+            // correctness of the ABI — closure sret invoke is rare.
+            self.emit_invoke_indirect_call(
+                dst,
+                ret_ty,
+                ret_is_indirect,
+                fn_ptr,
+                param_types,
+                arg_vals,
+                arc_func,
+            );
+            self.br_exiting_catchpad(normal_block);
+            self.builder.position_at_end(normal_block);
+        } else {
+            let result = self.builder.invoke_indirect(
+                ret_ty,
+                param_types,
+                fn_ptr,
+                arg_vals,
+                normal_block,
+                unwind_block,
+                "icall",
+            );
+            self.builder.position_at_end(normal_block);
+            if let Some(val) = result {
+                self.def_var_repr(dst, val, arc_func);
+            }
         }
     }
 
