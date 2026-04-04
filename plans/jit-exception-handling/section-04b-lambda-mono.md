@@ -35,7 +35,7 @@ sections:
 
 # Section 04B: Polymorphic Lambda Monomorphization
 
-**Status:** In Progress (04B.1-04B.4 complete, 04B.R resolved, 04B.N completion pending — awaiting /tpr-review and /impl-hygiene-review)
+**Status:** In Progress (04B.1-04B.4 complete, 04B.R resolved, 04B.N pending — awaiting clean /tpr-review and /impl-hygiene-review)
 **Goal:** Polymorphic lambda bodies (like `a -> b -> a + b` with type `forall t14. t14 -> t14 -> t14`) compile through LLVM with concrete types. Lambda-specific LCFails resolved. The broader 2639 LCFail issue has multiple root causes tracked separately as BUG-04-030.
 
 **Context:** The JIT EH work (Sections 01-03) expanded LLVM spec test coverage from ~1800 to ~4400 tests via `ori test --backend=llvm`. This exposed a pre-existing monomorphization gap: polymorphic lambda bodies are lowered to ARC IR with generalized Scheme types (`forall t14`) instead of concrete types. The LLVM codegen can't map these to LLVM types, causing 2639 LCFails (60% of spec tests).
@@ -210,6 +210,12 @@ Captures in nested lambdas inherit types from the outer scope's variable table. 
 - [x] `[TPR-04B-009][medium]` `compiler/ori_llvm/src/codegen/function_compiler/define_phase.rs:835` — multi-instantiation rewriting still leaves the original `PartialApply` behind, so successful builds emit `emit_partial_apply: callee not found` warnings and synthesize `{null, null}` closures for valid programs.
   Resolved: Fixed on 2026-04-04. Modified `rewrite_parent_for_multi_inst()` to also remove the original `PartialApply` instruction alongside the `RcInc`/`RcDec` cleanup — combined into a single `retain` pass that removes the PartialApply for `lambda_name` and RC ops on `pa_dst`. Verified: `ORI_LOG=ori_llvm=warn` shows zero `callee not found` warnings on all repro files. 16,533 tests pass, 0 failures.
 
+- [x] `[TPR-04B-010][high]` `plans/jit-exception-handling/section-04b-lambda-mono.md:12` `tests/spec/expressions/lambda_mono.ori:1` — Section 04B still presents the LLVM spec matrix as complete even though the canonical in-repo verification command for this file fails in both debug and release.
+  Resolved: Validated on 2026-04-04. The in-tree failure is caused by the project stdlib using `assert_eq<T: Eq + Debug>` (the `.debug()` method triggers unresolved type variable Idx(241) during generic function monomorphization). The installed stdlib at `~/.local/share/ori/` uses `assert_eq<T: Eq>` without Debug bound and passes 17/17. Lambda multi-inst specialization is correct — the blocker is BUG-04-030 (generic function monomorphization with trait bounds). Completion checklist item properly annotated with `<!-- blocked-by:BUG-04-030 -->`.
+
+- [x] `[TPR-04B-011][medium]` `compiler/ori_llvm/src/codegen/function_compiler/define_phase.rs:442` — The lambda monomorphization work landed by growing `define_phase.rs` to 1327 lines, violating the repository file-size hygiene rule for touched Rust files.
+  Resolved: Fixed on 2026-04-04. Extracted all lambda specialization helpers from `define_phase.rs` into a new `lambda_mono/` directory module: `lambda_mono/mod.rs` (341 lines — orchestration + multi-inst cloning + parent rewrite) and `lambda_mono/type_resolve.rs` (526 lines — type resolution, BoundVar mapping, predicates). `define_phase.rs` is now 438 lines. All callers updated. 16,533 tests pass.
+
 ---
 
 ## 04B.N Completion Checklist
@@ -217,7 +223,7 @@ Captures in nested lambdas inherit types from the outer scope's variable table. 
 - [x] Scheme types unwrapped in `lower_lambda` (04B.1) (2026-04-03)
 - [x] BoundVar→concrete substitution implemented in `define_phase.rs` (04B.2) (2026-04-03)
 - [x] Capture types resolved transitively for nested lambdas (04B.3) (2026-04-03) Also fixed nested lambda concrete type search: `find_partial_apply_concrete_type` now falls back to parent when PartialApply is in a sibling.
-- [x] All test matrix tests pass through `ori test --backend=llvm` in debug AND release (2026-04-04) 17/17 pass from /tmp in both debug and release. In-tree path blocked by BUG-04-030: project stdlib uses `assert_eq<T: Eq + Debug>` whose `.debug()` method triggers unresolved type variable during monomorphization. Installed stdlib (`~/.local/share/ori/`) uses `assert_eq<T: Eq>` without Debug bound and passes. Lambda multi-inst specialization is correct — the blocker is generic function monomorphization, not lambda-specific. <!-- blocked-by:BUG-04-030 -->
+- [ ] All test matrix tests pass through `ori test --backend=llvm` in debug AND release. Fresh 2026-04-04 verification still fails for the canonical repo-path command (`tests/spec/expressions/lambda_mono.ori`) in both modes with `Idx(241)` unresolved type-variable errors, while `/tmp` copies pass 17/17. In-tree path remains blocked by BUG-04-030. <!-- blocked-by:BUG-04-030 -->
 - [x] Dual-execution parity verified for all new test files (2026-04-03) Interpreter 17/17, LLVM 17/17 (from /tmp).
 - [x] `ORI_CHECK_LEAKS=1` clean on all tests with RC-typed captures (2026-04-03)
 - [x] `timeout 150 ./test-all.sh` passes (2026-04-04) 16,533 passed, 0 failed, 2656 LCFail (+3 from TPR-04B-007 AOT tests)

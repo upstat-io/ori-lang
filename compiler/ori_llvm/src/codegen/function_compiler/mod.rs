@@ -20,6 +20,7 @@
 mod define_phase;
 mod entry_point;
 mod impls;
+mod lambda_mono;
 mod nounwind;
 mod panic_trampoline;
 mod purity_analysis;
