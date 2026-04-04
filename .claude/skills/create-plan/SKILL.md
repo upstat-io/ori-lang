@@ -55,6 +55,8 @@ These principles govern the entire plan creation process. When in doubt, consult
 
 6. **External consultations are SEQUENTIAL and FOREGROUND** — All `/tp-help` and `/tpr-review` invocations MUST run in the foreground (NOT `run_in_background`). MUST wait for each to complete and read its output before proceeding. NEVER launch them in parallel with each other or with other agents/skills. The pipeline is sequential by design — each consultation's feedback informs the next step.
 
+7. **Rules are woven in, not assumed** — Plans cannot assume the implementer has CLAUDE.md or `.claude/rules/*.md` loaded in context. Every section must embed the specific rules that govern its work — TDD discipline, file size limits, crate ordering, test conventions, phase boundaries, registration sync requirements. The plan is a self-contained execution document. If a rule applies to a section's work, it must appear in that section — either as a checklist constraint, a callout, or an inline requirement. The goal is for rules to appear organically as part of the work description, not as a separate "rules to follow" appendix.
+
 ---
 
 ## Phase 1: Prerequisites
@@ -79,6 +81,126 @@ If not provided via arguments, use `AskUserQuestion` to ask:
 4. **Rough scope** — Which parts of the compiler/runtime/stdlib does this touch? (crates, subsystems, features)
 
 Do NOT ask for sections yet. Sections emerge from research, not from guessing.
+
+### Step 1B: Mission Expansion
+
+The user's input is typically a generic, high-level mission statement. Your job is to expand it into a **full executable mission statement** before any research or plan creation begins.
+
+Take the user's rough goal and expand it into:
+
+1. **Concrete scope**: What crates, subsystems, files, and features are in scope? What's explicitly out?
+2. **Deliverables**: What specific, verifiable outcomes does this plan produce? (Not "improve X" — "X does Y where it currently does Z")
+3. **Success criteria**: How do you know the mission is complete? What tests pass? What behavior changes?
+4. **Boundaries**: What does this plan NOT do? Where does it hand off to other plans or future work?
+
+**Scoping discipline — CRITICAL:**
+
+The compiler is under active development. Plans exist to build out the compiler's feature set. Scoping must reflect this reality:
+
+**Valid reasons to scope something OUT:**
+- It doesn't fit Ori's design philosophy — would feel tacked on, not organic to the language
+- It doesn't improve the compiler meaningfully — busywork with no architectural payoff
+- It's architecturally incoherent with the existing design direction
+- It belongs in a different plan that addresses a different subsystem (but must be cross-linked as a dependency)
+
+**INVALID reasons to scope something out:**
+- "The type checker doesn't support X yet" — that's a blocker to resolve (Step 1C), not a scope exclusion
+- "The codegen can't handle Y" — same: blocker, not scope
+- "We'd need to add Z infrastructure first" — same: blocker, not scope
+- Any "missing prerequisite" or "missing feature" argument — if we always scoped out features because prerequisites were missing, no features would ever get built. Missing prerequisites are what Step 1C (Blocker Identification) captures and what the plan resolves.
+
+When evaluating scope, ask: "Is this being excluded because it doesn't belong in Ori, or because building it requires work?" Only the first is valid. The second is the plan's job.
+
+### Step 1C: Blocker Identification
+
+The mission must remove any blockers in its way. Before the mission can be fulfilled, you must identify what stands between the current codebase state and the mission's goals.
+
+1. **Identify blockers**: What existing bugs, missing features, incomplete infrastructure, or broken subsystems would prevent the mission from being fulfilled?
+2. **Check existing tracking**: For each blocker, search:
+   - `plans/roadmap/` — is it a roadmap item? Which section?
+   - `plans/bug-tracker/` — is it a tracked bug? Which entry?
+   - Other `plans/*/` directories — is it queued in another plan? Which section?
+   - CLAUDE.md memory entries — is it a known issue?
+3. **Resolution strategy**: For each blocker:
+   - If tracked elsewhere: this plan MUST include executing/resolving the blocker. Add it as a section or checklist item. When complete, update the original location (roadmap section, bug-tracker entry, other plan) as resolved with a cross-link back to this plan's section.
+   - If not tracked anywhere: this plan owns it entirely. Add it as a section or checklist item.
+   - If the blocker is too large to include (would double the plan's scope): flag it via `AskUserQuestion` — the user decides whether to expand scope or split into prerequisite plans.
+4. **Cross-link format**: When resolving a blocker from another plan, add `<!-- resolved-by: plans/{this-plan}/section-NN -->` to the original location, and `<!-- resolves: plans/{other-plan}/section-MM item description -->` to this plan's item.
+
+### Step 1D: Consensus Loop with Codex (MANDATORY — ITERATE UNTIL AGREEMENT)
+
+**SEQUENTIAL & FOREGROUND — MANDATORY.** Every `/tp-help` call in this loop MUST run in the foreground (NOT `run_in_background`). You MUST wait for each to complete and read its output before proceeding. Do NOT launch these in parallel with any other agent or skill invocation.
+
+This is not a single consultation — it is a **consensus loop**. You and Codex iterate on the mission's direction, approach, and integration points until you reach genuine agreement. The loop runs until one of two outcomes:
+
+1. **Consensus reached**: You and Codex agree on how the plan integrates with Ori's architecture, what the approach should be, and that it's a good fit.
+2. **Agreed rejection**: You and Codex both agree that part or all of the proposed direction is not a good fit for Ori — in which case, document why and propose an alternative direction.
+
+**Loop protocol:**
+
+**Round 1** — Present the full picture to Codex:
+
+Build a `/tp-help` prompt that includes:
+- The user's original generic mission statement
+- Your expanded mission (scope, deliverables, success criteria, boundaries) from Step 1B
+- The identified blockers and their resolution strategy from Step 1C
+- Your proposed direction and approach — how does this integrate with Ori's existing architecture?
+- Any open questions or uncertainties
+
+Ask Codex specifically:
+- "Is this mission statement complete and executable? Are there gaps?"
+- "Are the identified blockers comprehensive, or am I missing dependencies?"
+- "Is the scope right — too broad, too narrow, or just right for a single plan?"
+- "Does this direction integrate well with Ori's architecture? Where are the natural integration points?"
+- "What would you change about the approach?"
+
+**Round 2+** — Respond to Codex's feedback:
+
+After each Codex response, evaluate:
+- **Points of agreement**: Lock these in. They become part of the consensus.
+- **Points of disagreement**: For each, either (a) accept Codex's point and update the mission, or (b) push back with specific reasoning and ask Codex to reconsider. Do NOT silently ignore disagreements.
+- **New concerns raised**: Address each one. If Codex identified a blocker or integration issue you missed, incorporate it.
+- **Integration fit**: If Codex questions whether something fits Ori, engage seriously — is there a better organic integration point? Or is this genuinely not the right approach?
+- **Scoping pushback**: If Codex suggests scoping something out because "the compiler doesn't support X yet" or "Y infrastructure is missing," push back — those are blockers to resolve, not scope exclusions. The only valid reason to exclude something is that it doesn't fit Ori's design. Missing prerequisites are what the plan exists to build.
+
+Call `/tp-help` again with:
+- What you agree on so far (locked-in consensus points)
+- What you're still iterating on (with your response to Codex's feedback)
+- Updated mission statement reflecting changes from this round
+- Specific questions for the remaining disagreements
+
+**Loop termination**: The loop ends when BOTH of these are true:
+- You and Codex agree on the mission direction, scope, approach, and integration points (or agree that something should be excluded and why)
+- There are no unresolved disagreements or open questions between you
+
+**Do NOT cap the loop at a fixed number of rounds.** Most missions will converge in 2-3 rounds. Some may take 4-5. The loop runs until consensus, not until a counter expires.
+
+**After consensus**, compile the results:
+
+1. **Consensus points**: What you and Codex agreed on — direction, approach, integration points, scope
+2. **Rejected directions**: What you both agreed is not a good fit for Ori, and why
+3. **Draft execution outline**: A preliminary sketch of how the plan will be executed — approximate section structure, rough ordering, key phases. This is a draft (full planning hasn't run yet), but it gives the user a sense of shape:
+   - What gets built first (foundation/prerequisites)
+   - What the core implementation phases are
+   - What integration/verification looks like
+   - Where the major risks and decision points are
+
+### Step 1E: Mission Proposal to User
+
+**MANDATORY — DO NOT SKIP.** Use `AskUserQuestion` to present the consensus results to the user for approval before proceeding.
+
+Present:
+1. **Original input**: What the user said
+2. **Expanded mission**: The full executable mission statement (scope, deliverables, success criteria, boundaries)
+3. **Claude + Codex consensus**: What was agreed on — direction, approach, integration points. Present this as a unified position, not a transcript. The user should see what was decided and why.
+4. **Rejected directions** (if any): What was considered and ruled out as not fitting Ori, with reasoning
+5. **Identified blockers**: Each blocker, where it's currently tracked (if anywhere), and how this plan will resolve it
+6. **Cross-plan impacts**: Which other plans/roadmap items will be updated as resolved when this plan executes
+7. **Draft execution outline**: The preliminary plan shape — section structure, ordering, phases. Flag this as a draft that will be refined during the full research and planning phases.
+
+Ask: "Does this mission and approach accurately capture what you want? Any adjustments to the direction, scope, or approach before I proceed with research and plan creation?"
+
+**Do NOT proceed to Step 2 until the user approves the mission.** If they redirect or adjust, go back to Step 1B with the new direction and repeat Steps 1C-1E (including the consensus loop).
 
 ### Step 2: Read the Template & Hygiene Rules
 
@@ -444,6 +566,7 @@ The overview is the **load-bearing design document**. It is NOT boilerplate fill
 Write `00-overview.md` following the template in `.claude/skills/create-plan/plan-schema.md`, grounding every element in research:
 
 - **Mission**: Based on the actual problem discovered during research — what exists, what's broken, what's missing
+- **Mission Success Criteria**: Concrete, testable conditions that prove the mission is complete — derived from the approved mission statement (Step 1E). Every criterion must be traceable to at least one section. A criterion with no section delivering it is a plan gap.
 - **Architecture diagram**: Based on the actual data flow map from Pass 2's deep read — show how data enters, transforms, and exits
 - **Design principles**: Based on patterns observed in analogous features (Pass 3) and prior art (Pass 4) — cite the specific evidence
 - **Section dependency graph**: Based on actual crate dependencies and sync points found in Pass 1 — show which sections gate others
@@ -531,8 +654,11 @@ For each section, in order from 01 to N:
 - **Dependencies on prior sections**: Explicitly reference what earlier sections provide. "This section uses the {type} defined in Section {N} ({file path})."
 - **What this section provides to later sections**: State what downstream sections will depend on. "Section {M} will use the {API/type/pattern} established here."
 
+- **Success criteria**: Every section MUST have detailed success criteria — concrete, testable conditions that prove the section's work is done. Not "implement X" but "X produces Y when Z is run." Each criterion must connect upward to at least one mission success criterion in `00-overview.md`. A section without success criteria is not executable.
+- **Rules woven in**: Every section must embed the CLAUDE.md and `.claude/rules/*.md` rules that apply to its work — not as a "rules" appendix, but woven organically into checklist items, constraints, and callouts. Read CLAUDE.md and the relevant rule files (`.claude/rules/tests.md` for test sections, `.claude/rules/compiler.md` for compiler changes, `.claude/rules/registry.md` for registry work, `.claude/rules/arc.md` for ARC work, etc.) and embed the applicable constraints directly into the section's tasks. For example: if a section adds an enum variant, the checklist item should say "Add `FooVariant` to `BarEnum` in `file.rs` — update ALL match arms (see `other_file.rs:123`, `third_file.rs:456`)" rather than "Add variant (remember to check sync points)." The plan is a self-contained execution document — the implementer should not need to consult external rule files to know what a section requires.
+
 **Frontmatter includes:**
-- Section ID, title, status: not-started, goal
+- Section ID, title, status: not-started, goal, `success_criteria` list
 - `reviewed` field (see rules below)
 - `inspired_by` with actual reference implementations found
 - `depends_on` based on actual crate dependency chain AND section content dependencies
@@ -577,6 +703,7 @@ Check for:
 5. ORDERING ISSUES: Does Section X depend on work described in Section Y, but X comes before Y?
 6. SYNC POINT COMPLETENESS: Are ALL sync points (enum variants, match arms, registry entries) accounted for across all sections? Is any sync point mentioned in one section but forgotten in its counterpart section?
 7. OVERVIEW ALIGNMENT: Does the overview's architecture diagram, dependency graph, and implementation sequence still match what the sections actually describe?
+8. SUCCESS CRITERIA COVERAGE: Does every mission success criterion in 00-overview.md trace to at least one section that delivers it? Does every section have its own success criteria? Does each section criterion connect upward to at least one mission criterion? A mission criterion with no section delivering it is a plan gap. A section without success criteria is not executable.
 
 For each issue found, report:
   ISSUE TYPE: {contradiction/gap/redundancy/broken-ref/ordering/sync-gap/overview-drift}
@@ -598,6 +725,7 @@ Do a quick self-audit:
 5. **No assumptions** — every technical claim traces to research
 6. **No contradictions** — cohesion check passed clean
 7. **Test strategy per section** — every code-modifying section has: explicit matrix dimensions (types x patterns), semantic pin requirements, TDD ordering (failing tests first, debug+release last)
+8. **Success criteria hierarchy** — `00-overview.md` has mission success criteria; every section has its own success criteria in both frontmatter and body; every mission criterion maps to at least one section; every section criterion maps upward to at least one mission criterion
 
 Fix any issues found.
 

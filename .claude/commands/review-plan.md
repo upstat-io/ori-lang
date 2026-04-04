@@ -248,39 +248,55 @@ Read file: CLAUDE.md
 
 INSTRUCTIONS:
 
-## Part 1: Mission Fulfillment
+## Part 1: Mission Fulfillment & Success Criteria
 1. Read ALL files in {plan_dir}/ (index.md, 00-overview.md, and all section-*.md files)
-2. Identify the plan's stated mission/goal (from index.md or 00-overview.md)
-3. For each aspect of the mission, verify there is at least one section that addresses it:
+2. Identify the plan's stated mission/goal and mission success criteria (from 00-overview.md)
+3. Verify the success criteria hierarchy:
+   - Does `00-overview.md` have a "Mission Success Criteria" section with concrete, testable criteria?
+   - Does every section have `success_criteria` in its frontmatter AND a "Success Criteria" block in its body?
+   - Does every mission criterion trace to at least one section that delivers it? (If not: plan gap — add the missing section or expand an existing one)
+   - Does every section criterion connect upward to at least one mission criterion? (If not: orphan criterion — either connect it or question whether the section belongs in this plan)
+   - Are all criteria concrete and testable — not "X works" but "X produces Y when Z is run"?
+   - If success criteria are missing or vague, ADD them. This is non-negotiable — a section without success criteria is not executable.
+4. For each aspect of the mission, verify there is at least one section that addresses it:
    - If a mission goal has NO section addressing it: ADD a new section
    - If a mission goal is partially addressed: EXPAND the relevant section(s) with additional checkboxes
    - If a mission goal is mentioned but deferred: REMOVE the deferral language and make it concrete
 4. The plan must not just "get started" on its mission — it must deliver the mission completely. If the plan currently ends at 70% of the mission, add sections for the remaining 30%.
 
-## Part 2: Sequential Flow & Dependencies
-5. Verify that sections can be worked in order (section N before section N+1):
+## Part 2: Blocker Resolution Verification
+5. Verify that the plan identifies and resolves ALL blockers standing between the current codebase state and the mission's goals:
+   - Does the plan identify what existing bugs, missing features, or broken subsystems would prevent the mission from being fulfilled?
+   - For each identified blocker, is it tracked elsewhere (roadmap, bug-tracker, other plans)?
+   - If tracked elsewhere: does this plan include executing/resolving it? Does it have cross-links (`<!-- resolves: plans/... -->`) to the original location?
+   - Are there UNIDENTIFIED blockers the plan missed? Search the codebase, roadmap, bug-tracker, and other plans for issues that would block this plan's sections.
+   - For any missing blocker: ADD it to the appropriate section as a checklist item. If it's tracked elsewhere, add cross-links in both directions.
+   - If a section depends on infrastructure or features that don't exist yet and the plan doesn't address that gap, FLAG it and add the missing work.
+
+## Part 3: Sequential Flow & Dependencies
+6. Verify that sections can be worked in order (section N before section N+1):
    - Does each section's output provide what the next section needs as input?
    - Are there circular dependencies between sections? (These must be resolved by reordering or splitting)
    - If section N depends on something from section M where M > N, that's a dependency violation — reorder
-6. For each section, verify its prerequisites are explicit:
+7. For each section, verify its prerequisites are explicit:
    - What must be true in the codebase before this section can begin?
    - Which prior sections must be complete?
    - If prerequisites are implicit, make them explicit
-7. Check for "orphan sections" — sections that neither depend on nor feed into other sections. These may indicate scope gaps or misplacement.
+8. Check for "orphan sections" — sections that neither depend on nor feed into other sections. These may indicate scope gaps or misplacement.
 
-## Part 3: Completeness & Gap Analysis
-8. Review each section for completeness:
+## Part 4: Completeness & Gap Analysis
+9. Review each section for completeness:
    - Are there missing steps that would block implementation?
    - Are edge cases and error handling accounted for?
    - Are dependencies between sections correctly identified?
    - Check for missing sync points — if the plan adds enum variants, new types, or registration entries, does it list ALL locations that must be updated together?
-9. For every gap found, EDIT the plan files directly to add the missing content — add checklist items, steps, or entire sections
-10. Flag and fix deferral traps: items labeled "bonus", "future", "lower priority", "nice to have", "stretch goal", or "requires architectural change." These invite the implementer to skip them. Rewrite as concrete, mandatory tasks or mark with explicit `<!-- blocked-by:X -->` if genuinely blocked. Remove all soft deferral language.
-11. When reviewing TPR (Third Party Review) findings: you MUST NOT dismiss findings because they are "not related" to the current plan, "out of scope", or "pre-existing." Per CLAUDE.md there is no "unrelated" or "out of scope." If a finding identifies a real issue, it must be accepted. Only reject findings that are factually incorrect (the issue does not actually exist).
+10. For every gap found, EDIT the plan files directly to add the missing content — add checklist items, steps, or entire sections
+11. Flag and fix deferral traps: items labeled "bonus", "future", "lower priority", "nice to have", "stretch goal", or "requires architectural change." These invite the implementer to skip them. Rewrite as concrete, mandatory tasks or mark with explicit `<!-- blocked-by:X -->` if genuinely blocked. Remove all soft deferral language.
+12. When reviewing TPR (Third Party Review) findings: you MUST NOT dismiss findings because they are "not related" to the current plan, "out of scope", or "pre-existing." Per CLAUDE.md there is no "unrelated" or "out of scope." If a finding identifies a real issue, it must be accepted. Only reject findings that are factually incorrect (the issue does not actually exist).
 
-## Part 4: Expansion, Not Scoping Down
-12. THE CARDINAL RULE: Never scope down. If the plan is too small for the mission, grow the plan. If a section is too thin, add checkboxes. If a goal requires architectural work, add the architectural work as concrete steps. "Requires architectural change" is not a reason to defer — it IS the work.
-13. Check the overview (00-overview.md) and index.md — do they accurately reflect all sections? Update them if sections were added or restructured.
+## Part 5: Expansion, Not Scoping Down
+13. THE CARDINAL RULE: Never scope down. If the plan is too small for the mission, grow the plan. If a section is too thin, add checkboxes. If a goal requires architectural work, add the architectural work as concrete steps. "Requires architectural change" is not a reason to defer — it IS the work.
+14. Check the overview (00-overview.md) and index.md — do they accurately reflect all sections? Update them if sections were added or restructured.
 
 Add a brief comment near each addition: <!-- reviewed: cohesion fix -->
 After editing, list what you changed and why — especially any structural changes (sections added, removed, merged, split, reordered) and significant scope expansions.
@@ -358,6 +374,13 @@ INSTRUCTIONS:
    - Are implementation steps ordered correctly (upstream crates before downstream)?
    - Does it follow test file conventions (sibling tests.rs)?
 7. Reorder items within sections if they violate crate dependency ordering (ori_lexer → ori_parse → ori_ir → ori_types → ori_eval → ori_llvm → oric)
+8. **Rules weaving check** — verify that CLAUDE.md and `.claude/rules/*.md` rules are woven into each section's work, not assumed:
+   - Read CLAUDE.md and the relevant `.claude/rules/*.md` files for this plan's scope
+   - For each section, check: are the applicable rules embedded in the checklist items and constraints?
+   - Rules should appear organically in task descriptions — "Add variant X, update match arms at `file.rs:123` and `other.rs:456`" NOT "Add variant (remember sync points)"
+   - Key rules to check for: TDD discipline (tests.md), file size limits (compiler.md), crate ordering (compiler.md), registration sync (registry.md), ARC invariants (arc.md), phase boundaries (compiler.md), test conventions (tests.md)
+   - If a section touches a subsystem but doesn't embed its rules, ADD the relevant constraints as inline requirements in the checklist items
+   - The plan must be a self-contained execution document — an implementer should not need to consult external files to know what a section requires
 8. Add warnings for steps that are particularly complex or risky
 9. Verify every code-modifying section includes matrix testing requirements:
    - Does the section specify its test matrix dimensions (which types x which patterns)?
@@ -478,7 +501,22 @@ INSTRUCTIONS:
     - **Single-section review (Mode A):** After your final coherence check, set `reviewed: true` — the 4-agent pipeline has validated the section. Exception: if any agent flagged unfixable issues requiring human judgement, leave `reviewed: false`.
     - **Whole-plan review (Mode B):** Do NOT change any `reviewed` values.
     - Report any sections missing the field
-12. Final coherence check: read through the entire plan one more time. Does it tell a complete, sequential story from start to finish? Is this the RIGHT plan for the mission — not just a cleaned-up version of whatever was there before?
+12. **Success criteria hierarchy validation**: Verify the full chain:
+    - `00-overview.md` has "Mission Success Criteria" with concrete, testable criteria
+    - Every section has `success_criteria` in frontmatter AND a "Success Criteria" block in body
+    - Every mission criterion traces to at least one section (no undelivered criteria)
+    - Every section criterion traces upward to at least one mission criterion (no orphan criteria)
+    - All criteria are concrete and testable — "X works" is unacceptable; "X produces Y when Z is run" is required
+    - If prior agents added sections, verify they have success criteria that connect to the mission
+    - If criteria are missing, vague, or disconnected: ADD or FIX them
+13. **Plan-sync line items** — verify every section's completion checklist includes the mandatory plan-sync step:
+    - Section frontmatter status update
+    - `00-overview.md` Quick Reference table and mission success criteria checkboxes
+    - `index.md` section status
+    - Cross-links to other plans (if section resolves external blockers)
+    - Next section's `depends_on` verification
+    - If any section is missing this plan-sync block, ADD it from the template in `plan-schema.md`
+14. Final coherence check: read through the entire plan one more time. Does it tell a complete, sequential story from start to finish? Is this the RIGHT plan for the mission — not just a cleaned-up version of whatever was there before?
 
 After editing, list what you changed and why — especially any test strategy gaps filled, any structural changes, and any corrections to prior agents' work.
 ```
@@ -546,8 +584,12 @@ requires human judgement rather than mechanical fixes.}
 6. **Check crate dependency order** — Implementation steps must respect: `ori_lexer → ori_parse → ori_ir → ori_types → ori_eval → ori_llvm → oric`.
 7. **Clean up after yourself** — Agent 4 removes all `<!-- reviewed: ... -->` markers.
 8. **Flag what can't be auto-fixed** — Architectural decisions and scope questions go in "Remaining Concerns" for human review.
-9. **NEVER scope down — always expand** — If the plan doesn't fulfill its mission, grow the plan. Add sections, add checkboxes, add detail. "Requires architectural change" is not a reason to defer — it IS the work. Every gap in mission fulfillment must be filled with concrete, actionable items.
+9. **NEVER scope down — always expand** — If the plan doesn't fulfill its mission, grow the plan. Add sections, add checkboxes, add detail. "Requires architectural change" is not a reason to defer — it IS the work. Every gap in mission fulfillment must be filled with concrete, actionable items. **Scoping discipline:** The compiler is under active development — plans exist to build features. The ONLY valid reason to scope something out is that it doesn't fit Ori's design (would feel tacked on, architecturally incoherent, no meaningful improvement). "The compiler doesn't support X yet" or "Y infrastructure is missing" are NEVER valid scope exclusions — those are blockers to resolve within the plan. If we always scoped out features because prerequisites were missing, no features would ever get built.
 10. **No deferral traps** — Flag any plan items that create temptation to defer during implementation. Items labeled "bonus", "future", "lower priority", or "requires architectural change" are red flags. Every checkbox in a section must be implementable by the agent executing the section. If an item genuinely cannot be implemented within the section's scope (missing language feature, external dependency), it should be marked `<!-- blocked-by:X -->` with a concrete blocker — not soft language that invites skipping. Agents should rewrite soft deferral language into concrete, actionable tasks or explicit blockers.
 11. **No dismissing TPR findings as "unrelated"** — When triaging Third Party Review findings, you MUST NOT dismiss a finding because it is "not related" to the current plan, "out of scope", or "pre-existing." Per CLAUDE.md: there is no "unrelated", "pre-existing", or "out of scope." If a TPR finding identifies a real issue in the codebase, it must be accepted and addressed. The ONLY valid reason to reject a TPR finding is that the described issue does not actually exist in the codebase (factually incorrect).
 12. **Testing rigor is non-negotiable** — Every section that modifies code must have a test strategy meeting CLAUDE.md requirements: matrix tests (type x pattern coverage with explicit dimension names), semantic pins (tests that ONLY pass with the new semantics), TDD ordering (failing tests as first item, debug+release as last item), and cross-section coverage when touching shared code paths. Plans should arrive with these from `/create-plan`, but if missing, Agent 3 and Agent 4 must add them — a section without matrix dimensions and semantic pins is not executable.
 13. **Cohesive sequential strategy** — The plan must read as one continuous strategy. Each section builds on prior sections. No orphan sections, no circular dependencies, no implicit prerequisites.
+14. **Success criteria are mandatory at both levels** — `00-overview.md` must have mission success criteria. Every section must have its own success criteria (in frontmatter and body). Section criteria are the building blocks that collectively satisfy mission criteria. Every mission criterion must trace to at least one section; every section criterion must trace upward. Missing, vague, or disconnected criteria must be fixed by the review agents — a section without success criteria is not executable.
+15. **Blocker resolution is mandatory** — The plan must identify ALL blockers (existing bugs, missing features, broken subsystems) that stand between the current codebase and the mission's goals. If a blocker is tracked in another plan (roadmap, bug-tracker, etc.), this plan must include resolving it with cross-links (`<!-- resolves: plans/... -->` in this plan, `<!-- resolved-by: plans/... -->` in the original). Unidentified blockers found during review must be added to the appropriate section.
+16. **Rules woven in, not assumed** — Plans are self-contained execution documents. CLAUDE.md and `.claude/rules/*.md` constraints must be embedded organically in each section's checklist items — not referenced externally or assumed known. If a section touches a subsystem but doesn't embed its rules (TDD discipline, file size limits, crate ordering, sync points, ARC invariants, phase boundaries, test conventions), the review agents must add the relevant constraints inline.
+17. **Plan-sync on section completion** — Every section's completion checklist must include a plan-sync step that updates: section frontmatter status, `00-overview.md` Quick Reference + mission success criteria, `index.md` status, cross-links to other plans, and next section's `depends_on` verification. This keeps the plan's metadata accurate as sections complete.

@@ -39,6 +39,16 @@ references:             # Design docs, proposals, prior art
 
 {1-2 sentences. What is this plan accomplishing and why? Not "implement X" but "complete X as one cohesive system: from A through B to C." Establish scope and intent.}
 
+## Mission Success Criteria
+
+{The mission is complete when ALL of these are true. Each criterion must be concrete, testable, and verifiable — not "X works" but "X produces Y when Z is run." Section success criteria are the building blocks — when every section meets its own criteria, the mission criteria must follow. Every mission criterion must be traceable to at least one section that delivers it.}
+
+- [ ] {Criterion 1 — specific, measurable, verifiable condition}
+- [ ] {Criterion 2 — with command or test that proves it}
+- [ ] {Criterion 3 — connects to section(s) that deliver it}
+- [ ] `./test-all.sh` green — no regressions
+- [ ] All section success criteria met
+
 ## Architecture
 
 \`\`\`
@@ -234,6 +244,9 @@ title: "{Title}"
 status: not-started
 reviewed: false
 goal: "{One-line measurable goal}"
+success_criteria:        # Concrete conditions proving this section is done
+  - "{Criterion 1 — testable, verifiable}"
+  - "{Criterion 2 — with command or observable result}"
 inspired_by:             # Reference implementations studied
   - "{Language/Tool} {pattern} ({file path})"
 depends_on: ["{NN}"]     # Other sections required first
@@ -277,6 +290,15 @@ sections:
 **Goal:** {Expanded goal — what must be true when this section is complete.
 Not "implement X" but "X works correctly under conditions A, B, C with
 no regressions in Y."}
+
+**Success Criteria:**
+{Concrete, testable conditions that prove this section's work is done.
+Each criterion should be independently verifiable. Together, these criteria
+contribute to one or more mission success criteria in `00-overview.md`.}
+
+- [ ] {Criterion — specific behavioral outcome with verification method}
+- [ ] {Criterion — test name, command, or observable result}
+- [ ] {Criterion — connects upward to mission criterion: "Satisfies mission criterion N"}
 
 **Context:** {Why this section exists. What pain point, bug, or
 architectural gap motivated it. Cite specific debugging sessions,
@@ -398,6 +420,13 @@ When all findings are triaged:
 - [ ] {No spurious warnings in normal compilation}
 - [ ] Plan annotation cleanup: `bash .claude/skills/impl-hygiene-review/plan-annotations.sh --plan {NN}` returns 0 annotations — all temporary scaffolding (TPR, CROSS, BUG, §, Phase, section- refs) removed from `.rs` files
 - [ ] All intermediate TPR checkpoint findings resolved (see checkpoint items in subsections above)
+- [ ] **Plan sync** — update plan metadata to reflect this section's completion:
+  - [ ] This section's frontmatter `status` → `complete`, subsection statuses updated
+  - [ ] `00-overview.md` Quick Reference table status updated for this section
+  - [ ] `00-overview.md` mission success criteria checkboxes updated (check off any now satisfied)
+  - [ ] `index.md` section status updated
+  - [ ] Cross-links to other plans updated if this section resolved external blockers (`<!-- resolved-by: ... -->`)
+  - [ ] Next section's `depends_on` verified — no stale assumptions from this section's work
 - [ ] `/tpr-review` passed (final, full-section) — independent Codex review found no critical or major issues (or all findings triaged)
 - [ ] `/impl-hygiene-review last commit` passed — implementation hygiene review found no critical or major findings (or all findings triaged and fixed). MUST run AFTER `/tpr-review` is clean.
 
@@ -569,10 +598,33 @@ Each section should be self-contained enough that someone can understand
 WHY the work exists, not just WHAT to do. Include the bug report, the
 debugging session insight, the architectural principle that motivates it.
 
+### Rules Woven In, Not Assumed
+Plans cannot assume the implementer has CLAUDE.md or `.claude/rules/*.md`
+loaded in context. Every section must embed the specific rules that
+govern its work — woven organically into checklist items, constraints,
+and callouts. If a rule applies, it appears in the task description
+itself: "Add `FooVariant` — update ALL match arms (`file.rs:123`,
+`other.rs:456`)" rather than "Add variant (check sync points)." The
+plan is a self-contained execution document. Relevant rule files:
+`tests.md` (TDD, matrix testing), `compiler.md` (file size, crate
+ordering, API design), `registry.md` (sync points), `arc.md` (AIMS
+invariants), `impl-hygiene.md` (bloat/waste/drift categories),
+`runtime.md`, `llvm.md`, `eval.md`, `parse.md`, `ir.md`, etc.
+
 ### Measurable Exit Criteria
 "Implement X" is not an exit criterion. "{Command} produces {output}
 with 0 failures across {N} tests" is. Every section ends with a
 testable, verifiable condition.
+
+### Success Criteria Hierarchy
+The plan has mission-level success criteria in `00-overview.md`. Each
+section has its own success criteria. Section criteria are the building
+blocks — when every section meets its criteria, the mission criteria
+must follow. Every mission criterion must trace to at least one section
+that delivers it, and every section criterion must trace upward to at
+least one mission criterion it contributes to. A section without
+success criteria is not executable. A mission criterion that no section
+delivers is a gap in the plan.
 
 ### Design Decisions with Trade-offs
 When there are multiple approaches, document all of them with pros/cons.
