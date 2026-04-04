@@ -1,7 +1,7 @@
 ---
 section: 2
 title: Complete Type Inference
-status: complete
+status: in-progress
 reviewed: true
 last_verified: "2026-03-29"
 tier: 1
@@ -21,7 +21,7 @@ sections:
     status: complete
   - id: "2.4"
     title: Section Completion Checklist
-    status: complete
+    status: in-progress
 ---
 
 # Section 2: Complete Type Inference
