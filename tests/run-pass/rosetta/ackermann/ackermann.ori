@@ -1,0 +1,24 @@
+// Ackermann Function - Rosetta Code
+// https://rosettacode.org/wiki/Ackermann_function
+//
+// A total computable function that is not primitive recursive.
+// Grows faster than any primitive recursive function.
+//
+// A(0, n) = n + 1
+// A(m, 0) = A(m-1, 1)
+// A(m, n) = A(m-1, A(m, n-1))
+
+@ack (0: int, n: int) -> int = n + 1;
+@ack (m: int, 0: int) -> int = ack(m: m - 1, n: 1);
+@ack (m: int, n: int) -> int = ack(m: m - 1, n: ack(m:, n: n - 1));
+
+@main () -> void = {
+    print(msg: `A(0, 0) = {ack(m: 0, n: 0)}`);
+    print(msg: `A(1, 1) = {ack(m: 1, n: 1)}`);
+    print(msg: `A(2, 2) = {ack(m: 2, n: 2)}`);
+    print(msg: `A(3, 3) = {ack(m: 3, n: 3)}`);
+    print(msg: `A(3, 4) = {ack(m: 3, n: 4)}`);
+    print(msg: `A(3, 5) = {ack(m: 3, n: 5)}`);
+    print(msg: `A(4, 0) = {ack(m: 4, n: 0)}`)
+    // A(4, 1) = 65533 — too deep for interpreter, needs LLVM backend (BUG-04-033)
+}

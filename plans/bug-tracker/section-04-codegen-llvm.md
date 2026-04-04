@@ -219,6 +219,12 @@ Bugs in LLVM IR generation, JIT/AOT compilation, monomorphization, ARC pipeline 
   Found: 2026-04-03 | Source: continue-roadmap (JIT EH plan §05 verification)
   Note: Related to BUG-04-031. Both are short-circuit codegen issues. This one compiles and runs but produces wrong output (semantic bug), while BUG-04-031 fails at IR verification (structural bug).
 
+- [ ] `[BUG-04-033][high]` **LLVM codegen fails on multi-clause functions with literal patterns (Ackermann)** — found by manual.
+  Repro: `ori run --compile tests/run-pass/rosetta/ackermann/ackermann.ori` — 3-clause `@ack` with literal `0` patterns. Two errors: (1) `build_struct called with non-struct LLVM type (i64)` — clause dispatch treats int return as struct; (2) LLVM IR verification: "PHINode should have one entry for each predecessor of its parent basic block" — join blocks from clause branches have mismatched phi entries.
+  Subsystem: `compiler/ori_llvm/src/codegen/` (multi-clause function lowering, phi node generation)
+  Found: 2026-04-04 | Source: manual (Rosetta Code task implementation)
+  Note: Active work in roadmap section 15B (function clauses) and section 09 (match/patterns) touches this area. Multi-clause lowering in `ori_canon` works correctly; the bug is in LLVM IR emission from the lowered match tree.
+
 ---
 
 ## 04.R Third Party Review Findings
