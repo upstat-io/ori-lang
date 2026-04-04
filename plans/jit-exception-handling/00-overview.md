@@ -67,7 +67,7 @@ CURRENT STATE (implemented):
 
 **Section 04B (Polymorphic Lambda Monomorphization) — IN PROGRESS:**
 - Scheme unwrapping in ARC lowering, BoundVar→concrete substitution, and nested capture resolution have landed
-- Open review findings: the in-tree `lambda_mono.ori` LLVM command still fails in debug and release, and the touched `define_phase.rs` monomorphization path now violates the repo file-size rule
+- Open review findings: nested multi-instantiated inner lambdas are still not specialized when their `PartialApply`/narrowing copies live inside sibling lambda bodies (fresh LLVM repros crash or leave unresolved type variables), and the in-tree `lambda_mono.ori` LLVM command still fails in debug and release due BUG-04-030
 
 **Section 05 (Verification) — NOT STARTED:**
 - Full test matrix, dual-exec parity, TPR review

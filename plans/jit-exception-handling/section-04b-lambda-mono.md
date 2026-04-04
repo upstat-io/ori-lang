@@ -216,6 +216,9 @@ Captures in nested lambdas inherit types from the outer scope's variable table. 
 - [x] `[TPR-04B-011][medium]` `compiler/ori_llvm/src/codegen/function_compiler/define_phase.rs:442` — The lambda monomorphization work landed by growing `define_phase.rs` to 1327 lines, violating the repository file-size hygiene rule for touched Rust files.
   Resolved: Fixed on 2026-04-04. Extracted all lambda specialization helpers from `define_phase.rs` into a new `lambda_mono/` directory module: `lambda_mono/mod.rs` (341 lines — orchestration + multi-inst cloning + parent rewrite) and `lambda_mono/type_resolve.rs` (526 lines — type resolution, BoundVar mapping, predicates). `define_phase.rs` is now 438 lines. All callers updated. 16,533 tests pass.
 
+- [x] `[TPR-04B-012][high]` `compiler/ori_llvm/src/codegen/function_compiler/lambda_mono/mod.rs:47` — Nested multi-instantiated inner lambdas are still compiled as a single specialization because multi-inst detection and rewriting only inspect the top-level parent ARC function.
+  Resolved: Rejected after validation on 2026-04-04. The nested case works correctly because LLVM compilation is recursive: `emit_arc_function` → `compile_lambda_arc` → `emit_arc_function` for nested lambdas. At each level, `resolve_all_lambda_bound_vars` is called with the enclosing lambda as the parent. The inner `id` lambda’s multi-inst is detected within the outer lambda’s ARC IR. Verified: `cargo run --bin ori -- run --backend=llvm /tmp/nested_multi_inst_test.ori` returns 0 (correct) with zero `unresolved type variable` or `callee not found` errors. The Codex repro was based on pre-fix code (before the PartialApply removal in commit 62d38061).
+
 ---
 
 ## 04B.N Completion Checklist
