@@ -1,7 +1,7 @@
 ---
 section: 1
 title: Type System Foundation
-status: complete
+status: in-progress
 last_verified: "2026-03-29"
 tier: 1
 goal: Fix type checking to properly use type annotations
@@ -15,7 +15,7 @@ sections:
     status: complete
   - id: "1.1A"
     title: Duration and Size Types
-    status: complete
+    status: in-progress
   - id: "1.1B"
     title: Never Type Semantics
     status: complete
@@ -24,7 +24,7 @@ sections:
     status: complete
   - id: "1.3"
     title: Lambda Type Annotations
-    status: complete
+    status: in-progress
   - id: "1.4"
     title: Let Binding Types
     status: complete
@@ -36,7 +36,7 @@ sections:
     status: complete
   - id: "1.7"
     title: Section Completion Checklist (Updated)
-    status: complete
+    status: in-progress
 ---
 
 # Section 1: Type System Foundation
