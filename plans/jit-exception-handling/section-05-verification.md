@@ -123,6 +123,12 @@ Verify each category passes through LLVM in BOTH debug and release builds. For e
 - [x] `[TPR-05-004][medium]` [plans/jit-exception-handling/index.md](/home/eric/projects/ori_lang/plans/jit-exception-handling/index.md) — Stale index contradicting section files.
   Resolved: Fixed on 2026-04-04. Updated Section 04→Complete, 04B→Complete (1 blocked), 05→In Progress in both keyword clusters and Quick Reference table.
 
+- [x] `[TPR-05-005][medium]` `index.md` / `00-overview.md` — 04B status inconsistency between index (Complete) and overview (In Progress).
+  Resolved: Fixed on 2026-04-04. The inconsistency was caused by a prior Codex iteration reopening 04B in the overview while the section file kept `status: complete`. Aligned all three files (section-04b, 00-overview, index) to "Complete (1 item blocked by BUG-04-030)" — matching the section file's source of truth. Per plan-wide accuracy rules, sections done but held open by external blockers are marked complete with a blocker note.
+
+- [x] `[TPR-05-006][low]` `higher_order.rs` — File at 580 lines.
+  Resolved: Rejected on 2026-04-04. `higher_order.rs` is a **test file** (`compiler/ori_llvm/tests/aot/higher_order.rs`). Per CLAUDE.md: "File size: 500 line limit (excl. tests)." Test files are explicitly exempt from the 500-line limit.
+
 ---
 
 ## 05.N Completion Checklist
