@@ -1,7 +1,7 @@
 ---
 section: "02"
 title: "Ownership Propagation"
-status: in-progress
+status: complete
 reviewed: true
 goal: "Populate arg_ownership on ApplyIndirect/InvokeIndirect from closure contracts via the AIMS pipeline"
 success_criteria:
@@ -38,7 +38,7 @@ sections:
     status: in-progress
   - id: "02.N"
     title: "Completion Checklist"
-    status: not-started
+    status: complete
 ---
 
 # Section 02: Ownership Propagation
@@ -309,10 +309,10 @@ These findings were raised during pre-implementation plan review. The plan text 
 - [x] `timeout 150 cargo t` passes
 - [x] `timeout 150 ./test-all.sh` passes
 - [x] `/tpr-review` passed (clean on iteration 6 after 11 findings fixed)
-- [ ] `/impl-hygiene-review last commit` passed
-- [ ] **Plan sync**: Section 02 frontmatter `status:` updated to `complete`
-- [ ] **Plan sync**: `00-overview.md` frontmatter `status:` still `in-progress` (Section 03 remains)
-- [ ] **Plan sync**: `index.md` Quick Reference table updated (Section 02 status → Complete)
-- [ ] **Plan sync**: Section 03 `depends_on: ["01", "02"]` verified accurate
+- [x] `/impl-hygiene-review last commit` passed (1 LEAK fixed: test helper duplication)
+- [x] **Plan sync**: Section 02 frontmatter `status:` updated to `complete`
+- [x] **Plan sync**: `00-overview.md` frontmatter `status:` still `in-progress` (Section 03 remains)
+- [x] **Plan sync**: `index.md` Quick Reference table updated (Section 02 status → Complete)
+- [x] **Plan sync**: Section 03 `depends_on: ["01", "02"]` verified accurate
 - [x] Block-param merge accepts distinct capture vars when they produce the same effective indirect-call ownership (tag-based comparison via `captures_same_override_semantics`)
 - [x] Typed builtin regression coverage: `different_capture_types` (List vs str → fallback), `same_capture_types` (int vs int → merge), `cross_instantiation_same_tag` (List<int> vs List<str> → merge)
