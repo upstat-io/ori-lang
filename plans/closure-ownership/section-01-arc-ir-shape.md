@@ -17,8 +17,8 @@ inspired_by:
   - "Lean 4 standard vs borrowed calling conventions"
 depends_on: []
 third_party_review:
-  status: none
-  updated: null
+  status: resolved
+  updated: 2026-04-05
 sections:
   - id: "01.1"
     title: "Add arg_ownership to ApplyIndirect"
@@ -175,7 +175,18 @@ sections:
 
 ## 01.R Third Party Review Findings
 
-- None.
+- [x] `[TPR-01-001][major]` `edge_cleanup.rs:73,278,312,428` — InvokeIndirect missing from invoke-specific RC edge cleanup.
+  Resolved: Fixed on 2026-04-05. Added InvokeIndirect to collect_invoke_edge_decs with correct is_some_and default (Borrowed for indirect, Owned for direct). Added is_indirect flag to invoke_transfers_ownership helper.
+- [x] `[TPR-01-002][major]` `dead_cleanup.rs:174,185,248` — InvokeIndirect missing from dead-dst fallback sweep.
+  Resolved: Fixed on 2026-04-05. Added InvokeIndirect to emit_dead_invoke_dsts and is_var_defined_in_block.
+- [x] `[TPR-01-003][minor]` `ir/tests.rs:1223,1283,1326` — Decorative `// --- ... ---` banner comments.
+  Resolved: Fixed on 2026-04-05. Replaced with plain section comments.
+- [x] `[TPR-01-004][major]` `edge_cleanup.rs:312,428` — is_none_or ownership default wrong for InvokeIndirect (defaults empty to Owned instead of Borrowed).
+  Resolved: Fixed on 2026-04-05. Added is_indirect detection, use is_some_and for indirect calls.
+- [x] `[TPR-01-005][medium]` `drop_hints.rs:95` — InvokeIndirect missing from collect_borrowed_call_args terminator scan.
+  Resolved: Pre-existing gap, already tracked in Section 03.1. No regression from Section 01 changes.
+- [x] `[TPR-01-006][medium]` `unwind_cleanup.rs:57` — InvokeIndirect missing from unwind iterator cleanup.
+  Resolved: Pre-existing gap, tracked for Section 03. No regression from Section 01 changes.
 
 ## 01.N Completion Checklist
 
