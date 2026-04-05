@@ -262,6 +262,12 @@ These findings were raised during pre-implementation plan review. The plan text 
 - [x] `[TPR-02-007][medium]` `compiler/ori_arc/src/borrow/update.rs:275` — `InvokeIndirect` borrow inference was changed, but the new behavior has no dedicated unit coverage.
   Resolved: Fixed on 2026-04-05. Added `invoke_indirect_empty_ownership_all_borrowed` and `invoke_indirect_owned_arg_promoted` tests to `borrow/tests.rs`, mirroring the ApplyIndirect coverage.
 
+- [x] `[TPR-02-008][high]` `compiler/ori_arc/src/rc_insert/closure_resolve.rs` — block-param merging now compares raw capture-var identity, which is still too strict for type-qualified builtins.
+  Resolved: Fixed on 2026-04-05. Changed merge comparison from var-identity to type-based via `captures_same_types()` helper. Same-type captures merge; different-type captures fall back. Threaded `var_types` through `resolve_to_partial_apply`. Regression: `test_annotate_apply_indirect_same_capture_types_merges`.
+
+- [x] `[TPR-02-009][medium]` `compiler/ori_arc/src/rc_insert/tests.rs` — `test_annotate_apply_indirect_different_capture_args_defaults_borrowed` does not exercise the type-qualified ownership hazard.
+  Resolved: Fixed on 2026-04-05. Renamed to `test_annotate_apply_indirect_different_capture_types_defaults_borrowed`, uses `List<int>` vs `str` capture types to exercise the actual type-divergent hazard. Added companion `test_annotate_apply_indirect_same_capture_types_merges` for the same-type merge case.
+
 ## 02.N Completion Checklist
 
 - [x] `ResolvedDef` enum defined (02.1)
@@ -299,3 +305,5 @@ These findings were raised during pre-implementation plan review. The plan text 
 - [ ] **Plan sync**: `00-overview.md` frontmatter `status:` still `in-progress` (Section 03 remains)
 - [ ] **Plan sync**: `index.md` Quick Reference table updated (Section 02 status → Complete)
 - [ ] **Plan sync**: Section 03 `depends_on: ["01", "02"]` verified accurate
+- [ ] Block-param merge accepts distinct capture vars when they produce the same effective indirect-call ownership (for example, same callee + same receiver type for type-qualified builtins) instead of falling back on raw SSA inequality
+- [ ] Replace the current `different_capture_args_defaults_borrowed` regression with typed builtin coverage that distinguishes same-semantics merges from true ownership conflicts
