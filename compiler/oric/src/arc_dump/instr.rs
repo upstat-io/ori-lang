@@ -55,7 +55,11 @@ pub fn fmt_instr(
         }
 
         ArcInstr::ApplyIndirect {
-            dst, closure, args, ..
+            dst,
+            closure,
+            args,
+            arg_ownership,
+            ..
         } => {
             write!(
                 out,
@@ -64,14 +68,7 @@ pub fn fmt_instr(
                 fmt_var(func, *closure),
             )
             .unwrap();
-            write!(out, "(").unwrap();
-            for (i, arg) in args.iter().enumerate() {
-                if i > 0 {
-                    write!(out, ", ").unwrap();
-                }
-                write!(out, "{}", fmt_var(func, *arg)).unwrap();
-            }
-            write!(out, ")").unwrap();
+            fmt_args_with_ownership(out, args, arg_ownership, func);
         }
 
         ArcInstr::PartialApply {
@@ -313,6 +310,7 @@ pub fn fmt_terminator(
             dst,
             closure,
             args,
+            arg_ownership,
             normal,
             unwind,
             ..
@@ -324,7 +322,7 @@ pub fn fmt_terminator(
                 fmt_var(func, *closure),
             )
             .unwrap();
-            fmt_args_simple(out, args, func);
+            fmt_args_with_ownership(out, args, arg_ownership, func);
             write!(out, " normal bb{} unwind bb{}", normal.raw(), unwind.raw()).unwrap();
         }
 

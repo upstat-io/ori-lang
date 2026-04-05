@@ -475,10 +475,13 @@ fn is_var_defined_in_block(block: &crate::ir::ArcBlock, var: ArcVarId) -> bool {
             return true;
         }
     }
-    if let ArcTerminator::Invoke { dst, .. } = &block.terminator {
-        if *dst == var {
-            return true;
+    match &block.terminator {
+        ArcTerminator::Invoke { dst, .. } | ArcTerminator::InvokeIndirect { dst, .. } => {
+            if *dst == var {
+                return true;
+            }
         }
+        _ => {}
     }
     false
 }
