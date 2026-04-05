@@ -259,7 +259,7 @@ fn setup_derive_function<'a>(
     let return_type = derive_return_type(shape, type_idx);
 
     let sig = make_sig(method_name, param_names, param_types, return_type);
-    let abi = compute_function_abi(&sig, fc.type_info());
+    let abi = compute_function_abi(&sig, fc.type_info(), fc.repr_plan());
     let symbol = fc.mangle_method(type_name_str, method_name_str);
 
     let (func_id, self_val, param_vals) =
