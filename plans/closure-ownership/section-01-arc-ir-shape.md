@@ -181,8 +181,8 @@ sections:
   Resolved: Fixed on 2026-04-05. Added InvokeIndirect to emit_dead_invoke_dsts and is_var_defined_in_block.
 - [x] `[TPR-01-003][minor]` `ir/tests.rs:1223,1283,1326` — Decorative `// --- ... ---` banner comments.
   Resolved: Fixed on 2026-04-05. Replaced with plain section comments.
-- [x] `[TPR-01-004][major]` `edge_cleanup.rs:312,428` — is_none_or ownership default wrong for InvokeIndirect (defaults empty to Owned instead of Borrowed).
-  Resolved: Fixed on 2026-04-05. Added is_indirect detection, use is_some_and for indirect calls.
+- [x] `[TPR-01-004][major]` `edge_cleanup.rs:312,398,428` — is_none_or ownership default wrong for InvokeIndirect (defaults empty to Owned instead of Borrowed).
+  Resolved: Fixed on 2026-04-05 (2 iterations). Added is_indirect detection: Category 3 uses is_some_and, Category 2 uses is_none_or for borrowed detection, invoke_transfers_ownership parameterized.
 - [x] `[TPR-01-005][medium]` `drop_hints.rs:95` — InvokeIndirect missing from collect_borrowed_call_args terminator scan.
   Resolved: Pre-existing gap, already tracked in Section 03.1. No regression from Section 01 changes.
 - [x] `[TPR-01-006][medium]` `unwind_cleanup.rs:57` — InvokeIndirect missing from unwind iterator cleanup.

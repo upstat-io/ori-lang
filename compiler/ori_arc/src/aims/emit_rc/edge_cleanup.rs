@@ -313,17 +313,7 @@ fn collect_invoke_edge_decs(
 
     // Category 3: unwind cleanup for Owned args (callee may not have consumed).
     for (i, &arg) in args.iter().enumerate() {
-        let is_owned = if is_indirect {
-            // Indirect: empty arg_ownership = all Borrowed (conservative).
-            arg_ownership
-                .get(i)
-                .is_some_and(|o| *o == ArgOwnership::Owned)
-        } else {
-            // Direct: empty arg_ownership = all Owned (pre-annotation default).
-            arg_ownership
-                .get(i)
-                .is_none_or(|o| *o == ArgOwnership::Owned)
-        };
+        let is_owned = is_arg_owned(arg_ownership, i, is_indirect);
         if !is_owned {
             continue;
         }
@@ -395,10 +385,10 @@ fn collect_invoke_edge_decs(
         }
     }
 
-    // Category 2: borrowed Invoke args absent from exit_states — caller must
-    // still RcDec. Emit on both edges. Owned args excluded (transferred).
+    // Category 2: borrowed Invoke/InvokeIndirect args absent from exit_states —
+    // caller must still RcDec. Emit on both edges. Owned args excluded (transferred).
     for (i, &arg) in args.iter().enumerate() {
-        if arg_ownership.get(i).copied() != Some(ArgOwnership::Borrowed) {
+        if is_arg_owned(arg_ownership, i, is_indirect) {
             continue;
         }
         if state_map.is_excluded(arg) {
@@ -423,6 +413,21 @@ fn collect_invoke_edge_decs(
     }
 }
 
+/// Check whether arg at position `i` has Owned ownership, respecting the
+/// indirect-call default (empty = Borrowed for indirect, Owned for direct).
+#[inline]
+fn is_arg_owned(arg_ownership: &[ArgOwnership], i: usize, is_indirect: bool) -> bool {
+    if is_indirect {
+        arg_ownership
+            .get(i)
+            .is_some_and(|o| *o == ArgOwnership::Owned)
+    } else {
+        arg_ownership
+            .get(i)
+            .is_none_or(|o| *o == ArgOwnership::Owned)
+    }
+}
+
 /// Check whether an Invoke transfers ownership of `var` at any argument position.
 ///
 /// If the variable appears at any `Owned` position, the callee takes ownership
@@ -440,18 +445,7 @@ fn invoke_transfers_ownership(
     arg_ownership: &[ArgOwnership],
     is_indirect: bool,
 ) -> bool {
-    args.iter().enumerate().any(|(i, &arg)| {
-        if arg != var {
-            return false;
-        }
-        if is_indirect {
-            arg_ownership
-                .get(i)
-                .is_some_and(|o| *o == ArgOwnership::Owned)
-        } else {
-            arg_ownership
-                .get(i)
-                .is_none_or(|o| *o == ArgOwnership::Owned)
-        }
-    })
+    args.iter()
+        .enumerate()
+        .any(|(i, &arg)| arg == var && is_arg_owned(arg_ownership, i, is_indirect))
 }
