@@ -18,7 +18,7 @@ inspired_by:
   - "Lean 4 standard calling convention for closures"
 depends_on: ["01"]
 third_party_review:
-  status: findings
+  status: resolved
   updated: 2026-04-05
 sections:
   - id: "02.1"
@@ -35,7 +35,7 @@ sections:
     status: complete
   - id: "02.R"
     title: "Third Party Review Findings"
-    status: not-started
+    status: complete
   - id: "02.N"
     title: "Completion Checklist"
     status: not-started
@@ -243,12 +243,18 @@ Resolver-level tests — these cover `annotate_arg_ownership()` / `resolve_indir
 
 These findings were raised during pre-implementation plan review. The plan text (02.1, 02.2) has been rewritten to incorporate all three resolutions. The checkboxes below track whether the **implemented code** satisfies each finding's requirement — check them during `/tpr-review` after implementation.
 
-- [ ] `[TPR-02-001][major]` `plans/closure-ownership/section-02-ownership-propagation.md:56-108` — the original draft proposed reading raw `MemoryContract`s directly for indirect calls, which would drift from `emit_arg_ownership()`'s monomorphization merge and from `annotate_arg_ownership()`'s builtin/type-qualified override logic.
-  Plan resolution: 02.1 requires indirect calls to reuse the same normalized `AnnotatedSig` + override path as direct calls. Code must call `compute_arg_ownership()` + `apply_consuming_overrides()` on the full arg list.
-- [ ] `[TPR-02-002][major]` `plans/closure-ownership/section-02-ownership-propagation.md:97-108` — `capture_args.len()` as an offset is only valid after computing ownership on the full logical arg list. Slicing raw contract params first is wrong for partially applied builtins whose semantics are fixed up by `apply_consuming_overrides()`.
-  Plan resolution: 02.2 step 5 requires computing ownership on `[captures..., user_args...]` THEN slicing off captures. Code must NOT slice first.
-- [ ] `[TPR-02-003][major]` `plans/closure-ownership/section-02-ownership-propagation.md:97-102` — "walk blocks backward" is not a robust closure resolver in SSA form and does not define behavior for block params / merged closures.
-  Plan resolution: 02.2 steps 1-3 require SSA def-map resolution with explicit block-param handling and all-`Borrowed` default for conflicting merges.
+- [x] `[TPR-02-001][major]` `plans/closure-ownership/section-02-ownership-propagation.md:56-108` — the original draft proposed reading raw `MemoryContract`s directly for indirect calls, which would drift from `emit_arg_ownership()`'s monomorphization merge and from `annotate_arg_ownership()`'s builtin/type-qualified override logic.
+  Resolved: Fixed on 2026-04-05. `resolve_indirect_arg_ownership()` calls `compute_arg_ownership()` + `apply_consuming_overrides()` on the full `[captures..., user_args...]` arg list via the same `AnnotatedSig` path as direct calls. Verified by `test_emit_arg_ownership_indirect_reuses_monomorphized_merge`.
+- [x] `[TPR-02-002][major]` `plans/closure-ownership/section-02-ownership-propagation.md:97-108` — `capture_args.len()` as an offset is only valid after computing ownership on the full logical arg list. Slicing raw contract params first is wrong for partially applied builtins whose semantics are fixed up by `apply_consuming_overrides()`.
+  Resolved: Fixed on 2026-04-05. Ownership computed on full arg list first, then `ownership.drain(..capture_count)` slices off captures. Verified by `test_annotate_apply_indirect_with_captures_offset` and `test_annotate_apply_indirect_builtin_partial_apply`.
+- [x] `[TPR-02-003][major]` `plans/closure-ownership/section-02-ownership-propagation.md:97-102` — "walk blocks backward" is not a robust closure resolver in SSA form and does not define behavior for block params / merged closures.
+  Resolved: Fixed on 2026-04-05. SSA def-map resolver in `closure_resolve.rs` handles aliases, block params (with per-predecessor visited sets), and loop-carried cycles. Verified by `test_annotate_apply_indirect_alias_across_blocks`, `test_annotate_apply_indirect_merge_conflict_defaults_borrowed`, `test_annotate_apply_indirect_loop_carried_block_param`, and `test_annotate_apply_indirect_diamond_cfg_same_origin`.
+
+- [x] `[TPR-02-004][high]` `compiler/ori_arc/src/rc_insert/closure_resolve.rs:153` — block-param merging currently treats "same callee name + same capture count" as equivalent and keeps the first predecessor's capture list, but the effective indirect-call ownership can still differ after builtin/type-qualified overrides.
+  Resolved: Fixed on 2026-04-05. Changed merge comparison from `existing_captures.len() != new_captures.len()` to `*existing_captures != new_captures` (compares actual capture args, not just count). Added regression test `test_annotate_apply_indirect_different_capture_args_defaults_borrowed`.
+
+- [x] `[TPR-02-005][high]` `compiler/ori_arc/src/rc_insert/closure_resolve.rs:122` — the resolver uses one shared `visited` set across all predecessor branches, so compatible merges through distinct aliases of the same closure incorrectly collapse to the opaque all-Borrowed fallback.
+  Resolved: Fixed on 2026-04-05. Changed to clone `visited` per-predecessor traversal (`let mut pred_visited = visited.clone()`) so alias paths don't contaminate each other. Added regression test `test_annotate_apply_indirect_diamond_cfg_same_origin`.
 
 ## 02.N Completion Checklist
 

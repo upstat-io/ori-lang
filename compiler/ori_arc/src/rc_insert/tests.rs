@@ -686,3 +686,180 @@ fn test_annotate_apply_indirect_builtin_partial_apply() {
         panic!("expected ApplyIndirect");
     }
 }
+
+/// Regression: TPR-02-004 — same-name builtins with different captured
+/// receiver vars should fall back to Borrowed (different capture args can
+/// have different types, causing `apply_consuming_overrides` to diverge).
+#[test]
+fn test_annotate_apply_indirect_different_capture_args_defaults_borrowed() {
+    let interner = StringInterner::new();
+    let pool = Pool::new();
+    let builtins = empty_builtins();
+
+    let target = interner.intern("concat");
+    let func_name = interner.intern("caller");
+
+    // Block 0: v2 = PartialApply(concat, [v0])  — captures v0
+    // Block 1: v3 = PartialApply(concat, [v1])  — captures v1 (different var!)
+    // Block 2: params=[v4], ApplyIndirect(v4, [v5])
+    // Same target, same capture count, but different capture vars → must fall back.
+    let blocks = vec![
+        ArcBlock {
+            id: ArcBlockId::new(0),
+            params: vec![],
+            body: vec![ArcInstr::PartialApply {
+                dst: ArcVarId::new(2),
+                ty: Idx::NONE,
+                func: target,
+                args: vec![ArcVarId::new(0)],
+            }],
+            terminator: ArcTerminator::Jump {
+                target: ArcBlockId::new(2),
+                args: vec![ArcVarId::new(2)],
+            },
+        },
+        ArcBlock {
+            id: ArcBlockId::new(1),
+            params: vec![],
+            body: vec![ArcInstr::PartialApply {
+                dst: ArcVarId::new(3),
+                ty: Idx::NONE,
+                func: target,
+                args: vec![ArcVarId::new(1)], // different capture var
+            }],
+            terminator: ArcTerminator::Jump {
+                target: ArcBlockId::new(2),
+                args: vec![ArcVarId::new(3)],
+            },
+        },
+        ArcBlock {
+            id: ArcBlockId::new(2),
+            params: vec![(ArcVarId::new(4), Idx::NONE)],
+            body: vec![ArcInstr::ApplyIndirect {
+                dst: ArcVarId::new(6),
+                ty: Idx::INT,
+                closure: ArcVarId::new(4),
+                args: vec![ArcVarId::new(5)],
+                arg_ownership: vec![],
+            }],
+            terminator: ArcTerminator::Return {
+                value: ArcVarId::new(6),
+            },
+        },
+    ];
+
+    let mut func = make_func(func_name, vec![], blocks, 7);
+    let mut sigs = FxHashMap::default();
+    sigs.insert(target, make_sig(&[Ownership::Owned, Ownership::Owned]));
+
+    super::annotate_arg_ownership(&mut func, &sigs, &interner, &builtins, &pool);
+
+    if let ArcInstr::ApplyIndirect { arg_ownership, .. } = &func.blocks[2].body[0] {
+        assert_eq!(
+            arg_ownership,
+            &[ArgOwnership::Borrowed],
+            "different capture vars must fall back to Borrowed (TPR-02-004)"
+        );
+    } else {
+        panic!("expected ApplyIndirect");
+    }
+}
+
+/// Regression: TPR-02-005 — diamond CFG where two predecessors reach the
+/// same `PartialApply` through different alias paths must still resolve
+/// (not fall back to opaque due to shared visited set).
+#[test]
+fn test_annotate_apply_indirect_diamond_cfg_same_origin() {
+    let interner = StringInterner::new();
+    let pool = Pool::new();
+    let builtins = empty_builtins();
+
+    let target = interner.intern("target");
+    let func_name = interner.intern("caller");
+
+    // Block 0: v1 = PartialApply(target, [v0])
+    //          v2 = Let(Var(v1))   — alias path A
+    //          v3 = Let(Var(v1))   — alias path B
+    //          Branch to block 1 (with v2) or block 2 (with v3)
+    // Block 1: params=[], jump to block 3 with [v2]
+    // Block 2: params=[], jump to block 3 with [v3]
+    // Block 3: params=[v4], ApplyIndirect(v4, [v5])
+    // Both paths converge on the same PartialApply → must resolve.
+    let blocks = vec![
+        ArcBlock {
+            id: ArcBlockId::new(0),
+            params: vec![],
+            body: vec![
+                ArcInstr::PartialApply {
+                    dst: ArcVarId::new(1),
+                    ty: Idx::NONE,
+                    func: target,
+                    args: vec![ArcVarId::new(0)],
+                },
+                ArcInstr::Let {
+                    dst: ArcVarId::new(2),
+                    ty: Idx::NONE,
+                    value: crate::ir::ArcValue::Var(ArcVarId::new(1)),
+                },
+                ArcInstr::Let {
+                    dst: ArcVarId::new(3),
+                    ty: Idx::NONE,
+                    value: crate::ir::ArcValue::Var(ArcVarId::new(1)),
+                },
+            ],
+            terminator: ArcTerminator::Branch {
+                cond: ArcVarId::new(0),
+                then_block: ArcBlockId::new(1),
+                else_block: ArcBlockId::new(2),
+            },
+        },
+        ArcBlock {
+            id: ArcBlockId::new(1),
+            params: vec![],
+            body: vec![],
+            terminator: ArcTerminator::Jump {
+                target: ArcBlockId::new(3),
+                args: vec![ArcVarId::new(2)], // alias path A
+            },
+        },
+        ArcBlock {
+            id: ArcBlockId::new(2),
+            params: vec![],
+            body: vec![],
+            terminator: ArcTerminator::Jump {
+                target: ArcBlockId::new(3),
+                args: vec![ArcVarId::new(3)], // alias path B
+            },
+        },
+        ArcBlock {
+            id: ArcBlockId::new(3),
+            params: vec![(ArcVarId::new(4), Idx::NONE)],
+            body: vec![ArcInstr::ApplyIndirect {
+                dst: ArcVarId::new(6),
+                ty: Idx::INT,
+                closure: ArcVarId::new(4),
+                args: vec![ArcVarId::new(5)],
+                arg_ownership: vec![],
+            }],
+            terminator: ArcTerminator::Return {
+                value: ArcVarId::new(6),
+            },
+        },
+    ];
+
+    let mut func = make_func(func_name, vec![], blocks, 7);
+    let mut sigs = FxHashMap::default();
+    sigs.insert(target, make_sig(&[Ownership::Owned, Ownership::Owned]));
+
+    super::annotate_arg_ownership(&mut func, &sigs, &interner, &builtins, &pool);
+
+    if let ArcInstr::ApplyIndirect { arg_ownership, .. } = &func.blocks[3].body[0] {
+        assert_eq!(
+            arg_ownership,
+            &[ArgOwnership::Owned],
+            "diamond CFG must resolve to same origin (TPR-02-005)"
+        );
+    } else {
+        panic!("expected ApplyIndirect");
+    }
+}
