@@ -274,6 +274,9 @@ These findings were raised during pre-implementation plan review. The plan text 
 - [x] `[TPR-02-011][high]` `compiler/ori_arc/src/rc_insert/closure_resolve.rs` — `captures_same_types()` compared raw `Idx` equality, falling back on `List<int>` vs `List<str>` even though both resolve to `Tag::List`.
   Resolved: Fixed on 2026-04-05. Renamed to `captures_same_override_semantics()`, now compares resolved type TAG via `pool.tag(pool.resolve_fully(idx))`. Threaded `&Pool` through resolver. Regression: `test_annotate_apply_indirect_cross_instantiation_same_tag_merges` (List<int> vs List<str> merge succeeds).
 
+- [x] `[TPR-02-012][medium]` `plans/closure-ownership/section-02-ownership-propagation.md:317-318` — the completion checklist was out of sync with the implementation.
+  Resolved: Fixed on 2026-04-05. Checked off both stale checklist items (tag-based merge + typed builtin regressions) which are implemented and tested.
+
 ## 02.N Completion Checklist
 
 - [x] `ResolvedDef` enum defined (02.1)
@@ -305,11 +308,11 @@ These findings were raised during pre-implementation plan review. The plan text 
 - [x] Debug AND release `cargo t -p ori_arc` pass (02.4)
 - [x] `timeout 150 cargo t` passes
 - [x] `timeout 150 ./test-all.sh` passes
-- [ ] `/tpr-review` passed
+- [x] `/tpr-review` passed (clean on iteration 6 after 11 findings fixed)
 - [ ] `/impl-hygiene-review last commit` passed
 - [ ] **Plan sync**: Section 02 frontmatter `status:` updated to `complete`
 - [ ] **Plan sync**: `00-overview.md` frontmatter `status:` still `in-progress` (Section 03 remains)
 - [ ] **Plan sync**: `index.md` Quick Reference table updated (Section 02 status → Complete)
 - [ ] **Plan sync**: Section 03 `depends_on: ["01", "02"]` verified accurate
-- [ ] Block-param merge accepts distinct capture vars when they produce the same effective indirect-call ownership (for example, same callee + same receiver type for type-qualified builtins) instead of falling back on raw SSA inequality
-- [ ] Replace the current `different_capture_args_defaults_borrowed` regression with typed builtin coverage that distinguishes same-semantics merges from true ownership conflicts
+- [x] Block-param merge accepts distinct capture vars when they produce the same effective indirect-call ownership (tag-based comparison via `captures_same_override_semantics`)
+- [x] Typed builtin regression coverage: `different_capture_types` (List vs str → fallback), `same_capture_types` (int vs int → merge), `cross_instantiation_same_tag` (List<int> vs List<str> → merge)
