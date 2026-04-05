@@ -271,6 +271,7 @@ fn instr_apply_indirect() {
         ty: Idx::INT,
         closure: ArcVarId::new(4),
         args: vec![ArcVarId::new(0)],
+        arg_ownership: vec![],
     };
     if let ArcInstr::ApplyIndirect { closure, .. } = &instr {
         assert_eq!(*closure, ArcVarId::new(4));
@@ -505,6 +506,7 @@ fn defined_var_apply_indirect() {
         ty: Idx::INT,
         closure: ArcVarId::new(1),
         args: vec![ArcVarId::new(2)],
+        arg_ownership: vec![],
     };
     assert_eq!(instr.defined_var(), Some(ArcVarId::new(7)));
 }
@@ -659,6 +661,7 @@ fn used_vars_apply_indirect() {
         ty: Idx::INT,
         closure: ArcVarId::new(3),
         args: vec![ArcVarId::new(0), ArcVarId::new(1)],
+        arg_ownership: vec![],
     };
     assert_eq!(
         instr.used_vars().as_slice(),
@@ -985,6 +988,7 @@ fn test_arc_ir_all_instr_variants() {
             ty: Idx::INT,
             closure: ArcVarId::new(3),
             args: vec![ArcVarId::new(0)],
+            arg_ownership: vec![],
         },
         ArcInstr::PartialApply {
             dst: ArcVarId::new(5),
@@ -1153,8 +1157,9 @@ fn is_owned_position_apply_indirect_closure_is_borrowed() {
         ty: Idx::INT,
         closure: ArcVarId::new(3),
         args: vec![ArcVarId::new(0), ArcVarId::new(1)],
+        arg_ownership: vec![],
     };
-    // All positions in ApplyIndirect are NOT owned — lambda callees
+    // All positions in ApplyIndirect are NOT owned when arg_ownership is empty
     // don't emit RcDec for their parameters, so the caller is responsible.
     assert!(
         !instr.is_owned_position(0),
@@ -1178,6 +1183,7 @@ fn is_owned_position_apply_indirect_no_args() {
         ty: Idx::INT,
         closure: ArcVarId::new(3),
         args: vec![],
+        arg_ownership: vec![],
     };
     // Position 0 = closure → NOT owned
     assert!(
@@ -1212,4 +1218,141 @@ fn is_owned_position_construct_all_owned() {
     assert!(instr.is_owned_position(0));
     assert!(instr.is_owned_position(1));
     assert!(!instr.is_owned_position(2));
+}
+
+// --- ApplyIndirect is_owned_position with arg_ownership ---
+
+#[test]
+fn is_owned_position_apply_indirect_with_ownership() {
+    // ApplyIndirect used_vars = [closure, ...args] → pos 0 = closure (always borrowed),
+    // pos 1 = args[0], pos 2 = args[1]. arg_ownership parallels args with +1 offset.
+    let instr = ArcInstr::ApplyIndirect {
+        dst: ArcVarId::new(5),
+        ty: Idx::INT,
+        closure: ArcVarId::new(3),
+        args: vec![ArcVarId::new(0), ArcVarId::new(1)],
+        arg_ownership: vec![ArgOwnership::Owned, ArgOwnership::Borrowed],
+    };
+    assert!(!instr.is_owned_position(0), "closure is always borrowed");
+    assert!(instr.is_owned_position(1), "args[0] is Owned");
+    assert!(!instr.is_owned_position(2), "args[1] is Borrowed");
+    assert!(!instr.is_owned_position(3), "out of bounds");
+}
+
+/// Negative pin: `ApplyIndirect` with empty `arg_ownership` does NOT default to Owned.
+/// This is the conservative-for-indirect semantic — unlike `Apply` (which uses
+/// `is_none_or` and defaults to Owned), `ApplyIndirect` uses `is_some_and` and
+/// defaults to Borrowed.
+#[test]
+fn is_owned_position_apply_indirect_not_default_owned() {
+    let instr = ArcInstr::ApplyIndirect {
+        dst: ArcVarId::new(5),
+        ty: Idx::INT,
+        closure: ArcVarId::new(3),
+        args: vec![ArcVarId::new(0), ArcVarId::new(1)],
+        arg_ownership: vec![],
+    };
+    // Verify that empty ownership makes everything NOT owned (conservative).
+    // This is the opposite of Apply, where empty ownership makes everything Owned.
+    assert!(!instr.is_owned_position(0), "closure: borrowed");
+    assert!(
+        !instr.is_owned_position(1),
+        "args[0]: NOT owned (conservative)"
+    );
+    assert!(
+        !instr.is_owned_position(2),
+        "args[1]: NOT owned (conservative)"
+    );
+}
+
+#[test]
+fn is_owned_position_apply_indirect_out_of_bounds() {
+    let instr = ArcInstr::ApplyIndirect {
+        dst: ArcVarId::new(5),
+        ty: Idx::INT,
+        closure: ArcVarId::new(3),
+        args: vec![ArcVarId::new(0)],
+        arg_ownership: vec![ArgOwnership::Owned],
+    };
+    assert!(!instr.is_owned_position(0), "closure");
+    assert!(instr.is_owned_position(1), "args[0] is Owned");
+    assert!(!instr.is_owned_position(2), "beyond args.len()");
+    assert!(!instr.is_owned_position(100), "way beyond");
+}
+
+// --- InvokeIndirect terminator is_owned_position ---
+
+#[test]
+fn is_owned_position_invoke_indirect_with_ownership() {
+    // InvokeIndirect used_vars = [...args, closure] → closure at END.
+    // arg_ownership parallels args directly (no offset).
+    let term = ArcTerminator::InvokeIndirect {
+        dst: ArcVarId::new(5),
+        ty: Idx::INT,
+        closure: ArcVarId::new(3),
+        args: vec![ArcVarId::new(0), ArcVarId::new(1)],
+        arg_ownership: vec![ArgOwnership::Owned, ArgOwnership::Borrowed],
+        normal: ArcBlockId::new(1),
+        unwind: ArcBlockId::new(2),
+    };
+    assert!(term.is_owned_position(0), "args[0] is Owned");
+    assert!(!term.is_owned_position(1), "args[1] is Borrowed");
+    assert!(
+        !term.is_owned_position(2),
+        "closure (at end) is always borrowed"
+    );
+    assert!(!term.is_owned_position(3), "out of bounds");
+}
+
+/// Negative pin: `InvokeIndirect` with empty `arg_ownership` defaults to all-Borrowed.
+#[test]
+fn is_owned_position_invoke_indirect_empty_ownership() {
+    let term = ArcTerminator::InvokeIndirect {
+        dst: ArcVarId::new(5),
+        ty: Idx::INT,
+        closure: ArcVarId::new(3),
+        args: vec![ArcVarId::new(0)],
+        arg_ownership: vec![],
+        normal: ArcBlockId::new(1),
+        unwind: ArcBlockId::new(2),
+    };
+    assert!(
+        !term.is_owned_position(0),
+        "args[0]: NOT owned (conservative)"
+    );
+    assert!(!term.is_owned_position(1), "closure: borrowed");
+}
+
+// --- Invoke terminator is_owned_position ---
+
+#[test]
+fn is_owned_position_invoke_with_ownership() {
+    let term = ArcTerminator::Invoke {
+        dst: ArcVarId::new(5),
+        ty: Idx::INT,
+        func: Name::new(1, 1),
+        args: vec![ArcVarId::new(0), ArcVarId::new(1)],
+        arg_ownership: vec![ArgOwnership::Borrowed, ArgOwnership::Owned],
+        normal: ArcBlockId::new(1),
+        unwind: ArcBlockId::new(2),
+    };
+    assert!(!term.is_owned_position(0), "args[0] is Borrowed");
+    assert!(term.is_owned_position(1), "args[1] is Owned");
+    assert!(!term.is_owned_position(2), "out of bounds");
+}
+
+#[test]
+fn is_owned_position_invoke_empty_defaults_owned() {
+    // Unlike InvokeIndirect, Invoke with empty ownership defaults to Owned
+    // (same as Apply — is_none_or semantics).
+    let term = ArcTerminator::Invoke {
+        dst: ArcVarId::new(5),
+        ty: Idx::INT,
+        func: Name::new(1, 1),
+        args: vec![ArcVarId::new(0)],
+        arg_ownership: vec![],
+        normal: ArcBlockId::new(1),
+        unwind: ArcBlockId::new(2),
+    };
+    assert!(term.is_owned_position(0), "empty ownership → default Owned");
 }

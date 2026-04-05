@@ -278,6 +278,12 @@ pub enum ArcTerminator {
         ty: Idx,
         closure: ArcVarId,
         args: Vec<ArcVarId>,
+        /// Per-argument ownership at this indirect invoke site.
+        /// Parallel to `args`: `arg_ownership[i]` describes `args[i]`.
+        /// Empty before annotation; populated by RC insertion (Section 02).
+        /// Unlike `Invoke`, empty defaults to all-Borrowed (conservative for
+        /// unknown callees — caller retains cleanup responsibility).
+        arg_ownership: Vec<ArgOwnership>,
         normal: ArcBlockId,
         unwind: ArcBlockId,
     },
@@ -363,6 +369,45 @@ impl ArcTerminator {
             ArcTerminator::Branch { cond, .. } => sub(cond, old, new),
             ArcTerminator::Switch { scrutinee, .. } => sub(scrutinee, old, new),
             ArcTerminator::Resume | ArcTerminator::Unreachable => {}
+        }
+    }
+
+    /// Check whether a `used_vars()` position is "owned" for this terminator.
+    ///
+    /// Mirrors [`ArcInstr::is_owned_position`] but for terminators.
+    ///
+    /// - `Invoke`: `arg_ownership[pos]`, defaults to Owned (same as `Apply`).
+    /// - `InvokeIndirect`: `used_vars()` = `[...args, closure]` (closure LAST).
+    ///   Positions `0..args.len()` map to `arg_ownership[pos]`, defaults to
+    ///   Borrowed (conservative). The closure at position `args.len()` is
+    ///   always borrowed.
+    /// - All others: no owned positions.
+    pub fn is_owned_position(&self, pos: usize) -> bool {
+        match self {
+            ArcTerminator::Invoke {
+                args,
+                arg_ownership,
+                ..
+            } => {
+                pos < args.len()
+                    && arg_ownership
+                        .get(pos)
+                        .is_none_or(|o| *o == ArgOwnership::Owned)
+            }
+            ArcTerminator::InvokeIndirect {
+                args,
+                arg_ownership,
+                ..
+            } => {
+                // used_vars() = [...args, closure]. Closure is at the end,
+                // not the beginning (opposite of ApplyIndirect). So pos
+                // maps directly to args[pos] with no offset.
+                pos < args.len()
+                    && arg_ownership
+                        .get(pos)
+                        .is_some_and(|o| *o == ArgOwnership::Owned)
+            }
+            _ => false,
         }
     }
 }

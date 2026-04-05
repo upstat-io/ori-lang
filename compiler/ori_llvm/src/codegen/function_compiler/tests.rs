@@ -1047,6 +1047,7 @@ fn nounwind_indirect_call_is_not_nounwind() {
             ty: Idx::INT,
             closure: ArcVarId::new(0),
             args: vec![ArcVarId::new(1)],
+            arg_ownership: vec![],
         }],
         ArcTerminator::Return {
             value: ArcVarId::new(2),
@@ -1147,6 +1148,7 @@ fn nounwind_mixed_safe_and_indirect_is_not_nounwind() {
                 ty: Idx::INT,
                 closure: ArcVarId::new(2),
                 args: vec![ArcVarId::new(1)],
+                arg_ownership: vec![],
             },
         ],
         ArcTerminator::Return {

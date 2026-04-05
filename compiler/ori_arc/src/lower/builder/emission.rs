@@ -60,6 +60,7 @@ impl ArcIrBuilder {
             ty,
             closure,
             args,
+            arg_ownership: Vec::new(),
         });
         block.spans.push(span);
         dst
