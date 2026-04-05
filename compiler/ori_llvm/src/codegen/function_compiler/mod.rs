@@ -256,7 +256,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
                 // dereferenceable(N): abi_size may underestimate due to missing
                 // alignment padding, but underestimation is legal — LLVM treats
                 // dereferenceable as a minimum. See abi/mod.rs FIXME.
-                let size = abi_size(param.ty, self.type_info);
+                let size = abi_size(param.ty, self.type_info, self.repr_plan());
                 if size > 0 {
                     self.builder
                         .add_dereferenceable_param_attribute(func_id, nidx, size);
@@ -316,6 +316,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
             self.type_info,
             self.annotated_sigs.get(&name),
             self.arc_classifier,
+            self.repr_plan(),
         );
 
         debug!(

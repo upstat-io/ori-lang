@@ -21,6 +21,7 @@
 
 use ori_arc::{AnnotatedSig, ArcClass, ArcClassification, ArcClassifier, Ownership};
 use ori_ir::Name;
+use ori_repr::ReprPlan;
 use ori_types::{FunctionSig, Idx};
 use rustc_hash::FxHashSet;
 
@@ -114,12 +115,71 @@ pub struct FunctionAbi {
 /// walks child types recursively via the store to compute the total size.
 /// Recursive types (e.g., `type Expr = Leaf(int) | Binop(Expr, Expr)`) are
 /// detected via a visiting set and treated as pointer-sized (8 bytes).
-pub fn abi_size(ty: Idx, store: &TypeInfoStore<'_>) -> u64 {
+///
+/// When `repr_plan` is provided, consults it for niche-encoded Option/Result
+/// types (§07.2) — niche layouts omit the tag field, reducing ABI size.
+pub fn abi_size(ty: Idx, store: &TypeInfoStore<'_>, repr_plan: Option<&ReprPlan>) -> u64 {
     let mut visiting = FxHashSet::default();
-    abi_size_inner(ty, store, &mut visiting)
+    abi_size_inner(ty, store, repr_plan, &mut visiting)
 }
 
-fn abi_size_inner(ty: Idx, store: &TypeInfoStore<'_>, visiting: &mut FxHashSet<Idx>) -> u64 {
+/// §07.2: Check if a type has niche encoding in the `ReprPlan`.
+fn is_niche_encoded(ty: Idx, store: &TypeInfoStore<'_>, repr_plan: Option<&ReprPlan>) -> bool {
+    repr_plan
+        .and_then(|plan| plan.get_enum_repr(store.pool().resolve_fully(ty)))
+        .is_some_and(|e| e.tag.is_niche())
+}
+
+/// §07.2: Check if an enum type (Option/Result/user-defined) has niche or tagless
+/// encoding in the `ReprPlan`. Returns `Some(size)` if an optimized layout applies,
+/// `None` to fall through to the explicit tag computation.
+fn niche_enum_size(
+    ty: Idx,
+    variants: &[super::type_info::EnumVariantInfo],
+    store: &TypeInfoStore<'_>,
+    repr_plan: Option<&ReprPlan>,
+    visiting: &mut FxHashSet<Idx>,
+) -> Option<u64> {
+    let plan = repr_plan?;
+    let resolved = store.pool().resolve_fully(ty);
+    let enum_repr = plan.get_enum_repr(resolved)?;
+
+    if enum_repr.tag.is_tagless() {
+        let variant = variants.first()?;
+        let payload: u64 = variant
+            .fields
+            .iter()
+            .map(|&f| abi_size_inner(f, store, repr_plan, visiting))
+            .sum();
+        return Some(payload.max(1));
+    }
+
+    if let ori_repr::EnumTag::Niche {
+        niche_variant_idx, ..
+    } = &enum_repr.tag
+    {
+        let data_idx = usize::from(*niche_variant_idx == 0);
+        let variant = variants.get(data_idx)?;
+        let payload: u64 = variant
+            .fields
+            .iter()
+            .map(|&f| {
+                let size = abi_size_inner(f, store, repr_plan, visiting);
+                size.div_ceil(8) * 8
+            })
+            .sum();
+        return Some(payload.max(1));
+    }
+
+    None
+}
+
+fn abi_size_inner(
+    ty: Idx,
+    store: &TypeInfoStore<'_>,
+    repr_plan: Option<&ReprPlan>,
+    visiting: &mut FxHashSet<Idx>,
+) -> u64 {
     use super::type_info::TypeInfo;
 
     let info = store.get(ty);
@@ -145,24 +205,36 @@ fn abi_size_inner(ty: Idx, store: &TypeInfoStore<'_>, visiting: &mut FxHashSet<I
     // Also safe for dereferenceable(N) — underestimating is legal (minimum).
     let result = match &info {
         TypeInfo::Option { inner } => {
-            // {i64 tag, payload}
-            8 + abi_size_inner(*inner, store, visiting)
+            if is_niche_encoded(ty, store, repr_plan) {
+                abi_size_inner(*inner, store, repr_plan, visiting)
+            } else {
+                // Explicit tag: {i64 tag, payload}
+                8 + abi_size_inner(*inner, store, repr_plan, visiting)
+            }
         }
         TypeInfo::Result { ok, err } => {
-            // {i64 tag, max(ok, err) payload}
-            let ok_size = abi_size_inner(*ok, store, visiting);
-            let err_size = abi_size_inner(*err, store, visiting);
-            8 + ok_size.max(err_size)
+            let ok_size = abi_size_inner(*ok, store, repr_plan, visiting);
+            let err_size = abi_size_inner(*err, store, repr_plan, visiting);
+            if is_niche_encoded(ty, store, repr_plan) {
+                ok_size.max(err_size)
+            } else {
+                // Explicit tag: {i64 tag, max(ok, err) payload}
+                8 + ok_size.max(err_size)
+            }
         }
         TypeInfo::Tuple { elements } => elements
             .iter()
-            .map(|&e| abi_size_inner(e, store, visiting))
+            .map(|&e| abi_size_inner(e, store, repr_plan, visiting))
             .sum(),
         TypeInfo::Struct { fields } => fields
             .iter()
-            .map(|&(_, ty)| abi_size_inner(ty, store, visiting))
+            .map(|&(_, ty)| abi_size_inner(ty, store, repr_plan, visiting))
             .sum(),
         TypeInfo::Enum { variants } => {
+            if let Some(size) = niche_enum_size(ty, variants, store, repr_plan, visiting) {
+                visiting.remove(&ty);
+                return size;
+            }
             // Enum layout: {tag, [M x i64] payload} — tag width varies
             // per enum via min_tag_width (§07.1 discriminant narrowing).
             // Each variant field occupies at least one full i64 slot (8 bytes),
@@ -174,7 +246,7 @@ fn abi_size_inner(ty: Idx, store: &TypeInfoStore<'_>, visiting: &mut FxHashSet<I
                     v.fields
                         .iter()
                         .map(|&f| {
-                            let size = abi_size_inner(f, store, visiting);
+                            let size = abi_size_inner(f, store, repr_plan, visiting);
                             // Round up to 8-byte i64 slot boundary
                             size.div_ceil(8) * 8
                         })
@@ -197,12 +269,16 @@ fn abi_size_inner(ty: Idx, store: &TypeInfoStore<'_>, visiting: &mut FxHashSet<I
 }
 
 /// Compute the passing mode for a function parameter.
-pub fn compute_param_passing(ty: Idx, store: &TypeInfoStore<'_>) -> ParamPassing {
+pub fn compute_param_passing(
+    ty: Idx,
+    store: &TypeInfoStore<'_>,
+    repr_plan: Option<&ReprPlan>,
+) -> ParamPassing {
     if ty == Idx::UNIT || ty == Idx::NEVER {
         return ParamPassing::Void;
     }
 
-    let size = abi_size(ty, store);
+    let size = abi_size(ty, store, repr_plan);
     if size <= 16 {
         ParamPassing::Direct
     } else {
@@ -214,12 +290,16 @@ pub fn compute_param_passing(ty: Idx, store: &TypeInfoStore<'_>) -> ParamPassing
 }
 
 /// Compute the passing mode for a function return value.
-pub fn compute_return_passing(ty: Idx, store: &TypeInfoStore<'_>) -> ReturnPassing {
+pub fn compute_return_passing(
+    ty: Idx,
+    store: &TypeInfoStore<'_>,
+    repr_plan: Option<&ReprPlan>,
+) -> ReturnPassing {
     if ty == Idx::UNIT || ty == Idx::NEVER {
         return ReturnPassing::Void;
     }
 
-    let size = abi_size(ty, store);
+    let size = abi_size(ty, store, repr_plan);
     if size <= 16 {
         ReturnPassing::Direct
     } else {
@@ -245,7 +325,11 @@ pub fn select_call_conv(name: &str, is_main: bool, is_extern: bool) -> CallConv 
 /// Compute the complete physical ABI for a function from its type-checker signature.
 ///
 /// This is the single entry point that bridges `ori_types::FunctionSig` → `FunctionAbi`.
-pub fn compute_function_abi(sig: &FunctionSig, store: &TypeInfoStore<'_>) -> FunctionAbi {
+pub fn compute_function_abi(
+    sig: &FunctionSig,
+    store: &TypeInfoStore<'_>,
+    repr_plan: Option<&ReprPlan>,
+) -> FunctionAbi {
     debug_assert_eq!(
         sig.param_names.len(),
         sig.param_types.len(),
@@ -259,14 +343,14 @@ pub fn compute_function_abi(sig: &FunctionSig, store: &TypeInfoStore<'_>) -> Fun
         .map(|(&name, &ty)| ParamAbi {
             name,
             ty,
-            passing: compute_param_passing(ty, store),
+            passing: compute_param_passing(ty, store, repr_plan),
             readonly: false,
         })
         .collect();
 
     let return_abi = ReturnAbi {
         ty: sig.return_type,
-        passing: compute_return_passing(sig.return_type, store),
+        passing: compute_return_passing(sig.return_type, store, repr_plan),
     };
 
     let call_conv = select_call_conv(
@@ -292,6 +376,7 @@ pub fn compute_function_abi(sig: &FunctionSig, store: &TypeInfoStore<'_>) -> Fun
 pub fn compute_param_passing_with_ownership(
     ty: Idx,
     store: &TypeInfoStore<'_>,
+    repr_plan: Option<&ReprPlan>,
     ownership: Ownership,
     arc_class: ArcClass,
 ) -> ParamPassing {
@@ -303,7 +388,7 @@ pub fn compute_param_passing_with_ownership(
         return ParamPassing::Reference;
     }
     // Owned or scalar → existing size-based logic
-    compute_param_passing(ty, store)
+    compute_param_passing(ty, store, repr_plan)
 }
 
 /// Compute the complete physical ABI for a function with borrow annotations.
@@ -319,9 +404,10 @@ pub fn compute_function_abi_with_ownership(
     store: &TypeInfoStore<'_>,
     annotated_sig: Option<&AnnotatedSig>,
     classifier: &ArcClassifier<'_>,
+    repr_plan: Option<&ReprPlan>,
 ) -> FunctionAbi {
     let Some(annotated_sig) = annotated_sig else {
-        return compute_function_abi(sig, store);
+        return compute_function_abi(sig, store, repr_plan);
     };
 
     debug_assert_eq!(
@@ -346,7 +432,9 @@ pub fn compute_function_abi_with_ownership(
             ParamAbi {
                 name,
                 ty,
-                passing: compute_param_passing_with_ownership(ty, store, ownership, arc_class),
+                passing: compute_param_passing_with_ownership(
+                    ty, store, repr_plan, ownership, arc_class,
+                ),
                 readonly: ownership == Ownership::Borrowed,
             }
         })
@@ -354,7 +442,7 @@ pub fn compute_function_abi_with_ownership(
 
     let return_abi = ReturnAbi {
         ty: sig.return_type,
-        passing: compute_return_passing(sig.return_type, store),
+        passing: compute_return_passing(sig.return_type, store, repr_plan),
     };
 
     let call_conv = select_call_conv("", sig.is_main, false);

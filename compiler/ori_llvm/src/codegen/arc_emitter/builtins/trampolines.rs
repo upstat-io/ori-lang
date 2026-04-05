@@ -162,7 +162,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let buf_elem_llvm_ty = self.int_element_llvm_type(elem_ty);
         let needs_sext = self.pool.tag(self.pool.resolve_fully(elem_ty)) == ori_types::Tag::Int
             && self.narrowed_int_collection_element_width().is_some();
-        let elem_is_indirect = abi_size(elem_ty, self.type_info) > 16;
+        let elem_is_indirect = abi_size(elem_ty, self.type_info, self.repr_plan) > 16;
 
         match kind {
             TrampolineKind::Map => {
@@ -171,7 +171,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
                 let result_idx = result_ty.unwrap_or(elem_ty);
                 let result_llvm_ty = result_ty.map_or(elem_llvm_ty, |ty| self.resolve_type(ty));
-                let result_is_indirect = abi_size(result_idx, self.type_info) > 16;
+                let result_is_indirect = abi_size(result_idx, self.type_info, self.repr_plan) > 16;
 
                 // Determine how element is passed and how result is returned.
                 // When result_is_indirect, the closure function (lambda or wrapper)
@@ -303,7 +303,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
                 let acc_idx = result_ty.unwrap_or(elem_ty);
                 let acc_llvm_ty = result_ty.map_or(elem_llvm_ty, |ty| self.resolve_type(ty));
-                let acc_is_indirect = abi_size(acc_idx, self.type_info) > 16;
+                let acc_is_indirect = abi_size(acc_idx, self.type_info, self.repr_plan) > 16;
 
                 // Load/pass accumulator and element based on ABI
                 let acc_arg = if acc_is_indirect {
