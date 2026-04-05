@@ -3,10 +3,11 @@ section: "03"
 title: "LLVM Cleanup & Verification"
 status: not-started
 reviewed: false
-goal: "Replace LLVM-level workarounds with arg_ownership logic, add InvokeIndirect handling, verify env drop correctness, fix stale docs, un-ignore tests, verify zero leaks"
+goal: "Replace LLVM-level workarounds with arg_ownership logic, add InvokeIndirect handling (drop_hints + unwind_cleanup), verify env drop correctness, fix stale docs, un-ignore tests, verify zero leaks"
 success_criteria:
   - "collect_borrowed_call_args ApplyIndirect workaround replaced with arg_ownership-aware logic"
   - "collect_borrowed_call_args handles InvokeIndirect terminator via arg_ownership"
+  - "unwind_cleanup handles InvokeIndirect (TPR-01-006)"
   - "generate_env_drop_fn correctness verified (RcDec ALL captures — no skipping for borrowed)"
   - "All 4 stale doc comments corrected (context.rs:259, closures.rs:86, closures.rs:155, define_phase.rs:422)"
   - "All 3 #[ignore = BUG-04-035] tests un-ignored and passing"
@@ -50,6 +51,8 @@ sections:
 
 The safety fix in commit `a83b8e65` added a workaround in `collect_borrowed_call_args()` (`compiler/ori_arc/src/aims/emit_rc/drop_hints.rs`, 155 lines, well under 500 limit) that conservatively marks ALL `ApplyIndirect` args as potentially shared. This was necessary because `ApplyIndirect` lacked ownership info — `drop_unique` was being used on values that might be shared via closure environments.
 
+**Prerequisite**: Section 02 must be complete — `arg_ownership` is populated on `ApplyIndirect`/`InvokeIndirect` before this code runs. Section 02.3 handles the legacy borrow inference update in `borrow/update.rs`; this subsection handles the parallel `drop_hints.rs` refinement.
+
 - [ ] **Replace the `ApplyIndirect` branch** in `collect_borrowed_call_args()` (lines 78-82 in `drop_hints.rs`). The current branch:
   ```rust
   ArcInstr::ApplyIndirect { args, .. } => {
@@ -80,6 +83,7 @@ The safety fix in commit `a83b8e65` added a workaround in `collect_borrowed_call
   }
   ```
 - [ ] **Verify**: values with `ArgOwnership::Owned` at `ApplyIndirect`/`InvokeIndirect` call sites are NOT treated as borrowed call args (they transfer ownership to the callee). Values with `ArgOwnership::Borrowed` ARE treated as borrowed call args (caller retains ownership, may not be unique).
+- [ ] **Add `InvokeIndirect` to `unwind_cleanup.rs`** (`compiler/ori_arc/src/aims/emit_rc/unwind_cleanup.rs:57`): the unwind iterator cleanup currently only scans `ArcTerminator::Invoke` — add a matching check for `InvokeIndirect` so that iterator cleanup on unwind paths also covers indirect invoke sites. This was flagged by TPR-01-006 and noted as "tracked for Section 03" — this is the tracking item.
 
 ## 03.2 Verify env drop function correctness (DO NOT skip RcDec for borrowed captures)
 
@@ -153,6 +157,7 @@ The comment at `closures.rs:222-226` already documents this correctly:
 
 - [ ] drop_hints `ApplyIndirect` workaround replaced with `arg_ownership`-aware logic (03.1)
 - [ ] drop_hints `InvokeIndirect` terminator handling added (03.1)
+- [ ] unwind_cleanup `InvokeIndirect` handling added (03.1, TPR-01-006)
 - [ ] `generate_env_drop_fn` correctness verified — env RcDec's ALL captures (03.2)
 - [ ] Unused `_capture_ownership` parameter removed from `generate_env_drop_fn` (03.2)
 - [ ] All 4 stale doc comments fixed: `context.rs:259`, `closures.rs:86`, `closures.rs:155`, `define_phase.rs:422` (03.2)
