@@ -165,7 +165,8 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
         self.builder.position_at_end(cont_bb);
 
-        let elem_size = crate::codegen::abi::abi_size(inner_ty, self.type_info) as i64;
+        let elem_size =
+            crate::codegen::abi::abi_size(inner_ty, self.type_info, self.repr_plan) as i64;
         let elem_size_val = self.builder.const_i64(elem_size);
 
         // Get elem_dec_fn for proper cleanup of RC'd elements.

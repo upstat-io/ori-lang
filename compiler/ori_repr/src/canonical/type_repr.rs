@@ -205,7 +205,10 @@ pub(super) fn canonical_enum(
 /// - `operators/strategy.rs` (`emit_coalesce`)
 /// - `instr_dispatch.rs` (`try_emit_project_enum_payload`)
 ///
-/// Enable once niche-aware "RC inc/dec", "Drop", and "Pattern matching" items are all checked.
+/// ABI layer is now niche-aware (§07.2). Remaining consumers that need
+/// niche updates before enabling: `result_monadic.rs` (`construct_result_value`,
+/// `resolve_type_for_result`), and other builtin helpers that construct
+/// explicit `{ i64, payload }` structs.
 const NICHE_CODEGEN_READY: bool = false;
 
 /// Build canonical `Option<T>` as a 2-variant enum: None (unit) + Some(T).

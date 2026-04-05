@@ -267,14 +267,14 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
             .map(|p| ParamAbi {
                 name: self.interner.intern(&format!("v{}", p.var.raw())),
                 ty: p.ty,
-                passing: compute_param_passing(p.ty, self.type_info),
+                passing: compute_param_passing(p.ty, self.type_info, self.repr_plan()),
                 readonly: false,
             })
             .collect();
 
         let return_abi = ReturnAbi {
             ty: func.return_type,
-            passing: compute_return_passing(func.return_type, self.type_info),
+            passing: compute_return_passing(func.return_type, self.type_info, self.repr_plan()),
         };
 
         FunctionAbi {
