@@ -50,6 +50,6 @@ BUG-04-035, ORI_CHECK_LEAKS, curried closure, nested closure, RC leak
 
 | ID | Title | File | Status |
 |----|-------|------|--------|
-| 01 | ARC IR Shape | `section-01-arc-ir-shape.md` | Not Started |
+| 01 | ARC IR Shape | `section-01-arc-ir-shape.md` | Complete |
 | 02 | Ownership Propagation | `section-02-ownership-propagation.md` | Not Started |
 | 03 | LLVM Cleanup & Verification | `section-03-llvm-cleanup.md` | Not Started |

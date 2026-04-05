@@ -1,7 +1,7 @@
 ---
 section: "01"
 title: "ARC IR Shape"
-status: in-progress
+status: complete
 reviewed: true
 goal: "Add arg_ownership fields to ApplyIndirect and InvokeIndirect, update all IR queries and utilities"
 success_criteria:
@@ -34,10 +34,10 @@ sections:
     status: complete
   - id: "01.R"
     title: "Third Party Review Findings"
-    status: not-started
+    status: complete
   - id: "01.N"
     title: "Completion Checklist"
-    status: not-started
+    status: complete
 ---
 
 # Section 01: ARC IR Shape
@@ -203,5 +203,5 @@ sections:
 - [x] Verifier tests for `arg_ownership` length mismatch (01.4)
 - [x] `timeout 150 cargo t` passes — no regressions
 - [x] `timeout 150 ./test-all.sh` passes
-- [ ] `/tpr-review` passed
-- [ ] `/impl-hygiene-review last commit` passed
+- [x] `/tpr-review` passed — clean on iteration 4 (6 findings fixed across 3 iterations)
+- [x] `/impl-hygiene-review last commit` passed — 3 findings fixed (algorithmic duplication, BLOAT, import ordering)
