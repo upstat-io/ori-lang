@@ -1,7 +1,7 @@
 ---
 section: "03"
 title: "LLVM Cleanup & Verification"
-status: not-started
+status: in-progress
 reviewed: true
 goal: "Replace LLVM-level workarounds with arg_ownership logic, add InvokeIndirect handling (drop_hints + unwind_cleanup), verify env drop correctness, remove unused _capture_ownership parameter, fix 3 stale docs, un-ignore tests, verify zero leaks"
 success_criteria:
@@ -26,7 +26,7 @@ third_party_review:
 sections:
   - id: "03.1"
     title: "Replace drop_hints workaround, add InvokeIndirect, wire test modules"
-    status: not-started
+    status: complete
   - id: "03.2"
     title: "Verify env drop function correctness"
     status: not-started
@@ -75,7 +75,7 @@ This keeps the subsection cohesive because all work stays inside `compiler/ori_a
 - `trampoline.rs` — `Invoke | InvokeIndirect` pattern for target redirection (line 135-136)
 - `realize/mod.rs` — COW annotations only apply to `Apply`/`Invoke` with known callee names; `InvokeIndirect` calls through closure fat pointers, which never invoke COW mutation methods — no gap exists
 
-- [ ] **Replace the `ApplyIndirect` branch** in `collect_borrowed_call_args()` (lines 78-82 in `drop_hints.rs`). The current branch:
+- [x] **Replace the `ApplyIndirect` branch** in `collect_borrowed_call_args()` (lines 78-82 in `drop_hints.rs`). The current branch:
   ```rust
   ArcInstr::ApplyIndirect { args, .. } => {
       for &arg in args {
@@ -101,7 +101,7 @@ This keeps the subsection cohesive because all work stays inside `compiler/ori_a
       }
   }
   ```
-- [ ] **Add `InvokeIndirect` terminator handling** to `collect_borrowed_call_args()` (after the `Invoke` terminator check, lines 94-109). Currently the terminator scan only checks `Invoke` — add a matching branch with the same empty-ownership fallback:
+- [x] **Add `InvokeIndirect` terminator handling** to `collect_borrowed_call_args()` (after the `Invoke` terminator check, lines 94-109). Currently the terminator scan only checks `Invoke` — add a matching branch with the same empty-ownership fallback:
   ```rust
   if let ArcTerminator::InvokeIndirect { args, arg_ownership, .. } = &block.terminator {
       if arg_ownership.is_empty() {
@@ -117,7 +117,7 @@ This keeps the subsection cohesive because all work stays inside `compiler/ori_a
       }
   }
   ```
-- [ ] **Extract shared helper** to eliminate duplication between `ApplyIndirect` and `InvokeIndirect` branches. Both use identical logic (empty-ownership fallback + arg_ownership-aware borrowed-arg collection). Extract a private helper function in `drop_hints/mod.rs`:
+- [x] **Extract shared helper** to eliminate duplication between `ApplyIndirect` and `InvokeIndirect` branches. Both use identical logic (empty-ownership fallback + arg_ownership-aware borrowed-arg collection). Extract a private helper function in `drop_hints/mod.rs`:
   ```rust
   /// Insert borrowed args from ownership annotations, with conservative fallback.
   fn insert_borrowed_from_ownership(
@@ -139,18 +139,18 @@ This keeps the subsection cohesive because all work stays inside `compiler/ori_a
   }
   ```
   Call from both the `ApplyIndirect` instruction match arm and the `InvokeIndirect` terminator check. This follows the algorithmic DRY rule (2 instances, >5 lines of shared skeleton).
-- [ ] **Verify**: values with `ArgOwnership::Owned` at `ApplyIndirect`/`InvokeIndirect` call sites are NOT treated as borrowed call args (they transfer ownership to the callee). Values with `ArgOwnership::Borrowed` ARE treated as borrowed call args (caller retains ownership, may not be unique).
-- [ ] **Add `InvokeIndirect` to `unwind_cleanup.rs`** (`compiler/ori_arc/src/aims/emit_rc/unwind_cleanup.rs:57`): the unwind iterator cleanup currently only scans `ArcTerminator::Invoke` — add `InvokeIndirect` via pattern-or match (same style as `edge_cleanup.rs:283-296`):
+- [x] **Verify**: values with `ArgOwnership::Owned` at `ApplyIndirect`/`InvokeIndirect` call sites are NOT treated as borrowed call args (they transfer ownership to the callee). Values with `ArgOwnership::Borrowed` ARE treated as borrowed call args (caller retains ownership, may not be unique).
+- [x] **Add `InvokeIndirect` to `unwind_cleanup.rs`** (`compiler/ori_arc/src/aims/emit_rc/unwind_cleanup.rs:57`): the unwind iterator cleanup currently only scans `ArcTerminator::Invoke` — add `InvokeIndirect` via pattern-or match (same style as `edge_cleanup.rs:283-296`):
   ```rust
   if let ArcTerminator::Invoke { unwind, normal, .. }
       | ArcTerminator::InvokeIndirect { unwind, normal, .. } = &block.terminator
   {
   ```
   This ensures that iterator cleanup on unwind paths also covers indirect invoke sites. Flagged by TPR-01-006 and noted as "tracked for Section 03" — this is the tracking item.
-- [ ] **Wire test modules for `drop_hints` and `unwind_cleanup`** (prerequisite — do FIRST before writing tests):
+- [x] **Wire test modules for `drop_hints` and `unwind_cleanup`** (prerequisite — do FIRST before writing tests):
   - Convert `compiler/ori_arc/src/aims/emit_rc/drop_hints.rs` → `compiler/ori_arc/src/aims/emit_rc/drop_hints/mod.rs`, create `compiler/ori_arc/src/aims/emit_rc/drop_hints/tests.rs`, add `#[cfg(test)] mod tests;` at the bottom of the new `mod.rs`. Update `mod drop_hints;` in `compiler/ori_arc/src/aims/emit_rc/mod.rs` — no change needed since Rust resolves both `drop_hints.rs` and `drop_hints/mod.rs` the same way.
   - Convert `compiler/ori_arc/src/aims/emit_rc/unwind_cleanup.rs` → `compiler/ori_arc/src/aims/emit_rc/unwind_cleanup/mod.rs`, create `compiler/ori_arc/src/aims/emit_rc/unwind_cleanup/tests.rs`, add `#[cfg(test)] mod tests;` at the bottom of the new `mod.rs`.
-- [ ] **Add Rust unit tests** for the ARC-pass changes in 03.1 (shared infrastructure needs direct pins, not only AOT coverage).
+- [x] **Add Rust unit tests** for the ARC-pass changes in 03.1 (shared infrastructure needs direct pins, not only AOT coverage).
 
   **Test matrix for `drop_hints/tests.rs`** — `collect_borrowed_call_args()`:
 
@@ -277,12 +277,12 @@ The comment at `closures.rs:222-226` already documents this correctly:
 
 ## 03.N Completion Checklist
 
-- [ ] Test module wiring: `drop_hints/mod.rs` + `drop_hints/tests.rs` and `unwind_cleanup/mod.rs` + `unwind_cleanup/tests.rs` created (03.1)
-- [ ] drop_hints `ApplyIndirect` workaround replaced with `arg_ownership`-aware logic (03.1)
-- [ ] drop_hints `InvokeIndirect` terminator handling added (03.1)
-- [ ] Shared helper `insert_borrowed_from_ownership` extracted to eliminate duplication (03.1)
-- [ ] unwind_cleanup `InvokeIndirect` handling added (03.1, TPR-01-006)
-- [ ] Rust unit tests pin `drop_hints` and `unwind_cleanup` indirect-call behavior (03.1)
+- [x] Test module wiring: `drop_hints/mod.rs` + `drop_hints/tests.rs` and `unwind_cleanup/mod.rs` + `unwind_cleanup/tests.rs` created (03.1)
+- [x] drop_hints `ApplyIndirect` workaround replaced with `arg_ownership`-aware logic (03.1)
+- [x] drop_hints `InvokeIndirect` terminator handling added (03.1)
+- [x] Shared helper `insert_borrowed_from_ownership` extracted to eliminate duplication (03.1)
+- [x] unwind_cleanup `InvokeIndirect` handling added (03.1, TPR-01-006)
+- [x] Rust unit tests pin `drop_hints` and `unwind_cleanup` indirect-call behavior (03.1)
 - [ ] `generate_env_drop_fn` correctness verified — env RcDec's ALL captures (03.2)
 - [ ] Unused `_capture_ownership` parameter removed from `generate_env_drop_fn` AND `build_closure_env` (03.2)
 - [ ] All 3 stale doc comments fixed: `context.rs:259`, `closures.rs:86`, `define_phase.rs:422` (03.2)
