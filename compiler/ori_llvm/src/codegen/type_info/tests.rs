@@ -1754,9 +1754,8 @@ fn repr_plan_canonical_parity_full_matrix() {
         "Canonical parity failed for Map<str, int>"
     );
 
-    // §07.2: When NICHE_CODEGEN_READY is enabled, Result<int, str> will get
-    // niche encoding (str has null-ptr niche). Until the consumer fixes are
-    // complete, parity is preserved with the gate off.
+    // §07.2: When NICHE_CODEGEN_READY is enabled, Result<int, str> will use
+    // niche encoding — the payload type directly (no tag, no wrapper).
     assert_eq!(
         with_plan.resolve(res_int_str),
         no_plan.resolve(res_int_str),

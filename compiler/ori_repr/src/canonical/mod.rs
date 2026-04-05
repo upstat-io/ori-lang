@@ -8,6 +8,8 @@
 mod type_repr;
 
 use ori_types::{Idx, Pool, Tag};
+
+use crate::EnumRepr;
 use rustc_hash::{FxHashMap, FxHashSet};
 
 use crate::plan::{DecisionReason, DecisionSource, ReprDecision, ReprPlan};
@@ -201,6 +203,20 @@ pub(crate) fn canonical(pool: &Pool, idx: Idx) -> MachineRepr {
 /// same `MachineRepr` for each `Idx` regardless of traversal order
 /// (TPR-01-021). Once a type is computed, it is cached and returned
 /// for all future lookups.
+/// Compute the canonical enum representation for a single type.
+///
+/// Used by codegen as a fallback when the `ReprPlan` doesn't contain a type
+/// (e.g., types with variable residue like `Option<Var(T→str)>` that were
+/// skipped during `populate_canonical`). Returns the `EnumRepr` if the type
+/// canonicalizes to a niche or explicit enum, `None` otherwise.
+pub fn canonical_enum_for_type(pool: &Pool, idx: Idx) -> Option<EnumRepr> {
+    let repr = canonical_cached(pool, idx, &mut FxHashMap::default())?;
+    match repr {
+        MachineRepr::Enum(e) => Some(e),
+        _ => None,
+    }
+}
+
 pub(crate) fn canonical_cached(
     pool: &Pool,
     idx: Idx,
