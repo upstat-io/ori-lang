@@ -687,22 +687,100 @@ fn test_annotate_apply_indirect_builtin_partial_apply() {
     }
 }
 
-/// Regression: TPR-02-004 — same-name builtins with different captured
-/// receiver vars should fall back to Borrowed (different capture args can
-/// have different types, causing `apply_consuming_overrides` to diverge).
+/// Regression: TPR-02-004 — same-name builtins with different-typed captures
+/// must fall back (type-qualified overrides can diverge).
 #[test]
-fn test_annotate_apply_indirect_different_capture_args_defaults_borrowed() {
+fn test_annotate_apply_indirect_different_capture_types_defaults_borrowed() {
     let interner = StringInterner::new();
-    let pool = Pool::new();
+    let mut pool = Pool::new();
     let builtins = empty_builtins();
 
     let target = interner.intern("concat");
     let func_name = interner.intern("caller");
 
-    // Block 0: v2 = PartialApply(concat, [v0])  — captures v0
-    // Block 1: v3 = PartialApply(concat, [v1])  — captures v1 (different var!)
-    // Block 2: params=[v4], ApplyIndirect(v4, [v5])
-    // Same target, same capture count, but different capture vars → must fall back.
+    // v0: List<int>, v1: str — different types for the capture position.
+    // `apply_consuming_overrides` fires for List but not str, so the
+    // effective ownership diverges → must fall back to Borrowed.
+    let list_int = pool.list(Idx::INT);
+
+    let blocks = vec![
+        ArcBlock {
+            id: ArcBlockId::new(0),
+            params: vec![],
+            body: vec![ArcInstr::PartialApply {
+                dst: ArcVarId::new(2),
+                ty: Idx::NONE,
+                func: target,
+                args: vec![ArcVarId::new(0)], // captures list
+            }],
+            terminator: ArcTerminator::Jump {
+                target: ArcBlockId::new(2),
+                args: vec![ArcVarId::new(2)],
+            },
+        },
+        ArcBlock {
+            id: ArcBlockId::new(1),
+            params: vec![],
+            body: vec![ArcInstr::PartialApply {
+                dst: ArcVarId::new(3),
+                ty: Idx::NONE,
+                func: target,
+                args: vec![ArcVarId::new(1)], // captures str
+            }],
+            terminator: ArcTerminator::Jump {
+                target: ArcBlockId::new(2),
+                args: vec![ArcVarId::new(3)],
+            },
+        },
+        ArcBlock {
+            id: ArcBlockId::new(2),
+            params: vec![(ArcVarId::new(4), Idx::NONE)],
+            body: vec![ArcInstr::ApplyIndirect {
+                dst: ArcVarId::new(6),
+                ty: Idx::INT,
+                closure: ArcVarId::new(4),
+                args: vec![ArcVarId::new(5)],
+                arg_ownership: vec![],
+            }],
+            terminator: ArcTerminator::Return {
+                value: ArcVarId::new(6),
+            },
+        },
+    ];
+
+    let mut func = make_func(func_name, vec![], blocks, 7);
+    // v0=List<int>, v1=str — different types
+    func.var_types[0] = list_int;
+    func.var_types[1] = Idx::STR;
+
+    let mut sigs = FxHashMap::default();
+    sigs.insert(target, make_sig(&[Ownership::Owned, Ownership::Owned]));
+
+    super::annotate_arg_ownership(&mut func, &sigs, &interner, &builtins, &pool);
+
+    if let ArcInstr::ApplyIndirect { arg_ownership, .. } = &func.blocks[2].body[0] {
+        assert_eq!(
+            arg_ownership,
+            &[ArgOwnership::Borrowed],
+            "different capture types must fall back to Borrowed (TPR-02-004)"
+        );
+    } else {
+        panic!("expected ApplyIndirect");
+    }
+}
+
+/// Regression: TPR-02-008 — same-name builtins with same-typed captures
+/// must merge successfully (type comparison allows it).
+#[test]
+fn test_annotate_apply_indirect_same_capture_types_merges() {
+    let interner = StringInterner::new();
+    let pool = Pool::new();
+    let builtins = empty_builtins();
+
+    let target = interner.intern("target");
+    let func_name = interner.intern("caller");
+
+    // Both capture vars are int (same type) → merge should succeed.
     let blocks = vec![
         ArcBlock {
             id: ArcBlockId::new(0),
@@ -725,7 +803,7 @@ fn test_annotate_apply_indirect_different_capture_args_defaults_borrowed() {
                 dst: ArcVarId::new(3),
                 ty: Idx::NONE,
                 func: target,
-                args: vec![ArcVarId::new(1)], // different capture var
+                args: vec![ArcVarId::new(1)], // different var, same type
             }],
             terminator: ArcTerminator::Jump {
                 target: ArcBlockId::new(2),
@@ -757,8 +835,8 @@ fn test_annotate_apply_indirect_different_capture_args_defaults_borrowed() {
     if let ArcInstr::ApplyIndirect { arg_ownership, .. } = &func.blocks[2].body[0] {
         assert_eq!(
             arg_ownership,
-            &[ArgOwnership::Borrowed],
-            "different capture vars must fall back to Borrowed (TPR-02-004)"
+            &[ArgOwnership::Owned],
+            "same capture types must merge (TPR-02-008)"
         );
     } else {
         panic!("expected ApplyIndirect");

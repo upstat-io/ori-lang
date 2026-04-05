@@ -262,7 +262,11 @@ fn resolve_indirect_arg_ownership(
         return Vec::new();
     }
 
-    let resolved = super::closure_resolve::resolve_to_partial_apply(closure_var, def_map);
+    let resolved = super::closure_resolve::resolve_to_partial_apply(
+        closure_var,
+        def_map,
+        consuming_ctx.var_types,
+    );
 
     let result = match resolved {
         Some((target, capture_args)) => {
