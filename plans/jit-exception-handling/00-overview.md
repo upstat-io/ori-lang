@@ -67,10 +67,15 @@ CURRENT STATE (implemented):
 
 **Section 04B (Polymorphic Lambda Monomorphization) — IN PROGRESS:**
 - Scheme unwrapping in ARC lowering, BoundVar→concrete substitution, and nested capture resolution have landed
-- Open review findings: nested multi-instantiated inner lambdas are still not specialized when their `PartialApply`/narrowing copies live inside sibling lambda bodies (fresh LLVM repros crash or leave unresolved type variables), and the in-tree `lambda_mono.ori` LLVM command still fails in debug and release due BUG-04-030
+- TPR-04B-013 reopened: list-concat lambda crash (BUG-04-030 Root Cause F) still reproduces on current tree
+- In-tree LLVM verification and TPR-04B-013 both blocked by BUG-04-030
 
-**Section 05 (Verification) — NOT STARTED:**
-- Full test matrix, dual-exec parity, TPR review
+**Section 05 (Verification) — IN PROGRESS:**
+- Pre-verification checks complete (01.R, 04.H, annotations, release build)
+- Test matrix: 6/8 categories pass in debug+release (integer, bitwise, COW, struct layout, coalesce, range). 2/8 have known LCFails (catch: BUG-04-030; short-circuit: BUG-04-031/BUG-04-032).
+- Dual-execution parity: 6/7 files verified (93/93 tests). operators_logical.ori blocked by BUG-04-031.
+- Regression: 16,533 passed, 0 failed, 2656 LCFail. clippy clean.
+- TPR in progress.
 
 ## Section Dependency Graph
 
@@ -81,16 +86,16 @@ CURRENT STATE (implemented):
        ↓
   §03 LLVM      ─── COMPLETE
        ↓
-  §04 Exposed bug fixes (8 bugs):  ← COMPLETE (all fixed + verified)
+  §04 Exposed bug fixes (8 bugs):  ← COMPLETE
        ↓
-  §04B Polymorphic lambda monomorphization  ← NEW
-       (2639 LCFails from unresolved type variables)
-       04B.1 Scheme unwrapping in ARC lowering
-       04B.2 BoundVar substitution in LLVM codegen
-       04B.3 Capture type resolution
-       04B.4 Test matrix
+  §04B Polymorphic lambda monomorphization  ← IN PROGRESS
+       (Root Cause A addressed; list-concat crash + in-tree verification blocked by BUG-04-030)
        ↓
-  §05 Verification: test matrix, dual-exec parity, TPR
+  §05 Verification: test matrix, dual-exec parity, TPR  ← IN PROGRESS
+       ↓
+  §06 LCFail Resolution (BUG-04-030/031/032/033)  ← NOT STARTED
+       Root causes D → A → B → E → F → 031/032 → 033 → C
+       Target: reduce 2656 LCFails to <500
 ```
 
 ## Known Bugs (Remaining)
@@ -104,9 +109,9 @@ CURRENT STATE (implemented):
 | Coalesce ARC leak | Over-conservative borrowed-def marking on merge block params | §04.4b (fixed via §04.5 `propagate_borrowed_closure` unanimity) | **Fixed** (2026-04-03) |
 | Coalesce None path | Missing `merge_mutable_vars` in `lower_coalesce` | §04.4c (`lower/expr/short_circuit.rs`) | **Fixed** (2026-04-03) |
 
-## Live Test Results (2026-04-02 snapshot)
+## Live Test Results
 
-These results were captured during plan review to verify the bug descriptions:
+**Pre-fix snapshot (2026-04-02):**
 
 | Test File | Result | Details |
 |-----------|--------|---------|
@@ -116,6 +121,17 @@ These results were captured during plan review to verify the bug descriptions:
 | `struct_layout.ori` | FATAL crash | `ori_rc_inc called with misaligned pointer 0x74736574` (type confusion) |
 | `test_coalesce_copy.ori` | 15 passed, 2 failed | `test_none_evaluates_default` assertion + `test_list_coalesce` ARC leak |
 | `infinite_range.ori` | 13 passed, 1 failed | `test_neg_step_iter` produces `[]` instead of `[0, -1, -2, -3, -4]` |
+
+**Post-fix verification (2026-04-04, §05):**
+
+| Test File | Result | Details |
+|-----------|--------|---------|
+| `integer_safety.ori` | 30 passed, 0 failed | All tests pass (debug + release) |
+| `cow/nested.ori` | 7 passed, 0 failed | Leak check clean |
+| `cow/sharing.ori` | 9 passed, 0 failed | Leak check clean |
+| `struct_layout.ori` | 16 passed, 0 failed | No crash, no FastISel divergence |
+| `test_coalesce_copy.ori` | 17 passed, 0 failed | All tests pass |
+| `infinite_range.ori` | 14 passed, 0 failed | Negative step works correctly |
 
 ## Legacy: ori_run_main catch_unwind
 
@@ -128,6 +144,7 @@ The Itanium path in `ori_run_main` (lib.rs:430-443) still uses `std::panic::catc
 | 01 | Runtime Panic Path | `section-01-runtime.md` | Complete |
 | 02 | ARC IR InvokeIndirect | `section-02-arc-ir.md` | Complete |
 | 03 | LLVM Emission & Wrappers | `section-03-llvm-emission.md` | Complete |
-| 04 | Exposed Bug Fixes | `section-04-exposed-bugs.md` | In Progress (8/8 fixed, verification pending) |
-| 04B | Polymorphic Lambda Monomorphization | `section-04b-lambda-mono.md` | In Progress (open TPR findings; in-tree LLVM verification failing) |
-| 05 | Verification | `section-05-verification.md` | Not Started |
+| 04 | Exposed Bug Fixes | `section-04-exposed-bugs.md` | Complete |
+| 04B | Polymorphic Lambda Monomorphization | `section-04b-lambda-mono.md` | In Progress (blocked by BUG-04-030) |
+| 05 | Verification | `section-05-verification.md` | In Progress |
+| 06 | LCFail Resolution | `section-06-lcfail-resolution.md` | Not Started |

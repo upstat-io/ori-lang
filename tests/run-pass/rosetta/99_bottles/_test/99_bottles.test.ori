@@ -1,0 +1,32 @@
+use std.testing { assert_eq }
+
+use "../99_bottles" { bottles, verse }
+
+@test_bottles_plural tests @bottles () -> void = {
+    assert_eq(actual: bottles(n: 99), expected: "99 bottles");
+    assert_eq(actual: bottles(n: 2), expected: "2 bottles")
+}
+
+@test_bottles_singular tests @bottles () -> void =
+    assert_eq(actual: bottles(n: 1), expected: "1 bottle");
+
+@test_bottles_zero tests @bottles () -> void =
+    assert_eq(actual: bottles(n: 0), expected: "no more bottles");
+
+@test_verse_regular tests @verse () -> void =
+    assert_eq(
+        actual: verse(n: 3),
+        expected: "3 bottles of beer on the wall, 3 bottles of beer.\nTake one down and pass it around, 2 bottles of beer on the wall.",
+    );
+
+@test_verse_one tests @verse () -> void =
+    assert_eq(
+        actual: verse(n: 1),
+        expected: "1 bottle of beer on the wall, 1 bottle of beer.\nTake one down and pass it around, no more bottles of beer on the wall.",
+    );
+
+@test_verse_zero tests @verse () -> void =
+    assert_eq(
+        actual: verse(n: 0),
+        expected: "No more bottles of beer on the wall, no more bottles of beer.\nGo to the store and buy some more, 99 bottles of beer on the wall.",
+    );

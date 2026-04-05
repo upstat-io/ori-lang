@@ -337,8 +337,8 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         err_ty: Idx,
         label: &str,
     ) -> Option<ValueId> {
-        let ok_size = crate::codegen::abi::abi_size(ok_ty, self.type_info);
-        let err_size = crate::codegen::abi::abi_size(err_ty, self.type_info);
+        let ok_size = crate::codegen::abi::abi_size(ok_ty, self.type_info, self.repr_plan);
+        let err_size = crate::codegen::abi::abi_size(err_ty, self.type_info, self.repr_plan);
         let slot_ty_idx = if ok_size >= err_size { ok_ty } else { err_ty };
 
         let payload_llvm = self.resolve_type(payload_ty);
@@ -371,8 +371,8 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         ok_ty: Idx,
         err_ty: Idx,
     ) -> crate::codegen::value_id::LLVMTypeId {
-        let ok_size = crate::codegen::abi::abi_size(ok_ty, self.type_info);
-        let err_size = crate::codegen::abi::abi_size(err_ty, self.type_info);
+        let ok_size = crate::codegen::abi::abi_size(ok_ty, self.type_info, self.repr_plan);
+        let err_size = crate::codegen::abi::abi_size(err_ty, self.type_info, self.repr_plan);
         let slot_ty = if ok_size >= err_size { ok_ty } else { err_ty };
         let slot_llvm = self.resolve_type(slot_ty);
         let scx = self.builder.scx();

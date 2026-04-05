@@ -10,7 +10,7 @@ inspired_by:
   - "Ori's existing monomorphization via body_type_map (ori_types/src/infer/expr/calls/monomorphization.rs)"
 depends_on: ["03"]
 third_party_review:
-  status: resolved
+  status: in-progress
   updated: 2026-04-04
 sections:
   - id: "04B.1"
@@ -27,7 +27,7 @@ sections:
     status: complete
   - id: "04B.R"
     title: "Third Party Review Findings"
-    status: complete
+    status: in-progress
   - id: "04B.N"
     title: "Completion Checklist"
     status: in-progress
@@ -35,7 +35,7 @@ sections:
 
 # Section 04B: Polymorphic Lambda Monomorphization
 
-**Status:** In Progress (04B.1-04B.4 complete, 04B.R resolved, 04B.N pending — awaiting clean /tpr-review and /impl-hygiene-review)
+**Status:** In Progress — review reopened on 2026-04-04 after a fresh lambda-mono repro still crashed in LLVM. In-tree `tests/spec/expressions/lambda_mono.ori` remains blocked by BUG-04-030, and a curried list-concat lambda still segfaults outside the stdlib-path issue.
 **Goal:** Polymorphic lambda bodies (like `a -> b -> a + b` with type `forall t14. t14 -> t14 -> t14`) compile through LLVM with concrete types. Lambda-specific LCFails resolved. The broader 2639 LCFail issue has multiple root causes tracked separately as BUG-04-030.
 
 **Context:** The JIT EH work (Sections 01-03) expanded LLVM spec test coverage from ~1800 to ~4400 tests via `ori test --backend=llvm`. This exposed a pre-existing monomorphization gap: polymorphic lambda bodies are lowered to ARC IR with generalized Scheme types (`forall t14`) instead of concrete types. The LLVM codegen can't map these to LLVM types, causing 2639 LCFails (60% of spec tests).
@@ -219,6 +219,16 @@ Captures in nested lambdas inherit types from the outer scope's variable table. 
 - [x] `[TPR-04B-012][high]` `compiler/ori_llvm/src/codegen/function_compiler/lambda_mono/mod.rs:47` — Nested multi-instantiated inner lambdas are still compiled as a single specialization because multi-inst detection and rewriting only inspect the top-level parent ARC function.
   Resolved: Rejected after validation on 2026-04-04. The nested case works correctly because LLVM compilation is recursive: `emit_arc_function` → `compile_lambda_arc` → `emit_arc_function` for nested lambdas. At each level, `resolve_all_lambda_bound_vars` is called with the enclosing lambda as the parent. The inner `id` lambda’s multi-inst is detected within the outer lambda’s ARC IR. Verified: `cargo run --bin ori -- run --backend=llvm /tmp/nested_multi_inst_test.ori` returns 0 (correct) with zero `unresolved type variable` or `callee not found` errors. The Codex repro was based on pre-fix code (before the PartialApply removal in commit 62d38061).
 
+- [ ] `[TPR-04B-013][high]` `section-04b-lambda-mono.md:4` / `section-04b-lambda-mono.md:38` — Section 04B is still marked complete even though the current tree crashes on a polymorphic list-concat lambda.
+  Validated on 2026-04-04. Fresh repro:
+  `@main () -> int = { let $app = a -> b -> a + b; let xs = app([1, 2, 3])([4, 5, 6]); if xs == [1, 2, 3, 4, 5, 6] then 0 else 1 }`
+  builds successfully with both `target/debug/ori` and `target/release/ori`, then exits 139 at runtime in both modes. `diagnostics/dual-exec-debug.sh --no-color /tmp/repro_lambda_list_concat.txt` reports interpreter exit 0 vs AOT exit 139, plus RC imbalance (`@main` balance -1, `@__lambda_main_1` balance +1). This is the still-open BUG-04-030 root cause F from `plans/bug-tracker/section-04-codegen-llvm.md`; Section 04B cannot truthfully stay complete while this lambda-mono repro remains broken.
+
+- [ ] `[TPR-04B-014][high]` `compiler/ori_llvm/src/codegen/arc_emitter/closures.rs:171` — curried RC-typed closures still mis-handle capture ownership during `PartialApply`, so the open 04B crash is not specific to list `+`.
+  Validated on 2026-04-04. Fresh narrower repro:
+  `@main () -> int = { let $fst = a -> b -> a; let xs = fst([1, 2, 3])(0); if xs == [1, 2, 3] then 0 else 1 }`
+  also exits 139 under AOT while the interpreter exits 0. `diagnostics/dual-exec-debug.sh --no-color /tmp/repro_lambda_capture_list_only.ori` reports the same RC imbalance (`@main` balance -1, `@__lambda_main_1` balance +1). Emitted LLVM shows the ownership bug directly: `_ori___lambda_main_1` stores `%param.load` into the closure env, `@main` immediately calls `ori_buffer_drop_unique` on the original list value after the call, and `_ori_partial_0_drop` later calls `ori_buffer_rc_dec` on the env copy. That is a use-after-free / double-drop on the captured list buffer. The root cause is in closure capture lifetime management (`build_closure_env` stores owned RC captures without taking an extra RC reference), not in list-add dispatch. This also means the current 04B matrix is still missing a capture-only RC aggregate repro that would have isolated the bug without `a + b`.
+
 ---
 
 ## 04B.N Completion Checklist
@@ -232,7 +242,7 @@ Captures in nested lambdas inherit types from the outer scope's variable table. 
 - [x] `timeout 150 ./test-all.sh` passes (2026-04-04) 16,533 passed, 0 failed, 2656 LCFail (+3 from TPR-04B-007 AOT tests)
 - [x] `./clippy-all.sh` passes (2026-04-04)
 - [x] Plan annotation cleanup: 0 annotations for plan 04B in source code (2026-04-03)
-- [ ] `/tpr-review` passed — Re-run needed after TPR-04B-003/004 fix.
-- [ ] `/impl-hygiene-review last commit` passed
+- [ ] `/tpr-review` passed — reopened on 2026-04-04 after TPR-04B-013 reproduced a crashing curried list-concat lambda on the current tree. <!-- blocked-by:BUG-04-030 -->
+- [x] `/impl-hygiene-review last commit` passed (2026-04-04) — 15 findings (3 critical, 7 major, 5 minor). Fixed 10 critical+major: extracted canonical helpers (find_partial_apply_dst, is_concrete_function, is_polymorphic_lambda, specialized_lambda_name), added Tuple/Map/Set to type predicates, split type_predicates.rs, broke up resolve_all_lambda_bound_vars. All files under 500 lines.
 
 **Exit Criteria:** `ori test --backend=llvm tests/spec/expressions/lambda_mono.ori` passes all tests (0 LCFails). Curried/nested polymorphic lambda tests pass through LLVM. No new test failures introduced. `ORI_CHECK_LEAKS=1` clean on all RC-typed capture tests. Note: the broader 2639 LCFail issue (BUG-04-030) has 4 distinct root causes; this section addresses Root Cause A (lambda Scheme/BoundVar/Var types).
