@@ -1,0 +1,9 @@
+// Nested curried closures: outer captures list, inner returns it.
+// Tests that the wrapper RcInc + env RcInc correctly account for
+// multiple levels of closure environments.
+@main () -> int = {
+    let $outer = a -> b -> c -> a;
+    let $mid = outer([10, 20])(0);
+    let $result = mid(0);
+    if result == [10, 20] then 0 else 1
+}
