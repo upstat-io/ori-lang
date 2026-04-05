@@ -14,11 +14,10 @@ use ori_types::Pool;
 
 use crate::aims::intraprocedural::state_map::AimsStateMap;
 use crate::aims::lattice::Cardinality;
-use crate::ir::{ArcFunction, ArcInstr, ArcTerminator, ArcVarId};
+use crate::ir::{ArcFunction, ArcInstr, ArcTerminator, ArcVarId, RcStrategy};
 
 use super::helpers::{is_live_at_exit, is_owned_at_entry, BlockCtx, LastUse};
 use super::{block_id, rc_strategy};
-use crate::ir::RcStrategy;
 
 /// Phase A: `RcDec` for variables live at entry, unused in block, dead at exit.
 ///
@@ -88,7 +87,7 @@ pub(crate) fn emit_dead_at_entry_decs(
             if pred_count > 1 && !is_block_param(var) && !ctx.defined_in_block.contains(&var) {
                 let all_preds_define_it = predecessors[ctx.blk.index()]
                     .iter()
-                    .all(|&pred_idx| is_var_defined_in_block(&ctx.func.blocks[pred_idx], var));
+                    .all(|&pred_idx| ctx.func.blocks[pred_idx].defines_var(var));
                 if !all_preds_define_it {
                     // Route to per-predecessor edge cleanup instead of
                     // block-level RcDec. The edge cleanup will use
@@ -240,29 +239,4 @@ pub(crate) fn emit_dead_invoke_dsts(
             .body
             .insert(0, ArcInstr::RcDec { var, strategy });
     }
-}
-
-/// Check if a variable is defined within a specific block.
-///
-/// A variable is "defined in block" if it's a block param, an instruction
-/// destination, or an Invoke/InvokeIndirect result of that block. Used to filter out
-/// phantom demand from project-source propagation at merge blocks.
-fn is_var_defined_in_block(block: &crate::ir::ArcBlock, var: ArcVarId) -> bool {
-    if block.params.iter().any(|&(p, _)| p == var) {
-        return true;
-    }
-    for instr in &block.body {
-        if instr.defined_var() == Some(var) {
-            return true;
-        }
-    }
-    match &block.terminator {
-        ArcTerminator::Invoke { dst, .. } | ArcTerminator::InvokeIndirect { dst, .. } => {
-            if *dst == var {
-                return true;
-            }
-        }
-        _ => {}
-    }
-    false
 }
