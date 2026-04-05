@@ -120,15 +120,17 @@ pub(super) fn resolve_to_partial_apply(
     var: ArcVarId,
     def_map: &FxHashMap<ArcVarId, ResolvedDef>,
     var_types: &[ori_types::Idx],
+    pool: &ori_types::Pool,
 ) -> Option<(ori_ir::Name, Vec<ArcVarId>)> {
     let mut visited = FxHashSet::default();
-    resolve_inner(var, def_map, var_types, &mut visited)
+    resolve_inner(var, def_map, var_types, pool, &mut visited)
 }
 
 fn resolve_inner(
     var: ArcVarId,
     def_map: &FxHashMap<ArcVarId, ResolvedDef>,
     var_types: &[ori_types::Idx],
+    pool: &ori_types::Pool,
     visited: &mut FxHashSet<ArcVarId>,
 ) -> Option<(ori_ir::Name, Vec<ArcVarId>)> {
     if !visited.insert(var) {
@@ -139,7 +141,7 @@ fn resolve_inner(
         Some(ResolvedDef::PartialApply { func, capture_args }) => {
             Some((*func, capture_args.clone()))
         }
-        Some(ResolvedDef::Alias(src)) => resolve_inner(*src, def_map, var_types, visited),
+        Some(ResolvedDef::Alias(src)) => resolve_inner(*src, def_map, var_types, pool, visited),
         Some(ResolvedDef::BlockParam { predecessors }) => {
             // Non-cycled predecessors must all agree on the same target AND
             // the same capture args (not just count — different capture vars
@@ -160,7 +162,8 @@ fn resolve_inner(
                 has_non_cycled = true;
                 // Clone visited per-predecessor to isolate traversal state.
                 let mut pred_visited = visited.clone();
-                let pred_result = resolve_inner(pred_var, def_map, var_types, &mut pred_visited);
+                let pred_result =
+                    resolve_inner(pred_var, def_map, var_types, pool, &mut pred_visited);
                 match (&resolved_target, pred_result) {
                     (None, Some(result)) => {
                         resolved_target = Some(result);
@@ -172,7 +175,12 @@ fn resolve_inner(
                         // Only fall back when types actually differ.
                         if *existing_func != new_func
                             || existing_captures.len() != new_captures.len()
-                            || !captures_same_types(existing_captures, &new_captures, var_types)
+                            || !captures_same_override_semantics(
+                                existing_captures,
+                                &new_captures,
+                                var_types,
+                                pool,
+                            )
                         {
                             return None; // Conflicting closures.
                         }
@@ -193,14 +201,28 @@ fn resolve_inner(
     }
 }
 
-/// Check if two capture arg lists have identical types.
+/// Check if two capture arg lists have semantically equivalent types for
+/// the purpose of `apply_consuming_overrides`.
 ///
-/// Used during block-param merge: two different vars with the same type
-/// produce identical ownership after `apply_consuming_overrides`, so they
-/// can be merged. Only vars with different types need conservative fallback.
-fn captures_same_types(a: &[ArcVarId], b: &[ArcVarId], var_types: &[ori_types::Idx]) -> bool {
+/// The consuming override only keys on the resolved type TAG
+/// (`List`/`Map`/`Set`/other), not the full instantiation — so
+/// `List<int>` and `List<str>` produce identical ownership. We compare
+/// resolved tags rather than raw `Idx` to avoid false fallbacks on
+/// cross-instantiation merges.
+fn captures_same_override_semantics(
+    a: &[ArcVarId],
+    b: &[ArcVarId],
+    var_types: &[ori_types::Idx],
+    pool: &ori_types::Pool,
+) -> bool {
     a.len() == b.len()
         && a.iter().zip(b.iter()).all(|(va, vb)| {
-            var_types.get(va.index()).copied() == var_types.get(vb.index()).copied()
+            let tag_a = var_types
+                .get(va.index())
+                .map(|&idx| pool.tag(pool.resolve_fully(idx)));
+            let tag_b = var_types
+                .get(vb.index())
+                .map(|&idx| pool.tag(pool.resolve_fully(idx)));
+            tag_a == tag_b
         })
 }
