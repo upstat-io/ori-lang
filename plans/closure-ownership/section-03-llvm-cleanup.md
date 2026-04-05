@@ -32,10 +32,10 @@ sections:
     status: complete
   - id: "03.3"
     title: "Un-ignore tests and verify"
-    status: not-started
+    status: complete
   - id: "03.4"
     title: "Full verification matrix"
-    status: not-started
+    status: complete
   - id: "03.R"
     title: "Third Party Review Findings"
     status: not-started
@@ -231,21 +231,21 @@ The comment at `closures.rs:222-226` already documents this correctly:
 
 ## 03.3 Un-ignore tests and verify
 
-- [ ] **Verify the 3 former `BUG-04-035` curried-closure tests remain enabled** in `compiler/ori_llvm/tests/aot/arc.rs` and keep passing with leak checks:
+- [x] **Verify the 3 former `BUG-04-035` curried-closure tests remain enabled** in `compiler/ori_llvm/tests/aot/arc.rs` and keep passing with leak checks:
   - `test_arc_curried_closure_capture_list` (arc.rs)
   - `test_arc_curried_closure_capture_str` (arc.rs)
   - `test_arc_curried_closure_capture_nested` (arc.rs)
   - Current tree check (2026-04-05): these tests are already un-ignored, so Section 03 must verify them rather than remove stale `#[ignore]`s.
-- [ ] **Verify the 3 pre-existing nested closure leak tests** in `compiler/ori_llvm/tests/aot/higher_order.rs` keep passing with leak checks:
+- [x] **Verify the 3 pre-existing nested closure leak tests** in `compiler/ori_llvm/tests/aot/higher_order.rs` keep passing with leak checks:
   - `test_nested_closure_borrowed_list_param` (higher_order.rs:476)
   - `test_nested_closure_borrowed_str_param` (higher_order.rs:466)
   - `test_triple_nested_closure_capture` (higher_order.rs:453)
-- [ ] **Run ALL closure AOT tests** with leak check (tests span two files):
+- [x] **Run ALL closure AOT tests** with leak check (tests span two files):
   ```bash
   timeout 150 cargo test -p ori_llvm --test aot -- test_arc_curried test_arc_lambda test_arc_closure test_fm_closure_param
   timeout 150 cargo test -p ori_llvm --test aot -- --test-threads=1 test_nested_closure test_triple_nested test_hof_nested
   ```
-- [ ] **Verify zero leaks**: `ORI_CHECK_LEAKS=1` is already set by `assert_aot_success` — every AOT test automatically checks for leaks. Verify none of the above tests report leaks in their output.
+- [x] **Verify zero leaks**: `ORI_CHECK_LEAKS=1` is already set by `assert_aot_success` — every AOT test automatically checks for leaks. Verify none of the above tests report leaks in their output.
 
 ## 03.4 Full verification matrix
 
@@ -262,14 +262,14 @@ The comment at `closures.rs:222-226` already documents this correctly:
 
 **Additional verification:**
 
-- [ ] **Debug build tests**: `timeout 150 cargo t` — all Rust tests pass
-- [ ] **Release build tests**: `cargo b --release && timeout 150 cargo test --release -p ori_llvm --test aot` — release-mode AOT tests pass (FastISel behavior differs between debug and release)
-- [ ] **Dual-execution parity**: `bash diagnostics/dual-exec-verify.sh tests/spec/traits/iterator/` — batch interpreter vs LLVM comparison for closure-heavy tests. (`dual-exec-debug.sh` is single-file; `dual-exec-verify.sh` is batch.) Also run `bash diagnostics/dual-exec-debug.sh` on a specific closure test file to verify detailed output matches.
-- [ ] **Leak check on ALL AOT tests**: full `timeout 150 cargo test -p ori_llvm --test aot` passes — `ORI_CHECK_LEAKS=1` is already set by `assert_aot_success`, so every test automatically checks for leaks.
-- [ ] **RC trace balance**: Build a closure test program (e.g., `ori build tests/spec/traits/iterator/map-filter-collect.ori -o /tmp/rc_test`), then `ORI_TRACE_RC=1 /tmp/rc_test` and verify balanced inc/dec (total allocs == total frees). Use `diagnostics/rc-stats.sh` for formatted output. Also run on a curried closure test: `ori build compiler/ori_llvm/tests/aot/fixtures/arc/arc_curried_closure_capture_list.ori -o /tmp/curried_test && ORI_TRACE_RC=1 /tmp/curried_test`.
-- [ ] **Full test suite**: `timeout 150 ./test-all.sh` — all tests pass, 0 failures, 0 leaks
-- [ ] **Update BUG-04-035** in `plans/bug-tracker/section-04-codegen-llvm.md`: mark as resolved with cross-link `<!-- resolved-by:plans/closure-ownership -->`
-- [ ] **Update TPR-04B-014** resolution note in `plans/jit-exception-handling/section-04b-lambda-mono.md`: note that the full architectural fix landed via this plan, add cross-link `<!-- resolved-by:plans/closure-ownership -->`
+- [x] **Debug build tests**: `timeout 150 cargo t` — all Rust tests pass
+- [x] **Release build tests**: `cargo b --release && timeout 150 cargo test --release -p ori_llvm --test aot` — release-mode AOT tests pass (FastISel behavior differs between debug and release)
+- [x] **Dual-execution parity**: `bash diagnostics/dual-exec-verify.sh tests/spec/traits/iterator/` — batch interpreter vs LLVM comparison for closure-heavy tests. (`dual-exec-debug.sh` is single-file; `dual-exec-verify.sh` is batch.) Also run `bash diagnostics/dual-exec-debug.sh` on a specific closure test file to verify detailed output matches.
+- [x] **Leak check on ALL AOT tests**: full `timeout 150 cargo test -p ori_llvm --test aot` passes — `ORI_CHECK_LEAKS=1` is already set by `assert_aot_success`, so every test automatically checks for leaks.
+- [x] **RC trace balance**: Build a closure test program (e.g., `ori build tests/spec/traits/iterator/map-filter-collect.ori -o /tmp/rc_test`), then `ORI_TRACE_RC=1 /tmp/rc_test` and verify balanced inc/dec (total allocs == total frees). Use `diagnostics/rc-stats.sh` for formatted output. Also run on a curried closure test: `ori build compiler/ori_llvm/tests/aot/fixtures/arc/arc_curried_closure_capture_list.ori -o /tmp/curried_test && ORI_TRACE_RC=1 /tmp/curried_test`.
+- [x] **Full test suite**: `timeout 150 ./test-all.sh` — all tests pass, 0 failures, 0 leaks
+- [x] **Update BUG-04-035** in `plans/bug-tracker/section-04-codegen-llvm.md`: mark as resolved with cross-link `<!-- resolved-by:plans/closure-ownership -->`
+- [x] **Update TPR-04B-014** resolution note in `plans/jit-exception-handling/section-04b-lambda-mono.md`: note that the full architectural fix landed via this plan, add cross-link `<!-- resolved-by:plans/closure-ownership -->`
 
 ## 03.R Third Party Review Findings
 
@@ -289,18 +289,18 @@ The comment at `closures.rs:222-226` already documents this correctly:
 - [x] Wrapper RcInc logic verified correct (03.2)
 - [x] `lambda_capture_ownership` fallback verified and `tracing::warn!` added (03.2)
 - [x] `generate_env_drop_fn` lint suppression added with justification (03.2)
-- [ ] 3 former `BUG-04-035` curried-closure tests verified enabled and passing (03.3)
-- [ ] 3 pre-existing nested closure leak tests verified passing (03.3)
-- [ ] All 6 previously-leaking tests pass with zero leaks (03.4)
-- [ ] Debug AND release builds pass (03.4)
-- [ ] Dual-execution parity verified (03.4)
-- [ ] Full test suite passes (03.4)
-- [ ] BUG-04-035 marked resolved with cross-link (03.4)
-- [ ] TPR-04B-014 updated with cross-link (03.4)
+- [x] 3 former `BUG-04-035` curried-closure tests verified enabled and passing (03.3)
+- [x] 3 pre-existing nested closure leak tests verified passing (03.3)
+- [x] All 6 previously-leaking tests pass with zero leaks (03.4)
+- [x] Debug AND release builds pass (03.4)
+- [x] Dual-execution parity verified (03.4)
+- [x] Full test suite passes (03.4)
+- [x] BUG-04-035 marked resolved with cross-link (03.4)
+- [x] TPR-04B-014 updated with cross-link (03.4)
 - [ ] Section 03 frontmatter `status` updated to `complete`
 - [ ] `00-overview.md` Quick Reference table updated: Section 03 status → `Complete`
 - [ ] `index.md` Quick Reference table updated: Section 03 status → `Complete`
 - [ ] `00-overview.md` plan status updated to reflect completion (all sections complete)
-- [ ] `timeout 150 ./test-all.sh` passes
+- [x] `timeout 150 ./test-all.sh` passes
 - [ ] `/tpr-review` passed
 - [ ] `/impl-hygiene-review last commit` passed
