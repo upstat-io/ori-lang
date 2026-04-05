@@ -1,7 +1,7 @@
 ---
 section: "03"
 title: "LLVM Cleanup & Verification"
-status: complete
+status: in-progress
 reviewed: true
 goal: "Replace LLVM-level workarounds with arg_ownership logic, add InvokeIndirect handling (drop_hints + unwind_cleanup), verify env drop correctness, remove unused _capture_ownership parameter, fix 3 stale docs, un-ignore tests, verify zero leaks"
 success_criteria:
@@ -41,7 +41,7 @@ sections:
     status: complete
   - id: "03.N"
     title: "Completion Checklist"
-    status: not-started
+    status: in-progress
 ---
 
 # Section 03: LLVM Cleanup & Verification
@@ -282,6 +282,9 @@ The comment at `closures.rs:222-226` already documents this correctly:
 - [x] `[TPR-03-003][medium]` `plans/closure-ownership/index.md:58` — Plan index reported Section 03 as "Not Started" despite all subsections being complete.
   Resolved: Fixed on 2026-04-05. Updated `index.md` Quick Reference (Not Started → Complete), `00-overview.md` status (in-progress → complete), and `section-03-llvm-cleanup.md` status (in-progress → complete).
 
+- [x] `[TPR-03-004][medium]` `section-03-llvm-cleanup.md:4` / `00-overview.md:4` — Plan metadata prematurely set to complete/resolved while TPR/hygiene gates still open.
+  Resolved: Fixed on 2026-04-05. Statuses correctly reopened to in-progress/active by Codex. The plan-sync metadata items (status → complete) are intentionally gated AFTER TPR and hygiene reviews pass — they cannot be checked off until the review loop exits clean.
+
 ## 03.N Completion Checklist
 
 - [x] Test module wiring: `drop_hints/mod.rs` + `drop_hints/tests.rs` and `unwind_cleanup/mod.rs` + `unwind_cleanup/tests.rs` created (03.1)
@@ -304,10 +307,10 @@ The comment at `closures.rs:222-226` already documents this correctly:
 - [x] Full test suite passes (03.4)
 - [x] BUG-04-035 marked resolved with cross-link (03.4)
 - [x] TPR-04B-014 updated with cross-link (03.4)
-- [x] Section 03 frontmatter `status` updated to `complete`
-- [x] `00-overview.md` Quick Reference table updated: Section 03 status → `Complete`
-- [x] `index.md` Quick Reference table updated: Section 03 status → `Complete`
-- [x] `00-overview.md` plan status updated to reflect completion (all sections complete)
+- [ ] Section 03 frontmatter `status` updated to `complete`
+- [ ] `00-overview.md` Quick Reference table updated: Section 03 status → `Complete`
+- [ ] `index.md` Quick Reference table updated: Section 03 status → `Complete`
+- [ ] `00-overview.md` plan status updated to reflect completion (all sections complete)
 - [x] `timeout 150 ./test-all.sh` passes
 - [ ] `/tpr-review` passed
 - [ ] `/impl-hygiene-review last commit` passed
