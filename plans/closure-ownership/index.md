@@ -2,7 +2,7 @@
 reroute: true
 name: "Closure Ownership"
 full_name: "ApplyIndirect Closure Ownership Model"
-status: active
+status: resolved
 order: 1
 ---
 
@@ -55,4 +55,4 @@ insert_borrowed_from_ownership, drop_hints/tests.rs, unwind_cleanup/tests.rs
 |----|-------|------|--------|
 | 01 | ARC IR Shape | `section-01-arc-ir-shape.md` | Complete |
 | 02 | Ownership Propagation | `section-02-ownership-propagation.md` | Complete |
-| 03 | LLVM Cleanup & Verification | `section-03-llvm-cleanup.md` | Not Started |
+| 03 | LLVM Cleanup & Verification | `section-03-llvm-cleanup.md` | Complete |
