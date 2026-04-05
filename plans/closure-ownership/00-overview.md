@@ -1,7 +1,7 @@
 ---
 plan: "closure-ownership"
 title: "ApplyIndirect Closure Ownership Model"
-status: in-progress
+status: complete
 references:
   - "plans/bug-tracker/section-04-codegen-llvm.md"
   - "plans/jit-exception-handling/section-04b-lambda-mono.md"

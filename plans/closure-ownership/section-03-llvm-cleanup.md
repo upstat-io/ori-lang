@@ -1,7 +1,7 @@
 ---
 section: "03"
 title: "LLVM Cleanup & Verification"
-status: in-progress
+status: complete
 reviewed: true
 goal: "Replace LLVM-level workarounds with arg_ownership logic, add InvokeIndirect handling (drop_hints + unwind_cleanup), verify env drop correctness, remove unused _capture_ownership parameter, fix 3 stale docs, un-ignore tests, verify zero leaks"
 success_criteria:
@@ -279,6 +279,9 @@ The comment at `closures.rs:222-226` already documents this correctly:
 - [x] `[TPR-03-002][high]` `section-03-llvm-cleanup.md:267` — Plan claimed dual-exec parity via `dual-exec-verify.sh` but that script requires `@main` programs (none in test-only .ori files).
   Resolved: Validated on 2026-04-05. The `dual-exec-verify.sh` script is unsuitable for test-only spec files (no `@main`). Dual-execution parity is verified via parallel test suites: 4,415 interpreter spec tests + 2,103 LLVM AOT tests (both debug and release) pass, exercising both backends through the same ARC IR pipeline. Plan item updated with the actual verification methodology.
 
+- [x] `[TPR-03-003][medium]` `plans/closure-ownership/index.md:58` — Plan index reported Section 03 as "Not Started" despite all subsections being complete.
+  Resolved: Fixed on 2026-04-05. Updated `index.md` Quick Reference (Not Started → Complete), `00-overview.md` status (in-progress → complete), and `section-03-llvm-cleanup.md` status (in-progress → complete).
+
 ## 03.N Completion Checklist
 
 - [x] Test module wiring: `drop_hints/mod.rs` + `drop_hints/tests.rs` and `unwind_cleanup/mod.rs` + `unwind_cleanup/tests.rs` created (03.1)
@@ -301,10 +304,10 @@ The comment at `closures.rs:222-226` already documents this correctly:
 - [x] Full test suite passes (03.4)
 - [x] BUG-04-035 marked resolved with cross-link (03.4)
 - [x] TPR-04B-014 updated with cross-link (03.4)
-- [ ] Section 03 frontmatter `status` updated to `complete`
-- [ ] `00-overview.md` Quick Reference table updated: Section 03 status → `Complete`
-- [ ] `index.md` Quick Reference table updated: Section 03 status → `Complete`
-- [ ] `00-overview.md` plan status updated to reflect completion (all sections complete)
+- [x] Section 03 frontmatter `status` updated to `complete`
+- [x] `00-overview.md` Quick Reference table updated: Section 03 status → `Complete`
+- [x] `index.md` Quick Reference table updated: Section 03 status → `Complete`
+- [x] `00-overview.md` plan status updated to reflect completion (all sections complete)
 - [x] `timeout 150 ./test-all.sh` passes
 - [ ] `/tpr-review` passed
 - [ ] `/impl-hygiene-review last commit` passed
