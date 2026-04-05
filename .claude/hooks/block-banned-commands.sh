@@ -68,5 +68,16 @@ if [[ -n "$TIMEOUT" && "$TIMEOUT" != "None" ]]; then
   fi
 fi
 
+# ── Block background execution on review/codex commands ──────────────
+# codex exec MUST run in foreground so output is immediately available.
+# Claude keeps using run_in_background despite explicit rules.
+RUN_IN_BG=$(printf '%s' "$INPUT" | python3 -c "import sys,json; print(json.load(sys.stdin).get('tool_input',{}).get('run_in_background',''))" 2>/dev/null || true)
+
+if [[ "$RUN_IN_BG" == "True" || "$RUN_IN_BG" == "true" ]]; then
+  if [[ "$COMMAND" == *"codex"* ]]; then
+    deny "Blocked: run_in_background on codex command. Reviews MUST run in foreground — remove the run_in_background parameter."
+  fi
+fi
+
 # No banned pattern found — no output so normal permission system applies.
 exit 0

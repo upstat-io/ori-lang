@@ -335,7 +335,7 @@ impl<'tcx> super::OwnedLLVMEvaluator<'tcx> {
         fc.apply_posthoc_nounwind();
         drop(fc);
 
-        let errors = builder.codegen_error_count();
+        let errors = builder.codegen_error_count() + store.type_error_count();
         let descriptions = builder.codegen_error_descriptions();
         (wrappers, errors, descriptions)
     }

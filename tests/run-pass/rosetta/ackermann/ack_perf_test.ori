@@ -1,0 +1,11 @@
+// Calibrate interpreter speed on Ackermann
+// Call counts: A(3,5)=42k, A(3,6)=172k, A(3,7)=694k, A(3,8)=2.8M
+
+@ack (0: int, n: int) -> int = n + 1;
+@ack (m: int, 0: int) -> int = ack(m: m - 1, n: 1);
+@ack (m: int, n: int) -> int = ack(m: m - 1, n: ack(m:, n: n - 1));
+
+@main () -> void = {
+    print(msg: `A(3, 6) = {ack(m: 3, n: 6)}`);
+    print(msg: `A(3, 7) = {ack(m: 3, n: 7)}`)
+}

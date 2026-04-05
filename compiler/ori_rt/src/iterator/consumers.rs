@@ -525,15 +525,17 @@ pub extern "C" fn ori_iter_join(
             result.push_str(sep);
         }
 
-        // Convert element to string via trampoline or direct string read
+        // Convert element to string via trampoline or direct string read.
+        // Use read_unaligned because elem_buf/str_buf are [u8] (align 1)
+        // but OriStr requires align 8 (contains i64 fields).
         if let Some(to_str) = to_str_fn {
             let mut str_buf = [0u8; 24]; // OriStr is 24 bytes
             (to_str)(to_str_env, elem_buf.as_ptr(), str_buf.as_mut_ptr());
-            let s = unsafe { &*(str_buf.as_ptr().cast::<OriStr>()) };
+            let s = unsafe { ptr::read_unaligned(str_buf.as_ptr().cast::<OriStr>()) };
             result.push_str(unsafe { s.as_str() });
         } else {
             // Element is already an OriStr (24 bytes)
-            let s = unsafe { &*(elem_buf.as_ptr().cast::<OriStr>()) };
+            let s = unsafe { ptr::read_unaligned(elem_buf.as_ptr().cast::<OriStr>()) };
             result.push_str(unsafe { s.as_str() });
         }
 

@@ -226,6 +226,9 @@ fn lookup_jit_address(name: &str) -> usize {
         "ori_iter_enumerate" => runtime::iterator::ori_iter_enumerate as *const () as usize,
         "ori_iter_zip" => runtime::iterator::ori_iter_zip as *const () as usize,
         "ori_iter_chain" => runtime::iterator::ori_iter_chain as *const () as usize,
+        "ori_iter_flatten" => runtime::iterator::ori_iter_flatten as *const () as usize,
+        "ori_iter_cycle" => runtime::iterator::ori_iter_cycle as *const () as usize,
+        "ori_iter_rev" => runtime::iterator::ori_iter_rev as *const () as usize,
         // Iterator consumers
         "ori_iter_collect" => runtime::iterator::ori_iter_collect as *const () as usize,
         "ori_iter_collect_set" => runtime::iterator::ori_iter_collect_set as *const () as usize,
@@ -235,6 +238,10 @@ fn lookup_jit_address(name: &str) -> usize {
         "ori_iter_find" => runtime::iterator::ori_iter_find as *const () as usize,
         "ori_iter_for_each" => runtime::iterator::ori_iter_for_each as *const () as usize,
         "ori_iter_fold" => runtime::iterator::ori_iter_fold as *const () as usize,
+        "ori_iter_last" => runtime::iterator::ori_iter_last as *const () as usize,
+        "ori_iter_rfind" => runtime::iterator::ori_iter_rfind as *const () as usize,
+        "ori_iter_rfold" => runtime::iterator::ori_iter_rfold as *const () as usize,
+        "ori_iter_join" => runtime::iterator::ori_iter_join as *const () as usize,
         // Empty collection sentinels
         "ori_list_empty" => runtime::ori_list_empty as *const () as usize,
         "ori_str_empty" => runtime::ori_str_empty as *const () as usize,

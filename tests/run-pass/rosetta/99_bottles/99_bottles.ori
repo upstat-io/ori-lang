@@ -1,0 +1,23 @@
+// 99 Bottles of Beer - Rosetta Code
+// https://rosettacode.org/wiki/99_bottles_of_beer
+//
+// Displays the complete lyrics with correct singular/plural grammar.
+
+@bottles (n: int) -> str = match n {
+    0 -> "no more bottles",
+    1 -> "1 bottle",
+    n -> `{n} bottles`,
+};
+
+@verse (n: int) -> str = match n {
+    0 -> `No more bottles of beer on the wall, no more bottles of beer.\nGo to the store and buy some more, 99 bottles of beer on the wall.`,
+    n -> `{bottles(n:)} of beer on the wall, {bottles(n:)} of beer.\nTake one down and pass it around, {bottles(n: n - 1)} of beer on the wall.`,
+};
+
+@main () -> void = {
+    for n in 99..0 by -1 do {
+        print(msg: verse(n:));
+        print(msg: "")
+    };
+    print(msg: verse(n: 0))
+}
