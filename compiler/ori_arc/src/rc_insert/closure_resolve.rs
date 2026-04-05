@@ -134,9 +134,15 @@ fn resolve_inner(
         }
         Some(ResolvedDef::Alias(src)) => resolve_inner(*src, def_map, visited),
         Some(ResolvedDef::BlockParam { predecessors }) => {
-            // Non-cycled predecessors must all agree on the same target and
-            // capture count. Back-edge predecessors (already in `visited`)
-            // are skipped — they carry the same closure value.
+            // Non-cycled predecessors must all agree on the same target AND
+            // the same capture args (not just count — different capture vars
+            // can have different types, causing type-qualified overrides like
+            // apply_consuming_overrides to produce different ownership).
+            // Back-edge predecessors (already in `visited`) are skipped.
+            //
+            // Each predecessor gets its own clone of `visited` so that alias
+            // paths through different intermediaries don't contaminate each
+            // other (TPR-02-005: diamond CFG convergence).
             let mut resolved_target: Option<(ori_ir::Name, Vec<ArcVarId>)> = None;
             let mut has_non_cycled = false;
 
@@ -145,15 +151,19 @@ fn resolve_inner(
                     continue; // Back-edge cycle.
                 }
                 has_non_cycled = true;
-                let pred_result = resolve_inner(pred_var, def_map, visited);
+                // Clone visited per-predecessor to isolate traversal state.
+                let mut pred_visited = visited.clone();
+                let pred_result = resolve_inner(pred_var, def_map, &mut pred_visited);
                 match (&resolved_target, pred_result) {
                     (None, Some(result)) => {
                         resolved_target = Some(result);
                     }
                     (Some((existing_func, existing_captures)), Some((new_func, new_captures))) => {
-                        if *existing_func != new_func
-                            || existing_captures.len() != new_captures.len()
-                        {
+                        // Compare actual capture args, not just count. Different
+                        // capture vars can have different receiver types, causing
+                        // apply_consuming_overrides to produce different ownership
+                        // (e.g., list.concat [Owned] vs str.concat [Borrowed]).
+                        if *existing_func != new_func || *existing_captures != new_captures {
                             return None; // Conflicting closures.
                         }
                     }
