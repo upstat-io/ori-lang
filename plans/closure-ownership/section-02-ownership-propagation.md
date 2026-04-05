@@ -271,6 +271,9 @@ These findings were raised during pre-implementation plan review. The plan text 
 - [x] `[TPR-02-010][medium]` `compiler/ori_arc/src/rc_insert/tests.rs:693` — the replacement TPR-02-009 regression still does not exercise the type-qualified ownership hazard it claims to cover.
   Resolved: Fixed on 2026-04-05. Updated test to register `concat` in `consuming_receiver` and `consuming_second_arg` builtin sets so `apply_consuming_overrides` actually fires for List captures but not str captures, exercising the real type-qualified divergence path.
 
+- [x] `[TPR-02-011][high]` `compiler/ori_arc/src/rc_insert/closure_resolve.rs` — `captures_same_types()` compared raw `Idx` equality, falling back on `List<int>` vs `List<str>` even though both resolve to `Tag::List`.
+  Resolved: Fixed on 2026-04-05. Renamed to `captures_same_override_semantics()`, now compares resolved type TAG via `pool.tag(pool.resolve_fully(idx))`. Threaded `&Pool` through resolver. Regression: `test_annotate_apply_indirect_cross_instantiation_same_tag_merges` (List<int> vs List<str> merge succeeds).
+
 ## 02.N Completion Checklist
 
 - [x] `ResolvedDef` enum defined (02.1)
