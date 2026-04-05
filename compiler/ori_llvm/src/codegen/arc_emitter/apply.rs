@@ -197,7 +197,9 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                     self.emit_rt_call(func_id, &passed_args, "call")
                 }
             }
-        } else if let Some(val) = self.try_emit_builtin_method(callee, args, func) {
+        } else if let Some(val) =
+            self.try_emit_builtin_method(callee, args, func, func.var_type(dst))
+        {
             Some(val)
         } else if let Some(func_id) = self.builder.try_runtime_fn(callee_name_str) {
             // Runtime function fallback: coerce aggregate args to pointers.
