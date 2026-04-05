@@ -226,11 +226,10 @@ Bugs in LLVM IR generation, JIT/AOT compilation, monomorphization, ARC pipeline 
   Found: 2026-04-04 | Source: manual (Rosetta Code task implementation)
   Note: Active work in roadmap section 15B (function clauses) and section 09 (match/patterns) touches this area. Multi-clause lowering in `ori_canon` works correctly; the bug is in LLVM IR emission from the lowered match tree.
 
-- [ ] `[BUG-04-035][medium]` **Nested closure RC leaks: wrapper RcInc for borrowed-parameter re-captures not balanced** — found by continue-roadmap.
-  Repro: `test_nested_closure_borrowed_list_param`, `test_nested_closure_borrowed_str_param`, `test_triple_nested_closure_capture` in `compiler/ori_llvm/tests/aot/`. All leak with `ORI_CHECK_LEAKS=1`. The wrapper function emits `RcInc` when unpacking owned captures from the env, but for borrowed parameters that are re-captured by inner closures, the lambda body's AIMS analysis doesn't emit a matching `RcDec` (suppressed by `is_ownership_transfer`). Net effect: +1 per call level per RC capture.
+- [x] `[BUG-04-035][medium]` **Nested closure RC leaks: wrapper RcInc for borrowed-parameter re-captures not balanced** — found by continue-roadmap.
+  Resolved: Fixed on 2026-04-05 by the closure-ownership plan. Sections 01-02 added `arg_ownership` to `ApplyIndirect`/`InvokeIndirect`, Section 03 replaced the conservative drop_hints workaround with ownership-aware logic, added InvokeIndirect to unwind_cleanup, removed unused `_capture_ownership` parameter. All 6 previously-leaking closure tests pass with zero leaks (3 curried + 3 nested). <!-- resolved-by:plans/closure-ownership -->
   Subsystem: `compiler/ori_llvm/src/codegen/arc_emitter/closure_wrappers.rs`, `compiler/ori_arc/src/aims/emit_rc/helpers.rs` (`is_ownership_transfer`)
   Found: 2026-04-04 | Source: continue-roadmap (TPR-04B-014 fix verification)
-  Note: 5 of 8 original closure RC leaks were fixed by the TPR-04B-014 fix (build_closure_env param-capture RcInc + ApplyIndirect drop_hints). These 3 remain. <!-- resolved-by:plans/closure-ownership -->
 
 - [ ] `[BUG-04-034][medium]` **Curried lambda capturing bool produces LLVM type mismatch (i1 vs i64)** — found by continue-roadmap.
   Repro: `let $fst = a -> b -> a; fst(true)(0)` with `--backend=llvm` → LLVM verification error: "Call parameter type does not match function signature! i1 vs i64". Only affects bool captures in curried lambdas — int/str/list captures work correctly.
