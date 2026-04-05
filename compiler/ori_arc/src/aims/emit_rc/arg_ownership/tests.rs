@@ -1,48 +1,14 @@
 //! AIMS entry-point tests for `emit_arg_ownership()` with indirect calls.
 
-use ori_ir::{Name, StringInterner};
+use ori_ir::StringInterner;
 use ori_types::{Idx, Pool};
-use rustc_hash::{FxHashMap, FxHashSet};
+use rustc_hash::FxHashMap;
 
 use crate::aims::contract::{MemoryContract, ParamContract};
 use crate::aims::lattice::{AccessClass, Cardinality, Consumption, Locality, Uniqueness};
-use crate::ir::{
-    ArcBlock, ArcBlockId, ArcFunction, ArcInstr, ArcParam, ArcTerminator, ArcVarId, ArgOwnership,
-};
+use crate::ir::{ArcBlock, ArcBlockId, ArcInstr, ArcTerminator, ArcVarId, ArgOwnership};
+use crate::test_helpers::make_func_named;
 use crate::BuiltinOwnershipSets;
-
-fn empty_builtins() -> BuiltinOwnershipSets {
-    BuiltinOwnershipSets {
-        borrowing: FxHashSet::default(),
-        consuming_receiver: FxHashSet::default(),
-        consuming_second_arg: FxHashSet::default(),
-        consuming_receiver_only: FxHashSet::default(),
-        protocol: FxHashMap::default(),
-    }
-}
-
-fn make_func(
-    name: Name,
-    params: Vec<ArcParam>,
-    blocks: Vec<ArcBlock>,
-    var_count: usize,
-) -> ArcFunction {
-    ArcFunction {
-        name,
-        params,
-        return_type: Idx::NONE,
-        blocks,
-        entry: ArcBlockId::new(0),
-        var_types: vec![Idx::INT; var_count],
-        var_reprs: vec![],
-        spans: vec![],
-        is_fbip: false,
-        num_captures: 0,
-        cow_annotations: crate::uniqueness::CowAnnotations::default(),
-        drop_hints: crate::uniqueness::DropHints::default(),
-        tail_calls: vec![],
-    }
-}
 
 fn make_param_contract(access: AccessClass) -> ParamContract {
     ParamContract {
@@ -60,7 +26,7 @@ fn make_param_contract(access: AccessClass) -> ParamContract {
 fn test_emit_arg_ownership_indirect_reuses_monomorphized_merge() {
     let interner = StringInterner::new();
     let pool = Pool::new();
-    let builtins = empty_builtins();
+    let builtins = BuiltinOwnershipSets::empty();
 
     let target_name = interner.intern("apply");
     let mono_name = interner.intern("apply$m$Lint");
@@ -92,7 +58,7 @@ fn test_emit_arg_ownership_indirect_reuses_monomorphized_merge() {
         },
     }];
 
-    let mut func = make_func(func_name, vec![], blocks, 3);
+    let mut func = make_func_named(func_name, vec![], Idx::NONE, blocks, vec![Idx::INT; 3]);
 
     let mut contracts = FxHashMap::default();
     let mut mono_contract = MemoryContract::conservative(1);
@@ -116,7 +82,7 @@ fn test_emit_arg_ownership_indirect_reuses_monomorphized_merge() {
 fn test_emit_arg_ownership_indirect_debug_assert_invariant() {
     let interner = StringInterner::new();
     let pool = Pool::new();
-    let builtins = empty_builtins();
+    let builtins = BuiltinOwnershipSets::empty();
 
     let target_name = interner.intern("func");
     let func_name = interner.intern("caller");
@@ -144,7 +110,7 @@ fn test_emit_arg_ownership_indirect_debug_assert_invariant() {
         },
     }];
 
-    let mut func = make_func(func_name, vec![], blocks, 3);
+    let mut func = make_func_named(func_name, vec![], Idx::NONE, blocks, vec![Idx::INT; 3]);
     let mut contracts = FxHashMap::default();
     let mut contract = MemoryContract::conservative(1);
     contract.params[0] = make_param_contract(AccessClass::Borrowed);

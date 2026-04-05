@@ -6,24 +6,12 @@
 
 use ori_ir::{Name, StringInterner};
 use ori_types::{Idx, Pool};
-use rustc_hash::{FxHashMap, FxHashSet};
+use rustc_hash::FxHashMap;
 
-use crate::ir::{
-    ArcBlock, ArcBlockId, ArcFunction, ArcInstr, ArcParam, ArcTerminator, ArcVarId, ArgOwnership,
-};
+use crate::ir::{ArcBlock, ArcBlockId, ArcInstr, ArcParam, ArcTerminator, ArcVarId, ArgOwnership};
 use crate::ownership::{AnnotatedParam, AnnotatedSig, Ownership};
+use crate::test_helpers::make_func_named;
 use crate::BuiltinOwnershipSets;
-
-/// Helper to create an empty `BuiltinOwnershipSets`.
-fn empty_builtins() -> BuiltinOwnershipSets {
-    BuiltinOwnershipSets {
-        borrowing: FxHashSet::default(),
-        consuming_receiver: FxHashSet::default(),
-        consuming_second_arg: FxHashSet::default(),
-        consuming_receiver_only: FxHashSet::default(),
-        protocol: FxHashMap::default(),
-    }
-}
 
 /// Helper to create an `AnnotatedSig` with the given ownership per param.
 fn make_sig(ownerships: &[Ownership]) -> AnnotatedSig {
@@ -45,30 +33,6 @@ fn make_sig(ownerships: &[Ownership]) -> AnnotatedSig {
     }
 }
 
-/// Helper: minimal `ArcFunction` with given blocks, var count, and params.
-fn make_func(
-    name: Name,
-    params: Vec<ArcParam>,
-    blocks: Vec<ArcBlock>,
-    var_count: usize,
-) -> ArcFunction {
-    ArcFunction {
-        name,
-        params,
-        return_type: Idx::NONE,
-        blocks,
-        entry: ArcBlockId::new(0),
-        var_types: vec![Idx::INT; var_count],
-        var_reprs: vec![],
-        spans: vec![],
-        is_fbip: false,
-        num_captures: 0,
-        cow_annotations: crate::uniqueness::CowAnnotations::default(),
-        drop_hints: crate::uniqueness::DropHints::default(),
-        tail_calls: vec![],
-    }
-}
-
 // ──────────────────────────────────────────────────────────────────────
 // Resolver-level tests
 // ──────────────────────────────────────────────────────────────────────
@@ -77,7 +41,7 @@ fn make_func(
 fn test_annotate_apply_indirect_from_partial_apply() {
     let interner = StringInterner::new();
     let pool = Pool::new();
-    let builtins = empty_builtins();
+    let builtins = BuiltinOwnershipSets::empty();
 
     let target_name = interner.intern("my_func");
     let func_name = interner.intern("caller");
@@ -107,7 +71,7 @@ fn test_annotate_apply_indirect_from_partial_apply() {
         },
     }];
 
-    let mut func = make_func(func_name, vec![], blocks, 5);
+    let mut func = make_func_named(func_name, vec![], Idx::NONE, blocks, vec![Idx::INT; 5]);
 
     // Sig for my_func: 2 params (1 capture + 1 user), both Owned.
     let mut sigs = FxHashMap::default();
@@ -127,7 +91,7 @@ fn test_annotate_apply_indirect_from_partial_apply() {
 fn test_annotate_apply_indirect_opaque_closure() {
     let interner = StringInterner::new();
     let pool = Pool::new();
-    let builtins = empty_builtins();
+    let builtins = BuiltinOwnershipSets::empty();
     let func_name = interner.intern("caller");
 
     // v0 = function param (opaque closure), v1 = ApplyIndirect(v0, [v2])
@@ -151,7 +115,7 @@ fn test_annotate_apply_indirect_opaque_closure() {
         ty: Idx::NONE,
         ownership: Ownership::Borrowed,
     }];
-    let mut func = make_func(func_name, params, blocks, 4);
+    let mut func = make_func_named(func_name, params, Idx::NONE, blocks, vec![Idx::INT; 4]);
     let sigs = FxHashMap::default();
 
     super::annotate_arg_ownership(&mut func, &sigs, &interner, &builtins, &pool);
@@ -171,7 +135,7 @@ fn test_annotate_apply_indirect_opaque_closure() {
 fn test_annotate_invoke_indirect() {
     let interner = StringInterner::new();
     let pool = Pool::new();
-    let builtins = empty_builtins();
+    let builtins = BuiltinOwnershipSets::empty();
 
     let target_name = interner.intern("target_fn");
     let func_name = interner.intern("caller");
@@ -197,7 +161,7 @@ fn test_annotate_invoke_indirect() {
         },
     }];
 
-    let mut func = make_func(func_name, vec![], blocks, 4);
+    let mut func = make_func_named(func_name, vec![], Idx::NONE, blocks, vec![Idx::INT; 4]);
     let mut sigs = FxHashMap::default();
     sigs.insert(target_name, make_sig(&[Ownership::Owned]));
 
@@ -214,7 +178,7 @@ fn test_annotate_invoke_indirect() {
 fn test_annotate_apply_indirect_with_captures_offset() {
     let interner = StringInterner::new();
     let pool = Pool::new();
-    let builtins = empty_builtins();
+    let builtins = BuiltinOwnershipSets::empty();
 
     let target_name = interner.intern("target");
     let func_name = interner.intern("caller");
@@ -244,7 +208,7 @@ fn test_annotate_apply_indirect_with_captures_offset() {
         },
     }];
 
-    let mut func = make_func(func_name, vec![], blocks, 7);
+    let mut func = make_func_named(func_name, vec![], Idx::NONE, blocks, vec![Idx::INT; 7]);
     let mut sigs = FxHashMap::default();
     sigs.insert(
         target_name,
@@ -273,7 +237,7 @@ fn test_annotate_apply_indirect_with_captures_offset() {
 fn test_annotate_apply_indirect_zero_capture_function_ref() {
     let interner = StringInterner::new();
     let pool = Pool::new();
-    let builtins = empty_builtins();
+    let builtins = BuiltinOwnershipSets::empty();
 
     let target_name = interner.intern("func_ref");
     let func_name = interner.intern("caller");
@@ -303,7 +267,7 @@ fn test_annotate_apply_indirect_zero_capture_function_ref() {
         },
     }];
 
-    let mut func = make_func(func_name, vec![], blocks, 4);
+    let mut func = make_func_named(func_name, vec![], Idx::NONE, blocks, vec![Idx::INT; 4]);
     let mut sigs = FxHashMap::default();
     sigs.insert(
         target_name,
@@ -326,7 +290,7 @@ fn test_annotate_apply_indirect_zero_capture_function_ref() {
 fn test_annotate_apply_indirect_alias_across_blocks() {
     let interner = StringInterner::new();
     let pool = Pool::new();
-    let builtins = empty_builtins();
+    let builtins = BuiltinOwnershipSets::empty();
 
     let target_name = interner.intern("target");
     let func_name = interner.intern("caller");
@@ -373,7 +337,7 @@ fn test_annotate_apply_indirect_alias_across_blocks() {
         },
     ];
 
-    let mut func = make_func(func_name, vec![], blocks, 6);
+    let mut func = make_func_named(func_name, vec![], Idx::NONE, blocks, vec![Idx::INT; 6]);
     let mut sigs = FxHashMap::default();
     sigs.insert(target_name, make_sig(&[Ownership::Owned, Ownership::Owned]));
 
@@ -394,7 +358,7 @@ fn test_annotate_apply_indirect_alias_across_blocks() {
 fn test_annotate_apply_indirect_merge_conflict_defaults_borrowed() {
     let interner = StringInterner::new();
     let pool = Pool::new();
-    let builtins = empty_builtins();
+    let builtins = BuiltinOwnershipSets::empty();
 
     let target_a = interner.intern("func_a");
     let target_b = interner.intern("func_b");
@@ -449,7 +413,7 @@ fn test_annotate_apply_indirect_merge_conflict_defaults_borrowed() {
         },
     ];
 
-    let mut func = make_func(func_name, vec![], blocks, 6);
+    let mut func = make_func_named(func_name, vec![], Idx::NONE, blocks, vec![Idx::INT; 6]);
     let mut sigs = FxHashMap::default();
     sigs.insert(target_a, make_sig(&[Ownership::Owned]));
     sigs.insert(target_b, make_sig(&[Ownership::Borrowed]));
@@ -471,7 +435,7 @@ fn test_annotate_apply_indirect_merge_conflict_defaults_borrowed() {
 fn test_annotate_apply_indirect_loop_carried_block_param() {
     let interner = StringInterner::new();
     let pool = Pool::new();
-    let builtins = empty_builtins();
+    let builtins = BuiltinOwnershipSets::empty();
 
     let target_name = interner.intern("target");
     let func_name = interner.intern("caller");
@@ -512,7 +476,7 @@ fn test_annotate_apply_indirect_loop_carried_block_param() {
         },
     ];
 
-    let mut func = make_func(func_name, vec![], blocks, 5);
+    let mut func = make_func_named(func_name, vec![], Idx::NONE, blocks, vec![Idx::INT; 5]);
     let mut sigs = FxHashMap::default();
     sigs.insert(target_name, make_sig(&[Ownership::Owned, Ownership::Owned]));
 
@@ -531,7 +495,7 @@ fn test_annotate_apply_indirect_loop_carried_block_param() {
 fn test_annotate_apply_indirect_zero_user_args() {
     let interner = StringInterner::new();
     let pool = Pool::new();
-    let builtins = empty_builtins();
+    let builtins = BuiltinOwnershipSets::empty();
 
     let target_name = interner.intern("thunk");
     let func_name = interner.intern("caller");
@@ -560,7 +524,7 @@ fn test_annotate_apply_indirect_zero_user_args() {
         },
     }];
 
-    let mut func = make_func(func_name, vec![], blocks, 3);
+    let mut func = make_func_named(func_name, vec![], Idx::NONE, blocks, vec![Idx::INT; 3]);
     let sigs = FxHashMap::default();
 
     super::annotate_arg_ownership(&mut func, &sigs, &interner, &builtins, &pool);
@@ -577,7 +541,7 @@ fn test_annotate_apply_indirect_opaque_not_owned() {
     // Negative pin: opaque closure must NEVER produce Owned for any arg.
     let interner = StringInterner::new();
     let pool = Pool::new();
-    let builtins = empty_builtins();
+    let builtins = BuiltinOwnershipSets::empty();
     let func_name = interner.intern("caller");
 
     let blocks = vec![ArcBlock {
@@ -595,7 +559,7 @@ fn test_annotate_apply_indirect_opaque_not_owned() {
         },
     }];
 
-    let mut func = make_func(func_name, vec![], blocks, 5);
+    let mut func = make_func_named(func_name, vec![], Idx::NONE, blocks, vec![Idx::INT; 5]);
     let sigs = FxHashMap::default();
 
     super::annotate_arg_ownership(&mut func, &sigs, &interner, &builtins, &pool);
@@ -622,7 +586,7 @@ fn test_annotate_apply_indirect_builtin_partial_apply() {
     let func_name = interner.intern("caller");
 
     // Set up builtins: push is consuming_receiver for List type
-    let mut builtins = empty_builtins();
+    let mut builtins = BuiltinOwnershipSets::empty();
     builtins.consuming_receiver.insert(push_name);
 
     // PartialApply(push, [list_var]) — captures the list (receiver)
@@ -663,7 +627,7 @@ fn test_annotate_apply_indirect_builtin_partial_apply() {
     let list_int = pool.list(Idx::INT);
     var_types[0] = list_int;
 
-    let mut func = make_func(func_name, vec![], blocks, 4);
+    let mut func = make_func_named(func_name, vec![], Idx::NONE, blocks, vec![Idx::INT; 4]);
     func.var_types = var_types;
 
     let mut sigs = FxHashMap::default();
@@ -699,7 +663,7 @@ fn test_annotate_apply_indirect_different_capture_types_defaults_borrowed() {
 
     // Register concat as consuming_receiver + consuming_second_arg
     // so apply_consuming_overrides actually fires for List but not str.
-    let mut builtins = empty_builtins();
+    let mut builtins = BuiltinOwnershipSets::empty();
     builtins.consuming_receiver.insert(target);
     builtins.consuming_second_arg.insert(target);
 
@@ -753,7 +717,7 @@ fn test_annotate_apply_indirect_different_capture_types_defaults_borrowed() {
         },
     ];
 
-    let mut func = make_func(func_name, vec![], blocks, 7);
+    let mut func = make_func_named(func_name, vec![], Idx::NONE, blocks, vec![Idx::INT; 7]);
     // v0=List<int>, v1=str — different types
     func.var_types[0] = list_int;
     func.var_types[1] = Idx::STR;
@@ -780,7 +744,7 @@ fn test_annotate_apply_indirect_different_capture_types_defaults_borrowed() {
 fn test_annotate_apply_indirect_same_capture_types_merges() {
     let interner = StringInterner::new();
     let pool = Pool::new();
-    let builtins = empty_builtins();
+    let builtins = BuiltinOwnershipSets::empty();
 
     let target = interner.intern("target");
     let func_name = interner.intern("caller");
@@ -831,7 +795,7 @@ fn test_annotate_apply_indirect_same_capture_types_merges() {
         },
     ];
 
-    let mut func = make_func(func_name, vec![], blocks, 7);
+    let mut func = make_func_named(func_name, vec![], Idx::NONE, blocks, vec![Idx::INT; 7]);
     let mut sigs = FxHashMap::default();
     sigs.insert(target, make_sig(&[Ownership::Owned, Ownership::Owned]));
 
@@ -859,7 +823,7 @@ fn test_annotate_apply_indirect_cross_instantiation_same_tag_merges() {
     let target = interner.intern("concat");
     let func_name = interner.intern("caller");
 
-    let mut builtins = empty_builtins();
+    let mut builtins = BuiltinOwnershipSets::empty();
     builtins.consuming_receiver.insert(target);
     builtins.consuming_second_arg.insert(target);
 
@@ -911,7 +875,7 @@ fn test_annotate_apply_indirect_cross_instantiation_same_tag_merges() {
         },
     ];
 
-    let mut func = make_func(func_name, vec![], blocks, 7);
+    let mut func = make_func_named(func_name, vec![], Idx::NONE, blocks, vec![Idx::INT; 7]);
     func.var_types[0] = list_int; // List<int>
     func.var_types[1] = list_str; // List<str>
 
@@ -938,7 +902,7 @@ fn test_annotate_apply_indirect_cross_instantiation_same_tag_merges() {
 fn test_annotate_apply_indirect_diamond_cfg_same_origin() {
     let interner = StringInterner::new();
     let pool = Pool::new();
-    let builtins = empty_builtins();
+    let builtins = BuiltinOwnershipSets::empty();
 
     let target = interner.intern("target");
     let func_name = interner.intern("caller");
@@ -1013,7 +977,7 @@ fn test_annotate_apply_indirect_diamond_cfg_same_origin() {
         },
     ];
 
-    let mut func = make_func(func_name, vec![], blocks, 7);
+    let mut func = make_func_named(func_name, vec![], Idx::NONE, blocks, vec![Idx::INT; 7]);
     let mut sigs = FxHashMap::default();
     sigs.insert(target, make_sig(&[Ownership::Owned, Ownership::Owned]));
 
