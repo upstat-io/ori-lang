@@ -70,8 +70,11 @@ pub(crate) fn emit_edge_cleanup(
     for (block_idx, block) in func.blocks.iter().enumerate() {
         let blk = block_id(block_idx);
 
-        // Handle Invoke separately — use InvokeEdgeState.
-        if matches!(block.terminator, ArcTerminator::Invoke { .. }) {
+        // Handle Invoke/InvokeIndirect separately — use InvokeEdgeState.
+        if matches!(
+            block.terminator,
+            ArcTerminator::Invoke { .. } | ArcTerminator::InvokeIndirect { .. }
+        ) {
             collect_invoke_edge_decs(
                 func,
                 block_idx,
@@ -83,7 +86,9 @@ pub(crate) fn emit_edge_cleanup(
             // Add deferred decs to Invoke edges. target=None → both edges,
             // target=Some(succ) → only the matching edge.
             if let Some(decs) = deferred_parent_decs.get(&block_idx) {
-                if let ArcTerminator::Invoke { normal, unwind, .. } = &block.terminator {
+                if let ArcTerminator::Invoke { normal, unwind, .. }
+                | ArcTerminator::InvokeIndirect { normal, unwind, .. } = &block.terminator
+                {
                     for &(target, var, strategy) in decs {
                         match target {
                             None => {
@@ -275,13 +280,20 @@ fn collect_invoke_edge_decs(
     edge_decs: &mut Vec<(usize, usize, ArcVarId, RcStrategy)>,
 ) {
     let blk = block_id(block_idx);
-    let ArcTerminator::Invoke {
+    let (ArcTerminator::Invoke {
         normal,
         unwind,
         args,
         arg_ownership,
         ..
-    } = &func.blocks[block_idx].terminator
+    }
+    | ArcTerminator::InvokeIndirect {
+        normal,
+        unwind,
+        args,
+        arg_ownership,
+        ..
+    }) = &func.blocks[block_idx].terminator
     else {
         return;
     };

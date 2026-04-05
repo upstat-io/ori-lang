@@ -167,7 +167,7 @@ pub(crate) fn emit_dead_at_entry_decs(
 /// all entry/exit state maps. Phases A–C only process variables they find in
 /// `entry_states` or `use_info`, so they miss these orphaned definitions entirely.
 ///
-/// This function scans every Invoke terminator and checks whether its `dst`
+/// This function scans every Invoke/InvokeIndirect terminator and checks whether its `dst`
 /// variable has an `RcDec` in the normal successor block. If not, and the
 /// variable is an `RcPointer`, it prepends one. The same check is done for
 /// the unwind successor.
@@ -182,7 +182,9 @@ pub(crate) fn emit_dead_invoke_dsts(
     let mut pending_decs = Vec::new();
 
     for block in &func.blocks {
-        let ArcTerminator::Invoke { dst, normal, .. } = &block.terminator else {
+        let (ArcTerminator::Invoke { dst, normal, .. }
+        | ArcTerminator::InvokeIndirect { dst, normal, .. }) = &block.terminator
+        else {
             continue;
         };
 
@@ -243,7 +245,7 @@ pub(crate) fn emit_dead_invoke_dsts(
 /// Check if a variable is defined within a specific block.
 ///
 /// A variable is "defined in block" if it's a block param, an instruction
-/// destination, or an Invoke result of that block. Used to filter out
+/// destination, or an Invoke/InvokeIndirect result of that block. Used to filter out
 /// phantom demand from project-source propagation at merge blocks.
 fn is_var_defined_in_block(block: &crate::ir::ArcBlock, var: ArcVarId) -> bool {
     if block.params.iter().any(|&(p, _)| p == var) {
@@ -254,10 +256,13 @@ fn is_var_defined_in_block(block: &crate::ir::ArcBlock, var: ArcVarId) -> bool {
             return true;
         }
     }
-    if let ArcTerminator::Invoke { dst, .. } = &block.terminator {
-        if *dst == var {
-            return true;
+    match &block.terminator {
+        ArcTerminator::Invoke { dst, .. } | ArcTerminator::InvokeIndirect { dst, .. } => {
+            if *dst == var {
+                return true;
+            }
         }
+        _ => {}
     }
     false
 }
