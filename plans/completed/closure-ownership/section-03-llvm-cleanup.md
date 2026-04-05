@@ -1,7 +1,7 @@
 ---
 section: "03"
 title: "LLVM Cleanup & Verification"
-status: in-progress
+status: complete
 reviewed: true
 goal: "Replace LLVM-level workarounds with arg_ownership logic, add InvokeIndirect handling (drop_hints + unwind_cleanup), verify env drop correctness, remove unused _capture_ownership parameter, fix 3 stale docs, un-ignore tests, verify zero leaks"
 success_criteria:
@@ -41,7 +41,7 @@ sections:
     status: complete
   - id: "03.N"
     title: "Completion Checklist"
-    status: in-progress
+    status: complete
 ---
 
 # Section 03: LLVM Cleanup & Verification
@@ -307,10 +307,10 @@ The comment at `closures.rs:222-226` already documents this correctly:
 - [x] Full test suite passes (03.4)
 - [x] BUG-04-035 marked resolved with cross-link (03.4)
 - [x] TPR-04B-014 updated with cross-link (03.4)
-- [ ] Section 03 frontmatter `status` updated to `complete`
-- [ ] `00-overview.md` Quick Reference table updated: Section 03 status → `Complete`
-- [ ] `index.md` Quick Reference table updated: Section 03 status → `Complete`
-- [ ] `00-overview.md` plan status updated to reflect completion (all sections complete)
+- [x] Section 03 frontmatter `status` updated to `complete`
+- [x] `00-overview.md` Quick Reference table updated: Section 03 status → `Complete`
+- [x] `index.md` Quick Reference table updated: Section 03 status → `Complete`
+- [x] `00-overview.md` plan status updated to reflect completion (all sections complete)
 - [x] `timeout 150 ./test-all.sh` passes
-- [ ] `/tpr-review` passed
-- [ ] `/impl-hygiene-review last commit` passed
+- [x] `/tpr-review` passed — 3 iterations, 4 findings (all plan metadata, 0 code issues), all resolved
+- [x] `/impl-hygiene-review last commit` passed — 0 actionable findings, 2 informational notes
