@@ -298,6 +298,12 @@ fn collect_invoke_edge_decs(
         return;
     };
     let (normal, unwind) = (*normal, *unwind);
+    // InvokeIndirect uses conservative default (Borrowed) for unannotated args,
+    // unlike Invoke which defaults to Owned. This affects ownership checks below.
+    let is_indirect = matches!(
+        func.blocks[block_idx].terminator,
+        ArcTerminator::InvokeIndirect { .. }
+    );
 
     let edge_state = state_map.invoke_edge_state(blk);
     let exit_states = state_map.block_exit_states(blk);
@@ -307,9 +313,17 @@ fn collect_invoke_edge_decs(
 
     // Category 3: unwind cleanup for Owned args (callee may not have consumed).
     for (i, &arg) in args.iter().enumerate() {
-        let is_owned = arg_ownership
-            .get(i)
-            .is_none_or(|o| *o == ArgOwnership::Owned);
+        let is_owned = if is_indirect {
+            // Indirect: empty arg_ownership = all Borrowed (conservative).
+            arg_ownership
+                .get(i)
+                .is_some_and(|o| *o == ArgOwnership::Owned)
+        } else {
+            // Direct: empty arg_ownership = all Owned (pre-annotation default).
+            arg_ownership
+                .get(i)
+                .is_none_or(|o| *o == ArgOwnership::Owned)
+        };
         if !is_owned {
             continue;
         }
@@ -349,7 +363,7 @@ fn collect_invoke_edge_decs(
                 continue;
             }
             // Ownership transferred → callee handles normal cleanup.
-            if invoke_transfers_ownership(var, args, arg_ownership) {
+            if invoke_transfers_ownership(var, args, arg_ownership, is_indirect) {
                 continue;
             }
 
@@ -415,16 +429,29 @@ fn collect_invoke_edge_decs(
 /// and the caller must not emit cleanup for that variable. Conservative: if the
 /// same variable appears at multiple positions and ANY is Owned, treat as
 /// transferred (the callee received at least one owned reference).
+///
+/// `is_indirect` controls the default for unannotated (empty) `arg_ownership`:
+/// - `false` (direct call): missing entries default to Owned (`is_none_or`)
+/// - `true` (indirect call): missing entries default to Borrowed (`is_some_and`)
 #[inline]
 fn invoke_transfers_ownership(
     var: ArcVarId,
     args: &[ArcVarId],
     arg_ownership: &[ArgOwnership],
+    is_indirect: bool,
 ) -> bool {
     args.iter().enumerate().any(|(i, &arg)| {
-        arg == var
-            && arg_ownership
+        if arg != var {
+            return false;
+        }
+        if is_indirect {
+            arg_ownership
+                .get(i)
+                .is_some_and(|o| *o == ArgOwnership::Owned)
+        } else {
+            arg_ownership
                 .get(i)
                 .is_none_or(|o| *o == ArgOwnership::Owned)
+        }
     })
 }
