@@ -200,6 +200,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 ty,
                 closure,
                 args,
+                arg_ownership: _,
                 normal,
                 unwind,
             } => {

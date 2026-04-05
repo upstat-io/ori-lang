@@ -43,6 +43,12 @@ pub enum ArcInstr {
         ty: Idx,
         closure: ArcVarId,
         args: Vec<ArcVarId>,
+        /// Per-argument ownership at this indirect call site.
+        /// Parallel to `args`: `arg_ownership[i]` describes `args[i]`.
+        /// Empty before annotation; populated by RC insertion (Section 02).
+        /// Unlike `Apply`, empty defaults to all-Borrowed (conservative for
+        /// unknown callees — caller retains cleanup responsibility).
+        arg_ownership: Vec<ArgOwnership>,
     },
 
     /// Partial application / closure creation: `let dst: ty = func(args...)`.
@@ -318,15 +324,29 @@ impl ArcInstr {
             // CollectionReuse: old_var at position 0 is consumed (not owned);
             //   positions 1..=args.len() are owned (stored into buffer).
             ArcInstr::CollectionReuse { args, .. } => pos >= 1 && pos <= args.len(),
-            // ApplyIndirect: lambda callees do NOT emit RcDec for their
-            // parameters — the caller is responsible. All positions are
-            // borrowed from the caller's perspective. Separate from the
-            // wildcard to document this semantic distinction.
-            #[expect(
-                clippy::match_same_arms,
-                reason = "documents semantic difference from wildcard"
-            )]
-            ArcInstr::ApplyIndirect { .. } => false,
+            // ApplyIndirect: used_vars() returns [closure, ...args].
+            // pos=0 is closure (always borrowed). pos 1..=args.len() are
+            // user args. arg_ownership parallels args, so
+            // arg_ownership[i] corresponds to used_vars position i+1.
+            //
+            // Empty arg_ownership (pre-annotation) → is_some_and returns
+            // false → all positions NOT owned. This is safe (conservative:
+            // caller retains cleanup). Differs from Apply's is_none_or
+            // which defaults to Owned.
+            ArcInstr::ApplyIndirect {
+                args,
+                arg_ownership,
+                ..
+            } => {
+                if pos == 0 {
+                    return false; // closure is always borrowed
+                }
+                let arg_idx = pos - 1;
+                arg_idx < args.len()
+                    && arg_ownership
+                        .get(arg_idx)
+                        .is_some_and(|o| *o == ArgOwnership::Owned)
+            }
             ArcInstr::Apply {
                 args,
                 arg_ownership,
