@@ -226,7 +226,7 @@ Captures in nested lambdas inherit types from the outer scope's variable table. 
   Resolved: Fixed on 2026-04-04. Two-part fix:
   (1) `build_closure_env` (closures.rs): emit RcInc for RC-typed captures that are function parameters. Parameter captures need their own RC reference because the caller independently RcDec's after the call. Locally-created captures use the PartialApply ownership-transfer model (no RcInc needed).
   (2) `collect_borrowed_call_args` (drop_hints.rs): conservatively mark ALL `ApplyIndirect` args as potentially shared. Prevents incorrect `ori_buffer_drop_unique` (unconditional free) for values passed to indirect calls — uses `ori_buffer_rc_dec` (check-then-free) instead.
-  Tests: 4 AOT regression tests (list capture, str capture, nested curried, scalar negative pin). Dual-exec parity verified. Leak-check clean. Also fixed 5 of 8 pre-existing nested closure RC leaks. Remaining 3 tracked as BUG-04-035.
+  Tests: 4 AOT regression tests (list capture, str capture, nested curried, scalar negative pin). Dual-exec parity verified. Leak-check clean. Also fixed 5 of 8 pre-existing nested closure RC leaks. Remaining 3 tracked as BUG-04-035. <!-- resolved-by:plans/closure-ownership -->
 
 ---
 
