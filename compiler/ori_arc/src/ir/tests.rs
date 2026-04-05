@@ -3,10 +3,10 @@ use std::mem;
 use ori_ir::{BinaryOp, Name, UnaryOp};
 use ori_types::Idx;
 
+use crate::ir::ArgOwnership;
 use crate::Ownership;
 
 use super::*;
-use crate::ir::ArgOwnership;
 
 // ID newtypes
 
