@@ -20,7 +20,7 @@ Fix the architectural gap where `ApplyIndirect`/`InvokeIndirect` (indirect calls
 - [ ] `annotate_arg_ownership()` populates ownership for `ApplyIndirect`/`InvokeIndirect` from closure contracts
 - [ ] `collect_borrowed_call_args()` handles `ApplyIndirect` via `arg_ownership` (not conservative override) AND handles `InvokeIndirect` terminator
 - [ ] `ORI_CHECK_LEAKS=1` reports zero leaks on ALL AOT tests (currently 6 leak)
-- [ ] The 3 `#[ignore = "BUG-04-035"]` tests pass without ignore
+- [ ] The 3 former `BUG-04-035` curried-closure tests remain enabled and pass
 - [ ] The 3 pre-existing nested closure leaks (`borrowed_list_param`, `borrowed_str_param`, `triple_nested`) pass without leaks
 - [ ] `./test-all.sh` green — no regressions
 - [ ] All section success criteria met
@@ -105,11 +105,13 @@ Phase 2 - AIMS Integration
          handle InvokeIndirect, update legacy borrow inference parity
 
 Phase 3 - LLVM Cleanup & Verification
-  └─ 03: Replace drop_hints ApplyIndirect workaround with arg_ownership logic,
+  └─ 03: Wire test modules (drop_hints, unwind_cleanup),
+         replace drop_hints ApplyIndirect workaround with arg_ownership logic,
          add InvokeIndirect terminator to collect_borrowed_call_args,
          add InvokeIndirect to unwind_cleanup (TPR-01-006),
          verify env drop correctness (RcDec ALL captures is correct),
-         fix 4 stale doc comments, un-ignore tests, verify zero leaks
+         remove unused _capture_ownership parameter, fix 3 stale doc comments,
+         un-ignore tests, verify zero leaks
 ```
 
 ## Estimated Effort
@@ -118,7 +120,7 @@ Phase 3 - LLVM Cleanup & Verification
 |---------|-------|-----------|------|
 | 01 | 10 | ~150 | Low — mechanical field addition + forward_walk.rs + emit_unified.rs + verifier + tests |
 | 02 | 5 | ~250 | Medium — SSA def-map builder, closure resolver, annotation extension, legacy borrow inference parity, tests |
-| 03 | 7 | ~100 | Low — replace workaround + add InvokeIndirect (drop_hints + unwind) + fix 4 docs + verify |
+| 03 | 9 | ~150 | Low — wire test modules (drop_hints + unwind_cleanup) + replace workaround + add InvokeIndirect (drop_hints + unwind) + remove unused params (env_drop + build_closure_env) + fix 3 docs + add fallback tracing::warn + verify |
 
 ## Resolves
 
