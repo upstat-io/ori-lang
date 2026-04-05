@@ -29,7 +29,7 @@ sections:
     status: complete
   - id: "03.2"
     title: "Verify env drop function correctness"
-    status: not-started
+    status: complete
   - id: "03.3"
     title: "Un-ignore tests and verify"
     status: not-started
@@ -200,24 +200,24 @@ Skipping `RcDec` for borrowed captures would orphan the env's reference, causing
 The comment at `closures.rs:222-226` already documents this correctly:
 > "The drop function must dec all RC-needing captures regardless of the lambda's borrow annotation — the annotation controls the lambda BODY's treatment, not env ownership."
 
-- [ ] **Remove the unused `_capture_ownership` parameter FIRST** — a four-step chain in `compiler/ori_llvm/src/codegen/arc_emitter/closures.rs` (316 lines, well under 500 limit):
+- [x] **Remove the unused `_capture_ownership` parameter FIRST** — a four-step chain in `compiler/ori_llvm/src/codegen/arc_emitter/closures.rs` (316 lines, well under 500 limit):
   1. **`generate_env_drop_fn` signature** (line 189-195): Remove the `_capture_ownership: &[Ownership]` parameter (line 193). The env drop correctly `RcDec`s all captures regardless — no change to RC logic.
   2. **`generate_env_drop_fn` call site** (line 156-157): Change `self.generate_env_drop_fn(env_struct_ty_id, capture_types, capture_ownership, env_size)` to `self.generate_env_drop_fn(env_struct_ty_id, capture_types, env_size)` — drop the `capture_ownership` argument.
   3. **`build_closure_env` signature** (line 124-129): Remove the `capture_ownership: &[Ownership]` parameter (line 128). This function only passed it through to `generate_env_drop_fn`.
   4. **`build_closure_env` call site** in `emit_partial_apply` (line 98): Change `self.build_closure_env(args, &capture_types, &capture_ownership)` to `self.build_closure_env(args, &capture_types)` — drop the `&capture_ownership` argument.
 
   The `capture_ownership` local in `emit_partial_apply` (lines 87-92) is still needed — it is passed to `generate_closure_wrapper` at line 107 for the wrapper RcInc logic. The stale comment at line 155 ("Pass capture ownership so borrowed captures are NOT RC-dec'd") will be dead code after this edit (the line references the removed parameter) and can be deleted.
-- [ ] **Fix stale doc comments** (3 locations remaining after parameter removal, all in `compiler/ori_llvm/src/`):
+- [x] **Fix stale doc comments** (3 locations remaining after parameter removal, all in `compiler/ori_llvm/src/`):
   1. `codegen/arc_emitter/context.rs:259-260` — incorrectly says "the closure's env drop function must NOT RC-dec that capture — the caller retains ownership." Update to: "the closure's wrapper function skips `RcInc` for borrowed captures — the lambda body borrows from the env rather than getting its own reference."
   2. `codegen/arc_emitter/closures.rs:86` — incorrectly says "which captures are borrowed (skip RC dec in drop fn)." Update to: "which captures are borrowed (skip RcInc in wrapper — body borrows from env)."
   3. `codegen/function_compiler/define_phase.rs:422-423` — incorrectly says "correct env drop functions: borrowed captures must NOT be RC-dec'd." Update to: "correct wrapper functions: borrowed captures skip RcInc (body borrows from env). Env drop RcDec's ALL captures regardless."
   **Note**: `closures.rs:155` ("Pass capture ownership so borrowed captures are NOT RC-dec'd") is eliminated by the parameter removal above — no separate fix needed.
-- [ ] **Hygiene: `generate_env_drop_fn` is 127 lines** (closures.rs:189-315) — exceeds the 100-line target. Not blocking for this section (sequential LLVM IR emission, same pattern as `generate_closure_wrapper` which has `#[expect(clippy::too_many_lines)]`), but note for future cleanup if the function grows further. Add `#[expect(clippy::too_many_lines, reason = "env drop emits sequential LLVM IR per-capture-type")]` to suppress the lint with justification.
-- [ ] **Verify the wrapper RcInc logic** in `compiler/ori_llvm/src/codegen/arc_emitter/closure_wrappers.rs:175-179` (239 lines, under 500 limit) is correct with the ownership model:
+- [x] **Hygiene: `generate_env_drop_fn` is 127 lines** (closures.rs:189-315) — exceeds the 100-line target. Not blocking for this section (sequential LLVM IR emission, same pattern as `generate_closure_wrapper` which has `#[expect(clippy::too_many_lines)]`), but note for future cleanup if the function grows further. Add `#[expect(clippy::too_many_lines, reason = "env drop emits sequential LLVM IR per-capture-type")]` to suppress the lint with justification.
+- [x] **Verify the wrapper RcInc logic** in `compiler/ori_llvm/src/codegen/arc_emitter/closure_wrappers.rs:175-179` (239 lines, under 500 limit) is correct with the ownership model:
   - The wrapper `RcInc` fires for `Owned` captures (line 179: `ownership == Ownership::Owned && needs_rc`) — correct: creates a second reference for the lambda body
   - For `Borrowed` captures: no wrapper `RcInc` — correct: body borrows from the env
   - The env drop `RcDec`s ALL captures regardless — correct: env owns all its stored values
-- [ ] **Verify `lambda_capture_ownership` fallback safety** in `closures.rs:87-92`: the `unwrap_or_else(|| vec![Ownership::Owned; num_captures])` default is conservative-correct (all-Owned causes RcInc for every capture). Add a `tracing::warn!` when the fallback fires for a capturing lambda (non-empty captures) — this indicates a missing entry from `define_phase.rs:424-433` and should not happen in practice. The `tracing` crate is already a dependency of `ori_llvm` and already used in `closures.rs` (lines 42, 51). Suggested implementation:
+- [x] **Verify `lambda_capture_ownership` fallback safety** in `closures.rs:87-92`: the `unwrap_or_else(|| vec![Ownership::Owned; num_captures])` default is conservative-correct (all-Owned causes RcInc for every capture). Add a `tracing::warn!` when the fallback fires for a capturing lambda (non-empty captures) — this indicates a missing entry from `define_phase.rs:424-433` and should not happen in practice. The `tracing` crate is already a dependency of `ori_llvm` and already used in `closures.rs` (lines 42, 51). Suggested implementation:
   ```rust
   .unwrap_or_else(|| {
       tracing::warn!(
@@ -283,12 +283,12 @@ The comment at `closures.rs:222-226` already documents this correctly:
 - [x] Shared helper `insert_borrowed_from_ownership` extracted to eliminate duplication (03.1)
 - [x] unwind_cleanup `InvokeIndirect` handling added (03.1, TPR-01-006)
 - [x] Rust unit tests pin `drop_hints` and `unwind_cleanup` indirect-call behavior (03.1)
-- [ ] `generate_env_drop_fn` correctness verified — env RcDec's ALL captures (03.2)
-- [ ] Unused `_capture_ownership` parameter removed from `generate_env_drop_fn` AND `build_closure_env` (03.2)
-- [ ] All 3 stale doc comments fixed: `context.rs:259`, `closures.rs:86`, `define_phase.rs:422` (03.2)
-- [ ] Wrapper RcInc logic verified correct (03.2)
-- [ ] `lambda_capture_ownership` fallback verified and `tracing::warn!` added (03.2)
-- [ ] `generate_env_drop_fn` lint suppression added with justification (03.2)
+- [x] `generate_env_drop_fn` correctness verified — env RcDec's ALL captures (03.2)
+- [x] Unused `_capture_ownership` parameter removed from `generate_env_drop_fn` AND `build_closure_env` (03.2)
+- [x] All 3 stale doc comments fixed: `context.rs:259`, `closures.rs:86`, `define_phase.rs:422` (03.2)
+- [x] Wrapper RcInc logic verified correct (03.2)
+- [x] `lambda_capture_ownership` fallback verified and `tracing::warn!` added (03.2)
+- [x] `generate_env_drop_fn` lint suppression added with justification (03.2)
 - [ ] 3 former `BUG-04-035` curried-closure tests verified enabled and passing (03.3)
 - [ ] 3 pre-existing nested closure leak tests verified passing (03.3)
 - [ ] All 6 previously-leaking tests pass with zero leaks (03.4)
