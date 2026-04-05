@@ -1220,7 +1220,7 @@ fn is_owned_position_construct_all_owned() {
     assert!(!instr.is_owned_position(2));
 }
 
-// --- ApplyIndirect is_owned_position with arg_ownership ---
+// ApplyIndirect is_owned_position with arg_ownership
 
 #[test]
 fn is_owned_position_apply_indirect_with_ownership() {
@@ -1280,7 +1280,7 @@ fn is_owned_position_apply_indirect_out_of_bounds() {
     assert!(!instr.is_owned_position(100), "way beyond");
 }
 
-// --- InvokeIndirect terminator is_owned_position ---
+// InvokeIndirect terminator is_owned_position
 
 #[test]
 fn is_owned_position_invoke_indirect_with_ownership() {
@@ -1323,7 +1323,7 @@ fn is_owned_position_invoke_indirect_empty_ownership() {
     assert!(!term.is_owned_position(1), "closure: borrowed");
 }
 
-// --- Invoke terminator is_owned_position ---
+// Invoke terminator is_owned_position
 
 #[test]
 fn is_owned_position_invoke_with_ownership() {
