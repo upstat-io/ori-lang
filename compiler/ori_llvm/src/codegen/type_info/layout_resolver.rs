@@ -208,15 +208,13 @@ impl<'a, 'll, 'tcx> TypeLayoutResolver<'a, 'll, 'tcx> {
                 let repr_entry = self.repr_plan.and_then(|p| p.get_enum_repr(resolved_idx));
                 if let Some(enum_repr) = repr_entry {
                     if enum_repr.tag.is_niche() {
-                        // Niche layout: struct IS the inner type (no tag field).
+                        // Niche layout: use the inner type directly (no tag, no wrapper).
+                        // The niche field index from MachineRepr maps directly to LLVM
+                        // struct field indices — no wrapping needed.
                         self.resolving.borrow_mut().insert(idx);
                         let payload = self.resolve(*inner);
                         self.resolving.borrow_mut().remove(&idx);
-                        let name = self.type_name(idx, "Enum");
-                        let named_struct = self.scx.type_named_struct(&name);
-                        self.named_structs.borrow_mut().insert(idx, named_struct);
-                        self.scx.set_struct_body(named_struct, &[payload], false);
-                        return named_struct.into();
+                        return payload;
                     }
                 }
                 // Explicit tag: { i64, T }
@@ -233,19 +231,15 @@ impl<'a, 'll, 'tcx> TypeLayoutResolver<'a, 'll, 'tcx> {
                 if let Some(enum_repr) = self.repr_plan.and_then(|p| p.get_enum_repr(resolved_idx))
                 {
                     if enum_repr.tag.is_niche() {
+                        // Niche layout: use the data variant's payload type directly.
                         self.resolving.borrow_mut().insert(idx);
                         let ok_ty = self.resolve(*ok);
                         let err_ty = self.resolve(*err);
                         self.resolving.borrow_mut().remove(&idx);
-                        // Niche: data variant's payload. Use the larger type.
                         let ok_size = Self::type_store_size(ok_ty);
                         let err_size = Self::type_store_size(err_ty);
                         let payload = if ok_size >= err_size { ok_ty } else { err_ty };
-                        let name = self.type_name(idx, "Enum");
-                        let named_struct = self.scx.type_named_struct(&name);
-                        self.named_structs.borrow_mut().insert(idx, named_struct);
-                        self.scx.set_struct_body(named_struct, &[payload], false);
-                        return named_struct.into();
+                        return payload;
                     }
                 }
                 // Explicit tag: { i64, payload }

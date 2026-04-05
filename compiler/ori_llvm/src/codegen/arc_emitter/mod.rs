@@ -336,16 +336,40 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
     /// Returns `Some(encoding)` only when the type has a niche or tagless `EnumTag`.
     /// For explicit tags (the common case), returns `None` — callers fall through
     /// to the existing codegen path.
+    ///
+    /// Falls back to on-the-fly canonical computation for types with variable
+    /// residue (e.g., `Option<Var(T→str)>`) that weren't in the `ReprPlan`.
     pub(super) fn get_niche_encoding(&self, ty: Idx) -> Option<tag_access::TagEncoding> {
-        let plan = self.repr_plan?;
+        self.repr_plan?;
         let resolved = self.pool.resolve_fully(ty);
-        let enum_repr = plan.get_enum_repr(resolved)?;
-        match &enum_repr.tag {
-            ori_repr::EnumTag::Niche { .. } | ori_repr::EnumTag::None => {
-                Some(tag_access::TagEncoding::from_enum_repr(enum_repr))
-            }
-            ori_repr::EnumTag::Explicit { .. } => None,
+
+        // Direct lookup in the plan — fast path for most types.
+        if let Some(enum_repr) = self.repr_plan.unwrap().get_enum_repr(resolved) {
+            return match &enum_repr.tag {
+                ori_repr::EnumTag::Niche { .. } | ori_repr::EnumTag::None => {
+                    Some(tag_access::TagEncoding::from_enum_repr(enum_repr))
+                }
+                ori_repr::EnumTag::Explicit { .. } => None,
+            };
         }
+
+        // Fallback: recompute canonical for types not in the plan (variable residue).
+        let tag = self.pool.tag(resolved);
+        if matches!(
+            tag,
+            ori_types::Tag::Option | ori_types::Tag::Result | ori_types::Tag::Enum
+        ) {
+            if let Some(enum_repr) = ori_repr::canonical_enum_for_type(self.pool, resolved) {
+                return match &enum_repr.tag {
+                    ori_repr::EnumTag::Niche { .. } | ori_repr::EnumTag::None => {
+                        Some(tag_access::TagEncoding::from_enum_repr(&enum_repr))
+                    }
+                    ori_repr::EnumTag::Explicit { .. } => None,
+                };
+            }
+        }
+
+        None
     }
 
     /// Only applies to user structs/tuples — enum payloads, closure envs,
