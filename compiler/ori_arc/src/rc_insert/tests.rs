@@ -693,14 +693,19 @@ fn test_annotate_apply_indirect_builtin_partial_apply() {
 fn test_annotate_apply_indirect_different_capture_types_defaults_borrowed() {
     let interner = StringInterner::new();
     let mut pool = Pool::new();
-    let builtins = empty_builtins();
 
     let target = interner.intern("concat");
     let func_name = interner.intern("caller");
 
+    // Register concat as consuming_receiver + consuming_second_arg
+    // so apply_consuming_overrides actually fires for List but not str.
+    let mut builtins = empty_builtins();
+    builtins.consuming_receiver.insert(target);
+    builtins.consuming_second_arg.insert(target);
+
     // v0: List<int>, v1: str — different types for the capture position.
-    // `apply_consuming_overrides` fires for List but not str, so the
-    // effective ownership diverges → must fall back to Borrowed.
+    // `apply_consuming_overrides` fires for List (marks receiver+second Owned)
+    // but not str (no override), so effective ownership diverges → must fall back.
     let list_int = pool.list(Idx::INT);
 
     let blocks = vec![

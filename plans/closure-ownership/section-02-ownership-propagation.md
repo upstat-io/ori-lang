@@ -18,7 +18,7 @@ inspired_by:
   - "Lean 4 standard calling convention for closures"
 depends_on: ["01"]
 third_party_review:
-  status: resolved
+  status: findings
   updated: 2026-04-05
 sections:
   - id: "02.1"
@@ -35,7 +35,7 @@ sections:
     status: complete
   - id: "02.R"
     title: "Third Party Review Findings"
-    status: complete
+    status: in-progress
   - id: "02.N"
     title: "Completion Checklist"
     status: not-started
@@ -267,6 +267,9 @@ These findings were raised during pre-implementation plan review. The plan text 
 
 - [x] `[TPR-02-009][medium]` `compiler/ori_arc/src/rc_insert/tests.rs` — `test_annotate_apply_indirect_different_capture_args_defaults_borrowed` does not exercise the type-qualified ownership hazard.
   Resolved: Fixed on 2026-04-05. Renamed to `test_annotate_apply_indirect_different_capture_types_defaults_borrowed`, uses `List<int>` vs `str` capture types to exercise the actual type-divergent hazard. Added companion `test_annotate_apply_indirect_same_capture_types_merges` for the same-type merge case.
+
+- [x] `[TPR-02-010][medium]` `compiler/ori_arc/src/rc_insert/tests.rs:693` — the replacement TPR-02-009 regression still does not exercise the type-qualified ownership hazard it claims to cover.
+  Resolved: Fixed on 2026-04-05. Updated test to register `concat` in `consuming_receiver` and `consuming_second_arg` builtin sets so `apply_consuming_overrides` actually fires for List captures but not str captures, exercising the real type-qualified divergence path.
 
 ## 02.N Completion Checklist
 
