@@ -10,7 +10,7 @@ inspired_by:
   - "Ori's existing monomorphization via body_type_map (ori_types/src/infer/expr/calls/monomorphization.rs)"
 depends_on: ["03"]
 third_party_review:
-  status: in-progress
+  status: resolved
   updated: 2026-04-04
 sections:
   - id: "04B.1"
@@ -27,7 +27,7 @@ sections:
     status: complete
   - id: "04B.R"
     title: "Third Party Review Findings"
-    status: in-progress
+    status: complete
   - id: "04B.N"
     title: "Completion Checklist"
     status: in-progress
@@ -219,15 +219,14 @@ Captures in nested lambdas inherit types from the outer scope's variable table. 
 - [x] `[TPR-04B-012][high]` `compiler/ori_llvm/src/codegen/function_compiler/lambda_mono/mod.rs:47` — Nested multi-instantiated inner lambdas are still compiled as a single specialization because multi-inst detection and rewriting only inspect the top-level parent ARC function.
   Resolved: Rejected after validation on 2026-04-04. The nested case works correctly because LLVM compilation is recursive: `emit_arc_function` → `compile_lambda_arc` → `emit_arc_function` for nested lambdas. At each level, `resolve_all_lambda_bound_vars` is called with the enclosing lambda as the parent. The inner `id` lambda’s multi-inst is detected within the outer lambda’s ARC IR. Verified: `cargo run --bin ori -- run --backend=llvm /tmp/nested_multi_inst_test.ori` returns 0 (correct) with zero `unresolved type variable` or `callee not found` errors. The Codex repro was based on pre-fix code (before the PartialApply removal in commit 62d38061).
 
-- [ ] `[TPR-04B-013][high]` `section-04b-lambda-mono.md:4` / `section-04b-lambda-mono.md:38` — Section 04B is still marked complete even though the current tree crashes on a polymorphic list-concat lambda.
-  Validated on 2026-04-04. Fresh repro:
-  `@main () -> int = { let $app = a -> b -> a + b; let xs = app([1, 2, 3])([4, 5, 6]); if xs == [1, 2, 3, 4, 5, 6] then 0 else 1 }`
-  builds successfully with both `target/debug/ori` and `target/release/ori`, then exits 139 at runtime in both modes. `diagnostics/dual-exec-debug.sh --no-color /tmp/repro_lambda_list_concat.txt` reports interpreter exit 0 vs AOT exit 139, plus RC imbalance (`@main` balance -1, `@__lambda_main_1` balance +1). This is the still-open BUG-04-030 root cause F from `plans/bug-tracker/section-04-codegen-llvm.md`; Section 04B cannot truthfully stay complete while this lambda-mono repro remains broken.
+- [x] `[TPR-04B-013][high]` `section-04b-lambda-mono.md:4` / `section-04b-lambda-mono.md:38` — Section 04B is still marked complete even though the current tree crashes on a polymorphic list-concat lambda.
+  Resolved: Section status was already corrected to `in-progress` on 2026-04-04 with header note "review reopened." The finding's premise (section marked complete) is stale. Status accurately reflects that the crash is unresolved.
 
-- [ ] `[TPR-04B-014][high]` `compiler/ori_llvm/src/codegen/arc_emitter/closures.rs:171` — curried RC-typed closures still mis-handle capture ownership during `PartialApply`, so the open 04B crash is not specific to list `+`.
-  Validated on 2026-04-04. Fresh narrower repro:
-  `@main () -> int = { let $fst = a -> b -> a; let xs = fst([1, 2, 3])(0); if xs == [1, 2, 3] then 0 else 1 }`
-  also exits 139 under AOT while the interpreter exits 0. `diagnostics/dual-exec-debug.sh --no-color /tmp/repro_lambda_capture_list_only.ori` reports the same RC imbalance (`@main` balance -1, `@__lambda_main_1` balance +1). Emitted LLVM shows the ownership bug directly: `_ori___lambda_main_1` stores `%param.load` into the closure env, `@main` immediately calls `ori_buffer_drop_unique` on the original list value after the call, and `_ori_partial_0_drop` later calls `ori_buffer_rc_dec` on the env copy. That is a use-after-free / double-drop on the captured list buffer. The root cause is in closure capture lifetime management (`build_closure_env` stores owned RC captures without taking an extra RC reference), not in list-add dispatch. This also means the current 04B matrix is still missing a capture-only RC aggregate repro that would have isolated the bug without `a + b`.
+- [x] `[TPR-04B-014][high]` `compiler/ori_llvm/src/codegen/arc_emitter/closures.rs:171` — curried RC-typed closures still mis-handle capture ownership during `PartialApply`, so the open 04B crash is not specific to list `+`.
+  Resolved: Fixed on 2026-04-04. Two-part fix:
+  (1) `build_closure_env` (closures.rs): emit RcInc for RC-typed captures that are function parameters. Parameter captures need their own RC reference because the caller independently RcDec's after the call. Locally-created captures use the PartialApply ownership-transfer model (no RcInc needed).
+  (2) `collect_borrowed_call_args` (drop_hints.rs): conservatively mark ALL `ApplyIndirect` args as potentially shared. Prevents incorrect `ori_buffer_drop_unique` (unconditional free) for values passed to indirect calls — uses `ori_buffer_rc_dec` (check-then-free) instead.
+  Tests: 4 AOT regression tests (list capture, str capture, nested curried, scalar negative pin). Dual-exec parity verified. Leak-check clean. Also fixed 5 of 8 pre-existing nested closure RC leaks. Remaining 3 tracked as BUG-04-035.
 
 ---
 
