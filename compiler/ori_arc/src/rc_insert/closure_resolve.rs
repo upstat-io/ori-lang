@@ -111,17 +111,24 @@ pub(super) fn build_closure_def_map(blocks: &[ArcBlock]) -> FxHashMap<ArcVarId, 
 /// Returns `Some((target_func, capture_args))` if a unique `PartialApply`
 /// is found. Returns `None` for unresolvable origins (opaque params,
 /// conflicting merges, cycles).
+///
+/// `var_types` maps `ArcVarId::index()` to type indices. Used during
+/// block-param merging to compare capture types (not var identity) —
+/// two different vars with the same type produce the same ownership
+/// after `apply_consuming_overrides`.
 pub(super) fn resolve_to_partial_apply(
     var: ArcVarId,
     def_map: &FxHashMap<ArcVarId, ResolvedDef>,
+    var_types: &[ori_types::Idx],
 ) -> Option<(ori_ir::Name, Vec<ArcVarId>)> {
     let mut visited = FxHashSet::default();
-    resolve_inner(var, def_map, &mut visited)
+    resolve_inner(var, def_map, var_types, &mut visited)
 }
 
 fn resolve_inner(
     var: ArcVarId,
     def_map: &FxHashMap<ArcVarId, ResolvedDef>,
+    var_types: &[ori_types::Idx],
     visited: &mut FxHashSet<ArcVarId>,
 ) -> Option<(ori_ir::Name, Vec<ArcVarId>)> {
     if !visited.insert(var) {
@@ -132,7 +139,7 @@ fn resolve_inner(
         Some(ResolvedDef::PartialApply { func, capture_args }) => {
             Some((*func, capture_args.clone()))
         }
-        Some(ResolvedDef::Alias(src)) => resolve_inner(*src, def_map, visited),
+        Some(ResolvedDef::Alias(src)) => resolve_inner(*src, def_map, var_types, visited),
         Some(ResolvedDef::BlockParam { predecessors }) => {
             // Non-cycled predecessors must all agree on the same target AND
             // the same capture args (not just count — different capture vars
@@ -153,17 +160,20 @@ fn resolve_inner(
                 has_non_cycled = true;
                 // Clone visited per-predecessor to isolate traversal state.
                 let mut pred_visited = visited.clone();
-                let pred_result = resolve_inner(pred_var, def_map, &mut pred_visited);
+                let pred_result = resolve_inner(pred_var, def_map, var_types, &mut pred_visited);
                 match (&resolved_target, pred_result) {
                     (None, Some(result)) => {
                         resolved_target = Some(result);
                     }
                     (Some((existing_func, existing_captures)), Some((new_func, new_captures))) => {
-                        // Compare actual capture args, not just count. Different
-                        // capture vars can have different receiver types, causing
-                        // apply_consuming_overrides to produce different ownership
-                        // (e.g., list.concat [Owned] vs str.concat [Borrowed]).
-                        if *existing_func != new_func || *existing_captures != new_captures {
+                        // Compare capture TYPES, not var identity. Two different
+                        // vars with the same type produce identical ownership after
+                        // `apply_consuming_overrides` (which is type-qualified).
+                        // Only fall back when types actually differ.
+                        if *existing_func != new_func
+                            || existing_captures.len() != new_captures.len()
+                            || !captures_same_types(existing_captures, &new_captures, var_types)
+                        {
                             return None; // Conflicting closures.
                         }
                     }
@@ -181,4 +191,16 @@ fn resolve_inner(
         }
         Some(ResolvedDef::Other) | None => None,
     }
+}
+
+/// Check if two capture arg lists have identical types.
+///
+/// Used during block-param merge: two different vars with the same type
+/// produce identical ownership after `apply_consuming_overrides`, so they
+/// can be merged. Only vars with different types need conservative fallback.
+fn captures_same_types(a: &[ArcVarId], b: &[ArcVarId], var_types: &[ori_types::Idx]) -> bool {
+    a.len() == b.len()
+        && a.iter().zip(b.iter()).all(|(va, vb)| {
+            var_types.get(va.index()).copied() == var_types.get(vb.index()).copied()
+        })
 }

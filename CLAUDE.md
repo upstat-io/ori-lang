@@ -32,6 +32,7 @@ When you see two possible fixes — one simpler and one more correct — the sim
 - **Fact-check** against spec. Consult `~/projects/reference_repos/lang_repos/` (Rust, Go, Zig, TS, Gleam, Elm, Roc, Swift, Koka, Lean 4).
 - **If you can't do it right, say so** — communicate blockers, don't ship bad code
 - **Continuous improvement everywhere** — if you see something wrong or suboptimal — stale docs, missing CLAUDE.md instructions, incomplete memory, unclear scripts, weak tests, imprecise error messages — fix it at the source. Never work around a problem when you can eliminate it. Every interaction should leave the project better than you found it.
+- **ALWAYS improve tooling, NEVER work around it** — when debugging, testing, or using diagnostic scripts and you notice ANY deficiency (confusing output, missing coverage, missing flags, manual multi-step workaround, silent failures, wrong results), STOP and fix the tool. The tool improvement IS the work. Banned: piping/grepping script output to find what you need (fix the output format), running 3 commands for one answer (make one script), manually interpreting output (add `--summary`/`--check`), ignoring wrong output (fix the tool), writing one-off scripts (extend permanent tools), saying "the tool doesn't support X" and moving on (add support for X). Scope: `test-all.sh`, `clippy-all.sh`, `diagnostics/*`, `scripts/*`, `llvm-test.sh`, and any project automation. See `/improve-tooling` skill.
 
 ## TDD for Bugs
 
