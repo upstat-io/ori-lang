@@ -203,7 +203,7 @@ Bugs in LLVM IR generation, JIT/AOT compilation, monomorphization, ARC pipeline 
   (C) **StructValue vs IntValue type confusion** — 4 files. LLVM emitter produces struct value where int value is expected. Likely a type resolution issue for parameter passing.
   (D) **Missing JIT runtime functions** — 2 files. `ori_iter_join` and `ori_iter_flatten` not marked `jit_allowed` in `RT_FUNCTIONS`.
   (E) **`find_concrete_copy_type` picks wrong Function type** — returns the FIRST concrete Function in `var_types` without matching against the target lambda's arity/type structure. When a module has multiple functions with different polymorphic lambda instantiations (e.g., `a -> b -> a + b` used with both `int` and `str`), the wrong concrete type is selected, causing type mismatches (str treated as int, outputs garbage numbers). Individual files pass; multi-function files fail. Found: 2026-04-03.
-  (F) **List concat in monomorphized lambda crashes (segfault)** — `let $app = a -> b -> a + b; app([1, 2, 3])([4, 5, 6])` crashes in LLVM backend. BoundVar resolves correctly to `[int]` but the generated Add dispatch for list types in the lambda body produces invalid IR or wrong calling conventions. Found: 2026-04-03.
+  (F) **List concat in monomorphized lambda crashes (segfault in AOT, works in JIT)** — `let $app = a -> b -> a + b; app([1, 2, 3])([4, 5, 6])` crashes in AOT with null pointer in `copy_nonoverlapping`. JIT execution succeeds. The closure capture RC issue (TPR-04B-014) was FIXED on 2026-04-04 — the capture-only repro (`a -> b -> a`) now works in all modes. The remaining crash is AOT-specific: list Add dispatch inside the monomorphized lambda body produces a null data pointer during concatenation. Found: 2026-04-03, partially fixed: 2026-04-04.
   Subsystem: `compiler/ori_types/src/unify/generalization.rs` (A), `compiler/ori_llvm/src/codegen/arc_emitter/` (B, C), `compiler/ori_llvm/src/codegen/runtime_decl/` (D), `compiler/ori_llvm/src/codegen/function_compiler/define_phase.rs` (E, F)
   Found: 2026-04-03 | Source: continue-roadmap (JIT EH plan §04B investigation)
   Note: Active work in JIT EH plan §04B and repr-opt plan touch this area. Root cause (A) is partially mitigated by Scheme-unwrapping fix in `ori_arc/src/lower/calls/lambda.rs` (polymorphic lambda params) and BoundVar resolution in `define_phase.rs` + `prepare.rs`. Root cause (D) is a trivial fix (add `jit_allowed: true` to the RT_FUNCTIONS entries). Root cause (E) needs structural matching — `find_concrete_copy_type` must verify the candidate Function's arity matches the lambda's param count. Fix in `define_phase.rs:find_partial_apply_concrete_type` path 1 added (validate params are concrete before returning), but `find_concrete_copy_type` still lacks arity matching.
@@ -225,6 +225,19 @@ Bugs in LLVM IR generation, JIT/AOT compilation, monomorphization, ARC pipeline 
   Subsystem: `compiler/ori_llvm/src/codegen/` (multi-clause function lowering, phi node generation)
   Found: 2026-04-04 | Source: manual (Rosetta Code task implementation)
   Note: Active work in roadmap section 15B (function clauses) and section 09 (match/patterns) touches this area. Multi-clause lowering in `ori_canon` works correctly; the bug is in LLVM IR emission from the lowered match tree.
+
+- [ ] `[BUG-04-035][medium]` **Nested closure RC leaks: wrapper RcInc for borrowed-parameter re-captures not balanced** — found by continue-roadmap.
+  Repro: `test_nested_closure_borrowed_list_param`, `test_nested_closure_borrowed_str_param`, `test_triple_nested_closure_capture` in `compiler/ori_llvm/tests/aot/`. All leak with `ORI_CHECK_LEAKS=1`. The wrapper function emits `RcInc` when unpacking owned captures from the env, but for borrowed parameters that are re-captured by inner closures, the lambda body's AIMS analysis doesn't emit a matching `RcDec` (suppressed by `is_ownership_transfer`). Net effect: +1 per call level per RC capture.
+  Subsystem: `compiler/ori_llvm/src/codegen/arc_emitter/closure_wrappers.rs`, `compiler/ori_arc/src/aims/emit_rc/helpers.rs` (`is_ownership_transfer`)
+  Found: 2026-04-04 | Source: continue-roadmap (TPR-04B-014 fix verification)
+  Note: 5 of 8 original closure RC leaks were fixed by the TPR-04B-014 fix (build_closure_env param-capture RcInc + ApplyIndirect drop_hints). These 3 remain.
+
+- [ ] `[BUG-04-034][medium]` **Curried lambda capturing bool produces LLVM type mismatch (i1 vs i64)** — found by continue-roadmap.
+  Repro: `let $fst = a -> b -> a; fst(true)(0)` with `--backend=llvm` → LLVM verification error: "Call parameter type does not match function signature! i1 vs i64". Only affects bool captures in curried lambdas — int/str/list captures work correctly.
+  Root cause: Lambda mono type resolution resolves `forall t13` to `bool` (LLVM `i1`), but the callee's parameter ABI expects `i64` (Ori's canonical integer width for all scalar values). The wrapper function loads the bool capture as `i1` and passes it directly, but the lambda body was declared with `i64` params.
+  Subsystem: `compiler/ori_llvm/src/codegen/function_compiler/lambda_mono/type_resolve.rs`
+  Found: 2026-04-04 | Source: continue-roadmap (TPR-04B-014 test matrix writing)
+  Note: Active work in JIT EH plan Section 04B touches this area.
 
 ---
 

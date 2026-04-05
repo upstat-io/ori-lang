@@ -69,6 +69,17 @@ pub(crate) fn collect_borrowed_call_args(
                         }
                     }
                 }
+                // ApplyIndirect: unknown callee — conservatively treat ALL
+                // args as potentially shared. The callee may store them
+                // (e.g., in a closure env via PartialApply), creating
+                // shared references invisible to AIMS analysis. Without
+                // this, unique-drop optimization incorrectly frees buffers
+                // that are still referenced by closure environments.
+                ArcInstr::ApplyIndirect { args, .. } => {
+                    for &arg in args {
+                        borrowed.insert(arg);
+                    }
+                }
                 ArcInstr::Let {
                     dst,
                     value: crate::ir::ArcValue::Var(src),
