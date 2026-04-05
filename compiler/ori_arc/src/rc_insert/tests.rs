@@ -848,6 +848,89 @@ fn test_annotate_apply_indirect_same_capture_types_merges() {
     }
 }
 
+/// Regression: TPR-02-011 — cross-instantiation merge: `List<int>` vs
+/// `List<str>` both resolve to `Tag::List`, so the consuming override
+/// fires identically → merge must succeed (tag-based comparison).
+#[test]
+fn test_annotate_apply_indirect_cross_instantiation_same_tag_merges() {
+    let interner = StringInterner::new();
+    let mut pool = Pool::new();
+
+    let target = interner.intern("concat");
+    let func_name = interner.intern("caller");
+
+    let mut builtins = empty_builtins();
+    builtins.consuming_receiver.insert(target);
+    builtins.consuming_second_arg.insert(target);
+
+    let list_int = pool.list(Idx::INT);
+    let list_str = pool.list(Idx::STR);
+
+    let blocks = vec![
+        ArcBlock {
+            id: ArcBlockId::new(0),
+            params: vec![],
+            body: vec![ArcInstr::PartialApply {
+                dst: ArcVarId::new(2),
+                ty: Idx::NONE,
+                func: target,
+                args: vec![ArcVarId::new(0)], // captures List<int>
+            }],
+            terminator: ArcTerminator::Jump {
+                target: ArcBlockId::new(2),
+                args: vec![ArcVarId::new(2)],
+            },
+        },
+        ArcBlock {
+            id: ArcBlockId::new(1),
+            params: vec![],
+            body: vec![ArcInstr::PartialApply {
+                dst: ArcVarId::new(3),
+                ty: Idx::NONE,
+                func: target,
+                args: vec![ArcVarId::new(1)], // captures List<str>
+            }],
+            terminator: ArcTerminator::Jump {
+                target: ArcBlockId::new(2),
+                args: vec![ArcVarId::new(3)],
+            },
+        },
+        ArcBlock {
+            id: ArcBlockId::new(2),
+            params: vec![(ArcVarId::new(4), Idx::NONE)],
+            body: vec![ArcInstr::ApplyIndirect {
+                dst: ArcVarId::new(6),
+                ty: Idx::INT,
+                closure: ArcVarId::new(4),
+                args: vec![ArcVarId::new(5)],
+                arg_ownership: vec![],
+            }],
+            terminator: ArcTerminator::Return {
+                value: ArcVarId::new(6),
+            },
+        },
+    ];
+
+    let mut func = make_func(func_name, vec![], blocks, 7);
+    func.var_types[0] = list_int; // List<int>
+    func.var_types[1] = list_str; // List<str>
+
+    let mut sigs = FxHashMap::default();
+    sigs.insert(target, make_sig(&[Ownership::Owned, Ownership::Owned]));
+
+    super::annotate_arg_ownership(&mut func, &sigs, &interner, &builtins, &pool);
+
+    if let ArcInstr::ApplyIndirect { arg_ownership, .. } = &func.blocks[2].body[0] {
+        assert_eq!(
+            arg_ownership,
+            &[ArgOwnership::Owned],
+            "List<int> vs List<str> share Tag::List → merge must succeed (TPR-02-011)"
+        );
+    } else {
+        panic!("expected ApplyIndirect");
+    }
+}
+
 /// Regression: TPR-02-005 — diamond CFG where two predecessors reach the
 /// same `PartialApply` through different alias paths must still resolve
 /// (not fall back to opaque due to shared visited set).

@@ -266,6 +266,7 @@ fn resolve_indirect_arg_ownership(
         closure_var,
         def_map,
         consuming_ctx.var_types,
+        consuming_ctx.pool,
     );
 
     let result = match resolved {
