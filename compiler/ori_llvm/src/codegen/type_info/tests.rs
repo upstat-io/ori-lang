@@ -1755,8 +1755,8 @@ fn repr_plan_canonical_parity_full_matrix() {
     );
 
     // §07.2: When NICHE_CODEGEN_READY is enabled, Result<int, str> will get
-    // niche encoding (str has null-ptr niche). Until then, parity is preserved.
-    // Update this assertion to assert_ne when the gate is flipped + consumers ready.
+    // niche encoding (str has null-ptr niche). Until the consumer fixes are
+    // complete, parity is preserved with the gate off.
     assert_eq!(
         with_plan.resolve(res_int_str),
         no_plan.resolve(res_int_str),
