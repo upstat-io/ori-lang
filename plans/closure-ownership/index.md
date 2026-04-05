@@ -43,7 +43,8 @@ build_closure_env, generate_env_drop_fn, closure_wrappers, emit_partial_apply,
 non-capturing fast path, phantom env, drop_hints, collect_borrowed_call_args,
 InvokeIndirect terminator, define_phase.rs, context.rs, stale doc comment,
 BUG-04-035, ORI_CHECK_LEAKS, curried closure, nested closure, RC leak,
-unwind_cleanup, TPR-01-006
+unwind_cleanup, TPR-01-006, _capture_ownership, test module wiring,
+insert_borrowed_from_ownership, drop_hints/tests.rs, unwind_cleanup/tests.rs
 ```
 
 ---
