@@ -1,14 +1,22 @@
-//! Argument ownership annotation for Apply/Invoke instructions.
+//! Argument ownership annotation for call-site instructions.
 //!
-//! Populates the `arg_ownership` field on call-site instructions before
-//! RC insertion, so that the Perceus pass can distinguish borrowed vs owned
-//! arguments without re-deriving callee signatures.
+//! Populates the `arg_ownership` field on `Apply`, `Invoke`,
+//! `ApplyIndirect`, and `InvokeIndirect` instructions before RC insertion,
+//! so that the Perceus pass can distinguish borrowed vs owned arguments
+//! without re-deriving callee signatures.
 //!
 //! Both the legacy pipeline and the AIMS pipeline call
 //! [`annotate_arg_ownership`] — the AIMS path supplies `AnnotatedSig`s
 //! converted from `MemoryContract`s (see `aims::emit_rc::arg_ownership`).
 //! The builtin override logic (borrowing receivers, COW consuming methods,
 //! protocol builtins) runs in both cases.
+//!
+//! For indirect calls (`ApplyIndirect`/`InvokeIndirect`), the closure
+//! variable is traced through an SSA def map to find the originating
+//! `PartialApply`. The target function's signature is then used to
+//! compute ownership for the user arguments (after the capture prefix).
+//! Unresolvable closures (opaque parameters, conflicting merges) default
+//! to all-Borrowed (conservative — caller retains cleanup).
 
 use rustc_hash::{FxHashMap, FxHashSet};
 
@@ -104,11 +112,18 @@ fn compute_arg_ownership(
     vec![ArgOwnership::Owned; arg_count]
 }
 
-/// Populate `arg_ownership` on all `Apply` and `Invoke` instructions.
+/// Populate `arg_ownership` on all `Apply`, `Invoke`, `ApplyIndirect`,
+/// and `InvokeIndirect` instructions.
 ///
 /// This is the single point where external-callee detection and per-param
 /// ownership lookup happen. All downstream passes read from the field.
 /// Called by AIMS pipeline step 4 (`emit_arg_ownership`).
+///
+/// For indirect calls, the closure variable is traced through an SSA def
+/// map to find the originating `PartialApply`. The target function's
+/// `AnnotatedSig` is then used to compute ownership for the user arguments
+/// (after the capture prefix). Unresolvable closures default to
+/// all-Borrowed.
 ///
 /// `borrowing_builtins` identifies builtin method names (e.g., `len`,
 /// `is_empty`) whose receiver is always borrowed. These are compiled inline
@@ -135,6 +150,10 @@ pub fn annotate_arg_ownership(
     builtins: &crate::BuiltinOwnershipSets,
     pool: &Pool,
 ) {
+    // Precompute the closure def map before any mutable borrows of func.blocks.
+    // This traces each variable to its PartialApply origin (or Other/Alias/BlockParam).
+    let def_map = super::closure_resolve::build_closure_def_map(&func.blocks);
+
     let consuming_ctx = ConsumingCtx {
         consuming_receiver_builtins: &builtins.consuming_receiver,
         consuming_second_arg_builtins: &builtins.consuming_second_arg,
@@ -146,13 +165,51 @@ pub fn annotate_arg_ownership(
     for block in &mut func.blocks {
         // Annotate body instructions.
         for instr in &mut block.body {
-            if let ArcInstr::Apply {
+            match instr {
+                ArcInstr::Apply {
+                    func: callee,
+                    args,
+                    arg_ownership,
+                    ..
+                } => {
+                    *arg_ownership = compute_arg_ownership(
+                        *callee,
+                        args.len(),
+                        sigs,
+                        interner,
+                        &builtins.borrowing,
+                        &builtins.consuming_receiver_only,
+                        &builtins.protocol,
+                    );
+                    apply_consuming_overrides(*callee, args, arg_ownership, &consuming_ctx);
+                }
+                ArcInstr::ApplyIndirect {
+                    closure,
+                    args,
+                    arg_ownership,
+                    ..
+                } => {
+                    *arg_ownership = resolve_indirect_arg_ownership(
+                        *closure,
+                        args,
+                        &def_map,
+                        sigs,
+                        &consuming_ctx,
+                        builtins,
+                    );
+                }
+                _ => {}
+            }
+        }
+
+        // Annotate terminator.
+        match &mut block.terminator {
+            ArcTerminator::Invoke {
                 func: callee,
                 args,
                 arg_ownership,
                 ..
-            } = instr
-            {
+            } => {
                 *arg_ownership = compute_arg_ownership(
                     *callee,
                     args.len(),
@@ -164,28 +221,87 @@ pub fn annotate_arg_ownership(
                 );
                 apply_consuming_overrides(*callee, args, arg_ownership, &consuming_ctx);
             }
+            ArcTerminator::InvokeIndirect {
+                closure,
+                args,
+                arg_ownership,
+                ..
+            } => {
+                *arg_ownership = resolve_indirect_arg_ownership(
+                    *closure,
+                    args,
+                    &def_map,
+                    sigs,
+                    &consuming_ctx,
+                    builtins,
+                );
+            }
+            _ => {}
         }
+    }
+}
 
-        // Annotate terminator.
-        if let ArcTerminator::Invoke {
-            func: callee,
-            args,
-            arg_ownership,
-            ..
-        } = &mut block.terminator
-        {
-            *arg_ownership = compute_arg_ownership(
-                *callee,
-                args.len(),
+/// Resolve an indirect call's argument ownership from its closure variable.
+///
+/// Traces `closure_var` through the SSA def map to find a `PartialApply`
+/// origin. If found, computes ownership for the full logical arg list
+/// `[captures..., user_args...]` using the same normalized path as direct
+/// calls, then slices off the capture prefix.
+///
+/// Returns `vec![Borrowed; user_args.len()]` for unresolvable closures.
+fn resolve_indirect_arg_ownership(
+    closure_var: ArcVarId,
+    user_args: &[ArcVarId],
+    def_map: &FxHashMap<ArcVarId, super::closure_resolve::ResolvedDef>,
+    sigs: &FxHashMap<ori_ir::Name, crate::ownership::AnnotatedSig>,
+    consuming_ctx: &ConsumingCtx<'_>,
+    builtins: &crate::BuiltinOwnershipSets,
+) -> Vec<ArgOwnership> {
+    // Zero user-arg fast path: thunks need no resolution.
+    if user_args.is_empty() {
+        return Vec::new();
+    }
+
+    let resolved = super::closure_resolve::resolve_to_partial_apply(closure_var, def_map);
+
+    let result = match resolved {
+        Some((target, capture_args)) => {
+            // Reuse the direct-call ownership path on the FULL arg list.
+            let capture_count = capture_args.len();
+            let mut combined = capture_args;
+            combined.extend_from_slice(user_args);
+
+            let mut ownership = compute_arg_ownership(
+                target,
+                combined.len(),
                 sigs,
-                interner,
+                consuming_ctx.interner,
                 &builtins.borrowing,
                 &builtins.consuming_receiver_only,
                 &builtins.protocol,
             );
-            apply_consuming_overrides(*callee, args, arg_ownership, &consuming_ctx);
+            apply_consuming_overrides(target, &combined, &mut ownership, consuming_ctx);
+
+            // Slice off the capture prefix.
+            if capture_count < ownership.len() {
+                ownership.drain(..capture_count);
+            }
+            // Truncate to user_args.len() in case of arity mismatch.
+            ownership.truncate(user_args.len());
+            // Pad if shorter (missing params default to Borrowed).
+            while ownership.len() < user_args.len() {
+                ownership.push(ArgOwnership::Borrowed);
+            }
+            ownership
         }
-    }
+        None => {
+            // Opaque closure: all-Borrowed (caller retains cleanup).
+            vec![ArgOwnership::Borrowed; user_args.len()]
+        }
+    };
+
+    debug_assert_eq!(result.len(), user_args.len());
+    result
 }
 
 /// Override borrowing ownership for COW list methods with consuming semantics.

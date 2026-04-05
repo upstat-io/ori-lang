@@ -1,0 +1,15 @@
+// Opaque higher-order wrapper proof: closure passed through a function
+// parameter and called indirectly. The closure source is a function param
+// (not resolvable to PartialApply), so the all-Borrowed fallback applies.
+//
+// Verifies that the conservative Borrowed fallback is RC-balanced for the
+// wrapper pattern: wrapper receives a closure, calls it, returns result.
+//
+// closure-ownership Section 02: opaque closure soundness proof.
+@apply_wrapper (f: (int) -> int, x: int) -> int = f(x);
+
+@main () -> int = {
+    let $double = x -> x * 2;
+    let $result = apply_wrapper(f: double, x: 21);
+    if result == 42 then 0 else 1
+}

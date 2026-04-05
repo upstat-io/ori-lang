@@ -296,10 +296,9 @@ fn test_arc_lambda_capture_bool() {
 // ─── Curried closure RC captures (TPR-04B-014 regression) ───
 
 #[test]
-#[ignore = "BUG-04-035: ApplyIndirect ownership model — curried capture leaks RC"]
 fn test_arc_curried_closure_capture_list() {
     // Regression: TPR-04B-014 — curried closure capturing list.
-    // No longer crashes (drop_hints fix), but leaks one RC allocation.
+    // Fixed by closure-ownership Section 02: arg_ownership on ApplyIndirect.
     assert_aot_success(
         include_str!("fixtures/arc/arc_curried_closure_capture_list.ori"),
         "arc_curried_closure_capture_list",
@@ -307,8 +306,8 @@ fn test_arc_curried_closure_capture_list() {
 }
 
 #[test]
-#[ignore = "BUG-04-035: ApplyIndirect ownership model — curried capture leaks RC"]
 fn test_arc_curried_closure_capture_str() {
+    // Fixed by closure-ownership Section 02: arg_ownership on ApplyIndirect.
     assert_aot_success(
         include_str!("fixtures/arc/arc_curried_closure_capture_str.ori"),
         "arc_curried_closure_capture_str",
@@ -316,9 +315,9 @@ fn test_arc_curried_closure_capture_str() {
 }
 
 #[test]
-#[ignore = "BUG-04-035: ApplyIndirect ownership model — nested curried capture leaks RC"]
 fn test_arc_curried_closure_capture_nested() {
     // Nested curried closures: outer captures list, inner returns it.
+    // Fixed by closure-ownership Section 02: arg_ownership on ApplyIndirect.
     assert_aot_success(
         include_str!("fixtures/arc/arc_curried_closure_capture_nested.ori"),
         "arc_curried_closure_capture_nested",
@@ -331,6 +330,19 @@ fn test_arc_curried_closure_scalar_no_inc() {
     assert_aot_success(
         include_str!("fixtures/arc/arc_curried_closure_scalar_no_inc.ori"),
         "arc_curried_closure_scalar_no_inc",
+    );
+}
+
+// ─── Opaque closure wrapper (Section 02 soundness proof) ───
+
+#[test]
+fn test_arc_opaque_closure_wrapper() {
+    // Opaque higher-order wrapper: closure passed as function parameter,
+    // called indirectly. Verifies all-Borrowed fallback is RC-balanced.
+    // closure-ownership Section 02 soundness proof.
+    assert_aot_success(
+        include_str!("fixtures/arc/arc_opaque_closure_wrapper.ori"),
+        "arc_opaque_closure_wrapper",
     );
 }
 
