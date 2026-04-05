@@ -66,7 +66,7 @@ Fix the architectural gap where `ApplyIndirect`/`InvokeIndirect` (indirect calls
 
 2. **Semantic truth in ARC IR, mechanical lowering in LLVM.** The ARC IR is the authority on RC decisions. `ori_llvm` should lower whatever the ARC IR says — no LLVM-level workarounds for missing ARC IR semantics.
 
-3. **Conservative default for unknown callees.** When the callee's contract is unknown (opaque closure), default to all-`Borrowed` (caller retains cleanup). This is safe: the callee might internally `RcInc` if it needs to keep a reference, and the caller's `RcDec` handles final cleanup.
+3. **Conservative default for unknown callees.** When the callee's contract is unknown (opaque closure), Section 02 currently defaults to all-`Borrowed` (caller retains cleanup). Treat this as a hypothesis that must be proven against a real higher-order wrapper regression in Section 02.4, not as an unconditional safety fact: if the proof test fails, the section must expand to model higher-order closure contracts instead of relying on the fallback.
 
 ## Critical Gotchas
 
@@ -101,11 +101,13 @@ Phase 1 - ARC IR Foundation
 
 Phase 2 - AIMS Integration
   └─ 02: Teach annotate_arg_ownership to populate indirect calls,
-         seed from PartialApply target contracts, handle InvokeIndirect
+         seed from PartialApply target contracts via SSA def-map resolution,
+         handle InvokeIndirect, update legacy borrow inference parity
 
 Phase 3 - LLVM Cleanup & Verification
   └─ 03: Replace drop_hints ApplyIndirect workaround with arg_ownership logic,
          add InvokeIndirect terminator to collect_borrowed_call_args,
+         add InvokeIndirect to unwind_cleanup (TPR-01-006),
          verify env drop correctness (RcDec ALL captures is correct),
          fix 4 stale doc comments, un-ignore tests, verify zero leaks
 ```
@@ -115,8 +117,8 @@ Phase 3 - LLVM Cleanup & Verification
 | Section | Files | Est. Lines | Risk |
 |---------|-------|-----------|------|
 | 01 | 10 | ~150 | Low — mechanical field addition + forward_walk.rs + emit_unified.rs + verifier + tests |
-| 02 | 4 | ~150 | Medium — contract lookup for indirect callees + alias chain tracing |
-| 03 | 6 | ~80 | Low — replace workaround + add InvokeIndirect + fix 4 docs + verify |
+| 02 | 5 | ~250 | Medium — SSA def-map builder, closure resolver, annotation extension, legacy borrow inference parity, tests |
+| 03 | 7 | ~100 | Low — replace workaround + add InvokeIndirect (drop_hints + unwind) + fix 4 docs + verify |
 
 ## Resolves
 

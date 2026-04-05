@@ -33,7 +33,8 @@ emit_terminator_rc, forward_walk.rs, is_var_defined_in_block, emit_unified.rs
 annotate_arg_ownership, compute_arg_ownership, emit_arg_ownership,
 resolve_indirect_arg_ownership, MemoryContract, ParamContract, AnnotatedSig,
 PartialApply, closure contract, rc_insert/annotate.rs, aims/emit_rc/arg_ownership.rs,
-borrow/callees.rs, lambda_capture_ownership, non_capturing_lambdas, realize_rc_reuse
+borrow/update.rs, lambda_capture_ownership, non_capturing_lambdas, realize_rc_reuse,
+def_map, ResolvedDef, build_closure_def_map, ConsumingCtx, apply_consuming_overrides
 ```
 
 ### Section 03: LLVM Cleanup & Verification
@@ -41,7 +42,8 @@ borrow/callees.rs, lambda_capture_ownership, non_capturing_lambdas, realize_rc_r
 build_closure_env, generate_env_drop_fn, closure_wrappers, emit_partial_apply,
 non-capturing fast path, phantom env, drop_hints, collect_borrowed_call_args,
 InvokeIndirect terminator, define_phase.rs, context.rs, stale doc comment,
-BUG-04-035, ORI_CHECK_LEAKS, curried closure, nested closure, RC leak
+BUG-04-035, ORI_CHECK_LEAKS, curried closure, nested closure, RC leak,
+unwind_cleanup, TPR-01-006
 ```
 
 ---
