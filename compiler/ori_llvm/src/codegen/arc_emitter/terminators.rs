@@ -356,7 +356,9 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 mode,
                 arc_func,
             );
-        } else if let Some(val) = self.try_emit_builtin_method(callee, arc_args, arc_func) {
+        } else if let Some(val) =
+            self.try_emit_builtin_method(callee, arc_args, arc_func, arc_func.var_type(dst))
+        {
             // Builtin method handled inline — branch to normal block
             // (the current block needs a terminator since we skipped invoke)
             self.br_exiting_catchpad(normal_block);

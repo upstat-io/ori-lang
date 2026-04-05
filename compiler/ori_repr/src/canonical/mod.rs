@@ -92,12 +92,24 @@ pub(crate) fn populate_canonical(plan: &mut ReprPlan, pool: &Pool) {
             continue;
         }
 
-        // Skip types that contain unresolved type variables (e.g., generic
-        // function signatures like `(T) -> T`). These are type-checker
-        // artifacts that won't reach codegen — only monomorphized types do.
+        // Skip types that contain truly unresolved type variables (e.g.,
+        // generic function signatures like `(T) -> T`). Types with vars
+        // that resolve to concrete types (e.g., `Option<Var(T→str)>`) are
+        // still canonicalizable — `canonical_inner` resolves via
+        // `resolve_fully` internally. Only skip if the type is a bare
+        // variable or the resolved form still has vars.
         let flags = pool.flags(idx);
         if flags.has_vars() {
-            continue;
+            let resolved_tag = pool.tag(pool.resolve_fully(idx));
+            // Bare type variables (Var/BoundVar/RigidVar) are truly unresolvable.
+            // Composite types with var children (Option<Var>, etc.) may be resolvable
+            // if the vars resolve to concrete types — let canonical_inner try them.
+            if matches!(
+                resolved_tag,
+                Tag::Var | Tag::BoundVar | Tag::RigidVar | Tag::Infer | Tag::SelfType
+            ) {
+                continue;
+            }
         }
 
         // Skip types that resolve_fully() can't fully resolve (Named/Applied/
