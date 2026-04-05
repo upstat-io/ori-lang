@@ -101,9 +101,6 @@ pub(crate) fn populate_canonical(plan: &mut ReprPlan, pool: &Pool) {
         let flags = pool.flags(idx);
         if flags.has_vars() {
             let resolved_tag = pool.tag(pool.resolve_fully(idx));
-            // Bare type variables (Var/BoundVar/RigidVar) are truly unresolvable.
-            // Composite types with var children (Option<Var>, etc.) may be resolvable
-            // if the vars resolve to concrete types — let canonical_inner try them.
             if matches!(
                 resolved_tag,
                 Tag::Var | Tag::BoundVar | Tag::RigidVar | Tag::Infer | Tag::SelfType
