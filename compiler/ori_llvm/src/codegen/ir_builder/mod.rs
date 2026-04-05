@@ -147,6 +147,10 @@ pub struct IrBuilder<'scx, 'ctx> {
         ),
         ValueId,
     >,
+    /// Pre-created i64 zero constant for use as a fallback value when codegen
+    /// encounters undefined variables. Avoids `ValueId::NONE` which panics in
+    /// `get_value()` and can crash LLVM C++ via cascading type mismatches.
+    pub(crate) poison_value: ValueId,
 }
 
 impl<'scx, 'ctx> IrBuilder<'scx, 'ctx> {
@@ -182,10 +186,16 @@ impl<'scx, 'ctx> IrBuilder<'scx, 'ctx> {
         eh_model: EhModel,
     ) -> Self {
         let builder = scx.llcx.create_builder();
+        let mut arena = ValueArena::new();
+        // Pre-create a poison value (i64 0) for use as fallback when codegen
+        // encounters undefined variables. Using a real LLVM value instead of
+        // ValueId::NONE prevents panics in get_value() that cascade into
+        // LLVM C++ crashes bypassing catch_unwind.
+        let poison_value = arena.push_value(scx.type_i64().const_int(0, false).into());
         Self {
             builder,
             scx,
-            arena: ValueArena::new(),
+            arena,
             current_function: None,
             current_block: None,
             codegen_errors: Cell::new(0),
@@ -197,6 +207,7 @@ impl<'scx, 'ctx> IrBuilder<'scx, 'ctx> {
             target_data: None,
             global_strings: FxHashMap::default(),
             cse_cache: FxHashMap::default(),
+            poison_value,
         }
     }
 

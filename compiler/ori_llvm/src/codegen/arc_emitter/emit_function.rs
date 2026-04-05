@@ -318,10 +318,21 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             }
 
             let mut block_terminated_by_noreturn = false;
+            let errors_before_instr_loop = self.builder.codegen_error_count();
             for (instr_idx, instr) in block.body.iter().enumerate() {
                 self.current_block_idx = block_idx;
                 self.current_instr_idx = instr_idx;
                 self.emit_instr(instr, func);
+
+                // After a codegen error, skip remaining instructions in this
+                // block. Continuing with poison fallback values cascades into
+                // LLVM C++ builder calls with mismatched types (SIGSEGV).
+                // Emit `unreachable` so the block has a valid terminator.
+                if self.builder.codegen_error_count() > errors_before_instr_loop {
+                    self.builder.unreachable();
+                    block_terminated_by_noreturn = true;
+                    break;
+                }
 
                 // After emitting a call to a known-noreturn function,
                 // emit `unreachable` and skip remaining instructions +

@@ -252,7 +252,8 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let mut args = vec![env_ptr];
         let mut params = vec![ptr_ty];
 
-        let passing = crate::codegen::abi::compute_param_passing(arg_ty, self.type_info);
+        let passing =
+            crate::codegen::abi::compute_param_passing(arg_ty, self.type_info, self.repr_plan);
         match passing {
             crate::codegen::abi::ParamPassing::Indirect { .. }
             | crate::codegen::abi::ParamPassing::Reference => {
@@ -270,7 +271,8 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         }
 
         let ret_ty = self.resolve_type(return_ty);
-        let ret_is_indirect = crate::codegen::abi::abi_size(return_ty, self.type_info) > 16;
+        let ret_is_indirect =
+            crate::codegen::abi::abi_size(return_ty, self.type_info, self.repr_plan) > 16;
 
         if ret_is_indirect {
             let sret = self.builder.alloca(ret_ty, "clos.sret");
@@ -298,7 +300,8 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
         let ptr_ty = self.builder.ptr_type();
         let ret_ty = self.resolve_type(return_ty);
-        let ret_is_indirect = crate::codegen::abi::abi_size(return_ty, self.type_info) > 16;
+        let ret_is_indirect =
+            crate::codegen::abi::abi_size(return_ty, self.type_info, self.repr_plan) > 16;
 
         if ret_is_indirect {
             let sret = self.builder.alloca(ret_ty, "clos.sret");

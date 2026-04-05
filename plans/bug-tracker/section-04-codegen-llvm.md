@@ -133,6 +133,7 @@ Bugs in LLVM IR generation, JIT/AOT compilation, monomorphization, ARC pipeline 
   Subsystem: `compiler/ori_llvm/src/codegen/arc_emitter/emitter_utils.rs`, `compiler/oric/src/test/runner/llvm_backend.rs` (body_type_map construction)
   Found: 2026-04-02 | Source: continue-roadmap (imported-generic-mono verification)
   Note: Active work in `plans/imported-generic-mono/` directly related. Non-crashing — graceful recovery produces correct results for primitive type instantiations.
+  Impact (2026-04-04): 6 narrowing AOT tests (`compiler/ori_llvm/tests/aot/fixtures/narrowing/`) used `use std.testing { assert_eq }` — calls silently dropped from IR. 4 tests SIGSEGV (block ends `unreachable` instead of `ret void`), 2 tests false-positive (pass without actually checking assertions). Converted all 6 to exit-code-based assertions as workaround.
 
 - [ ] `[BUG-04-029][medium]` **LLVM backend missing shift overflow/negative count/bit width runtime checks** — found by continue-roadmap.
   Repro: `timeout 30 cargo run -q -p oric --bin ori -- test --backend=llvm tests/spec/expressions/operators_bitwise.ori` — 5 tests fail: `test_shl_overflow_panic`, `test_shl_bit_width_panic`, `test_shl_negative_count_panic`, `test_shr_bit_width_panic`, `test_shr_negative_count_panic`. All expect panics but operations succeed silently (UB in LLVM — shift by negative or >= bit width is poison).
@@ -206,6 +207,24 @@ Bugs in LLVM IR generation, JIT/AOT compilation, monomorphization, ARC pipeline 
   Subsystem: `compiler/ori_types/src/unify/generalization.rs` (A), `compiler/ori_llvm/src/codegen/arc_emitter/` (B, C), `compiler/ori_llvm/src/codegen/runtime_decl/` (D), `compiler/ori_llvm/src/codegen/function_compiler/define_phase.rs` (E, F)
   Found: 2026-04-03 | Source: continue-roadmap (JIT EH plan §04B investigation)
   Note: Active work in JIT EH plan §04B and repr-opt plan touch this area. Root cause (A) is partially mitigated by Scheme-unwrapping fix in `ori_arc/src/lower/calls/lambda.rs` (polymorphic lambda params) and BoundVar resolution in `define_phase.rs` + `prepare.rs`. Root cause (D) is a trivial fix (add `jit_allowed: true` to the RT_FUNCTIONS entries). Root cause (E) needs structural matching — `find_concrete_copy_type` must verify the candidate Function's arity matches the lambda's param count. Fix in `define_phase.rs:find_partial_apply_concrete_type` path 1 added (validate params are concrete before returning), but `find_concrete_copy_type` still lacks arity matching.
+
+- [ ] `[BUG-04-031][high]` **LLVM PHINode error: short-circuit `&&` with Option method calls** — found by continue-roadmap.
+  Repro: `let opt = Some(42); is_some(opt:) && opt.unwrap_or(default: 0) > 0` compiled via `--backend=llvm` → LLVM IR verification: "PHINode should have one entry for each predecessor." Entire file becomes LCFail. Standalone short-circuit with panic/constants works; the trigger is method calls on heap types (`Option`) in short-circuit branches producing missing PHI predecessor entries.
+  Subsystem: `compiler/ori_llvm/src/codegen/` (short-circuit emission, likely `lower/expr/short_circuit.rs` or `arc_emitter/`)
+  Found: 2026-04-03 | Source: continue-roadmap (JIT EH plan §05 verification)
+  Note: Active work in JIT EH plan §02 (short-circuit lowering) completed. This is a residual case not caught by §02 testing — the simple cases work, but Option method dispatch in RHS branches generates incorrect CFG.
+
+- [ ] `[BUG-04-032][high]` **LLVM short-circuit `&&`/`||` side-effect propagation failure** — found by continue-roadmap.
+  Repro: `let order: [int] = []; let result = {order = order + [1]; true} && {order = order + [2]; true}; assert_eq(actual: order, expected: [1, 2])` → LLVM produces `[1]` (right block mutation not propagated). Interpreter correctly produces `[1, 2]`. Variable mutations in block expressions on the evaluated side of `&&`/`||` don't propagate to the outer scope.
+  Subsystem: `compiler/ori_llvm/src/codegen/` (short-circuit emission — variable store/load across basic blocks)
+  Found: 2026-04-03 | Source: continue-roadmap (JIT EH plan §05 verification)
+  Note: Related to BUG-04-031. Both are short-circuit codegen issues. This one compiles and runs but produces wrong output (semantic bug), while BUG-04-031 fails at IR verification (structural bug).
+
+- [ ] `[BUG-04-033][high]` **LLVM codegen fails on multi-clause functions with literal patterns (Ackermann)** — found by manual.
+  Repro: `ori run --compile tests/run-pass/rosetta/ackermann/ackermann.ori` — 3-clause `@ack` with literal `0` patterns. Two errors: (1) `build_struct called with non-struct LLVM type (i64)` — clause dispatch treats int return as struct; (2) LLVM IR verification: "PHINode should have one entry for each predecessor of its parent basic block" — join blocks from clause branches have mismatched phi entries.
+  Subsystem: `compiler/ori_llvm/src/codegen/` (multi-clause function lowering, phi node generation)
+  Found: 2026-04-04 | Source: manual (Rosetta Code task implementation)
+  Note: Active work in roadmap section 15B (function clauses) and section 09 (match/patterns) touches this area. Multi-clause lowering in `ori_canon` works correctly; the bug is in LLVM IR emission from the lowered match tree.
 
 ---
 

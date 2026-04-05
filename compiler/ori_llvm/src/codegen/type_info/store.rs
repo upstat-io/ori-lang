@@ -58,6 +58,11 @@ pub struct TypeInfoStore<'tcx> {
     /// re-enter `compute_type_info()` for another Named type — unbounded
     /// recursion. This set detects the cycle and returns `TypeInfo::Error`.
     computing: RefCell<FxHashSet<Idx>>,
+
+    /// Count of unresolved type variables encountered during lazy population.
+    /// Checked after compilation to bail before JIT execution — executing
+    /// code compiled with unresolved types causes SIGSEGV.
+    type_error_count: std::cell::Cell<u32>,
 }
 
 impl<'tcx> TypeInfoStore<'tcx> {
@@ -78,6 +83,7 @@ impl<'tcx> TypeInfoStore<'tcx> {
             pool,
             triviality_cache: RefCell::new(FxHashMap::default()),
             computing: RefCell::new(FxHashSet::default()),
+            type_error_count: std::cell::Cell::new(0),
         }
     }
 
@@ -107,6 +113,7 @@ impl<'tcx> TypeInfoStore<'tcx> {
             pool,
             triviality_cache: RefCell::new(cache),
             computing: RefCell::new(FxHashSet::default()),
+            type_error_count: std::cell::Cell::new(0),
         }
     }
 
@@ -173,6 +180,13 @@ impl<'tcx> TypeInfoStore<'tcx> {
     /// Access the underlying Pool.
     pub fn pool(&self) -> &'tcx Pool {
         self.pool
+    }
+
+    /// Number of unresolved type variables encountered during codegen.
+    /// Non-zero means the compiled module contains invalid IR — must not
+    /// be JIT-executed (SIGSEGV risk from garbage types).
+    pub fn type_error_count(&self) -> u32 {
+        self.type_error_count.get()
     }
 
     /// Transitive triviality check: true if this type (and all its children)
@@ -345,6 +359,7 @@ impl<'tcx> TypeInfoStore<'tcx> {
                     ?idx,
                     "unresolved type variable at codegen — type inference bug"
                 );
+                self.type_error_count.set(self.type_error_count.get() + 1);
                 TypeInfo::Error
             }
 

@@ -15,13 +15,13 @@ fn test_store() -> (&'static Pool, TypeInfoStore<'static>) {
 fn primitive_abi_sizes() {
     let (_pool, store) = test_store();
 
-    assert_eq!(abi_size(Idx::INT, &store), 8);
-    assert_eq!(abi_size(Idx::FLOAT, &store), 8);
-    assert_eq!(abi_size(Idx::BOOL, &store), 1);
-    assert_eq!(abi_size(Idx::CHAR, &store), 4);
-    assert_eq!(abi_size(Idx::BYTE, &store), 1);
-    assert_eq!(abi_size(Idx::UNIT, &store), 8);
-    assert_eq!(abi_size(Idx::ORDERING, &store), 1);
+    assert_eq!(abi_size(Idx::INT, &store, None), 8);
+    assert_eq!(abi_size(Idx::FLOAT, &store, None), 8);
+    assert_eq!(abi_size(Idx::BOOL, &store, None), 1);
+    assert_eq!(abi_size(Idx::CHAR, &store, None), 4);
+    assert_eq!(abi_size(Idx::BYTE, &store, None), 1);
+    assert_eq!(abi_size(Idx::UNIT, &store, None), 8);
+    assert_eq!(abi_size(Idx::ORDERING, &store, None), 1);
 }
 
 #[test]
@@ -29,7 +29,7 @@ fn composite_abi_sizes() {
     let (_pool, store) = test_store();
 
     // str: {i64, i64, ptr} = 24
-    assert_eq!(abi_size(Idx::STR, &store), 24);
+    assert_eq!(abi_size(Idx::STR, &store, None), 24);
 }
 
 #[test]
@@ -39,7 +39,7 @@ fn list_abi_size_is_indirect() {
     let store = TypeInfoStore::new(&pool);
 
     // [int]: {i64, i64, ptr} = 24
-    assert_eq!(abi_size(list_int, &store), 24);
+    assert_eq!(abi_size(list_int, &store, None), 24);
 }
 
 #[test]
@@ -49,7 +49,7 @@ fn map_abi_size_is_indirect() {
     let store = TypeInfoStore::new(&pool);
 
     // {str: int}: {i64, i64, ptr} = 24
-    assert_eq!(abi_size(map_ty, &store), 24);
+    assert_eq!(abi_size(map_ty, &store, None), 24);
 }
 
 #[test]
@@ -59,7 +59,7 @@ fn option_int_is_direct() {
     let store = TypeInfoStore::new(&pool);
 
     // option[int]: {i8, i64} = 16
-    assert_eq!(abi_size(opt_int, &store), 16);
+    assert_eq!(abi_size(opt_int, &store, None), 16);
 }
 
 #[test]
@@ -69,7 +69,7 @@ fn tuple_abi_size_computed_recursively() {
     let store = TypeInfoStore::new(&pool);
 
     // (int, float) = 8 + 8 = 16
-    assert_eq!(abi_size(tup, &store), 16);
+    assert_eq!(abi_size(tup, &store, None), 16);
 }
 
 #[test]
@@ -79,7 +79,7 @@ fn large_tuple_exceeds_threshold() {
     let store = TypeInfoStore::new(&pool);
 
     // (int, float, str) = 8 + 8 + 24 = 40
-    assert_eq!(abi_size(tup, &store), 40);
+    assert_eq!(abi_size(tup, &store, None), 40);
 }
 
 #[test]
@@ -97,12 +97,12 @@ fn mixed_alignment_tuple_ignores_padding() {
     let store = TypeInfoStore::new(&pool);
 
     // Without padding: 1 + 8 + 1 = 10 (under-counts vs LLVM's 24)
-    assert_eq!(abi_size(tup, &store), 10);
+    assert_eq!(abi_size(tup, &store, None), 10);
 
     // This causes Direct classification (≤16) when LLVM layout would be
     // Indirect (24 > 16). Acceptable for now — see FIXME in abi_size_inner.
     assert_eq!(
-        compute_param_passing(tup, &store),
+        compute_param_passing(tup, &store, None),
         ParamPassing::Direct,
         "known limitation: mixed-alignment tuple classified as Direct due to padding-unaware size"
     );
@@ -138,7 +138,7 @@ fn all_unit_enum_abi_size_is_tag_size() {
     let store = TypeInfoStore::new(&pool);
 
     // All-unit enum with 4 variants: { i8 tag } = 1 byte
-    assert_eq!(abi_size(dir, &store), 1);
+    assert_eq!(abi_size(dir, &store, None), 1);
 }
 
 #[test]
@@ -161,7 +161,7 @@ fn enum_with_payload_abi_size() {
 
     // §07.1: { i8 tag, [1 x i64] payload } — tag padded to 8 due to
     // payload alignment. Total = 8 + 8 = 16 bytes.
-    assert_eq!(abi_size(color, &store), 16);
+    assert_eq!(abi_size(color, &store, None), 16);
 }
 
 /// Regression: TPR-07-003 — `abi_size` for payload enums must account for
@@ -186,10 +186,10 @@ fn enum_with_mixed_payload_abi_size() {
     let store = TypeInfoStore::new(&pool);
 
     // { i8, [2 x i64] } = 8 + 16 = 24 bytes
-    assert_eq!(abi_size(mixed, &store), 24);
+    assert_eq!(abi_size(mixed, &store, None), 24);
     // 24 > 16 → Sret, not Direct
     assert_eq!(
-        compute_return_passing(mixed, &store),
+        compute_return_passing(mixed, &store, None),
         ReturnPassing::Sret { alignment: 8 }
     );
 }
@@ -201,12 +201,12 @@ fn param_passing_direct_for_small_types() {
     let (_pool, store) = test_store();
 
     assert_eq!(
-        compute_param_passing(Idx::INT, &store),
+        compute_param_passing(Idx::INT, &store, None),
         ParamPassing::Direct
     );
     // Str is 24 bytes (SSO layout) — exceeds 16-byte Direct threshold
     assert_eq!(
-        compute_param_passing(Idx::STR, &store),
+        compute_param_passing(Idx::STR, &store, None),
         ParamPassing::Indirect { alignment: 8 }
     );
 }
@@ -215,9 +215,12 @@ fn param_passing_direct_for_small_types() {
 fn param_passing_void_for_unit() {
     let (_pool, store) = test_store();
 
-    assert_eq!(compute_param_passing(Idx::UNIT, &store), ParamPassing::Void);
     assert_eq!(
-        compute_param_passing(Idx::NEVER, &store),
+        compute_param_passing(Idx::UNIT, &store, None),
+        ParamPassing::Void
+    );
+    assert_eq!(
+        compute_param_passing(Idx::NEVER, &store, None),
         ParamPassing::Void
     );
 }
@@ -229,7 +232,7 @@ fn param_passing_indirect_for_large_types() {
     let store = TypeInfoStore::new(&pool);
 
     assert_eq!(
-        compute_param_passing(list_int, &store),
+        compute_param_passing(list_int, &store, None),
         ParamPassing::Indirect { alignment: 8 }
     );
 }
@@ -241,12 +244,12 @@ fn return_passing_direct_for_small_types() {
     let (_pool, store) = test_store();
 
     assert_eq!(
-        compute_return_passing(Idx::INT, &store),
+        compute_return_passing(Idx::INT, &store, None),
         ReturnPassing::Direct
     );
     // Str is 24 bytes (SSO layout) — returned via sret pointer
     assert_eq!(
-        compute_return_passing(Idx::STR, &store),
+        compute_return_passing(Idx::STR, &store, None),
         ReturnPassing::Sret { alignment: 8 }
     );
 }
@@ -256,7 +259,7 @@ fn return_passing_void_for_unit() {
     let (_pool, store) = test_store();
 
     assert_eq!(
-        compute_return_passing(Idx::UNIT, &store),
+        compute_return_passing(Idx::UNIT, &store, None),
         ReturnPassing::Void
     );
 }
@@ -268,7 +271,7 @@ fn return_passing_sret_for_large_types() {
     let store = TypeInfoStore::new(&pool);
 
     assert_eq!(
-        compute_return_passing(list_int, &store),
+        compute_return_passing(list_int, &store, None),
         ReturnPassing::Sret { alignment: 8 }
     );
 }
@@ -280,7 +283,7 @@ fn return_passing_sret_for_map() {
     let store = TypeInfoStore::new(&pool);
 
     assert_eq!(
-        compute_return_passing(map_ty, &store),
+        compute_return_passing(map_ty, &store, None),
         ReturnPassing::Sret { alignment: 8 }
     );
 }
@@ -337,7 +340,7 @@ fn compute_abi_simple_function() {
         return_hash: 0,
     };
 
-    let abi = compute_function_abi(&sig, &store);
+    let abi = compute_function_abi(&sig, &store, None);
 
     assert_eq!(abi.params.len(), 2);
     assert_eq!(abi.params[0].passing, ParamPassing::Direct);
@@ -373,7 +376,7 @@ fn compute_abi_void_return() {
         return_hash: 0,
     };
 
-    let abi = compute_function_abi(&sig, &store);
+    let abi = compute_function_abi(&sig, &store, None);
 
     assert!(abi.params.is_empty());
     assert_eq!(abi.return_abi.passing, ReturnPassing::Void);
@@ -406,7 +409,7 @@ fn compute_abi_main_uses_c_convention() {
         return_hash: 0,
     };
 
-    let abi = compute_function_abi(&sig, &store);
+    let abi = compute_function_abi(&sig, &store, None);
     assert_eq!(abi.call_conv, CallConv::C);
 }
 
@@ -420,6 +423,7 @@ fn borrowed_definiteref_becomes_reference() {
         compute_param_passing_with_ownership(
             Idx::STR,
             &store,
+            None,
             Ownership::Borrowed,
             ArcClass::DefiniteRef,
         ),
@@ -435,6 +439,7 @@ fn borrowed_possibleref_becomes_reference() {
         compute_param_passing_with_ownership(
             Idx::STR,
             &store,
+            None,
             Ownership::Borrowed,
             ArcClass::PossibleRef,
         ),
@@ -450,6 +455,7 @@ fn borrowed_scalar_stays_direct() {
         compute_param_passing_with_ownership(
             Idx::INT,
             &store,
+            None,
             Ownership::Borrowed,
             ArcClass::Scalar,
         ),
@@ -465,6 +471,7 @@ fn owned_definiteref_uses_size_based() {
         compute_param_passing_with_ownership(
             Idx::STR,
             &store,
+            None,
             Ownership::Owned,
             ArcClass::DefiniteRef,
         ),
@@ -476,7 +483,13 @@ fn owned_definiteref_uses_size_based() {
 fn owned_scalar_stays_direct() {
     let (_pool, store) = test_store();
     assert_eq!(
-        compute_param_passing_with_ownership(Idx::INT, &store, Ownership::Owned, ArcClass::Scalar,),
+        compute_param_passing_with_ownership(
+            Idx::INT,
+            &store,
+            None,
+            Ownership::Owned,
+            ArcClass::Scalar
+        ),
         ParamPassing::Direct
     );
 }
@@ -488,6 +501,7 @@ fn unit_always_void_regardless_of_ownership() {
         compute_param_passing_with_ownership(
             Idx::UNIT,
             &store,
+            None,
             Ownership::Borrowed,
             ArcClass::Scalar,
         ),
@@ -497,6 +511,7 @@ fn unit_always_void_regardless_of_ownership() {
         compute_param_passing_with_ownership(
             Idx::NEVER,
             &store,
+            None,
             Ownership::Owned,
             ArcClass::Scalar,
         ),
@@ -514,6 +529,7 @@ fn owned_large_type_stays_indirect() {
         compute_param_passing_with_ownership(
             list_int,
             &store,
+            None,
             Ownership::Owned,
             ArcClass::DefiniteRef,
         ),
@@ -531,6 +547,7 @@ fn borrowed_large_type_becomes_reference() {
         compute_param_passing_with_ownership(
             list_int,
             &store,
+            None,
             Ownership::Borrowed,
             ArcClass::DefiniteRef,
         ),
@@ -584,7 +601,8 @@ fn abi_with_ownership_uses_reference_for_borrowed_params() {
         return_type: Idx::INT,
     };
 
-    let abi = compute_function_abi_with_ownership(&sig, &store, Some(&annotated), &classifier);
+    let abi =
+        compute_function_abi_with_ownership(&sig, &store, Some(&annotated), &classifier, None);
 
     // str param is Borrowed + DefiniteRef → Reference
     assert_eq!(abi.params[0].passing, ParamPassing::Reference);
@@ -623,7 +641,7 @@ fn abi_with_ownership_none_falls_through() {
 
     // No borrow info → falls through to standard compute_function_abi
     // Str is 24 bytes (SSO layout), so Indirect
-    let abi = compute_function_abi_with_ownership(&sig, &store, None, &classifier);
+    let abi = compute_function_abi_with_ownership(&sig, &store, None, &classifier, None);
     assert_eq!(
         abi.params[0].passing,
         ParamPassing::Indirect { alignment: 8 }

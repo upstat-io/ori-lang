@@ -440,7 +440,8 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
         for &a in args {
             let arg_ty = arc_func.var_type(a);
-            let passing = crate::codegen::abi::compute_param_passing(arg_ty, self.type_info);
+            let passing =
+                crate::codegen::abi::compute_param_passing(arg_ty, self.type_info, self.repr_plan);
             match passing {
                 crate::codegen::abi::ParamPassing::Indirect { .. }
                 | crate::codegen::abi::ParamPassing::Reference => {
@@ -459,7 +460,8 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         }
 
         let ret_ty = self.resolve_type(ty);
-        let ret_is_indirect = crate::codegen::abi::abi_size(ty, self.type_info) > 16;
+        let ret_is_indirect =
+            crate::codegen::abi::abi_size(ty, self.type_info, self.repr_plan) > 16;
 
         if unwind_is_empty_cleanup {
             // No effective cleanup — emit `call` + `br` (same as ApplyIndirect).

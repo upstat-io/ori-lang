@@ -307,7 +307,7 @@ A "niche" is an invalid bit pattern in a type. If an enum variant's payload has 
   - [x] `layout_resolver.rs` — `TypeInfo::Option` and `TypeInfo::Result` check ReprPlan for niche, produce named struct with `{ payload }` layout
   - [x] `niche_is_sentinel()` shared helper eliminates 4 inline ptrtoint+icmp patterns
 
-- [ ] **ABI layer niche awareness** — `NICHE_CODEGEN_READY` gate remains `false`. When enabled, type resolution produces niche layouts correctly, but the **ABI layer** (function declaration, sret parameter types, FunctionAbi computation) still uses explicit `{ i64, T }` layout for Option/Result. This creates a type mismatch: sret-loaded values have the explicit layout, but niche codegen expects the niche layout. Fix requires updating `codegen/abi/mod.rs` (and possibly `function_compiler/declare.rs`) to produce niche-aware function signatures. Additionally, a `repr_plan_canonical_parity_full_matrix` test needs updating for Result<int, str> (which now uses niche encoding).
+- [x] **ABI layer niche awareness** — `abi/mod.rs` updated: `ReprPlan` threaded through `abi_size`, `compute_param_passing`, `compute_return_passing`, `compute_function_abi`, `compute_function_abi_with_ownership`. Niche checks added for `TypeInfo::Option`, `TypeInfo::Result`, and `TypeInfo::Enum` (tagless/niche variants). All callers updated (function_compiler, define_phase, arc_emitter, derive_codegen). `NICHE_CODEGEN_READY` gate remains `false` — flipping it revealed additional consumers that construct explicit `{ i64, T }` structs (`result_monadic.rs`: `construct_result_value`, `resolve_type_for_result`). These need niche-aware paths before the gate can be enabled. (2026-04-04)
 
 **§07.2 Tests (TDD — write BEFORE implementation, verify they fail):**
 
