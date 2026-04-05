@@ -256,6 +256,12 @@ These findings were raised during pre-implementation plan review. The plan text 
 - [x] `[TPR-02-005][high]` `compiler/ori_arc/src/rc_insert/closure_resolve.rs:122` — the resolver uses one shared `visited` set across all predecessor branches, so compatible merges through distinct aliases of the same closure incorrectly collapse to the opaque all-Borrowed fallback.
   Resolved: Fixed on 2026-04-05. Changed to clone `visited` per-predecessor traversal (`let mut pred_visited = visited.clone()`) so alias paths don't contaminate each other. Added regression test `test_annotate_apply_indirect_diamond_cfg_same_origin`.
 
+- [x] `[TPR-02-006][high]` `compiler/ori_llvm/tests/aot/fixtures/arc/arc_opaque_closure_wrapper.ori:9` — the new "opaque higher-order wrapper proof" does not exercise any RC-managed values, so it cannot validate the all-Borrowed fallback that Section 02 relies on.
+  Resolved: Fixed on 2026-04-05. Replaced int-only fixture with str-capturing closure + str user arg. RC trace confirms 1 alloc / 1 dec / 1 free / live=0. `ORI_CHECK_LEAKS=1` passes.
+
+- [x] `[TPR-02-007][medium]` `compiler/ori_arc/src/borrow/update.rs:275` — `InvokeIndirect` borrow inference was changed, but the new behavior has no dedicated unit coverage.
+  Resolved: Fixed on 2026-04-05. Added `invoke_indirect_empty_ownership_all_borrowed` and `invoke_indirect_owned_arg_promoted` tests to `borrow/tests.rs`, mirroring the ApplyIndirect coverage.
+
 ## 02.N Completion Checklist
 
 - [x] `ResolvedDef` enum defined (02.1)

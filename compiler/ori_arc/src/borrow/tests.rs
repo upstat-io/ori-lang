@@ -210,6 +210,96 @@ fn apply_indirect_owned_arg_promoted() {
     assert_eq!(sig.params[1].ownership, Ownership::Owned);
 }
 
+// InvokeIndirect: with empty arg_ownership, no args promoted (TPR-02-007).
+
+#[test]
+fn invoke_indirect_empty_ownership_all_borrowed() {
+    // fn call_closure(f: fn, x: str) -> int
+    //   let v2 = InvokeIndirect f(x)  // no ownership annotation
+    //   return v2
+    let func = make_func(
+        Name::from_raw(1),
+        vec![param(0, Idx::STR), param(1, Idx::STR)],
+        Idx::INT,
+        vec![
+            ArcBlock {
+                id: b(0),
+                params: vec![],
+                body: vec![],
+                terminator: ArcTerminator::InvokeIndirect {
+                    dst: v(2),
+                    ty: Idx::INT,
+                    closure: v(0),
+                    args: vec![v(1)],
+                    arg_ownership: vec![], // not yet annotated
+                    normal: b(1),
+                    unwind: b(1),
+                },
+            },
+            ArcBlock {
+                id: b(1),
+                params: vec![],
+                body: vec![],
+                terminator: ArcTerminator::Return { value: v(2) },
+            },
+        ],
+        vec![Idx::STR, Idx::STR, Idx::INT],
+    );
+
+    let pool = Pool::new();
+    let classifier = ArcClassifier::new(&pool);
+    let sigs = infer_borrows_scc(&[func], &classifier, &BuiltinOwnershipSets::empty());
+
+    let sig = &sigs[&Name::from_raw(1)];
+    // Both stay Borrowed with empty ownership.
+    assert_eq!(sig.params[0].ownership, Ownership::Borrowed);
+    assert_eq!(sig.params[1].ownership, Ownership::Borrowed);
+}
+
+// InvokeIndirect: with populated arg_ownership, owned args promoted (TPR-02-007).
+
+#[test]
+fn invoke_indirect_owned_arg_promoted() {
+    let func = make_func(
+        Name::from_raw(1),
+        vec![param(0, Idx::STR), param(1, Idx::STR)],
+        Idx::INT,
+        vec![
+            ArcBlock {
+                id: b(0),
+                params: vec![],
+                body: vec![],
+                terminator: ArcTerminator::InvokeIndirect {
+                    dst: v(2),
+                    ty: Idx::INT,
+                    closure: v(0),
+                    args: vec![v(1)],
+                    arg_ownership: vec![ArgOwnership::Owned],
+                    normal: b(1),
+                    unwind: b(1),
+                },
+            },
+            ArcBlock {
+                id: b(1),
+                params: vec![],
+                body: vec![],
+                terminator: ArcTerminator::Return { value: v(2) },
+            },
+        ],
+        vec![Idx::STR, Idx::STR, Idx::INT],
+    );
+
+    let pool = Pool::new();
+    let classifier = ArcClassifier::new(&pool);
+    let sigs = infer_borrows_scc(&[func], &classifier, &BuiltinOwnershipSets::empty());
+
+    let sig = &sigs[&Name::from_raw(1)];
+    // Closure (param[0]): Borrowed (never promoted for indirect calls).
+    assert_eq!(sig.params[0].ownership, Ownership::Borrowed);
+    // User arg (param[1]): Owned (arg_ownership says Owned).
+    assert_eq!(sig.params[1].ownership, Ownership::Owned);
+}
+
 // PartialApply: captured args Owned
 
 #[test]
