@@ -83,19 +83,26 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         // Remaining user params (the closure awaits these)
         let remaining_params: Vec<ParamAbi> = callee_abi.params[num_captures..].to_vec();
 
-        // Capture ownership: which captures are borrowed (skip RC dec in drop fn).
+        // Capture ownership: which captures are borrowed (skip RcInc in wrapper — body borrows from env).
         let capture_ownership: Vec<Ownership> = self
             .ctx
             .lambda_capture_ownership
             .get(&callee)
             .cloned()
-            .unwrap_or_else(|| vec![Ownership::Owned; num_captures]);
+            .unwrap_or_else(|| {
+                tracing::warn!(
+                    name = callee_name_str,
+                    captures = num_captures,
+                    "lambda_capture_ownership missing — defaulting to all-Owned (conservative)"
+                );
+                vec![Ownership::Owned; num_captures]
+            });
 
         // == Allocate and pack the environment ==
         let env_ptr = if capture_types.is_empty() {
             self.builder.const_null_ptr()
         } else {
-            self.build_closure_env(args, &capture_types, &capture_ownership)
+            self.build_closure_env(args, &capture_types)
         };
 
         // == Generate wrapper function ==
@@ -121,12 +128,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     ///
     /// Layout: `{ ptr drop_fn, cap_0_ty, cap_1_ty, ... }`
     /// Allocated via `ori_rc_alloc` (RC-tracked heap memory).
-    fn build_closure_env(
-        &mut self,
-        capture_vars: &[ArcVarId],
-        capture_types: &[Idx],
-        capture_ownership: &[Ownership],
-    ) -> ValueId {
+    fn build_closure_env(&mut self, capture_vars: &[ArcVarId], capture_types: &[Idx]) -> ValueId {
         // Build env struct type: { drop_fn: ptr, cap_0, cap_1, ... }
         let ptr_llvm = self.builder.scx().type_ptr().into();
         let mut env_fields: Vec<inkwell::types::BasicTypeEnum<'_>> = vec![ptr_llvm];
@@ -152,9 +154,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             .unwrap_or_else(|| self.builder.const_null_ptr());
 
         // Generate drop function for this environment.
-        // Pass capture ownership so borrowed captures are NOT RC-dec'd.
-        let drop_fn_id =
-            self.generate_env_drop_fn(env_struct_ty_id, capture_types, capture_ownership, env_size);
+        let drop_fn_id = self.generate_env_drop_fn(env_struct_ty_id, capture_types, env_size);
         let drop_fn_ptr = self.builder.get_function_ptr(drop_fn_id);
 
         // Store drop_fn at field 0
@@ -190,7 +190,6 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         &mut self,
         env_struct_ty_id: LLVMTypeId,
         capture_types: &[Idx],
-        _capture_ownership: &[Ownership],
         env_size: u64,
     ) -> FunctionId {
         let partial_id = self.partial_apply_counter;
