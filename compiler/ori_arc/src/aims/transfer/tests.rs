@@ -235,6 +235,7 @@ fn apply_indirect_is_top() {
         ty: ori_types::Idx::from_raw(0),
         closure: var(0),
         args: vec![var(1)],
+        arg_ownership: vec![],
     };
     let result = transfer_def(&instr, &top_lookup).expect("should define a variable");
     assert_eq!(result.state, AimsState::TOP);
@@ -461,6 +462,7 @@ fn backward_apply_indirect_includes_closure() {
         ty: ori_types::Idx::from_raw(0),
         closure: var(0),
         args: vec![var(1), var(2)],
+        arg_ownership: vec![],
     };
     let demands = backward_demands(&instr);
     assert_eq!(demands.len(), 3);
@@ -869,6 +871,7 @@ fn transfer_def_covers_all_instr_variants() {
                 ty: ori_types::Idx::from_raw(0),
                 closure: var(1),
                 args: vec![],
+                arg_ownership: vec![],
             },
             true,
         ),

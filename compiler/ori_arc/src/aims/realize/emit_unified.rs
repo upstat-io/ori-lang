@@ -228,7 +228,7 @@ fn route_merge_edge_decs(
     let preds = &predecessors[block_idx];
     for &(var, strategy) in merge_edge_decs {
         for &pred_idx in preds {
-            if is_var_defined_in_block(&func.blocks[pred_idx], var) {
+            if func.blocks[pred_idx].defines_var(var) {
                 block_deferred
                     .entry(pred_idx)
                     .or_default()
@@ -459,26 +459,4 @@ fn follow_jump_chain(func: &ArcFunction, mut idx: usize) -> usize {
         }
     }
     idx
-}
-
-/// Check if a variable is defined in a specific block.
-///
-/// A variable is "defined in block" if it's a block param, an instruction
-/// destination, or an Invoke result. Used to route Phase A merge-block decs
-/// to the correct per-predecessor edges.
-fn is_var_defined_in_block(block: &crate::ir::ArcBlock, var: ArcVarId) -> bool {
-    if block.params.iter().any(|&(p, _)| p == var) {
-        return true;
-    }
-    for instr in &block.body {
-        if instr.defined_var() == Some(var) {
-            return true;
-        }
-    }
-    if let ArcTerminator::Invoke { dst, .. } = &block.terminator {
-        if *dst == var {
-            return true;
-        }
-    }
-    false
 }

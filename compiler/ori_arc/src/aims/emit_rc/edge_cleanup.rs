@@ -70,8 +70,11 @@ pub(crate) fn emit_edge_cleanup(
     for (block_idx, block) in func.blocks.iter().enumerate() {
         let blk = block_id(block_idx);
 
-        // Handle Invoke separately — use InvokeEdgeState.
-        if matches!(block.terminator, ArcTerminator::Invoke { .. }) {
+        // Handle Invoke/InvokeIndirect separately — use InvokeEdgeState.
+        if matches!(
+            block.terminator,
+            ArcTerminator::Invoke { .. } | ArcTerminator::InvokeIndirect { .. }
+        ) {
             collect_invoke_edge_decs(
                 func,
                 block_idx,
@@ -83,7 +86,9 @@ pub(crate) fn emit_edge_cleanup(
             // Add deferred decs to Invoke edges. target=None → both edges,
             // target=Some(succ) → only the matching edge.
             if let Some(decs) = deferred_parent_decs.get(&block_idx) {
-                if let ArcTerminator::Invoke { normal, unwind, .. } = &block.terminator {
+                if let ArcTerminator::Invoke { normal, unwind, .. }
+                | ArcTerminator::InvokeIndirect { normal, unwind, .. } = &block.terminator
+                {
                     for &(target, var, strategy) in decs {
                         match target {
                             None => {
@@ -275,17 +280,30 @@ fn collect_invoke_edge_decs(
     edge_decs: &mut Vec<(usize, usize, ArcVarId, RcStrategy)>,
 ) {
     let blk = block_id(block_idx);
-    let ArcTerminator::Invoke {
+    let (ArcTerminator::Invoke {
         normal,
         unwind,
         args,
         arg_ownership,
         ..
-    } = &func.blocks[block_idx].terminator
+    }
+    | ArcTerminator::InvokeIndirect {
+        normal,
+        unwind,
+        args,
+        arg_ownership,
+        ..
+    }) = &func.blocks[block_idx].terminator
     else {
         return;
     };
     let (normal, unwind) = (*normal, *unwind);
+    // InvokeIndirect uses conservative default (Borrowed) for unannotated args,
+    // unlike Invoke which defaults to Owned. This affects ownership checks below.
+    let is_indirect = matches!(
+        func.blocks[block_idx].terminator,
+        ArcTerminator::InvokeIndirect { .. }
+    );
 
     let edge_state = state_map.invoke_edge_state(blk);
     let exit_states = state_map.block_exit_states(blk);
@@ -295,9 +313,7 @@ fn collect_invoke_edge_decs(
 
     // Category 3: unwind cleanup for Owned args (callee may not have consumed).
     for (i, &arg) in args.iter().enumerate() {
-        let is_owned = arg_ownership
-            .get(i)
-            .is_none_or(|o| *o == ArgOwnership::Owned);
+        let is_owned = is_arg_owned(arg_ownership, i, is_indirect);
         if !is_owned {
             continue;
         }
@@ -337,7 +353,7 @@ fn collect_invoke_edge_decs(
                 continue;
             }
             // Ownership transferred → callee handles normal cleanup.
-            if invoke_transfers_ownership(var, args, arg_ownership) {
+            if invoke_transfers_ownership(var, args, arg_ownership, is_indirect) {
                 continue;
             }
 
@@ -369,10 +385,10 @@ fn collect_invoke_edge_decs(
         }
     }
 
-    // Category 2: borrowed Invoke args absent from exit_states — caller must
-    // still RcDec. Emit on both edges. Owned args excluded (transferred).
+    // Category 2: borrowed Invoke/InvokeIndirect args absent from exit_states —
+    // caller must still RcDec. Emit on both edges. Owned args excluded (transferred).
     for (i, &arg) in args.iter().enumerate() {
-        if arg_ownership.get(i).copied() != Some(ArgOwnership::Borrowed) {
+        if is_arg_owned(arg_ownership, i, is_indirect) {
             continue;
         }
         if state_map.is_excluded(arg) {
@@ -397,22 +413,39 @@ fn collect_invoke_edge_decs(
     }
 }
 
+/// Check whether arg at position `i` has Owned ownership, respecting the
+/// indirect-call default (empty = Borrowed for indirect, Owned for direct).
+#[inline]
+fn is_arg_owned(arg_ownership: &[ArgOwnership], i: usize, is_indirect: bool) -> bool {
+    if is_indirect {
+        arg_ownership
+            .get(i)
+            .is_some_and(|o| *o == ArgOwnership::Owned)
+    } else {
+        arg_ownership
+            .get(i)
+            .is_none_or(|o| *o == ArgOwnership::Owned)
+    }
+}
+
 /// Check whether an Invoke transfers ownership of `var` at any argument position.
 ///
 /// If the variable appears at any `Owned` position, the callee takes ownership
 /// and the caller must not emit cleanup for that variable. Conservative: if the
 /// same variable appears at multiple positions and ANY is Owned, treat as
 /// transferred (the callee received at least one owned reference).
+///
+/// `is_indirect` controls the default for unannotated (empty) `arg_ownership`:
+/// - `false` (direct call): missing entries default to Owned (`is_none_or`)
+/// - `true` (indirect call): missing entries default to Borrowed (`is_some_and`)
 #[inline]
 fn invoke_transfers_ownership(
     var: ArcVarId,
     args: &[ArcVarId],
     arg_ownership: &[ArgOwnership],
+    is_indirect: bool,
 ) -> bool {
-    args.iter().enumerate().any(|(i, &arg)| {
-        arg == var
-            && arg_ownership
-                .get(i)
-                .is_none_or(|o| *o == ArgOwnership::Owned)
-    })
+    args.iter()
+        .enumerate()
+        .any(|(i, &arg)| arg == var && is_arg_owned(arg_ownership, i, is_indirect))
 }

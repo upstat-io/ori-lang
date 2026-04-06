@@ -23,34 +23,41 @@ pub(crate) fn emit_terminator_rc(
 ) {
     let terminator = &ctx.func.blocks[block_idx].terminator;
 
-    // For Invoke terminators, emit RcInc for project-borrowed variables
-    // at owned argument positions. Same logic as the body instruction fix
-    // in realize/walk.rs — Project-derived variables passed to owned
+    // For Invoke/InvokeIndirect terminators, emit RcInc for project-borrowed
+    // variables at owned argument positions. Same logic as the body instruction
+    // fix in realize/walk.rs — Project-derived variables passed to owned
     // parameters need RcInc because the callee stores the data (creating
     // a new reference) but Project didn't increment RC.
-    if let ArcTerminator::Invoke {
-        args,
-        arg_ownership,
-        ..
-    } = terminator
-    {
-        for (pos, &var) in args.iter().enumerate() {
-            let is_owned = arg_ownership
-                .get(pos)
-                .is_some_and(|o| *o == ArgOwnership::Owned);
-            if is_owned
-                && ctx.project_borrowed_defs.contains(&var)
-                && ctx.func.var_reprs[var.index()] != ValueRepr::Scalar
-            {
-                if let Some(strategy) = rc_strategy(ctx.func, var, ctx.pool) {
-                    new_body.push(ArcInstr::RcInc {
-                        var,
-                        count: 1,
-                        strategy,
-                    });
+    match terminator {
+        ArcTerminator::Invoke {
+            args,
+            arg_ownership,
+            ..
+        }
+        | ArcTerminator::InvokeIndirect {
+            args,
+            arg_ownership,
+            ..
+        } => {
+            for (pos, &var) in args.iter().enumerate() {
+                let is_owned = arg_ownership
+                    .get(pos)
+                    .is_some_and(|o| *o == ArgOwnership::Owned);
+                if is_owned
+                    && ctx.project_borrowed_defs.contains(&var)
+                    && ctx.func.var_reprs[var.index()] != ValueRepr::Scalar
+                {
+                    if let Some(strategy) = rc_strategy(ctx.func, var, ctx.pool) {
+                        new_body.push(ArcInstr::RcInc {
+                            var,
+                            count: 1,
+                            strategy,
+                        });
+                    }
                 }
             }
         }
+        _ => {}
     }
 
     // RcInc for terminator uses with future (exit) liveness.
