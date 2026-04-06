@@ -405,7 +405,7 @@ pub(super) fn slice_source(source: &[u8], offset: u32, len: u32) -> &str {
 
 /// Create a span from offset and length.
 #[inline]
-pub(super) fn span(offset: u32, len: u32) -> ori_ir::Span {
+pub(crate) fn span(offset: u32, len: u32) -> ori_ir::Span {
     ori_ir::Span::new(offset, offset + len)
 }
 

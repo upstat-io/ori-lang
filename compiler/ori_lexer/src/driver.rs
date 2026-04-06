@@ -78,7 +78,7 @@ pub(crate) fn lex_driver<const WITH_METADATA: bool>(
             break;
         }
 
-        let token_span = make_span(offset, raw.len);
+        let token_span = crate::cooker::span(offset, raw.len);
 
         match raw.tag {
             RawTag::Whitespace => {
@@ -230,12 +230,6 @@ pub(crate) fn lex_driver<const WITH_METADATA: bool>(
     );
 
     output
-}
-
-/// Create a span from offset and byte length.
-#[inline]
-fn make_span(offset: u32, len: u32) -> Span {
-    Span::new(offset, offset + len)
 }
 
 /// Finalize pending flags for a token about to be pushed.
