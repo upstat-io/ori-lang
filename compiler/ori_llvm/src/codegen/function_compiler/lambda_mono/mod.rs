@@ -153,6 +153,11 @@ fn detect_and_clone_multi_inst(
             );
             multi_inst_lambdas.insert(i);
         }
+        // NOTE: Multi-inst from call sites (where Let copies have Scheme return
+        // types) requires updating the parent's var_types and RC ops to match
+        // each clone's concrete return type. This deep ARC IR transformation is
+        // deferred to a follow-on fix. Single-inst resolution via
+        // find_concrete_types_from_calls handles the common case.
     }
 
     multi_inst_lambdas
