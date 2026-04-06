@@ -14,8 +14,8 @@ inspired_by:
   - "rustc_lexer unescape.rs — single unescape function parameterized by Mode enum"
 depends_on: ["01"]
 third_party_review:
-  status: resolved
-  updated: 2026-04-06
+  status: findings
+  updated: 2026-04-05
 sections:
   - id: "02.1"
     title: "Template cooking consolidation"
@@ -242,21 +242,23 @@ They differ in: suffix detector, unit type, validation method, `TokenKind` varia
 - [x] `[TPR-02-002][medium]` The section overcommits to generic suffix-detector consolidation even though the validated duplication lives mainly in the duration/size cooking skeleton, not in the short suffix helpers.
   Resolved: Addressed during plan review on 2026-04-05. Suffix detectors kept separate in implementation — only cooking skeleton consolidated via `UnitCooking` trait.
 
-- [x] `[TPR-02-003][high]` The touched escape path still rejects spec-required `\\xHH` escapes.
-  Resolved: Anchored on 2026-04-06. This is a pre-existing spec gap (not introduced by Section 02's refactoring). All three contexts (string, template, char) now have concrete `- [ ]` items in roadmap section 15C.13:
-  - `unescape_char_v2()` `\xHH` extension (already tracked)
-  - `unescape_with_context()` `'x' =>` arm for string/template `\xHH` (added 2026-04-06 — one match arm thanks to Section 02 DRY consolidation)
-  - `unescape_byte_v2()` for byte literals (already tracked)
-  Code comment in `cook_escape/mod.rs:292` updated to `TODO(lexer)` with spec citation and roadmap cross-reference.
+- [ ] `[TPR-02-003][high]` The touched escape path still rejects spec-required `\\xHH` escapes. <!-- blocked-by:15C.13 -->
+  Status: **Blocked** — `\xHH` is a cross-pipeline feature (scanner + cooker + type checker + evaluator + codegen) tracked with concrete `- [ ]` items in roadmap section 15C.13. Section 02 is a DRY refactoring plan, not a feature implementation plan. The refactoring *improves* the situation: adding `\xHH` now requires 1 match arm (verified) vs. the pre-refactoring 2. Code has `TODO(lexer)` with spec citation and roadmap cross-reference. This finding remains open until roadmap 15C.13 implements `\xHH`.
 
 - [x] `[TPR-02-004][medium]` Section 02’s plan metadata drifted out of sync with the implementation that already landed.
-  Resolved: Fixed on 2026-04-06. Body status text updated "Not Started" → "In Progress". Success criteria checked off (5/6 done). Overview Quick Reference table and index.md status updated to "In Progress".
+  Resolved: Fixed on 2026-04-05. Body status text updated "Not Started" → "In Progress". Success criteria checked off (5/6 done). Overview Quick Reference table and index.md status updated to "In Progress".
 
 - [x] `[TPR-02-005][medium]` `compiler/ori_lexer/src/cooker/escape_cooking.rs:59` — Section 02.1 had no regression coverage for the new template-segment wrappers or `FormatSpec` cooking.
-  Resolved: Fixed on 2026-04-06. Added 6 regression tests in `cooker/tests.rs`: `cook_template_head_strips_delimiters_and_interns`, `cook_template_middle_strips_delimiters_and_interns`, `cook_template_tail_strips_delimiters_and_interns`, `cook_template_complete_strips_backticks_and_interns`, `cook_template_segment_with_escape`, `cook_format_spec_strips_colon_prefix`. All 4 template segment kinds + escape handling + FormatSpec now have direct cooker-level coverage (291 tests total).
+  Resolved: Fixed on 2026-04-05. Added 6 regression tests in `cooker/tests.rs`: `cook_template_head_strips_delimiters_and_interns`, `cook_template_middle_strips_delimiters_and_interns`, `cook_template_tail_strips_delimiters_and_interns`, `cook_template_complete_strips_backticks_and_interns`, `cook_template_segment_with_escape`, `cook_format_spec_strips_colon_prefix`. All 4 template segment kinds + escape handling + FormatSpec now have direct cooker-level coverage (291 tests total).
 
 - [x] `[TPR-02-006][low]` Plan metadata dates appear future-dated relative to commit timestamps.
-  Resolved: Rejected on 2026-04-06. The dates are correct — TPR work happened on April 6 local time (US timezone). Commit timestamps show April 5 UTC due to timezone offset. This is not a chronology error, just a UTC/local difference.
+  Resolved: Fixed on 2026-04-05. The previous review log used future-dated `2026-04-06` entries even though the local repo state and commit timestamps for this work are still on April 5, 2026. Section metadata and finding timestamps were corrected to the current local date.
+
+- [x] `[TPR-02-007][high]` Section 02 still marks the spec-required `\\xHH` escape gap as resolved even though the production unescape path still has no `'x'` handling.
+  Resolved: Fixed on 2026-04-05. TPR-02-003 reopened as explicitly **blocked** by roadmap 15C.13 (no longer marked resolved). The finding now correctly shows as open with `<!-- blocked-by:15C.13 -->` until the cross-pipeline `\xHH` feature is implemented.
+
+- [x] `[TPR-02-008][medium]` The new Section 02.1 regression tests did not exercise `cook_template_segment()`'s error-propagation branch.
+  Resolved: Fixed on 2026-04-05. Added 3 error-propagation tests in `cooker/tests.rs`: `cook_template_head_with_invalid_escape_sets_had_error`, `cook_template_middle_with_invalid_escape_sets_had_error`, `cook_template_tail_with_invalid_escape_sets_had_error`. Each verifies: (1) correct `TokenKind` variant returned despite error, (2) `had_error` is true, (3) exactly 1 `InvalidTemplateEscape` error accumulated, (4) replacement char `\u{FFFD}` in output. Total: 294 tests.
 
 ---
 
