@@ -234,6 +234,18 @@ fn test_iter_for_each() {
 }
 
 // -----------------------------------------------------------------------
+// join consumer — string elements (SSO-safe separator ABI)
+// -----------------------------------------------------------------------
+
+#[test]
+fn test_iter_join_str() {
+    assert_aot_success(
+        include_str!("fixtures/iterators/iter_join_str.ori"),
+        "iter_join_str",
+    );
+}
+
+// -----------------------------------------------------------------------
 // zip adapter
 // -----------------------------------------------------------------------
 

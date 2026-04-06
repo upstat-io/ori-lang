@@ -45,7 +45,7 @@ sections:
     status: complete
   - id: "06.R"
     title: "Third Party Review Findings"
-    status: complete  # No TPR findings yet — will be populated by /tpr-review
+    status: complete  # Review run; open findings recorded below
   - id: "06.N"
     title: "Completion Checklist"
     status: in-progress  # Remaining: TPR + hygiene review
@@ -438,6 +438,12 @@ The actual crash was from `emit_iter_join` passing null `to_str_fn` for non-stri
 ---
 
 ## 06.R Third Party Review Findings
+
+- [x] `[TPR-06-002][medium]` `compiler/ori_llvm/src/codegen/arc_emitter/builtins/iterator_consumers.rs:500` — non-string `join` bail produced double error (BUG-04-039 + bogus "unresolved function").
+  Resolved: 2026-04-06. Changed `emit_iter_join` non-string bail to return `Some(poison_value)` instead of `None`, signaling "handled with error" to the dispatch chain. Mixed file now reports 1 codegen error (not 2).
+
+- [x] `[TPR-06-003][medium]` `compiler/ori_llvm/tests/aot` — no automated coverage for `join` ABI/SSO fix.
+  Resolved: 2026-04-06. Added `test_iter_join_str` AOT test (`fixtures/iterators/iter_join_str.ori`) as semantic pin for SSO-safe 3-field separator passing. Test passes in AOT: verifies `["hello", "world", "!"].iter().join(separator: ", ")` == `"hello, world, !"`. AOT test count: 2110 (up from 2109).
 
 - [x] `[TPR-06-001][high]` `compiler/ori_llvm/src/codegen/arc_emitter/builtins/iterator_consumers.rs:494` — the `emit_iter_join` hardening landed in a path the LLVM spec backend still does not reach for the full `join.ori` spec file, so BUG-04-039 and the §06.8 notes overstated what was fixed.
   Evidence: `ori test --backend=llvm tests/spec/traits/iterator/join.ori` → 8 LCFail; `ori test --backend=llvm /tmp/test_join_str.ori` → 1 pass. Root cause: JIT module poisoning — non-string join tests produce codegen errors that reject the entire module, including string-only tests.

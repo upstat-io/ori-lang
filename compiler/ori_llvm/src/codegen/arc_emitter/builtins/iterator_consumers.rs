@@ -517,7 +517,10 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 "iter_join on non-string elements not yet supported in LLVM (BUG-04-039)"
                     .to_string(),
             );
-            return None;
+            // Return a poison value (not None) to signal "handled with error."
+            // Returning None would cause the dispatch chain to fall through to
+            // the invoke path, adding a second bogus "unresolved function" error.
+            return Some(self.builder.poison_value);
         }
 
         let separator = arg_vals[1];
