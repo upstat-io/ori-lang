@@ -10,13 +10,14 @@ mod type_predicates;
 mod type_resolve;
 
 use ori_ir::Name;
-use ori_types::Idx;
+use ori_types::{Idx, Tag};
 use type_predicates::contains_var;
 use type_resolve::{
-    apply_bound_var_map, build_bound_var_map, fallback_bound_vars_to_int,
-    find_all_instantiation_types, find_apply_indirect_result_type, find_partial_apply_args,
-    find_partial_apply_concrete_type, find_partial_apply_dst, is_concrete_function,
-    is_polymorphic_lambda, resolve_lambda_return_types,
+    apply_bound_var_map, apply_call_site_types, apply_concrete_param_types, build_bound_var_map,
+    fallback_bound_vars_to_int, find_all_instantiation_types, find_apply_indirect_result_type,
+    find_concrete_types_from_calls, find_partial_apply_args, find_partial_apply_concrete_type,
+    find_partial_apply_dst, is_concrete_function, is_polymorphic_lambda,
+    resolve_lambda_return_types,
 };
 
 /// Resolve `BoundVar` types in ALL lambdas to concrete types.
@@ -44,7 +45,7 @@ pub(super) fn resolve_all_lambda_bound_vars(
 
     let orig_len = lambdas.len();
     let multi_inst_lambdas = detect_and_clone_multi_inst(parent, lambdas, pool, interner);
-    let (global_map, ret_type_resolutions) =
+    let (global_map, ret_type_resolutions, concrete_fn_types) =
         build_single_inst_mappings(parent, lambdas, orig_len, &multi_inst_lambdas, pool);
 
     // Apply the global map + return type resolutions to ALL non-multi-inst lambdas.
@@ -57,9 +58,58 @@ pub(super) fn resolve_all_lambda_bound_vars(
         if let Some(&(schema_ret, concrete_ret)) = ret_type_resolutions.get(&i) {
             resolve_lambda_return_types(lambda, schema_ret, concrete_ret);
         }
+
+        // Direct param substitution for container types with nested vars.
+        // apply_bound_var_map only resolves top-level Var/BoundVar; this handles
+        // containers like List<Var>, Option<Var> by directly substituting from
+        // the concrete function type's param types.
+        if let Some(&concrete_fn_ty) = concrete_fn_types.get(&i) {
+            apply_concrete_param_types(lambda, concrete_fn_ty, pool);
+        }
     }
 
-    // Final fallback: any remaining BoundVars → Idx::INT.
+    // For lambdas where no concrete function type was found via PartialApply
+    // narrowing, try extracting concrete types from ApplyIndirect call sites.
+    // This handles let-polymorphic lambdas (e.g., `let head = xs -> xs[0]`)
+    // where type narrowing happens at the call site, not via Let copies.
+    //
+    // Safety: only process ORIGINAL lambdas (not multi-inst clones which are
+    // appended after orig_len), and only when the lambda's params still contain
+    // unresolved Generalized vars after all other resolution attempts.
+    #[expect(
+        clippy::needless_range_loop,
+        reason = "need index for multi_inst_lambdas/concrete_fn_types lookup and mutable lambdas[i] access"
+    )]
+    for i in 0..orig_len {
+        if multi_inst_lambdas.contains(&i) {
+            continue;
+        }
+        if concrete_fn_types.contains_key(&i) {
+            continue; // Already resolved via concrete function type.
+        }
+        let lambda = &lambdas[i];
+        // Only try call-site extraction if params still contain nested vars.
+        let has_unresolved_container_params = lambda.params.iter().any(|p| {
+            !matches!(pool.tag(p.ty), Tag::BoundVar | Tag::Var) && contains_var(pool, p.ty)
+        });
+        if !has_unresolved_container_params {
+            continue;
+        }
+        // Find the PartialApply dst for this lambda in the parent.
+        if let Some(pa_dst) = find_partial_apply_dst(parent, lambda.name) {
+            if let Some((arg_types, result_ty)) =
+                find_concrete_types_from_calls(parent, pa_dst, pool)
+            {
+                tracing::debug!(
+                    name = ?lambdas[i].name,
+                    "lambda mono: resolved from ApplyIndirect call site"
+                );
+                apply_call_site_types(&mut lambdas[i], &arg_types, result_ty, pool);
+            }
+        }
+    }
+
+    // Final fallback: any remaining BoundVars/Vars → Idx::INT.
     for (i, lambda) in lambdas.iter_mut().enumerate() {
         if i < orig_len && multi_inst_lambdas.contains(&i) {
             continue;
@@ -108,21 +158,28 @@ fn detect_and_clone_multi_inst(
     multi_inst_lambdas
 }
 
+/// Result of `build_single_inst_mappings`: global `BoundVar` map, per-lambda
+/// return type resolutions, and per-lambda concrete function types.
+type SingleInstMappings = (
+    rustc_hash::FxHashMap<u32, Idx>,
+    rustc_hash::FxHashMap<usize, (Idx, Idx)>,
+    rustc_hash::FxHashMap<usize, Idx>,
+);
+
 /// Phase 2: Build global `BoundVar` -> concrete map for single-inst lambdas.
-/// Returns the global map and per-lambda return type resolutions.
+/// Returns the global map, per-lambda return type resolutions, and per-lambda
+/// concrete function types (for direct param substitution of container types).
 fn build_single_inst_mappings(
     parent: &ori_arc::ArcFunction,
     lambdas: &[ori_arc::ArcFunction],
     orig_len: usize,
     multi_inst_lambdas: &rustc_hash::FxHashSet<usize>,
     pool: &ori_types::Pool,
-) -> (
-    rustc_hash::FxHashMap<u32, Idx>,
-    rustc_hash::FxHashMap<usize, (Idx, Idx)>,
-) {
+) -> SingleInstMappings {
     let mut global_map: rustc_hash::FxHashMap<u32, Idx> = rustc_hash::FxHashMap::default();
     let mut ret_type_resolutions: rustc_hash::FxHashMap<usize, (Idx, Idx)> =
         rustc_hash::FxHashMap::default();
+    let mut concrete_fn_types: rustc_hash::FxHashMap<usize, Idx> = rustc_hash::FxHashMap::default();
 
     for i in 0..orig_len {
         if multi_inst_lambdas.contains(&i) {
@@ -137,6 +194,8 @@ fn build_single_inst_mappings(
             find_partial_apply_concrete_type(parent, lambdas, i, lambda_name, pool);
 
         if let Some(concrete_ty) = concrete_fn_ty {
+            concrete_fn_types.insert(i, concrete_ty);
+
             build_bound_var_map(
                 pool,
                 concrete_ty,
@@ -161,7 +220,7 @@ fn build_single_inst_mappings(
         }
     }
 
-    (global_map, ret_type_resolutions)
+    (global_map, ret_type_resolutions, concrete_fn_types)
 }
 
 /// Remove original multi-instantiated lambdas from the vec. These have been

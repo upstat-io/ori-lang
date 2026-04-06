@@ -1,0 +1,118 @@
+// Regression: Section 06.2 — Generalized vars must resolve before codegen
+// Root Cause A: VarState::Generalized leaks to LLVM TypeInfoStore
+// Spec: 06-types.md § Type Inference, § Let-Polymorphism
+//
+// These tests exercise polymorphic lambda patterns that require the lambda
+// mono pipeline to resolve Generalized type variables in nested containers.
+// A simple identity lambda (x -> x) works because BoundVar substitution
+// handles it. But lambdas that perform type-dependent operations on
+// parameters (indexing, wrapping) need the Generalized var resolved
+// to a concrete type for RC classification.
+
+use std.testing { assert_eq, assert }
+
+// =============================================================================
+// Core: Polymorphic lambda with type-dependent operation (indexing)
+// This is the minimal reproducer — xs[0] needs element type for RC ops.
+// =============================================================================
+
+@test_poly_list_index tests @poly_list_index () -> void = {
+    let head = xs -> xs[0];
+    let int_head = head(xs: [10, 20, 30]);
+    let str_head = head(xs: ["alpha", "beta"]);
+    assert_eq(actual: int_head, expected: 10);
+    assert_eq(actual: str_head, expected: "alpha")
+}
+
+@poly_list_index () -> int = {
+    let head = xs -> xs[0];
+    head(xs: [10, 20, 30])
+}
+
+// =============================================================================
+// Container wrapping: Option<Generalized>
+// Some(x) needs to know T to construct Option<T>.
+// =============================================================================
+
+@test_poly_option_wrap tests @poly_option_wrap () -> void = {
+    let wrap = x -> Some(x);
+    let int_opt = wrap(x: 42);
+    let str_opt = wrap(x: "hello");
+    assert(cond: is_some(opt: int_opt));
+    assert(cond: is_some(opt: str_opt))
+}
+
+@poly_option_wrap () -> bool = {
+    let wrap = x -> Some(x);
+    is_some(opt: wrap(x: 42))
+}
+
+// =============================================================================
+// Container wrapping: List<Generalized>
+// [x] needs to know T for list element RC ops.
+// =============================================================================
+
+@test_poly_list_wrap tests @poly_list_wrap () -> void = {
+    let singleton = x -> [x];
+    let int_list = singleton(x: 1);
+    let str_list = singleton(x: "a");
+    assert_eq(actual: int_list, expected: [1]);
+    assert_eq(actual: str_list, expected: ["a"])
+}
+
+@poly_list_wrap () -> [int] = {
+    let singleton = x -> [x];
+    singleton(x: 42)
+}
+
+// =============================================================================
+// Cross-type: identity used with collection args (not just scalars)
+// =============================================================================
+
+@test_poly_identity_collections tests @poly_identity_collections () -> void = {
+    let id = x -> x;
+    let list_result = id(x: [1, 2, 3]);
+    let str_result = id(x: "hello");
+    assert_eq(actual: list_result, expected: [1, 2, 3]);
+    assert_eq(actual: str_result, expected: "hello")
+}
+
+@poly_identity_collections () -> [int] = {
+    let id = x -> x;
+    id(x: [1, 2, 3])
+}
+
+// =============================================================================
+// Semantic pin: polymorphic lambda with len() — ONLY works if Generalized
+// var is properly resolved (len needs to know the collection type).
+// =============================================================================
+
+@test_poly_lambda_len tests @poly_lambda_len () -> void = {
+    let size = xs -> len(collection: xs);
+    let int_len = size(xs: [1, 2, 3]);
+    let str_len = size(xs: ["a", "b"]);
+    assert_eq(actual: int_len, expected: 3);
+    assert_eq(actual: str_len, expected: 2)
+}
+
+@poly_lambda_len () -> int = {
+    let size = xs -> len(collection: xs);
+    size(xs: [1, 2, 3])
+}
+
+// =============================================================================
+// Multi-param: const function with collection arguments
+// =============================================================================
+
+@test_poly_const_collections tests @poly_const_collections () -> void = {
+    let first = (a, b) -> a;
+    let result1 = first(a: [1, 2], b: "ignored");
+    let result2 = first(a: "kept", b: [3, 4]);
+    assert_eq(actual: result1, expected: [1, 2]);
+    assert_eq(actual: result2, expected: "kept")
+}
+
+@poly_const_collections () -> [int] = {
+    let first = (a, b) -> a;
+    first(a: [1, 2], b: "ignored")
+}
