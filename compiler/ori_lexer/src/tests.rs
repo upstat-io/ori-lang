@@ -503,6 +503,96 @@ fn contextual_kw_on_all_soft_keywords() {
     }
 }
 
+// BUG-01-001: Soft keyword cache contamination — public lex() boundary regression test.
+// The cooker tests exercise cook() directly; this test verifies the bug is fixed end-to-end
+// through the public lex() entry point, which is the actual user-visible surface.
+
+/// Semantic pin at the public `lex()` boundary: soft keyword text appearing first as
+/// identifier then in keyword context must produce the correct token sequence.
+/// This is the exact user-visible scenario of BUG-01-001.
+#[test]
+fn soft_keyword_cache_not_poisoned_through_lex_boundary() {
+    let interner = StringInterner::new();
+    // "let cache = 1; cache(x)" — first `cache` is ident, second is keyword
+    // Tokens: let(0) cache(1) =(2) 1(3) ;(4) cache(5) ((6) x(7) )(8)
+    let tokens = lex("let cache = 1; cache(x)", &interner);
+    let flags = tokens.flags();
+
+    // Token 0: `let` (keyword)
+    assert_eq!(tokens[0].kind, TokenKind::Let);
+
+    // Token 1: `cache` (identifier — next non-ws byte is `=`, not `(`)
+    assert!(
+        matches!(tokens[1].kind, TokenKind::Ident(_)),
+        "first `cache` should be Ident, got {:?}",
+        tokens[1].kind
+    );
+    assert!(
+        !flags[1].is_contextual_kw(),
+        "first `cache` as ident should not have CONTEXTUAL_KW"
+    );
+
+    // Token 2: `=`
+    assert_eq!(tokens[2].kind, TokenKind::Eq);
+
+    // Token 3: `1`
+    assert_eq!(tokens[3].kind, TokenKind::Int(1));
+
+    // Token 5: `cache` (keyword — followed by `(`)
+    assert_eq!(
+        tokens[5].kind,
+        TokenKind::Cache,
+        "second `cache` must be Cache keyword, not cached Ident (BUG-01-001)"
+    );
+    assert!(
+        flags[5].is_contextual_kw(),
+        "second `cache` as keyword should have CONTEXTUAL_KW"
+    );
+}
+
+/// All 6 soft keywords through the public `lex()` boundary in ident-then-keyword ordering.
+#[test]
+fn soft_keyword_ident_then_keyword_all_through_lex() {
+    let cases: &[(&str, TokenKind)] = &[
+        ("cache", TokenKind::Cache),
+        ("catch", TokenKind::Catch),
+        ("parallel", TokenKind::Parallel),
+        ("recurse", TokenKind::Recurse),
+        ("spawn", TokenKind::Spawn),
+        ("timeout", TokenKind::Timeout),
+    ];
+    let mut count = 0;
+    for (kw, expected) in cases {
+        let interner = StringInterner::new();
+        // "let <kw> = 1; <kw>(x)" — ident then keyword
+        // Tokens: let(0) <kw>(1) =(2) 1(3) ;(4) <kw>(5) ((6) x(7) )(8)
+        let source = format!("let {kw} = 1; {kw}(x)");
+        let tokens = lex(&source, &interner);
+        let flags = tokens.flags();
+
+        // Token 1: ident (next non-ws byte is `=`, not `(`)
+        assert!(
+            matches!(tokens[1].kind, TokenKind::Ident(_)),
+            "{kw}: first occurrence should be Ident through lex(), got {:?}",
+            tokens[1].kind
+        );
+
+        // Token 5: keyword (followed by `(`)
+        assert_eq!(
+            tokens[5].kind, *expected,
+            "{kw}: second occurrence should be {expected:?} through lex(), got {:?}",
+            tokens[5].kind
+        );
+        assert!(
+            flags[5].is_contextual_kw(),
+            "{kw}: keyword occurrence should have CONTEXTUAL_KW"
+        );
+
+        count += 1;
+    }
+    assert_eq!(count, 6, "must test all 6 soft keywords");
+}
+
 // Reserved-future keyword tests
 #[test]
 fn reserved_future_keyword_produces_error() {
