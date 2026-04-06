@@ -130,7 +130,24 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
     /// Iterates over `module.functions` paired with their `FunctionSig` from the
     /// type checker. Generic functions are skipped (they require monomorphization).
     pub fn declare_all(&mut self, module_functions: &[Function], function_sigs: &[FunctionSig]) {
-        for (func, sig) in module_functions.iter().zip(function_sigs.iter()) {
+        // Build a name→sig lookup. function_sigs is deduped by name (one per
+        // unique function). Multi-clause functions have multiple entries in
+        // module_functions but only one sig — we look up by name to avoid
+        // positional misalignment.
+        let sig_map: rustc_hash::FxHashMap<Name, &FunctionSig> =
+            function_sigs.iter().map(|s| (s.name, s)).collect();
+
+        let mut seen = rustc_hash::FxHashSet::default();
+        for func in module_functions {
+            // Skip duplicate clause declarations (multi-clause functions).
+            if !seen.insert(func.name) {
+                continue;
+            }
+
+            let Some(sig) = sig_map.get(&func.name) else {
+                continue;
+            };
+
             // Skip generic functions
             if sig.is_generic() {
                 trace!(

@@ -113,6 +113,7 @@ pub fn check_module_with_pool(
     ori_stack::ensure_sufficient_stack(|| {
         let mut checker = ModuleChecker::new(arena, interner);
         check_module_impl(&mut checker, module);
+        checker.intern_multi_clause_tuples(module);
         checker.finish_with_pool()
     })
 }
@@ -159,6 +160,7 @@ where
         let mut checker = ModuleChecker::new(arena, interner);
         register_fn(&mut checker);
         check_module_impl(&mut checker, module);
+        checker.intern_multi_clause_tuples(module);
         checker.finish_with_pool()
     })
 }

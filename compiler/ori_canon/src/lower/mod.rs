@@ -134,16 +134,25 @@ pub fn lower_module(
                     name: func.name,
                     body: can_id,
                     defaults,
+                    param_names: Vec::new(),
                 });
             }
         } else {
             // Multi-clause — synthesize a match body. Use first clause's defaults.
+            // Store canonical param names from FunctionSig so the evaluator
+            // can bind arguments with the same names as the scrutinee Idents.
             let can_id = lowerer.lower_multi_clause(group);
             let defaults = lowerer.lower_param_defaults(group[0].params);
+            let sig_param_names = lowerer
+                .typed
+                .function(func.name)
+                .map(|sig| sig.param_names.clone())
+                .unwrap_or_default();
             roots.push(ori_ir::canon::CanonRoot {
                 name: func.name,
                 body: can_id,
                 defaults,
+                param_names: sig_param_names,
             });
         }
     }
@@ -156,6 +165,7 @@ pub fn lower_module(
                 name: test.name,
                 body: can_id,
                 defaults: Vec::new(),
+                param_names: Vec::new(),
             });
         }
     }

@@ -9,7 +9,7 @@ inspired_by:
   - "Swift SIL ARC test matrix pattern"
 depends_on: ["01", "02", "03", "04", "04B"]
 third_party_review:
-  status: in-progress
+  status: findings
   updated: 2026-04-04
 sections:
   - id: "05.0"
@@ -86,7 +86,7 @@ Verify each category passes through LLVM in BOTH debug and release builds. For e
 ## 05.2 Dual-execution parity
 
 - [x] Run `diagnostics/dual-exec-verify.sh tests/spec/types/integer_safety.ori` — ALL VERIFIED 30/30 (2026-04-03)
-- [ ] Run `diagnostics/dual-exec-verify.sh tests/spec/expressions/operators_logical.ori` — ZERO VERIFICATIONS: 39 interpreter pass, 0 LLVM pass (all LCFail from BUG-04-031/BUG-04-032). No behavioral mismatches but no comparisons possible. <!-- blocked-by:BUG-04-031 -->
+- [ ] Run `diagnostics/dual-exec-verify.sh tests/spec/expressions/operators_logical.ori` — BUG-04-031 and BUG-04-032 both fixed in 06.6. Needs re-verification.
 - [x] Run `diagnostics/dual-exec-verify.sh tests/spec/collections/cow/nested.ori` — ALL VERIFIED 7/7 (2026-04-03)
 - [x] Run `diagnostics/dual-exec-verify.sh tests/spec/collections/cow/sharing.ori` — ALL VERIFIED 9/9 (2026-04-03)
 - [x] Run `diagnostics/dual-exec-verify.sh tests/spec/types/struct_layout.ori` — ALL VERIFIED 16/16 (2026-04-03)

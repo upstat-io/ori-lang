@@ -255,14 +255,15 @@ Read the mapped bug-tracker section file(s) and check for `- [ ]` items.
 1. **STOP** — present them to the user as blockers
 2. List each critical bug with its ID, title, and repro
 3. Use AskUserQuestion:
-   - **Fix critical bugs first (Recommended)** — address these before starting new work
+   - **Fix critical bugs first (Recommended)** — use `/fix-bug BUG-XX-NNN` for each critical bug. This creates a fix section file with full plan-section rigor (root cause analysis, TDD matrix, TPR, hygiene review). Do NOT fix bugs ad-hoc — the `/fix-bug` workflow is mandatory.
    - **Proceed anyway** — user accepts the risk of working around known critical bugs
 
 **If `high` bugs exist:**
 
 1. **Mention them** — "There are N high-severity bugs in this area you may want to address"
 2. List the bug IDs and titles briefly
-3. Continue to the next step — high bugs are informational, not blocking
+3. If user wants to fix them: use `/fix-bug BUG-XX-NNN` for each
+4. Continue to the next step — high bugs are informational, not blocking
 
 **If only `medium`/`low` or no bugs exist**, proceed normally.
 
@@ -574,7 +575,7 @@ This applies to ALL skills: `/code-journey`, `/review-plan`, `/sync-spec`, etc.
 ### After Writing Code
 
 1. **Run tests** — `./test-all.sh` to verify everything passes
-2. **Check for interference** — if your fix introduces NEW failures that weren't failing before, this is INTERFERENCE from another bug, not a "pre-existing issue." The correct response: revert your fix, fix the interfering bug first (it's now a dependency), then re-apply your fix. Never declare a bug fixed when the test suite has more failures than before your fix. Never rationalize the new failures as "pre-existing" — the interference made them your problem.
+2. **Check for interference** — if your fix introduces NEW failures that weren't failing before, this is INTERFERENCE from another bug, not a "pre-existing issue." The correct response: revert your fix, fix the interfering bug first using `/fix-bug` (it's now a dependency — the interfering bug gets full plan-section rigor: root cause analysis, TDD matrix, TPR, hygiene review), then re-apply your fix. Never declare a bug fixed when the test suite has more failures than before your fix. Never rationalize the new failures as "pre-existing" — the interference made them your problem.
 3. **Verify matrix coverage** — if the fix is type-dependent or pattern-dependent, confirm that tests cover all relevant type x pattern combinations. Missing cells in the matrix are potential regressions. See `.claude/rules/tests.md` Matrix Testing Rule.
 4. **Check plan boundary integrity** — did this fix modify code referenced by another section's tasks? If yes, update that section's plan to reflect the change. No silent cross-section absorption.
 4. **Check formatting impact** — If syntax was added or changed:
@@ -587,6 +588,53 @@ This applies to ALL skills: `/code-journey`, `/review-plan`, `/sync-spec`, etc.
 8. **Run `/commit-push`** — NEVER commit directly with `git commit`. Always use the `/commit-push` skill.
 9. **Run `/tpr-review` after section completion — MUST PASS CLEAN** — When ALL checkboxes in a section are checked and the section is about to be marked `complete`, run `/tpr-review` for an independent Codex review. **The TPR must come back completely clean before the section can be closed out.** If `/tpr-review` surfaces ANY findings: (1) triage them through Step 1.9 (TPR Triage Gate), (2) fix all accepted findings, (3) **re-run `/tpr-review`** to confirm clean. Repeat this cycle until the review passes with zero unresolved findings. A section CANNOT be marked `complete` until a clean `/tpr-review` pass is achieved — "all findings triaged" is not sufficient, the re-run must confirm they are actually resolved. **This rule is definitive and non-negotiable. Do not reason about whether a TPR pass is "close enough", whether remaining findings are "minor", or whether the section is "effectively complete". There is no judgement call — either the TPR is clean or the section stays open. No exceptions, no rationalizations, no shortcuts.**
 10. **Run `/impl-hygiene-review last commit` after TPR is clean — MUST PASS** — After `/tpr-review` passes clean, run `/impl-hygiene-review last commit` (or scope to the section's commits) for a deep hygiene sweep: phase boundaries, SSOT, algorithmic DRY, naming, file organization. If `/impl-hygiene-review` surfaces critical or major findings: fix them, re-run `/tpr-review` (since code changed), then re-run `/impl-hygiene-review`. **A section CANNOT be marked `complete` until both `/tpr-review` AND `/impl-hygiene-review` pass clean.** The hygiene review is the final quality gate — it catches plumbing-layer issues (leaked dispatch, scattered knowledge, algorithmic duplication) that TPR is not designed to detect. Same non-negotiable rule as TPR: clean or open, no middle ground.
+
+---
+
+## Bugs Discovered During Plan Execution
+
+When implementing a roadmap section, you WILL discover bugs — test failures, wrong output, crashes, spec/impl mismatches, edge cases. These bugs need structured handling, not ad-hoc fixes.
+
+### Decision Tree
+
+```
+Bug discovered during plan execution
+  ├── Is it directly blocking the current task?
+  │   ├── YES → Fix it NOW using /fix-bug
+  │   │         (creates fix section, TDD matrix, completion checklist)
+  │   │         The fix section lives in plans/bug-tracker/fix-BUG-XX-NNN.md
+  │   │         Resume plan work after /fix-bug completes
+  │   └── NO → File it with /add-bug for later
+  │             (minimal capture — repro, location, severity, source)
+  │             Continue plan work
+  │
+  ├── Is it critical/high severity?
+  │   ├── CRITICAL → /fix-bug immediately, even if not directly blocking
+  │   │              Critical bugs compound — they will interfere with later work
+  │   └── HIGH → /add-bug now, /fix-bug when entering adjacent code
+  │
+  └── Is it medium/low severity?
+      └── /add-bug — file and continue
+```
+
+### Key Rules
+
+1. **Every bug gets at least `/add-bug`** — no bug discovered during plan work goes untracked. "I'll remember it" is not tracking.
+
+2. **Blocking bugs get `/fix-bug`** — if a bug prevents the current plan task from completing, invoke `/fix-bug BUG-XX-NNN`. This pauses plan work, creates a fix section with full rigor, and resumes plan work after completion.
+
+3. **The fix section is the plan section for the bug** — it has the same rigor as a roadmap section: root cause analysis, TDD matrix (semantic + negative pins), implementation, completion checklist (test-all, TPR, hygiene). No ad-hoc fixes, even for "obvious" bugs.
+
+4. **Fix sections track back to the plan** — note in the fix section: "Discovered during roadmap section {NN} implementation." Note in the plan section: "Blocked by BUG-XX-NNN (see `plans/bug-tracker/fix-BUG-XX-NNN.md`)."
+
+5. **Interference bugs get `/fix-bug` too** — when your plan work surfaces a new bug (test that was passing now fails), revert your change, `/fix-bug` the interfering bug, then re-apply your plan work.
+
+### What NOT to Do
+
+- **Do NOT fix bugs inline without a fix section** — "it's a one-liner" is not an excuse. The fix section ensures TDD, TPR, and hygiene happen.
+- **Do NOT skip `/add-bug` for bugs you won't fix now** — the bug tracker is the system of record. Mental notes are deferral.
+- **Do NOT rationalize away discovered bugs** — "that's pre-existing" is diagnosis, not justification. File it (`/add-bug`) or fix it (`/fix-bug`).
+- **Do NOT batch bug fixes without fix sections** — each bug (or tightly related cluster) gets its own fix section.
 
 ---
 

@@ -147,4 +147,4 @@ The Itanium path in `ori_run_main` (lib.rs:430-443) still uses `std::panic::catc
 | 04 | Exposed Bug Fixes | `section-04-exposed-bugs.md` | Complete |
 | 04B | Polymorphic Lambda Monomorphization | `section-04b-lambda-mono.md` | In Progress (blocked by BUG-04-030) |
 | 05 | Verification | `section-05-verification.md` | In Progress |
-| 06 | LCFail Resolution | `section-06-lcfail-resolution.md` | Not Started |
+| 06 | LCFail Resolution | `section-06-lcfail-resolution.md` | In Progress |

@@ -88,6 +88,10 @@ impl super::ArcFunction {
     pub fn fresh_var(&mut self, ty: Idx) -> ArcVarId {
         let id = u32::try_from(self.var_types.len())
             .unwrap_or_else(|_| panic!("variable count exceeds u32::MAX"));
+        debug_assert!(
+            id < u32::MAX,
+            "ARC var ID would collide with INVALID sentinel (u32::MAX)"
+        );
         self.var_types.push(ty);
         // Keep var_reprs in sync if it has been populated.
         // Uses Scalar as a placeholder — callers that know the correct repr
