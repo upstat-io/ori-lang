@@ -243,7 +243,11 @@ They differ in: suffix detector, unit type, validation method, `TokenKind` varia
   Resolved: Addressed during plan review on 2026-04-05. Suffix detectors kept separate in implementation — only cooking skeleton consolidated via `UnitCooking` trait.
 
 - [x] `[TPR-02-003][high]` The touched escape path still rejects spec-required `\\xHH` escapes.
-  Resolved: Validated on 2026-04-06. This is a pre-existing spec gap (not introduced by Section 02’s refactoring) — `\xHH` was never implemented in the lexer. It is already tracked with concrete `- [ ]` items in roadmap section 15C.13 ("Byte Literals and Hex Escapes"), which covers scanner changes, cooker changes, type checker, evaluator, and LLVM codegen across all 3 literal contexts. Section 02’s DRY refactoring actually *improves* the situation: adding `\xHH` now requires exactly ONE new match arm in `unescape_with_context` (verified by grep), vs. the pre-refactoring state where it would have required edits to 2 parallel functions. Code comment updated from "future extension point" to "TODO(lexer): spec-required, not yet implemented" with spec citation and roadmap cross-reference.
+  Resolved: Anchored on 2026-04-06. This is a pre-existing spec gap (not introduced by Section 02's refactoring). All three contexts (string, template, char) now have concrete `- [ ]` items in roadmap section 15C.13:
+  - `unescape_char_v2()` `\xHH` extension (already tracked)
+  - `unescape_with_context()` `'x' =>` arm for string/template `\xHH` (added 2026-04-06 — one match arm thanks to Section 02 DRY consolidation)
+  - `unescape_byte_v2()` for byte literals (already tracked)
+  Code comment in `cook_escape/mod.rs:292` updated to `TODO(lexer)` with spec citation and roadmap cross-reference.
 
 - [x] `[TPR-02-004][medium]` Section 02’s plan metadata drifted out of sync with the implementation that already landed.
   Resolved: Fixed on 2026-04-06. Body status text updated "Not Started" → "In Progress". Success criteria checked off (5/6 done). Overview Quick Reference table and index.md status updated to "In Progress".
