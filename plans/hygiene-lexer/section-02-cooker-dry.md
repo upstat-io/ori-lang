@@ -15,14 +15,14 @@ inspired_by:
 depends_on: ["01"]
 third_party_review:
   status: findings
-  updated: 2026-04-05
+  updated: 2026-04-06
 sections:
   - id: "02.1"
     title: "Template cooking consolidation"
     status: complete
   - id: "02.2"
     title: "Unescape function consolidation"
-    status: in-progress
+    status: complete
   - id: "02.3"
     title: "Integer cooking consolidation"
     status: complete
@@ -152,7 +152,7 @@ They differ in:
 - [x] All 9 regression coverage items confirmed present in existing test suite (`cook_escape/tests.rs`)
 - [x] File stays under 500 lines (432 → 437 lines — slight increase from EscapeContext + docs)
 
-- [ ] **TPR checkpoint** — `/tpr-review` covering 02.1–02.2 implementation work
+- [x] **TPR checkpoint** — `/tpr-review` covering 02.1–02.2 implementation work (clean pass 2026-04-06, zero findings for Section 02 scope)
 
 ---
 
@@ -259,6 +259,8 @@ They differ in: suffix detector, unit type, validation method, `TokenKind` varia
 
 - [x] `[TPR-02-008][medium]` The new Section 02.1 regression tests did not exercise `cook_template_segment()`'s error-propagation branch.
   Resolved: Fixed on 2026-04-05. Added 3 error-propagation tests in `cooker/tests.rs`: `cook_template_head_with_invalid_escape_sets_had_error`, `cook_template_middle_with_invalid_escape_sets_had_error`, `cook_template_tail_with_invalid_escape_sets_had_error`. Each verifies: (1) correct `TokenKind` variant returned despite error, (2) `had_error` is true, (3) exactly 1 `InvalidTemplateEscape` error accumulated, (4) replacement char `\u{FFFD}` in output. Total: 294 tests.
+- [x] `[TPR-02-009][medium]` [plans/hygiene-lexer/section-02-cooker-dry.md](/home/eric/projects/ori_lang/.claude/worktrees/lexer-hygiene/plans/hygiene-lexer/section-02-cooker-dry.md#L277) — The new verification note overclaims `test-all.sh` as a clean green run.
+  Resolved: Fixed on 2026-04-06. Rewrote checklist entry to "0 failures, exits 0; LLVM backend crash is known BUG-04-030" — matches actual wrapper semantics.
 
 ---
 
@@ -274,14 +276,14 @@ They differ in: suffix detector, unit type, validation method, `TokenKind` varia
 - [x] Redundant `b2` variable eliminated from template unescape path (WASTE finding from codebase audit)
 - [x] `timeout 150 cargo test -p ori_lexer` green (debug) — 294 passed (2026-04-06)
 - [x] `timeout 150 cargo test -p ori_lexer --release` green (release) — 294 passed (2026-04-06)
-- [x] `timeout 150 ./test-all.sh` green — 14,783 passed, 0 failed (2026-04-06)
+- [x] `timeout 150 ./test-all.sh` — 0 failures, exits 0; LLVM backend crash is known BUG-04-030 (2026-04-06)
 - [x] No files exceed 500-line limit — max 429 lines (cook_escape/mod.rs)
 - [x] Plan annotation cleanup: no stale annotations
 - [ ] **Plan sync** — update plan metadata:
-  - [ ] This section's frontmatter `status` → `complete`
-  - [ ] `00-overview.md` Quick Reference table updated
-  - [ ] `index.md` section status updated
-- [ ] `/tpr-review` passed (final, full-section)
-- [ ] `/impl-hygiene-review last commit` passed
+  - [ ] This section's frontmatter `status` → `complete` (BLOCKED: cannot complete while TPR-02-003 `\xHH` is open — blocked by roadmap 15C.13) <!-- blocked-by:15C.13 -->
+  - [x] `00-overview.md` Quick Reference table updated (shows "In Progress" — accurate)
+  - [x] `index.md` section status updated (shows "In Progress" — accurate)
+- [x] `/tpr-review` passed (final, full-section) — clean pass 2026-04-06, zero findings for Section 02 scope
+- [x] `/impl-hygiene-review last commit` passed — clean pass 2026-04-06, zero findings across all 4 passes
 
 **Exit Criteria:** All four algorithmic duplication clusters in the cooker layer are consolidated. Each cluster has exactly one canonical implementation. Changing the protocol (new escape, new radix, new unit suffix) requires updating exactly one function. Specifically: adding `\xHH` hex byte escapes (roadmap 15C.13, grammar.ebnf lines 116-118) requires editing one match arm in the shared unescape core — verified by grep showing exactly ONE escape dispatch location in production code. All existing tests pass unchanged, proving zero behavioral change.
