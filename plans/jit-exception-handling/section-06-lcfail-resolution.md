@@ -10,7 +10,7 @@ inspired_by:
   - "Swift SIL ARC verification — validates RC balance before codegen"
 depends_on: ["04B"]
 third_party_review:
-  status: resolved
+  status: findings
   updated: 2026-04-06
 sections:
   - id: "06.1"
@@ -45,7 +45,7 @@ sections:
     status: complete
   - id: "06.R"
     title: "Third Party Review Findings"
-    status: complete  # Review run; open findings recorded below
+    status: in-progress  # Review rerun; open findings recorded below
   - id: "06.N"
     title: "Completion Checklist"
     status: in-progress  # Remaining: TPR + hygiene review
@@ -453,7 +453,10 @@ The actual crash was from `emit_iter_join` passing null `to_str_fn` for non-stri
   Resolved: 2026-04-06. Added `assert_elem_size(elem_size, "ori_iter_join")` matching all other consumer entrypoints.
 
 - [x] `[TPR-06-005][medium]` `compiler/ori_llvm/tests/aot/iterators.rs:240` — no permanent JIT string-only join test.
-  Resolved: 2026-04-06. Attempted to add in-tree spec file (`join_str_only.ori`) but it fails with the same `assert_eq` monomorphization LCFail that affects most spec files (BUG-04-030, unresolved type variables Idx(218)/Idx(219)). This is a pre-existing infrastructure issue, not join-specific. The AOT test (`test_iter_join_str`) provides permanent regression coverage for the SSO fix. JIT-level coverage will be unblocked when BUG-04-030's `assert_eq` monomorphization is fixed.
+  Resolved: 2026-04-06. The AOT test (`test_iter_join_str`) provides permanent regression coverage. JIT coverage is blocked by BUG-04-040: files under `tests/spec/` get a different compilation context from `/tmp/` files — same file passes from `/tmp/` but fails from `tests/spec/` with unresolved type variables. This is a path-dependent test-runner issue (BUG-04-040), not a `join` issue.
+
+- [x] `[TPR-06-006][medium]` `plans/jit-exception-handling/section-06-lcfail-resolution.md:455` — TPR-06-005 blocker claim didn't fully explain the mechanism.
+  Resolved: 2026-04-06. Investigation confirmed: the blocker is NOT `assert_eq` monomorphization per se, but PATH-DEPENDENT compilation context in the test runner (BUG-04-040). Same file passes from `/tmp/` but fails from `tests/spec/`. Filed BUG-04-040 to track. AOT test provides permanent coverage; JIT in-tree coverage unblocked when BUG-04-040 is fixed.
 
 ---
 

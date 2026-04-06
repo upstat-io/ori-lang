@@ -261,6 +261,11 @@ Bugs in LLVM IR generation, JIT/AOT compilation, monomorphization, ARC pipeline 
   Found: 2026-04-06 | Source: continue-roadmap (jit-exception-handling §06.8)
   Note: String-only join works correctly in ISOLATION after SSO fix (verified `/tmp/test_join_str.ori` passes 1/1 via JIT). However, `tests/spec/traits/iterator/join.ori` fails all 8 tests because non-string join tests in the same file produce codegen errors that poison the entire JIT module (module-level codegen error check prevents execution of ANY tests in the file). Fix needs: (1) to_str trampoline for non-string elements, OR (2) per-function error isolation in JIT mode.
 
+- [ ] `[BUG-04-040][medium]` **LLVM JIT spec test runner: path-dependent compilation context causes spurious LCFails** — found by tpr-review.
+  Repro: `cp tests/spec/traits/iterator/join_str_only.ori /tmp/ && ori test --backend=llvm /tmp/join_str_only.ori` → 1 pass; `ori test --backend=llvm tests/spec/traits/iterator/join_str_only.ori` → 1 LCFail (unresolved type variables Idx(218)/Idx(219)). Same file, different result based on path. Files under `tests/spec/` get a different compilation context (possibly additional prelude imports or monomorphization work) that introduces unresolved type variables.
+  Subsystem: `compiler/oric/src/test/runner/llvm_backend.rs`
+  Found: 2026-04-06 | Source: tpr-review (TPR-06-006)
+
 ---
 
 ## 04.R Third Party Review Findings
