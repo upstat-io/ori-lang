@@ -42,6 +42,7 @@ Bugs in type inference, unification, trait resolution, method dispatch, generics
   The BUG-04-021 fix added `resolve_ffi_concrete()` in `well_known/mod.rs` which maps `c_int`/`c_long`/`c_size` → `Idx::INT` (i64) and `c_float`/`c_double` → `Idx::FLOAT` (f64). This is correct for ARC classification (scalars, no RC), but downstream `TypeInfoStore` calls `resolve_fully()` on Named types, making `c_int` appear as 64-bit int in layout and codegen. The C ABI spec (`docs/ori_lang/v2026/spec/26-ffi.md`) defines `c_int` as platform-dependent (typically 32-bit). Current tests only cover `Option<CPtr>` wrapper compilation, not actual `extern "c"` boundary calls where width matters. The resolution mechanism was designed for ARC classification, not layout — it needs a separate path for FFI width preservation.
   Subsystem: `compiler/ori_types/src/check/well_known/mod.rs`, `compiler/ori_llvm/src/codegen/type_info/store.rs`
   Found: 2026-04-02 | Source: tpr-review
+  Note: Investigated 2026-04-06 — bug is **latent**. The LLVM backend has no `extern "c"` function call codegen. `resolve_ffi_concrete()` is only consumed for ARC classification (correct: all C types are scalars). No code path currently emits C function calls through LLVM, so the width loss causes no observable incorrect behavior. Fix becomes meaningful when FFI codegen is added to the LLVM backend (requires `TypeInfoStore` or a new FFI type layer to map Named c_* types to correct LLVM types: i8/i16/i32/i64/float/double).
 
 ---
 
