@@ -22,7 +22,7 @@ sections:
     status: complete
   - id: "02.2"
     title: "Unescape function consolidation"
-    status: complete
+    status: in-progress
   - id: "02.3"
     title: "Integer cooking consolidation"
     status: complete
@@ -34,7 +34,7 @@ sections:
     status: in-progress
   - id: "02.N"
     title: "Completion Checklist"
-    status: not-started
+    status: in-progress
 ---
 
 # Section 02: Cooker Layer Algorithmic DRY
@@ -49,7 +49,7 @@ sections:
 - [x] Integer cooking: `numeric.rs` has 1 generic function with radix parameter (down from 3)
 - [x] Duration/size: `duration_size.rs` has 1 canonical cooking implementation; suffix detection kept separate (clearer than consolidation)
 - [x] All existing tests pass unchanged — these are pure refactors with zero behavioral change
-- [ ] Satisfies mission criteria for template, unescape, integer, and duration/size consolidation
+- [x] Satisfies mission criteria for template, unescape, integer, and duration/size consolidation
 
 **Context:** The cooker layer has four clusters of algorithmically-duplicated functions identified during the hygiene review. Each cluster shares a multi-step control-flow skeleton where only types, error kinds, or context values differ. If the protocol changes (e.g., new escape sequence, new numeric prefix), multiple functions must be updated in lockstep — a drift risk.
 
@@ -264,19 +264,19 @@ They differ in: suffix detector, unit type, validation method, `TokenKind` varia
 
 ## 02.N Completion Checklist
 
-- [ ] Template cooking: 4 functions → 1 generic + 4 call sites in `escape_cooking.rs`
-- [ ] Unescape: shared scanning core in `cook_escape/mod.rs`
-- [ ] Unescape invariants preserved: fast-path `None`, error spans, error contexts, unicode recovery, template brace behavior
-- [ ] Integer cooking: 3 functions → 1 generic in `numeric.rs`
-- [ ] Duration/size: cooking skeleton consolidated in `duration_size.rs`; suffix detection consolidated only if the resulting code is simpler
-- [ ] All existing tests pass unchanged (pure refactoring — zero behavioral change)
-- [ ] Unescape shared core has an obvious `\xHH` insertion point — verified by grep: exactly ONE match location handles escape dispatch in production code (not two separate functions). Adding `\\xHH` (roadmap 15C.13, grammar.ebnf lines 116-118) requires editing ONE match arm.
-- [ ] Redundant `b2` variable eliminated from template unescape path (WASTE finding from codebase audit)
-- [ ] `timeout 150 cargo test -p ori_lexer` green (debug)
-- [ ] `timeout 150 cargo test -p ori_lexer --release` green (release)
-- [ ] `timeout 150 ./test-all.sh` green — no regressions
-- [ ] No files exceed 500-line limit
-- [ ] Plan annotation cleanup: no stale annotations
+- [x] Template cooking: 4 functions → 1 generic + 4 call sites in `escape_cooking.rs`
+- [x] Unescape: shared scanning core in `cook_escape/mod.rs`
+- [x] Unescape invariants preserved: fast-path `None`, error spans, error contexts, unicode recovery, template brace behavior
+- [x] Integer cooking: 3 functions → 1 generic in `numeric.rs`
+- [x] Duration/size: cooking skeleton consolidated in `duration_size.rs`; suffix detection consolidated only if the resulting code is simpler
+- [x] All existing tests pass unchanged (pure refactoring — zero behavioral change)
+- [x] Unescape shared core has an obvious `\xHH` insertion point — verified by grep: exactly ONE match location handles escape dispatch in production code (not two separate functions). Adding `\\xHH` (roadmap 15C.13, grammar.ebnf lines 116-118) requires editing ONE match arm.
+- [x] Redundant `b2` variable eliminated from template unescape path (WASTE finding from codebase audit)
+- [x] `timeout 150 cargo test -p ori_lexer` green (debug) — 294 passed (2026-04-06)
+- [x] `timeout 150 cargo test -p ori_lexer --release` green (release) — 294 passed (2026-04-06)
+- [x] `timeout 150 ./test-all.sh` green — 14,783 passed, 0 failed (2026-04-06)
+- [x] No files exceed 500-line limit — max 429 lines (cook_escape/mod.rs)
+- [x] Plan annotation cleanup: no stale annotations
 - [ ] **Plan sync** — update plan metadata:
   - [ ] This section's frontmatter `status` → `complete`
   - [ ] `00-overview.md` Quick Reference table updated
