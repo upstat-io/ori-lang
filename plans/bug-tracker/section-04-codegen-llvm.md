@@ -27,13 +27,11 @@ Bugs in LLVM IR generation, JIT/AOT compilation, monomorphization, ARC pipeline 
   Found: 2026-04-03 | Source: continue-roadmap
   Note: Active work in JIT Exception Handling plan (Section 04) and repr-opt plan touch this area.
 
-- [ ] `[BUG-04-001][high]` **Cross-compilation to Windows fails: host linker used instead of cross-linker** — found by manual.
-  Repro: `ori build hello.ori --target=x86_64-pc-windows-msvc` on Linux host
-  Error: `R_AMD64_IMAGEBASE with __ImageBase undefined` — GNU ld receives Windows COFF object
-  Root cause: `LinkerFlavor::for_target()` correctly selects `Msvc`, but `LinkerDetection::is_available()` fails (no `link.exe`/`lld-link` on Linux), fallback cascades to host `cc`. Additionally, Linux-compiled `libori_rt.a` is linked with Linux system libraries (`-lgcc_s -lutil -lrt -lpthread -lm -ldl -lc`). Three issues: (1) no validation that cross-linker exists before attempting cross-compile, (2) no cross-compiled runtime for target, (3) system library selection ignores target OS.
-  Subsystem: `compiler/ori_llvm/src/aot/linker/driver.rs`, `mod.rs` (fallback logic), `gcc.rs` (system libs)
+- [x] `[BUG-04-001][high]` **Cross-compilation to Windows fails: host linker used instead of cross-linker** — found by manual.
+  Resolved: Fixed on 2026-04-06. Added cross-compilation-aware linker detection: `is_cross_compiling()` compares host vs target OS, `is_available_for_target()` checks for cross-compilers instead of host `cc`, `gcc_cross_compiler_name()` computes target-prefixed names (e.g., `x86_64-w64-mingw32-gcc`). `LinkerDriver::link()` now fails early with actionable error message listing required tools when no cross-linker is found, instead of silently falling back to host linker. `create_linker()` uses cross-compiler name for GCC when cross-compiling. Tests: 23 unit tests covering cross-compiler name resolution (6), cross-compilation detection (4), flavor selection (4), semantic pins (2, host cc rejected for Windows target), negative pins (4, error messages with actionable suggestions), native regression (1), link output extensions (2).
+  Subsystem: `compiler/ori_llvm/src/aot/linker/driver.rs`, `mod.rs`, `tests.rs`
   Found: 2026-03-28 | Source: manual
-  Note: Also applies to `--target=x86_64-pc-windows-gnu` (needs `x86_64-w64-mingw32-gcc`).
+  Note: Issue (2) — cross-compiled runtime — remains. Users must cross-compile `libori_rt.a` separately or the linker will fail at runtime lib discovery.
 
 - [x] `[BUG-04-003][high]` **Trait impl methods that access `self` struct fields produce LLVM verification errors in AOT** — found by continue-roadmap.
   Resolved: Fixed on 2026-04-02. Root cause: `declare_function_with_symbol` registered impl methods under their bare method name in the `functions` map, so when emitting a call like `int.to_str()` inside `Box$to_str`, the lookup found `Box$to_str` (which expects `%ori.Box`) instead of the correct `int$to_str`. Fix: added `declare_impl_method()` that registers only in `method_functions` (type-qualified key), not the bare `functions` map. Tests: AOT regression test `test_aot_trait_impl_field_access` + updated unit test. 14,967+ tests passing.
