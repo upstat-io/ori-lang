@@ -1,7 +1,7 @@
 ---
 section: "06"
 title: "Lexer/Parser DRY"
-status: in-progress
+status: complete
 reviewed: true
 goal: "Finish the remaining lexer/parser DRY work in raw operator scanning and parser identifier acceptance, while recording the cooking refactors already present in tree"
 success_criteria:
@@ -42,12 +42,12 @@ sections:
     status: complete
   - id: "06.N"
     title: "Completion Checklist"
-    status: in-progress
+    status: complete
 ---
 
 # Section 06: Lexer/Parser DRY
 
-**Status:** In Progress
+**Status:** Complete
 **Goal:** The cooking refactors are already present in the lexer. Remaining work is limited to the 6 `*=`, `+=`, `%=`-style raw-scanner helpers and the shared identifier/soft-keyword acceptance prefix in the parser.
 
 **Context:** This section drifted from the codebase. In the current tree:
@@ -261,8 +261,8 @@ The shared prefix across all three `expect_*` functions is: (1) check for `Ident
 - [x] `timeout 150 cargo test -p ori_parse` passes
 - [x] `timeout 150 ./test-all.sh` passes (0 failures; LLVM backend crash is BUG-04-030 pre-existing — test-all.sh exits 0)
 - [x] `./clippy-all.sh` clean
-- [ ] Update frontmatter `status: complete` in this file
-- [ ] Update `00-overview.md` Quick Reference table: Section 06 status -> Complete
-- [ ] Update `index.md`: Section 06 status -> Complete
-- [ ] `/tpr-review` covering Section 06
-- [ ] `/impl-hygiene-review last commit`
+- [x] Update frontmatter `status: complete` in this file
+- [x] Update `00-overview.md` Quick Reference table: Section 06 status -> Complete
+- [x] Update `index.md`: Section 06 status -> Complete
+- [x] `/tpr-review` covering Section 06 — clean on iteration 2 (3 findings fixed: TPR-06-001 acceptance tests, TPR-06-002 test-all claim, TPR-06-003 stale count)
+- [x] `/impl-hygiene-review last commit` — clean, 0 actionable findings
