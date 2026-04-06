@@ -344,9 +344,11 @@ pub(super) fn apply_call_site_types(
         }
     }
 
-    // Substitute return type only if it contains vars.
+    // Substitute return type if it contains vars or is a Scheme.
     let schema_ret = lambda.return_type;
-    if contains_var(pool, schema_ret) && !contains_var(pool, result_ty) {
+    let ret_is_generic = contains_var(pool, schema_ret)
+        || matches!(pool.tag(schema_ret), Tag::Scheme | Tag::Var | Tag::BoundVar);
+    if ret_is_generic && !contains_var(pool, result_ty) {
         idx_subst.insert(schema_ret, result_ty);
         lambda.return_type = result_ty;
     }
