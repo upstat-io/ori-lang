@@ -169,23 +169,41 @@ Type checker stores Unbound Vars that get `VarState::Generalized` during let-pol
 
 ## 06.3 ARC IR Index Bounds Safety (Root Cause B)
 
-**Complexity:** Moderate | **Impact:** ~50+ LCFails (many may be resolved by 06.2)
+**Complexity:** Moderate | **Impact:** ~50+ LCFails (many may cascade from Root Cause A)
 
-Pattern: `index out of bounds: the len is N but the index is 4294967295`. Missing var/block definitions in ARC lowering + unsafe direct array indexing in codegen at `emitter_utils.rs:219`.
+Pattern: `index out of bounds: the len is N but the index is 4294967295` (u32::MAX). The crash is in `emitter_utils.rs:223` — unsafe direct array indexing `self.block_map[b.index()]`. The LLVM spec test runner segfaults when this occurs because the u32::MAX cast to usize (18446744073709551615 on 64-bit) bypasses Rust's catch_unwind and panics inside LLVM C++ code.
 
-### Investigation & Fix
+**Prior art**: `ValueId::NONE` (`u32::MAX`) already has a comment at `emitter_utils.rs:189` noting it "causes panics in get_value() which cascade into LLVM C++ crashes that bypass catch_unwind."
 
-- [ ] After 06.2 is complete, re-count u32::MAX errors — if significantly reduced, remaining cases are the real Root Cause B
-- [ ] Add bounds checks to all `.index()` uses in `compiler/ori_llvm/src/codegen/arc_emitter/emitter_utils.rs`:
-  - Line 219: `block()` — direct array index, no bounds check → add `.get()` with error
-  - Review all 35+ `.index()` uses in arc_emitter for similar patterns
-- [ ] Add sentinel constants to `ori_arc/src/ir/mod.rs` for `ArcVarId` and `ArcBlockId`:
-  - `ArcVarId::INVALID` = u32::MAX sentinel
-  - Guard against sentinel in `def_var()`, `get_var()`, `block()`
-- [ ] Trace remaining u32::MAX errors to their lowering source:
-  - Which expressions/patterns cause lowering to skip `fresh_var()` calls?
-  - Add `debug_assert!(var.raw() != u32::MAX)` at key lowering points
-- [ ] Verify: `timeout 150 ./test-all.sh` green, LCFail count further reduced
+### Investigation
+
+- [ ] After 06.2 is complete, re-count u32::MAX errors — if significantly reduced, remaining cases are the real Root Cause B. Run: `ORI_LOG=ori_llvm=error timeout 60 cargo run --bin ori -- test --backend=llvm tests/spec/ 2>&1 | grep "index out of bounds" | wc -l`
+- [ ] Trace remaining u32::MAX errors to their lowering source. Key question: which expressions/patterns cause ARC lowering to skip `fresh_var()` calls? Every `fresh_var()` immediately registers in `var_types` (`ori_arc/src/lower/builder/mod.rs:131-136`), but the LLVM emitter requires a separate `def_var()` call (`emitter_utils.rs:197-203`) before the var can be used
+
+### Fix: Safe Indexing in `emitter_utils.rs`
+
+The `block()` function at `emitter_utils.rs:223` uses unsafe direct indexing: `self.block_map[b.index()]`. Compare with `var_emitted()` at line 183 which correctly uses `self.var_map.get(v.index())` with error fallback.
+
+- [ ] Write failing test BEFORE fix: AOT test that triggers u32::MAX index (e.g., a file pattern that produces missing block definitions)
+- [ ] Fix `block()` at `emitter_utils.rs:223`: replace `self.block_map[b.index()]` with safe `.get()` + error fallback (same pattern as `var_emitted()` at line 183). Return a poison block instead of panicking — log error and set `record_codegen_error()` so the file gets LCFail'd instead of crashing
+- [ ] Review all other `.index()` uses in `compiler/ori_llvm/src/codegen/arc_emitter/` for same pattern. Key files: `emit_function.rs` (block_map init at lines 84-98), `terminators.rs`, `instr_dispatch.rs`
+
+### Fix: Sentinel Constants for `ArcVarId`/`ArcBlockId`
+
+Currently `ArcVarId` and `ArcBlockId` (`ori_arc/src/ir/mod.rs:63,92`) have NO sentinel values — `u32::MAX` is indistinguishable from a valid index.
+
+- [ ] Add `ArcVarId::INVALID` and `ArcBlockId::INVALID` sentinel constants (value `u32::MAX`)
+- [ ] Add `is_valid()` method returning `self.0 != u32::MAX`
+- [ ] Add `debug_assert!(var.is_valid())` in `def_var()`, `var()`, `var_emitted()` at `emitter_utils.rs`
+- [ ] Add `debug_assert!(block.is_valid())` in `block()` at `emitter_utils.rs`
+- [ ] Guard `fresh_var()` at `ori_arc/src/lower/builder/mod.rs:131`: `debug_assert!(self.next_var < u32::MAX, "ARC var ID overflow")`
+
+### Verification
+
+- [ ] `timeout 150 ./test-all.sh` green — no more segfaults from u32::MAX indexing
+- [ ] LLVM spec tests no longer crash (downgraded from CRASH to LCFail at worst)
+- [ ] Debug AND release produce same results
+- [ ] `./clippy-all.sh` clean
 
 ---
 
@@ -193,19 +211,31 @@ Pattern: `index out of bounds: the len is N but the index is 4294967295`. Missin
 
 **Complexity:** Moderate | **Impact:** Multi-function file LCFails (files with 2+ polymorphic lambdas)
 
-`find_concrete_copy_of()` (`lambda_mono/type_resolve.rs:359-383`) returns the FIRST concrete Function type without checking arity or parameter types. In multi-function files with different polymorphic instantiations, the wrong type is selected.
+`find_concrete_copy_of()` at `type_resolve.rs:602-626` returns the FIRST concrete Function type without checking arity, parameter types, or return type compatibility. In multi-function files with different polymorphic instantiations, the wrong type is selected.
+
+The equally-blind `find_any_concrete_fn_type()` at `type_resolve.rs:591-599` scans ALL `var_types` and returns the first concrete function — it can match a completely unrelated function type from a different lambda in the same parent.
+
+Compare: `apply_concrete_param_types()` at `type_resolve.rs:180-204` correctly validates arity (`num_captures` at line 189) and type compatibility (line 199). The fix should bring `find_concrete_copy_of` to the same standard.
 
 ### Fix
 
-- [ ] Write failing test: multi-function file with 2+ polymorphic lambdas at different types, compiled via `--backend=llvm`
-- [ ] Fix `find_concrete_copy_of()` in `type_resolve.rs`:
-  - Accept the target lambda's expected arity as parameter
-  - Before returning a match, verify: `pool.function_params(resolved).len() == expected_arity`
-  - If arity doesn't match, continue searching
-  - Add type structure matching if arity alone is insufficient
-- [ ] Follow the pattern from `find_partial_apply_concrete_type()` (same file, lines 62-119) which already does multi-step search with fallbacks
-- [ ] Verify: multi-function files that previously LCFailed now compile
+- [ ] Write failing test BEFORE fix: multi-function file with 2+ polymorphic lambdas at different arities/types. E.g., `let f = x -> x; let g = (a, b) -> a + b; f("hello"); g(1, 2)` compiled via `--backend=llvm`
+- [ ] Fix `find_concrete_copy_of()` at `type_resolve.rs:602-626`:
+  - Accept the target lambda as parameter (for arity information)
+  - Before returning a match at line 619, verify: `pool.function_params(resolved).len()` matches the lambda's expected non-capture param count
+  - If arity doesn't match, continue searching (don't return first match)
+- [ ] Fix `find_any_concrete_fn_type()` at `type_resolve.rs:591-599`:
+  - Same arity validation — accept lambda as parameter, check param count
+  - Consider removing this function entirely if `find_concrete_copy_of` with arity checking covers all cases
+- [ ] Update call site at `find_partial_apply_concrete_type()` (lines 99-103) to pass lambda reference
 - [ ] `timeout 150 ./test-all.sh` green
+- [ ] Verify: multi-function files that previously LCFailed now compile correctly
+
+### Matrix Testing
+
+- Types: (int)->int, (int,str)->int, (str)->str, ()->int (different arities)
+- Patterns: 2 lambdas same arity different types, 2 lambdas different arities, 3+ lambdas in same file
+- Semantic pin: multi-function file where each lambda produces correct results via LLVM
 
 ---
 
@@ -213,78 +243,115 @@ Pattern: `index out of bounds: the len is N but the index is 4294967295`. Missin
 
 **Complexity:** Moderate | **Impact:** Segfault fix for `app([1,2,3])([4,5,6])`
 
-Monomorphized lambda with list `+` dispatch produces invalid calling convention for `ori_list_concat_cow`. Depends on 06.4 (correct type selection).
+Monomorphized lambda with list `+` dispatch produces invalid calling convention for `ori_list_concat_cow`. The `elem_ty` is extracted from `TypeInfo::List` at `operators/mod.rs:46` — if type info is wrong (from Root Cause E), `elem_ty` is wrong. Depends on 06.4 being fixed first.
+
+**Runtime signature** (`runtime_functions.rs:339-357`): `ori_list_concat_cow` takes 11 params (data1, len1, cap1, data2, len2, cap2, elem_size, elem_align, inc_fn, cow_mode, out_ptr) and returns void (uses sret via `out_ptr`).
+
+**Emission** at `list_cow.rs:235-274`: `emit_list_concat_cow()` extracts list fields, computes elem size/align, generates elem_inc function, allocates output struct, and calls runtime with 11 arguments.
 
 ### Fix
 
-- [ ] Write failing test: `let $app = a -> b -> a + b; app([1, 2, 3])([4, 5, 6])` via `--backend=llvm` (both debug and release)
-- [ ] After 06.4, verify if the test passes — the segfault may be caused by wrong type selection (E), not by F itself
-- [ ] If still failing: audit `emit_list_concat_cow()` in `list_cow.rs:235-274`:
-  - Check `elem_ty` is correctly resolved for the monomorphized lambda
-  - Check sret calling convention matches between caller and callee
-  - Check argument count and types match `ori_list_concat_cow` runtime function signature
+- [ ] Write failing test BEFORE fix: `let $app = a -> b -> a + b; app([1, 2, 3])([4, 5, 6])` via `--backend=llvm` (debug and release)
+- [ ] After 06.4, verify if the test passes — the segfault may be from wrong type selection (E) causing wrong `elem_ty` at `operators/mod.rs:46`
+- [ ] If still failing: audit `emit_list_concat_cow()` at `list_cow.rs:235-274`:
+  - Verify `elem_ty` is correctly resolved for the monomorphized lambda
+  - Verify sret convention: `out_ptr` argument order matches `runtime_functions.rs:339-357` declaration
+  - Verify `elem_size_and_align()` returns correct values for the concrete element type
+  - Verify `get_or_generate_elem_inc_fn()` generates correct inc function for the element type
 - [ ] Verify: no SIGSEGV in debug or release
 - [ ] `ORI_CHECK_LEAKS=1` clean on list concat lambda tests
+- [ ] `timeout 150 ./test-all.sh` green
 
 ---
 
 ## 06.6 Short-Circuit Codegen Fixes (BUG-04-031/032)
 
-**Complexity:** Moderate | **Impact:** Unblocks `operators_logical.ori` (39 tests) and dual-exec parity
+**Complexity:** Moderate-Complex | **Impact:** Unblocks `operators_logical.ori` (39 tests) and dual-exec parity
 
-Two related bugs in short-circuit `&&`/`||` LLVM codegen:
-- **BUG-04-031**: PHINode with Option method calls — `is_some(opt:) && opt.unwrap_or(default: 0) > 0` causes "PHINode should have one entry for each predecessor"
-- **BUG-04-032**: Side-effect propagation — `{order = order + [1]; true} && {order = order + [2]; true}` produces `[1]` instead of `[1, 2]`
+Two distinct bugs in short-circuit `&&`/`||` lowering at `ori_arc/src/lower/expr/short_circuit.rs`.
 
-### Investigation
+### BUG-04-031: PHINode Predecessor Mismatch
 
-- [ ] Read `compiler/ori_arc/src/lower/expr/short_circuit.rs` — understand the lowering of `&&`/`||` to branch-based ARC IR
-- [ ] Read `compiler/ori_llvm/src/codegen/arc_emitter/terminators.rs` — understand how branches emit PHI nodes
-- [ ] Trace the PHINode error: which function's CFG has missing predecessor entries?
-- [ ] Trace the side-effect bug: where is the variable store/load across basic blocks lost?
+**Root cause**: In `lower_short_circuit_and()` at `short_circuit.rs:135-180`, `lower_expr(right)` at line 154 may emit `InvokeIndirect` (for method calls like `opt.unwrap_or()`). This creates extra basic blocks (normal continuation + unwind) that aren't accounted for. After the invoke, `then_exit = self.builder.current_block()` (line 155) points to the normal-continuation block, NOT the original `then_block` from line 152. When jumping to `merge_block` from this unexpected predecessor, LLVM's PHI node validation fails.
 
-### BUG-04-031 Fix (PHINode)
+**Compare**: `lower_coalesce()` at lines 29-129 in the same file handles this correctly because it uses `terminate_jump` which properly patches PHI incoming edges.
 
-- [ ] Write failing test: `let opt = Some(42); is_some(opt:) && opt.unwrap_or(default: 0) > 0` via `--backend=llvm`
-- [ ] Fix: ensure all basic blocks that branch into the merge point have corresponding PHI entries
-  - The issue is likely that method calls on `Option` in the RHS branch create additional basic blocks (for invoke/landingpad) that aren't accounted for in the merge PHI
-- [ ] Verify: `operators_logical.ori` compiles via `--backend=llvm` (no longer all-LCFail)
+- [ ] Write failing test BEFORE fix: `let opt = Some(42); is_some(opt:) && opt.unwrap_or(default: 0) > 0` — existing test at `operators_logical.ori:370-380` (`@test_guard_pattern`)
+- [ ] Fix `lower_short_circuit_and()` at `short_circuit.rs:135-180`:
+  - The fix is in the ARC lowering, not the LLVM emitter. After `lower_expr(right)` at line 154, record `then_exit = self.builder.current_block()` — this is ALREADY done. The real issue is that the block structure created by `lower_expr(right)` introduces InvokeIndirect terminators that create new blocks. The `then_exit` correctly captures the final block, but the PHI node at `merge_block` expects exactly 2 predecessors (then_exit, else_exit) which works. Investigate if the issue is instead in `emit_function.rs:208-236` (PHI creation) where the pre-created block structure doesn't match the post-lowering structure.
+  - Alternative fix: if the RHS contains invokes, ensure the ARC IR's Jump to merge_block is from the correct block (the last block created by the RHS, not the original then_block)
+- [ ] Fix `lower_short_circuit_or()` — apply same fix symmetrically
+- [ ] Verify: `operators_logical.ori` compiles via `--backend=llvm` (no more PHINode errors)
 
-### BUG-04-032 Fix (Side-effects)
+### BUG-04-032: Missing Mutable Variable Merge
 
-- [ ] Write failing test: block expressions with variable mutations in `&&`/`||` branches
-- [ ] Fix: ensure variable stores in the evaluated branch are visible after the merge point
-  - The issue is likely that short-circuit codegen creates a separate scope for the RHS block, and mutations don't propagate back to the outer scope
-  - May need to use the same variable slots across both branches (not copies)
+**Root cause**: `lower_short_circuit_and()` at `short_circuit.rs:135-180` does NOT call `merge_mutable_vars()` after branching. Compare with `lower_coalesce()` at lines 96-124 which correctly calls `merge_mutable_vars()` to propagate variable mutations from branch scopes to the merge block.
+
+At line 178, `self.scope = pre_scope` reverts to the pre-branch scope, losing any mutations from the RHS block. The fix is to call `merge_mutable_vars()` (defined at `scope/mod.rs:88-124`) before the merge block, passing `[then_scope, else_scope]` as branch scopes.
+
+- [ ] Write failing test BEFORE fix: `let order: [int] = []; {order = order + [1]; true} && {order = order + [2]; true}; assert_eq(actual: order, expected: [1, 2])` — existing test at `operators_logical.ori:296-305` (`@test_and_left_first`)
+- [ ] Fix `lower_short_circuit_and()`:
+  - After `lower_expr(right)` at line 154, capture the then-branch scope: `let then_scope = self.scope.clone();`
+  - After the else block (line 163), capture: `let else_scope = self.scope.clone();`
+  - Before merge block positioning (line 177), call:
+    ```
+    let rebindings = merge_mutable_vars(
+        self.builder, merge_block, &pre_scope,
+        &[then_scope, else_scope], &mutable_var_types,
+    );
+    ```
+  - Update `terminate_jump` calls (lines 172, 175) to include mutable var values in args
+  - After positioning at merge_block, rebind mutable vars in scope (same pattern as `lower_coalesce` lines 105-124)
+- [ ] Fix `lower_short_circuit_or()` — apply same fix symmetrically
 - [ ] Verify: `assert_eq(actual: order, expected: [1, 2])` passes via `--backend=llvm`
-- [ ] Dual-execution parity: `dual-exec-verify.sh tests/spec/expressions/operators_logical.ori` — 0 mismatches
 
 ### Matrix Testing
 
-- Short-circuit with: panic (already works), constants (already works), Option methods (031), block expressions (032), nested `&&`/`||`, closures in branches
+- Short-circuit with: constants, Option methods (031), block expressions with mutations (032), nested `&&`/`||`, closures in branches, `break`/`continue` in branches
 - Semantic pin: `operators_logical.ori` passes all 39 tests via `--backend=llvm`
+- Negative pin: `false && panic(msg: "unreachable")` — RHS must NOT execute
+- Dual-exec parity: `diagnostics/dual-exec-verify.sh tests/spec/expressions/operators_logical.ori` — 0 mismatches
+- `ORI_CHECK_LEAKS=1` clean on all short-circuit test programs
 
 ---
 
 ## 06.7 Multi-Clause Function Lowering (BUG-04-033)
 
-**Complexity:** Moderate | **Impact:** Files with multi-clause functions (Ackermann pattern)
+**Complexity:** Complex | **Impact:** Files with multi-clause functions (Ackermann pattern)
 
 Two errors in multi-clause function LLVM emission:
-1. `build_struct called with non-struct LLVM type (i64)` — clause dispatch treats int return as struct
+1. `build_struct called with non-struct LLVM type (i64)` at `ir_builder/aggregates.rs:184-185` — clause dispatch tries to construct a struct for a scalar result
 2. PHINode predecessor mismatch from clause branches
+
+**Root cause**: `lower_multi_clause()` at `ori_canon/src/lower/patterns.rs:117-200` compiles multi-clause functions to `CanExpr::Match` with a decision tree. Line 122 uses `ty = self.expr_type(clauses[0].body)` — type from first clause only. Lines 134, 141 use `TypeId::ERROR` for the scrutinee — synthetic nodes with error type that break LLVM codegen. Comment at lines 130-132 explicitly states: "Types use ERROR because these are synthetic nodes — the evaluator dispatches on values, not types. Codegen (LLVM) would need real types, but multi-clause functions aren't supported there yet."
+
+The decision tree emission (`ori_arc/src/decision_tree/emit.rs:90-145`) creates multiple clause blocks via `EmitContext` (lines 25-48). Each arm may create different block structures — arms with recursive calls emit InvokeIndirect (extra blocks), while base cases don't. This causes PHI predecessor mismatches at the merge point.
 
 ### Fix
 
-- [ ] Write failing test: Ackermann function with 3 clauses + literal patterns, compiled via `--backend=llvm`
-- [ ] Read `compiler/ori_canon/` — verify multi-clause lowering to match tree is correct (it is per BUG-04-033 description)
-- [ ] Trace the LLVM emission path for the lowered match tree:
-  - Where does `build_struct` get called with an i64 type?
-  - Where do the clause branches fail to generate PHI entries?
-- [ ] Fix the emission: ensure clause dispatch correctly handles scalar return types (don't wrap i64 in struct)
-- [ ] Fix PHI generation: ensure all clause branches have entries in the join PHI node
-- [ ] Verify: Ackermann and similar multi-clause functions compile and run correctly via `--backend=llvm`
+- [ ] Write failing test BEFORE fix: Ackermann function with 3+ clauses via `--backend=llvm`:
+  ```
+  @ack (0: int, n: int) -> int = n + 1
+  @ack (m, 0: int) -> int = ack(m - 1, 1)
+  @ack (m, n) = ack(m - 1, ack(m, n - 1))
+  ```
+- [ ] Fix `lower_multi_clause()` at `ori_canon/src/lower/patterns.rs:117-200`:
+  - Line 122: use union of all clause return types (not just first clause)
+  - Lines 134, 141: compute real scrutinee types from parameter types (not `TypeId::ERROR`)
+  - This requires threading type information from the function signature into the canonical lowering
+- [ ] Fix decision tree emission PHI: ensure all clause arms create compatible block structures. When an arm contains InvokeIndirect (recursive call), the emitted blocks must correctly jump to the merge block
+- [ ] Fix `build_struct` type mismatch: at the merge point, if result is scalar (int), don't wrap in struct. Check `resolve_type()` result before calling `build_struct`
+- [ ] Verify: Ackermann and fibonacci multi-clause functions compile and run correctly via `--backend=llvm`
 - [ ] Debug AND release produce identical results
+- [ ] `timeout 150 ./test-all.sh` green
+
+### Matrix Testing
+
+- Clause counts: 2 clauses, 3 clauses, 4+ clauses
+- Return types: int (scalar), str (struct), [int] (RC), Option<int> (enum)
+- Patterns: literal patterns, variable patterns, guard patterns, nested patterns
+- Semantic pin: `ack(2, 3)` returns 9 via LLVM
+- Negative pin: non-exhaustive clauses produce compile error (not codegen crash)
 
 ---
 
@@ -292,23 +359,37 @@ Two errors in multi-clause function LLVM emission:
 
 **Complexity:** Complex | **Impact:** 4+ files with StructValue/IntValue confusion
 
-Systemic issue: LLVM emitter produces struct value where int value is expected (or vice versa). Requires auditing the ABI computation and type resolution pipeline.
+Systemic issue: LLVM emitter produces struct value where int value is expected (or vice versa). The root cause is in `abi_size_inner()` at `abi/mod.rs:177-203` which sums field sizes WITHOUT alignment padding. A struct `{ byte, int, byte }` computes as 10 bytes but LLVM lays it out as 24 bytes (1+7 padding + 8 + 1+7 padding). This can misclassify as `Direct` (≤16 bytes) when `Indirect` (>16 bytes) is needed. A FIXME comment already exists at lines 198-203 documenting this.
 
-### Audit
+The 16-byte threshold is at `compute_param_passing()` (`abi/mod.rs:272-290`): `if size <= 16 { Direct } else { Indirect }`.
 
-- [ ] Read `compiler/ori_llvm/src/codegen/abi/mod.rs` — understand `ParamPassing::Direct` vs `ParamPassing::Indirect` classification
-- [ ] Identify all call sites where `build_struct` is called and verify the LLVM type is actually a struct type
-- [ ] Identify all call sites where `build_int_to_ptr` or scalar loads are performed and verify the source is actually scalar
-- [ ] Add validation at function declaration time: verify LLVM type matches ABI classification
-  - `ParamPassing::Direct` → must be scalar or small struct (<= 16 bytes)
-  - `ParamPassing::Indirect` → must be struct > 16 bytes
-- [ ] Fix any misclassifications found
+**Crash chain**: Unresolved type variable → `TypeInfoStore` returns error type → `abi_size` returns 0 or wrong size → `Direct` instead of `Indirect` → caller passes value in register → callee expects pointer → `extract_value` on IntValue → crash at `aggregates.rs:184-185`.
+
+### Investigation
+
+- [ ] Quantify: how many of the remaining LCFails are from ABI misclassification vs unresolved types? Run: filter codegen errors for "non-struct" messages
+- [ ] Read `TypeInfoStore` at `type_info/store.rs:1-66` — understand how `type_error_count` (line 65) tracks unresolved types. Does codegen bail early enough when type errors exist?
+
+### Fix: Alignment-Aware ABI Size
+
+- [ ] Fix `abi_size_inner()` at `abi/mod.rs:177-203`: include alignment padding in size computation
+  - For struct types, compute LLVM-compatible layout: each field starts at alignment boundary
+  - Use `TypeInfo::alignment()` to get field alignment
+  - Compare result with LLVM's `DataLayout::getTypeAllocSize()` for validation
+- [ ] Add `debug_assert!` comparing our `abi_size()` with LLVM's actual type size during function declaration (catches drift)
+
+### Fix: Early Bail on Unresolved Types
+
+- [ ] In `emit_function()` at `emit_function.rs`, check `type_error_count > 0` before proceeding to codegen. If type errors exist, skip the function entirely (LCFail is better than crash)
+- [ ] Add validation at `build_struct` call sites — verify the LLVM type is actually `StructType` before calling (defensive, already partially done at `aggregates.rs:184`)
 
 ### Testing
 
-- [ ] Write AOT tests for types that trigger ABI edge cases: empty struct, single-field struct, 16-byte struct (boundary), 17-byte struct, nested structs
+- [ ] Write AOT tests for ABI edge cases: empty struct, single-field struct, `{ byte, int }` (12 bytes → Direct), `{ int, int, byte }` (17 bytes → Indirect), nested structs
+- [ ] Write AOT test for unresolved type bail: function with intentionally unresolved types should LCFail cleanly (no crash)
 - [ ] Verify: all ABI-sensitive tests pass in debug AND release
-- [ ] `timeout 150 ./test-all.sh` green
+- [ ] `timeout 150 ./test-all.sh` green — no segfaults from ABI misclassification
+- [ ] `./clippy-all.sh` clean
 
 ---
 
