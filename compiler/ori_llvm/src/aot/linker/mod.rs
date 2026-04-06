@@ -452,7 +452,11 @@ impl LinkerDetection {
         self.available.first().copied()
     }
 
-    /// Check if we're cross-compiling (target OS differs from host OS).
+    /// Check if we're cross-compiling (target OS or arch differs from host).
+    ///
+    /// Cross-compilation includes both different-OS targets (Linux→Windows)
+    /// and same-OS different-arch targets (`x86_64` Linux → `aarch64` Linux).
+    /// Both cases require a cross-compiler toolchain.
     #[must_use]
     pub fn is_cross_compiling(target: &TargetConfig) -> bool {
         #[cfg(target_os = "linux")]
@@ -464,8 +468,22 @@ impl LinkerDetection {
         #[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
         let host_os = "unknown";
 
-        let target_os = &target.components().os;
-        // Handle darwin version suffixes (e.g., "darwin25.2.0")
+        #[cfg(target_arch = "x86_64")]
+        let host_arch = "x86_64";
+        #[cfg(target_arch = "aarch64")]
+        let host_arch = "aarch64";
+        #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
+        let host_arch = "unknown";
+
+        let components = target.components();
+
+        // Check architecture mismatch first
+        if components.arch != host_arch {
+            return true;
+        }
+
+        // Check OS mismatch (handle darwin version suffixes like "darwin25.2.0")
+        let target_os = &components.os;
         if target_os.starts_with("darwin") {
             return host_os != "darwin";
         }
