@@ -493,8 +493,10 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
     /// Emit `join(separator)` — join iterator elements into a string.
     ///
-    /// Passes null as `to_str_fn` — elements are expected to be strings.
-    /// The runtime handles the join loop and separator insertion.
+    /// Currently only supports string-element iterators (`to_str_fn` = null).
+    /// Non-string elements need a `to_str` trampoline (tracked as BUG-04-039).
+    /// Until the trampoline is implemented, non-string join records a codegen
+    /// error to produce a clean `LCFail` instead of a `SIGSEGV` crash.
     pub(in crate::codegen) fn emit_iter_join(
         &mut self,
         iter_ptr: ValueId,
@@ -504,6 +506,20 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         if arg_vals.len() < 2 {
             return None;
         }
+
+        // Bail on non-string element types: passing null to_str_fn to the
+        // runtime with non-string elements reads 24 bytes from an 8-byte int
+        // value, causing SIGSEGV. Until BUG-04-039 (to_str trampoline) is
+        // fixed, produce a clean LCFail instead of a process-killing crash.
+        let resolved_elem = self.pool.resolve_fully(elem_ty);
+        if self.pool.tag(resolved_elem) != ori_types::Tag::Str {
+            self.builder.record_codegen_error_with_msg(
+                "iter_join on non-string elements not yet supported in LLVM (BUG-04-039)"
+                    .to_string(),
+            );
+            return None;
+        }
+
         let separator = arg_vals[1];
 
         // Separator is an OriStr (24-byte union: heap or SSO).
