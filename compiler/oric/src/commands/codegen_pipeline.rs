@@ -260,7 +260,7 @@ pub(super) fn run_codegen_pipeline<'ctx>(
     // boundary.
     let scx = ManuallyDrop::new(SimpleCx::new(context, module_name));
 
-    {
+    let (codegen_errors, codegen_descriptions) = {
         // SAFETY: Detached reference to scx — see comment above.
         let scx_ref: &SimpleCx<'_> = unsafe { &*std::ptr::from_ref(&*scx) };
 
@@ -454,6 +454,25 @@ pub(super) fn run_codegen_pipeline<'ctx>(
                 break;
             }
         }
+
+        // Extract soft codegen error info before builder goes out of scope.
+        // The JIT path checks this in evaluator/compile.rs:383; the AOT path
+        // must also check to avoid producing crashing binaries (BUG-04-041).
+        (
+            builder.codegen_error_count() + store.type_error_count(),
+            builder.codegen_error_descriptions(),
+        )
+    };
+
+    if codegen_errors > 0 {
+        let details = if codegen_descriptions.is_empty() {
+            String::new()
+        } else {
+            format!(":\n  - {}", codegen_descriptions.join("\n  - "))
+        };
+        return Err(format!(
+            "LLVM codegen had {codegen_errors} type-mismatch error(s) — aborting AOT compilation{details}",
+        ));
     }
 
     // Phase dump: annotated LLVM IR (gated behind ORI_DUMP_AFTER_LLVM=1 or
