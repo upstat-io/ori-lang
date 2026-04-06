@@ -28,7 +28,20 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
     ) -> Vec<PreparedFunction> {
         let mut prepared = Vec::new();
 
-        for (func, sig) in module_functions.iter().zip(function_sigs.iter()) {
+        // Build name→sig lookup to avoid positional misalignment between
+        // module_functions (source order, multi-clause duplicates) and
+        // function_sigs (sorted by Name, deduped).
+        let sig_map: rustc_hash::FxHashMap<Name, &FunctionSig> =
+            function_sigs.iter().map(|s| (s.name, s)).collect();
+
+        let mut seen = rustc_hash::FxHashSet::default();
+        for func in module_functions {
+            if !seen.insert(func.name) {
+                continue;
+            }
+            let Some(sig) = sig_map.get(&func.name) else {
+                continue;
+            };
             if sig.is_generic() {
                 continue;
             }
