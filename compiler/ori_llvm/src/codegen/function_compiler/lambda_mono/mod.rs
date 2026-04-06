@@ -9,6 +9,9 @@
 mod type_predicates;
 mod type_resolve;
 
+#[cfg(test)]
+mod tests;
+
 use ori_ir::Name;
 use ori_types::{Idx, Tag};
 use type_predicates::{contains_var, has_concrete_params};
@@ -32,6 +35,7 @@ pub(super) fn resolve_all_lambda_bound_vars(
     lambdas: &mut Vec<ori_arc::ArcFunction>,
     pool: &ori_types::Pool,
     interner: &ori_ir::StringInterner,
+    classifier: &dyn ori_arc::ArcClassification,
 ) {
     // Check if ANY lambda has polymorphic types or multi-instantiation.
     let any_polymorphic = lambdas.iter().any(|l| is_polymorphic_lambda(l, pool));
@@ -118,6 +122,11 @@ pub(super) fn resolve_all_lambda_bound_vars(
     }
 
     remove_multi_inst_originals(lambdas, multi_inst_lambdas);
+
+    // Recompute parent var_reprs and fix RC ops after type fixups.
+    // fixup_call_result_types may have changed var_types (e.g., Var→int),
+    // making existing RcInc/RcDec ops invalid (wrong strategy or RC on Scalar).
+    fixup_parent_var_reprs_and_rc_ops(parent, classifier, pool);
 }
 
 /// Phase 1: Detect multi-instantiation and handle it by cloning lambdas.
@@ -241,6 +250,109 @@ fn remove_multi_inst_originals(
     to_remove.sort_unstable_by(|a, b| b.cmp(a));
     for idx in to_remove {
         lambdas.remove(idx);
+    }
+}
+
+/// Recompute `var_reprs` and fix stale RC operations after type fixups.
+///
+/// After `fixup_call_result_types` changes `parent.var_types` (e.g., from
+/// unresolved `Var` to concrete `int`), the existing `var_reprs` and RC
+/// instruction strategies become stale:
+/// - A var that was `RcPointer` (from unresolved `Var`) may now be `Scalar`
+///   → its `RcInc`/`RcDec` must be removed (RC on scalar = crash)
+/// - A var that was `RcPointer` may now be `FatValue` or `Aggregate`
+///   → its RC strategy must be updated to match the new repr
+fn fixup_parent_var_reprs_and_rc_ops(
+    parent: &mut ori_arc::ArcFunction,
+    classifier: &dyn ori_arc::ArcClassification,
+    pool: &ori_types::Pool,
+) {
+    if parent.var_reprs.is_empty() {
+        // var_reprs not yet computed (pre-pipeline) — nothing to fix.
+        return;
+    }
+
+    let old_reprs = parent.var_reprs.clone();
+    let new_reprs = ori_arc::compute_var_reprs(parent, classifier, pool);
+
+    // Check if anything actually changed.
+    if old_reprs == new_reprs {
+        parent.var_reprs = new_reprs;
+        return;
+    }
+
+    // Build set of vars whose repr changed.
+    let changed_to_scalar: rustc_hash::FxHashSet<ori_arc::ir::ArcVarId> = old_reprs
+        .iter()
+        .zip(new_reprs.iter())
+        .enumerate()
+        .filter(|(_, (old, new))| *old != *new && **new == ori_arc::ir::ValueRepr::Scalar)
+        .map(|(i, _)| ori_arc::ir::ArcVarId::new(i as u32))
+        .collect();
+
+    let changed_repr: rustc_hash::FxHashMap<ori_arc::ir::ArcVarId, ori_arc::ir::ValueRepr> =
+        old_reprs
+            .iter()
+            .zip(new_reprs.iter())
+            .enumerate()
+            .filter(|(_, (old, new))| *old != *new && **new != ori_arc::ir::ValueRepr::Scalar)
+            .map(|(i, (_, new))| (ori_arc::ir::ArcVarId::new(i as u32), *new))
+            .collect();
+
+    if !changed_to_scalar.is_empty() || !changed_repr.is_empty() {
+        tracing::debug!(
+            scalars = changed_to_scalar.len(),
+            repr_changes = changed_repr.len(),
+            "fixup_parent_var_reprs_and_rc_ops: fixing stale RC ops"
+        );
+    }
+
+    // Walk all blocks and fix RC instructions.
+    for block in &mut parent.blocks {
+        block.body.retain_mut(|instr| match instr {
+            // Remove RcInc/RcDec on vars that became Scalar.
+            ori_arc::ir::ArcInstr::RcInc { var, .. } | ori_arc::ir::ArcInstr::RcDec { var, .. }
+                if changed_to_scalar.contains(var) =>
+            {
+                tracing::trace!(var = var.raw(), "removing RC op on var that became Scalar");
+                false
+            }
+            // Update strategy on vars whose repr changed between ref types.
+            ori_arc::ir::ArcInstr::RcInc { var, strategy, .. }
+                if changed_repr.contains_key(var) =>
+            {
+                let new_repr = changed_repr[var];
+                let var_ty = parent.var_types[var.index()];
+                *strategy = ori_arc::ir::RcStrategy::from_var(new_repr, pool, var_ty);
+                true
+            }
+            ori_arc::ir::ArcInstr::RcDec { var, strategy } if changed_repr.contains_key(var) => {
+                let new_repr = changed_repr[var];
+                let var_ty = parent.var_types[var.index()];
+                *strategy = ori_arc::ir::RcStrategy::from_var(new_repr, pool, var_ty);
+                true
+            }
+            _ => true,
+        });
+    }
+
+    parent.var_reprs = new_reprs;
+
+    // Debug assertion: no RC ops should target Scalar vars after fixup.
+    #[cfg(debug_assertions)]
+    for block in &parent.blocks {
+        for instr in &block.body {
+            if let ori_arc::ir::ArcInstr::RcInc { var, strategy, .. }
+            | ori_arc::ir::ArcInstr::RcDec { var, strategy, .. } = instr
+            {
+                let repr = parent.var_reprs[var.index()];
+                debug_assert!(
+                    repr != ori_arc::ir::ValueRepr::Scalar,
+                    "RC op on Scalar var v{} after fixup (strategy={strategy:?})",
+                    var.raw(),
+                );
+            }
+        }
     }
 }
 
