@@ -22,7 +22,7 @@ sections:
     status: complete
   - id: "02.2"
     title: "Unescape function consolidation"
-    status: not-started
+    status: complete
   - id: "02.3"
     title: "Integer cooking consolidation"
     status: complete
@@ -136,56 +136,21 @@ They differ in:
 
 **Approach:** Extract the shared scanning loop into a helper parameterized by a context policy, but do NOT collapse the real context differences into an underspecified "one big match" without naming the invariants that must survive the refactor.
 
-- [ ] **Baseline**: `timeout 150 cargo test -p ori_lexer` green before any changes
-- [ ] Define a context policy (`enum`, zero-sized type, or small trait) that explicitly covers:
-  - fast-path predicate (string: `contains('\\')`, template: backslash OR adjacent braces)
-  - context-specific simple escape (`\"` for string, `` \` `` for template)
-  - context-specific error escape (`\'` for string — pushes char despite error; absent for template)
-  - brace-pair handling (`{{` / `}}`, template only — strings have NO brace collapsing)
-  - invalid-escape factory (`invalid_string_escape` vs `invalid_template_escape`)
-  - `LexErrorContext` construction (`InsideString { start }` vs `InsideTemplate { start, nesting: 0 }`)
-  - an obvious insertion point for `\\xHH` hex byte escapes — spec-defined (07-lexical-elements.md line 292, grammar.ebnf lines 116-118), tracked in roadmap section-15C.13; char/byte contexts also need `\\xHH`
-
-- [ ] Avoid over-generic closure soup in the inner loop. The refactor should reduce drift, not spread the policy across 5 independent callbacks that are harder to audit than the duplication.
-
-- [ ] Define an escape context enum or use a small policy object:
-  ```rust
-  enum EscapeContext { String, Template }
-  ```
-
-- [ ] Extract `unescape_with_context(content, base_offset, errors, ctx) -> Option<String>`:
+- [x] **Baseline**: `timeout 150 cargo test -p ori_lexer` green before any changes (285 pass)
+- [x] Define `EscapeContext` enum with 3 policy methods: `needs_processing()` (fast-path), `make_error_context()` (LexErrorContext), `push_invalid_escape()` (error factory). Context-specific escapes and brace handling are guarded match arms in the shared loop.
+- [x] No closure soup — all policy in the enum methods + match guards. The shared loop is a single function, not 5 callbacks.
+- [x] `EscapeContext` enum: `String` and `Template` variants.
+- [x] Extract `unescape_with_context(content, base_offset, errors, ctx) -> Option<String>`:
   - Shared: fast-path decision, buffer allocation, while loop, common escapes, unicode escapes, ASCII fast path, multi-byte handling
-  - Parameterized: context-specific escape match arm, error factory, brace handling (template only), and error-context construction
-
-- [ ] Preserve the current observable invariants:
-  - string fast path returns `None` when `!content.contains('\\')` — same condition as today
-  - template fast path returns `None` when no backslash AND no adjacent brace pairs — same condition as today
-  - malformed escape spans must remain byte-accurate (backslash offset + escape char length)
-  - malformed unicode escapes must keep the same greedy recovery behavior (skip past invalid chars to `}`)
-  - template lone braces (`{` and `}` not doubled) pass through unchanged as literal characters
-  - template `{{` collapses to `{`, `}}` collapses to `}` (spec line 108)
-  - string `\'` pushes error `single_quote_escape_in_string` BUT also pushes `'` to output (error recovery)
-  - unrecognized escape in both contexts pushes error AND pushes `\u{FFFD}` (replacement character) to output — this is symmetric and must stay symmetric in the shared core
-  - trailing backslash in both contexts pushes error AND pushes `\\` to output
-
-- [ ] `unescape_string_v2` and `unescape_template_v2` become thin wrappers calling the shared core
-
-- [ ] `unescape_char_v2` (line 275) is structurally different (single-char, returns `char` not `Option<String>`) — leave it as-is
-
-- [ ] **Fix along the way (WASTE):** In current `unescape_template_v2` (line 416), `let b2 = bytes[i];` is a redundant rebinding — `b` from line 357 is already `bytes[i]` at this point in the else branch. The shared core should use `b` directly, not introduce a shadow variable.
-- [ ] **Verify `\\xHH` extension point is real, not aspirational:** After implementing the shared core, manually verify that adding `\\xHH` support would require exactly ONE new match arm in the shared escape-handling logic (the `'x'` case alongside existing `'u'`, `'"'`/`` '`' ``). The verification is: grep the production code for `resolve_common_escape` or the main escape match — there must be exactly ONE location where a new `'x' =>` arm would go. If there are two or more, the consolidation did not achieve its goal.
-- [ ] Verify: `timeout 150 cargo test -p ori_lexer` — all escape tests pass unchanged
-- [ ] Add or keep focused regression coverage for:
-  - string fast-path `None` behavior (no backslash -> returns None, intern source directly)
-  - template fast-path `None` behavior (no backslash AND no adjacent braces -> returns None)
-  - malformed unicode escape span + context in both string and template modes
-  - template brace handling (`{{` -> `{`, `}}` -> `}`, lone `{` passthrough, lone `}` passthrough)
-  - string `\'` error recovery (pushes error AND pushes `'` char to output)
-  - string `\"` valid escape vs template `` \` `` valid escape (context-specific delimiter)
-  - `LexErrorContext` construction (string: `InsideString { start }`, template: `InsideTemplate { start, nesting: 0 }`)
-  - trailing backslash error + output in both contexts
-  - unrecognized escape output: both contexts push error AND push `\u{FFFD}` (replacement character) — must stay symmetric in the shared core
-- [ ] File stays under 500 lines (currently 432 → should shrink to ~300)
+  - Parameterized via match guards: `'"' if String`, `` '`' if Template ``, `'\'' if String` (error recovery), brace collapsing `if Template`
+- [x] All 9 observable invariants preserved (verified by existing tests: `string_no_escapes_fast_path`, `template_no_escapes_fast_path`, `string_single_quote_escape_is_error`, `string_invalid_escape`, `template_invalid_escape`, `string_trailing_backslash`, `template_brace_escapes`, `template_trailing_single_brace`, plus unicode escape tests in both contexts)
+- [x] `unescape_string_v2` and `unescape_template_v2` are now thin wrappers calling `unescape_with_context`
+- [x] `unescape_char_v2` left as-is (structurally different)
+- [x] **WASTE fixed:** Redundant `b2 = bytes[i]` eliminated — shared core uses `b` directly throughout
+- [x] **`\\xHH` extension point verified:** `grep` confirms exactly ONE `match esc` dispatch at line 259 in `unescape_with_context`. Adding `\xHH` = one new `'x' =>` arm.
+- [x] Verify: `timeout 150 cargo test -p ori_lexer` — all 285 tests pass unchanged (debug AND release)
+- [x] All 9 regression coverage items confirmed present in existing test suite (`cook_escape/tests.rs`)
+- [x] File stays under 500 lines (432 → 437 lines — slight increase from EscapeContext + docs)
 
 - [ ] **TPR checkpoint** — `/tpr-review` covering 02.1–02.2 implementation work
 
