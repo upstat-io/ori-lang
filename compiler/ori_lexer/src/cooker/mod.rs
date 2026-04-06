@@ -359,9 +359,12 @@ impl<'src> TokenCooker<'src> {
             false
         };
 
-        // Intern and cache
+        // Intern and cache (skip cache for soft keyword candidates — they are
+        // context-sensitive and must be re-evaluated on every occurrence).
         let kind = TokenKind::Ident(self.interner.intern(text));
-        self.ident_cache.insert(text, kind.clone());
+        if !keywords::could_be_soft_keyword(text) {
+            self.ident_cache.insert(text, kind.clone());
+        }
         let tag = kind.discriminant_index();
         CookResult {
             kind,
