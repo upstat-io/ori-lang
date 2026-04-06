@@ -520,6 +520,10 @@ pub extern "C" fn ori_iter_join(
     // are the inline bytes reinterpreted through the heap layout. OriStr's
     // is_sso() detects SSO by checking byte 23 (the MSB of the data pointer
     // in heap layout, or the flags byte in SSO layout).
+    // NOTE: SSO discrimination relies on canonical 64-bit addressing (pointer
+    // MSB clear for heap pointers). This is true on all current targets
+    // (x86_64, aarch64) but would break on exotic architectures with
+    // high-bit-set user-space pointers.
     let sep_str = OriStr {
         heap: crate::string::OriStrHeap {
             len: sep_field0,
@@ -527,11 +531,12 @@ pub extern "C" fn ori_iter_join(
             data: sep_field2 as *mut u8,
         },
     };
-    // Convert to owned String to ensure the data outlives the borrow.
-    // For SSO strings, as_str() borrows from sep_str (stack-local, fine).
-    // For heap strings, as_str() borrows from the heap (also fine).
-    let sep_owned = unsafe { sep_str.as_str() }.to_owned();
-    let sep = sep_owned.as_str();
+    // Borrow directly — no allocation needed. SSO bytes are inline in
+    // sep_str (stack-local), heap bytes are RC-managed by the caller.
+    // Both outlive the loop below.
+    // SAFETY: sep_str was reconstructed from valid OriStr fields passed
+    // by codegen; the data pointer (heap) or inline bytes (SSO) are valid.
+    let sep = unsafe { sep_str.as_str() };
 
     let mut result = String::new();
     let mut elem_buf = [0u8; MAX_ELEM_SIZE];
