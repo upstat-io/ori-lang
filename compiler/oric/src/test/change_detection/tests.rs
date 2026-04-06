@@ -20,6 +20,7 @@ fn make_canon(roots: &[(u32, i64)]) -> CanonResult {
             name: Name::from_raw(name_raw),
             body,
             defaults: vec![],
+            param_names: vec![],
         });
     }
 
