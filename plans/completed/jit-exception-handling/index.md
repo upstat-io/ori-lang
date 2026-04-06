@@ -2,7 +2,7 @@
 reroute: true
 name: "JIT EH"
 full_name: "JIT Exception Handling"
-status: active
+status: resolved
 order: 1
 ---
 
@@ -87,7 +87,7 @@ tests/spec/traits/iterator/infinite_range.ori
 ---
 
 ### Section 04B: Polymorphic Lambda Monomorphization
-**File:** `section-04b-lambda-mono.md` | **Status:** In Progress (blocked by BUG-04-030)
+**File:** `section-04b-lambda-mono.md` | **Status:** Complete (1 externally blocked by roadmap §21A)
 
 ```
 polymorphic lambda, forall, Scheme, BoundVar, monomorphization
@@ -103,7 +103,7 @@ Tag::Scheme, Tag::BoundVar, Tag::Var, VarState::Generalized
 ---
 
 ### Section 05: Verification
-**File:** `section-05-verification.md` | **Status:** In Progress (blocked by BUG-04-030)
+**File:** `section-05-verification.md` | **Status:** Complete (1 externally blocked by roadmap §21A)
 
 ```
 test-all.sh, dual-exec parity, dual-exec-verify.sh, LLVM spec tests
@@ -118,7 +118,7 @@ operators_logical.ori, operators_bitwise.ori
 ---
 
 ### Section 06: LCFail Resolution
-**File:** `section-06-lcfail-resolution.md` | **Status:** Complete (3 externally blocked items)
+**File:** `section-06-lcfail-resolution.md` | **Status:** Complete (3 externally blocked: 1 §21A, 2 §5)
 
 ```
 BUG-04-030, BUG-04-031, BUG-04-032, BUG-04-033, LCFail
@@ -144,6 +144,6 @@ pool/accessors.rs, generalization.rs, abi/mod.rs
 | 02 | ARC IR InvokeIndirect | `section-02-arc-ir.md` | Complete |
 | 03 | LLVM Emission & Wrappers | `section-03-llvm-emission.md` | Complete |
 | 04 | Exposed Bug Fixes (8 bugs) | `section-04-exposed-bugs.md` | Complete |
-| 04B | Polymorphic Lambda Monomorphization | `section-04b-lambda-mono.md` | In Progress (blocked by BUG-04-030) |
-| 05 | Verification | `section-05-verification.md` | In Progress (blocked by BUG-04-030) |
-| 06 | LCFail Resolution (BUG-04-030/031/032/033) | `section-06-lcfail-resolution.md` | Complete |
+| 04B | Polymorphic Lambda Monomorphization | `section-04b-lambda-mono.md` | Complete (1 externally blocked by §21A) |
+| 05 | Verification | `section-05-verification.md` | Complete (1 externally blocked by §21A) |
+| 06 | LCFail Resolution (BUG-04-030/031/032/033) | `section-06-lcfail-resolution.md` | Complete (3 externally blocked) |
