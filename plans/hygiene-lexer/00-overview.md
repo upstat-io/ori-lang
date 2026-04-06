@@ -24,9 +24,9 @@ Achieve cohesive, DRY architecture in `ori_lexer_core` and `ori_lexer` — where
 - [x] `cook()` match has exhaustive drift guard via `every_raw_tag_has_explicit_routing` test — 26 cooked + 54 trivial = 80 variants (verified 2026-04-06)
 - [x] Soft keyword sync guard test exists (`soft_keyword_prefilter_consistency` derives from `SOFT_KEYWORDS` table, verified 2026-04-06)
 - [x] Duplicate `span()`/`make_span()` unified — `cooker::span()` widened to `pub(crate)`, driver uses it (verified 2026-04-06)
-- [ ] `./test-all.sh` green — no regressions
-- [ ] `./clippy-all.sh` green
-- [ ] All section success criteria met
+- [x] `./test-all.sh` — 0 failures, exits 0; LLVM backend crash is known BUG-04-030 (verified 2026-04-06)
+- [x] `./clippy-all.sh` green (verified 2026-04-06, passed pre-commit hook)
+- [ ] All section success criteria met (Section 02 blocked by TPR-02-003/roadmap 15C.13; Section 05 depends on 02+04)
 
 ## Architecture
 
@@ -134,5 +134,5 @@ Phase 2 - Verification & Cleanup
 | 01 | Bug Fix — Soft Keyword Cache | `section-01-soft-keyword-bug.md` | Complete |
 | 02 | Cooker Layer Algorithmic DRY | `section-02-cooker-dry.md` | In Progress |
 | 03 | Scanner Layer Algorithmic DRY | `section-03-scanner-dry.md` | Complete |
-| 04 | Drift, Gap & Polish | `section-04-drift-gap-polish.md` | In Progress |
+| 04 | Drift, Gap & Polish | `section-04-drift-gap-polish.md` | Complete |
 | 05 | Cleanup | `section-05-cleanup.md` | Not Started |

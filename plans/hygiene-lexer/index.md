@@ -50,7 +50,7 @@ RawTag, RawToken, cursor, advance, compound operator
 ---
 
 ### Section 04: Drift, Gap & Polish
-**File:** `section-04-drift-gap-polish.md` | **Status:** In Progress
+**File:** `section-04-drift-gap-polish.md` | **Status:** Complete
 
 ```
 catch-all, exhaustive match, cook(), RawTag dispatch
