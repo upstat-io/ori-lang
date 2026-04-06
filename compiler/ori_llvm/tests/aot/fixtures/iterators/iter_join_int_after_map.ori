@@ -1,0 +1,7 @@
+// AOT test for iter_join with int elements after map adapter.
+// Cross-feature: join on mapped (int -> int) iterator.
+
+@main () -> int = {
+    let result = [1, 2, 3].iter().map(x -> x * 10).join(separator: "-");
+    if result == "10-20-30" then 0 else 1
+}

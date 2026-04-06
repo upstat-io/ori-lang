@@ -7,9 +7,9 @@
 
 use ori_arc::ir::{ArcFunction, ArcVarId};
 use ori_ir::{FIELD_CAP, FIELD_DATA, FIELD_LEN};
-use ori_types::Idx;
+use ori_types::{Idx, Tag};
 
-use crate::codegen::value_id::ValueId;
+use crate::codegen::value_id::{FunctionId, ValueId};
 
 use super::super::ArcIrEmitter;
 use super::trampolines::TrampolineKind;
@@ -493,10 +493,11 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
     /// Emit `join(separator)` — join iterator elements into a string.
     ///
-    /// Currently only supports string-element iterators (`to_str_fn` = null).
-    /// Non-string elements need a `to_str` trampoline (tracked as BUG-04-039).
-    /// Until the trampoline is implemented, non-string join records a codegen
-    /// error to produce a clean `LCFail` instead of a `SIGSEGV` crash.
+    /// For string-element iterators, passes `null` for `to_str_fn` (elements
+    /// are already strings). For primitive types (int, float, bool, char, byte,
+    /// Duration, Size), generates a `to_str` trampoline that calls the
+    /// appropriate `ori_str_from_*` runtime function. Unsupported types
+    /// (structs, closures, etc.) produce a codegen error.
     pub(in crate::codegen) fn emit_iter_join(
         &mut self,
         iter_ptr: ValueId,
@@ -507,21 +508,23 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             return None;
         }
 
-        // Bail on non-string element types: passing null to_str_fn to the
-        // runtime with non-string elements reads 24 bytes from an 8-byte int
-        // value, causing SIGSEGV. Until BUG-04-039 (to_str trampoline) is
-        // fixed, produce a clean LCFail instead of a process-killing crash.
         let resolved_elem = self.pool.resolve_fully(elem_ty);
-        if self.pool.tag(resolved_elem) != ori_types::Tag::Str {
-            self.builder.record_codegen_error_with_msg(
-                "iter_join on non-string elements not yet supported in LLVM (BUG-04-039)"
-                    .to_string(),
-            );
-            // Return a poison value (not None) to signal "handled with error."
-            // Returning None would cause the dispatch chain to fall through to
-            // the invoke path, adding a second bogus "unresolved function" error.
+        let tag = self.pool.tag(resolved_elem);
+
+        // Determine to_str_fn: null for strings, trampoline for primitives
+        let (to_str_fn, to_str_env) = if tag == Tag::Str {
+            // Elements are already strings — no conversion needed.
+            (self.builder.const_null_ptr(), self.builder.const_null_ptr())
+        } else if let Some(tramp_fn_id) = self.generate_join_to_str_trampoline(elem_ty) {
+            let tramp_fn_ptr = self.builder.get_function_ptr(tramp_fn_id);
+            // No closure environment needed — conversion logic is baked in.
+            (tramp_fn_ptr, self.builder.const_null_ptr())
+        } else {
+            self.builder.record_codegen_error_with_msg(format!(
+                "iter_join on {tag:?} elements not yet supported in LLVM backend"
+            ));
             return Some(self.builder.poison_value);
-        }
+        };
 
         let separator = arg_vals[1];
 
@@ -543,15 +546,11 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let elem_size = self.int_element_store_size(elem_ty);
         let elem_size_val = self.builder.const_i64(elem_size as i64);
 
-        // null to_str_fn and env — elements are already strings
-        let null_ptr = self.builder.const_null_ptr();
-        let null_env = self.builder.const_null_ptr();
-
-        // OriStr result type
-        let str_llvm_ty = self.resolve_type(elem_ty);
+        // OriStr result type (always str, regardless of element type)
+        let str_ty = self.resolve_type(ori_types::Idx::STR);
         let out_alloca =
             self.builder
-                .create_entry_alloca(self.current_function, "join.out", str_llvm_ty);
+                .create_entry_alloca(self.current_function, "join.out", str_ty);
 
         let func_id = self.builder.runtime_fn("ori_iter_join");
         self.emit_rt_call(
@@ -561,14 +560,98 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 sep_field0,
                 sep_field1,
                 sep_field2,
-                null_ptr,
-                null_env,
+                to_str_fn,
+                to_str_env,
                 elem_size_val,
                 out_alloca,
             ],
             "",
         );
 
-        Some(self.builder.load(str_llvm_ty, out_alloca, "join.str"))
+        Some(self.builder.load(str_ty, out_alloca, "join.str"))
+    }
+
+    /// Generate a `to_str` trampoline for `join` on non-string element types.
+    ///
+    /// The trampoline has C ABI signature `(env: ptr, elem_ptr: ptr, out_ptr: ptr) -> void`.
+    /// It reads the element from `elem_ptr`, calls the appropriate `ori_str_from_*`
+    /// runtime function, and writes the resulting `OriStr` to `out_ptr` (sret pattern).
+    ///
+    /// Returns `None` for unsupported types (structs, closures, etc.).
+    fn generate_join_to_str_trampoline(&mut self, elem_ty: Idx) -> Option<FunctionId> {
+        let resolved = self.pool.resolve_fully(elem_ty);
+        let tag = self.pool.tag(resolved);
+
+        // Determine the runtime conversion function name and the element
+        // load type. All conversion functions write an OriStr to the sret
+        // pointer, so the trampoline uses out_ptr directly as the sret arg.
+        let (rt_func_name, needs_sext_to_i64) = match tag {
+            Tag::Int | Tag::Duration | Tag::Size | Tag::Byte | Tag::Ordering => {
+                ("ori_str_from_int", true)
+            }
+            Tag::Float => ("ori_str_from_float", false),
+            Tag::Bool => ("ori_str_from_bool", false),
+            Tag::Char => ("ori_str_from_char", false),
+            _ => return None,
+        };
+
+        let tramp_id = self.partial_apply_counter;
+        self.partial_apply_counter += 1;
+        let tramp_name = format!("_ori_join_to_str_{tramp_id}");
+
+        // Save builder position
+        let saved_pos = self.builder.save_position();
+        let saved_func = self.builder.current_function();
+
+        let ptr_ty = self.builder.ptr_type();
+
+        // Declare: (env: ptr, elem_ptr: ptr, out_ptr: ptr) -> void
+        let func_id = self
+            .builder
+            .declare_void_function(&tramp_name, &[ptr_ty, ptr_ty, ptr_ty]);
+        self.builder.set_ccc(func_id);
+        self.builder.add_nounwind_attribute(func_id);
+        self.builder.add_uwtable_attribute(func_id);
+        for i in 0..3 {
+            self.builder.add_noundef_param_attribute(func_id, i);
+        }
+
+        let entry = self.builder.append_block(func_id, "entry");
+        self.builder.position_at_end(entry);
+        self.builder.set_current_function(func_id);
+
+        // Parameters: env (ignored), elem_ptr, out_ptr
+        let _env_ptr = self.builder.get_param(func_id, 0);
+        let elem_ptr = self.builder.get_param(func_id, 1);
+        let out_ptr = self.builder.get_param(func_id, 2);
+
+        // Load element from elem_ptr. Use narrowed type for int elements
+        // (iterator buffers store narrowed ints).
+        let buf_elem_llvm_ty = self.int_element_llvm_type(elem_ty);
+        let raw = self.builder.load(buf_elem_llvm_ty, elem_ptr, "elem");
+
+        // Widen to the canonical type expected by the runtime function.
+        let elem_val = if needs_sext_to_i64 {
+            let i64_ty = self.builder.i64_type();
+            self.builder.sext(raw, i64_ty, "elem.sext")
+        } else {
+            raw
+        };
+
+        // Call the runtime conversion function with out_ptr as sret.
+        // Runtime functions returning OriStr (24 bytes) use sret pattern:
+        // void @ori_str_from_*(ptr sret(%OriStr) out_ptr, <param_ty> value)
+        let rt_func = self.builder.runtime_fn(rt_func_name);
+        self.builder.call(rt_func, &[out_ptr, elem_val], "");
+
+        self.builder.ret_void();
+
+        // Restore builder position
+        self.builder.restore_position(saved_pos);
+        if let Some(f) = saved_func {
+            self.builder.set_current_function(f);
+        }
+
+        Some(func_id)
     }
 }

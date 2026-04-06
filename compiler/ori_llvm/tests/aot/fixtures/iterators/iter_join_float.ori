@@ -1,0 +1,7 @@
+// AOT test for iter_join with float elements.
+// Exercises: ori_str_from_float via generated to_str trampoline in emit_iter_join.
+
+@main () -> int = {
+    let result = [1.5, 2.5, 3.5].iter().join(separator: "-");
+    if result == "1.5-2.5-3.5" then 0 else 1
+}

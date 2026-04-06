@@ -212,6 +212,7 @@ fn count_filtered() {
 
 #[test]
 fn collect_range() {
+    let _g = crate::test_helpers::lock_rc();
     let iter = ori_iter_from_range(0, 5, 1, false);
 
     // OriList layout: { i64 len, i64 cap, ptr data }
@@ -637,16 +638,25 @@ fn assert_elem_size_accepts_typical() {
 // Semantic pin: normal-sized elements still work through consumers
 #[test]
 fn normal_sized_elem_passes_collect() {
+    let _g = crate::test_helpers::lock_rc();
     let data: [i64; 3] = [10, 20, 30];
     let iter = ori_iter_from_list(data.as_ptr() as *mut u8, 3, 0, 8);
     let mut out = [0u8; 24];
     ori_iter_collect(iter, 8, None, out.as_mut_ptr());
     let len = unsafe { out.as_ptr().cast::<i64>().read() };
     assert_eq!(len, 3);
+
+    // Free the collected data to avoid leaking RC allocations
+    let data_ptr = unsafe { out.as_ptr().add(16).cast::<*mut u8>().read() };
+    if !data_ptr.is_null() {
+        let cap = unsafe { out.as_ptr().cast::<i64>().add(1).read() };
+        crate::ori_list_free_data(data_ptr, cap, 8);
+    }
 }
 
 #[test]
 fn max_sized_elem_passes_collect() {
+    let _g = crate::test_helpers::lock_rc();
     // Exactly MAX_ELEM_SIZE should be accepted (boundary test)
     let max_size = state::MAX_ELEM_SIZE as i64;
     let data = vec![0u8; state::MAX_ELEM_SIZE];
@@ -655,4 +665,11 @@ fn max_sized_elem_passes_collect() {
     ori_iter_collect(iter, max_size, None, out.as_mut_ptr());
     let len = unsafe { out.as_ptr().cast::<i64>().read() };
     assert_eq!(len, 1);
+
+    // Free the collected data to avoid leaking RC allocations
+    let data_ptr = unsafe { out.as_ptr().add(16).cast::<*mut u8>().read() };
+    if !data_ptr.is_null() {
+        let cap = unsafe { out.as_ptr().cast::<i64>().add(1).read() };
+        crate::ori_list_free_data(data_ptr, cap, max_size);
+    }
 }
