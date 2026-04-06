@@ -170,4 +170,65 @@ impl IrBuilder<'_, '_> {
         let val_ty = self.arena.get_value(val).get_type();
         field_ty == val_ty
     }
+
+    // Safe value extraction — replaces panicking `into_*_value()`.
+    //
+    // Returns `ValueId` (not raw inkwell types) to avoid lifetime issues.
+
+    /// Safely extract an `IntValue` from a `ValueId`.
+    ///
+    /// Returns the same `ValueId` if the underlying value is an `IntValue`.
+    /// Otherwise, records a codegen error and returns a poison `i64 0`.
+    pub fn expect_int_value(&mut self, id: ValueId, context: &str) -> ValueId {
+        let val = self.arena.get_value(id);
+        if matches!(val, BasicValueEnum::IntValue(_)) {
+            id
+        } else {
+            tracing::error!(
+                ?val,
+                context,
+                "expected IntValue — type resolution produced wrong type"
+            );
+            self.record_codegen_error();
+            self.const_i64(0)
+        }
+    }
+
+    /// Safely extract a `FloatValue` from a `ValueId`.
+    ///
+    /// Returns the same `ValueId` if the underlying value is a `FloatValue`.
+    /// Otherwise, records a codegen error and returns a poison `f64 0.0`.
+    pub fn expect_float_value(&mut self, id: ValueId, context: &str) -> ValueId {
+        let val = self.arena.get_value(id);
+        if matches!(val, BasicValueEnum::FloatValue(_)) {
+            id
+        } else {
+            tracing::error!(
+                ?val,
+                context,
+                "expected FloatValue — type resolution produced wrong type"
+            );
+            self.record_codegen_error();
+            self.const_f64(0.0)
+        }
+    }
+
+    /// Safely extract a `PointerValue` from a `ValueId`.
+    ///
+    /// Returns the same `ValueId` if the underlying value is a `PointerValue`.
+    /// Otherwise, records a codegen error and returns a poison null pointer.
+    pub fn expect_pointer_value(&mut self, id: ValueId, context: &str) -> ValueId {
+        let val = self.arena.get_value(id);
+        if matches!(val, BasicValueEnum::PointerValue(_)) {
+            id
+        } else {
+            tracing::error!(
+                ?val,
+                context,
+                "expected PointerValue — type resolution produced wrong type"
+            );
+            self.record_codegen_error();
+            self.const_null_ptr()
+        }
+    }
 }

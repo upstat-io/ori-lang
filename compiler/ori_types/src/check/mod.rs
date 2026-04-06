@@ -343,16 +343,6 @@ impl<'a> ModuleChecker<'a> {
         let mut functions: Vec<FunctionSig> = self.signatures.into_values().collect();
         functions.sort_by_key(|f| f.name);
 
-        // Pre-intern tuple types for multi-parameter functions. Multi-clause
-        // function lowering (ori_canon) creates a synthetic Tuple scrutinee
-        // from the parameters, and needs the tuple type interned in the pool.
-        // The pool is immutable by that point, so we intern here.
-        for sig in &functions {
-            if sig.param_types.len() > 1 {
-                pool.tuple(&sig.param_types);
-            }
-        }
-
         // Extract type definitions (already sorted by name via BTreeMap).
         let types = self.types.into_entries();
 

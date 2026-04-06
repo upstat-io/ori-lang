@@ -661,6 +661,132 @@ reference can be consulted.
 
 ---
 
+## Bug Fix Section Template
+
+Bug fixes use a lighter-weight section file that lives in the bug tracker (`plans/bug-tracker/fix-BUG-XX-NNN.md`). Created by the `/fix-bug` command, these follow the same rigor as plan sections but are scoped to a single bug or cluster of related bugs.
+
+```markdown
+---
+bug: "BUG-{section}-{ordinal}"
+title: "{Bug title}"
+severity: "{critical|high|medium|low}"
+status: not-started
+goal: "{One-line measurable goal}"
+success_criteria:
+  - "{Criterion 1 — specific, testable}"
+  - "{Criterion 2 — with verification command}"
+subsystem: "{crate/file path}"
+found: "{YYYY-MM-DD}"
+source: "{tpr-review|code-journey|manual|continue-roadmap|review-work}"
+third_party_review:
+  status: none
+  updated: null
+---
+
+# Fix: BUG-{section}-{ordinal} — {Title}
+
+**Status:** Not Started
+**Severity:** {severity}
+**Goal:** {Expanded goal — not 'fix X' but 'X correctly handles Y under conditions Z'}
+
+**Success Criteria:**
+- [ ] {Criterion — specific behavioral outcome with verification}
+- [ ] {Criterion — test name or command}
+
+**Context:** {Why this bug exists. How it was discovered. 2-4 sentences.}
+
+---
+
+## 1. Root Cause Analysis
+
+- **Symptom**: {What was observed}
+- **Proximate cause**: {What code produced the wrong behavior}
+- **Root cause**: {Why — the architectural/logical flaw}
+- **Blast radius**: {What else is affected}
+- **Affected files**:
+  - `{file}` — {what changes and why}
+
+**Reference implementations** (if applicable):
+- **{Language}** `{file}`: {How they handle this case}
+
+---
+
+## 2. TDD — Test Matrix
+
+### Exact failing case
+- [ ] {From the repro}
+
+### Edge cases
+- [ ] {Boundary conditions}
+
+### Cross-type coverage (if type-dependent)
+- [ ] {Test each relevant type}
+
+### Cross-pattern coverage (if pattern-dependent)
+- [ ] {Test each relevant pattern}
+
+### Cross-feature interactions
+- [ ] {Test interaction with other features}
+
+### Semantic pin
+- [ ] {Test that ONLY passes with correct semantics}
+
+### Negative pin
+- [ ] {Test that REJECTS old/broken behavior}
+
+### Verify tests fail before fix
+- [ ] All new tests fail against current code
+
+---
+
+## 3. Implementation
+
+- [ ] {Fix approach with code examples}
+
+---
+
+## 4. Completion Checklist
+
+- [ ] All new tests pass unchanged after fix
+- [ ] Matrix completeness verified
+- [ ] Debug AND release builds pass
+- [ ] Interpreter and LLVM produce identical results (dual-execution parity)
+- [ ] `ORI_CHECK_LEAKS=1` zero leaks (for memory-touching fixes)
+- [ ] `timeout 150 ./test-all.sh` green
+- [ ] `timeout 150 ./clippy-all.sh` green
+- [ ] Bug entry updated: `- [x]` with resolution
+- [ ] Fix section status → `complete`
+- [ ] Bug-tracker overview open bug count updated
+- [ ] `/tpr-review` passed
+- [ ] `/impl-hygiene-review last commit` passed (AFTER TPR)
+
+**Exit Criteria:** {Measurable proof of completion with test names and commands.}
+```
+
+### Key Differences from Plan Sections
+
+| Aspect | Plan Section | Bug Fix Section |
+|--------|-------------|-----------------|
+| Location | `plans/{plan}/section-NN-*.md` | `plans/bug-tracker/fix-BUG-XX-NNN.md` |
+| Scope | Feature/subsystem | Single bug or cluster |
+| Subsections | Multiple ({NN}.1, {NN}.2, ...) | Four fixed sections (RCA, TDD, Impl, Checklist) |
+| Research | Multi-pass (4 passes, agents) | Focused investigation |
+| TPR checkpoints | After every 2-3 subsections | Final only (unless complex) |
+| {NN}.R section | Reserved for TPR findings | TPR findings go in completion checklist |
+| Overview sync | Mission criteria, dependency graph | Bug count in overview, entry marked resolved |
+
+### When to Escalate to a Full Plan
+
+If during `/fix-bug` investigation you discover the bug requires:
+- Changes to 5+ files across 3+ crates
+- New data types, pipeline stages, or architectural changes
+- Work that naturally decomposes into 3+ distinct subsections
+- Changes that affect multiple other plans
+
+...then escalate to `/create-plan` instead. The fix section becomes the research input for the plan.
+
+---
+
 ## Reference
 
 See `plans/completed/codegen-purity/` for a canonical example:

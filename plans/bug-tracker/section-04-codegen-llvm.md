@@ -218,11 +218,12 @@ Bugs in LLVM IR generation, JIT/AOT compilation, monomorphization, ARC pipeline 
   Fix (2026-04-06): Added `merge_mutable_vars` pattern from `lower_coalesce` — capture branch scopes, create merge params, pass mutable var values through Jump args, rebind after merge. Applied symmetrically to both `&&` and `||`.
   Found: 2026-04-03 | Fixed: 2026-04-06 | Source: continue-roadmap (JIT EH plan §06.6)
 
-- [ ] `[BUG-04-033][high]` **LLVM codegen fails on multi-clause functions with literal patterns (Ackermann)** — found by manual.
+- [x] `[BUG-04-033][high]` **LLVM codegen fails on multi-clause functions with literal patterns (Ackermann)** — found by manual.
   Repro: `ori run --compile tests/run-pass/rosetta/ackermann/ackermann.ori` — 3-clause `@ack` with literal `0` patterns. Two errors: (1) `build_struct called with non-struct LLVM type (i64)` — clause dispatch treats int return as struct; (2) LLVM IR verification: "PHINode should have one entry for each predecessor of its parent basic block" — join blocks from clause branches have mismatched phi entries.
+  Resolved: Fixed on 2026-04-06. Four root causes: (1) scrutinee TypeId::ERROR → real param types from FunctionSig, (2) scrutinee name mismatch → FunctionSig.param_names, (3) tuple type not interned → pre-intern in finish_with_pool(), (4) function/sig positional zip → name-keyed lookup. <!-- resolved-by:plans/jit-exception-handling §06.7 -->
   Subsystem: `compiler/ori_llvm/src/codegen/` (multi-clause function lowering, phi node generation)
-  Found: 2026-04-04 | Source: manual (Rosetta Code task implementation)
-  Note: Active work in roadmap section 15B (function clauses) and section 09 (match/patterns) touches this area. Multi-clause lowering in `ori_canon` works correctly; the bug is in LLVM IR emission from the lowered match tree.
+  Found: 2026-04-04 | Fixed: 2026-04-06 | Source: manual (Rosetta Code task implementation)
+  Note: Fix introduced BUG-04-037 regression (tuple pre-interning pollutes type pool → zip SIGSEGV).
 
 - [x] `[BUG-04-035][medium]` **Nested closure RC leaks: wrapper RcInc for borrowed-parameter re-captures not balanced** — found by continue-roadmap.
   Resolved: Fixed on 2026-04-05 by the closure-ownership plan. Sections 01-02 added `arg_ownership` to `ApplyIndirect`/`InvokeIndirect`, Section 03 replaced the conservative drop_hints workaround with ownership-aware logic, added InvokeIndirect to unwind_cleanup, removed unused `_capture_ownership` parameter. All 6 previously-leaking closure tests pass with zero leaks (3 curried + 3 nested). <!-- resolved-by:plans/closure-ownership -->
@@ -241,6 +242,12 @@ Bugs in LLVM IR generation, JIT/AOT compilation, monomorphization, ARC pipeline 
   Root cause: `ori_list_concat_cow` has consuming semantics — it dec/frees BOTH input buffers. When params are `[borrow]`, the callee doesn't own the buffers but concat frees them. The closure drop then tries to rc_dec already-freed data → use-after-free.
   Fix (2026-04-06): Borrow-protect rc_inc in `emit_binary_op` at `operators/mod.rs`. When LHS or RHS of list `+` originates from a borrowed parameter (via `borrowed_param_ptrs`), emit `ori_list_rc_inc` before concat. Concat's consuming dec brings refcount to 1, leaving buffer alive for caller cleanup. RC trace: 5 allocs, 5 frees, live=0.
   Found: 2026-04-05 | Fixed: 2026-04-06 | Source: continue-roadmap (JIT EH §06.5)
+
+- [x] `[BUG-04-037][high]` **Tuple type pre-interning in `finish_with_pool()` causes iter_zip AOT SIGSEGV** — found by continue-roadmap.
+  Repro: `cargo test -p ori_llvm --test aot -- iter_zip_count` → SIGSEGV (exit -139). Both `iter_zip_count` and `iter_zip_unequal` affected. Passes on parent commit `6b8f9421`, fails on `60838e1b`.
+  Resolved: Fixed on 2026-04-06. Two root causes: (1) `finish_with_pool()` interned tuples for ALL multi-param functions → pool hash collision with zip's `(int, Var(T))` tuples. Fixed by adding `ModuleChecker::intern_multi_clause_tuples()` that only targets multi-clause groups. (2) Uncommitted `emit_function.rs` change added `type_error_count()` to bail-out check → pre-existing unresolved type variables (Root Cause A) triggered premature `unreachable` stubs. Fixed by reverting to `codegen_error_count()` only. <!-- resolved-by:plans/jit-exception-handling §06.7b -->
+  Subsystem: `compiler/ori_types/src/check/mod.rs`, `compiler/ori_llvm/src/codegen/arc_emitter/emit_function.rs`
+  Found: 2026-04-06 | Fixed: 2026-04-06 | Source: continue-roadmap (JIT EH §06.7 multi-clause fix)
 
 ---
 

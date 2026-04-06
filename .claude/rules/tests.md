@@ -36,6 +36,14 @@ paths:
 
 A fix is complete when the matrix is covered. Missing cells are potential regressions waiting to happen.
 
+**Matrix squeeze principle**: Each matrix test narrows the gap between "works" and "crashes," triangulating the bug from multiple angles. When the matrix is dense, the correct fix surface becomes surgically obvious — all surrounding cases are pinned, so the fix must thread precisely between them. This has two compounding effects:
+
+1. **Fix precision**: A dense matrix forces fixes to be narrow and correct. A fix that's too broad breaks existing passing cells; a fix that's too narrow leaves failing cells. The matrix defines the exact boundary.
+2. **Regression triangulation**: When a fix introduces a regression, the existing matrix catches it immediately and identifies exactly which dimension (type, pattern, feature, phase) the regression occupies. This turns "something broke" into "the fix doesn't handle zip iterators with unresolved type variables" — the matrix squeezes out the ambiguity.
+3. **Organic convergence**: Over time, the matrix accumulates coverage that makes each subsequent fix easier and more precise. Bugs that previously required extensive investigation are immediately localized by the matrix to a specific type × pattern × feature cell.
+
+The matrix squeeze effect is strongest when tests are added BEFORE the fix (TDD), not after — the pre-fix failing cells define the exact scope of the bug, and the pre-fix passing cells define the exact boundary the fix must respect.
+
 **Self-verifying matrix completeness** (from Zig): When writing matrix tests that iterate over types or patterns, include a count assertion that proves every cell was visited. A matrix loop that silently skips cells is worse than no matrix at all:
 ```rust
 let mut count = 0;
