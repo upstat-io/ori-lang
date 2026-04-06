@@ -53,8 +53,8 @@ sections:
 
 # Section 06: LCFail Resolution — BUG-04-030/031/032/033
 
-**Status:** In Progress — 06.1–06.7b complete. 06.8, 06.9 not started.
-**Goal:** Systematically fix all known LLVM codegen root causes that produce LCFails (LLVM Compile Failures) in the spec test suite. Current baseline: 2656 LCFails. Target: <500 LCFails (stretch: <100).
+**Status:** In Progress — 06.1–06.9 complete. TPR review in progress (06.R/06.N).
+**Goal:** Systematically fix all known LLVM codegen root causes that produce LCFails (LLVM Compile Failures) in the spec test suite. Baseline: 2656 LCFails → current: 2475 (crash eliminated, -7%). Target <500 not met — remaining LCFails from missing codegen features.
 
 **Depends on:** Section 04B (lambda monomorphization foundations)
 
@@ -438,6 +438,12 @@ The actual crash was from `emit_iter_join` passing null `to_str_fn` for non-stri
 ---
 
 ## 06.R Third Party Review Findings
+
+- [x] `[TPR-06-008][medium]` `plans/bug-tracker/section-04-codegen-llvm.md:265` — BUG-04-040 repro was shell-dependent (`echo` with `\n`).
+  Resolved: 2026-04-06. Replaced `echo` repro with heredoc (`cat <<'EOF'`) that works in both bash and zsh.
+
+- [x] `[TPR-06-009][medium]` `plans/jit-exception-handling/section-06-lcfail-resolution.md:56` — Section 06 header/overview stale.
+  Resolved: 2026-04-06. Updated section header to "06.1–06.9 complete, TPR in progress" and baseline to "2656→2475". Updated 00-overview.md §06 from "NOT STARTED" to "IN PROGRESS (TPR review)" with actual results.
 
 - [x] `[TPR-06-007][medium]` `plans/bug-tracker/section-04-codegen-llvm.md:264` — BUG-04-040 repro referenced non-existent in-tree file.
   Resolved: 2026-04-06. Updated BUG-04-040 repro instructions to use inline reproduction steps (create file → test from `/tmp/` → copy in-tree → test again) instead of referencing a committed fixture that was never checked in. The path-dependent behavior was verified during development (same content, different result by path) but the temp file was cleaned up. Repro is now self-contained in the bug description.
