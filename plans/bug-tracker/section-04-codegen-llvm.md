@@ -195,8 +195,8 @@ Bugs in LLVM IR generation, JIT/AOT compilation, monomorphization, ARC pipeline 
   Subsystem: `compiler/ori_llvm/src/codegen/arc_emitter/builtins/debug_helpers.rs`, `compiler/ori_rt/src/string/convert.rs`, `tests/spec/traits/debug/primitives.ori`
   Found: 2026-04-01 | Source: review-work (hygiene-full §03)
 
-- [ ] `[BUG-04-030][high]` **LLVM JIT spec tests: 2639 LCFails from multiple pre-existing codegen issues** — found by continue-roadmap.
-  Repro: `ori test --backend=llvm tests/` shows 2639 LCFail. Individual test files pass but complex files with many functions trigger failures.
+- [ ] `[BUG-04-030][high]` **LLVM JIT spec tests: LCFails from multiple pre-existing codegen issues** — found by continue-roadmap.
+  Repro: `ori test --backend=llvm tests/spec/` shows 2475 LCFail (down from 2656 baseline). NO CRASHES — spec test runner now completes normally (2026-04-06). Individual test files pass but complex files with many functions trigger failures.
   Root causes (4 distinct issues, all pre-existing before JIT EH work):
   (A) **Generalized Vars in generic function bodies** — type checker stores Unbound Vars in expr_types that get `VarState::Generalized` during let-polymorphism, breaking `VarState::Link` chains. These leak to codegen as unresolved types. Manifests as `ori_rc_dec({ i64, i64, ptr }, ptr)` type mismatch (passing struct instead of ptr). ~279 occurrences.
   (B) **Index out of bounds (u32::MAX)** — dominant pattern (~50+ files). `index out of bounds: the len is N but the index is 4294967295`. Likely a missing block/var ID sentinel from ARC IR emission producing `u32::MAX`.
