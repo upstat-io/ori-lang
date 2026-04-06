@@ -6,7 +6,7 @@
 //! function.
 
 use ori_arc::ir::{ArcFunction, ArcVarId};
-use ori_ir::{FIELD_DATA, FIELD_LEN};
+use ori_ir::{FIELD_CAP, FIELD_DATA, FIELD_LEN};
 use ori_types::Idx;
 
 use crate::codegen::value_id::ValueId;
@@ -506,13 +506,20 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         }
         let separator = arg_vals[1];
 
-        // Separator is an OriStr — extract data ptr (field 2) and len (field 0)
-        let sep_len = self
+        // Separator is an OriStr (24-byte union: heap or SSO).
+        // Pass all 3 struct fields to the runtime, which reconstructs
+        // the OriStr and handles SSO vs heap internally. Direct field
+        // extraction is safe here because we pass the RAW bits — the
+        // runtime reinterprets them correctly regardless of SSO state.
+        let sep_field0 = self
             .builder
-            .extract_value(separator, FIELD_LEN, "join.sep_len")?;
-        let sep_data = self
+            .extract_value(separator, FIELD_LEN, "join.sep.f0")?;
+        let sep_field1 = self
             .builder
-            .extract_value(separator, FIELD_DATA, "join.sep_data")?;
+            .extract_value(separator, FIELD_CAP, "join.sep.f1")?;
+        let sep_field2 = self
+            .builder
+            .extract_value(separator, FIELD_DATA, "join.sep.f2")?;
 
         let elem_size = self.int_element_store_size(elem_ty);
         let elem_size_val = self.builder.const_i64(elem_size as i64);
@@ -532,8 +539,9 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             func_id,
             &[
                 iter_ptr,
-                sep_data,
-                sep_len,
+                sep_field0,
+                sep_field1,
+                sep_field2,
                 null_ptr,
                 null_env,
                 elem_size_val,

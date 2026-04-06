@@ -254,6 +254,13 @@ Bugs in LLVM IR generation, JIT/AOT compilation, monomorphization, ARC pipeline 
   Subsystem: `compiler/ori_llvm/src/aot/incremental/hash/tests.rs:80`
   Found: 2026-04-06 | Source: continue-roadmap (pre-commit hook failure during hygiene-lexer work)
 
+- [ ] `[BUG-04-039][high]` **LLVM codegen: `join` on non-string iterators crashes (missing `to_str_fn` trampoline)** — found by continue-roadmap.
+  Repro: `[1, 2, 3].iter().join(separator: ", ")` via `ori test --backend=llvm` — SIGSEGV from reading 1-byte elem as 24-byte OriStr.
+  `emit_iter_join` unconditionally passes `null` for `to_str_fn` and uses `elem_ty` store size (wrong for non-str). Needs: (1) detect non-str elem_ty, (2) generate `to_str` trampoline closure, (3) pass correct elem_size for the source element type.
+  Subsystem: `compiler/ori_llvm/src/codegen/arc_emitter/builtins/iterator_consumers.rs:emit_iter_join`
+  Found: 2026-04-06 | Source: continue-roadmap (jit-exception-handling §06.8)
+  Note: String-only join works correctly after SSO fix (same commit). Only non-string elements crash.
+
 ---
 
 ## 04.R Third Party Review Findings
