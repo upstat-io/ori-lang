@@ -1,7 +1,7 @@
 ---
 section: "01"
 title: "Bug Fix — Soft Keyword Cache Contamination"
-status: not-started
+status: in-progress
 reviewed: true
 goal: "Fix BUG-01-001: IdentCache bypasses soft keyword resolution for previously-seen identifiers"
 success_criteria:
@@ -17,16 +17,16 @@ third_party_review:
 sections:
   - id: "01.1"
     title: "Fix IdentCache to exclude soft keyword candidates"
-    status: not-started
+    status: complete
   - id: "01.2"
     title: "Regression tests"
-    status: not-started
+    status: complete
   - id: "01.R"
     title: "Third Party Review Findings"
     status: not-started
   - id: "01.N"
     title: "Completion Checklist"
-    status: not-started
+    status: in-progress
 ---
 
 # Section 01: Bug Fix — Soft Keyword Cache Contamination
@@ -36,11 +36,11 @@ sections:
 
 **Success Criteria:**
 
-- [ ] `let cache = 42; cache(key: "x", op: () -> 1)` lexes second `cache` as `TokenKind::Cache` (not `Ident`)
-- [ ] All 6 soft keywords tested: cache, catch, parallel, recurse, spawn, timeout
-- [ ] Hard keyword caching still works (no performance regression for `let`, `if`, `type`, etc.)
-- [ ] Identifier caching still works for non-soft-keyword identifiers
-- [ ] Satisfies mission criterion: "BUG-01-001 fixed with regression tests"
+- [x] `let cache = 42; cache(key: "x", op: () -> 1)` lexes second `cache` as `TokenKind::Cache` (not `Ident`)
+- [x] All 6 soft keywords tested: cache, catch, parallel, recurse, spawn, timeout
+- [x] Hard keyword caching still works (no performance regression for `let`, `if`, `type`, etc.)
+- [x] Identifier caching still works for non-soft-keyword identifiers
+- [x] Satisfies mission criterion: "BUG-01-001 fixed with regression tests"
 
 **Context:** The `IdentCache` in `compiler/ori_lexer/src/cooker/identifier.rs` is a direct-mapped 256-entry array that caches `cook_ident()` results. The cache correctly excludes soft keywords from being *inserted* (line 332-337 in `cooker/mod.rs` returns without caching). However, when soft keyword text (e.g., "cache") first appears as a regular identifier (not followed by `(`), it IS cached as `TokenKind::Ident(Name)` at line 364. On subsequent occurrences — even in keyword context — the cache hit at line 320 returns `Ident` immediately, bypassing `soft_keyword_lookup()` entirely. This is a correctness bug: valid programs are tokenized incorrectly.
 
@@ -54,9 +54,9 @@ sections:
 
 The fix is surgical: before caching an identifier at line 364, check whether the text could be a soft keyword. If it could, skip caching — the same way the code already skips caching for soft keyword *hits* (line 332).
 
-- [ ] **Write regression tests FIRST** (TDD — see 01.2 below). Verify they fail before the fix.
+- [x] **Write regression tests FIRST** (TDD — see 01.2 below). Verify they fail before the fix.
 
-- [ ] In `cook_ident()` (`compiler/ori_lexer/src/cooker/mod.rs:362-364`), guard the cache insert:
+- [x] In `cook_ident()` (`compiler/ori_lexer/src/cooker/mod.rs:362-364`), guard the cache insert:
   ```rust
   // Before (line 362-364):
   let kind = TokenKind::Ident(self.interner.intern(text));
@@ -71,7 +71,7 @@ The fix is surgical: before caching an identifier at line 364, check whether the
   }
   ```
 
-- [ ] Verify: the `could_be_soft_keyword()` pre-filter (`keywords/mod.rs:161-163`) already checks length (5, 7, 8) and first byte (`c`, `p`, `r`, `s`, `t`) — this is a fast O(1) check that rejects >99% of identifiers. No meaningful perf impact.
+- [x] Verify: the `could_be_soft_keyword()` pre-filter (`keywords/mod.rs:161-163`) already checks length (5, 7, 8) and first byte (`c`, `p`, `r`, `s`, `t`) — this is a fast O(1) check that rejects >99% of identifiers. No meaningful perf impact.
 
 ---
 
@@ -81,18 +81,18 @@ The fix is surgical: before caching an identifier at line 364, check whether the
 
 Write tests that exercise the specific failure mode: soft keyword text appearing first as identifier, then in keyword context.
 
-- [ ] Test matrix — all 6 soft keywords, each in both orderings:
-  - [ ] **Identifier-then-keyword**: `let cache = 42; cache(key: "x", op: () -> 1)` — second occurrence must be `TokenKind::Cache`
-  - [ ] **Keyword-then-identifier**: `cache(key: "x", op: () -> 1); let cache = 42` — second occurrence must be `TokenKind::Ident`
-  - [ ] **Keyword-only**: `cache(key: "x", op: () -> 1)` — must be `TokenKind::Cache`
-  - [ ] **Identifier-only**: `let cache = 42` — must be `TokenKind::Ident`
+- [x] Test matrix — all 6 soft keywords, each in both orderings:
+  - [x] **Identifier-then-keyword**: `let cache = 42; cache(key: "x", op: () -> 1)` — second occurrence must be `TokenKind::Cache`
+  - [x] **Keyword-then-identifier**: `cache(key: "x", op: () -> 1); let cache = 42` — second occurrence must be `TokenKind::Ident`
+  - [x] **Keyword-only**: `cache(key: "x", op: () -> 1)` — must be `TokenKind::Cache`
+  - [x] **Identifier-only**: `let cache = 42` — must be `TokenKind::Ident`
 
-- [ ] Semantic pin: at least one test that ONLY passes with the fix (the identifier-then-keyword case)
+- [x] Semantic pin: at least one test that ONLY passes with the fix (the identifier-then-keyword case)
 
-- [ ] Negative pin: verify that caching still works for hard keywords — `let x = 1; let y = 2` should still hit the cache for the second `let`
+- [x] Negative pin: verify that caching still works for hard keywords — `let x = 1; let y = 2` should still hit the cache for the second `let`
 
-- [ ] Run `timeout 150 cargo test -p ori_lexer` — all tests pass in debug
-- [ ] Run `timeout 150 cargo test -p ori_lexer --release` — all tests pass in release
+- [x] Run `timeout 150 cargo test -p ori_lexer` — all tests pass in debug
+- [x] Run `timeout 150 cargo test -p ori_lexer --release` — all tests pass in release
 
 ---
 
@@ -104,14 +104,14 @@ Write tests that exercise the specific failure mode: soft keyword text appearing
 
 ## 01.N Completion Checklist
 
-- [ ] Regression tests exist and pass for all 6 soft keywords in identifier-then-keyword ordering
-- [ ] Semantic pin test exists that only passes with the fix
-- [ ] Hard keyword and regular identifier caching still works (no perf regression)
-- [ ] `timeout 150 cargo test -p ori_lexer` green (debug)
-- [ ] `timeout 150 cargo test -p ori_lexer --release` green (release)
-- [ ] `timeout 150 ./test-all.sh` green — no regressions
-- [ ] BUG-01-001 marked resolved in `plans/bug-tracker/section-01-parser-lexer.md`
-- [ ] Plan annotation cleanup: no stale annotations added
+- [x] Regression tests exist and pass for all 6 soft keywords in identifier-then-keyword ordering
+- [x] Semantic pin test exists that only passes with the fix
+- [x] Hard keyword and regular identifier caching still works (no perf regression)
+- [x] `timeout 150 cargo test -p ori_lexer` green (debug)
+- [x] `timeout 150 cargo test -p ori_lexer --release` green (release)
+- [x] `timeout 150 ./test-all.sh` green — no regressions
+- [x] BUG-01-001 marked resolved in `plans/bug-tracker/section-01-parser-lexer.md`
+- [x] Plan annotation cleanup: no stale annotations added
 - [ ] **Plan sync** — update plan metadata:
   - [ ] This section's frontmatter `status` → `complete`
   - [ ] `00-overview.md` Quick Reference table updated
