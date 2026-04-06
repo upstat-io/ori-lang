@@ -5,7 +5,7 @@ status: not-started
 reviewed: false
 goal: "Fix the remaining DRIFT, GAP, and WASTE findings from the hygiene review"
 success_criteria:
-  - "cook() match is exhaustive — no catch-all arm for non-trivial tags"
+  - "Non-trivial RawTag additions trip an explicit cook()/trivial-routing guard — by compile error or targeted drift-test failure"
   - "Sync guard test exists for SOFT_KEYWORDS ↔ could_be_soft_keyword consistency"
   - "Duplicate span()/make_span() unified to single shared function"
 inspired_by: []
@@ -38,7 +38,7 @@ sections:
 
 **Success Criteria:**
 
-- [ ] Adding a new non-trivial `RawTag` variant causes a compile error in `cook()` (not silent fallthrough)
+- [ ] Adding a new non-trivial `RawTag` variant produces an explicit guard failure in lexer verification (compile error or targeted drift-test failure), not silent fallthrough
 - [ ] A test validates that `SOFT_KEYWORDS` and `could_be_soft_keyword()` are consistent
 - [ ] Only one `span(offset, len)` helper exists, shared by cooker and driver
 - [ ] Satisfies mission criteria for exhaustive match, sync guard, and span dedup
@@ -56,9 +56,16 @@ sections:
 
 **File(s):** `compiler/ori_lexer/src/cooker/mod.rs`
 
-The `cook()` method (line 164) has a `_ =>` catch-all at line 252 that delegates to `try_trivial()`. This is defensive — it handles operator/delimiter tags that normally take the fast path in the driver. However, it means adding a new non-trivial `RawTag` variant (e.g., a new literal type) won't cause a compile error in `cook()`.
+The `cook()` method (line 164) has a `_ =>` catch-all at line 252 that delegates to `try_trivial()`. This is defensive — it handles operator/delimiter tags that normally take the fast path in the driver. However, it means adding a new non-trivial `RawTag` variant (e.g., a new literal type) won't automatically trip `cook()` itself. The repo already has an adjacent drift guard for fixed-lexeme trivial routing in `compiler/ori_lexer/src/trivial/tests.rs`, so this subsection should strengthen the non-trivial side without duplicating 54 trivial arms unless the result stays small and clear.
 
-- [ ] Replace the `_ =>` catch-all with explicit arms for every trivial tag that might reach `cook()`:
+- [ ] Preferred approach: keep trivial routing centralized in `try_trivial()`, but add a targeted exhaustiveness guard that derives from `RawTag::ALL` and fails when a variant is neither:
+  - explicitly handled in `cook()`, nor
+  - intentionally routed through `try_trivial()`, nor
+  - intentionally excluded with a documented reason
+
+- [ ] One concrete implementation is a test in `compiler/ori_lexer/src/cooker/tests.rs` or `compiler/ori_lexer/src/trivial/tests.rs` that enumerates `RawTag::ALL` and asserts each variant belongs to exactly one bucket (`cook` explicit arm / `try_trivial` / explicit exclusion). This gives the same drift protection while avoiding a giant repeated tag list in `cook()`.
+
+- [ ] Alternative: replace the `_ =>` catch-all with explicit arms for every trivial tag that might reach `cook()`, but only take this route if the resulting `compiler/ori_lexer/src/cooker/mod.rs` remains comfortably under the 500-line hygiene limit (current size: 417 lines).
   ```rust
   // Replace the catch-all with explicit arms for trivial tags.
   // This list is maintained in sync with try_trivial() — if a new
@@ -80,9 +87,7 @@ The `cook()` method (line 164) has a `_ =>` catch-all at line 252 that delegates
   }
   ```
 
-- [ ] **Alternative** (simpler): Keep the `_ =>` catch-all but add a compile-time exhaustiveness test that iterates `RawTag::ALL` and asserts every variant is explicitly handled in either `cook()`'s named arms or `try_trivial()`. This is the test-time enforcement pattern from `impl-hygiene.md`.
-
-- [ ] Choose the approach that gives the strongest guarantee without excessive code. The exhaustiveness test approach is preferred if listing all 49 trivial tags in `cook()` is too verbose.
+- [ ] Choose the approach that gives the strongest guarantee without excessive code. The `RawTag::ALL` drift-test approach is preferred because `compiler/ori_lexer/src/cooker/mod.rs` is already 417 lines and the explicit-arm variant is likely to push the file toward the 500-line limit.
 
 - [ ] Verify: `timeout 150 cargo test -p ori_lexer` green
 
@@ -92,7 +97,7 @@ The `cook()` method (line 164) has a `_ =>` catch-all at line 252 that delegates
 
 **File(s):** `compiler/ori_lexer/src/keywords/tests.rs`
 
-Add a test that validates consistency between the `SOFT_KEYWORDS` table and the `could_be_soft_keyword()` pre-filter.
+Add a test that validates consistency between the `SOFT_KEYWORDS` table and the `could_be_soft_keyword()` pre-filter. This complements the existing literal-list prefilter tests in `compiler/ori_lexer/src/keywords/tests.rs`; the new guard should derive from the table itself so future keyword additions only need one source of truth.
 
 - [ ] Add test `test_soft_keyword_prefilter_consistency`:
   ```rust
@@ -110,7 +115,7 @@ Add a test that validates consistency between the `SOFT_KEYWORDS` table and the 
 
 - [ ] This test catches the scenario where a new soft keyword is added to `SOFT_KEYWORDS` with a length or first byte not covered by `could_be_soft_keyword()`'s pre-filter.
 
-- [ ] Note: `SOFT_KEYWORDS` is `pub(crate)` — accessible from tests. If not, make it `pub(crate)` or expose via a test helper.
+- [ ] Note: `SOFT_KEYWORDS` is currently private, but `compiler/ori_lexer/src/keywords/tests.rs` is a child module of `keywords`, so it can access the table directly without widening visibility.
 
 - [ ] Verify: `timeout 150 cargo test -p ori_lexer` green
 
@@ -140,7 +145,7 @@ Two identical functions exist:
 
 ## 04.N Completion Checklist
 
-- [ ] `cook()` either has exhaustive match or exhaustiveness enforcement test
+- [ ] `cook()` / `try_trivial()` routing has an explicit exhaustiveness guard derived from `RawTag::ALL`
 - [ ] Soft keyword sync guard test exists and passes
 - [ ] Single span helper function shared by cooker and driver
 - [ ] `timeout 150 cargo test -p ori_lexer` green (debug)
@@ -154,4 +159,4 @@ Two identical functions exist:
 - [ ] `/tpr-review` passed
 - [ ] `/impl-hygiene-review last commit` passed
 
-**Exit Criteria:** All three remaining findings resolved. Adding a new `RawTag` variant produces either a compile error or a test failure in the cooker. The `SOFT_KEYWORDS` table is guaranteed consistent with its pre-filter. No duplicate helper functions remain.
+**Exit Criteria:** All three remaining findings resolved. Adding a new `RawTag` variant produces an explicit guard failure (compile error or targeted drift-test failure) instead of silent fallthrough. The `SOFT_KEYWORDS` table is guaranteed consistent with its pre-filter. No duplicate helper functions remain.

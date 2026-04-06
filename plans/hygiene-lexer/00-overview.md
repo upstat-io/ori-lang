@@ -11,7 +11,7 @@ references:
 
 ## Mission
 
-Achieve cohesive, DRY architecture in `ori_lexer_core` and `ori_lexer` — where the cooker layer has five clusters of algorithmically-duplicated functions sharing identical control-flow skeletons, the scanner has six parallel operator functions that differ only in tag values, and a correctness bug in the identifier cache silently prevents soft keyword resolution. The standard is `.claude/rules/impl-hygiene.md`.
+Achieve cohesive, DRY architecture in `ori_lexer_core` and `ori_lexer` — where the cooker layer has four confirmed clusters of algorithmically-duplicated functions sharing identical control-flow skeletons, the scanner has six parallel operator functions that differ only in tag values, and a correctness bug in the identifier cache silently prevents soft keyword resolution. The standard is `.claude/rules/impl-hygiene.md`.
 
 ## Mission Success Criteria
 
@@ -19,7 +19,7 @@ Achieve cohesive, DRY architecture in `ori_lexer_core` and `ori_lexer` — where
 - [ ] Template cooking consolidated: 4 functions → 1 generic + 4 call sites
 - [ ] Unescape functions consolidated: shared scanning core with context-specific escapes
 - [ ] Integer cooking consolidated: 3 functions → 1 generic with radix parameter
-- [ ] Duration/size cooking consolidated: 2 cooking + 2 suffix detection functions → generics
+- [ ] Duration/size cooking consolidated: 2 cooking functions share one canonical implementation; suffix detection is only de-duplicated if the result is clearly simpler
 - [ ] Simple operator scanning consolidated: 6 functions → shared helper
 - [ ] `cook()` match is exhaustive (no `_ =>` catch-all for non-trivial tags)
 - [ ] Soft keyword sync guard test exists (SOFT_KEYWORDS ↔ could_be_soft_keyword consistency)
@@ -49,7 +49,7 @@ ori_lexer (depends on ori_lexer_core + ori_ir)
 │   ├── identifier.rs — ident cache [Section 01: cache bug]
 │   ├── escape_cooking.rs — [Section 02: consolidate 4 template fns]
 │   ├── numeric.rs   — [Section 02: consolidate 3 int fns]
-│   └── duration_size.rs — [Section 02: consolidate 2+2 fns]
+│   └── duration_size.rs — [Section 02: consolidate shared duration/size cooking logic]
 ├── cook_escape/     — escape processing
 │   └── mod.rs       — [Section 02: consolidate 2 unescape fns]
 ├── keywords/        — keyword lookup [Section 04: sync guard]
@@ -77,7 +77,8 @@ Section 01 (Bug Fix)
 ```
 
 - Section 01 is first: correctness fix before any refactoring.
-- Sections 02, 03, 04 are independent — can be worked in any order after 01.
+- Sections 02, 03, 04 are independent at the section boundary after 01.
+- Section 02 is intentionally multi-step work, not a single refactor blob: 02.1, 02.3, and 02.4 are individually landable, and 02.2 should be treated as its own review/commit boundary because it carries the highest behavior-drift risk.
 - Section 05 requires all others complete.
 
 ## Implementation Sequence
@@ -86,7 +87,7 @@ Section 01 (Bug Fix)
 Phase 0 - Bug Fix
   └─ Section 01: Fix soft keyword cache contamination + regression tests
 
-Phase 1 - Algorithmic DRY (independent, any order)
+Phase 1 - Algorithmic DRY (independent by section, but Section 02 lands in subsections)
   ├─ Section 02: Cooker layer consolidation (template, unescape, numeric, duration/size)
   ├─ Section 03: Scanner layer consolidation (simple operators)
   └─ Section 04: Drift/gap fixes (exhaustive match, sync guard, span dedup)
@@ -98,7 +99,7 @@ Phase 2 - Verification & Cleanup
 
 **Why this order:**
 - Phase 0 is a correctness fix — must land first and independently.
-- Phase 1 items are independent refactorings — no shared state or ordering constraints.
+- Phase 1 sections do not block each other, but Section 02 should not be implemented as one large batch; its subsections are meant to land separately, with 02.2 isolated behind its own review gate.
 - Phase 2 is verification — all code changes must be complete first.
 
 ## Metrics (Current State)
@@ -114,7 +115,7 @@ Phase 2 - Verification & Cleanup
 | Section | Est. Lines Changed | Complexity | Depends On |
 |---------|-------------------|------------|------------|
 | 01 Bug Fix | ~30 | Low | — |
-| 02 Cooker DRY | ~200 | Medium | 01 |
+| 02 Cooker DRY | ~250 | High | 01 |
 | 03 Scanner DRY | ~80 | Low | 01 |
 | 04 Drift/Gap | ~60 | Low | 01 |
 | 05 Cleanup | ~5 | Low | 01-04 |
@@ -124,7 +125,7 @@ Phase 2 - Verification & Cleanup
 
 | Bug | Root Cause | Fix Location | Status |
 |-----|-----------|-------------|--------|
-| BUG-01-001: Soft keyword cache contamination | IdentCache caches soft keyword text as Ident on first non-keyword use; cache hit bypasses soft keyword check | Section 01 | Not Started |
+| BUG-01-001: Soft keyword cache contamination | IdentCache caches soft keyword text as Ident on first non-keyword use; cache hit bypasses soft keyword check | Section 01 | Fixed |
 
 ## Quick Reference
 
