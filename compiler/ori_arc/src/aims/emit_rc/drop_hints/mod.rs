@@ -69,6 +69,15 @@ pub(crate) fn collect_borrowed_call_args(
                         }
                     }
                 }
+                // ApplyIndirect: use arg_ownership when populated, with
+                // conservative all-borrowed fallback for unannotated calls.
+                ArcInstr::ApplyIndirect {
+                    args,
+                    arg_ownership,
+                    ..
+                } => {
+                    insert_borrowed_from_ownership(args, arg_ownership, &mut borrowed);
+                }
                 ArcInstr::Let {
                     dst,
                     value: crate::ir::ArcValue::Var(src),
@@ -80,21 +89,30 @@ pub(crate) fn collect_borrowed_call_args(
             }
         }
 
-        // Scan terminator for Invoke with Borrowed args.
-        if let ArcTerminator::Invoke {
-            func: callee,
-            args,
-            arg_ownership,
-            ..
-        } = &block.terminator
-        {
-            if !is_safe_non_sharing_callee(*callee, contracts, builtins) {
-                for (i, &arg) in args.iter().enumerate() {
-                    if arg_ownership.get(i).copied() == Some(ArgOwnership::Borrowed) {
-                        borrowed.insert(arg);
+        // Scan terminator for Invoke/InvokeIndirect with Borrowed args.
+        match &block.terminator {
+            ArcTerminator::Invoke {
+                func: callee,
+                args,
+                arg_ownership,
+                ..
+            } => {
+                if !is_safe_non_sharing_callee(*callee, contracts, builtins) {
+                    for (i, &arg) in args.iter().enumerate() {
+                        if arg_ownership.get(i).copied() == Some(ArgOwnership::Borrowed) {
+                            borrowed.insert(arg);
+                        }
                     }
                 }
             }
+            ArcTerminator::InvokeIndirect {
+                args,
+                arg_ownership,
+                ..
+            } => {
+                insert_borrowed_from_ownership(args, arg_ownership, &mut borrowed);
+            }
+            _ => {}
         }
     }
 
@@ -124,6 +142,31 @@ pub(crate) fn collect_borrowed_call_args(
     borrowed
 }
 
+/// Insert borrowed args from ownership annotations, with conservative fallback.
+///
+/// When `arg_ownership` is populated, only args with `ArgOwnership::Borrowed`
+/// are inserted. When `arg_ownership` is empty (unannotated indirect call),
+/// ALL args are conservatively marked as borrowed to preserve safety in
+/// release builds where the `debug_assert!` in `arg_ownership/mod.rs` is stripped.
+fn insert_borrowed_from_ownership(
+    args: &[ArcVarId],
+    arg_ownership: &[ArgOwnership],
+    borrowed: &mut FxHashSet<ArcVarId>,
+) {
+    if arg_ownership.is_empty() {
+        // Fallback: unannotated indirect call — conservative all-borrowed.
+        for &arg in args {
+            borrowed.insert(arg);
+        }
+    } else {
+        for (i, &arg) in args.iter().enumerate() {
+            if arg_ownership.get(i).copied() == Some(ArgOwnership::Borrowed) {
+                borrowed.insert(arg);
+            }
+        }
+    }
+}
+
 /// Check if a callee is a user function proven to not share references.
 ///
 /// Returns `true` only for user-analyzed functions (not builtins) where
@@ -142,3 +185,6 @@ fn is_safe_non_sharing_callee(
     // For user functions: trust the contract's may_share flag.
     contracts.get(&callee).is_some_and(|c| !c.effects.may_share)
 }
+
+#[cfg(test)]
+mod tests;

@@ -136,6 +136,13 @@ pub(super) struct BuiltinCtx<'a> {
     pub arg_vals: &'a [ValueId],
     /// Type pool index of the receiver (for parametric type queries).
     pub receiver_ty: Idx,
+    /// Type pool index of the destination variable (return type of the method).
+    /// Used by niche-aware codegen (§07.2) to determine the result type's layout.
+    #[expect(
+        dead_code,
+        reason = "§07.2: consumed when niche monadic methods are implemented"
+    )]
+    pub dst_ty: Idx,
     /// Full type info (for extracting inner types, element types, etc.).
     pub type_info: &'a TypeInfo,
     /// Original ARC variable IDs (needed by iterator methods for `var_type` lookups).
@@ -263,6 +270,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         callee: Name,
         args: &[ArcVarId],
         arc_func: &ArcFunction,
+        dst_ty: Idx,
     ) -> Option<ValueId> {
         if args.is_empty() {
             return None;
@@ -280,6 +288,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 method: method_name,
                 arg_vals: &arg_vals,
                 receiver_ty,
+                dst_ty,
                 type_info: &type_info,
                 arc_args: args,
                 arc_func,
@@ -311,6 +320,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                         method: method_name,
                         arg_vals: &iter_args,
                         receiver_ty,
+                        dst_ty,
                         type_info: &iter_info,
                         arc_args: args,
                         arc_func,
