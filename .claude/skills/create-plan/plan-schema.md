@@ -754,11 +754,13 @@ third_party_review:
 - [ ] `ORI_CHECK_LEAKS=1` zero leaks (for memory-touching fixes)
 - [ ] `timeout 150 ./test-all.sh` green
 - [ ] `timeout 150 ./clippy-all.sh` green
+- [ ] `cargo test -p {affected_crate}` green
+- [ ] `/commit-push` — commit all changes before review
 - [ ] Bug entry updated: `- [x]` with resolution
 - [ ] Fix section status → `complete`
 - [ ] Bug-tracker overview open bug count updated
-- [ ] `/tpr-review` passed
-- [ ] `/impl-hygiene-review last commit` passed (AFTER TPR)
+- [ ] `/tpr-review` passed (critical/high: MANDATORY; medium: expected; low: recommended but not required)
+- [ ] `/impl-hygiene-review last commit` passed — AFTER TPR (critical/high: MANDATORY; medium: recommended; low: optional)
 
 **Exit Criteria:** {Measurable proof of completion with test names and commands.}
 ```

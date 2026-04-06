@@ -578,16 +578,16 @@ This applies to ALL skills: `/code-journey`, `/review-plan`, `/sync-spec`, etc.
 2. **Check for interference** — if your fix introduces NEW failures that weren't failing before, this is INTERFERENCE from another bug, not a "pre-existing issue." The correct response: revert your fix, fix the interfering bug first using `/fix-bug` (it's now a dependency — the interfering bug gets full plan-section rigor: root cause analysis, TDD matrix, TPR, hygiene review), then re-apply your fix. Never declare a bug fixed when the test suite has more failures than before your fix. Never rationalize the new failures as "pre-existing" — the interference made them your problem.
 3. **Verify matrix coverage** — if the fix is type-dependent or pattern-dependent, confirm that tests cover all relevant type x pattern combinations. Missing cells in the matrix are potential regressions. See `.claude/rules/tests.md` Matrix Testing Rule.
 4. **Check plan boundary integrity** — did this fix modify code referenced by another section's tasks? If yes, update that section's plan to reflect the change. No silent cross-section absorption.
-4. **Check formatting impact** — If syntax was added or changed:
+5. **Check formatting impact** — If syntax was added or changed:
    - Does the formatter handle the new syntax? Check `compiler/ori_fmt/`
    - Are formatting tests needed? Check/update `tests/spec/formatting/`
    - Run `./fmt-all.sh` to ensure formatter still works
-5. **Update section file** — Check off completed items with `[x]`
-6. **Update YAML frontmatter** — See "Updating Section File Frontmatter" below
-7. **Clean up plan annotations** — Run `.claude/skills/impl-hygiene-review/plan-annotations.sh --plan NN` (where NN is the section number) to find annotations in source code referencing the completed section. Remove all stale annotations (TPR-NN-XXX, CROSS-NN-XXX, BUG-NN-XX, §NN.X, Phase refs, etc.) from `.rs` files. Spec references (`Spec: Clause N.M`) are permanent and must NOT be removed. This is mandatory before marking a section complete.
-8. **Run `/commit-push`** — NEVER commit directly with `git commit`. Always use the `/commit-push` skill.
-9. **Run `/tpr-review` after section completion — MUST PASS CLEAN** — When ALL checkboxes in a section are checked and the section is about to be marked `complete`, run `/tpr-review` for an independent Codex review. **The TPR must come back completely clean before the section can be closed out.** If `/tpr-review` surfaces ANY findings: (1) triage them through Step 1.9 (TPR Triage Gate), (2) fix all accepted findings, (3) **re-run `/tpr-review`** to confirm clean. Repeat this cycle until the review passes with zero unresolved findings. A section CANNOT be marked `complete` until a clean `/tpr-review` pass is achieved — "all findings triaged" is not sufficient, the re-run must confirm they are actually resolved. **This rule is definitive and non-negotiable. Do not reason about whether a TPR pass is "close enough", whether remaining findings are "minor", or whether the section is "effectively complete". There is no judgement call — either the TPR is clean or the section stays open. No exceptions, no rationalizations, no shortcuts.**
-10. **Run `/impl-hygiene-review last commit` after TPR is clean — MUST PASS** — After `/tpr-review` passes clean, run `/impl-hygiene-review last commit` (or scope to the section's commits) for a deep hygiene sweep: phase boundaries, SSOT, algorithmic DRY, naming, file organization. If `/impl-hygiene-review` surfaces critical or major findings: fix them, re-run `/tpr-review` (since code changed), then re-run `/impl-hygiene-review`. **A section CANNOT be marked `complete` until both `/tpr-review` AND `/impl-hygiene-review` pass clean.** The hygiene review is the final quality gate — it catches plumbing-layer issues (leaked dispatch, scattered knowledge, algorithmic duplication) that TPR is not designed to detect. Same non-negotiable rule as TPR: clean or open, no middle ground.
+6. **Update section file** — Check off completed items with `[x]`
+7. **Update YAML frontmatter** — See "Updating Section File Frontmatter" below
+8. **Clean up plan annotations** — Run `.claude/skills/impl-hygiene-review/plan-annotations.sh --plan NN` (where NN is the section number) to find annotations in source code referencing the completed section. Remove all stale annotations (TPR-NN-XXX, CROSS-NN-XXX, BUG-NN-XX, §NN.X, Phase refs, etc.) from `.rs` files. Spec references (`Spec: Clause N.M`) are permanent and must NOT be removed. This is mandatory before marking a section complete.
+9. **Run `/commit-push`** — NEVER commit directly with `git commit`. Always use the `/commit-push` skill.
+10. **Run `/tpr-review` after section completion — MUST PASS CLEAN** — When ALL checkboxes in a section are checked and the section is about to be marked `complete`, run `/tpr-review` for an independent Codex review. **The TPR must come back completely clean before the section can be closed out.** If `/tpr-review` surfaces ANY findings: (1) triage them through Step 1.9 (TPR Triage Gate), (2) fix all accepted findings, (3) **re-run `/tpr-review`** to confirm clean. Repeat this cycle until the review passes with zero unresolved findings. A section CANNOT be marked `complete` until a clean `/tpr-review` pass is achieved — "all findings triaged" is not sufficient, the re-run must confirm they are actually resolved. **This rule is definitive and non-negotiable. Do not reason about whether a TPR pass is "close enough", whether remaining findings are "minor", or whether the section is "effectively complete". There is no judgement call — either the TPR is clean or the section stays open. No exceptions, no rationalizations, no shortcuts.**
+11. **Run `/impl-hygiene-review last commit` after TPR is clean — MUST PASS** — After `/tpr-review` passes clean, run `/impl-hygiene-review last commit` (or scope to the section's commits) for a deep hygiene sweep: phase boundaries, SSOT, algorithmic DRY, naming, file organization. If `/impl-hygiene-review` surfaces critical or major findings: fix them, re-run `/tpr-review` (since code changed), then re-run `/impl-hygiene-review`. **A section CANNOT be marked `complete` until both `/tpr-review` AND `/impl-hygiene-review` pass clean.** The hygiene review is the final quality gate — it catches plumbing-layer issues (leaked dispatch, scattered knowledge, algorithmic duplication) that TPR is not designed to detect. Same non-negotiable rule as TPR: clean or open, no middle ground.
 
 ---
 
@@ -599,23 +599,24 @@ When implementing a roadmap section, you WILL discover bugs — test failures, w
 
 ```
 Bug discovered during plan execution
-  ├── Is it directly blocking the current task?
-  │   ├── YES → Fix it NOW using /fix-bug
-  │   │         (creates fix section, TDD matrix, completion checklist)
-  │   │         The fix section lives in plans/bug-tracker/fix-BUG-XX-NNN.md
-  │   │         Resume plan work after /fix-bug completes
-  │   └── NO → File it with /add-bug for later
-  │             (minimal capture — repro, location, severity, source)
-  │             Continue plan work
   │
-  ├── Is it critical/high severity?
-  │   ├── CRITICAL → /fix-bug immediately, even if not directly blocking
-  │   │              Critical bugs compound — they will interfere with later work
-  │   └── HIGH → /add-bug now, /fix-bug when entering adjacent code
+  ├─ 1. Is it CRITICAL severity?
+  │     └── YES → /fix-bug immediately (even if not directly blocking)
+  │               Critical bugs compound — they will interfere with later work
   │
-  └── Is it medium/low severity?
-      └── /add-bug — file and continue
+  ├─ 2. Does it BLOCK the current task?
+  │     └── YES → /fix-bug NOW
+  │               Creates fix section, TDD matrix, completion checklist
+  │               Resume plan work after /fix-bug completes
+  │
+  ├─ 3. Is it HIGH severity?
+  │     └── /add-bug now (tracked), /fix-bug when entering adjacent code
+  │
+  └─ 4. MEDIUM or LOW severity?
+        └── /add-bug — file and continue
 ```
+
+**Evaluation order matters:** check critical first (always fix), then blocking (always fix), then high (file now, fix soon), then medium/low (file and continue).
 
 ### Key Rules
 
