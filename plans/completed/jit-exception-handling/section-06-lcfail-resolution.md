@@ -149,7 +149,7 @@ Type checker stores Unbound Vars that get `VarState::Generalized` during let-pol
 - [x] `timeout 150 ./test-all.sh` green — 14,809 passed, 0 failures, 0 regressions (LLVM spec crash is pre-existing BUG-04-030 Root Cause B) (2026-04-05)
 - [x] Debug AND release builds pass (`cargo b --release`) (2026-04-05)
 - [x] Multi-inst test passes both interpreter and LLVM: `let head = xs -> xs[0]; head([1,2,3]); head(["a","b","c"])` — dual-exec parity verified (2026-04-05)
-- [ ] Multi-inst tests in `tests/spec/inference/generalized_var_resolution.ori` pass through LLVM — still LCFail (9 codegen errors from unresolved `len` dispatch, `assert_eq` invoke). No longer CRASHES (06.8 complete). Remaining LCFails are from missing codegen features, not 06.8 issues. <!-- blocked-by:BUG-04-030 -->
+- [ ] Multi-inst tests in `tests/spec/inference/generalized_var_resolution.ori` pass through LLVM — still LCFail (9 codegen errors from unresolved `len` dispatch, `assert_eq` invoke). No longer CRASHES (06.8 complete). Re-verified 2026-04-06: BUG-04-030 root causes all fixed (OBE); remaining LCFails are from LLVM codegen's inability to monomorphize imported generic stdlib functions — tracked as general codegen maturity in roadmap Section 21A. <!-- blocked-by:BUG-04-042 -->
 - [x] Existing `test_multi_inst_tuple_lambda` and `test_multi_inst_map_lambda` AOT tests still pass — all 5 multi-inst AOT tests pass (2026-04-05)
 - [x] `ORI_CHECK_LEAKS=1` clean on multi-inst test programs (2026-04-05)
 - [x] `./clippy-all.sh` passes (2026-04-05)

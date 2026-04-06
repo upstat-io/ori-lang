@@ -265,6 +265,12 @@ Bugs in LLVM IR generation, JIT/AOT compilation, monomorphization, ARC pipeline 
   Subsystem: `compiler/oric/src/commands/codegen_pipeline.rs`
   Found: 2026-04-06 | Source: tpr-review (TPR-04-002 from BUG-04-039 fix)
 
+- [ ] `[BUG-04-042][medium]` **LLVM codegen: polymorphic lambda presence causes unresolved type variable for imported generics (assert_eq)** — found by continue-roadmap.
+  Repro: `timeout 150 cargo run --bin ori -- test --backend=llvm tests/spec/expressions/lambda_mono.ori` → `Idx(241)` unresolved type variable, 17 LCFails. Other files using `assert_eq` (e.g., `integer_safety.ori`) pass 30/30 through LLVM. The issue is specific to files containing polymorphic lambda definitions — the lambda's Scheme/BoundVar types bleed into the codegen context and prevent `assert_eq<T: Eq + Debug>` monomorphization. Related: BUG-04-011 (resolved for primitives), BUG-04-040 (path-dependent misdiagnosis noting this gap).
+  Subsystem: `compiler/ori_llvm/src/codegen/type_info/store.rs`, `compiler/ori_llvm/src/codegen/function_compiler/lambda_mono/`
+  Found: 2026-04-06 | Source: continue-roadmap (JIT EH plan closure verification)
+  Note: Blocks JIT EH plan items 04B.N L238, 05.R TPR-05-003, 06.2 L152. Active work in roadmap Section 21A touches this area.
+
 ---
 
 ## 04.R Third Party Review Findings
