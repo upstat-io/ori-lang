@@ -246,6 +246,51 @@ fn test_iter_join_str() {
 }
 
 // -----------------------------------------------------------------------
+// join consumer — non-string elements (to_str trampoline)
+// Regression: BUG-04-039 — missing to_str_fn trampoline caused SIGSEGV
+// -----------------------------------------------------------------------
+
+#[test]
+fn test_iter_join_int() {
+    assert_aot_success(
+        include_str!("fixtures/iterators/iter_join_int.ori"),
+        "iter_join_int",
+    );
+}
+
+#[test]
+fn test_iter_join_float() {
+    assert_aot_success(
+        include_str!("fixtures/iterators/iter_join_float.ori"),
+        "iter_join_float",
+    );
+}
+
+#[test]
+fn test_iter_join_bool() {
+    assert_aot_success(
+        include_str!("fixtures/iterators/iter_join_bool.ori"),
+        "iter_join_bool",
+    );
+}
+
+#[test]
+fn test_iter_join_single_int() {
+    assert_aot_success(
+        include_str!("fixtures/iterators/iter_join_single_int.ori"),
+        "iter_join_single_int",
+    );
+}
+
+#[test]
+fn test_iter_join_int_after_map() {
+    assert_aot_success(
+        include_str!("fixtures/iterators/iter_join_int_after_map.ori"),
+        "iter_join_int_after_map",
+    );
+}
+
+// -----------------------------------------------------------------------
 // zip adapter
 // -----------------------------------------------------------------------
 

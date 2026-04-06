@@ -254,12 +254,9 @@ Bugs in LLVM IR generation, JIT/AOT compilation, monomorphization, ARC pipeline 
   Subsystem: `compiler/ori_llvm/src/aot/incremental/hash/tests.rs:80`
   Found: 2026-04-06 | Source: continue-roadmap (pre-commit hook failure during hygiene-lexer work)
 
-- [ ] `[BUG-04-039][high]` **LLVM codegen: `join` on non-string iterators crashes (missing `to_str_fn` trampoline)** — found by continue-roadmap.
-  Repro: `[1, 2, 3].iter().join(separator: ", ")` via `ori test --backend=llvm` — SIGSEGV from reading 1-byte elem as 24-byte OriStr.
-  `emit_iter_join` unconditionally passes `null` for `to_str_fn` and uses `elem_ty` store size (wrong for non-str). Needs: (1) detect non-str elem_ty, (2) generate `to_str` trampoline closure, (3) pass correct elem_size for the source element type.
-  Subsystem: `compiler/ori_llvm/src/codegen/arc_emitter/builtins/iterator_consumers.rs:emit_iter_join`
-  Found: 2026-04-06 | Source: continue-roadmap (jit-exception-handling §06.8)
-  Note: String-only join works correctly in ISOLATION after SSO fix (verified `/tmp/test_join_str.ori` passes 1/1 via JIT). However, `tests/spec/traits/iterator/join.ori` fails all 8 tests because non-string join tests in the same file produce codegen errors that poison the entire JIT module (module-level codegen error check prevents execution of ANY tests in the file). Fix needs: (1) to_str trampoline for non-string elements, OR (2) per-function error isolation in JIT mode.
+- [x] `[BUG-04-039][high]` **LLVM codegen: `join` on non-string iterators crashes (missing `to_str_fn` trampoline)** — found by continue-roadmap.
+  Resolved: 2026-04-06. Generated `to_str` trampoline in `emit_iter_join` that calls `ori_str_from_int/float/bool/char` for primitive element types. Supports int, float, bool, char, byte, Duration, Size, Ordering. Non-primitive types (structs, closures) still produce a codegen error — future work.
+  Fix: `plans/bug-tracker/fix-BUG-04-039.md` | 5 AOT tests added (`iter_join_int/float/bool/single_int/int_after_map`)
 
 - [ ] `[BUG-04-040][medium]` **LLVM JIT spec test runner: path-dependent compilation context causes spurious LCFails** — found by tpr-review.
   Repro: Create a minimal file via heredoc (works in both bash and zsh):
