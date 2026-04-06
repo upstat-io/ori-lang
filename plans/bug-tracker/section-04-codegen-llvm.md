@@ -226,6 +226,11 @@ Bugs in LLVM IR generation, JIT/AOT compilation, monomorphization, ARC pipeline 
   Found: 2026-04-04 | Source: manual (Rosetta Code task implementation)
   Note: Active work in roadmap section 15B (function clauses) and section 09 (match/patterns) touches this area. Multi-clause lowering in `ori_canon` works correctly; the bug is in LLVM IR emission from the lowered match tree.
 
+- [ ] `[BUG-04-034][low]` **Flaky test: `test_source_hasher_caching` fails intermittently on temp file race** — found by continue-roadmap.
+  Repro: `cargo test -p ori_llvm test_source_hasher_caching` — intermittent failure: `IoError { path: "/tmp/ori_hash_test_*.ori", message: "No such file or directory" }`. Race condition: temp file at `/tmp/ori_hash_test_*.ori` is cleaned up by OS or concurrent test before `SourceHasher` reads it.
+  Subsystem: `compiler/ori_llvm/src/aot/incremental/hash/tests.rs:80`
+  Found: 2026-04-06 | Source: continue-roadmap (pre-commit hook failure during hygiene-lexer work)
+
 ---
 
 ## 04.R Third Party Review Findings
