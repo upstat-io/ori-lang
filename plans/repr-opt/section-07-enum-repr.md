@@ -312,26 +312,24 @@ A "niche" is an invalid bit pattern in a type. If an enum variant's payload has 
 **§07.2 Tests (TDD — write BEFORE implementation, verify they fail):**
 
 - [x] **Rust unit tests** (`compiler/ori_repr/src/layout/tests.rs`): 22 niche tests covering all `find_niches` types (Bool/254, Ordering/253, Char/0x110000, Str/null-ptr, RcPointer/null, Byte/empty, Int/empty, Float/empty, Unit/empty, List/empty), `find_enum_niches` (4-variant i8 → 252), `optimize_option_repr` semantic pins (Bool→1 byte, Ordering→1 byte, Char→4 bytes, Str→24 bytes, RcPointer→8 bytes), negative pins (Int→explicit, List→explicit), nested niche (Option<Option<Bool>>→1 byte with niche 3), and `optimize_result_repr` (Bool×Ordering→niche, Int×Int→explicit). Also 3 new `TagEncoding` tests for `niche_variant_idx: 0`. All pass. (2026-03-31)
-- [ ] **Ori spec tests** (`tests/spec/types/enum/niche/`):
-  - `option_bool.ori`: `Some(true)`, `Some(false)`, `None` match correctly; roundtrip through list and back
-  - `option_ordering.ori`: all four values (`Some(Less)`, `Some(Equal)`, `Some(Greater)`, `None`) match correctly
+- [x] **Ori spec tests** (`tests/spec/types/enum/niche/`): 8 test files, 62 tests total, all passing via interpreter. (2026-04-06)
+  - `option_bool.ori`: `Some(true)`, `Some(false)`, `None` match correctly; roundtrip through list, distinctness, predicates, unwrap_or
+  - `option_ordering.ori`: all four values (`Some(Less)`, `Some(Equal)`, `Some(Greater)`, `None`) match correctly; all distinct
   - `option_char.ori`: `Some('a')`, `Some('\u{10FFFF}')`, `None` match correctly (boundary: last valid Unicode)
-  - `option_str.ori`: `Some("hello")`, `Some("")`, `None` match correctly (empty string uses SSO, not null ptr)
-  - `option_list.ori`: `Some([1,2])`, `Some([])`, `None` all distinct (negative pin: no niche)
-  - `option_option_bool.ori`: all four values of `Option<Option<bool>>` are distinct
-  - `result_niche.ori`: `Result<bool, Ordering>` match with all variant combinations
-  - `niche_rc.ori`: `Option<str>` created in loop, verify no leaks (RC correctness with niche encoding)
-  - Cross-feature: `for x in [Some("a"), None, Some("b")] yield match x { Some(s) -> s, None -> "" }` = `["a", "", "b"]`
-  - Cross-feature: `?` on niche-encoded `Result<str, Error>` in closure
-  - Cross-feature: closure capturing `Option<bool>`, pattern match inside closure body
-- [ ] **AOT tests** (`compiler/ori_llvm/tests/aot/enum_niche.rs`):
+  - `option_str.ori`: `Some("hello")`, `Some("")`, `None` match correctly (empty string uses SSO, not null ptr); `Some("") != None` pin; map
+  - `option_list.ori`: `Some([1,2])`, `Some([])`, `None` all distinct (negative pin: no niche — uses len-based verification)
+  - `option_option_bool.ori`: all four values of `Option<Option<bool>>` are distinct; nested match
+  - `result_niche.ori`: `Result<bool, Ordering>` match with all 5 variant combinations; is_ok/is_err
+  - `niche_rc.ori`: `Option<str>` created in loop (RC correctness); shared references; None clone; list of mixed Some/None
+  - `niche_cross_feature.ori`: for...yield+match, closure capture Option<bool>, Option.map chaining, filter, and_then, `?` on Result<str, Error>
+- [ ] **AOT tests** (`compiler/ori_llvm/tests/aot/enum_niche.rs`): <!-- blocked-by:NICHE_CODEGEN_READY gate (07.5 §ori_rt tag narrowing + 8 codegen consumers) -->
   - LLVM IR inspection: `Option<bool>` compiles to `i8` (not `{ i8, i8 }`)
   - LLVM IR inspection: `Option<str>` compiles to `%ori.str` (not `{ i8, %ori.str }`)
   - LLVM IR inspection: `Option<[int]>` still has explicit tag (negative pin)
   - RC inc/dec for `Option<str>` includes null-ptr check before `ori_str_rc_inc`
-- [ ] **Dual-execution parity**: every Ori spec test must produce identical output in interpreter and LLVM
-- [ ] **Leak check**: `ORI_CHECK_LEAKS=1` on all niche spec tests (critical — niche encoding changes RC paths)
-- [ ] **Valgrind**: `./diagnostics/valgrind-aot.sh` on niche-related tests (niche encoding is a memory-safety-sensitive change)
+- [ ] **Dual-execution parity**: every Ori spec test must produce identical output in interpreter and LLVM <!-- blocked-by:NICHE_CODEGEN_READY gate -->
+- [ ] **Leak check**: `ORI_CHECK_LEAKS=1` on all niche spec tests (critical — niche encoding changes RC paths) <!-- blocked-by:NICHE_CODEGEN_READY gate -->
+- [ ] **Valgrind**: `./diagnostics/valgrind-aot.sh` on niche-related tests (niche encoding is a memory-safety-sensitive change) <!-- blocked-by:NICHE_CODEGEN_READY gate -->
 
 ---
 

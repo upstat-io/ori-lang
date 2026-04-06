@@ -1,0 +1,85 @@
+// Spec: §07.2 Niche Filling — Option<Ordering> niche optimization
+// Regression: repr-opt section-07 — niche-encoded Option<Ordering> match correctness
+// When niche optimization is active, Option<Ordering> is 1 byte:
+//   Some(Less)=0, Some(Equal)=1, Some(Greater)=2, None=3
+
+use std.testing { assert_eq }
+
+@test_option_ordering_some_less tests @option_ordering_some_less () -> void = {
+    assert_eq(actual: option_ordering_some_less(), expected: "Less")
+}
+
+@option_ordering_some_less () -> str = {
+    let $x: Option<Ordering> = Some(Less);
+    match x {
+        Some(v) -> match v {
+            Less -> "Less",
+            Equal -> "Equal",
+            Greater -> "Greater"
+        },
+        None -> "None"
+    }
+}
+
+@test_option_ordering_some_equal tests @option_ordering_some_equal () -> void = {
+    assert_eq(actual: option_ordering_some_equal(), expected: "Equal")
+}
+
+@option_ordering_some_equal () -> str = {
+    let $x: Option<Ordering> = Some(Equal);
+    match x {
+        Some(v) -> match v {
+            Less -> "Less",
+            Equal -> "Equal",
+            Greater -> "Greater"
+        },
+        None -> "None"
+    }
+}
+
+@test_option_ordering_some_greater tests @option_ordering_some_greater () -> void = {
+    assert_eq(actual: option_ordering_some_greater(), expected: "Greater")
+}
+
+@option_ordering_some_greater () -> str = {
+    let $x: Option<Ordering> = Some(Greater);
+    match x {
+        Some(v) -> match v {
+            Less -> "Less",
+            Equal -> "Equal",
+            Greater -> "Greater"
+        },
+        None -> "None"
+    }
+}
+
+@test_option_ordering_none tests @option_ordering_none () -> void = {
+    assert_eq(actual: option_ordering_none(), expected: "None")
+}
+
+@option_ordering_none () -> str = {
+    let $x: Option<Ordering> = None;
+    match x {
+        Some(_) -> "Some",
+        None -> "None"
+    }
+}
+
+// === All four values are distinct ===
+
+@test_option_ordering_all_distinct tests @option_ordering_all_distinct () -> void = {
+    assert_eq(actual: option_ordering_all_distinct(), expected: true)
+}
+
+@option_ordering_all_distinct () -> bool = {
+    let $values: [Option<Ordering>] = [Some(Less), Some(Equal), Some(Greater), None];
+    let $count = values.len();
+    // All 4 values exist and are distinct
+    count == 4
+        && values[0] != values[1]
+        && values[0] != values[2]
+        && values[0] != values[3]
+        && values[1] != values[2]
+        && values[1] != values[3]
+        && values[2] != values[3]
+}

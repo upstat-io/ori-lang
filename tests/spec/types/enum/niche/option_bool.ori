@@ -1,0 +1,98 @@
+// Spec: §07.2 Niche Filling — Option<bool> niche optimization
+// Regression: repr-opt section-07 — niche-encoded Option<bool> match correctness
+// When niche optimization is active, Option<bool> is 1 byte:
+//   Some(true)=1, Some(false)=0, None=2
+// These tests verify behavioral correctness regardless of layout.
+
+use std.testing { assert_eq }
+
+// === Basic match ===
+
+@test_option_bool_some_true tests @option_bool_some_true () -> void = {
+    assert_eq(actual: option_bool_some_true(), expected: "true")
+}
+
+@option_bool_some_true () -> str = {
+    let $x: Option<bool> = Some(true);
+    match x {
+        Some(v) -> `{v}`,
+        None -> "none"
+    }
+}
+
+@test_option_bool_some_false tests @option_bool_some_false () -> void = {
+    assert_eq(actual: option_bool_some_false(), expected: "false")
+}
+
+@option_bool_some_false () -> str = {
+    let $x: Option<bool> = Some(false);
+    match x {
+        Some(v) -> `{v}`,
+        None -> "none"
+    }
+}
+
+@test_option_bool_none tests @option_bool_none () -> void = {
+    assert_eq(actual: option_bool_none(), expected: "none")
+}
+
+@option_bool_none () -> str = {
+    let $x: Option<bool> = None;
+    match x {
+        Some(v) -> `{v}`,
+        None -> "none"
+    }
+}
+
+// === Roundtrip through list ===
+
+@test_option_bool_list_roundtrip tests @option_bool_list_roundtrip () -> void = {
+    assert_eq(actual: option_bool_list_roundtrip(), expected: 3)
+}
+
+@option_bool_list_roundtrip () -> int = {
+    let $items: [Option<bool>] = [Some(true), Some(false), None];
+    let $results = for x in items yield match x {
+        Some(v) -> if v then 1 else 0,
+        None -> -1
+    };
+    results.len()
+}
+
+// === Semantic pin: all three values are distinct ===
+
+@test_option_bool_distinct tests @option_bool_distinct () -> void = {
+    assert_eq(actual: option_bool_distinct(), expected: true)
+}
+
+@option_bool_distinct () -> bool = {
+    let $a: Option<bool> = Some(true);
+    let $b: Option<bool> = Some(false);
+    let $c: Option<bool> = None;
+    a != b && b != c && a != c
+}
+
+// === is_some / is_none ===
+
+@test_option_bool_predicates tests @option_bool_predicates () -> void = {
+    assert_eq(actual: option_bool_predicates(), expected: true)
+}
+
+@option_bool_predicates () -> bool = {
+    let $some_t: Option<bool> = Some(true);
+    let $some_f: Option<bool> = Some(false);
+    let $none: Option<bool> = None;
+    is_some(option: some_t) && is_some(option: some_f) && is_none(option: none)
+}
+
+// === unwrap_or ===
+
+@test_option_bool_unwrap tests @option_bool_unwrap () -> void = {
+    assert_eq(actual: option_bool_unwrap(), expected: true)
+}
+
+@option_bool_unwrap () -> bool = {
+    let $some_val: Option<bool> = Some(true);
+    let $none_val: Option<bool> = None;
+    some_val.unwrap_or(default: false) && !none_val.unwrap_or(default: false)
+}

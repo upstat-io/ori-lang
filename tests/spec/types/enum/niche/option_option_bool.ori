@@ -1,0 +1,81 @@
+// Spec: §07.2 Niche Filling — Option<Option<bool>> nested niche
+// Regression: repr-opt section-07 — nested niche-encoded types
+// When niche optimization is active, Option<Option<bool>> is 1 byte:
+//   Some(Some(true))=1, Some(Some(false))=0, Some(None)=2, None=3
+// All four values must be distinct.
+
+use std.testing { assert_eq }
+
+@test_nested_some_some_true tests @nested_some_some_true () -> void = {
+    assert_eq(actual: nested_some_some_true(), expected: "true")
+}
+
+@nested_some_some_true () -> str = {
+    let $x: Option<Option<bool>> = Some(Some(true));
+    match x {
+        Some(inner) -> match inner {
+            Some(v) -> `{v}`,
+            None -> "inner_none"
+        },
+        None -> "outer_none"
+    }
+}
+
+@test_nested_some_some_false tests @nested_some_some_false () -> void = {
+    assert_eq(actual: nested_some_some_false(), expected: "false")
+}
+
+@nested_some_some_false () -> str = {
+    let $x: Option<Option<bool>> = Some(Some(false));
+    match x {
+        Some(inner) -> match inner {
+            Some(v) -> `{v}`,
+            None -> "inner_none"
+        },
+        None -> "outer_none"
+    }
+}
+
+@test_nested_some_none tests @nested_some_none () -> void = {
+    assert_eq(actual: nested_some_none(), expected: "inner_none")
+}
+
+@nested_some_none () -> str = {
+    let $x: Option<Option<bool>> = Some(None);
+    match x {
+        Some(inner) -> match inner {
+            Some(v) -> `{v}`,
+            None -> "inner_none"
+        },
+        None -> "outer_none"
+    }
+}
+
+@test_nested_none tests @nested_none () -> void = {
+    assert_eq(actual: nested_none(), expected: "outer_none")
+}
+
+@nested_none () -> str = {
+    let $x: Option<Option<bool>> = None;
+    match x {
+        Some(inner) -> match inner {
+            Some(v) -> `{v}`,
+            None -> "inner_none"
+        },
+        None -> "outer_none"
+    }
+}
+
+// === All four values are distinct ===
+
+@test_nested_all_distinct tests @nested_all_distinct () -> void = {
+    assert_eq(actual: nested_all_distinct(), expected: true)
+}
+
+@nested_all_distinct () -> bool = {
+    let $a: Option<Option<bool>> = Some(Some(true));
+    let $b: Option<Option<bool>> = Some(Some(false));
+    let $c: Option<Option<bool>> = Some(None);
+    let $d: Option<Option<bool>> = None;
+    a != b && a != c && a != d && b != c && b != d && c != d
+}
