@@ -132,7 +132,7 @@ Phase 2 - Verification & Cleanup
 | ID | Title | File | Status |
 |----|-------|------|--------|
 | 01 | Bug Fix — Soft Keyword Cache | `section-01-soft-keyword-bug.md` | Complete |
-| 02 | Cooker Layer Algorithmic DRY | `section-02-cooker-dry.md` | Not Started |
+| 02 | Cooker Layer Algorithmic DRY | `section-02-cooker-dry.md` | In Progress |
 | 03 | Scanner Layer Algorithmic DRY | `section-03-scanner-dry.md` | Not Started |
 | 04 | Drift, Gap & Polish | `section-04-drift-gap-polish.md` | Not Started |
 | 05 | Cleanup | `section-05-cleanup.md` | Not Started |
