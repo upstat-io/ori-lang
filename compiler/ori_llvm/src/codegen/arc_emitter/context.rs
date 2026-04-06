@@ -256,8 +256,9 @@ pub struct CodegenContext {
     pub non_capturing_lambdas: FxHashSet<Name>,
     /// Per-lambda capture ownership: which captures are borrowed vs owned.
     ///
-    /// When a lambda borrows a capture parameter, the closure's env drop
-    /// function must NOT RC-dec that capture — the caller retains ownership.
+    /// When a lambda borrows a capture parameter, the closure's wrapper
+    /// function skips `RcInc` for borrowed captures — the lambda body
+    /// borrows from the env rather than getting its own reference.
     /// Maps lambda `Name` → ownership of each capture param (indexed by
     /// position in the `PartialApply` args list).
     pub lambda_capture_ownership: FxHashMap<Name, Vec<Ownership>>,

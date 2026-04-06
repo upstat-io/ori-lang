@@ -310,6 +310,7 @@ fn apply_indirect_not_detected() {
             ty: Idx::INT,
             closure: v(0),
             args: vec![],
+            arg_ownership: vec![],
         }],
         terminator: ArcTerminator::Return { value: v(1) },
     }];

@@ -20,11 +20,10 @@
 mod function;
 mod instr;
 mod repr;
+mod terminator;
 
 pub use instr::ArcInstr;
 pub use repr::{compute_var_reprs, RcStrategy, ValueRepr};
-
-use smallvec::{smallvec, SmallVec};
 
 use ori_ir::{BinaryOp, DurationUnit, Name, SizeUnit, Span, UnaryOp};
 use ori_types::Idx;
@@ -278,6 +277,12 @@ pub enum ArcTerminator {
         ty: Idx,
         closure: ArcVarId,
         args: Vec<ArcVarId>,
+        /// Per-argument ownership at this indirect invoke site.
+        /// Parallel to `args`: `arg_ownership[i]` describes `args[i]`.
+        /// Empty before annotation; populated by RC insertion (Section 02).
+        /// Unlike `Invoke`, empty defaults to all-Borrowed (conservative for
+        /// unknown callees — caller retains cleanup responsibility).
+        arg_ownership: Vec<ArgOwnership>,
         normal: ArcBlockId,
         unwind: ArcBlockId,
     },
@@ -287,84 +292,6 @@ pub enum ArcTerminator {
 
     /// Marks a block as unreachable (e.g., after exhaustive match).
     Unreachable,
-}
-
-impl ArcTerminator {
-    /// Returns all variables read (used) by this terminator.
-    ///
-    /// - `Return` uses the returned value.
-    /// - `Jump` uses its arguments (passed to the target block's params).
-    /// - `Branch` uses the condition variable.
-    /// - `Switch` uses the scrutinee.
-    /// - `Invoke` uses its arguments (the `dst` is a definition in the
-    ///   normal successor, not a use here).
-    /// - `Resume` / `Unreachable` use nothing.
-    ///
-    /// Returns `SmallVec<[ArcVarId; 4]>` to avoid heap allocation for the
-    /// common case (max 1-3 variables per terminator, except large Jump/Invoke).
-    pub fn used_vars(&self) -> SmallVec<[ArcVarId; 4]> {
-        match self {
-            ArcTerminator::Return { value } => smallvec![*value],
-            ArcTerminator::Jump { args, .. } | ArcTerminator::Invoke { args, .. } => {
-                SmallVec::from_slice(args)
-            }
-            ArcTerminator::InvokeIndirect { closure, args, .. } => {
-                let mut vars = SmallVec::from_slice(args);
-                vars.push(*closure);
-                vars
-            }
-            ArcTerminator::Branch { cond, .. } => smallvec![*cond],
-            ArcTerminator::Switch { scrutinee, .. } => smallvec![*scrutinee],
-            ArcTerminator::Resume | ArcTerminator::Unreachable => SmallVec::new(),
-        }
-    }
-
-    /// Check whether this terminator reads (uses) a specific variable.
-    ///
-    /// Zero-allocation alternative to `used_vars().contains(&var)`.
-    pub fn uses_var(&self, target: ArcVarId) -> bool {
-        match self {
-            ArcTerminator::Return { value } => *value == target,
-            ArcTerminator::Jump { args, .. } | ArcTerminator::Invoke { args, .. } => {
-                args.contains(&target)
-            }
-            ArcTerminator::InvokeIndirect { closure, args, .. } => {
-                *closure == target || args.contains(&target)
-            }
-            ArcTerminator::Branch { cond, .. } => *cond == target,
-            ArcTerminator::Switch { scrutinee, .. } => *scrutinee == target,
-            ArcTerminator::Resume | ArcTerminator::Unreachable => false,
-        }
-    }
-
-    /// Replace all occurrences of `old` with `new` in variable positions.
-    ///
-    /// Used by constructor reuse expansion to substitute `reuse_dst → reset_var`
-    /// on the fast path, where the result IS the original object.
-    pub fn substitute_var(&mut self, old: ArcVarId, new: ArcVarId) {
-        fn sub(v: &mut ArcVarId, old: ArcVarId, new: ArcVarId) {
-            if *v == old {
-                *v = new;
-            }
-        }
-        match self {
-            ArcTerminator::Return { value } => sub(value, old, new),
-            ArcTerminator::Jump { args, .. } | ArcTerminator::Invoke { args, .. } => {
-                for a in args {
-                    sub(a, old, new);
-                }
-            }
-            ArcTerminator::InvokeIndirect { closure, args, .. } => {
-                sub(closure, old, new);
-                for a in args {
-                    sub(a, old, new);
-                }
-            }
-            ArcTerminator::Branch { cond, .. } => sub(cond, old, new),
-            ArcTerminator::Switch { scrutinee, .. } => sub(scrutinee, old, new),
-            ArcTerminator::Resume | ArcTerminator::Unreachable => {}
-        }
-    }
 }
 
 // Blocks
@@ -385,6 +312,30 @@ pub struct ArcBlock {
     pub body: Vec<ArcInstr>,
     /// How control leaves this block.
     pub terminator: ArcTerminator,
+}
+
+impl ArcBlock {
+    /// Check whether a variable is defined in this block.
+    ///
+    /// A variable is "defined in block" if it's a block param, an instruction
+    /// destination, or an Invoke/InvokeIndirect result (which defines `dst`
+    /// in the normal successor). Used by RC emission to route edge decs.
+    pub fn defines_var(&self, var: ArcVarId) -> bool {
+        if self.params.iter().any(|&(p, _)| p == var) {
+            return true;
+        }
+        for instr in &self.body {
+            if instr.defined_var() == Some(var) {
+                return true;
+            }
+        }
+        match &self.terminator {
+            ArcTerminator::Invoke { dst, .. } | ArcTerminator::InvokeIndirect { dst, .. } => {
+                *dst == var
+            }
+            _ => false,
+        }
+    }
 }
 
 // Functions

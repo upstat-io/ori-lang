@@ -54,7 +54,9 @@ pub(crate) fn add_invoke_unwind_cleanup(func: &mut ArcFunction, interner: &ori_i
             }
         }
 
-        if let ArcTerminator::Invoke { unwind, normal, .. } = &block.terminator {
+        if let ArcTerminator::Invoke { unwind, normal, .. }
+        | ArcTerminator::InvokeIndirect { unwind, normal, .. } = &block.terminator
+        {
             let unwind_idx = unwind.index();
             if unwind_idx < func.blocks.len()
                 && func.blocks[unwind_idx].terminator == ArcTerminator::Resume
@@ -163,3 +165,6 @@ fn can_reach(successors: &[Vec<usize>], from: usize, to: usize) -> bool {
     }
     false
 }
+
+#[cfg(test)]
+mod tests;
