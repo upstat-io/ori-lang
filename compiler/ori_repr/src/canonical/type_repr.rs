@@ -188,12 +188,22 @@ pub(super) fn canonical_enum(
     let max_variant_align = variants.iter().map(|v| v.alignment).max().unwrap_or(1);
     let (size, align) = compute_explicit_tag_layout(tag_width, max_payload, max_variant_align);
 
-    Some(MachineRepr::Enum(EnumRepr {
+    let candidate = EnumRepr {
         tag: EnumTag::Explicit { width: tag_width },
         variants,
         size,
         align,
-    }))
+    };
+
+    // §07.3 analysis layer — invoked unconditionally so the symbol is reachable.
+    // Codegen integration (07.3.A) will replace `Explicit` with `TaggedPtr` when
+    // the gate is enabled and `tagged_ptr_eligible` is true.
+    let tagged_ptr_eligible = crate::layout::tagged_ptr::can_use_tagged_pointer(&candidate);
+    if TAGGED_PTR_CODEGEN_READY && tagged_ptr_eligible {
+        // 07.3.A wiring will go here.
+    }
+
+    Some(MachineRepr::Enum(candidate))
 }
 
 /// Niche codegen gate: niche filling for Option/Result.
@@ -212,6 +222,24 @@ pub(super) fn canonical_enum(
 /// must use the payload type directly (not wrap it) so that niche field
 /// indices map correctly to LLVM struct field indices.
 const NICHE_CODEGEN_READY: bool = false;
+
+/// Feature gate: enable tagged pointer optimization for eligible enums.
+///
+/// When `true`, [`canonical_enum`] applies tagged pointer encoding to enums
+/// where every variant is either unit or carries a single single-word pointer
+/// (≤8 variants). The encoding stores the discriminant in the low 3 bits of
+/// the pointer, eliminating the explicit tag field.
+///
+/// Disabled until §07.3.A wires the codegen consumers:
+/// - `EnumTag::TaggedPtr` variant in `enum_repr.rs`
+/// - `optimize_tagged_ptr_repr()` constructor
+/// - LLVM `tag_access.rs` encoder/decoder
+/// - Pattern matching, RC, drop, ABI, layout resolver consumers
+///
+/// The analysis layer ([`crate::layout::tagged_ptr::can_use_tagged_pointer`])
+/// is always invoked so the function symbol is reachable, but its result is
+/// discarded while the gate is disabled.
+const TAGGED_PTR_CODEGEN_READY: bool = false;
 
 /// Build canonical `Option<T>` as a 2-variant enum: None (unit) + Some(T).
 ///
