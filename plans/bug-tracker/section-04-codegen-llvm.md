@@ -238,12 +238,11 @@ Bugs in LLVM IR generation, JIT/AOT compilation, monomorphization, ARC pipeline 
   Found: 2026-04-04 | Source: continue-roadmap (TPR-04B-014 test matrix writing)
   Note: Active work in JIT EH plan Section 04B touches this area.
 
-- [ ] `[BUG-04-036][high]` **Curried lambda + list concat COW double-free in AOT** — found by continue-roadmap.
+- [x] `[BUG-04-036][high]` **Curried lambda + list concat COW double-free in AOT** — found by continue-roadmap.
   Repro: `let $app = a -> b -> a + b; app([1,2,3])([4,5,6])` compiled with `ori build`, then run the binary → SIGSEGV (exit -139). Direct `[1,2,3] + [4,5,6]` (non-lambda) works. JIT path also works.
-  Root cause: `ori_list_concat_cow` with `cow_mode=0` (dynamic uniqueness check) consumes the unique input list (frees via `dec_consumed_list2`), but the caller (`_ori_main`) still emits `ori_buffer_rc_dec` on the same data pointer. This is an RC ownership mismatch: the ARC pipeline doesn't know that the closure's callee consumed the argument. Valgrind confirms use-after-free.
-  Subsystem: `compiler/ori_arc/src/aims/emit_rc/`, `compiler/ori_llvm/src/codegen/arc_emitter/` — closure argument ownership in COW operations
-  Found: 2026-04-05 | Source: continue-roadmap (JIT EH §06.5)
-  Note: Active work in JIT EH plan Section 06.5 touches this area. Also related to BUG-04-035 (closure RC ownership).
+  Root cause: `ori_list_concat_cow` has consuming semantics — it dec/frees BOTH input buffers. When params are `[borrow]`, the callee doesn't own the buffers but concat frees them. The closure drop then tries to rc_dec already-freed data → use-after-free.
+  Fix (2026-04-06): Borrow-protect rc_inc in `emit_binary_op` at `operators/mod.rs`. When LHS or RHS of list `+` originates from a borrowed parameter (via `borrowed_param_ptrs`), emit `ori_list_rc_inc` before concat. Concat's consuming dec brings refcount to 1, leaving buffer alive for caller cleanup. RC trace: 5 allocs, 5 frees, live=0.
+  Found: 2026-04-05 | Fixed: 2026-04-06 | Source: continue-roadmap (JIT EH §06.5)
 
 ---
 

@@ -27,7 +27,7 @@ sections:
     status: complete
   - id: "06.5"
     title: "List Concat Calling Convention (Root Cause F)"
-    status: not-started
+    status: complete
   - id: "06.6"
     title: "Short-Circuit Codegen Fixes (BUG-04-031/032)"
     status: not-started
@@ -243,16 +243,12 @@ Monomorphized lambda with list `+` dispatch produces invalid calling convention 
 
 ### Fix
 
-- [ ] Write failing test BEFORE fix: `let $app = a -> b -> a + b; app([1, 2, 3])([4, 5, 6])` via `--backend=llvm` (debug and release)
-- [ ] After 06.4, verify if the test passes — the segfault may be from wrong type selection (E) causing wrong `elem_ty` at `operators/mod.rs:46`
-- [ ] If still failing: audit `emit_list_concat_cow()` at `list_cow.rs:235-274`:
-  - Verify `elem_ty` is correctly resolved for the monomorphized lambda
-  - Verify sret convention: `out_ptr` argument order matches `runtime_functions.rs:339-357` declaration
-  - Verify `elem_size_and_align()` returns correct values for the concrete element type
-  - Verify `get_or_generate_elem_inc_fn()` generates correct inc function for the element type
-- [ ] Verify: no SIGSEGV in debug or release
-- [ ] `ORI_CHECK_LEAKS=1` clean on list concat lambda tests
-- [ ] `timeout 150 ./test-all.sh` green
+- [x] Write failing test BEFORE fix (2026-04-06): `test_hof_curried_list_concat` AOT test — `let $app = a -> b -> a + b; app([1,2,3])([4,5,6])` via AOT. Verified SIGSEGV (exit -139) before fix.
+- [x] Root cause identified (2026-04-06): `ori_list_concat_cow` has consuming semantics — it `dec_list_buffer`/`dec_consumed_list2` BOTH input buffers. When params are `[borrow]` (owned by closure env or caller), concat's dec frees borrowed buffers. The closure drop then tries to rc_dec already-freed data → use-after-free → SIGSEGV.
+- [x] Fix: borrow-protect rc_inc in `emit_binary_op` at `operators/mod.rs` (2026-04-06). When LHS or RHS of list `+` originates from a borrowed parameter (tracked via `borrowed_param_ptrs`), emit `ori_list_rc_inc` before concat. This bumps refcount to 2 so concat's consuming dec brings it to 1 (not 0), leaving the buffer alive for the caller's cleanup. No matching rc_dec needed — concat's own dec is the "undo". Also widened `extract_list_fields` visibility to `pub(in arc_emitter)`.
+- [x] Verify: no SIGSEGV in debug or release (2026-04-06): `ORI_CHECK_LEAKS=1 /tmp/hof_curried_list` exits 0. `ORI_TRACE_RC=1` shows perfectly balanced RC (5 allocs, 5 frees, live=0).
+- [x] `ORI_CHECK_LEAKS=1` clean on list concat lambda tests (2026-04-06): Both `hof_curried_list_concat` and `hof_curried_str_concat` pass with zero leaks.
+- [x] `timeout 150 ./test-all.sh` green (2026-04-06): 14,825 passed, 0 failed, 0 regressions. 2109 AOT tests pass (including previously-crashing curried list concat).
 
 ---
 
@@ -437,7 +433,7 @@ The 57 `into_int_value`/`into_struct_value`/`into_float_value`/`into_pointer_val
 - [ ] Root Cause A fixed: Generalized vars no longer leak to codegen
 - [ ] Root Cause B fixed: no u32::MAX index panics in ARC IR emission
 - [x] Root Cause E fixed: `find_concrete_copy_of()` validates arity before returning (2026-04-05)
-- [ ] Root Cause F fixed: list concat in monomorphized lambda no longer crashes
+- [x] Root Cause F fixed: borrow-protect rc_inc before consuming COW concat for borrowed params (2026-04-06)
 - [ ] BUG-04-031 fixed: PHINode with Option method calls in short-circuit
 - [ ] BUG-04-032 fixed: side-effect propagation in short-circuit blocks
 - [ ] BUG-04-033 fixed: multi-clause function lowering PHINode

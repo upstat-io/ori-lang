@@ -324,7 +324,6 @@ fn test_hof_three_lambdas_mixed() {
 // ─── Root Cause F: curried concat calling convention ───
 
 #[test]
-#[ignore = "BUG-04-036: curried lambda + list concat COW double-free"]
 fn test_hof_curried_list_concat() {
     // Curried lambda with list `+` (ori_list_concat_cow).
     // Regression: wrong type selection caused invalid elem_ty → SIGSEGV.
