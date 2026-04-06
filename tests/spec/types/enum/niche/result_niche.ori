@@ -1,0 +1,101 @@
+// Spec: §07.2 Niche Filling — Result<bool, Ordering> niche optimization
+// Regression: repr-opt section-07 — niche-encoded Result match correctness
+// Result<bool, Ordering> uses niche encoding when both types have available niches.
+
+use std.testing { assert_eq }
+
+@test_result_ok_true tests @result_ok_true () -> void = {
+    assert_eq(actual: result_ok_true(), expected: "ok:true")
+}
+
+@result_ok_true () -> str = {
+    let $x: Result<bool, Ordering> = Ok(true);
+    match x {
+        Ok(v) -> `ok:{v}`,
+        Err(e) -> match e {
+            Less -> "err:Less",
+            Equal -> "err:Equal",
+            Greater -> "err:Greater"
+        }
+    }
+}
+
+@test_result_ok_false tests @result_ok_false () -> void = {
+    assert_eq(actual: result_ok_false(), expected: "ok:false")
+}
+
+@result_ok_false () -> str = {
+    let $x: Result<bool, Ordering> = Ok(false);
+    match x {
+        Ok(v) -> `ok:{v}`,
+        Err(e) -> match e {
+            Less -> "err:Less",
+            Equal -> "err:Equal",
+            Greater -> "err:Greater"
+        }
+    }
+}
+
+@test_result_err_less tests @result_err_less () -> void = {
+    assert_eq(actual: result_err_less(), expected: "err:Less")
+}
+
+@result_err_less () -> str = {
+    let $x: Result<bool, Ordering> = Err(Less);
+    match x {
+        Ok(v) -> `ok:{v}`,
+        Err(e) -> match e {
+            Less -> "err:Less",
+            Equal -> "err:Equal",
+            Greater -> "err:Greater"
+        }
+    }
+}
+
+@test_result_err_equal tests @result_err_equal () -> void = {
+    assert_eq(actual: result_err_equal(), expected: "err:Equal")
+}
+
+@result_err_equal () -> str = {
+    let $x: Result<bool, Ordering> = Err(Equal);
+    match x {
+        Ok(v) -> `ok:{v}`,
+        Err(e) -> match e {
+            Less -> "err:Less",
+            Equal -> "err:Equal",
+            Greater -> "err:Greater"
+        }
+    }
+}
+
+@test_result_err_greater tests @result_err_greater () -> void = {
+    assert_eq(actual: result_err_greater(), expected: "err:Greater")
+}
+
+@result_err_greater () -> str = {
+    let $x: Result<bool, Ordering> = Err(Greater);
+    match x {
+        Ok(v) -> `ok:{v}`,
+        Err(e) -> match e {
+            Less -> "err:Less",
+            Equal -> "err:Equal",
+            Greater -> "err:Greater"
+        }
+    }
+}
+
+// === All five values are distinct ===
+
+@test_result_all_distinct tests @result_all_distinct () -> void = {
+    assert_eq(actual: result_all_distinct(), expected: true)
+}
+
+@result_all_distinct () -> bool = {
+    let $ok_t: Result<bool, Ordering> = Ok(true);
+    let $ok_f: Result<bool, Ordering> = Ok(false);
+    let $err_l: Result<bool, Ordering> = Err(Less);
+    let $err_e: Result<bool, Ordering> = Err(Equal);
+    let $err_g: Result<bool, Ordering> = Err(Greater);
+    is_ok(result: ok_t) && is_ok(result: ok_f)
+        && is_err(result: err_l) && is_err(result: err_e) && is_err(result: err_g)
+}
