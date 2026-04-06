@@ -431,3 +431,19 @@ fn could_be_reserved_future_rejects_wrong_first_byte() {
     assert!(!could_be_reserved_future("loop")); // len=4, starts with 'l'
     assert!(!could_be_reserved_future("match")); // len=5, starts with 'm'
 }
+
+/// Sync guard: every entry in `SOFT_KEYWORDS` must pass `could_be_soft_keyword()`.
+///
+/// Derives from the `SOFT_KEYWORDS` table directly — adding a new soft keyword
+/// with a length or first byte not covered by the prefilter will fail this test,
+/// catching the drift immediately instead of silently rejecting the new keyword.
+#[test]
+fn soft_keyword_prefilter_consistency() {
+    for (kw, _) in &SOFT_KEYWORDS {
+        assert!(
+            could_be_soft_keyword(kw),
+            "SOFT_KEYWORDS entry '{kw}' not accepted by could_be_soft_keyword() — \
+             update the prefilter's length/first-byte checks"
+        );
+    }
+}

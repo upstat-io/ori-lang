@@ -21,9 +21,9 @@ Achieve cohesive, DRY architecture in `ori_lexer_core` and `ori_lexer` — where
 - [x] Integer cooking consolidated: 3 functions → 1 generic with radix parameter (verified 2026-04-06)
 - [x] Duration/size cooking consolidated: 2 cooking functions share one canonical implementation; suffix detection kept separate (verified 2026-04-06)
 - [x] Simple operator scanning consolidated: 6 functions → `compound_eq` helper (verified 2026-04-06)
-- [ ] `cook()` match is exhaustive (no `_ =>` catch-all for non-trivial tags)
-- [ ] Soft keyword sync guard test exists (SOFT_KEYWORDS ↔ could_be_soft_keyword consistency)
-- [ ] Duplicate `span()`/`make_span()` unified to single function
+- [x] `cook()` match has exhaustive drift guard via `every_raw_tag_has_explicit_routing` test — 26 cooked + 54 trivial = 80 variants (verified 2026-04-06)
+- [x] Soft keyword sync guard test exists (`soft_keyword_prefilter_consistency` derives from `SOFT_KEYWORDS` table, verified 2026-04-06)
+- [x] Duplicate `span()`/`make_span()` unified — `cooker::span()` widened to `pub(crate)`, driver uses it (verified 2026-04-06)
 - [ ] `./test-all.sh` green — no regressions
 - [ ] `./clippy-all.sh` green
 - [ ] All section success criteria met
@@ -134,5 +134,5 @@ Phase 2 - Verification & Cleanup
 | 01 | Bug Fix — Soft Keyword Cache | `section-01-soft-keyword-bug.md` | Complete |
 | 02 | Cooker Layer Algorithmic DRY | `section-02-cooker-dry.md` | In Progress |
 | 03 | Scanner Layer Algorithmic DRY | `section-03-scanner-dry.md` | Complete |
-| 04 | Drift, Gap & Polish | `section-04-drift-gap-polish.md` | Not Started |
+| 04 | Drift, Gap & Polish | `section-04-drift-gap-polish.md` | In Progress |
 | 05 | Cleanup | `section-05-cleanup.md` | Not Started |
