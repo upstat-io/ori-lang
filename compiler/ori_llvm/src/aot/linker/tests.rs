@@ -86,16 +86,24 @@ fn test_linux_to_darwin_is_cross_compiling() {
 }
 
 #[test]
-#[cfg(target_os = "linux")]
-fn test_linux_x86_to_linux_aarch64_is_not_cross_os() {
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+fn test_linux_x86_to_linux_aarch64_is_cross_compiling() {
     let target = TargetConfig::from_triple("aarch64-unknown-linux-gnu").unwrap();
-    // Same OS (linux), different arch — not cross-OS compilation.
-    // The linker detection treats same-OS cross-arch differently: the host
-    // `cc` won't work for a different arch, but cross-arch is a more common
-    // setup with standard cross-compiler packages.
+    // Same OS (linux) but different arch — IS cross-compilation.
+    // The host `cc` cannot produce aarch64 binaries; we need aarch64-linux-gnu-gcc.
+    assert!(
+        LinkerDetection::is_cross_compiling(&target),
+        "same OS different arch IS cross-compilation (requires cross-gcc)"
+    );
+}
+
+#[test]
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+fn test_linux_x86_to_linux_x86_is_not_cross_compiling() {
+    let target = TargetConfig::from_triple("x86_64-unknown-linux-gnu").unwrap();
     assert!(
         !LinkerDetection::is_cross_compiling(&target),
-        "same OS different arch is not cross-OS compilation (handled by cross-gcc packages)"
+        "same OS same arch is NOT cross-compilation"
     );
 }
 
@@ -126,6 +134,18 @@ fn test_linker_flavor_for_wasm() {
 }
 
 // === Cross-compilation-aware detection (semantic pin) ===
+
+/// Semantic pin: host `cc` must NOT be returned as available for a cross-arch
+/// Linux target. Regression guard for TPR-04-006.
+#[test]
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+fn test_host_cc_not_available_for_cross_arch_linux_target() {
+    let target = TargetConfig::from_triple("aarch64-unknown-linux-gnu").unwrap();
+    assert!(
+        !LinkerDetection::is_available_for_target(LinkerFlavor::Gcc, &target),
+        "host cc must NOT be reported as available for cross-arch Linux target"
+    );
+}
 
 /// Semantic pin: host `cc` must NOT be returned as available for a cross-OS
 /// Windows target. This is the exact regression that BUG-04-001 caught.

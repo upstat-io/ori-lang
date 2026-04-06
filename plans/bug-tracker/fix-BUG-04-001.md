@@ -14,8 +14,8 @@ subsystem: "compiler/ori_llvm/src/aot/linker/"
 found: "2026-03-28"
 source: "manual"
 third_party_review:
-  status: none
-  updated: null
+  status: findings
+  updated: 2026-04-06
 ---
 
 # Fix: BUG-04-001 — Cross-compilation to Windows fails: host linker used instead of cross-linker
@@ -98,6 +98,13 @@ third_party_review:
 - [ ] Update `LinkerDriver::link()` — use target-aware detection, fail early with clear error
 - [ ] Update `LinkerDriver::create_linker()` — use cross-compiler name for GCC when cross-compiling
 - [ ] Add tests in `compiler/ori_llvm/src/aot/linker/tests.rs`
+
+---
+
+## 04.R Third Party Review Findings
+
+- [x] `[TPR-04-006][high]` `compiler/ori_llvm/src/aot/linker/mod.rs:457` / `compiler/ori_llvm/src/aot/linker/driver.rs:116` — same-OS cross-arch targets still fall back to the host `cc`, so BUG-04-001 remains open for part of its documented blast radius.
+  Resolved: Fixed on 2026-04-06. Extended `is_cross_compiling()` to compare both host OS and host architecture against target. Added `host_arch` cfg detection. `aarch64-unknown-linux-gnu` on x86_64 Linux now correctly detected as cross-compilation. Tests: `test_linux_x86_to_linux_aarch64_is_cross_compiling` (semantic pin), `test_linux_x86_to_linux_x86_is_not_cross_compiling` (regression guard), `test_host_cc_not_available_for_cross_arch_linux_target` (semantic pin for detection). 25 tests passing.
 
 ---
 
