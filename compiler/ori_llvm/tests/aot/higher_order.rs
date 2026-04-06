@@ -551,14 +551,14 @@ fn test_multi_inst_no_stale_original_in_ir() {
             .join("\n")
     );
 
-    // Verify specialized clones DO exist (with $NNN suffix).
+    // Verify specialized clones DO exist (with __monoN suffix).
     let has_clone = ir
         .lines()
-        .any(|l| l.starts_with("define ") && l.contains("@\"_ori___lambda_main_0$"));
+        .any(|l| l.starts_with("define ") && l.contains("@_ori___lambda_main_0__mono"));
     assert!(
         has_clone,
         "no specialized lambda clones found in IR — \
-         expected _ori___lambda_main_0$NNN functions"
+         expected _ori___lambda_main_0__monoN functions"
     );
 
     // Verify no "unresolved type variable" error in compilation output.

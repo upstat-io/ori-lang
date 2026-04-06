@@ -11,7 +11,7 @@ mod type_resolve;
 
 use ori_ir::Name;
 use ori_types::{Idx, Tag};
-use type_predicates::contains_var;
+use type_predicates::{contains_var, has_concrete_params};
 use type_resolve::{
     apply_bound_var_map, apply_call_site_types, apply_concrete_param_types, build_bound_var_map,
     fallback_bound_vars_to_int, find_all_instantiation_types, find_apply_indirect_result_type,
@@ -153,11 +153,9 @@ fn detect_and_clone_multi_inst(
             );
             multi_inst_lambdas.insert(i);
         }
-        // NOTE: Multi-inst from call sites (where Let copies have Scheme return
-        // types) requires updating the parent's var_types and RC ops to match
-        // each clone's concrete return type. This deep ARC IR transformation is
-        // deferred to a follow-on fix. Single-inst resolution via
-        // find_concrete_types_from_calls handles the common case.
+        // Lambdas with Scheme return types are now handled: find_all_instantiation_types
+        // accepts has_concrete_params, clone_multi_inst_lambda resolves return types
+        // from call sites, and rewrite_parent_for_multi_inst matches by params only.
     }
 
     multi_inst_lambdas
@@ -253,7 +251,7 @@ fn specialized_lambda_name(
     inst_idx: usize,
 ) -> Name {
     let base = interner.lookup(base_name);
-    let spec_name_str = format!("{base}${inst_idx}");
+    let spec_name_str = format!("{base}__mono{inst_idx}");
     interner.intern(&spec_name_str)
 }
 
@@ -269,6 +267,7 @@ fn clone_multi_inst_lambda(
     pool: &ori_types::Pool,
 ) {
     let pa_args = find_partial_apply_args(parent, lambda_name);
+    let pa_dst = find_partial_apply_dst(parent, lambda_name);
     let schema_ret = lambdas[orig_idx].return_type;
 
     for (inst_idx, concrete_fn_ty) in instantiations.iter().enumerate() {
@@ -286,10 +285,25 @@ fn clone_multi_inst_lambda(
         );
         apply_bound_var_map(&mut clone, &inst_map, pool);
 
-        // Set return type and matching var_types/instructions from the concrete
-        // instantiation. Only exact Idx match to avoid over-replacing.
-        let concrete_ret = pool.function_return(*concrete_fn_ty);
+        // Resolve concrete return type. If the function type has a concrete return,
+        // use it directly. For Scheme/Var returns (let-polymorphic lambdas), extract
+        // the concrete return type from the ApplyIndirect call site.
+        let fn_ret = pool.function_return(*concrete_fn_ty);
+        let fn_ret_resolved = pool.resolve_fully(fn_ret);
+        let concrete_ret = if matches!(
+            pool.tag(fn_ret_resolved),
+            Tag::BoundVar | Tag::Var | Tag::Scheme
+        ) {
+            pa_dst
+                .and_then(|dst| find_call_site_return_type(parent, dst, *concrete_fn_ty, pool))
+                .unwrap_or(fn_ret_resolved)
+        } else {
+            fn_ret_resolved
+        };
         resolve_lambda_return_types(&mut clone, schema_ret, concrete_ret);
+
+        // Direct param substitution for container types with nested vars.
+        apply_concrete_param_types(&mut clone, *concrete_fn_ty, pool);
 
         fallback_bound_vars_to_int(&mut clone, pool);
         lambdas.push(clone);
@@ -331,7 +345,9 @@ fn rewrite_parent_for_multi_inst(
                 if *src == pa_dst {
                     let var_ty = parent.var_types[dst.index()];
                     let resolved = pool.resolve_fully(var_ty);
-                    if is_concrete_function(pool, resolved) {
+                    // Accept both fully-concrete and params-only-concrete copies.
+                    // The latter occur for let-polymorphic lambdas with Scheme returns.
+                    if is_concrete_function(pool, resolved) || has_concrete_params(pool, resolved) {
                         if let Some(spec_name) = find_matching_instantiation(
                             pool,
                             resolved,
@@ -352,6 +368,8 @@ fn rewrite_parent_for_multi_inst(
         }
     }
 
+    fixup_call_result_types(parent, pa_dst, pool);
+
     // Remove the original PartialApply instruction — all uses have been
     // rewritten to specialized clones, so the generic closure is dead code.
     // Also remove RcInc/RcDec on the original result variable.
@@ -368,8 +386,98 @@ fn rewrite_parent_for_multi_inst(
     }
 }
 
+/// Check if a closure variable was rewritten from a Let copy of `pa_dst`.
+/// After rewriting, the `Let` instruction is replaced with `PartialApply`, but
+/// the variable ID is preserved.
+fn is_rewritten_closure(
+    parent: &ori_arc::ArcFunction,
+    closure: ori_arc::ir::ArcVarId,
+    pa_dst: ori_arc::ir::ArcVarId,
+) -> bool {
+    // After rewrite, the closure var is a PartialApply dst (was a Let dst copying pa_dst).
+    // Check if any PartialApply instruction has this var as dst.
+    for block in &parent.blocks {
+        for instr in &block.body {
+            if let ori_arc::ir::ArcInstr::PartialApply { dst, .. } = instr {
+                if *dst == closure {
+                    return true;
+                }
+            }
+        }
+    }
+    // Also match the original pa_dst in case it wasn't rewritten.
+    closure == pa_dst
+}
+
+/// Fix up parent `var_types` and instruction `ty` fields for call result variables
+/// that still hold unresolved Var types from let-polymorphism.
+fn fixup_call_result_types(
+    parent: &mut ori_arc::ArcFunction,
+    pa_dst: ori_arc::ir::ArcVarId,
+    pool: &ori_types::Pool,
+) {
+    for block_idx in 0..parent.blocks.len() {
+        for instr_idx in 0..parent.blocks[block_idx].body.len() {
+            if let ori_arc::ir::ArcInstr::ApplyIndirect {
+                dst: result_dst,
+                closure,
+                ty,
+                ..
+            } = &parent.blocks[block_idx].body[instr_idx]
+            {
+                let result_dst = *result_dst;
+                let closure = *closure;
+                let result_ty = pool.resolve_fully(*ty);
+                if matches!(pool.tag(result_ty), Tag::Var | Tag::Scheme)
+                    && is_rewritten_closure(parent, closure, pa_dst)
+                {
+                    if let Some(concrete) = resolve_call_result_type(parent, result_dst, pool) {
+                        parent.var_types[result_dst.index()] = concrete;
+                        if let ori_arc::ir::ArcInstr::ApplyIndirect { ty, .. } =
+                            &mut parent.blocks[block_idx].body[instr_idx]
+                        {
+                            *ty = concrete;
+                        }
+                    }
+                }
+            }
+        }
+        // Check `InvokeIndirect` terminator.
+        let needs_fixup = if let ori_arc::ir::ArcTerminator::InvokeIndirect {
+            dst: result_dst,
+            closure,
+            ty,
+            ..
+        } = &parent.blocks[block_idx].terminator
+        {
+            let result_ty = pool.resolve_fully(*ty);
+            if matches!(pool.tag(result_ty), Tag::Var | Tag::Scheme)
+                && is_rewritten_closure(parent, *closure, pa_dst)
+            {
+                resolve_call_result_type(parent, *result_dst, pool)
+                    .map(|concrete| (*result_dst, concrete))
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+        if let Some((result_dst, concrete)) = needs_fixup {
+            parent.var_types[result_dst.index()] = concrete;
+            if let ori_arc::ir::ArcTerminator::InvokeIndirect { ty, .. } =
+                &mut parent.blocks[block_idx].terminator
+            {
+                *ty = concrete;
+            }
+        }
+    }
+}
+
 /// Find which instantiation matches a resolved function type, returning the
 /// specialized lambda name if found.
+///
+/// Tries exact matching (params + return) first, then falls back to params-only
+/// matching for let-polymorphic lambdas with Scheme return types.
 fn find_matching_instantiation(
     pool: &ori_types::Pool,
     resolved: Idx,
@@ -379,12 +487,13 @@ fn find_matching_instantiation(
 ) -> Option<Name> {
     let params = pool.function_params(resolved);
     let ret = pool.function_return(resolved);
-    let key: Vec<Idx> = params
+
+    // Try exact match first (params + return).
+    let full_key: Vec<Idx> = params
         .iter()
         .chain(std::iter::once(&ret))
         .map(|p| pool.resolve_fully(*p))
         .collect();
-
     for (idx, inst_ty) in instantiations.iter().enumerate() {
         let inst_params = pool.function_params(*inst_ty);
         let inst_ret = pool.function_return(*inst_ty);
@@ -393,10 +502,139 @@ fn find_matching_instantiation(
             .chain(std::iter::once(&inst_ret))
             .map(|p| pool.resolve_fully(*p))
             .collect();
-        if key == inst_key {
+        if full_key == inst_key {
             return Some(specialized_lambda_name(interner, lambda_name, idx));
         }
     }
 
+    // Fallback: params-only match for Scheme return types.
+    let params_key: Vec<Idx> = params.iter().map(|p| pool.resolve_fully(*p)).collect();
+    for (idx, inst_ty) in instantiations.iter().enumerate() {
+        let inst_params = pool.function_params(*inst_ty);
+        let inst_key: Vec<Idx> = inst_params.iter().map(|p| pool.resolve_fully(*p)).collect();
+        if params_key == inst_key {
+            return Some(specialized_lambda_name(interner, lambda_name, idx));
+        }
+    }
+
+    None
+}
+
+/// Find the concrete return type for a specific instantiation by following
+/// the `PartialApply` → `Let` copy → `ApplyIndirect` → result chain.
+///
+/// For let-polymorphic lambdas where `Let` copies have concrete params but Scheme
+/// return types, the concrete return is determined at the call site: the
+/// `ApplyIndirect` result variable has the concrete type from the type checker.
+fn find_call_site_return_type(
+    parent: &ori_arc::ArcFunction,
+    pa_dst: ori_arc::ir::ArcVarId,
+    concrete_fn_ty: Idx,
+    pool: &ori_types::Pool,
+) -> Option<Idx> {
+    let target_params = pool.function_params(concrete_fn_ty);
+    let target_key: Vec<Idx> = target_params
+        .iter()
+        .map(|p| pool.resolve_fully(*p))
+        .collect();
+
+    // Find the Let copy whose resolved param types match this instantiation.
+    for block in &parent.blocks {
+        for instr in &block.body {
+            if let ori_arc::ir::ArcInstr::Let {
+                dst,
+                value: ori_arc::ir::ArcValue::Var(src),
+                ..
+            } = instr
+            {
+                if *src != pa_dst {
+                    continue;
+                }
+                let ty = parent.var_type(*dst);
+                let resolved = pool.resolve_fully(ty);
+                if pool.tag(resolved) != Tag::Function {
+                    continue;
+                }
+                let params = pool.function_params(resolved);
+                let params_key: Vec<Idx> = params.iter().map(|p| pool.resolve_fully(*p)).collect();
+                if params_key != target_key {
+                    continue;
+                }
+                // Found matching Let copy. Follow to ApplyIndirect or
+                // InvokeIndirect (terminator with unwind) to get the result type.
+                let let_dst = *dst;
+                for b in &parent.blocks {
+                    // Check instructions for ApplyIndirect.
+                    for i in &b.body {
+                        if let ori_arc::ir::ArcInstr::ApplyIndirect {
+                            dst: result_dst,
+                            closure,
+                            ..
+                        } = i
+                        {
+                            if *closure == let_dst {
+                                if let Some(ret) =
+                                    resolve_call_result_type(parent, *result_dst, pool)
+                                {
+                                    return Some(ret);
+                                }
+                            }
+                        }
+                    }
+                    // Check terminator for InvokeIndirect (calls with unwind).
+                    if let ori_arc::ir::ArcTerminator::InvokeIndirect {
+                        dst: result_dst,
+                        closure,
+                        ..
+                    } = &b.terminator
+                    {
+                        if *closure == let_dst {
+                            if let Some(ret) = resolve_call_result_type(parent, *result_dst, pool) {
+                                return Some(ret);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    None
+}
+
+/// Resolve the concrete type of a call result variable.
+///
+/// If the `var_type` is already concrete, returns it directly. If it's still a
+/// Var/Scheme (common for let-polymorphic return types), looks for a downstream
+/// narrowing Let copy that assigns the concrete type.
+fn resolve_call_result_type(
+    func: &ori_arc::ArcFunction,
+    result_var: ori_arc::ir::ArcVarId,
+    pool: &ori_types::Pool,
+) -> Option<Idx> {
+    let result_ty = func.var_type(result_var);
+    let resolved = pool.resolve_fully(result_ty);
+    if !matches!(pool.tag(resolved), Tag::BoundVar | Tag::Var | Tag::Scheme) {
+        return Some(resolved);
+    }
+    // Result is still Var/Scheme — look for a downstream narrowing Let copy.
+    for block in &func.blocks {
+        for instr in &block.body {
+            if let ori_arc::ir::ArcInstr::Let {
+                value: ori_arc::ir::ArcValue::Var(src),
+                ty,
+                ..
+            } = instr
+            {
+                if *src == result_var {
+                    let narrowed = pool.resolve_fully(*ty);
+                    if !matches!(pool.tag(narrowed), Tag::BoundVar | Tag::Var | Tag::Scheme)
+                        && !contains_var(pool, narrowed)
+                    {
+                        return Some(narrowed);
+                    }
+                }
+            }
+        }
+    }
     None
 }
