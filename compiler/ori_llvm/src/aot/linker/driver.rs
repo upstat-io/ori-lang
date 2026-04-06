@@ -38,13 +38,21 @@ impl LinkerDriver {
                 // Fall back to next available linker for this target,
                 // using cross-compilation-aware detection.
                 let detection = LinkerDetection::detect_for_target(&self.target);
-                match detection.preferred() {
-                    Some(fallback) => fallback,
-                    None => {
-                        // No suitable linker found — fail early with a clear error
-                        // instead of silently using the host linker for cross-targets.
-                        return Err(LinkerDetection::cross_compilation_error(&self.target));
-                    }
+                if let Some(fallback) = detection.preferred() {
+                    fallback
+                } else if LinkerDetection::is_cross_compiling(&self.target) {
+                    // No suitable cross-linker found — fail early with clear error.
+                    return Err(LinkerDetection::cross_compilation_error(&self.target));
+                } else {
+                    // Native compilation but no linker at all.
+                    return Err(LinkerError::LinkerNotFound {
+                        linker: format!("{preferred:?}"),
+                        message: format!(
+                            "no linker found for native target '{}'. \
+                             Install a C compiler (gcc or clang) to enable linking.",
+                            self.target.triple()
+                        ),
+                    });
                 }
             }
         };

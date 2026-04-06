@@ -547,15 +547,17 @@ impl LinkerDetection {
                 }
             }
             LinkerFlavor::Lld => {
-                // LLD works for cross-compilation — check the right variant
-                let program = if target.is_windows() {
-                    "lld-link"
+                // LLD works for cross-compilation — check the right variant.
+                // For non-Windows/non-WASM, create_linker() uses `clang -fuse-ld=lld`,
+                // so we check for clang (the actual driver) as well as standalone ld.lld.
+                if target.is_windows() {
+                    Self::check_program("lld-link", "--version")
                 } else if target.is_wasm() {
-                    "wasm-ld"
+                    Self::check_program("wasm-ld", "--version")
                 } else {
-                    "ld.lld"
-                };
-                Self::check_program(program, "--version")
+                    Self::check_program("ld.lld", "--version")
+                        || Self::check_program("clang", "--version")
+                }
             }
             LinkerFlavor::WasmLd => Self::check_program("wasm-ld", "--version"),
         }
