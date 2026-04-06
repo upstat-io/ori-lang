@@ -208,23 +208,22 @@ Bugs in LLVM IR generation, JIT/AOT compilation, monomorphization, ARC pipeline 
   Found: 2026-04-03 | Source: continue-roadmap (JIT EH plan §04B investigation)
   Note: Active work in JIT EH plan §04B and repr-opt plan touch this area. Root cause (A) is partially mitigated by Scheme-unwrapping fix in `ori_arc/src/lower/calls/lambda.rs` (polymorphic lambda params) and BoundVar resolution in `define_phase.rs` + `prepare.rs`. Root cause (D) is a trivial fix (add `jit_allowed: true` to the RT_FUNCTIONS entries). Root cause (E) needs structural matching — `find_concrete_copy_type` must verify the candidate Function's arity matches the lambda's param count. Fix in `define_phase.rs:find_partial_apply_concrete_type` path 1 added (validate params are concrete before returning), but `find_concrete_copy_type` still lacks arity matching.
 
-- [ ] `[BUG-04-031][high]` **LLVM PHINode error: short-circuit `&&` with Option method calls** — found by continue-roadmap.
-  Repro: `let opt = Some(42); is_some(opt:) && opt.unwrap_or(default: 0) > 0` compiled via `--backend=llvm` → LLVM IR verification: "PHINode should have one entry for each predecessor." Entire file becomes LCFail. Standalone short-circuit with panic/constants works; the trigger is method calls on heap types (`Option`) in short-circuit branches producing missing PHI predecessor entries.
-  Subsystem: `compiler/ori_llvm/src/codegen/` (short-circuit emission, likely `lower/expr/short_circuit.rs` or `arc_emitter/`)
-  Found: 2026-04-03 | Source: continue-roadmap (JIT EH plan §05 verification)
-  Note: Active work in JIT EH plan §02 (short-circuit lowering) completed. This is a residual case not caught by §02 testing — the simple cases work, but Option method dispatch in RHS branches generates incorrect CFG.
+- [x] `[BUG-04-031][high]` **LLVM PHINode error: short-circuit `&&` with Option method calls** — found by continue-roadmap.
+  Root cause: `unwrap_or` builtin emission in `option_result.rs` created two extra LLVM blocks (`uor.inc`, `uor.merge`) for conditional RC management. This split the ARC block mid-emission — remaining instructions and the Jump terminator went into `uor.merge`, causing PHI predecessor mismatch at the merge block.
+  Fix (2026-04-06): Skip RC branch for scalar payloads (`!self.classifier.is_scalar(inner_ty)`) — scalar types don't need RC inc, avoiding the block split.
+  Found: 2026-04-03 | Fixed: 2026-04-06 | Source: continue-roadmap (JIT EH plan §06.6)
 
-- [ ] `[BUG-04-032][high]` **LLVM short-circuit `&&`/`||` side-effect propagation failure** — found by continue-roadmap.
-  Repro: `let order: [int] = []; let result = {order = order + [1]; true} && {order = order + [2]; true}; assert_eq(actual: order, expected: [1, 2])` → LLVM produces `[1]` (right block mutation not propagated). Interpreter correctly produces `[1, 2]`. Variable mutations in block expressions on the evaluated side of `&&`/`||` don't propagate to the outer scope.
-  Subsystem: `compiler/ori_llvm/src/codegen/` (short-circuit emission — variable store/load across basic blocks)
-  Found: 2026-04-03 | Source: continue-roadmap (JIT EH plan §05 verification)
-  Note: Related to BUG-04-031. Both are short-circuit codegen issues. This one compiles and runs but produces wrong output (semantic bug), while BUG-04-031 fails at IR verification (structural bug).
+- [x] `[BUG-04-032][high]` **LLVM short-circuit `&&`/`||` side-effect propagation failure** — found by continue-roadmap.
+  Root cause: `lower_short_circuit_and/or` in `short_circuit.rs` didn't call `merge_mutable_vars()` after branching, losing mutations from branch scopes. `scope = pre_scope` at merge reverted to pre-branch state.
+  Fix (2026-04-06): Added `merge_mutable_vars` pattern from `lower_coalesce` — capture branch scopes, create merge params, pass mutable var values through Jump args, rebind after merge. Applied symmetrically to both `&&` and `||`.
+  Found: 2026-04-03 | Fixed: 2026-04-06 | Source: continue-roadmap (JIT EH plan §06.6)
 
-- [ ] `[BUG-04-033][high]` **LLVM codegen fails on multi-clause functions with literal patterns (Ackermann)** — found by manual.
+- [x] `[BUG-04-033][high]` **LLVM codegen fails on multi-clause functions with literal patterns (Ackermann)** — found by manual.
   Repro: `ori run --compile tests/run-pass/rosetta/ackermann/ackermann.ori` — 3-clause `@ack` with literal `0` patterns. Two errors: (1) `build_struct called with non-struct LLVM type (i64)` — clause dispatch treats int return as struct; (2) LLVM IR verification: "PHINode should have one entry for each predecessor of its parent basic block" — join blocks from clause branches have mismatched phi entries.
+  Resolved: Fixed on 2026-04-06. Four root causes: (1) scrutinee TypeId::ERROR → real param types from FunctionSig, (2) scrutinee name mismatch → FunctionSig.param_names, (3) tuple type not interned → pre-intern in finish_with_pool(), (4) function/sig positional zip → name-keyed lookup. <!-- resolved-by:plans/jit-exception-handling §06.7 -->
   Subsystem: `compiler/ori_llvm/src/codegen/` (multi-clause function lowering, phi node generation)
-  Found: 2026-04-04 | Source: manual (Rosetta Code task implementation)
-  Note: Active work in roadmap section 15B (function clauses) and section 09 (match/patterns) touches this area. Multi-clause lowering in `ori_canon` works correctly; the bug is in LLVM IR emission from the lowered match tree.
+  Found: 2026-04-04 | Fixed: 2026-04-06 | Source: manual (Rosetta Code task implementation)
+  Note: Fix introduced BUG-04-037 regression (tuple pre-interning pollutes type pool → zip SIGSEGV).
 
 - [ ] `[BUG-04-034][medium]` **Curried lambda capturing bool produces LLVM type mismatch (i1 vs i64)** — found by continue-roadmap.
   Repro: `let $fst = a -> b -> a; fst(true)(0)` with `--backend=llvm` → LLVM verification error: "Call parameter type does not match function signature! i1 vs i64". Only affects bool captures in curried lambdas — int/str/list captures work correctly.
@@ -238,7 +237,19 @@ Bugs in LLVM IR generation, JIT/AOT compilation, monomorphization, ARC pipeline 
   Subsystem: `compiler/ori_llvm/src/codegen/arc_emitter/closure_wrappers.rs`, `compiler/ori_arc/src/aims/emit_rc/helpers.rs` (`is_ownership_transfer`)
   Found: 2026-04-04 | Source: continue-roadmap (TPR-04B-014 fix verification)
 
-- [ ] `[BUG-04-036][low]` **Flaky test: `test_source_hasher_caching` fails intermittently on temp file race** — found by continue-roadmap.
+- [x] `[BUG-04-036][high]` **Curried lambda + list concat COW double-free in AOT** — found by continue-roadmap.
+  Repro: `let $app = a -> b -> a + b; app([1,2,3])([4,5,6])` compiled with `ori build`, then run the binary → SIGSEGV (exit -139). Direct `[1,2,3] + [4,5,6]` (non-lambda) works. JIT path also works.
+  Root cause: `ori_list_concat_cow` has consuming semantics — it dec/frees BOTH input buffers. When params are `[borrow]`, the callee doesn't own the buffers but concat frees them. The closure drop then tries to rc_dec already-freed data → use-after-free.
+  Fix (2026-04-06): Borrow-protect rc_inc in `emit_binary_op` at `operators/mod.rs`. When LHS or RHS of list `+` originates from a borrowed parameter (via `borrowed_param_ptrs`), emit `ori_list_rc_inc` before concat. Concat's consuming dec brings refcount to 1, leaving buffer alive for caller cleanup. RC trace: 5 allocs, 5 frees, live=0.
+  Found: 2026-04-05 | Fixed: 2026-04-06 | Source: continue-roadmap (JIT EH §06.5)
+
+- [x] `[BUG-04-037][high]` **Tuple type pre-interning in `finish_with_pool()` causes iter_zip AOT SIGSEGV** — found by continue-roadmap.
+  Repro: `cargo test -p ori_llvm --test aot -- iter_zip_count` → SIGSEGV (exit -139). Both `iter_zip_count` and `iter_zip_unequal` affected. Passes on parent commit `6b8f9421`, fails on `60838e1b`.
+  Resolved: Fixed on 2026-04-06. Two root causes: (1) `finish_with_pool()` interned tuples for ALL multi-param functions → pool hash collision with zip's `(int, Var(T))` tuples. Fixed by adding `ModuleChecker::intern_multi_clause_tuples()` that only targets multi-clause groups. (2) Uncommitted `emit_function.rs` change added `type_error_count()` to bail-out check → pre-existing unresolved type variables (Root Cause A) triggered premature `unreachable` stubs. Fixed by reverting to `codegen_error_count()` only. <!-- resolved-by:plans/jit-exception-handling §06.7b -->
+  Subsystem: `compiler/ori_types/src/check/mod.rs`, `compiler/ori_llvm/src/codegen/arc_emitter/emit_function.rs`
+  Found: 2026-04-06 | Fixed: 2026-04-06 | Source: continue-roadmap (JIT EH §06.7 multi-clause fix)
+
+- [ ] `[BUG-04-038][low]` **Flaky test: `test_source_hasher_caching` fails intermittently on temp file race** — found by continue-roadmap.
   Repro: `cargo test -p ori_llvm test_source_hasher_caching` — intermittent failure: `IoError { path: "/tmp/ori_hash_test_*.ori", message: "No such file or directory" }`. Race condition: temp file at `/tmp/ori_hash_test_*.ori` is cleaned up by OS or concurrent test before `SourceHasher` reads it.
   Subsystem: `compiler/ori_llvm/src/aot/incremental/hash/tests.rs:80`
   Found: 2026-04-06 | Source: continue-roadmap (pre-commit hook failure during hygiene-lexer work)

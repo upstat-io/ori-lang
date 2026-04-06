@@ -92,11 +92,38 @@ pub fn register_module_functions(
 
     for (name, funcs) in func_groups {
         // For multi-clause functions, `lower_module()` synthesizes a single
-        // canonical match body. We always use the first clause's parameters.
+        // canonical match body. Use canonical param names from CanonRoot
+        // (derived from FunctionSig) so they match the scrutinee Idents.
+        // Single-clause functions use the first clause's parser param names.
         let first_func = funcs[0];
-        let params_slice = arena.get_params(first_func.params);
-        let params: Vec<_> = params_slice.iter().map(|p| p.name).collect();
         let capabilities: Vec<_> = first_func.capabilities.iter().map(|c| c.name).collect();
+
+        // Check if the canonical root has overridden param names (multi-clause).
+        let params: Vec<Name> = if let Some(roots) = canon_lookup.get(&name) {
+            if let Some(root) = roots.first() {
+                if root.param_names.is_empty() {
+                    arena
+                        .get_params(first_func.params)
+                        .iter()
+                        .map(|p| p.name)
+                        .collect()
+                } else {
+                    root.param_names.clone()
+                }
+            } else {
+                arena
+                    .get_params(first_func.params)
+                    .iter()
+                    .map(|p| p.name)
+                    .collect()
+            }
+        } else {
+            arena
+                .get_params(first_func.params)
+                .iter()
+                .map(|p| p.name)
+                .collect()
+        };
 
         let mut func_value = FunctionValue::with_shared_captures(
             params,

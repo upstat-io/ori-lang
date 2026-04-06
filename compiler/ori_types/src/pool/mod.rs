@@ -252,15 +252,44 @@ impl Pool {
     }
 
     /// Get the variable state for a variable ID.
+    ///
+    /// # Panics
+    /// Panics if `var_id` is out of bounds. Use `var_state_checked()` when
+    /// the `var_id` might be from a Generalized type variable that leaked
+    /// past type checking.
     #[inline]
     pub fn var_state(&self, var_id: u32) -> &VarState {
+        debug_assert!(
+            (var_id as usize) < self.var_states.len(),
+            "var_state: var_id {} out of bounds (pool has {} vars)",
+            var_id,
+            self.var_states.len()
+        );
         &self.var_states[var_id as usize]
     }
 
     /// Get mutable access to variable state.
+    ///
+    /// # Panics
+    /// Panics if `var_id` is out of bounds.
     #[inline]
     pub fn var_state_mut(&mut self, var_id: u32) -> &mut VarState {
+        debug_assert!(
+            (var_id as usize) < self.var_states.len(),
+            "var_state_mut: var_id {} out of bounds (pool has {} vars)",
+            var_id,
+            self.var_states.len()
+        );
         &mut self.var_states[var_id as usize]
+    }
+
+    /// Safely get variable state, returning `None` if `var_id` is out of bounds.
+    ///
+    /// Use this when the `var_id` might be from a Generalized type variable
+    /// that leaked past type checking into codegen/repr phases.
+    #[inline]
+    pub fn var_state_checked(&self, var_id: u32) -> Option<&VarState> {
+        self.var_states.get(var_id as usize)
     }
 
     /// Get the number of types in the pool.

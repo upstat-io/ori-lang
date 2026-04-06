@@ -1,0 +1,12 @@
+// Root Cause E regression: three polymorphic lambdas in one function with
+// mixed arities and types.
+
+@main () -> int = {
+    let $inc = x -> x + 1;
+    let $add = (a, b) -> a + b;
+    let $mul3 = (a, b, c) -> a * b * c;
+    let $r1 = inc(9);
+    let $r2 = add(3, 7);
+    let $r3 = mul3(2, 3, 4);
+    if r1 == 10 && r2 == 10 && r3 == 24 then 0 else 1
+}

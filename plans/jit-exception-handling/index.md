@@ -118,7 +118,7 @@ operators_logical.ori, operators_bitwise.ori
 ---
 
 ### Section 06: LCFail Resolution
-**File:** `section-06-lcfail-resolution.md` | **Status:** Not Started
+**File:** `section-06-lcfail-resolution.md` | **Status:** In Progress
 
 ```
 BUG-04-030, BUG-04-031, BUG-04-032, BUG-04-033, LCFail
@@ -146,4 +146,4 @@ pool/accessors.rs, generalization.rs, abi/mod.rs
 | 04 | Exposed Bug Fixes (8 bugs) | `section-04-exposed-bugs.md` | Complete |
 | 04B | Polymorphic Lambda Monomorphization | `section-04b-lambda-mono.md` | In Progress (blocked by BUG-04-030) |
 | 05 | Verification | `section-05-verification.md` | In Progress |
-| 06 | LCFail Resolution (BUG-04-030/031/032/033) | `section-06-lcfail-resolution.md` | Not Started |
+| 06 | LCFail Resolution (BUG-04-030/031/032/033) | `section-06-lcfail-resolution.md` | In Progress |
