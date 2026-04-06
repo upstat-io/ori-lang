@@ -494,10 +494,10 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// Emit `join(separator)` — join iterator elements into a string.
     ///
     /// For string-element iterators, passes `null` for `to_str_fn` (elements
-    /// are already strings). For primitive types (int, float, bool, char, byte),
+    /// are already strings). For primitive types (int, float, bool, char),
     /// generates a `to_str` trampoline that calls the appropriate
-    /// `ori_str_from_*` runtime function. Unsupported types (Duration, Size,
-    /// Ordering, structs, closures, etc.) produce a codegen error.
+    /// `ori_str_from_*` runtime function. Unsupported types (byte, Duration,
+    /// Size, Ordering, structs, closures, etc.) produce a codegen error.
     pub(in crate::codegen) fn emit_iter_join(
         &mut self,
         iter_ptr: ValueId,
@@ -586,12 +586,14 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         // load type. All conversion functions write an OriStr to the sret
         // pointer, so the trampoline uses out_ptr directly as the sret arg.
         //
-        // Duration, Size, and Ordering are excluded: their Printable semantics
-        // format with units (e.g. "1s", "1kb", "Equal") but ori_str_from_int
-        // would produce raw storage values (e.g. "1000000000", "1000", "1").
+        // Only types whose ori_str_from_* produces the same output as
+        // the interpreter's Printable::to_str() are supported. Excluded:
+        // - Duration/Size: formatted with units ("1s", "1kb") not raw ints
+        // - Ordering: formatted as "Less"/"Equal"/"Greater" not ints
+        // - Byte: formatted as hex ("0xff") not decimal
         // These need proper Printable method dispatch — future work.
         let (rt_func_name, needs_sext_to_i64) = match tag {
-            Tag::Int | Tag::Byte => ("ori_str_from_int", true),
+            Tag::Int => ("ori_str_from_int", true),
             Tag::Float => ("ori_str_from_float", false),
             Tag::Bool => ("ori_str_from_bool", false),
             Tag::Char => ("ori_str_from_char", false),

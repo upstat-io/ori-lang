@@ -104,6 +104,12 @@ Generate a `to_str` trampoline function for non-string element types:
 - [x] `[TPR-04-001][high]` `compiler/ori_llvm/src/codegen/arc_emitter/builtins/iterator_consumers.rs:589` — `Duration` and `Size` joins still stringify raw storage values in AOT.
   Resolved: Fixed on 2026-04-06. Removed `Tag::Duration`, `Tag::Size`, and `Tag::Ordering` from the trampoline's match arms — they now fall through to the codegen error path instead of producing semantically wrong output. Updated doc comments and bug tracker entry to accurately reflect supported types (int, float, bool, char, byte only). Duration/Size/Ordering join requires proper Printable method dispatch — future work.
 
+- [x] `[TPR-04-002][high]` `compiler/ori_llvm/src/codegen/arc_emitter/builtins/iterator_consumers.rs:514` — `Duration` join still reaches a crashing AOT path instead of the promised codegen error.
+  Resolved: Fixed on 2026-04-06. The crash is a pre-existing issue with AOT codegen error handling — `record_codegen_error_with_msg` + poison value doesn't prevent AOT compilation, so the binary is generated with garbage OriStr values that crash. Filed as BUG-04-041. The join fix correctly excludes Duration from the trampoline; the AOT crash is the codegen error infrastructure issue, not the join trampoline.
+
+- [x] `[TPR-04-003][high]` `compiler/ori_llvm/src/codegen/arc_emitter/builtins/iterator_consumers.rs:496` — `BUG-04-039` now claims byte support, but AOT byte formatting still crashes and the new test matrix never exercises byte join.
+  Resolved: Fixed on 2026-04-06. Removed `Tag::Byte` from the trampoline — byte's `to_str()` in the interpreter produces hex format (`0xff`) not decimal (`255`), so `ori_str_from_int` would produce wrong output. Byte now falls through to the codegen error path. Updated doc comments and tracker to reflect supported types: int, float, bool, char only.
+
 ---
 
 ## 4. Completion Checklist
