@@ -359,10 +359,36 @@ The 16-byte threshold is at `compute_param_passing()` (`abi/mod.rs:272-290`): `i
 
 **Crash chain**: Unresolved type variable → `TypeInfoStore` returns error type → `abi_size` returns 0 or wrong size → `Direct` instead of `Indirect` → caller passes value in register → callee expects pointer → `extract_value` on IntValue → crash at `aggregates.rs:184-185`.
 
+**06.3 Finding (2026-04-05)**: The LLVM spec test CRASH status persists because of 57 `into_int_value` call sites across the emitter (`ir_builder/arithmetic.rs` (21), `conversions.rs` (12), `control_flow.rs` (4), `checked_ops.rs` (4), `narrowing_codegen.rs` (5), others). Each is a panicking type conversion that crashes when LLVM produces a `StructValue` where `IntValue` is expected. These panics cascade into LLVM C++ crashes that bypass `catch_unwind`, killing the entire spec test runner process. `const_int_matching` was already made safe in 06.3 — the remaining 57 sites need the same treatment. The long-term architectural fix is subprocess isolation (`plans/llvm-worker-isolation`).
+
 ### Investigation
 
-- [ ] Quantify: how many of the remaining LCFails are from ABI misclassification vs unresolved types? Run: filter codegen errors for "non-struct" messages
+- [x] Quantify: how many of the remaining LCFails are from ABI misclassification vs unresolved types (2026-04-05): 13 crashes remain after 06.2/06.3 fixes. All trace to `StructValue`-vs-`IntValue` mismatches in `ir_builder/constants.rs:58` (`const_int_matching`, now fixed) and 57 remaining `into_int_value` sites across the emitter. The crashes come from type resolution bugs (Generalized vars → wrong LLVM types) not from ABI size miscalculation specifically.
 - [ ] Read `TypeInfoStore` at `type_info/store.rs:1-66` — understand how `type_error_count` (line 65) tracks unresolved types. Does codegen bail early enough when type errors exist?
+
+### Fix: Safe Type Conversions in IR Builder (CRASH ELIMINATION)
+
+The 57 `into_int_value`/`into_struct_value`/`into_float_value`/`into_pointer_value` calls are panicking conversions. Each must be made safe with the same pattern used for `const_int_matching` in 06.3: check the variant, record codegen error, return poison value.
+
+- [ ] Audit all 57 `into_*_value` sites across `compiler/ori_llvm/src/codegen/ir_builder/`:
+  - `arithmetic.rs` (21 sites) — binary ops assume IntValue operands
+  - `conversions.rs` (12 sites) — trunc/sext/zext/bitcast assume correct types
+  - `control_flow.rs` (4 sites) — switch/branch assume integer scrutinees
+  - `checked_ops.rs` (4 sites) — overflow intrinsics assume IntValue
+  - `narrowing_codegen.rs` (5 sites) — narrowing assumes IntValue
+  - `comparisons.rs` (2 sites) — icmp assumes IntValue
+  - `memory.rs` (1 site) — GEP assumes PointerValue
+- [ ] For each site, replace `val.into_int_value()` with safe extraction:
+  ```rust
+  if let BasicValueEnum::IntValue(iv) = val { iv } else {
+      tracing::error!(?val, "expected IntValue in {context}");
+      self.record_codegen_error();
+      self.scx.type_i64().const_int(0, false)  // poison fallback
+  }
+  ```
+  Introduce a helper method `expect_int_value(val, context) -> IntValue` to avoid repetition.
+- [ ] Add similar `expect_struct_value`, `expect_float_value`, `expect_pointer_value` helpers
+- [ ] Verify: LLVM spec test runner no longer crashes (downgraded from CRASH to LCFail)
 
 ### Fix: Alignment-Aware ABI Size
 
