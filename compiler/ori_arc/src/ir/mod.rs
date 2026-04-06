@@ -63,6 +63,12 @@ pub enum ArgOwnership {
 pub struct ArcVarId(u32);
 
 impl ArcVarId {
+    /// Sentinel value representing an invalid or uninitialized variable.
+    ///
+    /// Equal to `u32::MAX`. Functions that return `ArcVarId` should never
+    /// produce this value; its presence indicates a lowering bug.
+    pub const INVALID: Self = Self(u32::MAX);
+
     /// Create a new variable ID from a raw index.
     #[inline]
     pub fn new(raw: u32) -> Self {
@@ -80,6 +86,12 @@ impl ArcVarId {
     pub fn index(self) -> usize {
         self.0 as usize
     }
+
+    /// Returns `true` if this is a valid (non-sentinel) variable ID.
+    #[inline]
+    pub fn is_valid(self) -> bool {
+        self.0 != u32::MAX
+    }
 }
 
 /// Basic block ID within an ARC IR function.
@@ -92,6 +104,12 @@ impl ArcVarId {
 pub struct ArcBlockId(u32);
 
 impl ArcBlockId {
+    /// Sentinel value representing an invalid or uninitialized block.
+    ///
+    /// Equal to `u32::MAX`. Functions that return `ArcBlockId` should never
+    /// produce this value; its presence indicates a lowering bug.
+    pub const INVALID: Self = Self(u32::MAX);
+
     /// Create a new block ID from a raw index.
     #[inline]
     pub fn new(raw: u32) -> Self {
@@ -108,6 +126,12 @@ impl ArcBlockId {
     #[inline]
     pub fn index(self) -> usize {
         self.0 as usize
+    }
+
+    /// Returns `true` if this is a valid (non-sentinel) block ID.
+    #[inline]
+    pub fn is_valid(self) -> bool {
+        self.0 != u32::MAX
     }
 }
 
