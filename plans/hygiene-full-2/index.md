@@ -91,7 +91,7 @@ arg_vals guard, thunks.rs, get_or_create_thunk
 ---
 
 ### Section 06: Lexer/Parser DRY
-**File:** `section-06-lexer-parser-dry.md` | **Status:** In Progress
+**File:** `section-06-lexer-parser-dry.md` | **Status:** Complete
 
 ```
 cook_template_head, cook_template_middle, cook_template_tail
