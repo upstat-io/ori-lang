@@ -486,7 +486,7 @@ The actual crash was from `emit_iter_join` passing null `to_str_fn` for non-stri
 - [x] Debug AND release builds pass (2026-04-06)
 - [x] `ORI_CHECK_LEAKS=1` N/A for this section — no new AOT test programs added. Changes were bail logic only (no runtime memory management changes). (2026-04-06)
 - [x] Bug tracker entries updated (BUG-04-030, 031, 032, 033) (2026-04-06)
-- [ ] `/tpr-review` passed — independent Codex review clean
-- [ ] `/impl-hygiene-review last commit` passed
+- [x] `/tpr-review` passed — 6 iterations, 9 findings (1 high, 8 medium) all resolved. Code fixes complete by iteration 3; iterations 4-6 were documentation-only convergence. (2026-04-06)
+- [x] `/impl-hygiene-review last 7 commits` passed (2026-04-06) — 3 findings fixed: renamed cryptic `join.sep.f0/f1/f2` to semantic `join.sep.len/cap/data`, removed unnecessary `to_owned()` allocation in `ori_iter_join`, added platform-specific SSO comment. `consumers.rs` BLOAT (697 lines) noted but not blocking — tracked for split.
 
 **Exit Criteria:** ~~LCFail count < 500~~ CRASH eliminated (primary goal). LCFail: 2475 (from 2656 baseline, -7%). All 4 bug tracker entries updated. `operators_logical.ori` passes all 39 tests via `--backend=llvm` ✓. No SIGSEGV in any test ✓. Full test suite green ✓. LCFail <500 target deferred to roadmap Section 21A (LLVM Backend) — remaining LCFails are from missing codegen features, not crashes.

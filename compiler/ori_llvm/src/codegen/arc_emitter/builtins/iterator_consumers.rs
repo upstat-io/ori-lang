@@ -532,13 +532,13 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         // runtime reinterprets them correctly regardless of SSO state.
         let sep_field0 = self
             .builder
-            .extract_value(separator, FIELD_LEN, "join.sep.f0")?;
+            .extract_value(separator, FIELD_LEN, "join.sep.len")?;
         let sep_field1 = self
             .builder
-            .extract_value(separator, FIELD_CAP, "join.sep.f1")?;
+            .extract_value(separator, FIELD_CAP, "join.sep.cap")?;
         let sep_field2 = self
             .builder
-            .extract_value(separator, FIELD_DATA, "join.sep.f2")?;
+            .extract_value(separator, FIELD_DATA, "join.sep.data")?;
 
         let elem_size = self.int_element_store_size(elem_ty);
         let elem_size_val = self.builder.const_i64(elem_size as i64);
