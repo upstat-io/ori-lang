@@ -1,0 +1,11 @@
+// Root Cause E regression: multiple polymorphic lambdas with same arity but
+// different types. find_concrete_copy_of must match the correct concrete type
+// for each lambda.
+
+@main () -> int = {
+    let $double = (x: int) -> x * 2;
+    let $greet = (s: str) -> s + "!";
+    let $a = double(5);
+    let $b = greet("hi");
+    if a == 10 && b == "hi!" then 0 else 1
+}
