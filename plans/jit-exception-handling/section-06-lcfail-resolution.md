@@ -53,7 +53,7 @@ sections:
 
 # Section 06: LCFail Resolution — BUG-04-030/031/032/033
 
-**Status:** In Progress — 06.1–06.7 complete. 06.7b, 06.8, 06.9 not started.
+**Status:** In Progress — 06.1–06.7b complete. 06.8, 06.9 not started.
 **Goal:** Systematically fix all known LLVM codegen root causes that produce LCFails (LLVM Compile Failures) in the spec test suite. Current baseline: 2656 LCFails. Target: <500 LCFails (stretch: <100).
 
 **Depends on:** Section 04B (lambda monomorphization foundations)
