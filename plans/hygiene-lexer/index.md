@@ -25,7 +25,7 @@ BUG-01-001, tokenization correctness, context-sensitive
 ---
 
 ### Section 02: Cooker Layer Algorithmic DRY
-**File:** `section-02-cooker-dry.md` | **Status:** Not Started
+**File:** `section-02-cooker-dry.md` | **Status:** In Progress
 
 ```
 algorithmic duplication, template cooking, unescape, numeric cooking
