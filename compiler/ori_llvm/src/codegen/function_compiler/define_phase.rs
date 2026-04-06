@@ -136,6 +136,7 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
             &mut lambdas,
             self.pool,
             self.interner,
+            self.arc_classifier as &dyn ori_arc::ArcClassification,
         );
 
         let mut lambda_renames: Vec<(Name, Name)> = Vec::new();
