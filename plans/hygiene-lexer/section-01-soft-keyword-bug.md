@@ -1,7 +1,7 @@
 ---
 section: "01"
 title: "Bug Fix — Soft Keyword Cache Contamination"
-status: in-progress
+status: complete
 reviewed: true
 goal: "Fix BUG-01-001: IdentCache bypasses soft keyword resolution for previously-seen identifiers"
 success_criteria:
@@ -26,7 +26,7 @@ sections:
     status: complete
   - id: "01.N"
     title: "Completion Checklist"
-    status: in-progress
+    status: complete
 ---
 
 # Section 01: Bug Fix — Soft Keyword Cache Contamination
@@ -120,11 +120,11 @@ Write tests that exercise the specific failure mode: soft keyword text appearing
 - [x] `timeout 150 ./test-all.sh` green — no regressions
 - [x] BUG-01-001 marked resolved in `plans/bug-tracker/section-01-parser-lexer.md`
 - [x] Plan annotation cleanup: no stale annotations added
-- [ ] **Plan sync** — update plan metadata:
-  - [ ] This section's frontmatter `status` → `complete`
-  - [ ] `00-overview.md` Quick Reference table updated
-  - [ ] `index.md` section status updated
-- [ ] `/tpr-review` passed
-- [ ] `/impl-hygiene-review last commit` passed
+- [x] **Plan sync** — update plan metadata:
+  - [x] This section's frontmatter `status` → `complete`
+  - [x] `00-overview.md` Quick Reference table updated
+  - [x] `index.md` section status updated
+- [x] `/tpr-review` passed
+- [x] `/impl-hygiene-review last commit` passed
 
 **Exit Criteria:** BUG-01-001 is fixed. The test `test_soft_keyword_after_identifier_cache` (or equivalent) passes, proving that `cache(...)` is tokenized as the `cache` keyword even when `cache` was previously seen as an identifier. No existing test regressions. No lexer benchmark regression.

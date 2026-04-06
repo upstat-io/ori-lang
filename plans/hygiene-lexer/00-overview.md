@@ -1,7 +1,7 @@
 ---
 plan: "hygiene-lexer"
 title: "Lexer Hygiene: Exhaustive Implementation Plan"
-status: not-started
+status: in-progress
 references:
   - ".claude/rules/impl-hygiene.md"
   - ".claude/rules/compiler.md"
@@ -15,7 +15,7 @@ Achieve cohesive, DRY architecture in `ori_lexer_core` and `ori_lexer` — where
 
 ## Mission Success Criteria
 
-- [ ] BUG-01-001 (soft keyword cache contamination) fixed with regression tests — `let cache = 42; cache(key: "x", op: () -> 1)` correctly lexes second `cache` as keyword
+- [x] BUG-01-001 (soft keyword cache contamination) fixed with regression tests — `let cache = 42; cache(key: "x", op: () -> 1)` correctly lexes second `cache` as keyword
 - [ ] Template cooking consolidated: 4 functions → 1 generic + 4 call sites
 - [ ] Unescape functions consolidated: shared scanning core with context-specific escapes
 - [ ] Integer cooking consolidated: 3 functions → 1 generic with radix parameter
@@ -130,7 +130,7 @@ Phase 2 - Verification & Cleanup
 
 | ID | Title | File | Status |
 |----|-------|------|--------|
-| 01 | Bug Fix — Soft Keyword Cache | `section-01-soft-keyword-bug.md` | Not Started |
+| 01 | Bug Fix — Soft Keyword Cache | `section-01-soft-keyword-bug.md` | Complete |
 | 02 | Cooker Layer Algorithmic DRY | `section-02-cooker-dry.md` | Not Started |
 | 03 | Scanner Layer Algorithmic DRY | `section-03-scanner-dry.md` | Not Started |
 | 04 | Drift, Gap & Polish | `section-04-drift-gap-polish.md` | Not Started |

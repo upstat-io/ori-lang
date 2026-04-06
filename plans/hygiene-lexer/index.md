@@ -14,7 +14,7 @@
 ## Keyword Clusters by Section
 
 ### Section 01: Bug Fix — Soft Keyword Cache
-**File:** `section-01-soft-keyword-bug.md` | **Status:** Not Started
+**File:** `section-01-soft-keyword-bug.md` | **Status:** Complete
 
 ```
 IdentCache, soft keyword, cache contamination, cook_ident
