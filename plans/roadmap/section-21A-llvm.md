@@ -68,14 +68,29 @@ sections:
 
 # Section 21A: LLVM Backend
 
-## Current Test Results (verified 2026-03-29)
+## Current Test Results (verified 2026-04-06)
 
 | Test Suite | Passed | Failed | Skipped/Ignored | Total |
 |------------|--------|--------|-----------------|-------|
-| Ori spec (evaluator) | 4181 | 0 | 42 | 4223 |
-| Rust unit tests (ori_llvm lib) | 466 | 0 | 0 | 466 |
-| AOT integration tests | 1977 | 0 | 17 | 1994 |
-| ori_rt unit tests | 360 | 0 | 0 | 360 |
+| Ori spec (evaluator) | 4409+ | 0 | 154 | 4563+ |
+| Rust unit tests (ori_llvm lib) | 501+ | 0 | 0 | 501+ |
+| AOT integration tests | 2096+ | 0 | 0 | 2096+ |
+| ori_rt unit tests | 367+ | 0 | 0 | 367+ |
+| Ori spec (LLVM) | 1781+ | 0 | 2475 LCFail | 4256+ |
+
+## Known Blocker: BUG-04-030 — 2475 LCFails (high severity)
+
+See `plans/bug-tracker/section-04-codegen-llvm.md:198` for full details. <!-- unblocks:jit-exception-handling/04B,05,06 -->
+
+**Root causes** (6 identified, 3 remaining after JIT EH plan fixes):
+- **(A) Generalized vars leak to codegen** — type checker stores unresolved vars in expr_types. ~279 occurrences. Touches §21.2 (Type Lowering) and §21.7 (Monomorphization).
+- **(B) Index out of bounds (u32::MAX) in ARC IR** — missing block/var ID sentinel. ~50+ files. Touches §21.15 (ARC/Memory Management).
+- **(C) StructValue vs IntValue type confusion** — 4 files. Touches §21.2 (Type Lowering).
+- ~~(D) Missing JIT runtime functions~~ — fixed in JIT EH plan §06.1.
+- ~~(E) Polymorphic type selection~~ — fixed in JIT EH plan §06.4.
+- ~~(F) List concat calling convention~~ — fixed in JIT EH plan §06.5.
+
+Resolving remaining root causes (A, B, C) would unblock completion of the JIT Exception Handling plan (Sections 04B, 05, 06).
 
 ## Import Resolution (Unified Pipeline)
 
