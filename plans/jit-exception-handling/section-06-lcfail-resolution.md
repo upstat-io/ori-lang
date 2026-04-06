@@ -10,8 +10,8 @@ inspired_by:
   - "Swift SIL ARC verification — validates RC balance before codegen"
 depends_on: ["04B"]
 third_party_review:
-  status: none
-  updated: null
+  status: resolved
+  updated: 2026-04-06
 sections:
   - id: "06.1"
     title: "Missing JIT Runtime Functions (Root Cause D)"
@@ -410,7 +410,7 @@ The actual crash was from `emit_iter_join` passing null `to_str_fn` for non-stri
 ### Fix: Early Bail on Unresolved Types
 
 - [x] Investigated `emit_function()` bail approach (2026-04-06): a blanket bail for functions with unresolved `var_types` was tested but REJECTED — it broke AOT lambdas that have leftover type variables but compile correctly. The existing defensive patterns (ir_builder guards + `finalize_jit` codegen error check) already handle compilation-time issues. The crash was a runtime SIGSEGV, not a compilation crash.
-- [x] Added non-string bail in `emit_iter_join()` (2026-04-06): records codegen error for non-string element types (BUG-04-039 — null `to_str_fn` → SIGSEGV). Produces clean LCFail instead of process-killing crash.
+- [x] Added non-string bail in `emit_iter_join()` (2026-04-06): records codegen error for non-string element types (BUG-04-039 — null `to_str_fn` → SIGSEGV). Produces clean LCFail instead of process-killing crash. **Limitation (TPR-06-001):** string-only join works in isolation (verified `/tmp/test_join_str.ori` passes 1/1 via JIT), but `join.ori` spec file fails ALL 8 tests because non-string join tests in the same file produce codegen errors that poison the entire JIT module (module-level error check rejects the whole file). Full fix needs BUG-04-039 `to_str` trampoline to eliminate the non-string bail.
 - [x] `build_struct` validation already exists at `aggregates.rs:183-187` (verified 2026-04-06)
 
 ### Testing
@@ -439,7 +439,9 @@ The actual crash was from `emit_iter_join` passing null `to_str_fn` for non-stri
 
 ## 06.R Third Party Review Findings
 
-- None.
+- [x] `[TPR-06-001][high]` `compiler/ori_llvm/src/codegen/arc_emitter/builtins/iterator_consumers.rs:494` — the `emit_iter_join` hardening landed in a path the LLVM spec backend still does not reach for the full `join.ori` spec file, so BUG-04-039 and the §06.8 notes overstated what was fixed.
+  Evidence: `ori test --backend=llvm tests/spec/traits/iterator/join.ori` → 8 LCFail; `ori test --backend=llvm /tmp/test_join_str.ori` → 1 pass. Root cause: JIT module poisoning — non-string join tests produce codegen errors that reject the entire module, including string-only tests.
+  Resolved: 2026-04-06. (1) Updated BUG-04-039 note to clarify string join works in isolation but `join.ori` fails due to module-level codegen error poisoning from non-string tests. (2) Updated §06.8 Early Bail notes to document the limitation. (3) Codegen error isolation is a known JIT architectural limitation — per-function error isolation tracked as part of LLVM Worker Isolation plan. Full fix: BUG-04-039 `to_str` trampoline eliminates the non-string bail, removing the module-poisoning source.
 
 ---
 
