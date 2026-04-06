@@ -494,10 +494,10 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// Emit `join(separator)` — join iterator elements into a string.
     ///
     /// For string-element iterators, passes `null` for `to_str_fn` (elements
-    /// are already strings). For primitive types (int, float, bool, char, byte,
-    /// Duration, Size), generates a `to_str` trampoline that calls the
-    /// appropriate `ori_str_from_*` runtime function. Unsupported types
-    /// (structs, closures, etc.) produce a codegen error.
+    /// are already strings). For primitive types (int, float, bool, char, byte),
+    /// generates a `to_str` trampoline that calls the appropriate
+    /// `ori_str_from_*` runtime function. Unsupported types (Duration, Size,
+    /// Ordering, structs, closures, etc.) produce a codegen error.
     pub(in crate::codegen) fn emit_iter_join(
         &mut self,
         iter_ptr: ValueId,
@@ -585,10 +585,13 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         // Determine the runtime conversion function name and the element
         // load type. All conversion functions write an OriStr to the sret
         // pointer, so the trampoline uses out_ptr directly as the sret arg.
+        //
+        // Duration, Size, and Ordering are excluded: their Printable semantics
+        // format with units (e.g. "1s", "1kb", "Equal") but ori_str_from_int
+        // would produce raw storage values (e.g. "1000000000", "1000", "1").
+        // These need proper Printable method dispatch — future work.
         let (rt_func_name, needs_sext_to_i64) = match tag {
-            Tag::Int | Tag::Duration | Tag::Size | Tag::Byte | Tag::Ordering => {
-                ("ori_str_from_int", true)
-            }
+            Tag::Int | Tag::Byte => ("ori_str_from_int", true),
             Tag::Float => ("ori_str_from_float", false),
             Tag::Bool => ("ori_str_from_bool", false),
             Tag::Char => ("ori_str_from_char", false),

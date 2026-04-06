@@ -2,7 +2,7 @@
 bug: "BUG-04-039"
 title: "LLVM codegen: join on non-string iterators crashes (missing to_str_fn trampoline)"
 severity: high
-status: complete
+status: in-progress
 goal: "Iterator.join(separator:) correctly converts non-string elements to strings in LLVM backend, producing identical output to the interpreter"
 success_criteria:
   - "join on [int], [float], [bool] iterators produces correct output in both JIT and AOT"
@@ -13,8 +13,8 @@ subsystem: "compiler/ori_llvm/src/codegen/arc_emitter/builtins/iterator_consumer
 found: "2026-04-06"
 source: "continue-roadmap"
 third_party_review:
-  status: none
-  updated: null
+  status: findings
+  updated: 2026-04-06
 ---
 
 # Fix: BUG-04-039 — LLVM codegen: join on non-string iterators crashes
@@ -96,6 +96,13 @@ Generate a `to_str` trampoline function for non-string element types:
   - Keep codegen-error guard for unsupported types (structs, closures, etc.)
 
 - [ ] Add AOT test fixtures and Rust test entries
+
+---
+
+## 04.R Third Party Review Findings
+
+- [x] `[TPR-04-001][high]` `compiler/ori_llvm/src/codegen/arc_emitter/builtins/iterator_consumers.rs:589` — `Duration` and `Size` joins still stringify raw storage values in AOT.
+  Resolved: Fixed on 2026-04-06. Removed `Tag::Duration`, `Tag::Size`, and `Tag::Ordering` from the trampoline's match arms — they now fall through to the codegen error path instead of producing semantically wrong output. Updated doc comments and bug tracker entry to accurately reflect supported types (int, float, bool, char, byte only). Duration/Size/Ordering join requires proper Printable method dispatch — future work.
 
 ---
 
