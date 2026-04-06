@@ -491,6 +491,8 @@ pub extern "C" fn ori_iter_join(
 ) {
     use crate::string::OriStr;
 
+    assert_elem_size(elem_size, "ori_iter_join");
+
     if out_ptr.is_null() {
         if !iter.is_null() {
             drop(unsafe { Box::from_raw(iter.cast::<IterState>()) });

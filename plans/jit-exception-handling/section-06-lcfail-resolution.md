@@ -449,6 +449,12 @@ The actual crash was from `emit_iter_join` passing null `to_str_fn` for non-stri
   Evidence: `ori test --backend=llvm tests/spec/traits/iterator/join.ori` → 8 LCFail; `ori test --backend=llvm /tmp/test_join_str.ori` → 1 pass. Root cause: JIT module poisoning — non-string join tests produce codegen errors that reject the entire module, including string-only tests.
   Resolved: 2026-04-06. (1) Updated BUG-04-039 note to clarify string join works in isolation but `join.ori` fails due to module-level codegen error poisoning from non-string tests. (2) Updated §06.8 Early Bail notes to document the limitation. (3) Codegen error isolation is a known JIT architectural limitation — per-function error isolation tracked as part of LLVM Worker Isolation plan. Full fix: BUG-04-039 `to_str` trampoline eliminates the non-string bail, removing the module-poisoning source.
 
+- [x] `[TPR-06-004][medium]` `compiler/ori_rt/src/iterator/consumers.rs:482` — `ori_iter_join` missing `assert_elem_size` guard.
+  Resolved: 2026-04-06. Added `assert_elem_size(elem_size, "ori_iter_join")` matching all other consumer entrypoints.
+
+- [x] `[TPR-06-005][medium]` `compiler/ori_llvm/tests/aot/iterators.rs:240` — no permanent JIT string-only join test.
+  Resolved: 2026-04-06. Attempted to add in-tree spec file (`join_str_only.ori`) but it fails with the same `assert_eq` monomorphization LCFail that affects most spec files (BUG-04-030, unresolved type variables Idx(218)/Idx(219)). This is a pre-existing infrastructure issue, not join-specific. The AOT test (`test_iter_join_str`) provides permanent regression coverage for the SSO fix. JIT-level coverage will be unblocked when BUG-04-030's `assert_eq` monomorphization is fixed.
+
 ---
 
 ## 06.N Completion Checklist
