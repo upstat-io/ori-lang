@@ -133,12 +133,10 @@ Bugs in LLVM IR generation, JIT/AOT compilation, monomorphization, ARC pipeline 
   Note: Active work in `plans/imported-generic-mono/` directly related. Non-crashing — graceful recovery produces correct results for primitive type instantiations.
   Impact (2026-04-04): 6 narrowing AOT tests (`compiler/ori_llvm/tests/aot/fixtures/narrowing/`) used `use std.testing { assert_eq }` — calls silently dropped from IR. 4 tests SIGSEGV (block ends `unreachable` instead of `ret void`), 2 tests false-positive (pass without actually checking assertions). Converted all 6 to exit-code-based assertions as workaround.
 
-- [ ] `[BUG-04-029][medium]` **LLVM backend missing shift overflow/negative count/bit width runtime checks** — found by continue-roadmap.
-  Repro: `timeout 30 cargo run -q -p oric --bin ori -- test --backend=llvm tests/spec/expressions/operators_bitwise.ori` — 5 tests fail: `test_shl_overflow_panic`, `test_shl_bit_width_panic`, `test_shl_negative_count_panic`, `test_shr_bit_width_panic`, `test_shr_negative_count_panic`. All expect panics but operations succeed silently (UB in LLVM — shift by negative or >= bit width is poison).
-  Root cause: `checked_ops.rs` implements checked div/rem (04.1 fix) but has no shift overflow/negative count/bit width guards. The interpreter has runtime checks; the LLVM backend emits raw `shl`/`ashr` without validation.
+- [x] `[BUG-04-029][medium]` **LLVM backend missing shift overflow/negative count/bit width runtime checks** — found by continue-roadmap.
+  Resolved: OBE on 2026-04-06. `checked_shl()`/`checked_shr()` in `checked_ops.rs` (lines 381-542) implement negative count check (`rhs < 0` → panic), bit width check (`rhs >= 64` → panic), and left-shift overflow check (roundtrip verification). These are wired into operator strategy at `strategy.rs:136-137`. All 5 previously-failing tests now pass: `test_shl_overflow_panic`, `test_shl_bit_width_panic`, `test_shl_negative_count_panic`, `test_shr_bit_width_panic`, `test_shr_negative_count_panic`. 43/43 bitwise operator tests pass via LLVM backend.
   Subsystem: `compiler/ori_llvm/src/codegen/ir_builder/checked_ops.rs`
   Found: 2026-04-03 | Source: continue-roadmap (JIT EH §04 verification)
-  Note: Active work in roadmap section 15C (Literals & Operators) and 21A (LLVM Backend) touch this area.
 
 - [x] `[BUG-04-023][high]` **LLVM codegen still panics on structural `==`/`!=` for user-defined types without `#derive(Eq)`** — found by review-work.
   Resolved: Fixed on 2026-04-02 (structs) and 2026-04-03 (enums). Added `emit_structural_eq` in `compound_traits.rs` for structs (field-by-field AND) and `emit_structural_eq_enum` for unit-only enums (tag comparison). When `emit_derived_eq_call` returns None, both Struct and Enum types fall back to structural comparison. Enums with payload variants still require `#derive(Eq)`. Tests: `aot_enum_structural_eq.ori` + prior struct test. 15,019 tests passing.
