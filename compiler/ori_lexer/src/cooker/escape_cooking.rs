@@ -4,7 +4,7 @@
 //! Each method strips surrounding delimiters, runs the appropriate unescape
 //! function, interns the result, and reports errors.
 
-use ori_ir::TokenKind;
+use ori_ir::{Name, TokenKind};
 
 use super::{slice_source, CookResult, TokenCooker};
 use crate::cook_escape::{unescape_char_v2, unescape_string_v2, unescape_template_v2};
@@ -51,11 +51,19 @@ impl TokenCooker<'_> {
         }
     }
 
-    /// Cook a template head: strip `` ` `` and `{`, unescape, intern.
-    pub(super) fn cook_template_head(&mut self, offset: u32, len: u32) -> CookResult {
+    /// Shared skeleton for all template segment cooking: strip surrounding
+    /// delimiters, unescape via `unescape_template_v2`, intern, check errors.
+    ///
+    /// The four template variants (`Head`, `Middle`, `Tail`, `Full`) share this
+    /// exact algorithm and differ only in which `TokenKind` wraps the result.
+    fn cook_template_segment(
+        &mut self,
+        offset: u32,
+        len: u32,
+        kind_fn: impl FnOnce(Name) -> TokenKind,
+    ) -> CookResult {
         let errors_before = self.errors.len();
         let text = slice_source(self.source, offset, len);
-        // Strip leading ` and trailing {
         let content = &text[1..text.len() - 1];
         let content_offset = offset + 1;
 
@@ -63,80 +71,40 @@ impl TokenCooker<'_> {
             Some(unescaped) => self.interner.intern_owned(unescaped),
             None => self.interner.intern(content),
         };
-        let kind = TokenKind::TemplateHead(name);
+        let kind = kind_fn(name);
         if self.errors.len() > errors_before {
             CookResult::with_error(kind)
         } else {
             CookResult::new(kind)
         }
+    }
+
+    /// Cook a template head: strip `` ` `` and `{`, unescape, intern.
+    pub(super) fn cook_template_head(&mut self, offset: u32, len: u32) -> CookResult {
+        self.cook_template_segment(offset, len, TokenKind::TemplateHead)
     }
 
     /// Cook a template middle segment: strip `}` and `{`, unescape, intern.
     pub(super) fn cook_template_middle(&mut self, offset: u32, len: u32) -> CookResult {
-        let errors_before = self.errors.len();
-        let text = slice_source(self.source, offset, len);
-        // Strip leading } and trailing {
-        let content = &text[1..text.len() - 1];
-        let content_offset = offset + 1;
-
-        let name = match unescape_template_v2(content, content_offset, &mut self.errors) {
-            Some(unescaped) => self.interner.intern_owned(unescaped),
-            None => self.interner.intern(content),
-        };
-        let kind = TokenKind::TemplateMiddle(name);
-        if self.errors.len() > errors_before {
-            CookResult::with_error(kind)
-        } else {
-            CookResult::new(kind)
-        }
+        self.cook_template_segment(offset, len, TokenKind::TemplateMiddle)
     }
 
     /// Cook a template tail: strip `}` and `` ` ``, unescape, intern.
     pub(super) fn cook_template_tail(&mut self, offset: u32, len: u32) -> CookResult {
-        let errors_before = self.errors.len();
-        let text = slice_source(self.source, offset, len);
-        // Strip leading } and trailing `
-        let content = &text[1..text.len() - 1];
-        let content_offset = offset + 1;
-
-        let name = match unescape_template_v2(content, content_offset, &mut self.errors) {
-            Some(unescaped) => self.interner.intern_owned(unescaped),
-            None => self.interner.intern(content),
-        };
-        let kind = TokenKind::TemplateTail(name);
-        if self.errors.len() > errors_before {
-            CookResult::with_error(kind)
-        } else {
-            CookResult::new(kind)
-        }
+        self.cook_template_segment(offset, len, TokenKind::TemplateTail)
     }
 
     /// Cook a format spec: strip leading `:`, intern the spec content.
+    ///
+    /// Not a template segment — no unescape, different delimiter stripping.
     pub(super) fn cook_format_spec(&self, offset: u32, len: u32) -> CookResult {
         let text = slice_source(self.source, offset, len);
-        // The format spec token includes the leading `:` from the scanner.
-        // Strip it to get just the spec content.
         let content = &text[1..];
         CookResult::new(TokenKind::FormatSpec(self.interner.intern(content)))
     }
 
     /// Cook a complete template (no interpolation): strip both backticks, unescape, intern.
     pub(super) fn cook_template_complete(&mut self, offset: u32, len: u32) -> CookResult {
-        let errors_before = self.errors.len();
-        let text = slice_source(self.source, offset, len);
-        // Strip both backticks
-        let content = &text[1..text.len() - 1];
-        let content_offset = offset + 1;
-
-        let name = match unescape_template_v2(content, content_offset, &mut self.errors) {
-            Some(unescaped) => self.interner.intern_owned(unescaped),
-            None => self.interner.intern(content),
-        };
-        let kind = TokenKind::TemplateFull(name);
-        if self.errors.len() > errors_before {
-            CookResult::with_error(kind)
-        } else {
-            CookResult::new(kind)
-        }
+        self.cook_template_segment(offset, len, TokenKind::TemplateFull)
     }
 }

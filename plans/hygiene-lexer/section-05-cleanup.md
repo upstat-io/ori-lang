@@ -31,7 +31,7 @@ sections:
 
 **Success Criteria:**
 
-- [ ] All tests pass in both debug and release
+- [ ] The touched lexer crates pass their named debug/release test suites, and repo-wide verification scripts are green
 - [ ] No clippy warnings introduced
 - [ ] Plan directory removed
 - [ ] Satisfies mission criterion: "All section success criteria met"
@@ -42,6 +42,10 @@ sections:
 
 ## 05.1 Final verification
 
+- [ ] `timeout 150 cargo test -p ori_lexer` — lexer integration crate green (debug)
+- [ ] `timeout 150 cargo test -p ori_lexer --release` — lexer integration crate green (release)
+- [ ] `timeout 150 cargo test -p ori_lexer_core` — raw scanner crate green (debug)
+- [ ] `timeout 150 cargo test -p ori_lexer_core --release` — raw scanner crate green (release)
 - [ ] `timeout 150 ./test-all.sh` — all tests pass, no regressions
 - [ ] `timeout 150 ./clippy-all.sh` — no new warnings
 - [ ] Verify no files in `ori_lexer` or `ori_lexer_core` exceed 500-line limit
@@ -59,6 +63,7 @@ sections:
 
 - [ ] `timeout 150 ./test-all.sh` green
 - [ ] `timeout 150 ./clippy-all.sh` green
+- [ ] `timeout 150 cargo test -p ori_lexer{,_core}` green in debug and release
 - [ ] No files over 500 lines in either lexer crate
 - [ ] BUG-01-001 resolved in bug tracker
 - [ ] Delete this plan directory: `rm -rf plans/hygiene-lexer/`

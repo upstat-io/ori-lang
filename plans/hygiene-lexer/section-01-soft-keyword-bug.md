@@ -31,7 +31,7 @@ sections:
 
 # Section 01: Bug Fix — Soft Keyword Cache Contamination
 
-**Status:** Not Started
+**Status:** Complete
 **Goal:** Fix BUG-01-001 so that soft keywords (context-sensitive pattern keywords) resolve correctly regardless of whether their text appeared earlier as a regular identifier.
 
 **Success Criteria:**
