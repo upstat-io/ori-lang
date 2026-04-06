@@ -18,7 +18,7 @@ sections:
     status: complete
   - id: "06.2"
     title: "Generalized Var Resolution (Root Cause A)"
-    status: not-started
+    status: in-progress
   - id: "06.3"
     title: "ARC IR Index Bounds Safety (Root Cause B)"
     status: not-started
@@ -50,7 +50,7 @@ sections:
 
 # Section 06: LCFail Resolution — BUG-04-030/031/032/033
 
-**Status:** Not Started
+**Status:** In Progress — 06.1 complete. 06.2–06.8 not started.
 **Goal:** Systematically fix all known LLVM codegen root causes that produce LCFails (LLVM Compile Failures) in the spec test suite. Current baseline: 2656 LCFails. Target: <500 LCFails (stretch: <100).
 
 **Depends on:** Section 04B (lambda monomorphization foundations)
@@ -102,22 +102,16 @@ Type checker stores Unbound Vars that get `VarState::Generalized` during let-pol
 
 ### Investigation & Fix
 
-- [ ] Write failing test matrix BEFORE implementation:
-  - Ori spec tests: polymorphic `let` binding used at 2+ concrete types (int, str, [int], Option)
-  - AOT tests: same patterns compiled via `--backend=llvm`
-  - Semantic pin: test that ONLY passes with resolved Generalized vars
-- [ ] Read and trace `VarState::Generalized` lifecycle:
-  - `ori_types/src/unify/generalization.rs:53` — where Generalized is created
-  - `ori_types/src/pool/accessors.rs:412-485` — `resolve_fully()` where it's NOT handled
-  - `ori_types/src/infer/expr/calls/monomorphization.rs` — where instantiation should resolve Generalized
-- [ ] Implement fix: ensure Generalized vars are instantiated before ARC lowering. Two approaches:
-  - **Option A (defensive):** Handle `Generalized` in `resolve_fully()` — look up the instantiation mapping and follow it
-  - **Option B (validation):** Add a `debug_assert!` at codegen entry that NO `Tag::Var` with `VarState::Generalized` survives
-  - **Option C (instantiation fix):** Fix the instantiation sites in `monomorphization.rs` to properly substitute Generalized vars
-  - Choose the most correct approach (likely C + B as safety net)
-- [ ] `ori_arc/src/lower/calls/lambda.rs` — extend the 04B Scheme-unwrapping fix if needed
-- [ ] Count LCFails after fix: `ori test --backend=llvm tests/` — expect significant reduction from 2656
-- [ ] Verify: `timeout 150 ./test-all.sh` green
+- [x] Write failing test matrix BEFORE implementation (2026-04-05): `tests/spec/inference/generalized_var_resolution.ori` — 6 tests covering polymorphic lambda patterns (list indexing, Option/List wrapping, identity with collections, len, const with collections). All pass interpreter, all LCFail through LLVM.
+- [x] Read and trace `VarState::Generalized` lifecycle (2026-04-05): Traced through generalization.rs → pool/accessors.rs → monomorphization.rs → lambda.rs. Root cause: `resolve_fully()` returns Generalized vars unchanged; for lambdas in non-generic functions, no `MonoInstance`/`body_type_map` exists. The LLVM lambda mono pipeline's `is_polymorphic_lambda`, `build_bound_var_map`, and `find_all_instantiation_types` all missed Generalized vars in container types.
+- [x] Implement fix — LLVM lambda mono pipeline (2026-04-05): Extended lambda mono to handle Generalized vars via four changes:
+  1. `is_polymorphic_lambda`: added `contains_var(pool, p.ty)` for params and `contains_var` for return type — detects nested vars in containers like `List<Var>`
+  2. `build_bound_var_map`: added `map_types_structural` for container params when `contains_var` (parallel walk of schema+concrete types)
+  3. New `apply_concrete_param_types`: directly substitutes container params from concrete function type's param Idx values (avoids need for mutable pool)
+  4. New `find_concrete_types_from_calls` + `apply_call_site_types`: extracts concrete types from `ApplyIndirect` call sites by following `PartialApply → Let copy → ApplyIndirect` chain — handles let-polymorphic lambdas where type narrowing happens at call sites
+- [ ] Multi-inst case: lambdas used at 2+ concrete types where Let copies have Scheme return types — `find_all_instantiation_types` rejects them because `is_concrete_function` requires fully-concrete return. Needs `has_concrete_params` relaxation + clone return type resolution. Tracked as remaining work.
+- [ ] Count LCFails after fix: LLVM spec tests crash on pre-existing Root Cause B (u32::MAX index, §06.3), preventing full count. Single-inst patterns verified passing. Full count deferred to after §06.3.
+- [x] Verify: `timeout 150 ./test-all.sh` — 12,706 passed, 2 failed (pre-existing), 0 regressions from this fix (2026-04-05)
 - [ ] Debug AND release builds pass
 
 ### Matrix Testing

@@ -6,27 +6,6 @@
 use ori_types::Idx;
 use ori_types::Tag;
 
-/// Check if a type contains a `Var` INSIDE a container (not at the top level).
-pub(super) fn contains_nested_var(pool: &ori_types::Pool, ty: Idx) -> bool {
-    match pool.tag(ty) {
-        Tag::Option => contains_var(pool, pool.option_inner(ty)),
-        Tag::Result => {
-            contains_var(pool, pool.result_ok(ty)) || contains_var(pool, pool.result_err(ty))
-        }
-        Tag::List => contains_var(pool, pool.list_elem(ty)),
-        Tag::Tuple => pool.tuple_elems(ty).iter().any(|e| contains_var(pool, *e)),
-        Tag::Map => contains_var(pool, pool.map_key(ty)) || contains_var(pool, pool.map_value(ty)),
-        Tag::Set => contains_var(pool, pool.set_elem(ty)),
-        Tag::Function => {
-            pool.function_params(ty)
-                .iter()
-                .any(|p| contains_var(pool, *p))
-                || contains_var(pool, pool.function_return(ty))
-        }
-        _ => false,
-    }
-}
-
 /// Check if a type contains a `Var` at any nesting level.
 pub(super) fn contains_var(pool: &ori_types::Pool, ty: Idx) -> bool {
     match pool.tag(ty) {
