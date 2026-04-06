@@ -13,7 +13,7 @@ success_criteria:
   - "Cursor/mod.rs decorative banners removed (Section 07 overlap — clean what you touch)"
 depends_on: []
 third_party_review:
-  status: resolved
+  status: findings
   updated: 2026-04-06
 sections:
   - id: "06.1"
@@ -39,7 +39,7 @@ sections:
     status: complete
   - id: "06.R"
     title: "Third Party Review Findings"
-    status: complete
+    status: in-progress
   - id: "06.N"
     title: "Completion Checklist"
     status: complete
@@ -200,6 +200,10 @@ The shared prefix across all three `expect_*` functions is: (1) check for `Ident
   Impact: the qualitative fix for TPR-06-002 is correct, but the section still presents an exact verification count that is already non-reproducible on the same branch after the acceptance-matrix tests landed.
   Required plan update: refresh the recorded total to match the current run, or stop pinning the global pass count in Section 06 and keep only the stable claim about exit status plus the known BUG-04-030 crash note.
   Resolved: Fixed on 2026-04-06. Removed exact test counts from all plan entries — now claims only "0 failures; test-all.sh exits 0" plus the BUG-04-030 note.
+- [ ] `[TPR-06-004][medium]` [compiler/ori_parse/src/cursor/mod.rs](/home/eric/projects/ori_lang/.claude/worktrees/lexer-hygiene/compiler/ori_parse/src/cursor/mod.rs#L1) — Section 06 lands more logic in a file that still violates the 500-line hygiene limit, so the section is not actually clean on implementation hygiene.
+  Evidence: the section explicitly touches `compiler/ori_parse/src/cursor/mod.rs` for 06.4 and notes the existing BLOAT at [plans/hygiene-full-2/section-06-lexer-parser-dry.md](/home/eric/projects/ori_lang/.claude/worktrees/lexer-hygiene/plans/hygiene-full-2/section-06-lexer-parser-dry.md#L133), but the current file is now 671 lines (`wc -l compiler/ori_parse/src/cursor/mod.rs`) after the refactor. `.claude/rules/impl-hygiene.md` requires a split when touching a production file over 500 lines, and Section 08.4 still tracks the missing extraction at [plans/hygiene-full-2/section-08-file-size.md](/home/eric/projects/ori_lang/.claude/worktrees/lexer-hygiene/plans/hygiene-full-2/section-08-file-size.md#L157). The same section currently claims `/impl-hygiene-review last commit` was clean at [plans/hygiene-full-2/section-06-lexer-parser-dry.md](/home/eric/projects/ori_lang/.claude/worktrees/lexer-hygiene/plans/hygiene-full-2/section-06-lexer-parser-dry.md#L268).
+  Impact: the parser refactor itself is correct, but the section overstates hygiene completion. Future work now has to touch an even larger `cursor/mod.rs`, and the completion record claims a clean impl-hygiene review that the current tree does not support.
+  Required follow-up: extract the identifier-acceptance helpers into `cursor/identifiers.rs` as already planned in Section 08.4, then rerun the impl-hygiene review before marking Section 06 clean.
 
 ---
 
