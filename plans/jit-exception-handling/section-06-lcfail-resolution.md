@@ -21,7 +21,7 @@ sections:
     status: in-progress  # var_reprs fixup done; 2 verification items blocked by Root Cause B (§06.3)
   - id: "06.3"
     title: "ARC IR Index Bounds Safety (Root Cause B)"
-    status: in-progress  # emitter-level fixes done; remaining CRASH is from pool var_state in resolve_fully() + into_int_value panics (Root Cause C/06.8)
+    status: complete  # Pool::var_state crash resolved (resolve_fully guard + var_state debug_assert + var_state_checked). Remaining LLVM crash from Root Cause C (§06.8)
   - id: "06.4"
     title: "Polymorphic Type Selection Fix (Root Cause E)"
     status: complete
@@ -33,7 +33,7 @@ sections:
     status: complete
   - id: "06.7"
     title: "Multi-Clause Function Lowering (BUG-04-033)"
-    status: not-started
+    status: complete
   - id: "06.8"
     title: "ABI Type Resolution Audit (Root Cause C)"
     status: not-started
@@ -146,11 +146,11 @@ Type checker stores Unbound Vars that get `VarState::Generalized` during let-pol
 - [x] `timeout 150 ./test-all.sh` green — 14,809 passed, 0 failures, 0 regressions (LLVM spec crash is pre-existing BUG-04-030 Root Cause B) (2026-04-05)
 - [x] Debug AND release builds pass (`cargo b --release`) (2026-04-05)
 - [x] Multi-inst test passes both interpreter and LLVM: `let head = xs -> xs[0]; head([1,2,3]); head(["a","b","c"])` — dual-exec parity verified (2026-04-05)
-- [ ] Multi-inst tests in `tests/spec/inference/generalized_var_resolution.ori` pass through LLVM — 6 still LCFail from pre-existing Root Causes (unresolved `len` dispatch, `assert_eq` invoke). Multi-inst detection and cloning works but downstream codegen issues block these specific tests.
+- [ ] Multi-inst tests in `tests/spec/inference/generalized_var_resolution.ori` pass through LLVM — 6 still LCFail from pre-existing Root Causes (unresolved `len` dispatch, `assert_eq` invoke). Multi-inst detection and cloning works but downstream codegen issues block these specific tests. <!-- blocked-by:06.8 -->
 - [x] Existing `test_multi_inst_tuple_lambda` and `test_multi_inst_map_lambda` AOT tests still pass — all 5 multi-inst AOT tests pass (2026-04-05)
 - [x] `ORI_CHECK_LEAKS=1` clean on multi-inst test programs (2026-04-05)
 - [x] `./clippy-all.sh` passes (2026-04-05)
-- [ ] Count LCFails after fix: LLVM spec tests crash on Root Cause B (§06.3), preventing accurate count. Multi-inst patterns compile correctly when not blocked by other root causes.
+- [ ] Count LCFails after fix: Root Cause B (§06.3) resolved, but LLVM spec tests still crash from Root Cause C (§06.8 — malformed IR segfaults LLVM C++), preventing full accurate count. Per-directory counts possible. <!-- blocked-by:06.8 -->
 
 ### Matrix Testing
 
@@ -195,7 +195,7 @@ Pattern: `index out of bounds: the len is N but the index is 4294967295` (u32::M
 ### Verification
 
 - [x] `timeout 150 ./test-all.sh` green (2026-04-05): 14,815 passed, 0 failed. Emitter-level block panics eliminated.
-- [ ] LLVM spec tests no longer crash — **STILL CRASHES** from `Pool::var_state` in `ori_repr::canonical` (pool-level index overflow, not emitter). This is a separate root cause: Generalized vars leak to `ori_repr` canonicalization with indices past pool storage. Needs pool-level guard in `resolve_fully()` or `var_state()`.
+- [x] Pool::var_state crash resolved (2026-04-06): `resolve_fully()` bounds guard (added 2026-04-05) prevents the panic. Zero "index out of bounds" panics across all LLVM spec test directories. Added `debug_assert!` to `var_state()`/`var_state_mut()` and new `var_state_checked()` for defense-in-depth. Remaining LLVM crash is from malformed IR (Root Cause C, §06.8), not Pool::var_state.
 - [x] Debug AND release produce same results (2026-04-05)
 - [x] `./clippy-all.sh` clean (2026-04-05)
 
@@ -299,23 +299,26 @@ Two errors in multi-clause function LLVM emission:
 
 The decision tree emission (`ori_arc/src/decision_tree/emit.rs:90-145`) creates multiple clause blocks via `EmitContext` (lines 25-48). Each arm may create different block structures — arms with recursive calls emit InvokeIndirect (extra blocks), while base cases don't. This causes PHI predecessor mismatches at the merge point.
 
-### Fix
+### Fix (completed 2026-04-06)
 
-- [ ] Write failing test BEFORE fix: Ackermann function with 3+ clauses via `--backend=llvm`:
-  ```
-  @ack (0: int, n: int) -> int = n + 1
-  @ack (m, 0: int) -> int = ack(m - 1, 1)
-  @ack (m, n) = ack(m - 1, ack(m, n - 1))
-  ```
-- [ ] Fix `lower_multi_clause()` at `ori_canon/src/lower/patterns.rs:117-200`:
-  - Line 122: use union of all clause return types (not just first clause)
-  - Lines 134, 141: compute real scrutinee types from parameter types (not `TypeId::ERROR`)
-  - This requires threading type information from the function signature into the canonical lowering
-- [ ] Fix decision tree emission PHI: ensure all clause arms create compatible block structures. When an arm contains InvokeIndirect (recursive call), the emitted blocks must correctly jump to the merge block
-- [ ] Fix `build_struct` type mismatch: at the merge point, if result is scalar (int), don't wrap in struct. Check `resolve_type()` result before calling `build_struct`
-- [ ] Verify: Ackermann and fibonacci multi-clause functions compile and run correctly via `--backend=llvm`
-- [ ] Debug AND release produce identical results
-- [ ] `timeout 150 ./test-all.sh` green
+Four root causes identified and fixed:
+
+1. **Scrutinee type mismatch** (`ori_canon/src/lower/patterns.rs`): Synthetic scrutinee Idents used `TypeId::ERROR` → zero values in LLVM. Fixed by propagating real param types from `FunctionSig`.
+
+2. **Scrutinee name mismatch** (`ori_canon` + `ori_eval` + `ori_ir`): Canonical scrutinee used first clause's parser names (generated names for literal-pattern params), but ARC lowering used `FunctionSig` names (last clause). Fixed by using `FunctionSig.param_names` in canonical lowering + new `CanonRoot.param_names` field for the evaluator.
+
+3. **Tuple type not interned** (`ori_types/src/check/mod.rs`): Multi-param multi-clause functions need `(T1, T2)` tuple type for synthetic scrutinee, but it was never interned during type checking. Fixed by pre-interning parameter tuples in `finish_with_pool()`.
+
+4. **Multi-clause function/sig zip misalignment** (`ori_llvm/src/codegen/function_compiler/`): `declare_all` and `prepare_all_cached` used positional zip between `module_functions` (source order, duplicates) and `function_sigs` (sorted by Name, deduped). Fixed by using name-keyed lookup instead of positional zip.
+
+- [x] Write failing test BEFORE fix: Ackermann, fibonacci, guards, safe_div (2026-04-06)
+- [x] Fix `lower_multi_clause()` — real param types and names from `FunctionSig` (2026-04-06)
+- [x] Fix decision tree emission PHI — name-based sig lookup + multi-clause dedup in declare/prepare (2026-04-06)
+- [x] Fix `build_struct` type mismatch — tuple type pre-interned in `finish_with_pool()` (2026-04-06)
+- [x] Verify: Ackermann and fibonacci multi-clause functions compile and run correctly via `--backend=llvm` (2026-04-06)
+- [x] Debug AND release produce identical results (2026-04-06)
+- [x] `timeout 150 ./test-all.sh` green — 14,825 passed, 0 failed (2026-04-06)
+- [x] `./clippy-all.sh` clean (2026-04-06)
 
 ### Matrix Testing
 
