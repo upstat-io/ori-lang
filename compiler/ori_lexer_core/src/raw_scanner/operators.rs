@@ -16,20 +16,27 @@ impl super::RawScanner<'_> {
         }
     }
 
-    pub(super) fn plus(&mut self, start: u32) -> RawToken {
-        self.cursor.advance(); // consume '+'
+    /// Advance past an operator char; if `=` follows, consume it and emit
+    /// the compound tag, otherwise emit the single-char tag.
+    #[inline]
+    fn compound_eq(&mut self, start: u32, single: RawTag, compound: RawTag) -> RawToken {
+        self.cursor.advance();
         if self.cursor.current() == b'=' {
             self.cursor.advance();
             RawToken {
-                tag: RawTag::PlusEq,
+                tag: compound,
                 len: self.cursor.pos() - start,
             }
         } else {
             RawToken {
-                tag: RawTag::Plus,
+                tag: single,
                 len: self.cursor.pos() - start,
             }
         }
+    }
+
+    pub(super) fn plus(&mut self, start: u32) -> RawToken {
+        self.compound_eq(start, RawTag::Plus, RawTag::PlusEq)
     }
 
     pub(super) fn minus_or_arrow(&mut self, start: u32) -> RawToken {
@@ -57,67 +64,19 @@ impl super::RawScanner<'_> {
     }
 
     pub(super) fn star(&mut self, start: u32) -> RawToken {
-        self.cursor.advance(); // consume '*'
-        if self.cursor.current() == b'=' {
-            self.cursor.advance();
-            RawToken {
-                tag: RawTag::StarEq,
-                len: self.cursor.pos() - start,
-            }
-        } else {
-            RawToken {
-                tag: RawTag::Star,
-                len: self.cursor.pos() - start,
-            }
-        }
+        self.compound_eq(start, RawTag::Star, RawTag::StarEq)
     }
 
     pub(super) fn percent(&mut self, start: u32) -> RawToken {
-        self.cursor.advance(); // consume '%'
-        if self.cursor.current() == b'=' {
-            self.cursor.advance();
-            RawToken {
-                tag: RawTag::PercentEq,
-                len: self.cursor.pos() - start,
-            }
-        } else {
-            RawToken {
-                tag: RawTag::Percent,
-                len: self.cursor.pos() - start,
-            }
-        }
+        self.compound_eq(start, RawTag::Percent, RawTag::PercentEq)
     }
 
     pub(super) fn caret(&mut self, start: u32) -> RawToken {
-        self.cursor.advance(); // consume '^'
-        if self.cursor.current() == b'=' {
-            self.cursor.advance();
-            RawToken {
-                tag: RawTag::CaretEq,
-                len: self.cursor.pos() - start,
-            }
-        } else {
-            RawToken {
-                tag: RawTag::Caret,
-                len: self.cursor.pos() - start,
-            }
-        }
+        self.compound_eq(start, RawTag::Caret, RawTag::CaretEq)
     }
 
     pub(super) fn at(&mut self, start: u32) -> RawToken {
-        self.cursor.advance(); // consume '@'
-        if self.cursor.current() == b'=' {
-            self.cursor.advance();
-            RawToken {
-                tag: RawTag::AtEq,
-                len: self.cursor.pos() - start,
-            }
-        } else {
-            RawToken {
-                tag: RawTag::At,
-                len: self.cursor.pos() - start,
-            }
-        }
+        self.compound_eq(start, RawTag::At, RawTag::AtEq)
     }
 
     pub(super) fn equal(&mut self, start: u32) -> RawToken {
@@ -145,19 +104,7 @@ impl super::RawScanner<'_> {
     }
 
     pub(super) fn bang(&mut self, start: u32) -> RawToken {
-        self.cursor.advance(); // consume '!'
-        if self.cursor.current() == b'=' {
-            self.cursor.advance();
-            RawToken {
-                tag: RawTag::BangEqual,
-                len: self.cursor.pos() - start,
-            }
-        } else {
-            RawToken {
-                tag: RawTag::Bang,
-                len: self.cursor.pos() - start,
-            }
-        }
+        self.compound_eq(start, RawTag::Bang, RawTag::BangEqual)
     }
 
     pub(super) fn less(&mut self, start: u32) -> RawToken {

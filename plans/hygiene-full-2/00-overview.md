@@ -132,7 +132,7 @@ Phase 5 - Verification + Cleanup
 | 03 | Cross-Backend Dispatch Unification | `section-03-cross-backend-dispatch.md` | Not Started |
 | 04 | Type Resolution DRY | `section-04-type-resolution-dry.md` | Not Started |
 | 05 | LLVM Codegen Internal DRY | `section-05-llvm-dry.md` | Not Started |
-| 06 | Lexer/Parser DRY | `section-06-lexer-parser-dry.md` | Not Started |
+| 06 | Lexer/Parser DRY | `section-06-lexer-parser-dry.md` | In Progress |
 | 07 | Stale Annotations and Decorative Banners | `section-07-stale-annotations.md` | Not Started |
 | 08 | File and Function Size Violations | `section-08-file-size.md` | Not Started |
 | 09 | SAFETY Comments for ori_rt | `section-09-safety-comments.md` | Not Started |
