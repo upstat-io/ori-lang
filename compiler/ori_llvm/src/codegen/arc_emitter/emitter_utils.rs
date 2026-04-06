@@ -180,6 +180,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// Prefer this over [`var`](Self::var) when the consumer needs to
     /// distinguish between value kinds (e.g., RC operations).
     pub(super) fn var_emitted(&self, v: ArcVarId) -> EmittedValue {
+        debug_assert!(v.is_valid(), "var_emitted called with INVALID ArcVarId");
         if let Some(Some(val)) = self.var_map.get(v.index()) {
             *val
         } else {
@@ -218,9 +219,24 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
     /// Look up the LLVM block for an ARC block.
     ///
-    /// Panics if the block is a dead unwind block (no LLVM block was created).
+    /// Returns the poison block and records a codegen error if the block ID
+    /// is out of bounds or was not mapped (dead unwind block).
     pub(super) fn block(&self, b: ori_arc::ir::ArcBlockId) -> super::BlockId {
-        self.block_map[b.index()]
-            .expect("block() called for dead unwind block — invariant violated")
+        debug_assert!(b.is_valid(), "block() called with INVALID ArcBlockId");
+        if let Some(Some(block_id)) = self.block_map.get(b.index()) {
+            *block_id
+        } else {
+            tracing::error!(
+                block = b.raw(),
+                block_map_len = self.block_map.len(),
+                "ArcIrEmitter: block not mapped (out of bounds or dead unwind)"
+            );
+            self.builder.record_codegen_error();
+            // Return the entry block as a safe fallback. The branch target is
+            // semantically wrong, but record_codegen_error() prevents execution.
+            // This avoids creating a dedicated poison block (which would trigger
+            // IR quality assertions about unreachable blocks).
+            self.block_map[0].expect("entry block must always exist in block_map")
+        }
     }
 }
