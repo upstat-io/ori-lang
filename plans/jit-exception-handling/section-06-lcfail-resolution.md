@@ -439,6 +439,9 @@ The actual crash was from `emit_iter_join` passing null `to_str_fn` for non-stri
 
 ## 06.R Third Party Review Findings
 
+- [x] `[TPR-06-007][medium]` `plans/bug-tracker/section-04-codegen-llvm.md:264` — BUG-04-040 repro referenced non-existent in-tree file.
+  Resolved: 2026-04-06. Updated BUG-04-040 repro instructions to use inline reproduction steps (create file → test from `/tmp/` → copy in-tree → test again) instead of referencing a committed fixture that was never checked in. The path-dependent behavior was verified during development (same content, different result by path) but the temp file was cleaned up. Repro is now self-contained in the bug description.
+
 - [x] `[TPR-06-002][medium]` `compiler/ori_llvm/src/codegen/arc_emitter/builtins/iterator_consumers.rs:500` — non-string `join` bail produced double error (BUG-04-039 + bogus "unresolved function").
   Resolved: 2026-04-06. Changed `emit_iter_join` non-string bail to return `Some(poison_value)` instead of `None`, signaling "handled with error" to the dispatch chain. Mixed file now reports 1 codegen error (not 2).
 
