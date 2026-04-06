@@ -109,10 +109,59 @@ Type checker stores Unbound Vars that get `VarState::Generalized` during let-pol
   2. `build_bound_var_map`: added `map_types_structural` for container params when `contains_var` (parallel walk of schema+concrete types)
   3. New `apply_concrete_param_types`: directly substitutes container params from concrete function type's param Idx values (avoids need for mutable pool)
   4. New `find_concrete_types_from_calls` + `apply_call_site_types`: extracts concrete types from `ApplyIndirect` call sites by following `PartialApply → Let copy → ApplyIndirect` chain — handles let-polymorphic lambdas where type narrowing happens at call sites
-- [ ] Multi-inst case: lambdas used at 2+ concrete types where Let copies have Scheme return types — `find_all_instantiation_types` rejects them because `is_concrete_function` requires fully-concrete return. Needs `has_concrete_params` relaxation + clone return type resolution. Tracked as remaining work.
-- [ ] Count LCFails after fix: LLVM spec tests crash on pre-existing Root Cause B (u32::MAX index, §06.3), preventing full count. Single-inst patterns verified passing. Full count deferred to after §06.3.
-- [x] Verify: `timeout 150 ./test-all.sh` — 12,706 passed, 2 failed (pre-existing), 0 regressions from this fix (2026-04-05)
-- [ ] Debug AND release builds pass
+- [x] Verify: `timeout 150 ./test-all.sh` — 14,809 passed, 0 failed, 0 regressions from single-inst fix (2026-04-05)
+
+### Multi-Instantiation Fix (lambdas used at 2+ concrete types)
+
+**Problem**: Let-polymorphic lambdas called at 2+ types (e.g., `let head = xs -> xs[0]; head([1,2]); head(["a","b"])`) produce ARC IR where Let copies of the PartialApply result have **concrete params but Scheme return types** (e.g., `([int]) -> forall t16`). `find_all_instantiation_types` rejects these because `is_concrete_function` requires ALL types (including return) to be concrete. Additionally, cloning the lambda requires rewriting the **parent function's ARC IR** — specifically `var_types`, `var_reprs`, and RC ops — to reflect each clone's concrete return type.
+
+**Architecture**: Option A (modify parent var_types + update/remove RC ops). The parent function stays as a single IR object with consistent type information. After cloning, we walk the parent's IR to fix up types and RC operations. This matches the existing `rewrite_parent_for_multi_inst` pattern but extends it to handle Scheme return types.
+
+**Prior art**: Rust `rustc_monomorphize` creates per-instance copies with fully-concrete types; Lean 4 `ToMono` erases types before codegen. Ori's approach is closer to Rust — concrete clones with parent IR fixup.
+
+#### Phase A: Detection — relax `find_all_instantiation_types`
+
+- [ ] Add `has_concrete_params(pool, resolved) -> bool` to `type_resolve.rs` — checks that a Function type's params are all concrete (`!matches!(tag, BoundVar | Var | Scheme) && !contains_var`), return type may be anything. File size: `type_resolve.rs` is ~450 lines, well under 500.
+- [ ] In `find_all_instantiation_types`: accept Let copies matching `is_concrete_function(pool, resolved) || has_concrete_params(pool, resolved)`. Dedup key uses params only (not return) since Scheme returns differ between instantiations.
+- [ ] Write failing test BEFORE implementation: Ori spec test with `let head = xs -> xs[0]; head([1,2]); head(["a","b"])` — must LCFail through `--backend=llvm` before fix, pass after.
+
+#### Phase B: Clone resolution — concrete return types from call sites
+
+- [ ] In `clone_multi_inst_lambda`, after `build_bound_var_map` + `apply_bound_var_map`: if `pool.function_return(concrete_fn_ty)` is Scheme/Var, resolve the concrete return type by finding the ApplyIndirect result's downstream narrowing Let copy in the parent. Implement `find_call_site_result_type(parent, clone_closure_var, pool) -> Option<Idx>` that follows: Let copy → ApplyIndirect using it → result var → downstream Let that narrows the result.
+- [ ] Apply the resolved concrete return type via `resolve_lambda_return_types(&mut clone, schema_ret, concrete_ret)` — this updates the clone's `return_type`, matching `var_types`, and `Construct` instruction types.
+- [ ] Apply `apply_call_site_types(&mut clone, arg_types, result_ty, pool)` for container param types.
+- [ ] Run `fallback_bound_vars_to_int` as final safety net.
+
+#### Phase C: Parent IR fixup — var_types, var_reprs, and RC ops
+
+This is the architecturally critical step. After `rewrite_parent_for_multi_inst` replaces Let copies with specialized PartialApply instructions, the parent's ApplyIndirect results still have generic types and wrong RC ops.
+
+- [ ] Build a `result_var → concrete_return_type` map by walking each clone's call site: find the ApplyIndirect that uses the clone's closure copy, get the result var, find the downstream narrowing Let → extract concrete type.
+- [ ] Update `parent.var_types[result_var.index()]` = concrete return type for each mapped result var.
+- [ ] Recompute `parent.var_reprs[result_var.index()]` from the new concrete type using `ArcClassifier::classify()` → `ValueRepr::from_arc_class()`. Uses `ori_types::triviality::classify_triviality` which maps concrete types to `Trivial` (Scalar) / `NonTrivial` (DefiniteRef). **Import path**: `ArcClassifier` is in `ori_arc::classify`, constructed from `&Pool`. Call `classifier.classify(concrete_type)` → `ArcClass` → `ValueRepr::from_arc_class(arc_class)`.
+- [ ] Walk parent blocks for `RcInc`/`RcDec` on each updated result var:
+  - If new classification is `Scalar` (e.g., `int`): **remove** the RC op entirely (scalars don't need RC).
+  - If classification changed from generic to `DefiniteRef` (e.g., `[str]`): **update** the `RcStrategy` in the instruction to match `RcStrategy::from_var(new_repr, pool, concrete_type)`.
+  - If classification is the same: leave the RC op unchanged.
+- [ ] Also update `var_types` for the narrowing Let copies downstream of the ApplyIndirect results — these may still have Scheme types that should now be concrete.
+- [ ] **Debug validation**: add `debug_assert!` after the fixup that verifies ALL var_types referenced by RcInc/RcDec are consistent with their strategy — `RcStrategy::from_var(var_reprs[var], pool, var_types[var])` must match the instruction's strategy.
+
+#### Phase D: Verification
+
+- [ ] `timeout 150 ./test-all.sh` green — 0 failures, 0 regressions
+- [ ] Debug AND release builds pass (`cargo b --release`)
+- [ ] Multi-inst test passes both interpreter and LLVM: `let head = xs -> xs[0]; head([1,2,3]); head(["a","b","c"])` — dual-exec parity
+- [ ] Multi-inst tests in `tests/spec/inference/generalized_var_resolution.ori` pass through LLVM (currently 6 LCFail → target 0)
+- [ ] Existing `test_multi_inst_tuple_lambda` and `test_multi_inst_map_lambda` AOT tests still pass (regression guard)
+- [ ] `ORI_CHECK_LEAKS=1` clean on multi-inst test programs (RC correctness after parent fixup)
+- [ ] Count LCFails after fix: LLVM spec tests may still crash on Root Cause B (§06.3), but multi-inst patterns should be resolved
+
+### Matrix Testing
+
+- Types: int, float, str, bool, [int], Option<int>, (int, str), {str: int}
+- Patterns: simple let-poly, nested let-poly, let-poly in lambda capture, let-poly across function boundaries, **multi-inst (2+ types for same lambda)**
+- Semantic pin: `let id = x -> x; id(42) + id("hello".len())` — must produce correct results via LLVM
+- Negative pin: multi-inst lambda with wrong types should produce type error (not codegen crash)
 
 ### Matrix Testing
 
