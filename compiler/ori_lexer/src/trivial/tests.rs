@@ -185,3 +185,71 @@ fn at_is_trivial() {
     assert_eq!(kind, TokenKind::At);
     assert_eq!(tag, TokenKind::TAG_AT);
 }
+
+/// Drift guard: every `RawTag` variant must be accounted for in either
+/// `try_trivial()` (direct operator/delimiter mapping) or `cook()` (explicit
+/// match arm for non-trivial tokens).
+///
+/// If a new `RawTag` variant is added to `ori_lexer_core` but not handled in
+/// either location, this test fails — forcing an explicit routing decision
+/// instead of silent fallthrough to the `_ =>` catch-all.
+///
+/// Uses `RawTag::ALL` as the single source of truth for variant enumeration.
+#[test]
+fn every_raw_tag_has_explicit_routing() {
+    // Tags with explicit match arms in cook() — non-trivial tokens that
+    // require source text processing, error handling, or special routing.
+    // This list MUST be updated when adding a new RawTag that needs cooking.
+    let cooked_tags: &[RawTag] = &[
+        // Identifiers & Literals
+        RawTag::Ident,
+        RawTag::Int,
+        RawTag::Float,
+        RawTag::HexInt,
+        RawTag::BinInt,
+        RawTag::String,
+        RawTag::Char,
+        RawTag::Duration,
+        RawTag::Size,
+        // Template Literals
+        RawTag::TemplateHead,
+        RawTag::TemplateMiddle,
+        RawTag::TemplateTail,
+        RawTag::TemplateComplete,
+        RawTag::FormatSpec,
+        // Delimiter with special handling
+        RawTag::Semicolon,
+        // Error tags
+        RawTag::InvalidByte,
+        RawTag::UnterminatedString,
+        RawTag::UnterminatedChar,
+        RawTag::UnterminatedTemplate,
+        RawTag::Backslash,
+        RawTag::InvalidEscape,
+        // Trivia (debug_assert in cook — handled by driver, not cook)
+        RawTag::Whitespace,
+        RawTag::Newline,
+        RawTag::LineComment,
+        RawTag::InteriorNull,
+        // Control
+        RawTag::Eof,
+    ];
+
+    for &tag in &RawTag::ALL {
+        let is_trivial = try_trivial(tag).is_some();
+        let is_cooked = cooked_tags.contains(&tag);
+
+        assert!(
+            is_trivial || is_cooked,
+            "{tag:?} is not handled by try_trivial() or listed in cook()'s explicit arms. \
+             Add it to try_trivial() (if it's a direct mapping) or to cook()'s match \
+             and update this test's cooked_tags list."
+        );
+
+        assert!(
+            !(is_trivial && is_cooked),
+            "{tag:?} is in BOTH try_trivial() AND cook()'s cooked_tags. \
+             Each variant should be in exactly one routing path."
+        );
+    }
+}

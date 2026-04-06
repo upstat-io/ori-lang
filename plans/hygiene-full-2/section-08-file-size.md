@@ -154,7 +154,7 @@ Covering ori_rt, oric, ori_diagnostic, ori_fmt, ori_parse, ori_ir:
 
 - [ ] Re-measure after Section 01 and 06 DRY work
 - [ ] `ori_parse/src/outcome/mod.rs` -- extract macros to `outcome/macros.rs`
-- [ ] `ori_parse/src/cursor/mod.rs` -- extract identifier methods to `cursor/identifiers.rs`
+- [x] `ori_parse/src/cursor/mod.rs` -- extract identifier methods to `cursor/identifiers.rs` (done in Section 06, TPR-06-004)
 - [ ] Split remaining files at logical boundaries
 
 ---

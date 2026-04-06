@@ -174,9 +174,7 @@ fn test_token_capture_empty() {
     assert_eq!(capture.len(), 0);
 }
 
-// ─────────────────────────────────────────────────────────────────────────
 // TokenFlags tests
-// ─────────────────────────────────────────────────────────────────────────
 
 #[test]
 fn test_newline_before_flag() {
@@ -340,6 +338,139 @@ fn soft_keyword_covers_canonical_subset() {
             "soft_keyword_to_name should accept {expected_kind:?}"
         );
     }
+}
+
+/// Regression: hygiene-full-2 §06.4b — `expect_member_name()` used to reuse
+/// `make_expect_ident_error()`, producing "expected identifier" when it should
+/// say "expected member name" (member position also accepts keywords and ints).
+#[expect(
+    clippy::unwrap_used,
+    reason = "test code: unwrap_err on known-Err result"
+)]
+#[test]
+fn expect_member_name_error_says_member_name() {
+    // "foo.!" — after advancing past `foo` and `.`, `!` triggers the error.
+    let ctx = TestCtx::new("foo.!");
+    let mut cursor = ctx.cursor();
+    cursor.advance(); // skip `foo`
+    cursor.advance(); // skip `.`
+
+    let result = cursor.expect_member_name();
+    assert!(
+        result.is_err(),
+        "expect_member_name should fail on `!` token"
+    );
+    let msg = result.unwrap_err().message().to_owned();
+    // Positive pin: the new wording is present
+    assert!(
+        msg.contains("expected member name"),
+        "error should say 'expected member name', got: {msg}"
+    );
+    // Negative forbid-output pin: the old wording is gone
+    assert!(
+        !msg.contains("expected identifier"),
+        "error should NOT say 'expected identifier', got: {msg}"
+    );
+}
+
+// Direct acceptance matrix for the three expect_* public APIs
+
+#[test]
+fn expect_ident_accepts_ident_and_soft_keyword() {
+    // Regular identifier
+    let ctx = TestCtx::new("foo");
+    let mut cursor = ctx.cursor();
+    assert!(cursor.expect_ident().is_ok());
+
+    // Soft keyword used as identifier
+    let ctx = TestCtx::new("print");
+    let mut cursor = ctx.cursor();
+    assert!(cursor.expect_ident().is_ok());
+}
+
+#[test]
+fn expect_ident_rejects_reserved_keyword_and_int() {
+    // Reserved keyword
+    let ctx = TestCtx::new("let");
+    let mut cursor = ctx.cursor();
+    assert!(cursor.expect_ident().is_err());
+
+    // Integer literal
+    let ctx = TestCtx::new("42");
+    let mut cursor = ctx.cursor();
+    assert!(cursor.expect_ident().is_err());
+}
+
+#[test]
+fn expect_member_name_accepts_keyword_and_int() {
+    // Regular identifier
+    let ctx = TestCtx::new("foo.bar");
+    let mut cursor = ctx.cursor();
+    cursor.advance(); // skip `foo`
+    cursor.advance(); // skip `.`
+    assert!(cursor.expect_member_name().is_ok());
+
+    // Soft keyword in member position
+    let ctx = TestCtx::new("foo.print");
+    let mut cursor = ctx.cursor();
+    cursor.advance();
+    cursor.advance();
+    assert!(cursor.expect_member_name().is_ok());
+
+    // Reserved keyword in member position (e.g. ordering.then)
+    let ctx = TestCtx::new("x.then");
+    let mut cursor = ctx.cursor();
+    cursor.advance();
+    cursor.advance();
+    assert!(cursor.expect_member_name().is_ok());
+
+    // Integer tuple field access (t.0)
+    let ctx = TestCtx::new("t.0");
+    let mut cursor = ctx.cursor();
+    cursor.advance();
+    cursor.advance();
+    assert!(cursor.expect_member_name().is_ok());
+}
+
+#[test]
+fn expect_ident_or_keyword_accepts_positional_keywords() {
+    // Regular identifier
+    let ctx = TestCtx::new("foo");
+    let mut cursor = ctx.cursor();
+    assert!(cursor.expect_ident_or_keyword().is_ok());
+
+    // Soft keyword
+    let ctx = TestCtx::new("print");
+    let mut cursor = ctx.cursor();
+    assert!(cursor.expect_ident_or_keyword().is_ok());
+
+    // Positional keyword (where)
+    let ctx = TestCtx::new("where");
+    let mut cursor = ctx.cursor();
+    assert!(cursor.expect_ident_or_keyword().is_ok());
+
+    // Positional keyword (match)
+    let ctx = TestCtx::new("match");
+    let mut cursor = ctx.cursor();
+    assert!(cursor.expect_ident_or_keyword().is_ok());
+}
+
+#[test]
+fn expect_ident_or_keyword_rejects_non_positional_and_int() {
+    // Non-positional reserved keyword (let)
+    let ctx = TestCtx::new("let");
+    let mut cursor = ctx.cursor();
+    assert!(cursor.expect_ident_or_keyword().is_err());
+
+    // Non-positional reserved keyword (else)
+    let ctx = TestCtx::new("else");
+    let mut cursor = ctx.cursor();
+    assert!(cursor.expect_ident_or_keyword().is_err());
+
+    // Integer literal
+    let ctx = TestCtx::new("42");
+    let mut cursor = ctx.cursor();
+    assert!(cursor.expect_ident_or_keyword().is_err());
 }
 
 #[test]
