@@ -1,7 +1,7 @@
 ---
 section: "04"
 title: "Drift, Gap & Polish"
-status: in-progress
+status: complete
 reviewed: true
 goal: "Fix the remaining DRIFT, GAP, and WASTE findings from the hygiene review"
 success_criteria:
@@ -11,8 +11,8 @@ success_criteria:
 inspired_by: []
 depends_on: ["01"]
 third_party_review:
-  status: none
-  updated: null
+  status: resolved
+  updated: 2026-04-06
 sections:
   - id: "04.1"
     title: "Exhaustive match in cook()"
@@ -25,10 +25,10 @@ sections:
     status: complete
   - id: "04.R"
     title: "Third Party Review Findings"
-    status: not-started
+    status: complete
   - id: "04.N"
     title: "Completion Checklist"
-    status: in-progress
+    status: complete
 ---
 
 # Section 04: Drift, Gap & Polish
@@ -105,7 +105,8 @@ Two identical functions exist:
 
 ## 04.R Third Party Review Findings
 
-- None.
+- None. Clean `review-work` pass on 2026-04-06.
+- Verified locally with `timeout 150 cargo test -p ori_lexer`, `timeout 150 cargo test -p ori_lexer --release`, `timeout 150 cargo test -p ori_lexer_core`, `timeout 150 cargo test -p ori_lexer_core --release`, and `timeout 150 ./test-all.sh` (0 failures; LLVM backend still crashes as known BUG-04-030).
 
 ---
 
@@ -118,11 +119,11 @@ Two identical functions exist:
 - [x] `timeout 150 cargo test -p ori_lexer --release` green (release) — 296 passed (2026-04-06)
 - [x] `timeout 150 ./test-all.sh` — 0 failures, exits 0; LLVM backend crash is known BUG-04-030 (2026-04-06)
 - [x] Plan annotation cleanup: no stale annotations
-- [ ] **Plan sync** — update plan metadata:
-  - [ ] This section's frontmatter `status` → `complete`
-  - [ ] `00-overview.md` Quick Reference table updated
-  - [ ] `index.md` section status updated
-- [ ] `/tpr-review` passed
-- [ ] `/impl-hygiene-review last commit` passed
+- [x] **Plan sync** — update plan metadata:
+  - [x] This section's frontmatter `status` → `complete`
+  - [x] `00-overview.md` Quick Reference table updated
+  - [x] `index.md` section status updated
+- [x] `/tpr-review` passed — clean `review-work` pass on 2026-04-06, zero findings for Section 04 scope
+- [x] `/impl-hygiene-review last commit` passed — clean pass 2026-04-06, zero findings across all 4 passes
 
 **Exit Criteria:** All three remaining findings resolved. Adding a new `RawTag` variant produces an explicit guard failure (compile error or targeted drift-test failure) instead of silent fallthrough. The `SOFT_KEYWORDS` table is guaranteed consistent with its pre-filter. No duplicate helper functions remain.
