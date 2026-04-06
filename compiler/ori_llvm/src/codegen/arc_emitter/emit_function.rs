@@ -267,10 +267,24 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         //   reached via `ori_try_call` trampoline (see `catch_thunk.rs`)
         let rpo = super::rpo::compute_block_rpo(func, &dead_unwind);
         let mut landingpad_values: FxHashMap<usize, ValueId> = FxHashMap::default();
+        let errors_before_emission = self.builder.codegen_error_count();
         for &block_idx in &rpo {
             let block = &func.blocks[block_idx];
 
             self.builder.position_at_end(self.block(block.id));
+
+            // If codegen errors accumulated in a previous block, emit
+            // `unreachable` stubs for all remaining blocks. Continuing
+            // to emit instructions with undefined variables cascades
+            // into LLVM C++ crashes (SIGSEGV).
+            // Note: type_error_count is NOT checked here — unresolved
+            // type variables produce TypeInfo::Error which is handled
+            // gracefully by emission. Only actual codegen errors (wrong
+            // LLVM value types) warrant bail-out.
+            if self.builder.codegen_error_count() > errors_before_emission {
+                self.builder.unreachable();
+                continue;
+            }
 
             // Clear CSE cache at ARC block boundary. Each ARC block gets
             // an independent cache — the LLVM phi node for loop variables
@@ -324,10 +338,11 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 self.current_instr_idx = instr_idx;
                 self.emit_instr(instr, func);
 
-                // After a codegen error, skip remaining instructions in this
-                // block. Continuing with poison fallback values cascades into
-                // LLVM C++ builder calls with mismatched types (SIGSEGV).
-                // Emit `unreachable` so the block has a valid terminator.
+                // After a codegen error, skip remaining instructions in
+                // this block. Continuing with poison fallback values
+                // cascades into LLVM C++ builder calls with mismatched
+                // types (SIGSEGV). Emit `unreachable` so the block has
+                // a valid terminator.
                 if self.builder.codegen_error_count() > errors_before_instr_loop {
                     self.builder.unreachable();
                     block_terminated_by_noreturn = true;
