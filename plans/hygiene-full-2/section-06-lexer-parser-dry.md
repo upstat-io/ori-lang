@@ -194,7 +194,12 @@ The shared prefix across all three `expect_*` functions is: (1) check for `Ident
   Evidence: the section marks `timeout 150 ./test-all.sh` complete in both Test Strategy and Completion Checklist, but a fresh run in this review reached the LLVM backend phase and then crashed in [`test-all.sh`](/home/eric/projects/ori_lang/.claude/worktrees/lexer-hygiene/test-all.sh#L165): `./target/release/ori test --verbose --backend=llvm tests/` exited via `Segmentation fault (core dumped)` after the interpreter phase reported `4415 passed, 0 failed, 44 skipped` in [`test-all.log`](/home/eric/projects/ori_lang/.claude/worktrees/lexer-hygiene/test-all.log).
   Impact: Section 06 cannot honestly be treated as fully verified while its recorded full-suite gate is non-reproducible. Even if the segfault is pre-existing or outside the lexer/parser refactor, the completion record is still inaccurate.
   Required follow-up: reopen the full-suite verification item until the LLVM-backend `ori test` crash is diagnosed and the section can reproduce a clean `./test-all.sh` run.
-  Resolved: Fixed on 2026-04-06. The LLVM backend crash is BUG-04-030 (pre-existing, tracked in bug-tracker). `test-all.sh` exits 0 with "All tests passed (LLVM backend crashed — known issue)" — 14,778 tests pass, 0 fail. Updated plan checkboxes to note the known crash explicitly rather than claiming an unqualified green run.
+  Resolved: Fixed on 2026-04-06. The LLVM backend crash is BUG-04-030 (pre-existing, tracked in bug-tracker). `test-all.sh` exits 0 with "All tests passed (LLVM backend crashed — known issue)". Updated plan checkboxes to note the known crash explicitly rather than claiming an unqualified green run. Exact test counts removed to avoid staleness (TPR-06-003).
+- [x] `[TPR-06-003][low]` [plans/hygiene-full-2/section-06-lexer-parser-dry.md](/home/eric/projects/ori_lang/.claude/worktrees/lexer-hygiene/plans/hygiene-full-2/section-06-lexer-parser-dry.md#L197) — The TPR-06-002 resolution hard-codes a stale full-suite total.
+  Evidence: this follow-up adds five new cursor tests in [compiler/ori_parse/src/cursor/tests.rs](/home/eric/projects/ori_lang/.claude/worktrees/lexer-hygiene/compiler/ori_parse/src/cursor/tests.rs#L376), and a fresh `timeout 150 ./test-all.sh` run on 2026-04-06 exits 0 with `TOTAL 14783 0 138 0` plus `=== All tests passed (LLVM backend crashed — known issue, see BUG-04-030) ===`. Section 06 still records `14,778 pass, 0 fail` in the TPR-06-002 resolution and in both verification checklists at [plans/hygiene-full-2/section-06-lexer-parser-dry.md](/home/eric/projects/ori_lang/.claude/worktrees/lexer-hygiene/plans/hygiene-full-2/section-06-lexer-parser-dry.md#L197), [plans/hygiene-full-2/section-06-lexer-parser-dry.md](/home/eric/projects/ori_lang/.claude/worktrees/lexer-hygiene/plans/hygiene-full-2/section-06-lexer-parser-dry.md#L239), and [plans/hygiene-full-2/section-06-lexer-parser-dry.md](/home/eric/projects/ori_lang/.claude/worktrees/lexer-hygiene/plans/hygiene-full-2/section-06-lexer-parser-dry.md#L257).
+  Impact: the qualitative fix for TPR-06-002 is correct, but the section still presents an exact verification count that is already non-reproducible on the same branch after the acceptance-matrix tests landed.
+  Required plan update: refresh the recorded total to match the current run, or stop pinning the global pass count in Section 06 and keep only the stable claim about exit status plus the known BUG-04-030 crash note.
+  Resolved: Fixed on 2026-04-06. Removed exact test counts from all plan entries — now claims only "0 failures; test-all.sh exits 0" plus the BUG-04-030 note.
 
 ---
 
@@ -236,7 +241,7 @@ The shared prefix across all three `expect_*` functions is: (1) check for `Ident
 - [x] Verify `timeout 150 cargo test -p ori_parse cursor -- --nocapture` passes after 06.4 before expanding to the full crate
 - [x] Verify `timeout 150 cargo test -p ori_lexer` passes after any lexer-side follow-up
 - [x] Verify `timeout 150 cargo test -p ori_parse` passes after 06.4
-- [x] Verify `timeout 150 ./test-all.sh` passes after all sub-sections complete (14,778 pass, 0 fail; LLVM backend crash is BUG-04-030, pre-existing — test-all.sh exits 0)
+- [x] Verify `timeout 150 ./test-all.sh` passes after all sub-sections complete (0 failures; LLVM backend crash is BUG-04-030 pre-existing — test-all.sh exits 0)
 
 ---
 
@@ -254,7 +259,7 @@ The shared prefix across all three `expect_*` functions is: (1) check for `Ident
 - [x] `timeout 150 cargo test -p ori_lexer_core` passes
 - [x] `timeout 150 cargo test -p ori_lexer` passes
 - [x] `timeout 150 cargo test -p ori_parse` passes
-- [x] `timeout 150 ./test-all.sh` passes (14,778 pass, 0 fail; LLVM backend crash is BUG-04-030, pre-existing — test-all.sh exits 0)
+- [x] `timeout 150 ./test-all.sh` passes (0 failures; LLVM backend crash is BUG-04-030 pre-existing — test-all.sh exits 0)
 - [x] `./clippy-all.sh` clean
 - [ ] Update frontmatter `status: complete` in this file
 - [ ] Update `00-overview.md` Quick Reference table: Section 06 status -> Complete
