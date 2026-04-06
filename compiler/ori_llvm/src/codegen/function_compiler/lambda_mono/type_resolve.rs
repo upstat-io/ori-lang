@@ -7,7 +7,9 @@ use ori_ir::Name;
 use ori_types::Idx;
 use ori_types::Tag;
 
-use super::type_predicates::{contains_bound_var, contains_var, map_types_structural};
+use super::type_predicates::{
+    contains_bound_var, contains_var, has_concrete_params, map_types_structural,
+};
 
 /// Find the `PartialApply` dst variable for a lambda in a function's blocks.
 pub(super) fn find_partial_apply_dst(
@@ -451,6 +453,7 @@ pub(super) fn find_all_instantiation_types(
                     let ty = parent.var_type(*dst);
                     let resolved = pool.resolve_fully(ty);
                     if is_concrete_function(pool, resolved) {
+                        // Fully concrete — dedup by params + return.
                         let params = pool.function_params(resolved);
                         let ret = pool.function_return(resolved);
                         let key: Vec<Idx> = params
@@ -458,6 +461,15 @@ pub(super) fn find_all_instantiation_types(
                             .chain(std::iter::once(&ret))
                             .map(|p| pool.resolve_fully(*p))
                             .collect();
+                        if seen.insert(key) {
+                            instantiations.push(resolved);
+                        }
+                    } else if has_concrete_params(pool, resolved) {
+                        // Params concrete but return is Scheme/Var (let-polymorphic
+                        // lambda). Dedup by params only since the return type is the
+                        // same Scheme across all copies — params distinguish instances.
+                        let params = pool.function_params(resolved);
+                        let key: Vec<Idx> = params.iter().map(|p| pool.resolve_fully(*p)).collect();
                         if seen.insert(key) {
                             instantiations.push(resolved);
                         }

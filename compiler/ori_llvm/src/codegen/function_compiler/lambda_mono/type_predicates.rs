@@ -58,6 +58,21 @@ pub(super) fn contains_bound_var(pool: &ori_types::Pool, ty: Idx) -> bool {
     }
 }
 
+/// Check if a resolved type is a Function with all-concrete params.
+/// The return type may be non-concrete (Scheme/Var). This is a relaxed version
+/// of `is_concrete_function` for detecting multi-instantiation of let-polymorphic
+/// lambdas where the type checker narrows params per call site but leaves the
+/// return type as a Scheme.
+pub(super) fn has_concrete_params(pool: &ori_types::Pool, resolved: Idx) -> bool {
+    if pool.tag(resolved) != Tag::Function {
+        return false;
+    }
+    pool.function_params(resolved).iter().all(|p| {
+        let pt = pool.resolve_fully(*p);
+        !matches!(pool.tag(pt), Tag::BoundVar | Tag::Var | Tag::Scheme)
+    })
+}
+
 /// Walk `schema_ty` and `concrete_ty` in parallel to build `BoundVar` mappings.
 pub(super) fn map_types_structural(
     pool: &ori_types::Pool,
