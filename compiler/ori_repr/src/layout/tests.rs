@@ -1123,3 +1123,193 @@ fn result_int_int_explicit_tag() {
         panic!("expected Enum");
     }
 }
+
+// ─── Tagged pointer analysis tests (§07.3) ────────────────────────
+
+use crate::layout::tagged_ptr::{can_use_tagged_pointer, is_taggable_pointer};
+
+fn opaque_ptr_repr() -> MachineRepr {
+    MachineRepr::OpaquePtr
+}
+
+fn unmanaged_ptr_repr() -> MachineRepr {
+    MachineRepr::UnmanagedPtr
+}
+
+// Helper: build an enum with the given variants for tagged-pointer analysis.
+fn make_enum_with_variants(variants: Vec<VariantRepr>) -> EnumRepr {
+    EnumRepr {
+        tag: EnumTag::Explicit {
+            width: IntWidth::I8,
+        },
+        variants,
+        size: 8,
+        align: 8,
+    }
+}
+
+fn unit_variant(idx: u32) -> VariantRepr {
+    VariantRepr {
+        name: Name::from_raw(idx),
+        fields: vec![],
+        size: 0,
+        alignment: 1,
+    }
+}
+
+fn ptr_variant(idx: u32, payload: MachineRepr) -> VariantRepr {
+    VariantRepr {
+        name: Name::from_raw(idx),
+        fields: vec![payload],
+        size: 8,
+        alignment: 8,
+    }
+}
+
+// === is_taggable_pointer: positive cases ===
+
+#[test]
+fn is_taggable_pointer_rc() {
+    assert!(is_taggable_pointer(&rc_repr()));
+}
+
+#[test]
+fn is_taggable_pointer_opaque() {
+    assert!(is_taggable_pointer(&opaque_ptr_repr()));
+}
+
+#[test]
+fn is_taggable_pointer_unmanaged() {
+    assert!(is_taggable_pointer(&unmanaged_ptr_repr()));
+}
+
+// === is_taggable_pointer: negative pins (multi-word and scalar) ===
+
+#[test]
+fn is_taggable_pointer_str_negative() {
+    // Str is a 24-byte fat pointer — NOT taggable
+    assert!(!is_taggable_pointer(&str_repr()));
+}
+
+#[test]
+fn is_taggable_pointer_list_negative() {
+    // [int] is a fat pointer collection — NOT taggable
+    assert!(!is_taggable_pointer(&list_repr()));
+}
+
+#[test]
+fn is_taggable_pointer_int_negative() {
+    // i64 is a scalar — masking would corrupt small values
+    assert!(!is_taggable_pointer(&int_repr()));
+}
+
+#[test]
+fn is_taggable_pointer_bool_negative() {
+    assert!(!is_taggable_pointer(&bool_repr()));
+}
+
+#[test]
+fn is_taggable_pointer_float_negative() {
+    assert!(!is_taggable_pointer(&float_repr()));
+}
+
+#[test]
+fn is_taggable_pointer_byte_negative() {
+    assert!(!is_taggable_pointer(&byte_repr()));
+}
+
+// === can_use_tagged_pointer: positive cases ===
+
+#[test]
+fn can_use_tagged_pointer_unit_plus_rc() {
+    // type Either = Empty | Filled(RcPointer) — 2 variants, 1 pointer
+    let e = make_enum_with_variants(vec![unit_variant(0), ptr_variant(1, rc_repr())]);
+    assert!(can_use_tagged_pointer(&e));
+}
+
+#[test]
+fn can_use_tagged_pointer_two_pointers() {
+    // type T = A(RcPointer) | B(OpaquePtr) — both single-word pointers
+    let e = make_enum_with_variants(vec![
+        ptr_variant(0, rc_repr()),
+        ptr_variant(1, opaque_ptr_repr()),
+    ]);
+    assert!(can_use_tagged_pointer(&e));
+}
+
+#[test]
+fn can_use_tagged_pointer_8_variants_max() {
+    // 8 variants is the maximum for 3-bit tag
+    let mut variants = Vec::with_capacity(8);
+    variants.push(ptr_variant(0, rc_repr()));
+    for i in 1..8 {
+        variants.push(unit_variant(i));
+    }
+    let e = make_enum_with_variants(variants);
+    assert!(
+        can_use_tagged_pointer(&e),
+        "8 variants must fit in 3-bit tag"
+    );
+}
+
+// === can_use_tagged_pointer: negative pins ===
+
+#[test]
+fn can_use_tagged_pointer_9_variants_too_many() {
+    let mut variants = Vec::with_capacity(9);
+    variants.push(ptr_variant(0, rc_repr()));
+    for i in 1..9 {
+        variants.push(unit_variant(i));
+    }
+    let e = make_enum_with_variants(variants);
+    assert!(
+        !can_use_tagged_pointer(&e),
+        "9 variants exceed 3-bit tag (max 8)"
+    );
+}
+
+#[test]
+fn can_use_tagged_pointer_int_payload_negative() {
+    // Variant with int payload — masking would corrupt the int
+    let e = make_enum_with_variants(vec![unit_variant(0), ptr_variant(1, int_repr())]);
+    assert!(
+        !can_use_tagged_pointer(&e),
+        "int payload not taggable (scalar)"
+    );
+}
+
+#[test]
+fn can_use_tagged_pointer_str_payload_negative() {
+    // Fat pointer (24 bytes) — not single-word
+    let e = make_enum_with_variants(vec![unit_variant(0), ptr_variant(1, str_repr())]);
+    assert!(
+        !can_use_tagged_pointer(&e),
+        "str payload not taggable (24 bytes)"
+    );
+}
+
+#[test]
+fn can_use_tagged_pointer_all_unit_negative() {
+    // All-unit enum — no pointer to tag, no benefit
+    let e = make_enum_with_variants(vec![unit_variant(0), unit_variant(1), unit_variant(2)]);
+    assert!(
+        !can_use_tagged_pointer(&e),
+        "all-unit enum has no pointer to tag"
+    );
+}
+
+#[test]
+fn can_use_tagged_pointer_multi_field_variant_negative() {
+    // Variant with multiple fields — exactly one single-word pointer required
+    let multi_field = VariantRepr {
+        name: Name::from_raw(1),
+        fields: vec![rc_repr(), int_repr()],
+        size: 16,
+        alignment: 8,
+    };
+    let e = make_enum_with_variants(vec![unit_variant(0), multi_field]);
+    assert!(
+        !can_use_tagged_pointer(&e),
+        "multi-field variants are not taggable (encoding requires single-word payload)"
+    );
+}

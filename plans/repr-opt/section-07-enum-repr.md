@@ -25,6 +25,9 @@ sections:
     status: in-progress
   - id: "07.3"
     title: "Tagged Pointers"
+    status: in-progress
+  - id: "07.3.A"
+    title: "Tagged Pointer Codegen Wiring"
     status: not-started
   - id: "07.4"
     title: "Payload Compression"
@@ -339,7 +342,7 @@ A "niche" is an invalid bit pattern in a type. If an enum variant's payload has 
 
 On 64-bit systems, heap pointers have alignment ≥8, meaning the low 3 bits are always zero. These bits can store a 3-bit tag (up to 8 variants).
 
-- [ ] Implement tagged pointer optimization:
+- [x] Implement tagged pointer analysis layer (`compiler/ori_repr/src/layout/tagged_ptr.rs`): `is_taggable_pointer()` classifies single-word pointer payloads, `can_use_tagged_pointer()` checks enum eligibility (≤8 variants, all variants either unit or single single-word-pointer field, at least one pointer variant). Module-level constant `MAX_TAG_VARIANTS = 8` documents the 3-bit tag limit. (2026-04-06)
   ```rust
   /// Check if a variant payload is a single-word pointer suitable for tagging.
   ///
@@ -375,7 +378,7 @@ On 64-bit systems, heap pointers have alignment ≥8, meaning the low 3 bits are
   ```
   Note: `VariantRepr::is_pointer()` (in `enum_repr.rs`) includes `FatPointer` which is correct for general "is this a pointer type?" queries but NOT correct for tagged pointer optimization. §07.3 uses `is_taggable_pointer()` (single-word only) instead.
 
-- [ ] Tagged pointer layout:
+- [ ] Tagged pointer layout (codegen wiring): <!-- blocked-by:07.3.A -->
   ```
   [63:3] pointer value  [2:0] tag
   ```
@@ -384,34 +387,60 @@ On 64-bit systems, heap pointers have alignment ≥8, meaning the low 3 bits are
   - Load pointer: `value & ~0x7`
   - Unit variants: only the tag value matters, no payload to decode
 
-- [ ] Safety:
+- [x] Safety analysis documented in `tagged_ptr.rs` module doc:
   - Only applicable when the runtime guarantees 8-byte aligned allocations (ori_rt already does: alignment is always ≥ 8)
-  - Non-pointer scalar payloads (int, bool, float) are **excluded** — their low bits carry data that `& ~0x7` would destroy
+  - Non-pointer scalar payloads (int, bool, float) are **excluded** — their low bits carry data that `& ~0x7` would destroy (enforced by `is_taggable_pointer` returning false for scalars)
   - Future: could support scalar payloads by shifting them left 3 bits during encode and right 3 bits during decode, at the cost of reducing the usable range (61 bits instead of 64)
 
 **§07.3 Tests (TDD — write BEFORE implementation, verify they fail):**
 
-- [ ] **Rust unit tests** (`compiler/ori_repr/src/layout/tests.rs`):
-  - `is_taggable_pointer(RcPointer)` = true
-  - `is_taggable_pointer(FatPointer(Str))` = false (negative pin — 24 bytes, not single-word)
-  - `is_taggable_pointer(FatPointer(Collection))` = false
-  - `is_taggable_pointer(Int { I64 })` = false (negative pin — scalar, not pointer)
-  - `is_taggable_pointer(Bool)` = false
-  - `can_use_tagged_pointer()` for enum with 2 variants (unit + RcPointer) = true
-  - `can_use_tagged_pointer()` for enum with 9 variants = false (exceeds 3-bit tag)
-  - `can_use_tagged_pointer()` for enum with int payload = false (negative pin)
-  - `can_use_tagged_pointer()` for enum with FatPointer payload = false (negative pin — 24 bytes)
-  - `can_use_tagged_pointer()` for all-unit enum = false (no pointer, no benefit)
-- [ ] **Ori spec tests** (`tests/spec/types/enum/tagged_ptr.ori`):
+- [x] **Rust unit tests** (`compiler/ori_repr/src/layout/tests.rs`): 17 tagged_ptr tests, all passing. (2026-04-06)
+  - `is_taggable_pointer`: positive (`RcPointer`, `OpaquePtr`, `UnmanagedPtr`); negative pins (`Str` 24-byte fat pointer, `[int]` collection, `int`, `bool`, `float`, `byte`)
+  - `can_use_tagged_pointer`: positive (unit+RcPointer, two pointer variants, 8-variant max); negative pins (9 variants, int payload, str payload, all-unit, multi-field variant)
+- [ ] **Ori spec tests** (`tests/spec/types/enum/tagged_ptr.ori`): <!-- blocked-by:07.3.A -->
   - Enum with unit + RcPointer variants: construct, match, RC correct
   - Roundtrip: store tagged pointer in list, retrieve, match — value preserved
   - RC stress: create many tagged-pointer enum values in a loop, verify `ORI_CHECK_LEAKS=1` reports zero
-- [ ] **AOT tests** (`compiler/ori_llvm/tests/aot/enum_tagged_ptr.rs`):
+- [ ] **AOT tests** (`compiler/ori_llvm/tests/aot/enum_tagged_ptr.rs`): <!-- blocked-by:07.3.A -->
   - LLVM IR inspection: tagged pointer enum fits in single `i64` (not `{ i8, ptr }`)
   - Verify tag bits extracted correctly: `value & 0x7` gives correct variant index
   - Verify pointer recovered correctly: `value & ~0x7` gives valid heap pointer
-- [ ] **Dual-execution parity**: every spec test produces identical output in interpreter and LLVM
-- [ ] **Leak check and Valgrind**: tagged pointer encoding changes how RC pointers are accessed — mandatory memory verification
+- [ ] **Dual-execution parity**: every spec test produces identical output in interpreter and LLVM <!-- blocked-by:07.3.A -->
+- [ ] **Leak check and Valgrind**: tagged pointer encoding changes how RC pointers are accessed — mandatory memory verification <!-- blocked-by:07.3.A -->
+
+### 07.3.A Tagged Pointer Codegen Wiring
+
+The analysis layer (`is_taggable_pointer` / `can_use_tagged_pointer`) is complete. To enable tagged pointer optimization end-to-end, the following codegen wiring must land. Mirrors the `NICHE_CODEGEN_READY` pattern from §07.2 — analysis first, codegen integration second behind a feature gate.
+
+- [ ] **Add `EnumTag::TaggedPtr` variant** in `compiler/ori_repr/src/enum_repr.rs`:
+  - Fields: `field_index: u32` (which variant carries the pointer), encoding metadata
+  - Update predicate methods: `is_tagged_ptr()`, `payload_gep_index()` (returns 0 for tagged ptr — no separate tag field), `needs_tag_field()` returns false
+- [ ] **Add `optimize_tagged_ptr_repr()`** in `compiler/ori_repr/src/layout/tagged_ptr.rs`:
+  - Takes a candidate `EnumRepr`, returns either the tagged-pointer-encoded `EnumRepr` (if `can_use_tagged_pointer` returns true) or the input unchanged
+  - Builds the `EnumTag::TaggedPtr` discriminant
+  - Sets `size = 8`, `align = 8` (single i64-sized slot)
+- [ ] **Wire into `canonical_enum()`** in `compiler/ori_repr/src/canonical/type_repr.rs`:
+  - After computing the explicit-tag default, attempt `optimize_tagged_ptr_repr()`
+  - Gate behind `TAGGED_PTR_CODEGEN_READY: bool = false` constant (mirrors `NICHE_CODEGEN_READY`)
+- [ ] **LLVM `tag_access.rs` encoder/decoder** in `compiler/ori_llvm/src/codegen/arc_emitter/tag_access.rs`:
+  - `emit_tagged_ptr_encode(ptr, tag)` → `ptr | tag` (assert low 3 bits of `ptr` are zero in debug)
+  - `emit_tagged_ptr_decode_tag(value)` → `value & 0x7`
+  - `emit_tagged_ptr_decode_ptr(value)` → `value & !0x7`
+- [ ] **Pattern matching codegen** in `compiler/ori_llvm/src/codegen/arc_emitter/terminators.rs`:
+  - `emit_tagged_ptr_switch()` mirrors `emit_niche_switch()`: extract tag via `& 0x7`, dispatch to variant blocks
+  - Project (field 0) decodes pointer via `& !0x7`
+- [ ] **RC inc/dec for tagged pointer variants** in `compiler/ori_llvm/src/codegen/arc_emitter/rc_helpers.rs`:
+  - `emit_tagged_ptr_enum_rc()` decodes the pointer (via `& !0x7`) before calling `ori_rc_inc`/`ori_rc_dec`
+  - Skip RC for unit variants (tag bits select variant; no pointer to inc/dec)
+- [ ] **Drop for tagged pointer variants** in `compiler/ori_llvm/src/codegen/arc_emitter/drop_enum.rs`:
+  - `emit_drop_enum_tagged_ptr()` decodes the pointer and drops it; unit variants have nothing to drop
+- [ ] **ABI layer awareness** in `compiler/ori_llvm/src/codegen/abi/mod.rs`:
+  - `compute_param_passing` and `compute_return_passing` for `EnumTag::TaggedPtr` produce a single `i64` direct passing mode
+- [ ] **`layout_resolver.rs`** in `compiler/ori_llvm/src/codegen/type_info/layout_resolver.rs`:
+  - `resolve_enum_tagged_ptr()` produces an LLVM `i64` type (not a struct)
+- [ ] **Codegen consumer audit**: enumerate all sites that match on `EnumTag` and confirm each handles `EnumTag::TaggedPtr` (or fall back gracefully). Mirrors the `§07.0` codegen consumer inventory done for niche.
+- [ ] **Flip `TAGGED_PTR_CODEGEN_READY = true`** once all consumers are wired. Run full `./test-all.sh` and verify no regressions.
+- [ ] **Wire 07.3 verification**: re-run the spec tests, AOT tests, dual-exec parity, leak check, and valgrind from §07.3 above; check off each item.
 
 ---
 
