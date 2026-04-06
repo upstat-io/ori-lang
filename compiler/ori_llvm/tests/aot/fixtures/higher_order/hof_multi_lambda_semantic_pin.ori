@@ -1,0 +1,15 @@
+// Semantic pin for Root Cause E fix: if find_concrete_copy_of picks
+// a (int, int) -> int type for the unary (int) -> int lambda, the
+// arity mismatch causes wrong behavior or crash. This test verifies
+// that each lambda independently gets the correct concrete type.
+
+@main () -> int = {
+    let $negate = x -> 0 - x;
+    let $diff = (a, b) -> a - b;
+    let $r1 = negate(5);
+    let $r2 = diff(10, 3);
+    // negate(5) = -5, diff(10,3) = 7
+    // If type selection is wrong (e.g., negate gets diff's type),
+    // the result would be nonsensical.
+    if r1 == 0 - 5 && r2 == 7 then 0 else 1
+}

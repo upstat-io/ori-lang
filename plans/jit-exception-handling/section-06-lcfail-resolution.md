@@ -24,7 +24,7 @@ sections:
     status: in-progress  # emitter-level fixes done; remaining CRASH is from pool var_state in resolve_fully() + into_int_value panics (Root Cause C/06.8)
   - id: "06.4"
     title: "Polymorphic Type Selection Fix (Root Cause E)"
-    status: not-started
+    status: complete
   - id: "06.5"
     title: "List Concat Calling Convention (Root Cause F)"
     status: not-started
@@ -213,23 +213,21 @@ Compare: `apply_concrete_param_types()` at `type_resolve.rs:180-204` correctly v
 
 ### Fix
 
-- [ ] Write failing test BEFORE fix: multi-function file with 2+ polymorphic lambdas at different arities/types. E.g., `let f = x -> x; let g = (a, b) -> a + b; f("hello"); g(1, 2)` compiled via `--backend=llvm`
-- [ ] Fix `find_concrete_copy_of()` at `type_resolve.rs:602-626`:
-  - Accept the target lambda as parameter (for arity information)
-  - Before returning a match at line 619, verify: `pool.function_params(resolved).len()` matches the lambda's expected non-capture param count
-  - If arity doesn't match, continue searching (don't return first match)
-- [ ] Fix `find_any_concrete_fn_type()` at `type_resolve.rs:591-599`:
-  - Same arity validation — accept lambda as parameter, check param count
-  - Consider removing this function entirely if `find_concrete_copy_of` with arity checking covers all cases
-- [ ] Update call site at `find_partial_apply_concrete_type()` (lines 99-103) to pass lambda reference
-- [ ] `timeout 150 ./test-all.sh` green
-- [ ] Verify: multi-function files that previously LCFailed now compile correctly
+- [x] Write test matrix BEFORE fix (2026-04-05): 4 AOT fixtures (`hof_multi_lambda_different_arities.ori`, `hof_multi_lambda_same_arity_diff_types.ori`, `hof_three_lambdas_mixed.ori`, `hof_multi_lambda_semantic_pin.ori`) + 4 Ori spec tests (`tests/spec/expressions/multi_lambda_type_selection.ori`). Note: tests pass pre-fix because 06.2's Generalized var resolution now resolves PartialApply types earlier, making the dangerous fallback paths (`find_any_concrete_fn_type`) unreachable for common cases. Fix is still correct as defense-in-depth.
+- [x] Fix `find_concrete_copy_of()` at `type_resolve.rs` (2026-04-05): Added `lambda_param_count: usize` parameter. Before returning a match, validates `pool.function_params(resolved).len() <= lambda_param_count` via new `arity_compatible()` helper. If arity doesn't match, continues searching.
+- [x] Fix `find_any_concrete_fn_type()` at `type_resolve.rs` (2026-04-05): Same arity validation — accepts `lambda_param_count` parameter, validates before returning. Function retained (not removed) since it serves as the last-resort fallback when Let copies are missing.
+- [x] Update call site at `find_partial_apply_concrete_type()` to accept and pass `lambda_param_count` (2026-04-05): Also added arity check to `check_concrete` closure. All 8 call sites within the function now validate arity.
+- [x] `timeout 150 ./test-all.sh` green (2026-04-05): 14,823 passed, 0 failed, 0 regressions. LLVM backend CRASH is pre-existing Root Cause C (06.8).
+- [x] Verify: multi-function files compile correctly (2026-04-05): All 4 AOT fixtures pass (debug + JIT), 4 Ori spec tests pass (interpreter + LLVM), `ORI_CHECK_LEAKS=1` clean on all fixtures.
+- [x] `./clippy-all.sh` clean (2026-04-05)
+- [x] `cargo b --release` succeeds (2026-04-05)
 
 ### Matrix Testing
 
 - Types: (int)->int, (int,str)->int, (str)->str, ()->int (different arities)
 - Patterns: 2 lambdas same arity different types, 2 lambdas different arities, 3+ lambdas in same file
-- Semantic pin: multi-function file where each lambda produces correct results via LLVM
+- Semantic pin: `hof_multi_lambda_semantic_pin.ori` — unary negate vs binary diff, correct results via LLVM
+- Dual-exec parity: `tests/spec/expressions/multi_lambda_type_selection.ori` — 4 tests pass interpreter + LLVM
 
 ---
 
@@ -438,7 +436,7 @@ The 57 `into_int_value`/`into_struct_value`/`into_float_value`/`into_pointer_val
 - [x] Root Cause D fixed: 7 missing iterator functions declared in RT_FUNCTIONS + JIT mappings + re-exports (2026-04-04)
 - [ ] Root Cause A fixed: Generalized vars no longer leak to codegen
 - [ ] Root Cause B fixed: no u32::MAX index panics in ARC IR emission
-- [ ] Root Cause E fixed: `find_concrete_copy_of()` validates arity before returning
+- [x] Root Cause E fixed: `find_concrete_copy_of()` validates arity before returning (2026-04-05)
 - [ ] Root Cause F fixed: list concat in monomorphized lambda no longer crashes
 - [ ] BUG-04-031 fixed: PHINode with Option method calls in short-circuit
 - [ ] BUG-04-032 fixed: side-effect propagation in short-circuit blocks

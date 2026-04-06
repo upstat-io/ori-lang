@@ -79,13 +79,16 @@ pub(super) fn find_partial_apply_concrete_type(
     lambdas: &[ori_arc::ArcFunction],
     skip_idx: usize,
     lambda_name: Name,
+    lambda_param_count: usize,
     pool: &ori_types::Pool,
 ) -> Option<Idx> {
     let check_concrete =
         |func: &ori_arc::ArcFunction, dst: &ori_arc::ir::ArcVarId| -> Option<Idx> {
             let pa_ty = func.var_type(*dst);
             let resolved = pool.resolve_fully(pa_ty);
-            if is_concrete_function(pool, resolved) {
+            if is_concrete_function(pool, resolved)
+                && arity_compatible(pool, resolved, lambda_param_count)
+            {
                 return Some(resolved);
             }
             None
@@ -96,10 +99,10 @@ pub(super) fn find_partial_apply_concrete_type(
         if let Some(ty) = check_concrete(parent, &dst) {
             return Some(ty);
         }
-        if let Some(ty) = find_concrete_copy_of(parent, dst, pool) {
+        if let Some(ty) = find_concrete_copy_of(parent, dst, pool, lambda_param_count) {
             return Some(ty);
         }
-        if let Some(ty) = find_any_concrete_fn_type(parent, pool) {
+        if let Some(ty) = find_any_concrete_fn_type(parent, pool, lambda_param_count) {
             return Some(ty);
         }
     }
@@ -113,18 +116,20 @@ pub(super) fn find_partial_apply_concrete_type(
             if let Some(ty) = check_concrete(sibling, &dst) {
                 return Some(ty);
             }
-            if let Some(ty) = find_concrete_copy_of(sibling, dst, pool) {
+            if let Some(ty) = find_concrete_copy_of(sibling, dst, pool, lambda_param_count) {
                 return Some(ty);
             }
             if let Some(parent_dst) = find_partial_apply_dst(parent, lambda_name) {
-                if let Some(ty) = find_concrete_copy_of(parent, parent_dst, pool) {
+                if let Some(ty) =
+                    find_concrete_copy_of(parent, parent_dst, pool, lambda_param_count)
+                {
                     return Some(ty);
                 }
             }
-            if let Some(ty) = find_any_concrete_fn_type(sibling, pool) {
+            if let Some(ty) = find_any_concrete_fn_type(sibling, pool, lambda_param_count) {
                 return Some(ty);
             }
-            if let Some(ty) = find_any_concrete_fn_type(parent, pool) {
+            if let Some(ty) = find_any_concrete_fn_type(parent, pool, lambda_param_count) {
                 return Some(ty);
             }
         }
@@ -587,22 +592,38 @@ pub(super) fn build_bound_var_map(
 }
 // Internal helpers
 
-/// Scan all `var_types` for the first concrete Function type.
-fn find_any_concrete_fn_type(func: &ori_arc::ArcFunction, pool: &ori_types::Pool) -> Option<Idx> {
+/// Check if a concrete function type's param count is compatible with a lambda.
+///
+/// The lambda's `params` includes captures (env pointer, captured values) followed
+/// by the user-visible params. A concrete function type only has user-visible params.
+/// So `concrete_param_count <= lambda_param_count` must hold.
+fn arity_compatible(pool: &ori_types::Pool, fn_ty: Idx, lambda_param_count: usize) -> bool {
+    pool.function_params(fn_ty).len() <= lambda_param_count
+}
+
+/// Scan all `var_types` for a concrete Function type with compatible arity.
+fn find_any_concrete_fn_type(
+    func: &ori_arc::ArcFunction,
+    pool: &ori_types::Pool,
+    lambda_param_count: usize,
+) -> Option<Idx> {
     for ty in &func.var_types {
         let resolved = pool.resolve_fully(*ty);
-        if is_concrete_function(pool, resolved) {
+        if is_concrete_function(pool, resolved)
+            && arity_compatible(pool, resolved, lambda_param_count)
+        {
             return Some(resolved);
         }
     }
     None
 }
 
-/// Find the first concrete Function type from a Let copy of a specific dst.
+/// Find a concrete Function type from a Let copy of a specific dst, with arity check.
 fn find_concrete_copy_of(
     func: &ori_arc::ArcFunction,
     pa_dst: ori_arc::ir::ArcVarId,
     pool: &ori_types::Pool,
+    lambda_param_count: usize,
 ) -> Option<Idx> {
     for block in &func.blocks {
         for instr in &block.body {
@@ -615,7 +636,9 @@ fn find_concrete_copy_of(
                 if *src == pa_dst {
                     let ty = func.var_type(*dst);
                     let resolved = pool.resolve_fully(ty);
-                    if is_concrete_function(pool, resolved) {
+                    if is_concrete_function(pool, resolved)
+                        && arity_compatible(pool, resolved, lambda_param_count)
+                    {
                         return Some(resolved);
                     }
                 }

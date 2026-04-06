@@ -202,8 +202,15 @@ fn build_single_inst_mappings(
         }
 
         let lambda_name = lambdas[i].name;
-        let concrete_fn_ty =
-            find_partial_apply_concrete_type(parent, lambdas, i, lambda_name, pool);
+        let lambda_param_count = lambdas[i].params.len();
+        let concrete_fn_ty = find_partial_apply_concrete_type(
+            parent,
+            lambdas,
+            i,
+            lambda_name,
+            lambda_param_count,
+            pool,
+        );
 
         if let Some(concrete_ty) = concrete_fn_ty {
             concrete_fn_types.insert(i, concrete_ty);
