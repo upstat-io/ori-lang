@@ -18,7 +18,7 @@
 //! and [`can_use_tagged_pointer`] to check if an enum layout is eligible for
 //! tagged pointer optimization.
 
-use crate::enum_repr::EnumRepr;
+use crate::enum_repr::{EnumRepr, EnumTag};
 use crate::repr::MachineRepr;
 
 /// Maximum variant count addressable by a 3-bit tag.
@@ -26,6 +26,20 @@ use crate::repr::MachineRepr;
 /// The low 3 bits of an aligned pointer are zero on 64-bit systems with
 /// 8-byte alignment, leaving exactly 8 distinct tag values.
 const MAX_TAG_VARIANTS: usize = 8;
+
+/// Size in bytes of a tagged-pointer encoded enum value.
+///
+/// The entire enum is a single 64-bit slot containing the encoded
+/// `(pointer | tag)` value. There is no separate tag field and no
+/// payload struct.
+const TAGGED_PTR_SIZE: u32 = 8;
+
+/// Alignment in bytes of a tagged-pointer encoded enum value.
+///
+/// 8-byte alignment is required so the low 3 bits of the slot are
+/// available for the discriminant. Any aligned pointer (which `ori_rt`
+/// guarantees) satisfies this.
+const TAGGED_PTR_ALIGN: u32 = 8;
 
 /// Check if a variant payload is a single-word pointer suitable for tagging.
 ///
@@ -37,12 +51,33 @@ const MAX_TAG_VARIANTS: usize = 8;
 /// - [`MachineRepr::RcPointer`] — heap-allocated, alignment ≥ 8
 /// - [`MachineRepr::OpaquePtr`] — C interop pointer
 /// - [`MachineRepr::UnmanagedPtr`] — raw pointer
+///
+/// **Recursive types are excluded.** [`canonical_inner`] emits the recursive
+/// cycle marker as `RcPointer { inner: OpaquePtr }`, which has different
+/// boxing/load semantics from a regular heap pointer (the value at the heap
+/// address is itself an encoded tagged-pointer i64, not a value of the
+/// pointer's `inner` type). Supporting recursive tagged pointers requires
+/// box-and-load codegen for Construct/Project — out of scope for §07.3.A.
+/// Tracked as a future extension; the analysis layer rejects them so the
+/// codegen path never sees a recursive tagged-pointer enum.
+///
+/// [`canonical_inner`]: crate::canonical
 #[must_use]
 pub(crate) fn is_taggable_pointer(repr: &MachineRepr) -> bool {
-    matches!(
-        repr,
-        MachineRepr::RcPointer(_) | MachineRepr::OpaquePtr | MachineRepr::UnmanagedPtr
-    )
+    match repr {
+        MachineRepr::RcPointer(rc) => {
+            // Reject the cycle marker (recursive enum field). The marker is
+            // produced by `canonical_inner` when it detects a cycle and
+            // takes the form `RcPointer { inner: OpaquePtr, .. }`. A
+            // non-recursive `RcPointer` wraps a meaningful inner type
+            // (struct, tuple, etc.), but in practice user enums never
+            // produce that shape — recursive fields are the only path
+            // through which `RcPointer` reaches a variant payload here.
+            !matches!(*rc.inner, MachineRepr::OpaquePtr)
+        }
+        MachineRepr::OpaquePtr | MachineRepr::UnmanagedPtr => true,
+        _ => false,
+    }
 }
 
 /// Check if an enum is eligible for tagged pointer optimization.
@@ -86,4 +121,41 @@ pub(crate) fn can_use_tagged_pointer(enum_repr: &EnumRepr) -> bool {
         .variants
         .iter()
         .any(|v| v.fields.len() == 1 && is_taggable_pointer(&v.fields[0]))
+}
+
+/// Apply tagged-pointer optimization to an enum representation.
+///
+/// Takes a candidate `EnumRepr` (typically the explicit-tag default
+/// produced by `canonical_enum()`) and returns the tagged-pointer-encoded
+/// form when [`can_use_tagged_pointer`] returns true. Otherwise the input
+/// is returned unchanged.
+///
+/// The returned `EnumRepr` has:
+/// - `tag = EnumTag::TaggedPtr`
+/// - `size = 8` (single i64 slot, no padding)
+/// - `align = 8` (required for 3-bit tag space)
+/// - `variants` unchanged (per-variant pointer/unit role is read from
+///   `VariantRepr.fields` at codegen time)
+///
+/// This function is the canonical constructor of `EnumTag::TaggedPtr`.
+/// All `EnumTag::TaggedPtr` values must originate here, mirroring how
+/// `optimize_option_repr`/`optimize_result_repr` are the canonical
+/// constructors of `EnumTag::Niche`.
+///
+/// # Spec
+///
+/// §07.3 — tagged pointer encoding for enums where every variant is
+/// either unit or carries a single single-word pointer payload.
+#[must_use]
+pub(crate) fn optimize_tagged_ptr_repr(candidate: EnumRepr) -> EnumRepr {
+    if !can_use_tagged_pointer(&candidate) {
+        return candidate;
+    }
+
+    EnumRepr {
+        tag: EnumTag::TaggedPtr,
+        variants: candidate.variants,
+        size: TAGGED_PTR_SIZE,
+        align: TAGGED_PTR_ALIGN,
+    }
 }

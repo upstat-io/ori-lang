@@ -42,6 +42,9 @@ impl<'ll> TypeLayoutResolver<'_, 'll, '_> {
             if enum_repr.tag.is_niche() {
                 return self.resolve_enum_niche(idx, variants, enum_repr);
             }
+            if enum_repr.tag.is_tagged_ptr() {
+                return self.resolve_enum_tagged_ptr(idx);
+            }
             // Explicit tag — fall through to existing behavior.
         } else if self.repr_plan.is_some() {
             tracing::warn!(
@@ -51,6 +54,20 @@ impl<'ll> TypeLayoutResolver<'_, 'll, '_> {
         }
 
         self.resolve_enum_explicit(idx, variants)
+    }
+
+    /// §07.3.A: Resolve a tagged-pointer enum to a single LLVM `i64` value.
+    ///
+    /// The entire enum is encoded as `(payload_ptr | variant_tag)` in a
+    /// 64-bit slot — there is no struct, no GEP, no per-variant LLVM type.
+    /// All codegen consumers (Construct, Project, Switch, RC, drop, ABI)
+    /// dispatch on `is_tagged_ptr()` and use mask-based encode/decode.
+    ///
+    /// Cycle safety: tagged-pointer eligibility (`can_use_tagged_pointer`)
+    /// requires every payload to be a single-word pointer with no field
+    /// recursion, so a named-struct cycle escape is not needed here.
+    fn resolve_enum_tagged_ptr(&self, _idx: Idx) -> BasicTypeEnum<'ll> {
+        self.scx.type_i64().into()
     }
 
     /// Resolve enum with explicit tag: `{ tag, [M x i64] payload }`.
