@@ -255,7 +255,7 @@ Bugs in LLVM IR generation, JIT/AOT compilation, monomorphization, ARC pipeline 
   Found: 2026-04-06 | Source: continue-roadmap (pre-commit hook failure during hygiene-lexer work)
 
 - [x] `[BUG-04-039][high]` **LLVM codegen: `join` on non-string iterators crashes (missing `to_str_fn` trampoline)** — found by continue-roadmap.
-  Resolved: 2026-04-06. Generated `to_str` trampoline in `emit_iter_join` that calls `ori_str_from_int/float/bool/char` for primitive element types. Supports int, float, bool, char, byte, Duration, Size, Ordering. Non-primitive types (structs, closures) still produce a codegen error — future work.
+  Resolved: 2026-04-06. Generated `to_str` trampoline in `emit_iter_join` for int, float, bool, char, byte element types. Duration/Size/Ordering excluded from trampoline — they need proper Printable method dispatch (codegen error produced instead of wrong output).
   Fix: `plans/bug-tracker/fix-BUG-04-039.md` | 5 AOT tests added (`iter_join_int/float/bool/single_int/int_after_map`)
 
 - [ ] `[BUG-04-040][medium]` **LLVM JIT spec test runner: path-dependent compilation context causes spurious LCFails** — found by tpr-review.
