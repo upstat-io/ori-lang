@@ -30,7 +30,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// Extract all three list fields: data (field 2), len (field 0), cap (field 1).
     ///
     /// Used by COW mutation methods that need capacity for the uniqueness fast path.
-    pub(in crate::codegen::arc_emitter::builtins::collections) fn extract_list_fields(
+    pub(in crate::codegen::arc_emitter) fn extract_list_fields(
         &mut self,
         receiver: ValueId,
     ) -> (ValueId, ValueId, ValueId) {
