@@ -3,18 +3,28 @@ use std::io::Write;
 
 fn create_temp_file(content: &str) -> PathBuf {
     let dir = std::env::temp_dir();
-    let path = dir.join(format!("ori_hash_test_{}.ori", rand_suffix()));
+    let path = dir.join(format!("ori_hash_test_{}.ori", unique_suffix()));
     let mut file = File::create(&path).unwrap();
     file.write_all(content.as_bytes()).unwrap();
     path
 }
 
-fn rand_suffix() -> u64 {
+/// Generate a suffix guaranteed unique across concurrent test threads.
+///
+/// Combines process ID, an atomic counter, and nanosecond timestamp.
+/// The atomic counter alone guarantees uniqueness within a process;
+/// PID + timestamp provide uniqueness across test runner restarts.
+fn unique_suffix() -> String {
+    use std::sync::atomic::{AtomicU64, Ordering};
     use std::time::{SystemTime, UNIX_EPOCH};
-    SystemTime::now()
+    static COUNTER: AtomicU64 = AtomicU64::new(0);
+    let seq = COUNTER.fetch_add(1, Ordering::Relaxed);
+    let pid = std::process::id();
+    let ns = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap()
-        .as_nanos() as u64
+        .as_nanos() as u64;
+    format!("{pid}_{seq}_{ns}")
 }
 
 #[test]
