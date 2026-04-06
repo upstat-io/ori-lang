@@ -9,7 +9,7 @@ inspired_by:
   - "Swift SIL ARC test matrix pattern"
 depends_on: ["01", "02", "03", "04", "04B"]
 third_party_review:
-  status: in-progress
+  status: findings
   updated: 2026-04-04
 sections:
   - id: "05.0"
