@@ -17,6 +17,7 @@ pub mod depth;
 pub mod derives;
 pub mod elem_dec_scope;
 pub mod enum_discriminant;
+pub mod enum_tagged_ptr;
 pub mod enum_zero_payload;
 pub mod error_handling;
 pub mod fat_matrix;

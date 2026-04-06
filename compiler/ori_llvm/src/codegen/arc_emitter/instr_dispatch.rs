@@ -226,13 +226,33 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             return;
         }
 
+        // §07.3.A: Tagged-pointer enum projection.
+        // The entire enum is a single 64-bit slot encoded as `(ptr | tag)`.
+        // Field 0 decodes the tag (low 3 bits) — this becomes the switch
+        // scrutinee directly, no `tagged_ptr_scrutinees` map needed because
+        // the decoded i64 tag works with the standard `Switch` path.
+        // Field > 0 decodes the payload pointer (high 61 bits) — every
+        // variant carries at most one pointer field, so the field index
+        // beyond 0 always means "the payload pointer".
+        let val_ty = func.var_type(value);
+        if self.get_tagged_ptr_encoding(val_ty).is_some() {
+            let v = self.var(value);
+            if field == 0 {
+                let tag = self.tagged_ptr_decode_tag(v, "tagged.tag");
+                self.def_var(dst, super::EmittedValue::Immediate(tag));
+            } else {
+                let ptr = self.tagged_ptr_decode_ptr(v, "tagged.ptr");
+                self.def_var_repr(dst, ptr, func);
+            }
+            return;
+        }
+
         // §07.2: Niche-encoded enum tag extraction.
         // When Project { field: 0 } targets a niche-encoded enum, extract the
         // niche field value (not a logical variant index). The raw niche field
         // value is recorded in `niche_scrutinees` so Switch can emit the
         // correct comparison.
         if field == 0 {
-            let val_ty = func.var_type(value);
             if let Some(encoding) = self.get_niche_encoding(val_ty) {
                 if encoding.is_tagless() {
                     // Single-variant: tag is always 0.
@@ -490,6 +510,20 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                     let base_ty = func.var_type(*base);
                     let llvm_ty = self.resolve_type(base_ty);
 
+                    // §07.3.A: Tagged-pointer enums have no struct layout —
+                    // there are no individual fields to GEP into. The entire
+                    // enum is a single i64 slot. AIMS reuse should never
+                    // generate a `Set` for a tagged-pointer enum because the
+                    // encoding is monolithic. If this ever fires, the AIMS
+                    // pipeline needs to be taught about tagged-pointer
+                    // encoding before in-place mutation can be supported.
+                    debug_assert!(
+                        self.get_tagged_ptr_encoding(base_ty).is_none(),
+                        "Set on tagged-pointer enum — AIMS reuse must produce \
+                         a full Construct, not a per-field Set, for tagged-ptr \
+                         encoded enums (no individual field layout exists)"
+                    );
+
                     // Remap declaration-order field to memory-order.
                     let mem_field = self.remap_struct_field(base_ty, *field);
 
@@ -520,6 +554,20 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 let base_val = self.var(*base);
                 let base_ty = func.var_type(*base);
                 let llvm_ty = self.resolve_type(base_ty);
+
+                // §07.3.A: Tagged-pointer enum — re-encode the tag bits.
+                // The encoded value lives in a single i64 slot. To set the
+                // discriminant we mask off the existing low 3 bits and OR
+                // in the new variant index. The pointer payload (high 61
+                // bits) is preserved — useful for variant→variant
+                // transitions where the same payload pointer applies (e.g.,
+                // marking a node).
+                if self.get_tagged_ptr_encoding(base_ty).is_some() {
+                    let cleared_ptr = self.tagged_ptr_decode_ptr(base_val, "set_tag.ptr");
+                    let updated = self.tagged_ptr_encode(cleared_ptr, *tag as u32, "set_tag");
+                    self.def_var(*base, super::EmittedValue::Immediate(updated));
+                    return;
+                }
 
                 // §07.2: Niche/tagless encoding — conditional tag store.
                 if let Some(encoding) = self.get_niche_encoding(base_ty) {

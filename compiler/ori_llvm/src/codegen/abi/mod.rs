@@ -130,6 +130,16 @@ fn is_niche_encoded(ty: Idx, store: &TypeInfoStore<'_>, repr_plan: Option<&ReprP
         .is_some_and(|e| e.tag.is_niche())
 }
 
+/// §07.3.A: Check if a type has tagged-pointer encoding in the `ReprPlan`.
+///
+/// Tagged-pointer enums are exactly 8 bytes (one i64 slot). The ABI passes
+/// them as a single Direct register, identical to a regular pointer or i64.
+fn is_tagged_ptr_encoded(ty: Idx, store: &TypeInfoStore<'_>, repr_plan: Option<&ReprPlan>) -> bool {
+    repr_plan
+        .and_then(|plan| plan.get_enum_repr(store.pool().resolve_fully(ty)))
+        .is_some_and(|e| e.tag.is_tagged_ptr())
+}
+
 /// §07.2: Check if an enum type (Option/Result/user-defined) has niche or tagless
 /// encoding in the `ReprPlan`. Returns `Some(size)` if an optimized layout applies,
 /// `None` to fall through to the explicit tag computation.
@@ -231,6 +241,13 @@ fn abi_size_inner(
             .map(|&(_, ty)| abi_size_inner(ty, store, repr_plan, visiting))
             .sum(),
         TypeInfo::Enum { variants } => {
+            // §07.3.A: Tagged-pointer enums are a single 8-byte slot
+            // regardless of variant count or payload size. Check before the
+            // niche/explicit-tag computation since the encoding is uniform.
+            if is_tagged_ptr_encoded(ty, store, repr_plan) {
+                visiting.remove(&ty);
+                return 8;
+            }
             if let Some(size) = niche_enum_size(ty, variants, store, repr_plan, visiting) {
                 visiting.remove(&ty);
                 return size;
