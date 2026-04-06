@@ -630,3 +630,111 @@ fn mixed_absent_and_used_params() {
         "absent v0 unused, used v1 has Once → no error: {errors:?}"
     );
 }
+
+// arg_ownership length checks
+
+#[test]
+fn verify_apply_indirect_arg_ownership_len_mismatch() {
+    // Non-empty arg_ownership that doesn't match args.len() → error.
+    use crate::ir::ArgOwnership;
+    let func = make_func(
+        vec![owned_param(0, Idx::NONE), owned_param(1, Idx::NONE)],
+        Idx::NONE,
+        vec![ArcBlock {
+            id: b(0),
+            params: vec![],
+            body: vec![ArcInstr::ApplyIndirect {
+                dst: v(2),
+                ty: Idx::INT,
+                closure: v(0),
+                args: vec![v(1), v(0)],
+                // Mismatch: 2 args but only 1 ownership entry
+                arg_ownership: vec![ArgOwnership::Owned],
+            }],
+            terminator: ArcTerminator::Return { value: v(2) },
+        }],
+        vec![],
+    );
+    let errors = check_function(&func);
+    assert!(
+        errors.iter().any(|e| matches!(
+            e,
+            VerifyError::ArgOwnershipLenMismatch {
+                expected: 2,
+                actual: 1,
+                ..
+            }
+        )),
+        "expected ArgOwnershipLenMismatch: {errors:?}"
+    );
+}
+
+#[test]
+fn verify_invoke_indirect_arg_ownership_len_mismatch() {
+    use crate::ir::ArgOwnership;
+    let func = make_func(
+        vec![owned_param(0, Idx::NONE), owned_param(1, Idx::NONE)],
+        Idx::NONE,
+        vec![
+            ArcBlock {
+                id: b(0),
+                params: vec![],
+                body: vec![],
+                terminator: ArcTerminator::InvokeIndirect {
+                    dst: v(2),
+                    ty: Idx::INT,
+                    closure: v(0),
+                    args: vec![v(1)],
+                    // Mismatch: 1 arg but 2 ownership entries
+                    arg_ownership: vec![ArgOwnership::Owned, ArgOwnership::Borrowed],
+                    normal: b(1),
+                    unwind: b(2),
+                },
+            },
+            simple_return_block(1, v(2)),
+            simple_return_block(2, v(2)),
+        ],
+        vec![],
+    );
+    let errors = check_function(&func);
+    assert!(
+        errors.iter().any(|e| matches!(
+            e,
+            VerifyError::ArgOwnershipLenMismatch {
+                expected: 1,
+                actual: 2,
+                ..
+            }
+        )),
+        "expected ArgOwnershipLenMismatch: {errors:?}"
+    );
+}
+
+#[test]
+fn verify_apply_indirect_arg_ownership_empty_ok() {
+    // Empty arg_ownership is valid (pre-annotation state).
+    let func = make_func(
+        vec![owned_param(0, Idx::NONE), owned_param(1, Idx::NONE)],
+        Idx::NONE,
+        vec![ArcBlock {
+            id: b(0),
+            params: vec![],
+            body: vec![ArcInstr::ApplyIndirect {
+                dst: v(2),
+                ty: Idx::INT,
+                closure: v(0),
+                args: vec![v(1)],
+                arg_ownership: vec![],
+            }],
+            terminator: ArcTerminator::Return { value: v(2) },
+        }],
+        vec![],
+    );
+    let errors = check_function(&func);
+    assert!(
+        !errors
+            .iter()
+            .any(|e| matches!(e, VerifyError::ArgOwnershipLenMismatch { .. })),
+        "empty arg_ownership should be valid: {errors:?}"
+    );
+}

@@ -420,7 +420,8 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
         }
 
         // Store capture param ownership so emit_partial_apply can generate
-        // correct env drop functions: borrowed captures must NOT be RC-dec'd.
+        // correct wrapper functions: borrowed captures skip RcInc (body borrows
+        // from env). Env drop RcDec's ALL captures regardless.
         if lambda.num_captures > 0 {
             let capture_ownership: Vec<ori_arc::Ownership> = lambda
                 .params

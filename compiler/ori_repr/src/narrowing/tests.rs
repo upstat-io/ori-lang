@@ -2016,6 +2016,7 @@ fn phase_c_apply_indirect_returning_list_int_widens_to_top() {
         ty: list_int,
         closure,
         args: vec![],
+        arg_ownership: vec![],
     };
 
     let ranges: HashMap<ArcVarId, ValueRange> = HashMap::new();
