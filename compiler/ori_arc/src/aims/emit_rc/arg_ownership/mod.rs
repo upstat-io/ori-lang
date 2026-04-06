@@ -1,7 +1,8 @@
 //! Argument ownership annotation for AIMS RC emission.
 //!
-//! Populates `arg_ownership` on `Apply`/`Invoke` instructions from
-//! [`MemoryContract`] signatures. Delegates to the existing
+//! Populates `arg_ownership` on `Apply`/`Invoke`/`ApplyIndirect`/
+//! `InvokeIndirect` instructions from [`MemoryContract`] signatures.
+//! Delegates to the existing
 //! [`annotate_arg_ownership`](crate::rc_insert::annotate_arg_ownership)
 //! after converting contracts to [`AnnotatedSig`]s.
 //!
@@ -20,7 +21,7 @@ use ori_types::Pool;
 
 use crate::aims::contract::MemoryContract;
 use crate::aims::lattice::{AccessClass, Cardinality, Consumption};
-use crate::ir::ArcFunction;
+use crate::ir::{ArcFunction, ArcInstr, ArcTerminator};
 use crate::ownership::{AnnotatedParam, AnnotatedSig, Ownership};
 use crate::BuiltinOwnershipSets;
 
@@ -122,4 +123,42 @@ pub fn emit_arg_ownership(
     }
 
     crate::rc_insert::annotate_arg_ownership(func, &sigs, interner, builtins, pool);
+
+    // Invariant: after annotation, every indirect call with non-empty args
+    // must have non-empty arg_ownership. Empty arg_ownership on a call with
+    // args means annotation missed it — a bug.
+    debug_assert!(
+        {
+            let mut ok = true;
+            for block in &func.blocks {
+                for instr in &block.body {
+                    if let ArcInstr::ApplyIndirect {
+                        args,
+                        arg_ownership,
+                        ..
+                    } = instr
+                    {
+                        if !args.is_empty() && arg_ownership.is_empty() {
+                            ok = false;
+                        }
+                    }
+                }
+                if let ArcTerminator::InvokeIndirect {
+                    args,
+                    arg_ownership,
+                    ..
+                } = &block.terminator
+                {
+                    if !args.is_empty() && arg_ownership.is_empty() {
+                        ok = false;
+                    }
+                }
+            }
+            ok
+        },
+        "emit_arg_ownership: indirect call with non-empty args has empty arg_ownership"
+    );
 }
+
+#[cfg(test)]
+mod tests;

@@ -1,0 +1,20 @@
+// Opaque higher-order wrapper proof: closure passed through a function
+// parameter and called indirectly with RC-managed values.
+//
+// The closure captures a heap-allocated str and the wrapper passes a
+// heap-allocated list as a user arg. This forces RC activity on both
+// the capture path (PartialApply) and the call-site arg path
+// (ApplyIndirect with all-Borrowed fallback for opaque closures).
+//
+// Validates that the conservative Borrowed fallback is RC-balanced:
+// no leaks, no double-frees.
+//
+// closure-ownership Section 02: opaque closure soundness proof.
+@apply_wrapper (f: (str) -> str, x: str) -> str = f(x);
+
+@main () -> int = {
+    let $greeting = "hello";
+    let $make_greeting = name -> `{greeting}, {name}!`;
+    let $result = apply_wrapper(f: make_greeting, x: "world");
+    if result == "hello, world!" then 0 else 1
+}

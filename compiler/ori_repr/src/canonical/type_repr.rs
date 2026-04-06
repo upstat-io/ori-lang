@@ -208,7 +208,9 @@ pub(super) fn canonical_enum(
 /// ABI layer is now niche-aware (§07.2). Remaining consumers that need
 /// niche updates before enabling: `result_monadic.rs` (`construct_result_value`,
 /// `resolve_type_for_result`), and other builtin helpers that construct
-/// explicit `{ i64, payload }` structs.
+/// explicit `{ i64, payload }` structs. Additionally, the niche layout
+/// must use the payload type directly (not wrap it) so that niche field
+/// indices map correctly to LLVM struct field indices.
 const NICHE_CODEGEN_READY: bool = false;
 
 /// Build canonical `Option<T>` as a 2-variant enum: None (unit) + Some(T).

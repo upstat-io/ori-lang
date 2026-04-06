@@ -10,7 +10,7 @@ use ori_ir::builtin_constants::protocol::ProtocolArgOwnership;
 use ori_ir::Name;
 
 use crate::borrow::BuiltinOwnershipSets;
-use crate::ir::{ArcBlock, ArcFunction, ArcInstr, ArcTerminator, ArcValue, ArcVarId};
+use crate::ir::{ArcBlock, ArcFunction, ArcInstr, ArcTerminator, ArcValue, ArcVarId, ArgOwnership};
 use crate::ownership::{AnnotatedSig, Ownership};
 
 /// Context for callee argument ownership promotion.
@@ -210,10 +210,20 @@ pub(super) fn update_ownership_inner(
                     changed |= promote_callee_args(*callee, args, &mut ctx);
                 }
 
-                ArcInstr::ApplyIndirect { closure, args, .. } => {
-                    changed |= try_mark_param_owned(*closure, ctx.func, ctx.my_sig, ctx.aliases);
-                    for &arg in args {
-                        changed |= try_mark_param_owned(arg, ctx.func, ctx.my_sig, ctx.aliases);
+                ArcInstr::ApplyIndirect {
+                    args,
+                    arg_ownership,
+                    ..
+                } => {
+                    // Closure operand: always borrowed — do NOT promote.
+                    // User args: promote only where arg_ownership says Owned.
+                    for (i, &arg) in args.iter().enumerate() {
+                        if arg_ownership
+                            .get(i)
+                            .is_some_and(|o| *o == ArgOwnership::Owned)
+                        {
+                            changed |= try_mark_param_owned(arg, ctx.func, ctx.my_sig, ctx.aliases);
+                        }
                     }
                 }
 
@@ -237,13 +247,10 @@ pub(super) fn update_ownership_inner(
                     }
                 }
 
-                ArcInstr::Let { value, .. } => {
-                    let _ = value;
-                }
-
                 // Select reads vars without consuming — no ownership propagation.
                 // RC/reset/reuse instructions are handled by the ARC pass itself.
-                ArcInstr::Select { .. }
+                ArcInstr::Let { .. }
+                | ArcInstr::Select { .. }
                 | ArcInstr::RcInc { .. }
                 | ArcInstr::RcDec { .. }
                 | ArcInstr::IsShared { .. }
@@ -265,13 +272,25 @@ pub(super) fn update_ownership_inner(
                 let _ = args;
             }
 
+            ArcTerminator::InvokeIndirect {
+                args,
+                arg_ownership,
+                ..
+            } => {
+                for (i, &arg) in args.iter().enumerate() {
+                    if arg_ownership
+                        .get(i)
+                        .is_some_and(|o| *o == ArgOwnership::Owned)
+                    {
+                        changed |= try_mark_param_owned(arg, ctx.func, ctx.my_sig, ctx.aliases);
+                    }
+                }
+            }
+
             ArcTerminator::Branch { .. }
             | ArcTerminator::Switch { .. }
             | ArcTerminator::Unreachable
-            | ArcTerminator::Resume
-            // InvokeIndirect: closure call — no named callee to look up
-            // ownership for, so treat conservatively (no promotion).
-            | ArcTerminator::InvokeIndirect { .. } => {}
+            | ArcTerminator::Resume => {}
 
             ArcTerminator::Invoke {
                 args, func: callee, ..

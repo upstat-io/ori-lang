@@ -60,6 +60,14 @@ pub enum VerifyError {
     /// and the actual IR: Absent means "zero forward uses", so no
     /// instruction or terminator should reference this variable.
     AbsentParamHasUses { var: ArcVarId, param_index: usize },
+
+    /// `arg_ownership` length doesn't match `args` length (when non-empty).
+    /// Empty `arg_ownership` is valid (pre-annotation state).
+    ArgOwnershipLenMismatch {
+        block: ArcBlockId,
+        expected: usize,
+        actual: usize,
+    },
 }
 
 impl std::fmt::Display for VerifyError {
@@ -109,6 +117,20 @@ impl std::fmt::Display for VerifyError {
                     var.raw(),
                 )
             }
+            VerifyError::ArgOwnershipLenMismatch {
+                block,
+                expected,
+                actual,
+            } => {
+                write!(
+                    f,
+                    "arg_ownership length mismatch in block {}: \
+                     expected {} (args.len()) but got {}",
+                    block.raw(),
+                    expected,
+                    actual,
+                )
+            }
         }
     }
 }
@@ -147,6 +169,7 @@ pub fn check_function(func: &ArcFunction) -> Vec<VerifyError> {
     check_block_connectivity(func, &mut errors);
     check_no_rc_on_scalar(func, &mut errors);
     check_no_dec_on_borrowed(func, &mut errors);
+    check_arg_ownership_len(func, &mut errors);
     errors
 }
 
@@ -178,9 +201,13 @@ fn check_variable_scope(func: &ArcFunction, errors: &mut Vec<VerifyError>) {
                 defined.insert(dst);
             }
         }
-        // Invoke dst is a definition visible in the normal successor.
-        if let crate::ir::ArcTerminator::Invoke { dst, .. } = &block.terminator {
-            defined.insert(*dst);
+        // Invoke/InvokeIndirect dst is a definition visible in the normal successor.
+        match &block.terminator {
+            crate::ir::ArcTerminator::Invoke { dst, .. }
+            | crate::ir::ArcTerminator::InvokeIndirect { dst, .. } => {
+                defined.insert(*dst);
+            }
+            _ => {}
         }
     }
 
@@ -294,6 +321,60 @@ fn check_no_dec_on_borrowed(func: &ArcFunction, errors: &mut Vec<VerifyError>) {
                     });
                 }
             }
+        }
+    }
+}
+
+/// `arg_ownership` length must match `args` length when non-empty.
+///
+/// Empty `arg_ownership` is valid (pre-annotation state). A non-empty
+/// `arg_ownership` that doesn't match `args.len()` indicates a pipeline
+/// bug where annotation populated an incorrect number of entries.
+fn check_arg_ownership_len(func: &ArcFunction, errors: &mut Vec<VerifyError>) {
+    for block in &func.blocks {
+        // Check instructions (Apply, ApplyIndirect)
+        for instr in &block.body {
+            let (args_len, ownership_len) = match instr {
+                ArcInstr::Apply {
+                    args,
+                    arg_ownership,
+                    ..
+                }
+                | ArcInstr::ApplyIndirect {
+                    args,
+                    arg_ownership,
+                    ..
+                } => (args.len(), arg_ownership.len()),
+                _ => continue,
+            };
+            if ownership_len != 0 && ownership_len != args_len {
+                errors.push(VerifyError::ArgOwnershipLenMismatch {
+                    block: block.id,
+                    expected: args_len,
+                    actual: ownership_len,
+                });
+            }
+        }
+        // Check terminators (Invoke, InvokeIndirect)
+        let (args_len, ownership_len) = match &block.terminator {
+            crate::ir::ArcTerminator::Invoke {
+                args,
+                arg_ownership,
+                ..
+            }
+            | crate::ir::ArcTerminator::InvokeIndirect {
+                args,
+                arg_ownership,
+                ..
+            } => (args.len(), arg_ownership.len()),
+            _ => continue,
+        };
+        if ownership_len != 0 && ownership_len != args_len {
+            errors.push(VerifyError::ArgOwnershipLenMismatch {
+                block: block.id,
+                expected: args_len,
+                actual: ownership_len,
+            });
         }
     }
 }
