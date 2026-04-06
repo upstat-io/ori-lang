@@ -259,7 +259,7 @@ Bugs in LLVM IR generation, JIT/AOT compilation, monomorphization, ARC pipeline 
   `emit_iter_join` unconditionally passes `null` for `to_str_fn` and uses `elem_ty` store size (wrong for non-str). Needs: (1) detect non-str elem_ty, (2) generate `to_str` trampoline closure, (3) pass correct elem_size for the source element type.
   Subsystem: `compiler/ori_llvm/src/codegen/arc_emitter/builtins/iterator_consumers.rs:emit_iter_join`
   Found: 2026-04-06 | Source: continue-roadmap (jit-exception-handling §06.8)
-  Note: String-only join works correctly after SSO fix (same commit). Only non-string elements crash.
+  Note: String-only join works correctly in ISOLATION after SSO fix (verified `/tmp/test_join_str.ori` passes 1/1 via JIT). However, `tests/spec/traits/iterator/join.ori` fails all 8 tests because non-string join tests in the same file produce codegen errors that poison the entire JIT module (module-level codegen error check prevents execution of ANY tests in the file). Fix needs: (1) to_str trampoline for non-string elements, OR (2) per-function error isolation in JIT mode.
 
 ---
 
