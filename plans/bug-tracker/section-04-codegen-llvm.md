@@ -208,17 +208,15 @@ Bugs in LLVM IR generation, JIT/AOT compilation, monomorphization, ARC pipeline 
   Found: 2026-04-03 | Source: continue-roadmap (JIT EH plan §04B investigation)
   Note: Active work in JIT EH plan §04B and repr-opt plan touch this area. Root cause (A) is partially mitigated by Scheme-unwrapping fix in `ori_arc/src/lower/calls/lambda.rs` (polymorphic lambda params) and BoundVar resolution in `define_phase.rs` + `prepare.rs`. Root cause (D) is a trivial fix (add `jit_allowed: true` to the RT_FUNCTIONS entries). Root cause (E) needs structural matching — `find_concrete_copy_type` must verify the candidate Function's arity matches the lambda's param count. Fix in `define_phase.rs:find_partial_apply_concrete_type` path 1 added (validate params are concrete before returning), but `find_concrete_copy_type` still lacks arity matching.
 
-- [ ] `[BUG-04-031][high]` **LLVM PHINode error: short-circuit `&&` with Option method calls** — found by continue-roadmap.
-  Repro: `let opt = Some(42); is_some(opt:) && opt.unwrap_or(default: 0) > 0` compiled via `--backend=llvm` → LLVM IR verification: "PHINode should have one entry for each predecessor." Entire file becomes LCFail. Standalone short-circuit with panic/constants works; the trigger is method calls on heap types (`Option`) in short-circuit branches producing missing PHI predecessor entries.
-  Subsystem: `compiler/ori_llvm/src/codegen/` (short-circuit emission, likely `lower/expr/short_circuit.rs` or `arc_emitter/`)
-  Found: 2026-04-03 | Source: continue-roadmap (JIT EH plan §05 verification)
-  Note: Active work in JIT EH plan §02 (short-circuit lowering) completed. This is a residual case not caught by §02 testing — the simple cases work, but Option method dispatch in RHS branches generates incorrect CFG.
+- [x] `[BUG-04-031][high]` **LLVM PHINode error: short-circuit `&&` with Option method calls** — found by continue-roadmap.
+  Root cause: `unwrap_or` builtin emission in `option_result.rs` created two extra LLVM blocks (`uor.inc`, `uor.merge`) for conditional RC management. This split the ARC block mid-emission — remaining instructions and the Jump terminator went into `uor.merge`, causing PHI predecessor mismatch at the merge block.
+  Fix (2026-04-06): Skip RC branch for scalar payloads (`!self.classifier.is_scalar(inner_ty)`) — scalar types don't need RC inc, avoiding the block split.
+  Found: 2026-04-03 | Fixed: 2026-04-06 | Source: continue-roadmap (JIT EH plan §06.6)
 
-- [ ] `[BUG-04-032][high]` **LLVM short-circuit `&&`/`||` side-effect propagation failure** — found by continue-roadmap.
-  Repro: `let order: [int] = []; let result = {order = order + [1]; true} && {order = order + [2]; true}; assert_eq(actual: order, expected: [1, 2])` → LLVM produces `[1]` (right block mutation not propagated). Interpreter correctly produces `[1, 2]`. Variable mutations in block expressions on the evaluated side of `&&`/`||` don't propagate to the outer scope.
-  Subsystem: `compiler/ori_llvm/src/codegen/` (short-circuit emission — variable store/load across basic blocks)
-  Found: 2026-04-03 | Source: continue-roadmap (JIT EH plan §05 verification)
-  Note: Related to BUG-04-031. Both are short-circuit codegen issues. This one compiles and runs but produces wrong output (semantic bug), while BUG-04-031 fails at IR verification (structural bug).
+- [x] `[BUG-04-032][high]` **LLVM short-circuit `&&`/`||` side-effect propagation failure** — found by continue-roadmap.
+  Root cause: `lower_short_circuit_and/or` in `short_circuit.rs` didn't call `merge_mutable_vars()` after branching, losing mutations from branch scopes. `scope = pre_scope` at merge reverted to pre-branch state.
+  Fix (2026-04-06): Added `merge_mutable_vars` pattern from `lower_coalesce` — capture branch scopes, create merge params, pass mutable var values through Jump args, rebind after merge. Applied symmetrically to both `&&` and `||`.
+  Found: 2026-04-03 | Fixed: 2026-04-06 | Source: continue-roadmap (JIT EH plan §06.6)
 
 - [ ] `[BUG-04-033][high]` **LLVM codegen fails on multi-clause functions with literal patterns (Ackermann)** — found by manual.
   Repro: `ori run --compile tests/run-pass/rosetta/ackermann/ackermann.ori` — 3-clause `@ack` with literal `0` patterns. Two errors: (1) `build_struct called with non-struct LLVM type (i64)` — clause dispatch treats int return as struct; (2) LLVM IR verification: "PHINode should have one entry for each predecessor of its parent basic block" — join blocks from clause branches have mismatched phi entries.
