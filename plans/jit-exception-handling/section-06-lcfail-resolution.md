@@ -18,7 +18,7 @@ sections:
     status: complete
   - id: "06.2"
     title: "Generalized Var Resolution (Root Cause A)"
-    status: in-progress  # multi-inst fix done; 2 deferred items (var_reprs, LCFail count)
+    status: in-progress  # var_reprs fixup done; 2 verification items blocked by Root Cause B (§06.3)
   - id: "06.3"
     title: "ARC IR Index Bounds Safety (Root Cause B)"
     status: not-started
@@ -138,8 +138,8 @@ Type checker stores Unbound Vars that get `VarState::Generalized` during let-pol
 - [x] `rewrite_parent_for_multi_inst`: accept `has_concrete_params` in addition to `is_concrete_function` for Let copy matching. (2026-04-05)
 - [x] `find_matching_instantiation`: params-only fallback matching for Scheme return types. (2026-04-05)
 - [x] Fixed mangling issue: `$` in lambda names was hex-encoded by the mangler (`$0` → `$240`). Changed separator from `$` to `__mono` (e.g., `lambda__mono0`, `lambda__mono1`). (2026-04-05)
-- [ ] Recompute `parent.var_reprs` from concrete types — RC strategy may need updating for result vars whose classification changed from generic to Scalar/DefiniteRef. Not yet needed for passing tests but could cause RC imbalance in edge cases.
-- [ ] **Debug validation**: `debug_assert!` verifying var_types/var_reprs consistency for RC ops — deferred to when var_reprs fixup is implemented.
+- [x] Recompute `parent.var_reprs` from concrete types (2026-04-05): Added `fixup_parent_var_reprs_and_rc_ops()` to `lambda_mono/mod.rs`. After all lambda mono modifications, recomputes `var_reprs` via `compute_var_reprs()`, strips `RcInc`/`RcDec` on vars that became `Scalar`, and updates `RcStrategy` on vars that changed ref type (e.g., `HeapPointer`→`FatPointer`). Added `classifier: &dyn ArcClassification` param to `resolve_all_lambda_bound_vars`. 6 unit tests: scalar strip, strategy update (FatValue, InlineEnum), no-op cases.
+- [x] **Debug validation**: `debug_assert!` verifying `var_types`/`var_reprs` consistency for RC ops (2026-04-05): Embedded in `fixup_parent_var_reprs_and_rc_ops()` — after fixup, asserts no `RcInc`/`RcDec` targets a `Scalar` var. 14,815 tests pass, 0 failures, clippy clean.
 
 #### Phase D: Verification
 
