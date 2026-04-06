@@ -16,10 +16,10 @@ Achieve cohesive, DRY architecture in `ori_lexer_core` and `ori_lexer` — where
 ## Mission Success Criteria
 
 - [x] BUG-01-001 (soft keyword cache contamination) fixed with regression tests — `let cache = 42; cache(key: "x", op: () -> 1)` correctly lexes second `cache` as keyword
-- [ ] Template cooking consolidated: 4 functions → 1 generic + 4 call sites
-- [ ] Unescape functions consolidated: shared scanning core with context-specific escapes
-- [ ] Integer cooking consolidated: 3 functions → 1 generic with radix parameter
-- [ ] Duration/size cooking consolidated: 2 cooking functions share one canonical implementation; suffix detection is only de-duplicated if the result is clearly simpler
+- [x] Template cooking consolidated: 4 functions → 1 generic + 4 call sites (verified 2026-04-06)
+- [x] Unescape functions consolidated: shared scanning core with context-specific escapes (verified 2026-04-06)
+- [x] Integer cooking consolidated: 3 functions → 1 generic with radix parameter (verified 2026-04-06)
+- [x] Duration/size cooking consolidated: 2 cooking functions share one canonical implementation; suffix detection kept separate (verified 2026-04-06)
 - [ ] Simple operator scanning consolidated: 6 functions → shared helper
 - [ ] `cook()` match is exhaustive (no `_ =>` catch-all for non-trivial tags)
 - [ ] Soft keyword sync guard test exists (SOFT_KEYWORDS ↔ could_be_soft_keyword consistency)
