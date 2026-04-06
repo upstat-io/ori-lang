@@ -1,0 +1,64 @@
+// Spec: §07.2 Niche Filling — Option<str> RC correctness with niche encoding
+// Regression: repr-opt section-07 — RC operations on niche-encoded types
+// Option<str> uses null pointer niche (None = null data ptr).
+// RC inc/dec must skip for None (null ptr) and work correctly for Some(str).
+
+use std.testing { assert_eq }
+
+// === Create and drop in loop (RC correctness) ===
+
+@test_niche_rc_loop tests @niche_rc_loop () -> void = {
+    assert_eq(actual: niche_rc_loop(), expected: 100)
+}
+
+@niche_rc_loop () -> int = {
+    let count = for i in 0..100 yield {
+        let $x: Option<str> = if i % 2 == 0 then Some(`item_{i}`) else None;
+        match x {
+            Some(_) -> 1,
+            None -> 1
+        }
+    };
+    count.fold(initial: 0, op: (a, b) -> a + b)
+}
+
+// === Shared reference (clone) ===
+
+@test_niche_rc_shared tests @niche_rc_shared () -> void = {
+    assert_eq(actual: niche_rc_shared(), expected: "hello|hello")
+}
+
+@niche_rc_shared () -> str = {
+    let $x: Option<str> = Some("hello");
+    let $y = x;  // clone / RC inc
+    let $a = match x { Some(s) -> s, None -> "x" };
+    let $b = match y { Some(s) -> s, None -> "y" };
+    `{a}|{b}`
+}
+
+// === None shared (no RC needed) ===
+
+@test_niche_rc_none_shared tests @niche_rc_none_shared () -> void = {
+    assert_eq(actual: niche_rc_none_shared(), expected: true)
+}
+
+@niche_rc_none_shared () -> bool = {
+    let $x: Option<str> = None;
+    let $y = x;  // clone of None — no RC operation
+    is_none(option: x) && is_none(option: y)
+}
+
+// === List of Options with mixed Some/None ===
+
+@test_niche_rc_list tests @niche_rc_list () -> void = {
+    assert_eq(actual: niche_rc_list(), expected: "a||b||c")
+}
+
+@niche_rc_list () -> str = {
+    let $items: [Option<str>] = [Some("a"), None, Some("b"), None, Some("c")];
+    let $strs = for x in items yield match x {
+        Some(s) -> s,
+        None -> ""
+    };
+    strs.iter().join(separator: "|")
+}
