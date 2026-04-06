@@ -1,11 +1,16 @@
 //! Token cursor for navigating the token stream.
 //!
 //! Provides low-level token access, lookahead, and consumption methods.
+//! Identifier acceptance methods live in [`identifiers`].
 
-use super::ParseError;
+mod identifiers;
+
 use ori_diagnostic::ErrorCode;
-use ori_ir::{Name, Span, StringInterner, Token, TokenCapture, TokenFlags, TokenKind, TokenList};
+use ori_ir::{Span, StringInterner, Token, TokenCapture, TokenFlags, TokenKind, TokenList};
 use tracing::trace;
+
+use self::identifiers::is_keyword_usable_as_ident;
+use super::ParseError;
 
 /// Cursor for navigating tokens.
 ///
@@ -215,9 +220,7 @@ impl<'a> Cursor<'a> {
         self.pos + 1 < self.flags.len() && self.flags[self.pos + 1].is_adjacent()
     }
 
-    // ─────────────────────────────────────────────────────────────────────────
     // TokenFlags Access
-    // ─────────────────────────────────────────────────────────────────────────
 
     /// Get the flags for the current token.
     #[inline]
@@ -365,35 +368,6 @@ impl<'a> Cursor<'a> {
         is_ident && matches!(self.peek_kind_at(n + 1), TokenKind::Colon)
     }
 
-    /// Check if current token is a context-sensitive keyword that can be used as an identifier.
-    /// These are only treated as keywords in specific contexts (e.g., when followed by `(`).
-    /// Per spec, context-sensitive keywords: by cache catch for max parallel recurse run spawn timeout try with without
-    /// Returns the interned name if it's a soft keyword, None otherwise.
-    ///
-    /// Note: `cache`, `catch`, `parallel`, `recurse`, `spawn`, `timeout` are handled
-    /// at the lexer level via `(` lookahead — they appear as `Ident` tokens when not
-    /// in keyword position, so they don't need conversion here.
-    pub fn soft_keyword_to_name(&self) -> Option<&'static str> {
-        match self.current_kind() {
-            // I/O primitives
-            TokenKind::Print => Some("print"),
-            TokenKind::Panic => Some("panic"),
-            // Context-sensitive pattern keywords (still always-resolved)
-            TokenKind::By => Some("by"),
-            TokenKind::Run => Some("run"),
-            TokenKind::Try => Some("try"),
-            TokenKind::With => Some("with"),
-            // Lexer-soft keywords (resolved only with `(` lookahead)
-            TokenKind::Cache => Some("cache"),
-            TokenKind::Catch => Some("catch"),
-            TokenKind::Parallel => Some("parallel"),
-            TokenKind::Recurse => Some("recurse"),
-            TokenKind::Spawn => Some("spawn"),
-            TokenKind::Timeout => Some("timeout"),
-            _ => None,
-        }
-    }
-
     /// Advance to the next token and return the consumed token.
     ///
     /// # Safety invariant
@@ -421,9 +395,7 @@ impl<'a> Cursor<'a> {
         token
     }
 
-    // ─────────────────────────────────────────────────────────────────────────
     // Token Capture
-    // ─────────────────────────────────────────────────────────────────────────
 
     /// Mark the current position for starting a token capture.
     ///
@@ -503,162 +475,6 @@ impl<'a> Cursor<'a> {
         )
         .with_context(format!("expected {}", kind.display_name()))
     }
-
-    /// Expect and consume an identifier, returning its interned name.
-    /// Also accepts soft keywords (len, min, max, etc.) as identifiers.
-    ///
-    /// Split into inline happy path + `#[cold]` error path for inlining.
-    #[inline]
-    pub fn expect_ident(&mut self) -> Result<Name, ParseError> {
-        // Accept regular identifiers
-        if let TokenKind::Ident(name) = *self.current_kind() {
-            self.advance();
-            Ok(name)
-        // Also accept soft keywords as identifiers
-        } else if let Some(name_str) = self.soft_keyword_to_name() {
-            let name = self.interner.intern(name_str);
-            self.advance();
-            Ok(name)
-        } else {
-            Err(self.make_expect_ident_error())
-        }
-    }
-
-    /// Expect and consume a member name (after `.`), returning its interned name.
-    ///
-    /// Accepts identifiers, soft keywords, reserved keywords, and integer
-    /// literals (for tuple field access: `t.0`, `t.1`). Keywords and integers
-    /// are valid in member position because the `.` prefix provides unambiguous
-    /// context (e.g., `ordering.then(other: Less)`, `pair.0`).
-    ///
-    /// See grammar.ebnf § `member_name`.
-    #[inline]
-    pub fn expect_member_name(&mut self) -> Result<Name, ParseError> {
-        // Accept regular identifiers
-        if let TokenKind::Ident(name) = *self.current_kind() {
-            self.advance();
-            Ok(name)
-        // Accept soft keywords
-        } else if let Some(name_str) = self.soft_keyword_to_name() {
-            let name = self.interner.intern(name_str);
-            self.advance();
-            Ok(name)
-        // Accept any keyword (then, if, for, type, etc.)
-        } else if let Some(kw_str) = self.current_kind().keyword_str() {
-            let name = self.interner.intern(kw_str);
-            self.advance();
-            Ok(name)
-        // Accept integer literals for tuple field access: t.0, t.1
-        } else if let TokenKind::Int(value) = *self.current_kind() {
-            let name = self.interner.intern(&value.to_string());
-            self.advance();
-            Ok(name)
-        } else {
-            Err(self.make_expect_ident_error())
-        }
-    }
-
-    /// Build the error for a failed `expect_ident()` call.
-    #[cold]
-    #[inline(never)]
-    fn make_expect_ident_error(&self) -> ParseError {
-        ParseError::new(
-            ErrorCode::E1004,
-            format!(
-                "expected identifier, found {}",
-                self.current_kind().display_name()
-            ),
-            self.current_span(),
-        )
-    }
-
-    /// Accept an identifier or a keyword that can be used as a named argument name.
-    /// This handles cases like `where:` in the find pattern where `where` is a keyword.
-    pub fn expect_ident_or_keyword(&mut self) -> Result<Name, ParseError> {
-        if let TokenKind::Ident(name) = *self.current_kind() {
-            self.advance();
-            Ok(name)
-        } else if let Some(name_str) = self.soft_keyword_to_name() {
-            let name = self.interner.intern(name_str);
-            self.advance();
-            Ok(name)
-        } else if let Some(name_str) = self.keyword_as_name() {
-            let name = self.interner.intern(name_str);
-            self.advance();
-            Ok(name)
-        } else {
-            Err(self.make_expect_ident_or_keyword_error())
-        }
-    }
-
-    /// Map keywords usable as named argument names to their string form.
-    ///
-    /// These keywords can appear as field names, named arguments, etc.
-    /// Returns `None` for non-keyword tokens or keywords that cannot be
-    /// used as names.
-    fn keyword_as_name(&self) -> Option<&'static str> {
-        match self.current_kind() {
-            TokenKind::Where => Some("where"),
-            TokenKind::Match => Some("match"),
-            TokenKind::For => Some("for"),
-            TokenKind::In => Some("in"),
-            TokenKind::If => Some("if"),
-            TokenKind::Type => Some("type"),
-            _ => None,
-        }
-    }
-
-    /// Build the error for a failed `expect_ident_or_keyword()` call.
-    #[cold]
-    #[inline(never)]
-    fn make_expect_ident_or_keyword_error(&self) -> ParseError {
-        ParseError::new(
-            ErrorCode::E1004,
-            format!(
-                "expected identifier or keyword, found {}",
-                self.current_kind().display_name()
-            ),
-            self.current_span(),
-        )
-    }
-}
-
-/// Check if a keyword token can be used as an identifier (named arg, field name, etc.).
-///
-/// This is the **single source of truth** for which keywords are valid in identifier
-/// position. It is the union of:
-/// - Soft keywords ([`Cursor::soft_keyword_to_name`]): `print`, `panic`, `by`, `run`, `try`,
-///   `with`, `cache`, `catch`, `parallel`, `recurse`, `spawn`, `timeout`
-/// - Positional keywords ([`Cursor::keyword_as_name`]): `where`, `match`, `for`, `in`, `if`, `type`
-///
-/// Used by [`Cursor::is_named_arg_at`] for lookahead. Adding a new keyword-as-identifier
-/// requires updating this function (and the corresponding `*_to_name` method above).
-/// A test (`keyword_as_ident_consistency`) enforces this stays in sync.
-fn is_keyword_usable_as_ident(kind: &TokenKind) -> bool {
-    matches!(
-        kind,
-        // Soft keywords (context-sensitive, always valid as idents)
-        TokenKind::Print
-            | TokenKind::Panic
-            | TokenKind::By
-            | TokenKind::Run
-            | TokenKind::Try
-            | TokenKind::With
-            // Lexer-soft keywords (resolved only with `(` lookahead)
-            | TokenKind::Cache
-            | TokenKind::Catch
-            | TokenKind::Parallel
-            | TokenKind::Recurse
-            | TokenKind::Spawn
-            | TokenKind::Timeout
-            // Positional keywords (valid as field/arg names)
-            | TokenKind::Where
-            | TokenKind::Match
-            | TokenKind::For
-            | TokenKind::In
-            | TokenKind::If
-            | TokenKind::Type
-    )
 }
 
 #[cfg(test)]

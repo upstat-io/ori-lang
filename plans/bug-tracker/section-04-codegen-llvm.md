@@ -225,17 +225,17 @@ Bugs in LLVM IR generation, JIT/AOT compilation, monomorphization, ARC pipeline 
   Found: 2026-04-04 | Fixed: 2026-04-06 | Source: manual (Rosetta Code task implementation)
   Note: Fix introduced BUG-04-037 regression (tuple pre-interning pollutes type pool → zip SIGSEGV).
 
-- [x] `[BUG-04-035][medium]` **Nested closure RC leaks: wrapper RcInc for borrowed-parameter re-captures not balanced** — found by continue-roadmap.
-  Resolved: Fixed on 2026-04-05 by the closure-ownership plan. Sections 01-02 added `arg_ownership` to `ApplyIndirect`/`InvokeIndirect`, Section 03 replaced the conservative drop_hints workaround with ownership-aware logic, added InvokeIndirect to unwind_cleanup, removed unused `_capture_ownership` parameter. All 6 previously-leaking closure tests pass with zero leaks (3 curried + 3 nested). <!-- resolved-by:plans/closure-ownership -->
-  Subsystem: `compiler/ori_llvm/src/codegen/arc_emitter/closure_wrappers.rs`, `compiler/ori_arc/src/aims/emit_rc/helpers.rs` (`is_ownership_transfer`)
-  Found: 2026-04-04 | Source: continue-roadmap (TPR-04B-014 fix verification)
-
 - [ ] `[BUG-04-034][medium]` **Curried lambda capturing bool produces LLVM type mismatch (i1 vs i64)** — found by continue-roadmap.
   Repro: `let $fst = a -> b -> a; fst(true)(0)` with `--backend=llvm` → LLVM verification error: "Call parameter type does not match function signature! i1 vs i64". Only affects bool captures in curried lambdas — int/str/list captures work correctly.
   Root cause: Lambda mono type resolution resolves `forall t13` to `bool` (LLVM `i1`), but the callee's parameter ABI expects `i64` (Ori's canonical integer width for all scalar values). The wrapper function loads the bool capture as `i1` and passes it directly, but the lambda body was declared with `i64` params.
   Subsystem: `compiler/ori_llvm/src/codegen/function_compiler/lambda_mono/type_resolve.rs`
   Found: 2026-04-04 | Source: continue-roadmap (TPR-04B-014 test matrix writing)
   Note: Active work in JIT EH plan Section 04B touches this area.
+
+- [x] `[BUG-04-035][medium]` **Nested closure RC leaks: wrapper RcInc for borrowed-parameter re-captures not balanced** — found by continue-roadmap.
+  Resolved: Fixed on 2026-04-05 by the closure-ownership plan. Sections 01-02 added `arg_ownership` to `ApplyIndirect`/`InvokeIndirect`, Section 03 replaced the conservative drop_hints workaround with ownership-aware logic, added InvokeIndirect to unwind_cleanup, removed unused `_capture_ownership` parameter. All 6 previously-leaking closure tests pass with zero leaks (3 curried + 3 nested). <!-- resolved-by:plans/closure-ownership -->
+  Subsystem: `compiler/ori_llvm/src/codegen/arc_emitter/closure_wrappers.rs`, `compiler/ori_arc/src/aims/emit_rc/helpers.rs` (`is_ownership_transfer`)
+  Found: 2026-04-04 | Source: continue-roadmap (TPR-04B-014 fix verification)
 
 - [x] `[BUG-04-036][high]` **Curried lambda + list concat COW double-free in AOT** — found by continue-roadmap.
   Repro: `let $app = a -> b -> a + b; app([1,2,3])([4,5,6])` compiled with `ori build`, then run the binary → SIGSEGV (exit -139). Direct `[1,2,3] + [4,5,6]` (non-lambda) works. JIT path also works.
@@ -248,6 +248,11 @@ Bugs in LLVM IR generation, JIT/AOT compilation, monomorphization, ARC pipeline 
   Resolved: Fixed on 2026-04-06. Two root causes: (1) `finish_with_pool()` interned tuples for ALL multi-param functions → pool hash collision with zip's `(int, Var(T))` tuples. Fixed by adding `ModuleChecker::intern_multi_clause_tuples()` that only targets multi-clause groups. (2) Uncommitted `emit_function.rs` change added `type_error_count()` to bail-out check → pre-existing unresolved type variables (Root Cause A) triggered premature `unreachable` stubs. Fixed by reverting to `codegen_error_count()` only. <!-- resolved-by:plans/jit-exception-handling §06.7b -->
   Subsystem: `compiler/ori_types/src/check/mod.rs`, `compiler/ori_llvm/src/codegen/arc_emitter/emit_function.rs`
   Found: 2026-04-06 | Fixed: 2026-04-06 | Source: continue-roadmap (JIT EH §06.7 multi-clause fix)
+
+- [ ] `[BUG-04-038][low]` **Flaky test: `test_source_hasher_caching` fails intermittently on temp file race** — found by continue-roadmap.
+  Repro: `cargo test -p ori_llvm test_source_hasher_caching` — intermittent failure: `IoError { path: "/tmp/ori_hash_test_*.ori", message: "No such file or directory" }`. Race condition: temp file at `/tmp/ori_hash_test_*.ori` is cleaned up by OS or concurrent test before `SourceHasher` reads it.
+  Subsystem: `compiler/ori_llvm/src/aot/incremental/hash/tests.rs:80`
+  Found: 2026-04-06 | Source: continue-roadmap (pre-commit hook failure during hygiene-lexer work)
 
 ---
 

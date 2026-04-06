@@ -898,6 +898,8 @@ let tab_char: char = '\x09';
   - [ ] **Rust Tests**: `ori_lexer/src/cook_escape/tests.rs` — byte escape processing
 - [ ] **Implement**: Extend `unescape_char_v2()` to handle `\xHH` — restricted to `\x00`–`\x7F`; error for `\x80`–`\xFF`
   - [ ] **Rust Tests**: `ori_lexer/src/cook_escape/tests.rs` — char hex escape processing
+- [ ] **Implement**: Extend `unescape_with_context()` to handle `\xHH` in string and template literals — add `'x' =>` arm in shared escape match (restricted to `\x00`–`\x7F`; error for `\x80`–`\xFF`). This is one new match arm thanks to the Section 02 DRY consolidation.
+  - [ ] **Rust Tests**: `ori_lexer/src/cook_escape/tests.rs` — string and template hex escape processing (valid ASCII, out-of-range error, mixed with other escapes)
 
 ### Token Kind
 
