@@ -44,17 +44,24 @@ Resolved → section entry marked [x], fix section status → complete
   Found: {YYYY-MM-DD} | Source: {tpr-review | code-journey | manual | continue-roadmap}
 ```
 
-When a fix section exists:
+When a fix section exists (created by `/fix-bug`):
 ```markdown
   Fix: `plans/bug-tracker/fix-BUG-{section}-{ordinal}.md`
 ```
 
-When resolved:
+When resolved via `/fix-bug`:
 
 ```markdown
 - [x] `[BUG-{section}-{ordinal}][{severity}]` **{Short title}** — found by {source}.
-  Resolved: {Fixed | OBE} on {YYYY-MM-DD}. {Brief explanation}.
+  Resolved: Fixed on {YYYY-MM-DD}. {Brief explanation}.
   Fix: `plans/bug-tracker/fix-BUG-{section}-{ordinal}.md`
+```
+
+When resolved as OBE (no fix section — fixed as side effect of other work):
+
+```markdown
+- [x] `[BUG-{section}-{ordinal}][{severity}]` **{Short title}** — found by {source}.
+  Resolved: OBE on {YYYY-MM-DD}. {What fixed it — commit, plan, or rewrite}.
 ```
 
 ## Fix Section Files
