@@ -321,6 +321,28 @@ fn test_hof_three_lambdas_mixed() {
     );
 }
 
+// ─── Root Cause F: curried concat calling convention ───
+
+#[test]
+#[ignore = "BUG-04-036: curried lambda + list concat COW double-free"]
+fn test_hof_curried_list_concat() {
+    // Curried lambda with list `+` (ori_list_concat_cow).
+    // Regression: wrong type selection caused invalid elem_ty → SIGSEGV.
+    assert_aot_success(
+        include_str!("fixtures/higher_order/hof_curried_list_concat.ori"),
+        "hof_curried_list_concat",
+    );
+}
+
+#[test]
+fn test_hof_curried_str_concat() {
+    // Curried lambda with string `+` (sret calling convention).
+    assert_aot_success(
+        include_str!("fixtures/higher_order/hof_curried_str_concat.ori"),
+        "hof_curried_str_concat",
+    );
+}
+
 #[test]
 fn test_hof_multi_lambda_semantic_pin() {
     // Semantic pin: negate (unary) and diff (binary) must each get the correct
