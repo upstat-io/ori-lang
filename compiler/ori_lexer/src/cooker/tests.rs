@@ -983,3 +983,61 @@ fn cook_format_spec_strips_colon_prefix() {
     }
     assert!(!result.had_error);
 }
+
+// Template segment error propagation — negative regression tests for 02.1
+
+#[test]
+fn cook_template_head_with_invalid_escape_sets_had_error() {
+    // Template head with invalid escape: `hello\q{ — should set had_error
+    let source = "`hello\\q{";
+    let interner = StringInterner::new();
+    let mut cooker = TokenCooker::new(source.as_bytes(), &interner);
+    let result = cooker.cook(RawTag::TemplateHead, 0, 9);
+    // Still produces TemplateHead with replacement char
+    match result.kind {
+        TokenKind::TemplateHead(name) => {
+            assert!(interner.lookup(name).contains('\u{FFFD}'));
+        }
+        other => panic!("expected TemplateHead, got {other:?}"),
+    }
+    assert!(result.had_error, "invalid escape must set had_error");
+    assert_eq!(cooker.errors().len(), 1);
+    assert!(matches!(
+        cooker.errors()[0].kind,
+        crate::lex_error::LexErrorKind::InvalidTemplateEscape { escape_char: 'q' }
+    ));
+}
+
+#[test]
+fn cook_template_middle_with_invalid_escape_sets_had_error() {
+    // Template middle with invalid escape: }\a{ — should set had_error
+    let source = "}\\a{";
+    let interner = StringInterner::new();
+    let mut cooker = TokenCooker::new(source.as_bytes(), &interner);
+    let result = cooker.cook(RawTag::TemplateMiddle, 0, 4);
+    match result.kind {
+        TokenKind::TemplateMiddle(name) => {
+            assert!(interner.lookup(name).contains('\u{FFFD}'));
+        }
+        other => panic!("expected TemplateMiddle, got {other:?}"),
+    }
+    assert!(result.had_error, "invalid escape must set had_error");
+    assert_eq!(cooker.errors().len(), 1);
+}
+
+#[test]
+fn cook_template_tail_with_invalid_escape_sets_had_error() {
+    // Template tail with invalid escape: }\z` — should set had_error
+    let source = "}\\z`";
+    let interner = StringInterner::new();
+    let mut cooker = TokenCooker::new(source.as_bytes(), &interner);
+    let result = cooker.cook(RawTag::TemplateTail, 0, 4);
+    match result.kind {
+        TokenKind::TemplateTail(name) => {
+            assert!(interner.lookup(name).contains('\u{FFFD}'));
+        }
+        other => panic!("expected TemplateTail, got {other:?}"),
+    }
+    assert!(result.had_error, "invalid escape must set had_error");
+    assert_eq!(cooker.errors().len(), 1);
+}
