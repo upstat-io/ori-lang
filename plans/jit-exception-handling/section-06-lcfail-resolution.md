@@ -18,7 +18,7 @@ sections:
     status: complete
   - id: "06.2"
     title: "Generalized Var Resolution (Root Cause A)"
-    status: in-progress  # var_reprs fixup done; 2 verification items blocked by Root Cause B (§06.3)
+    status: in-progress  # implementation done; 2 verification items blocked by Root Cause C (§06.8)
   - id: "06.3"
     title: "ARC IR Index Bounds Safety (Root Cause B)"
     status: complete  # Pool::var_state crash resolved (resolve_fully guard + var_state debug_assert + var_state_checked). Remaining LLVM crash from Root Cause C (§06.8)
@@ -33,6 +33,9 @@ sections:
     status: complete
   - id: "06.7"
     title: "Multi-Clause Function Lowering (BUG-04-033)"
+    status: complete
+  - id: "06.7b"
+    title: "Multi-Clause Tuple Interning Regression (BUG-04-037)"
     status: complete
   - id: "06.8"
     title: "ABI Type Resolution Audit (Root Cause C)"
@@ -50,7 +53,7 @@ sections:
 
 # Section 06: LCFail Resolution — BUG-04-030/031/032/033
 
-**Status:** In Progress — 06.1 complete. 06.2–06.8 not started.
+**Status:** In Progress — 06.1–06.7 complete. 06.7b, 06.8, 06.9 not started.
 **Goal:** Systematically fix all known LLVM codegen root causes that produce LCFails (LLVM Compile Failures) in the spec test suite. Current baseline: 2656 LCFails. Target: <500 LCFails (stretch: <100).
 
 **Depends on:** Section 04B (lambda monomorphization foundations)
@@ -330,6 +333,47 @@ Four root causes identified and fixed:
 
 ---
 
+## 06.7b Multi-Clause Tuple Interning Regression (BUG-04-037)
+
+**Complexity:** Moderate | **Impact:** 2 AOT test regressions (`iter_zip_count`, `iter_zip_unequal` SIGSEGV)
+
+**Regression from 06.7** (commit `60838e1b`): The multi-clause function fix pre-interns `pool.tuple(&sig.param_types)` for ALL multi-param functions in `finish_with_pool()`. This pollutes the type pool and causes runtime SIGSEGV in zip iterator tests.
+
+**Root cause**: Pool Merkle hashing doesn't account for variable resolution state. During type inference, `zip()` creates a tuple `(int, Var(T))` where `Var(T)` later links to `int` via `VarState::Link`. The Merkle hash of this tuple includes `hash_of_Var(T)`, not `hash_of_int`. Pre-interning `(int, int)` creates a DIFFERENT pool entry with a different hash. When canonicalization resolves the zip tuple's `Var(T)→int`, the structural mismatch between the two tuple Idx values produces wrong `MachineRepr` → wrong LLVM IR → wrong runtime memory layout → SIGSEGV.
+
+**Key files:**
+- `compiler/ori_types/src/check/mod.rs` (`finish_with_pool`) — the regression site
+- `compiler/ori_types/src/pool/mod.rs` (`merkle_hash` for `Tag::Tuple`) — hashes unresolved child Idx, not resolved
+- `compiler/ori_types/src/infer/expr/methods/computed_returns.rs:85-91` — zip creates `(elem, Var(T))` tuple
+- `compiler/ori_repr/src/canonical/mod.rs` (`canonical_inner` for `Tag::Tuple`) — resolves children but uses original Idx for cache
+- `compiler/ori_canon/src/lower/patterns.rs` — multi-clause scrutinee needs the tuple type
+
+### Fix (completed 2026-04-06)
+
+Two root causes identified and fixed:
+
+1. **Tuple interning scope too broad** (`finish_with_pool()`): The original code interned tuples for ALL multi-param functions, colliding with zip's type-variable-bearing tuples. Fixed by adding `ModuleChecker::intern_multi_clause_tuples()` that only targets actual multi-clause function groups. Called from `check_module_with_pool()` and `check_module_with_imports()` after type checking completes. The `lower_module()` signature is unchanged — no Salsa query plumbing needed.
+
+2. **Overly aggressive codegen bail-out** (`emit_function.rs`): Uncommitted change added `type_info.type_error_count()` to the per-block bail-out check. Pre-existing unresolved type variables (Root Cause A) incremented this counter during lazy type info population, causing the emitter to abort valid blocks with `unreachable` stubs → UB → SIGSEGV. Fixed by reverting to `codegen_error_count()` only for bail-out decisions.
+
+- [x] **Revert** the `finish_with_pool()` tuple interning — removed disabled comment (2026-04-06)
+- [x] **Add `intern_multi_clause_tuples()`** to `ModuleChecker` at `check/accessors.rs` — groups functions by name, interns tuple types only for multi-clause groups with >1 param (2026-04-06)
+- [x] **Call from API functions** — `check_module_with_pool()` and `check_module_with_imports()` in `check/api/mod.rs`, between `check_module_impl()` and `finish_with_pool()` (2026-04-06)
+- [x] **Fix bail-out regression** — reverted `emit_function.rs` to check only `codegen_error_count()`, not `type_error_count()`, for per-block/per-instruction bail-out (2026-04-06)
+- [x] **Verify** `iter_zip_count` and `iter_zip_unequal` AOT tests pass (2026-04-06)
+- [x] **Verify** Ackermann/fibonacci multi-clause AOT still works (2026-04-06)
+- [x] **Verify** `timeout 150 ./test-all.sh` green — 14,825 passed, 0 failed (2026-04-06)
+- [x] `./clippy-all.sh` clean (2026-04-06)
+
+### Matrix Testing
+
+- Types: int (scalar), str (struct), [int] (RC), Option<int> (enum), (int, int) (tuple)
+- Patterns: 2-clause single-param (fac), 3-clause dual-param (ack), guards, zip iterator
+- Semantic pin: `[1,2,3].iter().zip([10,20,30].iter()).count() == 3` via AOT — passes
+- Negative pin: multi-clause function with wrong clause count produces compile error
+
+---
+
 ## 06.8 ABI Type Resolution Audit (Root Cause C)
 
 **Complexity:** Complex | **Impact:** 4+ files with StructValue/IntValue confusion
@@ -417,13 +461,13 @@ The 57 `into_int_value`/`into_struct_value`/`into_float_value`/`into_pointer_val
 ## 06.N Completion Checklist
 
 - [x] Root Cause D fixed: 7 missing iterator functions declared in RT_FUNCTIONS + JIT mappings + re-exports (2026-04-04)
-- [ ] Root Cause A fixed: Generalized vars no longer leak to codegen
-- [ ] Root Cause B fixed: no u32::MAX index panics in ARC IR emission
+- [x] Root Cause A fixed: Generalized vars no longer leak to codegen (2026-04-05) — `resolve_fully()` guard + lambda mono pipeline extended + multi-inst cloning. Implementation complete; 2 verification items blocked by 06.8.
+- [x] Root Cause B fixed: no u32::MAX index panics in ARC IR emission (2026-04-06) — `Pool::var_state` crash resolved via `resolve_fully()` bounds guard + `var_state_checked()`. Remaining LLVM crash from Root Cause C (§06.8).
 - [x] Root Cause E fixed: `find_concrete_copy_of()` validates arity before returning (2026-04-05)
 - [x] Root Cause F fixed: borrow-protect rc_inc before consuming COW concat for borrowed params (2026-04-06)
 - [x] BUG-04-031 fixed: skip RC branch for scalar payloads in unwrap_or builtin (2026-04-06)
 - [x] BUG-04-032 fixed: merge_mutable_vars in short-circuit lowering (2026-04-06)
-- [ ] BUG-04-033 fixed: multi-clause function lowering PHINode
+- [x] BUG-04-033 fixed: multi-clause function lowering PHINode (2026-04-06) — real param types/names from FunctionSig, name-keyed sig lookup, tuple type pre-interned.
 - [ ] Root Cause C fixed: ABI type classification validated
 - [ ] LCFail count reduced from 2656 to target (<500, stretch <100)
 - [ ] `timeout 150 ./test-all.sh` green
