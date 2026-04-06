@@ -1,0 +1,8 @@
+// Negative counterpart: scalar captures (int) must NOT get RcInc —
+// they are not reference counted. Verifies the needs_rc check in
+// build_closure_env correctly skips scalars.
+@main () -> int = {
+    let $fst = a -> b -> a;
+    let $n = fst(42)(0);
+    if n == 42 then 0 else 1
+}

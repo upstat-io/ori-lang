@@ -339,6 +339,7 @@ impl ArcIrBuilder {
             ty,
             closure,
             args,
+            arg_ownership: Vec::new(),
             normal,
             unwind,
         });

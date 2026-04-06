@@ -123,6 +123,7 @@ fn indirect_call_func(name: Name, var_count: usize) -> ArcFunction {
                 ty: Idx::INT,
                 closure: v(0),
                 args: vec![v(1)],
+                arg_ownership: vec![],
             }],
             terminator: ArcTerminator::Return { value: v(2) },
         }],
