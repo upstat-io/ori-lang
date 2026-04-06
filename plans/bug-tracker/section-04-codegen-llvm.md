@@ -245,10 +245,10 @@ Bugs in LLVM IR generation, JIT/AOT compilation, monomorphization, ARC pipeline 
   Subsystem: `compiler/ori_types/src/check/mod.rs`, `compiler/ori_llvm/src/codegen/arc_emitter/emit_function.rs`
   Found: 2026-04-06 | Fixed: 2026-04-06 | Source: continue-roadmap (JIT EH §06.7 multi-clause fix)
 
-- [ ] `[BUG-04-038][low]` **Flaky test: `test_source_hasher_caching` fails intermittently on temp file race** — found by continue-roadmap.
-  Repro: `cargo test -p ori_llvm test_source_hasher_caching` — intermittent failure: `IoError { path: "/tmp/ori_hash_test_*.ori", message: "No such file or directory" }`. Race condition: temp file at `/tmp/ori_hash_test_*.ori` is cleaned up by OS or concurrent test before `SourceHasher` reads it.
-  Subsystem: `compiler/ori_llvm/src/aot/incremental/hash/tests.rs:80`
-  Found: 2026-04-06 | Source: continue-roadmap (pre-commit hook failure during hygiene-lexer work)
+- [x] `[BUG-04-038][low]` **Flaky test: `test_source_hasher_caching` fails intermittently on temp file race** — found by continue-roadmap.
+  Resolved: Fixed on 2026-04-06. Root cause: `rand_suffix()` used nanosecond timestamp only — collisions possible under concurrent test execution. Fix: replaced with `unique_suffix()` combining process ID, atomic counter, and nanosecond timestamp. The atomic counter alone guarantees uniqueness within a process; PID+timestamp cover cross-process uniqueness. All 22 hash tests pass deterministically.
+  Subsystem: `compiler/ori_llvm/src/aot/incremental/hash/tests.rs`
+  Found: 2026-04-06 | Fixed: 2026-04-06 | Source: continue-roadmap
 
 - [x] `[BUG-04-039][high]` **LLVM codegen: `join` on non-string iterators crashes (missing `to_str_fn` trampoline)** — found by continue-roadmap.
   Resolved: 2026-04-06. Generated `to_str` trampoline in `emit_iter_join` for int, float, bool, char element types. Byte/Duration/Size/Ordering excluded — they need proper Printable method dispatch (codegen error produced instead of wrong output).
