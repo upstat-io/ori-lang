@@ -289,9 +289,9 @@ fn unescape_with_context(
                         result.push(resolved);
                         i += 1 + bytes_consumed;
                     }
-                    // Future extension point: \xHH hex byte escapes would go here
-                    // as a new match arm (spec: 07-lexical-elements.md line 292,
-                    // grammar.ebnf lines 116-118; tracked in roadmap 15C.13)
+                    // TODO(lexer): \xHH hex byte escapes — spec-required
+                    // (Spec: Clause 7 line 292, grammar.ebnf lines 116-118).
+                    // Not yet implemented; tracked in roadmap section 15C.13.
 
                     // Common escapes (\\ \n \t \r \0) + invalid escape fallback
                     _ => {

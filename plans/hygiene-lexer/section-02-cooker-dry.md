@@ -14,8 +14,8 @@ inspired_by:
   - "rustc_lexer unescape.rs — single unescape function parameterized by Mode enum"
 depends_on: ["01"]
 third_party_review:
-  status: findings
-  updated: 2026-04-05
+  status: resolved
+  updated: 2026-04-06
 sections:
   - id: "02.1"
     title: "Template cooking consolidation"
@@ -39,16 +39,16 @@ sections:
 
 # Section 02: Cooker Layer Algorithmic DRY
 
-**Status:** Not Started
+**Status:** In Progress
 **Goal:** Eliminate algorithmic duplication in the cooker layer by extracting shared control-flow skeletons into parameterized functions. Four clusters of duplication are targeted, each with identical multi-step algorithms that differ only in type parameters, error kinds, or context-specific values.
 
 **Success Criteria:**
 
-- [ ] Template cooking: `escape_cooking.rs` has 1 generic function + 4 thin wrappers (down from 4 near-identical functions)
-- [ ] Unescape: `cook_escape/mod.rs` has a shared scanning core called by both `unescape_string_v2` and `unescape_template_v2`, with identical fast-path behavior and error spans/contexts to today
-- [ ] Integer cooking: `numeric.rs` has 1 generic function with radix parameter (down from 3)
-- [ ] Duration/size: `duration_size.rs` has 1 canonical cooking implementation; suffix detection is consolidated only if the resulting code is clearer than the current two helpers
-- [ ] All existing tests pass unchanged — these are pure refactors with zero behavioral change
+- [x] Template cooking: `escape_cooking.rs` has 1 generic function + 4 thin wrappers (down from 4 near-identical functions)
+- [x] Unescape: `cook_escape/mod.rs` has a shared scanning core called by both `unescape_string_v2` and `unescape_template_v2`, with identical fast-path behavior and error spans/contexts to today
+- [x] Integer cooking: `numeric.rs` has 1 generic function with radix parameter (down from 3)
+- [x] Duration/size: `duration_size.rs` has 1 canonical cooking implementation; suffix detection kept separate (clearer than consolidation)
+- [x] All existing tests pass unchanged — these are pure refactors with zero behavioral change
 - [ ] Satisfies mission criteria for template, unescape, integer, and duration/size consolidation
 
 **Context:** The cooker layer has four clusters of algorithmically-duplicated functions identified during the hygiene review. Each cluster shares a multi-step control-flow skeleton where only types, error kinds, or context values differ. If the protocol changes (e.g., new escape sequence, new numeric prefix), multiple functions must be updated in lockstep — a drift risk.
@@ -236,15 +236,17 @@ They differ in: suffix detector, unit type, validation method, `TokenKind` varia
 
 ## 02.R Third Party Review Findings
 
-- [ ] `[TPR-02-001][high]` The current unescape refactor sketch is underspecified at exactly the places most likely to regress: fast-path behavior, `LexErrorContext`, byte-accurate error spans, and future extension points for spec-required escape forms such as `\\xHH`.
-  Evidence: `unescape_string_v2` and `unescape_template_v2` currently differ not only in escape acceptance, but also in fast-path predicates, brace handling, and context construction in [compiler/ori_lexer/src/cook_escape/mod.rs](/home/eric/projects/ori_lang/.claude/worktrees/lexer-hygiene/compiler/ori_lexer/src/cook_escape/mod.rs). The spec also defines `\\xHH` escapes for strings, templates, and chars in [07-lexical-elements.md](/home/eric/projects/ori_lang/.claude/worktrees/lexer-hygiene/docs/ori_lang/v2026/spec/07-lexical-elements.md#L281).
-  Impact: A generic helper designed only around the current String/Template split can preserve today's duplication while still making the next correctness fix harder. It also risks subtle behavior drift that existing broad "tests still pass" wording would not localize.
-  Required plan fix: make the context-policy contract explicit, preserve current observable invariants, and require focused regression checks for fast path, unicode error spans, and template brace handling.
+- [x] `[TPR-02-001][high]` The current unescape refactor sketch is underspecified at exactly the places most likely to regress: fast-path behavior, `LexErrorContext`, byte-accurate error spans, and future extension points for spec-required escape forms such as `\\xHH`.
+  Resolved: Addressed during plan review (Agents 1-4) on 2026-04-05. Plan expanded with 8 invariants, 9 regression items, explicit EscapeContext policy contract, and verified `\xHH` extension point. Implementation preserves all invariants.
 
-- [ ] `[TPR-02-002][medium]` The section overcommits to generic suffix-detector consolidation even though the validated duplication lives mainly in the duration/size cooking skeleton, not in the short suffix helpers.
-  Evidence: the heavy duplication is in `cook_duration` / `cook_size`, while `detect_duration_suffix` / `detect_size_suffix` are each small, domain-specific end-of-string matches in [duration_size.rs](/home/eric/projects/ori_lang/.claude/worktrees/lexer-hygiene/compiler/ori_lexer/src/cooker/duration_size.rs).
-  Impact: forcing a generic detector risks replacing straightforward code with a harder-to-audit table/trait layer that saves little and obscures the remaining semantic asymmetry between duration and size validation.
-  Required plan fix: make suffix-detector consolidation optional and success-based on clarity, not on eliminating every repeated branch.
+- [x] `[TPR-02-002][medium]` The section overcommits to generic suffix-detector consolidation even though the validated duplication lives mainly in the duration/size cooking skeleton, not in the short suffix helpers.
+  Resolved: Addressed during plan review on 2026-04-05. Suffix detectors kept separate in implementation — only cooking skeleton consolidated via `UnitCooking` trait.
+
+- [x] `[TPR-02-003][high]` The touched escape path still rejects spec-required `\\xHH` escapes.
+  Resolved: Validated on 2026-04-06. This is a pre-existing spec gap (not introduced by Section 02’s refactoring) — `\xHH` was never implemented in the lexer. It is already tracked with concrete `- [ ]` items in roadmap section 15C.13 ("Byte Literals and Hex Escapes"), which covers scanner changes, cooker changes, type checker, evaluator, and LLVM codegen across all 3 literal contexts. Section 02’s DRY refactoring actually *improves* the situation: adding `\xHH` now requires exactly ONE new match arm in `unescape_with_context` (verified by grep), vs. the pre-refactoring state where it would have required edits to 2 parallel functions. Code comment updated from "future extension point" to "TODO(lexer): spec-required, not yet implemented" with spec citation and roadmap cross-reference.
+
+- [x] `[TPR-02-004][medium]` Section 02’s plan metadata drifted out of sync with the implementation that already landed.
+  Resolved: Fixed on 2026-04-06. Body status text updated "Not Started" → "In Progress". Success criteria checked off (5/6 done). Overview Quick Reference table and index.md status updated to "In Progress".
 
 ---
 
