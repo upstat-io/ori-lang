@@ -1299,6 +1299,46 @@ fn can_use_tagged_pointer_all_unit_negative() {
 }
 
 #[test]
+fn is_taggable_pointer_recursive_cycle_marker_negative() {
+    // §07.3.A — recursive enum cycle marker is rejected from tagged-pointer
+    // eligibility. The marker is `RcPointer { inner: OpaquePtr }` produced by
+    // `canonical_inner` when it detects a self-referential type. Recursive
+    // tagged pointers require box-and-load codegen for Construct/Project
+    // (the heap value is itself an encoded i64), which is intentionally out
+    // of scope for §07.3.A. Without this rejection, AOT codegen for
+    // `type IntCell = Empty | Holds(child: IntCell)` hangs (BUG-04-043).
+    let cycle_marker = MachineRepr::RcPointer(crate::struct_repr::RcRepr {
+        rc_width: IntWidth::I64,
+        atomic: true,
+        inner: Box::new(MachineRepr::OpaquePtr),
+        stack_promotable: false,
+    });
+    assert!(
+        !is_taggable_pointer(&cycle_marker),
+        "recursive cycle marker (RcPointer wrapping OpaquePtr) must NOT be taggable"
+    );
+}
+
+#[test]
+fn can_use_tagged_pointer_recursive_enum_negative() {
+    // type IntCell = Empty | Holds(child: IntCell);
+    // After canonical, Holds.child becomes the cycle marker (RcPointer
+    // wrapping OpaquePtr). The optimizer must NOT accept this.
+    let cycle_marker = MachineRepr::RcPointer(crate::struct_repr::RcRepr {
+        rc_width: IntWidth::I64,
+        atomic: true,
+        inner: Box::new(MachineRepr::OpaquePtr),
+        stack_promotable: false,
+    });
+    let int_cell = make_enum_with_variants(vec![unit_variant(0), ptr_variant(1, cycle_marker)]);
+    assert!(
+        !can_use_tagged_pointer(&int_cell),
+        "recursive enum (IntCell-style) must NOT be taggable until \
+         §07.3.A.future implements box-and-load codegen for the recursive case"
+    );
+}
+
+#[test]
 fn can_use_tagged_pointer_multi_field_variant_negative() {
     // Variant with multiple fields — exactly one single-word pointer required
     let multi_field = VariantRepr {
@@ -1312,6 +1352,106 @@ fn can_use_tagged_pointer_multi_field_variant_negative() {
         !can_use_tagged_pointer(&e),
         "multi-field variants are not taggable (encoding requires single-word payload)"
     );
+}
+
+// === optimize_tagged_ptr_repr: end-to-end transformation ===
+
+use crate::layout::tagged_ptr::optimize_tagged_ptr_repr;
+
+#[test]
+fn optimize_tagged_ptr_repr_transforms_eligible_enum() {
+    // type Either = Empty | Filled(RcPointer)
+    let candidate = make_enum_with_variants(vec![unit_variant(0), ptr_variant(1, rc_repr())]);
+    assert!(matches!(candidate.tag, EnumTag::Explicit { .. }));
+
+    let optimized = optimize_tagged_ptr_repr(candidate.clone());
+    assert!(
+        matches!(optimized.tag, EnumTag::TaggedPtr),
+        "eligible enum must be transformed to EnumTag::TaggedPtr"
+    );
+    assert_eq!(optimized.size, 8, "tagged-ptr enum is exactly 8 bytes");
+    assert_eq!(optimized.align, 8, "tagged-ptr enum is 8-byte aligned");
+    assert_eq!(
+        optimized.variants, candidate.variants,
+        "variant list is preserved verbatim"
+    );
+}
+
+#[test]
+fn optimize_tagged_ptr_repr_preserves_ineligible_enum() {
+    // type IntPair = First(int) | Second(int) — int payloads not taggable
+    let candidate =
+        make_enum_with_variants(vec![ptr_variant(0, int_repr()), ptr_variant(1, int_repr())]);
+    let original_tag = candidate.tag;
+    let original_size = candidate.size;
+    let original_align = candidate.align;
+
+    let result = optimize_tagged_ptr_repr(candidate);
+    assert_eq!(
+        result.tag, original_tag,
+        "ineligible enum keeps its original tag encoding"
+    );
+    assert_eq!(result.size, original_size);
+    assert_eq!(result.align, original_align);
+}
+
+#[test]
+fn optimize_tagged_ptr_repr_two_pointer_variants() {
+    // type T = A(RcPointer) | B(OpaquePtr) — both pointers, both taggable
+    let candidate = make_enum_with_variants(vec![
+        ptr_variant(0, rc_repr()),
+        ptr_variant(1, opaque_ptr_repr()),
+    ]);
+    let optimized = optimize_tagged_ptr_repr(candidate);
+    assert!(matches!(optimized.tag, EnumTag::TaggedPtr));
+    assert_eq!(optimized.size, 8);
+}
+
+#[test]
+fn optimize_tagged_ptr_repr_8_variants_max() {
+    // 8 variants — exactly fits the 3-bit tag
+    let mut variants = Vec::with_capacity(8);
+    variants.push(ptr_variant(0, rc_repr()));
+    for i in 1..8 {
+        variants.push(unit_variant(i));
+    }
+    let candidate = make_enum_with_variants(variants);
+    let optimized = optimize_tagged_ptr_repr(candidate);
+    assert!(matches!(optimized.tag, EnumTag::TaggedPtr));
+    assert_eq!(optimized.size, 8);
+}
+
+#[test]
+fn optimize_tagged_ptr_repr_9_variants_falls_back() {
+    // 9 variants — exceeds 3-bit tag, optimizer must NOT transform
+    let mut variants = Vec::with_capacity(9);
+    variants.push(ptr_variant(0, rc_repr()));
+    for i in 1..9 {
+        variants.push(unit_variant(i));
+    }
+    let candidate = make_enum_with_variants(variants);
+    let optimized = optimize_tagged_ptr_repr(candidate.clone());
+    assert!(
+        matches!(optimized.tag, EnumTag::Explicit { .. }),
+        "9-variant enum keeps explicit tag (3-bit tag space exceeded)"
+    );
+    assert_eq!(optimized.size, candidate.size);
+}
+
+#[test]
+fn optimize_tagged_ptr_repr_preserves_variant_order() {
+    // Ensure the variant list ordering is preserved 1:1, since
+    // the discriminant value IS the variant index in [0..7].
+    let v0 = unit_variant(0);
+    let v1 = ptr_variant(1, rc_repr());
+    let v2 = unit_variant(2);
+    let v3 = ptr_variant(3, opaque_ptr_repr());
+    let candidate = make_enum_with_variants(vec![v0.clone(), v1.clone(), v2.clone(), v3.clone()]);
+    let optimized = optimize_tagged_ptr_repr(candidate);
+    assert_eq!(optimized.variants[0], v0);
+    assert_eq!(optimized.variants[1], v1);
+    assert_eq!(optimized.variants[2], v2);
+    assert_eq!(optimized.variants[3], v3);
 }
 
 // ─── §07.4 Payload compression tests ──────────────────────────────

@@ -195,15 +195,22 @@ pub(super) fn canonical_enum(
         align,
     };
 
-    // §07.3 analysis layer — invoked unconditionally so the symbol is reachable.
-    // Codegen integration (07.3.A) will replace `Explicit` with `TaggedPtr` when
-    // the gate is enabled and `tagged_ptr_eligible` is true.
-    let tagged_ptr_eligible = crate::layout::tagged_ptr::can_use_tagged_pointer(&candidate);
-    if TAGGED_PTR_CODEGEN_READY && tagged_ptr_eligible {
-        // 07.3.A wiring will go here.
-    }
+    // §07.3.A — apply tagged-pointer optimization when the codegen consumers
+    // are wired. `optimize_tagged_ptr_repr` is a no-op (returns input
+    // unchanged) when the enum is not eligible per `can_use_tagged_pointer`,
+    // so the gate only needs to guard against half-wired codegen consumers,
+    // not against incorrect optimization application.
+    let optimized = if TAGGED_PTR_CODEGEN_READY {
+        crate::layout::tagged_ptr::optimize_tagged_ptr_repr(candidate)
+    } else {
+        // Gate disabled: still invoke the eligibility check so the symbol
+        // remains reachable for tests and to surface compile errors when
+        // the analysis layer drifts. The result is intentionally discarded.
+        let _eligible = crate::layout::tagged_ptr::can_use_tagged_pointer(&candidate);
+        candidate
+    };
 
-    Some(MachineRepr::Enum(candidate))
+    Some(MachineRepr::Enum(optimized))
 }
 
 /// Niche codegen gate: niche filling for Option/Result.
@@ -230,16 +237,18 @@ const NICHE_CODEGEN_READY: bool = false;
 /// (≤8 variants). The encoding stores the discriminant in the low 3 bits of
 /// the pointer, eliminating the explicit tag field.
 ///
-/// Disabled until §07.3.A wires the codegen consumers:
+/// §07.3.A landed all codegen consumers — the gate is now enabled:
 /// - `EnumTag::TaggedPtr` variant in `enum_repr.rs`
-/// - `optimize_tagged_ptr_repr()` constructor
-/// - LLVM `tag_access.rs` encoder/decoder
-/// - Pattern matching, RC, drop, ABI, layout resolver consumers
-///
-/// The analysis layer ([`crate::layout::tagged_ptr::can_use_tagged_pointer`])
-/// is always invoked so the function symbol is reachable, but its result is
-/// discarded while the gate is disabled.
-const TAGGED_PTR_CODEGEN_READY: bool = false;
+/// - `optimize_tagged_ptr_repr()` constructor in `layout/tagged_ptr.rs`
+/// - LLVM mask-based encode/decode helpers in `arc_emitter/mod.rs`
+///   (`tagged_ptr_encode`, `tagged_ptr_decode_tag`, `tagged_ptr_decode_ptr`)
+/// - Construct, Project, `SetTag` dispatch in `arc_emitter/instr_dispatch.rs`
+///   and `arc_emitter/construction.rs`
+/// - RC inc/dec dispatch in `arc_emitter/rc_helpers.rs::emit_tagged_ptr_enum_rc`
+/// - Drop dispatch in `arc_emitter/drop_enum.rs::emit_drop_enum_tagged_ptr`
+/// - ABI size + passing in `codegen/abi/mod.rs::is_tagged_ptr_encoded`
+/// - Layout resolver in `type_info/enum_layout.rs::resolve_enum_tagged_ptr`
+const TAGGED_PTR_CODEGEN_READY: bool = true;
 
 /// Build canonical `Option<T>` as a 2-variant enum: None (unit) + Some(T).
 ///
