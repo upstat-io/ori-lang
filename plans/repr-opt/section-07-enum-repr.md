@@ -31,6 +31,9 @@ sections:
     status: not-started
   - id: "07.4"
     title: "Payload Compression"
+    status: in-progress
+  - id: "07.4.A"
+    title: "Payload Compression Codegen Migration"
     status: not-started
   - id: "07.5"
     title: "Completion Checklist"
@@ -450,17 +453,16 @@ The analysis layer (`is_taggable_pointer` / `can_use_tagged_pointer`) is complet
 
 When variant payloads have different sizes, the current approach uses `max(sizeof(variant))` for all, padded to i64 slot boundaries. §07.4 addresses the achievable payload optimizations.
 
-- [ ] All-unit variant detection (already implemented in `resolve_enum`):
-  - Enums where every variant is unit → tag only, no payload
-  - `resolve_enum` already omits the payload array when `max_payload_bytes == 0`
-  - Verify this path is preserved when changing the tag width from i64 to i8
-  - After §07.1, all-unit enums shrink from 8 bytes (i64 tag) to 1 byte (i8 tag)
+- [x] All-unit variant detection (already implemented in `resolve_enum`): (2026-04-06)
+  - Verified end-to-end: `compute_enum_payload_layout(&[]) → (0, 1)`, `compute_explicit_tag_layout(I8, 0, 1) → (1, 1)`
+  - All-unit enums correctly produce `{ i8 tag }` (1 byte) after §07.1 narrowing
+  - Pinned with `payload_layout_empty_fields_zero_size`, `explicit_tag_layout_all_unit_i8_one_byte`, and tag-widening tests for i16/i32
 
-- [ ] Payload alignment optimization:
-  - Current layout pads every field to i64 slot boundary (`size.div_ceil(8) * 8`)
+- [ ] Payload alignment optimization: <!-- blocked-by:07.4.A -->
+  - Current layout pads every field to i64 slot boundary (`size.div_ceil(8) * 8`) in 4 locations: `ori_repr/layout/mod.rs:compute_enum_payload_layout`, `ori_llvm/codegen/type_info/enum_layout.rs:resolve_enum_explicit`, `ori_arc` `enum_payload_size()` / `pool_type_store_size()`, and `ori_llvm/codegen/arc_emitter/drop_enum.rs:compute_variant_field_offsets`. This is a `LEAK:scattered-knowledge` SSOT violation — §07.4.A consolidates all four into a single canonical layout query.
   - With narrowed fields from §04/§05, variant payloads can use tighter packing
   - Example: `type Color = RGB(r: i8, g: i8, b: i8) | HSL(h: i16, s: i8, l: i8)` — RGB payload = 3 bytes (not 24), HSL = 4 bytes (not 24)
-  - Must match payload access offsets in `drop_enum.rs:compute_variant_field_offsets()` and `arc_emitter/construction.rs`
+  - Tests pin the current i64-slot baseline (`payload_layout_three_byte_fields_padded_to_slots`, `payload_layout_int_plus_byte_uses_two_slots`) so that §07.4.A's transition can be detected and verified.
 
 - [ ] **Shared prefix optimization (future work — NOT in §07 scope):**
   - Sharing field prefixes across variants requires fundamentally different codegen (shared GEP paths) and complicates pattern matching
@@ -475,19 +477,50 @@ When variant payloads have different sizes, the current approach uses `max(sizeo
 
 **§07.4 Tests (TDD — write BEFORE implementation, verify they fail):**
 
-- [ ] **Rust unit tests** (`compiler/ori_repr/src/layout/tests.rs`):
-  - All-unit 4-variant enum: payload size = 0, total size = tag width (1 byte after §07.1)
-  - `Color = RGB(r: i8, g: i8, b: i8) | HSL(h: i16, s: i8, l: i8)`: max payload = 4 bytes (not 24)
-  - Enum with one unit variant and one 1-byte payload variant: payload = 1 byte
-  - Enum with mixed narrowed fields: payload size = max of all variant payload sizes with correct alignment
-- [ ] **Ori spec tests** (`tests/spec/types/enum/payload_compression.ori`):
+- [x] **Rust unit tests** (`compiler/ori_repr/src/layout/tests.rs`): 12 tests covering current i64-slot baseline. (2026-04-06)
+  - All-unit: `payload_layout_empty_fields_zero_size`, `payload_layout_zero_sized_field_no_size` (Unit), `payload_layout_never_field_no_size`
+  - i64-slot baseline pins: `payload_layout_byte_field_padded_to_slot`, `payload_layout_three_byte_fields_padded_to_slots`, `payload_layout_int_plus_byte_uses_two_slots`
+  - Single/multi int: `payload_layout_single_int_field`, `payload_layout_two_int_fields`
+  - End-to-end via `compute_explicit_tag_layout`: `explicit_tag_layout_all_unit_i8_one_byte` (1 byte), `_i16_two_bytes`, `_i32_four_bytes`, `_with_int_payload`
+  - §07.4.A will replace the i64-slot pins with natural-alignment pins as the layout migrates.
+- [ ] **Ori spec tests** (`tests/spec/types/enum/payload_compression.ori`): <!-- blocked-by:07.4.A -->
   - Mixed-size variant enum: construct each variant, match, verify values preserved
   - Narrowed-field enum from §04: field values survive construction + match roundtrip
-- [ ] **AOT tests** (`compiler/ori_llvm/tests/aot/enum_payload.rs`):
+- [ ] **AOT tests** (`compiler/ori_llvm/tests/aot/enum_payload.rs`): <!-- blocked-by:07.4.A -->
   - LLVM IR inspection: payload array uses narrowed element types, not `[M x i64]`
   - Verify `compute_variant_field_offsets()` matches actual LLVM struct offsets
-- [ ] **Dual-execution parity**: every spec test produces identical output in interpreter and LLVM
-- [ ] **Leak check**: `ORI_CHECK_LEAKS=1` on all payload compression spec tests
+- [ ] **Dual-execution parity**: every spec test produces identical output in interpreter and LLVM <!-- blocked-by:07.4.A -->
+- [ ] **Leak check**: `ORI_CHECK_LEAKS=1` on all payload compression spec tests <!-- blocked-by:07.4.A -->
+
+### 07.4.A Payload Compression Codegen Migration
+
+The all-unit detection (item 1) is verified working. To enable mixed-variant payload compression, the i64-slot packing rule must be replaced with natural-alignment packing across **four locations** that currently maintain the same rule independently — a `LEAK:scattered-knowledge` SSOT violation. §07.4.A consolidates and migrates them.
+
+- [ ] **Introduce canonical `compute_enum_payload_layout_packed()`** in `ori_repr/src/layout/mod.rs`:
+  - Replaces i64-slot rule with natural alignment + size packing (use `compute_field_layout` style: alignment-aware offset, total = `round_up(offset, max_align)`)
+  - Returns `(size, alignment, field_offsets: Vec<u32>)` so consumers can read field offsets without recomputing
+  - Document as the SSOT for enum variant payload sizing
+- [ ] **Add `PAYLOAD_PACKED_CODEGEN_READY: bool = false` gate** in `ori_repr/src/canonical/type_repr.rs` (mirrors `NICHE_CODEGEN_READY` and `TAGGED_PTR_CODEGEN_READY` patterns)
+- [ ] **Wire packed layout into `canonical_enum`**: when gate is true, use `compute_enum_payload_layout_packed()`; when false, use existing `compute_enum_payload_layout()` for compatibility
+- [ ] **Migrate `ori_llvm/codegen/type_info/enum_layout.rs:resolve_enum_explicit`**:
+  - Read packed layout from `ReprPlan` (consume the SSOT result instead of recomputing)
+  - Emit LLVM struct with natural-alignment payload field types instead of `[M x i64]` array
+  - Preserve named-struct creation pattern for cycle safety
+- [ ] **Migrate `ori_arc` `enum_payload_size()` and `pool_type_store_size()`**:
+  - Consume packed layout from `ReprPlan` instead of recomputing
+  - Update any callers that depend on i64-slot offsets
+- [ ] **Migrate `ori_llvm/codegen/arc_emitter/drop_enum.rs:compute_variant_field_offsets()`**:
+  - Read field offsets from the packed layout's `field_offsets` vector
+  - Remove the duplicated offset calculation
+- [ ] **Migrate `ori_llvm/codegen/arc_emitter/construction.rs`**:
+  - Update enum variant construction to use natural-alignment offsets when storing fields
+  - Verify GEP indices match the new layout
+- [ ] **Update `payload_layout_*` baseline tests** to assert the new packed sizes (3 bytes for `[byte; 3]`, 9 bytes for `int + byte`, etc.) instead of i64-slot sizes
+- [ ] **Add semantic pin: `Color = RGB(i8, i8, i8) | HSL(i16, i8, i8)`** — assert RGB payload = 3 bytes (not 24), HSL = 4 bytes (not 24)
+- [ ] **Add negative pin: enums with no narrowed fields must produce identical layout** — pure i64 payloads should not change size after the migration
+- [ ] **Codegen consumer audit**: enumerate all sites that compute or assume enum payload offsets — confirm each reads from the canonical layout query
+- [ ] **Flip `PAYLOAD_PACKED_CODEGEN_READY = true`** once all consumers are wired. Run full `./test-all.sh` and verify no regressions; expected delta: ~10-30% smaller enum sizes for narrowed-field enums.
+- [ ] **Wire 07.4 verification**: run §07.4 spec tests, AOT tests, dual-exec parity, and leak check; check off each item.
 
 ---
 
