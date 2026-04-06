@@ -93,9 +93,9 @@ CURRENT STATE (implemented):
        ↓
   §05 Verification: test matrix, dual-exec parity, TPR  ← IN PROGRESS
        ↓
-  §06 LCFail Resolution (BUG-04-030/031/032/033)  ← NOT STARTED
-       Root causes D → A → B → E → F → 031/032 → 033 → C
-       Target: reduce 2656 LCFails to <500
+  §06 LCFail Resolution (BUG-04-030/031/032/033)  ← IN PROGRESS (TPR review)
+       Root causes D → A → B → E → F → 031/032 → 033 → C — all resolved
+       Result: 2656 → 2475 LCFails (-7%), CRASH eliminated
 ```
 
 ## Known Bugs (Remaining)

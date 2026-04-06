@@ -262,7 +262,19 @@ Bugs in LLVM IR generation, JIT/AOT compilation, monomorphization, ARC pipeline 
   Note: String-only join works correctly in ISOLATION after SSO fix (verified `/tmp/test_join_str.ori` passes 1/1 via JIT). However, `tests/spec/traits/iterator/join.ori` fails all 8 tests because non-string join tests in the same file produce codegen errors that poison the entire JIT module (module-level codegen error check prevents execution of ANY tests in the file). Fix needs: (1) to_str trampoline for non-string elements, OR (2) per-function error isolation in JIT mode.
 
 - [ ] `[BUG-04-040][medium]` **LLVM JIT spec test runner: path-dependent compilation context causes spurious LCFails** — found by tpr-review.
-  Repro: Create a minimal file: `echo 'use std.testing { assert_eq }\n@f () -> str = { ["a","b"].iter().join(separator:", ") }\n@t tests @f () -> void = { assert_eq(actual: f(), expected: "a, b") }' > /tmp/join_test.ori && ori test --backend=llvm /tmp/join_test.ori` → 1 pass. Then copy it in-tree: `cp /tmp/join_test.ori tests/spec/traits/iterator/join_test.ori && ori test --backend=llvm tests/spec/traits/iterator/join_test.ori` → LCFail with unresolved type variables. Same content, different path, different result. Files under `tests/spec/` get a different compilation context that introduces unresolved type variables not present for standalone files.
+  Repro: Create a minimal file via heredoc (works in both bash and zsh):
+  ```
+  cat > /tmp/join_test.ori <<'EOF'
+  use std.testing { assert_eq }
+  @f () -> str = { ["a","b"].iter().join(separator: ", ") }
+  @t tests @f () -> void = { assert_eq(actual: f(), expected: "a, b") }
+  EOF
+  ori test --backend=llvm /tmp/join_test.ori  # → 1 pass
+  cp /tmp/join_test.ori tests/spec/traits/iterator/join_test.ori
+  ori test --backend=llvm tests/spec/traits/iterator/join_test.ori  # → LCFail
+  rm tests/spec/traits/iterator/join_test.ori  # cleanup
+  ```
+  Same content, different path, different result. Files under `tests/spec/` get a different compilation context that introduces unresolved type variables not present for standalone files.
   Subsystem: `compiler/oric/src/test/runner/llvm_backend.rs`
   Found: 2026-04-06 | Source: tpr-review (TPR-06-006)
 
