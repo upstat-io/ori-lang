@@ -117,17 +117,22 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 let is_some = self.builder.icmp_eq(tag, some, "is_some");
 
                 // RC-retain payload when Some: the select copies payload bytes,
-                // creating a second reference to inner RC data.
+                // creating a second reference to inner RC data. Skip for scalar
+                // payloads (no RC) to avoid creating extra blocks that break PHI
+                // nodes when unwrap_or is inside a short-circuit `&&`/`||` branch.
                 let inner_ty = self.pool.option_inner(self.pool.resolve_fully(receiver_ty));
-                let inc_bb = self.builder.append_block(self.current_function, "uor.inc");
-                let merge_bb = self
-                    .builder
-                    .append_block(self.current_function, "uor.merge");
-                self.builder.cond_br(is_some, inc_bb, merge_bb);
-                self.builder.position_at_end(inc_bb);
-                self.inc_value_rc(payload, inner_ty, 1);
-                self.builder.br(merge_bb);
-                self.builder.position_at_end(merge_bb);
+                let needs_rc = !self.classifier.is_scalar(inner_ty);
+                if needs_rc {
+                    let inc_bb = self.builder.append_block(self.current_function, "uor.inc");
+                    let merge_bb = self
+                        .builder
+                        .append_block(self.current_function, "uor.merge");
+                    self.builder.cond_br(is_some, inc_bb, merge_bb);
+                    self.builder.position_at_end(inc_bb);
+                    self.inc_value_rc(payload, inner_ty, 1);
+                    self.builder.br(merge_bb);
+                    self.builder.position_at_end(merge_bb);
+                }
 
                 Some(
                     self.builder
