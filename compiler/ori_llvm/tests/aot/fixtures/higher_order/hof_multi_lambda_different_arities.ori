@@ -1,0 +1,11 @@
+// Root Cause E regression: multiple polymorphic lambdas with different arities
+// in the same function. find_concrete_copy_of must not pick a type from the
+// wrong lambda (arity mismatch).
+
+@main () -> int = {
+    let $f = x -> x + 1;
+    let $g = (a, b) -> a + b;
+    let $r1 = f(10);
+    let $r2 = g(3, 4);
+    if r1 == 11 && r2 == 7 then 0 else 1
+}
