@@ -255,7 +255,7 @@ Bugs in LLVM IR generation, JIT/AOT compilation, monomorphization, ARC pipeline 
   Found: 2026-04-06 | Source: continue-roadmap (pre-commit hook failure during hygiene-lexer work)
 
 - [x] `[BUG-04-039][high]` **LLVM codegen: `join` on non-string iterators crashes (missing `to_str_fn` trampoline)** — found by continue-roadmap.
-  Resolved: 2026-04-06. Generated `to_str` trampoline in `emit_iter_join` for int, float, bool, char, byte element types. Duration/Size/Ordering excluded from trampoline — they need proper Printable method dispatch (codegen error produced instead of wrong output).
+  Resolved: 2026-04-06. Generated `to_str` trampoline in `emit_iter_join` for int, float, bool, char element types. Byte/Duration/Size/Ordering excluded — they need proper Printable method dispatch (codegen error produced instead of wrong output).
   Fix: `plans/bug-tracker/fix-BUG-04-039.md` | 5 AOT tests added (`iter_join_int/float/bool/single_int/int_after_map`)
 
 - [ ] `[BUG-04-040][medium]` **LLVM JIT spec test runner: path-dependent compilation context causes spurious LCFails** — found by tpr-review.
@@ -274,6 +274,11 @@ Bugs in LLVM IR generation, JIT/AOT compilation, monomorphization, ARC pipeline 
   Same content, different path, different result. Files under `tests/spec/` get a different compilation context that introduces unresolved type variables not present for standalone files.
   Subsystem: `compiler/oric/src/test/runner/llvm_backend.rs`
   Found: 2026-04-06 | Source: tpr-review (TPR-06-006)
+
+- [ ] `[BUG-04-041][medium]` **AOT codegen error + poison value produces crashing binary instead of clean compilation failure** — found by tpr-review.
+  Repro: `[1s, 2s].iter().join(separator: ", ")` via `ori build` then run → exit code 139 (SIGSEGV). JIT mode correctly produces LCFail. The `record_codegen_error_with_msg` + poison value pattern doesn't prevent AOT compilation — the binary is generated with garbage OriStr values that crash when used. Affects any unsupported operation that uses this pattern.
+  Subsystem: `compiler/ori_llvm/src/codegen/arc_emitter/mod.rs` (poison_value), `compiler/ori_llvm/src/codegen/ir_builder/`
+  Found: 2026-04-06 | Source: tpr-review (TPR-04-002 from BUG-04-039 fix)
 
 ---
 
