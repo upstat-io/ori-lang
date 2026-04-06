@@ -1,7 +1,7 @@
 ---
 section: "08"
 title: "File and Function Size Violations"
-status: not-started
+status: in-progress
 reviewed: false
 goal: "Split all 69 production files exceeding the 500-line limit into focused submodules, and decompose 31+ functions exceeding the 100-line limit"
 depends_on: ["01", "02", "03", "04", "05", "06", "07"]
@@ -20,7 +20,7 @@ sections:
     status: not-started
   - id: "08.4"
     title: "Split Remaining Crate Files (27 files)"
-    status: not-started
+    status: in-progress
   - id: "08.5"
     title: "Function Size Violations"
     status: not-started

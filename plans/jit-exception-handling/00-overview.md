@@ -70,12 +70,16 @@ CURRENT STATE (implemented):
 - TPR-04B-013 reopened: list-concat lambda crash (BUG-04-030 Root Cause F) still reproduces on current tree
 - In-tree LLVM verification and TPR-04B-013 both blocked by BUG-04-030
 
-**Section 05 (Verification) — IN PROGRESS:**
-- Pre-verification checks complete (01.R, 04.H, annotations, release build)
-- Test matrix: 6/8 categories pass in debug+release (integer, bitwise, COW, struct layout, coalesce, range). 2/8 have known LCFails (catch: BUG-04-030; short-circuit: BUG-04-031/BUG-04-032).
-- Dual-execution parity: 6/7 files verified (93/93 tests). operators_logical.ori blocked by BUG-04-031.
-- Regression: 16,533 passed, 0 failed, 2656 LCFail. clippy clean.
-- TPR in progress.
+**Section 05 (Verification) — IN PROGRESS (blocked by BUG-04-030):**
+- Pre-verification checks, test matrix, regression verification all complete.
+- Dual-execution parity: 7/7 files verified (132/132 tests). operators_logical.ori now passes 39/39 (BUG-04-031/032 fixed in §06.6, re-verified 2026-04-06).
+- TPR: 6/7 findings resolved. TPR-05-003 (Set lambda AOT test) blocked by BUG-04-030.
+- Completion gates: `/tpr-review` and `/impl-hygiene-review` cannot pass clean while TPR-05-003 is open.
+
+**Section 06 (LCFail Resolution) — COMPLETE (3 externally blocked items):**
+- All implementation done (06.1-06.9). TPR clean (9/9 findings resolved). Hygiene review clean.
+- 2475 LCFails (down from 2656 baseline, -7%). CRASH eliminated.
+- 3 remaining items blocked: 1 by BUG-04-030 (multi-inst LCFails), 2 by roadmap Section 5 (ABI edge tests).
 
 ## Section Dependency Graph
 
@@ -91,9 +95,9 @@ CURRENT STATE (implemented):
   §04B Polymorphic lambda monomorphization  ← IN PROGRESS
        (Root Cause A addressed; list-concat crash + in-tree verification blocked by BUG-04-030)
        ↓
-  §05 Verification: test matrix, dual-exec parity, TPR  ← IN PROGRESS
+  §05 Verification: test matrix, dual-exec parity, TPR  ← IN PROGRESS (blocked by BUG-04-030)
        ↓
-  §06 LCFail Resolution (BUG-04-030/031/032/033)  ← IN PROGRESS (TPR review)
+  §06 LCFail Resolution (BUG-04-030/031/032/033)  ← COMPLETE (3 externally blocked items)
        Root causes D → A → B → E → F → 031/032 → 033 → C — all resolved
        Result: 2656 → 2475 LCFails (-7%), CRASH eliminated
 ```
@@ -146,5 +150,5 @@ The Itanium path in `ori_run_main` (lib.rs:430-443) still uses `std::panic::catc
 | 03 | LLVM Emission & Wrappers | `section-03-llvm-emission.md` | Complete |
 | 04 | Exposed Bug Fixes | `section-04-exposed-bugs.md` | Complete |
 | 04B | Polymorphic Lambda Monomorphization | `section-04b-lambda-mono.md` | In Progress (blocked by BUG-04-030) |
-| 05 | Verification | `section-05-verification.md` | In Progress |
-| 06 | LCFail Resolution | `section-06-lcfail-resolution.md` | In Progress |
+| 05 | Verification | `section-05-verification.md` | In Progress (blocked by BUG-04-030) |
+| 06 | LCFail Resolution | `section-06-lcfail-resolution.md` | Complete (3 externally blocked items) |
