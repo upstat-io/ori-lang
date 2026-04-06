@@ -896,3 +896,90 @@ fn regular_ident_caching_unaffected_by_soft_keyword_fix() {
         "cached ident should produce same Name"
     );
 }
+
+// Template segment cooking — regression tests for 02.1 DRY consolidation
+
+#[test]
+fn cook_template_head_strips_delimiters_and_interns() {
+    // Template head: `hello { — strip leading ` and trailing {
+    let source = "`hello {";
+    let interner = StringInterner::new();
+    let mut cooker = TokenCooker::new(source.as_bytes(), &interner);
+    let result = cooker.cook(RawTag::TemplateHead, 0, 8);
+    match result.kind {
+        TokenKind::TemplateHead(name) => assert_eq!(interner.lookup(name), "hello "),
+        other => panic!("expected TemplateHead, got {other:?}"),
+    }
+    assert!(!result.had_error);
+    assert!(cooker.errors().is_empty());
+}
+
+#[test]
+fn cook_template_middle_strips_delimiters_and_interns() {
+    // Template middle: } world { — strip leading } and trailing {
+    let source = "} world {";
+    let interner = StringInterner::new();
+    let mut cooker = TokenCooker::new(source.as_bytes(), &interner);
+    let result = cooker.cook(RawTag::TemplateMiddle, 0, 9);
+    match result.kind {
+        TokenKind::TemplateMiddle(name) => assert_eq!(interner.lookup(name), " world "),
+        other => panic!("expected TemplateMiddle, got {other:?}"),
+    }
+    assert!(!result.had_error);
+}
+
+#[test]
+fn cook_template_tail_strips_delimiters_and_interns() {
+    // Template tail: } end` — strip leading } and trailing `
+    let source = "} end`";
+    let interner = StringInterner::new();
+    let mut cooker = TokenCooker::new(source.as_bytes(), &interner);
+    let result = cooker.cook(RawTag::TemplateTail, 0, 6);
+    match result.kind {
+        TokenKind::TemplateTail(name) => assert_eq!(interner.lookup(name), " end"),
+        other => panic!("expected TemplateTail, got {other:?}"),
+    }
+    assert!(!result.had_error);
+}
+
+#[test]
+fn cook_template_complete_strips_backticks_and_interns() {
+    // Complete template: `no interp` — strip both backticks
+    let source = "`no interp`";
+    let interner = StringInterner::new();
+    let mut cooker = TokenCooker::new(source.as_bytes(), &interner);
+    let result = cooker.cook(RawTag::TemplateComplete, 0, 11);
+    match result.kind {
+        TokenKind::TemplateFull(name) => assert_eq!(interner.lookup(name), "no interp"),
+        other => panic!("expected TemplateFull, got {other:?}"),
+    }
+    assert!(!result.had_error);
+}
+
+#[test]
+fn cook_template_segment_with_escape() {
+    // Template head with escape: `hello\n{ — should unescape
+    let source = "`hello\\n{";
+    let interner = StringInterner::new();
+    let mut cooker = TokenCooker::new(source.as_bytes(), &interner);
+    let result = cooker.cook(RawTag::TemplateHead, 0, 9);
+    match result.kind {
+        TokenKind::TemplateHead(name) => assert_eq!(interner.lookup(name), "hello\n"),
+        other => panic!("expected TemplateHead, got {other:?}"),
+    }
+    assert!(!result.had_error);
+}
+
+#[test]
+fn cook_format_spec_strips_colon_prefix() {
+    // Format spec: :>10.2f — strip leading :
+    let source = ":>10.2f";
+    let interner = StringInterner::new();
+    let cooker = TokenCooker::new(source.as_bytes(), &interner);
+    let result = cooker.cook_format_spec(0, 7);
+    match result.kind {
+        TokenKind::FormatSpec(name) => assert_eq!(interner.lookup(name), ">10.2f"),
+        other => panic!("expected FormatSpec, got {other:?}"),
+    }
+    assert!(!result.had_error);
+}

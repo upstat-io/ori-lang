@@ -31,7 +31,7 @@ sections:
     status: complete
   - id: "02.R"
     title: "Third Party Review Findings"
-    status: not-started
+    status: in-progress
   - id: "02.N"
     title: "Completion Checklist"
     status: not-started
@@ -251,6 +251,12 @@ They differ in: suffix detector, unit type, validation method, `TokenKind` varia
 
 - [x] `[TPR-02-004][medium]` Section 02’s plan metadata drifted out of sync with the implementation that already landed.
   Resolved: Fixed on 2026-04-06. Body status text updated "Not Started" → "In Progress". Success criteria checked off (5/6 done). Overview Quick Reference table and index.md status updated to "In Progress".
+
+- [x] `[TPR-02-005][medium]` `compiler/ori_lexer/src/cooker/escape_cooking.rs:59` — Section 02.1 had no regression coverage for the new template-segment wrappers or `FormatSpec` cooking.
+  Resolved: Fixed on 2026-04-06. Added 6 regression tests in `cooker/tests.rs`: `cook_template_head_strips_delimiters_and_interns`, `cook_template_middle_strips_delimiters_and_interns`, `cook_template_tail_strips_delimiters_and_interns`, `cook_template_complete_strips_backticks_and_interns`, `cook_template_segment_with_escape`, `cook_format_spec_strips_colon_prefix`. All 4 template segment kinds + escape handling + FormatSpec now have direct cooker-level coverage (291 tests total).
+
+- [x] `[TPR-02-006][low]` Plan metadata dates appear future-dated relative to commit timestamps.
+  Resolved: Rejected on 2026-04-06. The dates are correct — TPR work happened on April 6 local time (US timezone). Commit timestamps show April 5 UTC due to timezone offset. This is not a chronology error, just a UTC/local difference.
 
 ---
 
