@@ -713,3 +713,186 @@ fn parse_decimal_unit_value_with_underscores() {
     // 1_000.5 * 1_000 = 1,000,500
     assert_eq!(parse_decimal_unit_value("1_000.5", 1_000), Some(1_000_500));
 }
+
+// BUG-01-001: Soft keyword cache contamination regression tests.
+// See: plans/hygiene-lexer/section-01-soft-keyword-bug.md
+//
+// The IdentCache caches cook_ident() results. When soft keyword text (e.g., "cache")
+// first appears as a regular identifier (no `(` following), it gets cached as Ident.
+// On subsequent occurrences — even in keyword context — the cache hit returns Ident
+// immediately, bypassing soft_keyword_lookup(). These tests verify the fix.
+
+fn soft_keyword_test_cases() -> Vec<(&'static str, TokenKind)> {
+    vec![
+        ("cache", TokenKind::Cache),
+        ("catch", TokenKind::Catch),
+        ("parallel", TokenKind::Parallel),
+        ("recurse", TokenKind::Recurse),
+        ("spawn", TokenKind::Spawn),
+        ("timeout", TokenKind::Timeout),
+    ]
+}
+
+/// Semantic pin: identifier-then-keyword ordering for all 6 soft keywords.
+/// This is the exact failure mode of BUG-01-001 — without the fix, the cache
+/// hit on the second occurrence returns Ident instead of the keyword variant.
+/// This test ONLY passes with the cache fix applied.
+#[test]
+fn soft_keyword_ident_then_keyword_all() {
+    let cases = soft_keyword_test_cases();
+    let mut count = 0;
+    for (text, expected_kw) in &cases {
+        // Source: "<kw> = 1; <kw>(" — first is ident context, second is keyword context
+        let source = format!("{text} = 1; {text}(");
+        let interner = StringInterner::new();
+        let mut cooker = TokenCooker::new(source.as_bytes(), &interner);
+
+        let len = text.len() as u32;
+
+        // First: no `(` after → Ident
+        let first = cooker.cook(RawTag::Ident, 0, len);
+        assert!(
+            matches!(first.kind, TokenKind::Ident(_)),
+            "{text}: first occurrence should be Ident, got {:?}",
+            first.kind
+        );
+
+        // Second: `(` after → must be keyword, not cached Ident
+        let second_offset = len + 6; // " = 1; " is 6 bytes
+        let second = cooker.cook(RawTag::Ident, second_offset, len);
+        assert_eq!(
+            second.kind, *expected_kw,
+            "{text}: second occurrence should be {expected_kw:?}, got {:?} (cache contamination!)",
+            second.kind
+        );
+
+        count += 1;
+    }
+    assert_eq!(count, 6, "must test all 6 soft keywords");
+}
+
+/// Keyword-then-identifier ordering: keyword context first, then identifier context.
+/// Soft keywords should NOT cache — second occurrence without `(` should be Ident.
+#[test]
+fn soft_keyword_keyword_then_ident_all() {
+    let cases = soft_keyword_test_cases();
+    let mut count = 0;
+    for (text, expected_kw) in &cases {
+        // Source: "<kw>(x); <kw> = 2" — first is keyword, second is ident
+        let source = format!("{text}(x); {text} = 2");
+        let interner = StringInterner::new();
+        let mut cooker = TokenCooker::new(source.as_bytes(), &interner);
+
+        let len = text.len() as u32;
+
+        // First: `(` after → keyword
+        let first = cooker.cook(RawTag::Ident, 0, len);
+        assert_eq!(
+            first.kind, *expected_kw,
+            "{text}: first occurrence should be {expected_kw:?}"
+        );
+
+        // Second: no `(` after → Ident
+        let second_offset = len + 5; // "(x); " is 5 bytes
+        let second = cooker.cook(RawTag::Ident, second_offset, len);
+        assert!(
+            matches!(second.kind, TokenKind::Ident(_)),
+            "{text}: second occurrence should be Ident, got {:?}",
+            second.kind
+        );
+
+        count += 1;
+    }
+    assert_eq!(count, 6, "must test all 6 soft keywords");
+}
+
+/// Keyword-only: soft keyword text with `(` — should always be keyword.
+#[test]
+fn soft_keyword_keyword_only_all() {
+    let cases = soft_keyword_test_cases();
+    let mut count = 0;
+    for (text, expected_kw) in &cases {
+        let source = format!("{text}(");
+        let interner = StringInterner::new();
+        let mut cooker = TokenCooker::new(source.as_bytes(), &interner);
+
+        let first = cooker.cook(RawTag::Ident, 0, text.len() as u32);
+        assert_eq!(
+            first.kind, *expected_kw,
+            "{text}: should be {expected_kw:?} in keyword context"
+        );
+
+        count += 1;
+    }
+    assert_eq!(count, 6, "must test all 6 soft keywords");
+}
+
+/// Identifier-only: soft keyword text without `(` — should be Ident.
+#[test]
+fn soft_keyword_ident_only_all() {
+    let cases = soft_keyword_test_cases();
+    let mut count = 0;
+    for (text, _) in &cases {
+        let source = format!("{text} = 42");
+        let interner = StringInterner::new();
+        let mut cooker = TokenCooker::new(source.as_bytes(), &interner);
+
+        let first = cooker.cook(RawTag::Ident, 0, text.len() as u32);
+        assert!(
+            matches!(first.kind, TokenKind::Ident(_)),
+            "{text}: should be Ident without `(`, got {:?}",
+            first.kind
+        );
+
+        count += 1;
+    }
+    assert_eq!(count, 6, "must test all 6 soft keywords");
+}
+
+/// Negative pin: hard keyword caching still works after the fix.
+/// `let` should be cached on first use and hit the cache on second use.
+#[test]
+fn hard_keyword_caching_unaffected_by_soft_keyword_fix() {
+    let source = "let x = 1; let y = 2";
+    let interner = StringInterner::new();
+    let mut cooker = TokenCooker::new(source.as_bytes(), &interner);
+
+    let first = cooker.cook(RawTag::Ident, 0, 3);
+    assert_eq!(
+        first.kind,
+        TokenKind::Let,
+        "first `let` should be Let keyword"
+    );
+
+    let second = cooker.cook(RawTag::Ident, 11, 3);
+    assert_eq!(
+        second.kind,
+        TokenKind::Let,
+        "second `let` should be Let (from cache)"
+    );
+}
+
+/// Negative pin: regular (non-soft-keyword) identifier caching still works.
+#[test]
+fn regular_ident_caching_unaffected_by_soft_keyword_fix() {
+    let source = "foo bar foo";
+    let interner = StringInterner::new();
+    let mut cooker = TokenCooker::new(source.as_bytes(), &interner);
+
+    let first = cooker.cook(RawTag::Ident, 0, 3);
+    let first_name = match first.kind {
+        TokenKind::Ident(name) => name,
+        other => panic!("expected Ident, got {other:?}"),
+    };
+
+    let second = cooker.cook(RawTag::Ident, 8, 3);
+    let second_name = match second.kind {
+        TokenKind::Ident(name) => name,
+        other => panic!("expected Ident, got {other:?}"),
+    };
+
+    assert_eq!(
+        first_name, second_name,
+        "cached ident should produce same Name"
+    );
+}
