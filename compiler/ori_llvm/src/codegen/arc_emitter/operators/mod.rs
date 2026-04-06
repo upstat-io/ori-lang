@@ -29,6 +29,8 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         lhs: ValueId,
         rhs: ValueId,
         lhs_ty: Idx,
+        lhs_var: ori_arc::ir::ArcVarId,
+        rhs_var: ori_arc::ir::ArcVarId,
         arc_func: &ori_arc::ir::ArcFunction,
     ) -> ValueId {
         // Trait dispatch for non-primitive types (user-defined operator impls)
@@ -45,6 +47,26 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         if matches!(op, BinaryOp::Add) {
             if let TypeInfo::List { element } = self.type_info.get(lhs_ty) {
                 let cm = self.cow_mode_const(arc_func);
+                // `ori_list_concat_cow` has consuming semantics: it dec/frees
+                // BOTH input buffers (list1 via `dec_list_buffer`, list2 via
+                // `dec_consumed_list2`). When parameters are borrowed, the
+                // callee doesn't own the buffers — the caller (or closure env)
+                // retains ownership and will dec later. Protect borrowed args
+                // with rc_inc so concat's dec brings refcount to 1 (not 0),
+                // leaving the buffer alive for the caller's cleanup.
+                // No matching rc_dec needed — concat's own dec is the "undo".
+                let lhs_borrowed = self.borrowed_param_ptrs.contains_key(&lhs_var);
+                if lhs_borrowed {
+                    let (data, _len, cap) = self.extract_list_fields(lhs);
+                    let rc_inc_fn = self.builder.runtime_fn("ori_list_rc_inc");
+                    self.emit_rt_call(rc_inc_fn, &[data, cap], "borrow_protect.inc");
+                }
+                let rhs_borrowed = self.borrowed_param_ptrs.contains_key(&rhs_var);
+                if rhs_borrowed {
+                    let (data, _len, cap) = self.extract_list_fields(rhs);
+                    let rc_inc_fn = self.builder.runtime_fn("ori_list_rc_inc");
+                    self.emit_rt_call(rc_inc_fn, &[data, cap], "borrow_protect.inc");
+                }
                 if let Some(val) = self.emit_list_concat_cow(lhs, rhs, element, cm, lhs_ty) {
                     return val;
                 }

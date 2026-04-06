@@ -1,0 +1,8 @@
+// Root Cause F regression: curried lambda with string `+`.
+// Verifies sret calling convention with str concat in curried context.
+
+@main () -> int = {
+    let $app = a -> b -> a + b;
+    let $result = app("hello ")("world");
+    if result == "hello world" then 0 else 1
+}
