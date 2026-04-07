@@ -1,0 +1,25 @@
+{
+  "schema_version": "1.0",
+  "status": "complete",
+  "reviewer": "codex",
+  "skill": "tpr-review",
+  "scope_actually_reviewed": {
+    "files_read": [
+      "/abs/path/file.rs"
+    ],
+    "rules_consulted": [],
+    "expanded_beyond_packet": false
+  },
+  "findings": [
+    {
+      "ordinal": 1,
+      "severity": "low",
+      "location": "/abs/path/file.rs:1",
+      "title": "Negative test fixture for absolute path rejection",
+      "evidence": "This fixture intentionally uses an absolute path that violates the location regex ^[a-zA-Z0-9_./-]+:[0-9]+$. The schema validator must reject this envelope.",
+      "impact": "If this fixture validates successfully, the location pattern is not being enforced and the dual-source merge step will treat absolute paths as canonical, breaking agreement detection.",
+      "basis": "inference"
+    }
+  ],
+  "no_findings": false
+}

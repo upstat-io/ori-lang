@@ -1,0 +1,65 @@
+{
+  "schema_version": "1.0",
+  "status": "complete",
+  "reviewer": "codex",
+  "skill": "tpr-review",
+  "scope_actually_reviewed": {
+    "git_range": "HEAD~3..HEAD",
+    "files_read": [
+      "compiler/ori_arc/src/lower/control_flow/mod.rs",
+      "compiler/ori_arc/src/lower/control_flow/branch.rs",
+      "compiler/ori_arc/src/aims/realize.rs",
+      "plans/repr-opt/section-04-control-flow.md"
+    ],
+    "rules_consulted": [
+      ".claude/rules/arc.md",
+      ".claude/rules/impl-hygiene.md"
+    ],
+    "specs_consulted": [
+      "docs/ori_lang/v2026/spec/operator-rules.md"
+    ],
+    "plans_consulted": [
+      "plans/repr-opt/section-04-control-flow.md"
+    ],
+    "expanded_beyond_packet": true,
+    "expansion_reason": "The starting packet referenced lower_branch but the actual RC imbalance traced through three additional files in the lowering pipeline; expanded into branch.rs and realize.rs to confirm the lineage."
+  },
+  "findings": [
+    {
+      "ordinal": 1,
+      "severity": "high",
+      "location": "compiler/ori_arc/src/lower/control_flow/mod.rs:123",
+      "title": "Add dec on early-exit branch in lower_branch",
+      "evidence": "lower_branch generates an inc on entry at line 118 but the early-exit path at line 138 returns without emitting the matching dec, leaving the refcount imbalanced by +1 per traversal of the break path.",
+      "impact": "Memory leak on every loop body that contains a break or continue against an arc-counted value; breaks the AIMS Certified contract for any function containing such control flow.",
+      "required_plan_update": "Add a regression test to plans/repr-opt/section-04-control-flow.md exercising for+break with an arc-counted body type, plus a debug_assert in lower_branch that catches the imbalance at compile time.",
+      "basis": "direct_file_inspection",
+      "layer": "committed",
+      "confidence": "high"
+    },
+    {
+      "ordinal": 2,
+      "severity": "high",
+      "location": "compiler/ori_arc/src/lower/control_flow/branch.rs:87",
+      "title": "Insert phantom marker for moved capture in nested closure",
+      "evidence": "The nested closure lowering at branch.rs:87 takes ownership of an outer capture without inserting the phantom marker that the AIMS realize pass relies on for lineage tracking, causing realize.rs:204 to misclassify the move as a borrow.",
+      "impact": "AIMS Certified contract is incorrectly granted to functions that perform a real ownership transfer, which can produce double-free or use-after-free in release builds where FastISel skips the redundant inc/dec elision.",
+      "required_plan_update": "Add a phantom-marker check to the AIMS contract verification step in plans/repr-opt/section-05-realize.md and a TDD matrix entry covering nested-closure capture patterns.",
+      "basis": "fresh_verification",
+      "layer": "committed",
+      "confidence": "high"
+    }
+  ],
+  "verification": {
+    "tests_rerun": [
+      "cargo test -p ori_arc lowering::control_flow",
+      "ORI_CHECK_LEAKS=1 ./target/debug/ori run tests/spec/control_flow/break_in_for.ori"
+    ],
+    "diagnostics_run": [
+      "diagnostics/arc-dump.sh tests/spec/control_flow/break_in_for.ori",
+      "diagnostics/rc-stats.sh tests/spec/control_flow/break_in_for.ori"
+    ],
+    "verification_gaps": []
+  },
+  "no_findings": false
+}
