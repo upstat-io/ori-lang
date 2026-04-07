@@ -155,7 +155,7 @@ fn bypass_safe_entries_excludes_inherited_blocks() {
     );
 }
 
-/// TPR-07-020 regression: the function entry block is treated as
+/// regression: the function entry block is treated as
 /// having an implicit "outside caller" predecessor. A loop-headed
 /// function whose entry is also a bypass-safe loop body block must
 /// still qualify as an entry edge.

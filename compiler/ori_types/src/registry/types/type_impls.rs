@@ -1,7 +1,7 @@
 //! Inherent impl blocks for [`VariantFields`] and [`TypeKind`].
 //!
 //! Extracted from `mod.rs` to keep the main module under the 500-line
-//! production file limit (TPR-01-043).
+//! production file limit.
 
 use super::{FieldDef, TypeKind, VariantFields};
 

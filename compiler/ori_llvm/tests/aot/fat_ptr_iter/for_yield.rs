@@ -82,12 +82,12 @@ fn test_for_yield_option_str() {
     );
 }
 
-// For-yield mutable variable threading (TPR-02-002 regression)
+// For-yield mutable variable threading (regression)
 
 /// Outer mutable variable mutation inside for-yield body — the body
 /// assigns to `sum` which is declared outside the for-yield. Verifies
 /// that the assignment is correctly propagated through the loop's SSA
-/// block parameters. Regression test for TPR-02-002 where
+/// block parameters. Regression test for where
 /// `clear_mutable_names()` silently dropped the assignment in AOT.
 #[test]
 fn test_for_yield_outer_mutable_mutation() {

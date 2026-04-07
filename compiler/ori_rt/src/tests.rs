@@ -438,7 +438,7 @@ fn rc_dec_skips_at_max_refcount() {
 
 // ── Collection Dec Immortal-Path Tests ────────────────────────────
 //
-// Regression: TPR-07-001 — Section 07 extracted rc_dec_to_zero as the
+// Regression: Section 07 extracted rc_dec_to_zero as the
 // shared core, but only ori_rc_inc/ori_rc_dec had immortal-path unit
 // tests. These tests verify that each collection dec entry point
 // correctly skips immortal objects (MAX_REFCOUNT sentinel).
@@ -628,7 +628,7 @@ fn slice_buffer_rc_dec_skips_at_max_refcount() {
 
 // ── Argv Header Propagation ───────────────────────────────────────
 //
-// Regression: TPR-07-004 — ori_args_from_argv stores elem_dec_fn at
+// Regression: ori_args_from_argv stores elem_dec_fn at
 // construction, but no test verified the value propagates through
 // COW/slice header copy. This test creates an argv buffer and verifies
 // the header's elem_dec_fn is populated, then simulates a COW copy

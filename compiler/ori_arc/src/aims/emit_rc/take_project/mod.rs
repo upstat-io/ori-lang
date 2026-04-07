@@ -1,5 +1,5 @@
 //! Take-project facts: per-var lineage + per-source bypass-safe
-//! reachability (TPR-07-011 / TPR-07-016 / TPR-07-017 / TPR-07-019).
+//! reachability (TPR-07-017 / TPR-07-019).
 //!
 //! A **take-project** is a `Project` instruction whose source is a sum
 //! type (`Enum`/`Option`/`Result`) and whose projected payload is a
@@ -8,7 +8,7 @@
 //! Once a take-project executes, the source enum has logically given
 //! up its payload — any subsequent scope-exit `RcDec` that walks the
 //! source's representation would re-free a pointer the consumer
-//! already freed (TPR-07-011 double-free).
+//! already freed (double-free).
 //!
 //! # Two decoupled concepts
 //!
@@ -99,8 +99,8 @@
 //!
 //! # Reference
 //!
-//! - TPR-07-011: initial function-global suppression, double-free fix.
-//! - TPR-07-016: conditional-consume path-sensitivity fix.
+//!: initial function-global suppression, double-free fix.
+//!: conditional-consume path-sensitivity fix.
 //! - TPR-07-017: per-class partitioning via union-find.
 //! - TPR-07-019: membership / lineage split — this module's current
 //!   design. See `plans/repr-opt/section-07-enum-repr.md` §07.R.
@@ -489,7 +489,7 @@ fn compute_lineage_bypass_safe_entries(
 /// exactly once; downstream bypass-safe blocks inherit the dec via
 /// SSA flow.
 ///
-/// **Function entry handling (TPR-07-020)**: the function entry block
+/// **Function entry handling**: the function entry block
 /// has an implicit "outside caller" predecessor that is non-bypass-safe
 /// by definition. Without this special case, a loop-headed function
 /// whose entire loop body is bypass-safe would have NO entry block
@@ -637,7 +637,7 @@ fn union(parent: &mut FxHashMap<ArcVarId, ArcVarId>, a: ArcVarId, b: ArcVarId) {
 ///
 /// The take-project blocks themselves are NOT bypass-safe (they're
 /// in both reachable sets) — `is_ownership_transfer` at the `Project`
-/// site handles their drop per TPR-07-011, and emitting an entry-time
+/// site handles their drop per and emitting an entry-time
 /// dec there would walk the tagged-pointer encoding before the
 /// projection reads its payload.
 ///

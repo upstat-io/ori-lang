@@ -32,7 +32,7 @@ fn test_str_split() {
     );
 }
 
-// Semantic pin: slice strings in tuples — TPR-04-003 fix.
+// Semantic pin: slice strings in tuples
 // str.split() produces seamless slice strings (SLICE_FLAG in cap).
 // When stored in [(str, int)], the per-field RC inc/dec in rc_value_traversal
 // must use ori_str_rc_inc/ori_str_rc_dec (slice-aware), not ori_rc_inc/ori_rc_dec.
@@ -46,7 +46,7 @@ fn test_str_split_in_tuple_list() {
     );
 }
 
-// Semantic pin: slice strings in Option — TPR-04-003 fix.
+// Semantic pin: slice strings in Option
 // Similar to tuple test but exercises Option variant dispatch path.
 
 #[test]
@@ -57,7 +57,7 @@ fn test_str_split_in_option_list() {
     );
 }
 
-// Semantic pin: top-level slice string passed to/from function — TPR-04-003 fix.
+// Semantic pin: top-level slice string passed to/from function
 // str.split() result elements are slice strings. When a slice string is passed
 // as a top-level str parameter (FatPointer RC strategy), emit_rc_inc_fat must
 // use ori_str_rc_inc(data, cap) not ori_rc_inc(data).
@@ -80,7 +80,7 @@ fn test_map_keys_then_use_map() {
     );
 }
 
-// Semantic pin: slice-string clone — TPR-04-004 fix.
+// Semantic pin: slice-string clone
 // str.split() produces seamless slice strings. When clone() is called on a
 // slice str, emit_rc_inc_clone → emit_slice_aware_rc_inc must use
 // ori_str_rc_inc(data, cap), not ori_rc_inc(data).
@@ -95,7 +95,7 @@ fn test_str_split_clone() {
     );
 }
 
-// Semantic pin: slice-string auto-iteration — TPR-04-004 fix.
+// Semantic pin: slice-string auto-iteration
 // When an iterator method (e.g., .map, .any, .count) is called on a str
 // from str.split(), emit_auto_iter → emit_slice_aware_rc_inc must use
 // ori_str_rc_inc(data, cap). Without the fix: crash on auto-iter RcInc
@@ -119,7 +119,7 @@ fn test_set_to_list_str() {
     );
 }
 
-// Semantic pin: TPR-04-006 — splitting a substring (slice-backed string) must not crash.
+// Semantic pin: splitting a substring (slice-backed string) must not crash.
 // ori_str_split now receives str_cap to detect SLICE_FLAG and compute the original
 // allocation base for RC inc. Without the fix: misaligned pointer dereference.
 
@@ -131,7 +131,7 @@ fn test_str_split_on_substring() {
     );
 }
 
-// Semantic pin: derived Clone on struct with slice-string field — TPR-04-005 fix.
+// Semantic pin: derived Clone on struct with slice-string field
 // emit_clone_rc_inc_str() must use ori_str_rc_inc(data, cap), not ori_rc_inc(data).
 // Without the fix: misaligned pointer dereference on ori_rc_inc of interior pointer
 // from str.split() slice strings.
@@ -144,7 +144,7 @@ fn test_derive_clone_slice_str_struct() {
     );
 }
 
-// Semantic pin: derived Clone on struct with Option<str> field — TPR-04-005 fix.
+// Semantic pin: derived Clone on struct with Option<str> field
 // emit_clone_composite_rc_inc recursively processes Option fields, eventually
 // calling emit_clone_rc_inc_str on the inner str. Slice strings must be
 // handled with ori_str_rc_inc(data, cap).
@@ -157,7 +157,7 @@ fn test_derive_clone_slice_str_option() {
     );
 }
 
-// Semantic pin: derived Clone on struct with (str, int) tuple field — TPR-04-005 fix.
+// Semantic pin: derived Clone on struct with (str, int) tuple field
 // emit_clone_composite_rc_inc recursively processes Tuple fields, eventually
 // calling emit_clone_rc_inc_str on the str element. Slice strings must be
 // handled with ori_str_rc_inc(data, cap).
@@ -170,7 +170,7 @@ fn test_derive_clone_slice_str_tuple() {
     );
 }
 
-// Semantic pin: TPR-04-007 — derived Clone on struct with Result<str, str> field.
+// Semantic pin: derived Clone on struct with Result<str, str> field.
 // emit_clone_field_rc_inc must handle Tag::Result by branching on the tag and
 // RC-incrementing the correct variant's payload. Without the fix, Result payloads
 // are never RC-incremented → double-free when both original and clone are dropped.
@@ -183,7 +183,7 @@ fn test_derive_clone_result_str_str() {
     );
 }
 
-// Semantic pin: TPR-04-007 — derived Clone on struct with Result<str, int> field.
+// Semantic pin: derived Clone on struct with Result<str, int> field.
 // Tests the heterogeneous case where Ok type needs RC but Err type is scalar.
 
 #[test]

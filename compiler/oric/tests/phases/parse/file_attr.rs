@@ -172,7 +172,7 @@ fn test_file_attr_invalid_repr() {
     );
 }
 
-// TPR-01-053: Full conditional-attribute matrix (Spec §25)
+// Full conditional-attribute matrix (Spec §25)
 
 #[test]
 fn test_file_attr_target_any_os() {
@@ -273,7 +273,7 @@ fn test_file_attr_target_not_arch_with_os() {
     }
 }
 
-// TPR-01-055: Feature name identifier validation (Spec §25.3.2)
+// Feature name identifier validation (Spec §25.3.2)
 
 #[test]
 fn test_cfg_feature_valid_identifier() {
@@ -381,7 +381,7 @@ fn test_file_attr_unknown_name() {
     parse_err("#!foobar()\n@main () -> void = ();", "unknown attribute");
 }
 
-// TPR-01-054: Item-level conditional attributes (Spec §25.4)
+// Item-level conditional attributes (Spec §25.4)
 
 #[test]
 fn test_item_target_on_function() {
@@ -455,7 +455,7 @@ fn test_item_target_multifield_on_function() {
     assert!(target.arch.is_some(), "arch should be set");
 }
 
-// TPR-01-056: Item-level conditional attrs on constants (Spec §25.4)
+// Item-level conditional attrs on constants (Spec §25.4)
 
 #[test]
 fn test_item_target_on_const() {
@@ -486,7 +486,7 @@ fn test_const_without_conditional_attrs() {
     assert!(c.cfg_attr.is_none(), "no cfg_attr expected");
 }
 
-// TPR-01-056: Item-level conditional attrs on impl blocks (Spec §25.4)
+// Item-level conditional attrs on impl blocks (Spec §25.4)
 
 #[test]
 fn test_item_target_on_impl() {
@@ -521,7 +521,7 @@ fn test_impl_without_conditional_attrs() {
     assert!(imp.cfg_attr.is_none(), "no cfg_attr expected");
 }
 
-// TPR-01-056: Item-level conditional attrs on imports (Spec §25.4)
+// Item-level conditional attrs on imports (Spec §25.4)
 
 #[test]
 fn test_item_target_on_use() {

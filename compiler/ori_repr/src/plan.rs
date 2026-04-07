@@ -82,7 +82,7 @@ pub struct ReprPlan {
     /// Stored **separately** from `decisions` because RC strategy is metadata
     /// about how a value is reference-counted, not a replacement for its
     /// layout. Writing an RC decision must not destroy the type's
-    /// `MachineRepr` (TPR-01-022). Populated by ARC header compression
+    /// `MachineRepr`. Populated by ARC header compression
     /// and thread-local ARC passes.
     rc_strategies: FxHashMap<Idx, RcStrategy>,
     /// Per-function escape info (indexed by function `Name`).
@@ -111,7 +111,7 @@ pub struct ReprPlan {
     /// Narrowing policy controlling optimization aggressiveness.
     narrowing_policy: NarrowingPolicy,
     /// Type indices declared `pub` — their layout is part of the ABI
-    /// contract and must NOT be narrowed (TPR-04-005).
+    /// contract and must NOT be narrowed.
     ///
     /// Populated at plan construction from type checker visibility info.
     pub_type_indices: FxHashSet<Idx>,
@@ -124,7 +124,6 @@ pub struct ReprPlan {
     ///
     /// Using `(Option<Idx>, Name)` prevents bare-Name collisions where a
     /// trait impl method and an unrelated inherent method share a name
-    /// (TPR-03-042).
     ///
     /// Closures are handled separately via `ArcFunction::num_captures > 0`.
     unconstrained_fn_names: FxHashSet<(Option<Idx>, Name)>,
@@ -285,7 +284,7 @@ impl ReprPlan {
     /// Register type indices that are declared `pub`.
     ///
     /// Public types have ABI contracts with external code — their field
-    /// layouts must not be narrowed by integer narrowing (TPR-04-005).
+    /// layouts must not be narrowed by integer narrowing.
     pub fn set_pub_type_indices(&mut self, indices: impl IntoIterator<Item = Idx>) {
         self.pub_type_indices.extend(indices);
     }
@@ -320,7 +319,7 @@ impl ReprPlan {
     ///
     /// `self_type` is the first parameter's type for impl methods, or `None`
     /// for top-level functions. This disambiguates same-named methods across
-    /// different types (TPR-03-042).
+    /// different types.
     ///
     /// A function is unconstrained if:
     /// - It's a pub top-level function: `(None, name)` is in the set, OR
@@ -329,17 +328,16 @@ impl ReprPlan {
     pub fn is_unconstrained_fn(&self, self_type: Option<Idx>, name: Name) -> bool {
         // Exact match only: (None, name) for pub top-level, (Some(idx), name) for
         // trait impl methods. No wildcard fallback — a pub top-level `foo` must NOT
-        // make an unrelated impl method `Type.foo` unconstrained (TPR-03-042).
+        // make an unrelated impl method `Type.foo` unconstrained.
         self.unconstrained_fn_names.contains(&(self_type, name))
     }
 
     /// Check if this specific function (by its ARC-lowered name) is unconstrained.
     ///
     /// Used for analysis-only ARC functions with type-qualified names
-    /// (TPR-03-044, TPR-03-046). Both base names (`__impl_42_index`) and
+    /// Both base names (`__impl_42_index`) and
     /// ordinal-suffixed names (`__impl_42_index_1`) are registered by
     /// `collect_unconstrained_fn_names()`, so exact match is sufficient
-    /// (TPR-03-053).
     #[must_use]
     pub fn is_qualified_unconstrained(&self, qualified_name: Name) -> bool {
         self.unconstrained_fn_names
@@ -363,7 +361,7 @@ impl ReprPlan {
     }
 
     /// Mark that the analysis set includes functions not fully integrated
-    /// into the codegen pipeline (TPR-03-041).
+    /// into the codegen pipeline.
     ///
     /// When set, integer/float narrowing and per-variable range storage are
     /// suppressed to prevent ABI-mismatched struct layouts.

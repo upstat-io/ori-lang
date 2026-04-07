@@ -384,7 +384,7 @@ fn backend_required_methods_in_eval() {
 /// transparency) and linear consumption (move-only ownership) are
 /// independent concepts — iterators are both. The iterator method
 /// receiver was previously marked `Borrow` as a workaround, which
-/// caused memory leaks (TPR-07-008). The SSOT is now honest: these
+/// caused memory leaks. The SSOT is now honest: these
 /// methods are `Owned + pure`.
 ///
 /// Also verifies that at least 30% of methods are marked pure (catches
@@ -398,7 +398,7 @@ fn pure_method_sanity() {
 
     for type_def in BUILTIN_TYPES {
         // Iterator methods are pure + Owned (see doc comment above).
-        // TPR-07-008: previously `Borrow` as a workaround for the ARC
+        // previously `Borrow` as a workaround for the ARC
         // pipeline treating iterators as trivial; that workaround
         // leaked memory and is now fixed at the SSOT.
         let is_iterator = matches!(

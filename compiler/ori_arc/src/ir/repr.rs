@@ -158,7 +158,7 @@ pub enum RcStrategy {
     /// bypassing the `ori_rc_dec` path which would dereference a
     /// non-existent refcount header.
     ///
-    /// Spec: TPR-07-008 — previously iterators were classified as
+    /// Spec: previously iterators were classified as
     /// `Scalar` (no cleanup emitted at all), leaking the Box-allocated
     /// state in any container that held an unconsumed iterator.
     Iterator,
@@ -181,7 +181,7 @@ impl RcStrategy {
                 Self::HeapPointer
             }
             ValueRepr::RcPointer => {
-                // TPR-07-008: iterators map to `ValueRepr::RcPointer` but
+                // iterators map to `ValueRepr::RcPointer` but
                 // need `ori_iter_drop`, not `ori_rc_dec`. Route them
                 // through the dedicated `Iterator` strategy before
                 // defaulting to `HeapPointer`.

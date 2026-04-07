@@ -76,7 +76,7 @@ pub(in crate::codegen::derive_codegen) fn variant_field_types(fields: &VariantFi
 
 /// Extract non-void field type indices from a `VariantFields`.
 ///
-/// BUG-04-008 / TPR-07-006: Unit/Never fields are zero-sized and don't
+/// Unit/Never fields are zero-sized and don't
 /// occupy payload space in the LLVM enum layout (`resolve_enum()` skips
 /// them). Derive codegen must also skip them to keep offsets in sync.
 pub(in crate::codegen::derive_codegen) fn variant_non_void_field_types(

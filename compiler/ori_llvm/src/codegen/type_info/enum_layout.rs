@@ -82,7 +82,7 @@ impl<'ll> TypeLayoutResolver<'_, 'll, '_> {
         // compute_variant_field_offsets() in drop_enum.rs and
         // enum_payload_size() / pool_type_store_size() in ori_arc.
         //
-        // BUG-04-008: Unit/Never fields are zero-sized in Ori's type system
+        // Unit/Never fields are zero-sized in Ori's type system
         // but map to i64 in LLVM (because LLVM void can't be stored/phi'd).
         // Skip them here so they don't inflate the payload size.
         let mut max_payload_bytes: u64 = 0;

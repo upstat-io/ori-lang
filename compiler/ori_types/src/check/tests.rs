@@ -250,9 +250,9 @@ fn exported_metadata_multiple_imported_modules() {
     assert!(hashes.contains(&0xD001));
 }
 
-// --- Transitive collection-surface forwarding tests (TPR-04-041) ---
+// --- Transitive collection-surface forwarding tests ---
 
-/// Regression: TPR-04-041 — the A→B→C collection-surface forwarding path must
+/// Regression: the A→B→C collection-surface forwarding path must
 /// be pinned end-to-end. Module C exports a public `[int]` function. Module B
 /// imports C (no own public collection functions). Module A imports B. C's
 /// collection surface hash must propagate transitively through B to A.

@@ -47,7 +47,7 @@ fn test_str_list_mixed_sso_heap() {
     );
 }
 
-// TPR-04-010: Semantic pin — slice-backed string through string methods
+// Semantic pin — slice-backed string through string methods
 
 /// `substring(...).to_uppercase()` must not crash on slice-backed strings.
 /// Without the `is_slice_cap` guard, `ori_rc_is_unique` dereferences an
@@ -69,7 +69,7 @@ fn test_split_first_to_lowercase() {
     );
 }
 
-// TPR-04-011: Semantic pin — repeat(1) must not double-free
+// Semantic pin — repeat(1) must not double-free
 
 /// `s.repeat(count: 1)` must return an owned string, not alias the original.
 /// Without the fix, RC double-free when both original and result are live.
@@ -90,7 +90,7 @@ fn test_substring_repeat_one() {
     );
 }
 
-// TPR-04-012: Semantic pin — concat("") must not double-free
+// Semantic pin — concat("") must not double-free
 
 /// `heap_str + ""` must return an owned result, not alias the operand.
 #[test]

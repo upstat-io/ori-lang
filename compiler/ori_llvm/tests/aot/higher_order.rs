@@ -566,7 +566,7 @@ fn test_multi_inst_wrap_lambda() {
     );
 }
 
-/// Semantic pin: TPR-05-001 — polymorphic lambda returning a tuple, instantiated
+/// Semantic pin: polymorphic lambda returning a tuple, instantiated
 /// at int and str. Exercises the `Tag::Tuple` branches in `type_predicates.rs`
 /// (`contains_var`, `contains_bound_var`, `map_types_structural`).
 #[test]
@@ -577,7 +577,7 @@ fn test_multi_inst_tuple_lambda() {
     );
 }
 
-/// Semantic pin: TPR-05-001 — polymorphic lambda returning a map, instantiated
+/// Semantic pin: polymorphic lambda returning a map, instantiated
 /// at int and str value types. Exercises the `Tag::Map` branches in `type_predicates.rs`
 /// (`contains_var`, `contains_bound_var`, `map_types_structural`).
 #[test]

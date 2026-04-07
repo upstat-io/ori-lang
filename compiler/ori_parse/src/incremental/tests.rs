@@ -230,7 +230,7 @@ fn test_parse_incremental_insert() {
     assert_eq!(new_result.module.functions.len(), 2);
 }
 
-// TPR-01-060: Incremental parsing must preserve file-level attributes.
+// Incremental parsing must preserve file-level attributes.
 #[test]
 fn test_incremental_preserves_file_attr_target() {
     use crate::{parse, parse_incremental};
@@ -306,7 +306,7 @@ fn test_incremental_preserves_file_attr_cfg() {
     );
 }
 
-// TPR-01-061: Incremental parsing must thread leftover attrs to first declaration.
+// Incremental parsing must thread leftover attrs to first declaration.
 #[test]
 fn test_incremental_preserves_first_decl_target_attr() {
     use crate::{parse, parse_incremental};
@@ -384,7 +384,7 @@ fn test_incremental_preserves_first_decl_cfg_attr_after_import() {
     );
 }
 
-// TPR-01-063: Incremental parsing must not leak leftover attrs to reparsed declarations.
+// Incremental parsing must not leak leftover attrs to reparsed declarations.
 // When the first declaration is reused (outside change region), leftover_attrs from
 // parse_imports() must be consumed on the reuse path so they don't leak to the next
 // fresh-parsed declaration.
@@ -486,7 +486,7 @@ fn test_incremental_reuse_consumes_leftover_cfg_attrs() {
     );
 }
 
-// TPR-01-062: Orphaned attrs at EOF must produce errors on the incremental path.
+// Orphaned attrs at EOF must produce errors on the incremental path.
 #[test]
 fn test_incremental_orphan_attrs_at_eof_produce_error() {
     use crate::{parse, parse_incremental};

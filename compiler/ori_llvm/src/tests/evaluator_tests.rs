@@ -124,7 +124,7 @@ fn test_compile_module_with_tests_empty() {
     );
 }
 
-/// Regression: TPR-03-053 — ordinal-qualified names are registered as unconstrained.
+/// Regression: ordinal-qualified names are registered as unconstrained.
 ///
 /// When two trait impls on the same type share a method name (e.g., two `Index`
 /// impls with `@index`), `collect_unconstrained_fn_names()` must register both

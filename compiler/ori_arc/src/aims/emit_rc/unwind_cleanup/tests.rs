@@ -89,7 +89,7 @@ fn invoke_indirect_resume_inserts_iter_drop() {
     {
         assert_eq!(*f, iter_drop_name, "should call ori_iter_drop");
         assert_eq!(args.len(), 1, "ori_iter_drop takes one arg");
-        // TPR-07-012: `ori_iter_drop` consumes the iterator handle.
+        // `ori_iter_drop` consumes the iterator handle.
         // The ownership contract must match
         // `ProtocolBuiltin::IterDrop.arg_ownership()` which is `Owned`
         // post-TPR-07-008. Previously `Borrowed` here was a shadow
@@ -212,7 +212,7 @@ fn invoke_indirect_no_live_iterators_no_cleanup() {
     );
 }
 
-/// TPR-07-014 semantic pin: an iterator created on a sibling branch
+/// semantic pin: an iterator created on a sibling branch
 /// that CANNOT reach the Invoke block must NOT be treated as live
 /// at that Invoke. The previous check used block-ordering
 /// (`create_block <= invoke_block_idx`), which silently treated
@@ -303,7 +303,7 @@ fn sibling_branch_iterator_not_live_at_invoke() {
 
     // bb4 (the Resume unwind block) must remain empty. The iterator
     // created in bb1 is on a sibling branch that never reaches bb2,
-    // so it cannot be "live" at bb2's Invoke. Before TPR-07-014 the
+    // so it cannot be "live" at bb2's Invoke. Before the
     // filter used `create_block <= invoke_block_idx` (1 <= 2 → true)
     // and synthesized a spurious `ori_iter_drop` here.
     assert!(
