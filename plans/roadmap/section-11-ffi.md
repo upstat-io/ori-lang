@@ -209,9 +209,10 @@ extern "c" from "foo" {
 
 - [ ] **Types**: Add C primitive types
   - [ ] Add `CPtr` to type system
-  - [ ] Add C type aliases (`c_int`, `c_long`, etc.)
-  - [ ] Size/alignment handling
-  - [ ] Platform-dependent sizes
+  - [ ] Add C type aliases (`c_int`, `c_long`, etc.) with correct Pool widths
+  - [ ] Size/alignment handling — c_char=i8, c_short=i16, c_int=i32, c_longlong=i64, c_float=f32, c_double=f64
+  - [ ] Platform-dependent sizes (`c_long`, `c_size`) — i32 on Win64/ILP32, i64 on LP64
+  - [ ] **Fixes BUG-02-004**: Replace `resolve_ffi_concrete()` (well_known/mod.rs:327) which currently collapses ALL c_* types to `Idx::INT`/`Idx::FLOAT` (i64/f64), losing C ABI widths. Touches: `ori_types/pool/` (new Tag variants + Idx constants), `ori_types/check/well_known/`, `ori_llvm/codegen/type_info/store.rs` (new TypeInfo variants), `ori_repr/` (triviality), `ori_eval/` (Value representation decision). Decide: implicit `int` ↔ `c_int` promotion vs explicit cast (resolves spec ambiguity). Pool resolution-redirect path was added by BUG-04-021 fix as a placeholder for ARC classification — must be removed in favor of proper variants.
 
 - [ ] **Type checker**: FFI type validation
   - [ ] Warn on non-FFI-safe types
