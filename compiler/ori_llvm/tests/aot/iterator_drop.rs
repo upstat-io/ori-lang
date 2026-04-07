@@ -124,6 +124,26 @@ fn tpr_07_013_result_match_unused_binding_no_leak() {
     );
 }
 
+/// TPR-07-016 semantic pin: path-sensitive take-project suppression.
+/// The TPR-07-011 fix suppressed the source enum's scope-exit drop
+/// function-globally when a take-project reaches the source chain.
+/// That's too coarse: on runtime paths that never reach the
+/// projection (e.g., `if false then match x { Holds(it) -> ... }
+/// else 0`), the source enum leaks because the global suppression
+/// also disables the drop on the non-projecting path.
+///
+/// The correct behavior is path-sensitive: the drop is suppressed
+/// on paths that actually execute the projection, retained on paths
+/// that don't. Codex iteration 6 found this gap with an
+/// `if flag then <match with consume> else 0` repro.
+#[test]
+fn tpr_07_016_enum_conditional_consume_no_leak() {
+    assert_aot_success(
+        include_str!("fixtures/iterator_drop/enum_conditional_consume.ori"),
+        "tpr_07_016_enum_conditional_consume",
+    );
+}
+
 // Note: the explicit-tag enum case (≥9 variants carrying an
 // iterator payload) is blocked by BUG-04-044 — the Construct path
 // emits `insertvalue [N x i64], ptr` without ptrtoint casting the

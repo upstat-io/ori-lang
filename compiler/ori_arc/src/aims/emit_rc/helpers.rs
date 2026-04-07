@@ -40,6 +40,25 @@ pub(crate) struct BlockCtx<'a> {
     /// child (direct Project destinations or their Let aliases). Used to defer
     /// parent `RcDec` until all borrowed children are dead.
     pub(crate) child_effective_last_use: &'a FxHashMap<ArcVarId, LastUse>,
+    /// TPR-07-016: path-sensitive take-project must-move facts.
+    /// A move is recorded per alias class at the `Project`
+    /// instruction and propagated forward with intersection at merge
+    /// points. Consumers use:
+    ///
+    /// - `take_move_facts.moved_at_entry(blk)` for block-local
+    ///   cleanup decisions (skip the drop if proven moved on every
+    ///   path into the block).
+    /// - `take_move_facts.moved_at_exit(pred)` for edge-specific
+    ///   cleanup (emit the drop on edges where the move has NOT
+    ///   happened, skip on edges where it has).
+    /// - `take_move_facts.is_in_class(var)` to detect whether the
+    ///   variable participates in the analysis at all — variables
+    ///   outside every class should be cleaned up normally.
+    ///
+    /// See TPR-07-011 (initial take-project suppression) and
+    /// TPR-07-016 (the path-sensitive refinement) in
+    /// `plans/repr-opt/section-07-enum-repr.md`.
+    pub(crate) take_move_facts: &'a super::take_project::TakeMoveFacts,
 }
 
 /// Where a variable is last used within a block.
@@ -109,17 +128,6 @@ pub(crate) fn is_owned_at_entry(
     all_borrowed_defs: &FxHashSet<ArcVarId>,
 ) -> bool {
     if state_map.is_excluded(var) {
-        return false;
-    }
-    // TPR-07-011: take-project source chains are "moved" — the source
-    // enum has logically given up its payload. Even if the AIMS
-    // lattice still reports `access == Owned` (the backward analysis
-    // doesn't model unique-owned moves), treat the variable as not
-    // owned so no scope-exit `RcDec` is emitted. Without this,
-    // `emit_dead_at_entry_decs` would walk the tagged-pointer encoding
-    // and call `ori_iter_drop` on a payload that was already consumed
-    // by the projected variable's consumer, double-freeing the Box.
-    if all_borrowed_defs.contains(&var) {
         return false;
     }
     let entry_state = state_map.var_state_at_block_entry(blk, var);

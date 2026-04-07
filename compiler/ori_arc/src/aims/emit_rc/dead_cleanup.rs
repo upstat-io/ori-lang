@@ -73,6 +73,43 @@ pub(crate) fn emit_dead_at_entry_decs(
             ) {
                 continue;
             }
+            // TPR-07-016: take-project alias-class members on
+            // bypass-safe blocks get routed via `merge_edge_decs`
+            // BEFORE the use_info check.
+            //
+            // A bypass-safe block is one that is NEITHER forward-
+            // nor backward-reachable from any take-project — the
+            // source enum is still live AND will never be consumed
+            // by a take-project on any reachable path. Routing here
+            // dispatches to `route_merge_edge_decs` →
+            // `emit_edge_cleanup`, which emits the dec on the
+            // single-pred edge into this block.
+            //
+            // The bypass-safe gate is essential: without it, an
+            // unconditional in-class route would emit a
+            // pre-take-project dec on the take-project block (or
+            // any block that reaches it), causing a use-after-free
+            // on the iter payload that the take-project still needs
+            // to consume. With it, the routing fires only on paths
+            // where the take-project is unreachable — exactly the
+            // bypass paths that TPR-07-016 is about.
+            //
+            // The check fires BEFORE `use_info`/`is_live_at_exit`
+            // because alias-chain "uses" on bypass-safe blocks
+            // (e.g., a `Let { dst, Var(src) }` whose dst is a dead
+            // jump arg) are SSA-only and don't dereference the
+            // value: the dec walks the tagged-pointer encoding
+            // (`ori_iter_drop` on the payload) without invalidating
+            // the source variable's bit pattern, so any subsequent
+            // alias read stays safe.
+            if ctx.take_move_facts.is_in_class(var)
+                && ctx.take_move_facts.is_bypass_safe_block(ctx.blk.index())
+            {
+                if let Some(strategy) = rc_strategy(ctx.func, var, ctx.pool) {
+                    merge_edge_decs.push((var, strategy));
+                }
+                continue;
+            }
             if ctx.use_info.contains_key(&var) || is_live_at_exit(ctx.state_map, ctx.blk, var) {
                 continue;
             }
@@ -115,10 +152,24 @@ pub(crate) fn emit_dead_at_entry_decs(
     }
 
     // Source 2: block parameters absent from entry_states.
-    // These are parameters that generated no backward demand (never used in
-    // this block or any successor). They still need RcDec if they carry
-    // RC-managed values (e.g., mutable-scope list variables passed through
-    // loop exit blocks).
+    emit_dead_block_param_decs(ctx, new_body);
+
+    (deferred_parents, merge_edge_decs)
+}
+
+/// Emit `RcDec` for block parameters that generated no backward demand
+/// (never used in this block or any successor) but still carry RC-managed
+/// values (e.g., mutable-scope list variables passed through loop exit
+/// blocks). Variables that the take-project dataflow proves moved are
+/// skipped per TPR-07-016. In-class block params are SKIPPED entirely
+/// rather than routed: they are SSA aliases of the take-project source
+/// (via Jump-arg → block-param propagation), and the source enum's
+/// natural scope-exit drops in the predecessors already handle cleanup.
+/// Routing the param's `ArcVarId` to a predecessor would emit an `RcDec`
+/// using a name that has no SSA definition reachable from the
+/// predecessor — the LLVM emitter resolves the param ID to the merge
+/// block's phi node, producing a phi-dominance violation.
+fn emit_dead_block_param_decs(ctx: &BlockCtx<'_>, new_body: &mut Vec<ArcInstr>) {
     let entry_states = ctx.state_map.block_entry_states(ctx.blk);
     let block = &ctx.func.blocks[ctx.blk.index()];
     for &(param_var, _param_ty) in &block.params {
@@ -146,12 +197,19 @@ pub(crate) fn emit_dead_at_entry_decs(
         if ctx.iter_element_defs.contains(&param_var) {
             continue;
         }
-        // TPR-07-011: skip take-project source chains — the parent
-        // enum has logically given up its payload, and emitting a
-        // scope-exit `RcDec` would walk the tagged-pointer encoding
-        // and call `ori_iter_drop` on a payload already consumed by
-        // the projected variable's consumer (double-free).
-        if ctx.all_borrowed_defs.contains(&param_var) {
+        // TPR-07-016: take-project must-move handling for block params.
+        //
+        // Skip in-class block params entirely. A block param that
+        // belongs to a take-project alias class is just an SSA name
+        // for whichever incoming Jump arg (also in the class) flows
+        // through this merge. The source enum's actual scope-exit
+        // drops are emitted at natural death sites in the
+        // predecessors (e.g., the non-projecting branch's
+        // `RcDec %5`), and the take-project at its `Project` site
+        // is already an `is_ownership_transfer` so its source isn't
+        // re-dropped (TPR-07-011). Emitting another drop here would
+        // be a redundant double-free on the bypass path.
+        if ctx.take_move_facts.is_in_class(param_var) {
             continue;
         }
         if let Some(strategy) = rc_strategy(ctx.func, param_var, ctx.pool) {
@@ -161,8 +219,6 @@ pub(crate) fn emit_dead_at_entry_decs(
             });
         }
     }
-
-    (deferred_parents, merge_edge_decs)
 }
 
 /// Sweep for dead Invoke result variables across all blocks.
