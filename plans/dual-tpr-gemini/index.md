@@ -13,7 +13,7 @@
 ## Keyword Clusters by Section
 
 ### Section 01: Contracts + foundation
-**File:** `section-01-contracts-foundation.md` | **Status:** In Progress
+**File:** `section-01-contracts-foundation.md` | **Status:** Complete (gates deferred)
 
 ```
 findings-schema.json, envelope schema, JSON schema, SSOT, single source of truth

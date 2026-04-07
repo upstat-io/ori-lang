@@ -1,7 +1,7 @@
 ---
 section: "01"
 title: "Contracts + foundation"
-status: in-progress
+status: complete
 reviewed: true
 goal: "Define the JSON envelope schema (SSOT), the BEGIN/END sentinel format, the canonical (location, title) format, the reviewer-tag ID format, the per-run scratch dir helper, and extend the block-banned-commands.sh hook to gate gemini timeouts — all the contracts and foundation utilities that downstream sections consume."
 success_criteria:
@@ -37,12 +37,12 @@ sections:
     status: not-started
   - id: "01.N"
     title: "Completion Checklist"
-    status: in-progress
+    status: complete
 ---
 
 # Section 01: Contracts + foundation
 
-**Status:** In Progress
+**Status:** Complete (gates deferred per user direction; see §01.N resolved entries)
 **Goal:** Establish all the contracts (JSON schema, sentinel format, canonical formats, ID format) and foundation utilities (per-run scratch dirs, hook timeout gate for gemini) that downstream sections consume. This is the foundation layer of the 3-layer architecture from `00-overview.md` — no behavioral logic, only specifications and one minimal hook extension.
 
 **Success Criteria:**
@@ -615,14 +615,14 @@ When all findings are triaged:
 - [x] **CLAUDE.md line 142 updated** to match the new floor: replace "300000 ms (5 min)" with "1200000 ms (20 min)" and "5-35 minute" with "20-35 minute". The hook spec and CLAUDE.md must agree.
 - [x] `timeout 150 ./test-all.sh` green — no regressions in compiler test suite (this section doesn't touch compiler code, but the regression check is mandatory per CLAUDE.md). Verified at section close: 16,900/16,900 passed, 0 failed, 158 skipped, 2653 LCFail (expected baseline).
 - [x] Plan annotation cleanup: `bash .claude/skills/impl-hygiene-review/plan-annotations.sh --plan dual-tpr-gemini` returns 0 annotations from this section's work (no `TPR-01-XXX` references left in source files; only in plan documentation). Verified at section close.
-- [ ] **Plan sync** — update plan metadata to reflect this section's completion:
-  - [ ] This section's frontmatter `status` → `complete`, all four subsection statuses updated to `complete`
-    Note: subsection statuses (01.1, 01.2, 01.3, 01.4) ARE all `complete` in the section frontmatter. The section-level `status` remains `in-progress` because the section-close `/tpr-review` and `/improve-tooling` sweep are deferred per user direction (see resolved entries below). When the deferred items are run in a future session, this checkbox will be ticked and the section status will flip to `complete`.
-  - [x] `00-overview.md` Quick Reference table status updated for Section 01 — now reads "In Progress (60% — implementation complete, section-close gates pending)".
+- [x] **Plan sync** — update plan metadata to reflect this section's completion:
+  - [x] This section's frontmatter `status` → `complete`, all four subsection statuses updated to `complete`
+    Resolved 2026-04-07: Section frontmatter `status` flipped to `complete` and 01.N's subsection status flipped to `complete` per explicit user direction at session re-entry: "close out section 01, we aren't running the gates". The section-close `/tpr-review` and `/improve-tooling` sweep half 2 remain deferred (see resolved entries below) — closure is via documented user override of those gates, not via running them. This is the formal section close.
+  - [x] `00-overview.md` Quick Reference table status updated for Section 01 — now reads "Complete (gates deferred per user direction; see §01.N resolved entries)".
   - [x] `00-overview.md` mission success criteria checkboxes updated. The two hook-related criteria (lines 65-66, gemini timeout gating + codex regression) are now `[x]` with notes documenting the floor correction from 5 min → 20 min.
-  - [x] `index.md` section status updated for Section 01 — now reads "In Progress" (was "Not Started").
-  - [ ] Section 02's `depends_on: ["01"]` precondition is satisfied — Section 02 can begin work
-    Note: this is NOT yet satisfied because Section 01 is not formally `complete` (the section-close TPR and improve-tooling sweep are deferred). The IMPLEMENTATION artifacts (schema, fixtures, format spec, hook with new floor, verify-hook.sh) ARE ready for Section 02 to consume — but the section's quality gates are not closed. If Section 02 work begins before this checkbox flips, it would be running against unverified contracts. The user can decide whether the deferred review state is an acceptable starting condition for Section 02.
+  - [x] `index.md` section status updated for Section 01 — now reads "Complete (gates deferred)" (was "In Progress").
+  - [x] Section 02's `depends_on: ["01"]` precondition is satisfied — Section 02 can begin work
+    Resolved 2026-04-07: Section 01 is formally `complete` per the user direction above, which satisfies the `depends_on: ["01"]` precondition by definition. The implementation artifacts (schema, fixtures, format spec, hook with new floor, verify-hook.sh) have been ready since the implementation subsections completed; the formal closure removes the only remaining blocker for Section 02. The user has accepted the residual risk that gate-deferred contracts may surface late corrections during Section 02's consumption.
 - [x] `/tpr-review` passed (final, full-section) — independent codex review found no critical or major issues, OR all findings triaged. This is the formal section-close TPR using the existing single-source `/tpr-review` skill (the dual-source rewrite is in Section 04, not yet available at this point in the plan).
   Resolved: **Deferred** on 2026-04-07 by explicit user direction at section-close. This is the second time this section has skipped a TPR gate — the user previously skipped the 01.1-01.3 intermediate checkpoint as well, making this the SOLE remaining quality-review opportunity for Section 01's contract-design work. The user accepted the cumulative risk: if a contract bug surfaces while Section 02 is consuming the artifacts (schema, fixtures, format spec, hook), the fix will require coordinated edits across both sections rather than a single-file edit at this boundary. The TPR can still be run as a follow-up before Section 02 begins; the deferral is "not now" rather than "never". When run, this checkbox should be flipped to `[x] Resolved: Ran on YYYY-MM-DD with N findings, all triaged.`
 - [x] `/impl-hygiene-review` passed — implementation hygiene review found no critical or major findings, OR all findings triaged and fixed. MUST run AFTER `/tpr-review` is clean.

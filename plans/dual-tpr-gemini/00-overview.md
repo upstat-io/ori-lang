@@ -464,7 +464,7 @@ Bugs discovered during Phase 2 research that affect this plan's scope:
 
 | ID | Title | File | Status |
 |----|-------|------|--------|
-| 01 | Contracts + foundation | `section-01-contracts-foundation.md` | In Progress (60% — implementation complete, section-close gates pending) |
+| 01 | Contracts + foundation | `section-01-contracts-foundation.md` | Complete (gates deferred per user direction; see §01.N resolved entries) |
 | 02 | Shared transport utility | `section-02-transport.md` | Not Started |
 | 03 | Reviewer surface preparation | `section-03-reviewer-surface.md` | Not Started |
 | 04 | /tpr-review dual-source (validation case) | `section-04-tpr-review.md` | Not Started |
