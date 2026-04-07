@@ -62,8 +62,8 @@ The mission is complete when ALL of these are true:
 - [ ] At least one Gemini finding in real review output demonstrably includes a `google_web_search` source citation when reviewing a claim about an external library, language specification, prior art comparison, or recent development
 - [ ] At least one observed agreement case (both reviewers flagged the same `(location, title)` pair) demonstrated in a real review run
 - [ ] At least one observed disagreement case (different findings from the two reviewers) demonstrated and surfaced explicitly in plan output (no auto-resolution)
-- [ ] `.claude/hooks/block-banned-commands.sh` denies `gemini` command invocations with `timeout: 60000` (under the 300000ms minimum) and `timeout: 3600000` (over the 2100000ms maximum) — verified by direct test invocation
-- [ ] `.claude/hooks/block-banned-commands.sh` denies `codex` invocations the same way — regression test (existing behavior preserved)
+- [x] `.claude/hooks/block-banned-commands.sh` denies `gemini` command invocations with `timeout: 60000` and `timeout: 600000` (under the 1200000ms / 20-min minimum) and `timeout: 3600000` (over the 2100000ms / 35-min maximum) — verified by the 9-test matrix in `.claude/hooks/verify-hook.sh`. Floor was raised from 5 min to 20 min during 01.4 implementation: reviews barely ever finish in under 10 minutes, and the operational sweet spot is 20-35 min, so a 5-min floor was insufficient protection against mid-stream review kills.
+- [x] `.claude/hooks/block-banned-commands.sh` denies `codex` invocations the same way (with the new 20-min floor applied uniformly) — regression test preserved via `verify-hook.sh` tests 1-4.
 - [ ] Standalone `codex exec /review-work` (and standalone `codex exec /review-plan`) outside of Claude orchestration continues to work unchanged — regression test passes against `.codex/skills/review-{work,plan}/SKILL.md` in `plan-write` mode
 - [ ] Dirty-worktree guard catches reviewer prompt-discipline violations: when a test reviewer prompt deliberately attempts to modify a tracked source file, the orchestrator detects the change via `git status --porcelain` and surfaces the diff to the user
 - [ ] Infra retry logic recovers from transient reviewer failures within the 3-retry budget — verified by fault injection (truncated JSONL, missing terminal event, nonzero exit code)
@@ -155,7 +155,7 @@ The mission is complete when ALL of these are true:
                             │  Per-run mktemp -d helper         │
                             │  block-banned-commands.sh hook    │
                             │    gates BOTH codex AND gemini    │
-                            │    timeouts (5–35 min window)     │
+                            │    timeouts (20–35 min window)    │
                             └───────────────────────────────────┘
 ```
 
@@ -464,7 +464,7 @@ Bugs discovered during Phase 2 research that affect this plan's scope:
 
 | ID | Title | File | Status |
 |----|-------|------|--------|
-| 01 | Contracts + foundation | `section-01-contracts-foundation.md` | Not Started |
+| 01 | Contracts + foundation | `section-01-contracts-foundation.md` | In Progress (60% — implementation complete, section-close gates pending) |
 | 02 | Shared transport utility | `section-02-transport.md` | Not Started |
 | 03 | Reviewer surface preparation | `section-03-reviewer-surface.md` | Not Started |
 | 04 | /tpr-review dual-source (validation case) | `section-04-tpr-review.md` | Not Started |
