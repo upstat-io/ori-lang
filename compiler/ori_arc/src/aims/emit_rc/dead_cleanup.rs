@@ -54,6 +54,15 @@ pub(crate) fn emit_dead_at_entry_decs(
             .any(|&(p, _)| p == v)
     };
 
+    // TPR-07-016 / TPR-07-017: track which take-project alias classes
+    // have already received a bypass-safe scope-exit dec in this block,
+    // so multiple alias siblings (e.g., %5 and its Let alias %19) in
+    // entry_states do not all emit a redundant drop on the same
+    // underlying value. A single `RcDec` on any class member walks the
+    // tagged-pointer encoding once and drops the payload — emitting
+    // one per alias would double-free.
+    let mut classes_dec_emitted: FxHashSet<usize> = FxHashSet::default();
+
     // Source 1: variables in entry_states.
     if let Some(entry_states) = ctx.state_map.block_entry_states(ctx.blk) {
         for (&var, &state) in entry_states {
@@ -73,41 +82,66 @@ pub(crate) fn emit_dead_at_entry_decs(
             ) {
                 continue;
             }
-            // TPR-07-016: take-project alias-class members on
-            // bypass-safe blocks get routed via `merge_edge_decs`
-            // BEFORE the use_info check.
+            // TPR-07-016 / TPR-07-017: take-project alias-class
+            // members get a single scope-exit drop at the entry edge
+            // of the per-class bypass-safe region.
             //
-            // A bypass-safe block is one that is NEITHER forward-
-            // nor backward-reachable from any take-project — the
-            // source enum is still live AND will never be consumed
-            // by a take-project on any reachable path. Routing here
-            // dispatches to `route_merge_edge_decs` →
-            // `emit_edge_cleanup`, which emits the dec on the
-            // single-pred edge into this block.
+            // A block is BYPASS-SAFE for a class iff it is NEITHER
+            // forward- nor backward-reachable from any take-project
+            // in that class. A block is a BYPASS-SAFE ENTRY iff it
+            // is bypass-safe AND at least one of its CFG predecessors
+            // is NOT bypass-safe — i.e., it is the first block on a
+            // CFG path where the source enum becomes definitively
+            // unreachable from the take-project. The dec is emitted
+            // exactly here: downstream bypass-safe blocks inherit the
+            // drop via SSA flow and emitting at every bypass-safe
+            // block would produce N duplicate decs for sequential
+            // bypass-safe regions, double-freeing the shared payload.
             //
-            // The bypass-safe gate is essential: without it, an
-            // unconditional in-class route would emit a
-            // pre-take-project dec on the take-project block (or
-            // any block that reaches it), causing a use-after-free
-            // on the iter payload that the take-project still needs
-            // to consume. With it, the routing fires only on paths
-            // where the take-project is unreachable — exactly the
-            // bypass paths that TPR-07-016 is about.
+            // The check is per-class (not function-global): a block
+            // can be a bypass-safe entry for class `A` while being
+            // reachable from an unrelated class `B`. Per-class
+            // partitioning is what TPR-07-017 added on top of the
+            // initial TPR-07-016 fix.
             //
             // The check fires BEFORE `use_info`/`is_live_at_exit`
-            // because alias-chain "uses" on bypass-safe blocks
-            // (e.g., a `Let { dst, Var(src) }` whose dst is a dead
-            // jump arg) are SSA-only and don't dereference the
-            // value: the dec walks the tagged-pointer encoding
-            // (`ori_iter_drop` on the payload) without invalidating
-            // the source variable's bit pattern, so any subsequent
-            // alias read stays safe.
-            if ctx.take_move_facts.is_in_class(var)
-                && ctx.take_move_facts.is_bypass_safe_block(ctx.blk.index())
+            // because alias-chain "uses" on bypass-safe blocks are
+            // necessarily SSA-only (Let alias / Jump-arg propagation)
+            // — they don't dereference the value. The dec walks the
+            // tagged-pointer encoding (`ori_iter_drop` on the
+            // payload) without invalidating the source variable's
+            // bit pattern, so subsequent alias reads stay safe.
+            // Edge cleanup (`collect_branch_edge_decs` /
+            // `collect_invoke_edge_decs`) is taught via
+            // `take_move_facts.is_in_class` to skip in-class vars
+            // entirely, so it never produces a duplicate dec.
+            //
+            // Per-class dedup: only the FIRST alias-class member we
+            // encounter in entry_states gets a dec — emitting for
+            // subsequent siblings (e.g., `%5` then its Let alias
+            // `%19`) would double-free the same underlying value.
+            if ctx
+                .take_move_facts
+                .is_bypass_safe_entry_for_var(var, ctx.blk.index())
             {
-                if let Some(strategy) = rc_strategy(ctx.func, var, ctx.pool) {
-                    merge_edge_decs.push((var, strategy));
+                // The predicate guarantees `class_of(var)` is `Some`,
+                // but use `if let` to satisfy `clippy::unwrap_used`
+                // and stay panic-free even if the invariant ever
+                // weakens.
+                if let Some(class_idx) = ctx.take_move_facts.class_of(var) {
+                    if classes_dec_emitted.insert(class_idx) {
+                        if let Some(strategy) = rc_strategy(ctx.func, var, ctx.pool) {
+                            new_body.push(ArcInstr::RcDec { var, strategy });
+                        }
+                    }
                 }
+                continue;
+            }
+            // In-class but NOT bypass-safe-entry: the dec is handled
+            // either upstream at the bypass-safe-region entry, or by
+            // the take-project's `is_ownership_transfer` at the
+            // `Project` site (TPR-07-011). Skip here.
+            if ctx.take_move_facts.is_in_class(var) {
                 continue;
             }
             if ctx.use_info.contains_key(&var) || is_live_at_exit(ctx.state_map, ctx.blk, var) {

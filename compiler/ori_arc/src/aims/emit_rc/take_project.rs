@@ -1,4 +1,4 @@
-//! Take-project alias class computation (TPR-07-011 / TPR-07-016).
+//! Take-project alias-class computation (TPR-07-011 / TPR-07-016 / TPR-07-017).
 //!
 //! A **take-project** is a `Project` instruction whose source is a sum
 //! type (`Enum`/`Option`/`Result`) and whose projected payload is a
@@ -11,58 +11,75 @@
 //!
 //! # The fix surface
 //!
-//! TPR-07-011 used a function-global suppression: if ANY take-project
-//! reached a variable in the alias chain, every cleanup site skipped
-//! that variable. That was too coarse — TPR-07-016 showed that on
-//! runtime paths which bypass the projection (e.g. the `else` arm of
-//! an `if` that guards the `match`), the source enum was NEVER
-//! dropped and its Box-allocated payload leaked.
+//! TPR-07-011 used a function-global suppression in `is_owned_at_entry`
+//! / `is_owned_for_rc`: if ANY take-project reached a variable in the
+//! alias chain, every cleanup site skipped that variable. That was too
+//! coarse — TPR-07-016 showed that on runtime paths which bypass the
+//! projection (e.g. the `else` arm of an `if` that guards the `match`),
+//! the source enum was NEVER dropped and its Box-allocated payload
+//! leaked.
 //!
-//! The fix: **drop the global suppression and rely on the existing
-//! per-instruction `is_ownership_transfer` check at the take-project
-//! `Project` site itself.** Natural scope-exit drops in non-projecting
-//! predecessors (e.g., the `else` branch's `RcDec %src`) handle the
-//! cleanup on bypass paths. The take-project's `is_ownership_transfer
-//! ` classification suppresses the source enum's last-use drop at the
-//! `Project` site, preventing the double-free that TPR-07-011 was
-//! originally chasing.
+//! The fix replaces the global suppression with **per-class CFG
+//! reachability**: a block is "bypass-safe for variable `v`" iff it is
+//! NEITHER forward- nor backward-reachable from the take-projects that
+//! consume `v`'s alias class. On a bypass-safe block, the source enum
+//! is still owned AND will never be consumed by `v`'s take-projects on
+//! any reachable path → it is the canonical place to emit the
+//! scope-exit drop. On non-bypass-safe blocks, existing mechanisms
+//! handle cleanup: the take-project's `is_ownership_transfer` check
+//! suppresses the source's last-use drop at the `Project` site (TPR-
+//! 07-011), and natural scope-exit drops in non-projecting predecessors
+//! (e.g., the empty arm of a `match`) cover their own paths.
 //!
-//! # What this module still does
+//! # Per-class partitioning (TPR-07-017)
 //!
-//! Two cleanup sites need to know whether a variable belongs to a
-//! take-project alias class so they can skip emitting a redundant
-//! second drop:
+//! Earlier iterations collapsed every take-project in a function into
+//! one global alias class with one global bypass-safe block set. That
+//! was correct for functions with a single take-project but broke
+//! functions with two unrelated take-projects: a block bypass-safe for
+//! source `A` could be forward/backward reachable from unrelated source
+//! `B`, so it was no longer "bypass-safe globally" and `A`'s scope-exit
+//! drop never fired.
 //!
-//! 1. [`dead_cleanup::emit_dead_at_entry_decs`] source 1: variables
-//!    that are unused-and-dead-at-exit and would otherwise get a
-//!    block-local drop. Skipping the in-class case prevents an
-//!    unconditional drop on paths that already saw the take-project.
-//! 2. [`dead_cleanup::emit_dead_block_param_decs`] (source 2): block
-//!    params that are SSA aliases of the take-project source via
-//!    Jump-arg propagation. Routing them to predecessors (the
-//!    natural mechanism for merge-block dead params) would emit a
-//!    drop using a name that has no SSA definition reachable from
-//!    the predecessor — the LLVM emitter resolves the param ID to
-//!    the merge block's phi node, producing a phi-dominance
-//!    violation. Skipping the in-class case avoids the spurious
-//!    drop entirely; the source enum's natural drops cover cleanup.
+//! The fix is union-find: each take-project source seeds its own
+//! component, two seeds end up in the same component iff they share
+//! an alias chain (Let alias / Jump-arg propagation). Each component
+//! has its own `tp_blocks` set (the take-projects whose source belongs
+//! to this component) and its own `bypass_safe_blocks` set (computed
+//! as the complement of forward∪backward reachability from THIS
+//! component's `tp_blocks`).
 //!
-//! Both call sites only need the membership question
-//! `is_in_class(var)`. No dataflow is required — the alias class is
-//! the closure of:
+//! `is_bypass_safe_for_var(var, blk)` returns true iff `var` is in some
+//! class AND `blk` is bypass-safe for that specific class — independent
+//! of any other class in the function.
 //!
-//! - bidirectional `Let { dst, value: Var(src) }` (`dst ↔ src`)
-//! - forward `Jump arg → block param` (passing the var to a merge
-//!   block param propagates the class to the param)
+//! # Consumer call sites
 //!
-//! seeded by every take-project source.
+//! Two cleanup sites in [`super::dead_cleanup`] need this information:
+//!
+//! 1. `emit_dead_at_entry_decs` source 1: vars at entry that are
+//!    unused-and-dead-at-exit. The in-class branch routes the drop via
+//!    `merge_edge_decs` only when the block is bypass-safe for the var.
+//!    On non-bypass-safe blocks the in-class branch is skipped and the
+//!    `use_info` / `is_ownership_transfer` path takes over.
+//!
+//! 2. `emit_dead_block_param_decs` (source 2): block params that are
+//!    SSA aliases of a take-project source via Jump-arg propagation.
+//!    These are SKIPPED entirely (no routing) — routing them via the
+//!    merge-block param ID would emit an `RcDec` using a name with no
+//!    SSA definition reachable from the predecessor, producing a phi-
+//!    dominance violation (the LLVM emitter resolves the param ID to
+//!    the merge block's phi). Source 2 doesn't need bypass-safety
+//!    info — the natural scope-exit drops on bypass-safe predecessors
+//!    cover the param's underlying value.
 //!
 //! # Reference
 //!
-//! Codex iteration 6 TPR review finding (TPR-07-016). Discussion in
-//! `plans/repr-opt/section-07-enum-repr.md` §07.R TPR-07-016.
+//! Codex iteration 6 TPR review finding (TPR-07-016) and iteration 7
+//! follow-up (TPR-07-017). Discussion in `plans/repr-opt/section-07-
+//! enum-repr.md` §07.R.
 
-use rustc_hash::FxHashSet;
+use rustc_hash::{FxHashMap, FxHashSet};
 
 use ori_types::Pool;
 
@@ -70,55 +87,82 @@ use crate::ir::{ArcFunction, ArcInstr, ArcTerminator, ArcValue, ArcVarId};
 
 use super::borrowed_defs::is_take_project;
 
-/// Per-function take-project facts queried by RC cleanup sites.
-///
-/// Two pieces of information:
-///
-/// - **Alias-class membership** ([`Self::is_in_class`]): the set of
-///   `ArcVarId`s that transitively reach a take-project source via
-///   Let aliases or Jump-arg → block-param propagation. These vars
-///   share storage with the take-project source enum (or its
-///   moved-out payload).
-///
-/// - **Bypass-safe blocks** ([`Self::is_bypass_safe_block`]): the
-///   set of block indices where the take-project is *unreachable*
-///   in BOTH directions — neither forward (the take-project hasn't
-///   happened yet) nor backward (the take-project has happened and
-///   the payload is consumed). A bypass-safe block is a place where
-///   the source enum is still live AND the take-project will never
-///   consume it on any reachable path → it's safe to emit a
-///   scope-exit drop without conflicting with the take-project's
-///   ownership transfer or with a post-projection double-free.
-///
-/// Built by [`analyze`].
-pub(crate) struct TakeMoveFacts {
-    in_class: FxHashSet<ArcVarId>,
+/// Per-class take-project information.
+struct ClassInfo {
+    /// Block indices containing at least one take-project whose
+    /// source variable belongs to this connected-component class.
+    tp_blocks: Vec<usize>,
+    /// Block indices that are NEITHER forward- nor backward-reachable
+    /// from `tp_blocks`. Computed only against this class's
+    /// take-projects, so a block bypass-safe for class A is independent
+    /// of an unrelated class B in the same function.
     bypass_safe_blocks: FxHashSet<usize>,
+    /// Subset of [`Self::bypass_safe_blocks`]: the "entry edge" of
+    /// the bypass-safe region. A block is a bypass-safe entry iff
+    /// it is bypass-safe AND at least one of its CFG predecessors is
+    /// NOT bypass-safe (or it has no predecessors). This identifies
+    /// the canonical place to emit the scope-exit drop on a bypass
+    /// path: exactly once per CFG path, at the moment the source
+    /// enum first becomes "definitely not consumed by this class's
+    /// take-projects on any reachable path." Downstream bypass-safe
+    /// blocks already inherit the dec from upstream and need
+    /// nothing.
+    bypass_safe_entries: FxHashSet<usize>,
+}
+
+/// Per-function take-project facts queried by RC cleanup sites.
+pub(crate) struct TakeMoveFacts {
+    /// Maps each `ArcVarId` that participates in a take-project alias
+    /// class to its class index in [`Self::classes`]. Variables outside
+    /// every class are absent from the map.
+    var_to_class: FxHashMap<ArcVarId, usize>,
+    /// One entry per connected-component class that contains at least
+    /// one take-project source.
+    classes: Vec<ClassInfo>,
 }
 
 impl TakeMoveFacts {
     /// Empty facts — used when the function has no take-projects at
-    /// all. Avoids allocating the membership set for the common case.
+    /// all. Avoids allocating both the alias closure and the
+    /// reachability sets.
     pub(crate) fn empty() -> Self {
         Self {
-            in_class: FxHashSet::default(),
-            bypass_safe_blocks: FxHashSet::default(),
+            var_to_class: FxHashMap::default(),
+            classes: Vec::new(),
         }
     }
 
     /// Whether `var` participates in any take-project alias class.
     /// Variables outside every class are cleaned up normally.
     pub(crate) fn is_in_class(&self, var: ArcVarId) -> bool {
-        self.in_class.contains(&var)
+        self.var_to_class.contains_key(&var)
     }
 
-    /// Whether `block_idx` is a "bypass-safe" block — neither
-    /// forward- nor backward-reachable from any take-project. RC
-    /// cleanup may emit a scope-exit drop for an in-class var here
-    /// without colliding with the take-project's ownership transfer
-    /// (TPR-07-011) or double-freeing a post-projection payload.
-    pub(crate) fn is_bypass_safe_block(&self, block_idx: usize) -> bool {
-        self.bypass_safe_blocks.contains(&block_idx)
+    /// The class index of `var` if it participates in any take-project
+    /// alias class, otherwise `None`. Cleanup sites use the index to
+    /// dedup drops across alias siblings — a single dec on any var in
+    /// a class drops the underlying value, so emitting one per alias
+    /// would double-free.
+    pub(crate) fn class_of(&self, var: ArcVarId) -> Option<usize> {
+        self.var_to_class.get(&var).copied()
+    }
+
+    /// Whether `blk` is the **entry edge** of the bypass-safe region
+    /// for the alias class containing `var`. Returns `false` if
+    /// `var` is not in any class.
+    ///
+    /// A bypass-safe entry is the first block on a CFG path where
+    /// the take-project becomes definitively unreachable: it is
+    /// bypass-safe AND at least one of its predecessors is NOT
+    /// bypass-safe. This is the canonical place to emit a scope-exit
+    /// drop for `var` — emitting at every bypass-safe block instead
+    /// would produce N duplicate decs for sequential bypass-safe
+    /// regions and double-free the shared underlying value.
+    pub(crate) fn is_bypass_safe_entry_for_var(&self, var: ArcVarId, blk: usize) -> bool {
+        let Some(&idx) = self.var_to_class.get(&var) else {
+            return false;
+        };
+        self.classes[idx].bypass_safe_entries.contains(&blk)
     }
 }
 
@@ -127,54 +171,224 @@ impl TakeMoveFacts {
 /// Returns empty facts when the function has no take-projects,
 /// avoiding both the alias closure and the reachability sweep.
 pub(crate) fn analyze(func: &ArcFunction, pool: &Pool) -> TakeMoveFacts {
-    let take_project_blocks = collect_take_project_blocks(func, pool);
-    if take_project_blocks.is_empty() {
+    // 1. Find take-project sites: each is (block_idx, source_var).
+    let tp_sites = collect_take_project_sites(func, pool);
+    if tp_sites.is_empty() {
         return TakeMoveFacts::empty();
     }
-    let take_projects = collect_take_projects(func, pool);
-    let in_class = compute_alias_class_set(func, &take_projects);
-    let bypass_safe_blocks = compute_bypass_safe_blocks(func, &take_project_blocks);
-    TakeMoveFacts {
-        in_class,
-        bypass_safe_blocks,
-    }
-}
 
-/// Collect the indices of every block that contains at least one
-/// take-project `Project` instruction.
-fn collect_take_project_blocks(func: &ArcFunction, pool: &Pool) -> Vec<usize> {
-    let mut blocks = Vec::new();
-    for (block_idx, block) in func.blocks.iter().enumerate() {
-        if block
-            .body
-            .iter()
-            .any(|instr| is_take_project(instr, func, pool))
-        {
-            blocks.push(block_idx);
+    // 2. Union-find over every alias edge in the function.
+    //    Aliases come from `Let { dst, Var(src) }` (bidirectional)
+    //    and `Jump arg → block param` (forward). Both relations are
+    //    equivalence-class-forming, so union-find captures them
+    //    naturally.
+    let mut parent: FxHashMap<ArcVarId, ArcVarId> = FxHashMap::default();
+    union_alias_edges(func, &mut parent);
+
+    // 3. Ensure every take-project source has a singleton class entry,
+    //    even when it has no alias edges (a sourceless take-project
+    //    still needs a class for the consumer queries).
+    for &(_, src) in &tp_sites {
+        parent.entry(src).or_insert(src);
+    }
+
+    // 4. Group take-project sites by their class representative. Two
+    //    sites that share a representative are in the same connected
+    //    component → they belong to the same alias class.
+    let mut rep_to_idx: FxHashMap<ArcVarId, usize> = FxHashMap::default();
+    let mut classes: Vec<ClassInfo> = Vec::new();
+    for &(block_idx, src) in &tp_sites {
+        let rep = find(&mut parent, src);
+        let idx = if let Some(&i) = rep_to_idx.get(&rep) {
+            i
+        } else {
+            let i = classes.len();
+            rep_to_idx.insert(rep, i);
+            classes.push(ClassInfo {
+                tp_blocks: Vec::new(),
+                bypass_safe_blocks: FxHashSet::default(),
+                bypass_safe_entries: FxHashSet::default(),
+            });
+            i
+        };
+        if !classes[idx].tp_blocks.contains(&block_idx) {
+            classes[idx].tp_blocks.push(block_idx);
         }
     }
-    blocks
+
+    // 5. Map every in-class variable to its class index. Vars whose
+    //    representative is NOT a class representative (i.e., they
+    //    aren't reachable from any take-project source via alias
+    //    edges) are absent from the map and reported as not-in-class
+    //    by `is_in_class`.
+    let mut var_to_class: FxHashMap<ArcVarId, usize> = FxHashMap::default();
+    let vars: Vec<ArcVarId> = parent.keys().copied().collect();
+    for v in vars {
+        let rep = find(&mut parent, v);
+        if let Some(&idx) = rep_to_idx.get(&rep) {
+            var_to_class.insert(v, idx);
+        }
+    }
+
+    // 6. Compute bypass-safe blocks for each class independently
+    //    using CFG reachability from that class's take-project blocks.
+    //    Two unrelated classes never share each other's reachability
+    //    sets — this is the per-class partitioning that TPR-07-017
+    //    requires.
+    let predecessors = crate::graph::compute_predecessors(func);
+    for class in &mut classes {
+        class.bypass_safe_blocks =
+            compute_bypass_safe_blocks(func, &class.tp_blocks, &predecessors);
+        class.bypass_safe_entries =
+            compute_bypass_safe_entries(&class.bypass_safe_blocks, &predecessors);
+    }
+
+    TakeMoveFacts {
+        var_to_class,
+        classes,
+    }
 }
 
-/// Compute the set of block indices that are NEITHER forward- NOR
-/// backward-reachable from any take-project block.
+/// Compute the entry-edge subset of `bypass_safe_blocks`.
 ///
-/// A block is "bypass-safe" if no CFG path through it touches a
-/// take-project. The source enum is still live AND will never be
-/// consumed by the take-project on any reachable path, so a
-/// scope-exit `RcDec` here is the canonical place to drop it without
-/// conflicting with the take-project's ownership transfer.
+/// A block is an entry iff it is bypass-safe AND at least one of its
+/// CFG predecessors is NOT bypass-safe (or it has no predecessors at
+/// all). This identifies the canonical "first block" of each maximal
+/// bypass-safe region — the place where the source enum first becomes
+/// definitively unreachable from this class's take-projects on the
+/// CFG path. RC cleanup emits the scope-exit drop here exactly once;
+/// downstream bypass-safe blocks inherit the dec via SSA flow.
+fn compute_bypass_safe_entries(
+    bypass_safe_blocks: &FxHashSet<usize>,
+    predecessors: &[Vec<usize>],
+) -> FxHashSet<usize> {
+    let mut entries = FxHashSet::default();
+    for &b in bypass_safe_blocks {
+        let preds = predecessors.get(b).map_or(&[][..], Vec::as_slice);
+        let has_non_bypass_pred =
+            preds.is_empty() || preds.iter().any(|&p| !bypass_safe_blocks.contains(&p));
+        if has_non_bypass_pred {
+            entries.insert(b);
+        }
+    }
+    entries
+}
+
+/// Collect every take-project `Project` instruction in the function as
+/// a `(block_idx, source_var)` pair.
+fn collect_take_project_sites(func: &ArcFunction, pool: &Pool) -> Vec<(usize, ArcVarId)> {
+    let mut sites = Vec::new();
+    for (block_idx, block) in func.blocks.iter().enumerate() {
+        for instr in &block.body {
+            if is_take_project(instr, func, pool) {
+                if let ArcInstr::Project { value, .. } = instr {
+                    sites.push((block_idx, *value));
+                }
+            }
+        }
+    }
+    sites
+}
+
+/// Walk every alias edge in the function and union the two endpoints
+/// in the union-find. Adds vars to `parent` lazily as they appear.
 ///
-/// The take-project blocks themselves are NOT bypass-safe — the
-/// take-project's `is_ownership_transfer` mechanism handles the drop
-/// at the `Project` site (TPR-07-011), and emitting an entry-time
-/// dec would walk the tagged-pointer encoding before the projection
-/// reads its payload.
-fn compute_bypass_safe_blocks(func: &ArcFunction, tp_blocks: &[usize]) -> FxHashSet<usize> {
-    let predecessors = crate::graph::compute_predecessors(func);
-    // Forward-reachable from any take-project block (including the
-    // block itself). These are the "post-move" blocks where the
-    // payload has already been consumed.
+/// Alias edges:
+/// - bidirectional `Let { dst, value: Var(src) }` (`dst ↔ src`)
+/// - forward `Jump arg → block param` at matching positions
+fn union_alias_edges(func: &ArcFunction, parent: &mut FxHashMap<ArcVarId, ArcVarId>) {
+    for block in &func.blocks {
+        for instr in &block.body {
+            if let ArcInstr::Let {
+                dst,
+                value: ArcValue::Var(src),
+                ..
+            } = instr
+            {
+                union(parent, *dst, *src);
+            }
+        }
+        if let ArcTerminator::Jump { target, args } = &block.terminator {
+            let target_idx = target.index();
+            if target_idx < func.blocks.len() {
+                for (i, &arg) in args.iter().enumerate() {
+                    if let Some(&(param_var, _)) = func.blocks[target_idx].params.get(i) {
+                        union(parent, arg, param_var);
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Union-find `find` with path compression.
+///
+/// Returns `v` itself when `v` is not yet in the union-find (treats it
+/// as a singleton component). Path compression flattens the tree on
+/// access for amortized near-constant lookup.
+fn find(parent: &mut FxHashMap<ArcVarId, ArcVarId>, v: ArcVarId) -> ArcVarId {
+    if !parent.contains_key(&v) {
+        return v;
+    }
+    // Walk to root.
+    let mut root = v;
+    while let Some(&p) = parent.get(&root) {
+        if p == root {
+            break;
+        }
+        root = p;
+    }
+    // Path compression: re-walk and point every intermediate node at
+    // the root.
+    let mut x = v;
+    loop {
+        let next = match parent.get(&x).copied() {
+            Some(p) if p != root => p,
+            _ => break,
+        };
+        parent.insert(x, root);
+        x = next;
+    }
+    root
+}
+
+/// Union-find `union`. Lazily inserts both endpoints and links the
+/// representative of `a` under the representative of `b`.
+fn union(parent: &mut FxHashMap<ArcVarId, ArcVarId>, a: ArcVarId, b: ArcVarId) {
+    parent.entry(a).or_insert(a);
+    parent.entry(b).or_insert(b);
+    let ra = find(parent, a);
+    let rb = find(parent, b);
+    if ra != rb {
+        parent.insert(ra, rb);
+    }
+}
+
+/// Compute the bypass-safe block set for one alias class given that
+/// class's `tp_blocks`.
+///
+/// A block is bypass-safe iff CFG reachability from any take-project
+/// in `tp_blocks` does NOT touch it in either direction. The set is
+/// the complement of `(forward ∪ backward)` reachability where:
+///
+/// - Forward reachability is the closure of CFG successor edges from
+///   `tp_blocks`. Includes the take-project blocks themselves and
+///   every post-projection block.
+/// - Backward reachability is the closure of CFG predecessor edges
+///   from `tp_blocks`. Includes the take-project blocks themselves
+///   and every pre-projection block.
+///
+/// The take-project blocks themselves are NOT bypass-safe (they're
+/// in both reachable sets) — `is_ownership_transfer` at the `Project`
+/// site handles their drop per TPR-07-011, and emitting an entry-time
+/// dec there would walk the tagged-pointer encoding before the
+/// projection reads its payload.
+fn compute_bypass_safe_blocks(
+    func: &ArcFunction,
+    tp_blocks: &[usize],
+    predecessors: &[Vec<usize>],
+) -> FxHashSet<usize> {
+    // Forward-reachable blocks (post-move).
     let mut forward_reachable: FxHashSet<usize> = FxHashSet::default();
     let mut work: Vec<usize> = tp_blocks.to_vec();
     while let Some(b) = work.pop() {
@@ -185,9 +399,7 @@ fn compute_bypass_safe_blocks(func: &ArcFunction, tp_blocks: &[usize]) -> FxHash
             work.push(succ.index());
         }
     }
-    // Backward-reachable from any take-project block (including the
-    // block itself). These are the "pre-move" blocks where the
-    // payload might still be needed by the take-project.
+    // Backward-reachable blocks (pre-move).
     let mut backward_reachable: FxHashSet<usize> = FxHashSet::default();
     let mut work: Vec<usize> = tp_blocks.to_vec();
     while let Some(b) = work.pop() {
@@ -204,76 +416,4 @@ fn compute_bypass_safe_blocks(func: &ArcFunction, tp_blocks: &[usize]) -> FxHash
     (0..func.blocks.len())
         .filter(|b| !forward_reachable.contains(b) && !backward_reachable.contains(b))
         .collect()
-}
-
-/// Scan the function for every take-project `Project` instruction and
-/// return the list of source variables. Used as the seed for alias
-/// class computation and as a fast "no take-projects → empty facts"
-/// check.
-fn collect_take_projects(func: &ArcFunction, pool: &Pool) -> Vec<ArcVarId> {
-    let mut sources = Vec::new();
-    for block in &func.blocks {
-        for instr in &block.body {
-            if is_take_project(instr, func, pool) {
-                if let ArcInstr::Project { value, .. } = instr {
-                    sources.push(*value);
-                }
-            }
-        }
-    }
-    sources
-}
-
-/// Compute the union of every take-project source's alias class.
-///
-/// Returns the set of `ArcVarId`s that transitively reach any
-/// take-project source via:
-/// - bidirectional `Let { dst, value: Var(src) }` (dst ↔ src)
-/// - forward `Jump arg → block param` (arg in class → param in class)
-///
-/// All take-project sources in the function land in the SAME union.
-/// This is a conservative over-approximation that is sufficient for
-/// the membership-only consumers in `dead_cleanup`. If a future
-/// per-class consumer ever needs distinct tracking (e.g. two
-/// iterators moved on different branches), this function should be
-/// partitioned into per-seed connected components.
-fn compute_alias_class_set(func: &ArcFunction, seeds: &[ArcVarId]) -> FxHashSet<ArcVarId> {
-    let mut class: FxHashSet<ArcVarId> = seeds.iter().copied().collect();
-    let mut changed = true;
-    while changed {
-        changed = false;
-        for block in &func.blocks {
-            for instr in &block.body {
-                if let ArcInstr::Let {
-                    dst,
-                    value: ArcValue::Var(src),
-                    ..
-                } = instr
-                {
-                    if class.contains(dst) && class.insert(*src) {
-                        changed = true;
-                    }
-                    if class.contains(src) && class.insert(*dst) {
-                        changed = true;
-                    }
-                }
-            }
-            if let ArcTerminator::Jump { target, args } = &block.terminator {
-                let target_idx = target.index();
-                if target_idx < func.blocks.len() {
-                    for (i, &arg) in args.iter().enumerate() {
-                        if !class.contains(&arg) {
-                            continue;
-                        }
-                        if let Some(&(param_var, _)) = func.blocks[target_idx].params.get(i) {
-                            if class.insert(param_var) {
-                                changed = true;
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-    class
 }

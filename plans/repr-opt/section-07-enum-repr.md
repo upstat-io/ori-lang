@@ -4,7 +4,7 @@ title: "Enum Representation Optimization"
 status: in-progress
 reviewed: true
 third_party_review:
-  status: resolved
+  status: findings
   updated: 2026-04-07
 goal: "Optimize enum layout with niche filling, discriminant narrowing, tagged pointers, and payload compression — matching Rust's enum layout optimizations"
 inspired_by:
@@ -682,3 +682,156 @@ These test enum representations interacting with other language features. Each m
   **Test matrix** (`compiler/ori_llvm/tests/aot/iterator_drop.rs`): 1 new AOT pin `tpr_07_016_enum_conditional_consume_no_leak` exercising the exact `if flag then match x { _, Holds(it) -> it.count() } else 0` shape under `ORI_CHECK_LEAKS=1`. All 12 iterator_drop tests pass (including the existing TPR-07-008/011/013 pins), all 1,058 `ori_arc` unit tests pass, full `./test-all.sh` is green (16,839 passed, 0 failed), debug AND release build pass, clippy clean.
   **Files changed**: `compiler/ori_arc/src/aims/emit_rc/borrowed_defs.rs` (removed `collect_take_project_source_chain` and the global suppression in `collect_project_borrowed_defs`/`collect_all_borrowed_defs`), `compiler/ori_arc/src/aims/emit_rc/helpers.rs` (removed the `all_borrowed_defs.contains` short-circuit in `is_owned_at_entry`, added `take_move_facts` field to `BlockCtx`), `compiler/ori_arc/src/aims/emit_rc/edge_cleanup.rs` (removed the same short-circuit in `is_owned_for_rc`), `compiler/ori_arc/src/aims/emit_rc/dead_cleanup.rs` (added bypass-safe in-class routing in source 1, in-class skip in source 2), `compiler/ori_arc/src/aims/emit_rc/take_project.rs` (NEW — `TakeMoveFacts` with alias class + bypass-safe block computation), `compiler/ori_arc/src/aims/realize/emit_unified.rs` (threads `take_move_facts` through `emit_block_rc`/`BlockCtx`), `compiler/ori_llvm/tests/aot/iterator_drop.rs` + new fixture `enum_conditional_consume.ori`.
   **Architectural insight**: the right granularity for distinguishing "drop here" from "skip here" was CFG reachability, not a path-sensitive must-move dataflow with intersection at merges. The earlier iteration tried a forward-flow + intersection lattice that always reported "not moved" at every merge join (because intersection of `{}` and `{x}` is `{}`), giving zero useful information. CFG reachability is path-insensitive but answers the simpler structural question: "can this block touch the take-project at all?" — and that's exactly what determines whether a scope-exit drop here is safe.
+
+- [ ] `[TPR-07-017][medium]` `compiler/ori_arc/src/aims/emit_rc/take_project.rs` / `compiler/ori_arc/src/aims/emit_rc/dead_cleanup.rs` / `compiler/ori_arc/src/aims/emit_rc/edge_cleanup.rs` — The TPR-07-016 fix conflated every take-project in the function into one alias class and one global `bypass_safe_blocks` set, so a bypass path for source `A` was suppressed again whenever that block was forward/backward reachable from an unrelated take-project `B`.
+
+  **Status (2026-04-07, uncommitted in working tree):** Implementation COMPLETE; all 13 `iterator_drop` AOT tests pass (including the new TPR-07-017 regression pin). NOT YET COMMITTED. Full `./test-all.sh` not yet rerun against this fix. `/tpr-review` re-run still pending. `/impl-hygiene-review` still pending.
+
+  **Architectural fix (per-class partitioning + bypass-safe entry edge):**
+
+  1. **Per-class alias partitioning via union-find.** `take_project::analyze` was rewritten from a single global union-find into one connected component per take-project source. The closure walks bidirectional `Let { dst, Var(src) }` aliases and forward `Jump arg → block param` propagation, but each take-project source seeds its OWN component. Two take-project sources end up in the same component iff they share an alias chain. Each component gets its own `tp_blocks` (the blocks containing its take-project `Project` instructions) and its own `bypass_safe_blocks` (computed only against THAT class's `tp_blocks`), so a block bypass-safe for class A is independent of any reachability from unrelated class B.
+
+  2. **Bypass-safe entry-edge identification.** Naive emission at every bypass-safe block produces N duplicate decs across sequential bypass-safe regions (each duplicate targets the same underlying value via alias siblings → N-way double-free). The fix introduces `bypass_safe_entries`: the subset of `bypass_safe_blocks` where at least one CFG predecessor is NOT bypass-safe (or the block has no predecessors). This identifies the unique "entry edge" of each maximal bypass-safe region — the moment on each CFG path where the source enum first becomes definitively unreachable from this class's take-projects. Source 1 emits the dec EXACTLY once per CFG path at the entry edge; downstream bypass-safe blocks already inherit the dec via SSA flow.
+
+  3. **Edge cleanup must skip in-class vars.** `collect_branch_edge_decs` and `collect_invoke_edge_decs` (in `edge_cleanup.rs`) iterate `exit_states` and emit a `RcDec` on every dead-at-entry edge. Without filtering, they would emit a dec for an alias sibling (e.g., `%5`'s Let alias `%19`) on the bb_pred → bb_class_consume edge, racing source 1's class-deduped emission. Both fire `ori_iter_drop` on the same tagged-pointer payload → free()-detected double-free. The fix: edge cleanup skips any var that participates in any take-project alias class. Class drops are exclusively the responsibility of source 1's bypass-safe-entry branch.
+
+  4. **Source 2 (block params) skips in-class entirely.** Block params that are SSA aliases of a take-project source via Jump-arg propagation get NO routing — the underlying value is dropped at the upstream bypass-safe entry, and routing the param's `ArcVarId` to a predecessor would emit a dec using a name with no SSA definition reachable from the predecessor (LLVM emitter resolves the param ID to the merge block's phi node → phi-dominance verifier failure, the original TPR-07-016 first-iteration symptom).
+
+  **API surface (`TakeMoveFacts`):**
+
+  - `is_in_class(var) -> bool` — membership check; used by edge cleanup to skip ALL in-class vars and by source 2 to skip in-class block params.
+  - `class_of(var) -> Option<usize>` — class index for per-class dedup in source 1 (`classes_dec_emitted: FxHashSet<usize>` ensures only the FIRST alias-class member encountered in `entry_states` gets a dec; alias siblings would otherwise double-free).
+  - `is_bypass_safe_entry_for_var(var, blk) -> bool` — the central predicate. Returns true iff `var` is in some class, `blk` is bypass-safe for that class, AND at least one predecessor of `blk` is NOT bypass-safe for the same class. Replaces the original `is_bypass_safe_for_var` (which is now removed — emitting at every bypass-safe block is wrong).
+
+  **Iteration history (the path I walked, so future implementers don't repeat it):**
+
+  - **Iteration 1 (TPR-07-011)**: function-global suppression in `is_owned_at_entry`/`is_owned_for_rc` via `collect_take_project_source_chain`. Fixed double-free on the consuming path but leaked on bypass paths (TPR-07-016).
+  - **Iteration 2 (TPR-07-016 first attempt)**: introduced `TakeMoveFacts` with single-class alias union and global `bypass_safe_blocks`. Dispatched routing through `merge_edge_decs`/`route_merge_edge_decs`, which used the param's `ArcVarId` → trampoline insertion → phi-dominance verifier failure (`%v213639 = phi i64 [...] does not dominate all uses`).
+  - **Iteration 3 (TPR-07-016 working fix)**: dropped routing through trampolines; emit DIRECTLY into the bypass-safe block's `new_body` with `is_bypass_safe_for_var`. Fixed the single-take-project case. Codex iteration 7 (TPR-07-017) caught that the global alias union still leaked on multi-take-project functions.
+  - **Iteration 4 (TPR-07-017 first attempt)**: per-class partitioning via union-find, kept emit-at-every-bypass-safe-block. Result: N duplicate decs across sequential bypass-safe blocks → double-free (`free(): double free detected in tcache 2`).
+  - **Iteration 5 (TPR-07-017 working fix, current)**: added `bypass_safe_entries` to restrict emission to the entry edge of each bypass-safe region. Combined with edge cleanup's in-class skip and per-class dedup in source 1, all 13 iterator_drop tests pass.
+
+  **Code shape (current uncommitted state):**
+
+  - `compiler/ori_arc/src/aims/emit_rc/take_project.rs`: `TakeMoveFacts { var_to_class: FxHashMap<ArcVarId, usize>, classes: Vec<ClassInfo> }`. `ClassInfo { tp_blocks, bypass_safe_blocks, bypass_safe_entries }`. Helpers: `collect_take_project_sites` (returns `(block_idx, source_var)` pairs), `union_alias_edges` (lazy union-find over Let/Jump-arg edges), `find` (path compression), `union`, `compute_bypass_safe_blocks` (per-class forward+backward CFG closure), `compute_bypass_safe_entries` (subset filter: bypass-safe AND has non-bypass-safe pred OR no preds).
+  - `compiler/ori_arc/src/aims/emit_rc/dead_cleanup.rs` source 1: in-class branch fires BEFORE `use_info`/`is_live_at_exit` skip; gated on `is_bypass_safe_entry_for_var`; per-class dedup via `classes_dec_emitted`. In-class but not-entry vars `continue` (their drop comes from the upstream entry).
+  - `compiler/ori_arc/src/aims/emit_rc/dead_cleanup.rs` source 2: in-class block params SKIPPED entirely (no routing).
+  - `compiler/ori_arc/src/aims/emit_rc/edge_cleanup.rs` `collect_branch_edge_decs` and `collect_invoke_edge_decs`: skip `take_move_facts.is_in_class(var)`. Both functions take `take_move_facts: &TakeMoveFacts` as a new parameter.
+  - `compiler/ori_arc/src/aims/realize/emit_unified.rs`: threads `take_move_facts` through `emit_block_rc` (already done in TPR-07-016) AND through `emit_edge_cleanup` (NEW for TPR-07-017).
+
+  **Test matrix** (`compiler/ori_llvm/tests/aot/iterator_drop.rs`): 1 new AOT pin `tpr_07_017_two_unrelated_take_projects_no_leak` exercising the exact two-class shape under `ORI_CHECK_LEAKS=1`. Fixture: `compiler/ori_llvm/tests/aot/fixtures/iterator_drop/two_unrelated_take_projects.ori` declares two `MaybeIter` enums (`a` and `b`), nested `if flag1 then match a ... else if flag2 then match b ... else 0`, with `flag1=false, flag2=true` so `a` is on the bypass path while `b` is consumed. Returns `count_b - count_b` = 0 so the program exits 0 regardless of consumed length, isolating the leak/double-free check as the only failure mode. All 13 iterator_drop tests pass.
+
+  **Cross-file test matrix:** `tpr_07_008_*` (5 pins, basic iterator drop), `tpr_07_011_*` (3 pins, take-project consume), `tpr_07_013_*` (3 pins, take-project unused), `tpr_07_016_*` (1 pin, single-class bypass), `tpr_07_017_*` (1 pin, two-class bypass). All 13 currently green.
+
+  **Architectural insight (worth preserving):** The right granularity for "drop here vs skip here" was a 2D filter — (1) per-class CFG reachability for safety and (2) entry-edge filter for uniqueness. Either alone is wrong: per-class without entry-edge produces N-way duplicates on sequential bypass-safe blocks; entry-edge without per-class confuses unrelated take-projects. The bypass-safe-entry concept is the structural dual of how edge cleanup normally works (edges from "live" to "dead" exit_states): my filter emits on edges from "potentially-touches-take-project" to "definitively-doesn't-touch-take-project" for a specific class.
+
+  **Pending work to close TPR-07-017:**
+
+  1. Run full `timeout 150 ./test-all.sh` against the current uncommitted fix to verify zero regressions on the 16,839-test corpus.
+  2. Run `./clippy-all.sh` to verify clippy clean.
+  3. `/commit-push` the TPR-07-017 fix bundle (selective stage of ARC files + new fixture + new test + this plan update). Suggested commit message: `fix(repr-opt): TPR-07-017 per-class take-project partitioning + bypass-safe entry edge`.
+  4. Re-run `/tpr-review` to confirm the codex re-review surfaces zero new findings.
+  5. After clean TPR re-review, run `/impl-hygiene-review last commit` and fix any findings.
+  6. Mark this TPR-07-017 entry `[x]` resolved with the finalized text and flip section `third_party_review.status` to `resolved` (currently `findings`).
+
+- [ ] `[TPR-07-018][medium]` `compiler/ori_llvm/src/codegen/arc_emitter/builtins/option_result_helpers/tests.rs:1` / `plans/bug-tracker/fix-BUG-04-019.md:156` — BUG-04-019 is marked complete on the strength of an emitter-driven IR test that does not exist in the tree; the committed "unit tests" are `include_str!` source-text assertions, not helper invocation / IR emission.
+
+  **Status (2026-04-07):** Filed by Codex, NOT yet started. Independent of TPR-07-017 — should be fixed in a separate commit after TPR-07-017 lands.
+
+  Evidence: the fix section says `option_result_helpers/tests.rs` should build a synthetic emitter, call `emit_option_niche` / `emit_result_niche`, and assert `llmod.print_to_string()` contains panic and RC-inc calls. The actual file opens with "Structural regression tests" and `const HELPER_SRC: &str = include_str!(...)`; every assertion is a substring check against source text. `cargo test -p ori_llvm option_result_helpers` therefore passes without exercising any LLVM construction, control-flow emission, or `inc_value_rc` lowering.
+
+  Impact: the current guard only catches textual rewrites of `option_result_helpers.rs`. It does not verify that the niche helpers still emit valid IR, still wire panic branches to the runtime helpers, or still lower RC retains for the concrete payload types once code around the builder/type-info contracts changes. That leaves BUG-04-019 closed with a weaker verification story than the plan and exit criteria claim.
+
+  **Implementation plan (the promised emitter-driven test):**
+
+  1. Read `compiler/ori_llvm/src/codegen/arc_emitter/tests.rs` for the `drop_fn_trivial_generates_rc_free` pattern — it shows the minimal `ArcIrEmitter` setup:
+     - Construct a `Pool` (use `pool.option(Idx::STR)` for Option<str>, `pool.result(Idx::STR, Idx::STR)` for Result<str, str>).
+     - Create LLVM `Context`, `SimpleCx`, `IrBuilder`.
+     - Declare runtime functions via `declare_runtime_functions` or similar.
+     - Create a host function with no params, position the builder at its entry.
+  2. Construct a synthetic `TagEncoding::new(EnumTag::Niche { field_index: 0, niche_value: 0, niche_variant_idx: 1 }, 2)` for Option (None=variant 1 is the niche). For Result, use `niche_variant_idx: 0` (Ok) or `1` (Err).
+  3. Allocate a synthetic receiver via `builder.const_zero_ty(opt_str_llvm_ty)` so `extract_value` calls work without crashing.
+  4. Call `em.emit_option_niche("unwrap", receiver, &[receiver], opt_str_ty, &encoding)` — and the analogous calls for `expect`, `unwrap_or`, plus all five Result methods.
+  5. Capture `scx.llmod.print_to_string()` and assert each helper's IR contains BOTH `"ori_panic"` (any panic-family runtime call) AND `"ori_str_rc_inc"` (RC retain). Use `unwrap_or` as the conditional-retain case (no panic, but still has the RC inc on the cond_br merge path).
+  6. Differentiation pin: assert the IR for `Result.unwrap` and `Result.unwrap_err` are NOT identical (proves the original collapsed-arm bug is actually fixed, not just textually present).
+  7. Replace the `include_str!` source-text assertions in `option_result_helpers/tests.rs` with the new emitter-driven tests. Keep the file in the same module location (`compiler/ori_llvm/src/codegen/arc_emitter/builtins/option_result_helpers/tests.rs`).
+  8. Run `cargo test -p ori_llvm option_result_helpers` and `cargo test -p ori_llvm` to verify no regressions.
+
+  **Caveat:** The niche helpers are gated off by `NICHE_CODEGEN_READY = false` in production today. The emitter-driven tests directly invoke `emit_option_niche` / `emit_result_niche` from a synthetic harness, so they bypass the gate and exercise the dead-code path. This is exactly the regression guard that BUG-04-019 promised — without it, the gate flip in §07.2 could silently regress these helpers.
+
+## 07.RZ Resume Notes (2026-04-07)
+
+This section captures the exact state needed to resume TPR-07-017 / TPR-07-018 closure across context boundaries. Update or delete when both findings are resolved.
+
+**Working tree state (uncommitted TPR-07-017 fix):**
+
+- `compiler/ori_arc/src/aims/emit_rc/take_project.rs` — full rewrite (per-class partitioning, `bypass_safe_entries`, union-find, three new APIs).
+- `compiler/ori_arc/src/aims/emit_rc/dead_cleanup.rs` — source 1 in-class branch uses `is_bypass_safe_entry_for_var` with per-class dedup; source 2 skips in-class block params.
+- `compiler/ori_arc/src/aims/emit_rc/edge_cleanup.rs` — `collect_branch_edge_decs` and `collect_invoke_edge_decs` take `take_move_facts: &TakeMoveFacts` and skip in-class vars.
+- `compiler/ori_arc/src/aims/realize/emit_unified.rs` — threads `take_move_facts` through `emit_edge_cleanup` call.
+- `compiler/ori_llvm/tests/aot/iterator_drop.rs` — new test `tpr_07_017_two_unrelated_take_projects_no_leak`.
+- `compiler/ori_llvm/tests/aot/fixtures/iterator_drop/two_unrelated_take_projects.ori` — new fixture (two unrelated MaybeIter enums, conditional consume, returns `count_b - count_b` = 0).
+- `plans/repr-opt/section-07-enum-repr.md` — this update (TPR-07-016 marked resolved, TPR-07-017/018 expanded, this resume section added).
+
+**Working tree state (UNRELATED, pre-existing, NOT mine):**
+
+- `.claude/skills/*.md`, `.claude/commands/tp-help.md` — pre-existing skill doc updates from prior session, unrelated to TPR work.
+- Many `plans/*/section-*.md` files (~110) — pre-existing batch addition of `/improve-tooling retrospective` checkbox, unrelated to TPR work. Do NOT include these in the TPR-07-017 commit. Selective `git add` only the files listed in "Working tree state (TPR-07-017 fix)" above.
+
+**Verification status:**
+
+- ✅ `cargo c -p ori_arc` — clean.
+- ✅ `cargo b` — clean.
+- ✅ `cargo test -p ori_llvm --test aot iterator_drop` — 13 passed, 0 failed (12 pre-existing + 1 new TPR-07-017 pin).
+- ❌ `timeout 150 ./test-all.sh` — NOT YET RUN against the TPR-07-017 fix (user interrupted before run). Must verify zero regressions on the 16,839-test corpus.
+- ❌ `./clippy-all.sh` — NOT YET RUN against this fix.
+- ❌ `cargo b --release` — NOT YET RUN against this fix.
+- ❌ `/commit-push` — TPR-07-017 fix not yet committed.
+- ❌ `/tpr-review` re-run — pending.
+- ❌ `/impl-hygiene-review last commit` — pending.
+
+**Resume sequence (next session):**
+
+1. **Re-read CLAUDE.md** (mandatory per `/continue-roadmap` Step -1).
+2. **Read this entire §07.RZ Resume Notes section AND the §07.R `[TPR-07-017]` entry** so the architectural concepts and iteration history are loaded into context before any code changes.
+3. **Run `/improve-tooling` in REACTIVE mode FIRST, before resuming verification work.** This is the required first step — the prior session captured a recurring friction pattern (inline `tracing::debug!` insert/remove cycles to bisect AIMS pipeline phases) that will recur in TPR-07-017 verification AND in TPR-07-018's emitter-driven test work. Pre-empt the friction by adding the tool now, then USE the new tool for the rest of the session. **Required scope:**
+   - Read the **"Tooling friction captured during TPR-07-017 debugging"** subsection below for the full context.
+   - Add permanent `tracing::trace!` calls at each post-walk phase boundary in `compiler/ori_arc/src/aims/realize/emit_unified.rs` (after `walk_body_unified`, after `emit_dead_invoke_dsts`, after `emit_edge_cleanup`, after `emit_project_escape_incs`, after `coalesce_block_rc`). Each call should dump a per-block summary of `RcInc`/`RcDec` ops by var, gated at `trace` level so it has zero overhead in normal debug runs.
+   - Verify the new instrumentation is reachable: `ORI_LOG=ori_arc::aims::realize=trace ./target/debug/ori build compiler/ori_llvm/tests/aot/fixtures/iterator_drop/two_unrelated_take_projects.ori -o /tmp/turp 2>&1 | grep "TPR-07-017 trace\|phase boundary"` should produce per-phase per-block snapshots.
+   - Document the new convention in `.claude/rules/arc.md` under the "Debugging" section (one-line addition: `ORI_LOG=ori_arc::aims::realize=trace` for per-phase block-body snapshots).
+   - Update `CLAUDE.md` if it lists ARC debugging env vars (one-line addition).
+   - Commit the tooling improvement as a SEPARATE commit via `/commit-push` BEFORE starting TPR-07-017 verification. Suggested message: `tools(ori_arc): add per-phase post-walk tracing — surfaced by TPR-07-017 retrospective`.
+   - **Why first, not last**: the friction was real this session and will recur. If TPR-07-017's `./test-all.sh` reveals an unexpected regression, you will immediately need to bisect which post-walk pass introduced it — exactly the workflow this tooling improvement enables. Adding the tool first means the verification work uses the improved tool; adding it last means re-living the pain.
+4. **Run `git status --short`** to confirm the working tree state matches the "Working tree state (TPR-07-017 fix)" list above. The TPR-07-017 fix files should still be modified-but-uncommitted. The unrelated pre-existing files may still be in the tree — do NOT touch them.
+5. **Sanity check**: `cargo b 2>&1 | tail -3` — should compile clean (the tooling addition from step 3 is in `emit_unified.rs` and `.claude/rules/arc.md`; both should still build).
+6. **Re-verify the regression test**: `timeout 150 cargo test -p ori_llvm --test aot iterator_drop 2>&1 | tail -25` — should report 13 passed, 0 failed.
+7. **Run the full test suite**: `timeout 150 ./test-all.sh 2>&1 | tail -30`. Expected: ALL passed, zero failures (the pre-fix baseline was 16,839/0). If ANY test regresses, USE THE NEW PER-PHASE TRACING from step 3 to bisect — do NOT regress to inline `tracing::debug!`. Cross-reference the iteration history in TPR-07-017's entry above to recognize known failure modes (phi dominance violation, free()-detected double-free, sequential bypass-safe N-way duplicates).
+8. **Run clippy**: `./clippy-all.sh 2>&1 | tail -10`. Expected: clean.
+9. **Run release build**: `cargo b --release 2>&1 | tail -5`. Expected: clean (FastISel parity).
+10. **Commit TPR-07-017 fix via `/commit-push`** — selective stage ONLY the files listed in "Working tree state (TPR-07-017 fix)" above. Do NOT use `git add -A` (the working tree contains ~110 unrelated pre-existing changes). Suggested commit message: `fix(repr-opt): TPR-07-017 per-class take-project partitioning + bypass-safe entry edge`.
+11. **Re-run `/tpr-review`** — codex must come back clean. If new findings surface, triage per Step 1.9 of `/continue-roadmap`. The `/fix-bug` `/tpr-review` loop iterates until clean.
+12. **Run `/impl-hygiene-review last commit`** — must pass clean before TPR-07-017 can be marked `[x]`.
+13. **After both reviews are clean**: mark `[TPR-07-017]` `[x]` in §07.R, flip `third_party_review.status` to `resolved`, update `updated:` to today's date.
+14. **Then start TPR-07-018** as a separate fix using the implementation plan in its entry above. New commit, new TPR review cycle, new hygiene review. The per-phase tracing from step 3 will help here too — TPR-07-018's emitter-driven tests inspect LLVM IR and may need to bisect codegen phases similarly.
+15. **After both TPR-07-017 and TPR-07-018 are closed**: run the `/improve-tooling` retrospective for §07 (forward-looking pass, since the reactive improvement was already done in step 3). Capture any ADDITIONAL friction noticed during steps 4–14 that wasn't pre-empted by the per-phase tracing. Examples to look for: did `git status` filtering of "mine vs not-mine" still feel manual? Did the resume sequence itself feel painful — any step where you had to read code instead of running a script?
+
+**Tooling friction captured during TPR-07-017 debugging (for `/improve-tooling` retrospective):**
+
+- **Pattern**: bisecting which AIMS pipeline post-walk pass (`emit_dead_invoke_dsts`, `emit_edge_cleanup`, `emit_project_escape_incs`, `coalesce_block_rc`) modifies a specific block's RC ops.
+- **Workaround used**: insert temporary `tracing::debug!("TPR-07-017 trace: bb9 after-X body = {:#?}", ...)` calls between phases, build, run with `ORI_LOG=ori_arc=debug`, grep for the markers, remove the tracing afterward. ~5 iterations × ~2 minutes each = ~10 minutes wasted per debugging cycle.
+- **Existing tooling gap**: `ORI_DUMP_AFTER_ARC=1` dumps ONCE after the entire pipeline. There is no per-phase boundary dump. `ORI_LOG=ori_arc=debug` produces phase entry/exit traces but does NOT include block bodies.
+- **Improvement**: add permanent `tracing::trace!` calls at each post-walk phase boundary in `compiler/ori_arc/src/aims/realize/emit_unified.rs` that dump block bodies (or RC op summaries) gated at `trace` level. Then `ORI_LOG=ori_arc::aims::realize=trace` produces per-phase-per-block IR snapshots without inline instrumentation. Should also document the convention in `.claude/rules/arc.md`.
+- **Alternative**: a `diagnostics/arc-phase-trace.sh <fixture>` wrapper that invokes the build with the trace flags pre-set and demangles the output. Lower priority — the env var approach is sufficient.
+
+**Architectural concepts (worth preserving across sessions):**
+
+- **Take-project**: a `Project` instruction whose source is a sum type (`Enum`/`Option`/`Result`) and whose projected payload is a unique-owned Box (`Tag::Iterator` or `Tag::DoubleEndedIterator`). Semantically, the source enum has given up ownership of its payload at this point — the projected variable now owns the Box and is responsible for freeing it.
+- **Take-project alias class**: the connected component of `ArcVarId`s that share storage with a take-project source via Let aliases (`Let { dst, Var(src) }` — bidirectional) and Jump-arg → block-param propagation (forward only). Two take-project sources are in the same class iff their alias chains intersect.
+- **Bypass-safe block (per class)**: a block that is NEITHER forward- nor backward-reachable from any take-project block in that specific class. The source enum is still owned AND will never be consumed by this class's take-projects on any reachable path.
+- **Bypass-safe entry (per class)**: a bypass-safe block where at least one CFG predecessor is NOT bypass-safe (or the block has no predecessors). The unique "moment of escape" — the first block on each CFG path where the source enum becomes definitively unreachable from the take-project. THE ONLY place to emit a scope-exit drop for a class member.
+- **Per-class partitioning**: each take-project source connected component has its own `tp_blocks` and its own `bypass_safe_blocks`/`bypass_safe_entries`. Computed independently — class A's reachability never touches class B's. This is what makes two unrelated iterators in the same function compose correctly.
+- **Source 1 vs Source 2**: `dead_cleanup::emit_dead_at_entry_decs` has two emission sources. Source 1 walks `state_map.block_entry_states(blk)` (vars present in the lattice). Source 2 walks `block.params` (block params absent from `entry_states` entirely). The TPR-07-016/017 fix routes class-member drops through Source 1 only (at the bypass-safe entry); Source 2 SKIPS in-class block params entirely (their underlying value comes from the upstream entry).
+- **Why edge cleanup must skip in-class**: edge cleanup iterates `exit_states` and emits drops on dead-at-entry edges. In-class vars have alias siblings (e.g., `%5` and its Let-alias `%19`), and edge cleanup would emit a dec for the sibling on a different edge from where source 1 emits the class drop. Both `RcDec` instructions invoke `ori_iter_drop` on the same tagged-pointer payload → glibc-detected double-free at runtime. The skip says "class drops belong exclusively to source 1's bypass-safe entry branch; edge cleanup hands them off."
+- **Why source 1 emits BEFORE the use_info skip**: alias-chain "uses" on bypass-safe entry blocks are SSA-only (Let alias / Jump-arg propagation through dead block params) and don't dereference the value. The dec walks the tagged-pointer encoding (`ori_iter_drop` on the payload) without invalidating the source variable's bit pattern, so subsequent alias reads stay safe. Take-project consuming uses are excluded by the bypass-safe predicate (the take-project block is in both the forward- and backward-reachable sets, so it's not bypass-safe).
+- **Why direct-emit instead of routing**: TPR-07-016 first attempt routed through `merge_edge_decs`/`route_merge_edge_decs`/`apply_edge_decs`, which inserts trampoline blocks for multi-pred successors. The trampoline body emits `RcDec %param_var` where `%param_var` is the merge block's param ID. The LLVM emitter resolves the param ID to a phi node → phi-dominance verifier failure. Direct-emit at the bypass-safe entry block (using whichever class member appears first in `entry_states`) avoids the trampoline path entirely; the LLVM emitter resolves the var via the entry block's incoming SSA, which dominates by definition.
+- **Why per-class dedup**: `entry_states` may contain MULTIPLE alias-class members for the same class (e.g., `%5` AND its Let alias `%19` after RcDec hoisting). Each represents the same underlying value. Without `classes_dec_emitted: FxHashSet<usize>`, source 1 would emit a dec for each → N-way double-free. The dedup ensures one dec per class per block.
