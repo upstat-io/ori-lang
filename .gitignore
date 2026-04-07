@@ -3,7 +3,13 @@
 /target-llvm/
 **/target/
 **/build/
+# Source-tree subcommand directories that collide with the cargo build-dir
+# patterns above. Add a negative rule for each subcommand directory under
+# `compiler/oric/src/commands/` whose name matches `target` or `build`.
+# Without these, `git add` silently ignores newly-added files in these
+# directories, requiring `-f` and confusing contributors.
 !compiler/oric/src/commands/build/
+!compiler/oric/src/commands/target/
 
 # Cargo lock for libraries (keep for binaries)
 # Cargo.lock  # We keep this since we have a binary
