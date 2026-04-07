@@ -1,0 +1,45 @@
+// TPR-07-017 semantic pin: per-class take-project partitioning.
+//
+// Two unrelated take-projects coexist in the same function on
+// different alias chains. Source enum `a` is on a bypass path
+// (the take-project on `a` never executes at runtime), while
+// source enum `b` IS consumed by its take-project. Both must
+// be cleaned up exactly once with no leaks and no double-frees.
+//
+// With function-global bypass-safe block computation, every
+// block reachable from match_b is excluded from `a`'s bypass-
+// safe set, so `a` falls back to the alias-only suppression and
+// LEAKS its iterator payload on the runtime path that bypasses
+// match_a. Per-class partitioning fixes this — `a` and `b` get
+// independent classes with their own bypass-safe sets.
+//
+// Runtime: flag1 = false, flag2 = true. The else-of-flag1 arm
+// runs match_b → take-project on `b` → consume `[4, 5, 6]` via
+// `count()` → produces 3. `a` is on the bypass path and must be
+// dropped via its scope-exit drop on the else-of-flag1 path.
+// We subtract the count from itself so the program exits 0
+// regardless of the consumed length, leaving the leak/double-
+// free check as the only failure mode.
+
+type MaybeIter = Empty | Holds(it: Iterator<int>);
+
+@main () -> int = {
+    let a: MaybeIter = Holds(it: [1, 2, 3].iter());
+    let b: MaybeIter = Holds(it: [4, 5, 6].iter());
+    let flag1 = false;
+    let flag2 = true;
+    let count_b = if flag1 then
+        match a {
+            Empty -> 0,
+            Holds(it) -> it.count()
+        }
+    else
+        if flag2 then
+            match b {
+                Empty -> 0,
+                Holds(it) -> it.count()
+            }
+        else
+            0;
+    count_b - count_b
+}

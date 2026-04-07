@@ -60,6 +60,7 @@ pub(crate) fn emit_edge_cleanup(
     state_map: &AimsStateMap,
     pool: &Pool,
     all_borrowed_defs: &FxHashSet<ArcVarId>,
+    take_move_facts: &super::take_project::TakeMoveFacts,
     deferred_parent_decs: &FxHashMap<usize, Vec<DeferredDec>>,
 ) {
     let predecessors = compute_predecessors(func);
@@ -81,6 +82,7 @@ pub(crate) fn emit_edge_cleanup(
                 state_map,
                 pool,
                 all_borrowed_defs,
+                take_move_facts,
                 &mut edge_decs,
             );
             // Add deferred decs to Invoke edges. target=None → both edges,
@@ -155,6 +157,7 @@ pub(crate) fn emit_edge_cleanup(
             state_map,
             pool,
             all_borrowed_defs,
+            take_move_facts,
             &mut edge_decs,
         );
     }
@@ -175,6 +178,7 @@ fn collect_branch_edge_decs(
     state_map: &AimsStateMap,
     pool: &Pool,
     all_borrowed_defs: &FxHashSet<ArcVarId>,
+    take_move_facts: &super::take_project::TakeMoveFacts,
     edge_decs: &mut Vec<(usize, usize, ArcVarId, RcStrategy)>,
 ) {
     let Some(exit_states) = state_map.block_exit_states(blk) else {
@@ -196,6 +200,16 @@ fn collect_branch_edge_decs(
             state.cardinality,
             all_borrowed_defs,
         ) {
+            continue;
+        }
+        // TPR-07-016 / TPR-07-017: skip vars that participate in a
+        // take-project alias class. Their scope-exit drops are
+        // emitted by `dead_cleanup` source 1's in-class branch on
+        // bypass-safe blocks (per-class), with class-deduped
+        // semantics. Letting edge cleanup also emit a dec for an
+        // alias sibling (e.g., `%19 = %5` Let alias) would
+        // double-free the shared underlying value.
+        if take_move_facts.is_in_class(var) {
             continue;
         }
         // Skip variables that are only defined downstream (in a successor
@@ -277,6 +291,7 @@ fn collect_invoke_edge_decs(
     state_map: &AimsStateMap,
     pool: &Pool,
     all_borrowed_defs: &FxHashSet<ArcVarId>,
+    take_move_facts: &super::take_project::TakeMoveFacts,
     edge_decs: &mut Vec<(usize, usize, ArcVarId, RcStrategy)>,
 ) {
     let blk = block_id(block_idx);
@@ -345,6 +360,15 @@ fn collect_invoke_edge_decs(
                 state.cardinality,
                 all_borrowed_defs,
             ) {
+                continue;
+            }
+            // TPR-07-016 / TPR-07-017: take-project alias-class
+            // members are dec'd by `dead_cleanup` source 1's
+            // in-class branch on per-class bypass-safe blocks.
+            // Skipping here prevents an alias-sibling double-free
+            // (e.g., `%5` and its Let alias `%19` resolve to the
+            // same memory).
+            if take_move_facts.is_in_class(var) {
                 continue;
             }
             // Skip variables defined downstream (from project-source

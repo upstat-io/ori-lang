@@ -144,6 +144,28 @@ fn tpr_07_016_enum_conditional_consume_no_leak() {
     );
 }
 
+/// TPR-07-017 semantic pin: per-class take-project partitioning.
+/// Two unrelated take-projects coexist in the same function on
+/// different alias chains. With function-global bypass-safe block
+/// computation, every block reachable from `match_b` is excluded from
+/// `a`'s bypass-safe set, so `a` falls back to the alias-only
+/// suppression and LEAKS its iterator payload on the runtime path
+/// that bypasses `match_a`. Per-class partitioning fixes this by
+/// computing bypass-safety against only the take-projects in `a`'s
+/// own connected-component class, independent of unrelated `b`.
+///
+/// Codex iteration 7 found this gap during TPR review of the
+/// TPR-07-016 fix. The `take_project.rs` source itself flagged
+/// "two iterators moved on different branches" as the missing
+/// partitioning case.
+#[test]
+fn tpr_07_017_two_unrelated_take_projects_no_leak() {
+    assert_aot_success(
+        include_str!("fixtures/iterator_drop/two_unrelated_take_projects.ori"),
+        "tpr_07_017_two_unrelated_take_projects",
+    );
+}
+
 // Note: the explicit-tag enum case (≥9 variants carrying an
 // iterator payload) is blocked by BUG-04-044 — the Construct path
 // emits `insertvalue [N x i64], ptr` without ptrtoint casting the
