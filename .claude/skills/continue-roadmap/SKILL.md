@@ -93,16 +93,34 @@ The scanner outputs an `=== REROUTES ===` block at the top with `[ACTIVE reroute
 
 ### Step 1: Run the Scanner
 
-Run the roadmap scanner script to get current status:
+Run the roadmap scanner to get a comprehensive workspace snapshot:
 
 ```bash
 .claude/skills/continue-roadmap/roadmap-scan.sh plans/roadmap
 ```
 
-This outputs:
-- Reroute status block (if any active/queued reroutes detected from `plans/*/index.md` frontmatter)
-- One line per section: `[done]` or `[open]` with progress stats
-- Detail block for the **first incomplete section**: subsection statuses (with blocked counts), first 5 **unblocked** items, blocker summary, and blocker chain
+`roadmap-scan.sh` is a thin shim around `roadmap_scan.py` — a Python
+rewrite that crawls every plan directory (not just the one passed), the
+bug tracker, fix sections, and completed plans, producing a dense
+structured report optimized for workflow consumption.
+
+The output has these blocks in order:
+
+1. **`=== REROUTES ===`** — active and queued reroutes with progress and order (used by `/create-plan` via sed extraction)
+2. **Workspace Summary** — total plans, reroute counts, queued counts
+3. **Health Signals** — frontmatter mismatches across ALL plans, orphan section-graph blockers, unreviewed plans, open TPR findings rolled up per plan, open fix sections, bug tracker severity rollup, stale plan annotations count
+4. **Focus Selection** — which plan and section the workflow should focus on, and the reason (active reroute priority, explicit arg, first incomplete, etc.)
+5. **Plan: plans/<name>** — section status list for the focus plan with `[done]`/`[FOCUS]`/`[active]`/`[todo]` tags and per-section TPR open counts
+6. **Focus Section** — subsections table, recently completed items, next unblocked items grouped by subsection, blocker breakdown with READY/WAITING/IN_PROGRESS/GATE classification, open TPR findings
+7. **Bug Tracker** — open critical/high bugs and in-progress fix sections relevant to the focus subsystem
+8. **Decision Notes** — which gate steps (1.5 frontmatter, 1.7 reviewed, 1.9 TPR, 1.95 clean tree) apply for the upcoming implementation work
+
+Flags:
+- `--reroutes-only` — just the `=== REROUTES ===` block (fast path)
+- `--json` — structured JSON for programmatic consumption
+- `--no-bugs` — skip bug-tracker crawl if slow
+- `--quiet` — suppress health signals section
+- `--trace` — log decisions to stderr for debugging the scanner itself
 
 ### Step 1.5: Fix Stale Frontmatter
 

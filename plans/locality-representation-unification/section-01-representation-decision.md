@@ -155,7 +155,7 @@ If a callee actually does retain a reference (stores it somewhere persistent), t
 //! enum — see plans/repr-opt/00-overview.md:192).
 
 use ori_arc::aims::lattice::Locality;
-use ori_arc::ir::ArcVarId;
+use ori_arc::ArcVarId; // re-exported from ori_arc::ir, matches plan.rs:17 convention
 use rustc_hash::FxHashMap;
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
