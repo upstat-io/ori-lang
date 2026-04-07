@@ -14,6 +14,54 @@ use crate::ir::{ArcBlockId, ArcFunction, ArcInstr, ArcTerminator, ArcVarId, RcSt
 use super::metrics;
 use super::walk;
 
+/// Per-phase RC-op snapshot for post-walk pass debugging.
+///
+/// Emits one `tracing::trace!` event per block summarising every
+/// `RcInc`/`RcDec` instruction by `ArcVarId`. Gated behind
+/// `tracing::enabled!` so the iteration is skipped entirely when
+/// `ori_arc::aims::realize` is not at trace level — zero overhead in
+/// normal debug runs.
+///
+/// Activate with `ORI_LOG=ori_arc::aims::realize=trace`. Used to
+/// bisect which post-walk pass (`emit_dead_invoke_dsts`,
+/// `emit_edge_cleanup`, `emit_project_escape_incs`, `coalesce_block_rc`)
+/// modifies a specific block's RC ops without inline `tracing::debug!`
+/// insertions. Captured during TPR-07-017 debugging — see
+/// `.claude/rules/arc.md` § Debugging.
+fn trace_phase_snapshot(
+    phase: &'static str,
+    func: &ArcFunction,
+    interner: &ori_ir::StringInterner,
+) {
+    if !tracing::enabled!(target: "ori_arc::aims::realize", tracing::Level::TRACE) {
+        return;
+    }
+    let fn_name = interner.lookup(func.name);
+    for (block_idx, block) in func.blocks.iter().enumerate() {
+        let mut incs: Vec<u32> = Vec::new();
+        let mut decs: Vec<u32> = Vec::new();
+        for instr in &block.body {
+            match instr {
+                ArcInstr::RcInc { var, .. } => incs.push(var.raw()),
+                ArcInstr::RcDec { var, .. } => decs.push(var.raw()),
+                _ => {}
+            }
+        }
+        if incs.is_empty() && decs.is_empty() {
+            continue;
+        }
+        tracing::trace!(
+            target: "ori_arc::aims::realize",
+            phase = phase,
+            fn_name = fn_name,
+            block = block_idx,
+            inc = ?incs,
+            dec = ?decs,
+            "post-walk RC snapshot"
+        );
+    }
+}
+
 /// Unified RC emission: per-block walk with inline death/alloc event collection.
 ///
 /// Replaces `emit_rc_ops()` with a forward walk that routes all decisions
@@ -89,12 +137,22 @@ pub(super) fn emit_rc_unified(
         all_death_events.extend(death_events);
         all_alloc_events.extend(alloc_events);
     }
+    trace_phase_snapshot("after_phase_1_walk", func, interner);
 
     // Phase 1.5: dead Invoke result cleanup.
     emit_dead_invoke_dsts(func, state_map, pool, &all_borrowed_defs);
+    trace_phase_snapshot("after_phase_1_5_dead_invoke", func, interner);
 
     // Phase 2: inter-block edge cleanup (with deferred parent decs).
-    emit_edge_cleanup(func, state_map, pool, &all_borrowed_defs, &block_deferred);
+    emit_edge_cleanup(
+        func,
+        state_map,
+        pool,
+        &all_borrowed_defs,
+        &take_move_facts,
+        &block_deferred,
+    );
+    trace_phase_snapshot("after_phase_2_edge_cleanup", func, interner);
 
     // Phase 2.1: insert RcInc for projected children that escape via
     // terminator args, where the parent aggregate was edge-dec'd by
@@ -108,11 +166,13 @@ pub(super) fn emit_rc_unified(
         &func_project_sources,
         &all_borrowed_defs,
     );
+    trace_phase_snapshot("after_phase_2_1_escape_incs", func, interner);
 
     // Phase 3: RC coalescing peephole — merge adjacent RC ops per block.
     for block in &mut func.blocks {
         coalesce_block_rc(&mut block.body);
     }
+    trace_phase_snapshot("after_phase_3_coalesce", func, interner);
 
     let rc_count = count_rc_ops(func);
     (rc_count, all_death_events, all_alloc_events, synergy)
