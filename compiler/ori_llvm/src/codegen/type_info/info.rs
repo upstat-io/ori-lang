@@ -335,9 +335,8 @@ impl TypeInfo {
     /// field analysis.
     pub fn is_trivial(&self) -> bool {
         match self {
-            // Scalar primitives, error fallback, and Iterator (Box-allocated,
-            // no RC header — UnmanagedPtr) are trivial. Iterator matches
-            // ArcClassifier (Scalar) and classify_triviality() (Trivial).
+            // Scalar primitives and error fallback are trivial — they
+            // have no heap component at all.
             Self::Int
             | Self::Float
             | Self::Bool
@@ -349,14 +348,23 @@ impl TypeInfo {
             | Self::Size
             | Self::Ordering
             | Self::Range
-            | Self::Error
-            | Self::Iterator { .. } => true,
+            | Self::Error => true,
 
-            // Everything else: heap-backed RC-managed types and compound types
+            // Everything else: heap-backed RC-managed types, iterators
+            // (Box-allocated — need `ori_iter_drop`), and compound types
             // (conservatively non-trivial per-variant — precise compound
             // classification requires transitive field analysis via
-            // TypeInfoStore::is_trivial() or classify_triviality()).
+            // `TypeInfoStore::is_trivial()` or `classify_triviality()`).
+            //
+            // TPR-07-008: iterators were previously classified as trivial
+            // here on the grounds that they have no RC header. That was
+            // incomplete: iterators still need `ori_iter_drop` at scope
+            // exit to free their Box-allocated state. The SSOT in
+            // `ori_types::triviality::classify_triviality` and
+            // `ori_repr::layout::is_trivial_repr(UnmanagedPtr)` now agree
+            // that iterators are non-trivial, and this helper must match.
             Self::Str
+            | Self::Iterator { .. }
             | Self::List { .. }
             | Self::Map { .. }
             | Self::Set { .. }

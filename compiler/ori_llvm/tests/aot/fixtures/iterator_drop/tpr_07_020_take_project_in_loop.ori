@@ -1,0 +1,48 @@
+// TPR-07-020 topology pin: take-project inside a loop where the loop
+// header is reachable through a back-edge from a bypass-safe latch.
+//
+// `compute_bypass_safe_entries` previously selected a bypass-safe
+// block as a "region entry" only when it had no predecessors OR at
+// least one non-bypass-safe predecessor. A loop header that is the
+// function entry has its own latch (back-edge) as a predecessor, and
+// if the entire loop body is bypass-safe for some take-project class,
+// every predecessor is bypass-safe — so neither `preds.is_empty()`
+// nor "any non-bypass pred" holds, and no entry block is selected.
+// Source 1's per-class drop never fires anywhere for that reachable
+// bypass-safe region while edge cleanup also skips in-class vars,
+// producing a real leak.
+//
+// The TPR-07-020 fix in `compute_bypass_safe_entries` treats the
+// function entry block as an implicit "outside caller" predecessor
+// that is non-bypass-safe by definition. With this, a loop-headed
+// function whose loop body is bypass-safe still gets its function
+// entry block selected as a region root.
+//
+// This topology pin uses an explicit `loop { ... break }` construct
+// that holds an unconsumed take-project source enum across the loop
+// body. The loop body never reaches the take-project (bypass path),
+// and the loop header is reached both from the function entry (the
+// initial fall-through) and from any back-edge if present. After the
+// loop exits, the source enum must still be dropped via the per-class
+// scope-exit path.
+
+type MaybeIter = Empty | Holds(it: Iterator<int>);
+
+@main () -> int = {
+    let x: MaybeIter = Holds(it: [1, 2, 3].iter());
+    let do_take = false;
+    let iters = 0;
+    loop {
+        iters = iters + 1;
+        if iters >= 1 then
+            break
+    };
+    let count = if do_take then
+        match x {
+            Empty -> 0,
+            Holds(it) -> it.count()
+        }
+    else
+        0;
+    count + iters - 1
+}

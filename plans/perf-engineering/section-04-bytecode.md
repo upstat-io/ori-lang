@@ -152,6 +152,8 @@ Design a register-based instruction set for Ori. Register-based (like Lua) rathe
 - [ ] **Validate ISA completeness**: Walk every `CanExpr` variant (48 total, defined in `compiler/ori_ir/src/canon/expr.rs`) and every `CanBindingPattern` variant (5 total, defined in `compiler/ori_ir/src/canon/patterns.rs`) and verify each maps to one or more opcodes. No gaps. Create an exhaustiveness test that iterates all variants and asserts a mapping exists.
 - [ ] **Address existing `decision_tree` TODOs**: `compiler/ori_eval/src/exec/decision_tree/mod.rs` has 2 TODOs referencing "section-07" (lines 266, 276) about `test_kind` usage and numeric discriminants. These are forward references that must be resolved during bytecode compilation -- the bytecode compiler must decide how to handle `TestKind` and discriminant-based dispatch. Track these as dependencies for 04.3.
 
+- [ ] **Subsection close-out (04.1)** — MANDATORY before starting the next subsection. Run `/improve-tooling` retrospectively on THIS subsection's debugging journey (per `.claude/skills/improve-tooling/SKILL.md` "Per-Subsection Workflow"): which `diagnostics/` scripts you ran, where you added `dbg!`/`tracing` calls, where output was hard to interpret, where test failures gave unhelpful messages, where you ran the same command sequence repeatedly. Forward-look: what tool/log/diagnostic would shorten the next regression in this code path by 10 minutes? Implement improvements NOW (zero deferral) and commit each via SEPARATE `/commit-push` using a valid conventional-commit type (`build(diagnostics): ... — surfaced by section-04.1 retrospective` — `build`/`test`/`chore`/`ci`/`docs` are valid; `tools(...)` is rejected by the lefthook commit-msg hook). Mandatory even when nothing felt painful. If genuinely no gaps, document briefly: "Retrospective 04.1: no tooling gaps". Update this subsection's `status` in section frontmatter to `complete`.
+
 ---
 
 ## 04.2 Bytecode Compiler
@@ -233,6 +235,8 @@ Compile `CanExpr` trees into `Chunk` bytecode. This is a single-pass tree walk t
   - **Negative pin**: compile `CanExpr::Error` and verify it produces an unreachable/error opcode, not a valid instruction sequence
   - **TDD ordering**: design ISA types FIRST (opcode enum, Chunk struct), write compilation tests for literals and simple expressions, verify they fail (compiler doesn't exist), then implement compiler incrementally by CanExpr category
 
+- [ ] **Subsection close-out (04.2)** — MANDATORY before starting the next subsection. Run `/improve-tooling` retrospectively on THIS subsection's debugging journey (per `.claude/skills/improve-tooling/SKILL.md` "Per-Subsection Workflow"): which `diagnostics/` scripts you ran, where you added `dbg!`/`tracing` calls, where output was hard to interpret, where test failures gave unhelpful messages, where you ran the same command sequence repeatedly. Forward-look: what tool/log/diagnostic would shorten the next regression in this code path by 10 minutes? Implement improvements NOW (zero deferral) and commit each via SEPARATE `/commit-push` using a valid conventional-commit type (`build(diagnostics): ... — surfaced by section-04.2 retrospective` — `build`/`test`/`chore`/`ci`/`docs` are valid; `tools(...)` is rejected by the lefthook commit-msg hook). Mandatory even when nothing felt painful. If genuinely no gaps, document briefly: "Retrospective 04.2: no tooling gaps". Update this subsection's `status` in section frontmatter to `complete`.
+
 ---
 
 ## 04.3 Constant Pool and Closures
@@ -261,6 +265,8 @@ Handle the tricky parts: constant deduplication, closure compilation with upvalu
   - **Negative pin**: non-tail call (inner `ack(m:, n: n - 1)` in the third clause) does NOT emit TailCall opcode
   - **TDD ordering**: write closure compilation tests and DecisionTree compilation tests FIRST, verify they fail, then implement
 
+- [ ] **Subsection close-out (04.3)** — MANDATORY before starting the next subsection. Run `/improve-tooling` retrospectively on THIS subsection's debugging journey (per `.claude/skills/improve-tooling/SKILL.md` "Per-Subsection Workflow"): which `diagnostics/` scripts you ran, where you added `dbg!`/`tracing` calls, where output was hard to interpret, where test failures gave unhelpful messages, where you ran the same command sequence repeatedly. Forward-look: what tool/log/diagnostic would shorten the next regression in this code path by 10 minutes? Implement improvements NOW (zero deferral) and commit each via SEPARATE `/commit-push` using a valid conventional-commit type (`build(diagnostics): ... — surfaced by section-04.3 retrospective` — `build`/`test`/`chore`/`ci`/`docs` are valid; `tools(...)` is rejected by the lefthook commit-msg hook). Mandatory even when nothing felt painful. If genuinely no gaps, document briefly: "Retrospective 04.3: no tooling gaps". Update this subsection's `status` in section frontmatter to `complete`.
+
 ---
 
 ## 04.R Third Party Review Findings
@@ -282,6 +288,7 @@ Handle the tricky parts: constant deduplication, closure compilation with upvalu
 - [ ] Plan annotation cleanup: `bash .claude/skills/impl-hygiene-review/plan-annotations.sh --plan 04` returns 0 annotations
 - [ ] All intermediate TPR checkpoint findings resolved
 - [ ] `/tpr-review` passed
-- [ ] `/impl-hygiene-review last commit` passed
+- [ ] `/impl-hygiene-review` passed
+- [ ] `/improve-tooling` retrospective completed — MANDATORY at section close, after both reviews are clean. Reflect on the section's debugging journey (which `diagnostics/` scripts you ran, which command sequences you repeated, where you added ad-hoc `dbg!`/`tracing` calls, where output was hard to interpret) and identify any tool/log/diagnostic improvement that would have made this section materially easier OR that would help the next section touching this area. Implement every accepted improvement NOW (zero deferral) and commit each via SEPARATE `/commit-push`. The retrospective is mandatory even when nothing felt painful — that is exactly when blind spots accumulate. See `.claude/skills/improve-tooling/SKILL.md` "Retrospective Mode" for the full protocol.
 
 **Exit Criteria:** `BytecodeCompiler::compile()` successfully compiles all 5,800+ spec test programs to bytecode without errors. The bytecode is not yet executed (that's Section 05) — this section proves the compilation is complete and correct by round-trip verification: compile to bytecode, disassemble, verify instruction sequence matches expected output for representative programs (Ackermann, FizzBuzz, closures, pattern matching).

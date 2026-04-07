@@ -43,6 +43,8 @@ sections:
 - [ ] Verify no new stale TODOs introduced: `grep -rn "// TODO" compiler/*/src/ --include="*.rs" | grep -v test | wc -l` is same or lower than before this plan started
 - [ ] Delete this plan directory: `rm -rf plans/hygiene-full-2/`
 
+- [ ] **Subsection close-out (10.1)** — MANDATORY before starting the next subsection. Run `/improve-tooling` retrospectively on THIS subsection's debugging journey (per `.claude/skills/improve-tooling/SKILL.md` "Per-Subsection Workflow"): which `diagnostics/` scripts you ran, where you added `dbg!`/`tracing` calls, where output was hard to interpret, where test failures gave unhelpful messages, where you ran the same command sequence repeatedly. Forward-look: what tool/log/diagnostic would shorten the next regression in this code path by 10 minutes? Implement improvements NOW (zero deferral) and commit each via SEPARATE `/commit-push` using a valid conventional-commit type (`build(diagnostics): ... — surfaced by section-10.1 retrospective` — `build`/`test`/`chore`/`ci`/`docs` are valid; `tools(...)` is rejected by the lefthook commit-msg hook). Mandatory even when nothing felt painful. If genuinely no gaps, document briefly: "Retrospective 10.1: no tooling gaps". Update this subsection's `status` in section frontmatter to `complete`.
+
 ---
 
 ## 10.R Third Party Review Findings
@@ -54,4 +56,5 @@ sections:
 ## 10.N Completion Checklist
 
 - [ ] All verification checks pass
+- [ ] `/improve-tooling` retrospective completed — MANDATORY at section close, even for cleanup/meta sections. Reflect on the entire hygiene-full-2 plan's debugging journey: which `diagnostics/` scripts and hygiene helpers you ran repeatedly, where the `plan-annotations.sh` output was hard to interpret, what manual file-size / function-size auditing you did that should be automated, what hygiene-rule violations the existing tooling missed. Cleanup sections are uniquely valuable for retrospective because they exercise the *full* tooling surface across the whole plan. Implement every accepted improvement NOW (zero deferral) and commit each via SEPARATE `/commit-push`. See `.claude/skills/improve-tooling/SKILL.md` "Retrospective Mode".
 - [ ] Plan directory deleted

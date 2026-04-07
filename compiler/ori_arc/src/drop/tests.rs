@@ -729,21 +729,39 @@ fn result_int_ordering_returns_none() {
 }
 
 #[test]
-fn iterator_returns_none() {
+fn iterator_compute_drop_info_returns_none() {
     let mut pool = Pool::new();
     let iter = pool.iterator(Idx::INT);
     let c = cls(&pool);
 
-    // Iterator<int> is Box-allocated (Scalar in ArcClassifier) → no drop.
-    assert!(compute_drop_info(iter, &c, &pool).is_none());
+    // TPR-07-008 semantic pin: Iterator<int> is non-trivial (needs
+    // `ori_iter_drop` at scope exit), BUT `compute_drop_info` must
+    // return `None` so that `collect_drop_infos` does not ask the
+    // codegen layer to generate a per-type `_ori_drop$Iterator<int>`
+    // function. The ARC emitter dispatches iterator drops inline via
+    // `RcStrategy::Iterator` (top-level) and the `Tag::Iterator` arm
+    // of `dec_value_rc_inner` (compound traversal); both emit
+    // `ori_iter_drop(ptr)` directly. Generating a drop function would
+    // call `ori_rc_free` on a Box-allocated pointer and corrupt
+    // memory.
+    let info = compute_drop_info(iter, &c, &pool);
+    assert!(
+        info.is_none(),
+        "Iterator<int> must not produce a per-type drop function — ori_iter_drop is emitted inline"
+    );
 }
 
 #[test]
-fn double_ended_iterator_returns_none() {
+fn double_ended_iterator_compute_drop_info_returns_none() {
     let mut pool = Pool::new();
     let deiter = pool.double_ended_iterator(Idx::INT);
     let c = cls(&pool);
 
-    // DoubleEndedIterator<int> is Box-allocated (Scalar) → no drop.
-    assert!(compute_drop_info(deiter, &c, &pool).is_none());
+    // TPR-07-008 semantic pin: DoubleEndedIterator<int> same as
+    // `iterator_compute_drop_info_returns_none`.
+    let info = compute_drop_info(deiter, &c, &pool);
+    assert!(
+        info.is_none(),
+        "DoubleEndedIterator<int> must not produce a per-type drop function — ori_iter_drop is emitted inline"
+    );
 }

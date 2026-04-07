@@ -1,0 +1,7 @@
+// TPR-07-008 matrix pin: a bare iterator variable that is never
+// consumed by a for-loop or iter_next must still drop at scope exit.
+
+@main () -> int = {
+    let _it = [1, 2, 3, 4].iter();
+    0
+}

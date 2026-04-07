@@ -204,4 +204,4 @@ sections:
 - [x] `timeout 150 cargo t` passes — no regressions
 - [x] `timeout 150 ./test-all.sh` passes
 - [x] `/tpr-review` passed — clean on iteration 4 (6 findings fixed across 3 iterations)
-- [x] `/impl-hygiene-review last commit` passed — 3 findings fixed (algorithmic duplication, BLOAT, import ordering)
+- [x] `/impl-hygiene-review` passed — 3 findings fixed (algorithmic duplication, BLOAT, import ordering)

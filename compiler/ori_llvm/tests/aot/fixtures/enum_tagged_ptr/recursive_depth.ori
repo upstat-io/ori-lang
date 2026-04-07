@@ -1,0 +1,19 @@
+// §07.3 Tagged Pointer — recursive enum NEGATIVE PIN.
+// Recursive enums (where a variant field references the same type) are
+// excluded from tagged-pointer eligibility because the cycle marker
+// `RcPointer { inner: OpaquePtr }` would require box-and-load codegen
+// for Construct/Project — out of scope for §07.3.A. They fall back to
+// the explicit-tag encoding and must still execute correctly.
+
+type IntCell = Empty | Holds(child: IntCell);
+
+@cell_depth (c: IntCell) -> int = match c {
+    Empty -> 0,
+    Holds(child) -> 1 + cell_depth(c: child)
+}
+
+@main () -> int = {
+    let $x: IntCell = Holds(child: Holds(child: Holds(child: Empty)));
+    let d = cell_depth(c: x);
+    if d == 3 then 0 else 1
+}

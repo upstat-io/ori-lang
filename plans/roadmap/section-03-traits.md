@@ -486,13 +486,15 @@ Tests at `tests/spec/traits/derive/all_derives.ori` (7 tests pass).
   - [x] Remaining: spec and CLAUDE.md updates verified complete (2026-02-15). Derive for newtypes tracked as optional in 3.21 [done] (2026-02-18)
 - [ ] Proposals (3.8-3.17): Evaluator verified complete for all proposals (verified 2026-03-29). LLVM gaps remain: Debug (3.9 all items), Traceable (3.13), iterator advanced features (3.8 Phase 2+), Index (3.12), derived sum/generic/recursive (3.15). See per-subsection LLVM items for details.
 - [ ] `/tpr-review` passed — independent Codex review found no critical or major issues (or all findings triaged)
-- [ ] `/impl-hygiene-review last commit` passed — implementation hygiene review clean (phase boundaries, SSOT, algorithmic DRY, naming). MUST run AFTER `/tpr-review` is clean.
+- [ ] `/impl-hygiene-review` passed — implementation hygiene review clean (phase boundaries, SSOT, algorithmic DRY, naming). MUST run AFTER `/tpr-review` is clean.
 - [ ] **HYGIENE**: `compiler/ori_types/src/registry/traits/mod.rs` is 762 source lines -- exceeds the 500-line limit. Split into submodules.
 - [ ] **WEAK TESTS**: `tests/spec/traits/iterator/collect_set.ori` has 6 `#skip` markers with tautological stub bodies (`assert(cond: true)`) -- exceeds 3-skip budget per file. Replace with real tests or remove stubs and track Set collect as a plan item.
 - [ ] **WEAK TESTS**: Default type parameters (3.19) has only 2 spec tests. Add edge case tests (multiple defaults, complex cross-references, error cases for invalid ordering).
 - [ ] **WEAK TESTS**: Default associated types (3.20) has only 4 spec tests. Add bounds checking tests when feature is implemented.
 
 **Exit Criteria**: Core trait-based code compiles and runs in evaluator [done]. LLVM codegen for built-in and user methods works [done]. User-defined operator traits complete [done] (2026-02-15). Formal trait proposals (3.8-3.17) evaluator complete, LLVM partial.
+
+- [ ] **Subsection close-out (3.6)** — MANDATORY before starting the next subsection. Run `/improve-tooling` retrospectively on THIS subsection's debugging journey (per `.claude/skills/improve-tooling/SKILL.md` "Per-Subsection Workflow"): which `diagnostics/` scripts you ran, where you added `dbg!`/`tracing` calls, where output was hard to interpret, where test failures gave unhelpful messages, where you ran the same command sequence repeatedly. Forward-look: what tool/log/diagnostic would shorten the next regression in this code path by 10 minutes? Implement improvements NOW (zero deferral) and commit each via SEPARATE `/commit-push` using a valid conventional-commit type (`build(diagnostics): ... — surfaced by section-3.6 retrospective` — `build`/`test`/`chore`/`ci`/`docs` are valid; `tools(...)` is rejected by the lefthook commit-msg hook). Mandatory even when nothing felt painful. If genuinely no gaps, document briefly: "Retrospective 3.6: no tooling gaps". Update this subsection's `status` in section frontmatter to `complete`.
 
 ---
 
@@ -656,6 +658,8 @@ Formalizes iteration with four core traits: `Iterator`, `DoubleEndedIterator`, `
 - [x] **Update Spec**: `12-modules.md` — Iterator traits in prelude table (lines 281-288) (verified 2026-02-16)
 - [x] **Update**: `CLAUDE.md` — Iterator documentation in `.claude/rules/ori-syntax.md` (lines 177-182) (verified 2026-02-16)
 
+- [ ] **Subsection close-out (3.8)** — MANDATORY before starting the next subsection. Run `/improve-tooling` retrospectively on THIS subsection's debugging journey (per `.claude/skills/improve-tooling/SKILL.md` "Per-Subsection Workflow"): which `diagnostics/` scripts you ran, where you added `dbg!`/`tracing` calls, where output was hard to interpret, where test failures gave unhelpful messages, where you ran the same command sequence repeatedly. Forward-look: what tool/log/diagnostic would shorten the next regression in this code path by 10 minutes? Implement improvements NOW (zero deferral) and commit each via SEPARATE `/commit-push` using a valid conventional-commit type (`build(diagnostics): ... — surfaced by section-3.8 retrospective` — `build`/`test`/`chore`/`ci`/`docs` are valid; `tools(...)` is rejected by the lefthook commit-msg hook). Mandatory even when nothing felt painful. If genuinely no gaps, document briefly: "Retrospective 3.8: no tooling gaps". Update this subsection's `status` in section frontmatter to `complete`.
+
 ---
 
 ## 3.8.1 Iterator Performance and Semantics
@@ -710,6 +714,8 @@ Formalizes the performance characteristics and precise semantics of Ori's functi
 - [x] **Update Spec**: `09-expressions.md` — add infinite range syntax section (already documented)
 - [x] **Update Spec**: `grammar.ebnf` — update range_expr production (already correct: end is optional)
 - [x] **Update**: `CLAUDE.md` — add infinite range syntax and iterator performance notes (verified 2026-02-16: `.claude/rules/ori-syntax.md` lines 102+182 already document infinite range syntax, repeat(), take-before-collect guidance, and lazy/fused semantics)
+
+- [ ] **Subsection close-out (3.8.1)** — MANDATORY before starting the next subsection. Run `/improve-tooling` retrospectively on THIS subsection's debugging journey (per `.claude/skills/improve-tooling/SKILL.md` "Per-Subsection Workflow"): which `diagnostics/` scripts you ran, where you added `dbg!`/`tracing` calls, where output was hard to interpret, where test failures gave unhelpful messages, where you ran the same command sequence repeatedly. Forward-look: what tool/log/diagnostic would shorten the next regression in this code path by 10 minutes? Implement improvements NOW (zero deferral) and commit each via SEPARATE `/commit-push` using a valid conventional-commit type (`build(diagnostics): ... — surfaced by section-3.8.1 retrospective` — `build`/`test`/`chore`/`ci`/`docs` are valid; `tools(...)` is rejected by the lefthook commit-msg hook). Mandatory even when nothing felt painful. If genuinely no gaps, document briefly: "Retrospective 3.8.1: no tooling gaps". Update this subsection's `status` in section frontmatter to `complete`.
 
 ---
 
@@ -778,6 +784,8 @@ Adds a `Debug` trait separate from `Printable` for developer-facing structural r
 - [x] **Update Spec**: `08-declarations.md` — add Debug to derivable traits list (verified 2026-02-17: already present)
 - [x] **Update Spec**: `12-modules.md` — add Debug to prelude traits (verified 2026-02-17: already present)
 - [x] **Update**: `CLAUDE.md` — add Debug to prelude traits list (verified 2026-02-17: already present, added .join to iterator methods)
+
+- [ ] **Subsection close-out (3.9)** — MANDATORY before starting the next subsection. Run `/improve-tooling` retrospectively on THIS subsection's debugging journey (per `.claude/skills/improve-tooling/SKILL.md` "Per-Subsection Workflow"): which `diagnostics/` scripts you ran, where you added `dbg!`/`tracing` calls, where output was hard to interpret, where test failures gave unhelpful messages, where you ran the same command sequence repeatedly. Forward-look: what tool/log/diagnostic would shorten the next regression in this code path by 10 minutes? Implement improvements NOW (zero deferral) and commit each via SEPARATE `/commit-push` using a valid conventional-commit type (`build(diagnostics): ... — surfaced by section-3.9 retrospective` — `build`/`test`/`chore`/`ci`/`docs` are valid; `tools(...)` is rejected by the lefthook commit-msg hook). Mandatory even when nothing felt painful. If genuinely no gaps, document briefly: "Retrospective 3.9: no tooling gaps". Update this subsection's `status` in section frontmatter to `complete`.
 
 ---
 
@@ -848,6 +856,8 @@ Specifies rules for resolving trait implementation conflicts: diamond problem, c
 
 - [x] **Update Spec**: `08-declarations.md` — coherence, resolution, super calls sections already present (lines 458-583); added error code cross-references (E2010, E2021, E2023) [done] (2026-02-18)
 - [x] **Update**: `CLAUDE.md` — trait resolution rules already documented in `.claude/rules/ori-syntax.md` via Len trait and operator traits [done] (2026-02-18)
+
+- [ ] **Subsection close-out (3.10)** — MANDATORY before starting the next subsection. Run `/improve-tooling` retrospectively on THIS subsection's debugging journey (per `.claude/skills/improve-tooling/SKILL.md` "Per-Subsection Workflow"): which `diagnostics/` scripts you ran, where you added `dbg!`/`tracing` calls, where output was hard to interpret, where test failures gave unhelpful messages, where you ran the same command sequence repeatedly. Forward-look: what tool/log/diagnostic would shorten the next regression in this code path by 10 minutes? Implement improvements NOW (zero deferral) and commit each via SEPARATE `/commit-push` using a valid conventional-commit type (`build(diagnostics): ... — surfaced by section-3.10 retrospective` — `build`/`test`/`chore`/`ci`/`docs` are valid; `tools(...)` is rejected by the lefthook commit-msg hook). Mandatory even when nothing felt painful. If genuinely no gaps, document briefly: "Retrospective 3.10: no tooling gaps". Update this subsection's `status` in section frontmatter to `complete`.
 
 ---
 
@@ -951,6 +961,8 @@ Introduces the `Index` trait for read-only custom subscripting, allowing user-de
 - [x] **Update Spec**: `06-types.md` — Index already listed in `.claude/rules/ori-syntax.md` traits list *(2026-02-17)*
 - [x] **Update**: `.claude/rules/ori-syntax.md` — added multiple impls dispatch note to Index entry *(2026-02-17)*
 
+- [ ] **Subsection close-out (3.12)** — MANDATORY before starting the next subsection. Run `/improve-tooling` retrospectively on THIS subsection's debugging journey (per `.claude/skills/improve-tooling/SKILL.md` "Per-Subsection Workflow"): which `diagnostics/` scripts you ran, where you added `dbg!`/`tracing` calls, where output was hard to interpret, where test failures gave unhelpful messages, where you ran the same command sequence repeatedly. Forward-look: what tool/log/diagnostic would shorten the next regression in this code path by 10 minutes? Implement improvements NOW (zero deferral) and commit each via SEPARATE `/commit-push` using a valid conventional-commit type (`build(diagnostics): ... — surfaced by section-3.12 retrospective` — `build`/`test`/`chore`/`ci`/`docs` are valid; `tools(...)` is rejected by the lefthook commit-msg hook). Mandatory even when nothing felt painful. If genuinely no gaps, document briefly: "Retrospective 3.12: no tooling gaps". Update this subsection's `status` in section frontmatter to `complete`.
+
 ---
 
 ## 3.13 Additional Core Traits
@@ -1027,6 +1039,8 @@ Formalizes three core traits: `Printable`, `Default`, and `Traceable`. The `Iter
 
 - [x] **Update Spec**: `09-properties-of-types.md` — add Printable, Default, Traceable sections (verified 2026-02-17: already present)
 - [x] **Update**: `CLAUDE.md` — traits documented in `.claude/rules/ori-syntax.md` (prelude traits, operator traits, iterator traits) [done] (verified 2026-02-18)
+
+- [ ] **Subsection close-out (3.13)** — MANDATORY before starting the next subsection. Run `/improve-tooling` retrospectively on THIS subsection's debugging journey (per `.claude/skills/improve-tooling/SKILL.md` "Per-Subsection Workflow"): which `diagnostics/` scripts you ran, where you added `dbg!`/`tracing` calls, where output was hard to interpret, where test failures gave unhelpful messages, where you ran the same command sequence repeatedly. Forward-look: what tool/log/diagnostic would shorten the next regression in this code path by 10 minutes? Implement improvements NOW (zero deferral) and commit each via SEPARATE `/commit-push` using a valid conventional-commit type (`build(diagnostics): ... — surfaced by section-3.13 retrospective` — `build`/`test`/`chore`/`ci`/`docs` are valid; `tools(...)` is rejected by the lefthook commit-msg hook). Mandatory even when nothing felt painful. If genuinely no gaps, document briefly: "Retrospective 3.13: no tooling gaps". Update this subsection's `status` in section frontmatter to `complete`.
 
 ---
 
@@ -1252,6 +1266,8 @@ Formalizes the `#derive` attribute semantics: derivable traits list, derivation 
 - [x] **Update Spec**: `06-types.md` — Derive section already comprehensive (lines 775-837): derivable traits table, rules, generics, recursion, non-derivable [done] (verified 2026-02-18)
 - [x] **Update Spec**: `09-properties-of-types.md` — derive semantics covered via individual trait sections (Eq, Comparable, Hashable each reference derivation) [done] (verified 2026-02-18)
 
+- [ ] **Subsection close-out (3.15)** — MANDATORY before starting the next subsection. Run `/improve-tooling` retrospectively on THIS subsection's debugging journey (per `.claude/skills/improve-tooling/SKILL.md` "Per-Subsection Workflow"): which `diagnostics/` scripts you ran, where you added `dbg!`/`tracing` calls, where output was hard to interpret, where test failures gave unhelpful messages, where you ran the same command sequence repeatedly. Forward-look: what tool/log/diagnostic would shorten the next regression in this code path by 10 minutes? Implement improvements NOW (zero deferral) and commit each via SEPARATE `/commit-push` using a valid conventional-commit type (`build(diagnostics): ... — surfaced by section-3.15 retrospective` — `build`/`test`/`chore`/`ci`/`docs` are valid; `tools(...)` is rejected by the lefthook commit-msg hook). Mandatory even when nothing felt painful. If genuinely no gaps, document briefly: "Retrospective 3.15: no tooling gaps". Update this subsection's `status` in section frontmatter to `complete`.
+
 ---
 
 ## 3.16 Formattable Trait
@@ -1397,6 +1413,8 @@ Formalizes the `Into` trait for semantic, lossless type conversions. Defines tra
 - [x] **Update**: `.claude/rules/ori-syntax.md` — Into already documented in prelude traits (verified)
 
 > **Note**: `str.into()` returns `Idx::ERROR` directly (pre-interned primitive) rather than `pool.named("Error")`. The `WellKnownNames.error_type` field was removed as unused. If a future feature needs to resolve "Error" by name at type-check time, re-add it to `well_known.rs`. Error.message field access is implemented in both type checker (`infer_field` in `structs.rs`) and evaluator (`eval_field_access` in `expr.rs`) — if more Error fields are added (e.g. `.source`), update both.
+
+- [ ] **Subsection close-out (3.17)** — MANDATORY before starting the next subsection. Run `/improve-tooling` retrospectively on THIS subsection's debugging journey (per `.claude/skills/improve-tooling/SKILL.md` "Per-Subsection Workflow"): which `diagnostics/` scripts you ran, where you added `dbg!`/`tracing` calls, where output was hard to interpret, where test failures gave unhelpful messages, where you ran the same command sequence repeatedly. Forward-look: what tool/log/diagnostic would shorten the next regression in this code path by 10 minutes? Implement improvements NOW (zero deferral) and commit each via SEPARATE `/commit-push` using a valid conventional-commit type (`build(diagnostics): ... — surfaced by section-3.17 retrospective` — `build`/`test`/`chore`/`ci`/`docs` are valid; `tools(...)` is rejected by the lefthook commit-msg hook). Mandatory even when nothing felt painful. If genuinely no gaps, document briefly: "Retrospective 3.17: no tooling gaps". Update this subsection's `status` in section frontmatter to `complete`.
 
 ---
 
@@ -1647,6 +1665,8 @@ Add `@` as a binary operator for matrix multiplication at multiplicative precede
 - [ ] **Update Spec**: `grammar.ebnf` — add `"@"` to `mul_expr` production
 - [ ] **Update**: `.claude/rules/ori-syntax.md` — document `@` operator and `MatMul` trait
 
+- [ ] **Subsection close-out (3.21)** — MANDATORY before starting the next subsection. Run `/improve-tooling` retrospectively on THIS subsection's debugging journey (per `.claude/skills/improve-tooling/SKILL.md` "Per-Subsection Workflow"): which `diagnostics/` scripts you ran, where you added `dbg!`/`tracing` calls, where output was hard to interpret, where test failures gave unhelpful messages, where you ran the same command sequence repeatedly. Forward-look: what tool/log/diagnostic would shorten the next regression in this code path by 10 minutes? Implement improvements NOW (zero deferral) and commit each via SEPARATE `/commit-push` using a valid conventional-commit type (`build(diagnostics): ... — surfaced by section-3.21 retrospective` — `build`/`test`/`chore`/`ci`/`docs` are valid; `tools(...)` is rejected by the lefthook commit-msg hook). Mandatory even when nothing felt painful. If genuinely no gaps, document briefly: "Retrospective 3.21: no tooling gaps". Update this subsection's `status` in section frontmatter to `complete`.
+
 ---
 
 ## 3.22 Bound Syntax — ELIMINATED (Capability Unification)
@@ -1656,6 +1676,8 @@ Add `@` as a binary operator for matrix multiplication at multiplicative precede
 **Proposal**: `proposals/approved/capability-unification-generics-proposal.md` — Phase 2 (eliminated)
 
 **Status:** This section is **no longer needed**. The 2026-03-04 addendum to the capability-unification-generics-proposal decided to retain `:` for all bound positions (generic parameters, where clauses, supertrait declarations, impl block bounds). No parser changes, no test migration, no spec updates for bound syntax. Only the `#derive` → `:` trait clause on type declarations is a new syntax change (tracked in Section 5).
+
+- [ ] **Subsection close-out (3.22)** — MANDATORY before starting the next subsection. Run `/improve-tooling` retrospectively on THIS subsection's debugging journey (per `.claude/skills/improve-tooling/SKILL.md` "Per-Subsection Workflow"): which `diagnostics/` scripts you ran, where you added `dbg!`/`tracing` calls, where output was hard to interpret, where test failures gave unhelpful messages, where you ran the same command sequence repeatedly. Forward-look: what tool/log/diagnostic would shorten the next regression in this code path by 10 minutes? Implement improvements NOW (zero deferral) and commit each via SEPARATE `/commit-push` using a valid conventional-commit type (`build(diagnostics): ... — surfaced by section-3.22 retrospective` — `build`/`test`/`chore`/`ci`/`docs` are valid; `tools(...)` is rejected by the lefthook commit-msg hook). Mandatory even when nothing felt painful. If genuinely no gaps, document briefly: "Retrospective 3.22: no tooling gaps". Update this subsection's `status` in section frontmatter to `complete`.
 
 ---
 
@@ -1686,6 +1708,8 @@ Replace `impl Trait for Type` with `impl Type: Trait` — subject-first ordering
 - [ ] **Verify**: All spec tests pass with new parser
   - [ ] `cargo st` — full spec test suite
   - [ ] `cargo t` — full Rust test suite
+
+- [ ] **Subsection close-out (3.23)** — MANDATORY before starting the next subsection. Run `/improve-tooling` retrospectively on THIS subsection's debugging journey (per `.claude/skills/improve-tooling/SKILL.md` "Per-Subsection Workflow"): which `diagnostics/` scripts you ran, where you added `dbg!`/`tracing` calls, where output was hard to interpret, where test failures gave unhelpful messages, where you ran the same command sequence repeatedly. Forward-look: what tool/log/diagnostic would shorten the next regression in this code path by 10 minutes? Implement improvements NOW (zero deferral) and commit each via SEPARATE `/commit-push` using a valid conventional-commit type (`build(diagnostics): ... — surfaced by section-3.23 retrospective` — `build`/`test`/`chore`/`ci`/`docs` are valid; `tools(...)` is rejected by the lefthook commit-msg hook). Mandatory even when nothing felt painful. If genuinely no gaps, document briefly: "Retrospective 3.23: no tooling gaps". Update this subsection's `status` in section frontmatter to `complete`.
 
 ---
 
@@ -1760,6 +1784,8 @@ Marker trait guaranteeing inline storage, bitwise copy, no ARC, and no Drop. Sup
 - [ ] **Implement**: `Value + Hashable` types eligible as const generic parameters
   - [ ] **Ori Tests**: Const generic with Value types
 
+- [ ] **Subsection close-out (3.24)** — MANDATORY before starting the next subsection. Run `/improve-tooling` retrospectively on THIS subsection's debugging journey (per `.claude/skills/improve-tooling/SKILL.md` "Per-Subsection Workflow"): which `diagnostics/` scripts you ran, where you added `dbg!`/`tracing` calls, where output was hard to interpret, where test failures gave unhelpful messages, where you ran the same command sequence repeatedly. Forward-look: what tool/log/diagnostic would shorten the next regression in this code path by 10 minutes? Implement improvements NOW (zero deferral) and commit each via SEPARATE `/commit-push` using a valid conventional-commit type (`build(diagnostics): ... — surfaced by section-3.24 retrospective` — `build`/`test`/`chore`/`ci`/`docs` are valid; `tools(...)` is rejected by the lefthook commit-msg hook). Mandatory even when nothing felt painful. If genuinely no gaps, document briefly: "Retrospective 3.24: no tooling gaps". Update this subsection's `status` in section frontmatter to `complete`.
+
 ---
 
 ## 3.25 Structural Trait Defaults
@@ -1782,6 +1808,8 @@ Marker trait guaranteeing inline storage, bitwise copy, no ARC, and no Drop. Sup
 1. **Two-tier model**: Structural `==`/`!=` works on all types without declaration. Declaring `type T: Eq = {...}` generates a named `equals` method for trait dispatch in generic `T: Eq` contexts.
 2. **Comparable/Hashable/Default require explicit declaration** — no structural default (field ordering is semantic, not structural).
 3. **`eq` → `equals` method rename** — unifies a partial rename already in progress (evaluator and mangling use `"equals"`, IR and codegen use `"eq"`).
+
+- [ ] **Subsection close-out (3.25)** — MANDATORY before starting the next subsection. Run `/improve-tooling` retrospectively on THIS subsection's debugging journey (per `.claude/skills/improve-tooling/SKILL.md` "Per-Subsection Workflow"): which `diagnostics/` scripts you ran, where you added `dbg!`/`tracing` calls, where output was hard to interpret, where test failures gave unhelpful messages, where you ran the same command sequence repeatedly. Forward-look: what tool/log/diagnostic would shorten the next regression in this code path by 10 minutes? Implement improvements NOW (zero deferral) and commit each via SEPARATE `/commit-push` using a valid conventional-commit type (`build(diagnostics): ... — surfaced by section-3.25 retrospective` — `build`/`test`/`chore`/`ci`/`docs` are valid; `tools(...)` is rejected by the lefthook commit-msg hook). Mandatory even when nothing felt painful. If genuinely no gaps, document briefly: "Retrospective 3.25: no tooling gaps". Update this subsection's `status` in section frontmatter to `complete`.
 
 ---
 
@@ -1974,6 +2002,7 @@ Currently:
 - [ ] `ORI_CHECK_LEAKS=1` reports zero leaks on all new test programs
 - [ ] Plan annotation cleanup: no stale plan annotations in `.rs` files
 - [ ] `/tpr-review` passed
-- [ ] `/impl-hygiene-review last commit` passed
+- [ ] `/impl-hygiene-review` passed
+- [ ] `/improve-tooling` retrospective completed — MANDATORY at section close, after both reviews are clean. Reflect on the section's debugging journey (which `diagnostics/` scripts you ran, which command sequences you repeated, where you added ad-hoc `dbg!`/`tracing` calls, where output was hard to interpret) and identify any tool/log/diagnostic improvement that would have made this section materially easier OR that would help the next section touching this area. Implement every accepted improvement NOW (zero deferral) and commit each via SEPARATE `/commit-push`. The retrospective is mandatory even when nothing felt painful — that is exactly when blind spots accumulate. See `.claude/skills/improve-tooling/SKILL.md` "Retrospective Mode" for the full protocol.
 
 **Exit Criteria:** All types (structs, enums, newtypes) support `==`/`!=`, `.clone()`, `.debug()`, and `.to_str()` structurally in both evaluator and LLVM codegen without requiring `#derive(...)`. The `equals` method name is consistent across all compiler crates. Spec reflects structural defaults. Zero regressions in `./test-all.sh` (debug and release). Dual-execution parity confirmed for all new test programs.

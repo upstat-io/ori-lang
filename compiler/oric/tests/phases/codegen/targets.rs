@@ -9,7 +9,8 @@
 
 use ori_llvm::aot::target::TargetConfig;
 use ori_llvm::aot::target_features::{
-    get_host_cpu_features, get_host_cpu_name, parse_features, TargetError, TargetTripleComponents,
+    get_host_cpu_features, get_host_cpu_name, parse_features, Arch, TargetError,
+    TargetTripleComponents,
 };
 use ori_llvm::inkwell::targets::{CodeModel, RelocMode};
 use ori_llvm::inkwell::OptimizationLevel;
@@ -17,7 +18,7 @@ use ori_llvm::inkwell::OptimizationLevel;
 #[test]
 fn test_parse_triple_linux() {
     let components = TargetTripleComponents::parse("x86_64-unknown-linux-gnu").unwrap();
-    assert_eq!(components.arch, "x86_64");
+    assert_eq!(components.arch, Arch::X86_64);
     assert_eq!(components.vendor, "unknown");
     assert_eq!(components.os, "linux");
     assert_eq!(components.env, Some("gnu".to_string()));
@@ -28,7 +29,7 @@ fn test_parse_triple_linux() {
 #[test]
 fn test_parse_triple_macos() {
     let components = TargetTripleComponents::parse("aarch64-apple-darwin").unwrap();
-    assert_eq!(components.arch, "aarch64");
+    assert_eq!(components.arch, Arch::Aarch64);
     assert_eq!(components.vendor, "apple");
     assert_eq!(components.os, "darwin");
     assert_eq!(components.env, None);
@@ -39,7 +40,7 @@ fn test_parse_triple_macos() {
 #[test]
 fn test_parse_triple_windows() {
     let components = TargetTripleComponents::parse("x86_64-pc-windows-msvc").unwrap();
-    assert_eq!(components.arch, "x86_64");
+    assert_eq!(components.arch, Arch::X86_64);
     assert_eq!(components.vendor, "pc");
     assert_eq!(components.os, "windows");
     assert_eq!(components.env, Some("msvc".to_string()));
@@ -50,7 +51,7 @@ fn test_parse_triple_windows() {
 #[test]
 fn test_parse_triple_wasm() {
     let components = TargetTripleComponents::parse("wasm32-unknown-unknown").unwrap();
-    assert_eq!(components.arch, "wasm32");
+    assert_eq!(components.arch, Arch::Wasm32);
     assert!(components.is_wasm());
     assert_eq!(components.family(), "wasm");
 }
@@ -121,8 +122,26 @@ fn test_target_config_builder() {
 
 #[test]
 fn test_unsupported_target() {
+    // An unknown architecture is rejected at the parse boundary by
+    // `Arch::parse_llvm_name` — strictly stronger than the old
+    // `UnsupportedTarget` check, which only ran AFTER parse. A known arch
+    // in an unsupported OS combination still returns `UnsupportedTarget`
+    // (see the wasi-x86_64 case below).
     let result = TargetConfig::from_triple("riscv64-unknown-linux-gnu");
-    assert!(matches!(result, Err(TargetError::UnsupportedTarget { .. })));
+    assert!(
+        matches!(result, Err(TargetError::InvalidTripleFormat { .. })),
+        "riscv64 should be rejected at parse boundary as unknown architecture, got: {result:?}"
+    );
+
+    // A known arch in an unsupported triple combination (x86_64 + wasi is
+    // not in `SUPPORTED_TARGETS`) returns `UnsupportedTarget` — the
+    // post-canonicalization supported-targets check still fires for
+    // recognized archs.
+    let result = TargetConfig::from_triple("x86_64-unknown-wasi");
+    assert!(
+        matches!(result, Err(TargetError::UnsupportedTarget { .. })),
+        "known arch in unsupported combo should yield UnsupportedTarget, got: {result:?}"
+    );
 }
 
 #[test]
@@ -320,7 +339,7 @@ fn test_target_error_display_all_variants() {
 #[test]
 fn test_target_triple_display() {
     let components = TargetTripleComponents {
-        arch: "x86_64".to_string(),
+        arch: Arch::X86_64,
         vendor: "unknown".to_string(),
         os: "linux".to_string(),
         env: Some("gnu".to_string()),
@@ -328,7 +347,7 @@ fn test_target_triple_display() {
     assert_eq!(format!("{components}"), "x86_64-unknown-linux-gnu");
 
     let components = TargetTripleComponents {
-        arch: "aarch64".to_string(),
+        arch: Arch::Aarch64,
         vendor: "apple".to_string(),
         os: "darwin".to_string(),
         env: None,

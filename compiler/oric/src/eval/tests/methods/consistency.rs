@@ -377,28 +377,48 @@ fn backend_required_methods_in_eval() {
 /// Methods marked `pure: true` should not consume their receiver
 /// (`Ownership::Owned` implies mutation/consumption, contradicting purity).
 ///
+/// **Exception: iterator methods.** Every method on `Iterator` and
+/// `DoubleEndedIterator` is pure (same inputs → same outputs, no
+/// observable side effects) but also **consumes** the receiver via
+/// `Box::from_raw(iter.cast::<IterState>())`. Purity (referential
+/// transparency) and linear consumption (move-only ownership) are
+/// independent concepts — iterators are both. The iterator method
+/// receiver was previously marked `Borrow` as a workaround, which
+/// caused memory leaks (TPR-07-008). The SSOT is now honest: these
+/// methods are `Owned + pure`.
+///
 /// Also verifies that at least 30% of methods are marked pure (catches
 /// the failure mode of someone defaulting everything to `pure: false`).
 #[test]
 fn pure_method_sanity() {
-    use ori_registry::{Ownership, BUILTIN_TYPES};
+    use ori_registry::{Ownership, TypeTag, BUILTIN_TYPES};
 
     let mut total_methods = 0;
     let mut pure_count = 0;
 
     for type_def in BUILTIN_TYPES {
+        // Iterator methods are pure + Owned (see doc comment above).
+        // TPR-07-008: previously `Borrow` as a workaround for the ARC
+        // pipeline treating iterators as trivial; that workaround
+        // leaked memory and is now fixed at the SSOT.
+        let is_iterator = matches!(
+            type_def.tag,
+            TypeTag::Iterator | TypeTag::DoubleEndedIterator
+        );
         for method in type_def.methods {
             total_methods += 1;
             if method.pure {
                 pure_count += 1;
-                assert_ne!(
-                    method.receiver,
-                    Ownership::Owned,
-                    "Method `{}.{}` is marked pure but has Ownership::Owned receiver. \
-                     Pure methods should borrow, not consume.",
-                    type_def.name,
-                    method.name,
-                );
+                if !is_iterator {
+                    assert_ne!(
+                        method.receiver,
+                        Ownership::Owned,
+                        "Method `{}.{}` is marked pure but has Ownership::Owned receiver. \
+                         Pure methods should borrow, not consume (except iterator methods — see TPR-07-008).",
+                        type_def.name,
+                        method.name,
+                    );
+                }
             }
         }
     }

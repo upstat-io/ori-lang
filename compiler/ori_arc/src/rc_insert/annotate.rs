@@ -339,6 +339,51 @@ fn apply_consuming_overrides(
         return;
     }
 
+    let receiver_var = args[0];
+    let receiver_idx = ctx.var_types[receiver_var.index()];
+    let resolved_receiver = ctx.pool.resolve_fully(receiver_idx);
+    let tag = ctx.pool.tag(resolved_receiver);
+
+    // TPR-07-008: Iterator receivers — every user-facing iterator method
+    // (adapters and consumers) consumes the receiver via
+    // `Box::from_raw(iter.cast::<IterState>())`. This is true for
+    // `Iterator<T>` AND `DoubleEndedIterator<T>`. The registry records
+    // this with `Ownership::Owned` on iterator methods, but the
+    // borrowing-builtins path still classifies calls as borrowing
+    // because `count`/`map`/`filter` are also List methods with
+    // `Ownership::Borrow`, and the name-based lookup in
+    // `compute_arg_ownership` can't disambiguate by receiver type.
+    //
+    // This type-qualified override is the disambiguation point: if the
+    // receiver is an iterator, the call is always consuming. Protocol
+    // builtins (`__iter_next`, `__collect_set`) bypass this function
+    // entirely — they go through `compute_arg_ownership`'s protocol
+    // path, which already has per-arg ownership from
+    // `ProtocolBuiltin::arg_ownership()`.
+    if matches!(
+        tag,
+        ori_types::Tag::Iterator | ori_types::Tag::DoubleEndedIterator
+    ) {
+        arg_ownership[0] = ArgOwnership::Owned;
+        // zip/chain take a second iterator — also consume it.
+        let callee_str = ctx.interner.lookup(callee);
+        if (callee_str == "zip" || callee_str == "chain")
+            && args.len() >= 2
+            && arg_ownership.len() >= 2
+        {
+            let other_var = args[1];
+            let other_idx = ctx.var_types[other_var.index()];
+            let other_tag = ctx.pool.tag(ctx.pool.resolve_fully(other_idx));
+            if matches!(
+                other_tag,
+                ori_types::Tag::Iterator | ori_types::Tag::DoubleEndedIterator
+            ) {
+                arg_ownership[1] = ArgOwnership::Owned;
+            }
+        }
+        return;
+    }
+
     // Check if the receiver is a collection (type-qualified gate).
     // COW methods consume the receiver for List, Map, and Set types.
     // Str is excluded — str builtins (iter, concat) borrow the receiver
@@ -348,10 +393,6 @@ fn apply_consuming_overrides(
         return;
     }
 
-    let receiver_var = args[0];
-    let receiver_idx = ctx.var_types[receiver_var.index()];
-    let resolved_receiver = ctx.pool.resolve_fully(receiver_idx);
-    let tag = ctx.pool.tag(resolved_receiver);
     if !matches!(
         tag,
         ori_types::Tag::List | ori_types::Tag::Map | ori_types::Tag::Set

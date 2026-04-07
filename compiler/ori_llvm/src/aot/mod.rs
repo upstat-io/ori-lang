@@ -95,8 +95,8 @@ pub use target::TargetConfig;
 
 // Re-export key types from target_features
 pub use target_features::{
-    get_host_cpu_features, get_host_cpu_name, is_supported_target, parse_features, TargetError,
-    TargetTripleComponents, SUPPORTED_TARGETS,
+    get_host_cpu_features, get_host_cpu_name, is_supported_target, parse_features, Arch, HostOs,
+    HostPlatform, TargetError, TargetTripleComponents, SUPPORTED_TARGETS,
 };
 
 // Re-export key types from object
@@ -127,7 +127,11 @@ pub use linker::{
 pub use runtime::{RuntimeConfig, RuntimeNotFound};
 
 // Re-export key types from syslib
-pub use syslib::{find_library, library_exists, LibrarySearchOrder, SysLibConfig, SysLibError};
+pub use syslib::{
+    find_library, home_wasi_sdk_sysroot, home_wasi_sdk_sysroot_for_home, library_exists,
+    ori_sysroot_path, ori_sysroot_path_for_home, ori_sysroots_dir, ori_sysroots_dir_for_home,
+    user_home_dir, LibrarySearchOrder, SysLibConfig, SysLibError,
+};
 
 // Re-export key types from wasm
 pub use wasm::{

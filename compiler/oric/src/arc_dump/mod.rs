@@ -190,5 +190,6 @@ pub(crate) fn fmt_strategy(strategy: RcStrategy) -> &'static str {
         RcStrategy::Closure => "Closure",
         RcStrategy::AggregateFields => "AggFields",
         RcStrategy::InlineEnum => "InlineEnum",
+        RcStrategy::Iterator => "Iterator",
     }
 }

@@ -93,6 +93,8 @@ Add before/after RC operation counts to `SynergyMetrics`. These complement the e
   - Test `coalesce_reduction_percent()` with zero, partial, and full reduction
   - Test `merge()` with new fields
 
+- [ ] **Subsection close-out (01.1)** — MANDATORY before starting the next subsection. Run `/improve-tooling` retrospectively on THIS subsection's debugging journey (per `.claude/skills/improve-tooling/SKILL.md` "Per-Subsection Workflow"): which `diagnostics/` scripts you ran, where you added `dbg!`/`tracing` calls, where output was hard to interpret, where test failures gave unhelpful messages, where you ran the same command sequence repeatedly. Forward-look: what tool/log/diagnostic would shorten the next regression in this code path by 10 minutes? Implement improvements NOW (zero deferral) and commit each via SEPARATE `/commit-push` using a valid conventional-commit type (`build(diagnostics): ... — surfaced by section-01.1 retrospective` — `build`/`test`/`chore`/`ci`/`docs` are valid; `tools(...)` is rejected by the lefthook commit-msg hook). Mandatory even when nothing felt painful. If genuinely no gaps, document briefly: "Retrospective 01.1: no tooling gaps". Update this subsection's `status` in section frontmatter to `complete`.
+
 ---
 
 ## 01.2 Add Pipeline-Level Before/After Instrumentation
@@ -132,6 +134,8 @@ Count RC operations at each pipeline stage by scanning the IR instruction lists.
 **Semantic pin:** Test that counts str and [int] programs as having `rc_ops_post_emission > 0` and int-only programs as having `rc_ops_post_emission == 0`.
 
 **Negative pin:** Test that `rc_ops_post_emission` for a program containing only `let $x = 42; x + 1` is exactly 0 — rejects the possibility that the instrumentation introduces spurious non-zero counts for scalar-only code. If this test ever passes with a non-zero value, the counting logic is wrong.
+
+- [ ] **Subsection close-out (01.2)** — MANDATORY before starting the next subsection. Run `/improve-tooling` retrospectively on THIS subsection's debugging journey (per `.claude/skills/improve-tooling/SKILL.md` "Per-Subsection Workflow"): which `diagnostics/` scripts you ran, where you added `dbg!`/`tracing` calls, where output was hard to interpret, where test failures gave unhelpful messages, where you ran the same command sequence repeatedly. Forward-look: what tool/log/diagnostic would shorten the next regression in this code path by 10 minutes? Implement improvements NOW (zero deferral) and commit each via SEPARATE `/commit-push` using a valid conventional-commit type (`build(diagnostics): ... — surfaced by section-01.2 retrospective` — `build`/`test`/`chore`/`ci`/`docs` are valid; `tools(...)` is rejected by the lefthook commit-msg hook). Mandatory even when nothing felt painful. If genuinely no gaps, document briefly: "Retrospective 01.2: no tooling gaps". Update this subsection's `status` in section frontmatter to `complete`.
 
 ---
 
@@ -183,6 +187,8 @@ Thread metrics through the coalescing pass to count barrier events.
 
 **Negative pin:** Test that `pairs_cancelled` for a block containing `RcInc(x); Apply(f, x); RcDec(x)` is exactly 0 — the intervening call barrier prevents cancellation. If this ever reports `pairs_cancelled > 0`, the barrier-respecting logic in coalescing is broken.
 
+- [ ] **Subsection close-out (01.3)** — MANDATORY before starting the next subsection. Run `/improve-tooling` retrospectively on THIS subsection's debugging journey (per `.claude/skills/improve-tooling/SKILL.md` "Per-Subsection Workflow"): which `diagnostics/` scripts you ran, where you added `dbg!`/`tracing` calls, where output was hard to interpret, where test failures gave unhelpful messages, where you ran the same command sequence repeatedly. Forward-look: what tool/log/diagnostic would shorten the next regression in this code path by 10 minutes? Implement improvements NOW (zero deferral) and commit each via SEPARATE `/commit-push` using a valid conventional-commit type (`build(diagnostics): ... — surfaced by section-01.3 retrospective` — `build`/`test`/`chore`/`ci`/`docs` are valid; `tools(...)` is rejected by the lefthook commit-msg hook). Mandatory even when nothing felt painful. If genuinely no gaps, document briefly: "Retrospective 01.3: no tooling gaps". Update this subsection's `status` in section frontmatter to `complete`.
+
 ---
 
 ## 01.R Third Party Review Findings
@@ -204,6 +210,7 @@ Thread metrics through the coalescing pass to count barrier events.
 - [ ] No spurious warnings in normal compilation
 - [ ] Plan annotation cleanup: `bash .claude/skills/impl-hygiene-review/plan-annotations.sh --plan 01` returns 0 annotations
 - [ ] `/tpr-review` passed — independent Codex review found no critical or major issues
-- [ ] `/impl-hygiene-review last commit` passed — hygiene review clean
+- [ ] `/impl-hygiene-review` passed — hygiene review clean
+- [ ] `/improve-tooling` retrospective completed — MANDATORY at section close, after both reviews are clean. Reflect on the section's debugging journey (which `diagnostics/` scripts you ran, which command sequences you repeated, where you added ad-hoc `dbg!`/`tracing` calls, where output was hard to interpret) and identify any tool/log/diagnostic improvement that would have made this section materially easier OR that would help the next section touching this area. Implement every accepted improvement NOW (zero deferral) and commit each via SEPARATE `/commit-push`. The retrospective is mandatory even when nothing felt painful — that is exactly when blind spots accumulate. See `.claude/skills/improve-tooling/SKILL.md` "Retrospective Mode" for the full protocol.
 
 **Exit Criteria:** `ORI_LOG=ori_arc=info ori build` on any `.ori` file emits structured tracing events with `rc_ops_input`, `rc_ops_post_emission`, `rc_ops_post_coalesce`, `barrier_flush_count` fields. `./test-all.sh` passes with 0 regressions. `CoalesceStats` counts match manual inspection of IR for 3+ test programs.

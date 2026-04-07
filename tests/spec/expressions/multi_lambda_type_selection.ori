@@ -1,0 +1,38 @@
+use std.testing { assert_eq }
+
+// Root Cause E regression: verify that multiple polymorphic lambdas in a single
+// function each receive the correct concrete type from the mono pipeline.
+
+// Two lambdas with different arities
+@test_different_arities tests _ () -> void = {
+    let $inc = x -> x + 1;
+    let $add = (a, b) -> a + b;
+    assert_eq(actual: inc(10), expected: 11);
+    assert_eq(actual: add(3, 4), expected: 7)
+}
+
+// Two lambdas with same arity but different operations
+@test_same_arity_different_ops tests _ () -> void = {
+    let $double = x -> x * 2;
+    let $negate = x -> 0 - x;
+    assert_eq(actual: double(5), expected: 10);
+    assert_eq(actual: negate(3), expected: -3)
+}
+
+// Three lambdas with mixed arities
+@test_three_lambdas tests _ () -> void = {
+    let $inc = x -> x + 1;
+    let $add = (a, b) -> a + b;
+    let $mul3 = (a, b, c) -> a * b * c;
+    assert_eq(actual: inc(9), expected: 10);
+    assert_eq(actual: add(3, 7), expected: 10);
+    assert_eq(actual: mul3(2, 3, 4), expected: 24)
+}
+
+// Semantic pin: unary negate and binary diff must use correct types
+@test_semantic_pin tests _ () -> void = {
+    let $negate = x -> 0 - x;
+    let $diff = (a, b) -> a - b;
+    assert_eq(actual: negate(5), expected: -5);
+    assert_eq(actual: diff(10, 3), expected: 7)
+}

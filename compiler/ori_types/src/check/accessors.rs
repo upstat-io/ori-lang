@@ -3,7 +3,7 @@
 //! Provides read-only and mutable access to the checker's internal
 //! components (pool, registries, arena, interner, well-known names).
 
-use ori_ir::{ExprArena, Name, StringInterner};
+use ori_ir::{ExprArena, Module, Name, StringInterner};
 
 use crate::{Idx, MethodRegistry, Pool, TraitRegistry, TypeRegistry};
 
@@ -107,5 +107,32 @@ impl<'a> ModuleChecker<'a> {
     #[inline]
     pub fn method_registry(&self) -> &MethodRegistry {
         &self.methods
+    }
+
+    /// Pre-intern tuple types for multi-clause function scrutinees.
+    ///
+    /// Multi-clause functions (e.g., `@f (0) = 1; @f (n) = n * f(n-1)`)
+    /// with >1 parameter are lowered to a match on a synthetic tuple
+    /// scrutinee. Canonical lowering (`ori_canon`) looks up this tuple type
+    /// via `pool.find_tuple()`, so it must be interned before lowering.
+    ///
+    /// Only targets actual multi-clause groups — single-clause functions
+    /// are excluded to avoid polluting the pool with tuples that collide
+    /// with type-variable-bearing tuples created during inference (e.g.,
+    /// `zip()` creates `(int, Var(T))` that resolves to `(int, int)`).
+    pub fn intern_multi_clause_tuples(&mut self, module: &Module) {
+        let mut counts: rustc_hash::FxHashMap<Name, usize> = rustc_hash::FxHashMap::default();
+        for func in &module.functions {
+            *counts.entry(func.name).or_default() += 1;
+        }
+        for (name, count) in &counts {
+            if *count > 1 {
+                if let Some(sig) = self.signatures.get(name) {
+                    if sig.param_types.len() > 1 {
+                        self.pool.tuple(&sig.param_types);
+                    }
+                }
+            }
+        }
     }
 }

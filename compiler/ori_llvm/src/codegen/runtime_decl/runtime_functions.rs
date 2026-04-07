@@ -1603,11 +1603,13 @@ pub(crate) static RT_FUNCTIONS: &[RtFn] = &[
     },
     RtFn {
         name: "ori_iter_join",
-        // (iter, sep_data, sep_len, to_str_fn, to_str_env, elem_size, out_ptr)
+        // (iter, sep_field0, sep_field1, sep_field2, to_str_fn, to_str_env, elem_size, out_ptr)
+        // sep_field0-2: raw fields of OriStr {i64, i64, ptr} — SSO-safe reconstruction in runtime
         params: &[
             Ty::Ptr,
-            Ty::Ptr,
             Ty::I64,
+            Ty::I64,
+            Ty::Ptr,
             Ty::Ptr,
             Ty::Ptr,
             Ty::I64,

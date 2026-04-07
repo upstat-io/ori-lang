@@ -65,6 +65,8 @@ Documents the existing implementation of match expressions. Key specifications:
 
 Status: **IMPLEMENTED** — This proposal formalizes existing behavior.
 
+- [ ] **Subsection close-out (9.0)** — MANDATORY before starting the next subsection. Run `/improve-tooling` retrospectively on THIS subsection's debugging journey (per `.claude/skills/improve-tooling/SKILL.md` "Per-Subsection Workflow"): which `diagnostics/` scripts you ran, where you added `dbg!`/`tracing` calls, where output was hard to interpret, where test failures gave unhelpful messages, where you ran the same command sequence repeatedly. Forward-look: what tool/log/diagnostic would shorten the next regression in this code path by 10 minutes? Implement improvements NOW (zero deferral) and commit each via SEPARATE `/commit-push` using a valid conventional-commit type (`build(diagnostics): ... — surfaced by section-9.0 retrospective` — `build`/`test`/`chore`/`ci`/`docs` are valid; `tools(...)` is rejected by the lefthook commit-msg hook). Mandatory even when nothing felt painful. If genuinely no gaps, document briefly: "Retrospective 9.0: no tooling gaps". Update this subsection's `status` in section frontmatter to `complete`.
+
 ## 9.0.1 Comma-Separated Match Arms
 
 **Proposal**: `proposals/approved/match-arm-comma-separator-proposal.md`
@@ -216,6 +218,8 @@ Status: **APPROVED** — Parser migration part of block-expression-syntax implem
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/aot/patterns.rs` — at pattern codegen
   - [ ] **AOT Tests**: No AOT coverage yet INCOMPLETE MATRIX (verified 2026-03-29)
 
+- [ ] **Subsection close-out (9.2)** — MANDATORY before starting the next subsection. Run `/improve-tooling` retrospectively on THIS subsection's debugging journey (per `.claude/skills/improve-tooling/SKILL.md` "Per-Subsection Workflow"): which `diagnostics/` scripts you ran, where you added `dbg!`/`tracing` calls, where output was hard to interpret, where test failures gave unhelpful messages, where you ran the same command sequence repeatedly. Forward-look: what tool/log/diagnostic would shorten the next regression in this code path by 10 minutes? Implement improvements NOW (zero deferral) and commit each via SEPARATE `/commit-push` using a valid conventional-commit type (`build(diagnostics): ... — surfaced by section-9.2 retrospective` — `build`/`test`/`chore`/`ci`/`docs` are valid; `tools(...)` is rejected by the lefthook commit-msg hook). Mandatory even when nothing felt painful. If genuinely no gaps, document briefly: "Retrospective 9.2: no tooling gaps". Update this subsection's `status` in section frontmatter to `complete`.
+
 ---
 
 ## 9.3 Pattern Guards
@@ -240,6 +244,8 @@ Status: **APPROVED** — Parser migration part of block-expression-syntax implem
   - [ ] **LLVM Support**: LLVM codegen for guard scoping (REDUNDANT — works via ARC IR, see AOT Tests)
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/aot/patterns.rs` — guard scoping codegen (REDUNDANT — covered by AOT Tests)
   - [x] **AOT Tests**: `ori_llvm/tests/aot/patterns.rs` — guard with bound variables in scope (test_pattern_guard_with_binding, test_pattern_guard_with_tuple) (verified 2026-03-29)
+
+- [ ] **Subsection close-out (9.3)** — MANDATORY before starting the next subsection. Run `/improve-tooling` retrospectively on THIS subsection's debugging journey (per `.claude/skills/improve-tooling/SKILL.md` "Per-Subsection Workflow"): which `diagnostics/` scripts you ran, where you added `dbg!`/`tracing` calls, where output was hard to interpret, where test failures gave unhelpful messages, where you ran the same command sequence repeatedly. Forward-look: what tool/log/diagnostic would shorten the next regression in this code path by 10 minutes? Implement improvements NOW (zero deferral) and commit each via SEPARATE `/commit-push` using a valid conventional-commit type (`build(diagnostics): ... — surfaced by section-9.3 retrospective` — `build`/`test`/`chore`/`ci`/`docs` are valid; `tools(...)` is rejected by the lefthook commit-msg hook). Mandatory even when nothing felt painful. If genuinely no gaps, document briefly: "Retrospective 9.3: no tooling gaps". Update this subsection's `status` in section frontmatter to `complete`.
 
 ---
 
@@ -323,6 +329,8 @@ Pattern matrix decomposition algorithm (Maranget's algorithm) for exhaustiveness
   - [ ] **Rust Tests**: `ori_canon/src/exhaustiveness/tests.rs` — suggestions NEEDS TESTS to verify message content (verified 2026-03-29)
   - [ ] **Ori Tests**: `tests/spec/patterns/match_exhaustive.ori`
 
+- [ ] **Subsection close-out (9.4)** — MANDATORY before starting the next subsection. Run `/improve-tooling` retrospectively on THIS subsection's debugging journey (per `.claude/skills/improve-tooling/SKILL.md` "Per-Subsection Workflow"): which `diagnostics/` scripts you ran, where you added `dbg!`/`tracing` calls, where output was hard to interpret, where test failures gave unhelpful messages, where you ran the same command sequence repeatedly. Forward-look: what tool/log/diagnostic would shorten the next regression in this code path by 10 minutes? Implement improvements NOW (zero deferral) and commit each via SEPARATE `/commit-push` using a valid conventional-commit type (`build(diagnostics): ... — surfaced by section-9.4 retrospective` — `build`/`test`/`chore`/`ci`/`docs` are valid; `tools(...)` is rejected by the lefthook commit-msg hook). Mandatory even when nothing felt painful. If genuinely no gaps, document briefly: "Retrospective 9.4: no tooling gaps". Update this subsection's `status` in section frontmatter to `complete`.
+
 ---
 
 ## 9.5 Named Variant Pattern Fields (Argument Punning)
@@ -396,6 +404,8 @@ match shape {
 - [ ] **Implement**: Update `grammar.ebnf` with `variant_field` production
 - [x] **Implement**: Update `.claude/rules/ori-syntax.md` with pattern punning syntax [partial] (verified 2026-03-29: `.claude/rules/ori-syntax.md` mentions punning syntax)
 
+- [ ] **Subsection close-out (9.5)** — MANDATORY before starting the next subsection. Run `/improve-tooling` retrospectively on THIS subsection's debugging journey (per `.claude/skills/improve-tooling/SKILL.md` "Per-Subsection Workflow"): which `diagnostics/` scripts you ran, where you added `dbg!`/`tracing` calls, where output was hard to interpret, where test failures gave unhelpful messages, where you ran the same command sequence repeatedly. Forward-look: what tool/log/diagnostic would shorten the next regression in this code path by 10 minutes? Implement improvements NOW (zero deferral) and commit each via SEPARATE `/commit-push` using a valid conventional-commit type (`build(diagnostics): ... — surfaced by section-9.5 retrospective` — `build`/`test`/`chore`/`ci`/`docs` are valid; `tools(...)` is rejected by the lefthook commit-msg hook). Mandatory even when nothing felt painful. If genuinely no gaps, document briefly: "Retrospective 9.5: no tooling gaps". Update this subsection's `status` in section frontmatter to `complete`.
+
 ---
 
 ## 9.6 Section Completion Checklist
@@ -408,7 +418,8 @@ match shape {
 - [ ] 80+% test coverage (verified 2026-03-29: PARTIAL -- good interpreter coverage, weak AOT for struct/list/at-pattern)
 - [x] Run full test suite: `./test-all.sh` (verified 2026-03-29: 4181 passed, 0 failed, 42 skipped)
 - [ ] `/tpr-review` passed — independent Codex review found no critical or major issues (or all findings triaged)
-- [ ] `/impl-hygiene-review last commit` passed — implementation hygiene review clean (phase boundaries, SSOT, algorithmic DRY, naming). MUST run AFTER `/tpr-review` is clean.
+- [ ] `/impl-hygiene-review` passed — implementation hygiene review clean (phase boundaries, SSOT, algorithmic DRY, naming). MUST run AFTER `/tpr-review` is clean.
+- [ ] `/improve-tooling` retrospective completed — MANDATORY at section close, after both reviews are clean. Reflect on the section's debugging journey (which `diagnostics/` scripts you ran, which command sequences you repeated, where you added ad-hoc `dbg!`/`tracing` calls, where output was hard to interpret) and identify any tool/log/diagnostic improvement that would have made this section materially easier OR that would help the next section touching this area. Implement every accepted improvement NOW (zero deferral) and commit each via SEPARATE `/commit-push`. The retrospective is mandatory even when nothing felt painful — that is exactly when blind spots accumulate. See `.claude/skills/improve-tooling/SKILL.md` "Retrospective Mode" for the full protocol.
 
 ### Test Gaps (verified 2026-03-29)
 
@@ -442,3 +453,6 @@ match shape {
 | Named variant fields | 5 tests | None | AOT gap |
 
 **Exit Criteria**: Match expressions work like spec
+
+- [ ] **Subsection close-out (9.6)** — MANDATORY before starting the next subsection. Run `/improve-tooling` retrospectively on THIS subsection's debugging journey (per `.claude/skills/improve-tooling/SKILL.md` "Per-Subsection Workflow"): which `diagnostics/` scripts you ran, where you added `dbg!`/`tracing` calls, where output was hard to interpret, where test failures gave unhelpful messages, where you ran the same command sequence repeatedly. Forward-look: what tool/log/diagnostic would shorten the next regression in this code path by 10 minutes? Implement improvements NOW (zero deferral) and commit each via SEPARATE `/commit-push` using a valid conventional-commit type (`build(diagnostics): ... — surfaced by section-9.6 retrospective` — `build`/`test`/`chore`/`ci`/`docs` are valid; `tools(...)` is rejected by the lefthook commit-msg hook). Mandatory even when nothing felt painful. If genuinely no gaps, document briefly: "Retrospective 9.6: no tooling gaps". Update this subsection's `status` in section frontmatter to `complete`.
+

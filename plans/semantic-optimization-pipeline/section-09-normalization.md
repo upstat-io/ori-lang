@@ -154,6 +154,8 @@ The normalization pass needs to query algebraic laws (e.g., "does `impl Add for 
 - [ ] Write smoke test: `ArcFunction` with `Let { value: PrimOp { op: Binary(Add), args: [x, zero_lit] } }` → normalization replaces with `Let { value: Var(x) }`
 - [ ] Verify: `timeout 150 cargo t -p ori_arc` passes
 
+- [ ] **Subsection close-out (09.1)** — MANDATORY before starting the next subsection. Run `/improve-tooling` retrospectively on THIS subsection's debugging journey (per `.claude/skills/improve-tooling/SKILL.md` "Per-Subsection Workflow"): which `diagnostics/` scripts you ran, where you added `dbg!`/`tracing` calls, where output was hard to interpret, where test failures gave unhelpful messages, where you ran the same command sequence repeatedly. Forward-look: what tool/log/diagnostic would shorten the next regression in this code path by 10 minutes? Implement improvements NOW (zero deferral) and commit each via SEPARATE `/commit-push` using a valid conventional-commit type (`build(diagnostics): ... — surfaced by section-09.1 retrospective` — `build`/`test`/`chore`/`ci`/`docs` are valid; `tools(...)` is rejected by the lefthook commit-msg hook). Mandatory even when nothing felt painful. If genuinely no gaps, document briefly: "Retrospective 09.1: no tooling gaps". Update this subsection's `status` in section frontmatter to `complete`.
+
 ---
 
 ## 09.2 Identity Elimination
@@ -202,6 +204,8 @@ When an operator call has one argument that is the identity element (as determin
 - Semantic pin: `x + 0` produces ARC IR with NO PrimOp::Binary(Add) instruction (only passes with normalization)
 - Negative pins: `float_x + 0.0` is NOT eliminated (float has no identity law); user-defined `x == x` is NOT rewritten by the builtin reflexive peephole; `x && true` is NOT matchable (not a PrimOp — it's control-flow IR)
 
+- [ ] **Subsection close-out (09.2)** — MANDATORY before starting the next subsection. Run `/improve-tooling` retrospectively on THIS subsection's debugging journey (per `.claude/skills/improve-tooling/SKILL.md` "Per-Subsection Workflow"): which `diagnostics/` scripts you ran, where you added `dbg!`/`tracing` calls, where output was hard to interpret, where test failures gave unhelpful messages, where you ran the same command sequence repeatedly. Forward-look: what tool/log/diagnostic would shorten the next regression in this code path by 10 minutes? Implement improvements NOW (zero deferral) and commit each via SEPARATE `/commit-push` using a valid conventional-commit type (`build(diagnostics): ... — surfaced by section-09.2 retrospective` — `build`/`test`/`chore`/`ci`/`docs` are valid; `tools(...)` is rejected by the lefthook commit-msg hook). Mandatory even when nothing felt painful. If genuinely no gaps, document briefly: "Retrospective 09.2: no tooling gaps". Update this subsection's `status` in section frontmatter to `complete`.
+
 ---
 
 ## 09.3 Involutive Rewrites
@@ -225,6 +229,8 @@ When a unary operator is applied twice, and the operator has the `Involutive` la
 - Patterns: double negation, triple negation (-(-(-x)) → -x), mixed (not relevant for fixed types)
 - Semantic pin: `-(-x)` produces ARC IR with NO PrimOp::Unary(Neg) instructions
 - Negative pin: user-defined type with Neg but WITHOUT `Involutive` law → `-(-x)` is NOT eliminated (the law must be declared)
+
+- [ ] **Subsection close-out (09.3)** — MANDATORY before starting the next subsection. Run `/improve-tooling` retrospectively on THIS subsection's debugging journey (per `.claude/skills/improve-tooling/SKILL.md` "Per-Subsection Workflow"): which `diagnostics/` scripts you ran, where you added `dbg!`/`tracing` calls, where output was hard to interpret, where test failures gave unhelpful messages, where you ran the same command sequence repeatedly. Forward-look: what tool/log/diagnostic would shorten the next regression in this code path by 10 minutes? Implement improvements NOW (zero deferral) and commit each via SEPARATE `/commit-push` using a valid conventional-commit type (`build(diagnostics): ... — surfaced by section-09.3 retrospective` — `build`/`test`/`chore`/`ci`/`docs` are valid; `tools(...)` is rejected by the lefthook commit-msg hook). Mandatory even when nothing felt painful. If genuinely no gaps, document briefly: "Retrospective 09.3: no tooling gaps". Update this subsection's `status` in section frontmatter to `complete`.
 
 ---
 
@@ -253,6 +259,8 @@ For commutative operators, sort operands into a canonical order so CSE can match
 - Negative pin: `str` concat `"a" + s` is NOT reordered to `s + "a"` (no commutative law for str)
 
 **Note:** This interacts with LLVM's own canonicalization — LLVM also moves constants to the right for int/float. But for user types (matrix, vector), LLVM sees opaque calls and can't reorder. This pass handles those cases.
+
+- [ ] **Subsection close-out (09.4)** — MANDATORY before starting the next subsection. Run `/improve-tooling` retrospectively on THIS subsection's debugging journey (per `.claude/skills/improve-tooling/SKILL.md` "Per-Subsection Workflow"): which `diagnostics/` scripts you ran, where you added `dbg!`/`tracing` calls, where output was hard to interpret, where test failures gave unhelpful messages, where you ran the same command sequence repeatedly. Forward-look: what tool/log/diagnostic would shorten the next regression in this code path by 10 minutes? Implement improvements NOW (zero deferral) and commit each via SEPARATE `/commit-push` using a valid conventional-commit type (`build(diagnostics): ... — surfaced by section-09.4 retrospective` — `build`/`test`/`chore`/`ci`/`docs` are valid; `tools(...)` is rejected by the lefthook commit-msg hook). Mandatory even when nothing felt painful. If genuinely no gaps, document briefly: "Retrospective 09.4: no tooling gaps". Update this subsection's `status` in section frontmatter to `complete`.
 
 ---
 
@@ -283,6 +291,8 @@ For associative operators, flatten nested applications into a canonical right-le
 - Semantic pin: `(a + b) + c` and `a + (b + c)` produce identical ARC IR post-normalization
 - Negative pin: float `(a + b) + c` is NOT reassociated
 
+- [ ] **Subsection close-out (09.5)** — MANDATORY before starting the next subsection. Run `/improve-tooling` retrospectively on THIS subsection's debugging journey (per `.claude/skills/improve-tooling/SKILL.md` "Per-Subsection Workflow"): which `diagnostics/` scripts you ran, where you added `dbg!`/`tracing` calls, where output was hard to interpret, where test failures gave unhelpful messages, where you ran the same command sequence repeatedly. Forward-look: what tool/log/diagnostic would shorten the next regression in this code path by 10 minutes? Implement improvements NOW (zero deferral) and commit each via SEPARATE `/commit-push` using a valid conventional-commit type (`build(diagnostics): ... — surfaced by section-09.5 retrospective` — `build`/`test`/`chore`/`ci`/`docs` are valid; `tools(...)` is rejected by the lefthook commit-msg hook). Mandatory even when nothing felt painful. If genuinely no gaps, document briefly: "Retrospective 09.5: no tooling gaps". Update this subsection's `status` in section frontmatter to `complete`.
+
 ---
 
 ## 09.6 Inverse Elimination
@@ -309,6 +319,8 @@ When an operator is applied to a value and its inverse, replace with the identit
 
 - [ ] **TPR checkpoint** — `/tpr-review` covering 09.1–09.6 implementation work
 
+- [ ] **Subsection close-out (09.6)** — MANDATORY before starting the next subsection. Run `/improve-tooling` retrospectively on THIS subsection's debugging journey (per `.claude/skills/improve-tooling/SKILL.md` "Per-Subsection Workflow"): which `diagnostics/` scripts you ran, where you added `dbg!`/`tracing` calls, where output was hard to interpret, where test failures gave unhelpful messages, where you ran the same command sequence repeatedly. Forward-look: what tool/log/diagnostic would shorten the next regression in this code path by 10 minutes? Implement improvements NOW (zero deferral) and commit each via SEPARATE `/commit-push` using a valid conventional-commit type (`build(diagnostics): ... — surfaced by section-09.6 retrospective` — `build`/`test`/`chore`/`ci`/`docs` are valid; `tools(...)` is rejected by the lefthook commit-msg hook). Mandatory even when nothing felt painful. If genuinely no gaps, document briefly: "Retrospective 09.6: no tooling gaps". Update this subsection's `status` in section frontmatter to `complete`.
+
 ---
 
 ## 09.R Third Party Review Findings
@@ -334,6 +346,7 @@ When an operator is applied to a value and its inverse, replace with the identit
 - [ ] Plan annotation cleanup
 - [ ] **Plan sync**
 - [ ] `/tpr-review` passed
-- [ ] `/impl-hygiene-review last commit` passed
+- [ ] `/impl-hygiene-review` passed
+- [ ] `/improve-tooling` retrospective completed — MANDATORY at section close, after both reviews are clean. Reflect on the section's debugging journey (which `diagnostics/` scripts you ran, which command sequences you repeated, where you added ad-hoc `dbg!`/`tracing` calls, where output was hard to interpret) and identify any tool/log/diagnostic improvement that would have made this section materially easier OR that would help the next section touching this area. Implement every accepted improvement NOW (zero deferral) and commit each via SEPARATE `/commit-push`. The retrospective is mandatory even when nothing felt painful — that is exactly when blind spots accumulate. See `.claude/skills/improve-tooling/SKILL.md` "Retrospective Mode" for the full protocol.
 
 **Exit Criteria:** The normalization pass transforms ARC IR using exported algebraic law metadata. `ORI_DUMP_AFTER_ALGEBRA=1` demonstrates identity elimination, canonical ordering, and associativity normalization. Float is correctly excluded, and user-defined operator rewrites only fire when exact provenance + purity data exists. All tests pass in debug and release. Interpreter and LLVM produce identical results for all normalized programs (dual-execution parity).

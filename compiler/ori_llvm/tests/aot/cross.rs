@@ -18,8 +18,8 @@
 
 use ori_llvm::aot::target::TargetConfig;
 use ori_llvm::aot::target_features::{
-    get_host_cpu_features, get_host_cpu_name, is_supported_target, parse_features, TargetError,
-    TargetTripleComponents,
+    get_host_cpu_features, get_host_cpu_name, is_supported_target, parse_features, Arch,
+    TargetError, TargetTripleComponents,
 };
 
 use super::util::{
@@ -35,26 +35,26 @@ use super::util::{
 fn test_parse_valid_target_triples() {
     // Linux targets
     let linux = TargetTripleComponents::parse("x86_64-unknown-linux-gnu").unwrap();
-    assert_eq!(linux.arch, "x86_64");
+    assert_eq!(linux.arch, Arch::X86_64);
     assert_eq!(linux.vendor, "unknown");
     assert_eq!(linux.os, "linux");
     assert_eq!(linux.env, Some("gnu".to_string()));
 
     // macOS targets
     let macos = TargetTripleComponents::parse("x86_64-apple-darwin").unwrap();
-    assert_eq!(macos.arch, "x86_64");
+    assert_eq!(macos.arch, Arch::X86_64);
     assert_eq!(macos.vendor, "apple");
     assert_eq!(macos.os, "darwin");
     assert!(macos.env.is_none());
 
     // ARM64 macOS
     let macos_arm = TargetTripleComponents::parse("aarch64-apple-darwin").unwrap();
-    assert_eq!(macos_arm.arch, "aarch64");
+    assert_eq!(macos_arm.arch, Arch::Aarch64);
     assert_eq!(macos_arm.vendor, "apple");
 
     // Windows targets
     let windows_msvc = TargetTripleComponents::parse("x86_64-pc-windows-msvc").unwrap();
-    assert_eq!(windows_msvc.arch, "x86_64");
+    assert_eq!(windows_msvc.arch, Arch::X86_64);
     assert_eq!(windows_msvc.vendor, "pc");
     assert_eq!(windows_msvc.os, "windows");
     assert_eq!(windows_msvc.env, Some("msvc".to_string()));
@@ -64,12 +64,12 @@ fn test_parse_valid_target_triples() {
 
     // WASM targets
     let wasm = TargetTripleComponents::parse("wasm32-unknown-unknown").unwrap();
-    assert_eq!(wasm.arch, "wasm32");
+    assert_eq!(wasm.arch, Arch::Wasm32);
     assert_eq!(wasm.vendor, "unknown");
     assert_eq!(wasm.os, "unknown");
 
     let wasi = TargetTripleComponents::parse("wasm32-unknown-wasi").unwrap();
-    assert_eq!(wasi.arch, "wasm32");
+    assert_eq!(wasi.arch, Arch::Wasm32);
     assert_eq!(wasi.os, "wasi");
 }
 
@@ -89,15 +89,141 @@ fn test_parse_invalid_target_triples() {
     let result = TargetTripleComponents::parse("");
     assert!(result.is_err());
 
-    // Invalid architecture
+    // Invalid architecture — strictly rejected at the parse boundary because
+    // `Arch::parse_llvm_name` only accepts known architectures. This is the
+    // SSOT enforcement: unknown archs can never flow into the compiler as
+    // raw strings that might silently mis-route later.
     let result = TargetTripleComponents::parse("invalid-unknown-linux-gnu");
-    // May or may not fail depending on validation strictness
-    let _ = result;
+    assert!(
+        result.is_err(),
+        "unknown architecture must be rejected at parse boundary"
+    );
+}
+
+/// Regression pin for BUG-04-045 latent bug #7: `TargetConfig::from_triple`
+/// must accept Apple's `arm64` alias for `aarch64` because that is exactly
+/// the spelling LLVM's default triple uses on Apple Silicon. Before the fix,
+/// parse happened AFTER the `SUPPORTED_TARGETS` check, so `arm64-apple-darwin`
+/// was rejected even though it's semantically identical to the supported
+/// `aarch64-apple-darwin`. After the fix, parse canonicalizes arch aliases
+/// BEFORE the supported-targets check, and the stored triple is canonical.
+#[test]
+fn test_from_triple_accepts_arm64_apple_darwin_alias() {
+    let config = TargetConfig::from_triple("arm64-apple-darwin")
+        .expect("arm64 alias must canonicalize to aarch64 and be accepted");
+    assert_eq!(
+        config.triple(),
+        "aarch64-apple-darwin",
+        "stored triple must be the canonical spelling"
+    );
+    assert_eq!(config.components().arch, Arch::Aarch64);
+}
+
+/// Sibling: `amd64` alias for `x86_64` is canonicalized the same way.
+#[test]
+fn test_from_triple_accepts_amd64_linux_alias() {
+    let config = TargetConfig::from_triple("amd64-unknown-linux-gnu")
+        .expect("amd64 alias must canonicalize to x86_64 and be accepted");
+    assert_eq!(config.triple(), "x86_64-unknown-linux-gnu");
+    assert_eq!(config.components().arch, Arch::X86_64);
+}
+
+/// Regression pin for BUG-04-045 / TPR-BUG-04-045-01: `from_triple` must
+/// accept the **versioned** Darwin spelling LLVM emits on Apple Silicon,
+/// `arm64-apple-darwin25.2.0`. The unversioned alias fix alone was not
+/// enough — Apple Silicon's `TargetMachine::get_default_triple()` carries
+/// the OS version suffix, and `SUPPORTED_TARGETS` only contains the
+/// unversioned `aarch64-apple-darwin`. The fix is `support_key()`, which
+/// strips Darwin OS version suffixes at the support-check boundary.
+///
+/// The stored triple preserves the OS version suffix because LLVM's
+/// `TargetMachine` expects the version-bearing form when one was supplied.
+#[test]
+fn test_from_triple_accepts_versioned_darwin_arm64() {
+    let config = TargetConfig::from_triple("arm64-apple-darwin25.2.0")
+        .expect("versioned Darwin arm64 spelling must be accepted");
+    assert_eq!(
+        config.triple(),
+        "aarch64-apple-darwin25.2.0",
+        "stored triple must canonicalize the arch but preserve the OS version"
+    );
+    assert_eq!(config.components().arch, Arch::Aarch64);
+    assert!(
+        config.is_macos(),
+        "versioned darwin must still be detected as macOS"
+    );
+}
+
+/// Sibling: the canonical-arch versioned spelling is also accepted.
+#[test]
+fn test_from_triple_accepts_versioned_darwin_aarch64() {
+    let config = TargetConfig::from_triple("aarch64-apple-darwin25.2.0")
+        .expect("versioned Darwin aarch64 spelling must be accepted");
+    assert_eq!(config.triple(), "aarch64-apple-darwin25.2.0");
+    assert_eq!(config.components().arch, Arch::Aarch64);
+    assert!(config.is_macos());
+}
+
+/// Sibling: `x86_64` versioned macOS triples are accepted (covers Intel
+/// Macs running modern Xcode whose default triple also carries a version
+/// suffix).
+#[test]
+fn test_from_triple_accepts_versioned_darwin_x86_64() {
+    let config = TargetConfig::from_triple("x86_64-apple-darwin23.6.0")
+        .expect("versioned Darwin x86_64 spelling must be accepted");
+    assert_eq!(config.triple(), "x86_64-apple-darwin23.6.0");
+    assert_eq!(config.components().arch, Arch::X86_64);
+    assert!(config.is_macos());
+}
+
+/// Regression pin for BUG-04-045 / TPR-BUG-04-045-04: `from_triple` must
+/// accept the modern Rust 1.78+ canonical WASI Preview1 spelling
+/// `wasm32-unknown-wasip1` end-to-end. Before the fix, `SUPPORTED_TARGETS`
+/// contained the deprecated 2-component `wasm32-wasi` spelling that the
+/// strict triple parser refused to accept, so `ori build --target=wasm32-wasi`
+/// returned `UnsupportedTarget` despite the codegen layer fully supporting
+/// WASI Preview1. The fix replaced the deprecated entry with the modern
+/// canonical 3-component form.
+#[test]
+fn test_from_triple_accepts_wasm32_wasip1_canonical() {
+    let config = TargetConfig::from_triple("wasm32-unknown-wasip1")
+        .expect("canonical wasm32-unknown-wasip1 spelling must be accepted");
+    assert_eq!(config.triple(), "wasm32-unknown-wasip1");
+    assert_eq!(config.components().arch, Arch::Wasm32);
+    assert_eq!(config.components().os, "wasip1");
+    assert!(config.is_wasm());
+}
+
+/// Negative pin: the deprecated 2-component `wasm32-wasi` spelling must
+/// be rejected at the parse boundary, NOT silently normalized. The strict
+/// triple parser invariant ("at least 3 components") is what makes the
+/// "list claims X, parser rejects X" bug class structurally impossible.
+/// This test pins the rejection so a future "be liberal in what you accept"
+/// patch cannot quietly resurrect the deprecated form.
+#[test]
+fn test_from_triple_rejects_deprecated_wasm32_wasi() {
+    let result = TargetConfig::from_triple("wasm32-wasi");
+    assert!(
+        result.is_err(),
+        "deprecated 2-component wasm32-wasi must be rejected at the parse boundary"
+    );
+    // Specifically, it must be rejected as InvalidTripleFormat (not enough
+    // components) — NOT as UnsupportedTarget. The parse boundary fires
+    // first, before the supported-targets check ever runs.
+    assert!(
+        matches!(result, Err(TargetError::InvalidTripleFormat { .. })),
+        "expected InvalidTripleFormat for 2-component wasm32-wasi, got: {result:?}"
+    );
 }
 
 /// Test: Supported targets list
 ///
 /// Scenario: Verify all documented targets are supported.
+///
+/// WASI is the modern Rust 1.78+ canonical 3-component spelling
+/// `wasm32-unknown-wasip1` — the historical 2-component `wasm32-wasi`
+/// was deprecated upstream in May 2024 and is no longer accepted by
+/// Ori (see BUG-04-045 / TPR-BUG-04-045-04).
 #[test]
 fn test_supported_targets() {
     let expected_targets = [
@@ -108,7 +234,7 @@ fn test_supported_targets() {
         "x86_64-pc-windows-msvc",
         "x86_64-pc-windows-gnu",
         "wasm32-unknown-unknown",
-        "wasm32-wasi",
+        "wasm32-unknown-wasip1",
     ];
 
     for target in expected_targets {
@@ -183,17 +309,17 @@ fn test_target_platform_detection() {
 fn test_target_architecture_detection() {
     // x86_64
     let x64 = TargetTripleComponents::parse("x86_64-unknown-linux-gnu").unwrap();
-    assert_eq!(x64.arch, "x86_64");
+    assert_eq!(x64.arch, Arch::X86_64);
     assert!(!x64.is_wasm());
 
     // aarch64
     let arm = TargetTripleComponents::parse("aarch64-apple-darwin").unwrap();
-    assert_eq!(arm.arch, "aarch64");
+    assert_eq!(arm.arch, Arch::Aarch64);
     assert!(!arm.is_wasm());
 
     // wasm32
     let wasm = TargetTripleComponents::parse("wasm32-unknown-unknown").unwrap();
-    assert_eq!(wasm.arch, "wasm32");
+    assert_eq!(wasm.arch, Arch::Wasm32);
     assert!(wasm.is_wasm());
 }
 
@@ -223,7 +349,7 @@ fn test_target_config_from_components() {
     let components = TargetTripleComponents::parse("x86_64-unknown-linux-gnu").unwrap();
     let config = TargetConfig::from_components(components.clone());
 
-    assert_eq!(config.components().arch, "x86_64");
+    assert_eq!(config.components().arch, Arch::X86_64);
     assert!(config.is_linux());
     // pointer_size returns bytes (8 for 64-bit, 4 for 32-bit)
     assert_eq!(config.pointer_size(), 8);
@@ -377,14 +503,34 @@ fn test_x86_64_linux_data_layout() {
         return; // Skip if target not available
     };
 
-    // x86_64 is little endian
-    assert!(layout.contains("e-") || layout.starts_with('e'));
+    // x86_64 is little endian — signaled by leading 'e' or 'e-' in the layout.
+    assert!(
+        layout.contains("e-") || layout.starts_with('e'),
+        "expected little-endian layout, got: {layout}"
+    );
 
-    // 64-bit pointers
-    assert!(layout.contains("p:64:64"));
+    // 64-bit pointers: check the stable Ori API. Data layout string format
+    // varies by LLVM version (modern LLVM omits the default-address-space
+    // `p:64:64` and emits only address-space-qualified overrides like
+    // `p270:32:32-p271:32:32-p272:64:64`). Testing LLVM's string format is
+    // brittle; verify pointer size via Ori's typed accessor instead.
+    assert_eq!(
+        config.pointer_size(),
+        8,
+        "expected 64-bit pointer, data layout was: {layout}"
+    );
+
+    // x86_64 native integer widths include 64-bit — stable across LLVM versions.
+    assert!(
+        layout.contains("n8:16:32:64"),
+        "expected x86_64 native integer widths, got: {layout}"
+    );
 
     // Should have standard alignments
-    assert!(layout.contains("i64:"));
+    assert!(
+        layout.contains("i64:"),
+        "expected i64 alignment, got: {layout}"
+    );
 }
 
 /// Test: `x86_64` macOS data layout
@@ -397,10 +543,24 @@ fn test_x86_64_macos_data_layout() {
     };
 
     // Little endian
-    assert!(layout.contains("e-") || layout.starts_with('e'));
+    assert!(
+        layout.contains("e-") || layout.starts_with('e'),
+        "expected little-endian layout, got: {layout}"
+    );
 
-    // 64-bit pointers
-    assert!(layout.contains("p:64:64"));
+    // 64-bit pointers: check stable API. See the Linux variant for why we
+    // avoid matching LLVM's data-layout string format directly.
+    assert_eq!(
+        config.pointer_size(),
+        8,
+        "expected 64-bit pointer, data layout was: {layout}"
+    );
+
+    // x86_64 native integer widths include 64-bit
+    assert!(
+        layout.contains("n8:16:32:64"),
+        "expected x86_64 native integer widths, got: {layout}"
+    );
 }
 
 /// Test: ARM64 macOS data layout
@@ -413,10 +573,18 @@ fn test_aarch64_macos_data_layout() {
     };
 
     // Little endian (Apple Silicon is LE)
-    assert!(layout.contains("e-") || layout.starts_with('e'));
+    assert!(
+        layout.contains("e-") || layout.starts_with('e'),
+        "expected little-endian layout, got: {layout}"
+    );
 
-    // 64-bit pointers
-    assert!(layout.contains("p:64:64"));
+    // 64-bit pointers: check stable API. See the Linux variant for why we
+    // avoid matching LLVM's data-layout string format directly.
+    assert_eq!(
+        config.pointer_size(),
+        8,
+        "expected 64-bit pointer, data layout was: {layout}"
+    );
 }
 
 /// Test: WASM32 data layout

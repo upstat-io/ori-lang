@@ -1,0 +1,11 @@
+// TPR-07-013 matrix pin: Result<Iterator<int>, int> case. Same as
+// enum_match_unused_binding but through the built-in Result sum type.
+
+@main () -> int = {
+    let x: Result<Iterator<int>, int> = Ok([1, 2, 3].iter());
+    let n = match x {
+        Err(_e) -> 0,
+        Ok(it) -> 42
+    };
+    if n == 42 then 0 else 1
+}

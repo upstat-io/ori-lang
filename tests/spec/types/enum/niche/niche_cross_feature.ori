@@ -1,0 +1,120 @@
+// Spec: §07.2 Niche Filling — Cross-feature interaction tests
+// Regression: repr-opt section-07 — niche-encoded types interact correctly
+// with iteration, closures, and pattern matching.
+
+use std.testing { assert_eq }
+
+// === for...yield with match on niche-encoded Option<str> ===
+
+@test_for_yield_match tests @for_yield_match () -> void = {
+    assert_eq(actual: for_yield_match(), expected: ["a", "", "b"])
+}
+
+@for_yield_match () -> [str] = {
+    for x in [Some("a"), None, Some("b")] yield match x {
+        Some(s) -> s,
+        None -> ""
+    }
+}
+
+// === Closure capturing Option<bool>, pattern match inside ===
+
+@test_closure_capture_option tests @closure_capture_option () -> void = {
+    assert_eq(actual: closure_capture_option(), expected: "yes")
+}
+
+@closure_capture_option () -> str = {
+    let $opt: Option<bool> = Some(true);
+    let $check = () -> match opt {
+        Some(v) -> if v then "yes" else "no",
+        None -> "none"
+    };
+    check()
+}
+
+@test_closure_capture_option_none tests @closure_capture_option_none () -> void = {
+    assert_eq(actual: closure_capture_option_none(), expected: "none")
+}
+
+@closure_capture_option_none () -> str = {
+    let $opt: Option<bool> = None;
+    let $check = () -> match opt {
+        Some(v) -> if v then "yes" else "no",
+        None -> "none"
+    };
+    check()
+}
+
+// === Option.map chaining ===
+
+@test_option_map_chain tests @option_map_chain () -> void = {
+    assert_eq(actual: option_map_chain(), expected: Some(10))
+}
+
+@option_map_chain () -> Option<int> = {
+    let $x: Option<int> = Some(5);
+    x.map(v -> v * 2)
+}
+
+@test_option_map_chain_none tests @option_map_chain_none () -> void = {
+    assert_eq(actual: option_map_chain_none(), expected: None)
+}
+
+@option_map_chain_none () -> Option<int> = {
+    let $x: Option<int> = None;
+    x.map(v -> v * 2)
+}
+
+// === filter on list of options ===
+
+@test_filter_options tests @filter_options () -> void = {
+    assert_eq(actual: filter_options(), expected: 3)
+}
+
+@filter_options () -> int = {
+    let $items: [Option<int>] = [Some(1), None, Some(2), None, Some(3)];
+    let $somes = items.filter(x -> is_some(option: x));
+    somes.len()
+}
+
+// === ? operator on niche-encoded Result in function ===
+
+@test_question_mark_ok tests @question_mark_ok () -> void = {
+    assert_eq(actual: question_mark_ok(), expected: Ok("hello world"))
+}
+
+@question_mark_ok () -> Result<str, Error> = {
+    let $r: Result<str, Error> = Ok("hello");
+    let $val = r?;
+    Ok(val + " world")
+}
+
+@test_question_mark_err tests @question_mark_err () -> void = {
+    assert_eq(actual: is_err(result: question_mark_err()), expected: true)
+}
+
+@question_mark_err () -> Result<str, Error> = {
+    let $r: Result<str, Error> = Err(Error("fail"));
+    let $val = r?;
+    Ok(val + " world")
+}
+
+// === and_then chaining ===
+
+@test_and_then_some tests @and_then_some () -> void = {
+    assert_eq(actual: and_then_some(), expected: Some(10))
+}
+
+@and_then_some () -> Option<int> = {
+    let $x: Option<int> = Some(5);
+    x.and_then(v -> if v > 0 then Some(v * 2) else None)
+}
+
+@test_and_then_none tests @and_then_none () -> void = {
+    assert_eq(actual: and_then_none(), expected: None)
+}
+
+@and_then_none () -> Option<int> = {
+    let $x: Option<int> = Some(-1);
+    x.and_then(v -> if v > 0 then Some(v * 2) else None)
+}

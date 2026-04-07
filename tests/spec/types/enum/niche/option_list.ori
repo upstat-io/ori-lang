@@ -1,0 +1,56 @@
+// Spec: §07.2 Niche Filling — Option<[int]> (negative pin: no niche)
+// Regression: repr-opt section-07 — Option<[int]> should NOT use niche optimization
+// Empty lists have null data ptr, which overlaps with the None niche candidate.
+// This test verifies all three values are distinct and match correctly.
+
+use std.testing { assert_eq }
+
+@test_option_list_some_nonempty tests @option_list_some_nonempty () -> void = {
+    assert_eq(actual: option_list_some_nonempty(), expected: 2)
+}
+
+@option_list_some_nonempty () -> int = {
+    let $x: Option<[int]> = Some([1, 2]);
+    match x {
+        Some(lst) -> lst.len(),
+        None -> -1
+    }
+}
+
+@test_option_list_some_empty tests @option_list_some_empty () -> void = {
+    assert_eq(actual: option_list_some_empty(), expected: 0)
+}
+
+@option_list_some_empty () -> int = {
+    // Critical: Some([]) must be distinct from None
+    // Even though empty list has null data ptr internally
+    let $x: Option<[int]> = Some([]);
+    match x {
+        Some(lst) -> lst.len(),
+        None -> -1
+    }
+}
+
+@test_option_list_none tests @option_list_none () -> void = {
+    assert_eq(actual: option_list_none(), expected: -1)
+}
+
+@option_list_none () -> int = {
+    let $x: Option<[int]> = None;
+    match x {
+        Some(lst) -> lst.len(),
+        None -> -1
+    }
+}
+
+// === Negative pin: Some([]) != None ===
+
+@test_option_list_empty_vs_none tests @option_list_empty_vs_none () -> void = {
+    assert_eq(actual: option_list_empty_vs_none(), expected: true)
+}
+
+@option_list_empty_vs_none () -> bool = {
+    let $some_empty: Option<[int]> = Some([]);
+    let $none: Option<[int]> = None;
+    some_empty != none && is_some(option: some_empty) && is_none(option: none)
+}

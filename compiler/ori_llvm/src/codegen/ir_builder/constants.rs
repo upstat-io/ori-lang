@@ -53,11 +53,24 @@ impl<'ctx> IrBuilder<'_, 'ctx> {
     ///
     /// Used by switch emission to ensure case constants have the same LLVM
     /// integer type as the scrutinee (e.g. `i1` for bools, `i32` for chars).
+    ///
+    /// If the reference value is not an integer (e.g., a `StructValue` from
+    /// type resolution mismatches), falls back to `i64` and records a codegen
+    /// error. The module will be rejected before execution.
     pub fn const_int_matching(&mut self, reference: ValueId, val: u64) -> ValueId {
         let ref_val = self.arena.get_value(reference);
-        let int_type = ref_val.into_int_value().get_type();
-        let v = int_type.const_int(val, false);
-        self.arena.push_value(v.into())
+        if let inkwell::values::BasicValueEnum::IntValue(iv) = ref_val {
+            let v = iv.get_type().const_int(val, false);
+            self.arena.push_value(v.into())
+        } else {
+            tracing::error!(
+                ?ref_val,
+                "const_int_matching: expected IntValue, got non-integer — type resolution bug"
+            );
+            self.record_codegen_error();
+            let v = self.scx.type_i64().const_int(val, false);
+            self.arena.push_value(v.into())
+        }
     }
 
     /// Create a null pointer constant.

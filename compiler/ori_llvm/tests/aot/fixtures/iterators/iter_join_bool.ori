@@ -1,0 +1,7 @@
+// AOT test for iter_join with boolean elements.
+// Exercises: ori_str_from_bool via generated to_str trampoline in emit_iter_join.
+
+@main () -> int = {
+    let result = [true, false, true].iter().join(separator: " ");
+    if result == "true false true" then 0 else 1
+}

@@ -14,7 +14,7 @@ use ori_types::{Idx, Tag};
 use super::context::is_boxed_enum_field;
 use super::drop_enum::compute_variant_field_offsets;
 use super::ArcIrEmitter;
-use crate::codegen::value_id::ValueId;
+use crate::codegen::value_id::{BlockId, ValueId};
 
 impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// Extract the RC-managed data pointer(s) from a value based on its type.
@@ -264,6 +264,12 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             return;
         }
 
+        // §07.3.A: Tagged-pointer enum — decode tag, dispatch per variant.
+        if self.get_tagged_ptr_encoding(resolved_ty).is_some() {
+            self.emit_tagged_ptr_enum_rc(val, &variant_rc_fields, is_inc, count);
+            return;
+        }
+
         // §07.2: Niche-encoded enum — conditional RC.
         if let Some(encoding) = self.get_niche_encoding(resolved_ty) {
             self.emit_niche_enum_rc(
@@ -484,6 +490,78 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             }
         }
         self.builder.br(done_block);
+
+        self.builder.position_at_end(done_block);
+    }
+
+    /// §07.3.A: RC inc/dec for tagged-pointer encoded enums.
+    ///
+    /// The encoded value is a single i64. For each pointer-bearing variant,
+    /// emit a switch case that decodes the pointer (high 61 bits) and
+    /// applies the appropriate RC operation. Unit variants are skipped —
+    /// their tag bits identify the variant but carry no payload to count.
+    ///
+    /// Each variant's RC field list has length 0 (unit) or 1 (single-pointer
+    /// payload). The latter is enforced by `can_use_tagged_pointer`.
+    fn emit_tagged_ptr_enum_rc(
+        &mut self,
+        val: ValueId,
+        variant_rc_fields: &[Vec<(u32, Idx)>],
+        is_inc: bool,
+        count: u32,
+    ) {
+        let dir = if is_inc { "rc_inc" } else { "rc_dec" };
+
+        // Decode the tag bits from the encoded value.
+        let tag_val = self.tagged_ptr_decode_tag(val, &format!("{dir}.tag"));
+
+        let done_block = self
+            .builder
+            .append_block(self.current_function, &format!("{dir}.done"));
+
+        // Emit a per-variant block for every pointer-bearing variant.
+        // Unit variants share the default → done path.
+        let mut cases: Vec<(ValueId, BlockId, Idx)> = Vec::new();
+        for (i, fields) in variant_rc_fields.iter().enumerate() {
+            if fields.is_empty() {
+                continue;
+            }
+            debug_assert!(
+                fields.len() == 1,
+                "tagged-pointer variant must have at most one RC field"
+            );
+            let (_, field_type) = fields[0];
+            let block = self
+                .builder
+                .append_block(self.current_function, &format!("{dir}.tp.v{i}"));
+            // Variant index is bounded by 8 (3-bit tag), so the
+            // `usize → u64` widening is exact.
+            let tag_const = self.builder.const_int_matching(tag_val, i as u64);
+            cases.push((tag_const, block, field_type));
+        }
+
+        // No pointer-bearing variants → nothing to do.
+        if cases.is_empty() {
+            self.builder.br(done_block);
+            self.builder.position_at_end(done_block);
+            return;
+        }
+
+        let switch_cases: Vec<(ValueId, BlockId)> =
+            cases.iter().map(|(t, b, _)| (*t, *b)).collect();
+        self.builder.switch(tag_val, done_block, &switch_cases);
+
+        // Per-variant: decode pointer, apply RC op, jump to done.
+        for &(_, block, field_type) in &cases {
+            self.builder.position_at_end(block);
+            let ptr_val = self.tagged_ptr_decode_ptr(val, &format!("{dir}.tp.ptr"));
+            if is_inc {
+                self.inc_value_rc(ptr_val, field_type, count);
+            } else {
+                self.dec_value_rc(ptr_val, field_type);
+            }
+            self.builder.br(done_block);
+        }
 
         self.builder.position_at_end(done_block);
     }

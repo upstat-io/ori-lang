@@ -45,6 +45,25 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             }
 
             CtorKind::EnumVariant { variant, .. } => {
+                // §07.3.A: Tagged-pointer enum — encode `(payload | tag)`
+                // into a single i64 slot. Unit variants use `0 | tag = tag`;
+                // pointer variants use `(arg_ptr | tag)`. The eligibility
+                // check (`can_use_tagged_pointer`) guarantees each variant
+                // has at most one field, so `arg_vals` is `[ptr]` or `[]`.
+                if self.get_tagged_ptr_encoding(ty).is_some() {
+                    let payload = if arg_vals.is_empty() {
+                        // Unit variant: zero pointer slot, tag bits identify variant.
+                        self.builder.const_i64(0)
+                    } else {
+                        debug_assert!(
+                            arg_vals.len() == 1,
+                            "tagged-pointer variant must have at most one field"
+                        );
+                        arg_vals[0]
+                    };
+                    return self.tagged_ptr_encode(payload, *variant, "tagged.ctor");
+                }
+
                 // §07.2: Niche-encoded enum — no tag field, payload at index 0.
                 if let Some(encoding) = self.get_niche_encoding(ty) {
                     return self

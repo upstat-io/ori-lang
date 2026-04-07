@@ -69,9 +69,22 @@ static FOLD_PARAMS: [ParamDef; 2] = [
 
 // Iterator method constructor.
 //
-// All iterator methods share: receiver=Borrow, trait_name=None, pure=true,
+// All iterator methods share: receiver=Owned, trait_name=None, pure=true,
 // kind=Instance. Only `dei_only`, `dei_propagation`, and `backend_required`
 // vary per method.
+//
+// TPR-07-008: Iterator methods consume their receiver. Every adapter
+// (`map`, `filter`, `take`, ...) internally calls
+// `Box::from_raw(iter.cast::<IterState>())` on the source iterator to
+// wrap it into an adapter variant; every consumer (`count`, `collect`,
+// `fold`, ...) drains the iterator and then drops the `Box<IterState>`
+// explicitly. The registry now reports `Ownership::Owned` so ARC
+// treats the call as a consumption event — but because ARC's borrow
+// inference matches method names without type qualification, the
+// borrow layer ALSO needs to check the receiver's type tag to avoid
+// List/Map methods with the same name being mistakenly upgraded to
+// Owned. That per-receiver-type disambiguation lives in the ARC
+// pipeline, not the registry.
 const fn iter(
     name: &'static str,
     params: &'static [ParamDef],
@@ -82,7 +95,7 @@ const fn iter(
 ) -> MethodDef {
     MethodDef {
         name,
-        receiver: Ownership::Borrow,
+        receiver: Ownership::Owned,
         params,
         returns,
         trait_name: None,

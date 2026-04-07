@@ -1123,3 +1123,466 @@ fn result_int_int_explicit_tag() {
         panic!("expected Enum");
     }
 }
+
+// ─── Tagged pointer analysis tests (§07.3) ────────────────────────
+
+use crate::layout::tagged_ptr::{can_use_tagged_pointer, is_taggable_pointer};
+
+fn opaque_ptr_repr() -> MachineRepr {
+    MachineRepr::OpaquePtr
+}
+
+fn unmanaged_ptr_repr() -> MachineRepr {
+    MachineRepr::UnmanagedPtr
+}
+
+// Helper: build an enum with the given variants for tagged-pointer analysis.
+fn make_enum_with_variants(variants: Vec<VariantRepr>) -> EnumRepr {
+    EnumRepr {
+        tag: EnumTag::Explicit {
+            width: IntWidth::I8,
+        },
+        variants,
+        size: 8,
+        align: 8,
+    }
+}
+
+fn unit_variant(idx: u32) -> VariantRepr {
+    VariantRepr {
+        name: Name::from_raw(idx),
+        fields: vec![],
+        size: 0,
+        alignment: 1,
+    }
+}
+
+fn ptr_variant(idx: u32, payload: MachineRepr) -> VariantRepr {
+    VariantRepr {
+        name: Name::from_raw(idx),
+        fields: vec![payload],
+        size: 8,
+        alignment: 8,
+    }
+}
+
+// === is_taggable_pointer: positive cases ===
+
+#[test]
+fn is_taggable_pointer_rc() {
+    assert!(is_taggable_pointer(&rc_repr()));
+}
+
+#[test]
+fn is_taggable_pointer_opaque() {
+    assert!(is_taggable_pointer(&opaque_ptr_repr()));
+}
+
+#[test]
+fn is_taggable_pointer_unmanaged() {
+    assert!(is_taggable_pointer(&unmanaged_ptr_repr()));
+}
+
+// === is_taggable_pointer: negative pins (multi-word and scalar) ===
+
+#[test]
+fn is_taggable_pointer_str_negative() {
+    // Str is a 24-byte fat pointer — NOT taggable
+    assert!(!is_taggable_pointer(&str_repr()));
+}
+
+#[test]
+fn is_taggable_pointer_list_negative() {
+    // [int] is a fat pointer collection — NOT taggable
+    assert!(!is_taggable_pointer(&list_repr()));
+}
+
+#[test]
+fn is_taggable_pointer_int_negative() {
+    // i64 is a scalar — masking would corrupt small values
+    assert!(!is_taggable_pointer(&int_repr()));
+}
+
+#[test]
+fn is_taggable_pointer_bool_negative() {
+    assert!(!is_taggable_pointer(&bool_repr()));
+}
+
+#[test]
+fn is_taggable_pointer_float_negative() {
+    assert!(!is_taggable_pointer(&float_repr()));
+}
+
+#[test]
+fn is_taggable_pointer_byte_negative() {
+    assert!(!is_taggable_pointer(&byte_repr()));
+}
+
+// === can_use_tagged_pointer: positive cases ===
+
+#[test]
+fn can_use_tagged_pointer_unit_plus_rc() {
+    // type Either = Empty | Filled(RcPointer) — 2 variants, 1 pointer
+    let e = make_enum_with_variants(vec![unit_variant(0), ptr_variant(1, rc_repr())]);
+    assert!(can_use_tagged_pointer(&e));
+}
+
+#[test]
+fn can_use_tagged_pointer_two_pointers() {
+    // type T = A(RcPointer) | B(OpaquePtr) — both single-word pointers
+    let e = make_enum_with_variants(vec![
+        ptr_variant(0, rc_repr()),
+        ptr_variant(1, opaque_ptr_repr()),
+    ]);
+    assert!(can_use_tagged_pointer(&e));
+}
+
+#[test]
+fn can_use_tagged_pointer_8_variants_max() {
+    // 8 variants is the maximum for 3-bit tag
+    let mut variants = Vec::with_capacity(8);
+    variants.push(ptr_variant(0, rc_repr()));
+    for i in 1..8 {
+        variants.push(unit_variant(i));
+    }
+    let e = make_enum_with_variants(variants);
+    assert!(
+        can_use_tagged_pointer(&e),
+        "8 variants must fit in 3-bit tag"
+    );
+}
+
+// === can_use_tagged_pointer: negative pins ===
+
+#[test]
+fn can_use_tagged_pointer_9_variants_too_many() {
+    let mut variants = Vec::with_capacity(9);
+    variants.push(ptr_variant(0, rc_repr()));
+    for i in 1..9 {
+        variants.push(unit_variant(i));
+    }
+    let e = make_enum_with_variants(variants);
+    assert!(
+        !can_use_tagged_pointer(&e),
+        "9 variants exceed 3-bit tag (max 8)"
+    );
+}
+
+#[test]
+fn can_use_tagged_pointer_int_payload_negative() {
+    // Variant with int payload — masking would corrupt the int
+    let e = make_enum_with_variants(vec![unit_variant(0), ptr_variant(1, int_repr())]);
+    assert!(
+        !can_use_tagged_pointer(&e),
+        "int payload not taggable (scalar)"
+    );
+}
+
+#[test]
+fn can_use_tagged_pointer_str_payload_negative() {
+    // Fat pointer (24 bytes) — not single-word
+    let e = make_enum_with_variants(vec![unit_variant(0), ptr_variant(1, str_repr())]);
+    assert!(
+        !can_use_tagged_pointer(&e),
+        "str payload not taggable (24 bytes)"
+    );
+}
+
+#[test]
+fn can_use_tagged_pointer_all_unit_negative() {
+    // All-unit enum — no pointer to tag, no benefit
+    let e = make_enum_with_variants(vec![unit_variant(0), unit_variant(1), unit_variant(2)]);
+    assert!(
+        !can_use_tagged_pointer(&e),
+        "all-unit enum has no pointer to tag"
+    );
+}
+
+#[test]
+fn is_taggable_pointer_recursive_cycle_marker_negative() {
+    // §07.3.A — recursive enum cycle marker is rejected from tagged-pointer
+    // eligibility. The marker is `RcPointer { inner: OpaquePtr }` produced by
+    // `canonical_inner` when it detects a self-referential type. Recursive
+    // tagged pointers require box-and-load codegen for Construct/Project
+    // (the heap value is itself an encoded i64), which is intentionally out
+    // of scope for §07.3.A. Without this rejection, AOT codegen for
+    // `type IntCell = Empty | Holds(child: IntCell)` hangs (BUG-04-043).
+    let cycle_marker = MachineRepr::RcPointer(crate::struct_repr::RcRepr {
+        rc_width: IntWidth::I64,
+        atomic: true,
+        inner: Box::new(MachineRepr::OpaquePtr),
+        stack_promotable: false,
+    });
+    assert!(
+        !is_taggable_pointer(&cycle_marker),
+        "recursive cycle marker (RcPointer wrapping OpaquePtr) must NOT be taggable"
+    );
+}
+
+#[test]
+fn can_use_tagged_pointer_recursive_enum_negative() {
+    // type IntCell = Empty | Holds(child: IntCell);
+    // After canonical, Holds.child becomes the cycle marker (RcPointer
+    // wrapping OpaquePtr). The optimizer must NOT accept this.
+    let cycle_marker = MachineRepr::RcPointer(crate::struct_repr::RcRepr {
+        rc_width: IntWidth::I64,
+        atomic: true,
+        inner: Box::new(MachineRepr::OpaquePtr),
+        stack_promotable: false,
+    });
+    let int_cell = make_enum_with_variants(vec![unit_variant(0), ptr_variant(1, cycle_marker)]);
+    assert!(
+        !can_use_tagged_pointer(&int_cell),
+        "recursive enum (IntCell-style) must NOT be taggable until \
+         §07.3.A.future implements box-and-load codegen for the recursive case"
+    );
+}
+
+#[test]
+fn can_use_tagged_pointer_multi_field_variant_negative() {
+    // Variant with multiple fields — exactly one single-word pointer required
+    let multi_field = VariantRepr {
+        name: Name::from_raw(1),
+        fields: vec![rc_repr(), int_repr()],
+        size: 16,
+        alignment: 8,
+    };
+    let e = make_enum_with_variants(vec![unit_variant(0), multi_field]);
+    assert!(
+        !can_use_tagged_pointer(&e),
+        "multi-field variants are not taggable (encoding requires single-word payload)"
+    );
+}
+
+// === optimize_tagged_ptr_repr: end-to-end transformation ===
+
+use crate::layout::tagged_ptr::optimize_tagged_ptr_repr;
+
+#[test]
+fn optimize_tagged_ptr_repr_transforms_eligible_enum() {
+    // type Either = Empty | Filled(RcPointer)
+    let candidate = make_enum_with_variants(vec![unit_variant(0), ptr_variant(1, rc_repr())]);
+    assert!(matches!(candidate.tag, EnumTag::Explicit { .. }));
+
+    let optimized = optimize_tagged_ptr_repr(candidate.clone());
+    assert!(
+        matches!(optimized.tag, EnumTag::TaggedPtr),
+        "eligible enum must be transformed to EnumTag::TaggedPtr"
+    );
+    assert_eq!(optimized.size, 8, "tagged-ptr enum is exactly 8 bytes");
+    assert_eq!(optimized.align, 8, "tagged-ptr enum is 8-byte aligned");
+    assert_eq!(
+        optimized.variants, candidate.variants,
+        "variant list is preserved verbatim"
+    );
+}
+
+#[test]
+fn optimize_tagged_ptr_repr_preserves_ineligible_enum() {
+    // type IntPair = First(int) | Second(int) — int payloads not taggable
+    let candidate =
+        make_enum_with_variants(vec![ptr_variant(0, int_repr()), ptr_variant(1, int_repr())]);
+    let original_tag = candidate.tag;
+    let original_size = candidate.size;
+    let original_align = candidate.align;
+
+    let result = optimize_tagged_ptr_repr(candidate);
+    assert_eq!(
+        result.tag, original_tag,
+        "ineligible enum keeps its original tag encoding"
+    );
+    assert_eq!(result.size, original_size);
+    assert_eq!(result.align, original_align);
+}
+
+#[test]
+fn optimize_tagged_ptr_repr_two_pointer_variants() {
+    // type T = A(RcPointer) | B(OpaquePtr) — both pointers, both taggable
+    let candidate = make_enum_with_variants(vec![
+        ptr_variant(0, rc_repr()),
+        ptr_variant(1, opaque_ptr_repr()),
+    ]);
+    let optimized = optimize_tagged_ptr_repr(candidate);
+    assert!(matches!(optimized.tag, EnumTag::TaggedPtr));
+    assert_eq!(optimized.size, 8);
+}
+
+#[test]
+fn optimize_tagged_ptr_repr_8_variants_max() {
+    // 8 variants — exactly fits the 3-bit tag
+    let mut variants = Vec::with_capacity(8);
+    variants.push(ptr_variant(0, rc_repr()));
+    for i in 1..8 {
+        variants.push(unit_variant(i));
+    }
+    let candidate = make_enum_with_variants(variants);
+    let optimized = optimize_tagged_ptr_repr(candidate);
+    assert!(matches!(optimized.tag, EnumTag::TaggedPtr));
+    assert_eq!(optimized.size, 8);
+}
+
+#[test]
+fn optimize_tagged_ptr_repr_9_variants_falls_back() {
+    // 9 variants — exceeds 3-bit tag, optimizer must NOT transform
+    let mut variants = Vec::with_capacity(9);
+    variants.push(ptr_variant(0, rc_repr()));
+    for i in 1..9 {
+        variants.push(unit_variant(i));
+    }
+    let candidate = make_enum_with_variants(variants);
+    let optimized = optimize_tagged_ptr_repr(candidate.clone());
+    assert!(
+        matches!(optimized.tag, EnumTag::Explicit { .. }),
+        "9-variant enum keeps explicit tag (3-bit tag space exceeded)"
+    );
+    assert_eq!(optimized.size, candidate.size);
+}
+
+#[test]
+fn optimize_tagged_ptr_repr_preserves_variant_order() {
+    // Ensure the variant list ordering is preserved 1:1, since
+    // the discriminant value IS the variant index in [0..7].
+    let v0 = unit_variant(0);
+    let v1 = ptr_variant(1, rc_repr());
+    let v2 = unit_variant(2);
+    let v3 = ptr_variant(3, opaque_ptr_repr());
+    let candidate = make_enum_with_variants(vec![v0.clone(), v1.clone(), v2.clone(), v3.clone()]);
+    let optimized = optimize_tagged_ptr_repr(candidate);
+    assert_eq!(optimized.variants[0], v0);
+    assert_eq!(optimized.variants[1], v1);
+    assert_eq!(optimized.variants[2], v2);
+    assert_eq!(optimized.variants[3], v3);
+}
+
+// ─── §07.4 Payload compression tests ──────────────────────────────
+
+use crate::layout::compute_enum_payload_layout;
+
+// === All-unit variants (item 1: verification) ===
+
+#[test]
+fn payload_layout_empty_fields_zero_size() {
+    // All-unit variant (no fields) → payload size 0, alignment 1
+    let (size, align) = compute_enum_payload_layout(&[]);
+    assert_eq!(size, 0, "empty fields produce zero payload");
+    assert_eq!(align, 1, "zero payload has alignment 1");
+}
+
+// === Current i64-slot packing baseline ===
+
+#[test]
+fn payload_layout_single_int_field() {
+    // Single i64 field → 8 bytes, alignment 8
+    let (size, align) = compute_enum_payload_layout(&[int_repr()]);
+    assert_eq!(size, 8);
+    assert_eq!(align, 8);
+}
+
+#[test]
+fn payload_layout_two_int_fields() {
+    // Two i64 fields → 16 bytes (each in its own slot)
+    let (size, align) = compute_enum_payload_layout(&[int_repr(), int_repr()]);
+    assert_eq!(size, 16);
+    assert_eq!(align, 8);
+}
+
+#[test]
+fn payload_layout_byte_field_padded_to_slot() {
+    // Single byte → padded to 8-byte i64 slot (current i64-slot rule)
+    let (size, align) = compute_enum_payload_layout(&[byte_repr()]);
+    assert_eq!(
+        size, 8,
+        "byte rounds up to 8-byte i64 slot per current packing rule"
+    );
+    assert_eq!(align, 8);
+}
+
+#[test]
+fn payload_layout_three_byte_fields_padded_to_slots() {
+    // Three bytes → 3 × 8 = 24 bytes (each in its own slot, NOT 3 packed bytes)
+    // Documents the current i64-slot rule that §07.4 will optimize.
+    // Once §07.4 lands and applies tighter packing, this test should fail —
+    // a developer must update it to reflect the new packed layout (e.g.,
+    // 3 bytes packed into a single slot).
+    let (size, align) = compute_enum_payload_layout(&[byte_repr(), byte_repr(), byte_repr()]);
+    assert_eq!(
+        size, 24,
+        "three bytes use three i64 slots under current packing rule"
+    );
+    assert_eq!(align, 8);
+}
+
+#[test]
+fn payload_layout_zero_sized_field_no_size() {
+    // Unit field is zero-sized in aggregates (BUG-04-008 fix) → payload = 0
+    let (size, align) = compute_enum_payload_layout(&[MachineRepr::Unit]);
+    assert_eq!(
+        size, 0,
+        "Unit field is zero-sized in aggregates (BUG-04-008)"
+    );
+    assert_eq!(align, 1);
+}
+
+#[test]
+fn payload_layout_never_field_no_size() {
+    // Never field is zero-sized in aggregates → payload = 0
+    let (size, align) = compute_enum_payload_layout(&[MachineRepr::Never]);
+    assert_eq!(size, 0, "Never field is zero-sized in aggregates");
+    assert_eq!(align, 1);
+}
+
+// === Mixed-size variants (the §07.4 optimization target) ===
+
+#[test]
+fn payload_layout_int_plus_byte_uses_two_slots() {
+    // i64 + byte → 16 bytes (8 + 8 padded slots)
+    // §07.4 optimization could pack to 9 bytes natural alignment, but the
+    // current rule produces 16 to match drop_enum.rs and ori_arc.
+    let (size, align) = compute_enum_payload_layout(&[int_repr(), byte_repr()]);
+    assert_eq!(
+        size, 16,
+        "int + byte uses two i64 slots under current packing rule"
+    );
+    assert_eq!(align, 8);
+}
+
+// === All-unit enum end-to-end via compute_explicit_tag_layout ===
+//
+// Verifies §07.4 item 1: "All-unit variant detection — already implemented
+// in resolve_enum". Pinned via the layout helper that canonical_enum() calls.
+
+use crate::layout::compute_explicit_tag_layout;
+
+#[test]
+fn explicit_tag_layout_all_unit_i8_one_byte() {
+    // §07.1 narrowed all-unit enums to i8 tag. Verify total size is 1 byte.
+    // Inputs: i8 tag, no payload, alignment 1 (computed from empty variants).
+    let (size, align) = compute_explicit_tag_layout(IntWidth::I8, 0, 1);
+    assert_eq!(size, 1, "all-unit enum with i8 tag must be 1 byte");
+    assert_eq!(align, 1, "all-unit enum with i8 tag has alignment 1");
+}
+
+#[test]
+fn explicit_tag_layout_all_unit_i16_two_bytes() {
+    // 257-variant all-unit enum: tag widens to i16 → 2 bytes
+    let (size, align) = compute_explicit_tag_layout(IntWidth::I16, 0, 1);
+    assert_eq!(size, 2);
+    assert_eq!(align, 2);
+}
+
+#[test]
+fn explicit_tag_layout_all_unit_i32_four_bytes() {
+    // 65,537-variant all-unit enum: tag widens to i32 → 4 bytes
+    let (size, align) = compute_explicit_tag_layout(IntWidth::I32, 0, 1);
+    assert_eq!(size, 4);
+    assert_eq!(align, 4);
+}
+
+#[test]
+fn explicit_tag_layout_with_int_payload() {
+    // i8 tag + 8-byte payload → tag padded to 8-byte alignment, then payload
+    // → total 16 bytes (8 tag-aligned + 8 payload)
+    let (size, align) = compute_explicit_tag_layout(IntWidth::I8, 8, 8);
+    assert_eq!(size, 16);
+    assert_eq!(align, 8);
+}

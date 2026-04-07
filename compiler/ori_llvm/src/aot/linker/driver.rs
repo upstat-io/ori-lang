@@ -26,20 +26,36 @@ impl LinkerDriver {
             });
         }
 
-        // Select linker flavor (with fallback if preferred linker unavailable)
-        let flavor = input.linker.unwrap_or_else(|| {
+        // Select linker flavor (with cross-compilation-aware fallback)
+        let flavor = if let Some(explicit) = input.linker {
+            // User explicitly chose a linker — respect it
+            explicit
+        } else {
             let preferred = LinkerFlavor::for_target(self.target.components());
-            if LinkerDetection::is_available(preferred) {
+            if LinkerDetection::is_available_for_target(preferred, &self.target) {
                 preferred
             } else {
-                // Fall back to next available linker for this target.
-                // Common case: Windows CI where GNU `link` shadows MSVC's `link.exe`,
-                // but `lld-link` from LLVM is available.
-                LinkerDetection::detect(&self.target)
-                    .preferred()
-                    .unwrap_or(preferred)
+                // Fall back to next available linker for this target,
+                // using cross-compilation-aware detection.
+                let detection = LinkerDetection::detect_for_target(&self.target);
+                if let Some(fallback) = detection.preferred() {
+                    fallback
+                } else if LinkerDetection::is_cross_compiling(&self.target) {
+                    // No suitable cross-linker found — fail early with clear error.
+                    return Err(LinkerDetection::cross_compilation_error(&self.target));
+                } else {
+                    // Native compilation but no linker at all.
+                    return Err(LinkerError::LinkerNotFound {
+                        linker: format!("{preferred:?}"),
+                        message: format!(
+                            "no linker found for native target '{}'. \
+                             Install a C compiler (gcc or clang) to enable linking.",
+                            self.target.triple()
+                        ),
+                    });
+                }
             }
-        });
+        };
 
         // Create the appropriate linker using enum dispatch (not trait objects)
         // This provides exhaustiveness checking, static dispatch, and no heap allocation
@@ -105,8 +121,23 @@ impl LinkerDriver {
 
     /// Create the appropriate linker implementation for the given flavor.
     fn create_linker(&self, flavor: LinkerFlavor) -> LinkerImpl {
+        let cross = LinkerDetection::is_cross_compiling(&self.target);
+
         match flavor {
-            LinkerFlavor::Gcc => LinkerImpl::Gcc(GccLinker::new(&self.target)),
+            LinkerFlavor::Gcc => {
+                if cross {
+                    // Use the target-prefixed cross-compiler (e.g., aarch64-linux-gnu-gcc)
+                    if let Some(name) =
+                        LinkerDetection::gcc_cross_compiler_name(self.target.components())
+                    {
+                        LinkerImpl::Gcc(GccLinker::with_path(&self.target, &name))
+                    } else {
+                        LinkerImpl::Gcc(GccLinker::new(&self.target))
+                    }
+                } else {
+                    LinkerImpl::Gcc(GccLinker::new(&self.target))
+                }
+            }
             LinkerFlavor::Lld => {
                 if self.target.is_windows() {
                     LinkerImpl::Msvc(MsvcLinker::with_lld(&self.target))
@@ -225,10 +256,10 @@ impl LinkerDriver {
         // Rebuild command and retry — `is_retry: true` prevents further retries
         let flavor = adjusted.linker.unwrap_or_else(|| {
             let preferred = LinkerFlavor::for_target(self.target.components());
-            if LinkerDetection::is_available(preferred) {
+            if LinkerDetection::is_available_for_target(preferred, &self.target) {
                 preferred
             } else {
-                LinkerDetection::detect(&self.target)
+                LinkerDetection::detect_for_target(&self.target)
                     .preferred()
                     .unwrap_or(preferred)
             }

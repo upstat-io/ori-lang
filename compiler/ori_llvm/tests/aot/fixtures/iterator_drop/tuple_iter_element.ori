@@ -1,0 +1,7 @@
+// TPR-07-008 matrix pin: tuple containing an iterator element must
+// drop the iterator at scope exit.
+
+@main () -> int = {
+    let _t: (int, Iterator<int>) = (42, [7, 8, 9].iter());
+    0
+}

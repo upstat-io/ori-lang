@@ -52,14 +52,19 @@ fn heap_types_not_trivial() {
     .is_trivial());
 }
 
-/// §02 TPR-02-004: Iterator/DoubleEndedIterator are Box-allocated (no RC header),
-/// so TypeInfo::is_trivial() must classify them as trivial — matching
-/// ArcClassifier (Scalar) and classify_triviality() (Trivial).
+/// TPR-07-008: Iterator/DoubleEndedIterator are Box-allocated but
+/// non-trivial — they need `ori_iter_drop` at scope exit to free the
+/// Box-allocated state. Previously (TPR-02-004) this helper reported
+/// iterators as trivial, which caused memory leaks for iterators
+/// stored in enum/struct/tuple/bare let. The SSOT in
+/// `ori_types::triviality::classify_triviality` and
+/// `ori_repr::layout::is_trivial_repr(UnmanagedPtr)` now agree that
+/// iterators are non-trivial, and `TypeInfo::is_trivial()` must match.
 #[test]
-fn iterator_types_are_trivial() {
+fn iterator_types_are_non_trivial() {
     assert!(
-        TypeInfo::Iterator { element: Idx::INT }.is_trivial(),
-        "Iterator is Box-allocated (UnmanagedPtr), no RC header — trivial"
+        !TypeInfo::Iterator { element: Idx::INT }.is_trivial(),
+        "Iterator needs ori_iter_drop at scope exit — not trivial"
     );
 }
 
@@ -1838,31 +1843,37 @@ fn repr_plan_canonical_parity_full_matrix() {
 
 // -- §02 TPR-02-004: Iterator triviality convergence tests --
 
-/// §02 TPR-02-004: classify_trivial() fallback (via TypeInfoStore::new())
-/// must classify Iterator/DoubleEndedIterator as trivial — matching the
-/// production path through ReprPlan.
+/// TPR-07-008: classify_trivial() fallback (via TypeInfoStore::new())
+/// must classify Iterator/DoubleEndedIterator as NON-trivial — matching
+/// the production path through ReprPlan.
+///
+/// Previously (TPR-02-004) these were classified as trivial on the
+/// grounds that iterators are "Box-allocated with no RC header." That
+/// reasoning was incomplete: iterators still need `ori_iter_drop` at
+/// scope exit to free the Box, so ARC must see them as non-trivial.
+/// See TPR-07-008.
 #[test]
-fn iterator_trivial_via_fallback_path() {
+fn iterator_non_trivial_via_fallback_path() {
     let mut pool = Pool::new();
     let iter_int = pool.iterator(Idx::INT);
     let de_iter_int = pool.double_ended_iterator(Idx::INT);
 
     let store = TypeInfoStore::new(&pool);
     assert!(
-        store.is_trivial(iter_int),
-        "Iterator<int> should be trivial via fallback (Box-allocated, no RC)"
+        !store.is_trivial(iter_int),
+        "Iterator<int> should be non-trivial via fallback — needs ori_iter_drop"
     );
     assert!(
-        store.is_trivial(de_iter_int),
-        "DoubleEndedIterator<int> should be trivial via fallback (Box-allocated, no RC)"
+        !store.is_trivial(de_iter_int),
+        "DoubleEndedIterator<int> should be non-trivial via fallback — needs ori_iter_drop"
     );
 }
 
-/// §02 TPR-02-004: Production path (via TypeInfoStore::new_with_plan()) must
-/// classify Iterator/DoubleEndedIterator as trivial through ReprPlan.
-/// This is the semantic pin for the production triviality path.
+/// TPR-07-008: Production path (via TypeInfoStore::new_with_plan()) must
+/// classify Iterator/DoubleEndedIterator as NON-trivial through ReprPlan.
+/// See the fallback-path test above for rationale.
 #[test]
-fn iterator_trivial_via_production_path() {
+fn iterator_non_trivial_via_production_path() {
     let mut pool = Pool::new();
     let iter_int = pool.iterator(Idx::INT);
     let de_iter_int = pool.double_ended_iterator(Idx::INT);
@@ -1870,12 +1881,12 @@ fn iterator_trivial_via_production_path() {
     let plan = ori_repr::compute_repr_plan(&pool, &[], ori_repr::NarrowingPolicy::Disabled, &[]);
     let store = TypeInfoStore::new_with_plan(&pool, &plan);
     assert!(
-        store.is_trivial(iter_int),
-        "Iterator<int> should be trivial via ReprPlan production path"
+        !store.is_trivial(iter_int),
+        "Iterator<int> should be non-trivial via ReprPlan production path"
     );
     assert!(
-        store.is_trivial(de_iter_int),
-        "DoubleEndedIterator<int> should be trivial via ReprPlan production path"
+        !store.is_trivial(de_iter_int),
+        "DoubleEndedIterator<int> should be non-trivial via ReprPlan production path"
     );
 }
 
