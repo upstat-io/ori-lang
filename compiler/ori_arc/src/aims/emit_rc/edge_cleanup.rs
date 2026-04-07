@@ -35,6 +35,13 @@ fn is_owned_for_rc(
     if state_map.is_excluded(var) {
         return false;
     }
+    // TPR-07-011: take-project source chains are moved — even if the
+    // lattice still reports `access == Owned`, treat them as not
+    // owned so no edge-cleanup `RcDec` is emitted. See
+    // `is_owned_at_entry` for the full rationale.
+    if all_borrowed_defs.contains(&var) {
+        return false;
+    }
     if access == AccessClass::Owned {
         return true;
     }

@@ -146,6 +146,14 @@ pub(crate) fn emit_dead_at_entry_decs(
         if ctx.iter_element_defs.contains(&param_var) {
             continue;
         }
+        // TPR-07-011: skip take-project source chains — the parent
+        // enum has logically given up its payload, and emitting a
+        // scope-exit `RcDec` would walk the tagged-pointer encoding
+        // and call `ori_iter_drop` on a payload already consumed by
+        // the projected variable's consumer (double-free).
+        if ctx.all_borrowed_defs.contains(&param_var) {
+            continue;
+        }
         if let Some(strategy) = rc_strategy(ctx.func, param_var, ctx.pool) {
             new_body.push(ArcInstr::RcDec {
                 var: param_var,
