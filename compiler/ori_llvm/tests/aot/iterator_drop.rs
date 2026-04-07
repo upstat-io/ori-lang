@@ -191,6 +191,36 @@ fn tpr_07_019_phi_merge_take_projects_no_leak() {
     );
 }
 
+/// TPR-07-019 semantic pin: per-source / per-lineage bypass-safe split.
+///
+/// Two phi-merge consumers (`let chosen1 = if c then a else b; match
+/// chosen1 ...; let chosen2 = if c2 then a2 else b2; match chosen2 ...`)
+/// each hold a take-project source enum constructed from two
+/// alternative branches. The shape exercises the bidirectional Let
+/// propagation in `compute_lineage`: the take-project source variable
+/// visible at the `Project` instruction is the downstream Let alias
+/// (`%19 = %17`), while the actual enum that needs the bypass-safe
+/// scope-exit drop is the upstream phi-merge param (`%17`). Forward-
+/// only Let propagation in lineage analysis would miss the upstream
+/// alias and leak it on every bypass path through the conditional —
+/// reverting the bidirectional-Let half of the TPR-07-019 fix
+/// reproduces the `tpr_07_016/017/019/020 leak 1 RC allocation`
+/// regression that surfaced during iteration 2 of this fix.
+///
+/// This is the first AOT pin that requires `compute_lineage` to walk
+/// Let edges in BOTH directions (forward `src → dst` AND backward
+/// `dst → src`). The Jump-arg → block-param direction remains forward-
+/// only (a phi merge is a CFG choice between alternatives, not shared
+/// storage — bidirectional Jump propagation would falsely conflate
+/// unrelated `tp_sources`, which is the original TPR-07-019 unsoundness).
+#[test]
+fn tpr_07_019_per_source_lineage_no_leak() {
+    assert_aot_success(
+        include_str!("fixtures/iterator_drop/tpr_07_019_per_source_lineage.ori"),
+        "tpr_07_019_per_source_lineage",
+    );
+}
+
 /// TPR-07-020 topology pin: take-project alongside an explicit `loop`
 /// where the loop body forms a bypass-safe region whose only entry is
 /// the function-entry block via a back-edge from a bypass-safe latch.
