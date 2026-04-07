@@ -131,7 +131,7 @@ When invoked retrospectively at the end of a section:
 
 5. **Implement the improvements NOW.** Do not file them as "future improvements" — that violates CLAUDE.md zero-deferral. The improvement IS the section close-out work. Each accepted candidate becomes a code change in the same session.
 
-6. **Commit improvements separately** via `/commit-push` with a message like `tools(diagnostics): add --per-block flag to codegen-audit.sh — surfaced by section-NN retrospective`. Tool improvements should not be hidden inside the section's implementation commit — they have their own provenance and reviewability.
+6. **Commit improvements separately** via `/commit-push` with a message like `build(diagnostics): add --per-block flag to codegen-audit.sh — surfaced by section-NN retrospective`. Tool improvements should not be hidden inside the section's implementation commit — they have their own provenance and reviewability. **Use a valid conventional-commit type** — `build` for dev scripts / build infra, `test` for test-harness changes, `chore` for general tooling, `ci` for CI config, `docs` for tool docs. Do NOT use `tools(...)` as a type — the pre-commit hook (`lefthook commit-msg`) enforces the standard set (`feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert`) and will reject any other type outright. Pick the type that reflects the change's actual nature, not a made-up category.
 
 7. **Verify the improvement actually solves the friction** by running the tool against the same scenario that triggered the candidate. If the new flag/output/script doesn't make the original workflow noticeably better, the improvement is wrong — iterate until it does.
 
