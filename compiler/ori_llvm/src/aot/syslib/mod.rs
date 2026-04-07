@@ -31,9 +31,86 @@
 //! }
 //! ```
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use super::target_features::{HostPlatform, TargetTripleComponents};
+
+// =============================================================================
+// Install-paths SSOT
+// =============================================================================
+//
+// These functions are the canonical home for "where Ori puts and looks for
+// user-managed sysroots". Both the install side (`oric::commands::target::
+// add_target`) and the discovery side (`SysLibConfig::detect_sysroot`)
+// query the same functions, so an install always lands somewhere a build
+// can find it. Before this SSOT was extracted, the install side hard-coded
+// `~/.ori/sysroots/<target>` and `~/.wasi-sdk` while the discovery side
+// hard-coded only `/opt/wasi-sdk/...` and `/usr/share/wasi-sysroot` —
+// installs reported "success" whose results were invisible to subsequent
+// builds. See BUG-04-045 / TPR-BUG-04-045-06.
+//
+// All paths are parameterized by `home: &Path` so tests can supply a tempdir
+// without touching process-global `HOME`. The convenience wrappers
+// (`ori_sysroots_dir`, `home_wasi_sdk_sysroot`) read `HOME`/`USERPROFILE`
+// from the environment.
+
+/// User home directory, derived from `HOME` (Unix) or `USERPROFILE`
+/// (Windows). Falls back to `.` if neither is set — callers that need
+/// a deterministic path should use the `_for_home` parameterized variants
+/// instead.
+#[must_use]
+pub fn user_home_dir() -> PathBuf {
+    std::env::var("HOME")
+        .or_else(|_| std::env::var("USERPROFILE"))
+        .map_or_else(|_| PathBuf::from("."), PathBuf::from)
+}
+
+/// Per-user directory under which Ori stores managed sysroots:
+/// `<home>/.ori/sysroots`. The canonical install root.
+#[must_use]
+pub fn ori_sysroots_dir_for_home(home: &Path) -> PathBuf {
+    home.join(".ori").join("sysroots")
+}
+
+/// `~/.ori/sysroots` — convenience wrapper around
+/// [`ori_sysroots_dir_for_home`] that reads the home dir from the
+/// environment.
+#[must_use]
+pub fn ori_sysroots_dir() -> PathBuf {
+    ori_sysroots_dir_for_home(&user_home_dir())
+}
+
+/// Path of an Ori-managed sysroot for a specific target identified by its
+/// canonical key. The canonical key is [`TargetTripleComponents::support_key`],
+/// which strips Darwin OS version suffixes and normalizes arch aliases —
+/// the same SSOT key the supported-targets check uses. This guarantees one
+/// sysroot per logical target, no per-OS-subversion duplicates.
+#[must_use]
+pub fn ori_sysroot_path_for_home(home: &Path, canonical_key: &str) -> PathBuf {
+    ori_sysroots_dir_for_home(home).join(canonical_key)
+}
+
+/// Convenience wrapper for [`ori_sysroot_path_for_home`].
+#[must_use]
+pub fn ori_sysroot_path(canonical_key: &str) -> PathBuf {
+    ori_sysroot_path_for_home(&user_home_dir(), canonical_key)
+}
+
+/// Per-user WASI SDK sysroot, used by `ori target add` for WASI targets:
+/// `<home>/.wasi-sdk/share/wasi-sysroot`. This location is recognized by
+/// the install side and consulted by the discovery side, so a user-local
+/// WASI SDK install is visible to `ori build` without needing to set
+/// `ORI_SYSROOT_*`.
+#[must_use]
+pub fn home_wasi_sdk_sysroot_for_home(home: &Path) -> PathBuf {
+    home.join(".wasi-sdk").join("share").join("wasi-sysroot")
+}
+
+/// Convenience wrapper for [`home_wasi_sdk_sysroot_for_home`].
+#[must_use]
+pub fn home_wasi_sdk_sysroot() -> PathBuf {
+    home_wasi_sdk_sysroot_for_home(&user_home_dir())
+}
 
 /// System library configuration for a target.
 #[derive(Debug, Clone)]
@@ -162,7 +239,33 @@ impl SysLibConfig {
     }
 
     /// Detect the sysroot for a target.
+    ///
+    /// Convenience wrapper around [`Self::detect_sysroot_for_home`] that
+    /// reads `HOME` / `USERPROFILE` from the process environment. Tests
+    /// that need a deterministic home directory should call the
+    /// `_for_home` variant directly to avoid process-global state.
+    ///
+    /// Search order:
+    /// 1. `ORI_SYSROOT_<TARGET>` env var (per-target override)
+    /// 2. `ORI_SYSROOT` env var (generic override)
+    /// 3. Per-user Ori-managed install at `~/.ori/sysroots/<canonical-key>`
+    ///    where the canonical key is [`TargetTripleComponents::support_key`].
+    ///    This is the same key `oric::commands::target::add_target` uses
+    ///    when writing the install, so the round-trip is invariant under
+    ///    Darwin version suffixes and arch aliases.
+    /// 4. Hard-coded system locations from [`Self::sysroot_candidates`]
+    ///    (Xcode SDK, /opt/wasi-sdk, /usr/share/wasi-sysroot, etc.).
     fn detect_sysroot(target: &TargetTripleComponents) -> Option<PathBuf> {
+        Self::detect_sysroot_for_home(target, &user_home_dir())
+    }
+
+    /// Sysroot detection parameterized by an explicit home directory.
+    /// Lets tests verify the install/discovery round-trip without
+    /// touching process-global `HOME`/`USERPROFILE` state.
+    pub(crate) fn detect_sysroot_for_home(
+        target: &TargetTripleComponents,
+        home: &Path,
+    ) -> Option<PathBuf> {
         // 1. Check environment variable: ORI_SYSROOT_<TARGET>
         let env_key = format!(
             "ORI_SYSROOT_{}",
@@ -183,14 +286,37 @@ impl SysLibConfig {
             }
         }
 
-        // 3. Check well-known locations based on target
-        Self::sysroot_candidates(target)
+        // 3. Per-user Ori-managed install location. Use the canonical
+        // support key as the directory name, matching what the install
+        // side writes — so a `target add arm64-apple-darwin25.2.0` is
+        // discoverable by `ori build` for any darwin25.x.x input.
+        let install_path = ori_sysroot_path_for_home(home, &target.support_key());
+        if install_path.exists() {
+            return Some(install_path);
+        }
+
+        // 4. Check well-known system locations
+        Self::sysroot_candidates_for_home(target, home)
             .into_iter()
             .find(|candidate| candidate.exists())
     }
 
     /// Get sysroot candidate paths for a target.
-    fn sysroot_candidates(target: &TargetTripleComponents) -> Vec<PathBuf> {
+    ///
+    /// Convenience wrapper that reads the home directory from the
+    /// environment. Tests should use [`Self::sysroot_candidates_for_home`]
+    /// to keep results deterministic.
+    #[cfg(test)]
+    pub(crate) fn sysroot_candidates(target: &TargetTripleComponents) -> Vec<PathBuf> {
+        Self::sysroot_candidates_for_home(target, &user_home_dir())
+    }
+
+    /// Get sysroot candidate paths for a target with an explicit home
+    /// directory. Used by [`Self::detect_sysroot_for_home`] and tests.
+    pub(crate) fn sysroot_candidates_for_home(
+        target: &TargetTripleComponents,
+        home: &Path,
+    ) -> Vec<PathBuf> {
         let mut candidates = Vec::new();
         let triple = target.to_string();
 
@@ -239,8 +365,15 @@ impl SysLibConfig {
             candidates.push(PathBuf::from(format!("/opt/{triple}")));
         }
 
-        // WASM sysroots
+        // WASM sysroots — both system-wide and per-user installs.
+        // The per-user `~/.wasi-sdk/share/wasi-sysroot` location is what
+        // `ori target add wasm32-unknown-wasip1` recognizes as a valid
+        // install source (see `oric::commands::target::check_wasi_sdk`),
+        // so the discovery side must consult it too — otherwise the
+        // install side reports success while builds silently miss the
+        // sysroot. Regression: BUG-04-045 / TPR-BUG-04-045-06.
         if target.is_wasm() {
+            candidates.push(home_wasi_sdk_sysroot_for_home(home));
             candidates.push(PathBuf::from("/opt/wasi-sdk/share/wasi-sysroot"));
             candidates.push(PathBuf::from("/usr/share/wasi-sysroot"));
         }
