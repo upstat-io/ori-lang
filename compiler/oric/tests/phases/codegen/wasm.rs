@@ -234,7 +234,9 @@ fn test_wasm_error_display() {
 fn test_wasi_version_default() {
     let version = WasiVersion::default();
     assert_eq!(version, WasiVersion::Preview1);
-    assert_eq!(version.target_suffix(), "wasi");
+    // Modern Rust 1.78+ canonical naming — see WasiVersion::target_suffix
+    // doc comment for the deprecation rationale.
+    assert_eq!(version.target_suffix(), "wasip1");
 }
 
 #[test]

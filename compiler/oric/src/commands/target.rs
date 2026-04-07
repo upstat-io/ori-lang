@@ -139,8 +139,11 @@ pub fn add_target(target: &str) {
             std::process::exit(1);
         }
 
-        // For WASM, check for wasi-sdk if it's a WASI target
-        if target == "wasm32-wasi" {
+        // For WASM, check for wasi-sdk if it's a WASI target. Use the
+        // typed `is_wasi()` predicate (delegating to TargetTripleComponents)
+        // rather than raw string compare so future Preview2 / canonical
+        // alias variations don't bypass the check.
+        if is_wasi_target(target) {
             check_wasi_sdk(&sysroot);
         } else {
             // For standalone WASM, just create the marker
@@ -289,7 +292,21 @@ fn check_wasi_sdk(sysroot: &std::path::Path) {
     eprintln!();
 
     let marker = sysroot.join(".ori-target");
-    let _ = fs::write(&marker, "target=wasm32-wasi\nwasi_sdk=not_found\n");
+    let _ = fs::write(
+        &marker,
+        "target=wasm32-unknown-wasip1\nwasi_sdk=not_found\n",
+    );
+}
+
+/// Predicate: is the given target spelling a WASI target?
+///
+/// Recognizes the modern Rust 1.78+ canonical spelling
+/// (`wasm32-unknown-wasip1`). The historical 2-component `wasm32-wasi`
+/// alias is no longer accepted — see BUG-04-045 / TPR-BUG-04-045-04 for
+/// the deprecation rationale and Rust upstream's May 2024 rename.
+#[cfg(feature = "llvm")]
+fn is_wasi_target(target: &str) -> bool {
+    target == "wasm32-unknown-wasip1"
 }
 
 /// Detect an existing sysroot for a target.

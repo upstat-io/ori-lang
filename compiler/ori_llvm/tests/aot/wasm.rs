@@ -342,10 +342,14 @@ fn test_wasm_config_wasi_minimal() {
 }
 
 /// Test: WASI version configuration
+///
+/// Pins the modern Rust 1.78+ canonical OS suffix naming. Preview1's
+/// historical `wasi` spelling was deprecated upstream in May 2024 to
+/// disambiguate it from Preview2 — see `WasiVersion::target_suffix`.
 #[test]
 fn test_wasi_version() {
     assert_eq!(WasiVersion::default(), WasiVersion::Preview1);
-    assert_eq!(WasiVersion::Preview1.target_suffix(), "wasi");
+    assert_eq!(WasiVersion::Preview1.target_suffix(), "wasip1");
     assert_eq!(WasiVersion::Preview2.target_suffix(), "wasip2");
 }
 

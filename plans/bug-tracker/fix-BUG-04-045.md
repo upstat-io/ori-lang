@@ -2,7 +2,7 @@
 bug: "BUG-04-045"
 title: "is_cross_compiling() reports native Apple Silicon as cross-compilation: arm64 (LLVM triple) vs aarch64 (Rust cfg) string mismatch"
 severity: "high"
-status: complete
+status: in-progress
 goal: "TargetTripleComponents.arch becomes a typed Arch enum parsed at the boundary with all alias spellings normalized, so every host-vs-target equality check operates on canonical typed values and Apple Silicon native builds are never mis-detected as cross-compilation."
 success_criteria:
   - "TargetTripleComponents.arch is typed as Arch (not String); is_cross_for(HostPlatform) replaces ad-hoc cfg-string compares"
@@ -13,13 +13,13 @@ subsystem: "compiler/ori_llvm/src/aot/{target_features,target,linker,syslib}"
 found: "2026-04-07"
 source: "manual"
 third_party_review:
-  status: in-review
+  status: findings
   updated: 2026-04-07
 ---
 
 # Fix: BUG-04-045 — arm64 vs aarch64 host-vs-target mismatch on Apple Silicon
 
-**Status:** In Progress (TPR iteration 2 — findings fixed, awaiting re-review)
+**Status:** In Progress (TPR iteration 3 — review-work surfaced new findings)
 **Severity:** high
 **Goal:** Introduce a typed `Arch` enum at the `TargetTripleComponents::parse` boundary that normalizes every known alias spelling (`arm64|aarch64`, `amd64|x86_64`, `i386|i486|i586|i686`). Migrate all host-vs-target comparisons to operate on typed `Arch` / `HostPlatform` values, never on raw strings. After the fix, every call site that previously did `components.arch == "aarch64"` is either (a) a compile error, or (b) a canonical-typed query. The bug class "raw arch string compare" becomes un-typeable.
 
@@ -87,6 +87,17 @@ third_party_review:
 - [x] `[TPR-BUG-04-045-03][low]` `plans/bug-tracker/fix-BUG-04-045.md:5-17,26-34` — the fix section is still marked `status: complete` even though `third_party_review` had not been updated and this review found open correctness issues.
   Evidence: the frontmatter previously reported `third_party_review.status: none`, the checklist still showed unchecked completion items, and the code above still had unresolved Apple-Silicon/Darwin-path bugs. The plan state currently over-claims completion.
   Resolved: Fixed on 2026-04-07. Reverted `status` to in-progress / In Progress (TPR iteration 2) immediately when iteration-1 findings landed, updated `third_party_review.status` to track the loop state (`findings` → `in-review` → `clean`). Will only restore `status: complete` after the iteration-2 re-review confirms zero actionable findings.
+
+- [x] `[TPR-BUG-04-045-04][high]` `compiler/ori_llvm/src/aot/target_features.rs:73-87,319-340` / `compiler/oric/src/commands/build/mod.rs:103-107` — the typed-triple rewrite still left the advertised `wasm32-wasi` target unusable because `SUPPORTED_TARGETS` accepted the 2-part spelling while `TargetTripleComponents::parse()` rejected any triple with fewer than 3 components.
+  Evidence: `SUPPORTED_TARGETS` and `is_supported_target()` listed `wasm32-wasi`, `compiler/oric/src/commands/target.rs` told users to run `ori build --target=wasm32-wasi`, and `compiler/oric/src/commands/targets/tests.rs` explicitly documented WASI as a 2-part target format. But `TargetTripleComponents::parse()` hard-errors on `parts.len() < 3`, and `configure_target()` routes `--target` through `TargetConfig::from_triple()`. Reproduced directly on 2026-04-07: `cargo run -q -p oric --bin ori -- build ... --target=wasm32-wasi` returned `error[E5004]: target 'wasm32-wasi' is not supported` with note `invalid format: expected at least 3 components: <arch>-<vendor>-<os>`.
+  Impact: the documented WASI target was broken end-to-end. Existing coverage only checked the text-level support list (`is_supported_target("wasm32-wasi")`) and a 2-part-format policy comment; there was no regression test that actually drove `TargetConfig::from_triple("wasm32-wasi")` or `ori build --target=wasm32-wasi`. The label `WASM playground build passed` in `test-all.sh` was structurally incapable of catching this — see retrospective tooling notes below.
+
+  **Investigation: was `wasm32-wasi` ever real?** Audited the WASI codegen layer (`compiler/ori_llvm/src/aot/wasm/wasi.rs`, ~228 lines): full `WasiVersion::Preview1`/`Preview2` enum, `wasi_snapshot_preview1.fd_write`/`proc_exit`/`path_open`/etc undefined-symbol declarations, preopens, env vars, args, the works. ~30 unit tests. WASI codegen is real. But every internal test helper (`compiler/ori_llvm/tests/aot/util/mod.rs:83 wasm32_wasi_target()`) parsed the 3-component LLVM-canonical form `wasm32-unknown-wasi` and went through `from_components()`, which bypasses `from_triple()` and never touched the supported-targets check. The 2-component string `"wasm32-wasi"` in `SUPPORTED_TARGETS` was a copy-paste of the historical Rust short-form target name (deprecated upstream in May 2024 / Rust 1.78 in favor of `wasm32-wasip1`) that was never plumbed through the parser.
+
+  **Resolved (modernization, user choice 2026-04-07):** Replaced the deprecated 2-component `"wasm32-wasi"` entry in `SUPPORTED_TARGETS` with the modern Rust 1.78+ canonical 3-component form `"wasm32-unknown-wasip1"`. Updated `WasiVersion::Preview1::target_suffix()` from `"wasi"` to `"wasip1"` to match. Updated CLI documentation (`oric/src/main.rs:209-210, 400`) and target-install handling (`oric/src/commands/target.rs:143, 292`) to the new spelling. Replaced the raw `target == "wasm32-wasi"` string compare in `commands/target.rs` with a typed `is_wasi_target()` predicate (canonical home for "is this a WASI target spelling"). Updated all consumer tests to assert the new spelling. Updated `commands/targets/tests.rs::test_supported_targets_triple_format` to enforce a uniform 3+ component invariant (no WASM exception). Updated `tests/aot/util/mod.rs::wasm32_wasi_target()` test helper to parse `wasm32-unknown-wasip1`. Updated `tests/aot/cross.rs::test_supported_targets` expected list. Added two new regression pins in `cross.rs`:
+  - `test_from_triple_accepts_wasm32_wasip1_canonical` — drives `TargetConfig::from_triple("wasm32-unknown-wasip1")` end-to-end and asserts `triple == "wasm32-unknown-wasip1"`, `arch == Arch::Wasm32`, `os == "wasip1"`, `is_wasm() == true`.
+  - `test_from_triple_rejects_deprecated_wasm32_wasi` — negative pin asserting that the deprecated 2-component spelling is rejected as `InvalidTripleFormat` at the parse boundary (NOT silently normalized). Pins the strict triple-parser invariant against future "be liberal in what you accept" patches.
+  Plus added `("wasm32-unknown-wasip1", "wasm32-unknown-wasip1")` to the lib-side `test_support_key_strips_darwin_version_matrix` and `test_support_key_matches_supported_targets_for_known_aliases` matrices to confirm it round-trips through the support-key lookup. Full `./test-all.sh` green (16878 passed, 0 failed; +2 from the new regression pins, +2 from prior iteration).
 
 ---
 
