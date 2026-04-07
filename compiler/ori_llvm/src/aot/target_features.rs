@@ -84,7 +84,14 @@ pub const SUPPORTED_TARGETS: &[&str] = &[
     "x86_64-pc-windows-gnu",
     // WebAssembly
     "wasm32-unknown-unknown",
-    "wasm32-wasi",
+    // WASI Preview1 (modern Rust 1.78+ canonical naming).
+    // The historical 2-component spelling `wasm32-wasi` was deprecated by
+    // Rust upstream in May 2024 in favor of `wasm32-wasip1` because the
+    // upstream WASI specification fragmented (Preview1 vs Preview2). Ori
+    // uses LLVM canonical 3-component triples; this is `unknown` vendor +
+    // `wasip1` os. Ori's Preview1 codegen targets `wasi_snapshot_preview1`
+    // imports (see `aot/wasm/wasi.rs`).
+    "wasm32-unknown-wasip1",
 ];
 
 /// Check if a target triple is in the supported list.
@@ -103,7 +110,7 @@ pub fn is_supported_target(triple: &str) -> bool {
             | "x86_64-pc-windows-msvc"
             | "x86_64-pc-windows-gnu"
             | "wasm32-unknown-unknown"
-            | "wasm32-wasi"
+            | "wasm32-unknown-wasip1"
     )
 }
 

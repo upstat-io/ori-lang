@@ -176,9 +176,54 @@ fn test_from_triple_accepts_versioned_darwin_x86_64() {
     assert!(config.is_macos());
 }
 
+/// Regression pin for BUG-04-045 / TPR-BUG-04-045-04: `from_triple` must
+/// accept the modern Rust 1.78+ canonical WASI Preview1 spelling
+/// `wasm32-unknown-wasip1` end-to-end. Before the fix, `SUPPORTED_TARGETS`
+/// contained the deprecated 2-component `wasm32-wasi` spelling that the
+/// strict triple parser refused to accept, so `ori build --target=wasm32-wasi`
+/// returned `UnsupportedTarget` despite the codegen layer fully supporting
+/// WASI Preview1. The fix replaced the deprecated entry with the modern
+/// canonical 3-component form.
+#[test]
+fn test_from_triple_accepts_wasm32_wasip1_canonical() {
+    let config = TargetConfig::from_triple("wasm32-unknown-wasip1")
+        .expect("canonical wasm32-unknown-wasip1 spelling must be accepted");
+    assert_eq!(config.triple(), "wasm32-unknown-wasip1");
+    assert_eq!(config.components().arch, Arch::Wasm32);
+    assert_eq!(config.components().os, "wasip1");
+    assert!(config.is_wasm());
+}
+
+/// Negative pin: the deprecated 2-component `wasm32-wasi` spelling must
+/// be rejected at the parse boundary, NOT silently normalized. The strict
+/// triple parser invariant ("at least 3 components") is what makes the
+/// "list claims X, parser rejects X" bug class structurally impossible.
+/// This test pins the rejection so a future "be liberal in what you accept"
+/// patch cannot quietly resurrect the deprecated form.
+#[test]
+fn test_from_triple_rejects_deprecated_wasm32_wasi() {
+    let result = TargetConfig::from_triple("wasm32-wasi");
+    assert!(
+        result.is_err(),
+        "deprecated 2-component wasm32-wasi must be rejected at the parse boundary"
+    );
+    // Specifically, it must be rejected as InvalidTripleFormat (not enough
+    // components) — NOT as UnsupportedTarget. The parse boundary fires
+    // first, before the supported-targets check ever runs.
+    assert!(
+        matches!(result, Err(TargetError::InvalidTripleFormat { .. })),
+        "expected InvalidTripleFormat for 2-component wasm32-wasi, got: {result:?}"
+    );
+}
+
 /// Test: Supported targets list
 ///
 /// Scenario: Verify all documented targets are supported.
+///
+/// WASI is the modern Rust 1.78+ canonical 3-component spelling
+/// `wasm32-unknown-wasip1` — the historical 2-component `wasm32-wasi`
+/// was deprecated upstream in May 2024 and is no longer accepted by
+/// Ori (see BUG-04-045 / TPR-BUG-04-045-04).
 #[test]
 fn test_supported_targets() {
     let expected_targets = [
@@ -189,7 +234,7 @@ fn test_supported_targets() {
         "x86_64-pc-windows-msvc",
         "x86_64-pc-windows-gnu",
         "wasm32-unknown-unknown",
-        "wasm32-wasi",
+        "wasm32-unknown-wasip1",
     ];
 
     for target in expected_targets {

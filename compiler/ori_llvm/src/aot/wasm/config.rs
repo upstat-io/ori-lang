@@ -336,7 +336,7 @@ impl WasmConfig {
         Self::default()
     }
 
-    /// Create configuration for WASI (wasm32-wasi).
+    /// Create configuration for WASI Preview 1 (`wasm32-unknown-wasip1`).
     #[must_use]
     pub fn wasi() -> Self {
         Self {
