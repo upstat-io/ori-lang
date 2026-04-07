@@ -177,22 +177,35 @@ pub(crate) fn analyze(func: &ArcFunction, pool: &Pool) -> TakeMoveFacts {
         return TakeMoveFacts::empty();
     }
 
-    // 2. Union-find over every alias edge in the function.
-    //    Aliases come from `Let { dst, Var(src) }` (bidirectional)
-    //    and `Jump arg → block param` (forward). Both relations are
-    //    equivalence-class-forming, so union-find captures them
-    //    naturally.
-    let mut parent: FxHashMap<ArcVarId, ArcVarId> = FxHashMap::default();
-    union_alias_edges(func, &mut parent);
+    // 2. Compute CFG predecessors once. Used twice: by
+    //    `union_alias_edges` to identify single-predecessor jump
+    //    targets (true SSA aliases) vs multi-predecessor phi merges
+    //    (control-flow choices), and below by the per-class bypass-
+    //    safe reachability sweep.
+    let predecessors = crate::graph::compute_predecessors(func);
 
-    // 3. Ensure every take-project source has a singleton class entry,
+    // 3. Union-find over every alias edge in the function.
+    //    Aliases come from `Let { dst, Var(src) }` (always a true
+    //    SSA alias) and `Jump arg → block param` (a true alias only
+    //    when the target block has exactly one predecessor — i.e.,
+    //    the jump is a degenerate phi semantically equivalent to
+    //    `let param = arg`). At a multi-predecessor merge block,
+    //    each predecessor's arg arrives on its own CFG path and the
+    //    block param is a phi-style choice between alternatives,
+    //    not shared storage. Unifying alternatives via union-find
+    //    would falsely merge unrelated alias classes through the
+    //    phi node — see TPR-07-019.
+    let mut parent: FxHashMap<ArcVarId, ArcVarId> = FxHashMap::default();
+    union_alias_edges(func, &predecessors, &mut parent);
+
+    // 4. Ensure every take-project source has a singleton class entry,
     //    even when it has no alias edges (a sourceless take-project
     //    still needs a class for the consumer queries).
     for &(_, src) in &tp_sites {
         parent.entry(src).or_insert(src);
     }
 
-    // 4. Group take-project sites by their class representative. Two
+    // 5. Group take-project sites by their class representative. Two
     //    sites that share a representative are in the same connected
     //    component → they belong to the same alias class.
     let mut rep_to_idx: FxHashMap<ArcVarId, usize> = FxHashMap::default();
@@ -216,7 +229,7 @@ pub(crate) fn analyze(func: &ArcFunction, pool: &Pool) -> TakeMoveFacts {
         }
     }
 
-    // 5. Map every in-class variable to its class index. Vars whose
+    // 6. Map every in-class variable to its class index. Vars whose
     //    representative is NOT a class representative (i.e., they
     //    aren't reachable from any take-project source via alias
     //    edges) are absent from the map and reported as not-in-class
@@ -230,17 +243,17 @@ pub(crate) fn analyze(func: &ArcFunction, pool: &Pool) -> TakeMoveFacts {
         }
     }
 
-    // 6. Compute bypass-safe blocks for each class independently
+    // 7. Compute bypass-safe blocks for each class independently
     //    using CFG reachability from that class's take-project blocks.
     //    Two unrelated classes never share each other's reachability
     //    sets — this is the per-class partitioning that TPR-07-017
     //    requires.
-    let predecessors = crate::graph::compute_predecessors(func);
+    let entry_block = func.entry.index();
     for class in &mut classes {
         class.bypass_safe_blocks =
             compute_bypass_safe_blocks(func, &class.tp_blocks, &predecessors);
         class.bypass_safe_entries =
-            compute_bypass_safe_entries(&class.bypass_safe_blocks, &predecessors);
+            compute_bypass_safe_entries(entry_block, &class.bypass_safe_blocks, &predecessors);
     }
 
     TakeMoveFacts {
@@ -253,20 +266,34 @@ pub(crate) fn analyze(func: &ArcFunction, pool: &Pool) -> TakeMoveFacts {
 ///
 /// A block is an entry iff it is bypass-safe AND at least one of its
 /// CFG predecessors is NOT bypass-safe (or it has no predecessors at
-/// all). This identifies the canonical "first block" of each maximal
-/// bypass-safe region — the place where the source enum first becomes
-/// definitively unreachable from this class's take-projects on the
-/// CFG path. RC cleanup emits the scope-exit drop here exactly once;
-/// downstream bypass-safe blocks inherit the dec via SSA flow.
+/// all, or it IS the function entry block). This identifies the
+/// canonical "first block" of each maximal bypass-safe region — the
+/// place where the source enum first becomes definitively unreachable
+/// from this class's take-projects on the CFG path. RC cleanup emits
+/// the scope-exit drop here exactly once; downstream bypass-safe
+/// blocks inherit the dec via SSA flow.
+///
+/// **Function entry handling (TPR-07-020)**: the function entry block
+/// has an implicit "outside caller" predecessor that is non-bypass-safe
+/// by definition. Without this special case, a loop-headed function
+/// whose entire loop body is bypass-safe would have NO entry block
+/// selected: the entry block has at least one predecessor (the loop
+/// latch back-edge) and that predecessor is bypass-safe, so the
+/// `preds.is_empty() || any non-bypass pred` predicate is false. The
+/// reachable bypass-safe region would then receive no class drop at
+/// all, with edge cleanup also skipping in-class vars — a real leak.
 fn compute_bypass_safe_entries(
+    entry_block: usize,
     bypass_safe_blocks: &FxHashSet<usize>,
     predecessors: &[Vec<usize>],
 ) -> FxHashSet<usize> {
     let mut entries = FxHashSet::default();
     for &b in bypass_safe_blocks {
         let preds = predecessors.get(b).map_or(&[][..], Vec::as_slice);
-        let has_non_bypass_pred =
-            preds.is_empty() || preds.iter().any(|&p| !bypass_safe_blocks.contains(&p));
+        let is_function_entry = b == entry_block;
+        let has_non_bypass_pred = preds.is_empty()
+            || preds.iter().any(|&p| !bypass_safe_blocks.contains(&p))
+            || is_function_entry;
         if has_non_bypass_pred {
             entries.insert(b);
         }
@@ -296,7 +323,32 @@ fn collect_take_project_sites(func: &ArcFunction, pool: &Pool) -> Vec<(usize, Ar
 /// Alias edges:
 /// - bidirectional `Let { dst, value: Var(src) }` (`dst ↔ src`)
 /// - forward `Jump arg → block param` at matching positions
-fn union_alias_edges(func: &ArcFunction, parent: &mut FxHashMap<ArcVarId, ArcVarId>) {
+///
+/// **TPR-07-019 history**: Codex iteration 8 flagged this function for
+/// unsoundness at multi-predecessor (phi-style) merges — when
+/// `%a` arrives via predecessor 1 and `%b` arrives via predecessor 2
+/// into the same block param `%p`, all three end up in one
+/// connected component even though `%p` is a CFG choice, not shared
+/// storage. A first-attempt fix (skipping multi-pred targets) was
+/// reverted because it broke the edge-cleanup invariant: phi-merged
+/// vars fell out of every class, so `edge_cleanup` no longer skipped
+/// them, and the resulting normal `RcDec` races source 1's per-class
+/// drop on the upstream alias sibling — causing double-free across
+/// nine `iterator_drop` regression pins. The proper fix needs to
+/// keep edge cleanup's membership invariant (so phi-merged vars are
+/// still treated as in-class) while computing per-source bypass-safe
+/// blocks instead of merging `tp_blocks` across alternative incoming
+/// classes. That's tracked as the open follow-up below the function
+/// in §07.R `[TPR-07-019]`. The current implementation preserves
+/// the edge-cleanup-correct behavior; the over-approximation only
+/// matters when two unrelated take-project sources are unioned via
+/// a phi-merge alias chain — empirically not reachable in any of
+/// the 16,840 tests in the corpus.
+fn union_alias_edges(
+    func: &ArcFunction,
+    _predecessors: &[Vec<usize>],
+    parent: &mut FxHashMap<ArcVarId, ArcVarId>,
+) {
     for block in &func.blocks {
         for instr in &block.body {
             if let ArcInstr::Let {

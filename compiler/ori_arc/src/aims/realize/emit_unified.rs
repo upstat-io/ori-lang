@@ -101,10 +101,15 @@ pub(super) fn emit_rc_unified(
     let iter_element_defs = collect_iter_element_defs(func, interner);
     let inline_enum_projected_defs = collect_inline_enum_projected_defs(func, pool);
     let func_project_sources = compute_function_project_sources(func);
-    // TPR-07-016: path-sensitive take-project must-move analysis.
-    // Precomputed once per function; consumed by dead/edge cleanup
-    // to decide whether to suppress the source enum's scope-exit
-    // `RcDec` on any given block's entry.
+    // TPR-07-017: per-class take-project facts via union-find +
+    // CFG reachability. Precomputed once per function. Each
+    // take-project source seeds its own connected-component class
+    // (Let-alias + Jump-arg → block-param edges); each class has
+    // its own bypass-safe blocks and bypass-safe entries. Consumers
+    // (`dead_cleanup` source 1, `dead_cleanup` source 2,
+    // `edge_cleanup`) query via `is_in_class`, `class_of`, and
+    // `is_bypass_safe_entry_for_var` to coordinate exactly-one drop
+    // per CFG path without double-free or leak.
     let take_move_facts = crate::aims::emit_rc::take_project::analyze(func, pool);
     let iter_fn_name = interner.intern("iter");
     let predecessors = crate::graph::compute_predecessors(func);
