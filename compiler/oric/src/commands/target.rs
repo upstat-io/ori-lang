@@ -34,8 +34,8 @@ use std::path::PathBuf;
 
 #[cfg(feature = "llvm")]
 use ori_llvm::aot::{
-    is_supported_target, ori_sysroot_path, ori_sysroots_dir, TargetError, TargetTripleComponents,
-    SUPPORTED_TARGETS,
+    is_supported_target, ori_sysroot_path, ori_sysroots_dir, target_sysroot_env_key, TargetError,
+    TargetTripleComponents, SUPPORTED_TARGETS,
 };
 
 /// Subcommand for the `target` command.
@@ -467,10 +467,19 @@ fn suggest_sysroot_installation(target: &str) {
 
     println!();
     println!("After installing, set the sysroot path:");
-    println!(
-        "  export ORI_SYSROOT_{}=/path/to/sysroot",
-        target.to_uppercase().replace('-', "_")
+    // Use the canonical SSOT helper so the documented env var matches
+    // exactly what `SysLibConfig::detect_sysroot` looks up. Built from
+    // `support_key()` so versioned Darwin spellings produce a shell-safe
+    // key (no dots, no version suffix). See BUG-04-045 / TPR-BUG-04-045-07.
+    let env_key = TargetTripleComponents::parse(target).map_or_else(
+        |_| {
+            // Fall back to the raw spelling if parsing fails — the
+            // suggestion is best-effort guidance, not validation.
+            format!("ORI_SYSROOT_{}", target.to_uppercase().replace('-', "_"))
+        },
+        |parsed| target_sysroot_env_key(&parsed),
     );
+    println!("  export {env_key}=/path/to/sysroot");
 }
 
 #[cfg(test)]
