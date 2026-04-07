@@ -53,6 +53,11 @@ pub(super) fn emit_rc_unified(
     let iter_element_defs = collect_iter_element_defs(func, interner);
     let inline_enum_projected_defs = collect_inline_enum_projected_defs(func, pool);
     let func_project_sources = compute_function_project_sources(func);
+    // TPR-07-016: path-sensitive take-project must-move analysis.
+    // Precomputed once per function; consumed by dead/edge cleanup
+    // to decide whether to suppress the source enum's scope-exit
+    // `RcDec` on any given block's entry.
+    let take_move_facts = crate::aims::emit_rc::take_project::analyze(func, pool);
     let iter_fn_name = interner.intern("iter");
     let predecessors = crate::graph::compute_predecessors(func);
     let mut all_death_events = Vec::new();
@@ -75,6 +80,7 @@ pub(super) fn emit_rc_unified(
             &iter_element_defs,
             &inline_enum_projected_defs,
             &func_project_sources,
+            &take_move_facts,
             iter_fn_name,
             &predecessors,
             &mut block_deferred,
@@ -129,6 +135,7 @@ fn emit_block_rc(
     iter_element_defs: &FxHashSet<ArcVarId>,
     inline_enum_projected_defs: &FxHashSet<ArcVarId>,
     func_project_sources: &FxHashMap<ArcVarId, ArcVarId>,
+    take_move_facts: &crate::aims::emit_rc::take_project::TakeMoveFacts,
     iter_fn_name: ori_ir::Name,
     predecessors: &[Vec<usize>],
     block_deferred: &mut FxHashMap<usize, Vec<DeferredDec>>,
@@ -161,6 +168,7 @@ fn emit_block_rc(
         use_info: &use_info,
         pool,
         child_effective_last_use: &child_elu,
+        take_move_facts,
     };
 
     let (deferred_parents, merge_edge_decs) = emit_dead_at_entry_decs(&ctx, &mut new_body);
@@ -212,9 +220,15 @@ fn emit_block_rc(
 
 /// Route merge-edge decs to per-predecessor edge cleanup.
 ///
-/// Each predecessor that DEFINES the variable gets the dec on its edge to
-/// the merge block ONLY (not all outgoing edges). This preserves successor
-/// identity so edge cleanup doesn't fire on unrelated edges.
+/// Each predecessor that DEFINES the variable gets the dec on its edge
+/// to the merge block ONLY (not all outgoing edges). This preserves
+/// successor identity so edge cleanup doesn't fire on unrelated edges.
+///
+/// Take-project alias-class members never reach this routing: the
+/// `dead_cleanup.rs` `is_in_class` checks skip them entirely (their
+/// natural scope-exit drops in non-projecting predecessors handle the
+/// cleanup, and `is_ownership_transfer` at the take-project `Project`
+/// site suppresses the source's last-use drop).
 fn route_merge_edge_decs(
     func: &ArcFunction,
     block_idx: usize,

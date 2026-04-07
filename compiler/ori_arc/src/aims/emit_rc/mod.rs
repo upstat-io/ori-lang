@@ -31,6 +31,7 @@ mod edge_cleanup;
 mod forward_walk;
 mod helpers;
 pub(crate) mod queries;
+pub(crate) mod take_project;
 mod trampoline;
 pub(crate) mod unwind_cleanup;
 
