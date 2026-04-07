@@ -1,4 +1,5 @@
 use super::*;
+use crate::aot::target_features::Arch;
 
 fn linux_target() -> TargetTripleComponents {
     TargetTripleComponents::parse("x86_64-unknown-linux-gnu").unwrap()
@@ -21,7 +22,7 @@ fn test_syslib_config_for_target() {
     let target = linux_target();
     let config = SysLibConfig::for_target(&target).unwrap();
 
-    assert_eq!(config.target().arch, "x86_64");
+    assert_eq!(config.target().arch, Arch::X86_64);
     assert_eq!(config.target().os, "linux");
 }
 
