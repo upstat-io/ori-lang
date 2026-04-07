@@ -70,6 +70,8 @@ The `TraitRegistry` module currently contains: registry data structures (`TraitE
 - [ ] Verify: `cargo c` compiles cleanly, no unused import warnings
 - [ ] Verify: `timeout 150 cargo t -p ori_types` passes
 
+- [ ] **Subsection close-out (01.1)** — MANDATORY before starting the next subsection. Run `/improve-tooling` retrospectively on THIS subsection's debugging journey (per `.claude/skills/improve-tooling/SKILL.md` "Per-Subsection Workflow"): which `diagnostics/` scripts you ran, where you added `dbg!`/`tracing` calls, where output was hard to interpret, where test failures gave unhelpful messages, where you ran the same command sequence repeatedly. Forward-look: what tool/log/diagnostic would shorten the next regression in this code path by 10 minutes? Implement improvements NOW (zero deferral) and commit each via SEPARATE `/commit-push` using a valid conventional-commit type (`build(diagnostics): ... — surfaced by section-01.1 retrospective` — `build`/`test`/`chore`/`ci`/`docs` are valid; `tools(...)` is rejected by the lefthook commit-msg hook). Mandatory even when nothing felt painful. If genuinely no gaps, document briefly: "Retrospective 01.1: no tooling gaps". Update this subsection's `status` in section frontmatter to `complete`.
+
 ---
 
 ## 01.2 Split AIMS Pipeline (aims_pipeline.rs)
@@ -85,6 +87,8 @@ The AIMS pipeline file contains: `AimsPipelineConfig`, `AimsPipelineResult`, the
 - [ ] Verify: `wc -l compiler/ori_arc/src/pipeline/aims_pipeline.rs` < 500
 - [ ] Verify: `cargo c` compiles cleanly
 - [ ] Verify: `timeout 150 cargo t -p ori_arc` passes
+
+- [ ] **Subsection close-out (01.2)** — MANDATORY before starting the next subsection. Run `/improve-tooling` retrospectively on THIS subsection's debugging journey (per `.claude/skills/improve-tooling/SKILL.md` "Per-Subsection Workflow"): which `diagnostics/` scripts you ran, where you added `dbg!`/`tracing` calls, where output was hard to interpret, where test failures gave unhelpful messages, where you ran the same command sequence repeatedly. Forward-look: what tool/log/diagnostic would shorten the next regression in this code path by 10 minutes? Implement improvements NOW (zero deferral) and commit each via SEPARATE `/commit-push` using a valid conventional-commit type (`build(diagnostics): ... — surfaced by section-01.2 retrospective` — `build`/`test`/`chore`/`ci`/`docs` are valid; `tools(...)` is rejected by the lefthook commit-msg hook). Mandatory even when nothing felt painful. If genuinely no gaps, document briefly: "Retrospective 01.2: no tooling gaps". Update this subsection's `status` in section frontmatter to `complete`.
 
 ---
 
@@ -102,6 +106,8 @@ Section 04 will add TBAA metadata attachment at `ArcInstr::Project` emission sit
 - [ ] Verify: `cargo c` compiles cleanly
 - [ ] Verify: `timeout 150 cargo t -p ori_llvm` passes
 
+- [ ] **Subsection close-out (01.3)** — MANDATORY before starting the next subsection. Run `/improve-tooling` retrospectively on THIS subsection's debugging journey (per `.claude/skills/improve-tooling/SKILL.md` "Per-Subsection Workflow"): which `diagnostics/` scripts you ran, where you added `dbg!`/`tracing` calls, where output was hard to interpret, where test failures gave unhelpful messages, where you ran the same command sequence repeatedly. Forward-look: what tool/log/diagnostic would shorten the next regression in this code path by 10 minutes? Implement improvements NOW (zero deferral) and commit each via SEPARATE `/commit-push` using a valid conventional-commit type (`build(diagnostics): ... — surfaced by section-01.3 retrospective` — `build`/`test`/`chore`/`ci`/`docs` are valid; `tools(...)` is rejected by the lefthook commit-msg hook). Mandatory even when nothing felt painful. If genuinely no gaps, document briefly: "Retrospective 01.3: no tooling gaps". Update this subsection's `status` in section frontmatter to `complete`.
+
 ---
 
 ## 01.4 ~~Fix BUG-04-029 Shift Overflow Checks~~ (ALREADY FIXED)
@@ -118,6 +124,8 @@ The strategy dispatch (`operators/strategy.rs`) already calls `checked_shl`/`che
 - [ ] Verify existing implementation passes in debug: `timeout 150 ./test-all.sh`
 - [ ] Verify existing implementation passes in release: `cargo b --release && timeout 150 ./test-all.sh`
 - [ ] Update BUG-04-029 in bug tracker: change `- [ ]` to `- [x]` in `plans/bug-tracker/section-04-codegen-llvm.md` line 137 and add `<!-- resolved-by: plans/semantic-optimization-pipeline/section-01 -->`. As of 2026-04-04, the fix exists in `checked_ops.rs` but the bug tracker entry is still unchecked.
+
+- [ ] **Subsection close-out (01.4)** — MANDATORY before starting the next subsection. Run `/improve-tooling` retrospectively on THIS subsection's debugging journey (per `.claude/skills/improve-tooling/SKILL.md` "Per-Subsection Workflow"): which `diagnostics/` scripts you ran, where you added `dbg!`/`tracing` calls, where output was hard to interpret, where test failures gave unhelpful messages, where you ran the same command sequence repeatedly. Forward-look: what tool/log/diagnostic would shorten the next regression in this code path by 10 minutes? Implement improvements NOW (zero deferral) and commit each via SEPARATE `/commit-push` using a valid conventional-commit type (`build(diagnostics): ... — surfaced by section-01.4 retrospective` — `build`/`test`/`chore`/`ci`/`docs` are valid; `tools(...)` is rejected by the lefthook commit-msg hook). Mandatory even when nothing felt painful. If genuinely no gaps, document briefly: "Retrospective 01.4: no tooling gaps". Update this subsection's `status` in section frontmatter to `complete`.
 
 ---
 

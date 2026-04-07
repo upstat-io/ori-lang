@@ -95,6 +95,8 @@ Distributivity rewrites factor common subexpressions: `a*c + b*c → (a+b)*c`. T
 - Semantic pin: `a*c + b*c` produces ARC IR with 1 Mul + 1 Add (not 2 Mul + 1 Add)
 - Negative pin: `a*c + b*d` is NOT factored
 
+- [ ] **Subsection close-out (10.1)** — MANDATORY before starting the next subsection. Run `/improve-tooling` retrospectively on THIS subsection's debugging journey (per `.claude/skills/improve-tooling/SKILL.md` "Per-Subsection Workflow"): which `diagnostics/` scripts you ran, where you added `dbg!`/`tracing` calls, where output was hard to interpret, where test failures gave unhelpful messages, where you ran the same command sequence repeatedly. Forward-look: what tool/log/diagnostic would shorten the next regression in this code path by 10 minutes? Implement improvements NOW (zero deferral) and commit each via SEPARATE `/commit-push` using a valid conventional-commit type (`build(diagnostics): ... — surfaced by section-10.1 retrospective` — `build`/`test`/`chore`/`ci`/`docs` are valid; `tools(...)` is rejected by the lefthook commit-msg hook). Mandatory even when nothing felt painful. If genuinely no gaps, document briefly: "Retrospective 10.1: no tooling gaps". Update this subsection's `status` in section frontmatter to `complete`.
+
 ---
 
 ## 10.2 Multiplicative Inverse
@@ -135,6 +137,8 @@ Add `Inv`/`Recip` trait for types with multiplicative inverse. Gate on nonzero p
   - `NaN * (1.0 / NaN)` → NOT optimized (NaN guard)
   - `Inf * (1.0 / Inf)` → NOT optimized (Inf guard)
 - [ ] Verify: `timeout 150 ./test-all.sh` passes
+
+- [ ] **Subsection close-out (10.2)** — MANDATORY before starting the next subsection. Run `/improve-tooling` retrospectively on THIS subsection's debugging journey (per `.claude/skills/improve-tooling/SKILL.md` "Per-Subsection Workflow"): which `diagnostics/` scripts you ran, where you added `dbg!`/`tracing` calls, where output was hard to interpret, where test failures gave unhelpful messages, where you ran the same command sequence repeatedly. Forward-look: what tool/log/diagnostic would shorten the next regression in this code path by 10 minutes? Implement improvements NOW (zero deferral) and commit each via SEPARATE `/commit-push` using a valid conventional-commit type (`build(diagnostics): ... — surfaced by section-10.2 retrospective` — `build`/`test`/`chore`/`ci`/`docs` are valid; `tools(...)` is rejected by the lefthook commit-msg hook). Mandatory even when nothing felt painful. If genuinely no gaps, document briefly: "Retrospective 10.2: no tooling gaps". Update this subsection's `status` in section frontmatter to `complete`.
 
 ---
 
@@ -203,6 +207,8 @@ Note: `&&`/`||` are NOT PrimOps — they produce control-flow IR, not commutable
 - [ ] Verify: `timeout 150 cargo st tests/spec/algebra/` passes
 - [ ] Verify: `timeout 150 cargo t -p ori_llvm` (AOT tests) passes
 
+- [ ] **Subsection close-out (10.3)** — MANDATORY before starting the next subsection. Run `/improve-tooling` retrospectively on THIS subsection's debugging journey (per `.claude/skills/improve-tooling/SKILL.md` "Per-Subsection Workflow"): which `diagnostics/` scripts you ran, where you added `dbg!`/`tracing` calls, where output was hard to interpret, where test failures gave unhelpful messages, where you ran the same command sequence repeatedly. Forward-look: what tool/log/diagnostic would shorten the next regression in this code path by 10 minutes? Implement improvements NOW (zero deferral) and commit each via SEPARATE `/commit-push` using a valid conventional-commit type (`build(diagnostics): ... — surfaced by section-10.3 retrospective` — `build`/`test`/`chore`/`ci`/`docs` are valid; `tools(...)` is rejected by the lefthook commit-msg hook). Mandatory even when nothing felt painful. If genuinely no gaps, document briefly: "Retrospective 10.3: no tooling gaps". Update this subsection's `status` in section frontmatter to `complete`.
+
 ---
 
 ## 10.4 Dual-Exec Parity Verification
@@ -214,6 +220,8 @@ Verify that the normalization pass preserves behavioral equivalence between inte
 - [ ] Any mismatch → investigate and fix before proceeding
 - [ ] Track results in a verification report
 
+- [ ] **Subsection close-out (10.4)** — MANDATORY before starting the next subsection. Run `/improve-tooling` retrospectively on THIS subsection's debugging journey (per `.claude/skills/improve-tooling/SKILL.md` "Per-Subsection Workflow"): which `diagnostics/` scripts you ran, where you added `dbg!`/`tracing` calls, where output was hard to interpret, where test failures gave unhelpful messages, where you ran the same command sequence repeatedly. Forward-look: what tool/log/diagnostic would shorten the next regression in this code path by 10 minutes? Implement improvements NOW (zero deferral) and commit each via SEPARATE `/commit-push` using a valid conventional-commit type (`build(diagnostics): ... — surfaced by section-10.4 retrospective` — `build`/`test`/`chore`/`ci`/`docs` are valid; `tools(...)` is rejected by the lefthook commit-msg hook). Mandatory even when nothing felt painful. If genuinely no gaps, document briefly: "Retrospective 10.4: no tooling gaps". Update this subsection's `status` in section frontmatter to `complete`.
+
 ---
 
 ## 10.5 Code Journey & Safety
@@ -223,6 +231,8 @@ Verify that the normalization pass preserves behavioral equivalence between inte
 - [ ] Run `ORI_CHECK_LEAKS=1` on all algebraic test programs — zero leaks
 - [ ] Run `diagnostics/valgrind-aot.sh tests/spec/algebra/` — zero memory errors
 - [ ] Stress test: program with 1000+ algebraic operations → normalization pass completes in < 100ms
+
+- [ ] **Subsection close-out (10.5)** — MANDATORY before starting the next subsection. Run `/improve-tooling` retrospectively on THIS subsection's debugging journey (per `.claude/skills/improve-tooling/SKILL.md` "Per-Subsection Workflow"): which `diagnostics/` scripts you ran, where you added `dbg!`/`tracing` calls, where output was hard to interpret, where test failures gave unhelpful messages, where you ran the same command sequence repeatedly. Forward-look: what tool/log/diagnostic would shorten the next regression in this code path by 10 minutes? Implement improvements NOW (zero deferral) and commit each via SEPARATE `/commit-push` using a valid conventional-commit type (`build(diagnostics): ... — surfaced by section-10.5 retrospective` — `build`/`test`/`chore`/`ci`/`docs` are valid; `tools(...)` is rejected by the lefthook commit-msg hook). Mandatory even when nothing felt painful. If genuinely no gaps, document briefly: "Retrospective 10.5: no tooling gaps". Update this subsection's `status` in section frontmatter to `complete`.
 
 ---
 
@@ -238,6 +248,8 @@ Verify that the normalization pass preserves behavioral equivalence between inte
 - [ ] Update `docs/ori_lang/v2026/spec/grammar.ebnf` with `algebra` and `laws` grammar rules
 - [ ] Add architecture overview to `compiler/ori_arc/src/aims/normalize/algebra.rs` module docs
 - [ ] Document in the module docs: `BinaryOp::And`/`Or`/`Coalesce` are intercepted before PrimOp emission and lowered to control-flow IR — they NEVER appear as `PrimOp::Binary(And)` etc. in ARC IR. Only bitwise `BitAnd`/`BitOr`/`BitXor` reach PrimOp.
+
+- [ ] **Subsection close-out (10.6)** — MANDATORY before starting the next subsection. Run `/improve-tooling` retrospectively on THIS subsection's debugging journey (per `.claude/skills/improve-tooling/SKILL.md` "Per-Subsection Workflow"): which `diagnostics/` scripts you ran, where you added `dbg!`/`tracing` calls, where output was hard to interpret, where test failures gave unhelpful messages, where you ran the same command sequence repeatedly. Forward-look: what tool/log/diagnostic would shorten the next regression in this code path by 10 minutes? Implement improvements NOW (zero deferral) and commit each via SEPARATE `/commit-push` using a valid conventional-commit type (`build(diagnostics): ... — surfaced by section-10.6 retrospective` — `build`/`test`/`chore`/`ci`/`docs` are valid; `tools(...)` is rejected by the lefthook commit-msg hook). Mandatory even when nothing felt painful. If genuinely no gaps, document briefly: "Retrospective 10.6: no tooling gaps". Update this subsection's `status` in section frontmatter to `complete`.
 
 ---
 

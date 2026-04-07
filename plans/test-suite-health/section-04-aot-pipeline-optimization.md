@@ -117,6 +117,8 @@ Linking is often the slowest phase in compile→link→execute cycles. Switching
 - **Debug and release**: `timeout 150 cargo test -p ori_llvm --test aot` passes in both debug and release builds.
 - **Measurement**: Compare link-phase timing before and after. Record in this section.
 
+- [ ] **Subsection close-out (04.1)** — MANDATORY before starting the next subsection. Run `/improve-tooling` retrospectively on THIS subsection's debugging journey (per `.claude/skills/improve-tooling/SKILL.md` "Per-Subsection Workflow"): which `diagnostics/` scripts you ran, where you added `dbg!`/`tracing` calls, where output was hard to interpret, where test failures gave unhelpful messages, where you ran the same command sequence repeatedly. Forward-look: what tool/log/diagnostic would shorten the next regression in this code path by 10 minutes? Implement improvements NOW (zero deferral) and commit each via SEPARATE `/commit-push` using a valid conventional-commit type (`build(diagnostics): ... — surfaced by section-04.1 retrospective` — `build`/`test`/`chore`/`ci`/`docs` are valid; `tools(...)` is rejected by the lefthook commit-msg hook). Mandatory even when nothing felt painful. If genuinely no gaps, document briefly: "Retrospective 04.1: no tooling gaps". Update this subsection's `status` in section frontmatter to `complete`.
+
 ---
 
 ## 04.2 Compilation Pipeline Optimization
@@ -161,6 +163,8 @@ Each AOT test spawns `ori build` as a separate subprocess via `Command::new(ori_
 - **Semantic pin**: The before/after output comparison IS the semantic pin -- any output difference indicates a behavioral change, not just a performance change.
 - **Debug and release**: `timeout 150 cargo t` (debug) passes after each change. Release build (`timeout 150 cargo t --release`) verified at end of subsection.
 - **Measurement**: Record per-phase timing before and after each optimization.
+
+- [ ] **Subsection close-out (04.2)** — MANDATORY before starting the next subsection. Run `/improve-tooling` retrospectively on THIS subsection's debugging journey (per `.claude/skills/improve-tooling/SKILL.md` "Per-Subsection Workflow"): which `diagnostics/` scripts you ran, where you added `dbg!`/`tracing` calls, where output was hard to interpret, where test failures gave unhelpful messages, where you ran the same command sequence repeatedly. Forward-look: what tool/log/diagnostic would shorten the next regression in this code path by 10 minutes? Implement improvements NOW (zero deferral) and commit each via SEPARATE `/commit-push` using a valid conventional-commit type (`build(diagnostics): ... — surfaced by section-04.2 retrospective` — `build`/`test`/`chore`/`ci`/`docs` are valid; `tools(...)` is rejected by the lefthook commit-msg hook). Mandatory even when nothing felt painful. If genuinely no gaps, document briefly: "Retrospective 04.2: no tooling gaps". Update this subsection's `status` in section frontmatter to `complete`.
 
 ---
 
@@ -223,6 +227,8 @@ Each AOT test spawns TWO child processes: (1) `ori build` for compilation and (2
 - **Semantic pin**: No test passes that previously failed, no test fails that previously passed. If `ORI_CHECK_LEAKS` is made opt-in, a specific test must verify that `ORI_AOT_CHECK_LEAKS=1` still enables leak detection.
 - **Debug and release**: `timeout 150 cargo t` (debug) AND `timeout 150 cargo t --release` (release) must pass after all changes.
 - **Measurement**: Per-test overhead (ms/test) before and after. Target: reduce from ~18ms/test to <8ms/test.
+
+- [ ] **Subsection close-out (04.3)** — MANDATORY before starting the next subsection. Run `/improve-tooling` retrospectively on THIS subsection's debugging journey (per `.claude/skills/improve-tooling/SKILL.md` "Per-Subsection Workflow"): which `diagnostics/` scripts you ran, where you added `dbg!`/`tracing` calls, where output was hard to interpret, where test failures gave unhelpful messages, where you ran the same command sequence repeatedly. Forward-look: what tool/log/diagnostic would shorten the next regression in this code path by 10 minutes? Implement improvements NOW (zero deferral) and commit each via SEPARATE `/commit-push` using a valid conventional-commit type (`build(diagnostics): ... — surfaced by section-04.3 retrospective` — `build`/`test`/`chore`/`ci`/`docs` are valid; `tools(...)` is rejected by the lefthook commit-msg hook). Mandatory even when nothing felt painful. If genuinely no gaps, document briefly: "Retrospective 04.3: no tooling gaps". Update this subsection's `status` in section frontmatter to `complete`.
 
 ---
 

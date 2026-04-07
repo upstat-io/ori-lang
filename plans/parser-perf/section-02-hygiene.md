@@ -91,6 +91,8 @@ Per hygiene rules, `lib.rs` should be an **index**: `//!` doc, `mod` declaration
 
 **TDD ordering:** Write no new tests (purely structural). Existing tests serve as the regression guard. Run the full suite BEFORE any split to establish a green baseline, then after each split to verify zero regressions. Debug AND release must pass.
 
+- [ ] **Subsection close-out (02.1)** — MANDATORY before starting the next subsection. Run `/improve-tooling` retrospectively on THIS subsection's debugging journey (per `.claude/skills/improve-tooling/SKILL.md` "Per-Subsection Workflow"): which `diagnostics/` scripts you ran, where you added `dbg!`/`tracing` calls, where output was hard to interpret, where test failures gave unhelpful messages, where you ran the same command sequence repeatedly. Forward-look: what tool/log/diagnostic would shorten the next regression in this code path by 10 minutes? Implement improvements NOW (zero deferral) and commit each via SEPARATE `/commit-push` using a valid conventional-commit type (`build(diagnostics): ... — surfaced by section-02.1 retrospective` — `build`/`test`/`chore`/`ci`/`docs` are valid; `tools(...)` is rejected by the lefthook commit-msg hook). Mandatory even when nothing felt painful. If genuinely no gaps, document briefly: "Retrospective 02.1: no tooling gaps". Update this subsection's `status` in section frontmatter to `complete`.
+
 ---
 
 ## 02.2 Split copier.rs (1,595L → ~3 files)
@@ -117,6 +119,8 @@ The `incremental/` directory already contains: `mod.rs` (dispatch), `copier.rs` 
 - [ ] Verify incremental tests pass: `timeout 150 cargo t -p ori_parse -- incremental`
 
 **TDD ordering:** Existing incremental tests (`incremental/tests.rs`, 547 lines) serve as the regression guard.
+
+- [ ] **Subsection close-out (02.2)** — MANDATORY before starting the next subsection. Run `/improve-tooling` retrospectively on THIS subsection's debugging journey (per `.claude/skills/improve-tooling/SKILL.md` "Per-Subsection Workflow"): which `diagnostics/` scripts you ran, where you added `dbg!`/`tracing` calls, where output was hard to interpret, where test failures gave unhelpful messages, where you ran the same command sequence repeatedly. Forward-look: what tool/log/diagnostic would shorten the next regression in this code path by 10 minutes? Implement improvements NOW (zero deferral) and commit each via SEPARATE `/commit-push` using a valid conventional-commit type (`build(diagnostics): ... — surfaced by section-02.2 retrospective` — `build`/`test`/`chore`/`ci`/`docs` are valid; `tools(...)` is rejected by the lefthook commit-msg hook). Mandatory even when nothing felt painful. If genuinely no gaps, document briefly: "Retrospective 02.2: no tooling gaps". Update this subsection's `status` in section frontmatter to `complete`.
 
 ---
 
@@ -149,6 +153,8 @@ The following files are modified by Sections 03-05 and also exceed the 500-line 
 - `compiler/oric/src/query/mod.rs` (582L, ~580L production — `#[cfg(test)] mod tests;` at L78): Touched by Section 05. 80 lines over limit. If adding incremental parsing logic, split first (e.g., extract `canonicalize_cached()` and related functions to `query/canonicalize.rs`).
 
 **TDD ordering:** Existing tests in `error/tests.rs` (899L), `cursor/tests.rs` (358L), and `outcome/tests.rs` (395L) serve as regression guards.
+
+- [ ] **Subsection close-out (02.3)** — MANDATORY before starting the next subsection. Run `/improve-tooling` retrospectively on THIS subsection's debugging journey (per `.claude/skills/improve-tooling/SKILL.md` "Per-Subsection Workflow"): which `diagnostics/` scripts you ran, where you added `dbg!`/`tracing` calls, where output was hard to interpret, where test failures gave unhelpful messages, where you ran the same command sequence repeatedly. Forward-look: what tool/log/diagnostic would shorten the next regression in this code path by 10 minutes? Implement improvements NOW (zero deferral) and commit each via SEPARATE `/commit-push` using a valid conventional-commit type (`build(diagnostics): ... — surfaced by section-02.3 retrospective` — `build`/`test`/`chore`/`ci`/`docs` are valid; `tools(...)` is rejected by the lefthook commit-msg hook). Mandatory even when nothing felt painful. If genuinely no gaps, document briefly: "Retrospective 02.3: no tooling gaps". Update this subsection's `status` in section frontmatter to `complete`.
 
 ---
 
