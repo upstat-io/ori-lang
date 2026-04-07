@@ -87,12 +87,20 @@ impl TargetConfig {
     /// Create a target configuration from a target triple string.
     ///
     /// The `triple` may use any known arch alias (`arm64` for `aarch64`,
-    /// `amd64` for `x86_64`, `i486/i586/i686` for `i386`). Parse happens
-    /// BEFORE the supported-targets check, so the canonicalized form is
-    /// what gets validated — this fixes the asymmetry where
-    /// `arm64-apple-darwin` was rejected even though Apple Silicon
-    /// emits exactly that spelling from LLVM. The stored triple is the
-    /// canonical spelling, ensuring downstream consumers see one name.
+    /// `amd64` for `x86_64`, `i486/i586/i686` for `i386`) and may carry a
+    /// Darwin OS version suffix (e.g., `arm64-apple-darwin25.2.0`, the
+    /// exact spelling LLVM's default triple emits on Apple Silicon).
+    ///
+    /// Parse happens BEFORE the supported-targets check, so arch aliases
+    /// are canonicalized before lookup. The lookup itself uses
+    /// [`TargetTripleComponents::support_key`], which strips the Darwin OS
+    /// version suffix so versioned and unversioned spellings both match
+    /// the unversioned entries in [`SUPPORTED_TARGETS`].
+    ///
+    /// The stored `triple` field preserves the OS version suffix exactly
+    /// as parsed, because LLVM's `TargetMachine` expects the version-bearing
+    /// form when one was supplied — only the arch is rewritten to the
+    /// canonical spelling.
     ///
     /// # Errors
     ///
@@ -104,9 +112,10 @@ impl TargetConfig {
         // Parse first — this canonicalizes arch aliases (arm64 → aarch64).
         let components = TargetTripleComponents::parse(triple)?;
 
-        // Validate the canonical form against the supported list.
-        let canonical = components.to_string();
-        if !is_supported_target(&canonical) {
+        // Validate via the typed support key, which strips Darwin OS
+        // version suffixes (e.g., `darwin25.2.0` → `darwin`) so the
+        // versioned LLVM-default spelling matches the unversioned entry.
+        if !is_supported_target(&components.support_key()) {
             return Err(TargetError::UnsupportedTarget {
                 // Report the user's input spelling in the error for clarity.
                 triple: triple.to_string(),
@@ -124,8 +133,10 @@ impl TargetConfig {
             RelocMode::Default
         };
 
+        // Store the version-preserving canonical form (arch normalized,
+        // OS suffix preserved) — this is what LLVM's TargetMachine expects.
         Ok(Self {
-            triple: canonical,
+            triple: components.to_string(),
             components,
             cpu: "generic".to_string(),
             features: String::new(),
