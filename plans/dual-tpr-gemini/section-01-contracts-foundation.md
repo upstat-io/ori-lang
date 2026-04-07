@@ -28,7 +28,7 @@ sections:
     status: complete
   - id: "01.3"
     title: "Define reviewer-tag ID format and per-run scratch dir helper"
-    status: in-progress
+    status: complete
   - id: "01.4"
     title: "Update block-banned-commands.sh to gate gemini timeouts"
     status: not-started
@@ -444,7 +444,15 @@ Tasks:
 
 **Retrospective 01.3 — defer scratch-dir helper to Section 02.** Writing the conventions surfaced an obvious candidate tool (`dual-tpr-scratch-dir.sh` to wrap the `mktemp -d -t ori-tpr-XXXXXXXX` invocation plus the cleanup-on-success/retain-on-failure semantics), but Section 02.1 will be the actual first consumer when it builds `scratch-dir.sh` as one of the eight transport primitives. Building the helper here would either (a) duplicate work that Section 02.1 will redo, or (b) become Section 02.1's deliverable preemptively. Per CLAUDE.md "the right amount of complexity is what the task actually requires", the right call is to let Section 02.1 build it from the conventions defined here — the conventions ARE the deliverable of 01.3, not the implementation. The `dual-tpr-cleanup.sh` idea (centralized cleanup wrapper) is also deferred to Section 02.1 for the same reason: a helper with no caller is speculative, and Section 02 has the concrete callers. No tool built in this retrospective; one will land in Section 02.1's close-out instead.
 
-- [ ] **TPR checkpoint** — `/tpr-review` covering 01.1–01.3 contract-design work
+- [x] **TPR checkpoint** — `/tpr-review` covering 01.1–01.3 contract-design work
+  Resolved: Skipped on 2026-04-07 by explicit user direction. The intermediate checkpoint was
+  not run; the section-close TPR in 01.N (full-section review against the existing single-source
+  `/tpr-review` skill) remains MANDATORY per the section's completion checklist and will catch
+  any contract-design issues before Section 02 begins consuming the artifacts. The risk of
+  deferring this catch from 01.3 to 01.N is that if a contract bug surfaces at section close,
+  it may require coordinated edits across the schema file, the envelope-format spec, and the
+  fixtures rather than the single-file edit possible at the 01.3 boundary. The user accepted
+  this risk in exchange for the time savings.
   <!-- Per CLAUDE.md and plan-schema.md, sections with 3+ implementation subsections place
        intermediate TPR checkpoints. This catches contract-design issues (schema, format,
        ID, scratch dir) BEFORE they propagate into the hook update (01.4) and Section 02's
