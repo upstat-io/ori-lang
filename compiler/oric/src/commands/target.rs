@@ -4,9 +4,39 @@
 //! - `ori target list` - List installed targets
 //! - `ori target add <target>` - Install a target's sysroot
 //! - `ori target remove <target>` - Remove a target's sysroot
+//!
+//! ## Canonicalization invariant
+//!
+//! Every target spelling accepted by the compiler (`ori build --target=...`)
+//! must also be accepted by these commands (`ori target add/remove`), and
+//! vice versa. Both sides route through the same canonical-key path
+//! ([`TargetTripleComponents::support_key`]) so that aliased and versioned
+//! spellings — `arm64-apple-darwin25.2.0`, `amd64-unknown-linux-gnu`, etc. —
+//! resolve to the same logical target identity. The sysroot directory is
+//! named with the canonical key, not the user's input, so there is one
+//! sysroot per logical target with no per-OS-subversion duplicates.
+//!
+//! ## Install / discovery contract
+//!
+//! Sysroots are stored under `~/.ori/sysroots/<canonical-key>/` and the
+//! WASI SDK is read from `~/.wasi-sdk/share/wasi-sysroot`. Both locations
+//! are defined as the SSOT in [`ori_llvm::aot::syslib`] (via
+//! [`ori_sysroot_path`] and [`home_wasi_sdk_sysroot`]) so the install side
+//! and the build-time discovery side
+//! ([`ori_llvm::aot::SysLibConfig::detect_sysroot`]) cannot drift.
+//!
+//! [`TargetTripleComponents::support_key`]: ori_llvm::aot::TargetTripleComponents::support_key
+//! [`ori_sysroot_path`]: ori_llvm::aot::ori_sysroot_path
+//! [`home_wasi_sdk_sysroot`]: ori_llvm::aot::home_wasi_sdk_sysroot
 
 use std::fs;
 use std::path::PathBuf;
+
+#[cfg(feature = "llvm")]
+use ori_llvm::aot::{
+    is_supported_target, ori_sysroot_path, ori_sysroots_dir, TargetError, TargetTripleComponents,
+    SUPPORTED_TARGETS,
+};
 
 /// Subcommand for the `target` command.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -33,23 +63,65 @@ impl TargetSubcommand {
 
 /// Get the sysroots directory path.
 ///
-/// Sysroots are stored in `~/.ori/sysroots/<target>/`.
+/// Thin wrapper around the SSOT in [`ori_llvm::aot::ori_sysroots_dir`] so
+/// the install side and the build-time discovery side share one source of
+/// truth for "where Ori puts managed sysroots".
+#[cfg(feature = "llvm")]
 fn sysroots_dir() -> PathBuf {
-    let home = std::env::var("HOME")
-        .or_else(|_| std::env::var("USERPROFILE"))
-        .unwrap_or_else(|_| ".".to_string());
-    PathBuf::from(home).join(".ori").join("sysroots")
+    ori_sysroots_dir()
 }
 
-/// Get the sysroot path for a specific target.
-fn sysroot_path(target: &str) -> PathBuf {
-    sysroots_dir().join(target)
+/// Get the sysroot path for a specific target's canonical key.
+///
+/// Callers MUST pass the canonical [`TargetTripleComponents::support_key`]
+/// — not the user's raw input — so that `arm64-apple-darwin25.2.0` and
+/// `aarch64-apple-darwin25.2.0` resolve to the same on-disk directory.
+///
+/// [`TargetTripleComponents::support_key`]: ori_llvm::aot::TargetTripleComponents::support_key
+#[cfg(feature = "llvm")]
+fn sysroot_path(canonical_key: &str) -> PathBuf {
+    ori_sysroot_path(canonical_key)
+}
+
+/// Canonicalize a user-supplied target spelling for use as the on-disk
+/// sysroot directory name and the supported-targets lookup key.
+///
+/// Routes through the same [`TargetTripleComponents::support_key`] path
+/// that `TargetConfig::from_triple` uses, so any spelling accepted by
+/// `ori build --target=...` is also accepted here. Returns the canonical
+/// key (the storage / lookup form, with Darwin OS version suffixes
+/// stripped and arch aliases normalized) or a [`TargetError`] if the
+/// input cannot be parsed or canonicalizes to an unsupported target.
+///
+/// This function is the SSOT for "what is the canonical name for this
+/// user input". The CLI wrapper handles I/O and printing; this function
+/// is pure and unit-testable.
+///
+/// [`TargetTripleComponents::support_key`]: ori_llvm::aot::TargetTripleComponents::support_key
+#[cfg(feature = "llvm")]
+fn canonicalize_target_for_install(user_input: &str) -> Result<String, TargetError> {
+    let parsed = TargetTripleComponents::parse(user_input)?;
+    let key = parsed.support_key();
+    if !is_supported_target(&key) {
+        return Err(TargetError::UnsupportedTarget {
+            triple: user_input.to_string(),
+            supported: SUPPORTED_TARGETS.to_vec(),
+        });
+    }
+    Ok(key)
 }
 
 /// Check if a target's sysroot is installed.
+///
+/// Resolves the canonical key first so an alias query like
+/// `is_target_installed("arm64-apple-darwin25.2.0")` finds the same
+/// directory the canonical-name install created.
 #[cfg(feature = "llvm")]
 fn is_target_installed(target: &str) -> bool {
-    let path = sysroot_path(target);
+    let Ok(canonical) = canonicalize_target_for_install(target) else {
+        return false;
+    };
+    let path = sysroot_path(&canonical);
     path.exists() && path.is_dir()
 }
 
@@ -106,32 +178,51 @@ pub fn list_installed_targets() {
 /// Run the `ori target add <target>` command.
 ///
 /// Downloads and installs a cross-compilation sysroot for the given target.
+///
+/// The user-supplied `target` is routed through
+/// [`canonicalize_target_for_install`] so any spelling accepted by
+/// `ori build --target=...` (including arch aliases like
+/// `arm64-apple-darwin` and Darwin OS version suffixes like
+/// `arm64-apple-darwin25.2.0`) is also accepted here. The on-disk
+/// sysroot directory is named with the canonical key — there is one
+/// sysroot per logical target, no per-OS-subversion duplicates.
 #[cfg(feature = "llvm")]
 pub fn add_target(target: &str) {
-    use ori_llvm::aot::SUPPORTED_TARGETS;
-
-    // Validate target
-    if !SUPPORTED_TARGETS.contains(&target) {
-        eprintln!("error: unsupported target '{target}'");
-        eprintln!();
-        eprintln!("Supported targets:");
-        for t in SUPPORTED_TARGETS {
-            eprintln!("  {t}");
+    // Validate + canonicalize via the same path `from_triple` uses.
+    let canonical = match canonicalize_target_for_install(target) {
+        Ok(key) => key,
+        Err(TargetError::UnsupportedTarget { supported, .. }) => {
+            eprintln!("error: unsupported target '{target}'");
+            eprintln!();
+            eprintln!("Supported targets:");
+            for t in &supported {
+                eprintln!("  {t}");
+            }
+            std::process::exit(1);
         }
-        std::process::exit(1);
+        Err(e) => {
+            eprintln!("error: invalid target '{target}': {e}");
+            std::process::exit(1);
+        }
+    };
+
+    // Echo the canonical form when it differs from the user's input so
+    // the user knows what's actually being installed.
+    if canonical != target {
+        println!("Canonicalizing '{target}' to '{canonical}'");
     }
 
-    // Check if already installed
-    if is_target_installed(target) {
-        println!("Target '{target}' is already installed.");
+    // Check if already installed (uses canonical key under the hood).
+    if is_target_installed(&canonical) {
+        println!("Target '{canonical}' is already installed.");
         return;
     }
 
-    let sysroot = sysroot_path(target);
+    let sysroot = sysroot_path(&canonical);
 
     // For WASM targets, we can proceed without a full sysroot
-    if target.starts_with("wasm32") {
-        println!("Installing target '{target}'...");
+    if canonical.starts_with("wasm32") {
+        println!("Installing target '{canonical}'...");
 
         // Create the sysroot directory
         if let Err(e) = fs::create_dir_all(&sysroot) {
@@ -140,32 +231,32 @@ pub fn add_target(target: &str) {
         }
 
         // For WASM, check for wasi-sdk if it's a WASI target. Use the
-        // typed `is_wasi()` predicate (delegating to TargetTripleComponents)
-        // rather than raw string compare so future Preview2 / canonical
+        // typed `is_wasi_target()` predicate so future Preview2 / canonical
         // alias variations don't bypass the check.
-        if is_wasi_target(target) {
+        if is_wasi_target(&canonical) {
             check_wasi_sdk(&sysroot);
         } else {
             // For standalone WASM, just create the marker
             let marker = sysroot.join(".ori-target");
-            if let Err(e) = fs::write(&marker, format!("target={target}\n")) {
+            if let Err(e) = fs::write(&marker, format!("target={canonical}\n")) {
                 eprintln!("warning: failed to create marker file: {e}");
             }
         }
 
-        println!("Target '{target}' installed successfully.");
+        println!("Target '{canonical}' installed successfully.");
         println!();
         println!("You can now build for this target with:");
-        println!("  ori build --target={target} <file.ori>");
+        println!("  ori build --target={canonical} <file.ori>");
         return;
     }
 
     // For native platform targets, we need to install a sysroot
-    println!("Installing target '{target}'...");
+    println!("Installing target '{canonical}'...");
     println!();
 
-    // Try to detect or download sysroot
-    if let Some(existing) = detect_existing_sysroot(target) {
+    // Try to detect or download sysroot. Pass the canonical key so the
+    // existing-sysroot lookup is consistent with what we'll write.
+    if let Some(existing) = detect_existing_sysroot(&canonical) {
         // Found an existing sysroot, create a symlink
         println!("Found existing sysroot at: {}", existing.display());
 
@@ -194,14 +285,14 @@ pub fn add_target(target: &str) {
             }
         }
 
-        println!("Target '{target}' installed successfully.");
+        println!("Target '{canonical}' installed successfully.");
     } else {
         // No existing sysroot found
-        eprintln!("error: could not find sysroot for target '{target}'");
+        eprintln!("error: could not find sysroot for target '{canonical}'");
         eprintln!();
         eprintln!("To cross-compile, you need to install the target's system libraries.");
         eprintln!();
-        suggest_sysroot_installation(target);
+        suggest_sysroot_installation(&canonical);
         std::process::exit(1);
     }
 }
@@ -217,18 +308,34 @@ pub fn add_target(_target: &str) {
 }
 
 /// Run the `ori target remove <target>` command.
+///
+/// Routes through [`canonicalize_target_for_install`] so any spelling
+/// accepted by `ori target add` (including arch aliases and Darwin OS
+/// version suffixes) is also accepted here.
+#[cfg(feature = "llvm")]
 pub fn remove_target(target: &str) {
-    let sysroot = sysroot_path(target);
+    // For invalid input, fall back to the raw target in the error message
+    // so it accurately quotes what the user typed.
+    let Ok(canonical) = canonicalize_target_for_install(target) else {
+        eprintln!("error: target '{target}' is not installed");
+        std::process::exit(1);
+    };
+
+    let sysroot = sysroot_path(&canonical);
 
     if !sysroot.exists() {
-        eprintln!("error: target '{target}' is not installed");
+        eprintln!("error: target '{canonical}' is not installed");
         std::process::exit(1);
     }
 
     // Check if it's a symlink (to existing sysroot) or actual directory
     let is_symlink = sysroot.symlink_metadata().is_ok_and(|m| m.is_symlink());
 
-    println!("Removing target '{target}'...");
+    if canonical == target {
+        println!("Removing target '{canonical}'...");
+    } else {
+        println!("Removing target '{target}' (canonical: {canonical})...");
+    }
 
     if is_symlink {
         // Just remove the symlink
@@ -244,7 +351,15 @@ pub fn remove_target(target: &str) {
         }
     }
 
-    println!("Target '{target}' removed successfully.");
+    println!("Target '{canonical}' removed successfully.");
+}
+
+/// `remove_target` shim for builds without LLVM. The CLI surface stays
+/// the same so the dispatch code in `main.rs` doesn't need to be gated.
+#[cfg(not(feature = "llvm"))]
+pub fn remove_target(_target: &str) {
+    eprintln!("error: the 'target remove' command requires the LLVM backend");
+    std::process::exit(1);
 }
 
 /// Check for WASI SDK installation and set up sysroot.
