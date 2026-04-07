@@ -57,7 +57,7 @@ for plan_index in plans/*/index.md; do
         [[ "$plan_total" -gt 0 ]] && plan_pct=$((plan_checked * 100 / plan_total))
         type_label="reroute"
         [[ "$fm_is_reroute" != "true" ]] && type_label="parallel"
-        active_reroutes+=("${type_label}|${display_name}|${plan_dir}|${plan_checked}/${plan_total} (${plan_pct}%)")
+        active_reroutes+=("${fm_order}|${type_label}|${display_name}|${plan_dir}|${plan_checked}/${plan_total} (${plan_pct}%)")
         [[ "$fm_is_reroute" == "true" ]] && has_active_reroute=true
     elif [[ "$fm_status" == "queued" ]]; then
         type_label="reroute"
@@ -69,10 +69,17 @@ done
 # Display reroute status
 if [[ ${#active_reroutes[@]} -gt 0 || ${#queued_reroutes[@]} -gt 0 ]]; then
     echo "=== REROUTES ==="
-    for entry in "${active_reroutes[@]}"; do
-        IFS='|' read -r rtype rname rdir rprog <<< "$entry"
-        echo "[ACTIVE ${rtype}] ${rname} — ${rdir} — ${rprog}"
-    done
+    # Sort active reroutes by order field (numeric, ascending) so the highest-priority
+    # active reroute appears first. Critical when multiple reroutes are status: active —
+    # without this the queue is ambiguous and /continue-roadmap cannot pick a focus.
+    if [[ ${#active_reroutes[@]} -gt 0 ]]; then
+        IFS=$'\n' sorted_active=($(printf '%s\n' "${active_reroutes[@]}" | sort -t'|' -k1 -n))
+        unset IFS
+        for entry in "${sorted_active[@]}"; do
+            IFS='|' read -r rorder rtype rname rdir rprog <<< "$entry"
+            echo "[ACTIVE ${rtype}] ${rname} — ${rdir} — ${rprog} (order: ${rorder})"
+        done
+    fi
     # Sort queued reroutes by order field (numeric, ascending)
     IFS=$'\n' sorted_queued=($(printf '%s\n' "${queued_reroutes[@]}" | sort -t'|' -k1 -n))
     unset IFS
