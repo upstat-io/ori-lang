@@ -141,7 +141,7 @@ When fixing any AIMS-related bug: ask "does this preserve system coherence?" A f
 **Build**: `cargo c`/`cl`/`b`/`fmt` (all crates incl. LLVM)
 **LLVM/AOT**: `cargo b` (debug), `cargo b --release` (release) — LLVM is a default feature; `cargo test -p ori_llvm` (LLVM tests)
 **Release LTO**: `cargo build --profile release-lto` — fat LTO, ~20% faster binary, ~3.5x longer build. Output: `target/release-lto/ori`. Regular `--release` unaffected.
-**Tracing** (USE FIRST): `ORI_LOG=debug ori check file.ori` | `=ori_types=trace ORI_LOG_TREE=1 ori check f.ori` | `=ori_eval=debug ori run file.ori` | `=oric=debug` (Salsa) | Falls back to `RUST_LOG`
+**Tracing** (USE FIRST): `ORI_LOG=debug ori check file.ori` | `=ori_types=trace ORI_LOG_TREE=1 ori check f.ori` | `=ori_eval=debug ori run file.ori` | `=oric=debug` (Salsa) | `=ori_arc::aims::realize=trace` (per-phase post-walk RC snapshots — bisect which AIMS pass touched a block) | Falls back to `RUST_LOG`
 **Phase dumps**: `ORI_DUMP_AFTER_PARSE=1` (AST) | `ORI_DUMP_AFTER_TYPECK=1` (typed IR) | `ORI_DUMP_AFTER_ARC=1` (ARC IR) | `ORI_DUMP_AFTER_LLVM=1` (LLVM IR, superset of `ORI_DEBUG_LLVM`) | `ORI_EMIT_ARC_DOT=1` (GraphViz DOT) — stderr, zero release overhead
 **Runtime debug**: `ORI_TRACE_RC=1` (RC log) | `ORI_RT_DEBUG=1` (assertions) | `ORI_CHECK_LEAKS=1` (leak report)
 **Codegen audit**: `ORI_AUDIT_CODEGEN=1` — RC balance, COW sequencing, ABI args, aggregate loads, safety checks. Zero cost off. `ORI_AUDIT_STRICT=1` (pessimistic) | `ORI_AUDIT_FUNCTION=name` (filter)
