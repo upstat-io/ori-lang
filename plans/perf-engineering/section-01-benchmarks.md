@@ -90,6 +90,8 @@ Create a Criterion benchmark suite that measures interpreter function call overh
   - **Negative pin**: benchmark that passes a non-existent source file to `evaluated()` produces a clean error (not a panic or hang) -- validates error path doesn't corrupt benchmarking
   - **TDD ordering**: write benchmark harness, verify it runs and measures the current tree-walker, record baselines, then proceed to Section 02/04
 
+- [ ] **Subsection close-out (01.1)** — MANDATORY before starting the next subsection. Run `/improve-tooling` retrospectively on THIS subsection's debugging journey (per `.claude/skills/improve-tooling/SKILL.md` "Per-Subsection Workflow"): which `diagnostics/` scripts you ran, where you added `dbg!`/`tracing` calls, where output was hard to interpret, where test failures gave unhelpful messages, where you ran the same command sequence repeatedly. Forward-look: what tool/log/diagnostic would shorten the next regression in this code path by 10 minutes? Implement improvements NOW (zero deferral) and commit each via SEPARATE `/commit-push` using a valid conventional-commit type (`build(diagnostics): ... — surfaced by section-01.1 retrospective` — `build`/`test`/`chore`/`ci`/`docs` are valid; `tools(...)` is rejected by the lefthook commit-msg hook). Mandatory even when nothing felt painful. If genuinely no gaps, document briefly: "Retrospective 01.1: no tooling gaps". Update this subsection's `status` in section frontmatter to `complete`.
+
 ---
 
 ## 01.2 Ackermann Gate Test
@@ -123,6 +125,8 @@ Create a hard performance gate: Ackermann A(3,7) must complete and its timing mu
   - Document the finding in the plan — this is the profile-gated decision point for the entire plan's critical path.
   - If the decision is "skip", record that Sections 02-03 are intentionally non-blocking so later verification does not treat them as incomplete mandatory work.
 - [ ] **Add `perf_gate` to test-all.sh exclusion list** (these are slow by design — run manually or in CI)
+
+- [ ] **Subsection close-out (01.2)** — MANDATORY before starting the next subsection. Run `/improve-tooling` retrospectively on THIS subsection's debugging journey (per `.claude/skills/improve-tooling/SKILL.md` "Per-Subsection Workflow"): which `diagnostics/` scripts you ran, where you added `dbg!`/`tracing` calls, where output was hard to interpret, where test failures gave unhelpful messages, where you ran the same command sequence repeatedly. Forward-look: what tool/log/diagnostic would shorten the next regression in this code path by 10 minutes? Implement improvements NOW (zero deferral) and commit each via SEPARATE `/commit-push` using a valid conventional-commit type (`build(diagnostics): ... — surfaced by section-01.2 retrospective` — `build`/`test`/`chore`/`ci`/`docs` are valid; `tools(...)` is rejected by the lefthook commit-msg hook). Mandatory even when nothing felt painful. If genuinely no gaps, document briefly: "Retrospective 01.2: no tooling gaps". Update this subsection's `status` in section frontmatter to `complete`.
 
 ---
 

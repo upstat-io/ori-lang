@@ -91,6 +91,8 @@ sections:
   - [ ] **AOT Tests**: No AOT coverage yet — `ori_llvm/tests/aot/structs.rs` does not test struct destructuring
   - [ ] WEAK TESTS: Only int fields (BasicStruct) tested. Missing str/nested/generic destructure, match arm destructuring.
 
+- [ ] **Subsection close-out (5.1)** — MANDATORY before starting the next subsection. Run `/improve-tooling` retrospectively on THIS subsection's debugging journey (per `.claude/skills/improve-tooling/SKILL.md` "Per-Subsection Workflow"): which `diagnostics/` scripts you ran, where you added `dbg!`/`tracing` calls, where output was hard to interpret, where test failures gave unhelpful messages, where you ran the same command sequence repeatedly. Forward-look: what tool/log/diagnostic would shorten the next regression in this code path by 10 minutes? Implement improvements NOW (zero deferral) and commit each via SEPARATE `/commit-push` using a valid conventional-commit type (`build(diagnostics): ... — surfaced by section-5.1 retrospective` — `build`/`test`/`chore`/`ci`/`docs` are valid; `tools(...)` is rejected by the lefthook commit-msg hook). Mandatory even when nothing felt painful. If genuinely no gaps, document briefly: "Retrospective 5.1: no tooling gaps". Update this subsection's `status` in section frontmatter to `complete`.
+
 ---
 
 ## 5.2 Sum Types (Enums) — COMPLETED 2026-01-28
@@ -129,6 +131,8 @@ sections:
   - [x] **AOT Tests**: `fat_matrix/f06_pattern_matching.rs` — 14 pattern matching AOT tests (verified 2026-03-29)
   - Note: `#derive(Eq)` for sum types verified working [done] (verified 2026-03-28) -- 16 tests in eq_sum.ori + EqColor/EqOption in sum_types.ori all pass
 
+- [ ] **Subsection close-out (5.2)** — MANDATORY before starting the next subsection. Run `/improve-tooling` retrospectively on THIS subsection's debugging journey (per `.claude/skills/improve-tooling/SKILL.md` "Per-Subsection Workflow"): which `diagnostics/` scripts you ran, where you added `dbg!`/`tracing` calls, where output was hard to interpret, where test failures gave unhelpful messages, where you ran the same command sequence repeatedly. Forward-look: what tool/log/diagnostic would shorten the next regression in this code path by 10 minutes? Implement improvements NOW (zero deferral) and commit each via SEPARATE `/commit-push` using a valid conventional-commit type (`build(diagnostics): ... — surfaced by section-5.2 retrospective` — `build`/`test`/`chore`/`ci`/`docs` are valid; `tools(...)` is rejected by the lefthook commit-msg hook). Mandatory even when nothing felt painful. If genuinely no gaps, document briefly: "Retrospective 5.2: no tooling gaps". Update this subsection's `status` in section frontmatter to `complete`.
+
 ---
 
 ## 5.3 Newtypes
@@ -159,6 +163,8 @@ sections:
   - [ ] **AOT Tests**: No AOT coverage yet
   - [ ] **Note**: `.inner` is always public regardless of newtype visibility
   - BUG FOUND: Tests use `.unwrap()` but spec/08-types.md section 8.6.3 mandates `.inner`. All 9 newtype tests will need migration when implemented.
+
+- [ ] **Subsection close-out (5.3)** — MANDATORY before starting the next subsection. Run `/improve-tooling` retrospectively on THIS subsection's debugging journey (per `.claude/skills/improve-tooling/SKILL.md` "Per-Subsection Workflow"): which `diagnostics/` scripts you ran, where you added `dbg!`/`tracing` calls, where output was hard to interpret, where test failures gave unhelpful messages, where you ran the same command sequence repeatedly. Forward-look: what tool/log/diagnostic would shorten the next regression in this code path by 10 minutes? Implement improvements NOW (zero deferral) and commit each via SEPARATE `/commit-push` using a valid conventional-commit type (`build(diagnostics): ... — surfaced by section-5.3 retrospective` — `build`/`test`/`chore`/`ci`/`docs` are valid; `tools(...)` is rejected by the lefthook commit-msg hook). Mandatory even when nothing felt painful. If genuinely no gaps, document briefly: "Retrospective 5.3: no tooling gaps". Update this subsection's `status` in section frontmatter to `complete`.
 
 ---
 
@@ -197,6 +203,8 @@ sections:
   - [ ] **LLVM Support**: LLVM codegen for constraint checking
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/generic_tests.rs` (file does not exist)
   - [ ] **AOT Tests**: No AOT coverage yet
+
+- [ ] **Subsection close-out (5.4)** — MANDATORY before starting the next subsection. Run `/improve-tooling` retrospectively on THIS subsection's debugging journey (per `.claude/skills/improve-tooling/SKILL.md` "Per-Subsection Workflow"): which `diagnostics/` scripts you ran, where you added `dbg!`/`tracing` calls, where output was hard to interpret, where test failures gave unhelpful messages, where you ran the same command sequence repeatedly. Forward-look: what tool/log/diagnostic would shorten the next regression in this code path by 10 minutes? Implement improvements NOW (zero deferral) and commit each via SEPARATE `/commit-push` using a valid conventional-commit type (`build(diagnostics): ... — surfaced by section-5.4 retrospective` — `build`/`test`/`chore`/`ci`/`docs` are valid; `tools(...)` is rejected by the lefthook commit-msg hook). Mandatory even when nothing felt painful. If genuinely no gaps, document briefly: "Retrospective 5.4: no tooling gaps". Update this subsection's `status` in section frontmatter to `complete`.
 
 ---
 
@@ -253,6 +261,8 @@ HYGIENE: Commented-out code violates impl-hygiene.md ("No commented-out code eve
   - [ ] **AOT Tests**: No AOT coverage yet
   - Note: Function types work in evaluator (used in struct_types.ori `WithFunction`)
 
+- [ ] **Subsection close-out (5.5)** — MANDATORY before starting the next subsection. Run `/improve-tooling` retrospectively on THIS subsection's debugging journey (per `.claude/skills/improve-tooling/SKILL.md` "Per-Subsection Workflow"): which `diagnostics/` scripts you ran, where you added `dbg!`/`tracing` calls, where output was hard to interpret, where test failures gave unhelpful messages, where you ran the same command sequence repeatedly. Forward-look: what tool/log/diagnostic would shorten the next regression in this code path by 10 minutes? Implement improvements NOW (zero deferral) and commit each via SEPARATE `/commit-push` using a valid conventional-commit type (`build(diagnostics): ... — surfaced by section-5.5 retrospective` — `build`/`test`/`chore`/`ci`/`docs` are valid; `tools(...)` is rejected by the lefthook commit-msg hook). Mandatory even when nothing felt painful. If genuinely no gaps, document briefly: "Retrospective 5.5: no tooling gaps". Update this subsection's `status` in section frontmatter to `complete`.
+
 ---
 
 ## 5.6 Built-in Generic Types
@@ -285,6 +295,8 @@ HYGIENE: Commented-out code violates impl-hygiene.md ("No commented-out code eve
   - [ ] **LLVM Support**: LLVM codegen for Channel type
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/channel_tests.rs` (file does not exist)
   - [ ] **AOT Tests**: No AOT coverage yet
+
+- [ ] **Subsection close-out (5.6)** — MANDATORY before starting the next subsection. Run `/improve-tooling` retrospectively on THIS subsection's debugging journey (per `.claude/skills/improve-tooling/SKILL.md` "Per-Subsection Workflow"): which `diagnostics/` scripts you ran, where you added `dbg!`/`tracing` calls, where output was hard to interpret, where test failures gave unhelpful messages, where you ran the same command sequence repeatedly. Forward-look: what tool/log/diagnostic would shorten the next regression in this code path by 10 minutes? Implement improvements NOW (zero deferral) and commit each via SEPARATE `/commit-push` using a valid conventional-commit type (`build(diagnostics): ... — surfaced by section-5.6 retrospective` — `build`/`test`/`chore`/`ci`/`docs` are valid; `tools(...)` is rejected by the lefthook commit-msg hook). Mandatory even when nothing felt painful. If genuinely no gaps, document briefly: "Retrospective 5.6: no tooling gaps". Update this subsection's `status` in section frontmatter to `complete`.
 
 ---
 
@@ -356,6 +368,8 @@ All 7 derivable traits have AOT coverage in `ori_llvm/tests/aot/derives.rs` (43 
   - [x] **Ori Tests**: `tests/spec/traits/derive/comparable.ori` (struct comparison), `tests/spec/traits/derive/comparable_sum.ori` (sum type variant ordering)
   - [x] **AOT Tests**: `ori_llvm/tests/aot/derives.rs` — `test_aot_derive_comparable_basic`, `test_aot_derive_comparable_single_field`, `test_aot_derive_comparable_with_strings`, `test_aot_derive_comparable_first_field_wins` (4 tests, verified 2026-03-29)
 
+- [ ] **Subsection close-out (5.7)** — MANDATORY before starting the next subsection. Run `/improve-tooling` retrospectively on THIS subsection's debugging journey (per `.claude/skills/improve-tooling/SKILL.md` "Per-Subsection Workflow"): which `diagnostics/` scripts you ran, where you added `dbg!`/`tracing` calls, where output was hard to interpret, where test failures gave unhelpful messages, where you ran the same command sequence repeatedly. Forward-look: what tool/log/diagnostic would shorten the next regression in this code path by 10 minutes? Implement improvements NOW (zero deferral) and commit each via SEPARATE `/commit-push` using a valid conventional-commit type (`build(diagnostics): ... — surfaced by section-5.7 retrospective` — `build`/`test`/`chore`/`ci`/`docs` are valid; `tools(...)` is rejected by the lefthook commit-msg hook). Mandatory even when nothing felt painful. If genuinely no gaps, document briefly: "Retrospective 5.7: no tooling gaps". Update this subsection's `status` in section frontmatter to `complete`.
+
 ---
 
 ## 5.8 Visibility
@@ -376,6 +390,8 @@ All 7 derivable traits have AOT coverage in `ori_llvm/tests/aot/derives.rs` (43 
   - [x] **Ori Tests**: `tests/spec/modules/use_imports.ori` — `type InternalPoint` (private)
   - [ ] **AOT Tests**: No AOT coverage yet
   - [ ] NEEDS PIN: No compile_fail test for private type import rejection from another module.
+
+- [ ] **Subsection close-out (5.8)** — MANDATORY before starting the next subsection. Run `/improve-tooling` retrospectively on THIS subsection's debugging journey (per `.claude/skills/improve-tooling/SKILL.md` "Per-Subsection Workflow"): which `diagnostics/` scripts you ran, where you added `dbg!`/`tracing` calls, where output was hard to interpret, where test failures gave unhelpful messages, where you ran the same command sequence repeatedly. Forward-look: what tool/log/diagnostic would shorten the next regression in this code path by 10 minutes? Implement improvements NOW (zero deferral) and commit each via SEPARATE `/commit-push` using a valid conventional-commit type (`build(diagnostics): ... — surfaced by section-5.8 retrospective` — `build`/`test`/`chore`/`ci`/`docs` are valid; `tools(...)` is rejected by the lefthook commit-msg hook). Mandatory even when nothing felt painful. If genuinely no gaps, document briefly: "Retrospective 5.8: no tooling gaps". Update this subsection's `status` in section frontmatter to `complete`.
 
 ---
 
@@ -441,6 +457,8 @@ Generalize associated functions to work for ANY type with an `impl` block, remov
   - [x] **AOT Tests**: Partial — `ori_llvm/tests/aot/traits.rs` has `test_aot_inherent_impl_method`, `test_aot_impl_method_field_access` (inherent impl methods work in AOT, verified 2026-03-29)
   - [ ] **AOT Tests**: No dedicated associated function (no `self`) AOT tests yet
 
+- [ ] **Subsection close-out (5.9)** — MANDATORY before starting the next subsection. Run `/improve-tooling` retrospectively on THIS subsection's debugging journey (per `.claude/skills/improve-tooling/SKILL.md` "Per-Subsection Workflow"): which `diagnostics/` scripts you ran, where you added `dbg!`/`tracing` calls, where output was hard to interpret, where test failures gave unhelpful messages, where you ran the same command sequence repeatedly. Forward-look: what tool/log/diagnostic would shorten the next regression in this code path by 10 minutes? Implement improvements NOW (zero deferral) and commit each via SEPARATE `/commit-push` using a valid conventional-commit type (`build(diagnostics): ... — surfaced by section-5.9 retrospective` — `build`/`test`/`chore`/`ci`/`docs` are valid; `tools(...)` is rejected by the lefthook commit-msg hook). Mandatory even when nothing felt painful. If genuinely no gaps, document briefly: "Retrospective 5.9: no tooling gaps". Update this subsection's `status` in section frontmatter to `complete`.
+
 ---
 
 ## 5.10 Section Completion Checklist
@@ -474,3 +492,6 @@ Generalize associated functions to work for ANY type with an `impl` block, remov
 
 **Exit Criteria**: User-defined structs and enums work
 **Status**: Evaluator and AOT support complete for core features. All 7 derivable traits verified with eval + AOT coverage (43 AOT derive tests in derives.rs). Type checker compound inference, capability unification syntax, and newtype `.inner` accessor pending. Verified 2026-03-29.
+
+- [ ] **Subsection close-out (5.10)** — MANDATORY before starting the next subsection. Run `/improve-tooling` retrospectively on THIS subsection's debugging journey (per `.claude/skills/improve-tooling/SKILL.md` "Per-Subsection Workflow"): which `diagnostics/` scripts you ran, where you added `dbg!`/`tracing` calls, where output was hard to interpret, where test failures gave unhelpful messages, where you ran the same command sequence repeatedly. Forward-look: what tool/log/diagnostic would shorten the next regression in this code path by 10 minutes? Implement improvements NOW (zero deferral) and commit each via SEPARATE `/commit-push` using a valid conventional-commit type (`build(diagnostics): ... — surfaced by section-5.10 retrospective` — `build`/`test`/`chore`/`ci`/`docs` are valid; `tools(...)` is rejected by the lefthook commit-msg hook). Mandatory even when nothing felt painful. If genuinely no gaps, document briefly: "Retrospective 5.10: no tooling gaps". Update this subsection's `status` in section frontmatter to `complete`.
+

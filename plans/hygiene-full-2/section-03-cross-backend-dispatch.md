@@ -57,6 +57,9 @@ Add tests that iterate `ori_registry::methods_for(TypeTag::Str)` etc. and verify
   ```
 - [ ] Verify: adding a new method to `ori_registry` without both backends handling it causes a test failure
 - [ ] **WARNING:** This sub-section requires understanding how eval dispatch routing works (`dispatch_check.rs`, `collection/mod.rs`, `CollectionMethod` enum) AND how LLVM builtin dispatch works (`declare_builtins!` macro in `builtins/*.rs`). Read both dispatch systems before writing tests.
+
+- [ ] **Subsection close-out (03.1)** — MANDATORY before starting the next subsection. Run `/improve-tooling` retrospectively on THIS subsection's debugging journey (per `.claude/skills/improve-tooling/SKILL.md` "Per-Subsection Workflow"): which `diagnostics/` scripts you ran, where you added `dbg!`/`tracing` calls, where output was hard to interpret, where test failures gave unhelpful messages, where you ran the same command sequence repeatedly. Forward-look: what tool/log/diagnostic would shorten the next regression in this code path by 10 minutes? Implement improvements NOW (zero deferral) and commit each via SEPARATE `/commit-push` using a valid conventional-commit type (`build(diagnostics): ... — surfaced by section-03.1 retrospective` — `build`/`test`/`chore`/`ci`/`docs` are valid; `tools(...)` is rejected by the lefthook commit-msg hook). Mandatory even when nothing felt painful. If genuinely no gaps, document briefly: "Retrospective 03.1: no tooling gaps". Update this subsection's `status` in section frontmatter to `complete`.
+
 ---
 
 ## 03.2 Eval Exhaustiveness Guards Expansion
@@ -67,6 +70,8 @@ The existing `_enforce_exhaustiveness()` function catches new TypeTags at compil
 
 - [ ] Add a test that iterates all TypeTag variants and verifies `dispatch_method()` has a handler for each (not just the compile-time dead function)
 - [ ] Verify: the test is more comprehensive than the dead function approach — it tests runtime routing, not just compilation
+
+- [ ] **Subsection close-out (03.2)** — MANDATORY before starting the next subsection. Run `/improve-tooling` retrospectively on THIS subsection's debugging journey (per `.claude/skills/improve-tooling/SKILL.md` "Per-Subsection Workflow"): which `diagnostics/` scripts you ran, where you added `dbg!`/`tracing` calls, where output was hard to interpret, where test failures gave unhelpful messages, where you ran the same command sequence repeatedly. Forward-look: what tool/log/diagnostic would shorten the next regression in this code path by 10 minutes? Implement improvements NOW (zero deferral) and commit each via SEPARATE `/commit-push` using a valid conventional-commit type (`build(diagnostics): ... — surfaced by section-03.2 retrospective` — `build`/`test`/`chore`/`ci`/`docs` are valid; `tools(...)` is rejected by the lefthook commit-msg hook). Mandatory even when nothing felt painful. If genuinely no gaps, document briefly: "Retrospective 03.2: no tooling gaps". Update this subsection's `status` in section frontmatter to `complete`.
 
 ---
 
@@ -79,6 +84,8 @@ The analysis found 80+ eval-only methods. These need to be formally tracked as e
 - [ ] For each type, compare eval method count vs LLVM method count vs registry method count
 - [ ] For methods eval-only: write a concrete test that calls the method in an AOT-compiled program and verify it produces the correct result. "Verify via runtime calls" means actually running the method through `ori build` + execute, not just assuming it works.- [ ] For genuine gaps (methods that don't work at all in LLVM): file via `/add-bug` to bug tracker immediately
 - [ ] Update `ori_registry` `backend_required` flags to accurately reflect which methods MUST have LLVM builtins vs which can fall through to runtime. Each flag value must be justified by the test from the previous step.
+
+- [ ] **Subsection close-out (03.3)** — MANDATORY before starting the next subsection. Run `/improve-tooling` retrospectively on THIS subsection's debugging journey (per `.claude/skills/improve-tooling/SKILL.md` "Per-Subsection Workflow"): which `diagnostics/` scripts you ran, where you added `dbg!`/`tracing` calls, where output was hard to interpret, where test failures gave unhelpful messages, where you ran the same command sequence repeatedly. Forward-look: what tool/log/diagnostic would shorten the next regression in this code path by 10 minutes? Implement improvements NOW (zero deferral) and commit each via SEPARATE `/commit-push` using a valid conventional-commit type (`build(diagnostics): ... — surfaced by section-03.3 retrospective` — `build`/`test`/`chore`/`ci`/`docs` are valid; `tools(...)` is rejected by the lefthook commit-msg hook). Mandatory even when nothing felt painful. If genuinely no gaps, document briefly: "Retrospective 03.3: no tooling gaps". Update this subsection's `status` in section frontmatter to `complete`.
 
 ---
 

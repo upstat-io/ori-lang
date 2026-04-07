@@ -78,6 +78,8 @@ At every `struct_gep` → `load` or `struct_gep` → `store` sequence emitted fo
 - Semantic pin: IR dump showing `!tbaa` on struct field loads
 <!-- resolves: plans/roadmap/section-21A-llvm.md line 859 (Tier 3 metadata) -->
 
+- [ ] **Subsection close-out (04.1)** — MANDATORY before starting the next subsection. Run `/improve-tooling` retrospectively on THIS subsection's debugging journey (per `.claude/skills/improve-tooling/SKILL.md` "Per-Subsection Workflow"): which `diagnostics/` scripts you ran, where you added `dbg!`/`tracing` calls, where output was hard to interpret, where test failures gave unhelpful messages, where you ran the same command sequence repeatedly. Forward-look: what tool/log/diagnostic would shorten the next regression in this code path by 10 minutes? Implement improvements NOW (zero deferral) and commit each via SEPARATE `/commit-push` using a valid conventional-commit type (`build(diagnostics): ... — surfaced by section-04.1 retrospective` — `build`/`test`/`chore`/`ci`/`docs` are valid; `tools(...)` is rejected by the lefthook commit-msg hook). Mandatory even when nothing felt painful. If genuinely no gaps, document briefly: "Retrospective 04.1: no tooling gaps". Update this subsection's `status` in section frontmatter to `complete`.
+
 ---
 
 ## 04.2 Range Metadata on Bounded Returns
@@ -102,6 +104,8 @@ Attach `!range` metadata to loads of values with known bounded ranges. Three mai
 - Patterns: comparison followed by branch (range enables branch folding), enum match (range enables unreachable elimination)
 - Semantic pin: IR dump showing `!range` metadata on tag loads
 
+- [ ] **Subsection close-out (04.2)** — MANDATORY before starting the next subsection. Run `/improve-tooling` retrospectively on THIS subsection's debugging journey (per `.claude/skills/improve-tooling/SKILL.md` "Per-Subsection Workflow"): which `diagnostics/` scripts you ran, where you added `dbg!`/`tracing` calls, where output was hard to interpret, where test failures gave unhelpful messages, where you ran the same command sequence repeatedly. Forward-look: what tool/log/diagnostic would shorten the next regression in this code path by 10 minutes? Implement improvements NOW (zero deferral) and commit each via SEPARATE `/commit-push` using a valid conventional-commit type (`build(diagnostics): ... — surfaced by section-04.2 retrospective` — `build`/`test`/`chore`/`ci`/`docs` are valid; `tools(...)` is rejected by the lefthook commit-msg hook). Mandatory even when nothing felt painful. If genuinely no gaps, document briefly: "Retrospective 04.2: no tooling gaps". Update this subsection's `status` in section frontmatter to `complete`.
+
 ---
 
 ## 04.3 Invariant.load on Borrowed Params
@@ -121,6 +125,8 @@ When a function parameter is borrowed (not owned), the callee guarantees it won'
 - Types: borrowed `int` param, borrowed `str` param, borrowed struct param, borrowed `[int]` param
 - Patterns: single load (baseline), double load of same field (should CSE), load before and after non-modifying call (should CSE if callee is pure)
 - Semantic pin: IR dump showing `!invariant.load` on borrowed param loads
+
+- [ ] **Subsection close-out (04.3)** — MANDATORY before starting the next subsection. Run `/improve-tooling` retrospectively on THIS subsection's debugging journey (per `.claude/skills/improve-tooling/SKILL.md` "Per-Subsection Workflow"): which `diagnostics/` scripts you ran, where you added `dbg!`/`tracing` calls, where output was hard to interpret, where test failures gave unhelpful messages, where you ran the same command sequence repeatedly. Forward-look: what tool/log/diagnostic would shorten the next regression in this code path by 10 minutes? Implement improvements NOW (zero deferral) and commit each via SEPARATE `/commit-push` using a valid conventional-commit type (`build(diagnostics): ... — surfaced by section-04.3 retrospective` — `build`/`test`/`chore`/`ci`/`docs` are valid; `tools(...)` is rejected by the lefthook commit-msg hook). Mandatory even when nothing felt painful. If genuinely no gaps, document briefly: "Retrospective 04.3: no tooling gaps". Update this subsection's `status` in section frontmatter to `complete`.
 
 ---
 

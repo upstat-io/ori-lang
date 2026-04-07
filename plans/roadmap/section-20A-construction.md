@@ -212,6 +212,8 @@ TDD: Write failing test matrix BEFORE implementation. Verify tests fail first, t
 - [ ] **Semantic pin:** `$construct<T>(expr)` parses to `ExprKind::Construct`, not `ExprKind::Call` — Rust unit test that asserts on the enum discriminant; only passes with the new variant (would fail if `$construct` were parsed as a regular function call)
 - [ ] **Verify all tests pass in debug and release** — `timeout 150 cargo t -p ori_parse` and `timeout 150 cargo b --release`
 
+- [ ] **Subsection close-out (20A.1)** — MANDATORY before starting the next subsection. Run `/improve-tooling` retrospectively on THIS subsection's debugging journey (per `.claude/skills/improve-tooling/SKILL.md` "Per-Subsection Workflow"): which `diagnostics/` scripts you ran, where you added `dbg!`/`tracing` calls, where output was hard to interpret, where test failures gave unhelpful messages, where you ran the same command sequence repeatedly. Forward-look: what tool/log/diagnostic would shorten the next regression in this code path by 10 minutes? Implement improvements NOW (zero deferral) and commit each via SEPARATE `/commit-push` using a valid conventional-commit type (`build(diagnostics): ... — surfaced by section-20A.1 retrospective` — `build`/`test`/`chore`/`ci`/`docs` are valid; `tools(...)` is rejected by the lefthook commit-msg hook). Mandatory even when nothing felt painful. If genuinely no gaps, document briefly: "Retrospective 20A.1: no tooling gaps". Update this subsection's `status` in section frontmatter to `complete`.
+
 ---
 
 ## 20A.2 Monomorphization: Expansion to Struct Literal (verified 2026-03-29 -- 14/14 items not-started, arena API references confirmed accurate)
@@ -389,6 +391,8 @@ TDD: Write failing test matrix BEFORE implementation. Verify tests fail first, t
 - [ ] **Semantic pin (newtype):** `$construct<UserId>([(inner_meta, 42)])` produces `UserId(42)` — only passes if newtype path emits `ExprKind::Call` (not `ExprKind::Struct`)
 - [ ] **Verify all tests pass in debug and release** — `timeout 150 cargo t -p ori_types` and `timeout 150 cargo b --release`
 
+- [ ] **Subsection close-out (20A.2)** — MANDATORY before starting the next subsection. Run `/improve-tooling` retrospectively on THIS subsection's debugging journey (per `.claude/skills/improve-tooling/SKILL.md` "Per-Subsection Workflow"): which `diagnostics/` scripts you ran, where you added `dbg!`/`tracing` calls, where output was hard to interpret, where test failures gave unhelpful messages, where you ran the same command sequence repeatedly. Forward-look: what tool/log/diagnostic would shorten the next regression in this code path by 10 minutes? Implement improvements NOW (zero deferral) and commit each via SEPARATE `/commit-push` using a valid conventional-commit type (`build(diagnostics): ... — surfaced by section-20A.2 retrospective` — `build`/`test`/`chore`/`ci`/`docs` are valid; `tools(...)` is rejected by the lefthook commit-msg hook). Mandatory even when nothing felt painful. If genuinely no gaps, document briefly: "Retrospective 20A.2: no tooling gaps". Update this subsection's `status` in section frontmatter to `complete`.
+
 ---
 
 ## 20A.3 Integration, Error Messages, and Verification (verified 2026-03-29 -- 21/21 items not-started, error code range E0470-E0473 confirmed unused and safe)
@@ -538,6 +542,8 @@ All flagship tests go in `tests/spec/reflection/construct/`.
 - [ ] **Update `grammar.ebnf`** — add `$construct` and `$construct_partial` productions
   - Run `/sync-grammar`
 - [ ] **Verify `.claude/rules/ori-syntax.md`** — add $construct to Compile-Time Reflection section
+
+- [ ] **Subsection close-out (20A.3)** — MANDATORY before starting the next subsection. Run `/improve-tooling` retrospectively on THIS subsection's debugging journey (per `.claude/skills/improve-tooling/SKILL.md` "Per-Subsection Workflow"): which `diagnostics/` scripts you ran, where you added `dbg!`/`tracing` calls, where output was hard to interpret, where test failures gave unhelpful messages, where you ran the same command sequence repeatedly. Forward-look: what tool/log/diagnostic would shorten the next regression in this code path by 10 minutes? Implement improvements NOW (zero deferral) and commit each via SEPARATE `/commit-push` using a valid conventional-commit type (`build(diagnostics): ... — surfaced by section-20A.3 retrospective` — `build`/`test`/`chore`/`ci`/`docs` are valid; `tools(...)` is rejected by the lefthook commit-msg hook). Mandatory even when nothing felt painful. If genuinely no gaps, document briefly: "Retrospective 20A.3: no tooling gaps". Update this subsection's `status` in section frontmatter to `complete`.
 
 ---
 

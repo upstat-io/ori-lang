@@ -200,6 +200,8 @@ The discriminant (tag) should use the minimum width needed.
 - [x] **Dual-execution parity**: 14,666 tests pass in both interpreter and LLVM. (2026-03-30)
 - [x] **Leak check**: Valgrind 87/90 pass (3 failures are pre-existing COW bugs BUG-05-001). `diagnose-aot.sh` on custom enum test: compilation pass, execution clean, leak check clean. No regressions from discriminant narrowing. (2026-03-30)
 
+- [ ] **Subsection close-out (07.1)** — MANDATORY before starting the next subsection. Run `/improve-tooling` retrospectively on THIS subsection's debugging journey (per `.claude/skills/improve-tooling/SKILL.md` "Per-Subsection Workflow"): which `diagnostics/` scripts you ran, where you added `dbg!`/`tracing` calls, where output was hard to interpret, where test failures gave unhelpful messages, where you ran the same command sequence repeatedly. Forward-look: what tool/log/diagnostic would shorten the next regression in this code path by 10 minutes? Implement improvements NOW (zero deferral) and commit each via SEPARATE `/commit-push` using a valid conventional-commit type (`build(diagnostics): ... — surfaced by section-07.1 retrospective` — `build`/`test`/`chore`/`ci`/`docs` are valid; `tools(...)` is rejected by the lefthook commit-msg hook). Mandatory even when nothing felt painful. If genuinely no gaps, document briefly: "Retrospective 07.1: no tooling gaps". Update this subsection's `status` in section frontmatter to `complete`.
+
 ---
 
 ## 07.2 Niche Filling
@@ -338,6 +340,8 @@ A "niche" is an invalid bit pattern in a type. If an enum variant's payload has 
 - [ ] **Leak check**: `ORI_CHECK_LEAKS=1` on all niche spec tests (critical — niche encoding changes RC paths) <!-- blocked-by:NICHE_CODEGEN_READY gate -->
 - [ ] **Valgrind**: `./diagnostics/valgrind-aot.sh` on niche-related tests (niche encoding is a memory-safety-sensitive change) <!-- blocked-by:NICHE_CODEGEN_READY gate -->
 
+- [ ] **Subsection close-out (07.2)** — MANDATORY before starting the next subsection. Run `/improve-tooling` retrospectively on THIS subsection's debugging journey (per `.claude/skills/improve-tooling/SKILL.md` "Per-Subsection Workflow"): which `diagnostics/` scripts you ran, where you added `dbg!`/`tracing` calls, where output was hard to interpret, where test failures gave unhelpful messages, where you ran the same command sequence repeatedly. Forward-look: what tool/log/diagnostic would shorten the next regression in this code path by 10 minutes? Implement improvements NOW (zero deferral) and commit each via SEPARATE `/commit-push` using a valid conventional-commit type (`build(diagnostics): ... — surfaced by section-07.2 retrospective` — `build`/`test`/`chore`/`ci`/`docs` are valid; `tools(...)` is rejected by the lefthook commit-msg hook). Mandatory even when nothing felt painful. If genuinely no gaps, document briefly: "Retrospective 07.2: no tooling gaps". Update this subsection's `status` in section frontmatter to `complete`.
+
 ---
 
 ## 07.3 Tagged Pointers
@@ -448,6 +452,8 @@ The analysis layer (`is_taggable_pointer` / `can_use_tagged_pointer`) is complet
 
 **Iterator payload drop** (TPR-07-008, 2026-04-06): iterator-typed tagged-pointer payloads are now correctly dropped via `ori_iter_drop` at scope exit. The fix flipped iterators from trivial to non-trivial at the `ori_types::triviality` SSOT and added a dedicated `RcStrategy::Iterator` dispatch path plus a `Tag::Iterator` arm in `dec_value_rc_inner`. See the TPR-07-008 resolution in §07.R for the full architectural change. Matrix coverage in `compiler/ori_llvm/tests/aot/iterator_drop.rs`.
 
+- [ ] **Subsection close-out (07.3)** — MANDATORY before starting the next subsection. Run `/improve-tooling` retrospectively on THIS subsection's debugging journey (per `.claude/skills/improve-tooling/SKILL.md` "Per-Subsection Workflow"): which `diagnostics/` scripts you ran, where you added `dbg!`/`tracing` calls, where output was hard to interpret, where test failures gave unhelpful messages, where you ran the same command sequence repeatedly. Forward-look: what tool/log/diagnostic would shorten the next regression in this code path by 10 minutes? Implement improvements NOW (zero deferral) and commit each via SEPARATE `/commit-push` using a valid conventional-commit type (`build(diagnostics): ... — surfaced by section-07.3 retrospective` — `build`/`test`/`chore`/`ci`/`docs` are valid; `tools(...)` is rejected by the lefthook commit-msg hook). Mandatory even when nothing felt painful. If genuinely no gaps, document briefly: "Retrospective 07.3: no tooling gaps". Update this subsection's `status` in section frontmatter to `complete`.
+
 ---
 
 ## 07.4 Payload Compression
@@ -524,6 +530,8 @@ The all-unit detection (item 1) is verified working. To enable mixed-variant pay
 - [ ] **Codegen consumer audit**: enumerate all sites that compute or assume enum payload offsets — confirm each reads from the canonical layout query
 - [ ] **Flip `PAYLOAD_PACKED_CODEGEN_READY = true`** once all consumers are wired. Run full `./test-all.sh` and verify no regressions; expected delta: ~10-30% smaller enum sizes for narrowed-field enums.
 - [ ] **Wire 07.4 verification**: run §07.4 spec tests, AOT tests, dual-exec parity, and leak check; check off each item.
+
+- [ ] **Subsection close-out (07.4)** — MANDATORY before starting the next subsection. Run `/improve-tooling` retrospectively on THIS subsection's debugging journey (per `.claude/skills/improve-tooling/SKILL.md` "Per-Subsection Workflow"): which `diagnostics/` scripts you ran, where you added `dbg!`/`tracing` calls, where output was hard to interpret, where test failures gave unhelpful messages, where you ran the same command sequence repeatedly. Forward-look: what tool/log/diagnostic would shorten the next regression in this code path by 10 minutes? Implement improvements NOW (zero deferral) and commit each via SEPARATE `/commit-push` using a valid conventional-commit type (`build(diagnostics): ... — surfaced by section-07.4 retrospective` — `build`/`test`/`chore`/`ci`/`docs` are valid; `tools(...)` is rejected by the lefthook commit-msg hook). Mandatory even when nothing felt painful. If genuinely no gaps, document briefly: "Retrospective 07.4: no tooling gaps". Update this subsection's `status` in section frontmatter to `complete`.
 
 ---
 
