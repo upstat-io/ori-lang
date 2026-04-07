@@ -184,7 +184,8 @@ Define concrete, measurable milestones for tracking progress toward LCFail=0.
 - [ ] No contradictions between Section 21A and roadmap overview
 - [ ] `./test-all.sh` green
 - [ ] `/tpr-review` passed — independent Codex review found no critical or major issues (or all findings triaged)
-- [ ] `/impl-hygiene-review last commit` passed — implementation hygiene review clean (phase boundaries, SSOT, algorithmic DRY, naming). MUST run AFTER `/tpr-review` is clean.
+- [ ] `/impl-hygiene-review` passed — implementation hygiene review clean (phase boundaries, SSOT, algorithmic DRY, naming). MUST run AFTER `/tpr-review` is clean.
+- [ ] `/improve-tooling` retrospective completed — MANDATORY at section close, after both reviews are clean. Reflect on the section's debugging journey (which `diagnostics/` scripts you ran, which command sequences you repeated, where you added ad-hoc `dbg!`/`tracing` calls, where output was hard to interpret) and identify any tool/log/diagnostic improvement that would have made this section materially easier OR that would help the next section touching this area. Implement every accepted improvement NOW (zero deferral) and commit each via SEPARATE `/commit-push`. The retrospective is mandatory even when nothing felt painful — that is exactly when blind spots accumulate. See `.claude/skills/improve-tooling/SKILL.md` "Retrospective Mode" for the full protocol.
 
 **Exit Criteria:** Section 21A has a clear, impact-ordered implementation sequence. Anyone running `/continue-roadmap` on Section 21A will work on the highest-impact features first. LCFail milestones provide measurable checkpoints. The roadmap reflects accurate data.
 

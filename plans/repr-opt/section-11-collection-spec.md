@@ -246,7 +246,8 @@ When §04 narrows an element type (e.g., `int` → `i8`), the collection's backi
 - [ ] `./diagnostics/valgrind-aot.sh` clean
 - [ ] Performance: string-heavy benchmarks show measurable improvement from SSO
 - [ ] `/tpr-review` passed — independent Codex review found no critical or major issues (or all findings triaged)
-- [ ] `/impl-hygiene-review last commit` passed — implementation hygiene review clean (phase boundaries, SSOT, algorithmic DRY, naming). MUST run AFTER `/tpr-review` is clean.
+- [ ] `/impl-hygiene-review` passed — implementation hygiene review clean (phase boundaries, SSOT, algorithmic DRY, naming). MUST run AFTER `/tpr-review` is clean.
+- [ ] `/improve-tooling` retrospective completed — MANDATORY at section close, after both reviews are clean. Reflect on the section's debugging journey (which `diagnostics/` scripts you ran, which command sequences you repeated, where you added ad-hoc `dbg!`/`tracing` calls, where output was hard to interpret) and identify any tool/log/diagnostic improvement that would have made this section materially easier OR that would help the next section touching this area. Implement every accepted improvement NOW (zero deferral) and commit each via SEPARATE `/commit-push`. The retrospective is mandatory even when nothing felt painful — that is exactly when blind spots accumulate. See `.claude/skills/improve-tooling/SKILL.md` "Retrospective Mode" for the full protocol.
 
 **Exit Criteria:** Creating 10,000 short strings (≤ 23 bytes each) results in ZERO heap allocations for the string data itself, verified by `ori_rc_alloc` call count = 0 in Valgrind output. `[bool]` with 1M elements uses ~125KB instead of ~1MB. SSO string operations (concat, substring, trim, split) correctly handle inline-to-heap transitions.
 

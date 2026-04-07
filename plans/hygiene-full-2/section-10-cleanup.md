@@ -54,4 +54,5 @@ sections:
 ## 10.N Completion Checklist
 
 - [ ] All verification checks pass
+- [ ] `/improve-tooling` retrospective completed — MANDATORY at section close, even for cleanup/meta sections. Reflect on the entire hygiene-full-2 plan's debugging journey: which `diagnostics/` scripts and hygiene helpers you ran repeatedly, where the `plan-annotations.sh` output was hard to interpret, what manual file-size / function-size auditing you did that should be automated, what hygiene-rule violations the existing tooling missed. Cleanup sections are uniquely valuable for retrospective because they exercise the *full* tooling surface across the whole plan. Implement every accepted improvement NOW (zero deferral) and commit each via SEPARATE `/commit-push`. See `.claude/skills/improve-tooling/SKILL.md` "Retrospective Mode".
 - [ ] Plan directory deleted

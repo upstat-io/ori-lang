@@ -366,6 +366,7 @@ Integrate the RC motion pass into the AIMS pipeline.
 - [ ] Plan annotation cleanup: `bash .claude/skills/impl-hygiene-review/plan-annotations.sh --plan 05` returns 0 annotations
 - [ ] All intermediate TPR checkpoint findings resolved
 - [ ] `/tpr-review` passed — independent Codex review found no critical or major issues
-- [ ] `/impl-hygiene-review last commit` passed — hygiene review clean
+- [ ] `/impl-hygiene-review` passed — hygiene review clean
+- [ ] `/improve-tooling` retrospective completed — MANDATORY at section close, after both reviews are clean. Reflect on the section's debugging journey (which `diagnostics/` scripts you ran, which command sequences you repeated, where you added ad-hoc `dbg!`/`tracing` calls, where output was hard to interpret) and identify any tool/log/diagnostic improvement that would have made this section materially easier OR that would help the next section touching this area. Implement every accepted improvement NOW (zero deferral) and commit each via SEPARATE `/commit-push`. The retrospective is mandatory even when nothing felt painful — that is exactly when blind spots accumulate. See `.claude/skills/improve-tooling/SKILL.md` "Retrospective Mode" for the full protocol.
 
 **Exit Criteria:** `ORI_LOG=ori_arc=info ori build` shows `rc_pairs_eliminated > 0` on programs with cross-block RC patterns (e.g., retain in one branch, release in another of a diamond). CFG hazard detection correctly prevents motion through loops. All existing tests pass. `ORI_CHECK_LEAKS=1` reports zero leaks. Analysis completes in O(n × vars × blocks) time without exponential blowup.

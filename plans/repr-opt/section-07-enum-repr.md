@@ -616,7 +616,7 @@ These test enum representations interacting with other language features. Each m
 - [ ] `ORI_CHECK_LEAKS=1` reports zero leaks on all enum-related test programs (critical for niche-encoded types where RC paths change)
 - [ ] Cross-feature interaction tests from the table above all pass
 - [ ] `/tpr-review` passed — independent Codex review found no critical or major issues (or all findings triaged)
-- [ ] `/impl-hygiene-review last commit` passed — implementation hygiene review clean (phase boundaries, SSOT, algorithmic DRY, naming). MUST run AFTER `/tpr-review` is clean.
+- [ ] `/impl-hygiene-review` passed — implementation hygiene review clean (phase boundaries, SSOT, algorithmic DRY, naming). MUST run AFTER `/tpr-review` is clean.
 - [ ] Remove all `§07` plan annotations from code (per CLAUDE.md plan annotation cleanup requirement)
 
 **Exit Criteria:** `Option<bool>` compiles to a single `i8` in LLVM IR (no struct wrapper), with `None = 2`, `Some(false) = 0`, `Some(true) = 1`. Verified by inspecting LLVM IR and running all Option-related spec tests. All cross-feature interaction tests pass. Zero leaks under `ORI_CHECK_LEAKS=1`. Dual-execution parity confirmed.
@@ -731,7 +731,7 @@ These test enum representations interacting with other language features. Each m
   2. Run `./clippy-all.sh` to verify clippy clean.
   3. `/commit-push` the TPR-07-017 fix bundle (selective stage of ARC files + new fixture + new test + this plan update). Suggested commit message: `fix(repr-opt): TPR-07-017 per-class take-project partitioning + bypass-safe entry edge`.
   4. Re-run `/tpr-review` to confirm the codex re-review surfaces zero new findings.
-  5. After clean TPR re-review, run `/impl-hygiene-review last commit` and fix any findings.
+  5. After clean TPR re-review, run `/impl-hygiene-review` and fix any findings.
   6. Mark this TPR-07-017 entry `[x]` resolved with the finalized text and flip section `third_party_review.status` to `resolved` (currently `findings`).
 
 - [ ] `[TPR-07-018][medium]` `compiler/ori_llvm/src/codegen/arc_emitter/builtins/option_result_helpers/tests.rs:1` / `plans/bug-tracker/fix-BUG-04-019.md:156` — BUG-04-019 is marked complete on the strength of an emitter-driven IR test that does not exist in the tree; the committed "unit tests" are `include_str!` source-text assertions, not helper invocation / IR emission.
@@ -758,6 +758,21 @@ These test enum representations interacting with other language features. Each m
   8. Run `cargo test -p ori_llvm option_result_helpers` and `cargo test -p ori_llvm` to verify no regressions.
 
   **Caveat:** The niche helpers are gated off by `NICHE_CODEGEN_READY = false` in production today. The emitter-driven tests directly invoke `emit_option_niche` / `emit_result_niche` from a synthetic harness, so they bypass the gate and exercise the dead-code path. This is exactly the regression guard that BUG-04-019 promised — without it, the gate flip in §07.2 could silently regress these helpers.
+
+- [ ] `[TPR-07-019][high]` `compiler/ori_arc/src/aims/emit_rc/take_project.rs:311` — `union_alias_edges` treats every `Jump arg -> block param` edge as a full union, which collapses distinct incoming values at phi-like merges into one take-project class.
+  Evidence: `union_alias_edges()` calls `union(parent, arg, param_var)` for every incoming jump argument. At a merge block where predecessor A passes source `%a` and predecessor B passes unrelated source `%b` into the same block param `%p`, the union-find makes `%a`, `%b`, and `%p` one connected component even though `%p` is a control-flow choice, not shared storage. The old TPR-07-016 closure was deliberately forward-only on jump args for exactly this reason; the new union-find turns that directional propagation into false equivalence.
+  Impact: the advertised per-class partitioning is not sound on diamond/phi topologies or loop-carried params. Unrelated take-project sources that merely meet at a merge param contaminate each other's `tp_blocks`, `bypass_safe_blocks`, and `bypass_safe_entries`, recreating the same cross-class suppression bug that TPR-07-017 was supposed to eliminate.
+  Required plan update: replace jump-edge unioning with a directional class-propagation model that does not merge alternative incoming args through a shared block param, and add regression coverage for two-class diamond merges, loop-carried params, and "if c then a else b" take-project joins.
+
+- [ ] `[TPR-07-020][medium]` `compiler/ori_arc/src/aims/emit_rc/take_project.rs:267` — `compute_bypass_safe_entries()` misses the reachable entry case where the bypass-safe region starts at the function entry block but that block also has only in-region back-edges.
+  Evidence: a block is marked as an entry only when `preds.is_empty()` or some predecessor is not bypass-safe. A loop header that is also the function entry will have at least one predecessor once the back-edge exists, and if the whole loop body is bypass-safe then every predecessor is also bypass-safe, so the header is excluded from `bypass_safe_entries` even though all real CFG paths enter the function through it.
+  Impact: source 1 then emits no class drop anywhere for that reachable bypass-safe region, while edge cleanup still skips in-class vars. The current fixture set never exercises this back-edge topology, so the bug survives despite all 13 iterator-drop pins passing.
+  Required plan update: treat the CFG entry block as an entry edge even when it has bypass-safe back-edges (or compute region roots with dominator-aware logic), and add a loop/back-edge regression where the only bypass-safe region root is the loop header.
+
+- [ ] `[TPR-07-021][low]` `compiler/ori_arc/src/aims/emit_rc/helpers.rs:43` / `compiler/ori_arc/src/aims/realize/emit_unified.rs:104` — comments still describe the removed path-sensitive `moved_at_entry` / `moved_at_exit` API instead of the current per-class bypass-safe-entry sidecar.
+  Evidence: `BlockCtx.take_move_facts` is documented in terms of `moved_at_entry(blk)` and `moved_at_exit(pred)`, and `emit_rc_unified()` still labels the analysis as "path-sensitive take-project must-move analysis." Those APIs and semantics no longer exist in the current tree; the live API surface is `is_in_class`, `class_of`, and `is_bypass_safe_entry_for_var`.
+  Impact: low-severity hygiene drift only, but it misstates the invariants future TPR work must reason about and makes the current fix look more dataflow-heavy than it actually is.
+  Required plan update: rewrite the comments to match the current per-class CFG reachability model and remove the stale "must-move" terminology.
 
 ## 07.RZ Resume Notes (2026-04-07)
 
@@ -788,7 +803,7 @@ This section captures the exact state needed to resume TPR-07-017 / TPR-07-018 c
 - ❌ `cargo b --release` — NOT YET RUN against this fix.
 - ❌ `/commit-push` — TPR-07-017 fix not yet committed.
 - ❌ `/tpr-review` re-run — pending.
-- ❌ `/impl-hygiene-review last commit` — pending.
+- ❌ `/impl-hygiene-review` — pending.
 
 **Resume sequence (next session):**
 
@@ -810,7 +825,7 @@ This section captures the exact state needed to resume TPR-07-017 / TPR-07-018 c
 9. **Run release build**: `cargo b --release 2>&1 | tail -5`. Expected: clean (FastISel parity).
 10. **Commit TPR-07-017 fix via `/commit-push`** — selective stage ONLY the files listed in "Working tree state (TPR-07-017 fix)" above. Do NOT use `git add -A` (the working tree contains ~110 unrelated pre-existing changes). Suggested commit message: `fix(repr-opt): TPR-07-017 per-class take-project partitioning + bypass-safe entry edge`.
 11. **Re-run `/tpr-review`** — codex must come back clean. If new findings surface, triage per Step 1.9 of `/continue-roadmap`. The `/fix-bug` `/tpr-review` loop iterates until clean.
-12. **Run `/impl-hygiene-review last commit`** — must pass clean before TPR-07-017 can be marked `[x]`.
+12. **Run `/impl-hygiene-review`** — must pass clean before TPR-07-017 can be marked `[x]`.
 13. **After both reviews are clean**: mark `[TPR-07-017]` `[x]` in §07.R, flip `third_party_review.status` to `resolved`, update `updated:` to today's date.
 14. **Then start TPR-07-018** as a separate fix using the implementation plan in its entry above. New commit, new TPR review cycle, new hygiene review. The per-phase tracing from step 3 will help here too — TPR-07-018's emitter-driven tests inspect LLVM IR and may need to bisect codegen phases similarly.
 15. **After both TPR-07-017 and TPR-07-018 are closed**: run the `/improve-tooling` retrospective for §07 (forward-looking pass, since the reactive improvement was already done in step 3). Capture any ADDITIONAL friction noticed during steps 4–14 that wasn't pre-empted by the per-phase tracing. Examples to look for: did `git status` filtering of "mine vs not-mine" still feel manual? Did the resume sequence itself feel painful — any step where you had to read code instead of running a script?

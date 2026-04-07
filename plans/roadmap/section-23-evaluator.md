@@ -395,7 +395,8 @@ These features have working **parser support** (Section 0.9.1 complete), but nee
 - [ ] Stdlib types (23.6) — Queue/Stack not implemented (aspirational, not spec types)
 - [ ] Run `cargo st tests/` — 4181 passed, 42 skipped (skips are mostly LLVM/capability issues)
 - [ ] `/tpr-review` passed — independent Codex review found no critical or major issues (or all findings triaged)
-- [ ] `/impl-hygiene-review last commit` passed — implementation hygiene review clean (phase boundaries, SSOT, algorithmic DRY, naming). MUST run AFTER `/tpr-review` is clean.
+- [ ] `/impl-hygiene-review` passed — implementation hygiene review clean (phase boundaries, SSOT, algorithmic DRY, naming). MUST run AFTER `/tpr-review` is clean.
+- [ ] `/improve-tooling` retrospective completed — MANDATORY at section close, after both reviews are clean. Reflect on the section's debugging journey (which `diagnostics/` scripts you ran, which command sequences you repeated, where you added ad-hoc `dbg!`/`tracing` calls, where output was hard to interpret) and identify any tool/log/diagnostic improvement that would have made this section materially easier OR that would help the next section touching this area. Implement every accepted improvement NOW (zero deferral) and commit each via SEPARATE `/commit-push`. The retrospective is mandatory even when nothing felt painful — that is exactly when blind spots accumulate. See `.claude/skills/improve-tooling/SKILL.md` "Retrospective Mode" for the full protocol.
 
 **Exit Criteria**: Every Ori spec semantic is correctly implemented in the evaluator. All spec tests must pass — no skipped tests allowed.
 
