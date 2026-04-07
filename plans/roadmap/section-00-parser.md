@@ -456,6 +456,8 @@ This section ensures the parser handles every syntactic construct in the Ori spe
   - [ ] Basic: `capset Net = Http, Dns, Tls` -- needs verification and spec tests
   - [ ] **NEEDS TESTS**: `tests/spec/declarations/capsets.ori` -- basic capset declaration and usage
 
+- [ ] **Subsection close-out (0.3)** — MANDATORY before starting the next subsection. Run `/improve-tooling` retrospectively on THIS subsection's debugging journey (per `.claude/skills/improve-tooling/SKILL.md` "Per-Subsection Workflow"): which `diagnostics/` scripts you ran, where you added `dbg!`/`tracing` calls, where output was hard to interpret, where test failures gave unhelpful messages, where you ran the same command sequence repeatedly. Forward-look: what tool/log/diagnostic would shorten the next regression in this code path by 10 minutes? Implement improvements NOW (zero deferral) and commit each via SEPARATE `/commit-push` using a valid conventional-commit type (`build(diagnostics): ... — surfaced by section-0.3 retrospective` — `build`/`test`/`chore`/`ci`/`docs` are valid; `tools(...)` is rejected by the lefthook commit-msg hook). Mandatory even when nothing felt painful. If genuinely no gaps, document briefly: "Retrospective 0.3: no tooling gaps". Update this subsection's `status` in section frontmatter to `complete`.
+
 ---
 
 ## 0.4 Types
@@ -518,6 +520,8 @@ This section ensures the parser handles every syntactic construct in the Ori spe
   - [x] Multiple bounds: `Printable + Hashable` — parses correctly as `TraitBounds` variant [done] (2026-02-14)
   - [x] As parameter type: `@store (item: Printable + Hashable) -> void` — parses correctly [done] (2026-02-14)
   - [x] **Grammar**: `trait_object_bounds` already in grammar.ebnf; parser now implements it [done] (2026-02-14)
+
+- [ ] **Subsection close-out (0.4)** — MANDATORY before starting the next subsection. Run `/improve-tooling` retrospectively on THIS subsection's debugging journey (per `.claude/skills/improve-tooling/SKILL.md` "Per-Subsection Workflow"): which `diagnostics/` scripts you ran, where you added `dbg!`/`tracing` calls, where output was hard to interpret, where test failures gave unhelpful messages, where you ran the same command sequence repeatedly. Forward-look: what tool/log/diagnostic would shorten the next regression in this code path by 10 minutes? Implement improvements NOW (zero deferral) and commit each via SEPARATE `/commit-push` using a valid conventional-commit type (`build(diagnostics): ... — surfaced by section-0.4 retrospective` — `build`/`test`/`chore`/`ci`/`docs` are valid; `tools(...)` is rejected by the lefthook commit-msg hook). Mandatory even when nothing felt painful. If genuinely no gaps, document briefly: "Retrospective 0.4: no tooling gaps". Update this subsection's `status` in section frontmatter to `complete`.
 
 ---
 
@@ -749,6 +753,8 @@ This section ensures the parser handles every syntactic construct in the Ori spe
   - [x] With value: `continue replacement` — parses correctly [done] (2026-02-13)
   - [x] Labeled: `continue:outer` — parses correctly [done] (2026-02-14)
 
+- [ ] **Subsection close-out (0.5)** — MANDATORY before starting the next subsection. Run `/improve-tooling` retrospectively on THIS subsection's debugging journey (per `.claude/skills/improve-tooling/SKILL.md` "Per-Subsection Workflow"): which `diagnostics/` scripts you ran, where you added `dbg!`/`tracing` calls, where output was hard to interpret, where test failures gave unhelpful messages, where you ran the same command sequence repeatedly. Forward-look: what tool/log/diagnostic would shorten the next regression in this code path by 10 minutes? Implement improvements NOW (zero deferral) and commit each via SEPARATE `/commit-push` using a valid conventional-commit type (`build(diagnostics): ... — surfaced by section-0.5 retrospective` — `build`/`test`/`chore`/`ci`/`docs` are valid; `tools(...)` is rejected by the lefthook commit-msg hook). Mandatory even when nothing felt painful. If genuinely no gaps, document briefly: "Retrospective 0.5: no tooling gaps". Update this subsection's `status` in section frontmatter to `complete`.
+
 ---
 
 ## 0.6 Patterns (verified 2026-03-29)
@@ -891,6 +897,8 @@ This section ensures the parser handles every syntactic construct in the Ori spe
   - [x] `let [head, ..tail] = [1, 2, 3]` — parses correctly (verified via `ori parse`)
   - [x] `let [$first, $second, ..rest] = ...` — parses and evaluates correctly [done] (2026-02-14)
 
+- [ ] **Subsection close-out (0.6)** — MANDATORY before starting the next subsection. Run `/improve-tooling` retrospectively on THIS subsection's debugging journey (per `.claude/skills/improve-tooling/SKILL.md` "Per-Subsection Workflow"): which `diagnostics/` scripts you ran, where you added `dbg!`/`tracing` calls, where output was hard to interpret, where test failures gave unhelpful messages, where you ran the same command sequence repeatedly. Forward-look: what tool/log/diagnostic would shorten the next regression in this code path by 10 minutes? Implement improvements NOW (zero deferral) and commit each via SEPARATE `/commit-push` using a valid conventional-commit type (`build(diagnostics): ... — surfaced by section-0.6 retrospective` — `build`/`test`/`chore`/`ci`/`docs` are valid; `tools(...)` is rejected by the lefthook commit-msg hook). Mandatory even when nothing felt painful. If genuinely no gaps, document briefly: "Retrospective 0.6: no tooling gaps". Update this subsection's `status` in section frontmatter to `complete`.
+
 ---
 
 ## 0.7 Constant Expressions (verified 2026-03-29)
@@ -932,7 +940,8 @@ This section ensures the parser handles every syntactic construct in the Ori spe
 - [x] Run `cargo t -p ori_lexer` — all lexer tests pass (277 passed) [done] (2026-02-14) (verified 2026-03-29)
 - [x] Run `cargo st tests/` — 4181 passed, 0 failed, 42 skipped [done] (verified 2026-03-29)
 - [ ] `/tpr-review` passed — independent Codex review found no critical or major issues (or all findings triaged)  <!-- NEEDS PIN -->
-- [ ] `/impl-hygiene-review last commit` passed — implementation hygiene review clean (phase boundaries, SSOT, algorithmic DRY, naming). MUST run AFTER `/tpr-review` is clean.
+- [ ] `/impl-hygiene-review` passed — implementation hygiene review clean (phase boundaries, SSOT, algorithmic DRY, naming). MUST run AFTER `/tpr-review` is clean.
+- [ ] `/improve-tooling` retrospective completed — MANDATORY at section close, after both reviews are clean. Reflect on the section's debugging journey (which `diagnostics/` scripts you ran, which command sequences you repeated, where you added ad-hoc `dbg!`/`tracing` calls, where output was hard to interpret) and identify any tool/log/diagnostic improvement that would have made this section materially easier OR that would help the next section touching this area. Implement every accepted improvement NOW (zero deferral) and commit each via SEPARATE `/commit-push`. The retrospective is mandatory even when nothing felt painful — that is exactly when blind spots accumulate. See `.claude/skills/improve-tooling/SKILL.md` "Retrospective Mode" for the full protocol.
 - [ ] **NEEDS TESTS**: Negative parser tests -- `#compile_fail` tests verifying invalid syntax is rejected with correct error codes (E0xxx/E1xxx)
   - [ ] Invalid syntax rejection in `tests/spec/lexical/` (currently 0 `#compile_fail` tests)
   - [ ] Invalid syntax rejection in `tests/spec/expressions/` (currently 0 `#compile_fail` tests)
@@ -961,6 +970,8 @@ This section ensures the parser handles every syntactic construct in the Ori spe
 
 **Fixed since 2026-02-10** (23 items):
 File attributes, extern `as` alias, C variadics, pattern params, guard clauses, default params, variadic params, `#repr`/`#target`/`#cfg` attributes, fixed-capacity lists, length placeholder, try `?` inside `try { }`, const generic type args (`Array<int, $N>`), const expressions in types, const bounds in where clauses (`where N > 0`), labeled continue (`continue:outer`), function-level contracts (`pre()`/`post()`), computed constants (`let $D = $A + 1`), struct rest pattern (`{ x, .. }`), immutable bindings in function bodies (`let $x`, `let ($a, $b)`, `let { $x }`, `let [$h, ..]`), `with()` RAII pattern (`acquire:/action:/release:` — was doc error, spec uses `action:` not `use:`), `.match()` method syntax (`expr.match { arms }` desugars to `match expr { arms }`)
+
+- [ ] **Subsection close-out (0.8)** — MANDATORY before starting the next subsection. Run `/improve-tooling` retrospectively on THIS subsection's debugging journey (per `.claude/skills/improve-tooling/SKILL.md` "Per-Subsection Workflow"): which `diagnostics/` scripts you ran, where you added `dbg!`/`tracing` calls, where output was hard to interpret, where test failures gave unhelpful messages, where you ran the same command sequence repeatedly. Forward-look: what tool/log/diagnostic would shorten the next regression in this code path by 10 minutes? Implement improvements NOW (zero deferral) and commit each via SEPARATE `/commit-push` using a valid conventional-commit type (`build(diagnostics): ... — surfaced by section-0.8 retrospective` — `build`/`test`/`chore`/`ci`/`docs` are valid; `tools(...)` is rejected by the lefthook commit-msg hook). Mandatory even when nothing felt painful. If genuinely no gaps, document briefly: "Retrospective 0.8: no tooling gaps". Update this subsection's `status` in section frontmatter to `complete`.
 
 ---
 
@@ -1057,6 +1068,8 @@ These features were previously reported as broken but now parse correctly.
 - [x] **Fixed**: `as`/`as?` type conversion — `42 as float`, `"42" as? int` [done] (2026-02-10)
 - [x] **Fixed**: Wildcard pattern in for loops — `for _ in 0..n do ...` [done] (2026-02-10)
 - [x] **Fixed**: Context-sensitive pattern keywords — `let timeout = 5`, `let cache = 10` [done] (2026-02-10)
+
+- [ ] **Subsection close-out (0.9)** — MANDATORY before starting the next subsection. Run `/improve-tooling` retrospectively on THIS subsection's debugging journey (per `.claude/skills/improve-tooling/SKILL.md` "Per-Subsection Workflow"): which `diagnostics/` scripts you ran, where you added `dbg!`/`tracing` calls, where output was hard to interpret, where test failures gave unhelpful messages, where you ran the same command sequence repeatedly. Forward-look: what tool/log/diagnostic would shorten the next regression in this code path by 10 minutes? Implement improvements NOW (zero deferral) and commit each via SEPARATE `/commit-push` using a valid conventional-commit type (`build(diagnostics): ... — surfaced by section-0.9 retrospective` — `build`/`test`/`chore`/`ci`/`docs` are valid; `tools(...)` is rejected by the lefthook commit-msg hook). Mandatory even when nothing felt painful. If genuinely no gaps, document briefly: "Retrospective 0.9: no tooling gaps". Update this subsection's `status` in section frontmatter to `complete`.
 
 ---
 
@@ -1260,6 +1273,8 @@ Replace parenthesized `function_seq` syntax with curly-brace block expressions. 
 - [x] **Remove**: Visitor dead paths: `ori_ir/src/visitor.rs` (2026-02-20)
 - [x] **Remove**: Test references: `ori_fmt/src/width/tests.rs`, `ori_ir/src/ast/patterns/seq/tests.rs`, `ori_types/src/infer/expr/tests.rs` (2026-02-20)
 - [x] **Verify**: `./test-all.sh` passes after removal (10,215+ tests passing) (2026-02-20)
+
+- [ ] **Subsection close-out (0.10)** — MANDATORY before starting the next subsection. Run `/improve-tooling` retrospectively on THIS subsection's debugging journey (per `.claude/skills/improve-tooling/SKILL.md` "Per-Subsection Workflow"): which `diagnostics/` scripts you ran, where you added `dbg!`/`tracing` calls, where output was hard to interpret, where test failures gave unhelpful messages, where you ran the same command sequence repeatedly. Forward-look: what tool/log/diagnostic would shorten the next regression in this code path by 10 minutes? Implement improvements NOW (zero deferral) and commit each via SEPARATE `/commit-push` using a valid conventional-commit type (`build(diagnostics): ... — surfaced by section-0.10 retrospective` — `build`/`test`/`chore`/`ci`/`docs` are valid; `tools(...)` is rejected by the lefthook commit-msg hook). Mandatory even when nothing felt painful. If genuinely no gaps, document briefly: "Retrospective 0.10: no tooling gaps". Update this subsection's `status` in section frontmatter to `complete`.
 
 ---
 

@@ -102,7 +102,7 @@ Source: `ori_ir/src/builtin_constants/protocol/mod.rs`
 | `Index` | `__index` | 2 | Borrowed, Borrowed | `receiver[index]` -- list/map indexing |
 | `Iter` | `iter` | 1 | Borrowed | Iterator creation from collection |
 | `IterNext` | `__iter_next` | 2 | Owned, Borrowed | Iterator advancement (iterator consumed, type marker borrowed) |
-| `IterDrop` | `ori_iter_drop` | 1 | Borrowed | Iterator cleanup (state freed internally) |
+| `IterDrop` | `ori_iter_drop` | 1 | Owned | Iterator cleanup — consumes the iterator handle (TPR-07-008) |
 | `CollectSet` | `__collect_set` | 1 | Owned | Set collection from iterator (iterator consumed) |
 
 ## Crate Structure
@@ -167,6 +167,7 @@ Source: `ori_ir/src/builtin_constants/protocol/mod.rs`
 ## Debugging
 
 - **Tracing**: `ORI_LOG=ori_arc=debug` (function entry/exit, loops, lambdas, match, merges) | `ori_arc=trace` (per-expression lowering, scope bindings) | add `ORI_LOG_TREE=1` for hierarchical view
+- **Per-phase RC snapshot** (post-walk bisection): `ORI_LOG=ori_arc::aims::realize=trace ori build file.ori` — emits one event per `(phase, function, block)` summarising every `RcInc`/`RcDec` by `ArcVarId`. Phases: `after_phase_1_walk`, `after_phase_1_5_dead_invoke`, `after_phase_2_edge_cleanup`, `after_phase_2_1_escape_incs`, `after_phase_3_coalesce`. Use to bisect which post-walk pass modified a specific block's RC ops without inline `tracing::debug!` insertions. Zero overhead when disabled (gated behind `tracing::enabled!`). See `compiler/ori_arc/src/aims/realize/emit_unified.rs::trace_phase_snapshot`.
 - **Phase dump**: `ORI_DUMP_AFTER_ARC=1 ori build file.ori` — ARC IR with RC strategy annotations
 - **Runtime RC**: `ORI_TRACE_RC=1 ./binary` | `ORI_RT_DEBUG=1 ./binary` | `ORI_CHECK_LEAKS=1 ./binary`
 - **Codegen audit**: `ORI_AUDIT_CODEGEN=1 ori build file.ori` (add `ORI_AUDIT_STRICT=1` | `ORI_AUDIT_FUNCTION=name`)

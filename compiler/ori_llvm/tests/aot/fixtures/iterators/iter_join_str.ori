@@ -1,0 +1,9 @@
+// AOT regression test for iter_join with string elements.
+// Verifies the SSO-safe 3-field separator passing to ori_iter_join.
+// Semantic pin: would crash with SIGSEGV if separator fields revert
+// to the old 2-field (data, len) ABI that breaks SSO strings.
+
+@main () -> int = {
+    let result = ["hello", "world", "!"].iter().join(separator: ", ");
+    if result == "hello, world, !" then 0 else 1
+}

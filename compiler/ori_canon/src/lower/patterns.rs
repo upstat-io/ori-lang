@@ -121,24 +121,54 @@ impl Lowerer<'_> {
         let span = clauses[0].span;
         let ty = self.expr_type(clauses[0].body);
 
-        // Determine parameter names from the first clause.
+        // Get parameter names from the FunctionSig (type checker output).
+        // The type checker stores the last clause's names (HashMap insert overwrites),
+        // which typically has all-variable params. The ARC lowering also uses these
+        // names (from ABI.params). The evaluator must also use these names for
+        // multi-clause function parameter binding.
         let first_params = self.src.get_params(clauses[0].params);
         let param_count = first_params.len();
-        let param_names: Vec<Name> = first_params.iter().map(|p| p.name).collect();
+        let fn_name = clauses[0].name;
+        let (param_names, param_types): (Vec<Name>, Vec<TypeId>) =
+            if let Some(sig) = self.typed.function(fn_name) {
+                let names = sig.param_names.clone();
+                let types = sig
+                    .param_types
+                    .iter()
+                    .map(|idx| TypeId::from_raw(idx.raw()))
+                    .collect();
+                (names, types)
+            } else {
+                let names = first_params.iter().map(|p| p.name).collect();
+                let types = vec![TypeId::ERROR; param_count];
+                (names, types)
+            };
 
-        // Build the scrutinee: Ident for single-param, Tuple for multi-param.
-        // Types use ERROR because these are synthetic nodes — the evaluator
-        // dispatches on values, not types. Codegen (LLVM) would need real types,
-        // but multi-clause functions aren't supported there yet.
         let scrutinee_id = if param_count == 1 {
-            self.push(CanExpr::Ident(param_names[0]), span, TypeId::ERROR)
+            let param_ty = param_types.first().copied().unwrap_or(TypeId::ERROR);
+            self.push(CanExpr::Ident(param_names[0]), span, param_ty)
         } else {
             let idents: Vec<CanId> = param_names
                 .iter()
-                .map(|&name| self.push(CanExpr::Ident(name), span, TypeId::ERROR))
+                .enumerate()
+                .map(|(i, &name)| {
+                    let param_ty = param_types.get(i).copied().unwrap_or(TypeId::ERROR);
+                    self.push(CanExpr::Ident(name), span, param_ty)
+                })
                 .collect();
             let range = self.arena.push_expr_list(&idents);
-            self.push(CanExpr::Tuple(range), span, TypeId::ERROR)
+            // Look up the interned tuple type from the pool. The type checker
+            // creates tuple types during inference, so (int, int) etc. should
+            // already exist. Convert param Idx values for the pool lookup.
+            let param_idxs: Vec<ori_types::Idx> = param_types
+                .iter()
+                .map(|tid| ori_types::Idx::from_raw(tid.raw()))
+                .collect();
+            let tuple_ty = self
+                .pool
+                .find_tuple(&param_idxs)
+                .map_or(ty, |idx| TypeId::from_raw(idx.raw()));
+            self.push(CanExpr::Tuple(range), span, tuple_ty)
         };
 
         // Flatten each clause's parameter patterns into a FlatPattern row.

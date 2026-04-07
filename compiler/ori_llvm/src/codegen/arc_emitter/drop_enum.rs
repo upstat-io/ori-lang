@@ -27,6 +27,16 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         ty: Idx,
         variants: &[Vec<(u32, Idx)>],
     ) {
+        // §07.3.A: Tagged-pointer enum drop — load the encoded i64, decode
+        // the tag, dispatch to per-variant pointer dec. Tagged-pointer enums
+        // are 8 bytes, so the heap-allocated case is rare (the encoding
+        // typically lives inline in a parent struct), but the drop path
+        // must still be correct when it does fire.
+        if self.get_tagged_ptr_encoding(ty).is_some() {
+            self.emit_drop_enum_tagged_ptr(func_id, data_ptr, ty, variants);
+            return;
+        }
+
         // §07.2: Niche-encoded enum drop — conditional skip instead of switch.
         if let Some(encoding) = self.get_niche_encoding(ty) {
             self.emit_drop_enum_niche(func_id, data_ptr, ty, variants, &encoding);
@@ -264,6 +274,73 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         self.builder.br(drop_done);
 
         // done: free + ret
+        self.builder.position_at_end(drop_done);
+        self.emit_drop_rc_free(data_ptr, ty);
+        self.builder.ret_void();
+    }
+
+    /// §07.3.A: Emit drop body for a tagged-pointer encoded enum.
+    ///
+    /// Loads the 8-byte encoded value from `data_ptr`, decodes the tag bits,
+    /// and dispatches to per-variant pointer dec via a switch. Pointer-bearing
+    /// variants decode the high 61 bits and call the appropriate `drop_fn`;
+    /// unit variants flow through the default arm to `drop.done` (no payload
+    /// to clean up).
+    ///
+    /// `variants[i]` contains the RC-needing fields for variant `i`. For
+    /// tagged-pointer enums each non-empty variant has exactly one entry —
+    /// enforced by `can_use_tagged_pointer`.
+    fn emit_drop_enum_tagged_ptr(
+        &mut self,
+        func_id: FunctionId,
+        data_ptr: ValueId,
+        ty: Idx,
+        variants: &[Vec<(u32, Idx)>],
+    ) {
+        // Tagged-pointer enums are stored as a single i64 slot.
+        let i64_ty = self.builder.i64_type();
+        let encoded = self.builder.load(i64_ty, data_ptr, "tagged.encoded");
+        let tag_val = self.tagged_ptr_decode_tag(encoded, "tagged.tag");
+
+        let drop_done = self.builder.append_block(func_id, "drop.done");
+
+        // Build per-variant blocks for pointer-bearing variants only.
+        let mut cases: Vec<(ValueId, crate::codegen::value_id::BlockId, Idx)> = Vec::new();
+        for (i, variant_fields) in variants.iter().enumerate() {
+            if variant_fields.is_empty() {
+                continue;
+            }
+            debug_assert!(
+                variant_fields.len() == 1,
+                "tagged-pointer variant must have at most one RC field"
+            );
+            let (_, field_type) = variant_fields[0];
+            let block = self
+                .builder
+                .append_block(func_id, &format!("tagged.v{i}.drop"));
+            // Variant index is bounded by 8 (3-bit tag), so the
+            // `usize → u64` widening is exact.
+            let tag_const = self.builder.const_int_matching(tag_val, i as u64);
+            cases.push((tag_const, block, field_type));
+        }
+
+        if cases.is_empty() {
+            // No pointer-bearing variants — straight to free.
+            self.builder.br(drop_done);
+        } else {
+            let switch_cases: Vec<(ValueId, crate::codegen::value_id::BlockId)> =
+                cases.iter().map(|(t, b, _)| (*t, *b)).collect();
+            self.builder.switch(tag_val, drop_done, &switch_cases);
+
+            for &(_, block, field_type) in &cases {
+                self.builder.position_at_end(block);
+                let ptr = self.tagged_ptr_decode_ptr(encoded, "tagged.ptr");
+                self.emit_drop_rc_dec(ptr, field_type);
+                self.builder.br(drop_done);
+            }
+        }
+
+        // done: free the heap allocation that held the encoded value, ret.
         self.builder.position_at_end(drop_done);
         self.emit_drop_rc_free(data_ptr, ty);
         self.builder.ret_void();

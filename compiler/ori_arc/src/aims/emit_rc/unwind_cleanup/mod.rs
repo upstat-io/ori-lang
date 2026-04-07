@@ -90,10 +90,21 @@ pub(crate) fn add_invoke_unwind_cleanup(func: &mut ArcFunction, interner: &ori_i
             .map(|&(var, _)| var)
             .collect();
 
+        // TPR-07-014: an iterator is live at the Invoke only if its
+        // creation block can reach the Invoke block via CFG forward
+        // edges. The previous check (`create_block <= invoke_block_idx`)
+        // was block-ordering, not reachability — on a branched CFG a
+        // sibling branch's earlier-numbered creation block could be
+        // treated as live at an Invoke it can never reach, leading to
+        // spurious `ori_iter_drop` synthesis on the unwind edge for
+        // a variable that is uninitialized at that point. Use the
+        // same `can_reach` BFS as the drop-covering filter above so
+        // both filters speak the same semantics.
         let live_iters: Vec<ArcVarId> = iter_create
             .iter()
             .filter(|&&(dst, create_block)| {
-                create_block <= invoke_block_idx && !dropped_covering.contains(&dst)
+                can_reach(&successors, create_block, invoke_block_idx)
+                    && !dropped_covering.contains(&dst)
             })
             .map(|&(dst, _)| dst)
             .collect();
@@ -104,6 +115,15 @@ pub(crate) fn add_invoke_unwind_cleanup(func: &mut ArcFunction, interner: &ori_i
 
         // Pre-allocate fresh variables and build instructions before
         // mutably borrowing the block (avoids double-borrow of func).
+        //
+        // TPR-07-012: `ori_iter_drop` consumes the iterator handle
+        // (frees the Box-allocated state). The arg ownership must be
+        // `Owned` to match `ProtocolBuiltin::IterDrop.arg_ownership()`
+        // — previously `Borrowed`, which contradicted the post-TPR-07-008
+        // SSOT that iterator drops are consuming. The contract has
+        // no observable effect at unwind (the frame is already
+        // unwinding), but the stale `Borrowed` marker is a shadow
+        // source of truth that future ARC passes might rely on.
         let drop_instrs: Vec<ArcInstr> = live_iters
             .iter()
             .map(|&iter_var| {
@@ -113,7 +133,7 @@ pub(crate) fn add_invoke_unwind_cleanup(func: &mut ArcFunction, interner: &ori_i
                     ty: Idx::UNIT,
                     func: iter_drop_name,
                     args: vec![iter_var],
-                    arg_ownership: vec![ArgOwnership::Borrowed],
+                    arg_ownership: vec![ArgOwnership::Owned],
                 }
             })
             .collect();

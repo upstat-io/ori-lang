@@ -35,7 +35,7 @@ pub(super) fn emit_post_instr_decs_unified(
 
     // Skip last-use decs for consuming PrimOps and ownership transfers.
     // These instructions handle operand RC internally.
-    if is_consuming_primop(instr, ctx.func) || is_ownership_transfer(instr, ctx.func) {
+    if is_consuming_primop(instr, ctx.func) || is_ownership_transfer(instr, ctx.func, ctx.pool) {
         return;
     }
 

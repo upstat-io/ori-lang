@@ -12,7 +12,23 @@ Deep, wide-angle review of implementation hygiene against `.claude/rules/impl-hy
 
 ## Target
 
-`$ARGUMENTS` specifies the boundary or scope to review. **If empty or blank, default to last commit mode** (equivalent to `/impl-hygiene-review last commit`). Otherwise, there are three modes:
+`$ARGUMENTS` specifies the boundary or scope to review. **If empty or blank, default to Auto Mode** — the skill autoscopes to the current active work arc (uncommitted changes plus recent commits, expanded to full crates per the dependency map). This is the recommended default; explicit modes below are for special cases.
+
+### Auto Mode (default — no arguments) ★ recommended
+
+When called with no arguments, the review autoscopes to the current "session of work" by combining uncommitted changes and recent commits. This is the recommended default for **every** plan section, fix-bug section, and roadmap completion checklist — multi-commit work arcs (feature implementations, bug-fix sequences, plan section work) typically span several commits, and a single-commit view is too narrow to catch the cross-commit drift this review is designed to catch.
+
+**Auto-scoping procedure:**
+1. List uncommitted changes: `git diff --name-only HEAD` and `git diff --name-only --cached`
+2. Determine the active commit range:
+   - If on a non-default branch: `git log --name-only --pretty=format: $(git merge-base HEAD origin/master)..HEAD` (everything since branch divergence from master)
+   - If on `master`/`main`: fall back to the last 5 commits (`git log --name-only --pretty=format: HEAD~5..HEAD`)
+3. Union the uncommitted file list and the commit-range file list, deduplicate
+4. Expand to full crate(s) per the **Dependency map for expansion** below (in the Commit scoping procedure subsection) — if even one `.rs` file in a crate is touched, the whole crate is in scope
+5. Apply the standard dependency expansion (touched crate's downstream consumers also enter scope)
+6. Proceed with the standard review process using the expanded scope
+
+> **Why no `/impl-hygiene-review last commit`**: a single-commit view is intentionally not supported as a scope. Real work spans multiple commits — a bug fix is often `tests + impl + plan update`, a feature is often `infra + integration + tests`, a refactor often touches several files across several commits. Reviewing only the last commit misses the cross-commit drift the review exists to catch. Use Auto Mode (no arguments) for the normal case, or `last N commits` for explicit narrow scoping when you genuinely want N=2 or N=3.
 
 ### Path Mode (explicit crate/directory targets)
 - `/impl-hygiene-review compiler/ori_lexer compiler/ori_parse` — review lexer→parser boundary
@@ -20,10 +36,10 @@ Deep, wide-angle review of implementation hygiene against `.claude/rules/impl-hy
 - `/impl-hygiene-review compiler/ori_types` — review internal phase boundaries within a crate
 - `/impl-hygiene-review compiler/ori_arc` — review ARC pass composition
 
-### Commit Mode (use a commit as a scope selector)
-- `/impl-hygiene-review last commit` — review files touched by the most recent commit
-- `/impl-hygiene-review last 3 commits` — review files touched by the last N commits
+### Commit Mode (use a commit range as a scope selector)
+- `/impl-hygiene-review last 3 commits` — review files touched by the last N commits (use when N is small and well-defined; for the active work arc, prefer Auto Mode)
 - `/impl-hygiene-review <commit-hash>` — review files touched by a specific commit
+- `/impl-hygiene-review <commit-A>..<commit-B>` — review the commit range
 
 ### Full Project Mode (landscape survey)
 - `/impl-hygiene-review full` — review the entire compiler across all crates and boundaries

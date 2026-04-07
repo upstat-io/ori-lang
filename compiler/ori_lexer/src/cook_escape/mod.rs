@@ -4,6 +4,13 @@
 //! per the grammar specification. Invalid escapes push errors into the
 //! accumulator rather than panicking.
 //!
+//! # Architecture
+//!
+//! `unescape_string_v2` and `unescape_template_v2` are thin wrappers around
+//! `unescape_with_context`, which implements the shared scanning loop
+//! parameterized by [`EscapeContext`]. `unescape_char_v2` is structurally
+//! different (single-char, returns `char`) and remains standalone.
+//!
 //! # Grammar Reference
 //!
 //! - String escapes (line 102): `\"` `\\` `\n` `\t` `\r` `\0` `\u{...}`
@@ -14,6 +21,58 @@
 
 use crate::lex_error::{LexError, LexErrorContext, UnicodeEscapeDetail};
 use ori_ir::Span;
+
+/// Escape processing context, parameterizing the shared unescape loop.
+///
+/// Each variant encapsulates the policy differences between string and template
+/// escape processing: fast-path predicate, context-specific escapes, brace
+/// handling, error factories, and `LexErrorContext` construction.
+///
+/// Adding a new escape form (e.g., `\xHH`) requires one new match arm in
+/// [`unescape_with_context`] — the context enum keeps all dispatch in one place.
+#[derive(Clone, Copy)]
+enum EscapeContext {
+    String,
+    Template,
+}
+
+impl EscapeContext {
+    /// Check if content needs escape processing (fast-path bypass).
+    ///
+    /// String: only backslashes trigger processing.
+    /// Template: backslashes OR adjacent brace pairs (`{{`/`}}`) trigger processing.
+    fn needs_processing(self, content: &str) -> bool {
+        let bytes = content.as_bytes();
+        match self {
+            EscapeContext::String => bytes.contains(&b'\\'),
+            EscapeContext::Template => {
+                bytes.contains(&b'\\')
+                    || bytes
+                        .windows(2)
+                        .any(|w| (w[0] == b'{' && w[1] == b'{') || (w[0] == b'}' && w[1] == b'}'))
+            }
+        }
+    }
+
+    /// Build the `LexErrorContext` for unicode escape error reporting.
+    fn make_error_context(self, base_offset: u32) -> LexErrorContext {
+        match self {
+            EscapeContext::String => LexErrorContext::InsideString { start: base_offset },
+            EscapeContext::Template => LexErrorContext::InsideTemplate {
+                start: base_offset,
+                nesting: 0,
+            },
+        }
+    }
+
+    /// Push an invalid-escape error appropriate to this context.
+    fn push_invalid_escape(self, errors: &mut Vec<LexError>, span: Span, esc: char) {
+        match self {
+            EscapeContext::String => errors.push(LexError::invalid_string_escape(span, esc)),
+            EscapeContext::Template => errors.push(LexError::invalid_template_escape(span, esc)),
+        }
+    }
+}
 
 /// Resolve a common escape character (shared across all contexts).
 ///
@@ -168,23 +227,23 @@ fn parse_unicode_escape(
     }
 }
 
-/// Unescape a string literal's content (between the `"`s).
+/// Shared unescape implementation for string and template literals.
 ///
-/// Valid escapes per grammar line 102: `\"` `\\` `\n` `\t` `\r` `\0` `\u{...}`.
-/// `\'` is **not** valid in strings — a `SingleQuoteEscapeInString` error is pushed.
-///
-/// Fast path: if no backslashes, returns `None` to signal the caller can
-/// intern the source slice directly.
+/// The scanning loop is identical across both contexts — differences are
+/// encapsulated in the [`EscapeContext`] policy methods and context-guarded
+/// match arms. Adding a new escape form (e.g., `\xHH` for hex byte escapes)
+/// requires exactly one new match arm here.
 #[expect(
     clippy::cast_possible_truncation,
     reason = "source offsets bounded by u32 — entire source file < u32::MAX bytes"
 )]
-pub(crate) fn unescape_string_v2(
+fn unescape_with_context(
     content: &str,
     base_offset: u32,
     errors: &mut Vec<LexError>,
+    ctx: EscapeContext,
 ) -> Option<String> {
-    if !content.contains('\\') {
+    if !ctx.needs_processing(content) {
         return None;
     }
 
@@ -193,26 +252,34 @@ pub(crate) fn unescape_string_v2(
     let mut i = 0;
 
     while i < bytes.len() {
-        if bytes[i] == b'\\' {
+        let b = bytes[i];
+        if b == b'\\' {
             let rest = &content[i + 1..];
             if let Some(esc) = rest.chars().next() {
                 match esc {
-                    '"' => {
+                    // Context-specific delimiter escapes
+                    '"' if matches!(ctx, EscapeContext::String) => {
                         result.push('"');
                         i += 2;
                     }
-                    '\'' => {
+                    '`' if matches!(ctx, EscapeContext::Template) => {
+                        result.push('`');
+                        i += 2;
+                    }
+                    // String-specific error recovery: \' is invalid but pushes the char
+                    '\'' if matches!(ctx, EscapeContext::String) => {
                         let esc_start = base_offset + i as u32;
-                        let esc_end = esc_start + 2;
                         errors.push(LexError::single_quote_escape_in_string(Span::new(
-                            esc_start, esc_end,
+                            esc_start,
+                            esc_start + 2,
                         )));
                         result.push('\'');
                         i += 2;
                     }
+                    // Unicode escape (shared across all contexts)
                     'u' => {
                         let backslash_offset = base_offset + i as u32;
-                        let context = LexErrorContext::InsideString { start: base_offset };
+                        let context = ctx.make_error_context(base_offset);
                         let (resolved, bytes_consumed) = parse_unicode_escape(
                             &content[i + 1..],
                             backslash_offset,
@@ -222,16 +289,18 @@ pub(crate) fn unescape_string_v2(
                         result.push(resolved);
                         i += 1 + bytes_consumed;
                     }
+                    // TODO(lexer): \xHH hex byte escapes — spec-required
+                    // (Spec: Clause 7 line 292, grammar.ebnf lines 116-118).
+                    // Not yet implemented; tracked in roadmap section 15C.13.
+
+                    // Common escapes (\\ \n \t \r \0) + invalid escape fallback
                     _ => {
                         if let Some(resolved) = resolve_common_escape(esc) {
                             result.push(resolved);
                         } else {
                             let esc_start = base_offset + i as u32;
                             let esc_end = esc_start + 1 + esc.len_utf8() as u32;
-                            errors.push(LexError::invalid_string_escape(
-                                Span::new(esc_start, esc_end),
-                                esc,
-                            ));
+                            ctx.push_invalid_escape(errors, Span::new(esc_start, esc_end), esc);
                             result.push('\u{FFFD}');
                         }
                         i += 1 + esc.len_utf8();
@@ -240,16 +309,19 @@ pub(crate) fn unescape_string_v2(
             } else {
                 // Trailing backslash
                 let esc_start = base_offset + i as u32;
-                errors.push(LexError::invalid_string_escape(
-                    Span::new(esc_start, esc_start + 1),
-                    '\\',
-                ));
+                ctx.push_invalid_escape(errors, Span::new(esc_start, esc_start + 1), '\\');
                 result.push('\\');
                 i += 1;
             }
+        } else if matches!(ctx, EscapeContext::Template)
+            && i + 1 < bytes.len()
+            && ((b == b'{' && bytes[i + 1] == b'{') || (b == b'}' && bytes[i + 1] == b'}'))
+        {
+            // Template brace-pair collapsing: {{ → {, }} → } (spec line 108)
+            result.push(b as char);
+            i += 2;
         } else {
-            // ASCII fast path: single byte, no chars() iterator needed
-            let b = bytes[i];
+            // Regular character: ASCII fast path / multi-byte
             if b < 128 {
                 result.push(b as char);
                 i += 1;
@@ -262,6 +334,22 @@ pub(crate) fn unescape_string_v2(
     }
 
     Some(result)
+}
+
+/// Unescape a string literal's content (between the `"`s).
+///
+/// Valid escapes per grammar line 102: `\"` `\\` `\n` `\t` `\r` `\0` `\u{...}`.
+/// `\'` is **not** valid in strings — a `SingleQuoteEscapeInString` error is pushed,
+/// but the `'` character is still added to the output (error recovery).
+///
+/// Fast path: if no backslashes, returns `None` to signal the caller can
+/// intern the source slice directly.
+pub(crate) fn unescape_string_v2(
+    content: &str,
+    base_offset: u32,
+    errors: &mut Vec<LexError>,
+) -> Option<String> {
+    unescape_with_context(content, base_offset, errors, EscapeContext::String)
 }
 
 /// Unescape a char literal's content (between the `'`s).
@@ -329,103 +417,12 @@ pub(crate) fn unescape_char_v2(
 ///
 /// Fast path: if no backslashes and no consecutive braces, returns `None`
 /// to signal the caller can intern the source slice directly.
-#[expect(
-    clippy::cast_possible_truncation,
-    reason = "source offsets bounded by u32 — entire source file < u32::MAX bytes"
-)]
 pub(crate) fn unescape_template_v2(
     content: &str,
     base_offset: u32,
     errors: &mut Vec<LexError>,
 ) -> Option<String> {
-    // Fast path: single scan for backslash or consecutive braces ({{ / }}).
-    // Lone braces don't need processing (they're interpolation delimiters in
-    // real template segments), so we check adjacent pairs, not individual bytes.
-    let bytes = content.as_bytes();
-    let needs_processing = bytes.contains(&b'\\')
-        || bytes
-            .windows(2)
-            .any(|w| (w[0] == b'{' && w[1] == b'{') || (w[0] == b'}' && w[1] == b'}'));
-    if !needs_processing {
-        return None;
-    }
-
-    let mut result = String::with_capacity(content.len());
-    let mut i = 0;
-
-    while i < bytes.len() {
-        let b = bytes[i];
-        if b == b'\\' {
-            // Get the next char (could be multi-byte)
-            let rest = &content[i + 1..];
-            if let Some(esc) = rest.chars().next() {
-                match esc {
-                    '`' => {
-                        result.push('`');
-                        i += 1 + esc.len_utf8();
-                    }
-                    'u' => {
-                        let backslash_offset = base_offset + i as u32;
-                        let context = LexErrorContext::InsideTemplate {
-                            start: base_offset,
-                            nesting: 0,
-                        };
-                        let (resolved, bytes_consumed) = parse_unicode_escape(
-                            &content[i + 1..],
-                            backslash_offset,
-                            context,
-                            errors,
-                        );
-                        result.push(resolved);
-                        i += 1 + bytes_consumed; // 1 for '\', bytes_consumed for 'u{...}'
-                    }
-                    _ => {
-                        if let Some(resolved) = resolve_common_escape(esc) {
-                            result.push(resolved);
-                            i += 1 + esc.len_utf8();
-                        } else {
-                            let esc_start = base_offset + i as u32;
-                            let esc_end = esc_start + 1 + esc.len_utf8() as u32;
-                            errors.push(LexError::invalid_template_escape(
-                                Span::new(esc_start, esc_end),
-                                esc,
-                            ));
-                            result.push('\u{FFFD}');
-                            i += 1 + esc.len_utf8();
-                        }
-                    }
-                }
-            } else {
-                // Trailing backslash
-                let esc_start = base_offset + i as u32;
-                errors.push(LexError::invalid_template_escape(
-                    Span::new(esc_start, esc_start + 1),
-                    '\\',
-                ));
-                result.push('\\');
-                i += 1;
-            }
-        } else if b == b'{' && i + 1 < bytes.len() && bytes[i + 1] == b'{' {
-            result.push('{');
-            i += 2;
-        } else if b == b'}' && i + 1 < bytes.len() && bytes[i + 1] == b'}' {
-            result.push('}');
-            i += 2;
-        } else {
-            // ASCII fast path: single byte, no chars() iterator needed
-            let b2 = bytes[i];
-            if b2 < 128 {
-                result.push(b2 as char);
-                i += 1;
-            } else {
-                let ch = content[i..].chars().next().unwrap_or('\0');
-                result.push(ch);
-                i += ch.len_utf8();
-            }
-        }
-    }
-
-    Some(result)
+    unescape_with_context(content, base_offset, errors, EscapeContext::Template)
 }
 
 #[cfg(test)]

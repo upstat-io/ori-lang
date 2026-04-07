@@ -255,14 +255,15 @@ Read the mapped bug-tracker section file(s) and check for `- [ ]` items.
 1. **STOP** — present them to the user as blockers
 2. List each critical bug with its ID, title, and repro
 3. Use AskUserQuestion:
-   - **Fix critical bugs first (Recommended)** — address these before starting new work
+   - **Fix critical bugs first (Recommended)** — use `/fix-bug BUG-XX-NNN` for each critical bug. This creates a fix section file with full plan-section rigor (root cause analysis, TDD matrix, TPR, hygiene review). Do NOT fix bugs ad-hoc — the `/fix-bug` workflow is mandatory.
    - **Proceed anyway** — user accepts the risk of working around known critical bugs
 
 **If `high` bugs exist:**
 
 1. **Mention them** — "There are N high-severity bugs in this area you may want to address"
 2. List the bug IDs and titles briefly
-3. Continue to the next step — high bugs are informational, not blocking
+3. If user wants to fix them: use `/fix-bug BUG-XX-NNN` for each
+4. Continue to the next step — high bugs are informational, not blocking
 
 **If only `medium`/`low` or no bugs exist**, proceed normally.
 
@@ -469,10 +470,21 @@ Use AskUserQuestion with options. The options depend on the blocker state:
 
 **Why:** This gives the user control over execution granularity. Large sections can produce significant changes — pausing between subsections allows review, course-correction, and incremental commits.
 
-If the user chose "Full section", proceed through all subsections without stopping. If "Subsection-by-subsection", after completing each subsection's work (all its checkboxes), present a brief status update and use AskUserQuestion with:
-1. **Continue to next subsection** — Proceed to the next incomplete subsection
-2. **Run /commit-push and continue** — Commit current work via `/commit-push` skill, then proceed
-3. **Stop here** — End work for now (run `/commit-push` first if there are changes)
+**Subsection close-out is MANDATORY regardless of pacing choice.** Whether the user picked "Full section" or "Subsection-by-subsection", every subsection close-out MUST include the per-subsection `/improve-tooling` retrospective BEFORE moving to the next subsection. The pacing choice only controls whether you pause for user review — it does NOT skip the retrospective. Pacing determines who reviews; the retrospective determines whether tooling grows.
+
+**Subsection close-out sequence** (run for every subsection, both pacing modes):
+
+1. All subsection tasks are `[x]` and the subsection's behavior is verified.
+2. Update the subsection's `status` in section frontmatter to `complete`.
+3. **Run `/improve-tooling` retrospectively on THIS subsection** — invoke the skill in per-subsection mode (see `.claude/skills/improve-tooling/SKILL.md` "Per-Subsection Workflow"). Reflect on this subsection's debugging journey: which `diagnostics/` scripts you ran, where you added `dbg!`/`tracing` calls, where output was hard to interpret, where test failures gave unhelpful messages, where you ran the same command sequence repeatedly. Forward-look: what tool/log/diagnostic would shorten the next regression in this code path by 10 minutes? Implement every accepted improvement NOW (zero deferral). Commit each via SEPARATE `/commit-push` using a valid conventional-commit type (e.g., `build(diagnostics): add X to Y.sh — surfaced by {plan}/section-{NN}.M retrospective` — use `build` for dev/diagnostic scripts, `test` for test-harness, `chore` for general tooling, `ci` for CI, `docs` for tool docs; do NOT use `tools(...)` — the lefthook commit-msg hook rejects any type outside the standard set `feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert`). Verify each improvement against the original friction. If genuinely no gaps, document briefly: "Retrospective {NN}.M: no tooling gaps". Mandatory even when nothing felt painful — that is exactly when blind spots accumulate. **Do NOT batch this to section close** — pain memory has already decayed by then.
+4. `/commit-push` for the subsection's implementation work (separate from any tooling commits in step 3).
+
+**Then** apply the pacing choice:
+- If user chose "Full section", proceed directly to the next subsection (the close-out above already ran).
+- If user chose "Subsection-by-subsection", present a brief status update including the retrospective outcome ("Retrospective {NN}.M: 2 improvements committed: {commits}" OR "Retrospective {NN}.M: no gaps") and use AskUserQuestion with:
+  1. **Continue to next subsection** — Proceed to the next incomplete subsection
+  2. **Run /commit-push and continue** — Commit any remaining changes, then proceed
+  3. **Stop here** — End work for now (run `/commit-push` first if there are changes)
 
 ### Step 6: Execute Work
 
@@ -574,19 +586,68 @@ This applies to ALL skills: `/code-journey`, `/review-plan`, `/sync-spec`, etc.
 ### After Writing Code
 
 1. **Run tests** — `./test-all.sh` to verify everything passes
-2. **Check for interference** — if your fix introduces NEW failures that weren't failing before, this is INTERFERENCE from another bug, not a "pre-existing issue." The correct response: revert your fix, fix the interfering bug first (it's now a dependency), then re-apply your fix. Never declare a bug fixed when the test suite has more failures than before your fix. Never rationalize the new failures as "pre-existing" — the interference made them your problem.
+2. **Check for interference** — if your fix introduces NEW failures that weren't failing before, this is INTERFERENCE from another bug, not a "pre-existing issue." The correct response: revert your fix, fix the interfering bug first using `/fix-bug` (it's now a dependency — the interfering bug gets full plan-section rigor: root cause analysis, TDD matrix, TPR, hygiene review), then re-apply your fix. Never declare a bug fixed when the test suite has more failures than before your fix. Never rationalize the new failures as "pre-existing" — the interference made them your problem.
 3. **Verify matrix coverage** — if the fix is type-dependent or pattern-dependent, confirm that tests cover all relevant type x pattern combinations. Missing cells in the matrix are potential regressions. See `.claude/rules/tests.md` Matrix Testing Rule.
 4. **Check plan boundary integrity** — did this fix modify code referenced by another section's tasks? If yes, update that section's plan to reflect the change. No silent cross-section absorption.
-4. **Check formatting impact** — If syntax was added or changed:
+5. **Check formatting impact** — If syntax was added or changed:
    - Does the formatter handle the new syntax? Check `compiler/ori_fmt/`
    - Are formatting tests needed? Check/update `tests/spec/formatting/`
    - Run `./fmt-all.sh` to ensure formatter still works
-5. **Update section file** — Check off completed items with `[x]`
-6. **Update YAML frontmatter** — See "Updating Section File Frontmatter" below
-7. **Clean up plan annotations** — Run `.claude/skills/impl-hygiene-review/plan-annotations.sh --plan NN` (where NN is the section number) to find annotations in source code referencing the completed section. Remove all stale annotations (TPR-NN-XXX, CROSS-NN-XXX, BUG-NN-XX, §NN.X, Phase refs, etc.) from `.rs` files. Spec references (`Spec: Clause N.M`) are permanent and must NOT be removed. This is mandatory before marking a section complete.
-8. **Run `/commit-push`** — NEVER commit directly with `git commit`. Always use the `/commit-push` skill.
-9. **Run `/tpr-review` after section completion — MUST PASS CLEAN** — When ALL checkboxes in a section are checked and the section is about to be marked `complete`, run `/tpr-review` for an independent Codex review. **The TPR must come back completely clean before the section can be closed out.** If `/tpr-review` surfaces ANY findings: (1) triage them through Step 1.9 (TPR Triage Gate), (2) fix all accepted findings, (3) **re-run `/tpr-review`** to confirm clean. Repeat this cycle until the review passes with zero unresolved findings. A section CANNOT be marked `complete` until a clean `/tpr-review` pass is achieved — "all findings triaged" is not sufficient, the re-run must confirm they are actually resolved. **This rule is definitive and non-negotiable. Do not reason about whether a TPR pass is "close enough", whether remaining findings are "minor", or whether the section is "effectively complete". There is no judgement call — either the TPR is clean or the section stays open. No exceptions, no rationalizations, no shortcuts.**
-10. **Run `/impl-hygiene-review last commit` after TPR is clean — MUST PASS** — After `/tpr-review` passes clean, run `/impl-hygiene-review last commit` (or scope to the section's commits) for a deep hygiene sweep: phase boundaries, SSOT, algorithmic DRY, naming, file organization. If `/impl-hygiene-review` surfaces critical or major findings: fix them, re-run `/tpr-review` (since code changed), then re-run `/impl-hygiene-review`. **A section CANNOT be marked `complete` until both `/tpr-review` AND `/impl-hygiene-review` pass clean.** The hygiene review is the final quality gate — it catches plumbing-layer issues (leaked dispatch, scattered knowledge, algorithmic duplication) that TPR is not designed to detect. Same non-negotiable rule as TPR: clean or open, no middle ground.
+6. **Update section file** — Check off completed items with `[x]`
+7. **Update YAML frontmatter** — See "Updating Section File Frontmatter" below
+8. **Clean up plan annotations** — Run `.claude/skills/impl-hygiene-review/plan-annotations.sh --plan NN` (where NN is the section number) to find annotations in source code referencing the completed section. Remove all stale annotations (TPR-NN-XXX, CROSS-NN-XXX, BUG-NN-XX, §NN.X, Phase refs, etc.) from `.rs` files. Spec references (`Spec: Clause N.M`) are permanent and must NOT be removed. This is mandatory before marking a section complete.
+9. **Run `/commit-push`** — NEVER commit directly with `git commit`. Always use the `/commit-push` skill.
+10. **Run `/tpr-review` after section completion — MUST PASS CLEAN** — When ALL checkboxes in a section are checked and the section is about to be marked `complete`, run `/tpr-review` for an independent Codex review. **The TPR must come back completely clean before the section can be closed out.** If `/tpr-review` surfaces ANY findings: (1) triage them through Step 1.9 (TPR Triage Gate), (2) fix all accepted findings, (3) **re-run `/tpr-review`** to confirm clean. Repeat this cycle until the review passes with zero unresolved findings. A section CANNOT be marked `complete` until a clean `/tpr-review` pass is achieved — "all findings triaged" is not sufficient, the re-run must confirm they are actually resolved. **This rule is definitive and non-negotiable. Do not reason about whether a TPR pass is "close enough", whether remaining findings are "minor", or whether the section is "effectively complete". There is no judgement call — either the TPR is clean or the section stays open. No exceptions, no rationalizations, no shortcuts.**
+11. **Run `/impl-hygiene-review` after TPR is clean — MUST PASS** — After `/tpr-review` passes clean, run `/impl-hygiene-review` (or scope to the section's commits) for a deep hygiene sweep: phase boundaries, SSOT, algorithmic DRY, naming, file organization. If `/impl-hygiene-review` surfaces critical or major findings: fix them, re-run `/tpr-review` (since code changed), then re-run `/impl-hygiene-review`. **A section CANNOT be marked `complete` until both `/tpr-review` AND `/impl-hygiene-review` pass clean.** The hygiene review is the final quality gate — it catches plumbing-layer issues (leaked dispatch, scattered knowledge, algorithmic duplication) that TPR is not designed to detect. Same non-negotiable rule as TPR: clean or open, no middle ground.
+12. **Run `/improve-tooling` section-close sweep after both reviews are clean — MANDATORY safety net at every section close** — Once `/tpr-review` and `/impl-hygiene-review` both pass clean, invoke `/improve-tooling` in **section-close sweep mode** (see the skill's "Retrospective Mode" → "Section-Close Sweep Workflow"). The sweep is NOT the primary tooling capture — that already happened per-subsection in Step 5.5 — the sweep is a safety net that does TWO things: (1) **Verify** every subsection in this section has either an "improvements made" entry (with commits) or a documented "no gaps" negative finding from its own per-subsection retrospective. If any subsection skipped its retrospective, **STOP** — go back and run it now. The sweep cannot substitute for missed per-subsection captures. (2) **Look for cross-subsection patterns** invisible at per-item scope: command sequences repeated when transitioning between *different* subsections, integration test failures with worse messages than within-subsection failures, mental cross-referencing across files no tool combined, instrumentation that only became obvious after seeing all subsections together. Add ONLY new items that emerged from these cross-cutting patterns — do not duplicate per-subsection findings. Implement every accepted item NOW (zero deferral). Commit via `/commit-push` as **separate commits** using a valid conventional-commit type: `build(diagnostics): add X — surfaced by section-NN close sweep` (or `test(...)`, `chore(...)`, `ci(...)`, `docs(...)` as appropriate; do NOT use `tools(...)` — the lefthook commit-msg hook rejects it). Verify each improvement against the original scenario. **Most sweeps produce zero new findings when per-subsection captures are thorough — that is the expected, healthy outcome** and must be documented: "Section-close sweep: per-subsection retrospectives covered everything; no cross-subsection patterns required new tooling." If your sweep produces 8 findings while per-subsection retrospectives produced 0, the per-subsection captures were skipped — diagnose the process failure, not the symptoms. Do not silently skip.
+
+---
+
+## Bugs Discovered During Plan Execution
+
+When implementing a roadmap section, you WILL discover bugs — test failures, wrong output, crashes, spec/impl mismatches, edge cases. These bugs need structured handling, not ad-hoc fixes.
+
+### Decision Tree
+
+```
+Bug discovered during plan execution
+  │
+  ├─ 1. Is it CRITICAL severity?
+  │     └── YES → /fix-bug immediately (even if not directly blocking)
+  │               Critical bugs compound — they will interfere with later work
+  │
+  ├─ 2. Does it BLOCK the current task?
+  │     └── YES → /fix-bug NOW
+  │               Creates fix section, TDD matrix, completion checklist
+  │               Resume plan work after /fix-bug completes
+  │
+  ├─ 3. Is it HIGH severity?
+  │     └── /add-bug now (tracked), /fix-bug when entering adjacent code
+  │
+  └─ 4. MEDIUM or LOW severity?
+        └── /add-bug — file and continue
+```
+
+**Evaluation order matters:** check critical first (always fix), then blocking (always fix), then high (file now, fix soon), then medium/low (file and continue).
+
+### Key Rules
+
+1. **Every bug gets at least `/add-bug`** — no bug discovered during plan work goes untracked. "I'll remember it" is not tracking.
+
+2. **Blocking bugs get `/fix-bug`** — if a bug prevents the current plan task from completing, invoke `/fix-bug BUG-XX-NNN`. This pauses plan work, creates a fix section with full rigor, and resumes plan work after completion.
+
+3. **The fix section is the plan section for the bug** — it has the same rigor as a roadmap section: root cause analysis, TDD matrix (semantic + negative pins), implementation, completion checklist (test-all, TPR, hygiene). No ad-hoc fixes, even for "obvious" bugs.
+
+4. **Fix sections track back to the plan** — note in the fix section: "Discovered during roadmap section {NN} implementation." Note in the plan section: "Blocked by BUG-XX-NNN (see `plans/bug-tracker/fix-BUG-XX-NNN.md`)."
+
+5. **Interference bugs get `/fix-bug` too** — when your plan work surfaces a new bug (test that was passing now fails), revert your change, `/fix-bug` the interfering bug, then re-apply your plan work.
+
+### What NOT to Do
+
+- **Do NOT fix bugs inline without a fix section** — "it's a one-liner" is not an excuse. The fix section ensures TDD, TPR, and hygiene happen.
+- **Do NOT skip `/add-bug` for bugs you won't fix now** — the bug tracker is the system of record. Mental notes are deferral.
+- **Do NOT rationalize away discovered bugs** — "that's pre-existing" is diagnosis, not justification. File it (`/add-bug`) or fix it (`/fix-bug`).
+- **Do NOT batch bug fixes without fix sections** — each bug (or tightly related cluster) gets its own fix section.
 
 ---
 
@@ -740,7 +801,8 @@ When completing a roadmap item:
   - [ ] Update subsection `status` in YAML frontmatter if subsection is now complete
   - [ ] Update section `status` in YAML frontmatter if all subsections are now complete
 - [ ] Run `/tpr-review` — MUST PASS CLEAN (zero unresolved findings). If findings surface: fix, re-run, repeat until clean. This is definitive — no reasoning about "close enough" or "minor remaining". Clean or open, no middle ground.
-- [ ] Run `/impl-hygiene-review last commit` — MUST PASS CLEAN after `/tpr-review` is clean. Catches plumbing-layer issues (SSOT, algorithmic DRY, phase boundaries, naming) that TPR doesn't detect. If findings surface: fix, re-run `/tpr-review` (code changed), then re-run `/impl-hygiene-review`. Both must be clean before section closure.
+- [ ] Run `/impl-hygiene-review` — MUST PASS CLEAN after `/tpr-review` is clean. Catches plumbing-layer issues (SSOT, algorithmic DRY, phase boundaries, naming) that TPR doesn't detect. If findings surface: fix, re-run `/tpr-review` (code changed), then re-run `/impl-hygiene-review`. Both must be clean before section closure.
+- [ ] Run `/improve-tooling` **section-close sweep** — MANDATORY safety net at every section close, after both reviews are clean. Per-subsection retrospectives are the PRIMARY tooling capture and should already have been run + committed during Step 5.5 for every subsection in this section. The sweep does TWO things: (1) **Verify** every subsection has either an "improvements made" entry (with commits) or a documented "no gaps" negative finding from its own retrospective. If any subsection skipped its retrospective, STOP and run it now — the sweep cannot substitute for missed per-subsection captures. (2) **Look for cross-subsection patterns** invisible at per-item scope: command sequences repeated when transitioning between *different* subsections, integration test failures with worse messages, mental cross-referencing across files no tool combined, instrumentation that only became obvious after seeing all subsections together. Add only NEW cross-cutting items — do not duplicate per-subsection findings. Implement immediately, commit separately using a valid conventional-commit type (`build(diagnostics): add X — surfaced by section-NN close sweep` — `build`/`test`/`chore`/`ci`/`docs` are the valid types for tooling work; do NOT use `tools(...)`, the lefthook commit-msg hook rejects it), verify against the original scenario. Most sweeps produce zero new findings when per-subsection captures were thorough — that is the expected outcome and must be documented: "Section-close sweep: per-subsection retrospectives covered everything; no cross-subsection patterns required new tooling." Do not silently skip.
 - [ ] **Plan-wide accuracy audit** (MANDATORY on every section completion):
   - [ ] Read the ENTIRE `00-overview.md` — verify every section's status in the Quick Reference table matches reality (check frontmatter of each section file). Fix any stale statuses.
   - [ ] Read the ENTIRE `index.md` — verify every section's status matches reality. Fix any stale statuses.

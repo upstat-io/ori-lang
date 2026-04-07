@@ -473,18 +473,25 @@ pub extern "C" fn ori_iter_last(iter: *mut u8, elem_size: i64, out_ptr: *mut u8)
 /// The `to_str_fn` trampoline converts non-string elements to strings.
 /// If `to_str_fn` is null, elements are assumed to be strings.
 ///
+/// The separator is passed as its 3 struct fields (matching LLVM `{i64, i64, ptr}`
+/// layout for `OriStr`). This is SSO-safe because the runtime reconstructs the
+/// full `OriStr` union from the raw fields.
+///
 /// Writes the resulting `OriStr` to `out_ptr` (sret pattern, 24 bytes).
 #[no_mangle]
 pub extern "C" fn ori_iter_join(
     iter: *mut u8,
-    sep_data: *const u8,
-    sep_len: i64,
+    sep_field0: i64,
+    sep_field1: i64,
+    sep_field2: *const u8,
     to_str_fn: Option<extern "C" fn(*mut u8, *const u8, *mut u8)>,
     to_str_env: *mut u8,
     elem_size: i64,
     out_ptr: *mut u8,
 ) {
     use crate::string::OriStr;
+
+    assert_elem_size(elem_size, "ori_iter_join");
 
     if out_ptr.is_null() {
         if !iter.is_null() {
@@ -508,13 +515,28 @@ pub extern "C" fn ori_iter_join(
     }
 
     let state = unsafe { &mut *iter.cast::<IterState>() };
-    let sep = if sep_data.is_null() || sep_len <= 0 {
-        ""
-    } else {
-        unsafe {
-            std::str::from_utf8_unchecked(std::slice::from_raw_parts(sep_data, sep_len as usize))
-        }
+    // Reconstruct OriStr from the 3 struct fields passed by LLVM codegen.
+    // The fields are the raw bits of {len, cap, data} — for SSO strings these
+    // are the inline bytes reinterpreted through the heap layout. OriStr's
+    // is_sso() detects SSO by checking byte 23 (the MSB of the data pointer
+    // in heap layout, or the flags byte in SSO layout).
+    // NOTE: SSO discrimination relies on canonical 64-bit addressing (pointer
+    // MSB clear for heap pointers). This is true on all current targets
+    // (x86_64, aarch64) but would break on exotic architectures with
+    // high-bit-set user-space pointers.
+    let sep_str = OriStr {
+        heap: crate::string::OriStrHeap {
+            len: sep_field0,
+            cap: sep_field1,
+            data: sep_field2 as *mut u8,
+        },
     };
+    // Borrow directly — no allocation needed. SSO bytes are inline in
+    // sep_str (stack-local), heap bytes are RC-managed by the caller.
+    // Both outlive the loop below.
+    // SAFETY: sep_str was reconstructed from valid OriStr fields passed
+    // by codegen; the data pointer (heap) or inline bytes (SSO) are valid.
+    let sep = unsafe { sep_str.as_str() };
 
     let mut result = String::new();
     let mut elem_buf = [0u8; MAX_ELEM_SIZE];

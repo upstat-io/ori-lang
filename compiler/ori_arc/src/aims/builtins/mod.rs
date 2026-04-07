@@ -109,6 +109,96 @@ fn seed_internal_runtime_contracts(
         fip: FipContract::Never,
         is_fbip: false,
     });
+
+    // TPR-07-008: Iterator adapter and consumer runtime functions.
+    //
+    // Every `ori_iter_*` adapter/consumer that takes `iter: *mut u8` as
+    // its first parameter **consumes** that iterator via
+    // `Box::from_raw(iter.cast::<IterState>())`. Before the iterator
+    // triviality flip, this was invisible to the ARC pipeline because
+    // iterators were Scalar and no drops were emitted. Now that
+    // iterators are non-trivial, we must tell the borrow inference
+    // that these calls are consumption events — otherwise the ARC
+    // pipeline will insert a scope-exit `ori_iter_drop` for the same
+    // handle that the adapter/consumer already freed (double-free).
+    //
+    // The remaining arguments (transform_fn, elem_size, predicates,
+    // out pointers, etc.) are borrowed — they're raw function pointers,
+    // element size constants, or scratch buffers that the caller owns.
+    seed_iter_consuming_runtime(sigs, interner);
+}
+
+// Adapters and consumers that consume a single iterator (arg 0).
+// Each takes `iter` first, then various borrowed arguments
+// (function pointers, element sizes, out pointers).
+const SINGLE_ITER_CONSUMERS: &[(&str, usize)] = &[
+    // Adapters — `iter, ...other_borrowed`
+    ("ori_iter_map", 4),       // iter, fn, env, in_size
+    ("ori_iter_filter", 4),    // iter, fn, env, elem_size
+    ("ori_iter_take", 2),      // iter, n
+    ("ori_iter_skip", 2),      // iter, n
+    ("ori_iter_enumerate", 1), // iter
+    ("ori_iter_flatten", 2),   // iter, inner_elem_size
+    ("ori_iter_cycle", 2),     // iter, elem_size
+    ("ori_iter_rev", 2),       // iter, elem_size
+    // Consumers — `iter, ...other_borrowed`
+    ("ori_iter_collect", 3), // iter, elem_size, elem_inc_fn
+    // collect_set excluded — already handled by ProtocolBuiltin::CollectSet.
+    ("ori_iter_count", 2),    // iter, elem_size
+    ("ori_iter_any", 4),      // iter, pred_fn, pred_env, elem_size
+    ("ori_iter_all", 4),      // iter, pred_fn, pred_env, elem_size
+    ("ori_iter_find", 5),     // iter, pred_fn, pred_env, elem_size, out_ptr
+    ("ori_iter_for_each", 4), // iter, each_fn, each_env, elem_size
+    ("ori_iter_fold", 5),     // iter, init_ptr, fold_fn, fold_env, elem_size
+    ("ori_iter_last", 3),     // iter, elem_size, out_ptr
+    ("ori_iter_join", 5),     // iter, sep_f0, sep_f1, sep_f2, out_ptr
+    ("ori_iter_rfold", 5),    // iter, init_ptr, fold_fn, fold_env, elem_size
+    ("ori_iter_rfind", 5),    // iter, pred_fn, pred_env, elem_size, out_ptr
+];
+
+// Adapters that consume *two* iterators: ori_iter_zip and
+// ori_iter_chain. zip also takes a trailing elem_size (borrowed).
+const DOUBLE_ITER_CONSUMERS: &[(&str, usize)] = &[
+    ("ori_iter_zip", 3),   // left, right, left_elem_size
+    ("ori_iter_chain", 2), // first, second
+];
+
+/// Seed `Owned` contracts for every `ori_iter_*` runtime function that
+/// consumes its iterator argument(s). See the caller for context.
+fn seed_iter_consuming_runtime(
+    sigs: &mut FxHashMap<Name, MemoryContract>,
+    interner: &StringInterner,
+) {
+    for &(name, arity) in SINGLE_ITER_CONSUMERS {
+        let name_id = interner.intern(name);
+        let mut params = Vec::with_capacity(arity);
+        params.push(PARAM_OWNED_LINEAR);
+        params.extend(std::iter::repeat_n(PARAM_BORROWED, arity - 1));
+        sigs.entry(name_id).or_insert_with(|| MemoryContract {
+            params,
+            return_info: ReturnContract::CONSERVATIVE,
+            effects: EffectSummary::default(),
+            context_behavior: ContextBehavior::default(),
+            fip: FipContract::Never,
+            is_fbip: false,
+        });
+    }
+
+    for &(name, arity) in DOUBLE_ITER_CONSUMERS {
+        let name_id = interner.intern(name);
+        let mut params = Vec::with_capacity(arity);
+        params.push(PARAM_OWNED_LINEAR); // left / first
+        params.push(PARAM_OWNED_LINEAR); // right / second
+        params.extend(std::iter::repeat_n(PARAM_BORROWED, arity - 2));
+        sigs.entry(name_id).or_insert_with(|| MemoryContract {
+            params,
+            return_info: ReturnContract::CONSERVATIVE,
+            effects: EffectSummary::default(),
+            context_behavior: ContextBehavior::default(),
+            fip: FipContract::Never,
+            is_fbip: false,
+        });
+    }
 }
 
 // Contract constructors

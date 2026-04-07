@@ -55,6 +55,8 @@ sections:
 - [ ] Rewrite all 6+ existing functions as thin wrappers that construct the appropriate config and call the canonical function (including `resolve_type_with_self`, `resolve_parsed_type_list`)- [ ] Verify: the canonical function handles ALL `ParsedType` variants (Primitive, List, FixedList, Map, Tuple, Function, Named, Option, Result, Set, TraitBounds, SelfType, AssociatedType, ExistentialType, ConstGeneric, etc.)
 - [ ] Verify: all existing type checker tests pass unchanged
 
+- [ ] **Subsection close-out (04.1)** — MANDATORY before starting the next subsection. Run `/improve-tooling` retrospectively on THIS subsection's debugging journey (per `.claude/skills/improve-tooling/SKILL.md` "Per-Subsection Workflow"): which `diagnostics/` scripts you ran, where you added `dbg!`/`tracing` calls, where output was hard to interpret, where test failures gave unhelpful messages, where you ran the same command sequence repeatedly. Forward-look: what tool/log/diagnostic would shorten the next regression in this code path by 10 minutes? Implement improvements NOW (zero deferral) and commit each via SEPARATE `/commit-push` using a valid conventional-commit type (`build(diagnostics): ... — surfaced by section-04.1 retrospective` — `build`/`test`/`chore`/`ci`/`docs` are valid; `tools(...)` is rejected by the lefthook commit-msg hook). Mandatory even when nothing felt painful. If genuinely no gaps, document briefly: "Retrospective 04.1: no tooling gaps". Update this subsection's `status` in section frontmatter to `complete`.
+
 ---
 
 ## 04.2 Unify Well-Known Type Tables
@@ -66,6 +68,8 @@ Two pairs of functions encode the same tables in both string and Name forms: `re
 - [ ] **WHERE:** `compiler/ori_types/src/check/well_known/mod.rs` — find `resolve_well_known_generic()` (string-based) and corresponding `WellKnownNames::resolve_generic()` (Name-based); also find `is_concrete_named_type()` and `WellKnownNames::is_concrete()`
 - [ ] Make the string-based versions derive from the Name-based versions: string function interns the string, then delegates to the Name-based function. This ensures one canonical table.- [ ] If WellKnownNames is not always available (e.g., in isolated tests), provide a `from_str()` lookup that maps through interning rather than maintaining a parallel table
 - [ ] Verify: adding a new well-known type requires updating exactly ONE location — add a test that the string-based and Name-based tables produce identical results for all entries
+
+- [ ] **Subsection close-out (04.2)** — MANDATORY before starting the next subsection. Run `/improve-tooling` retrospectively on THIS subsection's debugging journey (per `.claude/skills/improve-tooling/SKILL.md` "Per-Subsection Workflow"): which `diagnostics/` scripts you ran, where you added `dbg!`/`tracing` calls, where output was hard to interpret, where test failures gave unhelpful messages, where you ran the same command sequence repeatedly. Forward-look: what tool/log/diagnostic would shorten the next regression in this code path by 10 minutes? Implement improvements NOW (zero deferral) and commit each via SEPARATE `/commit-push` using a valid conventional-commit type (`build(diagnostics): ... — surfaced by section-04.2 retrospective` — `build`/`test`/`chore`/`ci`/`docs` are valid; `tools(...)` is rejected by the lefthook commit-msg hook). Mandatory even when nothing felt painful. If genuinely no gaps, document briefly: "Retrospective 04.2: no tooling gaps". Update this subsection's `status` in section frontmatter to `complete`.
 
 ---
 
@@ -81,6 +85,9 @@ Unit and Never have no TypeDef in ori_registry, forcing hardcoded trait satisfac
 - [ ] Remove hardcoded Unit/Never fallbacks from `registry_bridge/mod.rs:65-75`
 - [ ] Verify: `registry_satisfies_trait()` correctly resolves Unit and Never traits via registry query
 - [ ] **WARNING:** Adding TypeDefs for Unit/Never changes how trait satisfaction is resolved for these types. Run `timeout 150 cargo st` to verify all spec tests pass — any test involving `void` or `Never` types could break if the trait set is wrong.
+
+- [ ] **Subsection close-out (04.3)** — MANDATORY before starting the next subsection. Run `/improve-tooling` retrospectively on THIS subsection's debugging journey (per `.claude/skills/improve-tooling/SKILL.md` "Per-Subsection Workflow"): which `diagnostics/` scripts you ran, where you added `dbg!`/`tracing` calls, where output was hard to interpret, where test failures gave unhelpful messages, where you ran the same command sequence repeatedly. Forward-look: what tool/log/diagnostic would shorten the next regression in this code path by 10 minutes? Implement improvements NOW (zero deferral) and commit each via SEPARATE `/commit-push` using a valid conventional-commit type (`build(diagnostics): ... — surfaced by section-04.3 retrospective` — `build`/`test`/`chore`/`ci`/`docs` are valid; `tools(...)` is rejected by the lefthook commit-msg hook). Mandatory even when nothing felt painful. If genuinely no gaps, document briefly: "Retrospective 04.3: no tooling gaps". Update this subsection's `status` in section frontmatter to `complete`.
+
 ---
 
 ## 04.R Third Party Review Findings
@@ -125,4 +132,5 @@ This section refactors the most complex compiler subsystem (type resolution). Ze
 - [ ] `timeout 150 ./test-all.sh` passes
 - [ ] `./clippy-all.sh` clean
 - [ ] `/tpr-review` covering Section 04
-- [ ] `/impl-hygiene-review last commit`
+- [ ] `/impl-hygiene-review`
+- [ ] `/improve-tooling` retrospective completed — MANDATORY at section close, after both reviews are clean. Reflect on the section's debugging journey (which `diagnostics/` scripts you ran, which command sequences you repeated, where you added ad-hoc `dbg!`/`tracing` calls, where output was hard to interpret) and identify any tool/log/diagnostic improvement that would have made this section materially easier OR that would help the next section touching this area. Implement every accepted improvement NOW (zero deferral) and commit each via SEPARATE `/commit-push`. The retrospective is mandatory even when nothing felt painful — that is exactly when blind spots accumulate. See `.claude/skills/improve-tooling/SKILL.md` "Retrospective Mode" for the full protocol.

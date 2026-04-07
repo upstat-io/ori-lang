@@ -79,6 +79,8 @@ Part of the `cargo t` wall time is spent COMPILING the test binaries, not runnin
 - **Validation**: Any `Cargo.toml` changes don't break `cargo t` or `cargo b`.
 - **Debug and release**: Both `timeout 150 cargo t` and `timeout 150 cargo b --release` must pass after changes.
 
+- [ ] **Subsection close-out (05.1)** — MANDATORY before starting the next subsection. Run `/improve-tooling` retrospectively on THIS subsection's debugging journey (per `.claude/skills/improve-tooling/SKILL.md` "Per-Subsection Workflow"): which `diagnostics/` scripts you ran, where you added `dbg!`/`tracing` calls, where output was hard to interpret, where test failures gave unhelpful messages, where you ran the same command sequence repeatedly. Forward-look: what tool/log/diagnostic would shorten the next regression in this code path by 10 minutes? Implement improvements NOW (zero deferral) and commit each via SEPARATE `/commit-push` using a valid conventional-commit type (`build(diagnostics): ... — surfaced by section-05.1 retrospective` — `build`/`test`/`chore`/`ci`/`docs` are valid; `tools(...)` is rejected by the lefthook commit-msg hook). Mandatory even when nothing felt painful. If genuinely no gaps, document briefly: "Retrospective 05.1: no tooling gaps". Update this subsection's `status` in section frontmatter to `complete`.
+
 ---
 
 ## 05.2 Test Execution Hot Paths
@@ -145,6 +147,8 @@ The flamegraphs from Section 03 will identify the top 10 hottest functions durin
 - **Semantic pin**: The existing test suite serves as the semantic pin for behavioral equivalence. Each optimization should also have a before/after timing measurement showing measurable improvement.
 - **Measurement**: Per-function timing before/after. Aggregate improvement on `cargo t` wall time.
 
+- [ ] **Subsection close-out (05.2)** — MANDATORY before starting the next subsection. Run `/improve-tooling` retrospectively on THIS subsection's debugging journey (per `.claude/skills/improve-tooling/SKILL.md` "Per-Subsection Workflow"): which `diagnostics/` scripts you ran, where you added `dbg!`/`tracing` calls, where output was hard to interpret, where test failures gave unhelpful messages, where you ran the same command sequence repeatedly. Forward-look: what tool/log/diagnostic would shorten the next regression in this code path by 10 minutes? Implement improvements NOW (zero deferral) and commit each via SEPARATE `/commit-push` using a valid conventional-commit type (`build(diagnostics): ... — surfaced by section-05.2 retrospective` — `build`/`test`/`chore`/`ci`/`docs` are valid; `tools(...)` is rejected by the lefthook commit-msg hook). Mandatory even when nothing felt painful. If genuinely no gaps, document briefly: "Retrospective 05.2: no tooling gaps". Update this subsection's `status` in section frontmatter to `complete`.
+
 ---
 
 ## 05.3 Workspace-Level Optimization
@@ -187,6 +191,8 @@ Optimizations at the workspace/build system level can reduce overhead that affec
 - **Debug and release**: `timeout 150 cargo t` and `timeout 150 cargo b --release` must both pass.
 - **Measurement**: Wall time before/after each change, measured with `hyperfine` for statistical validity (3+ runs).
 
+- [ ] **Subsection close-out (05.3)** — MANDATORY before starting the next subsection. Run `/improve-tooling` retrospectively on THIS subsection's debugging journey (per `.claude/skills/improve-tooling/SKILL.md` "Per-Subsection Workflow"): which `diagnostics/` scripts you ran, where you added `dbg!`/`tracing` calls, where output was hard to interpret, where test failures gave unhelpful messages, where you ran the same command sequence repeatedly. Forward-look: what tool/log/diagnostic would shorten the next regression in this code path by 10 minutes? Implement improvements NOW (zero deferral) and commit each via SEPARATE `/commit-push` using a valid conventional-commit type (`build(diagnostics): ... — surfaced by section-05.3 retrospective` — `build`/`test`/`chore`/`ci`/`docs` are valid; `tools(...)` is rejected by the lefthook commit-msg hook). Mandatory even when nothing felt painful. If genuinely no gaps, document briefly: "Retrospective 05.3: no tooling gaps". Update this subsection's `status` in section frontmatter to `complete`.
+
 ---
 
 ## 05.R Third Party Review Findings
@@ -207,6 +213,7 @@ Optimizations at the workspace/build system level can reduce overhead that affec
 - [ ] Optimizations documented with measured impact
 - [ ] `timeout 150 cargo t` green
 - [ ] `/tpr-review` passed — independent Codex review found no critical or major issues (or all findings triaged)
-- [ ] `/impl-hygiene-review last commit` passed — implementation hygiene review clean (phase boundaries, SSOT, algorithmic DRY, naming). MUST run AFTER `/tpr-review` is clean.
+- [ ] `/impl-hygiene-review` passed — implementation hygiene review clean (phase boundaries, SSOT, algorithmic DRY, naming). MUST run AFTER `/tpr-review` is clean.
+- [ ] `/improve-tooling` retrospective completed — MANDATORY at section close, after both reviews are clean. Reflect on the section's debugging journey (which `diagnostics/` scripts you ran, which command sequences you repeated, where you added ad-hoc `dbg!`/`tracing` calls, where output was hard to interpret) and identify any tool/log/diagnostic improvement that would have made this section materially easier OR that would help the next section touching this area. Implement every accepted improvement NOW (zero deferral) and commit each via SEPARATE `/commit-push`. The retrospective is mandatory even when nothing felt painful — that is exactly when blind spots accumulate. See `.claude/skills/improve-tooling/SKILL.md` "Retrospective Mode" for the full protocol.
 
 **Exit Criteria:** Each identified optimization is individually measured (before/after) and documented. No test code was modified. The flamegraph's top 10 hot functions have been addressed (either optimized or documented as "acceptable -- not optimizable without behavioral changes"). If Section 03's profiling reveals that non-AOT crates fully overlap with AOT execution (i.e., they finish before AOT does), the optimization focus shifts to compilation time reduction, which benefits wall time by reducing the sequential pre-test build phase.

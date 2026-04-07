@@ -14,6 +14,7 @@ Quick-access debugging tools for the Ori compiler's AOT/codegen pipeline. These 
 | `codegen-audit.sh` | Static RC/COW/ABI analysis of LLVM IR | RC corruption, double-free, ABI mismatch |
 | `rc-stats.sh` | RC operation count per function | Leak or over-release suspicion |
 | `ir-dump.sh` | Annotated LLVM IR with color-coded RC ops | Understanding what codegen actually emits |
+| `arc-dump.sh` | Annotated ARC IR (post-lowering, pre-RC) | Debugging AIMS pipeline: alias chains, take-projects, lineage |
 | `ir-diff.sh` | Side-by-side IR comparison of two programs | Regression hunting, before/after comparison |
 | `disasm-ori.sh` | Native disassembly with Ori symbol demangling | Instruction-level debugging |
 | `check-debug-flags.sh` | Validate `ORI_*` flag consistency | After adding/removing debug flags |
@@ -95,6 +96,16 @@ diagnostics/ir-dump.sh --raw file.ori              # Raw IR without annotations
 diagnostics/ir-dump.sh --optimized file.ori         # After LLVM optimization passes
 diagnostics/ir-dump.sh --function main file.ori     # Single function only
 ```
+
+### arc-dump.sh — ARC IR Dump (post-lowering, pre-RC)
+
+```bash
+diagnostics/arc-dump.sh file.ori                    # Annotated, color-coded ARC IR
+diagnostics/arc-dump.sh --raw file.ori              # Raw IR without annotations
+diagnostics/arc-dump.sh --function main file.ori    # Single function only
+```
+
+Captures the typed ARC IR via `ORI_DUMP_AFTER_ARC=1` — the IR after CanExpr lowering but before AIMS RC emission. Use this when debugging take-projects, alias chains, block params (phi merges), and `Project` / `Construct` / `Apply` / RC instructions. For LLVM IR (post-codegen) use `ir-dump.sh` instead.
 
 ### ir-diff.sh — IR Comparison
 

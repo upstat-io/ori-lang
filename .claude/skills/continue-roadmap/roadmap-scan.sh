@@ -57,7 +57,7 @@ for plan_index in plans/*/index.md; do
         [[ "$plan_total" -gt 0 ]] && plan_pct=$((plan_checked * 100 / plan_total))
         type_label="reroute"
         [[ "$fm_is_reroute" != "true" ]] && type_label="parallel"
-        active_reroutes+=("${type_label}|${display_name}|${plan_dir}|${plan_checked}/${plan_total} (${plan_pct}%)")
+        active_reroutes+=("${fm_order}|${type_label}|${display_name}|${plan_dir}|${plan_checked}/${plan_total} (${plan_pct}%)")
         [[ "$fm_is_reroute" == "true" ]] && has_active_reroute=true
     elif [[ "$fm_status" == "queued" ]]; then
         type_label="reroute"
@@ -69,10 +69,17 @@ done
 # Display reroute status
 if [[ ${#active_reroutes[@]} -gt 0 || ${#queued_reroutes[@]} -gt 0 ]]; then
     echo "=== REROUTES ==="
-    for entry in "${active_reroutes[@]}"; do
-        IFS='|' read -r rtype rname rdir rprog <<< "$entry"
-        echo "[ACTIVE ${rtype}] ${rname} — ${rdir} — ${rprog}"
-    done
+    # Sort active reroutes by order field (numeric, ascending) so the highest-priority
+    # active reroute appears first. Critical when multiple reroutes are status: active —
+    # without this the queue is ambiguous and /continue-roadmap cannot pick a focus.
+    if [[ ${#active_reroutes[@]} -gt 0 ]]; then
+        IFS=$'\n' sorted_active=($(printf '%s\n' "${active_reroutes[@]}" | sort -t'|' -k1 -n))
+        unset IFS
+        for entry in "${sorted_active[@]}"; do
+            IFS='|' read -r rorder rtype rname rdir rprog <<< "$entry"
+            echo "[ACTIVE ${rtype}] ${rname} — ${rdir} — ${rprog} (order: ${rorder})"
+        done
+    fi
     # Sort queued reroutes by order field (numeric, ascending)
     IFS=$'\n' sorted_queued=($(printf '%s\n' "${queued_reroutes[@]}" | sort -t'|' -k1 -n))
     unset IFS
@@ -81,6 +88,43 @@ if [[ ${#active_reroutes[@]} -gt 0 || ${#queued_reroutes[@]} -gt 0 ]]; then
         echo "[queued ${rtype}] ${rname} — ${rdir} (order: ${rorder})"
     done
     echo ""
+fi
+
+# ── Active reroute short-circuit ──
+# When scanning the main roadmap (the default) and at least one ACTIVE reroute
+# exists, the reroute takes priority over all main-roadmap work — that is the
+# entire point of the reroute system. Without this short-circuit the script
+# would proceed to compute and print the FOCUS block for the main roadmap
+# (which the workflow then discards), and the user would have to manually
+# re-invoke this scanner against the rerouted plan's directory. Reassign
+# ROADMAP_DIR in place so the rest of the script (find_section_file,
+# dependency-graph parse, main section scan loop) automatically operates on
+# the highest-priority active reroute's plan directory instead. The REROUTES
+# block above is emitted exactly once and shows all reroutes in priority
+# order, so the user still sees the full reroute landscape.
+#
+# Parallel plans (`reroute: false, parallel: true`) do NOT trigger delegation:
+# they run alongside the main roadmap by design (e.g., bug-tracker, aot-perf)
+# and would block visibility of normal roadmap status if they hijacked the
+# focus block. Only `reroute: true` plans short-circuit.
+#
+# Explicit invocation (e.g., `roadmap-scan.sh plans/repr-opt`) skips the
+# short-circuit because ROADMAP_DIR is no longer "plans/roadmap" — the user
+# has already chosen which plan to scan.
+if [[ "$has_active_reroute" == "true" && "$ROADMAP_DIR" == "plans/roadmap" ]]; then
+    if [[ ${#active_reroutes[@]} -gt 0 ]]; then
+        IFS=$'\n' _delegated=($(printf '%s\n' "${active_reroutes[@]}" | sort -t'|' -k1 -n))
+        unset IFS
+        for entry in "${_delegated[@]}"; do
+            IFS='|' read -r rorder rtype rname rdir rprog <<< "$entry"
+            if [[ "$rtype" == "reroute" ]]; then
+                echo "(focus delegated to highest-priority active reroute: ${rname} — order: ${rorder})"
+                echo ""
+                ROADMAP_DIR="$rdir"
+                break
+            fi
+        done
+    fi
 fi
 
 # ── Helper: find section file by section number ──

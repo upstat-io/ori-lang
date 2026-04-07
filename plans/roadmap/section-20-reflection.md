@@ -147,6 +147,8 @@ Parse ──→ Type Check ──→ Monomorphize ──→ ARC Lower ──→ 
 - [ ] **Semantic pin:** `fields_of(NewType)` returns `[{name: "inner", index: 0}]` — only passes with newtype support
 - [ ] **TDD:** Write failing tests first → implement → verify pass in debug and release
 
+- [ ] **Subsection close-out (20.1)** — MANDATORY before starting the next subsection. Run `/improve-tooling` retrospectively on THIS subsection's debugging journey (per `.claude/skills/improve-tooling/SKILL.md` "Per-Subsection Workflow"): which `diagnostics/` scripts you ran, where you added `dbg!`/`tracing` calls, where output was hard to interpret, where test failures gave unhelpful messages, where you ran the same command sequence repeatedly. Forward-look: what tool/log/diagnostic would shorten the next regression in this code path by 10 minutes? Implement improvements NOW (zero deferral) and commit each via SEPARATE `/commit-push` using a valid conventional-commit type (`build(diagnostics): ... — surfaced by section-20.1 retrospective` — `build`/`test`/`chore`/`ci`/`docs` are valid; `tools(...)` is rejected by the lefthook commit-msg hook). Mandatory even when nothing felt painful. If genuinely no gaps, document briefly: "Retrospective 20.1: no tooling gaps". Update this subsection's `status` in section frontmatter to `complete`.
+
 ---
 
 ## 20.2 Parser: $for, $if, and Splice Syntax
@@ -224,6 +226,8 @@ Parse ──→ Type Check ──→ Monomorphize ──→ ARC Lower ──→ 
 - [ ] **Semantic pin:** `$for` parses to `CompFor` not `For` — only passes with new AST variant
 - [ ] **TDD:** Write failing parse tests first
 
+- [ ] **Subsection close-out (20.2)** — MANDATORY before starting the next subsection. Run `/improve-tooling` retrospectively on THIS subsection's debugging journey (per `.claude/skills/improve-tooling/SKILL.md` "Per-Subsection Workflow"): which `diagnostics/` scripts you ran, where you added `dbg!`/`tracing` calls, where output was hard to interpret, where test failures gave unhelpful messages, where you ran the same command sequence repeatedly. Forward-look: what tool/log/diagnostic would shorten the next regression in this code path by 10 minutes? Implement improvements NOW (zero deferral) and commit each via SEPARATE `/commit-push` using a valid conventional-commit type (`build(diagnostics): ... — surfaced by section-20.2 retrospective` — `build`/`test`/`chore`/`ci`/`docs` are valid; `tools(...)` is rejected by the lefthook commit-msg hook). Mandatory even when nothing felt painful. If genuinely no gaps, document briefly: "Retrospective 20.2: no tooling gaps". Update this subsection's `status` in section frontmatter to `complete`.
+
 ---
 
 ## 20.3 $for Expansion During Monomorphization
@@ -281,6 +285,8 @@ Parse ──→ Type Check ──→ Monomorphize ──→ ARC Lower ──→ 
 - [ ] **Semantic pin:** `$for field in fields_of(User) yield field.name` produces `["name", "age"]` — only passes with heterogeneous expansion
 - [ ] **TDD:** Write failing expansion tests first
 
+- [ ] **Subsection close-out (20.3)** — MANDATORY before starting the next subsection. Run `/improve-tooling` retrospectively on THIS subsection's debugging journey (per `.claude/skills/improve-tooling/SKILL.md` "Per-Subsection Workflow"): which `diagnostics/` scripts you ran, where you added `dbg!`/`tracing` calls, where output was hard to interpret, where test failures gave unhelpful messages, where you ran the same command sequence repeatedly. Forward-look: what tool/log/diagnostic would shorten the next regression in this code path by 10 minutes? Implement improvements NOW (zero deferral) and commit each via SEPARATE `/commit-push` using a valid conventional-commit type (`build(diagnostics): ... — surfaced by section-20.3 retrospective` — `build`/`test`/`chore`/`ci`/`docs` are valid; `tools(...)` is rejected by the lefthook commit-msg hook). Mandatory even when nothing felt painful. If genuinely no gaps, document briefly: "Retrospective 20.3: no tooling gaps". Update this subsection's `status` in section frontmatter to `complete`.
+
 ---
 
 ## 20.4 $if Dead Branch Elimination and Splice Resolution
@@ -333,6 +339,8 @@ Parse ──→ Type Check ──→ Monomorphize ──→ ARC Lower ──→ 
 - [ ] **Semantic pin:** `$if is_struct(int) then compile_error("oops") else 42` produces `42` — dead branch not type-checked
 - [ ] **TDD:** Write failing tests first
 
+- [ ] **Subsection close-out (20.4)** — MANDATORY before starting the next subsection. Run `/improve-tooling` retrospectively on THIS subsection's debugging journey (per `.claude/skills/improve-tooling/SKILL.md` "Per-Subsection Workflow"): which `diagnostics/` scripts you ran, where you added `dbg!`/`tracing` calls, where output was hard to interpret, where test failures gave unhelpful messages, where you ran the same command sequence repeatedly. Forward-look: what tool/log/diagnostic would shorten the next regression in this code path by 10 minutes? Implement improvements NOW (zero deferral) and commit each via SEPARATE `/commit-push` using a valid conventional-commit type (`build(diagnostics): ... — surfaced by section-20.4 retrospective` — `build`/`test`/`chore`/`ci`/`docs` are valid; `tools(...)` is rejected by the lefthook commit-msg hook). Mandatory even when nothing felt painful. If genuinely no gaps, document briefly: "Retrospective 20.4: no tooling gaps". Update this subsection's `status` in section frontmatter to `complete`.
+
 ---
 
 ## 20.5 Type Classification Intrinsics
@@ -374,6 +382,8 @@ Parse ──→ Type Check ──→ Monomorphize ──→ ARC Lower ──→ 
 - [ ] **Matrix tests (expression form):** `is_option(value.[field])` inside $for, `is_struct(value.[field])` for nested struct, `is_primitive(value.[field])` for mixed-type struct
 - [ ] **Semantic pin:** `is_struct(int)` returns `false`, `is_struct(User)` returns `true`
 - [ ] **TDD:** Write failing tests first
+
+- [ ] **Subsection close-out (20.5)** — MANDATORY before starting the next subsection. Run `/improve-tooling` retrospectively on THIS subsection's debugging journey (per `.claude/skills/improve-tooling/SKILL.md` "Per-Subsection Workflow"): which `diagnostics/` scripts you ran, where you added `dbg!`/`tracing` calls, where output was hard to interpret, where test failures gave unhelpful messages, where you ran the same command sequence repeatedly. Forward-look: what tool/log/diagnostic would shorten the next regression in this code path by 10 minutes? Implement improvements NOW (zero deferral) and commit each via SEPARATE `/commit-push` using a valid conventional-commit type (`build(diagnostics): ... — surfaced by section-20.5 retrospective` — `build`/`test`/`chore`/`ci`/`docs` are valid; `tools(...)` is rejected by the lefthook commit-msg hook). Mandatory even when nothing felt painful. If genuinely no gaps, document briefly: "Retrospective 20.5: no tooling gaps". Update this subsection's `status` in section frontmatter to `complete`.
 
 ---
 
@@ -424,6 +434,8 @@ Parse ──→ Type Check ──→ Monomorphize ──→ ARC Lower ──→ 
 - [ ] **E0463: $if with non-const condition** — suggest `if` instead
 - [ ] **E0464: heterogeneous yield mismatch** — show per-iteration types
 
+- [ ] **Subsection close-out (20.6)** — MANDATORY before starting the next subsection. Run `/improve-tooling` retrospectively on THIS subsection's debugging journey (per `.claude/skills/improve-tooling/SKILL.md` "Per-Subsection Workflow"): which `diagnostics/` scripts you ran, where you added `dbg!`/`tracing` calls, where output was hard to interpret, where test failures gave unhelpful messages, where you ran the same command sequence repeatedly. Forward-look: what tool/log/diagnostic would shorten the next regression in this code path by 10 minutes? Implement improvements NOW (zero deferral) and commit each via SEPARATE `/commit-push` using a valid conventional-commit type (`build(diagnostics): ... — surfaced by section-20.6 retrospective` — `build`/`test`/`chore`/`ci`/`docs` are valid; `tools(...)` is rejected by the lefthook commit-msg hook). Mandatory even when nothing felt painful. If genuinely no gaps, document briefly: "Retrospective 20.6: no tooling gaps". Update this subsection's `status` in section frontmatter to `complete`.
+
 ---
 
 ## 20.R Third Party Review Findings
@@ -453,7 +465,8 @@ Parse ──→ Type Check ──→ Monomorphize ──→ ARC Lower ──→ 
 - [ ] Spec Clause 27 rewritten for compile-time model
 - [ ] `grammar.ebnf` updated with `$for`, `$if`, splice productions
 - [ ] `/tpr-review` passed — independent Codex review found no critical or major issues (or all findings triaged)
-- [ ] `/impl-hygiene-review last commit` passed — implementation hygiene review clean (phase boundaries, SSOT, algorithmic DRY, naming). MUST run AFTER `/tpr-review` is clean.
+- [ ] `/impl-hygiene-review` passed — implementation hygiene review clean (phase boundaries, SSOT, algorithmic DRY, naming). MUST run AFTER `/tpr-review` is clean.
+- [ ] `/improve-tooling` retrospective completed — MANDATORY at section close, after both reviews are clean. Reflect on the section's debugging journey (which `diagnostics/` scripts you ran, which command sequences you repeated, where you added ad-hoc `dbg!`/`tracing` calls, where output was hard to interpret) and identify any tool/log/diagnostic improvement that would have made this section materially easier OR that would help the next section touching this area. Implement every accepted improvement NOW (zero deferral) and commit each via SEPARATE `/commit-push`. The retrospective is mandatory even when nothing felt painful — that is exactly when blind spots accumulate. See `.claude/skills/improve-tooling/SKILL.md` "Retrospective Mode" for the full protocol.
 
 **Exit Criteria:** `$for field in fields_of(User) yield field.name` evaluated at compile time produces `["name", "age", "email"]` with zero runtime overhead. LLVM IR for reflection-using code is identical to hand-written field-by-field code. All 5 error codes produce clear, actionable diagnostics. Eval and LLVM paths match for all tests. `./test-all.sh` and `./clippy-all.sh` green.
 

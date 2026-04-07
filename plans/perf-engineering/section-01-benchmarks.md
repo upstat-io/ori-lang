@@ -90,6 +90,8 @@ Create a Criterion benchmark suite that measures interpreter function call overh
   - **Negative pin**: benchmark that passes a non-existent source file to `evaluated()` produces a clean error (not a panic or hang) -- validates error path doesn't corrupt benchmarking
   - **TDD ordering**: write benchmark harness, verify it runs and measures the current tree-walker, record baselines, then proceed to Section 02/04
 
+- [ ] **Subsection close-out (01.1)** — MANDATORY before starting the next subsection. Run `/improve-tooling` retrospectively on THIS subsection's debugging journey (per `.claude/skills/improve-tooling/SKILL.md` "Per-Subsection Workflow"): which `diagnostics/` scripts you ran, where you added `dbg!`/`tracing` calls, where output was hard to interpret, where test failures gave unhelpful messages, where you ran the same command sequence repeatedly. Forward-look: what tool/log/diagnostic would shorten the next regression in this code path by 10 minutes? Implement improvements NOW (zero deferral) and commit each via SEPARATE `/commit-push` using a valid conventional-commit type (`build(diagnostics): ... — surfaced by section-01.1 retrospective` — `build`/`test`/`chore`/`ci`/`docs` are valid; `tools(...)` is rejected by the lefthook commit-msg hook). Mandatory even when nothing felt painful. If genuinely no gaps, document briefly: "Retrospective 01.1: no tooling gaps". Update this subsection's `status` in section frontmatter to `complete`.
+
 ---
 
 ## 01.2 Ackermann Gate Test
@@ -124,6 +126,8 @@ Create a hard performance gate: Ackermann A(3,7) must complete and its timing mu
   - If the decision is "skip", record that Sections 02-03 are intentionally non-blocking so later verification does not treat them as incomplete mandatory work.
 - [ ] **Add `perf_gate` to test-all.sh exclusion list** (these are slow by design — run manually or in CI)
 
+- [ ] **Subsection close-out (01.2)** — MANDATORY before starting the next subsection. Run `/improve-tooling` retrospectively on THIS subsection's debugging journey (per `.claude/skills/improve-tooling/SKILL.md` "Per-Subsection Workflow"): which `diagnostics/` scripts you ran, where you added `dbg!`/`tracing` calls, where output was hard to interpret, where test failures gave unhelpful messages, where you ran the same command sequence repeatedly. Forward-look: what tool/log/diagnostic would shorten the next regression in this code path by 10 minutes? Implement improvements NOW (zero deferral) and commit each via SEPARATE `/commit-push` using a valid conventional-commit type (`build(diagnostics): ... — surfaced by section-01.2 retrospective` — `build`/`test`/`chore`/`ci`/`docs` are valid; `tools(...)` is rejected by the lefthook commit-msg hook). Mandatory even when nothing felt painful. If genuinely no gaps, document briefly: "Retrospective 01.2: no tooling gaps". Update this subsection's `status` in section frontmatter to `complete`.
+
 ---
 
 ## 01.R Third Party Review Findings
@@ -141,6 +145,7 @@ Create a hard performance gate: Ackermann A(3,7) must complete and its timing mu
 - [ ] `./test-all.sh` green (no regressions from benchmark additions)
 - [ ] Plan annotation cleanup: `bash .claude/skills/impl-hygiene-review/plan-annotations.sh --plan 01` returns 0 annotations
 - [ ] `/tpr-review` passed
-- [ ] `/impl-hygiene-review last commit` passed
+- [ ] `/impl-hygiene-review` passed
+- [ ] `/improve-tooling` retrospective completed — MANDATORY at section close, after both reviews are clean. Reflect on the section's debugging journey (which `diagnostics/` scripts you ran, which command sequences you repeated, where you added ad-hoc `dbg!`/`tracing` calls, where output was hard to interpret) and identify any tool/log/diagnostic improvement that would have made this section materially easier OR that would help the next section touching this area. Implement every accepted improvement NOW (zero deferral) and commit each via SEPARATE `/commit-push`. The retrospective is mandatory even when nothing felt painful — that is exactly when blind spots accumulate. See `.claude/skills/improve-tooling/SKILL.md` "Retrospective Mode" for the full protocol.
 
 **Exit Criteria:** `cargo bench -p oric --bench interpreter -- ackermann_3_5` produces a stable measurement with <5% variance. All 6 benchmarks run. Gate test completes. Profiling gate documented: allocation-vs-dispatch split determines whether Sections 02-03 are worked or skipped.

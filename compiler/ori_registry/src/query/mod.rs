@@ -192,10 +192,15 @@ pub fn borrowing_methods(tag: TypeTag) -> impl Iterator<Item = &'static MethodDe
 /// Used by ARC borrow inference to skip RC operations at call sites for
 /// inline-compiled builtin methods (e.g., `len`, `is_empty`, `compare`).
 ///
-/// **Excluded:** Iterator/DoubleEndedIterator methods and `.iter()` —
-/// these create derived values with hidden dependencies on the receiver.
-/// The ARC pipeline cannot model these dependencies, so they use Owned
-/// semantics (the runtime handles internal RC management).
+/// **Excluded:** `.iter()` on collections — it returns a derived value
+/// with hidden dependencies on the receiver's backing storage. The
+/// runtime's `ori_iter_from_*` functions Inc the source buffer, so the
+/// ARC pipeline must NOT treat the receiver as borrowed at the call
+/// site (otherwise it would emit no Inc and the iterator's internal
+/// reference would dangle).
+///
+/// All other iterator methods are naturally excluded because their
+/// receivers are `Ownership::Owned` in the registry (TPR-07-008).
 ///
 /// **Note:** Protocol builtins (e.g., `__index`) are NOT included — they
 /// are ARC pipeline internals, not builtin type methods. The consuming
@@ -216,9 +221,6 @@ pub fn borrowing_method_names() -> &'static [&'static str] {
         let mut buf = [""; 480];
         let mut len = 0;
         for td in BUILTIN_TYPES {
-            if td.tag == TypeTag::Iterator {
-                continue;
-            }
             for m in td.methods {
                 if m.receiver == crate::Ownership::Borrow && m.name != "iter" {
                     assert!(

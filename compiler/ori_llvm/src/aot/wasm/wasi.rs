@@ -20,11 +20,17 @@ pub enum WasiVersion {
 }
 
 impl WasiVersion {
-    /// Get the target triple suffix for this WASI version.
+    /// Get the target triple OS suffix for this WASI version.
+    ///
+    /// Returns the modern Rust 1.78+ canonical naming: `wasip1` for
+    /// Preview 1 (historically spelled `wasi`, deprecated upstream in
+    /// May 2024) and `wasip2` for Preview 2. The change disambiguates
+    /// the two preview tracks now that both ship side-by-side in the
+    /// upstream WASI specification.
     #[must_use]
     pub fn target_suffix(&self) -> &'static str {
         match self {
-            Self::Preview1 => "wasi",
+            Self::Preview1 => "wasip1",
             Self::Preview2 => "wasip2",
         }
     }

@@ -99,6 +99,11 @@ Append to the `## Open Bugs` section of the target file:
   Found: {YYYY-MM-DD} | Source: {tpr-review | code-journey | manual | continue-roadmap | review-work}
 ```
 
+If a fix section already exists (from a prior `/fix-bug` that was interrupted), add a cross-ref:
+```markdown
+  Fix: `plans/bug-tracker/fix-BUG-{section}-{ordinal}.md`
+```
+
 **Source values:**
 - `tpr-review` — found by Codex TPR
 - `code-journey` — found by /code-journey
@@ -129,3 +134,17 @@ Filed: [BUG-{section}-{ordinal}][{severity}] {title}
   Section: {section name} (plans/bug-tracker/section-{NN}-*.md)
   Cross-ref: {any active plan sections, or "none"}
 ```
+
+## Fix Workflow — What Happens Next
+
+Filing a bug is capture only. When a bug is picked up for fixing (via `/review-bugs`, `/continue-roadmap`, or direct request), the **`/fix-bug`** command enforces plan-section rigor:
+
+1. **Investigation** — root cause analysis, spec consultation, reference compiler review
+2. **Fix section file** — `plans/bug-tracker/fix-BUG-{section}-{ordinal}.md` created with full plan-section structure
+3. **TDD matrix** — all tests written and verified failing BEFORE implementation
+4. **Implementation** — fix applied, tests pass unchanged
+5. **Completion checklist** — test-all, clippy-all, TPR review, impl-hygiene review
+
+**Every bug fix gets this rigor.** No ad-hoc fixes. The fix section file is the permanent record of investigation, approach, and verification — it stays in the bug tracker alongside the section files.
+
+See `/fix-bug` for the full workflow and fix section template.

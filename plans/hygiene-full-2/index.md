@@ -3,7 +3,7 @@ reroute: true
 name: "Hygiene Full-2"
 full_name: "Implementation Hygiene Full Sweep #2"
 status: active
-order: 1
+order: 3
 ---
 
 # Hygiene Full-2 Index
@@ -91,7 +91,7 @@ arg_vals guard, thunks.rs, get_or_create_thunk
 ---
 
 ### Section 06: Lexer/Parser DRY
-**File:** `section-06-lexer-parser-dry.md` | **Status:** Not Started
+**File:** `section-06-lexer-parser-dry.md` | **Status:** Complete
 
 ```
 cook_template_head, cook_template_middle, cook_template_tail

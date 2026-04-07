@@ -110,32 +110,59 @@ Read CLAUDE.md (the project root one)
 
 ## Steps (Per Iteration)
 
-### 1. Run Codex
+### 1. Run Codex in the background
 
-**IMPORTANT: If using an Agent, it MUST be foreground (NOT `run_in_background`).** The user wants to see all Codex output as it runs.
+Codex reviews typically take 5-15 minutes — much longer than the Bash
+tool's 2-minute foreground default. Running codex in the foreground
+either hits the timeout or gets auto-backgrounded with output
+truncated. Always use `run_in_background: true`.
 
-```bash
-codex exec "run the /review-work skill" --full-auto --json 2>/dev/null | tail -200
+The `.claude/hooks/block-banned-commands.sh` hook explicitly allows
+`run_in_background: true` on codex commands. Do NOT wrap codex in an
+Agent subagent — the Agent adds no value and cannot itself be
+backgrounded, so it reintroduces the same foreground cap.
+
+```
+Bash (run_in_background: true):
+  rm -f /tmp/tpr-iter.jsonl /tmp/tpr-iter.done
+  codex exec "run the /review-work skill" --full-auto --json 2>/dev/null > /tmp/tpr-iter.jsonl
+  ec=$?
+  touch /tmp/tpr-iter.done
+  echo "exit=$ec"
 ```
 
-If the output is too large and gets persisted to a file, read that file.
+**DO NOT:**
+- Run `codex exec` in the Bash foreground.
+- Set a `timeout:` parameter on the Bash call.
+- Wrap codex in an Agent subagent.
+
+After launching, continue with other work or wait idle. You will
+receive a completion notification when the background task finishes.
+Do NOT poll the output file or sleep in a loop.
 
 ### 2. Parse Output
 
-Extract the final agent messages from the JSONL output — the last few `agent_message` items contain the findings summary.
+When the completion notification arrives, extract the agent messages
+from the JSONL output. The last few `agent_message` items contain
+the findings summary.
 
-```bash
-cat <output_file> | python3 -c "
-import sys, json
-for line in sys.stdin:
-    line = line.strip()
-    if not line: continue
-    try:
-        obj = json.loads(line)
-        if obj.get('type') == 'item.completed' and obj.get('item', {}).get('type') == 'agent_message':
-            print(obj['item']['text'])
-    except json.JSONDecodeError: pass
-" | tail -3000
+```python
+python3 -c "
+import json
+msgs = []
+with open('/tmp/tpr-iter.jsonl') as f:
+    for line in f:
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            obj = json.loads(line)
+            if obj.get('type') == 'item.completed' and obj.get('item', {}).get('type') == 'agent_message':
+                msgs.append(obj['item']['text'])
+        except json.JSONDecodeError:
+            pass
+print(msgs[-1] if msgs else '(no agent messages)')
+"
 ```
 
 ### 3. Classify Findings

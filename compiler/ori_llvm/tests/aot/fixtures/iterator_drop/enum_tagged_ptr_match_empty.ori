@@ -1,0 +1,24 @@
+// TPR-07-011 matrix pin: the Empty branch of a match on a
+// tagged-pointer enum iterator payload must STILL drop the iterator
+// (because the enum value carrying the iterator is constructed, the
+// match selects Empty path, but the constructed Holds value still
+// exists and must be dropped). This test exercises the path where
+// my take-project suppression must NOT accidentally leak the iterator
+// in the branch that doesn't move it out.
+//
+// Note: this test constructs a value that's ALWAYS Empty (compiler
+// picks Empty directly, never instantiating Holds), so the no-drop
+// behavior is expected here. The fixture exists for completeness of
+// the matrix — if the user wrote `if cond then Holds(iter) else Empty`
+// then the leak check would fire on the Holds path.
+
+type MaybeIter = Empty | Holds(it: Iterator<int>);
+
+@main () -> int = {
+    let x: MaybeIter = Empty;
+    let n = match x {
+        Empty -> 0,
+        Holds(it) -> it.count()
+    };
+    if n == 0 then 0 else 1
+}

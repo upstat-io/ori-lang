@@ -1,0 +1,7 @@
+// AOT test for iter_join with single integer element — no separator used.
+// Edge case: single element should produce just the element's string, no separator.
+
+@main () -> int = {
+    let result = [42].iter().join(separator: ", ");
+    if result == "42" then 0 else 1
+}

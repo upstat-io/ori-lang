@@ -425,6 +425,12 @@ impl Pool {
                 break;
             }
             let var_id = self.data(current);
+            if (var_id as usize) >= self.var_states.len() {
+                // Var references a non-existent var state — unresolvable.
+                // This can happen when Generalized type vars leak from
+                // type checking into codegen without proper resolution.
+                break;
+            }
             match self.var_state(var_id) {
                 VarState::Link { target } => current = *target,
                 _ => break,

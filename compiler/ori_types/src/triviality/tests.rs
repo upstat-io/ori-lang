@@ -119,21 +119,26 @@ fn channel_int_is_non_trivial() {
     assert_eq!(classify_triviality(channel, &pool), Triviality::NonTrivial);
 }
 
-// Iterator types — Box-allocated, no RC header → Trivial
-// This is a semantic pin: matches ArcClassifier, resolves TypeInfoStore drift
+// Iterator types — Box-allocated (no RC header) but NON-trivial
+// because `ori_iter_drop` must run at scope exit to free the Box
+// state. This is a TPR-07-008 semantic pin: the previous TPR-02-004
+// "iterators are trivial" classification leaked memory for any
+// iterator stored in an enum/struct/tuple/bare let, because the ARC
+// pipeline never emitted cleanup outside of explicit for-loop
+// lowering.
 
 #[test]
-fn iterator_int_is_trivial() {
+fn iterator_int_is_non_trivial() {
     let mut pool = Pool::new();
     let iter = pool.iterator(Idx::INT);
-    assert_eq!(classify_triviality(iter, &pool), Triviality::Trivial);
+    assert_eq!(classify_triviality(iter, &pool), Triviality::NonTrivial);
 }
 
 #[test]
-fn double_ended_iterator_int_is_trivial() {
+fn double_ended_iterator_int_is_non_trivial() {
     let mut pool = Pool::new();
     let iter = pool.double_ended_iterator(Idx::INT);
-    assert_eq!(classify_triviality(iter, &pool), Triviality::Trivial);
+    assert_eq!(classify_triviality(iter, &pool), Triviality::NonTrivial);
 }
 
 // Simple containers — triviality depends on inner type

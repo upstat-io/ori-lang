@@ -94,32 +94,73 @@ You are helping with the Ori compiler (Rust codebase, LLVM backend, ARC memory m
 {Any rules from CLAUDE.md or .claude/rules/ that apply — e.g., "no workarounds, must be architecturally correct"}
 ```
 
-### Step 3: Call Codex
+### Step 3: Call Codex in the background
 
-```bash
-codex exec "{prompt}" --full-auto --json
+Codex reviews legitimately take 5-15 minutes. The Bash tool's 2-minute
+foreground default will kill or auto-background the call and drop the
+output handle. Run codex with `run_in_background: true` from the start
+and wait for the completion notification.
+
+**Step 3a — write the prompt to a file.** Multi-line markdown with
+fenced code blocks is fragile inside shell heredocs; write the full
+prompt (question + context + constraints) to `/tmp/tp-help-prompt.md`
+with the `Write` tool.
+
+**Step 3b — launch codex in the background:**
+
+```
+Bash (run_in_background: true):
+  rm -f /tmp/tp-help.jsonl /tmp/tp-help.done
+  codex exec "$(cat /tmp/tp-help-prompt.md)" --full-auto --json 2>/dev/null > /tmp/tp-help.jsonl
+  ec=$?
+  touch /tmp/tp-help.done
+  echo "exit=$ec"
 ```
 
-**Important:** The prompt must be a single string. For multiline prompts, use a heredoc:
+The `.claude/hooks/block-banned-commands.sh` hook explicitly allows
+`run_in_background: true` on codex. Backgrounding is the preferred path
+because it has no timeout cap; the harness will notify you when codex
+finishes. Continue with unrelated work or wait idle; do NOT poll the
+output file.
 
-```bash
-codex exec "$(cat <<'PROMPT'
-You are helping with the Ori compiler (Rust codebase, LLVM backend, ARC memory management).
+**DO NOT:**
+- Run codex in the Bash foreground without `run_in_background: true`
+  (will hit the 2-minute default or get auto-backgrounded; either way
+  output may be truncated at a convenient break).
+- Set a `timeout:` parameter on the Bash call (the hook blocks short
+  timeouts on codex commands; backgrounding sidesteps this entirely).
+- Wrap codex in an Agent — the Agent adds no value over direct
+  background Bash, costs an extra process, and the Agent itself cannot
+  be backgrounded so it is constrained by the harness cap.
+- Inline a multi-line prompt with heredocs or `\n` escaping — write
+  the prompt to `/tmp/tp-help-prompt.md` and `cat` it instead.
 
-## Question
-{question}
+### Step 4: Parse Response (after completion notification)
 
-## Context
-{context}
-PROMPT
-)" --full-auto --json
+When the harness notifies you that the background Bash task completed,
+extract the agent messages from the JSONL output:
+
+```python
+python3 -c "
+import json
+with open('/tmp/tp-help.jsonl') as f:
+    for line in f:
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            obj = json.loads(line)
+            if obj.get('type') == 'item.completed' and obj.get('item', {}).get('type') == 'agent_message':
+                print(obj['item']['text'])
+                print()
+        except json.JSONDecodeError:
+            pass
+"
 ```
 
-**NO TIMEOUT.** Do NOT set a Bash `timeout:` parameter or prefix with `timeout`. Codex reviews legitimately take 5-15 minutes. Let them run to completion.
-
-### Step 4: Parse Response
-
-Extract agent messages from the JSONL output (type: `item.completed`, item.type: `agent_message`). The last few messages contain the answer.
+The final `agent_message` item usually contains Codex's recommendation.
+Earlier messages are the investigation trail — useful if you want to
+see Codex's reasoning.
 
 ### Step 5: Apply the Answer
 

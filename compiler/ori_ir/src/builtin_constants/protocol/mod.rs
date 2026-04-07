@@ -99,9 +99,16 @@ impl ProtocolBuiltin {
                 ProtocolArgOwnership::Borrowed,
                 ProtocolArgOwnership::Borrowed,
             ],
-            Self::Iter | Self::IterDrop => &[ProtocolArgOwnership::Borrowed],
+            Self::Iter => &[ProtocolArgOwnership::Borrowed],
+            // TPR-07-008: `ori_iter_drop` consumes the iterator handle
+            // (frees the Box-allocated state), just like `__collect_set`
+            // consumes the iterator it drains. Marking `Owned` tells
+            // ARC's borrow inference that the call is a consumption
+            // event so no subsequent scope-exit `RcDec` is inserted
+            // for the same iterator variable (which would double-free
+            // now that iterators are non-trivial).
+            Self::IterDrop | Self::CollectSet => &[ProtocolArgOwnership::Owned],
             Self::IterNext => &[ProtocolArgOwnership::Owned, ProtocolArgOwnership::Borrowed],
-            Self::CollectSet => &[ProtocolArgOwnership::Owned],
         }
     }
 }

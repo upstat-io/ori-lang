@@ -309,7 +309,7 @@ These findings were raised during pre-implementation plan review. The plan text 
 - [x] `timeout 150 cargo t` passes
 - [x] `timeout 150 ./test-all.sh` passes
 - [x] `/tpr-review` passed (clean on iteration 6 after 11 findings fixed)
-- [x] `/impl-hygiene-review last commit` passed (1 LEAK fixed: test helper duplication)
+- [x] `/impl-hygiene-review` passed (1 LEAK fixed: test helper duplication)
 - [x] **Plan sync**: Section 02 frontmatter `status:` updated to `complete`
 - [x] **Plan sync**: `00-overview.md` frontmatter `status:` still `in-progress` (Section 03 remains)
 - [x] **Plan sync**: `index.md` Quick Reference table updated (Section 02 status → Complete)

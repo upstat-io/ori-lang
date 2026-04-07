@@ -3,7 +3,7 @@ reroute: true
 name: "Semantic Opt"
 full_name: "Semantic Optimization Pipeline"
 status: active
-order: 1
+order: 5
 ---
 
 # Semantic Optimization Pipeline Index

@@ -22,7 +22,7 @@
 //! - Lean 4 `RC.lean`: backward liveness-driven insertion with last-use opt
 
 pub mod arg_ownership;
-mod borrowed_defs;
+pub(crate) mod borrowed_defs;
 mod coalesce;
 pub mod cow;
 mod dead_cleanup;
@@ -31,6 +31,7 @@ mod edge_cleanup;
 mod forward_walk;
 mod helpers;
 pub(crate) mod queries;
+pub(crate) mod take_project;
 mod trampoline;
 pub(crate) mod unwind_cleanup;
 

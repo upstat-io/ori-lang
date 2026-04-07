@@ -54,6 +54,24 @@ pub(crate) fn emit_dead_at_entry_decs(
             .any(|&(p, _)| p == v)
     };
 
+    // TPR-07-016 / TPR-07-017 / TPR-07-019: track which take-project
+    // lineages have already received a bypass-safe scope-exit dec in
+    // this block, so multiple alias siblings (e.g., `%5` and its Let
+    // alias `%19`, or a phi-merged param and one of its incoming
+    // args) in `entry_states` do not all emit a redundant drop on
+    // the same underlying value. A single `RcDec` on any lineage
+    // member walks the tagged-pointer encoding once and drops the
+    // payload — emitting one per alias would double-free.
+    //
+    // Dedup is per-LINEAGE, not per-membership-class. Two vars share
+    // a lineage iff they are SSA-equivalent (Let alias chain or phi
+    // merge at the same param). Vars in the same membership class
+    // but with different lineages (e.g., a singleton-lineage source
+    // var and a mixed-lineage phi param in the same class) are NOT
+    // SSA-equivalent and may legitimately need separate drops at
+    // distinct bypass-safe entries.
+    let mut lineages_dec_emitted: FxHashSet<usize> = FxHashSet::default();
+
     // Source 1: variables in entry_states.
     if let Some(entry_states) = ctx.state_map.block_entry_states(ctx.blk) {
         for (&var, &state) in entry_states {
@@ -71,6 +89,68 @@ pub(crate) fn emit_dead_at_entry_decs(
                 ctx.borrowed_defs,
                 ctx.all_borrowed_defs,
             ) {
+                continue;
+            }
+            // TPR-07-016 / TPR-07-017: take-project alias-class
+            // members get a single scope-exit drop at the entry edge
+            // of the per-class bypass-safe region.
+            //
+            // A block is BYPASS-SAFE for a class iff it is NEITHER
+            // forward- nor backward-reachable from any take-project
+            // in that class. A block is a BYPASS-SAFE ENTRY iff it
+            // is bypass-safe AND at least one of its CFG predecessors
+            // is NOT bypass-safe — i.e., it is the first block on a
+            // CFG path where the source enum becomes definitively
+            // unreachable from the take-project. The dec is emitted
+            // exactly here: downstream bypass-safe blocks inherit the
+            // drop via SSA flow and emitting at every bypass-safe
+            // block would produce N duplicate decs for sequential
+            // bypass-safe regions, double-freeing the shared payload.
+            //
+            // The check is per-class (not function-global): a block
+            // can be a bypass-safe entry for class `A` while being
+            // reachable from an unrelated class `B`. Per-class
+            // partitioning is what TPR-07-017 added on top of the
+            // initial TPR-07-016 fix.
+            //
+            // The check fires BEFORE `use_info`/`is_live_at_exit`
+            // because alias-chain "uses" on bypass-safe blocks are
+            // necessarily SSA-only (Let alias / Jump-arg propagation)
+            // — they don't dereference the value. The dec walks the
+            // tagged-pointer encoding (`ori_iter_drop` on the
+            // payload) without invalidating the source variable's
+            // bit pattern, so subsequent alias reads stay safe.
+            // Edge cleanup (`collect_branch_edge_decs` /
+            // `collect_invoke_edge_decs`) is taught via
+            // `take_move_facts.is_in_class` to skip in-class vars
+            // entirely, so it never produces a duplicate dec.
+            //
+            // Per-class dedup: only the FIRST alias-class member we
+            // encounter in entry_states gets a dec — emitting for
+            // subsequent siblings (e.g., `%5` then its Let alias
+            // `%19`) would double-free the same underlying value.
+            if ctx
+                .take_move_facts
+                .is_bypass_safe_entry_for_var(var, ctx.blk.index())
+            {
+                // The predicate guarantees `lineage_of(var)` is
+                // `Some`, but use `if let` to satisfy
+                // `clippy::unwrap_used` and stay panic-free even if
+                // the invariant ever weakens.
+                if let Some(lineage_idx) = ctx.take_move_facts.lineage_of(var) {
+                    if lineages_dec_emitted.insert(lineage_idx) {
+                        if let Some(strategy) = rc_strategy(ctx.func, var, ctx.pool) {
+                            new_body.push(ArcInstr::RcDec { var, strategy });
+                        }
+                    }
+                }
+                continue;
+            }
+            // In-class but NOT bypass-safe-entry: the dec is handled
+            // either upstream at the bypass-safe-region entry, or by
+            // the take-project's `is_ownership_transfer` at the
+            // `Project` site (TPR-07-011). Skip here.
+            if ctx.take_move_facts.is_in_class(var) {
                 continue;
             }
             if ctx.use_info.contains_key(&var) || is_live_at_exit(ctx.state_map, ctx.blk, var) {
@@ -115,10 +195,24 @@ pub(crate) fn emit_dead_at_entry_decs(
     }
 
     // Source 2: block parameters absent from entry_states.
-    // These are parameters that generated no backward demand (never used in
-    // this block or any successor). They still need RcDec if they carry
-    // RC-managed values (e.g., mutable-scope list variables passed through
-    // loop exit blocks).
+    emit_dead_block_param_decs(ctx, new_body);
+
+    (deferred_parents, merge_edge_decs)
+}
+
+/// Emit `RcDec` for block parameters that generated no backward demand
+/// (never used in this block or any successor) but still carry RC-managed
+/// values (e.g., mutable-scope list variables passed through loop exit
+/// blocks). Variables that the take-project dataflow proves moved are
+/// skipped per TPR-07-016. In-class block params are SKIPPED entirely
+/// rather than routed: they are SSA aliases of the take-project source
+/// (via Jump-arg → block-param propagation), and the source enum's
+/// natural scope-exit drops in the predecessors already handle cleanup.
+/// Routing the param's `ArcVarId` to a predecessor would emit an `RcDec`
+/// using a name that has no SSA definition reachable from the
+/// predecessor — the LLVM emitter resolves the param ID to the merge
+/// block's phi node, producing a phi-dominance violation.
+fn emit_dead_block_param_decs(ctx: &BlockCtx<'_>, new_body: &mut Vec<ArcInstr>) {
     let entry_states = ctx.state_map.block_entry_states(ctx.blk);
     let block = &ctx.func.blocks[ctx.blk.index()];
     for &(param_var, _param_ty) in &block.params {
@@ -146,6 +240,21 @@ pub(crate) fn emit_dead_at_entry_decs(
         if ctx.iter_element_defs.contains(&param_var) {
             continue;
         }
+        // TPR-07-016: take-project must-move handling for block params.
+        //
+        // Skip in-class block params entirely. A block param that
+        // belongs to a take-project alias class is just an SSA name
+        // for whichever incoming Jump arg (also in the class) flows
+        // through this merge. The source enum's actual scope-exit
+        // drops are emitted at natural death sites in the
+        // predecessors (e.g., the non-projecting branch's
+        // `RcDec %5`), and the take-project at its `Project` site
+        // is already an `is_ownership_transfer` so its source isn't
+        // re-dropped (TPR-07-011). Emitting another drop here would
+        // be a redundant double-free on the bypass path.
+        if ctx.take_move_facts.is_in_class(param_var) {
+            continue;
+        }
         if let Some(strategy) = rc_strategy(ctx.func, param_var, ctx.pool) {
             new_body.push(ArcInstr::RcDec {
                 var: param_var,
@@ -153,8 +262,6 @@ pub(crate) fn emit_dead_at_entry_decs(
             });
         }
     }
-
-    (deferred_parents, merge_edge_decs)
 }
 
 /// Sweep for dead Invoke result variables across all blocks.

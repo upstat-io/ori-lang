@@ -86,22 +86,42 @@ impl TargetConfig {
 
     /// Create a target configuration from a target triple string.
     ///
+    /// The `triple` may use any known arch alias (`arm64` for `aarch64`,
+    /// `amd64` for `x86_64`, `i486/i586/i686` for `i386`) and may carry a
+    /// Darwin OS version suffix (e.g., `arm64-apple-darwin25.2.0`, the
+    /// exact spelling LLVM's default triple emits on Apple Silicon).
+    ///
+    /// Parse happens BEFORE the supported-targets check, so arch aliases
+    /// are canonicalized before lookup. The lookup itself uses
+    /// [`TargetTripleComponents::support_key`], which strips the Darwin OS
+    /// version suffix so versioned and unversioned spellings both match
+    /// the unversioned entries in [`SUPPORTED_TARGETS`].
+    ///
+    /// The stored `triple` field preserves the OS version suffix exactly
+    /// as parsed, because LLVM's `TargetMachine` expects the version-bearing
+    /// form when one was supplied — only the arch is rewritten to the
+    /// canonical spelling.
+    ///
     /// # Errors
     ///
     /// Returns an error if:
-    /// - The triple is not in the supported targets list
-    /// - The triple format is invalid
+    /// - The triple format is invalid or uses an unknown architecture
+    /// - The canonicalized triple is not in the supported targets list
     /// - LLVM target initialization fails
     pub fn from_triple(triple: &str) -> Result<Self, TargetError> {
-        // Validate against supported targets (O(1) match lookup)
-        if !is_supported_target(triple) {
+        // Parse first — this canonicalizes arch aliases (arm64 → aarch64).
+        let components = TargetTripleComponents::parse(triple)?;
+
+        // Validate via the typed support key, which strips Darwin OS
+        // version suffixes (e.g., `darwin25.2.0` → `darwin`) so the
+        // versioned LLVM-default spelling matches the unversioned entry.
+        if !is_supported_target(&components.support_key()) {
             return Err(TargetError::UnsupportedTarget {
+                // Report the user's input spelling in the error for clarity.
                 triple: triple.to_string(),
                 supported: SUPPORTED_TARGETS.to_vec(),
             });
         }
-
-        let components = TargetTripleComponents::parse(triple)?;
 
         // Initialize the appropriate LLVM target
         initialize_target_for_triple(&components)?;
@@ -113,8 +133,10 @@ impl TargetConfig {
             RelocMode::Default
         };
 
+        // Store the version-preserving canonical form (arch normalized,
+        // OS suffix preserved) — this is what LLVM's TargetMachine expects.
         Ok(Self {
-            triple: triple.to_string(),
+            triple: components.to_string(),
             components,
             cpu: "generic".to_string(),
             features: String::new(),
@@ -366,13 +388,11 @@ impl TargetConfig {
 
     /// Get pointer size in bytes for this target.
     ///
-    /// Most targets use 8 bytes (64-bit), WASM uses 4 bytes (32-bit).
+    /// Delegates to the typed [`Arch::pointer_size_bytes`] — exhaustive over
+    /// every supported architecture, no string fallthrough.
     #[must_use]
     pub fn pointer_size(&self) -> u32 {
-        match self.components.arch.as_str() {
-            "wasm32" | "i686" | "i386" | "arm" => 4,
-            _ => 8,
-        }
+        self.components.arch.pointer_size_bytes()
     }
 
     /// Get pointer alignment in bytes for this target.

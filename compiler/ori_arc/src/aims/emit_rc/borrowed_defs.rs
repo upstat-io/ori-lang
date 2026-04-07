@@ -8,20 +8,104 @@
 
 use rustc_hash::FxHashSet;
 
-use ori_types::Pool;
+use ori_types::{Pool, Tag};
 
 use crate::ir::{ArcBlock, ArcFunction, ArcInstr, ArcTerminator, ArcValue, ArcVarId, ValueRepr};
 use crate::ownership::Ownership;
+
+/// TPR-07-011: Classify a `Project` instruction as a "take" (consuming
+/// move) rather than a borrow.
+///
+/// For the normal refcounted case (str, [T], structs containing RC
+/// children), `Project` produces a borrowed view into the parent
+/// aggregate: the projected child shares a refcount-bumped reference
+/// to the same heap data, and the parent's scope-exit `RcDec` is the
+/// canonical drop site. This works because `RcInc` on the projected
+/// child at the point of consumption gives the child its own
+/// independent refcount, balancing the parent's later `RcDec`.
+///
+/// For **unique-owned Box payloads** (specifically `Tag::Iterator` and
+/// `Tag::DoubleEndedIterator`, which are `MachineRepr::UnmanagedPtr`
+/// with no RC header), there is no refcount to bump — `RcInc` on the
+/// projected iterator is intentionally a no-op. This breaks the
+/// balance: the projected child is consumed by the method call
+/// (`ori_iter_count`, `ori_iter_map`, etc. via `Box::from_raw`), but
+/// the parent enum's scope-exit `RcDec` still walks the tagged-pointer
+/// encoding and calls `ori_iter_drop` on the same (now-freed) pointer
+/// → double-free.
+///
+/// The architectural fix (Codex / prior art from Swift SIL, Lean 4
+/// LCNF, Koka Perceus) is to distinguish "borrow projection" from
+/// "consuming projection" at the AIMS classification layer. A take-
+/// project:
+///
+/// 1. Does **not** propagate borrowed-parent demand (the child does
+///    not "keep the parent alive" — the parent has logically given
+///    up its payload).
+/// 2. Is **not** a borrowed def (so no spurious `RcInc` fires at the
+///    owned-arg call site — there is nothing to refcount anyway).
+/// 3. **Is** an ownership transfer (the parent enum has no payload
+///    left to drop, so its scope-exit `RcDec` is suppressed).
+///
+/// # Current scope
+///
+/// This predicate only fires for `Tag::Iterator` and
+/// `Tag::DoubleEndedIterator` payloads projected from sum types
+/// (`Enum`, `Option`, `Result`). Those are the only types that
+/// (a) are `UnmanagedPtr` (no refcount, move-only) and
+/// (b) can reach a `Project` instruction as a variant payload. Other
+/// unique-owned types (channels via `OpaquePtr` — though channels
+/// currently have no RC header dropping pipeline at all) can be added
+/// here when they grow `Project` call sites.
+#[inline]
+pub(crate) fn is_take_project(instr: &ArcInstr, func: &ArcFunction, pool: &Pool) -> bool {
+    let ArcInstr::Project {
+        dst, value, field, ..
+    } = instr
+    else {
+        return false;
+    };
+    // Only consider non-tag fields (field 0 = tag discriminant for
+    // tagged-ptr / inline enums, never the payload).
+    if *field == 0 {
+        return false;
+    }
+    // Source must be a sum type that can carry a payload.
+    let src_ty = func.var_type(*value);
+    let src_resolved = pool.resolve_fully(src_ty);
+    let src_tag = pool.tag(src_resolved);
+    if !matches!(src_tag, Tag::Enum | Tag::Option | Tag::Result) {
+        return false;
+    }
+    // Destination (the projected payload) must be a unique-owned
+    // Box type — currently only iterators. `Tag::Channel` uses a
+    // different representation (`OpaquePtr`) and has its own drop
+    // model, so it is excluded for now.
+    let dst_ty = func.var_type(*dst);
+    let dst_resolved = pool.resolve_fully(dst_ty);
+    let dst_tag = pool.tag(dst_resolved);
+    matches!(dst_tag, Tag::Iterator | Tag::DoubleEndedIterator)
+}
 
 /// Collect variables defined by borrowing instructions (`Project`).
 ///
 /// These create borrowed references that do NOT need independent RC
 /// management — the source variable's RC covers the borrowed ref.
-pub(crate) fn collect_borrowed_defs(block: &ArcBlock) -> FxHashSet<ArcVarId> {
+///
+/// TPR-07-011: take-projects (`is_take_project`) are excluded — they
+/// transfer ownership rather than borrow, so they must participate in
+/// normal RC decisions for the projected payload.
+pub(crate) fn collect_borrowed_defs(
+    block: &ArcBlock,
+    func: &ArcFunction,
+    pool: &Pool,
+) -> FxHashSet<ArcVarId> {
     let mut borrowed = FxHashSet::default();
     for instr in &block.body {
         if let ArcInstr::Project { dst, .. } = instr {
-            borrowed.insert(*dst);
+            if !is_take_project(instr, func, pool) {
+                borrowed.insert(*dst);
+            }
         }
     }
     borrowed
@@ -120,6 +204,15 @@ pub(crate) fn collect_iter_element_defs(
 ///
 /// Includes transitive `Let` aliases (e.g., `%12 = %11` where `%11` is projected
 /// from an `Option`).
+///
+/// TPR-07-013: take-projects (see `is_take_project`) are EXCLUDED. For a
+/// take-project, the parent sum type has logically given up its payload
+/// (TPR-07-011 suppresses its scope-exit drop), so the projected
+/// iterator is no longer "managed by the parent" — it must participate
+/// in its own RC lifecycle and drop at its own scope exit when unused.
+/// Without this exclusion, `walk_dec`'s `emit_defined_dead` skips the
+/// inline-enum-projected iterator unconditionally (treating it as a
+/// borrow managed by the parent), and the iterator leaks.
 pub(crate) fn collect_inline_enum_projected_defs(
     func: &ArcFunction,
     pool: &Pool,
@@ -130,6 +223,12 @@ pub(crate) fn collect_inline_enum_projected_defs(
     for block in &func.blocks {
         for instr in &block.body {
             if let ArcInstr::Project { dst, value, .. } = instr {
+                // Take-projects transfer ownership; the projected var
+                // is not managed by the parent and must get its own
+                // drop. Skip it from the borrowed-by-parent set.
+                if is_take_project(instr, func, pool) {
+                    continue;
+                }
                 let src_ty = func.var_type(*value);
                 let resolved = pool.resolve_fully(src_ty);
                 let tag = pool.tag(resolved);
@@ -154,12 +253,28 @@ pub(crate) fn collect_inline_enum_projected_defs(
 /// `Ownership::Borrowed` are excluded — they can participate in `RcInc`
 /// decisions (e.g., when a borrowed list parameter is used to create an
 /// iterator that has its own reference).
-pub(crate) fn collect_project_borrowed_defs(func: &ArcFunction) -> FxHashSet<ArcVarId> {
+///
+/// TPR-07-011: take-projects (`is_take_project`) are excluded — they
+/// transfer ownership rather than borrow, so they must participate in
+/// normal RC decisions for the projected payload.
+///
+/// TPR-07-016: take-project SOURCES are NOT added here. Adding the
+/// backward alias chain was a function-global suppression and leaked
+/// on paths that never executed the projection. Path-sensitive
+/// suppression of source drops is handled by the separate
+/// `take_project` must-analysis threaded through `BlockCtx` and
+/// consumed by dead/edge cleanup.
+pub(crate) fn collect_project_borrowed_defs(
+    func: &ArcFunction,
+    pool: &Pool,
+) -> FxHashSet<ArcVarId> {
     let mut borrowed = FxHashSet::default();
     for block in &func.blocks {
         for instr in &block.body {
             if let ArcInstr::Project { dst, .. } = instr {
-                borrowed.insert(*dst);
+                if !is_take_project(instr, func, pool) {
+                    borrowed.insert(*dst);
+                }
             }
         }
     }
@@ -177,7 +292,18 @@ pub(crate) fn collect_project_borrowed_defs(func: &ArcFunction) -> FxHashSet<Arc
 /// A `Let { dst, value: Var(src) }` where `src` is borrowed creates a
 /// pointer copy without incrementing the refcount. The copy must also be
 /// treated as borrowed to avoid emitting spurious `RcDec`.
-pub(crate) fn collect_all_borrowed_defs(func: &ArcFunction) -> FxHashSet<ArcVarId> {
+///
+/// TPR-07-011: take-projects (`is_take_project`) are excluded — they
+/// transfer ownership of a unique-owned payload rather than borrow it.
+///
+/// TPR-07-016: take-project SOURCES are NOT added here. The backward
+/// alias chain propagation (earlier attempt) was a function-global
+/// suppression that leaked on paths that never executed the
+/// projection. Path-sensitive suppression of the source enum's
+/// scope-exit drop is handled by the separate `take_project`
+/// must-analysis, threaded through `BlockCtx` and consumed by the
+/// dead/edge cleanup sites.
+pub(crate) fn collect_all_borrowed_defs(func: &ArcFunction, pool: &Pool) -> FxHashSet<ArcVarId> {
     let mut borrowed = FxHashSet::default();
     // Function parameters with Borrowed ownership are genuinely borrowed.
     for param in &func.params {
@@ -189,7 +315,9 @@ pub(crate) fn collect_all_borrowed_defs(func: &ArcFunction) -> FxHashSet<ArcVarI
     for block in &func.blocks {
         for instr in &block.body {
             if let ArcInstr::Project { dst, .. } = instr {
-                borrowed.insert(*dst);
+                if !is_take_project(instr, func, pool) {
+                    borrowed.insert(*dst);
+                }
             }
         }
     }

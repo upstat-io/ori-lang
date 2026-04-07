@@ -60,11 +60,12 @@ pub use wasm::WasmLinker;
 
 use std::collections::HashSet;
 use std::fmt;
+use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use crate::aot::target::TargetConfig;
-use crate::aot::target_features::TargetTripleComponents;
+use crate::aot::target_features::{HostPlatform, TargetTripleComponents};
 
 // Error Types
 
@@ -154,16 +155,39 @@ pub enum LinkOutput {
 
 impl LinkOutput {
     /// Get the appropriate file extension for this output type.
+    ///
+    /// Delegates to the typed [`TargetTripleComponents::is_windows`] /
+    /// [`TargetTripleComponents::is_macos`] predicates so that Darwin OS
+    /// version suffixes (e.g., `darwin25.2.0` from Apple Silicon's
+    /// LLVM-default triple) correctly select `.dylib` for shared libraries.
+    /// Matching `target.os.as_str()` directly against `"darwin"` would
+    /// fall through to the Linux/ELF branch and emit `.so` — see BUG-04-045.
     #[must_use]
     pub fn extension(&self, target: &TargetTripleComponents) -> &'static str {
-        match (self, target.os.as_str()) {
-            (Self::Executable | Self::PositionIndependentExecutable, "windows") => "exe",
-            (Self::Executable | Self::PositionIndependentExecutable, _) => "",
-            (Self::SharedLibrary, "windows") => "dll",
-            (Self::SharedLibrary, "darwin") => "dylib",
-            (Self::SharedLibrary, _) => "so",
-            (Self::StaticLibrary, "windows") => "lib",
-            (Self::StaticLibrary, _) => "a",
+        match self {
+            Self::Executable | Self::PositionIndependentExecutable => {
+                if target.is_windows() {
+                    "exe"
+                } else {
+                    ""
+                }
+            }
+            Self::SharedLibrary => {
+                if target.is_windows() {
+                    "dll"
+                } else if target.is_macos() {
+                    "dylib"
+                } else {
+                    "so"
+                }
+            }
+            Self::StaticLibrary => {
+                if target.is_windows() {
+                    "lib"
+                } else {
+                    "a"
+                }
+            }
         }
     }
 }
@@ -450,4 +474,175 @@ impl LinkerDetection {
     pub fn preferred(&self) -> Option<LinkerFlavor> {
         self.available.first().copied()
     }
+
+    /// Check if we're cross-compiling (target OS or arch differs from host).
+    ///
+    /// Cross-compilation includes both different-OS targets (Linux→Windows)
+    /// and same-OS different-arch targets (`x86_64` Linux → `aarch64` Linux).
+    /// Both cases require a cross-compiler toolchain.
+    ///
+    /// Delegates to the typed [`TargetTripleComponents::is_cross_for`] against
+    /// [`HostPlatform::current`], operating on canonical [`Arch`] values.
+    /// This avoids the `arm64` (LLVM default triple on Apple Silicon) vs
+    /// `aarch64` (Rust `cfg(target_arch)`) raw-string mismatch that mis-
+    /// detected native Apple Silicon builds as cross-compilation — see
+    /// BUG-04-045 regression pin in `target_features/tests.rs`.
+    ///
+    /// [`Arch`]: crate::aot::target_features::Arch
+    #[must_use]
+    pub fn is_cross_compiling(target: &TargetConfig) -> bool {
+        target.components().is_cross_for(HostPlatform::current())
+    }
+
+    /// Get the expected GCC cross-compiler program name for a target.
+    ///
+    /// Returns `None` for targets that don't have a standard GCC cross-compiler
+    /// naming convention (macOS, WASM, windows-msvc).
+    #[must_use]
+    pub fn gcc_cross_compiler_name(target: &TargetTripleComponents) -> Option<String> {
+        if target.is_wasm() {
+            return None;
+        }
+        if target.is_windows() {
+            return match target.env.as_deref() {
+                Some("gnu") => Some(format!("{}-w64-mingw32-gcc", target.arch)),
+                // No standard GCC cross-compiler for MSVC targets
+                _ => None,
+            };
+        }
+        if target.is_macos() {
+            // macOS cross-compilation uses osxcross with non-standard names;
+            // no single standard name to check
+            return None;
+        }
+        if target.is_linux() {
+            let env = target.env.as_deref().unwrap_or("gnu");
+            return Some(format!("{}-linux-{}-gcc", target.arch, env));
+        }
+        None
+    }
+
+    /// Check if a specific linker flavor is available for a given target.
+    ///
+    /// Unlike [`is_available`], this method accounts for cross-compilation:
+    /// when the target OS differs from the host, it checks for the appropriate
+    /// cross-compiler instead of the host compiler.
+    pub fn is_available_for_target(flavor: LinkerFlavor, target: &TargetConfig) -> bool {
+        let cross = Self::is_cross_compiling(target);
+
+        match flavor {
+            LinkerFlavor::Msvc => {
+                if cross && !cfg!(target_os = "windows") {
+                    // MSVC tools are only available on Windows hosts
+                    false
+                } else {
+                    Self::is_msvc_available()
+                }
+            }
+            LinkerFlavor::Gcc => {
+                if cross {
+                    // Need a target-specific cross-compiler, not the host `cc`
+                    match Self::gcc_cross_compiler_name(target.components()) {
+                        Some(name) => Self::check_program(&name, "--version"),
+                        None => false, // No known GCC cross-compiler for this target
+                    }
+                } else {
+                    Self::check_program("cc", "--version")
+                }
+            }
+            LinkerFlavor::Lld => {
+                // LLD works for cross-compilation — check the right variant.
+                // For non-Windows/non-WASM, create_linker() uses `clang -fuse-ld=lld`,
+                // so we check for clang (the actual driver) as well as standalone ld.lld.
+                if target.is_windows() {
+                    Self::check_program("lld-link", "--version")
+                } else if target.is_wasm() {
+                    Self::check_program("wasm-ld", "--version")
+                } else {
+                    Self::check_program("ld.lld", "--version")
+                        || Self::check_program("clang", "--version")
+                }
+            }
+            LinkerFlavor::WasmLd => Self::check_program("wasm-ld", "--version"),
+        }
+    }
+
+    /// Detect available linkers for a target, accounting for cross-compilation.
+    pub fn detect_for_target(target: &TargetConfig) -> Self {
+        let mut detection = Self::default();
+        let mut checked = HashSet::new();
+
+        let to_check = if target.is_wasm() {
+            vec![LinkerFlavor::WasmLd]
+        } else if target.is_windows() {
+            vec![LinkerFlavor::Msvc, LinkerFlavor::Lld, LinkerFlavor::Gcc]
+        } else {
+            vec![LinkerFlavor::Gcc, LinkerFlavor::Lld]
+        };
+
+        for flavor in to_check {
+            if checked.insert(flavor) {
+                if Self::is_available_for_target(flavor, target) {
+                    detection.available.push(flavor);
+                } else {
+                    detection.not_found.push(flavor);
+                }
+            }
+        }
+
+        detection
+    }
+
+    /// Build an actionable error message for failed cross-compilation linker detection.
+    pub fn cross_compilation_error(target: &TargetConfig) -> LinkerError {
+        let triple = target.triple();
+        let components = target.components();
+
+        let mut help = String::new();
+
+        if components.is_windows() {
+            if components.env.as_deref() == Some("msvc") {
+                help.push_str(
+                    "  - Install LLVM/LLD (provides lld-link for MSVC-compatible linking)\n",
+                );
+                help.push_str(
+                    "  - Or build natively on Windows with Visual Studio / MSVC Build Tools\n",
+                );
+            } else if components.env.as_deref() == Some("gnu") {
+                let _ = writeln!(
+                    help,
+                    "  - Install mingw-w64 (provides {}-w64-mingw32-gcc)",
+                    components.arch
+                );
+                help.push_str("  - Or install LLVM/LLD (provides lld-link)\n");
+            }
+        } else if components.is_macos() {
+            help.push_str("  - Install osxcross (https://github.com/tpoechtrager/osxcross)\n");
+            help.push_str("  - Or install LLVM/LLD (provides ld.lld)\n");
+            help.push_str("  - Or build natively on macOS\n");
+        } else if components.is_linux() {
+            if let Some(gcc_name) = Self::gcc_cross_compiler_name(components) {
+                let _ = writeln!(
+                    help,
+                    "  - Install the cross-compiler toolchain (provides {gcc_name})"
+                );
+            }
+            help.push_str("  - Or install LLVM/LLD (provides ld.lld)\n");
+        } else {
+            help.push_str("  - Install a cross-linker for this target\n");
+        }
+
+        LinkerError::LinkerNotFound {
+            linker: format!("cross-linker for {triple}"),
+            message: format!(
+                "no suitable cross-linker found for target '{triple}'\n\n\
+                 Cross-compilation requires a linker that can produce {os} binaries.\n\
+                 Install one of the following:\n{help}",
+                os = components.os
+            ),
+        }
+    }
 }
+
+#[cfg(test)]
+mod tests;
