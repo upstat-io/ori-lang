@@ -1,0 +1,388 @@
+---
+bug: "BUG-04-045"
+title: "is_cross_compiling() reports native Apple Silicon as cross-compilation: arm64 (LLVM triple) vs aarch64 (Rust cfg) string mismatch"
+severity: "high"
+status: complete
+goal: "TargetTripleComponents.arch becomes a typed Arch enum parsed at the boundary with all alias spellings normalized, so every host-vs-target equality check operates on canonical typed values and Apple Silicon native builds are never mis-detected as cross-compilation."
+success_criteria:
+  - "TargetTripleComponents.arch is typed as Arch (not String); is_cross_for(HostPlatform) replaces ad-hoc cfg-string compares"
+  - "Simulated Apple Silicon host (HostPlatform { arch: Arch::Aarch64, os: HostOs::Darwin }) parses arm64-apple-darwin25.2.0 and reports is_cross_for = false"
+  - "TargetConfig::from_triple(\"arm64-apple-darwin\") succeeds (canonicalizes to aarch64-apple-darwin), fixing the 7th latent SUPPORTED_TARGETS asymmetry"
+  - "14-test matrix green in compiler/ori_llvm/src/aot/target_features/tests.rs; full ./test-all.sh green; /tpr-review + /impl-hygiene-review clean"
+subsystem: "compiler/ori_llvm/src/aot/{target_features,target,linker,syslib}"
+found: "2026-04-07"
+source: "manual"
+third_party_review:
+  status: none
+  updated: null
+---
+
+# Fix: BUG-04-045 — arm64 vs aarch64 host-vs-target mismatch on Apple Silicon
+
+**Status:** Complete
+**Severity:** high
+**Goal:** Introduce a typed `Arch` enum at the `TargetTripleComponents::parse` boundary that normalizes every known alias spelling (`arm64|aarch64`, `amd64|x86_64`, `i386|i486|i586|i686`). Migrate all host-vs-target comparisons to operate on typed `Arch` / `HostPlatform` values, never on raw strings. After the fix, every call site that previously did `components.arch == "aarch64"` is either (a) a compile error, or (b) a canonical-typed query. The bug class "raw arch string compare" becomes un-typeable.
+
+**Success Criteria:**
+- [ ] `TargetTripleComponents.arch` has type `Arch` (not `String`); compile-fail type-test refuses to compile if reverted
+- [ ] `TargetTripleComponents::parse("arm64-apple-darwin25.2.0")` canonicalizes arch to `Arch::Aarch64` while preserving vendor/os/env verbatim
+- [ ] `TargetTripleComponents::is_cross_for(host: HostPlatform)` reports `false` for every (supported host triple, simulated matching host) pair — including the arm64 native host semantic pin
+- [ ] `TargetConfig::from_triple("arm64-apple-darwin")` returns Ok with canonical `triple == "aarch64-apple-darwin"` (latent bug #7)
+- [ ] `LinkerDetection::gcc_cross_compiler_name` emits canonical spellings only (`aarch64-linux-gnu-gcc`, never `arm64-linux-gnu-gcc`)
+- [ ] All existing tests updated for the typed field; 10-test matrix green in `compiler/ori_llvm/src/aot/target_features/tests.rs`
+- [ ] `timeout 150 ./test-all.sh` green, `timeout 150 ./clippy-all.sh` green, debug + release both build
+- [ ] `/tpr-review` clean, `/impl-hygiene-review` clean
+
+**Context:** On macOS Apple Silicon, LLVM's default triple is `arm64-apple-darwin25.x.x` (Apple's historical spelling), while Rust's `cfg(target_arch = "aarch64")` uses the spec spelling `aarch64`. `LinkerDetection::is_cross_compiling()` did a literal string compare between these, wrongly reporting the native target as cross-compilation. The surfacing event was CI run 24058749864 on 2026-04-07: `test_native_target_is_not_cross_compiling` panicked on `macos-latest` while Linux/Windows runners passed. The impact is twofold — (1) nightly CI red on Apple Silicon, (2) real Apple Silicon users would hit `cross_compilation_error()` instead of using host `cc`. TPR research (Codex prior-art pass, 2026-04-07) against Rust, Zig, Swift, LLVM/Clang, and Go converged on the same methodology: a typed arch enum at the parse boundary is the SSOT pattern every mature compiler uses. See bug entry in `plans/bug-tracker/section-04-codegen-llvm.md:297-331`.
+
+---
+
+## 1. Root Cause Analysis
+
+- **Symptom**: `test_native_target_is_not_cross_compiling` panics on Apple Silicon CI runners: `native target should not be detected as cross-compilation` at `linker/tests.rs:62`.
+- **Proximate cause**: `LinkerDetection::is_cross_compiling()` (`linker/mod.rs:461-491`, added in c2c888fb) does `components.arch != host_arch` where `host_arch` is hardcoded to `"aarch64"` under `cfg(target_arch = "aarch64")`. On Apple Silicon, `components.arch` is `"arm64"` (from LLVM's default triple), so the raw string compare yields `true` → mis-reports native as cross.
+- **Root cause**: **LEAK:scattered-knowledge** — arch-name normalization has no canonical home. The codebase already knows about the `arm64|aarch64` duality at `target_features.rs:233` (`"aarch64" | "arm64" => initialize_aarch64(...)`), but every other consumer reimplements (or omits) normalization ad hoc. `TargetTripleComponents.arch: String` is the shadow home — every comparison site is an independent reinterpretation of raw arch strings, and each site can silently disagree with the others. The bug class is "raw string compare across an aliased namespace" — a single helper function would not fix it because new consumers can bypass the helper.
+- **Blast radius**: 6 sites in the `ori_llvm::aot` module tree + 1 latent bug (`from_triple` asymmetry against `SUPPORTED_TARGETS`):
+  1. `linker/mod.rs:471-491` `is_cross_compiling()` — the failing test (surfacing).
+  2. `linker/mod.rs:498-519` `gcc_cross_compiler_name()` — would emit `arm64-w64-mingw32-gcc` / `arm64-linux-gnu-gcc` (nonexistent toolchains) if an LLVM-default triple ever flowed through. Latent on Linux/Windows today.
+  3. `linker/mod.rs:611` `cross_compilation_error()` help text uses raw `components.arch`.
+  4. `syslib/mod.rs:119-138` `is_native()` — sibling cfg-string compare, test-only consumer today but would misbehave on Apple Silicon.
+  5. `syslib/mod.rs:280` `target.arch == "x86_64" || target.arch == "aarch64"` — explicitly excludes `arm64` spelling; would skip `lib64` paths on any LLVM-spelling triple.
+  6. `target.rs:371-376` `pointer_size()` — stringly + non-exhaustive (`match arch.as_str() { "wasm32"|"i686"|"i386"|"arm" => 4, _ => 8 }`). Currently safe-by-accident (`arm64` hits the `_ => 8` default).
+  7. **Latent #7**: `TargetConfig::from_triple("arm64-apple-darwin")` is rejected by `is_supported_target` because `SUPPORTED_TARGETS` uses `aarch64-apple-darwin`. `TargetConfig::native()` on Apple Silicon happens to work (skips the supported check) but `from_triple` + the default triple would fail. Asymmetry inside the same module.
+
+- **Affected files**:
+  - `compiler/ori_llvm/src/aot/target_features.rs` — canonical home: add `Arch` enum with `parse_llvm_name`/`display_name`/`is_64_bit_non_wasm`/`is_wasm`/`pointer_size_bytes` queries; add `HostOs` enum and `HostPlatform` struct with `current()`; change `TargetTripleComponents.arch: String → Arch`; update `parse()` to canonicalize at the boundary; update `initialize_target_for_triple()` to exhaustively match on `Arch`; update `Display` impl (`arch` now formats via `Arch::Display` → canonical).
+  - `compiler/ori_llvm/src/aot/target.rs` — `pointer_size()` queries `self.components.arch.pointer_size_bytes()` (exhaustive match on `Arch`, no string fallthrough); `from_triple()` parses FIRST, then validates the canonicalized triple against `SUPPORTED_TARGETS` (fixes latent bug #7).
+  - `compiler/ori_llvm/src/aot/linker/mod.rs` — `is_cross_compiling()` delegates to `target.components().is_cross_for(HostPlatform::current())`; `gcc_cross_compiler_name()` interpolates via `Arch::Display` (canonical); `cross_compilation_error()` help text interpolates via `Arch::Display`.
+  - `compiler/ori_llvm/src/aot/syslib/mod.rs` — `is_native()` delegates to `self.target.is_native_for(HostPlatform::current())`; `lib64` check uses `target.arch.is_64_bit_non_wasm()`; musl sysroot interpolation uses `Arch::Display` (no change needed once `arch` is typed).
+  - `compiler/ori_llvm/src/aot/mod.rs` — re-export `Arch`, `HostOs`, `HostPlatform` from `target_features`.
+  - `compiler/ori_llvm/src/aot/target_features/tests.rs` — NEW test file for the 10-test matrix; declare `#[cfg(test)] mod tests;` in `target_features.rs`.
+  - `compiler/ori_llvm/src/aot/linker/tests.rs` — existing assertions updated to match the typed API (no behavior change).
+  - `compiler/ori_llvm/src/aot/syslib/tests.rs` — `config.target().arch == Arch::X86_64` instead of `== "x86_64"`.
+  - `compiler/oric/tests/phases/codegen/targets.rs` — 4 `assert_eq!(components.arch, "X")` updates + ~8 struct-literal construction sites (`TargetTripleComponents { arch: "x86_64".to_string(), ... } → arch: Arch::X86_64, ...`).
+  - `compiler/ori_llvm/tests/aot/cross.rs` — `config.components().arch == Arch::X86_64`.
+
+**Reference implementations:**
+- **Rust** (`compiler/rustc_target/src/spec/mod.rs:1857,2077`): `Target.arch` is a typed `Arch` enum generated by `target_spec_enum!`; Apple's `arm64` surface is reconciled by a per-platform mapping `Arm64|Arm64e|Arm64_32 → crate::spec::Arch::AArch64`. Host-vs-target comparisons happen on typed objects (`rustc_codegen_ssa/back/link.rs:1814`, `rustc_codegen_llvm/llvm_util.rs:529`), never raw strings.
+- **Swift** (`lib/Basic/Platform.cpp:371`): explicit canonical mapping `arm64|aarch64 → arm64`, `x86_64|amd64 → x86_64`, `i386|i486|i586|i686 → i386`. Internal decisions go through typed `getArch()`; Apple-facing edges re-emit `getArchName()` only when needed.
+- **LLVM/Clang** (`llvm/include/llvm/TargetParser/Triple.h:46,85,328`): `llvm::Triple::ArchType` is the canonical internal model with documented alias groups; Clang's Darwin toolchain has the explicit Apple mapping `arm64|arm64e → aarch64` (`clang/lib/Driver/ToolChains/Darwin.cpp:57,77`).
+- **Zig** (`lib/std/Target.zig:1303`): `Target.Cpu.Arch` is an exhaustive enum; parsing is direct string-to-enum in `Target.Query.parse()`; unknown archs are rejected at parse, not stored.
+- **Go** (`src/cmd/internal/sys/arch.go:29,98,125`): canonical `goarch` strings stored in typed `Arch` descriptors; host canonicalized once at startup (`aarch64|arm64 → arm64`).
+
+**Rejected alternatives (documented in bug entry)**: a string-normalization helper loses because consumers can bypass it (bug class stays alive). Using `inkwell::TargetTriple` loses because inkwell is only a string wrapper — LLVM's parsed C++ `Triple` API isn't exposed across FFI, so Ori needs its own typed representation regardless.
+
+---
+
+## 2. TDD — Test Matrix
+
+All 10 tests live in the new `compiler/ori_llvm/src/aot/target_features/tests.rs`. Write them ALL before the fix; verify they fail to compile or fail at runtime against the current code.
+
+### Exact failing case
+- [ ] `test_is_cross_for_regression_pin_arm64_native_host_is_not_cross` — parse `"arm64-apple-darwin25.2.0"` against `HostPlatform { arch: Arch::Aarch64, os: HostOs::Darwin }` → `is_cross_for == false`. Semantic pin: this exact bug. Would fail if the `arm64 → Aarch64` alias is removed.
+
+### Cross-alias coverage (matrix with self-verification)
+- [ ] `test_arch_parse_normalizes_alias_spellings_matrix` — iterate `[("aarch64", Arch::Aarch64), ("arm64", Arch::Aarch64), ("x86_64", Arch::X86_64), ("amd64", Arch::X86_64), ("i386", Arch::I386), ("i486", Arch::I386), ("i586", Arch::I386), ("i686", Arch::I386), ("wasm32", Arch::Wasm32), ("wasm64", Arch::Wasm64)]`; assert every alias parses to its canonical variant.
+- [ ] `test_arch_parse_matrix_is_self_verifying` — counter assertion: iterate the alias table, increment per cell, assert `count == table.len()` so a skipped iteration is impossible.
+
+### Triple parse preserves other fields
+- [ ] `test_target_triple_parse_preserves_vendor_os_env_while_normalizing_arch_matrix` — parse `"arm64-apple-darwin25.2.0"` and `"amd64-unknown-linux-gnu"` and `"i686-pc-windows-msvc"`; for each, assert `arch` is canonical AND `vendor`/`os`/`env` equal the raw input slices byte-for-byte. Verifies arch canonicalization doesn't bleed into other fields.
+
+### Cross-host matrix (type × host grid)
+- [ ] `test_is_cross_for_simulated_host_matrix` — for every pair in `[Arch::X86_64, Arch::Aarch64] × [HostOs::Linux, HostOs::Darwin, HostOs::Windows]`, parse the canonical triple, build a matching `HostPlatform`, and assert `is_cross_for = false`. Then swap the host arch and assert `is_cross_for = true`. Self-verifying counter ensures all cells visited.
+- [ ] `test_is_cross_for_matrix_is_self_verifying` — counter assertion for the cross-detection grid.
+
+### Native round-trip (every supported host)
+- [ ] `test_native_host_triple_round_trips_to_not_cross_compiling_matrix` — for each supported host triple (`x86_64-unknown-linux-gnu`, `aarch64-unknown-linux-gnu`, `x86_64-apple-darwin`, `aarch64-apple-darwin`, `x86_64-pc-windows-msvc`), simulate the matching `HostPlatform` and assert parsed triple reports `is_cross_for = false`. Also test `arm64-apple-darwin25.2.0` (LLVM-default spelling) against Darwin aarch64 host — must round-trip to not-cross.
+
+### gcc cross-compiler name canonical spelling
+- [ ] `test_gcc_cross_compiler_name_uses_canonical_arch_boundary_spellings_matrix` — for every `(Arch, target_os)` pair that produces a non-None result, assert the generated program name uses the canonical arch spelling (`aarch64-linux-gnu-gcc`, NOT `arm64-linux-gnu-gcc`). Parse `"arm64-unknown-linux-gnu"` → canonicalizes → `gcc_cross_compiler_name` must emit `aarch64-linux-gnu-gcc`.
+
+### Sibling pin for syslib
+- [ ] `test_syslib_is_native_for_simulated_host_matrix` — parse each supported triple, build the matching `HostPlatform`, assert `target.is_native_for(host) = true`; swap host arch, assert `false`.
+
+### Negative pin (type-level, compile-fail if reverted)
+- [ ] `test_target_triple_components_has_no_raw_arch_string_field` — constructs a `TargetTripleComponents`, calls `components.arch.is_64_bit_non_wasm()` and matches on `Arch::X86_64`. Only compiles if `arch: Arch`; fails to compile if reverted to `arch: String` (`String` has no `is_64_bit_non_wasm()` method and cannot be pattern-matched on `Arch::X86_64`). Stronger than a runtime pin because the bug class is "raw string compare" — a runtime test cannot detect it after the fact.
+
+### Latent bug #7 (from_triple asymmetry)
+- [ ] `test_from_triple_accepts_arm64_apple_darwin_alias` — `TargetConfig::from_triple("arm64-apple-darwin")` returns Ok and `config.triple() == "aarch64-apple-darwin"` after canonicalization. This lives in `tests/aot/cross.rs` or `phases/codegen/targets.rs` (wherever from_triple is tested), not the new matrix file.
+
+### Verify tests fail before fix
+- [ ] All new tests fail (compile errors for the type-level negative pin; runtime assertion failures for the alias matrix) against current code — confirms they exercise the bug class.
+
+---
+
+## 3. Implementation
+
+**Migration order: bottom-up.** Change `TargetTripleComponents.arch: String → Arch` FIRST. The Rust compiler then refuses to compile every consumer, forcing complete migration. Top-down would create transitional state where some consumers are typed and others are stringly.
+
+- [ ] **Step 1 — Define the typed layer in `target_features.rs`:**
+  ```rust
+  /// Canonical CPU architecture. Parsed from target triples with all known
+  /// alias spellings normalized at the boundary (arm64 → Aarch64, amd64 → X86_64,
+  /// i486/i586/i686 → I386). SSOT for arch identity — never compared via raw strings.
+  #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+  pub enum Arch {
+      X86_64,
+      I386,
+      Aarch64,
+      Wasm32,
+      Wasm64,
+  }
+
+  impl Arch {
+      pub fn parse_llvm_name(name: &str) -> Option<Self> {
+          match name {
+              "x86_64" | "amd64" => Some(Self::X86_64),
+              "i386" | "i486" | "i586" | "i686" => Some(Self::I386),
+              "aarch64" | "arm64" => Some(Self::Aarch64),
+              "wasm32" => Some(Self::Wasm32),
+              "wasm64" => Some(Self::Wasm64),
+              _ => None,
+          }
+      }
+
+      pub fn display_name(self) -> &'static str {
+          match self {
+              Self::X86_64 => "x86_64",
+              Self::I386 => "i386",
+              Self::Aarch64 => "aarch64",
+              Self::Wasm32 => "wasm32",
+              Self::Wasm64 => "wasm64",
+          }
+      }
+
+      pub fn pointer_size_bytes(self) -> u32 {
+          match self {
+              Self::X86_64 | Self::Aarch64 | Self::Wasm64 => 8,
+              Self::I386 | Self::Wasm32 => 4,
+          }
+      }
+
+      pub fn is_64_bit_non_wasm(self) -> bool {
+          matches!(self, Self::X86_64 | Self::Aarch64)
+      }
+
+      pub fn is_wasm(self) -> bool {
+          matches!(self, Self::Wasm32 | Self::Wasm64)
+      }
+  }
+
+  impl fmt::Display for Arch {
+      fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+          f.write_str(self.display_name())
+      }
+  }
+
+  /// Host operating system family, determined at compile time via cfg.
+  #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+  pub enum HostOs {
+      Linux,
+      Darwin,
+      Windows,
+      Unknown,
+  }
+
+  impl HostOs {
+      pub const fn current() -> Self {
+          #[cfg(target_os = "linux")]       { Self::Linux }
+          #[cfg(target_os = "macos")]       { Self::Darwin }
+          #[cfg(target_os = "windows")]     { Self::Windows }
+          #[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
+          { Self::Unknown }
+      }
+
+      pub fn display_name(self) -> &'static str {
+          match self {
+              Self::Linux => "linux",
+              Self::Darwin => "darwin",
+              Self::Windows => "windows",
+              Self::Unknown => "unknown",
+          }
+      }
+  }
+
+  /// Host platform (arch + OS) used for cross-compilation detection.
+  /// All host-vs-target comparisons flow through this typed representation.
+  #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+  pub struct HostPlatform {
+      pub arch: Arch,
+      pub os: HostOs,
+  }
+
+  impl HostPlatform {
+      pub const fn new(arch: Arch, os: HostOs) -> Self {
+          Self { arch, os }
+      }
+
+      pub const fn current() -> Self {
+          Self::new(host_arch(), HostOs::current())
+      }
+  }
+
+  const fn host_arch() -> Arch {
+      #[cfg(target_arch = "x86_64")]   { Arch::X86_64 }
+      #[cfg(target_arch = "aarch64")]  { Arch::Aarch64 }
+      #[cfg(target_arch = "x86")]      { Arch::I386 }
+      // Ori compiler only builds on x86_64/aarch64/x86; unreachable fallback.
+      #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64", target_arch = "x86")))]
+      { Arch::X86_64 }
+  }
+  ```
+
+- [ ] **Step 2 — Change `TargetTripleComponents.arch: String → Arch`** and update `parse()`/`is_wasm()`/`Display`/new `is_cross_for`/`is_native_for`:
+  ```rust
+  pub struct TargetTripleComponents {
+      pub arch: Arch,
+      pub vendor: String,
+      pub os: String,
+      pub env: Option<String>,
+  }
+
+  impl TargetTripleComponents {
+      pub fn parse(triple: &str) -> Result<Self, TargetError> {
+          let parts: Vec<&str> = triple.split('-').collect();
+          if parts.len() < 3 {
+              return Err(TargetError::InvalidTripleFormat {
+                  triple: triple.to_string(),
+                  reason: "expected at least 3 components: <arch>-<vendor>-<os>".to_string(),
+              });
+          }
+          let arch = Arch::parse_llvm_name(parts[0]).ok_or_else(|| TargetError::InvalidTripleFormat {
+              triple: triple.to_string(),
+              reason: format!("unknown architecture '{}'", parts[0]),
+          })?;
+          Ok(Self {
+              arch,
+              vendor: parts[1].to_string(),
+              os: parts[2].to_string(),
+              env: parts.get(3).map(|s| (*s).to_string()),
+          })
+      }
+
+      pub fn is_wasm(&self) -> bool { self.arch.is_wasm() }
+
+      pub fn is_cross_for(&self, host: HostPlatform) -> bool {
+          if self.arch != host.arch { return true; }
+          // OS check — darwin carries a version suffix from LLVM default triples.
+          let host_os = host.os.display_name();
+          if self.os.starts_with("darwin") { return host_os != "darwin"; }
+          self.os != host_os
+      }
+
+      pub fn is_native_for(&self, host: HostPlatform) -> bool {
+          !self.is_cross_for(host)
+      }
+      // ...is_windows/is_msvc/is_macos/is_linux/family unchanged...
+  }
+  ```
+  `Display` impl auto-emits canonical arch because `Arch: Display`.
+
+- [ ] **Step 3 — Exhaustive match in `initialize_target_for_triple`:**
+  ```rust
+  pub(crate) fn initialize_target_for_triple(components: &TargetTripleComponents)
+      -> Result<(), TargetError>
+  {
+      match components.arch {
+          Arch::X86_64 | Arch::I386 => {
+              X86_TARGET_INIT.call_once(|| Target::initialize_x86(&InitializationConfig::default()));
+          }
+          Arch::Aarch64 => {
+              AARCH64_TARGET_INIT.call_once(|| Target::initialize_aarch64(&InitializationConfig::default()));
+          }
+          Arch::Wasm32 | Arch::Wasm64 => {
+              WASM_TARGET_INIT.call_once(|| Target::initialize_webassembly(&InitializationConfig::default()));
+          }
+      }
+      Ok(())
+  }
+  ```
+
+- [ ] **Step 4 — `TargetConfig::from_triple` parses first, canonicalizes, then validates** (fixes latent #7):
+  ```rust
+  pub fn from_triple(triple: &str) -> Result<Self, TargetError> {
+      let components = TargetTripleComponents::parse(triple)?;
+      let canonical = components.to_string(); // Display uses canonical arch
+      if !is_supported_target(&canonical) {
+          return Err(TargetError::UnsupportedTarget {
+              triple: triple.to_string(), // report user's input in the error
+              supported: SUPPORTED_TARGETS.to_vec(),
+          });
+      }
+      initialize_target_for_triple(&components)?;
+      let reloc_mode = if components.is_linux() { RelocMode::PIC } else { RelocMode::Default };
+      Ok(Self {
+          triple: canonical,
+          components,
+          cpu: "generic".to_string(),
+          features: String::new(),
+          opt_level: OptimizationLevel::None,
+          reloc_mode,
+          code_model: CodeModel::Default,
+      })
+  }
+  ```
+
+- [ ] **Step 5 — `pointer_size()` exhaustive on `Arch`:**
+  ```rust
+  pub fn pointer_size(&self) -> u32 {
+      self.components.arch.pointer_size_bytes()
+  }
+  ```
+
+- [ ] **Step 6 — `linker/mod.rs::is_cross_compiling`:** delegate to typed query.
+  ```rust
+  pub fn is_cross_compiling(target: &TargetConfig) -> bool {
+      target.components().is_cross_for(HostPlatform::current())
+  }
+  ```
+
+- [ ] **Step 7 — `linker/mod.rs::gcc_cross_compiler_name`:** interpolate `target.arch` via its `Display` impl (canonical). Existing `format!("{}-w64-mingw32-gcc", target.arch)` now emits canonical because `Arch: Display → canonical`. No signature change.
+
+- [ ] **Step 8 — `linker/mod.rs::cross_compilation_error`:** same interpolation rule — `components.arch` now emits canonical.
+
+- [ ] **Step 9 — `syslib/mod.rs::is_native`:** delegate to typed query.
+  ```rust
+  pub fn is_native(&self) -> bool {
+      self.target.is_native_for(HostPlatform::current())
+  }
+  ```
+
+- [ ] **Step 10 — `syslib/mod.rs::detect_library_paths` lib64 check:**
+  ```rust
+  if target.arch.is_64_bit_non_wasm() {
+      paths.push(sysroot.join("lib64"));
+      paths.push(sysroot.join("usr/lib64"));
+  }
+  ```
+
+- [ ] **Step 11 — Re-export from `aot/mod.rs`:** add `Arch`, `HostOs`, `HostPlatform` to the `pub use target_features::{...}` block.
+
+- [ ] **Step 12 — Update all consumer tests** to construct struct literals with `arch: Arch::X86_64` / assert `components.arch == Arch::X86_64`:
+  - `compiler/oric/tests/phases/codegen/targets.rs` (4 assert_eq updates + ~8 struct literal updates)
+  - `compiler/ori_llvm/tests/aot/cross.rs:226`
+  - `compiler/ori_llvm/src/aot/syslib/tests.rs:24`
+
+- [ ] **Step 13 — Create `compiler/ori_llvm/src/aot/target_features/tests.rs`** with the 10-test matrix. Add `#[cfg(test)] mod tests;` declaration in `target_features.rs`.
+
+- [ ] **Step 14 — Add `from_triple` alias acceptance test** (latent #7) to `compiler/oric/tests/phases/codegen/targets.rs` or `tests/aot/cross.rs`.
+
+---
+
+## 4. Completion Checklist
+
+- [ ] All new tests pass unchanged after fix (no test modifications needed)
+- [ ] Matrix completeness verified — every cell in Arch-alias × host-platform × target-os grid has a test
+- [ ] Debug AND release builds pass (`cargo b && cargo b --release`)
+- [ ] `timeout 150 ./test-all.sh` green — no regressions
+- [ ] `timeout 150 ./clippy-all.sh` green
+- [ ] `cargo test -p ori_llvm` green
+- [ ] `/commit-push` — commit all changes before review
+- [ ] Bug entry in `plans/bug-tracker/section-04-codegen-llvm.md:297` updated: `- [x]` with resolution details
+- [ ] Fix section frontmatter `status` updated to `complete`
+- [ ] Bug-tracker `00-overview.md` Quick Reference open bug count updated
+- [ ] `/tpr-review` passed — independent Codex review found no critical or major issues
+- [ ] `/impl-hygiene-review` passed — MUST run AFTER `/tpr-review` is clean
+- [ ] `/improve-tooling` retrospective completed — MANDATORY after both reviews are clean
+
+**Exit Criteria:** `cargo test -p ori_llvm --lib target_features::tests` runs the 10-test matrix and all assertions pass. `test_native_target_is_not_cross_compiling` passes on simulated Apple Silicon host (via `HostPlatform::new(Arch::Aarch64, HostOs::Darwin)` against parsed `arm64-apple-darwin25.2.0`). `TargetConfig::from_triple("arm64-apple-darwin")` returns Ok with `config.triple() == "aarch64-apple-darwin"`. Full `./test-all.sh` reports zero failures. The `TargetTripleComponents.arch` field type is `Arch` — reverting to `String` would fail to compile because `test_target_triple_components_has_no_raw_arch_string_field` calls `arch.is_64_bit_non_wasm()` which does not exist on `String`.

@@ -86,22 +86,33 @@ impl TargetConfig {
 
     /// Create a target configuration from a target triple string.
     ///
+    /// The `triple` may use any known arch alias (`arm64` for `aarch64`,
+    /// `amd64` for `x86_64`, `i486/i586/i686` for `i386`). Parse happens
+    /// BEFORE the supported-targets check, so the canonicalized form is
+    /// what gets validated — this fixes the asymmetry where
+    /// `arm64-apple-darwin` was rejected even though Apple Silicon
+    /// emits exactly that spelling from LLVM. The stored triple is the
+    /// canonical spelling, ensuring downstream consumers see one name.
+    ///
     /// # Errors
     ///
     /// Returns an error if:
-    /// - The triple is not in the supported targets list
-    /// - The triple format is invalid
+    /// - The triple format is invalid or uses an unknown architecture
+    /// - The canonicalized triple is not in the supported targets list
     /// - LLVM target initialization fails
     pub fn from_triple(triple: &str) -> Result<Self, TargetError> {
-        // Validate against supported targets (O(1) match lookup)
-        if !is_supported_target(triple) {
+        // Parse first — this canonicalizes arch aliases (arm64 → aarch64).
+        let components = TargetTripleComponents::parse(triple)?;
+
+        // Validate the canonical form against the supported list.
+        let canonical = components.to_string();
+        if !is_supported_target(&canonical) {
             return Err(TargetError::UnsupportedTarget {
+                // Report the user's input spelling in the error for clarity.
                 triple: triple.to_string(),
                 supported: SUPPORTED_TARGETS.to_vec(),
             });
         }
-
-        let components = TargetTripleComponents::parse(triple)?;
 
         // Initialize the appropriate LLVM target
         initialize_target_for_triple(&components)?;
@@ -114,7 +125,7 @@ impl TargetConfig {
         };
 
         Ok(Self {
-            triple: triple.to_string(),
+            triple: canonical,
             components,
             cpu: "generic".to_string(),
             features: String::new(),
@@ -366,13 +377,11 @@ impl TargetConfig {
 
     /// Get pointer size in bytes for this target.
     ///
-    /// Most targets use 8 bytes (64-bit), WASM uses 4 bytes (32-bit).
+    /// Delegates to the typed [`Arch::pointer_size_bytes`] — exhaustive over
+    /// every supported architecture, no string fallthrough.
     #[must_use]
     pub fn pointer_size(&self) -> u32 {
-        match self.components.arch.as_str() {
-            "wasm32" | "i686" | "i386" | "arm" => 4,
-            _ => 8,
-        }
+        self.components.arch.pointer_size_bytes()
     }
 
     /// Get pointer alignment in bytes for this target.

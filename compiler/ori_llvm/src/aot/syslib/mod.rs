@@ -33,7 +33,7 @@
 
 use std::path::PathBuf;
 
-use super::target_features::TargetTripleComponents;
+use super::target_features::{HostPlatform, TargetTripleComponents};
 
 /// System library configuration for a target.
 #[derive(Debug, Clone)]
@@ -115,26 +115,15 @@ impl SysLibConfig {
     }
 
     /// Check if this is a native compilation (no cross-compilation).
+    ///
+    /// Delegates to the typed [`TargetTripleComponents::is_native_for`]
+    /// against [`HostPlatform::current`], operating on canonical [`Arch`]
+    /// values rather than raw `cfg` string compares. See BUG-04-045.
+    ///
+    /// [`Arch`]: crate::aot::target_features::Arch
     #[must_use]
     pub fn is_native(&self) -> bool {
-        // Compare with current platform
-        #[cfg(target_os = "linux")]
-        let current_os = "linux";
-        #[cfg(target_os = "macos")]
-        let current_os = "darwin";
-        #[cfg(target_os = "windows")]
-        let current_os = "windows";
-        #[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
-        let current_os = "unknown";
-
-        #[cfg(target_arch = "x86_64")]
-        let current_arch = "x86_64";
-        #[cfg(target_arch = "aarch64")]
-        let current_arch = "aarch64";
-        #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
-        let current_arch = "unknown";
-
-        self.target.os == current_os && self.target.arch == current_arch
+        self.target.is_native_for(HostPlatform::current())
     }
 
     /// Get the required system libraries for linking.
@@ -276,8 +265,8 @@ impl SysLibConfig {
             paths.push(sysroot.join(format!("lib/{triple}")));
             paths.push(sysroot.join(format!("usr/lib/{triple}")));
 
-            // lib64 for 64-bit targets
-            if target.arch == "x86_64" || target.arch == "aarch64" {
+            // lib64 for 64-bit non-wasm targets
+            if target.arch.is_64_bit_non_wasm() {
                 paths.push(sysroot.join("lib64"));
                 paths.push(sysroot.join("usr/lib64"));
             }
