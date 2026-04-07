@@ -1,6 +1,26 @@
+---
+reroute: true
+name: "Locality SSOT"
+full_name: "Locality Representation Unification — SSOT for Escape Classification"
+status: queued
+order: 0
+---
+
 # Locality Representation Unification Index
 
 > **Maintenance Notice:** Update this index when adding/modifying sections.
+>
+> **Reroute priority note:** This plan is queued at `order: 0` (highest queue priority)
+> because it is a **hard prerequisite** to `plans/repr-opt/`'s sections §08 (escape
+> analysis), §09 (ARC header compression), and §10 (thread-local non-atomic ARC). Those
+> three sections currently plan to define parallel `EscapeState` and `ThreadLocality`
+> enums; this plan unifies escape-scope classification into `ori_arc::Locality` first
+> so the repr-opt sections consume the unified type instead. Section 04 of this plan
+> performs the cross-plan text coordination (re-read-before-edit protocol) in the
+> `plans/repr-opt/` corpus when executed. `repr-opt` is currently `status: active,
+> order: 1` — this plan should be promoted to `active` ahead of repr-opt §08 execution,
+> OR repr-opt should pause at §07 and yield to this plan. The exact handoff is a
+> scheduling decision for the developer when repr-opt approaches §08.
 
 ## How to Use
 
@@ -17,11 +37,20 @@
 
 ```
 hygiene foundation, file split, 500-line limit, BLOAT
-lattice/mod.rs split, transfer/mod.rs split, submodule structure
+lattice/mod.rs split (552→≤80), transfer/mod.rs split (524→≤80)
+interprocedural/extract.rs split (517→≤250 leaf-to-directory promotion)
+extract/mod.rs, extract/consumed_params.rs, extract/return_info.rs
+intraprocedural/state_map.rs split (646→≤300 leaf-to-directory + multiple impl blocks)
+state_map/mod.rs, state_map/events.rs, state_map/cross_dim.rs, state_map/borrow_provenance.rs, state_map/invoke_shape.rs, state_map/effects_fip.rs
+interprocedural/mod.rs split (536→≤300 with scc_loop.rs extracted)
+analyze_scc_fixpoint extraction, tighten_uniqueness_from_callers extraction
+submodule structure, dispatch hub, leaf implements pattern
+public API surface preservation, private mod, pub use re-exports
+cargo public-api not installed, grep fallback primary, future upgrade
 stale annotation rewrite, Section 09.2, Section 09.3, Section 09.5
 plan-annotations.sh, DRIFT category, impl-hygiene.md
 Effect Activation, Shape Activation, Convergence Feedback
-17 stale references, 5 affected AIMS files
+99 stale references across AIMS subtree (~27 post-split files)
 no semantic change, structural cleanup, hygiene-only
 architectural seams, not mechanical chunking
 ```
@@ -68,20 +97,25 @@ LEAK scattered-knowledge, SSOT enforcement
 contract/mod.rs CONSERVATIVE OPTIMISTIC, parallel state removal
 ParamContract::join, may_escape OR removal
 ReturnContract::locality, drift check
-consumer migration, 8 non-test files
+predicate audit, 13 sites across 7 files, no exhaustive matches
+matches predicate vs exhaustive match, semantic per-site decision
 intraprocedural/block.rs:97 cross-block widening, block.rs:155 return widening
 intraprocedural/effects.rs:38 order predicate, automatic correctness
 intraprocedural/state_map.rs:429 order predicates
-transfer/mod.rs producer sites, transfer_project transfer_apply_conservative
-transfer_collection_reuse, capture_state_update
-interprocedural/extract.rs:84 ParamContract construction
-builtins/mod.rs locality bound writes
-verify/tests.rs locality assertions
-realize/decide.rs locality reads
-all_locality helper at tests.rs:26, pre-existing test gap fix
+intraprocedural/post_convergence.rs:95 matches predicate is_local_alloc_eligible
+transfer/state_helpers.rs (post-split) capture_state_update locality widening
+interprocedural/extract/mod.rs (post-Section-00.4b split) ParamContract construction PRODUCTION
+builtins/mod.rs ParamContract literals 286, 297 PRODUCTION
+verify/tests.rs locality assertions, ParamContract literals 486, 498
+realize/tests.rs locality assertion (line 1091)
+all_locality helper at tests.rs:26, extends 4 to 5 variants (no pre-existing bug)
+representative_states locality sample at tests.rs:68 (2 → 3 variants)
+ParamContract may_escape field, 7 literal sites struct construction
 test extension, commutativity 5x5, associativity 5x5x5
 Lean 4 inversion comment, dimensions.rs doc update
 Pass 4 citation, Borrow.lean:58-60
+ParamContract::may_escape() derivation matrix, contract/tests.rs, 5 per-variant + matrix completeness + negative pin
+return widening producer-site soundness pin, intraprocedural/tests.rs, block.rs:155, condition 4 enforcement
 ```
 
 ---
@@ -134,6 +168,7 @@ cross-reference resolution, /review-plan repr-opt
 ```
 verification documentation, test matrix
 5 variants times 3 canonicalize rules, exhaustive coverage
+self-verifying matrix completeness, canonicalize idempotence
 soundness pin test, ArgEscape Unique stays Unique
 Rule 6 negative test, behavioral pin
 cross-crate behavioral test, EscapeInfo round-trip
@@ -152,11 +187,11 @@ improve-tooling retrospective, diagnostic gaps
 
 ## Quick Reference
 
-| ID | Title | File |
-|---|---|---|
-| 00 | Hygiene Foundation | `section-00-hygiene-foundation.md` |
-| 01 | Representation Decision | `section-01-representation-decision.md` |
-| 02 | ori_arc Implementation | `section-02-ori-arc-implementation.md` |
-| 03 | ori_repr EscapeInfo Storage | `section-03-ori-repr-escape-info.md` |
-| 04 | Plan Corpus Coordination | `section-04-plan-corpus-coordination.md` |
-| 05 | Verification & Documentation | `section-05-verification.md` |
+| ID | Title | File | Status |
+|---|---|---|---|
+| 00 | Hygiene Foundation | `section-00-hygiene-foundation.md` | Not Started |
+| 01 | Representation Decision | `section-01-representation-decision.md` | Not Started |
+| 02 | ori_arc Implementation | `section-02-ori-arc-implementation.md` | Not Started |
+| 03 | ori_repr EscapeInfo Storage | `section-03-ori-repr-escape-info.md` | Not Started |
+| 04 | Plan Corpus Coordination | `section-04-plan-corpus-coordination.md` | Not Started |
+| 05 | Verification & Documentation | `section-05-verification.md` | Not Started |

@@ -10,6 +10,9 @@ references:
   - "compiler/ori_arc/src/aims/lattice/dimensions.rs"
   - "compiler/ori_arc/src/aims/lattice/mod.rs"
   - "compiler/ori_arc/src/aims/contract/mod.rs"
+  - "compiler/ori_arc/src/aims/interprocedural/extract.rs" # 517 lines, pre-split in Section 00.4b
+  - "compiler/ori_arc/src/aims/intraprocedural/state_map.rs" # 646 lines, pre-split in Section 00.4c
+  - "compiler/ori_arc/src/aims/interprocedural/mod.rs" # 536 lines, pre-split in Section 00.4c
   - "compiler/ori_repr/src/escape/mod.rs"
   - "compiler/ori_repr/src/plan/query.rs"
 ---
@@ -29,19 +32,18 @@ The mission is complete when ALL of these are true. Each criterion is concrete, 
 - [ ] `compiler/ori_repr/src/escape/mod.rs` no longer contains a placeholder ZST — it defines a concrete `EscapeInfo { var_escape: FxHashMap<ArcVarId, Locality> }` consuming `ori_arc::aims::lattice::Locality` (delivered by Section 03)
 - [ ] `compiler/ori_repr/src/plan/query.rs::ReprPlan::escapes()` body no longer hardcodes `let result = true;` — it consults `escape_info` for the given function and variable, mirroring the `rc_strategy()` pattern at `query.rs:124-134` (delivered by Section 03)
 - [ ] `ParamContract::may_escape` is no longer a stored `bool` field. It is a derived method `may_escape(&self) -> bool` returning `self.locality_bound > Locality::BlockLocal`. The CONSERVATIVE and OPTIMISTIC constants no longer maintain it as parallel state. `ParamContract::join()` no longer ORs it. Verified by `grep -n "may_escape: " compiler/ori_arc/src/aims/contract/mod.rs` returning only function-definition lines, not field accesses (delivered by Section 02)
+- [ ] `ParamContract::may_escape()` **derivation matrix exists** in `compiler/ori_arc/src/aims/contract/tests.rs`: 5 per-variant tests (one for each `Locality` variant), a self-verifying matrix completeness test that iterates all variants and asserts `may_escape() == (locality > BlockLocal)`, and a negative pin test rejecting the broken `>=` derivation. Without this matrix, a subtle off-by-one in the derivation would go undetected (delivered by Section 02.8)
+- [ ] **Return-widening producer-site soundness pin exists** in `compiler/ori_arc/src/aims/intraprocedural/tests.rs`: `return_widening_promotes_arg_escaping_to_heap_escaping` asserts that `block.rs:155`'s `if entry.locality < Locality::HeapEscaping { ... }` branch correctly upgrades `ArgEscaping → HeapEscaping` for returned values. This is the test gate for soundness condition 4 (no heap persistence) from Section 01.4 and the only place where the interaction between the new variant and the return widening predicate is exercised directly (delivered by Section 02.8)
 - [ ] Canonicalize Rules 4, 6, 8 in `aims/lattice/mod.rs::canonicalize_single_pass()` fire identically before and after the refactor. Verified by extending the cross-dimension rule test suite to include `ArgEscaping` cases AND by a behavioral pin test asserting `ArgEscaping + Unique` does NOT collapse to `MaybeShared` (Rule 6 does NOT fire on `ArgEscaping`). Evidence: Go's `leakCallee` and Lean 4's `borrow=true` both preserve uniqueness across the call boundary (delivered by Sections 02 and 05)
 - [ ] `AimsState::CHAIN_HEIGHT` constant is updated from `15` to `16` to reflect the new chain height of `Locality` (3 → 4). The `iteration_limit()` formula recomputes correctly. The test at `aims/lattice/tests.rs:2054` is updated and passes (delivered by Section 02)
 - [ ] `plans/repr-opt/section-08-escape-analysis.md` is updated: §08.1's task list rewritten to consume `ori_arc::Locality` instead of defining `EscapeState`; `depends_on: ["02", "locality-representation-unification"]` added; explicit "Soundness conditions to enforce" subsection added with conditions 2 (ownership preservation) and 4 (no heap persistence) from this plan's Section 01 (delivered by Section 04)
 - [ ] `plans/repr-opt/section-09-arc-header.md` is updated: the `compute_sharing_bound()` example at `§09:75` changed from `EscapeState::NoEscape` to `EscapeInfo::is_non_escaping(var)`; `depends_on` includes `locality-representation-unification` (delivered by Section 04)
 - [ ] `plans/repr-opt/section-10-thread-local-arc.md` is updated: confirms (and documents in the section text) that thread-locality routes through `RcStrategy::NonAtomic` per `repr-opt/00-overview.md:192` and does NOT define a parallel `ThreadLocality` enum; `depends_on` includes `locality-representation-unification` if §10 reads `EscapeInfo` for any input signal (delivered by Section 04)
 - [ ] `plans/repr-opt/00-overview.md` lines 191-192 reference the unified `Locality` type; `plans/repr-opt/index.md` keyword clusters for §08/§09/§10 no longer mention `EscapeState` or `ThreadLocality` as standalone enums (delivered by Section 04)
-- [ ] `compiler/ori_arc/src/aims/lattice/mod.rs` is **≤450 lines** (currently 552). `compiler/ori_arc/src/aims/transfer/mod.rs` is **≤450 lines** (currently 524). Both are split into submodule structures defined by architectural seams, not mechanical chunking (delivered by Section 00)
-<!-- Removed: Pass 1 Agent 2 misread mod tests; declarations at transfer/mod.rs:17-22 and
-     contract/mod.rs:21-23 as inline test blocks. They are actually correct sibling-file
-     declarations (transfer/tests.rs is 1117 lines, contract/tests.rs is 398 lines). No
-     extraction work is needed. Verified during Phase 2 deep read before Section 00 was written. -->
+- [ ] **All five BLOAT files this plan touches are pre-split below 450 lines:** `compiler/ori_arc/src/aims/lattice/mod.rs` (currently 552 → ≤80 dispatch hub), `compiler/ori_arc/src/aims/transfer/mod.rs` (524 → ≤80), `compiler/ori_arc/src/aims/interprocedural/extract.rs` (517 → leaf-to-directory promotion ≤250 mod.rs + 2 siblings; Agent 3 hygiene addition, Section 02.6 modifies the `may_escape` literal here), `compiler/ori_arc/src/aims/intraprocedural/state_map.rs` (646 → leaf-to-directory promotion ≤300 mod.rs + 5 sibling impl files; Agent 3 hygiene addition, Section 00.6 rewrites 14 stale annotations here), `compiler/ori_arc/src/aims/interprocedural/mod.rs` (536 → ≤300 with `scc_loop.rs` extracted; Agent 3 hygiene addition, Section 00.6 rewrites 2 stale annotations here). All splits use architectural seams (responsibility-based), not mechanical chunking (delivered by Section 00)
 
-- [ ] No source file under `compiler/ori_arc/src/aims/` contains the strings `Section 09.2`, `Section 09.3`, or `Section 09.5` as plan annotations. The 17 references in `lattice/mod.rs` plus the references in 4 other files are rewritten to preserve their load-bearing rationale (e.g., "requires precise locality") while dropping the navigation pointers to a plan that does not exist in `plans/` or `plans/completed/`. Verified by `bash .claude/skills/impl-hygiene-review/plan-annotations.sh` returning 0 stale Section 09 annotations in AIMS files (delivered by Section 00)
+- [ ] No source file under `compiler/ori_arc/src/aims/` contains the strings `Section 09.2`, `Section 09.3`, or `Section 09.5` as plan annotations. The **99 references across 22 files** (re-counted via `Grep "Section 09\." compiler/ori_arc/src/aims` during plan accuracy review) are rewritten to preserve their load-bearing rationale (e.g., "requires precise locality") while dropping the navigation pointers to a plan that does not exist in `plans/` or `plans/completed/`. Verified by `bash .claude/skills/impl-hygiene-review/plan-annotations.sh` returning 0 stale Section 09 annotations in AIMS files (delivered by Section 00)
+
 - [ ] `./test-all.sh` green — no regressions across the full test suite (delivered by Section 05)
 - [ ] `./clippy-all.sh` green (delivered by Section 05)
 - [ ] `/tpr-review`, `/impl-hygiene-review`, and `/improve-tooling` retrospective complete with all findings triaged (delivered by Section 05)
@@ -184,10 +186,16 @@ Two unrelated production compilers independently confirm the architectural choic
                   │ Section 00 — Hygiene Foundation     │
                   │ (no semantic change)                │
                   │                                     │
-                  │ - Split lattice/mod.rs              │
-                  │ - Split transfer/mod.rs             │
-                  │ - Rewrite stale Section 09.x        │
-                  │   annotations                       │
+                  │ - Split lattice/mod.rs (552→≤80)    │
+                  │ - Split transfer/mod.rs (524→≤80)   │
+                  │ - Split interprocedural/extract.rs  │
+                  │   (517→≤250 mod.rs + 2 siblings)    │
+                  │ - Split intraprocedural/state_map   │
+                  │   (646→≤300 mod.rs + 5 siblings)    │
+                  │ - Split interprocedural/mod.rs      │
+                  │   (536→≤300 + scc_loop.rs)          │
+                  │ - Rewrite 99 stale Section 09.x     │
+                  │   annotations across AIMS subtree   │
                   │ - /add-bug for any residuals        │
                   └────────────────┬────────────────────┘
                                    │
@@ -213,8 +221,9 @@ Two unrelated production compilers independently confirm the architectural choic
                   │                                     │
                   │ - Add ArgEscaping variant           │
                   │ - Verify Rules 4/6/8                │
-                  │ - Migrate 8 non-test consumer files │
+                  │ - Audit 13 predicate sites          │
                   │ - Convert may_escape to derived     │
+                  │   (incl. 7 struct literal sites)    │
                   │ - Update CHAIN_HEIGHT (15→16)       │
                   │ - Extend lattice tests              │
                   │ - Add Lean 4 inversion comment      │
@@ -290,12 +299,23 @@ Phase 0 — Hygiene Foundation (no semantic change)
   └─ Section 00.2: Execute lattice/mod.rs split into submodule structure
   └─ Section 00.3: Define seams for transfer/mod.rs split
   └─ Section 00.4: Execute transfer/mod.rs split into submodule structure
-  └─ Section 00.5: Rewrite 17 stale Section 09.x annotations in lattice/mod.rs
-  └─ Section 00.6: Scan and rewrite stale annotations in 4 other affected files
+  └─ Section 00.4a: Define seams for interprocedural/extract.rs split (Agent 3 addition;
+                     extract.rs is 517 lines and Section 02.6 touches its `may_escape`
+                     literal — pre-split required by impl-hygiene.md "touching > 500
+                     lines without splitting" rule)
+  └─ Section 00.4b: Execute interprocedural/extract.rs split (leaf-to-directory promotion:
+                     extract.rs → extract/{mod,consumed_params,return_info}.rs)
+  └─ Section 00.4c: Pre-split BLOAT files state_map.rs (646→≤300 in 6 files via leaf-to-
+                     directory + multiple impl blocks) and interprocedural/mod.rs
+                     (536→≤300 with scc_loop.rs extracted) (Agent 3 addition; both files
+                     are touched by Section 00.6's annotation rewrites and exceed the
+                     500-line BLOAT limit)
+  └─ Section 00.5: Rewrite ~19 stale Section 09.x annotations in lattice files
+  └─ Section 00.6: Scan and rewrite ~80 stale annotations across 21 remaining AIMS files
   └─ Section 00.7: Safety net — /add-bug for any residual stale annotations
-  Gate: lattice/mod.rs and transfer/mod.rs ≤450 lines; plan-annotations.sh returns
-        0 stale Section 09 references in AIMS files; ./test-all.sh green (no
-        behavioral changes expected)
+  Gate: lattice/mod.rs, transfer/mod.rs, AND interprocedural/extract/ files all ≤450
+        lines; plan-annotations.sh returns 0 stale Section 09 references in AIMS files;
+        ./test-all.sh green (no behavioral changes expected)
 
 Phase 1 — Representation Decision (research-only)
   └─ Section 01.1: Lock the chain ordering: BlockLocal < FunctionLocal < ArgEscaping
@@ -317,14 +337,26 @@ Phase 2 — Core Implementation
   └─ Section 02.3: Verify canonicalize Rules 4, 6, 8 fire identically
                     (preserve semantics, just add match coverage)
   └─ Section 02.4: Update CHAIN_HEIGHT constant (15 → 16) and verify iteration_limit()
-  └─ Section 02.5: Migrate 8 non-test consumer files (producers + order-based predicates)
+  └─ Section 02.5: Audit 13 predicate sites across 7 files (no exhaustive matches
+                    exist on Locality — every site is an order-based or matches!()
+                    predicate that compiles cleanly without changes; per-site
+                    SEMANTIC judgment required)
   └─ Section 02.6: Convert ParamContract::may_escape from field to derived method
-                    (delete field, add fn, remove from CONSERVATIVE/OPTIMISTIC, remove
-                    from join())
-  └─ Section 02.7: Fix incomplete `all_locality()` helper at lattice/tests.rs:26
-                    (pre-existing test bug — only returns 2 of 4 current variants)
+                    (delete field, remove from 7 struct literal sites including
+                    extract.rs and builtins/mod.rs PRODUCTION code, add fn,
+                    remove from CONSERVATIVE/OPTIMISTIC, remove from join())
+  └─ Section 02.7: Extend `all_locality()` AND `representative_states()` helpers
+                    at lattice/tests.rs:26 and tests.rs:68 for ArgEscaping coverage
+                    (no pre-existing bug — Pass 1 misread; `all_locality()` already
+                    returns all 4 current variants, `representative_states()` is an
+                    intentionally small property-test sample)
+
   └─ Section 02.8: Extend lattice tests for the new variant (commutativity, associativity,
-                    canonicalize rules, helpers, exhaustive enumerations)
+                    canonicalize rules, helpers, exhaustive enumerations) PLUS add the
+                    `ParamContract::may_escape()` derivation matrix (7 tests in
+                    contract/tests.rs) AND the return-widening producer-site soundness
+                    pins (3 tests in intraprocedural/tests.rs) — the lattice tests alone
+                    do not exercise the non-lattice surfaces this plan changes
   Gate: cargo test -p ori_arc green; ./clippy-all.sh green; CHAIN_HEIGHT == 16
         in test assertion at tests.rs:2054; soundness pin (ArgEscape + Unique stays
         Unique) passes
@@ -394,31 +426,36 @@ Baseline measurements before implementation. These establish the starting point 
 | `compiler/ori_arc/src/aims/lattice/mod.rs` | 552 | 2365 (sibling `tests.rs`) | 2917 | **Over 500-line limit by 52** |
 | `compiler/ori_arc/src/aims/lattice/dimensions.rs` | 281 | (no sibling tests; covered by `lattice/tests.rs`) | 281 | `Locality` enum here |
 | `compiler/ori_arc/src/aims/transfer/mod.rs` | 524 | 1117 (sibling `tests.rs`) | 1641 | **Over 500-line limit by 24** |
+| `compiler/ori_arc/src/aims/interprocedural/extract.rs` | 517 | (no sibling tests; covered by `interprocedural/tests.rs`) | 517 | **Over 500-line limit by 17** — Section 02.6 modifies the `may_escape` literal here, so Section 00.4b pre-splits it into `extract/{mod,consumed_params,return_info}.rs` |
 | `compiler/ori_arc/src/aims/contract/mod.rs` | 478 | 398 (sibling `tests.rs`) | 876 | Under 500 but over the 450 proactive-split threshold; this plan REMOVES the `may_escape` field so it shrinks slightly |
 | `compiler/ori_arc/src/aims/contract/context.rs` | 113 | (in `tests.rs`) | 113 | Already-extracted submodule (`ContextBehavior`, `ContextRegion`) |
-| `compiler/ori_arc/src/aims/intraprocedural/block.rs` | ~330 | (in `tests.rs`) | ~330 | Producer sites at lines 97-100, 155-157 |
+| `compiler/ori_arc/src/aims/intraprocedural/block.rs` | 480 (NOT 330 — Agent 3 re-measured) | (sibling `tests.rs`) | 480 | Producer sites at lines 96-100, 150-159; at proactive-split threshold; Section 00.6 rewrites 17 stale annotations |
+| `compiler/ori_arc/src/aims/intraprocedural/state_map.rs` | 646 | 535 (sibling `state_map/tests.rs`) | 1181 | **Over 500-line limit by 146** — Section 00.4c pre-splits into directory; Section 02.5 reads predicate sites at lines 429-440; Section 00.6 rewrites 14 stale annotations |
+| `compiler/ori_arc/src/aims/interprocedural/mod.rs` | 536 | (in `tests.rs`) | 536 | **Over 500-line limit by 36** — Section 00.4c pre-splits `scc_loop.rs` out; Section 00.6 rewrites 2 stale annotations |
+| `compiler/ori_arc/src/aims/realize/decide.rs` | 485 | (in sibling `tests.rs` 1572 lines) | 2057 | Under 500 but at proactive-split threshold; Section 00.6 rewrites 1 stale annotation; flagged as future split candidate |
 | `compiler/ori_arc/src/aims/intraprocedural/effects.rs` | ~80 | (none) | ~80 | Order predicate at line 38 |
 | `compiler/ori_repr/src/escape/mod.rs` | 12 | (none) | 12 | Placeholder unit struct only |
 | `compiler/ori_repr/src/plan/query.rs` | ~140 | (in tests) | ~140 | Hardcoded escapes() at line 111 |
 | **AIMS Locality consumers in ori_arc** | **15 files** | — | **~450 call sites** | Per Pass 1 inventory |
-<!-- Removed: `mod tests;` declarations at transfer/mod.rs:17-22 and contract/mod.rs:21-23
-     are correct sibling-file declarations, NOT inline blocks. Pass 1 Agent 2 misread them. -->
-
-| **Stale Section 09.x annotations** | **17+** | — | — | In lattice/mod.rs alone, 5 files total |
+| **Stale Section 09.x annotations** | **99** | — | — | Across 22 files in `aims/` — see Section 00 Context table for distribution |
 
 ## Estimated Effort
 
 | Section | Est. Lines (new+modified) | Complexity | Depends On |
 |---|---|---|---|
-| 00 Hygiene Foundation | ~160 (mostly file moves) | Medium | — |
-| ↳ 00.1-00.4 File splits | ~120 | Medium | — |
-| ↳ 00.5-00.7 Stale annotation rewrites | ~40 | Low | — |
+| 00 Hygiene Foundation | ~480 (5 file splits + 99 annotation rewrites; includes Agent 3 additions) | Medium-High | — |
+| ↳ 00.1-00.4 lattice + transfer file splits | ~120 | Medium | — |
+| ↳ 00.4a-00.4b extract.rs split (Agent 3 addition) | ~60 | Medium | 00.1-00.4 |
+| ↳ 00.4c state_map.rs + interprocedural/mod.rs splits (Agent 3 addition) | ~140 | Medium-High | 00.1-00.4b |
+| ↳ 00.5 Lattice annotation rewrites (~19 occurrences in lattice/) | ~40 | Low | — |
+| ↳ 00.6 Remaining ~27 files (~80 occurrences, post-split distribution) | ~120 | Medium | — |
+| ↳ 00.7 Residual scan outside `aims/` | ~10 | Low | — |
 | 01 Representation Decision | ~100 (decision doc) | Low | 00 |
-| 02 ori_arc Implementation | ~250 (code) + ~150 (tests) | Medium | 00, 01 |
+| 02 ori_arc Implementation | ~280 (code) + ~200 (tests, +50 for may_escape derivation matrix and return-widening pins) | Medium-High | 00, 01 |
 | ↳ 02.1-02.4 Variant + chain height | ~30 | Low | 01 |
-| ↳ 02.5 Consumer migration (8 files) | ~80 | Medium | 02.1 |
-| ↳ 02.6 may_escape conversion | ~40 | Medium | 02.1 |
-| ↳ 02.7-02.8 Test extension (+9 commutativity, +61 associativity) | ~150 | Medium | 02.1 |
+| ↳ 02.5 Predicate migration (13 sites, 7 files, semantic per-site) | ~100 | Medium | 02.1 |
+| ↳ 02.6 may_escape conversion (field + 7 literal sites + reads) | ~70 | Medium | 02.1 |
+| ↳ 02.7-02.8 Test extension (+9 commutativity, +61 associativity, +7 may_escape derivation, +3 return-widening) | ~200 | Medium | 02.1 |
 | 03 ori_repr EscapeInfo | ~80 (code) + ~60 (tests) | Low | 02 |
 | 04 Plan Corpus Coordination | ~150 (plan text edits) | Low | 03 |
 | 05 Verification & Docs | ~100 (tests + docs) | Low | 04 |
@@ -434,13 +471,10 @@ Discovered during Phase 2 research. Each entry is tracked here so it doesn't get
 | Bug | Root Cause | Fix Location | Status |
 |---|---|---|---|
 | `ParamContract::may_escape` is `LEAK:scattered-knowledge` — co-maintained with `locality_bound` but never queried in production | The field was added at the same time as `locality_bound` but the consumer migration was never completed. Confirmed by Pass 1 Agent 1: zero non-test readers anywhere in the codebase | Section 02.6 (convert to derived method) | Tracked here, not filed separately because the fix is part of this plan |
-| `all_locality()` helper at `compiler/ori_arc/src/aims/lattice/tests.rs:26` only returns 2 of 4 current variants (`FunctionLocal`, `Unknown` — missing `BlockLocal` and `HeapEscaping`) | Pre-existing test gap — the helper was likely written when the lattice had fewer variants and never updated when new ones were added | Section 02.7 (fix while extending the helper for `ArgEscaping`) | Tracked here |
-| 17 stale `Section 09.x` annotations in `lattice/mod.rs`, plus references in 4 other AIMS files. The matching plan section does NOT exist in `plans/` or `plans/completed/`. Phrase "Effect Activation" appears in 5 source files but in zero plan files | The originating plan was either renamed during a restructuring, deleted without cleanup, or never tracked formally. Per `impl-hygiene.md`: *"Stale annotations from completed plans are hygiene violations (DRIFT category)"* | Section 00.7-00.8 (rewrite to preserve rationale, drop plan navigation) | Tracked here |
-<!-- Removed: Pass 1 Agent 2 misread `mod tests;` declarations at transfer/mod.rs:17-22
-     and contract/mod.rs:21-23 as inline blocks. They are correct sibling-file declarations
-     pointing to existing transfer/tests.rs (1117 lines) and contract/tests.rs (398 lines).
-     Verified during Phase 2 deep read. No work needed. -->
-
+| **99 stale `Section 09.x` annotations across 22 files** in `compiler/ori_arc/src/aims/` (concentrated in `lattice/mod.rs:19`, `intraprocedural/block.rs:17`, `intraprocedural/state_map.rs:14`, `intraprocedural/tests.rs:14`, plus 18 other files with 1-4 each). The matching plan section does NOT exist in `plans/` or `plans/completed/`. Phrase "Effect Activation" appears in many source files but in zero plan files | The originating plan was either renamed during a restructuring, deleted without cleanup, or never tracked formally. Per `impl-hygiene.md`: *"Stale annotations from completed plans are hygiene violations (DRIFT category)"* | Section 00.5 (lattice files), Section 00.6 (remaining 21 files), Section 00.7 (residual scan outside `aims/`) | Tracked here |
+| **`compiler/ori_arc/src/aims/interprocedural/extract.rs` is 517 lines (BLOAT)** — over the 500-line limit by 17 lines. Section 02.6 modifies the `may_escape` literal at lines 79-92, which under `compiler.md` §File Size and `impl-hygiene.md` §File Organization triggers the "touching a file > 500 lines without splitting is a finding" rule | The file accumulated three responsibilities (`extract_contract` orchestration, `detect_consumed_params` alias-tracking, `extract_return_info` Return-uniqueness analysis) without a split when the third was added | Section 00.4a (define seams) + 00.4b (execute leaf-to-directory promotion) | Tracked here (Agent 3 hygiene addition) |
+| **`compiler/ori_arc/src/aims/intraprocedural/state_map.rs` is 646 lines (BLOAT)** — over the 500-line limit by 146 lines. Section 02.5 reads predicate sites at lines 429-440 (no write), but Section 00.6 rewrites 14 stale `Section 09.x` annotations in this file (clear write — full BLOAT trigger) | The `AimsStateMap` struct accumulated ~40 methods grouped by responsibility (constructors, block-state queries, cross-dim counters, borrow provenance, invoke edge state, var shapes, events, FIP balance) without ever extracting helper modules | Section 00.4c (leaf-to-directory promotion via multiple `impl AimsStateMap` blocks across 5 sibling files) | Tracked here (Agent 3 codebase scan find) |
+| **`compiler/ori_arc/src/aims/interprocedural/mod.rs` is 536 lines (BLOAT)** — over the 500-line limit by 36 lines. Section 00.6 rewrites 2 stale `Section 09.x` annotations in this file | The SCC fixpoint loop (`analyze_scc_fixpoint`) and post-fixpoint demand propagation (`tighten_uniqueness_from_callers`) live in the same file as the orchestration entry (`analyze_program`) instead of a sibling | Section 00.4c (extract `scc_loop.rs`) | Tracked here (Agent 3 codebase scan find) |
 
 None of these bugs require `/fix-bug` because all are absorbed into this plan's sections per the "fix when you find it" rule in `impl-hygiene.md`. If any stale annotation outside our touched set is discovered during execution, Section 00.9 files an `/add-bug` for the residual.
 

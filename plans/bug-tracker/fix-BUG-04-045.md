@@ -19,7 +19,7 @@ third_party_review:
 
 # Fix: BUG-04-045 — arm64 vs aarch64 host-vs-target mismatch on Apple Silicon
 
-**Status:** In Progress (TPR iteration 4 — all findings through TPR-07 fixed, awaiting iter5 re-review)
+**Status:** In Progress (review-work surfaced TPR-08; awaiting follow-up fix + re-review)
 **Severity:** high
 **Goal:** Introduce a typed `Arch` enum at the `TargetTripleComponents::parse` boundary that normalizes every known alias spelling (`arm64|aarch64`, `amd64|x86_64`, `i386|i486|i586|i686`). Migrate all host-vs-target comparisons to operate on typed `Arch` / `HostPlatform` values, never on raw strings. After the fix, every call site that previously did `components.arch == "aarch64"` is either (a) a compile error, or (b) a canonical-typed query. The bug class "raw arch string compare" becomes un-typeable.
 
@@ -127,6 +127,10 @@ third_party_review:
   - Updated all 3 existing install-path round-trip tests to use the new hermetic `detect_sysroot_with_env` variant with an `|_| None` stub, eliminating the parallel-test race with the env-override test
 
   Full `./test-all.sh` green: 16900 passed, 0 failed (up from 16894; +6 new TPR-07 pins).
+
+- [ ] `[TPR-BUG-04-045-08][high]` `compiler/oric/src/commands/target.rs:223-237,365-399` — the WASI install path still reports success on Windows without actually wiring the installed target to the discovered SDK sysroot.
+  Evidence: `add_target()` now canonicalizes `wasm32-unknown-wasip1` and creates the managed sysroot directory before calling `check_wasi_sdk()`. But inside `check_wasi_sdk()`, the only code that replaces that directory with a link to the discovered SDK lives under `#[cfg(unix)]`. When a WASI SDK is present on Windows, the function prints `Found WASI SDK at: ...` and immediately returns at line 398 with no `#[cfg(windows)]` branch, no junction/symlink creation, no marker file, and no copy into the managed directory. The command therefore prints `Target 'wasm32-unknown-wasip1' installed successfully` while leaving `~/.ori/sysroots/wasm32-unknown-wasip1/` as the empty directory created at lines 227-231. Because `SysLibConfig::detect_sysroot()` now prefers the managed install path (TPR-06), later builds will discover that empty directory as the sysroot instead of the actual SDK path.
+  Impact: the new install/discovery SSOT is still incomplete for the Windows WASI path. A Windows user with a valid `~/.wasi-sdk/share/wasi-sysroot` installation can run `ori target add wasm32-unknown-wasip1`, get a success message, and then feed subsequent builds an empty managed sysroot. The current tests exercise canonicalization and discovery helpers, but there is no positive `ori target add wasm32-unknown-wasip1` regression test that asserts the installed path becomes usable on Windows, so this escaped the iteration-4 suite.
 
 ---
 
