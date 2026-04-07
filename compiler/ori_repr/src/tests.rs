@@ -2741,9 +2741,11 @@ fn analyze_triviality_validation_zero_mismatches() {
         ],
     );
 
-    // Iterator and DoubleEndedIterator: Box-allocated, no RC header → trivial.
-    // These are the types that previously triggered a known mismatch when
-    // mapped to OpaquePtr (non-trivial). Now mapped to UnmanagedPtr (trivial).
+    // Iterator and DoubleEndedIterator: Box-allocated (no RC header) but
+    // NOT trivial — they need `ori_iter_drop` at scope exit. TPR-07-008
+    // flipped the classification to match reality. Both the canonical
+    // SSOT (`classify_triviality`) and `is_trivial_repr(UnmanagedPtr)`
+    // now report non-trivial; `analyze_triviality()` enforces agreement.
     let iter_int = pool.iterator(Idx::INT);
     let deiter_int = pool.double_ended_iterator(Idx::INT);
 
@@ -2766,13 +2768,18 @@ fn analyze_triviality_validation_zero_mismatches() {
         !plan.is_trivial(result_nontrivial),
         "Result<int, str> should be non-trivial"
     );
+    // TPR-07-008 semantic pin: iterators are non-trivial because they
+    // need `ori_iter_drop` at scope exit. Reverting the fix would cause
+    // these assertions to fail AND would cause `analyze_triviality()`'s
+    // `debug_assert!` to fire on the mismatch between the canonical
+    // classifier and `is_trivial_repr(UnmanagedPtr)`.
     assert!(
-        plan.is_trivial(iter_int),
-        "Iterator<int> should be trivial (UnmanagedPtr)"
+        !plan.is_trivial(iter_int),
+        "Iterator<int> is non-trivial — needs ori_iter_drop at scope exit"
     );
     assert!(
-        plan.is_trivial(deiter_int),
-        "DoubleEndedIterator<int> should be trivial (UnmanagedPtr)"
+        !plan.is_trivial(deiter_int),
+        "DoubleEndedIterator<int> is non-trivial — needs ori_iter_drop at scope exit"
     );
     assert!(
         plan.is_trivial(enum_trivial),

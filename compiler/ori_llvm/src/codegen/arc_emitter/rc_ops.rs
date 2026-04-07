@@ -82,6 +82,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             RcStrategy::Closure => self.emit_rc_inc_closure(self.var(var), count),
             RcStrategy::AggregateFields => self.emit_rc_inc_aggregate(var, count, func),
             RcStrategy::InlineEnum => self.emit_rc_inc_inline_enum(var, count, func),
+            RcStrategy::Iterator => self.emit_rc_inc_iterator(var, count),
         }
     }
 
@@ -113,6 +114,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             RcStrategy::Closure => self.emit_rc_dec_closure(self.var(var)),
             RcStrategy::AggregateFields => self.emit_rc_dec_aggregate(var, func),
             RcStrategy::InlineEnum => self.emit_rc_dec_inline_enum(var, func),
+            RcStrategy::Iterator => self.emit_rc_dec_iterator(var),
         }
     }
 
@@ -313,6 +315,47 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let resolved = self.pool.resolve_fully(ty);
         let pool_tag = self.pool.tag(resolved);
         self.emit_inline_enum_dec(val, resolved, pool_tag);
+    }
+
+    // Iterator handlers (TPR-07-008)
+
+    /// `Inc` for an iterator handle is a **no-op**.
+    ///
+    /// Iterators are Box-allocated with no RC header, and in idiomatic
+    /// Ori they are moved (not copied) — each `iter_next` call consumes
+    /// the old handle and returns a new one. If `RcInc` is ever emitted
+    /// for an iterator, something upstream tried to duplicate a value
+    /// that has unique ownership semantics; there is no refcount header
+    /// to bump. We don't emit a runtime call so we don't corrupt
+    /// memory, but we leave a trace event so the situation is
+    /// discoverable during debugging.
+    #[expect(
+        clippy::unused_self,
+        reason = "part of the strategy-dispatch API on ArcIrEmitter — called by emit_rc_inc() alongside every other emit_rc_inc_<strategy> method"
+    )]
+    fn emit_rc_inc_iterator(&mut self, var: ArcVarId, count: u32) {
+        tracing::trace!(
+            var = var.raw(),
+            count,
+            "RcInc on iterator handle — no-op (iterators are move-only)"
+        );
+    }
+
+    /// `Dec` for an iterator handle: emit `ori_iter_drop(ptr)`.
+    ///
+    /// The runtime function frees the Box-allocated iterator state.
+    /// There is no refcount header, so `ori_rc_dec` would corrupt
+    /// memory by reading a non-existent header — we bypass that path
+    /// entirely.
+    fn emit_rc_dec_iterator(&mut self, var: ArcVarId) {
+        let val = self.var(var);
+        self.call_iter_drop(val);
+    }
+
+    /// Call `ori_iter_drop(ptr)` — frees Box-allocated iterator state.
+    pub(super) fn call_iter_drop(&mut self, ptr: super::ValueId) {
+        let func_id = self.builder.runtime_fn("ori_iter_drop");
+        self.emit_rt_call(func_id, &[ptr], "");
     }
 
     // Call helpers

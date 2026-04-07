@@ -93,9 +93,13 @@ pub enum MachineRepr {
     OpaquePtr,
     /// Unmanaged pointer (Box-allocated, no RC header — iterator).
     ///
-    /// Unlike `OpaquePtr`, unmanaged pointers have no reference counting
-    /// overhead. They are trivial from an ARC perspective (no `ori_rc_inc`
-    /// or `ori_rc_dec` needed). This distinction is critical for triviality
-    /// classification: `is_trivial_repr(UnmanagedPtr)` returns `true`.
+    /// Unlike `OpaquePtr`, unmanaged pointers have no reference-counting
+    /// overhead (`ori_rc_inc`/`ori_rc_dec` never run on them). But they
+    /// are **not** trivial from an ARC perspective: `ori_iter_drop` must
+    /// still run when an iterator value goes out of scope, otherwise the
+    /// Box-allocated iterator state leaks. The ARC emitter routes
+    /// `UnmanagedPtr` drops through `RcStrategy::Iterator` (for direct
+    /// `RcDec`) and the `Tag::Iterator` arm of `dec_value_rc_inner`
+    /// (for iterator fields inside compound types). See TPR-07-008.
     UnmanagedPtr,
 }

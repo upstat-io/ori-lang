@@ -39,12 +39,18 @@ fn all_methods_are_instance() {
 }
 
 #[test]
-fn all_methods_borrow_receiver() {
+fn all_methods_consume_receiver() {
+    // TPR-07-008: Every iterator method (adapter or consumer)
+    // consumes its receiver via `Box::from_raw`. The registry must
+    // report `Ownership::Owned` so the ARC pipeline treats the call
+    // as a consumption event. Marking them `Borrow` was a historical
+    // workaround (see `borrowing_method_names` comments); the
+    // architectural fix is to tell the truth at the SSOT.
     for m in ITERATOR.methods {
         assert_eq!(
             m.receiver,
-            Ownership::Borrow,
-            "Iterator method `{}` should borrow receiver",
+            Ownership::Owned,
+            "Iterator method `{}` should consume receiver",
             m.name
         );
     }
