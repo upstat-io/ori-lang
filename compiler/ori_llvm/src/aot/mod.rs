@@ -130,7 +130,7 @@ pub use runtime::{RuntimeConfig, RuntimeNotFound};
 pub use syslib::{
     find_library, home_wasi_sdk_sysroot, home_wasi_sdk_sysroot_for_home, library_exists,
     ori_sysroot_path, ori_sysroot_path_for_home, ori_sysroots_dir, ori_sysroots_dir_for_home,
-    user_home_dir, LibrarySearchOrder, SysLibConfig, SysLibError,
+    target_sysroot_env_key, user_home_dir, LibrarySearchOrder, SysLibConfig, SysLibError,
 };
 
 // Re-export key types from wasm

@@ -19,7 +19,7 @@ third_party_review:
 
 # Fix: BUG-04-045 — arm64 vs aarch64 host-vs-target mismatch on Apple Silicon
 
-**Status:** In Progress (TPR iteration 3 — review-work surfaced new findings)
+**Status:** In Progress (TPR iteration 4 — all findings through TPR-07 fixed, awaiting iter5 re-review)
 **Severity:** high
 **Goal:** Introduce a typed `Arch` enum at the `TargetTripleComponents::parse` boundary that normalizes every known alias spelling (`arm64|aarch64`, `amd64|x86_64`, `i386|i486|i586|i686`). Migrate all host-vs-target comparisons to operate on typed `Arch` / `HostPlatform` values, never on raw strings. After the fix, every call site that previously did `components.arch == "aarch64"` is either (a) a compile error, or (b) a canonical-typed query. The bug class "raw arch string compare" becomes un-typeable.
 
@@ -110,6 +110,23 @@ third_party_review:
   Updated `SysLibConfig::detect_sysroot` to consult the per-user install location at `ori_sysroot_path(target.support_key())` BEFORE the hard-coded system candidates. Updated `sysroot_candidates` to include `home_wasi_sdk_sysroot()` for WASI targets, ordered BEFORE `/opt/wasi-sdk/share/wasi-sysroot` and `/usr/share/wasi-sysroot` so a user-local install takes precedence. Refactored `detect_sysroot` and `sysroot_candidates` to delegate to new `_for_home` parameterized variants so the discovery side is testable hermetically (no env var mutation, no parallel-test races).
 
   6 new tests in `compiler/ori_llvm/src/aot/syslib/tests.rs`: 3 unit pins for the path-construction functions (`ori_sysroots_dir_for_home`, `ori_sysroot_path_for_home`, `home_wasi_sdk_sysroot_for_home`), 1 round-trip pin `test_install_then_detect_round_trip_canonical_darwin` (writes a sysroot under the canonical name, parses a versioned darwin spelling, confirms `detect_sysroot_for_home` finds it), 1 sibling round-trip pin for the unversioned canonical input, 1 negative pin asserting nothing-installed yields `None`, and 1 ordering pin `test_sysroot_candidates_for_wasi_includes_home_wasi_sdk` asserting the home WASI SDK appears BEFORE the system-wide candidates in the discovery list.
+
+- [x] `[TPR-BUG-04-045-07][high]` `compiler/ori_llvm/src/aot/syslib/mod.rs:269-274` / `compiler/oric/src/commands/target.rs:469-472` — the per-target `ORI_SYSROOT_<TARGET>` override was keyed from `target.to_string()`, not the canonical `support_key()`, so versioned Darwin/macOS spellings bypassed the documented override and required impossible env var names.
+  Evidence: `SysLibConfig::detect_sysroot_for_home()` built the env key from `target.to_string().to_uppercase().replace('-', "_")`. For `ori build --target=arm64-apple-darwin25.2.0`, `TargetConfig::from_triple()` preserves the Darwin version in `components.to_string()`, so the lookup key became `ORI_SYSROOT_AARCH64_APPLE_DARWIN25.2.0`. But the CLI guidance in `suggest_sysroot_installation()` printed the canonical form `export ORI_SYSROOT_AARCH64_APPLE_DARWIN=/path/to/sysroot`, and the dotted fallback name is not even shell-exportable on zsh (`export ORI_SYSROOT_AARCH64_APPLE_DARWIN25.2.0=...` fails with `not valid in this context`). The install-path SSOT canonicalized step 3 (`~/.ori/sysroots/<support_key>`), but step 1 (per-target env override) was still stringly and disagreed with the documented/install-time canonical key. **LEAK:scattered-knowledge** — the "canonical target identifier for registry lookup" rule had three homes (install path, support-targets lookup, env-key construction) but the env-key home still used `to_string()` while the other two used `support_key()`.
+  Resolved: Fixed on 2026-04-07. Extracted `target_sysroot_env_key(target: &TargetTripleComponents) -> String` as a new SSOT helper in `compiler/ori_llvm/src/aot/syslib/mod.rs` — routes through `support_key().to_uppercase().replace('-', '_')` so any aliased or versioned input collapses to the same canonical shell-safe env var name (`ORI_SYSROOT_AARCH64_APPLE_DARWIN` for every `arm64`/`aarch64` + darwin/macos/darwin25.x.x combination). Re-exported from `aot/mod.rs`. Routed BOTH sides through the SSOT: `detect_sysroot_for_home` (the discovery side) now calls `target_sysroot_env_key(target)` instead of inline `to_string()` munging, and `suggest_sysroot_installation` in `compiler/oric/src/commands/target.rs` parses the user's input and calls the same SSOT helper so the printed `export X=...` guidance is always the key the discovery side will actually query.
+
+  Also refactored `detect_sysroot_for_home` into a new hermetic variant `detect_sysroot_with_env(target, home, env_getter)` that takes an explicit env-getter closure. The `_for_home` wrapper passes `|k| std::env::var(k).ok()`. Tests use an `|_| None` closure or a stub closure to avoid process-global `std::env::set_var` mutation — which was causing parallel-test races between the install-path round-trip tests and the env-override round-trip test (both query the same `ORI_SYSROOT_AARCH64_APPLE_DARWIN` key).
+
+  7 new tests in `compiler/ori_llvm/src/aot/syslib/tests.rs`:
+  - `test_target_sysroot_env_key_canonical_linux` — baseline canonical triple
+  - `test_target_sysroot_env_key_versioned_darwin_collapses` — the TPR-07 semantic pin: `arm64-apple-darwin25.2.0` collapses to `ORI_SYSROOT_AARCH64_APPLE_DARWIN`, asserts no dots, no version suffix
+  - `test_target_sysroot_env_key_arm64_alias_collapses` — alias normalization sibling
+  - `test_target_sysroot_env_key_amd64_alias_collapses` — amd64 → x86_64 sibling
+  - `test_target_sysroot_env_key_is_always_shell_safe_matrix` — 13-cell matrix pin asserting every aliased/versioned supported target produces a POSIX-valid shell variable name (uppercase letters/digits/underscores only, no dots, no hyphens), with self-verifying counter
+  - `test_env_override_round_trips_versioned_darwin_to_canonical_key` — hermetic round-trip: stubs the env getter, asserts `detect_sysroot_with_env` queries the canonical key for a versioned darwin input, asserts the first observed key is `ORI_SYSROOT_AARCH64_APPLE_DARWIN` (negative pin against `to_string()` regression), asserts NO observed key contains a dot (shell-safety invariant)
+  - Updated all 3 existing install-path round-trip tests to use the new hermetic `detect_sysroot_with_env` variant with an `|_| None` stub, eliminating the parallel-test race with the env-override test
+
+  Full `./test-all.sh` green: 16900 passed, 0 failed (up from 16894; +6 new TPR-07 pins).
 
 ---
 
