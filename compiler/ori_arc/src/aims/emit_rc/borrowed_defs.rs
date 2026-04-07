@@ -204,6 +204,15 @@ pub(crate) fn collect_iter_element_defs(
 ///
 /// Includes transitive `Let` aliases (e.g., `%12 = %11` where `%11` is projected
 /// from an `Option`).
+///
+/// TPR-07-013: take-projects (see `is_take_project`) are EXCLUDED. For a
+/// take-project, the parent sum type has logically given up its payload
+/// (TPR-07-011 suppresses its scope-exit drop), so the projected
+/// iterator is no longer "managed by the parent" — it must participate
+/// in its own RC lifecycle and drop at its own scope exit when unused.
+/// Without this exclusion, `walk_dec`'s `emit_defined_dead` skips the
+/// inline-enum-projected iterator unconditionally (treating it as a
+/// borrow managed by the parent), and the iterator leaks.
 pub(crate) fn collect_inline_enum_projected_defs(
     func: &ArcFunction,
     pool: &Pool,
@@ -214,6 +223,12 @@ pub(crate) fn collect_inline_enum_projected_defs(
     for block in &func.blocks {
         for instr in &block.body {
             if let ArcInstr::Project { dst, value, .. } = instr {
+                // Take-projects transfer ownership; the projected var
+                // is not managed by the parent and must get its own
+                // drop. Skip it from the borrowed-by-parent set.
+                if is_take_project(instr, func, pool) {
+                    continue;
+                }
                 let src_ty = func.var_type(*value);
                 let resolved = pool.resolve_fully(src_ty);
                 let tag = pool.tag(resolved);
