@@ -40,23 +40,33 @@ pub(crate) struct BlockCtx<'a> {
     /// child (direct Project destinations or their Let aliases). Used to defer
     /// parent `RcDec` until all borrowed children are dead.
     pub(crate) child_effective_last_use: &'a FxHashMap<ArcVarId, LastUse>,
-    /// TPR-07-016: path-sensitive take-project must-move facts.
-    /// A move is recorded per alias class at the `Project`
-    /// instruction and propagated forward with intersection at merge
-    /// points. Consumers use:
+    /// TPR-07-017: per-class take-project facts via union-find +
+    /// CFG reachability. The earlier path-sensitive forward dataflow
+    /// (`moved_at_entry`/`moved_at_exit`) was abandoned in favor of
+    /// this simpler structural answer: each take-project source
+    /// seeds its own connected-component class via Let-alias and
+    /// Jump-arg → block-param edges, and each class has its own
+    /// `bypass_safe_blocks` (forward+backward CFG-unreachable from
+    /// the class's take-project blocks) and `bypass_safe_entries`
+    /// (the entry edge of each maximal bypass-safe region).
     ///
-    /// - `take_move_facts.moved_at_entry(blk)` for block-local
-    ///   cleanup decisions (skip the drop if proven moved on every
-    ///   path into the block).
-    /// - `take_move_facts.moved_at_exit(pred)` for edge-specific
-    ///   cleanup (emit the drop on edges where the move has NOT
-    ///   happened, skip on edges where it has).
-    /// - `take_move_facts.is_in_class(var)` to detect whether the
-    ///   variable participates in the analysis at all — variables
-    ///   outside every class should be cleaned up normally.
+    /// Consumers use:
+    /// - `take_move_facts.is_in_class(var)` — membership check;
+    ///   edge cleanup and source 2 (block params) skip every in-class
+    ///   var entirely.
+    /// - `take_move_facts.class_of(var)` — class index; source 1
+    ///   uses this for per-class dedup so only the FIRST alias-class
+    ///   member encountered in `entry_states` gets a dec.
+    /// - `take_move_facts.is_bypass_safe_entry_for_var(var, blk)` —
+    ///   the central predicate. Returns true iff `blk` is the unique
+    ///   entry edge of the bypass-safe region for `var`'s class.
+    ///   Source 1 emits the scope-exit drop here exactly once per
+    ///   CFG path; downstream bypass-safe blocks inherit the dec via
+    ///   SSA flow.
     ///
-    /// See TPR-07-011 (initial take-project suppression) and
-    /// TPR-07-016 (the path-sensitive refinement) in
+    /// See TPR-07-011 (initial take-project suppression),
+    /// TPR-07-016 (the first per-block fix), and TPR-07-017 (the
+    /// per-class partitioning + bypass-safe entry refinement) in
     /// `plans/repr-opt/section-07-enum-repr.md`.
     pub(crate) take_move_facts: &'a super::take_project::TakeMoveFacts,
 }

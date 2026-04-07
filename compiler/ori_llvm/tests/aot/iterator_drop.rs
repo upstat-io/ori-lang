@@ -166,6 +166,58 @@ fn tpr_07_017_two_unrelated_take_projects_no_leak() {
     );
 }
 
+/// TPR-07-019 topology pin: phi-merge of two take-projects' results.
+/// Two unrelated `MaybeIter` sources are matched in separate `if`
+/// branches, and each branch's match arm result meets at the `if`'s
+/// phi-style merge block param. With the previous unconditional
+/// `Jump arg → block param` union in `union_alias_edges`, this shape
+/// risks falsely merging the two sources' alias classes through the
+/// shared block param, even though phi-style block params with
+/// multiple predecessors are CFG choices, not shared storage.
+///
+/// The fix only unifies Jump-arg → block-param edges when the target
+/// has exactly one predecessor (a degenerate phi semantically equal
+/// to `let param = arg`). Multi-pred targets are skipped.
+///
+/// This is a topology pin: the fix is correct on principle (Codex
+/// iteration 8 IR-level analysis), and this fixture exercises the
+/// shape so any future regression that re-introduces the unconditional
+/// union would be caught here under leak/double-free checks.
+#[test]
+fn tpr_07_019_phi_merge_take_projects_no_leak() {
+    assert_aot_success(
+        include_str!("fixtures/iterator_drop/tpr_07_019_phi_merge_take_projects.ori"),
+        "tpr_07_019_phi_merge_take_projects",
+    );
+}
+
+/// TPR-07-020 topology pin: take-project alongside an explicit `loop`
+/// where the loop body forms a bypass-safe region whose only entry is
+/// the function-entry block via a back-edge from a bypass-safe latch.
+///
+/// Previously, `compute_bypass_safe_entries` selected a bypass-safe
+/// block as a region entry only when it had no preds OR at least one
+/// non-bypass pred. A loop-headed function whose loop body is bypass-
+/// safe satisfies neither (the latch back-edge IS bypass-safe), so
+/// no entry block is selected and source 1 emits no class drop while
+/// edge cleanup also skips in-class vars — a real leak.
+///
+/// The fix in `compute_bypass_safe_entries` treats the function entry
+/// block as an implicit "outside caller" predecessor that is non-
+/// bypass-safe by definition.
+///
+/// This is a topology pin: it exercises a function with a non-trivial
+/// loop holding a take-project source enum across the loop body. Any
+/// future regression in the back-edge entry handling would surface as
+/// a leak under `ORI_CHECK_LEAKS=1`.
+#[test]
+fn tpr_07_020_take_project_in_loop_no_leak() {
+    assert_aot_success(
+        include_str!("fixtures/iterator_drop/tpr_07_020_take_project_in_loop.ori"),
+        "tpr_07_020_take_project_in_loop",
+    );
+}
+
 // Note: the explicit-tag enum case (≥9 variants carrying an
 // iterator payload) is blocked by BUG-04-044 — the Construct path
 // emits `insertvalue [N x i64], ptr` without ptrtoint casting the

@@ -1,0 +1,46 @@
+// TPR-07-019 topology pin: two unrelated take-projects whose results
+// converge at a phi-style merge.
+//
+// The TPR-07-017 fix used a single union-find that unconditionally
+// unioned every `Jump arg → block param` edge. At a multi-predecessor
+// merge block, that turned phi-style alternatives into false alias
+// equivalences: if predecessor 1 jumps with `%it_a` and predecessor 2
+// jumps with `%it_b` into the same block param `%result`, the union-
+// find collapsed `%it_a`, `%it_b`, and `%result` into one class even
+// though `%result` is a CFG choice, not shared storage.
+//
+// The TPR-07-019 fix in `take_project::union_alias_edges` only unions
+// Jump-arg → block-param edges when the target block has exactly one
+// predecessor (a degenerate phi semantically equivalent to `let
+// param = arg`). Multi-predecessor block params are phi merges and
+// are NOT unified via this edge.
+//
+// This topology pin exercises the shape: two `MaybeIter` sources `a`
+// and `b` are matched in separate `if` branches, each branch's match
+// arm produces an `int` result, and those results meet at the `if`'s
+// phi-style merge. With the old code, the IR shape would unify
+// unrelated alias chains; with the fix, each take-project source
+// stays in its own class.
+//
+// Runtime: pick = false → match `b` → it.count() = 3. `a` is on the
+// bypass path and must drop via its own per-class scope-exit drop.
+// Returns `result - 3 = 0` regardless of which path runs.
+
+type MaybeIter = Empty | Holds(it: Iterator<int>);
+
+@main () -> int = {
+    let a: MaybeIter = Holds(it: [1, 2, 3].iter());
+    let b: MaybeIter = Holds(it: [4, 5, 6].iter());
+    let pick = false;
+    let result = if pick then
+        match a {
+            Empty -> 0,
+            Holds(it) -> it.count()
+        }
+    else
+        match b {
+            Empty -> 0,
+            Holds(it) -> it.count()
+        };
+    result - 3
+}
