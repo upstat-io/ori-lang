@@ -289,6 +289,7 @@ Evaluate whether inlined LLVM IR or a runtime intrinsic is more efficient for co
 - [ ] Plan annotation cleanup: `bash .claude/skills/impl-hygiene-review/plan-annotations.sh --plan 04` returns 0 annotations
 - [ ] All intermediate TPR checkpoint findings resolved
 - [ ] `/tpr-review` passed — independent Codex review found no critical or major issues
-- [ ] `/impl-hygiene-review last commit` passed — hygiene review clean
+- [ ] `/impl-hygiene-review` passed — hygiene review clean
+- [ ] `/improve-tooling` retrospective completed — MANDATORY at section close, after both reviews are clean. Reflect on the section's debugging journey (which `diagnostics/` scripts you ran, which command sequences you repeated, where you added ad-hoc `dbg!`/`tracing` calls, where output was hard to interpret) and identify any tool/log/diagnostic improvement that would have made this section materially easier OR that would help the next section touching this area. Implement every accepted improvement NOW (zero deferral) and commit each via SEPARATE `/commit-push`. The retrospective is mandatory even when nothing felt painful — that is exactly when blind spots accumulate. See `.claude/skills/improve-tooling/SKILL.md` "Retrospective Mode" for the full protocol.
 
 **Exit Criteria:** `ORI_LOG=ori_arc=info ori build` shows `cow_contractions > 0` on programs with COW mutations. All 3 `CowMode` variants emit correct LLVM IR verified by AOT tests. `ORI_CHECK_LEAKS=1` reports zero leaks. Program behavior identical with and without contraction.

@@ -112,7 +112,8 @@ Write ALL tests BEFORE the fix. Verify they fail against current code.
 - [ ] Fix section frontmatter `status` updated to `complete`
 - [ ] Bug-tracker `00-overview.md` Quick Reference open bug count updated
 - [ ] `/tpr-review` passed — independent Codex review found no critical or major issues (critical/high severity: MANDATORY; medium: expected; low: recommended but not required)
-- [ ] `/impl-hygiene-review last commit` passed — MUST run AFTER `/tpr-review` is clean (critical/high: MANDATORY; medium: recommended; low: optional)
+- [ ] `/impl-hygiene-review` passed — MUST run AFTER `/tpr-review` is clean (critical/high: MANDATORY; medium: recommended; low: optional)
+- [ ] `/improve-tooling` retrospective completed — MANDATORY at fix close, after both reviews are clean. Reflect on the bug-finding journey: which `diagnostics/` scripts you ran during root cause analysis, where you added ad-hoc `dbg!`/`tracing` calls (and what each one was looking for), where the original failure message was unhelpful, where the matrix tests were tedious because helpers were missing, what instrumentation would have made the bug obvious in 1 minute instead of 30. Bug fixes are the richest source of tooling gaps because you've just spent time fighting the diagnostic surface — capture every gap. Implement every accepted improvement NOW (zero deferral) and commit each via SEPARATE `/commit-push` (e.g., `tools(diagnostics): add --bb-level RC tracking — surfaced by BUG-XX-NNN retrospective`). See `.claude/skills/improve-tooling/SKILL.md` "Retrospective Mode" for the full look-back protocol.
 
 **Exit Criteria:** {Paragraph describing the measurable, testable condition
 that proves this fix is complete. Include specific test names, commands,

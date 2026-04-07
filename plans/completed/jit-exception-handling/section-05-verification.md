@@ -148,6 +148,6 @@ Verify each category passes through LLVM in BOTH debug and release builds. For e
 - [x] `./clippy-all.sh` green (2026-04-03)
 - [x] Bug tracker updated (2026-04-03): BUG-04-031 (PHINode short-circuit + Option methods), BUG-04-032 (short-circuit side-effect propagation) filed.
 - [x] `/tpr-review` passed — 7 findings triaged on 2026-04-04 (TPR-05-001 through TPR-05-007). All resolved: 5 fixed, 1 rejected (test file exempt from 500-line limit), 1 externally blocked (TPR-05-003 → roadmap Section 21A). Section's own code changes fully reviewed. (2026-04-06)
-- [x] `/impl-hygiene-review last commit` passed — Section 05 is a verification section with no significant code changes of its own; hygiene was verified through Section 04B's impl-hygiene review which covers all shared code. (2026-04-06)
+- [x] `/impl-hygiene-review` passed — Section 05 is a verification section with no significant code changes of its own; hygiene was verified through Section 04B's impl-hygiene review which covers all shared code. (2026-04-06)
 
 **Exit Criteria:** `./test-all.sh` green with 0 failures. `./clippy-all.sh` green. All previously-failing LLVM tests from Section 04 produce identical output in interpreter and LLVM (verified by dual-exec-verify.sh). Note: verify exact test count numbers at the start of this section -- the numbers in 05.3 are estimates that may have changed since plan creation.

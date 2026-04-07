@@ -74,7 +74,7 @@ A fix is NOT done until ALL of these are true:
 - Plan/roadmap updated if the fix crosses section boundaries
 - The fix is architecturally correct — not merely functional. A workaround that passes tests is not a fix.
 - `/tpr-review` passed — independent third-party review clean
-- `/impl-hygiene-review last commit` passed — AFTER TPR is clean
+- `/impl-hygiene-review` passed — AFTER TPR is clean (Auto Mode autoscopes across the active work arc; never use `last commit` — it is too narrow for multi-commit work)
 - Fix section file (`plans/bug-tracker/fix-BUG-XX-NNN.md`) status updated to `complete`
 
 ## Stabilization Discipline

@@ -486,7 +486,7 @@ Tests at `tests/spec/traits/derive/all_derives.ori` (7 tests pass).
   - [x] Remaining: spec and CLAUDE.md updates verified complete (2026-02-15). Derive for newtypes tracked as optional in 3.21 [done] (2026-02-18)
 - [ ] Proposals (3.8-3.17): Evaluator verified complete for all proposals (verified 2026-03-29). LLVM gaps remain: Debug (3.9 all items), Traceable (3.13), iterator advanced features (3.8 Phase 2+), Index (3.12), derived sum/generic/recursive (3.15). See per-subsection LLVM items for details.
 - [ ] `/tpr-review` passed — independent Codex review found no critical or major issues (or all findings triaged)
-- [ ] `/impl-hygiene-review last commit` passed — implementation hygiene review clean (phase boundaries, SSOT, algorithmic DRY, naming). MUST run AFTER `/tpr-review` is clean.
+- [ ] `/impl-hygiene-review` passed — implementation hygiene review clean (phase boundaries, SSOT, algorithmic DRY, naming). MUST run AFTER `/tpr-review` is clean.
 - [ ] **HYGIENE**: `compiler/ori_types/src/registry/traits/mod.rs` is 762 source lines -- exceeds the 500-line limit. Split into submodules.
 - [ ] **WEAK TESTS**: `tests/spec/traits/iterator/collect_set.ori` has 6 `#skip` markers with tautological stub bodies (`assert(cond: true)`) -- exceeds 3-skip budget per file. Replace with real tests or remove stubs and track Set collect as a plan item.
 - [ ] **WEAK TESTS**: Default type parameters (3.19) has only 2 spec tests. Add edge case tests (multiple defaults, complex cross-references, error cases for invalid ordering).
@@ -1974,6 +1974,7 @@ Currently:
 - [ ] `ORI_CHECK_LEAKS=1` reports zero leaks on all new test programs
 - [ ] Plan annotation cleanup: no stale plan annotations in `.rs` files
 - [ ] `/tpr-review` passed
-- [ ] `/impl-hygiene-review last commit` passed
+- [ ] `/impl-hygiene-review` passed
+- [ ] `/improve-tooling` retrospective completed — MANDATORY at section close, after both reviews are clean. Reflect on the section's debugging journey (which `diagnostics/` scripts you ran, which command sequences you repeated, where you added ad-hoc `dbg!`/`tracing` calls, where output was hard to interpret) and identify any tool/log/diagnostic improvement that would have made this section materially easier OR that would help the next section touching this area. Implement every accepted improvement NOW (zero deferral) and commit each via SEPARATE `/commit-push`. The retrospective is mandatory even when nothing felt painful — that is exactly when blind spots accumulate. See `.claude/skills/improve-tooling/SKILL.md` "Retrospective Mode" for the full protocol.
 
 **Exit Criteria:** All types (structs, enums, newtypes) support `==`/`!=`, `.clone()`, `.debug()`, and `.to_str()` structurally in both evaluator and LLVM codegen without requiring `#derive(...)`. The `equals` method name is consistent across all compiler crates. Spec reflects structural defaults. Zero regressions in `./test-all.sh` (debug and release). Dual-execution parity confirmed for all new test programs.

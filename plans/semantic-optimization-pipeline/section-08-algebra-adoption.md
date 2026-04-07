@@ -205,6 +205,7 @@ Write tests that verify the algebraic properties actually hold for each declared
   - [ ] `index.md` status updated
   - [ ] Section 09 `depends_on` verified
 - [ ] `/tpr-review` passed
-- [ ] `/impl-hygiene-review last commit` passed
+- [ ] `/impl-hygiene-review` passed
+- [ ] `/improve-tooling` retrospective completed — MANDATORY at section close, after both reviews are clean. Reflect on the section's debugging journey (which `diagnostics/` scripts you ran, which command sequences you repeated, where you added ad-hoc `dbg!`/`tracing` calls, where output was hard to interpret) and identify any tool/log/diagnostic improvement that would have made this section materially easier OR that would help the next section touching this area. Implement every accepted improvement NOW (zero deferral) and commit each via SEPARATE `/commit-push`. The retrospective is mandatory even when nothing felt painful — that is exactly when blind spots accumulate. See `.claude/skills/improve-tooling/SKILL.md` "Retrospective Mode" for the full protocol.
 
 **Exit Criteria:** Every overloadable stdlib operator impl has explicit algebraic law declarations. Soundness tests verify all declared properties hold. Float is correctly excluded from associativity and identity. Builtin bool logic (`&&` / `||`) is explicitly kept outside the trait-law schema (they are control-flow IR, not PrimOps, and not optimizable at ARC IR level). All tests pass in debug and release.

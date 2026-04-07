@@ -664,7 +664,7 @@ For each section, in order from 01 to N:
 - `depends_on` based on actual crate dependency chain AND section content dependencies
 - `third_party_review: { status: none, updated: null }`
 - `## {NN}.R Third Party Review Findings` block (empty, with `- None.`) before the completion checklist
-- Completion checklist at the end — MUST include both `/tpr-review` AND `/impl-hygiene-review last commit` as final gates (hygiene review runs after TPR is clean, per `plan-schema.md`)
+- Completion checklist at the end — MUST include `/tpr-review`, `/impl-hygiene-review`, AND `/improve-tooling` retrospective as final gates, in that order: TPR clean → hygiene clean → tooling retrospective. The retrospective is mandatory at every section close (even when nothing felt painful) — it's the only way the diagnostic suite grows organically with the compiler. See `plan-schema.md` for the exact wording, and `.claude/skills/improve-tooling/SKILL.md` "Retrospective Mode" for what the look-back must cover.
 
 **`reviewed` field rules:**
 - **Section 01**: `reviewed: true` — it is the starting point of implementation and was validated during plan creation against the research findings.

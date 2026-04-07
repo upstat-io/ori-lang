@@ -171,7 +171,8 @@ Work through the completion checklist in order:
 4. **Update the overview** — adjust open bug count
 5. **Run `/tpr-review`** — independent third-party review of the fix
 6. **Handle TPR findings** — fix any issues found, re-run if needed
-7. **Run `/impl-hygiene-review last commit`** — AFTER TPR is clean
+7. **Run `/impl-hygiene-review`** — AFTER TPR is clean
+8. **Run `/improve-tooling` retrospectively** — MANDATORY at fix close, AFTER both reviews are clean. Bug fixes are the richest source of tooling gaps because you've just spent time fighting the diagnostic surface during root cause analysis. Reflect on: which `diagnostics/` scripts you ran, where you added ad-hoc `dbg!`/`tracing` calls (and what each one was looking for), where the original failure message was unhelpful, where matrix tests were tedious because helpers were missing, what instrumentation would have made the bug obvious in 1 minute instead of 30. Capture every gap you noticed. Implement every accepted improvement NOW (zero deferral) and commit each via SEPARATE `/commit-push` (e.g., `tools(diagnostics): add --bb-level RC tracking — surfaced by BUG-XX-NNN retrospective`). The retrospective is mandatory even when nothing felt painful — this is exactly when blind spots accumulate. See `.claude/skills/improve-tooling/SKILL.md` "Retrospective Mode" for the full look-back protocol.
 
 ### Phase 6: Report
 

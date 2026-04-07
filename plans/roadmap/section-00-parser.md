@@ -932,7 +932,8 @@ This section ensures the parser handles every syntactic construct in the Ori spe
 - [x] Run `cargo t -p ori_lexer` — all lexer tests pass (277 passed) [done] (2026-02-14) (verified 2026-03-29)
 - [x] Run `cargo st tests/` — 4181 passed, 0 failed, 42 skipped [done] (verified 2026-03-29)
 - [ ] `/tpr-review` passed — independent Codex review found no critical or major issues (or all findings triaged)  <!-- NEEDS PIN -->
-- [ ] `/impl-hygiene-review last commit` passed — implementation hygiene review clean (phase boundaries, SSOT, algorithmic DRY, naming). MUST run AFTER `/tpr-review` is clean.
+- [ ] `/impl-hygiene-review` passed — implementation hygiene review clean (phase boundaries, SSOT, algorithmic DRY, naming). MUST run AFTER `/tpr-review` is clean.
+- [ ] `/improve-tooling` retrospective completed — MANDATORY at section close, after both reviews are clean. Reflect on the section's debugging journey (which `diagnostics/` scripts you ran, which command sequences you repeated, where you added ad-hoc `dbg!`/`tracing` calls, where output was hard to interpret) and identify any tool/log/diagnostic improvement that would have made this section materially easier OR that would help the next section touching this area. Implement every accepted improvement NOW (zero deferral) and commit each via SEPARATE `/commit-push`. The retrospective is mandatory even when nothing felt painful — that is exactly when blind spots accumulate. See `.claude/skills/improve-tooling/SKILL.md` "Retrospective Mode" for the full protocol.
 - [ ] **NEEDS TESTS**: Negative parser tests -- `#compile_fail` tests verifying invalid syntax is rejected with correct error codes (E0xxx/E1xxx)
   - [ ] Invalid syntax rejection in `tests/spec/lexical/` (currently 0 `#compile_fail` tests)
   - [ ] Invalid syntax rejection in `tests/spec/expressions/` (currently 0 `#compile_fail` tests)

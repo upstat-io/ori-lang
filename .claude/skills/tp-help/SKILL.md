@@ -49,39 +49,63 @@ You are helping with the Ori compiler (Rust codebase, LLVM backend, ARC memory m
 {Any rules from CLAUDE.md or .claude/rules/ that apply}
 ```
 
-### Step 3: Call Codex via Agent
+### Step 3: Call Codex via Bash in background
 
-**CRITICAL: Use an Agent, NOT direct Bash.** The Bash tool has a 120-second default timeout that kills codex before it finishes. An Agent has no timeout and will wait for codex to complete.
+Run codex directly via the Bash tool with `run_in_background: true`. The
+`.claude/hooks/block-banned-commands.sh` hook allows background execution
+on codex commands specifically; the 2-minute foreground default cap does
+not apply to background tasks. You will receive a completion notification
+when codex finishes (typically 5-15 minutes).
 
-Spawn an Agent with this pattern:
+Write a prompt file first so heredocs/quoting don't fight shell escaping:
 
 ```
-Launch Agent with prompt:
-  "Run the following codex command and return the full output:
-   
-   codex exec '{prompt}' --full-auto --json 2>/dev/null | tail -200
-   
-   Then parse the JSONL output to extract agent_message items:
-   
-   cat <output> | python3 -c \"
-   import sys, json
-   for line in sys.stdin:
-       line = line.strip()
-       if not line: continue
-       try:
-           obj = json.loads(line)
-           if obj.get('type') == 'item.completed' and obj.get('item', {}).get('type') == 'agent_message':
-               print(obj['item']['text'])
-       except json.JSONDecodeError: pass
-   \" | tail -3000
-   
-   Return the extracted messages."
+Write '/tmp/tp-help-prompt.md' with the full question + context package.
+```
+
+Then launch codex in the background:
+
+```
+Bash (run_in_background: true):
+  rm -f /tmp/tp-help.jsonl /tmp/tp-help.done
+  codex exec "$(cat /tmp/tp-help-prompt.md)" --full-auto --json 2>/dev/null > /tmp/tp-help.jsonl
+  ec=$?
+  touch /tmp/tp-help.done
+  echo "exit=$ec"
+```
+
+Continue working or wait idle. When the completion notification arrives,
+parse the JSONL output for `agent_message` items:
+
+```
+Bash:
+  python3 -c "
+  import json
+  with open('/tmp/tp-help.jsonl') as f:
+      for line in f:
+          line = line.strip()
+          if not line:
+              continue
+          try:
+              obj = json.loads(line)
+              if obj.get('type') == 'item.completed' and obj.get('item', {}).get('type') == 'agent_message':
+                  print(obj['item']['text'])
+                  print()
+          except json.JSONDecodeError:
+              pass
+  "
 ```
 
 **DO NOT:**
-- Run `codex exec` directly via Bash tool (will timeout or auto-background)
-- Set `run_in_background: true` on the Agent
-- Set any timeout on the Bash call inside the Agent
+- Run `codex exec` in the Bash foreground (will hit the 2-minute default
+  timeout or get auto-backgrounded; either way output may be truncated).
+- Wrap codex in an Agent subagent — the Agent adds no value over direct
+  background Bash, costs an extra process, and the Agent cannot be
+  `run_in_background: true` so it can't wait longer than the harness cap.
+- Set a `timeout:` parameter on the Bash call (the hook blocks timeouts
+  under 5 minutes on codex; backgrounding is the preferred path).
+- Inline the full prompt in the Bash command — shell escaping of multi-
+  line markdown is fragile; write to a file and `cat` it instead.
 
 ### Step 4: Apply the Answer
 

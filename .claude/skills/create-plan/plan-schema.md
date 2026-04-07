@@ -428,7 +428,8 @@ When all findings are triaged:
   - [ ] Cross-links to other plans updated if this section resolved external blockers (`<!-- resolved-by: ... -->`)
   - [ ] Next section's `depends_on` verified — no stale assumptions from this section's work
 - [ ] `/tpr-review` passed (final, full-section) — independent Codex review found no critical or major issues (or all findings triaged)
-- [ ] `/impl-hygiene-review last commit` passed — implementation hygiene review found no critical or major findings (or all findings triaged and fixed). MUST run AFTER `/tpr-review` is clean.
+- [ ] `/impl-hygiene-review` passed — implementation hygiene review found no critical or major findings (or all findings triaged and fixed). MUST run AFTER `/tpr-review` is clean.
+- [ ] `/improve-tooling` retrospective completed — MANDATORY at section close, after both reviews are clean. Reflect on the section's debugging journey (which `diagnostics/` scripts were run, which command sequences were repeated, where ad-hoc `dbg!`/`tracing` calls were added, where output was hard to interpret, where test failures gave unhelpful messages) and identify any tool/log/diagnostic improvement that would have made this section materially easier OR that would help the next section touching this area. Implement every accepted improvement NOW (zero deferral) and commit each as a SEPARATE `/commit-push` from the section's implementation work, e.g. `tools(diagnostics): add --per-block flag to codegen-audit.sh — surfaced by section-{NN} retrospective`. Verify each improvement actually solves the original friction. The retrospective is mandatory even when nothing felt painful — that is exactly when blind spots accumulate. If genuinely no gaps, document briefly: "Retrospective: no tooling gaps — relied on existing scripts X, Y, Z". Do not silently skip.
 
 **Exit Criteria:** {Paragraph describing the measurable, testable condition
 that proves this section is complete. Include specific commands, test names,
@@ -544,7 +545,8 @@ escalation to map the exact boundary of what works.
 - [ ] `./test-all.sh` green
 - [ ] `./clippy-all.sh` green
 - [ ] `/tpr-review` passed — independent Codex review clean
-- [ ] `/impl-hygiene-review last commit` passed — hygiene review clean. MUST run AFTER `/tpr-review` is clean.
+- [ ] `/impl-hygiene-review` passed — hygiene review clean. MUST run AFTER `/tpr-review` is clean.
+- [ ] `/improve-tooling` retrospective completed — MANDATORY at section close, after both reviews are clean. Reflect on what tooling/logging would have made the verification work materially easier (which diagnostic scripts you ran repeatedly, where output was hard to interpret, what manual cross-referencing you did between dumps, what stress-test or perf instrumentation was missing). Implement every accepted improvement NOW (zero deferral) and commit each via SEPARATE `/commit-push`. The retrospective is mandatory even when nothing felt painful — that is exactly when blind spots accumulate. Verification sections especially benefit because they exercise the full diagnostic surface, surfacing gaps invisible to per-feature work.
 
 **Exit Criteria:** {Final measurable proof. Include test counts, metric
 thresholds, and the specific commands that demonstrate completion.}
@@ -760,7 +762,8 @@ third_party_review:
 - [ ] Fix section status → `complete`
 - [ ] Bug-tracker overview open bug count updated
 - [ ] `/tpr-review` passed (critical/high: MANDATORY; medium: expected; low: recommended but not required)
-- [ ] `/impl-hygiene-review last commit` passed — AFTER TPR (critical/high: MANDATORY; medium: recommended; low: optional)
+- [ ] `/impl-hygiene-review` passed — AFTER TPR (critical/high: MANDATORY; medium: recommended; low: optional)
+- [ ] `/improve-tooling` retrospective completed — MANDATORY at fix close, after both reviews are clean. Reflect on the bug-finding journey: which `diagnostics/` scripts you ran, where you added ad-hoc `dbg!`/`tracing` calls during root cause analysis, where the test failure messages were unhelpful, where the matrix tests were tedious to write because helpers were missing. Bug fixes are the richest source of tooling gaps because you've just spent time fighting the diagnostic surface — capture every gap you noticed. Implement every accepted improvement NOW (zero deferral) and commit each via SEPARATE `/commit-push`. Especially valuable: instrumentation/logging that would have made the root cause obvious in 1 minute instead of 30, and matrix-test helpers that future fix sections will reuse.
 
 **Exit Criteria:** {Measurable proof of completion with test names and commands.}
 ```
