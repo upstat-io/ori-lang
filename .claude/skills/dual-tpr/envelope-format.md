@@ -559,5 +559,145 @@ caller (Claude) so they can be written to the plan:
 | **Gemini-only** | Gemini emitted a finding with no matching codex finding. | `[TPR-NN-NNN-gemini]` |
 
 The reviewer-tag ID format and the ordinal allocation rules are defined in
-the next section (`01.3` extends this document with ID format and per-run
-scratch dir conventions).
+the next section.
+
+---
+
+## Reviewer-tag ID format
+
+When Claude writes findings into a plan file's `## NN.R Third Party Review
+Findings` block, each finding is prefixed with a reviewer-tagged identifier.
+The format is:
+
+```
+[TPR-{section}-{ordinal}-{reviewer}]
+```
+
+| Component | Format | Description |
+|---|---|---|
+| `{section}` | two-digit zero-padded | The owning plan section number (e.g., `02`, `03`, `15`) |
+| `{ordinal}` | three-digit zero-padded | A counter, INDEPENDENT per reviewer — codex's first finding for section 02 is `001`, gemini's first finding for section 02 is also `001`. The ordinals do NOT share a namespace |
+| `{reviewer}` | literal | Either `codex` or `gemini` |
+
+### Examples
+
+| Tag | Meaning |
+|---|---|
+| `[TPR-02-001-codex]`   | Codex's 1st finding for section 02 |
+| `[TPR-02-001-gemini]`  | Gemini's 1st finding for section 02 — NOT necessarily the same finding as codex's 1st. Whether they refer to the same issue is decided by `(location, title)` byte-identical match at presentation time, not by ordinal coincidence |
+| `[TPR-04-007-codex]`   | Codex's 7th finding for section 04 |
+| `[TPR-08-012-gemini]`  | Gemini's 12th finding for section 08 |
+
+### Writing into the plan file
+
+When the merge layer presents findings to Claude for writing into the plan,
+each reviewer's findings appear with its own ordinal sequence:
+
+- **Each reviewer's findings are written with its own ordinal sequence.**
+  Codex's findings are numbered 001, 002, 003... in `[TPR-NN-NNN-codex]`
+  form. Gemini's findings are numbered 001, 002, 003... in
+  `[TPR-NN-NNN-gemini]` form. The ordinals are not shared.
+- **Agreements (same `(location, title)` from both reviewers) appear as TWO
+  entries** in the TPR block — both visible to the human reader, both with
+  the same `(file:line, title)` pair, but with different `-codex` and
+  `-gemini` suffixes. The human reads both adjacent entries and recognizes
+  the agreement immediately.
+- **Disagreements (one reviewer flagged, the other didn't) appear as one
+  entry** with one tag.
+
+### Why independent ordinals
+
+The decision to keep ordinal namespaces independent per reviewer is
+deliberate, per Codex Step 6B Q4. The alternative — sharing a base ID like
+`[TPR-02-001-codex]` paired with `[TPR-02-001-gemini]` to represent "the same
+finding from two reviewers" — would bake an equivalence claim into ID
+assignment. Whether two findings are "the same" is a judgment call that
+should NOT be implicit in the IDs.
+
+The cleaner design: each reviewer numbers independently in its own namespace,
+and the human reader recognizes equivalence by reading two adjacent entries
+that share `(location, title)`. This separates the **merging** concern (done
+by the merge layer at write time, byte-exact only) from the **identification**
+concern (done by ordinal allocation, per-reviewer independent), and prevents
+the orchestrator from silently resolving disagreements by ID convention.
+
+---
+
+## Per-run scratch directory conventions
+
+All reviewer rounds use a per-run scratch directory created at the start of
+the round:
+
+```bash
+RUN=$(mktemp -d -t ori-tpr-XXXXXXXX)
+```
+
+The `XXXXXXXX` template generates an 8-character random suffix; the directory
+is created under `$TMPDIR` (typically `/tmp` on Linux) with a name like
+`/tmp/ori-tpr-A1B2C3D4`. Each round gets its own `$RUN`, so concurrent
+invocations never race.
+
+### File layout inside `$RUN`
+
+| File | Contents |
+|---|---|
+| `$RUN/codex.prompt.md`     | The prompt sent to codex (preserved for postmortem inspection) |
+| `$RUN/codex.jsonl`         | Codex's stdout — `item.completed` JSONL stream |
+| `$RUN/gemini.prompt.md`    | The prompt sent to gemini |
+| `$RUN/gemini.jsonl`        | Gemini's stdout — `stream-json` JSONL stream |
+| `$RUN/codex.envelope.json` | Extracted+validated codex envelope (cached after parse for downstream reuse) |
+| `$RUN/gemini.envelope.json`| Extracted+validated gemini envelope (cached after parse for downstream reuse) |
+| `$RUN/worktree-before.txt` | `git status --porcelain` snapshot taken before reviewer launches |
+| `$RUN/worktree-after.txt`  | `git status --porcelain` snapshot taken after both reviewers complete |
+| `$RUN/round.log`           | Orchestration log: which reviewer started when, infra retry counts, failure reasons |
+
+The two `worktree-*.txt` snapshots feed the dirty-worktree guard: if the
+two snapshots differ, at least one reviewer modified tracked source files
+(violating the prompt-discipline contract that reviewers must not write to
+the source tree). The diff is surfaced to the user in the failure message.
+
+### Cleanup policy
+
+- **Successful round** — both reviewers returned valid envelopes, the
+  dirty-worktree guard passed, the schema validated both envelopes, and
+  the merge layer produced findings. After the findings are written to the
+  plan file: `rm -rf "$RUN"`.
+- **Failed round** — any infra failure (timeout, nonzero exit, missing
+  terminal success event), parse failure (missing sentinel, malformed JSON),
+  schema validation failure, OR dirty-worktree guard rejection. **Retain
+  `$RUN`** for postmortem inspection. Print the path to the user as part
+  of the failure message: `Round failed; postmortem dir retained at $RUN`.
+- **Multi-iteration loops** — within a multi-iteration TPR loop (e.g.,
+  10 semantic iterations of `/tpr-review`), each iteration gets its own
+  `$RUN` directory. Successful intermediate iterations are cleaned up;
+  failed intermediate iterations are retained for postmortem.
+
+### Why per-run instead of fixed paths
+
+The existing single-source wrappers use fixed paths like
+`/tmp/tpr-iter.jsonl`, `/tmp/review-work.jsonl`, `/tmp/tp-help.jsonl`. These
+paths have a latent race-condition bug: if two review wrappers run
+concurrently (or two iterations of the same wrapper overlap), they clobber
+each other's stdout. The bug has not been observed in practice because users
+rarely run two reviews simultaneously, but the dual-source plan exposes it
+in three ways:
+
+1. **Two reviewers per round** — `dual-invoke.sh` launches both codex and
+   gemini in parallel; if both wrote to `/tmp/review.jsonl`, the second one
+   to write would overwrite the first.
+2. **Concurrent invocations** — if a user runs `/tpr-review` in two terminal
+   windows simultaneously (e.g., on two different feature branches), the
+   fixed-path bug would cause cross-contamination of reviewer outputs.
+3. **No postmortem isolation** — fixed paths get overwritten on each round,
+   so postmortem inspection of a failed round becomes impossible after the
+   next round runs.
+
+The per-run scratch directory pattern fixes all three:
+- Distinct `$TMPDIR` per round → no concurrent races.
+- Postmortem retention on failure → debugging real problems.
+- No cross-iteration contamination within multi-iteration loops.
+
+This is the only behavioral change in Section 01 (everything else is
+contracts and documentation). The `mktemp -d -t ori-tpr-XXXXXXXX` invocation
+is the load-bearing primitive that Section 02's `dual-invoke.sh` will source
+when constructing each round's environment.

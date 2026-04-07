@@ -267,9 +267,10 @@ This pass reads the code *locally* — each file on its own terms.
 - [ ] Directory structure mirrors the logical phase/pass structure?
 
 **Plan Annotation Hygiene:**
-- [ ] No stale plan annotations from completed plans? Run `plan-annotations.sh` (in this skill's folder) to scan
-- [ ] Active plan annotations acceptable only while the plan is in progress
-- [ ] Spec references (`Spec: Clause N.M`) are permanent and always acceptable
+- [ ] Run `plan-annotations.sh --scope <review-paths>` (in this skill's folder) to scan the review scope. The tool classifies each annotation as **stale-resolved** (ID is `[x]` in an active plan — REMOVE NOW), **stale-completed-plan** (ID is in an archived plan under `plans/completed/` — REMOVE NOW), **orphan** (ID references a plan that no longer exists — INVESTIGATE), **active-scaffolding** (ID is `[ ]` in an active plan — OK for now), or **permanent** (spec citations, architecture-internal). Use `--cleanup-only` to see just the removal candidates; `--active-only` to confirm what's being tracked as in-progress; `--orphans-only` to find broken references; `--all --count` for a full per-classification summary. The tool reads every plan's markdown content to build the ID→status map, so classifications are per-finding accurate.
+- [ ] For a quick hygiene-review scope check: `plan-annotations.sh --scope <paths> --cleanup-only` lists stale annotations grouped by finding ID, each showing the plan file and line where the finding was resolved. Every group is directly actionable.
+- [ ] Active plan annotations (classification `active-scaffolding`) are acceptable only while the specific finding checkbox is `[ ]`; flip to stale the instant the checkbox becomes `[x]`
+- [ ] Spec references (`Spec: Clause N.M`), `AIMS Section N`, and `eval_v2 Section N` are permanent and always acceptable (classified as `permanent` / `arch-internal` by the tool)
 
 **Unsafe & FFI (for ori_llvm, ori_rt, oric):**
 - [ ] Every unsafe block has a `// SAFETY:` comment?
@@ -283,6 +284,37 @@ This pass reads the code *locally* — each file on its own terms.
 - [ ] No decorative banners, no commented-out code, no bare TODOs?
 - [ ] Functions < 100 lines? Nesting depth ≤ 4?
 - [ ] pub(crate)/pub(super) used appropriately? No dead pub items?
+
+**Test Function Naming** (NAMING category — violations MUST be renamed in this review, never deferred):
+- [ ] Every test name follows `<subject>_<scenario>_<expected>` shape — self-explanatory without looking at the body or any external artifact?
+- [ ] No ephemeral identifiers in test names? Scan test function names (`#[test] fn ...` in Rust; `@test ... tests @target` in Ori) for:
+  - Plan names (`locality_repr`, `repr_opt`, `capability_unification`, etc.)
+  - Section / subsection numbers (`section_04_3`, `4_3_2`, `§4_3`, `04_2_phase_b`)
+  - Plan annotations (`TPR_04_005`, `CROSS_04_014`, `roadmap_04`)
+  - Bug / issue IDs (`BUG_04_045`, `issue_42`, `bug042`, `fix_2031`)
+  - Dates (`2026_03_15`, `march_fix`, `q1_regression`)
+  - Author initials (`eric_fix`, `es_repro`)
+  - Commit hashes / ticket refs
+- [ ] No banned weak descriptors? `_works`, `_works_correctly`, `_basic`, `_simple`, `_default`, `_correct`, `_valid`, `_ok`, `_sanity`, `_handles_X`, `_check_X`, `_verify_X`, or bare unit names (`test_iterator`, `test_parse_function`, `test_eval`).
+- [ ] Provenance lives in `///` (Rust) or `//` (Ori) doc comments above the test, never in the function name?
+- [ ] **Action on any violation found**: rename the test in the same pass. Extract the behavioral scenario from the test body, build a new name from it, move any useful plan/bug/issue provenance into a `///` doc comment above the test. The rename is local to the test file (test names have no callers) — scope, complexity, and "it's just a test" are not valid reasons to defer.
+
+**Quick-scan commands for test-name violations** (run over the review scope):
+
+```bash
+# Rust test functions — ephemeral identifier patterns
+rg -n '#\[test\]' -A 1 | rg -i '(fn test_.*(section|bug|issue|tpr|cross|phase|roadmap|§|_\d{4}_\d{2}_\d{2}))'
+
+# Ori spec tests — same patterns in @test declarations
+rg -n '@test.*(section|bug|issue|tpr|cross|phase|roadmap|§)' --type-add 'ori:*.ori' -t ori
+
+# Weak descriptor sweep
+rg -n 'fn test_(works|basic|simple|default|correct|valid|ok|sanity)[^a-z_]' --type rust
+```
+
+Results from these commands are candidate violations — read each one before renaming (a test named `test_cow_default_value_clone` legitimately contains `default` as a domain word, not a weak descriptor). The NAMING category requires *behavioral* judgment, not just grep matches.
+
+Full rules: `.claude/rules/impl-hygiene.md` §Test Function Naming.
 
 ### Phase 4: Third-Party Cross-Check
 
