@@ -66,6 +66,49 @@ sections:
 
 The fix is to **rewrite the affected paragraphs in `repr-opt`'s plan files** to point at the new SSOT. This is one of the rare cases where this plan modifies files outside its own directory — it's necessary because plan-text references are part of the cross-plan contract.
 
+### Re-read-before-edit protocol (MANDATORY for every Section 04 subsection)
+
+This section was authored against a snapshot of `plans/repr-opt/`. Between the time this plan was written and the time Section 04 actually runs, another contributor may have partially advanced `repr-opt §08`, `§09`, or `§10` — adding new task items, restructuring subsections, fixing typos, updating line numbers, or amending the enum definitions. If Section 04 blindly applies its planned edits against the assumed-snapshot text, it will:
+
+1. **Silently clobber concurrent contributor work** — the diff looks tidy, files compile, but newly-added intent is overwritten with no warning.
+2. **Fail to update sites that shifted** — line numbers like "around line 75" or "lines 188-200" are advisory; if §09 grew by 30 lines, the example moved.
+3. **Reference stale anchors** — if a contributor renamed `escape_state` to `escape_kind` in a partial commit, every planned `EscapeState::NoEscape` → `is_non_escaping(var)` rewrite must be re-derived under the new name.
+
+**Therefore, every Section 04 subsection (04.1 through 04.5) MUST follow this protocol:**
+
+**Step A — Re-read the current state.** Before applying ANY edit, read the target file end-to-end (`Read plans/repr-opt/section-NN-*.md`) and compare against the assumptions in this plan. Specifically check:
+- Does the file still contain the strings/symbols this plan expects to rewrite (`EscapeState`, `escape_state(alloc)`, `EscapeState::NoEscape`, `pub enum EscapeState`, etc.)?
+- Have the line numbers shifted? (Almost always yes — re-derive them via grep before editing.)
+- Have any new subsections been added? Have any been renumbered?
+- Does the frontmatter `depends_on` already include `locality-representation-unification` (added by some other workflow)?
+- Has any prior contributor work introduced `Locality` references that conflict with or duplicate this plan's edits?
+
+**Step B — Derive update RULES, not literal edits.** Translate this plan's intended edits into a set of regex/replace rules that operate on the *current* text, not the snapshot text:
+- "Replace any `EscapeState::NoEscape` with `EscapeInfo::is_non_escaping(var)`"
+- "Replace any `escape_state(<expr>) == EscapeState::NoEscape` with `escape_info.is_non_escaping(<expr>)`"
+- "Delete any `pub enum EscapeState { ... }` block entirely"
+- "Insert the soundness-conditions subsection after the existing last numbered subsection (whatever number that is now)"
+- Apply each rule by reading the current text, finding matches, and editing in place. If a rule has zero matches because the contributor already removed the symbol, that is GOOD news — record it in the completion notes and move on. If a rule has matches in unexpected locations, STOP and re-derive.
+
+**Step C — Preserve concurrent contributor work.** Any text in the target file that does NOT match this plan's update rules is concurrent contributor work — leave it alone. Do not delete, restructure, or "clean up" anything outside the rules. The rule is: this plan owns the unification of `EscapeState`/`ThreadLocality` references; it does NOT own §08's analysis algorithm, §09's compute_sharing_bound signature, or §10's strategy table — those are §08/§09/§10's authors' work.
+
+**Step D — Verify the diff before commit.** Before committing the edit, run `git diff plans/repr-opt/section-NN-*.md` and confirm the diff:
+- Only removes parallel-enum references (`EscapeState`, standalone `ThreadLocality`)
+- Only adds unified `Locality` / `EscapeInfo` references
+- Adds the soundness-conditions subsection (only in 04.1)
+- Adds frontmatter `depends_on` entries
+- Adds `<!-- resolves: ... -->` comment markers
+- **Does NOT** delete unrelated paragraphs, change unrelated method signatures, or restructure unrelated subsections.
+
+If the diff shows any unrelated removals, the contributor's newer work was accidentally clobbered — STOP, restore the file (`git checkout plans/repr-opt/section-NN-*.md`), and re-derive the edits from the current text. NEVER force the edit through.
+
+**Step E — Document the actual state vs assumed state.** In the section's completion notes, record any divergence between the assumed snapshot and the actual current state. Examples:
+- "§08 had been partially advanced — `pub enum EscapeState` was already moved from line 70 to line 84. Re-derived line numbers from grep before edit."
+- "§09 already had `depends_on` updated to include `locality-representation-unification` by another workflow. Skipped the frontmatter add; verified the existing entry."
+- "§10 had a new `ThreadStrategy` enum added by a contributor (NOT a parallel `ThreadLocality` — different concept). Left it untouched; no conflict."
+
+This protocol prevents the most subtle failure mode of any plan that modifies files outside its own directory. It is **non-negotiable** — every subsection must include Step A as its first task and Step D as its final task.
+
 Per Codex Step 6B Finding 2 + the cross-section interaction documented in `00-overview.md:278` (Section 01 + Section 04): *"Section 04's `repr-opt §08` plan text update adds a 'Soundness conditions to enforce' subsection containing conditions 2 (ownership preservation) and 4 (no heap persistence). These conditions are sourced from Section 01's locked decision document, not restated independently. Section 04 must literally copy the condition text from Section 01, not paraphrase."*
 
 This means Section 04 reads Section 01.4's enforcement-layer table and **copies the rows for conditions 2 and 4 verbatim** into the new `repr-opt §08` subsection. If Section 01.4 says "Ownership preservation: `ArgEscaping + Owned` means callee borrows, caller retains. Codegen must NOT transfer ownership into the callee," that exact sentence appears in `repr-opt §08`'s new subsection. No rephrasing.
@@ -105,7 +148,7 @@ The replacement strategy:
 3. Update §08.1's file list to reference `escape/intraprocedural.rs` (the new file §08 will create) but NOT `escape/mod.rs` (which is now Section 03's responsibility — §08 only populates the storage, doesn't define it)
 4. Add a new "Soundness conditions to enforce" subsection (call it §08.7 or §08.6 — pick the next available number that doesn't collide with the existing subsection list) containing conditions 2 and 4 from this plan's Section 01.4
 
-- [ ] Re-read the current `plans/repr-opt/section-08-escape-analysis.md` end-to-end. Note the current subsection numbering, the current frontmatter, and the current §08.1 content.
+- [ ] **Step A (re-read-before-edit, MANDATORY — see Section 04 context block).** Re-read the current `plans/repr-opt/section-08-escape-analysis.md` end-to-end. Note the current subsection numbering, the current frontmatter, the current §08.1 content, and the current line numbers of every `EscapeState` reference. Compare against the assumptions in this plan (e.g., "§08.1 currently says `pub enum EscapeState { NoEscape, ArgEscape, GlobalEscape }`" — does it still?). If the file has been partially advanced by another contributor since this plan was created, STOP and re-derive update rules from the actual current text. Record any divergence in the completion notes.
 
 - [ ] Update the frontmatter `depends_on` field. The current value is `depends_on: ["02"]` (where `"02"` refers to `repr-opt`'s own Section 02 — Transitive Triviality — NOT to this plan's Section 02). Change to:
   ```yaml
@@ -179,6 +222,17 @@ The replacement strategy:
 
 - [ ] Verify the updated §08 file is internally consistent. Run a manual cross-reference scan: search for `EscapeState` in the file and confirm zero matches; search for `Locality::ArgEscaping` and confirm at least one match; search for `EscapeInfo::join_escape_scope` and confirm at least one match.
 
+- [ ] **Update every reference to `EscapeState` in §08, not just §08.1's task list.** Per accuracy review, the current `section-08-escape-analysis.md` has at least 4 distinct `EscapeState` references:
+
+  - Line ~70: `pub enum EscapeState { NoEscape, ArgEscape, GlobalEscape }` — DELETE this enum definition entirely (the unified `Locality` is the SSOT)
+  - Line ~91: `Alloc { id: AllocId, escape: EscapeState }` — change `EscapeState` to `Locality`
+  - Line ~93: `Param { index: usize, escape: EscapeState }` — change `EscapeState` to `Locality`
+  - Line ~163: `pub param_escapes: Vec<EscapeState>` — change to `pub param_escapes: Vec<Locality>` or restructure as `EscapeInfo` field
+  - Add an `inspired_by` link to `compiler/ori_arc/src/aims/lattice/dimensions.rs` (where the unified `Locality` lives).
+  - Run `grep -n EscapeState plans/repr-opt/section-08-escape-analysis.md` after the rewrite and verify zero matches.
+
+- [ ] **Step D (verify diff before commit, MANDATORY — see Section 04 context block).** Run `git diff plans/repr-opt/section-08-escape-analysis.md` and confirm the diff only: (a) removes `EscapeState` enum definitions and references, (b) adds `Locality`/`EscapeInfo` references, (c) adds the new "Soundness conditions to enforce" subsection, (d) adds the `<!-- resolves: ... -->` marker, (e) adds the cross-plan `depends_on` entry. The diff MUST NOT delete any unrelated paragraphs (§08's analysis algorithm prose, other subsections, frontmatter fields outside `depends_on`/`inspired_by`). If the diff shows ANY unrelated removals, the contributor's newer work was clobbered — STOP, run `git checkout plans/repr-opt/section-08-escape-analysis.md`, and re-derive the update rules against the current text. Record the actual-vs-assumed divergence in the completion notes.
+
 ---
 
 ## 04.2 Update plans/repr-opt/section-09-arc-header.md
@@ -206,7 +260,7 @@ After this plan's Section 03, `EscapeInfo` no longer has an `escape_state` metho
 
 Note also that `EscapeInfo` is now keyed by `ArcVarId` (per Section 01.3 + Section 03.1), not by `AllocId`. The §09 example uses `AllocId` — the implementer of §09 will need to either: (a) translate from `AllocId` to `ArcVarId` at the call site, or (b) extend `EscapeInfo` to support per-allocation tracking. **This decision is §09's responsibility, not this plan's.** This subsection just updates the example to use the post-unification API; whether the API takes `ArcVarId` or `AllocId` is §09's call.
 
-- [ ] Re-read `plans/repr-opt/section-09-arc-header.md` to find the current `compute_sharing_bound()` example. Note its exact line numbers (Pass 1 said around line 75, may have shifted).
+- [ ] **Step A (re-read-before-edit, MANDATORY — see Section 04 context block).** Re-read `plans/repr-opt/section-09-arc-header.md` end-to-end. Find the current `compute_sharing_bound()` example and re-derive its line numbers via `grep -n compute_sharing_bound plans/repr-opt/section-09-arc-header.md` (Pass 1 said around line 75 but it may have shifted). Run `grep -n EscapeState plans/repr-opt/section-09-arc-header.md` to find ALL `EscapeState` references — if the count differs from this plan's enumerated 3 sites (lines 75, 108, 117), re-derive the rewrite list against the actual current text. If a contributor has already partially advanced §09 (e.g., renamed `escape_state` to something else), STOP and re-derive. Record any divergence.
 
 - [ ] Update the example code to use `EscapeInfo::is_non_escaping`:
   ```rust
@@ -234,7 +288,14 @@ Note also that `EscapeInfo` is now keyed by `ArcVarId` (per Section 01.3 + Secti
 
 - [ ] Add a `<!-- resolves: locality-representation-unification §04.2 -->` comment marker near the updated example.
 
-- [ ] Search the entire `section-09-arc-header.md` file for any remaining references to `EscapeState`, `EscapeState::NoEscape`, `EscapeState::ArgEscape`, or `EscapeState::GlobalEscape`. Update each to the post-unification API. Most likely the example at line 75 is the only one, but verify with `grep -n EscapeState plans/repr-opt/section-09-arc-header.md` after the edit.
+- [ ] Search the entire `section-09-arc-header.md` file for any remaining references to `EscapeState`, `EscapeState::NoEscape`, `EscapeState::ArgEscape`, or `EscapeState::GlobalEscape`. Per accuracy review, there are AT LEAST 3 sites in §09 (lines 75, 108, 117) that reference `EscapeState`, not just the line-75 example. Update **every** site:
+
+  - Line 75: `escape_info.escape_state(alloc) == EscapeState::NoEscape` → `escape_info.is_non_escaping(var)`
+  - Line 108: `escape_info.escape_state(alloc) == EscapeState::GlobalEscape` → `escape_info.escape_scope(var) == Locality::HeapEscaping`
+  - Line 117: `EscapeState::ArgEscape` → `Locality::ArgEscaping` (in whatever context the constant appears)
+  - Any additional sites surfaced by `grep -n EscapeState plans/repr-opt/section-09-arc-header.md` after the edit.
+
+- [ ] **Step D (verify diff before commit, MANDATORY — see Section 04 context block).** Run `git diff plans/repr-opt/section-09-arc-header.md` and confirm the diff only: (a) replaces `EscapeState`/`escape_state` references with the unified `Locality`/`EscapeInfo` API, (b) updates the `compute_sharing_bound()` example, (c) adds the cross-plan `depends_on` entry, (d) adds the `<!-- resolves: ... -->` marker. The diff MUST NOT delete any unrelated paragraphs (§09's allocation header layout discussion, the `SharingBound` definition, other subsections). If the diff shows ANY unrelated removals, STOP, run `git checkout plans/repr-opt/section-09-arc-header.md`, and re-derive against the current text.
 
 ---
 
@@ -249,6 +310,8 @@ This means **§10 was never going to define a parallel `ThreadLocality` enum**. 
 1. Confirm this is documented in §10's section text (not just in the overview)
 2. Add `depends_on: ["locality-representation-unification"]` ONLY if §10 reads `EscapeInfo` for any input signal (likely yes, since §10 cares whether a value escapes the thread)
 3. Add a brief note in §10's text explicitly acknowledging the unified `Locality` type for any cross-references
+
+- [ ] **Step A (re-read-before-edit, MANDATORY — see Section 04 context block).** Re-read `plans/repr-opt/section-10-thread-local-arc.md` end-to-end. Note the current frontmatter, subsection numbering, and the current line numbers of any `RcStrategy::NonAtomic` / `ThreadLocality` / `EscapeInfo` references via `grep -n 'RcStrategy\|ThreadLocality\|EscapeInfo' plans/repr-opt/section-10-thread-local-arc.md`. Compare against the assumptions in this plan: (a) §10's body should already route thread-locality through `RcStrategy::NonAtomic`, (b) §10 should NOT contain a standalone `ThreadLocality` enum, (c) §10 may or may not already reference `EscapeInfo` as an input signal. If the file has been partially advanced by another contributor since this plan was created (e.g., a parallel `ThreadLocality` enum was introduced, or the `RcStrategy::NonAtomic` routing was renamed), STOP and re-derive update rules from the actual current text. Record any divergence in the completion notes.
 
 - [ ] Re-read `plans/repr-opt/section-10-thread-local-arc.md` to find:
   - Whether the section text explicitly mentions `RcStrategy::NonAtomic` as the storage path
@@ -280,6 +343,8 @@ This means **§10 was never going to define a parallel `ThreadLocality` enum**. 
 
 **The §08 + §01 line is partially stale**: it says "§08 must ALSO update the `escapes()` query body" — but per this plan's Section 03, the query body is replaced by `locality-representation-unification`, not by §08. The line must be updated to reflect that §08 only populates the storage, while the query body plumbing has already been done.
 
+- [ ] **Step A (re-read-before-edit, MANDATORY — see Section 04 context block).** Re-read `plans/repr-opt/00-overview.md` end-to-end. Re-derive the current line numbers for the §08 + §01 and §10 + §01 coupling notes via `grep -n '§08 + §01\|§10 + §01' plans/repr-opt/00-overview.md` (Pass 2 said lines 191-192 but they may have shifted). Verify the §08 + §01 note still contains the "must ALSO update the `escapes()` query body" language this subsection intends to rewrite, and the §10 + §01 note still says "thread-locality via RcStrategy" (this plan expects it to already be correct). Run `grep -n 'EscapeState\|ThreadLocality' plans/repr-opt/00-overview.md` — if any matches appear beyond the two expected coupling-note regions, surface them for re-derivation. If the file has been partially advanced by another contributor since this plan was created (e.g., the coupling notes were already rewritten, or new coupling notes were added that reference `EscapeInfo`), STOP and re-derive update rules from the actual current text. Record any divergence in the completion notes.
+
 - [ ] Re-read `plans/repr-opt/00-overview.md` lines 188-200 to find the current §08 + §01 coupling note. Confirm the line numbers — they may have shifted slightly.
 
 - [ ] Update the §08 + §01 line to reflect the new ownership split:
@@ -298,6 +363,8 @@ This means **§10 was never going to define a parallel `ThreadLocality` enum**. 
 **Context:** The keyword clusters in `index.md` are search aids — they help future contributors find the right section by keyword. After this plan's Section 02 + 03, the keywords for §08, §09, §10 should reference `ori_arc::Locality` and `EscapeInfo` instead of `EscapeState` and `ThreadLocality` (which never existed but might be in the keywords as forward-looking hints).
 
 Per Pass 1 Agent 1 + Phase 2 verification, the current `index.md` keyword clusters for §08 likely include `EscapeState` as a forward-looking keyword. Section 04.5 removes those and replaces with the post-unification API names.
+
+- [ ] **Step A (re-read-before-edit, MANDATORY — see Section 04 context block).** Re-read `plans/repr-opt/index.md` end-to-end. Locate the current §08, §09, and §10 keyword cluster blocks (their exact format and anchor structure depends on repr-opt's index.md conventions — do NOT assume a specific heading or bullet format). Run `grep -n 'EscapeState\|escape_state\|NoEscape\|ArgEscape\|GlobalEscape\|ThreadLocality' plans/repr-opt/index.md` to enumerate every stale-keyword site; compare against this plan's assumed rewrite targets (§08 cluster likely contains `EscapeState`/`escape_state`/`NoEscape`/`ArgEscape`/`GlobalEscape`; §09 cluster may contain `EscapeState`; §10 cluster should NOT contain `ThreadLocality` but verify). If the file has been partially advanced by another contributor since this plan was created (e.g., clusters already cleaned up, or new clusters added that already reference `Locality`/`EscapeInfo`), STOP and re-derive update rules from the actual current text — skip any rewrite whose target no longer matches, record it in completion notes. If a contributor added entirely new keyword entries inside §08/§09/§10 clusters, leave them alone (they are concurrent work; only touch stale-enum entries). Record any divergence in the completion notes.
 
 - [ ] Re-read `plans/repr-opt/index.md` and find the keyword clusters for §08, §09, §10.
 
