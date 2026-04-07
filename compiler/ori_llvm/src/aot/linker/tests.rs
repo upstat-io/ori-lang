@@ -262,3 +262,35 @@ fn test_link_output_extension_linux() {
     assert_eq!(LinkOutput::SharedLibrary.extension(&target), "so");
     assert_eq!(LinkOutput::StaticLibrary.extension(&target), "a");
 }
+
+/// Macros bare (unversioned) Darwin emits Apple-format extensions.
+#[test]
+fn test_link_output_extension_macos_unversioned() {
+    let target = TargetTripleComponents::parse("aarch64-apple-darwin").unwrap();
+    assert_eq!(LinkOutput::Executable.extension(&target), "");
+    assert_eq!(LinkOutput::SharedLibrary.extension(&target), "dylib");
+    assert_eq!(LinkOutput::StaticLibrary.extension(&target), "a");
+}
+
+/// Regression pin for BUG-04-045 / TPR-BUG-04-045-02: a versioned Darwin
+/// triple (the exact spelling LLVM emits on Apple Silicon) must still
+/// produce `.dylib` for shared libraries, not `.so`. Before the fix,
+/// `LinkOutput::extension` matched `target.os.as_str()` against the
+/// literal `"darwin"`, so `darwin25.2.0` fell through to the Linux/ELF
+/// branch. After the fix, it delegates to the typed `target.is_macos()`
+/// query which handles the version suffix.
+#[test]
+fn test_link_output_extension_macos_versioned() {
+    let target = TargetTripleComponents::parse("arm64-apple-darwin25.2.0").unwrap();
+    assert!(
+        target.is_macos(),
+        "versioned Darwin must be detected as macOS by is_macos()"
+    );
+    assert_eq!(LinkOutput::Executable.extension(&target), "");
+    assert_eq!(
+        LinkOutput::SharedLibrary.extension(&target),
+        "dylib",
+        "versioned Darwin shared library must be .dylib, not .so"
+    );
+    assert_eq!(LinkOutput::StaticLibrary.extension(&target), "a");
+}

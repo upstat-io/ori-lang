@@ -384,3 +384,68 @@ fn test_arch_display_formats_canonical() {
     assert_eq!(format!("{}", Arch::Wasm32), "wasm32");
     assert_eq!(format!("{}", Arch::Wasm64), "wasm64");
 }
+
+// === support_key() — canonical lookup form for SUPPORTED_TARGETS ===
+
+/// `support_key()` strips Darwin OS version suffixes so versioned and
+/// unversioned spellings both match the unversioned `SUPPORTED_TARGETS`
+/// entries. Regression pin for TPR-BUG-04-045-01.
+#[test]
+fn test_support_key_strips_darwin_version_matrix() {
+    let cases: &[(&str, &str)] = &[
+        // Versioned Darwin spellings collapse to the bare darwin form.
+        ("arm64-apple-darwin25.2.0", "aarch64-apple-darwin"),
+        ("aarch64-apple-darwin25.2.0", "aarch64-apple-darwin"),
+        ("x86_64-apple-darwin23.6.0", "x86_64-apple-darwin"),
+        // Bare Darwin is unchanged.
+        ("aarch64-apple-darwin", "aarch64-apple-darwin"),
+        ("x86_64-apple-darwin", "x86_64-apple-darwin"),
+        // The `macos` OS spelling is also normalized to `darwin` because
+        // `is_macos()` treats both as macOS variants.
+        ("aarch64-apple-macos", "aarch64-apple-darwin"),
+        // Non-Darwin triples pass through unchanged (env preserved).
+        ("x86_64-unknown-linux-gnu", "x86_64-unknown-linux-gnu"),
+        ("aarch64-unknown-linux-musl", "aarch64-unknown-linux-musl"),
+        ("x86_64-pc-windows-msvc", "x86_64-pc-windows-msvc"),
+        ("wasm32-unknown-unknown", "wasm32-unknown-unknown"),
+        // Arch alias normalization composes with OS-suffix stripping.
+        ("amd64-unknown-linux-gnu", "x86_64-unknown-linux-gnu"),
+    ];
+    let mut visited = 0usize;
+    for (input, expected_key) in cases {
+        let parsed =
+            TargetTripleComponents::parse(input).unwrap_or_else(|e| panic!("parse {input:?}: {e}"));
+        assert_eq!(
+            parsed.support_key(),
+            *expected_key,
+            "support_key for {input:?}"
+        );
+        visited += 1;
+    }
+    assert_eq!(visited, cases.len(), "matrix skipped cells");
+}
+
+/// `support_key()` is what the `SUPPORTED_TARGETS` lookup uses; verify
+/// the actual lookup function agrees for every supported entry plus its
+/// versioned and aliased variants.
+#[test]
+fn test_support_key_matches_supported_targets_for_known_aliases() {
+    use crate::aot::target_features::is_supported_target;
+
+    let aliases: &[&str] = &[
+        "arm64-apple-darwin",
+        "arm64-apple-darwin25.2.0",
+        "aarch64-apple-darwin25.2.0",
+        "aarch64-apple-macos",
+        "amd64-unknown-linux-gnu",
+        "x86_64-apple-darwin23.6.0",
+    ];
+    for alias in aliases {
+        let parsed = TargetTripleComponents::parse(alias).unwrap();
+        assert!(
+            is_supported_target(&parsed.support_key()),
+            "support_key {} for input {alias:?} should be in SUPPORTED_TARGETS",
+            parsed.support_key()
+        );
+    }
+}
