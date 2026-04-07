@@ -804,55 +804,86 @@ This section captures the exact state needed to resume TPR-07-017 / TPR-07-018 c
 - `compiler/ori_llvm/tests/aot/fixtures/iterator_drop/two_unrelated_take_projects.ori` — new fixture (two unrelated MaybeIter enums, conditional consume, returns `count_b - count_b` = 0).
 - `plans/repr-opt/section-07-enum-repr.md` — this update (TPR-07-016 marked resolved, TPR-07-017/018 expanded, this resume section added).
 
+> **NOTE (2026-04-07, after iteration 2)**: the "uncommitted working tree" and "verification status" lists ABOVE are now historical — they describe the pre-iteration-1 state and have been superseded by commits 79124fc3 (TPR-07-017 landing), 04cf56fb (TPR-07-020 + TPR-07-021 + TPR-07-019 iteration-1 revert). Refer to the **"Iteration 2 status (2026-04-07)"** subsection at the bottom of this resume notes block for the current state and resume sequence.
+
 **Working tree state (UNRELATED, pre-existing, NOT mine):**
 
 - `.claude/skills/*.md`, `.claude/commands/tp-help.md` — pre-existing skill doc updates from prior session, unrelated to TPR work.
 - Many `plans/*/section-*.md` files (~110) — pre-existing batch addition of `/improve-tooling retrospective` checkbox, unrelated to TPR work. Do NOT include these in the TPR-07-017 commit. Selective `git add` only the files listed in "Working tree state (TPR-07-017 fix)" above.
 
-**Verification status:**
+> **NOTE (2026-04-07, after iteration 2)**: BOTH the unrelated batch additions AND the impl-hygiene-review default fix landed in commit ba97de83 (`docs(plans): improve section close-out checklist`). The working tree is now clean of those pending changes.
 
-- ✅ `cargo c -p ori_arc` — clean.
-- ✅ `cargo b` — clean.
-- ✅ `cargo test -p ori_llvm --test aot iterator_drop` — 13 passed, 0 failed (12 pre-existing + 1 new TPR-07-017 pin).
-- ❌ `timeout 150 ./test-all.sh` — NOT YET RUN against the TPR-07-017 fix (user interrupted before run). Must verify zero regressions on the 16,839-test corpus.
-- ❌ `./clippy-all.sh` — NOT YET RUN against this fix.
-- ❌ `cargo b --release` — NOT YET RUN against this fix.
-- ❌ `/commit-push` — TPR-07-017 fix not yet committed.
-- ❌ `/tpr-review` re-run — pending.
-- ❌ `/impl-hygiene-review` — pending.
+## Iteration 2 status (2026-04-07) — read this for the current state
 
-**Resume sequence (next session):**
+**Current commit chain on dev:**
+
+1. `055b5a9b` `chore(ori_arc)`: per-phase post-walk RC tracing — surfaced by TPR-07-017 retrospective
+2. `79124fc3` `fix(repr-opt)`: TPR-07-017 per-class take-project partitioning + bypass-safe entry edge
+3. `ba97de83` `docs(plans)`: section close-out checklist improvements (impl-hygiene-review default + improve-tooling retrospective)
+4. `04cf56fb` `fix(repr-opt)`: TPR-07-020 + TPR-07-021 + TPR-07-019 iteration-1 revert ← **HEAD**
+
+**TPR findings status (2026-04-07):**
+
+| Finding | Severity | Status |
+|---------|----------|--------|
+| TPR-07-017 | originally medium | landed in 79124fc3, verified by Codex iteration 1 — **partially open until TPR-07-019 is closed** (the per-class architecture itself works; the union-find soundness gap below is what's open) |
+| TPR-07-018 | medium | not yet started — emitter-driven IR test for BUG-04-019. Has full implementation plan in §07.R `[TPR-07-018]` |
+| TPR-07-019 | high | **OPEN** — iteration 1 (narrow union to single-pred) was reverted because it broke edge_cleanup's class membership invariant and produced 9 double-frees. Proper fix designed (membership class vs reachability set split) and documented in §07.R `[TPR-07-019]`. NOT yet implemented. |
+| TPR-07-020 | medium | resolved in 04cf56fb |
+| TPR-07-021 | low | resolved in 04cf56fb |
+
+**Verification status (post-iteration-2, 2026-04-07):**
+
+- ✅ `cargo b` — clean
+- ✅ `cargo b --release` — clean (FastISel parity verified)
+- ✅ `cargo test -p ori_llvm --test aot iterator_drop` — 15 passed, 0 failed (debug AND release)
+- ✅ `./test-all.sh` — 16,842 passed, 0 failed (+2 from new TPR-07-019/020 topology pin fixtures vs the 16,840 baseline)
+- ✅ `./clippy-all.sh` — clean
+- ✅ `/commit-push` — committed and pushed (04cf56fb)
+- ❌ `/tpr-review` re-run (iteration 2) — pending; deferred to next session per user-approved pause
+- ❌ `/impl-hygiene-review` — blocked on TPR re-review being clean (CLAUDE.md gate)
+- ❌ TPR-07-019 proper fix — open, full design documented in §07.R, ~150-300 lines of architectural work expected
+
+**Tooling gaps surfaced during iteration 2 (for `/improve-tooling` retrospective):**
+
+1. **Stale `target/debug/ori` binary masked a regression for ~30 minutes.** The AOT test framework runs `target/debug/ori` (the workspace binary) to compile fixtures, but `cargo test -p ori_llvm` does NOT rebuild that binary — only `cargo b` does. A session that modifies `ori_arc`/`ori_llvm`/`ori_rt` and runs `cargo test` against an outdated `ori` binary will see ghost test results (passes that aren't real, or failures that aren't real). Iteration 2's bisect of "which fix broke iterator_drop?" was confused for ~30 minutes by this. Fix options:
+   - (a) Make `test-all.sh` and the pre-commit hook invoke `cargo b` first.
+   - (b) Make the AOT test framework call `cargo run --quiet -p oric --bin ori -- build` instead of `Command::new("target/debug/ori")`.
+   - (c) Add a `build.rs` to `ori_llvm` that depends on `oric` and forces a rebuild of the workspace `ori` binary.
+   - **Recommendation**: option (b) is the most surgical and removes the entire class of problem.
+
+2. **Root-owned cargo cache files in `target/debug/.fingerprint/ori_llvm-d210d115c4eb315c/`** from a March 1 sudo build. Cargo cannot update these fingerprints, producing erratic build behavior. Clean up with `sudo rm -rf target/debug/.fingerprint/ori_llvm-d210d115c4eb315c` (and check for other root-owned target files via `find target -uid 0`). Did not directly cause iteration 2's failures but is a latent landmine.
+
+**Resume sequence (next session, post-iteration-2):**
 
 1. **Re-read CLAUDE.md** (mandatory per `/continue-roadmap` Step -1).
-2. **Read this entire §07.RZ Resume Notes section AND the §07.R `[TPR-07-017]` entry** so the architectural concepts and iteration history are loaded into context before any code changes.
-3. **Run `/improve-tooling` in REACTIVE mode FIRST, before resuming verification work.** This is the required first step — the prior session captured a recurring friction pattern (inline `tracing::debug!` insert/remove cycles to bisect AIMS pipeline phases) that will recur in TPR-07-017 verification AND in TPR-07-018's emitter-driven test work. Pre-empt the friction by adding the tool now, then USE the new tool for the rest of the session. **Required scope:**
-   - Read the **"Tooling friction captured during TPR-07-017 debugging"** subsection below for the full context.
-   - Add permanent `tracing::trace!` calls at each post-walk phase boundary in `compiler/ori_arc/src/aims/realize/emit_unified.rs` (after `walk_body_unified`, after `emit_dead_invoke_dsts`, after `emit_edge_cleanup`, after `emit_project_escape_incs`, after `coalesce_block_rc`). Each call should dump a per-block summary of `RcInc`/`RcDec` ops by var, gated at `trace` level so it has zero overhead in normal debug runs.
-   - Verify the new instrumentation is reachable: `ORI_LOG=ori_arc::aims::realize=trace ./target/debug/ori build compiler/ori_llvm/tests/aot/fixtures/iterator_drop/two_unrelated_take_projects.ori -o /tmp/turp 2>&1 | grep "TPR-07-017 trace\|phase boundary"` should produce per-phase per-block snapshots.
-   - Document the new convention in `.claude/rules/arc.md` under the "Debugging" section (one-line addition: `ORI_LOG=ori_arc::aims::realize=trace` for per-phase block-body snapshots).
-   - Update `CLAUDE.md` if it lists ARC debugging env vars (one-line addition).
-   - Commit the tooling improvement as a SEPARATE commit via `/commit-push` BEFORE starting TPR-07-017 verification. Suggested message: `tools(ori_arc): add per-phase post-walk tracing — surfaced by TPR-07-017 retrospective`.
-   - **Why first, not last**: the friction was real this session and will recur. If TPR-07-017's `./test-all.sh` reveals an unexpected regression, you will immediately need to bisect which post-walk pass introduced it — exactly the workflow this tooling improvement enables. Adding the tool first means the verification work uses the improved tool; adding it last means re-living the pain.
-4. **Run `git status --short`** to confirm the working tree state matches the "Working tree state (TPR-07-017 fix)" list above. The TPR-07-017 fix files should still be modified-but-uncommitted. The unrelated pre-existing files may still be in the tree — do NOT touch them.
-5. **Sanity check**: `cargo b 2>&1 | tail -3` — should compile clean (the tooling addition from step 3 is in `emit_unified.rs` and `.claude/rules/arc.md`; both should still build).
-6. **Re-verify the regression test**: `timeout 150 cargo test -p ori_llvm --test aot iterator_drop 2>&1 | tail -25` — should report 13 passed, 0 failed.
-7. **Run the full test suite**: `timeout 150 ./test-all.sh 2>&1 | tail -30`. Expected: ALL passed, zero failures (the pre-fix baseline was 16,839/0). If ANY test regresses, USE THE NEW PER-PHASE TRACING from step 3 to bisect — do NOT regress to inline `tracing::debug!`. Cross-reference the iteration history in TPR-07-017's entry above to recognize known failure modes (phi dominance violation, free()-detected double-free, sequential bypass-safe N-way duplicates).
-8. **Run clippy**: `./clippy-all.sh 2>&1 | tail -10`. Expected: clean.
-9. **Run release build**: `cargo b --release 2>&1 | tail -5`. Expected: clean (FastISel parity).
-10. **Commit TPR-07-017 fix via `/commit-push`** — selective stage ONLY the files listed in "Working tree state (TPR-07-017 fix)" above. Do NOT use `git add -A` (the working tree contains ~110 unrelated pre-existing changes). Suggested commit message: `fix(repr-opt): TPR-07-017 per-class take-project partitioning + bypass-safe entry edge`.
-11. **Re-run `/tpr-review`** — codex must come back clean. If new findings surface, triage per Step 1.9 of `/continue-roadmap`. The `/fix-bug` `/tpr-review` loop iterates until clean.
-12. **Run `/impl-hygiene-review`** — must pass clean before TPR-07-017 can be marked `[x]`.
-13. **After both reviews are clean**: mark `[TPR-07-017]` `[x]` in §07.R, flip `third_party_review.status` to `resolved`, update `updated:` to today's date.
-14. **Then start TPR-07-018** as a separate fix using the implementation plan in its entry above. New commit, new TPR review cycle, new hygiene review. The per-phase tracing from step 3 will help here too — TPR-07-018's emitter-driven tests inspect LLVM IR and may need to bisect codegen phases similarly.
-15. **After both TPR-07-017 and TPR-07-018 are closed**: run the `/improve-tooling` retrospective for §07 (forward-looking pass, since the reactive improvement was already done in step 3). Capture any ADDITIONAL friction noticed during steps 4–14 that wasn't pre-empted by the per-phase tracing. Examples to look for: did `git status` filtering of "mine vs not-mine" still feel manual? Did the resume sequence itself feel painful — any step where you had to read code instead of running a script?
+2. **Read this entire §07.RZ Resume Notes "Iteration 2 status" subsection** for the current state.
+3. **Read the §07.R `[TPR-07-019]` entry IN FULL** — it documents the iteration-1 failure and the proper-fix design (membership class vs reachability set architectural split). The proper fix needs that exact split; do NOT re-attempt the iteration-1 narrow-union approach (it is documented as a forbidden path in `take_project.rs::union_alias_edges`).
+4. **Sanity check**: `cargo b 2>&1 | tail -3` — should compile clean. If you skip this, the AOT test framework will use a stale `target/debug/ori` and produce ghost results — see "Stale binary" gap above.
+5. **Verify baseline**: `timeout 150 cargo test -p ori_llvm --test aot iterator_drop 2>&1 | tail -10` — should report 15/15 passing (12 pre-existing + 3 from iteration 1/2: 07_017, 07_019, 07_020).
+6. **Implement TPR-07-019 proper fix in `compiler/ori_arc/src/aims/emit_rc/take_project.rs`**:
+   - Change `ClassInfo` to track `Vec<TpSourceInfo>` where each `TpSourceInfo { tp_block: usize, bypass_safe_blocks: FxHashSet<usize>, bypass_safe_entries: FxHashSet<usize> }`.
+   - Compute per-source reachability instead of per-class.
+   - Add `class_bypass_safe_entries(class_idx) -> FxHashSet<usize>` returning the INTERSECTION of all sources' `bypass_safe_entries` in that class (so if even one source contaminates a block, the whole-class drop must NOT fire there).
+   - `is_bypass_safe_entry_for_var(var, blk)` queries `class_bypass_safe_entries(class_of(var))`.
+   - Keep `union_alias_edges` UNCHANGED — the over-approximating union must remain so edge_cleanup's `is_in_class` skip continues to work.
+7. **Add a regression fixture** that ACTUALLY exercises the unsound case: it must produce two unrelated take-project sources whose alias chains genuinely meet at a phi-style block param AND whose bypass-safe regions differ in a way that the current over-approximation hides. The current `tpr_07_019_phi_merge_take_projects.ori` topology pin doesn't exercise the unsoundness — design a tighter fixture that exposes it via leak detection on the bypass-side source.
+8. **Run iterator_drop tests** — should still report 15/15 passing (or 16/16 if you added a new pin). Same tests in release.
+9. **Run `./test-all.sh`** — must report 16,842 passed (or 16,843 if you added a fixture). Zero failures.
+10. **Run `./clippy-all.sh`** — must be clean.
+11. **Commit via `/commit-push`** — suggested message: `fix(repr-opt): TPR-07-019 per-source bypass-safe split — proper fix after iteration-1 revert`.
+12. **Re-run `/tpr-review`** (iteration 3) — Codex must verify TPR-07-019 is now correctly resolved.
+13. **Run `/impl-hygiene-review`** — only after TPR re-review is clean. CLAUDE.md gate.
+14. **Mark `[TPR-07-019]` `[x]` resolved** in §07.R with the implementation note. Update `third_party_review.updated` to the resolution date. The section's `third_party_review.status` can flip to `resolved` once TPR-07-018 is also closed.
+15. **Then handle TPR-07-018** as a separate fix per its existing implementation plan in §07.R.
+16. **Address the tooling gaps** above as part of `/improve-tooling` retrospective at the end of section 07.
 
-**Tooling friction captured during TPR-07-017 debugging (for `/improve-tooling` retrospective):**
+**Tooling friction captured during TPR-07-017 debugging (for `/improve-tooling` retrospective, applies BOTH iteration 1 and iteration 2):**
 
-- **Pattern**: bisecting which AIMS pipeline post-walk pass (`emit_dead_invoke_dsts`, `emit_edge_cleanup`, `emit_project_escape_incs`, `coalesce_block_rc`) modifies a specific block's RC ops.
-- **Workaround used**: insert temporary `tracing::debug!("TPR-07-017 trace: bb9 after-X body = {:#?}", ...)` calls between phases, build, run with `ORI_LOG=ori_arc=debug`, grep for the markers, remove the tracing afterward. ~5 iterations × ~2 minutes each = ~10 minutes wasted per debugging cycle.
-- **Existing tooling gap**: `ORI_DUMP_AFTER_ARC=1` dumps ONCE after the entire pipeline. There is no per-phase boundary dump. `ORI_LOG=ori_arc=debug` produces phase entry/exit traces but does NOT include block bodies.
-- **Improvement**: add permanent `tracing::trace!` calls at each post-walk phase boundary in `compiler/ori_arc/src/aims/realize/emit_unified.rs` that dump block bodies (or RC op summaries) gated at `trace` level. Then `ORI_LOG=ori_arc::aims::realize=trace` produces per-phase-per-block IR snapshots without inline instrumentation. Should also document the convention in `.claude/rules/arc.md`.
-- **Alternative**: a `diagnostics/arc-phase-trace.sh <fixture>` wrapper that invokes the build with the trace flags pre-set and demangles the output. Lower priority — the env var approach is sufficient.
+- **Iteration 1 pattern**: bisecting which AIMS pipeline post-walk pass (`emit_dead_invoke_dsts`, `emit_edge_cleanup`, `emit_project_escape_incs`, `coalesce_block_rc`) modifies a specific block's RC ops.
+- **Iteration 1 fix**: per-phase trace snapshots in `emit_unified.rs::trace_phase_snapshot`, activated via `ORI_LOG=ori_arc::aims::realize=trace`. Landed in commit 055b5a9b.
+- **Iteration 2 NEW pattern**: stale `target/debug/ori` masking regressions. The AOT framework runs the workspace binary, not a binary built by `cargo test`. Real fix is option (b) above (use `cargo run` from the test harness instead of `Command::new` against a fixed path).
+- **Iteration 2 NEW pattern**: cargo cache pollution from sudo builds. Real fix: detect and warn when `target/` contains root-owned files, OR include a `scripts/cache-doctor.sh` that can clean them (with sudo) on demand.
 
 **Architectural concepts (worth preserving across sessions):**
 
