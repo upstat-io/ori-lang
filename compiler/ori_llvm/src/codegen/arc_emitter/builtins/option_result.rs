@@ -183,7 +183,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
         // §07.2: Niche-encoded Result — check niche field instead of tag.
         if let Some(encoding) = self.get_niche_encoding(receiver_ty) {
-            return self.emit_result_niche(method, receiver, arg_vals, &encoding);
+            return self.emit_result_niche(method, receiver, arg_vals, receiver_ty, &encoding);
         }
 
         match method {
