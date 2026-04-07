@@ -48,8 +48,8 @@ pub(super) fn emit_rc_unified(
         "var_reprs must be populated before RC emission"
     );
 
-    let all_borrowed_defs = collect_all_borrowed_defs(func);
-    let project_borrowed_defs = collect_project_borrowed_defs(func);
+    let all_borrowed_defs = collect_all_borrowed_defs(func, pool);
+    let project_borrowed_defs = collect_project_borrowed_defs(func, pool);
     let iter_element_defs = collect_iter_element_defs(func, interner);
     let inline_enum_projected_defs = collect_inline_enum_projected_defs(func, pool);
     let func_project_sources = compute_function_project_sources(func);
@@ -141,7 +141,7 @@ fn emit_block_rc(
     let blk = block_id(block_idx);
     let use_info = precompute_block_uses(&func.blocks[block_idx]);
     let defined_in_block = collect_defined_vars(&func.blocks[block_idx]);
-    let borrowed_defs = collect_borrowed_defs(&func.blocks[block_idx]);
+    let borrowed_defs = collect_borrowed_defs(&func.blocks[block_idx], func, pool);
     let child_elu =
         compute_child_effective_last_use(&func.blocks[block_idx], &use_info, func_project_sources);
 

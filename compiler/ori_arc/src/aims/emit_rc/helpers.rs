@@ -111,6 +111,17 @@ pub(crate) fn is_owned_at_entry(
     if state_map.is_excluded(var) {
         return false;
     }
+    // TPR-07-011: take-project source chains are "moved" — the source
+    // enum has logically given up its payload. Even if the AIMS
+    // lattice still reports `access == Owned` (the backward analysis
+    // doesn't model unique-owned moves), treat the variable as not
+    // owned so no scope-exit `RcDec` is emitted. Without this,
+    // `emit_dead_at_entry_decs` would walk the tagged-pointer encoding
+    // and call `ori_iter_drop` on a payload that was already consumed
+    // by the projected variable's consumer, double-freeing the Box.
+    if all_borrowed_defs.contains(&var) {
+        return false;
+    }
     let entry_state = state_map.var_state_at_block_entry(blk, var);
 
     // Case 1: lattice says Owned.
@@ -298,8 +309,12 @@ pub(crate) fn is_consuming_primop(instr: &ArcInstr, func: &ArcFunction) -> bool 
 /// - `Let { dst, Var(src) }` — alias: `dst` is another name for `src`
 /// - `Construct { dst, args }` — struct/enum build: args become fields of `dst`
 /// - `PartialApply { dst, args }` — closure capture: args are captured by `dst`
+/// - `Project { dst, value }` where the projection is a *take* (see
+///   `is_take_project` in `borrowed_defs.rs`) — the projected payload
+///   moves ownership out of the source enum, which logically no longer
+///   contains anything to drop. TPR-07-011.
 #[inline]
-pub(crate) fn is_ownership_transfer(instr: &ArcInstr, func: &ArcFunction) -> bool {
+pub(crate) fn is_ownership_transfer(instr: &ArcInstr, func: &ArcFunction, pool: &Pool) -> bool {
     match instr {
         ArcInstr::Let {
             dst,
@@ -308,6 +323,7 @@ pub(crate) fn is_ownership_transfer(instr: &ArcInstr, func: &ArcFunction) -> boo
         }
         | ArcInstr::Construct { dst, .. }
         | ArcInstr::PartialApply { dst, .. } => func.var_reprs[dst.index()] != ValueRepr::Scalar,
+        ArcInstr::Project { .. } => super::borrowed_defs::is_take_project(instr, func, pool),
         _ => false,
     }
 }

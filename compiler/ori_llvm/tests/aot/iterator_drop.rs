@@ -46,6 +46,47 @@ fn tpr_07_008_enum_tagged_ptr_iter_no_leak() {
     );
 }
 
+/// TPR-07-011 semantic pin: match-and-consume on a tagged-pointer
+/// enum iterator payload must not double-free. The `Project`
+/// codegen decodes the payload pointer from the enum, the match
+/// arm consumes it via `.count()`, and the ARC pipeline must NOT
+/// also emit a scope-exit drop on the original enum (which would
+/// decode the same pointer and drop it a second time). Iteration-3
+/// finding of the TPR-07-008 review: the iteration-1 matrix only
+/// covered the "payload goes out of scope unused" case.
+#[test]
+fn tpr_07_011_enum_tagged_ptr_match_consume_no_double_free() {
+    assert_aot_success(
+        include_str!("fixtures/iterator_drop/enum_tagged_ptr_match_consume.ori"),
+        "tpr_07_011_enum_tagged_ptr_match_consume",
+    );
+}
+
+/// TPR-07-011 matrix pin: `Empty` branch selected at construction
+/// time — no iterator ever exists, so nothing to drop. Ensures the
+/// take-project suppression doesn't accidentally break the trivial
+/// no-iterator path.
+#[test]
+fn tpr_07_011_enum_tagged_ptr_match_empty_path() {
+    assert_aot_success(
+        include_str!("fixtures/iterator_drop/enum_tagged_ptr_match_empty.ori"),
+        "tpr_07_011_enum_tagged_ptr_match_empty",
+    );
+}
+
+/// TPR-07-011 matrix pin: dynamic construction via a helper function
+/// — the compiler cannot constant-fold the match, so both branches
+/// are live and ARC must correctly handle the control-flow diamond.
+/// Exercises the full path: Construct (via helper) → Switch →
+/// Holds(project→count) | Empty(0) → merge → return.
+#[test]
+fn tpr_07_011_enum_tagged_ptr_match_consume_dynamic() {
+    assert_aot_success(
+        include_str!("fixtures/iterator_drop/enum_tagged_ptr_match_consume_dynamic.ori"),
+        "tpr_07_011_enum_tagged_ptr_match_consume_dynamic",
+    );
+}
+
 // Note: the explicit-tag enum case (≥9 variants carrying an
 // iterator payload) is blocked by BUG-04-044 — the Construct path
 // emits `insertvalue [N x i64], ptr` without ptrtoint casting the

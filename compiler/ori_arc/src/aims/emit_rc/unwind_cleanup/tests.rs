@@ -89,10 +89,15 @@ fn invoke_indirect_resume_inserts_iter_drop() {
     {
         assert_eq!(*f, iter_drop_name, "should call ori_iter_drop");
         assert_eq!(args.len(), 1, "ori_iter_drop takes one arg");
+        // TPR-07-012: `ori_iter_drop` consumes the iterator handle.
+        // The ownership contract must match
+        // `ProtocolBuiltin::IterDrop.arg_ownership()` which is `Owned`
+        // post-TPR-07-008. Previously `Borrowed` here was a shadow
+        // source contradicting the SSOT.
         assert_eq!(
             arg_ownership,
-            &[ArgOwnership::Borrowed],
-            "ori_iter_drop arg should be Borrowed"
+            &[ArgOwnership::Owned],
+            "ori_iter_drop arg should be Owned (consumes the iterator handle)"
         );
     } else {
         panic!("expected Apply instruction for iter drop");
