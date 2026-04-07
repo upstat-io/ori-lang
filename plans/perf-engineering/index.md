@@ -3,7 +3,7 @@ reroute: true
 name: "Interp Perf"
 full_name: "Interpreter Performance Engineering"
 status: queued
-order: 2
+order: 6
 ---
 
 # Interpreter Performance Engineering Index
