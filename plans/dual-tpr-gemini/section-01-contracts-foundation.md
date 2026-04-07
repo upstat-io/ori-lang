@@ -28,7 +28,7 @@ sections:
     status: complete
   - id: "01.3"
     title: "Define reviewer-tag ID format and per-run scratch dir helper"
-    status: not-started
+    status: complete
   - id: "01.4"
     title: "Update block-banned-commands.sh to gate gemini timeouts"
     status: not-started
@@ -383,7 +383,7 @@ The per-run scratch directory replaces the existing fixed-path pattern that all 
 
 Tasks:
 
-- [ ] Append to `.claude/skills/dual-tpr/envelope-format.md`:
+- [x] Append to `.claude/skills/dual-tpr/envelope-format.md`:
 
   **Reviewer-tag ID format:**
 
@@ -437,10 +437,12 @@ Tasks:
   - No cross-iteration contamination within a multi-iteration loop
   - Replaces the existing latent bug where `/tmp/tpr-iter.jsonl`, `/tmp/review-work.jsonl`, `/tmp/tp-help.jsonl` would clobber each other under concurrent use
 
-- [ ] **Subsection close-out (01.3)** — MANDATORY before starting 01.4:
-  - [ ] All tasks above are `[x]` and the format spec extensions are in place
-  - [ ] Update this subsection's `status` in section frontmatter to `complete`
-  - [ ] Run `/improve-tooling` retrospectively on THIS subsection — same protocol. Was there friction in defining ID format or scratch dir conventions? Should there be a small helper script `dual-tpr-scratch-dir.sh` that wrappers can source for the `mktemp -d` invocation? Would a centralized `dual-tpr-cleanup.sh` (cleanup on success, retain on failure) be useful or premature abstraction? Commit improvements separately using the appropriate conventional commit type.
+- [x] **Subsection close-out (01.3)** — MANDATORY before starting 01.4:
+  - [x] All tasks above are `[x]` and the format spec extensions are in place
+  - [x] Update this subsection's `status` in section frontmatter to `complete`
+  - [x] Run `/improve-tooling` retrospectively on THIS subsection — same protocol. Was there friction in defining ID format or scratch dir conventions? Should there be a small helper script `dual-tpr-scratch-dir.sh` that wrappers can source for the `mktemp -d` invocation? Would a centralized `dual-tpr-cleanup.sh` (cleanup on success, retain on failure) be useful or premature abstraction? Commit improvements separately using the appropriate conventional commit type.
+
+**Retrospective 01.3 — defer scratch-dir helper to Section 02.** Writing the conventions surfaced an obvious candidate tool (`dual-tpr-scratch-dir.sh` to wrap the `mktemp -d -t ori-tpr-XXXXXXXX` invocation plus the cleanup-on-success/retain-on-failure semantics), but Section 02.1 will be the actual first consumer when it builds `scratch-dir.sh` as one of the eight transport primitives. Building the helper here would either (a) duplicate work that Section 02.1 will redo, or (b) become Section 02.1's deliverable preemptively. Per CLAUDE.md "the right amount of complexity is what the task actually requires", the right call is to let Section 02.1 build it from the conventions defined here — the conventions ARE the deliverable of 01.3, not the implementation. The `dual-tpr-cleanup.sh` idea (centralized cleanup wrapper) is also deferred to Section 02.1 for the same reason: a helper with no caller is speculative, and Section 02 has the concrete callers. No tool built in this retrospective; one will land in Section 02.1's close-out instead.
 
 - [ ] **TPR checkpoint** — `/tpr-review` covering 01.1–01.3 contract-design work
   <!-- Per CLAUDE.md and plan-schema.md, sections with 3+ implementation subsections place
