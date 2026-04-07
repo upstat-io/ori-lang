@@ -34,6 +34,7 @@ pub mod ir_quality_cfg_simplify;
 pub mod ir_quality_codegen;
 pub mod ir_quality_loops;
 pub mod iter_rc_matrix;
+pub mod iterator_drop;
 pub mod iterators;
 pub mod journey_guard;
 pub mod linking;

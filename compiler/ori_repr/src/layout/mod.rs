@@ -43,8 +43,7 @@ pub(crate) fn is_trivial_repr(repr: &MachineRepr) -> bool {
         | MachineRepr::Ordering
         | MachineRepr::Unit
         | MachineRepr::Never
-        | MachineRepr::Range
-        | MachineRepr::UnmanagedPtr => true,
+        | MachineRepr::Range => true,
         MachineRepr::Struct(s) => s.trivial,
         MachineRepr::Tuple(t) => t.trivial,
         MachineRepr::Enum(e) => e
@@ -55,6 +54,12 @@ pub(crate) fn is_trivial_repr(repr: &MachineRepr) -> bool {
         | MachineRepr::Closure(_)
         | MachineRepr::RcPointer(_)
         | MachineRepr::OpaquePtr
+        // UnmanagedPtr (iterator handle) is NOT trivial — it needs
+        // `ori_iter_drop` at scope exit. Must agree with
+        // `ori_types::triviality::classify_triviality(Tag::Iterator)`
+        // which returns NonTrivial; the `analyze_triviality` pass
+        // asserts both sources stay in sync. See TPR-07-008.
+        | MachineRepr::UnmanagedPtr
         | MachineRepr::StackPromoted { .. } => false,
     }
 }
