@@ -95,8 +95,8 @@ pub use target::TargetConfig;
 
 // Re-export key types from target_features
 pub use target_features::{
-    get_host_cpu_features, get_host_cpu_name, is_supported_target, parse_features, TargetError,
-    TargetTripleComponents, SUPPORTED_TARGETS,
+    get_host_cpu_features, get_host_cpu_name, is_supported_target, parse_features, Arch, HostOs,
+    HostPlatform, TargetError, TargetTripleComponents, SUPPORTED_TARGETS,
 };
 
 // Re-export key types from object

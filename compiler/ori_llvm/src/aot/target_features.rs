@@ -107,23 +107,215 @@ pub fn is_supported_target(triple: &str) -> bool {
     )
 }
 
+/// Canonical CPU architecture.
+///
+/// Parsed from target triples with all known alias spellings normalized at
+/// the boundary: `arm64 → Aarch64`, `amd64 → X86_64`, `i486|i586|i686 → I386`.
+/// This is the single source of truth for arch identity — comparisons, cross
+/// detection, and code-model decisions operate on `Arch`, never on raw strings.
+///
+/// The bug class "raw arch string compare across an aliased namespace" is
+/// prevented at compile time by making the canonical type un-bypassable.
+/// See BUG-04-045 and the TPR prior-art pass documented in
+/// `plans/bug-tracker/fix-BUG-04-045.md`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Arch {
+    /// 64-bit x86 (`x86_64`, `amd64`).
+    X86_64,
+    /// 32-bit x86 (`i386`, `i486`, `i586`, `i686`).
+    I386,
+    /// 64-bit ARM (`aarch64`, `arm64`). Apple platforms historically spell
+    /// this `arm64`; the spec canonical spelling is `aarch64`.
+    Aarch64,
+    /// 32-bit WebAssembly (`wasm32`).
+    Wasm32,
+    /// 64-bit WebAssembly (`wasm64`).
+    Wasm64,
+}
+
+impl Arch {
+    /// Parse an arch name as it may appear in an LLVM target triple.
+    ///
+    /// Accepts every known alias and normalizes to the canonical variant.
+    /// Returns `None` for architectures Ori does not support.
+    #[must_use]
+    pub fn parse_llvm_name(name: &str) -> Option<Self> {
+        match name {
+            "x86_64" | "amd64" => Some(Self::X86_64),
+            "i386" | "i486" | "i586" | "i686" => Some(Self::I386),
+            "aarch64" | "arm64" => Some(Self::Aarch64),
+            "wasm32" => Some(Self::Wasm32),
+            "wasm64" => Some(Self::Wasm64),
+            _ => None,
+        }
+    }
+
+    /// The canonical (spec) display name for this architecture.
+    ///
+    /// Used for display, cross-toolchain naming, and boundary emission.
+    /// Always the spec spelling, never an LLVM/Apple alias.
+    #[must_use]
+    pub fn display_name(self) -> &'static str {
+        match self {
+            Self::X86_64 => "x86_64",
+            Self::I386 => "i386",
+            Self::Aarch64 => "aarch64",
+            Self::Wasm32 => "wasm32",
+            Self::Wasm64 => "wasm64",
+        }
+    }
+
+    /// Pointer size in bytes for this architecture.
+    #[must_use]
+    pub fn pointer_size_bytes(self) -> u32 {
+        match self {
+            Self::X86_64 | Self::Aarch64 | Self::Wasm64 => 8,
+            Self::I386 | Self::Wasm32 => 4,
+        }
+    }
+
+    /// Is this a 64-bit non-WebAssembly architecture?
+    ///
+    /// Used by syslib path discovery to decide whether to include `lib64`
+    /// directories in the search path.
+    #[must_use]
+    pub fn is_64_bit_non_wasm(self) -> bool {
+        matches!(self, Self::X86_64 | Self::Aarch64)
+    }
+
+    /// Is this a WebAssembly architecture (wasm32 or wasm64)?
+    #[must_use]
+    pub fn is_wasm(self) -> bool {
+        matches!(self, Self::Wasm32 | Self::Wasm64)
+    }
+}
+
+impl fmt::Display for Arch {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.display_name())
+    }
+}
+
+/// Host operating system family, determined at compile time via `cfg`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum HostOs {
+    Linux,
+    Darwin,
+    Windows,
+    /// Ori compiler does not officially build on other hosts; this variant
+    /// exists only as a safe fallback for unrecognized `cfg(target_os)`.
+    Unknown,
+}
+
+impl HostOs {
+    /// The host OS the compiler is running on, selected at compile time.
+    #[must_use]
+    pub const fn current() -> Self {
+        #[cfg(target_os = "linux")]
+        {
+            Self::Linux
+        }
+        #[cfg(target_os = "macos")]
+        {
+            Self::Darwin
+        }
+        #[cfg(target_os = "windows")]
+        {
+            Self::Windows
+        }
+        #[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
+        {
+            Self::Unknown
+        }
+    }
+
+    /// The spec spelling of this OS, used for cross-target equality checks.
+    #[must_use]
+    pub fn display_name(self) -> &'static str {
+        match self {
+            Self::Linux => "linux",
+            Self::Darwin => "darwin",
+            Self::Windows => "windows",
+            Self::Unknown => "unknown",
+        }
+    }
+}
+
+/// A typed host platform — the combination of arch and OS used for
+/// host-vs-target comparisons.
+///
+/// All cross-compilation detection flows through a `HostPlatform` rather
+/// than ad-hoc `cfg!` string comparisons, ensuring a single canonical home
+/// for host identity.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct HostPlatform {
+    pub arch: Arch,
+    pub os: HostOs,
+}
+
+impl HostPlatform {
+    /// Construct a host platform explicitly. Used by tests to simulate a
+    /// host that isn't the one the compiler is currently running on.
+    #[must_use]
+    pub const fn new(arch: Arch, os: HostOs) -> Self {
+        Self { arch, os }
+    }
+
+    /// The host platform the compiler is running on, selected at compile time.
+    #[must_use]
+    pub const fn current() -> Self {
+        Self::new(host_arch(), HostOs::current())
+    }
+}
+
+/// Detect the host CPU architecture at compile time.
+///
+/// Ori's compiler builds on `x86_64` / `aarch64` / `i386` hosts; any other
+/// host is unsupported and falls back to [`Arch::X86_64`] (unreachable in
+/// practice).
+const fn host_arch() -> Arch {
+    #[cfg(target_arch = "x86_64")]
+    {
+        Arch::X86_64
+    }
+    #[cfg(target_arch = "aarch64")]
+    {
+        Arch::Aarch64
+    }
+    #[cfg(target_arch = "x86")]
+    {
+        Arch::I386
+    }
+    #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64", target_arch = "x86")))]
+    {
+        Arch::X86_64
+    }
+}
+
 /// Parsed components of a target triple.
+///
+/// The `arch` field is a typed [`Arch`] enum, parsed and canonicalized at the
+/// `parse()` boundary. All host-vs-target equality checks operate on the
+/// typed field — raw string compares against `arch` are a compile error.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TargetTripleComponents {
-    /// CPU architecture (e.g., `x86_64`, `aarch64`, `wasm32`)
-    pub arch: String,
-    /// Hardware vendor (e.g., `unknown`, `apple`, `pc`)
+    /// CPU architecture (canonical; aliases normalized at parse time).
+    pub arch: Arch,
+    /// Hardware vendor (e.g., `unknown`, `apple`, `pc`).
     pub vendor: String,
-    /// Operating system (e.g., `linux`, `darwin`, `windows`, `wasi`)
+    /// Operating system (e.g., `linux`, `darwin`, `windows`, `wasi`).
+    /// May include a version suffix for darwin (e.g., `darwin25.2.0`).
     pub os: String,
-    /// Environment/ABI (e.g., `gnu`, `musl`, `msvc`) - optional
+    /// Environment/ABI (e.g., `gnu`, `musl`, `msvc`) — optional.
     pub env: Option<String>,
 }
 
 impl TargetTripleComponents {
     /// Parse a target triple string into components.
     ///
-    /// Format: `<arch>-<vendor>-<os>[-<env>]`
+    /// Format: `<arch>-<vendor>-<os>[-<env>]`. The `arch` is normalized to
+    /// the canonical [`Arch`] variant at the boundary — `arm64` becomes
+    /// [`Arch::Aarch64`], `amd64` becomes [`Arch::X86_64`], etc.
     pub fn parse(triple: &str) -> Result<Self, TargetError> {
         let parts: Vec<&str> = triple.split('-').collect();
 
@@ -134,8 +326,14 @@ impl TargetTripleComponents {
             });
         }
 
+        let arch =
+            Arch::parse_llvm_name(parts[0]).ok_or_else(|| TargetError::InvalidTripleFormat {
+                triple: triple.to_string(),
+                reason: format!("unknown architecture '{}'", parts[0]),
+            })?;
+
         Ok(Self {
-            arch: parts[0].to_string(),
+            arch,
             vendor: parts[1].to_string(),
             os: parts[2].to_string(),
             env: parts.get(3).map(|s| (*s).to_string()),
@@ -145,7 +343,7 @@ impl TargetTripleComponents {
     /// Check if this is a WebAssembly target.
     #[must_use]
     pub fn is_wasm(&self) -> bool {
-        self.arch == "wasm32" || self.arch == "wasm64"
+        self.arch.is_wasm()
     }
 
     /// Check if this is a Windows target.
@@ -186,6 +384,29 @@ impl TargetTripleComponents {
             "unix"
         }
     }
+
+    /// Is this triple a cross-compilation target for the given host?
+    ///
+    /// Operates on typed `Arch` / `HostOs` values — never on raw strings.
+    /// Darwin OS version suffixes (e.g., `darwin25.2.0`) are handled by a
+    /// `starts_with` check to match any Apple-shipped LLVM default triple.
+    #[must_use]
+    pub fn is_cross_for(&self, host: HostPlatform) -> bool {
+        if self.arch != host.arch {
+            return true;
+        }
+        let host_os_name = host.os.display_name();
+        if self.os.starts_with("darwin") {
+            return host_os_name != "darwin";
+        }
+        self.os != host_os_name
+    }
+
+    /// Is this triple the native target for the given host?
+    #[must_use]
+    pub fn is_native_for(&self, host: HostPlatform) -> bool {
+        !self.is_cross_for(host)
+    }
 }
 
 impl fmt::Display for TargetTripleComponents {
@@ -221,29 +442,28 @@ pub(crate) fn initialize_native_target() -> Result<(), TargetError> {
 }
 
 /// Initialize LLVM targets for a given triple.
+///
+/// Exhaustive match on the typed [`Arch`] — no string fallthrough, so a new
+/// `Arch` variant is a compile-time error until every initializer is wired
+/// up.
 pub(crate) fn initialize_target_for_triple(
     components: &TargetTripleComponents,
 ) -> Result<(), TargetError> {
-    match components.arch.as_str() {
-        "x86_64" | "i686" | "i386" => {
+    match components.arch {
+        Arch::X86_64 | Arch::I386 => {
             X86_TARGET_INIT.call_once(|| {
                 Target::initialize_x86(&InitializationConfig::default());
             });
         }
-        "aarch64" | "arm64" => {
+        Arch::Aarch64 => {
             AARCH64_TARGET_INIT.call_once(|| {
                 Target::initialize_aarch64(&InitializationConfig::default());
             });
         }
-        "wasm32" | "wasm64" => {
+        Arch::Wasm32 | Arch::Wasm64 => {
             WASM_TARGET_INIT.call_once(|| {
                 Target::initialize_webassembly(&InitializationConfig::default());
             });
-        }
-        arch => {
-            return Err(TargetError::InitializationFailed(format!(
-                "unsupported architecture: {arch}"
-            )));
         }
     }
 
@@ -299,3 +519,6 @@ pub fn parse_features(features: &str) -> Result<Vec<(&str, bool)>, TargetError> 
 
     Ok(result)
 }
+
+#[cfg(test)]
+mod tests;

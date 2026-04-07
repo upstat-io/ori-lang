@@ -65,7 +65,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use crate::aot::target::TargetConfig;
-use crate::aot::target_features::TargetTripleComponents;
+use crate::aot::target_features::{HostPlatform, TargetTripleComponents};
 
 // Error Types
 
@@ -457,37 +457,18 @@ impl LinkerDetection {
     /// Cross-compilation includes both different-OS targets (Linux→Windows)
     /// and same-OS different-arch targets (`x86_64` Linux → `aarch64` Linux).
     /// Both cases require a cross-compiler toolchain.
+    ///
+    /// Delegates to the typed [`TargetTripleComponents::is_cross_for`] against
+    /// [`HostPlatform::current`], operating on canonical [`Arch`] values.
+    /// This avoids the `arm64` (LLVM default triple on Apple Silicon) vs
+    /// `aarch64` (Rust `cfg(target_arch)`) raw-string mismatch that mis-
+    /// detected native Apple Silicon builds as cross-compilation — see
+    /// BUG-04-045 regression pin in `target_features/tests.rs`.
+    ///
+    /// [`Arch`]: crate::aot::target_features::Arch
     #[must_use]
     pub fn is_cross_compiling(target: &TargetConfig) -> bool {
-        #[cfg(target_os = "linux")]
-        let host_os = "linux";
-        #[cfg(target_os = "macos")]
-        let host_os = "darwin";
-        #[cfg(target_os = "windows")]
-        let host_os = "windows";
-        #[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
-        let host_os = "unknown";
-
-        #[cfg(target_arch = "x86_64")]
-        let host_arch = "x86_64";
-        #[cfg(target_arch = "aarch64")]
-        let host_arch = "aarch64";
-        #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
-        let host_arch = "unknown";
-
-        let components = target.components();
-
-        // Check architecture mismatch first
-        if components.arch != host_arch {
-            return true;
-        }
-
-        // Check OS mismatch (handle darwin version suffixes like "darwin25.2.0")
-        let target_os = &components.os;
-        if target_os.starts_with("darwin") {
-            return host_os != "darwin";
-        }
-        target_os != host_os
+        target.components().is_cross_for(HostPlatform::current())
     }
 
     /// Get the expected GCC cross-compiler program name for a target.
