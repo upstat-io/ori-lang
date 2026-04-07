@@ -758,13 +758,126 @@ After `/review-plan` completes, report to the user:
 - What the review changed
 - Any remaining concerns that need human judgement
 
-### Step 18: Ask About Reroute Status
+### Step 18: Reroute Lifecycle Setup — MANDATORY
 
-Use `AskUserQuestion` to ask the user whether this plan should be the active reroute. This determines the `reroute` frontmatter in `index.md`.
+**This step is MANDATORY for every plan creation and is NEVER silently skipped.** The reroute system controls which plan `/continue-roadmap` jumps to first, so getting the queue right is load-bearing for every future session. The only valid skip condition is enumerated below — and even then, the skip must be acknowledged out loud, not silent.
 
-If the user says **yes**: add reroute frontmatter to `index.md` with `status: active` and `order: 1`.
-If the user says **queued**: add reroute frontmatter with `status: queued` and ask for the `order` value.
-If the user says **no**: do not add reroute frontmatter (plan is not a reroute).
+#### When this step runs
+
+| Situation | Behavior |
+|---|---|
+| **New plan** (just created in this session) | ALWAYS run — ask the reroute question |
+| **Existing plan, no reroute frontmatter present** | ALWAYS run — ask the reroute question |
+| **Existing plan, reroute frontmatter already populated** | Run, but offer to keep the existing settings as the default option |
+| **Operating on `plans/roadmap/` directly** | SKIP — the main roadmap is never a reroute by definition. Acknowledge the skip out loud: "Skipping reroute setup — operating on the main roadmap directly." |
+
+There is no other skip condition. If you find yourself reaching the end of the skill without having run this step, that is a bug — go back and run it.
+
+#### Sub-step 18.1: Read the current reroute landscape
+
+Run the scanner to capture the current state of the queue:
+
+```bash
+.claude/skills/continue-roadmap/roadmap-scan.sh plans/roadmap 2>&1 | sed -n '/=== REROUTES ===/,/^$/p'
+```
+
+This emits the REROUTES block — every active and queued reroute, sorted by order, with their current order values. Capture this output. You will refer back to it when computing shifts and presenting the before/after diff.
+
+#### Sub-step 18.2: Ask the reroute question
+
+Use `AskUserQuestion` with FOUR options:
+
+1. **Active (highest priority — top of queue)** — `status: active`, `order: 1`. All existing active reroutes shift down by 1.
+2. **Active (specific position)** — `status: active`, `order: N` chosen interactively. All existing reroutes with `order >= N` shift down by 1.
+3. **Queued (joins the queue, will be promoted later)** — `status: queued`, `order` set to the next free number after the highest queued order (or 1 + highest active order if no queueds exist).
+4. **Not a reroute** — no reroute frontmatter added. The plan is parallel to the main roadmap but does not block it. Confirm by asking the user to also choose `parallel: true | false` (parallels are tracked in the scanner; non-parallel non-reroute plans are invisible to `/continue-roadmap`).
+
+When presenting the question, include the current REROUTES block from sub-step 18.1 in the question text so the user can see the queue they're inserting into.
+
+#### Sub-step 18.3: Compute the order shifts
+
+The `order` field uses a **single global namespace**: every reroute (active or queued, in any plan directory) has a unique `order` value. The shift algorithm depends on the user's answer:
+
+| User chose | Algorithm |
+|---|---|
+| **Active, top** | New plan gets `order: 1`. Every existing reroute (active and queued) with `order >= 1` shifts to `order + 1`. (i.e., everything shifts down by one.) |
+| **Active, position N** | New plan gets `order: N`. Every existing reroute with `order >= N` shifts to `order + 1`. Reroutes with `order < N` are unchanged. |
+| **Queued** | New plan gets `order = max(all existing reroute orders) + 1`. No existing plans shift. |
+| **Not a reroute** | No order assigned. No shifts. |
+
+**Edge cases to handle explicitly**:
+- A plan with no `order:` field defaults to `999`. When shifting, treat `999` as a sentinel ("no specific order, parked at the bottom") — do NOT shift `999` plans. But if the user picks a high N that collides with `999`, set the colliding plan's order to a real value before shifting.
+- Two existing plans with the same `order` value (collision from a prior bug or manual edit): flag this to the user before shifting. The user must resolve the collision first, OR you must offer to resolve it as part of this step (assign the lower-numbered plan to the lower order, the higher-numbered plan to the next free slot).
+- Active and queued plans share the same namespace, so a queued plan at `order: 6` and an active plan at `order: 6` is a collision even though they're filtered separately by the scanner. Resolve.
+
+#### Sub-step 18.4: Present the before/after diff
+
+Before writing any files, show the user a side-by-side preview:
+
+```
+Current reroute queue:
+  1. [active]  Plan A
+  2. [active]  Plan B
+  3. [queued]  Plan C
+  4. [queued]  Plan D
+
+After your change ({choice}):
+  1. [active]  NEW PLAN  ← inserted
+  2. [active]  Plan A    ← was 1
+  3. [active]  Plan B    ← was 2
+  4. [queued]  Plan C    ← was 3
+  5. [queued]  Plan D    ← was 4
+
+Files that will be modified:
+  - plans/<new-plan>/index.md       — add reroute frontmatter
+  - plans/<new-plan>/00-overview.md — set status to match
+  - plans/plan-a/index.md            — order 1 → 2
+  - plans/plan-b/index.md            — order 2 → 3
+  - plans/plan-c/index.md            — order 3 → 4
+  - plans/plan-d/index.md            — order 4 → 5
+```
+
+Use `AskUserQuestion` to ask "Apply these changes?" with options "Apply", "Adjust position", "Cancel reroute setup".
+
+#### Sub-step 18.5: Apply the changes
+
+Once the user confirms, update **every** file in the modification list. The full sync surface for any reroute change is:
+
+| File | What to change |
+|---|---|
+| `plans/<new-plan>/index.md` | Add `reroute: true`, `name`, `full_name`, `status`, `order` to frontmatter |
+| `plans/<new-plan>/00-overview.md` | Set `status:` field to match (`active`, `queued`, or unset for non-reroute) |
+| `plans/<shifted-plan>/index.md` (each) | Update `order:` value to the shifted number |
+
+**Do NOT update**:
+- The Quick Reference / Estimated Effort tables in `00-overview.md` — those track section status, not plan-level reroute meta. Section status is independent of reroute order.
+- `plans/roadmap/00-overview.md` — the main roadmap doesn't track per-reroute orders; the scanner discovers them dynamically.
+- Section files inside any plan — section content is independent of reroute order.
+
+#### Sub-step 18.6: Verify the result
+
+After applying, re-run the scanner to confirm the queue is well-ordered:
+
+```bash
+.claude/skills/continue-roadmap/roadmap-scan.sh plans/roadmap 2>&1 | sed -n '/=== REROUTES ===/,/^$/p'
+```
+
+The output should show:
+- The new plan in its expected position
+- All shifted plans with their new orders
+- No duplicate orders within the active set
+- No duplicate orders within the queued set
+- No active-vs-queued collisions on the same order
+
+If verification fails, STOP and diagnose — do not move on with a corrupted queue. Common causes: a plan's index.md was modified by another process during the apply step (conflict), or an order value was missed during the shift loop. Re-read the scanner output, find the discrepancy, fix it, re-verify.
+
+#### Sub-step 18.7: Report
+
+Report the final state to the user in a single paragraph:
+- What `status` and `order` the new plan got
+- How many existing plans were shifted (and their new orders)
+- The verification scanner output snippet
+- A reminder that `/continue-roadmap` will now pick up the new plan first (if active at order: 1) or queue it for promotion (if queued)
 
 ---
 
@@ -976,7 +1089,7 @@ Research is identical in rigor, but adds a plan-specific dimension:
 
 - **Step 16**: Run `/review-plan` on the affected plan directory
 
-- **Step 18**: Skip the reroute question if operating on a plan that is already a reroute or the roadmap itself
+- **Step 18**: Follow the full lifecycle protocol defined in the main Step 18 — the only valid skip condition is operating on `plans/roadmap/` directly (the main roadmap is never a reroute by definition). When operating on an existing plan that already has reroute frontmatter populated, run Step 18 anyway — it offers the existing settings as the default so the user can keep them with one click, but still gets the chance to reprioritize. Adding a subsection to an existing reroute is a perfectly valid trigger to reconsider that reroute's position in the queue (e.g., "this new subsection makes the plan critical — promote to order: 1").
 
 ### Existing Plan Mode: The "Leave It Better" Rule
 

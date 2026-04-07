@@ -622,6 +622,63 @@ Sections AND subsections use the same values: `not-started`, `in-progress`, `com
 
 Do NOT use `done` or `complete` in `index.md` — always use `resolved` for finished plans.
 
+### Reroute Lifecycle — Canonical Algorithm
+
+The `order` field on a reroute is not a free-form number. It is a strictly-monotonic position in a **single global queue** that `/continue-roadmap` uses to decide which plan to work on first. Every reroute (active OR queued, in any plan directory) has a unique `order` value in this shared namespace.
+
+**Invariants (checked by the roadmap scanner and by `/create-plan` Step 18):**
+
+1. **Uniqueness**: no two reroutes share an `order` value — not within the active set, not within the queued set, and not across sets.
+2. **Monotonic insertion**: when inserting a new reroute at position N, every existing reroute with `order >= N` shifts down by 1 (its order becomes `order + 1`). Reroutes with `order < N` are unchanged.
+3. **The sentinel `999`**: a reroute with no explicit `order:` field is treated as `order: 999` ("parked at the bottom, no priority"). Multiple plans may share `999` because it means "unspecified". But if an explicit order of `999` is set, it becomes a concrete position that participates in uniqueness.
+4. **Active before queued at the same logical priority**: when a queued plan is promoted to active, its order does NOT change — it keeps the same numeric value. This means queued plans must be numbered AFTER active plans in the global namespace, so promotion is a metadata-only change.
+5. **Main roadmap is never a reroute**: `plans/roadmap/` does not participate in the queue. It is the fallback that `/continue-roadmap` scans when no active reroute exists.
+
+**Insertion algorithm** (used by `/create-plan` Step 18):
+
+```
+Given: new_order N, all_reroutes = scan plans/*/index.md
+For each r in all_reroutes where r.order >= N and r.order != 999:
+    r.order = r.order + 1
+    write r back to its index.md
+Set the new plan's order = N, write to its index.md
+```
+
+**Promotion algorithm** (used when an active reroute completes and the next queued reroute takes over):
+
+```
+Given: completing_plan (the one just finished), queued = all reroutes with status: queued
+If queued is empty:
+    mark completing_plan status: resolved
+    done — no promotion
+Else:
+    next = queued with minimum order (must be unique by invariant 1)
+    mark completing_plan status: resolved
+    mark next status: active
+    order is UNCHANGED — it was already numbered ahead of future queued plans
+```
+
+**Demotion algorithm** (used when the user manually reprioritizes an active plan to queued):
+
+```
+Given: demoting_plan
+demoting_plan.status = queued
+demoting_plan.order is UNCHANGED — it stays at its current position in the global queue
+No other plans shift.
+```
+
+**Sync surface** (every place that must be updated when reroute status changes):
+
+| File | Change |
+|---|---|
+| `plans/<plan>/index.md` | `reroute`, `status`, `order`, `name`, `full_name` fields |
+| `plans/<plan>/00-overview.md` | Top-level `status:` field (must match `index.md` `status`, using `in-progress` for `active` and `complete` for `resolved`) |
+
+**NOT in the sync surface** (intentionally):
+- Section files — section status is independent of reroute status
+- Quick Reference / Estimated Effort tables in 00-overview.md — those track section progress, not reroute position
+- `plans/roadmap/00-overview.md` — the main roadmap doesn't track per-reroute positions; the scanner discovers them dynamically
+
 ### Completed Plans
 
 When all sections are `complete`, the plan is archived:
