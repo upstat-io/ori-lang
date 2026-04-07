@@ -13,13 +13,13 @@ subsystem: "compiler/ori_llvm/src/aot/{target_features,target,linker,syslib}"
 found: "2026-04-07"
 source: "manual"
 third_party_review:
-  status: none
-  updated: null
+  status: in-review
+  updated: 2026-04-07
 ---
 
 # Fix: BUG-04-045 — arm64 vs aarch64 host-vs-target mismatch on Apple Silicon
 
-**Status:** Complete
+**Status:** In Progress (TPR iteration 2 — findings fixed, awaiting re-review)
 **Severity:** high
 **Goal:** Introduce a typed `Arch` enum at the `TargetTripleComponents::parse` boundary that normalizes every known alias spelling (`arm64|aarch64`, `amd64|x86_64`, `i386|i486|i586|i686`). Migrate all host-vs-target comparisons to operate on typed `Arch` / `HostPlatform` values, never on raw strings. After the fix, every call site that previously did `components.arch == "aarch64"` is either (a) a compile error, or (b) a canonical-typed query. The bug class "raw arch string compare" becomes un-typeable.
 
@@ -71,6 +71,22 @@ third_party_review:
 - **Go** (`src/cmd/internal/sys/arch.go:29,98,125`): canonical `goarch` strings stored in typed `Arch` descriptors; host canonicalized once at startup (`aarch64|arm64 → arm64`).
 
 **Rejected alternatives (documented in bug entry)**: a string-normalization helper loses because consumers can bypass it (bug class stays alive). Using `inkwell::TargetTriple` loses because inkwell is only a string wrapper — LLVM's parsed C++ `Triple` API isn't exposed across FFI, so Ori needs its own typed representation regardless.
+
+---
+
+## Third Party Review Findings
+
+- [x] `[TPR-BUG-04-045-01][high]` `compiler/ori_llvm/src/aot/target.rs:103-115` / `compiler/ori_llvm/src/aot/target_features.rs:73-88,361-400` — `TargetConfig::from_triple()` still rejects the versioned Darwin triples that LLVM actually emits on Apple Silicon (`arm64-apple-darwin25.2.0` / `aarch64-apple-darwin25.2.0`).
+  Evidence: `TargetTripleComponents::parse()` intentionally preserves the Darwin version suffix (`os = "darwin25.2.0"`), and `is_cross_for()` explicitly handles that suffix via `starts_with("darwin")`, but `from_triple()` validated `components.to_string()` against `SUPPORTED_TARGETS`, which only contains the unversioned `aarch64-apple-darwin`. The explicit-triple path therefore returned `UnsupportedTarget` for the real LLVM-default Apple Silicon triple. This left the boundary only partially fixed: `TargetConfig::native()` worked because it bypasses the supported-target check, but `from_triple()` still rejected the exact Darwin spelling the fix documentation called out.
+  Resolved: Fixed on 2026-04-07. Added `TargetTripleComponents::support_key()` as the canonical SSOT for "what string does the SUPPORTED_TARGETS lookup use?" — it strips Darwin OS version suffixes by delegating to the typed `is_macos()` predicate (so `darwin25.2.0` and `macos` both collapse to `darwin`), and emits the canonical arch spelling. `TargetConfig::from_triple()` now routes the support-targets check through `support_key()` while still storing the version-preserving canonical form (`components.to_string()`) as the `triple` field, because LLVM's `TargetMachine` expects the version-bearing form when one was supplied. Three regression tests added in `compiler/ori_llvm/tests/aot/cross.rs`: `test_from_triple_accepts_versioned_darwin_arm64` (the exact failing case `arm64-apple-darwin25.2.0`), `test_from_triple_accepts_versioned_darwin_aarch64`, and `test_from_triple_accepts_versioned_darwin_x86_64`. Plus 11-cell matrix `test_support_key_strips_darwin_version_matrix` in the lib tests covering versioned, unversioned, `macos`-spelling, non-Darwin, and arch-alias compositions, with self-verifying counter. Plus `test_support_key_matches_supported_targets_for_known_aliases` cross-checking that every aliased input lands in the actual `SUPPORTED_TARGETS` lookup.
+
+- [x] `[TPR-BUG-04-045-02][medium]` `compiler/ori_llvm/src/aot/linker/mod.rs:159-165` / `compiler/ori_llvm/src/aot/target_features.rs:361-368` — `LinkOutput::extension()` still keys shared-library suffixes off `target.os == "darwin"`, so versioned Darwin triples now produce `.so` instead of `.dylib`.
+  Evidence: the typed-triple refactor correctly taught `TargetTripleComponents::is_macos()` to treat `darwin25.2.0` as macOS, but `LinkOutput::extension()` bypassed that typed query and pattern-matched the raw OS string. A parsed triple like `arm64-apple-darwin25.2.0` therefore fell through to the generic Unix branch and got the Linux/ELF suffix. **LEAK:scattered-knowledge** — the "is this a macOS variant" rule had two homes (the typed predicate and the raw match arm) that disagreed.
+  Resolved: Fixed on 2026-04-07. Rewrote `LinkOutput::extension()` to delegate to the typed `target.is_windows()` / `target.is_macos()` predicates instead of matching raw `target.os.as_str()`. The typed predicates are now the SSOT for OS-family decisions. Two regression tests added in `compiler/ori_llvm/src/aot/linker/tests.rs`: `test_link_output_extension_macos_unversioned` (sibling for the bare spelling) and `test_link_output_extension_macos_versioned` (the exact failing case `arm64-apple-darwin25.2.0` → `.dylib`).
+
+- [x] `[TPR-BUG-04-045-03][low]` `plans/bug-tracker/fix-BUG-04-045.md:5-17,26-34` — the fix section is still marked `status: complete` even though `third_party_review` had not been updated and this review found open correctness issues.
+  Evidence: the frontmatter previously reported `third_party_review.status: none`, the checklist still showed unchecked completion items, and the code above still had unresolved Apple-Silicon/Darwin-path bugs. The plan state currently over-claims completion.
+  Resolved: Fixed on 2026-04-07. Reverted `status` to in-progress / In Progress (TPR iteration 2) immediately when iteration-1 findings landed, updated `third_party_review.status` to track the loop state (`findings` → `in-review` → `clean`). Will only restore `status: complete` after the iteration-2 re-review confirms zero actionable findings.
 
 ---
 

@@ -388,24 +388,56 @@ impl TargetTripleComponents {
     /// Is this triple a cross-compilation target for the given host?
     ///
     /// Operates on typed `Arch` / `HostOs` values — never on raw strings.
-    /// Darwin OS version suffixes (e.g., `darwin25.2.0`) are handled by a
-    /// `starts_with` check to match any Apple-shipped LLVM default triple.
+    /// Darwin OS version suffixes (e.g., `darwin25.2.0`) are handled by
+    /// delegating the OS check to [`Self::is_macos`], which is the
+    /// canonical "is this a macOS variant" query.
     #[must_use]
     pub fn is_cross_for(&self, host: HostPlatform) -> bool {
         if self.arch != host.arch {
             return true;
         }
-        let host_os_name = host.os.display_name();
-        if self.os.starts_with("darwin") {
-            return host_os_name != "darwin";
+        // Use typed `is_macos()` rather than raw `starts_with("darwin")`
+        // so the OS-suffix-stripping rule lives in exactly one place.
+        if self.is_macos() {
+            return host.os != HostOs::Darwin;
         }
-        self.os != host_os_name
+        self.os != host.os.display_name()
     }
 
     /// Is this triple the native target for the given host?
     #[must_use]
     pub fn is_native_for(&self, host: HostPlatform) -> bool {
         !self.is_cross_for(host)
+    }
+
+    /// Canonical key used to look this triple up in `SUPPORTED_TARGETS`.
+    ///
+    /// Returns the form `<canonical-arch>-<vendor>-<canonical-os>[-<env>]`,
+    /// where:
+    /// - The arch is the spec spelling ([`Arch::display_name`]) — already
+    ///   normalized at parse time.
+    /// - The OS is canonicalized via the typed [`Self::is_macos`] predicate:
+    ///   any darwin-family OS (`darwin`, `darwin25.2.0`, `macos`) maps to
+    ///   the bare `darwin` token. This is the SSOT for "what string does the
+    ///   support-targets list use?" — versioned darwin spellings parsed from
+    ///   LLVM's default triple (e.g., `arm64-apple-darwin25.2.0` on Apple
+    ///   Silicon) match the unversioned `aarch64-apple-darwin` entry.
+    ///
+    /// Distinct from [`Self::to_string`], which preserves the OS version
+    /// suffix for downstream consumers (LLVM `TargetMachine`) that need
+    /// the exact LLVM-emitted spelling.
+    #[must_use]
+    pub fn support_key(&self) -> String {
+        let arch = self.arch.display_name();
+        let os: &str = if self.is_macos() {
+            "darwin"
+        } else {
+            self.os.as_str()
+        };
+        match &self.env {
+            Some(env) => format!("{arch}-{}-{os}-{env}", self.vendor),
+            None => format!("{arch}-{}-{os}", self.vendor),
+        }
     }
 }
 

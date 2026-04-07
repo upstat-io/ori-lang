@@ -128,6 +128,54 @@ fn test_from_triple_accepts_amd64_linux_alias() {
     assert_eq!(config.components().arch, Arch::X86_64);
 }
 
+/// Regression pin for BUG-04-045 / TPR-BUG-04-045-01: `from_triple` must
+/// accept the **versioned** Darwin spelling LLVM emits on Apple Silicon,
+/// `arm64-apple-darwin25.2.0`. The unversioned alias fix alone was not
+/// enough — Apple Silicon's `TargetMachine::get_default_triple()` carries
+/// the OS version suffix, and `SUPPORTED_TARGETS` only contains the
+/// unversioned `aarch64-apple-darwin`. The fix is `support_key()`, which
+/// strips Darwin OS version suffixes at the support-check boundary.
+///
+/// The stored triple preserves the OS version suffix because LLVM's
+/// `TargetMachine` expects the version-bearing form when one was supplied.
+#[test]
+fn test_from_triple_accepts_versioned_darwin_arm64() {
+    let config = TargetConfig::from_triple("arm64-apple-darwin25.2.0")
+        .expect("versioned Darwin arm64 spelling must be accepted");
+    assert_eq!(
+        config.triple(),
+        "aarch64-apple-darwin25.2.0",
+        "stored triple must canonicalize the arch but preserve the OS version"
+    );
+    assert_eq!(config.components().arch, Arch::Aarch64);
+    assert!(
+        config.is_macos(),
+        "versioned darwin must still be detected as macOS"
+    );
+}
+
+/// Sibling: the canonical-arch versioned spelling is also accepted.
+#[test]
+fn test_from_triple_accepts_versioned_darwin_aarch64() {
+    let config = TargetConfig::from_triple("aarch64-apple-darwin25.2.0")
+        .expect("versioned Darwin aarch64 spelling must be accepted");
+    assert_eq!(config.triple(), "aarch64-apple-darwin25.2.0");
+    assert_eq!(config.components().arch, Arch::Aarch64);
+    assert!(config.is_macos());
+}
+
+/// Sibling: `x86_64` versioned macOS triples are accepted (covers Intel
+/// Macs running modern Xcode whose default triple also carries a version
+/// suffix).
+#[test]
+fn test_from_triple_accepts_versioned_darwin_x86_64() {
+    let config = TargetConfig::from_triple("x86_64-apple-darwin23.6.0")
+        .expect("versioned Darwin x86_64 spelling must be accepted");
+    assert_eq!(config.triple(), "x86_64-apple-darwin23.6.0");
+    assert_eq!(config.components().arch, Arch::X86_64);
+    assert!(config.is_macos());
+}
+
 /// Test: Supported targets list
 ///
 /// Scenario: Verify all documented targets are supported.

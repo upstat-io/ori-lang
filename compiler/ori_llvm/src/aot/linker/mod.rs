@@ -155,16 +155,39 @@ pub enum LinkOutput {
 
 impl LinkOutput {
     /// Get the appropriate file extension for this output type.
+    ///
+    /// Delegates to the typed [`TargetTripleComponents::is_windows`] /
+    /// [`TargetTripleComponents::is_macos`] predicates so that Darwin OS
+    /// version suffixes (e.g., `darwin25.2.0` from Apple Silicon's
+    /// LLVM-default triple) correctly select `.dylib` for shared libraries.
+    /// Matching `target.os.as_str()` directly against `"darwin"` would
+    /// fall through to the Linux/ELF branch and emit `.so` — see BUG-04-045.
     #[must_use]
     pub fn extension(&self, target: &TargetTripleComponents) -> &'static str {
-        match (self, target.os.as_str()) {
-            (Self::Executable | Self::PositionIndependentExecutable, "windows") => "exe",
-            (Self::Executable | Self::PositionIndependentExecutable, _) => "",
-            (Self::SharedLibrary, "windows") => "dll",
-            (Self::SharedLibrary, "darwin") => "dylib",
-            (Self::SharedLibrary, _) => "so",
-            (Self::StaticLibrary, "windows") => "lib",
-            (Self::StaticLibrary, _) => "a",
+        match self {
+            Self::Executable | Self::PositionIndependentExecutable => {
+                if target.is_windows() {
+                    "exe"
+                } else {
+                    ""
+                }
+            }
+            Self::SharedLibrary => {
+                if target.is_windows() {
+                    "dll"
+                } else if target.is_macos() {
+                    "dylib"
+                } else {
+                    "so"
+                }
+            }
+            Self::StaticLibrary => {
+                if target.is_windows() {
+                    "lib"
+                } else {
+                    "a"
+                }
+            }
         }
     }
 }
