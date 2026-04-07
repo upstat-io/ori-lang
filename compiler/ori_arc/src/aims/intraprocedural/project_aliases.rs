@@ -53,6 +53,18 @@ pub(crate) fn compute_project_alias_sources(
     func: &ArcFunction,
 ) -> FxHashMap<ArcVarId, ProjectSources> {
     // Step 1: Direct Project destinations → sources.
+    //
+    // TPR-07-011 note: take-projects (unique-owned payloads moved out
+    // of sum types, e.g., iterators projected from a tagged-pointer
+    // enum) *could* also be skipped here to avoid keeping the parent
+    // alive, but that would require plumbing a `Pool` through the
+    // public `analyze_function` API. Instead, TPR-07-011 is fixed at
+    // the borrowed_defs + is_ownership_transfer layer, which is
+    // sufficient: the take-project's projected payload is no longer
+    // classified as borrowed, so no spurious `RcInc` fires at the
+    // owned-arg call site, and the Project itself is treated as an
+    // ownership transfer, so walk_dec skips the source enum's
+    // scope-exit last-use dec.
     let mut alias_sources: FxHashMap<ArcVarId, ProjectSources> = FxHashMap::default();
     for block in &func.blocks {
         for instr in &block.body {

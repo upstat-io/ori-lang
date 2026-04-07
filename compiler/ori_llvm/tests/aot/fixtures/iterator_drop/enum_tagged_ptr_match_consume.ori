@@ -1,0 +1,18 @@
+// TPR-07-011 semantic pin: match-and-consume on a tagged-pointer
+// enum iterator payload must not double-free. Before the fix, the
+// Project path decoded the payload pointer from the enum, the
+// match arm consumed the projected iterator via `.count()`, and
+// then the ARC pipeline also emitted a scope-exit drop on the
+// original enum — which decoded the SAME pointer and dropped it
+// again, triggering a double-free in the allocator.
+
+type MaybeIter = Empty | Holds(it: Iterator<int>);
+
+@main () -> int = {
+    let x: MaybeIter = Holds(it: [1, 2, 3].iter());
+    let n = match x {
+        Empty -> 0,
+        Holds(it) -> it.count()
+    };
+    if n == 3 then 0 else 1
+}
