@@ -298,7 +298,7 @@ class Workspace:
 
 FRONTMATTER_RE = re.compile(r"^---\s*$")
 HEADER_RE = re.compile(r"^## +(.+?)\s*$")
-SUBSECTION_ID_RE = re.compile(r"^([\w.\-]+)(?::|\s|$)")
+SUBSECTION_ID_RE = re.compile(r"^§?([\w.\-]+)(?::|\s|$)")
 CHECKBOX_RE = re.compile(r"^(\s*)- \[( |x|X)\] +(.*)$")
 BLOCKED_BY_RE = re.compile(r"<!--\s*blocked-by:([A-Za-z0-9.\-]+)(?:\s*-->)?")
 BLOCKED_PROSE_RE = re.compile(r"<!--\s*blocked:\s*(.+?)\s*-->")
@@ -412,19 +412,27 @@ def parse_section_body(lines: list[str], body_start: int) -> tuple[list[Item], d
 
 
 def parse_tpr_findings(items: list[Item]) -> list[TprFinding]:
+    """Findings live in `## NN.R Third Party Review Findings` blocks only.
+
+    The subsection-id check is the contract: any `[TPR-...]` reference outside a
+    `.R` block is a documentation example (e.g. format spec, plan-section
+    template), not a real finding. Counting those would corrupt the workspace
+    rollup. Real findings get filed under `.R` per the dual-tpr workflow.
+    """
     findings: list[TprFinding] = []
     for item in items:
-        if item.subsection_id.endswith(".R") or "TPR-" in item.content:
-            m = TPR_ID_RE.search(item.content)
-            if m:
-                findings.append(
-                    TprFinding(
-                        id=m.group(1),
-                        severity=m.group(2),
-                        lineno=item.lineno,
-                        resolved=item.checked,
-                    )
+        if not item.subsection_id.endswith(".R"):
+            continue
+        m = TPR_ID_RE.search(item.content)
+        if m:
+            findings.append(
+                TprFinding(
+                    id=m.group(1),
+                    severity=m.group(2),
+                    lineno=item.lineno,
+                    resolved=item.checked,
                 )
+            )
     return findings
 
 
