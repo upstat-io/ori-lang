@@ -25,7 +25,7 @@ sections:
     status: complete
   - id: "01.2"
     title: "Define sentinels and canonical (location, title) format"
-    status: not-started
+    status: complete
   - id: "01.3"
     title: "Define reviewer-tag ID format and per-run scratch dir helper"
     status: not-started
@@ -267,7 +267,7 @@ The canonical `(location, title)` format is what makes agreement detection acros
 
 Tasks:
 
-- [ ] Create `.claude/skills/dual-tpr/envelope-format.md` documenting:
+- [x] Create `.claude/skills/dual-tpr/envelope-format.md` documenting:
 
   **Sentinel format:**
   - `BEGIN: <!-- BEGIN-ORI-DUAL-TPR-V1 -->`
@@ -309,10 +309,12 @@ Tasks:
 
   **Canonical location format:**
 
-  Regex: `^[a-zA-Z0-9_./-]+:[0-9]+$`
+  Regex: `^(?!/)(?!\./)[a-zA-Z0-9_./-]+:[0-9]+$`
+
+  (Authoritative source: `.claude/skills/dual-tpr/findings-schema.json` field `findings.items.properties.location.pattern` — keep this prose copy in sync.)
 
   Format breakdown:
-  - `<repo-relative path>` — must NOT start with `/` (absolute) or `./` (current-dir prefix)
+  - `<repo-relative path>` — must NOT start with `/` (absolute) or `./` (current-dir prefix); the two leading negative lookaheads enforce this
   - `:` — single colon separator
   - `<line-number>` — single integer, no ranges, no commas
 
@@ -356,16 +358,18 @@ Tasks:
 
   Rationale: same as location — exact match requires consistent style across both reviewers. Schema enforces length and basic structure; reviewer prompts enforce style.
 
-- [ ] Add a complete example envelope (multi-finding) showing the full Gemini case (with sentinels and fenced JSON block) to envelope-format.md. Use the same structure as `fixtures/gemini-with-grounded-citation.json`.
+- [x] Add a complete example envelope (multi-finding) showing the full Gemini case (with sentinels and fenced JSON block) to envelope-format.md. Use the same structure as `fixtures/gemini-with-grounded-citation.json`.
 
-- [ ] Add a complete example envelope showing the Codex case (raw JSON, no sentinels) to envelope-format.md. Use the same structure as `fixtures/codex-with-findings.json`.
+- [x] Add a complete example envelope showing the Codex case (raw JSON, no sentinels) to envelope-format.md. Use the same structure as `fixtures/codex-with-findings.json`.
 
-- [ ] Add a section "How agreement is detected" to envelope-format.md explaining that two findings (one from each reviewer) are considered an agreement only when their `(location, title)` pair is BYTE-IDENTICAL. Mention that the strict-match policy is deliberate (per Codex Step 6B Q7) — fuzzy matching would introduce a third bias source.
+- [x] Add a section "How agreement is detected" to envelope-format.md explaining that two findings (one from each reviewer) are considered an agreement only when their `(location, title)` pair is BYTE-IDENTICAL. Mention that the strict-match policy is deliberate (per Codex Step 6B Q7) — fuzzy matching would introduce a third bias source.
 
-- [ ] **Subsection close-out (01.2)** — MANDATORY before starting 01.3:
-  - [ ] All tasks above are `[x]` and the documentation file is complete
-  - [ ] Update this subsection's `status` in section frontmatter to `complete`
-  - [ ] Run `/improve-tooling` retrospectively on THIS subsection — same protocol as 01.1's close-out, scoped to 01.2's documentation-writing journey. Did writing concrete examples reveal any cases the regex doesn't cover well? Was there friction in choosing between schema-enforceable and prompt-enforceable constraints? Should there be a `lint-envelope-titles.sh` that scans envelopes for style violations? Commit improvements separately using `build(...)`, `test(...)`, `chore(...)`, `docs(...)` per the type rules in 01.1's close-out.
+- [x] **Subsection close-out (01.2)** — MANDATORY before starting 01.3:
+  - [x] All tasks above are `[x]` and the documentation file is complete
+  - [x] Update this subsection's `status` in section frontmatter to `complete`
+  - [x] Run `/improve-tooling` retrospectively on THIS subsection — same protocol as 01.1's close-out, scoped to 01.2's documentation-writing journey.
+
+**Retrospective 01.2 — no tooling gaps justifying immediate action.** Writing the documentation file surfaced one friction point: the location regex now lives in four places (`findings-schema.json`, the JSON literal in this section, the prose in this section, and the prose in `envelope-format.md`). A future regex change is at high risk of stale drift in one or more locations. A `check-doc-schema-sync.sh` would catch this, but the regex is unlikely to change during V1's lifecycle, `/impl-hygiene-review` will catch cross-file invariant drift as a routine duty at section close, and the tool would have low frequency value (zero invocations until a hypothetical V2). Building it now would be speculative abstraction. Section 02 will exercise `validate-envelopes.sh` (built in 01.1) heavily for parser tests against real envelopes from codex/gemini runs — that is the load-bearing tool for the next subsection's friction. If Section 02's parser work surfaces a stronger case for cross-file schema/doc sync verification, the tool can be built then with concrete usage data driving its design. Did writing concrete examples reveal any cases the regex doesn't cover well? Was there friction in choosing between schema-enforceable and prompt-enforceable constraints? Should there be a `lint-envelope-titles.sh` that scans envelopes for style violations? Commit improvements separately using `build(...)`, `test(...)`, `chore(...)`, `docs(...)` per the type rules in 01.1's close-out.
 
 ---
 
