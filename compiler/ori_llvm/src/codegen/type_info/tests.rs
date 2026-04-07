@@ -52,14 +52,19 @@ fn heap_types_not_trivial() {
     .is_trivial());
 }
 
-/// §02 TPR-02-004: Iterator/DoubleEndedIterator are Box-allocated (no RC header),
-/// so TypeInfo::is_trivial() must classify them as trivial — matching
-/// ArcClassifier (Scalar) and classify_triviality() (Trivial).
+/// TPR-07-008: Iterator/DoubleEndedIterator are Box-allocated but
+/// non-trivial — they need `ori_iter_drop` at scope exit to free the
+/// Box-allocated state. Previously (TPR-02-004) this helper reported
+/// iterators as trivial, which caused memory leaks for iterators
+/// stored in enum/struct/tuple/bare let. The SSOT in
+/// `ori_types::triviality::classify_triviality` and
+/// `ori_repr::layout::is_trivial_repr(UnmanagedPtr)` now agree that
+/// iterators are non-trivial, and `TypeInfo::is_trivial()` must match.
 #[test]
-fn iterator_types_are_trivial() {
+fn iterator_types_are_non_trivial() {
     assert!(
-        TypeInfo::Iterator { element: Idx::INT }.is_trivial(),
-        "Iterator is Box-allocated (UnmanagedPtr), no RC header — trivial"
+        !TypeInfo::Iterator { element: Idx::INT }.is_trivial(),
+        "Iterator needs ori_iter_drop at scope exit — not trivial"
     );
 }
 
