@@ -456,7 +456,7 @@ pub(super) fn run_codegen_pipeline<'ctx>(
         }
 
         // Extract soft codegen error info before builder goes out of scope.
-        // The JIT path checks this in evaluator/compile.rs:383; the AOT path
+        // The JIT path checks this in evaluator/compile.rs; the AOT path
         // must also check to avoid producing crashing binaries.
         (
             builder.codegen_error_count() + store.type_error_count(),

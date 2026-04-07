@@ -643,6 +643,21 @@ def classify_all(
 
 
 # ─────────────────────────────────────────────────────────────
+# Line-number reference stripping — separate ephemeral category
+# ─────────────────────────────────────────────────────────────
+#
+# References like `evaluator/compile.rs:383`, `imports.rs:210`, or
+# `int.rs:42-52` cite a specific line in another file. The path is
+# permanent (the file still exists) but the line number rots the
+# moment that file gets a single edit above the cited line. We strip
+# just the `:NNN` (or `:NNN-NNN` range) part, leaving the file path.
+
+LINE_NUMBER_REF_RE = re.compile(
+    r"\b([a-zA-Z_][a-zA-Z0-9_/]*\.rs)(:\d+(?:-\d+)?)\b"
+)
+
+
+# ─────────────────────────────────────────────────────────────
 # Fix mode — conservative annotation removal
 # ─────────────────────────────────────────────────────────────
 
@@ -1002,6 +1017,113 @@ def format_edit_diff(edit: FileEdit, color: bool = True) -> str:
     return "\n".join(out)
 
 
+def strip_line_numbers_in_line(line: str) -> tuple[str | None, bool]:
+    """
+    Strip ephemeral `:NNN` / `:NNN-NNN` line-number references from
+    `path/to/file.rs:NNN` patterns inside comments. The file path is
+    preserved; only the colon-and-line-number suffix is removed.
+
+    Returns `(new_line, changed)` matching `remove_annotations_from_line`.
+    Lines that became empty after stripping are returned as `None`
+    (deletion request).
+    """
+    new_line = line
+    changed = False
+    # Walk all matches; only edit those inside comment regions
+    # `finditer` is fine — we don't modify positions until after we've
+    # collected the matches we want.
+    matches = list(LINE_NUMBER_REF_RE.finditer(line))
+    if not matches:
+        return new_line, False
+    # Build replacements as (start, end, replacement) tuples in source
+    # order, then apply them right-to-left so earlier offsets stay valid.
+    replacements: list[tuple[int, int, str]] = []
+    for m in matches:
+        path = m.group(1)
+        suffix = m.group(2)  # `:NNN` or `:NNN-NNN`
+        start = m.start()
+        end = m.end()
+        # Only strip if the match is inside a comment region
+        if not is_in_comment_region(line, start):
+            continue
+        replacements.append((start, end, path))
+    if not replacements:
+        return new_line, False
+    for start, end, replacement in reversed(replacements):
+        new_line = new_line[:start] + replacement + new_line[end:]
+        changed = True
+
+    if not changed:
+        return new_line, False
+
+    # Strip trailing whitespace; preserve internal indentation.
+    new_line = new_line.rstrip()
+    return new_line, True
+
+
+def plan_line_number_edits(
+    scope_paths: list[Path],
+    include_ori: bool = False,
+) -> list[FileEdit]:
+    """
+    Scan source files for stale `path.rs:NNN` references inside comments
+    and produce a FileEdit per file that needs changes. Reuses the file
+    walk + comment detection from the annotation classifier.
+    """
+    # Find candidate files via grep — fast and respects SCAN_EXCLUDE_DIRS
+    if not scope_paths:
+        scope_paths = [REPO_ROOT]
+    cmd: list[str] = ["grep", "-rPln", "--include=*.rs"]
+    if include_ori:
+        cmd.append("--include=*.ori")
+    for d in SCAN_EXCLUDE_DIRS:
+        cmd.append(f"--exclude-dir={Path(d).name}")
+    cmd.append(LINE_NUMBER_REF_RE.pattern)
+    cmd.extend(str(p) for p in scope_paths)
+    try:
+        proc = subprocess.run(
+            cmd, capture_output=True, text=True, check=False, cwd=REPO_ROOT
+        )
+    except (subprocess.SubprocessError, FileNotFoundError) as e:
+        print(f"error: failed to scan source: {e}", file=sys.stderr)
+        return []
+    candidate_files = [
+        Path(p) for p in proc.stdout.splitlines() if p
+    ]
+
+    edits: list[FileEdit] = []
+    for file in sorted(set(candidate_files), key=str):
+        try:
+            text = file.read_text(encoding="utf-8")
+        except OSError:
+            continue
+        lines = text.splitlines(keepends=False)
+        new_lines: list[str] = []
+        changed_indices: list[int] = []
+        deleted_indices: list[int] = []
+        for idx, original in enumerate(lines):
+            new_line, changed = strip_line_numbers_in_line(original)
+            if not changed:
+                new_lines.append(original)
+                continue
+            if new_line is None:
+                deleted_indices.append(idx)
+                continue
+            new_lines.append(new_line)
+            changed_indices.append(idx)
+        if changed_indices or deleted_indices:
+            edits.append(
+                FileEdit(
+                    file=file,
+                    original_lines=lines,
+                    new_lines=new_lines,
+                    changed_line_indices=changed_indices,
+                    deleted_line_indices=deleted_indices,
+                )
+            )
+    return edits
+
+
 def apply_file_edits(edits: list[FileEdit]) -> int:
     """Write each edit to disk. Returns the number of files written."""
     written = 0
@@ -1253,8 +1375,20 @@ def build_argparser() -> argparse.ArgumentParser:
         "--apply",
         action="store_true",
         help=(
-            "With --fix, actually write the modified files. Without --apply, "
-            "--fix prints a unified diff preview and exits with code 2."
+            "With --fix or --strip-line-numbers, actually write the "
+            "modified files. Without --apply, the change is previewed as "
+            "a unified diff and exit code 2 is returned."
+        ),
+    )
+    p.add_argument(
+        "--strip-line-numbers",
+        action="store_true",
+        help=(
+            "Strip ephemeral `:NNN` line-number suffixes from "
+            "`path/to/file.rs:NNN` references inside source comments. "
+            "The file path is preserved; only the colon-and-line-number "
+            "part is removed. Default is dry-run; pair with --apply to "
+            "write."
         ),
     )
     return p
@@ -1341,6 +1475,35 @@ def main(argv: list[str] | None = None) -> int:
         annotations = filter_by_plan(annotations, args.plan)
 
     color = sys.stdout.isatty() and not args.no_color
+
+    # 4.4. Line-number stripping (independent of --fix)
+    if args.strip_line_numbers:
+        edits = plan_line_number_edits(scope_paths, include_ori=args.include_ori)
+        if not edits:
+            print("No stale line-number references found.")
+            return 0
+        if not args.apply:
+            for edit in edits:
+                print(format_edit_diff(edit, color=color))
+                print()
+            total_changed = sum(len(e.changed_line_indices) for e in edits)
+            total_deleted = sum(len(e.deleted_line_indices) for e in edits)
+            print("─" * 56, file=sys.stderr)
+            print(
+                f"DRY-RUN: would edit {len(edits)} files "
+                f"({total_changed} lines modified, {total_deleted} lines deleted)",
+                file=sys.stderr,
+            )
+            print("Pass --apply to write the changes.", file=sys.stderr)
+            return 2
+        written = apply_file_edits(edits)
+        total_changed = sum(len(e.changed_line_indices) for e in edits)
+        total_deleted = sum(len(e.deleted_line_indices) for e in edits)
+        print(
+            f"applied {written} files: "
+            f"{total_changed} lines modified, {total_deleted} lines deleted"
+        )
+        return 0
 
     # 4.5. Fix mode (dry-run preview or apply)
     if args.fix:

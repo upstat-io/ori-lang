@@ -204,11 +204,64 @@ CASES: list[tuple[str, list[str], str | None]] = [
 ]
 
 
+# Line-number stripping test cases — `(input, expected)`. None means
+# the line should be deleted entirely.
+LINE_NUMBER_CASES: list[tuple[str, str | None]] = [
+    # Single ref mid-comment
+    (
+        "        // The JIT path checks this in evaluator/compile.rs:383; the AOT path",
+        "        // The JIT path checks this in evaluator/compile.rs; the AOT path",
+    ),
+    # Parenthesized backref
+    (
+        "    // use-statement span via `e.span.unwrap_or(imp.span)` (imports.rs:210).",
+        "    // use-statement span via `e.span.unwrap_or(imp.span)` (imports.rs).",
+    ),
+    # Multiple refs on one line
+    (
+        "// ori_map_remove_cow (cow.rs:373 empty sentinel path, cow.rs:391 unique fast path).",
+        "// ori_map_remove_cow (cow.rs empty sentinel path, cow.rs unique fast path).",
+    ),
+    # Line range form `:42-52`
+    (
+        "    // Collect struct candidates (same pattern as int.rs:42-52).",
+        "    // Collect struct candidates (same pattern as int.rs).",
+    ),
+    # In a string — must NOT be touched
+    (
+        'let s = "compile.rs:383 is the entry";',
+        'let s = "compile.rs:383 is the entry";',
+    ),
+    # In code (not a comment) — must NOT be touched
+    (
+        "use foo::bar; // see compile.rs:383",
+        "use foo::bar; // see compile.rs",
+    ),
+]
+
+
 def main() -> int:
     passed = 0
     failed = 0
+    print("=== Annotation strip tests ===")
     for line, ids, expected in CASES:
         result, _changed = m.remove_annotations_from_line(line, ids)
+        ok = result == expected
+        status = "OK  " if ok else "FAIL"
+        print(f"  [{status}] {line!r}")
+        if not ok:
+            print(f"           got: {result!r}")
+            print(f"           exp: {expected!r}")
+        if ok:
+            passed += 1
+        else:
+            failed += 1
+    print()
+    print("=== Line-number strip tests ===")
+    for line, expected in LINE_NUMBER_CASES:
+        result, _changed = m.strip_line_numbers_in_line(line)
+        # If no change happened, strip_line_numbers_in_line returns the
+        # original line; the expected value should also be the original.
         ok = result == expected
         status = "OK  " if ok else "FAIL"
         print(f"  [{status}] {line!r}")
