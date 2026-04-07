@@ -183,6 +183,7 @@ Run `/code-journey` to test the bytecode VM pipeline end-to-end with progressive
 - [ ] `./test-all.sh` green
 - [ ] `./clippy-all.sh` green
 - [ ] `/tpr-review` passed
-- [ ] `/impl-hygiene-review last commit` passed
+- [ ] `/impl-hygiene-review` passed
+- [ ] `/improve-tooling` retrospective completed — MANDATORY at section close, after both reviews are clean. Reflect on the section's debugging journey (which `diagnostics/` scripts you ran, which command sequences you repeated, where you added ad-hoc `dbg!`/`tracing` calls, where output was hard to interpret) and identify any tool/log/diagnostic improvement that would have made this section materially easier OR that would help the next section touching this area. Implement every accepted improvement NOW (zero deferral) and commit each via SEPARATE `/commit-push`. The retrospective is mandatory even when nothing felt painful — that is exactly when blind spots accumulate. See `.claude/skills/improve-tooling/SKILL.md` "Retrospective Mode" for the full protocol.
 
 **Exit Criteria:** The bytecode VM is ready to become the default execution path for `ori run` only after runtime parity is proven against the tree-walker, LLVM parity remains intact where applicable, and local benchmark gates show the VM is materially faster than the tree-walker. Python 3.12 remains the stretch comparison, not the only acceptable CI threshold.

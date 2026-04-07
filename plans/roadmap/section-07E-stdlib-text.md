@@ -190,7 +190,7 @@ sections:
 - [ ] `ORI_CHECK_LEAKS=1` reports zero leaks
 - [ ] `./test-all.sh` passes
 - [ ] `/tpr-review`
-- [ ] `/impl-hygiene-review last commit`
+- [ ] `/impl-hygiene-review`
 
 ---
 
@@ -287,7 +287,7 @@ sections:
 - [ ] `ORI_CHECK_LEAKS=1` zero leaks
 - [ ] `./test-all.sh` passes
 - [ ] `/tpr-review`
-- [ ] `/impl-hygiene-review last commit`
+- [ ] `/impl-hygiene-review`
 
 ---
 
@@ -407,7 +407,7 @@ sections:
 - [ ] `ORI_CHECK_LEAKS=1` zero leaks
 - [ ] `./test-all.sh` passes
 - [ ] `/tpr-review`
-- [ ] `/impl-hygiene-review last commit`
+- [ ] `/impl-hygiene-review`
 
 ---
 
@@ -480,7 +480,7 @@ sections:
 - [ ] `ORI_CHECK_LEAKS=1` zero leaks
 - [ ] `./test-all.sh` passes
 - [ ] `/tpr-review`
-- [ ] `/impl-hygiene-review last commit`
+- [ ] `/impl-hygiene-review`
 
 ---
 
@@ -497,4 +497,5 @@ sections:
 - [ ] `library/std/text/mod.ori` stub replaced with full implementation
 - [ ] Performance meets targets from proposal (display_width < 5ns/ASCII char, layout < 200ns/block)
 - [ ] `/tpr-review` (final)
-- [ ] `/impl-hygiene-review last commit` (final)
+- [ ] `/impl-hygiene-review` (final)
+- [ ] `/improve-tooling` retrospective completed — MANDATORY at section close, after both reviews are clean. Reflect on the section's debugging journey (which `diagnostics/` scripts you ran, which command sequences you repeated, where you added ad-hoc `dbg!`/`tracing` calls, where output was hard to interpret) and identify any tool/log/diagnostic improvement that would have made this section materially easier OR that would help the next section touching this area. Implement every accepted improvement NOW (zero deferral) and commit each via SEPARATE `/commit-push`. The retrospective is mandatory even when nothing felt painful — that is exactly when blind spots accumulate. See `.claude/skills/improve-tooling/SKILL.md` "Retrospective Mode" for the full protocol.

@@ -120,6 +120,7 @@ third_party_review:
 - [ ] Bug entry in `plans/bug-tracker/section-04-codegen-llvm.md` updated: `- [x]` with resolution details
 - [ ] Fix section frontmatter `status` updated to `complete`
 - [ ] `/tpr-review` passed
-- [ ] `/impl-hygiene-review last commit` passed
+- [ ] `/impl-hygiene-review` passed
+- [ ] `/improve-tooling` retrospective completed — MANDATORY at section close, after both reviews are clean. Reflect on the section's debugging journey (which `diagnostics/` scripts you ran, which command sequences you repeated, where you added ad-hoc `dbg!`/`tracing` calls, where output was hard to interpret) and identify any tool/log/diagnostic improvement that would have made this section materially easier OR that would help the next section touching this area. Implement every accepted improvement NOW (zero deferral) and commit each via SEPARATE `/commit-push`. The retrospective is mandatory even when nothing felt painful — that is exactly when blind spots accumulate. See `.claude/skills/improve-tooling/SKILL.md` "Retrospective Mode" for the full protocol.
 
 **Exit Criteria:** `LinkerDetection::is_available_for_target(LinkerFlavor::Gcc, &windows_target)` returns `false` on Linux (does not find host `cc` as suitable for Windows). `LinkerDriver::link()` returns `LinkerError::LinkerNotFound` with message containing "cross-compilation" and the target triple when no suitable cross-linker exists. All existing native compilation tests and build flows pass unchanged.

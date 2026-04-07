@@ -408,6 +408,7 @@ Wire the new subprocess orchestrator into the existing test runner dispatch, rep
 - [ ] Plan annotation cleanup: `bash .claude/skills/impl-hygiene-review/plan-annotations.sh --plan 02` returns 0 annotations
 - [ ] **Plan sync** — update plan metadata
 - [ ] `/tpr-review` passed
-- [ ] `/impl-hygiene-review last commit` passed
+- [ ] `/impl-hygiene-review` passed
+- [ ] `/improve-tooling` retrospective completed — MANDATORY at section close, after both reviews are clean. Reflect on the section's debugging journey (which `diagnostics/` scripts you ran, which command sequences you repeated, where you added ad-hoc `dbg!`/`tracing` calls, where output was hard to interpret) and identify any tool/log/diagnostic improvement that would have made this section materially easier OR that would help the next section touching this area. Implement every accepted improvement NOW (zero deferral) and commit each via SEPARATE `/commit-push`. The retrospective is mandatory even when nothing felt painful — that is exactly when blind spots accumulate. See `.claude/skills/improve-tooling/SKILL.md` "Retrospective Mode" for the full protocol.
 
 **Exit Criteria:** `ori test --backend=llvm tests/spec/` completes without crashing the parent process. Workers that crash (SIGSEGV) produce `BackendCrash` outcomes that appear in the summary and cause exit code 1. `./test-all.sh` reports the LLVM backend line with pass/fail/crash counts instead of `CRASHED`. The `ORI_LLVM_CRASHED` exit-0 escape hatch is removed from `test-all.sh` — crashes are real failures that block the gate. All AOT integration tests pass unchanged. Total wall-clock time for LLVM spec tests is within 2x of the current sequential in-process time.

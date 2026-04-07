@@ -192,6 +192,7 @@ Currently `ArcInstr::Project { dst, ty, value, field }` (instr.rs lines 58-64) s
   - [ ] `index.md` status updated
   - [ ] Sections 03/04 `depends_on` verified
 - [ ] `/tpr-review` passed
-- [ ] `/impl-hygiene-review last commit` passed
+- [ ] `/impl-hygiene-review` passed
+- [ ] `/improve-tooling` retrospective completed — MANDATORY at section close, after both reviews are clean. Reflect on the section's debugging journey (which `diagnostics/` scripts you ran, which command sequences you repeated, where you added ad-hoc `dbg!`/`tracing` calls, where output was hard to interpret) and identify any tool/log/diagnostic improvement that would have made this section materially easier OR that would help the next section touching this area. Implement every accepted improvement NOW (zero deferral) and commit each via SEPARATE `/commit-push`. The retrospective is mandatory even when nothing felt painful — that is exactly when blind spots accumulate. See `.claude/skills/improve-tooling/SKILL.md` "Retrospective Mode" for the full protocol.
 
 **Exit Criteria:** `IrBuilder` can attach TBAA, range, invariant.load, alias.scope, and noalias metadata to instructions. `ArcInstr::Project` carries struct type information. All existing tests pass unchanged in both debug and release builds. A smoke test demonstrates metadata in the IR dump.

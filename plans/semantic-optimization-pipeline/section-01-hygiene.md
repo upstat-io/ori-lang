@@ -145,6 +145,7 @@ The strategy dispatch (`operators/strategy.rs`) already calls `checked_shl`/`che
   - [ ] `plans/bug-tracker/section-04-codegen-llvm.md` BUG-04-029 updated with `<!-- resolved-by: ... -->`
   - [ ] Next section's `depends_on` verified
 - [ ] `/tpr-review` passed (final, full-section)
-- [ ] `/impl-hygiene-review last commit` passed
+- [ ] `/impl-hygiene-review` passed
+- [ ] `/improve-tooling` retrospective completed — MANDATORY at section close, after both reviews are clean. Reflect on the section's debugging journey (which `diagnostics/` scripts you ran, which command sequences you repeated, where you added ad-hoc `dbg!`/`tracing` calls, where output was hard to interpret) and identify any tool/log/diagnostic improvement that would have made this section materially easier OR that would help the next section touching this area. Implement every accepted improvement NOW (zero deferral) and commit each via SEPARATE `/commit-push`. The retrospective is mandatory even when nothing felt painful — that is exactly when blind spots accumulate. See `.claude/skills/improve-tooling/SKILL.md` "Retrospective Mode" for the full protocol.
 
 **Exit Criteria:** All three target files are under 500 lines (traits/mod.rs, aims_pipeline.rs, instr_dispatch.rs). `timeout 150 ./test-all.sh` passes with 0 failures in both debug and release builds. BUG-04-029 shift overflow checks verified passing in both builds.
