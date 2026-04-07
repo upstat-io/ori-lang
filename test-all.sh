@@ -7,7 +7,9 @@
 # 2. Runtime library tests (ori_rt)
 # 3. Rust unit tests (ori_llvm)
 # 4. AOT integration tests (compile-and-run through ori build)
-# 5. WASM playground build check
+# 5. External playground WASM build (cargo build of ori-lang-website crate;
+#    does NOT exercise Ori's own --target= path — those checks live in the
+#    AOT integration suite under compiler/ori_llvm/tests/aot/{cli,cross}.rs)
 # 6. Ori language spec tests (interpreter backend)
 # 7. Ori language spec tests (LLVM backend)
 #
@@ -128,9 +130,20 @@ run_aot() {
 }
 
 run_wasm_build() {
-    echo "=== Checking WASM playground builds ==="
+    # WHAT THIS CHECKS:
+    # This builds the EXTERNAL ori-lang-website playground crate against the
+    # Rust `wasm32-unknown-unknown` target via `cargo build`. It does NOT
+    # exercise Ori's own `ori build --target=...` code path, does NOT exercise
+    # `TargetConfig::from_triple`, and does NOT exercise the `wasm32-wasi`
+    # target. Coverage of Ori's WASM targets lives in:
+    #   - `compiler/ori_llvm/tests/aot/cli.rs` — `ori build --target=...`
+    #   - `compiler/ori_llvm/tests/aot/cross.rs` — `from_triple` round-trips
+    # If you change Ori's WASM/WASI codegen or target parsing, those suites
+    # are what cover you — not this check. See BUG-04-045 history for the
+    # category of regression that this label could mask if misread.
+    echo "=== Checking external playground WASM build ==="
     if ! rustup target list --installed | grep -q wasm32-unknown-unknown; then
-        echo "  (skipped - wasm32-unknown-unknown target not installed)"
+        echo "  (skipped - wasm32-unknown-unknown rustc target not installed)"
         echo "skipped" > "$WASM_OUTPUT"
         return 0
     fi
@@ -141,10 +154,10 @@ run_wasm_build() {
         return 0
     fi
     if cargo build --manifest-path "$wasm_manifest" --target wasm32-unknown-unknown --release 2>&1 > "$WASM_OUTPUT"; then
-        echo "  ✓ WASM build passed"
+        echo "  ✓ External playground WASM build passed"
         return 0
     else
-        echo "  ✗ WASM build FAILED"
+        echo "  ✗ External playground WASM build FAILED"
         return 1
     fi
 }
@@ -449,7 +462,7 @@ if [ "$AOT_LEAKS" -gt 0 ]; then
 else
     printf "%-30s %8d %8d %8d %8s\n" "AOT integration tests" "$AOT_PASSED" "$AOT_FAILED" "$AOT_IGNORED" "-"
 fi
-printf "%-30s %8s\n" "WASM playground build" "$WASM_STATUS"
+printf "%-30s %8s\n" "External playground WASM" "$WASM_STATUS"
 printf "%-30s %8d %8d %8d %8s\n" "Ori spec (interpreter)" "$ORI_INTERP_PASSED" "$ORI_INTERP_FAILED" "$ORI_INTERP_SKIPPED" "-"
 if grep -qx "skipped" "$ORI_LLVM_OUTPUT" 2>/dev/null; then
     printf "%-30s %8s\n" "Ori spec (LLVM backend)" "skipped"
@@ -494,7 +507,7 @@ emit_json() {
 
     # Helper: emit WASM status-only suite
     json_wasm_suite() {
-        printf '    { "name": "WASM playground build", "status": "%s", "passed": null, "failed": null, "skipped": null, "lcfail": null }' \
+        printf '    { "name": "External playground WASM", "status": "%s", "passed": null, "failed": null, "skipped": null, "lcfail": null }' \
             "$1"
     }
 
