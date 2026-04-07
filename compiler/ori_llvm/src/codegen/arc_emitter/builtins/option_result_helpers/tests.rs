@@ -24,6 +24,28 @@
 
 const HELPER_SRC: &str = include_str!("../option_result_helpers.rs");
 
+/// Walk braces from `body_start` (just past an opening `{`) and return the
+/// substring up to the matching closing brace at depth 0.
+fn slice_to_matching_brace<'a>(body_region: &'a str, what: &str) -> &'a str {
+    let mut depth: i32 = 1;
+    let mut end = 0usize;
+    for (i, ch) in body_region.char_indices() {
+        match ch {
+            '{' => depth += 1,
+            '}' => {
+                depth -= 1;
+                if depth == 0 {
+                    end = i;
+                    break;
+                }
+            }
+            _ => {}
+        }
+    }
+    assert!(end > 0, "unclosed body for `{what}`");
+    &body_region[..end]
+}
+
 /// Extract the body of a method's match arm from the helper source.
 ///
 /// Returns the substring between `"<method>" => {` and the matching closing
@@ -49,24 +71,27 @@ fn extract_arm_body<'a>(src: &'a str, start_after: &str, arm_label: &str) -> &'a
     let body_start = arm_start + body_open + 1;
     let body_region = &region[body_start..];
 
-    // Walk braces to find the matching close at depth 1.
-    let mut depth: i32 = 1;
-    let mut end = 0usize;
-    for (i, ch) in body_region.char_indices() {
-        match ch {
-            '{' => depth += 1,
-            '}' => {
-                depth -= 1;
-                if depth == 0 {
-                    end = i;
-                    break;
-                }
-            }
-            _ => {}
-        }
-    }
-    assert!(end > 0, "unclosed arm body for `{arm_label}`");
-    &body_region[..end]
+    slice_to_matching_brace(body_region, arm_label)
+}
+
+/// Extract the body of a free function from the helper source.
+///
+/// Walks braces starting from the first `{` after `fn_start` so the helper
+/// is robust to line-ending differences (LF vs CRLF) and incidental
+/// formatting changes — no string-pattern dependency on the exact closing
+/// `}\n` shape.
+fn extract_fn_body<'a>(src: &'a str, fn_start: &str) -> &'a str {
+    let after_start = src
+        .find(fn_start)
+        .unwrap_or_else(|| panic!("missing function start marker `{fn_start}`"));
+    let region = &src[after_start..];
+
+    let body_open = region
+        .find('{')
+        .unwrap_or_else(|| panic!("no opening brace after fn start `{fn_start}`"));
+    let body_region = &region[body_open + 1..];
+
+    slice_to_matching_brace(body_region, fn_start)
 }
 
 /// Marker that scopes assertions to within `emit_option_niche` only.
@@ -234,14 +259,7 @@ fn bug_04_019_result_niche_no_collapsed_unwrap_arm() {
     // Post-fix: each method has its own arm with the appropriate semantics.
     // The negative pin is that the source must NOT contain the collapsed-arm
     // pattern within emit_result_niche.
-    let result_fn_start = HELPER_SRC
-        .find(RESULT_NICHE_FN)
-        .expect("missing emit_result_niche function start");
-    let result_fn_end = HELPER_SRC[result_fn_start..]
-        .find("\n    }\n")
-        .map(|e| result_fn_start + e + "\n    }\n".len())
-        .expect("could not find end of emit_result_niche");
-    let result_fn_body = &HELPER_SRC[result_fn_start..result_fn_end];
+    let result_fn_body = extract_fn_body(HELPER_SRC, RESULT_NICHE_FN);
 
     let collapsed_pattern = "\"unwrap\" | \"unwrap_err\" | \"unwrap_or\"";
     assert!(
