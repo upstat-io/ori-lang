@@ -1,0 +1,81 @@
+// Spec: §07.2 Niche Filling — Option<str> niche optimization
+// Regression: repr-opt section-07 — niche-encoded Option<str> match correctness
+// When niche optimization is active, Option<str> is 24 bytes (same as str):
+//   Some(s) = str value, None = null data pointer
+// Note: empty string uses SSO (inline), NOT null ptr — so Some("") is distinct from None.
+
+use std.testing { assert_eq }
+
+@test_option_str_some tests @option_str_some () -> void = {
+    assert_eq(actual: option_str_some(), expected: "hello")
+}
+
+@option_str_some () -> str = {
+    let $x: Option<str> = Some("hello");
+    match x {
+        Some(s) -> s,
+        None -> "none"
+    }
+}
+
+@test_option_str_some_empty tests @option_str_some_empty () -> void = {
+    assert_eq(actual: option_str_some_empty(), expected: "empty")
+}
+
+@option_str_some_empty () -> str = {
+    // Critical: empty string is Some(""), NOT None
+    // SSO means empty string has inline storage, not null ptr
+    let $x: Option<str> = Some("");
+    match x {
+        Some(s) -> if s == "" then "empty" else s,
+        None -> "none"
+    }
+}
+
+@test_option_str_none tests @option_str_none () -> void = {
+    assert_eq(actual: option_str_none(), expected: "none")
+}
+
+@option_str_none () -> str = {
+    let $x: Option<str> = None;
+    match x {
+        Some(s) -> s,
+        None -> "none"
+    }
+}
+
+// === Distinctness: Some("") vs None ===
+
+@test_option_str_empty_vs_none tests @option_str_empty_vs_none () -> void = {
+    assert_eq(actual: option_str_empty_vs_none(), expected: true)
+}
+
+@option_str_empty_vs_none () -> bool = {
+    let $some_empty: Option<str> = Some("");
+    let $none: Option<str> = None;
+    some_empty != none && is_some(option: some_empty) && is_none(option: none)
+}
+
+// === unwrap_or ===
+
+@test_option_str_unwrap tests @option_str_unwrap () -> void = {
+    assert_eq(actual: option_str_unwrap(), expected: "hello|default")
+}
+
+@option_str_unwrap () -> str = {
+    let $some_val: Option<str> = Some("hello");
+    let $none_val: Option<str> = None;
+    some_val.unwrap_or(default: "x") + "|" + none_val.unwrap_or(default: "default")
+}
+
+// === map ===
+
+@test_option_str_map tests @option_str_map () -> void = {
+    assert_eq(actual: option_str_map(), expected: true)
+}
+
+@option_str_map () -> bool = {
+    let $x: Option<str> = Some("hello");
+    let $mapped = x.map(s -> s.len());
+    mapped == Some(5)
+}

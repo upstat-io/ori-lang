@@ -49,6 +49,8 @@ sections:
 - [ ] Keep the `declare_builtins!` registration entries for discoverability, but make them point to the single handler
 - [ ] Verify: all iterator method tests pass unchanged
 
+- [ ] **Subsection close-out (05.1)** — MANDATORY before starting the next subsection. Run `/improve-tooling` retrospectively on THIS subsection's debugging journey (per `.claude/skills/improve-tooling/SKILL.md` "Per-Subsection Workflow"): which `diagnostics/` scripts you ran, where you added `dbg!`/`tracing` calls, where output was hard to interpret, where test failures gave unhelpful messages, where you ran the same command sequence repeatedly. Forward-look: what tool/log/diagnostic would shorten the next regression in this code path by 10 minutes? Implement improvements NOW (zero deferral) and commit each via SEPARATE `/commit-push` using a valid conventional-commit type (`build(diagnostics): ... — surfaced by section-05.1 retrospective` — `build`/`test`/`chore`/`ci`/`docs` are valid; `tools(...)` is rejected by the lefthook commit-msg hook). Mandatory even when nothing felt painful. If genuinely no gaps, document briefly: "Retrospective 05.1: no tooling gaps". Update this subsection's `status` in section frontmatter to `complete`.
+
 ---
 
 ## 05.2 Extract COW List Mutation Helper
@@ -67,6 +69,8 @@ sections:
 - [ ] Refactor push, pop, set, insert, remove, concat, reverse, sort, sort_stable to use `emit_cow_list_op()`
 - [ ] Verify: `timeout 150 cargo test -p ori_llvm` passes
 
+- [ ] **Subsection close-out (05.2)** — MANDATORY before starting the next subsection. Run `/improve-tooling` retrospectively on THIS subsection's debugging journey (per `.claude/skills/improve-tooling/SKILL.md` "Per-Subsection Workflow"): which `diagnostics/` scripts you ran, where you added `dbg!`/`tracing` calls, where output was hard to interpret, where test failures gave unhelpful messages, where you ran the same command sequence repeatedly. Forward-look: what tool/log/diagnostic would shorten the next regression in this code path by 10 minutes? Implement improvements NOW (zero deferral) and commit each via SEPARATE `/commit-push` using a valid conventional-commit type (`build(diagnostics): ... — surfaced by section-05.2 retrospective` — `build`/`test`/`chore`/`ci`/`docs` are valid; `tools(...)` is rejected by the lefthook commit-msg hook). Mandatory even when nothing felt painful. If genuinely no gaps, document briefly: "Retrospective 05.2: no tooling gaps". Update this subsection's `status` in section frontmatter to `complete`.
+
 ---
 
 ## 05.3 Collapse Trait Method Cartesian Product
@@ -78,6 +82,9 @@ The `declare_builtins!` in traits.rs lists ~80 entries all calling `emitter.emit
 - [ ] Keep the explicit registration (needed for the `declare_builtins!` macro's map construction) but generate it from arrays/slices
 - [ ] For primitives.rs: same approach — generate from `PRIMITIVE_TYPES` x `PRIMITIVE_METHODS` arrays
 - [ ] **WARNING:** `declare_builtins!` is a proc-macro or macro_rules that constructs a HashMap at build time. Understand the macro's expansion before modifying — the generated dispatch map is consumed by `emit_builtin_method()`. Changing the macro signature or its output format will break all builtin dispatch.
+
+- [ ] **Subsection close-out (05.3)** — MANDATORY before starting the next subsection. Run `/improve-tooling` retrospectively on THIS subsection's debugging journey (per `.claude/skills/improve-tooling/SKILL.md` "Per-Subsection Workflow"): which `diagnostics/` scripts you ran, where you added `dbg!`/`tracing` calls, where output was hard to interpret, where test failures gave unhelpful messages, where you ran the same command sequence repeatedly. Forward-look: what tool/log/diagnostic would shorten the next regression in this code path by 10 minutes? Implement improvements NOW (zero deferral) and commit each via SEPARATE `/commit-push` using a valid conventional-commit type (`build(diagnostics): ... — surfaced by section-05.3 retrospective` — `build`/`test`/`chore`/`ci`/`docs` are valid; `tools(...)` is rejected by the lefthook commit-msg hook). Mandatory even when nothing felt painful. If genuinely no gaps, document briefly: "Retrospective 05.3: no tooling gaps". Update this subsection's `status` in section frontmatter to `complete`.
+
 ---
 
 ## 05.4 Generate JIT Runtime Mappings from RT_FUNCTIONS
@@ -92,6 +99,8 @@ The `lookup_jit_address()` function (260 lines) manually mirrors the `RT_FUNCTIO
 - [ ] Replace `lookup_jit_address()` body with a HashMap lookup from the lazy-initialized mapping.
 - [ ] Verify: JIT tests pass unchanged (`timeout 150 cargo test -p ori_llvm -- jit`)
 
+- [ ] **Subsection close-out (05.4)** — MANDATORY before starting the next subsection. Run `/improve-tooling` retrospectively on THIS subsection's debugging journey (per `.claude/skills/improve-tooling/SKILL.md` "Per-Subsection Workflow"): which `diagnostics/` scripts you ran, where you added `dbg!`/`tracing` calls, where output was hard to interpret, where test failures gave unhelpful messages, where you ran the same command sequence repeatedly. Forward-look: what tool/log/diagnostic would shorten the next regression in this code path by 10 minutes? Implement improvements NOW (zero deferral) and commit each via SEPARATE `/commit-push` using a valid conventional-commit type (`build(diagnostics): ... — surfaced by section-05.4 retrospective` — `build`/`test`/`chore`/`ci`/`docs` are valid; `tools(...)` is rejected by the lefthook commit-msg hook). Mandatory even when nothing felt painful. If genuinely no gaps, document briefly: "Retrospective 05.4: no tooling gaps". Update this subsection's `status` in section frontmatter to `complete`.
+
 ---
 
 ## 05.5 Merge Duplicate Debug Helpers
@@ -102,6 +111,9 @@ The `lookup_jit_address()` function (260 lines) manually mirrors the `RT_FUNCTIO
 
 - [ ] Have `emit_result_debug` (line 254) delegate to `emit_nested_result_debug` (line 322) — or extract the shared Ok/Err branch+phi pattern into a parameterized helper that both call- [ ] Verify: debug formatting tests pass unchanged
 - [ ] **[BLOAT]** `compiler/ori_llvm/src/codegen/arc_emitter/builtins/debug_helpers.rs` — currently 534 lines, exceeds 500-line limit. After merging duplicate helpers, verify it drops below 500; if not, split into `debug_helpers/mod.rs` + `debug_helpers/result.rs`
+
+- [ ] **Subsection close-out (05.5)** — MANDATORY before starting the next subsection. Run `/improve-tooling` retrospectively on THIS subsection's debugging journey (per `.claude/skills/improve-tooling/SKILL.md` "Per-Subsection Workflow"): which `diagnostics/` scripts you ran, where you added `dbg!`/`tracing` calls, where output was hard to interpret, where test failures gave unhelpful messages, where you ran the same command sequence repeatedly. Forward-look: what tool/log/diagnostic would shorten the next regression in this code path by 10 minutes? Implement improvements NOW (zero deferral) and commit each via SEPARATE `/commit-push` using a valid conventional-commit type (`build(diagnostics): ... — surfaced by section-05.5 retrospective` — `build`/`test`/`chore`/`ci`/`docs` are valid; `tools(...)` is rejected by the lefthook commit-msg hook). Mandatory even when nothing felt painful. If genuinely no gaps, document briefly: "Retrospective 05.5: no tooling gaps". Update this subsection's `status` in section frontmatter to `complete`.
+
 ---
 
 ### Cleanup (fix while touching these files)
@@ -141,4 +153,5 @@ This section refactors LLVM codegen internals. Zero behavioral change, but high 
 - [ ] `timeout 150 ./test-all.sh` passes
 - [ ] `./clippy-all.sh` clean
 - [ ] `/tpr-review` covering Section 05
-- [ ] `/impl-hygiene-review last commit`
+- [ ] `/impl-hygiene-review`
+- [ ] `/improve-tooling` retrospective completed — MANDATORY at section close, after both reviews are clean. Reflect on the section's debugging journey (which `diagnostics/` scripts you ran, which command sequences you repeated, where you added ad-hoc `dbg!`/`tracing` calls, where output was hard to interpret) and identify any tool/log/diagnostic improvement that would have made this section materially easier OR that would help the next section touching this area. Implement every accepted improvement NOW (zero deferral) and commit each via SEPARATE `/commit-push`. The retrospective is mandatory even when nothing felt painful — that is exactly when blind spots accumulate. See `.claude/skills/improve-tooling/SKILL.md` "Retrospective Mode" for the full protocol.

@@ -313,4 +313,4 @@ The comment at `closures.rs:222-226` already documents this correctly:
 - [x] `00-overview.md` plan status updated to reflect completion (all sections complete)
 - [x] `timeout 150 ./test-all.sh` passes
 - [x] `/tpr-review` passed — 3 iterations, 4 findings (all plan metadata, 0 code issues), all resolved
-- [x] `/impl-hygiene-review last commit` passed — 0 actionable findings, 2 informational notes
+- [x] `/impl-hygiene-review` passed — 0 actionable findings, 2 informational notes

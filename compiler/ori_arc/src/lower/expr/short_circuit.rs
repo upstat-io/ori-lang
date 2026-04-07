@@ -131,7 +131,8 @@ impl ArcLowerer<'_> {
     /// Lower `a && b` with short-circuit evaluation.
     ///
     /// Generates: evaluate a → branch on a → then: evaluate b → merge;
-    /// else: false → merge. Same pattern as `lower_coalesce`.
+    /// else: false → merge. Uses the same mutable-variable merge pattern
+    /// as `lower_coalesce` to propagate mutations from branch scopes.
     pub(in crate::lower) fn lower_short_circuit_and(
         &mut self,
         left: CanId,
@@ -147,11 +148,16 @@ impl ArcLowerer<'_> {
         self.builder.terminate_branch(lhs, then_block, else_block);
 
         let pre_scope = self.scope.clone();
+        let mut mutable_var_types = FxHashMap::default();
+        for (name, var) in pre_scope.mutable_bindings() {
+            mutable_var_types.insert(name, self.builder.var_type_or_unit(var));
+        }
 
         // Then: evaluate RHS (only when LHS is true)
         self.builder.position_at(then_block);
         self.scope = pre_scope.clone();
         let rhs = self.lower_expr(right);
+        let then_scope = self.scope.clone();
         let then_terminated = self.builder.is_terminated();
         let then_exit = self.builder.current_block();
 
@@ -163,26 +169,49 @@ impl ArcLowerer<'_> {
             ArcValue::Literal(LitValue::Bool(false)),
             Some(span),
         );
+        let else_scope = self.scope.clone();
         let else_exit = self.builder.current_block();
 
-        // Merge
+        // Merge: result param + mutable variable merge params
         let result = self.builder.add_block_param(merge_block, ty);
+        let rebindings = merge_mutable_vars(
+            self.builder,
+            merge_block,
+            &pre_scope,
+            &[then_scope.clone(), else_scope.clone()],
+            &mutable_var_types,
+        );
+
         if !then_terminated {
             self.builder.position_at(then_exit);
-            self.builder.terminate_jump(merge_block, vec![rhs]);
+            let mut jump_args = vec![rhs];
+            for (name, _) in &rebindings {
+                let var = then_scope.lookup(*name).unwrap_or(rhs);
+                jump_args.push(var);
+            }
+            self.builder.terminate_jump(merge_block, jump_args);
         }
         self.builder.position_at(else_exit);
-        self.builder.terminate_jump(merge_block, vec![false_val]);
+        let mut jump_args = vec![false_val];
+        for (name, _) in &rebindings {
+            let var = else_scope.lookup(*name).unwrap_or(false_val);
+            jump_args.push(var);
+        }
+        self.builder.terminate_jump(merge_block, jump_args);
 
         self.builder.position_at(merge_block);
         self.scope = pre_scope;
+        for (name, merge_var) in &rebindings {
+            self.scope.bind_mutable(*name, *merge_var);
+        }
         result
     }
 
     /// Lower `a || b` with short-circuit evaluation.
     ///
     /// Generates: evaluate a → branch on a → then: true → merge;
-    /// else: evaluate b → merge. Same pattern as `lower_coalesce`.
+    /// else: evaluate b → merge. Uses the same mutable-variable merge
+    /// pattern as `lower_coalesce` to propagate mutations from branch scopes.
     pub(in crate::lower) fn lower_short_circuit_or(
         &mut self,
         left: CanId,
@@ -198,6 +227,10 @@ impl ArcLowerer<'_> {
         self.builder.terminate_branch(lhs, then_block, else_block);
 
         let pre_scope = self.scope.clone();
+        let mut mutable_var_types = FxHashMap::default();
+        for (name, var) in pre_scope.mutable_bindings() {
+            mutable_var_types.insert(name, self.builder.var_type_or_unit(var));
+        }
 
         // Then: true
         self.builder.position_at(then_block);
@@ -207,26 +240,49 @@ impl ArcLowerer<'_> {
             ArcValue::Literal(LitValue::Bool(true)),
             Some(span),
         );
+        let then_scope = self.scope.clone();
         let then_exit = self.builder.current_block();
 
         // Else: evaluate RHS (only when LHS is false)
         self.builder.position_at(else_block);
         self.scope = pre_scope.clone();
         let rhs = self.lower_expr(right);
+        let else_scope = self.scope.clone();
         let else_terminated = self.builder.is_terminated();
         let else_exit = self.builder.current_block();
 
-        // Merge
+        // Merge: result param + mutable variable merge params
         let result = self.builder.add_block_param(merge_block, ty);
+        let rebindings = merge_mutable_vars(
+            self.builder,
+            merge_block,
+            &pre_scope,
+            &[then_scope.clone(), else_scope.clone()],
+            &mutable_var_types,
+        );
+
         self.builder.position_at(then_exit);
-        self.builder.terminate_jump(merge_block, vec![true_val]);
+        let mut jump_args = vec![true_val];
+        for (name, _) in &rebindings {
+            let var = then_scope.lookup(*name).unwrap_or(true_val);
+            jump_args.push(var);
+        }
+        self.builder.terminate_jump(merge_block, jump_args);
         if !else_terminated {
             self.builder.position_at(else_exit);
-            self.builder.terminate_jump(merge_block, vec![rhs]);
+            let mut jump_args = vec![rhs];
+            for (name, _) in &rebindings {
+                let var = else_scope.lookup(*name).unwrap_or(rhs);
+                jump_args.push(var);
+            }
+            self.builder.terminate_jump(merge_block, jump_args);
         }
 
         self.builder.position_at(merge_block);
         self.scope = pre_scope;
+        for (name, merge_var) in &rebindings {
+            self.scope.bind_mutable(*name, *merge_var);
+        }
         result
     }
 }

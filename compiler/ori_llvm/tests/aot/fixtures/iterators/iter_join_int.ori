@@ -1,0 +1,8 @@
+// AOT test for iter_join with integer elements.
+// Semantic pin: would crash (SIGSEGV) or produce LCFail without to_str trampoline.
+// Exercises: ori_str_from_int via generated to_str trampoline in emit_iter_join.
+
+@main () -> int = {
+    let result = [1, 2, 3].iter().join(separator: ", ");
+    if result == "1, 2, 3" then 0 else 1
+}

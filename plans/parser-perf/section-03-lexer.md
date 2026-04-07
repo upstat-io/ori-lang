@@ -76,6 +76,8 @@ Audit all functions called in the lexer driver loop (`lex_driver()`) and ensure 
 
 **Semantic pin:** `TokenList::push_with_tag()` and `push_with_flags()` already have `#[inline]`. The primary gain is from annotating `set_last_non_trivia()` (currently unannotated, called per non-trivia token). Benchmark improvement on 1000-function workload should be measurable (> 1%).
 
+- [ ] **Subsection close-out (03.1)** — MANDATORY before starting the next subsection. Run `/improve-tooling` retrospectively on THIS subsection's debugging journey (per `.claude/skills/improve-tooling/SKILL.md` "Per-Subsection Workflow"): which `diagnostics/` scripts you ran, where you added `dbg!`/`tracing` calls, where output was hard to interpret, where test failures gave unhelpful messages, where you ran the same command sequence repeatedly. Forward-look: what tool/log/diagnostic would shorten the next regression in this code path by 10 minutes? Implement improvements NOW (zero deferral) and commit each via SEPARATE `/commit-push` using a valid conventional-commit type (`build(diagnostics): ... — surfaced by section-03.1 retrospective` — `build`/`test`/`chore`/`ci`/`docs` are valid; `tools(...)` is rejected by the lefthook commit-msg hook). Mandatory even when nothing felt painful. If genuinely no gaps, document briefly: "Retrospective 03.1: no tooling gaps". Update this subsection's `status` in section frontmatter to `complete`.
+
 ---
 
 ## 03.2 Token Pre-Allocation Tuning
@@ -95,6 +97,8 @@ Current pre-allocation uses `source_len / 2 + 1` tokens. This is a reasonable es
   - **Decision criterion:** over-allocation wastes memory, under-allocation causes reallocation. Prefer slight over-allocation (10-20%) over any reallocation.
 
 - [ ] Verify no reallocation occurs: after profiling, assert `output.tokens.capacity() >= output.tokens.len()` for all benchmark workloads (can add `debug_assert!` at end of `lex_driver()` or check via benchmark harness). Remove temporary instrumentation after profiling.
+
+- [ ] **Subsection close-out (03.2)** — MANDATORY before starting the next subsection. Run `/improve-tooling` retrospectively on THIS subsection's debugging journey (per `.claude/skills/improve-tooling/SKILL.md` "Per-Subsection Workflow"): which `diagnostics/` scripts you ran, where you added `dbg!`/`tracing` calls, where output was hard to interpret, where test failures gave unhelpful messages, where you ran the same command sequence repeatedly. Forward-look: what tool/log/diagnostic would shorten the next regression in this code path by 10 minutes? Implement improvements NOW (zero deferral) and commit each via SEPARATE `/commit-push` using a valid conventional-commit type (`build(diagnostics): ... — surfaced by section-03.2 retrospective` — `build`/`test`/`chore`/`ci`/`docs` are valid; `tools(...)` is rejected by the lefthook commit-msg hook). Mandatory even when nothing felt painful. If genuinely no gaps, document briefly: "Retrospective 03.2: no tooling gaps". Update this subsection's `status` in section frontmatter to `complete`.
 
 ---
 
@@ -120,6 +124,8 @@ The `try_trivial()` function intercepts operators and delimiters before they rea
 
 **Semantic pin:** Semicolon bypass in `try_trivial()` should show measurable improvement (> 1%) on code with many short statements.
 
+- [ ] **Subsection close-out (03.3)** — MANDATORY before starting the next subsection. Run `/improve-tooling` retrospectively on THIS subsection's debugging journey (per `.claude/skills/improve-tooling/SKILL.md` "Per-Subsection Workflow"): which `diagnostics/` scripts you ran, where you added `dbg!`/`tracing` calls, where output was hard to interpret, where test failures gave unhelpful messages, where you ran the same command sequence repeatedly. Forward-look: what tool/log/diagnostic would shorten the next regression in this code path by 10 minutes? Implement improvements NOW (zero deferral) and commit each via SEPARATE `/commit-push` using a valid conventional-commit type (`build(diagnostics): ... — surfaced by section-03.3 retrospective` — `build`/`test`/`chore`/`ci`/`docs` are valid; `tools(...)` is rejected by the lefthook commit-msg hook). Mandatory even when nothing felt painful. If genuinely no gaps, document briefly: "Retrospective 03.3: no tooling gaps". Update this subsection's `status` in section frontmatter to `complete`.
+
 ---
 
 ## 03.R Third Party Review Findings
@@ -141,7 +147,8 @@ The `try_trivial()` function intercepts operators and delimiters before they rea
 - [ ] `./test-all.sh` green
 - [ ] Debug AND release builds pass: `timeout 150 cargo t -p ori_lexer --release`
 - [ ] `/tpr-review` passed — independent Codex review found no critical or major issues (or all findings triaged)
-- [ ] `/impl-hygiene-review last commit` passed — implementation hygiene review clean (phase boundaries, SSOT, algorithmic DRY, naming). MUST run AFTER `/tpr-review` is clean.
+- [ ] `/impl-hygiene-review` passed — implementation hygiene review clean (phase boundaries, SSOT, algorithmic DRY, naming). MUST run AFTER `/tpr-review` is clean.
+- [ ] `/improve-tooling` retrospective completed — MANDATORY at section close, after both reviews are clean. Reflect on the section's debugging journey (which `diagnostics/` scripts you ran, which command sequences you repeated, where you added ad-hoc `dbg!`/`tracing` calls, where output was hard to interpret) and identify any tool/log/diagnostic improvement that would have made this section materially easier OR that would help the next section touching this area. Implement every accepted improvement NOW (zero deferral) and commit each via SEPARATE `/commit-push`. The retrospective is mandatory even when nothing felt painful — that is exactly when blind spots accumulate. See `.claude/skills/improve-tooling/SKILL.md` "Retrospective Mode" for the full protocol.
 
 **Correctness verification:** All changes in this section are performance-only (adding `#[inline]`, tuning allocation sizes, moving token kinds between fast paths). No behavioral change is expected. The existing lexer test suite (unit tests + spec tests) serves as the correctness regression guard. Run the full suite BEFORE any optimization to establish a green baseline, then after each change to verify zero regressions. If any test fails after an optimization, the optimization introduced a bug -- revert and investigate.
 

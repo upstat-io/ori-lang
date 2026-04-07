@@ -1,0 +1,19 @@
+// TPR-07-016 semantic pin: conditional take-project path. On the
+// runtime path where the projection never actually runs, the source
+// enum must still drop. TPR-07-011 suppressed the source's RcDec
+// function-globally; this test asserts path sensitivity — the
+// drop is only suppressed on paths that actually execute the move.
+
+type MaybeIter = Empty | Holds(it: Iterator<int>);
+
+@main () -> int = {
+    let x: MaybeIter = Holds(it: [1, 2, 3].iter());
+    let flag = false;
+    if flag then
+        match x {
+            Empty -> 0,
+            Holds(it) -> it.count()
+        }
+    else
+        0
+}

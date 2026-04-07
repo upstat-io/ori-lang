@@ -206,8 +206,8 @@ fn real_main() {
                 eprintln!();
                 eprintln!("Examples:");
                 eprintln!("  ori target list");
-                eprintln!("  ori target add wasm32-wasi");
-                eprintln!("  ori target remove wasm32-wasi");
+                eprintln!("  ori target add wasm32-unknown-wasip1");
+                eprintln!("  ori target remove wasm32-unknown-wasip1");
                 std::process::exit(1);
             }
 
@@ -397,7 +397,7 @@ fn print_usage() {
     println!("  ori check lib.ori --test-enforcement=error");
     println!("  ori targets                     # List supported targets");
     println!("  ori target list                 # List installed targets");
-    println!("  ori target add wasm32-wasi      # Install WASI target");
+    println!("  ori target add wasm32-unknown-wasip1  # Install WASI Preview1 target");
     println!("  ori demangle _ori_main          # Decode mangled symbol");
     println!("  ori fmt                         # Format all files");
     println!("  ori fmt --check                 # Check formatting (for CI)");

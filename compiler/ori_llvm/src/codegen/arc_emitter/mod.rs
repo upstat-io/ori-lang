@@ -331,6 +331,133 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
         }
     }
 
+    // §07.3.A — tagged pointer encoder/decoder helpers.
+    //
+    // A tagged-pointer enum value is a single `i64` slot containing
+    // `(payload_ptr | variant_tag)`. The low 3 bits hold the variant
+    // discriminant (0..7); the high 61 bits hold either an 8-byte-aligned
+    // heap pointer or zero (for unit variants).
+    //
+    // These helpers mirror `niche_is_sentinel`'s pattern: pure LLVM IR
+    // emission, no `EnumRepr`/`TagEncoding` dependency. Callers (Construct,
+    // Project, Switch, RcInc/Dec, Drop) decide WHEN to use them based on
+    // `get_tagged_ptr_encoding()`.
+    //
+    // Spec: §07.3 (tagged pointer encoding), §07.0 (codegen consumer
+    // inventory). The wired consumers in §07.3.A all flow through these
+    // three primitives — never re-derive the masks at call sites.
+
+    /// Encode a payload pointer with a variant tag into the i64 slot.
+    ///
+    /// `result = (ptr_as_int & TAGGED_PTR_PTR_MASK) | tag`
+    ///
+    /// In debug builds, asserts that the low 3 bits of `payload_ptr` are
+    /// zero (i.e., the pointer is 8-byte aligned). The mask is applied
+    /// unconditionally so the encoding is robust to slightly misaligned
+    /// inputs in release builds, but the assert catches alignment bugs
+    /// at the source.
+    ///
+    /// `payload_ptr` may be either an LLVM pointer or an integer that
+    /// already represents a pointer (e.g., from a prior `ptrtoint`).
+    /// Unit variants pass an integer zero (no payload to encode).
+    #[allow(
+        dead_code,
+        reason = "§07.3.A — wired by codegen consumers in subsequent commits"
+    )]
+    pub(super) fn tagged_ptr_encode(
+        &mut self,
+        payload_ptr: super::value_id::ValueId,
+        variant_tag: u32,
+        name: &str,
+    ) -> super::value_id::ValueId {
+        let i64_ty = self.builder.i64_type();
+        let as_int = if self.builder.is_pointer_value(payload_ptr) {
+            self.builder
+                .ptr_to_int(payload_ptr, i64_ty, &format!("{name}.p2i"))
+        } else {
+            payload_ptr
+        };
+        let ptr_mask = self
+            .builder
+            .const_i64(tag_access::TagEncoding::TAGGED_PTR_PTR_MASK as i64);
+        let cleared = self
+            .builder
+            .and(as_int, ptr_mask, &format!("{name}.cleared"));
+        let tag_const = self.builder.const_i64(i64::from(variant_tag));
+        self.builder.or(cleared, tag_const, name)
+    }
+
+    /// Extract the variant discriminant (low 3 bits) from a tagged-pointer
+    /// encoded value.
+    ///
+    /// `result = encoded & TAGGED_PTR_TAG_MASK`
+    ///
+    /// The result is an `i64` in `[0, 7]`. Switch terminators that need a
+    /// narrower type (e.g., `i8`) should `trunc` the result themselves —
+    /// keeping the helper width-agnostic avoids hardcoding tag widths here.
+    ///
+    /// Accepts either an i64 value or an LLVM pointer. Pointers are
+    /// converted via `ptrtoint` so the helper is robust to either form
+    /// (e.g., the encoded value loaded from an `i64` slot vs. carried in
+    /// an `RcPointer` value through ARC IR).
+    #[allow(
+        dead_code,
+        reason = "§07.3.A — wired by codegen consumers in subsequent commits"
+    )]
+    pub(super) fn tagged_ptr_decode_tag(
+        &mut self,
+        encoded: super::value_id::ValueId,
+        name: &str,
+    ) -> super::value_id::ValueId {
+        let i64_ty = self.builder.i64_type();
+        let as_int = if self.builder.is_pointer_value(encoded) {
+            self.builder
+                .ptr_to_int(encoded, i64_ty, &format!("{name}.p2i"))
+        } else {
+            encoded
+        };
+        let tag_mask = self
+            .builder
+            .const_i64(tag_access::TagEncoding::TAGGED_PTR_TAG_MASK as i64);
+        self.builder.and(as_int, tag_mask, name)
+    }
+
+    /// Extract the payload pointer (high 61 bits) from a tagged-pointer
+    /// encoded value.
+    ///
+    /// `result = (encoded & TAGGED_PTR_PTR_MASK) as ptr`
+    ///
+    /// Returns an LLVM pointer (via `inttoptr`). For unit variants the
+    /// resulting pointer is null — callers MUST guard pointer dereferences
+    /// behind a tag check (`tagged_ptr_decode_tag` + variant predicate).
+    ///
+    /// Accepts either an i64 value or an LLVM pointer (converted via
+    /// `ptrtoint` first), matching `tagged_ptr_decode_tag`.
+    #[allow(
+        dead_code,
+        reason = "§07.3.A — wired by codegen consumers in subsequent commits"
+    )]
+    pub(super) fn tagged_ptr_decode_ptr(
+        &mut self,
+        encoded: super::value_id::ValueId,
+        name: &str,
+    ) -> super::value_id::ValueId {
+        let i64_ty = self.builder.i64_type();
+        let as_int = if self.builder.is_pointer_value(encoded) {
+            self.builder
+                .ptr_to_int(encoded, i64_ty, &format!("{name}.p2i"))
+        } else {
+            encoded
+        };
+        let ptr_mask = self
+            .builder
+            .const_i64(tag_access::TagEncoding::TAGGED_PTR_PTR_MASK as i64);
+        let cleared = self
+            .builder
+            .and(as_int, ptr_mask, &format!("{name}.cleared"));
+        self.builder.int_to_ptr(cleared, name)
+    }
+
     /// §07.2: Get the `TagEncoding` for an enum type, if it uses niche encoding.
     ///
     /// Returns `Some(encoding)` only when the type has a niche or tagless `EnumTag`.
@@ -349,7 +476,11 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
                 ori_repr::EnumTag::Niche { .. } | ori_repr::EnumTag::None => {
                     Some(tag_access::TagEncoding::from_enum_repr(enum_repr))
                 }
-                ori_repr::EnumTag::Explicit { .. } => None,
+                // Niche-only fast path. `TaggedPtr` is dispatched separately
+                // via `get_tagged_ptr_encoding()` (§07.3.A) — this query
+                // intentionally returns `None` so the niche-specific code
+                // paths skip tagged-ptr enums.
+                ori_repr::EnumTag::Explicit { .. } | ori_repr::EnumTag::TaggedPtr => None,
             };
         }
 
@@ -364,7 +495,57 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
                     ori_repr::EnumTag::Niche { .. } | ori_repr::EnumTag::None => {
                         Some(tag_access::TagEncoding::from_enum_repr(&enum_repr))
                     }
-                    ori_repr::EnumTag::Explicit { .. } => None,
+                    ori_repr::EnumTag::Explicit { .. } | ori_repr::EnumTag::TaggedPtr => None,
+                };
+            }
+        }
+
+        None
+    }
+
+    /// Look up the tagged-pointer encoding for an enum type, if present.
+    ///
+    /// Mirrors [`get_niche_encoding`] but returns `Some` only for
+    /// `EnumTag::TaggedPtr`. Used by §07.3.A codegen consumers to dispatch
+    /// to tagged-pointer encode/decode paths instead of struct-based GEP.
+    ///
+    /// Returns `None` when:
+    /// - The type has no `ReprPlan` entry (variable residue).
+    /// - The type is not an enum.
+    /// - The enum uses `Explicit`, `Niche`, or `None` tagging.
+    #[allow(
+        dead_code,
+        reason = "§07.3.A — wired by codegen consumers in subsequent commits"
+    )]
+    pub(super) fn get_tagged_ptr_encoding(&self, ty: Idx) -> Option<tag_access::TagEncoding> {
+        self.repr_plan?;
+        let resolved = self.pool.resolve_fully(ty);
+
+        if let Some(enum_repr) = self.repr_plan.unwrap().get_enum_repr(resolved) {
+            return match &enum_repr.tag {
+                ori_repr::EnumTag::TaggedPtr => {
+                    Some(tag_access::TagEncoding::from_enum_repr(enum_repr))
+                }
+                ori_repr::EnumTag::Explicit { .. }
+                | ori_repr::EnumTag::Niche { .. }
+                | ori_repr::EnumTag::None => None,
+            };
+        }
+
+        // Fallback: recompute canonical for types not in the plan.
+        let tag = self.pool.tag(resolved);
+        if matches!(
+            tag,
+            ori_types::Tag::Option | ori_types::Tag::Result | ori_types::Tag::Enum
+        ) {
+            if let Some(enum_repr) = ori_repr::canonical_enum_for_type(self.pool, resolved) {
+                return match &enum_repr.tag {
+                    ori_repr::EnumTag::TaggedPtr => {
+                        Some(tag_access::TagEncoding::from_enum_repr(&enum_repr))
+                    }
+                    ori_repr::EnumTag::Explicit { .. }
+                    | ori_repr::EnumTag::Niche { .. }
+                    | ori_repr::EnumTag::None => None,
                 };
             }
         }

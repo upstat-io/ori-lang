@@ -16,6 +16,23 @@ Bugs in the CLI (`ori run`, `ori check`, `ori test`, `ori fmt`), formatter, diag
 
 ## Open Bugs
 
+- [ ] `[BUG-07-005][low]` **Orphan env vars `ORI_NO_REPR_OPT` and `ORI_VERIFY_ARC` are read in source but not registered in `compiler/oric/src/debug_flags.rs`** — found by continue-roadmap.
+  **Repro**: `diagnostics/check-debug-flags.sh` reports two ORPHAN entries:
+  - `ORI_NO_REPR_OPT` — read at `compiler/ori_repr/src/plan/query.rs:36`
+  - `ORI_VERIFY_ARC` — read at `compiler/oric/src/commands/codegen_pipeline.rs:381`, `compiler/oric/src/arc_dump/mod.rs:68`, `compiler/oric/src/arc_dot/mod.rs:60`
+  **Impact**: Low — neither flag is broken at runtime; the consistency check fails (`diagnostics/self-test.sh` shows `check-debug-flags.sh FAIL`) and both flags are undocumented in CLAUDE.md. New users can't discover them.
+  **Suggested fix**: Either (a) add both flags to `compiler/oric/src/debug_flags.rs` (`Flag` enum + `from_env_var` mapping + CLAUDE.md doc), or (b) remove the orphan call sites if the flags are obsolete. Surfaced during TPR-07-019 retrospective when running `diagnostics/self-test.sh` to verify the new `arc-dump.sh` script — neither flag is related to TPR-07-019 itself.
+  Subsystem: `compiler/oric/src/debug_flags.rs` (registry) + the listed orphan call sites
+  Found: 2026-04-07 | Source: continue-roadmap
+  Note: `ORI_NO_REPR_OPT` is in active repr-opt territory; coordinate with the repr-opt reroute owner before removing.
+
+- [ ] `[BUG-07-004][low]` **AOT test harness does not invalidate stale binaries when cross-crate deps change** — found by tpr-review.
+  **Repro**: Make a change in `ori_arc` (e.g., the `apply_consuming_overrides` logic) that affects generated code. Run `cargo test -p ori_llvm --test aot <specific_test>` without touching `tests/aot/main.rs`. The test binary is rebuilt but `assert_aot_success` produces stale results — touching `tests/aot/main.rs` to force a full rebuild picks up transitive crate changes and tests pass. Observed twice during TPR-07-008 investigation: first with the initial triviality flip, again after the `annotate.rs` type-aware override.
+  **Impact**: False "test failures" when iterating on cross-crate fixes. Wastes time chasing regressions that were already fixed.
+  **Suggested fix**: AOT test util should either (a) include a build timestamp in the binary path so stale binaries are never reused, (b) invoke a cache-busting `cargo build -p oric` before each test run, or (c) use `cargo metadata` or file mtimes to detect dep-graph changes.
+  Subsystem: `compiler/ori_llvm/tests/aot/util/aot.rs`
+  Found: 2026-04-06 | Source: tpr-review (TPR-07-008)
+
 - [x] `[BUG-07-001][medium]` **`--target` with missing/invalid value should show valid targets** — found by manual.
   Resolved: OBE on 2026-04-02. Target validation now active — `ori build --target=foo` emits `error[E5004]: target 'foo' is not supported` with full list of supported targets.
   Repro: `ori build hello.ori --target=` or `ori build hello.ori --target=foo`

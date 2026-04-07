@@ -205,6 +205,19 @@ pub(crate) fn find_enum_niches(e: &EnumRepr) -> Vec<Niche> {
                 vec![]
             }
         }
+        EnumTag::TaggedPtr => {
+            // §07.3: Tagged-pointer enums encode the discriminant in the
+            // low 3 bits of an 8-byte-aligned pointer slot. All 8 tag values
+            // are reserved for variant discriminators (the eligibility check
+            // caps the variant count at 8). The high 61 bits hold either a
+            // heap pointer or zero for unit variants.
+            //
+            // No niches are exposed: an outer enum cannot reuse the inner
+            // tagged-pointer value space without a custom analysis that
+            // understands which (tag, high-bits) pairs are unreachable.
+            // That analysis is intentionally out of scope for §07.3.
+            vec![]
+        }
     }
 }
 

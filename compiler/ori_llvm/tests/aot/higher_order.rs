@@ -289,6 +289,69 @@ fn test_hof_multiple_functions_with_lambdas() {
     );
 }
 
+// ─── Root Cause E: multi-lambda arity/type selection ───
+
+#[test]
+fn test_hof_multi_lambda_different_arities() {
+    // Two lambdas with different arities in the same function.
+    // Regression: find_concrete_copy_of must not pick a 2-param type for a 1-param lambda.
+    assert_aot_success(
+        include_str!("fixtures/higher_order/hof_multi_lambda_different_arities.ori"),
+        "hof_multi_lambda_diff_arities",
+    );
+}
+
+#[test]
+fn test_hof_multi_lambda_same_arity_diff_types() {
+    // Two lambdas with same arity but different param types.
+    // Regression: find_concrete_copy_of must match type, not just arity.
+    assert_aot_success(
+        include_str!("fixtures/higher_order/hof_multi_lambda_same_arity_diff_types.ori"),
+        "hof_multi_lambda_same_arity",
+    );
+}
+
+#[test]
+fn test_hof_three_lambdas_mixed() {
+    // Three lambdas (1-param, 2-param, 3-param) in one function.
+    // Regression: type selection handles 3+ lambdas without cross-contamination.
+    assert_aot_success(
+        include_str!("fixtures/higher_order/hof_three_lambdas_mixed.ori"),
+        "hof_three_lambdas_mixed",
+    );
+}
+
+// ─── Root Cause F: curried concat calling convention ───
+
+#[test]
+fn test_hof_curried_list_concat() {
+    // Curried lambda with list `+` (ori_list_concat_cow).
+    // Regression: wrong type selection caused invalid elem_ty → SIGSEGV.
+    assert_aot_success(
+        include_str!("fixtures/higher_order/hof_curried_list_concat.ori"),
+        "hof_curried_list_concat",
+    );
+}
+
+#[test]
+fn test_hof_curried_str_concat() {
+    // Curried lambda with string `+` (sret calling convention).
+    assert_aot_success(
+        include_str!("fixtures/higher_order/hof_curried_str_concat.ori"),
+        "hof_curried_str_concat",
+    );
+}
+
+#[test]
+fn test_hof_multi_lambda_semantic_pin() {
+    // Semantic pin: negate (unary) and diff (binary) must each get the correct
+    // concrete type. If arity-blind type selection picks the wrong one, this fails.
+    assert_aot_success(
+        include_str!("fixtures/higher_order/hof_multi_lambda_semantic_pin.ori"),
+        "hof_multi_lambda_semantic_pin",
+    );
+}
+
 #[test]
 fn test_hof_two_noncapturing_in_different_functions() {
     // Non-capturing lambdas in different functions — tests name collision
@@ -551,14 +614,14 @@ fn test_multi_inst_no_stale_original_in_ir() {
             .join("\n")
     );
 
-    // Verify specialized clones DO exist (with $NNN suffix).
+    // Verify specialized clones DO exist (with __monoN suffix).
     let has_clone = ir
         .lines()
-        .any(|l| l.starts_with("define ") && l.contains("@\"_ori___lambda_main_0$"));
+        .any(|l| l.starts_with("define ") && l.contains("@_ori___lambda_main_0__mono"));
     assert!(
         has_clone,
         "no specialized lambda clones found in IR — \
-         expected _ori___lambda_main_0$NNN functions"
+         expected _ori___lambda_main_0__monoN functions"
     );
 
     // Verify no "unresolved type variable" error in compilation output.

@@ -1,0 +1,11 @@
+// TPR-07-008 semantic pin: iterator in tagged-pointer enum must be
+// dropped via `ori_iter_drop` at scope exit. Before the fix, this
+// program leaks (exit code 2 under ORI_CHECK_LEAKS=1) because
+// iterators were classified as trivial.
+
+type MaybeIter = Empty | Holds(it: Iterator<int>);
+
+@main () -> int = {
+    let _x: MaybeIter = Holds(it: [1, 2, 3].iter());
+    0
+}

@@ -6,14 +6,85 @@ use super::{slice_source, span, CookResult, TokenCooker};
 use crate::lex_error::LexError;
 use crate::parse_helpers::parse_int_skip_underscores;
 
+/// Trait abstracting over duration/size unit cooking behavior.
+///
+/// The cooking skeleton for duration and size literals is identical — detect
+/// suffix, parse numeric part (decimal or integer), validate, build token.
+/// The differences live in the unit-specific methods of this trait:
+/// multiplier, integer validation (which encapsulates the semantic asymmetry),
+/// and token construction.
+trait UnitCooking: Copy {
+    /// Multiplier to convert from this unit to base units (nanoseconds or bytes).
+    fn multiplier(self) -> u64;
+
+    /// Validate that `value` in this unit is representable.
+    ///
+    /// Duration: `to_nanos(value).is_some()` — `i64` check is internal.
+    /// Size: `to_bytes(value).is_some_and(|b| i64::try_from(b).is_ok())` —
+    ///   returns `u64`, so the `i64` check must be external.
+    fn validate_integer(self, value: u64) -> bool;
+
+    /// Build a `TokenKind` for an integer literal with the original unit preserved.
+    fn make_integer_kind(self, value: u64) -> TokenKind;
+
+    /// Build a `TokenKind` for a decimal literal normalized to base units.
+    fn make_decimal_kind(base_value: u64) -> TokenKind;
+}
+
+impl UnitCooking for DurationUnit {
+    fn multiplier(self) -> u64 {
+        self.nanos_multiplier()
+    }
+
+    fn validate_integer(self, value: u64) -> bool {
+        self.to_nanos(value).is_some()
+    }
+
+    fn make_integer_kind(self, value: u64) -> TokenKind {
+        TokenKind::Duration(value, self)
+    }
+
+    fn make_decimal_kind(base_value: u64) -> TokenKind {
+        TokenKind::Duration(base_value, DurationUnit::Nanoseconds)
+    }
+}
+
+impl UnitCooking for SizeUnit {
+    fn multiplier(self) -> u64 {
+        self.bytes_multiplier()
+    }
+
+    fn validate_integer(self, value: u64) -> bool {
+        self.to_bytes(value)
+            .is_some_and(|b| i64::try_from(b).is_ok())
+    }
+
+    fn make_integer_kind(self, value: u64) -> TokenKind {
+        TokenKind::Size(value, self)
+    }
+
+    fn make_decimal_kind(base_value: u64) -> TokenKind {
+        TokenKind::Size(base_value, SizeUnit::Bytes)
+    }
+}
+
 impl TokenCooker<'_> {
-    pub(super) fn cook_duration(&mut self, offset: u32, len: u32) -> CookResult {
+    /// Shared cooking skeleton for unit literals (duration and size).
+    ///
+    /// Both duration and size literals follow this exact algorithm:
+    /// detect suffix → extract numeric part → decimal or integer parse →
+    /// validate → build token. The unit-specific behavior is encapsulated
+    /// in the [`UnitCooking`] trait implementations.
+    fn cook_unit_literal<U: UnitCooking>(
+        &mut self,
+        offset: u32,
+        len: u32,
+        detect_suffix: fn(&str) -> (usize, U),
+    ) -> CookResult {
         let text = slice_source(self.source, offset, len);
 
-        // Detect suffix by matching from the end
-        let (suffix_len, unit) = detect_duration_suffix(text);
+        let (suffix_len, unit) = detect_suffix(text);
         if suffix_len == 0 {
-            // Shouldn't happen with valid raw tokens, but be safe
             self.errors.push(LexError::int_overflow(span(offset, len)));
             return CookResult::with_error(TokenKind::Error);
         }
@@ -21,13 +92,9 @@ impl TokenCooker<'_> {
         let num_part = &text[..text.len() - suffix_len];
 
         if num_part.contains('.') {
-            // Decimal duration: convert to nanoseconds via integer arithmetic.
-            // Spec: "Decimal syntax is compile-time sugar computed via integer
-            // arithmetic — no floating-point operations are involved."
-            if let Some(nanos) = parse_decimal_unit_value(num_part, unit.nanos_multiplier()) {
-                // Decimal nanos are already base units; validate i64 bounds.
-                if i64::try_from(nanos).is_ok() {
-                    CookResult::new(TokenKind::Duration(nanos, DurationUnit::Nanoseconds))
+            if let Some(base_value) = parse_decimal_unit_value(num_part, unit.multiplier()) {
+                if i64::try_from(base_value).is_ok() {
+                    CookResult::new(U::make_decimal_kind(base_value))
                 } else {
                     self.errors.push(LexError::int_overflow(span(offset, len)));
                     CookResult::with_error(TokenKind::Error)
@@ -38,9 +105,8 @@ impl TokenCooker<'_> {
                 CookResult::with_error(TokenKind::Error)
             }
         } else if let Some(value) = parse_int_skip_underscores(num_part, 10) {
-            // Validate: value * nanos_multiplier must fit i64
-            if unit.to_nanos(value).is_some() {
-                CookResult::new(TokenKind::Duration(value, unit))
+            if unit.validate_integer(value) {
+                CookResult::new(unit.make_integer_kind(value))
             } else {
                 self.errors.push(LexError::int_overflow(span(offset, len)));
                 CookResult::with_error(TokenKind::Error)
@@ -51,47 +117,12 @@ impl TokenCooker<'_> {
         }
     }
 
+    pub(super) fn cook_duration(&mut self, offset: u32, len: u32) -> CookResult {
+        self.cook_unit_literal(offset, len, detect_duration_suffix)
+    }
+
     pub(super) fn cook_size(&mut self, offset: u32, len: u32) -> CookResult {
-        let text = slice_source(self.source, offset, len);
-
-        let (suffix_len, unit) = detect_size_suffix(text);
-        if suffix_len == 0 {
-            self.errors.push(LexError::int_overflow(span(offset, len)));
-            return CookResult::with_error(TokenKind::Error);
-        }
-
-        let num_part = &text[..text.len() - suffix_len];
-
-        if num_part.contains('.') {
-            // Decimal size: convert to bytes via integer arithmetic.
-            if let Some(bytes) = parse_decimal_unit_value(num_part, unit.bytes_multiplier()) {
-                // LLVM codegen casts bytes to i64; validate i64 bounds.
-                if i64::try_from(bytes).is_ok() {
-                    CookResult::new(TokenKind::Size(bytes, SizeUnit::Bytes))
-                } else {
-                    self.errors.push(LexError::int_overflow(span(offset, len)));
-                    CookResult::with_error(TokenKind::Error)
-                }
-            } else {
-                self.errors
-                    .push(LexError::decimal_not_representable(span(offset, len)));
-                CookResult::with_error(TokenKind::Error)
-            }
-        } else if let Some(value) = parse_int_skip_underscores(num_part, 10) {
-            // Validate: value * bytes_multiplier must not overflow AND fit i64.
-            if unit
-                .to_bytes(value)
-                .is_some_and(|b| i64::try_from(b).is_ok())
-            {
-                CookResult::new(TokenKind::Size(value, unit))
-            } else {
-                self.errors.push(LexError::int_overflow(span(offset, len)));
-                CookResult::with_error(TokenKind::Error)
-            }
-        } else {
-            self.errors.push(LexError::int_overflow(span(offset, len)));
-            CookResult::with_error(TokenKind::Error)
-        }
+        self.cook_unit_literal(offset, len, detect_size_suffix)
     }
 }
 

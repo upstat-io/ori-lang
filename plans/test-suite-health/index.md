@@ -2,8 +2,8 @@
 reroute: true
 name: "Test Health"
 full_name: "Test Suite Health: LCFail Elimination & Performance Optimization"
-status: queued
-order: 1
+status: active
+order: 4
 ---
 
 # Test Suite Health Index

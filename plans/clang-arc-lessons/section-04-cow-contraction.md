@@ -115,6 +115,8 @@ Add a compound COW instruction to ARC IR that represents the entire uniqueness-c
 
   **Conservative default for new arms:** In analysis passes that don't need special handling for `CowMutate`, treat it the same as `Set` (mutation semantics). In RC emission, treat the `src` and `value` operands as used, `dst` as defined.
 
+- [ ] **Subsection close-out (04.1)** — MANDATORY before starting the next subsection. Run `/improve-tooling` retrospectively on THIS subsection's debugging journey (per `.claude/skills/improve-tooling/SKILL.md` "Per-Subsection Workflow"): which `diagnostics/` scripts you ran, where you added `dbg!`/`tracing` calls, where output was hard to interpret, where test failures gave unhelpful messages, where you ran the same command sequence repeatedly. Forward-look: what tool/log/diagnostic would shorten the next regression in this code path by 10 minutes? Implement improvements NOW (zero deferral) and commit each via SEPARATE `/commit-push` using a valid conventional-commit type (`build(diagnostics): ... — surfaced by section-04.1 retrospective` — `build`/`test`/`chore`/`ci`/`docs` are valid; `tools(...)` is rejected by the lefthook commit-msg hook). Mandatory even when nothing felt painful. If genuinely no gaps, document briefly: "Retrospective 04.1: no tooling gaps". Update this subsection's `status` in section frontmatter to `complete`.
+
 ---
 
 ## 04.2 Implement COW Contraction Pass
@@ -184,6 +186,8 @@ Pattern-match COW sequences and replace with `CowMutate`.
 
 **Semantic pin:** Test that a COW mutation program produces identical output with and without contraction enabled. Use a flag (or the `ORI_SKIP_ARC_OPTS` env var from Section 06) to disable contraction and compare outputs.
 
+- [ ] **Subsection close-out (04.2)** — MANDATORY before starting the next subsection. Run `/improve-tooling` retrospectively on THIS subsection's debugging journey (per `.claude/skills/improve-tooling/SKILL.md` "Per-Subsection Workflow"): which `diagnostics/` scripts you ran, where you added `dbg!`/`tracing` calls, where output was hard to interpret, where test failures gave unhelpful messages, where you ran the same command sequence repeatedly. Forward-look: what tool/log/diagnostic would shorten the next regression in this code path by 10 minutes? Implement improvements NOW (zero deferral) and commit each via SEPARATE `/commit-push` using a valid conventional-commit type (`build(diagnostics): ... — surfaced by section-04.2 retrospective` — `build`/`test`/`chore`/`ci`/`docs` are valid; `tools(...)` is rejected by the lefthook commit-msg hook). Mandatory even when nothing felt painful. If genuinely no gaps, document briefly: "Retrospective 04.2: no tooling gaps". Update this subsection's `status` in section frontmatter to `complete`.
+
 ---
 
 ## 04.3 LLVM Emission for Compound COW
@@ -243,6 +247,8 @@ Emit efficient LLVM IR for `CowMutate` instructions.
 
 - [ ] **TPR checkpoint** -- `/tpr-review` covering 04.3 LLVM emission implementation
 
+- [ ] **Subsection close-out (04.3)** — MANDATORY before starting the next subsection. Run `/improve-tooling` retrospectively on THIS subsection's debugging journey (per `.claude/skills/improve-tooling/SKILL.md` "Per-Subsection Workflow"): which `diagnostics/` scripts you ran, where you added `dbg!`/`tracing` calls, where output was hard to interpret, where test failures gave unhelpful messages, where you ran the same command sequence repeatedly. Forward-look: what tool/log/diagnostic would shorten the next regression in this code path by 10 minutes? Implement improvements NOW (zero deferral) and commit each via SEPARATE `/commit-push` using a valid conventional-commit type (`build(diagnostics): ... — surfaced by section-04.3 retrospective` — `build`/`test`/`chore`/`ci`/`docs` are valid; `tools(...)` is rejected by the lefthook commit-msg hook). Mandatory even when nothing felt painful. If genuinely no gaps, document briefly: "Retrospective 04.3: no tooling gaps". Update this subsection's `status` in section frontmatter to `complete`.
+
 ---
 
 ## 04.4 Runtime Intrinsic Evaluation
@@ -261,6 +267,8 @@ Evaluate whether inlined LLVM IR or a runtime intrinsic is more efficient for co
   - If a runtime intrinsic is measurably better (>5% improvement on COW-heavy benchmarks): implement `ori_cow_mutate_field(data, field_offset, new_value, elem_size)` in `ori_rt` with `extern "C"` ABI and update the LLVM emitter to call it for `Dynamic` mode.
 
 **This subsection is a profiling gate, not deferred work.** The deliverable is either (a) measurements proving inlined IR is sufficient, or (b) the runtime intrinsic implementation.
+
+- [ ] **Subsection close-out (04.4)** — MANDATORY before starting the next subsection. Run `/improve-tooling` retrospectively on THIS subsection's debugging journey (per `.claude/skills/improve-tooling/SKILL.md` "Per-Subsection Workflow"): which `diagnostics/` scripts you ran, where you added `dbg!`/`tracing` calls, where output was hard to interpret, where test failures gave unhelpful messages, where you ran the same command sequence repeatedly. Forward-look: what tool/log/diagnostic would shorten the next regression in this code path by 10 minutes? Implement improvements NOW (zero deferral) and commit each via SEPARATE `/commit-push` using a valid conventional-commit type (`build(diagnostics): ... — surfaced by section-04.4 retrospective` — `build`/`test`/`chore`/`ci`/`docs` are valid; `tools(...)` is rejected by the lefthook commit-msg hook). Mandatory even when nothing felt painful. If genuinely no gaps, document briefly: "Retrospective 04.4: no tooling gaps". Update this subsection's `status` in section frontmatter to `complete`.
 
 ---
 
@@ -289,6 +297,7 @@ Evaluate whether inlined LLVM IR or a runtime intrinsic is more efficient for co
 - [ ] Plan annotation cleanup: `bash .claude/skills/impl-hygiene-review/plan-annotations.sh --plan 04` returns 0 annotations
 - [ ] All intermediate TPR checkpoint findings resolved
 - [ ] `/tpr-review` passed — independent Codex review found no critical or major issues
-- [ ] `/impl-hygiene-review last commit` passed — hygiene review clean
+- [ ] `/impl-hygiene-review` passed — hygiene review clean
+- [ ] `/improve-tooling` retrospective completed — MANDATORY at section close, after both reviews are clean. Reflect on the section's debugging journey (which `diagnostics/` scripts you ran, which command sequences you repeated, where you added ad-hoc `dbg!`/`tracing` calls, where output was hard to interpret) and identify any tool/log/diagnostic improvement that would have made this section materially easier OR that would help the next section touching this area. Implement every accepted improvement NOW (zero deferral) and commit each via SEPARATE `/commit-push`. The retrospective is mandatory even when nothing felt painful — that is exactly when blind spots accumulate. See `.claude/skills/improve-tooling/SKILL.md` "Retrospective Mode" for the full protocol.
 
 **Exit Criteria:** `ORI_LOG=ori_arc=info ori build` shows `cow_contractions > 0` on programs with COW mutations. All 3 `CowMode` variants emit correct LLVM IR verified by AOT tests. `ORI_CHECK_LEAKS=1` reports zero leaks. Program behavior identical with and without contraction.

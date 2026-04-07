@@ -1,0 +1,53 @@
+// Spec: §07.2 Niche Filling — Option<char> niche optimization
+// Regression: repr-opt section-07 — niche-encoded Option<char> match correctness
+// When niche optimization is active, Option<char> is 4 bytes:
+//   Some(c) = codepoint value, None = 0x110000 (one past max valid Unicode)
+// Boundary: last valid Unicode codepoint is U+10FFFF
+
+use std.testing { assert_eq }
+
+@test_option_char_some_ascii tests @option_char_some_ascii () -> void = {
+    assert_eq(actual: option_char_some_ascii(), expected: "a")
+}
+
+@option_char_some_ascii () -> str = {
+    let $x: Option<char> = Some('a');
+    match x {
+        Some(c) -> `{c}`,
+        None -> "none"
+    }
+}
+
+@test_option_char_some_max_unicode tests @option_char_some_max_unicode () -> void = {
+    assert_eq(actual: option_char_some_max_unicode(), expected: true)
+}
+
+@option_char_some_max_unicode () -> bool = {
+    let $x: Option<char> = Some('\u{10FFFF}');
+    is_some(option: x)
+}
+
+@test_option_char_none tests @option_char_none () -> void = {
+    assert_eq(actual: option_char_none(), expected: "none")
+}
+
+@option_char_none () -> str = {
+    let $x: Option<char> = None;
+    match x {
+        Some(c) -> `{c}`,
+        None -> "none"
+    }
+}
+
+// === Distinctness ===
+
+@test_option_char_all_distinct tests @option_char_all_distinct () -> void = {
+    assert_eq(actual: option_char_all_distinct(), expected: true)
+}
+
+@option_char_all_distinct () -> bool = {
+    let $a: Option<char> = Some('a');
+    let $b: Option<char> = Some('z');
+    let $c: Option<char> = None;
+    a != b && a != c && b != c
+}

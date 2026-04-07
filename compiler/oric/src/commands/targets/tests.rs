@@ -32,15 +32,17 @@ mod llvm_tests {
 
     #[test]
     fn test_supported_targets_triple_format() {
-        // All targets should follow standard format: arch-vendor-os[-env] or arch-os (WASM)
+        // All targets must follow the LLVM canonical 3+ component format:
+        // `arch-vendor-os[-env]`. WASM targets are no exception — the
+        // historical 2-component Rust short form `wasm32-wasi` was deprecated
+        // upstream in May 2024 (Rust 1.78) in favor of `wasm32-wasip1`, and
+        // Ori uses the canonical 3-component spelling `wasm32-unknown-wasip1`.
+        // This invariant is what `TargetTripleComponents::parse()` enforces.
         for target in SUPPORTED_TARGETS {
             let parts: Vec<&str> = target.split('-').collect();
-            // WASM targets use 2-part format (wasm32-unknown-unknown, wasm32-wasi)
-            // Standard targets use 3+ parts (arch-vendor-os[-env])
-            let min_parts = if target.starts_with("wasm") { 2 } else { 3 };
             assert!(
-                parts.len() >= min_parts,
-                "target '{target}' should have at least {min_parts} parts"
+                parts.len() >= 3,
+                "target '{target}' must have at least 3 parts (arch-vendor-os[-env])"
             );
         }
     }

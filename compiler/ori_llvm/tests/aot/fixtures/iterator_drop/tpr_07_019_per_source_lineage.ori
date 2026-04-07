@@ -1,0 +1,55 @@
+// TPR-07-019 semantic pin: per-source bypass-safe lineage split.
+//
+// Two independent phi-merge consumers, each holding a take-project
+// source enum constructed from two alternative branches. The shape
+// exercises the new per-source / per-lineage bypass-safe analysis:
+//
+// 1. Bidirectional Let propagation in `compute_lineage` is required:
+//    the take-project source variable visible at the `Project`
+//    instruction is the downstream Let alias (e.g. `%19 = %17`),
+//    while the actual enum that needs the bypass-safe scope-exit
+//    drop is the upstream alias (`%17`, the merge-block param).
+//    Forward-only Let propagation would miss the upstream alias and
+//    leak it on every bypass path through the conditional.
+//
+// 2. Per-source / per-lineage intersection ensures that two distinct
+//    take-project consumers in the same function each see their own
+//    bypass-safe set, even when their alias chains share structure.
+//    Pre-TPR-07-019 the per-class merged `tp_blocks` would shrink
+//    each consumer's set incorrectly when the membership union
+//    over-approximated via phi.
+//
+// Runtime: pick1 = false → consume `[4, 5, 6]` via `count()` → 3.
+// pick2 = false → consume `[10, 11, 12]` via `count()` → 3.
+// r1 + r2 - 6 = 0 regardless of which iterator length runs, so
+// `assert_aot_success` (exit 0 + leak check) is the only pass mode.
+//
+// Both phi-merge consumers also have an upstream `Holds` Let alias
+// chain (`%17` = phi param ↔ `%19` = `%17` Let alias ↔ Project) that
+// the lineage analysis must walk in BOTH directions. Reverting the
+// bidirectional-Let fix reproduces the original
+// `tpr_07_016/017/019/020 leak 1 RC allocation` regression.
+
+type MaybeIter = Empty | Holds(it: Iterator<int>);
+
+@main () -> int = {
+    let pick1 = false;
+    let pick2 = false;
+    let chosen1: MaybeIter = if pick1 then
+        Holds(it: [1, 2, 3].iter())
+    else
+        Holds(it: [4, 5, 6].iter());
+    let r1 = match chosen1 {
+        Empty -> 0,
+        Holds(it) -> it.count()
+    };
+    let chosen2: MaybeIter = if pick2 then
+        Holds(it: [7, 8, 9].iter())
+    else
+        Holds(it: [10, 11, 12].iter());
+    let r2 = match chosen2 {
+        Empty -> 0,
+        Holds(it) -> it.count()
+    };
+    r1 + r2 - 6
+}

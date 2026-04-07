@@ -1,7 +1,7 @@
 ---
 section: "08"
 title: "File and Function Size Violations"
-status: not-started
+status: in-progress
 reviewed: false
 goal: "Split all 69 production files exceeding the 500-line limit into focused submodules, and decompose 31+ functions exceeding the 100-line limit"
 depends_on: ["01", "02", "03", "04", "05", "06", "07"]
@@ -20,7 +20,7 @@ sections:
     status: not-started
   - id: "08.4"
     title: "Split Remaining Crate Files (27 files)"
-    status: not-started
+    status: in-progress
   - id: "08.5"
     title: "Function Size Violations"
     status: not-started
@@ -71,6 +71,8 @@ Worst offenders (pre-DRY measurements):
 - [ ] `timeout 150 cargo test -p ori_types` after each split to catch broken imports immediately
 - [ ] **Priority order:** Start with the worst offenders (operators.rs 799, registry/traits/mod.rs 765, unify/mod.rs 761) -- these have the clearest logical split points
 
+- [ ] **Subsection close-out (08.1)** — MANDATORY before starting the next subsection. Run `/improve-tooling` retrospectively on THIS subsection's debugging journey (per `.claude/skills/improve-tooling/SKILL.md` "Per-Subsection Workflow"): which `diagnostics/` scripts you ran, where you added `dbg!`/`tracing` calls, where output was hard to interpret, where test failures gave unhelpful messages, where you ran the same command sequence repeatedly. Forward-look: what tool/log/diagnostic would shorten the next regression in this code path by 10 minutes? Implement improvements NOW (zero deferral) and commit each via SEPARATE `/commit-push` using a valid conventional-commit type (`build(diagnostics): ... — surfaced by section-08.1 retrospective` — `build`/`test`/`chore`/`ci`/`docs` are valid; `tools(...)` is rejected by the lefthook commit-msg hook). Mandatory even when nothing felt painful. If genuinely no gaps, document briefly: "Retrospective 08.1: no tooling gaps". Update this subsection's `status` in section frontmatter to `complete`.
+
 ---
 
 ## 08.2 Split ori_llvm/ori_arc Files (17 files)
@@ -94,6 +96,8 @@ Worst offenders (pre-DRY measurements):
 - [ ] Split remaining files at logical boundaries
 - [ ] Verify: `timeout 150 cargo test -p ori_llvm` and `timeout 150 cargo test -p ori_arc` pass
 
+- [ ] **Subsection close-out (08.2)** — MANDATORY before starting the next subsection. Run `/improve-tooling` retrospectively on THIS subsection's debugging journey (per `.claude/skills/improve-tooling/SKILL.md` "Per-Subsection Workflow"): which `diagnostics/` scripts you ran, where you added `dbg!`/`tracing` calls, where output was hard to interpret, where test failures gave unhelpful messages, where you ran the same command sequence repeatedly. Forward-look: what tool/log/diagnostic would shorten the next regression in this code path by 10 minutes? Implement improvements NOW (zero deferral) and commit each via SEPARATE `/commit-push` using a valid conventional-commit type (`build(diagnostics): ... — surfaced by section-08.2 retrospective` — `build`/`test`/`chore`/`ci`/`docs` are valid; `tools(...)` is rejected by the lefthook commit-msg hook). Mandatory even when nothing felt painful. If genuinely no gaps, document briefly: "Retrospective 08.2: no tooling gaps". Update this subsection's `status` in section frontmatter to `complete`.
+
 ---
 
 ## 08.3 Split ori_eval/ori_patterns Files (11 files)
@@ -116,6 +120,8 @@ Worst offenders (pre-DRY measurements):
   - `errors/mod.rs` -- re-exports only (dispatch hub)
 - [ ] `ori_patterns/src/value/composite/mod.rs` (735 lines) -- split composite value types by logical grouping (struct vs enum vs closure)
 - [ ] Split remaining files at logical boundaries
+
+- [ ] **Subsection close-out (08.3)** — MANDATORY before starting the next subsection. Run `/improve-tooling` retrospectively on THIS subsection's debugging journey (per `.claude/skills/improve-tooling/SKILL.md` "Per-Subsection Workflow"): which `diagnostics/` scripts you ran, where you added `dbg!`/`tracing` calls, where output was hard to interpret, where test failures gave unhelpful messages, where you ran the same command sequence repeatedly. Forward-look: what tool/log/diagnostic would shorten the next regression in this code path by 10 minutes? Implement improvements NOW (zero deferral) and commit each via SEPARATE `/commit-push` using a valid conventional-commit type (`build(diagnostics): ... — surfaced by section-08.3 retrospective` — `build`/`test`/`chore`/`ci`/`docs` are valid; `tools(...)` is rejected by the lefthook commit-msg hook). Mandatory even when nothing felt painful. If genuinely no gaps, document briefly: "Retrospective 08.3: no tooling gaps". Update this subsection's `status` in section frontmatter to `complete`.
 
 ---
 
@@ -154,8 +160,10 @@ Covering ori_rt, oric, ori_diagnostic, ori_fmt, ori_parse, ori_ir:
 
 - [ ] Re-measure after Section 01 and 06 DRY work
 - [ ] `ori_parse/src/outcome/mod.rs` -- extract macros to `outcome/macros.rs`
-- [ ] `ori_parse/src/cursor/mod.rs` -- extract identifier methods to `cursor/identifiers.rs`
+- [x] `ori_parse/src/cursor/mod.rs` -- extract identifier methods to `cursor/identifiers.rs` (done in Section 06, TPR-06-004)
 - [ ] Split remaining files at logical boundaries
+
+- [ ] **Subsection close-out (08.4)** — MANDATORY before starting the next subsection. Run `/improve-tooling` retrospectively on THIS subsection's debugging journey (per `.claude/skills/improve-tooling/SKILL.md` "Per-Subsection Workflow"): which `diagnostics/` scripts you ran, where you added `dbg!`/`tracing` calls, where output was hard to interpret, where test failures gave unhelpful messages, where you ran the same command sequence repeatedly. Forward-look: what tool/log/diagnostic would shorten the next regression in this code path by 10 minutes? Implement improvements NOW (zero deferral) and commit each via SEPARATE `/commit-push` using a valid conventional-commit type (`build(diagnostics): ... — surfaced by section-08.4 retrospective` — `build`/`test`/`chore`/`ci`/`docs` are valid; `tools(...)` is rejected by the lefthook commit-msg hook). Mandatory even when nothing felt painful. If genuinely no gaps, document briefly: "Retrospective 08.4: no tooling gaps". Update this subsection's `status` in section frontmatter to `complete`.
 
 ---
 
@@ -168,6 +176,8 @@ Covering ori_rt, oric, ori_diagnostic, ori_fmt, ori_parse, ori_ir:
 - [ ] Priority targets (likely worst offenders based on file sizes): functions in `operators.rs`, `control_flow.rs`, `terminators.rs`, `runtime_functions.rs`, `consumers.rs`, `collections.rs`
 - [ ] Verify: no production function exceeds 100 lines (excluding data tables and generated match arms with explicit exemption comments)
 - [ ] Valid exemptions: pure data tables, exhaustive match arms over large enums where each arm is 1-3 lines. All exemptions require an explicit `// SIZE EXEMPTION:` comment.
+
+- [ ] **Subsection close-out (08.5)** — MANDATORY before starting the next subsection. Run `/improve-tooling` retrospectively on THIS subsection's debugging journey (per `.claude/skills/improve-tooling/SKILL.md` "Per-Subsection Workflow"): which `diagnostics/` scripts you ran, where you added `dbg!`/`tracing` calls, where output was hard to interpret, where test failures gave unhelpful messages, where you ran the same command sequence repeatedly. Forward-look: what tool/log/diagnostic would shorten the next regression in this code path by 10 minutes? Implement improvements NOW (zero deferral) and commit each via SEPARATE `/commit-push` using a valid conventional-commit type (`build(diagnostics): ... — surfaced by section-08.5 retrospective` — `build`/`test`/`chore`/`ci`/`docs` are valid; `tools(...)` is rejected by the lefthook commit-msg hook). Mandatory even when nothing felt painful. If genuinely no gaps, document briefly: "Retrospective 08.5: no tooling gaps". Update this subsection's `status` in section frontmatter to `complete`.
 
 ---
 
@@ -198,4 +208,5 @@ This section is pure file/function splitting with zero behavioral change. High v
 - [ ] Debug AND release builds pass
 - [ ] `./clippy-all.sh` clean
 - [ ] `/tpr-review` covering Section 08
-- [ ] `/impl-hygiene-review last commit`
+- [ ] `/impl-hygiene-review`
+- [ ] `/improve-tooling` retrospective completed — MANDATORY at section close, after both reviews are clean. Reflect on the section's debugging journey (which `diagnostics/` scripts you ran, which command sequences you repeated, where you added ad-hoc `dbg!`/`tracing` calls, where output was hard to interpret) and identify any tool/log/diagnostic improvement that would have made this section materially easier OR that would help the next section touching this area. Implement every accepted improvement NOW (zero deferral) and commit each via SEPARATE `/commit-push`. The retrospective is mandatory even when nothing felt painful — that is exactly when blind spots accumulate. See `.claude/skills/improve-tooling/SKILL.md` "Retrospective Mode" for the full protocol.

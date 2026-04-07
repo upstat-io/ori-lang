@@ -6,27 +6,6 @@
 use ori_types::Idx;
 use ori_types::Tag;
 
-/// Check if a type contains a `Var` INSIDE a container (not at the top level).
-pub(super) fn contains_nested_var(pool: &ori_types::Pool, ty: Idx) -> bool {
-    match pool.tag(ty) {
-        Tag::Option => contains_var(pool, pool.option_inner(ty)),
-        Tag::Result => {
-            contains_var(pool, pool.result_ok(ty)) || contains_var(pool, pool.result_err(ty))
-        }
-        Tag::List => contains_var(pool, pool.list_elem(ty)),
-        Tag::Tuple => pool.tuple_elems(ty).iter().any(|e| contains_var(pool, *e)),
-        Tag::Map => contains_var(pool, pool.map_key(ty)) || contains_var(pool, pool.map_value(ty)),
-        Tag::Set => contains_var(pool, pool.set_elem(ty)),
-        Tag::Function => {
-            pool.function_params(ty)
-                .iter()
-                .any(|p| contains_var(pool, *p))
-                || contains_var(pool, pool.function_return(ty))
-        }
-        _ => false,
-    }
-}
-
 /// Check if a type contains a `Var` at any nesting level.
 pub(super) fn contains_var(pool: &ori_types::Pool, ty: Idx) -> bool {
     match pool.tag(ty) {
@@ -77,6 +56,21 @@ pub(super) fn contains_bound_var(pool: &ori_types::Pool, ty: Idx) -> bool {
         }
         _ => false,
     }
+}
+
+/// Check if a resolved type is a Function with all-concrete params.
+/// The return type may be non-concrete (Scheme/Var). This is a relaxed version
+/// of `is_concrete_function` for detecting multi-instantiation of let-polymorphic
+/// lambdas where the type checker narrows params per call site but leaves the
+/// return type as a Scheme.
+pub(super) fn has_concrete_params(pool: &ori_types::Pool, resolved: Idx) -> bool {
+    if pool.tag(resolved) != Tag::Function {
+        return false;
+    }
+    pool.function_params(resolved).iter().all(|p| {
+        let pt = pool.resolve_fully(*p);
+        !matches!(pool.tag(pt), Tag::BoundVar | Tag::Var | Tag::Scheme)
+    })
 }
 
 /// Walk `schema_ty` and `concrete_ty` in parallel to build `BoundVar` mappings.

@@ -79,6 +79,8 @@ Verify that the subprocess-based runner produces identical results to the old in
   - [ ] File that uses `print()` — verify JSON is still extractable despite stdout pollution
   - [ ] File with `SkippedUnchanged` outcomes (incremental mode) — verify JSON correctly represents skipped-unchanged tests if incremental is enabled
 
+- [ ] **Subsection close-out (03.1)** — MANDATORY before starting the next subsection. Run `/improve-tooling` retrospectively on THIS subsection's debugging journey (per `.claude/skills/improve-tooling/SKILL.md` "Per-Subsection Workflow"): which `diagnostics/` scripts you ran, where you added `dbg!`/`tracing` calls, where output was hard to interpret, where test failures gave unhelpful messages, where you ran the same command sequence repeatedly. Forward-look: what tool/log/diagnostic would shorten the next regression in this code path by 10 minutes? Implement improvements NOW (zero deferral) and commit each via SEPARATE `/commit-push` using a valid conventional-commit type (`build(diagnostics): ... — surfaced by section-03.1 retrospective` — `build`/`test`/`chore`/`ci`/`docs` are valid; `tools(...)` is rejected by the lefthook commit-msg hook). Mandatory even when nothing felt painful. If genuinely no gaps, document briefly: "Retrospective 03.1: no tooling gaps". Update this subsection's `status` in section frontmatter to `complete`.
+
 ---
 
 ## 03.2 Crash Isolation Verification
@@ -105,6 +107,8 @@ Verify that worker crashes are contained and correctly reported.
   - [ ] Run `timeout 150 cargo build && ./target/debug/ori test --backend=llvm tests/spec/types/primitives.ori` — verify debug build works
   - [ ] Run `timeout 150 cargo build --release && ./target/release/ori test --backend=llvm tests/spec/types/primitives.ori` — verify release build works
   - [ ] Both produce identical pass/fail counts for the same file
+
+- [ ] **Subsection close-out (03.2)** — MANDATORY before starting the next subsection. Run `/improve-tooling` retrospectively on THIS subsection's debugging journey (per `.claude/skills/improve-tooling/SKILL.md` "Per-Subsection Workflow"): which `diagnostics/` scripts you ran, where you added `dbg!`/`tracing` calls, where output was hard to interpret, where test failures gave unhelpful messages, where you ran the same command sequence repeatedly. Forward-look: what tool/log/diagnostic would shorten the next regression in this code path by 10 minutes? Implement improvements NOW (zero deferral) and commit each via SEPARATE `/commit-push` using a valid conventional-commit type (`build(diagnostics): ... — surfaced by section-03.2 retrospective` — `build`/`test`/`chore`/`ci`/`docs` are valid; `tools(...)` is rejected by the lefthook commit-msg hook). Mandatory even when nothing felt painful. If genuinely no gaps, document briefly: "Retrospective 03.2: no tooling gaps". Update this subsection's `status` in section frontmatter to `complete`.
 
 ---
 
@@ -141,6 +145,8 @@ Measure the overhead of subprocess isolation vs in-process execution.
   3. Re-parsing/re-typechecking? → compare single-file in-process vs subprocess time
   4. Mitigations (not in this plan, future optimization): batch multiple files per worker, pre-compute data via temp file
 
+- [ ] **Subsection close-out (03.3)** — MANDATORY before starting the next subsection. Run `/improve-tooling` retrospectively on THIS subsection's debugging journey (per `.claude/skills/improve-tooling/SKILL.md` "Per-Subsection Workflow"): which `diagnostics/` scripts you ran, where you added `dbg!`/`tracing` calls, where output was hard to interpret, where test failures gave unhelpful messages, where you ran the same command sequence repeatedly. Forward-look: what tool/log/diagnostic would shorten the next regression in this code path by 10 minutes? Implement improvements NOW (zero deferral) and commit each via SEPARATE `/commit-push` using a valid conventional-commit type (`build(diagnostics): ... — surfaced by section-03.3 retrospective` — `build`/`test`/`chore`/`ci`/`docs` are valid; `tools(...)` is rejected by the lefthook commit-msg hook). Mandatory even when nothing felt painful. If genuinely no gaps, document briefly: "Retrospective 03.3: no tooling gaps". Update this subsection's `status` in section frontmatter to `complete`.
+
 ---
 
 ## 03.4 Test Gate Integrity
@@ -163,6 +169,8 @@ Verify that the test gate (`./test-all.sh`) correctly reflects the new subproces
   - [ ] `grep -c ANY_CORE_FAILED test-all.sh` returns 0
   - This is the core deliverable: crashes are real failures that block the gate.
 - [ ] **Regression guard**: The tests from 02.2.T and 02.4.T serve as permanent regression guards. No additional CI-style test needed — `test-all.sh` itself IS the regression test (it now reports crashes as failures instead of hiding them).
+
+- [ ] **Subsection close-out (03.4)** — MANDATORY before starting the next subsection. Run `/improve-tooling` retrospectively on THIS subsection's debugging journey (per `.claude/skills/improve-tooling/SKILL.md` "Per-Subsection Workflow"): which `diagnostics/` scripts you ran, where you added `dbg!`/`tracing` calls, where output was hard to interpret, where test failures gave unhelpful messages, where you ran the same command sequence repeatedly. Forward-look: what tool/log/diagnostic would shorten the next regression in this code path by 10 minutes? Implement improvements NOW (zero deferral) and commit each via SEPARATE `/commit-push` using a valid conventional-commit type (`build(diagnostics): ... — surfaced by section-03.4 retrospective` — `build`/`test`/`chore`/`ci`/`docs` are valid; `tools(...)` is rejected by the lefthook commit-msg hook). Mandatory even when nothing felt painful. If genuinely no gaps, document briefly: "Retrospective 03.4: no tooling gaps". Update this subsection's `status` in section frontmatter to `complete`.
 
 ---
 
@@ -202,6 +210,7 @@ Verify that the test gate (`./test-all.sh`) correctly reflects the new subproces
   - [ ] `index.md` statuses updated
   - [ ] JIT EH plan `section-06-lcfail-resolution.md` updated with note that LLVM backend crash is now contained
 - [ ] `/tpr-review` passed
-- [ ] `/impl-hygiene-review last commit` passed
+- [ ] `/impl-hygiene-review` passed
+- [ ] `/improve-tooling` retrospective completed — MANDATORY at section close, after both reviews are clean. Reflect on the section's debugging journey (which `diagnostics/` scripts you ran, which command sequences you repeated, where you added ad-hoc `dbg!`/`tracing` calls, where output was hard to interpret) and identify any tool/log/diagnostic improvement that would have made this section materially easier OR that would help the next section touching this area. Implement every accepted improvement NOW (zero deferral) and commit each via SEPARATE `/commit-push`. The retrospective is mandatory even when nothing felt painful — that is exactly when blind spots accumulate. See `.claude/skills/improve-tooling/SKILL.md` "Retrospective Mode" for the full protocol.
 
 **Exit Criteria:** `./test-all.sh` passes with exit code 0. The LLVM backend summary line shows pass/fail/crash counts (not `CRASHED`). Worker crashes produce `BackendCrash` outcomes that block the test gate. Performance overhead is within 2x of baseline. The pre-commit hook (`./full-check.sh`) passes for `.rs` file changes. All mission success criteria are met.

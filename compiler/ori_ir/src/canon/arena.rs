@@ -383,6 +383,11 @@ pub struct CanonRoot {
     /// `defaults[i]` is `Some(can_id)` if parameter `i` has a default value,
     /// `None` if the parameter is required.
     pub defaults: Vec<Option<CanId>>,
+    /// For multi-clause functions: the canonical parameter names from the
+    /// `FunctionSig`. The evaluator must use these names (not the first clause's
+    /// parser names) because the canonical scrutinee Idents use them.
+    /// Empty for single-clause functions and tests.
+    pub param_names: Vec<Name>,
 }
 
 /// A canonicalized method root — body in canonical IR.

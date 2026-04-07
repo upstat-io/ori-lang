@@ -34,6 +34,7 @@ Bugs in expression evaluation, method dispatch, iterator machinery, closure hand
   Found: 2026-04-02 | Source: review-bugs (BUG-06-002 fix dependency)
 
 - [ ] `[BUG-03-004][medium]` **Interpreter function call overhead ~63µs/call — 10-60x slower than expected** — found by manual.
+  Escalated to plan: `plans/perf-engineering/` (7 sections covering benchmarks, zero-alloc calls, value passing, bytecode VM, register VM, verification, integration). Target: Python 3.12 class (0.14µs/call).
   Repro: `time ori run tests/run-pass/rosetta/ackermann/ack_perf_test.ori` — A(3,6)+A(3,7) (~866k calls) takes 55s. System time is 44% of total (24s), suggesting excessive heap allocation per call (environment cloning, scope stack manipulation). A(4,1) = 65533 (requires ~89M calls via A(3,13)) is unreachable in reasonable time. For comparison, CPython handles ~1-5µs/call.
   Subsystem: `compiler/ori_eval/src/` — likely `environment.rs` (scope/env management), `interpreter/` (function dispatch), and multi-clause pattern matching overhead
   Found: 2026-04-04 | Source: manual (Rosetta Code Ackermann task)

@@ -119,6 +119,8 @@ Create a thin Rust wrapper around llvm-sys metadata functions. This isolates uns
   - Test `empty_md_node` creates a valid 0-element node
 - [ ] Verify: `timeout 150 cargo t -p ori_llvm` passes
 
+- [ ] **Subsection close-out (02.1)** — MANDATORY before starting the next subsection. Run `/improve-tooling` retrospectively on THIS subsection's debugging journey (per `.claude/skills/improve-tooling/SKILL.md` "Per-Subsection Workflow"): which `diagnostics/` scripts you ran, where you added `dbg!`/`tracing` calls, where output was hard to interpret, where test failures gave unhelpful messages, where you ran the same command sequence repeatedly. Forward-look: what tool/log/diagnostic would shorten the next regression in this code path by 10 minutes? Implement improvements NOW (zero deferral) and commit each via SEPARATE `/commit-push` using a valid conventional-commit type (`build(diagnostics): ... — surfaced by section-02.1 retrospective` — `build`/`test`/`chore`/`ci`/`docs` are valid; `tools(...)` is rejected by the lefthook commit-msg hook). Mandatory even when nothing felt painful. If genuinely no gaps, document briefly: "Retrospective 02.1: no tooling gaps". Update this subsection's `status` in section frontmatter to `complete`.
+
 ---
 
 ## 02.2 IrBuilder Metadata Helpers
@@ -138,6 +140,8 @@ Add metadata attachment methods to IrBuilder so callers at `load()`/`store()` si
 - [ ] Write tests in `metadata/tests.rs` verifying metadata attachment doesn't crash and appears in IR dump
 - [ ] Verify: `timeout 150 cargo t -p ori_llvm` passes
 - [ ] Verify: `mod.rs` stays under 500 lines (currently 411 + 1 field + 1 init line = ~413)
+
+- [ ] **Subsection close-out (02.2)** — MANDATORY before starting the next subsection. Run `/improve-tooling` retrospectively on THIS subsection's debugging journey (per `.claude/skills/improve-tooling/SKILL.md` "Per-Subsection Workflow"): which `diagnostics/` scripts you ran, where you added `dbg!`/`tracing` calls, where output was hard to interpret, where test failures gave unhelpful messages, where you ran the same command sequence repeatedly. Forward-look: what tool/log/diagnostic would shorten the next regression in this code path by 10 minutes? Implement improvements NOW (zero deferral) and commit each via SEPARATE `/commit-push` using a valid conventional-commit type (`build(diagnostics): ... — surfaced by section-02.2 retrospective` — `build`/`test`/`chore`/`ci`/`docs` are valid; `tools(...)` is rejected by the lefthook commit-msg hook). Mandatory even when nothing felt painful. If genuinely no gaps, document briefly: "Retrospective 02.2: no tooling gaps". Update this subsection's `status` in section frontmatter to `complete`.
 
 ---
 
@@ -168,6 +172,8 @@ Currently `ArcInstr::Project { dst, ty, value, field }` (instr.rs lines 58-64) s
 
 **Matrix dimensions:** Not applicable (structural refactor, no behavioral change).
 
+- [ ] **Subsection close-out (02.3)** — MANDATORY before starting the next subsection. Run `/improve-tooling` retrospectively on THIS subsection's debugging journey (per `.claude/skills/improve-tooling/SKILL.md` "Per-Subsection Workflow"): which `diagnostics/` scripts you ran, where you added `dbg!`/`tracing` calls, where output was hard to interpret, where test failures gave unhelpful messages, where you ran the same command sequence repeatedly. Forward-look: what tool/log/diagnostic would shorten the next regression in this code path by 10 minutes? Implement improvements NOW (zero deferral) and commit each via SEPARATE `/commit-push` using a valid conventional-commit type (`build(diagnostics): ... — surfaced by section-02.3 retrospective` — `build`/`test`/`chore`/`ci`/`docs` are valid; `tools(...)` is rejected by the lefthook commit-msg hook). Mandatory even when nothing felt painful. If genuinely no gaps, document briefly: "Retrospective 02.3: no tooling gaps". Update this subsection's `status` in section frontmatter to `complete`.
+
 ---
 
 ## 02.R Third Party Review Findings
@@ -192,6 +198,7 @@ Currently `ArcInstr::Project { dst, ty, value, field }` (instr.rs lines 58-64) s
   - [ ] `index.md` status updated
   - [ ] Sections 03/04 `depends_on` verified
 - [ ] `/tpr-review` passed
-- [ ] `/impl-hygiene-review last commit` passed
+- [ ] `/impl-hygiene-review` passed
+- [ ] `/improve-tooling` retrospective completed — MANDATORY at section close, after both reviews are clean. Reflect on the section's debugging journey (which `diagnostics/` scripts you ran, which command sequences you repeated, where you added ad-hoc `dbg!`/`tracing` calls, where output was hard to interpret) and identify any tool/log/diagnostic improvement that would have made this section materially easier OR that would help the next section touching this area. Implement every accepted improvement NOW (zero deferral) and commit each via SEPARATE `/commit-push`. The retrospective is mandatory even when nothing felt painful — that is exactly when blind spots accumulate. See `.claude/skills/improve-tooling/SKILL.md` "Retrospective Mode" for the full protocol.
 
 **Exit Criteria:** `IrBuilder` can attach TBAA, range, invariant.load, alias.scope, and noalias metadata to instructions. `ArcInstr::Project` carries struct type information. All existing tests pass unchanged in both debug and release builds. A smoke test demonstrates metadata in the IR dump.
