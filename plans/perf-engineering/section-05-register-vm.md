@@ -169,6 +169,8 @@ The heart of the interpreter. A single function that loops over bytecode instruc
   - **Negative pin**: executing past end of chunk code produces clean error (not UB or panic)
   - **TDD ordering**: implement VM struct and dispatch loop skeleton FIRST, write tests for LoadConst/Return/Move, verify they fail (VM doesn't execute yet), then implement opcode handlers incrementally
 
+- [ ] **Subsection close-out (05.1)** — MANDATORY before starting the next subsection. Run `/improve-tooling` retrospectively on THIS subsection's debugging journey (per `.claude/skills/improve-tooling/SKILL.md` "Per-Subsection Workflow"): which `diagnostics/` scripts you ran, where you added `dbg!`/`tracing` calls, where output was hard to interpret, where test failures gave unhelpful messages, where you ran the same command sequence repeatedly. Forward-look: what tool/log/diagnostic would shorten the next regression in this code path by 10 minutes? Implement improvements NOW (zero deferral) and commit each via SEPARATE `/commit-push` using a valid conventional-commit type (`build(diagnostics): ... — surfaced by section-05.1 retrospective` — `build`/`test`/`chore`/`ci`/`docs` are valid; `tools(...)` is rejected by the lefthook commit-msg hook). Mandatory even when nothing felt painful. If genuinely no gaps, document briefly: "Retrospective 05.1: no tooling gaps". Update this subsection's `status` in section frontmatter to `complete`.
+
 ---
 
 ## 05.2 Call Frames and Scoping
@@ -229,6 +231,8 @@ Function calls in the bytecode VM are fundamentally different from the tree-walk
   - **Negative pin**: `Call` when `frame_count >= MAX_FRAMES` returns `StackOverflow` error (not Rust panic)
   - **TDD ordering**: write Call/Return/TailCall tests FIRST, verify they fail, then implement frame management
 
+- [ ] **Subsection close-out (05.2)** — MANDATORY before starting the next subsection. Run `/improve-tooling` retrospectively on THIS subsection's debugging journey (per `.claude/skills/improve-tooling/SKILL.md` "Per-Subsection Workflow"): which `diagnostics/` scripts you ran, where you added `dbg!`/`tracing` calls, where output was hard to interpret, where test failures gave unhelpful messages, where you ran the same command sequence repeatedly. Forward-look: what tool/log/diagnostic would shorten the next regression in this code path by 10 minutes? Implement improvements NOW (zero deferral) and commit each via SEPARATE `/commit-push` using a valid conventional-commit type (`build(diagnostics): ... — surfaced by section-05.2 retrospective` — `build`/`test`/`chore`/`ci`/`docs` are valid; `tools(...)` is rejected by the lefthook commit-msg hook). Mandatory even when nothing felt painful. If genuinely no gaps, document briefly: "Retrospective 05.2: no tooling gaps". Update this subsection's `status` in section frontmatter to `complete`.
+
 ---
 
 ## 05.3 Method Dispatch and Built-in Integration
@@ -286,6 +290,8 @@ The VM must integrate with Ori's existing method dispatch system (MethodDispatch
   - **Semantic pin**: `catch(expr: { panic(msg: "boom") })` via VM produces `Err("boom")` (identical to tree-walker)
   - **Negative pin**: calling a non-function value via `Call` opcode produces `not_callable` error (same error as tree-walker)
   - **TDD ordering**: write builtin call tests FIRST (print, assert_eq), then method dispatch tests, then iterator tests, then FunctionExp tests
+
+- [ ] **Subsection close-out (05.3)** — MANDATORY before starting the next subsection. Run `/improve-tooling` retrospectively on THIS subsection's debugging journey (per `.claude/skills/improve-tooling/SKILL.md` "Per-Subsection Workflow"): which `diagnostics/` scripts you ran, where you added `dbg!`/`tracing` calls, where output was hard to interpret, where test failures gave unhelpful messages, where you ran the same command sequence repeatedly. Forward-look: what tool/log/diagnostic would shorten the next regression in this code path by 10 minutes? Implement improvements NOW (zero deferral) and commit each via SEPARATE `/commit-push` using a valid conventional-commit type (`build(diagnostics): ... — surfaced by section-05.3 retrospective` — `build`/`test`/`chore`/`ci`/`docs` are valid; `tools(...)` is rejected by the lefthook commit-msg hook). Mandatory even when nothing felt painful. If genuinely no gaps, document briefly: "Retrospective 05.3: no tooling gaps". Update this subsection's `status` in section frontmatter to `complete`.
 
 ---
 

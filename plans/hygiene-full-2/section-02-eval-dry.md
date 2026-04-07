@@ -54,6 +54,8 @@ Nine functions share identical loop harness: `eval_iter_fold`, `eval_iter_count`
   ```
 - [ ] Rewrite all 9 consumers using `drive_iterator()` (fold, count, find, any, all, for_each, collect, collect_set, join)- [ ] Verify each consumer still produces identical results (existing tests)
 
+- [ ] **Subsection close-out (02.1)** — MANDATORY before starting the next subsection. Run `/improve-tooling` retrospectively on THIS subsection's debugging journey (per `.claude/skills/improve-tooling/SKILL.md` "Per-Subsection Workflow"): which `diagnostics/` scripts you ran, where you added `dbg!`/`tracing` calls, where output was hard to interpret, where test failures gave unhelpful messages, where you ran the same command sequence repeatedly. Forward-look: what tool/log/diagnostic would shorten the next regression in this code path by 10 minutes? Implement improvements NOW (zero deferral) and commit each via SEPARATE `/commit-push` using a valid conventional-commit type (`build(diagnostics): ... — surfaced by section-02.1 retrospective` — `build`/`test`/`chore`/`ci`/`docs` are valid; `tools(...)` is rejected by the lefthook commit-msg hook). Mandatory even when nothing felt painful. If genuinely no gaps, document briefly: "Retrospective 02.1: no tooling gaps". Update this subsection's `status` in section frontmatter to `complete`.
+
 ---
 
 ## 02.2 Extract Option/Result Method Handler
@@ -70,6 +72,8 @@ Eight functions share the pattern: validate arg count, match receiver variant, c
 - [ ] Note: the 8 handlers use inconsistent arg validation — some use `wrong_arg_count()`, some use `Self::expect_arg_count()`. Unify to a single pattern during extraction.- [ ] Rewrite the 8 functions using the shared handler
 - [ ] Verify all existing tests pass unchanged
 
+- [ ] **Subsection close-out (02.2)** — MANDATORY before starting the next subsection. Run `/improve-tooling` retrospectively on THIS subsection's debugging journey (per `.claude/skills/improve-tooling/SKILL.md` "Per-Subsection Workflow"): which `diagnostics/` scripts you ran, where you added `dbg!`/`tracing` calls, where output was hard to interpret, where test failures gave unhelpful messages, where you ran the same command sequence repeatedly. Forward-look: what tool/log/diagnostic would shorten the next regression in this code path by 10 minutes? Implement improvements NOW (zero deferral) and commit each via SEPARATE `/commit-push` using a valid conventional-commit type (`build(diagnostics): ... — surfaced by section-02.2 retrospective` — `build`/`test`/`chore`/`ci`/`docs` are valid; `tools(...)` is rejected by the lefthook commit-msg hook). Mandatory even when nothing felt painful. If genuinely no gaps, document briefly: "Retrospective 02.2: no tooling gaps". Update this subsection's `status` in section frontmatter to `complete`.
+
 ---
 
 ## 02.3 Unify Iterator Method Name Lists
@@ -81,6 +85,8 @@ Three independent lists enumerate iterator methods: `CollectionMethod::all_itera
 - [ ] Add an enforcement test: `all_iterator_variants().iter().all(|(name, _)| is_collection_dispatched(name))`
 - [ ] Verify: adding a new iterator method to `all_iterator_variants()` is the ONLY change needed (routing and dispatch check are derived)
 
+- [ ] **Subsection close-out (02.3)** — MANDATORY before starting the next subsection. Run `/improve-tooling` retrospectively on THIS subsection's debugging journey (per `.claude/skills/improve-tooling/SKILL.md` "Per-Subsection Workflow"): which `diagnostics/` scripts you ran, where you added `dbg!`/`tracing` calls, where output was hard to interpret, where test failures gave unhelpful messages, where you ran the same command sequence repeatedly. Forward-look: what tool/log/diagnostic would shorten the next regression in this code path by 10 minutes? Implement improvements NOW (zero deferral) and commit each via SEPARATE `/commit-push` using a valid conventional-commit type (`build(diagnostics): ... — surfaced by section-02.3 retrospective` — `build`/`test`/`chore`/`ci`/`docs` are valid; `tools(...)` is rejected by the lefthook commit-msg hook). Mandatory even when nothing felt painful. If genuinely no gaps, document briefly: "Retrospective 02.3: no tooling gaps". Update this subsection's `status` in section frontmatter to `complete`.
+
 ---
 
 ## 02.4 Eliminate Redundant Name Interning
@@ -89,6 +95,9 @@ Three independent lists enumerate iterator methods: `CollectionMethod::all_itera
 
 - [ ] Merge overlapping entries between `OpNames` and `BuiltinMethodNames` — shared names ("add", "compare", "bit_and", etc.) should be interned once
 - [ ] Replace `self.interner.intern("to_str")` in `format_value_printable()` (line 376 of `derived_methods.rs`) with `self.builtin_method_names.to_str` (already available — see `consumers.rs:202` which uses it correctly)- [ ] Replace `self.interner.intern("default")` in `eval_default_construct()` (lines 446, 484 of `derived_methods.rs`) with a pre-interned name — add `default` to `BuiltinMethodNames` in `interned_names.rs` if not already present- [ ] Verify no runtime interning of known-at-startup method names remains in `derived_methods.rs`: `grep -n 'interner\.intern\|\.intern(' compiler/ori_eval/src/interpreter/derived_methods.rs` returns 0 matches
+
+- [ ] **Subsection close-out (02.4)** — MANDATORY before starting the next subsection. Run `/improve-tooling` retrospectively on THIS subsection's debugging journey (per `.claude/skills/improve-tooling/SKILL.md` "Per-Subsection Workflow"): which `diagnostics/` scripts you ran, where you added `dbg!`/`tracing` calls, where output was hard to interpret, where test failures gave unhelpful messages, where you ran the same command sequence repeatedly. Forward-look: what tool/log/diagnostic would shorten the next regression in this code path by 10 minutes? Implement improvements NOW (zero deferral) and commit each via SEPARATE `/commit-push` using a valid conventional-commit type (`build(diagnostics): ... — surfaced by section-02.4 retrospective` — `build`/`test`/`chore`/`ci`/`docs` are valid; `tools(...)` is rejected by the lefthook commit-msg hook). Mandatory even when nothing felt painful. If genuinely no gaps, document briefly: "Retrospective 02.4: no tooling gaps". Update this subsection's `status` in section frontmatter to `complete`.
+
 ---
 
 ### Cleanup (fix while touching these files)

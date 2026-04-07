@@ -93,6 +93,8 @@ Add a new `TestOutcome::BackendCrash(String)` variant for tests whose LLVM worke
 - [ ] Update `exit_code()` in `TestSummary` — `BackendCrash` counts flow through `has_failures()`, producing exit code 1 (no change needed if `has_failures()` is correctly updated above)
 - [ ] Verify all 6 tests from 01.1.T now PASS
 
+- [ ] **Subsection close-out (01.1)** — MANDATORY before starting the next subsection. Run `/improve-tooling` retrospectively on THIS subsection's debugging journey (per `.claude/skills/improve-tooling/SKILL.md` "Per-Subsection Workflow"): which `diagnostics/` scripts you ran, where you added `dbg!`/`tracing` calls, where output was hard to interpret, where test failures gave unhelpful messages, where you ran the same command sequence repeatedly. Forward-look: what tool/log/diagnostic would shorten the next regression in this code path by 10 minutes? Implement improvements NOW (zero deferral) and commit each via SEPARATE `/commit-push` using a valid conventional-commit type (`build(diagnostics): ... — surfaced by section-01.1 retrospective` — `build`/`test`/`chore`/`ci`/`docs` are valid; `tools(...)` is rejected by the lefthook commit-msg hook). Mandatory even when nothing felt painful. If genuinely no gaps, document briefly: "Retrospective 01.1: no tooling gaps". Update this subsection's `status` in section frontmatter to `complete`.
+
 ---
 
 ## 01.2 Serde Derives on Result Types
@@ -171,6 +173,8 @@ Add `Serialize`/`Deserialize` derives to result types so they can be emitted as 
 - [ ] **Exit code 2 (no tests) representation**: When a file has no LLVM-eligible tests, the worker emits a `JsonFileSummary` with `results: []` and all counters at 0. The orchestrator treats this as a no-op (not a failure, not a crash).
 - [ ] Verify all tests from 01.2.T now PASS
 
+- [ ] **Subsection close-out (01.2)** — MANDATORY before starting the next subsection. Run `/improve-tooling` retrospectively on THIS subsection's debugging journey (per `.claude/skills/improve-tooling/SKILL.md` "Per-Subsection Workflow"): which `diagnostics/` scripts you ran, where you added `dbg!`/`tracing` calls, where output was hard to interpret, where test failures gave unhelpful messages, where you ran the same command sequence repeatedly. Forward-look: what tool/log/diagnostic would shorten the next regression in this code path by 10 minutes? Implement improvements NOW (zero deferral) and commit each via SEPARATE `/commit-push` using a valid conventional-commit type (`build(diagnostics): ... — surfaced by section-01.2 retrospective` — `build`/`test`/`chore`/`ci`/`docs` are valid; `tools(...)` is rejected by the lefthook commit-msg hook). Mandatory even when nothing felt painful. If genuinely no gaps, document briefly: "Retrospective 01.2: no tooling gaps". Update this subsection's `status` in section frontmatter to `complete`.
+
 ---
 
 ## 01.3 --json Flag and JSON Emission
@@ -218,6 +222,8 @@ Add `--json` flag to the test command that emits `JsonFileSummary` to stdout ins
   - [ ] `test_json_flag_compile_error_file` — use a file with type errors, verify JSON contains `LlvmCompileFail` outcomes
   - [ ] `test_no_json_flag_unchanged` — verify `ori test --backend=llvm tests/spec/types/primitives.ori` (no `--json`) produces the same human-readable output as before (regression guard)
 - [ ] Verify tests fail before implementing, then pass after
+
+- [ ] **Subsection close-out (01.3)** — MANDATORY before starting the next subsection. Run `/improve-tooling` retrospectively on THIS subsection's debugging journey (per `.claude/skills/improve-tooling/SKILL.md` "Per-Subsection Workflow"): which `diagnostics/` scripts you ran, where you added `dbg!`/`tracing` calls, where output was hard to interpret, where test failures gave unhelpful messages, where you ran the same command sequence repeatedly. Forward-look: what tool/log/diagnostic would shorten the next regression in this code path by 10 minutes? Implement improvements NOW (zero deferral) and commit each via SEPARATE `/commit-push` using a valid conventional-commit type (`build(diagnostics): ... — surfaced by section-01.3 retrospective` — `build`/`test`/`chore`/`ci`/`docs` are valid; `tools(...)` is rejected by the lefthook commit-msg hook). Mandatory even when nothing felt painful. If genuinely no gaps, document briefly: "Retrospective 01.3: no tooling gaps". Update this subsection's `status` in section frontmatter to `complete`.
 
 ---
 

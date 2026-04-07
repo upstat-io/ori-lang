@@ -120,6 +120,8 @@ Extract the subprocess orchestration logic into a new `llvm_worker.rs` module. T
 - [ ] Implement `run_file_llvm_isolated(file: &Path, binary: &Path, config: &TestRunnerConfig, interner: &StringInterner) -> FileSummary` — the top-level per-file orchestrator function. The `interner` param is used for `crash_summary()` and `into_file_summary()` re-interning only.
 - [ ] Verify all tests from 02.1.T now PASS
 
+- [ ] **Subsection close-out (02.1)** — MANDATORY before starting the next subsection. Run `/improve-tooling` retrospectively on THIS subsection's debugging journey (per `.claude/skills/improve-tooling/SKILL.md` "Per-Subsection Workflow"): which `diagnostics/` scripts you ran, where you added `dbg!`/`tracing` calls, where output was hard to interpret, where test failures gave unhelpful messages, where you ran the same command sequence repeatedly. Forward-look: what tool/log/diagnostic would shorten the next regression in this code path by 10 minutes? Implement improvements NOW (zero deferral) and commit each via SEPARATE `/commit-push` using a valid conventional-commit type (`build(diagnostics): ... — surfaced by section-02.1 retrospective` — `build`/`test`/`chore`/`ci`/`docs` are valid; `tools(...)` is rejected by the lefthook commit-msg hook). Mandatory even when nothing felt painful. If genuinely no gaps, document briefly: "Retrospective 02.1: no tooling gaps". Update this subsection's `status` in section frontmatter to `complete`.
+
 ---
 
 ## 02.2 Crash and Timeout Detection
@@ -216,6 +218,8 @@ Handle the two failure modes that in-process execution can't survive: worker sig
   ```
 - [ ] **Capture stderr on crash**: Include last 5 lines of stderr in `BackendCrash` message for diagnostic context. Use `String::from_utf8_lossy` since stderr may contain non-UTF8 from LLVM C++.
 - [ ] Verify all tests from 02.2.T now PASS
+
+- [ ] **Subsection close-out (02.2)** — MANDATORY before starting the next subsection. Run `/improve-tooling` retrospectively on THIS subsection's debugging journey (per `.claude/skills/improve-tooling/SKILL.md` "Per-Subsection Workflow"): which `diagnostics/` scripts you ran, where you added `dbg!`/`tracing` calls, where output was hard to interpret, where test failures gave unhelpful messages, where you ran the same command sequence repeatedly. Forward-look: what tool/log/diagnostic would shorten the next regression in this code path by 10 minutes? Implement improvements NOW (zero deferral) and commit each via SEPARATE `/commit-push` using a valid conventional-commit type (`build(diagnostics): ... — surfaced by section-02.2 retrospective` — `build`/`test`/`chore`/`ci`/`docs` are valid; `tools(...)` is rejected by the lefthook commit-msg hook). Mandatory even when nothing felt painful. If genuinely no gaps, document briefly: "Retrospective 02.2: no tooling gaps". Update this subsection's `status` in section frontmatter to `complete`.
 
 ---
 
@@ -318,6 +322,8 @@ The current LLVM backend runs files sequentially because LLVM context creation c
   - [ ] `test_pool_kills_timed_out_worker` — pool with `timeout=200ms`, submit `sleep 999` child, verify `wait_any()` or `drain()` kills it within ~200ms and returns the result (not hang forever)
   - [ ] Verify tests fail before implementing, then pass after
 
+- [ ] **Subsection close-out (02.3)** — MANDATORY before starting the next subsection. Run `/improve-tooling` retrospectively on THIS subsection's debugging journey (per `.claude/skills/improve-tooling/SKILL.md` "Per-Subsection Workflow"): which `diagnostics/` scripts you ran, where you added `dbg!`/`tracing` calls, where output was hard to interpret, where test failures gave unhelpful messages, where you ran the same command sequence repeatedly. Forward-look: what tool/log/diagnostic would shorten the next regression in this code path by 10 minutes? Implement improvements NOW (zero deferral) and commit each via SEPARATE `/commit-push` using a valid conventional-commit type (`build(diagnostics): ... — surfaced by section-02.3 retrospective` — `build`/`test`/`chore`/`ci`/`docs` are valid; `tools(...)` is rejected by the lefthook commit-msg hook). Mandatory even when nothing felt painful. If genuinely no gaps, document briefly: "Retrospective 02.3: no tooling gaps". Update this subsection's `status` in section frontmatter to `complete`.
+
 ---
 
 ## 02.4 Integration with Test Runner Dispatch
@@ -372,6 +378,8 @@ Wire the new subprocess orchestrator into the existing test runner dispatch, rep
   - [ ] `test_orchestrator_directory_run` — run `ori test --backend=llvm tests/spec/types/` via `Command::new`, verify parent exits normally and pass counts > 0
   - [ ] `test_orchestrator_survives_crash` — run `ori test --backend=llvm tests/spec/` via `Command::new`, verify exit code is 0 or 1 (NOT 139), and stdout contains `BackendCrash` if any files crash
   - [ ] `test_test_all_no_llvm_crashed_var` — `grep -c ORI_LLVM_CRASHED test-all.sh` returns 0 (gate reversion verified at file level)
+
+- [ ] **Subsection close-out (02.4)** — MANDATORY before starting the next subsection. Run `/improve-tooling` retrospectively on THIS subsection's debugging journey (per `.claude/skills/improve-tooling/SKILL.md` "Per-Subsection Workflow"): which `diagnostics/` scripts you ran, where you added `dbg!`/`tracing` calls, where output was hard to interpret, where test failures gave unhelpful messages, where you ran the same command sequence repeatedly. Forward-look: what tool/log/diagnostic would shorten the next regression in this code path by 10 minutes? Implement improvements NOW (zero deferral) and commit each via SEPARATE `/commit-push` using a valid conventional-commit type (`build(diagnostics): ... — surfaced by section-02.4 retrospective` — `build`/`test`/`chore`/`ci`/`docs` are valid; `tools(...)` is rejected by the lefthook commit-msg hook). Mandatory even when nothing felt painful. If genuinely no gaps, document briefly: "Retrospective 02.4: no tooling gaps". Update this subsection's `status` in section frontmatter to `complete`.
 
 ---
 

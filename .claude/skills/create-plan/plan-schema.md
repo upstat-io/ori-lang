@@ -312,6 +312,19 @@ test failures, or design flaws. 2-4 sentences.}
 
 ---
 
+<!-- ── MANDATORY SUBSECTION STRUCTURE ──
+EVERY subsection ({NN}.1, {NN}.2, ...) MUST end with a **Subsection close-out**
+block containing the per-subsection `/improve-tooling` retrospective. This is
+non-negotiable: pain memory decays within hours, so the look-back must fire
+while the subsection's debugging journey is still hot — NOT at section close.
+
+The close-out block goes AFTER the subsection's implementation/validation
+tasks and BEFORE the `---` separator. See {NN}.1 below for the canonical form;
+every subsequent subsection in this section MUST repeat the same close-out
+shape (only the subsection ID changes). Plans that omit the per-subsection
+close-out will fail `/continue-roadmap` validation.
+-->
+
 ## {NN}.1 {Subsection Title}
 
 **File(s):** `{file path(s) being modified}`
@@ -330,6 +343,29 @@ and how it fits into the section's overall goal.}
   - [ ] {Sub-task}
 
 - [ ] {Validation task — how to verify this subsection works}
+
+- [ ] **Subsection close-out ({NN}.1)** — MANDATORY before starting {NN}.2:
+  - [ ] All tasks above are `[x]` and the subsection's behavior is verified
+  - [ ] Update this subsection's `status` in section frontmatter to `complete`
+  - [ ] **Run `/improve-tooling` retrospectively on THIS subsection** — reflect
+        on the debugging journey for {NN}.1 specifically: which `diagnostics/`
+        scripts you ran, where you added `dbg!`/`tracing` calls (and what each
+        was looking for), where output was hard to interpret, where test
+        failures gave unhelpful messages, where you ran the same command
+        sequence repeatedly. Forward-look: what tool/log/diagnostic would
+        shorten the next regression in {NN}.1's code path by 10 minutes?
+        Implement every accepted improvement NOW (zero deferral) and commit
+        each via SEPARATE `/commit-push` (e.g., `build(diagnostics): add X to
+        Y.sh — surfaced by {plan}/section-{NN}.1 retrospective`). Use a valid
+        conventional-commit type — `build` for dev/diagnostic scripts, `test`
+        for test-harness changes, `chore` for general tooling, `ci` for CI
+        config, `docs` for tool docs. Do NOT use `tools(...)` — the lefthook
+        commit-msg hook rejects any type outside the standard set. Mandatory
+        even when nothing felt painful — that is exactly when blind spots
+        accumulate. If genuinely no gaps, document briefly: "Retrospective
+        {NN}.1: no tooling gaps — relied on existing scripts X, Y." Do not
+        silently skip. See `.claude/skills/improve-tooling/SKILL.md`
+        "Per-Subsection Workflow" for the full protocol.
 
 ---
 
@@ -373,6 +409,16 @@ acceptable interim if {condition}.
        design drift, missed edge cases, and hygiene issues BEFORE they
        compound across the remaining subsections. The checkpoint item lives
        at the end of the last subsection in the group. -->
+
+- [ ] **Subsection close-out ({NN}.2)** — MANDATORY before starting {NN}.3:
+  - [ ] All tasks above are `[x]` and the subsection's behavior is verified
+  - [ ] Update this subsection's `status` in section frontmatter to `complete`
+  - [ ] **Run `/improve-tooling` retrospectively on THIS subsection** — same
+        protocol as {NN}.1's close-out, scoped to {NN}.2's debugging journey.
+        Commit improvements separately using a valid conventional-commit type:
+        `build(diagnostics): ... — surfaced by {plan}/section-{NN}.2
+        retrospective` (or `test(...)`, `chore(...)`, etc — see {NN}.1's
+        close-out for the type rules).
 
 ### {Sub-topic within the subsection}
 
@@ -429,7 +475,7 @@ When all findings are triaged:
   - [ ] Next section's `depends_on` verified — no stale assumptions from this section's work
 - [ ] `/tpr-review` passed (final, full-section) — independent Codex review found no critical or major issues (or all findings triaged)
 - [ ] `/impl-hygiene-review` passed — implementation hygiene review found no critical or major findings (or all findings triaged and fixed). MUST run AFTER `/tpr-review` is clean.
-- [ ] `/improve-tooling` retrospective completed — MANDATORY at section close, after both reviews are clean. Reflect on the section's debugging journey (which `diagnostics/` scripts were run, which command sequences were repeated, where ad-hoc `dbg!`/`tracing` calls were added, where output was hard to interpret, where test failures gave unhelpful messages) and identify any tool/log/diagnostic improvement that would have made this section materially easier OR that would help the next section touching this area. Implement every accepted improvement NOW (zero deferral) and commit each as a SEPARATE `/commit-push` from the section's implementation work, e.g. `tools(diagnostics): add --per-block flag to codegen-audit.sh — surfaced by section-{NN} retrospective`. Verify each improvement actually solves the original friction. The retrospective is mandatory even when nothing felt painful — that is exactly when blind spots accumulate. If genuinely no gaps, document briefly: "Retrospective: no tooling gaps — relied on existing scripts X, Y, Z". Do not silently skip.
+- [ ] `/improve-tooling` **section-close sweep** — MANDATORY safety net after both reviews are clean. The PRIMARY tooling capture happens per-subsection (see each subsection's close-out block above) — by section close those captures should already be committed. The sweep does TWO things: (1) **Verify** every subsection in this section has either an "improvements made" entry (with commits) or a documented "no gaps" negative finding from its own per-subsection retrospective; if any subsection skipped its retrospective, STOP and run it now — the sweep cannot substitute for missed per-subsection captures. (2) **Look for cross-subsection patterns** invisible at per-item scope: command sequences repeated when transitioning between *different* subsections, integration test failures with worse messages than within-subsection failures, mental cross-referencing across files no tool combined, instrumentation that only became obvious after seeing all subsections together. Add ONLY new items that emerged from these cross-cutting patterns — do not duplicate per-subsection findings. Implement immediately (zero deferral), commit separately using a valid conventional-commit type (`build(diagnostics): add X — surfaced by section-{NN} close sweep` — use `build` for dev/diagnostic scripts, `test` for test-harness, `chore` for general tooling, `ci` for CI, `docs` for tool docs; the lefthook commit-msg hook rejects any non-standard type), verify against the original scenario. Most sweeps produce zero new findings when per-subsection captures are thorough — that is the expected, healthy outcome and must be documented: "Section-close sweep: per-subsection retrospectives covered everything; no cross-subsection patterns required new tooling." Do not silently skip.
 
 **Exit Criteria:** {Paragraph describing the measurable, testable condition
 that proves this section is complete. Include specific commands, test names,
@@ -546,7 +592,7 @@ escalation to map the exact boundary of what works.
 - [ ] `./clippy-all.sh` green
 - [ ] `/tpr-review` passed — independent Codex review clean
 - [ ] `/impl-hygiene-review` passed — hygiene review clean. MUST run AFTER `/tpr-review` is clean.
-- [ ] `/improve-tooling` retrospective completed — MANDATORY at section close, after both reviews are clean. Reflect on what tooling/logging would have made the verification work materially easier (which diagnostic scripts you ran repeatedly, where output was hard to interpret, what manual cross-referencing you did between dumps, what stress-test or perf instrumentation was missing). Implement every accepted improvement NOW (zero deferral) and commit each via SEPARATE `/commit-push`. The retrospective is mandatory even when nothing felt painful — that is exactly when blind spots accumulate. Verification sections especially benefit because they exercise the full diagnostic surface, surfacing gaps invisible to per-feature work.
+- [ ] `/improve-tooling` **section-close sweep** — MANDATORY after both reviews are clean. Per-subsection captures from {NN}.1–{NN}.6 should already be committed via each subsection's own close-out block; the sweep verifies they ran (no skips) and adds only NEW cross-cutting items invisible at per-item scope. Verification sections especially benefit from cross-cutting capture because they exercise the full diagnostic surface — but the *primary* tooling growth still happens per-subsection. Look for: diagnostic scripts that were run during multiple subsections with the same output-interpretation friction, manual cross-referencing across dumps that no tool combined, stress-test or perf instrumentation that became obvious only after seeing the full verification picture. Implement immediately, commit separately using a valid conventional-commit type (`build(diagnostics): add X — surfaced by section-{NN} verification close sweep` — see the regular section-close sweep above for the type rules; the lefthook commit-msg hook rejects non-standard types like `tools(...)`), verify against the original scenario. Document the negative finding if there are no cross-cutting gaps. Do not silently skip.
 
 **Exit Criteria:** {Final measurable proof. Include test counts, metric
 thresholds, and the specific commands that demonstrate completion.}

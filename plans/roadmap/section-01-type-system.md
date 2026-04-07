@@ -230,6 +230,8 @@ Formalize Duration and Size primitive types with literal syntax, arithmetic, and
   - [x] **Ori Tests**: `tests/spec/types/duration_size_const.ori` — 18 tests covering constant Duration/Size in let bindings, cross-unit arithmetic, comparisons, mixed int operations
   - [x] **LLVM Support**: Already handled — `lower_constant()` dispatches to `lower_duration()`/`lower_size()` with unit conversion
 
+- [ ] **Subsection close-out (1.1A)** — MANDATORY before starting the next subsection. Run `/improve-tooling` retrospectively on THIS subsection's debugging journey (per `.claude/skills/improve-tooling/SKILL.md` "Per-Subsection Workflow"): which `diagnostics/` scripts you ran, where you added `dbg!`/`tracing` calls, where output was hard to interpret, where test failures gave unhelpful messages, where you ran the same command sequence repeatedly. Forward-look: what tool/log/diagnostic would shorten the next regression in this code path by 10 minutes? Implement improvements NOW (zero deferral) and commit each via SEPARATE `/commit-push` using a valid conventional-commit type (`build(diagnostics): ... — surfaced by section-1.1A retrospective` — `build`/`test`/`chore`/`ci`/`docs` are valid; `tools(...)` is rejected by the lefthook commit-msg hook). Mandatory even when nothing felt painful. If genuinely no gaps, document briefly: "Retrospective 1.1A: no tooling gaps". Update this subsection's `status` in section frontmatter to `complete`.
+
 ---
 
 ## 1.1B Never Type Semantics (verified 2026-03-29)
@@ -326,6 +328,8 @@ Formalize the Never type as the bottom type with coercion rules, type inference 
 - WEAK TESTS: No dedicated lambda annotation test file; coverage is transitive through other test suites (verified 2026-03-29)
 - [ ] **Test gap**: Add dedicated `tests/spec/types/lambda_annotations.ori` exercising typed lambda params and explicit return types
 
+- [ ] **Subsection close-out (1.3)** — MANDATORY before starting the next subsection. Run `/improve-tooling` retrospectively on THIS subsection's debugging journey (per `.claude/skills/improve-tooling/SKILL.md` "Per-Subsection Workflow"): which `diagnostics/` scripts you ran, where you added `dbg!`/`tracing` calls, where output was hard to interpret, where test failures gave unhelpful messages, where you ran the same command sequence repeatedly. Forward-look: what tool/log/diagnostic would shorten the next regression in this code path by 10 minutes? Implement improvements NOW (zero deferral) and commit each via SEPARATE `/commit-push` using a valid conventional-commit type (`build(diagnostics): ... — surfaced by section-1.3 retrospective` — `build`/`test`/`chore`/`ci`/`docs` are valid; `tools(...)` is rejected by the lefthook commit-msg hook). Mandatory even when nothing felt painful. If genuinely no gaps, document briefly: "Retrospective 1.3: no tooling gaps". Update this subsection's `status` in section frontmatter to `complete`.
+
 ---
 
 ## 1.4 Let Binding Types (verified 2026-03-29)
@@ -410,3 +414,6 @@ Reserve architectural space in the type system for future low-level features (in
 - [ ] StructDef category field: reserved slot always Boxed, no behavioral test (acceptable for dormant feature)
 
 **Section 1 complete.** All subsections (1.1-1.4, 1.6) implemented and verified. Independent verification 2026-03-29 confirmed completion with minor gaps noted above.
+
+- [ ] **Subsection close-out (1.7)** — MANDATORY before starting the next subsection. Run `/improve-tooling` retrospectively on THIS subsection's debugging journey (per `.claude/skills/improve-tooling/SKILL.md` "Per-Subsection Workflow"): which `diagnostics/` scripts you ran, where you added `dbg!`/`tracing` calls, where output was hard to interpret, where test failures gave unhelpful messages, where you ran the same command sequence repeatedly. Forward-look: what tool/log/diagnostic would shorten the next regression in this code path by 10 minutes? Implement improvements NOW (zero deferral) and commit each via SEPARATE `/commit-push` using a valid conventional-commit type (`build(diagnostics): ... — surfaced by section-1.7 retrospective` — `build`/`test`/`chore`/`ci`/`docs` are valid; `tools(...)` is rejected by the lefthook commit-msg hook). Mandatory even when nothing felt painful. If genuinely no gaps, document briefly: "Retrospective 1.7: no tooling gaps". Update this subsection's `status` in section frontmatter to `complete`.
+
