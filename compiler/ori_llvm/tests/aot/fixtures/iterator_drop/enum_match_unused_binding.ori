@@ -1,0 +1,19 @@
+// TPR-07-013 semantic pin: matching an iterator payload from a sum
+// type into an unused binding must drop the projected iterator. The
+// TPR-07-011 fix suppressed the parent enum's scope-exit drop when
+// a take-project occurs, but the projected iterator binding itself
+// still needs to drop at scope exit — it's an ownership transfer,
+// not an alias.
+//
+// Enum case: `type MaybeIter = Empty | Holds(it: Iterator<int>)`.
+
+type MaybeIter = Empty | Holds(it: Iterator<int>);
+
+@main () -> int = {
+    let x: MaybeIter = Holds(it: [1, 2, 3].iter());
+    let n = match x {
+        Empty -> 0,
+        Holds(it) -> 42
+    };
+    if n == 42 then 0 else 1
+}

@@ -87,6 +87,43 @@ fn tpr_07_011_enum_tagged_ptr_match_consume_dynamic() {
     );
 }
 
+/// TPR-07-013 semantic pin: symmetric case of TPR-07-011. Matching
+/// an iterator payload from a user sum type into a binding that is
+/// NEVER consumed must drop the projected iterator at scope exit.
+/// TPR-07-011 correctly suppressed the source enum's scope-exit
+/// drop when a take-project fires (preventing double-free on the
+/// "project-then-consume" path), but the symmetric "project-then-
+/// drop-unused" path needs the projected iterator binding itself
+/// to drop at its own scope exit — it's an ownership transfer, not
+/// an alias.
+#[test]
+fn tpr_07_013_enum_match_unused_binding_no_leak() {
+    assert_aot_success(
+        include_str!("fixtures/iterator_drop/enum_match_unused_binding.ori"),
+        "tpr_07_013_enum_match_unused_binding",
+    );
+}
+
+/// TPR-07-013 matrix pin: `Option<Iterator<int>>` case of the
+/// project-unused pattern.
+#[test]
+fn tpr_07_013_option_match_unused_binding_no_leak() {
+    assert_aot_success(
+        include_str!("fixtures/iterator_drop/option_match_unused_binding.ori"),
+        "tpr_07_013_option_match_unused_binding",
+    );
+}
+
+/// TPR-07-013 matrix pin: `Result<Iterator<int>, int>` case of the
+/// project-unused pattern.
+#[test]
+fn tpr_07_013_result_match_unused_binding_no_leak() {
+    assert_aot_success(
+        include_str!("fixtures/iterator_drop/result_match_unused_binding.ori"),
+        "tpr_07_013_result_match_unused_binding",
+    );
+}
+
 // Note: the explicit-tag enum case (≥9 variants carrying an
 // iterator payload) is blocked by BUG-04-044 — the Construct path
 // emits `insertvalue [N x i64], ptr` without ptrtoint casting the
