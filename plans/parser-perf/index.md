@@ -3,7 +3,7 @@ reroute: true
 name: "Parser Perf"
 full_name: "Parser Frontend Performance & API"
 status: queued
-order: 3
+order: 7
 ---
 
 # Parser Frontend Performance Index
