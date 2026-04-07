@@ -786,7 +786,36 @@ These test enum representations interacting with other language features. Each m
   - This produces tighter bypass-safe sets when multiple unrelated sources are unioned via phi merges (the contamination from one source no longer pollutes the others).
   - Add a regression fixture that ACTUALLY exercises the unsound case: it must produce two unrelated take-project sources whose alias chains genuinely meet at a phi-style block param AND whose bypass-safe regions differ in a way that the current over-approximation hides.
 
-  **Status**: still open. Iteration 1 reverted on 2026-04-07. The proper fix requires the architectural split above and will be implemented in a follow-up commit.
+  **Iteration 2 (proper fix landed, 2026-04-07)**: implemented the membership-vs-lineage architectural split in `compiler/ori_arc/src/aims/emit_rc/take_project/mod.rs` (the file was promoted to a directory module with sibling `tests.rs`). The concrete shape that landed is slightly tighter than the plan text above and worth recording so future implementers don't get confused:
+
+  - **Membership** is computed exactly as before by [`union_alias_edges`] — bidirectional union-find over both Let aliases and Jump-arg → block-param edges. Stored as a single `in_class: FxHashSet<ArcVarId>`. `TakeMoveFacts::is_in_class` queries this. Edge cleanup (`collect_branch_edge_decs`, `collect_invoke_edge_decs`) and source 2 (`emit_dead_block_param_decs`) continue to skip every in-class var unchanged — the over-approximating union is preserved as load-bearing per the iteration 1 lesson.
+  - **Per-source bypass-safe blocks** are computed independently for each take-project source via [`compute_bypass_safe_blocks`] called with a single `tp_block`. Stored as `Vec<FxHashSet<usize>>` indexed by `tp_site_idx`. No more cross-source merging.
+  - **Per-variable lineage** is computed via BFS from each take-project source through a NEW asymmetric alias graph ([`build_alias_graph`]):
+    * `Let { dst, Var(src) }` produces **bidirectional** edges `src ↔ dst` — they are SSA-equivalent (the upstream Let alias must inherit lineage from the downstream take-project source). Forward-only Let propagation was a bug discovered during iteration 2's first build attempt: it leaked `tpr_07_016/017/019/020` because the actual enum needing the bypass-safe drop is the upstream Let alias of the take-project's source variable.
+    * `Jump { args }` produces **forward-only** edges `args[i] → target.params[i]` — phi params inherit lineage from their incoming args, but args must NOT inherit each other's lineage (that would conflate distinct tp_sources, exactly the original TPR-07-019 unsoundness).
+  - **Lineage indices** dedup the result: variables with the same `Vec<usize>` source set share one `LineageInfo`. Singleton lineage `{i}` = SSA-equivalent to source `i` (the common case). Mixed lineage `{i, j}` = phi-merged, could be either source at runtime.
+  - **`is_bypass_safe_entry_for_var(var, blk)`** queries the var's lineage's precomputed `bypass_safe_entries`. For singleton lineages this is the entries of that single source's bypass-safe set (matches TPR-07-017 semantics). For mixed lineages it is the entries of the **intersection** of per-source bypass-safe BLOCKS (not the intersection of entries — that produces empty sets in legitimate cases). Implemented by [`compute_lineage_bypass_safe_entries`].
+  - **Source 1 dedup** changed from `class_of` (per-class) to `lineage_of` (per-lineage). Two vars with the same lineage are SSA-equivalent and dedup together; two vars with different lineages may legitimately need separate drops at distinct bypass-safe entries (e.g., a singleton-lineage source var and a mixed-lineage phi param in the same membership class).
+
+  **Iteration 2 implementation surface**:
+  - `compiler/ori_arc/src/aims/emit_rc/take_project.rs` → promoted to `take_project/mod.rs` (full rewrite of `analyze()`, new `LineageInfo` struct, new `compute_lineage` / `build_alias_graph` / `compute_lineage_bypass_safe_entries` helpers; `TakeMoveFacts` API renamed `class_of` → `lineage_of`)
+  - `compiler/ori_arc/src/aims/emit_rc/take_project/tests.rs` → NEW (10 unit tests for the helper functions: bypass-safe block/entry semantics, function-entry special case, Let-bidirectional / Jump-forward-only graph asymmetry, singleton vs mixed lineage intersection)
+  - `compiler/ori_arc/src/aims/emit_rc/dead_cleanup.rs` → renamed `classes_dec_emitted` → `lineages_dec_emitted`, switched dedup from `class_of` to `lineage_of`
+  - `compiler/ori_llvm/tests/aot/iterator_drop.rs` + `compiler/ori_llvm/tests/aot/fixtures/iterator_drop/tpr_07_019_per_source_lineage.ori` → NEW AOT pin exercising the bidirectional-Let propagation requirement on a two-phi-merge shape
+
+  **Verification (iteration 2 final)**:
+  - 10 new unit tests in `take_project/tests.rs` — all green
+  - 16/16 `iterator_drop` AOT pins green in BOTH debug and release builds (15 prior + the new `tpr_07_019_per_source_lineage_no_leak`)
+  - `./test-all.sh` 16,853 passed / 0 failed (+12 from baseline 16,841)
+  - `./clippy-all.sh` clean
+  - `./fmt-all.sh` clean
+  - First build attempt SHIPPED a leak in 4 of 16 iterator_drop pins (forward-only Let bug); the regression suite caught it instantly and the fix was a 4-line edit to make `build_alias_graph` Let-bidirectional. Net benefit of the matrix-squeeze principle: failure was triangulated to a single dimension within seconds.
+
+  **Plan-text correction**: the plan above said "INTERSECTION of all sources' `bypass_safe_entries`". The implemented form is the entries of the **intersection of `bypass_safe_blocks`** (computed per-lineage, deduplicated by lineage index). The two are mathematically distinct: intersection of entries can be empty in cases where entries of intersection is non-empty (a block in the intersected bypass-safe set whose pred is non-bypass-safe in the intersected sense). Per-lineage intersection-then-entries is the correct semantic — see `compute_lineage_bypass_safe_entries` for the canonical form.
+
+  **Source-level reachability**: I was unable to construct an Ori source-level shape that triggers TPR-07-019's exact unsoundness (two take-project sources unioned via phi into the same membership class). Move semantics block the most natural-looking patterns. The new AOT pin (`tpr_07_019_per_source_lineage`) exercises the related two-phi-merge shape that requires bidirectional Let propagation, and the unit tests pin the per-source intersection algorithm directly. Combined with the existing `tpr_07_019_phi_merge_take_projects` topology pin, the regression coverage is structural rather than leak-reproductive — but the algorithm is unit-pinned, which is stronger than a single AOT case.
+
+  **Status**: implementation landed and verified (test-all/clippy/release-parity all green). `/tpr-review` re-run still pending. The checkbox above remains `[ ]` until Codex iteration N+1 confirms the fix is sound; will flip to `[x]` after a clean re-review.
 
 - [x] `[TPR-07-020][medium]` `compiler/ori_arc/src/aims/emit_rc/take_project.rs:267` — `compute_bypass_safe_entries()` misses the reachable entry case where the bypass-safe region starts at the function entry block but that block also has only in-region back-edges.
   Evidence: a block is marked as an entry only when `preds.is_empty()` or some predecessor is not bypass-safe. A loop header that is also the function entry will have at least one predecessor once the back-edge exists, and if the whole loop body is bypass-safe then every predecessor is also bypass-safe, so the header is excluded from `bypass_safe_entries` even though all real CFG paths enter the function through it.
@@ -828,29 +857,36 @@ This section captures the exact state needed to resume TPR-07-017 / TPR-07-018 c
 1. `055b5a9b` `chore(ori_arc)`: per-phase post-walk RC tracing — surfaced by TPR-07-017 retrospective
 2. `79124fc3` `fix(repr-opt)`: TPR-07-017 per-class take-project partitioning + bypass-safe entry edge
 3. `ba97de83` `docs(plans)`: section close-out checklist improvements (impl-hygiene-review default + improve-tooling retrospective)
-4. `04cf56fb` `fix(repr-opt)`: TPR-07-020 + TPR-07-021 + TPR-07-019 iteration-1 revert ← **HEAD**
+4. `04cf56fb` `fix(repr-opt)`: TPR-07-020 + TPR-07-021 + TPR-07-019 iteration-1 revert
+5. `41592011` `docs(repr-opt)`: refresh §07.RZ resume notes for iteration-2 closure
+6. `f7a04e63` `test(aot)`: auto-rebuild workspace `ori` binary before AOT tests
+7. `4c070ad0` `build(scripts)`: add `cache-doctor.sh` for cargo cache pollution detection
+8. *(pending iteration 3 tooling)* `build(diagnostics)`: add `arc-dump.sh` for ARC IR inspection — surfaced by TPR-07-019 retrospective
+9. *(pending iteration 3 fix)* `fix(repr-opt)`: TPR-07-019 per-source bypass-safe split — proper fix via lineage layer ← **planned HEAD**
 
-**TPR findings status (2026-04-07):**
+**TPR findings status (2026-04-07, iteration 3):**
 
 | Finding | Severity | Status |
 |---------|----------|--------|
-| TPR-07-017 | originally medium | landed in 79124fc3, verified by Codex iteration 1 — **partially open until TPR-07-019 is closed** (the per-class architecture itself works; the union-find soundness gap below is what's open) |
+| TPR-07-017 | originally medium | landed in 79124fc3, partially open until TPR-07-019 closes — iteration-3 fix below resolves the underlying union-find soundness gap |
 | TPR-07-018 | medium | not yet started — emitter-driven IR test for BUG-04-019. Has full implementation plan in §07.R `[TPR-07-018]` |
-| TPR-07-019 | high | **OPEN** — iteration 1 (narrow union to single-pred) was reverted because it broke edge_cleanup's class membership invariant and produced 9 double-frees. Proper fix designed (membership class vs reachability set split) and documented in §07.R `[TPR-07-019]`. NOT yet implemented. |
+| TPR-07-019 | high | **iteration 3 implementation landed** — membership-vs-lineage split via bidirectional Let / forward-only Jump alias graph, per-lineage intersection-then-entries. Pending Codex re-review. Detailed notes in §07.R `[TPR-07-019]` "Iteration 2 (proper fix landed)" subsection. |
 | TPR-07-020 | medium | resolved in 04cf56fb |
 | TPR-07-021 | low | resolved in 04cf56fb |
 
-**Verification status (post-iteration-2, 2026-04-07):**
+**Verification status (post-iteration-3, 2026-04-07):**
 
 - ✅ `cargo b` — clean
 - ✅ `cargo b --release` — clean (FastISel parity verified)
-- ✅ `cargo test -p ori_llvm --test aot iterator_drop` — 15 passed, 0 failed (debug AND release)
-- ✅ `./test-all.sh` — 16,842 passed, 0 failed (+2 from new TPR-07-019/020 topology pin fixtures vs the 16,840 baseline)
+- ✅ `cargo test -p ori_arc take_project::tests` — 10 new unit tests for membership/lineage helpers
+- ✅ `cargo test -p ori_llvm --test aot iterator_drop` — 16 passed, 0 failed in BOTH debug and release (15 prior + new `tpr_07_019_per_source_lineage_no_leak`)
+- ✅ `./test-all.sh` — 16,853 passed, 0 failed (+12 from baseline 16,841: 10 unit tests + 1 AOT pin + 1)
 - ✅ `./clippy-all.sh` — clean
-- ✅ `/commit-push` — committed and pushed (04cf56fb)
-- ❌ `/tpr-review` re-run (iteration 2) — pending; deferred to next session per user-approved pause
+- ✅ `./fmt-all.sh` — clean
+- ⏳ `/commit-push` — pending (this iteration's changes still uncommitted)
+- ❌ `/tpr-review` re-run (iteration 3) — pending; will run after commit lands
 - ❌ `/impl-hygiene-review` — blocked on TPR re-review being clean (CLAUDE.md gate)
-- ❌ TPR-07-019 proper fix — open, full design documented in §07.R, ~150-300 lines of architectural work expected
+- ➕ Bug filed: `[BUG-07-005][low]` orphan env vars `ORI_NO_REPR_OPT` / `ORI_VERIFY_ARC` — surfaced by `diagnostics/check-debug-flags.sh` during retrospective verification of the new `arc-dump.sh`. Unrelated to TPR-07-019 itself.
 
 **Tooling gaps surfaced during iteration 2 (for `/improve-tooling` retrospective):**
 
