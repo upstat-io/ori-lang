@@ -10,12 +10,12 @@
 //! # Classification Rules
 //!
 //! - **Trivial**: primitives (`int`, `float`, `bool`, `char`, `byte`, `void`,
-//!   `Never`, `Duration`, `Size`, `Ordering`), `Error` sentinel,
-//!   iterators (Box-allocated, no RC header), and compound types whose
-//!   transitive children are all trivial
+//!   `Never`, `Duration`, `Size`, `Ordering`), `Error` sentinel, and
+//!   compound types whose transitive children are all trivial
 //! - **`NonTrivial`**: heap-allocated with RC (`str`, `[T]`, `{K: V}`, `Set<T>`,
-//!   `Channel<T>`), closures (`Function`), recursive types, and compounds
-//!   containing any non-trivial child
+//!   `Channel<T>`), closures (`Function`), iterators (Box-allocated — no RC
+//!   header, but `ori_iter_drop` must still run at scope exit), recursive
+//!   types, and compounds containing any non-trivial child
 //! - **`Unknown`**: unresolved type variables, unresolvable named types, and
 //!   internal compiler types that should not reach codegen
 
@@ -67,9 +67,6 @@ fn classify_recursive(idx: Idx, pool: &Pool, visiting: &mut FxHashSet<Idx>) -> T
     // Fast path: primitives and known leaf types
     match tag {
         // Scalar primitives — no heap allocation.
-        // Iterators: Box-allocated (no RC header, no ori_rc_alloc) — Scalar
-        // per ArcClassifier. TypeInfoStore currently disagrees; this
-        // unification resolves in favor of ArcClassifier's classification.
         // Error placeholder: propagates silently, classified as Scalar
         // by ArcClassifier (Idx::ERROR is a pre-interned primitive).
         Tag::Int
@@ -82,12 +79,23 @@ fn classify_recursive(idx: Idx, pool: &Pool, visiting: &mut FxHashSet<Idx>) -> T
         | Tag::Duration
         | Tag::Size
         | Tag::Ordering
-        | Tag::Iterator
-        | Tag::DoubleEndedIterator
         | Tag::Error => return Triviality::Trivial,
 
-        // Always heap-allocated with RC headers
-        Tag::Str | Tag::List | Tag::Map | Tag::Set | Tag::Channel => return Triviality::NonTrivial,
+        // Always heap-allocated with RC headers.
+        //
+        // Iterators (Box-allocated, no RC header) are non-trivial because
+        // `ori_iter_drop` must run at scope exit — even though they have
+        // no refcount to decrement. The ARC emitter routes them through
+        // `RcStrategy::Iterator` / the `Tag::Iterator` arm of
+        // `dec_value_rc_inner`, which emits `ori_iter_drop` instead of
+        // `ori_rc_dec`. See TPR-07-008.
+        Tag::Str
+        | Tag::List
+        | Tag::Map
+        | Tag::Set
+        | Tag::Channel
+        | Tag::Iterator
+        | Tag::DoubleEndedIterator => return Triviality::NonTrivial,
 
         // Unresolved type variables, reserved types, internal compiler types
         // — conservative fallback

@@ -39,10 +39,17 @@ fn iter_ownership_is_borrowed() {
 }
 
 #[test]
-fn iter_drop_ownership_is_borrowed() {
+fn iter_drop_ownership_is_owned() {
+    // TPR-07-008: `ori_iter_drop` consumes the iterator handle (frees
+    // the Box-allocated state). Before the fix, iterators were trivial
+    // so ARC never emitted scope-exit drops and the Borrowed contract
+    // was harmless; now that iterators are non-trivial, the explicit
+    // for-loop `ori_iter_drop` call must be marked as consuming so
+    // borrow inference does not also insert a second scope-exit
+    // `RcDec`, which would double-free the iterator state.
     let ownership = ProtocolBuiltin::IterDrop.arg_ownership();
     assert_eq!(ownership.len(), 1);
-    assert_eq!(ownership[0], ProtocolArgOwnership::Borrowed);
+    assert_eq!(ownership[0], ProtocolArgOwnership::Owned);
 }
 
 #[test]

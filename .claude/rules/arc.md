@@ -102,7 +102,7 @@ Source: `ori_ir/src/builtin_constants/protocol/mod.rs`
 | `Index` | `__index` | 2 | Borrowed, Borrowed | `receiver[index]` -- list/map indexing |
 | `Iter` | `iter` | 1 | Borrowed | Iterator creation from collection |
 | `IterNext` | `__iter_next` | 2 | Owned, Borrowed | Iterator advancement (iterator consumed, type marker borrowed) |
-| `IterDrop` | `ori_iter_drop` | 1 | Borrowed | Iterator cleanup (state freed internally) |
+| `IterDrop` | `ori_iter_drop` | 1 | Owned | Iterator cleanup — consumes the iterator handle (TPR-07-008) |
 | `CollectSet` | `__collect_set` | 1 | Owned | Set collection from iterator (iterator consumed) |
 
 ## Crate Structure

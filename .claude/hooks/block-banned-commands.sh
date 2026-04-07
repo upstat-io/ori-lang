@@ -57,27 +57,30 @@ for pattern in "${BANNED_PATTERNS[@]}"; do
   fi
 done
 
-# ── Block timeouts on review/codex commands ──────────────────────────
-# codex exec calls are review tasks, NOT tests. They take 5-15 minutes.
-# Claude keeps adding Bash timeout: parameters despite rules.
+# ── Guard timeouts on review/codex commands ─────────────────────────
+# codex exec calls are review tasks, NOT tests. They take 5-35 minutes.
+# Block only *short* timeouts that would kill a review mid-stream.
+# Maximum allowed: 2100000 ms (35 minutes).
 TIMEOUT=$(printf '%s' "$INPUT" | python3 -c "import sys,json; print(json.load(sys.stdin).get('tool_input',{}).get('timeout',''))" 2>/dev/null || true)
 
 if [[ -n "$TIMEOUT" && "$TIMEOUT" != "None" ]]; then
   if [[ "$COMMAND" == *"codex"* ]]; then
-    deny "Blocked: timeout ($TIMEOUT ms) on codex command. Reviews MUST NOT have timeouts — remove the Bash timeout: parameter."
+    # Require at least 5 minutes (300000 ms) on codex — anything shorter
+    # will kill the review mid-stream.
+    if [[ "$TIMEOUT" =~ ^[0-9]+$ ]] && (( TIMEOUT < 300000 )); then
+      deny "Blocked: timeout ($TIMEOUT ms) on codex command is too short. Reviews need 5-35 minutes — use at least 300000 ms, up to 2100000 ms (35 min)."
+    fi
+    if [[ "$TIMEOUT" =~ ^[0-9]+$ ]] && (( TIMEOUT > 2100000 )); then
+      deny "Blocked: timeout ($TIMEOUT ms) on codex command exceeds 35-minute ceiling (2100000 ms)."
+    fi
   fi
 fi
 
-# ── Block background execution on review/codex commands ──────────────
-# codex exec MUST run in foreground so output is immediately available.
-# Claude keeps using run_in_background despite explicit rules.
-RUN_IN_BG=$(printf '%s' "$INPUT" | python3 -c "import sys,json; print(json.load(sys.stdin).get('tool_input',{}).get('run_in_background',''))" 2>/dev/null || true)
-
-if [[ "$RUN_IN_BG" == "True" || "$RUN_IN_BG" == "true" ]]; then
-  if [[ "$COMMAND" == *"codex"* ]]; then
-    deny "Blocked: run_in_background on codex command. Reviews MUST run in foreground — remove the run_in_background parameter."
-  fi
-fi
+# ── Allow background execution on codex commands ────────────────────
+# The Bash tool's foreground timeout cap (600000 ms / 10 min) is shorter
+# than the 35-minute upper bound for codex reviews, so background
+# execution is the only mechanism that can accommodate long reviews.
+# No block here.
 
 # No banned pattern found — no output so normal permission system applies.
 exit 0

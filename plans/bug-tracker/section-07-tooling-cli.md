@@ -16,6 +16,13 @@ Bugs in the CLI (`ori run`, `ori check`, `ori test`, `ori fmt`), formatter, diag
 
 ## Open Bugs
 
+- [ ] `[BUG-07-004][low]` **AOT test harness does not invalidate stale binaries when cross-crate deps change** — found by tpr-review.
+  **Repro**: Make a change in `ori_arc` (e.g., the `apply_consuming_overrides` logic) that affects generated code. Run `cargo test -p ori_llvm --test aot <specific_test>` without touching `tests/aot/main.rs`. The test binary is rebuilt but `assert_aot_success` produces stale results — touching `tests/aot/main.rs` to force a full rebuild picks up transitive crate changes and tests pass. Observed twice during TPR-07-008 investigation: first with the initial triviality flip, again after the `annotate.rs` type-aware override.
+  **Impact**: False "test failures" when iterating on cross-crate fixes. Wastes time chasing regressions that were already fixed.
+  **Suggested fix**: AOT test util should either (a) include a build timestamp in the binary path so stale binaries are never reused, (b) invoke a cache-busting `cargo build -p oric` before each test run, or (c) use `cargo metadata` or file mtimes to detect dep-graph changes.
+  Subsystem: `compiler/ori_llvm/tests/aot/util/aot.rs`
+  Found: 2026-04-06 | Source: tpr-review (TPR-07-008)
+
 - [x] `[BUG-07-001][medium]` **`--target` with missing/invalid value should show valid targets** — found by manual.
   Resolved: OBE on 2026-04-02. Target validation now active — `ori build --target=foo` emits `error[E5004]: target 'foo' is not supported` with full list of supported targets.
   Repro: `ori build hello.ori --target=` or `ori build hello.ori --target=foo`

@@ -45,6 +45,17 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             | Tag::Size
             | Tag::Ordering => {}
 
+            // Iterators (Box-allocated, no RC header): Inc is a no-op.
+            // Iterators are unique-owned — they are moved through
+            // `iter_next`, never copied — so there is nothing to
+            // refcount. See TPR-07-008 and `emit_rc_inc_iterator` in
+            // `rc_ops.rs`.
+            Tag::Iterator | Tag::DoubleEndedIterator => {
+                let _ = val;
+                let _ = count;
+                tracing::trace!(?tag, "inc_value_rc on iterator — no-op (unique ownership)");
+            }
+
             // Result/Enum: tag-switch per variant, inc RC children
             Tag::Result | Tag::Enum => {
                 self.emit_inline_enum_inc(val, resolved, tag, count);
@@ -168,6 +179,18 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             | Tag::Duration
             | Tag::Size
             | Tag::Ordering => {}
+
+            // Iterators: call `ori_iter_drop(ptr)` to free the
+            // Box-allocated state. There is no RC header to decrement,
+            // so `ori_rc_dec` would corrupt memory by reading a
+            // non-existent refcount. This arm is reached for iterator
+            // *fields* inside compound types (struct, tuple, enum
+            // variants); the direct `RcDec` dispatch for top-level
+            // iterator variables goes through `RcStrategy::Iterator`
+            // in `rc_ops.rs`. See TPR-07-008.
+            Tag::Iterator | Tag::DoubleEndedIterator => {
+                self.call_iter_drop(val);
+            }
 
             // Result/Enum: tag-switch per variant, dec RC children
             Tag::Result | Tag::Enum => {

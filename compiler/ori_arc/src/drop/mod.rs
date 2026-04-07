@@ -136,6 +136,21 @@ pub fn compute_drop_info(
         return None;
     }
 
+    // TPR-07-008: Iterators are non-trivial (they need `ori_iter_drop`)
+    // but they do NOT use per-type drop functions. The ARC emitter
+    // dispatches iterator drops inline via `RcStrategy::Iterator` (for
+    // top-level RcDec on iterator variables) and the `Tag::Iterator`
+    // arm of `dec_value_rc_inner` (for iterator fields inside compound
+    // types). Both paths emit `ori_iter_drop(ptr)` directly. Returning
+    // `None` here prevents `collect_drop_infos` from asking `drop_gen`
+    // to generate a spurious `_ori_drop$Iterator<T>` function, which
+    // would call `ori_rc_free` on a Box-allocated pointer and corrupt
+    // memory.
+    let (_, tag) = resolve_type(ty, pool);
+    if matches!(tag, Tag::Iterator | Tag::DoubleEndedIterator) {
+        return None;
+    }
+
     let kind = compute_drop_kind(ty, pool, classifier);
 
     Some(DropInfo { ty, kind })

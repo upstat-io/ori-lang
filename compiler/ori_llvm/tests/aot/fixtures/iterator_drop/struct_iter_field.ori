@@ -1,0 +1,9 @@
+// TPR-07-008 matrix pin: struct containing an iterator field must
+// drop the iterator at scope exit.
+
+type Holder = { it: Iterator<int> };
+
+@main () -> int = {
+    let _h = Holder { it: [1, 2, 3].iter() };
+    0
+}
