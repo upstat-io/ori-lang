@@ -48,7 +48,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             // Iterators (Box-allocated, no RC header): Inc is a no-op.
             // Iterators are unique-owned — they are moved through
             // `iter_next`, never copied — so there is nothing to
-            // refcount. See TPR-07-008 and `emit_rc_inc_iterator` in
+            // refcount. See and `emit_rc_inc_iterator` in
             // `rc_ops.rs`.
             Tag::Iterator | Tag::DoubleEndedIterator => {
                 let _ = val;
@@ -187,7 +187,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             // *fields* inside compound types (struct, tuple, enum
             // variants); the direct `RcDec` dispatch for top-level
             // iterator variables goes through `RcStrategy::Iterator`
-            // in `rc_ops.rs`. See TPR-07-008.
+            // in `rc_ops.rs`. See
             Tag::Iterator | Tag::DoubleEndedIterator => {
                 self.call_iter_drop(val);
             }

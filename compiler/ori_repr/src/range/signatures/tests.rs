@@ -585,7 +585,7 @@ fn empty_functions_no_panic() {
     // No assertions needed — just verifying it doesn't panic.
 }
 
-// ─── TPR-03-026: Transitive A→B→C propagation ──────
+// ─── Transitive A→B→C propagation ──────
 
 /// Semantic pin: A calls B(42), B calls C(x). C's parameter should narrow to
 /// [42, 42] even though C is only called by B. This ONLY passes with parameter
@@ -672,7 +672,7 @@ fn transitive_propagation_a_b_c() {
     );
 }
 
-// ─── TPR-03-027: Caller/callee return-range narrowing ──────
+// ─── Caller/callee return-range narrowing ──────
 
 /// Semantic pin: callee returns constant 99, caller's Apply dst should narrow
 /// to [99, 99] from the callee's return range. This ONLY passes with Phase 6
@@ -727,7 +727,7 @@ fn caller_dst_narrows_from_callee_return_range() {
     );
 }
 
-// ─── TPR-03-026: Mutually recursive SCC tightening ──────
+// ─── Mutually recursive SCC tightening ──────
 
 /// Two mutually recursive functions with an external seed. When seeded with
 /// a constant call, parameter ranges should converge tighter than Top.
@@ -948,7 +948,7 @@ fn mutually_recursive_scc_tightens_from_seed() {
     // The SCC parameter fixpoint for F↔G with main(F(10)) expands the lower
     // bound each iteration (G feeds x-1 back to F). With default budget (10
     // SCC iterations), this doesn't converge — the budget trips and all
-    // results are correctly widened to Top (TPR-03-028). The test verifies:
+    // results are correctly widened to Top. The test verifies:
     // 1. No panic or hang during SCC processing
     // 2. Results are valid (Top is acceptable for non-converging SCCs)
     let f_name = ori_ir::Name::from_raw(600);
@@ -966,7 +966,7 @@ fn mutually_recursive_scc_tightens_from_seed() {
     );
 }
 
-// ─── TPR-03-028: SCC budget exhaustion clears stale results ──────
+// ─── SCC budget exhaustion clears stale results ──────
 
 /// Semantic pin: when a recursive SCC hits the iteration budget, ALL exported
 /// ranges (`var_ranges`, `return_range`, `field_summaries`) must be conservative
@@ -1112,7 +1112,7 @@ fn scc_budget_exhaustion_clears_stale_results() {
     );
 }
 
-// ─── TPR-03-030: Return-range feedback into downstream propagation ──────
+// ─── Return-range feedback into downstream propagation ──────
 
 /// Semantic pin: A calls `helper()` which returns bounded [99, 99], then passes
 /// that result to C. C's parameter should narrow to [99, 99] because the
@@ -1195,7 +1195,7 @@ fn return_range_feeds_downstream_parameter_collection() {
     );
 }
 
-// ─── Multi-hop return-range chain (TPR-03-031) ──────
+// ─── Multi-hop return-range chain ──────
 
 /// Build a passthrough function: `f(x) = callee(x)`.
 /// Takes one int param, calls `callee_id` with it, returns the result.
@@ -1303,7 +1303,7 @@ fn multi_hop_return_range_chain() {
     }
 }
 
-// ─── TPR-03-032: Derived locals from call-result narrowing ──────
+// ─── Derived locals from call-result narrowing ──────
 
 /// Semantic pin: `helper()` returns 99. Caller does:
 ///   `let x = helper()`   — dst var, narrowed by return-range feedback
@@ -1491,7 +1491,7 @@ fn callee_return_derived_local_forwards_to_callee_param() {
     );
 }
 
-// ─── TPR-03-033: refresh_return_ranges must skip unreachable blocks ──────
+// ─── refresh_return_ranges must skip unreachable blocks ──────
 
 /// Build a function that calls `callee_id`, has an unreachable Return block,
 /// and returns the call result. CFG: B0 → Apply → Jump B2, B1 (unreachable
@@ -1633,7 +1633,7 @@ fn feedback_refresh_skips_unreachable_return_blocks() {
     );
 }
 
-// ─── TPR-03-035: Total SCC budget must limit recursive SCC iterations ──────
+// ─── Total SCC budget must limit recursive SCC iterations ──────
 
 /// Build a self-recursive `rec(x: int)`: if x > 0 then `rec(x - 1)` else 0.
 fn build_self_recursive_func(name: u32) -> ArcFunction {
@@ -1729,7 +1729,7 @@ fn build_self_recursive_func(name: u32) -> ArcFunction {
     }
 }
 
-/// TPR-03-035 regression: with `max_total_scc_iterations: 2` and
+/// regression: with `max_total_scc_iterations: 2` and
 /// `max_scc_iterations: 10`, `process_recursive_scc` uses
 /// `min(10, remaining_budget=1) = 1` as effective cap.
 #[test]
@@ -1777,7 +1777,7 @@ fn total_scc_budget_caps_recursive_scc() {
     );
 }
 
-// ─── TPR-03-034: Invoke dst must receive call_result_narrowings ──────
+// ─── Invoke dst must receive call_result_narrowings ──────
 
 /// Build a caller that uses `ArcTerminator::Invoke` to call `callee_id`,
 /// then performs `let y = x + 1` and returns y. Three blocks:
@@ -1856,7 +1856,7 @@ fn build_invoke_caller(name: u32, callee_id: u32, num_vars: usize) -> ArcFunctio
     }
 }
 
-/// Semantic pin (TPR-03-034): `helper()` returns 99. Caller uses `Invoke` (not
+/// Semantic pin: `helper()` returns 99. Caller uses `Invoke` (not
 /// `Apply`) to call helper, then computes `y = x + 1`. After interprocedural
 /// propagation, y should be [100, 100]. ONLY passes when `process_terminator()`
 /// applies `call_result_narrowings` for `Invoke` dst variables.
@@ -1909,7 +1909,7 @@ fn invoke_dst_derived_local_propagates() {
     );
 }
 
-/// Semantic pin (TPR-03-034): `helper()` returns 99. Caller uses `Invoke` to
+/// Semantic pin: `helper()` returns 99. Caller uses `Invoke` to
 /// call helper, computes y = x + 1, then calls `callee(y)`. Callee's param
 /// should be [100, 100]. Tests `Invoke` narrowing propagating through to
 /// downstream parameter collection.
@@ -2030,9 +2030,9 @@ fn invoke_dst_forwards_to_callee_param() {
     );
 }
 
-// ─── TPR-03-037: Call-site-specific range propagation ──────
+// ─── Call-site-specific range propagation ──────
 
-/// Semantic pin (TPR-03-037): helper(x) called in true branch of `x < 5`.
+/// Semantic pin: helper(x) called in true branch of `x < 5`.
 /// With call-site-specific propagation: helper.param = [0, 4].
 /// Without (global `var_ranges`): helper.param = [0, 10].
 #[test]
@@ -2280,7 +2280,7 @@ fn closure_params_top_via_num_captures() {
     );
 }
 
-/// Ordinal-suffixed qualified names are correctly recognized as unconstrained (TPR-03-053).
+/// Ordinal-suffixed qualified names are correctly recognized as unconstrained.
 ///
 /// When two impl blocks define the same method on the same type (e.g.,
 /// `impl Point: Index<int>` and `impl Point: Index<str>`, both with `@index`),

@@ -4,7 +4,7 @@
 //! Covers both unwrap forms (`Option<T> ?? T`, `Result<T,E> ?? T`) and
 //! same-type wrapper chaining (`Option<T> ?? Option<T>`, `Result<T,E> ?? Result<T,E>`).
 //!
-//! Regression: BUG-02-002 — coalesce same-type wrapper chaining was typed as `T`
+//! Regression: coalesce same-type wrapper chaining was typed as `T`
 //! instead of the wrapper type. The chaining tests here pin the fix on the LLVM path.
 
 #![allow(
@@ -50,7 +50,7 @@ fn test_coalesce_result_unwrap_err() {
     );
 }
 
-// ─── Same-type wrapper chaining (BUG-02-002 regression pins) ───
+// ─── Same-type wrapper chaining (regression pins) ───
 
 #[test]
 fn test_coalesce_option_chain_some() {
@@ -128,7 +128,7 @@ fn test_coalesce_chain_then_unwrap_all_none() {
     );
 }
 
-// ─── Polymorphic RHS constructors (TPR-02-003 regression pins) ───
+// ─── Polymorphic RHS constructors (regression pins) ───
 
 #[test]
 fn test_coalesce_option_chain_bare_none() {

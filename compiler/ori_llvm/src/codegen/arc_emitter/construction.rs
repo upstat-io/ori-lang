@@ -28,7 +28,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
         match ctor {
             CtorKind::Struct(_) | CtorKind::Tuple => {
-                // BUG-04-008: Unit/void tuples resolve to i64 in LLVM (not a struct),
+                // Unit/void tuples resolve to i64 in LLVM (not a struct),
                 // because LLVM void can't be stored. Return a zero constant directly
                 // instead of calling build_struct on a non-struct type.
                 let resolved_ty = self.pool.resolve_fully(ty);
@@ -90,7 +90,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                     Vec::new()
                 };
 
-                // BUG-04-008: For user-defined enums (Tag::Enum), filter out
+                // For user-defined enums (Tag::Enum), filter out
                 // Unit/Never args — they are zero-sized and don't occupy payload
                 // space. For Option/Result (where variant_field_types is empty
                 // because they're not Tag::Enum), use args unchanged.

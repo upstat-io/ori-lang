@@ -169,7 +169,7 @@ impl BuildOptions {
         if other.features.is_some() {
             self.features.clone_from(&other.features);
         }
-        // Jobs: explicit wins (last-write-wins) (TPR-01-038)
+        // Jobs: explicit wins (last-write-wins)
         if other.jobs_explicit {
             self.jobs = other.jobs;
             self.jobs_explicit = true;
@@ -177,7 +177,7 @@ impl BuildOptions {
             self.jobs = other.jobs;
         }
 
-        // Link mode: explicit wins (last-write-wins) (TPR-01-038)
+        // Link mode: explicit wins (last-write-wins)
         if other.link_mode_explicit {
             self.link_mode = other.link_mode;
             self.link_mode_explicit = true;
@@ -345,7 +345,7 @@ impl LtoMode {
 /// Parse build options from command line arguments.
 ///
 /// Does NOT check `ORI_NO_REPR_OPT` — the env var fallback is applied by
-/// [`accumulate_build_options`] *after* the full CLI is merged (TPR-01-048).
+/// [`accumulate_build_options`] *after* the full CLI is merged.
 /// This prevents the env var from polluting per-arg parses in the build loop,
 /// where each single-arg parse would reapply the env override and clobber
 /// earlier explicit `--repr-opt=` flags.
@@ -365,7 +365,7 @@ pub fn parse_build_options(args: &[String]) -> BuildOptions {
 /// It handles: (1) per-arg parsing via [`parse_build_options`], (2) `-o` lookahead,
 /// and (3) the `ORI_NO_REPR_OPT` env var fallback *after* full CLI merge
 /// (TPR-01-028/048). Extracted from `main.rs` to enable direct testing
-/// of the zero-option build path (TPR-01-032).
+/// of the zero-option build path.
 ///
 /// `args` is the full CLI args slice (e.g., `["ori", "build", "file.ori", ...]`).
 /// Build options start at index 3 (after `ori build <file>`).
@@ -377,7 +377,7 @@ pub fn accumulate_build_options(args: &[String]) -> BuildOptions {
 ///
 /// Production callers use [`accumulate_build_options`] (reads the real env var).
 /// Tests call this directly with `env_disabled: true` or `false` to exercise
-/// the env var fallback path deterministically (TPR-01-032).
+/// the env var fallback path deterministically.
 pub fn accumulate_build_options_with_env(args: &[String], env_disabled: bool) -> BuildOptions {
     let mut options = BuildOptions::default();
     let mut i = 3;
@@ -393,7 +393,7 @@ pub fn accumulate_build_options_with_env(args: &[String], env_disabled: bool) ->
     }
 
     // Apply ORI_NO_REPR_OPT env var AFTER full CLI merge (TPR-01-028/048).
-    // Only applies if no explicit policy was set via CLI flags (TPR-01-036).
+    // Only applies if no explicit policy was set via CLI flags.
     if !options.narrowing_policy_explicit && env_disabled {
         options.narrowing_policy = ori_repr::NarrowingPolicy::Disabled;
     }

@@ -66,7 +66,7 @@ fn merge_preserves_conservative_policy() {
     );
 }
 
-// TPR-01-035: parse_build_options recognizes --no-repr-opt
+// parse_build_options recognizes --no-repr-opt
 #[test]
 fn parse_recognizes_no_repr_opt_flag() {
     let args = vec!["--no-repr-opt".to_string()];
@@ -74,7 +74,7 @@ fn parse_recognizes_no_repr_opt_flag() {
     assert_eq!(opts.narrowing_policy, NarrowingPolicy::Disabled);
 }
 
-// TPR-01-035: parse_build_options recognizes --repr-opt=conservative
+// parse_build_options recognizes --repr-opt=conservative
 #[test]
 fn parse_recognizes_repr_opt_conservative() {
     let args = vec!["--repr-opt=conservative".to_string()];
@@ -82,7 +82,7 @@ fn parse_recognizes_repr_opt_conservative() {
     assert_eq!(opts.narrowing_policy, NarrowingPolicy::Conservative);
 }
 
-// TPR-01-035: parse_build_options recognizes --repr-opt=aggressive
+// parse_build_options recognizes --repr-opt=aggressive
 #[test]
 fn parse_recognizes_repr_opt_aggressive() {
     let args = vec!["--repr-opt=aggressive".to_string()];
@@ -90,7 +90,7 @@ fn parse_recognizes_repr_opt_aggressive() {
     assert_eq!(opts.narrowing_policy, NarrowingPolicy::Aggressive);
 }
 
-// TPR-01-035: parse_build_options recognizes --repr-opt=disabled
+// parse_build_options recognizes --repr-opt=disabled
 #[test]
 fn parse_recognizes_repr_opt_disabled() {
     let args = vec!["--repr-opt=disabled".to_string()];
@@ -98,14 +98,14 @@ fn parse_recognizes_repr_opt_disabled() {
     assert_eq!(opts.narrowing_policy, NarrowingPolicy::Disabled);
 }
 
-// TPR-01-035: default narrowing policy is Aggressive
+// default narrowing policy is Aggressive
 #[test]
 fn default_policy_is_aggressive() {
     let opts = BuildOptions::default();
     assert_eq!(opts.narrowing_policy, NarrowingPolicy::Aggressive);
 }
 
-// TPR-01-027: merge preserves all boolean flags (exhaustive check)
+// merge preserves all boolean flags (exhaustive check)
 #[test]
 fn merge_preserves_all_boolean_flags() {
     let mut base = BuildOptions::default();
@@ -129,7 +129,7 @@ fn merge_preserves_all_boolean_flags() {
     assert!(base.verbose, "verbose not merged");
 }
 
-// TPR-01-035: per-arg merge loop preserves --no-repr-opt as NarrowingPolicy
+// per-arg merge loop preserves --no-repr-opt as NarrowingPolicy
 #[test]
 fn per_arg_merge_loop_preserves_disabled_policy() {
     let args = vec![
@@ -153,7 +153,7 @@ fn per_arg_merge_loop_preserves_disabled_policy() {
     );
 }
 
-// TPR-01-035: per-arg merge loop with --repr-opt=conservative
+// per-arg merge loop with --repr-opt=conservative
 #[test]
 fn per_arg_merge_loop_preserves_conservative_policy() {
     let args = vec![
@@ -174,7 +174,7 @@ fn per_arg_merge_loop_preserves_conservative_policy() {
     );
 }
 
-// TPR-01-034: merge() must preserve link_mode
+// merge() must preserve link_mode
 #[test]
 fn merge_preserves_link_mode() {
     let mut base = BuildOptions::default();
@@ -193,7 +193,7 @@ fn merge_preserves_link_mode() {
     );
 }
 
-// TPR-01-034: merge() must preserve jobs
+// merge() must preserve jobs
 #[test]
 fn merge_preserves_jobs() {
     let mut base = BuildOptions::default();
@@ -208,7 +208,7 @@ fn merge_preserves_jobs() {
     assert_eq!(base.jobs, Some(4), "merge must preserve jobs when set");
 }
 
-// TPR-01-034: merge() does not clear jobs with None
+// merge() does not clear jobs with None
 #[test]
 fn merge_does_not_clear_jobs() {
     let mut base = BuildOptions {
@@ -225,7 +225,7 @@ fn merge_does_not_clear_jobs() {
     );
 }
 
-// TPR-01-034: parse_build_options recognizes --link=dynamic
+// parse_build_options recognizes --link=dynamic
 #[test]
 fn parse_recognizes_link_dynamic() {
     let args = vec!["--link=dynamic".to_string()];
@@ -233,7 +233,7 @@ fn parse_recognizes_link_dynamic() {
     assert_eq!(opts.link_mode, LinkMode::Dynamic);
 }
 
-// TPR-01-034: parse_build_options recognizes --jobs=4
+// parse_build_options recognizes --jobs=4
 #[test]
 fn parse_recognizes_jobs() {
     let args = vec!["--jobs=4".to_string()];
@@ -241,7 +241,7 @@ fn parse_recognizes_jobs() {
     assert_eq!(opts.jobs, Some(4));
 }
 
-// TPR-01-034: per-arg merge loop with link_mode and jobs
+// per-arg merge loop with link_mode and jobs
 #[test]
 fn per_arg_merge_preserves_scalar_options() {
     let args = vec![
@@ -265,7 +265,7 @@ fn per_arg_merge_preserves_scalar_options() {
     assert!(options.release, "release should be set");
 }
 
-// TPR-01-034: semantic pin — default link_mode merge does not override
+// semantic pin — default link_mode merge does not override
 #[test]
 fn merge_default_link_mode_does_not_override() {
     let mut base = BuildOptions {
@@ -282,7 +282,7 @@ fn merge_default_link_mode_does_not_override() {
     );
 }
 
-// TPR-01-036: narrowing_policy_explicit — last-write-wins
+// narrowing_policy_explicit — last-write-wins
 
 #[test]
 fn narrowing_policy_explicit_overrides_env() {
@@ -350,7 +350,7 @@ fn env_var_does_not_override_explicit_aggressive() {
     // Since explicit is true, env var would NOT apply.
 }
 
-// TPR-01-038: link_mode and jobs — last-write-wins
+// link_mode and jobs — last-write-wins
 
 #[test]
 fn link_mode_last_write_wins_dynamic_then_static() {
@@ -412,14 +412,14 @@ fn jobs_last_write_wins_auto_then_4() {
     );
 }
 
-// TPR-01-048: --repr-opt=aggressive must survive trailing unrelated flags.
+// --repr-opt=aggressive must survive trailing unrelated flags.
 // This is the exact bug scenario: each unrelated flag parsed via
 // parse_build_options() MUST NOT inject a Disabled policy from the env var.
 
 #[test]
 fn explicit_aggressive_survives_trailing_release() {
     // Simulates: ori build file.ori --repr-opt=aggressive --release
-    // The env var is NOT applied inside parse_build_options() (TPR-01-048),
+    // The env var is NOT applied inside parse_build_options(),
     // so --release produces a default (non-explicit) policy that merge() ignores.
     let args = vec!["--repr-opt=aggressive".to_string(), "--release".to_string()];
 
@@ -483,7 +483,7 @@ fn explicit_disabled_survives_trailing_release() {
     assert!(options.release, "--release must still be set");
 }
 
-/// TPR-01-048 semantic pin: `parse_build_options` does NOT inject env-var
+/// semantic pin: `parse_build_options` does NOT inject env-var
 /// policy. This test verifies that parsing an unrelated flag does NOT
 /// produce a Disabled policy — the env var check was removed from
 /// `parse_build_options()` and moved to the caller.
@@ -505,7 +505,7 @@ fn parse_build_options_does_not_inject_env_policy() {
     );
 }
 
-// TPR-01-032: Integration tests for accumulate_build_options().
+// Integration tests for accumulate_build_options().
 // These test the real build-command accumulation path from main.rs,
 // including the post-merge env var fallback.
 
@@ -571,7 +571,7 @@ fn accumulate_explicit_aggressive_survives_trailing_flags() {
     assert!(options.release);
 }
 
-/// TPR-01-032 semantic pin: `accumulate_build_options` applies env var
+/// semantic pin: `accumulate_build_options` applies env var
 /// fallback correctly for the zero-option path. We can't safely set env
 /// vars in unit tests (race conditions), but we CAN verify the structure:
 /// with no explicit CLI flags, the env var guard checks
@@ -593,11 +593,11 @@ fn accumulate_zero_options_has_non_explicit_policy() {
     );
 }
 
-// TPR-01-032: Deterministic env-var regression tests via _with_env seam.
+// Deterministic env-var regression tests via _with_env seam.
 // These exercise the actual env var fallback code path without mutating
 // the process-global environment (which is racy in parallel tests).
 
-/// TPR-01-032 regression pin: zero CLI options + `env_disabled=true` → Disabled.
+/// regression pin: zero CLI options + `env_disabled=true` → Disabled.
 /// This is the exact scenario that fails silently if the env var fallback
 /// is accidentally removed from `accumulate_build_options_with_env`.
 #[test]
@@ -619,7 +619,7 @@ fn accumulate_env_disabled_zero_options_yields_disabled() {
     );
 }
 
-/// TPR-01-032: `env_disabled=true` with trailing flags (no explicit policy).
+/// `env_disabled=true` with trailing flags (no explicit policy).
 /// The env var must still apply after parsing unrelated flags like --release.
 #[test]
 fn accumulate_env_disabled_with_trailing_flags() {
@@ -639,7 +639,7 @@ fn accumulate_env_disabled_with_trailing_flags() {
     assert!(options.release, "--release must still be honored");
 }
 
-/// TPR-01-032: explicit `--repr-opt=aggressive` overrides `env_disabled=true`.
+/// explicit `--repr-opt=aggressive` overrides `env_disabled=true`.
 /// CLI explicit flags always win over the env var (TPR-01-036/048).
 #[test]
 fn accumulate_explicit_aggressive_overrides_env_disabled() {
@@ -661,7 +661,7 @@ fn accumulate_explicit_aggressive_overrides_env_disabled() {
     );
 }
 
-/// TPR-01-032: `env_disabled=false` does NOT override default Aggressive.
+/// `env_disabled=false` does NOT override default Aggressive.
 /// When the env var is not set, the default policy must remain.
 #[test]
 fn accumulate_env_not_disabled_keeps_default() {
@@ -678,9 +678,9 @@ fn accumulate_env_not_disabled_keeps_default() {
     );
 }
 
-// TPR-01-052: Invalid --repr-opt= values must NOT set narrowing_policy_explicit.
+// Invalid --repr-opt= values must NOT set narrowing_policy_explicit.
 
-/// TPR-01-052: `--repr-opt=bogus` must NOT set `narrowing_policy_explicit`.
+/// `--repr-opt=bogus` must NOT set `narrowing_policy_explicit`.
 /// An invalid policy value is not an explicit policy selection.
 #[test]
 fn invalid_repr_opt_value_does_not_set_explicit() {
@@ -696,7 +696,7 @@ fn invalid_repr_opt_value_does_not_set_explicit() {
     );
 }
 
-/// TPR-01-052 semantic pin: `--no-repr-opt --repr-opt=bogus` must preserve Disabled.
+/// semantic pin: `--no-repr-opt --repr-opt=bogus` must preserve Disabled.
 /// This is the critical scenario: a typo in a later flag must NOT silently
 /// re-enable repr-opt by overriding the earlier explicit Disabled policy.
 #[test]
@@ -718,7 +718,7 @@ fn invalid_repr_opt_does_not_override_disabled() {
     );
 }
 
-/// TPR-01-052: invalid `--repr-opt=` via accumulation path must not block env var.
+/// invalid `--repr-opt=` via accumulation path must not block env var.
 /// With `env_disabled=true` and `--repr-opt=typo`, the env var should still apply
 /// because the invalid value is not a valid explicit policy.
 #[test]
@@ -737,7 +737,7 @@ fn accumulate_invalid_repr_opt_allows_env_fallback() {
     );
 }
 
-/// TPR-01-052: per-arg merge with invalid trailing policy preserves earlier explicit.
+/// per-arg merge with invalid trailing policy preserves earlier explicit.
 /// Simulates: ori build file.ori --no-repr-opt --repr-opt=TYPO --release
 #[test]
 fn per_arg_merge_invalid_policy_preserves_prior_disabled() {

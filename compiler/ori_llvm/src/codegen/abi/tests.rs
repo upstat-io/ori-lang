@@ -164,7 +164,7 @@ fn enum_with_payload_abi_size() {
     assert_eq!(abi_size(color, &store, None), 16);
 }
 
-/// Regression: TPR-07-003 — `abi_size` for payload enums must account for
+/// Regression: `abi_size` for payload enums must account for
 /// [M x i64] slot layout. A(int, bool) | B has payload [2 x i64] = 16,
 /// total = 8 (padded tag) + 16 = 24.
 #[test]

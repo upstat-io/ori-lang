@@ -100,6 +100,6 @@ pub enum MachineRepr {
     /// Box-allocated iterator state leaks. The ARC emitter routes
     /// `UnmanagedPtr` drops through `RcStrategy::Iterator` (for direct
     /// `RcDec`) and the `Tag::Iterator` arm of `dec_value_rc_inner`
-    /// (for iterator fields inside compound types). See TPR-07-008.
+    /// (for iterator fields inside compound types). See
     UnmanagedPtr,
 }

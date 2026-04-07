@@ -47,7 +47,7 @@ use super::target_features::{HostPlatform, TargetTripleComponents};
 // `~/.ori/sysroots/<target>` and `~/.wasi-sdk` while the discovery side
 // hard-coded only `/opt/wasi-sdk/...` and `/usr/share/wasi-sysroot` —
 // installs reported "success" whose results were invisible to subsequent
-// builds. See BUG-04-045 / TPR-BUG-04-045-06.
+// builds. See
 //
 // All paths are parameterized by `home: &Path` so tests can supply a tempdir
 // without touching process-global `HOME`. The convenience wrappers
@@ -132,8 +132,7 @@ pub fn home_wasi_sdk_sysroot() -> PathBuf {
 ///    is rejected by zsh as `not valid in this context`).
 ///
 /// The result is uppercase ASCII letters/digits and underscores only —
-/// always a valid POSIX shell variable name. Regression: BUG-04-045 /
-/// TPR-BUG-04-045-07.
+/// always a valid POSIX shell variable name. Regression: /
 #[must_use]
 pub fn target_sysroot_env_key(target: &TargetTripleComponents) -> String {
     format!(
@@ -225,7 +224,7 @@ impl SysLibConfig {
     ///
     /// Delegates to the typed [`TargetTripleComponents::is_native_for`]
     /// against [`HostPlatform::current`], operating on canonical [`Arch`]
-    /// values rather than raw `cfg` string compares. See BUG-04-045.
+    /// values rather than raw `cfg` string compares. See
     ///
     /// [`Arch`]: crate::aot::target_features::Arch
     #[must_use]
@@ -323,7 +322,7 @@ impl SysLibConfig {
         // `suggest_sysroot_installation` documents and what users export.
         // The key is built from `support_key()` (not `to_string()`) so
         // versioned Darwin spellings produce a shell-safe canonical name —
-        // see `target_sysroot_env_key` and BUG-04-045 / TPR-BUG-04-045-07.
+        // see `target_sysroot_env_key` and
         let env_key = target_sysroot_env_key(target);
         if let Some(path) = env_getter(&env_key) {
             let path = PathBuf::from(path);
@@ -425,7 +424,7 @@ impl SysLibConfig {
         // install source (see `oric::commands::target::check_wasi_sdk`),
         // so the discovery side must consult it too — otherwise the
         // install side reports success while builds silently miss the
-        // sysroot. Regression: BUG-04-045 / TPR-BUG-04-045-06.
+        // sysroot. Regression:
         if target.is_wasm() {
             candidates.push(home_wasi_sdk_sysroot_for_home(home));
             candidates.push(PathBuf::from("/opt/wasi-sdk/share/wasi-sysroot"));

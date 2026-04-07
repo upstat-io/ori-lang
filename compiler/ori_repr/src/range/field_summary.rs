@@ -46,7 +46,7 @@ impl FieldSummaryTable {
     }
 
     /// Clear all accumulated field ranges. Used to recompute field summaries
-    /// from final (post-narrowing) variable ranges — see TPR-03-016.
+    /// from final (post-narrowing) variable ranges — see
     pub fn clear(&mut self) {
         self.field_ranges.clear();
     }
@@ -224,7 +224,7 @@ pub fn update_field_summaries<S: std::hash::BuildHasher>(
 /// Any `Apply` or `ApplyIndirect` returning a collection with int elements
 /// widens the element range to `Top`. This prevents unsound narrowing when
 /// push, map, or user functions produce elements outside the literal-only
-/// range (BUG-05-001).
+/// range.
 pub fn update_element_summaries<S: std::hash::BuildHasher>(
     instr: &ArcInstr,
     ranges: &std::collections::HashMap<ArcVarId, ValueRange, S>,
@@ -232,7 +232,7 @@ pub fn update_element_summaries<S: std::hash::BuildHasher>(
     pool: &Pool,
     table: &mut ElementSummaryTable,
 ) {
-    // BUG-05-001: function calls returning collection types with int elements
+    // function calls returning collection types with int elements
     // widen the element range to Top. Push, map, user functions, and closures
     // can produce elements outside the literal-only observed range.
     let call_ty = match instr {
@@ -297,7 +297,7 @@ pub fn update_element_summaries<S: std::hash::BuildHasher>(
 /// collection with int elements widens the element range to `Top`.
 ///
 /// This is critical because collection-mutating methods like `push` are
-/// lowered as `Invoke` (they can panic), not `Apply` (BUG-05-001).
+/// lowered as `Invoke` (they can panic), not `Apply`.
 pub fn update_element_summaries_from_terminator(
     terminator: &ArcTerminator,
     pool: &Pool,

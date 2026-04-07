@@ -11,7 +11,7 @@
 //!    process terminator (refinements + invoke)
 //! 3. Apply widening after `WIDEN_THRESHOLD` iterations to guarantee termination
 //! 4. After convergence: 2 narrowing passes → recompute field summaries →
-//!    projection refresh pass (TPR-03-022) → recompute `return_range` (TPR-03-021)
+//!    projection refresh pass → recompute `return_range`
 //!
 //! # Phase
 //!
@@ -62,7 +62,7 @@ pub struct RangeFixpointResult {
     /// Conditional refinements at block entries (from Branch/Switch terminators).
     ///
     /// Keyed by `(block_id, var)` — the range a variable is known to have
-    /// at entry to that block. Used by `collect_param_ranges()` (TPR-03-037)
+    /// at entry to that block. Used by `collect_param_ranges()`
     /// to compute block-local argument ranges at call sites.
     pub block_refinements: FxHashMap<(ArcBlockId, ArcVarId), ValueRange>,
 }
@@ -75,7 +75,7 @@ pub struct RangeFixpointResult {
 /// but non-parameter variables that are live across the branch also need
 /// refinement during body processing. Since non-param variables share a
 /// single global range entry, we apply the refinement temporarily and restore
-/// afterward. See TPR-03-015.
+/// afterward. See
 pub(super) fn apply_block_refinements(
     block: &ArcBlock,
     ranges: &mut FxHashMap<ArcVarId, ValueRange>,
@@ -125,7 +125,7 @@ struct FixpointState {
 /// When `call_result_narrowings` is non-empty, Apply/Invoke dst variables
 /// are narrowed (via `meet`) with the callee return range after the transfer
 /// function runs. This enables derived locals downstream of call results
-/// to propagate the callee return range through the fixpoint (TPR-03-032).
+/// to propagate the callee return range through the fixpoint.
 #[expect(
     clippy::too_many_arguments,
     reason = "fixpoint infrastructure — bundling would add indirection for one extra map ref"
@@ -141,7 +141,7 @@ fn run_forward_iteration(
     call_result_narrowings: &FxHashMap<ArcVarId, ValueRange>,
     thresholds: &[i64],
 ) -> bool {
-    // TPR-03-020: Clear stale refinements from prior iterations.
+    // Clear stale refinements from prior iterations.
     // Refinements are recomputed fresh each iteration from the current ranges,
     // preventing widened scrutinee ranges from preserving overly-tight
     // refinements computed in earlier iterations.
@@ -211,7 +211,7 @@ fn run_forward_iteration(
             };
             let mut new_range = transfer(instr, &ctx);
             if let Some(var) = instr.defined_var() {
-                // TPR-03-032: Apply callee return-range narrowing to call-result
+                // Apply callee return-range narrowing to call-result
                 // variables. The transfer function for Apply/Invoke returns Top
                 // (unknown function), but we have the callee's return range from
                 // interprocedural analysis. Applying `meet` here lets the narrowed
@@ -239,7 +239,7 @@ fn run_forward_iteration(
 
         restore_block_refinements(&mut state.ranges, saved);
 
-        // BUG-05-001: check terminators for Invoke calls returning collections.
+        // check terminators for Invoke calls returning collections.
         update_element_summaries_from_terminator(
             &block.terminator,
             pool,
@@ -307,7 +307,7 @@ fn run_post_fixpoint_narrowing(
         &mut state.element_summary_table,
     );
 
-    // TPR-03-022: Final narrowing pass with recomputed field summaries.
+    // Final narrowing pass with recomputed field summaries.
     run_narrowing_pass(
         rpo,
         func,
@@ -320,7 +320,7 @@ fn run_post_fixpoint_narrowing(
         crn,
     );
 
-    // TPR-03-021: Recompute return_range from final narrowed ranges.
+    // Recompute return_range from final narrowed ranges.
     let return_range = recompute_return_range(rpo, func, pool, &state.ranges);
 
     RangeFixpointResult {
@@ -347,7 +347,7 @@ fn run_post_fixpoint_narrowing(
 ///
 /// When `call_result_narrowings` is `Some`, Apply/Invoke dst variables
 /// are narrowed (via `meet`) with callee return ranges after the transfer
-/// function runs, enabling derived locals to propagate (TPR-03-032).
+/// function runs, enabling derived locals to propagate.
 #[tracing::instrument(skip_all)]
 #[expect(
     clippy::implicit_hasher,
@@ -390,7 +390,7 @@ pub fn range_fixpoint(
     };
 
     // Seed entry block parameters from interprocedural constraints if provided.
-    // This is the key mechanism for TPR-03-026: when interprocedural analysis collects call-site
+    // This is the key mechanism for when interprocedural analysis collects call-site
     // argument ranges and passes them here, the fixpoint starts with tighter
     // initial bounds instead of Bottom, enabling transitive propagation.
     if let Some(seeds) = initial_param_ranges {

@@ -1,4 +1,4 @@
-//! AOT tests for BUG-04-008: zero-sized enum payload mismatch.
+//! AOT tests for zero-sized enum payload mismatch.
 //!
 //! Verifies that enum variants with void/unit payloads are correctly
 //! handled in LLVM codegen — void fields should contribute 0 bytes
@@ -6,7 +6,7 @@
 
 use crate::util::{compile_and_run, compile_and_run_capture, compile_to_llvm_ir};
 
-/// Exact failing case from BUG-04-008: `A(u: void) | B` should compile and run.
+/// Exact failing case from `A(u: void) | B` should compile and run.
 #[test]
 fn test_void_payload_enum_compiles() {
     let exit_code = compile_and_run(include_str!(
@@ -90,11 +90,11 @@ fn test_all_void_payload_variants() {
     assert_eq!(exit_code, 0, "all-void-payload enum should work correctly");
 }
 
-// TPR-07-006: Derived traits (Eq, Comparable, Hashable) on enums with
+// Derived traits (Eq, Comparable, Hashable) on enums with
 // zero-sized payload fields crash in LLVM codegen because the derive
 // paths count void fields as occupied i64 slots, drifting offsets.
 
-/// Exact repro from TPR-07-006: derived Eq on enum with void field.
+/// Exact repro from derived Eq on enum with void field.
 #[test]
 fn test_derive_eq_void_payload() {
     let (exit_code, stdout, _) = compile_and_run_capture(include_str!(

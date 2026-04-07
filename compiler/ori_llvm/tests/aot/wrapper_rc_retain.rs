@@ -1,4 +1,4 @@
-//! Regression tests for BUG-04-013: AOT wrapper extraction methods must
+//! Regression tests for AOT wrapper extraction methods must
 //! RC-retain payload bytes when the payload contains RC-tracked fields.
 //!
 //! Each test uses heap strings (>23 bytes, bypassing SSO) or lists as

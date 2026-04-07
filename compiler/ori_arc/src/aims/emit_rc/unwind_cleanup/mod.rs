@@ -90,7 +90,7 @@ pub(crate) fn add_invoke_unwind_cleanup(func: &mut ArcFunction, interner: &ori_i
             .map(|&(var, _)| var)
             .collect();
 
-        // TPR-07-014: an iterator is live at the Invoke only if its
+        // an iterator is live at the Invoke only if its
         // creation block can reach the Invoke block via CFG forward
         // edges. The previous check (`create_block <= invoke_block_idx`)
         // was block-ordering, not reachability — on a branched CFG a
@@ -116,7 +116,7 @@ pub(crate) fn add_invoke_unwind_cleanup(func: &mut ArcFunction, interner: &ori_i
         // Pre-allocate fresh variables and build instructions before
         // mutably borrowing the block (avoids double-borrow of func).
         //
-        // TPR-07-012: `ori_iter_drop` consumes the iterator handle
+        // `ori_iter_drop` consumes the iterator handle
         // (frees the Box-allocated state). The arg ownership must be
         // `Owned` to match `ProtocolBuiltin::IterDrop.arg_ownership()`
         // — previously `Borrowed`, which contradicted the post-TPR-07-008

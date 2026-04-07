@@ -193,7 +193,7 @@ fn semantic_pin_target_on_impl_preserved() {
     );
 }
 
-// TPR-01-062: Orphaned attrs at EOF must produce errors.
+// Orphaned attrs at EOF must produce errors.
 // When attrs are parsed by parse_imports() but no declaration follows (EOF),
 // the parser must diagnose them instead of silently dropping.
 
@@ -226,7 +226,7 @@ fn semantic_pin_orphan_attrs_eof_is_error_not_silent() {
     );
 }
 
-// TPR-01-064: Diagnostic message must list all valid declaration kinds per §25.4,
+// Diagnostic message must list all valid declaration kinds per §25.4,
 // not just "function or test definition". These pins check the FULL message text
 // to prevent future drift as new attribute targets are added.
 

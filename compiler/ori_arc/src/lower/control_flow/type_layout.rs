@@ -156,7 +156,7 @@ fn pool_type_alignment_inner(ty: Idx, pool: &ori_types::Pool, depth: u32) -> i64
         }
         Tag::Enum => {
             // §07.1: all-unit enums have narrowed tag alignment.
-            // BUG-04-008: Check actual payload size, not just field presence.
+            // Check actual payload size, not just field presence.
             // Variants with only void/unit fields have zero payload size.
             let variants = pool.enum_variants(resolved);
             let has_payload = variants

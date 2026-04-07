@@ -3470,7 +3470,7 @@ fn compute_project_alias_sources_cross_block_let() {
 
 #[test]
 fn project_let_alias_cross_block_propagates_source_demand() {
-    // Semantic pin for TPR-01-003 fix.
+    // Semantic pin for fix.
     //
     // Block 0: v1 = Construct Struct; v2 = Project v1.0; v3 = Let Var(v2);
     //          Branch cond → block1, block2
@@ -3563,7 +3563,7 @@ fn project_let_alias_cross_block_propagates_source_demand() {
     );
 }
 
-// compute_project_alias_sources — Jump arg → block param propagation (TPR-01-004)
+// compute_project_alias_sources — Jump arg → block param propagation
 
 #[test]
 fn compute_project_alias_sources_jump_arg_to_block_param() {
@@ -3741,11 +3741,11 @@ fn compute_project_alias_sources_loop_header_param() {
     assert_eq!(sources.len(), 2);
 }
 
-// Semantic pin: block-param Project demand propagation (TPR-01-004)
+// Semantic pin: block-param Project demand propagation
 
 #[test]
 fn project_block_param_cross_block_propagates_source_demand() {
-    // Semantic pin for TPR-01-004 fix.
+    // Semantic pin for fix.
     //
     // Block 0: v1 = Construct Struct(v5); v2 = Project v1.0;
     //          Jump block1, args=[v2]
@@ -3822,7 +3822,7 @@ fn project_block_param_cross_block_propagates_source_demand() {
     );
 }
 
-// compute_project_alias_sources — multi-predecessor merge (TPR-02-006)
+// compute_project_alias_sources — multi-predecessor merge
 
 #[test]
 fn compute_project_alias_sources_multi_predecessor_merge() {
@@ -3896,11 +3896,11 @@ fn compute_project_alias_sources_multi_predecessor_merge() {
     assert_eq!(v4_sources.len(), 2, "exactly two sources");
 }
 
-// Semantic pin: multi-predecessor merge demand propagation (TPR-02-006)
+// Semantic pin: multi-predecessor merge demand propagation
 
 #[test]
 fn project_block_param_multi_predecessor_merge_propagates_all_source_demand() {
-    // Semantic pin for TPR-02-006 fix + TPR-02-007/008 refinement.
+    // Semantic pin for fix + TPR-02-007/008 refinement.
     //
     // Block 0 (entry): Branch(v0) → block1 | block2
     // Block 1: v2 = Construct Struct(v6); v3 = Project v2.0; Jump block3, args=[v3]

@@ -344,7 +344,7 @@ fn apply_consuming_overrides(
     let resolved_receiver = ctx.pool.resolve_fully(receiver_idx);
     let tag = ctx.pool.tag(resolved_receiver);
 
-    // TPR-07-008: Iterator receivers — every user-facing iterator method
+    // Iterator receivers — every user-facing iterator method
     // (adapters and consumers) consumes the receiver via
     // `Box::from_raw(iter.cast::<IterState>())`. This is true for
     // `Iterator<T>` AND `DoubleEndedIterator<T>`. The registry records
