@@ -412,7 +412,7 @@ fn test_map_values_str_str() {
 }
 
 // map remove with fat-pointer values — exercises val_dec branches in
-// ori_map_remove_cow (cow.rs:373 empty sentinel path, cow.rs:391 unique fast path).
+// ori_map_remove_cow (cow.rs empty sentinel path, cow.rs unique fast path).
 
 #[test]
 fn test_map_remove_heap_str_value() {

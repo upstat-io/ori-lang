@@ -154,7 +154,7 @@ pub(crate) fn narrow_float_fields(
 
     let mut narrowed_count: u32 = 0;
 
-    // Collect struct candidates (same pattern as int.rs:42-52).
+    // Collect struct candidates (same pattern as int.rs).
     // We must collect first because we need mutable access to the plan.
     let candidates: Vec<Idx> = plan
         .decision_indices()
