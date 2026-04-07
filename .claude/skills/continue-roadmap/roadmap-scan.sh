@@ -90,6 +90,43 @@ if [[ ${#active_reroutes[@]} -gt 0 || ${#queued_reroutes[@]} -gt 0 ]]; then
     echo ""
 fi
 
+# ── Active reroute short-circuit ──
+# When scanning the main roadmap (the default) and at least one ACTIVE reroute
+# exists, the reroute takes priority over all main-roadmap work — that is the
+# entire point of the reroute system. Without this short-circuit the script
+# would proceed to compute and print the FOCUS block for the main roadmap
+# (which the workflow then discards), and the user would have to manually
+# re-invoke this scanner against the rerouted plan's directory. Reassign
+# ROADMAP_DIR in place so the rest of the script (find_section_file,
+# dependency-graph parse, main section scan loop) automatically operates on
+# the highest-priority active reroute's plan directory instead. The REROUTES
+# block above is emitted exactly once and shows all reroutes in priority
+# order, so the user still sees the full reroute landscape.
+#
+# Parallel plans (`reroute: false, parallel: true`) do NOT trigger delegation:
+# they run alongside the main roadmap by design (e.g., bug-tracker, aot-perf)
+# and would block visibility of normal roadmap status if they hijacked the
+# focus block. Only `reroute: true` plans short-circuit.
+#
+# Explicit invocation (e.g., `roadmap-scan.sh plans/repr-opt`) skips the
+# short-circuit because ROADMAP_DIR is no longer "plans/roadmap" — the user
+# has already chosen which plan to scan.
+if [[ "$has_active_reroute" == "true" && "$ROADMAP_DIR" == "plans/roadmap" ]]; then
+    if [[ ${#active_reroutes[@]} -gt 0 ]]; then
+        IFS=$'\n' _delegated=($(printf '%s\n' "${active_reroutes[@]}" | sort -t'|' -k1 -n))
+        unset IFS
+        for entry in "${_delegated[@]}"; do
+            IFS='|' read -r rorder rtype rname rdir rprog <<< "$entry"
+            if [[ "$rtype" == "reroute" ]]; then
+                echo "(focus delegated to highest-priority active reroute: ${rname} — order: ${rorder})"
+                echo ""
+                ROADMAP_DIR="$rdir"
+                break
+            fi
+        done
+    fi
+fi
+
 # ── Helper: find section file by section number ──
 find_section_file() {
     local sid="$1"
