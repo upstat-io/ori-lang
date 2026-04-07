@@ -183,7 +183,7 @@ fn div_negative_positive() {
     );
 }
 
-// ─── range_div — i64::MIN / -1 overflow (TPR-03-004) ──────────
+// ─── range_div — i64::MIN / -1 overflow ──────────
 
 #[test]
 fn div_i64_min_by_neg1_returns_top() {
@@ -393,7 +393,7 @@ fn bitnot_bottom() {
     assert_eq!(range_bitnot(Bottom), Bottom);
 }
 
-// ─── range_bitnot — i64::MIN overflow (TPR-03-005) ────────────
+// ─── range_bitnot — i64::MIN overflow ────────────
 
 #[test]
 fn bitnot_i64_min_returns_top() {
@@ -522,7 +522,7 @@ fn primop_try_returns_top() {
     assert_eq!(result, Top);
 }
 
-// ─── range_floordiv soundness (TPR-03-008) ────────────────────
+// ─── range_floordiv soundness ────────────────────
 
 #[test]
 fn floordiv_mixed_sign_exact() {
@@ -596,7 +596,7 @@ fn floordiv_bottom_propagates() {
     assert_eq!(range_floordiv(Bounded { lo: 1, hi: 2 }, Bottom), Bottom);
 }
 
-// ─── range_shr sign-aware monotonicity (TPR-03-009) ───────────
+// ─── range_shr sign-aware monotonicity ───────────
 
 #[test]
 fn shr_negative_range_with_shift_range() {

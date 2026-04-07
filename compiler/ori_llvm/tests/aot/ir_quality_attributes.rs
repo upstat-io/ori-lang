@@ -199,7 +199,7 @@ fn test_closure_call_gets_nounwind_via_posthoc() {
 
 /// Generic function with may-unwind body must NOT be treated as intercepted.
 ///
-/// Regression test for TPR-01-003: `is_callee_intercepted()` previously fell
+/// Regression test for `is_callee_intercepted()` previously fell
 /// through to the builtin method heuristic for generic calls with builtin-typed
 /// first args. A call like `might_panic(s)` where `s: str` would be treated as
 /// an intercepted builtin (nounwind), even though the monomorphized function
@@ -682,7 +682,7 @@ fn test_iter_for_yield_semantic_pin() {
     assert_eq!(exit, 6, "expected 6 (1+2+3) — for-yield semantic pin");
 }
 
-// TPR-02-001 regression: closure wrappers returning >16-byte types via sret
+// regression: closure wrappers returning >16-byte types via sret
 // must NOT add `noundef` on the hidden sret pointer parameter. The sret
 // pointer is a compiler-managed ABI parameter, not a user value.
 

@@ -1,7 +1,7 @@
 ---
 plan: "dual-tpr-gemini"
 title: "Dual-Source TPR with Grounded Gemini Reviewer: Exhaustive Implementation Plan"
-status: not-started
+status: in-progress
 references:
   - ".codex/skills/review-work/SKILL.md"
   - ".codex/skills/review-plan/SKILL.md"

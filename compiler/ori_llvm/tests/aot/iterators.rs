@@ -247,7 +247,7 @@ fn test_iter_join_str() {
 
 // -----------------------------------------------------------------------
 // join consumer — non-string elements (to_str trampoline)
-// Regression: BUG-04-039 — missing to_str_fn trampoline caused SIGSEGV
+// Regression: missing to_str_fn trampoline caused SIGSEGV
 // -----------------------------------------------------------------------
 
 #[test]

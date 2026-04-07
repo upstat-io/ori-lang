@@ -626,11 +626,11 @@ fn test_arc_borrowed_param_str_concat_caller_survives() {
     );
 }
 
-// TPR-02-006: Project alias closure at CFG merge with two distinct parents.
+// Project alias closure at CFG merge with two distinct parents.
 // The merge block param receives projections from two different aggregates
 // depending on control flow — both parents must stay alive.
 //
-// TPR-02-007/TPR-02-010: Branch-local RcDec must be emitted per-predecessor
+// TPR-02-007/Branch-local RcDec must be emitted per-predecessor
 // (not block-level in merge), and only on the specific merge edge (not all
 // outgoing edges of the defining predecessor). Tests exercise BOTH branches
 // to confirm branch-local cleanup is correct regardless of which path is taken.
@@ -653,7 +653,7 @@ fn test_rc_project_merge_two_distinct_parents() {
     }
 }
 
-// TPR-02-010 regression: verify that merge-edge decs with successor scoping
+// regression: verify that merge-edge decs with successor scoping
 // don't cause leaks when both branches produce heap strings and the untaken
 // branch's parent aggregate needs cleanup via edge-specific RcDec.
 #[test]
@@ -670,7 +670,7 @@ fn test_rc_project_merge_edge_scoped_cleanup() {
     }
 }
 
-// TPR-01-001 regression: verify that two distinct projected fields from the
+// regression: verify that two distinct projected fields from the
 // same parent aggregate both survive edge cleanup when both escape via
 // terminator args. The old code stored a single `parent -> Project dst` in
 // `find_edge_decced_project_parents()`, so the second projection overwrote
@@ -703,7 +703,7 @@ fn test_rc_project_merge_edge_two_fields_escape() {
     }
 }
 
-// ─── Trivial inline enum ARC elision (§02 TPR-02-008) ───
+// ─── Trivial inline enum ARC elision (§02 ) ───
 
 /// §02 regression pin: trivial `Option<int>` must emit NO `ori_rc_inc`,
 /// `ori_rc_dec`, or `_ori_drop$` in the generated LLVM IR. This proves

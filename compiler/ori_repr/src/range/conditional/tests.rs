@@ -128,7 +128,7 @@ fn gteq_non_negative_check() {
     );
 }
 
-/// Semantic pin (TPR-03-013): x >= `i64::MIN` → true: full range, false: Bottom
+/// Semantic pin: x >= `i64::MIN` → true: full range, false: Bottom
 #[test]
 fn gteq_boundary_i64_min() {
     // x >= i64::MIN is always true → false branch is impossible → Bottom

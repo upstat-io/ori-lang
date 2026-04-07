@@ -30,7 +30,7 @@ impl NarrowingPolicy {
     ///
     /// This is the **single canonical check** for the env var — all call
     /// sites in `oric`, `ori_llvm`, etc. must use this method rather than
-    /// checking the env var directly. (TPR-01-030)
+    /// checking the env var directly.
     #[must_use]
     pub fn env_disabled() -> bool {
         std::env::var("ORI_NO_REPR_OPT")
@@ -119,7 +119,6 @@ impl ReprPlan {
     /// Reads from the dedicated `rc_strategies` map, NOT from `MachineRepr`
     /// pattern-matching. This ensures canonical `OpaquePtr` types (iterators,
     /// channels) correctly return the safe default rather than `RcStrategy::None`
-    /// (TPR-01-023).
     #[must_use]
     pub fn rc_strategy(&self, idx: ori_types::Idx) -> RcStrategy {
         let strategy = self

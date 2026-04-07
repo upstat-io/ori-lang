@@ -1,6 +1,6 @@
 //! Tests for the multi-file build pipeline.
 //!
-//! Verifies cross-module metadata collection for repr optimization (CROSS-04-015).
+//! Verifies cross-module metadata collection for repr optimization.
 
 use std::path::PathBuf;
 
@@ -47,7 +47,7 @@ fn test_graph(importer: &str, dependencies: &[&str]) -> DependencyGraph {
     graph
 }
 
-/// Semantic pin (CROSS-04-015): `collect_imported_type_metadata` collects
+/// Semantic pin: `collect_imported_type_metadata` collects
 /// metadata from compiled dependency modules. Without this fix, the AOT
 /// pipeline always passed `&[]` for imported metadata.
 #[test]
@@ -158,7 +158,7 @@ fn collect_metadata_dependency_with_no_types() {
 }
 
 // =============================================================================
-// Collection surface collection (TPR-04-032, TPR-04-038, TPR-04-039)
+// Collection surface collection
 // =============================================================================
 
 /// Semantic pin: `collect_imported_collection_surfaces` gathers hashes from

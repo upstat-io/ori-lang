@@ -202,7 +202,7 @@ fn collect_branch_edge_decs(
         ) {
             continue;
         }
-        // TPR-07-016 / TPR-07-017: skip vars that participate in a
+        // TPR-07-017: skip vars that participate in a
         // take-project alias class. Their scope-exit drops are
         // emitted by `dead_cleanup` source 1's in-class branch on
         // bypass-safe blocks (per-class), with class-deduped
@@ -362,7 +362,7 @@ fn collect_invoke_edge_decs(
             ) {
                 continue;
             }
-            // TPR-07-016 / TPR-07-017: take-project alias-class
+            // TPR-07-017: take-project alias-class
             // members are dec'd by `dead_cleanup` source 1's
             // in-class branch on per-class bypass-safe blocks.
             // Skipping here prevents an alias-sibling double-free

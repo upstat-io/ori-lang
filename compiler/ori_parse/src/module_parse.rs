@@ -52,7 +52,7 @@ impl Parser<'_> {
             self.dispatch_declaration(attrs, visibility, &mut module, &mut errors);
         }
 
-        // TPR-01-062: Diagnose orphaned attrs at EOF. If parse_imports() returned
+        // Diagnose orphaned attrs at EOF. If parse_imports() returned
         // leftover attrs but the declaration loop never consumed them (file ended
         // before any declaration), emit E1006 so users get the expected placement
         // diagnostic instead of silent acceptance.
@@ -207,11 +207,11 @@ impl Parser<'_> {
 
         // File-level attribute must appear before imports and declarations.
         // Grammar: source_file = [ file_attribute ] { import } { declaration } .
-        // (TPR-01-060: was missing from incremental path)
+        // (was missing from incremental path)
         module.file_attr = self.parse_file_attribute(&mut errors);
 
         // Imports always get re-parsed since they affect resolution.
-        // Capture leftover attrs for the first declaration (TPR-01-061).
+        // Capture leftover attrs for the first declaration.
         let mut leftover_attrs = self.parse_imports(&mut module, &mut errors);
 
         // Parse remaining declarations with potential reuse
@@ -240,7 +240,7 @@ impl Parser<'_> {
                     // Consume trailing `;` that was eaten by the original parse
                     // but not included in the declaration span.
                     self.eat_optional_semicolon();
-                    // TPR-01-063: Consume leftover attrs when the first declaration
+                    // Consume leftover attrs when the first declaration
                     // slot is satisfied by reuse. The reused declaration already has
                     // its attrs baked into the AST node from the original full parse.
                     // Without this, leftover_attrs leaks to the next fresh-parsed
@@ -268,7 +268,7 @@ impl Parser<'_> {
             self.dispatch_declaration(attrs, visibility, &mut module, &mut errors);
         }
 
-        // TPR-01-062: Diagnose orphaned attrs at EOF on incremental path too.
+        // Diagnose orphaned attrs at EOF on incremental path too.
         if let Some(orphan_attrs) = leftover_attrs {
             if !orphan_attrs.is_empty() {
                 errors.push(ParseError::new(

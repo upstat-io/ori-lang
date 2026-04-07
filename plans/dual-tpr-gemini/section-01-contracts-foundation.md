@@ -28,7 +28,7 @@ sections:
     status: complete
   - id: "01.3"
     title: "Define reviewer-tag ID format and per-run scratch dir helper"
-    status: complete
+    status: in-progress
   - id: "01.4"
     title: "Update block-banned-commands.sh to gate gemini timeouts"
     status: not-started
@@ -42,7 +42,7 @@ sections:
 
 # Section 01: Contracts + foundation
 
-**Status:** Not Started
+**Status:** In Progress
 **Goal:** Establish all the contracts (JSON schema, sentinel format, canonical formats, ID format) and foundation utilities (per-run scratch dirs, hook timeout gate for gemini) that downstream sections consume. This is the foundation layer of the 3-layer architecture from `00-overview.md` — no behavioral logic, only specifications and one minimal hook extension.
 
 **Success Criteria:**

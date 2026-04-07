@@ -64,8 +64,8 @@ pub(crate) struct BlockCtx<'a> {
     ///   CFG path; downstream bypass-safe blocks inherit the dec via
     ///   SSA flow.
     ///
-    /// See TPR-07-011 (initial take-project suppression),
-    /// TPR-07-016 (the first per-block fix), and TPR-07-017 (the
+    /// See (initial take-project suppression),
+    /// (the first per-block fix), and TPR-07-017 (the
     /// per-class partitioning + bypass-safe entry refinement) in
     /// `plans/repr-opt/section-07-enum-repr.md`.
     pub(crate) take_move_facts: &'a super::take_project::TakeMoveFacts,
@@ -330,7 +330,7 @@ pub(crate) fn is_consuming_primop(instr: &ArcInstr, func: &ArcFunction) -> bool 
 /// - `Project { dst, value }` where the projection is a *take* (see
 ///   `is_take_project` in `borrowed_defs.rs`) — the projected payload
 ///   moves ownership out of the source enum, which logically no longer
-///   contains anything to drop. TPR-07-011.
+///   contains anything to drop.
 #[inline]
 pub(crate) fn is_ownership_transfer(instr: &ArcInstr, func: &ArcFunction, pool: &Pool) -> bool {
     match instr {

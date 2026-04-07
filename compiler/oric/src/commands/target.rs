@@ -417,7 +417,7 @@ fn check_wasi_sdk(sysroot: &std::path::Path) {
 ///
 /// Recognizes the modern Rust 1.78+ canonical spelling
 /// (`wasm32-unknown-wasip1`). The historical 2-component `wasm32-wasi`
-/// alias is no longer accepted — see BUG-04-045 / TPR-BUG-04-045-04 for
+/// alias is no longer accepted — see for
 /// the deprecation rationale and Rust upstream's May 2024 rename.
 #[cfg(feature = "llvm")]
 fn is_wasi_target(target: &str) -> bool {
@@ -470,7 +470,7 @@ fn suggest_sysroot_installation(target: &str) {
     // Use the canonical SSOT helper so the documented env var matches
     // exactly what `SysLibConfig::detect_sysroot` looks up. Built from
     // `support_key()` so versioned Darwin spellings produce a shell-safe
-    // key (no dots, no version suffix). See BUG-04-045 / TPR-BUG-04-045-07.
+    // key (no dots, no version suffix). See
     let env_key = TargetTripleComponents::parse(target).map_or_else(
         |_| {
             // Fall back to the raw spelling if parsing fails — the

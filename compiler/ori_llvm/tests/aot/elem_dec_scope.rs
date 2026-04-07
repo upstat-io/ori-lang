@@ -185,7 +185,7 @@ fn test_map_cow_insert_shared_heap_key() {
 }
 
 // Map insert overwrite with heap string value — exercises val_dec on old value.
-// TPR-02-012: cow_insert_existing fast path (unique) must dec the old value
+// cow_insert_existing fast path (unique) must dec the old value
 // before overwriting with the new one.
 #[test]
 fn test_map_insert_overwrite_heap_str_value() {
@@ -310,7 +310,7 @@ fn test_set_str_to_list() {
     );
 }
 
-// Set<str> remove — fat-pointer element cleanup on remove (TPR-02-013)
+// Set<str> remove — fat-pointer element cleanup on remove
 
 #[test]
 fn test_set_str_remove_remaining() {
@@ -328,7 +328,7 @@ fn test_set_str_remove_last_element() {
     );
 }
 
-// Set<str> intersection — fat-pointer element cleanup on filter (TPR-02-014)
+// Set<str> intersection — fat-pointer element cleanup on filter
 
 #[test]
 fn test_set_str_intersection_unique() {
@@ -346,7 +346,7 @@ fn test_set_str_difference_unique() {
     );
 }
 
-// Map remove — fat-pointer key/value cleanup (discovered during TPR-02-013)
+// Map remove — fat-pointer key/value cleanup (discovered during )
 
 #[test]
 fn test_map_remove_str_key() {
@@ -364,7 +364,7 @@ fn test_map_remove_str_key_last() {
     );
 }
 
-// TPR-02-015: Shared set remove double-dec — removing last element from aliased set
+// Shared set remove double-dec — removing last element from aliased set
 
 #[test]
 fn test_set_str_remove_last_shared() {
@@ -392,7 +392,7 @@ fn test_set_str_iter_collect() {
     );
 }
 
-// TPR-02-018: map.values() with fat-pointer values — exercises val_inc_fn path in
+// map.values() with fat-pointer values — exercises val_inc_fn path in
 // ori_map_values_to_list. Previous tests only used {str: int} (primitive values).
 
 #[test]
@@ -411,7 +411,7 @@ fn test_map_values_str_str() {
     );
 }
 
-// TPR-02-019: map remove with fat-pointer values — exercises val_dec branches in
+// map remove with fat-pointer values — exercises val_dec branches in
 // ori_map_remove_cow (cow.rs:373 empty sentinel path, cow.rs:391 unique fast path).
 
 #[test]

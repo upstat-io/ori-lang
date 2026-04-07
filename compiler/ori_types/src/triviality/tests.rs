@@ -121,7 +121,7 @@ fn channel_int_is_non_trivial() {
 
 // Iterator types — Box-allocated (no RC header) but NON-trivial
 // because `ori_iter_drop` must run at scope exit to free the Box
-// state. This is a TPR-07-008 semantic pin: the previous TPR-02-004
+// state. This is a semantic pin: the previous
 // "iterators are trivial" classification leaked memory for any
 // iterator stored in an enum/struct/tuple/bare let, because the ARC
 // pipeline never emitted cleanup outside of explicit for-loop

@@ -160,7 +160,7 @@ fn test_library_exists() {
 // =============================================================================
 // Install-paths SSOT tests
 //
-// Regression: BUG-04-045 / TPR-BUG-04-045-06. Before this SSOT was extracted,
+// Regression: Before this SSOT was extracted,
 // `oric::commands::target` hard-coded `~/.ori/sysroots/<target>` as the
 // install location while `SysLibConfig::detect_sysroot` only looked at env
 // vars and `/opt/wasi-sdk` / `/usr/share/wasi-sysroot` system paths. The
@@ -199,7 +199,7 @@ fn test_home_wasi_sdk_sysroot_for_home_uses_dot_wasi_sdk() {
 // =============================================================================
 // target_sysroot_env_key tests
 //
-// Regression: BUG-04-045 / TPR-BUG-04-045-07. The per-target
+// Regression: The per-target
 // `ORI_SYSROOT_<TARGET>` override key was previously built from
 // `target.to_string()` (the version-preserving canonical form), so
 // `arm64-apple-darwin25.2.0` produced
@@ -312,7 +312,7 @@ fn test_target_sysroot_env_key_is_always_shell_safe_matrix() {
 /// the canonical env key (`ORI_SYSROOT_AARCH64_APPLE_DARWIN`) for any
 /// aliased / versioned input that resolves to the same `support_key`,
 /// and uses it to query the env. This is the exact contract Codex flagged
-/// as TPR-BUG-04-045-07: an Apple Silicon user who exports
+/// as an Apple Silicon user who exports
 /// `ORI_SYSROOT_AARCH64_APPLE_DARWIN=...` (the documented form) MUST
 /// have it picked up when building with `arm64-apple-darwin25.2.0` (the
 /// LLVM-default spelling).

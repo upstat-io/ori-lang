@@ -13,7 +13,7 @@ use ori_types::{Pool, Tag};
 use crate::ir::{ArcBlock, ArcFunction, ArcInstr, ArcTerminator, ArcValue, ArcVarId, ValueRepr};
 use crate::ownership::Ownership;
 
-/// TPR-07-011: Classify a `Project` instruction as a "take" (consuming
+/// Classify a `Project` instruction as a "take" (consuming
 /// move) rather than a borrow.
 ///
 /// For the normal refcounted case (str, [T], structs containing RC
@@ -92,7 +92,7 @@ pub(crate) fn is_take_project(instr: &ArcInstr, func: &ArcFunction, pool: &Pool)
 /// These create borrowed references that do NOT need independent RC
 /// management — the source variable's RC covers the borrowed ref.
 ///
-/// TPR-07-011: take-projects (`is_take_project`) are excluded — they
+/// take-projects (`is_take_project`) are excluded — they
 /// transfer ownership rather than borrow, so they must participate in
 /// normal RC decisions for the projected payload.
 pub(crate) fn collect_borrowed_defs(
@@ -205,9 +205,9 @@ pub(crate) fn collect_iter_element_defs(
 /// Includes transitive `Let` aliases (e.g., `%12 = %11` where `%11` is projected
 /// from an `Option`).
 ///
-/// TPR-07-013: take-projects (see `is_take_project`) are EXCLUDED. For a
+/// take-projects (see `is_take_project`) are EXCLUDED. For a
 /// take-project, the parent sum type has logically given up its payload
-/// (TPR-07-011 suppresses its scope-exit drop), so the projected
+/// (suppresses its scope-exit drop), so the projected
 /// iterator is no longer "managed by the parent" — it must participate
 /// in its own RC lifecycle and drop at its own scope exit when unused.
 /// Without this exclusion, `walk_dec`'s `emit_defined_dead` skips the
@@ -254,11 +254,11 @@ pub(crate) fn collect_inline_enum_projected_defs(
 /// decisions (e.g., when a borrowed list parameter is used to create an
 /// iterator that has its own reference).
 ///
-/// TPR-07-011: take-projects (`is_take_project`) are excluded — they
+/// take-projects (`is_take_project`) are excluded — they
 /// transfer ownership rather than borrow, so they must participate in
 /// normal RC decisions for the projected payload.
 ///
-/// TPR-07-016: take-project SOURCES are NOT added here. Adding the
+/// take-project SOURCES are NOT added here. Adding the
 /// backward alias chain was a function-global suppression and leaked
 /// on paths that never executed the projection. Path-sensitive
 /// suppression of source drops is handled by the separate
@@ -293,10 +293,10 @@ pub(crate) fn collect_project_borrowed_defs(
 /// pointer copy without incrementing the refcount. The copy must also be
 /// treated as borrowed to avoid emitting spurious `RcDec`.
 ///
-/// TPR-07-011: take-projects (`is_take_project`) are excluded — they
+/// take-projects (`is_take_project`) are excluded — they
 /// transfer ownership of a unique-owned payload rather than borrow it.
 ///
-/// TPR-07-016: take-project SOURCES are NOT added here. The backward
+/// take-project SOURCES are NOT added here. The backward
 /// alias chain propagation (earlier attempt) was a function-global
 /// suppression that leaked on paths that never executed the
 /// projection. Path-sensitive suppression of the source enum's

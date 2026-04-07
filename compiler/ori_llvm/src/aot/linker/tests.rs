@@ -1,6 +1,6 @@
 //! Tests for linker cross-compilation detection and linker selection.
 //!
-//! Regression: BUG-04-001 — cross-compilation to Windows from Linux silently
+//! Regression: cross-compilation to Windows from Linux silently
 //! fell back to the host linker, producing cryptic errors.
 
 use super::*;
@@ -136,7 +136,7 @@ fn test_linker_flavor_for_wasm() {
 // === Cross-compilation-aware detection (semantic pin) ===
 
 /// Semantic pin: host `cc` must NOT be returned as available for a cross-arch
-/// Linux target. Regression guard for TPR-04-006.
+/// Linux target. Regression guard for
 #[test]
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 fn test_host_cc_not_available_for_cross_arch_linux_target() {
@@ -148,7 +148,7 @@ fn test_host_cc_not_available_for_cross_arch_linux_target() {
 }
 
 /// Semantic pin: host `cc` must NOT be returned as available for a cross-OS
-/// Windows target. This is the exact regression that BUG-04-001 caught.
+/// Windows target. This is the exact regression that caught.
 #[test]
 #[cfg(target_os = "linux")]
 fn test_host_cc_not_available_for_windows_target() {
@@ -272,7 +272,7 @@ fn test_link_output_extension_macos_unversioned() {
     assert_eq!(LinkOutput::StaticLibrary.extension(&target), "a");
 }
 
-/// Regression pin for BUG-04-045 / TPR-BUG-04-045-02: a versioned Darwin
+/// Regression pin for a versioned Darwin
 /// triple (the exact spelling LLVM emits on Apple Silicon) must still
 /// produce `.dylib` for shared libraries, not `.so`. Before the fix,
 /// `LinkOutput::extension` matched `target.os.as_str()` against the

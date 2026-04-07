@@ -403,7 +403,7 @@ fn test_aot_journey_11_derived_eq() {
     );
 }
 
-// ---- TPR-04-021: Debug derive str field leak fix ----
+// ---- Debug derive str field leak fix ----
 //
 // The `emit_field_to_string` Debug/Str path creates `"\"" + val + "\""`
 // via two concats. The inner concat result (`quoted`) must be RC-decremented

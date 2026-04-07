@@ -42,7 +42,7 @@ pub(super) fn emit_enum_all_true<'a>(
     };
 
     let tags_eq = fc.builder_mut().icmp_eq(ts, to, "eq.tags");
-    // BUG-04-008 / TPR-07-006: check for non-void payload fields, not just
+    // check for non-void payload fields, not just
     // non-unit variants. A variant like `A(u: void)` has VariantFields::Tuple
     // but zero payload slots in LLVM.
     let has_payload = variants
@@ -126,7 +126,7 @@ fn emit_enum_payload_eq<'a>(
 
         for (tag_idx, variant) in variants.iter().enumerate() {
             fc.builder_mut().position_at_end(variant_bbs[tag_idx]);
-            // TPR-07-006: filter zero-sized fields to match LLVM layout.
+            // filter zero-sized fields to match LLVM layout.
             let field_types = variant_non_void_field_types(&variant.fields, fc.pool());
             if field_types.is_empty() {
                 fc.builder_mut().br(true_bb);
@@ -204,7 +204,7 @@ fn emit_enum_payload_eq<'a>(
         let i64_ty = fc.builder_mut().i64_type();
         for (tag_idx, variant) in variants.iter().enumerate() {
             fc.builder_mut().position_at_end(variant_bbs[tag_idx]);
-            // TPR-07-006: filter zero-sized fields to match LLVM layout.
+            // filter zero-sized fields to match LLVM layout.
             let field_types = variant_non_void_field_types(&variant.fields, fc.pool());
             if field_types.is_empty() {
                 fc.builder_mut().br(true_bb);

@@ -66,8 +66,18 @@ was shown vs. hidden.
                            (`--plan 04`) for legacy callers.
 `--json`                   Machine-readable JSON output.
 `--count`                  Summary counts per classification, no details.
-`--fix --dry-run`          Show what would be removed from source files.
-                           (Not yet implemented — reserved.)
+`--fix`                    Remove STALE_RESOLVED + STALE_COMPLETED_PLAN +
+                           ORPHAN annotations from source files. Conservative:
+                           only edits inside `//`, `///`, `//!`, `/* */`
+                           comment regions; never touches code or strings.
+                           Strips the bare ID plus immediately adjacent
+                           punctuation (`[ID]`, `(ID)`, `ID:`, `ID.`). If a
+                           line becomes empty after stripping (e.g. just
+                           `//`), the line is deleted. Default is dry-run
+                           (preview only); pair with `--apply` to write.
+`--apply`                  With `--fix`, actually write the modified files.
+                           Without `--apply`, `--fix` prints a unified diff
+                           preview and exits with code 2.
 `--include-ori`            Also scan .ori files (default: .rs only).
 `--pattern`                Print the master annotation regex and exit.
 `--help`                   This message.
@@ -633,6 +643,387 @@ def classify_all(
 
 
 # ─────────────────────────────────────────────────────────────
+# Fix mode — conservative annotation removal
+# ─────────────────────────────────────────────────────────────
+
+
+def is_in_comment_region(line: str, col: int) -> bool:
+    """
+    Return True if `col` (0-based byte index into `line`) is inside a
+    `//`, `///`, `//!`, or `/* */` comment region.
+
+    Conservative: a `//` inside a string literal does NOT start a comment
+    region. We track string state by walking the line left-to-right.
+
+    Multi-line `/* */` comments are NOT supported (we'd need cross-line
+    state) — if the annotation is inside a `/* */` block, this returns
+    False, preventing removal. That's the safe default.
+    """
+    i = 0
+    n = len(line)
+    in_str_dq = False
+    in_str_sq = False
+    while i < n and i <= col:
+        ch = line[i]
+        # Skip escapes inside string literals
+        if (in_str_dq or in_str_sq) and ch == "\\" and i + 1 < n:
+            i += 2
+            continue
+        if in_str_dq:
+            if ch == '"':
+                in_str_dq = False
+            i += 1
+            continue
+        if in_str_sq:
+            if ch == "'":
+                in_str_sq = False
+            i += 1
+            continue
+        if ch == '"':
+            in_str_dq = True
+            i += 1
+            continue
+        if ch == "'":
+            in_str_sq = True
+            i += 1
+            continue
+        # Not in a string — check for `//` start
+        if ch == "/" and i + 1 < n and line[i + 1] == "/":
+            return col >= i  # everything from `//` onward is a comment
+        # Inline `/* ... */` on the same line
+        if ch == "/" and i + 1 < n and line[i + 1] == "*":
+            # Find the matching `*/`
+            close = line.find("*/", i + 2)
+            if close < 0:
+                # Multi-line — col is inside if past the opening
+                return col >= i
+            if i <= col <= close + 1:
+                return True
+            i = close + 2
+            continue
+        i += 1
+    return False
+
+
+# Removal patterns, in order of preference (longest match wins per pattern)
+def _make_removal_patterns(ann_id: str) -> list[re.Pattern]:
+    """
+    Build the set of regexes that try to strip the annotation plus
+    adjacent punctuation. Each is anchored on the bare ID plus surrounding
+    delimiters; the FIRST one that matches is used. Order matters: more
+    specific (longer-context) patterns must come before shorter ones.
+
+    Multi-ID lines (e.g. `// ID1 / ID2 / ID3: text`) are supported when
+    ALL IDs in the list are stale: each ID-with-trailing-slash group is
+    stripped one by one, leaving the trailing text. When only SOME IDs in
+    a list are stale, the slash patterns leave the active IDs in place.
+    """
+    eid = re.escape(ann_id)
+    # Em-dash, en-dash and ASCII hyphen-minus, with surrounding spaces
+    DASH = r"\s+[—–\-]\s+"
+    return [
+        # `[ID]: ` and `[ID] ` — bracketed form with trailing punctuation
+        # Mid-sentence variant consumes the leading space.
+        re.compile(r"(?<=[^/\s])\s*\[" + eid + r"\][\s:.\-—–]*"),
+        # Start-of-comment variant — no leading-space consume
+        re.compile(r"\[" + eid + r"\][\s:.\-—–]*"),
+        # ` (ID)` mid-sentence — consume the leading space too so the
+        # remaining text doesn't get a stranded space before any
+        # following period or punctuation.
+        re.compile(r"(?<=[^/\s])\s*\(" + eid + r"\)"),
+        # `(ID)` at start of comment — no leading-space consume.
+        # If the ENTIRE comment was `(ID).`, the trailing `.` becomes a
+        # stranded period and the empty-line detection deletes the line.
+        re.compile(r"\(" + eid + r"\)\s*"),
+        # ` — ID fix.` / ` - ID fix.` — dash-prefixed phrase ending in "fix"
+        # (e.g. "tuples — TPR-04-003 fix." → "tuples")
+        re.compile(DASH + eid + r"\s+fix\.?"),
+        # ` — ID` / ` - ID` — dash-prefixed bare ID at end of phrase
+        # (e.g. "tuples — TPR-04-003" → "tuples")
+        re.compile(DASH + eid + r"\b"),
+        # `ID — ` / `ID - ` — bare ID followed by dash separator
+        # (e.g. "Semantic pin: TPR-04-006 — splitting" → "Semantic pin: splitting")
+        re.compile(r"\b" + eid + DASH),
+        # `ID / ` — slash-list separator (first item in a multi-ID list)
+        # (e.g. "// TPR-A / TPR-B / TPR-C: text" with TPR-A stale →
+        #  "// TPR-B / TPR-C: text"). Combined with the next pattern,
+        # repeated stripping handles lists where ALL items are stale.
+        re.compile(r"\b" + eid + r"\s+/\s+"),
+        # ` / ID` — slash-list separator (non-first item in a multi-ID list)
+        # Used when the previous item was already stripped, leaving us as
+        # the new "first" item adjacent to the slash residue from the prior
+        # iteration.
+        re.compile(r"\s+/\s+" + eid + r"\b"),
+        # `ID,` — comma-suffixed (e.g. "After ID, the rest...").
+        # Do NOT consume the leading space — the comma is a sentence
+        # separator, so we want the prior word's trailing space to remain
+        # (otherwise `per TPR-XX-YY, and` becomes `perand`).
+        re.compile(r"\b" + eid + r",\s?"),
+        # `ID:` plus single space
+        re.compile(r"\b" + eid + r":\s?"),
+        # `ID.` (sentence-final form)
+        re.compile(r"\b" + eid + r"\.\s?"),
+        # Bare `ID` (last resort) plus optional trailing space
+        re.compile(r"\b" + eid + r"\s?"),
+    ]
+
+
+def is_safe_id_context(line: str, idx: int, ann_id: str) -> bool:
+    """
+    Return False if the ID at `idx` is in a context where naive removal
+    would damage the surrounding text. Specifically reject:
+
+    - Possessive form: `TPR-XX-YY's function` — strip leaves `'s function`
+    - Compound prefix: `post-TPR-XX-YY`, `pre-TPR-XX-YY` — strip leaves the
+      prefix mashed against the next word
+    - Slash continuation: `TPR-02-007/008` — strip leaves orphan `/008`
+    - Word continuation: `TPR-XX-YYa`, `TPR-XX-YY1` — strip leaves orphan
+      letter/digit suffix (the regex's `\\w*` already permits these in the
+      ID, but if there's an unexpected suffix we play it safe)
+
+    Decorative dash runs (`// ---- TPR-XX-YY`) are explicitly allowed
+    because they're a recognised section-header pattern.
+    """
+    end = idx + len(ann_id)
+    # Char immediately after the ID
+    if end < len(line):
+        ch = line[end]
+        if ch == "'":  # possessive: TPR-XX-YY's
+            return False
+        if ch == "/":  # slash-continuation: TPR-02-007/008
+            return False
+        # word continuation (letter/digit immediately after)
+        if ch.isalnum() or ch == "_":
+            return False
+    # Char immediately before the ID
+    if idx > 0:
+        ch = line[idx - 1]
+        if ch == "-":
+            # Compound prefix like `post-TPR-XX-YY` — but allow decorative
+            # `// ---- TPR-XX-YY` section headers (3+ dashes preceded by
+            # whitespace).
+            preceding = line[max(0, idx - 6):idx]
+            if "----" in preceding:
+                return True  # decorative header, safe
+            return False  # genuine compound prefix
+        # Word continuation (letter/digit immediately before — shouldn't
+        # happen because the ID starts with an uppercase letter, but be
+        # defensive).
+        if ch.isalnum() or ch == "_":
+            return False
+    return True
+
+
+def remove_annotations_from_line(
+    line: str,
+    ann_ids_in_line: list[str],
+) -> tuple[str | None, bool]:
+    """
+    Remove every annotation ID in `ann_ids_in_line` from `line`.
+
+    Returns `(new_line, changed)`:
+    - `new_line` is the modified line, or `None` if the line should be
+      deleted entirely (e.g., it became an empty comment marker).
+    - `changed` is True iff at least one annotation was actually stripped.
+
+    Safety: we only edit IDs that are inside a comment region AND in a
+    safe textual context (see `is_safe_id_context`). IDs in strings,
+    identifiers, possessives, or compound words are left in place.
+    """
+    new_line = line
+    changed = False
+    for ann_id in ann_ids_in_line:
+        idx = new_line.find(ann_id)
+        if idx < 0:
+            continue
+        if not is_in_comment_region(new_line, idx):
+            continue
+        if not is_safe_id_context(new_line, idx, ann_id):
+            continue
+        for pat in _make_removal_patterns(ann_id):
+            stripped = pat.sub("", new_line, count=1)
+            if stripped != new_line:
+                new_line = stripped
+                changed = True
+                break
+
+    if not changed:
+        return new_line, False
+
+    # Strip trailing whitespace only — do NOT collapse internal runs of
+    # spaces, because doc comments routinely use indented continuations
+    # like `///   first` / `///   second` for list formatting, and
+    # collapsing those would be a destructive reformat.
+    new_line = new_line.rstrip()
+
+    # If a strip left stranded leading punctuation immediately after the
+    # comment marker (e.g. `// . text` produced by `(ID).` strip), remove
+    # it. The marker stays put; only the orphan punctuation goes away.
+    new_line = re.sub(
+        r"^(\s*//[!/]*\s)[.,;:]\s",
+        r"\1",
+        new_line,
+    )
+
+    # If the line is now an empty comment marker, delete it
+    stripped = new_line.lstrip()
+    empty_markers = {
+        "//",
+        "///",
+        "//!",
+        "/*",
+        "*/",
+        "*",
+    }
+    # Also consider decorative lines that are JUST a comment marker plus
+    # one or more runs of `-`/`=`/`*` (e.g., `// ----`, `// ==== ====`,
+    # `// ---- ----`) left over from header strips.
+    if stripped in empty_markers:
+        return None, True
+    if re.fullmatch(r"//[!/]*(?:\s*[-=*]+)+\s*", stripped):
+        return None, True
+    # Also delete lines that are just a comment marker plus a stranded
+    # punctuation character (e.g., `// .`, `/// ,`) — these are leftover
+    # sentence terminators from comment paragraphs that were entirely an
+    # ID and a period.
+    if re.fullmatch(r"//[!/]*\s*[.,;:]\s*", stripped):
+        return None, True
+    # Stranded reference words: a comment that, after stripping, contains
+    # only a "See" or "See:" reference with nothing to refer to
+    # (e.g., `// See TPR-XX-YY.` → `// See`). The reference is meaningless
+    # without its target, so delete the entire line.
+    if re.fullmatch(r"//[!/]*\s*[Ss]ee[.:;]?\s*", stripped):
+        return None, True
+
+    return new_line, True
+
+
+@dataclass
+class FileEdit:
+    """A planned edit for a single file."""
+
+    file: Path
+    original_lines: list[str]
+    new_lines: list[str]  # may be shorter than original (deletions)
+    changed_line_indices: list[int]  # 0-based indices into original_lines
+    deleted_line_indices: list[int]  # 0-based indices into original_lines
+
+
+def plan_file_edits(
+    annotations: list[Annotation],
+) -> list[FileEdit]:
+    """
+    Group annotations by file and produce a FileEdit per file.
+
+    Skips annotations that we cannot safely remove (not in a comment).
+    """
+    by_file: dict[Path, list[Annotation]] = defaultdict(list)
+    for ann in annotations:
+        if ann.finding_id is None:
+            continue  # only ID-based annotations are removable
+        by_file[ann.file].append(ann)
+
+    edits: list[FileEdit] = []
+    for file, anns in sorted(by_file.items(), key=lambda kv: str(kv[0])):
+        try:
+            text = file.read_text(encoding="utf-8")
+        except OSError:
+            continue
+        # Preserve trailing newline state
+        lines = text.splitlines(keepends=False)
+
+        # Group IDs per line
+        ids_by_line: dict[int, list[str]] = defaultdict(list)
+        for ann in anns:
+            ids_by_line[ann.line].append(ann.finding_id)  # type: ignore[arg-type]
+
+        new_lines: list[str] = []
+        changed_indices: list[int] = []
+        deleted_indices: list[int] = []
+        for idx, original in enumerate(lines):
+            lineno = idx + 1
+            ids_here = ids_by_line.get(lineno)
+            if not ids_here:
+                new_lines.append(original)
+                continue
+            new_line, changed = remove_annotations_from_line(original, ids_here)
+            if not changed:
+                new_lines.append(original)
+                continue
+            if new_line is None:
+                deleted_indices.append(idx)
+                continue
+            new_lines.append(new_line)
+            changed_indices.append(idx)
+
+        if changed_indices or deleted_indices:
+            edits.append(
+                FileEdit(
+                    file=file,
+                    original_lines=lines,
+                    new_lines=new_lines,
+                    changed_line_indices=changed_indices,
+                    deleted_line_indices=deleted_indices,
+                )
+            )
+
+    return edits
+
+
+def format_edit_diff(edit: FileEdit, color: bool = True) -> str:
+    """Render a file edit as a unified-diff-style preview."""
+    import difflib
+
+    rel = _rel(edit.file)
+    diff = difflib.unified_diff(
+        [l + "\n" for l in edit.original_lines],
+        [l + "\n" for l in edit.new_lines],
+        fromfile=f"a/{rel}",
+        tofile=f"b/{rel}",
+        n=1,
+        lineterm="",
+    )
+    out: list[str] = []
+    for line in diff:
+        line = line.rstrip("\n")
+        if not color:
+            out.append(line)
+            continue
+        if line.startswith("+++") or line.startswith("---"):
+            out.append(f"\033[1m{line}\033[0m")
+        elif line.startswith("@@"):
+            out.append(f"\033[36m{line}\033[0m")
+        elif line.startswith("+"):
+            out.append(f"\033[32m{line}\033[0m")
+        elif line.startswith("-"):
+            out.append(f"\033[31m{line}\033[0m")
+        else:
+            out.append(line)
+    return "\n".join(out)
+
+
+def apply_file_edits(edits: list[FileEdit]) -> int:
+    """Write each edit to disk. Returns the number of files written."""
+    written = 0
+    for edit in edits:
+        # Preserve trailing newline if the original had one
+        try:
+            original_text = edit.file.read_text(encoding="utf-8")
+        except OSError:
+            continue
+        had_trailing_nl = original_text.endswith("\n")
+        new_text = "\n".join(edit.new_lines)
+        if had_trailing_nl:
+            new_text += "\n"
+        try:
+            edit.file.write_text(new_text, encoding="utf-8")
+            written += 1
+        except OSError as e:
+            print(f"error: failed to write {_rel(edit.file)}: {e}", file=sys.stderr)
+    return written
+
+
+# ─────────────────────────────────────────────────────────────
 # Output
 # ─────────────────────────────────────────────────────────────
 
@@ -848,6 +1239,24 @@ def build_argparser() -> argparse.ArgumentParser:
         action="store_true",
         help="Print the master annotation regex and exit.",
     )
+    p.add_argument(
+        "--fix",
+        action="store_true",
+        help=(
+            "Remove STALE_RESOLVED + STALE_COMPLETED_PLAN + ORPHAN annotations "
+            "from source files. Conservative: only edits inside //, ///, //!, "
+            "/* */ comment regions; never touches code or strings. Default is "
+            "dry-run (preview only); pair with --apply to write."
+        ),
+    )
+    p.add_argument(
+        "--apply",
+        action="store_true",
+        help=(
+            "With --fix, actually write the modified files. Without --apply, "
+            "--fix prints a unified diff preview and exits with code 2."
+        ),
+    )
     return p
 
 
@@ -931,8 +1340,81 @@ def main(argv: list[str] | None = None) -> int:
     if args.plan:
         annotations = filter_by_plan(annotations, args.plan)
 
-    # 5. Output
     color = sys.stdout.isatty() and not args.no_color
+
+    # 4.5. Fix mode (dry-run preview or apply)
+    if args.fix:
+        # Always operate on the cleanup set: STALE_RESOLVED + STALE_COMPLETED_PLAN + ORPHAN
+        cleanup_classes = {
+            Classification.STALE_RESOLVED,
+            Classification.STALE_COMPLETED_PLAN,
+            Classification.ORPHAN,
+        }
+        to_fix = [a for a in annotations if a.classification in cleanup_classes]
+        edits = plan_file_edits(to_fix)
+
+        # Account for annotations that are NOT in safe comment regions and were skipped
+        edited_locs: set[tuple[Path, int]] = set()
+        for e in edits:
+            for idx in e.changed_line_indices:
+                edited_locs.add((e.file, idx + 1))
+            for idx in e.deleted_line_indices:
+                edited_locs.add((e.file, idx + 1))
+        skipped: list[Annotation] = []
+        for ann in to_fix:
+            if (ann.file, ann.line) not in edited_locs:
+                skipped.append(ann)
+
+        if not edits:
+            print("No removable annotations found.")
+            if skipped:
+                print(
+                    f"Note: {len(skipped)} annotation(s) were classified for "
+                    "cleanup but could not be safely removed (not inside a "
+                    "comment region or no removal pattern matched).",
+                    file=sys.stderr,
+                )
+            return 0
+
+        if not args.apply:
+            # Dry-run: print unified diff preview
+            for edit in edits:
+                print(format_edit_diff(edit, color=color))
+                print()
+            total_changed = sum(len(e.changed_line_indices) for e in edits)
+            total_deleted = sum(len(e.deleted_line_indices) for e in edits)
+            print("─" * 56, file=sys.stderr)
+            print(
+                f"DRY-RUN: would edit {len(edits)} files "
+                f"({total_changed} lines modified, {total_deleted} lines deleted)",
+                file=sys.stderr,
+            )
+            if skipped:
+                print(
+                    f"  skipped {len(skipped)} annotation(s) — not in a comment "
+                    "region or no removal pattern matched",
+                    file=sys.stderr,
+                )
+            print("Pass --apply to write the changes.", file=sys.stderr)
+            return 2  # non-zero so callers know preview-only
+
+        # Apply
+        written = apply_file_edits(edits)
+        total_changed = sum(len(e.changed_line_indices) for e in edits)
+        total_deleted = sum(len(e.deleted_line_indices) for e in edits)
+        print(
+            f"applied {written} files: "
+            f"{total_changed} lines modified, {total_deleted} lines deleted"
+        )
+        if skipped:
+            print(
+                f"skipped {len(skipped)} annotation(s) — not in a comment "
+                "region or no removal pattern matched",
+                file=sys.stderr,
+            )
+        return 0
+
+    # 5. Output
 
     if args.json:
         shown_classes = select_shown_classes(args)

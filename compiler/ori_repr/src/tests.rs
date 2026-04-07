@@ -656,7 +656,7 @@ fn canonical_enum() {
 }
 
 /// Test that unresolved Var returns None (not panic).
-/// TPR-01-047: canonical must be fallible, not panic-driven.
+/// canonical must be fallible, not panic-driven.
 #[test]
 fn canonical_returns_none_for_var() {
     let mut pool = Pool::new();
@@ -669,7 +669,7 @@ fn canonical_returns_none_for_var() {
 }
 
 /// Test that `BoundVar` returns None — constructs a real `BoundVar` via `pool.intern`.
-/// TPR-01-047: canonical must be fallible, not panic-driven.
+/// canonical must be fallible, not panic-driven.
 #[test]
 fn canonical_returns_none_for_bound_var() {
     use ori_types::Tag;
@@ -684,7 +684,7 @@ fn canonical_returns_none_for_bound_var() {
 }
 
 /// Test that `RigidVar` returns None.
-/// TPR-01-047: canonical must be fallible, not panic-driven.
+/// canonical must be fallible, not panic-driven.
 #[test]
 fn canonical_returns_none_for_rigid_var() {
     let mut pool = Pool::new();
@@ -697,7 +697,7 @@ fn canonical_returns_none_for_rigid_var() {
 }
 
 /// Test that Error type returns None (should not reach codegen).
-/// TPR-01-047: canonical must be fallible, not panic-driven.
+/// canonical must be fallible, not panic-driven.
 #[test]
 fn canonical_returns_none_for_error() {
     let pool = Pool::new();
@@ -709,7 +709,7 @@ fn canonical_returns_none_for_error() {
 }
 
 /// Scheme type returns None (should never reach codegen).
-/// TPR-01-047: canonical must be fallible, not panic-driven.
+/// canonical must be fallible, not panic-driven.
 #[test]
 fn canonical_returns_none_for_scheme() {
     use ori_types::Tag;
@@ -725,7 +725,7 @@ fn canonical_returns_none_for_scheme() {
 }
 
 /// Infer type returns None (should never reach codegen).
-/// TPR-01-047: canonical must be fallible, not panic-driven.
+/// canonical must be fallible, not panic-driven.
 #[test]
 fn canonical_returns_none_for_infer() {
     use ori_types::Tag;
@@ -889,7 +889,7 @@ fn canonical_map_retains_value_repr() {
     }
 }
 
-// ── TPR-01-015: Cycle Detection for Recursive Types ─────────────
+// ── Cycle Detection for Recursive Types ─────────────
 
 /// Recursive enum `type Tree = Leaf(int) | Node(Tree, Tree)` must not
 /// stack overflow. Recursive positions yield `RcPointer`.
@@ -1000,7 +1000,7 @@ fn semantic_pin_recursive_field_is_rc_pointer() {
     }
 }
 
-/// TPR-01-021: Mutual recursion canonical-consistency test.
+/// Mutual recursion canonical-consistency test.
 ///
 /// `type A = WrapA { b: B }`
 /// `type B = WrapB { a: A }`
@@ -1062,7 +1062,7 @@ fn canonical_mutual_recursion_consistent() {
         b_s.fields[0].repr
     );
 
-    // Key consistency check (TPR-01-021): B nested inside A must equal standalone B.
+    // Key consistency check: B nested inside A must equal standalone B.
     // With the shared cache, both resolve to the same representation.
     let b_inside_a = &a_s.fields[0].repr;
     assert_eq!(
@@ -1077,7 +1077,7 @@ fn canonical_mutual_recursion_consistent() {
     assert_eq!(a_repr, a_repr2, "cached result must be stable");
 }
 
-/// TPR-01-047 semantic pin: a struct containing an Error-typed field returns
+/// semantic pin: a struct containing an Error-typed field returns
 /// None (not panic) because the child type cannot be canonicalized.
 /// This is the key regression test — if the fallible path is reverted to
 /// panics, this test detects it.
@@ -1094,7 +1094,7 @@ fn canonical_returns_none_for_struct_with_error_child() {
     );
 }
 
-/// TPR-01-047 semantic pin: an Option wrapping an Error type returns None.
+/// semantic pin: an Option wrapping an Error type returns None.
 #[test]
 fn canonical_returns_none_for_option_of_error() {
     let mut pool = Pool::new();
@@ -1106,7 +1106,7 @@ fn canonical_returns_none_for_option_of_error() {
     );
 }
 
-/// TPR-01-047 semantic pin: a list of Error-typed elements returns None.
+/// semantic pin: a list of Error-typed elements returns None.
 #[test]
 fn canonical_returns_none_for_list_of_error() {
     let mut pool = Pool::new();
@@ -1118,7 +1118,7 @@ fn canonical_returns_none_for_list_of_error() {
     );
 }
 
-/// TPR-01-047 semantic pin: `populate_canonical` does not panic on pools
+/// semantic pin: `populate_canonical` does not panic on pools
 /// that contain Error and type-variable types.
 #[test]
 fn populate_canonical_no_panics_with_error_types() {
@@ -1165,7 +1165,7 @@ fn canonical_non_recursive_repeated_type() {
     }
 }
 
-// ── TPR-01-005: Unit/Never Zero-Size in Aggregates ──────────────
+// ── Unit/Never Zero-Size in Aggregates ──────────────
 
 /// Semantic pin: ((), bool) size = 1 — Unit contributes 0 bytes in aggregates.
 #[test]
@@ -1252,7 +1252,7 @@ fn canonical_tuple_never_zero_sized() {
     }
 }
 
-// ── TPR-01-016: Recursive Triviality for Compound Types ─────────
+// ── Recursive Triviality for Compound Types ─────────
 
 /// Struct containing a trivial tuple `(int, bool)` must itself be trivial.
 #[test]
@@ -1580,7 +1580,7 @@ fn escapes_default_returns_true() {
     );
 }
 
-// ── RC strategy (TPR-01-022, TPR-01-023) ──────────────────────────────
+// ── RC strategy ──────────────────────────────
 
 use crate::plan::RcStrategy;
 
@@ -1600,7 +1600,7 @@ fn rc_strategy_default_is_atomic_i64() {
 
 #[test]
 fn rc_strategy_default_for_canonical_opaque_ptr() {
-    // TPR-01-023: After populate_canonical(), Iterator/Channel are stored as
+    // After populate_canonical(), Iterator/Channel are stored as
     // OpaquePtr. rc_strategy() must still return Atomic { I64 } (the safe
     // default) — NOT RcStrategy::None.
     let mut pool = Pool::new();
@@ -1628,7 +1628,7 @@ fn rc_strategy_default_for_canonical_opaque_ptr() {
 
 #[test]
 fn set_rc_strategy_preserves_original_repr() {
-    // TPR-01-022: set_rc_strategy() must NOT overwrite the type's
+    // set_rc_strategy() must NOT overwrite the type's
     // MachineRepr. The original layout must be preserved for codegen.
     let mut plan = ReprPlan::new(NarrowingPolicy::Aggressive);
     let original_repr = MachineRepr::Struct(StructRepr {
@@ -1735,7 +1735,7 @@ fn compute_repr_plan_populates_primitives() {
         plan.get_repr(Idx::ORDERING).is_some(),
         "Ordering must be populated"
     );
-    // Error type IS populated as Unit (TPR-02-005: trivial sentinel).
+    // Error type IS populated as Unit (trivial sentinel).
     assert!(
         plan.get_repr(Idx::ERROR).is_some(),
         "Error must be populated as Unit (TPR-02-005)"
@@ -1793,7 +1793,7 @@ fn compute_repr_plan_zero_behavioral_change_with_disabled() {
     let plan_aggressive = crate::compute_repr_plan(&pool, &[], NarrowingPolicy::Aggressive, &[]);
     let plan_disabled = crate::compute_repr_plan(&pool, &[], NarrowingPolicy::Disabled, &[]);
     // Both should produce the same canonical repr for every primitive
-    // (including ERROR, which is canonicalized as Unit — TPR-02-005).
+    // (including ERROR, which is canonicalized as Unit).
     for raw in 0..Idx::PRIMITIVE_COUNT {
         let idx = Idx::from_raw(raw);
         assert_eq!(
@@ -1870,7 +1870,7 @@ fn env_disabled_rejects_falsey_values() {
     // mutating the process-wide env (which would be racy in parallel tests).
     // The three call sites in oric/ori_llvm all use `NarrowingPolicy::env_disabled()`
     // which delegates to `is_env_truthy`, so verifying the inner function
-    // is sufficient. (TPR-01-029)
+    // is sufficient.
     assert!(
         !crate::plan::query::is_env_truthy("0"),
         "0 must not enable --no-repr-opt"
@@ -1996,11 +1996,11 @@ fn repr_convert_c_aligned_roundtrip() {
     assert_eq!(attr, ReprAttribute::CAligned(32));
 }
 
-// ── TPR-01-046: Named-type Idx storage contract ────────────────────
+// ── Named-type Idx storage contract ────────────────────
 
 #[test]
 fn repr_attr_stored_via_named_idx() {
-    // TPR-01-046: The live pipeline stores #repr attrs keyed by the Named Idx
+    // The live pipeline stores #repr attrs keyed by the Named Idx
     // from TypeEntry, not by a concrete struct_type Idx. This test pins that
     // the storage and retrieval contract works with Named Idx values, matching
     // the production codegen_pipeline path.
@@ -2031,7 +2031,7 @@ fn repr_attr_stored_via_named_idx() {
 
 #[test]
 fn repr_attr_named_vs_struct_idx_independent() {
-    // TPR-01-046 semantic pin: Named Idx and struct_type Idx for the same name
+    // semantic pin: Named Idx and struct_type Idx for the same name
     // are DIFFERENT pool entries. A #repr stored on one must NOT be visible on
     // the other. This verifies the storage contract uses exact Idx equality.
     let mut pool = ori_types::Pool::new();
@@ -2128,7 +2128,7 @@ fn trivial_struct_containing_all_unit_enum() {
 }
 
 /// `SelfType` returns None (should never reach codegen).
-/// TPR-01-047: canonical must be fallible, not panic-driven.
+/// canonical must be fallible, not panic-driven.
 #[test]
 fn canonical_returns_none_for_self_type() {
     use ori_types::Tag;
@@ -2742,7 +2742,7 @@ fn analyze_triviality_validation_zero_mismatches() {
     );
 
     // Iterator and DoubleEndedIterator: Box-allocated (no RC header) but
-    // NOT trivial — they need `ori_iter_drop` at scope exit. TPR-07-008
+    // NOT trivial — they need `ori_iter_drop` at scope exit.
     // flipped the classification to match reality. Both the canonical
     // SSOT (`classify_triviality`) and `is_trivial_repr(UnmanagedPtr)`
     // now report non-trivial; `analyze_triviality()` enforces agreement.
@@ -2768,7 +2768,7 @@ fn analyze_triviality_validation_zero_mismatches() {
         !plan.is_trivial(result_nontrivial),
         "Result<int, str> should be non-trivial"
     );
-    // TPR-07-008 semantic pin: iterators are non-trivial because they
+    // semantic pin: iterators are non-trivial because they
     // need `ori_iter_drop` at scope exit. Reverting the fix would cause
     // these assertions to fail AND would cause `analyze_triviality()`'s
     // `debug_assert!` to fire on the mismatch between the canonical
@@ -2787,11 +2787,11 @@ fn analyze_triviality_validation_zero_mismatches() {
     );
 }
 
-// TPR-02-005: Idx::ERROR must be trivial in ReprPlan (parity with classify_triviality)
+// Idx::ERROR must be trivial in ReprPlan (parity with classify_triviality)
 
 #[test]
 fn repr_plan_error_type_is_trivial() {
-    // TPR-02-005 semantic pin: ReprPlan::is_trivial(Idx::ERROR) must return true,
+    // semantic pin: ReprPlan::is_trivial(Idx::ERROR) must return true,
     // matching classify_triviality(Idx::ERROR) which returns Triviality::Trivial.
     // ERROR is a sentinel type that should never trigger RC operations.
     let pool = ori_types::Pool::new();
@@ -2804,7 +2804,7 @@ fn repr_plan_error_type_is_trivial() {
 
 #[test]
 fn repr_plan_error_type_has_canonical_repr() {
-    // TPR-02-005: ERROR must have a canonical repr so is_trivial() doesn't
+    // ERROR must have a canonical repr so is_trivial() doesn't
     // fall through to the None->false default.
     let pool = ori_types::Pool::new();
     let plan = crate::compute_repr_plan(&pool, &[], NarrowingPolicy::Aggressive, &[]);
@@ -2816,7 +2816,7 @@ fn repr_plan_error_type_has_canonical_repr() {
 
 #[test]
 fn repr_plan_error_triviality_matches_classify_triviality() {
-    // TPR-02-005 parity test: ReprPlan and classify_triviality() must agree
+    // parity test: ReprPlan and classify_triviality() must agree
     // for the ERROR sentinel.
     use ori_types::triviality::{classify_triviality, Triviality};
 
@@ -2831,7 +2831,7 @@ fn repr_plan_error_triviality_matches_classify_triviality() {
     );
 }
 
-// ── TPR-04-011: Named→resolved idx metadata propagation ─────────────
+// ── Named→resolved idx metadata propagation ─────────────
 //
 // When a Named type has a resolution chain to a concrete struct/tuple,
 // repr_attrs and pub_type_indices must propagate to the resolved idx.
@@ -2839,7 +2839,7 @@ fn repr_plan_error_triviality_matches_classify_triviality() {
 
 #[test]
 fn repr_attr_propagates_to_resolved_struct_idx() {
-    // TPR-04-011: A Named type with #repr("c") that resolves to a concrete
+    // A Named type with #repr("c") that resolves to a concrete
     // struct idx must have the attr visible on BOTH the named AND resolved idx.
     let mut pool = ori_types::Pool::new();
     let type_name = Name::new(0, 700);
@@ -2871,7 +2871,7 @@ fn repr_attr_propagates_to_resolved_struct_idx() {
 
 #[test]
 fn repr_packed_propagates_to_resolved_struct_idx() {
-    // TPR-04-011: #repr("packed") must also propagate through resolution.
+    // #repr("packed") must also propagate through resolution.
     let mut pool = ori_types::Pool::new();
     let type_name = Name::new(0, 710);
     let field_x = Name::new(0, 711);
@@ -2892,7 +2892,7 @@ fn repr_packed_propagates_to_resolved_struct_idx() {
 
 #[test]
 fn repr_c_aligned_propagates_to_resolved_struct_idx() {
-    // TPR-04-011: #repr("c", aligned N) must also propagate.
+    // #repr("c", aligned N) must also propagate.
     let mut pool = ori_types::Pool::new();
     let type_name = Name::new(0, 720);
 
@@ -2912,7 +2912,7 @@ fn repr_c_aligned_propagates_to_resolved_struct_idx() {
 
 #[test]
 fn repr_transparent_propagates_to_resolved_struct_idx() {
-    // TPR-04-011: #repr("transparent") must also propagate.
+    // #repr("transparent") must also propagate.
     let mut pool = ori_types::Pool::new();
     let type_name = Name::new(0, 730);
     let field_x = Name::new(0, 731);
@@ -2933,7 +2933,7 @@ fn repr_transparent_propagates_to_resolved_struct_idx() {
 
 #[test]
 fn pub_type_propagates_to_resolved_struct_idx() {
-    // TPR-04-011: A Named type marked `pub` that resolves to a concrete struct
+    // A Named type marked `pub` that resolves to a concrete struct
     // must have the pub flag on the resolved idx too.
     let mut pool = ori_types::Pool::new();
     let type_name = Name::new(0, 740);
@@ -2995,7 +2995,7 @@ fn repr_attr_no_resolution_no_propagation() {
 
 #[test]
 fn repr_c_resolved_idx_not_narrowed_semantic_pin() {
-    // TPR-04-011 SEMANTIC PIN: A Named type with #repr("c") resolving to a
+    // SEMANTIC PIN: A Named type with #repr("c") resolving to a
     // concrete struct — after narrowing, the resolved struct idx must NOT be
     // narrowed. This test ONLY passes with metadata propagation.
     use crate::narrowing::int::narrow_struct_fields;
@@ -3036,7 +3036,7 @@ fn repr_c_resolved_idx_not_narrowed_semantic_pin() {
 
 #[test]
 fn pub_resolved_idx_not_narrowed_semantic_pin() {
-    // TPR-04-011 SEMANTIC PIN: A Named type marked `pub` resolving to a
+    // SEMANTIC PIN: A Named type marked `pub` resolving to a
     // concrete struct — after narrowing, the resolved struct idx must NOT be
     // narrowed. This test ONLY passes with pub_type propagation.
     use crate::narrowing::int::narrow_struct_fields;
@@ -3083,7 +3083,7 @@ fn pub_resolved_idx_not_narrowed_semantic_pin() {
     }
 }
 
-// TPR-04-012: Applied → concrete Struct resolutions must inherit repr/pub
+// Applied → concrete Struct resolutions must inherit repr/pub
 // exemptions from the parent Named type.
 //
 // IMPORTANT: Pool deduplicates struct types with identical (name, fields).
@@ -3093,7 +3093,7 @@ fn pub_resolved_idx_not_narrowed_semantic_pin() {
 
 #[test]
 fn repr_attr_propagates_through_applied_to_concrete_struct() {
-    // TPR-04-012: A Named type with #repr("c") whose Applied instantiation
+    // A Named type with #repr("c") whose Applied instantiation
     // resolves to a monomorphized concrete struct — the concrete struct idx
     // must also have the repr attr.
     let mut pool = ori_types::Pool::new();
@@ -3123,11 +3123,11 @@ fn repr_attr_propagates_through_applied_to_concrete_struct() {
     let repr_attrs = [(named_idx, ori_ir::ReprAttrKind::C)];
     let plan = crate::compute_repr_plan(&pool, &[], NarrowingPolicy::Aggressive, &repr_attrs);
 
-    // Named and base struct should have the attr (TPR-04-011 path)
+    // Named and base struct should have the attr (path)
     assert_eq!(plan.repr_attr(named_idx), Some(&ReprAttribute::C));
     assert_eq!(plan.repr_attr(base_struct_idx), Some(&ReprAttribute::C));
 
-    // TPR-04-012: The monomorphized concrete struct MUST also have it.
+    // The monomorphized concrete struct MUST also have it.
     assert_eq!(
         plan.repr_attr(mono_struct_idx),
         Some(&ReprAttribute::C),
@@ -3137,7 +3137,7 @@ fn repr_attr_propagates_through_applied_to_concrete_struct() {
 
 #[test]
 fn pub_type_propagates_through_applied_to_concrete_struct() {
-    // TPR-04-012: A Named type marked `pub` whose Applied instantiation
+    // A Named type marked `pub` whose Applied instantiation
     // resolves to a monomorphized concrete struct — the concrete struct idx
     // must also be marked public.
     let mut pool = ori_types::Pool::new();
@@ -3172,7 +3172,7 @@ fn pub_type_propagates_through_applied_to_concrete_struct() {
     assert!(plan.is_public_type(named_idx));
     assert!(plan.is_public_type(base_struct_idx));
 
-    // TPR-04-012: monomorphized concrete struct must also be public.
+    // monomorphized concrete struct must also be public.
     assert!(
         plan.is_public_type(mono_struct_idx),
         "TPR-04-012: monomorphized concrete struct must inherit pub from Named parent"
@@ -3181,7 +3181,7 @@ fn pub_type_propagates_through_applied_to_concrete_struct() {
 
 #[test]
 fn repr_c_applied_concrete_struct_not_narrowed_semantic_pin() {
-    // TPR-04-012 SEMANTIC PIN: A #repr("c") Named type with a monomorphized
+    // SEMANTIC PIN: A #repr("c") Named type with a monomorphized
     // Applied → concrete Struct — narrowing must be blocked on the monomorphized
     // struct. This test ONLY passes with Applied-path propagation.
     use crate::narrowing::int::narrow_struct_fields;
@@ -3227,7 +3227,7 @@ fn repr_c_applied_concrete_struct_not_narrowed_semantic_pin() {
 
 #[test]
 fn pub_applied_concrete_struct_not_narrowed_semantic_pin() {
-    // TPR-04-012 SEMANTIC PIN: A `pub` Named type with a monomorphized
+    // SEMANTIC PIN: A `pub` Named type with a monomorphized
     // Applied → concrete Struct — narrowing must be blocked on the monomorphized
     // struct. This test ONLY passes with Applied-path pub propagation.
     use crate::narrowing::int::narrow_struct_fields;
@@ -3280,7 +3280,7 @@ fn pub_applied_concrete_struct_not_narrowed_semantic_pin() {
 
 #[test]
 fn applied_without_resolution_no_propagation() {
-    // TPR-04-012 negative test: An Applied idx without set_resolution() should
+    // negative test: An Applied idx without set_resolution() should
     // NOT propagate repr attrs to an unrelated struct that happens to share a
     // name but has distinct field types (and thus a distinct pool Idx).
     let mut pool = ori_types::Pool::new();
@@ -3319,7 +3319,7 @@ fn applied_without_resolution_no_propagation() {
 
 #[test]
 fn multiple_applied_instantiations_all_protected() {
-    // TPR-04-012: Multiple monomorphized instantiations of the same pub #repr("c")
+    // Multiple monomorphized instantiations of the same pub #repr("c")
     // type must ALL be protected. Tests Pair<int, int> and Pair<int, str>.
     let mut pool = ori_types::Pool::new();
     let type_name = Name::new(0, 950);
@@ -3737,7 +3737,7 @@ fn imported_collection_surface_empty_is_noop() {
 }
 
 /// Multiple imported collection surface hashes are resolved without panic.
-/// After TPR-04-042, imported surfaces don't mark types as public (they're
+/// After imported surfaces don't mark types as public (they're
 /// for forwarding metadata only), but the resolution still succeeds.
 #[test]
 fn imported_collection_surfaces_multiple_hashes_no_panic() {
@@ -3762,7 +3762,7 @@ fn imported_collection_surfaces_multiple_hashes_no_panic() {
         false,
     );
 
-    // After TPR-04-042: imported surfaces no longer mark types as public.
+    // After imported surfaces no longer mark types as public.
     assert!(
         !plan.is_public_type(list_int),
         "Imported surface should NOT mark List<int> as public (TPR-04-042)"
@@ -3773,13 +3773,13 @@ fn imported_collection_surfaces_multiple_hashes_no_panic() {
     );
 }
 
-/// Verifies the TPR-04-042 fix: imported collection surfaces do NOT suppress
+/// Verifies the fix: imported collection surfaces do NOT suppress
 /// element narrowing for the importing module's private `[int]` usage.
 ///
 /// The per-Idx limitation is RESOLVED: imported surfaces are no longer added
 /// to `pub_type_indices`. Only same-module public functions suppress narrowing.
 ///
-/// Regression: TPR-04-042
+/// Regression:
 #[test]
 fn imported_collection_surface_allows_private_narrowing() {
     let mut pool = Pool::new();
@@ -3835,7 +3835,7 @@ fn imported_collection_surface_allows_private_narrowing() {
 }
 
 /// Verifies that same-module public functions still correctly suppress
-/// narrowing. This is the positive counterpart to the TPR-04-042 fix —
+/// narrowing. This is the positive counterpart to the fix —
 /// we removed imported surface suppression but kept local public suppression.
 #[test]
 fn local_public_function_still_suppresses_narrowing() {
