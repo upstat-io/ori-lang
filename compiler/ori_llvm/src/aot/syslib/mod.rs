@@ -112,6 +112,36 @@ pub fn home_wasi_sdk_sysroot() -> PathBuf {
     home_wasi_sdk_sysroot_for_home(&user_home_dir())
 }
 
+/// Build the per-target `ORI_SYSROOT_<TARGET>` environment-variable name
+/// for a parsed target.
+///
+/// This is the SSOT for "what env var name does the per-target sysroot
+/// override use". Both the discovery side
+/// ([`SysLibConfig::detect_sysroot`]) and any documentation that tells
+/// users to `export ORI_SYSROOT_X=...` MUST query this function so they
+/// always agree.
+///
+/// Built from the canonical [`TargetTripleComponents::support_key`] so
+/// that:
+/// 1. Any aliased input (`arm64-apple-darwin`, `amd64-unknown-linux-gnu`)
+///    resolves to the same env key as the canonical spelling.
+/// 2. Versioned Darwin spellings (`arm64-apple-darwin25.2.0`) collapse
+///    their OS version suffix and produce a shell-safe key —
+///    `ORI_SYSROOT_AARCH64_APPLE_DARWIN`, not the broken
+///    `ORI_SYSROOT_AARCH64_APPLE_DARWIN25.2.0` (which contains dots and
+///    is rejected by zsh as `not valid in this context`).
+///
+/// The result is uppercase ASCII letters/digits and underscores only —
+/// always a valid POSIX shell variable name. Regression: BUG-04-045 /
+/// TPR-BUG-04-045-07.
+#[must_use]
+pub fn target_sysroot_env_key(target: &TargetTripleComponents) -> String {
+    format!(
+        "ORI_SYSROOT_{}",
+        target.support_key().to_uppercase().replace('-', "_")
+    )
+}
+
 /// System library configuration for a target.
 #[derive(Debug, Clone)]
 pub struct SysLibConfig {
@@ -260,18 +290,42 @@ impl SysLibConfig {
     }
 
     /// Sysroot detection parameterized by an explicit home directory.
-    /// Lets tests verify the install/discovery round-trip without
-    /// touching process-global `HOME`/`USERPROFILE` state.
+    /// Convenience wrapper that uses `std::env::var` for env lookups —
+    /// tests should use [`Self::detect_sysroot_with_env`] to inject a
+    /// hermetic env-getter and avoid process-global state.
     pub(crate) fn detect_sysroot_for_home(
         target: &TargetTripleComponents,
         home: &Path,
     ) -> Option<PathBuf> {
-        // 1. Check environment variable: ORI_SYSROOT_<TARGET>
-        let env_key = format!(
-            "ORI_SYSROOT_{}",
-            target.to_string().to_uppercase().replace('-', "_")
-        );
-        if let Ok(path) = std::env::var(&env_key) {
+        Self::detect_sysroot_with_env(target, home, |key| std::env::var(key).ok())
+    }
+
+    /// Fully-parameterized sysroot detection: explicit home directory AND
+    /// explicit env-var getter. Both axes are injectable so tests can be
+    /// hermetic with no `HOME`/`USERPROFILE`/`ORI_SYSROOT_*` mutation
+    /// (which races in parallel test runs).
+    ///
+    /// The `env_getter` closure is called for each env var key the
+    /// discovery would normally look up; returning `None` means "not set
+    /// for this test" and discovery falls through to the next layer. The
+    /// production wrapper [`Self::detect_sysroot_for_home`] passes a
+    /// closure that calls `std::env::var`.
+    pub(crate) fn detect_sysroot_with_env<F>(
+        target: &TargetTripleComponents,
+        home: &Path,
+        env_getter: F,
+    ) -> Option<PathBuf>
+    where
+        F: Fn(&str) -> Option<String>,
+    {
+        // 1. Check environment variable: ORI_SYSROOT_<TARGET>. Use the
+        // canonical SSOT helper so the env key matches what
+        // `suggest_sysroot_installation` documents and what users export.
+        // The key is built from `support_key()` (not `to_string()`) so
+        // versioned Darwin spellings produce a shell-safe canonical name —
+        // see `target_sysroot_env_key` and BUG-04-045 / TPR-BUG-04-045-07.
+        let env_key = target_sysroot_env_key(target);
+        if let Some(path) = env_getter(&env_key) {
             let path = PathBuf::from(path);
             if path.exists() {
                 return Some(path);
@@ -279,7 +333,7 @@ impl SysLibConfig {
         }
 
         // 2. Check generic ORI_SYSROOT
-        if let Ok(path) = std::env::var("ORI_SYSROOT") {
+        if let Some(path) = env_getter("ORI_SYSROOT") {
             let path = PathBuf::from(path);
             if path.exists() {
                 return Some(path);
