@@ -408,6 +408,8 @@ fn test_support_key_strips_darwin_version_matrix() {
         ("aarch64-unknown-linux-musl", "aarch64-unknown-linux-musl"),
         ("x86_64-pc-windows-msvc", "x86_64-pc-windows-msvc"),
         ("wasm32-unknown-unknown", "wasm32-unknown-unknown"),
+        // Modern WASI Preview1 canonical spelling — no special-casing.
+        ("wasm32-unknown-wasip1", "wasm32-unknown-wasip1"),
         // Arch alias normalization composes with OS-suffix stripping.
         ("amd64-unknown-linux-gnu", "x86_64-unknown-linux-gnu"),
     ];
@@ -439,6 +441,8 @@ fn test_support_key_matches_supported_targets_for_known_aliases() {
         "aarch64-apple-macos",
         "amd64-unknown-linux-gnu",
         "x86_64-apple-darwin23.6.0",
+        // Modern WASI Preview1 canonical form (Rust 1.78+).
+        "wasm32-unknown-wasip1",
     ];
     for alias in aliases {
         let parsed = TargetTripleComponents::parse(alias).unwrap();
