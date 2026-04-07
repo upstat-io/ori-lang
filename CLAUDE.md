@@ -147,7 +147,7 @@ When fixing any AIMS-related bug: ask "does this preserve system coherence?" A f
 **Codegen audit**: `ORI_AUDIT_CODEGEN=1` — RC balance, COW sequencing, ABI args, aggregate loads, safety checks. Zero cost off. `ORI_AUDIT_STRICT=1` (pessimistic) | `ORI_AUDIT_FUNCTION=name` (filter)
 **AIMS**: The ARC pipeline uses the AIMS unified lattice — no feature flags needed. `diagnostics/aims-compare.sh` for behavioral + RC comparison.
 **Always run `./test-all.sh` after compiler changes.**
-**Perf baseline**: `./scripts/perf-baseline.sh [--release] [--include-cow]` | **COW benchmarks**: `./scripts/cow-benchmark.sh [--release] [--include-macro] [--compare baseline.json]` | **Consistency**: `diagnostics/check-debug-flags.sh`
+**Perf baseline**: `./scripts/perf-baseline.sh [--release] [--include-cow]` | **COW benchmarks**: `./scripts/cow-benchmark.sh [--release] [--include-macro] [--compare baseline.json]` | **Consistency**: `diagnostics/check-debug-flags.sh` | **Cargo cache**: `./scripts/cache-doctor.sh [--print-cleanup|--clean]` — detects root-owned files in `target/` that cargo cannot update (accidental `sudo cargo build`); refuses destructive actions by default
 **Diagnostic scripts** (`diagnostics/`) — all support `--help`, `--no-color`/`--color`:
 - `ir-dump.sh` — LLVM IR (`--raw`) | `ir-diff.sh` — compare two programs | `disasm-ori.sh` — native disassembly
 - `rc-stats.sh` — RC balance per function | `codegen-audit.sh` — static RC/COW/ABI analysis (`--strict`, `--function`)
