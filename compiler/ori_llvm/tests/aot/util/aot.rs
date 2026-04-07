@@ -4,6 +4,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitStatus};
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::OnceLock;
 
 use tempfile::TempDir;
 
@@ -43,6 +44,71 @@ pub fn stdlib_path() -> PathBuf {
     workspace_root().join("library")
 }
 
+/// Ensure the workspace `ori` binary matching the current test profile is
+/// freshly built, invoking `cargo build -p oric --bin ori [--release]` exactly
+/// once per test process.
+///
+/// **Why this exists**: `cargo test -p ori_llvm` compiles and runs `ori_llvm`
+/// tests but does NOT rebuild the workspace `ori` binary at `target/debug/ori`
+/// (or `target/release/ori`). The AOT test harness shells out to that binary
+/// to compile Ori fixtures. A session that edits `ori_arc`, `ori_rt`, or any
+/// `oric` dependency and runs `cargo test -p ori_llvm` directly sees **ghost
+/// test results**: the test process loads fresh `ori_llvm.rlib` via Cargo's
+/// dep graph, but spawns the stale `ori` binary to compile fixtures. Surfaced
+/// during §07 TPR-07-017 iteration 2 debugging — ~30 minutes wasted bisecting
+/// a regression that only existed in the stale binary. Root cause in
+/// `plans/repr-opt/section-07-enum-repr.md` §07.RZ.
+///
+/// **What it does**: Uses `OnceLock` to run `cargo build -p oric --bin ori`
+/// exactly once at the first `ori_binary()` call, matching the test profile
+/// (`cfg!(debug_assertions)` → debug, else release). Subsequent calls skip
+/// the build. Uses `env!("CARGO")` for the cargo path so the same toolchain
+/// that launched the test is used.
+///
+/// **Why not `CARGO_BIN_EXE_ori`**: That Cargo-provided env var would be the
+/// cleanest fix, but it requires `oric` to be listed as a dev-dependency of
+/// `ori_llvm`, which requires a `Cargo.toml` edit. The project's cargo rule
+/// forbids Cargo.toml edits without explicit user approval. This runtime
+/// approach achieves the same goal without touching manifests.
+fn ensure_ori_binary_fresh() {
+    static BUILD_RESULT: OnceLock<Result<(), String>> = OnceLock::new();
+
+    let result = BUILD_RESULT.get_or_init(|| {
+        let release = !cfg!(debug_assertions);
+        let profile_label = if release { "release" } else { "debug" };
+
+        eprintln!(
+            "[aot-tests] rebuilding workspace `ori` binary ({profile_label}) via `cargo build -p oric --bin ori{}`...",
+            if release { " --release" } else { "" }
+        );
+
+        let mut cmd = Command::new(env!("CARGO"));
+        cmd.args(["build", "-p", "oric", "--bin", "ori", "--quiet"]);
+        if release {
+            cmd.arg("--release");
+        }
+        cmd.current_dir(workspace_root());
+
+        match cmd.status() {
+            Ok(status) if status.success() => Ok(()),
+            Ok(status) => Err(format!(
+                "`cargo build -p oric --bin ori{}` exited with {status}",
+                if release { " --release" } else { "" }
+            )),
+            Err(e) => Err(format!(
+                "failed to spawn `cargo build -p oric --bin ori`: {e}"
+            )),
+        }
+    });
+
+    if let Err(msg) = result {
+        panic!(
+            "AOT test harness cannot proceed: {msg}\n\
+             Try running `cargo b` (or `cargo b --release`) manually from the workspace root."
+        );
+    }
+}
+
 /// Get the path to an LLVM-enabled `ori` binary.
 ///
 /// Picks the binary matching the current build profile (`cargo test` = debug,
@@ -53,7 +119,16 @@ pub fn stdlib_path() -> PathBuf {
 /// release binaries when `cargo build` (debug) was newer, causing tests to run
 /// against code without recent fixes. Profile-matching ensures `cargo build &&
 /// cargo test` always tests the binary you just built.
+///
+/// **Freshness guarantee**: The first call per test process invokes
+/// `ensure_ori_binary_fresh()` which runs `cargo build -p oric --bin ori`
+/// (profile-matched) via `OnceLock`. Subsequent calls skip the build. This
+/// eliminates the class of "ghost test results from stale `ori` binary" bugs
+/// that surfaced during §07 TPR-07-017 iteration 2 — see `ensure_ori_binary_fresh`
+/// doc comment for full context.
 pub fn ori_binary() -> PathBuf {
+    ensure_ori_binary_fresh();
+
     let workspace_root = workspace_root();
 
     let exe = format!("ori{}", std::env::consts::EXE_SUFFIX);
