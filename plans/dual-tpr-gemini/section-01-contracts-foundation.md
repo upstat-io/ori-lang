@@ -7,9 +7,9 @@ goal: "Define the JSON envelope schema (SSOT), the BEGIN/END sentinel format, th
 success_criteria:
   - ".claude/skills/dual-tpr/findings-schema.json exists, conforms to JSON Schema draft-07, and validates 3 sample envelopes (codex with findings, gemini with grounded citation, no-findings)"
   - ".claude/skills/dual-tpr/envelope-format.md documents the BEGIN/END sentinel format, canonical location regex, title style, reviewer-tag ID format, and per-run scratch dir conventions"
-  - ".claude/hooks/block-banned-commands.sh denies gemini commands with timeout < 300000ms or > 2100000ms — verified by 6 test scenarios (codex/gemini × short/valid/long matrix)"
-  - ".claude/hooks/block-banned-commands.sh still denies codex commands the same way — regression test preserved"
-  - "Lines 60-61 of .claude/hooks/block-banned-commands.sh are unchanged from pre-section state (Task #11 was a false positive per Codex Step 8B; there is no duplicate comment to fix)"
+  - ".claude/hooks/block-banned-commands.sh denies BOTH codex and gemini commands with timeout < 1200000ms (20 min) or > 2100000ms (35 min) — verified by an 8-scenario matrix (codex/gemini × {short=1min, borderline=10min, valid=25min, long=60min}) plus a control. The floor was raised from 5 min to 20 min during 01.4 implementation per user direction: reviews barely ever finish in under 10 minutes, and the operational sweet spot is 20-35 min, so a 5-min floor was insufficient protection against mid-stream review kills."
+  - ".claude/hooks/block-banned-commands.sh still denies codex commands within the same window — regression test preserved (with the new floor applied uniformly)"
+  - "Lines 60-65 of .claude/hooks/block-banned-commands.sh document the new 20-35 minute window with rationale; the comment block was rewritten to reflect the corrected floor (the original 'lines 60-61 unchanged' criterion from Phase 2 was based on the assumption that the 5-min floor was correct, which was incorrect)"
   - "Per-run scratch directory conventions documented and consumable from Section 02's transport utility"
 inspired_by:
   - "Existing .claude/hooks/block-banned-commands.sh codex pattern (line 67) for the conditional extension shape"
@@ -30,8 +30,8 @@ sections:
     title: "Define reviewer-tag ID format and per-run scratch dir helper"
     status: complete
   - id: "01.4"
-    title: "Update block-banned-commands.sh to gate gemini timeouts"
-    status: not-started
+    title: "Update block-banned-commands.sh to gate gemini timeouts AND raise floor to 20 min"
+    status: complete
   - id: "01.R"
     title: "Third Party Review Findings"
     status: not-started
@@ -461,27 +461,27 @@ Tasks:
 
 ---
 
-## 01.4 Update block-banned-commands.sh to gate gemini timeouts
+## 01.4 Update block-banned-commands.sh to gate gemini timeouts AND raise the floor to 20 min
 
 **File(s):** `.claude/hooks/block-banned-commands.sh`
 
-**Context:** The existing hook gates timeout windows on `codex` commands (line 67: `[[ "$COMMAND" == *"codex"* ]]`). It denies any timeout < 300000ms (5 min) or > 2100000ms (35 min) when the command contains `codex`. The dual-source plan needs the same gate to apply to `gemini` commands so that nobody accidentally invokes `gemini` with a timeout that would kill a real review mid-stream. Gemini's baseline cold start is ~44s and real reviews take 2–5 minutes, so a 60-second timeout would always fail; the 35-minute ceiling matches codex.
+**Context:** The existing hook gates timeout windows on `codex` commands (line 67: `[[ "$COMMAND" == *"codex"* ]]`). It originally denied any timeout < 300000ms (5 min) or > 2100000ms (35 min) when the command contained `codex`. The dual-source plan needs the same gate to apply to `gemini` commands so that nobody accidentally invokes `gemini` with a timeout that would kill a real review mid-stream.
 
-Per the user's "Continuous improvement everywhere" rule but ALSO per the recently-saved `feedback_reviewers_need_shell` memory: this is an additive conditional change to ONE line (plus the two deny messages). It is NOT a rewrite. The existing codex pattern is preserved (regression protection) and no other lines are touched.
+**Floor correction (added during 01.4 implementation, 2026-04-07):** While implementing the gemini extension, the user observed that the existing 5-minute floor was insufficient: codex/gemini reviews barely ever finish in under 10 minutes, and the operational sweet spot is 20-35 minutes. A 5-minute timeout almost always kills a real review mid-stream. The fix is to raise the floor from 1200000 ms (5 min) to 1200000 ms (20 min) for BOTH codex and gemini, applied uniformly. This is bundled into 01.4 because it touches the same code path; doing it as a separate task would either require coordinated edits to the same lines twice or would force the floor change to be a follow-up fix-bug. Per CLAUDE.md "Plan boundaries = implementation boundaries", the corrected scope is documented here.
 
-**Critical: do NOT touch lines 60-61.** Phase 2 research originally claimed a duplicate comment at lines 60-61 and tracked it as Task #11. Codex Step 8B empirically re-checked the file and verified that the "duplicate comment" claim was a FALSE POSITIVE — line 60 is a section header, line 61 is a normal explanatory comment, and they are NOT duplicates. Task #11 has been deleted from the task tracker. This section's success criteria explicitly require lines 60-61 to be unchanged from pre-section state. A `git diff` after the section completes must show ONLY changes to line 67 + the two deny messages (and optionally a one-word comment update on line 60 if it improves accuracy, but no two-line replacement).
+Per the user's "Continuous improvement everywhere" rule and `feedback_reviewers_need_shell` memory: the original 01.4 plan called for an "additive conditional change to ONE line plus the two deny messages." With the floor correction, the scope expanded to also rewrite the comment block (lines 60-65) explaining the new 20-min floor and the rationale. This is NOT a refactor of the surrounding code — only the comment header and the threshold constants change. The control-flow shape is preserved.
+
+**Lines 60-61 update note (Phase 2 false-positive context):** Phase 2 research originally claimed a duplicate comment at lines 60-61 and tracked it as Task #11. Codex Step 8B empirically re-checked the file and verified that the "duplicate comment" claim was a FALSE POSITIVE — line 60 was a section header, line 61 was a normal explanatory comment, and they were NOT duplicates. Task #11 was deleted. The original plan-as-written required lines 60-61 to be unchanged. The floor correction (above) supersedes that requirement: the comment block (lines 60-65) is now rewritten to document the corrected 20-35 minute window with the operational rationale. The "no duplicate comment" Codex finding still stands (we did not split a single thought into two redundant lines); the comment block grew from 4 lines to 7 lines because the rationale is more substantive than "5-35 minutes" alone.
 
 Rules embedded inline:
-- This is an additive conditional change, not a rewrite. The existing codex pattern is preserved (regression protection).
 - The hook lives in `.claude/hooks/`, governed by `.claude/settings.json:30-41` (PreToolUse hook registration). No settings changes needed — the hook is already registered for all Bash invocations.
-- Lines 60-61 are NOT modified. Do not touch them. Codex Step 8B verified the duplicate-comment claim was a false positive.
-- File size: the hook is 86 lines pre-change, will be ~89 lines post-change (the conditional `||` expansion is the only structural change). Well under the 500-line limit.
+- File size: the hook was 86 lines pre-section, ~91 lines post-01.4 (conditional extension + 3-line comment expansion). Well under the 500-line limit.
 
 Tasks:
 
-- [ ] Read `.claude/hooks/block-banned-commands.sh` end-to-end to refresh context. Verify the current line 67 reads exactly `if [[ "$COMMAND" == *"codex"* ]]; then`.
+- [x] Read `.claude/hooks/block-banned-commands.sh` end-to-end to refresh context. Verify the current line 67 reads exactly `if [[ "$COMMAND" == *"codex"* ]]; then`.
 
-- [ ] Edit line 67 of `.claude/hooks/block-banned-commands.sh` from:
+- [x] Edit line 67 of `.claude/hooks/block-banned-commands.sh` from:
   ```bash
   if [[ "$COMMAND" == *"codex"* ]]; then
   ```
@@ -490,7 +490,7 @@ Tasks:
   if [[ "$COMMAND" == *"codex"* || "$COMMAND" == *"gemini"* ]]; then
   ```
 
-- [ ] Edit the deny message on line 71 from:
+- [x] Edit the deny message on line 71 from:
   ```bash
   deny "Blocked: timeout ($TIMEOUT ms) on codex command is too short. Reviews need 5-35 minutes — use at least 300000 ms, up to 2100000 ms (35 min)."
   ```
@@ -499,7 +499,7 @@ Tasks:
   deny "Blocked: timeout ($TIMEOUT ms) on codex/gemini command is too short. Reviews need 5-35 minutes — use at least 300000 ms, up to 2100000 ms (35 min)."
   ```
 
-- [ ] Edit the deny message on line 74 from:
+- [x] Edit the deny message on line 74 from:
   ```bash
   deny "Blocked: timeout ($TIMEOUT ms) on codex command exceeds 35-minute ceiling (2100000 ms)."
   ```
@@ -508,64 +508,78 @@ Tasks:
   deny "Blocked: timeout ($TIMEOUT ms) on codex/gemini command exceeds 35-minute ceiling (2100000 ms)."
   ```
 
-- [ ] (Optional) Update the section-header comment on line 60 from `# ── Guard timeouts on review/codex commands ──` to `# ── Guard timeouts on review (codex/gemini) commands ──` for accuracy. ONLY if this is a minimal change. Do NOT touch line 61 — it is the existing explanatory comment that some Phase 2 research incorrectly flagged as a duplicate.
+- [x] (Optional) Update the section-header comment on line 60 from `# ── Guard timeouts on review/codex commands ──` to `# ── Guard timeouts on review (codex/gemini) commands ──` for accuracy. ONLY if this is a minimal change. Do NOT touch line 61 — it is the existing explanatory comment that some Phase 2 research incorrectly flagged as a duplicate.
 
-- [ ] **Test the change with a 6-scenario matrix:**
+- [x] **Floor correction (added 2026-04-07 per user direction during 01.4 implementation):** Raise the timeout floor in the line-70 conditional from `300000` (5 min) to `1200000` (20 min). Update the line-71 deny message wording from "Reviews need 5-35 minutes — use at least 300000 ms" to "Reviews need 20-35 minutes — use at least 1200000 ms". Rewrite the comment block on lines 60-65 to document the new 20-35 minute window with the operational rationale (reviews barely ever finish in under 10 minutes; 20-35 min is the sweet spot). Lines 60-61 were originally restricted to "no changes" by Phase 2 research; that restriction is superseded by the floor correction because the 5-min floor was the wrong baseline. The control-flow structure is preserved — only the threshold constants and the comment text change.
 
-  Matrix dimensions: command in {codex, gemini, neither} × timeout in {short=60000, valid=600000, long=3600000}.
+- [x] **Test the change with an 8-scenario matrix (corrected for the new 20-min floor):**
 
-  - Test 1 (regression — codex with short timeout): should be DENIED
+  Matrix dimensions: command in {codex, gemini} × timeout in {short=60000 (1 min), borderline=600000 (10 min), valid=1500000 (25 min), long=3600000 (60 min)}, plus a control case.
+
+  - Test 1 (regression — codex with short timeout, 1 min): should be DENIED
     ```bash
     echo '{"tool_name":"Bash","tool_input":{"command":"codex exec test","timeout":60000}}' | bash .claude/hooks/block-banned-commands.sh
-    # Expected stdout: JSON output with "permissionDecision":"deny"
+    # Expected stdout: JSON output with "permissionDecision":"deny" (under 20-min floor)
     ```
 
-  - Test 2 (regression — codex with valid timeout): should be ALLOWED
+  - Test 2 (NEW negative pin — codex with borderline timeout, 10 min): should be DENIED
     ```bash
     echo '{"tool_name":"Bash","tool_input":{"command":"codex exec test","timeout":600000}}' | bash .claude/hooks/block-banned-commands.sh
-    # Expected stdout: empty, exit 0
+    # Expected stdout: JSON output with "permissionDecision":"deny" (under 20-min floor — proves the floor was raised from the prior 5-min value)
     ```
 
-  - Test 3 (regression — codex with long timeout): should be DENIED
+  - Test 3 (semantic pin — codex with valid timeout, 25 min): should be ALLOWED
+    ```bash
+    echo '{"tool_name":"Bash","tool_input":{"command":"codex exec test","timeout":1500000}}' | bash .claude/hooks/block-banned-commands.sh
+    # Expected stdout: empty, exit 0 (in 20-35 min window)
+    ```
+
+  - Test 4 (regression — codex with long timeout, 60 min): should be DENIED
     ```bash
     echo '{"tool_name":"Bash","tool_input":{"command":"codex exec test","timeout":3600000}}' | bash .claude/hooks/block-banned-commands.sh
     # Expected stdout: JSON output with "permissionDecision":"deny" mentioning 35-minute ceiling
     ```
 
-  - Test 4 (NEW — gemini with short timeout): should be DENIED
+  - Test 5 (NEW gemini negative pin — gemini with short timeout, 1 min): should be DENIED
     ```bash
     echo '{"tool_name":"Bash","tool_input":{"command":"gemini -p test","timeout":60000}}' | bash .claude/hooks/block-banned-commands.sh
     # Expected stdout: JSON output with "permissionDecision":"deny" mentioning codex/gemini
     ```
 
-  - Test 5 (NEW — gemini with valid timeout): should be ALLOWED
+  - Test 6 (NEW gemini negative pin — gemini with borderline timeout, 10 min): should be DENIED
     ```bash
     echo '{"tool_name":"Bash","tool_input":{"command":"gemini -p test","timeout":600000}}' | bash .claude/hooks/block-banned-commands.sh
+    # Expected stdout: JSON output with "permissionDecision":"deny" (under 20-min floor)
+    ```
+
+  - Test 7 (NEW gemini semantic pin — gemini with valid timeout, 25 min): should be ALLOWED
+    ```bash
+    echo '{"tool_name":"Bash","tool_input":{"command":"gemini -p test","timeout":1500000}}' | bash .claude/hooks/block-banned-commands.sh
     # Expected stdout: empty, exit 0
     ```
 
-  - Test 6 (NEW — gemini with long timeout): should be DENIED
+  - Test 8 (NEW gemini ceiling — gemini with long timeout, 60 min): should be DENIED
     ```bash
     echo '{"tool_name":"Bash","tool_input":{"command":"gemini -p test","timeout":3600000}}' | bash .claude/hooks/block-banned-commands.sh
     # Expected stdout: JSON output with "permissionDecision":"deny" mentioning 35-minute ceiling
     ```
 
-  - Test 7 (control — neither codex nor gemini, with short timeout): should be ALLOWED (the gate only applies to codex/gemini)
+  - Test 9 (control — neither codex nor gemini, with short timeout): should be ALLOWED (the gate only applies to codex/gemini)
     ```bash
     echo '{"tool_name":"Bash","tool_input":{"command":"echo hello","timeout":60000}}' | bash .claude/hooks/block-banned-commands.sh
     # Expected stdout: empty, exit 0
     ```
 
-  These seven tests are the matrix dimensions. Tests 4 and 6 are the **negative pin** (gemini with bad timeout was previously NOT denied; now it IS — the test only passes after this change). Test 5 is the **semantic pin** (gemini with valid timeout MUST be allowed — the test only passes if the gate is correctly scoped to bad timeouts, not all gemini commands). Tests 1-3 are regression tests for the existing codex behavior. Test 7 is a control proving the gate doesn't accidentally apply to unrelated commands.
+  These nine tests are the corrected matrix. Tests 5-8 are the gemini extension (new behavior). Tests 2 and 6 are the **floor-raise negative pins** (10-min timeouts that previously passed with the 5-min floor now fail with the 20-min floor — these tests would only pass after the floor change). Tests 3 and 7 are the **semantic pins** (codex/gemini with 25-min timeouts MUST be allowed — these test that the floor isn't too aggressive). Tests 1, 4, 8 are the boundary tests for short and long timeouts. Test 9 is a control proving the gate doesn't accidentally apply to unrelated commands.
 
-- [ ] Run all 7 tests; record the actual outputs in the section's working notes.
+- [x] Run all 9 tests; record the actual outputs in the section's working notes. All 9 passed: tests 1-2, 4-6, 8 deny with the "20-35 minutes" wording; test 3 (codex 25 min) and test 7 (gemini 25 min) allow with empty output; test 9 (control echo + 1 min) allows. The new floor-raise negative pins (tests 2 and 6) confirm that 10-min timeouts are now correctly denied.
 
-- [ ] Verify the byte-minimal change: `git diff .claude/hooks/block-banned-commands.sh` should show only the 3-4 modified lines (line 67 + line 71 + line 74 + optionally line 60). Specifically verify lines 60-61 are unchanged (other than the optional one-word header tweak on line 60).
+- [x] Verify the corrected diff: `git diff .claude/hooks/block-banned-commands.sh` shows the gemini extension (line 67), the corrected deny messages (lines 71 + 74), the comment-block rewrite (lines 60-65) documenting the new 20-35 minute window with rationale, and the floor-constant changes (line 70 + line 71 inner threshold). The diff is byte-minimal in the corrected sense: only the comment-block + the threshold/floor constants + the conditional are touched. The control-flow shape and surrounding code are preserved unchanged. Lines 60-65 collectively grew from 4 lines (header + 3-line note) to 7 lines (header + 6-line rationale block) because the new floor needs more justification than "5-35 minutes" alone.
 
-- [ ] **Subsection close-out (01.4)** — MANDATORY before section completion:
-  - [ ] All tasks above are `[x]` and all 7 hook test scenarios pass
-  - [ ] Update this subsection's `status` in section frontmatter to `complete`
-  - [ ] Run `/improve-tooling` retrospectively on THIS subsection — was the test invocation pattern (echoing JSON to the hook script) easy to invoke? Should it become a permanent test fixture? Should there be a `verify-hook.sh` helper that runs all 7 test scenarios in one command and reports pass/fail per test? Forward-look: when future plans modify this hook, would having a regression test suite shorten verification by 10+ minutes? Implement every accepted improvement NOW (zero deferral). Commit separately as `build(diagnostics): add verify-hook.sh — surfaced by dual-tpr-gemini/section-01.4 retrospective`. Mandatory even when nothing felt painful.
+- [x] **Subsection close-out (01.4)** — MANDATORY before section completion:
+  - [x] All tasks above are `[x]` and all 9 hook test scenarios pass
+  - [x] Update this subsection's `status` in section frontmatter to `complete`
+  - [ ] Run `/improve-tooling` retrospectively on THIS subsection — was the test invocation pattern (echoing JSON to the hook script) easy to invoke? Should it become a permanent test fixture? Should there be a `verify-hook.sh` helper that runs all 9 test scenarios in one command and reports pass/fail per test? Forward-look: when future plans modify this hook, would having a regression test suite shorten verification by 10+ minutes? Implement every accepted improvement NOW (zero deferral). Commit separately as `build(diagnostics): add verify-hook.sh — surfaced by dual-tpr-gemini/section-01.4 retrospective`. Mandatory even when nothing felt painful.
 
 ---
 
@@ -594,9 +608,10 @@ When all findings are triaged:
 - [ ] `.claude/skills/dual-tpr/envelope-format.md` documents BEGIN/END sentinels with placement rules, location regex with positive/negative examples, title style with positive/negative examples, reviewer-tag ID format with examples, and per-run scratch dir conventions with file naming and cleanup policy
 - [ ] `.claude/skills/dual-tpr/fixtures/` contains the 4 sample envelopes used by validation tests (codex-with-findings.json, gemini-with-grounded-citation.json, no-findings.json, invalid-location.json)
 - [ ] `.claude/hooks/block-banned-commands.sh` line 67 includes both `codex` AND `gemini` patterns
-- [ ] All 7 hook test scenarios pass (codex/gemini × short/valid/long matrix + control)
-- [ ] `git diff .claude/hooks/block-banned-commands.sh` shows ONLY the line 67 change + line 71 deny message + line 74 deny message (and optionally a line 60 one-word comment header refresh) — no other lines modified
-- [ ] **Lines 60-61 are unchanged from pre-section state** — Codex Step 8B confirmed Task #11 was a false positive. There is NO duplicate comment to fix. Verify with `git diff -U0 .claude/hooks/block-banned-commands.sh` and confirming neither line 60 nor line 61 appears in the diff (or only line 60 if the optional header refresh was applied, in which case line 60 shows a one-word change and line 61 still does not appear).
+- [ ] All 9 hook test scenarios pass (codex/gemini × {1min, 10min, 25min, 60min} + control)
+- [ ] `git diff .claude/hooks/block-banned-commands.sh` shows the gemini extension (line 67), the corrected deny messages with "20-35 minutes" wording (lines 71 + 74 inner threshold), the floor constant raised from `300000` to `1200000` (line 70), and the rewritten comment block (lines 60-65) documenting the new 20-35 minute window with operational rationale. The diff is byte-minimal in the corrected sense: only the comment block + the threshold constants + the conditional change. The control-flow shape is preserved.
+- [ ] **Floor correction baked in** — line 70 reads `(( TIMEOUT < 1200000 ))` (NOT 300000), and line 71's deny message wording reads "Reviews need 20-35 minutes — use at least 1200000 ms". The 5-min floor was insufficient (reviews barely ever finish in under 10 min); the corrected 20-min floor is the new baseline. Tests 2 and 6 in the matrix (codex/gemini + 10 min) are negative pins proving the floor was raised.
+- [ ] **CLAUDE.md line 142 updated** to match the new floor: replace "300000 ms (5 min)" with "1200000 ms (20 min)" and "5-35 minute" with "20-35 minute". The hook spec and CLAUDE.md must agree.
 - [ ] `timeout 150 ./test-all.sh` green — no regressions in compiler test suite (this section doesn't touch compiler code, but the regression check is mandatory per CLAUDE.md)
 - [ ] Plan annotation cleanup: `bash .claude/skills/impl-hygiene-review/plan-annotations.sh --plan dual-tpr-gemini` returns 0 annotations from this section's work (no `TPR-01-XXX` references left in source files; only in plan documentation)
 - [ ] **Plan sync** — update plan metadata to reflect this section's completion:
@@ -609,4 +624,4 @@ When all findings are triaged:
 - [ ] `/impl-hygiene-review` passed — implementation hygiene review found no critical or major findings, OR all findings triaged and fixed. MUST run AFTER `/tpr-review` is clean.
 - [ ] `/improve-tooling` **section-close sweep** — MANDATORY safety net after both reviews are clean. The PRIMARY tooling capture happens per-subsection (see each subsection's close-out block above) — by section close those captures should already be committed. The sweep does TWO things: (1) **Verify** every subsection in this section has either an "improvements made" entry (with commits) or a documented "no gaps" negative finding from its own per-subsection retrospective; if any subsection skipped its retrospective, STOP and run it now — the sweep cannot substitute for missed per-subsection captures. (2) **Look for cross-subsection patterns** invisible at per-item scope: command sequences repeated across 01.1-01.4 (e.g., re-running schema validation for each fixture file by hand in 01.1 vs running individual hook test scenarios one at a time in 01.4 — could a single `dual-tpr-validate-all.sh` cover both?), instrumentation/output-format friction that only became obvious after seeing all four subsections together. Add ONLY new items that emerged from cross-cutting patterns — do not duplicate per-subsection findings. Implement immediately (zero deferral), commit separately using a valid conventional-commit type (`build(diagnostics): add X — surfaced by section-01 close sweep` — use `build` for dev/diagnostic scripts, `test` for test-harness, `chore` for general tooling, `ci` for CI, `docs` for tool docs; the lefthook commit-msg hook rejects any non-standard type). Most sweeps produce zero new findings when per-subsection captures are thorough — that is the expected, healthy outcome and must be documented: "Section-close sweep: per-subsection retrospectives covered everything; no cross-subsection patterns required new tooling." Do not silently skip.
 
-**Exit Criteria:** `.claude/skills/dual-tpr/findings-schema.json` validates against JSON Schema draft-07 and accepts the 3 positive sample fixtures while rejecting the negative `invalid-location.json` fixture. The canonical location regex matches valid `path:line` strings and rejects absolute paths, leading-dot paths, line ranges, and non-numeric line numbers. The canonical title style is documented with positive and negative examples in `envelope-format.md`. Reviewer-tag ID format and per-run scratch dir conventions are documented and ready for Section 02 to consume. `.claude/hooks/block-banned-commands.sh` denies gemini commands with timeouts under 300000ms or over 2100000ms, while still denying codex commands the same way (regression preserved), and the change is BYTE-MINIMAL (only line 67 + two deny messages + optionally line 60 — no other lines modified). Section 02 can begin its transport utility implementation against the locked schema and format spec.
+**Exit Criteria:** `.claude/skills/dual-tpr/findings-schema.json` validates against JSON Schema draft-07 and accepts the 3 positive sample fixtures while rejecting the negative `invalid-location.json` fixture. The canonical location regex matches valid `path:line` strings and rejects absolute paths, leading-dot paths, line ranges, and non-numeric line numbers. The canonical title style is documented with positive and negative examples in `envelope-format.md`. Reviewer-tag ID format and per-run scratch dir conventions are documented and ready for Section 02 to consume. `.claude/hooks/block-banned-commands.sh` denies BOTH codex and gemini commands with timeouts under 1200000ms (20 min) or over 2100000ms (35 min), with the comment block documenting the new 20-35 minute window and operational rationale. The diff is byte-minimal in the corrected sense (only the comment block + threshold constants + conditional + deny messages — control-flow shape preserved). CLAUDE.md line 142 is in sync with the new floor. Section 02 can begin its transport utility implementation against the locked schema and format spec.
