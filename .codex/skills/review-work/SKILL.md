@@ -15,6 +15,49 @@ This skill is for independent, adversarial review:
 - distrust summaries, checklists, commit messages, and prior agent claims until verified
 - review the real work, not the story about the work
 
+## Step 0: Execution Mode (MANDATORY — read first)
+
+This skill has two execution modes. The mode is selected by inspecting
+the prompt for the keyword `envelope-only`:
+
+**Mode A — `plan-write` (default, standalone usage):**
+- The prompt does NOT contain the keyword `envelope-only`
+- Follow the existing workflow below (Scope Inputs, Review Workflow,
+  Plan Update Rules)
+- Write findings directly to plan file sections using the
+  `## NN.R Third Party Review Findings` format
+- OR file findings as bugs in `plans/bug-tracker/` if no owning plan
+  exists
+- This is the ORIGINAL behavior of this skill and MUST be preserved
+  for standalone `codex exec /review-work` invocations
+
+**Mode B — `envelope-only` (dual-source wrapper usage):**
+- The prompt contains the keyword `envelope-only`
+- Follow the same investigation workflow (Scope Inputs, Review Workflow)
+  but DO NOT execute the Plan Update Rules section
+- Instead, emit ONE JSON envelope at the end of your response conforming
+  to `.claude/skills/dual-tpr/findings-schema.json`
+- DO NOT modify any plan files, bug-tracker files, or any source files
+- DO NOT write to any location on disk other than your own output stream
+- The envelope is emitted as the final `agent_message` content (codex's
+  `--output-schema` flag enforces schema conformance at the CLI boundary,
+  so you do not need sentinel markers on the codex side)
+- See `.claude/skills/dual-tpr/envelope-format.md` for the complete
+  envelope contract and field semantics
+
+**Execution mode dispatch:**
+1. Inspect the prompt for the literal keyword `envelope-only`
+2. If present: proceed in Mode B (envelope-only). All Plan Update Rules
+   below are suppressed. Only the investigation and findings generation
+   remain active.
+3. If absent: proceed in Mode A (plan-write). Existing behavior,
+   unchanged.
+
+This is NOT a soft override — Mode B is a real execution branch that
+suppresses the Plan Update Rules section entirely. Any code path that
+would write to a plan file, bug-tracker file, or source file MUST
+check the mode and no-op in Mode B.
+
 ## Scope Inputs
 
 Accept any of these:
