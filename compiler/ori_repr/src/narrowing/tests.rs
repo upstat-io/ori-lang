@@ -1803,7 +1803,7 @@ fn phase_c_imported_surface_allows_narrowing() {
     assert_eq!(
         collection_element_width(&plan, list_int),
         Some(IntWidth::I8),
-        "Imported surface must not block Phase C narrowing (TPR-04-042 semantic pin)"
+        "Imported surface must not block Phase C narrowing"
     );
 }
 

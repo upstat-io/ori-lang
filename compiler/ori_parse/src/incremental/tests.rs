@@ -265,7 +265,7 @@ fn test_incremental_preserves_file_attr_target() {
     assert!(!new_result.has_errors());
     assert!(
         new_result.module.file_attr.is_some(),
-        "incremental parse must preserve file_attr (TPR-01-060)"
+        "incremental parse must preserve file_attr"
     );
     assert_eq!(new_result.module.functions.len(), 2);
 }
@@ -302,7 +302,7 @@ fn test_incremental_preserves_file_attr_cfg() {
     assert!(!new_result.has_errors());
     assert!(
         new_result.module.file_attr.is_some(),
-        "incremental parse must preserve #!cfg file_attr (TPR-01-060)"
+        "incremental parse must preserve #!cfg file_attr"
     );
 }
 
@@ -341,7 +341,7 @@ fn test_incremental_preserves_first_decl_target_attr() {
     assert_eq!(new_result.module.functions.len(), 1);
     assert!(
         new_result.module.functions[0].target_attr.is_some(),
-        "incremental parse must preserve target_attr on first function (TPR-01-061)"
+        "incremental parse must preserve target_attr on first function"
     );
 }
 
@@ -380,7 +380,7 @@ fn test_incremental_preserves_first_decl_cfg_attr_after_import() {
     assert_eq!(new_result.module.functions.len(), 1);
     assert!(
         new_result.module.functions[0].cfg_attr.is_some(),
-        "incremental parse must preserve cfg_attr on first function (TPR-01-061)"
+        "incremental parse must preserve cfg_attr on first function"
     );
 }
 
@@ -437,7 +437,7 @@ fn test_incremental_reuse_consumes_leftover_target_attrs() {
     // on the reuse path. Without the fix, leftover_attrs leaks to @second.
     assert!(
         new_result.module.functions[1].target_attr.is_none(),
-        "TPR-01-063: second function must NOT have target_attr — leftover attrs must not leak"
+        "second function must NOT have target_attr — leftover attrs must not leak"
     );
 }
 
@@ -482,7 +482,7 @@ fn test_incremental_reuse_consumes_leftover_cfg_attrs() {
     );
     assert!(
         new_result.module.functions[1].cfg_attr.is_none(),
-        "TPR-01-063: second function must NOT have cfg_attr — leftover attrs must not leak"
+        "second function must NOT have cfg_attr — leftover attrs must not leak"
     );
 }
 
@@ -513,7 +513,7 @@ fn test_incremental_orphan_attrs_at_eof_produce_error() {
 
     assert!(
         new_result.has_errors(),
-        "TPR-01-062: orphaned attrs at EOF must produce error on incremental path"
+        "orphaned attrs at EOF must produce error on incremental path"
     );
 }
 

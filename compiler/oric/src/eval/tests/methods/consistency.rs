@@ -414,7 +414,7 @@ fn pure_method_sanity() {
                         method.receiver,
                         Ownership::Owned,
                         "Method `{}.{}` is marked pure but has Ownership::Owned receiver. \
-                         Pure methods should borrow, not consume (except iterator methods — see TPR-07-008).",
+                         Pure methods should borrow, not consume (except iterator methods).",
                         type_def.name,
                         method.name,
                     );

@@ -188,8 +188,8 @@ impl<'tcx> super::OwnedLLVMEvaluator<'tcx> {
             .filter(|te| te.visibility == ori_types::Visibility::Public)
             .map(|te| te.idx)
             .collect();
-        // TPR-04-027/028: Mark collection wrapper types from public function
-        // signatures as public, recursively walking into nested types.
+        // Mark collection wrapper types from public function signatures as
+        // public, recursively walking into nested types.
         for sig in function_sigs {
             if sig.is_public {
                 for &param_ty in &sig.param_types {

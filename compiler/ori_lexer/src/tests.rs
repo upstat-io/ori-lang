@@ -542,7 +542,7 @@ fn soft_keyword_cache_not_poisoned_through_lex_boundary() {
     assert_eq!(
         tokens[5].kind,
         TokenKind::Cache,
-        "second `cache` must be Cache keyword, not cached Ident (BUG-01-001)"
+        "second `cache` must be Cache keyword, not cached Ident"
     );
     assert!(
         flags[5].is_contextual_kw(),
