@@ -328,6 +328,31 @@ First real-reviewer round on 2026-04-08. Scope: commits `81ff576b..a5a2753f` (11
 
 ---
 
+**Iteration 4 findings (2026-04-08):** First iteration where the new grounding + verification protocol surfaced its own classifier as the primary review target — both reviewers ran the classifier under test with live inputs. Codex 3 findings + gemini 6 findings (gemini envelope was rejected by parse-gemini.py with `gemini_schema_violation` because gemini emitted `category`/`description`/`severity` fields not in the schema — the new terminal classifier caught it correctly and broke retry early; raw findings rescued from gemini.jsonl). All 11 distinct issues reproduced via fresh independent verification before fixing.
+
+- [x] `[TPR-04-001-codex][medium]` `.claude/hooks/classify-review-command.py:137` — Restrict wrapper scanning to wrapped command positions.
+  Resolved 2026-04-08 in commit `871ef2eb`: this was an iteration-3 REGRESSION — the wrapper-skip mode I added in commit b1ebc71b scanned ALL remaining tokens until the next operator, which matched `timeout 30 echo codex` as a review invocation even though codex was an arg to echo. Replaced unconditional scan with `_find_wrapper_cmd_position()` that locates the EXACT wrapped-command position by skipping flags + flag-value pairs (sudo -u VAL, nice -n VAL, xargs -n N) + per-wrapper `positional_skip` count (timeout's DURATION, ssh's user@host, su's USERNAME, taskset's MASK, chrt's PRIORITY). Each wrapper now has explicit metadata in `WRAPPER_SPECS`.
+
+- [x] `[TPR-04-001-codex secondary][medium]` Dollar-prefixed quotes `$'codex'` and `$"codex"`.
+  Both codex and gemini independently flagged this. Resolved in commit `871ef2eb`: `normalize_word` now strips a leading `$` before `"` or `'` so the regular quote handling extracts the inner content. `$'codex'` → `codex`, `$"codex"` → `codex`.
+
+- [x] `[TPR-04-001-codex tertiary][low]` `.claude/hooks/verify-hook.sh:230` — Add regression pins for new bypass forms.
+  Resolved in commit `871ef2eb`: 15 new test cases added to verify-hook.sh covering wrapper false positives (`timeout 30 echo codex` etc.), dollar-quotes, line continuation in word/quotes, eval/time wrappers, and wrapper-with-flag-value when codex IS the wrapped command. 70/70 hook tests passing (was 55/55).
+
+- [x] `[TPR-04-001-gemini][major]` Line continuation inside word + inside double quotes.
+  Resolved in commit `871ef2eb`: in both `tokenize` and `normalize_word`, treat `\<newline>` as "erase both chars, do nothing" instead of "flush current token". Inside double quotes, the same erase-both behavior. `co\<newline>dex` → `codex`, `"co\<newline>dex"` → `codex`.
+
+- [x] `[TPR-04-001-gemini secondary][medium]` Missing wrappers `eval` and `time`.
+  Resolved in commit `871ef2eb`: added eval and time entries to WRAPPER_SPECS. Both invoke their argument as a command; `eval codex exec` and `time codex exec` now match.
+
+- [x] `[TPR-04-001-gemini tertiary][minor]` `.claude/hooks/classify-review-command.py:1` — File approaching 500-line limit (BLOAT).
+  Resolved in commit `871ef2eb`: split classify-review-command.py (599 lines) into classify-review-command.py (263 lines, classifier logic + WRAPPER_SPECS table) and shell_lex.py (368 lines, character-level shell tokenizer + word normalizer). Clean separation along the lexer/classifier boundary.
+
+- [x] `[TPR-04-001-gemini informational]` Variable expansion bypass (`V=codex; $V exec`).
+  Resolved 2026-04-08 — Non-actionable observation. Gemini noted this as a known limitation: classifier doesn't expand variables, so a script that stores the command name in a variable could bypass detection. Acceptable per the hook's purpose (the hook protects against accidental short-timeout bugs, not deliberate evasion). No code change.
+
+---
+
 ## 04.N Completion Checklist
 
 - [ ] All three subsections (04.1, 04.2, 04.3) marked `complete`
