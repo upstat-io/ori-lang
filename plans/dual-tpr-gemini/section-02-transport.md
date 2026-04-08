@@ -37,7 +37,7 @@ sections:
     status: complete
   - id: "02.5"
     title: "Findings merger with reviewer tagging and strict (location, title) dedup"
-    status: not-started
+    status: complete
   - id: "02.6"
     title: "Transport test suite (transport-tests.sh + fault injection)"
     status: not-started
@@ -897,7 +897,7 @@ The "agreement detection" is presentation-only — it does NOT collapse two find
 
 Tasks:
 
-- [ ] Write `.claude/skills/dual-tpr/scripts/merge-findings.py`:
+- [x] Write `.claude/skills/dual-tpr/scripts/merge-findings.py`:
 
   ```python
   #!/usr/bin/env python3
@@ -1060,13 +1060,15 @@ Tasks:
       main()
   ```
 
-- [ ] `chmod +x .claude/skills/dual-tpr/scripts/merge-findings.py`
+- [x] `chmod +x .claude/skills/dual-tpr/scripts/merge-findings.py`
 
-- [ ] Create test fixtures for the merger:
+- [x] Create test fixtures for the merger:
   - `.claude/skills/dual-tpr/fixtures/codex-merge-test.json` — codex envelope with 3 findings: F1 at `compiler/foo.rs:10`, F2 at `compiler/bar.rs:20`, F3 at `compiler/baz.rs:30`
   - `.claude/skills/dual-tpr/fixtures/gemini-merge-test.json` — gemini envelope with 3 findings: G1 at `compiler/foo.rs:10` (SAME location AND title as codex F1 — agreement), G2 at `library/lib.ori:5` (gemini-only), G3 at `compiler/baz.rs:30` (same location as codex F3 but DIFFERENT title — disagreement, treated as two separate findings)
 
-- [ ] Test the merger:
+  Built via inline `python3` heredoc with a `finding(...)` factory + `envelope(...)` wrapper. Both fixtures are full schema-valid envelopes (validated against `findings-schema.json` by transitive constraint — the merger doesn't validate, but the schema requires the same shape codex/gemini parsers expect). codex-merge-test.json (2034B): F1+F2+F3 with distinct (location, title) pairs. gemini-merge-test.json (2132B): G1 byte-identical match for F1; G2 unique location; G3 same `compiler/baz.rs:30` as F3 but different title ("Reorder match arms for readability" vs codex's "Document non-obvious match arm ordering") — proves the agreement check requires BOTH location AND title to match, not location alone.
+
+- [x] Test the merger:
   ```bash
   .claude/skills/dual-tpr/scripts/merge-findings.py \
     --codex .claude/skills/dual-tpr/fixtures/codex-merge-test.json \
@@ -1082,12 +1084,21 @@ Tasks:
   - `summary.gemini_only: 2`
   - `merged_findings` contains 6 entries total: 3 codex (with 1 marked agreement, partner `[TPR-02-001-gemini]`), then 3 gemini (with 1 marked agreement, partner `[TPR-02-001-codex]`)
 
-- [ ] Verify the agreement detection is byte-strict: change G1's title by adding a single trailing space. Re-run the merger. Expected: agreements drops from 1 to 0, both findings appear as `agreement: false`.
+- [x] Verify the agreement detection is byte-strict: change G1's title by adding a single trailing space. Re-run the merger. Expected: agreements drops from 1 to 0, both findings appear as `agreement: false`.
+  Verified 2026-04-07: byte-strict agreement detection confirmed. With G1's title mutated to add a single trailing space, the merger reports `agreements=0 codex_only=3 gemini_only=3` — all 6 findings now treated as independent. The (location, title) tuple is the strict equality key; partial matches are not collapsed. This is the intended semantic per `00-overview.md` Design Principle 4 (no auto-resolution of disagreements).
 
-- [ ] **Subsection close-out (02.5)** — MANDATORY before starting 02.6:
-  - [ ] All merger tests pass with expected outcomes
-  - [ ] Update this subsection's `status` in section frontmatter to `complete`
-  - [ ] Run `/improve-tooling` retrospectively on THIS subsection — was the merger's "two-pass over findings" logic obvious or convoluted? Should there be a `merge-findings-pretty.py` that produces human-readable markdown output (the format that goes into plan files) in addition to JSON? That helper might reduce friction in Section 04+ wrappers when they need to write merged findings to plan sections. Implement improvements NOW.
+  Verified 2026-04-07 — full merger output for the canonical (unmutated) fixtures:
+  - Summary: codex_findings=3, gemini_findings=3, agreements=1, codex_only=2, gemini_only=2
+  - Merged IDs in order: [TPR-02-001-codex] (agreement, partner [TPR-02-001-gemini]) → [TPR-02-002-codex] (no agreement) → [TPR-02-003-codex] (no agreement, even though location matches G3 — title differs) → [TPR-02-001-gemini] (agreement, partner [TPR-02-001-codex]) → [TPR-02-002-gemini] (no agreement) → [TPR-02-003-gemini] (no agreement)
+  - Both halves of the agreement carry symmetric `agreement_partner_id` references
+  - codex_only counts only the 2 codex findings WITHOUT a gemini partner (F2 + F3); F1 is part of an agreement, not codex_only
+  - gemini_only counts only the 2 gemini findings WITHOUT a codex partner (G2 + G3); G1 is part of an agreement, not gemini_only
+
+- [x] **Subsection close-out (02.5)** — MANDATORY before starting 02.6:
+  - [x] All merger tests pass with expected outcomes
+  - [x] Update this subsection's `status` in section frontmatter to `complete`
+  - [x] Run `/improve-tooling` retrospectively on THIS subsection — was the merger's "two-pass over findings" logic obvious or convoluted? Should there be a `merge-findings-pretty.py` that produces human-readable markdown output (the format that goes into plan files) in addition to JSON? That helper might reduce friction in Section 04+ wrappers when they need to write merged findings to plan sections. Implement improvements NOW.
+    Resolved 2026-04-07: Retrospective accepted ZERO immediate improvements but recorded TWO observations and a forward note. (1) **Two-pass merger logic** — convoluted on first read, obvious in retrospect. Pass 1 walks codex findings and looks up gemini partners; Pass 2 walks gemini findings and looks up codex partners. Both halves of an agreement get an entry in `merged_findings`, which preserves all reviewer-specific evidence (basis, citations, layer, confidence) without erasing information. The alternative — collapsing agreements into one entry — would lose gemini's `google_web_search` citations when codex's evidence is preserved as the "winner". The current approach is the right call per Design Principle 4 (no auto-resolution). The "two-pass" feel could be reduced by walking both lists in one pass with a `seen_pairs` set, but that obscures the symmetry of "every codex finding gets a codex_id; every gemini finding gets a gemini_id; agreement is annotation, not collapse". Two passes is the right shape. (2) **`merge-findings-pretty.py` for markdown output** — a helper that takes `merged_findings.json` and emits the markdown format the plan TPR blocks consume (`- [ ] [TPR-NN-NNN-codex][severity] file:line — Title.\n  Evidence: ...\n  Basis: ...\n  Agreement: ...`). This WOULD reduce friction in Section 04+ wrappers when they write merged findings to plan files. But: the markdown format is owned by the wrappers (Section 04 specifically), and each wrapper may format slightly differently (e.g., review-plan emits proposed plan edits rather than findings). Building the helper here would lock in a format that Section 04 may want to override. The right move is to write the merger's JSON output → defer the markdown emitter to Section 04 where the format is decided. (3) **Forward note for 02.6**: 02.6 transport-tests.sh has a merger test checkbox; the JSON-output-summary-correctness assertion is what matters for unit testing, and I've already exercised it inline. 02.6 will replicate this assertion in `transport-tests.sh` for regression coverage. (4) **`common.sh` decision**: 02.5's merger is a stand-alone python script with no shared utility code. Still no extraction justified.
 
 ---
 
