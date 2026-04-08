@@ -158,11 +158,32 @@ stays UNTOUCHED — the byte-identical contract moved into §07.
 ```
 .claude/skills/tp-help/SKILL.md, dual-source rewrite
 .claude/commands/tp-help.md, consolidation, SSOT fix
-two sources of truth, R10 from Step 6B, divergent files
+two sources of truth, R10, divergent files
 concatenation mode, raw responses, no synthesis layer
-option A from architecture, raw perspectives not smoothed merge
+raw perspectives not smoothed merge
 lighter envelope, NOT findings schema, special case for tp-help
+HTML-comment sentinel attribution, <!-- tp-help-reviewer: codex -->
+07.0 cross-section touch, dual-invoke.sh --schema optional
+schema-optional dual-invoke.sh, BUG-08-003 dead code removal
+schema-optional 4-cell backward-compat test matrix, transport-tests.sh raw_parsers category
+ORI_TPR_REVIEWERS wiring moved from 08.2 into 07.2
+no sibling launcher, single transport script
+parse-codex-raw.py, parse-gemini-raw.py, raw-mode parsers
+parser unit-test fixture matrix, 6 codex cells + 7 gemini cells, semantic + negative pins
+validate-tp-help-consumers.sh, stub-binary test harness
+stub scenarios with positive + negative pins, dual-source assertion via stub markers
+three downstream consumers, impl-hygiene-review Phase 4, review-plan 4-agent pipeline, create-plan orchestrator
 /impl-hygiene-review Phase 4 cross-check verification, downstream consumer
+/create-plan internal /tp-help call sites, Phase 1 Phase 3 Step 8B
+.claude/commands/review-plan.md byte-identical regression guard, frozen baseline hash
+section-07-review-plan-baseline.sha1, frozen baseline
+07.PRE Section-Entry Preflight, baseline capture before 07.0
+07.PRE pre-files create-plan root-override blocker bug, section-07-scenario4-blocker.txt
+07.3 Scenario 4 Mode A vs Mode B, deterministic slug + collision pre-check + exact-path cleanup
+disposable-target cleanup discipline, mandatory cleanup, dispatch-only smoke cells
+07.1 6-cell post-consolidation smoke matrix, frontmatter YAML validation
+inline worktree-guard, skill-level prompt-discipline check
+read-only-reviewer preamble, gemini prompt discipline
 indirect benefit, dual-source impl-hygiene-review
 .claude/skills/impl-hygiene-review/SKILL.md (verify, not modify)
 ```
@@ -176,8 +197,15 @@ indirect benefit, dual-source impl-hygiene-review
 end-to-end integration tests, real repo, four skills
 ORI_TPR_REVIEWERS env var, codex|gemini|both, default both
 runtime toggle, operational escape hatch, codex-only fallback
+ORI_TPR_REVIEWERS verification only (toggle wiring moved to 07.2)
+merge-findings.py single-reviewer case
 .claude/skills/create-plan/SKILL.md, line 56 update, sequencing wording
 CLAUDE.md, line 141 update, REVIEW/AGENT TIMEOUTS, gemini mention
+"Ask Codex" / "Codex's response" sweep across three downstream consumers
+single-source wording cleanup, neutral "the reviewers (codex + gemini)" rewrite
+impl-hygiene-review SKILL.md ask-codex sweep, lines 327/337/344
+review-plan.md ask-codex sweep, lines 107/112/316
+create-plan SKILL.md ask-codex sweep, lines 150/161/534/539/590
 plan annotation cleanup, strip TPR-XX-YYY references, ephemeral scaffolding
 documentation pass, README updates
 regression test, standalone codex exec, plan-write mode preserved
