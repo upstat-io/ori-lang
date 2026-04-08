@@ -78,10 +78,24 @@ trap cleanup_children EXIT INT TERM
 # the subshell at the failed `codex exec` line and never record the exit code,
 # walltime, or "codex finished" log entry. The trap pattern is the canonical
 # way to capture exit codes from a subshell that may abort.
+#
+# BUG-08-003 Option B: --output-schema is intentionally NOT passed. Passing
+# the schema causes codex to forward it to OpenAI's Structured Outputs API as
+# response_format.json_schema, which OpenAI enforces in strict mode — strict
+# mode requires `additionalProperties: false` on every object and every
+# property in the `required` array, a substantial rewrite that would make
+# codex's validation path asymmetric with gemini's (gemini uses Google's
+# Gemini API, which doesn't share the OpenAI strict-mode subset). Instead,
+# codex emits free-form JSON driven by the prompt template, and our
+# parse-codex.py + envelope_invariants.py validate it at the parser layer.
+# This keeps codex and gemini symmetric: both validated only at the parser
+# level, same failure modes, same retry classifier treatment. The schema
+# file remains one SSOT for envelope structure, and its code-level
+# invariants (in envelope_invariants.py) apply uniformly to both reviewers.
 (
   set +e
   START=$(date +%s)
-  codex exec --full-auto --json --output-schema "$SCHEMA" --ephemeral "$(cat "$CODEX_PROMPT")" 2>/dev/null > "$RUN/codex.jsonl"
+  codex exec --full-auto --json --ephemeral "$(cat "$CODEX_PROMPT")" 2>/dev/null > "$RUN/codex.jsonl"
   CODEX_RC=$?
   echo "$CODEX_RC" > "$RUN/codex.exit"
   echo "$(($(date +%s) - START))" > "$RUN/codex.walltime"
