@@ -127,7 +127,7 @@ pub(crate) fn lower_and_infer_borrows(
 
     // Lower impl method functions (local — uses main pool).
     // Use type-qualified names from the impl block's self-type (not
-    // sig.param_types[0]) to prevent collisions (TPR-03-043/045/047).
+    // sig.param_types[0]) to prevent collisions.
     {
         let mut sig_iter = impl_sigs.iter();
         let mut method_ordinals: rustc_hash::FxHashMap<(ori_types::Idx, Name), usize> =

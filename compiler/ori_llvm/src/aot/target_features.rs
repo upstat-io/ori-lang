@@ -123,8 +123,6 @@ pub fn is_supported_target(triple: &str) -> bool {
 ///
 /// The bug class "raw arch string compare across an aliased namespace" is
 /// prevented at compile time by making the canonical type un-bypassable.
-/// See and the TPR prior-art pass documented in
-/// `plans/bug-tracker/fix-BUG-04-045.md`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Arch {
     /// 64-bit x86 (`x86_64`, `amd64`).

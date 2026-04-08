@@ -159,7 +159,7 @@ fn collect_unconstrained_fn_names_registers_ordinal_variants() {
     );
     assert!(
         result.contains(&(None, ordinal_qualified)),
-        "Ordinal-qualified name __impl_42_index_1 must be registered — TPR-03-053"
+        "Ordinal-qualified name __impl_42_index_1 must be registered"
     );
 
     // Negative: ordinal 0 must NOT produce a suffixed name

@@ -726,7 +726,7 @@ fn fixpoint_switch_multi_case_same_block_joins() {
     assert_eq!(
         result.var_ranges.get(&v_y).copied(),
         Some(ValueRange::Bounded { lo: 0, hi: 1 }),
-        "TPR-03-017: multi-case same-block should JOIN [0,0] and [1,1] into [0,1]"
+        "multi-case same-block should JOIN [0,0] and [1,1] into [0,1]"
     );
 }
 
@@ -834,7 +834,7 @@ fn fixpoint_switch_default_gets_complement() {
     assert_eq!(
         result.var_ranges.get(&v_y).copied(),
         Some(ValueRange::Bounded { lo: 3, hi: 10 }),
-        "TPR-03-018: default block should exclude contiguous low-edge cases [0,2] from [0,10]"
+        "default block should exclude contiguous low-edge cases [0,2] from [0,10]"
     );
 }
 
@@ -955,7 +955,7 @@ fn fixpoint_switch_default_multi_predecessor_joins() {
     assert_eq!(
         result.var_ranges.get(&v_y).copied(),
         Some(ValueRange::Bounded { lo: 0, hi: 10 }),
-        "TPR-03-036: multi-predecessor switch default must JOIN complements, not MEET"
+        "multi-predecessor switch default must JOIN complements, not MEET"
     );
 }
 
@@ -1083,7 +1083,7 @@ fn fixpoint_narrowing_recovers_loop_bound() {
         .unwrap_or(ValueRange::Top);
     assert!(
         matches!(i_range, ValueRange::Bounded { lo: 0, hi } if hi <= 10),
-        "TPR-03-019: loop variable should narrow from [0, MAX] to [0, 10], got {i_range:?}"
+        "loop variable should narrow from [0, MAX] to [0, 10], got {i_range:?}"
     );
 }
 
@@ -1218,7 +1218,7 @@ fn fixpoint_branch_multi_predecessor_refinement_joins() {
         || matches!(y_range, ValueRange::Bounded { lo, hi } if lo == i64::MIN && hi == i64::MAX);
     assert!(
         is_full_range,
-        "TPR-03-020: multi-predecessor Branch refinements must be joined, not overwritten. \
+        "multi-predecessor Branch refinements must be joined, not overwritten. \
          B3 should see full range (join of [MIN,-1] and [100,MAX]), got {y_range:?}"
     );
 }
@@ -1241,7 +1241,7 @@ fn fixpoint_return_range_recomputed_after_narrowing() {
     // Fix: recompute return_range from final narrowed ranges.
     assert!(
         matches!(result.return_range, ValueRange::Bounded { lo: 0, hi } if hi <= 10),
-        "TPR-03-021: return_range should narrow with loop variable to [0, 10], \
+        "return_range should narrow with loop variable to [0, 10], \
          got {:?}",
         result.return_range
     );
@@ -1315,7 +1315,7 @@ fn fixpoint_projection_refreshed_after_field_summary_recompute() {
     let field_range = result.field_summaries.field_range(struct_type_idx, 0);
     assert!(
         matches!(field_range, ValueRange::Bounded { lo: 0, hi } if hi <= 10),
-        "TPR-03-022: field summary should be [0, 10] after recompute, got {field_range:?}"
+        "field summary should be [0, 10] after recompute, got {field_range:?}"
     );
 
     // Projection variable must be bounded — at the exit point, branch refinement gives
@@ -1329,7 +1329,7 @@ fn fixpoint_projection_refreshed_after_field_summary_recompute() {
     assert_eq!(
         proj_range,
         ValueRange::Bounded { lo: 10, hi: 10 },
-        "TPR-03-022: projected variable should narrow to [10, 10] \
+        "projected variable should narrow to [10, 10] \
          (exit-block i refined to [10, 10] ∩ field summary [0, 10]), got {proj_range:?}. \
          Without post-recompute projection refresh, it stays at [10, MAX]."
     );
@@ -1338,7 +1338,7 @@ fn fixpoint_projection_refreshed_after_field_summary_recompute() {
     assert_eq!(
         result.return_range,
         ValueRange::Bounded { lo: 10, hi: 10 },
-        "TPR-03-022: return_range should narrow with projection to [10, 10], got {:?}",
+        "return_range should narrow with projection to [10, 10], got {:?}",
         result.return_range
     );
 }
@@ -1425,7 +1425,7 @@ fn fixpoint_return_range_excludes_unreachable_blocks() {
     assert_eq!(
         result.return_range,
         ValueRange::Bounded { lo: 42, hi: 42 },
-        "TPR-03-023: unreachable block B1 should NOT pollute return_range. \
+        "unreachable block B1 should NOT pollute return_range. \
          Expected [42, 42], got {:?}. The unreachable Return's variable (v1) \
          was never analyzed, so it gets Top via unwrap_or, joining to Top.",
         result.return_range
@@ -1603,14 +1603,14 @@ fn fixpoint_invoke_defines_dst_variable() {
     assert_eq!(
         dst_range,
         ValueRange::Top,
-        "TPR-03-024: Invoke dst variable should have a range (Top for unknown fn), got {dst_range:?}"
+        "Invoke dst variable should have a range (Top for unknown fn), got {dst_range:?}"
     );
 
     // return_range should also be Top (returns v_dst which is Top).
     assert_eq!(
         result.return_range,
         ValueRange::Top,
-        "TPR-03-024: return_range should be Top when returning Invoke dst of unknown fn"
+        "return_range should be Top when returning Invoke dst of unknown fn"
     );
 }
 

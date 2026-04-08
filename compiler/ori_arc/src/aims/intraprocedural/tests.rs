@@ -3900,7 +3900,7 @@ fn compute_project_alias_sources_multi_predecessor_merge() {
 
 #[test]
 fn project_block_param_multi_predecessor_merge_propagates_all_source_demand() {
-    // Semantic pin for fix + TPR-02-007/008 refinement.
+    // Semantic pin: multi-predecessor merge propagates demand from all sources.
     //
     // Block 0 (entry): Branch(v0) → block1 | block2
     // Block 1: v2 = Construct Struct(v6); v3 = Project v2.0; Jump block3, args=[v3]
