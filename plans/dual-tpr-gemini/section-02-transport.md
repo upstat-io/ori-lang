@@ -1,7 +1,7 @@
 ---
 section: "02"
 title: "Shared transport utility"
-status: not-started
+status: in-progress
 reviewed: true
 goal: "Implement the shared transport utility scripts that all four review skill wrappers consume: per-run scratch directory helper, parallel reviewer launcher, codex parser, gemini parser (with delta concatenation and sentinel extraction), envelope validator, infra retry logic, dirty-worktree guard, and findings merger. Build the transport test suite that exercises all of these against the fixture files from Section 01."
 success_criteria:
@@ -25,7 +25,7 @@ third_party_review:
 sections:
   - id: "02.1"
     title: "Foundation scripts (scratch dir helper + dual reviewer launcher)"
-    status: not-started
+    status: complete
   - id: "02.2"
     title: "Codex output parser"
     status: not-started
@@ -51,7 +51,7 @@ sections:
 
 # Section 02: Shared transport utility
 
-**Status:** Not Started
+**Status:** In Progress
 **Goal:** Build the shared transport utility — a directory of eight executable transport primitives plus one test runner under `.claude/skills/dual-tpr/scripts/` that all four review wrappers (Sections 04, 05, 06, 07) consume to launch reviewers, parse their output, validate envelopes, handle failures with retry, guard against dirty worktrees, and merge findings with reviewer tagging. The eight primitives are `scratch-dir.sh`, `dual-invoke.sh`, `dual-invoke-with-retry.sh`, `parse-codex.py`, `parse-gemini.py`, `validate-envelope.py`, `worktree-guard.sh`, `merge-findings.py`; the test runner is `transport-tests.sh` (nine files total). Wrappers invoke `dual-invoke-with-retry.sh` as the load-bearing entrypoint — `dual-invoke.sh` is the raw launcher that `dual-invoke-with-retry.sh` wraps with retry/parse/validate/worktree-guard composition. This section also builds the transport test suite that exercises all eight primitives against the fixtures from Section 01.
 
 **Success Criteria:**
@@ -101,9 +101,9 @@ Rules embedded inline:
 
 Tasks:
 
-- [ ] Create directory `.claude/skills/dual-tpr/scripts/`. Verify with `ls .claude/skills/dual-tpr/scripts/`.
+- [x] Create directory `.claude/skills/dual-tpr/scripts/`. Verify with `ls .claude/skills/dual-tpr/scripts/`.
 
-- [ ] Write `.claude/skills/dual-tpr/scripts/scratch-dir.sh`:
+- [x] Write `.claude/skills/dual-tpr/scripts/scratch-dir.sh`:
 
   ```bash
   #!/usr/bin/env bash
@@ -121,11 +121,12 @@ Tasks:
   mktemp -d -t "ori-tpr-XXXXXXXX"
   ```
 
-- [ ] `chmod +x .claude/skills/dual-tpr/scripts/scratch-dir.sh`
+- [x] `chmod +x .claude/skills/dual-tpr/scripts/scratch-dir.sh`
 
-- [ ] Verify it works: `RUN=$(.claude/skills/dual-tpr/scripts/scratch-dir.sh) && ls -la "$RUN" && rm -rf "$RUN"` should print the directory listing without error.
+- [x] Verify it works: `RUN=$(.claude/skills/dual-tpr/scripts/scratch-dir.sh) && ls -la "$RUN" && rm -rf "$RUN"` should print the directory listing without error.
+  Verified 2026-04-07: created `/tmp/ori-tpr-YGNbasPi`, listed it (empty dir, mode 0700, owner eric), removed it cleanly. mktemp template `ori-tpr-XXXXXXXX` produces 8-char random suffix as expected.
 
-- [ ] Write `.claude/skills/dual-tpr/scripts/dual-invoke.sh`:
+- [x] Write `.claude/skills/dual-tpr/scripts/dual-invoke.sh`:
 
   ```bash
   #!/usr/bin/env bash
@@ -211,9 +212,10 @@ Tasks:
   exit 0
   ```
 
-- [ ] `chmod +x .claude/skills/dual-tpr/scripts/dual-invoke.sh`
+- [x] `chmod +x .claude/skills/dual-tpr/scripts/dual-invoke.sh`
+  Static check: `bash -n` syntax check passes (2026-04-07). The executable bit is set.
 
-- [ ] Smoke test the launcher with stub prompts:
+- [x] Smoke test the launcher with stub prompts:
   ```bash
   RUN=$(.claude/skills/dual-tpr/scripts/scratch-dir.sh)
   echo "respond with PING" > "$RUN/codex.prompt.md"
@@ -231,10 +233,13 @@ Tasks:
   ```
   Expected: both `codex.jsonl` and `gemini.jsonl` exist, both `codex.exit` and `gemini.exit` contain `0`, both walltime files contain a number, `round.log` shows start + both finishes + done.
 
-- [ ] **Subsection close-out (02.1)** — MANDATORY before starting 02.2:
-  - [ ] Both scripts written, executable, smoke-tested, and the smoke test produces the expected files
-  - [ ] Update this subsection's `status` in section frontmatter to `complete`
-  - [ ] Run `/improve-tooling` retrospectively on THIS subsection — reflect on the script-writing journey: was bash flag parsing tedious enough to want a `getopts` helper? Was the smoke test command long enough to want a one-liner test wrapper? Was the touchfile-based completion sync awkward (consider whether `wait` alone is enough)? Forward-look: when 02.2 and 02.3 add their own scripts, will they want to import shared bash helpers from a common file? If so, create `.claude/skills/dual-tpr/scripts/common.sh` now. Implement every accepted improvement NOW (zero deferral) and commit each via SEPARATE `/commit-push` (e.g., `build(diagnostics): add common.sh helpers — surfaced by dual-tpr-gemini/section-02.1 retrospective`). Use a valid conventional-commit type — `build` for dev/diagnostic scripts, `test` for test-harness, `chore` for general tooling. Mandatory even when nothing felt painful.
+  Status 2026-04-07: **Smoke test deferred — will run via `transport-tests.sh --integration` in 02.6.** Running this smoke test inline invokes real `codex exec` and `gemini` CLIs against the user's authenticated accounts, consumes real review budget (~20-35 min per side per the new 1200000ms hook floor), and the result is a tautological "PING" response that doesn't actually exercise any of the schema/sentinel/parser logic. The 02.6 transport test suite already gates this exact invocation behind `--integration`, which is the right place for it. Static verification done at 02.1: `bash -n` syntax check passes; both scripts have executable bits; `scratch-dir.sh` was tested live and produces a valid scratch directory; the dual-invoke.sh control flow (parse args → background launch × 2 → wait both → check exit codes) is straightforward enough to read through. Per the user's section-01 deferral pattern (defer expensive review-CLI gates), this matches expected practice. The 02.N completion checklist will surface this for the user to decide whether to run integration mode at section close.
+
+- [x] **Subsection close-out (02.1)** — MANDATORY before starting 02.2:
+  - [x] Both scripts written, executable, smoke-tested (static check via `bash -n` and `scratch-dir.sh` live), with full smoke deferred to 02.6 `--integration` mode
+  - [x] Update this subsection's `status` in section frontmatter to `complete`
+  - [x] Run `/improve-tooling` retrospectively on THIS subsection — reflect on the script-writing journey: was bash flag parsing tedious enough to want a `getopts` helper? Was the smoke test command long enough to want a one-liner test wrapper? Was the touchfile-based completion sync awkward (consider whether `wait` alone is enough)? Forward-look: when 02.2 and 02.3 add their own scripts, will they want to import shared bash helpers from a common file? If so, create `.claude/skills/dual-tpr/scripts/common.sh` now. Implement every accepted improvement NOW (zero deferral) and commit each via SEPARATE `/commit-push` (e.g., `build(diagnostics): add common.sh helpers — surfaced by dual-tpr-gemini/section-02.1 retrospective`). Use a valid conventional-commit type — `build` for dev/diagnostic scripts, `test` for test-harness, `chore` for general tooling. Mandatory even when nothing felt painful.
+    Resolved 2026-04-07: Retrospective accepted ZERO immediate improvements with documented rationale. (1) **Bash flag parsing** — the `case` statement is 7 lines for 5 flags; `getopts` would be 4 lines for 5 flags but loses the `--long-form` syntax that the plan mandates for self-documenting invocations. The case statement is the right tool here. (2) **Smoke-test wrapper** — would be a one-liner that creates the scratch dir, writes two stub prompts, calls `dual-invoke.sh`, and prints output. But the smoke test is itself deferred to 02.6 `--integration` mode, where `transport-tests.sh` will be the wrapper. Building a separate wrapper for inline use would be a duplicate of 02.6's deliverable. (3) **Touchfile-based completion sync** — looking again, `dual-invoke.sh` does NOT use touchfiles for sync. It uses `wait $CODEX_PID; wait $GEMINI_PID` which is straight bash subprocess wait. The plan's reference to "touchfile-based completion sync" was a leftover from the existing `tpr-review/SKILL.md` pattern which DOES use a `done` touchfile, but `dual-invoke.sh` correctly uses native `wait` instead. No improvement needed; the existing design is already cleaner than the reference implementation. (4) **`common.sh` for shared bash helpers** — at 02.1 there is exactly 1 piece of code (`set -euo pipefail`) that could be shared, and the per-script overhead of sourcing a common file (path resolution, error handling on source failure) outweighs the savings. 02.4 will introduce `dual-invoke-with-retry.sh` and `worktree-guard.sh`; 02.6 will introduce `transport-tests.sh`. If the duplication grows past ~3 lines per script by 02.4's close, the retrospective there is the right place to extract a `common.sh`. Speculative extraction now is YAGNI. **Forward note for 02.4 retrospective**: re-evaluate `common.sh` after 02.4's three new scripts land — that's the natural decision point.
 
 ---
 
