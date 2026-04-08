@@ -619,9 +619,21 @@ fn test_cross_compile_linux_to_macos() {
     assert!(target.is_macos());
     assert!(!target.is_linux());
 
-    // Data layout should be for macOS (skip if target not available)
-    if let Ok(layout) = target.data_layout() {
-        assert!(layout.contains("p:64:64"));
+    // 64-bit pointers: check the stable Ori API. Data layout string format
+    // varies by LLVM version (modern LLVM omits the default-address-space
+    // `p:64:64` and emits only address-space-qualified overrides like
+    // `p270:32:32-p271:32:32-p272:64:64`). Testing LLVM's string format is
+    // brittle; verify pointer size via Ori's typed accessor instead. This
+    // matches the pattern in `test_x86_64_linux_data_layout`,
+    // `test_aarch64_macos_data_layout`, and the per-arch predicate tests —
+    // all of which were updated during BUG-04-045's Arch-enum refactor.
+    // Skip gracefully if the LLVM target isn't registered for this host.
+    if target.data_layout().is_ok() {
+        assert_eq!(
+            target.pointer_size(),
+            8,
+            "expected 64-bit pointers for x86_64-apple-darwin",
+        );
     }
 }
 
