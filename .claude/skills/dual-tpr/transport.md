@@ -85,6 +85,67 @@ strings are reference templates for wrapper implementation.)
 Do NOT rely on gemini noticing the skill on its own — the activation
 phrase is load-bearing and MUST be present on every invocation.
 
+## Mandatory Grounding Block (both reviewers)
+
+**Every reviewer prompt — codex and gemini — MUST contain a "Grounding
+— read these files FIRST" section between the activation preamble and
+the scope hint.** The grounding block is identical for both reviewers
+and lists the project rule files that scope the finding vocabulary.
+
+Canonical grounding template:
+
+    ## Grounding — read these files FIRST before reviewing
+
+    Before you look at any of the changed code, read these files in
+    full so your findings are scoped to the project's actual rules.
+    Every finding must use the finding categories and architectural
+    vocabulary defined in impl-hygiene.md (LEAK, DRIFT, GAP, WASTE,
+    EXPOSURE, BLOAT, NOTE).
+
+    1. CLAUDE.md (project root)
+    2. .claude/rules/impl-hygiene.md
+    3. .claude/rules/tests.md
+    4. <any other .claude/rules/*.md relevant to the files under
+       review — e.g. parse.md if the parser is touched, arc.md if
+       the ARC pass is touched, registry.md if ori_registry is
+       touched>
+
+**Why this is load-bearing:** Without grounding, reviewers produce
+findings against unknown conventions — generic "this looks odd"
+noise instead of precise category-tagged findings that match the
+project's actual rules. Grounded reviewers emit findings like
+`LEAK:scattered-knowledge at dual-invoke-with-retry.sh:99`; ungrounded
+reviewers emit findings like "this function could be clearer".
+
+Wrappers that skip the grounding block should be treated as buggy
+and their envelopes treated with extra scrutiny by the consuming
+Claude instance.
+
+## Finding Verification Contract (Claude-side)
+
+**Reviewer findings are hypotheses, not facts.** When the wrapper's
+consuming Claude instance receives merged findings from the
+transport, it MUST independently verify EVERY actionable finding
+against the actual code before acting on it — regardless of which
+reviewer produced it.
+
+**Trust tiers (set verification depth, not pass/fail):**
+
+- **Codex: HIGH trust.** Citations and line numbers tend to match
+  reality. Spot-check each finding: read the cited lines, confirm
+  the specific claim, move on if it holds.
+- **Gemini: LOWER trust.** More prone to confabulation — invented
+  line numbers, misquoted code, reframed-as-finding positive
+  observations. Every gemini finding needs FULL verification: read
+  the cited file in full, trace the code path end-to-end, confirm
+  the claim against what the code actually does.
+
+Both reviewers can be wrong. Agreement amplifies the hypothesis but
+does not substitute for verification. The verification step is
+codified in `.claude/skills/tpr-review/SKILL.md` §5 "Classify merged
+findings (and VERIFY each one independently)" — all consuming
+wrappers of this transport must implement an equivalent step.
+
 ## Scripts consumed by wrappers
 
 All wrappers consume the same set of transport scripts from Section 02:

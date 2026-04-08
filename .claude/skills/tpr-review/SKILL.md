@@ -171,6 +171,17 @@ The codex and gemini prompts share the same evidence packet but differ in their 
 - **Codex prompt** MUST include the literal keyword `envelope-only` in its first 500 characters — this dispatches `.codex/skills/review-work/SKILL.md` into envelope-only mode.
 - **Gemini prompt** MUST start with the literal activation phrase `Activate the review-work skill and follow its instructions exactly.` — gemini does NOT auto-activate from description matching; the phrase is load-bearing.
 
+#### Mandatory Grounding Block
+
+**Every reviewer prompt MUST contain a "Grounding — read these files FIRST" section before the scope hint.** Without this grounding, reviewers produce findings against unknown conventions — generic "this looks odd" noise instead of precise `LEAK:scattered-knowledge at path:line` findings that match the project's actual rules.
+
+The grounding block is IDENTICAL for both reviewers and MUST list:
+
+1. `CLAUDE.md` (project root) — correctness above all, no deferral, stabilization discipline
+2. `.claude/rules/impl-hygiene.md` — SSOT, No Side Logic, finding categories (LEAK/DRIFT/GAP/WASTE/EXPOSURE/BLOAT/NOTE), canonical homes, algorithmic DRY, test-function-naming rules
+3. `.claude/rules/tests.md` — matrix testing rule, interaction testing, negative pin protocol, regression discipline
+4. Any `.claude/rules/*.md` file relevant to the files under review (e.g. `parse.md`, `arc.md`, `registry.md`) — list the specific ones in the prompt
+
 Write both prompts to the scratch dir:
 
 ```
@@ -180,7 +191,19 @@ Bash:
   envelope per .claude/skills/dual-tpr/findings-schema.json; do NOT
   write findings to plan files.
 
-  Scope: <scope hint — e.g. "HEAD~5..HEAD", a plan section name, or explicit files>
+  ## Grounding — read these files FIRST before reviewing
+
+  Before you look at any of the changed code, read these files in full
+  so your findings are scoped to the project's actual rules. Every
+  finding must use the finding categories and architectural vocabulary
+  defined in impl-hygiene.md (LEAK, DRIFT, GAP, WASTE, etc.).
+
+  1. CLAUDE.md (project root)
+  2. .claude/rules/impl-hygiene.md
+  3. .claude/rules/tests.md
+  4. <any other .claude/rules/*.md relevant to the files under review>
+
+  ## Scope: <scope hint — e.g. "HEAD~5..HEAD", a plan section name, or explicit files>
 
   <evidence packet: what changed, why, what to look for>
   PROMPT
@@ -190,13 +213,25 @@ Bash:
   Emit the JSON envelope per .claude/skills/dual-tpr/findings-schema.json;
   do NOT write findings to plan files.
 
-  Scope: <same scope hint>
+  ## Grounding — read these files FIRST before reviewing
+
+  Before you look at any of the changed code, read these files in full
+  so your findings are scoped to the project's actual rules. Every
+  finding must use the finding categories and architectural vocabulary
+  defined in impl-hygiene.md (LEAK, DRIFT, GAP, WASTE, etc.).
+
+  1. CLAUDE.md (project root)
+  2. .claude/rules/impl-hygiene.md
+  3. .claude/rules/tests.md
+  4. <any other .claude/rules/*.md relevant to the files under review>
+
+  ## Scope: <same scope hint>
 
   <evidence packet: same>
   PROMPT
 ```
 
-The evidence packet is INFORMATIONAL, not authoritative — reviewers expand scope as they see fit.
+The evidence packet is INFORMATIONAL, not authoritative — reviewers expand scope as they see fit. The GROUNDING block, in contrast, is AUTHORITATIVE — reviewers that skip it produce noise and their envelopes should be treated with extra scrutiny.
 
 ### 3. Invoke the dual-source transport in the background
 
@@ -218,10 +253,30 @@ Bash (run_in_background: true):
 - Run the transport in the Bash foreground.
 - Set a `timeout:` parameter on the Bash call.
 - Wrap the transport in an Agent subagent — the subagent cannot itself be backgrounded, so it reintroduces the foreground cap.
-- Poll `$RUN/*.jsonl` or `$RUN/*.envelope.json` in a sleep loop — wait for the completion notification.
+- Poll `$RUN/*.envelope.json` or `$RUN/merged.json` — those files use atomic-write semantics and reading them mid-stream can see a partial file.
 - Add a trailing `echo "transport_exit=$?"` (or any other trailing command). The bash script's overall exit code is the exit code of the LAST executed command — a trailing echo ALWAYS exits 0 and masks the transport's real failure (BUG-08-007). The task notification's reported exit code is the source of truth.
 
-After launching, continue with other work or wait idle. You will receive a completion notification when the background task finishes. **The notification's exit code is authoritative** — the transport exits 0 on success, non-zero with `infra_retries_exhausted: <category>` on failure. Do not infer success from the absence of an error in stdout; check the notification's exit code.
+### Polling Protocol — 5-Minute Status Snapshots (MANDATORY)
+
+**After launching, do NOT go silent.** The operator needs real-time visibility into what each reviewer is doing during the 5–35 minute wait. Poll `status-check.sh` every 5 minutes and produce a brief status update.
+
+```
+Bash (foreground, wall-clock 5-min interval):
+  sleep 300 && .claude/skills/dual-tpr/scripts/status-check.sh "$RUN" --events 5
+```
+
+The status script is SAFE to call because it reads ONLY append-only artifacts (`round.log`, `codex.jsonl`, `gemini.jsonl`) and existence-checks the atomic-write files (`*.exit`, `*.envelope.json`, `*.parse-error`) without reading their contents mid-stream. It surfaces:
+
+- Local timestamp (so the operator knows WHEN the poll landed)
+- Round log tail (orchestration progress)
+- Per-reviewer subshell state (running / done with rc + walltime)
+- Last N streamed events per reviewer — the actual commands, reasoning, tool calls, and messages each reviewer is producing RIGHT NOW
+- Envelope parse state / parse-error state
+- Worktree state
+
+Keep polling every 5 minutes until the background-task completion notification arrives. The notification is the authoritative done-signal; the status script is for situational awareness in between.
+
+**The notification's exit code is authoritative** — the transport exits 0 on success, non-zero with `infra_retries_exhausted: <category>` on failure. Do not infer success from the absence of an error in stdout; check the notification's exit code.
 
 ### 4. On success: merge both envelopes
 
@@ -246,21 +301,51 @@ Bash:
 
 The `summary` block reports `codex_findings`, `gemini_findings`, `agreements`, `codex_only`, `gemini_only`.
 
-### 5. Classify merged findings
+### 5. Classify merged findings (and VERIFY each one independently)
 
-For each entry, determine if the underlying finding is actionable:
+**Reviewer findings are hypotheses, not facts.** For every actionable finding, Claude MUST independently verify the claim against the actual code BEFORE acting on it — regardless of which reviewer produced it.
+
+#### Verification protocol (mandatory for every finding)
+
+For each merged finding:
+
+1. **Read the cited code** — open the file at the cited line number, read the surrounding context (not just the one line)
+2. **Confirm the claim matches reality** — does the code actually say what the finding claims? Does it actually behave the way the finding describes?
+3. **Trace the reasoning** — if the finding says "X is unreachable" / "Y is broken" / "Z is missing", prove it by walking the code yourself. Grep for the symbol, follow the call chain, check the test coverage.
+4. **Check the required_plan_update** — does the proposed fix actually address the root cause, or is it a surface patch that would leave the underlying issue?
+
+If verification proves the finding is wrong, mark it `[x]` with a verification note explaining what you checked and what you found — this is the ONLY valid way to reject a finding. Rejecting without verification is banned; accepting without verification is banned.
+
+#### Trust tiers (set verification depth, not pass/fail)
+
+Both reviewers can be wrong. The trust tier sets how deep the verification goes:
+
+- **Codex: HIGH trust.** Codex tends to cite accurate file/line numbers and its claims usually match the code. Spot-check each finding: read the cited lines, confirm the specific claim, move on if it holds.
+- **Gemini: LOWER trust.** Gemini is more prone to confabulation — invented line numbers, misquoted code, claims about behavior that don't match reality, and "positive observations" that reframe correct code as findings. Every gemini finding needs FULL verification: read the cited file in full (not just the cited line), trace the code path end-to-end, and confirm against what the code actually does. This is especially important for:
+  - Claims about untested code paths (gemini may miss the test that covers it)
+  - Claims about architectural issues (gemini may not have read the canonical home)
+  - Claims involving specific line numbers (gemini sometimes invents them)
+  - Positive confirmations (e.g. "the fix is correctly done") — only useful if actually correct
+
+Never treat gemini's `citations` URLs as authoritative — if gemini cites a spec or external doc, verify the claim independently instead of trusting the URL as truth.
+
+#### Actionability
+
+After verification confirms a finding is real:
 
 - **Actionable finding**: real code issue — bug, hygiene violation, missing test, incorrect behavior, file size limit exceeded, precision regression, dead code path, etc. Must be fixed.
 - **Non-actionable observation**: style preference or observation that isn't a defect, precision loss, or dead code. Note it but don't block the loop on it.
 
-**IMPORTANT: Err on the side of "actionable".** The following are ALWAYS actionable:
+**IMPORTANT: Err on the side of "actionable"** (after verification). The following are ALWAYS actionable:
 - Dead code paths (code that can never execute)
 - Precision regressions (over-approximation that loses optimization opportunities)
 - Missing tests for plumbed-through data
 - Name collisions or aliasing that cause incorrect behavior
 - Pipeline gaps where data is computed but never consumed
 
-**Agreement is a priority signal, not a filter.** When an entry has `agreement: true`, both reviewers independently flagged the same `(location, title)` — the strongest possible signal, so prioritize these fixes. When an entry is tagged `-codex` or `-gemini` only (`agreement: false`), the finding is STILL real — provenance is not severity. Single-reviewer findings get fixed just like agreement findings.
+**Agreement is a priority signal, not a filter.** When an entry has `agreement: true`, both reviewers independently flagged the same `(location, title)` — the strongest possible signal, so prioritize these fixes. When an entry is tagged `-codex` or `-gemini` only (`agreement: false`), the finding is STILL real after verification — provenance is not severity. Single-reviewer findings get fixed just like agreement findings.
+
+**Agreement is not a substitute for verification.** Two reviewers can be wrong about the same thing — agreement amplifies the hypothesis but doesn't prove it. Verify the claim against the code even when both reviewers flagged it.
 
 ### 6. If Zero Actionable Findings -> Clean Pass (EXIT)
 
