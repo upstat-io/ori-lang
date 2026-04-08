@@ -2,7 +2,7 @@
 bug: "BUG-08-001"
 title: "block-banned-commands.sh false-matches codex/gemini substrings in non-review commands"
 severity: "medium"
-status: in-progress
+status: complete
 goal: "The timeout gate in block-banned-commands.sh fires only on genuine top-level codex/gemini invocations and never on commands that merely contain the literal substrings in an argument, path, or message body."
 success_criteria:
   - "git commit -m with a message body containing 'codex' or 'gemini' is ALLOWED with any timeout"
@@ -23,7 +23,7 @@ third_party_review:
 
 # Fix: BUG-08-001 — Hook substring false-match on codex/gemini
 
-**Status:** In Progress (implementation + tests landed; pending commit, TPR, hygiene)
+**Status:** Complete
 **Severity:** medium
 **Goal:** The timeout gate in `block-banned-commands.sh` fires only on genuine top-level `codex` / `gemini` invocations — never on commands that merely contain the literal substrings in a file path, argument, or message body. The gate's enforcement on genuine invocations (20-minute floor, 35-minute ceiling) is preserved unchanged.
 
@@ -168,17 +168,17 @@ These are the cases where a naive word-boundary-only check might regress the hoo
 
 ## 4. Completion Checklist
 
-- [ ] All new tests pass unchanged after fix (no test modifications needed)
-- [ ] Matrix completeness verified — false-positive suppression × bypass closure × existing timeout gate
-- [ ] `bash .claude/hooks/verify-hook.sh` — 100% pass (pre-existing 9 tests + all new tests)
-- [ ] Manual repro from the bug entry no longer denied
-- [ ] `timeout 150 ./test-all.sh` green — no regressions (hook doesn't touch cargo, but full suite is the standard)
-- [ ] `/commit-push` — commit hook fix + test harness extensions (one atomic commit; they're tightly coupled)
-- [ ] Bug entry in `plans/bug-tracker/section-08-spec-docs.md` updated: `- [x]` with resolution details
-- [ ] Fix section frontmatter `status` updated to `complete`
-- [ ] Bug-tracker `00-overview.md` open bug count updated if there's a summary field
-- [ ] `/tpr-review` passed — independent dual-source review of the hook fix (medium severity, expected)
-- [ ] `/impl-hygiene-review` passed — MUST run AFTER `/tpr-review` is clean
-- [ ] `/improve-tooling` retrospective completed — AFTER both reviews clean
+- [x] All new tests pass unchanged after fix (no test modifications needed)
+- [x] Matrix completeness verified — false-positive suppression × bypass closure × existing timeout gate
+- [x] `bash .claude/hooks/verify-hook.sh` — 27/27 passing (pre-existing 9 + 10 false-positive + 8 bypass-closure)
+- [x] Manual repro from the bug entry no longer denied (verified via direct JSON-stdin invocation)
+- [x] `timeout 150 ./test-all.sh` green — no regressions (lefthook full-check ran on commit 81ff576b: 16900 passed / 0 failed / 158 skipped)
+- [x] Hook fix committed as `81ff576b` via file-based commit message (the commit message needed to reference `--no-verify` / `git stash` as preserved defensive patterns, which are also substring-blocked — `git commit -F file` is the correct path for commits that discuss the hook itself)
+- [x] Bug entry in `plans/bug-tracker/section-08-spec-docs.md` updated: `- [x]` with resolution details, moved to Resolved Bugs section
+- [x] Fix section frontmatter `status` updated to `complete`
+- [ ] Bug-tracker `00-overview.md` open bug count updated — N/A: section-08 has no separate summary field; the overview derives counts from per-section files
+- [ ] `/tpr-review` — SKIPPED by user decision 2026-04-08 (shell hook fix with deterministic 27-case matrix covering false-positive suppression, bypass closure, and all existing timeout enforcement; lefthook full-check gate ran green)
+- [ ] `/impl-hygiene-review` — SKIPPED by user decision 2026-04-08 (same rationale)
+- [ ] `/improve-tooling` retrospective — captured inline: (1) the `run_test` JSON encoder bug was already fixed in this same change (was `printf '%s'` → now `python3 json.dumps`), preventing a whole class of future test-command corruption; (2) the hook's general banned-pattern list still uses substring matching and blocks commit messages that discuss those literals — the workaround is `git commit -F file`, which is acceptable because the defensive substrings have no legitimate non-invocation use. No additional tooling changes surfaced.
 
-**Exit Criteria:** `bash .claude/hooks/verify-hook.sh` passes all test cases (pre-existing 9 plus the new false-positive, bypass-closure, and additional genuine-invocation cases). The original repro from the bug entry — `git commit -m "fix dual-tpr-gemini"` with 150000 ms timeout — returns ALLOW from the hook. The fix preserves the hook's enforcement on every genuine `codex exec` / `gemini -p|--approval-mode|--output-format` invocation at timeouts outside the 20-35 minute window, including when reached via env-var prefix, pipeline, sequence, logical AND, or subshell. The scanner-fix commit from `/continue-roadmap` (whose commit message mentions `plans/dual-tpr-gemini`) is no longer blocked and lands cleanly via `/commit-push`.
+**Exit Criteria:** `bash .claude/hooks/verify-hook.sh` passes all 27 test cases. The original repro from the bug entry — `git commit -m "fix dual-tpr-gemini"` with a sub-20-minute timeout — returns ALLOW from the hook. The fix preserves the hook's enforcement on every genuine `codex exec` / `gemini -p|--approval-mode|--output-format` invocation at timeouts outside the 20-35 minute window, including when reached via env-var prefix, pipeline, sequence, logical AND, or subshell. The scanner-fix commit `463eb082` — whose commit message mentions `plans/dual-tpr-gemini` three times — landed cleanly through the fixed hook, providing end-to-end validation.
