@@ -273,6 +273,52 @@ run_test 'timeout 30 sleep 10 (wrapper with non-review cmd) → ALLOW' \
 run_test 'env FOO=bar ls → ALLOW (env setting for non-review cmd)' \
   'env FOO=bar ls' 60000 allow
 
+# ── Bypass closure — iteration-4 fixes (TPR-04-001-codex/gemini iter 4) ──
+# Iteration 4 surfaced wrapper-skip false-positives (codex inside arg
+# position of a wrapper's TARGET command), missing wrappers (eval, time),
+# dollar-prefixed quotes ($'codex' / $"codex"), and line continuation
+# inside words (co\<newline>dex). The classifier now uses per-wrapper
+# positional skip counts + flags-with-values metadata, dollar-quote
+# stripping in normalization, and proper line-continuation handling
+# inside both unquoted and double-quoted contexts. Each test pins a
+# verified bypass form.
+
+# False positives that MUST allow (codex appears in arg, not as command)
+run_test 'timeout 30 echo codex → ALLOW (codex is echo arg, not wrapped cmd)' \
+  'timeout 30 echo codex' 60000 allow
+run_test 'env printf codex → ALLOW (codex is printf arg, not wrapped cmd)' \
+  'env printf codex' 60000 allow
+run_test 'ssh codex uptime → ALLOW (codex is ssh user@host, not wrapped cmd)' \
+  'ssh codex uptime' 60000 allow
+run_test 'sudo -u codex whoami → ALLOW (codex is sudo USER, not wrapped cmd)' \
+  'sudo -u codex whoami' 60000 allow
+run_test 'nice -n 10 sleep 5 → ALLOW (no codex/gemini at all)' \
+  'nice -n 10 sleep 5' 60000 allow
+
+# Real bypasses that MUST deny
+run_test '$"codex" exec → DENY (locale-aware dollar-quote)' \
+  '$"codex" exec test' 60000 deny "20-35 minutes"
+run_test "\$'codex' exec → DENY (ANSI-C dollar-quote)" \
+  "\$'codex' exec test" 60000 deny "20-35 minutes"
+run_test 'co\<newline>dex exec → DENY (line continuation inside word)' \
+  $'co\\\ndex exec test' 60000 deny "20-35 minutes"
+run_test '"co\<newline>dex" exec → DENY (line continuation inside double quotes)' \
+  $'"co\\\ndex" exec test' 60000 deny "20-35 minutes"
+run_test 'eval codex exec → DENY (eval wrapper)' \
+  'eval codex exec test' 60000 deny "20-35 minutes"
+run_test 'time codex exec → DENY (time wrapper)' \
+  'time codex exec test' 60000 deny "20-35 minutes"
+
+# Wrapper with flag+value still matches when codex is the wrapped command
+run_test 'sudo -u alice codex → DENY (sudo flag value, codex IS wrapped cmd)' \
+  'sudo -u alice codex exec' 60000 deny "20-35 minutes"
+run_test 'nice -n 10 codex → DENY (nice flag value, codex IS wrapped cmd)' \
+  'nice -n 10 codex exec' 60000 deny "20-35 minutes"
+run_test 'xargs -n 1 codex → DENY (xargs flag value, codex IS wrapped cmd)' \
+  'xargs -n 1 codex' 60000 deny "20-35 minutes"
+run_test 'ssh user@host codex → DENY (ssh user@host as positional, codex IS wrapped cmd)' \
+  'ssh user@host codex exec' 60000 deny "20-35 minutes"
+
 if (( ! QUIET )); then
   printf '\n'
 fi

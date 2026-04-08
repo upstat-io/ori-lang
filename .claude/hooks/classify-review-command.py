@@ -50,44 +50,78 @@ Known limitations (documented but not blockers for our use case):
     expansion is irrelevant.
 """
 
+import os
 import sys
+
+# Add this file's directory to sys.path so the sibling shell_lex module
+# can be imported regardless of caller cwd. The hook is invoked from the
+# Bash tool's working directory (the project root in our case), but the
+# helper module lives next to this script.
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from shell_lex import is_env_assign, normalize_word, tokenize  # noqa: E402
 
 REVIEW_COMMANDS = {"codex", "gemini"}
 
-# Wrapper commands that take another command as an argument. When the
-# command-position token matches one of these, the classifier skips
-# forward through remaining tokens (flags, positional args) looking for
-# a codex/gemini token before the next operator. This catches bypasses
-# like `env codex exec`, `timeout 60 codex exec`, `nice codex exec`,
-# `sudo codex exec`, `ssh host codex exec`, `xargs codex`, etc.
+# Wrapper commands that take another command as an argument. Each entry
+# maps the wrapper name to a `positional_skip` count — the number of
+# positional arguments (non-flag, non-env-assign) to skip after the
+# wrapper before reaching the wrapped command position. Flags (tokens
+# starting with `-`) are always skipped. Env-var assignments (NAME=value
+# or NAME+=value) are skipped ONLY if `allow_env_prefixes` is true
+# (currently only `env` itself).
 #
-# The list is intentionally broad — a false positive (blocking `env ls`
-# because it contains `env`) would be caught by the normalization step
-# (env alone doesn't match REVIEW_COMMANDS). A false NEGATIVE here means
-# a real bypass, which is strictly worse than a false positive.
+# Examples:
+#   env VAR=foo codex exec            → env allows env prefixes; codex is cmd
+#   timeout 30 codex exec             → timeout skips 1 positional (duration); codex is cmd
+#   ssh user@host codex exec          → ssh skips 1 positional (user@host); codex is cmd
+#   nice -n 10 codex exec             → nice skips -n/10 flag+value; codex is cmd
+#   sudo -u alice codex exec          → sudo skips -u/alice flag+value; codex is cmd
+#   eval codex exec                   → eval runs its arg as a shell cmd; codex is cmd
+#   time codex exec                   → time wraps the command directly; codex is cmd
 #
-# TPR-04-001-codex iteration 3 verified these wrappers all bypassed the
-# previous classifier:
-#   env, command, exec, timeout, nice, PATH+=:/tmp (assignment-word form)
-WRAPPER_COMMANDS = {
-    "env",
-    "command",
-    "exec",
-    "timeout",
-    "nice",
-    "ionice",
-    "taskset",
-    "stdbuf",
-    "unbuffer",
-    "sudo",
-    "su",
-    "ssh",
-    "xargs",
-    "nohup",
-    "setsid",
-    "chrt",
-    "eatmydata",
+# TPR-04-001-codex iteration 4 regression: the previous wrapper-skip
+# scanned EVERY remaining token until the next operator and treated any
+# bare `codex`/`gemini` as a wrapped command. This matched
+# `timeout 30 echo codex` as a review invocation even though codex was
+# an argument to echo, not the wrapped command. The new per-wrapper
+# positional_skip logic locates the EXACT command position instead of
+# scanning.
+# Per-wrapper spec:
+#   positional_skip    — number of POSITIONAL args (non-flag, non-env-assign)
+#                        to skip after the wrapper, BEFORE the wrapped
+#                        command position. Used for wrappers like
+#                        timeout (DURATION) and ssh (user@host).
+#   allow_env_prefixes — if true, NAME=value tokens are skipped between
+#                        the wrapper and its positional/wrapped command.
+#                        Used for `env`.
+#   flags_with_values  — set of short flags that take a value in the NEXT
+#                        token (e.g. sudo -u USER, nice -n N, xargs -I X).
+#                        When encountered in the flag-skip phase, BOTH
+#                        the flag and the next token are skipped. Without
+#                        this, `sudo -u codex whoami` would treat `codex`
+#                        as the wrapped command instead of `whoami`.
+WRAPPER_SPECS = {
+    "env":        {"positional_skip": 0, "allow_env_prefixes": True},
+    "command":    {"positional_skip": 0},
+    "exec":       {"positional_skip": 0, "flags_with_values": {"-a"}},
+    "timeout":    {"positional_skip": 1},  # DURATION
+    "nice":       {"positional_skip": 0, "flags_with_values": {"-n"}},
+    "ionice":     {"positional_skip": 0, "flags_with_values": {"-c", "-n", "-p", "-P", "-u"}},
+    "taskset":    {"positional_skip": 1},  # MASK
+    "stdbuf":     {"positional_skip": 0, "flags_with_values": {"-i", "-o", "-e"}},
+    "unbuffer":   {"positional_skip": 0},
+    "sudo":       {"positional_skip": 0, "flags_with_values": {"-u", "-g", "-h", "-U", "-C", "-c", "-D", "-r", "-R", "-t", "-T", "-p"}},
+    "su":         {"positional_skip": 1, "flags_with_values": {"-c", "-s", "-m"}},  # USERNAME
+    "ssh":        {"positional_skip": 1, "flags_with_values": {"-b", "-B", "-c", "-D", "-e", "-E", "-F", "-I", "-i", "-J", "-L", "-l", "-m", "-O", "-o", "-p", "-Q", "-R", "-S", "-W", "-w"}},  # user@host
+    "xargs":      {"positional_skip": 0, "flags_with_values": {"-n", "-I", "-L", "-P", "-d", "-s", "-E", "-a"}},
+    "nohup":      {"positional_skip": 0},
+    "setsid":     {"positional_skip": 0},
+    "chrt":       {"positional_skip": 1},  # PRIORITY
+    "eatmydata":  {"positional_skip": 0},
+    "eval":       {"positional_skip": 0},  # eval takes a shell string; we approximate
+    "time":       {"positional_skip": 0},  # time builtin wraps the command directly
 }
+WRAPPER_COMMANDS = set(WRAPPER_SPECS)
 
 
 def is_review_invocation(cmd: str) -> bool:
@@ -108,7 +142,7 @@ def is_review_invocation(cmd: str) -> bool:
     token as far as the tokenizer is concerned, but bash strips the
     trailing "" before invoking).
     """
-    tokens = _tokenize(cmd)
+    tokens = tokenize(cmd)
     i = 0
     at_cmd_pos = True
     while i < len(tokens):
@@ -126,34 +160,33 @@ def is_review_invocation(cmd: str) -> bool:
         # Skip leading env-var assignments. Both NAME=value and NAME+=value
         # (bash's append-assignment syntax) are valid at command position
         # and preserve it.
-        if _is_env_assign(value):
+        if is_env_assign(value):
             i += 1
             continue
         # Normalize the token: strip quotes and backslash escapes so
-        # "codex", 'codex', \codex, co\dex, codex"" all normalize to codex.
-        normalized = _normalize_word(value)
+        # "codex", 'codex', \codex, co\dex, codex"", $'codex', $"codex"
+        # all normalize to codex.
+        normalized = normalize_word(value)
         if normalized in REVIEW_COMMANDS:
             return True
-        # If the normalized command is a known wrapper, enter wrapper-skip
-        # mode: scan forward through the current command's remaining tokens
-        # looking for a codex/gemini match. Stop at the next operator
-        # (which starts a new command).
+        # If the normalized command is a known wrapper, jump the index to
+        # the wrapper's actual command position (first non-flag, non-env-
+        # assign token after the wrapper's positional skip count). The
+        # main loop then checks that position on the next iteration.
+        # Per-wrapper positional_skip handles wrappers like timeout
+        # (skip DURATION) and ssh (skip user@host). See WRAPPER_SPECS.
         if normalized in WRAPPER_COMMANDS:
-            j = i + 1
-            while j < len(tokens):
-                jkind, jvalue = tokens[j]
-                if jkind == "op":
-                    break
-                # Normalize the scanned token too — wrappers can take
-                # quoted/escaped command names just like top-level.
-                jnorm = _normalize_word(jvalue)
-                if jnorm in REVIEW_COMMANDS:
-                    return True
-                j += 1
-            # Whether or not we found a match inside the wrapper's args,
-            # we advance past the wrapper itself. If the wrapper's
-            # command-position arg was NOT codex/gemini, we fall through
-            # to the regular "not a review command" path.
+            cmd_idx = _find_wrapper_cmd_position(tokens, i, WRAPPER_SPECS[normalized])
+            if cmd_idx is not None:
+                # Jump to the wrapped command position and re-check with
+                # at_cmd_pos=True. This naturally handles nested wrappers
+                # (if the wrapped command is itself a wrapper, the next
+                # iteration enters wrapper-skip again).
+                i = cmd_idx
+                at_cmd_pos = True
+                continue
+            # Wrapper had no wrapped command before the next operator —
+            # treat it as a normal non-review command at this position.
         # Not a review command and not a wrapper with review args.
         # Consume this word and skip to the next operator.
         at_cmd_pos = False
@@ -161,318 +194,62 @@ def is_review_invocation(cmd: str) -> bool:
     return False
 
 
-def _is_env_assign(token: str) -> bool:
-    """Return True if token is an env-var assignment (NAME=value or NAME+=value).
+def _find_wrapper_cmd_position(tokens, wrapper_idx, spec):
+    """Locate the wrapped-command position after a wrapper at tokens[wrapper_idx].
 
-    Accepts both the standard `FOO=bar` form and bash's append-assignment
-    `FOO+=bar` form (used for appending to arrays or strings at the start
-    of a command). Both are valid at command position and preserve it.
+    Walks forward from wrapper_idx+1, skipping:
+      - Flag tokens (start with `-`)
+      - The token AFTER any flag listed in spec['flags_with_values']
+        (handles short flags that take a value in the next token, e.g.
+        `nice -n 10`, `sudo -u alice`, `xargs -I {}`). Without this,
+        the next token after such a flag would be treated as the
+        wrapped command, producing false positives like
+        `sudo -u codex whoami` matching (codex is the USER, not the cmd).
+      - Env-var assignments (only if spec allows env prefixes, i.e. `env`)
+      - The first `spec['positional_skip']` non-flag, non-env-assign
+        positional tokens (handles wrappers like timeout's DURATION,
+        ssh's user@host, su's USERNAME, taskset's MASK, chrt's PRIORITY)
+
+    Returns the index of the wrapped command token, or None if we hit an
+    operator or end-of-tokens before finding it.
     """
-    # Try += first so we correctly identify `FOO+=bar` (otherwise the
-    # plain `=` check would see `FOO+` as the name, which isn't a valid
-    # identifier, and reject it).
-    for sep in ("+=", "="):
-        if sep in token:
-            name = token.partition(sep)[0]
-            if not name:
-                return False
-            if not (name[0].isalpha() or name[0] == "_"):
-                continue
-            if all(ch.isalnum() or ch == "_" for ch in name):
-                return True
-    return False
-
-
-def _normalize_word(token: str) -> str:
-    """Strip quotes and backslash escapes from a shell token.
-
-    Applies bash's quote-removal and backslash-quote rules to get the
-    effective value of the token as bash would see it at invocation time.
-    Handles:
-      - Surrounding "..." double quotes (with \\-escapes for " \\ ` $)
-      - Surrounding '...' single quotes (no escapes in POSIX)
-      - Interspersed quotes (codex"" → codex)
-      - Unquoted backslash escapes (\\codex → codex, co\\dex → codex)
-
-    This is what bash does before executing a command. Without this step,
-    the classifier treats `"codex"` as a 7-char literal that doesn't equal
-    `codex`, leaving a trivial bypass.
-    """
-    result = []
-    i = 0
-    n = len(token)
-    while i < n:
-        c = token[i]
-        if c == '"':
-            # Consume double-quoted content with backslash escape handling.
-            i += 1
-            while i < n and token[i] != '"':
-                if token[i] == "\\" and i + 1 < n:
-                    nxt = token[i + 1]
-                    # In double quotes, backslash only escapes " \ ` $ \n.
-                    # Other backslashes are preserved literally.
-                    if nxt in '"\\`$\n':
-                        result.append(nxt)
-                        i += 2
-                    else:
-                        result.append(token[i])
-                        result.append(nxt)
-                        i += 2
-                else:
-                    result.append(token[i])
-                    i += 1
-            if i < n:
-                i += 1  # closing "
+    positional_skip = spec.get("positional_skip", 0)
+    allow_env = spec.get("allow_env_prefixes", False)
+    flags_with_values = spec.get("flags_with_values", set())
+    positionals_skipped = 0
+    j = wrapper_idx + 1
+    n = len(tokens)
+    while j < n:
+        jkind, jvalue = tokens[j]
+        if jkind == "op":
+            return None
+        jnorm = normalize_word(jvalue)
+        # Flags always skipped. If the flag is known to take a value in
+        # the next token (per spec['flags_with_values']), also skip the
+        # next token as its value. The check `jnorm in flags_with_values`
+        # matches the short form `-X`; the inline form `-X10` has the
+        # value embedded in the flag token itself and doesn't need a
+        # next-token skip. Long forms like `--user=foo` embed the value
+        # too and don't need a next-token skip.
+        if jnorm.startswith("-"):
+            if jnorm in flags_with_values and j + 1 < n and tokens[j + 1][0] != "op":
+                j += 2  # Skip flag AND its value token
+            else:
+                j += 1
             continue
-        if c == "'":
-            # Consume single-quoted content (no escapes in POSIX).
-            i += 1
-            while i < n and token[i] != "'":
-                result.append(token[i])
-                i += 1
-            if i < n:
-                i += 1  # closing '
+        # Env-var assignments (env only)
+        if allow_env and is_env_assign(jvalue):
+            j += 1
             continue
-        if c == "\\" and i + 1 < n:
-            # Unquoted backslash: the next char is taken literally.
-            result.append(token[i + 1])
-            i += 2
+        # Positional skip (timeout's duration, ssh's user@host, etc.)
+        if positionals_skipped < positional_skip:
+            positionals_skipped += 1
+            j += 1
             continue
-        result.append(c)
-        i += 1
-    return "".join(result)
+        # This is the wrapped command position
+        return j
+    return None
 
-
-def _tokenize(cmd: str):
-    """Tokenize cmd into a list of (kind, value) pairs.
-
-    kind ∈ {'word', 'op'}. Operators are: | || ; & && ( ) and newline.
-
-    The tokenizer is intentionally minimal — it only needs enough shell
-    grammar to answer "at each command position, is the first token
-    codex/gemini?". It does NOT expand variables, globs, or tilde; it
-    does NOT parse heredocs; it does NOT validate syntax.
-    """
-    tokens = []
-    current: list[str] = []
-    i = 0
-    n = len(cmd)
-
-    def flush():
-        if current:
-            tokens.append(("word", "".join(current)))
-            current.clear()
-
-    while i < n:
-        c = cmd[i]
-
-        # Backslash-newline is line continuation: treat as whitespace
-        if c == "\\" and i + 1 < n and cmd[i + 1] == "\n":
-            flush()
-            i += 2
-            continue
-
-        # Backslash-anything inside an unquoted context: consume the next
-        # char as a literal (preserves the escape in the token so downstream
-        # env-var matching still sees the quote/space). For our purposes
-        # this just means "the next char is part of the current word".
-        if c == "\\" and i + 1 < n:
-            current.append(c)
-            current.append(cmd[i + 1])
-            i += 2
-            continue
-
-        # Whitespace (not newline) ends a word
-        if c in (" ", "\t", "\r"):
-            flush()
-            i += 1
-            continue
-
-        # Newline is a command separator (like ;)
-        if c == "\n":
-            flush()
-            tokens.append(("op", "\n"))
-            i += 1
-            continue
-
-        # Comments: # at the start of a word runs to end of line
-        if c == "#" and (not current) and (not tokens or tokens[-1][0] == "op"):
-            # Skip to newline
-            while i < n and cmd[i] != "\n":
-                i += 1
-            continue
-
-        # Double-quoted string: consume to matching ", handling backslash escapes
-        if c == '"':
-            current.append(c)
-            i += 1
-            while i < n:
-                if cmd[i] == "\\" and i + 1 < n:
-                    # Escaped char inside double quotes (e.g. \" \\)
-                    current.append(cmd[i])
-                    current.append(cmd[i + 1])
-                    i += 2
-                elif cmd[i] == "`":
-                    # Backtick substitution inside double quotes
-                    i = _consume_backtick(cmd, i, current)
-                elif cmd[i] == "$" and i + 1 < n and cmd[i + 1] == "(":
-                    # $(...) substitution inside double quotes
-                    i = _consume_paren_subst(cmd, i, current)
-                elif cmd[i] == '"':
-                    current.append(cmd[i])
-                    i += 1
-                    break
-                else:
-                    current.append(cmd[i])
-                    i += 1
-            continue
-
-        # Single-quoted string: consume to matching ', no escapes
-        if c == "'":
-            current.append(c)
-            i += 1
-            while i < n and cmd[i] != "'":
-                current.append(cmd[i])
-                i += 1
-            if i < n:
-                current.append(cmd[i])
-                i += 1
-            continue
-
-        # Backtick command substitution
-        if c == "`":
-            i = _consume_backtick(cmd, i, current)
-            continue
-
-        # $(...) command substitution
-        if c == "$" and i + 1 < n and cmd[i + 1] == "(":
-            i = _consume_paren_subst(cmd, i, current)
-            continue
-
-        # Compound operators: | || & && ;
-        if c in "|&":
-            flush()
-            op = c
-            i += 1
-            if i < n and cmd[i] == c:
-                op += cmd[i]
-                i += 1
-            tokens.append(("op", op))
-            continue
-
-        if c == ";":
-            flush()
-            tokens.append(("op", ";"))
-            i += 1
-            continue
-
-        # Subshell / grouping
-        if c in "()":
-            flush()
-            tokens.append(("op", c))
-            i += 1
-            continue
-
-        # Regular character — part of the current word
-        current.append(c)
-        i += 1
-
-    flush()
-    return tokens
-
-
-def _consume_backtick(cmd: str, start: int, out: list) -> int:
-    """Consume a backtick substitution starting at cmd[start] == '`'.
-
-    Returns the index of the character after the closing backtick.
-    Appends the raw text (including the backticks) to out.
-    """
-    out.append(cmd[start])
-    i = start + 1
-    n = len(cmd)
-    while i < n:
-        if cmd[i] == "\\" and i + 1 < n:
-            out.append(cmd[i])
-            out.append(cmd[i + 1])
-            i += 2
-        elif cmd[i] == "`":
-            out.append(cmd[i])
-            return i + 1
-        else:
-            out.append(cmd[i])
-            i += 1
-    return i
-
-
-def _consume_paren_subst(cmd: str, start: int, out: list) -> int:
-    """Consume a `$(...)` command substitution starting at cmd[start] == '$'.
-
-    Returns the index of the character after the closing paren.
-    Handles nested parens, quoted strings, and nested substitutions.
-    Appends the raw text to out.
-    """
-    assert cmd[start] == "$" and cmd[start + 1] == "("
-    out.append(cmd[start])      # $
-    out.append(cmd[start + 1])  # (
-    i = start + 2
-    n = len(cmd)
-    depth = 1
-    while i < n and depth > 0:
-        c = cmd[i]
-        if c == "\\" and i + 1 < n:
-            out.append(c)
-            out.append(cmd[i + 1])
-            i += 2
-            continue
-        if c == '"':
-            # Nested double-quoted string
-            out.append(c)
-            i += 1
-            while i < n:
-                if cmd[i] == "\\" and i + 1 < n:
-                    out.append(cmd[i])
-                    out.append(cmd[i + 1])
-                    i += 2
-                elif cmd[i] == '"':
-                    out.append(cmd[i])
-                    i += 1
-                    break
-                else:
-                    out.append(cmd[i])
-                    i += 1
-            continue
-        if c == "'":
-            # Nested single-quoted string (no escapes)
-            out.append(c)
-            i += 1
-            while i < n and cmd[i] != "'":
-                out.append(cmd[i])
-                i += 1
-            if i < n:
-                out.append(cmd[i])
-                i += 1
-            continue
-        if c == "`":
-            i = _consume_backtick(cmd, i, out)
-            continue
-        if c == "$" and i + 1 < n and cmd[i + 1] == "(":
-            i = _consume_paren_subst(cmd, i, out)
-            continue
-        if c == "(":
-            depth += 1
-            out.append(c)
-            i += 1
-            continue
-        if c == ")":
-            depth -= 1
-            out.append(c)
-            i += 1
-            if depth == 0:
-                return i
-            continue
-        out.append(c)
-        i += 1
-    return i
 
 
 def main() -> int:
