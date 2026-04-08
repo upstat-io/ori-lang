@@ -1,0 +1,3 @@
+{"type": "init"}
+{"type": "message", "role": "assistant", "content": "Findings:\n\n<!-- BEGIN-ORI-DUAL-TPR-V1 -->\nI attempted to produce findings but could not write the JSON block.\nPlease re-run the review.\n<!-- END-ORI-DUAL-TPR-V1 -->\n", "delta": true}
+{"type": "result", "status": "success"}

@@ -1,0 +1,3 @@
+{"type": "init"}
+{"type": "message", "role": "assistant", "content": "Here are the findings.\n\n<!-- BEGIN-ORI-DUAL-TPR-V1 -->\n```json\n{\n  \"schema_version\": \"1.0\",\n  \"status\": \"complete\",\n  \"reviewer\": \"gemini\",\n  \"skill\": \"tpr-review\",\n  \"scope_actually_reviewed\": {\n    \"git_range\": \"HEAD~1..HEAD\",\n    \"files_read\": [\n      \"compile\n... [response truncated mid-stream by transport timeout]", "delta": true}
+{"type": "result", "status": "success"}

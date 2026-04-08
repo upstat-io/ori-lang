@@ -1,0 +1,3 @@
+{"type": "init"}
+{"type": "message", "role": "assistant", "content": "I reviewed the changes. The diff is small and contained.\n\nFindings: none \u2014 the change looks safe to ship as-is.\n", "delta": true}
+{"type": "result", "status": "success"}
