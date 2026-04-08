@@ -58,7 +58,7 @@ sections:
     status: in-progress
   - id: "7A.11"
     title: Section Completion Checklist
-    status: in-progress
+    status: not-started
 ---
 
 # Section 7A: Core Built-ins

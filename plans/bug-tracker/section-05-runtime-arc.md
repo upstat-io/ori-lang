@@ -1,7 +1,7 @@
 ---
 section: "05"
 title: "Runtime & ARC"
-status: not-started
+status: complete
 goal: "Track and resolve all known runtime and memory management bugs"
 sections: []
 ---
