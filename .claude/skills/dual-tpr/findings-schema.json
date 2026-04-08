@@ -1,6 +1,7 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "Ori Dual-TPR Findings Envelope V1",
+  "description": "Structural schema for the dual-source TPR findings envelope. This schema is OpenAI Structured Outputs compatible (the codex CLI passes it via --output-schema, which OpenAI accepts only as a strict subset of JSON Schema). Additional invariants that cannot be expressed in the OpenAI subset (regex patterns, length limits, conditional requirements) live in envelope_invariants.py and are enforced by validate-envelope.py / parse-codex.py / parse-gemini.py at parse time. See BUG-08-003 for the rationale.",
   "type": "object",
   "required": ["schema_version", "status", "reviewer", "skill", "scope_actually_reviewed", "findings", "no_findings"],
   "properties": {
@@ -36,14 +37,8 @@
         },
         "expansion_reason": {
           "type": "string",
-          "description": "Required if expanded_beyond_packet is true. One sentence explaining what additional surface was explored and why."
+          "description": "Required (and must be non-empty) when expanded_beyond_packet is true. One sentence explaining what additional surface was explored and why. Code-level invariant enforced in envelope_invariants.py."
         }
-      },
-      "if": {
-        "properties": {"expanded_beyond_packet": {"const": true}}
-      },
-      "then": {
-        "required": ["expansion_reason"]
       }
     },
     "findings": {
@@ -52,17 +47,18 @@
         "type": "object",
         "required": ["ordinal", "severity", "location", "title", "evidence", "impact", "basis"],
         "properties": {
-          "ordinal": {"type": "integer", "minimum": 1},
+          "ordinal": {
+            "type": "integer",
+            "description": "1-indexed insertion order. Code-level invariant: ordinal >= 1 enforced in envelope_invariants.py."
+          },
           "severity": {"type": "string", "enum": ["high", "medium", "low"]},
           "location": {
             "type": "string",
-            "pattern": "^(?!/)(?!\\./)[a-zA-Z0-9_./-]+:[0-9]+$",
-            "description": "Repo-relative path:line. No absolute paths, no leading ./, no line ranges. Dotfiles like .gitignore:3 ARE allowed; only the leading two-character ./ prefix is rejected."
+            "description": "Repo-relative path:line. No absolute paths, no leading ./, no line ranges. Dotfiles like .gitignore:3 ARE allowed; only the leading two-character ./ prefix is rejected. Code-level invariant: regex ^(?!/)(?!\\./)[a-zA-Z0-9_./-]+:[0-9]+$ enforced in envelope_invariants.py."
           },
           "title": {
             "type": "string",
-            "maxLength": 200,
-            "description": "Imperative voice, sentence case, no markdown, no trailing punctuation. Style enforced by prompt template; length enforced here."
+            "description": "Imperative voice, sentence case, no markdown, no trailing punctuation. Code-level invariant: maxLength 200 enforced in envelope_invariants.py. Style is enforced by prompt template."
           },
           "evidence": {"type": "string"},
           "impact": {"type": "string"},
@@ -82,7 +78,10 @@
               "type": "object",
               "required": ["url"],
               "properties": {
-                "url": {"type": "string", "format": "uri"},
+                "url": {
+                  "type": "string",
+                  "description": "Source URL. Code-level invariant: format=uri enforced in envelope_invariants.py."
+                },
                 "description": {"type": "string"}
               }
             },
@@ -101,15 +100,7 @@
     },
     "no_findings": {
       "type": "boolean",
-      "description": "Explicit 'reviewed cleanly with zero actionable findings' flag. Without this, an empty findings array could mean 'crashed before finding anything'."
-    }
-  },
-  "if": {
-    "properties": {"no_findings": {"const": true}}
-  },
-  "then": {
-    "properties": {
-      "findings": {"maxItems": 0}
+      "description": "Explicit 'reviewed cleanly with zero actionable findings' flag. Without this, an empty findings array could mean 'crashed before finding anything'. Code-level invariant: when no_findings is true, findings array must be empty; enforced in envelope_invariants.py."
     }
   }
 }

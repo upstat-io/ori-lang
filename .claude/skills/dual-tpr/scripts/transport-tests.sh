@@ -89,6 +89,11 @@ print('OK')
 test_case "merger summary correctness" "$?" "0"
 rm -f /tmp/merge-test-out.json
 
+echo ""
+echo "=== envelope_invariants tests ==="
+python3 "$SCRIPT_DIR/test_envelope_invariants.py"
+test_case "envelope_invariants regression suite" "$?" "0"
+
 if [[ "${1:-}" == "--integration" ]]; then
   echo ""
   echo "=== integration tests (invokes real codex/gemini) ==="
