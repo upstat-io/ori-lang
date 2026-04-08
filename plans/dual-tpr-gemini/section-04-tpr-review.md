@@ -21,6 +21,7 @@ depends_on: ["03"]
 third_party_review:
   status: findings
   updated: 2026-04-08
+  note: "All 7 findings triaged; 5 actionable resolved via commits e976cd75, a91af1b6, 94520716, 8684534f; 2 positive confirmations resolved with notes. Status stays `findings` until the semantic-loop re-run returns clean."
 sections:
   - id: "04.1"
     title: "Rewrite .claude/skills/tpr-review/SKILL.md for dual-source transport"
@@ -228,30 +229,35 @@ If any scenario fails, STOP. Do NOT mark Section 04 complete. Do NOT start Secti
 
 First real-reviewer round on 2026-04-08. Scope: commits `81ff576b..a5a2753f` (11 commits — original Section 04.3 stub harness + 5 canary-gate fixes for BUG-08-003 through BUG-08-007). Wall-time invariant satisfied (`618s = max(618, 557)`, not the 1175s sum — parallel execution confirmed). Scenario 2 passes fully (7 unique findings + gemini citation to openai.com). Scenario 1 partially passes: both reviewers produce findings and the wall time is max-not-sum, but 0 exact `(location, title)` agreement pairs — both reviewers converged on the SAME FILES (`dual-invoke-with-retry.sh`, `findings-schema.json`) with related CONCERNS (terminal classifier, schema/docs consistency), but with different line numbers and phrasings. The `merge-findings.py` exact-match merger treats them as 0 agreements. Real-world reviewers don't phrase identically; the `(location, title)` match criterion is stricter than observed behavior.
 
-- [ ] `[TPR-04-001-codex][medium]` `.claude/skills/dual-tpr/scripts/dual-invoke-with-retry.sh:99` — Classify launch-time deterministic failures before retrying.
+- [x] `[TPR-04-001-codex][medium]` `.claude/skills/dual-tpr/scripts/dual-invoke-with-retry.sh:99` — Classify launch-time deterministic failures before retrying.
   Evidence: The new terminal classifier branches `codex_invalid_*`, `codex_authentication_*`, and `gemini_authentication_*` are UNREACHABLE in the current transport. `dual-invoke.sh` discards both reviewer stderrs (`2>/dev/null` at lines 98 and 110), then `dual-invoke-with-retry.sh` collapses any non-zero launcher result to `launch_or_exit_fail` at line 99 before either parser runs. Expired auth tokens and other deterministic launcher-side request failures still burn all three retries and the partner reviewer's quota.
   Impact: BUG-08-006 does not actually deliver the terminal-failure behavior its classifier advertises for launch-time failures. The classifier has dead code paths that look like protection but provide none.
   Basis: fresh_verification. Confidence: high.
+  Resolved 2026-04-08 in commit `e976cd75`: audited parse-codex.py and parse-gemini.py's actual stderr emissions and rewrote the classifier to match. Removed unreachable branches (`codex_invalid_*`, `codex_authentication_*`, `gemini_authentication_*`), corrected wrong name (`gemini_no_begin` → `gemini_missing_begin_sentinel`), and added previously-missing terminal categories (`codex_failed_partial`, `gemini_missing_json_block`, `gemini_failed_partial`). Added a detailed comment block documenting the canonical category list with the parse-*.py files as the SSOT. The root cause was a SSOT violation per impl-hygiene.md: the classifier encoded a drifted copy of "what the parsers emit" instead of matching the actual parser output.
 
-- [ ] `[TPR-04-002-codex][low]` `.claude/skills/dual-tpr/scripts/validate-dual-tpr.sh:374` — Cover launch-time terminal failures in the validator harness.
+- [x] `[TPR-04-002-codex][low]` `.claude/skills/dual-tpr/scripts/validate-dual-tpr.sh:374` — Cover launch-time terminal failures in the validator harness.
   Evidence: Scenario 6 only exercises the parser-layer case `codex_schema_violation`. The shipped 17/17 harness never simulates a non-zero auth/request failure, so the launch-path dead-code bug above ships behind a green canary gate. Section 04.3 passes locally while the advertised `codex_invalid_*` and `*_authentication_*` terminal branches remain broken.
   Impact: Weakens the gate that is supposed to protect Sections 05/06/07 from transport regressions.
   Basis: fresh_verification. Confidence: high. Dependency: fix is blocked on the TPR-04-001-codex fix decision (remove dead branches vs wire up stderr capture).
+  Resolved 2026-04-08 in commit `e976cd75`: added Scenario 7 ("parser-layer terminal categories") with a new `STUB_CODEX_MODE=failed-partial` that emits a valid envelope with `status=failed_partial`. parse-codex.py emits `failed_partial` on its first stderr line, the retry script captures `codex_failed_partial`, and the classifier must break the retry loop after exactly 1 attempt. Four assertions pin the behavior. After the TPR-04-001-codex fix removed the dead launch-path branches, launch-time failures are now correctly documented as retryable (exercised by Scenario 4's fail-once codex test). Validate-dual-tpr.sh now reports 21/21 (was 17/17).
 
-- [ ] `[TPR-04-003-codex][low]` `.claude/skills/dual-tpr/findings-schema.json:4` — Update the codex enforcement docs after removing `--output-schema`.
+- [x] `[TPR-04-003-codex][low]` `.claude/skills/dual-tpr/findings-schema.json:4` — Update the codex enforcement docs after removing `--output-schema`.
   Evidence: Commit `a5a2753f` removed `--output-schema` from `dual-invoke.sh`, but the schema description still says "the codex CLI passes it via --output-schema", and `parse-codex.py:8-9` still says codex emits schema-conformant JSON "when invoked with --output-schema". Documentation now overstates the safety model by implying codex still has API-level schema enforcement.
   Impact: Misleads future debugging and design decisions precisely where phase 2 intentionally switched to parser-only validation for symmetry with gemini.
   Basis: direct_file_inspection. Confidence: high.
+  Resolved 2026-04-08 in commit `94520716`: swept 5 files (findings-schema.json description, envelope_invariants.py docstring, parse-codex.py docstring, test_envelope_invariants.py docstring, envelope-format.md Overview + SSOT-pointer block) to describe the new parser-layer-symmetric enforcement model accurately. Added an explicit note in envelope-format.md explaining the asymmetric-era history and pointing to BUG-08-003 / TPR-04-003-codex for the decision trail. Historical plan files (section-01/02/03) are NOT updated — they remain historical records of the state at the time each section was completed.
 
-- [ ] `[TPR-04-001-gemini][medium]` `.claude/hooks/block-banned-commands.sh:78` — Fix regex bypass for quoted environment variables with spaces.
+- [x] `[TPR-04-001-gemini][medium]` `.claude/hooks/block-banned-commands.sh:78` — Fix regex bypass for quoted environment variables with spaces.
   Evidence: The `REVIEW_CMD_RE` regex uses `([[:alnum:]_]+=[^[:space:]]*[[:space:]]+)*` to match env-var prefixes. This fails when a value contains a space (e.g., `VAR="val with space" codex`), causing the regex to stop at the first space and miss the subsequent codex/gemini command, bypassing the timeout gate.
   Impact: A user or malicious script could bypass the review timeout enforcement by using quoted environment variables with spaces, potentially leading to reviews being killed mid-stream. This is a latent hole in BUG-08-001's fix that the 27-test verification suite didn't catch because no test used quoted env vars with spaces.
   Basis: direct_file_inspection. Confidence: high.
+  Resolved 2026-04-08 in commit `a91af1b6`: replaced the env-var value pattern `[^[:space:]]*` with an alternation `("[^"]*"|'[^']*'|[^[:space:]]*)` that accepts double-quoted, single-quoted, or unquoted values. Quoted alternatives come first so a leading `"` or `'` is interpreted as a quoted value. The regex is now constructed from named fragments (`ENV_IDENT`, `ENV_VAL`, `ENV_PREFIX`) for readability. Added 4 new verify-hook.sh test cases pinning each form; 31/31 hook tests pass (was 27/27).
 
-- [ ] `[TPR-04-002-gemini][low]` `.claude/skills/dual-tpr/scripts/dual-invoke.sh:105` — Subshell success masks command failure in wait return code.
+- [x] `[TPR-04-002-gemini][low]` `.claude/skills/dual-tpr/scripts/dual-invoke.sh:105` — Subshell success masks command failure in wait return code.
   Evidence: Inside each reviewer subshell, `set +e` is used followed by several echo commands. The subshell's overall exit code (captured by `wait`) will be 0 if the last echo succeeds, regardless of whether the codex/gemini command failed. The parent script correctly falls back to reading the `.exit` file, but the `wait` RC is misleading.
   Impact: Reduces the diagnostic utility of the `wait` return code, making the system entirely dependent on the presence and integrity of the `.exit` file on disk. Defense-in-depth is weakened — if both paths agreed, a corrupted `.exit` file would be detectable.
   Basis: direct_file_inspection. Confidence: high.
+  Resolved 2026-04-08 in commit `8684534f`: each subshell now explicitly `exit "$CODEX_RC"` / `exit "$GEMINI_RC"` as its last statement so the `wait` RC in the parent matches the real exit code. The parent's fallback-to-.exit-file logic is retained as a second defense layer (redundant but valuable if a child is killed before its final exit runs).
 
 - [x] `[TPR-04-003-gemini][high]` `.claude/skills/dual-tpr/scripts/dual-invoke-with-retry.sh:91` — Verify terminal failure classification for dirty worktree.
   Evidence: Commit `f092445f` correctly fixed BUG-08-002 where retries laundered dirty worktree failures. The `is_terminal_failure` classifier (BUG-08-006) now correctly includes `dirty_worktree`, preventing the retry loop from ever snapshotting a dirty state created by a previous attempt.
