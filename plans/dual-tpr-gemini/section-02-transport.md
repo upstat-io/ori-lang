@@ -14,6 +14,7 @@ success_criteria:
   - "Infra retry logic implements 3 retries per reviewer per round with exponential backoff (1s, 2s, 4s); retry count is SEPARATE from semantic iteration count (verified by fault injection test)"
   - "transport-tests.sh runs the full test suite in a single command, reports pass/fail per concern, and exits non-zero if any test fails"
   - "All scripts handle the failure taxonomy explicitly: launch fail, timeout, nonzero exit, parse fail, schema violation, missing terminator, dirty worktree (each is a distinct exit code or error message that the orchestrator can branch on)"
+  - "`dual-invoke.sh --schema` became OPTIONAL on 2026-04-08 via the §07.0 cross-section touch (see `plans/dual-tpr-gemini/section-07-tp-help.md` §07.0 for rationale). The variable was already dead code inside `dual-invoke.sh` after BUG-08-003 removed `--output-schema` passthrough; the §07.0 edit removed the mandatory-flag check at line 40 so concat-mode consumers (`/tp-help`) can reuse the same launcher without a sibling script. Existing callers that pass `--schema` continue to work unchanged (backward compatible)."
 inspired_by:
   - ".claude/skills/tpr-review/SKILL.md lines 125-165 — existing single-source codex invocation pattern (background bash + JSONL parse) which the dual launcher generalizes"
   - ".claude/skills/tp-help/SKILL.md lines 69-96 — existing tp-help pattern (write prompt to file, codex exec, parse agent_message)"
@@ -85,6 +86,8 @@ sections:
 ## 02.1 Foundation scripts (scratch dir helper + dual reviewer launcher)
 
 **File(s):** `.claude/skills/dual-tpr/scripts/scratch-dir.sh` (new), `.claude/skills/dual-tpr/scripts/dual-invoke.sh` (new)
+
+**NOTE (2026-04-08, post-completion amendment via §07.0 cross-section touch):** The `dual-invoke.sh` `--schema` flag was made OPTIONAL on 2026-04-08 after §07's pre-implementation review discovered the variable was dead code inside the script (BUG-08-003 phase 2 removed the `--output-schema` passthrough to codex, but the mandatory-flag check at line 40 was left in place). §07.0 removes the mandatory check so concat-mode consumers (`/tp-help`) can reuse the launcher without a sibling script. Existing callers that pass `--schema` continue to work unchanged. See `plans/dual-tpr-gemini/section-07-tp-help.md` §07.0 for the full rationale. This amendment does not affect §02's `status: complete` — the transport primitives are still done; the amendment is a metadata correction that §07's work surfaced.
 
 **Context:** This subsection creates the foundation scripts that every wrapper invokes at the start of a review round. `scratch-dir.sh` returns a per-run scratch directory path on stdout (replacing the fixed-path pattern that races on concurrent invocations). `dual-invoke.sh` launches both codex and gemini in parallel via background bash and blocks until both complete.
 
