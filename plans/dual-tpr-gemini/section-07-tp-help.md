@@ -31,7 +31,7 @@ sections:
     status: complete
   - id: "07.0"
     title: "Cross-section touch: make `dual-invoke.sh --schema` optional (updates §02 plan and script)"
-    status: not-started
+    status: complete
   - id: "07.1"
     title: "Consolidate .claude/commands/tp-help.md with .claude/skills/tp-help/SKILL.md (R10)"
     status: not-started
@@ -170,14 +170,14 @@ This §07.0 subsection is the dedicated place where the cross-section touch happ
 
 Tasks:
 
-- [ ] **Modify `.claude/skills/dual-tpr/scripts/dual-invoke.sh`** to make `--schema` optional:
+- [x] **Modify `.claude/skills/dual-tpr/scripts/dual-invoke.sh`** to make `--schema` optional:
   1. Leave `SCHEMA=""` initialization at line 28 (preserves arg-parse symmetry for backward-compatible callers).
   2. Leave the `--schema)` case at line 35 (backward-compatible — existing callers still parse their arg).
   3. Edit the required-flag check at line 40: **remove `|| -z "$SCHEMA"`** from the `[[ ... ]]` expression and update the usage string to `usage: dual-invoke.sh --run DIR --skill NAME --codex-prompt FILE --gemini-prompt FILE [--schema FILE]` (square brackets indicate optional).
   4. Add a 2-line comment block immediately above the check explaining why `--schema` is optional (BUG-08-003 removed `--output-schema` passthrough; the flag is preserved for caller-signature backward compatibility but is not consumed).
   5. Run `bash -n .claude/skills/dual-tpr/scripts/dual-invoke.sh` to verify syntax.
 
-- [ ] **Verify backward compatibility — 4-cell test matrix**. The schema-optional change is a flag-parsing contract change; backward compat requires ALL of the following cells pass. Add the matrix to `transport-tests.sh` (as a new `--test-only schema_optional` category) so the regression is permanent, not a one-shot manual check:
+- [x] **Verify backward compatibility — 4-cell test matrix**. The schema-optional change is a flag-parsing contract change; backward compat requires ALL of the following cells pass. Add the matrix to `transport-tests.sh` (as a new `--test-only schema_optional` category) so the regression is permanent, not a one-shot manual check:
   ```bash
   # Cell 1 — old caller path: --schema FILE present, must still parse and reach launch
   bash -n .claude/skills/dual-tpr/scripts/dual-invoke.sh
@@ -208,29 +208,29 @@ Tasks:
   ```
   These 4 cells together pin: (a) backward compat for old callers, (b) forward compat for concat-mode callers, (c) round.log content invariant, (d) wrapper-script contract preserved. Add them as a permanent test category in `transport-tests.sh`. **Failing tests first** (per CLAUDE.md TDD): if Cell 2 passes BEFORE the line-40 edit lands, the precondition is wrong — investigate. The expected pre-edit state is Cell 1 PASS, Cell 2 FAIL (with the explicit `usage:` error), Cell 3 PASS (vacuously — `--schema` is in the usage error not round.log), Cell 4 PASS. Post-edit: all 4 PASS.
 
-- [ ] **Confirm §02 precondition (plan-sync edits were applied during the pre-implementation review on 2026-04-08).** This is a PRECONDITION CHECK — not a verify-then-re-apply loop. At §07.0 implementation time, read §02's frontmatter and body ONCE and confirm the three preconditions hold. If any precondition fails, STOP and escalate to the user (do NOT silently re-apply — those edits were already reviewed and a mismatch signals something went wrong between the review and implementation):
+- [x] **Confirm §02 precondition (plan-sync edits were applied during the pre-implementation review on 2026-04-08).** This is a PRECONDITION CHECK — not a verify-then-re-apply loop. At §07.0 implementation time, read §02's frontmatter and body ONCE and confirm the three preconditions hold. If any precondition fails, STOP and escalate to the user (do NOT silently re-apply — those edits were already reviewed and a mismatch signals something went wrong between the review and implementation):
   1. The `success_criteria` block contains a criterion describing the `--schema` optional contract.
   2. §02.1's body has a "NOTE (2026-04-08...)" amendment near the top referencing this §07.0 touch.
   3. §02's `status: complete` is preserved (the amendment is a metadata correction, not a reopening).
 
   If the preconditions hold (expected case), check this task off and proceed. If they do NOT hold, escalate: something in the plan drifted between the review and §07.0 implementation — use `AskUserQuestion` to report the drift and get a decision before proceeding.
 
-- [ ] **Confirm §08 precondition (the §08.2 downgrade is still present).** Same pattern — precondition check, not verify-then-reapply:
+- [x] **Confirm §08 precondition (the §08.2 downgrade is still present).** NOTE (2026-04-08): precondition check found a minor drift — §08.2's frontmatter `sections:` entry title at line 26 still said "Wire ORI_TPR_REVIEWERS runtime toggle" while the §08.2 body header at line 124 correctly said "Verify ORI_TPR_REVIEWERS runtime toggle + merger single-reviewer case". Agent 3 updated the body header during the pre-implementation review but missed the frontmatter entry in the same pass. Fixed inline as part of §07.0's cross-section touch (with user approval via AskUserQuestion). No escalation needed — the drift was a trivial miss, not a "review vs implementation" semantic divergence. Same pattern — precondition check, not verify-then-reapply:
   1. §08.2's title is "Verify ORI_TPR_REVIEWERS runtime toggle + merger single-reviewer case" (not "Wire ORI_TPR_REVIEWERS runtime toggle").
   2. §08.2's context block contains the "Wiring-scope update (2026-04-08, via §07.0 cross-section touch)" note.
   3. §08.2's task list has `dual-invoke.sh` verification tasks (NOT implementation tasks) and retains the `merge-findings.py` single-reviewer update.
 
   If any precondition fails, escalate via `AskUserQuestion`. Do not silently re-apply.
 
-- [ ] **Subsection close-out (07.0)** — MANDATORY before starting 07.1:
-  - [ ] `dual-invoke.sh` `--schema` is optional; `bash -n` passes
-  - [ ] `transport-tests.sh --test-only schema_optional` passes all 4 cells (old caller path with `--schema`, new caller path without, round.log invariant, retry-wrapper contract)
-  - [ ] §02's plan frontmatter and §02.1 task list updated
-  - [ ] §08.2's plan task list updated
-  - [ ] Update this subsection's `status` to `complete`
-  - [ ] Run `/improve-tooling` retrospectively — address TWO concrete items:
-    1. **`lint-transport-contract.sh` for dead script args.** The §02 transport plan said "schema required" at a time when the schema was genuinely validated by codex's Structured Outputs API. BUG-08-003 made it dead code, and nothing detected the drift for multiple sections. Implement a tiny bash-static-analysis linter at `.claude/skills/dual-tpr/scripts/lint-transport-contract.sh` that: (a) parses `dual-invoke.sh` + `dual-invoke-with-retry.sh` arg declarations (the `--xxx)` case statements), (b) greps the body for references to each arg variable, (c) flags any arg whose variable is assigned but never referenced outside the assignment + required-flag check. **Trigger to implement NOW (not defer)**: the $SCHEMA dead-code drift went undetected for 2+ sections — this is exactly the class of bug a dead-arg linter catches. Per "ALWAYS improve tooling", the linter IS the work. File and implement inside §07.0's retrospective slot.
-    2. **`dual-invoke.sh` line count.** §02 has a "each script ≤ 100 lines target" style rule (§02.1 line 103). `dual-invoke.sh` is currently 170 lines and §07.0 + §07.2 add ~15 more (ORI_TPR_REVIEWERS wiring, optional schema comment). The 100-line target was retrospectively accepted to drift by §02.4's retrospective (see §02.4 line 886). Re-evaluate at §07.0 close-out: if the script has grown past 190 lines with no clean extraction candidate, formally UPDATE the §02 style-rule target to 200 lines (with rationale: the concurrency fixes from BUG-08-004/005 + TPR-04-002-gemini + the ORI_TPR_REVIEWERS wiring are all load-bearing and cannot be extracted without adding an indirection layer that the retrospectives have already rejected). Alternatively, extract a `reviewer-launch.sh` helper that encapsulates the per-reviewer subshell + trap + wait pattern (one helper, called twice with `codex` / `gemini` arguments). The extraction is a medium-size refactor; do not attempt it during §07.0 unless the retrospective explicitly decides to. Record the decision either way.
+- [x] **Subsection close-out (07.0)** — MANDATORY before starting 07.1:
+  - [x] `dual-invoke.sh` `--schema` is optional; `bash -n` passes (verified after edit)
+  - [x] `transport-tests.sh --test-only schema_optional` passes all 4 cells (old caller path with `--schema`, new caller path without, round.log invariant, retry-wrapper contract). Full suite 23/23 PASS, no regressions.
+  - [x] §02's plan frontmatter (schema-optional success criterion) and §02.1 body (NOTE block) confirmed present from Agent 2's pre-implementation review; precondition check PASS.
+  - [x] §08.2's task list downgrade confirmed; §08.2 frontmatter subsection title drift fixed inline.
+  - [x] Update this subsection's `status` to `complete`
+  - [x] Run `/improve-tooling` retrospectively — addressed TWO concrete items:
+    1. **[IMPLEMENTED 2026-04-08]** **`lint-transport-contract.sh` for dead script args.** Created `.claude/skills/dual-tpr/scripts/lint-transport-contract.sh` (113 lines) — a static dead-arg linter that parses `case "$1" in --xxx) VAR=...` patterns from transport scripts, strips comments via `sed 's/#.*$//'` (critical — prose mentions of `$VAR` in comment blocks would otherwise hide a truly dead variable, as almost happened during §07.0's own implementation), and reports each arg as LIVE, KNOWN-DEAD (with `# lint-transport-contract: known-dead <reason>` annotation), or DEAD (UNANNOTATED). Supports `--check` mode for CI enforcement. First run correctly identified `$SCHEMA` as DEAD in `dual-invoke.sh` — the linter immediately validated its own purpose by catching the exact bug class that inspired it. Annotated `--schema)` in `dual-invoke.sh` with `# lint-transport-contract: known-dead BUG-08-003 (--output-schema removed, flag kept for caller backward compat)`. `dual-invoke-with-retry.sh` uses a for-loop arg-parse pattern the linter does not recognize; it prints `(no case-pattern args found — scanner does not cover this script)` transparently so the coverage limitation is visible. Future transport scripts that use the recognized pattern get automatic coverage. The §02 transport plan said "schema required" at a time when the schema was genuinely validated by codex's Structured Outputs API. BUG-08-003 made it dead code, and nothing detected the drift for multiple sections. Implement a tiny bash-static-analysis linter at `.claude/skills/dual-tpr/scripts/lint-transport-contract.sh` that: (a) parses `dual-invoke.sh` + `dual-invoke-with-retry.sh` arg declarations (the `--xxx)` case statements), (b) greps the body for references to each arg variable, (c) flags any arg whose variable is assigned but never referenced outside the assignment + required-flag check. **Trigger to implement NOW (not defer)**: the $SCHEMA dead-code drift went undetected for 2+ sections — this is exactly the class of bug a dead-arg linter catches. Per "ALWAYS improve tooling", the linter IS the work. File and implement inside §07.0's retrospective slot.
+    2. **[DECIDED 2026-04-08 — update §02 style rule]** **`dual-invoke.sh` line count.** §02 has a "each script ≤ 100 lines target" style rule (§02.1 line 103). `dual-invoke.sh` is currently 170 lines and §07.0 + §07.2 add ~15 more (ORI_TPR_REVIEWERS wiring, optional schema comment). The 100-line target was retrospectively accepted to drift by §02.4's retrospective (see §02.4 line 886). Re-evaluate at §07.0 close-out: if the script has grown past 190 lines with no clean extraction candidate, formally UPDATE the §02 style-rule target to 200 lines (with rationale: the concurrency fixes from BUG-08-004/005 + TPR-04-002-gemini + the ORI_TPR_REVIEWERS wiring are all load-bearing and cannot be extracted without adding an indirection layer that the retrospectives have already rejected). Alternatively, extract a `reviewer-launch.sh` helper that encapsulates the per-reviewer subshell + trap + wait pattern (one helper, called twice with `codex` / `gemini` arguments). The extraction is a medium-size refactor; do not attempt it during §07.0 unless the retrospective explicitly decides to. Record the decision either way.
 
 ---
 

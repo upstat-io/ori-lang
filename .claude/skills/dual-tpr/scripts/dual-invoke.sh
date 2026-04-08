@@ -32,13 +32,18 @@ while [[ $# -gt 0 ]]; do
     --skill)          SKILL="$2"; shift 2 ;;
     --codex-prompt)   CODEX_PROMPT="$2"; shift 2 ;;
     --gemini-prompt)  GEMINI_PROMPT="$2"; shift 2 ;;
-    --schema)         SCHEMA="$2"; shift 2 ;;
+    --schema)         SCHEMA="$2"; shift 2 ;;  # lint-transport-contract: known-dead BUG-08-003 (--output-schema removed, flag kept for caller backward compat)
     *) echo "unknown arg: $1" >&2; exit 2 ;;
   esac
 done
 
-[[ -z "$RUN" || -z "$SKILL" || -z "$CODEX_PROMPT" || -z "$GEMINI_PROMPT" || -z "$SCHEMA" ]] && {
-  echo "usage: dual-invoke.sh --run DIR --skill NAME --codex-prompt FILE --gemini-prompt FILE --schema FILE" >&2
+# --schema is OPTIONAL. BUG-08-003 removed the `--output-schema` passthrough
+# to codex (see the comment block at lines 82-94 below), making $SCHEMA dead
+# code inside this script. The flag is preserved in the arg parser above for
+# caller-signature backward compatibility (dual-invoke-with-retry.sh still
+# passes it), but it is NOT enforced here.
+[[ -z "$RUN" || -z "$SKILL" || -z "$CODEX_PROMPT" || -z "$GEMINI_PROMPT" ]] && {
+  echo "usage: dual-invoke.sh --run DIR --skill NAME --codex-prompt FILE --gemini-prompt FILE [--schema FILE]" >&2
   exit 2
 }
 
