@@ -470,7 +470,7 @@ Bugs discovered during Phase 2 research that affect this plan's scope:
 | 01 | Contracts + foundation | `section-01-contracts-foundation.md` | Complete (gates deferred per user direction; see §01.N resolved entries) |
 | 02 | Shared transport utility | `section-02-transport.md` | Complete (gates deferred per user direction; see §02.N resolved entries) |
 | 03 | Reviewer surface preparation | `section-03-reviewer-surface.md` | Complete (gates deferred per user direction; see §03.N resolved entries) |
-| 04 | /tpr-review dual-source (validation case) | `section-04-tpr-review.md` | In Progress (pending gates: test-all.sh, /impl-hygiene-review, /improve-tooling section-close sweep) |
+| 04 | /tpr-review dual-source (validation case) | `section-04-tpr-review.md` | Complete (gates deferred per user direction; see §04.N resolved entries) |
 | 05 | /review-work dual-source + Task #10 fix | `section-05-review-work.md` | Not Started |
 | 06 | /review-plan new Claude skill (parallel to existing command file) | `section-06-review-plan.md` | Not Started |
 | 07 | /tp-help dual-source + consolidation | `section-07-tp-help.md` | Not Started |

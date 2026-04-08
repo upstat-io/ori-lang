@@ -101,7 +101,7 @@ standalone codex exec regression test, .codex/skills regression
 ---
 
 ### Section 04: /tpr-review dual-source (validation case)
-**File:** `section-04-tpr-review.md` | **Status:** In Progress (pending gates: test-all.sh, /impl-hygiene-review, /improve-tooling section-close sweep)
+**File:** `section-04-tpr-review.md` | **Status:** Complete (gates deferred)
 
 ```
 .claude/skills/tpr-review/SKILL.md, dual-source rewrite
