@@ -62,7 +62,24 @@ Review the changes and create a commit message following conventional commit for
 
 **Otherwise (default):** Skip directly to Step 4 — no confirmation needed.
 
-### Step 4: Commit Main Changes
+### Step 4: Pre-Format (fixes the restaging issue)
+
+**Run `./fmt-all.sh` BEFORE staging.** This formats every file in the tree so the formatter's output is captured in the snapshot you're about to stage — NOT produced as a side-effect after staging.
+
+```bash
+./fmt-all.sh
+```
+
+**Why this ordering matters:** Lefthook's pre-commit `fmt` step also runs `fmt-all.sh` with `stage_fixed: true`, but `stage_fixed` only restages files that were *already* in the index at the moment the hook fired. Any files the formatter touches that weren't intentionally staged get left as unstaged dirt in the working tree *post-commit* — the "restaging issue." Running `fmt-all.sh` here, before `git add`, means:
+
+1. All formatter changes (on our target files AND any incidental fixes elsewhere) land in the working tree first
+2. `git add -A` then stages a fully-formatted snapshot
+3. Lefthook's `fmt` step becomes a no-op (idempotent — nothing left to fix)
+4. The commit lands with a clean working tree — no post-commit dirt to chase
+
+`fmt-all.sh` is fast on an already-formatted tree (`cargo fmt --check` short-circuits) and harmless when there's nothing to fix, so running it unconditionally is cheap insurance.
+
+### Step 5: Stage and Commit
 
 ```bash
 git add -A
@@ -72,7 +89,25 @@ EOF
 )"
 ```
 
-### Step 5: Push
+### Step 6: Post-Commit Dirty-Tree Check
+
+After the commit lands, verify the working tree is clean:
+
+```bash
+git status --short
+```
+
+**If the output is empty**, proceed to push.
+
+**If the output is non-empty**, the pre-commit hook's later steps (`full-check`, `version-sync`) or some other process modified files after staging. STOP and report:
+
+- What's dirty (`git status --short`)
+- Possible causes: (1) a hook step modified files unexpectedly, (2) an untracked file was never staged, (3) a file changed between `git add -A` and `git commit`
+- Ask the user how to resolve: follow-up commit, stash, or discard. Do NOT auto-amend (per CLAUDE.md: always create NEW commits rather than amending).
+
+Only proceed to Step 7 if the tree is clean.
+
+### Step 7: Push
 
 ```bash
 git push
@@ -89,8 +124,10 @@ Before completing, verify:
 - [ ] `git status` was checked (Step 1)
 - [ ] Commit message follows conventional format (Step 2)
 - [ ] If preview mode: user confirmed before committing (Step 3)
-- [ ] Main changes committed (Step 4)
-- [ ] Changes pushed (Step 5)
+- [ ] `./fmt-all.sh` ran BEFORE staging (Step 4 — prevents post-commit dirt)
+- [ ] Main changes staged + committed (Step 5)
+- [ ] Post-commit dirty-tree check passed (Step 6)
+- [ ] Changes pushed (Step 7)
 
 ---
 
