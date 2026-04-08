@@ -11,6 +11,12 @@
 #
 #   ok          Emit a valid no-findings envelope wrapped in BEGIN/END
 #               sentinels and a fenced JSON block. Exit 0.
+#   slow-ok     Like ok, but sleep STUB_GEMINI_SLEEP seconds (default 3) before
+#               emitting. Used to verify dual-invoke.sh's wait-for-both contract:
+#               if codex fails fast and dual-invoke.sh fails to wait for gemini,
+#               gemini.exit will be missing because the orphaned subprocess
+#               wrote it after the parent gave up. Used by Scenario 5
+#               (BUG-08-004 + BUG-08-005 regression).
 #   fail-once   First call: write counter, exit 1. Second+ calls: succeed.
 #   dirty       Append to dirty-target.txt then emit envelope. Exit 0.
 #   always-fail Exit 1 every call.
@@ -40,6 +46,9 @@ case "$MODE" in
     fi
     ;;
   ok)
+    ;;
+  slow-ok)
+    sleep "${STUB_GEMINI_SLEEP:-3}"
     ;;
   *)
     printf 'stub-gemini: unknown STUB_GEMINI_MODE=%s\n' "$MODE" >&2

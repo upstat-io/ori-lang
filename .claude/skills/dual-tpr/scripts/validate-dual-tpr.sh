@@ -268,6 +268,107 @@ rm -f "$DIRTY_BACKUP"
 
 say ""
 
+# ── Scenario 5: subshell exit-code capture + orphan prevention ───────
+#
+# Setup: STUB_CODEX_MODE=always-fail makes codex deterministically exit 1.
+# STUB_GEMINI_MODE=slow-ok makes gemini sleep STUB_GEMINI_SLEEP seconds
+# (default 3) before successfully emitting its envelope and exiting 0.
+# We expect dual-invoke.sh to:
+#   1. Launch both reviewers in parallel
+#   2. Codex fails fast (~0s); without the BUG-08-004 fix, the subshell's
+#      `set -e` would abort before recording $RUN/codex.exit
+#   3. Without the BUG-08-005 fix, the parent script's `set -e` would
+#      abort `wait $CODEX_PID` and skip `wait $GEMINI_PID`, leaking gemini
+#      as an orphaned background process. With the fix, both waits run.
+#   4. After both waits return, dual-invoke.sh records both exit codes
+#      and exits non-zero (because codex failed)
+#   5. dual-invoke-with-retry.sh treats the non-zero exit as
+#      launch_or_exit_fail and retries 3 times, all failing the same way,
+#      then exits non-zero
+#
+# Verification (the regression-pinning assertions):
+#   - $RUN/codex.exit exists and contains "1"
+#       (proves BUG-08-004 fix: subshell wrote codex.exit even on failure)
+#   - $RUN/gemini.exit exists and contains "0"
+#       (proves BUG-08-005 fix: gemini was waited on, not orphaned)
+#   - $RUN/round.log contains "codex finished (rc=1)" entry
+#       (proves the subshell ran the trailing echo lines after the failure)
+#   - $RUN/round.log contains "gemini finished (rc=0)" entry
+#       (proves the gemini subshell ran to completion before the parent exited)
+
+say "── Scenario 5: subshell exit-code capture + orphan prevention ─"
+
+rm -f /tmp/stub-codex-state /tmp/stub-gemini-state
+
+RUN=$("$SCRIPT_DIR/scratch-dir.sh")
+RUNS_TO_CLEAN+=("$RUN")
+printf 'echo prompt\n' > "$RUN/codex.prompt.md"
+printf 'echo prompt\n' > "$RUN/gemini.prompt.md"
+
+# Use a single dual-invoke.sh call (not the retry wrapper) to test the
+# innermost subshell + wait behavior in isolation. The retry wrapper would
+# obscure the test by running 3 attempts and overwriting state files.
+PATH="$STUB_BIN:$PATH" \
+STUB_CODEX_MODE=always-fail \
+STUB_GEMINI_MODE=slow-ok \
+STUB_GEMINI_SLEEP=2 \
+STUB_REPO_ROOT="$REPO_ROOT" \
+"$SCRIPT_DIR/dual-invoke.sh" \
+  --run "$RUN" \
+  --skill review-work \
+  --codex-prompt "$RUN/codex.prompt.md" \
+  --gemini-prompt "$RUN/gemini.prompt.md" \
+  --schema "$SCHEMA" \
+  >/dev/null 2>&1
+S5_EXIT=$?
+
+if [[ $S5_EXIT -ne 0 ]]; then
+  pass_test "dual-invoke exits non-zero when codex fails"
+else
+  fail_test "dual-invoke exits non-zero when codex fails" \
+    "expected exit != 0, got $S5_EXIT"
+fi
+
+# BUG-08-004: codex.exit must exist with the captured exit code, not be
+# missing because the subshell aborted on `set -e`.
+if [[ -f "$RUN/codex.exit" ]] && [[ "$(cat "$RUN/codex.exit")" == "1" ]]; then
+  pass_test "codex.exit captured even on fast failure (BUG-08-004)"
+else
+  fail_test "codex.exit captured even on fast failure (BUG-08-004)" \
+    "expected codex.exit=1, got: $(cat "$RUN/codex.exit" 2>/dev/null || echo MISSING)"
+fi
+
+# BUG-08-005: gemini.exit must exist with 0, proving gemini was waited on
+# to completion rather than orphaned when codex failed first.
+if [[ -f "$RUN/gemini.exit" ]] && [[ "$(cat "$RUN/gemini.exit")" == "0" ]]; then
+  pass_test "gemini.exit captured (gemini waited, not orphaned, BUG-08-005)"
+else
+  fail_test "gemini.exit captured (gemini waited, not orphaned, BUG-08-005)" \
+    "expected gemini.exit=0, got: $(cat "$RUN/gemini.exit" 2>/dev/null || echo MISSING)"
+fi
+
+# BUG-08-004: round.log "codex finished" entry must be present, proving
+# the subshell ran past the failed `codex exec` line to its trailing echo.
+if grep -q 'codex finished (rc=1)' "$RUN/round.log" 2>/dev/null; then
+  pass_test "round.log records codex finished line after failure"
+else
+  fail_test "round.log records codex finished line after failure" \
+    "missing 'codex finished (rc=1)' in $RUN/round.log"
+fi
+
+# BUG-08-005: round.log "gemini finished" entry must be present, proving
+# the gemini subshell ran fully (not killed mid-run by the parent exiting).
+if grep -q 'gemini finished (rc=0)' "$RUN/round.log" 2>/dev/null; then
+  pass_test "round.log records gemini finished line"
+else
+  fail_test "round.log records gemini finished line" \
+    "missing 'gemini finished (rc=0)' in $RUN/round.log"
+fi
+
+rm -f /tmp/stub-codex-state /tmp/stub-gemini-state
+
+say ""
+
 # ── Cleanup ──────────────────────────────────────────────────────────
 if (( ! KEEP_RUNS )); then
   for run in "${RUNS_TO_CLEAN[@]}"; do
