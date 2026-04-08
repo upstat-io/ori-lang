@@ -1,10 +1,12 @@
 #!/usr/bin/env bash
 # Stub `codex` binary for dual-tpr Section 04.3 validation tests.
 #
-# Mimics the wire surface of `codex exec --full-auto --json --output-schema $S
-# --ephemeral $PROMPT` from .claude/skills/dual-tpr/scripts/dual-invoke.sh:50,
-# but ignores all CLI args and emits a synthetic JSONL stream conforming to
-# the codex parser at .claude/skills/dual-tpr/scripts/parse-codex.py.
+# Mimics the wire surface of `codex exec --full-auto --json --ephemeral
+# $PROMPT` from .claude/skills/dual-tpr/scripts/dual-invoke.sh (post
+# BUG-08-003 phase 2, which removed --output-schema from the codex
+# invocation). The stub ignores all CLI args and emits a synthetic
+# JSONL stream conforming to the codex parser at
+# .claude/skills/dual-tpr/scripts/parse-codex.py.
 #
 # Mode is read from STUB_CODEX_MODE (default: ok):
 #
@@ -98,8 +100,10 @@ esac
 
 # Emit a valid no-findings envelope in the codex JSONL wire format.
 # The envelope JSON is embedded as a JSON-encoded string inside
-# agent_message.text — this matches what real codex emits when invoked with
-# --output-schema findings-schema.json.
+# agent_message.text — this matches what real codex emits when invoked
+# with --json (the --output-schema flag was removed in BUG-08-003 phase 2,
+# commit a5a2753f, so envelope validation now happens in parse-codex.py
+# rather than at the OpenAI Structured Outputs boundary).
 cat <<'JSONL'
 {"type": "turn.started"}
 {"type": "item.completed", "item": {"type": "agent_message", "text": "{\"schema_version\":\"1.0\",\"status\":\"complete\",\"reviewer\":\"codex\",\"skill\":\"tpr-review\",\"scope_actually_reviewed\":{\"git_range\":null,\"files_read\":[],\"rules_consulted\":[],\"specs_consulted\":[],\"plans_consulted\":[],\"expanded_beyond_packet\":false},\"findings\":[],\"verification\":{\"tests_rerun\":[],\"diagnostics_run\":[],\"verification_gaps\":[]},\"no_findings\":true}"}}
