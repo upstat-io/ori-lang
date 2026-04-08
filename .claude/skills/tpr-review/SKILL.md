@@ -212,7 +212,6 @@ Bash (run_in_background: true):
     --codex-prompt "$RUN/codex.prompt.md" \
     --gemini-prompt "$RUN/gemini.prompt.md" \
     --schema .claude/skills/dual-tpr/findings-schema.json
-  echo "transport_exit=$?"
 ```
 
 **DO NOT:**
@@ -220,8 +219,9 @@ Bash (run_in_background: true):
 - Set a `timeout:` parameter on the Bash call.
 - Wrap the transport in an Agent subagent — the subagent cannot itself be backgrounded, so it reintroduces the foreground cap.
 - Poll `$RUN/*.jsonl` or `$RUN/*.envelope.json` in a sleep loop — wait for the completion notification.
+- Add a trailing `echo "transport_exit=$?"` (or any other trailing command). The bash script's overall exit code is the exit code of the LAST executed command — a trailing echo ALWAYS exits 0 and masks the transport's real failure (BUG-08-007). The task notification's reported exit code is the source of truth.
 
-After launching, continue with other work or wait idle. You will receive a completion notification when the background task finishes.
+After launching, continue with other work or wait idle. You will receive a completion notification when the background task finishes. **The notification's exit code is authoritative** — the transport exits 0 on success, non-zero with `infra_retries_exhausted: <category>` on failure. Do not infer success from the absence of an error in stdout; check the notification's exit code.
 
 ### 4. On success: merge both envelopes
 
