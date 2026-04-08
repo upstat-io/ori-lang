@@ -1,7 +1,7 @@
 ---
 section: "03"
 title: "Reviewer surface preparation"
-status: not-started
+status: in-progress
 reviewed: true
 goal: "Extract the reviewer-agnostic command file, add plan-write/envelope-only execution mode branches to the codex review-work and review-plan skills, and create the gemini review-work and review-plan skills with grounding directive and explicit activation convention. Prepares the reviewer surfaces so Section 04's /tpr-review rewrite can invoke both reviewers uniformly."
 success_criteria:
@@ -24,7 +24,7 @@ third_party_review:
 sections:
   - id: "03.1"
     title: "Extract shared reviewer-agnostic command file"
-    status: not-started
+    status: complete
   - id: "03.2"
     title: "Add plan-write/envelope-only mode branches to codex skills"
     status: not-started
@@ -41,7 +41,7 @@ sections:
 
 # Section 03: Reviewer surface preparation
 
-**Status:** Not Started
+**Status:** In Progress (03.1 complete; 03.2 and 03.3 pending)
 **Goal:** Prepare the reviewer-facing surfaces (codex skill mode switches + gemini skill creation + shared command file) so that Section 04's `/tpr-review` rewrite has a uniform contract to invoke both reviewers. This section does NOT invoke the reviewers — that's Section 04's job. It only prepares the skill files that the reviewers will load when invoked.
 
 **Success Criteria:**
@@ -88,9 +88,10 @@ Rules embedded inline:
 
 Tasks:
 
-- [ ] Read the full contents of `.codex/skills/review-work/SKILL.md` and `.codex/skills/review-plan/SKILL.md` to identify the reviewer-agnostic content that can be extracted.
+- [x] Read the full contents of `.codex/skills/review-work/SKILL.md` and `.codex/skills/review-plan/SKILL.md` to identify the reviewer-agnostic content that can be extracted.
+  Resolved 2026-04-07: Read both files in full (review-work: 370 lines, review-plan: 270 lines). Identified reviewer-agnostic methodology common to both: Scope Inputs, Scope Resolution Order, Standards Packet (CLAUDE.md + .claude/rules/*.md), Deep Investigation Standard, Mandatory Standards Checks, Verification Standard / Verification Basis (4 basis types: fresh_verification, direct_file_inspection, git_history, inference), Finding Format, Review Boundaries. Skill-specific content correctly excluded: review-work's Output Pattern + bug-tracker subsystem mapping in Plan Update Rules, review-plan's "preserve `reviewed` frontmatter" rule and Plan Edit Rules around scope-down prohibitions, and the framing intro paragraphs.
 
-- [ ] Write `.claude/skills/dual-tpr/command-file.md` containing the shared methodology. Structure:
+- [x] Write `.claude/skills/dual-tpr/command-file.md` containing the shared methodology. Structure:
 
   ```markdown
   # Shared Reviewer Command File (reviewer-agnostic methodology)
@@ -231,25 +232,29 @@ Tasks:
     on directly
   ```
 
-- [ ] Verify the command file does NOT contain any codex-specific or gemini-specific content:
+- [x] Verify the command file does NOT contain any codex-specific or gemini-specific content:
   ```bash
   grep -i 'codex\|gemini\|--full-auto\|--output-schema\|google_web_search\|plan-write\|envelope-only' \
       .claude/skills/dual-tpr/command-file.md
   # Expected: no output (grep exits 1 if no match, 0 if match; we want 1)
   ```
+  Resolved 2026-04-07: Ran the grep — exit=1 (no match). Command file is clean of all 7 banned terms.
 
-- [ ] Verify the command file DOES contain the key reviewer-agnostic concepts:
+- [x] Verify the command file DOES contain the key reviewer-agnostic concepts:
   ```bash
   for concept in "Scope Resolution" "Evidence Gathering" "Deep Investigation" "Mandatory Standards" "Finding Format" "Verification Basis"; do
     grep -q "$concept" .claude/skills/dual-tpr/command-file.md && echo "OK: $concept" || echo "MISSING: $concept"
   done
   # Expected: 6 OK lines
   ```
+  Resolved 2026-04-07: All 6 concepts present — `OK: Scope Resolution`, `OK: Evidence Gathering`, `OK: Deep Investigation`, `OK: Mandatory Standards`, `OK: Finding Format`, `OK: Verification Basis`. Zero MISSING lines.
 
-- [ ] **Subsection close-out (03.1)** — MANDATORY before starting 03.2:
-  - [ ] Command file written, extracts the correct content, and passes the grep tests (no reviewer-specific content; all key concepts present)
-  - [ ] Update this subsection's `status` in section frontmatter to `complete`
-  - [ ] Run `/improve-tooling` retrospectively on THIS subsection — was the extraction process (reading two 300+ line files, identifying overlap, extracting shared content) tedious? Should there be a `diff-for-overlap.sh` helper that finds shared-but-slightly-different paragraphs across two markdown files? Would a `lint-command-file.sh` that runs the grep checks from above as a CI test catch future drift? Implement every accepted improvement NOW (zero deferral) and commit via separate `/commit-push` calls with `build(diagnostics): add ... — surfaced by dual-tpr-gemini/section-03.1 retrospective`. Do not skip the retrospective even if nothing felt painful.
+- [x] **Subsection close-out (03.1)** — MANDATORY before starting 03.2:
+  - [x] Command file written, extracts the correct content, and passes the grep tests (no reviewer-specific content; all key concepts present)
+  - [x] Update this subsection's `status` in section frontmatter to `complete`
+  - [x] Run `/improve-tooling` retrospectively on THIS subsection — was the extraction process (reading two 300+ line files, identifying overlap, extracting shared content) tedious? Should there be a `diff-for-overlap.sh` helper that finds shared-but-slightly-different paragraphs across two markdown files? Would a `lint-command-file.sh` that runs the grep checks from above as a CI test catch future drift? Implement every accepted improvement NOW (zero deferral) and commit via separate `/commit-push` calls with `build(diagnostics): add ... — surfaced by dual-tpr-gemini/section-03.1 retrospective`. Do not skip the retrospective even if nothing felt painful.
+
+  **Retrospective 03.1 — outcome:** Retrospective ran. One improvement accepted (`lint-command-file.sh` — permanent regression guard for the reviewer-agnostic invariants on `command-file.md`). Two candidates rejected as speculative (`diff-for-overlap.sh` for cross-file paragraph extraction; a broader `check-skill-extraction.sh` generalization). Full friction analysis, verdict table, and the implemented improvement are committed in the follow-up `build(diagnostics)` commit per the workflow rule that retrospective tooling improvements ship in separate commits from the subsection's main work.
 
 ---
 
