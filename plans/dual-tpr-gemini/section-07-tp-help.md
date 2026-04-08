@@ -34,7 +34,7 @@ sections:
     status: complete
   - id: "07.1"
     title: "Consolidate .claude/commands/tp-help.md with .claude/skills/tp-help/SKILL.md (R10)"
-    status: not-started
+    status: complete
   - id: "07.2"
     title: "Rewrite for dual-source concatenation mode (not findings envelope)"
     status: not-started
@@ -242,7 +242,7 @@ Tasks:
 
 Tasks:
 
-- [ ] **Re-verify the frozen baseline from §07.PRE is still intact at §07.1 start.** The baseline was captured in the Section-Entry Preflight (before §07.0), not here. Before any §07.1 file edits, run:
+- [x] **Re-verify the frozen baseline from §07.PRE is still intact at §07.1 start.** The baseline was captured in the Section-Entry Preflight (before §07.0), not here. Before any §07.1 file edits, run:
   ```bash
   current=$(git hash-object .claude/commands/review-plan.md)
   baseline=$(head -1 section-07-review-plan-baseline.sha1)
@@ -253,15 +253,15 @@ Tasks:
   ```
   If this fails, §07.0 accidentally touched `.claude/commands/review-plan.md`. Revert §07.0's edits immediately, investigate the root cause, and re-run §07.PRE before restarting.
 
-- [ ] Read both files in full to identify divergence points.
+- [x] Read both files in full to identify divergence points.
 
-- [ ] Update `.claude/skills/tp-help/SKILL.md` to be the canonical source. **This step is CONSOLIDATION ONLY — do NOT yet rewrite the workflow for dual-source. 07.2 handles the dual-source rewrite as a separate edit pass so any breakage in the consolidation can be diagnosed without confounding it with transport changes.**
+- [x] Update `.claude/skills/tp-help/SKILL.md` to be the canonical source. **This step is CONSOLIDATION ONLY — do NOT yet rewrite the workflow for dual-source. 07.2 handles the dual-source rewrite as a separate edit pass so any breakage in the consolidation can be diagnosed without confounding it with transport changes.**
   - Incorporate the aggressive auto-trigger documentation from the command file (concrete trigger conditions, example scenarios that MUST trigger auto-invoke)
   - Add explicit mention that this file is the canonical source for `/tp-help` workflow content
   - Preserve the existing single-source codex workflow verbatim — 07.2 rewrites it for dual-source
   - **Preserve valid frontmatter** in the new skill file: the YAML frontmatter MUST have at minimum `name:` and `description:` (the existing skill file already has both; Claude Code's skill loader requires both). Verify after the edit that the frontmatter is valid YAML and the loader accepts it (run `/tp-help` and confirm no frontmatter-parse error in stderr).
 
-- [ ] Rewrite `.claude/commands/tp-help.md` as a thin pointer. **The frontmatter MUST preserve all fields the Claude Code slash-command loader requires** — at minimum `description`, `allowed-tools`, and `argument-hint` (the existing command file has all three; a thin pointer that drops any of them may fail to register as a slash command). Do NOT drop the `name` field — keep it for parity with the existing file even though the loader may infer it from the filename. Suggested thin-pointer shape:
+- [x] Rewrite `.claude/commands/tp-help.md` as a thin pointer. **The frontmatter MUST preserve all fields the Claude Code slash-command loader requires** — at minimum `description`, `allowed-tools`, and `argument-hint` (the existing command file has all three; a thin pointer that drops any of them may fail to register as a slash command). Do NOT drop the `name` field — keep it for parity with the existing file even though the loader may infer it from the filename. Suggested thin-pointer shape:
   ```markdown
   ---
   name: tp-help
@@ -283,13 +283,13 @@ Tasks:
   - Failure handling
   ```
 
-- [ ] Verify R10 is resolved: grep for any divergent implementation content between the two files. There should be no operational detail duplicated — only the thin pointer in `commands/tp-help.md` and the canonical implementation in `skills/tp-help/SKILL.md`.
+- [x] Verify R10 is resolved: grep for any divergent implementation content between the two files. There should be no operational detail duplicated — only the thin pointer in `commands/tp-help.md` and the canonical implementation in `skills/tp-help/SKILL.md`.
   ```bash
   wc -l .claude/commands/tp-help.md .claude/skills/tp-help/SKILL.md
   # Expected: commands/tp-help.md is ~25 lines (thin pointer), skills/tp-help/SKILL.md is the canonical source
   ```
 
-- [ ] **Post-consolidation smoke test matrix (before 07.2's dual-source rewrite)**: the thin-pointer rewrite can break `/tp-help` dispatch independently of any transport changes, so we MUST verify the consolidation is wired correctly BEFORE 07.2 changes the output format. The matrix dimensions are: (invocation style) × (caller path) × (frontmatter validation). Cells 1-2 are direct invocations exercising shell-escaping paths; cells 3-5 are dispatch-only grep checks for the THREE downstream callers (impl-hygiene-review, review-plan command file, create-plan); cell 6 is YAML frontmatter validation. Cells 3-5 are intentionally DISPATCH-ONLY (not full skill runs) to avoid 30-90 min wall time and avoid the write side effects of running `/impl-hygiene-review` / `/review-plan` / `/create-plan` inside §07.1. Full REAL integration runs happen in §07.3 with disposable-target + cleanup discipline. Run ALL of the following and require every cell to pass:
+- [x] **Post-consolidation smoke test matrix (before 07.2's dual-source rewrite)**: the thin-pointer rewrite can break `/tp-help` dispatch independently of any transport changes, so we MUST verify the consolidation is wired correctly BEFORE 07.2 changes the output format. The matrix dimensions are: (invocation style) × (caller path) × (frontmatter validation). Cells 1-2 are direct invocations exercising shell-escaping paths; cells 3-5 are dispatch-only grep checks for the THREE downstream callers (impl-hygiene-review, review-plan command file, create-plan); cell 6 is YAML frontmatter validation. Cells 3-5 are intentionally DISPATCH-ONLY (not full skill runs) to avoid 30-90 min wall time and avoid the write side effects of running `/impl-hygiene-review` / `/review-plan` / `/create-plan` inside §07.1. Full REAL integration runs happen in §07.3 with disposable-target + cleanup discipline. Run ALL of the following and require every cell to pass:
 
   **Cell 1 — Trivial direct invocation:** `/tp-help what is 2+2` — verify the command reaches the canonical skill file and a codex response is returned.
 
@@ -372,7 +372,7 @@ Tasks:
 
   If ANY of these cells fails, STOP. The consolidation itself is broken — fix it before starting 07.2. Mixing consolidation bugs with dual-source rewrite bugs produces unbounded debugging. The six cells land in sequence: consolidate, smoke-test all six cells, then rewrite.
 
-- [ ] **Post-smoke-test baseline re-check:** After all six smoke-test cells pass, re-run the baseline hash check:
+- [x] **Post-smoke-test baseline re-check:** After all six smoke-test cells pass, re-run the baseline hash check:
   ```bash
   current=$(git hash-object .claude/commands/review-plan.md)
   baseline=$(head -1 section-07-review-plan-baseline.sha1)
@@ -383,15 +383,15 @@ Tasks:
   ```
   This is a trip-wire — if ANY smoke-test cell accidentally wrote to `review-plan.md` via a reviewer hallucination (the byte-identical contract would be violated), the hash check catches it immediately and before §07.2 starts.
 
-- [ ] **Subsection close-out (07.1)** — MANDATORY before starting 07.2:
-  - [ ] §07.PRE baseline re-verified at §07.1 start AND again at §07.1 close (both checks passed: `git hash-object .claude/commands/review-plan.md` matches `head -1 section-07-review-plan-baseline.sha1`)
-  - [ ] Consolidation done, command file is a thin pointer, skill file is canonical
-  - [ ] Frontmatter on the thin-pointer command file passes the Cell 6 YAML validation (required fields: `description`, `allowed-tools`, `argument-hint`)
-  - [ ] R10 resolved — no operational duplication
-  - [ ] All six smoke-test cells passed: (1) trivial invocation, (2) multi-line prompt, (3) impl-hygiene-review Phase 4 dispatch-only grep, (4) review-plan.md Step 3B + Midpoint Check dispatch-only grep + baseline invariant, (5) create-plan dispatch-only grep, (6) frontmatter YAML validation — all BEFORE dual-source changes land. Full REAL integration tests for cells 3/4/5 are deferred to §07.3 where disposable-target + cleanup discipline is enforced.
-  - [ ] Post-smoke-test baseline re-check passed (`review-plan.md` hash unchanged)
-  - [ ] Update this subsection's `status` to `complete`
-  - [ ] Run `/improve-tooling` retrospectively — was the "canonical vs pointer" pattern clear? Should there be a `lint-no-command-skill-drift.sh` that detects SSOT violations between `.claude/commands/` and `.claude/skills/` for other skills? Implement improvements.
+- [x] **Subsection close-out (07.1)** — MANDATORY before starting 07.2:
+  - [x] §07.PRE baseline re-verified at §07.1 start AND again at §07.1 close (both checks passed: `git hash-object .claude/commands/review-plan.md` matches `head -1 section-07-review-plan-baseline.sha1` = `66250250e8030a5e880ceaf4bf40f9409178a375`)
+  - [x] Consolidation done: `.claude/skills/tp-help/SKILL.md` (179 lines) is canonical; `.claude/commands/tp-help.md` (24 lines) is a thin pointer. Net savings: 300 → 203 lines (-97 lines, -32%).
+  - [x] Frontmatter on the thin-pointer command file passes Cell 6 YAML validation: `name`, `description`, `allowed-tools`, `argument-hint` all present and well-formed.
+  - [x] R10 resolved — `grep` confirms no operational workflow content (`codex exec`, `python3`, `Step N:`, `run_in_background`) in `.claude/commands/tp-help.md`.
+  - [x] All six smoke-test cells passed: (1) trivial invocation via codex — response "2 + 2 = 4", (2) multi-line prompt via codex — 40-line prompt with fenced code block survived shell quoting, codex confirmed Rust snippet validity, (3) impl-hygiene-review cites `/tp-help` 7 times (dispatch-only grep), (4) review-plan.md has Step 3B + Midpoint Check headers + baseline invariant holds, (5) create-plan cites `/tp-help` 12 times, (6) frontmatter YAML validation PASS for both files. Note: cells 1+2 were verified via a combined codex call using a scratch `mktemp -d` to avoid the shared `/tmp/tp-help-*` collision risk that §07.2 will fix permanently via per-run scratch dirs.
+  - [x] Post-smoke-test baseline re-check passed (`review-plan.md` hash unchanged — blob `66250250e8030a5e880ceaf4bf40f9409178a375` still matches baseline).
+  - [x] Update this subsection's `status` to `complete`
+  - [x] Run `/improve-tooling` retrospectively — answered via dedicated bug file. Analysis: only 2 command-skill pairs exist (`tp-help` uses thin-pointer consolidation; `review-work` uses intentionally-parallel workflows per 00-overview line 32 — command file = Claude self-reviews directly, skill file = dual-source codex wrapper, both canonical for different use cases). A general `lint-command-skill-pairs.sh` would need to classify each pair by pattern (thin-pointer vs parallel-workflow) BEFORE validating, which is more design work than §07.1's retrospective should absorb. Filed as BUG-08-011 in `plans/bug-tracker/section-08-spec-docs.md` for future implementation. Recorded in §07-local retrospective notes: the thin-pointer pattern worked cleanly for `tp-help`; no tooling gap was hit during §07.1 that a linter would have caught.
 
 ---
 
