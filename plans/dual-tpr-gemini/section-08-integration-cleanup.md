@@ -23,7 +23,7 @@ sections:
     title: "End-to-end integration tests for all 4 dual-source wrappers"
     status: not-started
   - id: "08.2"
-    title: "Wire ORI_TPR_REVIEWERS runtime toggle"
+    title: "Verify ORI_TPR_REVIEWERS runtime toggle + merger single-reviewer case"
     status: not-started
   - id: "08.3"
     title: "Doc drift fixes + sweep 'Ask Codex' single-source wording from consumer files"
