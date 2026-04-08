@@ -2,8 +2,8 @@
 section: "07"
 title: "/tp-help dual-source + consolidation"
 status: not-started
-reviewed: true
-goal: "Rewrite .claude/skills/tp-help/SKILL.md for dual-source AND consolidate with .claude/commands/tp-help.md (resolving R10 SSOT violation). /tp-help uses a LIGHTER response envelope and CONCATENATION mode (not synthesis) — raw perspectives from both reviewers returned to the user. Verify that /impl-hygiene-review Phase 4 cross-check (which invokes /tp-help internally) still works with dual-source responses."
+reviewed: false
+goal: "Rewrite .claude/skills/tp-help/SKILL.md for dual-source AND consolidate with .claude/commands/tp-help.md (resolving R10 SSOT violation). /tp-help uses a LIGHTER response envelope and CONCATENATION mode (not synthesis) — raw perspectives from both reviewers returned to the user. Verify that /impl-hygiene-review Phase 4 cross-check (which invokes /tp-help internally) still works with dual-source responses. Own the `.claude/commands/review-plan.md` byte-identical regression contract (inherited from the removed Section 06) since §07.3 Scenario 2 already exercises the command file and is the natural regression-guard owner."
 success_criteria:
   - ".claude/skills/tp-help/SKILL.md rewritten for dual-source using concatenation mode (not findings envelope)"
   - ".claude/commands/tp-help.md consolidated with the skill file — single source of truth for /tp-help content (R10 resolved)"
@@ -11,6 +11,7 @@ success_criteria:
   - "Both reviewers' raw responses are concatenated into the output, with clear reviewer attribution headers"
   - "/impl-hygiene-review Phase 4 cross-check still functions correctly under dual-source /tp-help — verified by integration test"
   - "At least 1 real /tp-help scenario runs successfully with both reviewers producing responses"
+  - ".claude/commands/review-plan.md is BYTE-IDENTICAL to its pre-plan state — verified by `git diff --exit-code .claude/commands/review-plan.md` returning 0 in §07.N. This contract moved into §07 on 2026-04-08 when Section 06 was removed; §07 is the natural owner because §07.3 Scenario 2 already runs `/review-plan` against the command file as part of the downstream-consumer integration test"
 depends_on: ["04"]
 third_party_review:
   status: none
@@ -45,7 +46,7 @@ sections:
 - [ ] R10 (the two-sources-of-truth SSOT violation) is resolved — verified by grepping for divergent content between the two files (there should be no divergence because one is now a pointer)
 - [ ] Both reviewers' raw responses are included in the output with clear attribution (e.g., `## Codex response` header, `## Gemini response` header)
 - [ ] `/impl-hygiene-review` Phase 4 cross-check (which invokes `/tp-help` internally — empirically verified at `.claude/skills/impl-hygiene-review/SKILL.md:318-352`; the `/tp-help` call sites are lines 322 and 343, under the `### Phase 4: Third-Party Cross-Check` header) continues to work with dual-source `/tp-help` responses — the impl-hygiene-review receives both reviewers' feedback and can incorporate it with its existing `[TP-CONFIRMED]` and `[TP-SURFACED]` tagging
-  - [ ] `.claude/commands/review-plan.md` internal `/tp-help` calls (lines 95 and 305 of the command file, under the "Step 3B: Third-Party Blind Spot Check via /tp-help" and "Midpoint Check: /tp-help Between Agent 2 and Agent 3" sections) continue to work with dual-source `/tp-help` responses — regression test. The command file is promised to remain byte-identical (Section 06), so these internal calls will start receiving concatenated codex+gemini output after Section 07 lands. Verify the command file's 4-agent pipeline still parses and incorporates the new dual-source response format without breakage; if it breaks, fix the incompatibility in 07.2's concatenation format (do NOT modify `.claude/commands/review-plan.md`).
+  - [ ] `.claude/commands/review-plan.md` internal `/tp-help` calls (lines 95 and 305 of the command file, under the "Step 3B: Third-Party Blind Spot Check via /tp-help" and "Midpoint Check: /tp-help Between Agent 2 and Agent 3" sections) continue to work with dual-source `/tp-help` responses — regression test. The command file is promised to remain byte-identical (contract owned by this section — see the byte-identical success criterion above and the §07.N regression check), so these internal calls will start receiving concatenated codex+gemini output after Section 07 lands. Verify the command file's 4-agent pipeline still parses and incorporates the new dual-source response format without breakage; if it breaks, fix the incompatibility in 07.2's concatenation format (do NOT modify `.claude/commands/review-plan.md`).
 - [ ] At least 1 real `/tp-help` scenario runs successfully with a real question, both reviewers respond, and the concatenated output is returned to the user
 
 **Context:** `/tp-help` is the only review skill in this plan that does NOT use the findings envelope schema. Per the Step 1E architectural decision, it uses concatenation: both reviewers' raw responses are returned adjacent with clear attribution, giving the user two independent perspectives without an editorial synthesis layer. This is because `/tp-help` is called when the user is stuck — they want raw opinions, not a smoothed consensus that might hide useful disagreement.
@@ -56,7 +57,7 @@ The downstream consumer verification is important and TWO files are affected:
 
 1. **`.claude/skills/impl-hygiene-review/SKILL.md`** calls `/tp-help` internally under the `### Phase 4: Third-Party Cross-Check` header (empirically verified: the two `/tp-help` call sites are at lines 322 and 343; earlier Phase 2 research cited lines 291-308 incorrectly — those line numbers were from a pre-edit snapshot and are stale). When `/tp-help` becomes dual-source, that internal call starts receiving concatenated responses from two reviewers. The impl-hygiene-review wrapper needs to continue processing these responses correctly, tagging findings with `[TP-CONFIRMED]` / `[TP-SURFACED]` as it already does. No changes to impl-hygiene-review are needed — just verification that the change doesn't break it.
 
-2. **`.claude/commands/review-plan.md`** (the 595-line 4-agent Claude pipeline that Section 06 leaves byte-identical) ALSO calls `/tp-help` internally: once at line 95 under "Step 3B: Third-Party Blind Spot Check via /tp-help" and once at line 305 under "Midpoint Check: /tp-help Between Agent 2 and Agent 3". These internal calls will start receiving concatenated codex+gemini responses after this section lands. Because the command file is promised to remain byte-identical (Section 06 regression test), we CANNOT modify the command file to adapt its parsing; the concatenation format must be backward-compatible with whatever text-parsing logic the command file already uses. If the command file relies on single-source response assumptions, we either (a) adjust the concatenation format in 07.2 to preserve backward compatibility, or (b) escalate to the user as a scope expansion decision.
+2. **`.claude/commands/review-plan.md`** (the 595-line 4-agent Claude pipeline — the only Claude-side `/review-plan` entrypoint in the plan, which this section leaves byte-identical) ALSO calls `/tp-help` internally: once at line 95 under "Step 3B: Third-Party Blind Spot Check via /tp-help" and once at line 305 under "Midpoint Check: /tp-help Between Agent 2 and Agent 3". These internal calls will start receiving concatenated codex+gemini responses after this section lands. Because the command file is promised to remain byte-identical (the byte-identical contract is owned by this section — inherited from the removed Section 06 on 2026-04-08, see success criteria and §07.N), we CANNOT modify the command file to adapt its parsing; the concatenation format must be backward-compatible with whatever text-parsing logic the command file already uses. If the command file relies on single-source response assumptions, we either (a) adjust the concatenation format in 07.2 to preserve backward compatibility, or (b) escalate to the user as a scope expansion decision.
 
 Two downstream consumers × one format change = two regression tests in 07.3.
 
@@ -172,7 +173,7 @@ Tasks:
 
 **File(s):** Validation only (NO modifications to `.claude/skills/impl-hygiene-review/SKILL.md` and NO modifications to `.claude/commands/review-plan.md`)
 
-**Context:** Two downstream consumers invoke `/tp-help` internally. When `/tp-help` becomes dual-source, both of those internal calls start receiving concatenated responses from two reviewers. Neither downstream consumer can be modified — `impl-hygiene-review` is out-of-scope for modification in this section, and `.claude/commands/review-plan.md` is byte-identical by contract (Section 06). This subsection verifies BOTH consumers continue to work correctly with the new response format.
+**Context:** Two downstream consumers invoke `/tp-help` internally. When `/tp-help` becomes dual-source, both of those internal calls start receiving concatenated responses from two reviewers. Neither downstream consumer can be modified — `impl-hygiene-review` is out-of-scope for modification in this section, and `.claude/commands/review-plan.md` is byte-identical by contract (owned by this section — §07 inherited the byte-identical regression guard on 2026-04-08 when the originally-planned Section 06 was removed as redundant with §07's dual-source `/tp-help`). This subsection verifies BOTH consumers continue to work correctly with the new response format.
 
 Downstream consumer inventory (empirically verified):
 1. **`.claude/skills/impl-hygiene-review/SKILL.md`** — invokes `/tp-help` under `### Phase 4: Third-Party Cross-Check` (lines 318-352); the actual `/tp-help` call sites are at lines 322 and 343. The wrapper's existing logic tags confirmed findings with `[TP-CONFIRMED]` and surfaces findings with `[TP-SURFACED]`.
@@ -190,7 +191,7 @@ Tasks:
   - `[TP-CONFIRMED]` and `[TP-SURFACED]` tagging still works correctly in the output
   - No errors or regressions in the hygiene review workflow
 
-- [ ] **Scenario 2 — `.claude/commands/review-plan.md` command-file integration test**: Run `/review-plan` (which dispatches to `.claude/commands/review-plan.md`, NOT the new Section 06 skill) against a small test plan directory (a completed plan in `plans/completed/` works well). Verify:
+- [ ] **Scenario 2 — `.claude/commands/review-plan.md` command-file integration test**: Run `/review-plan` (which dispatches to `.claude/commands/review-plan.md` — the 595-line 4-agent Claude pipeline, which is the only Claude-side `/review-plan` entrypoint in the plan since Section 06 was removed) against a small test plan directory (a completed plan in `plans/completed/` works well). Verify:
   - Step 3B's blind-spot `/tp-help` call succeeds, receives the dual-source concatenated response, and the 4 review agents consume its output without parse errors
   - The midpoint `/tp-help` call (between Agent 2 and Agent 3) succeeds the same way
   - The command file's 4-agent pipeline runs to completion
@@ -231,6 +232,7 @@ Tasks:
 - [ ] `/tp-help` returns concatenated dual-source output with attribution headers
 - [ ] `/impl-hygiene-review` Phase 4 cross-check passes integration test
 - [ ] At least 1 real /tp-help scenario passes
+- [ ] `.claude/commands/review-plan.md` is BYTE-IDENTICAL to its pre-plan state: `git diff --exit-code .claude/commands/review-plan.md` exits 0 _(byte-identical contract inherited from the removed Section 06 on 2026-04-08; §07.3 Scenario 2 exercises the command file, so §07 is the natural regression-guard owner)_
 - [ ] `timeout 150 ./test-all.sh` green
 - [ ] Plan annotation cleanup clean
 - [ ] **Plan sync**: Section 07 frontmatter → `complete`, Quick Reference updated, R10 marked resolved

@@ -198,12 +198,14 @@ Critical envelope contract points (same shape as the review-work gemini skill):
 
 **Note on apply-ability:** the `required_plan_update` field is
 free-text prose describing the proposed change, not a structured
-patch. Claude (the single writer) interprets and applies each edit
-after user approval — see Section 06 for the approval and application
-workflow. If finer-grained apply semantics are needed, Section 06's
-wrapper can extend the schema with a structured `patch` field in
-a future revision; the current envelope treats edit application as
-Claude-mediated, not reviewer-deterministic.
+patch. The consumer that invokes this skill (`/tp-help` in the
+dual-source flow, or a human reviewer running `codex exec
+/review-plan` standalone) interprets and applies each edit after
+user approval — Claude is the single writer to plan files, not the
+reviewers. If finer-grained apply semantics are needed, a future
+revision can extend the schema with a structured `patch` field; the
+current envelope treats edit application as consumer-mediated, not
+reviewer-deterministic.
 
 See `.claude/skills/dual-tpr/envelope-format.md` for the full contract.
 

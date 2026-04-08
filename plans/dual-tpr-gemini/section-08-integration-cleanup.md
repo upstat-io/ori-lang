@@ -201,7 +201,7 @@ Tasks:
   External consultations are SEQUENTIAL and FOREGROUND — All `/tp-help` and `/tpr-review` invocations MUST run in the foreground...
 
   # After:
-  External consultations are SEQUENTIAL and FOREGROUND from the orchestrator's perspective — All `/tp-help` and `/tpr-review` invocations MUST run in the foreground. Note that `/tp-help` (and `/tpr-review`, `/review-work`, `/review-plan`) internally launch both codex and gemini in parallel as of the dual-tpr-gemini plan, but from the create-plan skill's perspective each call is still a single sequential operation that returns when both reviewers complete.
+  External consultations are SEQUENTIAL and FOREGROUND from the orchestrator's perspective — All `/tp-help` and `/tpr-review` invocations MUST run in the foreground. Note that `/tp-help` (and `/tpr-review`, `/review-work`) internally launch both codex and gemini in parallel as of the dual-tpr-gemini plan, but from the create-plan skill's perspective each call is still a single sequential operation that returns when both reviewers complete. `/review-plan` remains a command-file-only 4-agent Claude pipeline (no internal dual-source) — users who want dual-source plan review ask `/tp-help` to review a plan directory; the dedicated `/review-plan` dual-source wrapper originally planned as Section 06 was removed 2026-04-08.
   ```
 
 - [ ] **Subsection close-out (08.3)** — MANDATORY before starting 08.4:

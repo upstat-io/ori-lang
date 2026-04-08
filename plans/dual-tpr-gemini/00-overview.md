@@ -30,7 +30,7 @@ The four review skills do NOT have uniform entrypoint patterns in the current re
 |---|---|---|---|
 | `/tpr-review` | (none) | `tpr-review/SKILL.md` (252 lines, wraps codex) | Skill gets dual-source — Section 04 |
 | `/review-work` | `review-work.md` (154 lines, **Claude self-reviews directly**) | `review-work/SKILL.md` (256 lines, wraps codex) | **Skill gets dual-source — Section 05.** Command file is UNTOUCHED — it is a parallel workflow with intentionally different value props (fast in-context review without invoking external CLIs), not a duplicate of the skill. |
-| `/review-plan` | `review-plan.md` (595 lines, **4-agent Claude pipeline + internal `/tp-help` blind-spot check**) | (none — to be created) | **NEW skill created — Section 06.** Command file is UNTOUCHED. The new skill is a dual-source codex+gemini wrapper for the plan-review use case; the existing command file is a different workflow philosophy (Claude orchestrates multiple in-context agents). Two paths coexist by design. |
+| `/review-plan` | `review-plan.md` (595 lines, **4-agent Claude pipeline + internal `/tp-help` blind-spot check**) | (none) | **Command file is UNTOUCHED. No dedicated Claude-side dual-source wrapper** — plan review reaches dual-source via `/tp-help` (Section 07) when a user explicitly asks it to review a plan. The reviewer-side `.codex/skills/review-plan/SKILL.md` and `.gemini/skills/review-plan/SKILL.md` (created in Section 03) remain available for standalone `codex exec /review-plan` and for `/tp-help` to dispatch to when plan-review is the right response. The Claude-side `/review-plan` wrapper originally planned as Section 06 was removed on 2026-04-08 as redundant once `/tp-help` became dual-source. |
 | `/tp-help` | `tp-help.md` (179 lines, **wraps codex**) | `tp-help/SKILL.md` (121 lines, **wraps codex**) | **Both files consolidated — Section 07.** This is the only case where the command file and skill file genuinely duplicate codex-wrapping logic. R10 is a real SSOT violation that this plan fixes by consolidating the two into a single source of truth. |
 
 **The dual-source plan extends the codex-wrapping paths.** It does not unify or replace parallel Claude-self-review workflows. `/review-work`'s command file and `/review-plan`'s command file remain available as fast-feedback alternatives that do not require external CLIs and do not pay gemini's ~10x wall-time penalty. This is a deliberate scope decision and section success criteria include explicit regression tests proving these command files are unmodified.
@@ -44,8 +44,7 @@ Because the command-file boundary is intact, slash-command typing and dual-sourc
 | Type `/tpr-review` | `.claude/skills/tpr-review/SKILL.md` (no command file exists) | ✅ Yes — direct path |
 | Type `/review-work` | `.claude/commands/review-work.md` (Claude self-reviews directly; unchanged) | ❌ No — command file is the parallel workflow |
 | Invoke `Skill: review-work` via Skill tool | `.claude/skills/review-work/SKILL.md` (dual-source wrapper) | ✅ Yes — skill tool path |
-| Type `/review-plan plans/...` | `.claude/commands/review-plan.md` (4-agent Claude pipeline; unchanged) | ❌ No — command file is the parallel workflow |
-| Invoke `Skill: review-plan` via Skill tool | `.claude/skills/review-plan/SKILL.md` (new dual-source wrapper from Section 06) | ✅ Yes — skill tool path |
+| Type `/review-plan plans/...` | `.claude/commands/review-plan.md` (4-agent Claude pipeline; unchanged) | ❌ No — command file is the parallel workflow. Dual-source plan review reaches users via `/tp-help` instead (ask it to review a plan directory) |
 | Type `/tp-help <question>` | `.claude/commands/tp-help.md` (thin pointer to skill after Section 07 consolidation) → `.claude/skills/tp-help/SKILL.md` (dual-source wrapper) | ✅ Yes — pointer path |
 | Auto-trigger on any of the above | The corresponding skill fires if Claude detects relevant context | ✅ Yes when triggered |
 
@@ -57,7 +56,7 @@ The mission is complete when ALL of these are true:
 
 - [ ] Typing `/tpr-review` (slash command) produces dual-source findings with entries from BOTH reviewers tagged `[TPR-NN-NNN-codex]` and `[TPR-NN-NNN-gemini]` (independent ordinal sequences per reviewer). `/tpr-review` has no command file, so the slash command reaches the dual-source skill directly.
 - [ ] Invoking the dual-source `review-work` skill via auto-trigger or explicit `Skill: review-work` tool invocation produces the same dual-source pattern in the same finding format. **Note**: the `/review-work` slash command continues to invoke the unchanged `.claude/commands/review-work.md` (Claude self-reviews directly) — dual-source is a second path, not a replacement.
-- [ ] Invoking the dual-source `review-plan` skill via auto-trigger or explicit `Skill: review-plan` tool invocation (with a plan directory argument) orchestrates both reviewers and emits proposed plan edits as findings; Claude applies approved edits as the single writer. **Note**: the `/review-plan` slash command continues to invoke the unchanged `.claude/commands/review-plan.md` (595-line 4-agent Claude pipeline) — dual-source is a second path, not a replacement.
+- [ ] Users needing dual-source review of a plan invoke it via `/tp-help` with an explicit "review this plan directory" prompt — no dedicated Claude-side `/review-plan` dual-source wrapper exists. **Note**: the `/review-plan` slash command continues to invoke the unchanged `.claude/commands/review-plan.md` (595-line 4-agent Claude pipeline) — the parallel Claude-only workflow remains available. (The Claude-side dual-source wrapper originally planned as Section 06 was removed on 2026-04-08 as redundant once Section 07 made `/tp-help` dual-source.)
 - [ ] Typing `/tp-help` (slash command) returns concatenated raw responses from both reviewers. After Section 07's consolidation, `.claude/commands/tp-help.md` becomes a thin pointer to the skill, so the slash command reaches dual-source directly. (NO synthesis layer — the architectural decision is "raw perspectives, not smoothed merge".)
 - [ ] At least one Gemini finding in real review output demonstrably includes a `google_web_search` source citation when reviewing a claim about an external library, language specification, prior art comparison, or recent development
 - [ ] At least one observed agreement case (both reviewers flagged the same `(location, title)` pair) demonstrated in a real review run
@@ -360,13 +359,14 @@ Phase 3 — Validation case (Section 04)  [CRITICAL PATH GATE]
         Section 02 transport exercised against real CLI output;
         any §02 bugs found here are fixed before §05/06/07 begin
 
-Phase 4 — Wrapper propagation (Sections 05, 06, 07 in narrow-front sequence)
+Phase 4 — Wrapper propagation (Sections 05, 07 in narrow-front sequence)
   Phase 4a — Section 05: /review-work dual-source + Task #10 fix
-  Phase 4b — Section 06: /review-plan new Claude wrapper
-  Phase 4c — Section 07: /tp-help dual-source + .claude/commands/tp-help.md consolidation
+  Phase 4b — Section 07: /tp-help dual-source + .claude/commands/tp-help.md consolidation
+                         (originally Phase 4c; Section 06 was removed 2026-04-08)
   Gate per phase: section's own success criteria met;
                   no regressions in standalone .codex/skills/* paths;
-                  for §07: /impl-hygiene-review Phase 4 cross-check still functional
+                  for §07: /impl-hygiene-review Phase 4 cross-check still functional;
+                           .claude/commands/review-plan.md byte-identical regression test passes
 
 Phase 5 — Integration + cleanup (Section 08)
   └─ 08.1: End-to-end integration tests for all 4 skills
@@ -384,7 +384,7 @@ Phase 5 — Integration + cleanup (Section 08)
 
 - **Phase 0–1** are pure additions — no behavioral changes to existing skills. The hook update is the only change to existing tooling and it's a one-line conditional extension that adds gemini to the existing codex check (safe).
 - **Phase 2** must precede Phase 3 because Phase 3 invokes the codex/gemini skills, and those skills must exist with the correct mode switches before they can be invoked correctly.
-- **Phase 3 is the critical path gate** because it's the first real consumer of the Section 02 transport. Bugs found here block Phase 4. The deliberate decision to validate /tpr-review first (rather than /review-work or /review-plan) is because /tpr-review is the most-used skill and exercises the transport most thoroughly in real-world conditions.
+- **Phase 3 is the critical path gate** because it's the first real consumer of the Section 02 transport. Bugs found here block Phase 4. The deliberate decision to validate /tpr-review first (rather than /review-work or /tp-help) is because /tpr-review is the most-used skill and exercises the transport most thoroughly in real-world conditions.
 - **Phase 4** is sequential by narrow-front discipline (CLAUDE.md), even though the dependency graph permits parallel section work. Each wrapper must land cleanly before the next begins.
 - **Phase 5** is verification + cleanup — the final integration check before the plan can be marked complete.
 
@@ -418,15 +418,14 @@ Baseline measurements before implementation begins. Files this plan will touch (
 | `.claude/skills/dual-tpr/transport.md` | ~300 | §03 (actual: 136 LOC — doc scope smaller than estimated) |
 | `.claude/skills/dual-tpr/scripts/transport-tests.sh` | ~200 | §02 (actual: 118 LOC; created as executable `.sh` harness, not `.md` doc as originally estimated) |
 | `.claude/skills/dual-tpr/command-file.md` | ~200 | §03 (actual: 368 LOC — methodology expanded during extraction) |
-| `.claude/skills/review-plan/SKILL.md` | ~300 | §06 |
 | `.gemini/skills/review-work/SKILL.md` | ~200 | §03 |
 | `.gemini/skills/review-plan/SKILL.md` | ~200 | §03 |
 | Test fixtures (codex JSONL + gemini stream-json) | ~150 | §02 |
 
 **Total**:
 - Modified files: 10 (most line counts unchanged or net-additive)
-- Created files: 9
-- Net new content: ~1800 lines across all sections (estimate)
+- Created files: 8 (was 9; Section 06's `.claude/skills/review-plan/SKILL.md` removed 2026-04-08 as redundant with Section 07's dual-source `/tp-help`)
+- Net new content: ~1500 lines across all sections (estimate, after Section 06 removal)
 
 ## Estimated Effort
 
@@ -437,16 +436,15 @@ Baseline measurements before implementation begins. Files this plan will touch (
 | 03 Reviewer surface preparation | ~600 | Medium | 02 |
 | 04 /tpr-review dual-source | ~300 | Medium-High (validation) | 03 |
 | 05 /review-work dual-source + Task #10 fix | ~300 | Medium | 04 |
-| 06 /review-plan new Claude wrapper | ~350 | Medium | 04 |
 | 07 /tp-help dual-source + consolidation | ~250 | Medium | 04 |
-| 08 Integration + toggle + cleanup | ~300 | Low-Medium | 05, 06, 07 |
-| **Total new** | **~3050** | | |
+| 08 Integration + toggle + cleanup | ~300 | Low-Medium | 05, 07 |
+| **Total new** | **~2700** | | |
 | **Total deleted** | **~150** | | (consolidated `.claude/commands/tp-help.md`, removed contradictory directives) |
 
 **Complexity drivers:**
 - Section 02 (high): owns nine concerns — launcher, two parsers, validator, schema, retry, worktree guard, merger, failure taxonomy, plus tests for all of these. The most architecturally dense section.
 - Section 04 (medium-high): not large but high-stakes because it's the validation gate for Section 02's transport.
-- Sections 05/06/07 (medium): structurally similar to Section 04 once the pattern is proven, but each has its own quirks (Section 05 fixes a bug, Section 06 creates a new file, Section 07 special-cases the schema).
+- Sections 05/07 (medium): structurally similar to Section 04 once the pattern is proven, but each has its own quirks (Section 05 fixes a bug, Section 07 special-cases the schema and consolidates two SSOT files). Section 06 was removed 2026-04-08 — its deliverable (a Claude-side dual-source `/review-plan` wrapper) became redundant once Section 07 made `/tp-help` dual-source, since users can reach dual-source plan review by asking `/tp-help` to review a plan directory.
 - Sections 01/08 (low): mostly mechanical — defining specs and updating documentation.
 
 ## Known Bugs (Pre-existing)
@@ -472,6 +470,6 @@ Bugs discovered during Phase 2 research that affect this plan's scope:
 | 03 | Reviewer surface preparation | `section-03-reviewer-surface.md` | Complete (gates deferred per user direction; see §03.N resolved entries) |
 | 04 | /tpr-review dual-source (validation case) | `section-04-tpr-review.md` | Complete (gates deferred per user direction; see §04.N resolved entries) |
 | 05 | /review-work dual-source + Task #10 fix | `section-05-review-work.md` | Complete (gates deferred per user direction; see §05.N resolved entries) |
-| 06 | /review-plan new Claude skill (parallel to existing command file) | `section-06-review-plan.md` | Not Started |
+| 06 | _(removed 2026-04-08 — Claude-side `/review-plan` dual-source wrapper became redundant with Section 07's dual-source `/tp-help`; plan review reaches dual-source via `/tp-help`)_ | _(deleted)_ | Removed |
 | 07 | /tp-help dual-source + consolidation | `section-07-tp-help.md` | Not Started |
 | 08 | Integration tests + runtime toggle + cleanup | `section-08-integration-cleanup.md` | Not Started |

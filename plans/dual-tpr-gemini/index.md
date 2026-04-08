@@ -135,18 +135,19 @@ same pattern as tpr-review (Section 04)
 
 ---
 
-### Section 06: /review-plan new Claude skill (parallel to existing command file)
-**File:** `section-06-review-plan.md` | **Status:** Not Started
+### Section 06: _(removed 2026-04-08)_
+**File:** _(deleted)_ | **Status:** Removed
 
 ```
-.claude/skills/review-plan/SKILL.md, NEW file, greenfield
-parallel workflows, command file untouched, .claude/commands/review-plan.md unchanged
-.claude/commands/review-plan.md (595 lines, 4-agent Claude pipeline, NOT modified)
-plan-review semantics, edits plan files directly
-preserve reviewed frontmatter, do not flip during whole-plan review
-review-plan dual-source skill, parallel to existing command-file workflow
-.codex/skills/review-plan/SKILL.md (existing standalone, regression-tested)
-intentional duality, fast Claude pipeline vs deep dual-source codex+gemini
+Originally "/review-plan new Claude skill (parallel to existing command file)"
+— a Claude-side dual-source wrapper for plan review.
+Removed as redundant with Section 07's dual-source /tp-help:
+plan review reaches dual-source by asking /tp-help to review a plan.
+The reviewer-side .codex/skills/review-plan/SKILL.md and
+.gemini/skills/review-plan/SKILL.md (created in §03) remain for
+standalone codex exec /review-plan and /tp-help dispatch.
+.claude/commands/review-plan.md (595-line 4-agent Claude pipeline)
+stays UNTOUCHED — the byte-identical contract moved into §07.
 ```
 
 ---
@@ -195,6 +196,6 @@ ORI_TPR_REVIEWERS=codex, ORI_TPR_REVIEWERS=gemini, ORI_TPR_REVIEWERS=both
 | 03 | Reviewer surface preparation | `section-03-reviewer-surface.md` |
 | 04 | /tpr-review dual-source (validation case) | `section-04-tpr-review.md` |
 | 05 | /review-work dual-source + Task #10 fix | `section-05-review-work.md` |
-| 06 | /review-plan new Claude wrapper | `section-06-review-plan.md` |
+| 06 | _(removed 2026-04-08 — redundant with §07 dual-source `/tp-help`)_ | _(deleted)_ |
 | 07 | /tp-help dual-source + consolidation | `section-07-tp-help.md` |
 | 08 | Integration tests + runtime toggle + cleanup | `section-08-integration-cleanup.md` |
