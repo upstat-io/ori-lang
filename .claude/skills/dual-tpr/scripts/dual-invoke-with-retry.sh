@@ -49,15 +49,20 @@ done
 # emitted by `parse-codex.py` or `parse-gemini.py`. This classifier must stay
 # in sync with the parsers' emitted category list — the canonical source is:
 #
-#   parse-codex.py:  missing_envelope | parse_fail | schema_violation | failed_partial
-#   parse-gemini.py: missing_envelope | missing_terminator | missing_begin_sentinel |
-#                    missing_end_sentinel | missing_json_block | parse_fail |
+#   parse-codex.py:  missing_dependency | missing_envelope | parse_fail |
 #                    schema_violation | failed_partial
+#   parse-gemini.py: missing_dependency | missing_envelope | missing_terminator |
+#                    missing_begin_sentinel | missing_end_sentinel |
+#                    missing_json_block | parse_fail | schema_violation |
+#                    failed_partial
 #
 # Terminal categories — deterministic, retry will produce the same result:
 #
 #   dirty_worktree                 — reviewer modified tracked files, will do
 #                                    so again on retry (BUG-08-002 fix).
+#   codex_missing_dependency       — jsonschema Python module not installed
+#                                    on this host; won't install itself on
+#                                    retry (TPR-04-002-codex fix).
 #   codex_missing_envelope         — codex exited 0 but emitted no agent
 #                                    message; the skill or prompt is broken.
 #   codex_schema_violation         — codex emitted JSON that violates the
@@ -65,6 +70,7 @@ done
 #   codex_failed_partial           — envelope valid but status=failed_partial;
 #                                    reviewer explicitly said it did not
 #                                    finish — retry won't change that.
+#   gemini_missing_dependency      — same as codex (env issue).
 #   gemini_missing_envelope        — gemini exited 0 but emitted no assistant
 #                                    message; the skill is broken.
 #   gemini_missing_begin_sentinel  — assistant messages present but no BEGIN
@@ -115,9 +121,11 @@ is_terminal_failure() {
   local category="$1"
   case "$category" in
     dirty_worktree)                return 0 ;;
+    codex_missing_dependency)      return 0 ;;
     codex_missing_envelope)        return 0 ;;
     codex_schema_violation)        return 0 ;;
     codex_failed_partial)          return 0 ;;
+    gemini_missing_dependency)     return 0 ;;
     gemini_missing_envelope)       return 0 ;;
     gemini_missing_begin_sentinel) return 0 ;;
     gemini_missing_json_block)     return 0 ;;
