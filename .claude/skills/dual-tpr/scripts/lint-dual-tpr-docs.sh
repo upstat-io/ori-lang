@@ -148,6 +148,16 @@ REQUIRED=(
   "$GEMINI_REVIEW_WORK|||END-ORI-DUAL-TPR-V1|||review-work sentinel end"
   "$GEMINI_REVIEW_PLAN|||BEGIN-ORI-DUAL-TPR-V1|||review-plan sentinel begin"
   "$GEMINI_REVIEW_PLAN|||END-ORI-DUAL-TPR-V1|||review-plan sentinel end"
+  # Required-field documentation checks (surfaced by §05.2 Scenario 2
+  # round 1 — gemini omitted schema_version because the skill file did
+  # not explicitly document it as required). These assertions pin the
+  # fix: both gemini skills MUST explicitly name schema_version and
+  # no_findings in their envelope contract section so gemini is
+  # guided to emit them.
+  "$GEMINI_REVIEW_WORK|||schema_version|||review-work gemini contract documents schema_version"
+  "$GEMINI_REVIEW_WORK|||no_findings|||review-work gemini contract documents no_findings"
+  "$GEMINI_REVIEW_PLAN|||schema_version|||review-plan gemini contract documents schema_version"
+  "$GEMINI_REVIEW_PLAN|||no_findings|||review-plan gemini contract documents no_findings"
   # tpr-review wrapper (Section 04) — transport script references,
   # prompt preamble phrases, and the three preserved safety blocks.
   # These checks guard against copy-paste erasure when Sections 05/06/07

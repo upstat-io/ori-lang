@@ -83,14 +83,28 @@ The format is:
 
 Critical envelope contract points (same shape as the review-work gemini skill):
 - The envelope MUST conform to `.claude/skills/dual-tpr/findings-schema.json`
+- The `schema_version` field is REQUIRED and MUST be exactly the
+  string `"1.0"`. **Forgetting this field is the single most common
+  envelope bug** — emit it as the first key of the object so you cannot
+  skip it. The parser rejects the envelope with `schema_violation:
+  'schema_version' is a required property` if it is missing.
 - The `status` field MUST be `"complete"` if you finished the review
   successfully; use `"failed_partial"` only if you were unable to
   complete the investigation for a stated reason
 - The `reviewer` field MUST be `"gemini"`
 - The `skill` field MUST be `"review-plan"`
+- The `scope_actually_reviewed` field is REQUIRED — it is an object
+  (not a string) containing the scope you actually reviewed
 - The `scope_actually_reviewed.expanded_beyond_packet` field is
   REQUIRED — set it to `true` if you investigated beyond the starting
   packet the wrapper gave you, with a one-sentence `expansion_reason`
+- The `findings` field is REQUIRED and MUST be an array (possibly
+  empty `[]` for a clean review). **`findings` is NEVER a boolean or
+  a string — always an array.**
+- The `no_findings` field is REQUIRED and MUST be a boolean: `true`
+  if the `findings` array is empty, `false` if it contains any findings.
+  This is a redundant signal so the parser can distinguish
+  "envelope intentionally clean" from "envelope accidentally empty".
 - Each finding's `basis` field MUST be one of `fresh_verification |
   direct_file_inspection | git_history | inference`
 - Each finding's `location` MUST match the canonical regex
