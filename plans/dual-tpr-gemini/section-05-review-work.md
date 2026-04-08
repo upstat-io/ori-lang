@@ -13,8 +13,9 @@ success_criteria:
   - "At least 1 real review-work scenario runs successfully with both reviewers, invoked via the Skill tool (`Skill: review-work`), NOT via typing `/review-work` (the `/review-work` slash command continues to hit the untouched command file per Step 1E)"
 depends_on: ["04"]
 third_party_review:
-  status: none
-  updated: null
+  status: resolved
+  updated: 2026-04-08
+  note: "Scenario 2 round 1 surfaced 2 codex findings against the 05.1 rewrite + lint extension: one HIGH DRIFT on the bug-tracker fallback ID format, one MEDIUM GAP on the Step 7b fix-path branching. Both verified against the canonical contract (add-bug, bug-tracker overview, fix-bug skill, review-work command file) and fixed in the same commit across BOTH wrappers (tpr-review and review-work — cross-section fix touching §04's work product per 'Plan boundaries = implementation boundaries'). Gemini's round 1 envelope failed schema_violation due to missing schema_version field; root cause traced to .gemini/skills/review-work/SKILL.md not documenting the field; fixed in a separate commit that also extended the lint. Round 2 re-validation pending."
 sections:
   - id: "05.1"
     title: "Fix Task #10 contradiction and rewrite for dual-source transport"
@@ -24,7 +25,7 @@ sections:
     status: not-started
   - id: "05.R"
     title: "Third Party Review Findings"
-    status: not-started
+    status: complete
   - id: "05.N"
     title: "Completion Checklist"
     status: not-started
@@ -144,7 +145,23 @@ Tasks:
 
 ## 05.R Third Party Review Findings
 
-- None.
+### Round 1 — Scenario 2 (plan-owned, 05.1 commits) — 2026-04-08
+
+Run: `/tmp/ori-tpr-jRQHAIYL` (second attempt; first attempt at `/tmp/ori-tpr-iLiS3COd` aborted with `codex_parse_fail` due to a prompt-authoring error by the orchestrator — not a reviewer fault; see retrospective). Both reviewers were scoped to commits `16ca2e34..7ebf112d` (review-work rewrite + lint extension). Codex completed cleanly (2 findings); gemini completed cleanly but produced a schema-invalid envelope (missing `schema_version`) — diagnosed and fixed in a separate commit. Merger did not run for round 1 because gemini's envelope failed parse.
+
+- [x] `[TPR-05-001-codex][high]` `.claude/skills/review-work/SKILL.md:378` — Realign orphan bug IDs with the canonical add-bug contract.
+  Evidence: Step 7a tells Claude to file no-plan findings as `BUG-{section}-{ordinal}-codex` and `...-gemini`. That is DRIFT from the repo's canonical bug-tracker contract — `plans/bug-tracker/00-overview.md:41`, `.claude/skills/add-bug/SKILL.md:75-105`, and `.claude/commands/review-work.md:106-111` all define the unsuffixed `BUG-{section}-{ordinal}` format. The rewrite created a shadow bug-ID home for the exact fallback path Section 05 calls load-bearing.
+  Impact: A real orphan-finding run would produce bug entries that the rest of the tracker workflow does not recognize cleanly — `/fix-bug` expects `BUG-XX-NNN`, fix-section filenames are `fix-BUG-XX-NNN.md`, and `/review-bugs` audits the same unsuffixed shape. Agreement cases would also become two malformed bugs instead of one.
+  Required plan update: Replace reviewer-suffixed BUG IDs with the canonical `BUG-{section}-{ordinal}` flow from `/add-bug`, and preserve reviewer provenance inside the bug body (via `Source:` and `Reviewers:` fields) rather than in the primary ID. Document how agreement findings collapse to one bug entry while keeping both reviewer references in the body.
+  Basis: direct_file_inspection. Confidence: high.
+  Resolved: Fixed 2026-04-08. **Cross-section fix** — the same DRIFT existed in tpr-review/SKILL.md Step 7a (the template review-work was derived from), so both files were corrected in the same commit. Section 7a now documents the canonical `BUG-{section}-{ordinal}` format with explicit examples for the agreement case (ONE bug entry) and single-reviewer case (ONE bug entry with `Reviewer: codex` or `Reviewer: gemini`). Each BUG entry gets ONE ordinal — ordinal space belongs to the subsystem section, not the reviewers. Verified against `plans/bug-tracker/00-overview.md:41`, `.claude/skills/add-bug/SKILL.md:75`, `.claude/commands/review-work.md:108`. See the cross-section note added to §04.N.
+
+- [x] `[TPR-05-002-codex][medium]` `.claude/skills/review-work/SKILL.md:400` — Restore the missing /fix-bug phase for bug-tracker resolutions.
+  Evidence: After filing fallback bugs, Step 7b immediately tells Claude to fix the code and mark the bug-tracker entry resolved. That is a GAP in the canonical bug lifecycle. `CLAUDE.md` §"Bug fix rigor with `/fix-bug`", `plans/bug-tracker/00-overview.md:24-35`, and `.claude/skills/fix-bug/SKILL.md:1-18,56-68` all require bug fixes to go through `/fix-bug BUG-XX-NNN`, which creates the fix section and enforces TDD, TPR, and hygiene completion. The rewritten wrapper skipped that mandatory phase for the no-owning-plan case it is supposed to serve.
+  Impact: Even if the filing format were corrected, operators following this wrapper would close fallback bugs without a `fix-BUG-XX-NNN.md` record or the required completion checklist. That leaves `/review-bugs` to report rigor gaps and breaks the project's tracked-bug discipline for review-work-discovered defects.
+  Required plan update: Branch Step 7b by destination: plan-owned findings may stay in the section TPR flow, but bug-tracker findings must hand off to `/fix-bug BUG-XX-NNN` and only mark the tracker entry resolved through that fix-section workflow.
+  Basis: direct_file_inspection. Confidence: high.
+  Resolved: Fixed 2026-04-08. **Cross-section fix** — the same GAP existed in tpr-review/SKILL.md Step 7b (no destination branching), so both files were corrected in the same commit. Step 7b now has two subsections: 7b-i for plan-owned findings (fix inline, mark TPR resolved — unchanged from previous behavior) and 7b-ii for bug-tracker findings (DO NOT fix inline; invoke `Skill: fix-bug BUG-{section}-{ordinal}`; wait for fix-section complete; only then mark the bug-tracker entry resolved). 7b-ii references the canonical contract at `.claude/skills/fix-bug/SKILL.md` and `CLAUDE.md` §"Bug fix rigor with `/fix-bug`", and explains *why* the hand-off matters (no fix-section record, no TDD, no TPR, no hygiene, broken `/fix-next-bug` autopilot). See the cross-section note added to §04.N.
 
 ---
 

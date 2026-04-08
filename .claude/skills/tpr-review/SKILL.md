@@ -373,7 +373,27 @@ For each validated finding, decide where it lives:
    ```
    Update plan metadata (`third_party_review.status: findings`, `updated: {today}`).
 
-3. **If no owning plan exists** — file as a bug in `plans/bug-tracker/` under the appropriate subsystem section using the reviewer-tagged IDs.
+3. **If no owning plan exists** — file as a bug in `plans/bug-tracker/` under the appropriate subsystem section using the **canonical `BUG-{section}-{ordinal}` format — no reviewer suffix**. Reviewer provenance lives in the body, not the ID. This is the SSOT contract enforced by `.claude/skills/add-bug/SKILL.md:75`, `plans/bug-tracker/00-overview.md:41`, `.claude/commands/review-work.md:108`, and consumed by `/fix-bug BUG-XX-NNN`, `/review-bugs`, and `fix-BUG-XX-NNN.md` filenames. Suffixed IDs would create a shadow bug-ID home that breaks all of those downstream consumers.
+
+   **For an agreement finding** (both reviewers flagged the same `(location, title)`), file ONE BUG entry covering both reviewers' observations — the agreement doesn't require two bug entries:
+   ```md
+   - [ ] `[BUG-{section}-{ordinal}][{severity}]` **{Short title}** — found by tpr-review (dual-source).
+     Repro: {evidence summary from both reviewers}
+     Subsystem: {crate/file path}
+     Found: {YYYY-MM-DD} | Source: tpr-review | Reviewers: codex + gemini (agreement)
+     Fix: `plans/bug-tracker/fix-BUG-{section}-{ordinal}.md` (via `/fix-bug`)
+   ```
+
+   **For a single-reviewer finding** (only one reviewer flagged it — `agreement: false`), file ONE BUG entry and note which reviewer surfaced it:
+   ```md
+   - [ ] `[BUG-{section}-{ordinal}][{severity}]` **{Short title}** — found by tpr-review.
+     Repro: {evidence from the single reviewer}
+     Subsystem: {crate/file path}
+     Found: {YYYY-MM-DD} | Source: tpr-review | Reviewer: codex
+     Fix: `plans/bug-tracker/fix-BUG-{section}-{ordinal}.md` (via `/fix-bug`)
+   ```
+
+   Each BUG entry gets ONE ordinal regardless of how many reviewers found it — the ordinal space belongs to the subsystem section, not the reviewers. This preserves the canonical `BUG-XX-NNN` ID shape that all downstream tooling expects.
 
 Subsystem mapping (unchanged from single-source version):
 - `ori_parse`/`ori_lexer` -> section-01
@@ -385,9 +405,13 @@ Subsystem mapping (unchanged from single-source version):
 - `oric`/`ori_fmt`/`ori_diagnostic` -> section-07
 - `docs/`/`.claude/`/`plans/` -> section-08
 
-#### 7b. Fix Each Finding
+#### 7b. Fix Each Finding — branch by destination
 
-**YOU (Claude) fix the code.** Actual implementation — not just filing, not scope notes, not rationalizations. CODE CHANGES.
+**YOU (Claude) fix the code.** Actual implementation — not just filing, not scope notes, not rationalizations. CODE CHANGES. **The fix path differs based on where the finding was filed in Step 7a** — plan-owned findings are fixed inline; bug-tracker findings hand off to `/fix-bug`. Do NOT conflate the two paths — bug-tracker findings that skip the `/fix-bug` handoff bypass the mandatory TDD matrix, TPR review, and hygiene review per `.claude/skills/fix-bug/SKILL.md` and `CLAUDE.md` §"Bug fix rigor with `/fix-bug`".
+
+##### 7b-i. Plan-owned findings (filed in `## {NN}.R Third Party Review Findings`)
+
+Fix inline with the same rigor as the owning plan section:
 
 - **Read `.claude/rules/impl-hygiene.md` before fixing** — SSOT, canonical homes, no side logic, phase boundaries. Every fix must be the correct architectural solution.
 - Read the affected code and understand the issue
@@ -395,13 +419,33 @@ Subsystem mapping (unchanged from single-source version):
 - Follow TDD when appropriate (failing test -> fix -> test passes)
 - Run `timeout 150 ./test-all.sh` after fixes
 - **Self-check**: would this fix survive `/impl-hygiene-review`? If it introduces scattered knowledge, duplicated dispatch, or a shadow source of truth, it's wrong — find the proper architectural fix
-- Mark the filed findings as `[x]` resolved in the plan with a note referencing the code fix:
+- Mark the filed TPR finding as `[x]` resolved in the plan with a note referencing the code fix:
   ```md
   - [x] `[TPR-04-001-codex][high]` ...
     Resolved: Fixed on YYYY-MM-DD. [description of CODE fix].
   - [x] `[TPR-04-001-gemini][high]` ...
     Resolved: Fixed on YYYY-MM-DD. Same fix as [TPR-04-001-codex] (agreement).
   ```
+
+##### 7b-ii. Bug-tracker findings (filed in `plans/bug-tracker/section-NN-*.md`)
+
+**DO NOT fix inline. Hand off to `/fix-bug BUG-{section}-{ordinal}` for each bug.**
+
+The `/fix-bug` skill creates a fix-section file (`plans/bug-tracker/fix-BUG-{section}-{ordinal}.md`) with full plan-section rigor: investigation, root cause analysis, TDD matrix (semantic + negative pins), implementation, and a completion checklist that includes `test-all.sh`, `/tpr-review`, and `/impl-hygiene-review`. This rigor is non-negotiable per `CLAUDE.md` §"Bug fix rigor with `/fix-bug`": "No ad-hoc bug fixes — every bug gets a fix section, even 'obvious' ones."
+
+For each bug-tracker entry filed in Step 7a:
+1. Invoke the Skill tool: `Skill: fix-bug BUG-{section}-{ordinal}`
+2. Wait for `/fix-bug` to complete its workflow (which includes its own commit via `/commit-push`)
+3. Verify the fix-section file shows `status: complete` and all completion-checklist items are `[x]`
+4. Mark the bug-tracker entry as `[x]` resolved ONLY after the fix-section is complete:
+   ```md
+   - [x] `[BUG-04-012][high]` ...
+     Fix: `plans/bug-tracker/fix-BUG-04-012.md` (complete 2026-04-08)
+   ```
+
+**Why the hand-off matters**: skipping `/fix-bug` leaves no fix-section record, no TDD matrix, no TPR validation, and no hygiene review for the bug. It also leaves `/review-bugs` to report the lifecycle gap, and breaks `/fix-next-bug` autopilot which expects fix-sections to exist. The canonical contract exists precisely because bug-tracker bugs are often cross-cutting and benefit from the extra investigation rigor that a fix-section provides.
+
+**If a bug-tracker finding genuinely requires zero investigation** (a typo fix or a single-line change with obvious root cause), the `/fix-bug` skill itself handles this efficiently — it still produces a fix-section, but the investigation/TDD phases are lightweight. The fix-section is the permanent record, not a gate.
 
 #### 7c. Commit Fixes
 
