@@ -35,7 +35,22 @@ EVENT_COUNT=5
 shift 2>/dev/null || true
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --events) EVENT_COUNT="$2"; shift 2 ;;
+    --events)
+      if [[ -z "${2:-}" ]]; then
+        printf 'error: --events requires an argument\n' >&2
+        exit 2
+      fi
+      # Validate: must be a positive integer. Reject empty, non-numeric,
+      # zero, and negative values in bash BEFORE passing to Python, so
+      # operators get a clean usage error instead of a Python traceback.
+      # (TPR-04-004-codex regression.)
+      if ! [[ "$2" =~ ^[0-9]+$ ]] || [[ "$2" == "0" ]]; then
+        printf 'error: --events must be a positive integer (got: %s)\n' "$2" >&2
+        exit 2
+      fi
+      EVENT_COUNT="$2"
+      shift 2
+      ;;
     --help|-h)
       sed -n '2,30p' "$0"
       exit 0
