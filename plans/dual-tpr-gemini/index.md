@@ -38,7 +38,7 @@ git_history, inference, citations array, layer field, confidence field
 ---
 
 ### Section 02: Shared transport utility
-**File:** `section-02-transport.md` | **Status:** Not Started
+**File:** `section-02-transport.md` | **Status:** Complete (gates deferred)
 
 ```
 dual_invoke, parallel launcher, run_in_background, bash background invocation
