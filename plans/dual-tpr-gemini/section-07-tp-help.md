@@ -40,7 +40,7 @@ sections:
     status: complete
   - id: "07.3"
     title: "Verify downstream consumers still work with dual-source /tp-help"
-    status: not-started
+    status: in-progress
   - id: "07.R"
     title: "Third Party Review Findings"
     status: not-started
@@ -655,7 +655,7 @@ Tasks:
 
 - [ ] Read `.claude/skills/create-plan/SKILL.md` lines 56, 130-170 (Phase 1 research loop), 520-540 (Phase 3 architectural sanity check), and 578-600 (Step 8B architecture sanity check) to understand how create-plan builds and consumes `/tp-help` responses at each call site. Note the common pattern: create-plan calls `/tp-help` in the foreground, waits for the full response, then includes the response text (or a summarized extract of it) as context for the next research pass or the next workflow phase. Because §07.2 uses HTML-comment sentinel attribution (NOT H2 headers), the concerns around heading-level collision are avoided BY CONSTRUCTION — the sentinels cannot appear as Markdown structure. Scenario 4 still verifies end-to-end: it must confirm (a) create-plan's prose rendering correctly integrates the raw reviewer text, (b) no HTML-comment sentinels leak into the final written plan document, and (c) no doubled-text or truncation artifacts appear.
 
-- [ ] **Write `.claude/skills/dual-tpr/scripts/validate-tp-help-consumers.sh`** — a stub-binary test harness (Concern 1 resolution). Rationale: a real end-to-end run of all four downstream scenarios with `ORI_TPR_REVIEWERS=both` costs ~80-120 minutes per iteration; running Scenario 4 (four `/create-plan` tp-help calls) alone at ~10-15 min per call takes 40-60 min. Iterating on the attribution format, the sentinel strings, or the leakage detector in that budget is prohibitively slow. This harness mirrors the precedent set by §04's `validate-dual-tpr.sh` — stub `codex` and `gemini` binaries under `$SCRIPT_DIR/../fixtures/stub-bin-tp-help/`, use PATH manipulation to make the transport scripts launch the stubs instead of the real CLIs, and assert on the stubbed outputs. The stubs emit deterministic concatenation-mode outputs with known content so consumer-side leakage and integration can be verified without paying the real wall-time cost.
+- [x] **Write `.claude/skills/dual-tpr/scripts/validate-tp-help-consumers.sh`** — a stub-binary test harness (Concern 1 resolution). Rationale: a real end-to-end run of all four downstream scenarios with `ORI_TPR_REVIEWERS=both` costs ~80-120 minutes per iteration; running Scenario 4 (four `/create-plan` tp-help calls) alone at ~10-15 min per call takes 40-60 min. Iterating on the attribution format, the sentinel strings, or the leakage detector in that budget is prohibitively slow. This harness mirrors the precedent set by §04's `validate-dual-tpr.sh` — stub `codex` and `gemini` binaries under `$SCRIPT_DIR/../fixtures/stub-bin-tp-help/`, use PATH manipulation to make the transport scripts launch the stubs instead of the real CLIs, and assert on the stubbed outputs. The stubs emit deterministic concatenation-mode outputs with known content so consumer-side leakage and integration can be verified without paying the real wall-time cost.
 
   Stub binary contract (both `codex` and `gemini`):
   - Accept any args (both real CLIs have rich arg surfaces; the stubs ignore them)
