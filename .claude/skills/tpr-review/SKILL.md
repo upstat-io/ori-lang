@@ -116,6 +116,42 @@ Read CLAUDE.md (the project root one)
 
 **Maximum semantic iterations: 10.** Infra retries inside `dual-invoke-with-retry.sh` do NOT count against this budget — the budget is for finding-fixing rounds, not transport failures. If after 10 semantic cycles findings are still surfacing, surface the remaining merged findings to the user via `AskUserQuestion`.
 
+### Loop State Machine
+
+The loop protocol above is an illustrative diagram; the state machine below is the authoritative contract. Infra retries are invisible to `iteration_counter` — they happen inside step `dual-invoke-with-retry.sh` and either resolve (round continues) or exhaust (user escalation, counter untouched).
+
+```
+iteration_counter = 0
+while iteration_counter < 10:
+    RUN = scratch-dir.sh
+    write codex.prompt.md and gemini.prompt.md into RUN
+    if dual-invoke-with-retry.sh fails:
+        # infra retries (3 per reviewer, 1s/2s/4s backoff) already
+        # exhausted inside the transport — do NOT increment, do NOT
+        # retry the semantic loop
+        surface failure category + $RUN to user via AskUserQuestion
+        EXIT
+    else:
+        # both envelopes passed parser + schema + worktree-guard
+        merged = merge-findings.py(codex.envelope.json, gemini.envelope.json)
+        if merged has zero actionable findings:
+            CLEAN PASS — exit with iteration_counter for the report
+        for each actionable finding in merged:
+            file into owning plan TPR block or bug-tracker
+            fix the code
+            run `timeout 150 ./test-all.sh`
+        commit via /commit-push
+        iteration_counter += 1
+# After 10 semantic iterations without a clean pass:
+surface remaining merged findings to user via AskUserQuestion
+```
+
+**Invariants:**
+- `iteration_counter` increments ONLY after a successful round that found actionable findings AND those findings were fixed AND the commit landed. Any earlier exit (infra failure, clean pass) skips the increment.
+- Infra retries (inside the transport) and semantic iterations (this loop) are **orthogonal budgets**. One cannot consume the other. A transient network hiccup burning 3 infra retries still leaves the 10-iteration semantic budget untouched.
+- A clean pass on any iteration is a terminal state: the report includes `iteration_counter` at exit so "clean on iteration 1" vs "clean on iteration 3 after fixing N findings" are distinguishable in the final output.
+- The 10-iteration cap is a **user-facing stopping rule**, not a correctness guarantee — if findings keep surfacing, that is signal, not noise, and the user decides whether to continue, abandon, or dig into a recurring finding.
+
 ## Steps (Per Iteration)
 
 ### 1. Create a per-run scratch directory
@@ -300,11 +336,112 @@ If after 10 semantic iterations findings are still surfacing, surface the remain
 
 ## Transport Failure Handling
 
-If `dual-invoke-with-retry.sh` exits non-zero, the transport has exhausted its 3 internal infra retries and the round cannot proceed. Read the failure category and postmortem dir path from the script's stderr, then surface the failure to the user via `AskUserQuestion`. Include the `$RUN` path so the user can inspect the postmortem files (raw JSONL streams, parse errors, worktree diff, round log).
+If `dual-invoke-with-retry.sh` exits non-zero, the transport has exhausted its 3 internal infra retries and the round cannot proceed. The script prints the failure category on the last line of stderr and preserves the postmortem files under `$RUN` for inspection.
 
-**DO NOT silently retry the semantic loop on infra failure.** The 10-iteration budget is for finding-fixing rounds, not transport failures. Incrementing the semantic counter on a transport failure hides real infrastructure bugs and falsely claims iteration progress.
+**DO NOT silently retry the semantic loop on infra failure.** The 10-iteration budget is for finding-fixing rounds, not transport failures. Incrementing the semantic counter on a transport failure hides real infrastructure bugs and falsely claims iteration progress — the state machine invariant above forbids it.
 
-The full escalation text, file-inspection checklist, and explicit loop state machine are documented in subsection 04.2 of `plans/dual-tpr-gemini/section-04-tpr-review.md`, which augments this file after subsection 04.1 is complete.
+### Failure taxonomy
+
+The transport reports one of these categories on its stderr tail (prefixed `infra_retries_exhausted:`):
+
+| Category | Meaning |
+|---|---|
+| `launch_or_exit_fail` | Either reviewer process failed to start or exited non-zero on all 3 attempts (includes crashes, missing CLI, auth errors) |
+| `codex_*` | `parse-codex.py` rejected the codex JSONL stream on all 3 attempts. Suffix is the parser's first error line (`codex_schema_violation`, `codex_missing_envelope`, `codex_parse_error`, etc.) |
+| `gemini_*` | `parse-gemini.py` rejected the gemini stream-json on all 3 attempts. Suffix is the parser's first error line (`gemini_missing_terminator`, `gemini_no_begin`, `gemini_no_end`, `gemini_parse_error`, etc.) |
+| `dirty_worktree` | `worktree-guard.sh compare` detected tracked-file modifications during the reviewer run on all 3 attempts. The reviewer violated its read-only contract. |
+| `unknown_failure` | Fallback — the script exhausted retries without recording a specific category (rare; investigate round.log) |
+
+### Escalation procedure
+
+When the transport fails, surface the failure to the user via `AskUserQuestion` with:
+
+1. **Failure category** — the literal string from the transport stderr tail, including suffix if any
+2. **Postmortem directory** — the `$RUN` path so the user can inspect it directly
+3. **Files to inspect in `$RUN`:**
+   - `round.log` — orchestration timeline (every attempt, every backoff, every failure category)
+   - `codex.jsonl` / `gemini.jsonl` — raw reviewer output streams (may be empty if launch failed)
+   - `codex.envelope.json` / `gemini.envelope.json` — parsed envelopes (absent if parse failed)
+   - `codex.parse-error` / `gemini.parse-error` — parser error output (first line = failure reason)
+   - `worktree-error` — diff of tracked files modified during the reviewer run (present only on `dirty_worktree`)
+   - `codex.exit` / `gemini.exit` — reviewer exit codes
+   - `codex.walltime` / `gemini.walltime` — wall time per reviewer (useful when one hung)
+4. **Recommended user actions:**
+   - **Triage the failure** — open `$RUN/round.log` first, then the specific files indicated by the category (e.g. `codex.parse-error` for a `codex_*` failure). Fix the root cause (the prompt, a reviewer bug, a transport bug, a dirty reviewer skill) and re-run `/tpr-review`.
+   - **Retry immediately** — if the failure is a known-transient cloud outage and the user wants Claude to launch another round as-is. Use this sparingly; most transport failures reflect real infrastructure bugs worth triaging.
+   - **Abandon the review** — if the review cannot proceed (e.g. reviewer CLI is offline, credentials missing, persistent schema violation). Log the failure category + `$RUN` path in any owning plan's working notes so the operator can follow up later, then stop.
+
+### What NOT to do on transport failure
+
+- Do NOT retry the semantic loop silently (violates the state machine invariant).
+- Do NOT fabricate a clean pass to unblock the user — a transport failure is a real signal and must be surfaced.
+- Do NOT delete `$RUN` before the user triages — the postmortem is the evidence trail.
+- Do NOT rewrite the prompts and retry without telling the user — if the prompt needs changing, that is a user decision.
+
+## Merged Finding Format
+
+This section specifies how merged findings are written into the owning plan's `## {NN}.R Third Party Review Findings` block (or the bug-tracker, if there is no owning plan). Claude produces these entries in Step 7a above; the format is load-bearing because future `/tpr-review` runs, `/review-bugs`, and plan audits depend on it.
+
+### Ordinal numbering is independent per reviewer
+
+`merge-findings.py` assigns ordinals by **insertion order within each reviewer's envelope**, independently. The first finding in the codex envelope is `-001-codex`, the first in the gemini envelope is `-001-gemini`. There is NO shared ordinal space: `[TPR-04-001-codex]` and `[TPR-04-001-gemini]` are not required to be the same finding — the `agreement: true` flag from the merger is the authoritative cross-reference.
+
+### Agreement case — both reviewers flagged the same (location, title)
+
+When `merge-findings.py` reports `agreement: true`, both halves are filed adjacent with a cross-reference annotation. Both entries point at each other via the `Agreement:` line so the plan's TPR block preserves the independence contract while still making the convergence visible:
+
+```md
+- [ ] `[TPR-04-001-codex][high]` `compiler/ori_arc/src/lower/iter.rs:218` — Add dec on early-exit branch of iterator loop.
+  Evidence: On `break` inside `for x in iter do ...`, the iterator value's RC is never decremented before the loop exits, leaving a leaked reference on the remaining elements. Reproduced via `tests/valgrind/iter_break.ori`.
+  Impact: Memory leak on every early-exit iteration; severity scales with iterator payload size.
+  Required plan update: Add a `dec` emission to the early-exit branch in `ori_arc/src/lower/control_flow/for_loop.rs`; verify via `ORI_CHECK_LEAKS=1` on the matrix tests.
+  Basis: fresh_verification. Confidence: high.
+  Agreement: [TPR-04-001-gemini] (both reviewers flagged this location/title)
+- [ ] `[TPR-04-001-gemini][high]` `compiler/ori_arc/src/lower/iter.rs:218` — Add dec on early-exit branch of iterator loop.
+  Evidence: The lowering pass emits an iterator inc on loop entry but the early-exit path in `lower_break` does not call the matching dec. Verified against Swift's SILOptimizer/ARC/ARCContract.cpp, which explicitly handles the analogous case.
+  Impact: Same as above (agreement finding).
+  Required plan update: Same as above.
+  Basis: direct_file_inspection. Confidence: high.
+  Citations: [{url: "https://github.com/apple/swift/blob/main/lib/SILOptimizer/ARC/ARCContract.cpp", description: "Swift's equivalent arc contract pass, for cross-reference"}]
+  Agreement: [TPR-04-001-codex] (both reviewers flagged this location/title)
+```
+
+**Why both halves are filed** — filing only the codex half would erase the gemini reviewer's independent observation (and its citations), which violates the dual-source independence contract. Filing only the gemini half would erase the codex finding's ordinal continuity. Both are recorded; the `Agreement:` cross-reference makes the convergence clear to any human or tool auditing the block.
+
+### Gemini-only case — a finding with no codex counterpart
+
+```md
+- [ ] `[TPR-04-002-gemini][medium]` `library/std/prelude.ori:5` — Replace println with tracing::debug.
+  Evidence: The prelude emits a `println` on module load to report version info. `println` writes to stdout, which pollutes test captures; the project convention is to use `tracing::debug` with the `ori_*` target (see CLAUDE.md §Tracing).
+  Impact: Test snapshot churn on every prelude load; violates the "no println" rule.
+  Required plan update: Switch to `tracing::debug!(target: "ori_prelude", ...)` and add a `#[tracing::instrument]` on the prelude loader.
+  Basis: inference. Confidence: medium. (Gemini-only finding — no codex counterpart.)
+```
+
+**Why single-tag is still actionable** — per Step 5 (Classify), provenance is not severity. A gemini-only finding gets fixed the same way as an agreement finding; the tag is audit metadata, not a filter.
+
+### Codex-only case — symmetric to gemini-only
+
+```md
+- [ ] `[TPR-04-003-codex][low]` `compiler/ori_parse/src/expr/binary.rs:142` — Tighten error span on operator-precedence mismatch.
+  Evidence: The current error points at the left operand; the spec's operator-rules.md §B.PRECEDENCE example shows the caret should sit on the operator itself.
+  Impact: Diagnostic UX regression in a code path that already has a regression test; trivial fix.
+  Required plan update: Update `binary.rs:142` to emit the span on the operator token.
+  Basis: direct_file_inspection. Confidence: high. (Codex-only finding — no gemini counterpart.)
+```
+
+### Resolution format — always preserve the reviewer tag
+
+When a finding is fixed (Step 7b), mark the entry `[x]` and append a `Resolved:` line referencing the code fix. For agreement findings, both halves are resolved together — the second resolution can reference the first rather than duplicating the fix description:
+
+```md
+- [x] `[TPR-04-001-codex][high]` ...
+  Resolved: Fixed on 2026-04-07 in commit abc123. Added `dec` emission in `lower_break` early-exit branch; verified via `ORI_CHECK_LEAKS=1 cargo t -p ori_arc iter_break`.
+- [x] `[TPR-04-001-gemini][high]` ...
+  Resolved: Fixed on 2026-04-07 in commit abc123. Same fix as [TPR-04-001-codex] (agreement).
+```
+
+**NEVER delete a resolved finding.** Mark it `[x]` with a resolution note — deletion erases the audit trail and invites re-filing by the next review pass.
 
 ## Final Report (After Loop Exits)
 
