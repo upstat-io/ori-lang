@@ -64,10 +64,26 @@ done
 # that window so a foreground review can't be killed mid-stream.
 # Minimum allowed: 1200000 ms (20 minutes).
 # Maximum allowed: 2100000 ms (35 minutes).
+#
+# BUG-08-001: The matcher must fire only on GENUINE top-level codex or
+# gemini invocations — never on commands that merely mention the literal
+# strings in a path, argument, message body, or quoted text. The regex
+# below accepts `codex` / `gemini` only when they appear at a shell
+# command position:
+#   1. At the very start of the command, optionally behind leading
+#      whitespace and optional env-var assignments (FOO=bar codex exec)
+#   2. After a shell compound operator (| ; & ( ) — including && and ||
+#      via their single-char boundary members) and optional env vars
+# The command must also be followed by whitespace (real invocations
+# always have at least one argument: `codex exec`, `gemini -p`, etc.).
+# See `.claude/hooks/verify-hook.sh` for the full matrix and
+# `plans/bug-tracker/fix-BUG-08-001.md` for the design rationale.
+REVIEW_CMD_RE='(^[[:space:]]*|[|;&(][[:space:]]*)([[:alnum:]_]+=[^[:space:]]*[[:space:]]+)*(codex|gemini)[[:space:]]'
+
 TIMEOUT=$(printf '%s' "$INPUT" | python3 -c "import sys,json; print(json.load(sys.stdin).get('tool_input',{}).get('timeout',''))" 2>/dev/null || true)
 
 if [[ -n "$TIMEOUT" && "$TIMEOUT" != "None" ]]; then
-  if [[ "$COMMAND" == *"codex"* || "$COMMAND" == *"gemini"* ]]; then
+  if [[ "$COMMAND" =~ $REVIEW_CMD_RE ]]; then
     # Require at least 20 minutes (1200000 ms) — anything shorter risks
     # killing the review mid-stream (reviews barely ever complete in 10
     # minutes, so 5- and 10-minute timeouts almost always fail).

@@ -55,11 +55,25 @@ FAILED_TESTS=()
 #   EXPECTED: "deny" or "allow"
 #   DENY_SUBSTR: optional substring that the deny message must contain
 #                (only checked when EXPECTED=deny)
+#
+# The JSON input is encoded via python3 (a hook dependency) so that
+# commands containing double quotes, backslashes, newlines, or other
+# JSON-sensitive characters round-trip correctly. A printf-based encoder
+# would corrupt any such command and silently produce the wrong input.
 run_test() {
   local name="$1" cmd="$2" timeout="$3" expected="$4" deny_substr="${5:-}"
 
   local input
-  input=$(printf '{"tool_name":"Bash","tool_input":{"command":"%s","timeout":%s}}' "$cmd" "$timeout")
+  input=$(CMD="$cmd" TIMEOUT="$timeout" python3 -c '
+import json, os, sys
+sys.stdout.write(json.dumps({
+    "tool_name": "Bash",
+    "tool_input": {
+        "command": os.environ["CMD"],
+        "timeout": int(os.environ["TIMEOUT"]),
+    },
+}))
+')
   local output
   output=$(printf '%s' "$input" | bash "$HOOK" 2>&1)
 
@@ -119,6 +133,58 @@ run_test "gemini + 60 min → DENY (over 35-min ceiling)"        "gemini -p test
 
 # Control: gate must NOT apply to non-codex/gemini commands
 run_test "control: echo + 1 min → ALLOW (gate doesn't apply)"  "echo hello"      60000   allow
+
+# ── False-positive suppression (BUG-08-001) ──────────────────────────
+# The hook originally used a naive substring match — any command whose
+# arguments, paths, or message body contained the literal strings
+# "codex" or "gemini" was denied. The fix narrows the match to genuine
+# invocations at shell-command position. These tests prove the false
+# positives are gone. All use a short (60000 ms) timeout; ALL must
+# return ALLOW because none of them actually invoke codex or gemini.
+
+run_test "git commit with 'gemini' in message → ALLOW (message body, not invocation)" \
+  'git commit -m "fix dual-tpr-gemini work"' 60000 allow
+run_test "git commit with 'codex' in message → ALLOW (message body, not invocation)" \
+  'git commit -m "refactor codex parser"' 60000 allow
+run_test "grep codex as arg → ALLOW (codex is grep's argument, not a command)" \
+  "grep codex .claude/" 60000 allow
+run_test "grep gemini as arg → ALLOW (gemini is grep's argument, not a command)" \
+  "grep gemini .claude/" 60000 allow
+run_test "ls .codex/skills/ → ALLOW (.codex is a path component preceded by .)" \
+  "ls .codex/skills/" 60000 allow
+run_test "ls .gemini/skills/ → ALLOW (.gemini is a path component preceded by .)" \
+  "ls .gemini/skills/" 60000 allow
+run_test "cat dual-tpr-gemini section file → ALLOW (gemini in a path, preceded by -)" \
+  "cat plans/dual-tpr-gemini/section-04-tpr-review.md" 60000 allow
+run_test "bash dual-invoke.sh script → ALLOW (top-level command is bash, not codex/gemini)" \
+  "bash .claude/skills/dual-tpr/scripts/dual-invoke.sh arg1" 60000 allow
+run_test "./my-gemini-wrapper.sh → ALLOW (gemini inside a script name, preceded by -)" \
+  "./my-gemini-wrapper.sh test" 60000 allow
+run_test "echo 'fix codex and gemini' → ALLOW (both substrings in a quoted arg)" \
+  "echo 'fix codex and gemini bugs'" 60000 allow
+
+# ── Bypass closure — compound invocations (BUG-08-001) ───────────────
+# A word-boundary-only fix would regress the gate on env-var prefixes,
+# pipelines, sequences, &&, and subshells. These tests pin the gate
+# shut: each command is a GENUINE codex/gemini invocation reached via
+# a compound-command form, and all must DENY at 60000 ms.
+
+run_test "ORI_LOG=debug codex exec → DENY (env-var prefix bypass closed)" \
+  "ORI_LOG=debug codex exec test" 60000 deny "20-35 minutes"
+run_test "multiple env-var prefixes + codex → DENY (multi-env bypass closed)" \
+  "TARGET=x86_64 ORI_LOG=debug codex exec test" 60000 deny "20-35 minutes"
+run_test "pipeline into codex exec → DENY (| bypass closed)" \
+  "cat prompt.md | codex exec test" 60000 deny "20-35 minutes"
+run_test "&& codex exec → DENY (logical AND bypass closed)" \
+  "some-prep && codex exec test" 60000 deny "20-35 minutes"
+run_test "; gemini -p → DENY (sequence bypass closed)" \
+  "cleanup; gemini -p test" 60000 deny "20-35 minutes"
+run_test "(codex exec) subshell → DENY (subshell bypass closed)" \
+  "(codex exec test)" 60000 deny "20-35 minutes"
+run_test "gemini --approval-mode → DENY (flag-form invocation still denied)" \
+  "gemini --approval-mode yolo" 60000 deny "20-35 minutes"
+run_test "gemini --output-format stream-json -p → DENY (flag-form invocation still denied)" \
+  "gemini --output-format stream-json -p test" 60000 deny "20-35 minutes"
 
 if (( ! QUIET )); then
   printf '\n'
