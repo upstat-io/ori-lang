@@ -42,6 +42,7 @@ TRANSPORT="$REPO_ROOT/.claude/skills/dual-tpr/transport.md"
 GEMINI_REVIEW_WORK="$REPO_ROOT/.gemini/skills/review-work/SKILL.md"
 GEMINI_REVIEW_PLAN="$REPO_ROOT/.gemini/skills/review-plan/SKILL.md"
 TPR_REVIEW_WRAPPER="$REPO_ROOT/.claude/skills/tpr-review/SKILL.md"
+REVIEW_WORK_WRAPPER="$REPO_ROOT/.claude/skills/review-work/SKILL.md"
 
 PASS=0
 FAIL=0
@@ -63,7 +64,7 @@ check() {
 
 # --- Check: every linted file exists ---
 echo "=== file inventory ==="
-for f in "$TRANSPORT" "$GEMINI_REVIEW_WORK" "$GEMINI_REVIEW_PLAN" "$TPR_REVIEW_WRAPPER"; do
+for f in "$TRANSPORT" "$GEMINI_REVIEW_WORK" "$GEMINI_REVIEW_PLAN" "$TPR_REVIEW_WRAPPER" "$REVIEW_WORK_WRAPPER"; do
   rel="${f#$REPO_ROOT/}"
   if [[ -f "$f" ]]; then
     echo "  PASS: $rel exists"
@@ -96,7 +97,7 @@ fi
 # code blocks are included; they are the most common source of typos.
 echo ""
 echo "=== internal path resolution ==="
-for f in "$TRANSPORT" "$GEMINI_REVIEW_WORK" "$GEMINI_REVIEW_PLAN" "$TPR_REVIEW_WRAPPER"; do
+for f in "$TRANSPORT" "$GEMINI_REVIEW_WORK" "$GEMINI_REVIEW_PLAN" "$TPR_REVIEW_WRAPPER" "$REVIEW_WORK_WRAPPER"; do
   rel="${f#$REPO_ROOT/}"
   # grep -oE emits one match per line; sort -u deduplicates; while-read
   # loop processes one cleaned path per iteration (never parses multi-path
@@ -159,6 +160,19 @@ REQUIRED=(
   "$TPR_REVIEW_WRAPPER|||Step 0 — MANDATORY: Re-read CLAUDE.md|||tpr-review preserved Step 0 header"
   "$TPR_REVIEW_WRAPPER|||ABSOLUTE: You May NEVER Reason Out of Findings|||tpr-review preserved 'never reason out' ABSOLUTE"
   "$TPR_REVIEW_WRAPPER|||ABSOLUTE: Correct Architectural Solutions Only|||tpr-review preserved 'architectural solutions' ABSOLUTE"
+  # review-work wrapper (Section 05) — same 8 preservation assertions as
+  # tpr-review. Section 05 rewrites review-work/SKILL.md from the
+  # tpr-review template to adopt dual-source, so the same copy-paste
+  # erasure risks apply. Also guards the Task #10 fix (the absence of
+  # "ABSOLUTE: NEVER Background") via a dedicated negative check below.
+  "$REVIEW_WORK_WRAPPER|||dual-invoke-with-retry.sh|||review-work transport launcher reference"
+  "$REVIEW_WORK_WRAPPER|||merge-findings.py|||review-work merger reference"
+  "$REVIEW_WORK_WRAPPER|||scratch-dir.sh|||review-work scratch helper reference"
+  "$REVIEW_WORK_WRAPPER|||envelope-only|||review-work codex mode keyword in prompt example"
+  "$REVIEW_WORK_WRAPPER|||Activate the review-work skill|||review-work gemini activation phrase in prompt example"
+  "$REVIEW_WORK_WRAPPER|||Step 0 — MANDATORY: Re-read CLAUDE.md|||review-work preserved Step 0 header"
+  "$REVIEW_WORK_WRAPPER|||ABSOLUTE: You May NEVER Reason Out of Findings|||review-work preserved 'never reason out' ABSOLUTE"
+  "$REVIEW_WORK_WRAPPER|||ABSOLUTE: Correct Architectural Solutions Only|||review-work preserved 'architectural solutions' ABSOLUTE"
 )
 
 for entry in "${REQUIRED[@]}"; do
@@ -168,6 +182,48 @@ for entry in "${REQUIRED[@]}"; do
   desc="${rest#*|||}"
   grep -qF "$phrase" "$file"
   check "$desc" "$?" "0"
+done
+
+# --- Check: forbidden phrases must NOT be present ---
+# Negative assertions: phrases that MUST NOT appear in specific docs.
+# These are regression guards for known-bad patterns that were
+# deliberately removed and must not creep back in.
+echo ""
+echo "=== forbidden phrases (negative checks) ==="
+
+FORBIDDEN=(
+  # Task #10 fix — the "ABSOLUTE: NEVER Background" block was the
+  # self-contradicting directive at lines 78-80 of the pre-rewrite
+  # review-work/SKILL.md. It contradicted the background-invocation
+  # pattern in the same file. The rewrite removed it; this assertion
+  # ensures it stays removed. Mirror the check on tpr-review as a
+  # pure regression guard (it never had the block, but a copy-paste
+  # from an old template could reintroduce it).
+  "$REVIEW_WORK_WRAPPER|||ABSOLUTE: NEVER Background|||review-work Task #10 regression guard (block must be absent)"
+  "$TPR_REVIEW_WRAPPER|||ABSOLUTE: NEVER Background|||tpr-review regression guard (never had it; prevent copy-paste regression)"
+)
+
+for entry in "${FORBIDDEN[@]}"; do
+  file="${entry%%|||*}"
+  rest="${entry#*|||}"
+  phrase="${rest%%|||*}"
+  desc="${rest#*|||}"
+  grep -qF "$phrase" "$file"
+  # For forbidden phrases, grep exit 1 (not found) is success.
+  # grep -q can also exit 2 on file-read errors, which should fail.
+  rc=$?
+  if [[ "$rc" == "1" ]]; then
+    echo "  PASS: $desc"
+    PASS=$((PASS + 1))
+  elif [[ "$rc" == "0" ]]; then
+    echo "  FAIL: $desc (phrase present; must be absent)"
+    FAIL=$((FAIL + 1))
+    FAILED_CHECKS+=("$desc")
+  else
+    echo "  FAIL: $desc (grep error, rc=$rc)"
+    FAIL=$((FAIL + 1))
+    FAILED_CHECKS+=("$desc (grep error)")
+  fi
 done
 
 echo ""
