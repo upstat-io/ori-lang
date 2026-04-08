@@ -92,6 +92,12 @@ trap cleanup_children EXIT INT TERM
 # level, same failure modes, same retry classifier treatment. The schema
 # file remains one SSOT for envelope structure, and its code-level
 # invariants (in envelope_invariants.py) apply uniformly to both reviewers.
+# TPR-04-002-gemini: the subshell's final command must `exit "$CODEX_RC"`
+# so that the `wait $CODEX_PID` return code in the parent matches the real
+# codex exit code, rather than always being 0 from the last echo. The
+# parent script still falls back to reading codex.exit if the subshell is
+# killed before it can exit, but the wait RC is now a second redundant
+# signal — defense in depth against a corrupted .exit file.
 (
   set +e
   START=$(date +%s)
@@ -100,10 +106,11 @@ trap cleanup_children EXIT INT TERM
   echo "$CODEX_RC" > "$RUN/codex.exit"
   echo "$(($(date +%s) - START))" > "$RUN/codex.walltime"
   echo "[$(date +%s)] codex finished (rc=$CODEX_RC)" >> "$RUN/round.log"
+  exit "$CODEX_RC"
 ) &
 CODEX_PID=$!
 
-# Launch gemini in the background. Same BUG-08-004 fix as codex above.
+# Launch gemini in the background. Same BUG-08-004 + TPR-04-002-gemini fix.
 (
   set +e
   START=$(date +%s)
@@ -112,6 +119,7 @@ CODEX_PID=$!
   echo "$GEMINI_RC" > "$RUN/gemini.exit"
   echo "$(($(date +%s) - START))" > "$RUN/gemini.walltime"
   echo "[$(date +%s)] gemini finished (rc=$GEMINI_RC)" >> "$RUN/round.log"
+  exit "$GEMINI_RC"
 ) &
 GEMINI_PID=$!
 
