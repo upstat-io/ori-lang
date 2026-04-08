@@ -21,7 +21,7 @@ sections:
     status: not-started
   - id: "22.5"
     title: Test Runner
-    status: complete
+    status: in-progress
   - id: "22.6"
     title: Causality Tracking
     status: not-started

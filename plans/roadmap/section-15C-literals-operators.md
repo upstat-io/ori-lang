@@ -21,13 +21,13 @@ sections:
     status: not-started
   - id: "15C.5"
     title: Floor Division (div) Operator Fix
-    status: complete
+    status: in-progress
   - id: "15C.6"
     title: Decimal Duration and Size Literals
     status: in-progress
   - id: "15C.7"
     title: Null Coalesce Operator
-    status: complete
+    status: in-progress
   - id: "15C.8"
     title: Compound Assignment Operators
     status: in-progress

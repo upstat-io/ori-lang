@@ -60,7 +60,7 @@ sections:
     status: in-progress
   - id: "21.18"
     title: Architecture (Reference)
-    status: in-progress
+    status: not-started
   - id: "21.19"
     title: Section Completion Checklist
     status: in-progress
