@@ -437,13 +437,11 @@ The `/fix-bug` skill creates a fix-section file (`plans/bug-tracker/fix-BUG-{sec
 
 For each bug-tracker entry filed in Step 7a:
 1. Invoke the Skill tool: `Skill: fix-bug BUG-{section}-{ordinal}`
-2. Wait for `/fix-bug` to complete its workflow (which includes its own commit via `/commit-push`)
-3. Verify the fix-section file shows `status: complete` and all completion-checklist items are `[x]`
-4. Mark the bug-tracker entry as `[x]` resolved ONLY after the fix-section is complete:
-   ```md
-   - [x] `[BUG-04-012][high]` ...
-     Fix: `plans/bug-tracker/fix-BUG-04-012.md` (complete 2026-04-08)
-   ```
+2. Wait for `/fix-bug` to complete its workflow (which includes its own commit via `/commit-push` AND updates the bug-tracker entry to `[x]` resolved per `.claude/skills/fix-bug/SKILL.md:169` "Update the bug entry")
+3. **Verify — do not re-edit.** After `/fix-bug` returns, check that the bug-tracker entry is already `[x]` and uses the canonical `Resolved: Fixed on YYYY-MM-DD` + `Fix: plans/bug-tracker/fix-BUG-XX-NNN.md` form from `plans/bug-tracker/00-overview.md:52`. If the entry is correctly updated, the wrapper's job is done for that bug — **do NOT re-author or edit the entry**. Bug-entry closure is `/fix-bug`'s canonical responsibility; duplicating it in the wrapper is a LEAK (scattered knowledge).
+4. If the entry is somehow NOT updated after `/fix-bug` returns (rare — would indicate a bug in `/fix-bug` itself), file a follow-up bug against `/fix-bug` rather than patching the entry manually. Manual patches create drift from the canonical form.
+
+**Why the wrapper must not edit the entry**: `.claude/skills/fix-bug/SKILL.md` owns bug-entry-closure logic as a single source of truth. If the wrapper re-edits the entry after `/fix-bug` completes, it creates a second copy of closure logic that can drift from the canonical form (as a prior version of this wrapper did — see `plans/dual-tpr-gemini/section-05-review-work.md §05.R [TPR-05-003-codex]`). The wrapper's contract is: invoke `/fix-bug`, then verify its output — nothing more.
 
 **Why the hand-off matters**: skipping `/fix-bug` leaves no fix-section record, no TDD matrix, no TPR validation, and no hygiene review for the bug. It also leaves `/review-bugs` to report the lifecycle gap, and breaks `/fix-next-bug` autopilot which expects fix-sections to exist. The canonical contract exists precisely because bug-tracker bugs are often cross-cutting and benefit from the extra investigation rigor that a fix-section provides.
 

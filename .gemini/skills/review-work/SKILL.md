@@ -83,6 +83,91 @@ The format is:
     ```
     <!-- END-ORI-DUAL-TPR-V1 -->
 
+### Minimal envelope template — use this as the structural skeleton
+
+**Copy this template and fill in the values.** Every key shown is REQUIRED at
+this level of nesting — omitting any one of them produces a `schema_violation`
+from `parse-gemini.py`. This template is the authoritative "fill in the blanks"
+shape; if you copy it exactly and fill in each string/array/bool, your envelope
+will pass the schema validator on the first try.
+
+```json
+{
+  "schema_version": "1.0",
+  "status": "complete",
+  "reviewer": "gemini",
+  "skill": "review-work",
+  "scope_actually_reviewed": {
+    "git_range": "HEAD~5..HEAD",
+    "files_read": [
+      "CLAUDE.md",
+      ".claude/rules/impl-hygiene.md",
+      ".claude/rules/tests.md",
+      "compiler/ori_arc/src/lower/iter.rs",
+      "..."
+    ],
+    "rules_consulted": [
+      ".claude/rules/impl-hygiene.md",
+      ".claude/rules/arc.md"
+    ],
+    "specs_consulted": [
+      "docs/ori_lang/v2026/spec/clause-19-iterators.md"
+    ],
+    "plans_consulted": [
+      "plans/dual-tpr-gemini/section-05-review-work.md"
+    ],
+    "expanded_beyond_packet": true,
+    "expansion_reason": "Followed trait dispatch through to ori_registry to confirm the canonical home"
+  },
+  "findings": [
+    {
+      "ordinal": 1,
+      "severity": "high",
+      "location": "compiler/ori_arc/src/lower/iter.rs:218",
+      "title": "Add dec on early-exit branch of iterator loop",
+      "evidence": "On `break` inside `for x in iter do ...`, the iterator value's RC is never decremented before the loop exits, leaving a leaked reference on the remaining elements. Reproduced via `tests/valgrind/iter_break.ori`.",
+      "impact": "Memory leak on every early-exit iteration; severity scales with iterator payload size.",
+      "required_plan_update": "Add a `dec` emission to the early-exit branch in `ori_arc/src/lower/control_flow/for_loop.rs`; verify via `ORI_CHECK_LEAKS=1` on the matrix tests.",
+      "layer": "lowering",
+      "basis": "direct_file_inspection",
+      "confidence": "high",
+      "citations": [
+        {
+          "url": "https://github.com/apple/swift/blob/main/lib/SILOptimizer/ARC/ARCContract.cpp",
+          "description": "Swift's equivalent arc contract pass, for cross-reference"
+        }
+      ]
+    }
+  ],
+  "no_findings": false,
+  "verification": {
+    "fresh_verification_count": 1,
+    "direct_file_inspection_count": 0,
+    "git_history_count": 0,
+    "inference_count": 0
+  }
+}
+```
+
+**For a clean review** (no issues found), set `findings: []` and `no_findings: true`:
+
+```json
+{
+  "schema_version": "1.0",
+  "status": "complete",
+  "reviewer": "gemini",
+  "skill": "review-work",
+  "scope_actually_reviewed": {
+    "git_range": "HEAD~5..HEAD",
+    "files_read": ["CLAUDE.md", "..."],
+    "rules_consulted": [".claude/rules/impl-hygiene.md"],
+    "expanded_beyond_packet": false
+  },
+  "findings": [],
+  "no_findings": true
+}
+```
+
 Critical envelope contract points:
 - The envelope MUST conform to `.claude/skills/dual-tpr/findings-schema.json`
 - The `schema_version` field is REQUIRED and MUST be exactly the

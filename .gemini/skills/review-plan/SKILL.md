@@ -81,6 +81,76 @@ The format is:
     ```
     <!-- END-ORI-DUAL-TPR-V1 -->
 
+### Minimal envelope template — use this as the structural skeleton
+
+**Copy this template and fill in the values.** Every key shown is REQUIRED at
+this level of nesting — omitting any one of them produces a `schema_violation`
+from `parse-gemini.py`. This template is the authoritative "fill in the blanks"
+shape; if you copy it exactly and fill in each string/array/bool, your envelope
+will pass the schema validator on the first try.
+
+```json
+{
+  "schema_version": "1.0",
+  "status": "complete",
+  "reviewer": "gemini",
+  "skill": "review-plan",
+  "scope_actually_reviewed": {
+    "git_range": "HEAD",
+    "files_read": [
+      "plans/dual-tpr-gemini/00-overview.md",
+      "plans/dual-tpr-gemini/section-05-review-work.md",
+      "CLAUDE.md",
+      ".claude/rules/impl-hygiene.md",
+      "..."
+    ],
+    "rules_consulted": [
+      ".claude/rules/impl-hygiene.md"
+    ],
+    "specs_consulted": [],
+    "plans_consulted": [
+      "plans/dual-tpr-gemini/"
+    ],
+    "expanded_beyond_packet": true,
+    "expansion_reason": "Followed cross-section references to understand dependency chain"
+  },
+  "findings": [
+    {
+      "ordinal": 1,
+      "severity": "high",
+      "location": "plans/dual-tpr-gemini/section-05-review-work.md:42",
+      "title": "Clarify the bug-tracker fallback routing contract",
+      "evidence": "The section's Step 7a says findings should route to bug-tracker but does not specify the subsystem mapping. Operators following the plan would not know which bug-tracker section to file into.",
+      "impact": "Ambiguous routing creates non-deterministic bug filing behavior across review runs.",
+      "required_plan_update": "Add the subsystem mapping table to Step 7a of the section spec, matching the one already documented in the SKILL.md Step 7a.",
+      "layer": "plan-docs",
+      "basis": "direct_file_inspection",
+      "confidence": "high"
+    }
+  ],
+  "no_findings": false
+}
+```
+
+**For a clean plan review** (no issues found), set `findings: []` and `no_findings: true`:
+
+```json
+{
+  "schema_version": "1.0",
+  "status": "complete",
+  "reviewer": "gemini",
+  "skill": "review-plan",
+  "scope_actually_reviewed": {
+    "git_range": "HEAD",
+    "files_read": ["plans/.../00-overview.md", "..."],
+    "rules_consulted": [".claude/rules/impl-hygiene.md"],
+    "expanded_beyond_packet": false
+  },
+  "findings": [],
+  "no_findings": true
+}
+```
+
 Critical envelope contract points (same shape as the review-work gemini skill):
 - The envelope MUST conform to `.claude/skills/dual-tpr/findings-schema.json`
 - The `schema_version` field is REQUIRED and MUST be exactly the

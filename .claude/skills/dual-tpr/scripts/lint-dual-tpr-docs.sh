@@ -158,6 +158,28 @@ REQUIRED=(
   "$GEMINI_REVIEW_WORK|||no_findings|||review-work gemini contract documents no_findings"
   "$GEMINI_REVIEW_PLAN|||schema_version|||review-plan gemini contract documents schema_version"
   "$GEMINI_REVIEW_PLAN|||no_findings|||review-plan gemini contract documents no_findings"
+  # Minimal envelope template checks (surfaced by §05.2 Scenario 2
+  # round 2 — gemini fixed schema_version but then omitted files_read.
+  # Documenting required fields one at a time is whack-a-mole.
+  # The durable fix is a complete envelope template that gemini can
+  # pattern-match structurally). These assertions pin the presence
+  # of the template example in both gemini skills.
+  "$GEMINI_REVIEW_WORK|||Minimal envelope template|||review-work gemini has minimal envelope template"
+  "$GEMINI_REVIEW_WORK|||files_read|||review-work gemini template lists files_read"
+  "$GEMINI_REVIEW_WORK|||rules_consulted|||review-work gemini template lists rules_consulted"
+  "$GEMINI_REVIEW_PLAN|||Minimal envelope template|||review-plan gemini has minimal envelope template"
+  "$GEMINI_REVIEW_PLAN|||files_read|||review-plan gemini template lists files_read"
+  "$GEMINI_REVIEW_PLAN|||rules_consulted|||review-plan gemini template lists rules_consulted"
+  # Codex review-work skill — parser-layer contract wording (fix for
+  # §05.2 Scenario 2 round 2 finding #2). The skill previously said
+  # "--output-schema flag enforces schema conformance at the CLI
+  # boundary", which became stale after BUG-08-003 (commit a5a2753f)
+  # removed the --output-schema flag. The new wording explains that
+  # codex is validated only at the parser layer, symmetrically with
+  # gemini, via parse-codex.py. This assertion pins the corrected
+  # wording so a future edit cannot reintroduce the stale rationale.
+  "$REPO_ROOT/.codex/skills/review-work/SKILL.md|||parser layer|||codex review-work skill documents parser-layer contract"
+  "$REPO_ROOT/.codex/skills/review-work/SKILL.md|||parse-codex.py|||codex review-work skill references parse-codex.py explicitly"
   # tpr-review wrapper (Section 04) — transport script references,
   # prompt preamble phrases, and the three preserved safety blocks.
   # These checks guard against copy-paste erasure when Sections 05/06/07
@@ -190,7 +212,7 @@ for entry in "${REQUIRED[@]}"; do
   rest="${entry#*|||}"
   phrase="${rest%%|||*}"
   desc="${rest#*|||}"
-  grep -qF "$phrase" "$file"
+  grep -qF -- "$phrase" "$file"
   check "$desc" "$?" "0"
 done
 
@@ -211,6 +233,14 @@ FORBIDDEN=(
   # from an old template could reintroduce it).
   "$REVIEW_WORK_WRAPPER|||ABSOLUTE: NEVER Background|||review-work Task #10 regression guard (block must be absent)"
   "$TPR_REVIEW_WRAPPER|||ABSOLUTE: NEVER Background|||tpr-review regression guard (never had it; prevent copy-paste regression)"
+  # Stale CLI-boundary wording in codex review-work skill (fix for
+  # §05.2 Scenario 2 round 2 finding #2). The skill used to document
+  # envelope-only mode as enforced by "codex's --output-schema flag
+  # enforces schema conformance at the CLI boundary". BUG-08-003
+  # removed --output-schema from the codex invocation; codex is now
+  # validated only at the parser layer. This negative assertion
+  # prevents the stale wording from being re-added by a future edit.
+  "$REPO_ROOT/.codex/skills/review-work/SKILL.md|||--output-schema\` flag enforces schema conformance|||codex review-work skill must not claim CLI-boundary schema enforcement"
 )
 
 for entry in "${FORBIDDEN[@]}"; do
@@ -218,7 +248,7 @@ for entry in "${FORBIDDEN[@]}"; do
   rest="${entry#*|||}"
   phrase="${rest%%|||*}"
   desc="${rest#*|||}"
-  grep -qF "$phrase" "$file"
+  grep -qF -- "$phrase" "$file"
   # For forbidden phrases, grep exit 1 (not found) is success.
   # grep -q can also exit 2 on file-read errors, which should fail.
   rc=$?

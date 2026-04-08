@@ -39,11 +39,22 @@ the prompt for the keyword `envelope-only`:
   to `.claude/skills/dual-tpr/findings-schema.json`
 - DO NOT modify any plan files, bug-tracker files, or any source files
 - DO NOT write to any location on disk other than your own output stream
-- The envelope is emitted as the final `agent_message` content (codex's
-  `--output-schema` flag enforces schema conformance at the CLI boundary,
-  so you do not need sentinel markers on the codex side)
-- See `.claude/skills/dual-tpr/envelope-format.md` for the complete
-  envelope contract and field semantics
+- The envelope is emitted as the final `agent_message` content as **raw JSON**
+  — no sentinel markers, no markdown fences, no prose wrapper. The entire
+  final agent message must BE the JSON object. `parse-codex.py` calls
+  `json.loads(final_text)` directly on the agent_message content and will
+  reject any non-JSON prefix or suffix with `parse_fail`.
+- **Validation happens at the parser layer, NOT the CLI layer.** Previous
+  versions of this skill referenced a `--output-schema` flag, but
+  BUG-08-003 (commit `a5a2753f`) removed that flag — codex is now invoked
+  without `--output-schema`, and schema conformance is enforced
+  symmetrically with gemini by `.claude/skills/dual-tpr/scripts/parse-codex.py`
+  and `envelope_invariants.py`. This change keeps the codex and gemini paths
+  architecturally symmetric: both are validated only at the parser layer.
+- The canonical envelope contract lives in
+  `.claude/skills/dual-tpr/findings-schema.json` (structural schema) and
+  `.claude/skills/dual-tpr/envelope-format.md` (field semantics + examples).
+  Read both before emitting the envelope.
 
 **Execution mode dispatch:**
 1. Inspect the prompt for the literal keyword `envelope-only`
