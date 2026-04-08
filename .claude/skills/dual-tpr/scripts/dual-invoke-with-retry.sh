@@ -42,46 +42,87 @@ done
 # retry) or retryable (worth another attempt). Returns 0 (true) for terminal,
 # 1 (false) for retryable.
 #
-# Terminal categories — deterministic, retry will produce the same result:
-#   dirty_worktree           — reviewer is misbehaving (BUG-08-002 fix)
-#   codex_invalid_*          — codex/OpenAI rejected our request structurally
-#   codex_authentication_*   — auth failures don't fix themselves
-#   codex_schema_violation   — codex emitted JSON that violates the envelope
-#                              schema (deterministic given the same input)
-#   gemini_no_begin          — gemini didn't emit BEGIN sentinel; the skill is
-#                              misconfigured or the prompt is wrong
-#   gemini_authentication_*  — auth failures
-#   gemini_schema_violation  — same as codex
-#   missing_envelope         — reviewer never emitted any envelope at all,
-#                              indicating a fundamental skill/CLI mismatch
+# The failure category is formed by `dual-invoke-with-retry.sh` as either
+# `launch_or_exit_fail` (dual-invoke.sh exited non-zero, meaning one or both
+# reviewer subprocesses failed to run cleanly), or `<reviewer>_<first-stderr-
+# line>` where <first-stderr-line> is the authoritative failure category
+# emitted by `parse-codex.py` or `parse-gemini.py`. This classifier must stay
+# in sync with the parsers' emitted category list — the canonical source is:
 #
-# Retryable categories — could be transient:
-#   launch_or_exit_fail      — could be a launch race or transient cloud error
-#                              (the underlying cause matters; we retry once
-#                              and let codex/gemini sort themselves out)
-#   codex_parse_error        — could be mid-stream truncation from a network
-#                              hiccup
-#   gemini_parse_error       — same
-#   gemini_no_end            — could be a cancelled stream
-#   gemini_missing_terminator — could be a cancelled stream
-#   unknown_failure          — fall back to retry; if it's deterministic the
-#                              caller will see the same category three times
+#   parse-codex.py:  missing_envelope | parse_fail | schema_violation | failed_partial
+#   parse-gemini.py: missing_envelope | missing_terminator | missing_begin_sentinel |
+#                    missing_end_sentinel | missing_json_block | parse_fail |
+#                    schema_violation | failed_partial
+#
+# Terminal categories — deterministic, retry will produce the same result:
+#
+#   dirty_worktree                 — reviewer modified tracked files, will do
+#                                    so again on retry (BUG-08-002 fix).
+#   codex_missing_envelope         — codex exited 0 but emitted no agent
+#                                    message; the skill or prompt is broken.
+#   codex_schema_violation         — codex emitted JSON that violates the
+#                                    envelope schema; model/prompt issue.
+#   codex_failed_partial           — envelope valid but status=failed_partial;
+#                                    reviewer explicitly said it did not
+#                                    finish — retry won't change that.
+#   gemini_missing_envelope        — gemini exited 0 but emitted no assistant
+#                                    message; the skill is broken.
+#   gemini_missing_begin_sentinel  — assistant messages present but no BEGIN
+#                                    sentinel; skill misconfigured or prompt
+#                                    didn't include the activation phrase.
+#   gemini_missing_json_block      — sentinels present but no fenced JSON
+#                                    block between them; skill output format
+#                                    is broken.
+#   gemini_schema_violation        — same as codex.
+#   gemini_failed_partial          — same as codex.
+#
+# Retryable categories — could be transient, worth another attempt:
+#
+#   launch_or_exit_fail            — dual-invoke.sh returned non-zero. This
+#                                    collapses ALL launch-time failures into
+#                                    one category because dual-invoke.sh
+#                                    discards reviewer stderr (`2>/dev/null`).
+#                                    We cannot distinguish a deterministic
+#                                    OpenAI 400 schema rejection from a
+#                                    transient network failure at this layer,
+#                                    so we retry. The 3-attempt budget bounds
+#                                    the waste for deterministic cases.
+#   codex_parse_fail               — codex emitted text that isn't JSON.
+#                                    Could be mid-stream truncation (transient)
+#                                    or a model output bug (deterministic).
+#                                    Retry to distinguish.
+#   gemini_parse_fail              — same as codex_parse_fail.
+#   gemini_missing_terminator      — assistant content present but no
+#                                    result/success event; could be a
+#                                    cancelled stream (transient).
+#   gemini_missing_end_sentinel    — BEGIN found but END missing; could be
+#                                    truncation (transient).
+#   unknown_failure                — fall back to retry; if it's deterministic
+#                                    the retry will surface the same category
+#                                    three times and the operator will see it.
 #
 # Why this is the symmetric form of BUG-08-002: the dirty_worktree fix added
 # a single-case `break`. This generalizes that to a classifier so we don't
-# burn 3 attempts on every newly-discovered deterministic failure mode.
+# burn 3 attempts on every newly-discovered deterministic failure mode. The
+# categories listed above are the RESULT of auditing what parse-codex.py and
+# parse-gemini.py actually emit — earlier iterations of this function
+# invented category names (`codex_invalid_*`, `codex_authentication_*`,
+# `gemini_authentication_*`, `gemini_no_begin`) that were never produced by
+# any code path and therefore had no effect. That was a SSOT violation per
+# impl-hygiene.md (classifier encoded drifted knowledge about parser output
+# instead of matching the actual parser emissions). TPR-04-001-codex.
 is_terminal_failure() {
   local category="$1"
   case "$category" in
-    dirty_worktree) return 0 ;;
-    codex_invalid_*) return 0 ;;
-    codex_authentication_*) return 0 ;;
-    codex_schema_violation) return 0 ;;
-    codex_missing_envelope) return 0 ;;
-    gemini_no_begin) return 0 ;;
-    gemini_authentication_*) return 0 ;;
-    gemini_schema_violation) return 0 ;;
-    gemini_missing_envelope) return 0 ;;
+    dirty_worktree)                return 0 ;;
+    codex_missing_envelope)        return 0 ;;
+    codex_schema_violation)        return 0 ;;
+    codex_failed_partial)          return 0 ;;
+    gemini_missing_envelope)       return 0 ;;
+    gemini_missing_begin_sentinel) return 0 ;;
+    gemini_missing_json_block)     return 0 ;;
+    gemini_schema_violation)       return 0 ;;
+    gemini_failed_partial)         return 0 ;;
     *) return 1 ;;
   esac
 }

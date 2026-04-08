@@ -443,6 +443,82 @@ rm -f /tmp/stub-codex-state /tmp/stub-gemini-state
 
 say ""
 
+# ── Scenario 7: parser-layer terminal categories (TPR-04-001-codex) ──
+#
+# Setup: STUB_CODEX_MODE=failed-partial causes the stub codex to emit a
+# valid envelope with status=failed_partial. parse-codex.py validates it
+# structurally but then emits `failed_partial` on its first stderr line
+# (because status != "complete"). The retry script captures FAILURE as
+# `codex_failed_partial`. The is_terminal_failure classifier must
+# recognize this as deterministic and break the retry loop.
+#
+# This scenario also validates that the classifier fix aligns with what
+# parse-codex.py actually emits (TPR-04-001-codex audit). Before the
+# audit, the classifier had invented category names (codex_invalid_*,
+# codex_authentication_*) that were never produced, while missing real
+# categories like codex_failed_partial that the parser does emit.
+#
+# Verification:
+#   - dual-invoke-with-retry.sh exits non-zero
+#   - $RUN/round.log contains exactly ONE "attempt N/3" entry
+#   - $RUN/round.log records codex_failed_partial
+#   - $RUN/round.log records terminal early-break
+
+say "── Scenario 7: parser-layer terminal categories (TPR-04-001-codex)"
+
+rm -f /tmp/stub-codex-state /tmp/stub-gemini-state
+
+RUN=$("$SCRIPT_DIR/scratch-dir.sh")
+RUNS_TO_CLEAN+=("$RUN")
+printf 'echo prompt\n' > "$RUN/codex.prompt.md"
+printf 'echo prompt\n' > "$RUN/gemini.prompt.md"
+
+PATH="$STUB_BIN:$PATH" \
+STUB_CODEX_MODE=failed-partial \
+STUB_GEMINI_MODE=ok \
+STUB_REPO_ROOT="$REPO_ROOT" \
+"$SCRIPT_DIR/dual-invoke-with-retry.sh" \
+  --run "$RUN" \
+  --skill review-work \
+  --codex-prompt "$RUN/codex.prompt.md" \
+  --gemini-prompt "$RUN/gemini.prompt.md" \
+  --schema "$SCHEMA" \
+  >/dev/null 2>&1
+S7_EXIT=$?
+
+if [[ $S7_EXIT -ne 0 ]]; then
+  pass_test "transport exits non-zero on codex_failed_partial"
+else
+  fail_test "transport exits non-zero on codex_failed_partial" \
+    "expected exit != 0, got $S7_EXIT"
+fi
+
+ATTEMPT_COUNT=$(grep -c 'attempt [0-9]/3' "$RUN/round.log" 2>/dev/null || echo 0)
+if [[ "$ATTEMPT_COUNT" == "1" ]]; then
+  pass_test "retry loop broke after 1 attempt on codex_failed_partial"
+else
+  fail_test "retry loop broke after 1 attempt on codex_failed_partial" \
+    "expected 1 attempt, got $ATTEMPT_COUNT"
+fi
+
+if grep -q 'codex_failed_partial' "$RUN/round.log" 2>/dev/null; then
+  pass_test "round.log records codex_failed_partial category"
+else
+  fail_test "round.log records codex_failed_partial category" \
+    "missing 'codex_failed_partial' in $RUN/round.log"
+fi
+
+if grep -q 'is deterministic (terminal)' "$RUN/round.log" 2>/dev/null; then
+  pass_test "round.log records terminal-classifier early break"
+else
+  fail_test "round.log records terminal-classifier early break" \
+    "missing 'is deterministic (terminal)' in $RUN/round.log"
+fi
+
+rm -f /tmp/stub-codex-state /tmp/stub-gemini-state
+
+say ""
+
 # ── Cleanup ──────────────────────────────────────────────────────────
 if (( ! KEEP_RUNS )); then
   for run in "${RUNS_TO_CLEAN[@]}"; do

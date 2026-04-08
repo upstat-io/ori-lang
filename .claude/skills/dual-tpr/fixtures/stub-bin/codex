@@ -24,6 +24,13 @@
 #               schema_violation, which the retry classifier should treat
 #               as a TERMINAL failure (BUG-08-006 regression). Used for
 #               Scenario 6 (terminal failure classifier).
+#   failed-partial Exit 0 and emit a valid envelope with status set to
+#               "failed_partial" (reviewer explicitly reports incomplete
+#               analysis). parse-codex.py emits `failed_partial` on its
+#               first stderr line, which becomes category
+#               `codex_failed_partial`. The retry classifier should treat
+#               this as a TERMINAL failure (TPR-04-001-codex regression).
+#               Used for Scenario 7.
 #
 # State for the fail-once mode lives at /tmp/stub-codex-state.<pid_of_validator>
 # unless STUB_CODEX_STATE is exported by the caller. The validator harness
@@ -66,6 +73,19 @@ case "$MODE" in
     cat <<'JSONL'
 {"type": "turn.started"}
 {"type": "item.completed", "item": {"type": "agent_message", "text": "{\"status\":\"complete\",\"reviewer\":\"codex\",\"skill\":\"tpr-review\",\"scope_actually_reviewed\":{\"git_range\":null,\"files_read\":[],\"rules_consulted\":[],\"specs_consulted\":[],\"plans_consulted\":[],\"expanded_beyond_packet\":false},\"findings\":[],\"verification\":{\"tests_rerun\":[],\"diagnostics_run\":[],\"verification_gaps\":[]},\"no_findings\":true}"}}
+{"type": "turn.completed"}
+JSONL
+    exit 0
+    ;;
+  failed-partial)
+    # Emit a valid envelope with status=failed_partial. parse-codex.py
+    # validates the envelope against the schema successfully (status has
+    # enum ["complete","failed_partial"]) but then emits `failed_partial`
+    # on its first stderr line because status != "complete". The retry
+    # classifier must treat `codex_failed_partial` as terminal.
+    cat <<'JSONL'
+{"type": "turn.started"}
+{"type": "item.completed", "item": {"type": "agent_message", "text": "{\"schema_version\":\"1.0\",\"status\":\"failed_partial\",\"reviewer\":\"codex\",\"skill\":\"tpr-review\",\"scope_actually_reviewed\":{\"git_range\":null,\"files_read\":[],\"rules_consulted\":[],\"specs_consulted\":[],\"plans_consulted\":[],\"expanded_beyond_packet\":false},\"findings\":[],\"verification\":{\"tests_rerun\":[],\"diagnostics_run\":[],\"verification_gaps\":[]},\"no_findings\":true}"}}
 {"type": "turn.completed"}
 JSONL
     exit 0

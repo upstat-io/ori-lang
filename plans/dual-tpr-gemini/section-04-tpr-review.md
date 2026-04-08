@@ -19,8 +19,8 @@ inspired_by:
   - "Section 03's reviewer surface — the codex envelope-only mode and gemini skill activation convention"
 depends_on: ["03"]
 third_party_review:
-  status: none
-  updated: null
+  status: findings
+  updated: 2026-04-08
 sections:
   - id: "04.1"
     title: "Rewrite .claude/skills/tpr-review/SKILL.md for dual-source transport"
@@ -226,7 +226,44 @@ If any scenario fails, STOP. Do NOT mark Section 04 complete. Do NOT start Secti
 
 ## 04.R Third Party Review Findings
 
-- None.
+First real-reviewer round on 2026-04-08. Scope: commits `81ff576b..a5a2753f` (11 commits — original Section 04.3 stub harness + 5 canary-gate fixes for BUG-08-003 through BUG-08-007). Wall-time invariant satisfied (`618s = max(618, 557)`, not the 1175s sum — parallel execution confirmed). Scenario 2 passes fully (7 unique findings + gemini citation to openai.com). Scenario 1 partially passes: both reviewers produce findings and the wall time is max-not-sum, but 0 exact `(location, title)` agreement pairs — both reviewers converged on the SAME FILES (`dual-invoke-with-retry.sh`, `findings-schema.json`) with related CONCERNS (terminal classifier, schema/docs consistency), but with different line numbers and phrasings. The `merge-findings.py` exact-match merger treats them as 0 agreements. Real-world reviewers don't phrase identically; the `(location, title)` match criterion is stricter than observed behavior.
+
+- [ ] `[TPR-04-001-codex][medium]` `.claude/skills/dual-tpr/scripts/dual-invoke-with-retry.sh:99` — Classify launch-time deterministic failures before retrying.
+  Evidence: The new terminal classifier branches `codex_invalid_*`, `codex_authentication_*`, and `gemini_authentication_*` are UNREACHABLE in the current transport. `dual-invoke.sh` discards both reviewer stderrs (`2>/dev/null` at lines 98 and 110), then `dual-invoke-with-retry.sh` collapses any non-zero launcher result to `launch_or_exit_fail` at line 99 before either parser runs. Expired auth tokens and other deterministic launcher-side request failures still burn all three retries and the partner reviewer's quota.
+  Impact: BUG-08-006 does not actually deliver the terminal-failure behavior its classifier advertises for launch-time failures. The classifier has dead code paths that look like protection but provide none.
+  Basis: fresh_verification. Confidence: high.
+
+- [ ] `[TPR-04-002-codex][low]` `.claude/skills/dual-tpr/scripts/validate-dual-tpr.sh:374` — Cover launch-time terminal failures in the validator harness.
+  Evidence: Scenario 6 only exercises the parser-layer case `codex_schema_violation`. The shipped 17/17 harness never simulates a non-zero auth/request failure, so the launch-path dead-code bug above ships behind a green canary gate. Section 04.3 passes locally while the advertised `codex_invalid_*` and `*_authentication_*` terminal branches remain broken.
+  Impact: Weakens the gate that is supposed to protect Sections 05/06/07 from transport regressions.
+  Basis: fresh_verification. Confidence: high. Dependency: fix is blocked on the TPR-04-001-codex fix decision (remove dead branches vs wire up stderr capture).
+
+- [ ] `[TPR-04-003-codex][low]` `.claude/skills/dual-tpr/findings-schema.json:4` — Update the codex enforcement docs after removing `--output-schema`.
+  Evidence: Commit `a5a2753f` removed `--output-schema` from `dual-invoke.sh`, but the schema description still says "the codex CLI passes it via --output-schema", and `parse-codex.py:8-9` still says codex emits schema-conformant JSON "when invoked with --output-schema". Documentation now overstates the safety model by implying codex still has API-level schema enforcement.
+  Impact: Misleads future debugging and design decisions precisely where phase 2 intentionally switched to parser-only validation for symmetry with gemini.
+  Basis: direct_file_inspection. Confidence: high.
+
+- [ ] `[TPR-04-001-gemini][medium]` `.claude/hooks/block-banned-commands.sh:78` — Fix regex bypass for quoted environment variables with spaces.
+  Evidence: The `REVIEW_CMD_RE` regex uses `([[:alnum:]_]+=[^[:space:]]*[[:space:]]+)*` to match env-var prefixes. This fails when a value contains a space (e.g., `VAR="val with space" codex`), causing the regex to stop at the first space and miss the subsequent codex/gemini command, bypassing the timeout gate.
+  Impact: A user or malicious script could bypass the review timeout enforcement by using quoted environment variables with spaces, potentially leading to reviews being killed mid-stream. This is a latent hole in BUG-08-001's fix that the 27-test verification suite didn't catch because no test used quoted env vars with spaces.
+  Basis: direct_file_inspection. Confidence: high.
+
+- [ ] `[TPR-04-002-gemini][low]` `.claude/skills/dual-tpr/scripts/dual-invoke.sh:105` — Subshell success masks command failure in wait return code.
+  Evidence: Inside each reviewer subshell, `set +e` is used followed by several echo commands. The subshell's overall exit code (captured by `wait`) will be 0 if the last echo succeeds, regardless of whether the codex/gemini command failed. The parent script correctly falls back to reading the `.exit` file, but the `wait` RC is misleading.
+  Impact: Reduces the diagnostic utility of the `wait` return code, making the system entirely dependent on the presence and integrity of the `.exit` file on disk. Defense-in-depth is weakened — if both paths agreed, a corrupted `.exit` file would be detectable.
+  Basis: direct_file_inspection. Confidence: high.
+
+- [x] `[TPR-04-003-gemini][high]` `.claude/skills/dual-tpr/scripts/dual-invoke-with-retry.sh:91` — Verify terminal failure classification for dirty worktree.
+  Evidence: Commit `f092445f` correctly fixed BUG-08-002 where retries laundered dirty worktree failures. The `is_terminal_failure` classifier (BUG-08-006) now correctly includes `dirty_worktree`, preventing the retry loop from ever snapshotting a dirty state created by a previous attempt.
+  Impact: Prevents false success reports when a reviewer misbehaves by modifying tracked files, ensuring the integrity of the worktree-guard mechanism.
+  Basis: git_history. Confidence: high.
+  Resolved: 2026-04-08 — Positive observation, not a finding. Gemini was confirming that the BUG-08-002 + BUG-08-006 fixes correctly handle dirty_worktree as terminal. No code change required. The high severity tag here reflects the importance of the confirmed property, not an unresolved concern.
+
+- [x] `[TPR-04-004-gemini][low]` `.claude/skills/dual-tpr/findings-schema.json:1` — Maintain SSOT for envelope invariants between schema and validator.
+  Evidence: The move of complex invariants (regex, length, conditional logic) to `envelope_invariants.py` successfully adapts to OpenAI Structured Outputs constraints while keeping the code-level enforcement centralized. This avoids logic drift across the three different parser scripts.
+  Impact: Architectural consistency and reliability across the dual-source review pipeline.
+  Basis: direct_file_inspection. Confidence: high. Citations: [{url: "https://openai.com/index/introducing-structured-outputs-in-the-api/", description: "OpenAI Structured Outputs documentation regarding JSON Schema subset limitations."}]
+  Resolved: 2026-04-08 — Positive observation, not a finding. Gemini was confirming that the BUG-08-003 SSOT architecture (schema for structure + envelope_invariants.py for invariants) is sound. No code change required. This is exactly the pattern described in `.claude/rules/impl-hygiene.md` § SSOT applied to the dual-TPR envelope format. The citation validates that the OpenAI subset constraints drove the refactor correctly.
 
 ---
 
