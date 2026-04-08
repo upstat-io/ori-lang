@@ -121,7 +121,7 @@ canary release, single consumer validates infrastructure
 ---
 
 ### Section 05: /review-work dual-source + Task #10 fix
-**File:** `section-05-review-work.md` | **Status:** Not Started
+**File:** `section-05-review-work.md` | **Status:** Complete (gates deferred)
 
 ```
 .claude/skills/review-work/SKILL.md, dual-source rewrite

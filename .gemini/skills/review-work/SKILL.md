@@ -128,7 +128,7 @@ will pass the schema validator on the first try.
       "evidence": "On `break` inside `for x in iter do ...`, the iterator value's RC is never decremented before the loop exits, leaving a leaked reference on the remaining elements. Reproduced via `tests/valgrind/iter_break.ori`.",
       "impact": "Memory leak on every early-exit iteration; severity scales with iterator payload size.",
       "required_plan_update": "Add a `dec` emission to the early-exit branch in `ori_arc/src/lower/control_flow/for_loop.rs`; verify via `ORI_CHECK_LEAKS=1` on the matrix tests.",
-      "layer": "lowering",
+      "layer": "committed",
       "basis": "direct_file_inspection",
       "confidence": "high",
       "citations": [

@@ -267,6 +267,39 @@ for entry in "${FORBIDDEN[@]}"; do
 done
 
 echo ""
+echo "=== embedded envelope template schema validation ==="
+# Surfaced by §05.2 Scenario 2 round 3 — codex TPR-05-006 flagged that the
+# phrase-presence lint did not catch drift inside the embedded envelope
+# templates (round-2 fix introduced invalid `layer` enum values). This check
+# extracts fenced ```json``` blocks inside "Minimal envelope template"
+# sections and schema-validates each one against findings-schema.json.
+# Illustrative blocks (citation examples, placeholder snippets) are outside
+# the scoped section and are not validated.
+if VALIDATE_OUTPUT=$(
+  "$SCRIPT_DIR/validate-embedded-templates.py" \
+    --schema "$REPO_ROOT/.claude/skills/dual-tpr/findings-schema.json" \
+    --scope 'Minimal envelope template' \
+    "$GEMINI_REVIEW_WORK" \
+    "$GEMINI_REVIEW_PLAN" \
+    2>&1
+); then
+  # Forward per-template PASS lines to the lint output and count them as
+  # regular PASS entries so the summary reflects the full check count.
+  echo "$VALIDATE_OUTPUT"
+  VALIDATE_PASS=$(echo "$VALIDATE_OUTPUT" | grep -c '  PASS: ' || true)
+  PASS=$((PASS + VALIDATE_PASS))
+else
+  # Non-zero exit from the validator means at least one template failed.
+  # Forward its output and mark the summary FAIL count accordingly.
+  echo "$VALIDATE_OUTPUT"
+  VALIDATE_FAIL=$(echo "$VALIDATE_OUTPUT" | grep -c '  FAIL: ' || true)
+  VALIDATE_PASS=$(echo "$VALIDATE_OUTPUT" | grep -c '  PASS: ' || true)
+  PASS=$((PASS + VALIDATE_PASS))
+  FAIL=$((FAIL + VALIDATE_FAIL))
+  FAILED_CHECKS+=("embedded envelope template schema validation")
+fi
+
+echo ""
 echo "=== summary ==="
 echo "PASS: $PASS"
 echo "FAIL: $FAIL"

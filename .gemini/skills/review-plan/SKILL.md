@@ -123,7 +123,7 @@ will pass the schema validator on the first try.
       "evidence": "The section's Step 7a says findings should route to bug-tracker but does not specify the subsystem mapping. Operators following the plan would not know which bug-tracker section to file into.",
       "impact": "Ambiguous routing creates non-deterministic bug filing behavior across review runs.",
       "required_plan_update": "Add the subsystem mapping table to Step 7a of the section spec, matching the one already documented in the SKILL.md Step 7a.",
-      "layer": "plan-docs",
+      "layer": "committed",
       "basis": "direct_file_inspection",
       "confidence": "high"
     }
