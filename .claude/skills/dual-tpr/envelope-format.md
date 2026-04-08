@@ -7,7 +7,24 @@ reviewers via the `dual-tpr` skill family.
 > **SSOT pointer:** the JSON Schema for the envelope lives at
 > `.claude/skills/dual-tpr/findings-schema.json`. Anywhere this document quotes
 > a schema constraint (regex, length cap, enum), the schema file is the
-> authoritative source — keep this document in sync with that file.
+> authoritative source — keep this document in sync with that file. Code-level
+> invariants that JSON Schema cannot express (regex patterns, length limits,
+> conditional requirements) live in `envelope_invariants.py` and are applied
+> by every parser script alongside `jsonschema.validate()`.
+
+> **Enforcement model (post BUG-08-003 phase 2):** the enforcement model is
+> **symmetric at the parser layer** for both reviewers. Earlier sections of
+> this document describe an **asymmetric** model where codex was invoked with
+> `--output-schema` and enforced at the OpenAI API boundary while gemini was
+> validated only post-extraction. That model was retired in commit `a5a2753f`
+> when OpenAI's Structured Outputs strict mode repeatedly rejected our schema
+> constraints. Codex is now invoked WITHOUT `--output-schema` and validated
+> by `parse-codex.py` + `envelope_invariants.py` at the parser layer, exactly
+> like gemini. The asymmetric-era sections below are kept for historical
+> reference, because the sentinel-framing argument for gemini is unchanged
+> (gemini still emits free-form prose wrapped in BEGIN/END sentinels) — only
+> the codex-side enforcement layer moved. See BUG-08-003 and TPR-04-003-codex
+> for the full decision trail.
 
 ---
 
@@ -15,20 +32,28 @@ reviewers via the `dual-tpr` skill family.
 
 Two reviewers run in parallel for every dual-tpr review round:
 
-- **Codex** (`codex exec --full-auto --output-schema findings-schema.json ...`)
-  emits a JSON envelope **directly** as the final `agent_message.text`. No
-  sentinels are required because Codex's `--output-schema` flag forces the
-  output to conform to the schema at the CLI boundary.
+- **Codex** (`codex exec --full-auto --json ...` — no `--output-schema`
+  after BUG-08-003 phase 2) emits a JSON envelope **directly** as the final
+  `agent_message.text`. The prompt template drives the model toward the
+  envelope shape; `parse-codex.py` validates the resulting JSON against
+  `findings-schema.json` via `jsonschema.validate()` and then applies the
+  `envelope_invariants.py` code-level checks. No sentinels are required
+  because codex's JSONL wire format isolates the agent message cleanly on
+  its own event type (`item.completed` / `agent_message`).
 
 - **Gemini** (`gemini --approval-mode yolo --output-format stream-json ...`)
-  has no `--output-schema` equivalent. Its prompt instructs it to wrap the
-  envelope between two HTML-comment sentinels at the END of the reviewer's
-  free-form prose response. The transport layer (Section 02) extracts the
-  envelope post-hoc and validates it against the schema after extraction.
+  has no equivalent isolated-message event type. Its prompt instructs it to
+  wrap the envelope between two HTML-comment sentinels at the END of the
+  reviewer's free-form prose response. The transport layer (Section 02)
+  extracts the envelope post-hoc, then validates it against the same schema
+  and invariants.
 
-This is the **asymmetric rigor pattern**: Codex is strict at the CLI boundary,
-Gemini is lenient at the CLI boundary but strict post-extraction. Both produce
-the same `FindingsEnvelope` shape downstream, so the merge layer never has to
+The enforcement model is **symmetric at the parser layer**: both reviewers'
+output is validated identically via `findings-schema.json` +
+`envelope_invariants.py`. The only asymmetry left is in how each reviewer's
+envelope is ISOLATED from surrounding stream content (codex: JSONL message
+event; gemini: BEGIN/END sentinel extraction from prose). Both produce the
+same `FindingsEnvelope` shape downstream, so the merge layer never has to
 care which reviewer produced a given envelope.
 
 ---

@@ -15,11 +15,15 @@ BUG-08-003 trail) lives in this docstring and the per-test ``Regression:``
 comments — never in the function names.
 
 Why these invariants live in code, not in the schema:
-    The findings-schema.json file is constrained to the OpenAI Structured
-    Outputs JSON Schema subset because the codex CLI passes it via
-    ``--output-schema``. The OpenAI API rejects ``if``/``then``, ``pattern``,
-    ``maxLength``, ``minimum``, and ``format``. Each invariant moved here is
-    the code-level home for a constraint that the schema can no longer carry.
+    The findings-schema.json file is kept within the OpenAI Structured
+    Outputs JSON Schema subset (no ``if``/``then``, ``pattern``, ``maxLength``,
+    ``minimum``, or ``format``) so a future phase can re-enable API-level
+    enforcement without another rewrite. BUG-08-003 phase 2 removed the
+    ``--output-schema`` flag from the codex invocation (commit a5a2753f),
+    so the schema is currently only consumed by the parser-layer validators
+    for both codex and gemini — but the subset discipline stays as insurance.
+    Each invariant in this module is the code-level home for a constraint
+    that the JSON Schema subset cannot carry regardless of API enforcement.
 
 Run directly:
     python3 .claude/skills/dual-tpr/scripts/test_envelope_invariants.py

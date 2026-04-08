@@ -1,7 +1,7 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "Ori Dual-TPR Findings Envelope V1",
-  "description": "Structural schema for the dual-source TPR findings envelope. This schema is OpenAI Structured Outputs compatible (the codex CLI passes it via --output-schema, which OpenAI accepts only as a strict subset of JSON Schema). Additional invariants that cannot be expressed in the OpenAI subset (regex patterns, length limits, conditional requirements) live in envelope_invariants.py and are enforced by validate-envelope.py / parse-codex.py / parse-gemini.py at parse time. See BUG-08-003 for the rationale.",
+  "description": "Structural schema for the dual-source TPR findings envelope. Enforcement is parser-layer only: parse-codex.py and parse-gemini.py validate reviewer output against this schema via jsonschema.validate(), then apply the code-level invariants in envelope_invariants.py (regex patterns, length limits, conditional requirements). Codex is NOT invoked with --output-schema — BUG-08-003 phase 2 removed that flag from dual-invoke.sh because OpenAI's Structured Outputs strict mode rejected several constraints in the original schema (see the commit message for a5a2753f). The schema remains OpenAI-strict-subset compatible (no if/then/pattern/maxLength/minimum/format) in case a future phase re-enables API-level enforcement, but the current enforcement model is symmetric: both codex and gemini are validated ONLY at the parser layer. See BUG-08-003 and TPR-04-003-codex for the rationale.",
   "type": "object",
   "required": ["schema_version", "status", "reviewer", "skill", "scope_actually_reviewed", "findings", "no_findings"],
   "properties": {

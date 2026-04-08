@@ -1,13 +1,19 @@
 """envelope_invariants.py — code-level invariants for the dual-TPR findings envelope.
 
 The findings-schema.json file is the canonical home for the envelope's STRUCTURE
-(types, required fields, enums). It is constrained to the OpenAI Structured Outputs
-JSON Schema subset because the codex CLI passes it via `--output-schema`, and the
-OpenAI API rejects schemas that use `if`/`then`/`else`, `pattern`, `format`,
-`maxLength`, `minimum`, and several other JSON Schema keywords (BUG-08-003).
+(types, required fields, enums). It is constrained to a plain JSON Schema draft-07
+shape that stays compatible with the OpenAI Structured Outputs subset (no
+`if`/`then`/`else`, no `pattern`, no `format`, no `maxLength`, no `minimum`)
+even though BUG-08-003 phase 2 removed the `--output-schema` flag from the
+codex invocation — so codex no longer forwards the schema to OpenAI at all.
+Keeping the subset discipline means a future phase can re-enable API-level
+enforcement without another schema rewrite. Current enforcement is symmetric
+at the parser layer for both codex and gemini: jsonschema.validate() for the
+structural checks above, then the function in this module for the richer
+invariants the JSON Schema subset cannot express.
 
 This module is the canonical home for invariants that cannot be expressed in the
-OpenAI subset:
+OpenAI Structured Outputs JSON Schema subset:
 
   - location format: ^(?!/)(?!\\./)[a-zA-Z0-9_./-]+:[0-9]+$ (regex pattern)
   - title length: <= 200 chars (maxLength)

@@ -5,10 +5,17 @@ Usage:
     parse-codex.py --jsonl PATH --schema PATH
 
 Reads the codex JSONL stream from PATH, finds the final agent_message item,
-parses its text as JSON (codex emits schema-conformant JSON when invoked with
---output-schema), validates the envelope against the schema, and prints the
-envelope to stdout on success. On failure, prints a failure category and
-details to stderr and exits non-zero.
+parses its text as JSON, validates the envelope against the schema, applies
+the code-level invariants in envelope_invariants.py, and prints the envelope
+to stdout on success. On failure, prints a failure category and details to
+stderr and exits non-zero.
+
+Codex is invoked WITHOUT `--output-schema` (BUG-08-003 phase 2, commit
+a5a2753f), so the agent_message text is free-form JSON driven entirely by
+the prompt template and the model's JSON-following ability. All structural
+and semantic validation lives here and in envelope_invariants.py — there is
+no API-level schema enforcement. This keeps the codex and gemini paths
+symmetric (both validated only at the parser layer).
 
 Outcome codes (stderr first line on failure):
     missing_envelope    — no agent_message item found in the JSONL
