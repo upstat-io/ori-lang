@@ -86,40 +86,71 @@ REVIEW_COMMANDS = {"codex", "gemini"}
 # an argument to echo, not the wrapped command. The new per-wrapper
 # positional_skip logic locates the EXACT command position instead of
 # scanning.
-# Per-wrapper spec:
-#   positional_skip    — number of POSITIONAL args (non-flag, non-env-assign)
-#                        to skip after the wrapper, BEFORE the wrapped
-#                        command position. Used for wrappers like
-#                        timeout (DURATION) and ssh (user@host).
-#   allow_env_prefixes — if true, NAME=value tokens are skipped between
-#                        the wrapper and its positional/wrapped command.
-#                        Used for `env`.
-#   flags_with_values  — set of short flags that take a value in the NEXT
-#                        token (e.g. sudo -u USER, nice -n N, xargs -I X).
-#                        When encountered in the flag-skip phase, BOTH
-#                        the flag and the next token are skipped. Without
-#                        this, `sudo -u codex whoami` would treat `codex`
-#                        as the wrapped command instead of `whoami`.
+# Per-wrapper spec keys:
+#   positional_skip            — number of POSITIONAL args (non-flag,
+#                                non-env-assign) to skip after the wrapper
+#                                before the wrapped command position
+#                                (e.g. timeout DURATION, ssh user@host).
+#   allow_env_prefixes         — if true, NAME=value tokens are skipped
+#                                (used for `env`).
+#   flags_with_values          — set of flags (short or long) that take
+#                                a value in the NEXT token. Both flag and
+#                                value get skipped together. Long-form
+#                                flags with embedded value (--user=val)
+#                                are a single token, skipped via the
+#                                regular flag-skip path.
+#   shell_string_flags         — set of flags whose value is a shell
+#                                command string that should be re-parsed
+#                                and recursively classified (e.g.
+#                                `bash -c "codex exec"`, `su -c "..."`,
+#                                `sh -c "..."`).
+#   shell_string_first_positional — if true, the first non-flag, non-env-
+#                                assign positional after the wrapper is a
+#                                shell command string, recursively
+#                                classified (e.g. eval "codex exec",
+#                                ssh user@host "codex exec").
+#
+# Iteration 5 added long-form flags-with-values, profiler/sandbox/shell
+# wrappers, and the shell_string_* recursion mechanism.
 WRAPPER_SPECS = {
+    # Standard wrappers
     "env":        {"positional_skip": 0, "allow_env_prefixes": True},
     "command":    {"positional_skip": 0},
     "exec":       {"positional_skip": 0, "flags_with_values": {"-a"}},
-    "timeout":    {"positional_skip": 1},  # DURATION
-    "nice":       {"positional_skip": 0, "flags_with_values": {"-n"}},
-    "ionice":     {"positional_skip": 0, "flags_with_values": {"-c", "-n", "-p", "-P", "-u"}},
-    "taskset":    {"positional_skip": 1},  # MASK
-    "stdbuf":     {"positional_skip": 0, "flags_with_values": {"-i", "-o", "-e"}},
+    "timeout":    {"positional_skip": 1, "flags_with_values": {"-k", "--kill-after", "-s", "--signal"}},
+    "nice":       {"positional_skip": 0, "flags_with_values": {"-n", "--adjustment"}},
+    "ionice":     {"positional_skip": 0, "flags_with_values": {"-c", "-n", "-p", "-P", "-u", "--class", "--classdata", "--pid", "--pgid", "--uid"}},
+    "taskset":    {"positional_skip": 1, "flags_with_values": {"-p", "--pid"}},
+    "stdbuf":     {"positional_skip": 0, "flags_with_values": {"-i", "-o", "-e", "--input", "--output", "--error"}},
     "unbuffer":   {"positional_skip": 0},
-    "sudo":       {"positional_skip": 0, "flags_with_values": {"-u", "-g", "-h", "-U", "-C", "-c", "-D", "-r", "-R", "-t", "-T", "-p"}},
-    "su":         {"positional_skip": 1, "flags_with_values": {"-c", "-s", "-m"}},  # USERNAME
-    "ssh":        {"positional_skip": 1, "flags_with_values": {"-b", "-B", "-c", "-D", "-e", "-E", "-F", "-I", "-i", "-J", "-L", "-l", "-m", "-O", "-o", "-p", "-Q", "-R", "-S", "-W", "-w"}},  # user@host
-    "xargs":      {"positional_skip": 0, "flags_with_values": {"-n", "-I", "-L", "-P", "-d", "-s", "-E", "-a"}},
+    "sudo":       {"positional_skip": 0, "flags_with_values": {"-u", "-g", "-h", "-U", "-C", "-c", "-D", "-r", "-R", "-t", "-T", "-p", "--user", "--group", "--host", "--other-user", "--close-from", "--login-class", "--chdir", "--role", "--type", "--prompt"}},
+    "su":         {"positional_skip": 1, "flags_with_values": {"-s", "-m", "--shell"}, "shell_string_flags": {"-c", "--command"}},
+    "ssh":        {"positional_skip": 1, "flags_with_values": {"-b", "-B", "-c", "-D", "-e", "-E", "-F", "-I", "-i", "-J", "-L", "-l", "-m", "-O", "-o", "-p", "-Q", "-R", "-S", "-W", "-w"}, "shell_string_first_positional": True},
+    "xargs":      {"positional_skip": 0, "flags_with_values": {"-n", "-I", "-L", "-P", "-d", "-s", "-E", "-a", "--max-args", "--replace", "--max-lines", "--max-procs", "--delimiter", "--max-chars", "--eof", "--arg-file"}},
     "nohup":      {"positional_skip": 0},
     "setsid":     {"positional_skip": 0},
-    "chrt":       {"positional_skip": 1},  # PRIORITY
+    "chrt":       {"positional_skip": 1},
     "eatmydata":  {"positional_skip": 0},
-    "eval":       {"positional_skip": 0},  # eval takes a shell string; we approximate
-    "time":       {"positional_skip": 0},  # time builtin wraps the command directly
+    "eval":       {"positional_skip": 0, "shell_string_first_positional": True},
+    "time":       {"positional_skip": 0},
+    # Profiler / sandbox wrappers (iter 5)
+    "strace":     {"positional_skip": 0, "flags_with_values": {"-e", "-o", "-O", "-p", "-s", "-S", "-u", "-E", "-I", "-A", "-P", "-x", "-X", "-Z"}},
+    "ltrace":     {"positional_skip": 0, "flags_with_values": {"-e", "-o", "-p", "-s", "-u", "-l", "-x", "-A", "-D", "-X"}},
+    "gdb":        {"positional_skip": 0, "flags_with_values": {"-x", "-ex", "-iex", "-tty", "-ix", "-eix", "-cd", "-d", "-directory", "-r"}},
+    "valgrind":   {"positional_skip": 0, "flags_with_values": {"--tool", "--log-file", "--xml-file", "--suppressions", "--db-command"}},
+    "firejail":   {"positional_skip": 0, "flags_with_values": {"--profile", "--name", "--hostname", "--ip", "--dns", "--bind", "--whitelist", "--blacklist", "--read-only", "--rlimit", "--shell"}},
+    "bwrap":      {"positional_skip": 0, "flags_with_values": {"--bind", "--ro-bind", "--dev-bind", "--proc", "--dev", "--tmpfs", "--symlink", "--chdir", "--setenv", "--unsetenv"}},
+    "unshare":    {"positional_skip": 0, "flags_with_values": {"-S", "-G", "--map-user", "--map-group", "--setuid", "--setgid"}},
+    "setpriv":    {"positional_skip": 0, "flags_with_values": {"--ruid", "--euid", "--rgid", "--egid", "--reuid", "--regid", "--groups", "--inh-caps", "--ambient-caps", "--bounding-set", "--securebits", "--pdeathsig"}},
+    # Shell wrappers — recursively classify the -c arg as a shell string (iter 5)
+    "bash":       {"positional_skip": 0, "shell_string_flags": {"-c", "--command"}, "flags_with_values": {"--rcfile", "--init-file"}},
+    "sh":         {"positional_skip": 0, "shell_string_flags": {"-c"}},
+    "zsh":        {"positional_skip": 0, "shell_string_flags": {"-c"}},
+    "dash":       {"positional_skip": 0, "shell_string_flags": {"-c"}},
+    "ksh":        {"positional_skip": 0, "shell_string_flags": {"-c"}},
+    "tcsh":       {"positional_skip": 0, "shell_string_flags": {"-c"}},
+    "csh":        {"positional_skip": 0, "shell_string_flags": {"-c"}},
+    "fish":       {"positional_skip": 0, "shell_string_flags": {"-c", "--command"}},
 }
 WRAPPER_COMMANDS = set(WRAPPER_SPECS)
 
@@ -169,19 +200,32 @@ def is_review_invocation(cmd: str) -> bool:
         normalized = normalize_word(value)
         if normalized in REVIEW_COMMANDS:
             return True
-        # If the normalized command is a known wrapper, jump the index to
-        # the wrapper's actual command position (first non-flag, non-env-
-        # assign token after the wrapper's positional skip count). The
-        # main loop then checks that position on the next iteration.
-        # Per-wrapper positional_skip handles wrappers like timeout
-        # (skip DURATION) and ssh (skip user@host). See WRAPPER_SPECS.
+        # If the normalized command is a known wrapper, handle it via the
+        # wrapper-detection helper. The helper handles three sub-modes:
+        #   1. shell_string_flags — recursively classify the value of a
+        #      flag like `bash -c "codex exec"` (iter 5)
+        #   2. shell_string_first_positional — recursively classify the
+        #      first positional after the wrapper as a shell string
+        #      (e.g. `eval "codex exec"`, `ssh host "codex exec"`) (iter 5)
+        #   3. positional command — the wrapped command is at a known
+        #      position after the wrapper's flags + positional_skip
+        #      args. Jump there and re-check with at_cmd_pos=True so
+        #      nested wrappers (e.g. `sudo nice codex`) recurse via the
+        #      main loop's normal flow.
         if normalized in WRAPPER_COMMANDS:
-            cmd_idx = _find_wrapper_cmd_position(tokens, i, WRAPPER_SPECS[normalized])
+            spec = WRAPPER_SPECS[normalized]
+            # Sub-mode 1+2: shell_string_* — find a shell-string arg and
+            # recursively classify it. If true, this whole command line
+            # invokes codex/gemini through the wrapper.
+            if "shell_string_flags" in spec or spec.get("shell_string_first_positional"):
+                if _check_wrapper_shell_string(tokens, i, spec):
+                    return True
+                # Fall through to positional check below in case the
+                # wrapper takes BOTH a shell-string arg AND a wrapped
+                # command (rare, but ssh user@host CMD ARGS works that
+                # way when CMD is a separate token, not a single string).
+            cmd_idx = _find_wrapper_cmd_position(tokens, i, spec)
             if cmd_idx is not None:
-                # Jump to the wrapped command position and re-check with
-                # at_cmd_pos=True. This naturally handles nested wrappers
-                # (if the wrapped command is itself a wrapper, the next
-                # iteration enters wrapper-skip again).
                 i = cmd_idx
                 at_cmd_pos = True
                 continue
@@ -191,6 +235,81 @@ def is_review_invocation(cmd: str) -> bool:
         # Consume this word and skip to the next operator.
         at_cmd_pos = False
         i += 1
+    return False
+
+
+def _check_wrapper_shell_string(tokens, wrapper_idx, spec) -> bool:
+    """Check if a wrapper that takes a shell-string argument invokes a
+    review command via that string.
+
+    Two sub-modes:
+      1. shell_string_flags — look for one of the listed flags (e.g.
+         `bash -c VALUE`, `su -c VALUE`); the next token after the flag
+         is the shell string. Normalize it (strip outer quotes) and
+         recursively call is_review_invocation on the result.
+      2. shell_string_first_positional — the first non-flag, non-env-
+         assign token after the wrapper's positional_skip is the shell
+         string (e.g. `eval VALUE`, `ssh user@host VALUE` where VALUE
+         is a single quoted token). Same recursive classification.
+
+    Returns True if either mode finds a review invocation in the inner
+    string. Returns False if neither mode applies or neither finds one.
+    """
+    flags_with_values = spec.get("flags_with_values", set())
+    shell_string_flags = spec.get("shell_string_flags", set())
+    n = len(tokens)
+    j = wrapper_idx + 1
+
+    # Sub-mode 1: walk forward looking for a shell_string_flag
+    if shell_string_flags:
+        k = j
+        while k < n:
+            kkind, kvalue = tokens[k]
+            if kkind == "op":
+                break
+            knorm = normalize_word(kvalue)
+            if knorm in shell_string_flags:
+                # Next token is the shell string
+                if k + 1 < n and tokens[k + 1][0] != "op":
+                    inner_raw = tokens[k + 1][1]
+                    inner_normalized = normalize_word(inner_raw)
+                    # Bash treats the -c arg as a shell string to re-parse.
+                    # Recursively classify it.
+                    if is_review_invocation(inner_normalized):
+                        return True
+                # Even if the value isn't a review invocation, we've
+                # consumed the flag — continue walking in case there's
+                # another -c (unusual but possible).
+                k += 2
+                continue
+            # Skip flags with values (their value tokens shouldn't be
+            # treated as shell strings)
+            if knorm.startswith("-") and knorm in flags_with_values and k + 1 < n and tokens[k + 1][0] != "op":
+                k += 2
+                continue
+            if knorm.startswith("-"):
+                k += 1
+                continue
+            # Non-flag token — keep scanning, since the -c flag may come
+            # later in the wrapper's args
+            k += 1
+
+    # Sub-mode 2: shell_string_first_positional — find the first non-flag,
+    # non-env-assign positional after positional_skip
+    if spec.get("shell_string_first_positional"):
+        cmd_idx = _find_wrapper_cmd_position(tokens, wrapper_idx, spec)
+        if cmd_idx is not None:
+            inner_raw = tokens[cmd_idx][1]
+            inner_normalized = normalize_word(inner_raw)
+            # If the normalized form contains whitespace or shell
+            # operators, it's almost certainly a shell string that needs
+            # re-parsing. If it's a single bare word, it's the wrapped
+            # command directly (handled by the regular wrapper-skip path
+            # in the caller, so we still try the recursive classify here
+            # — it's a no-op for single-word commands).
+            if is_review_invocation(inner_normalized):
+                return True
+
     return False
 
 

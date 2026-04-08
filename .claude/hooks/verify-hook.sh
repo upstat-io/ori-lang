@@ -319,6 +319,69 @@ run_test 'xargs -n 1 codex → DENY (xargs flag value, codex IS wrapped cmd)' \
 run_test 'ssh user@host codex → DENY (ssh user@host as positional, codex IS wrapped cmd)' \
   'ssh user@host codex exec' 60000 deny "20-35 minutes"
 
+# ── Bypass closure — iter 5: long-form flags + sandbox + shell wrappers + shell-string args ──
+# Iteration 5 surfaced: long-form wrapper flag-value pairs (--user value),
+# missing profiler/sandbox wrappers (strace, valgrind, gdb, firejail, bwrap),
+# missing shell wrappers (bash, sh, zsh, su -c) with -c shell-string args,
+# and quoted wrapper args (eval "codex exec"). The classifier now handles
+# all four families via WRAPPER_SPECS extensions and a new
+# `_check_wrapper_shell_string` helper that recursively classifies the
+# shell-string arg of wrappers like bash -c, eval, ssh host CMD.
+
+# Long-form flag-value bypasses
+run_test 'sudo --user alice codex → DENY (long-form sudo flag with separate value)' \
+  'sudo --user alice codex exec' 60000 deny "20-35 minutes"
+run_test 'sudo --user=alice codex → DENY (long-form sudo flag with embedded value)' \
+  'sudo --user=alice codex exec' 60000 deny "20-35 minutes"
+run_test 'timeout --signal TERM 30 codex → DENY (long-form timeout flag)' \
+  'timeout --signal TERM 30 codex exec' 60000 deny "20-35 minutes"
+run_test 'timeout -k 1 30 codex → DENY (timeout -k flag-value before duration)' \
+  'timeout -k 1 30 codex exec' 60000 deny "20-35 minutes"
+run_test 'xargs --max-args 1 codex → DENY (long-form xargs flag)' \
+  'xargs --max-args 1 codex' 60000 deny "20-35 minutes"
+run_test 'nice --adjustment 10 codex → DENY (long-form nice flag)' \
+  'nice --adjustment 10 codex exec' 60000 deny "20-35 minutes"
+
+# Profiler / sandbox wrappers
+run_test 'strace codex exec → DENY (strace wrapper)' \
+  'strace codex exec test' 60000 deny "20-35 minutes"
+run_test 'valgrind codex exec → DENY (valgrind wrapper)' \
+  'valgrind codex exec test' 60000 deny "20-35 minutes"
+run_test 'firejail codex exec → DENY (firejail sandbox wrapper)' \
+  'firejail codex exec test' 60000 deny "20-35 minutes"
+run_test 'gdb --args codex → DENY (gdb wrapper)' \
+  'gdb --args codex exec test' 60000 deny "20-35 minutes"
+run_test 'ltrace codex → DENY (ltrace wrapper)' \
+  'ltrace codex exec test' 60000 deny "20-35 minutes"
+run_test 'bwrap codex → DENY (bwrap sandbox wrapper)' \
+  'bwrap codex exec test' 60000 deny "20-35 minutes"
+
+# Shell wrappers with -c (recursive shell-string classification)
+run_test 'bash -c "codex exec" → DENY (bash -c shell string)' \
+  'bash -c "codex exec"' 60000 deny "20-35 minutes"
+run_test 'sh -c "codex exec" → DENY (sh -c shell string)' \
+  'sh -c "codex exec"' 60000 deny "20-35 minutes"
+run_test 'zsh -c codex → DENY (zsh -c shell string)' \
+  'zsh -c "codex exec"' 60000 deny "20-35 minutes"
+run_test 'su -c codex root → DENY (su -c shell string with username)' \
+  "su -c 'codex exec' root" 60000 deny "20-35 minutes"
+
+# Quoted wrapper args (recursive classification)
+run_test 'eval "codex exec" → DENY (eval shell-string positional)' \
+  'eval "codex exec"' 60000 deny "20-35 minutes"
+run_test 'ssh host "codex exec" → DENY (ssh quoted command string)' \
+  'ssh host "codex exec"' 60000 deny "20-35 minutes"
+
+# Wrapper false positives must still allow
+run_test 'bash my_script.sh → ALLOW (bash with non-c arg, not codex)' \
+  'bash my_script.sh' 60000 allow
+run_test 'strace ls -la → ALLOW (strace with non-codex command)' \
+  'strace ls -la' 60000 allow
+run_test 'eval "ls -la" → ALLOW (eval with non-codex shell string)' \
+  'eval "ls -la"' 60000 allow
+run_test 'sh -c "ls" → ALLOW (sh with non-codex shell string)' \
+  'sh -c "ls"' 60000 allow
+
 if (( ! QUIET )); then
   printf '\n'
 fi
