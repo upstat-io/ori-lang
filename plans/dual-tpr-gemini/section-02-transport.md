@@ -28,7 +28,7 @@ sections:
     status: complete
   - id: "02.2"
     title: "Codex output parser"
-    status: not-started
+    status: complete
   - id: "02.3"
     title: "Gemini output parser (stream-json + delta concat + sentinel extract)"
     status: not-started
@@ -266,7 +266,7 @@ Rules embedded inline:
 
 Tasks:
 
-- [ ] Write `.claude/skills/dual-tpr/scripts/parse-codex.py`:
+- [x] Write `.claude/skills/dual-tpr/scripts/parse-codex.py`:
 
   ```python
   #!/usr/bin/env python3
@@ -361,16 +361,19 @@ Tasks:
       main()
   ```
 
-- [ ] `chmod +x .claude/skills/dual-tpr/scripts/parse-codex.py`
+- [x] `chmod +x .claude/skills/dual-tpr/scripts/parse-codex.py`
+  Verified executable. `jsonschema` 4.10.3 is installed in the system python3, so the parser's import-guard branch is not exercised in unit tests but stays as a graceful fallback for environments missing it.
 
-- [ ] Create test fixtures for the parser:
+- [x] Create test fixtures for the parser:
   - `.claude/skills/dual-tpr/fixtures/codex-success.jsonl` — synthetic JSONL containing `{"type":"item.completed","item":{"type":"agent_message","text":"<the codex-with-findings.json fixture content as a one-line JSON string>"}}`
   - `.claude/skills/dual-tpr/fixtures/codex-missing.jsonl` — JSONL with no agent_message items (e.g., just `turn.started` events)
   - `.claude/skills/dual-tpr/fixtures/codex-parse-fail.jsonl` — JSONL with an agent_message whose text is `"not valid json{"` (deliberately malformed)
   - `.claude/skills/dual-tpr/fixtures/codex-schema-violation.jsonl` — JSONL with an agent_message whose text is a JSON object missing required fields
   - `.claude/skills/dual-tpr/fixtures/codex-failed-partial.jsonl` — JSONL with a valid envelope but `status: "failed_partial"`
 
-- [ ] Test the parser against each fixture:
+  Built via inline `python3` heredoc that loaded the existing `codex-with-findings.json`, wrapped it in the `item.completed/agent_message` envelope, and dumped each fixture. Sizes: success=3277B (real envelope embedded), missing=90B, parse-fail=114B, schema-violation=129B, failed-partial=3231B.
+
+- [x] Test the parser against each fixture:
   ```bash
   cd /home/eric/projects/ori_lang
   for fixture in codex-success codex-missing codex-parse-fail codex-schema-violation codex-failed-partial; do
@@ -389,10 +392,13 @@ Tasks:
   - `codex-schema-violation`: prints `schema_violation` to stderr, exit 1
   - `codex-failed-partial`: prints `failed_partial` to stderr, exit 1
 
-- [ ] **Subsection close-out (02.2)** — MANDATORY before starting 02.3:
-  - [ ] All five fixture tests pass with the expected outcomes
-  - [ ] Update this subsection's `status` in section frontmatter to `complete`
-  - [ ] Run `/improve-tooling` retrospectively on THIS subsection — was constructing the synthetic JSONL fixtures painful (manually escaping JSON inside JSON)? Should there be a `make-codex-fixture.py` helper that takes an envelope file and wraps it in the JSONL format? Was the per-fixture loop verbose enough to want a `parser-tests.sh` helper? Forward-look: 02.3 will need similar fixtures for gemini's stream-json — should the helper handle both formats? Implement improvements NOW, commit separately.
+  Verified 2026-04-07: ALL 5 fixtures produce the expected exit codes and stderr categories. `codex-success` exits 0 with the envelope on stdout; `codex-missing` exits 1 with `missing_envelope`; `codex-parse-fail` exits 1 with `parse_fail` and the JSON column; `codex-schema-violation` exits 1 with `schema_violation` and the precise jsonschema error (`'reviewer' is a required property`); `codex-failed-partial` exits 1 with `failed_partial` and the actual status string. The 5-cell parser failure-mode matrix is dense.
+
+- [x] **Subsection close-out (02.2)** — MANDATORY before starting 02.3:
+  - [x] All five fixture tests pass with the expected outcomes
+  - [x] Update this subsection's `status` in section frontmatter to `complete`
+  - [x] Run `/improve-tooling` retrospectively on THIS subsection — was constructing the synthetic JSONL fixtures painful (manually escaping JSON inside JSON)? Should there be a `make-codex-fixture.py` helper that takes an envelope file and wraps it in the JSONL format? Was the per-fixture loop verbose enough to want a `parser-tests.sh` helper? Forward-look: 02.3 will need similar fixtures for gemini's stream-json — should the helper handle both formats? Implement improvements NOW, commit separately.
+    Resolved 2026-04-07: Retrospective accepted ZERO immediate improvements but flagged ONE forward-look item for re-evaluation at 02.3. (1) **Fixture construction** — using an inline `python3` heredoc to load the existing envelope, wrap it in the JSONL shape, and dump 5 files in one pass was clean. The escaping was handled by `json.dumps` (strict-mode JSON-in-JSON), which is exactly what `make-codex-fixture.py` would do. The heredoc is 35 lines and lives in the commit message — converting it to a script would be a one-off helper that gets invoked once and then forgotten. YAGNI. (2) **Per-fixture loop** — the bash for-loop that runs the parser against each fixture is 6 lines including output capture; folding it into a `parser-tests.sh` would help only if the same loop recurs in 02.3 and 02.6. Both DO repeat the pattern, but 02.6 already builds `transport-tests.sh` for exactly this purpose. The right move is to wait until 02.6 and write `transport-tests.sh` once, not twice. (3) **Forward note for 02.3**: 02.3's gemini fixtures are harder — they need fragmented assistant message chunks across multiple JSONL events to test the delta-concat path. If hand-constructing those is painful (likely YES given the fragmentation), build `make-gemini-fixture.py` THEN. The 02.3 retrospective is the right gate to decide. (4) **No common.sh extraction yet** — 02.2 is pure python with no bash duplication of 02.1; the `common.sh` decision still rests at 02.4.
 
 ---
 
