@@ -699,12 +699,16 @@ Tasks:
 
   **Note on apply-ability:** the `required_plan_update` field is
   free-text prose describing the proposed change, not a structured
-  patch. Claude (the single writer) interprets and applies each edit
-  after user approval — see Section 06 for the approval and application
-  workflow. If finer-grained apply semantics are needed, Section 06's
-  wrapper can extend the schema with a structured `patch` field in
-  a future revision; the current envelope treats edit application as
-  Claude-mediated, not reviewer-deterministic.
+  patch. The consumer that invokes this skill (in practice, `/tp-help`
+  after Section 07) interprets and applies each edit after user
+  approval — Claude is the single writer to plan files, not the
+  reviewers. If finer-grained apply semantics are needed, a future
+  revision can extend the schema with a structured `patch` field; the
+  current envelope treats edit application as consumer-mediated, not
+  reviewer-deterministic. _(Originally this note referenced "Section
+  06" as the wrapper responsible for the approval workflow, but
+  Section 06 was removed 2026-04-08 as redundant with Section 07's
+  dual-source `/tp-help`.)_
 
   See `.claude/skills/dual-tpr/envelope-format.md` for the full contract.
 
