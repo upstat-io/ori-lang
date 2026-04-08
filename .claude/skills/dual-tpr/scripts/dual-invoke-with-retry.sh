@@ -60,6 +60,15 @@ while [[ $ATTEMPT -lt $MAX_RETRIES ]]; do
   elif ! "$SCRIPT_DIR/worktree-guard.sh" compare "$RUN/worktree-before.txt" 2> "$RUN/worktree-error"; then
     FAILURE="dirty_worktree"
     echo "[$(date +%s)] $FAILURE on attempt $ATTEMPT" >> "$RUN/round.log"
+    # BUG-08-002: dirty_worktree is a deterministic reviewer-misbehavior
+    # signal — a misbehaving reviewer will misbehave again on retry, and
+    # the next attempt's fresh snapshot would re-baseline against the
+    # already-dirty state, laundering the failure into a false success.
+    # Treat it as a terminal failure: record, break out of the retry
+    # loop, surface to the user. Other failure categories (launch_or_exit_fail,
+    # codex_*, gemini_*) remain retry-eligible because they CAN be transient.
+    echo "[$(date +%s)] dirty_worktree is deterministic — not retrying" >> "$RUN/round.log"
+    break
   else
     # All checks passed
     echo "[$(date +%s)] round succeeded on attempt $ATTEMPT" >> "$RUN/round.log"
