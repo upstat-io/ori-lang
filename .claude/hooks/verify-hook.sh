@@ -382,6 +382,38 @@ run_test 'eval "ls -la" → ALLOW (eval with non-codex shell string)' \
 run_test 'sh -c "ls" → ALLOW (sh with non-codex shell string)' \
   'sh -c "ls"' 60000 allow
 
+# ── Bypass closure — iter 6: clustered short flags + su username false positive + embedded values ──
+# Iteration 6 surfaced clustered short-flag forms (bash -lc, -ic, -xc),
+# embedded-value forms (-cVALUE no space), and a su -c false positive
+# regression where the username position was being treated as the
+# wrapped command. Each test pins one form.
+
+# HIGH: clustered shell short-options (bash -lc 'codex' is bash -l -c 'codex')
+run_test 'bash -lc codex → DENY (clustered -lc form)' \
+  "bash -lc 'codex exec'" 60000 deny "20-35 minutes"
+run_test 'bash -ic codex → DENY (clustered -ic form)' \
+  "bash -ic 'codex exec'" 60000 deny "20-35 minutes"
+run_test 'zsh -lc codex → DENY (clustered zsh form)' \
+  "zsh -lc 'codex exec'" 60000 deny "20-35 minutes"
+run_test 'env FOO=1 bash -lc codex → DENY (env wrap with cluster)' \
+  "env FOO=1 bash -lc 'codex exec'" 60000 deny "20-35 minutes"
+
+# REGRESSION: su -c username false positive
+run_test "su -c 'ls' codex → ALLOW (codex is the USERNAME, not command)" \
+  "su -c 'ls -la' codex" 60000 allow
+run_test "su --command 'ls' codex → ALLOW (long-form -c, codex is USER)" \
+  "su --command 'ls -la' codex" 60000 allow
+run_test "su -s /bin/sh -c 'ls' codex → ALLOW (su -s + -c, codex is USER)" \
+  "su -s /bin/sh -c 'ls -la' codex" 60000 allow
+
+# Embedded value forms (gemini iter 6)
+run_test 'bash -c"codex" → DENY (embedded value, no space after -c)' \
+  'bash -c"codex exec"' 60000 deny "20-35 minutes"
+run_test 'sh -c"codex" → DENY (embedded value)' \
+  'sh -c"codex exec"' 60000 deny "20-35 minutes"
+run_test 'bash -lc"codex" → DENY (clustered + embedded value)' \
+  'bash -lc"codex exec"' 60000 deny "20-35 minutes"
+
 if (( ! QUIET )); then
   printf '\n'
 fi

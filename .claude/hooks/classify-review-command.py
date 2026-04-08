@@ -143,7 +143,7 @@ WRAPPER_SPECS = {
     "unshare":    {"positional_skip": 0, "flags_with_values": {"-S", "-G", "--map-user", "--map-group", "--setuid", "--setgid"}},
     "setpriv":    {"positional_skip": 0, "flags_with_values": {"--ruid", "--euid", "--rgid", "--egid", "--reuid", "--regid", "--groups", "--inh-caps", "--ambient-caps", "--bounding-set", "--securebits", "--pdeathsig"}},
     # Shell wrappers — recursively classify the -c arg as a shell string (iter 5)
-    "bash":       {"positional_skip": 0, "shell_string_flags": {"-c", "--command"}, "flags_with_values": {"--rcfile", "--init-file"}},
+    "bash":       {"positional_skip": 0, "shell_string_flags": {"-c"}, "flags_with_values": {"--rcfile", "--init-file"}},
     "sh":         {"positional_skip": 0, "shell_string_flags": {"-c"}},
     "zsh":        {"positional_skip": 0, "shell_string_flags": {"-c"}},
     "dash":       {"positional_skip": 0, "shell_string_flags": {"-c"}},
@@ -242,25 +242,38 @@ def _check_wrapper_shell_string(tokens, wrapper_idx, spec) -> bool:
     """Check if a wrapper that takes a shell-string argument invokes a
     review command via that string.
 
-    Two sub-modes:
-      1. shell_string_flags — look for one of the listed flags (e.g.
-         `bash -c VALUE`, `su -c VALUE`); the next token after the flag
-         is the shell string. Normalize it (strip outer quotes) and
-         recursively call is_review_invocation on the result.
-      2. shell_string_first_positional — the first non-flag, non-env-
+    Three sub-modes:
+      1. shell_string_flags (separate-arg form) — look for one of the
+         listed flags (e.g. `bash -c VALUE`, `su -c VALUE`); the next
+         token after the flag is the shell string. Normalize it and
+         recursively call is_review_invocation.
+      2. shell_string_flags (clustered/embedded form) — handle bash
+         shell short-option clusters that contain `c` (e.g. `bash -lc
+         VALUE` is `bash -l -c VALUE`) and embedded-value forms (e.g.
+         `bash -cVALUE` is `bash -c VALUE`). The shell wrappers (bash,
+         sh, zsh, dash, ksh, etc.) all support these forms; iter 6
+         verified `bash -lc 'codex exec'` and `bash -ic 'codex exec'`
+         as real bypasses against the iter-5 classifier.
+      3. shell_string_first_positional — the first non-flag, non-env-
          assign token after the wrapper's positional_skip is the shell
-         string (e.g. `eval VALUE`, `ssh user@host VALUE` where VALUE
-         is a single quoted token). Same recursive classification.
+         string (e.g. `eval VALUE`, `ssh user@host VALUE`). Same
+         recursive classification.
 
-    Returns True if either mode finds a review invocation in the inner
-    string. Returns False if neither mode applies or neither finds one.
+    Returns True if any mode finds a review invocation in the inner
+    string.
     """
     flags_with_values = spec.get("flags_with_values", set())
     shell_string_flags = spec.get("shell_string_flags", set())
+    # The set of "flags that consume the next token" includes both
+    # flags_with_values (for skip-purposes) AND shell_string_flags (so
+    # the walk in modes 1 and 2 doesn't get tripped up by other flag-
+    # value pairs).
+    consuming_flags = flags_with_values | shell_string_flags
     n = len(tokens)
     j = wrapper_idx + 1
 
-    # Sub-mode 1: walk forward looking for a shell_string_flag
+    # Modes 1 + 2: walk forward looking for shell_string_flags or their
+    # clustered/embedded forms
     if shell_string_flags:
         k = j
         while k < n:
@@ -268,45 +281,58 @@ def _check_wrapper_shell_string(tokens, wrapper_idx, spec) -> bool:
             if kkind == "op":
                 break
             knorm = normalize_word(kvalue)
+            inner = None
+            consume = 1
+            # Mode 1: exact shell_string_flag match
             if knorm in shell_string_flags:
-                # Next token is the shell string
                 if k + 1 < n and tokens[k + 1][0] != "op":
-                    inner_raw = tokens[k + 1][1]
-                    inner_normalized = normalize_word(inner_raw)
-                    # Bash treats the -c arg as a shell string to re-parse.
-                    # Recursively classify it.
-                    if is_review_invocation(inner_normalized):
-                        return True
-                # Even if the value isn't a review invocation, we've
-                # consumed the flag — continue walking in case there's
-                # another -c (unusual but possible).
-                k += 2
+                    inner = normalize_word(tokens[k + 1][1])
+                    consume = 2
+            # Mode 2a: clustered form like `-lc`, `-ic`, `-xc` for shells.
+            # We only do this for short clusters that end in `c` and only
+            # when `-c` is in the wrapper's shell_string_flags (avoids
+            # false-positives on wrappers where `-c` means something
+            # else).
+            elif (
+                "-c" in shell_string_flags
+                and knorm.startswith("-")
+                and not knorm.startswith("--")
+                and len(knorm) >= 2
+                and "c" in knorm[1:]
+            ):
+                c_pos = knorm.index("c", 1)
+                if c_pos == len(knorm) - 1:
+                    # `-lc` form: -c is the last char in the cluster, so
+                    # the value is the next token (e.g. `bash -lc VALUE`)
+                    if k + 1 < n and tokens[k + 1][0] != "op":
+                        inner = normalize_word(tokens[k + 1][1])
+                        consume = 2
+                else:
+                    # `-cVALUE` or `-lcVALUE` form: value is embedded in
+                    # this token after the `c`
+                    inner = knorm[c_pos + 1:]
+                    consume = 1
+            if inner is not None:
+                if is_review_invocation(inner):
+                    return True
+                k += consume
                 continue
-            # Skip flags with values (their value tokens shouldn't be
-            # treated as shell strings)
-            if knorm.startswith("-") and knorm in flags_with_values and k + 1 < n and tokens[k + 1][0] != "op":
+            # Skip flags with values (don't treat the value as a shell
+            # string)
+            if knorm.startswith("-") and knorm in consuming_flags and k + 1 < n and tokens[k + 1][0] != "op":
                 k += 2
                 continue
             if knorm.startswith("-"):
                 k += 1
                 continue
-            # Non-flag token — keep scanning, since the -c flag may come
-            # later in the wrapper's args
+            # Non-flag token — keep scanning since -c may come later
             k += 1
 
-    # Sub-mode 2: shell_string_first_positional — find the first non-flag,
-    # non-env-assign positional after positional_skip
+    # Mode 3: shell_string_first_positional
     if spec.get("shell_string_first_positional"):
         cmd_idx = _find_wrapper_cmd_position(tokens, wrapper_idx, spec)
         if cmd_idx is not None:
-            inner_raw = tokens[cmd_idx][1]
-            inner_normalized = normalize_word(inner_raw)
-            # If the normalized form contains whitespace or shell
-            # operators, it's almost certainly a shell string that needs
-            # re-parsing. If it's a single bare word, it's the wrapped
-            # command directly (handled by the regular wrapper-skip path
-            # in the caller, so we still try the recursive classify here
-            # — it's a no-op for single-word commands).
+            inner_normalized = normalize_word(tokens[cmd_idx][1])
             if is_review_invocation(inner_normalized):
                 return True
 
@@ -334,7 +360,14 @@ def _find_wrapper_cmd_position(tokens, wrapper_idx, spec):
     """
     positional_skip = spec.get("positional_skip", 0)
     allow_env = spec.get("allow_env_prefixes", False)
-    flags_with_values = spec.get("flags_with_values", set())
+    # Combine flags_with_values + shell_string_flags so flags like su's
+    # `-c` (a shell-string flag) are also recognized as consuming the
+    # next token here. Without this, _find_wrapper_cmd_position would
+    # see `-c` as a flag (skip), then treat the `'ls -la'` arg as the
+    # first positional (skipped via positional_skip=1), then treat
+    # `codex` (the username) as the wrapped command position. iter 6
+    # regression: `su -c 'ls' codex` falsely matched as a review.
+    flags_with_values = spec.get("flags_with_values", set()) | spec.get("shell_string_flags", set())
     positionals_skipped = 0
     j = wrapper_idx + 1
     n = len(tokens)
