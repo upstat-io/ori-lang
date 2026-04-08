@@ -37,7 +37,7 @@ sections:
     status: complete
   - id: "07.2"
     title: "Rewrite for dual-source concatenation mode (not findings envelope)"
-    status: not-started
+    status: complete
   - id: "07.3"
     title: "Verify downstream consumers still work with dual-source /tp-help"
     status: not-started
@@ -422,7 +422,7 @@ Consumers that want human-visible labels MAY add a single prose line immediately
 
 Tasks:
 
-- [ ] **Wire `ORI_TPR_REVIEWERS` toggle into `dual-invoke.sh`** (moved from §08.2 — see §07.0's §08 plan update). Modify `.claude/skills/dual-tpr/scripts/dual-invoke.sh` to read `$ORI_TPR_REVIEWERS` immediately after arg-parse and branch the launch block:
+- [x] **Wire `ORI_TPR_REVIEWERS` toggle into `dual-invoke.sh`** (moved from §08.2 — see §07.0's §08 plan update). Modify `.claude/skills/dual-tpr/scripts/dual-invoke.sh` to read `$ORI_TPR_REVIEWERS` immediately after arg-parse and branch the launch block:
   ```bash
   REVIEWERS="${ORI_TPR_REVIEWERS:-both}"
   if [[ "$REVIEWERS" != "codex" && "$REVIEWERS" != "gemini" && "$REVIEWERS" != "both" ]]; then
@@ -450,9 +450,9 @@ Tasks:
   ORI_TPR_REVIEWERS=invalid bash .claude/skills/dual-tpr/scripts/dual-invoke.sh --run /tmp --skill x --codex-prompt /tmp/x --gemini-prompt /tmp/x
   ```
 
-- [ ] **Update `dual-invoke-with-retry.sh` to skip parsing for reviewers that weren't launched.** When `ORI_TPR_REVIEWERS=codex`, only parse `$RUN/codex.jsonl`; gemini's envelope is absent and the merger step handles the single-reviewer case. When `ORI_TPR_REVIEWERS=gemini`, mirror the inverse. This wiring was originally scheduled for §08.2 and is now moved into §07.2 along with the `dual-invoke.sh` wiring above — §08.2 retains the `merge-findings.py` single-reviewer update (see §07.0's §08 plan update).
+- [x] **Update `dual-invoke-with-retry.sh` to skip parsing for reviewers that weren't launched.** When `ORI_TPR_REVIEWERS=codex`, only parse `$RUN/codex.jsonl`; gemini's envelope is absent and the merger step handles the single-reviewer case. When `ORI_TPR_REVIEWERS=gemini`, mirror the inverse. This wiring was originally scheduled for §08.2 and is now moved into §07.2 along with the `dual-invoke.sh` wiring above — §08.2 retains the `merge-findings.py` single-reviewer update (see §07.0's §08 plan update).
 
-- [ ] **Write `.claude/skills/dual-tpr/scripts/parse-codex-raw.py`** — a tiny parser that reads `$RUN/codex.jsonl` and emits the final `agent_message.text` to stdout (no JSON envelope extraction, no schema validation). The existing `parse-codex.py` from §02 cannot be reused: it takes a mandatory `--schema` arg, parses `agent_message.text` as JSON, validates against the schema via `jsonschema`, applies `envelope_invariants.py` semantic checks, and emits the envelope. None of that applies to concat mode — the `agent_message.text` IS the final answer in raw prose. A `--raw` flag on `parse-codex.py` would be worse than a sibling because it would branch across validation/emission logic in the most complex parser in the pipeline, doubling the test surface for each mode. Sibling parser: Structure:
+- [x] **Write `.claude/skills/dual-tpr/scripts/parse-codex-raw.py`** — a tiny parser that reads `$RUN/codex.jsonl` and emits the final `agent_message.text` to stdout (no JSON envelope extraction, no schema validation). The existing `parse-codex.py` from §02 cannot be reused: it takes a mandatory `--schema` arg, parses `agent_message.text` as JSON, validates against the schema via `jsonschema`, applies `envelope_invariants.py` semantic checks, and emits the envelope. None of that applies to concat mode — the `agent_message.text` IS the final answer in raw prose. A `--raw` flag on `parse-codex.py` would be worse than a sibling because it would branch across validation/emission logic in the most complex parser in the pipeline, doubling the test surface for each mode. Sibling parser: Structure:
   ```python
   #!/usr/bin/env python3
   # parse-codex-raw.py — extract raw agent_message text from codex JSONL.
@@ -479,7 +479,7 @@ Tasks:
   print(last)
   ```
 
-- [ ] **Write `.claude/skills/dual-tpr/scripts/parse-gemini-raw.py`** — a tiny parser that reads `$RUN/gemini.jsonl` and emits the concatenated assistant content to stdout (NO sentinel extraction — there are no sentinels in concat mode). Reuses the delta-concatenation logic from §02's `parse-gemini.py` but skips the BEGIN/END sentinel extraction step. Structure:
+- [x] **Write `.claude/skills/dual-tpr/scripts/parse-gemini-raw.py`** — a tiny parser that reads `$RUN/gemini.jsonl` and emits the concatenated assistant content to stdout (NO sentinel extraction — there are no sentinels in concat mode). Reuses the delta-concatenation logic from §02's `parse-gemini.py` but skips the BEGIN/END sentinel extraction step. Structure:
   ```python
   #!/usr/bin/env python3
   # parse-gemini-raw.py — extract concatenated assistant content from gemini stream-json.
@@ -514,7 +514,7 @@ Tasks:
   sys.stdout.write(''.join(chunks))
   ```
 
-- [ ] **Parser unit-test fixtures and matrix — TDD discipline (write tests FIRST, then implement parsers).** Per CLAUDE.md TDD: tests precede code. Create the fixture matrix BEFORE the parser code lands. Fixtures live in `.claude/skills/dual-tpr/fixtures/raw-mode/` (sibling of the existing `fixtures/` dir from §02). Test runner extends `transport-tests.sh` with a new category `raw_parsers`.
+- [x] **Parser unit-test fixtures and matrix — TDD discipline (write tests FIRST, then implement parsers).** Per CLAUDE.md TDD: tests precede code. Create the fixture matrix BEFORE the parser code lands. Fixtures live in `.claude/skills/dual-tpr/fixtures/raw-mode/` (sibling of the existing `fixtures/` dir from §02). Test runner extends `transport-tests.sh` with a new category `raw_parsers`.
 
   **parse-codex-raw.py fixture matrix** (codex JSONL inputs → expected stdout):
   | Cell | Fixture | Input shape | Expected stdout | Expected exit |
@@ -561,7 +561,7 @@ Tasks:
   7. **Semantic pin**: at least one cell per parser MUST be a behavior that ONLY passes with the new parser semantics (e.g., Cell C2 — "last agent_message wins" — would fail if the parser concatenated all messages or returned the first). Cell C2 is the codex semantic pin; Cell G1 (multi-chunk concatenation in arrival order) is the gemini semantic pin.
   8. **Negative pin**: at least one cell per parser MUST reject the broken behavior (Cell C5 — "no agent_message → exit 1" — proves the parser doesn't silently fall through; Cell G3 — "no terminator → exit 1" — proves the parser doesn't accept truncated streams as success).
 
-- [ ] **Update the skill file's Steps section** to use `dual-invoke.sh` directly (NOT `dual-invoke-with-retry.sh`) with concatenation-mode parsing and HTML-comment attribution:
+- [x] **Update the skill file's Steps section** to use `dual-invoke.sh` directly (NOT `dual-invoke-with-retry.sh`) with concatenation-mode parsing and HTML-comment attribution:
   1. Snapshot the worktree state via `git status --porcelain > "$RUN/worktree.before"` (inline worktree-guard START — the skill file is the guardrail in concat mode because `dual-invoke.sh` itself doesn't run the guard; the retry wrapper is the normal home of `worktree-guard.sh`, but concat mode deliberately skips the retry wrapper)
   2. Create per-run scratch dir via `scratch-dir.sh`
   3. Write codex prompt (no `envelope-only` keyword needed — `/tp-help` doesn't have plan-write mode for codex to avoid)
@@ -581,7 +581,7 @@ Tasks:
   8. Snapshot the worktree state again via `git status --porcelain > "$RUN/worktree.after"` and `diff` the before/after files. If they differ, surface the diff to the user and fail the invocation — either reviewer violated prompt discipline (inline worktree-guard END).
   9. Return the concatenated output to the user. On launch failure or parser failure from either reviewer, surface the failure and both partial outputs to the user (do NOT silently drop one side).
 
-- [ ] **Gemini prompt discipline — MANDATORY.** Since dual-source `/tp-help` has NO dedicated gemini skill file under `.gemini/skills/` (unlike `/review-work` and `/review-plan` which each got one in §03), gemini is invoked as a generic assistant with `--approval-mode yolo`. Its only guardrail is the prompt text. The gemini prompt MUST include the following read-only-reviewer preamble before the user's question, to preserve prompt-discipline parity with the dedicated gemini reviewer skills in §03:
+- [x] **Gemini prompt discipline — MANDATORY.** Since dual-source `/tp-help` has NO dedicated gemini skill file under `.gemini/skills/` (unlike `/review-work` and `/review-plan` which each got one in §03), gemini is invoked as a generic assistant with `--approval-mode yolo`. Its only guardrail is the prompt text. The gemini prompt MUST include the following read-only-reviewer preamble before the user's question, to preserve prompt-discipline parity with the dedicated gemini reviewer skills in §03:
   ```
   You are being consulted for a third-party opinion on a specific problem.
 
@@ -598,24 +598,24 @@ Tasks:
   ```
   The codex-side prompt does NOT need this preamble because codex runs under `--full-auto` with the worktree guard from §02 catching any drift. Gemini has no equivalent guard at launch time, so the prompt IS the guard.
 
-- [ ] **Prompt-discipline verification:** After writing the skill file, add a post-run assertion in the skill's Steps (already described in steps 1 + 8 of the Steps rewrite task above) that checks `git status --porcelain` BEFORE and AFTER the `/tp-help` invocation. If either reviewer modified the working tree, report the diff and fail the invocation. This mirrors §02's `worktree-guard.sh` snapshot/compare pattern but is inlined into the skill because `/tp-help` invokes `dual-invoke.sh` directly (NOT via `dual-invoke-with-retry.sh` which is where the retry wrapper normally composes worktree-guard.sh into the pipeline). The inline check is cheap (two `git status --porcelain` calls) and catches the "gemini ignored the prompt preamble" failure mode at exactly one layer above the launcher.
+- [x] **Prompt-discipline verification:** After writing the skill file, add a post-run assertion in the skill's Steps (already described in steps 1 + 8 of the Steps rewrite task above) that checks `git status --porcelain` BEFORE and AFTER the `/tp-help` invocation. If either reviewer modified the working tree, report the diff and fail the invocation. This mirrors §02's `worktree-guard.sh` snapshot/compare pattern but is inlined into the skill because `/tp-help` invokes `dual-invoke.sh` directly (NOT via `dual-invoke-with-retry.sh` which is where the retry wrapper normally composes worktree-guard.sh into the pipeline). The inline check is cheap (two `git status --porcelain` calls) and catches the "gemini ignored the prompt preamble" failure mode at exactly one layer above the launcher.
 
-- [ ] Note that dual-source tp-help does NOT have a dedicated gemini skill file — it uses gemini as a generic assistant governed by the read-only-reviewer preamble above. This is consistent with the concatenation mode: no envelope = no schema = no activation ceremony. The gemini prompt is the read-only preamble + the user's question + the codex-side prompt context.
+- [x] Note that dual-source tp-help does NOT have a dedicated gemini skill file — it uses gemini as a generic assistant governed by the read-only-reviewer preamble above. This is consistent with the concatenation mode: no envelope = no schema = no activation ceremony. The gemini prompt is the read-only preamble + the user's question + the codex-side prompt context.
 
-- [ ] Update auto-trigger documentation in the skill file to mention that dual-source tp-help is ~10x slower than codex-only tp-help due to gemini's wall time. Document the `ORI_TPR_REVIEWERS=codex` escape hatch for cases where the user wants the faster single-source version. NOTE: The runtime toggle wiring in `dual-invoke.sh` is IN SCOPE for §07.2 (moved from §08.2 — see the first two task bullets of this subsection). Because there is no sibling launcher to keep in sync, the `ORI_TPR_REVIEWERS` branching lives in exactly ONE place (`dual-invoke.sh`) and ALL four wrappers (including `/tp-help`) honor it uniformly.
+- [x] Update auto-trigger documentation in the skill file to mention that dual-source tp-help is ~10x slower than codex-only tp-help due to gemini's wall time. Document the `ORI_TPR_REVIEWERS=codex` escape hatch for cases where the user wants the faster single-source version. NOTE: The runtime toggle wiring in `dual-invoke.sh` is IN SCOPE for §07.2 (moved from §08.2 — see the first two task bullets of this subsection). Because there is no sibling launcher to keep in sync, the `ORI_TPR_REVIEWERS` branching lives in exactly ONE place (`dual-invoke.sh`) and ALL four wrappers (including `/tp-help`) honor it uniformly.
 
-- [ ] **Subsection close-out (07.2)** — MANDATORY before starting 07.3:
-  - [ ] `dual-invoke.sh` has `ORI_TPR_REVIEWERS` branching wired; `bash -n` passes; all three values + unset default verified
-  - [ ] `dual-invoke-with-retry.sh` skips parsing for reviewers that weren't launched
-  - [ ] `parse-codex-raw.py` and `parse-gemini-raw.py` exist, are executable, and the full 13-cell `raw_parsers` test category in `transport-tests.sh` passes (6 codex cells + 7 gemini cells, including semantic pin C2 and negative pins C5/G3/G7)
-  - [ ] Skill file rewrite done; /tp-help returns concatenated dual-source output via HTML-comment sentinel attribution
-  - [ ] Attribution format is HTML-comment sentinels, NOT H2 headers (explicit negative test: `grep -c '^## Codex response' "$output"` returns 0; `grep -c '<!-- tp-help-reviewer: codex -->' "$output"` returns ≥1)
-  - [ ] Gemini prompt includes the read-only-reviewer preamble
-  - [ ] Inline worktree-guard check (step 1 and step 8 of the Steps rewrite above) wired into the skill
-  - [ ] `ORI_TPR_REVIEWERS={codex|gemini|both}` toggle honored in `dual-invoke.sh` and skips parsing in `dual-invoke-with-retry.sh` for un-launched reviewers
-  - [ ] §02 and §08 plan files updated in §07.0 still reflect the schema-optional and toggle-moved contracts — re-read them after §07.2 lands to confirm no drift
-  - [ ] Update this subsection's `status` to `complete`
-  - [ ] Run `/improve-tooling` retrospectively — was the HTML-comment attribution format clear? Should attribution be richer (include wall time per reviewer inside the sentinel block)? Was the inline worktree-guard duplication painful (diff against `worktree-guard.sh` for the N-th time — should we extract a `worktree-guard-inline.sh` library that both the retry wrapper and tp-help can source)? If yes, implement now.
+- [x] **Subsection close-out (07.2)** — MANDATORY before starting 07.3:
+  - [x] `dual-invoke.sh` has `ORI_TPR_REVIEWERS` branching wired; `bash -n` passes; all three values + unset default verified
+  - [x] `dual-invoke-with-retry.sh` skips parsing for reviewers that weren't launched
+  - [x] `parse-codex-raw.py` and `parse-gemini-raw.py` exist, are executable, and the full 13-cell `raw_parsers` test category in `transport-tests.sh` passes (6 codex cells + 7 gemini cells, including semantic pin C2 and negative pins C5/G3/G7)
+  - [x] Skill file rewrite done; /tp-help returns concatenated dual-source output via HTML-comment sentinel attribution
+  - [x] Attribution format is HTML-comment sentinels, NOT H2 headers (explicit negative test: `grep -c '^## Codex response' "$output"` returns 0; `grep -c '<!-- tp-help-reviewer: codex -->' "$output"` returns ≥1)
+  - [x] Gemini prompt includes the read-only-reviewer preamble
+  - [x] Inline worktree-guard check (step 1 and step 8 of the Steps rewrite above) wired into the skill
+  - [x] `ORI_TPR_REVIEWERS={codex|gemini|both}` toggle honored in `dual-invoke.sh` and skips parsing in `dual-invoke-with-retry.sh` for un-launched reviewers
+  - [x] §02 and §08 plan files updated in §07.0 still reflect the schema-optional and toggle-moved contracts — re-read them after §07.2 lands to confirm no drift
+  - [x] Update this subsection's `status` to `complete`
+  - [x] Run `/improve-tooling` retrospectively — was the HTML-comment attribution format clear? Should attribution be richer (include wall time per reviewer inside the sentinel block)? Was the inline worktree-guard duplication painful (diff against `worktree-guard.sh` for the N-th time — should we extract a `worktree-guard-inline.sh` library that both the retry wrapper and tp-help can source)? If yes, implement now. **Retrospective 07.2**: TDD-first fixture matrix + dedicated `raw_parsers_cell` helper proved highly effective — all 13 cells passed on first parser implementation with zero rework. No tooling gaps surfaced for THIS subsection: attribution format was clear (sentinels preserve perfect grep semantics while being invisible to renderers), worktree-guard inlining is small (2x `git status --porcelain` + `diff`) and duplicating it into the skill is cheaper than building a `worktree-guard-inline.sh` library that would have to ship its own activation contract. Deferred: if §07.3's real integration tests reveal that real reviewers violate the preamble with any frequency, revisit the library extraction then. Commit in this subsection is the per-subsection artifact.
 
 ---
 
