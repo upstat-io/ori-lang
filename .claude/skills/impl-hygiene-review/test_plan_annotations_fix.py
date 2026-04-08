@@ -240,6 +240,91 @@ LINE_NUMBER_CASES: list[tuple[str, str | None]] = [
 ]
 
 
+# Checkbox subject-form regression tests. Each tuple is:
+#   (line, expected_subject_id_or_None)
+# None means "no match" — the line does NOT have a canonical subject-form
+# finding ID and must not be indexed as a resolved/open marker for any ID
+# mentioned in its body prose.
+#
+# These guard the fix for the stale-resolved false positive discovered in
+# plans/dual-tpr-gemini/section-05-review-work.md:44 — a `[x]` checkbox for
+# a scenario criterion that mentioned `BUG-04-045` in its description was
+# being indexed as a resolved marker for BUG-04-045, causing the scanner to
+# report an active annotation in compiler/ori_llvm/tests/aot/cross.rs as
+# stale-resolved even though fix-BUG-04-045.md was authoritatively still
+# in-progress.
+CHECKBOX_SUBJECT_CASES: list[tuple[str, str | None]] = [
+    # ─── Canonical bug-tracker form (backtick + bracket + severity) ───
+    (
+        "- [x] `[BUG-04-045][high]` **`is_cross_compiling()` reports...** — found by manual.",
+        "BUG-04-045",
+    ),
+    (
+        "- [ ] `[BUG-04-043][medium]` **Recursive tagged-pointer enums need box-and-load codegen**",
+        "BUG-04-043",
+    ),
+    # ─── Canonical bug-tracker form without severity ───
+    (
+        "- [x] `[BUG-04-028]` **AIMS invoke RC analysis: merge block params**",
+        "BUG-04-028",
+    ),
+    # ─── Dual-tpr wrapper form with reviewer-suffixed ID ───
+    (
+        "- [x] `[TPR-05-001-codex][high]` `.claude/skills/review-work/SKILL.md:378` — Realign orphan bug IDs.",
+        "TPR-05-001-codex",
+    ),
+    (
+        "- [ ] `[TPR-05-006-gemini][medium]` `lint-dual-tpr-docs.sh:270` — Schema-validate embedded templates.",
+        "TPR-05-006-gemini",
+    ),
+    # ─── repr-opt bold form (no backticks, but bracketed after **) ───
+    (
+        "- [x] **[TPR-01-005]** Fix `repr_size()`/`repr_align()` for Unit/Never in aggregate layouts (2026-03-23):",
+        "TPR-01-005",
+    ),
+    (
+        "- [x] **[TPR-01-034]** Fix `BuildOptions::merge()` dropping `link_mode` and `jobs` (2026-03-24):",
+        "TPR-01-034",
+    ),
+    # ─── Indented nested checkboxes (bug-tracker form) ───
+    (
+        "  - [x] `[BUG-07-012]` Substring regression",
+        "BUG-07-012",
+    ),
+    # ─── NEGATIVE: body mention inside an unrelated scenario checkbox ───
+    # This is the exact regression case from section-05-review-work.md:44.
+    (
+        "- [x] At least 1 real `/review-work` scenario runs successfully end-to-end with both reviewers producing findings and the merged output appearing in the expected location. **Three real rounds executed against §05.1 rewrite + iterative fixes**. Codex produced 6 findings across the 3 rounds, all filed in §05.R as plan-owned TPR entries with reviewer-tagged IDs per Step 7a's plan-owned routing. Bug-tracker fallback exercised organically via the BUG-04-045 Step 15 dogfood discovery.",
+        None,
+    ),
+    # ─── NEGATIVE: checkbox describing cleanup activity that mentions IDs ───
+    (
+        "- [x] Plan annotation cleanup: `plan-annotations.sh --plan dual-tpr-gemini` returns 0 annotations (no `TPR-01-XXX` references left in source files; only in plan documentation).",
+        None,
+    ),
+    # ─── NEGATIVE: checkbox whose text starts with a prose description ───
+    (
+        "- [x] At least one gemini finding with `citations` demonstrated — iter 1 TPR-04-004-gemini cited openai.com",
+        None,
+    ),
+    # ─── NEGATIVE: IDs mentioned in parens inside a test-description title ───
+    (
+        "- [x] **Mutual recursion canonical-consistency test (TPR-01-021, TPR-01-037):** (2026-03-24). Pre-existing test",
+        None,
+    ),
+    # ─── NEGATIVE: no finding ID on the line at all ───
+    (
+        "- [x] Update frontmatter status to `complete`",
+        None,
+    ),
+    # ─── NEGATIVE: `- [ ]` with bare ID mention in body (e.g. scenario description) ───
+    (
+        "- [ ] Run /tpr-review and verify closes BUG-04-045 cleanly",
+        None,
+    ),
+]
+
+
 def main() -> int:
     passed = 0
     failed = 0
@@ -268,6 +353,25 @@ def main() -> int:
         if not ok:
             print(f"           got: {result!r}")
             print(f"           exp: {expected!r}")
+        if ok:
+            passed += 1
+        else:
+            failed += 1
+    print()
+    print("=== Checkbox subject-form regex tests ===")
+    # Use the canonical regex from the module (SSOT) — never a copy.
+    checkbox_re = m.CHECKBOX_SUBJECT_RE
+    for line, expected_id in CHECKBOX_SUBJECT_CASES:
+        match = checkbox_re.match(line)
+        actual_id = match.group(2) if match else None
+        ok = actual_id == expected_id
+        status = "OK  " if ok else "FAIL"
+        # Trim long lines for readability
+        display = line if len(line) <= 120 else line[:117] + "..."
+        print(f"  [{status}] {display!r}")
+        if not ok:
+            print(f"           got: {actual_id!r}")
+            print(f"           exp: {expected_id!r}")
         if ok:
             passed += 1
         else:

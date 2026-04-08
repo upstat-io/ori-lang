@@ -124,11 +124,36 @@ COMPLETED_DIR = PLANS_DIR / "completed"
 # Regex patterns — annotation kinds found in source code
 # ─────────────────────────────────────────────────────────────
 
-# Finding IDs: TPR-07-019, BUG-04-045, TPR-BUG-04-045-07, CROSS-04-014, etc.
+# Finding IDs: TPR-07-019, BUG-04-045, TPR-BUG-04-045-07, CROSS-04-014,
+# TPR-05-001-codex, TPR-05-006-gemini, etc.
 # Intentionally loose — we capture and then look up against the plan index.
 # Order matters: TPR-BUG must come before TPR to prefer the longer match.
+# The trailing `(?:-\w+)*` segment accommodates (a) numeric sub-ordinals like
+# `-07` on TPR-BUG-04-045-07, and (b) reviewer suffixes like `-codex` /
+# `-gemini` used by the dual-source TPR workflow.
 FINDING_ID_RE = re.compile(
-    r"\b((?:TPR-BUG|TPR|CROSS|BUG|FIND|TASK|ISSUE)-\d+-\d+(?:-\d+)?\w*)\b"
+    r"\b((?:TPR-BUG|TPR|CROSS|BUG|FIND|TASK|ISSUE)-\d+-\d+(?:-\w+)*)\b"
+)
+
+# Canonical "subject-form" checkbox regex. Matches ONLY lines where the
+# finding ID appears IMMEDIATELY after the checkbox marker, wrapped in
+# brackets (with optional backticks or bold markers). Recognized shapes:
+#   - [x] `[BUG-04-045]` ...                              (bug-tracker)
+#   - [x] `[BUG-04-045][high]` **Title** ...              (bug-tracker w/ severity)
+#   - [ ] `[TPR-05-001-codex][medium]` `path.rs:42` — ... (dual-tpr wrappers)
+#   - [x] **[TPR-01-005]** Fix ...                        (repr-opt bold form)
+#
+# Must NOT match lines where the ID appears only in body prose, e.g.
+#   - [x] At least 1 /review-work scenario ... BUG-04-045 dogfood
+# Those are incidental references, not resolution markers. Matching them
+# indexes the wrong entry as "resolved" and produces stale-resolved false
+# positives. See test_plan_annotations_fix.py § CHECKBOX_SUBJECT_CASES for
+# the regression matrix that guards this distinction.
+CHECKBOX_SUBJECT_RE = re.compile(
+    r"^\s*-\s+\[([ x])\]\s+"
+    r"(?:\*\*)?`?\["
+    r"((?:TPR-BUG|TPR|CROSS|BUG|FIND|TASK|ISSUE)-\d+-\d+(?:-\w+)*)"
+    r"\]"
 )
 
 # Section symbol refs: §04.3, §07.R, §04.2 Phase A (context-dependent)
@@ -325,13 +350,10 @@ def index_plan_entries(plans: dict[str, Plan]) -> dict[str, list[PlanEntry]]:
     """
     entries: dict[str, list[PlanEntry]] = defaultdict(list)
 
-    # Checkbox pattern: `- [ ] ...[ID]...` or `- [x] ...[ID]...`
-    # The backtick and leading code-fence are optional, and the entire
-    # entry may span multiple lines (body follows) — we only need the
-    # checkbox line.
-    checkbox_re = re.compile(
-        r"^\s*-\s+\[([ x])\]\s+.*?\b([A-Z]+(?:-[A-Z]+)*-\d+(?:-\d+)?)\b"
-    )
+    # Subject-form checkbox regex — see CHECKBOX_SUBJECT_RE module constant
+    # for the full pattern definition and rationale. We bind a local alias
+    # here so the inner hot loop doesn't repeat the attribute lookup.
+    checkbox_re = CHECKBOX_SUBJECT_RE
 
     for plan in plans.values():
         if not plan.path.is_dir():
@@ -361,11 +383,11 @@ def index_plan_entries(plans: dict[str, Plan]) -> dict[str, list[PlanEntry]]:
                 if not m:
                     continue
                 box_state, finding_id = m.group(1), m.group(2)
-                # The regex can capture sub-tokens of longer IDs; re-extract
-                # to prefer the longest match at this position.
-                longest = FINDING_ID_RE.search(line)
-                if longest:
-                    finding_id = longest.group(1)
+                # The checkbox regex now captures the complete canonical ID
+                # (including alpha suffixes like -codex/-gemini). No fallback
+                # search is needed — and would actively hurt, since it could
+                # re-introduce the body-mention false positive the subject-
+                # form regex is designed to prevent.
                 entries[finding_id].append(
                     PlanEntry(
                         finding_id=finding_id,
