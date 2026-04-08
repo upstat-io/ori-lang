@@ -1,7 +1,7 @@
 ---
 section: "07"
 title: "/tp-help dual-source + consolidation"
-status: not-started
+status: in-progress
 reviewed: true
 goal: "Rewrite .claude/skills/tp-help/SKILL.md for dual-source AND consolidate with .claude/commands/tp-help.md (resolving R10 SSOT violation). /tp-help uses CONCATENATION mode (not the findings envelope, not synthesis) — raw perspectives from both reviewers returned to the user. Requires raw-text parsers (parse-codex-raw.py, parse-gemini-raw.py) AND a minimal §02-owned API change: make `--schema` OPTIONAL in `.claude/skills/dual-tpr/scripts/dual-invoke.sh` (the variable is already dead code inside the script after BUG-08-003 removed `--output-schema` passthrough; the only reason it cannot be dropped in concat mode today is the required-flag check at line 40). This cross-section touch is intentional and co-owned per CLAUDE.md 'Plan boundaries = implementation boundaries' — §02's plan MUST be updated to reflect the schema-optional contract before §07.2 implementation begins. Verify that ALL THREE downstream consumers (/impl-hygiene-review Phase 4, /review-plan 4-agent pipeline, and /create-plan orchestrator) continue to work correctly with the dual-source concatenated response format. Own the `.claude/commands/review-plan.md` byte-identical regression contract (inherited from the removed Section 06) since §07.3 Scenario 2 already exercises the command file; capture a frozen baseline hash at §07.1 start so mid-section drift is catchable even if reverted before §07.N."
 success_criteria:
@@ -28,7 +28,7 @@ third_party_review:
 sections:
   - id: "07.PRE"
     title: "Section-Entry Preflight (baseline capture + sentinel uniqueness grep)"
-    status: not-started
+    status: complete
   - id: "07.0"
     title: "Cross-section touch: make `dual-invoke.sh --schema` optional (updates §02 plan and script)"
     status: not-started
@@ -103,23 +103,23 @@ This preflight block is the literal first thing that runs when §07 starts. All 
 
 Tasks (run IN ORDER, before §07.0 task 1):
 
-- [ ] **Capture the frozen `.claude/commands/review-plan.md` baseline — BEFORE ANY OTHER §07 WORK.** Run from the plan working dir (`plans/dual-tpr-gemini/`):
+- [x] **Capture the frozen `.claude/commands/review-plan.md` baseline — BEFORE ANY OTHER §07 WORK.** Run from the plan working dir (`plans/dual-tpr-gemini/`):
   ```bash
   git hash-object .claude/commands/review-plan.md > section-07-review-plan-baseline.sha1
   git rev-parse HEAD                               >> section-07-review-plan-baseline.sha1
   ```
   The first line is the blob hash of the command file at section start; the second line is the commit the baseline was captured against (for postmortem if the baseline file is ever compared against the wrong tree). Any edit that touches `.claude/commands/review-plan.md` between now and §07.N MUST compare the current blob hash against this baseline and fail the section if they differ. Re-run this comparison after every `git add`/`git commit` inside §07. The §07.N regression check alone is too late — it catches drift, it doesn't prevent it.
 
-- [ ] **Verify the baseline was captured BEFORE any §07 subsection started.** The working directory must match `HEAD` at capture time (no §07.0 edits yet applied). If the working dir is dirty with §07.0 changes, STOP — revert the §07.0 changes, capture the baseline, then re-apply §07.0.
+- [x] **Verify the baseline was captured BEFORE any §07 subsection started.** The working directory must match `HEAD` at capture time (no §07.0 edits yet applied). If the working dir is dirty with §07.0 changes, STOP — revert the §07.0 changes, capture the baseline, then re-apply §07.0.
 
-- [ ] **Attribution-sentinel uniqueness preflight.** Before any §07.2 work lands the sentinel strings, verify NO pre-existing occurrence of the sentinel exists anywhere in the repo outside plan text:
+- [x] **Attribution-sentinel uniqueness preflight.** Before any §07.2 work lands the sentinel strings, verify NO pre-existing occurrence of the sentinel exists anywhere in the repo outside plan text:
   ```bash
   # Expected: zero matches outside plans/ (plan docs MAY cite the sentinel as reference)
   rg 'tp-help-reviewer' -l -g '!plans/' || echo "OK: no pre-existing sentinel matches outside plans/"
   ```
   If ANY match surfaces outside `plans/`, the sentinel string `tp-help-reviewer` has a collision risk. Pick a more unique sentinel (e.g., add a longer GUID-like discriminator) and update §07.2's Attribution format decision + Steps tasks to use the new sentinel. Record the decision in §07.R.
 
-- [ ] **Pre-file the §07.3 Scenario 4 Mode A blocker bug** — `/create-plan` currently has NO `--root` / `ORI_PLAN_ROOT` / `plan_root` override (empirically verified against `.claude/skills/create-plan/SKILL.md`). Scenario 4's preferred Mode A execution path requires that override to redirect plan creation into a tmpdir; without it, Scenario 4 falls back to Mode B (deterministic slug under `plans/` with collision pre-check + exact-path cleanup). To prevent §07.3 from stalling on a missing prerequisite, file the blocker NOW via `/add-bug`:
+- [x] **Pre-file the §07.3 Scenario 4 Mode A blocker bug** — `/create-plan` currently has NO `--root` / `ORI_PLAN_ROOT` / `plan_root` override (empirically verified against `.claude/skills/create-plan/SKILL.md`). Scenario 4's preferred Mode A execution path requires that override to redirect plan creation into a tmpdir; without it, Scenario 4 falls back to Mode B (deterministic slug under `plans/` with collision pre-check + exact-path cleanup). To prevent §07.3 from stalling on a missing prerequisite, file the blocker NOW via `/add-bug`:
   ```
   /add-bug create-plan: add --root/ORI_PLAN_ROOT override for test harnesses
     severity: high
@@ -142,11 +142,11 @@ Tasks (run IN ORDER, before §07.0 task 1):
   ```
   This file is consumed by §07.3 Scenario 4's Mode A/B decision. Filing the bug here is NOT deferral — it creates a tracked artifact that `/review-bugs` will triage independently. If the bug is fixed before §07.3 starts, Scenario 4 uses Mode A; if still open, Scenario 4 uses Mode B.
 
-- [ ] **Preflight close-out** — MANDATORY before starting §07.0:
-  - [ ] `section-07-review-plan-baseline.sha1` exists and contains two lines (hash + HEAD)
-  - [ ] Working directory is clean or only contains unrelated changes (no §07 edits yet)
-  - [ ] Sentinel uniqueness grep returned zero non-plan matches (or a replacement sentinel was chosen and documented)
-  - [ ] `section-07-scenario4-blocker.txt` exists and contains the BUG-ID for the create-plan root-override prerequisite (Mode A blocker for §07.3 Scenario 4)
+- [x] **Preflight close-out** — MANDATORY before starting §07.0:
+  - [x] `section-07-review-plan-baseline.sha1` exists and contains two lines (hash `66250250e8030a5e880ceaf4bf40f9409178a375` + HEAD `f775e98c049662abf4b023f499cb3bf3bd278ad4`)
+  - [x] Working directory is clean or only contains unrelated changes (no §07 edits yet)
+  - [x] Sentinel uniqueness grep returned zero non-plan matches (0 matches outside `plans/dual-tpr-gemini/`)
+  - [x] `section-07-scenario4-blocker.txt` exists and contains the BUG-ID for the create-plan root-override prerequisite (BUG-08-010, filed in `plans/bug-tracker/section-08-spec-docs.md`)
 
 ---
 
