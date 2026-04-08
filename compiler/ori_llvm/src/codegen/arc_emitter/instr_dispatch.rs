@@ -106,7 +106,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             return false;
         }
 
-        // BUG-04-008: If the projected field is Unit/Never, it's zero-sized
+        // If the projected field is Unit/Never, it's zero-sized
         // and doesn't exist in the LLVM payload. Return a zero constant.
         let resolved_field_ty = self.pool.resolve_fully(ty);
         if matches!(self.pool.tag(resolved_field_ty), Tag::Unit | Tag::Never) {

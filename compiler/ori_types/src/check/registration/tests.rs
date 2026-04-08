@@ -764,7 +764,7 @@ fn all_derived_traits_have_well_known_names() {
 }
 
 // ============================================================================
-// #repr attribute validation (TPR-01-044, TPR-01-045)
+// #repr attribute validation
 // ============================================================================
 
 /// Helper: create a Module with a single type declaration for repr validation tests.
@@ -790,7 +790,7 @@ fn make_module_with_repr(
     module
 }
 
-/// TPR-01-044: Explicit `#repr("transparent")` on newtypes must be rejected with E2041.
+/// Explicit `#repr("transparent")` on newtypes must be rejected with E2041.
 ///
 /// The spec says `#repr` applies only to struct types. Newtypes are implicitly
 /// transparent. Explicit `#repr("transparent")` on a newtype is an error, not
@@ -818,7 +818,7 @@ fn repr_transparent_on_newtype_rejected() {
     assert_eq!(errors[0].code(), ori_diagnostic::ErrorCode::E2041);
 }
 
-/// TPR-01-045: Duplicate same-kind `#repr` attributes must be rejected with E2041.
+/// Duplicate same-kind `#repr` attributes must be rejected with E2041.
 ///
 /// The spec only permits `c + aligned` as a valid multi-attribute combination.
 /// Same-kind duplicates like `#repr("c") #repr("c")` are invalid.
@@ -849,7 +849,7 @@ fn repr_duplicate_c_rejected() {
     assert_eq!(errors[0].code(), ori_diagnostic::ErrorCode::E2041);
 }
 
-/// TPR-01-045: Duplicate `#repr("aligned", N)` with different N must be rejected.
+/// Duplicate `#repr("aligned", N)` with different N must be rejected.
 #[test]
 fn repr_duplicate_aligned_rejected() {
     let arena = ExprArena::new();
@@ -877,7 +877,7 @@ fn repr_duplicate_aligned_rejected() {
     assert_eq!(errors[0].code(), ori_diagnostic::ErrorCode::E2041);
 }
 
-/// TPR-01-045 semantic pin: the ONLY valid multi-attribute case is `c + aligned(N)`.
+/// semantic pin: the ONLY valid multi-attribute case is `c + aligned(N)`.
 #[test]
 fn repr_c_plus_aligned_still_valid() {
     let arena = ExprArena::new();

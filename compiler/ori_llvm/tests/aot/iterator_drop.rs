@@ -1,4 +1,4 @@
-//! AOT tests for TPR-07-008: iterators in compound containers must be
+//! AOT tests for iterators in compound containers must be
 //! dropped via `ori_iter_drop` at scope exit.
 //!
 //! Before the fix, `classify_triviality()` marked `Tag::Iterator` and
@@ -30,7 +30,7 @@
 //!   cleanup must continue to work (no double-free, no leak) under
 //!   the new IterDrop=Owned ownership contract.
 //!
-//! Spec: `plans/repr-opt/section-07-enum-repr.md` §07.R TPR-07-008.
+//! Spec: `plans/repr-opt/section-07-enum-repr.md` §07.R
 
 use crate::util::assert_aot_success;
 
@@ -46,13 +46,13 @@ fn tpr_07_008_enum_tagged_ptr_iter_no_leak() {
     );
 }
 
-/// TPR-07-011 semantic pin: match-and-consume on a tagged-pointer
+/// semantic pin: match-and-consume on a tagged-pointer
 /// enum iterator payload must not double-free. The `Project`
 /// codegen decodes the payload pointer from the enum, the match
 /// arm consumes it via `.count()`, and the ARC pipeline must NOT
 /// also emit a scope-exit drop on the original enum (which would
 /// decode the same pointer and drop it a second time). Iteration-3
-/// finding of the TPR-07-008 review: the iteration-1 matrix only
+/// finding of the review: the iteration-1 matrix only
 /// covered the "payload goes out of scope unused" case.
 #[test]
 fn tpr_07_011_enum_tagged_ptr_match_consume_no_double_free() {
@@ -62,7 +62,7 @@ fn tpr_07_011_enum_tagged_ptr_match_consume_no_double_free() {
     );
 }
 
-/// TPR-07-011 matrix pin: `Empty` branch selected at construction
+/// matrix pin: `Empty` branch selected at construction
 /// time — no iterator ever exists, so nothing to drop. Ensures the
 /// take-project suppression doesn't accidentally break the trivial
 /// no-iterator path.
@@ -74,7 +74,7 @@ fn tpr_07_011_enum_tagged_ptr_match_empty_path() {
     );
 }
 
-/// TPR-07-011 matrix pin: dynamic construction via a helper function
+/// matrix pin: dynamic construction via a helper function
 /// — the compiler cannot constant-fold the match, so both branches
 /// are live and ARC must correctly handle the control-flow diamond.
 /// Exercises the full path: Construct (via helper) → Switch →
@@ -87,10 +87,10 @@ fn tpr_07_011_enum_tagged_ptr_match_consume_dynamic() {
     );
 }
 
-/// TPR-07-013 semantic pin: symmetric case of TPR-07-011. Matching
+/// semantic pin: symmetric case of Matching
 /// an iterator payload from a user sum type into a binding that is
 /// NEVER consumed must drop the projected iterator at scope exit.
-/// TPR-07-011 correctly suppressed the source enum's scope-exit
+/// correctly suppressed the source enum's scope-exit
 /// drop when a take-project fires (preventing double-free on the
 /// "project-then-consume" path), but the symmetric "project-then-
 /// drop-unused" path needs the projected iterator binding itself
@@ -104,7 +104,7 @@ fn tpr_07_013_enum_match_unused_binding_no_leak() {
     );
 }
 
-/// TPR-07-013 matrix pin: `Option<Iterator<int>>` case of the
+/// matrix pin: `Option<Iterator<int>>` case of the
 /// project-unused pattern.
 #[test]
 fn tpr_07_013_option_match_unused_binding_no_leak() {
@@ -114,7 +114,7 @@ fn tpr_07_013_option_match_unused_binding_no_leak() {
     );
 }
 
-/// TPR-07-013 matrix pin: `Result<Iterator<int>, int>` case of the
+/// matrix pin: `Result<Iterator<int>, int>` case of the
 /// project-unused pattern.
 #[test]
 fn tpr_07_013_result_match_unused_binding_no_leak() {
@@ -124,8 +124,8 @@ fn tpr_07_013_result_match_unused_binding_no_leak() {
     );
 }
 
-/// TPR-07-016 semantic pin: path-sensitive take-project suppression.
-/// The TPR-07-011 fix suppressed the source enum's scope-exit drop
+/// semantic pin: path-sensitive take-project suppression.
+/// The fix suppressed the source enum's scope-exit drop
 /// function-globally when a take-project reaches the source chain.
 /// That's too coarse: on runtime paths that never reach the
 /// projection (e.g., `if false then match x { Holds(it) -> ... }
@@ -155,7 +155,7 @@ fn tpr_07_016_enum_conditional_consume_no_leak() {
 /// own connected-component class, independent of unrelated `b`.
 ///
 /// Codex iteration 7 found this gap during TPR review of the
-/// TPR-07-016 fix. The `take_project.rs` source itself flagged
+/// fix. The `take_project.rs` source itself flagged
 /// "two iterators moved on different branches" as the missing
 /// partitioning case.
 #[test]
@@ -221,7 +221,7 @@ fn tpr_07_019_per_source_lineage_no_leak() {
     );
 }
 
-/// TPR-07-020 topology pin: take-project alongside an explicit `loop`
+/// topology pin: take-project alongside an explicit `loop`
 /// where the loop body forms a bypass-safe region whose only entry is
 /// the function-entry block via a back-edge from a bypass-safe latch.
 ///

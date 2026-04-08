@@ -387,12 +387,12 @@ fn fixpoint_block_param_merging() {
     );
 }
 
-// ─── TPR-03-015: block-entry refinements for non-param vars ─────
+// ─── block-entry refinements for non-param vars ─────
 
 /// Semantic pin: non-parameter variable refined via Branch.
 /// Block 0: let x = constant [0, 200], let cond = x < 100, Branch(cond, b1, b2)
 /// Block 1 (true branch): x should be refined to [0, 99].
-/// Without TPR-03-015 fix, x stays [0, 200] in block 1.
+/// Without fix, x stays [0, 200] in block 1.
 #[test]
 fn fixpoint_branch_refines_non_param_variable() {
     use ori_arc::ir::{ArcBlock, ArcFunction, ArcInstr, ArcTerminator, ArcValue, LitValue, PrimOp};
@@ -566,7 +566,7 @@ fn fixpoint_switch_refines_non_param_variable() {
     );
 }
 
-// ─── TPR-03-016: field summary recompute after narrowing ────────
+// ─── field summary recompute after narrowing ────────
 
 /// Field summary reflects post-narrowing ranges, not pre-narrowing widened ranges.
 /// Construct a function with a Construct that uses a variable. After analysis,
@@ -634,7 +634,7 @@ fn fixpoint_field_summary_uses_final_ranges() {
     );
 }
 
-// ─── TPR-03-017: Switch multi-case same-block must join, not overwrite ───
+// ─── Switch multi-case same-block must join, not overwrite ───
 
 /// When multiple Switch cases target the same successor block, the scrutinee
 /// refinement should be the JOIN of all case values, not just the last one.
@@ -730,7 +730,7 @@ fn fixpoint_switch_multi_case_same_block_joins() {
     );
 }
 
-// ─── TPR-03-018: Switch default block gets complement refinement ─────
+// ─── Switch default block gets complement refinement ─────
 
 /// The default successor of a Switch should receive a complement refinement
 /// that excludes contiguous case values from the scrutinee's edges.
@@ -838,7 +838,7 @@ fn fixpoint_switch_default_gets_complement() {
     );
 }
 
-// ─── TPR-03-036: multi-predecessor switch default must join, not meet ─
+// ─── multi-predecessor switch default must join, not meet ─
 
 /// Build a diamond CFG where two switch blocks target the same default.
 /// entry: x ∈ [0,10]; branch → left, right
@@ -959,7 +959,7 @@ fn fixpoint_switch_default_multi_predecessor_joins() {
     );
 }
 
-// ─── TPR-03-019: Narrowing pass recovers loop-bound block parameters ─
+// ─── Narrowing pass recovers loop-bound block parameters ─
 
 /// Build a simple bounded loop: `for i in 0..<limit` with increment 1.
 /// Returns `(function, loop_var)` for assertion.
@@ -1087,7 +1087,7 @@ fn fixpoint_narrowing_recovers_loop_bound() {
     );
 }
 
-// ─── TPR-03-020: Branch refinement overwrite + stale iterations ──
+// ─── Branch refinement overwrite + stale iterations ──
 
 /// Build a multi-predecessor Branch refinement CFG. Returns `(func, v_y)`.
 fn build_multi_pred_branch_func() -> (ori_arc::ir::ArcFunction, ArcVarId) {
@@ -1223,7 +1223,7 @@ fn fixpoint_branch_multi_predecessor_refinement_joins() {
     );
 }
 
-// ─── TPR-03-021: return_range must be recomputed after narrowing ──────
+// ─── return_range must be recomputed after narrowing ──────
 
 /// Semantic pin: a bounded loop function's `return_range` should narrow along
 /// with the loop variable. The loop returns `v_i` which narrows to [0, 10].
@@ -1235,7 +1235,7 @@ fn fixpoint_return_range_recomputed_after_narrowing() {
     let config = RangeAnalysisConfig::default();
     let result = range_fixpoint(&func, &pool, &config, None, None);
 
-    // The loop variable narrows to [0, 10] (covered by TPR-03-019 test).
+    // The loop variable narrows to [0, 10] (covered by test).
     // The Return terminator returns v_i, so return_range should also narrow.
     // Bug: return_range stays at [0, MAX] because it's never recomputed.
     // Fix: recompute return_range from final narrowed ranges.
@@ -1247,7 +1247,7 @@ fn fixpoint_return_range_recomputed_after_narrowing() {
     );
 }
 
-// ─── TPR-03-022: projection refresh after field-summary recompute ──────
+// ─── projection refresh after field-summary recompute ──────
 
 /// Build a bounded loop where the exit block constructs a struct from the
 /// loop variable, projects field 0, and returns the projection.
@@ -1343,7 +1343,7 @@ fn fixpoint_projection_refreshed_after_field_summary_recompute() {
     );
 }
 
-// ─── TPR-03-023: return_range must not include unreachable blocks ──────
+// ─── return_range must not include unreachable blocks ──────
 
 /// Semantic pin: a function with an unreachable return block must NOT have
 /// its `return_range` polluted by the dead block's return variable.
@@ -1520,7 +1520,7 @@ fn fixpoint_return_range_includes_all_reachable_returns() {
     );
 }
 
-// ─── TPR-03-024: Invoke terminator must define dst variable range ──────
+// ─── Invoke terminator must define dst variable range ──────
 
 /// Semantic pin: an Invoke terminator defines a `dst` variable and its
 /// range must appear in the fixpoint result. For an unknown function,

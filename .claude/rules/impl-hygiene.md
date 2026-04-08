@@ -606,9 +606,78 @@ Inline comments on struct fields when purpose isn't obvious.
 
 - Test behavior, not implementation. Each test tests one thing.
 - No test ordering dependencies; no shared mutable state between tests
-- Descriptive names: `test_X_when_Y_then_Z`
+- Descriptive names — see §Test Function Naming below
 - No `#[ignore]` without a tracking issue/reason
 - **Test data**: fixtures in `tests/fixtures/` or `tests/spec/`. No hardcoded absolute paths — use relative paths or `CARGO_MANIFEST_DIR`. Test data committed to repo.
+
+### Test Function Naming
+
+Test names have **inverted scope** from the things they often reference: the test name is permanent (it lives in every CI log, failure report, commit, and regression run forever), while the artifacts tests commonly reference — plans, sections, subsections, bug IDs, TPR codes — are deeply ephemeral. Encoding ephemeral identifiers into permanent names is a slow-burn footgun: it reads fine the day it's written, then rots silently as plans reorganize, sections renumber, bugs close, and the test name becomes meaningless noise.
+
+A test named `test_section_04_3_iter_drop` or `test_BUG_04_045_install_paths` or `test_TPR_04_005_typeck` has two problems:
+
+1. **It tells future readers nothing** — they have to cross-reference an external artifact (which may no longer exist) to understand what behavior is under test.
+2. **It becomes a maintenance burden** — when the plan completes or the bug closes, every such name must be renamed; in practice, they never are, and the rot compounds.
+
+**Required shape**: `<subject>_<scenario>_<expected>` — the three-part convention also known as Arrange-Act-Assert naming, Given-When-Then naming, or Roy Osherove's three-part test naming (widely adopted in Rust stdlib, JUnit, xUnit.net, Roslyn, Swift stdlib, Go conventions). Reading the name alone must answer:
+
+1. **Subject** — What unit, behavior, or feature is being tested?
+2. **Scenario** — Under what input, state, or condition?
+3. **Expected** — What outcome does the test verify?
+
+**Good examples:**
+- `test_iterator_drop_when_break_inside_for_releases_remaining`
+- `test_cow_slice_with_two_borrows_does_not_double_free`
+- `test_parse_empty_input_returns_empty_ast`
+- `test_compare_returns_less_when_left_smaller_than_right`
+- `test_typeck_rejects_map_key_without_hashable`
+- `test_eval_iter_zip_stops_at_shorter_sequence`
+
+Each name is self-contained — a reviewer can understand what's being verified without opening the file, without reading the body, and without looking up any external artifact.
+
+**Banned: ephemeral identifiers in test names.** These rot the moment the artifact is renamed, renumbered, merged, deleted, or completed:
+
+| Category | Banned examples |
+|---|---|
+| Plan names | `test_locality_repr_phase_a`, `test_repr_opt_validation`, `test_capability_unification_step_2` |
+| Section / subsection numbers | `test_section_04_3_drop`, `test_4_3_2_nested_closure`, `test_§4_3`, `test_04_2_phase_b` |
+| Plan annotations | `test_TPR_04_005`, `test_CROSS_04_014`, `test_section_04_2_phase_b`, `test_roadmap_04` |
+| Bug / issue IDs | `test_BUG_04_045_install_paths`, `test_issue_42`, `test_fix_2031`, `test_bug042` |
+| Dates | `test_2026_03_15_fix`, `test_march_fix`, `test_q1_regression` |
+| Authors / initials | `test_eric_fix`, `test_es_repro`, `test_alice_discovered` |
+| Commit hashes / ticket refs | `test_4590a6e6`, `test_JIRA_1234` |
+
+Provenance — *why* a regression test exists, *which* plan motivated it, *what* bug it guards against — belongs in `///` (Rust) or `//` (Ori) doc comments above the test, **never** in the function name:
+
+```rust
+/// Regression: iterator drop was skipping nested closures, causing a leak
+/// whenever a `break` inside a `for` left captured collections alive.
+/// See: plans/bug-tracker/fix-BUG-04-045.md
+#[test]
+fn test_iterator_drop_with_nested_closure_releases_inner_handle() { /* ... */ }
+```
+
+A doc comment can rot harmlessly — the test still explains itself without it, and the existing plan-annotations rule (run `plan-annotations.sh`) already catches stale plan annotations in comments at plan-completion time. The function name cannot rot harmlessly: it is the public identity of the test in every log, every failure report, every grep.
+
+**Banned: weak / empty descriptors.** These tell the reader nothing about what is being verified and provide zero diagnostic value in failure logs:
+
+- `test_works`, `test_works_correctly`, `test_it_works`
+- `test_basic`, `test_simple`, `test_default`, `test_normal`
+- `test_correct`, `test_valid`, `test_ok`, `test_sanity`
+- `test_handles_X`, `test_check_X`, `test_verify_X` — substitute with the actual scenario
+- Bare unit names: `test_iterator`, `test_parse_function`, `test_eval`, `test_collect`
+
+A failure log entry `test_works ... FAILED` is indistinguishable from any other `test_works` in any other file.
+
+**Allowed and encouraged:**
+
+- **Long descriptive names** — tests are not called by client code, so name length is free. Err on the side of self-explanatory over concise.
+- **Snake_case for Rust** (`test_X_when_Y_then_Z`), **kebab-case for Ori spec test files** (`map-filter-collect.ori`) — matches existing file-naming rules.
+- **Phase / backend qualifiers** when distinguishing parallel paths — `test_eval_iter_drop_releases_handle` vs `test_codegen_iter_drop_releases_handle` is legitimate when eval and codegen are both being verified.
+- **Spec vocabulary** — use the same terminology the spec uses (`test_comparable_returns_greater_when_left_exceeds_right`), so readers can cross-reference against spec clauses directly.
+- **Positive + negative pairing** in names — `test_rc_elision_fires_for_unique_owner` + `test_rc_elision_blocked_by_alias` makes the pair legible at a glance.
+
+**`/impl-hygiene-review` enforcement**: any test function name containing an ephemeral identifier from the banned table above is a hygiene violation in the **NAMING** category and MUST be renamed in the same review pass. Never deferred. The rename is mechanical — extract the behavioral scenario from the test body, build a new name from it, move any useful provenance into a `///` doc comment. There is no scope, complexity, risk, or "it's just a test" argument that excuses leaving an ephemeral name in place. "This test touches hundreds of callsites" is irrelevant — test names have no callers; a rename is always local to the test file.
 
 ## Conditional Compilation
 

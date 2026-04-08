@@ -58,7 +58,7 @@ pub(crate) fn is_trivial_repr(repr: &MachineRepr) -> bool {
         // `ori_iter_drop` at scope exit. Must agree with
         // `ori_types::triviality::classify_triviality(Tag::Iterator)`
         // which returns NonTrivial; the `analyze_triviality` pass
-        // asserts both sources stay in sync. See TPR-07-008.
+        // asserts both sources stay in sync. See
         | MachineRepr::UnmanagedPtr
         | MachineRepr::StackPromoted { .. } => false,
     }

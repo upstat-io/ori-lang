@@ -93,16 +93,34 @@ The scanner outputs an `=== REROUTES ===` block at the top with `[ACTIVE reroute
 
 ### Step 1: Run the Scanner
 
-Run the roadmap scanner script to get current status:
+Run the roadmap scanner to get a comprehensive workspace snapshot:
 
 ```bash
 .claude/skills/continue-roadmap/roadmap-scan.sh plans/roadmap
 ```
 
-This outputs:
-- Reroute status block (if any active/queued reroutes detected from `plans/*/index.md` frontmatter)
-- One line per section: `[done]` or `[open]` with progress stats
-- Detail block for the **first incomplete section**: subsection statuses (with blocked counts), first 5 **unblocked** items, blocker summary, and blocker chain
+`roadmap-scan.sh` is a thin shim around `roadmap_scan.py` — a Python
+rewrite that crawls every plan directory (not just the one passed), the
+bug tracker, fix sections, and completed plans, producing a dense
+structured report optimized for workflow consumption.
+
+The output has these blocks in order:
+
+1. **`=== REROUTES ===`** — active and queued reroutes with progress and order (used by `/create-plan` via sed extraction)
+2. **Workspace Summary** — total plans, reroute counts, queued counts
+3. **Health Signals** — frontmatter mismatches across ALL plans, orphan section-graph blockers, unreviewed plans, open TPR findings rolled up per plan, open fix sections, bug tracker severity rollup, stale plan annotations count
+4. **Focus Selection** — which plan and section the workflow should focus on, and the reason (active reroute priority, explicit arg, first incomplete, etc.)
+5. **Plan: plans/<name>** — section status list for the focus plan with `[done]`/`[FOCUS]`/`[active]`/`[todo]` tags and per-section TPR open counts
+6. **Focus Section** — subsections table, recently completed items, next unblocked items grouped by subsection, blocker breakdown with READY/WAITING/IN_PROGRESS/GATE classification, open TPR findings
+7. **Bug Tracker** — open critical/high bugs and in-progress fix sections relevant to the focus subsystem
+8. **Decision Notes** — which gate steps (1.5 frontmatter, 1.7 reviewed, 1.9 TPR, 1.95 clean tree) apply for the upcoming implementation work
+
+Flags:
+- `--reroutes-only` — just the `=== REROUTES ===` block (fast path)
+- `--json` — structured JSON for programmatic consumption
+- `--no-bugs` — skip bug-tracker crawl if slow
+- `--quiet` — suppress health signals section
+- `--trace` — log decisions to stderr for debugging the scanner itself
 
 ### Step 1.5: Fix Stale Frontmatter
 
@@ -130,6 +148,9 @@ After fixing, briefly note what was corrected (e.g., "Fixed stale frontmatter: S
 Run the plan annotation scanner to detect stale annotations from already-completed plans:
 
 ```bash
+# Full-repo classification summary across every plan and every annotation.
+# Prints counts per classification: stale-resolved, stale-completed-plan,
+# orphan, active-scaffolding, permanent, arch-internal, section-ref.
 bash .claude/skills/impl-hygiene-review/plan-annotations.sh --count
 ```
 
@@ -595,7 +616,7 @@ This applies to ALL skills: `/code-journey`, `/review-plan`, `/sync-spec`, etc.
    - Run `./fmt-all.sh` to ensure formatter still works
 6. **Update section file** — Check off completed items with `[x]`
 7. **Update YAML frontmatter** — See "Updating Section File Frontmatter" below
-8. **Clean up plan annotations** — Run `.claude/skills/impl-hygiene-review/plan-annotations.sh --plan NN` (where NN is the section number) to find annotations in source code referencing the completed section. Remove all stale annotations (TPR-NN-XXX, CROSS-NN-XXX, BUG-NN-XX, §NN.X, Phase refs, etc.) from `.rs` files. Spec references (`Spec: Clause N.M`) are permanent and must NOT be removed. This is mandatory before marking a section complete.
+8. **Clean up plan annotations** — Run `.claude/skills/impl-hygiene-review/plan-annotations.sh --cleanup-only --plan <plan-name>` to find annotations in source code that match findings now marked `[x]` in the completed section. The tool reads each plan's markdown content directly — classification is per-finding accurate, so you see exactly which `TPR-NN-XXX` / `BUG-NN-XX` IDs are resolved vs. still open. Remove every annotation in the `stale-resolved` group and (if the plan was archived) every annotation in the `stale-completed-plan` group. Spec references (`Spec: Clause N.M`) and architecture-internal section numbering (`AIMS Section N`, `eval_v2 Section N`) are classified as `permanent` / `arch-internal` and must NOT be removed. Run `plan-annotations.sh --scope <section-paths> --active-only` first to confirm the remaining `active-scaffolding` references are all genuinely still open. This cleanup is mandatory before marking a section complete.
 9. **Run `/commit-push`** — NEVER commit directly with `git commit`. Always use the `/commit-push` skill.
 10. **Run `/tpr-review` after section completion — MUST PASS CLEAN** — When ALL checkboxes in a section are checked and the section is about to be marked `complete`, run `/tpr-review` for an independent Codex review. **The TPR must come back completely clean before the section can be closed out.** If `/tpr-review` surfaces ANY findings: (1) triage them through Step 1.9 (TPR Triage Gate), (2) fix all accepted findings, (3) **re-run `/tpr-review`** to confirm clean. Repeat this cycle until the review passes with zero unresolved findings. A section CANNOT be marked `complete` until a clean `/tpr-review` pass is achieved — "all findings triaged" is not sufficient, the re-run must confirm they are actually resolved. **This rule is definitive and non-negotiable. Do not reason about whether a TPR pass is "close enough", whether remaining findings are "minor", or whether the section is "effectively complete". There is no judgement call — either the TPR is clean or the section stays open. No exceptions, no rationalizations, no shortcuts.**
 11. **Run `/impl-hygiene-review` after TPR is clean — MUST PASS** — After `/tpr-review` passes clean, run `/impl-hygiene-review` (or scope to the section's commits) for a deep hygiene sweep: phase boundaries, SSOT, algorithmic DRY, naming, file organization. If `/impl-hygiene-review` surfaces critical or major findings: fix them, re-run `/tpr-review` (since code changed), then re-run `/impl-hygiene-review`. **A section CANNOT be marked `complete` until both `/tpr-review` AND `/impl-hygiene-review` pass clean.** The hygiene review is the final quality gate — it catches plumbing-layer issues (leaked dispatch, scattered knowledge, algorithmic duplication) that TPR is not designed to detect. Same non-negotiable rule as TPR: clean or open, no middle ground.
@@ -827,7 +848,7 @@ When completing a roadmap item:
 4. **Verify Estimated Effort table** (if it exists): every section row must show `Complete`
 5. **Scan for stale `Not Started` or `In Progress`**: grep the overview and index for these strings — if found in section status columns, fix them
 
-6. **Verify plan annotations are cleaned up**: Run `bash .claude/skills/impl-hygiene-review/plan-annotations.sh` and confirm zero annotations remain for this plan's sections. Any remaining TPR, CROSS, BUG, §, Phase, or section- references in `.rs` files are stale scaffolding that must be removed before archival.
+6. **Verify plan annotations are cleaned up**: Run `bash .claude/skills/impl-hygiene-review/plan-annotations.sh --plan <plan-name> --cleanup-only` and confirm zero `stale-resolved` or `stale-completed-plan` annotations remain for this plan's findings. Then run `--plan <plan-name> --orphans-only` to confirm no orphan references point at plan-files that will be archived. Any remaining `stale-*` annotations are scaffolding that must be removed before archival. The `active-scaffolding` group should also be empty if the plan is truly complete — any `[ ]` finding left open means the plan is not actually done.
 
 If any check fails, fix the issue first, then proceed.
 

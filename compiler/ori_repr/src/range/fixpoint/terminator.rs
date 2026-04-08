@@ -42,7 +42,7 @@ pub(super) fn process_terminator(
         } => {
             if is_int_typed(*ty, pool) {
                 let mut new_range = transfer_known_call(*callee, known_builtins).unwrap_or(Top);
-                // TPR-03-034: Apply callee return-range narrowing to Invoke dst,
+                // Apply callee return-range narrowing to Invoke dst,
                 // matching the Apply handling in run_forward_iteration(). Without
                 // this, Invoke dst vars miss interprocedural return-range facts.
                 if let Some(&narrowing) = call_result_narrowings.get(dst) {
@@ -56,7 +56,7 @@ pub(super) fn process_terminator(
             then_block,
             else_block,
         } => {
-            // TPR-03-020: JOIN refinements per (block, var) — not overwrite.
+            // JOIN refinements per (block, var) — not overwrite.
             // Multiple predecessors may target the same block with different
             // refinements; joining is the sound over-approximation.
             let refinements = refine_from_branch(*cond, ranges, &block.body);
@@ -76,7 +76,7 @@ pub(super) fn process_terminator(
             cases,
             default,
         } => {
-            // TPR-03-017: JOIN case values per (block, scrutinee) — not overwrite.
+            // JOIN case values per (block, scrutinee) — not overwrite.
             for &(case_val, case_block) in cases {
                 if let Ok(val) = i64::try_from(case_val) {
                     let exact = Bounded { lo: val, hi: val };
@@ -86,8 +86,8 @@ pub(super) fn process_terminator(
                         .or_insert(exact);
                 }
             }
-            // TPR-03-018: default block gets complement refinement.
-            // TPR-03-036: use JOIN (not meet) when multiple predecessors
+            // default block gets complement refinement.
+            // use JOIN (not meet) when multiple predecessors
             // target the same default — join is the sound over-approximation.
             let scr_range = ranges.get(scrutinee).copied().unwrap_or(Top);
             let complement = switch_default_complement(scr_range, cases);

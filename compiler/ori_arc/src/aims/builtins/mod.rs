@@ -110,7 +110,7 @@ fn seed_internal_runtime_contracts(
         is_fbip: false,
     });
 
-    // TPR-07-008: Iterator adapter and consumer runtime functions.
+    // Iterator adapter and consumer runtime functions.
     //
     // Every `ori_iter_*` adapter/consumer that takes `iter: *mut u8` as
     // its first parameter **consumes** that iterator via

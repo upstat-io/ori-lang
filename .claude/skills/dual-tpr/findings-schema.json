@@ -1,0 +1,115 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Ori Dual-TPR Findings Envelope V1",
+  "type": "object",
+  "required": ["schema_version", "status", "reviewer", "skill", "scope_actually_reviewed", "findings", "no_findings"],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "1.0"
+    },
+    "status": {
+      "type": "string",
+      "enum": ["complete", "failed_partial"],
+      "description": "complete = clean termination; failed_partial = reviewer ran but did not finish all analysis. Missing field or any other value is treated as 'failed' by the orchestrator."
+    },
+    "reviewer": {
+      "type": "string",
+      "enum": ["codex", "gemini"]
+    },
+    "skill": {
+      "type": "string",
+      "enum": ["tpr-review", "review-work", "review-plan", "tp-help"]
+    },
+    "scope_actually_reviewed": {
+      "type": "object",
+      "required": ["expanded_beyond_packet", "files_read", "rules_consulted"],
+      "properties": {
+        "git_range": {"type": ["string", "null"]},
+        "files_read": {"type": "array", "items": {"type": "string"}},
+        "rules_consulted": {"type": "array", "items": {"type": "string"}},
+        "specs_consulted": {"type": "array", "items": {"type": "string"}},
+        "plans_consulted": {"type": "array", "items": {"type": "string"}},
+        "expanded_beyond_packet": {
+          "type": "boolean",
+          "description": "REQUIRED. The reviewer must explicitly state whether it expanded its investigation beyond the orchestrator's starting packet."
+        },
+        "expansion_reason": {
+          "type": "string",
+          "description": "Required if expanded_beyond_packet is true. One sentence explaining what additional surface was explored and why."
+        }
+      },
+      "if": {
+        "properties": {"expanded_beyond_packet": {"const": true}}
+      },
+      "then": {
+        "required": ["expansion_reason"]
+      }
+    },
+    "findings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["ordinal", "severity", "location", "title", "evidence", "impact", "basis"],
+        "properties": {
+          "ordinal": {"type": "integer", "minimum": 1},
+          "severity": {"type": "string", "enum": ["high", "medium", "low"]},
+          "location": {
+            "type": "string",
+            "pattern": "^(?!/)(?!\\./)[a-zA-Z0-9_./-]+:[0-9]+$",
+            "description": "Repo-relative path:line. No absolute paths, no leading ./, no line ranges. Dotfiles like .gitignore:3 ARE allowed; only the leading two-character ./ prefix is rejected."
+          },
+          "title": {
+            "type": "string",
+            "maxLength": 200,
+            "description": "Imperative voice, sentence case, no markdown, no trailing punctuation. Style enforced by prompt template; length enforced here."
+          },
+          "evidence": {"type": "string"},
+          "impact": {"type": "string"},
+          "required_plan_update": {"type": "string"},
+          "layer": {
+            "type": "string",
+            "enum": ["committed", "staged", "unstaged"]
+          },
+          "basis": {
+            "type": "string",
+            "enum": ["fresh_verification", "direct_file_inspection", "git_history", "inference"]
+          },
+          "confidence": {"type": "string", "enum": ["high", "medium", "low"]},
+          "citations": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["url"],
+              "properties": {
+                "url": {"type": "string", "format": "uri"},
+                "description": {"type": "string"}
+              }
+            },
+            "description": "Source URLs (gemini's google_web_search results, codex prior-art references, etc.). Tool-agnostic name (renamed from search_citations per Codex Round 1 feedback)."
+          }
+        }
+      }
+    },
+    "verification": {
+      "type": "object",
+      "properties": {
+        "tests_rerun": {"type": "array", "items": {"type": "string"}},
+        "diagnostics_run": {"type": "array", "items": {"type": "string"}},
+        "verification_gaps": {"type": "array", "items": {"type": "string"}}
+      }
+    },
+    "no_findings": {
+      "type": "boolean",
+      "description": "Explicit 'reviewed cleanly with zero actionable findings' flag. Without this, an empty findings array could mean 'crashed before finding anything'."
+    }
+  },
+  "if": {
+    "properties": {"no_findings": {"const": true}}
+  },
+  "then": {
+    "properties": {
+      "findings": {"maxItems": 0}
+    }
+  }
+}

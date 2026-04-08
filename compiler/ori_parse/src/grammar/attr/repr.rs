@@ -1,7 +1,7 @@
 //! `#repr(...)` attribute parsing.
 //!
 //! Extracted from `attr/mod.rs` to keep the main module under the
-//! 500-line production file limit (TPR-01-043).
+//! 500-line production file limit.
 
 use crate::{ParseError, Parser};
 use ori_diagnostic::ErrorCode;

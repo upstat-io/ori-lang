@@ -23,7 +23,7 @@ use ValueRange::{Bottom, Top};
 
 /// Run one narrowing pass over all blocks to recover precision lost to widening.
 ///
-/// TPR-03-019: also re-merges block parameters from predecessors, applies
+/// also re-merges block parameters from predecessors, applies
 /// block refinements (branch/switch), and narrows invoke terminators.
 /// This allows widened loop-header parameters to recover bounded ranges.
 #[expect(
@@ -109,7 +109,7 @@ pub(super) fn run_narrowing_pass(
         restore_block_refinements(ranges, saved);
 
         // Narrow invoke terminator.
-        // TPR-03-034: also apply call_result_narrowings for Invoke dst (same
+        // also apply call_result_narrowings for Invoke dst (same
         // as forward pass), so return-range feedback reaches Invoke paths.
         if let ArcTerminator::Invoke {
             dst,
@@ -138,7 +138,7 @@ pub(super) fn run_narrowing_pass(
 ///
 /// During the fixpoint loop, field summaries may accumulate wider ranges
 /// from pre-convergence iterations. This clears and recomputes from the
-/// converged ranges. See TPR-03-016.
+/// converged ranges. See
 pub(super) fn recompute_field_summaries(
     rpo: &[usize],
     func: &ArcFunction,
@@ -156,7 +156,7 @@ pub(super) fn recompute_field_summaries(
 
 /// Recompute element summaries from final (post-narrowing) variable ranges.
 ///
-/// Same rationale as `recompute_field_summaries` — see TPR-03-016.
+/// Same rationale as `recompute_field_summaries` — see
 pub(super) fn recompute_element_summaries(
     rpo: &[usize],
     func: &ArcFunction,
@@ -169,7 +169,7 @@ pub(super) fn recompute_element_summaries(
         for instr in &func.blocks[block_idx].body {
             update_element_summaries(instr, ranges, &func.var_types, pool, element_summary_table);
         }
-        // BUG-05-001: also check terminators for Invoke calls returning collections.
+        // also check terminators for Invoke calls returning collections.
         update_element_summaries_from_terminator(
             &func.blocks[block_idx].terminator,
             pool,
@@ -183,9 +183,8 @@ pub(super) fn recompute_element_summaries(
 /// During forward iterations, `return_range` accumulates pre-narrowing values.
 /// After narrowing recovers precision for loop variables, `return_range` must
 /// be recomputed so the interprocedural handoff uses the tightened ranges.
-/// See TPR-03-021.
 ///
-/// TPR-03-023: Only iterates reachable blocks (via `rpo`). Unreachable blocks
+/// Only iterates reachable blocks (via `rpo`). Unreachable blocks
 /// contain variables that were never analyzed, so `ranges.get()` returns `None`
 /// and the `unwrap_or(Top)` fallback would pollute the return range.
 pub(super) fn recompute_return_range(

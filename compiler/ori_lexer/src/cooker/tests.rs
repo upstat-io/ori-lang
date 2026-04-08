@@ -714,7 +714,7 @@ fn parse_decimal_unit_value_with_underscores() {
     assert_eq!(parse_decimal_unit_value("1_000.5", 1_000), Some(1_000_500));
 }
 
-// BUG-01-001: Soft keyword cache contamination regression tests.
+// Soft keyword cache contamination regression tests.
 // See: plans/hygiene-lexer/section-01-soft-keyword-bug.md
 //
 // The IdentCache caches cook_ident() results. When soft keyword text (e.g., "cache")
@@ -734,7 +734,7 @@ fn soft_keyword_test_cases() -> Vec<(&'static str, TokenKind)> {
 }
 
 /// Semantic pin: identifier-then-keyword ordering for all 6 soft keywords.
-/// This is the exact failure mode of BUG-01-001 — without the fix, the cache
+/// This is the exact failure mode of without the fix, the cache
 /// hit on the second occurrence returns Ident instead of the keyword variant.
 /// This test ONLY passes with the cache fix applied.
 #[test]

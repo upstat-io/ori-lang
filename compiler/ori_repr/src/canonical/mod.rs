@@ -32,7 +32,7 @@ pub(crate) fn populate_canonical(plan: &mut ReprPlan, pool: &Pool) {
 
     // Shared memoization cache — persists across all canonical() calls so that
     // mutually recursive types (A→B→A) get the same MachineRepr regardless of
-    // which root was canonicalized first (TPR-01-021).
+    // which root was canonicalized first.
     let mut cache = FxHashMap::default();
 
     // Canonicalize primitives (0–11).
@@ -43,7 +43,7 @@ pub(crate) fn populate_canonical(plan: &mut ReprPlan, pool: &Pool) {
             // Canonicalize as Unit (zero-size, trivial) so ReprPlan::is_trivial()
             // returns true, matching classify_triviality() and ArcClassifier.
             // Without this, is_trivial(ERROR) falls through to None→false,
-            // creating triviality drift (TPR-02-005).
+            // creating triviality drift.
             plan.set_repr(
                 idx,
                 ReprDecision {
@@ -201,7 +201,7 @@ pub(crate) fn canonical(pool: &Pool, idx: Idx) -> MachineRepr {
 ///
 /// The cache ensures that mutually recursive types (A→B→A) produce the
 /// same `MachineRepr` for each `Idx` regardless of traversal order
-/// (TPR-01-021). Once a type is computed, it is cached and returned
+/// Once a type is computed, it is cached and returned
 /// for all future lookups.
 /// Compute the canonical enum representation for a single type.
 ///
@@ -238,7 +238,7 @@ pub(crate) fn canonical_cached(
 /// positions in Ori are always behind ARC pointers at runtime.
 ///
 /// The `cache` persists across calls in `populate_canonical()` so that
-/// mutually recursive types get consistent representations (TPR-01-021).
+/// mutually recursive types get consistent representations.
 fn canonical_inner(
     pool: &Pool,
     idx: Idx,
@@ -330,7 +330,7 @@ fn canonical_inner(
     };
 
     visiting.remove(&resolved);
-    // Cache the result for cross-call consistency (TPR-01-021).
+    // Cache the result for cross-call consistency.
     if let Some(ref repr) = result {
         cache.insert(resolved, repr.clone());
     }

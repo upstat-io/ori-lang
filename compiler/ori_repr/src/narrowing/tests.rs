@@ -413,7 +413,7 @@ fn repr_aligned_struct_can_be_narrowed() {
 }
 
 // ────────────────────────────────────────────────────
-// #repr("c", aligned N) struct: NOT narrowed (C-ABI contract) — TPR-04-004
+// #repr("c", aligned N) struct: NOT narrowed (C-ABI contract)
 // ────────────────────────────────────────────────────
 
 #[test]
@@ -436,7 +436,7 @@ fn repr_c_aligned_struct_not_narrowed() {
 }
 
 // ────────────────────────────────────────────────────
-// Public type: NOT narrowed (ABI contract) — TPR-04-005
+// Public type: NOT narrowed (ABI contract)
 // ────────────────────────────────────────────────────
 
 #[test]
@@ -459,7 +459,7 @@ fn public_type_not_narrowed() {
 }
 
 // ────────────────────────────────────────────────────
-// Private type: IS narrowed normally — TPR-04-005 complement
+// Private type: IS narrowed normally complement
 // ────────────────────────────────────────────────────
 
 #[test]
@@ -1773,7 +1773,7 @@ fn phase_c_list_narrowed_but_set_stays_canonical() {
 /// Semantic pin: imported collection surface does NOT suppress Phase C narrowing.
 /// This drives `narrow_collection_elements()` with an imported surface and
 /// proves the element width actually changes to i8 (not just `!is_public_type()`).
-/// Regression: TPR-04-042
+/// Regression:
 #[test]
 fn phase_c_imported_surface_allows_narrowing() {
     let mut pool = Pool::default();
@@ -1781,7 +1781,7 @@ fn phase_c_imported_surface_allows_narrowing() {
     let list_hash = pool.hash(list_int);
 
     // Build a plan that simulates an imported collection surface.
-    // After TPR-04-042 fix, imported surfaces don't add to pub_type_indices.
+    // After fix, imported surfaces don't add to pub_type_indices.
     let mut plan = crate::compute_repr_plan_with_interner(
         &pool,
         &[],
@@ -1829,9 +1829,9 @@ fn phase_c_local_public_blocks_narrowing() {
     );
 }
 
-// Phase C — update_element_summaries: Apply instruction handling (BUG-05-001)
+// Phase C — update_element_summaries: Apply instruction handling
 
-/// Regression: BUG-05-001. An Apply instruction returning [int] must widen
+/// Regression: An Apply instruction returning [int] must widen
 /// the element summary to Top, preventing unsound narrowing when push/map/
 /// user functions produce elements outside the literal-only range.
 #[test]

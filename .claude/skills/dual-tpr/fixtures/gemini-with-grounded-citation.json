@@ -1,0 +1,51 @@
+{
+  "schema_version": "1.0",
+  "status": "complete",
+  "reviewer": "gemini",
+  "skill": "tpr-review",
+  "scope_actually_reviewed": {
+    "git_range": "HEAD~1..HEAD",
+    "files_read": [
+      "compiler/ori_runtime/src/sync/atomic.rs",
+      "compiler/ori_runtime/src/refcount/mod.rs"
+    ],
+    "rules_consulted": [
+      ".claude/rules/runtime.md"
+    ],
+    "specs_consulted": [],
+    "plans_consulted": [],
+    "expanded_beyond_packet": false
+  },
+  "findings": [
+    {
+      "ordinal": 1,
+      "severity": "medium",
+      "location": "compiler/ori_runtime/src/sync/atomic.rs:42",
+      "title": "Use Acquire ordering instead of Relaxed for refcount load",
+      "evidence": "Line 42 uses Ordering::Relaxed when loading the refcount before the dec branch decision, but the Rust standard library documentation explicitly states that refcount drops must use Acquire to synchronize with prior Release stores from other threads.",
+      "impact": "On weakly-ordered architectures (ARM, RISC-V) the relaxed load can return a stale refcount value, leading to a missed deallocation or premature free under contended drop paths.",
+      "required_plan_update": "Update plans/runtime-correctness/atomic-orderings.md to reference the Rust std atomic guidance and add a TSan test exercising the refcount drop path under contention.",
+      "basis": "fresh_verification",
+      "layer": "committed",
+      "confidence": "high",
+      "citations": [
+        {
+          "url": "https://doc.rust-lang.org/std/sync/atomic/",
+          "description": "Rust atomic ordering reference — Acquire/Release semantics for refcount drops"
+        },
+        {
+          "url": "https://en.cppreference.com/w/cpp/atomic/memory_order",
+          "description": "C++ memory_order reference, the underlying model that Rust inherits"
+        }
+      ]
+    }
+  ],
+  "verification": {
+    "tests_rerun": [],
+    "diagnostics_run": [],
+    "verification_gaps": [
+      "No TSan test currently exercises the refcount drop path under weak ordering"
+    ]
+  },
+  "no_findings": false
+}

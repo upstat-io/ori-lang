@@ -1,0 +1,68 @@
+{
+  "schema_version": "1.0",
+  "status": "complete",
+  "reviewer": "gemini",
+  "skill": "tpr-review",
+  "scope_actually_reviewed": {
+    "git_range": "HEAD~3..HEAD",
+    "files_read": [
+      "compiler/foo.rs",
+      "compiler/bar.rs",
+      "compiler/baz.rs",
+      "library/lib.ori"
+    ],
+    "rules_consulted": [
+      ".claude/rules/tests.md"
+    ],
+    "specs_consulted": [],
+    "plans_consulted": [],
+    "expanded_beyond_packet": false,
+    "expansion_reason": null
+  },
+  "findings": [
+    {
+      "ordinal": 1,
+      "severity": "high",
+      "location": "compiler/foo.rs:10",
+      "title": "Add dec on early-exit branch",
+      "evidence": "Confirmed by reading lower_branch and tracing the early-exit path",
+      "impact": "Memory leak per traversal of the break path",
+      "required_plan_update": "Add a regression test in plans/repr-opt/section-04-control-flow.md",
+      "basis": "fresh_verification",
+      "layer": "committed",
+      "confidence": "high"
+    },
+    {
+      "ordinal": 2,
+      "severity": "medium",
+      "location": "library/lib.ori:5",
+      "title": "Document the iter unfolding rationale",
+      "evidence": "library/lib.ori uses an iterator unfolding pattern that is unique to this file",
+      "impact": "Future maintainers may not understand the rationale",
+      "required_plan_update": "Add a doc comment to library/lib.ori:5 explaining the unfolding",
+      "basis": "direct_file_inspection",
+      "layer": "committed",
+      "confidence": "high"
+    },
+    {
+      "ordinal": 3,
+      "severity": "low",
+      "location": "compiler/baz.rs:30",
+      "title": "Reorder match arms for readability",
+      "evidence": "Frequency ordering optimizes perf but hurts readability",
+      "impact": "New maintainers reading the code will be confused",
+      "required_plan_update": "Either reorder by value OR add a comment (codex's approach)",
+      "basis": "inference",
+      "layer": "committed",
+      "confidence": "high"
+    }
+  ],
+  "verification": {
+    "tests_rerun": [
+      "cargo test"
+    ],
+    "diagnostics_run": [],
+    "verification_gaps": []
+  },
+  "no_findings": false
+}

@@ -41,7 +41,7 @@ fn check_module_with_pool_returns_pool() {
     assert_eq!(pool.tag(crate::Idx::INT), crate::Tag::Int);
 }
 
-// Regression: TPR-03-040 — end-to-end test for trait_impl_fn_names plumbing.
+// Regression: end-to-end test for trait_impl_fn_names plumbing.
 // Verifies that the real TypeChecker → TypedModule pipeline correctly populates
 // trait_impl_fn_names for trait impl methods, while excluding inherent methods.
 

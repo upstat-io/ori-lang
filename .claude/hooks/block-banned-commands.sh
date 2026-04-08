@@ -57,21 +57,25 @@ for pattern in "${BANNED_PATTERNS[@]}"; do
   fi
 done
 
-# ── Guard timeouts on review/codex commands ─────────────────────────
-# codex exec calls are review tasks, NOT tests. They take 5-35 minutes.
-# Block only *short* timeouts that would kill a review mid-stream.
+# ── Guard timeouts on review (codex/gemini) commands ────────────────
+# codex/gemini exec calls are review tasks, NOT tests. They take 20-35
+# minutes in practice — reviews barely ever finish in under 10 minutes,
+# and the operational sweet spot is 20-35 min. Block any timeout outside
+# that window so a foreground review can't be killed mid-stream.
+# Minimum allowed: 1200000 ms (20 minutes).
 # Maximum allowed: 2100000 ms (35 minutes).
 TIMEOUT=$(printf '%s' "$INPUT" | python3 -c "import sys,json; print(json.load(sys.stdin).get('tool_input',{}).get('timeout',''))" 2>/dev/null || true)
 
 if [[ -n "$TIMEOUT" && "$TIMEOUT" != "None" ]]; then
-  if [[ "$COMMAND" == *"codex"* ]]; then
-    # Require at least 5 minutes (300000 ms) on codex — anything shorter
-    # will kill the review mid-stream.
-    if [[ "$TIMEOUT" =~ ^[0-9]+$ ]] && (( TIMEOUT < 300000 )); then
-      deny "Blocked: timeout ($TIMEOUT ms) on codex command is too short. Reviews need 5-35 minutes — use at least 300000 ms, up to 2100000 ms (35 min)."
+  if [[ "$COMMAND" == *"codex"* || "$COMMAND" == *"gemini"* ]]; then
+    # Require at least 20 minutes (1200000 ms) — anything shorter risks
+    # killing the review mid-stream (reviews barely ever complete in 10
+    # minutes, so 5- and 10-minute timeouts almost always fail).
+    if [[ "$TIMEOUT" =~ ^[0-9]+$ ]] && (( TIMEOUT < 1200000 )); then
+      deny "Blocked: timeout ($TIMEOUT ms) on codex/gemini command is too short. Reviews need 20-35 minutes — use at least 1200000 ms, up to 2100000 ms (35 min)."
     fi
     if [[ "$TIMEOUT" =~ ^[0-9]+$ ]] && (( TIMEOUT > 2100000 )); then
-      deny "Blocked: timeout ($TIMEOUT ms) on codex command exceeds 35-minute ceiling (2100000 ms)."
+      deny "Blocked: timeout ($TIMEOUT ms) on codex/gemini command exceeds 35-minute ceiling (2100000 ms)."
     fi
   fi
 fi

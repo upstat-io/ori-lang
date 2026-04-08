@@ -136,7 +136,7 @@ pub fn compute_drop_info(
         return None;
     }
 
-    // TPR-07-008: Iterators are non-trivial (they need `ori_iter_drop`)
+    // Iterators are non-trivial (they need `ori_iter_drop`)
     // but they do NOT use per-type drop functions. The ARC emitter
     // dispatches iterator drops inline via `RcStrategy::Iterator` (for
     // top-level RcDec on iterator variables) and the `Tag::Iterator`

@@ -117,7 +117,7 @@ fn test_panic_handler_ignores_info() {
 //
 // These tests use the comparison + panic() pattern directly to test the
 // panic mechanism. std.testing { assert_eq } also works for compound types
-// through LLVM (BUG-04-022 fixed 2026-04-03).
+// through LLVM (fixed 2026-04-03).
 
 #[test]
 fn test_assert_false_panics() {
