@@ -27,7 +27,7 @@ sections:
     status: complete
   - id: "04.2"
     title: "Loop semantics, failure handling, and user escalation"
-    status: not-started
+    status: complete
   - id: "04.3"
     title: "Real TPR scenario validation (critical-path gate)"
     status: not-started
@@ -112,7 +112,7 @@ Tasks:
 
 Tasks:
 
-- [ ] Document the loop interaction in the skill file with a clear state machine:
+- [x] Document the loop interaction in the skill file with a clear state machine:
   ```
   iteration_counter = 0
   while iteration_counter < 10:
@@ -133,13 +133,13 @@ Tasks:
   surface remaining findings to user via AskUserQuestion
   ```
 
-- [ ] Add explicit escalation text for user escalation cases. The wrapper must tell the user:
+- [x] Add explicit escalation text for user escalation cases. The wrapper must tell the user:
   - What the failure category was (from the failure taxonomy)
   - Where the postmortem dir is (`$RUN`)
   - What files to inspect (`$RUN/codex.jsonl`, `$RUN/gemini.jsonl`, `$RUN/round.log`, `$RUN/*.parse-error`, `$RUN/worktree-error`)
   - What the user should do: triage the failure, then re-run `/tpr-review` (or ask Claude to retry)
 
-- [ ] Add a section "## Merged Finding Format" to the skill file that shows how reviewer-tagged IDs appear in the plan TPR block:
+- [x] Add a section "## Merged Finding Format" to the skill file that shows how reviewer-tagged IDs appear in the plan TPR block:
   ```md
   - [ ] `[TPR-04-001-codex][high]` `compiler/foo.rs:123` — Add dec on early-exit branch.
     Evidence: ... Impact: ... Required plan update: ...
@@ -152,11 +152,11 @@ Tasks:
     Basis: inference. (Gemini-only finding — no codex counterpart)
   ```
 
-- [ ] **Subsection close-out (04.2)** — MANDATORY before starting 04.3:
-  - [ ] Loop state machine and escalation text added to the skill file
-  - [ ] Merged finding format documented with agreement and gemini-only examples
-  - [ ] Update this subsection's `status` to `complete`
-  - [ ] Run `/improve-tooling` retrospectively — was the state machine documentation helpful or over-engineered? Implement improvements.
+- [x] **Subsection close-out (04.2)** — MANDATORY before starting 04.3:
+  - [x] Loop state machine and escalation text added to the skill file
+  - [x] Merged finding format documented with agreement and gemini-only examples
+  - [x] Update this subsection's `status` to `complete`
+  - [x] Run `/improve-tooling` retrospectively — was the state machine documentation helpful or over-engineered? Implement improvements.
 
 ---
 
