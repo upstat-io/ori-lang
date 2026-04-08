@@ -1,10 +1,10 @@
 //! Structural regression tests for niche-encoded Option/Result helpers.
 //!
-//! These tests pin BUG-04-019 — they assert that the niche-encoded
+//! These tests pin they assert that the niche-encoded
 //! `unwrap` / `unwrap_err` / `unwrap_or` / `expect` / `expect_err` helper
 //! bodies in `option_result_helpers.rs` contain the required tag-guard
 //! and RC-retain calls, mirroring the explicit-tag pattern from
-//! `option_result.rs` (BUG-04-013).
+//! `option_result.rs`.
 //!
 //! Why structural and not behavioral: the niche helpers are dead code
 //! today (`NICHE_CODEGEN_READY = false` in `ori_repr/src/canonical/type_repr.rs`).
@@ -17,7 +17,7 @@
 //! these helpers end-to-end.
 //!
 //! Until then, these structural assertions are the regression guard. A
-//! revert of the BUG-04-019 fix would remove the `emit_unwrap_branch` /
+//! revert of the fix would remove the `emit_unwrap_branch` /
 //! `emit_expect_branch` / `inc_value_rc` calls from the helper bodies, and
 //! these tests would fail at compile time of the test crate (zero runtime
 //! cost, immediate signal).
@@ -100,7 +100,7 @@ const OPTION_NICHE_FN: &str = "fn emit_option_niche(";
 /// Marker that scopes assertions to within `emit_result_niche` only.
 const RESULT_NICHE_FN: &str = "fn emit_result_niche(";
 
-// ── BUG-04-019 §1: Option niche helpers must guard and retain ──
+// ── §1: Option niche helpers must guard and retain ──
 
 #[test]
 fn bug_04_019_option_niche_unwrap_has_panic_guard_and_rc_retain() {
@@ -149,7 +149,7 @@ fn bug_04_019_option_niche_unwrap_or_has_conditional_rc_retain() {
     );
 }
 
-// ── BUG-04-019 §2: Result niche helpers must differentiate methods + guard + retain ──
+// ── §2: Result niche helpers must differentiate methods + guard + retain ──
 
 #[test]
 fn bug_04_019_result_niche_unwrap_has_panic_guard_and_rc_retain() {
@@ -251,7 +251,7 @@ fn bug_04_019_result_niche_expect_err_has_expect_branch_and_rc_retain() {
     );
 }
 
-// ── BUG-04-019 §3: Result niche unwrap_or must NOT be in a collapsed arm ──
+// ── §3: Result niche unwrap_or must NOT be in a collapsed arm ──
 
 #[test]
 fn bug_04_019_result_niche_no_collapsed_unwrap_arm() {

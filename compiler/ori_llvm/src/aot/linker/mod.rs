@@ -161,7 +161,7 @@ impl LinkOutput {
     /// version suffixes (e.g., `darwin25.2.0` from Apple Silicon's
     /// LLVM-default triple) correctly select `.dylib` for shared libraries.
     /// Matching `target.os.as_str()` directly against `"darwin"` would
-    /// fall through to the Linux/ELF branch and emit `.so` — see BUG-04-045.
+    /// fall through to the Linux/ELF branch and emit `.so` — see
     #[must_use]
     pub fn extension(&self, target: &TargetTripleComponents) -> &'static str {
         match self {
@@ -486,7 +486,7 @@ impl LinkerDetection {
     /// This avoids the `arm64` (LLVM default triple on Apple Silicon) vs
     /// `aarch64` (Rust `cfg(target_arch)`) raw-string mismatch that mis-
     /// detected native Apple Silicon builds as cross-compilation — see
-    /// BUG-04-045 regression pin in `target_features/tests.rs`.
+    /// regression pin in `target_features/tests.rs`.
     ///
     /// [`Arch`]: crate::aot::target_features::Arch
     #[must_use]

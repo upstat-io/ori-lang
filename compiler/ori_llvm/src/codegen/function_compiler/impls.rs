@@ -154,7 +154,7 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
     /// Methods are inserted ONLY into `method_functions` (`(type_name, method_name)` key),
     /// NOT into the bare `functions` map. This prevents name collisions where a bare
     /// lookup for `to_str` inside `Box$to_str` would find itself instead of the
-    /// correct `int$to_str` (BUG-04-003).
+    /// correct `int$to_str`.
     ///
     /// `type_idx_to_name` is also populated to map `sig.param_types[0]` (the self
     /// parameter type) to the type name, enabling receiver type → type name resolution

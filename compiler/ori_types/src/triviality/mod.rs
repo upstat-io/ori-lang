@@ -88,7 +88,7 @@ fn classify_recursive(idx: Idx, pool: &Pool, visiting: &mut FxHashSet<Idx>) -> T
         // no refcount to decrement. The ARC emitter routes them through
         // `RcStrategy::Iterator` / the `Tag::Iterator` arm of
         // `dec_value_rc_inner`, which emits `ori_iter_drop` instead of
-        // `ori_rc_dec`. See TPR-07-008.
+        // `ori_rc_dec`. See
         Tag::Str
         | Tag::List
         | Tag::Map

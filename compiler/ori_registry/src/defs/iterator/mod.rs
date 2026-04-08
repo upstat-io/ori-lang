@@ -73,7 +73,7 @@ static FOLD_PARAMS: [ParamDef; 2] = [
 // kind=Instance. Only `dei_only`, `dei_propagation`, and `backend_required`
 // vary per method.
 //
-// TPR-07-008: Iterator methods consume their receiver. Every adapter
+// Iterator methods consume their receiver. Every adapter
 // (`map`, `filter`, `take`, ...) internally calls
 // `Box::from_raw(iter.cast::<IterState>())` on the source iterator to
 // wrap it into an adapter variant; every consumer (`count`, `collect`,

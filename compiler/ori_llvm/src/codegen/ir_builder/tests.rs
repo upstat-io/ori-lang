@@ -1050,7 +1050,7 @@ fn seh_indirect_call_with_funclet() {
 #[test]
 fn seh_indirect_call_with_sret_and_funclet() {
     // Verifies: invoke → catchpad → call_indirect_with_sret_and_funclet → catchret → ret
-    // This pins TPR-02-002 and TPR-02-003: an indirect closure call returning a large
+    // This pins and an indirect closure call returning a large
     // type (sret) inside a SEH funclet must carry BOTH the "funclet" operand bundle
     // AND param-0 sret/noalias attributes.
     let ctx = Context::create();

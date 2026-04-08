@@ -197,7 +197,7 @@ fn register_resolved_imports(
     // 2. Report any import resolution errors
     //
     // Span is guaranteed present: resolve_imports() always fills in the
-    // use-statement span via `e.span.unwrap_or(imp.span)` (imports.rs:210).
+    // use-statement span via `e.span.unwrap_or(imp.span)` (imports.rs).
     for error in &resolved.errors {
         debug_assert!(
             error.span.is_some(),

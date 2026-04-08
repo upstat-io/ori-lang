@@ -1,6 +1,6 @@
 //! AOT tests for FFI type codegen (`CPtr`, `c_int`, `c_float`, etc.)
 //!
-//! Regression tests for BUG-04-021: FFI Named types without Pool resolutions
+//! Regression tests for FFI Named types without Pool resolutions
 //! caused unresolved type variables at codegen, crashing the LLVM backend with
 //! "Call parameter type does not match function signature" verification errors.
 //!
@@ -17,7 +17,7 @@
 use crate::util::assert_aot_success;
 
 /// Semantic pin: Option<CPtr> = None must compile and run.
-/// This is the exact repro from BUG-04-021.
+/// This is the exact repro from
 #[test]
 fn test_aot_option_cptr_none() {
     assert_aot_success(

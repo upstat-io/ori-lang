@@ -79,9 +79,9 @@ The work is small (~100 lines net) but it has **two cross-crate boundaries** tha
 
 ## 03.1 Replace EscapeInfo placeholder with concrete storage
 
-**File(s):** `compiler/ori_repr/src/escape/mod.rs` (currently 12 lines, ZST placeholder)
+**File(s):** `compiler/ori_repr/src/escape/mod.rs` (currently 11 lines, ZST placeholder — re-verified during accuracy review)
 
-**Context:** The current file is exactly:
+**Context:** The current file is exactly (11 lines):
 
 ```rust
 //! Escape analysis types.
@@ -97,9 +97,11 @@ The work is small (~100 lines net) but it has **two cross-crate boundaries** tha
 pub struct EscapeInfo;
 ```
 
-Section 03.1 replaces it with the locked design from Section 01.3.
+Section 03.1 replaces it with the locked design from Section 01.3. **Note**: `compiler/ori_repr/src/plan.rs:71-74` currently has an `#[expect(clippy::zero_sized_map_values, reason = "EscapeInfo is placeholder ZST — replaced when escape analysis is implemented")]` attribute on the `ReprPlan` struct definition. This expectation **must be removed** as part of 03.1, because after the placeholder is replaced, `EscapeInfo` is no longer zero-sized and the `expect` lint will fire as "expectation unfulfilled."
 
-- [ ] Re-read `compiler/ori_repr/src/escape/mod.rs` to confirm it is still the 12-line placeholder. If it has been touched since plan creation, re-derive the replacement plan against the current content.
+- [ ] Re-read `compiler/ori_repr/src/escape/mod.rs` to confirm it is still the 11-line placeholder. If it has been touched since plan creation, re-derive the replacement plan against the current content.
+
+- [ ] **Remove the `#[expect(clippy::zero_sized_map_values, ...)]` attribute** at `compiler/ori_repr/src/plan.rs:71-74` (the `ReprPlan` struct attribute). After Section 03.1, `EscapeInfo` is no longer ZST and the lint suppression is incorrect — leaving it would cause clippy to fire "this lint expectation is unfulfilled".
 
 - [ ] Replace the entire file with the concrete `EscapeInfo` per Section 01.3:
   ```rust
@@ -126,7 +128,7 @@ Section 03.1 replaces it with the locked design from Section 01.3.
   //! variable's escape scope.
 
   use ori_arc::aims::lattice::Locality;
-  use ori_arc::ir::ArcVarId;
+  use ori_arc::ArcVarId; // re-exported from ori_arc::ir; matches plan.rs:17 convention
   use rustc_hash::FxHashMap;
 
   /// Per-function escape analysis information.
@@ -297,10 +299,10 @@ Per `compiler.md` §Testing: *"Tests in sibling `tests.rs` files (not inline)."*
   //! the behavioral parity of `escapes()` with the conservative default.
 
   use super::*;
-  use ori_arc::ir::ArcVarId;
+  use ori_arc::ArcVarId; // re-exported from ori_arc::ir; matches plan.rs:17 convention
 
   fn var(id: u32) -> ArcVarId {
-      ArcVarId::from_raw(id)
+      ArcVarId::new(id)
   }
 
   // Default behavior
@@ -491,8 +493,8 @@ This is a small test but it's explicitly named in the mission success criteria: 
       // For any (func, var) pair where escape_info does not contain an entry,
       // escapes() must continue to return true (the conservative default).
       let plan = ReprPlan::default();
-      let func = ori_ir::Name::new("test_func");
-      let var = ori_arc::ArcVarId::from_raw(0);
+      let func = ori_ir::Name::new(0, 1) /* (shard, local) per compiler/ori_ir/src/name/mod.rs:33 */;
+      let var = ori_arc::ArcVarId::new(0);
       assert!(plan.escapes(func, var),
           "Empty ReprPlan must return escapes()=true (conservative default)");
   }
@@ -502,8 +504,8 @@ This is a small test but it's explicitly named in the mission success criteria: 
       // Behavioral departure from the hardcode: when escape_info IS populated,
       // escapes() returns the actual computed answer, not the conservative default.
       let mut plan = ReprPlan::default();
-      let func = ori_ir::Name::new("test_func");
-      let var = ori_arc::ArcVarId::from_raw(0);
+      let func = ori_ir::Name::new(0, 1) /* (shard, local) per compiler/ori_ir/src/name/mod.rs:33 */;
+      let var = ori_arc::ArcVarId::new(0);
       let mut info = EscapeInfo::default();
       info.join_escape_scope(var, ori_arc::aims::lattice::Locality::BlockLocal);
       plan.set_escape_info(func, info);

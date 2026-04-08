@@ -47,7 +47,7 @@ pub(super) fn process_recursive_scc(
     remaining_budget: usize,
     plan: &ReprPlan,
 ) -> usize {
-    // TPR-03-035: Use the minimum of the per-SCC cap and the remaining total
+    // Use the minimum of the per-SCC cap and the remaining total
     // budget. Without this, one recursive SCC can overshoot max_total_scc_iterations.
     let effective_cap = config.max_scc_iterations.min(remaining_budget);
 
@@ -67,7 +67,7 @@ pub(super) fn process_recursive_scc(
                 "SCC fixpoint did not converge — widening to Top"
             );
             // Widen all parameter ranges to Top AND clear stale intermediate
-            // results (TPR-03-028). Without clearing `results`, Phase 4 would
+            // results. Without clearing `results`, Phase 4 would
             // persist partially-converged var_ranges from the last iteration.
             for name in &scc.members {
                 if let Some(func) = func_map.get(name) {
@@ -109,7 +109,7 @@ pub(super) fn process_recursive_scc(
             func_infos.insert(*name, new_info.clone());
 
             // Re-run intraprocedural analysis with parameter seeds from call sites.
-            // This is the key TPR-03-026 fix: the fixpoint starts with
+            // This is the key fix: the fixpoint starts with
             // interprocedural parameter constraints, enabling tighter results.
             let seeds = build_param_seed_map(func, &new_info);
             let result = range_fixpoint(func, pool, config, Some(&seeds), None);

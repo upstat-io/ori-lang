@@ -40,7 +40,7 @@ fn all_methods_are_instance() {
 
 #[test]
 fn all_methods_consume_receiver() {
-    // TPR-07-008: Every iterator method (adapter or consumer)
+    // Every iterator method (adapter or consumer)
     // consumes its receiver via `Box::from_raw`. The registry must
     // report `Ownership::Owned` so the ARC pipeline treats the call
     // as a consumption event. Marking them `Borrow` was a historical

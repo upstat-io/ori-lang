@@ -151,7 +151,7 @@ fn resolve_inner(
             //
             // Each predecessor gets its own clone of `visited` so that alias
             // paths through different intermediaries don't contaminate each
-            // other (TPR-02-005: diamond CFG convergence).
+            // other (diamond CFG convergence).
             let mut resolved_target: Option<(ori_ir::Name, Vec<ArcVarId>)> = None;
             let mut has_non_cycled = false;
 

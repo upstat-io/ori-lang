@@ -182,7 +182,7 @@ impl<'tcx> super::OwnedLLVMEvaluator<'tcx> {
             .iter()
             .filter_map(|te| te.repr.map(|r| (te.idx, r)))
             .collect();
-        // Extract public type indices for ABI-safe narrowing (TPR-04-005).
+        // Extract public type indices for ABI-safe narrowing.
         let mut pub_type_indices: Vec<ori_types::Idx> = user_types
             .iter()
             .filter(|te| te.visibility == ori_types::Visibility::Public)
@@ -207,7 +207,7 @@ impl<'tcx> super::OwnedLLVMEvaluator<'tcx> {
             }
         }
         // Collect unconstrained function names (pub + trait impl).
-        // Uses trait_impl_fn_names (not all impl_sigs) per TPR-03-038.
+        // Uses trait_impl_fn_names (not all impl_sigs) per
         let unconstrained_fn_names = crate::collect_unconstrained_fn_names(
             function_sigs,
             trait_impl_fn_names,
@@ -223,7 +223,7 @@ impl<'tcx> super::OwnedLLVMEvaluator<'tcx> {
             imported_type_metadata,
             imported_collection_surfaces,
             &unconstrained_fn_names,
-            // JIT also has analysis-only impl methods (TPR-03-048).
+            // JIT also has analysis-only impl methods.
             impl_sigs.iter().any(|(_, sig)| !sig.is_generic()),
         );
         let store = TypeInfoStore::new_with_plan(self.pool, &repr_plan);

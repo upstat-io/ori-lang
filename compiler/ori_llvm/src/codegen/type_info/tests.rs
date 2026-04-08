@@ -52,9 +52,9 @@ fn heap_types_not_trivial() {
     .is_trivial());
 }
 
-/// TPR-07-008: Iterator/DoubleEndedIterator are Box-allocated but
+/// Iterator/DoubleEndedIterator are Box-allocated but
 /// non-trivial — they need `ori_iter_drop` at scope exit to free the
-/// Box-allocated state. Previously (TPR-02-004) this helper reported
+/// Box-allocated state. Previously this helper reported
 /// iterators as trivial, which caused memory leaks for iterators
 /// stored in enum/struct/tuple/bare let. The SSOT in
 /// `ori_types::triviality::classify_triviality` and
@@ -1841,17 +1841,16 @@ fn repr_plan_canonical_parity_full_matrix() {
     );
 }
 
-// -- §02 TPR-02-004: Iterator triviality convergence tests --
+// -- §02 Iterator triviality convergence tests --
 
-/// TPR-07-008: classify_trivial() fallback (via TypeInfoStore::new())
+/// classify_trivial() fallback (via TypeInfoStore::new())
 /// must classify Iterator/DoubleEndedIterator as NON-trivial — matching
 /// the production path through ReprPlan.
 ///
-/// Previously (TPR-02-004) these were classified as trivial on the
+/// Previously these were classified as trivial on the
 /// grounds that iterators are "Box-allocated with no RC header." That
 /// reasoning was incomplete: iterators still need `ori_iter_drop` at
 /// scope exit to free the Box, so ARC must see them as non-trivial.
-/// See TPR-07-008.
 #[test]
 fn iterator_non_trivial_via_fallback_path() {
     let mut pool = Pool::new();
@@ -1869,7 +1868,7 @@ fn iterator_non_trivial_via_fallback_path() {
     );
 }
 
-/// TPR-07-008: Production path (via TypeInfoStore::new_with_plan()) must
+/// Production path (via TypeInfoStore::new_with_plan()) must
 /// classify Iterator/DoubleEndedIterator as NON-trivial through ReprPlan.
 /// See the fallback-path test above for rationale.
 #[test]
@@ -1890,7 +1889,7 @@ fn iterator_non_trivial_via_production_path() {
     );
 }
 
-/// §02 TPR-02-004: Both paths must agree on Iterator triviality.
+/// §02 Both paths must agree on Iterator triviality.
 /// This test creates both a fallback and production store and asserts they
 /// return the same result for Iterator and DoubleEndedIterator.
 #[test]

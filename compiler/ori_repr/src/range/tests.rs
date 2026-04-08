@@ -600,7 +600,7 @@ fn field_summary_flush_joins_across_functions() {
     );
 }
 
-// ─── is_int_typed regression tests (TPR-03-012) ──────────────
+// ─── is_int_typed regression tests ──────────────
 
 /// Semantic pin: `is_int_typed` returns true for `Idx::INT`.
 #[test]
@@ -629,7 +629,7 @@ fn is_int_typed_error() {
     assert!(!is_int_typed(Idx::ERROR, &pool));
 }
 
-/// TPR-03-012 semantic pin: Applied type resolving to int IS int-typed.
+/// semantic pin: Applied type resolving to int IS int-typed.
 /// This is the exact regression test for the `Tag::Applied` bug fix.
 #[test]
 fn is_int_typed_applied_resolving_to_int() {

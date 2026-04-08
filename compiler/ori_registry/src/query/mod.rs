@@ -200,7 +200,7 @@ pub fn borrowing_methods(tag: TypeTag) -> impl Iterator<Item = &'static MethodDe
 /// reference would dangle).
 ///
 /// All other iterator methods are naturally excluded because their
-/// receivers are `Ownership::Owned` in the registry (TPR-07-008).
+/// receivers are `Ownership::Owned` in the registry.
 ///
 /// **Note:** Protocol builtins (e.g., `__index`) are NOT included — they
 /// are ARC pipeline internals, not builtin type methods. The consuming

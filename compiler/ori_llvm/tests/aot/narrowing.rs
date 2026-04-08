@@ -1282,7 +1282,7 @@ fn test_float_narrowed_comparison_after_load() {
     );
 }
 
-// §07.1 Regression: TPR-07-002 — for...yield over narrowed all-unit enums.
+// §07.1 Regression: for...yield over narrowed all-unit enums.
 //
 // After §07.1 discriminant narrowing, all-unit enums lower to `{ i8 }` (1 byte)
 // in LLVM. But `pool_type_store_size()` in `ori_arc` still sized them as 8 bytes
@@ -1291,7 +1291,7 @@ fn test_float_narrowed_comparison_after_load() {
 // segfaults when the collected values were read back.
 
 /// Semantic pin: for...yield over an all-unit enum list must work correctly.
-/// This is the exact reproducer from the TPR-07-002 finding.
+/// This is the exact reproducer from the finding.
 #[test]
 fn test_for_yield_all_unit_enum() {
     assert_aot_success(
@@ -1320,7 +1320,7 @@ fn test_for_yield_range_to_enum() {
 
 // Phase C — Collection element narrowing with mutations
 
-/// Regression: BUG-05-001. A program with `[1]` literal + push of values
+/// Regression: A program with `[1]` literal + push of values
 /// >= 128 must not corrupt data via i8 narrowing.
 #[test]
 fn test_phase_c_push_corruption_guard() {

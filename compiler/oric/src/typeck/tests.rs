@@ -13,9 +13,9 @@ fn result_with_surfaces(surfaces: Vec<u64>) -> TypeCheckResult {
     }
 }
 
-// --- collect_surfaces_from_results tests (TPR-04-041) ---
+// --- collect_surfaces_from_results tests ---
 
-/// Regression: TPR-04-041 — exercises the exact collection path from
+/// Regression: exercises the exact collection path from
 /// `register_resolved_imports()` that gathers collection surface hashes
 /// from imported `TypeCheckResult` objects.
 #[test]

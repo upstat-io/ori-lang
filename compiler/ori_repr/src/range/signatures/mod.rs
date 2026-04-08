@@ -150,7 +150,7 @@ pub fn propagate_ranges(
 
         if scc.is_recursive(&call_graph) {
             // Recursive SCC: iterate to fixpoint with parameter seeding.
-            // TPR-03-035: pass remaining total budget so the SCC doesn't
+            // pass remaining total budget so the SCC doesn't
             // overshoot max_total_scc_iterations.
             let remaining_budget = config
                 .max_total_scc_iterations
@@ -189,7 +189,7 @@ pub fn propagate_ranges(
         }
     }
 
-    // Phase 3.5: Return-range feedback (TPR-03-030).
+    // Phase 3.5: Return-range feedback.
     // Phase 3 processes callers first (reverse topo) for parameter propagation,
     // so callee return ranges aren't in callers' var_ranges. This pass feeds
     // callee return ranges back into results, then re-collects parameter ranges
@@ -320,7 +320,7 @@ fn collect_param_ranges(
                         args,
                         ..
                     } if *callee_name == target_func.name => {
-                        // TPR-03-037: Use block-local refined ranges at the
+                        // Use block-local refined ranges at the
                         // call site instead of function-global var_ranges.
                         let local = block_local_ranges(
                             &caller_result.var_ranges,
@@ -396,7 +396,7 @@ fn join_arg_ranges(
     }
 }
 
-/// Compute block-local variable ranges at a call site (TPR-03-037).
+/// Compute block-local variable ranges at a call site.
 ///
 /// Intersects the function-global `var_ranges` with any block-entry refinements
 /// for the call site's block. When a call like `helper(x)` sits inside an

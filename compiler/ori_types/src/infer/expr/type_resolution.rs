@@ -151,7 +151,6 @@ pub fn resolve_parsed_type(
             // valid concrete types. Create a Named Pool entry with a resolution
             // so downstream phases (ARC, LLVM) can classify them correctly.
             // Without this, they become unbound type variables that crash codegen.
-            // BUG-04-021.
             if let Some(wk) = engine.well_known() {
                 if let Some(concrete_idx) = wk.resolve_ffi_concrete(*name) {
                     let named_idx = engine.pool_mut().named(*name);
