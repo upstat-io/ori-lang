@@ -1,0 +1,6 @@
+{"type": "message", "role": "assistant", "content": "日本語 unicode — ", "delta": true}
+{"type": "message", "role": "assistant", "content": "café naïve — ", "delta": true}
+{"type": "message", "role": "assistant", "content": "emoji 🎯🔥 — ", "delta": true}
+{"type": "message", "role": "assistant", "content": "RTL العربية — ", "delta": true}
+{"type": "message", "role": "assistant", "content": "math ∀x∈ℝ", "delta": true}
+{"type": "result", "status": "success"}

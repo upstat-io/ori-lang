@@ -13,11 +13,16 @@
 #   --events N   Show the last N events per reviewer (default: 5)
 #
 # Safe to call freely during a long-running round. Reads ONLY:
-#   - $RUN/round.log        (append-only orchestration log)
-#   - $RUN/codex.jsonl      (append-only codex event stream)
-#   - $RUN/gemini.jsonl     (append-only gemini event stream)
-#   - $RUN/{reviewer}.exit  (written atomically at subshell exit)
+#   - $RUN/round.log           (append-only orchestration log)
+#   - $RUN/codex.jsonl         (append-only codex event stream)
+#   - $RUN/gemini.jsonl        (append-only gemini event stream)
+#   - $RUN/{reviewer}.exit     (written atomically at subshell exit)
 #   - $RUN/{reviewer}.walltime
+#   - $RUN/{reviewer}.skipped  (written by dual-invoke.sh when a reviewer
+#                              is filtered out via ORI_TPR_REVIEWERS; §07.3
+#                              TPR fix — distinguishes "skipped" from
+#                              "still running" so a filtered-out reviewer
+#                              no longer shows as running forever)
 #   - $RUN/{reviewer}.envelope.json  (existence check only, NEVER read mid-stream)
 #   - $RUN/{reviewer}.parse-error
 #
@@ -221,9 +226,21 @@ def print_reviewer(name, jsonl_path, fmt_fn):
     walltime_file = os.path.join(RUN, f"{name}.walltime")
     envelope_file = os.path.join(RUN, f"{name}.envelope.json")
     parse_err_file = os.path.join(RUN, f"{name}.parse-error")
+    skipped_file = os.path.join(RUN, f"{name}.skipped")
 
-    # Header with subshell state
-    if os.path.exists(exit_file):
+    # Header with subshell state. Three-state distinction (§07.3 TPR fix):
+    #   1. `.skipped` exists  → reviewer was filtered out by ORI_TPR_REVIEWERS
+    #   2. `.exit` exists     → reviewer ran to completion (check rc for pass/fail)
+    #   3. neither exists     → reviewer still running
+    # Without the `.skipped` branch, a filtered-out reviewer would show as
+    # "running" forever, which was the original bug codex surfaced.
+    if os.path.exists(skipped_file):
+        try:
+            reason = open(skipped_file).read().strip()
+        except Exception:
+            reason = "?"
+        status = f"{DIM}skipped{RESET} ({reason})"
+    elif os.path.exists(exit_file):
         try:
             rc = open(exit_file).read().strip()
             wt = open(walltime_file).read().strip() if os.path.exists(walltime_file) else "?"

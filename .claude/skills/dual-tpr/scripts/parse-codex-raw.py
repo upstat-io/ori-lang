@@ -75,7 +75,13 @@ def main() -> None:
         )
         sys.exit(1)
 
-    print(last_text)
+    # Use sys.stdout.write (not print) for parity with parse-gemini-raw.py.
+    # §07.3 TPR v2 DRIFT finding: the original print() appended a trailing
+    # newline while the gemini raw parser did not, producing asymmetric
+    # output between the two reviewer blocks when tp_help_emit_block
+    # wrapped them. Aligning to bare sys.stdout.write gives both blocks
+    # the same shape (no trailing newline — the caller adds structure).
+    sys.stdout.write(last_text)
     sys.exit(0)
 
 

@@ -128,6 +128,12 @@ if [[ "$REVIEWERS" == "codex" || "$REVIEWERS" == "both" ]]; then
   ) &
   CODEX_PID=$!
 else
+  # Skipped reviewer: write an explicit .skipped marker so status-check.sh
+  # and downstream consumers can distinguish "skipped" from "still running"
+  # (§07.3 TPR finding: codex surfaced that ORI_TPR_REVIEWERS=codex left
+  # gemini showing 'running' forever because no .exit file was written).
+  # The marker content is the env value for postmortem traceability.
+  echo "ORI_TPR_REVIEWERS=$REVIEWERS" > "$RUN/codex.skipped"
   echo "[$(date +%s)] codex skipped (ORI_TPR_REVIEWERS=$REVIEWERS)" >> "$RUN/round.log"
 fi
 
@@ -145,6 +151,8 @@ if [[ "$REVIEWERS" == "gemini" || "$REVIEWERS" == "both" ]]; then
   ) &
   GEMINI_PID=$!
 else
+  # Skipped reviewer: see the codex-side comment above for rationale.
+  echo "ORI_TPR_REVIEWERS=$REVIEWERS" > "$RUN/gemini.skipped"
   echo "[$(date +%s)] gemini skipped (ORI_TPR_REVIEWERS=$REVIEWERS)" >> "$RUN/round.log"
 fi
 

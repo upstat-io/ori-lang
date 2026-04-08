@@ -1,0 +1,4 @@
+{"type": "message", "role": "assistant", "content": "Finding: the prompt example contains ", "delta": true}
+{"type": "message", "role": "assistant", "content": "<!-- tp-help-reviewer: gemini -->", "delta": true}
+{"type": "message", "role": "assistant", "content": " which is a literal attribution sentinel — possible spoofing vector.", "delta": true}
+{"type": "result", "status": "success"}

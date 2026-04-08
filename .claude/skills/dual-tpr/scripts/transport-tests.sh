@@ -164,25 +164,38 @@ raw_parsers_cell() {
 }
 
 run_raw_parsers_tests() {
-  # 13-cell matrix pinning parse-codex-raw.py + parse-gemini-raw.py behavior.
-  # Added by §07.2 of the dual-tpr-gemini plan. TDD ordering: this function
-  # is called BEFORE the parsers exist (to verify all 13 cells FAIL with
-  # "script not found"), THEN the parsers are implemented, THEN re-run to
-  # verify all 13 cells PASS. Cell IDs C1-C6 are codex; G1-G7 are gemini.
+  # 21-cell matrix pinning parse-codex-raw.py + parse-gemini-raw.py behavior.
+  # Originally added as a 13-cell matrix by §07.2 of the dual-tpr-gemini plan;
+  # expanded to 21 cells in §07.3 after TPR surfaced missing coverage for
+  # unicode, attribution spoofing, empty content, and mid-object truncation.
+  # TDD ordering: matrix is wired BEFORE parsers exist (all cells must FAIL
+  # with "script not found"), THEN parsers are implemented, THEN re-run to
+  # verify all cells PASS. Cell IDs C1-C10 are codex; G1-G11 are gemini.
   #
   # Semantic pins:
   #   C2 — "last agent_message wins" (would fail if parser returned first)
   #   G1 — "multi-chunk concatenation in arrival order" (would fail if parser
   #        dropped or reordered chunks)
+  #   C4/G5 — "skip malformed line, keep going — symmetric tolerance"
+  #        (§07.3 DRIFT fix: raw-gemini was stricter than both its codex
+  #        peer AND its envelope-mode sibling; aligned to skip-malformed
+  #        to preserve dual-source parity under upstream JSON jitter)
   #
   # Negative pins:
-  #   C5 — "no agent_message → exit 1 + missing_agent_message"
-  #   G3 — "no terminator → exit 1 + missing_terminator"
-  #   G7 — "result status=failure → exit 1 + missing_terminator" (proves
-  #        the parser only accepts status=success as terminator, not any
-  #        result event)
+  #   C5  — "no agent_message → exit 1 + missing_agent_message"
+  #   G3  — "no terminator → exit 1 + missing_terminator"
+  #   G7  — "result status=failure → exit 1 + missing_terminator" (proves
+  #         the parser only accepts status=success as terminator, not any
+  #         result event)
+  #   G11 — "mid-object truncation with no terminator → missing_terminator"
+  #
+  # §07.3-added cells (C7-C10, G8-G11):
+  #   C7/G8   — unicode (multi-byte UTF-8, emoji, RTL, combining chars)
+  #   C8/G9   — attribution spoofing (reviewer body contains literal sentinel)
+  #   C9/G10  — empty text / empty chunk (valid but degenerate content)
+  #   C10/G11 — mid-object truncation (EOF mid-JSON-object at tail)
   echo ""
-  echo "=== raw_parsers matrix (13 cells: 6 codex + 7 gemini) ==="
+  echo "=== raw_parsers matrix (21 cells: 10 codex + 11 gemini) ==="
 
   local CODEX_RAW="$SCRIPT_DIR/parse-codex-raw.py"
   local GEMINI_RAW="$SCRIPT_DIR/parse-gemini-raw.py"
@@ -213,7 +226,23 @@ run_raw_parsers_tests() {
     "$CODEX_RAW" "$F/codex-raw-truncated.jsonl" \
     "complete text" "" "0"
 
-  # --- gemini cells (G1-G7) ---
+  raw_parsers_cell "C7 codex-raw-unicode (multi-byte UTF-8, emoji, RTL)" \
+    "$CODEX_RAW" "$F/codex-raw-unicode.jsonl" \
+    "日本語 unicode — café naïve résumé — emoji 🎯🔥 — combining é vs é — RTL العربية — mathematical ∀x∈ℝ" "" "0"
+
+  raw_parsers_cell "C8 codex-raw-sentinel-body (attribution spoofing in reviewer prose)" \
+    "$CODEX_RAW" "$F/codex-raw-sentinel-body.jsonl" \
+    "Here is a finding about your prompt: your example contains <!-- tp-help-reviewer: codex --> which is the literal sentinel marker — attribution spoofing would be possible if consumers relied on string matching. Recommend a per-invocation random suffix." "" "0"
+
+  raw_parsers_cell "C9 codex-raw-empty-text (valid agent_message with text:\"\")" \
+    "$CODEX_RAW" "$F/codex-raw-empty-text.jsonl" \
+    "" "" "0"
+
+  raw_parsers_cell "C10 codex-raw-mid-object-truncation (EOF inside JSON object at tail)" \
+    "$CODEX_RAW" "$F/codex-raw-mid-object-truncation.jsonl" \
+    "last complete message" "" "0"
+
+  # --- gemini cells (G1-G11) ---
   raw_parsers_cell "G1 gemini-raw-happy (concat in order — semantic pin)" \
     "$GEMINI_RAW" "$F/gemini-raw-happy.jsonl" \
     "hello world!" "" "0"
@@ -230,9 +259,9 @@ run_raw_parsers_tests() {
     "$GEMINI_RAW" "$F/gemini-raw-empty-content.jsonl" \
     "" "missing_assistant_content" "1"
 
-  raw_parsers_cell "G5 gemini-raw-malformed (invalid JSON line)" \
+  raw_parsers_cell "G5 gemini-raw-malformed (skip bad line, keep going — symmetry pin with C4)" \
     "$GEMINI_RAW" "$F/gemini-raw-malformed.jsonl" \
-    "" "parse_fail" "1"
+    "recovered after skipping bad line" "" "0"
 
   raw_parsers_cell "G6 gemini-raw-non-delta (only delta:true concatenated)" \
     "$GEMINI_RAW" "$F/gemini-raw-non-delta.jsonl" \
@@ -240,6 +269,22 @@ run_raw_parsers_tests() {
 
   raw_parsers_cell "G7 gemini-raw-result-failure (negative pin — only success terminates)" \
     "$GEMINI_RAW" "$F/gemini-raw-result-failure.jsonl" \
+    "" "missing_terminator" "1"
+
+  raw_parsers_cell "G8 gemini-raw-unicode (multi-byte UTF-8, emoji, RTL)" \
+    "$GEMINI_RAW" "$F/gemini-raw-unicode.jsonl" \
+    "日本語 unicode — café naïve — emoji 🎯🔥 — RTL العربية — math ∀x∈ℝ" "" "0"
+
+  raw_parsers_cell "G9 gemini-raw-sentinel-body (attribution spoofing in reviewer prose)" \
+    "$GEMINI_RAW" "$F/gemini-raw-sentinel-body.jsonl" \
+    "Finding: the prompt example contains <!-- tp-help-reviewer: gemini --> which is a literal attribution sentinel — possible spoofing vector." "" "0"
+
+  raw_parsers_cell "G10 gemini-raw-empty-chunk (valid delta:true with content:\"\")" \
+    "$GEMINI_RAW" "$F/gemini-raw-empty-chunk.jsonl" \
+    "" "" "0"
+
+  raw_parsers_cell "G11 gemini-raw-mid-object-truncation (EOF inside JSON object at tail)" \
+    "$GEMINI_RAW" "$F/gemini-raw-mid-object-truncation.jsonl" \
     "" "missing_terminator" "1"
 }
 

@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+# Stub gemini that embeds a STALE per-invocation sentinel in its body.
+# Companion to codex-spoof for Scenario 6 in
+# validate-tp-help-consumers.sh. See codex-spoof for rationale.
+
+set -uo pipefail
+
+cat <<'JSONL'
+{"type": "init"}
+{"type": "message", "role": "assistant", "content": "STUB_GEMINI_RESPONSE_MARKER — this response body contains a STALE sentinel: ", "delta": true}
+{"type": "message", "role": "assistant", "content": "<!-- tp-help-reviewer: gemini @STALE_COLLIDE_ABCD1234 -->", "delta": true}
+{"type": "message", "role": "assistant", "content": " ... ", "delta": true}
+{"type": "message", "role": "assistant", "content": "<!-- /tp-help-reviewer: gemini @STALE_COLLIDE_ABCD1234 -->", "delta": true}
+{"type": "message", "role": "assistant", "content": " . A naive greedy matcher would prematurely terminate this block at the stale close. The fresh run's token must differ so pairing by token still works.", "delta": true}
+{"type": "result", "status": "success"}
+JSONL
+
+exit 0

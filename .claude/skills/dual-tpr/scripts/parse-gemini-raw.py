@@ -32,16 +32,37 @@ Behavior contract:
 - The stream MUST terminate with {"type":"result","status":"success"}.
   Any other terminal (failure, cancelled, truncation) produces a
   missing_terminator error. (Negative pins G3 + G7 enforce this.)
-- Malformed JSON lines are FATAL — the parser exits with parse_fail
-  on the first JSONDecodeError. This is stricter than parse-codex-raw.py
-  because gemini stream-json is a line-oriented JSONL protocol where
-  a malformed line usually indicates a serious framing error rather
-  than mid-stream noise. (Cell G5 pins this.)
+- Malformed JSON lines are SKIPPED, not fatal. This matches the
+  tolerance behavior of parse-codex-raw.py AND the envelope-mode
+  parse-gemini.py sibling, both of which use `except JSONDecodeError:
+  continue` to skip mid-stream noise and tail truncation. §07.3 TPR
+  finding: the original raw-gemini parser was stricter than both its
+  codex peer and its envelope sibling (a DRIFT violation per
+  impl-hygiene.md SSOT rule), which would silently drop the entire
+  gemini contribution whenever a single line in a 100-line stream was
+  malformed. Aligning to skip-malformed preserves the dual-source
+  parity contract: one bad line should not silence an entire reviewer.
+  (Cell G5 pins this aligned behavior.)
 
 Outcome codes (stderr first line on failure):
-    parse_fail                — invalid JSON on any line
     missing_terminator        — no result/success event in the stream
     missing_assistant_content — terminator present but no delta:true chunks
+
+BLOAT NOTE (§07.3 TPR v2, gemini severity=NOTE): this parser accumulates
+all delta:true chunks into an in-memory list before joining, which
+produces a transient memory spike for multi-megabyte responses. The
+memory cost is bounded by gemini's upstream API output cap (~1-2MB in
+practice) so this is not a current concern. Restructuring to streaming
+is tempting but would break the error-ordering semantics — we'd have
+to write partial content to stdout BEFORE discovering a missing
+terminator, leaking garbage to consumers on the error path. The
+list-based approach preserves atomic "all-or-nothing" output: either
+the full concatenation is written to stdout and we exit 0, or nothing
+is written and we exit non-zero with a category on stderr. If the
+memory cost ever matters (e.g., gemini's cap increases 100x), revisit
+with a streaming-plus-atomic-commit approach (e.g., write to a temp
+file then print its contents, or use a tee-to-memory pattern). For
+now, documented acknowledgment is the correct response.
 """
 
 import argparse
@@ -65,12 +86,14 @@ def main() -> None:
             try:
                 obj = json.loads(line)
             except json.JSONDecodeError:
-                # Stricter than parse-codex-raw.py: a malformed line in
-                # stream-json is a framing error, not mid-stream noise.
-                # Cell G5 pins this behavior.
-                print("parse_fail", file=sys.stderr)
-                print(f"invalid JSON on line: {line[:80]}", file=sys.stderr)
-                sys.exit(1)
+                # Skip malformed lines — symmetric with parse-codex-raw.py
+                # and parse-gemini.py (the envelope-mode sibling). §07.3
+                # TPR finding: the original raw-gemini behavior of
+                # exit-on-first-JSONDecodeError was stricter than both
+                # siblings and would silently drop an entire reviewer's
+                # contribution when a single line was malformed — a
+                # DRIFT violation per impl-hygiene.md §SSOT.
+                continue
 
             etype = obj.get("type")
             if (
