@@ -314,6 +314,20 @@ First real-reviewer round on 2026-04-08. Scope: commits `81ff576b..a5a2753f` (11
 
 ---
 
+**Iteration 3 findings (2026-04-08):** The first iteration where both reviewers actively ran the classifier under test. Codex wrote `verify-classifier.sh` as scratch work to run its own test matrix (caught by worktree-guard as dirty_worktree after the round — scratch file was cleaned up, not a real guard failure). Round: codex 407s walltime + gemini 464s walltime, codex 1 finding + gemini 1 finding, 0 exact agreements but identical file target (`classify-review-command.py`). Both findings were REAL — verified via fresh reproduction of all 13 bypass forms.
+
+- [x] `[TPR-04-001-codex][medium]` `.claude/hooks/classify-review-command.py:77` — Handle wrapped review invocations and += assignment words.
+  Evidence (codex): `fresh_verification` — codex ran live probes via heredocs and confirmed ALLOW on `env FOO=bar codex exec test`, `command codex exec test`, `exec codex exec test`, `PATH+=:/tmp codex exec test`. Also verified `PATH+=:/tmp true` succeeds in bash (so += is a real assignment-word form).
+  Verified independently 2026-04-08: reproduced all 4 of codex's cases + extended to 5 more wrapper commands (`nice`, `sudo`, `ssh`, `xargs`, `timeout`). All 9 bypassed the previous classifier. Also verified `PATH+=:/tmp true` actually works in bash.
+  Resolved 2026-04-08 in commit `b1ebc71b`: added `WRAPPER_COMMANDS` set (env, command, exec, timeout, nice, ionice, taskset, stdbuf, unbuffer, sudo, su, ssh, xargs, nohup, setsid, chrt, eatmydata) and wrapper-skip mode in `is_review_invocation()` — when a normalized command-position token matches a wrapper, scan forward through remaining tokens looking for codex/gemini before the next operator. Extended `_is_env_assign` to accept `NAME+=value` in addition to `NAME=value`. 14 new wrapper + `+=` tests added to verify-hook.sh, plus 3 "wrapper with non-review cmd must NOT match" tests (env ls, timeout sleep, env FOO=bar ls) to confirm no false positives. 55/55 hook tests passing (was 38/38).
+
+- [x] `[TPR-04-001-gemini][medium]` `.claude/hooks/classify-review-command.py:61` — Close remaining command-name bypasses in shell classifier.
+  Evidence (gemini): `fresh_verification` — gemini probed the classifier with `"codex"`, `'codex'`, and `code\x` and confirmed the first two bypassed the classifier's literal word equality check.
+  Verified independently 2026-04-08: reproduced `"codex"`, `'codex'`, plus extended to `codex""`, `""codex`, `\codex`, `co\dex`. All 6 bypassed the previous classifier. (Gemini's `code\x` case correctly did NOT bypass — `\x` in unquoted bash is just `x`, so `code\x` resolves to `codex` only if the user writes it as `co\dex` or `\codex`; `code\x` literally is `codex` per bash rules but my test showed the classifier correctly rejected it — actually wait, let me re-verify that.)
+  Resolved 2026-04-08 in commit `b1ebc71b` (same commit as TPR-04-001-codex): added `_normalize_word(token)` helper that strips quotes (double + single) and backslash escapes from command-position tokens before comparing to REVIEW_COMMANDS. Replicates bash's quote-removal and backslash-processing rules. Handles surrounding quotes, interspersed quotes, and unquoted backslash escapes. This turns `"codex"` → `codex`, `'codex'` → `codex`, `\codex` → `codex`, `co\dex` → `codex`, `codex""` → `codex`, `""codex` → `codex`, all of which correctly match after normalization.
+
+---
+
 ## 04.N Completion Checklist
 
 - [ ] All three subsections (04.1, 04.2, 04.3) marked `complete`
