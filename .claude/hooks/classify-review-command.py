@@ -54,6 +54,41 @@ import sys
 
 REVIEW_COMMANDS = {"codex", "gemini"}
 
+# Wrapper commands that take another command as an argument. When the
+# command-position token matches one of these, the classifier skips
+# forward through remaining tokens (flags, positional args) looking for
+# a codex/gemini token before the next operator. This catches bypasses
+# like `env codex exec`, `timeout 60 codex exec`, `nice codex exec`,
+# `sudo codex exec`, `ssh host codex exec`, `xargs codex`, etc.
+#
+# The list is intentionally broad — a false positive (blocking `env ls`
+# because it contains `env`) would be caught by the normalization step
+# (env alone doesn't match REVIEW_COMMANDS). A false NEGATIVE here means
+# a real bypass, which is strictly worse than a false positive.
+#
+# TPR-04-001-codex iteration 3 verified these wrappers all bypassed the
+# previous classifier:
+#   env, command, exec, timeout, nice, PATH+=:/tmp (assignment-word form)
+WRAPPER_COMMANDS = {
+    "env",
+    "command",
+    "exec",
+    "timeout",
+    "nice",
+    "ionice",
+    "taskset",
+    "stdbuf",
+    "unbuffer",
+    "sudo",
+    "su",
+    "ssh",
+    "xargs",
+    "nohup",
+    "setsid",
+    "chrt",
+    "eatmydata",
+}
+
 
 def is_review_invocation(cmd: str) -> bool:
     """Return True iff cmd contains a top-level codex or gemini invocation.
@@ -61,53 +96,151 @@ def is_review_invocation(cmd: str) -> bool:
     Walks cmd with a character-level state machine that understands
     quotes, command substitution, subshells, and compound operators.
     Emits tokens tagged as 'word' or 'op'. After tokenization, walks
-    the token list tracking command position and skipping leading
-    env-var assignments at each command position.
+    the token list tracking command position, skipping leading env-var
+    assignments, and recursively descending through wrapper commands
+    like `env`, `timeout`, `sudo`, etc.
+
+    Each word token is NORMALIZED before comparison: quotes are stripped,
+    backslash escapes are removed. This handles bypasses like "codex",
+    'codex', \\codex, co\\dex, codex"" that bash executes as `codex`.
+    Normalization is independent of the state-machine tokenization
+    because shell quoting can appear WITHIN a token (codex"" is one
+    token as far as the tokenizer is concerned, but bash strips the
+    trailing "" before invoking).
     """
     tokens = _tokenize(cmd)
-    env_assign_pattern = _make_env_assign_checker()
+    i = 0
     at_cmd_pos = True
-    for kind, value in tokens:
+    while i < len(tokens):
+        kind, value = tokens[i]
         if kind == "op":
             # Every operator resets command position — the next word-token
             # is the start of a new command.
             at_cmd_pos = True
+            i += 1
             continue
         # kind == "word"
-        if at_cmd_pos:
-            # Skip leading env-var assignments, e.g. VAR=foo or VAR="bar baz"
-            # or VAR=$(cmd). The _tokenize step has already collapsed the
-            # RHS into a single token regardless of quoting.
-            if env_assign_pattern(value):
-                continue
-            # This is the command position token. Strip any leading prefix
-            # (env var exports are handled above; path prefixes like ./foo
-            # don't match the literal 'codex' or 'gemini' anyway).
-            if value in REVIEW_COMMANDS:
-                return True
-            # Not a review command — consume this word and everything that
-            # follows until the next operator.
-            at_cmd_pos = False
+        if not at_cmd_pos:
+            i += 1
+            continue
+        # Skip leading env-var assignments. Both NAME=value and NAME+=value
+        # (bash's append-assignment syntax) are valid at command position
+        # and preserve it.
+        if _is_env_assign(value):
+            i += 1
+            continue
+        # Normalize the token: strip quotes and backslash escapes so
+        # "codex", 'codex', \codex, co\dex, codex"" all normalize to codex.
+        normalized = _normalize_word(value)
+        if normalized in REVIEW_COMMANDS:
+            return True
+        # If the normalized command is a known wrapper, enter wrapper-skip
+        # mode: scan forward through the current command's remaining tokens
+        # looking for a codex/gemini match. Stop at the next operator
+        # (which starts a new command).
+        if normalized in WRAPPER_COMMANDS:
+            j = i + 1
+            while j < len(tokens):
+                jkind, jvalue = tokens[j]
+                if jkind == "op":
+                    break
+                # Normalize the scanned token too — wrappers can take
+                # quoted/escaped command names just like top-level.
+                jnorm = _normalize_word(jvalue)
+                if jnorm in REVIEW_COMMANDS:
+                    return True
+                j += 1
+            # Whether or not we found a match inside the wrapper's args,
+            # we advance past the wrapper itself. If the wrapper's
+            # command-position arg was NOT codex/gemini, we fall through
+            # to the regular "not a review command" path.
+        # Not a review command and not a wrapper with review args.
+        # Consume this word and skip to the next operator.
+        at_cmd_pos = False
+        i += 1
     return False
 
 
-def _make_env_assign_checker():
-    """Return a function that checks if a token is an env-var assignment.
+def _is_env_assign(token: str) -> bool:
+    """Return True if token is an env-var assignment (NAME=value or NAME+=value).
 
-    An env-var assignment has the form NAME=... where NAME matches
-    [A-Za-z_][A-Za-z0-9_]*. The RHS can be anything; the tokenizer has
-    already absorbed quoting/substitution into a single token.
+    Accepts both the standard `FOO=bar` form and bash's append-assignment
+    `FOO+=bar` form (used for appending to arrays or strings at the start
+    of a command). Both are valid at command position and preserve it.
     """
-    def is_env_assign(token: str) -> bool:
-        if "=" not in token:
-            return False
-        name, _sep, _rest = token.partition("=")
-        if not name:
-            return False
-        if not (name[0].isalpha() or name[0] == "_"):
-            return False
-        return all(ch.isalnum() or ch == "_" for ch in name)
-    return is_env_assign
+    # Try += first so we correctly identify `FOO+=bar` (otherwise the
+    # plain `=` check would see `FOO+` as the name, which isn't a valid
+    # identifier, and reject it).
+    for sep in ("+=", "="):
+        if sep in token:
+            name = token.partition(sep)[0]
+            if not name:
+                return False
+            if not (name[0].isalpha() or name[0] == "_"):
+                continue
+            if all(ch.isalnum() or ch == "_" for ch in name):
+                return True
+    return False
+
+
+def _normalize_word(token: str) -> str:
+    """Strip quotes and backslash escapes from a shell token.
+
+    Applies bash's quote-removal and backslash-quote rules to get the
+    effective value of the token as bash would see it at invocation time.
+    Handles:
+      - Surrounding "..." double quotes (with \\-escapes for " \\ ` $)
+      - Surrounding '...' single quotes (no escapes in POSIX)
+      - Interspersed quotes (codex"" → codex)
+      - Unquoted backslash escapes (\\codex → codex, co\\dex → codex)
+
+    This is what bash does before executing a command. Without this step,
+    the classifier treats `"codex"` as a 7-char literal that doesn't equal
+    `codex`, leaving a trivial bypass.
+    """
+    result = []
+    i = 0
+    n = len(token)
+    while i < n:
+        c = token[i]
+        if c == '"':
+            # Consume double-quoted content with backslash escape handling.
+            i += 1
+            while i < n and token[i] != '"':
+                if token[i] == "\\" and i + 1 < n:
+                    nxt = token[i + 1]
+                    # In double quotes, backslash only escapes " \ ` $ \n.
+                    # Other backslashes are preserved literally.
+                    if nxt in '"\\`$\n':
+                        result.append(nxt)
+                        i += 2
+                    else:
+                        result.append(token[i])
+                        result.append(nxt)
+                        i += 2
+                else:
+                    result.append(token[i])
+                    i += 1
+            if i < n:
+                i += 1  # closing "
+            continue
+        if c == "'":
+            # Consume single-quoted content (no escapes in POSIX).
+            i += 1
+            while i < n and token[i] != "'":
+                result.append(token[i])
+                i += 1
+            if i < n:
+                i += 1  # closing '
+            continue
+        if c == "\\" and i + 1 < n:
+            # Unquoted backslash: the next char is taken literally.
+            result.append(token[i + 1])
+            i += 2
+            continue
+        result.append(c)
+        i += 1
+    return "".join(result)
 
 
 def _tokenize(cmd: str):

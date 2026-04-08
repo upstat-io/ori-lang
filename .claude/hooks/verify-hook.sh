@@ -227,6 +227,52 @@ run_test $'some_cmd\\ncodex exec → DENY (literal newline as command separator)
 run_test 'VAR=foo<TAB>codex exec → DENY (tab as word separator)' \
   $'VAR=foo\tcodex exec test' 60000 deny "20-35 minutes"
 
+# ── Bypass closure — wrapper commands + token normalization (TPR-04-001-codex/gemini iteration 3) ──
+# Iteration 3 of the dual-source review surfaced 13 additional bypass forms
+# that the initial shell tokenizer missed: quoted/escaped command names,
+# wrapper commands (env, timeout, sudo, etc.), and bash's += assignment-word
+# syntax. The classifier now normalizes command-position tokens (strips
+# quotes and backslash escapes) and recursively descends through known
+# wrapper commands. Each test below pins one of the verified bypass forms.
+
+run_test '"codex" exec → DENY (double-quoted command name)' \
+  '"codex" exec test' 60000 deny "20-35 minutes"
+run_test "'codex' exec → DENY (single-quoted command name)" \
+  "'codex' exec test" 60000 deny "20-35 minutes"
+run_test 'codex"" exec → DENY (trailing empty quotes stripped)' \
+  'codex"" exec test' 60000 deny "20-35 minutes"
+run_test '\codex exec → DENY (backslash-escaped command name)' \
+  '\codex exec test' 60000 deny "20-35 minutes"
+run_test 'co\dex exec → DENY (backslash escape inside command name)' \
+  'co\dex exec test' 60000 deny "20-35 minutes"
+run_test 'env FOO=bar codex exec → DENY (env wrapper)' \
+  'env FOO=bar codex exec test' 60000 deny "20-35 minutes"
+run_test 'command codex exec → DENY (command builtin wrapper)' \
+  'command codex exec test' 60000 deny "20-35 minutes"
+run_test 'exec codex exec → DENY (exec builtin wrapper)' \
+  'exec codex exec test' 60000 deny "20-35 minutes"
+run_test 'timeout 30 codex exec → DENY (timeout wrapper)' \
+  'timeout 30 codex exec test' 60000 deny "20-35 minutes"
+run_test 'nice -n 10 codex exec → DENY (nice wrapper with flag)' \
+  'nice -n 10 codex exec test' 60000 deny "20-35 minutes"
+run_test 'sudo codex exec → DENY (sudo wrapper)' \
+  'sudo codex exec test' 60000 deny "20-35 minutes"
+run_test 'ssh host codex exec → DENY (ssh wrapper)' \
+  'ssh host codex exec' 60000 deny "20-35 minutes"
+run_test 'echo args | xargs codex → DENY (xargs wrapper after pipe)' \
+  'echo args | xargs codex exec' 60000 deny "20-35 minutes"
+run_test 'PATH+=:/tmp codex exec → DENY (+= assignment-word form)' \
+  'PATH+=:/tmp codex exec test' 60000 deny "20-35 minutes"
+
+# Wrapper-with-non-review-command must NOT match (no false positives on
+# wrapper commands that don't actually invoke codex/gemini).
+run_test 'env ls (wrapper with non-review cmd) → ALLOW' \
+  'env ls -la' 60000 allow
+run_test 'timeout 30 sleep 10 (wrapper with non-review cmd) → ALLOW' \
+  'timeout 30 sleep 10' 60000 allow
+run_test 'env FOO=bar ls → ALLOW (env setting for non-review cmd)' \
+  'env FOO=bar ls' 60000 allow
+
 if (( ! QUIET )); then
   printf '\n'
 fi
