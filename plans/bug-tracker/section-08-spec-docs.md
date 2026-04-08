@@ -16,6 +16,20 @@ Bugs in the language specification, EBNF grammar, design docs, CLAUDE.md, rule f
 
 ## Open Bugs
 
+- [ ] `[BUG-08-008][low]` **classify-review-command.py: flags_with_values lists are incomplete for several wrappers** — found by dual-tpr-gemini Section 04.3 iteration 6 (gemini).
+  Repro: review of commit `f027620f`. Per-wrapper `flags_with_values` sets in WRAPPER_SPECS cover the most common flag-value pairs but are not exhaustive. New wrapper flags get added on each iteration as bypasses are discovered. Without comprehensive coverage, FUTURE wrapper flag-value pairs that consume the next token may be misinterpreted as positional args, producing either bypasses or false positives.
+  Examples gemini cited (not exhaustive): `sudo --remove-timestamp`, `xargs --process-slot-var`, additional ssh -[Q,W] options, `gdb -p PID -batch`. None are exploitable bypasses today (the existing test suite would catch them) but each is a latent edge case for future shell environments.
+  Architectural fix: this is a test-coverage and registry-completeness concern, not a structural defect. Either (a) generate the WRAPPER_SPECS lists from the man page output of each wrapper at build time, or (b) accept the manual list and add a periodic audit task.
+  Subsystem: .claude/hooks/classify-review-command.py
+  Found: 2026-04-08 | Source: dual-tpr-gemini section-04.3 iteration 6 verification
+
+- [ ] `[BUG-08-009][low]` **verify-hook.sh: missing regression coverage for shell-string fall-through and clustered-flag interactions** — found by dual-tpr-gemini Section 04.3 iteration 6 (codex).
+  Repro: review of commit `f027620f`. The 102-test verify-hook.sh suite covers the verified bypass forms from iterations 1-6, but does NOT cover all interaction shapes between the iter 5 `_check_wrapper_shell_string` recursion and the iter 6 fall-through bug fix. Specifically missing: `eval "bash -c 'codex'"` (nested wrappers via shell strings), `bash -c "sudo codex"` (shell string contains another wrapper), `ssh host "eval 'codex'"` (recursive ssh→eval→codex), and additional `su` flag combinations interacting with the username position.
+  Impact: a future regression in `_check_wrapper_shell_string` could go undetected by the test suite. The fix (recursive shell-string classification) appears correct based on manual verification, but the test matrix doesn't exhaustively pin all interaction shapes.
+  Architectural fix: extend verify-hook.sh with a "nested wrappers via shell strings" test cluster (~10-15 cases) covering each level of recursion.
+  Subsystem: .claude/hooks/verify-hook.sh
+  Found: 2026-04-08 | Source: dual-tpr-gemini section-04.3 iteration 6 verification
+
 - [ ] `[BUG-08-003][high]` **findings-schema.json uses if/then constructs that OpenAI Structured Outputs API rejects** — found by dual-tpr-gemini Section 04.3 Scenario 1+2 first real-reviewer attempt.
   Repro: ran the dual-source `/tpr-review` against a 5-commit scope (`81ff576b..816cb891`) via `.claude/skills/dual-tpr/scripts/dual-invoke-with-retry.sh`. Codex failed deterministically on all 3 retry attempts with an OpenAI API 400: `Invalid schema for response_format 'codex_output_schema': In context=(), 'if' is not permitted.` (See `/tmp/ori-tpr-KU4EiXAY/codex.jsonl` for the full error envelope.)
   Root cause: `.claude/skills/dual-tpr/scripts/dual-invoke.sh:50` passes `--output-schema "$SCHEMA"` to `codex exec`. Codex forwards the schema to OpenAI's Structured Outputs API as `response_format.json_schema.schema`, which only accepts a strict subset of JSON Schema. The current `findings-schema.json` uses `if`/`then` constructs at two locations:
