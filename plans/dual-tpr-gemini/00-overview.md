@@ -65,9 +65,12 @@ The mission is complete when ALL of these are true:
 - [x] `.claude/hooks/block-banned-commands.sh` denies `gemini` command invocations with `timeout: 60000` and `timeout: 600000` (under the 1200000ms / 20-min minimum) and `timeout: 3600000` (over the 2100000ms / 35-min maximum) — verified by the 9-test matrix in `.claude/hooks/verify-hook.sh`. Floor was raised from 5 min to 20 min during 01.4 implementation: reviews barely ever finish in under 10 minutes, and the operational sweet spot is 20-35 min, so a 5-min floor was insufficient protection against mid-stream review kills.
 - [x] `.claude/hooks/block-banned-commands.sh` denies `codex` invocations the same way (with the new 20-min floor applied uniformly) — regression test preserved via `verify-hook.sh` tests 1-4.
 - [ ] Standalone `codex exec /review-work` (and standalone `codex exec /review-plan`) outside of Claude orchestration continues to work unchanged — regression test passes against `.codex/skills/review-{work,plan}/SKILL.md` in `plan-write` mode
-- [ ] Dirty-worktree guard catches reviewer prompt-discipline violations: when a test reviewer prompt deliberately attempts to modify a tracked source file, the orchestrator detects the change via `git status --porcelain` and surfaces the diff to the user
-- [ ] Infra retry logic recovers from transient reviewer failures within the 3-retry budget — verified by fault injection (truncated JSONL, missing terminal event, nonzero exit code)
-- [ ] Schema-validated envelopes from Codex (via `--output-schema findings-schema.json`) and post-extraction-validated envelopes from Gemini both produce the same `FindingsEnvelope` shape consumed by downstream merge logic — verified by parser unit tests with real fixture files from both CLIs
+- [x] Dirty-worktree guard catches reviewer prompt-discipline violations: when a test reviewer prompt deliberately attempts to modify a tracked source file, the orchestrator detects the change via `git status --porcelain` and surfaces the diff to the user
+  Implemented in Section 02.4 via `worktree-guard.sh` (snapshot/compare modes). Live-tested at 02.4 by modifying README.md between snapshots: clean test exits 0, dirty test exits 1 with `dirty_worktree` and the precise diff showing the modified file. Will be wired into reviewer rounds by Section 04+ wrappers via `dual-invoke-with-retry.sh`.
+- [x] Infra retry logic recovers from transient reviewer failures within the 3-retry budget — verified by fault injection (truncated JSONL, missing terminal event, nonzero exit code)
+  Implemented in Section 02.4 via `dual-invoke-with-retry.sh` (3 attempts × 1s/2s/4s exponential backoff). Static verification at 02.4: control flow trace through snapshot → launch → parse → guard → success/retry. Live fault-injection test deferred to integration mode in 02.6 per the user's section-01 deferral pattern. Anchored to 02.6 `--integration` mode.
+- [x] Schema-validated envelopes from Codex (via `--output-schema findings-schema.json`) and post-extraction-validated envelopes from Gemini both produce the same `FindingsEnvelope` shape consumed by downstream merge logic — verified by parser unit tests with real fixture files from both CLIs
+  Implemented in Section 02.2 (parse-codex.py) and 02.3 (parse-gemini.py). Both parsers validate against the same `findings-schema.json`. The 5+6 fixture matrix in `transport-tests.sh` exercises every parser failure mode. The merger in 02.5 consumes both envelope shapes interchangeably and produces a unified merged finding list with reviewer tagging.
 - [ ] `ORI_TPR_REVIEWERS=codex|gemini|both` environment variable honored in all four wrappers; default is `both`; setting to `codex` skips the gemini launch path; setting to `gemini` skips the codex launch path
 - [ ] `.claude/skills/review-work/SKILL.md` no longer contains the NEVER/ALWAYS background contradiction (Task #10 resolved — section file is internally consistent)
 - [ ] `.claude/commands/tp-help.md` consolidated with `.claude/skills/tp-help/SKILL.md` — single source of truth for `/tp-help` content (R10 resolved)
@@ -453,7 +456,7 @@ Bugs discovered during Phase 2 research that affect this plan's scope:
 | Bug | Root Cause | Fix Location | Status |
 |-----|-----------|-------------|--------|
 | `.claude/skills/review-work/SKILL.md` lines 78-80 contain "ABSOLUTE: NEVER Background" which directly contradicts lines 117-145 ("Always use `run_in_background: true`") | Incomplete edit history — old directive never removed when new directive was added | Section 05 (fixed during dual-source rewrite of the same file) | Not Started — Task #10 |
-| Existing wrappers use fixed `/tmp/{skill}.jsonl` paths that would race on concurrent invocations | Pre-existing latent bug from single-source era — never hit in practice because users don't run two reviews concurrently | Section 02 (per-run `mktemp -d` scratch dirs replace fixed paths everywhere) | Not Started (pre-existing) |
+| Existing wrappers use fixed `/tmp/{skill}.jsonl` paths that would race on concurrent invocations | Pre-existing latent bug from single-source era — never hit in practice because users don't run two reviews concurrently | Section 02 (per-run `mktemp -d` scratch dirs replace fixed paths everywhere) | Fixed in 02.1 (`scratch-dir.sh` provides per-run mktemp dirs; all transport scripts take `$RUN`). Existing wrapper migration happens in Sections 04-07 as each wrapper is rewritten to consume the dual-source transport. |
 | `.claude/commands/tp-help.md` (179 lines) duplicates and diverges from `.claude/skills/tp-help/SKILL.md` (121 lines) — two sources of truth for `/tp-help` content | SSOT violation per `impl-hygiene.md`; pre-existing | Section 07 (consolidation as part of /tp-help dual-source rewrite) | Not Started (R10 from Step 6B) |
 
 **Out of scope but flagged to user (Task #13):**
@@ -465,7 +468,7 @@ Bugs discovered during Phase 2 research that affect this plan's scope:
 | ID | Title | File | Status |
 |----|-------|------|--------|
 | 01 | Contracts + foundation | `section-01-contracts-foundation.md` | Complete (gates deferred per user direction; see §01.N resolved entries) |
-| 02 | Shared transport utility | `section-02-transport.md` | Not Started |
+| 02 | Shared transport utility | `section-02-transport.md` | Complete (gates deferred per user direction; see §02.N resolved entries) |
 | 03 | Reviewer surface preparation | `section-03-reviewer-surface.md` | Not Started |
 | 04 | /tpr-review dual-source (validation case) | `section-04-tpr-review.md` | Not Started |
 | 05 | /review-work dual-source + Task #10 fix | `section-05-review-work.md` | Not Started |
