@@ -8,7 +8,7 @@
 //! - **Cross-module**: type checker collects merkle hashes for export in `TypedModule`
 //!
 //! The walker is generic over a callback, keeping the core traversal logic in
-//! one place while supporting both use cases. See TPR-04-027/029/031/032.
+//! one place while supporting both use cases.
 
 use crate::pool::Pool;
 use crate::{Idx, Tag};

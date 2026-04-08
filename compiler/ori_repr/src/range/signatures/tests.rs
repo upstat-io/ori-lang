@@ -1905,7 +1905,7 @@ fn invoke_dst_derived_local_propagates() {
     assert_eq!(
         y_range,
         ValueRange::Bounded { lo: 100, hi: 100 },
-        "Semantic pin (TPR-03-034): derived local y = invoke_dst + 1 should be [100, 100], got {y_range:?}"
+        "Semantic pin: derived local y = invoke_dst + 1 should be [100, 100], got {y_range:?}"
     );
 }
 
@@ -2026,7 +2026,7 @@ fn invoke_dst_forwards_to_callee_param() {
     assert_eq!(
         p_range,
         ValueRange::Bounded { lo: 100, hi: 100 },
-        "Semantic pin (TPR-03-034): callee(invoke_dst + 1) → callee's param should be [100, 100], got {p_range:?}"
+        "Semantic pin: callee(invoke_dst + 1) → callee's param should be [100, 100], got {p_range:?}"
     );
 }
 
@@ -2041,7 +2041,7 @@ fn call_site_specific_range_from_branch_refinement() {
     assert_eq!(
         range,
         ValueRange::Bounded { lo: 0, hi: 4 },
-        "Semantic pin (TPR-03-037): helper(x) in `if x < 5` branch should give param [0, 4], got {range:?}"
+        "Semantic pin: helper(x) in `if x < 5` branch should give param [0, 4], got {range:?}"
     );
 }
 
@@ -2309,7 +2309,7 @@ fn ordinal_qualified_unconstrained_names() {
     );
     assert!(
         plan.is_qualified_unconstrained(ordinal_name),
-        "Ordinal-suffixed qualified name (ordinal 1) must be unconstrained — TPR-03-053"
+        "Ordinal-suffixed qualified name (ordinal 1) must be unconstrained"
     );
 
     // Negative: unregistered name must NOT match
