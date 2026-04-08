@@ -73,7 +73,7 @@ canary release pattern, validation case, first consumer
 ---
 
 ### Section 03: Reviewer surface preparation
-**File:** `section-03-reviewer-surface.md` | **Status:** Not Started
+**File:** `section-03-reviewer-surface.md` | **Status:** Complete (gates deferred)
 
 ```
 shared command file, reviewer-agnostic methodology, extracted methodology
