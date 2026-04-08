@@ -2,9 +2,9 @@
 # lint-dual-tpr-docs.sh — verify dual-TPR documentation invariants.
 #
 # Lints the dual-TPR documentation files (transport.md + both gemini
-# SKILL.md files) for two classes of bug that both landed in the
-# dual-tpr-gemini/section-03.3 work product before self-review caught
-# them:
+# SKILL.md files + the tpr-review wrapper) for two classes of bug
+# that both landed in the dual-tpr-gemini/section-03.3 work product
+# before self-review caught them:
 #
 #   (1) Internal path references must resolve. Any `.claude/...` or
 #       `.gemini/...` path mentioned in one of the linted docs MUST
@@ -41,6 +41,7 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/../../../.." && pwd)"
 TRANSPORT="$REPO_ROOT/.claude/skills/dual-tpr/transport.md"
 GEMINI_REVIEW_WORK="$REPO_ROOT/.gemini/skills/review-work/SKILL.md"
 GEMINI_REVIEW_PLAN="$REPO_ROOT/.gemini/skills/review-plan/SKILL.md"
+TPR_REVIEW_WRAPPER="$REPO_ROOT/.claude/skills/tpr-review/SKILL.md"
 
 PASS=0
 FAIL=0
@@ -62,7 +63,7 @@ check() {
 
 # --- Check: every linted file exists ---
 echo "=== file inventory ==="
-for f in "$TRANSPORT" "$GEMINI_REVIEW_WORK" "$GEMINI_REVIEW_PLAN"; do
+for f in "$TRANSPORT" "$GEMINI_REVIEW_WORK" "$GEMINI_REVIEW_PLAN" "$TPR_REVIEW_WRAPPER"; do
   rel="${f#$REPO_ROOT/}"
   if [[ -f "$f" ]]; then
     echo "  PASS: $rel exists"
@@ -95,7 +96,7 @@ fi
 # code blocks are included; they are the most common source of typos.
 echo ""
 echo "=== internal path resolution ==="
-for f in "$TRANSPORT" "$GEMINI_REVIEW_WORK" "$GEMINI_REVIEW_PLAN"; do
+for f in "$TRANSPORT" "$GEMINI_REVIEW_WORK" "$GEMINI_REVIEW_PLAN" "$TPR_REVIEW_WRAPPER"; do
   rel="${f#$REPO_ROOT/}"
   # grep -oE emits one match per line; sort -u deduplicates; while-read
   # loop processes one cleaned path per iteration (never parses multi-path
@@ -146,6 +147,18 @@ REQUIRED=(
   "$GEMINI_REVIEW_WORK|||END-ORI-DUAL-TPR-V1|||review-work sentinel end"
   "$GEMINI_REVIEW_PLAN|||BEGIN-ORI-DUAL-TPR-V1|||review-plan sentinel begin"
   "$GEMINI_REVIEW_PLAN|||END-ORI-DUAL-TPR-V1|||review-plan sentinel end"
+  # tpr-review wrapper (Section 04) — transport script references,
+  # prompt preamble phrases, and the three preserved safety blocks.
+  # These checks guard against copy-paste erasure when Sections 05/06/07
+  # derive their wrappers from this one as a template.
+  "$TPR_REVIEW_WRAPPER|||dual-invoke-with-retry.sh|||tpr-review transport launcher reference"
+  "$TPR_REVIEW_WRAPPER|||merge-findings.py|||tpr-review merger reference"
+  "$TPR_REVIEW_WRAPPER|||scratch-dir.sh|||tpr-review scratch helper reference"
+  "$TPR_REVIEW_WRAPPER|||envelope-only|||tpr-review codex mode keyword in prompt example"
+  "$TPR_REVIEW_WRAPPER|||Activate the review-work skill|||tpr-review gemini activation phrase in prompt example"
+  "$TPR_REVIEW_WRAPPER|||Step 0 — MANDATORY: Re-read CLAUDE.md|||tpr-review preserved Step 0 header"
+  "$TPR_REVIEW_WRAPPER|||ABSOLUTE: You May NEVER Reason Out of Findings|||tpr-review preserved 'never reason out' ABSOLUTE"
+  "$TPR_REVIEW_WRAPPER|||ABSOLUTE: Correct Architectural Solutions Only|||tpr-review preserved 'architectural solutions' ABSOLUTE"
 )
 
 for entry in "${REQUIRED[@]}"; do

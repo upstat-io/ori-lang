@@ -1,11 +1,13 @@
 ---
 name: tpr-review
-description: "Run a third-party review via Codex CLI — TRIGGER proactively after completing ANY non-trivial work: bug fixes, new features, refactors, multi-file changes, compiler changes, codegen changes, test additions, plan implementations, or anything touching correctness-sensitive code. When in doubt, run it. The cost of an unnecessary review is near zero; the cost of a missed bug is high."
+description: "Run an independent dual-source (codex + gemini) third-party review of your work in parallel, then fix findings and re-run until BOTH reviewers come back clean — TRIGGER proactively after completing ANY non-trivial work: bug fixes, new features, refactors, multi-file changes, compiler changes, codegen changes, test additions, plan implementations, or anything touching correctness-sensitive code. When in doubt, run it. The cost of an unnecessary review is near zero; the cost of a missed bug is high."
 ---
 
-# TPR Review via Codex
+# Dual-Source TPR Review (Codex + Gemini)
 
-Run the Codex CLI non-interactively to perform an independent review-work pass, then fix any findings and re-run until clean. Codex has its own context, rules, and skills — it will figure out scope on its own.
+Run BOTH the Codex CLI AND the Gemini CLI non-interactively in parallel to perform independent review-work passes, merge their findings with reviewer tagging, then fix any findings and re-run until BOTH reviewers return zero actionable findings. Codex and Gemini each have their own context, rules, and skills — they figure out scope on their own.
+
+This wrapper is built on the Section 02 dual-source transport utility. All launching, parsing, schema validation, worktree-guarding, and infra retry logic lives in `.claude/skills/dual-tpr/scripts/` — this skill is purely the **semantic** fix-and-re-run loop that consumes merged findings. See `.claude/skills/dual-tpr/transport.md` for the transport contract.
 
 ## Step 0 — MANDATORY: Re-read CLAUDE.md
 
@@ -79,174 +81,236 @@ Read CLAUDE.md (the project root one)
 
 ```
 +---------------------------------------------------------+
-|                   TPR REVIEW LOOP                        |
-|                                                          |
-|  0. CLAUDE re-reads CLAUDE.md (MANDATORY)                |
-|        |                                                 |
-|  1. CODEX reviews (independent, external)                |
-|        |                                                 |
-|  2. CLAUDE reads findings                                |
-|        |                                                 |
-|  3. Zero findings? --YES--> DONE (clean pass)            |
-|        |                                                 |
-|       NO                                                 |
-|        |                                                 |
-|  4. CLAUDE files findings in plan/bug-tracker            |
-|  5. CLAUDE fixes each finding (code + tests)             |
-|  6. CLAUDE commits fixes via /commit-push                |
-|        |                                                 |
-|  7. Go to step 1 (CODEX re-reviews the fixed code)      |
-|                                                          |
+|              DUAL-SOURCE TPR REVIEW LOOP                |
+|                                                         |
+|  0. CLAUDE re-reads CLAUDE.md (MANDATORY)               |
+|        |                                                |
+|  1. TRANSPORT launches BOTH reviewers in parallel:      |
+|     - codex exec (envelope-only mode)                   |
+|     - gemini  (review-work skill activation)            |
+|     Infra retries (3 per reviewer, exp. backoff)        |
+|     are INSIDE the transport — they do NOT consume      |
+|     semantic iterations.                                |
+|        |                                                |
+|  2. CLAUDE merges findings via merge-findings.py        |
+|        |                                                |
+|  3. Zero actionable findings? --YES--> DONE (clean)     |
+|        |                                                |
+|       NO                                                |
+|        |                                                |
+|  4. CLAUDE files findings in plan/bug-tracker           |
+|  5. CLAUDE fixes each finding (code + tests)            |
+|  6. CLAUDE commits fixes via /commit-push               |
+|        |                                                |
+|  7. Go to step 1 (BOTH reviewers re-review fixed code)  |
+|                                                         |
 +---------------------------------------------------------+
 ```
 
-**Two actors:**
-- **Codex** (external reviewer): runs `/review-work`, produces findings. Does NOT fix anything.
-- **Claude** (you): reads Codex's findings, fixes the code, commits, then invokes Codex again.
+**Three actors:**
+- **Codex** (external reviewer #1): runs `.codex/skills/review-work/SKILL.md` in envelope-only mode. Does NOT fix anything.
+- **Gemini** (external reviewer #2): runs `.gemini/skills/review-work/SKILL.md`. Does NOT fix anything. Can issue `google_web_search` for external claim verification.
+- **Claude** (you): reads merged findings, fixes the code, commits, re-invokes the transport.
 
-**A TPR review is NOT complete until Codex produces zero actionable findings.** Filing findings without fixing and re-running is deferral. Fixing findings without re-running Codex to confirm clean is incomplete.
+**A round succeeds only when BOTH reviewers complete cleanly AND the merged finding list contains zero actionable findings.** Filing findings without fixing and re-running is deferral. Fixing findings without re-running BOTH reviewers to confirm clean is incomplete. A partial re-run (only one reviewer) is NOT a valid clean pass.
 
-**Maximum iterations: 10.** If after 10 cycles findings are still surfacing, present the remaining findings to the user via AskUserQuestion and ask how to proceed.
+**Maximum semantic iterations: 10.** Infra retries inside `dual-invoke-with-retry.sh` do NOT count against this budget — the budget is for finding-fixing rounds, not transport failures. If after 10 semantic cycles findings are still surfacing, surface the remaining merged findings to the user via `AskUserQuestion`.
 
 ## Steps (Per Iteration)
 
-### 1. Run Codex in the background
+### 1. Create a per-run scratch directory
 
-Codex reviews typically take 5-15 minutes — much longer than the Bash
-tool's 2-minute foreground default. Running codex in the foreground
-either hits the timeout or gets auto-backgrounded with output
-truncated. Always use `run_in_background: true`.
+```
+Bash:
+  RUN=$(.claude/skills/dual-tpr/scripts/scratch-dir.sh)
+  echo "$RUN"
+```
 
-The `.claude/hooks/block-banned-commands.sh` hook explicitly allows
-`run_in_background: true` on codex commands. Do NOT wrap codex in an
-Agent subagent — the Agent adds no value and cannot itself be
-backgrounded, so it reintroduces the same foreground cap.
+Each semantic iteration gets a fresh `$RUN` (e.g. `/tmp/ori-tpr-XXXXXXXX`). Reuse across iterations is forbidden — a stale envelope from the previous round would corrupt the merge.
+
+### 2. Write both reviewer prompts
+
+The codex and gemini prompts share the same evidence packet but differ in their activation preamble. See `.claude/skills/dual-tpr/transport.md` for the canonical preambles.
+
+- **Codex prompt** MUST include the literal keyword `envelope-only` in its first 500 characters — this dispatches `.codex/skills/review-work/SKILL.md` into envelope-only mode.
+- **Gemini prompt** MUST start with the literal activation phrase `Activate the review-work skill and follow its instructions exactly.` — gemini does NOT auto-activate from description matching; the phrase is load-bearing.
+
+Write both prompts to the scratch dir:
+
+```
+Bash:
+  cat > "$RUN/codex.prompt.md" <<'PROMPT'
+  Run the /review-work skill in envelope-only mode. Emit the JSON
+  envelope per .claude/skills/dual-tpr/findings-schema.json; do NOT
+  write findings to plan files.
+
+  Scope: <scope hint — e.g. "HEAD~5..HEAD", a plan section name, or explicit files>
+
+  <evidence packet: what changed, why, what to look for>
+  PROMPT
+
+  cat > "$RUN/gemini.prompt.md" <<'PROMPT'
+  Activate the review-work skill and follow its instructions exactly.
+  Emit the JSON envelope per .claude/skills/dual-tpr/findings-schema.json;
+  do NOT write findings to plan files.
+
+  Scope: <same scope hint>
+
+  <evidence packet: same>
+  PROMPT
+```
+
+The evidence packet is INFORMATIONAL, not authoritative — reviewers expand scope as they see fit.
+
+### 3. Invoke the dual-source transport in the background
+
+The transport launches both reviewers in parallel, handles infra retries (3 per reviewer, exponential backoff 1s / 2s / 4s), runs the schema validators, and applies the dirty-worktree guard. A full round typically takes 5-15 minutes — BOTH reviewers running concurrently, so wall time is roughly `max(codex_walltime, gemini_walltime)`, not the sum.
+
+Running the transport in the Bash foreground either hits the 2-minute tool timeout or gets auto-backgrounded with output truncated. Always use `run_in_background: true`. The `.claude/hooks/block-banned-commands.sh` hook explicitly allows backgrounded codex and gemini commands.
 
 ```
 Bash (run_in_background: true):
-  rm -f /tmp/tpr-iter.jsonl /tmp/tpr-iter.done
-  codex exec "run the /review-work skill" --full-auto --json 2>/dev/null > /tmp/tpr-iter.jsonl
-  ec=$?
-  touch /tmp/tpr-iter.done
-  echo "exit=$ec"
+  .claude/skills/dual-tpr/scripts/dual-invoke-with-retry.sh \
+    --run "$RUN" \
+    --skill review-work \
+    --codex-prompt "$RUN/codex.prompt.md" \
+    --gemini-prompt "$RUN/gemini.prompt.md" \
+    --schema .claude/skills/dual-tpr/findings-schema.json
+  echo "transport_exit=$?"
 ```
 
 **DO NOT:**
-- Run `codex exec` in the Bash foreground.
+- Run the transport in the Bash foreground.
 - Set a `timeout:` parameter on the Bash call.
-- Wrap codex in an Agent subagent.
+- Wrap the transport in an Agent subagent — the subagent cannot itself be backgrounded, so it reintroduces the foreground cap.
+- Poll `$RUN/*.jsonl` or `$RUN/*.envelope.json` in a sleep loop — wait for the completion notification.
 
-After launching, continue with other work or wait idle. You will
-receive a completion notification when the background task finishes.
-Do NOT poll the output file or sleep in a loop.
+After launching, continue with other work or wait idle. You will receive a completion notification when the background task finishes.
 
-### 2. Parse Output
+### 4. On success: merge both envelopes
 
-When the completion notification arrives, extract the agent messages
-from the JSONL output. The last few `agent_message` items contain
-the findings summary.
+When the completion notification arrives AND the transport exited 0, both envelopes passed parser + schema + worktree-guard validation (the transport is responsible for all of those checks). Run the merger:
 
-```python
-python3 -c "
-import json
-msgs = []
-with open('/tmp/tpr-iter.jsonl') as f:
-    for line in f:
-        line = line.strip()
-        if not line:
-            continue
-        try:
-            obj = json.loads(line)
-            if obj.get('type') == 'item.completed' and obj.get('item', {}).get('type') == 'agent_message':
-                msgs.append(obj['item']['text'])
-        except json.JSONDecodeError:
-            pass
-print(msgs[-1] if msgs else '(no agent messages)')
-"
+```
+Bash:
+  .claude/skills/dual-tpr/scripts/merge-findings.py \
+    --codex "$RUN/codex.envelope.json" \
+    --gemini "$RUN/gemini.envelope.json" \
+    --section "<NN>" \
+    --out "$RUN/merged.json"
 ```
 
-### 3. Classify Findings
+`<NN>` is the owning plan-section number (e.g. `04`), or `XX` if no owning plan exists. Then read `$RUN/merged.json`. Each entry has:
 
-For each finding in the Codex output, determine if it's actionable:
+- `id` — reviewer-tagged, e.g. `[TPR-04-001-codex]` / `[TPR-04-002-gemini]`
+- `reviewer` — `codex` or `gemini`
+- `agreement` — `true` if a matching `(location, title)` exists in the other reviewer's envelope; `false` otherwise
+- `agreement_partner_id` — partner tag when `agreement: true`; `null` otherwise
+- `finding` — original finding object (severity, location, title, evidence, impact, basis, confidence, optional citations)
 
-- **Actionable finding**: a real code issue — bug, hygiene violation, missing test, incorrect behavior, file size limit exceeded, precision regression, dead code path, etc. Must be fixed.
-- **Non-actionable observation**: a style preference or observation about behavior that isn't a defect AND isn't a precision loss AND isn't dead code. Note it but don't block the loop on it.
+The `summary` block reports `codex_findings`, `gemini_findings`, `agreements`, `codex_only`, `gemini_only`.
 
-**IMPORTANT: Err on the side of "actionable".** If you're unsure, it's actionable. The following are ALWAYS actionable:
+### 5. Classify merged findings
+
+For each entry, determine if the underlying finding is actionable:
+
+- **Actionable finding**: real code issue — bug, hygiene violation, missing test, incorrect behavior, file size limit exceeded, precision regression, dead code path, etc. Must be fixed.
+- **Non-actionable observation**: style preference or observation that isn't a defect, precision loss, or dead code. Note it but don't block the loop on it.
+
+**IMPORTANT: Err on the side of "actionable".** The following are ALWAYS actionable:
 - Dead code paths (code that can never execute)
 - Precision regressions (over-approximation that loses optimization opportunities)
 - Missing tests for plumbed-through data
 - Name collisions or aliasing that cause incorrect behavior
 - Pipeline gaps where data is computed but never consumed
 
-### 4. If Zero Actionable Findings -> Clean Pass (EXIT)
+**Agreement is a priority signal, not a filter.** When an entry has `agreement: true`, both reviewers independently flagged the same `(location, title)` — the strongest possible signal, so prioritize these fixes. When an entry is tagged `-codex` or `-gemini` only (`agreement: false`), the finding is STILL real — provenance is not severity. Single-reviewer findings get fixed just like agreement findings.
+
+### 6. If Zero Actionable Findings -> Clean Pass (EXIT)
 
 Report to the user:
-- "TPR review passed clean — no actionable findings."
-- Note the iteration count (e.g., "Clean on iteration 1" or "Clean on iteration 3 after fixing N findings").
-- **This is the ONLY exit from the loop.**
+- "Dual-source TPR review passed clean — both reviewers returned zero actionable findings."
+- Iteration count (e.g. "clean on iteration 1" or "clean on iteration 3 after fixing N findings").
+- Merge summary from the final iteration (`codex_findings`, `gemini_findings`, `agreements`).
+- **This is the ONLY clean exit from the loop.**
 
-### 5. If Actionable Findings Exist -> Fix and Re-run
+### 7. If Actionable Findings Exist -> Fix and Re-run
 
-#### 5a. File Findings
+#### 7a. File Findings
 
-For each validated finding:
+For each validated finding, decide where it lives:
 
-1. **Check if an owning plan section exists** — is there an active plan (roadmap or reroute) with a section covering the affected code?
-2. **If yes** — record as a TPR finding in that section's `## {NN}.R Third Party Review Findings` block:
+1. **Is there an owning plan section?** — check whether an active plan (roadmap or reroute) has a section covering the affected code.
+2. **If yes** — record the entry (or both halves of an agreement) in that section's `## {NN}.R Third Party Review Findings` block using the reviewer-tagged IDs from `merge-findings.py` verbatim:
    ```md
-   - [ ] `[TPR-{section}-{ordinal}][{severity}]` `file:line` — Finding summary.
-     Evidence: {from Codex output}
-     Impact: {from Codex output}
+   - [ ] `[TPR-04-001-codex][high]` `compiler/foo.rs:123` — Add dec on early-exit branch.
+     Evidence: ... Impact: ... Required plan update: ...
+     Basis: fresh_verification. Confidence: high.
+   - [ ] `[TPR-04-001-gemini][high]` `compiler/foo.rs:123` — Add dec on early-exit branch.
+     Evidence: ... Impact: ... Required plan update: ...
+     Basis: direct_file_inspection. Confidence: high. Citations: [{url: "...", description: "..."}]
    ```
    Update plan metadata (`third_party_review.status: findings`, `updated: {today}`).
 
-3. **If no owning plan exists** — file as a bug in `plans/bug-tracker/` under the appropriate subsystem section:
-   ```md
-   - [ ] `[BUG-{section}-{ordinal}][{severity}]` **{Short title}** — found by tpr-review.
-     Repro: {from Codex output}
-     Subsystem: {crate/file path}
-     Found: {YYYY-MM-DD} | Source: tpr-review
-   ```
+3. **If no owning plan exists** — file as a bug in `plans/bug-tracker/` under the appropriate subsystem section using the reviewer-tagged IDs.
 
-   Subsystem mapping:
-   - `ori_parse`/`ori_lexer` -> section-01
-   - `ori_types` -> section-02
-   - `ori_eval`/`ori_patterns` -> section-03
-   - `ori_llvm`/`ori_arc` -> section-04
-   - `ori_rt` -> section-05
-   - `library/std`/`ori_registry` -> section-06
-   - `oric`/`ori_fmt`/`ori_diagnostic` -> section-07
-   - `docs/`/`.claude/`/`plans/` -> section-08
+Subsystem mapping (unchanged from single-source version):
+- `ori_parse`/`ori_lexer` -> section-01
+- `ori_types` -> section-02
+- `ori_eval`/`ori_patterns` -> section-03
+- `ori_llvm`/`ori_arc` -> section-04
+- `ori_rt` -> section-05
+- `library/std`/`ori_registry` -> section-06
+- `oric`/`ori_fmt`/`ori_diagnostic` -> section-07
+- `docs/`/`.claude/`/`plans/` -> section-08
 
-#### 5b. Fix Each Finding
+#### 7b. Fix Each Finding
 
-**YOU (Claude) fix the code.** This means actual implementation — not just filing. Not scope notes. Not rationalizations. CODE CHANGES.
+**YOU (Claude) fix the code.** Actual implementation — not just filing, not scope notes, not rationalizations. CODE CHANGES.
 
-- **Read `.claude/rules/impl-hygiene.md` before fixing** — understand SSOT, canonical homes, no side logic, phase boundaries. Every fix must be the correct architectural solution, not a quick patch.
+- **Read `.claude/rules/impl-hygiene.md` before fixing** — SSOT, canonical homes, no side logic, phase boundaries. Every fix must be the correct architectural solution.
 - Read the affected code and understand the issue
-- Identify the **canonical home** for the knowledge/logic involved — fix must respect it
-- Follow TDD if appropriate (write failing test -> fix -> test passes)
+- Identify the **canonical home** for the knowledge/logic involved — the fix must respect it
+- Follow TDD when appropriate (failing test -> fix -> test passes)
 - Run `timeout 150 ./test-all.sh` after fixes
-- **Self-check**: would this fix survive a `/impl-hygiene-review`? If it introduces scattered knowledge, duplicated dispatch, or a shadow source of truth, it's wrong — find the proper architectural fix
-- Mark the TPR finding as `[x]` resolved in the plan with a note:
+- **Self-check**: would this fix survive `/impl-hygiene-review`? If it introduces scattered knowledge, duplicated dispatch, or a shadow source of truth, it's wrong — find the proper architectural fix
+- Mark the filed findings as `[x]` resolved in the plan with a note referencing the code fix:
   ```md
-  - [x] `[TPR-03-038][medium]` ...
+  - [x] `[TPR-04-001-codex][high]` ...
     Resolved: Fixed on YYYY-MM-DD. [description of CODE fix].
+  - [x] `[TPR-04-001-gemini][high]` ...
+    Resolved: Fixed on YYYY-MM-DD. Same fix as [TPR-04-001-codex] (agreement).
   ```
 
-#### 5c. Commit Fixes
+#### 7c. Commit Fixes
 
-Run `/commit-push` to commit the fixes. The commit message should reference the TPR IDs fixed.
+Run `/commit-push` to commit the fixes. The commit message should reference the reviewer-tagged TPR IDs fixed (e.g. `fix(arc): release iterator on early break — [TPR-04-001-codex] [TPR-04-001-gemini]`).
 
-#### 5d. Re-run Codex (GO TO STEP 1)
+#### 7d. Re-run the Dual-Source Transport (GO TO STEP 1)
 
-Go back to Step 1. Codex reviews the FIXED code to confirm the issues are actually resolved and no new issues were introduced by the fixes. **This re-run is not optional.**
+Go back to Step 1. BOTH reviewers re-review the FIXED code to confirm the issues are actually resolved and no new issues were introduced by the fixes. **This re-run is not optional, and a partial re-run (only one reviewer) is not a valid clean pass.**
 
-### 6. Report (After Loop Exits)
+### 8. After Max Iterations (10) — User Escalation
+
+If after 10 semantic iterations findings are still surfacing, surface the remaining merged findings to the user via `AskUserQuestion`:
+- Summary of semantic iterations run
+- Count of findings per iteration (shows whether progress is being made)
+- The current merged finding list (from the latest `$RUN/merged.json`)
+- Ask: should we continue past the 10-iteration cap, file remaining findings and stop, or dig into a specific finding that keeps recurring?
+
+## Transport Failure Handling
+
+If `dual-invoke-with-retry.sh` exits non-zero, the transport has exhausted its 3 internal infra retries and the round cannot proceed. Read the failure category and postmortem dir path from the script's stderr, then surface the failure to the user via `AskUserQuestion`. Include the `$RUN` path so the user can inspect the postmortem files (raw JSONL streams, parse errors, worktree diff, round log).
+
+**DO NOT silently retry the semantic loop on infra failure.** The 10-iteration budget is for finding-fixing rounds, not transport failures. Incrementing the semantic counter on a transport failure hides real infrastructure bugs and falsely claims iteration progress.
+
+The full escalation text, file-inspection checklist, and explicit loop state machine are documented in subsection 04.2 of `plans/dual-tpr-gemini/section-04-tpr-review.md`, which augments this file after subsection 04.1 is complete.
+
+## Final Report (After Loop Exits)
 
 Tell the user:
-- Total iterations run
+- Total semantic iterations run
+- For each iteration: merged summary (`codex_findings` / `gemini_findings` / `agreements`)
 - Findings surfaced and fixed per iteration
-- Final status: "clean" or "max iterations reached with N remaining findings"
+- Final status: `clean`, `max iterations reached with N remaining findings`, or `aborted due to transport failure`
 - Where each finding was filed (plan TPR section or bug-tracker)

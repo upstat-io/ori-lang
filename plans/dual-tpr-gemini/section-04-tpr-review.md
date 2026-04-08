@@ -1,7 +1,7 @@
 ---
 section: "04"
 title: "/tpr-review dual-source (validation case)"
-status: not-started
+status: in-progress
 reviewed: true
 goal: "Rewrite .claude/skills/tpr-review/SKILL.md to invoke the Section 02 transport utility and launch both codex and gemini in parallel per round. First consumer of the dual-source transport and serves as the validation gate: Sections 05/06/07 do not start until Section 04 successfully validates the transport against ≥2 real TPR scenarios with both agreement and disagreement cases demonstrated."
 success_criteria:
@@ -24,7 +24,7 @@ third_party_review:
 sections:
   - id: "04.1"
     title: "Rewrite .claude/skills/tpr-review/SKILL.md for dual-source transport"
-    status: not-started
+    status: complete
   - id: "04.2"
     title: "Loop semantics, failure handling, and user escalation"
     status: not-started
@@ -73,9 +73,9 @@ sections:
 
 Tasks:
 
-- [ ] Read the existing `.claude/skills/tpr-review/SKILL.md` in full to understand the existing Step-by-Step structure.
+- [x] Read the existing `.claude/skills/tpr-review/SKILL.md` in full to understand the existing Step-by-Step structure.
 
-- [ ] Rewrite the skill file with the following structure:
+- [x] Rewrite the skill file with the following structure:
   - Frontmatter: unchanged `name: tpr-review`, description updated to mention "dual-source codex + gemini" review
   - `## Step 0 — MANDATORY: Re-read CLAUDE.md` (preserved from existing)
   - `## ABSOLUTE: You May NEVER Reason Out of Findings` (preserved from existing)
@@ -93,14 +93,14 @@ Tasks:
     - Step 8: After max iterations (10), surface remaining findings to user via `AskUserQuestion`
   - Failure handling: if `dual-invoke-with-retry.sh` exits non-zero, surface the failure category + `$RUN` path to the user via `AskUserQuestion`. Do NOT silently retry the semantic loop — infra failures are already handled inside the script.
 
-- [ ] In the new skill file, replace the old codex invocation block with the new dual-source block. Preserve the existing finding-fixing, commit, and re-run logic verbatim — that's the semantic loop, and it's reviewer-count-agnostic (it just fixes whatever findings came in, regardless of how many reviewers contributed them).
+- [x] In the new skill file, replace the old codex invocation block with the new dual-source block. Preserve the existing finding-fixing, commit, and re-run logic verbatim — that's the semantic loop, and it's reviewer-count-agnostic (it just fixes whatever findings came in, regardless of how many reviewers contributed them).
 
-- [ ] Verify the file compiles as markdown (no broken frontmatter, no unclosed code fences) by reading it back after writing.
+- [x] Verify the file compiles as markdown (no broken frontmatter, no unclosed code fences) by reading it back after writing.
 
-- [ ] **Subsection close-out (04.1)** — MANDATORY before starting 04.2:
-  - [ ] The new skill file exists, references Section 02's scripts correctly, and preserves the existing "fix and re-run" loop logic
-  - [ ] Update this subsection's `status` in section frontmatter to `complete`
-  - [ ] Run `/improve-tooling` retrospectively — was the rewrite tedious (copy existing sections, graft new transport calls)? Should there be a `generate-wrapper-from-template.sh` helper that scaffolds a new dual-source wrapper given a skill name + loop semantics? Implement improvements NOW and commit separately.
+- [x] **Subsection close-out (04.1)** — MANDATORY before starting 04.2:
+  - [x] The new skill file exists, references Section 02's scripts correctly, and preserves the existing "fix and re-run" loop logic
+  - [x] Update this subsection's `status` in section frontmatter to `complete`
+  - [x] Run `/improve-tooling` retrospectively — was the rewrite tedious (copy existing sections, graft new transport calls)? Should there be a `generate-wrapper-from-template.sh` helper that scaffolds a new dual-source wrapper given a skill name + loop semantics? Implement improvements NOW and commit separately.
 
 ---
 
