@@ -5,7 +5,7 @@ status: complete
 reviewed: true
 goal: "Implement the shared transport utility scripts that all four review skill wrappers consume: per-run scratch directory helper, parallel reviewer launcher, codex parser, gemini parser (with delta concatenation and sentinel extraction), envelope validator, infra retry logic, dirty-worktree guard, and findings merger. Build the transport test suite that exercises all of these against the fixture files from Section 01."
 success_criteria:
-  - ".claude/skills/dual-tpr/scripts/ directory contains nine executable scripts: scratch-dir.sh, dual-invoke.sh, dual-invoke-with-retry.sh, parse-codex.py, parse-gemini.py, validate-envelope.py, worktree-guard.sh, merge-findings.py, transport-tests.sh (eight transport primitives + the test runner; dual-invoke-with-retry.sh wraps dual-invoke.sh with Section 02.4's retry/validate/worktree-guard pipeline and is the load-bearing entrypoint that all downstream wrappers invoke)"
+  - ".claude/skills/dual-tpr/scripts/ directory contains nine executable scripts: scratch-dir.sh, dual-invoke.sh, dual-invoke-with-retry.sh, parse-codex.py, parse-gemini.py, validate-envelope.py, worktree-guard.sh, merge-findings.py, transport-tests.sh (eight transport primitives + the test runner; dual-invoke-with-retry.sh wraps dual-invoke.sh with Section 02.4's retry/validate/worktree-guard pipeline and is the load-bearing entrypoint that all downstream wrappers invoke). A tenth script `lint-transport-contract.sh` was added on 2026-04-08 via §07.0's retrospective — it is a static dead-arg linter that catches the class of drift that `$SCHEMA` represented (declared, parsed, required-checked, never referenced in code after BUG-08-003). It supplements the nine §02 deliverables without replacing any of them."
   - "parse-codex.py extracts envelopes from real codex JSONL output (verified with codex-with-findings.json fixture)"
   - "parse-gemini.py concatenates all delta:true assistant message fragments in order, waits for terminal result event, and extracts the sentinel-bracketed JSON envelope (verified with synthetic stream-json fixtures)"
   - "validate-envelope.py rejects invalid envelopes (using fixtures/invalid-location.json) and accepts valid ones (using the three positive fixtures)"
@@ -100,7 +100,7 @@ The dual launcher must:
 - Place all output under the per-run scratch directory passed in as an argument
 
 Rules embedded inline:
-- File size: each script ≤ 100 lines target
+- File size: each script ≤ 200 lines target. _Amended 2026-04-08 via §07.0 retrospective from the original ≤ 100 lines target: `dual-invoke.sh` reached 174 lines after the concurrency fixes from BUG-08-004/BUG-08-005/TPR-04-002-gemini + the §07.0 schema-optional comment block + anticipated §07.2 ORI_TPR_REVIEWERS wiring (~15 more lines). All growth is load-bearing and cannot be extracted without adding an indirection layer that earlier retrospectives already rejected. The ≤ 200 lines target reflects the stable cost of the dual-reviewer launch pattern in bash._
 - Use `set -euo pipefail` in all bash scripts
 - Use python3 (no jq) per the existing hook pattern
 - Per CLAUDE.md tracing rule: scripts log to `$RUN/round.log` for postmortem, NOT to stderr (which would clutter wrapper output)
