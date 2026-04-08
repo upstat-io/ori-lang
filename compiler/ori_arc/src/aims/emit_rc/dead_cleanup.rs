@@ -54,7 +54,7 @@ pub(crate) fn emit_dead_at_entry_decs(
             .any(|&(p, _)| p == v)
     };
 
-    // TPR-07-016 / TPR-07-017 / TPR-07-019: track which take-project
+    // TPR-07-017 / TPR-07-019: track which take-project
     // lineages have already received a bypass-safe scope-exit dec in
     // this block, so multiple alias siblings (e.g., `%5` and its Let
     // alias `%19`, or a phi-merged param and one of its incoming
@@ -91,7 +91,7 @@ pub(crate) fn emit_dead_at_entry_decs(
             ) {
                 continue;
             }
-            // TPR-07-016 / TPR-07-017: take-project alias-class
+            // TPR-07-017: take-project alias-class
             // members get a single scope-exit drop at the entry edge
             // of the per-class bypass-safe region.
             //
@@ -111,7 +111,7 @@ pub(crate) fn emit_dead_at_entry_decs(
             // can be a bypass-safe entry for class `A` while being
             // reachable from an unrelated class `B`. Per-class
             // partitioning is what TPR-07-017 added on top of the
-            // initial TPR-07-016 fix.
+            // initial fix.
             //
             // The check fires BEFORE `use_info`/`is_live_at_exit`
             // because alias-chain "uses" on bypass-safe blocks are
@@ -149,7 +149,7 @@ pub(crate) fn emit_dead_at_entry_decs(
             // In-class but NOT bypass-safe-entry: the dec is handled
             // either upstream at the bypass-safe-region entry, or by
             // the take-project's `is_ownership_transfer` at the
-            // `Project` site (TPR-07-011). Skip here.
+            // `Project` site. Skip here.
             if ctx.take_move_facts.is_in_class(var) {
                 continue;
             }
@@ -204,7 +204,7 @@ pub(crate) fn emit_dead_at_entry_decs(
 /// (never used in this block or any successor) but still carry RC-managed
 /// values (e.g., mutable-scope list variables passed through loop exit
 /// blocks). Variables that the take-project dataflow proves moved are
-/// skipped per TPR-07-016. In-class block params are SKIPPED entirely
+/// skipped per In-class block params are SKIPPED entirely
 /// rather than routed: they are SSA aliases of the take-project source
 /// (via Jump-arg → block-param propagation), and the source enum's
 /// natural scope-exit drops in the predecessors already handle cleanup.
@@ -240,7 +240,7 @@ fn emit_dead_block_param_decs(ctx: &BlockCtx<'_>, new_body: &mut Vec<ArcInstr>) 
         if ctx.iter_element_defs.contains(&param_var) {
             continue;
         }
-        // TPR-07-016: take-project must-move handling for block params.
+        // take-project must-move handling for block params.
         //
         // Skip in-class block params entirely. A block param that
         // belongs to a take-project alias class is just an SSA name
@@ -250,7 +250,7 @@ fn emit_dead_block_param_decs(ctx: &BlockCtx<'_>, new_body: &mut Vec<ArcInstr>) 
         // predecessors (e.g., the non-projecting branch's
         // `RcDec %5`), and the take-project at its `Project` site
         // is already an `is_ownership_transfer` so its source isn't
-        // re-dropped (TPR-07-011). Emitting another drop here would
+        // re-dropped. Emitting another drop here would
         // be a redundant double-free on the bypass path.
         if ctx.take_move_facts.is_in_class(param_var) {
             continue;

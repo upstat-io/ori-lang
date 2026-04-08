@@ -317,7 +317,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         self.emit_inline_enum_dec(val, resolved, pool_tag);
     }
 
-    // Iterator handlers (TPR-07-008)
+    // Iterator handlers
 
     /// `Inc` for an iterator handle is a **no-op**.
     ///

@@ -210,7 +210,7 @@ fn apply_indirect_owned_arg_promoted() {
     assert_eq!(sig.params[1].ownership, Ownership::Owned);
 }
 
-// InvokeIndirect: with empty arg_ownership, no args promoted (TPR-02-007).
+// InvokeIndirect: with empty arg_ownership, no args promoted.
 
 #[test]
 fn invoke_indirect_empty_ownership_all_borrowed() {
@@ -256,7 +256,7 @@ fn invoke_indirect_empty_ownership_all_borrowed() {
     assert_eq!(sig.params[1].ownership, Ownership::Borrowed);
 }
 
-// InvokeIndirect: with populated arg_ownership, owned args promoted (TPR-02-007).
+// InvokeIndirect: with populated arg_ownership, owned args promoted.
 
 #[test]
 fn invoke_indirect_owned_arg_promoted() {

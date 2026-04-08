@@ -45,7 +45,7 @@ pub(super) fn emit_enum_lexicographic<'a>(
         .builder_mut()
         .emit_icmp_ordering(ts, to, "cmp.tags", false);
 
-    // TPR-07-006: check for non-void payload fields, not just non-unit variants.
+    // check for non-void payload fields, not just non-unit variants.
     let has_payload = variants
         .iter()
         .any(|v| !variant_non_void_field_types(&v.fields, fc.pool()).is_empty());
@@ -128,7 +128,7 @@ fn emit_enum_payload_cmp<'a>(
     for (tag_idx, variant) in variants.iter().enumerate() {
         fc.builder_mut().position_at_end(variant_bbs[tag_idx]);
 
-        // TPR-07-006: filter zero-sized fields to match LLVM layout.
+        // filter zero-sized fields to match LLVM layout.
         let field_types = variant_non_void_field_types(&variant.fields, fc.pool());
         if field_types.is_empty() {
             fc.builder_mut().br(equal_result_bb);

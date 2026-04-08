@@ -734,7 +734,7 @@ fn iterator_compute_drop_info_returns_none() {
     let iter = pool.iterator(Idx::INT);
     let c = cls(&pool);
 
-    // TPR-07-008 semantic pin: Iterator<int> is non-trivial (needs
+    // semantic pin: Iterator<int> is non-trivial (needs
     // `ori_iter_drop` at scope exit), BUT `compute_drop_info` must
     // return `None` so that `collect_drop_infos` does not ask the
     // codegen layer to generate a per-type `_ori_drop$Iterator<int>`
@@ -757,7 +757,7 @@ fn double_ended_iterator_compute_drop_info_returns_none() {
     let deiter = pool.double_ended_iterator(Idx::INT);
     let c = cls(&pool);
 
-    // TPR-07-008 semantic pin: DoubleEndedIterator<int> same as
+    // semantic pin: DoubleEndedIterator<int> same as
     // `iterator_compute_drop_info_returns_none`.
     let info = compute_drop_info(deiter, &c, &pool);
     assert!(

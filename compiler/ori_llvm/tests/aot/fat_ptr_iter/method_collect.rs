@@ -18,7 +18,7 @@ fn test_iter_collect_str_list() {
 
 #[test]
 fn test_iter_collect_set_str() {
-    // ori_iter_collect_set with elem_inc_fn (Section 02.3 TPR-02-009 fix).
+    // ori_iter_collect_set with elem_inc_fn (Section 02.3 fix).
     assert_aot_success(
         include_str!("../fixtures/fat_ptr_iter/method_collect/iter_collect_set_str.ori"),
         "iter_collect_set_str",

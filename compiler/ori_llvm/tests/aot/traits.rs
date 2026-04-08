@@ -363,7 +363,7 @@ fn test_aot_impl_method_field_access() {
     );
 }
 
-// 3.2: Trait impl method accessing self struct fields — regression for BUG-04-003.
+// 3.2: Trait impl method accessing self struct fields — regression for
 // Trait impl methods must not be registered in the bare `functions` map or
 // field-type method calls inside the impl body resolve to the wrong function.
 #[test]
@@ -808,7 +808,7 @@ fn test_aot_int_into_float_zero() {
 }
 
 // -----------------------------------------------------------------------
-// Regression: TPR-03-050 — Analysis-only ARC lowering path coverage
+// Regression: Analysis-only ARC lowering path coverage
 //
 // These tests exercise the impl-method analysis-only ARC lowering path
 // that feeds §03.5 range analysis. The codegen pipeline lowers impl method
@@ -817,14 +817,14 @@ fn test_aot_int_into_float_zero() {
 // normal codegen, including default trait methods and multi-impl types.
 // -----------------------------------------------------------------------
 
-/// Regression: TPR-03-050 — multiple trait impls on the same type exercise
+/// Regression: multiple trait impls on the same type exercise
 /// the analysis-only ARC lowering path with ordinal-qualified names.
 ///
 /// The analysis-only path creates type-qualified names for each impl method.
 /// Multiple trait impls on the same type exercise the ordinal counter and
 /// ensure the analysis path doesn't interfere with codegen dispatch.
 ///
-/// Note: trait impl methods avoid field access on `self` due to BUG-04-003
+/// Note: trait impl methods avoid field access on `self` due to
 /// (trait impl methods with field access produce LLVM verification errors).
 /// Inherent methods test field access; trait methods test constant returns.
 #[test]
@@ -835,7 +835,7 @@ fn test_aot_multi_trait_impl_analysis_path() {
     );
 }
 
-/// Regression: TPR-03-050 — default trait method in impl block is correctly
+/// Regression: default trait method in impl block is correctly
 /// analyzed through the analysis-only ARC lowering path.
 ///
 /// The impl block for `Describable` uses the default method `@describe`
@@ -849,14 +849,14 @@ fn test_aot_default_trait_method_analysis_path() {
     );
 }
 
-/// Regression: TPR-03-050 — combined inherent, trait, and default methods
+/// Regression: combined inherent, trait, and default methods
 /// on a single type, exercising the full analysis-only path complexity.
 ///
 /// This program has 4 impl blocks on the same type (inherent + 3 traits,
 /// one with default), producing multiple analysis-only ARC functions.
 /// Verifies the analysis path processes all bodies without interference.
 ///
-/// Note: trait impl methods use constant returns (BUG-04-003 workaround).
+/// Note: trait impl methods use constant returns (workaround).
 /// Inherent methods exercise full field access + computation.
 #[test]
 fn test_aot_impl_analysis_combined_scenario() {
@@ -866,13 +866,13 @@ fn test_aot_impl_analysis_combined_scenario() {
     );
 }
 
-/// Regression: TPR-03-050 — multiple types each with multiple impls,
+/// Regression: multiple types each with multiple impls,
 /// exercising the analysis-only path across the full module.
 ///
 /// Ensures that the analysis-only ARC lowering processes impl methods
 /// from multiple distinct types without cross-type interference.
 ///
-/// Note: trait impl methods use constant returns (BUG-04-003 workaround).
+/// Note: trait impl methods use constant returns (workaround).
 #[test]
 fn test_aot_impl_analysis_multiple_types() {
     assert_aot_success(
@@ -881,9 +881,9 @@ fn test_aot_impl_analysis_multiple_types() {
     );
 }
 
-// TPR-03-009 / TPR-03-010: Wrapper debug with compound/str payloads
+// Wrapper debug with compound/str payloads
 
-/// Regression: TPR-03-010 — `Option<str>.debug()` must use Debug semantics (quotes).
+/// Regression: `Option<str>.debug()` must use Debug semantics (quotes).
 /// Interpreter prints `Some("hi")`, AOT was printing `Some(hi)`.
 #[test]
 fn test_aot_option_debug_str_payload() {
@@ -897,7 +897,7 @@ fn test_aot_option_debug_str_payload() {
     );
 }
 
-/// Regression: TPR-03-009 — `Option<[int]>.debug()` must format list payloads.
+/// Regression: `Option<[int]>.debug()` must format list payloads.
 /// Interpreter prints `Some([1, 2, 3])`, AOT was printing empty line.
 #[test]
 fn test_aot_option_debug_list_payload() {
@@ -911,7 +911,7 @@ fn test_aot_option_debug_list_payload() {
     );
 }
 
-/// Regression: TPR-03-009 — `Result<[int], str>.debug()` must format list payloads.
+/// Regression: `Result<[int], str>.debug()` must format list payloads.
 #[test]
 fn test_aot_result_debug_list_payload() {
     let (exit_code, stdout, stderr) = compile_and_run_capture(include_str!(
@@ -936,7 +936,7 @@ fn test_aot_option_debug_none() {
     );
 }
 
-/// Regression: TPR-03-010 — `Err(str).debug()` must quote the string.
+/// Regression: `Err(str).debug()` must quote the string.
 #[test]
 fn test_aot_result_debug_err_str() {
     let (exit_code, stdout, stderr) =
@@ -948,7 +948,7 @@ fn test_aot_result_debug_err_str() {
     );
 }
 
-/// Regression: TPR-03-009 — nested `Option<Option<int>>.debug()` must work recursively.
+/// Regression: nested `Option<Option<int>>.debug()` must work recursively.
 #[test]
 fn test_aot_option_debug_nested() {
     let (exit_code, stdout, stderr) =
@@ -973,9 +973,9 @@ fn test_aot_option_debug_empty_list() {
     );
 }
 
-// Map debug formatting tests — BUG-04-017
+// Map debug formatting tests
 
-/// BUG-04-017: Map debug should format as `{key: value, ...}` not `<?>`.
+/// Map debug should format as `{key: value, ...}` not `<?>`.
 /// Keys use Printable semantics (unquoted strings), values use Debug semantics.
 #[test]
 fn test_aot_map_debug_str_keys() {
@@ -989,7 +989,7 @@ fn test_aot_map_debug_str_keys() {
     );
 }
 
-/// BUG-04-017: Empty map debug should produce `{}`.
+/// Empty map debug should produce `{}`.
 #[test]
 fn test_aot_map_debug_empty() {
     let (exit_code, stdout, stderr) =
@@ -1001,7 +1001,7 @@ fn test_aot_map_debug_empty() {
     );
 }
 
-/// BUG-04-017: Map debug with int keys and string values — values must be quoted.
+/// Map debug with int keys and string values — values must be quoted.
 #[test]
 fn test_aot_map_debug_int_keys_str_values() {
     let (exit_code, stdout, stderr) = compile_and_run_capture(include_str!(
@@ -1017,7 +1017,7 @@ fn test_aot_map_debug_int_keys_str_values() {
     );
 }
 
-/// BUG-04-017: Map debug with nested list values — recursive formatting.
+/// Map debug with nested list values — recursive formatting.
 #[test]
 fn test_aot_map_debug_nested_list_value() {
     let (exit_code, stdout, stderr) = compile_and_run_capture(include_str!(
@@ -1030,7 +1030,7 @@ fn test_aot_map_debug_nested_list_value() {
     );
 }
 
-/// BUG-04-017 semantic pin: Option<Map> must format map payload, not `<?>`.
+/// semantic pin: Option<Map> must format map payload, not `<?>`.
 /// This is the exact bug repro from the issue.
 #[test]
 fn test_aot_option_debug_map_payload() {

@@ -1514,7 +1514,7 @@ fn payload_layout_three_byte_fields_padded_to_slots() {
 
 #[test]
 fn payload_layout_zero_sized_field_no_size() {
-    // Unit field is zero-sized in aggregates (BUG-04-008 fix) → payload = 0
+    // Unit field is zero-sized in aggregates (fix) → payload = 0
     let (size, align) = compute_enum_payload_layout(&[MachineRepr::Unit]);
     assert_eq!(
         size, 0,

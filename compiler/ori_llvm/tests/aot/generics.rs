@@ -337,9 +337,9 @@ fn test_mono_nounwind_callee_uses_call_not_invoke() {
     );
 }
 
-// ─── Generic debug/str on compound types (BUG-04-022 regression) ───
+// ─── Generic debug/str on compound types (regression) ───
 
-/// Regression: BUG-04-022 — generic `debug()` on `[int]` through LLVM.
+/// Regression: generic `debug()` on `[int]` through LLVM.
 #[test]
 fn test_generic_debug_list() {
     assert_aot_success(
@@ -348,7 +348,7 @@ fn test_generic_debug_list() {
     );
 }
 
-/// Regression: BUG-04-022 — `str()` prelude function on compound types
+/// Regression: `str()` prelude function on compound types
 /// in generic bodies with string concat + `debug`.
 #[test]
 fn test_generic_str_compound() {

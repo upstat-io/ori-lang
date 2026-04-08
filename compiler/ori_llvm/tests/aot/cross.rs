@@ -100,7 +100,7 @@ fn test_parse_invalid_target_triples() {
     );
 }
 
-/// Regression pin for BUG-04-045 latent bug #7: `TargetConfig::from_triple`
+/// Regression pin for latent bug #7: `TargetConfig::from_triple`
 /// must accept Apple's `arm64` alias for `aarch64` because that is exactly
 /// the spelling LLVM's default triple uses on Apple Silicon. Before the fix,
 /// parse happened AFTER the `SUPPORTED_TARGETS` check, so `arm64-apple-darwin`
@@ -128,7 +128,7 @@ fn test_from_triple_accepts_amd64_linux_alias() {
     assert_eq!(config.components().arch, Arch::X86_64);
 }
 
-/// Regression pin for BUG-04-045 / TPR-BUG-04-045-01: `from_triple` must
+/// Regression pin for `from_triple` must
 /// accept the **versioned** Darwin spelling LLVM emits on Apple Silicon,
 /// `arm64-apple-darwin25.2.0`. The unversioned alias fix alone was not
 /// enough — Apple Silicon's `TargetMachine::get_default_triple()` carries
@@ -176,7 +176,7 @@ fn test_from_triple_accepts_versioned_darwin_x86_64() {
     assert!(config.is_macos());
 }
 
-/// Regression pin for BUG-04-045 / TPR-BUG-04-045-04: `from_triple` must
+/// Regression pin for `from_triple` must
 /// accept the modern Rust 1.78+ canonical WASI Preview1 spelling
 /// `wasm32-unknown-wasip1` end-to-end. Before the fix, `SUPPORTED_TARGETS`
 /// contained the deprecated 2-component `wasm32-wasi` spelling that the
@@ -223,7 +223,7 @@ fn test_from_triple_rejects_deprecated_wasm32_wasi() {
 /// WASI is the modern Rust 1.78+ canonical 3-component spelling
 /// `wasm32-unknown-wasip1` — the historical 2-component `wasm32-wasi`
 /// was deprecated upstream in May 2024 and is no longer accepted by
-/// Ori (see BUG-04-045 / TPR-BUG-04-045-04).
+/// Ori (see ).
 #[test]
 fn test_supported_targets() {
     let expected_targets = [

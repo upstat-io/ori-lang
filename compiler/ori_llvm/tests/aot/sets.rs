@@ -89,7 +89,7 @@ fn test_aot_set_iter_count() {
 }
 
 // Auto-promoted set iterator methods (no explicit .iter())
-// Semantic pins for TPR-03-001: emit_auto_iter must route Set through emit_set_iter
+// Semantic pins for emit_auto_iter must route Set through emit_set_iter
 
 #[test]
 #[ignore = "codegen gap: set fold hits unresolved type variable (pre-existing)"]

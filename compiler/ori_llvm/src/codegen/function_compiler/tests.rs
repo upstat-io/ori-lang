@@ -479,7 +479,7 @@ fn compile_impls_populates_method_functions_map() {
     // resolved exclusively via the type-qualified method_functions map.
     // If they were in functions, an unresolved `distance` call on a field
     // of the wrong type would resolve to the last registered impl method
-    // (wrong-function dispatch bug, BUG-04-003).
+    // (wrong-function dispatch bug, ).
     assert!(
         !fc.function_map().contains_key(&distance_name),
         "impl methods must NOT be in the bare functions map"

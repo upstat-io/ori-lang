@@ -651,7 +651,7 @@ fn test_annotate_apply_indirect_builtin_partial_apply() {
     }
 }
 
-/// Regression: TPR-02-004 — same-name builtins with different-typed captures
+/// Regression: same-name builtins with different-typed captures
 /// must fall back (type-qualified overrides can diverge).
 #[test]
 fn test_annotate_apply_indirect_different_capture_types_defaults_borrowed() {
@@ -738,7 +738,7 @@ fn test_annotate_apply_indirect_different_capture_types_defaults_borrowed() {
     }
 }
 
-/// Regression: TPR-02-008 — same-name builtins with same-typed captures
+/// Regression: same-name builtins with same-typed captures
 /// must merge successfully (type comparison allows it).
 #[test]
 fn test_annotate_apply_indirect_same_capture_types_merges() {
@@ -812,7 +812,7 @@ fn test_annotate_apply_indirect_same_capture_types_merges() {
     }
 }
 
-/// Regression: TPR-02-011 — cross-instantiation merge: `List<int>` vs
+/// Regression: cross-instantiation merge: `List<int>` vs
 /// `List<str>` both resolve to `Tag::List`, so the consuming override
 /// fires identically → merge must succeed (tag-based comparison).
 #[test]
@@ -895,7 +895,7 @@ fn test_annotate_apply_indirect_cross_instantiation_same_tag_merges() {
     }
 }
 
-/// Regression: TPR-02-005 — diamond CFG where two predecessors reach the
+/// Regression: diamond CFG where two predecessors reach the
 /// same `PartialApply` through different alias paths must still resolve
 /// (not fall back to opaque due to shared visited set).
 #[test]

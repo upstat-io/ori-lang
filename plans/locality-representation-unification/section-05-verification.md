@@ -111,51 +111,51 @@ sections:
 
 That's 15 distinct cells. Section 02.8's tests cover the `ArgEscaping` row (3 cells), the boundary tests in the existing test suite cover the other rows. Section 05.1 enumerates the matrix and confirms each cell has a test.
 
-- [ ] Re-read `compiler/ori_arc/src/aims/lattice/tests.rs` and find every test function named `rule_4_*`, `rule_6_*`, `rule_8_*`. Build a coverage table of variant × rule → test function name.
+- [ ] Re-read `compiler/ori_arc/src/aims/lattice/tests.rs` and find every test function named `rule_4_*`, `rule_6_*`, `rule_8_*`. Build a coverage table of variant × rule → test function name in the section's completion notes.
 
-- [ ] For any cell missing a test, ADD a small test that exercises it. The cells are mostly covered by Section 02.8 + the pre-existing test suite, but the verification here is to catch any gap.
+- [ ] For any cell missing a test, ADD a small test that exercises it. The cells are mostly covered by Section 02.8's ArgEscaping tests + the pre-existing test suite's tests for the other four variants, but the verification here is to catch any gap.
 
-- [ ] Add a single **matrix coverage assertion test** that documents the matrix in code:
+- [ ] **Add a self-verifying matrix coverage test** that iterates over all 5 `Locality` variants and asserts `AimsState::canonicalize()` is idempotent for every variant. This test has REAL assertions (idempotence of canonicalize is load-bearing) and doubles as a proof that every variant is exercised by the test runner. Per `.claude/rules/tests.md` §Self-verifying matrix completeness — a matrix loop that silently skips cells is worse than no matrix at all.
   ```rust
-  /// Documents the test matrix for cross-dimension canonicalize rules.
-  /// Each entry is a (variant, rule, expected behavior) triple.
-  /// If a row is missing, the matrix is incomplete and a new test must be added.
+  /// Matrix coverage with REAL assertions: canonicalize is idempotent for
+  /// every Locality variant across every other AimsState dimension at BOTTOM.
+  /// Also asserts the matrix visited every variant (self-verifying count).
   ///
-  /// This test does not run anything itself — it is a doc-test that survives
-  /// as a permanent record of which test functions cover which cells.
+  /// This replaces the earlier documentation-only "matrix_coverage_documentation"
+  /// placeholder that had zero assertions. A test without assertions is not a
+  /// test — it's a comment-as-test. See .claude/rules/tests.md §Test Hygiene
+  /// rule 1 ("no orphan tests").
   #[test]
-  fn matrix_coverage_documentation() {
-      // Variant: BlockLocal
-      //   Rule 4: rule_4_block_local_owned_once_promotes_to_unique (existing)
-      //   Rule 6: does not fire (BlockLocal != HeapEscaping)
-      //   Rule 8: rule_8_borrowed_block_local_no_change (existing or implicit)
-      //
-      // Variant: FunctionLocal
-      //   Rule 4: rule_4_function_local_does_not_fire (existing)
-      //   Rule 6: does not fire
-      //   Rule 8: rule_8_borrowed_function_local_no_change (existing or implicit)
-      //
-      // Variant: ArgEscaping (NEW)
-      //   Rule 4: rule_4_does_not_fire_on_arg_escaping (Section 02.8)
-      //   Rule 6: rule_6_does_not_fire_on_arg_escaping_unique (Section 02.8 — SOUNDNESS PIN)
-      //   Rule 8: rule_8_borrowed_widens_arg_escaping_to_function_local (Section 02.8)
-      //
-      // Variant: HeapEscaping
-      //   Rule 4: does not fire
-      //   Rule 6: rule_6_heap_escaping_unique_widens_to_maybe_shared (existing)
-      //   Rule 8: rule_8_borrowed_heap_escaping_widens_to_function_local (existing)
-      //
-      // Variant: Unknown
-      //   Rule 4: does not fire
-      //   Rule 6: does not fire (Unknown != HeapEscaping by exact match)
-      //   Rule 8: rule_8_borrowed_unknown_widens_to_function_local (existing)
+  fn canonicalize_idempotent_for_every_locality_variant() {
+      use Locality::*;
+      let mut visited = 0;
+      for locality in all_locality() {
+          let mut state = AimsState {
+              locality,
+              ..AimsState::FRESH
+          };
+          state.canonicalize();
+          let first = state;
+          state.canonicalize();
+          assert_eq!(
+              state, first,
+              "canonicalize() must be idempotent for Locality::{:?}", locality
+          );
+          visited += 1;
+      }
+      assert_eq!(
+          visited, 5,
+          "matrix must visit all 5 Locality variants (self-verifying completeness)"
+      );
+      // Silence unused-import warning if we're in a clippy-strict mode.
+      let _ = (BlockLocal, FunctionLocal, ArgEscaping, HeapEscaping, Unknown);
   }
   ```
-  This is a documentation-only test (it has no body assertions) — its job is to survive as a permanent record of the test matrix. If the matrix changes, the comment must be updated, and the change is visible in code review.
+  This test: (1) exercises every variant via `all_locality()` (the helper Section 02.7 extended to 5 variants), (2) asserts canonicalize idempotence (a real load-bearing invariant from `.claude/rules/tests.md` §Negative Testing rule 6), and (3) asserts the iteration count matches the expected variant count (proves no cells were silently skipped).
 
-- [ ] Run `cargo test -p ori_arc -- lattice::tests` and verify all matrix tests pass. The expected count includes all the new ArgEscaping tests from Section 02.8 plus the documentation test.
+- [ ] Run `cargo test -p ori_arc -- lattice::tests` and verify all matrix tests pass. The expected count includes all the new ArgEscaping tests from Section 02.8 plus the idempotence matrix test above.
 
-- [ ] Document the matrix coverage verification in the section's completion notes.
+- [ ] Document the matrix coverage verification in the section's completion notes: record the coverage table (variant × rule → test function name) built above, the canonicalize-idempotence matrix test's visit count, and any gaps found during the coverage audit.
 
 ---
 
@@ -184,17 +184,20 @@ This test catches any boundary issue between the storage layer (Section 03) and 
       use ori_arc::ir::ArcVarId;
       use ori_ir::Name;
 
-      // Construct a ReprPlan with a populated EscapeInfo for one function
+      // Construct a ReprPlan with a populated EscapeInfo for one function.
+      // Name::new takes (shard: u32, local: u32) — see compiler/ori_ir/src/name/mod.rs:33
+      // ArcVarId::new(raw: u32) — see compiler/ori_arc/src/ir/mod.rs:74
+      //
       let mut plan = ReprPlan::default();
-      let func = Name::new("test_function");
+      let func = Name::new(0, 1);
       let mut info = EscapeInfo::default();
 
-      let var_block_local = ArcVarId::from_raw(0);
-      let var_function_local = ArcVarId::from_raw(1);
-      let var_arg_escaping = ArcVarId::from_raw(2);
-      let var_heap_escaping = ArcVarId::from_raw(3);
-      let var_unknown = ArcVarId::from_raw(4);
-      let var_unset = ArcVarId::from_raw(5);
+      let var_block_local = ArcVarId::new(0);
+      let var_function_local = ArcVarId::new(1);
+      let var_arg_escaping = ArcVarId::new(2);
+      let var_heap_escaping = ArcVarId::new(3);
+      let var_unknown = ArcVarId::new(4);
+      let var_unset = ArcVarId::new(5);
 
       info.join_escape_scope(var_block_local, Locality::BlockLocal);
       info.join_escape_scope(var_function_local, Locality::FunctionLocal);
@@ -220,7 +223,7 @@ This test catches any boundary issue between the storage layer (Section 03) and 
       assert!(plan.escapes(func, var_unset));
 
       // A different function (not analyzed) should also return "escapes"
-      let other_func = Name::new("other_function");
+      let other_func = Name::new(0, 2);
       assert!(plan.escapes(other_func, var_block_local));
   }
   ```
@@ -467,7 +470,10 @@ The retrospective for this plan should specifically reflect on:
 ## 05.N Completion Checklist
 
 - [ ] Test matrix verification (05.1) complete — 5 variants × 3 rules = 15 cells, all covered
+- [ ] Self-verifying matrix test (`canonicalize_idempotent_for_every_locality_variant`) passes AND its visit count assertion equals 5 (proves every variant was exercised, not silently skipped)
 - [ ] Soundness pin test from Section 02.8 (`rule_6_does_not_fire_on_arg_escaping_unique`) is passing
+- [ ] Return-value widening test from Section 02.8 (`return_widening_promotes_arg_escaping_to_heap_escaping`) is passing — proves block.rs:155 correctly upgrades ArgEscaping → HeapEscaping for returns (soundness condition 4 producer-side guard)
+- [ ] ParamContract::may_escape() derivation tests from Section 02.8 are passing — all 5 `Locality` variants exercised through the derived method
 - [ ] Cross-crate behavioral test (05.2) passes — `full_pipeline_escape_info_to_repr_plan_escapes_query`
 - [ ] Plan annotation cleanup (05.3) complete — `bash .claude/skills/impl-hygiene-review/plan-annotations.sh --plan locality-representation-unification` returns 0 annotations
 - [ ] `lattice/mod.rs` module doc updated (05.4) with the unified Locality description, the SSOT statement, and the prior art citations

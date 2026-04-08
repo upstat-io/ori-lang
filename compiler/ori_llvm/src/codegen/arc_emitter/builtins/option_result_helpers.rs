@@ -19,7 +19,7 @@ use super::super::ArcIrEmitter;
 impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// Niche-encoded Option dispatch (§07.2).
     ///
-    /// **BUG-04-019 fix (2026-04-07)**: `unwrap`/`expect`/`unwrap_or` now mirror
+    /// **fix (2026-04-07)**: `unwrap`/`expect`/`unwrap_or` now mirror
     /// the explicit-tag pattern from `option_result.rs` — tag guard via
     /// `emit_unwrap_branch`/`emit_expect_branch` and `inc_value_rc` on the
     /// extracted payload to retain the inner heap data through the new
@@ -132,7 +132,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
     /// Niche-encoded Result dispatch (§07.2).
     ///
-    /// **BUG-04-019 fix (2026-04-07)**: Previously, `unwrap`/`unwrap_err`/`unwrap_or`
+    /// **fix (2026-04-07)**: Previously, `unwrap`/`unwrap_err`/`unwrap_or`
     /// were collapsed into a single match arm that ignored the method name and
     /// returned the raw payload without any tag guard or RC retain. The
     /// `expect`/`expect_err` arms had the same defects. This implementation now

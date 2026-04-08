@@ -503,13 +503,13 @@ fn contextual_kw_on_all_soft_keywords() {
     }
 }
 
-// BUG-01-001: Soft keyword cache contamination — public lex() boundary regression test.
+// Soft keyword cache contamination — public lex() boundary regression test.
 // The cooker tests exercise cook() directly; this test verifies the bug is fixed end-to-end
 // through the public lex() entry point, which is the actual user-visible surface.
 
 /// Semantic pin at the public `lex()` boundary: soft keyword text appearing first as
 /// identifier then in keyword context must produce the correct token sequence.
-/// This is the exact user-visible scenario of BUG-01-001.
+/// This is the exact user-visible scenario of
 #[test]
 fn soft_keyword_cache_not_poisoned_through_lex_boundary() {
     let interner = StringInterner::new();

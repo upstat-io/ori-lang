@@ -207,7 +207,7 @@ pub(super) struct CompiledModuleInfo {
     pub(super) exported_type_metadata: Vec<ori_types::ExportedTypeMetadata>,
     /// Merkle hashes of collection types in public function signatures.
     /// Enables cross-module protection of collection element layouts from
-    /// narrowing. See TPR-04-032.
+    /// narrowing. See
     pub(super) exported_collection_surfaces: Vec<u64>,
 }
 
@@ -276,7 +276,7 @@ fn compile_single_module(
 
     // Collect exported type metadata from imported modules for repr plan
     // construction. This ensures imported `pub` and `#repr(...)` types are
-    // correctly exempted from integer narrowing. See CROSS-04-015.
+    // correctly exempted from integer narrowing. See
     let imported_type_metadata =
         collect_imported_type_metadata(source_path, ctx.graph, compiled_modules);
     let imported_collection_surfaces =
@@ -467,8 +467,8 @@ pub(super) fn collect_imported_type_metadata(
 /// Parallel to `collect_imported_type_metadata()` but collects merkle hashes
 /// of collection types (List, Set) that appear in imported public function
 /// signatures. Used for transitive forwarding metadata (A→B→C propagation).
-/// After TPR-04-042, imported surfaces no longer suppress narrowing — they
-/// are forwarded for downstream metadata only. See TPR-04-032.
+/// After imported surfaces no longer suppress narrowing — they
+/// are forwarded for downstream metadata only. See
 pub(super) fn collect_imported_collection_surfaces(
     source_path: &Path,
     graph: &ori_llvm::aot::incremental::deps::DependencyGraph,

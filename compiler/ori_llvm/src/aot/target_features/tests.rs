@@ -1,7 +1,7 @@
 //! Tests for the typed `Arch`, `HostOs`, `HostPlatform`, and
 //! `TargetTripleComponents` parse/canonicalization layer.
 //!
-//! Regression: BUG-04-045 — `is_cross_compiling()` reported native Apple
+//! Regression: `is_cross_compiling()` reported native Apple
 //! Silicon as cross-compilation because `arm64` (LLVM default triple) and
 //! `aarch64` (Rust `cfg(target_arch)`) compared unequal as raw strings.
 //!
@@ -253,7 +253,7 @@ fn test_native_host_triple_round_trips_to_not_cross_compiling_matrix() {
     }
 }
 
-// === Semantic pin for BUG-04-045 ===
+// === Semantic pin for ===
 
 /// Regression pin: this exact bug.
 ///
@@ -262,7 +262,7 @@ fn test_native_host_triple_round_trips_to_not_cross_compiling_matrix() {
 /// native, not as cross-compilation. Would fail if the `arm64 → Aarch64` alias
 /// is removed from `Arch::parse_llvm_name`.
 ///
-/// This is the permanent regression guard for BUG-04-045.
+/// This is the permanent regression guard for
 #[test]
 fn test_is_cross_for_regression_pin_arm64_native_host_is_not_cross() {
     let parsed = TargetTripleComponents::parse("arm64-apple-darwin25.2.0")
@@ -389,7 +389,7 @@ fn test_arch_display_formats_canonical() {
 
 /// `support_key()` strips Darwin OS version suffixes so versioned and
 /// unversioned spellings both match the unversioned `SUPPORTED_TARGETS`
-/// entries. Regression pin for TPR-BUG-04-045-01.
+/// entries. Regression pin for
 #[test]
 fn test_support_key_strips_darwin_version_matrix() {
     let cases: &[(&str, &str)] = &[

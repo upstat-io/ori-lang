@@ -689,7 +689,7 @@ fn type_store_size_extended_types() {
     );
 }
 
-/// Regression: TPR-06-013 — Option/Result trailing alignment padding.
+/// Regression: Option/Result trailing alignment padding.
 /// `Option<T>` is `{i64 tag, T payload}` in LLVM. Store size must include
 /// trailing alignment padding to match LLVM's `size_of()`. Without it,
 /// outer aggregates containing Option/Result fields are undersized.
@@ -766,7 +766,7 @@ fn type_store_size_option_result_trailing_padding() {
     );
 }
 
-/// Regression: TPR-06-007 — inter-field alignment padding was missing.
+/// Regression: inter-field alignment padding was missing.
 /// `pool_type_store_size()` summed field sizes without aligning each field,
 /// undercounting aggregates with mixed-alignment fields.
 #[test]
@@ -842,7 +842,7 @@ fn type_store_size_inter_field_padding() {
     );
 }
 
-/// Regression: TPR-06-007 + TPR-06-008 — enum payload i64-slot sizing.
+/// Regression: + enum payload i64-slot sizing.
 /// Enum payloads use `[M x i64]` layout where each field occupies at
 /// least one full i64 slot (8 bytes), regardless of natural alignment.
 #[test]
@@ -911,7 +911,7 @@ fn type_store_size_enum_payload_slots() {
     );
 }
 
-/// Regression: TPR-06-017 — nested aggregates with sub-8-byte alignment.
+/// Regression: nested aggregates with sub-8-byte alignment.
 /// `pool_type_alignment()` must recurse into struct/tuple fields to compute
 /// max field alignment, matching `type_alignment()` in `ori_llvm`. Without
 /// recursion, all struct/tuple types default to alignment 8, which over-sizes
@@ -975,7 +975,7 @@ fn type_store_size_nested_low_alignment() {
     );
 }
 
-/// Regression: TPR-07-002 — all-unit enums use narrowed i8 tags after §07.1.
+/// Regression: all-unit enums use narrowed i8 tags after §07.1.
 ///
 /// `pool_type_store_size()` was hardcoding 8-byte (i64) enum tags for all enums,
 /// but §07.1 narrowed all-unit enums to i8 (1 byte). This caused `for...yield`
@@ -1073,7 +1073,7 @@ fn type_store_size_all_unit_enum_narrowed_tag() {
     );
 }
 
-/// Regression: TPR-07-002 — all-unit enum as field in struct/tuple.
+/// Regression: all-unit enum as field in struct/tuple.
 ///
 /// `pool_type_alignment_inner()` returned 8 for all enums, but all-unit enums
 /// with narrowed tags have alignment 1. This over-sizes containing aggregates.

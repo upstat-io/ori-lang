@@ -406,7 +406,7 @@ fn compute_struct_layouts(plan: &mut ReprPlan, pool: &Pool) {
         };
         plan.set_repr(idx, decision);
 
-        // TPR-06-004: only propagate from DEFAULT-attr sources.
+        // only propagate from DEFAULT-attr sources.
         // Fixed-layout types (#repr("c"), packed, etc.) must not overwrite
         // reordered default-layout aliases — order-dependent FxHashMap
         // iteration could let a C-layout source clobber a correct reorder.

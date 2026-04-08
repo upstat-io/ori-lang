@@ -356,7 +356,7 @@ impl TypeInfo {
             // classification requires transitive field analysis via
             // `TypeInfoStore::is_trivial()` or `classify_triviality()`).
             //
-            // TPR-07-008: iterators were previously classified as trivial
+            // iterators were previously classified as trivial
             // here on the grounds that they have no RC header. That was
             // incomplete: iterators still need `ori_iter_drop` at scope
             // exit to free their Box-allocated state. The SSOT in

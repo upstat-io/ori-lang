@@ -409,7 +409,7 @@ impl ArcLowerer<'_> {
         ty: Idx,
         span: Span,
     ) -> ArcVarId {
-        // BUG-04-009: Coalesce (??) requires lazy RHS evaluation — the RHS
+        // Coalesce (??) requires lazy RHS evaluation — the RHS
         // must only be evaluated if the LHS is None/Err. Eager evaluation
         // would trigger panics/side-effects unconditionally.
         if op == ori_ir::BinaryOp::Coalesce {

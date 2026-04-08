@@ -57,7 +57,7 @@ pub fn lower_to_arc(
 ///
 /// For types with multiple impls defining the same method name (e.g.,
 /// `impl Index<int, V>` and `impl Index<str, V>`), `ordinal` selects
-/// which body to use via `canon.method_root_for_nth()` (TPR-03-051).
+/// which body to use via `canon.method_root_for_nth()`.
 #[expect(
     clippy::too_many_arguments,
     reason = "thin wrapper over lower_function_can — params mirror the underlying API"
@@ -106,7 +106,7 @@ pub fn lower_impl_method_to_arc_nth(
 /// Lower a single impl method to ARC IR with correct method-root lookup.
 ///
 /// Uses `canon.method_root_for(type_name, body_name)` to find the impl
-/// method body (TPR-03-049).
+/// method body.
 #[expect(
     clippy::too_many_arguments,
     reason = "thin wrapper over lower_function_can — params mirror the underlying API"

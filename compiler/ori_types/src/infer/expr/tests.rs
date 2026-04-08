@@ -676,7 +676,7 @@ fn test_infer_if_without_else() {
     assert!(!engine.has_errors());
 }
 
-/// Regression: BUG-02-001 — if without else with non-void then-branch
+/// Regression: if without else with non-void then-branch
 /// must produce a type error (Spec: Clause 16, §16.1).
 #[test]
 fn test_infer_if_without_else_non_void_then() {
@@ -1744,7 +1744,7 @@ fn test_infer_coalesce_result_chain() {
 }
 
 /// COALESCE-CHAIN with polymorphic RHS: `Option<int> ?? None -> Option<int>`
-/// Regression: TPR-02-003 — chain detection must work when RHS is bare `None`
+/// Regression: chain detection must work when RHS is bare `None`
 /// (type variable not yet unified before comparison).
 #[test]
 fn test_infer_coalesce_option_chain_bare_none() {
@@ -3046,7 +3046,7 @@ fn dei_only_methods_correct() {
     assert!(!ori_registry::is_dei_only("collect"));
 }
 
-/// BUG-02-003: `has_comparable_trait` returns false for Named types without
+/// `has_comparable_trait` returns false for Named types without
 /// a trait registry (covers the unit test path; full pipeline coverage is
 /// in `tests/spec/expressions/operators_comparison.ori`).
 #[test]

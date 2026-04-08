@@ -364,7 +364,7 @@ pub(super) fn compute_variant_field_offsets(
 
     for &field_ty in field_types {
         offsets.push(current);
-        // BUG-04-008: Unit/Never fields are zero-sized — they don't occupy
+        // Unit/Never fields are zero-sized — they don't occupy
         // payload space. Skip them so offsets match the LLVM layout.
         let resolved_ft = emitter.pool.resolve_fully(field_ty);
         if matches!(emitter.pool.tag(resolved_ft), Tag::Unit | Tag::Never) {

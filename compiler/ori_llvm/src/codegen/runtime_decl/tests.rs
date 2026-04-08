@@ -330,7 +330,7 @@ fn jit_symbol_mappings_match_jit_allowed() {
     );
 }
 
-/// TPR-02-003: Verifies that `elem_dec`/`elem_count` buffer helpers are registered
+/// Verifies that `elem_dec`/`elem_count` buffer helpers are registered
 /// as JIT-allowed symbols, so MCJIT can resolve them when compiling list/set
 /// literals. Regression guard for RC header V5 JIT availability.
 #[test]
