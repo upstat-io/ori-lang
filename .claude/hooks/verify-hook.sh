@@ -203,6 +203,30 @@ run_test 'A=1 B="two words" C=3 codex exec → DENY (mixed quoted and unquoted e
 run_test 'FOO="bar baz" gemini -p → DENY (quoted env-var + gemini)' \
   'FOO="bar baz" gemini -p test' 60000 deny "20-35 minutes"
 
+# ── Bypass closure — shell-aware bypass forms (TPR-04-001-codex/gemini) ──
+# Seven distinct bypass forms verified against the previous regex-based
+# REVIEW_CMD_RE. The shell-tokenization classifier (classify-review-
+# command.py) handles all of them correctly by walking the command string
+# with a character-level state machine that tracks quote state, subshell
+# depth, command substitution, and compound operators. Each test below
+# pins one of the seven verified bypass forms so reverting the classifier
+# breaks the matrix.
+
+run_test 'VAR="a\" b" codex exec → DENY (escaped double quote inside env-var value)' \
+  'VAR="a\" b" codex exec test' 60000 deny "20-35 minutes"
+run_test 'VAR=$(printf "a b") codex exec → DENY ($(...) command substitution)' \
+  'VAR=$(printf "a b") codex exec test' 60000 deny "20-35 minutes"
+run_test 'VAR=`printf "a b"` codex exec → DENY (backtick command substitution)' \
+  'VAR=`printf "a b"` codex exec test' 60000 deny "20-35 minutes"
+run_test 'VAR=$(cat <<INNER ... INNER) codex exec → DENY (heredoc inside subshell)' \
+  $'VAR=$(cat <<"INNER"\nhello\nINNER\n) codex exec test' 60000 deny "20-35 minutes"
+run_test $'VAR=val \\\\\\ncodex exec → DENY (backslash-newline line continuation)' \
+  $'VAR=val \\\ncodex exec test' 60000 deny "20-35 minutes"
+run_test $'some_cmd\\ncodex exec → DENY (literal newline as command separator)' \
+  $'some_cmd\ncodex exec test' 60000 deny "20-35 minutes"
+run_test 'VAR=foo<TAB>codex exec → DENY (tab as word separator)' \
+  $'VAR=foo\tcodex exec test' 60000 deny "20-35 minutes"
+
 if (( ! QUIET )); then
   printf '\n'
 fi

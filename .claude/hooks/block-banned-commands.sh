@@ -67,43 +67,41 @@ done
 #
 # BUG-08-001: The matcher must fire only on GENUINE top-level codex or
 # gemini invocations — never on commands that merely mention the literal
-# strings in a path, argument, message body, or quoted text. The regex
-# below accepts `codex` / `gemini` only when they appear at a shell
-# command position:
-#   1. At the very start of the command, optionally behind leading
-#      whitespace and optional env-var assignments (FOO=bar codex exec)
-#   2. After a shell compound operator (| ; & ( ) — including && and ||
-#      via their single-char boundary members) and optional env vars
-# The command must also be followed by whitespace (real invocations
-# always have at least one argument: `codex exec`, `gemini -p`, etc.).
+# strings in a path, argument, message body, or quoted text.
 #
-# TPR-04-001-gemini fix: the env-var value part must accept quoted values
-# that contain whitespace. The previous pattern `[^[:space:]]*` stopped at
-# the first space in values like `VAR="val with space" codex`, so the
-# regex would fail to match `codex` after the quoted value and the
-# command would bypass the timeout gate. The new ENV_VAL alternation
-# accepts: double-quoted strings, single-quoted strings, OR unquoted
-# non-whitespace values — in that order so a leading `"` or `'` is
-# interpreted as a quoted value, not as the start of an unquoted value.
+# TPR-04-001-codex/gemini fix (commit pending): the previous regex-based
+# REVIEW_CMD_RE approach leaked bypasses because shell is not a regular
+# language. Seven distinct bypass forms were verified against the old
+# regex (escaped double quotes, $(...) command substitution, backtick
+# substitution, heredocs inside $(...), backslash-newline continuation,
+# literal newline separators, env-var values with internal whitespace
+# that the regex fragmented). Each new alternation opened up more edge
+# cases.
+#
+# The correct architectural fix is shell-aware tokenization. We delegate
+# classification to `.claude/hooks/classify-review-command.py`, which
+# walks the command string with a character-level state machine tracking
+# quote state, subshell depth, command substitution, and compound
+# operators. The classifier returns exit 0 iff the command contains a
+# top-level codex/gemini invocation at any command position.
 #
 # See `.claude/hooks/verify-hook.sh` for the full matrix and
-# `plans/bug-tracker/fix-BUG-08-001.md` for the design rationale.
-#
-# Constructed as concatenated fragments rather than one literal so the
-# single-quote escaping stays readable.
-ENV_IDENT='[[:alnum:]_]+'
-# Double-quoted value | single-quoted value | unquoted non-whitespace value.
-# The quoted cases come first so they consume the whole quoted string
-# including internal whitespace; the unquoted fallback only fires when
-# neither quote is present.
-ENV_VAL='("[^"]*"|'\''[^'\'']*'\''|[^[:space:]]*)'
-ENV_PREFIX="(${ENV_IDENT}=${ENV_VAL}[[:space:]]+)*"
-REVIEW_CMD_RE="(^[[:space:]]*|[|;&(][[:space:]]*)${ENV_PREFIX}(codex|gemini)[[:space:]]"
+# `plans/bug-tracker/fix-BUG-08-001.md` for the original design rationale.
+
+CLASSIFY_REVIEW_CMD="$(dirname "${BASH_SOURCE[0]}")/classify-review-command.py"
+
+is_review_command() {
+  # Returns 0 if COMMAND invokes codex/gemini at a top-level command
+  # position, 1 otherwise. Delegates to the Python classifier so shell
+  # grammar edge cases are handled correctly (the earlier regex-based
+  # approach kept leaking bypasses).
+  printf '%s' "$COMMAND" | python3 "$CLASSIFY_REVIEW_CMD"
+}
 
 TIMEOUT=$(printf '%s' "$INPUT" | python3 -c "import sys,json; print(json.load(sys.stdin).get('tool_input',{}).get('timeout',''))" 2>/dev/null || true)
 
 if [[ -n "$TIMEOUT" && "$TIMEOUT" != "None" ]]; then
-  if [[ "$COMMAND" =~ $REVIEW_CMD_RE ]]; then
+  if is_review_command; then
     # Require at least 20 minutes (1200000 ms) — anything shorter risks
     # killing the review mid-stream (reviews barely ever complete in 10
     # minutes, so 5- and 10-minute timeouts almost always fail).
