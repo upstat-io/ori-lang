@@ -1,0 +1,61 @@
+#!/usr/bin/env bash
+# Stub `gemini` binary for dual-tpr Section 04.3 validation tests.
+#
+# Mimics the wire surface of `gemini --approval-mode yolo --output-format
+# stream-json -p $PROMPT` from .claude/skills/dual-tpr/scripts/dual-invoke.sh:60,
+# but ignores all CLI args and emits a synthetic stream-json sequence
+# conforming to the gemini parser at .claude/skills/dual-tpr/scripts/parse-gemini.py.
+#
+# Mode is read from STUB_GEMINI_MODE (default: ok). Modes match the codex
+# stub at fixtures/stub-bin/codex — see that file for full documentation.
+#
+#   ok          Emit a valid no-findings envelope wrapped in BEGIN/END
+#               sentinels and a fenced JSON block. Exit 0.
+#   fail-once   First call: write counter, exit 1. Second+ calls: succeed.
+#   dirty       Append to dirty-target.txt then emit envelope. Exit 0.
+#   always-fail Exit 1 every call.
+
+set -uo pipefail
+
+MODE="${STUB_GEMINI_MODE:-ok}"
+STATE="${STUB_GEMINI_STATE:-/tmp/stub-gemini-state}"
+
+case "$MODE" in
+  fail-once)
+    if [[ ! -f "$STATE" ]]; then
+      printf '1\n' > "$STATE"
+      printf 'stub-gemini: simulated launch failure (attempt 1)\n' >&2
+      exit 1
+    fi
+    ;;
+  always-fail)
+    printf 'stub-gemini: always-fail mode\n' >&2
+    exit 1
+    ;;
+  dirty)
+    REPO_ROOT="${STUB_REPO_ROOT:-$(pwd)}"
+    DIRTY_TARGET="$REPO_ROOT/.claude/skills/dual-tpr/fixtures/dirty-target.txt"
+    if [[ -f "$DIRTY_TARGET" ]]; then
+      printf 'stub-gemini injection at %s\n' "$(date +%s)" >> "$DIRTY_TARGET"
+    fi
+    ;;
+  ok)
+    ;;
+  *)
+    printf 'stub-gemini: unknown STUB_GEMINI_MODE=%s\n' "$MODE" >&2
+    exit 2
+    ;;
+esac
+
+# Emit a valid no-findings envelope in the gemini stream-json wire format.
+# The envelope is wrapped in <!-- BEGIN-ORI-DUAL-TPR-V1 --> ... <!-- END --> sentinels
+# inside a ```json fenced code block, embedded in an assistant message with
+# delta:true. This matches what real gemini --output-format stream-json emits.
+cat <<'JSONL'
+{"type":"init"}
+{"type":"message","role":"user","content":"Review the changes."}
+{"type":"message","role":"assistant","content":"<!-- BEGIN-ORI-DUAL-TPR-V1 -->\n```json\n{\"schema_version\":\"1.0\",\"status\":\"complete\",\"reviewer\":\"gemini\",\"skill\":\"tpr-review\",\"scope_actually_reviewed\":{\"git_range\":null,\"files_read\":[],\"rules_consulted\":[],\"specs_consulted\":[],\"plans_consulted\":[],\"expanded_beyond_packet\":false},\"findings\":[],\"verification\":{\"tests_rerun\":[],\"diagnostics_run\":[],\"verification_gaps\":[]},\"no_findings\":true}\n```\n<!-- END-ORI-DUAL-TPR-V1 -->","delta":true}
+{"type":"result","status":"success"}
+JSONL
+
+exit 0

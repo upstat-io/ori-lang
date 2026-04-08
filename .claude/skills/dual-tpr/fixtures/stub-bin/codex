@@ -1,0 +1,70 @@
+#!/usr/bin/env bash
+# Stub `codex` binary for dual-tpr Section 04.3 validation tests.
+#
+# Mimics the wire surface of `codex exec --full-auto --json --output-schema $S
+# --ephemeral $PROMPT` from .claude/skills/dual-tpr/scripts/dual-invoke.sh:50,
+# but ignores all CLI args and emits a synthetic JSONL stream conforming to
+# the codex parser at .claude/skills/dual-tpr/scripts/parse-codex.py.
+#
+# Mode is read from STUB_CODEX_MODE (default: ok):
+#
+#   ok          Emit a valid no-findings envelope. Exit 0.
+#   fail-once   First call: write a counter file and exit 1 with a
+#               simulated launch failure. Second+ calls: emit envelope
+#               and exit 0. Used for Scenario 4 (infra retry).
+#   dirty       Append a line to .claude/skills/dual-tpr/fixtures/
+#               dirty-target.txt (a tracked file dedicated to this test),
+#               then emit a valid envelope and exit 0. The post-run
+#               worktree-guard.sh compare detects the modification.
+#               Used for Scenario 3 (dirty-worktree guard).
+#   always-fail Exit 1 every call. Reserved for future negative tests.
+#
+# State for the fail-once mode lives at /tmp/stub-codex-state.<pid_of_validator>
+# unless STUB_CODEX_STATE is exported by the caller. The validator harness
+# is responsible for resetting state between scenarios.
+
+set -uo pipefail
+
+MODE="${STUB_CODEX_MODE:-ok}"
+STATE="${STUB_CODEX_STATE:-/tmp/stub-codex-state}"
+
+case "$MODE" in
+  fail-once)
+    if [[ ! -f "$STATE" ]]; then
+      printf '1\n' > "$STATE"
+      printf 'stub-codex: simulated launch failure (attempt 1)\n' >&2
+      exit 1
+    fi
+    # Second+ call: continue to envelope emission below.
+    ;;
+  always-fail)
+    printf 'stub-codex: always-fail mode\n' >&2
+    exit 1
+    ;;
+  dirty)
+    REPO_ROOT="${STUB_REPO_ROOT:-$(pwd)}"
+    DIRTY_TARGET="$REPO_ROOT/.claude/skills/dual-tpr/fixtures/dirty-target.txt"
+    if [[ -f "$DIRTY_TARGET" ]]; then
+      printf 'stub-codex injection at %s\n' "$(date +%s)" >> "$DIRTY_TARGET"
+    fi
+    ;;
+  ok)
+    # Default. No pre-emit action.
+    ;;
+  *)
+    printf 'stub-codex: unknown STUB_CODEX_MODE=%s\n' "$MODE" >&2
+    exit 2
+    ;;
+esac
+
+# Emit a valid no-findings envelope in the codex JSONL wire format.
+# The envelope JSON is embedded as a JSON-encoded string inside
+# agent_message.text — this matches what real codex emits when invoked with
+# --output-schema findings-schema.json.
+cat <<'JSONL'
+{"type": "turn.started"}
+{"type": "item.completed", "item": {"type": "agent_message", "text": "{\"schema_version\":\"1.0\",\"status\":\"complete\",\"reviewer\":\"codex\",\"skill\":\"tpr-review\",\"scope_actually_reviewed\":{\"git_range\":null,\"files_read\":[],\"rules_consulted\":[],\"specs_consulted\":[],\"plans_consulted\":[],\"expanded_beyond_packet\":false},\"findings\":[],\"verification\":{\"tests_rerun\":[],\"diagnostics_run\":[],\"verification_gaps\":[]},\"no_findings\":true}"}}
+{"type": "turn.completed"}
+JSONL
+
+exit 0
