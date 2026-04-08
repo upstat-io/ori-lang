@@ -16,6 +16,19 @@ Bugs in the language specification, EBNF grammar, design docs, CLAUDE.md, rule f
 
 ## Open Bugs
 
+- [ ] `[BUG-08-011][medium]` **lint-command-skill-pairs.sh: add a tool that classifies and validates .claude/commands/ ↔ .claude/skills/ pairs by pattern** — found by dual-tpr-gemini §07.1 retrospective.
+  Repro: currently, 2 command-skill overlap pairs exist: `tp-help` uses thin-pointer pattern (skill canonical, command = thin pointer; consolidated in dual-tpr-gemini §07.1 on 2026-04-08) and `review-work` uses parallel-workflow pattern (command = Claude self-reviews directly, skill = dual-source codex wrapper; both canonical for different use cases per 00-overview line 32 of plans/dual-tpr-gemini/). No tool validates these pairs for drift. If someone re-duplicates operational content in `tp-help.md` (breaking the thin-pointer contract) or swaps `review-work.md` semantics (breaking the parallel-workflow contract), there is no automated check to catch it.
+  Impact: low-to-medium. No immediate breakage — both existing pairs are stable. But future SSOT drift between command-skill pairs would be invisible until a manual review catches it. This is the class of bug R10 from the dual-tpr-gemini plan represents; §07.1 resolved the specific `tp-help` instance but did NOT install a permanent regression guard.
+  Suggested fix: create `.claude/skills/dual-tpr/scripts/lint-command-skill-pairs.sh` (location TBD) that:
+  1. Enumerates all overlap pairs (for each `.claude/commands/X.md`, check if `.claude/skills/X/SKILL.md` exists).
+  2. Classifies each pair as `thin-pointer` (command body < 30 lines, references skill path, NO operational markers like `codex exec`/`python3`/`Step N:`/`run_in_background`) or `parallel-workflow` (both substantive, command header explicitly declares parallel relationship) or `unknown` (drift finding).
+  3. Validates each classified pair against its pattern's rules.
+  4. Exits non-zero if any pair fails classification or validation.
+  Alternative: drive classification from explicit frontmatter metadata (`overlap_pattern: thin-pointer` or `overlap_pattern: parallel-workflow`), trivial to classify but requires updating both existing pairs' frontmatter.
+  Subsystem: .claude/ tooling (location TBD — likely .claude/skills/dual-tpr/scripts/ or .claude/hooks/)
+  Found: 2026-04-08 | Source: continue-roadmap (pre-filed by dual-tpr-gemini §07.1 retrospective)
+  Note: Related tool `lint-transport-contract.sh` (implemented in §07.0 retrospective) uses the same dead-code-detection pattern but scoped to transport script args, not command-skill pairs. Active work in `plans/dual-tpr-gemini/` §07.1 touches this area.
+
 - [ ] `[BUG-08-010][high]` **create-plan: add --root/ORI_PLAN_ROOT override for test harnesses** — found by dual-tpr-gemini §07.PRE preflight.
   Repro: `/create-plan` currently writes plan files unconditionally under `plans/<slug>/`. No env var or flag exists to redirect output for test harnesses. Any test that runs `/create-plan` non-destructively either (a) writes persistent artifacts into the repo that must be cleaned by exact path, or (b) collides with an existing plan if the slug is not unique.
   Impact: blocks the preferred "Mode A" execution path of `dual-tpr-gemini` §07.3 Scenario 4, which verifies that `/create-plan`'s 5 internal `/tp-help` call sites still work correctly when `/tp-help` is rewritten for dual-source concatenation output in §07.2. Without the override, Scenario 4 falls back to Mode B (deterministic slug under `plans/` with collision pre-check + exact-path cleanup) which is safe but fragile and leaves no cleanup safety net beyond the pre-check. More broadly: any future test harness that wants to exercise `/create-plan` non-destructively needs this flag — the current single-path design makes `/create-plan` untestable in isolation.

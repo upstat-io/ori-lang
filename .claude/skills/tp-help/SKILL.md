@@ -1,11 +1,53 @@
 ---
 name: tp-help
-description: "Get third-party help from Codex CLI. Use this proactively when you are stuck on a problem, unsure about an implementation approach, want a second opinion on code you just wrote, need help debugging a failing test, want someone to verify your reasoning, or need help understanding unfamiliar code."
+description: "Get third-party help from Codex CLI. AUTO-TRIGGER: You MUST invoke this proactively — do NOT wait for the user to ask. Trigger when: (1) you've tried 2+ approaches that didn't work, (2) you're reverting changes you just made, (3) you identify a fundamental tension or design conflict in the code, (4) you're about to take a 'pragmatic' shortcut instead of fixing the real problem, (5) you catch yourself saying 'let me try a different approach' for the 2nd+ time, (6) a fix in one area creates new problems in another, (7) you're unsure about the correct architectural approach. This is collaborative help — pass context and ask a specific question."
 ---
 
 # Third Party Help (Codex)
 
-Get collaborative help from Codex CLI on whatever you're currently working on.
+Get collaborative help from Codex CLI on whatever you're currently working on. This is not a formal review — it's asking a second brain for help with a specific problem.
+
+**Canonical source:** This file (`.claude/skills/tp-help/SKILL.md`) is the single source of truth for the `/tp-help` workflow. The slash-command entrypoint at `.claude/commands/tp-help.md` is a thin pointer that references this file. When `/tp-help` is invoked (either by the user typing the slash command, by auto-trigger detection, or by another skill calling it internally), the canonical workflow below is what runs.
+
+## MANDATORY AUTO-TRIGGER — Do NOT Wait for User
+
+**You MUST invoke this skill proactively.** Do NOT wait for the user to type `/tp-help`. The whole point is that YOU detect when you need help and ask for it automatically.
+
+### Concrete Trigger Conditions
+
+Invoke `/tp-help` IMMEDIATELY when ANY of these are true:
+
+1. **Multiple failed approaches** — You've tried 2+ approaches to solve the same problem and none worked cleanly
+2. **Reverting your own changes** — You're undoing work you just did because it caused new problems
+3. **Fundamental tension identified** — You've identified a design conflict where fixing one thing breaks another (e.g., "borrowed-use vs capture-use callees have conflicting RC ownership requirements")
+4. **Pragmatic retreat** — You catch yourself about to take a shortcut, partial fix, or "keep just the X part and revert the Y part" instead of solving the real problem
+5. **Approach cycling** — You're saying "let me try a different approach" for the 2nd+ time
+6. **Fix interference** — A fix in one subsystem creates new failures in another
+7. **Architectural uncertainty** — You're unsure which of two+ fundamental approaches is correct (not minor implementation details — real architectural questions)
+8. **Stuck > 10 minutes** — You've been working on the same problem for more than ~10 minutes without clear forward progress
+
+### What Does NOT Trigger This
+
+- Simple bugs with obvious fixes
+- First attempt at an approach (try it first, ask for help if it fails)
+- Questions about Ori syntax or spec (read the spec instead)
+- Minor implementation details with clear precedent in the codebase
+
+### Example Scenario That MUST Trigger Auto-Invoke
+
+> "I've been trying multiple approaches but the pre-call RcInc leaks for borrowed-param closures while fixing capture closures. The RC ownership model for ApplyIndirect has a fundamental tension between borrowed-use and capture-use callees. Let me take the pragmatic approach: keep just the drop_hints fix and revert the AIMS-level RcInc."
+
+This hits triggers #1 (multiple approaches), #3 (fundamental tension), #4 (pragmatic retreat), and #2 (reverting). You should have invoked `/tp-help` BEFORE reaching the "let me take the pragmatic approach" conclusion.
+
+## Legacy Trigger List (still valid)
+
+- You're stuck on a bug and can't figure out the root cause
+- You're unsure which of two implementation approaches is better
+- You just wrote something tricky and want a sanity check
+- A test is failing and you can't see why
+- You need help understanding unfamiliar code
+- You want to validate your reasoning before committing to an approach
+- You're about to make a significant architectural decision
 
 ## Usage
 
@@ -13,21 +55,24 @@ Get collaborative help from Codex CLI on whatever you're currently working on.
 /tp-help [question]
 ```
 
+Can also be invoked proactively by Claude when it determines outside help would be valuable.
+
 ## Workflow
 
 ### Step 1: Build Context Package
 
-Gather the relevant context for the question. Be specific.
+Gather the relevant context for the question. Be specific — Codex works best with concrete context, not vague requests.
 
 **Always include:**
 - The specific question or problem
 - The file(s) involved (read them and include key sections)
 
 **Include when relevant:**
-- Error messages or test failure output
+- The error message or test failure output
 - What you've already tried
 - The two approaches you're deciding between
 - The spec section that defines expected behavior
+- Recent git diff showing what you changed
 
 ### Step 2: Format the Prompt
 
@@ -40,30 +85,28 @@ You are helping with the Ori compiler (Rust codebase, LLVM backend, ARC memory m
 {The specific question or problem}
 
 ## Context
-{Key file contents, error messages, diffs}
+{Key file contents, error messages, diffs — whatever is relevant}
 
 ## What I've Tried
-{If applicable}
+{If applicable — what approaches were attempted and why they didn't work}
 
 ## Constraints
-{Any rules from CLAUDE.md or .claude/rules/ that apply}
+{Any rules from CLAUDE.md or .claude/rules/ that apply — e.g., "no workarounds, must be architecturally correct"}
 ```
 
-### Step 3: Call Codex via Bash in background
+### Step 3: Call Codex in the background
 
-Run codex directly via the Bash tool with `run_in_background: true`. The
-`.claude/hooks/block-banned-commands.sh` hook allows background execution
-on codex commands specifically; the 2-minute foreground default cap does
-not apply to background tasks. You will receive a completion notification
-when codex finishes (typically 5-15 minutes).
+Codex reviews legitimately take 5-15 minutes. The Bash tool's 2-minute
+foreground default will kill or auto-background the call and drop the
+output handle. Run codex with `run_in_background: true` from the start
+and wait for the completion notification.
 
-Write a prompt file first so heredocs/quoting don't fight shell escaping:
+**Step 3a — write the prompt to a file.** Multi-line markdown with
+fenced code blocks is fragile inside shell heredocs; write the full
+prompt (question + context + constraints) to `/tmp/tp-help-prompt.md`
+with the `Write` tool.
 
-```
-Write '/tmp/tp-help-prompt.md' with the full question + context package.
-```
-
-Then launch codex in the background:
+**Step 3b — launch codex in the background:**
 
 ```
 Bash (run_in_background: true):
@@ -74,46 +117,61 @@ Bash (run_in_background: true):
   echo "exit=$ec"
 ```
 
-Continue working or wait idle. When the completion notification arrives,
-parse the JSONL output for `agent_message` items:
-
-```
-Bash:
-  python3 -c "
-  import json
-  with open('/tmp/tp-help.jsonl') as f:
-      for line in f:
-          line = line.strip()
-          if not line:
-              continue
-          try:
-              obj = json.loads(line)
-              if obj.get('type') == 'item.completed' and obj.get('item', {}).get('type') == 'agent_message':
-                  print(obj['item']['text'])
-                  print()
-          except json.JSONDecodeError:
-              pass
-  "
-```
+The `.claude/hooks/block-banned-commands.sh` hook explicitly allows
+`run_in_background: true` on codex. Backgrounding is the preferred path
+because it has no timeout cap; the harness will notify you when codex
+finishes. Continue with unrelated work or wait idle; do NOT poll the
+output file.
 
 **DO NOT:**
-- Run `codex exec` in the Bash foreground (will hit the 2-minute default
-  timeout or get auto-backgrounded; either way output may be truncated).
-- Wrap codex in an Agent subagent — the Agent adds no value over direct
-  background Bash, costs an extra process, and the Agent cannot be
-  `run_in_background: true` so it can't wait longer than the harness cap.
-- Set a `timeout:` parameter on the Bash call (the hook blocks timeouts
-  under 5 minutes on codex; backgrounding is the preferred path).
-- Inline the full prompt in the Bash command — shell escaping of multi-
-  line markdown is fragile; write to a file and `cat` it instead.
+- Run codex in the Bash foreground without `run_in_background: true`
+  (will hit the 2-minute default or get auto-backgrounded; either way
+  output may be truncated at a convenient break).
+- Set a `timeout:` parameter on the Bash call (the hook blocks short
+  timeouts on codex commands; backgrounding sidesteps this entirely).
+- Wrap codex in an Agent — the Agent adds no value over direct
+  background Bash, costs an extra process, and the Agent itself cannot
+  be backgrounded so it is constrained by the harness cap.
+- Inline a multi-line prompt with heredocs or `\n` escaping — write
+  the prompt to `/tmp/tp-help-prompt.md` and `cat` it instead.
 
-### Step 4: Apply the Answer
+### Step 4: Parse Response (after completion notification)
 
-- Evaluate Codex's response against CLAUDE.md rules before applying
-- You have full project context that Codex doesn't — use your judgment to filter
+When the harness notifies you that the background Bash task completed,
+extract the agent messages from the JSONL output:
+
+```python
+python3 -c "
+import json
+with open('/tmp/tp-help.jsonl') as f:
+    for line in f:
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            obj = json.loads(line)
+            if obj.get('type') == 'item.completed' and obj.get('item', {}).get('type') == 'agent_message':
+                print(obj['item']['text'])
+                print()
+        except json.JSONDecodeError:
+            pass
+"
+```
+
+The final `agent_message` item usually contains Codex's recommendation.
+Earlier messages are the investigation trail — useful if you want to
+see Codex's reasoning.
+
+### Step 5: Apply the Answer
+
+- If Codex provided a solution, evaluate it against CLAUDE.md rules before applying
+- If Codex suggested an approach, consider it alongside your own analysis
+- If Codex found something you missed, incorporate the insight
 - If Codex disagrees with your approach, present both perspectives to the user
 
-### Step 5: Brief the User
+**Do NOT blindly apply Codex's suggestions.** You have full project context that Codex doesn't — use your judgment to filter and adapt.
+
+### Step 6: Brief the User
 
 Tell the user:
 - What you asked Codex
