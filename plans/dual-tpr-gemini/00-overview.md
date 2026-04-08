@@ -415,9 +415,9 @@ Baseline measurements before implementation begins. Files this plan will touch (
 |------|-------------------|------------|
 | `.claude/skills/dual-tpr/findings-schema.json` | ~100 | §01 |
 | `.claude/skills/dual-tpr/envelope-format.md` | ~150 | §01 |
-| `.claude/skills/dual-tpr/transport.md` | ~300 | §02 |
-| `.claude/skills/dual-tpr/transport-tests.md` | ~200 | §02 |
-| `.claude/skills/dual-tpr/command-file.md` | ~200 | §03 |
+| `.claude/skills/dual-tpr/transport.md` | ~300 | §03 (actual: 136 LOC — doc scope smaller than estimated) |
+| `.claude/skills/dual-tpr/scripts/transport-tests.sh` | ~200 | §02 (actual: 118 LOC; created as executable `.sh` harness, not `.md` doc as originally estimated) |
+| `.claude/skills/dual-tpr/command-file.md` | ~200 | §03 (actual: 368 LOC — methodology expanded during extraction) |
 | `.claude/skills/review-plan/SKILL.md` | ~300 | §06 |
 | `.gemini/skills/review-work/SKILL.md` | ~200 | §03 |
 | `.gemini/skills/review-plan/SKILL.md` | ~200 | §03 |
@@ -469,7 +469,7 @@ Bugs discovered during Phase 2 research that affect this plan's scope:
 |----|-------|------|--------|
 | 01 | Contracts + foundation | `section-01-contracts-foundation.md` | Complete (gates deferred per user direction; see §01.N resolved entries) |
 | 02 | Shared transport utility | `section-02-transport.md` | Complete (gates deferred per user direction; see §02.N resolved entries) |
-| 03 | Reviewer surface preparation | `section-03-reviewer-surface.md` | Not Started |
+| 03 | Reviewer surface preparation | `section-03-reviewer-surface.md` | Complete (gates deferred per user direction; see §03.N resolved entries) |
 | 04 | /tpr-review dual-source (validation case) | `section-04-tpr-review.md` | Not Started |
 | 05 | /review-work dual-source + Task #10 fix | `section-05-review-work.md` | Not Started |
 | 06 | /review-plan new Claude skill (parallel to existing command file) | `section-06-review-plan.md` | Not Started |
