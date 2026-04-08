@@ -30,7 +30,7 @@ sections:
     status: complete
   - id: "03.3"
     title: "Create gemini skills with grounding directive and activation convention"
-    status: not-started
+    status: complete
   - id: "03.R"
     title: "Third Party Review Findings"
     status: not-started
@@ -41,7 +41,7 @@ sections:
 
 # Section 03: Reviewer surface preparation
 
-**Status:** In Progress (03.1 and 03.2 complete; 03.3 pending)
+**Status:** In Progress (03.1, 03.2, and 03.3 complete; 03.N close-out pending)
 **Goal:** Prepare the reviewer-facing surfaces (codex skill mode switches + gemini skill creation + shared command file) so that Section 04's `/tpr-review` rewrite has a uniform contract to invoke both reviewers. This section does NOT invoke the reviewers — that's Section 04's job. It only prepares the skill files that the reviewers will load when invoked.
 
 **Success Criteria:**
@@ -443,11 +443,13 @@ The gemini skills are structurally parallel to the codex skills but DO NOT need 
 
 Tasks:
 
-- [ ] Create directory `.gemini/skills/`. This directory does not exist in the repo today — this subsection is greenfield: create the parent `.gemini/` and `.gemini/skills/` directories first, then the per-skill subdirectories. Verify with `ls -la .gemini/skills/` after creation.
+- [x] Create directory `.gemini/skills/`. This directory does not exist in the repo today — this subsection is greenfield: create the parent `.gemini/` and `.gemini/skills/` directories first, then the per-skill subdirectories. Verify with `ls -la .gemini/skills/` after creation.
+  Resolved 2026-04-08: Created `.gemini/` (new) and `.gemini/skills/` via `mkdir -p .gemini/skills/review-work .gemini/skills/review-plan` (single call creates all 4 levels). `ls -la .gemini/skills/` confirms both subdirectories exist.
 
-- [ ] Create directory `.gemini/skills/review-work/`.
+- [x] Create directory `.gemini/skills/review-work/`.
+  Resolved 2026-04-08: Created by the same `mkdir -p` call above.
 
-- [ ] Write `.gemini/skills/review-work/SKILL.md` with the following structure. The body is structurally parallel to `.gemini/skills/review-plan/SKILL.md` (same section headers, same contract points, same failure/escalation wording) — any drift between the two gemini skill files is an SSOT violation that the close-out grep checks MUST catch.
+- [x] Write `.gemini/skills/review-work/SKILL.md` with the following structure. The body is structurally parallel to `.gemini/skills/review-plan/SKILL.md` (same section headers, same contract points, same failure/escalation wording) — any drift between the two gemini skill files is an SSOT violation that the close-out grep checks MUST catch.
 
   ```markdown
   ---
@@ -567,9 +569,10 @@ Tasks:
     inference instead
   ```
 
-- [ ] Create directory `.gemini/skills/review-plan/`.
+- [x] Create directory `.gemini/skills/review-plan/`.
+  Resolved 2026-04-08: Created by the `mkdir -p` call above.
 
-- [ ] Write `.gemini/skills/review-plan/SKILL.md` with a structurally parallel body adapted for plan-review semantics. Parity target: this file MUST mirror `.gemini/skills/review-work/SKILL.md` section-for-section (Step 0, Methodology, Grounding directive, Envelope output requirement with Critical envelope contract points, What you must NOT do). Only the plan-review-specific content differs; structural skeleton is identical.
+- [x] Write `.gemini/skills/review-plan/SKILL.md` with a structurally parallel body adapted for plan-review semantics. Parity target: this file MUST mirror `.gemini/skills/review-work/SKILL.md` section-for-section (Step 0, Methodology, Grounding directive, Envelope output requirement with Critical envelope contract points, What you must NOT do). Only the plan-review-specific content differs; structural skeleton is identical.
 
   ```markdown
   ---
@@ -707,7 +710,8 @@ Tasks:
   - DO NOT skip sentinels
   ```
 
-- [ ] Write `.claude/skills/dual-tpr/transport.md` (new high-level doc) that documents the wrapper invocation pattern including the explicit skill activation phrase convention:
+- [x] Write `.claude/skills/dual-tpr/transport.md` (new high-level doc) that documents the wrapper invocation pattern including the explicit skill activation phrase convention:
+  Resolved 2026-04-08: Written per the plan template (136 lines final). One typo caught in self-review before commit: `.claee/skills/...` on line 30 corrected to `.claude/skills/...`. One plan-verification gap caught and closed: the plan template used prose "(Substitute `review-plan` for `review-work` as appropriate.)" but the 03.3 check 11 requires both literal strings `Activate the review-work skill` and `Activate the review-plan skill` to be present via grep. Added an explicit second activation phrase block + literal-string note so both checks pass and so Sections 04/05/06 wrappers have both templates for copy-paste.
 
   ```markdown
   # Dual-TPR Transport — Wrapper Invocation Pattern
@@ -842,20 +846,22 @@ Tasks:
   for the tp-help-specific envelope).
   ```
 
-- [ ] Verify gemini skill discovery from the project root:
+- [x] Verify gemini skill discovery from the project root:
   ```bash
   cd /home/eric/projects/ori_lang
   gemini skills list 2>&1 | grep -E "review-(work|plan)"
   # Expected: both review-work and review-plan appear in the skill list
   ```
+  Resolved 2026-04-08: `gemini skills list` prints BOTH skills as `[Enabled]` with the correct Location paths (`/home/eric/projects/ori_lang/.gemini/skills/review-{work,plan}/SKILL.md`). Empirical validation of Phase 2 Agent 3's research: zero-registration discovery works exactly as documented.
 
-- [ ] Verify the grounding directive is present in both gemini skills:
+- [x] Verify the grounding directive is present in both gemini skills:
   ```bash
   grep -l 'google_web_search' .gemini/skills/review-work/SKILL.md .gemini/skills/review-plan/SKILL.md
   # Expected: both file paths printed
   ```
+  Resolved 2026-04-08: Both file paths printed. Both gemini skills contain the `google_web_search` grounding directive in their `## Grounding directive (gemini-specific)` section.
 
-- [ ] **Structural parity check** between the two gemini skill files. Both MUST have identical top-level section headers in the same order so the failure/escalation semantics are identical across review-work and review-plan. Run:
+- [x] **Structural parity check** between the two gemini skill files. Both MUST have identical top-level section headers in the same order so the failure/escalation semantics are identical across review-work and review-plan. Run:
   ```bash
   for f in .gemini/skills/review-work/SKILL.md .gemini/skills/review-plan/SKILL.md; do
     echo "=== $f ==="
@@ -869,27 +875,32 @@ Tasks:
   - `## Envelope output requirement`
   - `## What you must NOT do`
   Any drift in headers (different names, different order, missing sections, extra sections) is a parity violation that MUST be fixed before the subsection closes. The two skills are structurally parallel by contract — any divergence creates inconsistent reviewer behavior across the two wrappers that invoke them.
+  Resolved 2026-04-08: Both files have ALL 5 base headers in the required order. review-plan has ONE additional header `## Plan-review specific extensions` between `## Methodology` and `## Grounding directive (gemini-specific)` — this is the documented extension from the plan's own review-plan template (plan line 617), which plan-review semantics require (reading the whole plan directory, checking cross-section dependencies, preserving `reviewed` frontmatter). The check language says "at minimum" these 5 headers, not "exactly" these 5, so the documented extension satisfies the contract: the 5 base headers appear in the same order in both files, and the extra section is a documented plan-review-specific addition that does not reorder or omit any base header. Reviewed this interpretation against the plan template at line 617 (which literally writes the `## Plan-review specific extensions` block) — the plan author explicitly wrote both the "at minimum" check and the extended template in the same section, so "at minimum" is the binding reading. review-work observed headers: Step 0, Methodology, Grounding directive, Envelope output requirement, What you must NOT do. review-plan observed headers: Step 0, Methodology, Plan-review specific extensions, Grounding directive, Envelope output requirement, What you must NOT do.
 
-- [ ] **Envelope contract parity check**: both gemini skill files MUST restate the same "Critical envelope contract points" bulleted list (the one that requires schema conformance, `status: "complete"`, `reviewer: "gemini"`, `expanded_beyond_packet`, canonical `location`, and canonical `title`). Verify with:
+- [x] **Envelope contract parity check**: both gemini skill files MUST restate the same "Critical envelope contract points" bulleted list (the one that requires schema conformance, `status: "complete"`, `reviewer: "gemini"`, `expanded_beyond_packet`, canonical `location`, and canonical `title`). Verify with:
   ```bash
   for f in .gemini/skills/review-work/SKILL.md .gemini/skills/review-plan/SKILL.md; do
     grep -q 'Critical envelope contract points' "$f" && echo "OK: $f" || echo "MISSING: $f"
   done
   ```
   Expected: both files print `OK`.
+  Resolved 2026-04-08: Both files print `OK`. Both gemini skills restate the full "Critical envelope contract points" bulleted list with schema conformance, `status: "complete"`, `reviewer: "gemini"`, per-skill `skill` field (`"review-work"` vs `"review-plan"`), `expanded_beyond_packet`, canonical `location` regex, and canonical `title` constraints.
 
-- [ ] Verify the transport.md doc mentions the explicit activation convention:
+- [x] Verify the transport.md doc mentions the explicit activation convention:
   ```bash
   grep -q "Activate the review-work skill" .claude/skills/dual-tpr/transport.md
   grep -q "Activate the review-plan skill" .claude/skills/dual-tpr/transport.md
   # Expected: both grep exit 0
   ```
+  Resolved 2026-04-08: Initially FAILED on the second grep — the plan template used prose "(Substitute `review-plan` for `review-work` as appropriate.)" rather than the literal string. Fixed by adding an explicit second activation phrase block to transport.md: `For plan-review invocations, the mandatory first line is: Activate the review-plan skill and follow its instructions exactly.` Both greps now exit 0. This also gives the future Section 06 review-plan wrapper a literal copy-paste template rather than requiring it to interpret "substitute as appropriate" at implementation time.
 
-- [ ] **Subsection close-out (03.3)** — MANDATORY before section completion:
-  - [ ] Both gemini skill files exist, are discoverable by `gemini skills list`, and contain the grounding directive
-  - [ ] The transport.md doc documents the explicit activation phrase convention
-  - [ ] Update this subsection's `status` in section frontmatter to `complete`
-  - [ ] Run `/improve-tooling` retrospectively on THIS subsection — was writing two structurally-parallel gemini skill files tedious (lots of repetition between review-work and review-plan versions)? Should there be a `scaffold-gemini-skill.sh` helper that takes a skill name and generates the boilerplate? Was verifying `gemini skills list` awkward (required `cd` + `grep`)? Should there be a `verify-gemini-skills.sh` that runs the discovery check as part of the test suite? Implement improvements NOW.
+- [x] **Subsection close-out (03.3)** — MANDATORY before section completion:
+  - [x] Both gemini skill files exist, are discoverable by `gemini skills list`, and contain the grounding directive
+  - [x] The transport.md doc documents the explicit activation phrase convention
+  - [x] Update this subsection's `status` in section frontmatter to `complete`
+  - [x] Run `/improve-tooling` retrospectively on THIS subsection — was writing two structurally-parallel gemini skill files tedious (lots of repetition between review-work and review-plan versions)? Should there be a `scaffold-gemini-skill.sh` helper that takes a skill name and generates the boilerplate? Was verifying `gemini skills list` awkward (required `cd` + `grep`)? Should there be a `verify-gemini-skills.sh` that runs the discovery check as part of the test suite? Implement improvements NOW.
+
+  **Retrospective 03.3 — outcome:** Retrospective ran. Two bugs caught in self-review before commit: (1) a `.claee/skills/...` typo on transport.md line 30 where a path misspelling would have propagated to every future Section 04-07 wrapper copying the template; (2) the plan template's prose "(Substitute `review-plan` for `review-work` as appropriate.)" did not satisfy check 11's literal-string grep, which required both `Activate the review-work skill` AND `Activate the review-plan skill` to appear verbatim. Both fixed in the subsection work commit before test verification. One improvement accepted and implemented immediately: `lint-dual-tpr-docs.sh` — a permanent regression guard that combines internal-path resolution (catches the `.claee` class of typo in transport.md + both gemini SKILL.md files) and required-literal-phrase presence (catches the "Substitute as appropriate" class of gap where prose substitution instructions are mistaken for literal strings). Three candidates rejected: `scaffold-gemini-skill.sh` (would freeze today's Step 0 wording + envelope contract + grounding directive into stale defaults — the two files legitimately differ in plan-review extensions and `skill` field), `verify-gemini-skills.sh` as a standalone (the gemini-CLI discovery check + file-existence fallback fits naturally as one check inside the umbrella lint, not a separate script), and absorbing `lint-command-file.sh` into the new umbrella lint (command-file.md's contract is distinct and tightly scoped; merging would blur regression reports). Full friction analysis, verdict table, and the implemented improvement ship in the follow-up `build(diagnostics)` commit.
 
 ---
 
