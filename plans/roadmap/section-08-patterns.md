@@ -67,7 +67,7 @@ sections:
     verified: "2026-03-29"
   - id: "8.15"
     title: Hygiene Notes
-    status: in-progress
+    status: not-started
   - id: "8.16"
     title: Section Completion Checklist
     status: not-started

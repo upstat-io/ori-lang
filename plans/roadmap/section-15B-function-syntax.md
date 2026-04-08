@@ -24,7 +24,7 @@ sections:
     status: done
   - id: "15B.6"
     title: Section Completion Checklist
-    status: not-started
+    status: in-progress
 ---
 
 # Section 15B: Function Syntax
