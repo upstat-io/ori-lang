@@ -21,7 +21,7 @@ depends_on: ["03"]
 third_party_review:
   status: findings
   updated: 2026-04-08
-  note: "All 7 findings triaged; 5 actionable resolved via commits e976cd75, a91af1b6, 94520716, 8684534f; 2 positive confirmations resolved with notes. Status stays `findings` until the semantic-loop re-run returns clean."
+  note: "Iteration 1: 5 actionable + 2 confirmations (all resolved). Iteration 2: 4 actionable + 3 confirmations/observations (all resolved via commits 1634cea3, 501a409e, 800020f6, 4b25e26a). Every actionable finding was independently verified against the code before fixing, per the new verification protocol in tpr-review/SKILL.md §5. Status stays `findings` until iteration 3 returns clean."
 sections:
   - id: "04.1"
     title: "Rewrite .claude/skills/tpr-review/SKILL.md for dual-source transport"
@@ -270,6 +270,47 @@ First real-reviewer round on 2026-04-08. Scope: commits `81ff576b..a5a2753f` (11
   Impact: Architectural consistency and reliability across the dual-source review pipeline.
   Basis: direct_file_inspection. Confidence: high. Citations: [{url: "https://openai.com/index/introducing-structured-outputs-in-the-api/", description: "OpenAI Structured Outputs documentation regarding JSON Schema subset limitations."}]
   Resolved: 2026-04-08 — Positive observation, not a finding. Gemini was confirming that the BUG-08-003 SSOT architecture (schema for structure + envelope_invariants.py for invariants) is sound. No code change required. This is exactly the pattern described in `.claude/rules/impl-hygiene.md` § SSOT applied to the dual-TPR envelope format. The citation validates that the OpenAI subset constraints drove the refactor correctly.
+
+---
+
+**Iteration 2 findings (2026-04-08):** First dual-source review with the new grounding block (read CLAUDE.md + .claude/rules/*.md FIRST). Round: codex 418s walltime + gemini 573s walltime, succeeded on attempt 1. Merged summary: codex 4 findings, gemini 4 findings, 0 exact (location, title) agreements but strong SEMANTIC agreement on 2 issues (both reviewers flagged the hook regex as incomplete + both flagged the classifier's SSOT). Applied the new verification protocol from tpr-review/SKILL.md §5: every actionable finding independently verified against the cited code before fixing.
+
+- [x] `[TPR-04-001-codex][medium]` `.claude/hooks/block-banned-commands.sh:99` — Handle shell env-value forms that still bypass the timeout gate.
+  Evidence (codex): `fresh_verification` — codex ran live probes and confirmed ALLOW on 4 bypass forms: escaped double quote, `$(...)` command substitution, backtick substitution, heredoc in subshell.
+  Verified independently 2026-04-08: reproduced all 4 bypass forms against the live hook and confirmed ALLOW. Also found 3 additional bypass forms (literal newline separator, backslash-newline continuation, tab as word separator) that neither reviewer flagged. Total: 7 verified bypasses against the iteration-1 regex.
+  Resolved 2026-04-08 in commit `4b25e26a`: architectural fix replaced the regex-based REVIEW_CMD_RE with a character-level shell tokenizer at `.claude/hooks/classify-review-command.py` (~90 lines of Python state machine tracking quote/subshell/substitution/compound-operator state). Every command-position token is now checked for 'codex' or 'gemini' after skipping leading env-var assignments, regardless of how the value is quoted or substituted. 38/38 hook tests passing (was 31/31), with 7 new test cases pinning each verified bypass form. The earlier iteration-1 fix was a surface patch (simple quoted alternation) that left the root cause intact (regex can't parse shell) — this fix addresses the root cause.
+
+- [x] `[TPR-04-002-codex][medium]` `.claude/skills/dual-tpr/scripts/dual-invoke-with-retry.sh:52` — Sync parser missing_dependency outcomes with the retry classifier.
+  Evidence (codex): `direct_file_inspection` — parse-codex.py:49 and parse-gemini.py:54 emit `missing_dependency` but the classifier's terminal list omits it, so `codex_missing_dependency` and `gemini_missing_dependency` would be retried as transient.
+  Verified independently 2026-04-08: grepped `missing_dependency` across the scripts directory and confirmed 3 emissions (parse-codex.py:49, parse-gemini.py:54, validate-envelope.py:32). None of these categories were in the classifier. This is the kind of DRIFT finding the classifier comment block was supposed to prevent.
+  Resolved 2026-04-08 in commit `501a409e`: added `codex_missing_dependency` and `gemini_missing_dependency` to `is_terminal_failure()`. Updated the SSOT comment block to include `missing_dependency` in the parse-*.py canonical list. The earlier iteration-1 SSOT audit (TPR-04-001-codex fix) missed this category; this commit closes the gap.
+
+- [x] `[TPR-04-003-codex][low]` `.claude/skills/dual-tpr/envelope-format.md:136` — Remove the remaining output-schema claims from the live envelope docs.
+  Evidence (codex): `direct_file_inspection` — the iteration-1 TPR-04-003-codex fix only touched the Overview + SSOT-pointer block, missing envelope-format.md:136-158, :459-464, and fixtures/stub-bin/codex:4-5.
+  Verified independently 2026-04-08: read each cited line range and confirmed all three locations still described the asymmetric-era model (CLI-level `--output-schema` enforcement) as current behavior, contradicting dual-invoke.sh:82-91 and parse-codex.py:13-18.
+  Resolved 2026-04-08 in commit `800020f6`: added historical-context notes to both envelope-format.md sections marking the asymmetric-era text as pre-BUG-08-003-phase-2 and describing the current parser-layer-symmetric model. Updated fixtures/stub-bin/codex header and the wire-format comment to match the current codex invocation pattern. Remaining `--output-schema` references in the tree are either historical-context notes, lint-command-file.sh grep patterns (which check OTHER files for stale references), or the schema file's own description (already updated in 94520716).
+
+- [x] `[TPR-04-004-codex][low]` `.claude/skills/dual-tpr/scripts/status-check.sh:38` — Validate the events flag before passing to Python.
+  Evidence (codex): `fresh_verification` — codex ran `status-check.sh "$tmp" --events foo` and reproduced a Python traceback from `int(os.environ.get("EVENT_COUNT", "5"))` at line 93.
+  Verified independently 2026-04-08: ran `status-check.sh $RUN --events foo` and reproduced the `ValueError: invalid literal for int() with base 10: 'foo'` traceback. Exit code was 0 despite the crash, which double-confirms the bug: a script that crashed halfway through should not report success.
+  Resolved 2026-04-08 in commit `1634cea3`: added bash-level validation of `--events` before launching Python. Rejects empty, non-numeric (`foo`, `3.14`, `1e2`), zero, and negative values with exit 2 and a clean usage error. Verified 6 invalid forms correctly rejected, 3 valid forms correctly accepted.
+
+- [x] `[TPR-04-001-gemini][medium]` `.claude/hooks/block-banned-commands.sh:78` — Close remaining bypasses in review timeout gate regex.
+  Evidence (gemini): `direct_file_inspection` — the iteration-1 ENV_VAL alternation didn't handle escaped double quotes, heredocs, or backslash-newline continuation.
+  Verified independently 2026-04-08 alongside TPR-04-001-codex: all bypasses gemini flagged were real. Gemini's citation to specific bypass forms (escaped quotes, heredocs, backslash-newlines) matched reality.
+  Resolved 2026-04-08 in commit `4b25e26a`: fixed by the same shell-tokenization rewrite as TPR-04-001-codex. Semantic agreement between the two reviewers on this concern — different line numbers, different titles, but same root cause and same architectural fix.
+
+- [x] `[TPR-04-002-gemini][low]` `plans/dual-tpr-gemini/section-04-tpr-review.md:1` — Document canary-phase usage of unvalidated transport.
+  Evidence (gemini): `direct_file_inspection` — the /tpr-review skill is active, every review now uses the Section 04 transport, but Scenarios 1 and 2 (real reviewer agreement/disagreement) from the original gate are still pending.
+  Resolved 2026-04-08 — Non-actionable observation, gemini itself noted `required_plan_update: None`. The canary phase IS documented — section-04-tpr-review.md §04.3 has the working notes from the phase 3 real-reviewer attempt (the round that succeeded and produced iteration-1 findings). No additional code or plan change needed.
+
+- [x] `[TPR-04-003-gemini][low]` `.claude/skills/dual-tpr/scripts/dual-invoke-with-retry.sh:91` — Confirm terminal failure classifier alignment with parsers.
+  Evidence (gemini): `fresh_verification` — commit e976cd75 correctly removed unreachable categories and aligned with actual parser emissions.
+  Resolved 2026-04-08 — Positive confirmation, not a finding. Gemini was confirming the TPR-04-001-codex iteration-1 fix. The subsequent iteration-2 TPR-04-002-codex finding (missing_dependency drift) shows the classifier was MORE drifted than gemini noticed, but gemini's overall assessment that e976cd75 was a step in the right direction is accurate.
+
+- [x] `[TPR-04-004-gemini][low]` `.claude/skills/dual-tpr/scripts/dual-invoke.sh:105` — Confirm subshell exit code propagation.
+  Evidence (gemini): `fresh_verification` — commit 8684534f correctly implements `exit "$CODEX_RC"` / `exit "$GEMINI_RC"` so the parent's wait call returns the true reviewer status.
+  Resolved 2026-04-08 — Positive confirmation, not a finding. Same pattern as TPR-04-003-gemini: gemini is validating that the BUG-08-007/TPR-04-002-gemini iteration-1 fix works as documented.
 
 ---
 
