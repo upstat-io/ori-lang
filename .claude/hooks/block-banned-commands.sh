@@ -76,9 +76,29 @@ done
 #      via their single-char boundary members) and optional env vars
 # The command must also be followed by whitespace (real invocations
 # always have at least one argument: `codex exec`, `gemini -p`, etc.).
+#
+# TPR-04-001-gemini fix: the env-var value part must accept quoted values
+# that contain whitespace. The previous pattern `[^[:space:]]*` stopped at
+# the first space in values like `VAR="val with space" codex`, so the
+# regex would fail to match `codex` after the quoted value and the
+# command would bypass the timeout gate. The new ENV_VAL alternation
+# accepts: double-quoted strings, single-quoted strings, OR unquoted
+# non-whitespace values — in that order so a leading `"` or `'` is
+# interpreted as a quoted value, not as the start of an unquoted value.
+#
 # See `.claude/hooks/verify-hook.sh` for the full matrix and
 # `plans/bug-tracker/fix-BUG-08-001.md` for the design rationale.
-REVIEW_CMD_RE='(^[[:space:]]*|[|;&(][[:space:]]*)([[:alnum:]_]+=[^[:space:]]*[[:space:]]+)*(codex|gemini)[[:space:]]'
+#
+# Constructed as concatenated fragments rather than one literal so the
+# single-quote escaping stays readable.
+ENV_IDENT='[[:alnum:]_]+'
+# Double-quoted value | single-quoted value | unquoted non-whitespace value.
+# The quoted cases come first so they consume the whole quoted string
+# including internal whitespace; the unquoted fallback only fires when
+# neither quote is present.
+ENV_VAL='("[^"]*"|'\''[^'\'']*'\''|[^[:space:]]*)'
+ENV_PREFIX="(${ENV_IDENT}=${ENV_VAL}[[:space:]]+)*"
+REVIEW_CMD_RE="(^[[:space:]]*|[|;&(][[:space:]]*)${ENV_PREFIX}(codex|gemini)[[:space:]]"
 
 TIMEOUT=$(printf '%s' "$INPUT" | python3 -c "import sys,json; print(json.load(sys.stdin).get('tool_input',{}).get('timeout',''))" 2>/dev/null || true)
 

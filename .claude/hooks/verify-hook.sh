@@ -186,6 +186,23 @@ run_test "gemini --approval-mode → DENY (flag-form invocation still denied)" \
 run_test "gemini --output-format stream-json -p → DENY (flag-form invocation still denied)" \
   "gemini --output-format stream-json -p test" 60000 deny "20-35 minutes"
 
+# ── Bypass closure — quoted env-var values (TPR-04-001-gemini) ───────
+# Codex review (gemini reviewer) found that the prior env-var prefix
+# pattern `[^[:space:]]*` stopped at the first space in a quoted value,
+# letting `VAR="val with space" codex ...` bypass the timeout gate. The
+# fix accepts quoted env-var values (double and single) as well as
+# unquoted ones. These tests pin the closure: any form of env-var
+# prefixing must still reach the codex/gemini command on the right.
+
+run_test 'VAR="val with space" codex exec → DENY (double-quoted env-var value bypass closed)' \
+  'VAR="val with space" codex exec test' 60000 deny "20-35 minutes"
+run_test "VAR='single quoted' codex exec → DENY (single-quoted env-var value bypass closed)" \
+  "VAR='single quoted' codex exec test" 60000 deny "20-35 minutes"
+run_test 'A=1 B="two words" C=3 codex exec → DENY (mixed quoted and unquoted env-var values)' \
+  'A=1 B="two words" C=3 codex exec test' 60000 deny "20-35 minutes"
+run_test 'FOO="bar baz" gemini -p → DENY (quoted env-var + gemini)' \
+  'FOO="bar baz" gemini -p test' 60000 deny "20-35 minutes"
+
 if (( ! QUIET )); then
   printf '\n'
 fi
