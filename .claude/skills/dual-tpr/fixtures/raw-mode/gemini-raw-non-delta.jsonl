@@ -1,0 +1,5 @@
+{"type": "message", "role": "user", "content": "user input"}
+{"type": "message", "role": "assistant", "content": "delta false chunk", "delta": false}
+{"type": "message", "role": "assistant", "content": "delta true chunk A", "delta": true}
+{"type": "message", "role": "assistant", "content": "delta true chunk B", "delta": true}
+{"type": "result", "status": "success"}

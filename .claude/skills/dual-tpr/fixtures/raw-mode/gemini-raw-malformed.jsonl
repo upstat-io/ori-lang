@@ -1,0 +1,2 @@
+not valid json
+{"type": "message", "role": "assistant", "content": "should not reach here", "delta": true}

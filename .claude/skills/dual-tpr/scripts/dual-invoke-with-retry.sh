@@ -38,6 +38,17 @@ done
 [[ -z "$RUN" ]] && { echo "missing --run arg" >&2; exit 2; }
 [[ -z "$SCHEMA" ]] && { echo "missing --schema arg" >&2; exit 2; }
 
+# ORI_TPR_REVIEWERS runtime toggle (§07.2, moved from §08.2). When a
+# reviewer is excluded, dual-invoke.sh skips launching it — so the
+# retry wrapper must ALSO skip parsing its (absent) JSONL output.
+# Default is `both` so every existing caller (§04/§05 wrappers)
+# runs unchanged.
+REVIEWERS="${ORI_TPR_REVIEWERS:-both}"
+if [[ "$REVIEWERS" != "codex" && "$REVIEWERS" != "gemini" && "$REVIEWERS" != "both" ]]; then
+  echo "invalid ORI_TPR_REVIEWERS: $REVIEWERS (must be codex|gemini|both)" >&2
+  exit 2
+fi
+
 # is_terminal_failure: classify a failure category as either terminal (no
 # retry) or retryable (worth another attempt). Returns 0 (true) for terminal,
 # 1 (false) for retryable.
@@ -144,14 +155,16 @@ while [[ $ATTEMPT -lt $MAX_RETRIES ]]; do
   # Snapshot worktree before reviewer run
   "$SCRIPT_DIR/worktree-guard.sh" snapshot "$RUN/worktree-before.txt"
 
-  # Launch both reviewers
+  # Launch reviewers per ORI_TPR_REVIEWERS filter (default: both). Parser
+  # calls are gated by the same filter — skipping an absent JSONL file
+  # would otherwise produce a spurious "missing_envelope" failure.
   if ! "$SCRIPT_DIR/dual-invoke.sh" "${ARGS[@]}"; then
     FAILURE="launch_or_exit_fail"
     echo "[$(date +%s)] $FAILURE on attempt $ATTEMPT" >> "$RUN/round.log"
-  elif ! "$SCRIPT_DIR/parse-codex.py" --jsonl "$RUN/codex.jsonl" --schema "$SCHEMA" > "$RUN/codex.envelope.json" 2> "$RUN/codex.parse-error"; then
+  elif [[ ( "$REVIEWERS" == "codex" || "$REVIEWERS" == "both" ) ]] && ! "$SCRIPT_DIR/parse-codex.py" --jsonl "$RUN/codex.jsonl" --schema "$SCHEMA" > "$RUN/codex.envelope.json" 2> "$RUN/codex.parse-error"; then
     FAILURE="codex_$(head -1 "$RUN/codex.parse-error")"
     echo "[$(date +%s)] $FAILURE on attempt $ATTEMPT" >> "$RUN/round.log"
-  elif ! "$SCRIPT_DIR/parse-gemini.py" --jsonl "$RUN/gemini.jsonl" --schema "$SCHEMA" > "$RUN/gemini.envelope.json" 2> "$RUN/gemini.parse-error"; then
+  elif [[ ( "$REVIEWERS" == "gemini" || "$REVIEWERS" == "both" ) ]] && ! "$SCRIPT_DIR/parse-gemini.py" --jsonl "$RUN/gemini.jsonl" --schema "$SCHEMA" > "$RUN/gemini.envelope.json" 2> "$RUN/gemini.parse-error"; then
     FAILURE="gemini_$(head -1 "$RUN/gemini.parse-error")"
     echo "[$(date +%s)] $FAILURE on attempt $ATTEMPT" >> "$RUN/round.log"
   elif ! "$SCRIPT_DIR/worktree-guard.sh" compare "$RUN/worktree-before.txt" 2> "$RUN/worktree-error"; then

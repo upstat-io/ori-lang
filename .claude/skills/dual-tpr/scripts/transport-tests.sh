@@ -9,6 +9,11 @@
 # Supported --test-only categories:
 #   schema_optional  — the 4-cell matrix pinning dual-invoke.sh's --schema optional contract
 #                      (added by §07.0 of the dual-tpr-gemini plan)
+#   raw_parsers      — the 13-cell matrix pinning parse-codex-raw.py + parse-gemini-raw.py
+#                      behavior (added by §07.2 of the dual-tpr-gemini plan). 6 codex cells
+#                      (C1-C6) + 7 gemini cells (G1-G7). Includes semantic pins (C2 last-wins,
+#                      G1 multi-chunk concatenation) and negative pins (C5 no agent_message,
+#                      G3 no terminator, G7 result=failure).
 #
 # Exits 0 if all tests pass, non-zero if any test fails.
 
@@ -38,8 +43,8 @@ while [[ $# -gt 0 ]]; do
 done
 
 # Reject unknown --test-only values loudly so typos don't silently run no tests
-if [[ -n "$TEST_ONLY" && "$TEST_ONLY" != "schema_optional" ]]; then
-  echo "unsupported --test-only category: $TEST_ONLY (supported: schema_optional)" >&2
+if [[ -n "$TEST_ONLY" && "$TEST_ONLY" != "schema_optional" && "$TEST_ONLY" != "raw_parsers" ]]; then
+  echo "unsupported --test-only category: $TEST_ONLY (supported: schema_optional, raw_parsers)" >&2
   exit 2
 fi
 
@@ -119,9 +124,144 @@ run_schema_optional_tests() {
   rm -rf "$RUN1" "$RUN2"
 }
 
+# raw_parsers_cell helper — runs a single raw-mode parser cell and verifies
+# stdout, stderr substring, and exit code all match expectations. Added by
+# §07.2 of the dual-tpr-gemini plan. Unlike test_case (which only checks
+# exit code), raw parsers MUST pin their full output contract: the stdout
+# is load-bearing (it's the concatenated reviewer response), and the stderr
+# category names (missing_agent_message, missing_terminator, parse_fail,
+# missing_assistant_content) are consumed by downstream error classifiers
+# in dual-invoke-with-retry.sh. A cell that passes the exit code check
+# but drifts on stderr text would silently break retry classification.
+raw_parsers_cell() {
+  local name="$1" script="$2" fixture="$3"
+  local expected_stdout="$4" expected_stderr="$5" expected_rc="$6"
+  local got_stdout got_stderr got_rc stderr_tmp
+  stderr_tmp=$(mktemp)
+  got_stdout=$("$script" --jsonl "$fixture" 2>"$stderr_tmp")
+  got_rc=$?
+  got_stderr=$(cat "$stderr_tmp")
+  rm -f "$stderr_tmp"
+
+  local stdout_ok=1 stderr_ok=1 rc_ok=1
+  [[ "$got_stdout" == "$expected_stdout" ]] || stdout_ok=0
+  if [[ -n "$expected_stderr" ]]; then
+    [[ "$got_stderr" == *"$expected_stderr"* ]] || stderr_ok=0
+  fi
+  [[ "$got_rc" == "$expected_rc" ]] || rc_ok=0
+
+  if [[ $stdout_ok -eq 1 && $stderr_ok -eq 1 && $rc_ok -eq 1 ]]; then
+    echo "  PASS: $name"
+    PASS=$((PASS + 1))
+  else
+    echo "  FAIL: $name"
+    [[ $stdout_ok -eq 0 ]] && echo "         stdout: expected=$(printf '%q' "$expected_stdout") got=$(printf '%q' "$got_stdout")"
+    [[ $stderr_ok -eq 0 ]] && echo "         stderr: expected substring=$(printf '%q' "$expected_stderr") got=$(printf '%q' "$got_stderr")"
+    [[ $rc_ok     -eq 0 ]] && echo "         exit  : expected=$expected_rc got=$got_rc"
+    FAIL=$((FAIL + 1))
+    FAILED_TESTS+=("$name")
+  fi
+}
+
+run_raw_parsers_tests() {
+  # 13-cell matrix pinning parse-codex-raw.py + parse-gemini-raw.py behavior.
+  # Added by §07.2 of the dual-tpr-gemini plan. TDD ordering: this function
+  # is called BEFORE the parsers exist (to verify all 13 cells FAIL with
+  # "script not found"), THEN the parsers are implemented, THEN re-run to
+  # verify all 13 cells PASS. Cell IDs C1-C6 are codex; G1-G7 are gemini.
+  #
+  # Semantic pins:
+  #   C2 — "last agent_message wins" (would fail if parser returned first)
+  #   G1 — "multi-chunk concatenation in arrival order" (would fail if parser
+  #        dropped or reordered chunks)
+  #
+  # Negative pins:
+  #   C5 — "no agent_message → exit 1 + missing_agent_message"
+  #   G3 — "no terminator → exit 1 + missing_terminator"
+  #   G7 — "result status=failure → exit 1 + missing_terminator" (proves
+  #        the parser only accepts status=success as terminator, not any
+  #        result event)
+  echo ""
+  echo "=== raw_parsers matrix (13 cells: 6 codex + 7 gemini) ==="
+
+  local CODEX_RAW="$SCRIPT_DIR/parse-codex-raw.py"
+  local GEMINI_RAW="$SCRIPT_DIR/parse-gemini-raw.py"
+  local F="$SCRIPT_DIR/../fixtures/raw-mode"
+
+  # --- codex cells (C1-C6) ---
+  raw_parsers_cell "C1 codex-raw-happy (single agent_message)" \
+    "$CODEX_RAW" "$F/codex-raw-happy.jsonl" \
+    "hello world" "" "0"
+
+  raw_parsers_cell "C2 codex-raw-multi-message (last wins — semantic pin)" \
+    "$CODEX_RAW" "$F/codex-raw-multi-message.jsonl" \
+    "third" "" "0"
+
+  raw_parsers_cell "C3 codex-raw-empty (no content)" \
+    "$CODEX_RAW" "$F/codex-raw-empty.jsonl" \
+    "" "missing_agent_message" "1"
+
+  raw_parsers_cell "C4 codex-raw-malformed (skip bad line, keep going)" \
+    "$CODEX_RAW" "$F/codex-raw-malformed.jsonl" \
+    "recovered text" "" "0"
+
+  raw_parsers_cell "C5 codex-raw-no-agent-message (negative pin)" \
+    "$CODEX_RAW" "$F/codex-raw-no-agent-message.jsonl" \
+    "" "missing_agent_message" "1"
+
+  raw_parsers_cell "C6 codex-raw-truncated (tolerate half-line at tail)" \
+    "$CODEX_RAW" "$F/codex-raw-truncated.jsonl" \
+    "complete text" "" "0"
+
+  # --- gemini cells (G1-G7) ---
+  raw_parsers_cell "G1 gemini-raw-happy (concat in order — semantic pin)" \
+    "$GEMINI_RAW" "$F/gemini-raw-happy.jsonl" \
+    "hello world!" "" "0"
+
+  raw_parsers_cell "G2 gemini-raw-single-chunk" \
+    "$GEMINI_RAW" "$F/gemini-raw-single-chunk.jsonl" \
+    "complete answer" "" "0"
+
+  raw_parsers_cell "G3 gemini-raw-no-terminator (negative pin)" \
+    "$GEMINI_RAW" "$F/gemini-raw-no-terminator.jsonl" \
+    "" "missing_terminator" "1"
+
+  raw_parsers_cell "G4 gemini-raw-empty-content (result but no chunks)" \
+    "$GEMINI_RAW" "$F/gemini-raw-empty-content.jsonl" \
+    "" "missing_assistant_content" "1"
+
+  raw_parsers_cell "G5 gemini-raw-malformed (invalid JSON line)" \
+    "$GEMINI_RAW" "$F/gemini-raw-malformed.jsonl" \
+    "" "parse_fail" "1"
+
+  raw_parsers_cell "G6 gemini-raw-non-delta (only delta:true concatenated)" \
+    "$GEMINI_RAW" "$F/gemini-raw-non-delta.jsonl" \
+    "delta true chunk Adelta true chunk B" "" "0"
+
+  raw_parsers_cell "G7 gemini-raw-result-failure (negative pin — only success terminates)" \
+    "$GEMINI_RAW" "$F/gemini-raw-result-failure.jsonl" \
+    "" "missing_terminator" "1"
+}
+
 # --test-only fast path: run ONLY the requested category and exit.
 if [[ "$TEST_ONLY" == "schema_optional" ]]; then
   run_schema_optional_tests
+  echo ""
+  echo "=== summary ==="
+  echo "PASS: $PASS"
+  echo "FAIL: $FAIL"
+  if [[ $FAIL -gt 0 ]]; then
+    echo "Failed tests:"
+    for t in "${FAILED_TESTS[@]}"; do
+      echo "  - $t"
+    done
+    exit 1
+  fi
+  exit 0
+fi
+
+if [[ "$TEST_ONLY" == "raw_parsers" ]]; then
+  run_raw_parsers_tests
   echo ""
   echo "=== summary ==="
   echo "PASS: $PASS"
@@ -203,6 +343,11 @@ test_case "envelope_invariants regression suite" "$?" "0"
 # --test-only. Pins the dual-invoke.sh --schema optional contract
 # (added by §07.0 of the dual-tpr-gemini plan).
 run_schema_optional_tests
+
+# raw_parsers category — runs in the default path too, not just via
+# --test-only. Pins parse-codex-raw.py + parse-gemini-raw.py behavior
+# (added by §07.2 of the dual-tpr-gemini plan).
+run_raw_parsers_tests
 
 if [[ "$INTEGRATION" == "true" ]]; then
   echo ""

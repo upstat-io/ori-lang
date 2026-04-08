@@ -47,7 +47,19 @@ done
   exit 2
 }
 
-echo "[$(date +%s)] dual-invoke start (skill=$SKILL run=$RUN)" >> "$RUN/round.log"
+# ORI_TPR_REVIEWERS runtime toggle (§07.2, moved from §08.2). Lets callers
+# restrict the round to a single reviewer for faster iteration (dual-source
+# wall time ~10x single-source because gemini is the bottleneck). Default is
+# `both` so every existing caller (§04/§05 wrappers, dual-invoke-with-retry.sh)
+# runs unchanged. Backward-compat invariant: `unset ORI_TPR_REVIEWERS` MUST
+# behave identically to pre-toggle dual-invoke.sh.
+REVIEWERS="${ORI_TPR_REVIEWERS:-both}"
+if [[ "$REVIEWERS" != "codex" && "$REVIEWERS" != "gemini" && "$REVIEWERS" != "both" ]]; then
+  echo "invalid ORI_TPR_REVIEWERS: $REVIEWERS (must be codex|gemini|both)" >&2
+  exit 2
+fi
+
+echo "[$(date +%s)] dual-invoke start (skill=$SKILL run=$RUN reviewers=$REVIEWERS)" >> "$RUN/round.log"
 
 # Track child PIDs so we can clean them up on early exit (BUG-08-005). Bash
 # inherits this script's traps into subshells, but the parent tracks the PIDs
@@ -103,59 +115,90 @@ trap cleanup_children EXIT INT TERM
 # parent script still falls back to reading codex.exit if the subshell is
 # killed before it can exit, but the wait RC is now a second redundant
 # signal — defense in depth against a corrupted .exit file.
-(
-  set +e
-  START=$(date +%s)
-  codex exec --full-auto --json --ephemeral "$(cat "$CODEX_PROMPT")" 2>/dev/null > "$RUN/codex.jsonl"
-  CODEX_RC=$?
-  echo "$CODEX_RC" > "$RUN/codex.exit"
-  echo "$(($(date +%s) - START))" > "$RUN/codex.walltime"
-  echo "[$(date +%s)] codex finished (rc=$CODEX_RC)" >> "$RUN/round.log"
-  exit "$CODEX_RC"
-) &
-CODEX_PID=$!
+if [[ "$REVIEWERS" == "codex" || "$REVIEWERS" == "both" ]]; then
+  (
+    set +e
+    START=$(date +%s)
+    codex exec --full-auto --json --ephemeral "$(cat "$CODEX_PROMPT")" 2>/dev/null > "$RUN/codex.jsonl"
+    CODEX_RC=$?
+    echo "$CODEX_RC" > "$RUN/codex.exit"
+    echo "$(($(date +%s) - START))" > "$RUN/codex.walltime"
+    echo "[$(date +%s)] codex finished (rc=$CODEX_RC)" >> "$RUN/round.log"
+    exit "$CODEX_RC"
+  ) &
+  CODEX_PID=$!
+else
+  echo "[$(date +%s)] codex skipped (ORI_TPR_REVIEWERS=$REVIEWERS)" >> "$RUN/round.log"
+fi
 
 # Launch gemini in the background. Same BUG-08-004 + TPR-04-002-gemini fix.
-(
-  set +e
-  START=$(date +%s)
-  gemini --approval-mode yolo --output-format stream-json -p "$(cat "$GEMINI_PROMPT")" 2>/dev/null > "$RUN/gemini.jsonl"
-  GEMINI_RC=$?
-  echo "$GEMINI_RC" > "$RUN/gemini.exit"
-  echo "$(($(date +%s) - START))" > "$RUN/gemini.walltime"
-  echo "[$(date +%s)] gemini finished (rc=$GEMINI_RC)" >> "$RUN/round.log"
-  exit "$GEMINI_RC"
-) &
-GEMINI_PID=$!
+if [[ "$REVIEWERS" == "gemini" || "$REVIEWERS" == "both" ]]; then
+  (
+    set +e
+    START=$(date +%s)
+    gemini --approval-mode yolo --output-format stream-json -p "$(cat "$GEMINI_PROMPT")" 2>/dev/null > "$RUN/gemini.jsonl"
+    GEMINI_RC=$?
+    echo "$GEMINI_RC" > "$RUN/gemini.exit"
+    echo "$(($(date +%s) - START))" > "$RUN/gemini.walltime"
+    echo "[$(date +%s)] gemini finished (rc=$GEMINI_RC)" >> "$RUN/round.log"
+    exit "$GEMINI_RC"
+  ) &
+  GEMINI_PID=$!
+else
+  echo "[$(date +%s)] gemini skipped (ORI_TPR_REVIEWERS=$REVIEWERS)" >> "$RUN/round.log"
+fi
 
-# Wait for BOTH children to complete. BUG-08-005 fix: with `set -e`, the
-# original `wait $CODEX_PID; wait $GEMINI_PID` aborted the script when the
-# first wait returned non-zero, skipping the second wait and leaking the
-# other reviewer subprocess. Disable `set -e` around the waits so we always
-# collect both exit codes, then re-enable it after.
+# Wait for whichever children were launched. BUG-08-005 fix: with `set -e`,
+# the original `wait $CODEX_PID; wait $GEMINI_PID` aborted the script when
+# the first wait returned non-zero, skipping the second wait and leaking
+# the other reviewer subprocess. Disable `set -e` around the waits so we
+# always collect both exit codes, then re-enable it after.
+#
+# §07.2: wait calls are gated on non-empty PIDs because ORI_TPR_REVIEWERS
+# may have skipped one reviewer entirely. `wait ""` is a no-op but some
+# bash versions error — safer to skip the call explicitly.
+CODEX_WAIT_RC=0
+GEMINI_WAIT_RC=0
 set +e
-wait "$CODEX_PID"
-CODEX_WAIT_RC=$?
-wait "$GEMINI_PID"
-GEMINI_WAIT_RC=$?
+if [[ -n "$CODEX_PID" ]]; then
+  wait "$CODEX_PID"
+  CODEX_WAIT_RC=$?
+fi
+if [[ -n "$GEMINI_PID" ]]; then
+  wait "$GEMINI_PID"
+  GEMINI_WAIT_RC=$?
+fi
 set -e
 
 # Read the recorded exit codes (written by the subshells via their own
 # trap-style capture). If a subshell was killed before recording its exit
 # file, fall back to the wait return code so we never report empty.
-if [[ -f "$RUN/codex.exit" ]]; then
-  CODEX_EXIT=$(cat "$RUN/codex.exit")
+#
+# §07.2: when a reviewer was NOT launched (ORI_TPR_REVIEWERS filter), its
+# exit code is synthesized as "0" so the aggregation check at the bottom
+# only fires on real failures from launched reviewers. There is no .exit
+# file to read in that case.
+if [[ "$REVIEWERS" == "codex" || "$REVIEWERS" == "both" ]]; then
+  if [[ -f "$RUN/codex.exit" ]]; then
+    CODEX_EXIT=$(cat "$RUN/codex.exit")
+  else
+    CODEX_EXIT="$CODEX_WAIT_RC"
+    echo "$CODEX_EXIT" > "$RUN/codex.exit"
+    echo "[$(date +%s)] codex.exit was missing; recorded wait rc=$CODEX_EXIT" >> "$RUN/round.log"
+  fi
 else
-  CODEX_EXIT="$CODEX_WAIT_RC"
-  echo "$CODEX_EXIT" > "$RUN/codex.exit"
-  echo "[$(date +%s)] codex.exit was missing; recorded wait rc=$CODEX_EXIT" >> "$RUN/round.log"
+  CODEX_EXIT="0"
 fi
-if [[ -f "$RUN/gemini.exit" ]]; then
-  GEMINI_EXIT=$(cat "$RUN/gemini.exit")
+if [[ "$REVIEWERS" == "gemini" || "$REVIEWERS" == "both" ]]; then
+  if [[ -f "$RUN/gemini.exit" ]]; then
+    GEMINI_EXIT=$(cat "$RUN/gemini.exit")
+  else
+    GEMINI_EXIT="$GEMINI_WAIT_RC"
+    echo "$GEMINI_EXIT" > "$RUN/gemini.exit"
+    echo "[$(date +%s)] gemini.exit was missing; recorded wait rc=$GEMINI_EXIT" >> "$RUN/round.log"
+  fi
 else
-  GEMINI_EXIT="$GEMINI_WAIT_RC"
-  echo "$GEMINI_EXIT" > "$RUN/gemini.exit"
-  echo "[$(date +%s)] gemini.exit was missing; recorded wait rc=$GEMINI_EXIT" >> "$RUN/round.log"
+  GEMINI_EXIT="0"
 fi
 
 echo "[$(date +%s)] dual-invoke done (codex=$CODEX_EXIT gemini=$GEMINI_EXIT)" >> "$RUN/round.log"
