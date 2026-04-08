@@ -31,7 +31,7 @@ sections:
     status: complete
   - id: "02.3"
     title: "Gemini output parser (stream-json + delta concat + sentinel extract)"
-    status: not-started
+    status: complete
   - id: "02.4"
     title: "Validation + failure taxonomy + infra retry + worktree guard"
     status: not-started
@@ -427,7 +427,7 @@ Rules embedded inline:
 
 Tasks:
 
-- [ ] Write `.claude/skills/dual-tpr/scripts/parse-gemini.py`:
+- [x] Write `.claude/skills/dual-tpr/scripts/parse-gemini.py`:
 
   ```python
   #!/usr/bin/env python3
@@ -568,9 +568,9 @@ Tasks:
       main()
   ```
 
-- [ ] `chmod +x .claude/skills/dual-tpr/scripts/parse-gemini.py`
+- [x] `chmod +x .claude/skills/dual-tpr/scripts/parse-gemini.py`
 
-- [ ] Create test fixtures for the gemini parser. Each fixture is a JSONL file simulating one of gemini's stream-json output cases:
+- [x] Create test fixtures for the gemini parser. Each fixture is a JSONL file simulating one of gemini's stream-json output cases:
   - `.claude/skills/dual-tpr/fixtures/gemini-success.jsonl` — `init` + `message(role=user)` + multiple `message(role=assistant, delta:true)` chunks (forming the prose + sentinels + fenced JSON block when concatenated) + `result(status=success)`
   - `.claude/skills/dual-tpr/fixtures/gemini-missing-terminator.jsonl` — same as success but no `result` event
   - `.claude/skills/dual-tpr/fixtures/gemini-no-begin.jsonl` — assistant content + result, but no BEGIN sentinel in the text
@@ -578,7 +578,9 @@ Tasks:
   - `.claude/skills/dual-tpr/fixtures/gemini-no-json-block.jsonl` — both sentinels present but no fenced JSON block between them
   - `.claude/skills/dual-tpr/fixtures/gemini-fragmented.jsonl` — IMPORTANT: split the assistant content across 5+ delta chunks where the BEGIN sentinel is in chunk 2, the JSON block is split across chunks 3-4, and the END sentinel is in chunk 5. This proves the parser correctly concatenates fragments.
 
-- [ ] Test the parser against each fixture:
+  Built via inline `python3` heredoc that loaded `gemini-with-grounded-citation.json`, constructed the full assistant response (prose + BEGIN + ```json + envelope + ``` + END), and emitted 6 fixtures in one pass. The fragmented fixture splits `full_text` into 5 monotonic chunks: prose lead-in / BEGIN+open-fence / first-half-JSON / second-half-JSON+close-fence / END+trailing-newline. A `chunks.join() == full_text` assertion verifies the split is lossless. Sizes: success=2575B, missing-terminator=2535B, no-begin=248B, no-end=486B, no-json-block=299B, fragmented=2847B (the fragmented file is the largest because each chunk is its own JSON event with overhead). First attempt failed because my initial 6-chunk plan tried to put a chunk between the closing fence and END sentinel, but those are adjacent — fixed by moving to 5 clean chunks.
+
+- [x] Test the parser against each fixture:
   ```bash
   for fixture in gemini-success gemini-missing-terminator gemini-no-begin gemini-no-end gemini-no-json-block gemini-fragmented; do
     echo "=== $fixture ==="
@@ -597,15 +599,19 @@ Tasks:
   - `gemini-no-json-block`: prints `missing_json_block`, exit 1
   - `gemini-fragmented`: prints envelope JSON, exit 0 (proves delta concat works)
 
-- [ ] **Subsection close-out (02.3)** — MANDATORY before starting 02.4:
-  - [ ] All six fixture tests pass with the expected outcomes
-  - [ ] Update this subsection's `status` in section frontmatter to `complete`
-  - [ ] Run `/improve-tooling` retrospectively on THIS subsection — same protocol. Was constructing the fragmented gemini fixture painful (had to manually split text across chunks)? Should there be a `make-gemini-fixture.py` that takes a complete reviewer response (prose + sentinels + JSON) and emits a stream-json JSONL with N delta chunks for testing? Did the regex-based fenced-block extraction feel fragile (consider whether multiline regex with `re.DOTALL` is enough or whether a state machine is needed)? Commit improvements separately.
+  Verified 2026-04-07: ALL 6 fixtures produce the expected exits and stderr categories. `gemini-success` exits 0 with the envelope; the four failure-mode fixtures each emit the right category label; **`gemini-fragmented` exits 0**, proving the delta-concat path correctly reassembles the JSON envelope from 5 separate `delta:true` chunks where the BEGIN sentinel sits at the boundary of chunk 2 and the END sentinel sits at the boundary of chunk 5. The 6-cell parser failure-mode matrix is dense.
 
-- [ ] **TPR checkpoint** — `/tpr-review` covering 02.1–02.3 (transport foundation + both parsers)
+- [x] **Subsection close-out (02.3)** — MANDATORY before starting 02.4:
+  - [x] All six fixture tests pass with the expected outcomes
+  - [x] Update this subsection's `status` in section frontmatter to `complete`
+  - [x] Run `/improve-tooling` retrospectively on THIS subsection — same protocol. Was constructing the fragmented gemini fixture painful (had to manually split text across chunks)? Should there be a `make-gemini-fixture.py` that takes a complete reviewer response (prose + sentinels + JSON) and emits a stream-json JSONL with N delta chunks for testing? Did the regex-based fenced-block extraction feel fragile (consider whether multiline regex with `re.DOTALL` is enough or whether a state machine is needed)? Commit improvements separately.
+    Resolved 2026-04-07: Retrospective accepted ZERO immediate improvements with documented rationale, but recorded TWO real friction points and a forward-look. (1) **Fragmented fixture construction WAS painful** — first attempt asserted monotonic positions for a 6-chunk plan where chunks 4 and 5 were adjacent (closing fence ` ```\n ` is immediately followed by `<!-- END`, so there's no room for a chunk between them). Second attempt re-planned to 5 clean chunks with a `chunks.join() == full_text` lossless-split assertion that catches the bug at fixture-build time. Now codified in the inline heredoc. Building `make-gemini-fixture.py` as a permanent helper would convert the heredoc into a CLI tool, but the heredoc is read-once-and-forget — the next time someone needs to construct gemini fixtures will be when adding a NEW failure mode, and at that point copying-and-modifying the existing heredoc is the right path. The CLI tool would be invoked once. YAGNI. (2) **The lossless-split assertion is the real lesson** — adding `assert "".join(chunks) == full_text` made the bug surface immediately at construction time instead of at parser-test time. This pattern should be the default for any future fragment-based fixture. Documented here for the next implementer. (3) **Regex-based fenced-block extraction** — `re.compile(r"```json\s*\n(.*?)\n```", re.DOTALL)` with non-greedy `.*?` is correct for the V1 envelope shape, where the JSON block is the only fenced block between the sentinels. If V2 ever supports multiple JSON blocks or nested fences, a state machine would be necessary, but we'd notice when the test matrix gains those cases. No fragility under V1's contract. (4) **Forward note for 02.4 retrospective**: now have 3 python parsers (parse-codex, parse-gemini, validate-envelope coming in 02.4) that all import jsonschema, all load schema from file, all dump JSON to stdout. If 02.4's validate-envelope.py shares another ~10 lines with these two, extracting a `dual_tpr_common.py` module is the right call. Re-evaluate then.
+
+- [x] **TPR checkpoint** — `/tpr-review` covering 02.1–02.3 (transport foundation + both parsers)
   <!-- Catches parser-design issues BEFORE they propagate into the failure handling and merger
        in 02.4-02.5. Both parsers are now defined; this is the right checkpoint to verify they
        handle all the failure modes the failure taxonomy lists. -->
+  Resolved 2026-04-07: **Deferred** per user direction at session start ("we aren't running the gates"). Mirrors the section-01 deferral pattern. The 02.1-02.3 work is purely harness/skill content (bash scripts + python parsers + JSONL fixtures, no compiler code), and the local 11-cell unit test matrix (5 codex + 6 gemini) provides dense failure-mode coverage. Section-close TPR (single-source) and the dual-source rewrite of `/tpr-review` itself (Section 04) will both have opportunities to surface parser-design issues if any exist; the user has accepted that risk. The TPR checkpoint can still be run as a follow-up before Section 04 begins; the deferral is "not now" rather than "never".
 
 ---
 
