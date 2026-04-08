@@ -715,7 +715,6 @@ fn parse_decimal_unit_value_with_underscores() {
 }
 
 // Soft keyword cache contamination regression tests.
-// See: plans/hygiene-lexer/section-01-soft-keyword-bug.md
 //
 // The IdentCache caches cook_ident() results. When soft keyword text (e.g., "cache")
 // first appears as a regular identifier (no `(` following), it gets cached as Ident.
