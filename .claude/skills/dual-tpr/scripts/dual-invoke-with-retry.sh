@@ -38,6 +38,54 @@ done
 [[ -z "$RUN" ]] && { echo "missing --run arg" >&2; exit 2; }
 [[ -z "$SCHEMA" ]] && { echo "missing --schema arg" >&2; exit 2; }
 
+# is_terminal_failure: classify a failure category as either terminal (no
+# retry) or retryable (worth another attempt). Returns 0 (true) for terminal,
+# 1 (false) for retryable.
+#
+# Terminal categories — deterministic, retry will produce the same result:
+#   dirty_worktree           — reviewer is misbehaving (BUG-08-002 fix)
+#   codex_invalid_*          — codex/OpenAI rejected our request structurally
+#   codex_authentication_*   — auth failures don't fix themselves
+#   codex_schema_violation   — codex emitted JSON that violates the envelope
+#                              schema (deterministic given the same input)
+#   gemini_no_begin          — gemini didn't emit BEGIN sentinel; the skill is
+#                              misconfigured or the prompt is wrong
+#   gemini_authentication_*  — auth failures
+#   gemini_schema_violation  — same as codex
+#   missing_envelope         — reviewer never emitted any envelope at all,
+#                              indicating a fundamental skill/CLI mismatch
+#
+# Retryable categories — could be transient:
+#   launch_or_exit_fail      — could be a launch race or transient cloud error
+#                              (the underlying cause matters; we retry once
+#                              and let codex/gemini sort themselves out)
+#   codex_parse_error        — could be mid-stream truncation from a network
+#                              hiccup
+#   gemini_parse_error       — same
+#   gemini_no_end            — could be a cancelled stream
+#   gemini_missing_terminator — could be a cancelled stream
+#   unknown_failure          — fall back to retry; if it's deterministic the
+#                              caller will see the same category three times
+#
+# Why this is the symmetric form of BUG-08-002: the dirty_worktree fix added
+# a single-case `break`. This generalizes that to a classifier so we don't
+# burn 3 attempts on every newly-discovered deterministic failure mode.
+is_terminal_failure() {
+  local category="$1"
+  case "$category" in
+    dirty_worktree) return 0 ;;
+    codex_invalid_*) return 0 ;;
+    codex_authentication_*) return 0 ;;
+    codex_schema_violation) return 0 ;;
+    codex_missing_envelope) return 0 ;;
+    gemini_no_begin) return 0 ;;
+    gemini_authentication_*) return 0 ;;
+    gemini_schema_violation) return 0 ;;
+    gemini_missing_envelope) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
 ATTEMPT=0
 FAILURE=""
 while [[ $ATTEMPT -lt $MAX_RETRIES ]]; do
@@ -60,19 +108,20 @@ while [[ $ATTEMPT -lt $MAX_RETRIES ]]; do
   elif ! "$SCRIPT_DIR/worktree-guard.sh" compare "$RUN/worktree-before.txt" 2> "$RUN/worktree-error"; then
     FAILURE="dirty_worktree"
     echo "[$(date +%s)] $FAILURE on attempt $ATTEMPT" >> "$RUN/round.log"
-    # BUG-08-002: dirty_worktree is a deterministic reviewer-misbehavior
-    # signal — a misbehaving reviewer will misbehave again on retry, and
-    # the next attempt's fresh snapshot would re-baseline against the
-    # already-dirty state, laundering the failure into a false success.
-    # Treat it as a terminal failure: record, break out of the retry
-    # loop, surface to the user. Other failure categories (launch_or_exit_fail,
-    # codex_*, gemini_*) remain retry-eligible because they CAN be transient.
-    echo "[$(date +%s)] dirty_worktree is deterministic — not retrying" >> "$RUN/round.log"
-    break
   else
     # All checks passed
     echo "[$(date +%s)] round succeeded on attempt $ATTEMPT" >> "$RUN/round.log"
     exit 0
+  fi
+
+  # Generalized terminal-failure classifier (BUG-08-006). Originally only
+  # dirty_worktree was treated as terminal (BUG-08-002 fix); the classifier
+  # generalizes that to all deterministic failure categories so we don't
+  # waste 3 attempts (plus exponential backoff plus partner reviewer quota)
+  # on failures that will recur identically on retry.
+  if is_terminal_failure "$FAILURE"; then
+    echo "[$(date +%s)] $FAILURE is deterministic (terminal) — not retrying" >> "$RUN/round.log"
+    break
   fi
 
   if [[ $ATTEMPT -lt $MAX_RETRIES ]]; then

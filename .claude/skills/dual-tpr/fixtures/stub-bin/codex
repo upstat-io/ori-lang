@@ -17,7 +17,13 @@
 #               then emit a valid envelope and exit 0. The post-run
 #               worktree-guard.sh compare detects the modification.
 #               Used for Scenario 3 (dirty-worktree guard).
-#   always-fail Exit 1 every call. Reserved for future negative tests.
+#   always-fail Exit 1 every call. Used for Scenario 5 (subshell exit
+#               code capture + orphan prevention).
+#   bad-envelope Exit 0 but emit an envelope missing the required
+#               schema_version field. parse-codex.py will reject it with
+#               schema_violation, which the retry classifier should treat
+#               as a TERMINAL failure (BUG-08-006 regression). Used for
+#               Scenario 6 (terminal failure classifier).
 #
 # State for the fail-once mode lives at /tmp/stub-codex-state.<pid_of_validator>
 # unless STUB_CODEX_STATE is exported by the caller. The validator harness
@@ -50,6 +56,19 @@ case "$MODE" in
     ;;
   ok)
     # Default. No pre-emit action.
+    ;;
+  bad-envelope)
+    # Emit a syntactically valid JSONL stream containing an envelope that
+    # is missing the required schema_version field. parse-codex.py will
+    # reject it with schema_violation. Used to verify the BUG-08-006
+    # terminal-failure classifier breaks the retry loop instead of
+    # wasting 3 attempts.
+    cat <<'JSONL'
+{"type": "turn.started"}
+{"type": "item.completed", "item": {"type": "agent_message", "text": "{\"status\":\"complete\",\"reviewer\":\"codex\",\"skill\":\"tpr-review\",\"scope_actually_reviewed\":{\"git_range\":null,\"files_read\":[],\"rules_consulted\":[],\"specs_consulted\":[],\"plans_consulted\":[],\"expanded_beyond_packet\":false},\"findings\":[],\"verification\":{\"tests_rerun\":[],\"diagnostics_run\":[],\"verification_gaps\":[]},\"no_findings\":true}"}}
+{"type": "turn.completed"}
+JSONL
+    exit 0
     ;;
   *)
     printf 'stub-codex: unknown STUB_CODEX_MODE=%s\n' "$MODE" >&2

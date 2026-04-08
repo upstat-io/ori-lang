@@ -369,6 +369,80 @@ rm -f /tmp/stub-codex-state /tmp/stub-gemini-state
 
 say ""
 
+# ── Scenario 6: terminal failure classifier (BUG-08-006) ─────────────
+#
+# Setup: STUB_CODEX_MODE=bad-envelope causes the stub codex to exit 0 with
+# an envelope missing the required schema_version field. parse-codex.py
+# rejects it with schema_violation. dual-invoke-with-retry.sh captures
+# FAILURE=codex_schema_violation. The new is_terminal_failure classifier
+# should recognize this as deterministic and break out of the retry loop
+# after attempt 1, instead of wasting attempts 2 and 3.
+#
+# Verification:
+#   - dual-invoke-with-retry.sh exits non-zero
+#   - $RUN/round.log contains exactly ONE "attempt N/3" entry
+#     (not three — proves the terminal classifier broke the loop early)
+#   - $RUN/round.log records the failure category
+#   - $RUN/round.log records "is deterministic (terminal) — not retrying"
+
+say "── Scenario 6: terminal failure classifier (BUG-08-006) ─────"
+
+rm -f /tmp/stub-codex-state /tmp/stub-gemini-state
+
+RUN=$("$SCRIPT_DIR/scratch-dir.sh")
+RUNS_TO_CLEAN+=("$RUN")
+printf 'echo prompt\n' > "$RUN/codex.prompt.md"
+printf 'echo prompt\n' > "$RUN/gemini.prompt.md"
+
+PATH="$STUB_BIN:$PATH" \
+STUB_CODEX_MODE=bad-envelope \
+STUB_GEMINI_MODE=ok \
+STUB_REPO_ROOT="$REPO_ROOT" \
+"$SCRIPT_DIR/dual-invoke-with-retry.sh" \
+  --run "$RUN" \
+  --skill review-work \
+  --codex-prompt "$RUN/codex.prompt.md" \
+  --gemini-prompt "$RUN/gemini.prompt.md" \
+  --schema "$SCHEMA" \
+  >/dev/null 2>&1
+S6_EXIT=$?
+
+if [[ $S6_EXIT -ne 0 ]]; then
+  pass_test "transport exits non-zero on schema_violation"
+else
+  fail_test "transport exits non-zero on schema_violation" \
+    "expected exit != 0, got $S6_EXIT"
+fi
+
+# Count "attempt N/3" entries in round.log. Without the BUG-08-006 fix,
+# this would be 3 (the retry loop wasted all attempts). With the fix, it
+# should be 1 (terminal classifier broke early after attempt 1).
+ATTEMPT_COUNT=$(grep -c 'attempt [0-9]/3' "$RUN/round.log" 2>/dev/null || echo 0)
+if [[ "$ATTEMPT_COUNT" == "1" ]]; then
+  pass_test "retry loop broke after exactly 1 attempt (no waste)"
+else
+  fail_test "retry loop broke after exactly 1 attempt (no waste)" \
+    "expected 1 attempt, got $ATTEMPT_COUNT (round.log at $RUN/round.log)"
+fi
+
+if grep -q 'codex_schema_violation' "$RUN/round.log" 2>/dev/null; then
+  pass_test "round.log records codex_schema_violation category"
+else
+  fail_test "round.log records codex_schema_violation category" \
+    "missing 'codex_schema_violation' in $RUN/round.log"
+fi
+
+if grep -q 'is deterministic (terminal)' "$RUN/round.log" 2>/dev/null; then
+  pass_test "round.log records terminal-classifier early break"
+else
+  fail_test "round.log records terminal-classifier early break" \
+    "missing 'is deterministic (terminal)' in $RUN/round.log"
+fi
+
+rm -f /tmp/stub-codex-state /tmp/stub-gemini-state
+
+say ""
+
 # ── Cleanup ──────────────────────────────────────────────────────────
 if (( ! KEEP_RUNS )); then
   for run in "${RUNS_TO_CLEAN[@]}"; do
