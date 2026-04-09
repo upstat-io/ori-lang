@@ -15,10 +15,10 @@ sections:
     status: complete
   - id: "2.2"
     title: Expression Type Inference
-    status: complete
+    status: in-progress
   - id: "2.3"
     title: Type Error Improvements
-    status: complete
+    status: in-progress
   - id: "2.4"
     title: Section Completion Checklist
     status: in-progress

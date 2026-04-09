@@ -34,7 +34,7 @@ sections:
     status: not-started
   - id: "23.7"
     title: Section Completion Checklist
-    status: not-started
+    status: in-progress
   - id: "23.8"
     title: Parser Feature Support (Type Checker/Evaluator)
     status: in-progress

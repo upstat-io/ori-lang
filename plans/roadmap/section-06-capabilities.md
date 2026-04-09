@@ -55,7 +55,7 @@ sections:
     status: in-progress
   - id: "6.2"
     title: Capability Traits
-    status: in-progress
+    status: not-started
   - id: "6.3"
     title: Suspend Capability
     status: in-progress

@@ -38,7 +38,7 @@ git_history, inference, citations array, layer field, confidence field
 ---
 
 ### Section 02: Shared transport utility
-**File:** `section-02-transport.md` | **Status:** Not Started
+**File:** `section-02-transport.md` | **Status:** Complete (gates deferred)
 
 ```
 dual_invoke, parallel launcher, run_in_background, bash background invocation
@@ -73,7 +73,7 @@ canary release pattern, validation case, first consumer
 ---
 
 ### Section 03: Reviewer surface preparation
-**File:** `section-03-reviewer-surface.md` | **Status:** Not Started
+**File:** `section-03-reviewer-surface.md` | **Status:** Complete (gates deferred)
 
 ```
 shared command file, reviewer-agnostic methodology, extracted methodology
@@ -101,7 +101,7 @@ standalone codex exec regression test, .codex/skills regression
 ---
 
 ### Section 04: /tpr-review dual-source (validation case)
-**File:** `section-04-tpr-review.md` | **Status:** Not Started
+**File:** `section-04-tpr-review.md` | **Status:** Complete (gates deferred)
 
 ```
 .claude/skills/tpr-review/SKILL.md, dual-source rewrite
@@ -121,7 +121,7 @@ canary release, single consumer validates infrastructure
 ---
 
 ### Section 05: /review-work dual-source + Task #10 fix
-**File:** `section-05-review-work.md` | **Status:** Not Started
+**File:** `section-05-review-work.md` | **Status:** Complete (gates deferred)
 
 ```
 .claude/skills/review-work/SKILL.md, dual-source rewrite
@@ -135,18 +135,19 @@ same pattern as tpr-review (Section 04)
 
 ---
 
-### Section 06: /review-plan new Claude skill (parallel to existing command file)
-**File:** `section-06-review-plan.md` | **Status:** Not Started
+### Section 06: _(removed 2026-04-08)_
+**File:** _(deleted)_ | **Status:** Removed
 
 ```
-.claude/skills/review-plan/SKILL.md, NEW file, greenfield
-parallel workflows, command file untouched, .claude/commands/review-plan.md unchanged
-.claude/commands/review-plan.md (595 lines, 4-agent Claude pipeline, NOT modified)
-plan-review semantics, edits plan files directly
-preserve reviewed frontmatter, do not flip during whole-plan review
-review-plan dual-source skill, parallel to existing command-file workflow
-.codex/skills/review-plan/SKILL.md (existing standalone, regression-tested)
-intentional duality, fast Claude pipeline vs deep dual-source codex+gemini
+Originally "/review-plan new Claude skill (parallel to existing command file)"
+— a Claude-side dual-source wrapper for plan review.
+Removed as redundant with Section 07's dual-source /tp-help:
+plan review reaches dual-source by asking /tp-help to review a plan.
+The reviewer-side .codex/skills/review-plan/SKILL.md and
+.gemini/skills/review-plan/SKILL.md (created in §03) remain for
+standalone codex exec /review-plan and /tp-help dispatch.
+.claude/commands/review-plan.md (595-line 4-agent Claude pipeline)
+stays UNTOUCHED — the byte-identical contract moved into §07.
 ```
 
 ---
@@ -157,11 +158,32 @@ intentional duality, fast Claude pipeline vs deep dual-source codex+gemini
 ```
 .claude/skills/tp-help/SKILL.md, dual-source rewrite
 .claude/commands/tp-help.md, consolidation, SSOT fix
-two sources of truth, R10 from Step 6B, divergent files
+two sources of truth, R10, divergent files
 concatenation mode, raw responses, no synthesis layer
-option A from architecture, raw perspectives not smoothed merge
+raw perspectives not smoothed merge
 lighter envelope, NOT findings schema, special case for tp-help
+HTML-comment sentinel attribution, <!-- tp-help-reviewer: codex -->
+07.0 cross-section touch, dual-invoke.sh --schema optional
+schema-optional dual-invoke.sh, BUG-08-003 dead code removal
+schema-optional 4-cell backward-compat test matrix, transport-tests.sh raw_parsers category
+ORI_TPR_REVIEWERS wiring moved from 08.2 into 07.2
+no sibling launcher, single transport script
+parse-codex-raw.py, parse-gemini-raw.py, raw-mode parsers
+parser unit-test fixture matrix, 6 codex cells + 7 gemini cells, semantic + negative pins
+validate-tp-help-consumers.sh, stub-binary test harness
+stub scenarios with positive + negative pins, dual-source assertion via stub markers
+three downstream consumers, impl-hygiene-review Phase 4, review-plan 4-agent pipeline, create-plan orchestrator
 /impl-hygiene-review Phase 4 cross-check verification, downstream consumer
+/create-plan internal /tp-help call sites, Phase 1 Phase 3 Step 8B
+.claude/commands/review-plan.md byte-identical regression guard, frozen baseline hash
+section-07-review-plan-baseline.sha1, frozen baseline
+07.PRE Section-Entry Preflight, baseline capture before 07.0
+07.PRE pre-files create-plan root-override blocker bug, section-07-scenario4-blocker.txt
+07.3 Scenario 4 Mode A vs Mode B, deterministic slug + collision pre-check + exact-path cleanup
+disposable-target cleanup discipline, mandatory cleanup, dispatch-only smoke cells
+07.1 6-cell post-consolidation smoke matrix, frontmatter YAML validation
+inline worktree-guard, skill-level prompt-discipline check
+read-only-reviewer preamble, gemini prompt discipline
 indirect benefit, dual-source impl-hygiene-review
 .claude/skills/impl-hygiene-review/SKILL.md (verify, not modify)
 ```
@@ -175,8 +197,15 @@ indirect benefit, dual-source impl-hygiene-review
 end-to-end integration tests, real repo, four skills
 ORI_TPR_REVIEWERS env var, codex|gemini|both, default both
 runtime toggle, operational escape hatch, codex-only fallback
+ORI_TPR_REVIEWERS verification only (toggle wiring moved to 07.2)
+merge-findings.py single-reviewer case
 .claude/skills/create-plan/SKILL.md, line 56 update, sequencing wording
 CLAUDE.md, line 141 update, REVIEW/AGENT TIMEOUTS, gemini mention
+"Ask Codex" / "Codex's response" sweep across three downstream consumers
+single-source wording cleanup, neutral "the reviewers (codex + gemini)" rewrite
+impl-hygiene-review SKILL.md ask-codex sweep, lines 327/337/344
+review-plan.md ask-codex sweep, lines 107/112/316
+create-plan SKILL.md ask-codex sweep, lines 150/161/534/539/590
 plan annotation cleanup, strip TPR-XX-YYY references, ephemeral scaffolding
 documentation pass, README updates
 regression test, standalone codex exec, plan-write mode preserved
@@ -195,6 +224,6 @@ ORI_TPR_REVIEWERS=codex, ORI_TPR_REVIEWERS=gemini, ORI_TPR_REVIEWERS=both
 | 03 | Reviewer surface preparation | `section-03-reviewer-surface.md` |
 | 04 | /tpr-review dual-source (validation case) | `section-04-tpr-review.md` |
 | 05 | /review-work dual-source + Task #10 fix | `section-05-review-work.md` |
-| 06 | /review-plan new Claude wrapper | `section-06-review-plan.md` |
+| 06 | _(removed 2026-04-08 — redundant with §07 dual-source `/tp-help`)_ | _(deleted)_ |
 | 07 | /tp-help dual-source + consolidation | `section-07-tp-help.md` |
 | 08 | Integration tests + runtime toggle + cleanup | `section-08-integration-cleanup.md` |

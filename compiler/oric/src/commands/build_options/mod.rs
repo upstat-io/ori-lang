@@ -185,7 +185,7 @@ impl BuildOptions {
             self.link_mode = other.link_mode;
         }
 
-        // Narrowing policy: only explicit CLI flags override (TPR-01-036/048).
+        // Narrowing policy: only explicit CLI flags override.
         // Non-explicit policies (from parsing unrelated flags like --release)
         // are ignored — they would otherwise clobber earlier explicit flags.
         if other.narrowing_policy_explicit {
@@ -363,9 +363,8 @@ pub fn parse_build_options(args: &[String]) -> BuildOptions {
 ///
 /// This is the canonical build-option accumulation path used by `ori build`.
 /// It handles: (1) per-arg parsing via [`parse_build_options`], (2) `-o` lookahead,
-/// and (3) the `ORI_NO_REPR_OPT` env var fallback *after* full CLI merge
-/// (TPR-01-028/048). Extracted from `main.rs` to enable direct testing
-/// of the zero-option build path.
+/// and (3) the `ORI_NO_REPR_OPT` env var fallback *after* full CLI merge.
+/// Extracted from `main.rs` to enable direct testing of the zero-option build path.
 ///
 /// `args` is the full CLI args slice (e.g., `["ori", "build", "file.ori", ...]`).
 /// Build options start at index 3 (after `ori build <file>`).
@@ -392,7 +391,7 @@ pub fn accumulate_build_options_with_env(args: &[String], env_disabled: bool) ->
         }
     }
 
-    // Apply ORI_NO_REPR_OPT env var AFTER full CLI merge (TPR-01-028/048).
+    // Apply ORI_NO_REPR_OPT env var AFTER full CLI merge.
     // Only applies if no explicit policy was set via CLI flags.
     if !options.narrowing_policy_explicit && env_disabled {
         options.narrowing_policy = ori_repr::NarrowingPolicy::Disabled;

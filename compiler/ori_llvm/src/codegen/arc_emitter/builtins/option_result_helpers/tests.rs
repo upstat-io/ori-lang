@@ -107,15 +107,15 @@ fn bug_04_019_option_niche_unwrap_has_panic_guard_and_rc_retain() {
     let body = extract_arm_body(HELPER_SRC, OPTION_NICHE_FN, "\"unwrap\" =>");
     assert!(
         body.contains("emit_unwrap_branch"),
-        "Option.unwrap niche arm must call emit_unwrap_branch (BUG-04-019 panic guard)\nbody:\n{body}",
+        "Option.unwrap niche arm must call emit_unwrap_branch (panic guard)\nbody:\n{body}",
     );
     assert!(
         body.contains("inc_value_rc"),
-        "Option.unwrap niche arm must call inc_value_rc on the extracted payload (BUG-04-019 RC retain)\nbody:\n{body}",
+        "Option.unwrap niche arm must call inc_value_rc on the extracted payload (RC retain)\nbody:\n{body}",
     );
     assert!(
         body.contains("`Option.unwrap()` on a `None` value"),
-        "Option.unwrap niche panic message must match the explicit-tag wording (BUG-04-013 contract)\nbody:\n{body}",
+        "Option.unwrap niche panic message must match the explicit-tag wording\nbody:\n{body}",
     );
 }
 
@@ -124,11 +124,11 @@ fn bug_04_019_option_niche_expect_has_expect_branch_and_rc_retain() {
     let body = extract_arm_body(HELPER_SRC, OPTION_NICHE_FN, "\"expect\" if");
     assert!(
         body.contains("emit_expect_branch"),
-        "Option.expect niche arm must call emit_expect_branch (BUG-04-019 user-msg guard)\nbody:\n{body}",
+        "Option.expect niche arm must call emit_expect_branch (user-msg guard)\nbody:\n{body}",
     );
     assert!(
         body.contains("inc_value_rc"),
-        "Option.expect niche arm must call inc_value_rc on the extracted payload (BUG-04-019 RC retain)\nbody:\n{body}",
+        "Option.expect niche arm must call inc_value_rc on the extracted payload (RC retain)\nbody:\n{body}",
     );
 }
 
@@ -140,7 +140,7 @@ fn bug_04_019_option_niche_unwrap_or_has_conditional_rc_retain() {
     // not dropped twice (mirrors option_result.rs `unwrap_or` pattern).
     assert!(
         body.contains("inc_value_rc"),
-        "Option.unwrap_or niche arm must call inc_value_rc when Some (BUG-04-019 RC retain)\nbody:\n{body}",
+        "Option.unwrap_or niche arm must call inc_value_rc when Some (RC retain)\nbody:\n{body}",
     );
     // Conditional retain pattern: cond_br + inc + br + merge — at least one cond_br.
     assert!(
@@ -156,15 +156,15 @@ fn bug_04_019_result_niche_unwrap_has_panic_guard_and_rc_retain() {
     let body = extract_arm_body(HELPER_SRC, RESULT_NICHE_FN, "\"unwrap\" =>");
     assert!(
         body.contains("emit_unwrap_branch"),
-        "Result.unwrap niche arm must call emit_unwrap_branch (BUG-04-019 panic guard)\nbody:\n{body}",
+        "Result.unwrap niche arm must call emit_unwrap_branch (panic guard)\nbody:\n{body}",
     );
     assert!(
         body.contains("inc_value_rc"),
-        "Result.unwrap niche arm must call inc_value_rc on the extracted Ok payload (BUG-04-019 RC retain)\nbody:\n{body}",
+        "Result.unwrap niche arm must call inc_value_rc on the extracted Ok payload (RC retain)\nbody:\n{body}",
     );
     assert!(
         body.contains("`Result.unwrap()` on an `Err` value"),
-        "Result.unwrap niche panic message must match the explicit-tag wording (BUG-04-013 contract)\nbody:\n{body}",
+        "Result.unwrap niche panic message must match the explicit-tag wording\nbody:\n{body}",
     );
     // Must use the Ok type for the retain (not Err).
     assert!(
@@ -183,7 +183,7 @@ fn bug_04_019_result_niche_unwrap_err_is_distinct_from_unwrap() {
     assert_ne!(
         unwrap_body.trim(),
         unwrap_err_body.trim(),
-        "Result.unwrap and Result.unwrap_err must be SEPARATE arms with distinct bodies — BUG-04-019 collapsed-arm regression",
+        "Result.unwrap and Result.unwrap_err must be SEPARATE arms with distinct bodies — collapsed-arm regression",
     );
     assert!(
         unwrap_err_body.contains("emit_unwrap_branch"),
@@ -264,6 +264,6 @@ fn bug_04_019_result_niche_no_collapsed_unwrap_arm() {
     let collapsed_pattern = "\"unwrap\" | \"unwrap_err\" | \"unwrap_or\"";
     assert!(
         !result_fn_body.contains(collapsed_pattern),
-        "BUG-04-019 regression: Result.unwrap/unwrap_err/unwrap_or are collapsed into a single match arm. Each must be a separate arm with its own tag guard and RC retain.",
+        "regression: Result.unwrap/unwrap_err/unwrap_or are collapsed into a single match arm. Each must be a separate arm with its own tag guard and RC retain.",
     );
 }
