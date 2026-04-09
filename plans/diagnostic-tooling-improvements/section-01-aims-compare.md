@@ -32,7 +32,7 @@ sections:
 
 # Section 01: Remove aims-compare + Create debug-release-compare
 
-**Status:** Not Started
+**Status:** Complete
 **Goal:** Replace the dead AIMS comparison scripts with a new debug-vs-release comparison tool that catches FastISel-only bugs and optimization-dependent behavioral divergences.
 
 **Success Criteria:**

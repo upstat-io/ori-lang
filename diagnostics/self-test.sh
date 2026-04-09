@@ -104,6 +104,27 @@ run_test_expect_fail() {
     rm -f "$tmpout"
 }
 
+# Usage: run_test_exit_code "description" EXPECTED_CODE command [args...]
+# Expects a specific exit code.
+run_test_exit_code() {
+    local desc="$1"
+    local expected="$2"
+    shift 2
+    local tmpout; tmpout=$(mktemp)
+    local rc=0
+
+    "$@" > "$tmpout" 2>&1 || rc=$?
+
+    if [[ $rc -eq $expected ]]; then
+        printf "  ${C_GREEN}PASS${C_NC}  %s (exit %d as expected)\n" "$desc" "$rc"
+        PASS=$((PASS + 1))
+    else
+        printf "  ${C_RED}FAIL${C_NC}  %s (expected exit %d, got %d)\n" "$desc" "$expected" "$rc"
+        FAIL=$((FAIL + 1))
+    fi
+    rm -f "$tmpout"
+}
+
 # Usage: run_test_output_contains "description" "pattern" command [args...]
 # Expects exit code 0 and stdout+stderr to contain pattern.
 run_test_output_contains() {
@@ -266,6 +287,12 @@ run_test_output_contains "debug-release-compare.sh --help shows usage" "Usage:" 
     "$SCRIPT_DIR/debug-release-compare.sh" --help
 run_test_expect_fail "debug-release-compare.sh with no args" \
     "$SCRIPT_DIR/debug-release-compare.sh" --no-color
+# Test infrastructure error exit code (exit 2) on invalid input
+bad_file=$(mktemp /tmp/self-test-bad-XXXX.ori)
+printf '@main () -> void = { let x = }\n' > "$bad_file"
+run_test_exit_code "debug-release-compare.sh exits 2 on compile failure" 2 \
+    "$SCRIPT_DIR/debug-release-compare.sh" --no-color "$bad_file"
+rm -f "$bad_file"
 echo ""
 
 # ─── Error handling ───────────────────────────────────────────────

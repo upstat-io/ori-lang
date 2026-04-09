@@ -141,7 +141,7 @@ Phase 3 - Integration
 
 | Bug | Root Cause | Fix Location | Status |
 |-----|-----------|-------------|--------|
-| `aims-compare.sh` dead — `--features aims` no longer exists | AIMS became default, feature flag removed | Section 01 | Not Started |
+| `aims-compare.sh` dead — `--features aims` no longer exists | AIMS became default, feature flag removed | Section 01 | Complete |
 | `ir-dump.sh` uses legacy `ORI_DEBUG_LLVM` instead of `ORI_DUMP_AFTER_LLVM` | DRIFT from flag rename | Section 07 | Not Started |
 | `rc-stats.sh` regex-matches RC ops (LEAK:scattered-knowledge) | Shell duplicates compiler knowledge | Section 04 | Not Started |
 
@@ -149,7 +149,7 @@ Phase 3 - Integration
 
 | ID | Title | File | Status |
 |----|-------|------|--------|
-| 01 | Remove aims-compare + create debug-release-compare | `section-01-aims-compare.md` | Not Started |
+| 01 | Remove aims-compare + create debug-release-compare | `section-01-aims-compare.md` | Complete |
 | 02 | Enhance diagnose-aot.sh | `section-02-diagnose-aot.md` | Not Started |
 | 03 | Enhance dual-exec-debug.sh | `section-03-dual-exec-debug.md` | Not Started |
 | 04 | Block-level RC Stats | `section-04-block-rc-stats.md` | Not Started |
