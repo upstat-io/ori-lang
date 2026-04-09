@@ -147,6 +147,8 @@ When fixing any AIMS-related bug: ask "does this preserve system coherence?" A f
 **Phase dumps**: `ORI_DUMP_AFTER_PARSE=1` (AST) | `ORI_DUMP_AFTER_TYPECK=1` (typed IR) | `ORI_DUMP_AFTER_ARC=1` (ARC IR) | `ORI_DUMP_AFTER_LLVM=1` (LLVM IR, superset of `ORI_DEBUG_LLVM`) | `ORI_EMIT_ARC_DOT=1` (GraphViz DOT) — stderr, zero release overhead
 **Runtime debug**: `ORI_TRACE_RC=1` (RC log) | `ORI_RT_DEBUG=1` (assertions) | `ORI_CHECK_LEAKS=1` (leak report)
 **Codegen audit**: `ORI_AUDIT_CODEGEN=1` — RC balance, COW sequencing, ABI args, aggregate loads, safety checks. Zero cost off. `ORI_AUDIT_STRICT=1` (pessimistic) | `ORI_AUDIT_FUNCTION=name` (filter)
+**ARC verification**: `ORI_VERIFY_ARC=1` — extra ARC IR correctness checks (RC balance, drop placement) after the AIMS pipeline
+**Repr-opt disable**: `ORI_NO_REPR_OPT=1` — disable all representation optimizations (integer narrowing, enum packing). CLI: `--no-repr-opt`
 **AIMS**: The ARC pipeline uses the AIMS unified lattice — no feature flags needed. `diagnostics/aims-compare.sh` for behavioral + RC comparison.
 **Always run `./test-all.sh` after compiler changes.**
 **Perf baseline**: `./scripts/perf-baseline.sh [--release] [--include-cow]` | **COW benchmarks**: `./scripts/cow-benchmark.sh [--release] [--include-macro] [--compare baseline.json]` | **Consistency**: `diagnostics/check-debug-flags.sh` | **Cargo cache**: `./scripts/cache-doctor.sh [--print-cleanup|--clean]` — detects root-owned files in `target/` that cargo cannot update (accidental `sudo cargo build`); refuses destructive actions by default

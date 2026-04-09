@@ -122,7 +122,23 @@ flags! {
     /// Usage: `ORI_EMIT_ARC_DOT=1 ori build file.ori 2> arc.dot`
     ORI_EMIT_ARC_DOT
 
+    // === Repr-Opt Configuration ===
+    // Note: Consumed directly in `ori_repr` (which can't depend on `oric`).
+    // Defined here for documentation and `check-debug-flags.sh` consistency.
+
+    /// Disable all representation optimizations (integer narrowing, enum packing).
+    ///
+    /// CLI alternative: `--no-repr-opt`
+    /// Usage: `ORI_NO_REPR_OPT=1 ori build file.ori`
+    ORI_NO_REPR_OPT
+
     // === Verification ===
+
+    /// Enable ARC IR verification after the AIMS pipeline.
+    ///
+    /// Adds extra correctness checks (RC balance, drop placement).
+    /// Usage: `ORI_VERIFY_ARC=1 ori build file.ori`
+    ORI_VERIFY_ARC
 
     /// Run in-pipeline RC audit on emitted LLVM IR.
     ///
@@ -188,6 +204,10 @@ const _: () = {
     assert!(
         const_str_eq(ORI_AUDIT_FUNCTION, ori_llvm::verify::ENV_AUDIT_FUNCTION),
         "ORI_AUDIT_FUNCTION constant drifted between oric and ori_llvm"
+    );
+    assert!(
+        const_str_eq(ORI_NO_REPR_OPT, ori_repr::NarrowingPolicy::ENV_NO_REPR_OPT),
+        "ORI_NO_REPR_OPT constant drifted between oric and ori_repr"
     );
 };
 
