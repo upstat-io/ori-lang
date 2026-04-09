@@ -1,6 +1,6 @@
 ---
 name: fix-next-bug
-description: Iterate through the bug tracker, auto-picking the highest priority open bug and fixing it via /fix-bug. After each fix, prompts the user to continue to the next bug or stop.
+description: Iterate through the bug tracker, auto-picking the highest priority open bug and fixing it via /fix-bug. Each bug gets full /fix-bug rigor including mandatory /tp-help design consensus at Phase 1.75 before implementation (adds ~10–45 min per bug). After each fix, prompts the user to continue to the next bug or stop.
 allowed-tools: Read, Grep, Glob, Edit, Write, Bash, Agent, AskUserQuestion, Skill
 ---
 
@@ -222,12 +222,19 @@ Resolved as OBE: {N}
 {For each:}
   - [BUG-XX-NNN][severity] title — already fixed
 
+{If any autopilot consensus deadlocks:}
+Consensus deadlocks (autopilot — require user audit): {N}
+{For each:}
+  - [BUG-XX-NNN][severity] title — Phase 1.75 consensus deadlocked after 3 /tp-help rounds; proceeded with Claude's best-grounded approach. See fix-BUG-XX-NNN.md § 1.5 Round 3 for details.
+
 {If any skipped (interactive mode only):}
 Skipped: {N}
   - [BUG-XX-NNN][severity] title — skipped
 
 Remaining open bugs: {N}
 ```
+
+**Consensus deadlocks are load-bearing in the final report.** In autopilot mode, /fix-bug Phase 1.75 is allowed to proceed with Claude's best-grounded approach when /tp-help cannot reach consensus in 3 rounds (autopilot rules forbid AskUserQuestion). The user MUST be able to audit every such bug after the run — the session summary is the only surfacing point. If a consensus-deadlocked fix later proves wrong, the user's remediation path is to read the fix section's § 1.5 Round 3 entry, understand Claude's reasoning, and decide whether to revert or revise.
 
 ## Key Rules
 

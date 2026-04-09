@@ -50,6 +50,28 @@ Bash (foreground, default 120s Bash timeout):
 
 Stop polling when the background-task completion notification arrives. The notification's reported exit code is **authoritative** — do NOT infer success from `status-check.sh` output alone. `status-check.sh` reads append-only streams (`round.log`, `codex.jsonl`, `gemini.jsonl`); it does NOT read the final atomic-write artifacts (`$RUN/{reviewer}.exit`, `$RUN/{reviewer}.envelope.json`, `$RUN/{reviewer}.walltime`) because those can be empty or partially written mid-stream. Only the task-completion notification guarantees those atomic-write files are fully written.
 
+## Normal reviewer timing — what is NOT a stall
+
+Polls must distinguish "reviewer is loading / thinking" from "reviewer is actually stuck." Misreading the first as the second wastes time and produces false-alarm escalations (terminating a live run, relaunching into a new scratch dir, asking the operator for guidance on a non-problem). The two reviewers have markedly different startup and thinking patterns — judge each by its own baseline.
+
+**Codex baseline**:
+- Begins streaming `item.started command_execution` events within 5-15 seconds of launch.
+- Reaches 50-100 events within the first 2-3 minutes on a substantive prompt.
+- May sit idle for 1-3 minutes between the last tool event and the final `agent_message` / `turn.completed` while composing the answer. This is the **thinking phase** — normal, not a stall.
+- Total wall-time: 3-10 minutes on focused empirical questions, 10-15 minutes on deep multi-question prompts.
+
+**Gemini baseline**:
+- May have a **multi-minute cold-start** where `status-check.sh` shows ONLY the initial two events (`[init]` and `[msg.user]`) with no `tool_use` / `tool_result` activity for **up to 4-6 minutes**. This is NOT a failure, NOT a stall, and NOT a prompt-discipline violation — gemini is loading context and planning before it begins reading files. Empirically observed during the TPR-07-022 Q5 follow-up round on 2026-04-08: gemini stayed at 2 events / 5877 bytes for 4.5 minutes, then accelerated to 14 events in the next ~90 seconds and produced a full answer shortly after.
+- Once it starts producing `tool_use` events, it usually finishes within 2-4 additional minutes.
+- Total wall-time: ~3-6 minutes on focused prompts, 10-15 minutes on deep prompts. The 179-second fast-finish in TPR-07-022 round 1 is the lower bound, not the typical case.
+
+**How to distinguish a real stall from normal cold-start or thinking**:
+- **Codex stalled**: byte count AND event count BOTH unchanged for >5 minutes with no `turn.completed`.
+- **Gemini stalled**: stuck at the initial `[init]` + `[msg.user]` pair for >8 minutes with zero `tool_use` events. Below 8 minutes, assume gemini is still warming up — keep polling.
+- **Either reviewer actually failed**: `rc=1` in `round.log` with `walltime < 30s` = early API / transport failure, relaunch needed. `rc=1` with longer walltime usually means prompt discipline violation (gemini tried to write) or a codex sandbox error — inspect the events tail.
+
+When in doubt: poll once more. 75-second cadence is cheap; premature relaunch is expensive (re-does all the file reading the reviewer already invested in).
+
 ## Banned Patterns
 
 The following patterns are explicitly banned because they reintroduce the problems this protocol exists to prevent:

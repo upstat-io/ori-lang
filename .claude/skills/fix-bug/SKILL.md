@@ -133,6 +133,39 @@ After investigation, assess whether this bug is a **point fix** (inline bug fix)
 
 **In autopilot mode**: the same rules apply for ALL non-point-fix outcomes — escalate to `/create-plan`, mark as blocked, or mark as OBE, then return to the caller (`/fix-next-bug`) which will immediately pick the next bug. Autopilot means autonomous, not reckless. Creating a plan for a large-scope bug or correctly identifying a blocker IS the correct autonomous decision. The key: always return to the caller — never just "document and stop."
 
+### Phase 1.75: Fix Consensus (via /tp-help) — MANDATORY GATE
+
+**Before writing the fix section file, get independent dual-source consensus on the proposed fix approach.** This catches wrong-approach errors BEFORE they are locked into the fix section, the test matrix, or the implementation.
+
+This is NOT `/tp-help`'s usual "stuck help" use case — it is **design consensus**. You have investigation + root cause (Phase 1) + a confirmed point-fix scope (Phase 1.5) + a proposed approach. You are about to commit to it in writing. Get Codex and Gemini to independently pressure-test the approach before you lock it in. The `/tp-help` skill has an explicit carve-out for this calling context (see its "What Does NOT Trigger This" → "Exception — design consensus mode").
+
+**Skip only when:** Phase 1.5 escalated to `/create-plan` or marked blocked. Plans get their own review loops; blocked bugs have nothing to review. EVERY other bug — including "trivial" one-liners — runs through consensus. What looks trivial often has architectural implications you would want flagged.
+
+1. **Articulate the proposed fix** — write out, in prose, for the `/tp-help` question:
+   - Bug (one line) + root cause (Phase 1 output)
+   - Affected files and what changes in each
+   - Your proposed fix approach (what changes, where, why)
+   - Alternatives you considered and why you rejected them
+
+2. **Invoke `/tp-help`** with the articulation above as the question. The existing `/tp-help` workflow (dual-source, adversarial framing, mandatory grounding block, worktree guard) runs unchanged — the only difference is the calling context. Save the `$RUN` scratch dir path; you will cite it in § 1.5 of the fix section file.
+
+3. **Independently verify every finding** against actual code per the `feedback_reviewer_grounding_and_trust.md` memory rule. Never trust reviewer claims blindly. Codex = HIGH trust (spot-check key claims), Gemini = LOWER trust (full verification — confabulation-prone). File:line cites are required in § 1.5 "Independent code verification".
+
+4. **Reconcile** into one of three outcomes:
+   - **Agreement** — Claude's approach + both reviewers converge → proceed to Phase 2
+   - **Persuaded divergence** — reviewers propose a better approach, Claude verifies it against the code and adopts it → proceed to Phase 2 with the new approach
+   - **Unpersuaded divergence** — Claude is not convinced by reviewers after code verification → run a follow-up `/tp-help` round with a counter-argument (include the prior round's responses and Claude's specific verification findings so the reviewers can refine)
+
+5. **Convergence cap: 3 total `/tp-help` calls** (initial + up to 2 follow-up rounds). If still no convergence after round 3:
+   - **Interactive mode**: escalate via `AskUserQuestion` with a summary of the deadlock — Claude's position, reviewers' positions, the specific disagreement, and why Claude cannot reconcile. The user breaks the tie.
+   - **Autopilot mode**: document the deadlock in § 1.5 Fix Consensus → "Round 3" entry ("AUTOPILOT DEADLOCK"), then proceed with Claude's best-grounded approach. The deadlock MUST be flagged in the `/fix-next-bug` final session report so the user can audit after the autopilot run ends. Do NOT use `AskUserQuestion` (autopilot rule).
+
+6. **Document consensus in the fix section file** (§ 1.5 Fix Consensus, per the template). The content is captured NOW; the file itself is written in Phase 2.
+
+**Interaction with Phase 1.5**: If `/tp-help` reveals the bug is actually systemic (requires architectural change across 4+ files, new abstractions, cross-crate redesign), **return to Phase 1.5** and re-assess. A consensus round that surfaces plan-escalation criteria is a WIN — cheaper than discovering it mid-implementation. Run `/create-plan` and stop per Phase 1.5's escalation protocol.
+
+**Runtime expectation**: `/tp-help` is ~10–15 min per round (dominated by gemini wall time). Budget 10–45 min for Phase 1.75 depending on whether reconciliation rounds are needed. This is deliberately expensive — one saved bad-approach cycle (where tests encode the wrong semantics and the fix has to be reverted) pays for many consensus calls.
+
 ### Phase 2: Create the Fix Section File
 
 Create `plans/bug-tracker/fix-BUG-{section}-{ordinal}.md` using the template in [fix-section-template.md](fix-section-template.md). This file is the plan section for this bug fix — it documents the investigation, drives the TDD process, and tracks completion.

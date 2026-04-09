@@ -35,6 +35,14 @@ Invoke `/tp-help` IMMEDIATELY when ANY of these are true:
 - Questions about Ori syntax or spec (read the spec instead)
 - Minor implementation details with clear precedent in the codebase
 
+### Exception — Design Consensus Mode (called by /fix-bug)
+
+The "simple bugs" and "first attempt" non-triggers DO NOT apply when `/tp-help` is invoked by `/fix-bug` at Phase 1.75. In that calling context, `/tp-help` is used for **design consensus** — a pre-emptive pressure-test of a proposed fix approach before tests or implementation are written — NOT for **stuck help**.
+
+Design consensus runs for EVERY bug that reaches `/fix-bug` Phase 1.75 (including trivial one-liners), because what looks trivial often has architectural implications that only surface under independent review. The `/fix-bug` skill is responsible for enforcing this calling contract; `/tp-help` itself runs its normal workflow — the difference is purely in which non-triggers apply to the caller's decision to invoke.
+
+See `.claude/skills/fix-bug/SKILL.md` § Phase 1.75 for the full consensus protocol, the 3-call convergence cap, and autopilot deadlock handling.
+
 ### Example Scenario That MUST Trigger Auto-Invoke
 
 > "I've been trying multiple approaches but the pre-call RcInc leaks for borrowed-param closures while fixing capture closures. The RC ownership model for ApplyIndirect has a fundamental tension between borrowed-use and capture-use callees. Let me take the pragmatic approach: keep just the drop_hints fix and revert the AIMS-level RcInc."
