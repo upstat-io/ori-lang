@@ -248,17 +248,11 @@ fn tpr_07_020_take_project_in_loop_no_leak() {
     );
 }
 
-// Note: the explicit-tag enum case (≥9 variants carrying an
-// iterator payload) is blocked by BUG-04-044 — the Construct path
-// emits `insertvalue [N x i64], ptr` without ptrtoint casting the
-// iterator pointer to i64 for the slot array. That's a pre-existing
-// codegen bug in the explicit-tag enum lowering, unrelated to the
-// triviality SSOT fix here. The struct and tuple matrix pins below
-// exercise the same `dec_value_rc` compound-drop dispatch path that
-// would fire for an explicit-tag enum variant field, so the
+// Note: the explicit-tag enum case (≥9 variants carrying an iterator
+// payload) is not yet covered here. The struct and tuple matrix pins
+// below exercise the same `dec_value_rc` compound-drop dispatch path
+// that would fire for an explicit-tag enum variant field, so the
 // compound-drop coverage is preserved through a different shape.
-// When BUG-04-044 is fixed, the explicit-tag enum test should be
-// added back here as an additional matrix pin.
 
 /// Matrix pin: iterator as a struct field. The struct's generated
 /// drop function must traverse the field via `dec_value_rc` and emit
