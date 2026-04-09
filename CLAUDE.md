@@ -157,6 +157,7 @@ When fixing any AIMS-related bug: ask "does this preserve system coherence?" A f
 - `rc-stats.sh` — RC balance per function | `codegen-audit.sh` — static RC/COW/ABI analysis (`--strict`, `--function`)
 - `diagnose-aot.sh` — all-in-one: build + run + leak check + RC stats + IR (`--valgrind`, `--verbose`)
 - `dual-exec-debug.sh` — interpreter vs AOT comparison; auto-dumps on mismatch (`--verbose`)
+- `debug-release-compare.sh` — debug vs release behavioral comparison (exit codes + stdout + LLVM IR diff on mismatch)
 - `valgrind-aot.sh [file.ori ...]` — Valgrind memory errors (defaults to `tests/valgrind/`, not in test-all.sh)
 - `dual-exec-verify.sh [test-path]` — batch interpreter vs LLVM (`--test-only`, `--main-only`, `--json`)
 
