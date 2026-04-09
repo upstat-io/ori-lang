@@ -479,16 +479,14 @@ fn ir_capture_binary() -> PathBuf {
     }
     panic!(
         "No debug ori binary found for IR capture.\n\
-         IR-quality tests require the debug binary (release compiles out IR dumps).\n\
          Run `cargo build` to build the debug binary first."
     );
 }
 
 /// Compile an Ori program and capture its LLVM IR (via `ORI_DEBUG_LLVM=1`).
 ///
-/// Uses the debug `ori` binary for IR capture — the release binary compiles out
-/// phase dumps. Returns the IR string from compilation stderr. Panics if
-/// compilation fails.
+/// Uses the debug `ori` binary for IR capture. Returns the IR string from
+/// compilation stderr. Panics if compilation fails.
 pub fn compile_and_capture_ir(source: &str) -> String {
     static COUNTER: AtomicU64 = AtomicU64::new(0);
 
