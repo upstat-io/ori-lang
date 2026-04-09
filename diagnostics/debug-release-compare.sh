@@ -117,7 +117,7 @@ debug_exit=0
 if [[ $debug_exit -ne 0 ]]; then
     echo -e "${C_RED}Debug build failed (exit $debug_exit)${C_NC}"
     cat "$tmpdir/debug_build_err.txt"
-    exit 1
+    exit 2
 fi
 
 debug_run_exit=0
@@ -135,7 +135,7 @@ release_exit=0
 if [[ $release_exit -ne 0 ]]; then
     echo -e "${C_RED}Release build failed (exit $release_exit)${C_NC}"
     cat "$tmpdir/release_build_err.txt"
-    exit 1
+    exit 2
 fi
 
 release_run_exit=0
