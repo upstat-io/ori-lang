@@ -81,16 +81,18 @@
 //!
 //! # Consumer API surface
 //!
-//! Three methods on [`TakeMoveFacts`]:
+//! Four methods on [`TakeMoveFacts`]:
 //!
 //! - [`TakeMoveFacts::is_in_class`] — membership check. Used by
 //!   [`super::edge_cleanup`] and `emit_dead_block_param_decs` (source
 //!   2) to skip every in-class var regardless of lineage.
-//! - [`TakeMoveFacts::lineage_of`] — opaque lineage index used by
-//!   `emit_dead_at_entry_decs` (source 1) for per-lineage dedup.
-//!   Variables with the same lineage index are SSA-equivalent (Let
-//!   alias or phi-merged at the same param) — emitting drops for
-//!   more than one would double-free the shared underlying value.
+//! - [`TakeMoveFacts::let_alias_rep`] — Let-alias representative used
+//!   by `emit_dead_at_entry_decs` (source 1) for value-identity dedup.
+//!   Variables with the same Let-alias rep are connected by a chain of
+//!   `Let { dst, Var(src) }` instructions — true SSA aliases holding
+//!   the same runtime value. Emitting drops for more than one would
+//!   double-free. Phi-merged params with the same lineage source set
+//!   but different Let-alias reps get separate drops (BUG-04-051).
 //! - [`TakeMoveFacts::is_bypass_safe_entry_for_var`] — the central
 //!   predicate. Returns true iff `blk` is the unique entry edge of
 //!   the bypass-safe region for `var`'s lineage. Source 1 emits the
@@ -460,30 +462,8 @@ fn compute_let_alias_reps(
     func: &ArcFunction,
     in_class: &FxHashSet<ArcVarId>,
 ) -> FxHashMap<ArcVarId, ArcVarId> {
-    fn find(parent: &mut FxHashMap<ArcVarId, ArcVarId>, v: ArcVarId) -> ArcVarId {
-        let p = parent[&v];
-        if p == v {
-            return v;
-        }
-        let root = find(parent, p);
-        parent.insert(v, root);
-        root
-    }
-
-    fn union(parent: &mut FxHashMap<ArcVarId, ArcVarId>, a: ArcVarId, b: ArcVarId) {
-        let ra = find(parent, a);
-        let rb = find(parent, b);
-        if ra != rb {
-            // Deterministic: smaller ArcVarId wins (stable across runs).
-            if ra < rb {
-                parent.insert(rb, ra);
-            } else {
-                parent.insert(ra, rb);
-            }
-        }
-    }
-
     // Union-find: parent[v] = v initially (each var is its own rep).
+    // Reuses the module-level iterative `find`/`union` (no duplication).
     let mut parent: FxHashMap<ArcVarId, ArcVarId> = in_class.iter().map(|&v| (v, v)).collect();
 
     // Union over Let edges only — no Jump edges.
@@ -496,8 +476,7 @@ fn compute_let_alias_reps(
     // Path-compress all entries to canonical representatives.
     let vars: Vec<ArcVarId> = parent.keys().copied().collect();
     for v in vars {
-        let root = find(&mut parent, v);
-        parent.insert(v, root);
+        find(&mut parent, v);
     }
 
     parent
@@ -652,17 +631,12 @@ fn collect_take_project_sites(func: &ArcFunction, pool: &Pool) -> Vec<(usize, Ar
 /// bypass-safe query, which is the only consumer that needs precise
 /// per-var reachability.
 fn union_alias_edges(func: &ArcFunction, parent: &mut FxHashMap<ArcVarId, ArcVarId>) {
+    // Let edges: bidirectional (SSOT via collect_let_edges).
+    for (src, dst) in collect_let_edges(func) {
+        union(parent, dst, src);
+    }
+    // Jump edges: bidirectional (over-approximating for membership).
     for block in &func.blocks {
-        for instr in &block.body {
-            if let ArcInstr::Let {
-                dst,
-                value: ArcValue::Var(src),
-                ..
-            } = instr
-            {
-                union(parent, *dst, *src);
-            }
-        }
         if let ArcTerminator::Jump { target, args } = &block.terminator {
             let target_idx = target.index();
             if target_idx < func.blocks.len() {
