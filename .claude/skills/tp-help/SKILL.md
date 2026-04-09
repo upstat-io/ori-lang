@@ -254,22 +254,26 @@ If either parser fails, DO NOT drop the partial output — include a placeholder
 
 Per the ORI_TPR_REVIEWERS filter (Step 4's env), one of the JSONL files may legitimately be absent. If `ORI_TPR_REVIEWERS=codex` was set, skip the gemini parse step entirely; if `=gemini`, skip the codex parse step entirely. The skill file consumers (Claude) should check the env var before attempting to parse.
 
-### Step 6: Worktree-Guard Snapshot (AFTER) + Diff
+### Step 6: Worktree-Guard Compare (delegates to SSOT script)
 
-Snapshot the worktree state AGAIN after the dual-source call and diff it against the BEFORE snapshot. If they differ, at least one reviewer violated prompt discipline by modifying a tracked file.
+Compare the post-run worktree state against the BEFORE snapshot using the canonical `worktree-guard.sh compare` helper. The helper has **correct drift-detection semantics**: it flags ONLY new modifications that weren't present in BEFORE (i.e., reviewer-caused drift), not lines removed from BEFORE (which would indicate drift was cleaned up during the run — legitimate workflow, not a violation). The AFTER snapshot is saved to `$RUN/worktree.after` via the script's optional second argument so it persists as a run artifact.
 
 ```
 Bash:
-  git status --porcelain > "$RUN/worktree.after"
-  if ! diff -u "$RUN/worktree.before" "$RUN/worktree.after"; then
+  if ! .claude/skills/dual-tpr/scripts/worktree-guard.sh compare \
+       "$RUN/worktree.before" "$RUN/worktree.after"; then
     echo "WORKTREE DRIFT DETECTED — at least one reviewer modified the working tree" >&2
     echo "Before: $RUN/worktree.before" >&2
     echo "After:  $RUN/worktree.after" >&2
-    # Do NOT auto-revert. Surface the diff to the user and let them decide.
+    # Do NOT auto-revert. The script's stderr output above shows the NEW drift
+    # (lines in AFTER not present in BEFORE). Surface it to the user and let
+    # them decide how to clean up.
   fi
 ```
 
-This inline guard catches the "gemini ignored the read-only-reviewer preamble" failure mode exactly one layer above the launcher. It mirrors §02's `worktree-guard.sh` snapshot/compare pattern but is inlined into the skill because `/tp-help` skips the retry wrapper (which is where `worktree-guard.sh` normally composes into the pipeline).
+This delegates to the **SSOT** `worktree-guard.sh` helper — the same script that `dual-invoke-with-retry.sh` uses at the launcher layer for `/tpr-review` and `/review-work`. Before 2026-04-08, `/tp-help` had its own inline `diff -u "$BEFORE" "$AFTER"` check that flagged ANY difference (including drift CLEANED UP during the run — e.g., Claude committing pre-existing uncommitted edits mid-run produced a false positive). Surfaced during `plans/dual-tpr-gemini` §07.3 Scenario 1 execution. The fix: replace the inline check with a call to the SSOT script, and fix the script's `compare` mode to use `comm -13 <(sort BEFORE) <(sort AFTER)` — lines unique to AFTER = new drift. See `worktree-guard.sh` for the full corrected semantics.
+
+This guard catches the "gemini ignored the read-only-reviewer preamble" failure mode at the skill layer, one level above the launcher. `/tp-help` is the only dual-source consumer that needs an explicit skill-level call because it bypasses `dual-invoke-with-retry.sh` (concat mode is one-shot; no retry wrapper → the launcher-layer guard is skipped → the skill layer IS the guard).
 
 ### Step 7: Concatenate with HTML-Comment Sentinel Attribution (per-invocation tokens)
 
