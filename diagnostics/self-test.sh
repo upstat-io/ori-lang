@@ -140,7 +140,7 @@ run_test_output_contains() {
         :
     fi
 
-    if grep -q "$pattern" "$tmpout"; then
+    if grep -qF -- "$pattern" "$tmpout"; then
         printf "  ${C_GREEN}PASS${C_NC}  %s\n" "$desc"
         PASS=$((PASS + 1))
     else
@@ -234,6 +234,23 @@ run_test "simple.ori passes all checks" \
     "$SCRIPT_DIR/diagnose-aot.sh" --no-color "$FIXTURES_DIR/simple.ori"
 run_test "clean.ori passes all checks" \
     "$SCRIPT_DIR/diagnose-aot.sh" --no-color "$FIXTURES_DIR/clean.ori"
+run_test_output_contains "diagnose-aot.sh --help shows --release" "--release" \
+    "$SCRIPT_DIR/diagnose-aot.sh" --help
+run_test_output_contains "diagnose-aot.sh --help shows --both-builds" "--both-builds" \
+    "$SCRIPT_DIR/diagnose-aot.sh" --help
+run_test_output_contains "diagnose-aot.sh --help shows Codegen Audit section" "Codegen Audit" \
+    "$SCRIPT_DIR/diagnose-aot.sh" --help
+run_test_output_contains "diagnose-aot.sh --help shows ARC IR section" "ARC IR" \
+    "$SCRIPT_DIR/diagnose-aot.sh" --help
+if [[ -x "$ROOT_DIR/target/release/ori" ]]; then
+    run_test "diagnose-aot.sh --release on simple.ori" \
+        "$SCRIPT_DIR/diagnose-aot.sh" --release --no-color "$FIXTURES_DIR/simple.ori"
+    run_test "diagnose-aot.sh --both-builds on simple.ori" \
+        "$SCRIPT_DIR/diagnose-aot.sh" --both-builds --no-color "$FIXTURES_DIR/simple.ori"
+else
+    printf "  ${C_DIM}SKIP${C_NC}  --release tests — release binary not found (run: cargo b --release)\n"
+    SKIP=$((SKIP + 2))
+fi
 echo ""
 
 # ─── dual-exec-debug.sh ───────────────────────────────────────────
