@@ -73,6 +73,63 @@ ori_rt         → consumed by: ori_llvm (FFI contract)
 
 ## Execution
 
+### Phase 0: Automated Static Analysis (Run Tools First)
+
+Before AI review begins, run the automated hygiene tools to handle all deterministic, pattern-based checks. This eliminates 60-70% of surface-level findings from AI context, freeing it for LEAK/SSOT/algorithmic DRY analysis.
+
+**All tools are in this skill's folder** (`.claude/skills/impl-hygiene-review/`).
+
+#### 0a. Run hygiene-lint.py (surface checks — ~2s)
+
+```bash
+# Full scan of review scope:
+hygiene-lint.py --scope <review-paths> --summary
+
+# Detailed findings:
+hygiene-lint.py --scope <review-paths>
+
+# Auto-fix banners and commented-out code:
+hygiene-lint.py --scope <review-paths> --fix --apply
+```
+
+Covers 18 checks: file-length, fn-length, nesting-depth, test-ephemeral, test-weak, unsafe-safety, banners, commented-code, bare-allow, println-in-lib, bare-todo, unwrap-prod, catch-all-arms, string-identity, result-unit, glob-imports, missing-docs, lib-bodies.
+
+#### 0b. Run enum-drift.py (cross-crate enum coverage — ~0.5s)
+
+```bash
+# All known IR enums:
+enum-drift.py --summary
+
+# Specific enum:
+enum-drift.py --enum CanExpr TypeTag
+```
+
+Detects match arms missing for enum variants across crate boundaries — the most dangerous drift pattern (Rust's exhaustive match only catches within a single crate).
+
+#### 0c. Run plan-annotations.py (stale plan refs — ~1s)
+
+```bash
+plan-annotations.sh --scope <review-paths> --cleanup-only
+```
+
+Already integrated — classifies plan annotations as stale/active/orphan.
+
+#### 0d. Run dead-pub.py (visibility — ~2s per crate)
+
+```bash
+dead-pub.py --scope <review-paths> --summary
+```
+
+Detects `pub` items only used within their crate (should be `pub(crate)`) or not used at all.
+
+#### 0e. Review tool output, apply auto-fixes
+
+1. Apply auto-fixes: `hygiene-fix.py --scope <review-paths> --apply`
+2. Review remaining findings — these feed into Phase 3 Pass 4 (skip manual checks already covered by tools)
+3. Tool-reported findings that need AI judgment (e.g., test-weak false positives, string-identity in legitimate contexts) get verified during Pass 4
+
+**After Phase 0**: Passes 1-3 of Phase 3 (LEAK/DRY/Boundary) proceed unchanged — these require AI judgment. Pass 4 (Surface Hygiene) is substantially shorter because the tools already caught the mechanical violations.
+
 ### Phase 1: Load Rules & Context
 
 #### 1a. Load Rules
@@ -300,23 +357,12 @@ This pass reads the code *locally* — each file on its own terms.
 - [ ] Provenance lives in `///` (Rust) or `//` (Ori) doc comments above the test, never in the function name?
 - [ ] **Action on any violation found**: rename the test in the same pass. Extract the behavioral scenario from the test body, build a new name from it, move any useful plan/bug/issue provenance into a `///` doc comment above the test. The rename is local to the test file (test names have no callers) — scope, complexity, and "it's just a test" are not valid reasons to defer.
 
-**Quick-scan commands for test-name violations** (run over the review scope):
+**Automated detection** (handled by Phase 0 tools — verify output, don't re-scan manually):
+- `hygiene-lint.py --check test-ephemeral,test-weak` detects both ephemeral IDs and weak descriptors in test names
+- `plan-annotations.sh --cleanup-only` detects ephemeral IDs classified against the plan index (stale vs active)
+- `fn-rename.py` can batch-rename violations found by the above tools
 
-```bash
-# PRIMARY: plan-annotations.sh now detects ephemeral IDs in function names
-# and fixture paths automatically — classified against the plan index
-plan-annotations.sh --cleanup-only  # shows EPHEMERAL NAMES section
-
-# Supplemental: Ori spec tests — pattern scan in @test declarations
-rg -n '@test.*(section|bug|issue|tpr|cross|phase|roadmap|§)' --type-add 'ori:*.ori' -t ori
-
-# Weak descriptor sweep (not covered by plan-annotations.sh)
-rg -n 'fn test_(works|basic|simple|default|correct|valid|ok|sanity)[^a-z_]' --type rust
-```
-
-`plan-annotations.sh --cleanup-only` is the primary tool for ephemeral ID detection in test names. It normalizes underscore-form IDs (`tpr_07_017` → `TPR-07-017`), classifies them against the plan index (stale-resolved, active, etc.), and reports each with its resolution status and plan entry. The supplemental grep commands catch patterns the tool doesn't cover: Ori `@test` declarations and weak-descriptor names.
-
-Results from these commands are candidate violations — read each one before renaming (a test named `test_cow_default_value_clone` legitimately contains `default` as a domain word, not a weak descriptor). The NAMING category requires *behavioral* judgment, not just grep matches.
+Results from tools are **candidate violations** — read each one before renaming (a test named `test_cow_default_value_clone` legitimately contains `default` as a domain word, not a weak descriptor). The NAMING category requires *behavioral* judgment, not just grep matches.
 
 Full rules: `.claude/rules/impl-hygiene.md` §Test Function Naming.
 
