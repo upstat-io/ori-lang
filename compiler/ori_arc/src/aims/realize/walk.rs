@@ -23,8 +23,6 @@ use super::walk_dec::{emit_post_instr_decs_unified, is_rc_managed};
 
 /// Result of the unified forward walk on a single block's body.
 pub(super) struct BodyWalkResult {
-    /// Use counts accumulated during the walk (for Phase C terminator RC).
-    pub uses_so_far: FxHashMap<ArcVarId, usize>,
     /// Deferred parent `RcDec` operations whose borrowed children have
     /// later uses (for edge cleanup or terminator-exit emission).
     pub terminator_deferred: Vec<(ArcVarId, RcStrategy)>,
@@ -136,7 +134,6 @@ pub(super) fn walk_body_unified(
         .collect();
 
     BodyWalkResult {
-        uses_so_far,
         terminator_deferred,
         death_events,
         alloc_events,
