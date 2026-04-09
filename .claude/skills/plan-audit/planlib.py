@@ -506,3 +506,197 @@ def load_plan(plan_dir: Path) -> PlanInfo:
 def load_all_plans() -> list[PlanInfo]:
     """Discover and load all plans."""
     return [load_plan(d) for d in discover_plan_dirs()]
+
+
+# ─── Cross-plan scope overlap ──────────────────────────────────────────────
+
+# Crate-level references extracted from file paths (e.g. "compiler/ori_types/..." → "ori_types")
+CRATE_FROM_PATH_RE = re.compile(r"compiler/(ori_\w+)/")
+
+# Common infrastructure files that appear in many plans — low signal for invalidation
+LOW_SIGNAL_REFS = frozenset({
+    "CLAUDE.md",
+    "test-all.sh",
+    "clippy-all.sh",
+    "fmt-all.sh",
+    "build-all.sh",
+    "Cargo.toml",
+})
+
+# Prelude/common symbols that appear in nearly every plan — too ubiquitous to be
+# meaningful overlap signals (analogous to stop words in information retrieval)
+LOW_SIGNAL_SYMBOLS = frozenset({
+    # Prelude types
+    "Option", "Result", "Some", "None", "Ok", "Err", "Never", "Error",
+    "Ordering", "PanicInfo", "TraceEntry",
+    # Prelude traits
+    "Eq", "Clone", "Debug", "Printable", "Formattable", "Comparable",
+    "Hashable", "Default", "Drop", "Len", "IsEmpty", "Iterator",
+    "DoubleEndedIterator", "Iterable", "Collect", "Into", "Sendable", "Value",
+    "Index", "Traceable",
+    # Operator traits
+    "Add", "Sub", "Mul", "Div", "Neg", "Not", "Rem", "Pow",
+    "BitAnd", "BitOr", "BitXor", "Shl", "Shr",
+    # Common Rust/compiler types that appear everywhere
+    "String", "Vec", "HashMap", "HashSet", "Arc", "Box", "Path", "PathBuf",
+    "Name", "Span", "ExprId", "TypeId",
+    # Common Ori types
+    "Duration", "Size", "Point",
+})
+
+
+@dataclass
+class ScopeFootprint:
+    """The file/symbol/crate scope of a plan or section."""
+    file_refs: set[str]
+    symbols: set[str]
+    crates: set[str]
+
+    @property
+    def all_refs(self) -> set[str]:
+        """Union of all reference types for overlap computation."""
+        return self.file_refs | self.symbols
+
+    def overlap_with(self, other: ScopeFootprint) -> ScopeFootprint:
+        """Compute the intersection of two footprints."""
+        return ScopeFootprint(
+            file_refs=self.file_refs & other.file_refs,
+            symbols=self.symbols & other.symbols,
+            crates=self.crates & other.crates,
+        )
+
+    @property
+    def is_empty(self) -> bool:
+        return not self.file_refs and not self.symbols
+
+    @property
+    def weight(self) -> int:
+        """Rough overlap significance — file refs count 2x, symbols 1x."""
+        return len(self.file_refs) * 2 + len(self.symbols)
+
+
+def extract_section_footprint(section: SectionInfo) -> ScopeFootprint:
+    """Extract the scope footprint of a single section."""
+    file_refs = set(section.extract_file_refs()) - LOW_SIGNAL_REFS
+    symbols = set(section.extract_symbols()) - LOW_SIGNAL_SYMBOLS
+    crates: set[str] = set()
+    for fref in file_refs:
+        m = CRATE_FROM_PATH_RE.match(fref)
+        if m:
+            crates.add(m.group(1))
+    return ScopeFootprint(file_refs=file_refs, symbols=symbols, crates=crates)
+
+
+def extract_plan_footprint(plan: PlanInfo) -> ScopeFootprint:
+    """Extract the union scope footprint of all sections in a plan."""
+    files: set[str] = set()
+    symbols: set[str] = set()
+    crates: set[str] = set()
+    for section in plan.sections:
+        fp = extract_section_footprint(section)
+        files |= fp.file_refs
+        symbols |= fp.symbols
+        crates |= fp.crates
+    return ScopeFootprint(file_refs=files, symbols=symbols, crates=crates)
+
+
+@dataclass
+class StaleReviewEntry:
+    """A section with reviewed=true that overlaps with a changed plan's scope."""
+    plan: PlanInfo
+    section: SectionInfo
+    overlap: ScopeFootprint
+    reason: str  # Human-readable explanation
+
+
+def find_stale_reviews(
+    changed_plan: PlanInfo,
+    all_plans: list[PlanInfo] | None = None,
+    *,
+    min_weight: int = 2,
+) -> list[StaleReviewEntry]:
+    """Find sections in other plans whose reviewed=true is stale due to scope overlap.
+
+    Args:
+        changed_plan: The plan that was just created or significantly changed.
+        all_plans: All plans to check. If None, discovers and loads them.
+        min_weight: Minimum overlap weight to report (default 2 = at least one file ref).
+
+    Returns:
+        List of StaleReviewEntry for each affected section, sorted by overlap weight descending.
+    """
+    if all_plans is None:
+        all_plans = load_all_plans()
+
+    changed_fp = extract_plan_footprint(changed_plan)
+    if changed_fp.is_empty:
+        return []
+
+    stale: list[StaleReviewEntry] = []
+
+    for plan in all_plans:
+        # Skip the changed plan itself
+        if plan.dir.resolve() == changed_plan.dir.resolve():
+            continue
+        # Skip completed plans
+        if plan.dir.parent.name == "completed":
+            continue
+        # Skip plans with no sections
+        if not plan.sections:
+            continue
+
+        for section in plan.sections:
+            # Only check reviewed=true sections
+            if section.reviewed is not True:
+                continue
+            # Skip completed sections — their review is historical, not a gate
+            if section.status == "complete":
+                continue
+
+            section_fp = extract_section_footprint(section)
+            overlap = changed_fp.overlap_with(section_fp)
+
+            if overlap.is_empty or overlap.weight < min_weight:
+                continue
+
+            # Build human-readable reason
+            parts = []
+            if overlap.file_refs:
+                parts.append(f"files: {', '.join(sorted(overlap.file_refs)[:5])}")
+                if len(overlap.file_refs) > 5:
+                    parts.append(f"(+{len(overlap.file_refs) - 5} more)")
+            if overlap.symbols:
+                parts.append(f"symbols: {', '.join(sorted(overlap.symbols)[:5])}")
+                if len(overlap.symbols) > 5:
+                    parts.append(f"(+{len(overlap.symbols) - 5} more)")
+
+            reason = f"Overlapping scope ({overlap.weight} weight): {'; '.join(parts)}"
+
+            stale.append(StaleReviewEntry(
+                plan=plan, section=section, overlap=overlap, reason=reason,
+            ))
+
+    # Sort by overlap weight descending (most affected first)
+    stale.sort(key=lambda e: e.overlap.weight, reverse=True)
+    return stale
+
+
+def invalidate_section_review(section: SectionInfo) -> bool:
+    """Flip a section's reviewed field from true to false in the file.
+
+    Returns True if the file was modified, False if no change was needed.
+    """
+    text = read_text(section.path)
+    # Match `reviewed: true` in frontmatter (YAML boolean)
+    new_text = re.sub(
+        r"^(reviewed:\s*)true\s*$",
+        r"\1false",
+        text,
+        count=1,
+        flags=re.MULTILINE,
+    )
+    if new_text == text:
+        return False
+    section.path.write_text(new_text, encoding="utf-8")
+    section.reviewed = False
+    return True

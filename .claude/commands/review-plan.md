@@ -461,6 +461,32 @@ Bash:
 
 Read the results. If critical findings remain, report them to the user.
 
+### Step 5.5: Cross-Plan Review Invalidation
+
+**When to run:** This step runs when the review made **significant changes** to the plan — specifically, changes that alter which files, types, or subsystems the plan's sections reference. Skip this step if the review only made cosmetic/formatting changes.
+
+**Purpose:** If the review changed a plan's scope (added/removed file references, changed implementation approach, restructured sections), those changes may invalidate `reviewed: true` sections in OTHER plans that overlap with the changed plan's scope. This is the same cache coherence problem as `/create-plan` Step 19, but triggered by review edits instead of plan creation.
+
+#### 5.5a: Run invalidation detection
+
+```
+Bash:
+  python3 .claude/skills/plan-audit/plan-invalidate.py {plan_dir} --json > /tmp/plan-invalidate-output.json
+```
+
+Read `/tmp/plan-invalidate-output.json`. If `status` is `"clean"`, skip to Step 6.
+
+#### 5.5b: Present findings and apply
+
+If stale sections are found, include them in the Step 6 verdict under a new **Cross-Plan Invalidation** heading. Apply the invalidation automatically for high-weight overlaps (weight ≥ 4) and report all changes:
+
+```
+Bash:
+  python3 .claude/skills/plan-audit/plan-invalidate.py {plan_dir} --apply --min-weight 4
+```
+
+For lower-weight overlaps (weight 2-3), list them as informational — the user can decide whether to invalidate those during the verdict review.
+
 ### Step 6: Present Verdict
 
 Consolidate findings into a summary:
@@ -488,6 +514,11 @@ Consolidate findings into a summary:
 | Section | `reviewed` Before | `reviewed` After | Reason |
 |---------|------------------|-----------------|--------|
 | ... | ... | ... | ... |
+
+### Cross-Plan Invalidation
+{If Step 5.5 ran: report how many sections in other plans were flipped from reviewed: true → false, and why.}
+{If Step 5.5 was skipped (cosmetic changes only): "No cross-plan invalidation needed — review changes were cosmetic."}
+{If Step 5.5 found no overlaps: "No cross-plan invalidation needed — no overlapping scopes."}
 
 ### Remaining Concerns
 {Issues requiring human judgement, ranked Critical > Major > Minor}
