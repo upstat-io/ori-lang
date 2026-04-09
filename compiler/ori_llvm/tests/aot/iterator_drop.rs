@@ -144,7 +144,7 @@ fn tpr_07_016_enum_conditional_consume_no_leak() {
     );
 }
 
-/// TPR-07-017 semantic pin: per-class take-project partitioning.
+/// Regression: per-class take-project partitioning.
 /// Two unrelated take-projects coexist in the same function on
 /// different alias chains. With function-global bypass-safe block
 /// computation, every block reachable from `match_b` is excluded from
@@ -153,11 +153,6 @@ fn tpr_07_016_enum_conditional_consume_no_leak() {
 /// that bypasses `match_a`. Per-class partitioning fixes this by
 /// computing bypass-safety against only the take-projects in `a`'s
 /// own connected-component class, independent of unrelated `b`.
-///
-/// Codex iteration 7 found this gap during TPR review of the
-/// fix. The `take_project.rs` source itself flagged
-/// "two iterators moved on different branches" as the missing
-/// partitioning case.
 #[test]
 fn tpr_07_017_two_unrelated_take_projects_no_leak() {
     assert_aot_success(
@@ -166,7 +161,7 @@ fn tpr_07_017_two_unrelated_take_projects_no_leak() {
     );
 }
 
-/// TPR-07-019 topology pin: phi-merge of two take-projects' results.
+/// Regression: phi-merge of two take-projects' results.
 /// Two unrelated `MaybeIter` sources are matched in separate `if`
 /// branches, and each branch's match arm result meets at the `if`'s
 /// phi-style merge block param. With the previous unconditional
@@ -178,11 +173,6 @@ fn tpr_07_017_two_unrelated_take_projects_no_leak() {
 /// The fix only unifies Jump-arg → block-param edges when the target
 /// has exactly one predecessor (a degenerate phi semantically equal
 /// to `let param = arg`). Multi-pred targets are skipped.
-///
-/// This is a topology pin: the fix is correct on principle (Codex
-/// iteration 8 IR-level analysis), and this fixture exercises the
-/// shape so any future regression that re-introduces the unconditional
-/// union would be caught here under leak/double-free checks.
 #[test]
 fn tpr_07_019_phi_merge_take_projects_no_leak() {
     assert_aot_success(
@@ -191,7 +181,7 @@ fn tpr_07_019_phi_merge_take_projects_no_leak() {
     );
 }
 
-/// TPR-07-019 semantic pin: per-source / per-lineage bypass-safe split.
+/// Regression: per-source / per-lineage bypass-safe split.
 ///
 /// Two phi-merge consumers (`let chosen1 = if c then a else b; match
 /// chosen1 ...; let chosen2 = if c2 then a2 else b2; match chosen2 ...`)
@@ -202,17 +192,14 @@ fn tpr_07_019_phi_merge_take_projects_no_leak() {
 /// (`%19 = %17`), while the actual enum that needs the bypass-safe
 /// scope-exit drop is the upstream phi-merge param (`%17`). Forward-
 /// only Let propagation in lineage analysis would miss the upstream
-/// alias and leak it on every bypass path through the conditional —
-/// reverting the bidirectional-Let half of the TPR-07-019 fix
-/// reproduces the `tpr_07_016/017/019/020 leak 1 RC allocation`
-/// regression that surfaced during iteration 2 of this fix.
+/// alias and leak it on every bypass path through the conditional.
 ///
 /// This is the first AOT pin that requires `compute_lineage` to walk
 /// Let edges in BOTH directions (forward `src → dst` AND backward
 /// `dst → src`). The Jump-arg → block-param direction remains forward-
 /// only (a phi merge is a CFG choice between alternatives, not shared
 /// storage — bidirectional Jump propagation would falsely conflate
-/// unrelated `tp_sources`, which is the original TPR-07-019 unsoundness).
+/// unrelated `tp_sources`).
 #[test]
 fn tpr_07_019_per_source_lineage_no_leak() {
     assert_aot_success(

@@ -26,8 +26,7 @@ use super::walk;
 /// bisect which post-walk pass (`emit_dead_invoke_dsts`,
 /// `emit_edge_cleanup`, `emit_project_escape_incs`, `coalesce_block_rc`)
 /// modifies a specific block's RC ops without inline `tracing::debug!`
-/// insertions. Captured during TPR-07-017 debugging — see
-/// `.claude/rules/arc.md` § Debugging.
+/// insertions. See `.claude/rules/arc.md` § Debugging.
 fn trace_phase_snapshot(
     phase: &'static str,
     func: &ArcFunction,
@@ -101,7 +100,7 @@ pub(super) fn emit_rc_unified(
     let iter_element_defs = collect_iter_element_defs(func, interner);
     let inline_enum_projected_defs = collect_inline_enum_projected_defs(func, pool);
     let func_project_sources = compute_function_project_sources(func);
-    // TPR-07-017: per-class take-project facts via union-find +
+    // Per-class take-project facts via union-find +
     // CFG reachability. Precomputed once per function. Each
     // take-project source seeds its own connected-component class
     // (Let-alias + Jump-arg → block-param edges); each class has

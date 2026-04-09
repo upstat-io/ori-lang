@@ -55,9 +55,8 @@ pub fn stdlib_path() -> PathBuf {
 /// `oric` dependency and runs `cargo test -p ori_llvm` directly sees **ghost
 /// test results**: the test process loads fresh `ori_llvm.rlib` via Cargo's
 /// dep graph, but spawns the stale `ori` binary to compile fixtures. Surfaced
-/// during §07 TPR-07-017 iteration 2 debugging — ~30 minutes wasted bisecting
-/// a regression that only existed in the stale binary. Root cause in
-/// `plans/repr-opt/section-07-enum-repr.md` §07.RZ.
+/// during repr-opt §07 debugging — ~30 minutes wasted bisecting
+/// a regression that only existed in the stale binary.
 ///
 /// **What it does**: Uses `OnceLock` to run `cargo build -p oric --bin ori`
 /// exactly once at the first `ori_binary()` call, matching the test profile
@@ -124,7 +123,7 @@ fn ensure_ori_binary_fresh() {
 /// `ensure_ori_binary_fresh()` which runs `cargo build -p oric --bin ori`
 /// (profile-matched) via `OnceLock`. Subsequent calls skip the build. This
 /// eliminates the class of "ghost test results from stale `ori` binary" bugs
-/// that surfaced during §07 TPR-07-017 iteration 2 — see `ensure_ori_binary_fresh`
+/// that surfaced during repr-opt §07 — see `ensure_ori_binary_fresh`
 /// doc comment for full context.
 pub fn ori_binary() -> PathBuf {
     ensure_ori_binary_fresh();
