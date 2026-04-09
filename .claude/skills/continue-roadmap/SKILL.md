@@ -1,5 +1,6 @@
 ---
 name: continue-roadmap
+model: haiku
 description: Resume work on the Ori compiler roadmap, picking up where we left off
 argument-hint: "[section]"
 ---
