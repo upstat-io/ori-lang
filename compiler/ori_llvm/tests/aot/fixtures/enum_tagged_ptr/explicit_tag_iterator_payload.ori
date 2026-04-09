@@ -1,0 +1,18 @@
+// Regression: explicit-tag enum Construct with pointer payload (iterator)
+// requires ptrtoint cast before insertvalue into [N x i64] slot.
+// Without the cast, LLVM rejects: `insertvalue [1 x i64], ptr %p, 0`.
+// 10 variants forces explicit-tag encoding (tagged-pointer max is 8).
+
+type BigEnum = V1 | V2 | V3 | V4 | V5 | V6 | V7 | V8 | V9 | Holds(it: Iterator<int>);
+
+@main () -> void = {
+    let $iter = [10, 20, 30].iter();
+    let $big: BigEnum = Holds(it: iter);
+    match big {
+        Holds(it:) -> {
+            let $sum = it.fold(initial: 0, op: (acc, x) -> acc + x);
+            print(msg: sum)
+        },
+        _ -> print(msg: "wrong variant")
+    }
+}
