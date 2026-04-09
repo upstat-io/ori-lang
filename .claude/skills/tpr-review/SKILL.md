@@ -5,7 +5,11 @@ description: "Run an independent dual-source (codex + gemini) third-party review
 
 # Dual-Source TPR Review (Codex + Gemini)
 
-Run BOTH the Codex CLI AND the Gemini CLI non-interactively in parallel to perform independent review-work passes, merge their findings with reviewer tagging, then fix any findings and re-run until BOTH reviewers return zero actionable findings. Codex and Gemini each have their own context, rules, and skills — they figure out scope on their own.
+Run BOTH the Codex CLI AND the Gemini CLI non-interactively in parallel to perform independent review passes, merge their findings with reviewer tagging, then fix any findings and re-run until BOTH reviewers return zero actionable findings. Codex and Gemini each have their own context, rules, and skills — they figure out scope on their own.
+
+**Two reviewer skill modes** (selected via `ARGS`):
+- **Default (`review-work`)**: reviewers use their `review-work` skill — code-oriented review
+- **Plan review (`--skill review-plan`)**: reviewers use their `review-plan` skill — plan-oriented review (mission criteria, cross-section coherence, executability). Invoked by `/review-plan`.
 
 This wrapper is built on the Section 02 dual-source transport utility. All launching, parsing, schema validation, worktree-guarding, and infra retry logic lives in `.claude/skills/dual-tpr/scripts/` — this skill is purely the **semantic** fix-and-re-run loop that consumes merged findings. See `.claude/skills/dual-tpr/transport.md` for the transport contract.
 
@@ -87,7 +91,7 @@ Read CLAUDE.md (the project root one)
 |        |                                                |
 |  1. TRANSPORT launches BOTH reviewers in parallel:      |
 |     - codex exec (envelope-only mode)                   |
-|     - gemini  (review-work skill activation)            |
+|     - gemini  (skill activation per ARGS)               |
 |     Infra retries (3 per reviewer, exp. backoff)        |
 |     are INSIDE the transport — they do NOT consume      |
 |     semantic iterations.                                |
@@ -108,9 +112,9 @@ Read CLAUDE.md (the project root one)
 ```
 
 **Three actors:**
-- **Codex** (external reviewer #1): runs `.codex/skills/review-work/SKILL.md` in envelope-only mode. Does NOT fix anything.
-- **Gemini** (external reviewer #2): runs `.gemini/skills/review-work/SKILL.md`. Does NOT fix anything. Can issue `google_web_search` for external claim verification.
-- **Claude** (you): reads merged findings, fixes the code, commits, re-invokes the transport.
+- **Codex** (external reviewer #1): runs `.codex/skills/{skill_name}/SKILL.md` in envelope-only mode. Does NOT fix anything. Default: `review-work`; plan review: `review-plan`.
+- **Gemini** (external reviewer #2): runs `.gemini/skills/{skill_name}/SKILL.md`. Does NOT fix anything. Can issue `google_web_search` for external claim verification. Default: `review-work`; plan review: `review-plan`.
+- **Claude** (you): reads merged findings, fixes the code/plan, commits, re-invokes the transport.
 
 **A round succeeds only when BOTH reviewers complete cleanly AND the merged finding list contains zero actionable findings.** Filing findings without fixing and re-running is deferral. Fixing findings without re-running BOTH reviewers to confirm clean is incomplete. A partial re-run (only one reviewer) is NOT a valid clean pass.
 
@@ -192,9 +196,10 @@ Write both prompts to the scratch dir:
 ```
 Bash:
   cat > "$RUN/codex.prompt.md" <<'PROMPT'
-  Run the /review-work skill in envelope-only mode. Emit the JSON
+  Run the /{skill_name} skill in envelope-only mode. Emit the JSON
   envelope per .claude/skills/dual-tpr/findings-schema.json; do NOT
   write findings to plan files.
+  # NOTE: {skill_name} is review-work (default) or review-plan (plan review)
 
   ## Grounding — read these files FIRST before reviewing
 
@@ -214,9 +219,10 @@ Bash:
   PROMPT
 
   cat > "$RUN/gemini.prompt.md" <<'PROMPT'
-  Activate the review-work skill and follow its instructions exactly.
+  Activate the {skill_name} skill and follow its instructions exactly.
   Emit the JSON envelope per .claude/skills/dual-tpr/findings-schema.json;
   do NOT write findings to plan files.
+  # NOTE: {skill_name} is review-work (default) or review-plan (plan review)
 
   ## Grounding — read these files FIRST before reviewing
 

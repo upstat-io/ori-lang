@@ -17,7 +17,7 @@ The `reviewed: true/false` field in section frontmatter is a **pre-implementatio
 **Two modes — the mode determines whether `reviewed` gets flipped:**
 
 **Single-section review** (`/review-plan plans/foo/section-03.md`):
-This is the pre-implementation gate. After the FULL pipeline completes — Sonnet agent AND `/tpr-review` clean pass — flip `reviewed: true` in a final step. Do NOT flip it inside the Sonnet agent. Exception: if issues remain that could NOT be resolved (requiring human judgement), leave `reviewed: false`.
+This is the pre-implementation gate. After the FULL pipeline completes — editing agent AND `/tpr-review` clean pass — flip `reviewed: true` in a final step. Do NOT flip it inside the editing agent. Exception: if issues remain that could NOT be resolved (requiring human judgement), leave `reviewed: false`.
 
 **Whole-plan review** (`/review-plan plans/foo/`):
 Improves quality across all sections, but does **NOT** change any `reviewed` values. Fix content issues, but leave every section's `reviewed` field as-is — including missing fields (do not add `reviewed: false` to sections that lack the field).
