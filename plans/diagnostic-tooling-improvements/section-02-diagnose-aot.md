@@ -25,10 +25,10 @@ sections:
     status: complete
   - id: "02.R"
     title: "Third Party Review Findings"
-    status: not-started
+    status: complete
   - id: "02.N"
     title: "Completion Checklist"
-    status: in-progress
+    status: complete
 ---
 
 # Section 02: Enhance diagnose-aot.sh
@@ -121,9 +121,9 @@ Add two new sections to the 7-section diagnostic battery, making it 9 sections (
 ## 02.N Completion Checklist
 
 - [x] All subsections (02.1, 02.2) complete
-- [x] `diagnostics/self-test.sh` passes
+- [x] `diagnostics/self-test.sh` passes (37/37)
 - [x] `diagnose-aot.sh --help` shows new options
-- [x] `timeout 150 ./test-all.sh` green — no regressions
-- [ ] `/tpr-review` passed
-- [ ] `/impl-hygiene-review` passed
-- [ ] **`/improve-tooling` section-close sweep**
+- [x] `timeout 150 ./test-all.sh` green — no regressions (16,927 passed)
+- [x] `/tpr-review` passed — 3 iterations: 7 findings fixed (iter 1), 3 compiler fixes (iter 2), 3 doc fixes (iter 3)
+- [x] `/impl-hygiene-review` passed — shell scripts + small macro change, no compiler hygiene issues
+- [x] **`/improve-tooling` section-close sweep** — this section IS tooling improvement; retrospective: grep -qF fix in self-test, release phase dump enablement in compiler
