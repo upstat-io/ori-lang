@@ -49,15 +49,10 @@ Bugs in the CLI (`ori run`, `ori check`, `ori test`, `ori fmt`), formatter, diag
   Subsystem: `compiler/oric/src/tracing_setup.rs`, `compiler/ori_llvm/src/init.rs`, `compiler/ori_llvm/src/lib.rs`
   Found: 2026-04-08 | Source: dual-tpr-gemini §07.3 Scenario 1 (dual-source convergence: both codex AND gemini independently surfaced)
 
-- [ ] `[BUG-07-005][low]` **Orphan env vars `ORI_NO_REPR_OPT` and `ORI_VERIFY_ARC` are read in source but not registered in `compiler/oric/src/debug_flags.rs`** — found by continue-roadmap.
-  **Repro**: `diagnostics/check-debug-flags.sh` reports two ORPHAN entries:
-  - `ORI_NO_REPR_OPT` — read at `compiler/ori_repr/src/plan/query.rs:36`
-  - `ORI_VERIFY_ARC` — read at `compiler/oric/src/commands/codegen_pipeline.rs:381`, `compiler/oric/src/arc_dump/mod.rs:68`, `compiler/oric/src/arc_dot/mod.rs:60`
-  **Impact**: Low — neither flag is broken at runtime; the consistency check fails (`diagnostics/self-test.sh` shows `check-debug-flags.sh FAIL`) and both flags are undocumented in CLAUDE.md. New users can't discover them.
-  **Suggested fix**: Either (a) add both flags to `compiler/oric/src/debug_flags.rs` (`Flag` enum + `from_env_var` mapping + CLAUDE.md doc), or (b) remove the orphan call sites if the flags are obsolete. Surfaced during TPR-07-019 retrospective when running `diagnostics/self-test.sh` to verify the new `arc-dump.sh` script — neither flag is related to TPR-07-019 itself.
-  Subsystem: `compiler/oric/src/debug_flags.rs` (registry) + the listed orphan call sites
+- [x] `[BUG-07-005][low]` **Orphan env vars `ORI_NO_REPR_OPT` and `ORI_VERIFY_ARC` are read in source but not registered in `compiler/oric/src/debug_flags.rs`** — found by continue-roadmap.
+  Resolved: Fixed 2026-04-09. Registered both flags in `debug_flags.rs` `flags!` macro. Exported `NarrowingPolicy::ENV_NO_REPR_OPT` constant from `ori_repr` and added compile-time sync assertion (matches `ORI_AUDIT_*` pattern). Updated 3 `ORI_VERIFY_ARC` call sites in oric to use `debug_flags::ORI_VERIFY_ARC` constant instead of string literal. Documented both flags in CLAUDE.md. `check-debug-flags.sh` now reports 15 flags, 0 orphan, 0 undocumented. 16,922 tests passing.
+  Subsystem: `compiler/oric/src/debug_flags.rs`, `compiler/ori_repr/src/plan/query.rs`, `compiler/oric/src/commands/codegen_pipeline.rs`, `compiler/oric/src/arc_dump/mod.rs`, `compiler/oric/src/arc_dot/mod.rs`, `CLAUDE.md`
   Found: 2026-04-07 | Source: continue-roadmap
-  Note: `ORI_NO_REPR_OPT` is in active repr-opt territory; coordinate with the repr-opt reroute owner before removing.
 
 - [x] `[BUG-07-004][low]` **AOT test harness does not invalidate stale binaries when cross-crate deps change** — found by tpr-review.
   Resolved: OBE on 2026-04-09. The fix is already in place: `ensure_ori_binary_fresh()` in `compiler/ori_llvm/tests/aot/util/aot.rs:73-110` runs `cargo build -p oric --bin ori` exactly once per test process via `OnceLock`, matching the test profile. `ori_binary()` calls it before returning the binary path. This is option (b) from the suggested fix. Implemented as part of §07 TPR-07-017 work (doc comment at line 57-60 references the same symptom).
