@@ -16,6 +16,40 @@ Bugs in the CLI (`ori run`, `ori check`, `ori test`, `ori fmt`), formatter, diag
 
 ## Open Bugs
 
+- [ ] `[BUG-07-009][low]` **`tracing-tree` dependency always compiled into oric, regardless of `ORI_LOG_TREE` usage** — found by dual-tpr-gemini §07.3 Scenario 1 dual-source /tp-help (gemini-only).
+  **Repro**: `compiler/oric/Cargo.toml` lists `tracing-tree` as an unconditional dependency, but it's only used inside the `if use_tree { ... }` branch in `compiler/oric/src/tracing_setup.rs:25-36`, which only fires when `ORI_LOG_TREE` is set at runtime (rare developer use case). The crate and its transitive deps (`ansi_term`, etc.) are compiled and linked into every `oric` release binary regardless.
+  **Impact**: Low — marginal binary size increase for a rarely-used diagnostic feature. Not a runtime correctness issue.
+  **Suggested fix**: Make `tracing-tree` an optional Cargo dependency gated behind a `tree` feature. `tracing_setup.rs` gates the tree branch with `#[cfg(feature = "tree")]` and `ORI_LOG_TREE` becomes a no-op unless the feature is enabled at build time. Document the feature in CLAUDE.md. Alternative: close as "working as designed" if binary-size minimalism isn't a current priority — the footprint is small and always-available `ORI_LOG_TREE=1` aids developer ergonomics.
+  Subsystem: `compiler/oric/Cargo.toml` + `compiler/oric/src/tracing_setup.rs:25-36`
+  Found: 2026-04-08 | Source: dual-tpr-gemini §07.3 Scenario 1 (gemini only)
+
+- [ ] `[BUG-07-008][medium]` **`tracing_setup.rs` uses `.init()` which panics if a global subscriber is already set** — found by dual-tpr-gemini §07.3 Scenario 1 dual-source /tp-help (gemini-only).
+  **Repro**: Set a global tracing subscriber before calling `oric::tracing_setup::init()` — e.g., from a test runner that wires up `tracing_subscriber::fmt::init()` for its own diagnostics, OR after `ori_llvm::init_tracing()` runs (see BUG-07-007). The second `.init()` call crashes the process with `"global default trace dispatcher has already been set"`.
+  **Root cause**: `compiler/oric/src/tracing_setup.rs:36` and `tracing_setup.rs:46` both call `.init()` (the panicking variant from `SubscriberInitExt`). The `OnceLock<()>` guard prevents double-init from *oric itself*, but not from other subscribers set before oric's first call.
+  **Impact**: Medium — setup-time crash in test runners or any composition scenario where multiple tracing consumers initialize. Not a runtime correctness issue but a stability/composability issue. Classified as `EXPOSURE`.
+  **Suggested fix**: Replace `.init()` with `.try_init().ok()` — `try_init` returns `Err` instead of panicking when a subscriber is already set, and `.ok()` discards the result. Preserves the first-wins semantics (whoever initialized first owns the global subscriber) while tolerating concurrent subscribers. Aligns with `CLAUDE.md` stabilization discipline.
+  Subsystem: `compiler/oric/src/tracing_setup.rs:36, 46`
+  Found: 2026-04-08 | Source: dual-tpr-gemini §07.3 Scenario 1 (gemini only)
+
+- [ ] `[BUG-07-007][medium]` **Parallel tracing subscriber initialization in `ori_llvm::init_tracing` violates SSOT "One System One Owner"** — found by dual-tpr-gemini §07.3 Scenario 1 dual-source /tp-help (BOTH codex and gemini — high confidence via convergence).
+  **Repro**: Grep for `init_tracing` across the workspace — two parallel initializers exist:
+  - `compiler/oric/src/tracing_setup.rs::init()` — supports `ORI_LOG`, `RUST_LOG` fallback, `ORI_LOG_TREE`, default `warn`
+  - `compiler/ori_llvm/src/init.rs::init_tracing()` — supports only `RUST_LOG`, no tree mode, no `warn` default, uses its own `Once` guard
+  Codex verified `ori_llvm::init_tracing` currently has NO in-repo caller (latent), but it's still a real SSOT violation waiting to bite if/when a caller lands.
+  **Root cause**: `compiler/ori_llvm/src/init.rs:41-57` duplicates tracing setup logic that should live only in `oric` (per `.claude/rules/compiler.md`: "IO only in `oric`; core crates pure"). Two sources of truth = inevitable drift. Classified as `LEAK:shadow-home` (codex) / `DRIFT` + "One System One Owner" violation (gemini) — same finding, different category labels from the two reviewers, identical root cause.
+  **Impact**: Medium-high if a caller lands. Latent today but compounds BUG-07-008: if any code calls `ori_llvm::init_tracing()` after `oric::tracing_setup::init()`, the second `.init()` call panics. Removing the `ori_llvm` initializer fixes both bugs.
+  **Suggested fix**: Remove `ori_llvm::init_tracing()` entirely — `ori_llvm` should never configure global subscribers. If `ori_llvm` integration tests need tracing, they should either (a) rely on `oric::tracing_setup::init()` as the sole entry point via the oric binary, or (b) use `tracing-subscriber`'s `try_init()` in test-only code paths with `#[cfg(test)]`.
+  Subsystem: `compiler/ori_llvm/src/init.rs:41-57` (remove) + `compiler/oric/src/tracing_setup.rs` (sole owner, no changes)
+  Found: 2026-04-08 | Source: dual-tpr-gemini §07.3 Scenario 1 (dual-source convergence: both codex AND gemini independently surfaced)
+
+- [ ] `[BUG-07-006][high]` **`tracing_setup.rs`: silent fallback on malformed `ORI_LOG` parse error swallows user configuration** — found by dual-tpr-gemini §07.3 Scenario 1 dual-source /tp-help (BOTH codex and gemini — high confidence via convergence).
+  **Repro**: Set `ORI_LOG="info,garbage syntax,,,"` (intentionally malformed filter directive) and run `ori check file.ori`. The malformed filter is silently ignored; the code falls through to `RUST_LOG` and then to the `"warn"` default as if the env var were never set. No error, no warning, no diagnostic surfaces to the user — their explicit intent is lost.
+  **Root cause**: `compiler/oric/src/tracing_setup.rs:19-21` uses `.or_else(|_| EnvFilter::try_from_env("RUST_LOG"))` which collapses `FromEnvError::Parse` (user typo — should surface to stderr) and `FromEnvError::NotPresent` (normal case — should fall through silently) into the same fallback path.
+  **Impact**: High — violates `CLAUDE.md §"The One Rule: Correctness Above All"` (code ignores user input without warning, treating user error the same as user absence) and `impl-hygiene.md §Error Handling` (swallowed error: silently collapsing a fallible parse into a default). Classified as `LEAK:swallowed-error` (codex) / `GAP` (gemini) — same root cause, different category labels.
+  **Suggested fix**: Pattern-match on the `FromEnvError` variant explicitly. `NotPresent` falls through to `RUST_LOG` / `warn` default (current behavior). `Parse` logs to stderr BEFORE fallback: `eprintln!("warning: ORI_LOG parse error: {e}; falling back to default filter")`. Preserves the convenience of fallback-on-missing while surfacing configuration errors. Alternative: make `Parse` errors fatal (exit with E-code and full filter-syntax help) if Ori prefers strict validation over lenient fallback — pick one and document in CLAUDE.md.
+  Subsystem: `compiler/oric/src/tracing_setup.rs:19-21`
+  Found: 2026-04-08 | Source: dual-tpr-gemini §07.3 Scenario 1 (dual-source convergence: both codex AND gemini independently surfaced)
+
 - [ ] `[BUG-07-005][low]` **Orphan env vars `ORI_NO_REPR_OPT` and `ORI_VERIFY_ARC` are read in source but not registered in `compiler/oric/src/debug_flags.rs`** — found by continue-roadmap.
   **Repro**: `diagnostics/check-debug-flags.sh` reports two ORPHAN entries:
   - `ORI_NO_REPR_OPT` — read at `compiler/ori_repr/src/plan/query.rs:36`
