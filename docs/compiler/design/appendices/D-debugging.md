@@ -97,7 +97,7 @@ The four active tracing levels follow a consistent convention across all crates:
 
 Phase dumps serialize the compiler's intermediate representations to stderr at well-defined pipeline boundaries. They answer the question *"what did the compiler produce at stage X?"* without requiring the developer to understand or instrument the transformation logic between stages.
 
-All phase dump flags are gated behind `#[cfg(debug_assertions)]`, ensuring zero overhead in release builds. The flags are read via the `dbg_set!` macro, which checks whether the corresponding environment variable exists and is not `"0"`.
+Phase dump flags are checked at runtime via the `dbg_set!` macro, which reads the corresponding environment variable and returns `true` if it exists and is not `"0"`. This works in both debug and release builds — the overhead of an env var read is negligible for a CLI compiler.
 
 ### Available Dumps
 
