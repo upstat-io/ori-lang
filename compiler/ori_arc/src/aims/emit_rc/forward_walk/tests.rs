@@ -50,26 +50,71 @@ struct TerminatorFixture {
     take_move_facts: TakeMoveFacts,
 }
 
+/// Select the RC strategy a fixture should use for its test variables.
+///
+/// Each variant exercises a different `RcStrategy` dispatch path so the
+/// matrix tests cover all strategies, not just `HeapPointer`. See
+/// `compiler/ori_arc/src/ir/repr.rs:128-211` for the full enum.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum VarKind {
+    /// `list<str>` → `ValueRepr::RcPointer` → `RcStrategy::HeapPointer`.
+    HeapPointer,
+    /// `str` → `ValueRepr::FatValue` → `RcStrategy::FatPointer`.
+    FatPointer,
+    /// `Option<int>` → `ValueRepr::Aggregate` → `RcStrategy::InlineEnum`.
+    InlineEnum,
+    /// `(list<int>, list<int>)` → `ValueRepr::Aggregate` → `RcStrategy::AggregateFields`.
+    AggregateFields,
+    /// `Iterator<int>` → `ValueRepr::RcPointer` + `Tag::Iterator` → `RcStrategy::Iterator`.
+    /// Iterators are move-only (`emit_rc_inc_iterator` is a no-op in the LLVM
+    /// backend); the algebra itself still computes correctly.
+    Iterator,
+    /// `(int) -> int` → `ValueRepr::FatValue` + `Tag::Function` → `RcStrategy::Closure`.
+    Closure,
+}
+
 impl TerminatorFixture {
     /// Build a fixture where `num_vars` variables are defined by the block
     /// (so `is_owned_at_entry` treats them as owned locals) with the given
     /// `terminator` and the given set of `live_at_exit_vars`. All vars use
-    /// `Idx::STR` (a fat-pointer, RC-managed type) by default; callers can
-    /// override by mutating `func.var_types` / `func.var_reprs`.
+    /// `VarKind::HeapPointer` (`list<str>`) by default; use `new_with_kind`
+    /// to exercise other RC strategies.
     fn new(
         num_vars: u32,
         terminator: ArcTerminator,
         live_at_exit: &[ArcVarId],
         body: Vec<ArcInstr>,
     ) -> Self {
-        // `Idx::STR` gives `ValueRepr::FatValue` which routes through
-        // `RcStrategy::FatPointer`. We want a heap-pointer strategy for
-        // simplicity of the assertions, so use a `list<str>` type whose
-        // repr is `RcPointer` → `RcStrategy::HeapPointer`.
+        Self::new_with_kind(
+            num_vars,
+            VarKind::HeapPointer,
+            terminator,
+            live_at_exit,
+            body,
+        )
+    }
+
+    fn new_with_kind(
+        num_vars: u32,
+        kind: VarKind,
+        terminator: ArcTerminator,
+        live_at_exit: &[ArcVarId],
+        body: Vec<ArcInstr>,
+    ) -> Self {
         let mut pool = Pool::new();
-        let list_str = pool.list(Idx::STR);
-        let var_types: Vec<Idx> = (0..num_vars).map(|_| list_str).collect();
-        let var_reprs: Vec<ValueRepr> = (0..num_vars).map(|_| ValueRepr::RcPointer).collect();
+        let (var_ty, var_repr) = match kind {
+            VarKind::HeapPointer => (pool.list(Idx::STR), ValueRepr::RcPointer),
+            VarKind::FatPointer => (Idx::STR, ValueRepr::FatValue),
+            VarKind::InlineEnum => (pool.option(Idx::INT), ValueRepr::Aggregate),
+            VarKind::AggregateFields => {
+                let list_int = pool.list(Idx::INT);
+                (pool.tuple(&[list_int, list_int]), ValueRepr::Aggregate)
+            }
+            VarKind::Iterator => (pool.iterator(Idx::INT), ValueRepr::RcPointer),
+            VarKind::Closure => (pool.function(&[Idx::INT], Idx::INT), ValueRepr::FatValue),
+        };
+        let var_types: Vec<Idx> = (0..num_vars).map(|_| var_ty).collect();
+        let var_reprs: Vec<ValueRepr> = (0..num_vars).map(|_| var_repr).collect();
 
         let block = ArcBlock {
             id: ArcBlockId::new(0),
@@ -402,4 +447,136 @@ fn jump_with_scalar_duplicated_arg_emits_zero_rc_incs() {
     fx.mark_scalar(v(0));
     let body = fx.run();
     assert_eq!(count_inc(&body, v(0)), 0);
+}
+
+// RC-strategy matrix (TPR-04-001-codex)
+//
+// The terminator duplicate-use algebra must hold for every RcStrategy,
+// not just HeapPointer. Each test below uses a different `VarKind` to
+// exercise the strategy dispatch inside `rc_strategy()`. The expected
+// count is the same for all strategies because the formula
+// `(k + live).saturating_sub(1)` is strategy-agnostic — the formula
+// operates at the IR level, above the LLVM codegen's per-strategy
+// emission. See `compiler/ori_arc/src/ir/repr.rs:128-211` for the full
+// `RcStrategy` enum.
+
+#[test]
+fn jump_with_fat_pointer_dup_arg_emits_one_rc_inc() {
+    // FatPointer strategy — str is `{ len: i64, data_ptr: ptr }` with
+    // the pointer half carrying the RC. Dispatch must produce exactly
+    // one aggregated RcInc for k=2, live=false, same as HeapPointer.
+    let term = ArcTerminator::Jump {
+        target: ArcBlockId::new(1),
+        args: vec![v(0), v(0)],
+    };
+    let fx = TerminatorFixture::new_with_kind(1, VarKind::FatPointer, term, &[], Vec::new());
+    let body = fx.run();
+    assert_eq!(count_inc(&body, v(0)), 1);
+}
+
+#[test]
+fn jump_with_inline_enum_dup_arg_emits_one_rc_inc() {
+    // InlineEnum strategy — Option<int> is stack-allocated but its
+    // payload carries RC. `emit_rc_inc_inline_enum` does real work
+    // (tag-switch with per-variant field inc). The algebra still holds.
+    let term = ArcTerminator::Jump {
+        target: ArcBlockId::new(1),
+        args: vec![v(0), v(0)],
+    };
+    let fx = TerminatorFixture::new_with_kind(1, VarKind::InlineEnum, term, &[], Vec::new());
+    let body = fx.run();
+    assert_eq!(count_inc(&body, v(0)), 1);
+}
+
+#[test]
+fn jump_with_aggregate_fields_dup_arg_emits_one_rc_inc() {
+    // AggregateFields strategy — tuple of lists, stack-allocated with
+    // per-field RC. The generated drop function traverses fields; the
+    // inc counterpart incs each field. The aggregated outer count still
+    // holds at the RcInc instruction level.
+    let term = ArcTerminator::Jump {
+        target: ArcBlockId::new(1),
+        args: vec![v(0), v(0)],
+    };
+    let fx = TerminatorFixture::new_with_kind(1, VarKind::AggregateFields, term, &[], Vec::new());
+    let body = fx.run();
+    assert_eq!(count_inc(&body, v(0)), 1);
+}
+
+#[test]
+fn jump_with_closure_dup_arg_emits_one_rc_inc() {
+    // Closure strategy — `{ fn_ptr, env_ptr }` fat value with env RC.
+    // `emit_rc_inc_closure` null-checks env and incs if non-null.
+    let term = ArcTerminator::Jump {
+        target: ArcBlockId::new(1),
+        args: vec![v(0), v(0)],
+    };
+    let fx = TerminatorFixture::new_with_kind(1, VarKind::Closure, term, &[], Vec::new());
+    let body = fx.run();
+    assert_eq!(count_inc(&body, v(0)), 1);
+}
+
+/// The algebra formula still applies to iterators even though the LLVM
+/// backend's `emit_rc_inc_iterator` is a no-op (iterators are move-only,
+/// Box-allocated, no refcount header). The `RcInc` instruction is emitted
+/// as an algebra marker — it passes through LLVM codegen as a no-op.
+///
+/// Semantic note: duplicating an iterator across terminator args is
+/// invalid at the type-system level. The AIMS pipeline upstream (borrow
+/// inference, ownership analysis) is expected to prevent this in
+/// practice; if it ever does leak through, the LLVM-side no-op would
+/// leave two target-block params sharing a single move-only handle,
+/// producing a runtime double-free via `ori_iter_drop`. Fixing that
+/// upstream gap is a separate concern — this test only pins the algebra
+/// at the RC-emission layer.
+#[test]
+fn jump_with_iterator_dup_arg_pins_algebra_not_semantic_validity() {
+    let term = ArcTerminator::Jump {
+        target: ArcBlockId::new(1),
+        args: vec![v(0), v(0)],
+    };
+    let fx = TerminatorFixture::new_with_kind(1, VarKind::Iterator, term, &[], Vec::new());
+    let body = fx.run();
+    assert_eq!(count_inc(&body, v(0)), 1);
+}
+
+// Cross-phase regression (TPR-04-002-codex)
+//
+// This test pins the phase-boundary guarantee that justified removing
+// `BodyWalkResult.uses_so_far`: terminator duplicate counting must be
+// terminator-local and MUST NOT depend on body-use accounting. Without
+// this pin, a future change that accidentally re-couples the two phases
+// (e.g., threading body counts back into `emit_terminator_rc`) would
+// still pass the current matrix.
+
+#[test]
+fn jump_with_duplicated_arg_after_body_use_counts_terminator_locally() {
+    // Body has one `Apply { args: [v(0)] }` (using v(0) as a borrowed
+    // arg). Terminator duplicates v(0) twice. The terminator-phase
+    // emission must see k=2 from its own scan of `terminator.used_vars()`
+    // and emit one RcInc — the body use is irrelevant to terminator-phase
+    // counting because `emit_terminator_rc` no longer receives
+    // `uses_so_far` as an argument (BUG-04-047 removed it).
+    let body = vec![ArcInstr::Apply {
+        dst: v(1),
+        ty: Idx::from_raw(0),
+        func: Name::from_raw(99),
+        args: vec![v(0)],
+        arg_ownership: vec![ArgOwnership::Borrowed],
+    }];
+    let term = ArcTerminator::Jump {
+        target: ArcBlockId::new(1),
+        args: vec![v(0), v(0)],
+    };
+    let fx = TerminatorFixture::new(2, term, &[], body);
+    let out = fx.run();
+    // `emit_terminator_rc` is invoked directly via `TerminatorFixture::run()`
+    // without running the body walk, so all `RcInc` instructions in `out`
+    // come from the terminator phase. The terminator phase must emit
+    // exactly ONE RcInc for v(0) regardless of body use.
+    assert_eq!(
+        count_inc(&out, v(0)),
+        1,
+        "terminator-phase inc count must be 1 regardless of body use of v(0)"
+    );
 }

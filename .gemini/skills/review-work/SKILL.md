@@ -29,6 +29,78 @@ This is a REAL execution branch, not a soft override:
 If a later instruction in this file appears to contradict Step 0,
 Step 0 wins. Envelope-only is non-negotiable.
 
+## Step 0.5: Envelope Sentinels (MANDATORY — load-bearing at output time)
+
+**Your response MUST end with a JSON envelope bracketed by HTML-comment
+sentinels.** This is not stylistic — the downstream parser
+(`parse-gemini.py`) searches for the literal sentinel strings
+`<!-- BEGIN-ORI-DUAL-TPR-V1 -->` and `<!-- END-ORI-DUAL-TPR-V1 -->`.
+Without them, the parser rejects your entire response with
+`missing_begin_sentinel` and the dual-source review loop cannot merge
+your findings. A 22-minute review that forgets the sentinels is
+indistinguishable from no review at all.
+
+### Correct form (the ONLY accepted shape):
+
+```
+(free-form prose about what you investigated and why)
+
+<!-- BEGIN-ORI-DUAL-TPR-V1 -->
+```json
+{ ...complete envelope per findings-schema.json... }
+```
+<!-- END-ORI-DUAL-TPR-V1 -->
+```
+
+### Common mistakes — ALL of these produce `missing_begin_sentinel`:
+
+1. **Bare fenced JSON without sentinels** (most common failure mode):
+   ```
+   (prose)
+
+   ```json
+   { ... }
+   ```
+   ```
+   ❌ Missing the HTML comments wrapping the fence.
+
+2. **Sentinels inside the fence instead of outside**:
+   ```
+   ```json
+   <!-- BEGIN-ORI-DUAL-TPR-V1 -->
+   { ... }
+   <!-- END-ORI-DUAL-TPR-V1 -->
+   ```
+   ```
+   ❌ Sentinels must sit OUTSIDE the ```` ```json ```` fence, as
+   HTML comments in the surrounding markdown text.
+
+3. **Only one sentinel**:
+   ```
+   <!-- BEGIN-ORI-DUAL-TPR-V1 -->
+   ```json
+   { ... }
+   ```
+   ```
+   ❌ Missing the `END` sentinel. The parser fails with
+   `missing_end_sentinel`. Both sentinels are required.
+
+4. **Using different sentinel text** (e.g. `BEGIN-ENVELOPE` or
+   `BEGIN-ORI-TPR-V2`): the parser searches for the exact string
+   `<!-- BEGIN-ORI-DUAL-TPR-V1 -->`. Any variation fails.
+
+### Validation checklist before you submit:
+
+- [ ] Your response ends with `<!-- END-ORI-DUAL-TPR-V1 -->` as the final line
+- [ ] Immediately before the JSON fence is `<!-- BEGIN-ORI-DUAL-TPR-V1 -->`
+- [ ] The JSON fence is `` ```json `` (with language tag) … `` ``` `` (bare)
+- [ ] Both sentinels sit in the markdown text, NOT inside the fence
+- [ ] Only ONE envelope in the entire response (no multiple envelopes)
+
+**If you are about to end your response without the sentinels**: STOP.
+Add them. The sentinels are the difference between your review being
+merged into the dual-source output and being silently discarded.
+
 ## Methodology
 
 Follow the shared reviewer-agnostic methodology documented in
