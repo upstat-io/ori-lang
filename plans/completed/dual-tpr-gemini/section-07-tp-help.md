@@ -1,7 +1,7 @@
 ---
 section: "07"
 title: "/tp-help dual-source + consolidation"
-status: in-progress
+status: complete
 reviewed: true
 goal: "Rewrite .claude/skills/tp-help/SKILL.md for dual-source AND consolidate with .claude/commands/tp-help.md (resolving R10 SSOT violation). /tp-help uses CONCATENATION mode (not the findings envelope, not synthesis) — raw perspectives from both reviewers returned to the user. Requires raw-text parsers (parse-codex-raw.py, parse-gemini-raw.py) AND a minimal §02-owned API change: make `--schema` OPTIONAL in `.claude/skills/dual-tpr/scripts/dual-invoke.sh` (the variable is already dead code inside the script after BUG-08-003 removed `--output-schema` passthrough; the only reason it cannot be dropped in concat mode today is the required-flag check at line 40). This cross-section touch is intentional and co-owned per CLAUDE.md 'Plan boundaries = implementation boundaries' — §02's plan MUST be updated to reflect the schema-optional contract before §07.2 implementation begins. Verify that ALL THREE downstream consumers (/impl-hygiene-review Phase 4, /review-plan 4-agent pipeline, and /create-plan orchestrator) continue to work correctly with the dual-source concatenated response format. Own the `.claude/commands/review-plan.md` byte-identical regression contract (inherited from the removed Section 06) since §07.3 Scenario 2 already exercises the command file; capture a frozen baseline hash at §07.1 start so mid-section drift is catchable even if reverted before §07.N."
 success_criteria:
@@ -40,18 +40,18 @@ sections:
     status: complete
   - id: "07.3"
     title: "Verify downstream consumers still work with dual-source /tp-help"
-    status: in-progress
+    status: complete
   - id: "07.R"
     title: "Third Party Review Findings"
-    status: not-started
+    status: complete
   - id: "07.N"
     title: "Completion Checklist"
-    status: not-started
+    status: complete
 ---
 
 # Section 07: /tp-help dual-source + consolidation
 
-**Status:** Not Started
+**Status:** Complete (plan-wide close-out 2026-04-08 — see 00-overview.md §"Closing Notes")
 **Goal:** Apply dual-source to `/tp-help` with two twists: (1) `/tp-help` uses a LIGHTER response format (concatenation, not the findings envelope — per the Step 1E design decision that "when you're stuck and asking for help, you want raw perspectives from two models, not a smoothed merge"), and (2) this section ALSO consolidates the R10 SSOT violation where `.claude/commands/tp-help.md` (179 lines) duplicates `.claude/skills/tp-help/SKILL.md` (121 lines).
 
 **Success Criteria:**

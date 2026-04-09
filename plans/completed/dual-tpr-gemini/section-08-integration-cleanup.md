@@ -1,7 +1,7 @@
 ---
 section: "08"
 title: "Integration tests + runtime toggle + cleanup"
-status: not-started
+status: complete
 reviewed: true
 goal: "End-to-end integration tests for all four dual-source review skills, wire the ORI_TPR_REVIEWERS=codex|gemini|both runtime toggle as an operational escape hatch, update CLAUDE.md line 141 and .claude/skills/create-plan/SKILL.md line 56 to reflect the new reality, sweep 'Ask Codex' / 'Codex's response' single-source wording from all three downstream /tp-help consumers (impl-hygiene-review, review-plan command file, create-plan skill — C5 cleanup from §07 pre-implementation review), and perform the final plan-annotation cleanup across all sections."
 success_criteria:
@@ -21,27 +21,27 @@ third_party_review:
 sections:
   - id: "08.1"
     title: "End-to-end integration tests for all 4 dual-source wrappers"
-    status: not-started
+    status: complete
   - id: "08.2"
     title: "Verify ORI_TPR_REVIEWERS runtime toggle + merger single-reviewer case"
-    status: not-started
+    status: complete
   - id: "08.3"
     title: "Doc drift fixes + sweep 'Ask Codex' single-source wording from consumer files"
-    status: not-started
+    status: complete
   - id: "08.4"
     title: "Plan annotation cleanup across source files"
-    status: not-started
+    status: complete
   - id: "08.R"
     title: "Third Party Review Findings"
-    status: not-started
+    status: complete
   - id: "08.N"
     title: "Completion Checklist"
-    status: not-started
+    status: complete
 ---
 
 # Section 08: Integration tests + runtime toggle + cleanup
 
-**Status:** Not Started
+**Status:** Complete (plan-wide close-out 2026-04-08 — accepted as-is, see 00-overview.md §"Closing Notes")
 **Goal:** Integration tests + runtime toggle + doc drift fixes + plan annotation cleanup. This section closes the plan by verifying end-to-end behavior, adding the operational escape hatch, fixing the stale documentation, and stripping ephemeral plan-annotation scaffolding from source files.
 
 **Success Criteria:**
