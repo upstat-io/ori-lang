@@ -130,13 +130,7 @@ if [[ "$USE_BOTH_BUILDS" -eq 1 ]]; then
     # --both-builds (passthrough), plus _DIAGNOSE_AOT_RESULTS to capture
     # per-section structured output for comparison.
 
-    # Build passthrough args: everything except --both-builds
-    passthrough_args=()
-    for arg in "$@_SAVED_ARGS"; do
-        [[ "$arg" == "--both-builds" ]] && continue
-        passthrough_args+=("$arg")
-    done
-    # Since we already parsed args, reconstruct from parsed state
+    # Reconstruct flags from parsed state (args already consumed by while loop)
     passthrough_flags=()
     [[ "$USE_VALGRIND" -eq 1 ]] && passthrough_flags+=(--valgrind)
     [[ "$USE_RC_TRACE" -eq 1 ]] && passthrough_flags+=(--rc-trace)
