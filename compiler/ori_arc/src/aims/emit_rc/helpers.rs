@@ -40,7 +40,7 @@ pub(crate) struct BlockCtx<'a> {
     /// child (direct Project destinations or their Let aliases). Used to defer
     /// parent `RcDec` until all borrowed children are dead.
     pub(crate) child_effective_last_use: &'a FxHashMap<ArcVarId, LastUse>,
-    /// TPR-07-017: per-class take-project facts via union-find +
+    /// per-class take-project facts via union-find +
     /// CFG reachability. The earlier path-sensitive forward dataflow
     /// (`moved_at_entry`/`moved_at_exit`) was abandoned in favor of
     /// this simpler structural answer: each take-project source
@@ -58,7 +58,7 @@ pub(crate) struct BlockCtx<'a> {
     ///   source 1 uses this for value-identity dedup so only the FIRST
     ///   variable of each Let-alias group encountered in `entry_states`
     ///   gets a dec. Phi params with the same lineage but different
-    ///   Let-alias reps get separate drops (BUG-04-051 / TPR-07-022).
+    ///   Let-alias reps get separate drops.
     /// - `take_move_facts.is_bypass_safe_entry_for_var(var, blk)` —
     ///   the central predicate. Returns true iff `blk` is the unique
     ///   entry edge of the bypass-safe region for `var`'s lineage.
@@ -67,7 +67,7 @@ pub(crate) struct BlockCtx<'a> {
     ///   SSA flow.
     ///
     /// See (initial take-project suppression),
-    /// (the first per-block fix), and TPR-07-017 (the
+    /// (the first per-block fix), and (the
     /// per-class partitioning + bypass-safe entry refinement) in
     /// `plans/repr-opt/section-07-enum-repr.md`.
     pub(crate) take_move_facts: &'a super::take_project::TakeMoveFacts,

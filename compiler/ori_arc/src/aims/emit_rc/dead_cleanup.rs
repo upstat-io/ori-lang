@@ -54,7 +54,7 @@ pub(crate) fn emit_dead_at_entry_decs(
             .any(|&(p, _)| p == v)
     };
 
-    // TPR-07-017 / TPR-07-019 / TPR-07-022: track which
+    // track which
     // Let-alias groups have already received a bypass-safe scope-exit
     // dec in this block. Multiple Let-alias siblings (e.g., `%5` and
     // its `Let` alias `%19`) in `entry_states` share the same runtime
@@ -66,7 +66,7 @@ pub(crate) fn emit_dead_at_entry_decs(
     // runtime value). Phi-merged block params that share the same
     // lineage source set but hold DIFFERENT runtime values get
     // DIFFERENT Let-alias reps and thus separate RcDecs — this is
-    // the TPR-07-022 fix.
+    // the fix.
     let mut let_reps_dec_emitted: FxHashSet<ArcVarId> = FxHashSet::default();
 
     // Source 1: variables in entry_states.
@@ -88,7 +88,7 @@ pub(crate) fn emit_dead_at_entry_decs(
             ) {
                 continue;
             }
-            // TPR-07-017: take-project alias-class
+            // take-project alias-class
             // members get a single scope-exit drop at the entry edge
             // of the per-class bypass-safe region.
             //
@@ -107,7 +107,7 @@ pub(crate) fn emit_dead_at_entry_decs(
             // The check is per-class (not function-global): a block
             // can be a bypass-safe entry for class `A` while being
             // reachable from an unrelated class `B`. Per-class
-            // partitioning is what TPR-07-017 added on top of the
+            // partitioning is what added on top of the
             // initial fix.
             //
             // The check fires BEFORE `use_info`/`is_live_at_exit`
@@ -122,7 +122,7 @@ pub(crate) fn emit_dead_at_entry_decs(
             // `take_move_facts.is_in_class` to skip in-class vars
             // entirely, so it never produces a duplicate dec.
             //
-            // Per-Let-alias dedup (TPR-07-022): only the FIRST
+            // Per-Let-alias dedup: only the FIRST
             // variable of each Let-alias group encountered in
             // entry_states gets a dec — emitting for subsequent Let
             // aliases (e.g., `%5` then its `Let` alias `%19`) would
