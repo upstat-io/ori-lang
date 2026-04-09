@@ -150,7 +150,7 @@ Phase 3 - Integration
 | ID | Title | File | Status |
 |----|-------|------|--------|
 | 01 | Remove aims-compare + create debug-release-compare | `section-01-aims-compare.md` | Complete |
-| 02 | Enhance diagnose-aot.sh | `section-02-diagnose-aot.md` | Not Started |
+| 02 | Enhance diagnose-aot.sh | `section-02-diagnose-aot.md` | Complete |
 | 03 | Enhance dual-exec-debug.sh | `section-03-dual-exec-debug.md` | Not Started |
 | 04 | Block-level RC Stats | `section-04-block-rc-stats.md` | Not Started |
 | 05 | AIMS Pass Bisection | `section-05-bisect-passes.md` | Not Started |

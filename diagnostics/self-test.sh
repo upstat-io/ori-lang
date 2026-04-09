@@ -245,11 +245,15 @@ run_test_output_contains "diagnose-aot.sh --help shows ARC IR section" "ARC IR" 
 if [[ -x "$ROOT_DIR/target/release/ori" ]]; then
     run_test "diagnose-aot.sh --release on simple.ori" \
         "$SCRIPT_DIR/diagnose-aot.sh" --release --no-color "$FIXTURES_DIR/simple.ori"
+    run_test_output_contains "diagnose-aot.sh --release shows (release) in header" "(release)" \
+        "$SCRIPT_DIR/diagnose-aot.sh" --release --no-color "$FIXTURES_DIR/simple.ori"
     run_test "diagnose-aot.sh --both-builds on simple.ori" \
+        "$SCRIPT_DIR/diagnose-aot.sh" --both-builds --no-color "$FIXTURES_DIR/simple.ori"
+    run_test_output_contains "diagnose-aot.sh --both-builds shows per-section comparison" "COMPARISON" \
         "$SCRIPT_DIR/diagnose-aot.sh" --both-builds --no-color "$FIXTURES_DIR/simple.ori"
 else
     printf "  ${C_DIM}SKIP${C_NC}  --release tests — release binary not found (run: cargo b --release)\n"
-    SKIP=$((SKIP + 2))
+    SKIP=$((SKIP + 4))
 fi
 echo ""
 
