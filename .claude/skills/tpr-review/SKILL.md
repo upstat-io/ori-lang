@@ -244,11 +244,13 @@ The transport launches both reviewers in parallel, handles infra retries (3 per 
 
 Running the transport in the Bash foreground either hits the 2-minute tool timeout or gets auto-backgrounded with output truncated. Always use `run_in_background: true`. The `.claude/hooks/block-banned-commands.sh` hook explicitly allows backgrounded codex and gemini commands.
 
+The `--skill` parameter controls both the transport log label and which reviewer preambles were used. Default: `review-work`. If `ARGS` contains `--skill review-plan`, use `review-plan` instead.
+
 ```
 Bash (run_in_background: true):
   .claude/skills/dual-tpr/scripts/dual-invoke-with-retry.sh \
     --run "$RUN" \
-    --skill review-work \
+    --skill {skill_name} \
     --codex-prompt "$RUN/codex.prompt.md" \
     --gemini-prompt "$RUN/gemini.prompt.md" \
     --schema .claude/skills/dual-tpr/findings-schema.json

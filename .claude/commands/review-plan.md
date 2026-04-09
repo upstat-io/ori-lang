@@ -1,14 +1,14 @@
 ---
 name: review-plan
-description: Review and improve a plan for accuracy, correctness, feasibility, strategic cohesion, executability, and testing rigor — expand to fulfill the mission, never scope down. Runs blind spot analysis, a merged 4-lens Sonnet editing agent, then /tpr-review (using review-plan skill) until clean.
+description: Review and improve a plan for accuracy, correctness, feasibility, strategic cohesion, executability, and testing rigor — expand to fulfill the mission, never scope down. Runs blind spot analysis, a merged 4-lens Opus editing agent, then /tpr-review (using review-plan skill) until clean.
 allowed-tools: Read, Grep, Glob, Agent, AskUserQuestion, Bash, Edit, Write, LSP, Skill
 ---
 
 # Review Plan Command
 
-Review and improve a plan using a **4-phase pipeline**: mechanical pre-check, blind spot analysis, a merged 4-lens Sonnet editing agent, and adversarial `/tpr-review` convergence using the plan-specific reviewer skill.
+Review and improve a plan using a **4-phase pipeline**: mechanical pre-check, blind spot analysis, a merged 4-lens Opus editing agent, and adversarial `/tpr-review` convergence using the plan-specific reviewer skill.
 
-**Design rationale:** Plans are upstream of code — a flawed plan multiplies into flawed code across every section. The Sonnet agent does the volume work (all 4 review lenses merged into one pass), then `/tpr-review` applies adversarial pressure with the reviewer-side `review-plan` skill — which understands mission criteria, cross-section coherence, and executability rather than code correctness.
+**Design rationale:** Plans are upstream of code — a flawed plan multiplies into flawed code across every section. The Opus agent does the volume work (all 4 review lenses merged into one pass), then `/tpr-review` applies adversarial pressure with the reviewer-side `review-plan` skill — which understands mission criteria, cross-section coherence, and executability rather than code correctness.
 
 ## Reviewed Field Semantics — CRITICAL
 
@@ -117,16 +117,16 @@ Ask specifically:
 - Architectural risks flagged
 - Cross-cutting concerns
 
-Report to the user: "Phase 2 complete. Running Sonnet editing agent..."
+Report to the user: "Phase 2 complete. Running editing agent..."
 
-### Step 5: Phase 3 — Sonnet Editing Agent (All 4 Lenses Merged)
+### Step 5: Phase 3 — Editing Agent (All 4 Lenses Merged)
 
-Spawn a **Sonnet** agent with full edit authority. This agent merges the scope of the original 4 sequential review agents into one pass.
+Spawn an agent with full edit authority. This agent merges the scope of the original 4 sequential review agents into one pass.
 
-**IMPORTANT**: Use `model: "sonnet"`. Do NOT flip `reviewed` fields inside this agent — that happens after Phase 4.
+**IMPORTANT**: Use `model: "opus"`. Do NOT flip `reviewed` fields inside this agent — that happens after Phase 4.
 
 ```
-Agent (model: sonnet):
+Agent (model: opus):
 
 You are reviewing a plan for the Ori compiler at {plan_dir}/.
 
@@ -300,15 +300,16 @@ Read the agent's output. Note what changes were made.
 
 **CRITICAL: Run the actual `/tpr-review` skill using the Skill tool with plan-review context.** Do NOT reimplement the review logic. The reviewers will use their `review-plan` skill (not `review-work`) which is specifically designed for plan analysis — mission criteria, cross-section coherence, executability.
 
-When writing reviewer prompts (inside the tpr-review skill's Step 2), use the **`review-plan` activation preambles** from `transport.md`:
-- Codex: `Run the /review-plan skill in envelope-only mode.`
-- Gemini: `Activate the review-plan skill and follow its instructions exactly.`
+Pass `--skill review-plan` so that `/tpr-review` uses the plan-specific reviewer preambles and transport label:
 
 ```
 Skill: tpr-review
+Args: --skill review-plan
 ```
 
 `/tpr-review` will:
+- Use `review-plan` activation preambles (codex: `Run the /review-plan skill in envelope-only mode.`, gemini: `Activate the review-plan skill and follow its instructions exactly.`)
+- Pass `--skill review-plan` to the transport (correct `round.log` attribution)
 - Launch Codex and Gemini in parallel using the `review-plan` reviewer skill
 - Merge findings from both reviewers
 - Fix actionable findings directly
@@ -383,7 +384,7 @@ python3 .claude/skills/plan-audit/plan-invalidate.py {plan_dir} --apply [--min-w
 - **Pre-check**: {N effectively-complete sections corrected}
 - **Phase 1** (plan-audit.py): {N} findings, {M} auto-fixed; {K} remaining passed to agent
 - **Phase 2** (/tp-help): {N} blind spots identified
-- **Phase 3** (Sonnet agent):
+- **Phase 3** (Opus agent):
   - Structural changes: {sections added/removed/merged/split/reordered}
   - Accuracy fixes: {N}
   - Cohesion fixes: {N}
