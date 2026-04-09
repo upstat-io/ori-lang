@@ -16,10 +16,8 @@ Bugs in the CLI (`ori run`, `ori check`, `ori test`, `ori fmt`), formatter, diag
 
 ## Open Bugs
 
-- [ ] `[BUG-07-009][low]` **`tracing-tree` dependency always compiled into oric, regardless of `ORI_LOG_TREE` usage** — found by dual-tpr-gemini §07.3 Scenario 1 dual-source /tp-help (gemini-only).
-  **Repro**: `compiler/oric/Cargo.toml` lists `tracing-tree` as an unconditional dependency, but it's only used inside the `if use_tree { ... }` branch in `compiler/oric/src/tracing_setup.rs:25-36`, which only fires when `ORI_LOG_TREE` is set at runtime (rare developer use case). The crate and its transitive deps (`ansi_term`, etc.) are compiled and linked into every `oric` release binary regardless.
-  **Impact**: Low — marginal binary size increase for a rarely-used diagnostic feature. Not a runtime correctness issue.
-  **Suggested fix**: Make `tracing-tree` an optional Cargo dependency gated behind a `tree` feature. `tracing_setup.rs` gates the tree branch with `#[cfg(feature = "tree")]` and `ORI_LOG_TREE` becomes a no-op unless the feature is enabled at build time. Document the feature in CLAUDE.md. Alternative: close as "working as designed" if binary-size minimalism isn't a current priority — the footprint is small and always-available `ORI_LOG_TREE=1` aids developer ergonomics.
+- [x] `[BUG-07-009][low]` **`tracing-tree` dependency always compiled into oric, regardless of `ORI_LOG_TREE` usage** — found by dual-tpr-gemini §07.3 Scenario 1 dual-source /tp-help (gemini-only).
+  Resolved: Closed as "working as designed" on 2026-04-09. The unconditional dependency is an intentional ergonomic choice: `ORI_LOG_TREE=1` works immediately for any developer without recompilation. Making it a feature gate would require `--features tree` before `ORI_LOG_TREE=1` does anything — strictly worse developer experience for marginal binary size savings. CLAUDE.md documents `ORI_LOG_TREE=1` as an always-available debugging tool.
   Subsystem: `compiler/oric/Cargo.toml` + `compiler/oric/src/tracing_setup.rs:25-36`
   Found: 2026-04-08 | Source: dual-tpr-gemini §07.3 Scenario 1 (gemini only)
 
