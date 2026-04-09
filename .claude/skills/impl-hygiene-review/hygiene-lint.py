@@ -7,26 +7,23 @@ AI judgment. Complements the /impl-hygiene-review skill by handling
 the mechanical surface-level checks, freeing AI context for LEAK,
 SSOT, and algorithmic DRY analysis.
 
-Checks (--check <id> to run specific ones, comma-separated):
+Project-specific checks only (clippy handles the rest via lefthook):
 
   file-length      Files > 500 lines (test files exempt)
   fn-length        Functions > 100 lines (target < 50)
   nesting-depth    Brace nesting > 4 levels in function bodies
   test-ephemeral   Ephemeral IDs in test function names
   test-weak        Weak descriptors in test function names
-  unsafe-safety    unsafe blocks without // SAFETY: comment
   banners          Decorative comment banners (// ===, // ---)  [fixable]
-  commented-code   Commented-out Rust code in comments           [fixable]
-  bare-allow       #[allow(clippy::...)] without reason
-  println-in-lib   println!/eprintln! in library crates
+  commented-code   Commented-out Rust code (review needed)
   bare-todo        // TODO without (phase): format
-  unwrap-prod      .unwrap() in prod code without justification
-  catch-all-arms   _ => unreachable!()/todo!() in match arms
-  string-identity  String equality == "..." in non-test prod code
-  result-unit      Result<T, ()> that should be Option<T>
-  glob-imports     use foo::* outside #[cfg(test)] modules
-  missing-docs     pub items without /// documentation
+  catch-all-arms   _ => unreachable!()/todo!() near sync-point enums
+  string-identity  String equality bypassing Name interning
   lib-bodies       lib.rs files containing function bodies
+  deny-unsafe      Pure crate missing #![deny(unsafe_code)]
+  ignore-tracking  #[ignore] without tracking artifact
+  phase-bleeding   Crate imports from higher-level crate
+  swallowed-error  Error silently swallowed (if let Ok without else)
 
 Modes:
 
