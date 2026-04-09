@@ -171,7 +171,7 @@ Source: `ori_ir/src/builtin_constants/protocol/mod.rs`
 - **Phase dump**: `ORI_DUMP_AFTER_ARC=1 ori build file.ori` — ARC IR with RC strategy annotations
 - **Runtime RC**: `ORI_TRACE_RC=1 ./binary` | `ORI_RT_DEBUG=1 ./binary` | `ORI_CHECK_LEAKS=1 ./binary`
 - **Codegen audit**: `ORI_AUDIT_CODEGEN=1 ori build file.ori` (add `ORI_AUDIT_STRICT=1` | `ORI_AUDIT_FUNCTION=name`)
-- **AIMS comparison**: `diagnostics/aims-compare.sh [--behavioral-only|--rc-only] [--verbose] [--release]` — compares output + RC counts
+- **Debug vs release comparison**: `diagnostics/debug-release-compare.sh file.ori` — compares debug vs release build output (exit codes + stdout + LLVM IR diff on mismatch)
 - **Diagnostic scripts**: `diagnostics/rc-stats.sh` | `codegen-audit.sh` | `diagnose-aot.sh` | `dual-exec-debug.sh` (see compiler.md for full list)
 - **Loop not terminating?** `ori_arc=debug` → break/continue jumps + mutable var counts
 - **Wrong var after if/match?** `ori_arc=trace` → mutable var merge divergence
