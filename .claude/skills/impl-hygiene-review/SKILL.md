@@ -269,6 +269,7 @@ This pass reads the code *locally* — each file on its own terms.
 **Plan Annotation Hygiene:**
 - [ ] Run `plan-annotations.sh --scope <review-paths>` (in this skill's folder) to scan the review scope. The tool classifies each annotation as **stale-resolved** (ID is `[x]` in an active plan — REMOVE NOW), **stale-completed-plan** (ID is in an archived plan under `plans/completed/` — REMOVE NOW), **orphan** (ID references a plan that no longer exists — INVESTIGATE), **active-scaffolding** (ID is `[ ]` in an active plan — OK for now), or **permanent** (spec citations, architecture-internal). Use `--cleanup-only` to see just the removal candidates; `--active-only` to confirm what's being tracked as in-progress; `--orphans-only` to find broken references; `--all --count` for a full per-classification summary. The tool reads every plan's markdown content to build the ID→status map, so classifications are per-finding accurate.
 - [ ] For a quick hygiene-review scope check: `plan-annotations.sh --scope <paths> --cleanup-only` lists stale annotations grouped by finding ID, each showing the plan file and line where the finding was resolved. Every group is directly actionable.
+- [ ] **Ephemeral names in function/fixture names** are also scanned automatically: `plan-annotations.sh --cleanup-only` now includes an `EPHEMERAL NAMES` section that catches underscore-form IDs baked into `fn` names (e.g., `fn tpr_07_017_two_unrelated_...`) and `include_str!` fixture paths. These are classified with the same stale/active logic as comment annotations but require *renaming* (not comment stripping) — the output includes `[fn]`/`[fixture]` tags and the full name for each hit.
 - [ ] Active plan annotations (classification `active-scaffolding`) are acceptable only while the specific finding checkbox is `[ ]`; flip to stale the instant the checkbox becomes `[x]`
 - [ ] Spec references (`Spec: Clause N.M`), `AIMS Section N`, and `eval_v2 Section N` are permanent and always acceptable (classified as `permanent` / `arch-internal` by the tool)
 
@@ -302,15 +303,18 @@ This pass reads the code *locally* — each file on its own terms.
 **Quick-scan commands for test-name violations** (run over the review scope):
 
 ```bash
-# Rust test functions — ephemeral identifier patterns
-rg -n '#\[test\]' -A 1 | rg -i '(fn test_.*(section|bug|issue|tpr|cross|phase|roadmap|§|_\d{4}_\d{2}_\d{2}))'
+# PRIMARY: plan-annotations.sh now detects ephemeral IDs in function names
+# and fixture paths automatically — classified against the plan index
+plan-annotations.sh --cleanup-only  # shows EPHEMERAL NAMES section
 
-# Ori spec tests — same patterns in @test declarations
+# Supplemental: Ori spec tests — pattern scan in @test declarations
 rg -n '@test.*(section|bug|issue|tpr|cross|phase|roadmap|§)' --type-add 'ori:*.ori' -t ori
 
-# Weak descriptor sweep
+# Weak descriptor sweep (not covered by plan-annotations.sh)
 rg -n 'fn test_(works|basic|simple|default|correct|valid|ok|sanity)[^a-z_]' --type rust
 ```
+
+`plan-annotations.sh --cleanup-only` is the primary tool for ephemeral ID detection in test names. It normalizes underscore-form IDs (`tpr_07_017` → `TPR-07-017`), classifies them against the plan index (stale-resolved, active, etc.), and reports each with its resolution status and plan entry. The supplemental grep commands catch patterns the tool doesn't cover: Ori `@test` declarations and weak-descriptor names.
 
 Results from these commands are candidate violations — read each one before renaming (a test named `test_cow_default_value_clone` legitimately contains `default` as a domain word, not a weak descriptor). The NAMING category requires *behavioral* judgment, not just grep matches.
 
