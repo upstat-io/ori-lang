@@ -110,7 +110,7 @@ How would you like to proceed?
 
 ### Step 6: Interactive Mode — Fix and Prompt
 
-Invoke `/fix-bug BUG-{section}-{ordinal}` (without `--autopilot`) to fix the selected bug with full plan-section rigor.
+**Invoke `/fix-bug` via the Skill tool**: `Skill(fix-bug, args: "BUG-{section}-{ordinal}")` (without `--autopilot`). MUST use the Skill tool — never inline the workflow.
 
 **Let `/fix-bug` run its complete workflow** — investigation, fix section creation, TDD matrix, implementation, completion checklist (including TPR and hygiene review). Do NOT shortcut any phase.
 
@@ -151,11 +151,13 @@ This task must remain `in_progress` for the entire autopilot session. Only mark 
 **CRITICAL: This is the ONLY task for the entire autopilot session.** Do NOT use `TaskCreate` for any other purpose during autopilot — not for tracking `/fix-bug` phases, not for sub-steps, not for anything. Additional tasks would become the "current work" and their completion would signal the loop is done, causing premature termination.
 
 Loop:
-1. Invoke `/fix-bug --autopilot BUG-{section}-{ordinal}` — the `--autopilot` flag tells `/fix-bug` to operate with zero user interaction, no pausing, no `AskUserQuestion`, full rigor, no hacks. It must complete the fix no matter the scope.
+1. **Invoke `/fix-bug` via the Skill tool** — use `Skill(fix-bug, args: "--autopilot BUG-{section}-{ordinal}")`. This is a BLOCKING REQUIREMENT: you MUST use the Skill tool, not inline the /fix-bug workflow by hand. Inlining drops phases (fix section files, /tp-help consensus, TDD-first, TPR/hygiene). The Skill tool loads the full /fix-bug SKILL.md fresh each time, preventing context drift across a long autopilot session. The `--autopilot` flag tells `/fix-bug` to operate with zero user interaction, no pausing, no `AskUserQuestion`, full rigor, no hacks. It must complete the fix no matter the scope.
 2. **Run the Commit Verification Gate (Step 5.5)** — check `git status`, commit via `/commit-push` if anything is uncommitted. Do NOT proceed until clean.
 3. When commit is verified, **immediately** re-scan the bug tracker (Step 1) — do NOT output a summary, do NOT pause, do NOT reflect on what was done
-4. If open bugs remain, pick the next highest priority bug and invoke `/fix-bug --autopilot` again
+4. If open bugs remain, pick the next highest priority bug and invoke `/fix-bug --autopilot` via the Skill tool again
 5. If no open bugs remain, **ONLY THEN** stop and print the final report
+
+**BANNED: inlining the /fix-bug workflow.** Reading the bug entry and directly jumping to code changes — without a Skill tool invocation, without creating a fix section file, without /tp-help consensus, without TDD-first testing — is the most common autopilot failure mode. Each of those phases exists because "obvious" fixes have hidden implications. The Skill tool invocation is the enforcement mechanism.
 
 **No questions. No pauses. No user interaction. No mid-loop summaries.** Just pick → fix → pick → fix until done.
 
