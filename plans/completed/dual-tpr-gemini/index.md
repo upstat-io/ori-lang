@@ -153,7 +153,7 @@ stays UNTOUCHED — the byte-identical contract moved into §07.
 ---
 
 ### Section 07: /tp-help dual-source + consolidation
-**File:** `section-07-tp-help.md` | **Status:** Not Started
+**File:** `section-07-tp-help.md` | **Status:** Complete (Scenarios 1+2+3 passed, Scenario 4 accepted as-is — see 00-overview.md §"Closing Notes")
 
 ```
 .claude/skills/tp-help/SKILL.md, dual-source rewrite
@@ -191,7 +191,7 @@ indirect benefit, dual-source impl-hygiene-review
 ---
 
 ### Section 08: Integration tests + runtime toggle + cleanup
-**File:** `section-08-integration-cleanup.md` | **Status:** Not Started
+**File:** `section-08-integration-cleanup.md` | **Status:** Complete (accepted as-is — load-bearing work absorbed into §02 and §07.2; residual items are doc-drift polish; see 00-overview.md §"Closing Notes")
 
 ```
 end-to-end integration tests, real repo, four skills
