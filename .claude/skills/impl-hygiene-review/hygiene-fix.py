@@ -8,7 +8,6 @@ review, cleaning up the surface so AI context is spent on architecture.
 
 Fixable checks:
   banners         Remove decorative comment banners (// ===, // ---)
-  commented-code  Remove commented-out Rust code
   plan-stale      Remove stale plan annotations (via plan-annotations.py)
 
 Usage:
@@ -40,7 +39,6 @@ def dim(t: str) -> str: return _c("2", t)
 
 FIXABLE_CHECKS = {
     "banners":        "Remove decorative comment banners",
-    "commented-code": "Remove commented-out Rust code",
     "plan-stale":     "Remove stale plan annotations",
 }
 

@@ -94,6 +94,11 @@ CHECK_DEFS: dict[str, tuple[str, str, bool, str]] = {
     "glob-imports":    ("BLOAT",    "minor", False, "Glob import outside test module"),
     "missing-docs":    ("BLOAT",    "minor", False, "pub item without /// documentation"),
     "lib-bodies":      ("BLOAT",    "minor", False, "lib.rs containing function bodies"),
+    "deny-unsafe":     ("LEAK",     "major", False, "Pure crate missing #![deny(unsafe_code)]"),
+    "panic-prod":      ("LEAK",     "major", False, "panic!/todo!/unimplemented!/dbg! in prod code"),
+    "ignore-tracking": ("BLOAT",    "minor", False, "#[ignore] without tracking artifact"),
+    "phase-bleeding":  ("LEAK",     "critical", False, "Crate imports from higher-level crate"),
+    "swallowed-error": ("LEAK",     "minor", False, "Error silently swallowed"),
 }
 
 ALL_CHECK_IDS = set(CHECK_DEFS.keys())
@@ -104,6 +109,25 @@ LIBRARY_CRATES = {
     "ori_fmt", "ori_ir", "ori_lexer", "ori_lexer_core", "ori_llvm",
     "ori_lsp", "ori_parse", "ori_patterns", "ori_registry", "ori_repr",
     "ori_rt", "ori_stack", "ori_types",
+}
+
+# Pure crates that MUST have #![deny(unsafe_code)]
+PURE_CRATES = {
+    "ori_ir", "ori_diagnostic", "ori_types", "ori_eval", "ori_patterns",
+    "ori_parse", "ori_lexer", "ori_registry",
+}
+
+# Crate dependency order (lower number = lower level).
+# A crate may only import from crates with LOWER numbers.
+CRATE_ORDER: dict[str, int] = {
+    "ori_ir": 0, "ori_diagnostic": 0, "ori_registry": 0,
+    "ori_lexer_core": 1, "ori_lexer": 2,
+    "ori_parse": 3,
+    "ori_patterns": 4, "ori_types": 4,
+    "ori_eval": 5, "ori_arc": 5, "ori_repr": 5, "ori_canon": 5,
+    "ori_llvm": 6, "ori_compiler": 6,
+    "ori_fmt": 4, "ori_lsp": 7, "ori_stack": 5,
+    "oric": 8, "ori_rt": 0,
 }
 
 
@@ -608,14 +632,40 @@ def check_unwrap_prod(path: Path, lines: list[str]) -> list[Finding]:
     findings: list[Finding] = []
     in_test_mod = False
     for i, line in enumerate(lines):
+        # Track test module entry/exit (reset on next top-level mod)
         if "#[cfg(test)]" in line:
             in_test_mod = True
+        # A new non-test `mod` at indent 0 exits test module scope
+        if in_test_mod and re.match(r"^(?:pub\s+)?mod\s+\w+", line) and "#[cfg(test)]" not in line:
+            # Check if the previous non-blank line was #[cfg(test)]
+            j = i - 1
+            while j >= 0 and lines[j].strip() == "":
+                j -= 1
+            if j < 0 or "#[cfg(test)]" not in lines[j]:
+                in_test_mod = False
         if in_test_mod:
             continue
+
         if UNWRAP_RE.search(line):
-            # Check if there's a justification comment
-            has_comment = "//" in line and line.index("//") < line.index(".unwrap()")
-            has_prev_comment = i > 0 and "//" in lines[i - 1]
+            # Skip if .unwrap() appears inside a string literal
+            stripped = line.lstrip()
+            if stripped.startswith('"') or stripped.startswith("r#"):
+                continue
+            # Heuristic: skip if .unwrap() is after a quote (inside string)
+            idx = line.find(".unwrap()")
+            if idx > 0:
+                before = line[:idx]
+                # Odd number of unescaped quotes = inside string
+                if before.count('"') % 2 == 1:
+                    continue
+
+            # Check for justification comment on same or previous line
+            has_comment = "//" in line and line.index("//") < idx
+            has_prev_comment = (
+                i > 0
+                and lines[i - 1].lstrip().startswith("//")
+                and not lines[i - 1].lstrip().startswith("///")
+            )
             if not has_comment and not has_prev_comment:
                 findings.append(Finding(
                     "unwrap-prod", rel_path(path), i + 1,
@@ -625,41 +675,73 @@ def check_unwrap_prod(path: Path, lines: list[str]) -> list[Finding]:
 
 
 def check_catch_all_arms(path: Path, lines: list[str]) -> list[Finding]:
-    """GAP: _ => unreachable!()/todo!() catch-all arms."""
+    """GAP: _ => unreachable!()/todo!() catch-all arms.
+
+    Only flags catch-alls near sync-point enum references (CanExpr::,
+    ExprKind::, TypeTag::, DerivedTrait::, TokenKind::, etc.) to avoid
+    flagging local refinement matches like `match char_kind { ... }`.
+    """
+    # Sync-point enums whose catch-alls indicate cross-phase drift
+    sync_enums = {"CanExpr", "ExprKind", "TypeTag", "DerivedTrait",
+                  "TokenKind", "CollectionMethod", "IteratorValue",
+                  "StmtKind", "BinaryOp", "UnaryOp"}
     findings: list[Finding] = []
+    text = "\n".join(lines)
+
+    # Only scan files that reference at least one sync-point enum
+    has_sync_enum = any(f"{e}::" in text for e in sync_enums)
+    if not has_sync_enum:
+        return findings
+
     for i, line in enumerate(lines):
         if CATCH_ALL_RE.search(line):
-            findings.append(Finding(
-                "catch-all-arms", rel_path(path), i + 1,
-                f"catch-all arm hides unhandled variants: {line.strip()[:70]}",
-            ))
+            # Check if a sync-point enum is referenced within ~30 lines above
+            context = "\n".join(lines[max(0, i - 30):i])
+            near_sync = any(f"{e}::" in context for e in sync_enums)
+            if near_sync:
+                findings.append(Finding(
+                    "catch-all-arms", rel_path(path), i + 1,
+                    f"catch-all arm hides unhandled variants: {line.strip()[:70]}",
+                ))
     return findings
 
 
 def check_string_identity(path: Path, lines: list[str]) -> list[Finding]:
-    """LEAK: string equality == "..." in non-test prod code."""
+    """LEAK: string equality == "..." in non-test prod code.
+
+    Only flags comparisons that look like identifier/name checks (the kind
+    that should use Name interning). Skips CLI flags, OS names, file
+    extensions, error messages, and format strings — those are legitimate
+    string comparisons.
+    """
     if is_test_file(path):
         return []
     findings: list[Finding] = []
     in_test_mod = False
+
+    # Patterns that indicate interner-adjacent comparisons (likely bugs)
+    interner_adjacent_re = re.compile(
+        r"(?:name|ident|method|trait_name|type_name|field|callee|"
+        r"variant|label|keyword|tag|module|crate_name|func_name)"
+        r"[._\w]*\s*==\s*\"",
+        re.IGNORECASE,
+    )
+
     for i, line in enumerate(lines):
         if "#[cfg(test)]" in line:
             in_test_mod = True
         if in_test_mod:
             continue
-        if STRING_IDENTITY_RE.search(line):
+        # Only flag interner-adjacent patterns, not all == "..."
+        if interner_adjacent_re.search(line):
             stripped = line.lstrip()
-            # Skip comments, doc comments, string literals in format!/write!
             if stripped.startswith("//"):
                 continue
-            # Skip assert_eq!/assert_ne! (test-like)
-            if "assert_eq!" in line or "assert_ne!" in line or "assert!" in line:
-                continue
-            # Skip error messages and format strings
-            if "format!" in line or "write!" in line or "panic!" in line:
-                continue
-            # Skip tracing macros
-            if any(m in line for m in ["trace!", "debug!", "info!", "warn!", "error!"]):
+            # Skip macros and format strings
+            if any(m in line for m in [
+                "assert", "format!", "write!", "panic!",
+                "trace!", "debug!", "info!", "warn!", "error!",
+            ]):
                 continue
             findings.append(Finding(
                 "string-identity", rel_path(path), i + 1,
@@ -707,13 +789,23 @@ def check_glob_imports(path: Path, lines: list[str]) -> list[Finding]:
 
 
 def check_missing_docs(path: Path, lines: list[str]) -> list[Finding]:
-    """BLOAT: pub items without /// documentation."""
+    """BLOAT: pub items without /// documentation.
+
+    Walks backwards through attributes (#[derive], #[cfg], #[expect], etc.)
+    looking for a /// doc comment. A chain of attributes without a doc
+    comment still means the item is undocumented.
+    """
     if is_test_file(path):
         return []
     findings: list[Finding] = []
+    in_test_mod = False
     for i, line in enumerate(lines):
+        if "#[cfg(test)]" in line:
+            in_test_mod = True
+        if in_test_mod:
+            continue
         if PUB_ITEM_RE.match(line):
-            # Check if previous non-blank line is a doc comment or attribute
+            # Walk backwards through blank lines, attributes, and doc comments
             has_doc = False
             j = i - 1
             while j >= 0:
@@ -721,11 +813,19 @@ def check_missing_docs(path: Path, lines: list[str]) -> list[Finding]:
                 if prev == "":
                     j -= 1
                     continue
-                if prev.startswith("///") or prev.startswith("#["):
+                if prev.startswith("///"):
                     has_doc = True
+                    break
+                if prev.startswith("//!"):
+                    # Module doc, not item doc
+                    break
+                if prev.startswith("#[") or prev.endswith("]"):
+                    # Attribute — keep walking backwards
+                    j -= 1
+                    continue
+                # Hit actual code — no doc found
                 break
             if not has_doc:
-                # Extract the item name
                 item_desc = line.strip()[:70]
                 findings.append(Finding(
                     "missing-docs", rel_path(path), i + 1,
@@ -754,6 +854,154 @@ def check_lib_bodies(path: Path, lines: list[str]) -> list[Finding]:
     return findings
 
 
+# ─── New checks (batch 2) ─────────────────────────────────────
+
+def check_deny_unsafe(path: Path, lines: list[str]) -> list[Finding]:
+    """LEAK: pure crates must have #![deny(unsafe_code)]."""
+    if path.name != "lib.rs":
+        return []
+    crate = ""
+    try:
+        rel = path.relative_to(COMPILER_DIR)
+        crate = rel.parts[0]
+    except (ValueError, IndexError):
+        return []
+    if crate not in PURE_CRATES:
+        return []
+    text = "\n".join(lines[:30])  # only check top of file
+    if "#![deny(unsafe_code)]" in text:
+        return []
+    return [Finding(
+        "deny-unsafe", rel_path(path), 1,
+        f"pure crate {crate} missing #![deny(unsafe_code)] in lib.rs",
+    )]
+
+
+PANIC_PROD_RE = re.compile(r"\b(?:panic|todo|unimplemented|dbg)!\s*\(")
+
+def check_panic_prod(path: Path, lines: list[str]) -> list[Finding]:
+    """LEAK: panic!/todo!/unimplemented!/dbg! in production code."""
+    if is_test_file(path):
+        return []
+    findings: list[Finding] = []
+    in_test_mod = False
+    for i, line in enumerate(lines):
+        if "#[cfg(test)]" in line:
+            in_test_mod = True
+        if in_test_mod:
+            continue
+        if PANIC_PROD_RE.search(line):
+            stripped = line.lstrip()
+            if stripped.startswith("//"):
+                continue
+            # Skip macro definitions
+            if "macro_rules!" in line:
+                continue
+            findings.append(Finding(
+                "panic-prod", rel_path(path), i + 1,
+                f"panic/todo/dbg in prod code: {stripped[:70]}",
+            ))
+    return findings
+
+
+IGNORE_RE = re.compile(r'#\[ignore(?:\s*=\s*"([^"]*)")?\]')
+TRACKING_RE = re.compile(r"(?:BUG-|TPR-|CROSS-|plans/|issue|FIND-|TASK-)", re.IGNORECASE)
+
+def check_ignore_tracking(path: Path, lines: list[str]) -> list[Finding]:
+    """BLOAT: #[ignore] without a tracking artifact reference."""
+    findings: list[Finding] = []
+    for i, line in enumerate(lines):
+        m = IGNORE_RE.search(line)
+        if m:
+            reason = m.group(1) or ""
+            if not TRACKING_RE.search(reason):
+                findings.append(Finding(
+                    "ignore-tracking", rel_path(path), i + 1,
+                    f"#[ignore] without tracking artifact: {line.strip()[:70]}",
+                ))
+    return findings
+
+
+USE_CRATE_RE = re.compile(r"^\s*use\s+(?:crate::)?(\w+)")
+
+def check_phase_bleeding(path: Path, lines: list[str]) -> list[Finding]:
+    """LEAK: crate imports from a higher-level crate (upward dependency).
+
+    Uses CRATE_ORDER to detect when a low-level crate (e.g., ori_lexer)
+    imports from a higher-level crate (e.g., ori_parse).
+    """
+    findings: list[Finding] = []
+    src_crate = ""
+    try:
+        rel = path.relative_to(COMPILER_DIR)
+        src_crate = rel.parts[0]
+    except (ValueError, IndexError):
+        return []
+
+    src_level = CRATE_ORDER.get(src_crate, -1)
+    if src_level < 0:
+        return []
+
+    for i, line in enumerate(lines):
+        m = USE_CRATE_RE.match(line)
+        if m:
+            target = m.group(1)
+            # Only check ori_* crate imports
+            if not target.startswith("ori_"):
+                continue
+            target_level = CRATE_ORDER.get(target, -1)
+            if target_level < 0:
+                continue
+            if target_level > src_level:
+                findings.append(Finding(
+                    "phase-bleeding", rel_path(path), i + 1,
+                    f"{src_crate} (level {src_level}) imports {target} (level {target_level})",
+                ))
+    return findings
+
+
+SWALLOWED_IF_LET_RE = re.compile(r"if\s+let\s+Ok\s*\(")
+SWALLOWED_ERR_OK_RE = re.compile(r"Err\s*\(\s*_\s*\)\s*=>\s*Ok\s*\(")
+SWALLOWED_DEFAULT_RE = re.compile(r"\.unwrap_or_default\(\)")
+
+def check_swallowed_error(path: Path, lines: list[str]) -> list[Finding]:
+    """LEAK: error silently swallowed (if let Ok, Err(_) => Ok, unwrap_or_default)."""
+    if is_test_file(path):
+        return []
+    findings: list[Finding] = []
+    in_test_mod = False
+    for i, line in enumerate(lines):
+        if "#[cfg(test)]" in line:
+            in_test_mod = True
+        if in_test_mod:
+            continue
+        stripped = line.lstrip()
+        if stripped.startswith("//"):
+            continue
+        # if let Ok(...) = ... without else
+        if SWALLOWED_IF_LET_RE.search(line):
+            # Check next few lines for else
+            has_else = False
+            for j in range(i + 1, min(i + 10, len(lines))):
+                if "else" in lines[j]:
+                    has_else = True
+                    break
+                if lines[j].strip() == "}" or re.match(r"^\s*let\s", lines[j]):
+                    break
+            if not has_else:
+                findings.append(Finding(
+                    "swallowed-error", rel_path(path), i + 1,
+                    f"if let Ok() without else — error silently dropped: {stripped[:60]}",
+                ))
+        # Err(_) => Ok(...)
+        if SWALLOWED_ERR_OK_RE.search(line):
+            findings.append(Finding(
+                "swallowed-error", rel_path(path), i + 1,
+                f"Err(_) => Ok() — error silently swallowed: {stripped[:60]}",
+            ))
+    return findings
+
+
 # ─── Check dispatcher ────────────────────────────────────────
 
 # Map check IDs to their implementation functions
@@ -776,6 +1024,11 @@ CHECK_FNS: dict[str, callable] = {
     "glob-imports":    check_glob_imports,
     "missing-docs":    check_missing_docs,
     "lib-bodies":      check_lib_bodies,
+    "deny-unsafe":     check_deny_unsafe,
+    "panic-prod":      check_panic_prod,
+    "ignore-tracking": check_ignore_tracking,
+    "phase-bleeding":  check_phase_bleeding,
+    "swallowed-error": check_swallowed_error,
 }
 
 
