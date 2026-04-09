@@ -239,7 +239,6 @@ fn emit_block_rc(
     let (deferred_parents, merge_edge_decs) = emit_dead_at_entry_decs(&ctx, &mut new_body);
 
     let walk::BodyWalkResult {
-        uses_so_far,
         terminator_deferred,
         death_events,
         alloc_events,
@@ -252,7 +251,7 @@ fn emit_block_rc(
         deferred_parents,
     );
 
-    emit_terminator_rc(&ctx, block_idx, uses_so_far, &mut new_body);
+    emit_terminator_rc(&ctx, block_idx, &mut new_body);
 
     let edge_deferred = match &func.blocks[block_idx].terminator {
         ArcTerminator::Return { .. } | ArcTerminator::Resume | ArcTerminator::Unreachable => {
