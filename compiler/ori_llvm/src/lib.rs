@@ -73,7 +73,7 @@ mod init;
 
 // -- Re-exports --
 pub use context::SimpleCx;
-pub use init::{init_tracing, install_fatal_error_handler};
+pub use init::install_fatal_error_handler;
 pub use inkwell;
 
 /// Collect unconstrained function identities (pub or trait impl).
