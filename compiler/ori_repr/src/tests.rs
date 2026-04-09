@@ -1738,7 +1738,7 @@ fn compute_repr_plan_populates_primitives() {
     // Error type IS populated as Unit (trivial sentinel).
     assert!(
         plan.get_repr(Idx::ERROR).is_some(),
-        "Error must be populated as Unit (TPR-02-005)"
+        "Error must be populated as Unit"
     );
 }
 
@@ -1804,7 +1804,7 @@ fn compute_repr_plan_zero_behavioral_change_with_disabled() {
     }
 }
 
-// ── TPR-01-029/030: ORI_NO_REPR_OPT env var value parsing ─────────
+// ── ORI_NO_REPR_OPT env var value parsing ─────────
 
 #[test]
 fn is_env_truthy_accepts_1() {
@@ -2117,11 +2117,7 @@ fn trivial_struct_containing_all_unit_enum() {
     let struct_idx = pool.struct_type(struct_name, &[(name_e, enum_idx)]);
     let repr = canonical(&pool, struct_idx);
     if let MachineRepr::Struct(ref s) = repr {
-        assert!(
-            s.trivial,
-            "struct containing all-unit enum must be trivial — \
-             semantic pin for TPR-01-017"
-        );
+        assert!(s.trivial, "struct containing all-unit enum must be trivial");
     } else {
         panic!("expected Struct, got {repr:?}");
     }
@@ -2864,7 +2860,7 @@ fn repr_attr_propagates_to_resolved_struct_idx() {
     assert_eq!(
         plan.repr_attr(struct_idx),
         Some(&ReprAttribute::C),
-        "TPR-04-011: resolved struct idx must inherit #repr(\"c\") from named idx \
+        "resolved struct idx must inherit #repr(\"c\") from named idx \
          via resolution chain — codegen uses the resolved idx"
     );
 }
@@ -2886,7 +2882,7 @@ fn repr_packed_propagates_to_resolved_struct_idx() {
     assert_eq!(
         plan.repr_attr(struct_idx),
         Some(&ReprAttribute::Packed),
-        "TPR-04-011: resolved struct idx must inherit #repr(\"packed\")"
+        "resolved struct idx must inherit #repr(\"packed\")"
     );
 }
 
@@ -2906,7 +2902,7 @@ fn repr_c_aligned_propagates_to_resolved_struct_idx() {
     assert_eq!(
         plan.repr_attr(struct_idx),
         Some(&ReprAttribute::CAligned(16)),
-        "TPR-04-011: resolved struct idx must inherit #repr(\"c\", aligned 16)"
+        "resolved struct idx must inherit #repr(\"c\", aligned 16)"
     );
 }
 
@@ -2927,7 +2923,7 @@ fn repr_transparent_propagates_to_resolved_struct_idx() {
     assert_eq!(
         plan.repr_attr(struct_idx),
         Some(&ReprAttribute::Transparent),
-        "TPR-04-011: resolved struct idx must inherit #repr(\"transparent\")"
+        "resolved struct idx must inherit #repr(\"transparent\")"
     );
 }
 
@@ -2962,7 +2958,7 @@ fn pub_type_propagates_to_resolved_struct_idx() {
     );
     assert!(
         plan.is_public_type(struct_idx),
-        "TPR-04-011: resolved struct idx must inherit pub status from named idx"
+        "resolved struct idx must inherit pub status from named idx"
     );
 }
 
@@ -3027,7 +3023,7 @@ fn repr_c_resolved_idx_not_narrowed_semantic_pin() {
                     width: IntWidth::I64,
                     signed: true,
                 },
-                "TPR-04-011 semantic pin: #repr(\"c\") resolved struct idx must NOT be narrowed"
+                "semantic pin: #repr(\"c\") resolved struct idx must NOT be narrowed"
             );
         }
         other => panic!("expected Struct repr for resolved idx, got {other:?}"),
@@ -3076,7 +3072,7 @@ fn pub_resolved_idx_not_narrowed_semantic_pin() {
                     width: IntWidth::I64,
                     signed: true,
                 },
-                "TPR-04-011 semantic pin: pub resolved struct idx must NOT be narrowed"
+                "semantic pin: pub resolved struct idx must NOT be narrowed"
             );
         }
         other => panic!("expected Struct repr for resolved idx, got {other:?}"),
@@ -3131,7 +3127,7 @@ fn repr_attr_propagates_through_applied_to_concrete_struct() {
     assert_eq!(
         plan.repr_attr(mono_struct_idx),
         Some(&ReprAttribute::C),
-        "TPR-04-012: monomorphized concrete struct must inherit #repr(\"c\") from Named parent"
+        "monomorphized concrete struct must inherit #repr(\"c\") from Named parent"
     );
 }
 
@@ -3175,7 +3171,7 @@ fn pub_type_propagates_through_applied_to_concrete_struct() {
     // monomorphized concrete struct must also be public.
     assert!(
         plan.is_public_type(mono_struct_idx),
-        "TPR-04-012: monomorphized concrete struct must inherit pub from Named parent"
+        "monomorphized concrete struct must inherit pub from Named parent"
     );
 }
 
@@ -3218,7 +3214,7 @@ fn repr_c_applied_concrete_struct_not_narrowed_semantic_pin() {
                     width: IntWidth::I64,
                     signed: true,
                 },
-                "TPR-04-012 semantic pin: #repr(\"c\") monomorphized struct must NOT be narrowed"
+                "semantic pin: #repr(\"c\") monomorphized struct must NOT be narrowed"
             );
         }
         other => panic!("expected Struct repr for mono struct idx, got {other:?}"),
@@ -3271,7 +3267,7 @@ fn pub_applied_concrete_struct_not_narrowed_semantic_pin() {
                     width: IntWidth::I64,
                     signed: true,
                 },
-                "TPR-04-012 semantic pin: pub monomorphized struct must NOT be narrowed"
+                "semantic pin: pub monomorphized struct must NOT be narrowed"
             );
         }
         other => panic!("expected Struct repr for mono struct idx, got {other:?}"),
@@ -3665,7 +3661,7 @@ fn imported_collection_surface_does_not_suppress_narrowing() {
     // They're for transitive forwarding, not narrowing suppression.
     assert!(
         !plan.is_public_type(list_int),
-        "Imported collection surface should NOT suppress narrowing (TPR-04-042)"
+        "Imported collection surface should NOT suppress narrowing"
     );
 }
 
@@ -3765,11 +3761,11 @@ fn imported_collection_surfaces_multiple_hashes_no_panic() {
     // After imported surfaces no longer mark types as public.
     assert!(
         !plan.is_public_type(list_int),
-        "Imported surface should NOT mark List<int> as public (TPR-04-042)"
+        "Imported surface should NOT mark List<int> as public"
     );
     assert!(
         !plan.is_public_type(set_int),
-        "Imported surface should NOT mark Set<int> as public (TPR-04-042)"
+        "Imported surface should NOT mark Set<int> as public"
     );
 }
 
@@ -3820,7 +3816,7 @@ fn imported_collection_surface_allows_private_narrowing() {
     // don't suppress narrowing — they're for forwarding metadata only.
     assert!(
         !plan_with_import.is_public_type(list_int),
-        "Imported surface should NOT mark [int] as public (TPR-04-042 fix)"
+        "Imported surface should NOT mark [int] as public"
     );
 
     // Without import: same — private [int] is not public.

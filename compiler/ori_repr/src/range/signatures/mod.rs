@@ -278,7 +278,7 @@ fn collect_param_ranges(
     };
     // Also check by the ARC function's own name as a qualified key —
     // analysis-only functions use __impl_{idx}_{method} names that are
-    // registered in the unconstrained set (TPR-03-043/044/046).
+    // registered in the unconstrained set.
     let is_qualified_unconstrained = plan.is_qualified_unconstrained(target_func.name);
     let unconstrained =
         if is_pub_unconstrained || is_trait_impl_unconstrained || is_qualified_unconstrained {

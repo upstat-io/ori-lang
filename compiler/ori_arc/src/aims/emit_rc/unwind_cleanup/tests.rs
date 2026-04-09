@@ -91,9 +91,9 @@ fn invoke_indirect_resume_inserts_iter_drop() {
         assert_eq!(args.len(), 1, "ori_iter_drop takes one arg");
         // `ori_iter_drop` consumes the iterator handle.
         // The ownership contract must match
-        // `ProtocolBuiltin::IterDrop.arg_ownership()` which is `Owned`
-        // post-TPR-07-008. Previously `Borrowed` here was a shadow
-        // source contradicting the SSOT.
+        // `ProtocolBuiltin::IterDrop.arg_ownership()` which is `Owned`.
+        // A `Borrowed` marker here would be a shadow source contradicting
+        // the SSOT.
         assert_eq!(
             arg_ownership,
             &[ArgOwnership::Owned],
@@ -309,6 +309,6 @@ fn sibling_branch_iterator_not_live_at_invoke() {
     assert!(
         func.blocks[4].body.is_empty(),
         "sibling-branch iterator must not be treated as live at an \
-         Invoke it cannot forward-reach — TPR-07-014"
+         Invoke it cannot forward-reach"
     );
 }

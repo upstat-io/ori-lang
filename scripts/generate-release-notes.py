@@ -80,6 +80,19 @@ def generate_ai_notes(tag, prev_tag, commit_log, pr_bodies):
 
 Write clear, curated release notes in markdown. Do NOT wrap in ```markdown fences.
 
+## CRITICAL OUTPUT CONTRACT — READ FIRST
+
+Your entire response becomes the release notes verbatim. There is no post-processing step that will "clean up" your output. Therefore:
+
+- **DO NOT** begin with meta-commentary, preamble, or "thinking aloud" text. Banned openings include (but are not limited to): "Now I have enough context...", "Here are the release notes...", "Here is the...", "Let me write...", "I'll summarize...", "Based on the...", "Looking at the...", "After reviewing...", "Okay, I can see...", "Sure,...", "Got it,...".
+- **DO NOT** emit a bare horizontal rule (`---`) before the first heading. The release body must begin with content, not a separator.
+- **DO NOT** restate the task, describe your approach, or explain what you're about to do.
+- **DO NOT** add any trailing commentary after the last section ("I hope this helps", "Let me know if...").
+- **The very first character** of your response must be either `#` (a heading) or the first letter of the summary paragraph. Nothing else.
+- If you have no information to summarize, still output valid release notes — do NOT narrate that fact.
+
+Violating this contract ships broken release notes to real users on GitHub. There is no second chance.
+
 ## Format
 
 Start with a 1-3 sentence summary describing the theme of this release.
@@ -165,6 +178,94 @@ Commit log ({prev_tag or 'beginning'}..{tag}):
         return None
 
 
+# Phrases that signal the model is "thinking aloud" instead of producing
+# release notes. Matched case-insensitively against the stripped start of
+# the first paragraph. Keep this list conservative — false positives silently
+# delete real content, which is worse than the original bug.
+_META_PREFIXES = (
+    "now i ",
+    "now that i",
+    "here is",
+    "here are",
+    "here's",
+    "let me ",
+    "i'll ",
+    "i will ",
+    "i have ",
+    "i've ",
+    "i can ",
+    "based on ",
+    "looking at ",
+    "after reviewing",
+    "after analyzing",
+    "ok,",
+    "okay,",
+    "alright,",
+    "got it",
+    "sure,",
+    "certainly,",
+    "of course",
+)
+
+
+def _looks_like_meta(paragraph):
+    """Return True if a paragraph looks like AI 'thinking aloud' preamble."""
+    lower = paragraph.strip().lower()
+    if not lower:
+        return False
+    if lower == "---":
+        return True
+    return any(lower.startswith(p) for p in _META_PREFIXES)
+
+
+def strip_preamble(text):
+    """Strip AI meta-commentary and bare leading separators from release notes.
+
+    The Copilot SDK + Claude pipeline occasionally emits preamble like
+    "Now I have enough context to write the release notes..." or a bare
+    leading horizontal rule (`---`) before the real content. Both patterns
+    have shipped to GitHub releases in the wild (v2026.04.08.1-alpha and
+    v2026.04.07.1-alpha respectively). This function is a defensive
+    post-processor that runs on every AI-generated notes string.
+
+    Strategy:
+    1. Drop a leading bare `---` separator if present.
+    2. If the first paragraph begins with a known meta-commentary prefix,
+       drop it and recurse (a leaked preamble is often followed by another
+       `---` separator that also needs removal).
+    3. If stripping would leave a suspiciously short result (< 50 chars),
+       bail out and return the original text — better to ship preamble than
+       to ship empty notes.
+    """
+    if not text:
+        return text
+
+    original = text
+    text = text.lstrip()
+
+    # Case 1: leading bare horizontal rule.
+    if text.startswith("---\n") or text.startswith("---\r\n"):
+        after_hr = text.split("\n", 1)[1] if "\n" in text else ""
+        text = after_hr.lstrip()
+
+    # Case 2: first paragraph is meta-commentary.
+    parts = text.split("\n\n", 1)
+    if len(parts) == 2:
+        first_para, rest = parts
+        if _looks_like_meta(first_para):
+            # Recurse on the rest — a leaked preamble is often followed by
+            # its own `---` separator which we also want to drop.
+            stripped_rest = strip_preamble(rest)
+            if len(stripped_rest.strip()) >= 50:
+                return stripped_rest
+            # Stripping emptied the notes — fall through to the bailout.
+
+    # Final safety net: never return suspiciously short output.
+    if len(text.strip()) < 50:
+        return original
+    return text
+
+
 def generate_fallback_notes(tag, commit_log):
     """Categorize commits by conventional commit prefix."""
     sections = {
@@ -205,12 +306,121 @@ def generate_fallback_notes(tag, commit_log):
     return body.strip()
 
 
+def _run_self_test():
+    """Regression tests for strip_preamble(). Run via `--self-test`.
+
+    Fixtures are lifted from real broken releases on GitHub:
+      - v2026.04.08.1-alpha: "Now I have enough context..." paragraph leak
+      - v2026.04.07.1-alpha: bare leading `---` separator leak
+    """
+    # Real v2026.04.08.1-alpha leak — the bug that triggered this fix.
+    case_paragraph_leak = (
+        "Now I have enough context to write the release notes. This release "
+        "is almost entirely internal infrastructure — the only user-facing "
+        "fix is the cross-compilation sysroot environment variable bug on "
+        "macOS with versioned Darwin targets.\n"
+        "\n"
+        "---\n"
+        "\n"
+        "# Ori v2026.04.08.1-Alpha — Release Notes\n"
+        "\n"
+        "This release is a targeted cross-compilation fix for macOS users "
+        "combined with internal developer tooling hardening."
+    )
+    out = strip_preamble(case_paragraph_leak)
+    assert out.startswith("# Ori v2026.04.08.1-Alpha"), (
+        f"paragraph-leak fixture: preamble not stripped. Got: {out[:80]!r}"
+    )
+    assert "Now I have enough context" not in out, (
+        "paragraph-leak fixture: meta-commentary survived"
+    )
+
+    # Real v2026.04.07.1-alpha leak — bare leading horizontal rule.
+    case_bare_hr = (
+        "---\n"
+        "\n"
+        "## v2026.04.07.1-alpha\n"
+        "\n"
+        "This release focuses on AOT codegen correctness and reliability."
+    )
+    out = strip_preamble(case_bare_hr)
+    assert out.startswith("## v2026.04.07.1-alpha"), (
+        f"bare-HR fixture: separator not stripped. Got: {out[:80]!r}"
+    )
+
+    # Preamble followed by HR followed by heading (combined pattern).
+    case_combined = (
+        "Here are the release notes for this version.\n"
+        "\n"
+        "---\n"
+        "\n"
+        "# Title\n"
+        "\n"
+        "Some actual summary paragraph that is long enough to pass the "
+        "length safety check comfortably."
+    )
+    out = strip_preamble(case_combined)
+    assert out.startswith("# Title"), (
+        f"combined fixture: combined preamble not stripped. Got: {out[:80]!r}"
+    )
+    assert "Here are the release notes" not in out
+
+    # Clean input must pass through unchanged (no false positives).
+    case_clean = (
+        "# Ori v2026.04.06.1-Alpha — Release Notes\n"
+        "\n"
+        "This release is entirely focused on ARC correctness for closures. "
+        "Indirect closure calls now have sound ownership tracking."
+    )
+    out = strip_preamble(case_clean)
+    assert out == case_clean, (
+        f"clean fixture: input was mutated. Got: {out[:80]!r}"
+    )
+
+    # Empty string must not crash.
+    assert strip_preamble("") == ""
+    assert strip_preamble(None) is None
+
+    # Safety net: if stripping would leave <50 chars, return original.
+    case_too_short_after_strip = "Now I have enough context.\n\n---\n\nTiny."
+    out = strip_preamble(case_too_short_after_strip)
+    assert out == case_too_short_after_strip, (
+        "safety-net fixture: should have returned original to avoid "
+        f"shipping empty notes. Got: {out!r}"
+    )
+
+    # Summary-first (no leading title heading) must pass through — the
+    # prompt technically allows this shape and we must not eat the summary.
+    case_summary_first = (
+        "This release focuses on tooling hardening and minor bug fixes in "
+        "the LLVM backend. No language-visible changes land here.\n"
+        "\n"
+        "## Bug Fixes\n"
+        "\n"
+        "- Fixed something important."
+    )
+    out = strip_preamble(case_summary_first)
+    assert out == case_summary_first, (
+        f"summary-first fixture: summary paragraph was eaten. Got: {out[:80]!r}"
+    )
+
+    print("strip_preamble() self-test: all assertions passed", file=sys.stderr)
+    return 0
+
+
 def main():
     parser = argparse.ArgumentParser(description="Generate Ori release notes")
-    parser.add_argument("--tag", required=True, help="Release tag (e.g., v2026.03.23.1-Alpha)")
+    parser.add_argument("--tag", help="Release tag (e.g., v2026.03.23.1-Alpha)")
     parser.add_argument("--prev", default=None, help="Previous tag (auto-detected if omitted)")
     parser.add_argument("-o", "--output", default=None, help="Output file (stdout if omitted)")
+    parser.add_argument("--self-test", action="store_true", help="Run strip_preamble() regression tests and exit")
     args = parser.parse_args()
+
+    if args.self_test:
+        return _run_self_test()
+
+    if not args.tag:
+        parser.error("--tag is required unless --self-test is used")
 
     prev_tag = args.prev or get_prev_tag(args.tag)
     commit_log = gather_commit_log(prev_tag, args.tag)
@@ -218,6 +428,10 @@ def main():
 
     # Try AI, fall back to structured categorization
     notes = generate_ai_notes(args.tag, prev_tag, commit_log, pr_bodies)
+    if notes:
+        # Defense-in-depth: strip any AI meta-commentary/preamble that
+        # slipped past the prompt-level instructions. See strip_preamble().
+        notes = strip_preamble(notes)
     if not notes:
         notes = generate_fallback_notes(args.tag, commit_log)
 
@@ -230,4 +444,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main() or 0)

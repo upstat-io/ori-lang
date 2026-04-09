@@ -12,13 +12,13 @@ spec:
 sections:
   - id: "3.0"
     title: Core Library Traits
-    status: complete
+    status: in-progress
   - id: "3.1"
     title: Trait Declarations
     status: complete
   - id: "3.2"
     title: Trait Implementations
-    status: complete
+    status: in-progress
   - id: "3.3"
     title: Trait Bounds
     status: complete
@@ -63,19 +63,19 @@ sections:
     status: in-progress
   - id: "3.16"
     title: Formattable Trait
-    status: complete
+    status: in-progress
   - id: "3.17"
     title: Into Trait
     status: in-progress
   - id: "3.18"
     title: Ordering Type
-    status: complete
+    status: in-progress
   - id: "3.19"
     title: Default Type Parameters on Traits
     status: complete
   - id: "3.20"
     title: Default Associated Types
-    status: complete
+    status: in-progress
   - id: "3.21"
     title: Operator Traits
     status: in-progress

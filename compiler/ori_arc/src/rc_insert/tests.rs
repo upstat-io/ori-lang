@@ -731,7 +731,7 @@ fn test_annotate_apply_indirect_different_capture_types_defaults_borrowed() {
         assert_eq!(
             arg_ownership,
             &[ArgOwnership::Borrowed],
-            "different capture types must fall back to Borrowed (TPR-02-004)"
+            "different capture types must fall back to Borrowed"
         );
     } else {
         panic!("expected ApplyIndirect");
@@ -805,7 +805,7 @@ fn test_annotate_apply_indirect_same_capture_types_merges() {
         assert_eq!(
             arg_ownership,
             &[ArgOwnership::Owned],
-            "same capture types must merge (TPR-02-008)"
+            "same capture types must merge"
         );
     } else {
         panic!("expected ApplyIndirect");
@@ -888,7 +888,7 @@ fn test_annotate_apply_indirect_cross_instantiation_same_tag_merges() {
         assert_eq!(
             arg_ownership,
             &[ArgOwnership::Owned],
-            "List<int> vs List<str> share Tag::List → merge must succeed (TPR-02-011)"
+            "List<int> vs List<str> share Tag::List → merge must succeed"
         );
     } else {
         panic!("expected ApplyIndirect");
@@ -987,7 +987,7 @@ fn test_annotate_apply_indirect_diamond_cfg_same_origin() {
         assert_eq!(
             arg_ownership,
             &[ArgOwnership::Owned],
-            "diamond CFG must resolve to same origin (TPR-02-005)"
+            "diamond CFG must resolve to same origin"
         );
     } else {
         panic!("expected ApplyIndirect");

@@ -119,11 +119,10 @@ pub(crate) fn add_invoke_unwind_cleanup(func: &mut ArcFunction, interner: &ori_i
         // `ori_iter_drop` consumes the iterator handle
         // (frees the Box-allocated state). The arg ownership must be
         // `Owned` to match `ProtocolBuiltin::IterDrop.arg_ownership()`
-        // — previously `Borrowed`, which contradicted the post-TPR-07-008
-        // SSOT that iterator drops are consuming. The contract has
-        // no observable effect at unwind (the frame is already
-        // unwinding), but the stale `Borrowed` marker is a shadow
-        // source of truth that future ARC passes might rely on.
+        // — iterator drops are consuming per the SSOT. A stale `Borrowed`
+        // marker would be a shadow source of truth that future ARC passes
+        // might rely on, even though the contract has no observable effect
+        // at unwind (the frame is already unwinding).
         let drop_instrs: Vec<ArcInstr> = live_iters
             .iter()
             .map(|&iter_var| {

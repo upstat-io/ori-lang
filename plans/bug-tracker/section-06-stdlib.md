@@ -1,7 +1,7 @@
 ---
 section: "06"
 title: "Stdlib"
-status: not-started
+status: complete
 goal: "Track and resolve all known standard library bugs"
 sections: []
 third_party_review:

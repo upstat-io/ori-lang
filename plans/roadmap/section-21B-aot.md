@@ -42,7 +42,7 @@ sections:
     status: not-started
   - id: "21B.11"
     title: Performance & Stress Tests
-    status: in-progress
+    status: not-started
   - id: "21B.12"
     title: Platform-Specific Tests
     status: not-started
@@ -57,7 +57,7 @@ sections:
     status: not-started
   - id: "21B.16"
     title: Section Completion Checklist
-    status: not-started
+    status: in-progress
 ---
 
 # Section 21B: AOT Compilation

@@ -18,7 +18,7 @@ verification_notes: |
 sections:
   - id: "9.0"
     title: Match Expression Syntax
-    status: in-progress
+    status: not-started
   - id: "9.1"
     title: match Expression
     status: done
@@ -36,7 +36,7 @@ sections:
     status: in-progress
   - id: "9.6"
     title: Section Completion Checklist
-    status: not-started
+    status: in-progress
 ---
 
 # Section 9: Match Expressions

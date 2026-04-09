@@ -222,7 +222,7 @@ fn semantic_pin_orphan_attrs_eof_is_error_not_silent() {
     let output = crate::common::parse_source("#target(os: \"linux\")\n");
     assert!(
         output.has_errors(),
-        "TPR-01-062 semantic pin: orphaned attrs at EOF must produce errors, not be silently dropped"
+        "semantic pin: orphaned attrs at EOF must produce errors, not be silently dropped"
     );
 }
 
