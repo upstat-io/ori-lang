@@ -116,7 +116,7 @@ CRATE_ORDER: dict[str, int] = {
     "ori_patterns": 4, "ori_types": 4,
     "ori_eval": 5, "ori_arc": 5, "ori_repr": 5, "ori_canon": 5,
     "ori_llvm": 6, "ori_compiler": 6,
-    "ori_fmt": 4, "ori_lsp": 7, "ori_stack": 5,
+    "ori_fmt": 4, "ori_lsp": 7, "ori_stack": 1,  # shared utility, used by ori_parse+
     "oric": 8, "ori_rt": 0,
 }
 

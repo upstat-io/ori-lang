@@ -123,8 +123,8 @@ def main() -> int:
         rc = run_hygiene_lint_fix(lint_checks, scope, args.apply)
         if rc == 2:  # dry-run with fixes available
             any_fixes = True
-        elif rc == 0 and args.apply and "Fixed" in str(rc):
-            # hygiene-lint --fix --apply prints "Fixed N findings" on success
+        elif rc == 0 and args.apply:
+            # rc=0 with --apply means fixes were applied successfully
             any_fixes = True
 
     # Run plan annotation fixes
@@ -132,6 +132,8 @@ def main() -> int:
         print(f"\n{bold('── plan-annotations fixes ──')}")
         rc = run_plan_annotations_fix(scope, args.apply)
         if rc == 2:
+            any_fixes = True
+        elif rc == 0 and args.apply:
             any_fixes = True
 
     if not any_fixes:
