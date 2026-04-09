@@ -3,7 +3,7 @@
 //! These tests exercise the helper functions directly with synthetic
 //! `ArcFunction` shapes, bypassing `is_take_project` (which requires a
 //! `Pool` with concrete sum-type and iterator-payload types). They
-//! pin the per-source bypass-safe split (TPR-07-019) at the IR level.
+//! pin the per-source bypass-safe split at the IR level.
 //!
 //! End-to-end behavior with real Ori source is covered by the AOT
 //! `iterator_drop` test suite in
@@ -326,7 +326,7 @@ fn alias_graph_let_bidirectional_jump_forward_only() {
 // ---------------------------------------------------------------------
 
 /// For a singleton lineage, the result equals the entries of that
-/// single source's bypass-safe set — same as TPR-07-017 behavior.
+/// single source's bypass-safe set — same as behavior.
 #[test]
 fn lineage_bypass_safe_entries_singleton_matches_per_source() {
     // bb0 (Branch) → bb1 (tp) → bb3 (return)
@@ -346,12 +346,12 @@ fn lineage_bypass_safe_entries_singleton_matches_per_source() {
     assert_eq!(entries.len(), 1);
 }
 
-/// TPR-07-019 semantic pin: for a mixed lineage merging two unrelated
+/// semantic pin: for a mixed lineage merging two unrelated
 /// sources, the per-source intersection produces a STRICTLY TIGHTER
-/// bypass-safe set than either source alone. Pre-fix code (TPR-07-017)
+/// bypass-safe set than either source alone. Pre-fix code
 /// computed bypass-safe from the merged `tp_blocks` set, which is the
 /// SAME mathematical operation as the intersection of per-source sets
-/// — both produce the SAME small set. The TPR-07-019 fix's value is
+/// — both produce the SAME small set. The fix's value is
 /// in the SINGLETON lineages: `compute_lineage` correctly assigns
 /// singleton `{0}` and `{1}` to the source vars themselves (not the
 /// over-approximating `{0, 1}` that the union-find membership would
@@ -476,12 +476,12 @@ fn collect_let_edges_extracts_only_let_var_aliases() {
     );
 }
 
-/// Semantic pin (TPR-07-022): swapped phi-merge params with the same
+/// Semantic pin: swapped phi-merge params with the same
 /// lineage source set MUST have DIFFERENT Let-alias representatives.
 /// Pre-fix code assigns both the same lineage index → dedup suppresses
 /// one `RcDec` → leak.
 ///
-/// Regression: TPR-07-022 lineage dedup too coarse for multi-param phi.
+/// Regression: lineage dedup too coarse for multi-param phi.
 #[test]
 fn let_alias_rep_swapped_phi_params_get_distinct_reps() {
     // bb0 (Branch cond) → bb1 (Jump merge(%a, %b)) → bb3 (params: %p0, %p1)
@@ -637,7 +637,7 @@ fn project_does_not_create_let_alias() {
 /// Interaction pin: duplicate Jump args (`Jump(target, [v, v])`) produce
 /// two distinct target block params. Those params must have different
 /// Let-alias reps (they are separate SSA names even though they receive
-/// the same value). BUG-04-047's fix in `forward_walk.rs` handles the
+/// the same value). The duplicate-arg `RcInc` fix in `forward_walk.rs` handles the
 /// RC balance for duplicate args at the terminator level.
 #[test]
 fn duplicate_jump_args_to_distinct_params_get_distinct_reps() {
