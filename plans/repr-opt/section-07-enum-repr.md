@@ -10,13 +10,16 @@ inspired_by:
   - "Swift enum layout (lib/IRGen/GenEnum.cpp)"
   - "Zig optional representation (src/Type.zig)"
 depends_on: ["04", "05"]
+third_party_review:
+  status: findings
+  updated: 2026-04-09
 sections:
   - id: "07.0"
     title: "Prerequisites: Codegen Consumer Inventory"
     status: complete
   - id: "07.1"
     title: "Discriminant Narrowing"
-    status: in-progress
+    status: complete
   - id: "07.2"
     title: "Niche Filling"
     status: in-progress
@@ -203,7 +206,7 @@ The discriminant (tag) should use the minimum width needed.
 
 ## 07.2 Niche Filling
 
-**File(s):** `compiler/ori_repr/src/layout/niche.rs` (new, ~200 lines — `Niche` struct, `find_niches()`, `find_enum_niches()`, `optimize_option_repr()`, `optimize_result_repr()`), `compiler/ori_repr/src/enum_repr.rs` (add `EnumTag::Niche` support — already defined), `compiler/ori_repr/src/canonical/type_repr.rs` (update `canonical_option()`/`canonical_result()` to call niche optimization), `compiler/ori_llvm/src/codegen/arc_emitter/tag_access.rs` (extend for niche encoding)
+**File(s):** `compiler/ori_repr/src/layout/niche.rs` (new, ~200 lines — `Niche` struct, `find_niches()`, `find_enum_niches()`, `optimize_option_repr()`, `optimize_result_repr()`), `compiler/ori_repr/src/enum_repr.rs` (add `EnumTag::Niche` support — already defined), `compiler/ori_repr/src/canonical/type_repr.rs` (update `canonical_option()`/`canonical_result()` to call niche optimization), `compiler/ori_llvm/src/codegen/arc_emitter/tag_access/mod.rs` (extend for niche encoding)
 
 **Depends on:** §07.1 (the `TagAccess` abstraction must be implemented and validated with explicit narrowed tags before niche encoding changes the layout structure)
 
@@ -343,7 +346,7 @@ A "niche" is an invalid bit pattern in a type. If an enum variant's payload has 
 
 ## 07.3 Tagged Pointers
 
-**File(s):** `compiler/ori_repr/src/layout/tagged_ptr.rs` (new, ~100 lines — `can_use_tagged_pointer()`, `is_taggable_pointer()`), `compiler/ori_llvm/src/codegen/arc_emitter/tag_access.rs` (extend `TagAccess` for tagged pointer encoding/decoding)
+**File(s):** `compiler/ori_repr/src/layout/tagged_ptr.rs` (new, ~100 lines — `can_use_tagged_pointer()`, `is_taggable_pointer()`), `compiler/ori_llvm/src/codegen/arc_emitter/tag_access/mod.rs` (extend `TagAccess` for tagged pointer encoding/decoding)
 
 On 64-bit systems, heap pointers have alignment ≥8, meaning the low 3 bits are always zero. These bits can store a 3-bit tag (up to 8 variants).
 
@@ -455,7 +458,7 @@ The analysis layer (`is_taggable_pointer` / `can_use_tagged_pointer`) is complet
 
 ## 07.4 Payload Compression
 
-**File(s):** `compiler/ori_repr/src/canonical/type_repr.rs` (update `canonical_enum()` payload sizing), `compiler/ori_llvm/src/codegen/type_info/layout_resolver.rs` (update `resolve_enum()` payload layout), `compiler/ori_llvm/src/codegen/arc_emitter/drop_enum.rs` (update `compute_variant_field_offsets()`)
+**File(s):** `compiler/ori_repr/src/canonical/type_repr.rs` (update `canonical_enum()` payload sizing), `compiler/ori_llvm/src/codegen/type_info/enum_layout.rs` (update `resolve_enum()` payload layout — refactored from `layout_resolver.rs`), `compiler/ori_llvm/src/codegen/arc_emitter/drop_enum.rs` (update `compute_variant_field_offsets()`)
 
 When variant payloads have different sizes, the current approach uses `max(sizeof(variant))` for all, padded to i64 slot boundaries. §07.4 addresses the achievable payload optimizations.
 
@@ -833,6 +836,63 @@ These test enum representations interacting with other language features. Each m
   Evidence: `BlockCtx.take_move_facts` is documented in terms of `moved_at_entry(blk)` and `moved_at_exit(pred)`, and `emit_rc_unified()` still labels the analysis as "path-sensitive take-project must-move analysis." Those APIs and semantics no longer exist in the current tree; the live API surface is `is_in_class`, `class_of`, and `is_bypass_safe_entry_for_var`.
   Impact: low-severity hygiene drift only, but it misstates the invariants future TPR work must reason about and makes the current fix look more dataflow-heavy than it actually is.
   Resolved: Fixed on 2026-04-07. Both stale doc blocks rewritten to describe the current TPR-07-017 per-class union-find + CFG reachability + `is_bypass_safe_entry_for_var` design. The `helpers.rs` `BlockCtx.take_move_facts` doc now references the live API surface (`is_in_class`, `class_of`, `is_bypass_safe_entry_for_var`) and explains source 1's per-class dedup. The `emit_unified.rs` comment now says "per-class take-project facts via union-find + CFG reachability" instead of "path-sensitive must-move analysis."
+
+### Dual-Source TPR Round (2026-04-09) — Architectural Review
+
+Broad architectural review of §07 implementation + remaining repr-opt plan soundness. Codex (557s, 239 events) + Gemini (1646s, 137 events). All findings independently verified by Explore agent.
+
+**Resolution**: These findings are systemic SSOT violations requiring cross-crate architectural work. A dedicated plan (`plans/enum-layout-ssot/`) is being created via `/create-plan` to resolve all findings architecturally.
+
+**Theme A — Scattered Enum Layout Knowledge (SSOT violation):**
+
+- [ ] `[TPR-07-001-codex][high]` `compiler/ori_llvm/src/codegen/arc_emitter/tag_access/mod.rs` — TagAccess LEAK: builtins bypass abstraction. `result_monadic.rs`, `option_result_monadic.rs`, `compound_type_impls/option.rs`, `compound_type_impls/result.rs`, `list_builtins/helpers.rs`, `map_builtins.rs` all hardcode field 0/1 for enum tag/payload instead of using TagAccess. Niche stub paths (`emit_option_niche`, `emit_result_niche`) have `#[expect(clippy::unused_self)]` — unimplemented.
+  Evidence: Verified by Explore agent. 15+ sites bypass TagAccess.
+  Basis: direct_file_inspection. Confidence: high.
+
+- [ ] `[TPR-07-002-codex][high]` `compiler/ori_llvm/src/codegen/derive_codegen/enum_bodies/enum_eq.rs:34` — Derive enum bodies don't handle TaggedPtr. `enum_eq.rs`, `enum_comparable.rs`, `enum_hashable.rs` all assume `{tag, payload}` struct layout and hardcode `extract_value(..., 0)` for tag. No call to `get_niche_encoding()` or `get_tagged_ptr_encoding()` in any derive path. TAGGED_PTR_CODEGEN_READY is already true — a user enum eligible for tagged-pointer layout will produce wrong derive code.
+  Evidence: Verified by Explore agent. Active miscompile surface.
+  Basis: direct_file_inspection. Confidence: medium.
+
+- [ ] `[TPR-07-003-codex][high]` `compiler/ori_llvm/src/codegen/arc_emitter/builtins/option_result_helpers.rs:309` — Option/Result runtime ABI contract LEAK. `{i64 tag, T payload}` struct constructed ad-hoc in `option_result_helpers.rs`, `result_monadic.rs`, `option_result_monadic.rs`, `list_builtins/helpers.rs`, `map_builtins.rs`. No single ABI query surface.
+  Evidence: Verified by Explore agent. 5+ locations with hardcoded ABI.
+  Basis: direct_file_inspection. Confidence: high.
+
+- [ ] `[TPR-07-004-codex][high]` `compiler/ori_repr/src/layout/mod.rs:187` — i64-slot packing in 5+ locations. `repr/layout/mod.rs`, `type_info/enum_layout.rs`, `abi/mod.rs`, `lower/control_flow/type_layout.rs`, `arc_emitter/drop_enum.rs`, plus derive walkers (`enum_eq.rs`, `enum_comparable.rs`, `enum_hashable.rs`). All recompute `size.div_ceil(8) * 8` independently.
+  Evidence: Verified by Explore agent. At least 8 locations.
+  Basis: direct_file_inspection. Confidence: high.
+  Agreement: [TPR-07-002-gemini] (both reviewers flagged i64-slot SSOT)
+
+- [ ] `[TPR-07-003-gemini][medium]` `compiler/ori_llvm/src/codegen/arc_emitter/builtins/option_result.rs:81` — 50+ hardcoded GEP index 0 sites. 60 matches for `extract_value.*0|struct_gep.*0|insert_value.*0` in `arc_emitter/`. Mix of legitimate struct field 0 access and enum tag access — ~15 are actual field-access errors.
+  Evidence: Verified by Explore agent. Confirmed 60 matches, ~15 actual bugs.
+  Basis: direct_file_inspection. Confidence: high.
+  Related: [TPR-07-001-codex]
+
+- [ ] `[TPR-07-002-gemini][high]` `compiler/ori_arc/src/lower/control_flow/type_layout.rs:199` — i64-slot packing SSOT (same root cause as TPR-07-004-codex). `ori_arc`, `ori_repr`, `ori_llvm` all hardcode `round_up_i64(field_size, 8)`.
+  Evidence: Verified by Explore agent.
+  Basis: direct_file_inspection. Confidence: high.
+  Agreement: [TPR-07-004-codex]
+
+**Theme B — Take-Project Ownership Model Gaps:**
+
+- [ ] `[TPR-07-001-gemini][high]` `compiler/ori_arc/src/aims/emit_rc/take_project/mod.rs:250` — Memory leak for predecessor args in take-project classes. Variables in predecessor blocks enter `in_class` via union-find but may lack `var_to_lineage` entries. `dead_cleanup.rs` and `edge_cleanup.rs` skip all `in_class` vars, but `is_bypass_safe_entry_for_var` returns false without lineage → orphaned vars with no RC decrement. No assertion enforces `in_class ⊆ var_to_lineage.keys()`.
+  Evidence: Verified by Explore agent. Confirmed potential leak path.
+  Basis: direct_file_inspection. Confidence: high.
+
+- [ ] `[TPR-07-005-codex][medium]` `compiler/ori_arc/src/aims/emit_rc/borrowed_defs.rs:50` — `is_take_project` iterator-only scope. Hardcoded to `Tag::Iterator | Tag::DoubleEndedIterator`. Future unique-owned types (Box<T>, channels) will silently stay on borrow path → leak or double-free.
+  Evidence: Verified by Explore agent. Correctly scoped today but no architectural hook for extension.
+  Basis: direct_file_inspection. Confidence: high.
+  Agreement: [TPR-07-004-gemini]
+
+- [ ] `[TPR-07-004-gemini][low]` `compiler/ori_arc/src/aims/emit_rc/borrowed_defs.rs:45` — Same as TPR-07-005-codex. Suggest generalizing to check `MachineRepr` unique-owned bit.
+  Evidence: Verified by Explore agent.
+  Basis: direct_file_inspection. Confidence: medium.
+  Agreement: [TPR-07-005-codex]
+
+**Theme C — Testing Gaps:**
+
+- [ ] `[TPR-07-006-codex][medium]` `compiler/ori_llvm/src/codegen/arc_emitter/builtins/option_result_helpers/tests.rs:1` — Niche-helper tests source-text only. `include_str!` + substring matching instead of IR emission tests. BUG-04-019 verification weaker than claimed.
+  Evidence: Verified by Explore agent. Niche codegen is a stub (returns None); tests limited because feature incomplete.
+  Basis: fresh_verification. Confidence: high.
 
 ## 07.RZ Resume Notes (2026-04-07)
 
