@@ -11,7 +11,7 @@
 
 use rustc_hash::FxHashMap;
 
-use crate::ir::{ArcInstr, ArcTerminator, ArcVarId, ArgOwnership, ValueRepr};
+use crate::ir::{ArcInstr, ArcTerminator, ArcVarId, ValueRepr};
 
 use super::helpers::{is_live_at_exit, is_owned_at_entry, BlockCtx};
 use super::rc_strategy;
@@ -39,24 +39,14 @@ fn emit_invoke_project_borrowed_owned_incs(
     terminator: &ArcTerminator,
     new_body: &mut Vec<ArcInstr>,
 ) {
-    let (ArcTerminator::Invoke {
-        args,
-        arg_ownership,
-        ..
-    }
-    | ArcTerminator::InvokeIndirect {
-        args,
-        arg_ownership,
-        ..
-    }) = terminator
+    let (ArcTerminator::Invoke { args, .. } | ArcTerminator::InvokeIndirect { args, .. }) =
+        terminator
     else {
         return;
     };
 
     for (pos, &var) in args.iter().enumerate() {
-        let is_owned = arg_ownership
-            .get(pos)
-            .is_some_and(|o| *o == ArgOwnership::Owned);
+        let is_owned = terminator.is_owned_position(pos);
         if !is_owned
             || !ctx.project_borrowed_defs.contains(&var)
             || ctx.func.var_reprs[var.index()] == ValueRepr::Scalar
