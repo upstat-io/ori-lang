@@ -92,7 +92,7 @@ hygiene-lint.py --scope <review-paths>
 hygiene-lint.py --scope <review-paths> --fix --apply
 ```
 
-Covers 18 checks: file-length, fn-length, nesting-depth, test-ephemeral, test-weak, unsafe-safety, banners, commented-code, bare-allow, println-in-lib, bare-todo, unwrap-prod, catch-all-arms, string-identity, result-unit, glob-imports, missing-docs, lib-bodies.
+Covers 15 project-specific checks (clippy handles the rest): file-length, fn-length, nesting-depth, test-ephemeral, test-weak, banners, commented-code, bare-todo, catch-all-arms, string-identity, lib-bodies, deny-unsafe, ignore-tracking, phase-bleeding, swallowed-error.
 
 #### 0b. Run enum-drift.py (cross-crate enum coverage — ~0.5s)
 
@@ -114,15 +114,7 @@ plan-annotations.sh --scope <review-paths> --cleanup-only
 
 Already integrated — classifies plan annotations as stale/active/orphan.
 
-#### 0d. Run dead-pub.py (visibility — ~2s per crate)
-
-```bash
-dead-pub.py --scope <review-paths> --summary
-```
-
-Detects `pub` items only used within their crate (should be `pub(crate)`) or not used at all.
-
-#### 0e. Review tool output, apply auto-fixes
+#### 0d. Review tool output, apply auto-fixes
 
 1. Apply auto-fixes: `hygiene-fix.py --scope <review-paths> --apply`
 2. Review remaining findings — these feed into Phase 3 Pass 4 (skip manual checks already covered by tools)

@@ -75,27 +75,24 @@ def dim(t: str) -> str: return _c("2", t)
 # ─── Check registry ─────────────────────────────────────────
 
 # (category, severity, auto_fixable, description)
+# Only project-specific checks that clippy/rust-analyzer cannot do.
+# Clippy handles: unwrap_used, missing_docs, result_unit_err, panic,
+# todo, dbg_macro, wildcard_imports, allow_attributes_without_reason,
+# undocumented_unsafe_blocks, print_stdout/print_stderr.
+# Those are NOT duplicated here — clippy runs on every commit via lefthook.
 CHECK_DEFS: dict[str, tuple[str, str, bool, str]] = {
     "file-length":     ("BLOAT",    "minor", False, "Files exceeding 500-line limit"),
     "fn-length":       ("BLOAT",    "minor", False, "Functions exceeding 100-line limit"),
     "nesting-depth":   ("BLOAT",    "minor", False, "Brace nesting exceeding 4 levels"),
     "test-ephemeral":  ("NAMING",   "major", False, "Ephemeral IDs in test function names"),
     "test-weak":       ("NAMING",   "minor", False, "Weak descriptors in test function names"),
-    "unsafe-safety":   ("LEAK",     "major", False, "unsafe block without // SAFETY: comment"),
     "banners":         ("BLOAT",    "minor", True,  "Decorative comment banners"),
     "commented-code":  ("BLOAT",    "minor", False, "Commented-out Rust code (review needed)"),
-    "bare-allow":      ("LINT",     "minor", False, "#[allow(clippy::...)] without reason"),
-    "println-in-lib":  ("LEAK",     "minor", False, "println!/eprintln! in library crate"),
     "bare-todo":       ("BLOAT",    "minor", False, "// TODO without (phase): format"),
-    "unwrap-prod":     ("LEAK",     "minor", False, ".unwrap() without justification comment"),
     "catch-all-arms":  ("GAP",      "major", False, "_ => unreachable!()/todo!() catch-all"),
     "string-identity": ("LEAK",     "minor", False, "String equality bypassing interning"),
-    "result-unit":     ("EXPOSURE", "minor", False, "Result<T, ()> should be Option<T>"),
-    "glob-imports":    ("BLOAT",    "minor", False, "Glob import outside test module"),
-    "missing-docs":    ("BLOAT",    "minor", False, "pub item without /// documentation"),
     "lib-bodies":      ("BLOAT",    "minor", False, "lib.rs containing function bodies"),
     "deny-unsafe":     ("LEAK",     "major", False, "Pure crate missing #![deny(unsafe_code)]"),
-    "panic-prod":      ("LEAK",     "major", False, "panic!/todo!/unimplemented!/dbg! in prod code"),
     "ignore-tracking": ("BLOAT",    "minor", False, "#[ignore] without tracking artifact"),
     "phase-bleeding":  ("LEAK",     "critical", False, "Crate imports from higher-level crate"),
     "swallowed-error": ("LEAK",     "minor", False, "Error silently swallowed"),
@@ -103,13 +100,6 @@ CHECK_DEFS: dict[str, tuple[str, str, bool, str]] = {
 
 ALL_CHECK_IDS = set(CHECK_DEFS.keys())
 
-# Library crates where println!/eprintln! is banned
-LIBRARY_CRATES = {
-    "ori_arc", "ori_canon", "ori_compiler", "ori_diagnostic", "ori_eval",
-    "ori_fmt", "ori_ir", "ori_lexer", "ori_lexer_core", "ori_llvm",
-    "ori_lsp", "ori_parse", "ori_patterns", "ori_registry", "ori_repr",
-    "ori_rt", "ori_stack", "ori_types",
-}
 
 # Pure crates that MUST have #![deny(unsafe_code)]
 PURE_CRATES = {
@@ -172,21 +162,7 @@ def is_test_file(path: Path) -> bool:
     # Files under a tests/ directory (e.g., compiler/ori_llvm/tests/)
     return "tests" in path.parts
 
-def is_in_library_crate(path: Path) -> bool:
-    """True if file is in a library crate (not oric CLI)."""
-    try:
-        rel = path.relative_to(COMPILER_DIR)
-        return rel.parts[0] in LIBRARY_CRATES
-    except (ValueError, IndexError):
-        return False
 
-def is_in_test_module(lines: list[str], line_idx: int) -> bool:
-    """Heuristic: check if line is inside a #[cfg(test)] module."""
-    # Walk backwards looking for #[cfg(test)]
-    for i in range(line_idx, max(line_idx - 50, -1), -1):
-        if "#[cfg(test)]" in lines[i]:
-            return True
-    return False
 
 def discover_files(scope_paths: list[Path]) -> list[Path]:
     """Find all .rs files in scope, excluding target/ and .git/."""
@@ -280,41 +256,21 @@ COMMENTED_CODE_RE = re.compile(
 )
 
 # Bare #[allow(clippy::...)] — no reason attribute
-BARE_ALLOW_RE = re.compile(r"#\[allow\(clippy::")
-EXPECT_CLIPPY_RE = re.compile(r"#\[expect\(clippy::")
 
 # println!/eprintln! (but not in macros defining them)
-PRINTLN_RE = re.compile(r"\b(?:println|eprintln)!\s*\(")
 
 # Bare TODO without (phase): format
 BARE_TODO_RE = re.compile(r"//\s*TODO(?!\()")
 
 # .unwrap() — simple detection
-UNWRAP_RE = re.compile(r"\.unwrap\(\)")
 
 # Catch-all match arms
 CATCH_ALL_RE = re.compile(r"_\s*=>\s*(?:unreachable|todo)!\s*\(")
 
 # String identity in non-test code: == "..."
-STRING_IDENTITY_RE = re.compile(r'==\s*"[^"]*"')
-
-# Result<T, ()>
-RESULT_UNIT_RE = re.compile(r"Result\s*<[^>]*,\s*\(\)\s*>")
-
-# Glob imports
-GLOB_IMPORT_RE = re.compile(r"^\s*use\s+.*\*\s*;")
-
-# Missing docs: pub item without preceding ///
-PUB_ITEM_RE = re.compile(
-    r"^\s*pub(?:\((?:crate|super)\))?\s+"
-    r"(?:fn|struct|enum|trait|type|const|static)\s+"
-)
 
 # lib.rs function bodies
 LIB_FN_BODY_RE = re.compile(r"^\s*(?:pub\s+)?fn\s+\w+")
-
-# unsafe block
-UNSAFE_BLOCK_RE = re.compile(r"\bunsafe\s*\{")
 
 # Function start (for fn-length and nesting-depth)
 FN_START_RE = re.compile(
@@ -453,23 +409,6 @@ def check_test_weak(path: Path, lines: list[str]) -> list[Finding]:
     return findings
 
 
-def check_unsafe_safety(path: Path, lines: list[str]) -> list[Finding]:
-    """LEAK: unsafe blocks without // SAFETY: comment."""
-    findings: list[Finding] = []
-    for i, line in enumerate(lines):
-        if UNSAFE_BLOCK_RE.search(line):
-            # Check preceding lines (up to 3) for // SAFETY:
-            has_safety = False
-            for j in range(max(0, i - 3), i):
-                if "// SAFETY:" in lines[j] or "// SAFETY" in lines[j]:
-                    has_safety = True
-                    break
-            if not has_safety:
-                findings.append(Finding(
-                    "unsafe-safety", rel_path(path), i + 1,
-                    "unsafe block without // SAFETY: comment",
-                ))
-    return findings
 
 
 def check_banners(path: Path, lines: list[str]) -> list[Finding]:
@@ -573,40 +512,8 @@ def check_commented_code(path: Path, lines: list[str]) -> list[Finding]:
     return findings
 
 
-def check_bare_allow(path: Path, lines: list[str]) -> list[Finding]:
-    """LINT: #[allow(clippy::...)] without reason."""
-    findings: list[Finding] = []
-    for i, line in enumerate(lines):
-        if BARE_ALLOW_RE.search(line):
-            # Not a finding if it's #[expect(...)] already
-            if EXPECT_CLIPPY_RE.search(line):
-                continue
-            findings.append(Finding(
-                "bare-allow", rel_path(path), i + 1,
-                f"use #[expect(clippy::..., reason = \"...\")] instead: {line.strip()[:70]}",
-            ))
-    return findings
 
 
-def check_println_in_lib(path: Path, lines: list[str]) -> list[Finding]:
-    """LEAK: println!/eprintln! in library crates."""
-    if not is_in_library_crate(path):
-        return []
-    findings: list[Finding] = []
-    for i, line in enumerate(lines):
-        if PRINTLN_RE.search(line):
-            # Skip if in a test module
-            if is_in_test_module(lines, i):
-                continue
-            # Skip if in a macro definition
-            stripped = line.lstrip()
-            if stripped.startswith("macro_rules!"):
-                continue
-            findings.append(Finding(
-                "println-in-lib", rel_path(path), i + 1,
-                f"use tracing macros instead: {line.strip()[:70]}",
-            ))
-    return findings
 
 
 def check_bare_todo(path: Path, lines: list[str]) -> list[Finding]:
@@ -625,53 +532,6 @@ def check_bare_todo(path: Path, lines: list[str]) -> list[Finding]:
     return findings
 
 
-def check_unwrap_prod(path: Path, lines: list[str]) -> list[Finding]:
-    """LEAK: .unwrap() in prod code without justification."""
-    if is_test_file(path):
-        return []
-    findings: list[Finding] = []
-    in_test_mod = False
-    for i, line in enumerate(lines):
-        # Track test module entry/exit (reset on next top-level mod)
-        if "#[cfg(test)]" in line:
-            in_test_mod = True
-        # A new non-test `mod` at indent 0 exits test module scope
-        if in_test_mod and re.match(r"^(?:pub\s+)?mod\s+\w+", line) and "#[cfg(test)]" not in line:
-            # Check if the previous non-blank line was #[cfg(test)]
-            j = i - 1
-            while j >= 0 and lines[j].strip() == "":
-                j -= 1
-            if j < 0 or "#[cfg(test)]" not in lines[j]:
-                in_test_mod = False
-        if in_test_mod:
-            continue
-
-        if UNWRAP_RE.search(line):
-            # Skip if .unwrap() appears inside a string literal
-            stripped = line.lstrip()
-            if stripped.startswith('"') or stripped.startswith("r#"):
-                continue
-            # Heuristic: skip if .unwrap() is after a quote (inside string)
-            idx = line.find(".unwrap()")
-            if idx > 0:
-                before = line[:idx]
-                # Odd number of unescaped quotes = inside string
-                if before.count('"') % 2 == 1:
-                    continue
-
-            # Check for justification comment on same or previous line
-            has_comment = "//" in line and line.index("//") < idx
-            has_prev_comment = (
-                i > 0
-                and lines[i - 1].lstrip().startswith("//")
-                and not lines[i - 1].lstrip().startswith("///")
-            )
-            if not has_comment and not has_prev_comment:
-                findings.append(Finding(
-                    "unwrap-prod", rel_path(path), i + 1,
-                    f".unwrap() without justification: {line.strip()[:70]}",
-                ))
-    return findings
 
 
 def check_catch_all_arms(path: Path, lines: list[str]) -> list[Finding]:
@@ -750,88 +610,10 @@ def check_string_identity(path: Path, lines: list[str]) -> list[Finding]:
     return findings
 
 
-def check_result_unit(path: Path, lines: list[str]) -> list[Finding]:
-    """EXPOSURE: Result<T, ()> should be Option<T>."""
-    findings: list[Finding] = []
-    for i, line in enumerate(lines):
-        if RESULT_UNIT_RE.search(line):
-            stripped = line.lstrip()
-            if stripped.startswith("//"):
-                continue
-            findings.append(Finding(
-                "result-unit", rel_path(path), i + 1,
-                f"Result<T, ()> — use Option<T> instead: {line.strip()[:60]}",
-            ))
-    return findings
 
 
-def check_glob_imports(path: Path, lines: list[str]) -> list[Finding]:
-    """BLOAT: glob imports outside test modules."""
-    # Test files are allowed to use glob imports
-    if is_test_file(path):
-        return []
-    findings: list[Finding] = []
-    in_test_mod = False
-    for i, line in enumerate(lines):
-        if "#[cfg(test)]" in line:
-            in_test_mod = True
-        if in_test_mod:
-            continue
-        if GLOB_IMPORT_RE.match(line):
-            # Allow prelude imports and super::* (common in submodules)
-            if "prelude" in line.lower():
-                continue
-            findings.append(Finding(
-                "glob-imports", rel_path(path), i + 1,
-                f"glob import outside test module: {line.strip()[:60]}",
-            ))
-    return findings
 
 
-def check_missing_docs(path: Path, lines: list[str]) -> list[Finding]:
-    """BLOAT: pub items without /// documentation.
-
-    Walks backwards through attributes (#[derive], #[cfg], #[expect], etc.)
-    looking for a /// doc comment. A chain of attributes without a doc
-    comment still means the item is undocumented.
-    """
-    if is_test_file(path):
-        return []
-    findings: list[Finding] = []
-    in_test_mod = False
-    for i, line in enumerate(lines):
-        if "#[cfg(test)]" in line:
-            in_test_mod = True
-        if in_test_mod:
-            continue
-        if PUB_ITEM_RE.match(line):
-            # Walk backwards through blank lines, attributes, and doc comments
-            has_doc = False
-            j = i - 1
-            while j >= 0:
-                prev = lines[j].strip()
-                if prev == "":
-                    j -= 1
-                    continue
-                if prev.startswith("///"):
-                    has_doc = True
-                    break
-                if prev.startswith("//!"):
-                    # Module doc, not item doc
-                    break
-                if prev.startswith("#[") or prev.endswith("]"):
-                    # Attribute — keep walking backwards
-                    j -= 1
-                    continue
-                # Hit actual code — no doc found
-                break
-            if not has_doc:
-                item_desc = line.strip()[:70]
-                findings.append(Finding(
-                    "missing-docs", rel_path(path), i + 1,
-                    f"pub item without /// docs: {item_desc}",
-                ))
-    return findings
 
 
 def check_lib_bodies(path: Path, lines: list[str]) -> list[Finding]:
@@ -877,31 +659,7 @@ def check_deny_unsafe(path: Path, lines: list[str]) -> list[Finding]:
     )]
 
 
-PANIC_PROD_RE = re.compile(r"\b(?:panic|todo|unimplemented|dbg)!\s*\(")
 
-def check_panic_prod(path: Path, lines: list[str]) -> list[Finding]:
-    """LEAK: panic!/todo!/unimplemented!/dbg! in production code."""
-    if is_test_file(path):
-        return []
-    findings: list[Finding] = []
-    in_test_mod = False
-    for i, line in enumerate(lines):
-        if "#[cfg(test)]" in line:
-            in_test_mod = True
-        if in_test_mod:
-            continue
-        if PANIC_PROD_RE.search(line):
-            stripped = line.lstrip()
-            if stripped.startswith("//"):
-                continue
-            # Skip macro definitions
-            if "macro_rules!" in line:
-                continue
-            findings.append(Finding(
-                "panic-prod", rel_path(path), i + 1,
-                f"panic/todo/dbg in prod code: {stripped[:70]}",
-            ))
-    return findings
 
 
 IGNORE_RE = re.compile(r'#\[ignore(?:\s*=\s*"([^"]*)")?\]')
@@ -1018,21 +776,13 @@ CHECK_FNS: dict[str, callable] = {
     "nesting-depth":   check_nesting_depth,
     "test-ephemeral":  check_test_ephemeral,
     "test-weak":       check_test_weak,
-    "unsafe-safety":   check_unsafe_safety,
     "banners":         check_banners,
     "commented-code":  check_commented_code,
-    "bare-allow":      check_bare_allow,
-    "println-in-lib":  check_println_in_lib,
     "bare-todo":       check_bare_todo,
-    "unwrap-prod":     check_unwrap_prod,
     "catch-all-arms":  check_catch_all_arms,
     "string-identity": check_string_identity,
-    "result-unit":     check_result_unit,
-    "glob-imports":    check_glob_imports,
-    "missing-docs":    check_missing_docs,
     "lib-bodies":      check_lib_bodies,
     "deny-unsafe":     check_deny_unsafe,
-    "panic-prod":      check_panic_prod,
     "ignore-tracking": check_ignore_tracking,
     "phase-bleeding":  check_phase_bleeding,
     "swallowed-error": check_swallowed_error,

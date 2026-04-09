@@ -74,6 +74,9 @@ class EnumDef:
     defining_crate: str
     consumer_crates: list[str]
     description: str
+    # Manual variant override for macro-generated enums where the regex
+    # parser can't extract variants (e.g., define_derived_traits! macro).
+    manual_variants: list[str] | None = None
 
 KNOWN_ENUMS: dict[str, EnumDef] = {
     "CanExpr": EnumDef(
@@ -103,6 +106,7 @@ KNOWN_ENUMS: dict[str, EnumDef] = {
         "ori_ir",
         ["ori_types", "ori_eval", "ori_llvm", "ori_arc"],
         "Derivable trait list — 4 sync points must stay aligned",
+        manual_variants=["Eq", "Clone", "Hashable", "Printable", "Debug", "Default", "Comparable"],
     ),
     "TokenKind": EnumDef(
         "TokenKind",
@@ -575,6 +579,9 @@ def main() -> int:
     for enum_name, enum_def in target_enums.items():
         enum_file = REPO_ROOT / enum_def.file
         variants = extract_variants(enum_file, enum_name)
+        if not variants and enum_def.manual_variants:
+            # Fallback for macro-generated enums
+            variants = [EnumVariant(name=v, line=0) for v in enum_def.manual_variants]
         if not variants:
             print(f"Warning: could not extract variants for {enum_name} from {enum_def.file}",
                   file=sys.stderr)

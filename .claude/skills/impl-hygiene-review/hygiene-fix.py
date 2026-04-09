@@ -116,14 +116,15 @@ def main() -> int:
 
     any_fixes = False
 
-    # Run lint-based fixes (banners, commented-code)
-    lint_checks = [c for c in active if c in ("banners", "commented-code")]
+    # Run lint-based fixes (banners only — commented-code is not auto-fixable)
+    lint_checks = [c for c in active if c == "banners"]
     if lint_checks:
         print(f"{bold('── hygiene-lint fixes ──')}")
         rc = run_hygiene_lint_fix(lint_checks, scope, args.apply)
         if rc == 2:  # dry-run with fixes available
             any_fixes = True
-        elif rc == 0 and args.apply:
+        elif rc == 0 and args.apply and "Fixed" in str(rc):
+            # hygiene-lint --fix --apply prints "Fixed N findings" on success
             any_fixes = True
 
     # Run plan annotation fixes
@@ -131,8 +132,6 @@ def main() -> int:
         print(f"\n{bold('── plan-annotations fixes ──')}")
         rc = run_plan_annotations_fix(scope, args.apply)
         if rc == 2:
-            any_fixes = True
-        elif rc == 0 and args.apply:
             any_fixes = True
 
     if not any_fixes:
@@ -143,7 +142,7 @@ def main() -> int:
         print(f"\n{dim('Run with --apply to write changes.')}")
         return 2
 
-    return 1
+    return 0
 
 
 if __name__ == "__main__":
