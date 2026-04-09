@@ -40,10 +40,8 @@ Bugs in the language specification, EBNF grammar, design docs, CLAUDE.md, rule f
   Found: 2026-04-08 | Source: continue-roadmap (pre-filed by dual-tpr-gemini §07.PRE preflight)
   Note: Active work in `plans/dual-tpr-gemini/` §07.PRE and §07.3 touches this area. §07.PRE pre-files this bug as a §07.3 Scenario 4 Mode A prerequisite; §07.3 Scenario 4 reads the assigned BUG-ID from `plans/dual-tpr-gemini/section-07-scenario4-blocker.txt` and picks Mode A or Mode B accordingly.
 
-- [ ] `[BUG-08-008][low]` **classify-review-command.py: flags_with_values lists are incomplete for several wrappers** — found by dual-tpr-gemini Section 04.3 iteration 6 (gemini).
-  Repro: review of commit `f027620f`. Per-wrapper `flags_with_values` sets in WRAPPER_SPECS cover the most common flag-value pairs but are not exhaustive. New wrapper flags get added on each iteration as bypasses are discovered. Without comprehensive coverage, FUTURE wrapper flag-value pairs that consume the next token may be misinterpreted as positional args, producing either bypasses or false positives.
-  Examples gemini cited (not exhaustive): `sudo --remove-timestamp`, `xargs --process-slot-var`, additional ssh -[Q,W] options, `gdb -p PID -batch`. None are exploitable bypasses today (the existing test suite would catch them) but each is a latent edge case for future shell environments.
-  Architectural fix: this is a test-coverage and registry-completeness concern, not a structural defect. Either (a) generate the WRAPPER_SPECS lists from the man page output of each wrapper at build time, or (b) accept the manual list and add a periodic audit task.
+- [x] `[BUG-08-008][low]` **classify-review-command.py: flags_with_values lists are incomplete for several wrappers** — found by dual-tpr-gemini Section 04.3 iteration 6 (gemini).
+  Resolved: Fixed 2026-04-09. Added genuinely missing value-consuming flags: `gdb -p`/`--pid` (process attach) and `xargs --process-slot-var` (GNU xargs). Gemini's other citations were incorrect: `sudo --remove-timestamp` is boolean (no value), `ssh -Q`/`-W` were already present, `gdb -batch` is boolean. 102/102 verify-hook.sh tests pass.
   Subsystem: .claude/hooks/classify-review-command.py
   Found: 2026-04-08 | Source: dual-tpr-gemini section-04.3 iteration 6 verification
 
