@@ -251,6 +251,23 @@ run_test_expect_fail "dual-exec-verify.sh with nonexistent path" \
 # Skip actual batch execution (requires both binaries + full test suite)
 echo ""
 
+# ─── debug-release-compare.sh ─────────────────────────────────────
+printf "${C_BOLD}debug-release-compare.sh${C_NC}\n"
+if [[ -x "$ROOT_DIR/target/release/ori" ]]; then
+    run_test "simple.ori debug == release" \
+        "$SCRIPT_DIR/debug-release-compare.sh" --no-color "$FIXTURES_DIR/simple.ori"
+    run_test "clean.ori debug == release" \
+        "$SCRIPT_DIR/debug-release-compare.sh" --no-color "$FIXTURES_DIR/clean.ori"
+else
+    printf "  ${C_DIM}SKIP${C_NC}  release binary not found — run: cargo b --release\n"
+    SKIP=$((SKIP + 2))
+fi
+run_test_output_contains "debug-release-compare.sh --help shows usage" "Usage:" \
+    "$SCRIPT_DIR/debug-release-compare.sh" --help
+run_test_expect_fail "debug-release-compare.sh with no args" \
+    "$SCRIPT_DIR/debug-release-compare.sh" --no-color
+echo ""
+
 # ─── Error handling ───────────────────────────────────────────────
 printf "${C_BOLD}Error handling${C_NC}\n"
 run_test_expect_fail "codegen-audit.sh with no args" \
