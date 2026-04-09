@@ -2,7 +2,7 @@
 bug: "BUG-04-051"
 title: "AIMS dead_cleanup source-1 dedup conflates distinct phi-merged block params with the same lineage source set"
 severity: "high"
-status: in-progress
+status: complete
 goal: "Source-1 dead-entry drops correctly emit separate RcDec for distinct phi-merged block params that share a lineage source set but hold different runtime values"
 success_criteria:
   - "Swapped phi-merge params each get their own RcDec (no leak)"
@@ -18,7 +18,7 @@ third_party_review:
 
 # Fix: BUG-04-051 — AIMS dead_cleanup source-1 dedup conflates distinct phi params
 
-**Status:** In Progress
+**Status:** Complete
 **Severity:** high
 **Goal:** Source-1 dead-entry drops dedup by true SSA equivalence (Let-alias chains), not by lineage source set. Two distinct phi-merged block params with the same source set get separate RcDecs.
 
