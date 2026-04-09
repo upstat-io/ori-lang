@@ -286,16 +286,27 @@ def find_match_sites(
         lines = text.splitlines()
         fpath = rel_path(path)
 
-        # Collect all (line_number, variant_name) hits
+        # Collect all (line_number, variant_name) hits — only in match-arm
+        # contexts (lines containing `=>`), not constructor calls.
         hits: list[tuple[int, str]] = []
         catch_all_lines: set[int] = set()
+        has_any_arrow = False
 
         for i, line in enumerate(lines):
             if qualified in line:
-                for m in variant_re.finditer(line):
-                    vname = m.group(1)
-                    if vname in variant_names:
-                        hits.append((i, vname))
+                # Only count as a match arm if `=>` is nearby (same line
+                # or within 2 lines — for multi-line patterns)
+                is_match_arm = "=>" in line
+                if not is_match_arm and i + 1 < len(lines):
+                    is_match_arm = "=>" in lines[i + 1]
+                if not is_match_arm and i + 2 < len(lines):
+                    is_match_arm = "=>" in lines[i + 2]
+                if is_match_arm:
+                    has_any_arrow = True
+                    for m in variant_re.finditer(line):
+                        vname = m.group(1)
+                        if vname in variant_names:
+                            hits.append((i, vname))
             if catch_all_re.match(line):
                 catch_all_lines.add(i)
 

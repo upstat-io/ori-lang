@@ -949,8 +949,15 @@ def check_phase_bleeding(path: Path, lines: list[str]) -> list[Finding]:
             # Only check ori_* crate imports
             if not target.startswith("ori_"):
                 continue
+            # Skip self-imports (crate:: within the same crate)
+            if target == src_crate:
+                continue
             target_level = CRATE_ORDER.get(target, -1)
             if target_level < 0:
+                continue
+            # Level-0 crates (ori_ir, ori_diagnostic, ori_registry, ori_rt)
+            # are all peers — allow cross-imports between them
+            if src_level == 0 and target_level == 0:
                 continue
             if target_level > src_level:
                 findings.append(Finding(
