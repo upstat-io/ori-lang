@@ -45,10 +45,8 @@ Bugs in the language specification, EBNF grammar, design docs, CLAUDE.md, rule f
   Subsystem: .claude/hooks/classify-review-command.py
   Found: 2026-04-08 | Source: dual-tpr-gemini section-04.3 iteration 6 verification
 
-- [ ] `[BUG-08-009][low]` **verify-hook.sh: missing regression coverage for shell-string fall-through and clustered-flag interactions** — found by dual-tpr-gemini Section 04.3 iteration 6 (codex).
-  Repro: review of commit `f027620f`. The 102-test verify-hook.sh suite covers the verified bypass forms from iterations 1-6, but does NOT cover all interaction shapes between the iter 5 `_check_wrapper_shell_string` recursion and the iter 6 fall-through bug fix. Specifically missing: `eval "bash -c 'codex'"` (nested wrappers via shell strings), `bash -c "sudo codex"` (shell string contains another wrapper), `ssh host "eval 'codex'"` (recursive ssh→eval→codex), and additional `su` flag combinations interacting with the username position.
-  Impact: a future regression in `_check_wrapper_shell_string` could go undetected by the test suite. The fix (recursive shell-string classification) appears correct based on manual verification, but the test matrix doesn't exhaustively pin all interaction shapes.
-  Architectural fix: extend verify-hook.sh with a "nested wrappers via shell strings" test cluster (~10-15 cases) covering each level of recursion.
+- [x] `[BUG-08-009][low]` **verify-hook.sh: missing regression coverage for shell-string fall-through and clustered-flag interactions** — found by dual-tpr-gemini Section 04.3 iteration 6 (codex).
+  Resolved: Fixed 2026-04-09. Added 8 nested-wrapper test cases covering: eval→bash -c, bash -c→sudo, ssh→eval, sh -c→env, eval→sh -c (all DENY), plus 3 ALLOW counterparts for non-codex nested wrappers. Suite expanded from 102 to 110 tests, all passing.
   Subsystem: .claude/hooks/verify-hook.sh
   Found: 2026-04-08 | Source: dual-tpr-gemini section-04.3 iteration 6 verification
 

@@ -406,6 +406,24 @@ run_test "su --command 'ls' codex → ALLOW (long-form -c, codex is USER)" \
 run_test "su -s /bin/sh -c 'ls' codex → ALLOW (su -s + -c, codex is USER)" \
   "su -s /bin/sh -c 'ls -la' codex" 60000 allow
 
+# Nested wrappers via shell strings (BUG-08-009 coverage)
+run_test 'eval "bash -c codex" → DENY (nested wrapper: eval → bash -c)' \
+  "eval \"bash -c 'codex exec'\"" 60000 deny "20-35 minutes"
+run_test 'bash -c "sudo codex" → DENY (shell string contains wrapper)' \
+  'bash -c "sudo codex exec"' 60000 deny "20-35 minutes"
+run_test 'ssh host "eval codex" → DENY (ssh → eval → codex)' \
+  'ssh host "eval codex"' 60000 deny "20-35 minutes"
+run_test 'sh -c "env codex exec" → DENY (shell string with env prefix)' \
+  'sh -c "env codex exec"' 60000 deny "20-35 minutes"
+run_test 'eval "sh -c codex" → DENY (eval → sh -c chain)' \
+  "eval \"sh -c 'codex'\"" 60000 deny "20-35 minutes"
+run_test 'bash -c "eval ls" → ALLOW (nested non-codex)' \
+  'bash -c "eval ls -la"' 60000 allow
+run_test 'ssh host "bash -c ls" → ALLOW (ssh nested non-codex)' \
+  'ssh host "bash -c ls"' 60000 allow
+run_test 'eval "sudo ls" → ALLOW (eval → sudo non-codex)' \
+  'eval "sudo ls -la"' 60000 allow
+
 # Embedded value forms (gemini iter 6)
 run_test 'bash -c"codex" → DENY (embedded value, no space after -c)' \
   'bash -c"codex exec"' 60000 deny "20-35 minutes"
