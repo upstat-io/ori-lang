@@ -14,8 +14,8 @@ inspired_by:
   - "Swift SIL verifier -sil-verify-all — forces verification in all build modes"
 depends_on: ["01"]
 third_party_review:
-  status: none
-  updated: null
+  status: resolved
+  updated: 2026-04-09
 sections:
   - id: "02.1"
     title: "Add codegen-audit and ARC IR sections"
@@ -101,7 +101,20 @@ Add two new sections to the 7-section diagnostic battery, making it 9 sections (
 
 ## 02.R Third Party Review Findings
 
-- None.
+- [x] `[TPR-02-001-codex][high]` `diagnostics/diagnose-aot.sh:303` — Propagate the selected build profile into helper diagnostics.
+  Resolved: Fixed on 2026-04-09. Added `export ORI_BIN="$ORI"` after binary resolution so all helper scripts use the same binary.
+- [x] `[TPR-02-001-gemini][high]` `diagnostics/diagnose-aot.sh:176` — Export ORI_BIN to sub-scripts to ensure binary consistency.
+  Resolved: Fixed on 2026-04-09. Same root cause as [TPR-02-001-codex] — `export ORI_BIN="$ORI"` added.
+- [x] `[TPR-02-002-codex][medium]` `diagnostics/diagnose-aot.sh:155` — Compare section results instead of only top-level exit codes.
+  Resolved: Fixed on 2026-04-09. Added per-section structured results file via `_DIAGNOSE_AOT_RESULTS` env var; --both-builds now compares section-by-section.
+- [x] `[TPR-02-003-codex][medium]` `diagnostics/self-test.sh:245` — Add regression tests that pin the new release-path behavior.
+  Resolved: Fixed on 2026-04-09. Added tests for (release) header presence and COMPARISON block in --both-builds output.
+- [x] `[TPR-02-002-gemini][high]` `diagnostics/diagnose-aot.sh:354` — Propagate failures from Codegen Audit errors to overall battery status.
+  Resolved: Fixed on 2026-04-09. Codegen-audit exit=1 now checks for "error:" in output — errors set has_failure=1, warnings-only remain WARN.
+- [x] `[TPR-02-003-gemini][medium]` `diagnostics/diagnose-aot.sh:135` — Pass all arguments through to recursive --both-builds calls.
+  Resolved: Fixed on 2026-04-09. Reconstructed passthrough flags from parsed state instead of whitelist.
+- [x] `[TPR-02-004-gemini][low]` `diagnostics/self-test.sh:143` — grep -qF -- fix for pattern parsing.
+  Resolved: Already included in the reviewed commit. No additional action needed.
 
 ---
 

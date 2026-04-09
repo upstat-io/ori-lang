@@ -32,7 +32,7 @@ ORI_DUMP_AFTER_ARC, --features aims, DRIFT, dead script
 ---
 
 ### Section 02: Enhance diagnose-aot.sh
-**File:** `section-02-diagnose-aot.md` | **Status:** Not Started
+**File:** `section-02-diagnose-aot.md` | **Status:** Complete
 
 ```
 diagnose-aot.sh, codegen-audit.sh, arc-dump.sh
