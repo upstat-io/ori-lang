@@ -2,10 +2,7 @@
 section: "07"
 title: "Enum Representation Optimization"
 status: in-progress
-reviewed: true
-third_party_review:
-  status: resolved
-  updated: 2026-04-09
+reviewed: false
 goal: "Optimize enum layout with niche filling, discriminant narrowing, tagged pointers, and payload compression — matching Rust's enum layout optimizations"
 inspired_by:
   - "Rust niche optimization (compiler/rustc_abi/src/layout.rs, Niche struct)"
