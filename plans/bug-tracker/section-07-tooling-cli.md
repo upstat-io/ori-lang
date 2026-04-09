@@ -59,10 +59,8 @@ Bugs in the CLI (`ori run`, `ori check`, `ori test`, `ori fmt`), formatter, diag
   Found: 2026-04-07 | Source: continue-roadmap
   Note: `ORI_NO_REPR_OPT` is in active repr-opt territory; coordinate with the repr-opt reroute owner before removing.
 
-- [ ] `[BUG-07-004][low]` **AOT test harness does not invalidate stale binaries when cross-crate deps change** — found by tpr-review.
-  **Repro**: Make a change in `ori_arc` (e.g., the `apply_consuming_overrides` logic) that affects generated code. Run `cargo test -p ori_llvm --test aot <specific_test>` without touching `tests/aot/main.rs`. The test binary is rebuilt but `assert_aot_success` produces stale results — touching `tests/aot/main.rs` to force a full rebuild picks up transitive crate changes and tests pass. Observed twice during TPR-07-008 investigation: first with the initial triviality flip, again after the `annotate.rs` type-aware override.
-  **Impact**: False "test failures" when iterating on cross-crate fixes. Wastes time chasing regressions that were already fixed.
-  **Suggested fix**: AOT test util should either (a) include a build timestamp in the binary path so stale binaries are never reused, (b) invoke a cache-busting `cargo build -p oric` before each test run, or (c) use `cargo metadata` or file mtimes to detect dep-graph changes.
+- [x] `[BUG-07-004][low]` **AOT test harness does not invalidate stale binaries when cross-crate deps change** — found by tpr-review.
+  Resolved: OBE on 2026-04-09. The fix is already in place: `ensure_ori_binary_fresh()` in `compiler/ori_llvm/tests/aot/util/aot.rs:73-110` runs `cargo build -p oric --bin ori` exactly once per test process via `OnceLock`, matching the test profile. `ori_binary()` calls it before returning the binary path. This is option (b) from the suggested fix. Implemented as part of §07 TPR-07-017 work (doc comment at line 57-60 references the same symptom).
   Subsystem: `compiler/ori_llvm/tests/aot/util/aot.rs`
   Found: 2026-04-06 | Source: tpr-review (TPR-07-008)
 
