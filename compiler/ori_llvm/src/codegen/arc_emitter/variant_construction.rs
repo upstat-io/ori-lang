@@ -45,9 +45,19 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             // User-defined enum: `{ i64, [M x i64] }` — fields must be single-word.
             if arg_vals.iter().all(|&v| self.builder.is_single_word(v)) {
                 for (i, &val) in arg_vals.iter().enumerate() {
+                    // Array slots are i64; pointer values (e.g. iterators,
+                    // CPtr) need ptrtoint before insertvalue. Without this
+                    // cast, LLVM rejects: `insertvalue [N x i64], ptr, idx`.
+                    let coerced = if self.builder.is_pointer_value(val) {
+                        let i64_ty = self.builder.i64_type();
+                        self.builder
+                            .ptr_to_int(val, i64_ty, &format!("variant.f{i}.p2i"))
+                    } else {
+                        val
+                    };
                     result = self.builder.insert_value_nested(
                         result,
-                        val,
+                        coerced,
                         &[1, i as u32],
                         &format!("variant.f{i}"),
                     );
