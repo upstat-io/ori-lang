@@ -626,7 +626,7 @@ fn test_cross_compile_linux_to_macos() {
     // brittle; verify pointer size via Ori's typed accessor instead. This
     // matches the pattern in `test_x86_64_linux_data_layout`,
     // `test_aarch64_macos_data_layout`, and the per-arch predicate tests —
-    // all of which were updated during BUG-04-045's Arch-enum refactor.
+    // all of which use the same Arch-enum based target detection.
     // Skip gracefully if the LLVM target isn't registered for this host.
     if target.data_layout().is_ok() {
         assert_eq!(
