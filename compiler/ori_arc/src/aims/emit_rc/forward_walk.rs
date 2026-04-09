@@ -73,7 +73,7 @@ fn emit_invoke_project_borrowed_owned_incs(
     }
 }
 
-/// `RcInc` for terminator uses (BUG-04-047): aggregate per distinct var.
+/// `RcInc` for terminator uses: aggregate per distinct var.
 ///
 /// Counts how many times each RC-managed var appears in the terminator's
 /// `used_vars()` multiset. For `k` occurrences of var `v` with
@@ -89,10 +89,10 @@ fn emit_invoke_project_borrowed_owned_incs(
 /// a terminator-local aggregated count because terminators are a single
 /// emission point, not an instruction stream.
 ///
-/// Prior to the fix, the gate at this site only checked `is_live_at_exit`
-/// and emitted zero `RcInc` for e.g. `Jump { args: [v, v] }` with `v` dead
-/// at exit, producing a latent double-free at the target block's per-param
-/// `RcDec`. See BUG-04-047.
+/// The predecessor to this function only checked `is_live_at_exit` and
+/// emitted zero `RcInc` for e.g. `Jump { args: [v, v] }` with `v` dead at
+/// exit, producing a latent double-free at the target block's per-param
+/// `RcDec`.
 fn emit_terminator_duplicate_use_incs(
     ctx: &BlockCtx<'_>,
     terminator: &ArcTerminator,
