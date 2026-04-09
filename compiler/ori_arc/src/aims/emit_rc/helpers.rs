@@ -54,12 +54,14 @@ pub(crate) struct BlockCtx<'a> {
     /// - `take_move_facts.is_in_class(var)` — membership check;
     ///   edge cleanup and source 2 (block params) skip every in-class
     ///   var entirely.
-    /// - `take_move_facts.class_of(var)` — class index; source 1
-    ///   uses this for per-class dedup so only the FIRST alias-class
-    ///   member encountered in `entry_states` gets a dec.
+    /// - `take_move_facts.let_alias_rep(var)` — Let-alias representative;
+    ///   source 1 uses this for value-identity dedup so only the FIRST
+    ///   variable of each Let-alias group encountered in `entry_states`
+    ///   gets a dec. Phi params with the same lineage but different
+    ///   Let-alias reps get separate drops (BUG-04-051 / TPR-07-022).
     /// - `take_move_facts.is_bypass_safe_entry_for_var(var, blk)` —
     ///   the central predicate. Returns true iff `blk` is the unique
-    ///   entry edge of the bypass-safe region for `var`'s class.
+    ///   entry edge of the bypass-safe region for `var`'s lineage.
     ///   Source 1 emits the scope-exit drop here exactly once per
     ///   CFG path; downstream bypass-safe blocks inherit the dec via
     ///   SSA flow.
