@@ -21,7 +21,7 @@ order: 1
 ## Keyword Clusters by Section
 
 ### Section 01: Remove aims-compare + create debug-release-compare
-**File:** `section-01-aims-compare.md` | **Status:** Not Started
+**File:** `section-01-aims-compare.md` | **Status:** Complete
 
 ```
 aims-compare.sh, aims-compare, aims-baseline.sh, aims-measure.sh

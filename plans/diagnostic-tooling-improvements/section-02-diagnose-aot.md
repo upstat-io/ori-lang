@@ -5,7 +5,7 @@ status: not-started
 reviewed: true
 goal: "Add codegen-audit, ARC IR dump, debug+release dual-build, and ORI_VERIFY_ARC to the primary AOT diagnostic tool"
 success_criteria:
-  - "diagnose-aot.sh runs codegen-audit.sh as a new section (8/N)"
+  - "diagnose-aot.sh runs codegen-audit.sh as a new section (6/9)"
   - "diagnose-aot.sh dumps ARC IR via arc-dump.sh as a new section"
   - "diagnose-aot.sh --release builds and tests against release binary"
   - "diagnose-aot.sh --both-builds runs the full battery against both debug and release"
