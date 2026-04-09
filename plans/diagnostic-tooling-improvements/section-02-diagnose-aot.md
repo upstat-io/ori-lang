@@ -12,7 +12,7 @@ success_criteria:
   - "diagnose-aot.sh enables ORI_VERIFY_ARC=1 during compilation"
 inspired_by:
   - "Swift SIL verifier -sil-verify-all — forces verification in all build modes"
-depends_on: []
+depends_on: ["01"]
 third_party_review:
   status: none
   updated: null
@@ -88,7 +88,7 @@ Add two new sections to the 7-section diagnostic battery, making it 9 sections.
   - Print a clear separator between debug and release runs
   - On completion, highlight any sections where debug and release produced different results (different exit codes, different leak counts, different RC balance)
   - Exit code: 0 if both clean, 1 if either has failure
-- [ ] Update `_common.sh` if needed — the `find_ori_bin` function already tries debug then release, but `diagnose-aot.sh` needs to specify which one explicitly when `--release` or `--both-builds` is given
+- [ ] Use `find_ori_bin_profile()` and `require_both_builds()` from `_common.sh` (added by Section 01.2) for `--release` and `--both-builds` binary resolution — no new binary-discovery logic needed here
 - [ ] Update `diagnostics/self-test.sh` with tests for `--release` flag (at minimum: `--help` output includes `--release`)
 - [ ] Verify: `diagnostics/diagnose-aot.sh --both-builds diagnostics/fixtures/clean.ori` runs both builds and shows comparison
 
