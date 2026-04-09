@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+# Stub `codex` binary for §07.3 validate-tp-help-consumers.sh harness.
+#
+# Mimics the wire surface of `codex exec --full-auto --json --ephemeral
+# $PROMPT` from .claude/skills/dual-tpr/scripts/dual-invoke.sh but emits
+# a RAW-mode response (no envelope, no schema — concat mode output).
+# Used only for tp-help concat-mode stub scenarios; DO NOT use for
+# envelope-mode stubs (those live in fixtures/stub-bin/).
+#
+# The emitted agent_message text contains the literal string
+# STUB_CODEX_RESPONSE_MARKER so downstream leakage detection can grep
+# for it in any captured output. Scenarios that call this stub MUST
+# verify STUB_CODEX_RESPONSE_MARKER appears in the concat-mode
+# pipeline's final stdout (positive pin) and MUST NOT appear in any
+# tracked consumer file after the run (negative pin — sentinel
+# leakage check).
+#
+# Exit: always 0, immediately (no wall-time cost).
+
+set -uo pipefail
+
+# Ignore all args — stub behavior is uniform regardless of prompt content.
+
+cat <<'JSONL'
+{"type": "turn.started"}
+{"type": "item.completed", "item": {"type": "agent_message", "text": "STUB_CODEX_RESPONSE_MARKER — codex concat-mode stub response. This is a deterministic fixture emitted by .claude/skills/dual-tpr/fixtures/stub-bin-tp-help/codex for §07.3 validate-tp-help-consumers.sh stub scenarios. It exercises the parse-codex-raw.py + tp-help SKILL.md concatenation pipeline without paying the real codex wall-time cost.\n\nIf you see this text in a tracked source file or a plan document, attribution has leaked through a downstream consumer's prose rendering — the /tp-help dual-source concat format needs adjustment (add a per-invocation sentinel suffix, or instruct the skill to strip markers before returning in certain contexts)."}}
+{"type": "turn.completed"}
+JSONL
+
+exit 0

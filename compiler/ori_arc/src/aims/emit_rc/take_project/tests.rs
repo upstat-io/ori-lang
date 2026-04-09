@@ -182,12 +182,12 @@ fn bypass_safe_entries_treats_function_entry_specially() {
     assert!(bypass.contains(&0), "loop header bb0 must be bypass-safe");
     let entries = compute_bypass_safe_entries(0, &bypass, &predecessors);
     // bb0 is the function entry block AND has only a bypass-safe
-    // predecessor (bb2 latch). With TPR-07-020's function-entry
-    // special case, it qualifies as an entry edge.
+    // predecessor (bb2 latch). With the function-entry special case,
+    // it qualifies as an entry edge.
     assert!(
         entries.contains(&0),
         "function entry block bb0 must qualify as a bypass-safe entry even when its only \
-         CFG pred is also bypass-safe (TPR-07-020), got {entries:?}"
+         CFG pred is also bypass-safe, got {entries:?}"
     );
 }
 

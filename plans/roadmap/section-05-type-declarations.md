@@ -31,7 +31,7 @@ sections:
     status: in-progress
   - id: "5.7"
     title: "with Clause on Type Declarations (Capability Unification)"
-    status: not-started
+    status: in-progress
   - id: "5.8"
     title: Visibility
     status: in-progress

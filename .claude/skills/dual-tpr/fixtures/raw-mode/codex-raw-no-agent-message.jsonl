@@ -1,0 +1,4 @@
+{"type": "turn.started"}
+{"type": "item.started", "item": {"type": "tool_call", "name": "read_file"}}
+{"type": "item.completed", "item": {"type": "tool_call", "name": "read_file"}}
+{"type": "turn.completed"}

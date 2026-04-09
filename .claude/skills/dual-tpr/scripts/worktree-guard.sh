@@ -1,41 +1,78 @@
 #!/usr/bin/env bash
 # worktree-guard.sh — snapshot or compare git working tree state.
 #
+# Purpose: detect reviewer-caused modifications to the working tree during a
+# dual-source review run. Reviewers (codex, gemini) run under prompt-discipline
+# contracts that forbid writing to tracked files; this script's `compare` mode
+# exists to catch violations.
+#
+# CORRECT SEMANTICS (post-2026-04-08 fix): `compare` flags ONLY lines that are
+# new in AFTER that weren't in BEFORE. A line that was in BEFORE and is now
+# absent in AFTER means the drift was CLEANED UP during the run (e.g., Claude
+# committed pre-existing uncommitted edits) — that is NOT a violation and
+# MUST NOT trigger the guard. The prior implementation used `diff -q` which
+# flagged ANY difference in either direction, producing false positives when
+# the worktree went dirty → clean during the run. Surfaced empirically during
+# plans/dual-tpr-gemini §07.3 Scenario 1 execution on 2026-04-08.
+#
 # Usage:
 #   worktree-guard.sh snapshot OUT_FILE
-#     Saves `git status --porcelain` to OUT_FILE
+#     Saves `git status --porcelain` to OUT_FILE.
 #
-#   worktree-guard.sh compare BEFORE_FILE
-#     Compares current `git status --porcelain` to BEFORE_FILE.
-#     Exit 0 if identical (clean), exit 1 if different (dirty).
-#     On dirty: prints the diff to stderr.
+#   worktree-guard.sh compare BEFORE_FILE [SAVE_AFTER_FILE]
+#     Compares current `git status --porcelain` to BEFORE_FILE, flagging only
+#     NEW drift (lines in AFTER not present in BEFORE). Exit 0 if no new drift,
+#     exit 1 if new drift detected. On new drift: prints the new lines to
+#     stderr. If SAVE_AFTER_FILE is provided, the current snapshot is also
+#     saved to that path as a run artifact.
 
 set -euo pipefail
 
-MODE="$1"
-shift
+MODE="${1:-}"
+shift 2>/dev/null || true
 
 case "$MODE" in
   snapshot)
-    OUT="$1"
+    OUT="${1:-}"
+    if [[ -z "$OUT" ]]; then
+      echo "usage: worktree-guard.sh snapshot OUT_FILE" >&2
+      exit 2
+    fi
     git status --porcelain > "$OUT"
     ;;
   compare)
-    BEFORE="$1"
+    BEFORE="${1:-}"
+    SAVE_AFTER="${2:-}"
+    if [[ -z "$BEFORE" ]]; then
+      echo "usage: worktree-guard.sh compare BEFORE_FILE [SAVE_AFTER_FILE]" >&2
+      exit 2
+    fi
+    if [[ ! -f "$BEFORE" ]]; then
+      echo "worktree-guard: BEFORE_FILE does not exist: $BEFORE" >&2
+      exit 2
+    fi
     AFTER=$(mktemp)
+    trap 'rm -f "$AFTER"' EXIT
     git status --porcelain > "$AFTER"
-    if diff -q "$BEFORE" "$AFTER" >/dev/null; then
-      rm -f "$AFTER"
+    if [[ -n "$SAVE_AFTER" ]]; then
+      cp "$AFTER" "$SAVE_AFTER"
+    fi
+    # Flag ONLY new drift: lines in AFTER that weren't in BEFORE. A line
+    # removed from BEFORE (cleaned up during the run) is NOT a violation.
+    # `comm -13` with sorted inputs yields lines unique to the second file.
+    NEW_DRIFT=$(comm -13 <(sort -u "$BEFORE") <(sort -u "$AFTER"))
+    if [[ -z "$NEW_DRIFT" ]]; then
       exit 0
     else
-      echo "dirty_worktree: tracked files changed during reviewer run" >&2
-      diff "$BEFORE" "$AFTER" >&2
-      rm -f "$AFTER"
+      echo "dirty_worktree: reviewer-caused modifications detected during run" >&2
+      echo "new lines in AFTER not present in BEFORE:" >&2
+      printf '%s\n' "$NEW_DRIFT" >&2
       exit 1
     fi
     ;;
   *)
-    echo "usage: worktree-guard.sh snapshot OUT_FILE | compare BEFORE_FILE" >&2
+    echo "usage: worktree-guard.sh snapshot OUT_FILE" >&2
+    echo "       worktree-guard.sh compare BEFORE_FILE [SAVE_AFTER_FILE]" >&2
     exit 2
     ;;
 esac

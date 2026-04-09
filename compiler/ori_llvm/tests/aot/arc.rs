@@ -630,10 +630,10 @@ fn test_arc_borrowed_param_str_concat_caller_survives() {
 // The merge block param receives projections from two different aggregates
 // depending on control flow — both parents must stay alive.
 //
-// TPR-02-007/Branch-local RcDec must be emitted per-predecessor
-// (not block-level in merge), and only on the specific merge edge (not all
-// outgoing edges of the defining predecessor). Tests exercise BOTH branches
-// to confirm branch-local cleanup is correct regardless of which path is taken.
+// Branch-local RcDec must be emitted per-predecessor (not block-level in merge),
+// and only on the specific merge edge (not all outgoing edges of the defining
+// predecessor). Tests exercise BOTH branches to confirm branch-local cleanup is
+// correct regardless of which path is taken.
 #[test]
 fn test_rc_project_merge_two_distinct_parents() {
     // Test 1: condition true → takes then-branch (p1.first selected, p2 cleaned up)

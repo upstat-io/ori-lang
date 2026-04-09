@@ -19,7 +19,7 @@ sections:
     notes: "5 missing list methods added (pop/insert/remove/slice/updated); 8 methods NEEDS TESTS (spec tests)"
   - id: "7C.3"
     title: Range Methods
-    status: not-started
+    status: in-progress
     notes: "Direct Range methods not implemented; functionality works through .iter() pipeline"
   - id: "7C.4"
     title: Collection Methods (len, is_empty)

@@ -1,0 +1,11 @@
+Dual-TPR validation target — DO NOT modify outside validate-dual-tpr.sh runs.
+
+This file exists solely to be appended-to by the stub reviewers in
+fixtures/stub-bin/{codex,gemini} when STUB_*_MODE=dirty, and restored to
+its committed state by validate-dual-tpr.sh after each Scenario 3 run.
+
+If you find this file in a modified state on disk, run:
+  git checkout -- .claude/skills/dual-tpr/fixtures/dirty-target.txt
+
+The file's content shape is irrelevant — only that it is tracked by git
+so the worktree-guard.sh comparison can detect appended lines.

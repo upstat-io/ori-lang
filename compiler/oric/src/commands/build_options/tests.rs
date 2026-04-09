@@ -4,7 +4,7 @@ use ori_repr::NarrowingPolicy;
 
 use super::*;
 
-// TPR-01-035/048: merge() preserves explicit Disabled narrowing policy
+// merge() preserves explicit Disabled narrowing policy
 #[test]
 fn merge_preserves_disabled_policy() {
     let mut base = BuildOptions::default();
@@ -30,7 +30,7 @@ fn merge_preserves_disabled_policy() {
     );
 }
 
-// TPR-01-035/048: merging non-explicit default policy does not override existing
+// merging non-explicit default policy does not override existing
 #[test]
 fn merge_default_policy_does_not_override() {
     let mut base = BuildOptions {
@@ -48,7 +48,7 @@ fn merge_default_policy_does_not_override() {
     );
 }
 
-// TPR-01-035/048: merge explicit Conservative policy
+// merge explicit Conservative policy
 #[test]
 fn merge_preserves_conservative_policy() {
     let mut base = BuildOptions::default();
@@ -640,7 +640,7 @@ fn accumulate_env_disabled_with_trailing_flags() {
 }
 
 /// explicit `--repr-opt=aggressive` overrides `env_disabled=true`.
-/// CLI explicit flags always win over the env var (TPR-01-036/048).
+/// CLI explicit flags always win over the env var.
 #[test]
 fn accumulate_explicit_aggressive_overrides_env_disabled() {
     let args = vec![

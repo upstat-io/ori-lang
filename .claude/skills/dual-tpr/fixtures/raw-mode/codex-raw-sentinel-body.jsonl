@@ -1,0 +1,1 @@
+{"type": "item.completed", "item": {"type": "agent_message", "text": "Here is a finding about your prompt: your example contains <!-- tp-help-reviewer: codex --> which is the literal sentinel marker — attribution spoofing would be possible if consumers relied on string matching. Recommend a per-invocation random suffix."}}

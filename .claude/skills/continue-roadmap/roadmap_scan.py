@@ -347,15 +347,33 @@ def parse_section_body(lines: list[str], body_start: int) -> tuple[list[Item], d
 
     Returns (flat_items, header_titles_by_id).
     header_titles_by_id maps "07.1" → the raw ## header text minus the ID.
+
+    Fenced code blocks (``` … ```) are skipped entirely — any `- [ ]`, `## `,
+    or `### ` sequences inside a fence are literal documentation examples
+    (e.g. the "Merged Finding Format" block in plans that show how plan TPR
+    entries should look) and must NOT be counted as real structural items.
     """
     items: list[Item] = []
     header_titles: dict[str, str] = {}
     cur_sub = "?"
     parent_blocker: list[str] = []  # inherited by nested items
+    in_fence = False  # toggled by ``` lines; suppresses structural parsing
 
     for idx in range(body_start, len(lines)):
         line = lines[idx]
         lineno = idx + 1  # 1-indexed for output
+
+        # Fenced code block tracking — a line whose stripped form starts with
+        # ``` toggles fence state. The fence markers themselves never contain
+        # structural content, so we `continue` past them unconditionally.
+        if line.lstrip().startswith("```"):
+            in_fence = not in_fence
+            continue
+
+        # Inside a fence, skip every structural pattern. The content is
+        # literal markdown/code examples — not plan structure.
+        if in_fence:
+            continue
 
         # Reset parent blocker on `### ` boundaries
         if line.startswith("### "):

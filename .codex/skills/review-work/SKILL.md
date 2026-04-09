@@ -15,6 +15,60 @@ This skill is for independent, adversarial review:
 - distrust summaries, checklists, commit messages, and prior agent claims until verified
 - review the real work, not the story about the work
 
+## Step 0: Execution Mode (MANDATORY — read first)
+
+This skill has two execution modes. The mode is selected by inspecting
+the prompt for the keyword `envelope-only`:
+
+**Mode A — `plan-write` (default, standalone usage):**
+- The prompt does NOT contain the keyword `envelope-only`
+- Follow the existing workflow below (Scope Inputs, Review Workflow,
+  Plan Update Rules)
+- Write findings directly to plan file sections using the
+  `## NN.R Third Party Review Findings` format
+- OR file findings as bugs in `plans/bug-tracker/` if no owning plan
+  exists
+- This is the ORIGINAL behavior of this skill and MUST be preserved
+  for standalone `codex exec /review-work` invocations
+
+**Mode B — `envelope-only` (dual-source wrapper usage):**
+- The prompt contains the keyword `envelope-only`
+- Follow the same investigation workflow (Scope Inputs, Review Workflow)
+  but DO NOT execute the Plan Update Rules section
+- Instead, emit ONE JSON envelope at the end of your response conforming
+  to `.claude/skills/dual-tpr/findings-schema.json`
+- DO NOT modify any plan files, bug-tracker files, or any source files
+- DO NOT write to any location on disk other than your own output stream
+- The envelope is emitted as the final `agent_message` content as **raw JSON**
+  — no sentinel markers, no markdown fences, no prose wrapper. The entire
+  final agent message must BE the JSON object. `parse-codex.py` calls
+  `json.loads(final_text)` directly on the agent_message content and will
+  reject any non-JSON prefix or suffix with `parse_fail`.
+- **Validation happens at the parser layer, NOT the CLI layer.** Previous
+  versions of this skill referenced a `--output-schema` flag, but
+  BUG-08-003 (commit `a5a2753f`) removed that flag — codex is now invoked
+  without `--output-schema`, and schema conformance is enforced
+  symmetrically with gemini by `.claude/skills/dual-tpr/scripts/parse-codex.py`
+  and `envelope_invariants.py`. This change keeps the codex and gemini paths
+  architecturally symmetric: both are validated only at the parser layer.
+- The canonical envelope contract lives in
+  `.claude/skills/dual-tpr/findings-schema.json` (structural schema) and
+  `.claude/skills/dual-tpr/envelope-format.md` (field semantics + examples).
+  Read both before emitting the envelope.
+
+**Execution mode dispatch:**
+1. Inspect the prompt for the literal keyword `envelope-only`
+2. If present: proceed in Mode B (envelope-only). All Plan Update Rules
+   below are suppressed. Only the investigation and findings generation
+   remain active.
+3. If absent: proceed in Mode A (plan-write). Existing behavior,
+   unchanged.
+
+This is NOT a soft override — Mode B is a real execution branch that
+suppresses the Plan Update Rules section entirely. Any code path that
+would write to a plan file, bug-tracker file, or source file MUST
+check the mode and no-op in Mode B.
+
 ## Scope Inputs
 
 Accept any of these:

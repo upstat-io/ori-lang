@@ -41,7 +41,7 @@ sections:
     status: not-started
   - id: "14.11"
     title: Incremental Test Execution
-    status: in-progress
+    status: not-started
   - id: "14.12"
     title: Test Execution Model Implementation
     status: in-progress

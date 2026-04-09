@@ -275,11 +275,11 @@ fn test_is_cross_for_regression_pin_arm64_native_host_is_not_cross() {
     let host = HostPlatform::new(Arch::Aarch64, HostOs::Darwin);
     assert!(
         !parsed.is_cross_for(host),
-        "BUG-04-045: arm64-apple-darwin on aarch64 Darwin host must NOT be cross-compilation"
+        "arm64-apple-darwin on aarch64 Darwin host must NOT be cross-compilation"
     );
     assert!(
         parsed.is_native_for(host),
-        "BUG-04-045: arm64-apple-darwin on aarch64 Darwin host must be reported native"
+        "arm64-apple-darwin on aarch64 Darwin host must be reported native"
     );
 }
 

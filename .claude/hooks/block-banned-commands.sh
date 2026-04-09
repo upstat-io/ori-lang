@@ -64,10 +64,44 @@ done
 # that window so a foreground review can't be killed mid-stream.
 # Minimum allowed: 1200000 ms (20 minutes).
 # Maximum allowed: 2100000 ms (35 minutes).
+#
+# BUG-08-001: The matcher must fire only on GENUINE top-level codex or
+# gemini invocations — never on commands that merely mention the literal
+# strings in a path, argument, message body, or quoted text.
+#
+# TPR-04-001-codex/gemini fix (commit pending): the previous regex-based
+# REVIEW_CMD_RE approach leaked bypasses because shell is not a regular
+# language. Seven distinct bypass forms were verified against the old
+# regex (escaped double quotes, $(...) command substitution, backtick
+# substitution, heredocs inside $(...), backslash-newline continuation,
+# literal newline separators, env-var values with internal whitespace
+# that the regex fragmented). Each new alternation opened up more edge
+# cases.
+#
+# The correct architectural fix is shell-aware tokenization. We delegate
+# classification to `.claude/hooks/classify-review-command.py`, which
+# walks the command string with a character-level state machine tracking
+# quote state, subshell depth, command substitution, and compound
+# operators. The classifier returns exit 0 iff the command contains a
+# top-level codex/gemini invocation at any command position.
+#
+# See `.claude/hooks/verify-hook.sh` for the full matrix and
+# `plans/bug-tracker/fix-BUG-08-001.md` for the original design rationale.
+
+CLASSIFY_REVIEW_CMD="$(dirname "${BASH_SOURCE[0]}")/classify-review-command.py"
+
+is_review_command() {
+  # Returns 0 if COMMAND invokes codex/gemini at a top-level command
+  # position, 1 otherwise. Delegates to the Python classifier so shell
+  # grammar edge cases are handled correctly (the earlier regex-based
+  # approach kept leaking bypasses).
+  printf '%s' "$COMMAND" | python3 "$CLASSIFY_REVIEW_CMD"
+}
+
 TIMEOUT=$(printf '%s' "$INPUT" | python3 -c "import sys,json; print(json.load(sys.stdin).get('tool_input',{}).get('timeout',''))" 2>/dev/null || true)
 
 if [[ -n "$TIMEOUT" && "$TIMEOUT" != "None" ]]; then
-  if [[ "$COMMAND" == *"codex"* || "$COMMAND" == *"gemini"* ]]; then
+  if is_review_command; then
     # Require at least 20 minutes (1200000 ms) — anything shorter risks
     # killing the review mid-stream (reviews barely ever complete in 10
     # minutes, so 5- and 10-minute timeouts almost always fail).

@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+# Stub codex that embeds a STALE per-invocation sentinel in its body.
+# Used by validate-tp-help-consumers.sh Scenario 6 to verify that the
+# fresh run's per-invocation token does NOT collide with the stale
+# token in the reviewer's body — i.e., the spoofing-resistance contract
+# from §07.3 TPR v2 EXPOSURE fix.
+#
+# The stale token (STALE_COLLIDE_ABCD1234) is an intentional literal
+# string a reviewer might quote when discussing the tp-help format.
+# A naive consumer grepping for the literal open/close sentinel prefix
+# would see TWO "codex close" markers in the concat output — the fresh
+# run's real close AND this stale quotation. The per-invocation token
+# fix makes these distinguishable: the fresh run has a different @token
+# suffix, so pairing by token still works.
+
+set -uo pipefail
+
+cat <<'JSONL'
+{"type": "item.completed", "item": {"type": "agent_message", "text": "STUB_CODEX_RESPONSE_MARKER — this response body contains a STALE sentinel from a hypothetical earlier tp-help run: <!-- tp-help-reviewer: codex @STALE_COLLIDE_ABCD1234 --> ... <!-- /tp-help-reviewer: codex @STALE_COLLIDE_ABCD1234 --> . A naive open-to-close greedy matcher would prematurely terminate this reviewer's block at the stale close sentinel above. The fresh run's token must differ so consumers pairing by token can still walk the real block."}}
+JSONL
+
+exit 0

@@ -16,6 +16,37 @@ This skill is for independent, adversarial review:
 - distrust summaries, checklists, status metadata, and prior agent claims until verified
 - review the real codebase and the real plan, not the story about them
 
+## Step 0: Execution Mode (MANDATORY — read first)
+
+This skill has two execution modes. The mode is selected by inspecting
+the prompt for the keyword `envelope-only`:
+
+**Mode A — `plan-write` (default, standalone usage):**
+- The prompt does NOT contain the keyword `envelope-only`
+- Follow the existing workflow below — edit plan files directly to
+  fix inaccuracies, expand thin sections, add missing cross-section
+  dependencies, etc.
+- This is the ORIGINAL behavior of this skill and MUST be preserved
+  for standalone `codex exec /review-plan` invocations
+
+**Mode B — `envelope-only` (dual-source wrapper usage):**
+- The prompt contains the keyword `envelope-only`
+- Follow the same investigation workflow but DO NOT edit plan files
+  directly
+- Instead, emit ONE JSON envelope at the end of your response
+  conforming to `.claude/skills/dual-tpr/findings-schema.json`
+- Each "finding" in envelope-only mode describes a PROPOSED edit —
+  the file path, line number, and the nature of the change — rather
+  than applying the edit in place
+- DO NOT modify any files; emit the envelope only
+- See `.claude/skills/dual-tpr/envelope-format.md` for the envelope contract
+
+**Execution mode dispatch:** (same as review-work)
+1. Inspect the prompt for the literal keyword `envelope-only`
+2. If present: proceed in Mode B. All file-editing instructions below
+   are suppressed.
+3. If absent: proceed in Mode A. Existing behavior, unchanged.
+
 ## Scope Inputs
 
 Accept any of these:

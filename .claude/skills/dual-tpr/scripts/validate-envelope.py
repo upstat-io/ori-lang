@@ -9,7 +9,15 @@ Exits 0 on success, 1 on failure with error details on stderr.
 
 import argparse
 import json
+import os
 import sys
+
+# Import envelope_invariants from the same directory. The script is invoked via
+# `.claude/skills/dual-tpr/scripts/validate-envelope.py` from the repo root, so
+# the script's directory is NOT on sys.path by default — we add it explicitly so
+# the import works regardless of caller cwd.
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from envelope_invariants import validate_envelope_invariants  # noqa: E402
 
 
 def main():
@@ -34,6 +42,14 @@ def main():
     except jsonschema.ValidationError as e:
         print(f"schema_violation: {e.message}", file=sys.stderr)
         print(f"  at path: {' / '.join(str(p) for p in e.absolute_path)}", file=sys.stderr)
+        sys.exit(1)
+
+    # Validate code-level invariants (regex patterns, length limits, conditional
+    # requirements that can't be expressed in the OpenAI Structured Outputs subset).
+    # See envelope_invariants.py and BUG-08-003 for the rationale.
+    invariant_error = validate_envelope_invariants(envelope)
+    if invariant_error is not None:
+        print(f"schema_violation: {invariant_error}", file=sys.stderr)
         sys.exit(1)
 
     print(f"OK: {args.envelope}")

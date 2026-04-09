@@ -7,7 +7,24 @@ reviewers via the `dual-tpr` skill family.
 > **SSOT pointer:** the JSON Schema for the envelope lives at
 > `.claude/skills/dual-tpr/findings-schema.json`. Anywhere this document quotes
 > a schema constraint (regex, length cap, enum), the schema file is the
-> authoritative source — keep this document in sync with that file.
+> authoritative source — keep this document in sync with that file. Code-level
+> invariants that JSON Schema cannot express (regex patterns, length limits,
+> conditional requirements) live in `envelope_invariants.py` and are applied
+> by every parser script alongside `jsonschema.validate()`.
+
+> **Enforcement model (post BUG-08-003 phase 2):** the enforcement model is
+> **symmetric at the parser layer** for both reviewers. Earlier sections of
+> this document describe an **asymmetric** model where codex was invoked with
+> `--output-schema` and enforced at the OpenAI API boundary while gemini was
+> validated only post-extraction. That model was retired in commit `a5a2753f`
+> when OpenAI's Structured Outputs strict mode repeatedly rejected our schema
+> constraints. Codex is now invoked WITHOUT `--output-schema` and validated
+> by `parse-codex.py` + `envelope_invariants.py` at the parser layer, exactly
+> like gemini. The asymmetric-era sections below are kept for historical
+> reference, because the sentinel-framing argument for gemini is unchanged
+> (gemini still emits free-form prose wrapped in BEGIN/END sentinels) — only
+> the codex-side enforcement layer moved. See BUG-08-003 and TPR-04-003-codex
+> for the full decision trail.
 
 ---
 
@@ -15,20 +32,28 @@ reviewers via the `dual-tpr` skill family.
 
 Two reviewers run in parallel for every dual-tpr review round:
 
-- **Codex** (`codex exec --full-auto --output-schema findings-schema.json ...`)
-  emits a JSON envelope **directly** as the final `agent_message.text`. No
-  sentinels are required because Codex's `--output-schema` flag forces the
-  output to conform to the schema at the CLI boundary.
+- **Codex** (`codex exec --full-auto --json ...` — no `--output-schema`
+  after BUG-08-003 phase 2) emits a JSON envelope **directly** as the final
+  `agent_message.text`. The prompt template drives the model toward the
+  envelope shape; `parse-codex.py` validates the resulting JSON against
+  `findings-schema.json` via `jsonschema.validate()` and then applies the
+  `envelope_invariants.py` code-level checks. No sentinels are required
+  because codex's JSONL wire format isolates the agent message cleanly on
+  its own event type (`item.completed` / `agent_message`).
 
 - **Gemini** (`gemini --approval-mode yolo --output-format stream-json ...`)
-  has no `--output-schema` equivalent. Its prompt instructs it to wrap the
-  envelope between two HTML-comment sentinels at the END of the reviewer's
-  free-form prose response. The transport layer (Section 02) extracts the
-  envelope post-hoc and validates it against the schema after extraction.
+  has no equivalent isolated-message event type. Its prompt instructs it to
+  wrap the envelope between two HTML-comment sentinels at the END of the
+  reviewer's free-form prose response. The transport layer (Section 02)
+  extracts the envelope post-hoc, then validates it against the same schema
+  and invariants.
 
-This is the **asymmetric rigor pattern**: Codex is strict at the CLI boundary,
-Gemini is lenient at the CLI boundary but strict post-extraction. Both produce
-the same `FindingsEnvelope` shape downstream, so the merge layer never has to
+The enforcement model is **symmetric at the parser layer**: both reviewers'
+output is validated identically via `findings-schema.json` +
+`envelope_invariants.py`. The only asymmetry left is in how each reviewer's
+envelope is ISOLATED from surrounding stream content (codex: JSONL message
+event; gemini: BEGIN/END sentinel extraction from prose). Both produce the
+same `FindingsEnvelope` shape downstream, so the merge layer never has to
 care which reviewer produced a given envelope.
 
 ---
@@ -108,11 +133,25 @@ fence. In an actual envelope, the inner fence is the standard
 
 ## Codex case (no sentinels needed)
 
-When Codex is invoked with `--output-schema findings-schema.json`, the CLI
-forces the final `agent_message.text` to be a JSON document conforming to the
-schema. The transport extractor reads `$RUN/codex.jsonl`, locates the final
-`item.completed` event whose item is an `agent_message`, and parses its `text`
-field with `json.loads()` directly:
+> **HISTORICAL CONTEXT (pre BUG-08-003 phase 2):** the section below
+> describes the asymmetric-era model where codex was invoked with
+> `--output-schema` and the CLI forced schema conformance at the OpenAI
+> Structured Outputs boundary. Commit `a5a2753f` removed `--output-schema`
+> from `dual-invoke.sh`, so **the current enforcement model is parser-
+> layer-symmetric** (see the note at the top of this document). Codex
+> still doesn't need BEGIN/END sentinels because codex's JSONL wire
+> format isolates the agent message cleanly on its own event type
+> (`item.completed` + `agent_message`) — that part of the design is
+> unchanged. But the JSON conformance is now enforced by `parse-codex.py`
+> + `envelope_invariants.py`, not by the CLI. Read this section as
+> "how codex's output stream is structured" rather than "how codex's
+> output is validated".
+
+Codex's JSONL stream has an `item.completed` event whose `item.type` is
+`agent_message` — the text field contains the model's final response as
+free-form JSON. The transport extractor reads `$RUN/codex.jsonl`, locates
+the final such event, and parses its `text` field with `json.loads()`
+directly:
 
 ```python
 import json
@@ -124,13 +163,15 @@ def parse_codex(jsonl_path: str) -> dict:
             if event.get("type") == "item.completed":
                 item = event.get("item", {})
                 if item.get("type") == "agent_message":
-                    return json.loads(item["text"])  # already schema-conformant
+                    return json.loads(item["text"])  # validated by parse-codex.py
     raise RuntimeError("no agent_message found in codex output")
 ```
 
-No sentinel extraction step. No fenced-block search. No prose-stripping. The
-asymmetric rigor pattern means Codex is trusted at the CLI boundary because
-`--output-schema` makes the trust load-bearing.
+No sentinel extraction step. No fenced-block search. No prose-stripping.
+The isolation comes from the JSONL wire format's explicit event typing,
+not from CLI-level schema enforcement. `parse-codex.py` then validates
+the parsed JSON against `findings-schema.json` via `jsonschema.validate()`
+and applies the code-level invariants in `envelope_invariants.py`.
 
 ---
 
@@ -435,8 +476,13 @@ space.)
 
 This is what a complete codex reviewer round looks like in the wire format.
 Note that there is NO surrounding prose, NO sentinels, and NO fenced block —
-the entire `agent_message.text` field IS the JSON envelope, because
-`--output-schema findings-schema.json` forces this shape at the CLI boundary:
+the entire `agent_message.text` field IS the JSON envelope. After BUG-08-003
+phase 2 (commit `a5a2753f`), this shape is driven by the prompt template and
+the model's JSON-following ability, then validated post-hoc by `parse-codex.py`
++ `envelope_invariants.py`. (Pre BUG-08-003 phase 2, the shape was forced
+by `--output-schema findings-schema.json` at the CLI boundary — that's no
+longer the case, but the resulting wire format is identical, so the example
+below is still current.)
 
 ```json
 {

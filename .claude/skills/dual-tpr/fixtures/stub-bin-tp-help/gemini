@@ -1,0 +1,33 @@
+#!/usr/bin/env bash
+# Stub `gemini` binary for §07.3 validate-tp-help-consumers.sh harness.
+#
+# Mimics the wire surface of `gemini --approval-mode yolo --output-format
+# stream-json -p $PROMPT` from .claude/skills/dual-tpr/scripts/dual-invoke.sh
+# but emits a RAW-mode response (no BEGIN/END sentinels, no fenced JSON —
+# concat mode output). Used only for tp-help concat-mode stub scenarios;
+# DO NOT use for envelope-mode stubs (those live in fixtures/stub-bin/).
+#
+# The emitted assistant content contains the literal string
+# STUB_GEMINI_RESPONSE_MARKER so downstream leakage detection can grep
+# for it. The stub emits multiple delta:true chunks followed by a
+# terminal result(status=success) event — this exercises the
+# parse-gemini-raw.py multi-chunk concatenation path (equivalent to
+# raw_parsers cell G1 semantic pin).
+#
+# Exit: always 0, immediately (no wall-time cost).
+
+set -uo pipefail
+
+# Ignore all args — stub behavior is uniform regardless of prompt content.
+
+cat <<'JSONL'
+{"type": "init"}
+{"type": "message", "role": "user", "content": "prompt placeholder"}
+{"type": "message", "role": "assistant", "content": "STUB_GEMINI_RESPONSE_MARKER — gemini concat-mode stub response. ", "delta": true}
+{"type": "message", "role": "assistant", "content": "This is a deterministic fixture emitted by .claude/skills/dual-tpr/fixtures/stub-bin-tp-help/gemini for §07.3 validate-tp-help-consumers.sh stub scenarios. ", "delta": true}
+{"type": "message", "role": "assistant", "content": "It exercises the parse-gemini-raw.py + tp-help SKILL.md concatenation pipeline without paying the real gemini wall-time cost (~10-15 min per real call).\n\n", "delta": true}
+{"type": "message", "role": "assistant", "content": "If you see this text in a tracked source file or a plan document, attribution has leaked through a downstream consumer's prose rendering.", "delta": true}
+{"type": "result", "status": "success"}
+JSONL
+
+exit 0

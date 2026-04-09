@@ -1,0 +1,2 @@
+{"type": "message", "role": "assistant", "content": "chunk 1", "delta": true}
+{"type": "result", "status": "failure"}
