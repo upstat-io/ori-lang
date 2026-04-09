@@ -258,27 +258,15 @@ Bash (run_in_background: true):
 - Poll `$RUN/*.envelope.json` or `$RUN/merged.json` — those files use atomic-write semantics and reading them mid-stream can see a partial file.
 - Add a trailing `echo "transport_exit=$?"` (or any other trailing command). The bash script's overall exit code is the exit code of the LAST executed command — a trailing echo ALWAYS exits 0 and masks the transport's real failure (BUG-08-007). The task notification's reported exit code is the source of truth.
 
-### Polling Protocol — 5-Minute Status Snapshots (MANDATORY)
+### Polling Protocol — Canonical SSOT
 
-**After launching, do NOT go silent.** The operator needs real-time visibility into what each reviewer is doing during the 5–35 minute wait. Poll `status-check.sh` every 5 minutes and produce a brief status update.
+**Protocol lives in `.claude/skills/dual-tpr/polling-protocol.md` — `@`-included below. Follow it verbatim.**
 
-```
-Bash (foreground, wall-clock 5-min interval):
-  sleep 300 && .claude/skills/dual-tpr/scripts/status-check.sh "$RUN" --events 5
-```
+`/tp-help`, `/tpr-review`, `/review-work`, and any future dual-source consumer share a single canonical polling protocol. It lives in one file and is expanded here via `@`-include so updates propagate automatically. Prior to 2026-04-08, each skill inlined its own copy — they drifted (tpr-review + review-work used identical text, tp-help had slight wording drift) and produced poor real-time visibility (silent 5-min periods from `sleep 300` backgrounded polls, relative "T+N min" timestamps without absolute anchors). Consolidation into `polling-protocol.md` is the SSOT fix per `impl-hygiene.md` §SSOT / §Algorithmic DRY.
 
-The status script is SAFE to call because it reads ONLY append-only artifacts (`round.log`, `codex.jsonl`, `gemini.jsonl`) and existence-checks the atomic-write files (`*.exit`, `*.envelope.json`, `*.parse-error`) without reading their contents mid-stream. It surfaces:
+@.claude/skills/dual-tpr/polling-protocol.md
 
-- Local timestamp (so the operator knows WHEN the poll landed)
-- Round log tail (orchestration progress)
-- Per-reviewer subshell state (running / done with rc + walltime)
-- Last N streamed events per reviewer — the actual commands, reasoning, tool calls, and messages each reviewer is producing RIGHT NOW
-- Envelope parse state / parse-error state
-- Worktree state
-
-Keep polling every 5 minutes until the background-task completion notification arrives. The notification is the authoritative done-signal; the status script is for situational awareness in between.
-
-**The notification's exit code is authoritative** — the transport exits 0 on success, non-zero with `infra_retries_exhausted: <category>` on failure. Do not infer success from the absence of an error in stdout; check the notification's exit code.
+**After the protocol above**, move to Step 4 (merge envelopes on success).
 
 ### 4. On success: merge both envelopes
 

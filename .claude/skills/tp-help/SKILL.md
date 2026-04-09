@@ -228,33 +228,15 @@ The `.claude/hooks/block-banned-commands.sh` hook explicitly allows `run_in_back
 - Wrap dual-invoke in an Agent — the Agent adds no value and costs an extra process.
 - Invoke `dual-invoke-with-retry.sh` — the retry wrapper is for envelope-mode consumers that need parse-level validation; concat mode has no envelope to validate, so retries would just duplicate the raw responses.
 
-### Step 4.5: Polling Protocol — 5-Minute Status Snapshots (MANDATORY)
+### Step 4.5: Polling Protocol — Canonical SSOT
 
-**After launching, do NOT go silent.** The operator needs real-time visibility into what each reviewer is doing during the wait (which may span ~20 seconds for a simple prompt or up to 25+ minutes for a deep code-review prompt). Poll `status-check.sh` every 5 minutes and produce a brief status update. This is the SAME polling protocol used by `/tpr-review` and `/review-work`.
+**Protocol lives in `.claude/skills/dual-tpr/polling-protocol.md` — `@`-included below. Follow it verbatim.**
 
-```
-Bash (foreground, wall-clock 5-min interval):
-  sleep 300 && .claude/skills/dual-tpr/scripts/status-check.sh "$RUN" --events 5
-```
+`/tp-help`, `/tpr-review`, `/review-work`, and any future dual-source consumer share a single canonical polling protocol. It lives in one file and is expanded here via `@`-include so updates propagate automatically. Prior to 2026-04-08, each skill inlined its own copy — they drifted (tpr-review + review-work used identical text, tp-help had slight wording drift) and produced poor real-time visibility (silent 5-min periods from `sleep 300` backgrounded polls, relative "T+N min" timestamps without absolute anchors). Consolidation into `polling-protocol.md` is the SSOT fix per `impl-hygiene.md` §SSOT / §Algorithmic DRY.
 
-The status script is SAFE to call because it reads ONLY append-only artifacts (`round.log`, `codex.jsonl`, `gemini.jsonl`) and existence-checks the atomic-write files (`*.exit`, `*.parse-error`) without reading their contents mid-stream. It surfaces:
+@.claude/skills/dual-tpr/polling-protocol.md
 
-- Local timestamp (so the operator knows WHEN the poll landed)
-- Round log tail (orchestration progress)
-- Per-reviewer subshell state (running / done with rc + walltime)
-- Last N streamed events per reviewer — the actual commands, reasoning, tool calls, and messages each reviewer is producing RIGHT NOW
-
-**Use BOTH the notification and polling together — neither alone is sufficient:**
-
-- The **background-task completion notification** is the authoritative done-signal and delivers the authoritative exit code. Do NOT infer success from the absence of an error in stdout — check the notification's exit code.
-- The **polling protocol** is for situational awareness in between. If you only wait for the notification, the operator has zero visibility for the duration of the wait; if a reviewer is stuck on a tool call or running in a loop, polling surfaces it immediately. If you only poll, you may miss the authoritative exit code and act on a partial file.
-
-Keep polling every 5 minutes until the background-task completion notification arrives. Then stop polling and move to Step 5.
-
-**Polling hygiene (SAFE vs UNSAFE):**
-
-- SAFE to read during a poll: `round.log`, `codex.jsonl`, `gemini.jsonl`, `worktree.before` (append-only / immutable once written)
-- UNSAFE to read during a poll: `codex.exit` / `gemini.exit` / `codex.walltime` / `gemini.walltime` (atomic-write — you may see an empty or partially-written file if the subshell is mid-write). `status-check.sh` handles these safely via existence checks.
+**After the protocol above**, move to Step 5 (parse responses with the raw parsers).
 
 ### Step 5: Parse Both Responses with the Raw Parsers
 
