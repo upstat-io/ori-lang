@@ -103,7 +103,7 @@ const RESULT_NICHE_FN: &str = "fn emit_result_niche(";
 // ── §1: Option niche helpers must guard and retain ──
 
 #[test]
-fn bug_04_019_option_niche_unwrap_has_panic_guard_and_rc_retain() {
+fn option_niche_unwrap_has_panic_guard_and_rc_retain() {
     let body = extract_arm_body(HELPER_SRC, OPTION_NICHE_FN, "\"unwrap\" =>");
     assert!(
         body.contains("emit_unwrap_branch"),
@@ -120,7 +120,7 @@ fn bug_04_019_option_niche_unwrap_has_panic_guard_and_rc_retain() {
 }
 
 #[test]
-fn bug_04_019_option_niche_expect_has_expect_branch_and_rc_retain() {
+fn option_niche_expect_has_expect_branch_and_rc_retain() {
     let body = extract_arm_body(HELPER_SRC, OPTION_NICHE_FN, "\"expect\" if");
     assert!(
         body.contains("emit_expect_branch"),
@@ -133,7 +133,7 @@ fn bug_04_019_option_niche_expect_has_expect_branch_and_rc_retain() {
 }
 
 #[test]
-fn bug_04_019_option_niche_unwrap_or_has_conditional_rc_retain() {
+fn option_niche_unwrap_or_has_conditional_rc_retain() {
     let body = extract_arm_body(HELPER_SRC, OPTION_NICHE_FN, "\"unwrap_or\" if");
     // unwrap_or has no panic — it returns the default on None — but it MUST
     // conditionally retain the payload when Some so the inner heap data is
@@ -152,7 +152,7 @@ fn bug_04_019_option_niche_unwrap_or_has_conditional_rc_retain() {
 // ── §2: Result niche helpers must differentiate methods + guard + retain ──
 
 #[test]
-fn bug_04_019_result_niche_unwrap_has_panic_guard_and_rc_retain() {
+fn result_niche_unwrap_has_panic_guard_and_rc_retain() {
     let body = extract_arm_body(HELPER_SRC, RESULT_NICHE_FN, "\"unwrap\" =>");
     assert!(
         body.contains("emit_unwrap_branch"),
@@ -174,7 +174,7 @@ fn bug_04_019_result_niche_unwrap_has_panic_guard_and_rc_retain() {
 }
 
 #[test]
-fn bug_04_019_result_niche_unwrap_err_is_distinct_from_unwrap() {
+fn result_niche_unwrap_err_is_distinct_from_unwrap() {
     let unwrap_body = extract_arm_body(HELPER_SRC, RESULT_NICHE_FN, "\"unwrap\" =>");
     let unwrap_err_body = extract_arm_body(HELPER_SRC, RESULT_NICHE_FN, "\"unwrap_err\" =>");
     // Pre-fix bug: `unwrap | unwrap_err | unwrap_or` were collapsed into a
@@ -205,7 +205,7 @@ fn bug_04_019_result_niche_unwrap_err_is_distinct_from_unwrap() {
 }
 
 #[test]
-fn bug_04_019_result_niche_unwrap_or_has_conditional_rc_retain() {
+fn result_niche_unwrap_or_has_conditional_rc_retain() {
     let body = extract_arm_body(HELPER_SRC, RESULT_NICHE_FN, "\"unwrap_or\" if");
     assert!(
         body.contains("inc_value_rc"),
@@ -218,7 +218,7 @@ fn bug_04_019_result_niche_unwrap_or_has_conditional_rc_retain() {
 }
 
 #[test]
-fn bug_04_019_result_niche_expect_has_expect_branch_and_rc_retain() {
+fn result_niche_expect_has_expect_branch_and_rc_retain() {
     let body = extract_arm_body(HELPER_SRC, RESULT_NICHE_FN, "\"expect\" if");
     assert!(
         body.contains("emit_expect_branch"),
@@ -235,7 +235,7 @@ fn bug_04_019_result_niche_expect_has_expect_branch_and_rc_retain() {
 }
 
 #[test]
-fn bug_04_019_result_niche_expect_err_has_expect_branch_and_rc_retain() {
+fn result_niche_expect_err_has_expect_branch_and_rc_retain() {
     let body = extract_arm_body(HELPER_SRC, RESULT_NICHE_FN, "\"expect_err\" if");
     assert!(
         body.contains("emit_expect_branch"),
@@ -254,7 +254,7 @@ fn bug_04_019_result_niche_expect_err_has_expect_branch_and_rc_retain() {
 // ── §3: Result niche unwrap_or must NOT be in a collapsed arm ──
 
 #[test]
-fn bug_04_019_result_niche_no_collapsed_unwrap_arm() {
+fn result_niche_no_collapsed_unwrap_arm() {
     // Pre-fix bug body: `"unwrap" | "unwrap_err" | "unwrap_or" => { extract... }`.
     // Post-fix: each method has its own arm with the appropriate semantics.
     // The negative pin is that the source must NOT contain the collapsed-arm
