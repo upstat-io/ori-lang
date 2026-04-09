@@ -2,7 +2,7 @@
 section: "01"
 title: "EnumLayoutInfo API"
 status: not-started
-reviewed: true
+reviewed: false
 goal: "Create a canonical EnumLayoutInfo query surface in ori_repr that answers ALL enum layout questions — tag encoding, payload sizing, field offsets, ABI size — eliminating 8+ scattered packing computations"
 inspired_by:
   - "Rust rustc_abi::layout::LayoutS — unified layout query struct"
