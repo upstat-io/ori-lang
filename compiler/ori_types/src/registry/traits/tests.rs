@@ -323,9 +323,7 @@ fn associated_types() {
     assert!(assoc.default.is_none());
 }
 
-// =============================================================================
 // Super-trait tracking
-// =============================================================================
 
 /// Helper to register a minimal trait with the given super-traits.
 fn register_simple_trait(

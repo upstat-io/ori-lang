@@ -157,7 +157,6 @@ fn test_library_exists() {
     assert!(!library_exists("nonexistent", &paths, &target));
 }
 
-// =============================================================================
 // Install-paths SSOT tests
 //
 // Regression: Before this SSOT was extracted,
@@ -167,7 +166,6 @@ fn test_library_exists() {
 // install side reported success whose results were invisible to subsequent
 // builds. The fix is a single canonical home for "where Ori puts and
 // looks for managed sysroots", consulted by both sides.
-// =============================================================================
 
 #[test]
 fn test_ori_sysroots_dir_for_home_uses_dot_ori_sysroots() {
@@ -196,7 +194,6 @@ fn test_home_wasi_sdk_sysroot_for_home_uses_dot_wasi_sdk() {
     );
 }
 
-// =============================================================================
 // target_sysroot_env_key tests
 //
 // Regression: The per-target
@@ -210,7 +207,6 @@ fn test_home_wasi_sdk_sysroot_for_home_uses_dot_wasi_sdk() {
 //      name (zsh rejects it as `not valid in this context`).
 // The fix routes the env key through `support_key()` so versioned and
 // aliased spellings collapse to the canonical shell-safe form.
-// =============================================================================
 
 #[test]
 fn test_target_sysroot_env_key_canonical_linux() {

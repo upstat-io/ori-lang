@@ -83,7 +83,7 @@ CHECK_DEFS: dict[str, tuple[str, str, bool, str]] = {
     "test-weak":       ("NAMING",   "minor", False, "Weak descriptors in test function names"),
     "unsafe-safety":   ("LEAK",     "major", False, "unsafe block without // SAFETY: comment"),
     "banners":         ("BLOAT",    "minor", True,  "Decorative comment banners"),
-    "commented-code":  ("BLOAT",    "minor", True,  "Commented-out Rust code"),
+    "commented-code":  ("BLOAT",    "minor", False, "Commented-out Rust code (review needed)"),
     "bare-allow":      ("LINT",     "minor", False, "#[allow(clippy::...)] without reason"),
     "println-in-lib":  ("LEAK",     "minor", False, "println!/eprintln! in library crate"),
     "bare-todo":       ("BLOAT",    "minor", False, "// TODO without (phase): format"),
@@ -221,28 +221,38 @@ BARE_TEST_RE = re.compile(
 # Decorative banners
 BANNER_RE = re.compile(r"^\s*//\s*[═━─=\-\*~]{3,}\s*$")
 
-# Commented-out Rust code (heuristic)
+# Commented-out Rust code (conservative heuristic).
+# Requires STRONG code signals — a keyword alone is not enough because
+# words like "for", "return", "if", "match", "use", "type" appear in
+# English prose. We require either:
+#   - keyword + syntax structure (e.g., `fn name(`, `let x =`, `for x in`)
+#   - method chain (`.unwrap()`, `.map(`)
+#   - closing brace alone on a line
+#   - attribute (`#[`)
 COMMENTED_CODE_RE = re.compile(
     r"^\s*//\s*"
-    r"(?:fn\s|let\s|if\s|else\s*\{|match\s|for\s|while\s|"
-    r"struct\s|enum\s|impl\s|use\s|pub\s(?:fn|struct|enum|mod|type|trait|use|const)|"
-    r"mod\s|type\s|trait\s|return\s|break\s*;|continue\s*;|"
+    r"(?:"
+    r"fn\s+\w+\s*[\(<]|"           # fn name( or fn name<
+    r"let\s+(?:mut\s+)?\w+\s*[=:]|"  # let x = or let x:
+    r"if\s+\w+\s*[.!=<>({]|"       # if x. or if x == or if x {
+    r"else\s*\{|"                   # else {
+    r"match\s+\w+|"                 # match expr
+    r"for\s+\w+\s+in\s|"           # for x in (not "for their memory")
+    r"while\s+\w+\s*[.!=<>({]|"    # while x. or while x ==
+    r"struct\s+\w+|"               # struct Name
+    r"enum\s+\w+|"                 # enum Name
+    r"impl\s+\w+|"                 # impl Name
+    r"use\s+\w+::|"               # use crate:: (not "use the tool")
+    r"pub\s+(?:fn|struct|enum|mod|type|trait|use|const)\s|"
+    r"mod\s+\w+\s*[;{]|"          # mod name; or mod name {
+    r"type\s+\w+\s*[=<]|"         # type Name = or type Name<
+    r"trait\s+\w+|"               # trait Name
+    r"return\s+\w+[;.(]|"         # return expr; (not "return value without")
+    r"break\s*;|continue\s*;|"    # break; continue;
     r"\.unwrap\(\)|\.expect\(|\.map\(|\.filter\(|\.collect\(|"
-    r"\}\s*$|#\[)"
-)
-
-# But exclude things that look like comments describing code
-COMMENTED_CODE_EXCLUDE_RE = re.compile(
-    r"^\s*//\s*(?:"
-    r"TODO|FIXME|NOTE|HACK|XXX|SAFETY|PERF|"  # annotations
-    r"Spec:|AIMS|eval_v2|"                       # permanent refs
-    r"Example:|e\.g\.|i\.e\.|"                   # documentation
-    r"See |cf\.|Compare |Returns |"              # doc comments
-    r"This |The |A |An |If |When |"              # prose starts
-    r"We |It |They |Not |No |Don't|"             # more prose
-    r"Phase |Section "                            # plan refs (caught by plan-annotations)
-    r")",
-    re.IGNORECASE,
+    r"\}\s*$|"                     # } alone
+    r"#\["                         # attribute
+    r")"
 )
 
 # Bare #[allow(clippy::...)] — no reason attribute
@@ -455,21 +465,87 @@ def check_banners(path: Path, lines: list[str]) -> list[Finding]:
 
 
 def check_commented_code(path: Path, lines: list[str]) -> list[Finding]:
-    """BLOAT: commented-out Rust code."""
+    """BLOAT: commented-out Rust code.
+
+    Only flags code-like comments that form ISOLATED blocks — meaning
+    the lines above and below the block are blank or non-comment. This
+    distinguishes dead code (standalone, surrounded by blank lines) from
+    pseudocode documentation (embedded in a larger comment block with
+    prose explaining what the code models).
+    """
     findings: list[Finding] = []
+
+    def _is_comment(line: str) -> bool:
+        s = line.lstrip()
+        return s.startswith("//") or s.startswith("///") or s.startswith("//!")
+
+    def _is_code_like(line: str) -> bool:
+        s = line.lstrip()
+        if s.startswith("///") or s.startswith("//!"):
+            return False
+        return bool(COMMENTED_CODE_RE.match(line))
+
+    # Pass 1: find all code-like comment lines
+    code_lines: set[int] = set()
     for i, line in enumerate(lines):
-        if COMMENTED_CODE_RE.match(line):
-            # Exclude documentation-style comments
-            if COMMENTED_CODE_EXCLUDE_RE.match(line):
-                continue
-            # Exclude doc comments (/// and //!)
-            stripped = line.lstrip()
-            if stripped.startswith("///") or stripped.startswith("//!"):
-                continue
+        if _is_code_like(line):
+            code_lines.add(i)
+
+    if not code_lines:
+        return findings
+
+    # Pass 2: group consecutive code-like lines into blocks
+    sorted_lines = sorted(code_lines)
+    blocks: list[list[int]] = []
+    current_block: list[int] = [sorted_lines[0]]
+
+    for idx in sorted_lines[1:]:
+        if idx == current_block[-1] + 1:
+            current_block.append(idx)
+        else:
+            blocks.append(current_block)
+            current_block = [idx]
+    blocks.append(current_block)
+
+    # Pass 3: check each block's boundaries
+    rp = rel_path(path)
+    for block in blocks:
+        first = block[0]
+        last = block[-1]
+
+        # Check line above: is it blank or non-comment?
+        above_is_boundary = True
+        if first > 0:
+            above = lines[first - 1]
+            if _is_comment(above) and above.strip() not in ("//", "///"):
+                above_is_boundary = False
+
+        # Check line below: is it blank or non-comment?
+        below_is_boundary = True
+        if last < len(lines) - 1:
+            below = lines[last + 1]
+            if _is_comment(below) and below.strip() not in ("//", "///"):
+                below_is_boundary = False
+
+        # Only flag if the block is isolated (not embedded in doc comments)
+        if not (above_is_boundary and below_is_boundary):
+            continue
+
+        # Skip code-like comments near #[test] — often pseudocode docs
+        near_test = False
+        for j in range(max(0, first - 5), first):
+            if "#[test]" in lines[j] or "fn test_" in lines[j]:
+                near_test = True
+                break
+        if near_test:
+            continue
+
+        for i in block:
             findings.append(Finding(
-                "commented-code", rel_path(path), i + 1,
-                f"commented-out code: {line.strip()[:70]}",
+                "commented-code", rp, i + 1,
+                f"commented-out code: {lines[i].strip()[:70]}",
             ))
+
     return findings
 
 
