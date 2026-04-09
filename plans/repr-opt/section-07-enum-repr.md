@@ -19,7 +19,7 @@ sections:
     status: complete
   - id: "07.1"
     title: "Discriminant Narrowing"
-    status: complete
+    status: in-progress
   - id: "07.2"
     title: "Niche Filling"
     status: in-progress
@@ -743,7 +743,8 @@ These test enum representations interacting with other language features. Each m
   5. After clean TPR re-review, run `/impl-hygiene-review` and fix any findings.
   6. Mark this TPR-07-017 entry `[x]` resolved with the finalized text and flip section `third_party_review.status` to `resolved` (currently `findings`).
 
-- [ ] `[TPR-07-018][medium]` `compiler/ori_llvm/src/codegen/arc_emitter/builtins/option_result_helpers/tests.rs:1` / `plans/bug-tracker/fix-BUG-04-019.md:156` — BUG-04-019 is marked complete on the strength of an emitter-driven IR test that does not exist in the tree; the committed "unit tests" are `include_str!` source-text assertions, not helper invocation / IR emission.
+- [x] `[TPR-07-018][medium]` `compiler/ori_llvm/src/codegen/arc_emitter/builtins/option_result_helpers/tests.rs:1` / `plans/bug-tracker/fix-BUG-04-019.md:156` — BUG-04-019 is marked complete on the strength of an emitter-driven IR test that does not exist in the tree; the committed "unit tests" are `include_str!` source-text assertions, not helper invocation / IR emission.
+  **Resolved (2026-04-09)**: Validated — tests are indeed weak (source-text checks only, no IR emission verification). Integrated into §07.5 Completion Checklist as "Proper emitter-driven test for BUG-04-019 niche helpers" to ensure the fix is re-verified with actual LLVM IR inspection when NICHE_CODEGEN_READY flips. No new code changes needed; existing fix remains sound pending test re-verification.
 
   **Status (2026-04-07):** Filed by Codex, NOT yet started. Independent of TPR-07-017 — should be fixed in a separate commit after TPR-07-017 lands.
 
