@@ -147,9 +147,21 @@ pub(crate) struct TakeMoveFacts {
     in_class: FxHashSet<ArcVarId>,
     /// Per-variable lineage index (points into [`Self::lineages`]).
     /// Absent for vars outside every take-project class. Two vars
-    /// with the same lineage index are SSA-equivalent (Let alias or
-    /// phi-merged at the same param) — they drop together.
+    /// with the same lineage index have the same take-project source
+    /// set — they share bypass-safe entry computation. Note: same
+    /// lineage does NOT mean same runtime value (phi-merged params
+    /// can share a lineage source set but hold different values).
     var_to_lineage: FxHashMap<ArcVarId, usize>,
+    /// Per-variable Let-alias representative. Two vars share the same
+    /// representative iff connected by a chain of `Let { dst, Var(src) }`
+    /// instructions (true SSA aliases — same runtime value). Used by
+    /// source-1 dead-entry dedup: only the first var of each Let-alias
+    /// group gets an `RcDec`, preventing double-free on alias siblings.
+    ///
+    /// Total for in-class vars: singletons (vars with no Let aliases)
+    /// map to themselves. Absent for vars outside every take-project
+    /// class.
+    let_alias_rep: FxHashMap<ArcVarId, ArcVarId>,
     /// Deduplicated lineage table. Each entry is shared by every
     /// variable with the same `sources` set. Allocated once per
     /// distinct lineage, not per variable.
@@ -165,6 +177,7 @@ impl TakeMoveFacts {
             in_class: FxHashSet::default(),
             var_to_lineage: FxHashMap::default(),
             lineages: Vec::new(),
+            let_alias_rep: FxHashMap::default(),
         }
     }
 
@@ -177,17 +190,18 @@ impl TakeMoveFacts {
         self.in_class.contains(&var)
     }
 
-    /// Opaque lineage index of `var`, or `None` if `var` is not in any
-    /// take-project class.
+    /// Let-alias representative of `var`, or `None` if `var` is not in
+    /// any take-project class.
     ///
-    /// Used by `emit_dead_at_entry_decs` (source 1) for per-lineage
-    /// dedup — only the first variable of each lineage encountered in
-    /// `entry_states` gets a dec, because subsequent variables with
-    /// the same lineage are SSA-equivalent (Let alias or phi-merged
-    /// at the same param) and dropping them would double-free the
-    /// shared underlying value.
-    pub(crate) fn lineage_of(&self, var: ArcVarId) -> Option<usize> {
-        self.var_to_lineage.get(&var).copied()
+    /// Two vars share the same representative iff connected by a chain
+    /// of `Let { dst, Var(src) }` instructions — true SSA aliases that
+    /// hold the same runtime value. Used by source-1 dead-entry dedup:
+    /// only the first var of each Let-alias group gets an `RcDec`,
+    /// preventing double-free on alias siblings.
+    ///
+    /// Total for in-class vars: singletons map to themselves.
+    pub(crate) fn let_alias_rep(&self, var: ArcVarId) -> Option<ArcVarId> {
+        self.let_alias_rep.get(&var).copied()
     }
 
     /// Whether `blk` is the bypass-safe entry for `var`'s lineage.
@@ -292,9 +306,18 @@ pub(crate) fn analyze(func: &ArcFunction, pool: &Pool) -> TakeMoveFacts {
         var_to_lineage.insert(var, idx);
     }
 
+    // 7. Compute Let-alias representatives for source-1 dedup.
+    //    Two vars share a rep iff connected by `Let { dst, Var(src) }`
+    //    chains only (no Jump edges). This distinguishes "same runtime
+    //    value" (Let alias) from "same source set" (lineage) — fixing
+    //    TPR-07-022 where phi-merged params with the same lineage were
+    //    incorrectly deduped.
+    let let_alias_rep = compute_let_alias_reps(func, &in_class);
+
     TakeMoveFacts {
         in_class,
         var_to_lineage,
+        let_alias_rep,
         lineages,
     }
 }
@@ -397,6 +420,89 @@ fn compute_lineage(
     var_to_sources
 }
 
+/// Enumerate all `Let { dst, Var(src) }` edges in `func`.
+///
+/// Returns `(src, dst)` pairs — one per Let-alias instruction. This is
+/// the SSOT for Let-edge enumeration: both [`build_alias_graph`] (which
+/// adds bidirectional Let edges + forward-only Jump edges) and
+/// [`compute_let_alias_reps`] (which builds a Let-only union-find)
+/// consume this helper to avoid duplicating the iteration over blocks
+/// and instructions.
+fn collect_let_edges(func: &ArcFunction) -> Vec<(ArcVarId, ArcVarId)> {
+    let mut edges = Vec::new();
+    for block in &func.blocks {
+        for instr in &block.body {
+            if let ArcInstr::Let {
+                dst,
+                value: ArcValue::Var(src),
+                ..
+            } = instr
+            {
+                edges.push((*src, *dst));
+            }
+        }
+    }
+    edges
+}
+
+/// Compute Let-alias representatives for in-class variables.
+///
+/// Two variables share the same representative iff they are connected
+/// by a chain of `Let { dst, Var(src) }` instructions — true SSA
+/// aliases that hold the same runtime value. Jump-arg → block-param
+/// edges are excluded: phi-merged params hold different values on
+/// different CFG paths and must NOT share a representative.
+///
+/// Every in-class variable gets an entry (total for in-class):
+/// singletons (vars with no Let aliases within `in_class`) map to
+/// themselves, avoiding `unwrap_or(var)` fallback policy at consumers.
+fn compute_let_alias_reps(
+    func: &ArcFunction,
+    in_class: &FxHashSet<ArcVarId>,
+) -> FxHashMap<ArcVarId, ArcVarId> {
+    fn find(parent: &mut FxHashMap<ArcVarId, ArcVarId>, v: ArcVarId) -> ArcVarId {
+        let p = parent[&v];
+        if p == v {
+            return v;
+        }
+        let root = find(parent, p);
+        parent.insert(v, root);
+        root
+    }
+
+    fn union(parent: &mut FxHashMap<ArcVarId, ArcVarId>, a: ArcVarId, b: ArcVarId) {
+        let ra = find(parent, a);
+        let rb = find(parent, b);
+        if ra != rb {
+            // Deterministic: smaller ArcVarId wins (stable across runs).
+            if ra < rb {
+                parent.insert(rb, ra);
+            } else {
+                parent.insert(ra, rb);
+            }
+        }
+    }
+
+    // Union-find: parent[v] = v initially (each var is its own rep).
+    let mut parent: FxHashMap<ArcVarId, ArcVarId> = in_class.iter().map(|&v| (v, v)).collect();
+
+    // Union over Let edges only — no Jump edges.
+    for (src, dst) in collect_let_edges(func) {
+        if in_class.contains(&src) && in_class.contains(&dst) {
+            union(&mut parent, src, dst);
+        }
+    }
+
+    // Path-compress all entries to canonical representatives.
+    let vars: Vec<ArcVarId> = parent.keys().copied().collect();
+    for v in vars {
+        let root = find(&mut parent, v);
+        parent.insert(v, root);
+    }
+
+    parent
+}
+
 /// Build the alias graph used by [`compute_lineage`].
 ///
 /// - `Let { dst, value: Var(src) }` produces BIDIRECTIONAL edges
@@ -413,20 +519,12 @@ fn compute_lineage(
 /// the over-approximating membership set.
 fn build_alias_graph(func: &ArcFunction) -> FxHashMap<ArcVarId, Vec<ArcVarId>> {
     let mut graph: FxHashMap<ArcVarId, Vec<ArcVarId>> = FxHashMap::default();
+    // Let edges are bidirectional (SSOT: sourced from collect_let_edges).
+    for (src, dst) in collect_let_edges(func) {
+        graph.entry(src).or_default().push(dst);
+        graph.entry(dst).or_default().push(src);
+    }
     for block in &func.blocks {
-        for instr in &block.body {
-            if let ArcInstr::Let {
-                dst,
-                value: ArcValue::Var(src),
-                ..
-            } = instr
-            {
-                // Bidirectional: src and dst are SSA-equivalent
-                // (Let aliases name the same runtime value).
-                graph.entry(*src).or_default().push(*dst);
-                graph.entry(*dst).or_default().push(*src);
-            }
-        }
         if let ArcTerminator::Jump { target, args } = &block.terminator {
             let target_idx = target.index();
             if target_idx < func.blocks.len() {

@@ -19,6 +19,13 @@ Bugs in LLVM IR generation, JIT/AOT compilation, monomorphization, ARC pipeline 
 
 ## Open Bugs
 
+- [ ] `[BUG-04-051][high]` **AIMS dead_cleanup source-1 dedup conflates distinct phi-merged block params with the same lineage source set — leaks one value** — found by tpr-review (TPR-07-022 in plans/repr-opt/section-07-enum-repr.md).
+  Repro: two take-project sources flowing through swapped phi-merge params (`pred A: (src0, src1)`, `pred B: (src1, src0)`) share lineage `{0, 1}`, so `lineages_dec_emitted` suppresses the second RcDec. Latent — no source-level repro in current tree (Ori move semantics block the natural swap pattern), but the algorithm is unsound on the IR topology.
+  Location: `compiler/ori_arc/src/aims/emit_rc/dead_cleanup.rs:140-146`, `compiler/ori_arc/src/aims/emit_rc/take_project/mod.rs:272`
+  Impact: memory leak (one enum value never dropped) on any function with two take-project sources meeting at swapped phi params.
+  Subsystem: `ori_arc` (AIMS RC emission)
+  Found: 2026-04-07 | Source: tpr-review (Codex iteration on repr-opt §07)
+
 - [x] `[BUG-04-050][low]` **`compiler/ori_arc/src/aims/realize/emit_unified.rs` is 540 lines (over 500-line limit per impl-hygiene §File Organization)** — found by impl-hygiene-review (BUG-04-047 post-TPR-clean pass).
   Resolved: Fixed 2026-04-09. Extracted the "project escape" cluster (4 functions, 213 lines) into new `compiler/ori_arc/src/aims/realize/project_escape.rs` module: `emit_project_escape_incs` (pub(super)), `build_var_to_parent`, `find_edge_decced_project_parents`, `follow_jump_chain` (all private). `emit_unified.rs` reduced from 540 to 327 lines. Zero logic changes — purely mechanical file split. 16,922 tests passing. Dual-source /tp-help consensus: both codex and gemini agreed on the extraction target and module name.
   Subsystem: `compiler/ori_arc/src/aims/realize/emit_unified.rs`, `compiler/ori_arc/src/aims/realize/project_escape.rs`
