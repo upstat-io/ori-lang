@@ -1,10 +1,11 @@
 //! Unit tests for [`emit_terminator_rc`].
 //!
-//! Regression coverage for BUG-04-047 — duplicate terminator uses produced
-//! zero `RcInc` emissions, creating a latent double-free when the same
-//! RC-managed variable appeared multiple times in a terminator's
-//! `used_vars()` multiset (e.g. `Jump { args: [v, v] }`). The formula
-//! emitted by `emit_terminator_rc` is:
+//! Regression coverage for a latent double-free: duplicate terminator uses
+//! (the same RC-managed variable appearing multiple times in a terminator's
+//! `used_vars()` multiset, e.g. `Jump { args: [v, v] }`) previously produced
+//! zero `RcInc` emissions because the gate only checked `is_live_at_exit`
+//! instead of per-use future liveness. The formula emitted by
+//! `emit_terminator_rc` is now:
 //!
 //! ```text
 //! RcInc(v) = (occurrences(v) + is_live_at_exit(v)).saturating_sub(1)
@@ -229,12 +230,12 @@ fn v(n: u32) -> ArcVarId {
     ArcVarId::new(n)
 }
 
-// Jump — duplicate-use coverage (BUG-04-047 primary shape)
+// Jump — duplicate-use coverage
 
-/// Regression: BUG-04-047 — `Jump { args: [v, v] }` with RC-typed target
-/// params and `v` dead at exit previously emitted zero `RcInc`, producing
-/// a latent double-free when the target block's per-param `RcDec` fired
-/// against a single underlying reference.
+/// Regression: `Jump { args: [v, v] }` with RC-typed target params and
+/// `v` dead at exit previously emitted zero `RcInc`, producing a latent
+/// double-free when the target block's per-param `RcDec` fired against a
+/// single underlying reference.
 #[test]
 fn jump_with_duplicated_arg_emits_one_rc_inc() {
     let term = ArcTerminator::Jump {
@@ -449,7 +450,7 @@ fn jump_with_scalar_duplicated_arg_emits_zero_rc_incs() {
     assert_eq!(count_inc(&body, v(0)), 0);
 }
 
-// RC-strategy matrix (TPR-04-001-codex)
+// RC-strategy matrix
 //
 // The terminator duplicate-use algebra must hold for every RcStrategy,
 // not just HeapPointer. Each test below uses a different `VarKind` to
@@ -540,7 +541,7 @@ fn jump_with_iterator_dup_arg_pins_algebra_not_semantic_validity() {
     assert_eq!(count_inc(&body, v(0)), 1);
 }
 
-// Cross-phase regression (TPR-04-002-codex)
+// Cross-phase regression
 //
 // This test pins the phase-boundary guarantee that justified removing
 // `BodyWalkResult.uses_so_far`: terminator duplicate counting must be
@@ -556,7 +557,8 @@ fn jump_with_duplicated_arg_after_body_use_counts_terminator_locally() {
     // emission must see k=2 from its own scan of `terminator.used_vars()`
     // and emit one RcInc — the body use is irrelevant to terminator-phase
     // counting because `emit_terminator_rc` no longer receives
-    // `uses_so_far` as an argument (BUG-04-047 removed it).
+    // `uses_so_far` as an argument (it was removed as dead cross-phase
+    // state when the aggregated counting replaced the per-use loop).
     let body = vec![ArcInstr::Apply {
         dst: v(1),
         ty: Idx::from_raw(0),
