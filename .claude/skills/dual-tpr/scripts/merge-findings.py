@@ -71,6 +71,7 @@ def main():
     agreements = 0
     codex_only = 0
     gemini_only = 0
+    informational = 0
 
     # First pass: codex findings (in order)
     for i, finding in enumerate(codex_env.get("findings", []), start=1):
@@ -133,15 +134,35 @@ def main():
             })
             gemini_only += 1
 
+    # Count informational findings (non-actionable observations).
+    # Count unique informational findings: for agreements, count once (not twice).
+    seen_informational = set()
+    for entry in merged:
+        sev = entry["finding"].get("severity", "")
+        if sev == "informational":
+            key = (entry["finding"]["location"], entry["finding"]["title"])
+            if key not in seen_informational:
+                seen_informational.add(key)
+                informational += 1
+
+    codex_total = len(codex_env.get("findings", []))
+    gemini_total = len(gemini_env.get("findings", []))
+    # Actionable = unique findings minus informational.
+    # Unique count: agreements (counted once) + codex_only + gemini_only.
+    unique_total = agreements + codex_only + gemini_only
+    actionable = unique_total - informational
+
     result = {
         "section": args.section,
         "merged_findings": merged,
         "summary": {
-            "codex_findings": len(codex_env.get("findings", [])),
-            "gemini_findings": len(gemini_env.get("findings", [])),
+            "codex_findings": codex_total,
+            "gemini_findings": gemini_total,
             "agreements": agreements,
             "codex_only": codex_only,
             "gemini_only": gemini_only,
+            "informational": informational,
+            "actionable": actionable,
         }
     }
 

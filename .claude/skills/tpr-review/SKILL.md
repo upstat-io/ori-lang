@@ -134,9 +134,10 @@ while iteration_counter < 10:
     else:
         # both envelopes passed parser + schema + worktree-guard
         merged = merge-findings.py(codex.envelope.json, gemini.envelope.json)
-        if merged has zero actionable findings:
+        if merged.summary.actionable == 0:
             CLEAN PASS — exit with iteration_counter for the report
-        for each actionable finding in merged:
+            # (informational findings are non-actionable — they don't block clean pass)
+        for each actionable finding in merged (severity != "informational"):
             file into owning plan TPR block or bug-tracker
             fix the code
             run `timeout 150 ./test-all.sh`
@@ -323,6 +324,7 @@ After verification confirms a finding is real:
 
 - **Actionable finding**: real code issue — bug, hygiene violation, missing test, incorrect behavior, file size limit exceeded, precision regression, dead code path, etc. Must be fixed.
 - **Non-actionable observation**: style preference or observation that isn't a defect, precision loss, or dead code. Note it but don't block the loop on it.
+- **Informational finding** (`severity: "informational"`): non-actionable by definition. The reviewer had no actionable findings but wanted to note an observation. Treat as non-actionable — do not fix, do not block the loop. The merge summary's `actionable` count already excludes these.
 
 **IMPORTANT: Err on the side of "actionable"** (after verification). The following are ALWAYS actionable:
 - Dead code paths (code that can never execute)
