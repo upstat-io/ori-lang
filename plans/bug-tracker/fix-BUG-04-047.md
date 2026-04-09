@@ -14,8 +14,8 @@ subsystem: "compiler/ori_arc/src/aims/emit_rc/forward_walk.rs"
 found: "2026-04-08"
 source: "continue-roadmap"
 third_party_review:
-  status: none
-  updated: null
+  status: findings
+  updated: 2026-04-08
 ---
 
 # Fix: BUG-04-047 — AIMS emit_terminator_rc misses RcInc for duplicate terminator uses
@@ -404,4 +404,40 @@ mod tests;
 - [ ] `/impl-hygiene-review` passed — MUST run AFTER `/tpr-review` is clean
 - [ ] `/improve-tooling` retrospective completed — MANDATORY at fix close, after both reviews are clean
 
-**Exit Criteria:** `cargo test -p ori_arc -- aims::emit_rc::forward_walk::tests` passes all 15 matrix tests. `timeout 150 ./test-all.sh` reports 16,000+ tests passing with zero regressions. The `debug_assert_eq!` inside `emit_terminator_rc` never fires on existing test inputs. Manual grep for `uses_so_far` in `compiler/ori_arc/src/aims/` shows it has been removed from `BodyWalkResult`, from `emit_terminator_rc`'s signature, and from the `emit_unified.rs` call site (the local accumulator inside `walk_body_unified` is the only remaining reference). The adjacent bugs for forward_walk.rs:42-45 DRIFT and ApplyIndirect/InvokeIndirect ordering have both been filed in the bug tracker with `/add-bug`.
+**Exit Criteria:** `cargo test -p ori_arc -- aims::emit_rc::forward_walk::tests` passes all matrix tests (expanded from 15 → 18 after TPR round 1). `timeout 150 ./test-all.sh` reports 16,000+ tests passing with zero regressions. The `debug_assert_eq!` inside `emit_terminator_rc` never fires on existing test inputs. Manual grep for `uses_so_far` in `compiler/ori_arc/src/aims/` shows it has been removed from `BodyWalkResult`, from `emit_terminator_rc`'s signature, and from the `emit_unified.rs` call site (the local accumulator inside `walk_body_unified` is the only remaining reference). The adjacent bugs for forward_walk.rs:42-45 DRIFT and ApplyIndirect/InvokeIndirect ordering have both been filed in the bug tracker with `/add-bug`. Both dual-source TPR reviewers (codex + gemini) return clean after fix rounds.
+
+---
+
+## 5.R Third Party Review Findings
+
+### Round 1 (2026-04-08, run `/tmp/ori-tpr-XwczknLn`)
+
+- [ ] `[TPR-04-001-codex][medium]` `compiler/ori_arc/src/aims/emit_rc/forward_walk/tests.rs:67` — Close GAP in the RC-strategy matrix for `emit_terminator_rc`.
+  Evidence: The committed fixture hardcodes every test var to `list<str>` with `ValueRepr::RcPointer` at `forward_walk/tests.rs:67-72`, and none of the 15 tests mutates `var_types` or `var_reprs` to cover any other RC strategy. That leaves `FatPointer` (str), `AggregateFields` (tuple/struct), `InlineEnum` (Option/Result), and `Iterator` unexercised even though `emit_terminator_duplicate_use_incs` dispatches through `rc_strategy`, `RcStrategy` has materially different variants in `compiler/ori_arc/src/ir/repr.rs:128-207`, `emit_rc_inc_inline_enum` does real work in `compiler/ori_llvm/src/codegen/arc_emitter/rc_ops.rs:297-303` (tag-switch with per-variant RC field inc), and `emit_rc_inc_iterator` is a **no-op** at `rc_ops.rs:336-342` because iterators are move-only with no refcount header.
+  Impact: The GAP proves the new count algebra only on the heap-pointer path. A strategy-specific regression (e.g., the formula emits `count: 2` for an iterator var whose LLVM emitter silently drops the inc, leaving two target-block params sharing a single move-only handle and double-freeing it) would ship green.
+  Basis: direct_file_inspection. Confidence: high. (Codex-only finding — no gemini counterpart.)
+
+- [ ] `[TPR-04-002-codex][medium]` `compiler/ori_arc/src/aims/emit_rc/forward_walk/tests.rs:157` — Add the planned cross-phase GAP regression around `uses_so_far` removal.
+  Evidence: Every committed test drives `emit_terminator_rc` directly through `TerminatorFixture::run()` at `forward_walk/tests.rs:156-157`, and every test case builds the fixture with `Vec::new()` for the block body. The plan's own TDD matrix explicitly required `test_emit_terminator_rc_after_body_use_dup_term_counts_correctly` at `plans/bug-tracker/fix-BUG-04-047.md:181` ("Block body has an `Apply` using `v`, then terminator is `Jump { args: [v, v] }`, `live=false`. Asserts the fix is terminator-local: the body-phase uses do NOT reduce terminator-phase inc count."), but that body-plus-terminator case was not added.
+  Impact: Leaves the one regression vector unique to this change unpinned: a future change that accidentally re-couples terminator duplicate counting to body-use accounting would still pass the current suite. That weakens the phase-boundary guarantee that justified removing `BodyWalkResult.uses_so_far` from the realized output.
+  Basis: direct_file_inspection. Confidence: high. (Codex-only finding — no gemini counterpart.)
+
+- [ ] `[TPR-04-003-codex][low]` `plans/bug-tracker/fix-BUG-04-047.md:5` — Resolve DRIFT between BUG-04-047's fix section and the tracker state.
+  Evidence: The section tracker at `plans/bug-tracker/section-04-codegen-llvm.md` now marks `[x] BUG-04-047` resolved, but `plans/bug-tracker/fix-BUG-04-047.md` still says `status: in-progress` at line 5, repeats `**Status:** In Progress` at line 23, and leaves the completion checklist unchecked at lines 28-35.
+  Impact: Breaks the bug-tracker SSOT discipline from `impl-hygiene.md`: follow-up reviews and automation cannot tell whether the fix is actually closed or still missing required work.
+  Required plan update: Revert the premature `[x]` on BUG-04-047 in `section-04-codegen-llvm.md` back to `[ ]` until Phase 5 exits cleanly (TPR + hygiene reviews complete), THEN mark both tracker and fix section consistently complete at the end.
+  Basis: direct_file_inspection. Confidence: high. (Codex-only finding — no gemini counterpart.)
+
+- [x] `[TPR-04-001-gemini][medium]` `compiler/ori_arc/src/aims/emit_rc/forward_walk.rs:172` — Missing RcDec for borrowed Invoke and InvokeIndirect arguments.
+  Resolved: Rejected after independent code verification on 2026-04-08. Gemini claimed that `emit_branch_switch_cond_dec` only handles `Branch`/`Switch` terminators and therefore borrowed `Invoke`/`InvokeIndirect` args at last-use-dead-at-exit receive no `RcDec`, leaking. This is **confabulated**: `compiler/ori_arc/src/aims/emit_rc/edge_cleanup.rs:277-438` (`collect_invoke_edge_decs`) is the canonical home for terminator borrowed-arg `RcDec` emission. Specifically, Category 2 at lines 412-437: "borrowed Invoke/InvokeIndirect args absent from exit_states — caller must still RcDec. Emit on both edges." The `forward_walk.rs::emit_branch_switch_cond_dec` handles only `Branch`/`Switch` scrutinees because `Invoke`/`InvokeIndirect` have dual successors (normal + unwind) and their per-edge dec placement is architecturally different — it lives in `edge_cleanup.rs` as edge-specific emission, not in `forward_walk.rs` as terminator-phase emission. Gemini failed to grep for the parallel emission pass before flagging the claim. No action needed on `forward_walk.rs`; the responsibility is correctly placed elsewhere.
+
+- [x] `[TPR-04-002-gemini][low]` `compiler/ori_arc/src/aims/emit_rc/forward_walk.rs:136` — Robust invariant enforcement via `assert_terminator_rc_balance` (positive observation).
+  Resolved: Not a finding on 2026-04-08. This entry is a positive observation reframed as a finding — gemini is commending the `assert_terminator_rc_balance` helper as "significantly improving maintainability" without flagging any defect. Per `feedback_reviewer_grounding_and_trust.md`, gemini's lower trust tier includes susceptibility to "positive confirmations reframed as findings." The helper is correct code and needs no modification.
+
+### Round 1 — Transport Issue
+
+- [ ] `[TPR-GEMINI-ENVELOPE-FORMAT][tooling]` `.gemini/skills/review-work/SKILL.md:73-84` — gemini emitted the envelope JSON without the required `<!-- BEGIN-ORI-DUAL-TPR-V1 -->` / `<!-- END-ORI-DUAL-TPR-V1 -->` sentinels, causing `parse-gemini.py` to fail with `missing_begin_sentinel`.
+  Evidence: `/tmp/ori-tpr-XwczknLn/gemini.parse-error` reports `missing_begin_sentinel | BEGIN sentinel not found in assistant text`. Manual extraction of gemini's assistant text from `gemini.jsonl` shows gemini emitted the full valid envelope JSON wrapped only in a ```` ```json ```` fenced code block, without the HTML-comment sentinels that `.gemini/skills/review-work/SKILL.md:75-84` instructs it to produce. The SKILL.md rule is under a "Envelope output requirement" heading that isn't prominent enough to survive gemini's thinking-phase output composition.
+  Impact: Every `/tpr-review` and `/review-work` invocation hits a 22-minute transport delay followed by a deterministic parse failure on the gemini side, making dual-source reviews unreliable. After BUG-08-006's deterministic-failure classification, the wrapper correctly refuses to retry, but the envelope is still unparseable and the loop cannot merge findings without manual recovery.
+  Required plan update: Strengthen `.gemini/skills/review-work/SKILL.md` so the sentinel requirement appears at the top of the skill (not in a mid-file section), with an explicit example showing both the wrong form (bare fenced JSON) and the right form (sentinels wrapping the fence). Consider adding a "common mistakes" section that explicitly flags "forgetting sentinels" as a known failure mode. This is a tooling fix per CLAUDE.md §"ALWAYS improve tooling, NEVER work around it" and blocks all future dual-source review rounds.
+  Basis: direct_file_inspection (manual envelope extraction from gemini.jsonl). Confidence: high.
