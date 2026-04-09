@@ -52,7 +52,8 @@ Bugs in the language specification, EBNF grammar, design docs, CLAUDE.md, rule f
   Subsystem: .claude/hooks/verify-hook.sh
   Found: 2026-04-08 | Source: dual-tpr-gemini section-04.3 iteration 6 verification
 
-- [ ] `[BUG-08-003][high]` **findings-schema.json uses if/then constructs that OpenAI Structured Outputs API rejects** — found by dual-tpr-gemini Section 04.3 Scenario 1+2 first real-reviewer attempt.
+- [x] `[BUG-08-003][high]` **findings-schema.json uses if/then constructs that OpenAI Structured Outputs API rejects** — found by dual-tpr-gemini Section 04.3 Scenario 1+2 first real-reviewer attempt.
+  Resolved: OBE on 2026-04-09. Fix already landed (commit a5a2753f): (1) schema stripped of all OpenAI-incompatible constructs (if/then, pattern, maxLength, minimum, format), (2) `dual-invoke.sh` no longer passes `--output-schema` to codex, (3) invariants moved to `envelope_invariants.py` for parser-layer enforcement. Schema is now OpenAI-strict-subset compatible. Both reviewers validated symmetrically at the parser layer.
   Repro: ran the dual-source `/tpr-review` against a 5-commit scope (`81ff576b..816cb891`) via `.claude/skills/dual-tpr/scripts/dual-invoke-with-retry.sh`. Codex failed deterministically on all 3 retry attempts with an OpenAI API 400: `Invalid schema for response_format 'codex_output_schema': In context=(), 'if' is not permitted.` (See `/tmp/ori-tpr-KU4EiXAY/codex.jsonl` for the full error envelope.)
   Root cause: `.claude/skills/dual-tpr/scripts/dual-invoke.sh:50` passes `--output-schema "$SCHEMA"` to `codex exec`. Codex forwards the schema to OpenAI's Structured Outputs API as `response_format.json_schema.schema`, which only accepts a strict subset of JSON Schema. The current `findings-schema.json` uses `if`/`then` constructs at two locations:
     - Lines 42-47: `scope_actually_reviewed` requires `expansion_reason` if `expanded_beyond_packet: true`
@@ -63,7 +64,8 @@ Bugs in the language specification, EBNF grammar, design docs, CLAUDE.md, rule f
   Subsystem: .claude/skills/dual-tpr/findings-schema.json
   Found: 2026-04-08 | Source: dual-tpr-gemini section-04.3 validation gate (canary release pattern doing its job)
 
-- [ ] `[BUG-08-004][medium]` **dual-invoke.sh subshell `set -e` aborts before recording exit codes when codex/gemini fail fast** — found alongside BUG-08-003.
+- [x] `[BUG-08-004][medium]` **dual-invoke.sh subshell `set -e` aborts before recording exit codes when codex/gemini fail fast** — found alongside BUG-08-003.
+  Resolved: OBE on 2026-04-09. Fix already landed in dual-invoke.sh: subshells use `set +e` (line 120/143) so exit codes, walltimes, and log entries are always recorded regardless of command exit status.
   Repro: when codex exits non-zero quickly (e.g. OpenAI API rejection in <10s), `dual-invoke.sh`'s subshell aborts immediately at the failed `codex exec` line and never reaches `echo "$?" > "$RUN/codex.exit"`. Postmortem: scratch dir `/tmp/ori-tpr-KU4EiXAY/` is missing `codex.exit`, `codex.walltime`, `gemini.exit`, `gemini.walltime`, and the round.log "codex finished" / "gemini finished" entries that the subshells should have written.
   Root cause: `.claude/skills/dual-tpr/scripts/dual-invoke.sh:25` sets `set -euo pipefail` at the script level; subshells inherit it. Inside each subshell (lines 48-54 for codex, lines 58-64 for gemini), the layout is `command; echo "$?" > exit_file; echo walltime; echo log_entry`. With `set -e`, a non-zero exit from `command` immediately aborts the subshell — the three `echo` lines never run.
   Impact: post-failure analysis is degraded. Cannot determine the real exit code, walltime, or completion ordering. The retry script reads non-existent `$RUN/codex.exit` (returns empty string), making error categorization unreliable.
@@ -71,7 +73,8 @@ Bugs in the language specification, EBNF grammar, design docs, CLAUDE.md, rule f
   Subsystem: .claude/skills/dual-tpr/scripts/dual-invoke.sh
   Found: 2026-04-08 | Source: dual-tpr-gemini section-04.3 validation gate
 
-- [ ] `[BUG-08-005][medium]` **dual-invoke.sh leaks orphaned reviewer subprocess when the other fails fast** — found alongside BUG-08-003.
+- [x] `[BUG-08-005][medium]` **dual-invoke.sh leaks orphaned reviewer subprocess when the other fails fast** — found alongside BUG-08-003.
+  Resolved: OBE on 2026-04-09. Fix already landed in dual-invoke.sh: `cleanup_children()` EXIT/INT/TERM trap (lines 64-88) kills any still-running reviewer subprocess on exit. Additionally, `set +e` around waits (lines 159-178) ensures BOTH exit codes are always collected.
   Repro: round.log line 12 of `/tmp/ori-tpr-KU4EiXAY/round.log` shows `[1775624450] gemini finished` — 133 seconds AFTER the retry loop already exited at second 317. Gemini was running orphaned in the background, completing its 70KB JSONL stream long after dual-invoke.sh had been killed.
   Root cause: `.claude/skills/dual-tpr/scripts/dual-invoke.sh:67-69` sequence is `wait $CODEX_PID; wait $GEMINI_PID`. With `set -e`, when `wait $CODEX_PID` returns non-zero (because the codex subshell aborted on the failed command — see BUG-08-004), the script aborts immediately and `wait $GEMINI_PID` never executes. Gemini becomes orphaned and continues running in the background, writing to `$RUN/gemini.jsonl` even after the parent script has exited. Subsequent retry attempts open the same gemini.jsonl path, racing with the orphan.
   Impact: (a) gemini quota is wasted on doomed attempts, (b) gemini.jsonl can be corrupted by interleaved writes from orphans + new attempts, (c) retry attempts that should validate gemini's output may instead see a mid-stream snapshot from a previous attempt's orphan, (d) postmortem state is unreliable because gemini.jsonl may not reflect any single attempt cleanly.
@@ -86,7 +89,8 @@ Bugs in the language specification, EBNF grammar, design docs, CLAUDE.md, rule f
   Subsystem: .claude/skills/dual-tpr/scripts/dual-invoke.sh
   Found: 2026-04-08 | Source: dual-tpr-gemini section-04.3 validation gate
 
-- [ ] `[BUG-08-006][medium]` **dual-invoke-with-retry.sh wastes 3 retry attempts on deterministic schema rejections** — found alongside BUG-08-003.
+- [x] `[BUG-08-006][medium]` **dual-invoke-with-retry.sh wastes 3 retry attempts on deterministic schema rejections** — found alongside BUG-08-003.
+  Resolved: OBE on 2026-04-09. Fix already landed in dual-invoke-with-retry.sh: `is_terminal_failure()` classifier (lines 52-130) categorizes failures as terminal vs retryable. Terminal failures (dirty_worktree, codex_invalid_json_schema, auth errors, etc.) break the retry loop immediately. Only transient failures are retried.
   Repro: round.log shows three full retry attempts (304, 311, 315) for the same deterministic OpenAI schema rejection. Each attempt burns gemini quota (gemini ran successfully each time, producing 70KB+ of JSONL output) and wall time (3s of backoff between attempts plus the per-attempt wall time). For a deterministic failure, retrying is pure waste.
   Root cause: `.claude/skills/dual-tpr/scripts/dual-invoke-with-retry.sh:43-83` treats all failure categories EXCEPT `dirty_worktree` as retry-eligible (the BUG-08-002 fix). But schema rejections, malformed JSONL, missing CLI binaries, auth errors, and other deterministic failures will always fail the same way on retry. Only true infra-transient failures (network blips, rate limits) benefit from retry.
   Architectural fix: introduce a failure classifier that maps the parser error suffix to `terminal | retryable`:
