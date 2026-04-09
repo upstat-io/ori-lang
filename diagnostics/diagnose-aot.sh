@@ -361,6 +361,7 @@ if "$SCRIPT_DIR/ir-dump.sh" --raw "$FILE" > "$ir_file" 2>/dev/null; then
 else
     results[5]="$SYM_FAIL"
     result_details[5]="IR capture failed"
+    has_failure=1
     echo -e "  ${SYM_FAIL}  Failed to capture LLVM IR"
 fi
 echo ""
@@ -427,6 +428,7 @@ if "$SCRIPT_DIR/arc-dump.sh" --raw "$FILE" > "$arc_file" 2>/dev/null; then
 else
     results[7]="$SYM_FAIL"
     result_details[7]="ARC IR capture failed"
+    has_failure=1
     echo -e "  ${SYM_FAIL}  Failed to capture ARC IR"
 fi
 echo ""

@@ -57,7 +57,7 @@ paths:
 - `ORI_LOG=oric=debug ori check file.ori` — Salsa query execution
 - `ORI_LOG=ori_types=debug,ori_eval=debug ori run f.ori` — multiple targets
 
-### Phase Dumps (debug builds only)
+### Phase Dumps
 
 - `ORI_DUMP_AFTER_PARSE=1 ori check file.ori` — AST after parse
 - `ORI_DUMP_AFTER_TYPECK=1 ori check file.ori` — typed IR after typeck
