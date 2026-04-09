@@ -19,6 +19,12 @@ Bugs in LLVM IR generation, JIT/AOT compilation, monomorphization, ARC pipeline 
 
 ## Open Bugs
 
+- [ ] `[BUG-04-053][medium]` **String comparison bypasses Name interning in rc_insert/annotate.rs** — found by tpr-review (dual-source, gemini).
+  Repro: `compiler/ori_arc/src/rc_insert/annotate.rs:370` uses `callee_str == "zip" || callee_str == "chain"` and `:406` uses `callee_str == "pop"` — comparing raw strings instead of interned Name IDs.
+  Subsystem: `compiler/ori_arc/src/rc_insert/annotate.rs`
+  Found: 2026-04-09 | Source: tpr-review | Reviewer: gemini
+  Note: LEAK:scattered-knowledge per impl-hygiene.md §Interning Discipline. Should use pre-interned Name constants or `Name::from()` comparison.
+
 - [ ] `[BUG-04-052][low]` **No consumer-level test exercises `emit_dead_at_entry_decs` with the new `let_alias_rep` dedup** — found by tpr-review (dual-source).
   Repro: revert `dead_cleanup.rs` dedup from `let_alias_rep` back to `lineage_of` — all 5 new unit tests in `take_project/tests.rs` still pass because they only test the helper layer. Need a test that constructs a `BlockCleanupCtx` with swapped-phi topology and verifies two `RcDec`s are emitted.
   Subsystem: `compiler/ori_arc/src/aims/emit_rc/dead_cleanup.rs`
