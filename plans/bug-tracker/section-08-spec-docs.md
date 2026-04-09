@@ -1,7 +1,7 @@
 ---
 section: "08"
 title: "Spec & Docs"
-status: in-progress
+status: complete
 goal: "Track and resolve all known spec/documentation bugs"
 sections: []
 ---

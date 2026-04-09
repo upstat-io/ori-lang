@@ -1,10 +1,6 @@
 //! LLVM initialization: fatal error handler.
 //!
 //! Tracing initialization is the sole responsibility of `oric::tracing_setup`.
-//! See BUG-07-007 — this file previously contained a parallel `init_tracing()`
-//! that duplicated `tracing_setup.rs` with different behavior (only `RUST_LOG`,
-//! no `ORI_LOG`, no tree mode, no default, `.init()` instead of `.try_init()`).
-//! It had zero callers and was removed as a SSOT violation.
 
 use std::sync::Once;
 
