@@ -103,11 +103,8 @@ Bugs in the language specification, EBNF grammar, design docs, CLAUDE.md, rule f
   Subsystem: .claude/skills/dual-tpr/scripts/dual-invoke-with-retry.sh
   Found: 2026-04-08 | Source: dual-tpr-gemini section-04.3 validation gate
 
-- [ ] `[BUG-08-007][low]` **tpr-review SKILL.md example masks transport exit code with trailing echo** — found alongside BUG-08-003.
-  Repro: the example bash snippet at `.claude/skills/tpr-review/SKILL.md:207-216` (Step 3 — Invoke the dual-source transport in the background) ends with `echo "transport_exit=$?"`. When run via the Bash tool with `run_in_background: true`, the background-task notification reports the exit code of the LAST command in the script — which is the trailing echo, always 0. The transport's actual non-zero exit code is captured into `$?` for the echo's argument but never propagates to the script's overall exit. Symptom: a complete transport failure (exit 1, e.g. `infra_retries_exhausted: launch_or_exit_fail`) is reported as `exit code 0` in the notification, misleading the orchestrator.
-  Root cause: bash script exit code = exit code of the last executed command. With the trailing `echo`, the last command is the `echo`, not the dual-invoke wrapper. The exit code is interpolated into the echo's stdout text but not into the script's exit semantics.
-  Architectural fix: remove the trailing `echo "transport_exit=$?"` from the SKILL.md example. The Bash tool's notification reports the script's exit code authoritatively — that IS the source of truth. If the orchestrator wants to also see the exit code in stdout, use `; ec=$?; echo "transport_exit=$ec"; exit "$ec"` instead. Add a note to the skill that the notification's reported exit code is authoritative, not the stdout contents.
-  Severity: low — this is a documentation/example bug, not a runtime correctness bug. But it caused real misdiagnosis during BUG-08-003's investigation: the notification reported "exit 0" when the transport had actually failed with `infra_retries_exhausted`. Fixing it removes a footgun for every future consumer of the SKILL.md.
+- [x] `[BUG-08-007][low]` **tpr-review SKILL.md example masks transport exit code with trailing echo** — found alongside BUG-08-003.
+  Resolved: OBE on 2026-04-09. The SKILL.md has already been fixed: the background invocation snippet (line 242-250) is clean (no trailing echo), and an explicit "DO NOT" warning at line 257 guards against reintroduction: "Add a trailing `echo "transport_exit=$?"` ... a trailing echo ALWAYS exits 0 and masks the transport's real failure (BUG-08-007)." Fixed as part of the BUG-08-003 cluster work.
   Subsystem: .claude/skills/tpr-review/SKILL.md
   Found: 2026-04-08 | Source: dual-tpr-gemini section-04.3 validation gate
 
