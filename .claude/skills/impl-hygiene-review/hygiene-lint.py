@@ -120,6 +120,14 @@ CRATE_ORDER: dict[str, int] = {
     "oric": 8, "ori_rt": 0,
 }
 
+# Sync-point enums — shared between catch-all-arms check and enum-drift.py
+# These are the IR enums where catch-all `_ =>` arms hide cross-phase drift
+SYNC_POINT_ENUMS = {
+    "CanExpr", "ExprKind", "TypeTag", "DerivedTrait",
+    "TokenKind", "CollectionMethod", "IteratorValue",
+    "StmtKind", "BinaryOp", "UnaryOp",
+}
+
 
 # ─── Finding ─────────────────────────────────────────────────
 
@@ -541,10 +549,9 @@ def check_catch_all_arms(path: Path, lines: list[str]) -> list[Finding]:
     ExprKind::, TypeTag::, DerivedTrait::, TokenKind::, etc.) to avoid
     flagging local refinement matches like `match char_kind { ... }`.
     """
-    # Sync-point enums whose catch-alls indicate cross-phase drift
-    sync_enums = {"CanExpr", "ExprKind", "TypeTag", "DerivedTrait",
-                  "TokenKind", "CollectionMethod", "IteratorValue",
-                  "StmtKind", "BinaryOp", "UnaryOp"}
+    # Sync-point enums — SSOT shared with enum-drift.py KNOWN_ENUMS
+    # These are the IR enums whose catch-alls indicate cross-phase drift
+    sync_enums = SYNC_POINT_ENUMS
     findings: list[Finding] = []
     text = "\n".join(lines)
 
@@ -727,7 +734,6 @@ def check_phase_bleeding(path: Path, lines: list[str]) -> list[Finding]:
 
 SWALLOWED_IF_LET_RE = re.compile(r"if\s+let\s+Ok\s*\(")
 SWALLOWED_ERR_OK_RE = re.compile(r"Err\s*\(\s*_\s*\)\s*=>\s*Ok\s*\(")
-SWALLOWED_DEFAULT_RE = re.compile(r"\.unwrap_or_default\(\)")
 
 def check_swallowed_error(path: Path, lines: list[str]) -> list[Finding]:
     """LEAK: error silently swallowed (if let Ok, Err(_) => Ok, unwrap_or_default)."""
