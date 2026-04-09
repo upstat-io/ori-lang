@@ -1369,6 +1369,169 @@ def apply_file_edits(edits: list[FileEdit]) -> int:
     return written
 
 
+def plan_ephemeral_name_edits(
+    ephemeral_names: list[EphemeralName],
+    cleanup_classes: set[Classification],
+) -> list[FileEdit]:
+    """Plan edits to strip ephemeral finding ID prefixes from function
+    names, string arguments, and include_str! fixture paths.
+
+    For each affected file, every line containing ``{raw_id_portion}_``
+    (with trailing underscore) gets the prefix stripped. This covers
+    function definitions (``fn tpr_07_008_foo``), string arguments
+    (``"tpr_07_008_foo"``), and include_str! paths in a single pass.
+    """
+    stale = [
+        n for n in ephemeral_names
+        if n.classification in cleanup_classes
+    ]
+    if not stale:
+        return []
+
+    # Group unique raw_id_portions per file
+    by_file: dict[Path, set[str]] = defaultdict(set)
+    for en in stale:
+        by_file[en.file].add(en.raw_id_portion)
+
+    edits: list[FileEdit] = []
+    for file, raw_ids in sorted(by_file.items(), key=lambda kv: str(kv[0])):
+        try:
+            text = file.read_text(encoding="utf-8")
+        except OSError:
+            continue
+        lines = text.splitlines(keepends=False)
+        new_lines: list[str] = []
+        changed_indices: list[int] = []
+        for idx, original in enumerate(lines):
+            new_line = original
+            for raw_id in raw_ids:
+                # Strip the prefix + trailing underscore (e.g., "tpr_07_008_")
+                prefix = raw_id + "_"
+                if prefix in new_line:
+                    new_line = new_line.replace(prefix, "")
+            if new_line != original:
+                changed_indices.append(idx)
+            new_lines.append(new_line)
+        if changed_indices:
+            edits.append(
+                FileEdit(
+                    file=file,
+                    original_lines=lines,
+                    new_lines=new_lines,
+                    changed_line_indices=changed_indices,
+                    deleted_line_indices=[],
+                )
+            )
+    return edits
+
+
+@dataclass
+class FixtureRename:
+    """A fixture file that needs renaming on disk."""
+
+    old_path: Path
+    new_path: Path
+    source_file: Path  # The .rs file that references it
+    source_line: int
+
+
+def collect_fixture_renames(
+    ephemeral_names: list[EphemeralName],
+    cleanup_classes: set[Classification],
+) -> list[FixtureRename]:
+    """Collect fixture files that need renaming to strip ephemeral IDs.
+
+    For each stale fixture_ref, computes the old and new file paths by
+    stripping the ``{raw_id_portion}_`` prefix from the filename portion
+    of the fixture path. Deduplicates by old_path.
+    """
+    stale_fixtures = [
+        n for n in ephemeral_names
+        if n.classification in cleanup_classes and n.kind == "fixture_ref"
+    ]
+    if not stale_fixtures:
+        return []
+
+    seen: set[Path] = set()
+    renames: list[FixtureRename] = []
+    for en in stale_fixtures:
+        # full_name is the path inside include_str!, e.g.,
+        # "fixtures/iterator_drop/tpr_07_019_phi_merge_take_projects.ori"
+        # Resolve relative to the source file's directory
+        fixture_rel = Path(en.full_name)
+        old_path = (en.file.parent / fixture_rel).resolve()
+        if old_path in seen:
+            continue
+        seen.add(old_path)
+
+        # Strip the raw_id_portion_ prefix from the filename
+        old_name = old_path.name
+        prefix = en.raw_id_portion + "_"
+        if prefix not in old_name:
+            continue
+        new_name = old_name.replace(prefix, "", 1)
+        new_path = old_path.parent / new_name
+
+        renames.append(
+            FixtureRename(
+                old_path=old_path,
+                new_path=new_path,
+                source_file=en.file,
+                source_line=en.line,
+            )
+        )
+    return renames
+
+
+def apply_fixture_renames(renames: list[FixtureRename]) -> int:
+    """Execute fixture file renames via git mv. Returns count of renames."""
+    applied = 0
+    for r in renames:
+        if not r.old_path.exists():
+            print(
+                f"warning: fixture {_rel(r.old_path)} does not exist, skipping",
+                file=sys.stderr,
+            )
+            continue
+        try:
+            result = subprocess.run(
+                ["git", "mv", str(r.old_path), str(r.new_path)],
+                capture_output=True,
+                text=True,
+                check=False,
+                cwd=REPO_ROOT,
+            )
+            if result.returncode != 0:
+                print(
+                    f"error: git mv failed for {_rel(r.old_path)}: "
+                    f"{result.stderr.strip()}",
+                    file=sys.stderr,
+                )
+                continue
+            applied += 1
+        except (subprocess.SubprocessError, FileNotFoundError) as e:
+            print(f"error: git mv failed: {e}", file=sys.stderr)
+    return applied
+
+
+def format_fixture_renames(
+    renames: list[FixtureRename], color: bool = True
+) -> str:
+    """Human-readable preview of fixture file renames."""
+    if not renames:
+        return ""
+    lines = ["\nFixture file renames:"]
+    for r in renames:
+        old = _rel(r.old_path)
+        new = _rel(r.new_path)
+        if color:
+            lines.append(f"  \033[31m{old}\033[0m → \033[32m{new}\033[0m")
+        else:
+            lines.append(f"  {old} → {new}")
+        lines.append(f"    referenced by {_rel(r.source_file)}:{r.source_line}")
+    return "\n".join(lines) + "\n"
+
+
 # ─────────────────────────────────────────────────────────────
 # Output
 # ─────────────────────────────────────────────────────────────
@@ -1828,12 +1991,14 @@ def main(argv: list[str] | None = None) -> int:
             Classification.STALE_COMPLETED_PLAN,
             Classification.ORPHAN,
         }
+
+        # Part A: comment annotations (existing behavior)
         to_fix = [a for a in annotations if a.classification in cleanup_classes]
-        edits = plan_file_edits(to_fix)
+        comment_edits = plan_file_edits(to_fix)
 
         # Account for annotations that are NOT in safe comment regions and were skipped
         edited_locs: set[tuple[Path, int]] = set()
-        for e in edits:
+        for e in comment_edits:
             for idx in e.changed_line_indices:
                 edited_locs.add((e.file, idx + 1))
             for idx in e.deleted_line_indices:
@@ -1843,8 +2008,15 @@ def main(argv: list[str] | None = None) -> int:
             if (ann.file, ann.line) not in edited_locs:
                 skipped.append(ann)
 
-        if not edits:
-            print("No removable annotations found.")
+        # Part B: ephemeral names in function/fixture identifiers
+        name_edits = plan_ephemeral_name_edits(ephemeral_names, cleanup_classes)
+        fixture_renames = collect_fixture_renames(ephemeral_names, cleanup_classes)
+
+        all_edits = comment_edits + name_edits
+        has_work = bool(all_edits) or bool(fixture_renames)
+
+        if not has_work:
+            print("No removable annotations or ephemeral names found.")
             if skipped:
                 print(
                     f"Note: {len(skipped)} annotation(s) were classified for "
@@ -1856,17 +2028,23 @@ def main(argv: list[str] | None = None) -> int:
 
         if not args.apply:
             # Dry-run: print unified diff preview
-            for edit in edits:
+            for edit in all_edits:
                 print(format_edit_diff(edit, color=color))
                 print()
-            total_changed = sum(len(e.changed_line_indices) for e in edits)
-            total_deleted = sum(len(e.deleted_line_indices) for e in edits)
+            if fixture_renames:
+                print(format_fixture_renames(fixture_renames, color=color))
+            total_changed = sum(len(e.changed_line_indices) for e in all_edits)
+            total_deleted = sum(len(e.deleted_line_indices) for e in all_edits)
             print("─" * 56, file=sys.stderr)
-            print(
-                f"DRY-RUN: would edit {len(edits)} files "
-                f"({total_changed} lines modified, {total_deleted} lines deleted)",
-                file=sys.stderr,
-            )
+            parts = []
+            if all_edits:
+                parts.append(
+                    f"would edit {len(all_edits)} files "
+                    f"({total_changed} lines modified, {total_deleted} lines deleted)"
+                )
+            if fixture_renames:
+                parts.append(f"would rename {len(fixture_renames)} fixture file(s)")
+            print(f"DRY-RUN: {'; '.join(parts)}", file=sys.stderr)
             if skipped:
                 print(
                     f"  skipped {len(skipped)} annotation(s) — not in a comment "
@@ -1876,14 +2054,20 @@ def main(argv: list[str] | None = None) -> int:
             print("Pass --apply to write the changes.", file=sys.stderr)
             return 2  # non-zero so callers know preview-only
 
-        # Apply
-        written = apply_file_edits(edits)
-        total_changed = sum(len(e.changed_line_indices) for e in edits)
-        total_deleted = sum(len(e.deleted_line_indices) for e in edits)
+        # Apply file edits (comments + ephemeral names)
+        written = apply_file_edits(all_edits)
+        total_changed = sum(len(e.changed_line_indices) for e in all_edits)
+        total_deleted = sum(len(e.deleted_line_indices) for e in all_edits)
         print(
             f"applied {written} files: "
             f"{total_changed} lines modified, {total_deleted} lines deleted"
         )
+
+        # Apply fixture renames
+        if fixture_renames:
+            renamed = apply_fixture_renames(fixture_renames)
+            print(f"renamed {renamed} fixture file(s)")
+
         if skipped:
             print(
                 f"skipped {len(skipped)} annotation(s) — not in a comment "
