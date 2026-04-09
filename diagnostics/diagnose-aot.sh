@@ -125,16 +125,27 @@ fi
 # --- Resolve binary based on --release / --both-builds ---
 if [[ "$USE_BOTH_BUILDS" -eq 1 ]]; then
     require_both_builds
-    # --both-builds: run the full battery for each profile
-    # We recurse into ourselves for each profile, then compare
-    color_flag=""
-    [[ "$USE_COLOR" == "yes" ]] && color_flag="--color"
-    [[ "$USE_COLOR" == "no" ]] && color_flag="--no-color"
+    # --both-builds: run the full battery for each profile, then compare
+    # per-section results. We recurse with all original flags minus
+    # --both-builds (passthrough), plus _DIAGNOSE_AOT_RESULTS to capture
+    # per-section structured output for comparison.
 
-    extra_flags=()
-    [[ "$USE_VALGRIND" -eq 1 ]] && extra_flags+=(--valgrind)
-    [[ "$USE_RC_TRACE" -eq 1 ]] && extra_flags+=(--rc-trace)
-    [[ "$VERBOSE" -eq 1 ]] && extra_flags+=(--verbose)
+    # Build passthrough args: everything except --both-builds
+    passthrough_args=()
+    for arg in "$@_SAVED_ARGS"; do
+        [[ "$arg" == "--both-builds" ]] && continue
+        passthrough_args+=("$arg")
+    done
+    # Since we already parsed args, reconstruct from parsed state
+    passthrough_flags=()
+    [[ "$USE_VALGRIND" -eq 1 ]] && passthrough_flags+=(--valgrind)
+    [[ "$USE_RC_TRACE" -eq 1 ]] && passthrough_flags+=(--rc-trace)
+    [[ "$VERBOSE" -eq 1 ]] && passthrough_flags+=(--verbose)
+    [[ "$USE_COLOR" == "yes" ]] && passthrough_flags+=(--color)
+    [[ "$USE_COLOR" == "no" ]] && passthrough_flags+=(--no-color)
+
+    both_tmpdir=$(mktemp -d)
+    trap 'rm -rf "$both_tmpdir"' EXIT
 
     echo ""
     echo -e "${C_BOLD}═══════════════════════════════════════════════════════${C_NC}"
@@ -144,19 +155,37 @@ if [[ "$USE_BOTH_BUILDS" -eq 1 ]]; then
 
     echo -e "${C_BOLD}━━━ DEBUG BUILD ━━━${C_NC}"
     debug_exit=0
-    "$0" $color_flag "${extra_flags[@]}" "$FILE" || debug_exit=$?
+    _DIAGNOSE_AOT_RESULTS="$both_tmpdir/debug.results" \
+        "$0" "${passthrough_flags[@]}" "$FILE" || debug_exit=$?
     echo ""
 
     echo -e "${C_BOLD}━━━ RELEASE BUILD ━━━${C_NC}"
     release_exit=0
-    "$0" --release $color_flag "${extra_flags[@]}" "$FILE" || release_exit=$?
+    _DIAGNOSE_AOT_RESULTS="$both_tmpdir/release.results" \
+        "$0" --release "${passthrough_flags[@]}" "$FILE" || release_exit=$?
     echo ""
 
     echo -e "${C_BOLD}━━━ COMPARISON ━━━${C_NC}"
+    # Compare top-level exit codes
     if [[ "$debug_exit" -eq "$release_exit" ]]; then
         echo -e "  Exit codes: debug=$debug_exit release=$release_exit  ${SYM_PASS}"
     else
         echo -e "  Exit codes: debug=$debug_exit release=$release_exit  ${SYM_WARN}  ${C_YELLOW}DIVERGENCE${C_NC}"
+    fi
+
+    # Compare per-section results if both files exist
+    has_divergence=0
+    if [[ -f "$both_tmpdir/debug.results" ]] && [[ -f "$both_tmpdir/release.results" ]]; then
+        while IFS='|' read -r section debug_status; do
+            release_status=$(grep "^${section}|" "$both_tmpdir/release.results" 2>/dev/null | cut -d'|' -f2)
+            if [[ -n "$release_status" ]] && [[ "$debug_status" != "$release_status" ]]; then
+                echo -e "  ${C_YELLOW}Section ${section}:${C_NC} debug=${debug_status} release=${release_status}  ${SYM_WARN}"
+                has_divergence=1
+            fi
+        done < "$both_tmpdir/debug.results"
+    fi
+    if [[ "$has_divergence" -eq 0 ]] && [[ "$debug_exit" -eq "$release_exit" ]]; then
+        echo -e "  Per-section results: ${SYM_PASS} (no divergence)"
     fi
     echo ""
 
@@ -173,6 +202,12 @@ if [[ "$USE_RELEASE" -eq 1 ]]; then
 else
     find_ori_bin
 fi
+
+# Export ORI_BIN so helper scripts (rc-stats.sh, ir-dump.sh, codegen-audit.sh,
+# arc-dump.sh, disasm-ori.sh) use the same binary we resolved above, rather
+# than re-resolving via their own find_ori_bin which may choose a different
+# build profile.
+export ORI_BIN="$ORI"
 
 # --- Setup ---
 tmpdir=$(mktemp -d)
@@ -348,9 +383,17 @@ case $audit_exit in
         echo -e "  ${SYM_PASS}  No findings"
         ;;
     1)
-        results[6]="$SYM_WARN"
-        result_details[6]="findings detected"
-        echo -e "  ${SYM_WARN}  Findings detected:"
+        # Distinguish errors (has_failure) from warnings-only
+        if grep -q "error:" "$tmpdir/codegen_audit.txt"; then
+            results[6]="$SYM_FAIL"
+            result_details[6]="errors detected"
+            has_failure=1
+            echo -e "  ${SYM_FAIL}  Errors detected:"
+        else
+            results[6]="$SYM_WARN"
+            result_details[6]="warnings detected"
+            echo -e "  ${SYM_WARN}  Warnings detected:"
+        fi
         sed 's/^/  │ /' "$tmpdir/codegen_audit.txt"
         ;;
     2)
@@ -461,6 +504,16 @@ if [[ $has_failure -eq 0 ]]; then
     echo -e "${C_GREEN}All checks passed.${C_NC}"
 else
     echo -e "${C_RED}One or more checks failed.${C_NC}"
+fi
+
+# Write per-section results for --both-builds comparison (if requested via env)
+if [[ -n "${_DIAGNOSE_AOT_RESULTS:-}" ]]; then
+    # Strip ANSI color codes from status symbols for comparison
+    strip_ansi() { echo -e "$1" | sed 's/\x1b\[[0-9;]*m//g'; }
+    for i in 1 2 3 4 5 6 7 8 9; do
+        status=$(strip_ansi "${results[$i]}")
+        echo "${section_names[$i]}|${status}" >> "$_DIAGNOSE_AOT_RESULTS"
+    done
 fi
 
 exit $has_failure
