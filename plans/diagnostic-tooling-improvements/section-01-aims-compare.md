@@ -51,22 +51,24 @@ sections:
 
 ---
 
-## 01.1 Remove dead AIMS comparison scripts
+## 01.1 Remove dead AIMS comparison scripts and stale references
 
-**File(s):** `diagnostics/aims-compare.sh`, `diagnostics/aims-baseline.sh`, `diagnostics/aims-measure.sh`, `diagnostics/self-test.sh`, `diagnostics/README.md`
+**File(s):** `diagnostics/aims-compare.sh`, `diagnostics/aims-baseline.sh`, `diagnostics/aims-measure.sh`, `CLAUDE.md`, `.claude/rules/arc.md`, queued plan files
 
-These three scripts (~900 lines total) are dead code. `aims-compare.sh` (347 lines) fails at line 177. `aims-baseline.sh` (244 lines) and `aims-measure.sh` (292 lines) are support scripts only called by `aims-compare.sh`.
+These three scripts (~900 lines total) are dead code. `aims-compare.sh` (347 lines) fails at line 177 (`--features aims` removed). `aims-baseline.sh` (244 lines) and `aims-measure.sh` (292 lines) are orphaned support scripts only called by `aims-compare.sh`.
+
+**IMPORTANT — Semantic mismatch:** The old `aims-compare.sh` compared **output + RC counts** across AIMS pipeline variants (behavioral + RC parity). The new `debug-release-compare.sh` compares **debug vs release builds** (exit codes + stdout + LLVM IR on mismatch). These are fundamentally different tools answering different questions. References to `aims-compare.sh` must NOT be blindly renamed — each consumer must be audited for whether `debug-release-compare.sh` is the correct replacement or whether the reference should simply be removed.
 
 - [ ] Delete `diagnostics/aims-compare.sh` (347 lines)
 - [ ] Delete `diagnostics/aims-baseline.sh` (244 lines)
 - [ ] Delete `diagnostics/aims-measure.sh` (292 lines)
-- [ ] Verify `diagnostics/self-test.sh` contains no aims-compare references (confirmed: none exist as of plan creation — this is a verification step, not a removal)
-- [ ] Verify `diagnostics/README.md` contains no aims-compare references (confirmed: none exist as of plan creation — this is a verification step, not a removal)
-- [ ] Update `CLAUDE.md` line 152: replace `diagnostics/aims-compare.sh` reference with `diagnostics/debug-release-compare.sh` (cannot leave a stale reference to a deleted script between Section 01 and Section 07)
-- [ ] Update `.claude/rules/arc.md` line 174: replace `diagnostics/aims-compare.sh` reference with `diagnostics/debug-release-compare.sh`
-- [ ] Update stale cross-plan references (both plans are `status: queued`, not active — fix now to prevent confusion at execution time):
-  - `plans/locality-representation-unification/section-05-verification.md` lines 19, 91, 233: replace `aims-compare.sh` with `debug-release-compare.sh`
-  - `plans/clang-arc-lessons/section-06-verification.md` line 160: replace `aims-compare.sh` with `debug-release-compare.sh`
+- [ ] Verify `diagnostics/self-test.sh` contains no aims-compare references (confirmed: none exist as of plan creation — verification step only)
+- [ ] Verify `diagnostics/README.md` contains no aims-compare references (confirmed: none exist as of plan creation — verification step only)
+- [ ] **Remove** `CLAUDE.md` line 152 aims-compare reference entirely — the old semantics (behavioral + RC comparison) are gone. New reference will be added in 01.2 after the replacement script exists, with accurate semantics.
+- [ ] **Remove** `.claude/rules/arc.md` line 174 aims-compare reference — same reasoning: old tool compared "output + RC counts" which the new tool does not do. New reference added in 01.2.
+- [ ] Audit and fix stale cross-plan references (both plans are `status: queued`, not active):
+  - `plans/locality-representation-unification/section-05-verification.md` lines 19, 91, 233: these use aims-compare as a "behavioral + RC parity harness" — **remove** the reference and add a note that the RC parity verification tool was removed (the new debug-release-compare.sh does not do RC comparison)
+  - `plans/clang-arc-lessons/section-06-verification.md` line 160: uses aims-compare for "RC-reduction measurement" — **remove** the reference and add a note that this verification step needs a replacement tool when RC comparison capability is rebuilt
 - [ ] Verify `diagnostics/self-test.sh` still passes after removal
 
 - [ ] **Subsection close-out (01.1)** — MANDATORY before starting 01.2:
@@ -78,23 +80,31 @@ These three scripts (~900 lines total) are dead code. `aims-compare.sh` (347 lin
 
 ## 01.2 Create debug-release-compare.sh
 
-**File(s):** `diagnostics/debug-release-compare.sh` (new), `diagnostics/self-test.sh`, `diagnostics/README.md`
+**File(s):** `diagnostics/_common.sh` (extend), `diagnostics/debug-release-compare.sh` (new), `diagnostics/self-test.sh`, `diagnostics/README.md`, `CLAUDE.md`, `.claude/rules/arc.md`
 
 Create a new script that compiles and runs a program through both debug and release builds, comparing behavioral output. This catches FastISel-only bugs (the >16B aggregate load issue) and optimization-dependent codegen divergences.
 
+- [ ] Extend `diagnostics/_common.sh` with profile-specific binary resolution:
+  - Add `find_ori_bin_profile(profile)` function that returns `$ROOT/target/$profile/ori` with existence check and clear error message (e.g., "Release binary not found — run: cargo b --release")
+  - Add `require_both_builds()` helper that validates both debug and release binaries exist (used by this script; Section 02's `diagnose-aot.sh --both-builds` will also consume it)
+  - Keep existing `find_ori_bin()` unchanged (auto-selects debug-first for backward compatibility)
+  - Rationale: Section 02 (`diagnose-aot.sh --release`, `--both-builds`) explicitly needs profile-specific binary selection (see section-02 line 91). Centralizing in `_common.sh` prevents duplicated path logic across scripts — design principle 1 (canonical surfaces).
 - [ ] Create `diagnostics/debug-release-compare.sh` with:
   - `--help`, `--no-color`, `--color` (standard options per `_common.sh` conventions)
   - `--verbose` (include LLVM IR diff on mismatch)
-  - Requires both `target/debug/ori` and `target/release/ori` to exist (checked at startup with clear error)
+  - Uses `require_both_builds()` from `_common.sh` at startup
+  - Uses `find_ori_bin_profile debug` and `find_ori_bin_profile release` for binary paths
   - Compiles input file with both binaries, runs both, compares exit codes and stdout
-  - On mismatch: auto-runs `ir-dump.sh` from both builds via `ORI_BIN` env var override (e.g., `ORI_BIN=target/debug/ori ir-dump.sh file.ori` and `ORI_BIN=target/release/ori ir-dump.sh file.ori`), then shows diff of the two IR outputs
+  - On mismatch: auto-runs `ir-dump.sh` from both builds via `ORI_BIN` env var override (e.g., `ORI_BIN=$(find_ori_bin_profile debug) ir-dump.sh file.ori`), then shows diff of the two IR outputs
   - Exit codes: 0 = match, 1 = mismatch, 2 = usage/infrastructure error
-  - Source `_common.sh` for color/option helpers only. Binary paths are constructed directly (`$ROOT/target/debug/ori`, `$ROOT/target/release/ori`) — NOT via `find_ori_bin()`, which auto-selects a single binary (debug-first) and does not support requesting a specific profile. The dual-binary pattern is unique to this script; extending `_common.sh` with profile selection for a single consumer would be over-engineering.
 - [ ] Add self-test entries to `diagnostics/self-test.sh`:
-  - `simple.ori` produces matching output from both builds
+  - Setup: ensure release binary exists (`cargo b --release` at self-test start, or skip with clear message if unavailable)
+  - `simple.ori` produces matching output from both builds (happy path)
   - `--help` shows usage
-  - Error handling for missing release binary
+  - Error handling for missing release binary: temporarily rename `target/release/ori` → `target/release/ori.bak`, verify error message, restore (or use `ORI_BIN` override to a nonexistent path)
 - [ ] Add documentation to `diagnostics/README.md` with usage examples
+- [ ] **Add** new reference in `CLAUDE.md` (at line 152, replacing the removed aims-compare line): `diagnostics/debug-release-compare.sh` — describe as "debug vs release behavioral comparison (exit codes + stdout + LLVM IR diff on mismatch)"
+- [ ] **Add** new reference in `.claude/rules/arc.md` (at line 174, replacing the removed aims-compare line): `diagnostics/debug-release-compare.sh` — describe accurately as debug-vs-release comparison (NOT RC comparison)
 - [ ] Run `diagnostics/self-test.sh --verbose` to verify all tests pass
 
 - [ ] **Subsection close-out (01.2)** — MANDATORY before starting 01.R:

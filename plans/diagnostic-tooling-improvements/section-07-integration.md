@@ -136,9 +136,9 @@ When LLVM or AOT tests fail, print a one-liner suggesting the relevant diagnosti
 - [ ] Update `CLAUDE.md` §Commands / §Diagnostic scripts:
   - Add `debug-release-compare.sh` and `bisect-passes.sh`
   - Update existing script entries with new flags
-  - (aims-compare reference removal already done in Section 01.1)
+  - (aims-compare reference removal done in Section 01.1; new debug-release-compare reference added in Section 01.2)
 - [ ] Update `.claude/rules/compiler.md` §Diagnostic Scripts section
-- [ ] Update `.claude/rules/arc.md` §Debugging section with `bisect-passes.sh` (aims-compare reference replacement already done in Section 01.1)
+- [ ] Update `.claude/rules/arc.md` §Debugging section with `bisect-passes.sh` (aims-compare reference removed in Section 01.1; debug-release-compare reference added in Section 01.2)
 - [ ] Verify: no stale references to removed scripts remain (`grep -rn "aims-compare\|aims-baseline\|aims-measure" CLAUDE.md .claude/rules/ diagnostics/ plans/`)
 
 - [ ] **Subsection close-out (07.4)** — MANDATORY before starting 07.R:
