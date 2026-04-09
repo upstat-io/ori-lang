@@ -3,8 +3,9 @@
 
 Usage:
     parse-gemini.py --jsonl PATH --schema PATH
+    parse-gemini.py --jsonl PATH --recover-text
 
-Reads the gemini stream-json stream from PATH:
+Default mode (`--schema`) reads the gemini stream-json stream from PATH:
   1. Concatenates all delta:true assistant message fragments in arrival order
   2. Verifies the terminal {"type":"result","status":"success"} event is present
   3. Searches the concatenated text for the BEGIN sentinel
@@ -12,7 +13,14 @@ Reads the gemini stream-json stream from PATH:
   5. Parses the JSON block, validates against the schema
   6. Prints the envelope to stdout on success
 
-Outcome codes (stderr first line on failure):
+Recovery mode (`--recover-text`) dumps the raw concatenated assistant text
+to stdout without any sentinel or schema validation. Use this when default
+mode fails with `missing_begin_sentinel` / `missing_end_sentinel` and the
+operator needs to see what the reviewer actually wrote. Stderr carries a
+clearly-marked warning that the output is UNVALIDATED; callers must NOT
+pass recovered text through findings merge tooling.
+
+Outcome codes (stderr first line on default-mode failure):
     missing_envelope        — no assistant messages found
     missing_terminator      — content present but no result/success event
     missing_begin_sentinel  — content present but no BEGIN sentinel
@@ -21,6 +29,9 @@ Outcome codes (stderr first line on failure):
     parse_fail              — fenced JSON block is not valid JSON
     schema_violation        — JSON validates against neither shape nor schema
     failed_partial          — envelope validates but status != "complete"
+
+Recovery-mode failure (rare — only if the JSONL stream itself is unreadable):
+    missing_envelope        — no assistant messages found in stream
 """
 
 import argparse
@@ -42,25 +53,14 @@ END_SENTINEL = "<!-- END-ORI-DUAL-TPR-V1 -->"
 FENCE_RE = re.compile(r"```json\s*\n(.*?)\n```", re.DOTALL)
 
 
-def main():
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--jsonl", required=True)
-    ap.add_argument("--schema", required=True)
-    args = ap.parse_args()
+def read_assistant_text(jsonl_path):
+    """Read all assistant message fragments from a gemini JSONL stream.
 
-    try:
-        import jsonschema
-    except ImportError:
-        print("missing_dependency", file=sys.stderr)
-        sys.exit(1)
-
-    with open(args.schema) as f:
-        schema = json.load(f)
-
-    # Read the gemini stream-json events
+    Returns (full_text: str, saw_terminator: bool).
+    """
     assistant_chunks = []
     saw_terminator = False
-    with open(args.jsonl) as f:
+    with open(jsonl_path) as f:
         for line in f:
             line = line.strip()
             if not line:
@@ -71,13 +71,59 @@ def main():
                 continue
             etype = obj.get("type")
             if etype == "message" and obj.get("role") == "assistant":
-                # Collect content fragment (delta:true chunks must be concatenated in order)
                 chunk = obj.get("content", "")
                 assistant_chunks.append(chunk)
             elif etype == "result" and obj.get("status") == "success":
                 saw_terminator = True
+    return "".join(assistant_chunks), saw_terminator
 
-    if not assistant_chunks:
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--jsonl", required=True)
+    ap.add_argument(
+        "--schema",
+        help="Schema file for envelope validation (default mode)",
+    )
+    ap.add_argument(
+        "--recover-text",
+        action="store_true",
+        help="Dump raw assistant text to stdout without sentinel/schema "
+        "validation. Use when default mode fails with missing_begin_sentinel.",
+    )
+    args = ap.parse_args()
+
+    if not args.schema and not args.recover_text:
+        ap.error("one of --schema or --recover-text is required")
+
+    # Recovery mode: just dump the text and exit
+    if args.recover_text:
+        full_text, _ = read_assistant_text(args.jsonl)
+        if not full_text:
+            print("missing_envelope", file=sys.stderr)
+            print("no assistant message events in stream", file=sys.stderr)
+            sys.exit(1)
+        print(
+            "WARNING: unvalidated recovery text — no sentinel or schema "
+            "checks applied. Do NOT pass this through merge tooling.",
+            file=sys.stderr,
+        )
+        sys.stdout.write(full_text)
+        sys.exit(0)
+
+    # Default mode: full sentinel + schema validation
+    try:
+        import jsonschema
+    except ImportError:
+        print("missing_dependency", file=sys.stderr)
+        sys.exit(1)
+
+    with open(args.schema) as f:
+        schema = json.load(f)
+
+    full_text, saw_terminator = read_assistant_text(args.jsonl)
+
+    if not full_text:
         print("missing_envelope", file=sys.stderr)
         print("no assistant message events in stream", file=sys.stderr)
         sys.exit(1)
@@ -86,9 +132,6 @@ def main():
         print("missing_terminator", file=sys.stderr)
         print("assistant content present but no result/success event", file=sys.stderr)
         sys.exit(1)
-
-    # Concatenate all assistant fragments in arrival order
-    full_text = "".join(assistant_chunks)
 
     # Search for the BEGIN sentinel
     begin_idx = full_text.find(BEGIN_SENTINEL)
