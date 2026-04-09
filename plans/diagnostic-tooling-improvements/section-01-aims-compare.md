@@ -13,8 +13,8 @@ inspired_by:
   - "Swift SIL verifier — runs same program through debug and release SIL pipelines"
 depends_on: []
 third_party_review:
-  status: none
-  updated: null
+  status: resolved
+  updated: 2026-04-09
 sections:
   - id: "01.1"
     title: "Remove dead AIMS comparison scripts"
@@ -114,14 +114,26 @@ Create a new script that compiles and runs a program through both debug and rele
 
 ## 01.R Third Party Review Findings
 
-- None.
+- [x] `[TPR-01-001-codex][medium]` `diagnostics/debug-release-compare.sh:117` — Return exit code 2 when either build fails.
+  Evidence: DRIFT — script header defines exit 1=mismatch, 2=infra error, but compile-failure branches used exit 1. Fresh verification confirmed.
+  Resolved: Fixed on 2026-04-09 in commit 337411e7. Both compile-failure branches now exit 2.
+- [x] `[TPR-01-002-codex][low]` `diagnostics/self-test.sh:255` — Exercise the infrastructure-error paths in self-test.
+  Evidence: GAP — self-test only checked matching fixtures, --help, no-args. No compile-fail test existed.
+  Resolved: Fixed on 2026-04-09 in commit 337411e7. Added run_test_exit_code helper and compile-failure test.
+- [x] `[TPR-01-003-codex][low]` `plans/diagnostic-tooling-improvements/section-01-aims-compare.md:35` — Synchronize plan status surfaces for Section 01 and Section 02.
+  Evidence: DRIFT — Section 01 body said "Not Started" while frontmatter said complete. Overview and index also stale.
+  Resolved: Fixed on 2026-04-09 in commit 337411e7. All plan surfaces synced.
+- [x] `[TPR-01-001-gemini][informational]` `diagnostics/debug-release-compare.sh:130` — Document omission of stderr comparison.
+  Non-actionable observation. Stderr comparison intentionally omitted (exit code catches panics).
+- [x] `[TPR-01-002-gemini][informational]` `diagnostics/_common.sh:65` — Address reliance on SCRIPT_DIR convention.
+  Non-actionable observation. SCRIPT_DIR convention is the established pattern for all diagnostic scripts.
 
 ---
 
 ## 01.N Completion Checklist
 
 - [x] All subsections (01.1, 01.2) complete
-- [x] `diagnostics/self-test.sh` passes (28/28)
+- [x] `diagnostics/self-test.sh` passes (29/29)
 - [x] `timeout 150 ./test-all.sh` green — no regressions (16,927 passed)
 - [x] No references to aims-compare remain in active codebase surfaces (`CLAUDE.md`, `.claude/rules/`, `diagnostics/` all clean)
 - [x] `/tpr-review` passed — independent third-party review clean
