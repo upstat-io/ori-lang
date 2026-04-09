@@ -59,6 +59,51 @@ find_ori_bin() {
     exit 2
 }
 
+# Locate an LLVM-enabled ori binary for a specific build profile.
+# Usage: find_ori_bin_profile <profile>
+#   where <profile> is "debug" or "release"
+# Sets ORI_PROFILE to the path if found.
+# Exits with code 2 if the binary doesn't exist or lacks LLVM support.
+find_ori_bin_profile() {
+    local profile="$1"
+    local root_dir
+    root_dir="$(cd "$SCRIPT_DIR/.." && pwd)"
+    local bin="$root_dir/target/$profile/ori"
+
+    if [[ ! -x "$bin" ]]; then
+        echo "Error: $profile binary not found at $bin" >&2
+        if [[ "$profile" == "release" ]]; then
+            echo "Build with: cargo b --release" >&2
+        else
+            echo "Build with: cargo b" >&2
+        fi
+        exit 2
+    fi
+
+    if ! _has_llvm "$bin"; then
+        echo "Error: $profile binary at $bin does not have LLVM support" >&2
+        if [[ "$profile" == "release" ]]; then
+            echo "Rebuild with: cargo b --release" >&2
+        else
+            echo "Rebuild with: cargo b" >&2
+        fi
+        exit 2
+    fi
+
+    ORI_PROFILE="$bin"
+}
+
+# Validate that both debug and release LLVM-enabled binaries exist.
+# Sets ORI_DEBUG and ORI_RELEASE to the respective paths.
+# Exits with code 2 if either is missing or lacks LLVM support.
+require_both_builds() {
+    find_ori_bin_profile debug
+    ORI_DEBUG="$ORI_PROFILE"
+
+    find_ori_bin_profile release
+    ORI_RELEASE="$ORI_PROFILE"
+}
+
 # Locate any ori binary (no LLVM requirement).
 # Tries: $ORI_BIN (env), target/debug/ori, target/release/ori, `ori` (PATH).
 # Sets ORI_INTERP to the first working candidate.
