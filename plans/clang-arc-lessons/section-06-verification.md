@@ -157,7 +157,7 @@ Run `/code-journey` to test the full pipeline end-to-end with progressively comp
   - Baseline: `ORI_LOG=ori_arc=info ori build tests/spec/` with Sections 02-05 disabled
   - Optimized: same with all sections enabled
   - Target: 30%+ total RC operation reduction on typical programs
-  - Script: `diagnostics/aims-compare.sh`
+  - Note: `aims-compare.sh` was removed (used non-existent `--features aims`). RC operation measurement requires a new tool — use `ORI_AUDIT_CODEGEN=1` + `diagnostics/rc-stats.sh` as an interim approach for counting RC ops.
 
 - [ ] **Compile-time overhead:**
   - Measure compilation time with and without new passes

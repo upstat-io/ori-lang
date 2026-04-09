@@ -1,7 +1,7 @@
 ---
 plan: "diagnostic-tooling-improvements"
 title: "Diagnostic Tooling Improvements: Exhaustive Implementation Plan"
-status: not-started
+status: in-progress
 references:
   - ".claude/rules/arc.md"
   - ".claude/rules/aot.md"
