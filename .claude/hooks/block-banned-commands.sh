@@ -58,12 +58,14 @@ for pattern in "${BANNED_PATTERNS[@]}"; do
 done
 
 # ── Guard timeouts on review (codex/gemini) commands ────────────────
-# codex/gemini exec calls are review tasks, NOT tests. They take 20-35
+# codex/gemini exec calls are review tasks, NOT tests. They take 20-45
 # minutes in practice — reviews barely ever finish in under 10 minutes,
-# and the operational sweet spot is 20-35 min. Block any timeout outside
-# that window so a foreground review can't be killed mid-stream.
+# and the operational sweet spot is 20-45 min. Gemini is substantially
+# slower than codex (cold-starts of 8-10 min are routine), so the ceiling
+# must accommodate gemini's worst case. Block any timeout outside that
+# window so a foreground review can't be killed mid-stream.
 # Minimum allowed: 1200000 ms (20 minutes).
-# Maximum allowed: 2100000 ms (35 minutes).
+# Maximum allowed: 2700000 ms (45 minutes).
 #
 # BUG-08-001: The matcher must fire only on GENUINE top-level codex or
 # gemini invocations — never on commands that merely mention the literal
@@ -106,17 +108,17 @@ if [[ -n "$TIMEOUT" && "$TIMEOUT" != "None" ]]; then
     # killing the review mid-stream (reviews barely ever complete in 10
     # minutes, so 5- and 10-minute timeouts almost always fail).
     if [[ "$TIMEOUT" =~ ^[0-9]+$ ]] && (( TIMEOUT < 1200000 )); then
-      deny "Blocked: timeout ($TIMEOUT ms) on codex/gemini command is too short. Reviews need 20-35 minutes — use at least 1200000 ms, up to 2100000 ms (35 min)."
+      deny "Blocked: timeout ($TIMEOUT ms) on codex/gemini command is too short. Reviews need 20-45 minutes — use at least 1200000 ms, up to 2700000 ms (45 min)."
     fi
-    if [[ "$TIMEOUT" =~ ^[0-9]+$ ]] && (( TIMEOUT > 2100000 )); then
-      deny "Blocked: timeout ($TIMEOUT ms) on codex/gemini command exceeds 35-minute ceiling (2100000 ms)."
+    if [[ "$TIMEOUT" =~ ^[0-9]+$ ]] && (( TIMEOUT > 2700000 )); then
+      deny "Blocked: timeout ($TIMEOUT ms) on codex/gemini command exceeds 45-minute ceiling (2700000 ms)."
     fi
   fi
 fi
 
 # ── Allow background execution on codex commands ────────────────────
 # The Bash tool's foreground timeout cap (600000 ms / 10 min) is shorter
-# than the 35-minute upper bound for codex reviews, so background
+# than the 45-minute upper bound for codex/gemini reviews, so background
 # execution is the only mechanism that can accommodate long reviews.
 # No block here.
 

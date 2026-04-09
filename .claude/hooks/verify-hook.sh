@@ -18,7 +18,7 @@
 #   command. Surfaced by the dual-tpr-gemini section-01.4 retrospective.
 #
 # Test matrix dimensions:
-#   command in {codex, gemini}  ×  timeout in {1min, 10min, 25min, 60min}
+#   command in {codex, gemini}  ×  timeout in {1min, 10min, 25min, 40min, 60min}
 #   plus a control (echo, 1min) proving the gate is scoped to codex/gemini.
 #
 # Keep this matrix in sync with the section file's documented matrix —
@@ -119,17 +119,19 @@ if (( ! QUIET )); then
   printf '=== block-banned-commands.sh — timeout gate matrix ===\n'
 fi
 
-# Codex × {1min, 10min, 25min, 60min}
-run_test "codex + 1 min   → DENY (under 20-min floor)"        "codex exec test" 60000   deny "20-35 minutes"
-run_test "codex + 10 min  → DENY (negative pin: floor raised)" "codex exec test" 600000  deny "20-35 minutes"
+# Codex × {1min, 10min, 25min, 40min, 60min}
+run_test "codex + 1 min   → DENY (under 20-min floor)"        "codex exec test" 60000   deny "20-45 minutes"
+run_test "codex + 10 min  → DENY (negative pin: floor raised)" "codex exec test" 600000  deny "20-45 minutes"
 run_test "codex + 25 min  → ALLOW (in sweet spot)"             "codex exec test" 1500000 allow
-run_test "codex + 60 min  → DENY (over 35-min ceiling)"        "codex exec test" 3600000 deny "35-minute ceiling"
+run_test "codex + 40 min  → ALLOW (in expanded sweet spot)"    "codex exec test" 2400000 allow
+run_test "codex + 60 min  → DENY (over 45-min ceiling)"        "codex exec test" 3600000 deny "45-minute ceiling"
 
-# Gemini × {1min, 10min, 25min, 60min}
-run_test "gemini + 1 min  → DENY (under 20-min floor)"         "gemini -p test"  60000   deny "20-35 minutes"
-run_test "gemini + 10 min → DENY (negative pin: floor raised)" "gemini -p test"  600000  deny "20-35 minutes"
+# Gemini × {1min, 10min, 25min, 40min, 60min}
+run_test "gemini + 1 min  → DENY (under 20-min floor)"         "gemini -p test"  60000   deny "20-45 minutes"
+run_test "gemini + 10 min → DENY (negative pin: floor raised)" "gemini -p test"  600000  deny "20-45 minutes"
 run_test "gemini + 25 min → ALLOW (in sweet spot)"             "gemini -p test"  1500000 allow
-run_test "gemini + 60 min → DENY (over 35-min ceiling)"        "gemini -p test"  3600000 deny "35-minute ceiling"
+run_test "gemini + 40 min → ALLOW (in expanded sweet spot)"    "gemini -p test"  2400000 allow
+run_test "gemini + 60 min → DENY (over 45-min ceiling)"        "gemini -p test"  3600000 deny "45-minute ceiling"
 
 # Control: gate must NOT apply to non-codex/gemini commands
 run_test "control: echo + 1 min → ALLOW (gate doesn't apply)"  "echo hello"      60000   allow
@@ -170,21 +172,21 @@ run_test "echo 'fix codex and gemini' → ALLOW (both substrings in a quoted arg
 # a compound-command form, and all must DENY at 60000 ms.
 
 run_test "ORI_LOG=debug codex exec → DENY (env-var prefix bypass closed)" \
-  "ORI_LOG=debug codex exec test" 60000 deny "20-35 minutes"
+  "ORI_LOG=debug codex exec test" 60000 deny "20-45 minutes"
 run_test "multiple env-var prefixes + codex → DENY (multi-env bypass closed)" \
-  "TARGET=x86_64 ORI_LOG=debug codex exec test" 60000 deny "20-35 minutes"
+  "TARGET=x86_64 ORI_LOG=debug codex exec test" 60000 deny "20-45 minutes"
 run_test "pipeline into codex exec → DENY (| bypass closed)" \
-  "cat prompt.md | codex exec test" 60000 deny "20-35 minutes"
+  "cat prompt.md | codex exec test" 60000 deny "20-45 minutes"
 run_test "&& codex exec → DENY (logical AND bypass closed)" \
-  "some-prep && codex exec test" 60000 deny "20-35 minutes"
+  "some-prep && codex exec test" 60000 deny "20-45 minutes"
 run_test "; gemini -p → DENY (sequence bypass closed)" \
-  "cleanup; gemini -p test" 60000 deny "20-35 minutes"
+  "cleanup; gemini -p test" 60000 deny "20-45 minutes"
 run_test "(codex exec) subshell → DENY (subshell bypass closed)" \
-  "(codex exec test)" 60000 deny "20-35 minutes"
+  "(codex exec test)" 60000 deny "20-45 minutes"
 run_test "gemini --approval-mode → DENY (flag-form invocation still denied)" \
-  "gemini --approval-mode yolo" 60000 deny "20-35 minutes"
+  "gemini --approval-mode yolo" 60000 deny "20-45 minutes"
 run_test "gemini --output-format stream-json -p → DENY (flag-form invocation still denied)" \
-  "gemini --output-format stream-json -p test" 60000 deny "20-35 minutes"
+  "gemini --output-format stream-json -p test" 60000 deny "20-45 minutes"
 
 # ── Bypass closure — quoted env-var values (TPR-04-001-gemini) ───────
 # Codex review (gemini reviewer) found that the prior env-var prefix
@@ -195,13 +197,13 @@ run_test "gemini --output-format stream-json -p → DENY (flag-form invocation s
 # prefixing must still reach the codex/gemini command on the right.
 
 run_test 'VAR="val with space" codex exec → DENY (double-quoted env-var value bypass closed)' \
-  'VAR="val with space" codex exec test' 60000 deny "20-35 minutes"
+  'VAR="val with space" codex exec test' 60000 deny "20-45 minutes"
 run_test "VAR='single quoted' codex exec → DENY (single-quoted env-var value bypass closed)" \
-  "VAR='single quoted' codex exec test" 60000 deny "20-35 minutes"
+  "VAR='single quoted' codex exec test" 60000 deny "20-45 minutes"
 run_test 'A=1 B="two words" C=3 codex exec → DENY (mixed quoted and unquoted env-var values)' \
-  'A=1 B="two words" C=3 codex exec test' 60000 deny "20-35 minutes"
+  'A=1 B="two words" C=3 codex exec test' 60000 deny "20-45 minutes"
 run_test 'FOO="bar baz" gemini -p → DENY (quoted env-var + gemini)' \
-  'FOO="bar baz" gemini -p test' 60000 deny "20-35 minutes"
+  'FOO="bar baz" gemini -p test' 60000 deny "20-45 minutes"
 
 # ── Bypass closure — shell-aware bypass forms (TPR-04-001-codex/gemini) ──
 # Seven distinct bypass forms verified against the previous regex-based
@@ -213,19 +215,19 @@ run_test 'FOO="bar baz" gemini -p → DENY (quoted env-var + gemini)' \
 # breaks the matrix.
 
 run_test 'VAR="a\" b" codex exec → DENY (escaped double quote inside env-var value)' \
-  'VAR="a\" b" codex exec test' 60000 deny "20-35 minutes"
+  'VAR="a\" b" codex exec test' 60000 deny "20-45 minutes"
 run_test 'VAR=$(printf "a b") codex exec → DENY ($(...) command substitution)' \
-  'VAR=$(printf "a b") codex exec test' 60000 deny "20-35 minutes"
+  'VAR=$(printf "a b") codex exec test' 60000 deny "20-45 minutes"
 run_test 'VAR=`printf "a b"` codex exec → DENY (backtick command substitution)' \
-  'VAR=`printf "a b"` codex exec test' 60000 deny "20-35 minutes"
+  'VAR=`printf "a b"` codex exec test' 60000 deny "20-45 minutes"
 run_test 'VAR=$(cat <<INNER ... INNER) codex exec → DENY (heredoc inside subshell)' \
-  $'VAR=$(cat <<"INNER"\nhello\nINNER\n) codex exec test' 60000 deny "20-35 minutes"
+  $'VAR=$(cat <<"INNER"\nhello\nINNER\n) codex exec test' 60000 deny "20-45 minutes"
 run_test $'VAR=val \\\\\\ncodex exec → DENY (backslash-newline line continuation)' \
-  $'VAR=val \\\ncodex exec test' 60000 deny "20-35 minutes"
+  $'VAR=val \\\ncodex exec test' 60000 deny "20-45 minutes"
 run_test $'some_cmd\\ncodex exec → DENY (literal newline as command separator)' \
-  $'some_cmd\ncodex exec test' 60000 deny "20-35 minutes"
+  $'some_cmd\ncodex exec test' 60000 deny "20-45 minutes"
 run_test 'VAR=foo<TAB>codex exec → DENY (tab as word separator)' \
-  $'VAR=foo\tcodex exec test' 60000 deny "20-35 minutes"
+  $'VAR=foo\tcodex exec test' 60000 deny "20-45 minutes"
 
 # ── Bypass closure — wrapper commands + token normalization (TPR-04-001-codex/gemini iteration 3) ──
 # Iteration 3 of the dual-source review surfaced 13 additional bypass forms
@@ -236,33 +238,33 @@ run_test 'VAR=foo<TAB>codex exec → DENY (tab as word separator)' \
 # wrapper commands. Each test below pins one of the verified bypass forms.
 
 run_test '"codex" exec → DENY (double-quoted command name)' \
-  '"codex" exec test' 60000 deny "20-35 minutes"
+  '"codex" exec test' 60000 deny "20-45 minutes"
 run_test "'codex' exec → DENY (single-quoted command name)" \
-  "'codex' exec test" 60000 deny "20-35 minutes"
+  "'codex' exec test" 60000 deny "20-45 minutes"
 run_test 'codex"" exec → DENY (trailing empty quotes stripped)' \
-  'codex"" exec test' 60000 deny "20-35 minutes"
+  'codex"" exec test' 60000 deny "20-45 minutes"
 run_test '\codex exec → DENY (backslash-escaped command name)' \
-  '\codex exec test' 60000 deny "20-35 minutes"
+  '\codex exec test' 60000 deny "20-45 minutes"
 run_test 'co\dex exec → DENY (backslash escape inside command name)' \
-  'co\dex exec test' 60000 deny "20-35 minutes"
+  'co\dex exec test' 60000 deny "20-45 minutes"
 run_test 'env FOO=bar codex exec → DENY (env wrapper)' \
-  'env FOO=bar codex exec test' 60000 deny "20-35 minutes"
+  'env FOO=bar codex exec test' 60000 deny "20-45 minutes"
 run_test 'command codex exec → DENY (command builtin wrapper)' \
-  'command codex exec test' 60000 deny "20-35 minutes"
+  'command codex exec test' 60000 deny "20-45 minutes"
 run_test 'exec codex exec → DENY (exec builtin wrapper)' \
-  'exec codex exec test' 60000 deny "20-35 minutes"
+  'exec codex exec test' 60000 deny "20-45 minutes"
 run_test 'timeout 30 codex exec → DENY (timeout wrapper)' \
-  'timeout 30 codex exec test' 60000 deny "20-35 minutes"
+  'timeout 30 codex exec test' 60000 deny "20-45 minutes"
 run_test 'nice -n 10 codex exec → DENY (nice wrapper with flag)' \
-  'nice -n 10 codex exec test' 60000 deny "20-35 minutes"
+  'nice -n 10 codex exec test' 60000 deny "20-45 minutes"
 run_test 'sudo codex exec → DENY (sudo wrapper)' \
-  'sudo codex exec test' 60000 deny "20-35 minutes"
+  'sudo codex exec test' 60000 deny "20-45 minutes"
 run_test 'ssh host codex exec → DENY (ssh wrapper)' \
-  'ssh host codex exec' 60000 deny "20-35 minutes"
+  'ssh host codex exec' 60000 deny "20-45 minutes"
 run_test 'echo args | xargs codex → DENY (xargs wrapper after pipe)' \
-  'echo args | xargs codex exec' 60000 deny "20-35 minutes"
+  'echo args | xargs codex exec' 60000 deny "20-45 minutes"
 run_test 'PATH+=:/tmp codex exec → DENY (+= assignment-word form)' \
-  'PATH+=:/tmp codex exec test' 60000 deny "20-35 minutes"
+  'PATH+=:/tmp codex exec test' 60000 deny "20-45 minutes"
 
 # Wrapper-with-non-review-command must NOT match (no false positives on
 # wrapper commands that don't actually invoke codex/gemini).
@@ -297,27 +299,27 @@ run_test 'nice -n 10 sleep 5 → ALLOW (no codex/gemini at all)' \
 
 # Real bypasses that MUST deny
 run_test '$"codex" exec → DENY (locale-aware dollar-quote)' \
-  '$"codex" exec test' 60000 deny "20-35 minutes"
+  '$"codex" exec test' 60000 deny "20-45 minutes"
 run_test "\$'codex' exec → DENY (ANSI-C dollar-quote)" \
-  "\$'codex' exec test" 60000 deny "20-35 minutes"
+  "\$'codex' exec test" 60000 deny "20-45 minutes"
 run_test 'co\<newline>dex exec → DENY (line continuation inside word)' \
-  $'co\\\ndex exec test' 60000 deny "20-35 minutes"
+  $'co\\\ndex exec test' 60000 deny "20-45 minutes"
 run_test '"co\<newline>dex" exec → DENY (line continuation inside double quotes)' \
-  $'"co\\\ndex" exec test' 60000 deny "20-35 minutes"
+  $'"co\\\ndex" exec test' 60000 deny "20-45 minutes"
 run_test 'eval codex exec → DENY (eval wrapper)' \
-  'eval codex exec test' 60000 deny "20-35 minutes"
+  'eval codex exec test' 60000 deny "20-45 minutes"
 run_test 'time codex exec → DENY (time wrapper)' \
-  'time codex exec test' 60000 deny "20-35 minutes"
+  'time codex exec test' 60000 deny "20-45 minutes"
 
 # Wrapper with flag+value still matches when codex is the wrapped command
 run_test 'sudo -u alice codex → DENY (sudo flag value, codex IS wrapped cmd)' \
-  'sudo -u alice codex exec' 60000 deny "20-35 minutes"
+  'sudo -u alice codex exec' 60000 deny "20-45 minutes"
 run_test 'nice -n 10 codex → DENY (nice flag value, codex IS wrapped cmd)' \
-  'nice -n 10 codex exec' 60000 deny "20-35 minutes"
+  'nice -n 10 codex exec' 60000 deny "20-45 minutes"
 run_test 'xargs -n 1 codex → DENY (xargs flag value, codex IS wrapped cmd)' \
-  'xargs -n 1 codex' 60000 deny "20-35 minutes"
+  'xargs -n 1 codex' 60000 deny "20-45 minutes"
 run_test 'ssh user@host codex → DENY (ssh user@host as positional, codex IS wrapped cmd)' \
-  'ssh user@host codex exec' 60000 deny "20-35 minutes"
+  'ssh user@host codex exec' 60000 deny "20-45 minutes"
 
 # ── Bypass closure — iter 5: long-form flags + sandbox + shell wrappers + shell-string args ──
 # Iteration 5 surfaced: long-form wrapper flag-value pairs (--user value),
@@ -330,47 +332,47 @@ run_test 'ssh user@host codex → DENY (ssh user@host as positional, codex IS wr
 
 # Long-form flag-value bypasses
 run_test 'sudo --user alice codex → DENY (long-form sudo flag with separate value)' \
-  'sudo --user alice codex exec' 60000 deny "20-35 minutes"
+  'sudo --user alice codex exec' 60000 deny "20-45 minutes"
 run_test 'sudo --user=alice codex → DENY (long-form sudo flag with embedded value)' \
-  'sudo --user=alice codex exec' 60000 deny "20-35 minutes"
+  'sudo --user=alice codex exec' 60000 deny "20-45 minutes"
 run_test 'timeout --signal TERM 30 codex → DENY (long-form timeout flag)' \
-  'timeout --signal TERM 30 codex exec' 60000 deny "20-35 minutes"
+  'timeout --signal TERM 30 codex exec' 60000 deny "20-45 minutes"
 run_test 'timeout -k 1 30 codex → DENY (timeout -k flag-value before duration)' \
-  'timeout -k 1 30 codex exec' 60000 deny "20-35 minutes"
+  'timeout -k 1 30 codex exec' 60000 deny "20-45 minutes"
 run_test 'xargs --max-args 1 codex → DENY (long-form xargs flag)' \
-  'xargs --max-args 1 codex' 60000 deny "20-35 minutes"
+  'xargs --max-args 1 codex' 60000 deny "20-45 minutes"
 run_test 'nice --adjustment 10 codex → DENY (long-form nice flag)' \
-  'nice --adjustment 10 codex exec' 60000 deny "20-35 minutes"
+  'nice --adjustment 10 codex exec' 60000 deny "20-45 minutes"
 
 # Profiler / sandbox wrappers
 run_test 'strace codex exec → DENY (strace wrapper)' \
-  'strace codex exec test' 60000 deny "20-35 minutes"
+  'strace codex exec test' 60000 deny "20-45 minutes"
 run_test 'valgrind codex exec → DENY (valgrind wrapper)' \
-  'valgrind codex exec test' 60000 deny "20-35 minutes"
+  'valgrind codex exec test' 60000 deny "20-45 minutes"
 run_test 'firejail codex exec → DENY (firejail sandbox wrapper)' \
-  'firejail codex exec test' 60000 deny "20-35 minutes"
+  'firejail codex exec test' 60000 deny "20-45 minutes"
 run_test 'gdb --args codex → DENY (gdb wrapper)' \
-  'gdb --args codex exec test' 60000 deny "20-35 minutes"
+  'gdb --args codex exec test' 60000 deny "20-45 minutes"
 run_test 'ltrace codex → DENY (ltrace wrapper)' \
-  'ltrace codex exec test' 60000 deny "20-35 minutes"
+  'ltrace codex exec test' 60000 deny "20-45 minutes"
 run_test 'bwrap codex → DENY (bwrap sandbox wrapper)' \
-  'bwrap codex exec test' 60000 deny "20-35 minutes"
+  'bwrap codex exec test' 60000 deny "20-45 minutes"
 
 # Shell wrappers with -c (recursive shell-string classification)
 run_test 'bash -c "codex exec" → DENY (bash -c shell string)' \
-  'bash -c "codex exec"' 60000 deny "20-35 minutes"
+  'bash -c "codex exec"' 60000 deny "20-45 minutes"
 run_test 'sh -c "codex exec" → DENY (sh -c shell string)' \
-  'sh -c "codex exec"' 60000 deny "20-35 minutes"
+  'sh -c "codex exec"' 60000 deny "20-45 minutes"
 run_test 'zsh -c codex → DENY (zsh -c shell string)' \
-  'zsh -c "codex exec"' 60000 deny "20-35 minutes"
+  'zsh -c "codex exec"' 60000 deny "20-45 minutes"
 run_test 'su -c codex root → DENY (su -c shell string with username)' \
-  "su -c 'codex exec' root" 60000 deny "20-35 minutes"
+  "su -c 'codex exec' root" 60000 deny "20-45 minutes"
 
 # Quoted wrapper args (recursive classification)
 run_test 'eval "codex exec" → DENY (eval shell-string positional)' \
-  'eval "codex exec"' 60000 deny "20-35 minutes"
+  'eval "codex exec"' 60000 deny "20-45 minutes"
 run_test 'ssh host "codex exec" → DENY (ssh quoted command string)' \
-  'ssh host "codex exec"' 60000 deny "20-35 minutes"
+  'ssh host "codex exec"' 60000 deny "20-45 minutes"
 
 # Wrapper false positives must still allow
 run_test 'bash my_script.sh → ALLOW (bash with non-c arg, not codex)' \
@@ -390,13 +392,13 @@ run_test 'sh -c "ls" → ALLOW (sh with non-codex shell string)' \
 
 # HIGH: clustered shell short-options (bash -lc 'codex' is bash -l -c 'codex')
 run_test 'bash -lc codex → DENY (clustered -lc form)' \
-  "bash -lc 'codex exec'" 60000 deny "20-35 minutes"
+  "bash -lc 'codex exec'" 60000 deny "20-45 minutes"
 run_test 'bash -ic codex → DENY (clustered -ic form)' \
-  "bash -ic 'codex exec'" 60000 deny "20-35 minutes"
+  "bash -ic 'codex exec'" 60000 deny "20-45 minutes"
 run_test 'zsh -lc codex → DENY (clustered zsh form)' \
-  "zsh -lc 'codex exec'" 60000 deny "20-35 minutes"
+  "zsh -lc 'codex exec'" 60000 deny "20-45 minutes"
 run_test 'env FOO=1 bash -lc codex → DENY (env wrap with cluster)' \
-  "env FOO=1 bash -lc 'codex exec'" 60000 deny "20-35 minutes"
+  "env FOO=1 bash -lc 'codex exec'" 60000 deny "20-45 minutes"
 
 # REGRESSION: su -c username false positive
 run_test "su -c 'ls' codex → ALLOW (codex is the USERNAME, not command)" \
@@ -408,15 +410,15 @@ run_test "su -s /bin/sh -c 'ls' codex → ALLOW (su -s + -c, codex is USER)" \
 
 # Nested wrappers via shell strings (BUG-08-009 coverage)
 run_test 'eval "bash -c codex" → DENY (nested wrapper: eval → bash -c)' \
-  "eval \"bash -c 'codex exec'\"" 60000 deny "20-35 minutes"
+  "eval \"bash -c 'codex exec'\"" 60000 deny "20-45 minutes"
 run_test 'bash -c "sudo codex" → DENY (shell string contains wrapper)' \
-  'bash -c "sudo codex exec"' 60000 deny "20-35 minutes"
+  'bash -c "sudo codex exec"' 60000 deny "20-45 minutes"
 run_test 'ssh host "eval codex" → DENY (ssh → eval → codex)' \
-  'ssh host "eval codex"' 60000 deny "20-35 minutes"
+  'ssh host "eval codex"' 60000 deny "20-45 minutes"
 run_test 'sh -c "env codex exec" → DENY (shell string with env prefix)' \
-  'sh -c "env codex exec"' 60000 deny "20-35 minutes"
+  'sh -c "env codex exec"' 60000 deny "20-45 minutes"
 run_test 'eval "sh -c codex" → DENY (eval → sh -c chain)' \
-  "eval \"sh -c 'codex'\"" 60000 deny "20-35 minutes"
+  "eval \"sh -c 'codex'\"" 60000 deny "20-45 minutes"
 run_test 'bash -c "eval ls" → ALLOW (nested non-codex)' \
   'bash -c "eval ls -la"' 60000 allow
 run_test 'ssh host "bash -c ls" → ALLOW (ssh nested non-codex)' \
@@ -426,11 +428,11 @@ run_test 'eval "sudo ls" → ALLOW (eval → sudo non-codex)' \
 
 # Embedded value forms (gemini iter 6)
 run_test 'bash -c"codex" → DENY (embedded value, no space after -c)' \
-  'bash -c"codex exec"' 60000 deny "20-35 minutes"
+  'bash -c"codex exec"' 60000 deny "20-45 minutes"
 run_test 'sh -c"codex" → DENY (embedded value)' \
-  'sh -c"codex exec"' 60000 deny "20-35 minutes"
+  'sh -c"codex exec"' 60000 deny "20-45 minutes"
 run_test 'bash -lc"codex" → DENY (clustered + embedded value)' \
-  'bash -lc"codex exec"' 60000 deny "20-35 minutes"
+  'bash -lc"codex exec"' 60000 deny "20-45 minutes"
 
 if (( ! QUIET )); then
   printf '\n'

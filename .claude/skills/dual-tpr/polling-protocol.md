@@ -6,7 +6,7 @@ This file replaces the pre-2026-04-08 pattern where each skill inlined its own c
 
 ## Why this exists
 
-After launching a background dual-source transport (codex + gemini in parallel), the operator needs real-time visibility into reviewer state for the entire wait — which can span anywhere from ~20 seconds (trivial smoke-test prompts) up to ~35 minutes (deep code-review prompts where gemini reads many files). Two constraints are load-bearing and non-negotiable:
+After launching a background dual-source transport (codex + gemini in parallel), the operator needs real-time visibility into reviewer state for the entire wait — which can span anywhere from ~20 seconds (trivial smoke-test prompts) up to ~45 minutes (deep code-review prompts where gemini reads many files). Two constraints are load-bearing and non-negotiable:
 
 1. **Visible heartbeats** — the operator MUST see regular output during the wait, not a silent period followed by a completion notification. The prior pattern used `sleep 300 && status-check.sh` with `run_in_background: true`, which produced **zero visible output for the entire 5-minute sleep**. Even worse, foreground Bash calls with `sleep 300` get auto-backgrounded at the 2-minute default timeout, with the same no-visibility result. The fix is SHORT FOREGROUND polls whose stdout lands in the conversation within the Bash foreground timeout window.
 2. **Absolute wall-clock anchors** — every status update MUST include an absolute wall-clock timestamp (`HH:MM:SS TZ`), not relative "T+N min" style. Relative timestamps are unusable because the operator has no anchor for T=0 unless Claude recorded it and echoed it back. Absolute wall-clock is always interpretable.
@@ -61,13 +61,13 @@ Polls must distinguish "reviewer is loading / thinking" from "reviewer is actual
 - Total wall-time: 3-10 minutes on focused empirical questions, 10-15 minutes on deep multi-question prompts.
 
 **Gemini baseline**:
-- May have a **multi-minute cold-start** where `status-check.sh` shows ONLY the initial two events (`[init]` and `[msg.user]`) with no `tool_use` / `tool_result` activity for **up to 4-6 minutes**. This is NOT a failure, NOT a stall, and NOT a prompt-discipline violation — gemini is loading context and planning before it begins reading files. Empirically observed during the TPR-07-022 Q5 follow-up round on 2026-04-08: gemini stayed at 2 events / 5877 bytes for 4.5 minutes, then accelerated to 14 events in the next ~90 seconds and produced a full answer shortly after.
-- Once it starts producing `tool_use` events, it usually finishes within 2-4 additional minutes.
-- Total wall-time: ~3-6 minutes on focused prompts, 10-15 minutes on deep prompts. The 179-second fast-finish in TPR-07-022 round 1 is the lower bound, not the typical case.
+- May have a **long cold-start** where `status-check.sh` shows ONLY the initial two events (`[init]` and `[msg.user]`) with no `tool_use` / `tool_result` activity for **up to 8-10 minutes**. This is NOT a failure, NOT a stall, and NOT a prompt-discipline violation — gemini is loading context and planning before it begins reading files. Gemini is substantially slower than codex in most cases; its cold-start alone can exceed codex's total wall-time. Empirically observed during the TPR-07-022 Q5 follow-up round on 2026-04-08: gemini stayed at 2 events / 5877 bytes for 4.5 minutes, then accelerated to 14 events in the next ~90 seconds and produced a full answer shortly after. Subsequent observations show cold-starts routinely reaching 6-8 minutes on complex prompts.
+- Once it starts producing `tool_use` events, it usually finishes within 3-8 additional minutes.
+- Total wall-time: ~3-8 minutes on focused prompts, 15-30 minutes on deep prompts. The 179-second fast-finish in TPR-07-022 round 1 is the lower bound, not the typical case.
 
 **How to distinguish a real stall from normal cold-start or thinking**:
 - **Codex stalled**: byte count AND event count BOTH unchanged for >5 minutes with no `turn.completed`.
-- **Gemini stalled**: stuck at the initial `[init]` + `[msg.user]` pair for >8 minutes with zero `tool_use` events. Below 8 minutes, assume gemini is still warming up — keep polling.
+- **Gemini stalled**: stuck at the initial `[init]` + `[msg.user]` pair for >14 minutes with zero `tool_use` events. Below 14 minutes, assume gemini is still warming up — keep polling. Gemini is substantially slower than codex; its cold-start can legitimately take 8-10 minutes on complex prompts.
 - **Either reviewer actually failed**: `rc=1` in `round.log` with `walltime < 30s` = early API / transport failure, relaunch needed. `rc=1` with longer walltime usually means prompt discipline violation (gemini tried to write) or a codex sandbox error — inspect the events tail.
 
 When in doubt: poll once more. 75-second cadence is cheap; premature relaunch is expensive (re-does all the file reading the reviewer already invested in).

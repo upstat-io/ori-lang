@@ -37,8 +37,10 @@ BLOCKED_BY_RE = re.compile(r"<!--\s*blocked-by:([A-Za-z0-9.\-]+)(?:\s*-->)?")
 BLOCKED_PROSE_RE = re.compile(r"<!--\s*blocked:\s*(.+?)\s*-->")
 
 # Plan text patterns — file:line references and symbol mentions
-FILE_LINE_RE = re.compile(r"`([a-zA-Z0-9_/.\-]+\.rs):(\d+)`")
-FILE_REF_RE = re.compile(r"`(compiler/[a-zA-Z0-9_/.\-]+\.rs)`")
+# Match .rs and .ori files with line numbers
+FILE_LINE_RE = re.compile(r"`([a-zA-Z0-9_/.\-]+\.(?:rs|ori)):(\d+)`")
+# Match file paths under compiler/, library/, tests/, or bare crate paths
+FILE_REF_RE = re.compile(r"`((?:compiler|library|tests)/[a-zA-Z0-9_/.\-]+\.(?:rs|ori))`")
 BACKTICK_SYMBOL_RE = re.compile(r"`([A-Z][A-Za-z0-9_]+(?:::[A-Za-z0-9_]+)*)`")
 DEFERRAL_WORDS = re.compile(
     r"\b(bonus|future\s+(?:work|improvement|enhancement)|nice[\s-]to[\s-]have|"
@@ -542,6 +544,8 @@ LOW_SIGNAL_SYMBOLS = frozenset({
     "Name", "Span", "ExprId", "TypeId",
     # Common Ori types
     "Duration", "Size", "Point",
+    # Keywords that appear as symbols
+    "Self",
 })
 
 
@@ -567,17 +571,43 @@ class ScopeFootprint:
 
     @property
     def is_empty(self) -> bool:
-        return not self.file_refs and not self.symbols
+        return not self.file_refs and not self.symbols and not self.crates
 
     @property
     def weight(self) -> int:
-        """Rough overlap significance — file refs count 2x, symbols 1x."""
-        return len(self.file_refs) * 2 + len(self.symbols)
+        """Overlap significance — files 3x (strongest signal), crates 2x, symbols 1x.
+
+        Symbol-only overlaps are weakest because plans often discuss types they
+        don't modify. File refs are the strongest signal — they indicate the plan
+        will actually touch those files. Crate overlap is a middle signal — it
+        indicates subsystem-level scope contention.
+        """
+        return len(self.file_refs) * 3 + len(self.crates) * 2 + len(self.symbols)
+
+
+def _canonicalize_file_ref(ref: str) -> str:
+    """Normalize file path references to a canonical form.
+
+    Plans spell paths differently: 'compiler/ori_types/src/foo.rs' vs
+    'ori_types/src/foo.rs'. Canonicalize to 'compiler/' prefix when the
+    path matches a known crate pattern, so overlaps are detected regardless
+    of which spelling a plan author used.
+    """
+    # Already has compiler/ prefix — canonical
+    if ref.startswith("compiler/"):
+        return ref
+    # Bare crate path like 'ori_types/src/...' → 'compiler/ori_types/src/...'
+    m = re.match(r"^(ori_\w+)/", ref)
+    if m:
+        return f"compiler/{ref}"
+    # Non-compiler paths (library/, tests/, docs/, etc.) — keep as-is
+    return ref
 
 
 def extract_section_footprint(section: SectionInfo) -> ScopeFootprint:
     """Extract the scope footprint of a single section."""
-    file_refs = set(section.extract_file_refs()) - LOW_SIGNAL_REFS
+    raw_refs = set(section.extract_file_refs()) - LOW_SIGNAL_REFS
+    file_refs = {_canonicalize_file_ref(r) for r in raw_refs}
     symbols = set(section.extract_symbols()) - LOW_SIGNAL_SYMBOLS
     crates: set[str] = set()
     for fref in file_refs:
@@ -613,7 +643,7 @@ def find_stale_reviews(
     changed_plan: PlanInfo,
     all_plans: list[PlanInfo] | None = None,
     *,
-    min_weight: int = 2,
+    min_weight: int = 3,
 ) -> list[StaleReviewEntry]:
     """Find sections in other plans whose reviewed=true is stale due to scope overlap.
 
@@ -684,13 +714,14 @@ def find_stale_reviews(
 def invalidate_section_review(section: SectionInfo) -> bool:
     """Flip a section's reviewed field from true to false in the file.
 
-    Returns True if the file was modified, False if no change was needed.
+    Returns True if the file was modified, False if no change was needed
+    (already false or field not present).
     """
     text = read_text(section.path)
-    # Match `reviewed: true` in frontmatter (YAML boolean)
+    # Match `reviewed: true` in frontmatter (YAML boolean), allowing trailing comments
     new_text = re.sub(
-        r"^(reviewed:\s*)true\s*$",
-        r"\1false",
+        r"^(reviewed:\s*)true(\s*(?:#.*)?)$",
+        r"\1false\2",
         text,
         count=1,
         flags=re.MULTILINE,

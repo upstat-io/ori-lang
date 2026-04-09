@@ -476,16 +476,30 @@ Bash:
 
 Read `/tmp/plan-invalidate-output.json`. If `status` is `"clean"`, skip to Step 6.
 
-#### 5.5b: Present findings and apply
+#### 5.5b: Present findings to user
 
-If stale sections are found, include them in the Step 6 verdict under a new **Cross-Plan Invalidation** heading. Apply the invalidation automatically for high-weight overlaps (weight ≥ 4) and report all changes:
+If stale sections are found, present them to the user via `AskUserQuestion` using the same approval model as `/create-plan` Step 19 — the mutation policy for cross-plan invalidation is IDENTICAL regardless of which command triggers it:
+
+> **Cross-plan review invalidation detected.**
+>
+> This plan review changed scope that overlaps with **N reviewed sections** across **M other plans**.
+>
+> **High-impact overlaps** (weight ≥ 4): {list}
+> **Lower-impact overlaps** (weight 2-3): {list}
+>
+> Options:
+> 1. **Apply all** — invalidate all N sections
+> 2. **Apply high-impact only** — invalidate only weight ≥ 4
+> 3. **Skip** — leave reviews as-is
+
+If the user approves:
 
 ```
 Bash:
-  python3 .claude/skills/plan-audit/plan-invalidate.py {plan_dir} --apply --min-weight 4
+  python3 .claude/skills/plan-audit/plan-invalidate.py {plan_dir} --apply [--min-weight 4]
 ```
 
-For lower-weight overlaps (weight 2-3), list them as informational — the user can decide whether to invalidate those during the verdict review.
+Include the results in the Step 6 verdict under the Cross-Plan Invalidation heading.
 
 ### Step 6: Present Verdict
 
