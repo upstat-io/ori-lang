@@ -33,9 +33,7 @@ fn make_sig(ownerships: &[Ownership]) -> AnnotatedSig {
     }
 }
 
-// ──────────────────────────────────────────────────────────────────────
 // Resolver-level tests
-// ──────────────────────────────────────────────────────────────────────
 
 #[test]
 fn test_annotate_apply_indirect_from_partial_apply() {

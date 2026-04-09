@@ -95,9 +95,7 @@ fn resolve_const_param_type_none_returns_error() {
     assert_eq!(resolve_const_param_type(&checker, &param), Idx::ERROR);
 }
 
-// ============================================================================
 // Well-Known Type Resolution Sync Test
-// ============================================================================
 
 /// Verify that all three type resolution paths produce the same Tag for
 /// well-known generic types.

@@ -6,9 +6,7 @@
 
 use crate::common::{parse_err, parse_ok};
 
-// =============================================================================
 // Mandatory return type — functions
-// =============================================================================
 
 #[test]
 fn test_function_requires_return_type() {
@@ -32,9 +30,7 @@ fn test_function_no_params_with_return_type_parses() {
     assert_eq!(output.module.functions.len(), 1);
 }
 
-// =============================================================================
 // Mandatory return type — free-floating tests
-// =============================================================================
 
 #[test]
 fn test_free_floating_test_requires_return_type() {
@@ -47,9 +43,7 @@ fn test_free_floating_test_with_return_type_parses() {
     assert_eq!(output.module.tests.len(), 1);
 }
 
-// =============================================================================
 // Mandatory return type — targeted tests
-// =============================================================================
 
 #[test]
 fn test_targeted_test_requires_return_type() {

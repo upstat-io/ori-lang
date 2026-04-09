@@ -21,9 +21,7 @@ use super::{
     compute_let_alias_reps, compute_lineage, compute_lineage_bypass_safe_entries,
 };
 
-// ---------------------------------------------------------------------
 // Helpers for building synthetic CFG shapes.
-// ---------------------------------------------------------------------
 
 /// Build a block with a `Jump` terminator and the given param list.
 fn block_jump(id: u32, params: Vec<ArcVarId>, target: u32, args: Vec<ArcVarId>) -> ArcBlock {
@@ -63,9 +61,7 @@ fn block_return(id: u32, value: ArcVarId) -> ArcBlock {
     }
 }
 
-// ---------------------------------------------------------------------
 // `compute_bypass_safe_blocks`
-// ---------------------------------------------------------------------
 
 /// A take-project block is NEVER bypass-safe (it is in both forward
 /// and backward reachability sets — `is_ownership_transfer` covers
@@ -121,9 +117,7 @@ fn bypass_safe_blocks_includes_diamond_sibling() {
     );
 }
 
-// ---------------------------------------------------------------------
 // `compute_bypass_safe_entries`
-// ---------------------------------------------------------------------
 
 /// A bypass-safe block whose only predecessor is also bypass-safe is
 /// NOT an entry — its drop is inherited from the upstream entry.
@@ -191,9 +185,7 @@ fn bypass_safe_entries_treats_function_entry_specially() {
     );
 }
 
-// ---------------------------------------------------------------------
 // `compute_lineage`
-// ---------------------------------------------------------------------
 
 /// A take-project source has lineage `{i}` — its own index — and any
 /// `Let dst = Var(src)` chain inherits the same lineage.
@@ -321,9 +313,7 @@ fn alias_graph_let_bidirectional_jump_forward_only() {
     );
 }
 
-// ---------------------------------------------------------------------
 // `compute_lineage_bypass_safe_entries`
-// ---------------------------------------------------------------------
 
 /// For a singleton lineage, the result equals the entries of that
 /// single source's bypass-safe set — same as behavior.
@@ -421,9 +411,7 @@ fn lineage_bypass_safe_entries_empty_lineage() {
     assert!(entries.is_empty());
 }
 
-// ---------------------------------------------------------------------
 // `collect_let_edges` and `compute_let_alias_reps`
-// ---------------------------------------------------------------------
 
 /// `collect_let_edges` extracts bidirectional Let alias pairs — used as
 /// the SSOT for Let-edge enumeration by both `build_alias_graph` and

@@ -95,9 +95,7 @@ fn test_parent() {
     assert!(child.parent().is_some());
 }
 
-// ====================================================================
 // Edit distance tests (uses crate::edit_distance from type_error/diff.rs)
-// ====================================================================
 
 use crate::edit_distance;
 
@@ -138,9 +136,7 @@ fn test_default_threshold() {
     assert_eq!(default_threshold(10), 3);
 }
 
-// ====================================================================
 // find_similar tests
-// ====================================================================
 
 /// Create a simple resolver mapping Name(raw) -> &str.
 fn make_resolver<'a>(names: &'a [(u32, &'a str)]) -> impl Fn(Name) -> Option<&'a str> + 'a {

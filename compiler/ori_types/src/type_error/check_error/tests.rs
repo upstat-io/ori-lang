@@ -96,9 +96,7 @@ fn span_method_matches_field() {
     assert_eq!(error.span(), error.span);
 }
 
-// ====================================================================
 // format_message_rich tests
-// ====================================================================
 
 fn identity_type(idx: Idx) -> String {
     idx.display_name().to_string()

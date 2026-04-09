@@ -333,9 +333,7 @@ fn test_aot_derive_multiple_traits() {
     );
 }
 
-// =========================================================================
 // 3.14: Derive hash edge cases (hygiene fixes)
-// =========================================================================
 
 // Derive Hashable with float fields: ±0.0 must produce same hash
 
@@ -367,9 +365,7 @@ fn test_aot_derive_hash_byte_field() {
     );
 }
 
-// =========================================================================
 // C3: Derive Eq on payload sum types (code journey 11)
-// =========================================================================
 
 #[test]
 fn test_aot_derive_eq_payload_sum_type() {

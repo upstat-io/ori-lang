@@ -5,9 +5,7 @@ use ori_ir::{
     BindingPattern, ExprArena, ExprId, Mutability, Name, Span, StringInterner,
 };
 
-// ========================================================================
 // Test Helpers
-// ========================================================================
 
 /// Create test components with interner always set.
 ///
@@ -51,9 +49,7 @@ fn alloc(arena: &mut ExprArena, kind: ExprKind) -> ExprId {
     arena.alloc_expr(Expr::new(kind, span()))
 }
 
-// ========================================================================
 // Literal Inference Tests
-// ========================================================================
 
 #[test]
 fn test_infer_literal_int() {
@@ -164,9 +160,7 @@ fn test_infer_literal_size() {
     assert!(!engine.has_errors());
 }
 
-// ========================================================================
 // Binary Operator Tests
-// ========================================================================
 
 #[test]
 fn test_infer_binary_arithmetic_int() {
@@ -365,9 +359,7 @@ fn test_infer_binary_type_mismatch_reports_error() {
     assert!(engine.has_errors(), "Should report type mismatch error");
 }
 
-// ========================================================================
 // Unary Operator Tests
-// ========================================================================
 
 #[test]
 fn test_infer_unary_neg_int() {
@@ -497,9 +489,7 @@ fn test_infer_unary_try_result() {
     assert!(!engine.has_errors());
 }
 
-// ========================================================================
 // Collection Inference Tests
-// ========================================================================
 
 #[test]
 fn test_infer_empty_list() {
@@ -625,9 +615,7 @@ fn test_infer_map_with_entries() {
     assert!(!engine.has_errors());
 }
 
-// ========================================================================
 // If/Else Inference Tests
-// ========================================================================
 
 #[test]
 fn test_infer_if_with_else() {
@@ -755,9 +743,7 @@ fn test_infer_if_non_bool_condition() {
     );
 }
 
-// ========================================================================
 // Match Expression Tests
-// ========================================================================
 
 #[test]
 fn test_infer_match_simple() {
@@ -863,9 +849,7 @@ fn test_infer_match_arm_type_mismatch() {
     );
 }
 
-// ========================================================================
 // For Loop Tests
-// ========================================================================
 
 #[test]
 fn test_infer_for_do() {
@@ -998,9 +982,7 @@ fn test_infer_for_guard_not_bool() {
     assert!(engine.has_errors(), "Non-bool guard should report error");
 }
 
-// ========================================================================
 // Loop (Infinite) Tests
-// ========================================================================
 
 #[test]
 fn test_infer_infinite_loop() {
@@ -1023,9 +1005,7 @@ fn test_infer_infinite_loop() {
     assert!(!engine.has_errors());
 }
 
-// ========================================================================
 // Identifier and Environment Tests
-// ========================================================================
 
 #[test]
 fn test_infer_ident_bound() {
@@ -1057,9 +1037,7 @@ fn test_infer_ident_unbound() {
     );
 }
 
-// ========================================================================
 // Function Call Tests
-// ========================================================================
 
 #[test]
 fn test_infer_call_simple() {
@@ -1145,9 +1123,7 @@ fn test_infer_call_not_callable() {
     );
 }
 
-// ========================================================================
 // Lambda Tests
-// ========================================================================
 
 #[test]
 fn test_infer_lambda_simple() {
@@ -1217,9 +1193,7 @@ fn test_infer_lambda_with_body_int() {
     assert!(!engine.has_errors());
 }
 
-// ========================================================================
 // Block Tests
-// ========================================================================
 
 #[test]
 fn test_infer_block_empty() {
@@ -1435,9 +1409,7 @@ fn test_infer_block_let_annotation_type_mismatch() {
     assert!(engine.has_errors(), "Type mismatch should produce an error");
 }
 
-// ========================================================================
 // Option/Result Constructor Tests
-// ========================================================================
 
 #[test]
 fn test_infer_some() {
@@ -1503,9 +1475,7 @@ fn test_infer_err() {
     assert!(!engine.has_errors());
 }
 
-// ========================================================================
 // Range Expression Tests
-// ========================================================================
 
 #[test]
 fn test_infer_range_explicit() {
@@ -1533,9 +1503,7 @@ fn test_infer_range_explicit() {
     assert!(!engine.has_errors());
 }
 
-// ========================================================================
 // Assignment Tests
-// ========================================================================
 
 #[test]
 fn test_infer_assign() {
@@ -1574,9 +1542,7 @@ fn test_infer_assign_type_mismatch() {
     );
 }
 
-// ========================================================================
 // Break/Continue Tests
-// ========================================================================
 
 #[test]
 fn test_infer_break() {
@@ -1614,9 +1580,7 @@ fn test_infer_continue() {
     assert!(!engine.has_errors());
 }
 
-// ========================================================================
 // Error Expression Test
-// ========================================================================
 
 #[test]
 fn test_infer_error_expr() {
@@ -1630,9 +1594,7 @@ fn test_infer_error_expr() {
     assert!(!engine.has_errors(), "Error expr itself doesn't add errors");
 }
 
-// ========================================================================
 // Coalesce Operator Tests
-// ========================================================================
 
 #[test]
 fn test_infer_coalesce() {
@@ -1812,9 +1774,7 @@ fn test_infer_coalesce_unwrap_preserved() {
     assert!(!engine.has_errors());
 }
 
-// ========================================================================
 // Pattern Expression Tests (FunctionSeq)
-// ========================================================================
 
 #[test]
 fn test_infer_function_exp_print() {
@@ -2002,9 +1962,7 @@ fn test_infer_function_exp_timeout_rejected() {
     assert!(engine.has_errors(), "should emit unsupported feature error");
 }
 
-// ========================================================================
 // ParsedType Resolution Tests
-// ========================================================================
 
 #[test]
 fn test_resolve_primitive_int() {
@@ -2165,9 +2123,7 @@ fn test_resolve_empty_tuple_is_unit() {
     assert_eq!(ty, Idx::UNIT);
 }
 
-// ========================================================================
 // Trait Satisfaction Tests — Clone on compound types
-// ========================================================================
 
 #[test]
 fn test_clone_satisfied_by_list() {
@@ -2257,9 +2213,7 @@ fn test_clone_not_satisfied_by_range() {
     );
 }
 
-// ========================================================================
 // Trait Satisfaction Tests — Eq satisfied by compound types (§3.14)
-// ========================================================================
 //
 // Compound types satisfy Eq because `.equals()` is implemented in the
 // evaluator and type checker (delivered by roadmap §3.14).
@@ -2330,9 +2284,7 @@ fn test_eq_satisfied_by_tuple() {
     );
 }
 
-// ========================================================================
 // Trait Satisfaction Tests — Len satisfied by tuple (§3.0.1)
-// ========================================================================
 
 #[test]
 fn test_len_satisfied_by_tuple() {
@@ -2378,9 +2330,7 @@ fn test_len_not_satisfied_by_result() {
     );
 }
 
-// ========================================================================
 // Infinite Iterator Detection Tests (W2001)
-// ========================================================================
 
 /// Helper: build a method call expression on a receiver.
 fn method_call(
@@ -2611,9 +2561,7 @@ fn find_infinite_source_unknown_method_returns_none() {
     );
 }
 
-// ========================================================================
 // Trait Satisfaction Sync Tests — Name-based vs String-based
-// ========================================================================
 
 /// Verify that `WellKnownNames::type_satisfies_trait` (Name-based) produces
 /// identical results to the string-based `calls::type_satisfies_trait` for all
@@ -2726,9 +2674,7 @@ fn well_known_trait_satisfaction_sync() {
     }
 }
 
-// ========================================================================
 // Printable Trait Satisfaction — E2038 coverage
-// ========================================================================
 
 /// Verify Printable trait satisfaction for all types relevant to string
 /// interpolation. Primitives with Printable should pass; void should not.
@@ -2798,9 +2744,7 @@ fn printable_satisfaction_primitives_and_compounds() {
     }
 }
 
-// ========================================================================
 // Into Trait — Builtin Method Resolution (§3.17)
-// ========================================================================
 
 /// `int.into()` resolves to `float` via `resolve_builtin_method`.
 #[test]

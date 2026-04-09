@@ -228,9 +228,7 @@ fn rank_management() {
     assert_eq!(engine.current_rank(), Rank::FIRST);
 }
 
-// ========================================
 // Generalization Tests
-// ========================================
 
 #[test]
 fn generalize_monomorphic() {
@@ -297,9 +295,7 @@ fn generalize_does_not_generalize_outer_vars() {
     assert_eq!(vars.len(), 1);
 }
 
-// ========================================
 // Instantiation Tests
-// ========================================
 
 #[test]
 fn instantiate_non_scheme() {
@@ -421,9 +417,7 @@ fn let_polymorphism_example() {
     assert_ne!(engine.resolve(param_int), engine.resolve(param_str));
 }
 
-// ========================================
 // Borrowed Reference Tests
-// ========================================
 
 #[test]
 fn unify_identical_borrowed() {
@@ -526,9 +520,7 @@ fn substitute_through_borrowed() {
     assert_eq!(lt, crate::LifetimeId::STATIC);
 }
 
-// ========================================
 // DoubleEndedIterator Coercion Tests
-// ========================================
 
 #[test]
 fn unify_dei_with_iterator_succeeds() {
