@@ -19,10 +19,9 @@ Bugs in LLVM IR generation, JIT/AOT compilation, monomorphization, ARC pipeline 
 
 ## Open Bugs
 
-- [ ] `[BUG-04-051][high]` **AIMS dead_cleanup source-1 dedup conflates distinct phi-merged block params with the same lineage source set — leaks one value** — found by tpr-review (TPR-07-022 in plans/repr-opt/section-07-enum-repr.md).
-  Repro: two take-project sources flowing through swapped phi-merge params (`pred A: (src0, src1)`, `pred B: (src1, src0)`) share lineage `{0, 1}`, so `lineages_dec_emitted` suppresses the second RcDec. Latent — no source-level repro in current tree (Ori move semantics block the natural swap pattern), but the algorithm is unsound on the IR topology.
-  Location: `compiler/ori_arc/src/aims/emit_rc/dead_cleanup.rs:140-146`, `compiler/ori_arc/src/aims/emit_rc/take_project/mod.rs:272`
-  Impact: memory leak (one enum value never dropped) on any function with two take-project sources meeting at swapped phi params.
+- [x] `[BUG-04-051][high]` **AIMS dead_cleanup source-1 dedup conflates distinct phi-merged block params with the same lineage source set — leaks one value** — found by tpr-review (TPR-07-022 in plans/repr-opt/section-07-enum-repr.md).
+  Resolved: Fixed 2026-04-09 (commit b1c750e8). Replaced lineage-index dedup with Let-alias-representative dedup. Union-find over Let edges only (no Jump edges) identifies true SSA-equivalent variables. Phi params with the same lineage but different Let-alias reps get separate drops. 5 new unit tests: swapped-phi semantic pin, Let-chain negative pin, Project boundary pin, duplicate-Jump interaction pin, edge extraction. 16,927 tests pass.
+  Fix section: `plans/bug-tracker/fix-BUG-04-051.md`
   Subsystem: `ori_arc` (AIMS RC emission)
   Found: 2026-04-07 | Source: tpr-review (Codex iteration on repr-opt §07)
 
