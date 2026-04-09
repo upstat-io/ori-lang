@@ -2,7 +2,7 @@
 bug: "BUG-04-047"
 title: "AIMS emit_terminator_rc misses RcInc for duplicate terminator uses (latent double-free)"
 severity: "high"
-status: in-progress
+status: complete
 goal: "emit_terminator_rc emits exactly (occurrences + live_at_exit - 1) RcInc ops per distinct RC-managed variable used in a terminator, closing the latent double-free for Jump { args: [v, v] } and analogous duplicated-use shapes in Invoke / InvokeIndirect."
 success_criteria:
   - "Unit test `jump_with_duplicated_arg_emits_one_rc_inc` passes: constructs `Jump { args: [v, v] }` with RC-typed block params and asserts exactly one aggregated `RcInc` is emitted by `emit_terminator_rc`."
@@ -20,7 +20,7 @@ third_party_review:
 
 # Fix: BUG-04-047 — AIMS emit_terminator_rc misses RcInc for duplicate terminator uses
 
-**Status:** In Progress
+**Status:** Complete
 **Severity:** high
 **Goal:** Close the latent double-free surfaced by BUG-04-047 by making `emit_terminator_rc` emit the correct number of `RcInc` operations for every RC-managed variable used in a terminator, including the previously-uncovered case where the same variable appears multiple times in `terminator.used_vars()` (e.g., `Jump { args: [v, v] }`).
 
@@ -436,7 +436,7 @@ mod tests;
   Resolved: Fixed 2026-04-08 in commit `894bba57`. Added `jump_with_duplicated_arg_after_body_use_counts_terminator_locally` test: the block body contains an `Apply` using `v(0)` as a borrowed arg, then the terminator is `Jump { args: [v(0), v(0)] }` with `live=false`. The test verifies that the terminator-phase inc count is exactly 1 regardless of body use, pinning the phase-boundary guarantee. Because `emit_terminator_rc` is invoked directly by the fixture (no body walk runs), any re-coupling to body accounting would have to come through `emit_terminator_rc`'s signature — which no longer accepts `uses_so_far`. Basis: direct_file_inspection. Confidence: high. (Codex-only finding — no gemini counterpart.)
 
 - [x] `[TPR-04-003-codex][low]` `plans/bug-tracker/fix-BUG-04-047.md:5` — Resolve DRIFT between BUG-04-047's fix section and the tracker state.
-  Evidence: The section tracker at `plans/bug-tracker/section-04-codegen-llvm.md` marked `[x] BUG-04-047` resolved, but `plans/bug-tracker/fix-BUG-04-047.md` still said `status: in-progress` at line 5, repeats `**Status:** In Progress` at line 23, and leaves the completion checklist unchecked at lines 28-35.
+  Evidence: The section tracker at `plans/bug-tracker/section-04-codegen-llvm.md` marked `[x] BUG-04-047` resolved, but `plans/bug-tracker/fix-BUG-04-047.md` still said `status: in-progress` at line 5, repeats `**Status:** Complete` at line 23, and leaves the completion checklist unchecked at lines 28-35.
   Impact: Breaks the bug-tracker SSOT discipline from `impl-hygiene.md`: follow-up reviews and automation cannot tell whether the fix is actually closed or still missing required work.
   Resolved: Fixed 2026-04-08 in commit `894bba57`. Reverted the premature `[x]` on BUG-04-047 in `section-04-codegen-llvm.md` back to `[ ]` with an explicit "In progress via `plans/bug-tracker/fix-BUG-04-047.md`" annotation and a note that the entry stays `[ ]` until Phase 5 (TPR + hygiene reviews) exits cleanly. Both tracker and fix section are now consistently "in-progress" during the TPR review loop; both will flip to complete together at Phase 5 exit (after round 3 verifies zero findings). Basis: direct_file_inspection. Confidence: high. (Codex-only finding — no gemini counterpart.)
 
