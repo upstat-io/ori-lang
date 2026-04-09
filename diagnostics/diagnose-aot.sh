@@ -8,23 +8,28 @@
 #   --valgrind         Run under Valgrind for memory error detection
 #   --rc-trace         Enable ORI_TRACE_RC=1 during execution and leak check
 #   --verbose          Include disassembly in the report
+#   --release          Use release build (target/release/ori) instead of debug
+#   --both-builds      Run the FULL battery twice (debug then release), compare
 #   --no-color         Disable color output
 #   --color            Force color output (default: auto-detect terminal)
 #   -h, --help         Show this help
 #
 # Runs a battery of diagnostics on an Ori program:
-#   1. Compilation   — Build with ori build, capture timing
+#   1. Compilation   — Build with ori build, capture timing (ORI_VERIFY_ARC=1)
 #   2. Execution     — Run the binary, capture exit code and output
 #   3. Leak Check    — Run with ORI_CHECK_LEAKS=1
 #   4. RC Stats      — Analyze IR for RC operation balance
 #   5. LLVM IR       — Save IR for manual inspection
-#   6. Valgrind      — (if --valgrind) Memory error detection
-#   7. Disassembly   — (if --verbose) Native disassembly saved
+#   6. Codegen Audit — Static RC/COW/ABI analysis via ORI_AUDIT_CODEGEN
+#   7. ARC IR        — Save ARC IR (post-lowering, pre-LLVM) for inspection
+#   8. Valgrind      — (if --valgrind) Memory error detection
+#   9. Disassembly   — (if --verbose) Native disassembly saved
 #
 # Environment:
 #   ORI_BIN    Override path to ori binary
 #
-# Requires: ir-dump.sh, rc-stats.sh, disasm-ori.sh (in same directory)
+# Requires: ir-dump.sh, rc-stats.sh, codegen-audit.sh, arc-dump.sh,
+#           disasm-ori.sh (in same directory)
 #
 # Exit codes:
 #   0 = all checks pass
@@ -36,13 +41,14 @@ set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 source "$SCRIPT_DIR/_common.sh"
-find_ori_bin
 
 # --- Defaults ---
 USE_VALGRIND=0
 USE_RC_TRACE=0
 VERBOSE=0
 USE_COLOR=auto
+USE_RELEASE=0
+USE_BOTH_BUILDS=0
 FILE=""
 
 # --- Parse arguments ---
@@ -51,6 +57,8 @@ while [[ $# -gt 0 ]]; do
         --valgrind) USE_VALGRIND=1; shift ;;
         --rc-trace) USE_RC_TRACE=1; shift ;;
         --verbose) VERBOSE=1; shift ;;
+        --release) USE_RELEASE=1; shift ;;
+        --both-builds) USE_BOTH_BUILDS=1; shift ;;
         --color) USE_COLOR=yes; shift ;;
         --no-color) USE_COLOR=no; shift ;;
         -h|--help)
@@ -114,6 +122,58 @@ else
     SYM_INFO="INFO"
 fi
 
+# --- Resolve binary based on --release / --both-builds ---
+if [[ "$USE_BOTH_BUILDS" -eq 1 ]]; then
+    require_both_builds
+    # --both-builds: run the full battery for each profile
+    # We recurse into ourselves for each profile, then compare
+    color_flag=""
+    [[ "$USE_COLOR" == "yes" ]] && color_flag="--color"
+    [[ "$USE_COLOR" == "no" ]] && color_flag="--no-color"
+
+    extra_flags=()
+    [[ "$USE_VALGRIND" -eq 1 ]] && extra_flags+=(--valgrind)
+    [[ "$USE_RC_TRACE" -eq 1 ]] && extra_flags+=(--rc-trace)
+    [[ "$VERBOSE" -eq 1 ]] && extra_flags+=(--verbose)
+
+    echo ""
+    echo -e "${C_BOLD}═══════════════════════════════════════════════════════${C_NC}"
+    echo -e "${C_BOLD}  Both-Builds Mode: Debug + Release Comparison${C_NC}"
+    echo -e "${C_BOLD}═══════════════════════════════════════════════════════${C_NC}"
+    echo ""
+
+    echo -e "${C_BOLD}━━━ DEBUG BUILD ━━━${C_NC}"
+    debug_exit=0
+    "$0" $color_flag "${extra_flags[@]}" "$FILE" || debug_exit=$?
+    echo ""
+
+    echo -e "${C_BOLD}━━━ RELEASE BUILD ━━━${C_NC}"
+    release_exit=0
+    "$0" --release $color_flag "${extra_flags[@]}" "$FILE" || release_exit=$?
+    echo ""
+
+    echo -e "${C_BOLD}━━━ COMPARISON ━━━${C_NC}"
+    if [[ "$debug_exit" -eq "$release_exit" ]]; then
+        echo -e "  Exit codes: debug=$debug_exit release=$release_exit  ${SYM_PASS}"
+    else
+        echo -e "  Exit codes: debug=$debug_exit release=$release_exit  ${SYM_WARN}  ${C_YELLOW}DIVERGENCE${C_NC}"
+    fi
+    echo ""
+
+    # Exit with failure if either failed
+    if [[ "$debug_exit" -ne 0 ]] || [[ "$release_exit" -ne 0 ]]; then
+        exit 1
+    fi
+    exit 0
+fi
+
+if [[ "$USE_RELEASE" -eq 1 ]]; then
+    find_ori_bin_profile release
+    ORI="$ORI_PROFILE"
+else
+    find_ori_bin
+fi
+
 # --- Setup ---
 tmpdir=$(mktemp -d)
 trap 'rm -rf "$tmpdir"' EXIT
@@ -124,24 +184,27 @@ has_failure=0
 declare -a results
 declare -a result_details
 
+build_profile="debug"
+[[ "$USE_RELEASE" -eq 1 ]] && build_profile="release"
+
 echo ""
-echo -e "${C_BOLD}Diagnostic Report: ${basename_file}${C_NC}"
+echo -e "${C_BOLD}Diagnostic Report: ${basename_file}${C_NC}${C_DIM} (${build_profile})${C_NC}"
 echo "════════════════════════════════════════════════════════"
 echo ""
 
 # ═══════════════════════════════════════════════════════════
 # Section 1: Compilation
 # ═══════════════════════════════════════════════════════════
-echo -e "${C_BOLD}[1/7] Compilation${C_NC}"
+echo -e "${C_BOLD}[1/9] Compilation${C_NC}"
 
 start_time=$(date +%s%N 2>/dev/null || python3 -c "import time; print(int(time.time()*1e9))")
-if "$ORI" build "$FILE" -o "$tmpdir/binary" 2>"$tmpdir/build_err.txt"; then
+if ORI_VERIFY_ARC=1 "$ORI" build "$FILE" -o "$tmpdir/binary" 2>"$tmpdir/build_err.txt"; then
     end_time=$(date +%s%N 2>/dev/null || python3 -c "import time; print(int(time.time()*1e9))")
     elapsed_ms=$(( (end_time - start_time) / 1000000 ))
     elapsed_s=$(awk "BEGIN { printf \"%.2f\", $elapsed_ms / 1000 }")
     results[1]="$SYM_PASS"
-    result_details[1]="${elapsed_s}s"
-    echo -e "  ${SYM_PASS}  Built in ${elapsed_s}s"
+    result_details[1]="${elapsed_s}s (ORI_VERIFY_ARC=1)"
+    echo -e "  ${SYM_PASS}  Built in ${elapsed_s}s  ${C_DIM}(ORI_VERIFY_ARC=1)${C_NC}"
 else
     results[1]="$SYM_FAIL"
     result_details[1]="build failed"
@@ -161,7 +224,7 @@ echo ""
 # ═══════════════════════════════════════════════════════════
 # Section 2: Execution
 # ═══════════════════════════════════════════════════════════
-echo -e "${C_BOLD}[2/7] Execution${C_NC}"
+echo -e "${C_BOLD}[2/9] Execution${C_NC}"
 
 rc_trace_env=()
 if [[ $USE_RC_TRACE -eq 1 ]]; then
@@ -199,7 +262,7 @@ echo ""
 # ═══════════════════════════════════════════════════════════
 # Section 3: Leak Check
 # ═══════════════════════════════════════════════════════════
-echo -e "${C_BOLD}[3/7] Leak Check${C_NC}"
+echo -e "${C_BOLD}[3/9] Leak Check${C_NC}"
 
 leak_env=(env ORI_CHECK_LEAKS=1)
 if [[ $USE_RC_TRACE -eq 1 ]]; then
@@ -232,7 +295,7 @@ echo ""
 # ═══════════════════════════════════════════════════════════
 # Section 4: RC Stats
 # ═══════════════════════════════════════════════════════════
-echo -e "${C_BOLD}[4/7] RC Stats${C_NC}"
+echo -e "${C_BOLD}[4/9] RC Stats${C_NC}"
 
 color_flag="--no-color"
 [[ "$USE_COLOR" == "yes" ]] && color_flag="--color"
@@ -252,7 +315,7 @@ echo ""
 # ═══════════════════════════════════════════════════════════
 # Section 5: LLVM IR
 # ═══════════════════════════════════════════════════════════
-echo -e "${C_BOLD}[5/7] LLVM IR${C_NC}"
+echo -e "${C_BOLD}[5/9] LLVM IR${C_NC}"
 
 ir_file="${tmpdir}/ir-${basename_file%.ori}.ll"
 if "$SCRIPT_DIR/ir-dump.sh" --raw "$FILE" > "$ir_file" 2>/dev/null; then
@@ -268,9 +331,67 @@ fi
 echo ""
 
 # ═══════════════════════════════════════════════════════════
-# Section 6: Valgrind
+# Section 6: Codegen Audit
 # ═══════════════════════════════════════════════════════════
-echo -e "${C_BOLD}[6/7] Valgrind${C_NC}"
+echo -e "${C_BOLD}[6/9] Codegen Audit${C_NC}"
+
+audit_color_flag="--no-color"
+[[ "$USE_COLOR" == "yes" ]] && audit_color_flag="--color"
+
+"$SCRIPT_DIR/codegen-audit.sh" "$audit_color_flag" "$FILE" > "$tmpdir/codegen_audit.txt" 2>&1
+audit_exit=$?
+
+case $audit_exit in
+    0)
+        results[6]="$SYM_PASS"
+        result_details[6]="clean"
+        echo -e "  ${SYM_PASS}  No findings"
+        ;;
+    1)
+        results[6]="$SYM_WARN"
+        result_details[6]="findings detected"
+        echo -e "  ${SYM_WARN}  Findings detected:"
+        sed 's/^/  │ /' "$tmpdir/codegen_audit.txt"
+        ;;
+    2)
+        results[6]="$SYM_FAIL"
+        result_details[6]="compilation/infrastructure failure"
+        has_failure=1
+        echo -e "  ${SYM_FAIL}  Codegen audit failed:"
+        sed 's/^/  │ /' "$tmpdir/codegen_audit.txt"
+        ;;
+    *)
+        results[6]="$SYM_FAIL"
+        result_details[6]="unexpected exit=$audit_exit"
+        has_failure=1
+        echo -e "  ${SYM_FAIL}  Unexpected exit code: $audit_exit"
+        sed 's/^/  │ /' "$tmpdir/codegen_audit.txt"
+        ;;
+esac
+echo ""
+
+# ═══════════════════════════════════════════════════════════
+# Section 7: ARC IR
+# ═══════════════════════════════════════════════════════════
+echo -e "${C_BOLD}[7/9] ARC IR${C_NC}"
+
+arc_file="${tmpdir}/arc-${basename_file%.ori}.txt"
+if "$SCRIPT_DIR/arc-dump.sh" --raw "$FILE" > "$arc_file" 2>/dev/null; then
+    arc_lines=$(wc -l < "$arc_file")
+    results[7]="$SYM_INFO"
+    result_details[7]="${arc_lines} lines → ${arc_file}"
+    echo -e "  ${SYM_INFO}  ${arc_lines} lines saved to ${arc_file}"
+else
+    results[7]="$SYM_FAIL"
+    result_details[7]="ARC IR capture failed"
+    echo -e "  ${SYM_FAIL}  Failed to capture ARC IR"
+fi
+echo ""
+
+# ═══════════════════════════════════════════════════════════
+# Section 8: Valgrind
+# ═══════════════════════════════════════════════════════════
+echo -e "${C_BOLD}[8/9] Valgrind${C_NC}"
 
 if [[ "$USE_VALGRIND" -eq 1 ]]; then
     if command -v valgrind &>/dev/null; then
@@ -278,48 +399,48 @@ if [[ "$USE_VALGRIND" -eq 1 ]]; then
             "$tmpdir/binary" > /dev/null 2>"$tmpdir/valgrind.txt"
         vg_exit=$?
         if [[ $vg_exit -eq 42 ]]; then
-            results[6]="$SYM_FAIL"
-            result_details[6]="errors detected"
+            results[8]="$SYM_FAIL"
+            result_details[8]="errors detected"
             has_failure=1
             echo -e "  ${SYM_FAIL}  Valgrind found errors:"
             grep -E "^==[0-9]+==" "$tmpdir/valgrind.txt" | tail -20 | sed 's/^/  │ /'
         else
-            results[6]="$SYM_PASS"
-            result_details[6]="clean"
+            results[8]="$SYM_PASS"
+            result_details[8]="clean"
             echo -e "  ${SYM_PASS}  No memory errors detected"
         fi
     else
-        results[6]="$SYM_SKIP"
-        result_details[6]="valgrind not installed"
+        results[8]="$SYM_SKIP"
+        result_details[8]="valgrind not installed"
         echo -e "  ${SYM_SKIP}  Valgrind not found (install valgrind)"
     fi
 else
-    results[6]="$SYM_SKIP"
-    result_details[6]="use --valgrind"
+    results[8]="$SYM_SKIP"
+    result_details[8]="use --valgrind"
     echo -e "  ${SYM_SKIP}  Skipped (use --valgrind to enable)"
 fi
 echo ""
 
 # ═══════════════════════════════════════════════════════════
-# Section 7: Disassembly
+# Section 9: Disassembly
 # ═══════════════════════════════════════════════════════════
-echo -e "${C_BOLD}[7/7] Disassembly${C_NC}"
+echo -e "${C_BOLD}[9/9] Disassembly${C_NC}"
 
 if [[ "$VERBOSE" -eq 1 ]]; then
     disasm_file="${tmpdir}/disasm-${basename_file%.ori}.txt"
     if "$SCRIPT_DIR/disasm-ori.sh" --no-color "$FILE" > "$disasm_file" 2>/dev/null; then
         disasm_lines=$(wc -l < "$disasm_file")
-        results[7]="$SYM_INFO"
-        result_details[7]="${disasm_lines} lines → ${disasm_file}"
+        results[9]="$SYM_INFO"
+        result_details[9]="${disasm_lines} lines → ${disasm_file}"
         echo -e "  ${SYM_INFO}  ${disasm_lines} lines saved to ${disasm_file}"
     else
-        results[7]="$SYM_FAIL"
-        result_details[7]="disassembly failed"
+        results[9]="$SYM_FAIL"
+        result_details[9]="disassembly failed"
         echo -e "  ${SYM_FAIL}  Failed to disassemble"
     fi
 else
-    results[7]="$SYM_SKIP"
-    result_details[7]="use --verbose"
+    results[9]="$SYM_SKIP"
+    result_details[9]="use --verbose"
     echo -e "  ${SYM_SKIP}  Skipped (use --verbose to enable)"
 fi
 echo ""
@@ -330,8 +451,8 @@ echo ""
 echo -e "${C_BOLD}Summary${C_NC}"
 echo "════════════════════════════════════════════════════════"
 
-section_names=("" "Compilation" "Execution" "Leak Check" "RC Stats" "LLVM IR" "Valgrind" "Disassembly")
-for i in 1 2 3 4 5 6 7; do
+section_names=("" "Compilation" "Execution" "Leak Check" "RC Stats" "LLVM IR" "Codegen Audit" "ARC IR" "Valgrind" "Disassembly")
+for i in 1 2 3 4 5 6 7 8 9; do
     printf "  [%b]  %-14s %s\n" "${results[$i]}" "${section_names[$i]}" "${result_details[$i]}"
 done
 
