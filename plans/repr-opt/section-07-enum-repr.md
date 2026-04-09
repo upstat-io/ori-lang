@@ -19,7 +19,7 @@ sections:
     status: complete
   - id: "07.1"
     title: "Discriminant Narrowing"
-    status: complete
+    status: in-progress
   - id: "07.2"
     title: "Niche Filling"
     status: in-progress
