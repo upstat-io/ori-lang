@@ -54,23 +54,20 @@ pub(crate) fn emit_dead_at_entry_decs(
             .any(|&(p, _)| p == v)
     };
 
-    // TPR-07-017 / TPR-07-019: track which take-project
-    // lineages have already received a bypass-safe scope-exit dec in
-    // this block, so multiple alias siblings (e.g., `%5` and its Let
-    // alias `%19`, or a phi-merged param and one of its incoming
-    // args) in `entry_states` do not all emit a redundant drop on
-    // the same underlying value. A single `RcDec` on any lineage
-    // member walks the tagged-pointer encoding once and drops the
-    // payload — emitting one per alias would double-free.
+    // TPR-07-017 / TPR-07-019 / TPR-07-022: track which
+    // Let-alias groups have already received a bypass-safe scope-exit
+    // dec in this block. Multiple Let-alias siblings (e.g., `%5` and
+    // its `Let` alias `%19`) in `entry_states` share the same runtime
+    // value — emitting one RcDec per alias would double-free.
     //
-    // Dedup is per-LINEAGE, not per-membership-class. Two vars share
-    // a lineage iff they are SSA-equivalent (Let alias chain or phi
-    // merge at the same param). Vars in the same membership class
-    // but with different lineages (e.g., a singleton-lineage source
-    // var and a mixed-lineage phi param in the same class) are NOT
-    // SSA-equivalent and may legitimately need separate drops at
-    // distinct bypass-safe entries.
-    let mut lineages_dec_emitted: FxHashSet<usize> = FxHashSet::default();
+    // Dedup is per-LET-ALIAS-REPRESENTATIVE, not per-lineage-index.
+    // Two vars share a Let-alias rep iff connected by a chain of
+    // `Let { dst, Var(src) }` instructions (true SSA aliases — same
+    // runtime value). Phi-merged block params that share the same
+    // lineage source set but hold DIFFERENT runtime values get
+    // DIFFERENT Let-alias reps and thus separate RcDecs — this is
+    // the TPR-07-022 fix.
+    let mut let_reps_dec_emitted: FxHashSet<ArcVarId> = FxHashSet::default();
 
     // Source 1: variables in entry_states.
     if let Some(entry_states) = ctx.state_map.block_entry_states(ctx.blk) {
@@ -125,20 +122,22 @@ pub(crate) fn emit_dead_at_entry_decs(
             // `take_move_facts.is_in_class` to skip in-class vars
             // entirely, so it never produces a duplicate dec.
             //
-            // Per-class dedup: only the FIRST alias-class member we
-            // encounter in entry_states gets a dec — emitting for
-            // subsequent siblings (e.g., `%5` then its Let alias
-            // `%19`) would double-free the same underlying value.
+            // Per-Let-alias dedup (TPR-07-022): only the FIRST
+            // variable of each Let-alias group encountered in
+            // entry_states gets a dec — emitting for subsequent Let
+            // aliases (e.g., `%5` then its `Let` alias `%19`) would
+            // double-free the same underlying value. Phi-merged params
+            // with the same lineage but different Let-alias reps get
+            // separate decs (they hold different values at runtime).
             if ctx
                 .take_move_facts
                 .is_bypass_safe_entry_for_var(var, ctx.blk.index())
             {
-                // The predicate guarantees `lineage_of(var)` is
-                // `Some`, but use `if let` to satisfy
-                // `clippy::unwrap_used` and stay panic-free even if
-                // the invariant ever weakens.
-                if let Some(lineage_idx) = ctx.take_move_facts.lineage_of(var) {
-                    if lineages_dec_emitted.insert(lineage_idx) {
+                // `let_alias_rep` is total for in-class vars (returns
+                // `Some(var)` for singletons), so `if let` is
+                // defensive only.
+                if let Some(rep) = ctx.take_move_facts.let_alias_rep(var) {
+                    if let_reps_dec_emitted.insert(rep) {
                         if let Some(strategy) = rc_strategy(ctx.func, var, ctx.pool) {
                             new_body.push(ArcInstr::RcDec { var, strategy });
                         }

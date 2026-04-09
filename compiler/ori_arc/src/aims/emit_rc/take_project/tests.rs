@@ -17,8 +17,8 @@ use crate::ir::{ArcBlock, ArcInstr, ArcTerminator, ArcValue, ArcVarId};
 use crate::test_helpers::{b, make_func, v};
 
 use super::{
-    build_alias_graph, compute_bypass_safe_blocks, compute_bypass_safe_entries, compute_lineage,
-    compute_lineage_bypass_safe_entries,
+    build_alias_graph, collect_let_edges, compute_bypass_safe_blocks, compute_bypass_safe_entries,
+    compute_let_alias_reps, compute_lineage, compute_lineage_bypass_safe_entries,
 };
 
 // ---------------------------------------------------------------------
@@ -419,4 +419,262 @@ fn lineage_bypass_safe_entries_empty_lineage() {
     let predecessors = crate::graph::compute_predecessors(&func);
     let entries = compute_lineage_bypass_safe_entries(&[], &[], 0, &predecessors);
     assert!(entries.is_empty());
+}
+
+// ---------------------------------------------------------------------
+// `collect_let_edges` and `compute_let_alias_reps`
+// ---------------------------------------------------------------------
+
+/// `collect_let_edges` extracts bidirectional Let alias pairs — used as
+/// the SSOT for Let-edge enumeration by both `build_alias_graph` and
+/// `compute_let_alias_reps`.
+#[test]
+fn collect_let_edges_extracts_only_let_var_aliases() {
+    // bb0: Let %1 = Var(%0); Let %3 = Literal(42); Jump bb1(%1)
+    // bb1(%2): Return %2
+    let blocks = vec![
+        ArcBlock {
+            id: b(0),
+            params: vec![],
+            body: vec![
+                ArcInstr::Let {
+                    dst: v(1),
+                    ty: Idx::INT,
+                    value: ArcValue::Var(v(0)),
+                },
+                ArcInstr::Let {
+                    dst: v(3),
+                    ty: Idx::INT,
+                    value: ArcValue::Literal(crate::LitValue::Int(42)),
+                },
+            ],
+            terminator: ArcTerminator::Jump {
+                target: b(1),
+                args: vec![v(1)],
+            },
+        },
+        ArcBlock {
+            id: b(1),
+            params: vec![(v(2), Idx::INT)],
+            body: vec![],
+            terminator: ArcTerminator::Return { value: v(2) },
+        },
+    ];
+    let func = make_func(vec![], Idx::INT, blocks, vec![Idx::INT; 4]);
+    let edges = collect_let_edges(&func);
+    // Only the Let { dst: %1, Var(%0) } should produce an edge.
+    // Let { dst: %3, Unit } is NOT a Var alias.
+    // Jump %1 → %2 is NOT a Let edge.
+    assert_eq!(
+        edges.len(),
+        1,
+        "expected exactly one Let-Var edge, got {edges:?}"
+    );
+    assert!(
+        (edges[0] == (v(0), v(1))) || (edges[0] == (v(1), v(0))),
+        "edge should be (%0, %1) pair, got {edges:?}"
+    );
+}
+
+/// Semantic pin (TPR-07-022): swapped phi-merge params with the same
+/// lineage source set MUST have DIFFERENT Let-alias representatives.
+/// Pre-fix code assigns both the same lineage index → dedup suppresses
+/// one `RcDec` → leak.
+///
+/// Regression: TPR-07-022 lineage dedup too coarse for multi-param phi.
+#[test]
+fn let_alias_rep_swapped_phi_params_get_distinct_reps() {
+    // bb0 (Branch cond) → bb1 (Jump merge(%a, %b)) → bb3 (params: %p0, %p1)
+    //                    → bb2 (Jump merge(%b, %a)) → bb3
+    // bb3: Return %p0
+    //
+    // %p0 has lineage {0,1} (could be %a or %b depending on path)
+    // %p1 has lineage {0,1} (could be %b or %a depending on path)
+    // But %p0 and %p1 are NOT Let-aliases — they are distinct block params.
+    let blocks = vec![
+        block_branch(0, v(99), 1, 2),
+        // bb1: Jump bb3(%a=%0, %b=%1)
+        ArcBlock {
+            id: b(1),
+            params: vec![],
+            body: vec![],
+            terminator: ArcTerminator::Jump {
+                target: b(3),
+                args: vec![v(0), v(1)],
+            },
+        },
+        // bb2: Jump bb3(%b=%1, %a=%0) — SWAPPED order
+        ArcBlock {
+            id: b(2),
+            params: vec![],
+            body: vec![],
+            terminator: ArcTerminator::Jump {
+                target: b(3),
+                args: vec![v(1), v(0)],
+            },
+        },
+        // bb3(params: %p0=%10, %p1=%11): Return %p0
+        ArcBlock {
+            id: b(3),
+            params: vec![(v(10), Idx::INT), (v(11), Idx::INT)],
+            body: vec![],
+            terminator: ArcTerminator::Return { value: v(10) },
+        },
+    ];
+    let func = make_func(vec![], Idx::INT, blocks, vec![Idx::INT; 100]);
+
+    // Build the in-class set (over-approximating membership)
+    let mut in_class = FxHashSet::default();
+    in_class.insert(v(0));
+    in_class.insert(v(1));
+    in_class.insert(v(10));
+    in_class.insert(v(11));
+
+    let reps = compute_let_alias_reps(&func, &in_class);
+
+    // %p0 (v(10)) and %p1 (v(11)) must have DIFFERENT Let-alias reps
+    // because they are NOT connected by any Let edge — they are distinct
+    // block params that receive different values on different CFG paths.
+    let rep_p0 = reps.get(&v(10)).copied();
+    let rep_p1 = reps.get(&v(11)).copied();
+    assert!(
+        rep_p0.is_some(),
+        "%p0 must have a Let-alias rep (it is in_class)"
+    );
+    assert!(
+        rep_p1.is_some(),
+        "%p1 must have a Let-alias rep (it is in_class)"
+    );
+    assert_ne!(
+        rep_p0, rep_p1,
+        "swapped phi params %p0 and %p1 must have DIFFERENT Let-alias reps \
+         (they hold different values at runtime), but both got {rep_p0:?}"
+    );
+}
+
+/// Negative pin: a Let-alias chain MUST share the same representative.
+/// Without this dedup, multiple aliases of the same value would each
+/// get an `RcDec` → double-free.
+///
+/// Regression: ensures the Let-alias dedup is not accidentally removed.
+#[test]
+fn let_alias_chain_shares_single_rep() {
+    // bb0: Let %1 = Var(%0); Let %2 = Var(%1); Return %2
+    let blocks = vec![ArcBlock {
+        id: b(0),
+        params: vec![],
+        body: vec![
+            ArcInstr::Let {
+                dst: v(1),
+                ty: Idx::INT,
+                value: ArcValue::Var(v(0)),
+            },
+            ArcInstr::Let {
+                dst: v(2),
+                ty: Idx::INT,
+                value: ArcValue::Var(v(1)),
+            },
+        ],
+        terminator: ArcTerminator::Return { value: v(2) },
+    }];
+    let func = make_func(vec![], Idx::INT, blocks, vec![Idx::INT; 3]);
+
+    let mut in_class = FxHashSet::default();
+    in_class.insert(v(0));
+    in_class.insert(v(1));
+    in_class.insert(v(2));
+
+    let reps = compute_let_alias_reps(&func, &in_class);
+
+    // All three must share the same representative.
+    let rep0 = reps[&v(0)];
+    let rep1 = reps[&v(1)];
+    let rep2 = reps[&v(2)];
+    assert_eq!(
+        rep0, rep1,
+        "Let aliases %0 and %1 must share the same rep, got {rep0:?} vs {rep1:?}"
+    );
+    assert_eq!(
+        rep1, rep2,
+        "Let aliases %1 and %2 must share the same rep, got {rep1:?} vs {rep2:?}"
+    );
+}
+
+/// Boundary pin: a `Project` instruction does NOT create a Let-alias
+/// relationship. The projected field is a different value than the
+/// source container.
+#[test]
+fn project_does_not_create_let_alias() {
+    // bb0: Project %1 = %0[field 0]; Return %1
+    let blocks = vec![ArcBlock {
+        id: b(0),
+        params: vec![],
+        body: vec![ArcInstr::Project {
+            dst: v(1),
+            ty: Idx::INT,
+            value: v(0),
+            field: 0,
+        }],
+        terminator: ArcTerminator::Return { value: v(1) },
+    }];
+    let func = make_func(vec![], Idx::INT, blocks, vec![Idx::INT; 2]);
+
+    let mut in_class = FxHashSet::default();
+    in_class.insert(v(0));
+    in_class.insert(v(1));
+
+    let reps = compute_let_alias_reps(&func, &in_class);
+
+    let rep0 = reps.get(&v(0)).copied();
+    let rep1 = reps.get(&v(1)).copied();
+    assert_ne!(
+        rep0, rep1,
+        "Project %0 → %1 must NOT create a Let-alias — they are different values, \
+         but got same rep {rep0:?}"
+    );
+}
+
+/// Interaction pin: duplicate Jump args (`Jump(target, [v, v])`) produce
+/// two distinct target block params. Those params must have different
+/// Let-alias reps (they are separate SSA names even though they receive
+/// the same value). BUG-04-047's fix in `forward_walk.rs` handles the
+/// RC balance for duplicate args at the terminator level.
+#[test]
+fn duplicate_jump_args_to_distinct_params_get_distinct_reps() {
+    // bb0: Jump bb1(%0, %0)
+    // bb1(%1, %2): Return %1
+    let blocks = vec![
+        ArcBlock {
+            id: b(0),
+            params: vec![],
+            body: vec![],
+            terminator: ArcTerminator::Jump {
+                target: b(1),
+                args: vec![v(0), v(0)],
+            },
+        },
+        ArcBlock {
+            id: b(1),
+            params: vec![(v(1), Idx::INT), (v(2), Idx::INT)],
+            body: vec![],
+            terminator: ArcTerminator::Return { value: v(1) },
+        },
+    ];
+    let func = make_func(vec![], Idx::INT, blocks, vec![Idx::INT; 3]);
+
+    let mut in_class = FxHashSet::default();
+    in_class.insert(v(0));
+    in_class.insert(v(1));
+    in_class.insert(v(2));
+
+    let reps = compute_let_alias_reps(&func, &in_class);
+
+    // %1 and %2 are distinct block params — NOT Let-aliases of each other.
+    let rep1 = reps.get(&v(1)).copied();
+    let rep2 = reps.get(&v(2)).copied();
+    assert_ne!(
+        rep1, rep2,
+        "distinct block params %1 and %2 from duplicate Jump args must have \
+         different Let-alias reps, but both got {rep1:?}"
+    );
 }
