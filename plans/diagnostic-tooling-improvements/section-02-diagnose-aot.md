@@ -2,7 +2,7 @@
 section: "02"
 title: "Enhance diagnose-aot.sh"
 status: not-started
-reviewed: false
+reviewed: true
 goal: "Add codegen-audit, ARC IR dump, debug+release dual-build, and ORI_VERIFY_ARC to the primary AOT diagnostic tool"
 success_criteria:
   - "diagnose-aot.sh runs codegen-audit.sh as a new section (8/N)"
@@ -37,7 +37,7 @@ sections:
 **Goal:** Make `diagnose-aot.sh` the definitive single-command AOT diagnostic — currently it misses codegen-audit, ARC IR, release builds, and ARC verification. After this section, running `diagnose-aot.sh --both-builds --valgrind file.ori` exercises every diagnostic layer available.
 
 **Success Criteria:**
-- [ ] Codegen-audit runs as section 8 (or 9) of the diagnostic battery
+- [ ] Codegen-audit runs as section 6 of the 9-section diagnostic battery
 - [ ] ARC IR dump runs as a section, saving ARC IR alongside LLVM IR
 - [ ] `--release` flag builds/runs against release binary
 - [ ] `--both-builds` runs the FULL battery twice (debug + release) and highlights divergences
@@ -54,20 +54,20 @@ sections:
 
 **File(s):** `diagnostics/diagnose-aot.sh`
 
-Add two new sections to the 7-section diagnostic battery, making it 9 sections.
+Add two new sections to the 7-section diagnostic battery, making it 9 sections (numbered sequentially 1-9).
 
-- [ ] Add **Section 8: Codegen Audit** after LLVM IR (Section 5):
+- [ ] Add **Section 6: Codegen Audit** after LLVM IR (Section 5):
   - Run `codegen-audit.sh --no-color "$FILE"` (or `--color` based on color mode)
   - Capture exit code and output
   - Map: exit 0 = PASS (no findings), exit 1 = WARN (findings detected), exit 2 = FAIL (compilation or infrastructure failure — surface the error, do not skip)
   - Display findings inline
-- [ ] Add **Section 9: ARC IR** after Codegen Audit:
+- [ ] Add **Section 7: ARC IR** after Codegen Audit:
   - Run `arc-dump.sh --raw "$FILE"` to capture ARC IR
   - Save to `$tmpdir/arc-${basename_file%.ori}.txt`
   - Report line count (INFO status, same pattern as LLVM IR section)
-- [ ] Update section numbering: renumber existing sections 6 (Valgrind) and 7 (Disassembly) to 10 and 11
-- [ ] Update section header `[N/M]` labels to reflect new total (11 sections)
-- [ ] Update summary table to include new sections
+- [ ] Renumber existing Section 6 (Valgrind) → **Section 8** and Section 7 (Disassembly) → **Section 9** (sequential numbering, no gaps)
+- [ ] Update all `[N/M]` labels from `[N/7]` to `[N/9]` to reflect new total (9 sections)
+- [ ] Update `section_names` array in the summary block to include new sections and new numbering
 - [ ] Enable `ORI_VERIFY_ARC=1` during the compilation step (Section 1) to catch ARC IR verification failures
 - [ ] Verify: `diagnostics/diagnose-aot.sh diagnostics/fixtures/simple.ori` shows all sections including new ones
 
