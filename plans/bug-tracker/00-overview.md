@@ -108,4 +108,4 @@ See `plan-schema.md` § "Bug Fix Section Template" for the full template.
 | 05 | Runtime & ARC | `section-05-runtime-arc.md` | 0 |
 | 06 | Stdlib | `section-06-stdlib.md` | 0 |
 | 07 | Tooling & CLI | `section-07-tooling-cli.md` | 3 |
-| 08 | Spec & Docs | `section-08-spec-docs.md` | 5 |
+| 08 | Spec & Docs | `section-08-spec-docs.md` | 4 |
