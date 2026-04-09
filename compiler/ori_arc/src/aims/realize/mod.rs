@@ -24,6 +24,7 @@
 pub mod decide;
 mod emit_unified;
 pub mod metrics;
+mod project_escape;
 #[cfg(test)]
 mod tests;
 mod walk;
