@@ -22,6 +22,8 @@ Create a new plan directory with index and section files using the standard plan
 - `description`: Optional one-line description of the plan's goal
 - **Existing plan mode**: If the input references an existing plan directory (e.g., "add X to plans/repr-opt", "add section to roadmap"), this command operates in **Existing Plan Mode** — see the dedicated section below.
 
+**Output directory override**: Set `ORI_PLAN_ROOT` to redirect plan output to a different root directory. When set, all plan files are written under `$ORI_PLAN_ROOT/{name}/` instead of `plans/{name}/`. Default behavior (no env var) is unchanged. This is primarily for test harnesses that need to exercise `/create-plan` non-destructively without writing into the repo's `plans/` directory.
+
 ---
 
 ## Mode Detection
@@ -617,16 +619,20 @@ Present:
 
 ### Step 10: Create Directory Structure
 
-Create the plan directory:
+**Plan root**: Use `$ORI_PLAN_ROOT` if set, otherwise `plans`. Check with `echo ${ORI_PLAN_ROOT:-plans}` — this is the base directory for the plan.
+
+Create the plan directory under the plan root:
 
 ```
-plans/{name}/
+{plan_root}/{name}/
 ├── index.md           # Already created in Step 8
 ├── 00-overview.md     # Already created in Step 8
 ├── section-01-*.md    # Written sequentially starting here
 ├── section-02-*.md    # Written after section-01 is complete
 └── section-NN-*.md    # Written after all prior sections are complete
 ```
+
+Where `{plan_root}` is `${ORI_PLAN_ROOT:-plans}`. When `ORI_PLAN_ROOT` is not set, this resolves to the standard `plans/{name}/`.
 
 ### Step 11: Write Sections Sequentially
 
@@ -746,7 +752,7 @@ Show the user:
 
 ```
 Skill: review-plan
-Args: plans/{name}/
+Args: {plan_root}/{name}/
 ```
 
 This runs the formal review pipeline as defined in the `/review-plan` skill. It will edit the plan files directly to fix any issues.
