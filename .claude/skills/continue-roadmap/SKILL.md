@@ -1,6 +1,5 @@
 ---
 name: continue-roadmap
-model: sonnet
 description: Resume work on the Ori compiler roadmap, picking up where we left off
 argument-hint: "[section]"
 ---
