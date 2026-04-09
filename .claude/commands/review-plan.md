@@ -1,16 +1,14 @@
 ---
 name: review-plan
-description: Review and improve a plan for accuracy, correctness, feasibility, strategic cohesion, executability, and testing rigor — expand to fulfill the mission, never scope down. Uses a convergence loop to pressure-test solutions until they are systematic and cross-section-coherent.
+description: Review and improve a plan for accuracy, correctness, feasibility, strategic cohesion, executability, and testing rigor — expand to fulfill the mission, never scope down. Runs blind spot analysis, a merged 4-lens Sonnet editing agent, then /tpr-review (using review-plan skill) until clean.
 allowed-tools: Read, Grep, Glob, Agent, AskUserQuestion, Bash, Edit, Write, LSP, Skill
 ---
 
 # Review Plan Command
 
-Review and improve a plan using a **4-tier pipeline** that combines cheap mechanical verification (Tiers 0–1), grounded architectural editing (Tier 2), and adversarial convergence review (Tier 3). The convergence loop runs dual-source reviewers (Codex + Gemini) against the Opus architect's output and iterates — fix findings, re-review — until both reviewers return clean.
+Review and improve a plan using a **4-phase pipeline**: mechanical pre-check, blind spot analysis, a merged 4-lens Sonnet editing agent, and adversarial `/tpr-review` convergence using the plan-specific reviewer skill.
 
-**Design rationale:** Plans are upstream of code — a flawed plan multiplies into flawed code across every section. One-shot consultation (`/tp-help`) gives two first impressions; a convergence loop (`/tpr-review`-style) produces solutions that survive adversarial pressure from multiple angles across multiple rounds. Each iteration forces deeper analysis: round 1 catches obvious issues, round 2 tests the quality of your fixes, round 3+ filters out everything except systematic, holistic, cross-cutting solutions.
-
-**Cross-section coherence is the primary review target.** Each section is a chapter in a story whose thesis is the plan's mission statement. The hardest failure mode is sections that are locally correct but globally incoherent — they solve their own problem without accounting for constraints from prior sections or obligations to downstream sections. The convergence loop specifically targets this: reviewers are grounded in the full plan narrative (mission + all completed sections) and must evaluate how each section fits the whole, not just whether it's internally sound.
+**Design rationale:** Plans are upstream of code — a flawed plan multiplies into flawed code across every section. The Sonnet agent does the volume work (all 4 review lenses merged into one pass), then `/tpr-review` applies adversarial pressure with the reviewer-side `review-plan` skill — which understands mission criteria, cross-section coherence, and executability rather than code correctness.
 
 ## Reviewed Field Semantics — CRITICAL
 
@@ -19,10 +17,10 @@ The `reviewed: true/false` field in section frontmatter is a **pre-implementatio
 **Two modes — the mode determines whether `reviewed` gets flipped:**
 
 **Single-section review** (`/review-plan plans/foo/section-03.md`):
-This is the pre-implementation gate. After the pipeline completes (including convergence), flip `reviewed: true` — unless issues remain that could NOT be resolved (requiring human judgement), in which case leave `reviewed: false`.
+This is the pre-implementation gate. After the FULL pipeline completes — Sonnet agent AND `/tpr-review` clean pass — flip `reviewed: true` in a final step. Do NOT flip it inside the Sonnet agent. Exception: if issues remain that could NOT be resolved (requiring human judgement), leave `reviewed: false`.
 
 **Whole-plan review** (`/review-plan plans/foo/`):
-Improves quality across all sections, but does **NOT** change any `reviewed` values. Fix content issues, but leave every section's `reviewed` field as-is.
+Improves quality across all sections, but does **NOT** change any `reviewed` values. Fix content issues, but leave every section's `reviewed` field as-is — including missing fields (do not add `reviewed: false` to sections that lack the field).
 
 ## Usage
 
@@ -31,8 +29,10 @@ Improves quality across all sections, but does **NOT** change any `reviewed` val
 ```
 
 - `plan-path`: **Required.** Path to the plan directory or a specific plan file.
-  - If a directory: reviews all files in the directory
-  - If a single file: reviews that file (and reads siblings for context)
+  - If a directory: whole-plan review mode
+  - If a single file: single-section review mode (reads sibling files for context)
+
+---
 
 ## Workflow
 
@@ -44,441 +44,317 @@ Improves quality across all sections, but does **NOT** change any `reviewed` val
 Read file: CLAUDE.md
 ```
 
-### Step 1: Tier 0 — Static Analysis via `plan-audit.py`
+### Step 1: Determine Review Mode and Normalize Paths
 
-Run the mechanical audit script. This auto-fixes deterministic metadata drift and produces a structured JSON packet for downstream agents.
+Inspect `$ARGUMENTS`:
 
+- **Single-file input** (e.g. `plans/foo/section-03.md`):
+  - Mode: **single-section**
+  - `{plan_dir}` = parent directory (e.g. `plans/foo/`)
+  - `{target_section}` = the specific file (e.g. `section-03.md`)
+  - Agent scope: read ALL sibling files for context, but edits are limited to `{target_section}` only unless structural necessity requires touching `00-overview.md` or `index.md`
+  - `reviewed` flip: happens AFTER Phase 4 (tpr-review) clean pass — NOT inside the agent
+
+- **Directory input** (e.g. `plans/foo/`):
+  - Mode: **whole-plan**
+  - `{plan_dir}` = the directory
+  - `{target_section}` = N/A (all sections)
+  - Agent scope: read and edit ALL files in `{plan_dir}/`
+  - `reviewed` flip: NEVER — whole-plan review does not touch `reviewed` fields
+
+If the path doesn't exist, report the error and stop.
+
+### Step 2: Plan-Wide Accuracy Pre-Check
+
+**Only the heuristic/semantic check** — the mechanical STATUS_DRIFT check is handled by Phase 1 (`plan-audit.py`).
+
+Read every section file's frontmatter and identify **"effectively complete" sections**: sections where all own implementation work is done but marked `in-progress` because of external blockers. If a section's remaining unchecked items are ALL blocked by external issues (not the section's own work), fix the status to `complete` with a blocker note.
+
+Report to the user: "Pre-check: fixed N effectively-complete sections. Running Phase 1..."
+
+### Step 3: Phase 1 — Static Analysis via `plan-audit.py`
+
+Run the mechanical audit script. Auto-fixes deterministic metadata drift and produces a structured JSON packet.
+
+```bash
+python3 .claude/skills/plan-audit/plan-audit.py {plan_dir} --fix-safe --apply --json > /tmp/plan-audit-output.json 2>/tmp/plan-audit-fixes.log
 ```
-Bash:
-  python3 .claude/skills/plan-audit/plan-audit.py {plan_dir} --fix-safe --apply --json > /tmp/plan-audit-output.json 2>/tmp/plan-audit-fixes.log
-```
 
-Read the fix log first to see what metadata was auto-corrected:
+Read both outputs:
 ```
 Read file: /tmp/plan-audit-fixes.log
-```
-
-Then read the JSON output:
-```
 Read file: /tmp/plan-audit-output.json
 ```
 
-Report to the user:
-- How many metadata fixes were applied
-- Summary: "Tier 0 found N findings (X critical, Y major, Z minor)"
-- Note: "Running Tier 1 semantic audit..."
+**Capture the following for Phase 3 handoff:**
+- Total findings: N critical, M major, K minor
+- Auto-fixed: list what was corrected
+- Remaining findings (not auto-fixable): verbatim list with location and message — these are passed to the agent
 
-### Step 2: Tier 1 — Sonnet Semantic Auditor (READ-ONLY)
+Report to the user: "Phase 1: N findings (X critical, Y major, Z minor), M auto-fixed. Running /tp-help..."
 
-Spawn a **Sonnet** agent that consumes the Tier 0 JSON packet and uses LSP to semantically verify plan references. This agent has **NO edit authority** — it produces findings only.
+### Step 4: Phase 2 — `/tp-help` Blind Spot Analysis
 
-**IMPORTANT**: Use `model: "sonnet"` to ensure this runs on the cheaper model.
+Invoke `/tp-help` and wait for it to complete before proceeding:
+
+```
+Skill: tp-help
+```
+
+Provide a prompt that includes:
+- The plan's mission/goal (from overview)
+- The section list with their goals and statuses
+- A brief summary of the plan's scope (which crates, which subsystems)
+- Whether this is a single-section or whole-plan review
+
+Ask specifically:
+- "Given this plan's scope, what are the most likely failure modes the review should watch for?"
+- "What architectural risks or blind spots would you flag?"
+- "Are there cross-cutting concerns that might fall between section boundaries?"
+
+**Capture the following for Phase 3 handoff:**
+- Key blind spots identified (bullet list, ≤10 items)
+- Architectural risks flagged
+- Cross-cutting concerns
+
+Report to the user: "Phase 2 complete. Running Sonnet editing agent..."
+
+### Step 5: Phase 3 — Sonnet Editing Agent (All 4 Lenses Merged)
+
+Spawn a **Sonnet** agent with full edit authority. This agent merges the scope of the original 4 sequential review agents into one pass.
+
+**IMPORTANT**: Use `model: "sonnet"`. Do NOT flip `reviewed` fields inside this agent — that happens after Phase 4.
 
 ```
 Agent (model: sonnet):
-  You are a semantic auditor for Ori compiler plans. Your job is to verify plan accuracy using LSP tools and produce findings. You have NO permission to edit any plan files — you are read-only.
 
-  CRITICAL PREREQUISITE: Read CLAUDE.md first (every word):
-  ```
-  Read file: CLAUDE.md
-  ```
+You are reviewing a plan for the Ori compiler at {plan_dir}/.
 
-  Then read the Tier 0 audit results:
-  ```
-  Read file: /tmp/plan-audit-output.json
-  ```
+**Review mode: {single-section: edit {target_section} only (read siblings for context) | whole-plan: edit all files}**
 
-  ## Your Task
+You have FULL AUTHORITY to make ANY structural change within your edit scope:
+- **Add new sections** if coverage gaps exist
+- **Remove sections** that are redundant or misguided
+- **Merge sections** that are artificially split
+- **Split sections** that try to do too much (especially 20+ checklist items)
+- **Reorder sections** if the dependency flow is wrong
+- **Rewrite the overview and index** to match structural changes
+- **Restructure the entire plan** if the current organization doesn't serve the mission
+- **Rewrite checklist items** that are vague, wrong, or missing the point
+- **Change section boundaries** — move items between sections if they belong elsewhere
 
-  Read all plan files in {plan_dir}/. Then perform these verification passes:
+The plan exists to serve the mission. If the structure fights the mission, change the structure. Never scope down.
 
-  ### Pass 1: Classify Tier 0 Findings
-  Review each finding in the JSON. For DEAD_PATH findings, check if the path refers to a file that WILL be created by the plan (false positive) or is genuinely missing (true positive). For DEFERRAL_LANG findings, check if the context is actually deferral or just descriptive language. Output a classified list.
+**DO NOT touch `reviewed` fields** — those are handled by a separate final step.
 
-  ### Pass 2: LSP Semantic Verification
-  For the most critical symbols and file references in the plan (prioritize WHERE: anchors and symbols being modified), use LSP to verify:
-
-  1. **Symbol existence** — use `workspaceSymbol` for bare symbol names to confirm they exist
-  2. **Canonical home** — use `goToDefinition` to verify symbols are where the plan says
-  3. **Kind/signature** — use `hover` to check the plan's claims (enum vs struct, function signatures)
-  4. **Blast radius** — for symbols being modified, use `findReferences` to check how many call sites are affected
-  5. **Phase bleeding** — use `incomingCalls` on critical functions to verify no cross-phase violations
-  6. **BLOAT check** — use `documentSymbol` on files the plan will modify that Tier 0 flagged as near the 500-line limit
-
-  Priority order for LSP checks:
-  - Explicit file:line references from `file_line_refs` in the JSON
-  - Symbols being modified (mentioned in unchecked `- [ ]` items)
-  - Repeated symbols across sections (from `symbols` list in JSON)
-  - Section-boundary symbols (in depends_on chains)
-
-  Do NOT verify every symbol — focus on the 15-20 most critical.
-
-  ### Pass 3: Checklist Quality Assessment
-  For each incomplete section:
-  - Are checklist items concrete and actionable (not vague like "improve X")?
-  - Does the section have a test strategy with matrix dimensions?
-  - Does the completion checklist have mandatory items (test-all.sh, TPR, hygiene)?
-  - Are CLAUDE.md rules embedded in items, not just referenced?
-
-  ### Pass 4: Cross-Section Dependency Analysis
-  Using Tier 0's FILE_CONTENTION findings plus LSP call hierarchy, identify:
-  - Implicit dependencies between sections (Section 2 modifies a function Section 5 calls)
-  - Missing depends_on links
-  - Ordering risks
-
-  ## Output Format
-
-  Produce a structured findings report as a single markdown document. Group by severity (Critical > Major > Minor). Each finding must include:
-  - Category (DRIFT/GAP/WASTE/BLOAT/LEAK/EXPOSURE per impl-hygiene.md)
-  - Location (file:line or section reference)
-  - What's wrong and what should change
-  - Whether this needs Opus attention or is informational
-
-  End with a "Needs Opus Attention" section listing only the findings that require architectural judgment to resolve.
-```
-
-Read the Sonnet agent's output. Extract the "Needs Opus Attention" items.
-
-### Step 3: Tier 2 — Opus Architect (SOLE WRITER, GROUNDED IN FULL NARRATIVE)
-
-Spawn an **Opus** agent that receives the pre-digested findings and has **full restructuring authority**. This is the only agent that edits plan files.
-
-**CRITICAL — Grounding mandate:** Before making ANY edits, the Opus architect MUST read the full plan narrative to understand the story. This is what prevents locally-correct-but-globally-incoherent edits:
-
-1. Read the plan's **overview/index** — understand the mission statement, success criteria, and the section dependency graph
-2. Read **ALL completed sections** (status: complete or in-progress with work already done) — understand what decisions were already made, what constraints they impose, what APIs/representations were chosen
-3. Read the **current section(s) under review** — understand how they claim to fit the narrative
-4. Articulate (in the agent's own reasoning): "The mission is X. Sections 1–N decided Y. This section must therefore Z." This forces coherence before editing begins.
+## CRITICAL PREREQUISITE: Read CLAUDE.md (every word)
 
 ```
-Agent:
-  You are the architect reviewing and improving an Ori compiler plan at {plan_dir}/.
-
-  You have FULL AUTHORITY to make ANY structural change: add, remove, merge, split, reorder sections, rewrite the overview/index, restructure the entire plan. The plan exists to serve the mission — if the structure fights the mission, change the structure.
-
-  CRITICAL PREREQUISITE: Read CLAUDE.md first (every word):
-  ```
-  Read file: CLAUDE.md
-  ```
-
-  Then load the hygiene rules:
-  ```
-  Read file: .claude/rules/impl-hygiene.md
-  Read file: .claude/rules/compiler.md
-  Read file: .claude/rules/tests.md
-  ```
-
-  ## GROUNDING — Full Plan Narrative (MANDATORY BEFORE ANY EDITS)
-
-  Before you write a single character, build a mental model of the entire plan:
-
-  1. Read the plan's overview/index file — understand the MISSION, success criteria, and section dependency graph
-  2. Read ALL completed or in-progress sections — understand what decisions have been made, what constraints they impose, what representations/APIs were chosen, what invariants were established
-  3. Read the section(s) under review
-  4. Before editing, write down (in your reasoning) a brief narrative summary:
-     - "The mission is: ..."
-     - "Prior sections decided: ..."
-     - "This section must therefore: ..."
-     - "This section sets up downstream sections by: ..."
-
-  This grounding step is NON-NEGOTIABLE. Edits made without understanding the full narrative produce locally-correct-but-globally-incoherent plans — the exact failure mode this pipeline exists to prevent.
-
-  ## Pre-Digested Context
-
-  ### Tier 0 Audit (deterministic findings — trust these):
-  {Insert Tier 0 JSON summary: finding counts, critical/major findings, section manifest}
-
-  ### Tier 1 Semantic Audit (verify critical findings before acting):
-  {Insert Sonnet agent's "Needs Opus Attention" section}
-
-  ## Your Mission
-
-  Read ALL plan files in {plan_dir}/. Then:
-
-  ### Part 1: Technical Accuracy & Feasibility
-  - Cross-reference technical claims against the actual codebase
-  - For inaccuracies, EDIT the plan files directly
-  - If a step is infeasible, EXPAND the approach — never scope down
-  - Use LSP (goToDefinition, hover) for spot-checks on any symbol you're unsure about
-
-  ### Part 2: Strategic Cohesion & Mission Fulfillment
-  - Verify the plan works as ONE cohesive strategy — not N independent sections
-  - Every mission criterion must trace to at least one section
-  - Flag and fix deferral traps: "bonus", "future", "nice to have" → concrete mandatory tasks
-  - Verify depends_on chains and sequential flow
-  - **Cross-section coherence**: does each section's approach respect the constraints imposed by prior sections AND properly set up downstream sections? A section that contradicts a prior decision or fails to provide what a later section needs is a COHERENCE violation — the highest-priority finding category.
-
-  ### Part 3: Section Executability & Testing Rigor
-  - Every checklist item must be concrete and verifiable
-  - Every code-modifying section needs: matrix tests, semantic pins, TDD ordering
-  - Sections with <3 items: expand. Sections with 20+ items: split.
-  - Embed CLAUDE.md rules in items, not just reference them
-  - Verify completion checklists have: test-all.sh, TPR, hygiene, plan-sync
-
-  ### Part 4: Codebase Scan (targeted, not exhaustive)
-  - For files flagged by Tier 0/1 (DEAD_PATH, BLOAT_RISK, FILE_CONTENTION), verify and fix
-  - Weave "fix along the way" items for BLOAT/WASTE/DRIFT findings
-
-  ### Part 5: Final Integration
-  - Verify `reviewed` field:
-    - Single-section review: set `reviewed: true` after confirming accuracy (unless unfixable issues remain)
-    - Whole-plan review: do NOT change any `reviewed` values
-  - Verify success criteria hierarchy (mission → section → checklist)
-  - Update overview/index to match any structural changes
-  - Remove all `<!-- reviewed: ... -->` comment markers
-
-  ## CRITICAL RULES
-  1. NEVER scope down — always expand
-  2. No deferral traps — every checkbox must be implementable
-  3. Testing rigor is non-negotiable (matrix, semantic pins, TDD)
-  4. Rules woven in, not assumed — plans are self-contained execution documents
-  5. Verify Tier 1 critical findings before acting on them — Sonnet can be wrong
-  6. Plan-sync on section completion: frontmatter, overview, index, cross-links
-  7. COHERENCE is king — every edit must be evaluated against the full plan narrative, not just the local section
-
-  After editing, list what you changed and why.
+Read file: CLAUDE.md
 ```
 
-Read the Opus agent's output. Note what changes were made.
-
-### Step 4: Tier 3 — Convergence Review Loop (Dual-Source)
-
-This is the core quality gate. After the Opus architect has edited the plan, run dual-source adversarial review with a convergence loop — fix findings and re-review until both Codex and Gemini return zero actionable findings.
-
-**This replaces the former one-shot `/tp-help` consultation.** The convergence loop ensures solutions survive adversarial pressure across multiple rounds. Round 1 catches obvious issues; round 2 tests the quality of your fixes; round 3+ filters out everything except systematic, holistic solutions.
-
-#### State Machine
-
+Then load the hygiene and testing rules:
 ```
-iteration_counter = 0
-while iteration_counter < 5:
-    RUN = scratch-dir.sh
-    write codex.prompt.md and gemini.prompt.md into RUN (plan-review-specific)
-    if dual-invoke-with-retry.sh fails:
-        surface failure category + $RUN to user via AskUserQuestion
-        EXIT
-    else:
-        merged = merge-findings.py(codex.envelope.json, gemini.envelope.json)
-        if merged has zero actionable findings:
-            CLEAN PASS — exit with iteration_counter for the report
-        for each actionable finding in merged:
-            fix the plan (edit plan files directly)
-            run plan-audit.py --verify to confirm structural integrity
-        iteration_counter += 1
-# After 5 iterations without clean:
-surface remaining findings to user via AskUserQuestion
+Read file: .claude/rules/impl-hygiene.md
+Read file: .claude/rules/compiler.md
+Read file: .claude/rules/tests.md
 ```
 
-**Max iterations: 5** (not 10 like code TPR — plan edits are cheaper and faster than code fixes, so fewer iterations are needed to converge; if 5 rounds don't converge, there's likely a fundamental design disagreement that needs human judgement).
+## Context from Prior Phases
 
-#### 4a. Create a per-run scratch directory
+### Phase 1 — plan-audit.py remaining findings (trust these — deterministic):
+{Paste verbatim: location + message for each remaining finding not auto-fixed}
 
-```
-Bash:
-  RUN=$(.claude/skills/dual-tpr/scripts/scratch-dir.sh)
-  echo "$RUN"
-```
+### Phase 2 — /tp-help blind spots:
+{Paste: bullet list of blind spots, risks, cross-cutting concerns}
 
-#### 4b. Write both reviewer prompts (PLAN-REVIEW-SPECIFIC)
+---
 
-The reviewer prompts are the critical differentiator from code TPR. Reviewers must be grounded in the **full plan narrative** and evaluate **cross-section coherence**, not just local correctness.
+## Part 1: Technical Accuracy & Feasibility
 
-```
-Bash:
-  cat > "$RUN/codex.prompt.md" <<'PROMPT'
-  Run the /review-work skill in envelope-only mode. Emit the JSON
-  envelope per .claude/skills/dual-tpr/findings-schema.json; do NOT
-  write findings to plan files.
+1. Read ALL files in {plan_dir}/
+2. Cross-reference every technical claim against the actual codebase:
+   - Do referenced files, types, functions, modules exist?
+   - Are crate dependency assumptions correct? (`ori_lexer → ori_parse → ori_ir → ori_types → ori_eval → ori_llvm → oric`)
+   - Are described code patterns accurate?
+3. Check claims against the spec in `docs/ori_lang/v2026/spec/` (`grammar.ebnf`, `operator-rules.md`, clause files)
+4. For every inaccuracy found, EDIT the plan files directly to fix them
+5. For each section, assess whether the described implementation approach will actually work:
+   - Can each checklist item be implemented as described?
+   - Are there hidden prerequisites or dependencies not mentioned?
+   - Does the approach handle the full problem space, or only a subset?
+   - Are there architectural constraints (file size limits, phase boundaries, crate deps) that would block the approach?
+6. If a step is infeasible:
+   - Do NOT remove it or mark it as "future work"
+   - EXPAND the approach: add prerequisite steps, restructure the section, or add a new section that addresses the blocker
+7. Structural assessment — step back and assess the plan AS A WHOLE:
+   - Is this the right set of sections? Would a different decomposition serve the mission better?
+   - Are sections at the right granularity?
+   - Does the section ordering reflect actual implementation dependencies?
+   - If you see a better structure, IMPLEMENT IT — don't just note it
 
-  ## HARD RULES — ABSOLUTE, NO EXCEPTIONS
-  1. You are READ-ONLY. Do NOT edit, create, or delete ANY file. Your output is the JSON envelope ONLY.
-  2. Every finding must use the finding categories from impl-hygiene.md (LEAK, DRIFT, GAP, WASTE, COHERENCE, BLOAT, NOTE).
-  3. You MUST ground yourself in the full plan narrative before reviewing any section.
+Add a brief comment near each fix: `<!-- reviewed: accuracy/feasibility fix -->`
 
-  ## Grounding — read these files FIRST before reviewing
+---
 
-  Before you look at any plan content, read these files in full:
+## Part 2: Mission Fulfillment & Strategic Cohesion
 
-  1. CLAUDE.md (project root)
-  2. .claude/rules/impl-hygiene.md
-  3. .claude/rules/tests.md
-  4. .claude/rules/compiler.md
+8. Identify the plan's stated mission/goal and mission success criteria (from `00-overview.md`)
+9. Verify the success criteria hierarchy:
+   - Does `00-overview.md` have a "Mission Success Criteria" section with concrete, testable criteria?
+   - Does every section have `success_criteria` in its frontmatter AND a "Success Criteria" block in its body?
+   - Does every mission criterion trace to at least one section that delivers it?
+   - Does every section criterion connect upward to at least one mission criterion?
+   - Are all criteria concrete and testable — not "X works" but "X produces Y when Z is run"?
+   - If missing or vague, ADD them. A section without success criteria is not executable.
+10. For each aspect of the mission, verify there is at least one section that addresses it. If the plan ends at 70% of the mission, add sections for the remaining 30%.
+11. Blocker resolution — verify the plan identifies and resolves ALL blockers between the current codebase state and the mission's goals:
+    - Are there UNIDENTIFIED blockers? Search the codebase, roadmap, bug-tracker, and other plans.
+    - If a blocker is tracked elsewhere, this plan must include resolving it with cross-links (`<!-- resolves: plans/... -->`)
+12. Verify that sections can be worked in order (section N before section N+1):
+    - Does each section's output provide what the next needs?
+    - Are there circular dependencies? (Resolve by reordering or splitting)
+13. Flag and fix deferral traps: "bonus", "future", "lower priority", "nice to have", "stretch goal", "requires architectural change" → concrete mandatory tasks or explicit `<!-- blocked-by:X -->`. Remove all soft deferral language.
 
-  ## Scope: Plan review — {plan_dir}
+Add a brief comment near each addition: `<!-- reviewed: cohesion fix -->`
 
-  You are reviewing a PLAN, not code. Your job is to evaluate the plan's proposed solutions for:
+---
 
-  ### 1. Cross-Section Coherence (HIGHEST PRIORITY)
-  Read the plan's overview/index to understand the mission. Then read ALL sections (completed and pending). For each section under review, ask:
-  - Does this section's approach RESPECT constraints imposed by prior completed sections?
-  - Does this section properly SET UP what downstream sections need?
-  - Does the solution serve the plan's mission, or just solve a local problem?
-  - If a prior section chose representation X, does this section honor that choice or silently contradict it?
-  - Would implementing this section in sequence after prior sections actually work, or would it require rework?
+## Part 3: Section Executability & Codebase Hygiene
 
-  A section that is internally correct but globally incoherent is a COHERENCE finding — the most severe category.
+14. For each section, assess executability — could an implementer sit down and work through every checklist item in order?
+    - Is each checklist item a concrete, verifiable task (WHAT + WHERE)?
+    - Are there hidden steps between checklist items?
+    - Would an implementer need to make design decisions not covered by the plan?
+15. For vague or under-specified items, EXPAND them:
+    - Break into specific sub-items with file paths and approach
+    - Add "WHERE:" annotations when the location isn't obvious
+16. If a section is too thin (fewer than 3 substantive items), expand it — research the codebase to add concrete items.
+17. If a section is too large (20+ items, or mixes unrelated concerns), SPLIT IT.
+18. Reorder items within sections if they violate crate dependency ordering.
+19. **Rules weaving** — CLAUDE.md and `.claude/rules/*.md` constraints must be embedded organically in checklist items, not assumed:
+    - "Add variant X, update match arms at `file.rs:123` and `other.rs:456`" NOT "Add variant (remember sync points)"
+    - Key rules: TDD discipline (tests.md), file size limits, crate ordering, registration sync, ARC invariants, phase boundaries, test conventions
+    - If a section touches a subsystem but doesn't embed its rules, ADD the relevant constraints inline
+20. **Codebase scan** — extract from the plan every file path, crate, and module that will be touched. READ those files (up to 30 files; prioritize files mentioned in multiple sections). Look for issues the plan should address:
+    - **BLOAT**: Files over 500 lines the plan will touch but doesn't plan to split
+    - **WASTE**: Dead code, stale comments, unnecessary clones in touched files
+    - **DRIFT**: Registration sync points already out of sync
+    - **EXPOSURE/LEAK**: Phase bleeding in files the plan modifies
+    - NOTE: Do NOT re-verify file existence or line-level accuracy — Phase 1 already covered DEAD_PATH deterministically. Focus on architectural issues requiring judgment.
+21. Weave "fix along the way" checklist items for real findings (file:line required — no fabrication):
+    - `- [ ] **[BLOAT]** file:line — Split into submodules (currently N lines)`
+    - `- [ ] **[DRIFT]** file:line — Sync missing variant at other_file:line`
+    - Group under "Cleanup" sub-heading if 3+ findings per section.
 
-  ### 2. Solution Quality
-  - Are proposed solutions systematic and holistic, or narrow and local?
-  - Do they account for cross-cutting concerns (type checker + evaluator + LLVM + tests all need updating)?
-  - Are there simpler correct approaches the plan missed?
-  - Would this solution survive implementation, or will it hit walls the plan doesn't anticipate?
+Add a brief comment near each change: `<!-- reviewed: executability/hygiene fix -->`
 
-  ### 3. Technical Accuracy
-  - Are file paths, symbol names, and function signatures correct?
-  - Are the claims about how the codebase works actually true?
-  - Do the depends_on chains reflect real implementation dependencies?
+---
 
-  ### 4. Testing & Verification Strategy
-  - Are test matrices genuinely comprehensive, or do they just look comprehensive?
-  - Are semantic pins and negative pins specified for each section?
-  - Does the test strategy cover cross-section interactions?
+## Part 4: Testing Rigor & Final Integration
 
-  {Additional context: Tier 0/1 summary findings, specific areas of concern}
-  PROMPT
+22. For EVERY section that modifies compiler code, verify it has a test strategy meeting CLAUDE.md requirements:
+    - **Matrix tests**: type × pattern dimensions explicitly named
+    - Semantic pin: at least one test that ONLY passes with the new semantics
+    - TDD ordering: failing tests FIRST, debug+release verification LAST
+    - If missing → ADD concrete test checklist items:
+      - `- [ ] Write failing test matrix BEFORE implementation` (FIRST item)
+      - `- [ ] Verify all tests pass in both debug and release` (LAST item)
+      - `- [ ] Add semantic pin test that only passes with new behavior`
+23. Review for clarity and internal consistency:
+    - Is terminology consistent across sections?
+    - Does the overview accurately reflect the section contents?
+    - Are there contradictions between sections?
+    - Fix inconsistencies and update overview/index to reflect current structure.
+24. Remove all `<!-- reviewed: ... -->` comments left during prior parts of this review.
+25. **Plan-sync line items** — verify every section's completion checklist includes:
+    - Section frontmatter status update
+    - `00-overview.md` Quick Reference table and mission success criteria checkboxes
+    - `index.md` section status
+    - Cross-links to other plans (if section resolves external blockers)
+    - Next section's `depends_on` verification
+    - If missing → ADD from the template in `plan-schema.md`
+26. **Final coherence check**: read through the entire plan one more time. Does it tell a complete, sequential story? Is this the RIGHT plan for the mission?
 
-  cat > "$RUN/gemini.prompt.md" <<'PROMPT'
-  Activate the review-work skill and follow its instructions exactly.
-  Emit the JSON envelope per .claude/skills/dual-tpr/findings-schema.json;
-  do NOT write findings to plan files.
+---
 
-  ## HARD RULES — ABSOLUTE, NO EXCEPTIONS
-  1. You are READ-ONLY. Do NOT edit, create, or delete ANY file. Your output is the JSON envelope ONLY.
-  2. Every finding must use the finding categories from impl-hygiene.md (LEAK, DRIFT, GAP, WASTE, COHERENCE, BLOAT, NOTE).
-  3. You MUST ground yourself in the full plan narrative before reviewing any section.
+## Critical Rules
 
-  ## Grounding — read these files FIRST before reviewing
+- NEVER scope down — always expand. "Requires architectural change" is not a reason to defer — it IS the work.
+- No deferral traps — every checkbox must be implementable.
+- Be specific — every change needs evidence: a spec clause, a file:line, or concrete reasoning.
+- Cross-reference, don't guess — read spec files and source code.
+- Do NOT dismiss TPR findings as "unrelated" or "out of scope" — per CLAUDE.md there is no such thing. Only reject findings that are factually incorrect.
+- Testing rigor is non-negotiable — matrix tests, semantic pins, TDD ordering, debug+release.
+- Success criteria mandatory at both mission and section levels, connected bidirectionally.
+- Rules woven in, not assumed — plans are self-contained execution documents.
+- Plan-sync on section completion — frontmatter, overview, index, cross-links, next section's depends_on.
+- **DO NOT touch `reviewed` fields** — handled by a separate final step after tpr-review.
 
-  Before you look at any plan content, read these files in full:
-
-  1. CLAUDE.md (project root)
-  2. .claude/rules/impl-hygiene.md
-  3. .claude/rules/tests.md
-  4. .claude/rules/compiler.md
-
-  ## Scope: Plan review — {plan_dir}
-
-  You are reviewing a PLAN, not code. Your job is to evaluate the plan's proposed solutions for:
-
-  ### 1. Cross-Section Coherence (HIGHEST PRIORITY)
-  Read the plan's overview/index to understand the mission. Then read ALL sections (completed and pending). For each section under review, ask:
-  - Does this section's approach RESPECT constraints imposed by prior completed sections?
-  - Does this section properly SET UP what downstream sections need?
-  - Does the solution serve the plan's mission, or just solve a local problem?
-  - If a prior section chose representation X, does this section honor that choice or silently contradict it?
-  - Would implementing this section in sequence after prior sections actually work, or would it require rework?
-
-  A section that is internally correct but globally incoherent is a COHERENCE finding — the most severe category.
-
-  ### 2. Solution Quality
-  - Are proposed solutions systematic and holistic, or narrow and local?
-  - Do they account for cross-cutting concerns (type checker + evaluator + LLVM + tests all need updating)?
-  - Are there simpler correct approaches the plan missed?
-  - Would this solution survive implementation, or will it hit walls the plan doesn't anticipate?
-
-  ### 3. Technical Accuracy
-  - Are file paths, symbol names, and function signatures correct?
-  - Are the claims about how the codebase works actually true?
-  - Do the depends_on chains reflect real implementation dependencies?
-
-  ### 4. Testing & Verification Strategy
-  - Are test matrices genuinely comprehensive, or do they just look comprehensive?
-  - Are semantic pins and negative pins specified for each section?
-  - Does the test strategy cover cross-section interactions?
-
-  {Additional context: Tier 0/1 summary findings, specific areas of concern}
-  PROMPT
-```
-
-#### 4c. Launch the dual-source transport in the background
-
-```
-Bash (run_in_background: true):
-  .claude/skills/dual-tpr/scripts/dual-invoke-with-retry.sh \
-    --run "$RUN" \
-    --skill review-work \
-    --codex-prompt "$RUN/codex.prompt.md" \
-    --gemini-prompt "$RUN/gemini.prompt.md" \
-    --schema .claude/skills/dual-tpr/findings-schema.json
-```
-
-**DO NOT:**
-- Run the transport in the Bash foreground
-- Set a `timeout:` parameter on the Bash call
-- Wrap the transport in an Agent subagent
-- Poll `$RUN/*.envelope.json` or `$RUN/merged.json` mid-stream (atomic-write files)
-
-#### Polling Protocol — Canonical SSOT
-
-Follow `.claude/skills/dual-tpr/polling-protocol.md` verbatim. Poll `status-check.sh "$RUN" --events 5` at ~75-second intervals with absolute wall-clock timestamps. See the polling protocol file for full rules.
-
-@.claude/skills/dual-tpr/polling-protocol.md
-
-#### 4d. On success: merge and verify findings
-
-When the completion notification arrives AND the transport exited 0:
-
-```
-Bash:
-  .claude/skills/dual-tpr/scripts/merge-findings.py \
-    --codex "$RUN/codex.envelope.json" \
-    --gemini "$RUN/gemini.envelope.json" \
-    --section "XX" \
-    --out "$RUN/merged.json"
+After editing, list what you changed and why.
 ```
 
-Read `$RUN/merged.json`. For EVERY finding, independently verify the claim against the actual plan files and codebase before acting on it — reviewer findings are hypotheses, not facts. Trust tiers: Codex = HIGH (spot-check); Gemini = LOWER (full verification needed, confabulation-prone).
+Read the agent's output. Note what changes were made.
 
-#### 4e. If zero actionable findings → CLEAN PASS (EXIT to Step 5)
+### Step 6: Phase 4 — Run `/tpr-review` with `review-plan` Skill (MANDATORY)
 
-Report: "Convergence review passed clean on iteration N — both reviewers returned zero actionable findings."
+**CRITICAL: Run the actual `/tpr-review` skill using the Skill tool with plan-review context.** Do NOT reimplement the review logic. The reviewers will use their `review-plan` skill (not `review-work`) which is specifically designed for plan analysis — mission criteria, cross-section coherence, executability.
 
-#### 4f. If actionable findings exist → fix plan and re-run
-
-For each verified actionable finding:
-1. **Edit the plan files directly** — this is plan review, not code review. Fixes are plan text edits: restructured sections, rewritten approaches, added cross-references, expanded test matrices, corrected technical claims.
-2. **For COHERENCE findings** (cross-section issues): read both the offending section AND the section(s) it conflicts with. Fix the incoherence at the right level — sometimes it's the current section that needs to change, sometimes it's a prior section's constraint that was wrong.
-3. Run `plan-audit.py --verify` to confirm structural integrity after edits.
-
-Then **go back to Step 4a** (create fresh scratch dir, re-run both reviewers on the fixed plan).
-
-#### 4g. After 5 iterations without clean pass → user escalation
-
-Surface remaining merged findings to the user via `AskUserQuestion`:
-- Summary of iterations run and findings per iteration
-- Whether progress is being made (findings decreasing) or oscillating (likely a fundamental design tension)
-- The current finding list
-- Ask: continue past the cap, file remaining findings and proceed, or discuss the recurring design tension?
-
-### Step 5: Tier 0 Post-Edit Verification
-
-Run the audit script again to verify structural integrity after all edits (Opus + convergence loop fixes):
+When writing reviewer prompts (inside the tpr-review skill's Step 2), use the **`review-plan` activation preambles** from `transport.md`:
+- Codex: `Run the /review-plan skill in envelope-only mode.`
+- Gemini: `Activate the review-plan skill and follow its instructions exactly.`
 
 ```
-Bash:
-  python3 .claude/skills/plan-audit/plan-audit.py {plan_dir} --verify --json > /tmp/plan-audit-verify.json 2>&1
+Skill: tpr-review
 ```
 
-Read the results. If critical findings remain, report them to the user.
+`/tpr-review` will:
+- Launch Codex and Gemini in parallel using the `review-plan` reviewer skill
+- Merge findings from both reviewers
+- Fix actionable findings directly
+- Re-run until both reviewers return zero actionable findings (max 10 iterations)
 
-### Step 5.5: Cross-Plan Review Invalidation
+Wait for `/tpr-review` to complete. Capture for the verdict:
+- Iterations to converge (or "max reached")
+- Per-iteration finding counts
 
-**When to run:** This step runs when the review made **significant changes** to the plan — specifically, changes that alter which files, types, or subsystems the plan's sections reference. Skip this step if the review only made cosmetic/formatting changes.
+### Step 7: Flip `reviewed` Field (Single-Section Mode Only)
 
-**Purpose:** If the review changed a plan's scope (added/removed file references, changed implementation approach, restructured sections), those changes may invalidate `reviewed: true` sections in OTHER plans that overlap with the changed plan's scope. This is the same cache coherence problem as `/create-plan` Step 19, but triggered by review edits instead of plan creation.
+**Only in single-section mode.** After Phase 4 returns a clean pass:
 
-#### 5.5a: Run invalidation detection
+- Set `reviewed: true` in `{target_section}`'s frontmatter
+- Exception: if Phase 4 surfaced unfixable issues requiring human judgement, leave `reviewed: false` and report to user
 
+**In whole-plan mode: skip this step entirely.**
+
+### Step 8: Post-Edit Verification (Loop Until Clean)
+
+Run the audit script and loop until no critical findings remain:
+
+```bash
+python3 .claude/skills/plan-audit/plan-audit.py {plan_dir} --verify --json > /tmp/plan-audit-verify.json 2>&1
 ```
-Bash:
-  python3 .claude/skills/plan-audit/plan-invalidate.py {plan_dir} --json > /tmp/plan-invalidate-output.json
+
+Read the results. If critical or major findings remain:
+1. Fix them
+2. Re-run the audit
+3. Repeat until the result is clean (zero critical, zero major)
+
+### Step 8.5: Cross-Plan Review Invalidation
+
+**When to run:** Only when the review made significant changes — changes that alter which files, types, or subsystems the plan's sections reference. Skip if only cosmetic/formatting changes.
+
+#### 8.5a: Run invalidation detection
+
+```bash
+python3 .claude/skills/plan-audit/plan-invalidate.py {plan_dir} --json > /tmp/plan-invalidate-output.json
 ```
 
-Read `/tmp/plan-invalidate-output.json`. If `status` is `"clean"`, skip to Step 6.
+Read output. If `status` is `"clean"`, skip to Step 9.
 
-#### 5.5b: Present findings to user
+#### 8.5b: Present findings to user
 
-If stale sections are found, present them to the user via `AskUserQuestion` using the same approval model as `/create-plan` Step 19 — the mutation policy for cross-plan invalidation is IDENTICAL regardless of which command triggers it:
+If stale sections are found, present via `AskUserQuestion`:
 
 > **Cross-plan review invalidation detected.**
 >
@@ -492,37 +368,31 @@ If stale sections are found, present them to the user via `AskUserQuestion` usin
 > 2. **Apply high-impact only** — invalidate only weight ≥ 4
 > 3. **Skip** — leave reviews as-is
 
-If the user approves:
+If approved:
 
+```bash
+python3 .claude/skills/plan-audit/plan-invalidate.py {plan_dir} --apply [--min-weight 4]
 ```
-Bash:
-  python3 .claude/skills/plan-audit/plan-invalidate.py {plan_dir} --apply [--min-weight 4]
-```
 
-Include the results in the Step 6 verdict under the Cross-Plan Invalidation heading.
-
-### Step 6: Present Verdict
-
-Consolidate findings into a summary:
+### Step 9: Present Verdict
 
 ```
 ## Plan Review: {plan name}
 
 ### Pipeline Summary
-- **Tier 0** (static analysis): {N} findings, {M} auto-fixed
-- **Tier 1** (Sonnet semantic audit): {N} findings, {M} needing Opus attention
-- **Tier 2** (Opus architect): {changes made}
-- **Tier 3** (convergence review): {iterations to clean | max iterations reached}
-  - Iteration 1: {N} findings ({M} COHERENCE, {K} other)
-  - Iteration 2: {N} findings ...
-  - ...
-- **Post-edit verification**: {CLEAN | N remaining findings}
-
-### Changes Made
-{List of edits by category: accuracy fixes, structural changes, coherence fixes, test strategy additions, hygiene weaves}
-
-### Convergence History
-{For each iteration: what findings were surfaced, what was fixed, what changed between rounds. This is the audit trail showing how the plan was pressure-tested.}
+- **Pre-check**: {N effectively-complete sections corrected}
+- **Phase 1** (plan-audit.py): {N} findings, {M} auto-fixed; {K} remaining passed to agent
+- **Phase 2** (/tp-help): {N} blind spots identified
+- **Phase 3** (Sonnet agent):
+  - Structural changes: {sections added/removed/merged/split/reordered}
+  - Accuracy fixes: {N}
+  - Cohesion fixes: {N}
+  - Hygiene items woven: {N by category}
+  - Test strategy gaps filled: {N}
+- **Phase 4** (/tpr-review with review-plan skill): {clean on iteration N | max reached with N remaining}
+  - Iteration 1: {N} findings
+  - Iteration 2: {N} findings (if applicable)
+- **Post-edit verification**: {CLEAN | N remaining findings after fixes}
 
 ### Review Status
 | Section | `reviewed` Before | `reviewed` After | Reason |
@@ -530,9 +400,7 @@ Consolidate findings into a summary:
 | ... | ... | ... | ... |
 
 ### Cross-Plan Invalidation
-{If Step 5.5 ran: report how many sections in other plans were flipped from reviewed: true → false, and why.}
-{If Step 5.5 was skipped (cosmetic changes only): "No cross-plan invalidation needed — review changes were cosmetic."}
-{If Step 5.5 found no overlaps: "No cross-plan invalidation needed — no overlapping scopes."}
+{Results or "Skipped — changes were cosmetic."}
 
 ### Remaining Concerns
 {Issues requiring human judgement, ranked Critical > Major > Minor}
@@ -541,26 +409,33 @@ Consolidate findings into a summary:
 
 ## Verdict
 
-**{CLEAN | MINOR FIXES APPLIED | SIGNIFICANT REWORK APPLIED | RESTRUCTURED | CONVERGED AFTER N ROUNDS | NEEDS MANUAL ATTENTION}**
+**{CLEAN | MINOR FIXES APPLIED | SIGNIFICANT REWORK APPLIED | RESTRUCTURED | NEEDS MANUAL ATTENTION}**
 
-{2-3 sentence assessment. Total edits across all tiers. Convergence behavior (clean on round 1 = high confidence; clean on round 3+ = the plan needed real work and got it).}
+{2-3 sentence assessment. Total edits across all phases.}
 ```
+
+**Verdict definitions:**
+- **CLEAN**: No issues found. Plan is ready for implementation.
+- **MINOR FIXES APPLIED**: Small corrections. Plan is ready.
+- **SIGNIFICANT REWORK APPLIED**: Substantial edits (reordered steps, added missing sections, fixed incorrect assumptions). Review the diff before proceeding.
+- **RESTRUCTURED**: Plan structure fundamentally changed. Review the new structure before proceeding.
+- **NEEDS MANUAL ATTENTION**: Issues requiring human judgement. Cannot be auto-fixed.
+
+---
 
 ## Important Rules
 
-1. **Tier 2 (Opus) has FULL AUTHORITY** — add, remove, merge, split, reorder sections, restructure entirely.
-2. **Tier 1 (Sonnet) is READ-ONLY** — findings and annotations only, no edits.
-3. **Tier 0 auto-fixes are limited to --fix-safe** — only deterministic metadata corrections.
-4. **Tier 3 reviewers are READ-ONLY** — they produce findings envelopes only; Claude fixes the plan.
-5. **Cross-section coherence is the primary target** — locally correct but globally incoherent is the worst failure mode.
-6. **Grounding is mandatory** — Opus and both reviewers MUST read the full plan narrative before reviewing any section.
+1. **`/tpr-review` is MANDATORY** — every plan review runs it. No exceptions. Uses `review-plan` reviewer skill.
+2. **Skill invocations are self-contained** — `Skill: tp-help` and `Skill: tpr-review` manage their own transport, polling, and convergence. Do NOT add foreground/background/polling directives around them.
+3. **Agent edits directly** — this is not a report-only review. The agent fixes what it finds.
+4. **Sequential phases** — each phase completes before the next starts. Phases feed each other via captured outputs.
+5. **`reviewed` flip is LAST** — only in single-section mode, only after tpr-review clean pass, never inside the agent.
+6. **Whole-plan mode never touches `reviewed` fields** — not even to add missing ones.
 7. **Be specific** — every change needs evidence: a spec clause, a file:line, or concrete reasoning.
-8. **Cross-reference, don't guess** — use LSP and file reads to verify claims.
-9. **NEVER scope down — always expand** — grow the plan if it doesn't fulfill its mission.
-10. **No deferral traps** — "bonus", "future", "lower priority" → concrete mandatory tasks or explicit `<!-- blocked-by:X -->`.
-11. **Testing rigor is non-negotiable** — matrix tests, semantic pins, TDD ordering, debug+release.
-12. **Success criteria mandatory** at both mission and section levels, connected bidirectionally.
-13. **Rules woven in, not assumed** — plans are self-contained execution documents.
-14. **Verify Tier 1 findings** — Sonnet can confabulate. Trust deterministic Tier 0 findings; verify Tier 1 judgment calls.
-15. **Plan-sync on section completion** — frontmatter, overview, index, cross-links, next section's depends_on.
-16. **Convergence loop infra retries are invisible to semantic iteration budget** — transport failures don't consume iteration count.
+8. **NEVER scope down — always expand** — grow the plan if it doesn't fulfill its mission.
+9. **No deferral traps** — "bonus", "future", "lower priority" → concrete mandatory tasks or `<!-- blocked-by:X -->`.
+10. **Testing rigor is non-negotiable** — matrix tests (type × pattern dimensions), semantic pins, TDD ordering, debug+release.
+11. **Success criteria mandatory** at both mission and section levels, connected bidirectionally.
+12. **Rules woven in, not assumed** — plans are self-contained execution documents.
+13. **Plan-sync on section completion** — frontmatter, overview, index, cross-links, next section's depends_on.
+14. **No dismissing findings as "unrelated"** — per CLAUDE.md there is no "unrelated", "pre-existing", or "out of scope". Only reject findings that are factually incorrect.

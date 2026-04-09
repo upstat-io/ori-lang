@@ -169,8 +169,12 @@ Each semantic iteration gets a fresh `$RUN` (e.g. `/tmp/ori-tpr-XXXXXXXX`). Reus
 
 The codex and gemini prompts share the same evidence packet but differ in their activation preamble. See `.claude/skills/dual-tpr/transport.md` for the canonical preambles.
 
-- **Codex prompt** MUST include the literal keyword `envelope-only` in its first 500 characters — this dispatches `.codex/skills/review-work/SKILL.md` into envelope-only mode.
-- **Gemini prompt** MUST start with the literal activation phrase `Activate the review-work skill and follow its instructions exactly.` — gemini does NOT auto-activate from description matching; the phrase is load-bearing.
+**Reviewer skill selection** — default is `review-work` (code review). When invoked from a plan-review context (e.g. `/review-plan`), use `review-plan` preambles instead. The caller communicates this via `ARGS`:
+- Default (`review-work`): use preambles below as-is
+- Plan-review (`review-plan`): substitute `review-plan` for `review-work` in both preambles — see `transport.md` §Codex/Gemini preamble sections
+
+- **Codex prompt** MUST include the literal keyword `envelope-only` in its first 500 characters — this dispatches `.codex/skills/review-work/SKILL.md` (or `.codex/skills/review-plan/SKILL.md` for plan review) into envelope-only mode.
+- **Gemini prompt** MUST start with the literal activation phrase `Activate the review-work skill and follow its instructions exactly.` (or `Activate the review-plan skill and follow its instructions exactly.` for plan review) — gemini does NOT auto-activate from description matching; the phrase is load-bearing.
 
 #### Mandatory Grounding Block
 
