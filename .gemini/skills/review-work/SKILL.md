@@ -213,13 +213,24 @@ will pass the schema validator on the first try.
   ],
   "no_findings": false,
   "verification": {
-    "fresh_verification_count": 1,
-    "direct_file_inspection_count": 0,
-    "git_history_count": 0,
-    "inference_count": 0
+    "tests_rerun": [
+      "cargo test -p ori_arc aims::emit_rc::iter_break"
+    ],
+    "diagnostics_run": [
+      "ORI_CHECK_LEAKS=1 ./target/debug/ori run tests/valgrind/iter_break.ori"
+    ],
+    "verification_gaps": []
   }
 }
 ```
+
+**Canonical `verification` shape**: `tests_rerun`, `diagnostics_run`, and
+`verification_gaps` are arrays of strings, not counts. This matches
+`.claude/skills/dual-tpr/findings-schema.json:93-99` and
+`.claude/skills/dual-tpr/envelope-format.md` — populate each array with
+the concrete commands/scripts you ran (or leave empty for a purely
+file-inspection review). DO NOT use any `*_count` keys — those are
+stale and produce schema drift even when the rest of the envelope parses.
 
 **For a clean review** (no issues found), set `findings: []` and `no_findings: true`:
 
