@@ -77,6 +77,8 @@ sections:
   - [x] **Rust Tests**: `oric/src/imports/tests.rs` — `generate_relative_candidates_file_module`, `_parent_path`, `_nested_directory`, `_with_extension` (4 tests); `ori_llvm/src/aot/multi_file/tests.rs` — `derive_module_name` (3 tests)
   - [x] **Ori Tests**: N/A (tested via Rust unit tests)
 
+- [ ] `/tpr-review` passed — independent review found no critical or major issues (or all findings triaged)
+- [ ] `/impl-hygiene-review` passed — hygiene review clean. MUST run AFTER `/tpr-review` is clean.
 - [ ] **Subsection close-out (4.1)** — MANDATORY before starting the next subsection. Run `/improve-tooling` retrospectively on THIS subsection's debugging journey (per `.claude/skills/improve-tooling/SKILL.md` "Per-Subsection Workflow"): which `diagnostics/` scripts you ran, where you added `dbg!`/`tracing` calls, where output was hard to interpret, where test failures gave unhelpful messages, where you ran the same command sequence repeatedly. Forward-look: what tool/log/diagnostic would shorten the next regression in this code path by 10 minutes? Implement improvements NOW (zero deferral) and commit each via SEPARATE `/commit-push` using a valid conventional-commit type (`build(diagnostics): ... — surfaced by section-4.1 retrospective` — `build`/`test`/`chore`/`ci`/`docs` are valid; `tools(...)` is rejected by the lefthook commit-msg hook). Mandatory even when nothing felt painful. If genuinely no gaps, document briefly: "Retrospective 4.1: no tooling gaps". Update this subsection's `status` in section frontmatter to `complete`.
 
 ---
@@ -129,6 +131,8 @@ sections:
   - [x] **Ori Tests**: `tests/spec/modules/_test/module_alias.test.ori` (11 tests: qualified access `math.add()`, `math.subtract()`, `math.multiply()`, `math.square()`, `math.double()`, `math.make_adder()`, `math.use_internal()`)
   - Note: Parsing and runtime complete; qualified access works via evaluator. Type checker ModuleNamespace support pending.
 
+- [ ] `/tpr-review` passed — independent review found no critical or major issues (or all findings triaged)
+- [ ] `/impl-hygiene-review` passed — hygiene review clean. MUST run AFTER `/tpr-review` is clean.
 - [ ] **Subsection close-out (4.2)** — MANDATORY before starting the next subsection. Run `/improve-tooling` retrospectively on THIS subsection's debugging journey (per `.claude/skills/improve-tooling/SKILL.md` "Per-Subsection Workflow"): which `diagnostics/` scripts you ran, where you added `dbg!`/`tracing` calls, where output was hard to interpret, where test failures gave unhelpful messages, where you ran the same command sequence repeatedly. Forward-look: what tool/log/diagnostic would shorten the next regression in this code path by 10 minutes? Implement improvements NOW (zero deferral) and commit each via SEPARATE `/commit-push` using a valid conventional-commit type (`build(diagnostics): ... — surfaced by section-4.2 retrospective` — `build`/`test`/`chore`/`ci`/`docs` are valid; `tools(...)` is rejected by the lefthook commit-msg hook). Mandatory even when nothing felt painful. If genuinely no gaps, document briefly: "Retrospective 4.2: no tooling gaps". Update this subsection's `status` in section frontmatter to `complete`.
 
 ---
@@ -161,6 +165,8 @@ sections:
   - [x] **Ori Tests**: `tests/spec/modules/_test/use_private.test.ori` (private access with `::` prefix)
   - [ ] **Gap**: No `#compile_fail` test for importing a private item without `::` from a non-test module
 
+- [ ] `/tpr-review` passed — independent review found no critical or major issues (or all findings triaged)
+- [ ] `/impl-hygiene-review` passed — hygiene review clean. MUST run AFTER `/tpr-review` is clean.
 - [ ] **Subsection close-out (4.3)** — MANDATORY before starting the next subsection. Run `/improve-tooling` retrospectively on THIS subsection's debugging journey (per `.claude/skills/improve-tooling/SKILL.md` "Per-Subsection Workflow"): which `diagnostics/` scripts you ran, where you added `dbg!`/`tracing` calls, where output was hard to interpret, where test failures gave unhelpful messages, where you ran the same command sequence repeatedly. Forward-look: what tool/log/diagnostic would shorten the next regression in this code path by 10 minutes? Implement improvements NOW (zero deferral) and commit each via SEPARATE `/commit-push` using a valid conventional-commit type (`build(diagnostics): ... — surfaced by section-4.3 retrospective` — `build`/`test`/`chore`/`ci`/`docs` are valid; `tools(...)` is rejected by the lefthook commit-msg hook). Mandatory even when nothing felt painful. If genuinely no gaps, document briefly: "Retrospective 4.3: no tooling gaps". Update this subsection's `status` in section frontmatter to `complete`.
 
 ---
@@ -205,6 +211,8 @@ sections:
   - [ ] **AOT Tests**: No AOT coverage yet
   - Note: Runtime evaluation complete; type checker needs ModuleNamespace support
 
+- [ ] `/tpr-review` passed — independent review found no critical or major issues (or all findings triaged)
+- [ ] `/impl-hygiene-review` passed — hygiene review clean. MUST run AFTER `/tpr-review` is clean.
 - [ ] **Subsection close-out (4.4)** — MANDATORY before starting the next subsection. Run `/improve-tooling` retrospectively on THIS subsection's debugging journey (per `.claude/skills/improve-tooling/SKILL.md` "Per-Subsection Workflow"): which `diagnostics/` scripts you ran, where you added `dbg!`/`tracing` calls, where output was hard to interpret, where test failures gave unhelpful messages, where you ran the same command sequence repeatedly. Forward-look: what tool/log/diagnostic would shorten the next regression in this code path by 10 minutes? Implement improvements NOW (zero deferral) and commit each via SEPARATE `/commit-push` using a valid conventional-commit type (`build(diagnostics): ... — surfaced by section-4.4 retrospective` — `build`/`test`/`chore`/`ci`/`docs` are valid; `tools(...)` is rejected by the lefthook commit-msg hook). Mandatory even when nothing felt painful. If genuinely no gaps, document briefly: "Retrospective 4.4: no tooling gaps". Update this subsection's `status` in section frontmatter to `complete`.
 
 ---
@@ -263,6 +271,8 @@ sections:
   - [ ] **AOT Tests**: No AOT coverage yet
   - Note: Trait definitions in prelude (Eq, Comparable, etc.) parse but need Section 3 for full integration
 
+- [ ] `/tpr-review` passed — independent review found no critical or major issues (or all findings triaged)
+- [ ] `/impl-hygiene-review` passed — hygiene review clean. MUST run AFTER `/tpr-review` is clean.
 - [ ] **Subsection close-out (4.6)** — MANDATORY before starting the next subsection. Run `/improve-tooling` retrospectively on THIS subsection's debugging journey (per `.claude/skills/improve-tooling/SKILL.md` "Per-Subsection Workflow"): which `diagnostics/` scripts you ran, where you added `dbg!`/`tracing` calls, where output was hard to interpret, where test failures gave unhelpful messages, where you ran the same command sequence repeatedly. Forward-look: what tool/log/diagnostic would shorten the next regression in this code path by 10 minutes? Implement improvements NOW (zero deferral) and commit each via SEPARATE `/commit-push` using a valid conventional-commit type (`build(diagnostics): ... — surfaced by section-4.6 retrospective` — `build`/`test`/`chore`/`ci`/`docs` are valid; `tools(...)` is rejected by the lefthook commit-msg hook). Mandatory even when nothing felt painful. If genuinely no gaps, document briefly: "Retrospective 4.6: no tooling gaps". Update this subsection's `status` in section frontmatter to `complete`.
 
 ---
@@ -282,6 +292,8 @@ sections:
   - [ ] **Rust Tests**: `oric/src/commands/` — graph output tests
   - [ ] **Ori Tests**: `tests/cli/graph_imports.ori`
 
+- [ ] `/tpr-review` passed — independent review found no critical or major issues (or all findings triaged)
+- [ ] `/impl-hygiene-review` passed — hygiene review clean. MUST run AFTER `/tpr-review` is clean.
 - [ ] **Subsection close-out (4.7)** — MANDATORY before starting the next subsection. Run `/improve-tooling` retrospectively on THIS subsection's debugging journey (per `.claude/skills/improve-tooling/SKILL.md` "Per-Subsection Workflow"): which `diagnostics/` scripts you ran, where you added `dbg!`/`tracing` calls, where output was hard to interpret, where test failures gave unhelpful messages, where you ran the same command sequence repeatedly. Forward-look: what tool/log/diagnostic would shorten the next regression in this code path by 10 minutes? Implement improvements NOW (zero deferral) and commit each via SEPARATE `/commit-push` using a valid conventional-commit type (`build(diagnostics): ... — surfaced by section-4.7 retrospective` — `build`/`test`/`chore`/`ci`/`docs` are valid; `tools(...)` is rejected by the lefthook commit-msg hook). Mandatory even when nothing felt painful. If genuinely no gaps, document briefly: "Retrospective 4.7: no tooling gaps". Update this subsection's `status` in section frontmatter to `complete`.
 
 ---
@@ -340,6 +352,8 @@ sections:
   - [ ] **Rust Tests**: `ori_diagnostic/src/` — error formatting tests
   - [ ] **Ori Tests**: `tests/spec/modules/error_private_item.ori`
 
+- [ ] `/tpr-review` passed — independent review found no critical or major issues (or all findings triaged)
+- [ ] `/impl-hygiene-review` passed — hygiene review clean. MUST run AFTER `/tpr-review` is clean.
 - [ ] **Subsection close-out (4.8)** — MANDATORY before starting the next subsection. Run `/improve-tooling` retrospectively on THIS subsection's debugging journey (per `.claude/skills/improve-tooling/SKILL.md` "Per-Subsection Workflow"): which `diagnostics/` scripts you ran, where you added `dbg!`/`tracing` calls, where output was hard to interpret, where test failures gave unhelpful messages, where you ran the same command sequence repeatedly. Forward-look: what tool/log/diagnostic would shorten the next regression in this code path by 10 minutes? Implement improvements NOW (zero deferral) and commit each via SEPARATE `/commit-push` using a valid conventional-commit type (`build(diagnostics): ... — surfaced by section-4.8 retrospective` — `build`/`test`/`chore`/`ci`/`docs` are valid; `tools(...)` is rejected by the lefthook commit-msg hook). Mandatory even when nothing felt painful. If genuinely no gaps, document briefly: "Retrospective 4.8: no tooling gaps". Update this subsection's `status` in section frontmatter to `complete`.
 
 ---
@@ -355,6 +369,8 @@ sections:
 - [ ] Multi-level re-export chain resolution — pending (4.8)
 - [ ] Nested stdlib modules (`std.net.http`) — no modules to test yet
 
+- [ ] `/tpr-review` passed — independent review found no critical or major issues (or all findings triaged)
+- [ ] `/impl-hygiene-review` passed — hygiene review clean. MUST run AFTER `/tpr-review` is clean.
 - [ ] **Subsection close-out (4.9)** — MANDATORY before starting the next subsection. Run `/improve-tooling` retrospectively on THIS subsection's debugging journey (per `.claude/skills/improve-tooling/SKILL.md` "Per-Subsection Workflow"): which `diagnostics/` scripts you ran, where you added `dbg!`/`tracing` calls, where output was hard to interpret, where test failures gave unhelpful messages, where you ran the same command sequence repeatedly. Forward-look: what tool/log/diagnostic would shorten the next regression in this code path by 10 minutes? Implement improvements NOW (zero deferral) and commit each via SEPARATE `/commit-push` using a valid conventional-commit type (`build(diagnostics): ... — surfaced by section-4.9 retrospective` — `build`/`test`/`chore`/`ci`/`docs` are valid; `tools(...)` is rejected by the lefthook commit-msg hook). Mandatory even when nothing felt painful. If genuinely no gaps, document briefly: "Retrospective 4.9: no tooling gaps". Update this subsection's `status` in section frontmatter to `complete`.
 
 ---
@@ -416,6 +432,8 @@ pub let $VERSION = "1.0.0"
 - [ ] **Implement**: Import constants via `use "path" { $CONST }`
   - [ ] **Ori Tests**: `tests/spec/modules/import_constants.ori`
 
+- [ ] `/tpr-review` passed — independent review found no critical or major issues (or all findings triaged)
+- [ ] `/impl-hygiene-review` passed — hygiene review clean. MUST run AFTER `/tpr-review` is clean.
 - [ ] **Subsection close-out (4.11)** — MANDATORY before starting the next subsection. Run `/improve-tooling` retrospectively on THIS subsection's debugging journey (per `.claude/skills/improve-tooling/SKILL.md` "Per-Subsection Workflow"): which `diagnostics/` scripts you ran, where you added `dbg!`/`tracing` calls, where output was hard to interpret, where test failures gave unhelpful messages, where you ran the same command sequence repeatedly. Forward-look: what tool/log/diagnostic would shorten the next regression in this code path by 10 minutes? Implement improvements NOW (zero deferral) and commit each via SEPARATE `/commit-push` using a valid conventional-commit type (`build(diagnostics): ... — surfaced by section-4.11 retrospective` — `build`/`test`/`chore`/`ci`/`docs` are valid; `tools(...)` is rejected by the lefthook commit-msg hook). Mandatory even when nothing felt painful. If genuinely no gaps, document briefly: "Retrospective 4.11: no tooling gaps". Update this subsection's `status` in section frontmatter to `complete`.
 
 ---
@@ -535,6 +553,8 @@ Extension methods add methods to existing types without modifying their definiti
 - Currently using built-in types in evaluator
 - See section-05-type-declarations.md § 5.1-5.4 for type definition work
 
+- [ ] `/tpr-review` passed — independent review found no critical or major issues (or all findings triaged)
+- [ ] `/impl-hygiene-review` passed — hygiene review clean. MUST run AFTER `/tpr-review` is clean.
 - [ ] **Subsection close-out (4.12)** — MANDATORY before starting the next subsection. Run `/improve-tooling` retrospectively on THIS subsection's debugging journey (per `.claude/skills/improve-tooling/SKILL.md` "Per-Subsection Workflow"): which `diagnostics/` scripts you ran, where you added `dbg!`/`tracing` calls, where output was hard to interpret, where test failures gave unhelpful messages, where you ran the same command sequence repeatedly. Forward-look: what tool/log/diagnostic would shorten the next regression in this code path by 10 minutes? Implement improvements NOW (zero deferral) and commit each via SEPARATE `/commit-push` using a valid conventional-commit type (`build(diagnostics): ... — surfaced by section-4.12 retrospective` — `build`/`test`/`chore`/`ci`/`docs` are valid; `tools(...)` is rejected by the lefthook commit-msg hook). Mandatory even when nothing felt painful. If genuinely no gaps, document briefly: "Retrospective 4.12: no tooling gaps". Update this subsection's `status` in section frontmatter to `complete`.
 
 ---
@@ -569,5 +589,6 @@ Extension methods add methods to existing types without modifying their definiti
 **Exit Criteria**: Multi-file projects compile (core support complete)
 **Status**: Section 4 evaluator and parser complete. 27 of 35 [x] items fully verified, 4 have weak tests, 1 incomplete (config var imports reopened), 1 needs negative pin. LLVM multi-file infrastructure present (15 unit tests, zero integration tests). Extension parser and basic evaluator ahead of roadmap. Constant parser ahead of roadmap. Verified 2026-03-29.
 
+- [ ] `/tpr-review` passed — independent review found no critical or major issues (or all findings triaged)
 - [ ] **Subsection close-out (4.10)** — MANDATORY before starting the next subsection. Run `/improve-tooling` retrospectively on THIS subsection's debugging journey (per `.claude/skills/improve-tooling/SKILL.md` "Per-Subsection Workflow"): which `diagnostics/` scripts you ran, where you added `dbg!`/`tracing` calls, where output was hard to interpret, where test failures gave unhelpful messages, where you ran the same command sequence repeatedly. Forward-look: what tool/log/diagnostic would shorten the next regression in this code path by 10 minutes? Implement improvements NOW (zero deferral) and commit each via SEPARATE `/commit-push` using a valid conventional-commit type (`build(diagnostics): ... — surfaced by section-4.10 retrospective` — `build`/`test`/`chore`/`ci`/`docs` are valid; `tools(...)` is rejected by the lefthook commit-msg hook). Mandatory even when nothing felt painful. If genuinely no gaps, document briefly: "Retrospective 4.10: no tooling gaps". Update this subsection's `status` in section frontmatter to `complete`.
 

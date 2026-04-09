@@ -100,6 +100,8 @@ sections:
 
 > **Architecture blocker for higher-order Option methods**: All closure-taking Option methods (map, and_then, filter, or_else) share the same gap -- `CollectionMethodResolver` / `eval_collection_method` does not route Option types. Fix requires adding Option variant handling to `eval_collection_method` in `collection_ops.rs`, similar to how List.map/filter/fold are handled.
 
+- [ ] `/tpr-review` passed — independent review found no critical or major issues (or all findings triaged)
+- [ ] `/impl-hygiene-review` passed — hygiene review clean. MUST run AFTER `/tpr-review` is clean.
 - [ ] **Subsection close-out (7B.1)** — MANDATORY before starting the next subsection. Run `/improve-tooling` retrospectively on THIS subsection's debugging journey (per `.claude/skills/improve-tooling/SKILL.md` "Per-Subsection Workflow"): which `diagnostics/` scripts you ran, where you added `dbg!`/`tracing` calls, where output was hard to interpret, where test failures gave unhelpful messages, where you ran the same command sequence repeatedly. Forward-look: what tool/log/diagnostic would shorten the next regression in this code path by 10 minutes? Implement improvements NOW (zero deferral) and commit each via SEPARATE `/commit-push` using a valid conventional-commit type (`build(diagnostics): ... — surfaced by section-7B.1 retrospective` — `build`/`test`/`chore`/`ci`/`docs` are valid; `tools(...)` is rejected by the lefthook commit-msg hook). Mandatory even when nothing felt painful. If genuinely no gaps, document briefly: "Retrospective 7B.1: no tooling gaps". Update this subsection's `status` in section frontmatter to `complete`.
 
 ---
@@ -179,6 +181,8 @@ sections:
 
 > **Architecture blocker for higher-order Result methods**: All closure-taking Result methods (map, map_err, and_then) share the same gap as Option -- `CollectionMethodResolver` / `eval_collection_method` does not route Result types. Fix requires adding Result variant handling to `eval_collection_method` in `collection_ops.rs`.
 
+- [ ] `/tpr-review` passed — independent review found no critical or major issues (or all findings triaged)
+- [ ] `/impl-hygiene-review` passed — hygiene review clean. MUST run AFTER `/tpr-review` is clean.
 - [ ] **Subsection close-out (7B.2)** — MANDATORY before starting the next subsection. Run `/improve-tooling` retrospectively on THIS subsection's debugging journey (per `.claude/skills/improve-tooling/SKILL.md` "Per-Subsection Workflow"): which `diagnostics/` scripts you ran, where you added `dbg!`/`tracing` calls, where output was hard to interpret, where test failures gave unhelpful messages, where you ran the same command sequence repeatedly. Forward-look: what tool/log/diagnostic would shorten the next regression in this code path by 10 minutes? Implement improvements NOW (zero deferral) and commit each via SEPARATE `/commit-push` using a valid conventional-commit type (`build(diagnostics): ... — surfaced by section-7B.2 retrospective` — `build`/`test`/`chore`/`ci`/`docs` are valid; `tools(...)` is rejected by the lefthook commit-msg hook). Mandatory even when nothing felt painful. If genuinely no gaps, document briefly: "Retrospective 7B.2: no tooling gaps". Update this subsection's `status` in section frontmatter to `complete`.
 
 ---
@@ -227,6 +231,8 @@ Implements Result trace methods and context storage for error propagation debugg
   - [ ] **LLVM Support**: LLVM codegen for panic format
   - [ ] **AOT Tests**: No AOT coverage yet
 
+- [ ] `/tpr-review` passed — independent review found no critical or major issues (or all findings triaged)
+- [ ] `/impl-hygiene-review` passed — hygiene review clean. MUST run AFTER `/tpr-review` is clean.
 - [ ] **Subsection close-out (7B.3)** — MANDATORY before starting the next subsection. Run `/improve-tooling` retrospectively on THIS subsection's debugging journey (per `.claude/skills/improve-tooling/SKILL.md` "Per-Subsection Workflow"): which `diagnostics/` scripts you ran, where you added `dbg!`/`tracing` calls, where output was hard to interpret, where test failures gave unhelpful messages, where you ran the same command sequence repeatedly. Forward-look: what tool/log/diagnostic would shorten the next regression in this code path by 10 minutes? Implement improvements NOW (zero deferral) and commit each via SEPARATE `/commit-push` using a valid conventional-commit type (`build(diagnostics): ... — surfaced by section-7B.3 retrospective` — `build`/`test`/`chore`/`ci`/`docs` are valid; `tools(...)` is rejected by the lefthook commit-msg hook). Mandatory even when nothing felt painful. If genuinely no gaps, document briefly: "Retrospective 7B.3: no tooling gaps". Update this subsection's `status` in section frontmatter to `complete`.
 
 ---
@@ -250,5 +256,7 @@ Implements Result trace methods and context storage for error propagation debugg
 
 **Exit Criteria**: Option and Result methods working correctly
 
+- [ ] `/tpr-review` passed — independent review found no critical or major issues (or all findings triaged)
+- [ ] `/impl-hygiene-review` passed — hygiene review clean. MUST run AFTER `/tpr-review` is clean.
 - [ ] **Subsection close-out (7B.4)** — MANDATORY before starting the next subsection. Run `/improve-tooling` retrospectively on THIS subsection's debugging journey (per `.claude/skills/improve-tooling/SKILL.md` "Per-Subsection Workflow"): which `diagnostics/` scripts you ran, where you added `dbg!`/`tracing` calls, where output was hard to interpret, where test failures gave unhelpful messages, where you ran the same command sequence repeatedly. Forward-look: what tool/log/diagnostic would shorten the next regression in this code path by 10 minutes? Implement improvements NOW (zero deferral) and commit each via SEPARATE `/commit-push` using a valid conventional-commit type (`build(diagnostics): ... — surfaced by section-7B.4 retrospective` — `build`/`test`/`chore`/`ci`/`docs` are valid; `tools(...)` is rejected by the lefthook commit-msg hook). Mandatory even when nothing felt painful. If genuinely no gaps, document briefly: "Retrospective 7B.4: no tooling gaps". Update this subsection's `status` in section frontmatter to `complete`.
 

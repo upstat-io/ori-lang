@@ -117,6 +117,8 @@ Tasks:
   - [ ] Integration test script exists, runs all 4 wrappers, reports pass/fail
   - [ ] All 4 wrappers pass
   - [ ] Update this subsection's `status` to `complete`
+  - [ ] `/tpr-review` passed — independent review found no critical or major issues (or all findings triaged)
+  - [ ] `/impl-hygiene-review` passed — hygiene review clean. MUST run AFTER `/tpr-review` is clean.
   - [ ] Run `/improve-tooling` retrospectively.
 
 ---
@@ -166,6 +168,8 @@ Tasks:
   - [ ] Merger handles single-reviewer case
   - [ ] Documentation updated
   - [ ] Update this subsection's `status` to `complete`
+  - [ ] `/tpr-review` passed — independent review found no critical or major issues (or all findings triaged)
+  - [ ] `/impl-hygiene-review` passed — hygiene review clean. MUST run AFTER `/tpr-review` is clean.
   - [ ] Run `/improve-tooling` retrospectively.
 
 ---
@@ -244,6 +248,8 @@ Tasks:
   - [ ] Post-sweep grep returns zero matches for single-source codex wording
   - [ ] Dispatch / light-run verification passes for impl-hygiene-review + review-plan + create-plan
   - [ ] Update this subsection's `status` to `complete`
+  - [ ] `/tpr-review` passed — independent review found no critical or major issues (or all findings triaged)
+  - [ ] `/impl-hygiene-review` passed — hygiene review clean. MUST run AFTER `/tpr-review` is clean.
   - [ ] Run `/improve-tooling` retrospectively.
 
 ---
@@ -271,6 +277,8 @@ Tasks:
   - [ ] Plan-annotations scanner reports 0 annotations in source files
   - [ ] test-all.sh green
   - [ ] Update this subsection's `status` to `complete`
+  - [ ] `/tpr-review` passed — independent review found no critical or major issues (or all findings triaged)
+  - [ ] `/impl-hygiene-review` passed — hygiene review clean. MUST run AFTER `/tpr-review` is clean.
   - [ ] Run `/improve-tooling` retrospectively.
 
 ---

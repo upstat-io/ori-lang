@@ -531,6 +531,8 @@ The all-unit detection (item 1) is verified working. To enable mixed-variant pay
 - [ ] **Flip `PAYLOAD_PACKED_CODEGEN_READY = true`** once all consumers are wired. Run full `./test-all.sh` and verify no regressions; expected delta: ~10-30% smaller enum sizes for narrowed-field enums.
 - [ ] **Wire 07.4 verification**: run §07.4 spec tests, AOT tests, dual-exec parity, and leak check; check off each item.
 
+- [ ] `/tpr-review` passed — independent review found no critical or major issues (or all findings triaged)
+- [ ] `/impl-hygiene-review` passed — hygiene review clean. MUST run AFTER `/tpr-review` is clean.
 - [ ] **Subsection close-out (07.4)** — MANDATORY before starting the next subsection. Run `/improve-tooling` retrospectively on THIS subsection's debugging journey (per `.claude/skills/improve-tooling/SKILL.md` "Per-Subsection Workflow"): which `diagnostics/` scripts you ran, where you added `dbg!`/`tracing` calls, where output was hard to interpret, where test failures gave unhelpful messages, where you ran the same command sequence repeatedly. Forward-look: what tool/log/diagnostic would shorten the next regression in this code path by 10 minutes? Implement improvements NOW (zero deferral) and commit each via SEPARATE `/commit-push` using a valid conventional-commit type (`build(diagnostics): ... — surfaced by section-07.4 retrospective` — `build`/`test`/`chore`/`ci`/`docs` are valid; `tools(...)` is rejected by the lefthook commit-msg hook). Mandatory even when nothing felt painful. If genuinely no gaps, document briefly: "Retrospective 07.4: no tooling gaps". Update this subsection's `status` in section frontmatter to `complete`.
 
 ---
