@@ -439,9 +439,7 @@ fn check_impl_method(
     checker.register_impl_sig(method.name, sig);
 }
 
-// ============================================================================
 // Pass 5: Def Impl (Default Implementation) Method Bodies
-// ============================================================================
 
 /// Check all def impl method bodies.
 #[tracing::instrument(level = "debug", skip_all, fields(count = module.def_impls.len()))]

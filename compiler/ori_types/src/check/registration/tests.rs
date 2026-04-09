@@ -141,9 +141,7 @@ fn resolve_type_with_self_substitution() {
     assert_eq!(resolved, self_type);
 }
 
-// ============================================================================
 // parsed_type_contains_self tests
-// ============================================================================
 
 #[test]
 fn contains_self_direct() {
@@ -228,9 +226,7 @@ fn contains_self_not_in_plain_function() {
     ));
 }
 
-// ============================================================================
 // compute_object_safety_violations tests
-// ============================================================================
 
 /// Helper: create a simple Param.
 fn make_param(name: Name, ty: Option<ParsedType>) -> ori_ir::Param {
@@ -496,9 +492,7 @@ fn derive_eq_and_hashable_succeeds() {
     assert!(errors.is_empty(), "expected no errors, got: {errors:?}");
 }
 
-// ============================================================================
 // resolve_type_with_params — compound Self recursion tests
-// ============================================================================
 
 #[test]
 fn resolve_type_with_params_self_in_list() {
@@ -763,9 +757,7 @@ fn all_derived_traits_have_well_known_names() {
     }
 }
 
-// ============================================================================
 // #repr attribute validation
-// ============================================================================
 
 /// Helper: create a Module with a single type declaration for repr validation tests.
 fn make_module_with_repr(

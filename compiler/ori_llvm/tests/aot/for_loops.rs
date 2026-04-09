@@ -13,9 +13,7 @@
 
 use crate::util::{assert_aot_success, compile_and_run_capture};
 
-// -----------------------------------------------------------------------
 // Range for-loops (regression)
-// -----------------------------------------------------------------------
 
 #[test]
 fn test_for_range_sum() {
@@ -57,9 +55,7 @@ fn test_for_range_with_guard() {
     );
 }
 
-// -----------------------------------------------------------------------
 // List for-loops (regression)
-// -----------------------------------------------------------------------
 
 #[test]
 fn test_for_list_sum() {
@@ -93,9 +89,7 @@ fn test_for_list_with_guard() {
     );
 }
 
-// -----------------------------------------------------------------------
 // String for-loops (new — character iteration)
-// -----------------------------------------------------------------------
 
 #[test]
 fn test_for_str_count_chars() {
@@ -121,9 +115,7 @@ fn test_for_str_yield() {
     );
 }
 
-// -----------------------------------------------------------------------
 // Option for-loops (new — 0-or-1 element iteration)
-// -----------------------------------------------------------------------
 
 #[test]
 fn test_for_option_some() {
@@ -157,9 +149,7 @@ fn test_for_option_yield_none() {
     );
 }
 
-// -----------------------------------------------------------------------
 // String for-loops — character value verification
-// -----------------------------------------------------------------------
 
 #[test]
 fn test_for_str_char_values() {
@@ -170,16 +160,12 @@ fn test_for_str_char_values() {
     );
 }
 
-// -----------------------------------------------------------------------
 // Set for-loops — blocked: .iter().collect() not yet in AOT codegen.
 // lower_for_data_array (Set codepath) is identical to List, so List
 // tests provide equivalent coverage. Add Set tests when iterator
 // method dispatch is available in AOT.
-// -----------------------------------------------------------------------
 
-// -----------------------------------------------------------------------
 // Map for-loops (key-value tuple iteration)
-// -----------------------------------------------------------------------
 
 #[test]
 fn test_for_map_sum() {
@@ -205,9 +191,7 @@ fn test_for_map_entries() {
     );
 }
 
-// -----------------------------------------------------------------------
 // Break in for-do with mutable variables
-// -----------------------------------------------------------------------
 
 #[test]
 fn test_for_range_break_with_mutation() {

@@ -26,9 +26,7 @@ use ori_ir::Name;
 /// Derives `Eq, PartialEq, Hash` for use in Salsa query results.
 #[derive(Clone, Debug, Eq, PartialEq, Hash)]
 pub enum ContextKind {
-    // ════════════════════════════════════════════════════════════════════════
     // Literals
-    // ════════════════════════════════════════════════════════════════════════
     /// Element of a list literal.
     ListElement {
         /// Zero-based element index.
@@ -53,9 +51,7 @@ pub enum ContextKind {
     /// Element of a range expression.
     RangeElement,
 
-    // ════════════════════════════════════════════════════════════════════════
     // Control Flow
-    // ════════════════════════════════════════════════════════════════════════
     /// Condition of an if expression.
     IfCondition,
 
@@ -101,9 +97,7 @@ pub enum ContextKind {
     /// Binding pattern in a for loop.
     ForBinding,
 
-    // ════════════════════════════════════════════════════════════════════════
     // Functions
-    // ════════════════════════════════════════════════════════════════════════
     /// Argument to a function call.
     FunctionArgument {
         /// Name of the function being called (if known).
@@ -138,9 +132,7 @@ pub enum ContextKind {
         method_name: Name,
     },
 
-    // ════════════════════════════════════════════════════════════════════════
     // Operators
-    // ════════════════════════════════════════════════════════════════════════
     /// Left operand of a binary operator.
     BinaryOpLeft {
         /// String representation of the operator.
@@ -171,9 +163,7 @@ pub enum ContextKind {
     /// Right side of a comparison.
     ComparisonRight,
 
-    // ════════════════════════════════════════════════════════════════════════
     // Records/Structs
-    // ════════════════════════════════════════════════════════════════════════
     /// Accessing a field on a value.
     FieldAccess {
         /// Name of the field being accessed.
@@ -206,9 +196,7 @@ pub enum ContextKind {
         struct_name: Name,
     },
 
-    // ════════════════════════════════════════════════════════════════════════
     // Patterns
-    // ════════════════════════════════════════════════════════════════════════
     /// Binding in a pattern.
     PatternBinding {
         /// Kind of pattern (e.g., "let", "match", "function parameter").
@@ -230,9 +218,7 @@ pub enum ContextKind {
     /// End of a range pattern.
     RangeEnd,
 
-    // ════════════════════════════════════════════════════════════════════════
     // Special
-    // ════════════════════════════════════════════════════════════════════════
     /// Capability requirement in a function signature.
     CapabilityRequirement {
         /// Name of the capability.

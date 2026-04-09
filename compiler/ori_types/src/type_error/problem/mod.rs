@@ -32,9 +32,7 @@ use crate::Idx;
 /// Derives `Eq, PartialEq, Hash` for use in Salsa query results.
 #[derive(Clone, Debug, Eq, PartialEq, Hash)]
 pub enum TypeProblem {
-    // ════════════════════════════════════════════════════════════════════════
     // Numeric Problems
-    // ════════════════════════════════════════════════════════════════════════
     /// Mixing int and float without explicit conversion.
     ///
     /// Example: `1 + 2.0` - int cannot implicitly convert to float.
@@ -64,9 +62,7 @@ pub enum TypeProblem {
         found: &'static str,
     },
 
-    // ════════════════════════════════════════════════════════════════════════
     // Collection Problems
-    // ════════════════════════════════════════════════════════════════════════
     /// Expected a list but got something else.
     ///
     /// Example: `for x in 42` - int is not iterable.
@@ -108,9 +104,7 @@ pub enum TypeProblem {
     /// Map value type mismatch.
     MapValueMismatch,
 
-    // ════════════════════════════════════════════════════════════════════════
     // Function Problems
-    // ════════════════════════════════════════════════════════════════════════
     /// Wrong number of arguments to a function.
     WrongArity {
         /// Expected number of parameters.
@@ -157,9 +151,7 @@ pub enum TypeProblem {
         count: usize,
     },
 
-    // ════════════════════════════════════════════════════════════════════════
     // Record/Struct Problems
-    // ════════════════════════════════════════════════════════════════════════
     /// Accessing a field that doesn't exist on the type.
     MissingField {
         /// Name of the missing field.
@@ -202,9 +194,7 @@ pub enum TypeProblem {
         found: Name,
     },
 
-    // ════════════════════════════════════════════════════════════════════════
     // Type Variable Problems
-    // ════════════════════════════════════════════════════════════════════════
     /// Rigid type variable (from annotation) cannot match concrete type.
     ///
     /// Example: Function declares `fn foo<T>(x: T)`, caller passes int,
@@ -230,9 +220,7 @@ pub enum TypeProblem {
         var_name: Option<Name>,
     },
 
-    // ════════════════════════════════════════════════════════════════════════
     // Capability Problems
-    // ════════════════════════════════════════════════════════════════════════
     /// Missing required capability.
     MissingCapability {
         /// Name of the required capability.
@@ -247,9 +235,7 @@ pub enum TypeProblem {
         required: Name,
     },
 
-    // ════════════════════════════════════════════════════════════════════════
     // Pattern Problems
-    // ════════════════════════════════════════════════════════════════════════
     /// Pattern doesn't match the scrutinee type.
     PatternMismatch {
         /// Expected pattern type.
@@ -264,9 +250,7 @@ pub enum TypeProblem {
         missing_patterns: Vec<String>,
     },
 
-    // ════════════════════════════════════════════════════════════════════════
     // Operator Problems
-    // ════════════════════════════════════════════════════════════════════════
     /// Operator applied to an unsupported type.
     ///
     /// Example: `5.0 & 3.0` - bitwise operator requires int operands.
@@ -286,9 +270,7 @@ pub enum TypeProblem {
     /// Example: `let f = () -> f` - closure body references `f`.
     ClosureSelfCapture,
 
-    // ════════════════════════════════════════════════════════════════════════
     // Generic Fallback
-    // ════════════════════════════════════════════════════════════════════════
     /// Generic type mismatch when no specific problem is identified.
     TypeMismatch {
         /// Category of expected type.

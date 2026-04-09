@@ -20,9 +20,7 @@
 
 use crate::util::assert_aot_success;
 
-// -----------------------------------------------------------------------
 // E1: [str] — for-do patterns
-// -----------------------------------------------------------------------
 
 #[test]
 fn test_iter_rc_for_do_str_full() {
@@ -81,9 +79,7 @@ fn test_iter_rc_for_do_str_continue() {
     );
 }
 
-// -----------------------------------------------------------------------
 // E2: [[int]] nested list — for-do patterns
-// -----------------------------------------------------------------------
 
 #[test]
 fn test_iter_rc_for_do_nested_list_full() {
@@ -142,9 +138,7 @@ fn test_iter_rc_for_do_nested_list_continue() {
     );
 }
 
-// -----------------------------------------------------------------------
 // E3: [Option<str>] — for-do patterns
-// -----------------------------------------------------------------------
 
 #[test]
 fn test_iter_rc_for_do_option_str_full() {
@@ -203,9 +197,7 @@ fn test_iter_rc_for_do_option_str_continue() {
     );
 }
 
-// -----------------------------------------------------------------------
 // E4: [closure] — for-do patterns
-// -----------------------------------------------------------------------
 
 #[test]
 fn test_iter_rc_for_do_closure_full() {
@@ -264,9 +256,7 @@ fn test_iter_rc_for_do_closure_continue() {
     );
 }
 
-// -----------------------------------------------------------------------
 // E5: [struct with str field] — for-do patterns
-// -----------------------------------------------------------------------
 
 #[test]
 fn test_iter_rc_for_do_struct_str_full() {
@@ -325,9 +315,7 @@ fn test_iter_rc_for_do_struct_str_continue() {
     );
 }
 
-// -----------------------------------------------------------------------
 // E6: {str: int} map — for-do patterns
-// -----------------------------------------------------------------------
 
 #[test]
 fn test_iter_rc_for_do_map_full() {
@@ -378,9 +366,7 @@ fn test_iter_rc_for_do_map_continue() {
     );
 }
 
-// -----------------------------------------------------------------------
 // E1: [str] — for-yield patterns
-// -----------------------------------------------------------------------
 
 #[test]
 fn test_iter_rc_for_yield_str_full() {
@@ -448,9 +434,7 @@ fn test_iter_rc_for_yield_str_continue() {
     );
 }
 
-// -----------------------------------------------------------------------
 // E2: [[int]] nested list — for-yield patterns
-// -----------------------------------------------------------------------
 
 #[test]
 fn test_iter_rc_for_yield_nested_list_full() {
@@ -509,9 +493,7 @@ fn test_iter_rc_for_yield_nested_list_continue() {
     );
 }
 
-// -----------------------------------------------------------------------
 // E3: [Option<str>] — for-yield patterns
-// -----------------------------------------------------------------------
 
 #[test]
 fn test_iter_rc_for_yield_option_str_full() {
@@ -578,9 +560,7 @@ fn test_iter_rc_for_yield_option_str_continue() {
     );
 }
 
-// -----------------------------------------------------------------------
 // E4: [closure] — for-yield patterns
-// -----------------------------------------------------------------------
 
 #[test]
 fn test_iter_rc_for_yield_closure_full() {
@@ -647,9 +627,7 @@ fn test_iter_rc_for_yield_closure_continue() {
     );
 }
 
-// -----------------------------------------------------------------------
 // E5: [struct with str field] — for-yield patterns
-// -----------------------------------------------------------------------
 
 #[test]
 fn test_iter_rc_for_yield_struct_str_full() {
@@ -716,9 +694,7 @@ fn test_iter_rc_for_yield_struct_str_continue() {
     );
 }
 
-// -----------------------------------------------------------------------
 // E6: {str: int} map — for-yield patterns
-// -----------------------------------------------------------------------
 
 #[test]
 fn test_iter_rc_for_yield_map_full() {

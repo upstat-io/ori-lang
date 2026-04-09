@@ -417,9 +417,7 @@ mod expression_context {
     }
 }
 
-// =============================================================================
 // Mixed Declaration Tests
-// =============================================================================
 // Tests combining generics, where clauses, capabilities, and complex signatures
 
 mod mixed_declarations {
@@ -713,9 +711,7 @@ mod mixed_declarations {
     }
 }
 
-// =============================================================================
 // Mixed Expression Tests
-// =============================================================================
 // Tests combining multiple expression types in complex ways
 
 mod mixed_expressions {
@@ -1219,9 +1215,7 @@ mod mixed_expressions {
     }
 }
 
-// =============================================================================
 // Mixed Literal Tests
-// =============================================================================
 // Tests for complex literal combinations
 
 mod mixed_literals {
@@ -1455,9 +1449,7 @@ mod mixed_literals {
     }
 }
 
-// =============================================================================
 // Mixed Type Tests
-// =============================================================================
 // Tests for complex type combinations beyond the basic matrix
 
 mod mixed_types {
@@ -1650,9 +1642,7 @@ mod mixed_types {
     }
 }
 
-// =============================================================================
 // Mixed Pattern Tests
-// =============================================================================
 // Tests for complex pattern combinations in various contexts
 
 mod mixed_patterns {
@@ -1835,9 +1825,7 @@ mod mixed_patterns {
     }
 }
 
-// =============================================================================
 // Import and Module Tests
-// =============================================================================
 // Tests for import syntax combinations
 
 mod mixed_imports {
@@ -1920,9 +1908,7 @@ mod mixed_imports {
     }
 }
 
-// =============================================================================
 // Edge Cases
-// =============================================================================
 // Tests for particularly tricky parsing situations
 
 mod edge_cases {
