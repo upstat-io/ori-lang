@@ -1,7 +1,7 @@
 ---
 section: "01"
 title: "Remove aims-compare + Create debug-release-compare"
-status: in-progress
+status: complete
 reviewed: true
 goal: "Replace dead aims-compare.sh (uses non-existent --features aims) with a new debug-release-compare.sh that catches FastISel-only bugs"
 success_criteria:
@@ -24,10 +24,10 @@ sections:
     status: complete
   - id: "01.R"
     title: "Third Party Review Findings"
-    status: not-started
+    status: complete
   - id: "01.N"
     title: "Completion Checklist"
-    status: not-started
+    status: complete
 ---
 
 # Section 01: Remove aims-compare + Create debug-release-compare
@@ -124,6 +124,6 @@ Create a new script that compiles and runs a program through both debug and rele
 - [x] `diagnostics/self-test.sh` passes (28/28)
 - [x] `timeout 150 ./test-all.sh` green — no regressions (16,927 passed)
 - [x] No references to aims-compare remain in active codebase surfaces (`CLAUDE.md`, `.claude/rules/`, `diagnostics/` all clean)
-- [ ] `/tpr-review` passed — independent third-party review clean
-- [ ] `/impl-hygiene-review` passed — after TPR is clean
-- [ ] **`/improve-tooling` section-close sweep** — verify both subsection retrospectives ran; add any cross-subsection patterns
+- [x] `/tpr-review` passed — independent third-party review clean
+- [x] `/impl-hygiene-review` passed — after TPR is clean
+- [x] **`/improve-tooling` section-close sweep** — verify both subsection retrospectives ran; add any cross-subsection patterns
