@@ -1,5 +1,5 @@
 //! Take-project facts: per-var lineage + per-source bypass-safe
-//! reachability (TPR-07-017 / TPR-07-019).
+//! reachability.
 //!
 //! A **take-project** is a `Project` instruction whose source is a sum
 //! type (`Enum`/`Option`/`Result`) and whose projected payload is a
@@ -13,7 +13,7 @@
 //! # Two decoupled concepts
 //!
 //! Earlier iterations conflated two distinct notions into a single
-//! "take-project class." TPR-07-019 showed that the conflation is
+//! "take-project class." showed that the conflation is
 //! unsound on phi topologies where two unrelated take-project sources
 //! merge into a shared block param. The fix splits them:
 //!
@@ -36,7 +36,7 @@
 //! in-class var so their edge decs never race source 1's per-lineage
 //! emission. A tighter membership would let alias siblings fall out
 //! of the skip and produce glibc-detected double-frees
-//! (TPR-07-019 iteration 1 collapsed 9 `iterator_drop` pins this way).
+//! (iteration 1 collapsed 9 `iterator_drop` pins this way).
 //!
 //! ## 2. Per-var lineage (precise forward reachability)
 //!
@@ -57,14 +57,14 @@
 //! a drop at block `B` for variable `v` is sound iff `B` is bypass-
 //! safe for EVERY source in `v`'s lineage. For singleton lineages,
 //! this reduces to that source's own bypass-safe set (same as the
-//! pre-TPR-07-019 behavior for functions with disjoint alias classes).
+//! pre-lineage-split behavior for functions with disjoint alias classes).
 //! For mixed lineages, the class-level set is the intersection of
 //! per-source sets — emitting only where no source's take-project is
 //! reachable on any path.
 //!
 //! ## Why lineage, not class
 //!
-//! The pre-TPR-07-019 code computed bypass-safe blocks from the
+//! The earlier class-merged code computed bypass-safe blocks from the
 //! merged [`Self::tp_blocks`] of an entire class. That's equivalent
 //! to taking the complement of the UNION of reachability from each
 //! source's `tp_block`. On a function with two sources unioned via
@@ -92,7 +92,7 @@
 //!   `Let { dst, Var(src) }` instructions — true SSA aliases holding
 //!   the same runtime value. Emitting drops for more than one would
 //!   double-free. Phi-merged params with the same lineage source set
-//!   but different Let-alias reps get separate drops (BUG-04-051).
+//!   but different Let-alias reps get separate drops.
 //! - [`TakeMoveFacts::is_bypass_safe_entry_for_var`] — the central
 //!   predicate. Returns true iff `blk` is the unique entry edge of
 //!   the bypass-safe region for `var`'s lineage. Source 1 emits the
@@ -103,8 +103,8 @@
 //!
 //!: initial function-global suppression, double-free fix.
 //!: conditional-consume path-sensitivity fix.
-//! - TPR-07-017: per-class partitioning via union-find.
-//! - TPR-07-019: membership / lineage split — this module's current
+//!: per-class partitioning via union-find.
+//!: membership / lineage split — this module's current
 //!   design. See `plans/repr-opt/section-07-enum-repr.md` §07.R.
 
 use rustc_hash::{FxHashMap, FxHashSet};
@@ -143,7 +143,7 @@ pub(crate) struct TakeMoveFacts {
     /// block params. Used by [`super::edge_cleanup`] and
     /// `emit_dead_block_param_decs` to skip all in-class vars so
     /// their edge/param decs never race source 1's per-lineage
-    /// emission. The over-approximation is load-bearing: TPR-07-019
+    /// emission. The over-approximation is load-bearing:
     /// iteration 1 tried to tighten this and produced nine
     /// double-frees.
     in_class: FxHashSet<ArcVarId>,
@@ -178,8 +178,8 @@ impl TakeMoveFacts {
         Self {
             in_class: FxHashSet::default(),
             var_to_lineage: FxHashMap::default(),
-            lineages: Vec::new(),
             let_alias_rep: FxHashMap::default(),
+            lineages: Vec::new(),
         }
     }
 
@@ -221,10 +221,10 @@ impl TakeMoveFacts {
     /// For singleton lineages (the common case of a function with
     /// one take-project, or two take-projects with disjoint alias
     /// chains), this query reduces to "is `blk` a bypass-safe entry
-    /// for this source's own reachability?" — matching TPR-07-017's
+    /// for this source's own reachability?" — matching the original
     /// per-class semantics.
     ///
-    /// For mixed lineages (phi-merged sources — TPR-07-019), this
+    /// For mixed lineages (phi-merged sources), this
     /// query uses the INTERSECTION of per-source bypass-safe sets.
     /// A contaminated block for even one source excludes the entire
     /// lineage from emitting a drop there; the specific-lineage vars
@@ -258,7 +258,7 @@ pub(crate) fn analyze(func: &ArcFunction, pool: &Pool) -> TakeMoveFacts {
 
     // 3. Build the over-approximating membership set via bidirectional
     //    union-find over both Let-alias and Jump-arg edges. This is the
-    //    same structure TPR-07-017 introduced; TPR-07-019 only adds a
+    //    same structure introduced; only adds a
     //    per-var lineage layer on top, leaving membership unchanged so
     //    edge cleanup's skip invariant survives.
     let in_class = compute_membership(func, &tp_sites);
@@ -266,7 +266,7 @@ pub(crate) fn analyze(func: &ArcFunction, pool: &Pool) -> TakeMoveFacts {
     // 4. Compute per-source bypass-safe blocks. Each take-project
     //    source gets its OWN bypass-safe set from its own `tp_block`
     //    alone — no cross-source contamination. This is the key
-    //    TPR-07-019 change versus TPR-07-017, which merged `tp_blocks`
+    //    change versus which merged `tp_blocks`
     //    across every source in the same class and took the complement
     //    of the union, shrinking bypass-safe sets incorrectly.
     let source_bypass: Vec<FxHashSet<usize>> = tp_sites
@@ -312,7 +312,7 @@ pub(crate) fn analyze(func: &ArcFunction, pool: &Pool) -> TakeMoveFacts {
     //    Two vars share a rep iff connected by `Let { dst, Var(src) }`
     //    chains only (no Jump edges). This distinguishes "same runtime
     //    value" (Let alias) from "same source set" (lineage) — fixing
-    //    TPR-07-022 where phi-merged params with the same lineage were
+    //    where phi-merged params with the same lineage were
     //    incorrectly deduped.
     let let_alias_rep = compute_let_alias_reps(func, &in_class);
 
@@ -333,7 +333,7 @@ pub(crate) fn analyze(func: &ArcFunction, pool: &Pool) -> TakeMoveFacts {
 /// lineage below). The Jump edge is intentionally over-approximating
 /// — it treats every phi param as aliased with every incoming arg —
 /// so that edge cleanup's `is_in_class` skip covers the full alias
-/// chain. TPR-07-019 iteration 1 tried to tighten this to single-
+/// chain. iteration 1 tried to tighten this to single-
 /// predecessor targets only and broke nine regression pins.
 fn compute_membership(func: &ArcFunction, tp_sites: &[(usize, ArcVarId)]) -> FxHashSet<ArcVarId> {
     let mut parent: FxHashMap<ArcVarId, ArcVarId> = FxHashMap::default();
@@ -381,7 +381,7 @@ fn compute_membership(func: &ArcFunction, tp_sites: &[(usize, ArcVarId)]) -> FxH
 ///   lineage of every incoming arg (could-be-either at runtime), but
 ///   the args do NOT inherit each other's lineage via the phi —
 ///   that would falsely conflate unrelated `tp_sources`, which is
-///   exactly the TPR-07-019 bug we are fixing.
+///   exactly the bug we are fixing.
 ///
 /// Returns a map from each variable to a **sorted, deduplicated**
 /// vector of source indices. Variables outside every lineage (no
@@ -491,7 +491,7 @@ fn compute_let_alias_reps(
 ///   `args[i] → target.params[i]` (phi params inherit lineage from
 ///   their incoming args, but args do NOT inherit each other's
 ///   lineage via the phi — that would conflate distinct
-///   take-project sources, which is precisely the TPR-07-019 bug).
+///   take-project sources, which is precisely the bug).
 ///
 /// The Jump-forward-only direction is the critical difference from
 /// [`union_alias_edges`], which is fully bidirectional and produces
@@ -527,7 +527,7 @@ fn build_alias_graph(func: &ArcFunction) -> FxHashMap<ArcVarId, Vec<ArcVarId>> {
 /// lineage`, then computes the entries of that intersection via
 /// [`compute_bypass_safe_entries`]. For singleton lineages, this
 /// reduces to that one source's own bypass-safe entries (matching
-/// TPR-07-017 behavior for the common case). For mixed lineages
+/// behavior for the common case). For mixed lineages
 /// (phi-merged), it is strictly tighter than either source's set,
 /// preventing contamination from an unrelated source in the same
 /// membership class.
@@ -623,11 +623,11 @@ fn collect_take_project_sites(func: &ArcFunction, pool: &Pool) -> Vec<(usize, Ar
 /// path. This is load-bearing for [`super::edge_cleanup`]'s
 /// `is_in_class` skip: a tighter union lets alias siblings fall out
 /// of the skip and race source 1's per-lineage emission, producing
-/// glibc-detected double-frees. TPR-07-019 iteration 1 tightened it
+/// glibc-detected double-frees. iteration 1 tightened it
 /// to single-predecessor targets only and collapsed nine
-/// `iterator_drop` regression pins. The final TPR-07-019 fix keeps
+/// `iterator_drop` regression pins. The final fix keeps
 /// this union unchanged and instead adds per-source lineage tracking
-/// (via [`build_forward_alias_graph`] + [`compute_lineage`]) for the
+/// (via [`build_alias_graph`] + [`compute_lineage`]) for the
 /// bypass-safe query, which is the only consumer that needs precise
 /// per-var reachability.
 fn union_alias_edges(func: &ArcFunction, parent: &mut FxHashMap<ArcVarId, ArcVarId>) {
@@ -713,9 +713,9 @@ fn union(parent: &mut FxHashMap<ArcVarId, ArcVarId>, a: ArcVarId, b: ArcVarId) {
 /// dec there would walk the tagged-pointer encoding before the
 /// projection reads its payload.
 ///
-/// **Per-source, not per-class**: TPR-07-019 requires this function
+/// **Per-source, not per-class**: requires this function
 /// to run against a single source's `tp_block` at a time. Merging
-/// multiple sources into one call (as TPR-07-017 did) produces the
+/// multiple sources into one call (as did) produces the
 /// complement of the UNION of per-source reachability, which shrinks
 /// the bypass-safe set incorrectly when two unrelated sources are
 /// unioned via a phi merge.
