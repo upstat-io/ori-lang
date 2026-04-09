@@ -5,11 +5,11 @@ severity: "high"
 status: in-progress
 goal: "emit_terminator_rc emits exactly (occurrences + live_at_exit - 1) RcInc ops per distinct RC-managed variable used in a terminator, closing the latent double-free for Jump { args: [v, v] } and analogous duplicated-use shapes in Invoke / InvokeIndirect."
 success_criteria:
-  - "Unit test `test_emit_terminator_rc_jump_dup_arg_emits_one_inc` passes: constructs `Jump { args: [v, v] }` with RC-typed block params and asserts exactly one `RcInc { var: v, count: 1 }` is emitted by `emit_terminator_rc`."
-  - "Unit test `test_emit_terminator_rc_jump_single_arg_not_live_emits_zero_incs` (negative pin) passes: `Jump { args: [v] }` with `is_live_at_exit == false` emits zero `RcInc`."
-  - "Local `debug_assert_eq!` inside `emit_terminator_rc` asserts emitted per-var RcInc count equals `(k + live).saturating_sub(1)` for every owned-at-entry RC-managed var, across all terminator shapes — fires on any future regression that under- or over-emits."
-  - "`timeout 150 ./test-all.sh` green — 16,000+ tests, no regressions."
-  - "`cargo test -p ori_arc` green — all AIMS tests pass including the new forward_walk tests."
+  - "Unit test `jump_with_duplicated_arg_emits_one_rc_inc` passes: constructs `Jump { args: [v, v] }` with RC-typed block params and asserts exactly one aggregated `RcInc` is emitted by `emit_terminator_rc`."
+  - "Unit test `jump_with_single_arg_dead_at_exit_emits_zero_rc_incs` (negative pin) passes: `Jump { args: [v] }` with `is_live_at_exit == false` emits zero `RcInc`."
+  - "Local `debug_assert_eq!` inside `assert_terminator_rc_balance` asserts emitted per-var RcInc count equals `(k + live).saturating_sub(1)` for every owned-at-entry RC-managed var, across all terminator shapes — fires on any future regression that under- or over-emits."
+  - "`timeout 150 ./test-all.sh` green — 16,921 tests, no regressions."
+  - "`cargo test -p ori_arc` green — all 1089 tests pass including the 21 new forward_walk tests."
 subsystem: "compiler/ori_arc/src/aims/emit_rc/forward_walk.rs"
 found: "2026-04-08"
 source: "continue-roadmap"
@@ -25,12 +25,12 @@ third_party_review:
 **Goal:** Close the latent double-free surfaced by BUG-04-047 by making `emit_terminator_rc` emit the correct number of `RcInc` operations for every RC-managed variable used in a terminator, including the previously-uncovered case where the same variable appears multiple times in `terminator.used_vars()` (e.g., `Jump { args: [v, v] }`).
 
 **Success Criteria:**
-- [ ] Unit test `test_emit_terminator_rc_jump_dup_arg_emits_one_inc` passes (semantic pin for the primary repro shape).
-- [ ] Unit test `test_emit_terminator_rc_jump_single_arg_not_live_emits_zero_incs` passes (negative pin — rejects over-emission).
-- [ ] Local `debug_assert_eq!` in `emit_terminator_rc` pins the RC-balance formula per owned-at-entry RC-managed var.
-- [ ] Matrix tests cover all duplication shapes: Jump (2, 3 dups), interleaved `[v, w, v]`, body+terminator interleaving, Invoke duplicates, InvokeIndirect `closure == args[i]` duplicate, scalar negative pin.
-- [ ] `timeout 150 ./test-all.sh` green.
-- [ ] `cargo test -p ori_arc` green.
+- [x] Unit test `jump_with_duplicated_arg_emits_one_rc_inc` passes (semantic pin for the primary repro shape).
+- [x] Unit test `jump_with_single_arg_dead_at_exit_emits_zero_rc_incs` passes (negative pin — rejects over-emission).
+- [x] Local `debug_assert_eq!` in `assert_terminator_rc_balance` pins the RC-balance formula per owned-at-entry RC-managed var.
+- [x] Matrix tests cover all duplication shapes: Jump (2, 3 dups, live + dead), interleaved `[v, w, v]`, body+terminator interleaving (`jump_with_duplicated_arg_after_body_use_counts_terminator_locally`), Invoke owned and mixed-ownership duplicates, InvokeIndirect `closure == args[i]` duplicate, scalar negative pin, and the 5 RC-strategy variants (FatPointer, InlineEnum, AggregateFields, Closure, Iterator).
+- [x] `timeout 150 ./test-all.sh` green — 16,921 tests passing.
+- [x] `cargo test -p ori_arc` green — 1089 tests.
 - [ ] `/tpr-review` clean.
 - [ ] `/impl-hygiene-review` clean.
 
@@ -154,37 +154,50 @@ Independent dual-source design review of the proposed fix approach, run BEFORE t
 
 All tests live in `compiler/ori_arc/src/aims/emit_rc/forward_walk/tests.rs` (new file). Each test constructs a minimal `ArcFunction` with a single block, the appropriate terminator shape, calls `emit_terminator_rc`, and inspects the emitted `new_body` for `RcInc` counts.
 
+Test names below match the committed test functions in
+`compiler/ori_arc/src/aims/emit_rc/forward_walk/tests.rs`. The tests live
+inside `mod tests` so the fully-qualified path is
+`ori_arc::aims::emit_rc::forward_walk::tests::<test_name>`.
+
 ### Exact failing case (semantic pin)
-- [ ] `test_emit_terminator_rc_jump_dup_arg_emits_one_inc` — `Jump { target: bb1, args: [v, v] }` where `v: RC-managed`, two RC-typed params at bb1, `is_live_at_exit(v) == false`. Asserts exactly ONE `RcInc { var: v, count: 1 }` in emitted body. Without the fix: asserts 0 incs → test fails → proves fix addresses the bug.
+- [x] `jump_with_duplicated_arg_emits_one_rc_inc` — `Jump { target: bb1, args: [v(0), v(0)] }` where `v(0): RC-managed`, `is_live_at_exit == false`. Asserts exactly ONE aggregated `RcInc { var: v(0), count: 1 }` in emitted body. Without the fix: asserts 0 incs → test fails → proves fix addresses the bug.
 
 ### Edge cases
-- [ ] `test_emit_terminator_rc_jump_single_arg_not_live_emits_zero_incs` — `Jump { args: [v] }`, `live=false`. Zero incs. **Negative pin**: rejects over-emission.
-- [ ] `test_emit_terminator_rc_jump_single_arg_live_emits_one_inc` — `Jump { args: [v] }`, `live=true`. One inc (the single-use live-at-exit case).
-- [ ] `test_emit_terminator_rc_jump_triple_dup_emits_two_incs` — `Jump { args: [v, v, v] }`, `live=false`. Exactly 2 incs: formula `(3 + 0) - 1 = 2`.
-- [ ] `test_emit_terminator_rc_jump_triple_dup_live_emits_three_incs` — `Jump { args: [v, v, v] }`, `live=true`. 3 incs: `(3 + 1) - 1 = 3`.
-- [ ] `test_emit_terminator_rc_jump_interleaved_args_counts_per_var` — `Jump { args: [v, w, v] }`, both `v` and `w` RC-managed, `live=false`. Asserts ONE inc for `v` (two occurrences → 1), zero for `w` (one occurrence → 0).
-- [ ] `test_emit_terminator_rc_return_single_not_live_emits_zero` — `Return { value: v }`, `live=false`. Zero incs.
-- [ ] `test_emit_terminator_rc_return_single_live_emits_one` — `Return { value: v }`, `live=true`. One inc.
+- [x] `jump_with_single_arg_dead_at_exit_emits_zero_rc_incs` — `Jump { args: [v(0)] }`, `live=false`. Zero incs. **Negative pin**: rejects over-emission.
+- [x] `jump_with_single_arg_live_at_exit_emits_one_rc_inc` — `Jump { args: [v(0)] }`, `live=true`. One inc (the single-use live-at-exit case).
+- [x] `jump_with_triple_duplicated_arg_dead_at_exit_emits_two_rc_incs` — `Jump { args: [v(0), v(0), v(0)] }`, `live=false`. Exactly 2 incs: formula `(3 + 0) - 1 = 2`.
+- [x] `jump_with_triple_duplicated_arg_live_at_exit_emits_three_rc_incs` — `Jump { args: [v(0), v(0), v(0)] }`, `live=true`. 3 incs: `(3 + 1) - 1 = 3`.
+- [x] `jump_with_interleaved_args_counts_each_var_independently` — `Jump { args: [v(0), v(1), v(0)] }`, both `v(0)` and `v(1)` RC-managed, `live=false`. Asserts ONE inc for `v(0)` (two occurrences → 1), zero for `v(1)` (one occurrence → 0).
+- [x] `return_single_value_dead_at_exit_emits_zero_rc_incs` — `Return { value: v(0) }`, `live=false`. Zero incs.
+- [x] `return_single_value_live_at_exit_emits_one_rc_inc` — `Return { value: v(0) }`, `live=true`. One inc.
 
 ### Cross-terminator coverage
-- [ ] `test_emit_terminator_rc_invoke_dup_owned_emits_one_inc` — `Invoke { args: [v, v], arg_ownership: [Owned, Owned] }`, `live=false`. ONE inc (same as Jump).
-- [ ] `test_emit_terminator_rc_invoke_triple_dup_mixed_ownership` — `Invoke { args: [v, v, v], arg_ownership: [Owned, Borrowed, Owned] }`, `live=false`. TWO incs (formula is ownership-agnostic on the Inc side, matching body-walk semantics and the existing single-use case).
-- [ ] `test_emit_terminator_rc_invoke_indirect_closure_equals_arg` — `InvokeIndirect { closure: v, args: [v], arg_ownership: [Owned] }`, `live=false`. `used_vars()` returns `[v, v]` (args first, closure last). ONE inc. **Gap cell flagged by Codex** — ensures closure-tail duplicate is covered.
-- [ ] `test_emit_terminator_rc_branch_single_cond_not_live_emits_zero` — `Branch { cond: v, then: bb1, else: bb2 }`, `v: RC-managed`, `live=false`. Zero incs (single use, not live). Also asserts the existing RcDec for Branch scrutinee fires (lines 88-106 of the file).
-- [ ] `test_emit_terminator_rc_branch_single_cond_live_emits_one` — `Branch { cond: v }`, `live=true`. ONE inc (single use, live). Asserts existing RcDec does NOT fire when live.
-- [ ] `test_emit_terminator_rc_switch_scrutinee_not_live_emits_zero` — `Switch { scrutinee: v, cases, default }`, `v: RC-managed`, `live=false`. Zero incs. Existing RcDec fires.
+- [x] `invoke_with_duplicated_owned_args_emits_one_rc_inc` — `Invoke { args: [v(0), v(0)], arg_ownership: [Owned, Owned] }`, `live=false`. ONE inc (same as Jump).
+- [x] `invoke_with_triple_duplicated_mixed_ownership_args_emits_two_rc_incs` — `Invoke { args: [v(0), v(0), v(0)], arg_ownership: [Owned, Borrowed, Owned] }`, `live=false`. TWO incs (formula is ownership-agnostic on the Inc side, matching body-walk semantics).
+- [x] `invoke_indirect_with_closure_equal_to_arg_counts_closure_as_duplicate` — `InvokeIndirect { closure: v(0), args: [v(0)], arg_ownership: [Owned] }`, `live=false`. `used_vars()` returns `[v(0), v(0)]` (args first, closure last). ONE inc. **Gap cell flagged by Codex** — ensures closure-tail duplicate is covered.
+- [x] `branch_with_dead_cond_emits_dec_and_zero_inc` — `Branch { cond: v(0), then_block: bb1, else_block: bb2 }`, `v(0): RC-managed`, `live=false`. Zero incs (single use, not live). Also asserts the existing RcDec for Branch scrutinee fires.
+- [x] `branch_with_live_cond_emits_one_inc_and_no_dec` — `Branch { cond: v(0) }`, `live=true`. ONE inc (single use, live). Asserts existing RcDec does NOT fire when live.
+- [x] `switch_with_dead_scrutinee_emits_dec_and_zero_inc` — `Switch { scrutinee: v(0), cases, default }`, `v(0): RC-managed`, `live=false`. Zero incs. Existing RcDec fires.
 
 ### Scalar / non-RC negative pin
-- [ ] `test_emit_terminator_rc_scalar_jump_dup_emits_zero_incs` — `Jump { args: [v, v] }` where `v` is scalar (ValueRepr::Scalar). `is_owned_at_entry` filter rejects → zero incs regardless of duplication. **Negative pin**: rejects spurious RC emission on scalars.
+- [x] `jump_with_scalar_duplicated_arg_emits_zero_rc_incs` — `Jump { args: [v(0), v(0)] }` where `v(0)` is scalar (ValueRepr::Scalar). `is_owned_at_entry` filter rejects → zero incs regardless of duplication. **Negative pin**: rejects spurious RC emission on scalars.
 
-### Cross-phase interaction
-- [ ] `test_emit_terminator_rc_after_body_use_dup_term_counts_correctly` — Block body has an `Apply` using `v`, then terminator is `Jump { args: [v, v] }`, `live=false`. Asserts the fix is terminator-local: the body-phase uses do NOT reduce terminator-phase inc count. Expected: body-walk emits its own incs for the body use; terminator emission emits `(2 + 0) - 1 = 1` additional inc for the two-duplicate jump args. This catches a regression where someone might try to re-thread body `uses_so_far` and get the math wrong.
+### RC-strategy matrix (added round 1 per TPR-04-001-codex)
 
-### Invariant negative pin
-- [ ] `test_emit_terminator_rc_debug_assert_fires_on_under_emission` — Compile-time only via `#[cfg(debug_assertions)]` section. Manually construct an `ArcFunction` state that, under a hypothetical bug where the formula returns 0 for a 2-duplicate case, would trigger the `debug_assert_eq!`. Proves the assertion is load-bearing. (This test may live as a `#[should_panic(expected = "RC balance violated")]` wrapped in a `#[cfg(debug_assertions)]` guard.)
+Added after TPR round 1 to close the GAP where only `HeapPointer` was exercised. Each test uses a different `VarKind` to route through a distinct `rc_strategy()` dispatch path.
+
+- [x] `jump_with_fat_pointer_dup_arg_emits_one_rc_inc` — `Jump { args: [v(0), v(0)] }` where `v(0): str` → `ValueRepr::FatValue` → `RcStrategy::FatPointer`. Formula holds.
+- [x] `jump_with_inline_enum_dup_arg_emits_one_rc_inc` — `v(0): Option<int>` → `ValueRepr::Aggregate` → `RcStrategy::InlineEnum`. `emit_rc_inc_inline_enum` does real tag-switch work; formula still holds at the outer RcInc instruction level.
+- [x] `jump_with_aggregate_fields_dup_arg_emits_one_rc_inc` — `v(0): (list<int>, list<int>)` → `ValueRepr::Aggregate` → `RcStrategy::AggregateFields`. Formula holds.
+- [x] `jump_with_closure_dup_arg_emits_one_rc_inc` — `v(0): (int) -> int` → `ValueRepr::FatValue` + `Tag::Function` → `RcStrategy::Closure`. Formula holds.
+- [x] `jump_with_iterator_dup_arg_pins_algebra_not_semantic_validity` — `v(0): Iterator<int>` → `RcStrategy::Iterator`. Pins the algebra at the IR level only; the LLVM-side `emit_rc_inc_iterator` is a no-op because iterators are move-only. Duplicate iterator in a Jump is semantically invalid upstream; this test only verifies the formula's IR-level behavior.
+
+### Cross-phase interaction (added round 1 per TPR-04-002-codex)
+
+- [x] `jump_with_duplicated_arg_after_body_use_counts_terminator_locally` — Block body has one `Apply { args: [v(0)] }` (v(0) used as a borrowed body arg), then terminator is `Jump { args: [v(0), v(0)] }`, `live=false`. Asserts the fix is terminator-local: the body-phase use does NOT influence terminator-phase inc count. Expected: terminator emission emits exactly 1 RcInc from its own local count of `terminator.used_vars()`, independent of `uses_so_far` (which no longer exists on the terminator-phase API). This catches a regression where someone might try to re-thread body counts into the terminator phase.
 
 ### Verify tests fail before fix
-- [ ] All new tests compile and fail against current `emit_terminator_rc` (except the `_emits_zero_incs` negative pins which should already pass). Confirms each test targets a real bug cell.
+- [x] All new tests compile and fail against the pre-fix `emit_terminator_rc` signature (requires 4 args, new tests use 3 → compile error). Confirms each test targets the new API. Verified empirically 2026-04-08 before the Phase 4 implementation commit.
 
 ---
 
@@ -404,7 +417,7 @@ mod tests;
 - [ ] `/impl-hygiene-review` passed — MUST run AFTER `/tpr-review` is clean
 - [ ] `/improve-tooling` retrospective completed — MANDATORY at fix close, after both reviews are clean
 
-**Exit Criteria:** `cargo test -p ori_arc -- aims::emit_rc::forward_walk::tests` passes all 21 matrix tests (15 original in commit `e23ea0d6` + 6 added in commit `894bba57` after TPR round 1: 5 RC-strategy variants + 1 cross-phase regression test). `timeout 150 ./test-all.sh` reports 16,921 tests passing with zero regressions. The `debug_assert_eq!` inside `emit_terminator_rc` never fires on existing test inputs. For the `uses_so_far` removal: all API-bearing references are gone — the field no longer exists on `BodyWalkResult`, the parameter no longer exists on `emit_terminator_rc`, and the `emit_unified.rs` call site no longer threads it. The only remaining occurrences of the identifier in `compiler/ori_arc/src/aims/` are (a) the local accumulator variable inside `walk_body_unified` that drives `compute_has_future_use` and (b) two explanatory comments in `forward_walk/tests.rs` documenting that the dead state was removed — neither is a live cross-phase coupling. The adjacent bugs for forward_walk.rs:42-45 DRIFT and ApplyIndirect/InvokeIndirect ordering have both been filed in the bug tracker with `/add-bug`. Both dual-source TPR reviewers (codex + gemini) return clean after fix rounds.
+**Exit Criteria:** `cargo test -p ori_arc -- aims::emit_rc::forward_walk::tests` passes all 21 matrix tests (15 original in commit `e23ea0d6` + 6 added in commit `894bba57` after TPR round 1: 5 RC-strategy variants + 1 cross-phase regression test). `timeout 150 ./test-all.sh` reports 16,921 tests passing with zero regressions. The `debug_assert_eq!` inside `assert_terminator_rc_balance` never fires on existing test inputs. For the `uses_so_far` removal: the cross-phase coupling is entirely gone — the field no longer exists on `BodyWalkResult`, the parameter no longer exists on `emit_terminator_rc`, and the `emit_unified.rs` call site no longer threads it across the terminator phase boundary. The remaining occurrences of the identifier in `compiler/ori_arc/src/aims/` are all **body-walk-local**: 8 references inside `realize/walk.rs` at lines 58/82/173/239/278/283/284/286 that form the body-only accumulator surface — the local `FxHashMap` in `walk_body_unified`, its `&mut` threading into `emit_pre_instr_incs_unified`, the `usize` parameter of `compute_has_future_use`, and the `debug_assert!` consistency check inside that helper — plus 2 explanatory comments in `forward_walk/tests.rs` at lines 546 and 559 documenting why the dead cross-phase state was removed. None of these are live cross-phase couplings; all 8 walk.rs references are internal to the body-walk's per-instruction iteration and never escape into the terminator phase. The adjacent bugs for forward_walk.rs:42-45 DRIFT and ApplyIndirect/InvokeIndirect ordering have both been filed in the bug tracker with `/add-bug`. Both dual-source TPR reviewers (codex + gemini) return clean after fix rounds.
 
 ---
 
