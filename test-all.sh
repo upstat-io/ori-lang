@@ -85,7 +85,7 @@ ORI_LLVM_EXIT=0
 
 run_rust_workspace() {
     echo "=== Running Rust unit tests (workspace) ==="
-    if cargo test --workspace --exclude ori_llvm 2>&1 > "$RUST_OUTPUT"; then
+    if cargo test --workspace --exclude ori_llvm > "$RUST_OUTPUT" 2>&1; then
         echo "  ✓ Rust workspace tests passed"
         return 0
     else
@@ -96,7 +96,7 @@ run_rust_workspace() {
 
 run_rust_rt() {
     echo "=== Running runtime library tests (ori_rt) ==="
-    if cargo test -p ori_rt 2>&1 > "$RUST_RT_OUTPUT"; then
+    if cargo test -p ori_rt > "$RUST_RT_OUTPUT" 2>&1; then
         echo "  ✓ Runtime library tests passed"
         return 0
     else
@@ -108,8 +108,8 @@ run_rust_rt() {
 run_rust_llvm() {
     echo "=== Running Rust unit tests (ori_llvm) ==="
     # Run ori_llvm lib unit tests + doc-tests (AOT integration tests run separately below)
-    if cargo test -p ori_llvm --lib 2>&1 > "$RUST_LLVM_OUTPUT" && \
-       cargo test -p ori_llvm --doc 2>&1 >> "$RUST_LLVM_OUTPUT"; then
+    if cargo test -p ori_llvm --lib > "$RUST_LLVM_OUTPUT" 2>&1 && \
+       cargo test -p ori_llvm --doc >> "$RUST_LLVM_OUTPUT" 2>&1; then
         echo "  ✓ Rust LLVM tests passed"
         return 0
     else
@@ -120,7 +120,7 @@ run_rust_llvm() {
 
 run_aot() {
     echo "=== Running AOT integration tests ==="
-    if cargo test -p ori_llvm --test aot 2>&1 > "$AOT_OUTPUT"; then
+    if cargo test -p ori_llvm --test aot > "$AOT_OUTPUT" 2>&1; then
         echo "  ✓ AOT integration tests passed"
         return 0
     else
@@ -153,7 +153,7 @@ run_wasm_build() {
         echo "skipped" > "$WASM_OUTPUT"
         return 0
     fi
-    if cargo build --manifest-path "$wasm_manifest" --target wasm32-unknown-unknown --release 2>&1 > "$WASM_OUTPUT"; then
+    if cargo build --manifest-path "$wasm_manifest" --target wasm32-unknown-unknown --release > "$WASM_OUTPUT" 2>&1; then
         echo "  ✓ External playground WASM build passed"
         return 0
     else
@@ -166,7 +166,7 @@ run_ori_interpreter() {
     echo "=== Running Ori language tests (interpreter) ==="
     # Use pre-built binary directly to avoid cargo lock contention.
     # target/debug/ori exists after workspace tests compile oric.
-    if ./target/debug/ori test --verbose tests/ 2>&1 > "$ORI_INTERP_OUTPUT"; then
+    if ./target/debug/ori test --verbose tests/ > "$ORI_INTERP_OUTPUT" 2>&1; then
         grep -E "[0-9]+ passed, [0-9]+ failed" "$ORI_INTERP_OUTPUT" | tail -1 | sed 's/^/  /'
         return 0
     else
