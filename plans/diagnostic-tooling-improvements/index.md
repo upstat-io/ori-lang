@@ -78,7 +78,7 @@ Swift sil-opt-pass-count, sequential checkpoint
 ---
 
 ### Section 06: Expand Fixtures + Self-Test
-**File:** `section-06-fixtures.md` | **Status:** Not Started
+**File:** `section-06-fixtures.md` | **Status:** Complete
 
 ```
 fixtures, closure.ori, iterator_break.ori, nested_list.ori
@@ -89,7 +89,7 @@ self-test.sh, diagnostic regression, coverage
 ---
 
 ### Section 07: Integration + Polish
-**File:** `section-07-integration.md` | **Status:** Not Started
+**File:** `section-07-integration.md` | **Status:** In Progress
 
 ```
 test-all.sh, diagnostic hints, check-debug-flags.sh
