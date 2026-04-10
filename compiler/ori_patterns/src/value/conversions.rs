@@ -3,6 +3,7 @@
 use std::borrow::Cow;
 
 use super::Value;
+use crate::Heap;
 pub use ori_ir::StringLookup;
 
 // Value inspection and conversion methods
@@ -151,7 +152,10 @@ impl Value {
             Value::Map(map) => {
                 let inner: Vec<_> = map
                     .iter()
-                    .map(|(k, v)| format!("{}: {}", k, v.display_value()))
+                    .map(|(k, v)| {
+                        let decoded = Value::from_map_key(k);
+                        format!("{}: {}", decoded.display_value(), v.display_value())
+                    })
                     .collect();
                 format!("{{{}}}", inner.join(", "))
             }
@@ -246,6 +250,67 @@ impl Value {
             | Value::ModuleNamespace(_)
             | Value::Error(_)
             | Value::TypeRef { .. } => Err("value is not hashable and cannot be a map key"),
+        }
+    }
+
+    /// Decode an internal map key back to a `Value`.
+    ///
+    /// Inverse of `to_map_key()`. Map keys are stored with type prefixes
+    /// (e.g., `"s:hello"`, `"i:42"`) for internal collision avoidance.
+    /// This reverses the encoding for user-facing contexts: iteration,
+    /// display, debug, `.keys()`, `.entries()`.
+    ///
+    /// The encode/decode pair (`to_map_key`/`from_map_key`) is the SSOT
+    /// for map key serialization. All consumers MUST use these functions.
+    pub fn from_map_key(key: &str) -> Value {
+        match key.split_once(':') {
+            Some(("s", rest)) => Value::string(rest.to_string()),
+            Some(("i", rest)) => rest
+                .parse::<i64>()
+                .map_or_else(|_| Value::string(key.to_string()), Value::int),
+            Some(("f", rest)) => rest
+                .parse::<f64>()
+                .map_or_else(|_| Value::string(key.to_string()), Value::Float),
+            Some(("b", rest)) => rest
+                .parse::<bool>()
+                .map_or_else(|_| Value::string(key.to_string()), Value::Bool),
+            Some(("c", rest)) => {
+                let mut chars = rest.chars();
+                match (chars.next(), chars.next()) {
+                    (Some(c), None) => Value::Char(c),
+                    _ => Value::string(key.to_string()),
+                }
+            }
+            Some(("y", rest)) => rest
+                .parse::<u8>()
+                .map_or_else(|_| Value::string(key.to_string()), Value::Byte),
+            Some(("d", rest)) => rest
+                .parse::<i64>()
+                .map_or_else(|_| Value::string(key.to_string()), Value::Duration),
+            Some(("z", rest)) => rest
+                .parse::<u64>()
+                .map_or_else(|_| Value::string(key.to_string()), Value::Size),
+            Some(("o", rest)) => match rest {
+                "Less" | "-1" => Value::Ordering(crate::value::OrderingValue::Less),
+                "Equal" | "0" => Value::Ordering(crate::value::OrderingValue::Equal),
+                "Greater" | "1" => Value::Ordering(crate::value::OrderingValue::Greater),
+                _ => Value::string(key.to_string()),
+            },
+            Some(("n", _)) => Value::None,
+            Some(("S", rest)) => Value::Some(Heap::new(Value::from_map_key(rest))),
+            Some(("O", rest)) => Value::Ok(Heap::new(Value::from_map_key(rest))),
+            Some(("E", rest)) => Value::Err(Heap::new(Value::from_map_key(rest))),
+            Some(("t", rest)) => {
+                // Tuple: "t:item1;item2;..." — split on ';' and decode each
+                let items: Vec<Value> = rest
+                    .split(';')
+                    .filter(|s| !s.is_empty())
+                    .map(Value::from_map_key)
+                    .collect();
+                Value::tuple(items)
+            }
+            // Unknown prefix or no prefix — return as string
+            _ => Value::string(key.to_string()),
         }
     }
 
