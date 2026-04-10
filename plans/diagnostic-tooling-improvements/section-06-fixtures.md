@@ -21,7 +21,7 @@ third_party_review:
 sections:
   - id: "06.1"
     title: "Create core-pattern fixtures"
-    status: not-started
+    status: complete
   - id: "06.2"
     title: "Create ARC-interaction fixtures"
     status: not-started
@@ -74,20 +74,20 @@ Each fixture must: (1) compile under AOT, (2) produce deterministic output via e
 
 **Category: pass** — all exit 0, balanced RC.
 
-- [ ] **`closure.ori`** — Closure capturing a collection (`[int]`), calling the closure, verifying captures are alive after the call. Tests closure RC: the captured value must be inc'd on capture, dec'd on closure drop. **Must also include:** closure passed as function argument, closure called twice (RC balance after multiple invocations). Reference syntax: `tests/valgrind/fat_matrix/f04_closure_capture.ori`
-- [ ] **`closure_escape.ori`** — Closures that escape their creation scope: stored in a list, passed as a parameter to another function, returned from a function, and called after the creating scope has exited. This is a GAP identified by tp-help — capture-only coverage is insufficient for RC correctness because escaping closures stress the lifetime of captured values beyond lexical scope. Reference syntax: `tests/valgrind/fat_matrix/f04_closure_capture.ori` (for capture patterns), `tests/spec/expressions/lambdas.ori` (for lambda syntax)
-- [ ] **`iterator_break.ori`** — Iterate over `[str]` with early `break`, verifying the iterator and remaining elements are properly dropped. This is the #1 ARC debugging pain point. Must include: full iteration (no break), break on first element, break on middle element, `continue` skipping elements. Reference syntax: `tests/valgrind/fat_matrix/f19_break_continue.ori`
-- [ ] **`iterator_complex.ori`** — Iterator patterns beyond simple break: nested `for` loops with fat values in both levels, `for...yield` with break producing partial collection, `continue` with guard filtering, map iteration and cleanup. tp-help identified single `iterator_break.ori` as insufficient — iterator coverage must be deeper. Reference syntax: `tests/valgrind/fat_matrix/f19_break_continue.ori`, `tests/spec/traits/iterator/for_loop.ori`
-- [ ] **`nested_list.ori`** — Nested `[[str]]` collection, exercising `elem_dec_fn` propagation for nested drops. Include: creating nested lists, accessing inner elements, passing nested lists to functions. Reference syntax: `tests/valgrind/fat_matrix/f14_list_element.ori`
-- [ ] **`trait_dispatch.ori`** — Trait method call through a concrete `impl Trait for Type` (current compiler syntax), testing that trait dispatch codegen produces balanced RC. Include: trait with required method, trait with default method, calling trait method on a value that owns fat pointers. **Note**: current compiler uses `impl Trait for Type` syntax (not `impl Type: Trait` — that's approved but not yet implemented per CLAUDE.md). Reference syntax: `tests/spec/traits/declaration.ori`
-- [ ] **`pattern_match.ori`** — Sum type with 3+ variants including mixed scalar and fat-pointer payloads (e.g., `A(x: int) | B(s: str) | C(xs: [int])`), exercising tag dispatch and per-variant drops. tp-help identified this as a gap: mixed scalar/ref variants stress the decision tree codegen differently than uniform variants. Reference syntax: `tests/valgrind/fat_matrix/f06_pattern_matching.ori`, `tests/valgrind/fat_matrix/f12_sum_payload.ori`
-- [ ] **`map_iteration.ori`** — Map creation with string keys, iteration over entries, map lookup, verifying RC for both keys and values during iteration. Reference syntax: `tests/valgrind/iter_rc/map_str_iteration.ori`, `tests/valgrind/iter_rc/map_str_for_do.ori` (active executable map examples; NOT `tests/spec/types/map_types.ori` which is a disabled TODO corpus)
-- [ ] Verify each fixture: `cargo run -- run <fixture>` produces expected exit code, `cargo run -- build <fixture> -o /tmp/test_fixture && /tmp/test_fixture` produces the same exit code
+- [x] **`closure.ori`** — Closure capturing a collection (`[int]`), calling the closure, verifying captures are alive after the call. Tests closure RC: the captured value must be inc'd on capture, dec'd on closure drop. **Must also include:** closure passed as function argument, closure called twice (RC balance after multiple invocations). Reference syntax: `tests/valgrind/fat_matrix/f04_closure_capture.ori`
+- [x] **`closure_escape.ori`** — Closures that escape their creation scope: stored in a list, passed as a parameter to another function, returned from a function, and called after the creating scope has exited. This is a GAP identified by tp-help — capture-only coverage is insufficient for RC correctness because escaping closures stress the lifetime of captured values beyond lexical scope. Reference syntax: `tests/valgrind/fat_matrix/f04_closure_capture.ori` (for capture patterns), `tests/spec/expressions/lambdas.ori` (for lambda syntax)
+- [x] **`iterator_break.ori`** — Iterate over `[str]` with early `break`, verifying the iterator and remaining elements are properly dropped. This is the #1 ARC debugging pain point. Must include: full iteration (no break), break on first element, break on middle element, `continue` skipping elements. Reference syntax: `tests/valgrind/fat_matrix/f19_break_continue.ori`
+- [x] **`iterator_complex.ori`** — Iterator patterns beyond simple break: nested `for` loops with fat values in both levels, `for...yield` with break producing partial collection, `continue` with guard filtering, map iteration and cleanup. tp-help identified single `iterator_break.ori` as insufficient — iterator coverage must be deeper. Reference syntax: `tests/valgrind/fat_matrix/f19_break_continue.ori`, `tests/spec/traits/iterator/for_loop.ori`
+- [x] **`nested_list.ori`** — Nested `[[str]]` collection, exercising `elem_dec_fn` propagation for nested drops. Include: creating nested lists, accessing inner elements, passing nested lists to functions. Reference syntax: `tests/valgrind/fat_matrix/f14_list_element.ori`
+- [x] **`trait_dispatch.ori`** — Trait method call through a concrete `impl Trait for Type` (current compiler syntax), testing that trait dispatch codegen produces balanced RC. Include: trait with required method, trait with default method, calling trait method on a value that owns fat pointers. **Note**: current compiler uses `impl Trait for Type` syntax (not `impl Type: Trait` — that's approved but not yet implemented per CLAUDE.md). Reference syntax: `tests/spec/traits/declaration.ori`
+- [x] **`pattern_match.ori`** — Sum type with 3+ variants including mixed scalar and fat-pointer payloads (e.g., `A(x: int) | B(s: str) | C(xs: [int])`), exercising tag dispatch and per-variant drops. tp-help identified this as a gap: mixed scalar/ref variants stress the decision tree codegen differently than uniform variants. Reference syntax: `tests/valgrind/fat_matrix/f06_pattern_matching.ori`, `tests/valgrind/fat_matrix/f12_sum_payload.ori`
+- [x] **`map_iteration.ori`** — Map creation with string keys, iteration over entries, map lookup, verifying RC for both keys and values during iteration. Reference syntax: `tests/valgrind/iter_rc/map_str_iteration.ori`, `tests/valgrind/iter_rc/map_str_for_do.ori` (active executable map examples; NOT `tests/spec/types/map_types.ori` which is a disabled TODO corpus)
+- [x] Verify each fixture: `cargo run -- run <fixture>` produces expected exit code, `cargo run -- build <fixture> -o /tmp/test_fixture && /tmp/test_fixture` produces the same exit code
 
-- [ ] **Subsection close-out (06.1)** — MANDATORY before starting 06.2:
-  - [ ] All tasks above are `[x]` and verified
-  - [ ] Update this subsection's `status` in section frontmatter to `complete`
-  - [ ] **Run `/improve-tooling` retrospectively on THIS subsection**
+- [x] **Subsection close-out (06.1)** — MANDATORY before starting 06.2:
+  - [x] All tasks above are `[x]` and verified
+  - [x] Update this subsection's `status` in section frontmatter to `complete`
+  - [x] **Run `/improve-tooling` retrospectively on THIS subsection**
 
 ---
 

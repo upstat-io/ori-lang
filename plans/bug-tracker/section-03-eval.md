@@ -39,6 +39,11 @@ Bugs in expression evaluation, method dispatch, iterator machinery, closure hand
   Subsystem: `compiler/ori_eval/src/` — likely `environment.rs` (scope/env management), `interpreter/` (function dispatch), and multi-clause pattern matching overhead
   Found: 2026-04-04 | Source: manual (Rosetta Code Ackermann task)
 
+- [ ] `[BUG-03-005][high]` **Map key strings include surrounding quotes in interpreter — dual-execution mismatch with AOT**
+  Repro: `let m = {"hello": 1}; for (k, v) in m do { print(msg: k.length()) }` — interpreter prints 7, AOT prints 5. Key `"hello"` should be 5 chars but interpreter reports 7 (includes quote chars). Every map key is +2 in interpreter. AOT is correct.
+  Subsystem: `compiler/ori_eval/` — map key storage or iteration path adds/preserves quote characters around string keys
+  Found: 2026-04-10 | Source: continue-roadmap (diagnostic-tooling-improvements §06.1 fixture creation)
+
 ---
 
 ## Resolved Bugs

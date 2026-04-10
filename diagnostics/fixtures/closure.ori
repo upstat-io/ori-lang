@@ -1,0 +1,51 @@
+// Diagnostic fixture: closure capture and invocation.
+// Exercises PartialApply codegen, closure env RC (inc on capture, dec on drop),
+// closure passed as function argument, closure called multiple times.
+
+@apply (f: (int) -> int, x: int) -> int = f(x);
+
+@main () -> int = {
+    // Closure capturing a collection — RC must inc on capture, dec on drop
+    let items = [10, 20, 30];
+    let sum_with = (n: int) -> int = {
+        let total = 0;
+        for x in items do {
+            total = total + x;
+        };
+        total + n
+    };
+    let ok1 = sum_with(5) == 65;
+
+    // Closure capturing a heap string
+    let prefix = "abcdefghijklmnopqrstuvwxyz1234";
+    let measure = (extra: int) -> int = prefix.length() + extra;
+    let ok2 = measure(10) == 40;
+
+    // Closure called twice — RC balance after multiple invocations
+    let a = measure(5);
+    let b = measure(10);
+    let ok3 = a + b == 75;
+
+    // Closure passed as function argument
+    let tag = "hello";
+    let tag_len = (n: int) -> int = tag.length() + n;
+    let ok4 = apply(f: tag_len, x: 7) == 12;
+
+    // Multiple captures: str + [int]
+    let name = "test";
+    let nums = [1, 2, 3, 4];
+    let combined = (x: int) -> int = name.length() + nums.length() + x;
+    let ok5 = combined(2) == 10;
+
+    // Closure used in loop body
+    let word = "hello";
+    let add_len = (n: int) -> int = word.length() + n;
+    let total = 0;
+    for i in [1, 2, 3] do {
+        total = total + add_len(i);
+    };
+    let ok6 = total == 21;
+
+    if ok1 && ok2 && ok3 && ok4 && ok5 && ok6
+        then 0 else 1
+}
