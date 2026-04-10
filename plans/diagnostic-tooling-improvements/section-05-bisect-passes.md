@@ -1,7 +1,7 @@
 ---
 section: "05"
 title: "AIMS Pass Bisection"
-status: not-started
+status: in-progress
 reviewed: true
 goal: "Create bisect-passes.sh that automatically identifies which AIMS pipeline phase introduced an RC imbalance or structural change"
 success_criteria:
@@ -27,13 +27,13 @@ sections:
     status: not-started
   - id: "05.2"
     title: "Create bisect-passes.sh shell driver"
-    status: not-started
+    status: in-progress
   - id: "05.R"
     title: "Third Party Review Findings"
-    status: not-started
+    status: complete
   - id: "05.N"
     title: "Completion Checklist"
-    status: not-started
+    status: in-progress
 ---
 
 # Section 05: AIMS Pass Bisection
