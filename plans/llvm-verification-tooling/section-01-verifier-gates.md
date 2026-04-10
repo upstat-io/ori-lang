@@ -455,6 +455,15 @@ When all findings are triaged:
 
 - [x] **[TPR-01-002-codex-i4][medium] GAP: ORI_VERIFY_ARC parsed with is_ok() at 3 sites** — `codegen_pipeline.rs:381`, `arc_dump/mod.rs:68`, `arc_dot/mod.rs:60` all use `is_ok()` instead of the canonical `!= "0"` pattern, making `ORI_VERIFY_ARC=0` truthy. **Resolution:** Added explicit checklist item in §01.2.1 to fix all 3 sites to `.map_or(false, |v| v != "0")` with a test case.
 
+### Iteration 5 Findings (section-close TPR — codex only, gemini parse failure)
+
+- [x] **[TPR-01-001-codex-i5][high] GAP: derive thunks in field_ops/thunks.rs missing fn_val.verify()** — 8 standalone FunctionValues created via `get_or_declare_function()` in `field_ops/thunks.rs` lack `fn_val.verify()`. These were noted as "deferred to derive codegen verification pass" in §01.2.2:296 but the verification pass didn't cover them.
+  Resolved: Fixed on 2026-04-10. Added `verify_derive_function(fc, func_id, "derive_thunk")` at all 8 `restore_position` points. Import added. 16,978 tests pass with `ORI_VERIFY_ARC=1`.
+  Note: Codex also claimed gaps in `closures.rs:205` and `iterator_consumers.rs:624` — independently verified these do NOT create standalone FunctionValues (no `get_or_declare_function` or `add_function`). Those claims were rejected after verification.
+
+- [x] **[TPR-01-002-codex-i5][medium] DRIFT: FindingKind::LlvmLint dead code — no producer** — `FindingKind::LlvmLint { message: String }` variant added in ed46c7d9 has no producer. LLVM's lint pass outputs via `dbgs()` (stderr), so structured capture via the audit report is not feasible.
+  Resolved: Fixed on 2026-04-10. Removed the dead `LlvmLint` variant from `report.rs`. The plan already documents that lint output goes to stderr. The variant can be re-added if LLVM's lint pass gains diagnostic handler support in a future version.
+
 ---
 
 ## 01.N Completion Checklist
