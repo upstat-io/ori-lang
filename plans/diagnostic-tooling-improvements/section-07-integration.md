@@ -129,7 +129,7 @@ When LLVM or AOT tests fail, print a one-liner suggesting the relevant diagnosti
   - Add `bisect-passes.sh` to quick reference table and usage section
   - Update `diagnose-aot.sh` entry with new `--release`, `--both-builds` flags
   - Update `rc-stats.sh` entry with new `--block-level` flag
-  - Update `dual-exec-debug.sh` entry noting auto ARC IR dump on mismatch
+  - Update `dual-exec-debug.sh` entry noting: auto ARC IR dump on mismatch, auto codegen-audit on mismatch, `--keep-temp` flag for artifact persistence, build-failure ARC IR capture
   - Verify `aims-compare.sh` / `aims-baseline.sh` / `aims-measure.sh` entries are absent (removal verified in Section 01.1)
   - Update fixtures table with all new fixtures
   - Add new "Common Debugging Workflows" entries for bisection and debug-vs-release
