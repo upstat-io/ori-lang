@@ -96,13 +96,15 @@ The scanner outputs an `=== REROUTES ===` block at the top with `[ACTIVE reroute
 Run the roadmap scanner to get a comprehensive workspace snapshot:
 
 ```bash
-.claude/skills/continue-roadmap/roadmap-scan.sh plans/roadmap
+.claude/skills/continue-roadmap/roadmap-scan.sh
 ```
 
+**Do NOT pass `plans/roadmap` as an argument** unless you specifically need to override reroute priority. Without an argument, the scanner auto-selects the focus plan: active reroutes take priority (honoring Step 0), then falls back to the main roadmap. Passing an explicit plan directory forces focus selection to that plan, bypassing the reroute-priority logic.
+
 `roadmap-scan.sh` is a thin shim around `roadmap_scan.py` — a Python
-rewrite that crawls every plan directory (not just the one passed), the
-bug tracker, fix sections, and completed plans, producing a dense
-structured report optimized for workflow consumption.
+rewrite that crawls every plan directory, the bug tracker, fix sections,
+and completed plans, producing a dense structured report optimized for
+workflow consumption.
 
 The output has these blocks in order:
 
