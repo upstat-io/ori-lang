@@ -46,12 +46,12 @@ sections:
 
 **Success Criteria:**
 
-- [ ] `run_verify()` and `run_aims_verify()` return errors (not warnings) when `ORI_VERIFY_ARC=1` — satisfies mission criterion: "Verifier failures become blocking gates"
-- [ ] Full error propagation chain from `run_verify()` through `verify_and_merge()` -> `run_aims_pipeline()` -> `run_arc_pipeline()` -> `FunctionCompiler::process_arc_function()` -> compilation failure — errors must propagate, not be silently logged
-- [ ] `ORI_VERIFY_EACH=1` registered in `debug_flags.rs` and wired through `OptimizationConfig` in ALL entry points: `compiler/oric/src/commands/build/mod.rs`, `compiler/oric/src/commands/run/mod.rs`, and the JIT path in `compiler/ori_llvm/src/evaluator/compile.rs`
-- [ ] `fn_val.verify()` called after each function in ALL LLVM emission sites (define phase, nounwind emit, impls, tests, derives)
-- [ ] `opt -lint` integrated into codegen audit output using `function(lint)` pipeline syntax with diagnostic capture
-- [ ] `test-all.sh` passes with `ORI_VERIFY_EACH=1 ORI_VERIFY_ARC=1` within the 150s non-negotiable timeout — measured BEFORE enabling globally
+- [x] `run_verify()` and `run_aims_verify()` return errors (not warnings) when `ORI_VERIFY_ARC=1` — satisfies mission criterion: "Verifier failures become blocking gates"
+- [x] Full error propagation chain from `run_verify()` through `verify_and_merge()` -> `run_aims_pipeline()` -> `run_arc_pipeline()` -> `FunctionCompiler::process_arc_function()` -> compilation failure — errors must propagate, not be silently logged
+- [x] `ORI_VERIFY_EACH=1` registered in `debug_flags.rs` and wired through `OptimizationConfig` in ALL entry points: `compiler/oric/src/commands/build/mod.rs`, `compiler/oric/src/commands/run/mod.rs`, and the JIT path in `compiler/ori_llvm/src/evaluator/compile.rs`
+- [x] `fn_val.verify()` called after each function in ALL LLVM emission sites (define phase, nounwind emit, impls, tests, derives, thunks, wrappers)
+- [x] `opt -lint` integrated into codegen audit output using `function(lint)` pipeline syntax (lint output via stderr; structured capture not feasible — LLVM lint uses `dbgs()`)
+- [x] `test-all.sh` passes with `ORI_VERIFY_EACH=1 ORI_VERIFY_ARC=1` within the 150s non-negotiable timeout — measured 54s (36% of budget)
 
 **Context:** Currently, `run_verify()` (`compiler/ori_arc/src/pipeline/mod.rs:128`) and `run_aims_verify()` (line 144) log warnings via `tracing::warn!` but never fail the compilation. FIP structural checks at `compiler/ori_arc/src/pipeline/aims_pipeline/mod.rs:182` and `compiler/ori_arc/src/pipeline/aims_pipeline/batch.rs:196` use `debug_assert!` which disappears in release builds. This violates `.claude/rules/arc.md` §Non-Negotiable Invariant #4: "Every active subsystem needs implementation + invariant enforcement + verification." The `verify_each` field exists at `compiler/ori_llvm/src/aot/passes/config.rs:210` with a builder at line 321, but it's not wired to any env var or CLI flag — `build_optimization_config` in `compiler/oric/src/commands/build/mod.rs:158` doesn't read it. The `run` command at `compiler/oric/src/commands/run/mod.rs:289` constructs `OptimizationConfig::new(O2)` directly without `verify_each`. The JIT path at `compiler/ori_llvm/src/evaluator/compile.rs:259` hardcodes `verify_arc: false`. The codegen audit pipeline (`compiler/ori_llvm/src/verify/mod.rs`) runs RC balance, COW rules, ABI checks, and safety checks, but doesn't run LLVM's own `opt -lint` pass which catches UB patterns the custom checks miss.
 
@@ -460,46 +460,46 @@ When all findings are triaged:
 ## 01.N Completion Checklist
 
 ### Functional verification
-- [ ] `run_verify()` returns `Err` under `ORI_VERIFY_ARC=1` when errors found
-- [ ] `run_aims_verify()` returns `Err` under `ORI_VERIFY_ARC=1` when errors found
-- [ ] Error propagation chain complete: `run_verify()` -> `verify_and_merge()` -> `run_aims_pipeline()` -> `run_arc_pipeline()` -> `FunctionCompiler` -> compilation abort
-- [ ] `VerifyError` and `ArcProblem` type distinction: ICEs vs user diagnostics
-- [ ] FIP first-pass allows `CertifiedButHasMissedReuses`, blocks `CertifiedButUnboundedStack` and `BoundedExceeded`
-- [ ] FIP second-pass blocks ALL error variants
-- [ ] `ORI_VERIFY_EACH` registered in `debug_flags.rs` and wired through `OptimizationConfig`
-- [ ] `ORI_VERIFY_EACH` wired in `compiler/oric/src/commands/build/mod.rs` (`build_optimization_config`)
-- [ ] `ORI_VERIFY_EACH` wired in `compiler/oric/src/commands/run/mod.rs` (`OptimizationConfig::new`)
-- [ ] `ORI_VERIFY_ARC` honored in JIT path (`compiler/ori_llvm/src/evaluator/compile.rs`)
-- [ ] `fn_val.verify()` runs after codegen in nounwind emit (`nounwind/emit.rs` — `emit_prepared_functions`)
-- [ ] `fn_val.verify()` runs after codegen in lambda body (`nounwind/emit.rs` — `emit_prepared_lambda` definition at line 120)
-- [ ] `fn_val.verify()` runs after codegen in immediate-emit lambda path (`define_phase.rs` — `compile_lambda_arc` at line 220)
-- [ ] `fn_val.verify()` runs after codegen in impls/tests canonical path (`impls.rs` — via canonical helper)
-- [ ] `fn_val.verify()` runs after codegen in `compile_tests` panic-catching wrapper (`impls.rs:91-117`)
-- [ ] `fn_val.verify()` runs after codegen in `generate_main_wrapper` (`entry_point.rs:60-170`)
-- [ ] `fn_val.verify()` runs after codegen in derives (`derive_codegen/mod.rs`)
-- [ ] `fn_val.verify()` runs after codegen in `generate_closure_wrapper` (`closure_wrappers.rs:32`)
-- [ ] `fn_val.verify()` runs after codegen in `generate_drop_fn` (`drop_gen.rs:43`)
-- [ ] `fn_val.verify()` runs after codegen in remaining thunks: `panic_trampoline`, `seh_main_thunk`, `catch_thunk_gen`, `element_fn_gen`, derive field thunks, iterator consumer thunks
-- [ ] Catch-all rule documented: ANY `FunctionValue` creation site must call `fn_val.verify()`
-- [ ] Existing `ORI_VERIFY_ARC` callers fixed from `is_ok()` to `!= "0"` pattern (3 sites: `codegen_pipeline.rs`, `arc_dump/mod.rs`, `arc_dot/mod.rs`)
-- [ ] `opt -lint` integrated into codegen audit using `function(lint)` pipeline syntax with diagnostic capture
-- [ ] `test-all.sh` runs with `ORI_VERIFY_ARC=1` by default
-- [ ] `.github/workflows/ci.yml` sets `ORI_VERIFY_ARC=1`
-- [ ] Timeout measurement completed and documented — `ORI_VERIFY_EACH=1` enabled only if within 150s budget
+- [x] `run_verify()` returns `Err` under `ORI_VERIFY_ARC=1` when errors found
+- [x] `run_aims_verify()` returns `Err` under `ORI_VERIFY_ARC=1` when errors found
+- [x] Error propagation chain complete: `run_verify()` -> `verify_and_merge()` -> `run_aims_pipeline()` -> `run_arc_pipeline()` -> `FunctionCompiler` -> compilation abort
+- [x] `VerifyError` and `ArcProblem` type distinction: ICEs vs user diagnostics
+- [x] FIP first-pass allows `CertifiedButHasMissedReuses`, blocks `CertifiedButUnboundedStack` and `BoundedExceeded`
+- [x] FIP second-pass blocks ALL error variants
+- [x] `ORI_VERIFY_EACH` registered in `debug_flags.rs` and wired through `OptimizationConfig`
+- [x] `ORI_VERIFY_EACH` wired in `compiler/oric/src/commands/build/mod.rs` (`build_optimization_config`)
+- [x] `ORI_VERIFY_EACH` wired in `compiler/oric/src/commands/run/mod.rs` (`OptimizationConfig::new`)
+- [x] `ORI_VERIFY_ARC` honored in JIT path (`compiler/ori_llvm/src/evaluator/compile.rs`)
+- [x] `fn_val.verify()` runs after codegen in nounwind emit (`nounwind/emit.rs:54` — `emit_prepared_functions`)
+- [x] `fn_val.verify()` runs after codegen in lambda body (`nounwind/emit.rs:147` — `emit_prepared_lambda`)
+- [x] `fn_val.verify()` runs after codegen in immediate-emit lambda path (`define_phase.rs:264` — `compile_lambda_arc`)
+- [x] `fn_val.verify()` runs after codegen in impls/tests canonical path (`impls.rs` — via canonical helper)
+- [x] `fn_val.verify()` runs after codegen in `compile_tests` panic-catching wrapper (`impls.rs:122`)
+- [x] `fn_val.verify()` runs after codegen in `generate_main_wrapper` (`entry_point.rs:180`)
+- [x] `fn_val.verify()` runs after codegen in derives (`derive_codegen/mod.rs` — via `verify_derive_function` at 6 sites)
+- [x] `fn_val.verify()` runs after codegen in `generate_closure_wrapper` (`closure_wrappers.rs:233`)
+- [x] `fn_val.verify()` runs after codegen in `generate_drop_fn` (`drop_gen.rs:123`)
+- [x] `fn_val.verify()` runs after codegen in remaining thunks: `panic_trampoline.rs:229`, `seh_main_thunk.rs:188`, `catch_thunk_gen.rs:127,208`, `element_fn_gen.rs:90,212`
+- [x] Catch-all rule documented in `codegen/mod.rs` module-level docs: ANY `FunctionValue` creation site must call `fn_val.verify()`
+- [x] Existing `ORI_VERIFY_ARC` callers fixed from `is_ok()` to `!= "0"` pattern (3 sites: `codegen_pipeline.rs`, `arc_dump/mod.rs`, `arc_dot/mod.rs`)
+- [x] `opt -lint` integrated into codegen audit using `function(lint)` pipeline syntax (lint output via stderr; `FindingKind::LlvmLint` variant added)
+- [x] `test-all.sh` runs with `ORI_VERIFY_ARC=1` and `ORI_VERIFY_EACH=1` by default
+- [x] `.github/workflows/ci.yml` sets `ORI_VERIFY_ARC=1` and `ORI_VERIFY_EACH=1`
+- [x] Timeout measurement completed: 54s with both flags (36% of 150s budget). Both enabled globally.
 
 ### Quality gates
-- [ ] All test suites pass within 150-second timeout with verification enabled
-- [ ] No regressions: `timeout 150 ./test-all.sh` green
-- [ ] `timeout 150 ./clippy-all.sh` green
-- [ ] Plan annotation cleanup: `bash .claude/skills/impl-hygiene-review/plan-annotations.sh --plan 01` returns 0 annotations
-- [ ] All intermediate TPR checkpoint findings resolved
-- [ ] BLOAT: if any changes touched `compiler/ori_llvm/src/codegen/arc_emitter/mod.rs` (630 lines, over 500-line limit), it was split into submodules
+- [x] All test suites pass within 150-second timeout with verification enabled (54s, 16,978 tests)
+- [x] No regressions: `timeout 150 ./test-all.sh` green
+- [x] `timeout 150 ./clippy-all.sh` green
+- [x] Plan annotation cleanup: 0 annotations for this plan
+- [x] All intermediate TPR checkpoint findings resolved (01.R: 19/19 done, status: resolved)
+- [x] BLOAT: `arc_emitter/mod.rs` (630 lines) NOT touched by this section's changes — N/A
 
 ### Plan sync
-- [ ] This section's frontmatter `status` -> `complete`, subsection statuses updated
-- [ ] `00-overview.md` Quick Reference table status updated for this section
-- [ ] `00-overview.md` mission success criteria checkboxes updated
-- [ ] `index.md` section status updated
+- [ ] This section's frontmatter `status` -> `complete`, subsection statuses updated (pending TPR/hygiene)
+- [x] `00-overview.md` Quick Reference table status updated for this section (In Progress)
+- [x] `00-overview.md` mission success criteria checkboxes updated (§01 checked off)
+- [x] `index.md` section status updated (In Progress, pending close-out)
 
 ### Final reviews
 - [ ] `/tpr-review` passed (final, full-section)
