@@ -23,6 +23,8 @@
 mod abi_check;
 mod cow_rules;
 mod rc_balance;
+mod rc_histogram;
+mod rc_stats;
 pub(crate) mod report;
 mod safety_checks;
 
@@ -127,6 +129,10 @@ pub fn audit_module_with_options(module: &Module<'_>, options: &AuditOptions) ->
     cow_rules::check_module(module, options, &mut report);
     abi_check::check_module(module, options, &mut report);
     safety_checks::check_module(module, options, &mut report);
+    // Per-block RC histogram → typed JSON report.
+    let histograms = rc_histogram::collect_module_histogram(module, options);
+    let rc_stats = rc_stats::RcStatsReport::from_histograms(&histograms, false);
+    rc_stats.emit_to_stderr();
     report
 }
 
