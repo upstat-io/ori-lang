@@ -215,7 +215,7 @@ Never insert `RcDec` after a tail call — breaks TCO. Transfer ownership instea
 | `ori_arc/src/aims/intraprocedural/mod.rs` | Per-function backward dataflow |
 | `ori_arc/src/aims/emit_rc/mod.rs` | RC emission from state map |
 | `ori_arc/src/aims/emit_reuse/mod.rs` | Reuse emission (detect + plan + expand) |
-| `ori_arc/src/pipeline/aims_pipeline.rs` | AIMS pipeline orchestration |
+| `ori_arc/src/pipeline/aims_pipeline/` | AIMS pipeline orchestration (mod.rs: config+run, trmc.rs: TRMC, postprocess.rs: verify+FBIP, batch.rs: batch+second pass) |
 | `ori_llvm/src/codegen/arc_emitter/mod.rs` | ARC IR → LLVM emission |
 | `ori_llvm/src/codegen/arc_emitter/drop_gen.rs` | LLVM drop function generation |
 | `ori_llvm/tests/aot/arc.rs` | AOT integration tests for ARC |

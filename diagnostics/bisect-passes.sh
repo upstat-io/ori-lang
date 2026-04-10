@@ -54,7 +54,13 @@ FILE=""
 # --- Parse arguments ---
 while [[ $# -gt 0 ]]; do
     case $1 in
-        --function) FILTER_FUNCTION="$2"; shift 2 ;;
+        --function)
+            if [[ $# -lt 2 ]]; then
+                echo "Error: --function requires a value" >&2
+                exit 2
+            fi
+            FILTER_FUNCTION="$2"; shift 2
+            ;;
         --rc-only) RC_ONLY=1; shift ;;
         --color) USE_COLOR=yes; shift ;;
         --no-color) USE_COLOR=no; shift ;;
@@ -207,8 +213,8 @@ while IFS= read -r func_name; do
             MARKER=" ${C_YELLOW}← RC change${C_NC}"
         fi
 
-        # Detect structural changes
-        if [[ -n "$PREV_BLOCKS" ]] && [[ "$blocks" != "$PREV_BLOCKS" || "$vars" != "$PREV_VARS" ]]; then
+        # Detect structural changes (suppressed in --rc-only mode)
+        if [[ "$RC_ONLY" -eq 0 ]] && [[ -n "$PREV_BLOCKS" ]] && [[ "$blocks" != "$PREV_BLOCKS" || "$vars" != "$PREV_VARS" ]]; then
             if [[ -z "$MARKER" ]]; then
                 MARKER=" ${C_YELLOW}← structural${C_NC}"
             else
