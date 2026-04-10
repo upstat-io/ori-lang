@@ -30,7 +30,7 @@ sections:
     status: complete
   - id: "01.4"
     title: "Measure Timeout Budget and Enable Verification in test-all.sh / CI"
-    status: not-started
+    status: complete
   - id: "01.R"
     title: "Third Party Review Findings"
     status: complete
@@ -361,48 +361,35 @@ The verification gates from 01.1-01.3 must be ON by default in all test runs. Ho
 
 ### 01.4.1 Measure before enabling (timeout budget gate)
 
-- [ ] **Measurement step** — BEFORE enabling verification globally, run:
-  ```bash
-  time ORI_VERIFY_EACH=1 ORI_VERIFY_ARC=1 timeout 150 ./test-all.sh
-  ```
-  Record the wall time. If it exceeds 130s (leaving 20s safety margin for CI variance):
-  - [ ] Identify the slowest test suites via per-suite timing
-  - [ ] Consider enabling `verify_each` only on LLVM-specific suites (suites #3, #4, #7), not on Rust unit tests or Ori spec tests that don't exercise the LLVM backend
-  - [ ] Consider splitting the LLVM test suite into smaller shards that each fit within budget
-  - [ ] Do NOT raise the 150s timeout — that violates CLAUDE.md §MANDATORY Test Timeouts
-  - [ ] If verification cannot fit within 150s even with sharding, enable `ORI_VERIFY_ARC=1` only (ARC IR verification is lightweight) and gate `ORI_VERIFY_EACH=1` to a separate CI job or nightly-only. Document the tradeoff.
+- [x] **Measurement step** — measured: **54s** with both `ORI_VERIFY_EACH=1` and `ORI_VERIFY_ARC=1` enabled. Well within 150s budget (36% utilization, 96s headroom). All 16,978 tests pass. No sharding or selective enablement needed — both flags enabled globally.
+  - [x] ~~Identify the slowest test suites via per-suite timing~~ N/A — 54s total, no need for optimization
+  - [x] ~~Consider enabling `verify_each` only on LLVM-specific suites~~ N/A — both flags fit globally
+  - [x] ~~Consider splitting the LLVM test suite into smaller shards~~ N/A — under budget
+  - [x] Do NOT raise the 150s timeout — verified: 54s is well within
+  - [x] ~~If verification cannot fit within 150s~~ N/A — both flags fit
 
 ### 01.4.2 Enable in test-all.sh
 
-- [ ] Update `test-all.sh` to export `ORI_VERIFY_ARC=1` before test suites. For `ORI_VERIFY_EACH=1`, enable it only if the measurement step confirms it fits within the 150s budget:
-  ```bash
-  # At the top of test-all.sh, after other env setup:
-  export ORI_VERIFY_ARC=1
-  # Only if measurement confirms within 150s budget:
-  export ORI_VERIFY_EACH=1
-  ```
+- [x] Update `test-all.sh` to export `ORI_VERIFY_ARC=1` and `ORI_VERIFY_EACH=1` before test suites.
+  Implementation: Added verification gates section near top of test-all.sh with both exports and measurement documentation comment.
 
 ### 01.4.3 Enable in CI
 
 **CI coverage gap:** `cargo test --workspace` (which CI runs as a workspace member) already exercises `ori_llvm` Rust unit tests. What is NOT present in CI is: `./test-all.sh` (which runs the full Ori spec suite + LLVM integration suites in one orchestrated run), `ori test --backend=llvm` (which runs Ori spec tests through the LLVM backend end-to-end), and sharded verification (splitting LLVM AOT tests into smaller CI jobs that fit within time budgets). The env var additions below are preparatory — they will not have full effect until those missing invocations are added to the CI workflow. **Full LLVM/AOT CI orchestration coverage is deferred to Section 11 (CI Integration).** <!-- blocked-by:11 -->
 
-- [ ] Update `.github/workflows/ci.yml` to set the verification env vars in the `env:` block for the test job:
-  ```yaml
-  env:
-    ORI_VERIFY_ARC: "1"
-    # ORI_VERIFY_EACH: "1"  # Enable after measurement confirms budget
-  ```
+- [x] Update `.github/workflows/ci.yml` to set the verification env vars in the global `env:` block:
+  Both `ORI_VERIFY_ARC` and `ORI_VERIFY_EACH` set to `"1"` — measurement confirmed budget allows both.
 
 ### 01.4.4 Validate zero regressions
 
-- [ ] Run `timeout 150 ./test-all.sh` with both flags enabled and verify 0 regressions. If any existing tests fail under verification mode, those are pre-existing bugs that verification just surfaced — file each via `/add-bug` and fix before proceeding.
+- [x] Run `timeout 150 ./test-all.sh` with both flags enabled and verify 0 regressions. **Result: 16,978 tests pass, 0 failures, 54s wall time.**
 
 ### 01.4.5 Subsection close-out
 
-- [ ] **Subsection close-out (01.4)** — MANDATORY before starting 01.R:
-  - [ ] All tasks above are `[x]` and the subsection's behavior is verified
-  - [ ] Update this subsection's `status` in section frontmatter to `complete`
-  - [ ] **Run `/improve-tooling` retrospectively on THIS subsection**.
+- [x] **Subsection close-out (01.4)** — MANDATORY before starting 01.R:
+  - [x] All tasks above are `[x]` and the subsection's behavior is verified
+  - [x] Update this subsection's `status` in section frontmatter to `complete`
+  - [x] **Run `/improve-tooling` retrospectively on THIS subsection** — Retrospective 01.4: no tooling gaps. Measurement step directly answered the budget question (54s, 36% of 150s limit). No additional tooling needed.
 
 ---
 
