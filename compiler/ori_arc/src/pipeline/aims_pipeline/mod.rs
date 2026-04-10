@@ -35,10 +35,48 @@ use crate::aims::contract::MemoryContract;
 use crate::borrow::BuiltinOwnershipSets;
 use crate::ir::ArcFunction;
 use crate::lower::ArcProblem;
+use crate::pipeline::rc_count;
 use crate::ArcClassification;
 
 // Re-export batch entry points used by pipeline/mod.rs.
 pub(crate) use batch::{apply_aims_ownership, run_aims_pipeline_all};
+
+/// Emit a pipeline checkpoint event for `bisect-passes.sh` consumption.
+///
+/// Uses `info` level on the `ori_arc::aims::pipeline` target so it can be
+/// captured with `ORI_LOG=ori_arc::aims::pipeline=info` without overwhelming
+/// verbosity. This is intentionally different from the existing
+/// `trace_phase_snapshot` in `emit_unified.rs` which uses `trace!` on
+/// `ori_arc::aims::realize` for finer-grained realization-step snapshots.
+///
+/// Uses existing `rc_count::count_rc_ops()` (SSOT for RC counting) plus
+/// structural metrics (`blocks`, `vars`) to detect phases that change
+/// CFG structure without altering RC totals.
+pub(crate) fn trace_pipeline_checkpoint(
+    func: &ArcFunction,
+    phase: &str,
+    interner: &ori_ir::StringInterner,
+) {
+    // Early exit when the pipeline target is disabled — avoids the cost of
+    // count_rc_ops() and string lookup when tracing is off.
+    if !tracing::enabled!(target: "ori_arc::aims::pipeline", tracing::Level::INFO) {
+        return;
+    }
+    let fn_name = interner.lookup(func.name);
+    let rc = rc_count::count_rc_ops(func);
+    let blocks = func.blocks.len();
+    let vars = func.var_types.len();
+    tracing::info!(
+        target: "ori_arc::aims::pipeline",
+        function = fn_name,
+        phase,
+        rc_incs = rc.inc,
+        rc_decs = rc.dec,
+        blocks,
+        vars,
+        "AIMS phase checkpoint"
+    );
+}
 
 /// Configuration for the AIMS per-function pipeline.
 ///
@@ -78,6 +116,7 @@ pub(crate) fn run_aims_pipeline(
     // TRMC rewrite loop (idempotent — at most 2 iterations).
     let (norm_result, immortals, did_trmc_transform, pre_trmc_func) =
         trmc::normalize_with_trmc(func, config);
+    trace_pipeline_checkpoint(func, "normalize_with_trmc_complete", config.interner);
 
     // Intraprocedural analysis → converged state map.
     let state_map = {
@@ -90,10 +129,12 @@ pub(crate) fn run_aims_pipeline(
             immortals,
         )
     };
+    trace_pipeline_checkpoint(func, "analyze_function", config.interner);
 
     // Step 4a: TRMC semantic soundness verification.
     let (state_map, trmc_rewrite_survived) =
         trmc::verify_trmc_soundness(func, state_map, did_trmc_transform, pre_trmc_func, config);
+    trace_pipeline_checkpoint(func, "verify_trmc_soundness", config.interner);
 
     // Phase 1: RC + reuse + arg_ownership (pre-merge).
     let mut result = {
@@ -107,6 +148,7 @@ pub(crate) fn run_aims_pipeline(
             config.pool,
         )
     };
+    trace_pipeline_checkpoint(func, "realize_rc_reuse", config.interner);
 
     // Post-emission missed_reuses count for the second pass (FP² Theorem 2).
     let missed_reuses = result.fip_evidence.missed_reuses;
@@ -142,6 +184,7 @@ pub(crate) fn run_aims_pipeline(
             }
         }
     }
+    trace_pipeline_checkpoint(func, "verify_fip_contract", config.interner);
 
     // Set canonicalize cross-dim fires from converged state analysis.
     result.synergy_metrics.canonicalize_cross_fires = state_map.count_cross_dim_states();
@@ -162,6 +205,7 @@ pub(crate) fn run_aims_pipeline(
             &mut result,
         );
     }
+    trace_pipeline_checkpoint(func, "realize_annotations", config.interner);
     func.cow_annotations = result.cow_annotations;
     func.drop_hints = result.drop_hints;
 
