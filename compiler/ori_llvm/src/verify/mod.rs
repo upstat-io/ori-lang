@@ -28,6 +28,7 @@ mod rc_stats;
 pub(crate) mod report;
 mod safety_checks;
 
+pub use rc_stats::RcStatsReport;
 pub use report::AuditReport;
 
 use inkwell::module::Module;
@@ -54,7 +55,7 @@ pub struct AuditOptions {
 
 impl AuditOptions {
     /// Read audit options from environment variables.
-    fn from_env() -> Self {
+    pub fn from_env() -> Self {
         Self {
             strict: std::env::var(ENV_AUDIT_STRICT).is_ok_and(|v| v != "0"),
             function_filter: std::env::var(ENV_AUDIT_FUNCTION)
@@ -129,11 +130,19 @@ pub fn audit_module_with_options(module: &Module<'_>, options: &AuditOptions) ->
     cow_rules::check_module(module, options, &mut report);
     abi_check::check_module(module, options, &mut report);
     safety_checks::check_module(module, options, &mut report);
-    // Per-block RC histogram → typed JSON report.
+    // Per-block RC histogram → typed JSON report (stored in report, emitted by emit_to_stderr).
     let histograms = rc_histogram::collect_module_histogram(module, options);
-    let rc_stats = rc_stats::RcStatsReport::from_histograms(&histograms, false);
-    rc_stats.emit_to_stderr();
+    report.rc_stats = Some(rc_stats::RcStatsReport::from_histograms(&histograms, false));
     report
+}
+
+/// Run only the histogram pass on a module (no lifecycle/COW/ABI/safety checks).
+///
+/// Intended for post-optimization IR where the full audit would produce false
+/// positives. Returns an `RcStatsReport` with `optimized: true`.
+pub fn audit_module_histogram_only(module: &Module<'_>, options: &AuditOptions) -> RcStatsReport {
+    let histograms = rc_histogram::collect_module_histogram(module, options);
+    rc_stats::RcStatsReport::from_histograms(&histograms, true)
 }
 
 #[cfg(test)]
