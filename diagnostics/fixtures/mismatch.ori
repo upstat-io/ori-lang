@@ -1,0 +1,4 @@
+// Fixture for dual-exec-debug.sh mismatch-path self-test.
+// This file is a valid Ori program — the mismatch is injected externally
+// by mismatch-wrapper.sh via the ORI_BIN override.
+@main () -> void = print(msg: "hello");

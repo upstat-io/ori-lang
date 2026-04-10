@@ -1,7 +1,7 @@
 ---
 section: "03"
 title: "Enhance dual-exec-debug.sh"
-status: not-started
+status: in-progress
 reviewed: true
 goal: "Auto-dump ARC IR and run codegen-audit on mismatch, export ORI_BIN for child script consistency, add ARC dump to build-failure branch, bridge the gap between 'these differ' and 'here is why'"
 success_criteria:
@@ -21,22 +21,22 @@ third_party_review:
 sections:
   - id: "03.1"
     title: "Export ORI_BIN for child script consistency"
-    status: not-started
+    status: complete
   - id: "03.2"
     title: "Add ARC IR dump to build-failure branch"
-    status: not-started
+    status: complete
   - id: "03.3"
     title: "Add ARC IR and codegen-audit to mismatch diagnostics"
-    status: not-started
+    status: complete
   - id: "03.4"
     title: "Add mismatch-path self-test coverage"
-    status: not-started
+    status: complete
   - id: "03.R"
     title: "Third Party Review Findings"
-    status: not-started
+    status: complete
   - id: "03.N"
     title: "Completion Checklist"
-    status: not-started
+    status: in-progress
 ---
 
 # Section 03: Enhance dual-exec-debug.sh
@@ -45,16 +45,16 @@ sections:
 **Goal:** When `dual-exec-debug.sh` detects a mismatch between interpreter and AOT, automatically dump ARC IR (which shows the pre-codegen state — often where AIMS bugs are visible) and run codegen-audit (which catches RC/COW/ABI issues statically). Also fix the `ORI_BIN` export leak, add ARC IR capture on build failure, and add mismatch-path self-test coverage.
 
 **Success Criteria:**
-- [ ] `ORI_BIN` is exported immediately after `find_ori_bin` so child scripts (`arc-dump.sh`, `codegen-audit.sh`) resolve the same binary
-- [ ] On build failure, ARC IR is captured and saved (arc-dump.sh captures IR before codegen)
-- [ ] On mismatch, ARC IR is saved to `$tmpdir/diag-arc.txt` and reported
-- [ ] On mismatch, `codegen-audit.sh` runs with proper exit-code handling (0=clean, 1=findings, 2=infra-failure) — not `|| true`
-- [ ] `codegen-audit.sh` does not leave temp artifacts in the user's working directory when called from this script
-- [ ] Build-failure exit code is 2 (not 1), matching the documented exit contract
-- [ ] `--keep-temp` flag preserves diagnostic artifacts on mismatch for user inspection
-- [ ] On match, no extra work is done (no performance penalty for passing cases)
-- [ ] `self-test.sh` has mismatch-path AND build-failure-path tests using a deterministic harness (no reliance on real compiler bugs)
-- [ ] Satisfies mission criterion: "dual-exec-debug.sh auto-dumps ARC IR on mismatch"
+- [x] `ORI_BIN` is exported immediately after `find_ori_bin` so child scripts (`arc-dump.sh`, `codegen-audit.sh`) resolve the same binary
+- [x] On build failure, ARC IR is captured and saved (arc-dump.sh captures IR before codegen)
+- [x] On mismatch, ARC IR is saved to `$tmpdir/diag-arc.txt` and reported
+- [x] On mismatch, `codegen-audit.sh` runs with proper exit-code handling (0=clean, 1=findings, 2=infra-failure) — not `|| true`
+- [x] `codegen-audit.sh` does not leave temp artifacts in the user's working directory when called from this script
+- [x] Build-failure exit code is 2 (not 1), matching the documented exit contract
+- [x] `--keep-temp` flag preserves diagnostic artifacts on mismatch for user inspection
+- [x] On match, no extra work is done (no performance penalty for passing cases)
+- [x] `self-test.sh` has mismatch-path AND build-failure-path tests using a deterministic harness (no reliance on real compiler bugs)
+- [x] Satisfies mission criterion: "dual-exec-debug.sh auto-dumps ARC IR on mismatch"
 
 **Context:** `dual-exec-debug.sh` currently auto-dumps LLVM IR and RC stats on mismatch (lines 240-262), but never dumps ARC IR even though `arc-dump.sh` exists. Many AIMS bugs — wrong RC placement, missing drops, incorrect ownership annotations — are visible in ARC IR before LLVM codegen faithfully replicates them. Adding ARC IR to the mismatch diagnostics bridges the gap from "these outputs differ" to "here is the ARC-level decision that caused the divergence."
 
@@ -72,19 +72,19 @@ Additionally, the script has a binary-consistency leak: it calls `find_ori_bin` 
 
 **Why:** `dual-exec-debug.sh` calls `find_ori_bin` at line 31, which sets `$ORI`. But `arc-dump.sh` (called in 03.2/03.3) uses `find_any_ori_bin()`, and `codegen-audit.sh` (called in 03.3) uses `find_ori_bin()`. Both check `$ORI_BIN` env var first. Without exporting, child scripts re-resolve independently and may choose a different binary (e.g., release when the parent chose debug). `diagnose-aot.sh` already has the canonical fix at line 204: `export ORI_BIN="$ORI"`.
 
-- [ ] Immediately after `find_ori_bin` (line 31), add:
+- [x] Immediately after `find_ori_bin` (line 31), add:
   ```bash
   # Export ORI_BIN so child scripts (arc-dump.sh, codegen-audit.sh) use the
   # same binary we resolved, rather than re-resolving via their own
   # find_ori_bin/find_any_ori_bin which may choose a different build profile.
   export ORI_BIN="$ORI"
   ```
-- [ ] Verify: with both debug and release binaries present, confirm child scripts use the same binary as the parent (add `echo "Using: $ORI" >&2` temporarily to both parent and child, run, compare paths)
+- [x] Verify: with both debug and release binaries present, confirm child scripts use the same binary as the parent (add `echo "Using: $ORI" >&2` temporarily to both parent and child, run, compare paths)
 
-- [ ] **Subsection close-out (03.1)** — MANDATORY before starting 03.2:
-  - [ ] All tasks above are `[x]` and verified
-  - [ ] Update this subsection's `status` in section frontmatter to `complete`
-  - [ ] **Run `/improve-tooling` retrospectively on THIS subsection**
+- [x] **Subsection close-out (03.1)** — MANDATORY before starting 03.2:
+  - [x] All tasks above are `[x]` and verified
+  - [x] Update this subsection's `status` in section frontmatter to `complete`
+  - [x] **Run `/improve-tooling` retrospectively on THIS subsection**
 
 ---
 
@@ -96,8 +96,8 @@ Additionally, the script has a binary-consistency leak: it calls `find_ori_bin` 
 
 **Pattern:** `arc-dump.sh` lines 115-139 already handle build failure gracefully — it captures IR before the failure and prints a warning. Lean on this behavior.
 
-- [ ] **Fix build-failure exit code** (DRIFT: lines 22-25 document `exit 2 = usage error or infrastructure failure`, but line 168 exits 1 on build failure — conflating "build failed" with "mismatch"). Change `exit 1` at line 168 to `exit 2` to match the documented exit contract. Build failure is an infrastructure failure, not a backend mismatch.
-- [ ] Inside the build-failure block (after line 159 `echo -e "  ${C_RED}Build failed${C_NC}:"`), before the Summary section, add ARC IR capture:
+- [x] **Fix build-failure exit code** (DRIFT: lines 22-25 document `exit 2 = usage error or infrastructure failure`, but line 168 exits 1 on build failure — conflating "build failed" with "mismatch"). Change `exit 1` at line 168 to `exit 2` to match the documented exit contract. Build failure is an infrastructure failure, not a backend mismatch.
+- [x] Inside the build-failure block (after line 159 `echo -e "  ${C_RED}Build failed${C_NC}:"`), before the Summary section, add ARC IR capture:
   ```bash
   # Attempt ARC IR capture even on build failure — ARC IR is emitted
   # before codegen, so it may be available even when LLVM fails.
@@ -109,13 +109,13 @@ Additionally, the script has a binary-consistency leak: it calls `find_ori_bin` 
       echo -e "  ${C_YELLOW}ARC IR dump unavailable${C_NC}"
   fi
   ```
-- [ ] **Ordering dependency note:** This uses `$SCRIPT_DIR` (set at line 29) and `$tmpdir` (set at line 96) — both available before line 158. No `color_flag` needed here (color variables `C_YELLOW`/`C_NC` are set at lines 84-93, before the build step).
-- [ ] Verify: intentionally break an `.ori` file at the codegen level (e.g., a type that causes LLVM IR verification failure) and confirm: (a) ARC IR is captured in the build-failure output, (b) exit code is 2 (not 1)
+- [x] **Ordering dependency note:** This uses `$SCRIPT_DIR` (set at line 29) and `$tmpdir` (set at line 96) — both available before line 158. No `color_flag` needed here (color variables `C_YELLOW`/`C_NC` are set at lines 84-93, before the build step).
+- [x] Verify: intentionally break an `.ori` file at the codegen level (e.g., a type that causes LLVM IR verification failure) and confirm: (a) ARC IR is captured in the build-failure output, (b) exit code is 2 (not 1)
 
-- [ ] **Subsection close-out (03.2)** — MANDATORY before starting 03.3:
-  - [ ] All tasks above are `[x]` and verified
-  - [ ] Update this subsection's `status` in section frontmatter to `complete`
-  - [ ] **Run `/improve-tooling` retrospectively on THIS subsection**
+- [x] **Subsection close-out (03.2)** — MANDATORY before starting 03.3:
+  - [x] All tasks above are `[x]` and verified
+  - [x] Update this subsection's `status` in section frontmatter to `complete`
+  - [x] **Run `/improve-tooling` retrospectively on THIS subsection**
 
 ---
 
@@ -127,7 +127,7 @@ Extend the auto-diagnostics block (currently lines 240-265) to include ARC IR du
 
 **Ordering dependency:** `color_flag` is initialized at line 254 inside the mismatch block, after the LLVM IR dump (line 246) and before RC stats (line 256). The new ARC IR dump must go after the LLVM IR dump but does NOT need `color_flag` (uses `--raw`). The codegen-audit call needs `color_flag` and must go after RC stats (line 256), where `color_flag` is already available. Do NOT reorder the existing LLVM IR dump or RC stats — `color_flag` initialization at line 254 is a dependency for both RC stats and codegen-audit.
 
-- [ ] After the existing LLVM IR dump (line 251, after the `fi`), add ARC IR dump:
+- [x] After the existing LLVM IR dump (line 251, after the `fi`), add ARC IR dump:
   ```bash
   # Run arc-dump.sh — ARC IR shows pre-codegen state where AIMS bugs are visible
   arc_file="$tmpdir/diag-arc.txt"
@@ -139,7 +139,7 @@ Extend the auto-diagnostics block (currently lines 240-265) to include ARC IR du
   fi
   ```
 
-- [ ] After the RC stats block (line 262, after the `fi`), add codegen-audit with **proper exit-code handling** (follow `diagnose-aot.sh` lines 371-408 pattern — NOT `|| true`):
+- [x] After the RC stats block (line 262, after the `fi`), add codegen-audit with **proper exit-code handling** (follow `diagnose-aot.sh` lines 371-408 pattern — NOT `|| true`):
   ```bash
   # Run codegen-audit.sh — static RC/COW/ABI analysis
   # Exit codes: 0=clean, 1=findings detected, 2=compilation/infra failure
@@ -161,29 +161,29 @@ Extend the auto-diagnostics block (currently lines 240-265) to include ARC IR du
   ```
   **Why not `|| true`?** `codegen-audit.sh` has a 3-level exit contract (0=clean, 1=findings, 2=infra-failure). Using `|| true` swallows all exit codes, making it impossible to distinguish "found RC issues" from "codegen-audit itself broke." `diagnose-aot.sh` lines 371-408 use the proper `case` pattern — this section must match.
 
-- [ ] **Neutralize codegen-audit.sh temp artifact side-effect:** `codegen-audit.sh` lines 147-148 create a binary at `${FILE%.ori}` (in the user's working directory, outside `$tmpdir`) and then `rm -f` it. This is a side effect that writes outside `$tmpdir`. To prevent this, pass the `--no-color` flag is not sufficient — the artifact comes from `ori build "$FILE"` without `-o`. Two options:
+- [x] **Neutralize codegen-audit.sh temp artifact side-effect:** `codegen-audit.sh` lines 147-148 create a binary at `${FILE%.ori}` (in the user's working directory, outside `$tmpdir`) and then `rm -f` it. This is a side effect that writes outside `$tmpdir`. To prevent this, pass the `--no-color` flag is not sufficient — the artifact comes from `ori build "$FILE"` without `-o`. Two options:
   - **Option A (preferred):** Fix `codegen-audit.sh` to build to `$tmpdir` instead of defaulting to `${FILE%.ori}`. This eliminates the side effect at the source for ALL callers. Add `-o "$tmpdir/audit_binary"` to the `ori build` call at line 144, and remove the cleanup at lines 147-148.
   - **Option B (if Option A has wider blast radius):** Document the side effect in a code comment and accept it — the `rm -f` cleanup is immediate.
-  - [ ] Implement Option A in `codegen-audit.sh` (line 144: add `-o "$tmpdir/audit_binary"`, remove lines 147-148's `BINARY` cleanup). Verify `self-test.sh` still passes.
+  - [x] Implement Option A in `codegen-audit.sh` (line 144: add `-o "$tmpdir/audit_binary"`, remove lines 147-148's `BINARY` cleanup). Verify `self-test.sh` still passes.
 
-- [ ] **Add `--keep-temp` flag** to preserve diagnostic artifacts on mismatch. Currently `trap 'rm -rf "$tmpdir"' EXIT` (line 97) deletes all artifacts before the user can inspect the "saved to" paths printed in the mismatch output. Add:
+- [x] **Add `--keep-temp` flag** to preserve diagnostic artifacts on mismatch. Currently `trap 'rm -rf "$tmpdir"' EXIT` (line 97) deletes all artifacts before the user can inspect the "saved to" paths printed in the mismatch output. Add:
   - A `--keep-temp` option in the argument parser (after `--verbose`, line 41) that sets `KEEP_TEMP=1`
   - On mismatch with `KEEP_TEMP=1`, copy diagnostic artifacts (`diag-ir.ll`, `diag-arc.txt`, `codegen_audit.txt`) to the working directory (e.g., `.ori-debug/`) and print the preserved paths
   - On mismatch without `--keep-temp`, print a hint: `"(use --keep-temp to preserve diagnostic files)"`
   - Update the EXIT trap to skip cleanup when `KEEP_TEMP=1`
   - Document `--keep-temp` in the Options section of the header comment
-- [ ] Update the script header comment (lines 1-26) to document the expanded auto-diagnostics:
+- [x] Update the script header comment (lines 1-26) to document the expanded auto-diagnostics:
   - Add `arc-dump.sh` to the "Requires:" line (currently lists `ir-dump.sh, rc-stats.sh`)
   - Add `codegen-audit.sh` to the "Requires:" line
   - Add `--keep-temp` to the Options list
   - Add a line to the description noting: "On mismatch, also dumps ARC IR and runs codegen-audit."
 
-- [ ] Verify the full mismatch output format: create or use a test `.ori` file that produces a known mismatch, run `dual-exec-debug.sh`, confirm the output shows LLVM IR, ARC IR, RC stats, and codegen-audit in that order
+- [x] Verify the full mismatch output format: create or use a test `.ori` file that produces a known mismatch, run `dual-exec-debug.sh`, confirm the output shows LLVM IR, ARC IR, RC stats, and codegen-audit in that order
 
-- [ ] **Subsection close-out (03.3)** — MANDATORY before starting 03.4:
-  - [ ] All tasks above are `[x]` and verified
-  - [ ] Update this subsection's `status` in section frontmatter to `complete`
-  - [ ] **Run `/improve-tooling` retrospectively on THIS subsection**
+- [x] **Subsection close-out (03.3)** — MANDATORY before starting 03.4:
+  - [x] All tasks above are `[x]` and verified
+  - [x] Update this subsection's `status` in section frontmatter to `complete`
+  - [x] **Run `/improve-tooling` retrospectively on THIS subsection**
 
 ---
 
@@ -195,7 +195,7 @@ Extend the auto-diagnostics block (currently lines 240-265) to include ARC IR du
 
 **Note on Section 06 coordination:** Section 06 creates failure-mode fixtures and expands self-test coverage. The mismatch fixture created here is specific to dual-exec-debug.sh's mismatch path — it needs a program where interpreter and AOT produce DIFFERENT output (not a program that fails to compile). This is distinct from Section 06's leak/double-free failure fixtures. If Section 06 creates a fixture that also triggers a dual-exec mismatch, it can be reused — but this section must not DEPEND on Section 06 (they are independent per the dependency graph).
 
-- [ ] **Create a deterministic mismatch harness** (NOT a real compiler-bug fixture). Strategy: use an `ORI_BIN` wrapper script that produces different behavior for `run` vs `build`. `_common.sh` lines 23-35 honor `ORI_BIN` before auto-discovery, so setting `ORI_BIN` to a wrapper gives complete control over divergence.
+- [x] **Create a deterministic mismatch harness** (NOT a real compiler-bug fixture). Strategy: use an `ORI_BIN` wrapper script that produces different behavior for `run` vs `build`. `_common.sh` lines 23-35 honor `ORI_BIN` before auto-discovery, so setting `ORI_BIN` to a wrapper gives complete control over divergence.
   - Create `diagnostics/fixtures/mismatch-wrapper.sh` — a shell script that:
     - **Default: pass-through to real `ori`** — all commands, flags, and env-driven build modes (including `_common.sh`'s `build /dev/null` probe, `ORI_DUMP_AFTER_ARC=1`, `--emit=llvm-ir`, etc.) delegate to the real `ori` binary. This is essential because `dual-exec-debug.sh`'s helper scripts (`arc-dump.sh`, `codegen-audit.sh`, `ir-dump.sh`) invoke the binary in multiple modes during the mismatch diagnostics block.
     - **Override `ori run <file>`**: prints "INTERP" to stdout and exits 0 (forces interpreter output divergence)
@@ -203,7 +203,7 @@ Extend the auto-diagnostics block (currently lines 240-265) to include ARC IR du
     - The wrapper MUST resolve the real `ori` binary path at startup (e.g., from `$REAL_ORI` env var set by the self-test, or by finding it via the same `_common.sh` logic minus `ORI_BIN` override)
     - This guarantees stdout mismatch ("INTERP" vs "AOT") while keeping all helper diagnostics functional
   - Create `diagnostics/fixtures/mismatch.ori` — a minimal valid `.ori` program (e.g., `@main () -> void = print(msg: "hello")`) used as the input file. It doesn't need to actually produce a mismatch — the wrapper handles that.
-- [ ] **Add build-failure self-tests** (split into two pins per TPR-03-002-codex):
+- [x] **Add build-failure self-tests** (split into two pins per TPR-03-002-codex):
   - **Pre-lowering failure pin** (syntax error → no ARC IR available):
     - Create `diagnostics/fixtures/build-fail-parse.ori` — a file with a syntax error that fails at parse time (before ARC lowering). `arc-dump.sh` cannot produce ARC IR for this case.
     - Add self-test: assert exit code 2 (infrastructure failure, not mismatch)
@@ -216,7 +216,7 @@ Extend the auto-diagnostics block (currently lines 240-265) to include ARC IR du
     - Create `diagnostics/fixtures/build-fail-codegen.ori` — a valid `.ori` program (same as `mismatch.ori` or similar). Does not need to actually trigger a codegen failure — the wrapper handles that.
     - Add self-test: `env ORI_BIN="$FIXTURES_DIR/build-fail-codegen-wrapper.sh"` + assert exit code 2
     - Add self-test: assert output contains "ARC IR saved to" (proves the 03.2 capture behavior)
-- [ ] Add mismatch-path tests to `self-test.sh` in the `dual-exec-debug.sh` section (after line 266):
+- [x] Add mismatch-path tests to `self-test.sh` in the `dual-exec-debug.sh` section (after line 266):
   ```bash
   # Mismatch path: verify auto-diagnostics output (uses ORI_BIN wrapper for deterministic divergence)
   run_test_exit_code "mismatch harness triggers mismatch (exit 1)" 1 \
@@ -238,13 +238,13 @@ Extend the auto-diagnostics block (currently lines 240-265) to include ARC IR du
   run_test_output_contains "post-lowering failure captures ARC IR" "ARC IR saved to" \
       env ORI_BIN="$FIXTURES_DIR/build-fail-codegen-wrapper.sh" "$SCRIPT_DIR/dual-exec-debug.sh" --no-color "$FIXTURES_DIR/build-fail-codegen.ori"
   ```
-- [ ] Update the fixture existence check at the top of `self-test.sh` (line 181) to include `mismatch.ori`, `mismatch-wrapper.sh`, `build-fail-parse.ori`, `build-fail-codegen.ori`, and `build-fail-codegen-wrapper.sh`
-- [ ] Verify: `diagnostics/self-test.sh --verbose` passes with all new self-test entries
+- [x] Update the fixture existence check at the top of `self-test.sh` (line 181) to include `mismatch.ori`, `mismatch-wrapper.sh`, `build-fail-parse.ori`, `build-fail-codegen.ori`, and `build-fail-codegen-wrapper.sh`
+- [x] Verify: `diagnostics/self-test.sh --verbose` passes with all new self-test entries
 
-- [ ] **Subsection close-out (03.4)** — MANDATORY before starting 03.R:
-  - [ ] All tasks above are `[x]` and verified
-  - [ ] Update this subsection's `status` in section frontmatter to `complete`
-  - [ ] **Run `/improve-tooling` retrospectively on THIS subsection**
+- [x] **Subsection close-out (03.4)** — MANDATORY before starting 03.R:
+  - [x] All tasks above are `[x]` and verified
+  - [x] Update this subsection's `status` in section frontmatter to `complete`
+  - [x] **Run `/improve-tooling` retrospectively on THIS subsection**
 
 ---
 
@@ -277,13 +277,13 @@ Extend the auto-diagnostics block (currently lines 240-265) to include ARC IR du
 
 ## 03.N Completion Checklist
 
-- [ ] All subsections (03.1, 03.2, 03.3, 03.4) complete
-- [ ] `ORI_BIN` is exported before any child script invocation
-- [ ] Build-failure branch captures ARC IR
-- [ ] Mismatch block includes ARC IR dump, codegen-audit with proper exit-code handling
-- [ ] `codegen-audit.sh` temp artifact side-effect fixed (builds to `$tmpdir`)
-- [ ] `diagnostics/self-test.sh` passes (including mismatch-path tests)
-- [ ] `timeout 150 ./test-all.sh` green — no regressions
+- [x] All subsections (03.1, 03.2, 03.3, 03.4) complete
+- [x] `ORI_BIN` is exported before any child script invocation
+- [x] Build-failure branch captures ARC IR
+- [x] Mismatch block includes ARC IR dump, codegen-audit with proper exit-code handling
+- [x] `codegen-audit.sh` temp artifact side-effect fixed (builds to `$tmpdir`)
+- [x] `diagnostics/self-test.sh` passes (including mismatch-path tests)
+- [x] `timeout 150 ./test-all.sh` green — no regressions
 - [ ] **GATE: Section 07.4 docs updated BEFORE Section 03 can close.** `section-07-integration.md` lines 127-135 currently only mention ARC IR dump — the implementer MUST edit Section 07.4 to explicitly include: (1) auto codegen-audit on mismatch, (2) `--keep-temp` flag, (3) build-failure ARC IR capture. Also update `diagnostics/README.md` lines 37-44 (currently says mismatch only runs `ir-dump.sh` and `rc-stats.sh`) to include `arc-dump.sh` and `codegen-audit.sh`. This is not a "reminder" — Section 03 CANNOT be marked complete until Section 07.4 owns these doc items in its own checklist. <!-- unblocks:07.4 -->
 - [ ] `/tpr-review` passed
 - [ ] `/impl-hygiene-review` passed
