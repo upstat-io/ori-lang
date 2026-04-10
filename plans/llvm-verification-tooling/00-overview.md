@@ -1,7 +1,7 @@
 ---
 plan: "llvm-verification-tooling"
 title: "LLVM & AIMS Verification Tooling: Exhaustive Implementation Plan"
-status: not-started
+status: in-progress
 supersedes: []
 references:
   - "plans/llvm-verification-tooling/research.md"
@@ -25,7 +25,7 @@ Build world-class verification tooling for Ori's AIMS memory system and LLVM bac
 - [ ] **Lattice property verification**: `cargo test -p ori_arc lattice_properties` runs proptest-generated tests verifying join commutativity, associativity, idempotence, transfer monotonicity, canonicalization idempotence, and fixpoint convergence bounds across the 11,520 raw lattice states (2×4×3×3×4×5×8 dimensions; existing exhaustive tests cover 2,880 sampled configurations) (Section 04)
 - [ ] **Contract coherence oracle**: After AIMS pipeline completion, an independent contract re-derivation from realized ARC IR (walking actual `RcInc`/`RcDec`/`Reuse` instructions) matches inferred `MemoryContract` — discrepancies are blocking errors under `ORI_VERIFY_ARC=1` (Section 05)
 - [ ] **Protocol builtin ownership pinned**: Every `ProtocolBuiltin` variant's per-argument expected ownership is pinned (not a Cartesian product — each position has ONE expected value), with RC balance verified through LLVM codegen audit for each protocol function (Section 06)
-- [ ] **LLVM verification gates active**: `ORI_VERIFY_EACH=1` runs LLVM IR verifier after every optimization pass in `test-all.sh` and CI; function-level `fn_val.verify()` runs after each function's codegen; `opt -lint` runs in the codegen audit pipeline (Section 01)
+- [x] **LLVM verification gates active**: `ORI_VERIFY_EACH=1` runs LLVM IR verifier after every optimization pass in `test-all.sh` and CI; function-level `fn_val.verify()` runs after each function's codegen; `opt -lint` runs in the codegen audit pipeline (Section 01) — Completed 2026-04-10. Both `ORI_VERIFY_ARC=1` and `ORI_VERIFY_EACH=1` enabled globally (54s, 36% of budget). `function(lint)` integrated. All 16,978 tests pass.
 - [ ] **FileCheck IR assertions**: `tests/codegen/` contains ≥30 directive-based IR pattern tests covering RC emission, COW patterns, closure codegen, ABI, and iterator patterns, with revision support for debug/release/no-repr-opt configurations (Section 07)
 - [ ] **Sanitizer integration**: ASan/UBSan instrumentation on generated AOT binaries via LLVM pipeline; separate CI job with smoke subset on PRs and full sweep nightly (Section 08)
 - [ ] **Alive2 refinement checking**: Curated subset of pure/arithmetic-heavy functions verified via Alive2 `alive-tv` for pre-opt → post-opt LLVM IR refinement, running nightly (Section 09)
@@ -266,7 +266,7 @@ Note: §09 (Alive2) and §10 (fuzzing) estimates include tool installation, corp
 
 | ID | Title | File | Status |
 |----|-------|------|--------|
-| 01 | Verifier Gates & Quick Wins | `section-01-verifier-gates.md` | Not Started |
+| 01 | Verifier Gates & Quick Wins | `section-01-verifier-gates.md` | In Progress |
 | 02 | Shared Test Harness Infrastructure | `section-02-shared-harness.md` | Not Started |
 | 03 | AIMS Pass-Level Snapshot Tests | `section-03-aims-snapshots.md` | Not Started |
 | 04 | AIMS Lattice Property Verification | `section-04-lattice-properties.md` | Not Started |
