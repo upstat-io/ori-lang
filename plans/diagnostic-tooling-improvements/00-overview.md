@@ -81,14 +81,15 @@ Reduce debugging churn when tracking down hard AOT/LLVM/ARC/AIMS issues by fixin
   02 (Enhance diagnose-aot) ──────┘────────┐          │
   03 (Enhance dual-exec-debug) ────────────┤          │
   04 (Block-level RC stats — Rust+shell) ──┤          │
-  05 (bisect-passes — Rust+shell) ─────────┤          │
-  06 (Expand fixtures + self-test) ────────┤          │
+  05 (bisect-passes — Rust+shell) ────┬────┤          │
+  06 (Expand fixtures + self-test) ───┘────┤          │
                                            ▼          ▼
                                 07 (Integration + polish + docs)
 ```
 
-- Sections 01, 03-06 are **independent** — each can be implemented without the others.
+- Sections 01, 03-05 are **independent** — each can be implemented without the others.
 - **Section 02 depends on Section 01** — 01.2 adds `find_ori_bin_profile()` and `require_both_builds()` to `_common.sh`, which 02.2 consumes for `--release` and `--both-builds` flags.
+- **Section 06 depends on Section 05** — 06.2 exercises `bisect-passes.sh` (created by Section 05) against all fixtures.
 - Section 07 depends on ALL prior sections (updates docs, integrates into test-all.sh).
 - Within sections 04 and 05, the Rust compiler change comes before the shell script update.
 

@@ -12,7 +12,7 @@ success_criteria:
 inspired_by:
   - "Swift SIL test fixtures — targeted programs exercising specific SIL optimizer paths"
   - "Koka FBIP test corpus — programs that stress the PARC optimization pipeline"
-depends_on: []
+depends_on: ["05"]
 third_party_review:
   status: none
   updated: null
