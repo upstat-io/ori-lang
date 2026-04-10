@@ -240,11 +240,11 @@ Create a shell script that runs a program with `ORI_LOG=ori_arc::aims::pipeline=
 
 ### 05.2.4 Cross-section plan update: Section 06 fixture coverage
 
-Per `impl-hygiene.md`: "Cross-section fixes require cross-section plan updates." Section 06 currently does not include `bisect-passes.sh` in its fixture coverage matrix. The Section 05 implementor MUST directly edit `section-06-fixtures.md`:
+Per `impl-hygiene.md`: "Cross-section fixes require cross-section plan updates." Section 06 was updated during plan review (2026-04-10) to include `bisect-passes.sh`:
 
-- [ ] Edit `plans/diagnostic-tooling-improvements/section-06-fixtures.md` — add `bisect-passes.sh` to Section 06.2's diagnostic script coverage matrix (alongside `diagnose-aot.sh`, `dual-exec-debug.sh`, `rc-stats.sh`, `ir-dump.sh`, `arc-dump.sh`)
-- [ ] Add explicit self-test items in Section 06.2 for `bisect-passes.sh` against at minimum: `closure.ori`, `iterator_break.ori`, and any AIMS-relevant fixtures
-- [ ] Add `bisect-passes.sh` to Section 06's success criteria if it has a "all diagnostic scripts exercised against fixtures" criterion
+- [x] Edit `plans/diagnostic-tooling-improvements/section-06-fixtures.md` — added `bisect-passes.sh` to Section 06.2's diagnostic script coverage matrix (2026-04-10 plan review)
+- [x] Added explicit self-test items in Section 06.2 for `bisect-passes.sh` against fixtures (2026-04-10 plan review)
+- [x] Added `bisect-passes.sh` to Section 06's success criteria (2026-04-10 plan review)
 
 - [ ] **Subsection close-out (05.2)** -- MANDATORY before starting 05.R:
   - [ ] All tasks above are `[x]` and verified
