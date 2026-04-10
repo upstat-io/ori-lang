@@ -2,7 +2,7 @@
 reroute: true
 name: "Diag Tooling"
 full_name: "Diagnostic Tooling Improvements"
-status: active
+status: resolved
 order: 1
 ---
 
@@ -89,7 +89,7 @@ self-test.sh, diagnostic regression, coverage
 ---
 
 ### Section 07: Integration + Polish
-**File:** `section-07-integration.md` | **Status:** In Progress
+**File:** `section-07-integration.md` | **Status:** Complete
 
 ```
 test-all.sh, diagnostic hints, check-debug-flags.sh
