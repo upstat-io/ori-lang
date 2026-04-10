@@ -81,7 +81,7 @@ Each fixture must: (1) compile under AOT, (2) produce deterministic output via e
 - [ ] **`nested_list.ori`** — Nested `[[str]]` collection, exercising `elem_dec_fn` propagation for nested drops. Include: creating nested lists, accessing inner elements, passing nested lists to functions. Reference syntax: `tests/valgrind/fat_matrix/f14_list_element.ori`
 - [ ] **`trait_dispatch.ori`** — Trait method call through a concrete `impl Trait for Type` (current compiler syntax), testing that trait dispatch codegen produces balanced RC. Include: trait with required method, trait with default method, calling trait method on a value that owns fat pointers. **Note**: current compiler uses `impl Trait for Type` syntax (not `impl Type: Trait` — that's approved but not yet implemented per CLAUDE.md). Reference syntax: `tests/spec/traits/declaration.ori`
 - [ ] **`pattern_match.ori`** — Sum type with 3+ variants including mixed scalar and fat-pointer payloads (e.g., `A(x: int) | B(s: str) | C(xs: [int])`), exercising tag dispatch and per-variant drops. tp-help identified this as a gap: mixed scalar/ref variants stress the decision tree codegen differently than uniform variants. Reference syntax: `tests/valgrind/fat_matrix/f06_pattern_matching.ori`, `tests/valgrind/fat_matrix/f12_sum_payload.ori`
-- [ ] **`map_iteration.ori`** — Map creation with string keys, iteration over entries, map lookup, verifying RC for both keys and values during iteration. Reference syntax: `tests/spec/types/map_types.ori`
+- [ ] **`map_iteration.ori`** — Map creation with string keys, iteration over entries, map lookup, verifying RC for both keys and values during iteration. Reference syntax: `tests/valgrind/iter_rc/map_str_iteration.ori`, `tests/valgrind/iter_rc/map_str_for_do.ori` (active executable map examples; NOT `tests/spec/types/map_types.ori` which is a disabled TODO corpus)
 - [ ] Verify each fixture: `cargo run -- run <fixture>` produces expected exit code, `cargo run -- build <fixture> -o /tmp/test_fixture && /tmp/test_fixture` produces the same exit code
 
 - [ ] **Subsection close-out (06.1)** — MANDATORY before starting 06.2:
@@ -205,13 +205,13 @@ tp-help identified scattered fixture knowledge as a LEAK — fixture names are r
 
 - [ ] Add each **expected-fail fixture** to the self-test with **specific exit code assertions** (not generic `run_test_expect_fail`):
   - `leak.ori`: assert `diagnose-aot.sh` exits non-zero AND output contains "leak" or "imbalance" (validates leak detection)
-  - `leak.ori`: assert `bisect-passes.sh --rc-only` exits 1 AND output shows non-zero RC balance (validates bisection detects the leak phase)
+  - `leak.ori`: assert `bisect-passes.sh --rc-only` output does NOT contain "Leak check: clean" (validates bisection distinguishes leak from normal RC activity)
   - `mismatch_compute.ori` (or existing `mismatch.ori` + wrapper): assert `dual-exec-debug.sh` exits non-zero AND output contains "MISMATCH" (validates mismatch detection)
   - Each assertion must distinguish the *failure mode* (leak vs mismatch vs crash) via output pattern, not just exit code
 
-- [ ] Handle `bisect-passes.sh` exit code semantics: `bisect-passes.sh` exits 1 on structural changes (block merging, var count changes) which are expected behavior for many fixtures. Self-test must:
-  - For pass/aims-heavy fixtures: run `bisect-passes.sh --rc-only <fixture>` to suppress structural change exit codes. Assert exit 0 (RC balance must be clean). The `--rc-only` flag is load-bearing — without it, fixtures that trigger `merge_blocks` or TRMC normalization would falsely fail.
-  - If `bisect-passes.sh --rc-only` exits non-zero for a pass fixture, that is a real RC imbalance — self-test failure to investigate
+- [ ] Handle `bisect-passes.sh` exit code semantics: `bisect-passes.sh` exits 1 for ANY phase delta (including normal RC insertions), so exit code 0 is unreliable for non-trivial programs. Fresh verification confirmed: `bisect-passes.sh --rc-only clean.ori` and `chain.ori` both exit 1 despite balanced final RC and clean leak check. Self-test must:
+  - For pass/aims-heavy fixtures: assert `bisect-passes.sh --rc-only <fixture>` **produces phase table output** containing "Phase" (proves the tool ran and parsed tracing events). Do NOT assert exit 0 — normal RC-using programs trigger exit 1. Assert that output contains "Leak check: clean" (proves final RC balance).
+  - For expected-fail `leak.ori`: assert `bisect-passes.sh --rc-only` output does NOT contain "Leak check: clean" (distinguishes leak from normal RC activity)
 
 - [ ] **Release build coverage** (tp-help GAP): Add a conditional section (gated on `target/release/ori` existence, like the existing `debug-release-compare.sh` section) that runs `diagnose-aot.sh --release` on at least 3 representative fixtures (`closure.ori`, `iterator_break.ori`, `generic_mono.ori`). This catches optimization-dependent regressions (FastISel vs full pipeline).
   - If release binary not found, SKIP with a message (not FAIL)
