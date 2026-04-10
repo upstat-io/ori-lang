@@ -55,7 +55,7 @@ FILE=""
 while [[ $# -gt 0 ]]; do
     case $1 in
         --function)
-            if [[ $# -lt 2 ]]; then
+            if [[ $# -lt 2 ]] || [[ "$2" == -* ]]; then
                 echo "Error: --function requires a value" >&2
                 exit 2
             fi
