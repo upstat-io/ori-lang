@@ -19,6 +19,11 @@ Bugs in LLVM IR generation, JIT/AOT compilation, monomorphization, ARC pipeline 
 
 ## Open Bugs
 
+- [ ] `[BUG-04-055][medium]` **LLVM lint: sret attribute not present on call-site for `ori_str_from_raw`**
+  Repro: `ORI_LLVM_LINT=1 ori build` any program using string literals — lint reports `Undefined behavior: ABI attribute sret not present on both function and call-site` for `ori_str_from_raw` calls
+  Subsystem: `compiler/ori_llvm/src/codegen/` — string literal emission calls `ori_str_from_raw` without matching sret attribute on the call-site argument
+  Found: 2026-04-10 | Source: continue-roadmap (discovered by newly-wired `function(lint)` pass in §01.3)
+
 - [x] `[BUG-04-054][high]` **LLVM codegen fails when two types implement the same trait — "method exists for another type but receiver type not registered"**
   Resolved: OBE on 2026-04-10. Tested 2 and 3 types implementing the same trait (with string fields/fat pointers) through interpreter, LLVM JIT, and AOT — all produce correct results. `impls.rs:278-279` correctly registers `type_idx_to_name` for each impl's self type, with `debug_assert!` guard at line 291. The `trait_dispatch.ori` fixture (which avoids the pattern) was written based on an earlier state of the code; the underlying issue has been resolved by subsequent impl/method resolution improvements.
   Subsystem: `compiler/ori_llvm/src/codegen/arc_emitter/` — method resolution table registers trait method for first implementing type but not the second

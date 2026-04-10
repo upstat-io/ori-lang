@@ -156,9 +156,12 @@ fn build_optimization_config(options: &BuildOptions) -> ori_llvm::aot::Optimizat
     };
 
     let verify_each = std::env::var(crate::debug_flags::ORI_VERIFY_EACH).is_ok_and(|v| v != "0");
+    let lint_enabled = std::env::var(crate::debug_flags::ORI_LLVM_LINT).is_ok_and(|v| v != "0")
+        || std::env::var(crate::debug_flags::ORI_AUDIT_CODEGEN).is_ok_and(|v| v != "0");
     OptimizationConfig::new(level)
         .with_lto(lto)
         .with_verify_each(verify_each)
+        .with_lint(lint_enabled)
 }
 
 /// Determine the output path for the build.
