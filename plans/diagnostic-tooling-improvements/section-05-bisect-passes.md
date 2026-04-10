@@ -27,7 +27,7 @@ sections:
     status: complete
   - id: "05.2"
     title: "Create bisect-passes.sh shell driver"
-    status: in-progress
+    status: complete
   - id: "05.R"
     title: "Third Party Review Findings"
     status: complete
@@ -158,44 +158,18 @@ Create a shell script that runs a program with `ORI_LOG=ori_arc::aims::pipeline=
 
 ### 05.2.1 Core script
 
-- [ ] Create `diagnostics/bisect-passes.sh` with:
-  - `--help`, `--no-color`, `--color` (standard options, consistent with other diagnostic scripts)
-  - `--function <name>` -- filter to a specific function's phases (grep by function name in trace output)
-  - `--rc-only` -- suppress structural metrics columns (show only RC data)
-  - Input: a single `.ori` file
-  - Source `_common.sh` for `find_ori_bin` binary discovery
-  - Behavior:
-    1. Create a temporary directory (`mktemp -d`) and set up `trap` cleanup on EXIT
-    2. Compile with `ORI_LOG=ori_arc::aims::pipeline=info` and capture stderr to a temp file
-    3. Build the binary to the temp directory: `ori build "$FILE" -o "$tmpdir/bisect-bin"` (never beside the input file)
-    4. Parse checkpoint events from stderr to extract per-phase data: `function`, `phase`, `rc_incs`, `rc_decs`, `blocks`, `vars`
-    5. Group events by function name, then display per-function tables with columns: `Phase | RC Incs | RC Decs | Balance | Blocks | Vars | Delta`
-       - `Balance` = `rc_incs - rc_decs`
-       - `Delta` = change in balance from previous phase
-    6. Highlight the first phase where balance changes from 0 to non-zero (potential leak/over-release introduction)
-    7. Highlight any phase where `blocks` or `vars` count changes significantly (structural transformation)
-    8. Run the built binary from `$tmpdir` and check: does it crash? Does `ORI_CHECK_LEAKS=1 $tmpdir/bisect-bin` report leaks?
-    9. Cleanup: `trap` removes `$tmpdir` on exit (no artifacts left beside input files)
-  - Exit codes: 0 = all phases clean (no divergence detected), 1 = divergence detected, 2 = usage/infrastructure error
-  - Must handle multi-function programs: show per-function tables (each function's phases are grouped by `function=` field from checkpoint events)
-- [ ] Script must NOT regex-match LLVM IR for RC ops (that would be LEAK:scattered-knowledge per the plan's design principles). It reads the structured tracing output from the compiler's canonical checkpoint events.
+- [x] Created `diagnostics/bisect-passes.sh` with all specified behavior: --help/--no-color/--color/--function/--rc-only, sources _common.sh, mktemp+trap cleanup, ORI_LOG pipeline tracing, per-function tables with Balance/Delta, divergence highlighting, ORI_CHECK_LEAKS runtime check, exit codes 0/1/2.
+- [x] Script reads structured tracing output from canonical checkpoint events — no LLVM IR regex matching.
 
 ### 05.2.2 Self-test entries
 
-- [ ] Add self-test entries to `diagnostics/self-test.sh`:
-  - `bisect-passes.sh --help` shows usage (contains "Usage:")
-  - `bisect-passes.sh fixtures/simple.ori` runs without error (exit 0)
-  - `bisect-passes.sh fixtures/clean.ori` shows phase table with RC counts (output contains "AIMS phase" or column headers)
-  - `bisect-passes.sh --function main fixtures/clean.ori` filters to main function
-- [ ] Add `bisect-passes.sh` to the fixture existence check section if applicable
+- [x] Added self-test entries to `diagnostics/self-test.sh`: --help shows "Usage:", fixtures/simple.ori runs with "Phase" in output, fixtures/clean.ori shows "realize_rc_reuse", --function main filters to "Function: main", no-args correctly fails. All 51 self-tests pass.
+- [x] No fixture existence check section applicable (bisect-passes uses existing fixtures via _common.sh discovery).
 
 ### 05.2.3 Documentation
 
-- [ ] Add `bisect-passes.sh` entry to `diagnostics/README.md` usage section with:
-  - Purpose: "Identify which AIMS pipeline phase introduced an RC imbalance or structural change"
-  - Example invocation and sample output
-  - Workflow integration: "Use after `diagnose-aot.sh` identifies a leak or crash to narrow down to the specific pipeline phase"
-- [ ] Verify: `diagnostics/self-test.sh` passes with the new entries
+- [x] Added `bisect-passes.sh` to `diagnostics/README.md`: overview table entry + usage section with purpose, example invocations, and workflow integration note.
+- [x] `diagnostics/self-test.sh` passes: 51 passed, 0 failed.
 
 ### 05.2.4 Cross-section plan update: Section 06 fixture coverage
 
@@ -205,10 +179,10 @@ Per `impl-hygiene.md`: "Cross-section fixes require cross-section plan updates."
 - [x] Added explicit self-test items in Section 06.2 for `bisect-passes.sh` against fixtures (2026-04-10 plan review)
 - [x] Added `bisect-passes.sh` to Section 06's success criteria (2026-04-10 plan review)
 
-- [ ] **Subsection close-out (05.2)** -- MANDATORY before starting 05.R:
-  - [ ] All tasks above are `[x]` and verified
-  - [ ] Update this subsection's `status` in section frontmatter to `complete`
-  - [ ] **Run `/improve-tooling` retrospectively on THIS subsection**
+- [x] **Subsection close-out (05.2)** -- MANDATORY before starting 05.R:
+  - [x] All tasks above are `[x]` and verified
+  - [x] Update this subsection's `status` in section frontmatter to `complete`
+  - [x] **Run `/improve-tooling` retrospectively on THIS subsection**
 
 ---
 

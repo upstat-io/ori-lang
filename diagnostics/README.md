@@ -17,6 +17,7 @@ Quick-access debugging tools for the Ori compiler's AOT/codegen pipeline. These 
 | `arc-dump.sh` | Annotated ARC IR (post-lowering, pre-RC) | Debugging AIMS pipeline: alias chains, take-projects, lineage |
 | `ir-diff.sh` | Side-by-side IR comparison of two programs | Regression hunting, before/after comparison |
 | `disasm-ori.sh` | Native disassembly with Ori symbol demangling | Instruction-level debugging |
+| `bisect-passes.sh` | Identify which AIMS pipeline phase introduced an RC or structural change | After `diagnose-aot.sh` finds a leak/crash (`--function`, `--rc-only`) |
 | `debug-release-compare.sh` | Compare debug vs release build output | FastISel-only bugs, optimization divergences |
 | `check-debug-flags.sh` | Validate `ORI_*` flag consistency | After adding/removing debug flags |
 | `self-test.sh` | Self-test all scripts against fixtures | After modifying any diagnostic script |
@@ -134,6 +135,18 @@ diagnostics/disasm-ori.sh --symbols file.ori       # Symbol list only (no disasm
 ```
 
 Demangling: `_ori_math$add` → `math.add`, `_ori_int$$Eq$eq` → `int impl Eq.eq`
+
+### bisect-passes.sh — AIMS Pipeline Phase Bisection
+
+```bash
+diagnostics/bisect-passes.sh file.ori                      # Full per-function phase table
+diagnostics/bisect-passes.sh --function main file.ori      # Filter to main function
+diagnostics/bisect-passes.sh --rc-only file.ori            # Suppress structural metric columns
+```
+
+Compiles with `ORI_LOG=ori_arc::aims::pipeline=info`, captures per-phase checkpoint events, and displays a table showing how RC counts and structural metrics (block count, var count) evolve across AIMS pipeline phases. The first phase where RC balance changes from 0 is flagged as the potential divergence point; phases with structural changes (block merging, var count changes) are also highlighted. After compilation, runs the binary with `ORI_CHECK_LEAKS=1` to check for runtime leaks.
+
+**Workflow integration**: Use after `diagnose-aot.sh` identifies a leak or crash to narrow down to the specific pipeline phase.
 
 ### debug-release-compare.sh — Debug vs Release Comparison
 

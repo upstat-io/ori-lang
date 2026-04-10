@@ -179,12 +179,16 @@ class Section:
 
     @property
     def mismatch(self) -> str | None:
+        if self.total == 0:
+            return None  # no checkboxes to mismatch against
         if self.status == "complete" and self.unchecked > 0:
             return f"frontmatter=complete but {self.unchecked} unchecked"
         if self.status == "not-started" and self.checked > 0:
             return f"frontmatter=not-started but {self.checked} checked"
         if self.status == "in-progress" and self.unchecked == 0 and self.total > 0:
             return "frontmatter=in-progress but all items checked"
+        if self.status == "in-progress" and self.checked == 0 and self.total > 0:
+            return "frontmatter=in-progress but 0 items checked"
         return None
 
     @property
@@ -285,12 +289,21 @@ class Workspace:
     focus_reason: str = ""
     focus_section: Section | None = None
     focus_section_reason: str = ""
+    parse_errors: list[tuple[str, str]] = field(default_factory=list)  # (path, error)
 
     def active_reroutes(self) -> list[Reroute]:
         return sorted([r for r in self.reroutes if r.status == "active"], key=lambda r: r.order)
 
     def queued_reroutes(self) -> list[Reroute]:
         return sorted([r for r in self.reroutes if r.status == "queued"], key=lambda r: r.order)
+
+    @property
+    def unreviewed_plans(self) -> list[str]:
+        """Plan names with reroute/parallel status and reviewed: false."""
+        return [
+            p.name for p in self.all_plans.values()
+            if p.reroute and p.reroute.reviewed is False
+        ]
 
 
 # ─── Parser ───────────────────────────────────────────────────────────────────
@@ -314,25 +327,25 @@ def read_text(path: Path) -> str:
     return path.read_text(encoding="utf-8", errors="replace")
 
 
-def split_frontmatter(text: str) -> tuple[dict, int]:
-    """Parse YAML frontmatter. Returns (parsed_dict_or_empty, body_line_offset)."""
+def split_frontmatter(text: str) -> tuple[dict, int, str | None]:
+    """Parse YAML frontmatter. Returns (parsed_dict_or_empty, body_line_offset, error_or_none)."""
     lines = text.splitlines()
     if not lines or not FRONTMATTER_RE.match(lines[0]):
-        return {}, 0
+        return {}, 0, None
     end = -1
     for i in range(1, len(lines)):
         if FRONTMATTER_RE.match(lines[i]):
             end = i
             break
     if end < 0:
-        return {}, 0
+        return {}, 0, "unclosed frontmatter (no closing ---)"
     fm_text = "\n".join(lines[1:end])
     try:
         data = yaml.safe_load(fm_text) or {}
     except yaml.YAMLError as e:
         trace(f"frontmatter parse error: {e}")
-        data = {}
-    return data, end + 1
+        return {}, end + 1, f"YAML parse error: {e}"
+    return data, end + 1, None
 
 
 def detect_subsection_id(header_text: str) -> str:
@@ -462,7 +475,16 @@ def parse_section_file(plan: Plan, path: Path) -> Section | None:
         trace(f"cannot read {path}: {e}")
         return None
 
-    fm, body_start = split_frontmatter(text)
+    fm, body_start, fm_error = split_frontmatter(text)
+    if fm_error:
+        trace(f"{path.name}: frontmatter error: {fm_error}")
+        # Return a placeholder section so the error surfaces in health signals
+        # rather than silently dropping the section from the scan
+        return Section(
+            plan=plan, path=path, number=path.stem.replace("section-", ""),
+            title=f"[PARSE ERROR: {fm_error}]", status="unknown",
+            reviewed=None, tpr_status="none", tpr_updated=None,
+        )
     if not fm:
         trace(f"{path.name}: no frontmatter, skipping")
         return None
@@ -540,7 +562,7 @@ def parse_index_file(path: Path) -> Reroute | None:
         text = read_text(path)
     except OSError:
         return None
-    fm, _ = split_frontmatter(text)
+    fm, _, _err = split_frontmatter(text)
     if not fm:
         return None
 
@@ -580,7 +602,7 @@ def parse_fix_section(path: Path) -> FixSection | None:
         text = read_text(path)
     except OSError:
         return None
-    fm, _ = split_frontmatter(text)
+    fm, _, _err = split_frontmatter(text)
     if not fm:
         return None
 
@@ -677,7 +699,7 @@ def parse_dependency_graph(overview_path: Path) -> dict[str, list[str]]:
 
         is_continuation = line[:1] in (" ", "\t")
         prev = last_sec if is_continuation else ""
-        matches = re.findall(r"Section (\w+)", line)
+        matches = re.findall(r"Section ([\w.]+)", line)
         for sec in matches:
             if prev and sec != prev:
                 edges.setdefault(sec, []).append(prev)
@@ -698,13 +720,13 @@ def crawl_plan(plan_dir: Path) -> Plan:
     if index_path.exists():
         plan.reroute = parse_index_file(index_path)
         text = read_text(index_path)
-        fm, _ = split_frontmatter(text)
+        fm, _, _err = split_frontmatter(text)
         plan.index = fm or None
 
     overview_path = plan_dir / "00-overview.md"
     if overview_path.exists():
         text = read_text(overview_path)
-        fm, _ = split_frontmatter(text)
+        fm, _, _err = split_frontmatter(text)
         plan.overview = fm or None
         plan.dep_graph = parse_dependency_graph(overview_path)
 
@@ -755,7 +777,11 @@ def crawl_workspace(repo_root: Path, explicit_plan_dir: Path | None = None) -> W
             ws.focus_plan = ws.all_plans[key]
             ws.focus_reason = f"explicit argument: {explicit_plan_dir}"
         else:
-            trace(f"explicit plan dir not found: {explicit_plan_dir}")
+            sys.stderr.write(
+                f"error: explicit plan directory not found: {explicit_plan_dir}\n"
+                f"  Available plans: {', '.join(sorted(ws.all_plans.keys()))}\n"
+            )
+            sys.exit(1)
     else:
         actives = ws.active_reroutes()
         reroute_actives = [r for r in actives if r.kind == "reroute"]
@@ -835,16 +861,20 @@ def classify_blocker_readiness(
     if section.status == "in-progress":
         return "IN_PROGRESS", f"{section.pct}% complete"
 
-    # Walk dependency chain (max 5 hops)
+    # Walk dependency chain (max 20 hops, with cycle detection)
     chain: list[str] = []
     current = section_number
+    visited: set[str] = {current}
     all_ok = True
-    for _ in range(5):
+    for _ in range(20):
         parents = focus_plan.dep_graph.get(current, [])
         if not parents:
             break
         blocker_found = False
         for parent in parents:
+            if parent in visited:
+                chain.append(f"Section {parent} [CYCLE]")
+                continue
             psec = next(
                 (s for s in focus_plan.sections if s.number == parent or s.number == f'"{parent}"'),
                 None,
@@ -1005,10 +1035,7 @@ def render_health_signals(ws: Workspace, repo_root: Path, quiet: bool) -> list[s
     out: list[str] = ["## Health Signals", ""]
     mismatches = detect_all_mismatches(ws)
     orphans = detect_orphan_blockers(ws)
-    unreviewed = [
-        p.name for p in ws.all_plans.values()
-        if p.reroute and p.reroute.reviewed is False
-    ]
+    unreviewed = ws.unreviewed_plans
 
     # TPR rollup across the whole workspace
     tpr_open_total = 0
@@ -1266,6 +1293,8 @@ def render_decision_notes(ws: Workspace) -> list[str]:
     if ws.focus_plan and ws.focus_plan.reroute:
         if ws.focus_plan.reroute.reviewed is False:
             out.append("- Step 1.7 Unreviewed Plan Gate applies: focus plan has reviewed: false")
+    if ws.focus_section and ws.focus_section.reviewed is False:
+        out.append(f"- Step 1.7 Unreviewed Section Gate applies: {ws.focus_section.path} has reviewed: false")
     if ws.focus_section and ws.focus_section.tpr_status == "findings":
         n = sum(1 for f in ws.focus_section.tpr_findings if not f.resolved)
         out.append(f"- Step 1.9 TPR Triage Gate applies: {n} open findings in focus section")
@@ -1354,10 +1383,7 @@ def render_json(ws: Workspace) -> str:
         "health": {
             "mismatches": detect_all_mismatches(ws),
             "orphan_blockers": detect_orphan_blockers(ws),
-            "unreviewed": [
-                p.name for p in ws.all_plans.values()
-                if p.reroute and p.reroute.reviewed is False
-            ],
+            "unreviewed": ws.unreviewed_plans,
         },
     }
     return json.dumps(data, indent=2, default=str) + "\n"
