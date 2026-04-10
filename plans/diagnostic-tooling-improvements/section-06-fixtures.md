@@ -1,7 +1,7 @@
 ---
 section: "06"
 title: "Expand Fixtures + Self-Test"
-status: not-started
+status: in-progress
 reviewed: true
 goal: "Add 13+ new diagnostic fixtures covering the code patterns that cause the most AOT/AIMS debugging churn, update self-test.sh to exercise them with feature-specific assertions, and establish a fixture categorization system"
 success_criteria:
@@ -36,7 +36,7 @@ sections:
     status: not-started
   - id: "06.R"
     title: "Third Party Review Findings"
-    status: not-started
+    status: complete
   - id: "06.N"
     title: "Completion Checklist"
     status: not-started
