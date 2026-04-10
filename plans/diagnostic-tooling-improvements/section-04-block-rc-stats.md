@@ -14,7 +14,7 @@ success_criteria:
   - "Per-block exit code is informational (exit 0) — only function-level imbalance triggers exit 1 (matching current behavior)"
   - "rc-stats.sh --optimized works via compiler JSON (post-optimization histogram) — awk parser completely removed"
   - "No LEAK:scattered-knowledge in ANY mode — all RC stats come from the compiler via JSON, awk parser deleted"
-  - "Function names in JSON output are demangled (matching current awk output format)"
+  - "Function names in JSON output are demangled using the canonical AOT demangler (format may differ from legacy awk output — this is correct SSOT behavior)"
   - "Unnamed basic blocks have fallback labels (bb_0, bb_1, ...) in JSON output"
 inspired_by:
   - "Swift ARC optimizer — tracks retain/release per SIL basic block"
@@ -89,10 +89,10 @@ sections:
 - [ ] Create `compiler/ori_llvm/src/verify/rc_histogram.rs` containing:
   - `RcOpKind` enum: `Alloc`, `Inc`, `Dec`, `Free`, `Cow` — with `Debug`, `Clone`, `Copy`, `PartialEq`, `Eq`, `Hash` derives
   - `fn classify_rc_call(callee_name: &str) -> Option<RcOpKind>` — maps runtime RC functions to operation kinds. Must cover ALL RC operations emitted by the codegen, not just the 5 base names:
-    - `Alloc`: `ori_rc_alloc`
+    - `Alloc`: `ori_rc_alloc`, `ori_list_alloc_data`, `ori_map_literal_alloc`, `ori_set_literal_alloc` (collection literal allocation wrappers that call ori_rc_alloc internally)
     - `Inc`: `ori_rc_inc`, `ori_str_rc_inc`, `ori_list_rc_inc` (slice-aware typed RC inc)
     - `Dec`: `ori_rc_dec`, `ori_str_rc_dec`, `ori_buffer_rc_dec`, `ori_map_buffer_rc_dec`, `ori_set_buffer_rc_dec` (slice-aware typed RC dec)
-    - `Free`: `ori_rc_free`, `ori_buffer_drop_unique`, `ori_set_buffer_drop_unique`, `ori_map_buffer_drop_unique` (unique-drop functions that skip atomic dec and directly free — these are RC cleanup operations that must be counted as releases)
+    - `Free`: `ori_rc_free`, `ori_list_free_data`, `ori_buffer_drop_unique`, `ori_set_buffer_drop_unique`, `ori_map_buffer_drop_unique` (free wrappers and unique-drop functions that skip atomic dec and directly free — these are RC cleanup operations that must be counted as releases)
     - `Cow`: COW functions (via `super::is_cow_function`) — `ori_list_*_cow`, `ori_str_*_cow`, etc.
     - **Non-counting (returns None):** `ori_rc_is_unique`, `ori_rc_is_unique_or_null`, `ori_rc_live_count`, `ori_rc_reset_live_count`, `ori_rc_realloc`, `ori_list_reset_buffer` (internal reallocation — dec+alloc happen inside, not externally observable as separate RC events)
     - **Source of truth for the function list:** `compiler/ori_llvm/src/codegen/runtime_decl/runtime_functions.rs`. The classifier must cover all RC counting operations (functions that perform alloc/inc/dec/free on refcounts or COW mutations). NOT all functions containing `rc` — non-counting helpers must return `None`. Add an exhaustiveness test with an explicit allowlist of classified patterns (`*_rc_inc`, `*_rc_dec`, `*_drop_unique`, exact `ori_rc_alloc`, exact `ori_rc_free`, `*_cow`) and explicit `None` assertions for `ori_rc_is_unique`, `ori_rc_live_count`, `ori_rc_realloc`, `ori_list_reset_buffer`, and unrelated names like `ori_str_to_uppercase`. Include explicit test cases for `ori_buffer_drop_unique` → `Free`, `ori_set_buffer_drop_unique` → `Free`, `ori_map_buffer_drop_unique` → `Free`.
@@ -105,6 +105,7 @@ sections:
   - **Function name demangling:** The histogram MUST demangle Ori function names before storing them in `FunctionHistogram.name`. **Reuse the canonical AOT demangler** (`aot/mangle/parse.rs` or its public API) — this is the SSOT for name demangling in `ori_llvm`. The demangled format will differ from the awk parser's legacy format (e.g., `math.@add` instead of `@math.add`) — this is intentional and correct: the compiler's canonical demangling is the authoritative format, and introducing a second bespoke demangler would be LEAK:scattered-knowledge. The Phase B migration test must account for this format difference (compare function-level RC totals, not exact name strings; or normalize names in the comparison).
   - For block labels: use `BasicBlock::get_name()` if non-empty; otherwise generate `format!("bb_{}", block_index)` as a fallback. Many LLVM basic blocks are unnamed (empty `get_name()`) — the fallback ensures every block has a printable identifier in the JSON output and the rc-stats.sh table
 - [ ] Add `mod rc_histogram;` to `compiler/ori_llvm/src/verify/mod.rs`
+- [ ] Add `#[cfg(test)] mod tests;` at the bottom of `rc_histogram.rs` (per CLAUDE.md — test bodies in sibling `tests.rs`, not inline)
 - [ ] **File size check:** `rc_histogram.rs` should be under 200 lines. The counting logic is simple — no state machine, just instruction classification and accumulation.
 - [ ] Add Rust unit tests in `compiler/ori_llvm/src/verify/rc_histogram/tests.rs`:
   - `test_classify_rc_call_alloc_returns_alloc` — `"ori_rc_alloc"` → `Some(RcOpKind::Alloc)`
@@ -180,8 +181,9 @@ sections:
       pub cow: u32,
   }
   ```
-- [ ] Add `pub(super) fn from_histograms(histograms: &[FunctionHistogram], optimized: bool) -> RcStatsReport` conversion that maps `FunctionHistogram` → `FunctionStats` with computed totals and sets `optimized` field accordingly. Note: `pub(super)` matches `FunctionHistogram` visibility
+- [ ] Add an associated constructor on `RcStatsReport`: `impl RcStatsReport { pub(super) fn from_histograms(histograms: &[FunctionHistogram], optimized: bool) -> Self { ... } }` — maps `FunctionHistogram` → `FunctionStats` with computed totals and sets `optimized` field. Note: `pub(super)` matches `FunctionHistogram` visibility
 - [ ] Add `mod rc_stats;` to `compiler/ori_llvm/src/verify/mod.rs`
+- [ ] Add `#[cfg(test)] mod tests;` at the bottom of `rc_stats.rs` (per CLAUDE.md — test bodies in sibling `tests.rs`)
 - [ ] Add `impl RcStatsReport { pub fn emit_to_stderr(&self) }` method that centralizes JSON serialization and emission: `eprintln!("codegen stats: json: {}", serde_json::to_string(self).expect("RcStatsReport serialization"))`. All hook points (verify/mod.rs, aot/object.rs, build/single.rs) call this method instead of manually constructing the JSON emission — prevents algorithmic duplication of the formatting contract.
 - [ ] **File size check:** `rc_stats.rs` should be under 120 lines — data types, conversion, and emit method.
 - [ ] Add Rust unit tests in `compiler/ori_llvm/src/verify/rc_stats/tests.rs`:
@@ -243,7 +245,7 @@ sections:
 
 **File(s):** `diagnostics/rc-stats.sh`, `diagnostics/self-test.sh`
 
-This subsection has three phases: (A) add `--block-level` using compiler JSON, (B) migration test matrix comparing awk vs JSON totals, (C) migrate default mode from awk to JSON and retain awk only for `--optimized`.
+This subsection has three phases: (A) add `--block-level` using compiler JSON, (B) migration test matrix comparing awk vs JSON totals, (C) migrate ALL modes to compiler JSON and remove awk parser entirely.
 
 ### Phase A: Add --block-level flag
 
@@ -281,7 +283,7 @@ This subsection has three phases: (A) add `--block-level` using compiler JSON, (
 - [ ] In default mode (no `--block-level`, no `--optimized`): replace the awk parser with JSON consumption — compile with `ORI_AUDIT_CODEGEN=1`, extract the `codegen stats: json:` line where `"optimized":false` (reuse the same extraction/filtering helper from Phase A step 2), compute per-function totals from the JSON, render the same table format as today
 - [ ] In `--optimized` mode: compile with `ORI_AUDIT_CODEGEN=1`, extract the `codegen stats: json:` line where `"optimized":true` (reuse the same extraction/filtering helper). Render the same table format. No awk needed.
 - [ ] **Remove the awk parser entirely.** Both `--optimized` and default modes now consume compiler JSON. The awk code (lines 116-208 of the current rc-stats.sh) is deleted. This eliminates the LEAK:scattered-knowledge — there is now exactly ONE source of truth for RC operation classification (`RcOpKind` in `rc_histogram.rs`), consumed by all modes via JSON.
-- [ ] Verify output parity: `rc-stats.sh fixtures/clean.ori` produces identical output before and after migration (compare exact text, ignoring ANSI color codes). Note: For fixtures with typed RC ops (e.g., `ori_buffer_rc_dec`), the JSON output will show HIGHER totals than the old awk output because the classifier covers more operations — this is CORRECT behavior, not a regression.
+- [ ] Verify output parity: `rc-stats.sh fixtures/clean.ori` produces the same table structure, column values, and exit behavior before and after migration. Two expected differences: (1) function names use canonical AOT demangling format instead of awk format — compare by stripping the name column or normalizing names, (2) totals for typed RC ops may be HIGHER because the classifier covers more operations — this is CORRECT expanded coverage, not a regression.
 - [ ] Verify exit code parity: any fixture that previously triggered exit 1 still triggers exit 1
 - [ ] Add/update self-test entries:
   - `rc-stats.sh fixtures/clean.ori` (default mode) — works via JSON
@@ -336,6 +338,18 @@ This subsection has three phases: (A) add `--block-level` using compiler JSON, (
   Resolved: Fixed on 2026-04-09. Added *_drop_unique to allowlist and explicit test cases for all 3 unique-drop functions.
 - [x] `[TPR-04-001-gemini][high]` (iter 4) `section-04-block-rc-stats.md:111` — Use canonical AOT demangler instead of bespoke awk-format helper.
   Resolved: Fixed on 2026-04-09. Switched to canonical AOT demangler; accept format change as SSOT-correct; migration tests compare totals not name strings.
+- [x] `[TPR-04-001-codex][high]` (iter 5) — Classify RC allocation wrapper calls (ori_list_alloc_data, ori_map_literal_alloc, ori_set_literal_alloc, ori_list_free_data).
+  Resolved: Fixed on 2026-04-09. Added all allocation/free wrappers to Alloc and Free categories.
+- [x] `[TPR-04-002-codex][medium]` (iter 5) — Align demangling success criterion with canonical output.
+  Resolved: Fixed on 2026-04-09. Updated frontmatter success criterion to say "canonical AOT demangler format".
+- [x] `[TPR-04-003-codex][medium]` (iter 5) — Remove stale awk retention note from 04.4 intro.
+  Resolved: Fixed on 2026-04-09. Updated phase summary to say "migrate ALL modes to compiler JSON".
+- [x] `[TPR-04-004-codex][medium]` (iter 5) — Wire new sibling test modules with #[cfg(test)] mod tests.
+  Resolved: Fixed on 2026-04-09. Added explicit checklist items for test module declarations.
+- [x] `[TPR-04-005-codex][low]` (iter 5) — Make from_histograms an associated constructor.
+  Resolved: Fixed on 2026-04-09. Specified as impl RcStatsReport { pub(super) fn from_histograms(...) -> Self }.
+- [x] `[TPR-04-001-gemini][high]` (iter 5) — Resolve demangling format contradiction in migration parity.
+  Resolved: Fixed on 2026-04-09. Updated parity test to normalize/strip name column; accepted canonical format difference.
 
 ---
 
