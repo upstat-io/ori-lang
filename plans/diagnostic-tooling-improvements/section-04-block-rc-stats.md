@@ -1,7 +1,7 @@
 ---
 section: "04"
 title: "Block-level RC Stats"
-status: in-progress
+status: complete
 reviewed: true
 goal: "Create a new rc_histogram pass separate from rc_balance.rs that counts ALL RC ops (alloc/inc/dec/free/cow) per basic block, emit typed JSON via serde, and update rc-stats.sh to consume it — with migration safety net comparing awk totals to JSON totals before awk removal"
 success_criteria:
@@ -41,27 +41,27 @@ sections:
     status: complete
   - id: "04.N"
     title: "Completion Checklist"
-    status: not-started
+    status: complete
 ---
 
 # Section 04: Block-level RC Stats
 
-**Status:** In Progress
+**Status:** Complete
 **Goal:** Give developers the ability to localize RC leaks/over-releases to specific basic blocks within a function, not just the function as a whole. Currently `rc-stats.sh` reports per-function totals — "this function has +2 balance" — but cannot tell you WHICH loop or branch is responsible. The fix creates a **new** raw-counting pass (`rc_histogram.rs`) that is architecturally separate from the existing semantic lifecycle verifier (`rc_balance.rs`), emits typed JSON via serde, and updates the shell script to render it.
 
 **Critical architectural constraint (from dual-source review):** `rc_balance.rs` is a **semantic lifecycle state machine** tracking pointer ownership transitions (Live/CowConsumed/Decremented). It deliberately tracks only `ori_rc_alloc`, `ori_rc_dec`, and COW calls — this is correct for its purpose. The new per-block counting is a **syntactic histogram** — it counts ALL 5 RC op types (`ori_rc_alloc`, `ori_rc_inc`, `ori_rc_dec`, `ori_rc_free`, COW) without tracking pointer identity or state transitions. **These MUST be separate modules.** Mixing histogram counting into the lifecycle tracker would corrupt the state machine's invariants. The awk parser in `rc-stats.sh` already tracks all 5 ops — the new pass must match.
 
 **Success Criteria:**
-- [ ] `rc_histogram.rs` counts all 5 RC ops per basic block per function, independent of `rc_balance.rs`
-- [ ] `RcOpKind` enum in `verify/` classifies `Alloc | Inc | Dec | Free | Cow` as the raw counting vocabulary
-- [ ] JSON schema struct `RcStatsReport` with `schema_version: u32` field, `serde::Serialize` derives, defined in `verify/rc_stats.rs`
-- [ ] `ORI_AUDIT_CODEGEN=1` emits per-block JSON to stderr with `codegen stats: json:` prefix (separate from `codegen audit:` lines)
-- [ ] `rc-stats.sh --block-level file.ori` renders a per-block table with balance per block
-- [ ] Per-block imbalance is a localization aid — exit code remains 0. Only function-level imbalance triggers exit 1 (current behavior preserved)
-- [ ] `rc-stats.sh` (no flag) backward compatible: same table format and exit behavior (note: typed RC op totals may be higher than legacy awk counts — this is correct expanded coverage, not a regression)
-- [ ] `rc-stats.sh --optimized` works via compiler JSON from post-optimization histogram — awk parser completely removed
-- [ ] Migration test matrix confirms base-5 RC op parity before awk removal (typed RC expansions documented as expected divergence)
-- [ ] Satisfies mission criterion: "ORI_AUDIT_CODEGEN=1 emits per-block structured JSON; rc-stats.sh --block-level consumes it"
+- [x] `rc_histogram.rs` counts all 5 RC ops per basic block per function, independent of `rc_balance.rs`
+- [x] `RcOpKind` enum in `verify/` classifies `Alloc | Inc | Dec | Free | Cow` as the raw counting vocabulary
+- [x] JSON schema struct `RcStatsReport` with `schema_version: u32` field, `serde::Serialize` derives, defined in `verify/rc_stats.rs`
+- [x] `ORI_AUDIT_CODEGEN=1` emits per-block JSON to stderr with `codegen stats: json:` prefix (separate from `codegen audit:` lines)
+- [x] `rc-stats.sh --block-level file.ori` renders a per-block table with balance per block
+- [x] Per-block imbalance is a localization aid — exit code remains 0. Only function-level imbalance triggers exit 1 (current behavior preserved)
+- [x] `rc-stats.sh` (no flag) backward compatible: same table format and exit behavior (note: typed RC op totals may be higher than legacy awk counts — this is correct expanded coverage, not a regression)
+- [x] `rc-stats.sh --optimized` works via compiler JSON from post-optimization histogram — awk parser completely removed
+- [x] Migration test matrix confirms base-5 RC op parity before awk removal (typed RC expansions documented as expected divergence)
+- [x] Satisfies mission criterion: "ORI_AUDIT_CODEGEN=1 emits per-block structured JSON; rc-stats.sh --block-level consumes it"
 
 **Context:** Both Codex and Gemini independently identified critical issues with the original plan:
 1. `rc_balance.rs` does NOT track `ori_rc_inc` or `ori_rc_free` — merging counting into it would silently corrupt the balance equation `(alloc + inc) - (dec + free)`.
@@ -355,18 +355,18 @@ This subsection has three phases: (A) add `--block-level` using compiler JSON, (
 
 ## 04.N Completion Checklist
 
-- [ ] All subsections (04.1, 04.2, 04.3, 04.4) complete
-- [ ] `rc_histogram.rs` exists as a separate module from `rc_balance.rs` — no modifications to `rc_balance.rs`
-- [ ] `RcOpKind` classifies all 5 RC ops (alloc, inc, dec, free, cow)
-- [ ] JSON schema structs use `serde::Serialize` with `schema_version: u32` field
-- [ ] JSON prefix is `codegen stats: json:` (NOT `codegen audit:`) — `codegen-audit.sh` unaffected
-- [ ] Per-block exit code is 0 (localization aid only); function-level exit code matches current behavior
-- [ ] `--optimized` mode works via compiler JSON (post-optimization histogram), awk parser completely removed
-- [ ] Migration test matrix confirmed awk/JSON numeric equivalence before awk removal from default path
-- [ ] `timeout 150 cargo t -p ori_llvm` passes
-- [ ] `diagnostics/self-test.sh` passes
-- [ ] `timeout 150 ./test-all.sh` green — no regressions
-- [ ] `/tpr-review` passed
-- [ ] `/impl-hygiene-review` passed
-- [ ] **Annotation cleanup:** remove any plan-annotation comments (e.g., `// Section 04`, `// 04.1`) from source files — plan annotations are temporary scaffolding per CLAUDE.md
-- [ ] **`/improve-tooling` section-close sweep**
+- [x] All subsections (04.1, 04.2, 04.3, 04.4) complete
+- [x] `rc_histogram.rs` exists as a separate module from `rc_balance.rs` — no modifications to `rc_balance.rs`
+- [x] `RcOpKind` classifies all 5 RC ops (alloc, inc, dec, free, cow)
+- [x] JSON schema structs use `serde::Serialize` with `schema_version: u32` field
+- [x] JSON prefix is `codegen stats: json:` (NOT `codegen audit:`) — `codegen-audit.sh` unaffected
+- [x] Per-block exit code is 0 (localization aid only); function-level exit code matches current behavior
+- [x] `--optimized` mode works via compiler JSON (post-optimization histogram), awk parser completely removed
+- [x] Migration test matrix confirmed awk/JSON numeric equivalence before awk removal from default path
+- [x] `timeout 150 cargo t -p ori_llvm` passes
+- [x] `diagnostics/self-test.sh` passes (46/46)
+- [x] `timeout 150 ./test-all.sh` green — 16,954 tests, 0 failures
+- [x] `/tpr-review` passed
+- [x] `/impl-hygiene-review` passed
+- [x] **Annotation cleanup:** no plan-annotation comments found in source files
+- [x] **`/improve-tooling` section-close sweep** — per-subsection retrospectives covered everything; no cross-subsection patterns required new tooling
