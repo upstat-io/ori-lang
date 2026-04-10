@@ -1,0 +1,47 @@
+// Diagnostic fixture (aims-heavy): generic function multi-type monomorphization.
+// Exercises RC correctness across multiple concrete instantiations of the same
+// generic function — scalar (int), heap string (str), list ([int]), and struct.
+
+type Named = { name: str, id: int }
+
+@identity<T> (x: T) -> T = x;
+
+@apply<T> (f: (T) -> int, x: T) -> int = f(x);
+
+@pair<T> (a: T, b: T) -> (T, T) = (a, b);
+
+@main () -> int = {
+    // Scalar through generic — no RC needed
+    let ok1 = identity(x: 42) == 42;
+
+    // Heap string through generic — RC must be correct
+    let ok2 = identity(x: "abcdefghijklmnopqrstuvwxyz1234").length() == 30;
+
+    // List scalar through generic
+    let ok3 = identity(x: [1, 2, 3]).length() == 3;
+
+    // List fat through generic
+    let ok4 = identity(x: ["hello", "world"]).length() == 2;
+
+    // Struct with fat field through generic
+    let n = identity(x: Named { name: "alice", id: 1 });
+    let ok5 = n.name.length() == 5 && n.id == 1;
+
+    // Generic with operation callback — str instantiation
+    let str_len = (s: str) -> int = s.length();
+    let ok6 = apply(f: str_len, x: "hello") == 5;
+
+    // Generic with operation callback — list instantiation
+    let list_len = (xs: [int]) -> int = xs.length();
+    let ok7 = apply(f: list_len, x: [1, 2, 3]) == 3;
+
+    // Generic pair — two fat values through same generic
+    let (a, b) = pair(a: "hello", b: "world");
+    let ok8 = a.length() + b.length() == 10;
+
+    // Map through generic
+    let ok9 = identity(x: {"a": 1}).length() == 1;
+
+    if ok1 && ok2 && ok3 && ok4 && ok5 && ok6 && ok7 && ok8 && ok9
+        then 0 else 1
+}
