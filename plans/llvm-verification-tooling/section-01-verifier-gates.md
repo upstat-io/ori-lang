@@ -246,6 +246,12 @@ Currently `verify_each` exists as a field in `OptimizationConfig` (line 210 of `
   ```
   Use `!= "0"` consistent with the canonical `debug_flags.rs` pattern.
 
+- [ ] **Fix existing `ORI_VERIFY_ARC` callers using `is_ok()`** — three sites currently use `std::env::var(...).is_ok()` instead of the canonical `!= "0"` pattern, causing `ORI_VERIFY_ARC=0` to be truthy:
+  - `compiler/oric/src/commands/codegen_pipeline.rs:381`
+  - `compiler/oric/src/arc_dump/mod.rs:68`
+  - `compiler/oric/src/arc_dot/mod.rs:60`
+  All three must be updated to `.map_or(false, |v| v != "0")` for consistency. Add a test case: `verify_arc_zero_disables_verification` — set `ORI_VERIFY_ARC=0`, assert verification is NOT enabled.
+
 ### 01.2.2 Add function-level verification at ALL emission sites
 
 Function-level `fn_val.verify()` must run after EVERY function's codegen completes — not just the define phase. The SSOT approach is to add verification inside the **canonical emit helpers** rather than at each individual caller site. There are three canonical helpers that cover most paths: `emit_arc_function` (immediate emit), `emit_prepared_functions` (nounwind two-pass), and `emit_prepared_lambda` (lambda emit). Callers like `impls.rs` and `compile_tests` route through these helpers and inherit verification automatically. **However, derive codegen (`derive_codegen/mod.rs`) is a SEPARATE emission path** — it uses `setup_derive_function()` / `declare_and_bind_derive()` and does NOT route through the three canonical helpers. Derive codegen must be checked explicitly.
@@ -283,7 +289,17 @@ Function-level `fn_val.verify()` must run after EVERY function's codegen complet
 
 - [ ] **`generate_main_wrapper`** (`compiler/ori_llvm/src/codegen/entry_point.rs:60-170`). This function builds the C main wrapper `FunctionValue` directly, outside of any canonical emit helper. Add `fn_val.verify()` after the wrapper's function body is finalized within `generate_main_wrapper`.
 
-- [ ] **Do NOT add per-caller-site `fn_val.verify()` calls** at `impls.rs` individual call sites or `compile_tests` loop bodies for the CANONICAL helpers — the SSOT for user-defined functions is the canonical helpers. The additional explicit sites above (`compile_lambda_arc`, `generate_closure_wrapper`, `generate_drop_fn`, `compile_tests` wrapper, `generate_main_wrapper`) are SEPARATE emission paths that genuinely bypass the helpers and require their own `fn_val.verify()` calls.
+- [ ] **Remaining thunk/helper generators** — the following also create standalone `FunctionValue` instances outside the canonical helpers and must each get `fn_val.verify()`:
+  - `panic_trampoline.rs:37` (`generate_panic_trampoline`)
+  - `seh_main_thunk.rs:123` (`generate_seh_main_thunk`)
+  - `catch_thunk_gen.rs:18` (`generate_catch_thunk`)
+  - `element_fn_gen.rs:102` (`generate_element_fn`)
+  - `derive_codegen/field_ops/thunks.rs:68` (derive field thunks)
+  - `builtins/iterator_consumers.rs:603` (iterator consumer thunks)
+
+- [ ] **Catch-all rule for future emission sites**: ANY code that creates and finalizes a `FunctionValue` (i.e., adds basic blocks and a terminator) MUST call `fn_val.verify()` before the function is considered complete. Add a `// VERIFY: fn_val.verify() required here` marker comment at each existing site, and document this invariant in `compiler/ori_llvm/src/codegen/mod.rs` module-level docs. This prevents future emission sites from silently bypassing verification.
+
+- [ ] **Do NOT add per-caller-site `fn_val.verify()` calls** at `impls.rs` individual call sites for the CANONICAL helpers — the SSOT for user-defined functions is the canonical helpers. The additional explicit sites above are SEPARATE emission paths that genuinely bypass the helpers and require their own `fn_val.verify()` calls.
 
 - [ ] Verify that `LLVM_OPT_BISECT_LIMIT` env var is respected by the optimization pipeline (it should be — LLVM's pass manager reads it internally). This supports `diagnostics/opt-bisect.sh` in Section 11.
 
@@ -445,6 +461,12 @@ When all findings are triaged:
 
 - [x] **[TPR-01-003-gemini][low] WRONG: emit_prepared_lambda described as not flowing through emit_prepared_functions** — §01.2.2 said `emit_prepared_lambda` "does not flow through `emit_prepared_functions`" but it IS called by `emit_prepared_functions` at `emit.rs:28`. The correct nuance is that it emits a DISTINCT `FunctionValue` body (the lambda's own body, not the outer wrapper) that needs its own `fn_val.verify()`. **Resolution:** Rewrote canonical helper 3 description in §01.2.2 to clarify it IS called by `emit_prepared_functions` but verifies a distinct `FunctionValue` body.
 
+### Iteration 4 Findings
+
+- [x] **[TPR-01-001-codex-i4][high] GAP: remaining thunk/helper generators missing from fn_val.verify() inventory** — Codex discovered 6 additional standalone `FunctionValue` generators: `panic_trampoline.rs:37`, `seh_main_thunk.rs:123`, `catch_thunk_gen.rs:18`, `element_fn_gen.rs:102`, `derive_codegen/field_ops/thunks.rs:68`, `builtins/iterator_consumers.rs:603`. **Resolution:** Added all 6 as explicit verification sites in §01.2.2. Also added a catch-all rule: ANY code creating a `FunctionValue` must call `fn_val.verify()`, documented as an invariant in `codegen/mod.rs`.
+
+- [x] **[TPR-01-002-codex-i4][medium] GAP: ORI_VERIFY_ARC parsed with is_ok() at 3 sites** — `codegen_pipeline.rs:381`, `arc_dump/mod.rs:68`, `arc_dot/mod.rs:60` all use `is_ok()` instead of the canonical `!= "0"` pattern, making `ORI_VERIFY_ARC=0` truthy. **Resolution:** Added explicit checklist item in §01.2.1 to fix all 3 sites to `.map_or(false, |v| v != "0")` with a test case.
+
 ---
 
 ## 01.N Completion Checklist
@@ -469,6 +491,9 @@ When all findings are triaged:
 - [ ] `fn_val.verify()` runs after codegen in derives (`derive_codegen/mod.rs`)
 - [ ] `fn_val.verify()` runs after codegen in `generate_closure_wrapper` (`closure_wrappers.rs:32`)
 - [ ] `fn_val.verify()` runs after codegen in `generate_drop_fn` (`drop_gen.rs:43`)
+- [ ] `fn_val.verify()` runs after codegen in remaining thunks: `panic_trampoline`, `seh_main_thunk`, `catch_thunk_gen`, `element_fn_gen`, derive field thunks, iterator consumer thunks
+- [ ] Catch-all rule documented: ANY `FunctionValue` creation site must call `fn_val.verify()`
+- [ ] Existing `ORI_VERIFY_ARC` callers fixed from `is_ok()` to `!= "0"` pattern (3 sites: `codegen_pipeline.rs`, `arc_dump/mod.rs`, `arc_dot/mod.rs`)
 - [ ] `opt -lint` integrated into codegen audit using `function(lint)` pipeline syntax with diagnostic capture
 - [ ] `test-all.sh` runs with `ORI_VERIFY_ARC=1` by default
 - [ ] `.github/workflows/ci.yml` sets `ORI_VERIFY_ARC=1`
