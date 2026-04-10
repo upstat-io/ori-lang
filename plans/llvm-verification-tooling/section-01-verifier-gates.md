@@ -124,7 +124,7 @@ Verification errors from the ARC IR verifier are Internal Compiler Errors (ICEs)
 
 - [ ] Add `ArcProblem::InternalVerificationError { phase: String, errors: Vec<crate::verify::VerifyError> }` variant to the `ArcProblem` enum in `compiler/ori_arc/src/lower/mod.rs`. This variant represents an ICE, not a user diagnostic — `FunctionCompiler` should treat it as a compilation abort.
 
-- [ ] Alternatively, change `run_arc_pipeline()` (`compiler/ori_arc/src/pipeline/mod.rs:36`) to return `Result<Vec<ArcProblem>, ArcVerificationError>` where `ArcVerificationError` wraps the verification failures with phase/function context. The `Vec<ArcProblem>` remains for user-facing diagnostics (FBIP), while `Err` means an ICE from verification. This is the cleaner approach since it uses the type system to enforce that ICEs cannot be silently iterated over.
+- [ ] Alternatively, change both `run_arc_pipeline()` and `run_arc_pipeline_all()` (`compiler/ori_arc/src/pipeline/mod.rs:36` and `compiler/ori_arc/src/lib.rs:72`) to return `Result<Vec<ArcProblem>, ArcVerificationError>` where `ArcVerificationError` wraps the verification failures with phase/function context. The `Vec<ArcProblem>` remains for user-facing diagnostics (FBIP), while `Err` means an ICE from verification. This is the cleaner approach since it uses the type system to enforce that ICEs cannot be silently iterated over. **Both the single-function and batch APIs must adopt the same contract** — `arc_dump` and `arc_dot` call the batch API (`run_arc_pipeline_all`), not the single-function API.
 
 ### 01.1.3 Propagate errors through the full pipeline chain
 
@@ -144,9 +144,9 @@ Currently, errors from `run_verify()` are silently consumed at multiple call sit
 
 6. **Lambda compilation** in `compiler/ori_llvm/src/codegen/function_compiler/define_phase.rs:409` — same `run_arc_pipeline()` call, same propagation needed.
 
-7. **`compiler/oric/src/arc_dump/mod.rs:61`** — currently uses `let _problems = run_arc_pipeline(...)` (result intentionally discarded). Once `run_arc_pipeline()` returns `Result<Vec<ArcProblem>, ArcVerificationError>`, this site must handle the `Err` branch: propagate verification errors up to the caller or surface them as a compilation diagnostic. Do NOT leave `_problems` discarding an `Err`.
+7. **`compiler/oric/src/arc_dump/mod.rs:61`** — currently uses `let _problems = run_arc_pipeline_all(...)` (result intentionally discarded). Once `run_arc_pipeline_all()` returns `Result<Vec<ArcProblem>, ArcVerificationError>`, this site must handle the `Err` branch: propagate verification errors up to the caller or surface them as a compilation diagnostic. Do NOT leave `_problems` discarding an `Err`.
 
-8. **`compiler/oric/src/arc_dot/mod.rs:53`** — same `let _problems =` pattern as `arc_dump`. Must handle the `Err` branch after the signature change.
+8. **`compiler/oric/src/arc_dot/mod.rs:53`** — same `let _problems = run_arc_pipeline_all(...)` pattern as `arc_dump`. Must handle the `Err` branch after the signature change.
 
 9. **`compiler/oric/src/problem/codegen/mod.rs:242-263`** — `CodegenProblem` mapping. The `ArcProblem` -> `CodegenProblem` mapping must include a case for `ArcProblem::InternalVerificationError` (or the `ArcVerificationError` ICE path). Currently this mapping has no catch-all for ICE variants. Add an `InternalVerificationError` arm that emits a compiler ICE diagnostic rather than a user-facing `CodegenProblem`.
 
@@ -241,7 +241,7 @@ Currently `verify_each` exists as a field in `OptimizationConfig` (line 210 of `
 
 ### 01.2.2 Add function-level verification at ALL emission sites
 
-Function-level `fn_val.verify()` must run after EVERY function's codegen completes — not just the define phase. The SSOT approach is to add verification inside the **canonical emit helpers** (`emit_arc_function`, `emit_prepared_functions`, `emit_prepared_lambda`) rather than at each individual caller site. Callers (`impls.rs`, `compile_tests`, derive codegen) route through these helpers and therefore inherit verification automatically without requiring per-call-site changes.
+Function-level `fn_val.verify()` must run after EVERY function's codegen completes — not just the define phase. The SSOT approach is to add verification inside the **canonical emit helpers** rather than at each individual caller site. There are three canonical helpers that cover most paths: `emit_arc_function` (immediate emit), `emit_prepared_functions` (nounwind two-pass), and `emit_prepared_lambda` (lambda emit). Callers like `impls.rs` and `compile_tests` route through these helpers and inherit verification automatically. **However, derive codegen (`derive_codegen/mod.rs`) is a SEPARATE emission path** — it uses `setup_derive_function()` / `declare_and_bind_derive()` and does NOT route through the three canonical helpers. Derive codegen must be checked explicitly.
 
 **Inkwell API semantics (VERIFIED from existing test code):** `FunctionValue::verify(print_to_stderr: bool)` returns `true` on SUCCESS and `false` on FAILURE. This is confirmed by existing test assertions like `assert!(func.verify(false), "valid after simplification")` at `compiler/ori_llvm/src/codegen/ir_builder/cfg_simplify/tests.rs:65`. This is the OPPOSITE of what one might assume — `true` means valid.
 
@@ -262,9 +262,9 @@ Function-level `fn_val.verify()` must run after EVERY function's codegen complet
 
 - [ ] **Canonical helper 2: `emit_prepared_functions`** (`compiler/ori_llvm/src/codegen/function_compiler/nounwind/emit.rs:16`). After `emitter.emit_function()` and `simplify_cfg()`, add the same `fn_val.verify()` call. This covers the nounwind two-pass path. Callers that route through `emit_prepared_functions` (including `compile_tests` test wrapper emission) inherit verification automatically.
 
-- [ ] **Canonical helper 3: `emit_prepared_lambda`** (`compiler/ori_llvm/src/codegen/function_compiler/nounwind/emit.rs:28`). After lambda codegen, add `fn_val.verify()`. Lambda emission is a distinct path that does not flow through `emit_prepared_functions` — it needs its own verification call inside the helper.
+- [ ] **Canonical helper 3: `emit_prepared_lambda`** (defined at `compiler/ori_llvm/src/codegen/function_compiler/nounwind/emit.rs:120`, called from line 28). After lambda codegen, add `fn_val.verify()`. Lambda emission is a distinct path that does not flow through `emit_prepared_functions` — it needs its own verification call inside the helper definition.
 
-- [ ] **Derive codegen** (`compiler/ori_llvm/src/codegen/derive_codegen/mod.rs`). Check whether derived method emission routes through one of the three canonical helpers above. If yes, no additional change is needed — verification is inherited. If derived methods have a standalone emission path that bypasses all three helpers, add `fn_val.verify()` at that path. Document which case applies during implementation.
+- [ ] **Derive codegen** (`compiler/ori_llvm/src/codegen/derive_codegen/mod.rs`). Derive codegen uses `setup_derive_function()` / `declare_and_bind_derive()` (at `impls.rs:317` and `derive_codegen/mod.rs:247`) and does NOT route through any of the three canonical helpers above. Therefore, `fn_val.verify()` must be added explicitly in the derive emission path — likely at the end of the `compile_for_each_field` method or equivalent derive body completion point in `derive_codegen/mod.rs`.
 
 - [ ] **Do NOT add per-caller-site `fn_val.verify()` calls** at `impls.rs` individual call sites or `compile_tests` loop bodies — the SSOT is the canonical helpers, not individual callers.
 
@@ -403,6 +403,16 @@ When all findings are triaged:
 - [x] **[TPR-01-002-gemini][medium] FFI requirement for LLVMSetDiagnosticHandler** — Option B (in-process lint) referenced `LLVMSetDiagnosticHandler` without noting it requires raw FFI — Inkwell does not wrap this API. **Resolution:** Added explicit note to Option B in §01.3.1 that `LLVMSetDiagnosticHandler` requires raw FFI declarations via `llvm-sys`, with guidance to add the binding in `compiler/ori_llvm/src/llvm_sys_ext.rs` (or equivalent FFI shim file).
 
 - [x] **[TPR-01-003-gemini][low] Signature change clarity** — §01.1.3 didn't explain what `Vec<ArcProblem>` vs `Result` wrapper represent semantically. **Resolution:** Added a "Type semantics clarification" paragraph at the top of §01.1.3 explaining that `Vec<ArcProblem>` = user-facing diagnostics (FBIP findings, reuse misses), while `Result` wrapper separates blocking ICEs (abort compilation) from user diagnostics (may be warnings). Callers treating `Err` as unrecoverable is now explicit.
+
+### Iteration 2 Findings (re-review after iteration 1 fixes)
+
+- [x] **[TPR-01-001-codex-i2][medium] GAP: arc_dump/arc_dot call run_arc_pipeline_all, not run_arc_pipeline** — §01.1.2 and §01.1.3 only named `run_arc_pipeline()` but the utility consumers call `run_arc_pipeline_all()`. **Resolution:** Updated §01.1.2 to explicitly name both APIs. Updated §01.1.3 points 7-8 to use `run_arc_pipeline_all()`. Added note that both APIs must adopt the same Result contract.
+
+- [x] **[TPR-01-002-codex-i2][low] LEAK: derive codegen claimed to route through canonical helpers** — §01.2.2 lead-in incorrectly stated derive codegen routes through the canonical emit helpers. Derive codegen uses `setup_derive_function()`/`declare_and_bind_derive()` which bypass all three helpers. **Resolution:** Rewrote §01.2.2 lead-in to explicitly state derive codegen is a separate emission path. Updated derive checklist item to require explicit `fn_val.verify()` rather than claiming inherited verification.
+
+- [x] **[TPR-01-001-gemini-i2][low] Function name correction** — Same as codex finding above (agreement on substance). **Resolution:** Fixed as part of [TPR-01-001-codex-i2].
+
+- [x] **[TPR-01-002-gemini-i2][low] emit_prepared_lambda line reference** — Plan cited `emit.rs:28` (call site) instead of `emit.rs:120` (definition). **Resolution:** Updated canonical helper 3 reference to cite both: definition at line 120, call site at line 28.
 
 ---
 
