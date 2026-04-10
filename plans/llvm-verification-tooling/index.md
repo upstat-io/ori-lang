@@ -19,7 +19,7 @@ order: 1
 ## Keyword Clusters by Section
 
 ### Section 01: Verifier Gates & Quick Wins
-**File:** `section-01-verifier-gates.md` | **Status:** Not Started
+**File:** `section-01-verifier-gates.md` | **Status:** In Progress (pending TPR/hygiene close-out)
 
 ```
 verify_each, ORI_VERIFY_EACH, function-level verify, fn_val.verify
