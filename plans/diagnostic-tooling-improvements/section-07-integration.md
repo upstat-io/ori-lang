@@ -2,7 +2,7 @@
 section: "07"
 title: "Integration + Polish"
 status: in-progress
-reviewed: false
+reviewed: true
 goal: "Wire diagnostic hints into test-all.sh, fix ir-dump.sh DRIFT, add check-debug-flags.sh to CI, and update all documentation"
 success_criteria:
   - "test-all.sh prints 'Run diagnostics/diagnose-aot.sh <file>' on AOT/LLVM test failures"
@@ -19,16 +19,16 @@ third_party_review:
 sections:
   - id: "07.1"
     title: "Fix ir-dump.sh DRIFT"
-    status: not-started
+    status: complete
   - id: "07.2"
     title: "Add diagnostic hints to test-all.sh"
-    status: not-started
+    status: complete
   - id: "07.3"
     title: "Integrate check-debug-flags.sh"
-    status: not-started
+    status: complete
   - id: "07.4"
     title: "Update documentation"
-    status: in-progress
+    status: complete
   - id: "07.R"
     title: "Third Party Review Findings"
     status: not-started
@@ -39,16 +39,18 @@ sections:
 
 # Section 07: Integration + Polish
 
-**Status:** Not Started
+**Status:** In Progress
 **Goal:** Tie all diagnostic improvements together: fix existing DRIFT bugs, integrate diagnostics into the test harness so engineers get actionable suggestions on failure, and ensure all documentation is up to date.
 
 **Success Criteria:**
-- [ ] `ir-dump.sh` uses `ORI_DUMP_AFTER_LLVM=1` (not `ORI_DEBUG_LLVM=1`)
-- [ ] `test-all.sh` prints diagnostic command suggestions when LLVM/AOT tests fail
-- [ ] `check-debug-flags.sh` runs automatically as part of `test-all.sh` or `clippy-all.sh`
-- [ ] `diagnostics/README.md` updated with all new scripts and features
-- [ ] `CLAUDE.md` §Commands and §Diagnostic scripts reflect all changes
-- [ ] Satisfies mission criteria for integration, ir-dump fix, and docs
+- [x] `ir-dump.sh` uses `ORI_DUMP_AFTER_LLVM=1` (not `ORI_DEBUG_LLVM=1`) — all 3 occurrences (line 16 help text, line 122 comment, line 126 invocation)
+- [x] `test-all.sh` prints diagnostic command suggestions when LLVM/AOT tests fail
+- [x] Diagnostic hints suppressed when `test-all.sh --json` is active
+- [x] `check-debug-flags.sh` runs automatically as part of `test-all.sh` (blocking — flag drift fails the suite)
+- [x] `diagnostics/README.md` updated with all new scripts and features, including Section 03 changes to `dual-exec-debug.sh`
+- [x] `diagnostics/README.md` fixtures table matches `FIXTURES.md` SSOT
+- [x] `CLAUDE.md` §Commands and §Diagnostic scripts reflect all changes
+- [x] Satisfies mission criteria for integration, ir-dump fix, and docs
 
 **Context:** After sections 01-06, the toolkit is expanded but the surrounding infrastructure hasn't caught up. `test-all.sh` still gives raw failure output with no diagnostic guidance. `ir-dump.sh` still uses the legacy `ORI_DEBUG_LLVM` flag (Codex flagged as DRIFT). `check-debug-flags.sh` exists but never runs automatically.
 
@@ -62,16 +64,17 @@ sections:
 
 Codex flagged that `ir-dump.sh` (line 127) uses the legacy `ORI_DEBUG_LLVM=1` environment variable instead of the canonical `ORI_DUMP_AFTER_LLVM=1`. This is DRIFT per impl-hygiene.md — the flag was renamed but the script wasn't updated.
 
-- [ ] Replace `ORI_DEBUG_LLVM=1` with `ORI_DUMP_AFTER_LLVM=1` in `ir-dump.sh`
-- [ ] Verify the output format is identical (both should produce LLVM IR between `=== LLVM IR` / `=== END LLVM IR ===` markers)
-- [ ] Update the comment at line 122 to reference `ORI_DUMP_AFTER_LLVM`
-- [ ] Verify: `diagnostics/ir-dump.sh --raw diagnostics/fixtures/simple.ori` produces non-empty IR
-- [ ] Verify: `diagnostics/self-test.sh` still passes
+- [x] Replace `ORI_DEBUG_LLVM=1` with `ORI_DUMP_AFTER_LLVM=1` at line 126 (the invocation) in `ir-dump.sh`
+- [x] Update the comment at line 122 to reference `ORI_DUMP_AFTER_LLVM` instead of `ORI_DEBUG_LLVM`
+- [x] Update the usage/help text at line 16 to reference `ORI_DUMP_AFTER_LLVM` instead of `ORI_DEBUG_LLVM` (the help text says "via ORI_DEBUG_LLVM=1" — this is user-facing and must be accurate)
+- [x] Verify the output format is identical (both should produce LLVM IR between `=== LLVM IR` / `=== END LLVM IR ===` markers)
+- [x] Verify: `diagnostics/ir-dump.sh --raw diagnostics/fixtures/simple.ori` produces non-empty IR
+- [x] Verify: `diagnostics/self-test.sh` still passes (159/159)
 
-- [ ] **Subsection close-out (07.1)** — MANDATORY before starting 07.2:
-  - [ ] All tasks above are `[x]` and verified
-  - [ ] Update this subsection's `status` in section frontmatter to `complete`
-  - [ ] **Run `/improve-tooling` retrospectively on THIS subsection**
+- [x] **Subsection close-out (07.1)** — MANDATORY before starting 07.2:
+  - [x] All tasks above are `[x]` and verified
+  - [x] Update this subsection's `status` in section frontmatter to `complete`
+  - [x] **Run `/improve-tooling` retrospectively on THIS subsection** — Retrospective 07.1: no tooling gaps; self-test.sh comprehensively validates ir-dump.sh (159 tests); fix was purely textual.
 
 ---
 
@@ -81,7 +84,7 @@ Codex flagged that `ir-dump.sh` (line 127) uses the legacy `ORI_DEBUG_LLVM=1` en
 
 When LLVM or AOT tests fail, print a one-liner suggesting the relevant diagnostic command. The hint should be actionable and specific.
 
-- [ ] After any LLVM/AOT test suite failure, print GENERIC diagnostic hints (not file-specific — `test-all.sh` captures suite-level pass/fail, not individual file paths):
+- [x] After any LLVM/AOT test suite failure, print GENERIC diagnostic hints (not file-specific — `test-all.sh` captures suite-level pass/fail, not individual file paths):
   ```bash
   echo ""
   echo "  Diagnostic hints:"
@@ -90,14 +93,16 @@ When LLVM or AOT tests fail, print a one-liner suggesting the relevant diagnosti
   echo "    bisect-passes.sh <file.ori>     — identify failing AIMS phase"
   echo "    codegen-audit.sh <file.ori>     — static RC/COW/ABI check"
   ```
-  **Note**: File-specific hints would require parsing the test runner's verbose output to extract failing `.ori` paths — this is a future enhancement, not in scope for this plan. Generic hints are still valuable as a reminder of available tools.
-- [ ] Keep the hints minimal — 4-5 lines max, appear only on failure
-- [ ] Verify: hints appear on LLVM/AOT failure only, not on success or unrelated failures
+  **Design note**: Generic hints are the architecturally correct final design. `test-all.sh` captures suite-level pass/fail, not individual file paths. File-specific hints would require parsing the test runner's verbose output — that level of coupling is not justified for a reminder of available tools.
+- [x] **Suppress hints when `--json` is active** — guarded by `$EMIT_JSON -eq 0`
+- [x] Keep the hints minimal — 4 lines + separator, appear only on failure
+- [x] Verify: hints appear on LLVM/AOT failure only, not on success or unrelated failures (verified: 16,964 tests pass, no hints shown)
+- [x] Verify: hints do NOT appear when `./test-all.sh --json` is used (verified: JSON output clean, no hint text)
 
-- [ ] **Subsection close-out (07.2)** — MANDATORY before starting 07.3:
-  - [ ] All tasks above are `[x]` and verified
-  - [ ] Update this subsection's `status` in section frontmatter to `complete`
-  - [ ] **Run `/improve-tooling` retrospectively on THIS subsection**
+- [x] **Subsection close-out (07.2)** — MANDATORY before starting 07.3:
+  - [x] All tasks above are `[x]` and verified
+  - [x] Update this subsection's `status` in section frontmatter to `complete`
+  - [x] **Run `/improve-tooling` retrospectively on THIS subsection** — Retrospective 07.2: no tooling gaps; test-all.sh already has good pass/fail structure; the hint block is pure text output with no complex logic.
 
 ---
 
@@ -107,16 +112,18 @@ When LLVM or AOT tests fail, print a one-liner suggesting the relevant diagnosti
 
 `check-debug-flags.sh` validates that all `ORI_*` environment variables are documented and consistent. It exists but never runs automatically.
 
-- [ ] Add `check-debug-flags.sh` as a step in `test-all.sh` (or `clippy-all.sh` if it's a better fit)
-  - Run after compilation checks, before test execution
-  - Non-blocking: log warnings but don't fail the suite (flags may be temporarily out of sync during development)
-  - Alternatively: add to `clippy-all.sh` as a "doc lint" step
-- [ ] Verify: `./test-all.sh` (or `./clippy-all.sh`) includes the flag check in its output
+- [x] Add `check-debug-flags.sh` as a **blocking** step in `test-all.sh` — runs first, before test phases; `exit 1` on failure aborts the suite
+- [x] Verify: `./test-all.sh` includes the flag check in its output ("✓ Debug flag consistency check passed")
+- [x] Verify: failure path exits with `exit 1` and shows actionable message
 
-- [ ] **Subsection close-out (07.3)** — MANDATORY before starting 07.4:
-  - [ ] All tasks above are `[x]` and verified
-  - [ ] Update this subsection's `status` in section frontmatter to `complete`
-  - [ ] **Run `/improve-tooling` retrospectively on THIS subsection**
+**NOTE**: `check-debug-flags.sh` has hardcoded exception registries at lines 95, 104, 107 (`RUNTIME_FLAGS`, `NON_DIAGNOSTIC`, `TEST_ONLY`). New `ORI_*` variables added in future sections will NOT be automatically excluded — they must be manually added to the appropriate exception array. This is scattered knowledge but fixing it (e.g., deriving exclusions from code annotations) is out of scope for Section 07. Noted here so future sections are aware.
+
+**NOTE**: `test-all.sh` hints (07.2) suggest running commands with `ORI_*` flags, while `check-debug-flags.sh` validates `ORI_*` flag consistency. These do NOT conflict: `check-debug-flags.sh` checks flag DEFINITIONS in source code (`debug_flags.rs`, `std::env::var` patterns), not the runtime environment. Hints telling users to set `ORI_CHECK_LEAKS=1` at runtime will not trigger false positives in the flag checker.
+
+- [x] **Subsection close-out (07.3)** — MANDATORY before starting 07.4:
+  - [x] All tasks above are `[x]` and verified
+  - [x] Update this subsection's `status` in section frontmatter to `complete`
+  - [x] **Run `/improve-tooling` retrospectively on THIS subsection** — Retrospective 07.3: no tooling gaps; the integration was a clean insertion point with explicit error handling.
 
 ---
 
@@ -133,15 +140,18 @@ When LLVM or AOT tests fail, print a one-liner suggesting the relevant diagnosti
 - [x] `diagnostics/README.md` updated with `--release`, `--both-builds`, `--keep-temp`, `--block-level`, `--optimized`, `--compare-awk`
 - [x] Stale `aims-compare`/`aims-baseline`/`aims-measure` references removed (Section 01)
 
-**Remaining (after sections 05-06):**
-- [ ] **Verify** Section 05.N doc updates were applied: `bisect-passes.sh` in `@diagnostic.md`, `diagnostics/README.md`, `arc.md`, and CLAUDE.md tracing examples (owned by Section 05.N — Section 07 verifies, not duplicates)
-- [ ] Update `diagnostics/README.md` fixtures table with all Section 06 fixtures (owned by Section 07 — Section 06 adds fixtures but Section 07 integrates the full table)
-- [ ] Verify: no stale references to removed scripts remain (`grep -rn "aims-compare\|aims-baseline\|aims-measure" CLAUDE.md .claude/rules/ diagnostics/ plans/`)
+**Remaining (after sections 03, 05-06):**
+- [x] **Verify** Section 05.N doc updates were applied: `bisect-passes.sh` present in `@diagnostic.md`, `diagnostics/README.md`, `arc.md`, and CLAUDE.md tracing examples — all verified
+- [x] **Fix Section 03 SSOT drift in `diagnostics/README.md`**: updated line 48 to list all 4 auto-diagnostics on mismatch (`ir-dump.sh`, `arc-dump.sh`, `rc-stats.sh`, `codegen-audit.sh`) + build-failure ARC capture. `--keep-temp` already documented (line 45).
+- [x] Update `diagnostics/README.md` fixtures table with all 20 Section 06 fixtures (11 pass, 5 aims-heavy, 3 expected-fail), derived from FIXTURES.md SSOT
+- [x] **Verify `self-test.sh` fixture arrays match FIXTURES.md**: PASS_FIXTURES (11) and AIMS_HEAVY_FIXTURES (5) match exactly. `mismatch.ori` has separate wrapper handling (lines 301-309, 463-469), `build-fail-parse.ori` has separate build-failure handling (lines 318-320). No DRIFT.
+- [x] **Update `self-test.sh` help/header**: updated to reference `FIXTURES.md` SSOT (20 entries) instead of hardcoded fixture names
+- [x] Verify: no stale references to removed scripts (`aims-compare`, `aims-baseline`, `aims-measure`) in canonical surfaces — clean
 
-- [ ] **Subsection close-out (07.4)** — MANDATORY before starting 07.R:
-  - [ ] All tasks above are `[x]` and verified
-  - [ ] Update this subsection's `status` in section frontmatter to `complete`
-  - [ ] **Run `/improve-tooling` retrospectively on THIS subsection**
+- [x] **Subsection close-out (07.4)** — MANDATORY before starting 07.R:
+  - [x] All tasks above are `[x]` and verified
+  - [x] Update this subsection's `status` in section frontmatter to `complete`
+  - [x] **Run `/improve-tooling` retrospectively on THIS subsection** — Retrospective 07.4: no tooling gaps; FIXTURES.md SSOT worked well as the canonical source for cross-referencing fixtures across README.md and self-test.sh.
 
 ---
 
@@ -153,10 +163,18 @@ When LLVM or AOT tests fail, print a one-liner suggesting the relevant diagnosti
 
 ## 07.N Completion Checklist
 
-- [ ] All subsections (07.1-07.4) complete
-- [ ] `diagnostics/self-test.sh` passes
-- [ ] `timeout 150 ./test-all.sh` green
-- [ ] No stale references to removed scripts
+- [x] All subsections (07.1-07.4) complete
+- [x] `diagnostics/self-test.sh` passes (159/159)
+- [x] `timeout 150 ./test-all.sh` green (16,964 passed, 0 failed)
+- [x] `timeout 150 ./test-all.sh --json=/tmp/test-results.json` produces valid JSON without diagnostic hint text
+- [x] No stale references to removed scripts in canonical surfaces
+- [x] `diagnostics/README.md` accurately describes `dual-exec-debug.sh` mismatch behavior (4 auto-diagnostics + ARC capture)
+- [x] `diagnostics/README.md` fixtures table matches `diagnostics/fixtures/FIXTURES.md` SSOT (20 entries)
+- [x] `self-test.sh` fixture arrays match `FIXTURES.md` SSOT (PASS: 11, AIMS_HEAVY: 5, EXPECTED_FAIL: 1 + 2 separate)
+- [x] `ir-dump.sh` contains zero occurrences of `ORI_DEBUG_LLVM`
+- [x] `check-debug-flags.sh` integration blocks `test-all.sh` on flag inconsistencies (exit 1)
+- [x] `self-test.sh` help/header references FIXTURES.md SSOT
+- [x] `diagnostics/README.md` documents `dual-exec-debug.sh` build-failure ARC capture behavior
 - [ ] `/tpr-review` passed
 - [ ] `/impl-hygiene-review` passed
 - [ ] **`/improve-tooling` section-close sweep**

@@ -7,10 +7,9 @@
 # Runs every diagnostic script on fixture programs, verifying expected
 # output patterns (not exact match). Reports pass/fail per script per fixture.
 #
-# Fixtures (in diagnostics/fixtures/):
-#   simple.ori — minimal (no collections, no RC)
-#   clean.ori  — collections + RC, all balanced
-#   chain.ori  — chained COW operations
+# Fixtures: 20 entries (11 pass, 5 aims-heavy, 3 expected-fail, 1 infra).
+# See diagnostics/fixtures/FIXTURES.md for the canonical fixture list and
+# self-test contracts per category.
 #
 # Exit codes:
 #   0 = all tests passed

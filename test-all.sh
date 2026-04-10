@@ -256,6 +256,17 @@ parse_ori_results() {
 
 # --- Main execution ---
 
+# Flag consistency check (blocking — abort on failure)
+echo "=== Checking debug flag consistency ==="
+if diagnostics/check-debug-flags.sh --no-color > /dev/null 2>&1; then
+    echo "  ✓ Debug flag consistency check passed"
+else
+    echo -e "${RED}  ✗ Debug flag consistency check FAILED${NC}"
+    echo "    Run 'diagnostics/check-debug-flags.sh' for details."
+    exit 1
+fi
+echo ""
+
 if [[ $PARALLEL -eq 1 ]]; then
     echo -e "${BOLD}Running tests in parallel...${NC}"
     echo ""
@@ -486,6 +497,16 @@ echo ""
 
 if [ "$AOT_LEAKS" -gt 0 ]; then
     echo -e "${YELLOW}${BOLD}⚠  $AOT_LEAKS AOT test(s) leaked memory (ORI_CHECK_LEAKS=1 detected RC leaks)${NC}"
+    echo ""
+fi
+
+# --- Diagnostic hints on LLVM/AOT failure (suppressed in JSON mode) ---
+if [[ $EMIT_JSON -eq 0 ]] && [[ $RUST_LLVM_EXIT -ne 0 || $AOT_EXIT -ne 0 || $ORI_LLVM_EXIT -ne 0 ]]; then
+    echo "  Diagnostic hints:"
+    echo "    diagnose-aot.sh <file.ori>      — all-in-one AOT diagnostic"
+    echo "    dual-exec-debug.sh <file.ori>   — compare interpreter vs AOT"
+    echo "    bisect-passes.sh <file.ori>     — identify failing AIMS phase"
+    echo "    codegen-audit.sh <file.ori>     — static RC/COW/ABI check"
     echo ""
 fi
 

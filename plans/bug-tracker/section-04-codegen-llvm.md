@@ -24,11 +24,10 @@ Bugs in LLVM IR generation, JIT/AOT compilation, monomorphization, ARC pipeline 
   Subsystem: `compiler/ori_llvm/src/codegen/arc_emitter/` — method resolution table registers trait method for first implementing type but not the second
   Found: 2026-04-10 | Source: continue-roadmap (diagnostic-tooling-improvements §06.1 fixture creation)
 
-- [ ] `[BUG-04-053][medium]` **String comparison bypasses Name interning in rc_insert/annotate.rs** — found by tpr-review (dual-source, gemini).
-  Repro: `compiler/ori_arc/src/rc_insert/annotate.rs:370` uses `callee_str == "zip" || callee_str == "chain"` and `:406` uses `callee_str == "pop"` — comparing raw strings instead of interned Name IDs.
+- [x] `[BUG-04-053][medium]` **String comparison bypasses Name interning in rc_insert/annotate.rs** — found by tpr-review (dual-source, gemini).
+  Resolved: Fixed 2026-04-10. Added pre-interned `zip_name`, `chain_name`, `pop_name` fields to `ConsumingCtx`. Replaced 3 raw string comparisons (`interner.lookup(callee) == "zip"`) with Name equality (`callee == ctx.zip_name`). Removed 2 `interner.lookup()` calls. Fix section: `plans/bug-tracker/fix-BUG-04-053.md`. 16,964 tests passing.
   Subsystem: `compiler/ori_arc/src/rc_insert/annotate.rs`
   Found: 2026-04-09 | Source: tpr-review | Reviewer: gemini
-  Note: LEAK:scattered-knowledge per impl-hygiene.md §Interning Discipline. Should use pre-interned Name constants or `Name::from()` comparison.
 
 - [ ] `[BUG-04-052][low]` **No consumer-level test exercises `emit_dead_at_entry_decs` with the new `let_alias_rep` dedup** — found by tpr-review (dual-source).
   Repro: revert `dead_cleanup.rs` dedup from `let_alias_rep` back to `lineage_of` — all 5 new unit tests in `take_project/tests.rs` still pass because they only test the helper layer. Need a test that constructs a `BlockCleanupCtx` with swapped-phi topology and verifies two `RcDec`s are emitted.

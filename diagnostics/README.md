@@ -45,7 +45,7 @@ diagnostics/dual-exec-debug.sh --verbose file.ori   # + ORI_LOG=debug traces on 
 diagnostics/dual-exec-debug.sh --keep-temp file.ori # Preserve diagnostic artifacts on mismatch
 ```
 
-On mismatch, automatically runs `ir-dump.sh` and `rc-stats.sh` to diagnose the difference.
+On mismatch, automatically runs `ir-dump.sh`, `arc-dump.sh`, `rc-stats.sh`, and `codegen-audit.sh` to diagnose the difference. On build failure, attempts ARC IR capture (ARC IR is emitted before codegen, so may be available even when LLVM fails).
 
 ### dual-exec-verify.sh — Batch Dual-Execution Verification
 
@@ -257,13 +257,41 @@ diff before.ll after.ll
 
 ## Fixtures
 
-Test fixtures in `fixtures/` exercise different codegen patterns:
+Test fixtures in `fixtures/` exercise different codegen patterns. See `fixtures/FIXTURES.md` for the canonical SSOT.
+
+**Pass fixtures** (exit 0, balanced RC):
 
 | Fixture | What it tests |
 |---------|--------------|
-| `simple.ori` | Minimal program — no collections, no RC |
-| `clean.ori` | Collections + RC, all balanced |
-| `chain.ori` | Chained COW operations |
+| `simple.ori` | Minimal program — no collections, no RC (baseline) |
+| `clean.ori` | Collections + balanced RC, list ops |
+| `chain.ori` | Chained COW ops, sequential mutation |
+| `closure.ori` | Closure capture + call, closure env RC |
+| `closure_escape.ori` | Escaping closures, lifetime beyond scope |
+| `iterator_break.ori` | Iterator early exit, elem cleanup |
+| `iterator_complex.ori` | Nested/yield/guard iteration, partial collect |
+| `nested_list.ori` | Nested collections, elem_dec_fn propagation |
+| `trait_dispatch.ori` | Trait method dispatch, vtable codegen |
+| `pattern_match.ori` | Sum type mixed variants, per-variant drop |
+| `map_iteration.ori` | Map create + iterate, iterator cleanup |
+
+**AIMS-heavy fixtures** (exit 0, exercises AIMS-specific paths):
+
+| Fixture | What it tests |
+|---------|--------------|
+| `question_mark.ori` | `?` with fat values, early-exit unwinding |
+| `recursive_tree.ori` | Recursive fat pointer passing, stack-frame RC |
+| `generic_mono.ori` | Multi-type generic instantiation, monomorphization RC |
+| `large_aggregate.ori` | >16B struct pass/return, ABI compliance |
+| `cow_sharing.ori` | COW sharing/fork, is_unique barrier |
+
+**Expected-fail fixtures** (exit non-zero, validates failure detection):
+
+| Fixture | What it tests |
+|---------|--------------|
+| `leak.ori` | Panic with fat values, leak detection path |
+| `mismatch.ori` | Interpreter vs AOT mismatch detection (via `mismatch-wrapper.sh`) |
+| `build-fail-parse.ori` | Parse error, build failure detection |
 
 ## Common Options
 
