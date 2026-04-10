@@ -1,0 +1,4 @@
+// Fixture for dual-exec-debug.sh build-failure self-test (pre-lowering).
+// This file has a syntax error that fails at parse time — before ARC
+// lowering, so arc-dump.sh cannot produce ARC IR for this case.
+let x =

@@ -98,6 +98,8 @@ Tasks:
 - [x] **Subsection close-out (05.1)** — MANDATORY before starting 05.2:
   - [x] Task #10 contradiction removed, rewrite follows Section 04 pattern, command file unchanged
   - [x] Update this subsection's `status` to `complete`
+  - [ ] `/tpr-review` passed — independent review found no critical or major issues (or all findings triaged)
+  - [ ] `/impl-hygiene-review` passed — hygiene review clean. MUST run AFTER `/tpr-review` is clean.
   - [x] Run `/improve-tooling` retrospectively — was there friction in applying Section 04's pattern to review-work? Should there be a `rewrite-wrapper-for-dual-source.sh` that takes an existing single-source wrapper file and scaffolds the dual-source version? Implement improvements.
 
     **Retrospective 05.1 — outcome: 1 improvement implemented, 1 candidate rejected.**
@@ -138,6 +140,8 @@ Tasks:
 - [x] **Subsection close-out (05.2)** — MANDATORY before section completion:
   - [x] Both scenarios pass (bug-tracker fallback works via the organic BUG-04-045 Step 15 dogfood discovery; plan-owned routing works across 3 real rounds against §05.1 commits).
   - [x] Update this subsection's `status` to `complete`.
+  - [ ] `/tpr-review` passed — independent review found no critical or major issues (or all findings triaged)
+  - [ ] `/impl-hygiene-review` passed — hygiene review clean. MUST run AFTER `/tpr-review` is clean.
   - [x] Run `/improve-tooling` retrospectively — see the comprehensive retrospective below.
 
     **Retrospective 05.2 — outcome: 2 improvements implemented, multiple meta-insights.**

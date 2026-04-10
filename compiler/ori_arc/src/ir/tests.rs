@@ -1284,8 +1284,9 @@ fn is_owned_position_apply_indirect_out_of_bounds() {
 
 #[test]
 fn is_owned_position_invoke_indirect_with_ownership() {
-    // InvokeIndirect used_vars = [...args, closure] → closure at END.
-    // arg_ownership parallels args directly (no offset).
+    // InvokeIndirect used_vars = [closure, ...args] — closure FIRST
+    // (matches ApplyIndirect). pos=0 is closure (always borrowed).
+    // arg_ownership[i] corresponds to used_vars position i+1.
     let term = ArcTerminator::InvokeIndirect {
         dst: ArcVarId::new(5),
         ty: Idx::INT,
@@ -1295,12 +1296,12 @@ fn is_owned_position_invoke_indirect_with_ownership() {
         normal: ArcBlockId::new(1),
         unwind: ArcBlockId::new(2),
     };
-    assert!(term.is_owned_position(0), "args[0] is Owned");
-    assert!(!term.is_owned_position(1), "args[1] is Borrowed");
     assert!(
-        !term.is_owned_position(2),
-        "closure (at end) is always borrowed"
+        !term.is_owned_position(0),
+        "closure (at start) is always borrowed"
     );
+    assert!(term.is_owned_position(1), "args[0] is Owned");
+    assert!(!term.is_owned_position(2), "args[1] is Borrowed");
     assert!(!term.is_owned_position(3), "out of bounds");
 }
 
@@ -1316,11 +1317,11 @@ fn is_owned_position_invoke_indirect_empty_ownership() {
         normal: ArcBlockId::new(1),
         unwind: ArcBlockId::new(2),
     };
+    assert!(!term.is_owned_position(0), "closure: always borrowed");
     assert!(
-        !term.is_owned_position(0),
+        !term.is_owned_position(1),
         "args[0]: NOT owned (conservative)"
     );
-    assert!(!term.is_owned_position(1), "closure: borrowed");
 }
 
 // Invoke terminator is_owned_position

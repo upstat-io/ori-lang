@@ -213,9 +213,7 @@ fn test_look_ahead_returns_computed_value() {
     assert!(parser.cursor.check(&TokenKind::Let));
 }
 
-// ============================================================================
 // Practical Demonstrations
-// ============================================================================
 // These tests demonstrate real-world patterns for using snapshots.
 
 /// Demonstrates using `look_ahead()` for multi-token pattern detection.

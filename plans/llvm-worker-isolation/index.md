@@ -3,7 +3,7 @@ reroute: true
 name: "LLVM Isolation"
 full_name: "LLVM Worker Subprocess Isolation"
 status: active
-order: 2
+order: 4
 ---
 
 # LLVM Worker Subprocess Isolation Index

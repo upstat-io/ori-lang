@@ -266,9 +266,7 @@ impl Iterator for NamesIterator<'_> {
     }
 }
 
-// ============================================================================
 // Edit distance utilities
-// ============================================================================
 
 /// Dynamic threshold based on name length.
 ///

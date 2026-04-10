@@ -9,9 +9,7 @@
 
 use crate::OriStr;
 
-// =============================================================================
 // Public FFI Entry Points
-// =============================================================================
 
 /// Format an integer with a format specification.
 #[no_mangle]
@@ -61,9 +59,7 @@ pub extern "C" fn ori_format_char(c: i32, spec_ptr: *const u8, spec_len: i64) ->
     OriStr::from_owned(&result)
 }
 
-// =============================================================================
 // Format Spec Parser (self-contained, no ori_ir dependency)
-// =============================================================================
 
 #[derive(Clone, Debug)]
 pub(crate) struct ParsedFormatSpec {
@@ -270,9 +266,7 @@ fn is_format_type(c: char) -> bool {
     matches!(c, 'b' | 'o' | 'x' | 'X' | 'e' | 'E' | 'f' | '%')
 }
 
-// =============================================================================
 // Integer Formatting
-// =============================================================================
 
 fn format_int(n: i64, spec: &ParsedFormatSpec) -> String {
     let (is_negative, abs_n) = if n < 0 {
@@ -317,9 +311,7 @@ fn format_int(n: i64, spec: &ParsedFormatSpec) -> String {
     apply_alignment(&core, spec)
 }
 
-// =============================================================================
 // Float Formatting
-// =============================================================================
 
 fn format_float(f: f64, spec: &ParsedFormatSpec) -> String {
     let is_negative = f.is_sign_negative() && !f.is_nan();
@@ -402,9 +394,7 @@ fn format_scientific(f: f64, uppercase: bool, precision: Option<usize>) -> Strin
     format!("{mantissa_str}{e}{exp}")
 }
 
-// =============================================================================
 // String Formatting
-// =============================================================================
 
 fn fmt_str(s: &str, spec: &ParsedFormatSpec) -> String {
     // No-op fast path: no precision truncation or width/alignment needed
@@ -425,9 +415,7 @@ fn fmt_str(s: &str, spec: &ParsedFormatSpec) -> String {
     apply_alignment(&truncated, spec)
 }
 
-// =============================================================================
 // Shared Helpers
-// =============================================================================
 
 fn format_sign(is_negative: bool, spec: &ParsedFormatSpec) -> &'static str {
     if is_negative {

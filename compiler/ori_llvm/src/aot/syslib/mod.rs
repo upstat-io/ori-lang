@@ -35,9 +35,7 @@ use std::path::{Path, PathBuf};
 
 use super::target_features::{HostPlatform, TargetTripleComponents};
 
-// =============================================================================
 // Install-paths SSOT
-// =============================================================================
 //
 // These functions are the canonical home for "where Ori puts and looks for
 // user-managed sysroots". Both the install side (`oric::commands::target::

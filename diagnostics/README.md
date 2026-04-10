@@ -17,6 +17,7 @@ Quick-access debugging tools for the Ori compiler's AOT/codegen pipeline. These 
 | `arc-dump.sh` | Annotated ARC IR (post-lowering, pre-RC) | Debugging AIMS pipeline: alias chains, take-projects, lineage |
 | `ir-diff.sh` | Side-by-side IR comparison of two programs | Regression hunting, before/after comparison |
 | `disasm-ori.sh` | Native disassembly with Ori symbol demangling | Instruction-level debugging |
+| `debug-release-compare.sh` | Compare debug vs release build output | FastISel-only bugs, optimization divergences |
 | `check-debug-flags.sh` | Validate `ORI_*` flag consistency | After adding/removing debug flags |
 | `self-test.sh` | Self-test all scripts against fixtures | After modifying any diagnostic script |
 
@@ -128,6 +129,17 @@ diagnostics/disasm-ori.sh --symbols file.ori       # Symbol list only (no disasm
 
 Demangling: `_ori_math$add` → `math.add`, `_ori_int$$Eq$eq` → `int impl Eq.eq`
 
+### debug-release-compare.sh — Debug vs Release Comparison
+
+```bash
+diagnostics/debug-release-compare.sh file.ori            # Compare debug vs release
+diagnostics/debug-release-compare.sh --verbose file.ori   # + LLVM IR diff and RC stats on mismatch
+```
+
+Compiles and runs through both `target/debug/ori` and `target/release/ori`, comparing exit codes and stdout. On mismatch, auto-dumps LLVM IR from both builds for diffing. Catches FastISel-only bugs (e.g., the >16B aggregate load issue) and optimization-dependent codegen divergences.
+
+**Prerequisite**: Both debug and release binaries must exist. Build with `cargo b` and `cargo b --release`.
+
 ### check-debug-flags.sh — Flag Consistency
 
 ```bash
@@ -202,6 +214,14 @@ ORI_TRACE_RC=1 ./binary 2>&1 | grep -v inc | head    # What's allocated but neve
 diagnostics/ir-dump.sh file.ori                      # See what we emit
 diagnostics/ir-dump.sh --optimized file.ori           # See what LLVM makes of it
 diagnostics/codegen-audit.sh --strict file.ori        # Static correctness check
+```
+
+### "Debug works but release crashes/differs"
+
+```bash
+diagnostics/debug-release-compare.sh --verbose file.ori
+# Shows exit code + stdout comparison, then LLVM IR diff and RC stats
+# Common cause: FastISel (debug) handles something that the full pipeline (release) does not
 ```
 
 ### "Regression between two versions"

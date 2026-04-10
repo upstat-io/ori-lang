@@ -1,7 +1,7 @@
 ---
 section: "08"
 title: "Spec & Docs"
-status: in-progress
+status: complete
 goal: "Track and resolve all known spec/documentation bugs"
 sections: []
 ---
@@ -16,7 +16,8 @@ Bugs in the language specification, EBNF grammar, design docs, CLAUDE.md, rule f
 
 ## Open Bugs
 
-- [ ] `[BUG-08-011][medium]` **lint-command-skill-pairs.sh: add a tool that classifies and validates .claude/commands/ ↔ .claude/skills/ pairs by pattern** — found by dual-tpr-gemini §07.1 retrospective.
+- [x] `[BUG-08-011][medium]` **lint-command-skill-pairs.sh: add a tool that classifies and validates .claude/commands/ ↔ .claude/skills/ pairs by pattern** — found by dual-tpr-gemini §07.1 retrospective.
+  Resolved: Fixed 2026-04-09. Created `.claude/skills/dual-tpr/scripts/lint-command-skill-pairs.sh` — enumerates overlap pairs, classifies each as thin-pointer (< 50 lines, no operational markers) or parallel-workflow (substantive, with operational markers), exits non-zero on unknown/drift. Both existing pairs (tp-help=thin-pointer, review-work=parallel-workflow) classify correctly.
   Repro: currently, 2 command-skill overlap pairs exist: `tp-help` uses thin-pointer pattern (skill canonical, command = thin pointer; consolidated in dual-tpr-gemini §07.1 on 2026-04-08) and `review-work` uses parallel-workflow pattern (command = Claude self-reviews directly, skill = dual-source codex wrapper; both canonical for different use cases per 00-overview line 32 of plans/dual-tpr-gemini/). No tool validates these pairs for drift. If someone re-duplicates operational content in `tp-help.md` (breaking the thin-pointer contract) or swaps `review-work.md` semantics (breaking the parallel-workflow contract), there is no automated check to catch it.
   Impact: low-to-medium. No immediate breakage — both existing pairs are stable. But future SSOT drift between command-skill pairs would be invisible until a manual review catches it. This is the class of bug R10 from the dual-tpr-gemini plan represents; §07.1 resolved the specific `tp-help` instance but did NOT install a permanent regression guard.
   Suggested fix: create `.claude/skills/dual-tpr/scripts/lint-command-skill-pairs.sh` (location TBD) that:
@@ -29,7 +30,8 @@ Bugs in the language specification, EBNF grammar, design docs, CLAUDE.md, rule f
   Found: 2026-04-08 | Source: continue-roadmap (pre-filed by dual-tpr-gemini §07.1 retrospective)
   Note: Related tool `lint-transport-contract.sh` (implemented in §07.0 retrospective) uses the same dead-code-detection pattern but scoped to transport script args, not command-skill pairs. Active work in `plans/dual-tpr-gemini/` §07.1 touches this area.
 
-- [ ] `[BUG-08-010][high]` **create-plan: add --root/ORI_PLAN_ROOT override for test harnesses** — found by dual-tpr-gemini §07.PRE preflight.
+- [x] `[BUG-08-010][high]` **create-plan: add --root/ORI_PLAN_ROOT override for test harnesses** — found by dual-tpr-gemini §07.PRE preflight.
+  Resolved: Fixed 2026-04-09. Added `ORI_PLAN_ROOT` env var support to `.claude/skills/create-plan/SKILL.md`. When set, plan files are written under `$ORI_PLAN_ROOT/{name}/` instead of `plans/{name}/`. Updated Step 10 (directory creation) and the /review-plan invocation to use `{plan_root}` = `${ORI_PLAN_ROOT:-plans}`. Default behavior unchanged.
   Repro: `/create-plan` currently writes plan files unconditionally under `plans/<slug>/`. No env var or flag exists to redirect output for test harnesses. Any test that runs `/create-plan` non-destructively either (a) writes persistent artifacts into the repo that must be cleaned by exact path, or (b) collides with an existing plan if the slug is not unique.
   Impact: blocks the preferred "Mode A" execution path of `dual-tpr-gemini` §07.3 Scenario 4, which verifies that `/create-plan`'s 5 internal `/tp-help` call sites still work correctly when `/tp-help` is rewritten for dual-source concatenation output in §07.2. Without the override, Scenario 4 falls back to Mode B (deterministic slug under `plans/` with collision pre-check + exact-path cleanup) which is safe but fragile and leaves no cleanup safety net beyond the pre-check. More broadly: any future test harness that wants to exercise `/create-plan` non-destructively needs this flag — the current single-path design makes `/create-plan` untestable in isolation.
   Suggested fix: add `ORI_PLAN_ROOT` env var (or `--root` flag) to `.claude/skills/create-plan/SKILL.md`. When set, shadow the `plans/` prefix used in Step 10's directory creation with `$ORI_PLAN_ROOT/`. Default behavior unchanged. Touch points: Step 10 "Create Directory Structure" (around line 618) — replace hardcoded `plans/$slug` with `${ORI_PLAN_ROOT:-plans}/$slug`; search the rest of the SKILL.md for other `plans/$slug` references; add a one-line override note in the skill preamble; add a regression test that runs `/create-plan` with `ORI_PLAN_ROOT=/tmp/test-plan-$$` and verifies output is written to the tmpdir, not `plans/`.
@@ -38,21 +40,18 @@ Bugs in the language specification, EBNF grammar, design docs, CLAUDE.md, rule f
   Found: 2026-04-08 | Source: continue-roadmap (pre-filed by dual-tpr-gemini §07.PRE preflight)
   Note: Active work in `plans/dual-tpr-gemini/` §07.PRE and §07.3 touches this area. §07.PRE pre-files this bug as a §07.3 Scenario 4 Mode A prerequisite; §07.3 Scenario 4 reads the assigned BUG-ID from `plans/dual-tpr-gemini/section-07-scenario4-blocker.txt` and picks Mode A or Mode B accordingly.
 
-- [ ] `[BUG-08-008][low]` **classify-review-command.py: flags_with_values lists are incomplete for several wrappers** — found by dual-tpr-gemini Section 04.3 iteration 6 (gemini).
-  Repro: review of commit `f027620f`. Per-wrapper `flags_with_values` sets in WRAPPER_SPECS cover the most common flag-value pairs but are not exhaustive. New wrapper flags get added on each iteration as bypasses are discovered. Without comprehensive coverage, FUTURE wrapper flag-value pairs that consume the next token may be misinterpreted as positional args, producing either bypasses or false positives.
-  Examples gemini cited (not exhaustive): `sudo --remove-timestamp`, `xargs --process-slot-var`, additional ssh -[Q,W] options, `gdb -p PID -batch`. None are exploitable bypasses today (the existing test suite would catch them) but each is a latent edge case for future shell environments.
-  Architectural fix: this is a test-coverage and registry-completeness concern, not a structural defect. Either (a) generate the WRAPPER_SPECS lists from the man page output of each wrapper at build time, or (b) accept the manual list and add a periodic audit task.
+- [x] `[BUG-08-008][low]` **classify-review-command.py: flags_with_values lists are incomplete for several wrappers** — found by dual-tpr-gemini Section 04.3 iteration 6 (gemini).
+  Resolved: Fixed 2026-04-09. Added genuinely missing value-consuming flags: `gdb -p`/`--pid` (process attach) and `xargs --process-slot-var` (GNU xargs). Gemini's other citations were incorrect: `sudo --remove-timestamp` is boolean (no value), `ssh -Q`/`-W` were already present, `gdb -batch` is boolean. 102/102 verify-hook.sh tests pass.
   Subsystem: .claude/hooks/classify-review-command.py
   Found: 2026-04-08 | Source: dual-tpr-gemini section-04.3 iteration 6 verification
 
-- [ ] `[BUG-08-009][low]` **verify-hook.sh: missing regression coverage for shell-string fall-through and clustered-flag interactions** — found by dual-tpr-gemini Section 04.3 iteration 6 (codex).
-  Repro: review of commit `f027620f`. The 102-test verify-hook.sh suite covers the verified bypass forms from iterations 1-6, but does NOT cover all interaction shapes between the iter 5 `_check_wrapper_shell_string` recursion and the iter 6 fall-through bug fix. Specifically missing: `eval "bash -c 'codex'"` (nested wrappers via shell strings), `bash -c "sudo codex"` (shell string contains another wrapper), `ssh host "eval 'codex'"` (recursive ssh→eval→codex), and additional `su` flag combinations interacting with the username position.
-  Impact: a future regression in `_check_wrapper_shell_string` could go undetected by the test suite. The fix (recursive shell-string classification) appears correct based on manual verification, but the test matrix doesn't exhaustively pin all interaction shapes.
-  Architectural fix: extend verify-hook.sh with a "nested wrappers via shell strings" test cluster (~10-15 cases) covering each level of recursion.
+- [x] `[BUG-08-009][low]` **verify-hook.sh: missing regression coverage for shell-string fall-through and clustered-flag interactions** — found by dual-tpr-gemini Section 04.3 iteration 6 (codex).
+  Resolved: Fixed 2026-04-09. Added 8 nested-wrapper test cases covering: eval→bash -c, bash -c→sudo, ssh→eval, sh -c→env, eval→sh -c (all DENY), plus 3 ALLOW counterparts for non-codex nested wrappers. Suite expanded from 102 to 110 tests, all passing.
   Subsystem: .claude/hooks/verify-hook.sh
   Found: 2026-04-08 | Source: dual-tpr-gemini section-04.3 iteration 6 verification
 
-- [ ] `[BUG-08-003][high]` **findings-schema.json uses if/then constructs that OpenAI Structured Outputs API rejects** — found by dual-tpr-gemini Section 04.3 Scenario 1+2 first real-reviewer attempt.
+- [x] `[BUG-08-003][high]` **findings-schema.json uses if/then constructs that OpenAI Structured Outputs API rejects** — found by dual-tpr-gemini Section 04.3 Scenario 1+2 first real-reviewer attempt.
+  Resolved: OBE on 2026-04-09. Fix already landed (commit a5a2753f): (1) schema stripped of all OpenAI-incompatible constructs (if/then, pattern, maxLength, minimum, format), (2) `dual-invoke.sh` no longer passes `--output-schema` to codex, (3) invariants moved to `envelope_invariants.py` for parser-layer enforcement. Schema is now OpenAI-strict-subset compatible. Both reviewers validated symmetrically at the parser layer.
   Repro: ran the dual-source `/tpr-review` against a 5-commit scope (`81ff576b..816cb891`) via `.claude/skills/dual-tpr/scripts/dual-invoke-with-retry.sh`. Codex failed deterministically on all 3 retry attempts with an OpenAI API 400: `Invalid schema for response_format 'codex_output_schema': In context=(), 'if' is not permitted.` (See `/tmp/ori-tpr-KU4EiXAY/codex.jsonl` for the full error envelope.)
   Root cause: `.claude/skills/dual-tpr/scripts/dual-invoke.sh:50` passes `--output-schema "$SCHEMA"` to `codex exec`. Codex forwards the schema to OpenAI's Structured Outputs API as `response_format.json_schema.schema`, which only accepts a strict subset of JSON Schema. The current `findings-schema.json` uses `if`/`then` constructs at two locations:
     - Lines 42-47: `scope_actually_reviewed` requires `expansion_reason` if `expanded_beyond_packet: true`
@@ -63,7 +62,8 @@ Bugs in the language specification, EBNF grammar, design docs, CLAUDE.md, rule f
   Subsystem: .claude/skills/dual-tpr/findings-schema.json
   Found: 2026-04-08 | Source: dual-tpr-gemini section-04.3 validation gate (canary release pattern doing its job)
 
-- [ ] `[BUG-08-004][medium]` **dual-invoke.sh subshell `set -e` aborts before recording exit codes when codex/gemini fail fast** — found alongside BUG-08-003.
+- [x] `[BUG-08-004][medium]` **dual-invoke.sh subshell `set -e` aborts before recording exit codes when codex/gemini fail fast** — found alongside BUG-08-003.
+  Resolved: OBE on 2026-04-09. Fix already landed in dual-invoke.sh: subshells use `set +e` (line 120/143) so exit codes, walltimes, and log entries are always recorded regardless of command exit status.
   Repro: when codex exits non-zero quickly (e.g. OpenAI API rejection in <10s), `dual-invoke.sh`'s subshell aborts immediately at the failed `codex exec` line and never reaches `echo "$?" > "$RUN/codex.exit"`. Postmortem: scratch dir `/tmp/ori-tpr-KU4EiXAY/` is missing `codex.exit`, `codex.walltime`, `gemini.exit`, `gemini.walltime`, and the round.log "codex finished" / "gemini finished" entries that the subshells should have written.
   Root cause: `.claude/skills/dual-tpr/scripts/dual-invoke.sh:25` sets `set -euo pipefail` at the script level; subshells inherit it. Inside each subshell (lines 48-54 for codex, lines 58-64 for gemini), the layout is `command; echo "$?" > exit_file; echo walltime; echo log_entry`. With `set -e`, a non-zero exit from `command` immediately aborts the subshell — the three `echo` lines never run.
   Impact: post-failure analysis is degraded. Cannot determine the real exit code, walltime, or completion ordering. The retry script reads non-existent `$RUN/codex.exit` (returns empty string), making error categorization unreliable.
@@ -71,7 +71,8 @@ Bugs in the language specification, EBNF grammar, design docs, CLAUDE.md, rule f
   Subsystem: .claude/skills/dual-tpr/scripts/dual-invoke.sh
   Found: 2026-04-08 | Source: dual-tpr-gemini section-04.3 validation gate
 
-- [ ] `[BUG-08-005][medium]` **dual-invoke.sh leaks orphaned reviewer subprocess when the other fails fast** — found alongside BUG-08-003.
+- [x] `[BUG-08-005][medium]` **dual-invoke.sh leaks orphaned reviewer subprocess when the other fails fast** — found alongside BUG-08-003.
+  Resolved: OBE on 2026-04-09. Fix already landed in dual-invoke.sh: `cleanup_children()` EXIT/INT/TERM trap (lines 64-88) kills any still-running reviewer subprocess on exit. Additionally, `set +e` around waits (lines 159-178) ensures BOTH exit codes are always collected.
   Repro: round.log line 12 of `/tmp/ori-tpr-KU4EiXAY/round.log` shows `[1775624450] gemini finished` — 133 seconds AFTER the retry loop already exited at second 317. Gemini was running orphaned in the background, completing its 70KB JSONL stream long after dual-invoke.sh had been killed.
   Root cause: `.claude/skills/dual-tpr/scripts/dual-invoke.sh:67-69` sequence is `wait $CODEX_PID; wait $GEMINI_PID`. With `set -e`, when `wait $CODEX_PID` returns non-zero (because the codex subshell aborted on the failed command — see BUG-08-004), the script aborts immediately and `wait $GEMINI_PID` never executes. Gemini becomes orphaned and continues running in the background, writing to `$RUN/gemini.jsonl` even after the parent script has exited. Subsequent retry attempts open the same gemini.jsonl path, racing with the orphan.
   Impact: (a) gemini quota is wasted on doomed attempts, (b) gemini.jsonl can be corrupted by interleaved writes from orphans + new attempts, (c) retry attempts that should validate gemini's output may instead see a mid-stream snapshot from a previous attempt's orphan, (d) postmortem state is unreliable because gemini.jsonl may not reflect any single attempt cleanly.
@@ -86,7 +87,8 @@ Bugs in the language specification, EBNF grammar, design docs, CLAUDE.md, rule f
   Subsystem: .claude/skills/dual-tpr/scripts/dual-invoke.sh
   Found: 2026-04-08 | Source: dual-tpr-gemini section-04.3 validation gate
 
-- [ ] `[BUG-08-006][medium]` **dual-invoke-with-retry.sh wastes 3 retry attempts on deterministic schema rejections** — found alongside BUG-08-003.
+- [x] `[BUG-08-006][medium]` **dual-invoke-with-retry.sh wastes 3 retry attempts on deterministic schema rejections** — found alongside BUG-08-003.
+  Resolved: OBE on 2026-04-09. Fix already landed in dual-invoke-with-retry.sh: `is_terminal_failure()` classifier (lines 52-130) categorizes failures as terminal vs retryable. Terminal failures (dirty_worktree, codex_invalid_json_schema, auth errors, etc.) break the retry loop immediately. Only transient failures are retried.
   Repro: round.log shows three full retry attempts (304, 311, 315) for the same deterministic OpenAI schema rejection. Each attempt burns gemini quota (gemini ran successfully each time, producing 70KB+ of JSONL output) and wall time (3s of backoff between attempts plus the per-attempt wall time). For a deterministic failure, retrying is pure waste.
   Root cause: `.claude/skills/dual-tpr/scripts/dual-invoke-with-retry.sh:43-83` treats all failure categories EXCEPT `dirty_worktree` as retry-eligible (the BUG-08-002 fix). But schema rejections, malformed JSONL, missing CLI binaries, auth errors, and other deterministic failures will always fail the same way on retry. Only true infra-transient failures (network blips, rate limits) benefit from retry.
   Architectural fix: introduce a failure classifier that maps the parser error suffix to `terminal | retryable`:
@@ -97,11 +99,8 @@ Bugs in the language specification, EBNF grammar, design docs, CLAUDE.md, rule f
   Subsystem: .claude/skills/dual-tpr/scripts/dual-invoke-with-retry.sh
   Found: 2026-04-08 | Source: dual-tpr-gemini section-04.3 validation gate
 
-- [ ] `[BUG-08-007][low]` **tpr-review SKILL.md example masks transport exit code with trailing echo** — found alongside BUG-08-003.
-  Repro: the example bash snippet at `.claude/skills/tpr-review/SKILL.md:207-216` (Step 3 — Invoke the dual-source transport in the background) ends with `echo "transport_exit=$?"`. When run via the Bash tool with `run_in_background: true`, the background-task notification reports the exit code of the LAST command in the script — which is the trailing echo, always 0. The transport's actual non-zero exit code is captured into `$?` for the echo's argument but never propagates to the script's overall exit. Symptom: a complete transport failure (exit 1, e.g. `infra_retries_exhausted: launch_or_exit_fail`) is reported as `exit code 0` in the notification, misleading the orchestrator.
-  Root cause: bash script exit code = exit code of the last executed command. With the trailing `echo`, the last command is the `echo`, not the dual-invoke wrapper. The exit code is interpolated into the echo's stdout text but not into the script's exit semantics.
-  Architectural fix: remove the trailing `echo "transport_exit=$?"` from the SKILL.md example. The Bash tool's notification reports the script's exit code authoritatively — that IS the source of truth. If the orchestrator wants to also see the exit code in stdout, use `; ec=$?; echo "transport_exit=$ec"; exit "$ec"` instead. Add a note to the skill that the notification's reported exit code is authoritative, not the stdout contents.
-  Severity: low — this is a documentation/example bug, not a runtime correctness bug. But it caused real misdiagnosis during BUG-08-003's investigation: the notification reported "exit 0" when the transport had actually failed with `infra_retries_exhausted`. Fixing it removes a footgun for every future consumer of the SKILL.md.
+- [x] `[BUG-08-007][low]` **tpr-review SKILL.md example masks transport exit code with trailing echo** — found alongside BUG-08-003.
+  Resolved: OBE on 2026-04-09. The SKILL.md has already been fixed: the background invocation snippet (line 242-250) is clean (no trailing echo), and an explicit "DO NOT" warning at line 257 guards against reintroduction: "Add a trailing `echo "transport_exit=$?"` ... a trailing echo ALWAYS exits 0 and masks the transport's real failure (BUG-08-007)." Fixed as part of the BUG-08-003 cluster work.
   Subsystem: .claude/skills/tpr-review/SKILL.md
   Found: 2026-04-08 | Source: dual-tpr-gemini section-04.3 validation gate
 

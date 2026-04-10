@@ -57,7 +57,7 @@ pub fn dump_llvm_ir(ir_text: &str, pool: &Pool, interner: &StringInterner, path:
 /// Check if LLVM IR dumping is requested (new or legacy flag).
 ///
 /// Returns `true` if either `ORI_DUMP_AFTER_LLVM` or `ORI_DEBUG_LLVM` is set.
-/// In release builds, always returns `false` (zero overhead).
+/// Works in both debug and release builds.
 pub fn llvm_dump_requested() -> bool {
     crate::dbg_set!(crate::debug_flags::ORI_DUMP_AFTER_LLVM)
         || crate::dbg_set!(crate::debug_flags::ORI_DEBUG_LLVM)

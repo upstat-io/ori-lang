@@ -120,9 +120,7 @@ impl<'pool> UnifyEngine<'pool> {
         &self.errors
     }
 
-    // ========================================
     // Resolution
-    // ========================================
 
     /// Resolve a type by following links.
     ///
@@ -173,9 +171,7 @@ impl<'pool> UnifyEngine<'pool> {
         }
     }
 
-    // ========================================
     // Unification
-    // ========================================
 
     /// Unify two types, making them equivalent.
     ///
@@ -340,9 +336,7 @@ impl<'pool> UnifyEngine<'pool> {
         }
     }
 
-    // ========================================
     // Occurs Check
-    // ========================================
 
     /// Check if variable `var_id` occurs in type `ty`.
     ///
@@ -435,9 +429,7 @@ impl<'pool> UnifyEngine<'pool> {
         }
     }
 
-    // ========================================
     // Rank Updates
-    // ========================================
 
     /// Update ranks of all unbound variables in `ty` to be at most `max_rank`.
     ///
@@ -536,9 +528,7 @@ impl<'pool> UnifyEngine<'pool> {
         }
     }
 
-    // ========================================
     // Structural Unification
-    // ========================================
 
     /// Unify two concrete (non-variable) types structurally.
     #[expect(

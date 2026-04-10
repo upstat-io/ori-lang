@@ -1,8 +1,9 @@
 //! Centralized debug flags for the Ori compiler.
 //!
 //! All compiler debugging environment variables are defined here as the single
-//! source of truth. In debug builds, flags are checked at runtime via env vars.
-//! In release builds, all flags evaluate to `false` (zero overhead).
+//! source of truth. Flags are checked at runtime via env vars in ALL builds
+//! (debug and release). The overhead is a single `std::env::var()` call per
+//! flag — negligible for a CLI compiler.
 //!
 //! # Usage
 //!
@@ -13,17 +14,17 @@
 //!
 //! # Pattern
 //!
-//! Follows Roc's `debug_flags` crate pattern:
-//! - `dbg_set!` — returns `true` if the flag is set (debug only)
-//! - `dbg_do!` — executes an expression if the flag is set (debug only)
+//! Inspired by Roc's `debug_flags` crate pattern:
+//! - `dbg_set!` — returns `true` if the flag is set
+//! - `dbg_do!` — executes an expression if the flag is set
 //! - `flags!` — defines flag constants with doc comments
 //!
 //! Note: `ori_llvm` cannot depend on `oric` (the dep direction is reversed),
 //! so flags consumed inside `ori_llvm` (e.g., evaluator JIT path) use raw
-//! `std::env::var` checks. The `oric` call sites use `dbg_do!`/`dbg_set!` macros
-//! for zero-overhead gating in release builds.
+//! `std::env::var` checks. The `oric` call sites use `dbg_do!`/`dbg_set!`
+//! macros for consistent flag checking.
 
-/// Check if a debug flag is set. Returns `false` in release builds.
+/// Check if a debug flag is set. Works in both debug and release builds.
 ///
 /// The flag is considered "set" if the env var exists and is not `"0"`.
 ///
@@ -39,21 +40,14 @@
 #[macro_export]
 macro_rules! dbg_set {
     ($flag:expr) => {{
-        #[cfg(not(debug_assertions))]
-        {
-            false
-        }
-        #[cfg(debug_assertions)]
-        {
-            let flag = std::env::var($flag);
-            flag.is_ok() && flag.as_deref() != Ok("0")
-        }
+        let flag = std::env::var($flag);
+        flag.is_ok() && flag.as_deref() != Ok("0")
     }};
 }
 
 /// Execute an expression only if a debug flag is set.
 ///
-/// In release builds, the expression is never evaluated (zero overhead).
+/// Works in both debug and release builds.
 ///
 /// # Examples
 ///
@@ -68,11 +62,8 @@ macro_rules! dbg_set {
 #[macro_export]
 macro_rules! dbg_do {
     ($flag:expr, $expr:expr) => {
-        #[cfg(debug_assertions)]
-        {
-            if $crate::dbg_set!($flag) {
-                $expr
-            }
+        if $crate::dbg_set!($flag) {
+            $expr
         }
     };
 }
@@ -122,7 +113,23 @@ flags! {
     /// Usage: `ORI_EMIT_ARC_DOT=1 ori build file.ori 2> arc.dot`
     ORI_EMIT_ARC_DOT
 
+    // === Repr-Opt Configuration ===
+    // Note: Consumed directly in `ori_repr` (which can't depend on `oric`).
+    // Defined here for documentation and `check-debug-flags.sh` consistency.
+
+    /// Disable all representation optimizations (integer narrowing, enum packing).
+    ///
+    /// CLI alternative: `--no-repr-opt`
+    /// Usage: `ORI_NO_REPR_OPT=1 ori build file.ori`
+    ORI_NO_REPR_OPT
+
     // === Verification ===
+
+    /// Enable ARC IR verification after the AIMS pipeline.
+    ///
+    /// Adds extra correctness checks (RC balance, drop placement).
+    /// Usage: `ORI_VERIFY_ARC=1 ori build file.ori`
+    ORI_VERIFY_ARC
 
     /// Run in-pipeline RC audit on emitted LLVM IR.
     ///
@@ -188,6 +195,10 @@ const _: () = {
     assert!(
         const_str_eq(ORI_AUDIT_FUNCTION, ori_llvm::verify::ENV_AUDIT_FUNCTION),
         "ORI_AUDIT_FUNCTION constant drifted between oric and ori_llvm"
+    );
+    assert!(
+        const_str_eq(ORI_NO_REPR_OPT, ori_repr::NarrowingPolicy::ENV_NO_REPR_OPT),
+        "ORI_NO_REPR_OPT constant drifted between oric and ori_repr"
     );
 };
 

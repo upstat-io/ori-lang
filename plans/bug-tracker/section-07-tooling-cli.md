@@ -16,14 +16,13 @@ Bugs in the CLI (`ori run`, `ori check`, `ori test`, `ori fmt`), formatter, diag
 
 ## Open Bugs
 
-- [ ] `[BUG-07-009][low]` **`tracing-tree` dependency always compiled into oric, regardless of `ORI_LOG_TREE` usage** — found by dual-tpr-gemini §07.3 Scenario 1 dual-source /tp-help (gemini-only).
-  **Repro**: `compiler/oric/Cargo.toml` lists `tracing-tree` as an unconditional dependency, but it's only used inside the `if use_tree { ... }` branch in `compiler/oric/src/tracing_setup.rs:25-36`, which only fires when `ORI_LOG_TREE` is set at runtime (rare developer use case). The crate and its transitive deps (`ansi_term`, etc.) are compiled and linked into every `oric` release binary regardless.
-  **Impact**: Low — marginal binary size increase for a rarely-used diagnostic feature. Not a runtime correctness issue.
-  **Suggested fix**: Make `tracing-tree` an optional Cargo dependency gated behind a `tree` feature. `tracing_setup.rs` gates the tree branch with `#[cfg(feature = "tree")]` and `ORI_LOG_TREE` becomes a no-op unless the feature is enabled at build time. Document the feature in CLAUDE.md. Alternative: close as "working as designed" if binary-size minimalism isn't a current priority — the footprint is small and always-available `ORI_LOG_TREE=1` aids developer ergonomics.
+- [x] `[BUG-07-009][low]` **`tracing-tree` dependency always compiled into oric, regardless of `ORI_LOG_TREE` usage** — found by dual-tpr-gemini §07.3 Scenario 1 dual-source /tp-help (gemini-only).
+  Resolved: Closed as "working as designed" on 2026-04-09. The unconditional dependency is an intentional ergonomic choice: `ORI_LOG_TREE=1` works immediately for any developer without recompilation. Making it a feature gate would require `--features tree` before `ORI_LOG_TREE=1` does anything — strictly worse developer experience for marginal binary size savings. CLAUDE.md documents `ORI_LOG_TREE=1` as an always-available debugging tool.
   Subsystem: `compiler/oric/Cargo.toml` + `compiler/oric/src/tracing_setup.rs:25-36`
   Found: 2026-04-08 | Source: dual-tpr-gemini §07.3 Scenario 1 (gemini only)
 
-- [ ] `[BUG-07-008][medium]` **`tracing_setup.rs` uses `.init()` which panics if a global subscriber is already set** — found by dual-tpr-gemini §07.3 Scenario 1 dual-source /tp-help (gemini-only).
+- [x] `[BUG-07-008][medium]` **`tracing_setup.rs` uses `.init()` which panics if a global subscriber is already set** — found by dual-tpr-gemini §07.3 Scenario 1 dual-source /tp-help (gemini-only).
+  Resolved: Fixed 2026-04-09 as part of the BUG-07-006 cluster fix. Replaced `.init()` with `.try_init().ok()` (via `let _ = ...try_init()`) at both subscriber-init sites in `tracing_setup.rs`. `try_init` returns `Err` instead of panicking when a subscriber is already set, and `let _` discards the result. Preserves first-wins semantics while tolerating concurrent subscribers.
   **Repro**: Set a global tracing subscriber before calling `oric::tracing_setup::init()` — e.g., from a test runner that wires up `tracing_subscriber::fmt::init()` for its own diagnostics, OR after `ori_llvm::init_tracing()` runs (see BUG-07-007). The second `.init()` call crashes the process with `"global default trace dispatcher has already been set"`.
   **Root cause**: `compiler/oric/src/tracing_setup.rs:36` and `tracing_setup.rs:46` both call `.init()` (the panicking variant from `SubscriberInitExt`). The `OnceLock<()>` guard prevents double-init from *oric itself*, but not from other subscribers set before oric's first call.
   **Impact**: Medium — setup-time crash in test runners or any composition scenario where multiple tracing consumers initialize. Not a runtime correctness issue but a stability/composability issue. Classified as `EXPOSURE`.
@@ -31,7 +30,8 @@ Bugs in the CLI (`ori run`, `ori check`, `ori test`, `ori fmt`), formatter, diag
   Subsystem: `compiler/oric/src/tracing_setup.rs:36, 46`
   Found: 2026-04-08 | Source: dual-tpr-gemini §07.3 Scenario 1 (gemini only)
 
-- [ ] `[BUG-07-007][medium]` **Parallel tracing subscriber initialization in `ori_llvm::init_tracing` violates SSOT "One System One Owner"** — found by dual-tpr-gemini §07.3 Scenario 1 dual-source /tp-help (BOTH codex and gemini — high confidence via convergence).
+- [x] `[BUG-07-007][medium]` **Parallel tracing subscriber initialization in `ori_llvm::init_tracing` violates SSOT "One System One Owner"** — found by dual-tpr-gemini §07.3 Scenario 1 dual-source /tp-help (BOTH codex and gemini — high confidence via convergence).
+  Resolved: Fixed 2026-04-09 as part of the BUG-07-006 cluster fix. Removed `init_tracing()` from `compiler/ori_llvm/src/init.rs` entirely (it had zero callers — verified via grep) and removed the `init_tracing` re-export from `compiler/ori_llvm/src/lib.rs`. The sole canonical owner of tracing initialization is `oric::tracing_setup::init()`. Also removed the `TRACING_INIT: Once` static and the `tracing_subscriber::{fmt, prelude::*, EnvFilter}` imports that were only used by the deleted function.
   **Repro**: Grep for `init_tracing` across the workspace — two parallel initializers exist:
   - `compiler/oric/src/tracing_setup.rs::init()` — supports `ORI_LOG`, `RUST_LOG` fallback, `ORI_LOG_TREE`, default `warn`
   - `compiler/ori_llvm/src/init.rs::init_tracing()` — supports only `RUST_LOG`, no tree mode, no `warn` default, uses its own `Once` guard
@@ -42,28 +42,18 @@ Bugs in the CLI (`ori run`, `ori check`, `ori test`, `ori fmt`), formatter, diag
   Subsystem: `compiler/ori_llvm/src/init.rs:41-57` (remove) + `compiler/oric/src/tracing_setup.rs` (sole owner, no changes)
   Found: 2026-04-08 | Source: dual-tpr-gemini §07.3 Scenario 1 (dual-source convergence: both codex AND gemini independently surfaced)
 
-- [ ] `[BUG-07-006][high]` **`tracing_setup.rs`: silent fallback on malformed `ORI_LOG` parse error swallows user configuration** — found by dual-tpr-gemini §07.3 Scenario 1 dual-source /tp-help (BOTH codex and gemini — high confidence via convergence).
-  **Repro**: Set `ORI_LOG="info,garbage syntax,,,"` (intentionally malformed filter directive) and run `ori check file.ori`. The malformed filter is silently ignored; the code falls through to `RUST_LOG` and then to the `"warn"` default as if the env var were never set. No error, no warning, no diagnostic surfaces to the user — their explicit intent is lost.
-  **Root cause**: `compiler/oric/src/tracing_setup.rs:19-21` uses `.or_else(|_| EnvFilter::try_from_env("RUST_LOG"))` which collapses `FromEnvError::Parse` (user typo — should surface to stderr) and `FromEnvError::NotPresent` (normal case — should fall through silently) into the same fallback path.
-  **Impact**: High — violates `CLAUDE.md §"The One Rule: Correctness Above All"` (code ignores user input without warning, treating user error the same as user absence) and `impl-hygiene.md §Error Handling` (swallowed error: silently collapsing a fallible parse into a default). Classified as `LEAK:swallowed-error` (codex) / `GAP` (gemini) — same root cause, different category labels.
-  **Suggested fix**: Pattern-match on the `FromEnvError` variant explicitly. `NotPresent` falls through to `RUST_LOG` / `warn` default (current behavior). `Parse` logs to stderr BEFORE fallback: `eprintln!("warning: ORI_LOG parse error: {e}; falling back to default filter")`. Preserves the convenience of fallback-on-missing while surfacing configuration errors. Alternative: make `Parse` errors fatal (exit with E-code and full filter-syntax help) if Ori prefers strict validation over lenient fallback — pick one and document in CLAUDE.md.
-  Subsystem: `compiler/oric/src/tracing_setup.rs:19-21`
+- [x] `[BUG-07-006][high]` **`tracing_setup.rs`: silent fallback on malformed `ORI_LOG` parse error swallows user configuration** — found by dual-tpr-gemini §07.3 Scenario 1 dual-source /tp-help (BOTH codex and gemini — high confidence via convergence).
+  Resolved: Fixed 2026-04-09. Extracted `build_filter()` helper that checks `std::env::var("ORI_LOG").is_ok()` to distinguish parse errors from not-present: if ORI_LOG is set but `EnvFilter::try_from_env` fails, emits `eprintln!("warning: ORI_LOG parse error: {e}; falling back to RUST_LOG or default filter")`. Verified: `ORI_LOG="[[[invalid" ori check /dev/null` now shows the warning on stderr and falls back to default. Also fixes BUG-07-007 (removed dead `init_tracing()` from `ori_llvm::init.rs` + removed re-export from `lib.rs`) and BUG-07-008 (replaced `.init()` with `.try_init().ok()` at both subscriber init sites in `tracing_setup.rs`). 16,921 tests passing.
+  Subsystem: `compiler/oric/src/tracing_setup.rs`, `compiler/ori_llvm/src/init.rs`, `compiler/ori_llvm/src/lib.rs`
   Found: 2026-04-08 | Source: dual-tpr-gemini §07.3 Scenario 1 (dual-source convergence: both codex AND gemini independently surfaced)
 
-- [ ] `[BUG-07-005][low]` **Orphan env vars `ORI_NO_REPR_OPT` and `ORI_VERIFY_ARC` are read in source but not registered in `compiler/oric/src/debug_flags.rs`** — found by continue-roadmap.
-  **Repro**: `diagnostics/check-debug-flags.sh` reports two ORPHAN entries:
-  - `ORI_NO_REPR_OPT` — read at `compiler/ori_repr/src/plan/query.rs:36`
-  - `ORI_VERIFY_ARC` — read at `compiler/oric/src/commands/codegen_pipeline.rs:381`, `compiler/oric/src/arc_dump/mod.rs:68`, `compiler/oric/src/arc_dot/mod.rs:60`
-  **Impact**: Low — neither flag is broken at runtime; the consistency check fails (`diagnostics/self-test.sh` shows `check-debug-flags.sh FAIL`) and both flags are undocumented in CLAUDE.md. New users can't discover them.
-  **Suggested fix**: Either (a) add both flags to `compiler/oric/src/debug_flags.rs` (`Flag` enum + `from_env_var` mapping + CLAUDE.md doc), or (b) remove the orphan call sites if the flags are obsolete. Surfaced during TPR-07-019 retrospective when running `diagnostics/self-test.sh` to verify the new `arc-dump.sh` script — neither flag is related to TPR-07-019 itself.
-  Subsystem: `compiler/oric/src/debug_flags.rs` (registry) + the listed orphan call sites
+- [x] `[BUG-07-005][low]` **Orphan env vars `ORI_NO_REPR_OPT` and `ORI_VERIFY_ARC` are read in source but not registered in `compiler/oric/src/debug_flags.rs`** — found by continue-roadmap.
+  Resolved: Fixed 2026-04-09. Registered both flags in `debug_flags.rs` `flags!` macro. Exported `NarrowingPolicy::ENV_NO_REPR_OPT` constant from `ori_repr` and added compile-time sync assertion (matches `ORI_AUDIT_*` pattern). Updated 3 `ORI_VERIFY_ARC` call sites in oric to use `debug_flags::ORI_VERIFY_ARC` constant instead of string literal. Documented both flags in CLAUDE.md. `check-debug-flags.sh` now reports 15 flags, 0 orphan, 0 undocumented. 16,922 tests passing.
+  Subsystem: `compiler/oric/src/debug_flags.rs`, `compiler/ori_repr/src/plan/query.rs`, `compiler/oric/src/commands/codegen_pipeline.rs`, `compiler/oric/src/arc_dump/mod.rs`, `compiler/oric/src/arc_dot/mod.rs`, `CLAUDE.md`
   Found: 2026-04-07 | Source: continue-roadmap
-  Note: `ORI_NO_REPR_OPT` is in active repr-opt territory; coordinate with the repr-opt reroute owner before removing.
 
-- [ ] `[BUG-07-004][low]` **AOT test harness does not invalidate stale binaries when cross-crate deps change** — found by tpr-review.
-  **Repro**: Make a change in `ori_arc` (e.g., the `apply_consuming_overrides` logic) that affects generated code. Run `cargo test -p ori_llvm --test aot <specific_test>` without touching `tests/aot/main.rs`. The test binary is rebuilt but `assert_aot_success` produces stale results — touching `tests/aot/main.rs` to force a full rebuild picks up transitive crate changes and tests pass. Observed twice during TPR-07-008 investigation: first with the initial triviality flip, again after the `annotate.rs` type-aware override.
-  **Impact**: False "test failures" when iterating on cross-crate fixes. Wastes time chasing regressions that were already fixed.
-  **Suggested fix**: AOT test util should either (a) include a build timestamp in the binary path so stale binaries are never reused, (b) invoke a cache-busting `cargo build -p oric` before each test run, or (c) use `cargo metadata` or file mtimes to detect dep-graph changes.
+- [x] `[BUG-07-004][low]` **AOT test harness does not invalidate stale binaries when cross-crate deps change** — found by tpr-review.
+  Resolved: OBE on 2026-04-09. The fix is already in place: `ensure_ori_binary_fresh()` in `compiler/ori_llvm/tests/aot/util/aot.rs:73-110` runs `cargo build -p oric --bin ori` exactly once per test process via `OnceLock`, matching the test profile. `ori_binary()` calls it before returning the binary path. This is option (b) from the suggested fix. Implemented as part of §07 TPR-07-017 work (doc comment at line 57-60 references the same symptom).
   Subsystem: `compiler/ori_llvm/tests/aot/util/aot.rs`
   Found: 2026-04-06 | Source: tpr-review (TPR-07-008)
 

@@ -39,10 +39,10 @@ use crate::util::assert_aot_success;
 /// leak. This is the canonical regression guard — reverting the fix
 /// would cause this test to fail with exit code 2 (leak detected).
 #[test]
-fn tpr_07_008_enum_tagged_ptr_iter_no_leak() {
+fn enum_tagged_ptr_iter_no_leak() {
     assert_aot_success(
         include_str!("fixtures/iterator_drop/enum_tagged_ptr_iter.ori"),
-        "tpr_07_008_enum_tagged_ptr_iter",
+        "enum_tagged_ptr_iter",
     );
 }
 
@@ -55,10 +55,10 @@ fn tpr_07_008_enum_tagged_ptr_iter_no_leak() {
 /// finding of the review: the iteration-1 matrix only
 /// covered the "payload goes out of scope unused" case.
 #[test]
-fn tpr_07_011_enum_tagged_ptr_match_consume_no_double_free() {
+fn enum_tagged_ptr_match_consume_no_double_free() {
     assert_aot_success(
         include_str!("fixtures/iterator_drop/enum_tagged_ptr_match_consume.ori"),
-        "tpr_07_011_enum_tagged_ptr_match_consume",
+        "enum_tagged_ptr_match_consume",
     );
 }
 
@@ -67,10 +67,10 @@ fn tpr_07_011_enum_tagged_ptr_match_consume_no_double_free() {
 /// take-project suppression doesn't accidentally break the trivial
 /// no-iterator path.
 #[test]
-fn tpr_07_011_enum_tagged_ptr_match_empty_path() {
+fn enum_tagged_ptr_match_empty_path() {
     assert_aot_success(
         include_str!("fixtures/iterator_drop/enum_tagged_ptr_match_empty.ori"),
-        "tpr_07_011_enum_tagged_ptr_match_empty",
+        "enum_tagged_ptr_match_empty",
     );
 }
 
@@ -80,10 +80,10 @@ fn tpr_07_011_enum_tagged_ptr_match_empty_path() {
 /// Exercises the full path: Construct (via helper) → Switch →
 /// Holds(project→count) | Empty(0) → merge → return.
 #[test]
-fn tpr_07_011_enum_tagged_ptr_match_consume_dynamic() {
+fn enum_tagged_ptr_match_consume_dynamic() {
     assert_aot_success(
         include_str!("fixtures/iterator_drop/enum_tagged_ptr_match_consume_dynamic.ori"),
-        "tpr_07_011_enum_tagged_ptr_match_consume_dynamic",
+        "enum_tagged_ptr_match_consume_dynamic",
     );
 }
 
@@ -97,30 +97,30 @@ fn tpr_07_011_enum_tagged_ptr_match_consume_dynamic() {
 /// to drop at its own scope exit — it's an ownership transfer, not
 /// an alias.
 #[test]
-fn tpr_07_013_enum_match_unused_binding_no_leak() {
+fn enum_match_unused_binding_no_leak() {
     assert_aot_success(
         include_str!("fixtures/iterator_drop/enum_match_unused_binding.ori"),
-        "tpr_07_013_enum_match_unused_binding",
+        "enum_match_unused_binding",
     );
 }
 
 /// matrix pin: `Option<Iterator<int>>` case of the
 /// project-unused pattern.
 #[test]
-fn tpr_07_013_option_match_unused_binding_no_leak() {
+fn option_match_unused_binding_no_leak() {
     assert_aot_success(
         include_str!("fixtures/iterator_drop/option_match_unused_binding.ori"),
-        "tpr_07_013_option_match_unused_binding",
+        "option_match_unused_binding",
     );
 }
 
 /// matrix pin: `Result<Iterator<int>, int>` case of the
 /// project-unused pattern.
 #[test]
-fn tpr_07_013_result_match_unused_binding_no_leak() {
+fn result_match_unused_binding_no_leak() {
     assert_aot_success(
         include_str!("fixtures/iterator_drop/result_match_unused_binding.ori"),
-        "tpr_07_013_result_match_unused_binding",
+        "result_match_unused_binding",
     );
 }
 
@@ -137,14 +137,14 @@ fn tpr_07_013_result_match_unused_binding_no_leak() {
 /// that don't. Codex iteration 6 found this gap with an
 /// `if flag then <match with consume> else 0` repro.
 #[test]
-fn tpr_07_016_enum_conditional_consume_no_leak() {
+fn enum_conditional_consume_no_leak() {
     assert_aot_success(
         include_str!("fixtures/iterator_drop/enum_conditional_consume.ori"),
-        "tpr_07_016_enum_conditional_consume",
+        "enum_conditional_consume",
     );
 }
 
-/// TPR-07-017 semantic pin: per-class take-project partitioning.
+/// Regression: per-class take-project partitioning.
 /// Two unrelated take-projects coexist in the same function on
 /// different alias chains. With function-global bypass-safe block
 /// computation, every block reachable from `match_b` is excluded from
@@ -153,20 +153,15 @@ fn tpr_07_016_enum_conditional_consume_no_leak() {
 /// that bypasses `match_a`. Per-class partitioning fixes this by
 /// computing bypass-safety against only the take-projects in `a`'s
 /// own connected-component class, independent of unrelated `b`.
-///
-/// Codex iteration 7 found this gap during TPR review of the
-/// fix. The `take_project.rs` source itself flagged
-/// "two iterators moved on different branches" as the missing
-/// partitioning case.
 #[test]
-fn tpr_07_017_two_unrelated_take_projects_no_leak() {
+fn two_unrelated_take_projects_no_leak() {
     assert_aot_success(
         include_str!("fixtures/iterator_drop/two_unrelated_take_projects.ori"),
-        "tpr_07_017_two_unrelated_take_projects",
+        "two_unrelated_take_projects",
     );
 }
 
-/// TPR-07-019 topology pin: phi-merge of two take-projects' results.
+/// Regression: phi-merge of two take-projects' results.
 /// Two unrelated `MaybeIter` sources are matched in separate `if`
 /// branches, and each branch's match arm result meets at the `if`'s
 /// phi-style merge block param. With the previous unconditional
@@ -178,20 +173,15 @@ fn tpr_07_017_two_unrelated_take_projects_no_leak() {
 /// The fix only unifies Jump-arg → block-param edges when the target
 /// has exactly one predecessor (a degenerate phi semantically equal
 /// to `let param = arg`). Multi-pred targets are skipped.
-///
-/// This is a topology pin: the fix is correct on principle (Codex
-/// iteration 8 IR-level analysis), and this fixture exercises the
-/// shape so any future regression that re-introduces the unconditional
-/// union would be caught here under leak/double-free checks.
 #[test]
-fn tpr_07_019_phi_merge_take_projects_no_leak() {
+fn phi_merge_take_projects_no_leak() {
     assert_aot_success(
-        include_str!("fixtures/iterator_drop/tpr_07_019_phi_merge_take_projects.ori"),
-        "tpr_07_019_phi_merge_take_projects",
+        include_str!("fixtures/iterator_drop/phi_merge_take_projects.ori"),
+        "phi_merge_take_projects",
     );
 }
 
-/// TPR-07-019 semantic pin: per-source / per-lineage bypass-safe split.
+/// Regression: per-source / per-lineage bypass-safe split.
 ///
 /// Two phi-merge consumers (`let chosen1 = if c then a else b; match
 /// chosen1 ...; let chosen2 = if c2 then a2 else b2; match chosen2 ...`)
@@ -202,22 +192,19 @@ fn tpr_07_019_phi_merge_take_projects_no_leak() {
 /// (`%19 = %17`), while the actual enum that needs the bypass-safe
 /// scope-exit drop is the upstream phi-merge param (`%17`). Forward-
 /// only Let propagation in lineage analysis would miss the upstream
-/// alias and leak it on every bypass path through the conditional —
-/// reverting the bidirectional-Let half of the TPR-07-019 fix
-/// reproduces the `tpr_07_016/017/019/020 leak 1 RC allocation`
-/// regression that surfaced during iteration 2 of this fix.
+/// alias and leak it on every bypass path through the conditional.
 ///
 /// This is the first AOT pin that requires `compute_lineage` to walk
 /// Let edges in BOTH directions (forward `src → dst` AND backward
 /// `dst → src`). The Jump-arg → block-param direction remains forward-
 /// only (a phi merge is a CFG choice between alternatives, not shared
 /// storage — bidirectional Jump propagation would falsely conflate
-/// unrelated `tp_sources`, which is the original TPR-07-019 unsoundness).
+/// unrelated `tp_sources`).
 #[test]
-fn tpr_07_019_per_source_lineage_no_leak() {
+fn per_source_lineage_no_leak() {
     assert_aot_success(
-        include_str!("fixtures/iterator_drop/tpr_07_019_per_source_lineage.ori"),
-        "tpr_07_019_per_source_lineage",
+        include_str!("fixtures/iterator_drop/per_source_lineage.ori"),
+        "per_source_lineage",
     );
 }
 
@@ -241,43 +228,37 @@ fn tpr_07_019_per_source_lineage_no_leak() {
 /// future regression in the back-edge entry handling would surface as
 /// a leak under `ORI_CHECK_LEAKS=1`.
 #[test]
-fn tpr_07_020_take_project_in_loop_no_leak() {
+fn take_project_in_loop_no_leak() {
     assert_aot_success(
-        include_str!("fixtures/iterator_drop/tpr_07_020_take_project_in_loop.ori"),
-        "tpr_07_020_take_project_in_loop",
+        include_str!("fixtures/iterator_drop/take_project_in_loop.ori"),
+        "take_project_in_loop",
     );
 }
 
-// Note: the explicit-tag enum case (≥9 variants carrying an
-// iterator payload) is blocked by BUG-04-044 — the Construct path
-// emits `insertvalue [N x i64], ptr` without ptrtoint casting the
-// iterator pointer to i64 for the slot array. That's a pre-existing
-// codegen bug in the explicit-tag enum lowering, unrelated to the
-// triviality SSOT fix here. The struct and tuple matrix pins below
-// exercise the same `dec_value_rc` compound-drop dispatch path that
-// would fire for an explicit-tag enum variant field, so the
+// Note: the explicit-tag enum case (≥9 variants carrying an iterator
+// payload) is not yet covered here. The struct and tuple matrix pins
+// below exercise the same `dec_value_rc` compound-drop dispatch path
+// that would fire for an explicit-tag enum variant field, so the
 // compound-drop coverage is preserved through a different shape.
-// When BUG-04-044 is fixed, the explicit-tag enum test should be
-// added back here as an additional matrix pin.
 
 /// Matrix pin: iterator as a struct field. The struct's generated
 /// drop function must traverse the field via `dec_value_rc` and emit
 /// an `ori_iter_drop` call.
 #[test]
-fn tpr_07_008_struct_iter_field_no_leak() {
+fn struct_iter_field_no_leak() {
     assert_aot_success(
         include_str!("fixtures/iterator_drop/struct_iter_field.ori"),
-        "tpr_07_008_struct_iter_field",
+        "struct_iter_field",
     );
 }
 
 /// Matrix pin: iterator as a tuple element. Same shape as struct
 /// field but through the tuple dispatch path.
 #[test]
-fn tpr_07_008_tuple_iter_element_no_leak() {
+fn tuple_iter_element_no_leak() {
     assert_aot_success(
         include_str!("fixtures/iterator_drop/tuple_iter_element.ori"),
-        "tpr_07_008_tuple_iter_element",
+        "tuple_iter_element",
     );
 }
 
@@ -285,10 +266,10 @@ fn tpr_07_008_tuple_iter_element_no_leak() {
 /// `RcDec(iter_var)` at function-end scope, handled by
 /// `RcStrategy::Iterator` dispatch in the ARC emitter.
 #[test]
-fn tpr_07_008_bare_unused_iter_no_leak() {
+fn bare_unused_iter_no_leak() {
     assert_aot_success(
         include_str!("fixtures/iterator_drop/bare_unused_iter.ori"),
-        "tpr_07_008_bare_unused_iter",
+        "bare_unused_iter",
     );
 }
 
@@ -297,9 +278,9 @@ fn tpr_07_008_bare_unused_iter_no_leak() {
 /// ownership, ARC must not insert a second drop at loop exit
 /// (double-free) and must still release the iterator (not leak).
 #[test]
-fn tpr_07_008_for_loop_still_works() {
+fn for_loop_still_works() {
     assert_aot_success(
         include_str!("fixtures/iterator_drop/for_loop_still_works.ori"),
-        "tpr_07_008_for_loop_still_works",
+        "for_loop_still_works",
     );
 }
