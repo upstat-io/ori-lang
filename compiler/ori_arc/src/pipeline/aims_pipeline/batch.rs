@@ -31,7 +31,7 @@ pub(crate) fn run_aims_pipeline_all(
     pool: &Pool,
     builtins: &BuiltinOwnershipSets,
     verify_arc: bool,
-) -> Vec<ArcProblem> {
+) -> Result<Vec<ArcProblem>, Vec<crate::verify::VerifyError>> {
     // Step 1: interprocedural analysis -> MemoryContract per function.
     let mut contracts = {
         let _span = tracing::info_span!("analyze_program").entered();
@@ -63,7 +63,7 @@ pub(crate) fn run_aims_pipeline_all(
     // Track TRMC-rewritten functions for contract refresh (Bug 2).
     let mut trmc_rewritten: Vec<Name> = Vec::new();
     for func in functions.iter_mut() {
-        let result = super::run_aims_pipeline(func, &config);
+        let result = super::run_aims_pipeline(func, &config)?;
         all_problems.extend(result.problems);
         reuse_updates.push((func.name, result.missed_reuses));
         if result.was_trmc_rewritten {
@@ -81,7 +81,8 @@ pub(crate) fn run_aims_pipeline_all(
         &trmc_rewritten,
         &reuse_updates,
         classifier,
-    );
+        verify_arc,
+    )?;
 
     tracing::debug!(
         functions = functions.len(),
@@ -91,7 +92,7 @@ pub(crate) fn run_aims_pipeline_all(
         "AIMS pipeline RC operation totals"
     );
 
-    all_problems
+    Ok(all_problems)
 }
 
 /// Second pass: refresh contracts for TRMC-rewritten functions, then
@@ -105,7 +106,8 @@ fn run_second_pass(
     trmc_rewritten: &[Name],
     reuse_updates: &[(Name, usize)],
     classifier: &dyn crate::ArcClassification,
-) {
+    verify_arc: bool,
+) -> Result<(), Vec<crate::verify::VerifyError>> {
     // Phase 1: full contract refresh for TRMC-rewritten functions.
     // Re-run analysis + extraction on the rewritten IR to get accurate
     // ContextBehavior, FipContract, and EffectSummary.
@@ -191,13 +193,25 @@ fn run_second_pass(
                 };
                 let fip_errors =
                     crate::aims::verify::fip::verify_fip_contract(func.name, contract, &evidence);
-                for e in &fip_errors {
-                    tracing::error!("FIP post-recompute verification failed: {e}");
-                    debug_assert!(false, "FIP post-recompute verification failed: {e}");
+                if !fip_errors.is_empty() {
+                    for e in &fip_errors {
+                        tracing::error!("FIP post-recompute verification failed: {e}");
+                    }
+                    if verify_arc {
+                        // Second pass: ALL FIP errors are blocking because
+                        // may_deallocate facts have been recomputed.
+                        return Err(fip_errors
+                            .into_iter()
+                            .map(|e| crate::verify::VerifyError::FipStructural {
+                                message: e.to_string(),
+                            })
+                            .collect());
+                    }
                 }
             }
         }
     }
+    Ok(())
 }
 
 /// Apply AIMS ownership annotations to function parameters.

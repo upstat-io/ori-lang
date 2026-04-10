@@ -24,7 +24,11 @@ fn run_full_pipeline(
     );
     let uniqueness_summaries = FxHashMap::default();
     let aims_contracts = FxHashMap::default();
-    crate::run_arc_pipeline(
+    #[expect(
+        clippy::expect_used,
+        reason = "test helper — panicking on verification ICE is correct"
+    )]
+    let _problems = crate::run_arc_pipeline(
         func,
         classifier,
         &sigs,
@@ -33,7 +37,8 @@ fn run_full_pipeline(
         &uniqueness_summaries,
         &aims_contracts,
         false,
-    );
+    )
+    .expect("ARC pipeline should not produce verification errors in tests");
 }
 
 /// The pipeline should handle functions with no Reset/Reuse gracefully.

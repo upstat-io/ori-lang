@@ -108,10 +108,14 @@ pub(crate) struct AimsPipelineResult {
 ///
 /// Called from within `run_arc_pipeline` when the `aims` feature is active.
 /// Interprocedural contracts must already be computed and passed via `config`.
+///
+/// Returns `Err` if ARC IR verification fails under explicit verification
+/// mode (`ORI_VERIFY_ARC=1`). Verification errors are ICEs — they indicate
+/// internal compiler bugs, not user-facing issues.
 pub(crate) fn run_aims_pipeline(
     func: &mut ArcFunction,
     config: &AimsPipelineConfig<'_>,
-) -> AimsPipelineResult {
+) -> Result<AimsPipelineResult, Vec<crate::verify::VerifyError>> {
     // Steps 3–3a: compute var_reprs, detect immortals, normalize with
     // TRMC rewrite loop (idempotent — at most 2 iterations).
     let (norm_result, immortals, did_trmc_transform, pre_trmc_func) =
@@ -166,6 +170,8 @@ pub(crate) fn run_aims_pipeline(
             contract,
             &result.fip_evidence,
         );
+        // Collect structural violations for blocking error under verify mode.
+        let mut structural_errors = Vec::new();
         for e in &fip_errors {
             use crate::aims::verify::fip::FipVerificationError;
             match e {
@@ -179,9 +185,16 @@ pub(crate) fn run_aims_pipeline(
                     // Genuine bug: structural violations are known at
                     // interprocedural analysis time, not post-emission facts.
                     tracing::error!("FIP verification failed: {e}");
-                    debug_assert!(false, "FIP verification failed: {e}");
+                    if config.verify_arc {
+                        structural_errors.push(crate::verify::VerifyError::FipStructural {
+                            message: e.to_string(),
+                        });
+                    }
                 }
             }
+        }
+        if !structural_errors.is_empty() {
+            return Err(structural_errors);
         }
     }
     trace_pipeline_checkpoint(func, "verify_fip_contract", config.interner);
@@ -190,7 +203,7 @@ pub(crate) fn run_aims_pipeline(
     result.synergy_metrics.canonicalize_cross_fires = state_map.count_cross_dim_states();
 
     // Verify, AIMS-verify, tail calls, merge.
-    postprocess::verify_and_merge(func, config);
+    postprocess::verify_and_merge(func, config)?;
 
     // Phase 2: COW + drop hints (post-merge).
     {
@@ -210,11 +223,11 @@ pub(crate) fn run_aims_pipeline(
     func.drop_hints = result.drop_hints;
 
     // Final verification + FBIP.
-    let problems = postprocess::emit_postprocess(func, config);
+    let problems = postprocess::emit_postprocess(func, config)?;
 
-    AimsPipelineResult {
+    Ok(AimsPipelineResult {
         problems,
         missed_reuses,
         was_trmc_rewritten: trmc_rewrite_survived,
-    }
+    })
 }

@@ -21,7 +21,7 @@ third_party_review:
 sections:
   - id: "01.1"
     title: "Make ARC/AIMS Verifiers Blocking"
-    status: not-started
+    status: complete
   - id: "01.2"
     title: "Wire ORI_VERIFY_EACH, Function-Level Verify, and verify_each Across All Entry Points"
     status: not-started
@@ -80,13 +80,13 @@ The ARC/AIMS verifiers currently log warnings but never fail. Under `ORI_VERIFY_
 
 ### 01.1.1 Make `run_verify()` and `run_aims_verify()` return `Result`
 
-- [ ] **Write failing tests FIRST** (TDD) — create `compiler/ori_arc/src/pipeline/tests.rs` (new file; add `#[cfg(test)] mod tests;` to `pipeline/mod.rs`):
+- [x] **Write failing tests FIRST** (TDD) — create `compiler/ori_arc/src/pipeline/tests.rs` (new file; add `#[cfg(test)] mod tests;` to `pipeline/mod.rs`):
   - `verify_returns_err_when_verify_true_and_errors_found` — construct a malformed `ArcFunction`, call `run_verify()` with `verify=true`, assert `Err` returned
   - `verify_warns_only_when_debug_assertions_and_no_explicit_verify` — same malformed input, `verify=false`, assert `Ok(())` returned (warnings only)
   - `aims_verify_blocks_on_absent_param_has_uses` — construct function where `Cardinality::Absent` param has uses, `verify=true`, assert `Err`
   - Verify tests FAIL before implementation (proves understanding)
 
-- [ ] Modify `run_verify()` (`compiler/ori_arc/src/pipeline/mod.rs:128-138`) to return `Result<(), Vec<crate::verify::VerifyError>>` instead of `()`. When `verify` is true and errors are found, return `Err(errors)` instead of logging and continuing. When `verify` is false (and only `debug_assertions` is active), keep the current warning behavior — debug mode is diagnostic, explicit verification mode is blocking.
+- [x] Modify `run_verify()` (`compiler/ori_arc/src/pipeline/mod.rs:128-138`) to return `Result<(), Vec<crate::verify::VerifyError>>` instead of `()`. When `verify` is true and errors are found, return `Err(errors)` instead of logging and continuing. When `verify` is false (and only `debug_assertions` is active), keep the current warning behavior — debug mode is diagnostic, explicit verification mode is blocking.
   ```rust
   // Current (warns only):
   pub(crate) fn run_verify(func: &ArcFunction, phase: &str, verify: bool) {
@@ -116,15 +116,16 @@ The ARC/AIMS verifiers currently log warnings but never fail. Under `ORI_VERIFY_
   }
   ```
 
-- [ ] Apply the same pattern to `run_aims_verify()` (`compiler/ori_arc/src/pipeline/mod.rs:144-162`) — return `Result<(), Vec<VerifyError>>`, error under explicit verify mode.
+- [x] Apply the same pattern to `run_aims_verify()` (`compiler/ori_arc/src/pipeline/mod.rs:144-162`) — return `Result<(), Vec<VerifyError>>`, error under explicit verify mode.
 
 ### 01.1.2 Add `VerifyError` variant to `ArcProblem` for type mapping
 
 Verification errors from the ARC IR verifier are Internal Compiler Errors (ICEs), fundamentally different from user-facing `ArcProblem`s (like FBIP enforcement diagnostics). The pipeline must distinguish them:
 
-- [ ] Add `ArcProblem::InternalVerificationError { phase: String, errors: Vec<crate::verify::VerifyError> }` variant to the `ArcProblem` enum in `compiler/ori_arc/src/lower/mod.rs`. This variant represents an ICE, not a user diagnostic — `FunctionCompiler` should treat it as a compilation abort.
+- [ ] ~~Add `ArcProblem::InternalVerificationError { phase: String, errors: Vec<crate::verify::VerifyError> }` variant to the `ArcProblem` enum in `compiler/ori_arc/src/lower/mod.rs`. This variant represents an ICE, not a user diagnostic — `FunctionCompiler` should treat it as a compilation abort.~~ N/A — chose the Result wrapper approach (Option B) below.
 
-- [ ] Alternatively, change both `run_arc_pipeline()` and `run_arc_pipeline_all()` (`compiler/ori_arc/src/pipeline/mod.rs:36` and `compiler/ori_arc/src/lib.rs:72`) to return `Result<Vec<ArcProblem>, ArcVerificationError>` where `ArcVerificationError` wraps the verification failures with phase/function context. The `Vec<ArcProblem>` remains for user-facing diagnostics (FBIP), while `Err` means an ICE from verification. This is the cleaner approach since it uses the type system to enforce that ICEs cannot be silently iterated over. **Both the single-function and batch APIs must adopt the same contract** — `arc_dump` and `arc_dot` call the batch API (`run_arc_pipeline_all`), not the single-function API.
+- [x] Alternatively, change both `run_arc_pipeline()` and `run_arc_pipeline_all()` (`compiler/ori_arc/src/pipeline/mod.rs:36` and `compiler/ori_arc/src/lib.rs:72`) to return `Result<Vec<ArcProblem>, ArcVerificationError>` where `ArcVerificationError` wraps the verification failures with phase/function context. The `Vec<ArcProblem>` remains for user-facing diagnostics (FBIP), while `Err` means an ICE from verification. This is the cleaner approach since it uses the type system to enforce that ICEs cannot be silently iterated over. **Both the single-function and batch APIs must adopt the same contract** — `arc_dump` and `arc_dot` call the batch API (`run_arc_pipeline_all`), not the single-function API.
+  - Implementation: used `Result<..., Vec<VerifyError>>` as the error type since `VerifyError` is already the canonical error type. Added `VerifyError::FipStructural` variant for FIP structural violations.
 
 ### 01.1.3 Propagate errors through the full pipeline chain
 
@@ -152,7 +153,8 @@ Currently, errors from `run_verify()` are silently consumed at multiple call sit
 
 10. **`compiler/oric/src/problem/codegen/mod.rs:469-473`** — `CodegenDiagnostics::add_arc_problems()`. This method iterates `Vec<ArcProblem>` and maps each to a `CodegenProblem`. Once the `InternalVerificationError` variant exists (point 9), this method must propagate it — either by returning `Result` or by accumulating ICEs in a separate list that causes compilation to abort.
 
-- [ ] Implement each of the 10 propagation points above. Write a test that constructs a verification failure deep in the pipeline and asserts it surfaces as a compilation error (not a silent log message).
+- [x] Implement each of the 10 propagation points above. Write a test that constructs a verification failure deep in the pipeline and asserts it surfaces as a compilation error (not a silent log message).
+  - Points 1-8: All propagation sites updated with `?` operator and `Result` return types. Points 9-10 are N/A since we chose the `Result` wrapper approach (ICEs go through `Err`, not through `ArcProblem`). Also fixed `is_ok()` → `is_ok_and(|v| v != "0")` in `arc_dump` and `arc_dot` (bonus: addresses TPR-01-002-codex-i4 early).
 
 ### 01.1.4 Fix FIP `debug_assert!` — first-pass vs second-pass distinction
 
@@ -164,19 +166,19 @@ The FIP structural checks at `compiler/ori_arc/src/pipeline/aims_pipeline/mod.rs
 
 - **Second pass** (batch.rs, `compiler/ori_arc/src/pipeline/aims_pipeline/batch.rs:192-197`): ALL FIP errors should be blocking because `may_deallocate` facts have been recomputed. The existing `batch.rs` code treats all errors the same (logs + `debug_assert!`) — after replacing with explicit returns, ALL variants must be blocking here.
 
-- [ ] In `compiler/ori_arc/src/pipeline/aims_pipeline/mod.rs` (first pass, step 5a), replace `debug_assert!(false, "FIP verification failed: {e}")` at line 182 with: when `config.verify_arc` is true, collect `CertifiedButUnboundedStack` and `BoundedExceeded` errors into a `Vec` and return them as pipeline errors. Continue to only `tracing::debug!` for `CertifiedButHasMissedReuses` (expected in first pass).
+- [x] In `compiler/ori_arc/src/pipeline/aims_pipeline/mod.rs` (first pass, step 5a), replace `debug_assert!(false, "FIP verification failed: {e}")` at line 182 with: when `config.verify_arc` is true, collect `CertifiedButUnboundedStack` and `BoundedExceeded` errors into a `Vec` and return them as pipeline errors. Continue to only `tracing::debug!` for `CertifiedButHasMissedReuses` (expected in first pass).
 
-- [ ] In `compiler/ori_arc/src/pipeline/aims_pipeline/batch.rs` (second pass), replace `debug_assert!(false, "FIP post-recompute verification failed: {e}")` at line 196 with: when `verify_arc` is true, ALL FIP errors are blocking. Collect and return them.
+- [x] In `compiler/ori_arc/src/pipeline/aims_pipeline/batch.rs` (second pass), replace `debug_assert!(false, "FIP post-recompute verification failed: {e}")` at line 196 with: when `verify_arc` is true, ALL FIP errors are blocking. Collect and return them.
 
-- [ ] Write test: `fip_first_pass_allows_missed_reuses_but_blocks_structural` — verify that `CertifiedButHasMissedReuses` is non-blocking in first pass but `CertifiedButUnboundedStack` IS blocking.
-- [ ] Write test: `fip_second_pass_blocks_all_errors` — verify that ALL FIP error variants (including `CertifiedButHasMissedReuses`) are blocking in the second pass.
+- [x] Write test: `fip_first_pass_allows_missed_reuses_but_blocks_structural` — verify that `CertifiedButHasMissedReuses` is non-blocking in first pass but `CertifiedButUnboundedStack` IS blocking.
+- [x] Write test: `fip_second_pass_blocks_all_errors` — verify that ALL FIP error variants (including `CertifiedButHasMissedReuses`) are blocking in the second pass.
 
 ### 01.1.5 Subsection close-out
 
-- [ ] **Subsection close-out (01.1)** — MANDATORY before starting 01.2:
-  - [ ] All tasks above are `[x]` and the subsection's behavior is verified
-  - [ ] Update this subsection's `status` in section frontmatter to `complete`
-  - [ ] **Run `/improve-tooling` retrospectively on THIS subsection** — reflect on the debugging journey for 01.1 specifically: which `diagnostics/` scripts you ran, where you added `dbg!`/`tracing` calls, where test failures gave unhelpful messages. Implement every accepted improvement NOW and commit each via SEPARATE `/commit-push` using a valid conventional-commit type (`build(diagnostics): ...`).
+- [x] **Subsection close-out (01.1)** — MANDATORY before starting 01.2:
+  - [x] All tasks above are `[x]` and the subsection's behavior is verified
+  - [x] Update this subsection's `status` in section frontmatter to `complete`
+  - [x] **Run `/improve-tooling` retrospectively on THIS subsection** — Retrospective 01.1: no tooling gaps. Work was type-system refactoring (`()` → `Result` return types) with compile-time TDD. No diagnostic scripts needed, no confusing output, no repeated command sequences. clippy-all.sh caught all lint issues effectively.
 
 ---
 
