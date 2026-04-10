@@ -74,7 +74,7 @@ Present findings:
 
 ### Step 4: Dependency Analysis
 
-**Check explicit dependencies** (from proposal's `Depends On:` field):
+**Check explicit dependencies** (from proposal's `Depends On:` or legacy `Depends on:` field — both are equivalent per `.claude/rules/proposals.md` legacy variants):
 - [approved] — in `proposals/approved/`
 - [draft] — in `proposals/drafts/` (review that first)
 - [missing] — BLOCKER

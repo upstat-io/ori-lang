@@ -131,6 +131,15 @@ Include the purity assessment in the proposal's Design section or as a dedicated
 
 ---
 
+## Purity Analysis
+
+**Can be pure Ori?** <YES/NO/PARTIALLY>
+**If not, why:** <reasons requiring compiler support>
+**Missing features that would enable purity:** <list>
+**Recommendation:** <Proceed as compiler feature / Revise to library / Hybrid>
+
+---
+
 ## Spec & Grammar Impact
 
 <Which spec clauses and grammar productions are affected>
@@ -142,14 +151,14 @@ Include the purity assessment in the proposal's Design section or as a dedicated
 <How other languages handle this: Rust, Swift, Gleam, Koka, etc.>
 ```
 
-### Step 7: Present for Review
+### Step 6: Present for Review
 
 After creating the file:
 1. Show the user the full proposal
 2. Ask if any sections need revision
 3. Suggest running `/review-draft-proposal <topic>` for formal review when ready
 
-### Step 8: Commit
+### Step 7: Commit
 
 If the user approves, invoke `/commit-push` with message:
 ```
