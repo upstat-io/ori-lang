@@ -125,7 +125,7 @@ pub(crate) mod rc_count;
 /// (typically from `ORI_VERIFY_ARC=1` read in `oric`).
 /// Logs warnings for each error but does not panic — this is diagnostic,
 /// not blocking.
-fn run_verify(func: &ArcFunction, phase: &str, verify: bool) {
+pub(crate) fn run_verify(func: &ArcFunction, phase: &str, verify: bool) {
     let enabled = verify || cfg!(debug_assertions);
     if !enabled {
         return;
@@ -141,7 +141,7 @@ fn run_verify(func: &ArcFunction, phase: &str, verify: bool) {
 ///
 /// Verifies that AIMS analysis results are consistent with the actual IR.
 /// For example, parameters with `Cardinality::Absent` should have no uses.
-fn run_aims_verify(
+pub(crate) fn run_aims_verify(
     func: &ArcFunction,
     contract: &crate::aims::contract::MemoryContract,
     phase: &str,
