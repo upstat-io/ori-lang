@@ -5,7 +5,9 @@
 #   diagnostics/rc-stats.sh [options] <file.ori>
 #
 # Options:
-#   --optimized        Analyze optimized IR (passed through to ir-dump.sh)
+#   --block-level      Show per-block RC operation breakdown
+#   --optimized        Analyze optimized IR (post-optimization histogram)
+#   --compare-awk      Compare JSON totals with legacy awk parser (migration verification)
 #   --no-color         Disable color output
 #   --color            Force color output (default: auto-detect terminal)
 #   -h, --help         Show this help
@@ -20,10 +22,15 @@
 #     Negative → potential over-release (more releases than retains)
 #     Zero → balanced (not guaranteed correct, but a good sign)
 #
-# Environment:
-#   ORI_BIN    Override path to ori binary (passed through to ir-dump.sh)
+# Data source:
+#   All modes consume compiler JSON emitted via ORI_AUDIT_CODEGEN=1.
+#   RC operation classification is defined in rc_histogram.rs (RcOpKind).
+#   This is the SSOT — no awk parsing of LLVM IR text.
 #
-# Requires: ir-dump.sh (in same directory), ori compiler with LLVM support
+# Environment:
+#   ORI_BIN    Override path to ori binary (default: cargo run -p oric --bin ori --)
+#
+# Requires: ori compiler with LLVM support, python3
 #
 # Exit codes:
 #   0 = success (all functions balanced)
@@ -36,13 +43,17 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 # --- Defaults ---
 OPTIMIZED=0
+BLOCK_LEVEL=0
+COMPARE_AWK=0
 USE_COLOR=auto
 FILE=""
 
 # --- Parse arguments ---
 while [[ $# -gt 0 ]]; do
     case $1 in
+        --block-level) BLOCK_LEVEL=1; shift ;;
         --optimized) OPTIMIZED=1; shift ;;
+        --compare-awk) COMPARE_AWK=1; shift ;;
         --color) USE_COLOR=yes; shift ;;
         --no-color) USE_COLOR=no; shift ;;
         -h|--help)
@@ -84,22 +95,6 @@ if [[ "$USE_COLOR" == "auto" ]]; then
     fi
 fi
 
-# --- Capture IR ---
-dump_args=(--raw)
-if [[ "$OPTIMIZED" -eq 1 ]]; then
-    dump_args+=(--optimized)
-fi
-
-tmpdir=$(mktemp -d)
-trap 'rm -rf "$tmpdir"' EXIT
-
-echo "Analyzing $(basename "$FILE")..." >&2
-if ! "$SCRIPT_DIR/ir-dump.sh" "${dump_args[@]}" "$FILE" > "$tmpdir/ir.ll" 2>"$tmpdir/err.txt"; then
-    cat "$tmpdir/err.txt" >&2
-    echo "Error: compilation failed" >&2
-    exit 2
-fi
-
 # --- Color codes ---
 if [[ "$USE_COLOR" == "yes" ]]; then
     C_RED='\033[0;31m'
@@ -112,97 +107,197 @@ else
     C_RED="" C_GREEN="" C_YELLOW="" C_BOLD="" C_DIM="" C_NC=""
 fi
 
-# --- Parse IR and count operations per function ---
-awk \
-    -v red="$C_RED" -v green="$C_GREEN" -v yellow="$C_YELLOW" \
-    -v bold="$C_BOLD" -v dim="$C_DIM" -v nc="$C_NC" \
-'
-BEGIN {
-    fn_count = 0
-    total_alloc = 0; total_inc = 0; total_dec = 0; total_free = 0; total_cow = 0
-}
+tmpdir=$(mktemp -d)
+trap 'rm -rf "$tmpdir"' EXIT
 
-# Track current function
-/^define / {
-    fn_count++
-    # Extract function name: define ... @name( or @"name"(
-    match($0, /@"?([^("]+)"?\(/, m)
-    current_fn = m[1]
-    # Demangle Ori names
-    demangled = current_fn
-    if (demangled ~ /^_ori_drop\$/) {
-        sub(/^_ori_drop\$/, "drop<", demangled)
-        demangled = demangled ">"
-    } else if (demangled ~ /^_ori_/) {
-        sub(/^_ori_/, "@", demangled)
-        gsub(/\$\$/, " impl ", demangled)
-        gsub(/\$/, ".", demangled)
-    }
-    fn_names[fn_count] = demangled
-    fn_alloc[fn_count] = 0
-    fn_inc[fn_count] = 0
-    fn_dec[fn_count] = 0
-    fn_free[fn_count] = 0
-    fn_cow[fn_count] = 0
-}
+# --- Compile with audit and extract JSON ---
+echo "Analyzing $(basename "$FILE")..." >&2
 
-# Count RC operations within current function
-/call.*ori_rc_alloc/ { fn_alloc[fn_count]++ }
-/call.*ori_rc_inc/   { fn_inc[fn_count]++ }
-/call.*ori_rc_dec/   { fn_dec[fn_count]++ }
-/call.*ori_rc_free/  { fn_free[fn_count]++ }
+ORI_BIN="${ORI_BIN:-cargo run -p oric --bin ori --}"
+# shellcheck disable=SC2086
+ORI_AUDIT_CODEGEN=1 $ORI_BIN build "$FILE" -o "$tmpdir/test_bin" 2>"$tmpdir/stderr.txt" || true
 
-# Count COW operations
-/call.*ori_list_[a-z_]*_cow/ { fn_cow[fn_count]++ }
-/call.*ori_str_[a-z_]*_cow/  { fn_cow[fn_count]++ }
-/call.*ori_map_[a-z_]*_cow/  { fn_cow[fn_count]++ }
-/call.*ori_set_[a-z_]*_cow/  { fn_cow[fn_count]++ }
+# Select the JSON line matching the requested optimized flag.
+if [[ "$OPTIMIZED" -eq 1 ]]; then
+    want_optimized='"optimized":true'
+else
+    want_optimized='"optimized":false'
+fi
 
-END {
-    # Print header
-    printf "%s%-30s  alloc  inc   dec   free  cow   balance%s\n", bold, "Function", nc
-    printf "%-30s  -----  ----  ----  ----  ----  -------\n", "──────────────────────────────"
+json_line=$(grep "^codegen stats: json:" "$tmpdir/stderr.txt" | grep "$want_optimized" | head -1 || true)
 
-    has_imbalance = 0
+if [[ -z "$json_line" ]]; then
+    # Show compiler errors (excluding codegen audit lines).
+    grep -v "^codegen " "$tmpdir/stderr.txt" >&2 || true
+    echo "Error: compilation failed before stats pass" >&2
+    exit 2
+fi
 
-    for (i = 1; i <= fn_count; i++) {
-        a = fn_alloc[i]; inc = fn_inc[i]; d = fn_dec[i]; f = fn_free[i]; c = fn_cow[i]
-        # Skip functions with no RC operations
-        if (a + inc + d + f + c == 0) continue
+# Strip the prefix to get raw JSON.
+json="${json_line#codegen stats: json: }"
 
-        balance = (a + inc) - (d + f)
-        total_alloc += a; total_inc += inc; total_dec += d; total_free += f; total_cow += c
+# --- Compare with awk (migration verification, Phase B) ---
+if [[ "$COMPARE_AWK" -eq 1 ]]; then
+    echo -e "\n${C_BOLD}=== Migration comparison: awk vs JSON ===${C_NC}" >&2
 
-        # Format balance with color
-        if (balance > 0) {
-            bal_str = sprintf("%s+%d%s", yellow, balance, nc)
-            flag = sprintf(" %s⚠ leak?%s", yellow, nc)
-            has_imbalance = 1
-        } else if (balance < 0) {
-            bal_str = sprintf("%s%d%s", red, balance, nc)
-            flag = sprintf(" %s⚠ over-release?%s", red, nc)
-            has_imbalance = 1
-        } else {
-            bal_str = sprintf("%s0%s", green, nc)
-            flag = ""
-        }
+    # Run awk parser on IR text for comparison.
+    dump_args=(--raw)
+    if [[ "$OPTIMIZED" -eq 1 ]]; then
+        dump_args+=(--optimized)
+    fi
+    # shellcheck disable=SC2086
+    "$SCRIPT_DIR/ir-dump.sh" "${dump_args[@]}" "$FILE" > "$tmpdir/ir.ll" 2>/dev/null || true
 
-        printf "%-30s  %5d  %4d  %4d  %4d  %4d  %s%s\n", fn_names[i], a, inc, d, f, c, bal_str, flag
-    }
+    python3 -c "
+import sys, json, re
 
-    # Totals
-    total_bal = (total_alloc + total_inc) - (total_dec + total_free)
-    printf "%-30s  -----  ----  ----  ----  ----  -------\n", "──────────────────────────────"
-    if (total_bal > 0) {
-        bal_str = sprintf("%s+%d%s", yellow, total_bal, nc)
-    } else if (total_bal < 0) {
-        bal_str = sprintf("%s%d%s", red, total_bal, nc)
-    } else {
-        bal_str = sprintf("%s0%s", green, nc)
-    }
-    printf "%s%-30s  %5d  %4d  %4d  %4d  %4d  %s%s\n", bold, "TOTAL", total_alloc, total_inc, total_dec, total_free, total_cow, bal_str, nc
+json_data = json.loads(sys.argv[1])
+ir_file = sys.argv[2]
+red, green, yellow, bold, nc = sys.argv[3:8]
 
-    # Exit code: 1 if any imbalance detected
-    exit has_imbalance
-}
-' "$tmpdir/ir.ll"
+# Parse awk-style counts from IR text.
+awk_counts = {}
+current_fn = None
+with open(ir_file) as f:
+    for line in f:
+        m = re.match(r'^define .*@\"?([^(\"]+)\"?\(', line)
+        if m:
+            current_fn = m.group(1)
+            awk_counts[current_fn] = {'alloc':0, 'inc':0, 'dec':0, 'free':0, 'cow':0}
+        if current_fn and 'call' in line:
+            if 'ori_rc_alloc' in line: awk_counts[current_fn]['alloc'] += 1
+            if 'ori_rc_inc' in line: awk_counts[current_fn]['inc'] += 1
+            if 'ori_rc_dec' in line: awk_counts[current_fn]['dec'] += 1
+            if 'ori_rc_free' in line: awk_counts[current_fn]['free'] += 1
+            # COW: ori_<type>_<op>_cow
+            if re.search(r'ori_(list|str|map|set)_[a-z_]*_cow', line):
+                awk_counts[current_fn]['cow'] += 1
+
+# Compare.
+json_funcs = {fn['name']: fn['totals'] for fn in json_data['functions']}
+all_ok = True
+for fn_name, jt in json_funcs.items():
+    # Find matching awk entry (awk uses raw names, JSON uses demangled).
+    at = None
+    for awk_name, awk_t in awk_counts.items():
+        if awk_name == fn_name or awk_name.replace('_ori_', '@').replace('\$', '.') == fn_name:
+            at = awk_t
+            break
+    if at is None:
+        continue
+
+    for op in ['alloc', 'inc', 'dec', 'free', 'cow']:
+        j_val = jt[op]
+        a_val = at[op]
+        if j_val != a_val:
+            diff = j_val - a_val
+            if diff > 0:
+                # JSON higher — expected for typed RC ops.
+                print(f'  {yellow}EXPECTED{nc} {fn_name}.{op}: awk={a_val} json={j_val} (+{diff} typed RC ops)')
+            else:
+                print(f'  {red}MISMATCH{nc} {fn_name}.{op}: awk={a_val} json={j_val} ({diff})')
+                all_ok = False
+
+if all_ok:
+    print(f'  {green}All base-5 RC ops match (JSON may be higher for typed ops){nc}')
+" "$json" "$tmpdir/ir.ll" "$C_RED" "$C_GREEN" "$C_YELLOW" "$C_BOLD" "$C_NC" >&2
+fi
+
+# --- Render table from JSON ---
+if [[ "$BLOCK_LEVEL" -eq 1 ]]; then
+    # Per-block view.
+    python3 -c "
+import sys, json
+
+data = json.loads(sys.argv[1])
+red, green, yellow, bold, dim, nc = sys.argv[2:8]
+
+print(f'{bold}{\"Function / Block\":<40s}  alloc  inc   dec   free  cow   balance{nc}')
+print(f'{\"─\"*40}  -----  ----  ----  ----  ----  -------')
+
+has_imbalance = False
+
+for fn in data['functions']:
+    t = fn['totals']
+    a, i, d, f, c = t['alloc'], t['inc'], t['dec'], t['free'], t['cow']
+    if a + i + d + f + c == 0:
+        continue
+
+    balance = (a + i) - (d + f)
+    if balance > 0:
+        bal = f'{yellow}+{balance}{nc}'
+        has_imbalance = True
+    elif balance < 0:
+        bal = f'{red}{balance}{nc}'
+        has_imbalance = True
+    else:
+        bal = f'{green}0{nc}'
+
+    print(f'{bold}{fn[\"name\"]:<40s}  {a:5d}  {i:4d}  {d:4d}  {f:4d}  {c:4d}  {bal}{nc}')
+
+    for block in fn['blocks']:
+        bc = block['counts']
+        ba, bi, bd, bf, bco = bc['alloc'], bc['inc'], bc['dec'], bc['free'], bc['cow']
+        if ba + bi + bd + bf + bco == 0:
+            continue
+        block_bal = (ba + bi) - (bd + bf)
+        if block_bal > 0:
+            bbal = f'{dim}{yellow}+{block_bal}{nc}'
+        elif block_bal < 0:
+            bbal = f'{dim}{red}{block_bal}{nc}'
+        else:
+            bbal = f'{dim}{green}0{nc}'
+        print(f'{dim}  {block[\"label\"]:<38s}  {ba:5d}  {bi:4d}  {bd:4d}  {bf:4d}  {bco:4d}  {bbal}{nc}')
+
+sys.exit(1 if has_imbalance else 0)
+" "$json" "$C_RED" "$C_GREEN" "$C_YELLOW" "$C_BOLD" "$C_DIM" "$C_NC"
+else
+    # Function-level view (default).
+    python3 -c "
+import sys, json
+
+data = json.loads(sys.argv[1])
+red, green, yellow, bold, dim, nc = sys.argv[2:8]
+
+print(f'{bold}{\"Function\":<30s}  alloc  inc   dec   free  cow   balance{nc}')
+print(f'{\"─\"*30}  -----  ----  ----  ----  ----  -------')
+
+has_imbalance = False
+total = {'alloc':0, 'inc':0, 'dec':0, 'free':0, 'cow':0}
+
+for fn in data['functions']:
+    t = fn['totals']
+    a, i, d, f, c = t['alloc'], t['inc'], t['dec'], t['free'], t['cow']
+    if a + i + d + f + c == 0:
+        continue
+
+    balance = (a + i) - (d + f)
+    total['alloc'] += a; total['inc'] += i; total['dec'] += d; total['free'] += f; total['cow'] += c
+
+    if balance > 0:
+        bal = f'{yellow}+{balance}{nc}'
+        flag = f' {yellow}\u26a0 leak?{nc}'
+        has_imbalance = True
+    elif balance < 0:
+        bal = f'{red}{balance}{nc}'
+        flag = f' {red}\u26a0 over-release?{nc}'
+        has_imbalance = True
+    else:
+        bal = f'{green}0{nc}'
+        flag = ''
+
+    print(f'{fn[\"name\"]:<30s}  {a:5d}  {i:4d}  {d:4d}  {f:4d}  {c:4d}  {bal}{flag}')
+
+total_bal = (total['alloc'] + total['inc']) - (total['dec'] + total['free'])
+print(f'{\"─\"*30}  -----  ----  ----  ----  ----  -------')
+if total_bal > 0:
+    bal = f'{yellow}+{total_bal}{nc}'
+elif total_bal < 0:
+    bal = f'{red}{total_bal}{nc}'
+else:
+    bal = f'{green}0{nc}'
+print(f'{bold}{\"TOTAL\":<30s}  {total[\"alloc\"]:5d}  {total[\"inc\"]:4d}  {total[\"dec\"]:4d}  {total[\"free\"]:4d}  {total[\"cow\"]:4d}  {bal}{nc}')
+
+sys.exit(1 if has_imbalance else 0)
+" "$json" "$C_RED" "$C_GREEN" "$C_YELLOW" "$C_BOLD" "$C_DIM" "$C_NC"
+fi
