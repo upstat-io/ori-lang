@@ -174,6 +174,16 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
             );
         }
 
+        // Function-level LLVM IR verification.
+        if self.verify_arc {
+            let fn_val = self.builder.get_function_value(c_main_id);
+            if !fn_val.verify(true) {
+                tracing::error!(
+                    "LLVM IR verification failed after codegen (generate_main_wrapper)"
+                );
+            }
+        }
+
         true
     }
 

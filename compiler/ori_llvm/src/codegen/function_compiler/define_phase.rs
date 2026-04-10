@@ -199,6 +199,14 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
             );
         }
 
+        // Function-level LLVM IR verification.
+        if self.verify_arc && !fn_val.verify(true) {
+            tracing::error!(
+                name = name_str,
+                "LLVM IR verification failed after codegen (emit_arc_function)"
+            );
+        }
+
         // Mark nounwind after emission so LLVM's PruneEH pass can
         // optimize callers (even those compiled before this function).
         if is_nounwind {
@@ -251,6 +259,14 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
         // Post-emission CFG simplification
         let fn_val = self.builder.get_function_value(func_id);
         crate::codegen::ir_builder::cfg_simplify::simplify_cfg(fn_val);
+
+        // Function-level LLVM IR verification.
+        if self.verify_arc && !fn_val.verify(true) {
+            tracing::error!(
+                name = %self.interner.lookup(lambda_name),
+                "LLVM IR verification failed after codegen (compile_lambda_arc)"
+            );
+        }
 
         if is_nounwind {
             self.codegen_ctx.nounwind_functions.insert(lambda_name);

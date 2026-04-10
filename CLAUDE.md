@@ -141,7 +141,8 @@ Quick reference — full rules: `compiler.md` (architecture, tracing), `impl-hyg
 **Phase dumps**: `ORI_DUMP_AFTER_PARSE=1` (AST) | `ORI_DUMP_AFTER_TYPECK=1` (typed IR) | `ORI_DUMP_AFTER_ARC=1` (ARC IR) | `ORI_DUMP_AFTER_LLVM=1` (LLVM IR, superset of `ORI_DEBUG_LLVM`) | `ORI_EMIT_ARC_DOT=1` (GraphViz DOT) — stderr, zero release overhead
 **Runtime debug**: `ORI_TRACE_RC=1` (RC log) | `ORI_RT_DEBUG=1` (assertions) | `ORI_CHECK_LEAKS=1` (leak report)
 **Codegen audit**: `ORI_AUDIT_CODEGEN=1` — RC balance, COW sequencing, ABI args, aggregate loads, safety checks. Zero cost off. `ORI_AUDIT_STRICT=1` (pessimistic) | `ORI_AUDIT_FUNCTION=name` (filter)
-**ARC verification**: `ORI_VERIFY_ARC=1` — extra ARC IR correctness checks (RC balance, drop placement) after the AIMS pipeline
+**ARC verification**: `ORI_VERIFY_ARC=1` — extra ARC IR correctness checks (RC balance, drop placement) after the AIMS pipeline; also enables per-function LLVM IR verification at all emission sites
+**LLVM pass verification**: `ORI_VERIFY_EACH=1` — enable LLVM IR verification after every optimization pass (~30-60% slower); catches which pass breaks IR well-formedness
 **Repr-opt disable**: `ORI_NO_REPR_OPT=1` — disable all representation optimizations (integer narrowing, enum packing). CLI: `--no-repr-opt`
 **AIMS**: The ARC pipeline uses the AIMS unified lattice — no feature flags needed.
 **Always run `./test-all.sh` after compiler changes.**
