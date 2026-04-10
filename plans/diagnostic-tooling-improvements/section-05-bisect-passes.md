@@ -211,18 +211,18 @@ Per `impl-hygiene.md`: "Cross-section fixes require cross-section plan updates."
 
 ## 05.N Completion Checklist
 
-- [ ] All subsections (05.PRE, 05.1, 05.2) complete
-- [ ] `aims_pipeline.rs` has been split and no submodule exceeds 300 lines
-- [ ] `timeout 150 cargo t -p ori_arc` passes
-- [ ] `timeout 150 cargo cl -p ori_arc` passes (clippy clean)
-- [ ] `diagnostics/self-test.sh` passes (including new bisect-passes.sh entries)
-- [ ] `timeout 150 ./test-all.sh` green -- no regressions
-- [ ] **Doc update (SSOT):**
-  - [ ] Add `bisect-passes.sh` to `@diagnostic.md` (`.claude/rules/diagnostic.md`) Diagnostic Scripts table with flags (`--function`, `--rc-only`, `--no-color`, `--color`)
-  - [ ] Add `bisect-passes.sh` to `diagnostics/README.md` usage section and workflow
-  - [ ] Update CLAUDE.md Diagnostic scripts reference if it lists scripts explicitly
-  - [ ] Add `ori_arc::aims::pipeline` tracing target to `.claude/rules/arc.md` §Debugging section (alongside existing `ori_arc::aims::realize` target documentation)
-  - [ ] Update CLAUDE.md §Tracing with `=ori_arc::aims::pipeline=info` example for pipeline bisection
+- [x] All subsections (05.PRE, 05.1, 05.2) complete
+- [x] `aims_pipeline.rs` has been split and no submodule exceeds 300 lines (max: batch.rs at 229)
+- [x] `timeout 150 cargo t -p ori_arc` passes (1094 passed, 0 failed)
+- [x] `cargo clippy -p ori_arc` passes (clippy clean)
+- [x] `diagnostics/self-test.sh` passes (51 passed, 0 failed)
+- [x] `timeout 150 ./test-all.sh` green (16,954 passed, 0 failed)
+- [x] **Doc update (SSOT):**
+  - [x] Added `bisect-passes.sh` to `.claude/rules/diagnostic.md` Diagnostic Scripts table + data sources
+  - [x] Added `bisect-passes.sh` to `diagnostics/README.md` usage section and workflow
+  - [x] Updated CLAUDE.md §Diagnostic scripts with `bisect-passes.sh`
+  - [x] Added `ori_arc::aims::pipeline` tracing target to `.claude/rules/arc.md` §Debugging
+  - [x] Updated CLAUDE.md §Tracing with `=ori_arc::aims::pipeline=info` example
 - [x] **Cross-section:** Section 06 updated — `bisect-passes.sh` added to success criteria and self-test matrix (done during plan review 2026-04-10)
 - [ ] `/tpr-review` passed
 - [ ] `/impl-hygiene-review` passed
