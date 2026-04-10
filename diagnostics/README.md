@@ -293,6 +293,12 @@ Test fixtures in `fixtures/` exercise different codegen patterns. See `fixtures/
 | `mismatch.ori` | Interpreter vs AOT mismatch detection (via `mismatch-wrapper.sh`) |
 | `build-fail-parse.ori` | Parse error, build failure detection |
 
+**Infrastructure** (supporting wrappers, not standalone fixtures):
+
+| Fixture | What it tests |
+|---------|--------------|
+| `mismatch-wrapper.sh` | ORI_BIN wrapper for mismatch — injects deterministic divergence |
+
 ## Common Options
 
 All scripts support:
