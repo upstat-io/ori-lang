@@ -17,7 +17,7 @@ use ori_ir::{CombineOp, DerivedTrait, Name, StructBody};
 use ori_types::{Idx, Pool, Tag, VariantDef, VariantFields};
 
 use super::super::function_compiler::FunctionCompiler;
-use super::{emit_derive_return, setup_derive_function};
+use super::{emit_derive_return, setup_derive_function, verify_derive_function};
 
 /// Generate derived methods for enum types using `SumBody::MatchVariants`.
 ///
@@ -48,12 +48,14 @@ pub(super) fn compile_enum_match_variants<'a>(
                     enum_hashable::emit_enum_hash_combine(fc, &setup, variants, field_op);
                 }
             }
+            verify_derive_function(fc, setup.func_id, "compile_enum_match_variants");
         }
         StructBody::CloneFields => {
             // Clone on enum = identity return (value type in LLVM)
             let setup = setup_derive_function(fc, trait_kind, type_name, type_idx, type_name_str);
             let self_val = setup.self_val.expect("Clone has self");
             emit_derive_return(fc, setup.func_id, &setup.abi, Some(self_val));
+            verify_derive_function(fc, setup.func_id, "compile_enum_clone");
         }
         _ => {
             tracing::trace!(

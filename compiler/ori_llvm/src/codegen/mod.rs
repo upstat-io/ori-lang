@@ -30,6 +30,21 @@
 //! └── type_registration/   — Type registration for LLVM
 //! ```
 //!
+//! # Function-Level IR Verification Invariant
+//!
+//! **Every code path that creates and finalizes a `FunctionValue`** (i.e., adds basic
+//! blocks and a terminator) **MUST call `fn_val.verify(true)`** before the function is
+//! considered complete, gated on the `ORI_VERIFY_ARC` flag.
+//!
+//! Canonical emission helpers (`emit_arc_function`, `emit_prepared_functions`,
+//! `emit_prepared_lambda`) include verification internally — callers inherit it.
+//! Separate emission paths (derive codegen, closure wrappers, drop gen, thunks,
+//! entry point, test wrappers, panic trampolines) have their own explicit
+//! `fn_val.verify()` calls.
+//!
+//! When adding a new function emission site, add verification at body completion.
+//! See `derive_codegen::verify_derive_function` for the helper pattern.
+//!
 //! # Architecture Note
 //!
 //! ARC classification is NOT in this module — it lives in `ori_arc::ArcClassification`

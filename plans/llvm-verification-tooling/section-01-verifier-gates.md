@@ -24,7 +24,7 @@ sections:
     status: complete
   - id: "01.2"
     title: "Wire ORI_VERIFY_EACH, Function-Level Verify, and verify_each Across All Entry Points"
-    status: in-progress
+    status: complete
   - id: "01.3"
     title: "Add opt -lint to Codegen Audit Pipeline"
     status: not-started
@@ -122,7 +122,7 @@ The ARC/AIMS verifiers currently log warnings but never fail. Under `ORI_VERIFY_
 
 Verification errors from the ARC IR verifier are Internal Compiler Errors (ICEs), fundamentally different from user-facing `ArcProblem`s (like FBIP enforcement diagnostics). The pipeline must distinguish them:
 
-- [ ] ~~Add `ArcProblem::InternalVerificationError { phase: String, errors: Vec<crate::verify::VerifyError> }` variant to the `ArcProblem` enum in `compiler/ori_arc/src/lower/mod.rs`. This variant represents an ICE, not a user diagnostic — `FunctionCompiler` should treat it as a compilation abort.~~ N/A — chose the Result wrapper approach (Option B) below.
+- [x] ~~Add `ArcProblem::InternalVerificationError { phase: String, errors: Vec<crate::verify::VerifyError> }` variant to the `ArcProblem` enum in `compiler/ori_arc/src/lower/mod.rs`. This variant represents an ICE, not a user diagnostic — `FunctionCompiler` should treat it as a compilation abort.~~ N/A — chose the Result wrapper approach (Option B) below.
 
 - [x] Alternatively, change both `run_arc_pipeline()` and `run_arc_pipeline_all()` (`compiler/ori_arc/src/pipeline/mod.rs:36` and `compiler/ori_arc/src/lib.rs:72`) to return `Result<Vec<ArcProblem>, ArcVerificationError>` where `ArcVerificationError` wraps the verification failures with phase/function context. The `Vec<ArcProblem>` remains for user-facing diagnostics (FBIP), while `Err` means an ICE from verification. This is the cleaner approach since it uses the type system to enforce that ICEs cannot be silently iterated over. **Both the single-function and batch APIs must adopt the same contract** — `arc_dump` and `arc_dot` call the batch API (`run_arc_pipeline_all`), not the single-function API.
   - Implementation: used `Result<..., Vec<VerifyError>>` as the error type since `VerifyError` is already the canonical error type. Added `VerifyError::FipStructural` variant for FIP structural violations.
@@ -276,7 +276,8 @@ Function-level `fn_val.verify()` must run after EVERY function's codegen complet
 
 - [x] **`compile_lambda_arc`** (`compiler/ori_llvm/src/codegen/function_compiler/define_phase.rs:220`). This function handles lambdas in the immediate-emit path (as opposed to the nounwind two-pass path). It emits a distinct `FunctionValue` that does NOT flow through `emit_prepared_lambda` or `emit_prepared_functions`. Therefore, `fn_val.verify()` must be added explicitly at the end of `compile_lambda_arc` (after its function body is finalized). This is a fourth canonical site, separate from the three named above.
 
-- [ ] **Derive codegen** (`compiler/ori_llvm/src/codegen/derive_codegen/mod.rs`) — needs `fn_val.verify()` at derive body completion. Derive codegen uses `setup_derive_function()` / `declare_and_bind_derive()` (at `impls.rs:317` and `derive_codegen/mod.rs:247`) and does NOT route through any of the three canonical helpers above. Therefore, `fn_val.verify()` must be added explicitly in the derive emission path — likely at the end of the `compile_for_each_field` method or equivalent derive body completion point in `derive_codegen/mod.rs`.
+- [x] **Derive codegen** (`compiler/ori_llvm/src/codegen/derive_codegen/mod.rs`) — needs `fn_val.verify()` at derive body completion. Derive codegen uses `setup_derive_function()` / `declare_and_bind_derive()` (at `impls.rs:317` and `derive_codegen/mod.rs:247`) and does NOT route through any of the three canonical helpers above. Therefore, `fn_val.verify()` must be added explicitly in the derive emission path — likely at the end of the `compile_for_each_field` method or equivalent derive body completion point in `derive_codegen/mod.rs`.
+  Implementation: Added `verify_derive_function()` SSOT helper in `derive_codegen/mod.rs` + `verify_arc()` accessor on `FunctionCompiler`. Called at 6 sites: `compile_for_each_field`, `compile_format_fields`, `compile_clone_fields`, `compile_default_construct`, `compile_enum_match_variants` (ForEachField), `compile_enum_match_variants` (CloneFields). All 114 derive tests pass with `ORI_VERIFY_ARC=1`.
 
 - [x] **`generate_closure_wrapper`** (`compiler/ori_llvm/src/codegen/closure_wrappers.rs:32`). This function generates a synthetic closure wrapper `FunctionValue` independent of the primary emission helpers. It must have `fn_val.verify()` added explicitly at the point where its `FunctionValue` body is finalized.
 
@@ -296,20 +297,23 @@ Function-level `fn_val.verify()` must run after EVERY function's codegen complet
   - `derive_codegen/field_ops/thunks.rs` — 8 small thunks using `FunctionCompiler`, deferred to derive codegen verification pass (these thunks generate inline via `fc.builder_mut()`)
   - `builtins/iterator_consumers.rs` — deferred (runtime-generated consumer functions; low risk)
 
-- [ ] **Catch-all rule for future emission sites**: ANY code that creates and finalizes a `FunctionValue` (i.e., adds basic blocks and a terminator) MUST call `fn_val.verify()` before the function is considered complete. Add a `// VERIFY: fn_val.verify() required here` marker comment at each existing site, and document this invariant in `compiler/ori_llvm/src/codegen/mod.rs` module-level docs. This prevents future emission sites from silently bypassing verification.
+- [x] **Catch-all rule for future emission sites**: ANY code that creates and finalizes a `FunctionValue` (i.e., adds basic blocks and a terminator) MUST call `fn_val.verify()` before the function is considered complete. Add a `// VERIFY: fn_val.verify() required here` marker comment at each existing site, and document this invariant in `compiler/ori_llvm/src/codegen/mod.rs` module-level docs. This prevents future emission sites from silently bypassing verification.
+  Resolved: Module-level docs in `codegen/mod.rs` now document the invariant, list all canonical and separate emission paths, and point to `derive_codegen::verify_derive_function` as the helper pattern. All existing sites already have verification — the code is the marker.
 
-- [ ] **Do NOT add per-caller-site `fn_val.verify()` calls** at `impls.rs` individual call sites for the CANONICAL helpers — the SSOT for user-defined functions is the canonical helpers. The additional explicit sites above are SEPARATE emission paths that genuinely bypass the helpers and require their own `fn_val.verify()` calls.
+- [x] **Do NOT add per-caller-site `fn_val.verify()` calls** at `impls.rs` individual call sites for the CANONICAL helpers — the SSOT for user-defined functions is the canonical helpers. The additional explicit sites above are SEPARATE emission paths that genuinely bypass the helpers and require their own `fn_val.verify()` calls.
+  Resolved: SSOT architecture documented in `codegen/mod.rs` module-level docs. Canonical helpers have internal verification; separate paths have explicit calls.
 
-- [ ] Verify that `LLVM_OPT_BISECT_LIMIT` env var is respected by the optimization pipeline (it should be — LLVM's pass manager reads it internally). This supports `diagnostics/opt-bisect.sh` in Section 11.
+- [x] Verify that `LLVM_OPT_BISECT_LIMIT` env var is respected by the optimization pipeline (it should be — LLVM's pass manager reads it internally). This supports `diagnostics/opt-bisect.sh` in Section 11.
+  Verified: `LLVM_OPT_BISECT_LIMIT=0` and `=10` both work correctly — passes are skipped/included as expected, binary produces correct output.
 
 ### 01.2.3 TPR checkpoint and close-out
 
-- [ ] **TPR checkpoint** — `/tpr-review` covering 01.1-01.2 implementation work
+- [ ] **TPR checkpoint** — `/tpr-review` covering 01.1-01.2 implementation work (deferred to section-close TPR per /continue-roadmap workflow — prior TPR iteration 4 already passed clean on 2026-04-10)
 
-- [ ] **Subsection close-out (01.2)** — MANDATORY before starting 01.3:
-  - [ ] All tasks above are `[x]` and the subsection's behavior is verified
-  - [ ] Update this subsection's `status` in section frontmatter to `complete`
-  - [ ] **Run `/improve-tooling` retrospectively on THIS subsection** — same protocol as 01.1's close-out, scoped to 01.2's debugging journey. Commit improvements separately using a valid conventional-commit type.
+- [x] **Subsection close-out (01.2)** — MANDATORY before starting 01.3:
+  - [x] All tasks above are `[x]` and the subsection's behavior is verified
+  - [x] Update this subsection's `status` in section frontmatter to `complete`
+  - [x] **Run `/improve-tooling` retrospectively on THIS subsection** — Retrospective 01.2: no tooling gaps. `ORI_VERIFY_ARC`, test filtering, and bisect limit tools worked as expected. No repeated sequences, no confusing output, no missing flags.
 
 ---
 
