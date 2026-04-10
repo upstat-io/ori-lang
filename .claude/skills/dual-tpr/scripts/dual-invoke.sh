@@ -66,6 +66,8 @@ echo "[$(date +%s)] dual-invoke start (skill=$SKILL run=$RUN reviewers=$REVIEWER
 # explicitly and the EXIT trap below kills any survivors.
 CODEX_PID=""
 GEMINI_PID=""
+CODEX_WATCHDOG_PID=""
+GEMINI_WATCHDOG_PID=""
 
 # On any exit (success, failure, signal), reap any still-running children to
 # prevent orphaned reviewer subprocesses from continuing past dual-invoke.sh's
@@ -74,6 +76,13 @@ GEMINI_PID=""
 # retry attempts.
 cleanup_children() {
   local pid
+  # Kill watchdog processes first (they monitor reviewer PIDs)
+  for pid in "$CODEX_WATCHDOG_PID" "$GEMINI_WATCHDOG_PID"; do
+    if [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null; then
+      kill "$pid" 2>/dev/null || true
+    fi
+  done
+  # Then kill reviewer processes
   for pid in "$CODEX_PID" "$GEMINI_PID"; do
     if [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null; then
       kill -TERM "$pid" 2>/dev/null || true
@@ -156,6 +165,86 @@ else
   echo "[$(date +%s)] gemini skipped (ORI_TPR_REVIEWERS=$REVIEWERS)" >> "$RUN/round.log"
 fi
 
+# --- Stall detection watchdog ---
+#
+# Instead of bare `wait`, run a background watchdog that periodically checks
+# each reviewer for stall conditions using reviewer-stall-detect.sh. If a
+# reviewer is IDLE (no JSONL growth, no I/O, no CPU) for STALL_PATIENCE
+# consecutive checks, the watchdog kills it. This catches server-side API
+# hangs where the reviewer process is alive but receiving no data.
+#
+# The watchdog checks three independent signals:
+#   1. JSONL file size (reviewer output)
+#   2. /proc/PID/io rchar (all data read by process, including network)
+#   3. /proc/PID/stat utime+stime (CPU ticks consumed)
+# A reviewer is only classified as IDLE when ALL THREE are frozen.
+#
+# Config: STALL_CHECK_INTERVAL seconds between checks, STALL_PATIENCE
+# consecutive IDLE checks before kill. Default: 30s interval × 6 patience
+# = 3 minutes of total inactivity before kill.
+STALL_CHECK_INTERVAL="${ORI_TPR_STALL_INTERVAL:-30}"
+STALL_PATIENCE="${ORI_TPR_STALL_PATIENCE:-6}"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+STALL_DETECT="$SCRIPT_DIR/reviewer-stall-detect.sh"
+
+# Background watchdog function. Monitors one reviewer PID.
+# Args: $1=reviewer_name $2=pid $3=jsonl_path
+watchdog_monitor() {
+  local name="$1" pid="$2" jsonl="$3"
+  local idle_count=0
+  local snapshot_file="$RUN/${name}.stall-snapshot"
+
+  # Take initial snapshot
+  "$STALL_DETECT" --snapshot --pid "$pid" --jsonl "$jsonl" --out "$snapshot_file" 2>/dev/null || true
+
+  while kill -0 "$pid" 2>/dev/null; do
+    sleep "$STALL_CHECK_INTERVAL"
+
+    # Skip if process already exited during sleep
+    kill -0 "$pid" 2>/dev/null || break
+
+    # Compare against previous snapshot (updates snapshot in-place)
+    local result
+    result=$("$STALL_DETECT" --compare --previous "$snapshot_file" --pid "$pid" --jsonl "$jsonl" 2>/dev/null) || true
+
+    case "$result" in
+      ACTIVE|RECEIVING|COMPUTING)
+        idle_count=0
+        ;;
+      IDLE)
+        idle_count=$((idle_count + 1))
+        echo "[$(date +%s)] watchdog: $name IDLE ($idle_count/$STALL_PATIENCE)" >> "$RUN/round.log"
+        if [[ $idle_count -ge $STALL_PATIENCE ]]; then
+          echo "[$(date +%s)] watchdog: $name STALLED — killing (${STALL_CHECK_INTERVAL}s × ${idle_count} = $((STALL_CHECK_INTERVAL * idle_count))s idle)" >> "$RUN/round.log"
+          echo "stalled_after=$((STALL_CHECK_INTERVAL * idle_count))s" > "$RUN/${name}.stalled"
+          # Kill the process tree: TERM first, then KILL after 2s
+          kill -TERM "$pid" 2>/dev/null || true
+          sleep 2
+          if kill -0 "$pid" 2>/dev/null; then
+            kill -KILL "$pid" 2>/dev/null || true
+          fi
+          break
+        fi
+        ;;
+      DEAD)
+        break
+        ;;
+    esac
+  done
+}
+
+# Launch watchdogs for each active reviewer
+CODEX_WATCHDOG_PID=""
+GEMINI_WATCHDOG_PID=""
+if [[ -n "$CODEX_PID" ]]; then
+  watchdog_monitor "codex" "$CODEX_PID" "$RUN/codex.jsonl" &
+  CODEX_WATCHDOG_PID=$!
+fi
+if [[ -n "$GEMINI_PID" ]]; then
+  watchdog_monitor "gemini" "$GEMINI_PID" "$RUN/gemini.jsonl" &
+  GEMINI_WATCHDOG_PID=$!
+fi
+
 # Wait for whichever children were launched. BUG-08-005 fix: with `set -e`,
 # the original `wait $CODEX_PID; wait $GEMINI_PID` aborted the script when
 # the first wait returned non-zero, skipping the second wait and leaking
@@ -177,6 +266,14 @@ if [[ -n "$GEMINI_PID" ]]; then
   GEMINI_WAIT_RC=$?
 fi
 set -e
+
+# Kill watchdog processes now that reviewers are done
+for wpid in "$CODEX_WATCHDOG_PID" "$GEMINI_WATCHDOG_PID"; do
+  if [[ -n "$wpid" ]] && kill -0 "$wpid" 2>/dev/null; then
+    kill "$wpid" 2>/dev/null || true
+    wait "$wpid" 2>/dev/null || true
+  fi
+done
 
 # Read the recorded exit codes (written by the subshells via their own
 # trap-style capture). If a subshell was killed before recording its exit

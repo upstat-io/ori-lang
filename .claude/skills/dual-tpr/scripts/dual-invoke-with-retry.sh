@@ -142,6 +142,7 @@ is_terminal_failure() {
   local category="$1"
   case "$category" in
     dirty_worktree)                return 0 ;;
+    reviewer_stalled_*)            return 0 ;;  # API-level hang — will recur on retry
     codex_missing_dependency)      return 0 ;;
     codex_missing_envelope)        return 0 ;;
     codex_schema_violation)        return 0 ;;
@@ -168,7 +169,15 @@ while [[ $ATTEMPT -lt $MAX_RETRIES ]]; do
   # calls are gated by the same filter — skipping an absent JSONL file
   # would otherwise produce a spurious "missing_envelope" failure.
   if ! "$SCRIPT_DIR/dual-invoke.sh" "${ARGS[@]}"; then
-    FAILURE="launch_or_exit_fail"
+    # Check if failure was due to watchdog killing a stalled reviewer
+    if [[ -f "$RUN/codex.stalled" || -f "$RUN/gemini.stalled" ]]; then
+      local stalled_reviewers=""
+      [[ -f "$RUN/codex.stalled" ]] && stalled_reviewers="codex"
+      [[ -f "$RUN/gemini.stalled" ]] && stalled_reviewers="${stalled_reviewers:+$stalled_reviewers+}gemini"
+      FAILURE="reviewer_stalled_${stalled_reviewers}"
+    else
+      FAILURE="launch_or_exit_fail"
+    fi
     echo "[$(date +%s)] $FAILURE on attempt $ATTEMPT" >> "$RUN/round.log"
   elif [[ ( "$REVIEWERS" == "codex" || "$REVIEWERS" == "both" ) ]] && ! "$SCRIPT_DIR/parse-codex.py" --jsonl "$RUN/codex.jsonl" --schema "$SCHEMA" > "$RUN/codex.envelope.json" 2> "$RUN/codex.parse-error"; then
     FAILURE="codex_$(head -1 "$RUN/codex.parse-error")"
