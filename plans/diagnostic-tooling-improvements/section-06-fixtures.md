@@ -3,24 +3,35 @@ section: "06"
 title: "Expand Fixtures + Self-Test"
 status: not-started
 reviewed: false
-goal: "Add 7+ new diagnostic fixtures covering the code patterns that cause the most AOT/AIMS debugging churn, and update self-test.sh to exercise them"
+goal: "Add 12+ new diagnostic fixtures covering the code patterns that cause the most AOT/AIMS debugging churn, update self-test.sh to exercise them with feature-specific assertions, and establish a fixture categorization system"
 success_criteria:
-  - "At least 7 new fixture files in diagnostics/fixtures/ covering closures, iterators, nested structures, generics, trait dispatch, and failure modes"
-  - "Each fixture compiles and runs successfully under AOT (except intentional failure-mode fixtures)"
-  - "self-test.sh runs all new fixtures through the appropriate diagnostic scripts"
-  - "All new fixtures are documented in README.md"
+  - "At least 12 new fixture files in diagnostics/fixtures/ organized by category (pass, aims-heavy, expected-fail)"
+  - "Each pass fixture compiles and runs identically under interpreter and AOT, in both debug and release builds"
+  - "Expected-fail fixtures are mandatory, not optional — they validate that diagnostic scripts correctly detect failures"
+  - "self-test.sh runs all new fixtures through the appropriate diagnostic scripts with feature-specific output assertions"
+  - "Fixture matrix documented as SSOT in diagnostics/fixtures/FIXTURES.md"
 inspired_by:
   - "Swift SIL test fixtures — targeted programs exercising specific SIL optimizer paths"
   - "Koka FBIP test corpus — programs that stress the PARC optimization pipeline"
+  - "Lean 4 bug-series fixtures — systematic coverage of a single subsystem (closure_bug1-8)"
 depends_on: ["05"]
 third_party_review:
   status: none
   updated: null
 sections:
   - id: "06.1"
-    title: "Create complex-pattern fixtures"
+    title: "Create core-pattern fixtures"
     status: not-started
   - id: "06.2"
+    title: "Create ARC-interaction fixtures"
+    status: not-started
+  - id: "06.3"
+    title: "Create expected-fail fixtures"
+    status: not-started
+  - id: "06.4"
+    title: "Fixture matrix and categorization"
+    status: not-started
+  - id: "06.5"
     title: "Update self-test.sh coverage"
     status: not-started
   - id: "06.R"
@@ -34,36 +45,45 @@ sections:
 # Section 06: Expand Fixtures + Self-Test
 
 **Status:** Not Started
-**Goal:** The diagnostic toolkit's self-test suite runs against only 3 basic fixtures (`simple.ori`, `clean.ori`, `chain.ori`). These don't exercise closures, iterators, nested structures, generics, trait dispatch, or failure modes — the exact code patterns that cause the most debugging churn. New fixtures ensure diagnostic scripts produce correct output for the patterns they'll actually be used to debug.
+**Goal:** The diagnostic toolkit's self-test suite runs against only 3 basic fixtures (`simple.ori`, `clean.ori`, `chain.ori`). These don't exercise closures, iterators, nested structures, generics, trait dispatch, or failure modes — the exact code patterns that cause the most debugging churn. New fixtures ensure diagnostic scripts produce correct output for the patterns they'll actually be used to debug. The fixture suite must also cover escape closures, `?` unwinding, recursive tree walks, COW sharing, large aggregates, and mixed sum types — all identified as blind spots by tp-help consensus.
 
 **Success Criteria:**
-- [ ] At least 7 new `.ori` fixture files in `diagnostics/fixtures/`
+- [ ] At least 12 new `.ori` fixture files in `diagnostics/fixtures/`
 - [ ] Each fixture exercises a distinct code pattern relevant to AOT/AIMS debugging
+- [ ] Fixtures categorized as **pass** (exit 0, clean RC), **aims-heavy** (exit 0, exercises AIMS-specific paths like COW/reuse), or **expected-fail** (exit non-zero, validates diagnostic detection)
 - [ ] `self-test.sh` runs new fixtures through `diagnose-aot.sh`, `dual-exec-debug.sh`, `rc-stats.sh`, `ir-dump.sh`, `arc-dump.sh`, and `bisect-passes.sh` (added by Section 05)
-- [ ] `bisect-passes.sh` exercised on at minimum `closure.ori` and `iterator_break.ori` (the AIMS-relevant fixtures)
+- [ ] `bisect-passes.sh` exercised on at minimum `closure.ori`, `iterator_break.ori`, and `generic_mono.ori` (the AIMS-relevant fixtures)
+- [ ] Self-test assertions are **feature-specific** — not just "non-empty output" but assertions on expected IR markers (e.g., `PartialApply` for closures, `Switch` for match, `RcInc`/`RcDec` for RC-heavy fixtures)
+- [ ] Expected-fail fixtures use `run_test_expect_fail` with explicit exit code assertions distinguishing leak vs crash vs mismatch
+- [ ] All fixtures verified under both debug and release builds (`cargo b` and `cargo b --release`)
 - [ ] Satisfies mission criterion: "7+ new diagnostic fixtures covering closures, iterators, nested structures, generics, trait dispatch, and failure modes"
 
 **Context:** The current 3 fixtures (`simple.ori` — no collections/RC; `clean.ori` — collections, balanced RC; `chain.ori` — chained COW) were adequate when the toolkit was first built. But ARC/AIMS bugs predominantly appear in closure captures, iterator early-exit cleanup, nested aggregate drops, generic instantiation, and trait method dispatch — none of which are exercised. A diagnostic regression in these areas ships behind a green self-test.
 
-**Depends on:** None.
+**Depends on:** Section 05 (bisect-passes.sh must exist for self-test integration).
+
+**README ownership:** Section 07 owns the `diagnostics/README.md` fixtures table update (see `section-07-integration.md` 07.4). This section creates the fixtures and the `FIXTURES.md` categorization file; Section 07 integrates the final table into the user-facing README.
 
 ---
 
-## 06.1 Create complex-pattern fixtures
+## 06.1 Create core-pattern fixtures
 
 **File(s):** `diagnostics/fixtures/*.ori` (new files)
 
-Each fixture must: (1) compile under AOT, (2) produce deterministic output via `print()`, (3) exercise a specific code pattern. Fixture names are descriptive of the pattern, not the section number. Check existing sibling fixtures for import patterns — `assert_eq` requires `use std.testing { assert_eq }`.
+Each fixture must: (1) compile under AOT, (2) produce deterministic output via exit code (0 = success, 1 = logic failure), (3) exercise a specific code pattern, (4) pass both `ori run` and AOT binary execution with identical results. Fixture names are descriptive of the pattern, not the section number. Reference existing test files in `tests/valgrind/fat_matrix/` for correct Ori syntax patterns.
 
-- [ ] **`closure.ori`** — closure capturing a collection, calling the closure, verifying captures are alive after the call. Tests closure RC: the captured value must be inc'd on capture, dec'd on closure drop. **Verify Ori syntax against existing test files before committing** — check `tests/spec/closures/` for correct patterns.
-- [ ] **`iterator_break.ori`** — iterate with early `break`, verifying the iterator and remaining elements are properly dropped. This is the #1 ARC debugging pain point. **Verify**: check `tests/spec/expressions/loops/` for correct `for...do` + `break` syntax.
-- [ ] **`nested_list.ori`** — nested `[[int]]` or `[[str]]` collection, exercising elem_dec_fn propagation for nested drops.
-- [ ] **`generic.ori`** — generic function with a concrete instantiation, testing that generics don't break RC analysis. **Verify**: check `tests/spec/generics/` for correct generic function syntax.
-- [ ] **`trait_dispatch.ori`** — trait method call through a concrete impl, testing that trait dispatch codegen produces balanced RC. **Note**: current compiler uses `impl Trait for Type` syntax (not `impl Type: Trait` — that's approved but not yet implemented per CLAUDE.md §Capability Unification). Check `tests/spec/traits/` for correct syntax.
-- [ ] **`pattern_match.ori`** — sum type with pattern matching, exercising tag dispatch and per-variant drops. Check `tests/spec/types/enums/` for correct sum type syntax.
-- [ ] **`map_iteration.ori`** — map creation + iteration, testing map RC and iterator cleanup. Check `tests/spec/collections/map/` for correct map syntax.
-- [ ] Verify each fixture: `ori run <fixture>` produces expected output, `ori build <fixture> -o /tmp/test_fixture && /tmp/test_fixture` produces the same output
-- [ ] Add any additional fixtures that emerge as needed during self-test integration
+**Category: pass** — all exit 0, balanced RC.
+
+- [ ] **`closure.ori`** — Closure capturing a collection (`[int]`), calling the closure, verifying captures are alive after the call. Tests closure RC: the captured value must be inc'd on capture, dec'd on closure drop. **Must also include:** closure passed as function argument, closure called twice (RC balance after multiple invocations). Reference syntax: `tests/valgrind/fat_matrix/f04_closure_capture.ori`
+- [ ] **`closure_escape.ori`** — Closures that escape their creation scope: stored in a list, passed as a parameter to another function, returned from a function, and called after the creating scope has exited. This is a GAP identified by tp-help — capture-only coverage is insufficient for RC correctness because escaping closures stress the lifetime of captured values beyond lexical scope. Reference syntax: `tests/valgrind/fat_matrix/f04_closure_capture.ori` (for capture patterns), `tests/spec/expressions/lambdas.ori` (for lambda syntax)
+- [ ] **`iterator_break.ori`** — Iterate over `[str]` with early `break`, verifying the iterator and remaining elements are properly dropped. This is the #1 ARC debugging pain point. Must include: full iteration (no break), break on first element, break on middle element, `continue` skipping elements. Reference syntax: `tests/valgrind/fat_matrix/f19_break_continue.ori`
+- [ ] **`iterator_complex.ori`** — Iterator patterns beyond simple break: nested `for` loops with fat values in both levels, `for...yield` with break producing partial collection, `continue` with guard filtering, map iteration and cleanup. tp-help identified single `iterator_break.ori` as insufficient — iterator coverage must be deeper. Reference syntax: `tests/valgrind/fat_matrix/f19_break_continue.ori`, `tests/spec/traits/iterator/for_loop.ori`
+- [ ] **`nested_list.ori`** — Nested `[[str]]` collection, exercising `elem_dec_fn` propagation for nested drops. Include: creating nested lists, accessing inner elements, passing nested lists to functions. Reference syntax: `tests/valgrind/fat_matrix/f14_list_element.ori`
+- [ ] **`generic_mono.ori`** — Generic function instantiated with **multiple concrete types**: scalar (`int`), heap string (`str`), list (`[int]`), and struct-with-fat-field. tp-help identified single-type generic coverage as insufficient — monomorphization must be tested across the type matrix to verify RC analysis is correct for each instantiation. Reference syntax: `tests/valgrind/fat_matrix/f10_generics.ori`
+- [ ] **`trait_dispatch.ori`** — Trait method call through a concrete `impl Trait for Type` (current compiler syntax), testing that trait dispatch codegen produces balanced RC. Include: trait with required method, trait with default method, calling trait method on a value that owns fat pointers. **Note**: current compiler uses `impl Trait for Type` syntax (not `impl Type: Trait` — that's approved but not yet implemented per CLAUDE.md). Reference syntax: `tests/spec/traits/declaration.ori`
+- [ ] **`pattern_match.ori`** — Sum type with 3+ variants including mixed scalar and fat-pointer payloads (e.g., `A(x: int) | B(s: str) | C(xs: [int])`), exercising tag dispatch and per-variant drops. tp-help identified this as a gap: mixed scalar/ref variants stress the decision tree codegen differently than uniform variants. Reference syntax: `tests/valgrind/fat_matrix/f06_pattern_matching.ori`, `tests/valgrind/fat_matrix/f12_sum_payload.ori`
+- [ ] **`map_iteration.ori`** — Map creation with string keys, iteration over entries, map lookup, verifying RC for both keys and values during iteration. Reference syntax: `tests/spec/types/map_types.ori`
+- [ ] Verify each fixture: `cargo run -- run <fixture>` produces expected exit code, `cargo run -- build <fixture> -o /tmp/test_fixture && /tmp/test_fixture` produces the same exit code
 
 - [ ] **Subsection close-out (06.1)** — MANDATORY before starting 06.2:
   - [ ] All tasks above are `[x]` and verified
@@ -72,26 +92,126 @@ Each fixture must: (1) compile under AOT, (2) produce deterministic output via `
 
 ---
 
-## 06.2 Update self-test.sh coverage
+## 06.2 Create ARC-interaction fixtures
 
-**File(s):** `diagnostics/self-test.sh`, `diagnostics/README.md`
+**File(s):** `diagnostics/fixtures/*.ori` (new files)
 
-- [ ] Add each **pass fixture** (closure, iterator_break, nested_list, generic, trait_dispatch, pattern_match, map_iteration) to the self-test matrix:
+These fixtures exercise ARC-specific interaction patterns that tp-help identified as blind spots. They are **pass** fixtures (exit 0) but are categorized as **aims-heavy** because they specifically stress AIMS pipeline phases.
+
+**Category: aims-heavy** — all exit 0, but exercise AIMS-specific paths (COW, reuse, `?` unwinding, recursion).
+
+- [ ] **`question_mark.ori`** — `?` operator propagation with fat values in scope (heap `str`, `[int]`, struct-with-fat-field). Must include: `?` on `Option<str>` returning `None`, `?` on `Option<[int]>` returning `Some`, chained `?` with multiple fat locals in scope that must be cleaned up on early exit. tp-help identified this as mandatory ARC interaction coverage — `?` triggers early-exit unwinding that must drop all live fat values. Reference syntax: `tests/valgrind/fat_matrix/f15_question_mark.ori`
+- [ ] **`recursive_tree.ori`** — Recursive function passing fat pointer types through recursive call frames: heap `str` through `N` levels, `[int]` through recursion, struct with fat field returned from recursive base case. Exercises stack-frame RC correctness across recursive depth. Reference syntax: `tests/valgrind/fat_matrix/f16_recursion.ori`
+- [ ] **`cow_sharing.ori`** — COW sharing barrier exercise: create a list, alias it (shared), mutate through one alias (triggers COW clone), verify original is unchanged. Also: multi-fork (3+ references to same backing), and push-after-share on both sides. Exercises `is_unique` check and COW clone path. Reference syntax: `tests/valgrind/cow/cow_list_push.ori`
+
+- [ ] Verify each fixture: `cargo run -- run <fixture>` and `cargo run -- build <fixture> -o /tmp/test_fixture && /tmp/test_fixture` produce identical exit code 0
+- [ ] Verify each fixture under release build: `cargo run --release -- build <fixture> -o /tmp/test_fixture && /tmp/test_fixture` produces exit code 0
+
+- [ ] **Subsection close-out (06.2)** — MANDATORY before starting 06.3:
+  - [ ] All tasks above are `[x]` and verified
+  - [ ] Update this subsection's `status` in section frontmatter to `complete`
+  - [ ] **Run `/improve-tooling` retrospectively on THIS subsection**
+
+---
+
+## 06.3 Create expected-fail fixtures
+
+**File(s):** `diagnostics/fixtures/*.ori` (new files)
+
+tp-help identified that failure fixtures were "optional and underspecified" — this is a coverage gap. Diagnostic scripts must be validated in failure mode, not just success mode. These fixtures are **mandatory**.
+
+**Category: expected-fail** — designed to trigger specific diagnostic failures.
+
+- [ ] **`leak.ori`** — Program that intentionally leaks an RC value (e.g., create a circular reference or allocate without drop path). `ORI_CHECK_LEAKS=1` must report a leak. `diagnose-aot.sh` must detect the leak. This validates that the leak detection path in diagnostic scripts actually works.
+  - If the compiler currently prevents all leak paths (no known way to create a leak in safe Ori code), document this finding and create the fixture as a **best-effort** leak candidate (e.g., a program where the runtime leak checker is known to report spurious imbalance due to internal allocations in COW operations). The point is exercising the `run_test_expect_fail` path in self-test.
+- [ ] **`mismatch_compute.ori`** — Program that (via the mismatch-wrapper.sh infrastructure already in `diagnostics/fixtures/`) produces different interpreter vs AOT output. This validates that `dual-exec-debug.sh` correctly detects and reports mismatches with auto-diagnostic output. **Note:** The existing `mismatch.ori` + `mismatch-wrapper.sh` already serves this purpose — verify it is sufficient or extend it.
+
+- [ ] **Subsection close-out (06.3)** — MANDATORY before starting 06.4:
+  - [ ] All tasks above are `[x]` and verified
+  - [ ] Update this subsection's `status` in section frontmatter to `complete`
+  - [ ] **Run `/improve-tooling` retrospectively on THIS subsection**
+
+---
+
+## 06.4 Fixture matrix and categorization
+
+**File(s):** `diagnostics/fixtures/FIXTURES.md` (new file)
+
+tp-help identified scattered fixture knowledge as a LEAK — fixture names are repeated per-script in self-test with no single source of truth for what each fixture covers. This subsection creates the SSOT.
+
+- [ ] Create `diagnostics/fixtures/FIXTURES.md` with a categorization table:
+
+  | Fixture | Category | Pattern | Key ARC/AIMS Paths | Expected Exit | bisect-passes? |
+  |---------|----------|---------|-------------------|---------------|----------------|
+  | `simple.ori` | pass | No collections, no RC | Baseline (no RC ops) | 0 | No (trivial) |
+  | `clean.ori` | pass | Collections + balanced RC | RC alloc/dec, list ops | 0 | Yes |
+  | `chain.ori` | pass | Chained COW ops | COW clone path, sequential mutation | 0 | Yes |
+  | `closure.ori` | pass | Closure capture + call | PartialApply, closure env RC | 0 | Yes |
+  | `closure_escape.ori` | pass | Escaping closures | Closure lifetime beyond scope | 0 | Yes |
+  | `iterator_break.ori` | pass | Iterator early exit | Iterator drop, elem cleanup | 0 | Yes |
+  | `iterator_complex.ori` | pass | Nested/yield/guard iteration | Nested loop RC, partial collect | 0 | Yes |
+  | `nested_list.ori` | pass | Nested collections | elem_dec_fn propagation | 0 | Yes |
+  | `generic_mono.ori` | aims-heavy | Multi-type generic instantiation | Monomorphization RC correctness | 0 | Yes |
+  | `trait_dispatch.ori` | pass | Trait method dispatch | Trait vtable codegen, method RC | 0 | Yes |
+  | `pattern_match.ori` | pass | Sum type mixed variants | Decision tree, per-variant drop | 0 | Yes |
+  | `map_iteration.ori` | pass | Map create + iterate | Map RC, iterator cleanup | 0 | Yes |
+  | `question_mark.ori` | aims-heavy | `?` with fat values | Early-exit unwinding, drop all live | 0 | Yes |
+  | `recursive_tree.ori` | aims-heavy | Recursive fat pointer passing | Stack-frame RC across depth | 0 | Yes |
+  | `cow_sharing.ori` | aims-heavy | COW sharing/fork | is_unique, COW clone barrier | 0 | Yes |
+  | `leak.ori` | expected-fail | Intentional leak | Leak detection path | non-zero | No |
+
+- [ ] In `FIXTURES.md`, document the self-test contract for each category:
+  - **pass**: `ir-dump.sh` (non-empty), `arc-dump.sh` (non-empty), `diagnose-aot.sh` (exit 0), `dual-exec-debug.sh` (MATCH), `rc-stats.sh` (produces output), `bisect-passes.sh` (phase table)
+  - **aims-heavy**: same as pass, PLUS `bisect-passes.sh` must show RC operations (not trivially empty), AND assertions on feature-specific IR markers
+  - **expected-fail**: `diagnose-aot.sh` must report failure (`run_test_expect_fail`), specific exit code documented per fixture
+
+- [ ] **Subsection close-out (06.4)** — MANDATORY before starting 06.5:
+  - [ ] All tasks above are `[x]` and verified
+  - [ ] Update this subsection's `status` in section frontmatter to `complete`
+  - [ ] **Run `/improve-tooling` retrospectively on THIS subsection**
+
+---
+
+## 06.5 Update self-test.sh coverage
+
+**File(s):** `diagnostics/self-test.sh`
+
+- [ ] Update the fixture existence check at the top of `self-test.sh` (currently checks `simple.ori`, `clean.ori`, `chain.ori` only) to also require all new fixtures. Group by category (pass, aims-heavy, expected-fail) with comments.
+
+- [ ] Add each **pass fixture** (`closure`, `closure_escape`, `iterator_break`, `iterator_complex`, `nested_list`, `generic_mono`, `trait_dispatch`, `pattern_match`, `map_iteration`) to the self-test matrix:
   - `ir-dump.sh --no-color <fixture>` produces non-empty IR
   - `arc-dump.sh --no-color <fixture>` produces non-empty ARC IR
-  - `diagnose-aot.sh --no-color <fixture>` passes all checks
+  - `diagnose-aot.sh --no-color <fixture>` passes all checks (exit 0)
   - `dual-exec-debug.sh --no-color <fixture>` shows MATCH
-  - `rc-stats.sh --no-color <fixture>` produces output
-  - `bisect-passes.sh <fixture>` produces phase table output (added by Section 05 — exercises AIMS pipeline tracing checkpoints against each fixture)
-- [ ] Add each **failure fixture** (leak.ori, double_free.ori — if created) to the self-test with EXPECTED-FAIL expectations:
-  - Use `run_test_expect_fail` (already exists in self-test.sh lines 91-105) for `diagnose-aot.sh` on these fixtures
-  - Verify these fixtures FAIL the leak check or Valgrind, which is the expected behavior
-  - Do NOT apply the pass-only matrix to failure fixtures — they exist to validate that diagnostic scripts correctly DETECT failures
-- [ ] Update the fixture existence check at the top of self-test.sh (currently checks for simple/clean/chain only)
-- [ ] Update `diagnostics/README.md` fixtures table to include all new fixtures with what they test
-- [ ] Verify: `diagnostics/self-test.sh --verbose` passes with expanded coverage
+  - `rc-stats.sh --no-color <fixture>` produces output containing "Function"
+  - `bisect-passes.sh --no-color <fixture>` produces phase table containing "Phase" (exercises AIMS pipeline tracing checkpoints)
 
-- [ ] **Subsection close-out (06.2)** — MANDATORY before starting 06.R:
+- [ ] Add **feature-specific assertions** for aims-heavy and select pass fixtures (tp-help identified "non-empty IR" as too weak):
+  - `closure.ori`: `arc-dump.sh` output contains `PartialApply` (closure construction in ARC IR)
+  - `closure_escape.ori`: `arc-dump.sh` output contains `PartialApply`
+  - `iterator_break.ori`: `bisect-passes.sh` output shows non-zero RC operations (not `inc:0 dec:0`)
+  - `pattern_match.ori`: `arc-dump.sh` output contains `Switch` (decision tree in ARC IR)
+  - `generic_mono.ori`: `arc-dump.sh` output contains at least 2 different function entries (multiple monomorphizations)
+  - `question_mark.ori`: `arc-dump.sh` output contains `RcDec` (cleanup on early exit)
+  - `cow_sharing.ori`: `arc-dump.sh` output contains `IsShared` (COW uniqueness check)
+
+- [ ] Add each **aims-heavy fixture** (`question_mark`, `recursive_tree`, `cow_sharing`) to the self-test matrix with the same pass-fixture checks PLUS the feature-specific assertions above.
+
+- [ ] Add each **expected-fail fixture** to the self-test with `run_test_expect_fail` expectations:
+  - `leak.ori`: `run_test_expect_fail` for `diagnose-aot.sh` — validates that leak detection reports non-zero exit
+  - Existing `mismatch.ori` + wrapper already tests the mismatch path — verify it covers the `mismatch_compute.ori` case or extend
+
+- [ ] Handle `bisect-passes.sh` exit code semantics (tp-help GAP): some fixtures cause structural changes during AIMS phases (block merging, var count changes), which is expected behavior — not a failure. Self-test must:
+  - For pass/aims-heavy fixtures: assert exit 0 from `bisect-passes.sh` (structural changes are informational, not errors)
+  - If `bisect-passes.sh` exits non-zero for a pass fixture, that is a self-test failure to investigate
+
+- [ ] **Release build coverage** (tp-help GAP): Add a conditional section (gated on `target/release/ori` existence, like the existing `debug-release-compare.sh` section) that runs `diagnose-aot.sh --release` on at least 3 representative fixtures (`closure.ori`, `iterator_break.ori`, `generic_mono.ori`). This catches optimization-dependent regressions (FastISel vs full pipeline).
+  - If release binary not found, SKIP with a message (not FAIL)
+
+- [ ] Verify: `diagnostics/self-test.sh --verbose` passes with expanded coverage
+- [ ] Verify: all new self-test assertions pass in CI-equivalent conditions (clean build)
+
+- [ ] **Subsection close-out (06.5)** — MANDATORY before starting 06.R:
   - [ ] All tasks above are `[x]` and verified
   - [ ] Update this subsection's `status` in section frontmatter to `complete`
   - [ ] **Run `/improve-tooling` retrospectively on THIS subsection**
@@ -106,11 +226,15 @@ Each fixture must: (1) compile under AOT, (2) produce deterministic output via `
 
 ## 06.N Completion Checklist
 
-- [ ] All subsections (06.1, 06.2) complete
-- [ ] All fixtures compile and run under both interpreter and AOT
-- [ ] `diagnostics/self-test.sh` passes
+- [ ] All subsections (06.1, 06.2, 06.3, 06.4, 06.5) complete
+- [ ] All pass/aims-heavy fixtures compile and run under both interpreter and AOT
+- [ ] All pass/aims-heavy fixtures produce identical results under debug and release builds
+- [ ] Expected-fail fixtures correctly trigger diagnostic detection
+- [ ] `diagnostics/fixtures/FIXTURES.md` exists and is the SSOT for fixture categorization
+- [ ] `diagnostics/self-test.sh` passes with all new fixtures
+- [ ] Feature-specific assertions validate real IR markers, not just "non-empty"
 - [ ] `timeout 150 ./test-all.sh` green — no regressions
-- [ ] **Doc update (SSOT):** Update `diagnostics/README.md` fixtures table with all new fixtures
 - [ ] `/tpr-review` passed
 - [ ] `/impl-hygiene-review` passed
 - [ ] **`/improve-tooling` section-close sweep**
+- [ ] **Strip plan annotations** — remove any `Section 06` / `§06` code comments from implemented files
