@@ -27,7 +27,7 @@ sections:
     status: complete
   - id: "06.3"
     title: "Create expected-fail fixtures"
-    status: not-started
+    status: complete
   - id: "06.4"
     title: "Fixture matrix and categorization"
     status: not-started
@@ -123,14 +123,15 @@ tp-help identified that failure fixtures were "optional and underspecified" — 
 
 **Category: expected-fail** — designed to trigger specific diagnostic failures.
 
-- [ ] **`leak.ori`** — Program that intentionally leaks an RC value (e.g., create a circular reference or allocate without drop path). `ORI_CHECK_LEAKS=1` must report a leak. `diagnose-aot.sh` must detect the leak. This validates that the leak detection path in diagnostic scripts actually works.
-  - If the compiler currently prevents all leak paths (no known way to create a leak in safe Ori code), document this finding and create the fixture as a **best-effort** leak candidate (e.g., a program where the runtime leak checker is known to report spurious imbalance due to internal allocations in COW operations). The point is exercising the `run_test_expect_fail` path in self-test.
-- [ ] **`mismatch_compute.ori`** — Program that (via the mismatch-wrapper.sh infrastructure already in `diagnostics/fixtures/`) produces different interpreter vs AOT output. This validates that `dual-exec-debug.sh` correctly detects and reports mismatches with auto-diagnostic output. **Note:** The existing `mismatch.ori` + `mismatch-wrapper.sh` already serves this purpose — verify it is sufficient or extend it.
+- [x] **`leak.ori`** — Program that intentionally leaks an RC value (e.g., create a circular reference or allocate without drop path). `ORI_CHECK_LEAKS=1` must report a leak. `diagnose-aot.sh` must detect the leak. This validates that the leak detection path in diagnostic scripts actually works.
+  - Safe Ori code cannot create true RC leaks (no circular references, ARC manages all allocations). Created best-effort fixture: panic with fat values in scope causes `diagnose-aot.sh` to report FAIL (execution exit=1) + WARN (RC Stats imbalanced: over-releases from incomplete cleanup). `ORI_CHECK_LEAKS=1` does not report leaks because the panic handler bypasses `ori_run_main`'s return path where the leak check runs.
+- [x] **`mismatch_compute.ori`** — Program that (via the mismatch-wrapper.sh infrastructure already in `diagnostics/fixtures/`) produces different interpreter vs AOT output. This validates that `dual-exec-debug.sh` correctly detects and reports mismatches with auto-diagnostic output. **Note:** The existing `mismatch.ori` + `mismatch-wrapper.sh` already serves this purpose — verify it is sufficient or extend it.
+  - Verified: existing `mismatch.ori` + `mismatch-wrapper.sh` is sufficient. `ORI_BIN=mismatch-wrapper.sh dual-exec-debug.sh mismatch.ori` correctly detects MISMATCH (stdout "INTERP" vs "AOT"), exits 1, and produces auto-diagnostic output. No separate `mismatch_compute.ori` needed.
 
-- [ ] **Subsection close-out (06.3)** — MANDATORY before starting 06.4:
-  - [ ] All tasks above are `[x]` and verified
-  - [ ] Update this subsection's `status` in section frontmatter to `complete`
-  - [ ] **Run `/improve-tooling` retrospectively on THIS subsection**
+- [x] **Subsection close-out (06.3)** — MANDATORY before starting 06.4:
+  - [x] All tasks above are `[x]` and verified
+  - [x] Update this subsection's `status` in section frontmatter to `complete`
+  - [x] **Run `/improve-tooling` retrospectively on THIS subsection**
 
 ---
 
