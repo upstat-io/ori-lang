@@ -30,15 +30,18 @@ diagnostics/diagnose-aot.sh file.ori              # Standard battery
 diagnostics/diagnose-aot.sh --valgrind file.ori    # + Valgrind memory error detection
 diagnostics/diagnose-aot.sh --rc-trace file.ori    # + ORI_TRACE_RC during execution
 diagnostics/diagnose-aot.sh --verbose file.ori     # + native disassembly
+diagnostics/diagnose-aot.sh --release file.ori     # Use release build instead of debug
+diagnostics/diagnose-aot.sh --both-builds file.ori # Full battery on BOTH debug and release, then compare
 ```
 
-Runs 5-7 checks in sequence: compilation, execution, leak check (`ORI_CHECK_LEAKS=1`), RC stats, LLVM IR dump, and optionally Valgrind and disassembly.
+Runs 5-7 checks in sequence: compilation, execution, leak check (`ORI_CHECK_LEAKS=1`), RC stats, LLVM IR dump, and optionally Valgrind and disassembly. With `--both-builds`, runs the full battery twice (debug then release) and shows a per-section comparison table.
 
 ### dual-exec-debug.sh — Backend Comparison
 
 ```bash
 diagnostics/dual-exec-debug.sh file.ori            # Compare eval vs AOT
 diagnostics/dual-exec-debug.sh --verbose file.ori   # + ORI_LOG=debug traces on both
+diagnostics/dual-exec-debug.sh --keep-temp file.ori # Preserve diagnostic artifacts on mismatch
 ```
 
 On mismatch, automatically runs `ir-dump.sh` and `rc-stats.sh` to diagnose the difference.
