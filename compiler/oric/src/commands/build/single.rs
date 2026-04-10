@@ -87,6 +87,12 @@ pub(super) fn build_file_single(
         {
             report_codegen_error(e);
         }
+        // Post-optimization RC histogram (gated behind audit flag).
+        if ori_llvm::verify::audit_requested() {
+            let audit_opts = ori_llvm::verify::AuditOptions::from_env();
+            let stats = ori_llvm::verify::audit_module_histogram_only(&llvm_module, &audit_opts);
+            stats.emit_to_stderr();
+        }
         emit_and_finish(
             &llvm_module,
             &emitter,
