@@ -12,7 +12,7 @@ Quick-access debugging tools for the Ori compiler's AOT/codegen pipeline. These 
 | `dual-exec-debug.sh` | Compare interpreter vs AOT output | Wrong output — is it eval or codegen? |
 | `dual-exec-verify.sh` | Batch interpreter vs LLVM verification | CI parity gate, coverage audits |
 | `codegen-audit.sh` | Static RC/COW/ABI analysis of LLVM IR | RC corruption, double-free, ABI mismatch |
-| `rc-stats.sh` | RC operation count per function | Leak or over-release suspicion |
+| `rc-stats.sh` | RC operation count per function | Leak or over-release suspicion (`--block-level`, `--optimized`) |
 | `ir-dump.sh` | Annotated LLVM IR with color-coded RC ops | Understanding what codegen actually emits |
 | `arc-dump.sh` | Annotated ARC IR (post-lowering, pre-RC) | Debugging AIMS pipeline: alias chains, take-projects, lineage |
 | `ir-diff.sh` | Side-by-side IR comparison of two programs | Regression hunting, before/after comparison |
@@ -83,11 +83,14 @@ Three analysis categories:
 ### rc-stats.sh — RC Operation Counts
 
 ```bash
-diagnostics/rc-stats.sh file.ori                   # Count RC ops per function
-diagnostics/rc-stats.sh --optimized file.ori        # After LLVM optimization passes
+diagnostics/rc-stats.sh file.ori                             # Count RC ops per function
+diagnostics/rc-stats.sh --block-level file.ori               # Per-block breakdown within each function
+diagnostics/rc-stats.sh --optimized file.ori                  # After LLVM optimization passes
+diagnostics/rc-stats.sh --block-level --optimized file.ori   # Per-block on optimized IR
+diagnostics/rc-stats.sh --compare-awk file.ori               # Migration check: compare JSON vs legacy awk
 ```
 
-Balance = `(alloc + inc) - (dec + free)`. Positive = potential leak. Negative = potential over-release.
+Consumes compiler JSON via `ORI_AUDIT_CODEGEN=1` — SSOT is `RcOpKind` in `rc_histogram.rs`. Balance = `(alloc + inc) - (dec + free)`. Positive = potential leak. Negative = potential over-release. Per-block balance is informational; only function-level balance affects exit code.
 
 ### ir-dump.sh — LLVM IR Dump
 
@@ -203,9 +206,10 @@ diagnostics/diagnose-aot.sh --valgrind file.ori
 ### "Memory leak suspected"
 
 ```bash
-ORI_CHECK_LEAKS=1 ./binary                          # Quick check
-diagnostics/rc-stats.sh file.ori                     # Which function is imbalanced?
-ORI_TRACE_RC=1 ./binary 2>&1 | grep -v inc | head    # What's allocated but never freed?
+ORI_CHECK_LEAKS=1 ./binary                                    # Quick check
+diagnostics/rc-stats.sh file.ori                               # Which function is imbalanced?
+diagnostics/rc-stats.sh --block-level file.ori                 # Which block within that function?
+ORI_TRACE_RC=1 ./binary 2>&1 | grep -v inc | head              # What's allocated but never freed?
 ```
 
 ### "Codegen looks wrong"
