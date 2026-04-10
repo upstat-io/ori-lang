@@ -357,6 +357,10 @@ run_test_output_contains "bisect-passes.sh --function main filters" "Function: m
     "$SCRIPT_DIR/bisect-passes.sh" --no-color --function main "$FIXTURES_DIR/clean.ori"
 run_test_expect_fail "bisect-passes.sh with no args" \
     "$SCRIPT_DIR/bisect-passes.sh" --no-color
+run_test_expect_fail "bisect-passes.sh --function without value" \
+    "$SCRIPT_DIR/bisect-passes.sh" --no-color --function
+run_test_exit_code "bisect-passes.sh --rc-only simple.ori exits 0 (no RC divergence)" 0 \
+    "$SCRIPT_DIR/bisect-passes.sh" --no-color --rc-only "$FIXTURES_DIR/simple.ori"
 echo ""
 
 # ─── Error handling ───────────────────────────────────────────────
