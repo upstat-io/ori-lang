@@ -96,17 +96,7 @@ paths:
 
 ## Diagnostic Scripts — USE THESE
 
-**Before reading code line-by-line, run the diagnostic scripts.**
-
-- `diagnostics/diagnose-aot.sh file.ori` — all-in-one: build + run + leak check + RC stats + IR (add `--valgrind`)
-- `diagnostics/dual-exec-debug.sh file.ori` — interpreter vs AOT comparison (auto-dumps on mismatch)
-- `diagnostics/rc-stats.sh file.ori` — RC balance per function (`--block-level` per-block breakdown, `--optimized` post-opt IR)
-- `diagnostics/codegen-audit.sh file.ori` — static RC + COW + ABI analysis (`--strict`, `--function name`)
-- `diagnostics/ir-dump.sh file.ori` — annotated LLVM IR (`--raw` for undecorated)
-- `diagnostics/ir-diff.sh a.ori b.ori` — side-by-side IR comparison
-- `diagnostics/disasm-ori.sh file.ori` — native disassembly with Ori demangling
-- **In-pipeline audit**: `ORI_AUDIT_CODEGEN=1 ori build file.ori` (add `ORI_AUDIT_STRICT=1` | `ORI_AUDIT_FUNCTION=name`)
-- **Consistency check**: `diagnostics/check-debug-flags.sh` — validates all `ORI_*` flags
+**Before reading code line-by-line, run the diagnostic scripts.** See @diagnostic.md §Diagnostic Scripts for the full table with all flags.
 
 ## Bug Debugging Workflow
 

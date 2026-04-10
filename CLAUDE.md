@@ -152,14 +152,7 @@ When fixing any AIMS-related bug: ask "does this preserve system coherence?" A f
 **AIMS**: The ARC pipeline uses the AIMS unified lattice — no feature flags needed.
 **Always run `./test-all.sh` after compiler changes.**
 **Perf baseline**: `./scripts/perf-baseline.sh [--release] [--include-cow]` | **COW benchmarks**: `./scripts/cow-benchmark.sh [--release] [--include-macro] [--compare baseline.json]` | **Consistency**: `diagnostics/check-debug-flags.sh` | **Cargo cache**: `./scripts/cache-doctor.sh [--print-cleanup|--clean]` — detects root-owned files in `target/` that cargo cannot update (accidental `sudo cargo build`); refuses destructive actions by default
-**Diagnostic scripts** (`diagnostics/`) — all support `--help`, `--no-color`/`--color`:
-- `ir-dump.sh` — LLVM IR (`--raw`, `--optimized`, `--function`) | `arc-dump.sh` — ARC IR post-lowering (`--raw`, `--function`) — debug AIMS pipeline (alias chains, take-projects, lineage) | `ir-diff.sh` — compare two programs | `disasm-ori.sh` — native disassembly
-- `rc-stats.sh` — RC balance per function (`--block-level` for per-block breakdown, `--optimized` for post-opt IR) | `codegen-audit.sh` — static RC/COW/ABI analysis (`--strict`, `--function`)
-- `diagnose-aot.sh` — all-in-one: build + run + leak check + RC stats + IR (`--valgrind`, `--verbose`)
-- `dual-exec-debug.sh` — interpreter vs AOT comparison; auto-dumps on mismatch (`--verbose`)
-- `debug-release-compare.sh` — debug vs release behavioral comparison (exit codes + stdout + LLVM IR diff on mismatch)
-- `valgrind-aot.sh [file.ori ...]` — Valgrind memory errors (defaults to `tests/valgrind/`, not in test-all.sh)
-- `dual-exec-verify.sh [test-path]` — batch interpreter vs LLVM (`--test-only`, `--main-only`, `--json`)
+**Diagnostic scripts** (`diagnostics/`): see `.claude/rules/diagnostic.md` §Diagnostic Scripts for full table with flags. Key scripts: `rc-stats.sh` (`--block-level`, `--optimized`), `codegen-audit.sh` (`--strict`), `diagnose-aot.sh` (`--valgrind`), `dual-exec-debug.sh`, `ir-dump.sh`, `debug-release-compare.sh`
 
 ## Feature Flags
 

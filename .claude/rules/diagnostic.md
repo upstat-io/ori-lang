@@ -43,3 +43,32 @@ paths:
 - `diagnostic.rs`: Builder
 - `emitter/`: Output formats (terminal, json, sarif)
 - `queue.rs`: Accumulation
+
+## Diagnostic Scripts (`diagnostics/`)
+
+All support `--help`, `--no-color`/`--color`.
+
+| Script | Purpose | Key flags |
+|--------|---------|-----------|
+| `ir-dump.sh` | LLVM IR | `--raw`, `--optimized`, `--function` |
+| `arc-dump.sh` | ARC IR post-lowering | `--raw`, `--function` |
+| `ir-diff.sh` | Compare two programs' IR | |
+| `disasm-ori.sh` | Native disassembly | |
+| `rc-stats.sh` | RC balance per function | `--block-level` (per-block breakdown), `--optimized` (post-opt IR), `--compare-awk` (migration check) |
+| `codegen-audit.sh` | Static RC/COW/ABI analysis | `--strict`, `--function` |
+| `diagnose-aot.sh` | All-in-one: build+run+leak+RC+IR | `--valgrind`, `--verbose`, `--both-builds` |
+| `dual-exec-debug.sh` | Interpreter vs AOT comparison | `--verbose` |
+| `debug-release-compare.sh` | Debug vs release comparison | |
+| `valgrind-aot.sh` | Valgrind memory errors | defaults to `tests/valgrind/` |
+| `dual-exec-verify.sh` | Batch interpreter vs LLVM | `--test-only`, `--main-only`, `--json` |
+
+**Data sources:**
+- `rc-stats.sh` consumes compiler JSON via `ORI_AUDIT_CODEGEN=1` (SSOT: `RcOpKind` in `rc_histogram.rs`)
+- `codegen-audit.sh` consumes `codegen audit:` lines from `ORI_AUDIT_CODEGEN=1`
+- `ir-dump.sh` / `arc-dump.sh` use `ORI_DUMP_AFTER_LLVM=1` / `ORI_DUMP_AFTER_ARC=1`
+
+**Environment:**
+- `ORI_BIN` — override path to ori binary (used by most scripts)
+- `ORI_AUDIT_CODEGEN=1` — enable in-pipeline audit (add `ORI_AUDIT_STRICT=1` | `ORI_AUDIT_FUNCTION=name`)
+
+**Self-test:** `diagnostics/self-test.sh` — runs all scripts against fixtures

@@ -53,4 +53,4 @@ paths:
 ## Debugging
 
 - For LLVM IR debugging workflow, tools, and verification strategy, see @llvm.md
-- **Diagnostic scripts**: see @compiler.md §Diagnostic Scripts for full list and flags
+- **Diagnostic scripts**: see @diagnostic.md §Diagnostic Scripts for full list and flags
