@@ -207,6 +207,16 @@ Per `impl-hygiene.md`: "Cross-section fixes require cross-section plan updates."
 - [x] `[TPR-05-006-codex][low]` `section-07-integration.md:136` — Add pipeline tracing target docs to Section 07.
   Resolved: Fixed on 2026-04-10. Added ori_arc::aims::pipeline tracing target doc items to Section 07.4 remaining tasks.
 
+**Iteration 3 findings (implementation review):**
+- [x] `[TPR-05-007-codex][medium]` `diagnostics/bisect-passes.sh:211` — Honor rc-only mode when marking structural changes.
+  Resolved: Fixed on 2026-04-10. Gated structural detection behind `RC_ONLY=0` check. Verified `--rc-only` exits 0 for clean-RC fixtures.
+- [x] `[TPR-05-008-codex][low]` `diagnostics/bisect-passes.sh:57` — Handle missing function filter value as usage error.
+  Resolved: Fixed on 2026-04-10. Added `$# -lt 2` guard with "Error: --function requires a value" message, exit 2.
+- [x] `[TPR-05-009-codex][low]` `.claude/rules/arc.md:218` — Update Key Files table after aims_pipeline split.
+  Resolved: Fixed on 2026-04-10. Updated table entry to `aims_pipeline/` directory with submodule descriptions.
+- [x] `[TPR-05-009-gemini][low]` `.claude/rules/arc.md:219` — Update Key Files table to reflect aims_pipeline split.
+  Resolved: Fixed on 2026-04-10. Same fix as [TPR-05-009-codex] (both reviewers flagged stale path).
+
 ---
 
 ## 05.N Completion Checklist
