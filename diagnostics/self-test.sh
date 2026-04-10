@@ -345,6 +345,20 @@ run_test_exit_code "debug-release-compare.sh exits 2 on compile failure" 2 \
 rm -f "$bad_file"
 echo ""
 
+# ─── bisect-passes.sh ─────────────────────────────────────────────
+printf "${C_BOLD}bisect-passes.sh${C_NC}\n"
+run_test_output_contains "bisect-passes.sh --help shows usage" "Usage:" \
+    "$SCRIPT_DIR/bisect-passes.sh" --help
+run_test_output_contains "bisect-passes.sh fixtures/simple.ori runs" "Phase" \
+    "$SCRIPT_DIR/bisect-passes.sh" --no-color "$FIXTURES_DIR/simple.ori"
+run_test_output_contains "bisect-passes.sh fixtures/clean.ori shows phases" "realize_rc_reuse" \
+    "$SCRIPT_DIR/bisect-passes.sh" --no-color "$FIXTURES_DIR/clean.ori"
+run_test_output_contains "bisect-passes.sh --function main filters" "Function: main" \
+    "$SCRIPT_DIR/bisect-passes.sh" --no-color --function main "$FIXTURES_DIR/clean.ori"
+run_test_expect_fail "bisect-passes.sh with no args" \
+    "$SCRIPT_DIR/bisect-passes.sh" --no-color
+echo ""
+
 # ─── Error handling ───────────────────────────────────────────────
 printf "${C_BOLD}Error handling${C_NC}\n"
 run_test_expect_fail "codegen-audit.sh with no args" \
