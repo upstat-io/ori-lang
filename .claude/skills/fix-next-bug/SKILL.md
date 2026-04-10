@@ -41,12 +41,19 @@ plans/bug-tracker/section-07-tooling-cli.md
 plans/bug-tracker/section-08-spec-docs.md
 ```
 
-For each open bug, extract:
+For each `- [ ]` entry, extract:
 - **ID**: `BUG-{section}-{ordinal}`
 - **Severity**: critical, high, medium, or low
 - **Title**: the bold text after severity
 - **Repro**: repro line if present
 - **Subsystem**: subsystem line if present
+- **Lifecycle markers**: check for `Escalated to plan:`, `Blocked:`, or `Escalated:` notes in the entry body
+
+**Exclude non-fixable entries** — remove from the candidate list any `- [ ]` entry whose body contains:
+- `Escalated to plan:` or `Escalated:` — the bug has been promoted to a plan; it is no longer an inline fix candidate
+- `Blocked:` — the bug has a prerequisite that hasn't been met yet
+
+These entries remain `- [ ]` (unchecked) because they are not resolved, but they are not actionable by `/fix-bug` until the plan completes or the blocker clears. Only genuinely open, unblocked, non-escalated bugs enter the priority queue.
 
 ### Step 2: Sort by Priority
 
@@ -196,7 +203,7 @@ In the loop:
 - **Interactive mode**: report the escalation, then ask to continue to the next bug as normal
 - **Autopilot mode**: note the escalation, run the Commit Verification Gate (the plan files need committing), then immediately continue to the next bug
 
-Do NOT re-select an escalated bug — it is no longer an open bug fix candidate (it has a plan reference in its entry).
+Escalated and blocked bugs are already excluded by Step 1's lifecycle-marker filter — they will not appear in the re-scan.
 
 ### Final Report
 

@@ -134,11 +134,8 @@ When LLVM or AOT tests fail, print a one-liner suggesting the relevant diagnosti
 - [x] Stale `aims-compare`/`aims-baseline`/`aims-measure` references removed (Section 01)
 
 **Remaining (after sections 05-06):**
-- [ ] Update `@diagnostic.md` §Diagnostic Scripts with `bisect-passes.sh` (Section 05)
-- [ ] Update `diagnostics/README.md` with `bisect-passes.sh` usage section and workflow
-- [ ] Update `diagnostics/README.md` fixtures table with all Section 06 fixtures
-- [ ] Update `.claude/rules/arc.md` §Debugging with new `ori_arc::aims::pipeline` tracing target (Section 05 — pipeline bisection, distinct from existing `ori_arc::aims::realize` realization-step snapshots)
-- [ ] Update CLAUDE.md §Tracing with `=ori_arc::aims::pipeline=info` example for pipeline bisection
+- [ ] **Verify** Section 05.N doc updates were applied: `bisect-passes.sh` in `@diagnostic.md`, `diagnostics/README.md`, `arc.md`, and CLAUDE.md tracing examples (owned by Section 05.N — Section 07 verifies, not duplicates)
+- [ ] Update `diagnostics/README.md` fixtures table with all Section 06 fixtures (owned by Section 07 — Section 06 adds fixtures but Section 07 integrates the full table)
 - [ ] Verify: no stale references to removed scripts remain (`grep -rn "aims-compare\|aims-baseline\|aims-measure" CLAUDE.md .claude/rules/ diagnostics/ plans/`)
 
 - [ ] **Subsection close-out (07.4)** — MANDATORY before starting 07.R:
