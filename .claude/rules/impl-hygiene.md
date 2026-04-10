@@ -1,6 +1,6 @@
 ---
 paths:
-  - "**/*.rs"
+  - "*.rs"
 ---
 
 # Hygiene Rules
@@ -410,14 +410,300 @@ Algorithmic DRY is the complement of SSOT:
 
 When both apply (e.g., a dispatch table that encodes both facts and routing), fix the SSOT violation first (centralize the data), then the algorithmic violation (consolidate the routing logic that queries it). The data-driven dispatch pattern often fixes both at once.
 
-## Extracted Rule Files
+## File Organization
 
-The following domain-specific rules have been extracted to focused files for better organization and reduced context cost. Each file has `paths: ["**/*.rs"]` frontmatter.
+- **500-line limit**: source files (excluding tests); exceeding = **BLOAT** finding
+- **Proactive split**: split at ~450 lines if you know more code is coming. Don't wait until over the limit.
+- **Single responsibility per file**: one logical operation or one type family. Anti-pattern: `utils.rs`, `helpers.rs`, `misc.rs`. Every file name describes its domain.
+- **Submodule extraction**: logical group exceeding ~200 lines → sibling submodule; parent `mod.rs` = dispatch hub
+- **Directory structure**: mirrors the logical phase/pass structure
+- **Split when touching**: touching a file over 500 lines without splitting = finding
+- **Tests in sibling `tests.rs`**: `#[cfg(test)] mod tests;` declaration only — body in sibling file
+- **Section markers**: plain `// Section name` on its own line, preceded by blank line. No decorative characters. If sections exceed ~200 lines, extract to submodule instead.
+- **Banner removal**: if you touch a file with decorative banners (`// ===`, `// ---`), remove them.
 
-- **File & module organization**: `structure.md` (file layout, module roles, crate org, import hygiene, 500-line limit)
-- **Naming & visibility**: `naming.md` (function/variable naming, visibility rules, comments, spec citations, plan annotations)
-- **Code style & safety**: `style.md` (derives, lints, performance annotations, style, clone discipline, unsafe/FFI, Salsa & caching, panic/assertion, tracing)
-- **Test hygiene & naming**: `tests.md` §Test Function Naming (three-part naming convention, banned ephemeral identifiers, enforcement)
-- **API & compilation**: `api.md` (conditional compilation, lifetimes, API stability, dependencies, concurrency)
-- **Error handling & diagnostics**: `diagnostic.md` §Message Style (diagnostic message quality)
-- **Process rules**: CLAUDE.md §Commands, §Stabilization Discipline, §Ownership & Deferral (CI, build, commit, technical debt)
+### File Layout (top to bottom)
+
+1. `//!` module docs
+2. `mod` declarations
+3. Imports (3 groups, blank-line separated: external → crate → relative, alphabetical within)
+4. Type aliases
+5. Type definitions (structs, enums)
+6. Inherent `impl` blocks (immediately after their type)
+7. Trait `impl` blocks (immediately after inherent impls)
+8. Free functions
+9. `#[cfg(test)] mod tests;` at bottom
+
+### Module Roles
+
+- `lib.rs` is an **index**: `//!` doc, `mod` declarations, `pub use` re-exports — no function bodies. Strict, no exceptions.
+- `mod.rs` **dispatches**: routes to submodules, holds shared private items
+- Leaf files **implement**: actual logic lives here
+
+### Crate Organization
+
+- Each crate has a single documented purpose
+- Module nesting max 4 levels (e.g., `ori_types::check::registration::traits`). Deeper = missing abstraction.
+- If a crate has >50 source files, consider splitting
+- Shared utilities live in dedicated crates (`ori_diagnostic`, `ori_patterns`, `ori_ir`). No `utils` modules in phase crates. If 3+ crates need the same utility, extract to a shared crate.
+
+### Import Hygiene
+
+- 3 groups separated by blank lines: external → crate → relative, alphabetical within
+- No glob imports (`use foo::*`) except in test modules and preludes
+- No unused imports
+- Re-export only types that are part of your crate's public API contract. Consumers import from the crate that owns the type.
+
+## Impl Block Method Ordering
+
+1. **Constructors**: `new`, `with_*`, `from_*`, factory methods
+2. **Accessors**: getters, `as_*` (cheap ref conversions)
+3. **Predicates**: `is_*`, `has_*`, `can_*`, `contains`
+4. **Public operations**: the main thing this type does
+5. **Conversion/consumption**: `into_*`, `to_*`
+6. **Private helpers**: in call-order grouping, not alphabetical
+
+Within each group: pub before pub(crate) before private (loose).
+
+## Struct/Enum Ordering
+
+**Struct fields:**
+1. Primary data (core state)
+2. Secondary/derived data
+3. Configuration/options
+4. Flags/booleans last
+
+Inline comments on struct fields when purpose isn't obvious.
+
+**Enum variants:** ordered by frequency/importance (common first) or logically grouped (keywords together, operators together). Match arms follow the enum's declaration order.
+
+## Naming
+
+**Functions** — verb-based prefixes:
+- Predicates: `is_*`, `has_*`, `can_*`
+- Conversions: `into_*` (consuming), `to_*` (borrowing), `as_*` (cheap ref), `from_*` (construct)
+- Processing: `cook_*` (lexer), `parse_*` (parser), `check_*` (typeck), `eval_*` (evaluator), `emit_*` (codegen)
+- Consumption: `eat_*` (advance past), `skip_*` (advance+discard)
+- Resolution: `resolve_*`, `lookup_*`, `fresh_*`
+- Factory: `new`, `with_*`
+
+**Variables** — scope-scaled:
+- 1 char in <= 3 lines: `c`, `i`, `n`, `b`
+- 2-4 chars in <= 15 lines: `ch`, `tok`, `pos`, `len`, `src`, `buf`, `err`, `kw`
+- Descriptive in larger scopes: `token_span`, `base_offset`, `content_str`
+
+**Constants**: `SCREAMING_SNAKE_CASE`, descriptive names.
+**Type aliases**: `PascalCase`, suffix with purpose.
+**Modules**: `snake_case`, noun-based.
+**Crates**: `ori_` prefix.
+**Generic parameters**: `T`/`E`/`K`/`V` for standard patterns; descriptive names when 2+ type params or domain-specific meaning. Never bare `T` with 3+ type params.
+
+## Visibility
+
+- Private by default; minimize pub surface
+- `pub(crate)` for cross-module internal use
+- `pub(super)` for parent-module access; prefer narrowest visibility that works
+- No dead pub items; no dead code
+- Items pub only for testing: `#[cfg(test)] pub` or `pub(crate)` with `// test-only` comment
+- `#[non_exhaustive]` for public library APIs only. Internal compiler enums should be exhaustively matched — the compiler error on new variants catches missing match arms.
+
+## Comments
+
+- `//!` module doc on every file; `///` on all `pub` items
+- All pub types and functions get `///` docs; use `` [`TypeName`] `` for cross-references; no docs that just restate the function name
+- Comment WHY, not WHAT; `debug_assert!` for preconditions
+- **Anti-patterns**: `// increment counter` (restates code), `// TODO` without context, `// This is a hack` without explaining the proper fix
+- No decorative banners (`// ===`, `// ---`, `// ***`)
+- No comments restating code, no commented-out code ever (use version control), no bare `// TODO`
+- TODOs: format `// TODO(phase): description` — e.g., `// TODO(typeck): handle generic associated types`. Every TODO references a plan or roadmap item. No orphan TODOs.
+- Section labels in large enums/matches: plain `// Section name`
+- **Spec citations required**: code implementing grammar rules, operator semantics, type rules, or language semantics must cite the spec clause. Format: `// Spec: Clause N.M — description`
+- **Plan annotations are temporary scaffolding**: Annotations referencing plans (`TPR-04-005`, `CROSS-04-014`, `§04.3 Phase A`, `BUG-04-07`, `Section 04.2`, `section-04-name`) are allowed during active plan execution — they aid navigation. They MUST be removed when the plan completes. Every plan MUST include a final cleanup section to strip all its code annotations. Stale annotations from completed plans are hygiene violations (**DRIFT** category). Run `.claude/skills/impl-hygiene-review/plan-annotations.sh` to scan. Only **spec references** (`Spec: Clause N.M`) are permanent.
+
+## Derives
+
+- **Debug on all pub types** (required for tracing and error context)
+- **Clone** only when semantic copying makes sense
+- **PartialEq/Eq** only for types used in comparisons/hash maps
+- **Hash** only when Eq is derived
+- **Derive** when impl is standard (field-by-field equality, hash, debug)
+- **Manual** only when behavior differs — articulate WHY
+
+## Lint Discipline
+
+- `#[expect(clippy::lint, reason = "...")]` — never bare `#[allow(clippy::...)]`
+- `#![deny(unsafe_code)]` in pure crates: `ori_ir`, `ori_diagnostic`, `ori_types`, `ori_eval`, `ori_patterns`, `ori_parse`, `ori_lexer`
+- `unsafe` allowed only in: `ori_llvm`, `ori_rt`, `oric` (FFI, LLVM bindings, runtime)
+- **Project-wide denied lints**: `unwrap_used` (prod code), `panic`, `todo`, `dbg_macro`, `print_stdout`/`print_stderr`. Override with `#[expect(reason)]` when genuinely needed.
+- **No commented-out code ever**: use version control. Not in any branch.
+
+## Performance Annotations
+
+- `#[cold]` on error factory functions
+- `#[inline]`: 1-5 lines freely. 6-20 lines only if profiling shows benefit or cross-crate hot path. >20 lines never.
+- `#[repr(C)]` only for FFI types; default layout for everything else
+- **Size assertions** on types in per-token/per-expression arrays or passed by value in hot loops. Add when size exceeds 2 machine words (16 bytes on 64-bit): `const _: () = assert!(size_of::<T>() == N);`
+- `#[must_use]` on all pub functions returning `Result`/`Option`, builder methods returning `Self`, and pure functions where ignoring the return is always a bug. On types like `Diagnostic`, `Error`.
+
+## Style
+
+- Functions < 100 lines (target < 50). Exempt: dispatch tables, exhaustive enum matches. Match arms > 3 lines should call a helper.
+- **Nesting depth**: max 4 levels. Prefer early returns (guard clauses) to reduce nesting.
+- **Pattern consistency**: similar operations across files must use the same structural pattern. Before writing a new file, read 2-3 siblings for established conventions.
+- **Iterator style**: iterator chains for transformations (map/filter/collect), manual loops for complex control flow (break/continue/multiple mutations). If a chain needs 4+ combinators or a closure > 3 lines, switch to a loop.
+- No dead/commented-out code
+
+## Clone Discipline
+
+- Clone acceptable on cold/error paths and test setup
+- Prefer `&str`/`Cow` over `String` at boundaries
+- `Arc` only for shared ownership across threads/tasks
+- No `.clone()` in hot paths without a comment justifying it
+
+## Unsafe & FFI
+
+- Every `unsafe` block requires a `// SAFETY:` comment explaining the invariant
+- Minimize unsafe scope — extract safe logic outside the unsafe block
+- **FFI exports**: `ori_` prefix, `#[no_mangle]` + `extern "C"`, null checks on pointer params
+- **C types**: use `std::ffi` (`c_char`, `c_int`, `c_void`, `CStr`, `CString`). Never `i8`/`i32` for C types. Never assume char is signed.
+- **ABI contract**: codegen and runtime must agree on struct layouts. Changes to `ori_rt` function signatures must update `ori_llvm` call sites in the same commit.
+- **Platform-specific code**: isolate behind `#[cfg(target_arch)]` blocks. Abstract platform differences.
+
+## Salsa & Caching
+
+- Queries must be pure: no side effects, no non-determinism
+- No `Arc<Mutex<T>>` in query inputs or values
+- Prefer fine-grained queries over coarse
+- Salsa interned values automatically invalidated. For non-Salsa caches, document the invalidation strategy. Prefer Salsa queries over manual caches.
+- **Tracked input ownership**: every `#[salsa::input]` must have exactly one mutator. Multiple writers to the same input = data race at the query level.
+- **Dependency edge completeness**: if query A reads data that query B produces, A must transitively depend on B through Salsa. Reading through side channels (global state, files, env vars) breaks incremental.
+- **Query-key stability**: keys used in tracked queries must have stable identity across revisions. If a key changes identity (e.g., different `ExprId` for the same expression after re-parse), all dependent queries re-execute even if the content is unchanged — a performance cliff.
+
+## Panic & Assertion
+
+- **Never panic on user input**: all user-facing errors go through the diagnostic system
+- **`.unwrap()`**: only with comment proving infallibility, or in tests. Production code: `.expect("reason")` or propagate with `?`.
+- **`assert!()`**: for invariants whose violation would cause unsound codegen or safety issues. Always include a message.
+- **`debug_assert!()`**: for expensive invariant checks (O(n) or worse)
+- **`unreachable!()`**: for impossible code paths. Include context message. Never `panic!()` for impossible states.
+- **Recursion depth**: all recursive traversals (type folding, expression visiting) must have a depth limit. Default: 256. Report clear error, don't stack overflow.
+
+## Tracing & Logging
+
+- Use `tracing` macros only (`trace!`, `debug!`, `info!`, `warn!`, `error!`). Never `println!`/`eprintln!` in library crates.
+- `tracing::error!()` is for internal compiler failures only. User-facing errors go through the Diagnostic system.
+- Error construction emits `trace!()` at debug level. Error recovery emits `warn!()`.
+- `#[tracing::instrument]` on public APIs
+- No sensitive data in logs, no log spam in hot loops
+
+## Test Hygiene
+
+- Test behavior, not implementation. Each test tests one thing.
+- No test ordering dependencies; no shared mutable state between tests
+- Descriptive names — see §Test Function Naming below
+- No `#[ignore]` without a tracking issue/reason
+- **Test data**: fixtures in `tests/fixtures/` or `tests/spec/`. No hardcoded absolute paths — use relative paths or `CARGO_MANIFEST_DIR`. Test data committed to repo.
+
+### Test Function Naming
+
+Test names have **inverted scope** from the things they often reference: the test name is permanent (it lives in every CI log, failure report, commit, and regression run forever), while the artifacts tests commonly reference — plans, sections, subsections, bug IDs, TPR codes — are deeply ephemeral. Encoding ephemeral identifiers into permanent names is a slow-burn footgun: it reads fine the day it's written, then rots silently as plans reorganize, sections renumber, bugs close, and the test name becomes meaningless noise.
+
+A test named `test_section_04_3_iter_drop` or `test_BUG_04_045_install_paths` or `test_TPR_04_005_typeck` has two problems:
+
+1. **It tells future readers nothing** — they have to cross-reference an external artifact (which may no longer exist) to understand what behavior is under test.
+2. **It becomes a maintenance burden** — when the plan completes or the bug closes, every such name must be renamed; in practice, they never are, and the rot compounds.
+
+**Required shape**: `<subject>_<scenario>_<expected>` — the three-part convention also known as Arrange-Act-Assert naming, Given-When-Then naming, or Roy Osherove's three-part test naming (widely adopted in Rust stdlib, JUnit, xUnit.net, Roslyn, Swift stdlib, Go conventions). Reading the name alone must answer:
+
+1. **Subject** — What unit, behavior, or feature is being tested?
+2. **Scenario** — Under what input, state, or condition?
+3. **Expected** — What outcome does the test verify?
+
+**Good examples:**
+- `test_iterator_drop_when_break_inside_for_releases_remaining`
+- `test_cow_slice_with_two_borrows_does_not_double_free`
+- `test_parse_empty_input_returns_empty_ast`
+- `test_compare_returns_less_when_left_smaller_than_right`
+- `test_typeck_rejects_map_key_without_hashable`
+- `test_eval_iter_zip_stops_at_shorter_sequence`
+
+Each name is self-contained — a reviewer can understand what's being verified without opening the file, without reading the body, and without looking up any external artifact.
+
+**Banned: ephemeral identifiers in test names.** These rot the moment the artifact is renamed, renumbered, merged, deleted, or completed:
+
+| Category | Banned examples |
+|---|---|
+| Plan names | `test_locality_repr_phase_a`, `test_repr_opt_validation`, `test_capability_unification_step_2` |
+| Section / subsection numbers | `test_section_04_3_drop`, `test_4_3_2_nested_closure`, `test_§4_3`, `test_04_2_phase_b` |
+| Plan annotations | `test_TPR_04_005`, `test_CROSS_04_014`, `test_section_04_2_phase_b`, `test_roadmap_04` |
+| Bug / issue IDs | `test_BUG_04_045_install_paths`, `test_issue_42`, `test_fix_2031`, `test_bug042` |
+| Dates | `test_2026_03_15_fix`, `test_march_fix`, `test_q1_regression` |
+| Authors / initials | `test_eric_fix`, `test_es_repro`, `test_alice_discovered` |
+| Commit hashes / ticket refs | `test_4590a6e6`, `test_JIRA_1234` |
+
+Provenance — *why* a regression test exists, *which* plan motivated it, *what* bug it guards against — belongs in `///` (Rust) or `//` (Ori) doc comments above the test, **never** in the function name:
+
+```rust
+/// Regression: iterator drop was skipping nested closures, causing a leak
+/// whenever a `break` inside a `for` left captured collections alive.
+/// See: plans/bug-tracker/fix-BUG-04-045.md
+#[test]
+fn test_iterator_drop_with_nested_closure_releases_inner_handle() { /* ... */ }
+```
+
+A doc comment can rot harmlessly — the test still explains itself without it, and the existing plan-annotations rule (run `plan-annotations.sh`) already catches stale plan annotations in comments at plan-completion time. The function name cannot rot harmlessly: it is the public identity of the test in every log, every failure report, every grep.
+
+**Banned: weak / empty descriptors.** These tell the reader nothing about what is being verified and provide zero diagnostic value in failure logs:
+
+- `test_works`, `test_works_correctly`, `test_it_works`
+- `test_basic`, `test_simple`, `test_default`, `test_normal`
+- `test_correct`, `test_valid`, `test_ok`, `test_sanity`
+- `test_handles_X`, `test_check_X`, `test_verify_X` — substitute with the actual scenario
+- Bare unit names: `test_iterator`, `test_parse_function`, `test_eval`, `test_collect`
+
+A failure log entry `test_works ... FAILED` is indistinguishable from any other `test_works` in any other file.
+
+**Allowed and encouraged:**
+
+- **Long descriptive names** — tests are not called by client code, so name length is free. Err on the side of self-explanatory over concise.
+- **Snake_case for Rust** (`test_X_when_Y_then_Z`), **kebab-case for Ori spec test files** (`map-filter-collect.ori`) — matches existing file-naming rules.
+- **Phase / backend qualifiers** when distinguishing parallel paths — `test_eval_iter_drop_releases_handle` vs `test_codegen_iter_drop_releases_handle` is legitimate when eval and codegen are both being verified.
+- **Spec vocabulary** — use the same terminology the spec uses (`test_comparable_returns_greater_when_left_exceeds_right`), so readers can cross-reference against spec clauses directly.
+- **Positive + negative pairing** in names — `test_rc_elision_fires_for_unique_owner` + `test_rc_elision_blocked_by_alias` makes the pair legible at a glance.
+
+**`/impl-hygiene-review` enforcement**: any test function name containing an ephemeral identifier from the banned table above is a hygiene violation in the **NAMING** category and MUST be renamed in the same review pass. Never deferred. The rename is mechanical — extract the behavioral scenario from the test body, build a new name from it, move any useful provenance into a `///` doc comment. There is no scope, complexity, risk, or "it's just a test" argument that excuses leaving an ephemeral name in place. "This test touches hundreds of callsites" is irrelevant — test names have no callers; a rename is always local to the test file.
+
+## Conditional Compilation
+
+- `#[cfg(test)]` for test modules and test helpers only, not for production logic branching
+- `#[cfg(debug_assertions)]` for debug-only checks
+- Production code must not change behavior based on `#[cfg(test)]`
+
+## Lifetime Annotations
+
+- Prefer elision when possible
+- Descriptive names for long-lived borrows: `'src`, `'ast`, `'ctx`
+- Single-letter (`'a`) only for local/obvious cases
+- Avoid >2 lifetime parameters per function
+
+## API Stability
+
+- Pub items in `lib.rs` are the stable API surface
+- Breaking changes to pub crate APIs must update all downstream consumers in the same commit
+- When replacing a code path, remove the old code in the same commit. No deprecation for internal compiler code.
+
+## Dependencies
+
+- Prefer `std` over external crates
+- New external deps require justification
+- Features are additive only (never remove functionality). Each feature documented in `Cargo.toml`.
+
+## Concurrency
+
+- Compiler internals are single-threaded (Salsa handles parallelism)
+- No global mutable state (`static mut`, `lazy_static` with mutation). All state flows through function parameters or Salsa queries.
+- Thread-safety required only at `ori_rt` FFI boundary
+
+## CI, Build, Commit & Technical Debt
+
+Process rules live in CLAUDE.md (§Commands, §Stabilization Discipline, §Ownership & Deferral). See there for CI gates, commit conventions, multi-commit ordering, and zero-deferral on technical debt.
