@@ -228,7 +228,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         }
 
         // Function-level LLVM IR verification for generated closure wrappers.
-        if std::env::var("ORI_VERIFY_ARC").is_ok_and(|v| v != "0") {
+        if self.verify_arc {
             let fn_val = self.builder.get_function_value(wrapper_func_id);
             if !fn_val.verify(true) {
                 tracing::error!(

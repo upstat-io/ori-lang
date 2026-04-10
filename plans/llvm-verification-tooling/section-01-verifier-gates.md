@@ -461,6 +461,9 @@ When all findings are triaged:
   Resolved: Fixed on 2026-04-10. Added `verify_derive_function(fc, func_id, "derive_thunk")` at all 8 `restore_position` points. Import added. 16,978 tests pass with `ORI_VERIFY_ARC=1`.
   Note: Codex also claimed gaps in `closures.rs:205` and `iterator_consumers.rs:624` — independently verified these do NOT create standalone FunctionValues (no `get_or_declare_function` or `add_function`). Those claims were rejected after verification.
 
+- [x] **[TPR-01-001-gemini-i5][medium] DRIFT/LEAK:scattered-knowledge: ArcIrEmitter re-reads ORI_VERIFY_ARC env var instead of using FunctionCompiler::verify_arc()** — 6 sites in `element_fn_gen.rs`, `catch_thunk_gen.rs`, `closure_wrappers.rs`, `drop_gen.rs` use `std::env::var("ORI_VERIFY_ARC")` while `FunctionCompiler` has `self.verify_arc`. Two sources of truth for the same flag.
+  Resolved: Fixed on 2026-04-10. Added `verify_arc: bool` field to `ArcIrEmitter` with `set_verify_arc()` setter. Plumbed from `FunctionCompiler::verify_arc` at all 4 production call sites. Replaced 6 env var reads with `self.verify_arc`. Tests: 16,978 pass.
+
 - [x] **[TPR-01-002-codex-i5][medium] DRIFT: FindingKind::LlvmLint dead code — no producer** — `FindingKind::LlvmLint { message: String }` variant added in ed46c7d9 has no producer. LLVM's lint pass outputs via `dbgs()` (stderr), so structured capture via the audit report is not feasible.
   Resolved: Fixed on 2026-04-10. Removed the dead `LlvmLint` variant from `report.rs`. The plan already documents that lint output goes to stderr. The variant can be re-added if LLVM's lint pass gains diagnostic handler support in a future version.
 

@@ -184,6 +184,7 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
             func_id,
             &self.codegen_ctx,
         );
+        emitter.set_verify_arc(self.verify_arc);
         emitter.emit_function(&arc_func, abi);
 
         // Post-emission CFG simplification: eliminate empty blocks and
@@ -254,6 +255,7 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
             func_id,
             &self.codegen_ctx,
         );
+        emitter.set_verify_arc(self.verify_arc);
         emitter.emit_function(lambda, &abi);
 
         // Post-emission CFG simplification
