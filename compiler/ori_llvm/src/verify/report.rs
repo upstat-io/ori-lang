@@ -63,6 +63,10 @@ pub enum FindingKind {
     LargeAggregateLoad { type_size_bytes: u64 },
     /// A `nounwind` function was called via `invoke` (should use `call`).
     NounwindCalledWithInvoke { fn_name: String },
+
+    // LLVM Lint
+    /// A finding from LLVM's lint pass (`function(lint)`).
+    LlvmLint { message: String },
 }
 
 /// A single finding from the audit pass.
