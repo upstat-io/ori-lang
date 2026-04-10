@@ -1,0 +1,55 @@
+// Diagnostic fixture (aims-heavy): large aggregate pass/return.
+// Struct with 3+ int fields (>16 bytes) passed to and returned from functions.
+// Exercises ABI compliance for large aggregates — must be passed by pointer,
+// not by value. Catches FastISel vs full pipeline regressions.
+
+type Point3D = { x: int, y: int, z: int }
+type Quad = { a: int, b: int, c: int, d: int }
+
+@translate (p: Point3D, dx: int, dy: int, dz: int) -> Point3D =
+    Point3D { x: p.x + dx, y: p.y + dy, z: p.z + dz };
+
+@sum_point (p: Point3D) -> int = p.x + p.y + p.z;
+
+@sum_quad (q: Quad) -> int = q.a + q.b + q.c + q.d;
+
+@make_quad (base: int) -> Quad =
+    Quad { a: base, b: base + 1, c: base + 2, d: base + 3 };
+
+@main () -> int = {
+    // 3-field struct (24 bytes) — passed to function
+    let p = Point3D { x: 1, y: 2, z: 3 };
+    let ok1 = sum_point(p: p) == 6;
+
+    // Returned from function
+    let moved = translate(p: p, dx: 10, dy: 20, dz: 30);
+    let ok2 = moved.x == 11 && moved.y == 22 && moved.z == 33;
+
+    // 4-field struct (32 bytes) — larger aggregate
+    let q = Quad { a: 10, b: 20, c: 30, d: 40 };
+    let ok3 = sum_quad(q: q) == 100;
+
+    // Returned from function
+    let q2 = make_quad(base: 5);
+    let ok4 = q2.a == 5 && q2.b == 6 && q2.c == 7 && q2.d == 8;
+
+    // Chain: create -> pass -> return -> use
+    let chained = translate(
+        p: Point3D { x: 100, y: 200, z: 300 },
+        dx: -50,
+        dy: -100,
+        dz: -150,
+    );
+    let ok5 = sum_point(p: chained) == 300;
+
+    // Large aggregate in loop — stress repeated pass/return
+    let total = 0;
+    for i in [1, 2, 3, 4, 5] do {
+        let pt = Point3D { x: i, y: i * 2, z: i * 3 };
+        total = total + sum_point(p: pt);
+    };
+    let ok6 = total == 90;
+
+    if ok1 && ok2 && ok3 && ok4 && ok5 && ok6
+        then 0 else 1
+}
