@@ -99,16 +99,34 @@ This is the highest-value tier because it tests Ori's **unique** verification su
 - The tooling lives in `rust/src/tools/miropt-test-tools/src/lib.rs` (the `.before`/`.after`/`.diff` workflow at lines 77-99)
 - Tests declare which pass to observe: `//@ test-mir-pass: CopyProp`
 
-**Ori Analogue**: Create a test harness that captures ARC IR at configurable pipeline boundaries:
-- Directive in Ori test files: `// @test-arc-pass: realize_rc_reuse` (captures IR before/after step 5)
-- Output as `.before.arc` / `.after.arc` / `.diff` files
-- `--bless` mode to update baselines when intentional changes are made
-- Test each of the 12 pipeline steps in isolation for key programs
-- Priority passes to snapshot: `analyze_function` (step 4), `realize_rc_reuse` (step 5), `merge_blocks` (step 9), `realize_annotations` (step 10)
+**Ori Analogue**: Create a test harness that captures pipeline artifacts at configurable boundaries. The 12 pipeline steps divide into three artifact types — snapshots must match each step's nature:
+
+| Step | Name | Artifact Type | Snapshot Strategy |
+|------|------|---------------|-------------------|
+| 1-2 | `analyze_program`, `apply_ownership` | Whole-program contracts | Dump `MemoryContract` + `ArcParam.ownership` per function |
+| 3 | `compute_var_reprs` | Per-variable metadata | Dump `ValueRepr` map |
+| 3a | `normalize_function` | IR rewrite | `.before.arc` / `.after.arc` / `.diff` |
+| 4 | `analyze_function` | Analysis state | Dump `AimsStateMap` (entry/exit states per block) |
+| 5 | `realize_rc_reuse` | IR rewrite | `.before.arc` / `.after.arc` / `.diff` (the primary target) |
+| 5a | `verify_fip_contract` | Check-only | **Already a verifier** — no snapshot needed; add regression pins for expected FIP outcomes |
+| 6 | `verify()` | Check-only | **Already a verifier** — no snapshot needed |
+| 7 | `run_aims_verify()` | Check-only | **Already a verifier** — no snapshot needed |
+| 8 | `detect/rewrite_tail_calls` | IR rewrite | `.before.arc` / `.after.arc` / `.diff` |
+| 9 | `merge_blocks` | IR rewrite | `.before.arc` / `.after.arc` / `.diff` |
+| 10 | `realize_annotations` | IR rewrite | `.before.arc` / `.after.arc` / `.diff` — see **State Map Caveat** below |
+| 11 | `verify()` | Check-only | **Already a verifier** — no snapshot needed |
+| 12 | FBIP enforcement | Diagnostic | Capture diagnostic output, pin expected results |
+
+**Directive format**: `// @test-arc-pass: realize_rc_reuse` (captures IR before/after step 5)
+**`--bless` mode**: update baselines when intentional changes are made — shared harness with LLVM IR tests (see §Shared Bless Harness below)
+
+**State Map Caveat (Step 10)**: `realize_annotations` (step 10) runs AFTER `merge_blocks` (step 9). Per `.claude/rules/arc.md`: "Position-keyed state maps (`entry_states`, `exit_states`, `instr_states`) are invalid after `merge_blocks()`." The snapshot harness for step 10 MUST NOT attempt to dump position-keyed state map fields — only ArcVarId-keyed lookups and the IR itself are safe post-merge. This is a load-bearing constraint that the implementation must respect.
+
+**Priority passes to snapshot**: `realize_rc_reuse` (step 5, highest value), `merge_blocks` (step 9), `realize_annotations` (step 10), `normalize_function` (step 3a)
 
 **What This Catches**: RC elision regressions, COW annotation regressions, block merge changes, reuse detection failures — all invisible to behavioral tests when the optimizer papers over the codegen issue.
 
-**Effort**: Medium — requires ARC IR serialization format (already exists in `ORI_DUMP_AFTER_ARC`), per-pass dump hooks, test harness, initial snapshot corpus.
+**Effort**: Medium — requires ARC IR serialization format (already exists in `ORI_DUMP_AFTER_ARC`), per-pass dump hooks, per-step artifact type awareness, shared test harness, initial snapshot corpus.
 
 #### 0.2 AIMS Lattice State Sanity Checker
 
@@ -118,7 +136,7 @@ This is the highest-value tier because it tests Ori's **unique** verification su
 - **Monotonicity check**: for each block, verify that the lattice state at block entry is ≤ (in the lattice order) the state at block exit — backward analysis should only move "up" the lattice
 - **Convergence check**: after analysis completes, verify that re-running the transfer functions produces identical states (fixpoint confirmed)
 - **Dimension consistency**: verify that no `AimsState` has impossible dimension combinations (e.g., `Consumed` + `Unique` on the same variable)
-- Gate with `ORI_VERIFY_AIMS_LATTICE=1` (expensive, test/CI only)
+- **Gate via existing surface**: route through `AimsPipelineConfig.verify_arc` (already controls structural ARC verification and contract-vs-IR checks, enabled by `ORI_VERIFY_ARC=1` or `debug_assertions`; see `pipeline/aims_pipeline.rs:43-50`, `pipeline/mod.rs:122-161`, `oric/src/debug_flags.rs:126-132`). Do NOT introduce a separate `ORI_VERIFY_AIMS_LATTICE=1` — that would create a second parallel verifier toggle for the same pipeline, violating SSOT. The lattice checks are a natural extension of the existing AIMS verification surface.
 
 **Prior Art**: Lean4's IR Checker (`src/Lean/Compiler/IR/Checker.lean:31-139`) validates type consistency, variable uniqueness, and scope validity during IR generation — similar in spirit but for a different IR level.
 
@@ -133,6 +151,7 @@ This is the highest-value tier because it tests Ori's **unique** verification su
 **The Solution**: Expand the existing pins into a full matrix:
 - Every protocol builtin × every ownership combination × every argument position
 - Assert that the AIMS pipeline produces the expected RC operations for each combination
+- **Additionally**: run the existing `rc_balance` checker (`verify/rc_balance.rs`) on the resulting ARC IR for each test case — pinning RC operations alone doesn't prove they're balanced. A test that perfectly pins an incorrect or unbalanced sequence of RC ops would pass without the balance check.
 - Add a contract-drift detection test: if any ownership annotation changes, the test names the specific builtin and argument that changed
 
 **Effort**: Low — extends existing test infrastructure.
@@ -234,6 +253,7 @@ Static lint for likely-undefined behavior in LLVM IR (beyond well-formedness):
 - Support `// @revisions: debug release no-repr-opt` to run tests against multiple flag sets
 - Inspired by Rust's compiletest revision system (`//@ revisions: foo bar`)
 - Eliminates file duplication when testing feature interactions with optimization flags
+- **FastISel limitation**: revisions that test debug vs release LLVM IR cannot catch FastISel-specific bugs (e.g., the >16B aggregate load bug documented in `.claude/rules/llvm.md`). FastISel operates at instruction selection time, not at IR level — the LLVM IR is identical in both modes. FastISel bugs require behavioral testing (existing `debug-release-compare.sh` and dual-execution), not IR pattern matching. Revisions should focus on optimization-level differences, not FastISel differences.
 
 **Directory Layout**:
 ```
@@ -249,7 +269,22 @@ tests/arc-opt/               # AIMS pass snapshot tests (Tier 0.1)
   realize_annotations/       # Step 10 snapshots
 ```
 
-**Bless Workflow**: `cargo test --bless` updates `.arc` / `.diff` baselines when intentional changes are made.
+### Shared Bless Harness (SSOT Requirement)
+
+Tier 0.1 (AIMS snapshots) and Tier 2.1 (LLVM IR assertions) both need directive parsing, revision expansion, artifact naming, `--bless` mode, and failure diffing. These MUST share a single runner to avoid duplicated parser/bless logic and drifting conventions. The shared harness:
+
+- **One runner binary** (e.g., `ori-check`, built in Rust) that:
+  - Parses directives (`// @test-arc-pass:`, `// CHECK:`, `// @revisions:`) from test source files
+  - Dispatches to the appropriate backend (ARC dump, LLVM IR dump)
+  - Handles artifact naming (`.before.arc`, `.after.arc`, `.diff` for ARC; `.ll` for LLVM)
+  - Implements `--bless` mode to update baselines across both artifact types
+  - Produces unified failure output consumable by the code-journey system
+- **Directory split** reflects artifact type, not harness split:
+  - `tests/codegen/` → LLVM IR assertions (`.matches` / `.exact` / `CHECK:`)
+  - `tests/arc-opt/` → AIMS pass snapshots (`.before.arc` / `.after.arc` / `.diff`)
+  - Both consumed by the same runner
+
+This prevents the SSOT failure mode where two overlapping harnesses with duplicated logic drift apart.
 
 **Prior Art Design-Input Matrix**:
 
@@ -279,7 +314,13 @@ Currently only Valgrind (20-50x slower, not in CI).
 
 **Integration**: Pass `-fsanitize=address,undefined` flags when emitting test binaries. Add to `test-all.sh` as an optional suite (gated by `ORI_SANITIZE=1`).
 
-**Effort**: Medium — requires LLVM pass configuration for sanitizer instrumentation of generated code.
+**Timeout Scaling (CRITICAL)**: CLAUDE.md mandates a strict 150-second timeout for all tests. Sanitized binaries run at 2-3x overhead, so the test harness MUST scale timeouts when `ORI_SANITIZE=1`:
+- ASan: `timeout = base_timeout * 2` (300s max)
+- MSan: `timeout = base_timeout * 3` (450s max)
+- UBSan: `timeout = base_timeout * 1.5` (225s max)
+- The scaling must be documented in `test-all.sh` and enforced via env var, not by removing timeouts entirely
+
+**Effort**: Medium — requires LLVM pass configuration for sanitizer instrumentation of generated code + timeout scaling logic.
 
 #### 2.3 `opt --opt-bisect-limit` — LLVM Pass Bisection
 
@@ -456,7 +497,7 @@ Each tool progresses through these stages independently. A tool doesn't need to 
 
 ## Key Architectural Insight
 
-Ori currently verifies **"does the program produce correct output?"** but not **"does the compiler produce correct IR?"** at either the ARC or LLVM level. These are different questions:
+Ori already has IR-level verification — the AIMS pipeline includes structural verifiers at steps 5a/6/7/11, TRMC soundness checking, and the codegen audit suite (`ORI_AUDIT_CODEGEN=1`). What Ori **lacks** is stable **regression pinning** of IR shapes. The existing verifiers catch well-formedness violations and contract mismatches, but they don't detect when a pass *regresses* (stops optimizing a case it previously handled) or when IR quality *drifts* (correct but worse IR that the optimizer happens to fix). These are different questions:
 
 | Scenario | Observable Output | IR Quality | Detection |
 |----------|------------------|------------|-----------|
