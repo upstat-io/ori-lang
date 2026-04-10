@@ -2,7 +2,7 @@
 section: "06"
 title: "Expand Fixtures + Self-Test"
 status: not-started
-reviewed: false
+reviewed: true
 goal: "Add 13+ new diagnostic fixtures covering the code patterns that cause the most AOT/AIMS debugging churn, update self-test.sh to exercise them with feature-specific assertions, and establish a fixture categorization system"
 success_criteria:
   - "At least 13 new fixture files in diagnostics/fixtures/ organized by category (pass, aims-heavy, expected-fail)"
