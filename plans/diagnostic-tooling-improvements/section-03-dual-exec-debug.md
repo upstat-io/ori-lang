@@ -1,7 +1,7 @@
 ---
 section: "03"
 title: "Enhance dual-exec-debug.sh"
-status: in-progress
+status: complete
 reviewed: true
 goal: "Auto-dump ARC IR and run codegen-audit on mismatch, export ORI_BIN for child script consistency, add ARC dump to build-failure branch, bridge the gap between 'these differ' and 'here is why'"
 success_criteria:
@@ -36,7 +36,7 @@ sections:
     status: complete
   - id: "03.N"
     title: "Completion Checklist"
-    status: in-progress
+    status: complete
 ---
 
 # Section 03: Enhance dual-exec-debug.sh
@@ -284,7 +284,7 @@ Extend the auto-diagnostics block (currently lines 240-265) to include ARC IR du
 - [x] `codegen-audit.sh` temp artifact side-effect fixed (builds to `$tmpdir`)
 - [x] `diagnostics/self-test.sh` passes (including mismatch-path tests)
 - [x] `timeout 150 ./test-all.sh` green — no regressions
-- [ ] **GATE: Section 07.4 docs updated BEFORE Section 03 can close.** `section-07-integration.md` lines 127-135 currently only mention ARC IR dump — the implementer MUST edit Section 07.4 to explicitly include: (1) auto codegen-audit on mismatch, (2) `--keep-temp` flag, (3) build-failure ARC IR capture. Also update `diagnostics/README.md` lines 37-44 (currently says mismatch only runs `ir-dump.sh` and `rc-stats.sh`) to include `arc-dump.sh` and `codegen-audit.sh`. This is not a "reminder" — Section 03 CANNOT be marked complete until Section 07.4 owns these doc items in its own checklist. <!-- unblocks:07.4 -->
-- [ ] `/tpr-review` passed
-- [ ] `/impl-hygiene-review` passed
-- [ ] **`/improve-tooling` section-close sweep**
+- [x] **GATE: Section 07.4 docs updated BEFORE Section 03 can close.** `section-07-integration.md` lines 127-135 currently only mention ARC IR dump — the implementer MUST edit Section 07.4 to explicitly include: (1) auto codegen-audit on mismatch, (2) `--keep-temp` flag, (3) build-failure ARC IR capture. Also update `diagnostics/README.md` lines 37-44 (currently says mismatch only runs `ir-dump.sh` and `rc-stats.sh`) to include `arc-dump.sh` and `codegen-audit.sh`. This is not a "reminder" — Section 03 CANNOT be marked complete until Section 07.4 owns these doc items in its own checklist. <!-- unblocks:07.4 -->
+- [x] `/tpr-review` passed
+- [x] `/impl-hygiene-review` passed
+- [x] **`/improve-tooling` section-close sweep**
