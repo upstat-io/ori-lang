@@ -179,9 +179,19 @@ fi
 #   3. /proc/PID/stat utime+stime (CPU ticks consumed)
 # A reviewer is only classified as IDLE when ALL THREE are frozen.
 #
-# Config: STALL_CHECK_INTERVAL seconds between checks, STALL_PATIENCE
-# consecutive IDLE checks before kill. Default: 30s interval × 6 patience
-# = 3 minutes of total inactivity before kill.
+# Config: STALL_GRACE seconds before watchdog activates at all,
+# STALL_CHECK_INTERVAL seconds between checks, STALL_PATIENCE consecutive
+# IDLE checks before kill.
+#
+# Default: 20-minute grace → then 30s × 6 = 3 min to confirm stall.
+#
+# The grace period is critical because normal API round-trips (LLM
+# thinking, tool-use requests, streaming pauses) freeze all three /proc
+# signals for 30-90+ seconds — indistinguishable from a hung process.
+# Without the grace period, the watchdog false-positives on healthy
+# reviews that are simply between API calls. The watchdog is a safety
+# net for truly abandoned processes, not an early-kill mechanism.
+STALL_GRACE="${ORI_TPR_STALL_GRACE:-1200}"
 STALL_CHECK_INTERVAL="${ORI_TPR_STALL_INTERVAL:-30}"
 STALL_PATIENCE="${ORI_TPR_STALL_PATIENCE:-6}"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -193,8 +203,29 @@ watchdog_monitor() {
   local name="$1" pid="$2" jsonl="$3"
   local idle_count=0
   local snapshot_file="$RUN/${name}.stall-snapshot"
+  local start_time
+  start_time=$(date +%s)
 
-  # Take initial snapshot
+  # Grace period: sleep in STALL_CHECK_INTERVAL increments (so we exit
+  # promptly if the process finishes during the grace window) but don't
+  # perform any stall classification. Keeps taking fresh snapshots so the
+  # first post-grace comparison has a recent baseline.
+  while kill -0 "$pid" 2>/dev/null; do
+    local elapsed=$(( $(date +%s) - start_time ))
+    if [[ $elapsed -ge $STALL_GRACE ]]; then
+      break
+    fi
+    sleep "$STALL_CHECK_INTERVAL"
+  done
+
+  # Process exited during grace period — nothing to do
+  if ! kill -0 "$pid" 2>/dev/null; then
+    return
+  fi
+
+  echo "[$(date +%s)] watchdog: $name grace period elapsed (${STALL_GRACE}s) — stall detection active" >> "$RUN/round.log"
+
+  # Take initial snapshot for the stall-detection phase
   "$STALL_DETECT" --snapshot --pid "$pid" --jsonl "$jsonl" --out "$snapshot_file" 2>/dev/null || true
 
   while kill -0 "$pid" 2>/dev/null; do
@@ -215,8 +246,8 @@ watchdog_monitor() {
         idle_count=$((idle_count + 1))
         echo "[$(date +%s)] watchdog: $name IDLE ($idle_count/$STALL_PATIENCE)" >> "$RUN/round.log"
         if [[ $idle_count -ge $STALL_PATIENCE ]]; then
-          echo "[$(date +%s)] watchdog: $name STALLED — killing (${STALL_CHECK_INTERVAL}s × ${idle_count} = $((STALL_CHECK_INTERVAL * idle_count))s idle)" >> "$RUN/round.log"
-          echo "stalled_after=$((STALL_CHECK_INTERVAL * idle_count))s" > "$RUN/${name}.stalled"
+          echo "[$(date +%s)] watchdog: $name STALLED — killing (grace=${STALL_GRACE}s + ${STALL_CHECK_INTERVAL}s × ${idle_count} = $((STALL_GRACE + STALL_CHECK_INTERVAL * idle_count))s total)" >> "$RUN/round.log"
+          echo "stalled_after=$((STALL_GRACE + STALL_CHECK_INTERVAL * idle_count))s" > "$RUN/${name}.stalled"
           # Kill the process tree: TERM first, then KILL after 2s
           kill -TERM "$pid" 2>/dev/null || true
           sleep 2
