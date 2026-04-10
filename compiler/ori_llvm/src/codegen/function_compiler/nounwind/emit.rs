@@ -44,6 +44,7 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
                 func.func_id,
                 &self.codegen_ctx,
             );
+            emitter.set_verify_arc(self.verify_arc);
             emitter.emit_function(&func.arc_func, &func.abi);
 
             // Post-emission CFG simplification
@@ -137,6 +138,7 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
             lambda.func_id,
             &self.codegen_ctx,
         );
+        emitter.set_verify_arc(self.verify_arc);
         emitter.emit_function(&lambda.arc_func, &lambda.abi);
 
         // Post-emission CFG simplification

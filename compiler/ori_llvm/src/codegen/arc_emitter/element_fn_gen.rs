@@ -85,7 +85,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let func_id = self.generate_elem_dec_fn_body(element_type);
 
         // Function-level LLVM IR verification.
-        if std::env::var("ORI_VERIFY_ARC").is_ok_and(|v| v != "0") {
+        if self.verify_arc {
             let fn_val = self.builder.get_function_value(func_id);
             if !fn_val.verify(true) {
                 tracing::error!("LLVM IR verification failed (generate_elem_dec_fn)");
@@ -207,7 +207,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let func_id = self.generate_elem_inc_fn_body(element_type);
 
         // Function-level LLVM IR verification.
-        if std::env::var("ORI_VERIFY_ARC").is_ok_and(|v| v != "0") {
+        if self.verify_arc {
             let fn_val = self.builder.get_function_value(func_id);
             if !fn_val.verify(true) {
                 tracing::error!("LLVM IR verification failed (generate_elem_inc_fn)");
