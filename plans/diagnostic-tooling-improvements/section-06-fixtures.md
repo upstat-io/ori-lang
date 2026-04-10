@@ -39,7 +39,8 @@ sections:
 **Success Criteria:**
 - [ ] At least 7 new `.ori` fixture files in `diagnostics/fixtures/`
 - [ ] Each fixture exercises a distinct code pattern relevant to AOT/AIMS debugging
-- [ ] `self-test.sh` runs new fixtures through `diagnose-aot.sh`, `dual-exec-debug.sh`, `rc-stats.sh`, `ir-dump.sh`, `arc-dump.sh`
+- [ ] `self-test.sh` runs new fixtures through `diagnose-aot.sh`, `dual-exec-debug.sh`, `rc-stats.sh`, `ir-dump.sh`, `arc-dump.sh`, and `bisect-passes.sh` (added by Section 05)
+- [ ] `bisect-passes.sh` exercised on at minimum `closure.ori` and `iterator_break.ori` (the AIMS-relevant fixtures)
 - [ ] Satisfies mission criterion: "7+ new diagnostic fixtures covering closures, iterators, nested structures, generics, trait dispatch, and failure modes"
 
 **Context:** The current 3 fixtures (`simple.ori` — no collections/RC; `clean.ori` — collections, balanced RC; `chain.ori` — chained COW) were adequate when the toolkit was first built. But ARC/AIMS bugs predominantly appear in closure captures, iterator early-exit cleanup, nested aggregate drops, generic instantiation, and trait method dispatch — none of which are exercised. A diagnostic regression in these areas ships behind a green self-test.
@@ -81,6 +82,7 @@ Each fixture must: (1) compile under AOT, (2) produce deterministic output via `
   - `diagnose-aot.sh --no-color <fixture>` passes all checks
   - `dual-exec-debug.sh --no-color <fixture>` shows MATCH
   - `rc-stats.sh --no-color <fixture>` produces output
+  - `bisect-passes.sh <fixture>` produces phase table output (added by Section 05 — exercises AIMS pipeline tracing checkpoints against each fixture)
 - [ ] Add each **failure fixture** (leak.ori, double_free.ori — if created) to the self-test with EXPECTED-FAIL expectations:
   - Use `run_test_expect_fail` (already exists in self-test.sh lines 91-105) for `diagnose-aot.sh` on these fixtures
   - Verify these fixtures FAIL the leak check or Valgrind, which is the expected behavior

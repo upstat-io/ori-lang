@@ -268,6 +268,12 @@ Per `impl-hygiene.md`: "Cross-section fixes require cross-section plan updates."
 - [x] `[TPR-05-004-codex][low]` `section-05-bisect-passes.md:129` — Correct the checkpoint tracing target contract.
   Resolved: Fixed on 2026-04-10. Corrected precedent claim (trace_phase_snapshot uses trace!, not info!), documented new target as intentionally different, added arc.md and CLAUDE.md doc update items to completion checklist.
 
+**Iteration 2 findings:**
+- [x] `[TPR-05-005-codex][medium]` `section-06-fixtures.md:42` — Add bisect-passes to Section 06 fixture coverage.
+  Resolved: Fixed on 2026-04-10. Directly edited section-06-fixtures.md: added bisect-passes.sh to success criteria and self-test matrix.
+- [x] `[TPR-05-006-codex][low]` `section-07-integration.md:136` — Add pipeline tracing target docs to Section 07.
+  Resolved: Fixed on 2026-04-10. Added ori_arc::aims::pipeline tracing target doc items to Section 07.4 remaining tasks.
+
 ---
 
 ## 05.N Completion Checklist
@@ -284,7 +290,7 @@ Per `impl-hygiene.md`: "Cross-section fixes require cross-section plan updates."
   - [ ] Update CLAUDE.md Diagnostic scripts reference if it lists scripts explicitly
   - [ ] Add `ori_arc::aims::pipeline` tracing target to `.claude/rules/arc.md` §Debugging section (alongside existing `ori_arc::aims::realize` target documentation)
   - [ ] Update CLAUDE.md §Tracing with `=ori_arc::aims::pipeline=info` example for pipeline bisection
-- [ ] **Cross-section:** Notify Section 06 that `bisect-passes.sh` must be included in fixture self-test matrix
+- [x] **Cross-section:** Section 06 updated — `bisect-passes.sh` added to success criteria and self-test matrix (done during plan review 2026-04-10)
 - [ ] `/tpr-review` passed
 - [ ] `/impl-hygiene-review` passed
 - [ ] **`/improve-tooling` section-close sweep**

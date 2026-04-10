@@ -137,6 +137,8 @@ When LLVM or AOT tests fail, print a one-liner suggesting the relevant diagnosti
 - [ ] Update `@diagnostic.md` §Diagnostic Scripts with `bisect-passes.sh` (Section 05)
 - [ ] Update `diagnostics/README.md` with `bisect-passes.sh` usage section and workflow
 - [ ] Update `diagnostics/README.md` fixtures table with all Section 06 fixtures
+- [ ] Update `.claude/rules/arc.md` §Debugging with new `ori_arc::aims::pipeline` tracing target (Section 05 — pipeline bisection, distinct from existing `ori_arc::aims::realize` realization-step snapshots)
+- [ ] Update CLAUDE.md §Tracing with `=ori_arc::aims::pipeline=info` example for pipeline bisection
 - [ ] Verify: no stale references to removed scripts remain (`grep -rn "aims-compare\|aims-baseline\|aims-measure" CLAUDE.md .claude/rules/ diagnostics/ plans/`)
 
 - [ ] **Subsection close-out (07.4)** — MANDATORY before starting 07.R:
