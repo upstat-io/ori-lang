@@ -9,7 +9,7 @@ description: "AUTO-TRIGGER: Improve testing, diagnostic, debugging, or developer
 
 When you encounter friction, gaps, or deficiencies in any developer tooling — testing scripts, diagnostic scripts, build scripts, or any automation — you MUST improve the tool rather than working around it. The tool improvement IS the work.
 
-**Tooling grows organically.** You cannot predict every use case ahead of time. The way the diagnostic suite gets sharp is by ratcheting it up by one improvement after every subsection, every bug fix, every debugging session — guided by what was *actually* painful, not what was imagined to be painful. This skill has two trigger modes: **reactive** (mid-task friction, the original auto-trigger) and **reflective** (post-subsection and post-section retrospective — see Retrospective Mode below).
+**Tooling grows organically.** You cannot predict every use case ahead of time. The way the diagnostic suite gets sharp is by ratcheting it up by one improvement after every subsection, every bug fix, every debugging session — guided by what was *actually* painful, not what was imagined to be painful. This skill has two trigger modes: **reactive** (mid-task friction, the original auto-trigger) and **reflective** (post-subsection, post-bug-fix, and post-section retrospective — see Retrospective Mode below).
 
 **Pain memory decays fast.** This is why retrospectives must fire at the smallest natural unit of work, not at section close. By the time you've finished six subsections plus TPR plus hygiene review, the friction from subsection `.1` is days old and three reviews ago — you have already smoothed over it. Retrospective Mode therefore has THREE granularities: per-subsection (the primary capture mechanism, run while the journey is fresh), bug-fix close (captures root-cause analysis friction — mandated by `/fix-bug` Phase 5), and section-close (an integration sweep that catches cross-cutting patterns invisible at finer scope).
 
@@ -34,8 +34,7 @@ These are the tools you own and must improve:
 |----------|----------|---------------------|
 | **Test harnesses** | `./test-all.sh`, `./clippy-all.sh`, `./fmt-all.sh`, `./build-all.sh` | `CLAUDE.md` §Commands |
 | **Diagnostic scripts** | `diagnostics/` | `.claude/rules/diagnostic.md` §Diagnostic Scripts — full table with all scripts and flags |
-| **Build/release scripts** | `scripts/` | `CLAUDE.md` §Commands |
-| **Test utilities** | `scripts/regen_expected.py`, `scripts/extract_tests.py` | — |
+| **Scripts** (build, release, test utilities) | `scripts/` | `CLAUDE.md` §Commands |
 | **Diagnostic common** | `diagnostics/_common.sh` | `.claude/rules/diagnostic.md` |
 | **LLVM test harness** | `./llvm-test.sh` | `CLAUDE.md` §Commands |
 
@@ -164,15 +163,15 @@ When invoked at the end of a section, after `/tpr-review` and `/impl-hygiene-rev
    - Did integration steps require mentally cross-referencing files that no tool combined?
    - Did any forward-looking instrumentation become obvious only after seeing all subsections together?
 
-3. **List concrete improvement candidates** for items the per-subsection captures could not have surfaced (see "Candidate Format" below).
+3. **List concrete improvement candidates** for items the per-subsection and bug-fix captures could not have surfaced (see "Candidate Format" below).
 
-4. **Filter brutally** — and bias toward NOT duplicating per-subsection work. If a candidate could have been captured per-subsection but wasn't, that's a process failure (go fix the missed retrospective), not a sweep finding.
+4. **Filter brutally** — and bias toward NOT duplicating per-subsection or bug-fix work. If a candidate could have been captured at finer granularity but wasn't, that's a process failure (go fix the missed retrospective), not a sweep finding.
 
 5. **Implement, commit, verify, document** — same rules as per-subsection (zero deferral, separate commits, re-run verification).
 
 **Output of a section-close sweep is one of two states:**
 - **Cross-cutting improvements made** — list each tool changed + the integration pattern it addresses
-- **No new gaps beyond per-subsection captures** — "Section-close sweep: per-subsection retrospectives covered everything; no cross-subsection patterns required new tooling." This is a perfectly valid (and common) outcome when per-subsection captures were thorough.
+- **No new gaps beyond finer-grained captures** — "Section-close sweep: per-subsection and bug-fix retrospectives covered everything; no cross-cutting patterns required new tooling." This is a perfectly valid (and common) outcome when finer-grained captures were thorough.
 
 ### Candidate Format (all granularities)
 
@@ -181,7 +180,7 @@ For each candidate, articulate:
 - **Gap**: what's missing or painful (e.g., "doesn't show RC balance per basic block, only per function")
 - **Improvement**: the specific change (e.g., "add `--per-block` flag")
 - **Payoff**: how it would have shortened *this* subsection/section's work, or how it sharpens future debugging
-- **Source**: which subsection (`{NN}.M`) or which cross-pattern surfaced it — used in commit messages
+- **Source**: which subsection (`{NN}.M`), bug fix (`BUG-XX-NNN`), or cross-pattern surfaced it — used in commit messages
 
 ### Filter Criteria (all granularities)
 
@@ -201,7 +200,7 @@ Not every small annoyance becomes a tool change. Apply this filter:
 - **"The improvement would touch 3 scripts, that's too much."** — CLAUDE.md correctness rule applies: scope, effort, and complexity are irrelevant. If the right improvement crosses scripts, that IS the improvement.
 - **"This is a one-off, no future subsection will need it."** — Be honest. If you genuinely can't articulate a recurring use case, skip it. But "one-off" is often a rationalization — most debugging patterns recur.
 - **Combining tooling improvements into the subsection's main commit.** — Separate commits keep provenance clean and let `/improve-tooling` retrospectives be reviewed independently of feature work.
-- **Section-close sweep being used as the primary capture.** — If your section-close sweep produces 8 improvements while the per-subsection retrospectives produced 0, the per-subsection captures were skipped. Sweep findings should be small in number (often zero) and explicitly cross-cutting.
+- **Section-close sweep being used as the primary capture.** — If your section-close sweep produces 8 improvements while the per-subsection and bug-fix retrospectives produced 0, the finer-grained captures were skipped. Sweep findings should be small in number (often zero) and explicitly cross-cutting.
 
 ### Why Retrospective Mode Exists
 
