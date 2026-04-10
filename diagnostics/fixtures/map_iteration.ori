@@ -1,0 +1,51 @@
+// Diagnostic fixture: map creation, iteration, and lookup.
+// Exercises map RC for both keys and values during iteration,
+// map entry cleanup, and string key hashing.
+// Note: avoids key .length() assertions due to BUG-03-005
+// (interpreter includes quotes in map key string length).
+
+@main () -> int = {
+    // Map creation and lookup
+    let m = {"hello": 1, "world": 2, "test": 3};
+    let ok1 = match m["hello"] {
+        Some(v) -> v == 1,
+        None -> false,
+    };
+
+    // Map iteration — RC for keys and values
+    let total = 0;
+    for (k, v) in m do {
+        total = total + v;
+    };
+    let ok2 = total == 6;
+
+    // Map with heap-allocated string keys — exercises heap key RC
+    let big = {
+        "abcdefghijklmnopqrstuvwxyz1234": 100,
+        "another long key that exceeds SSO threshold": 200
+    };
+    let big_total = 0;
+    for (k, v) in big do {
+        big_total = big_total + v;
+    };
+    let ok3 = big_total == 300;
+
+    // Map lookup returning None
+    let ok4 = match m["missing"] {
+        Some(_) -> false,
+        None -> true,
+    };
+
+    // Map size check
+    let ok5 = m.length() == 3;
+
+    // Map iteration counting entries — exercises iterator cleanup
+    let entry_count = 0;
+    for (k, v) in m do {
+        entry_count = entry_count + 1;
+    };
+    let ok6 = entry_count == 3;
+
+    if ok1 && ok2 && ok3 && ok4 && ok5 && ok6
+        then 0 else 1
+}
