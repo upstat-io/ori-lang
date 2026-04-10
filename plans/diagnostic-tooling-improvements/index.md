@@ -43,7 +43,7 @@ ARC IR dump, codegen audit, all-in-one diagnostic
 ---
 
 ### Section 03: Enhance dual-exec-debug.sh
-**File:** `section-03-dual-exec-debug.md` | **Status:** Not Started
+**File:** `section-03-dual-exec-debug.md` | **Status:** Complete
 
 ```
 dual-exec-debug.sh, arc-dump.sh, mismatch
