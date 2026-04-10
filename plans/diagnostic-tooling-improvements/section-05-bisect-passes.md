@@ -2,7 +2,7 @@
 section: "05"
 title: "AIMS Pass Bisection"
 status: not-started
-reviewed: false
+reviewed: true
 goal: "Create bisect-passes.sh that automatically identifies which AIMS pipeline phase introduced an RC imbalance or structural change"
 success_criteria:
   - "Mandatory file split: aims_pipeline.rs extracted into submodules BEFORE any checkpoint code is added (file is 590 lines, above the 500-line limit)"
