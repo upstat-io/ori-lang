@@ -234,6 +234,7 @@ Work through the completion checklist in order. **Reviews MUST complete before b
 6. **Update the bug entry** in the section file — mark `- [x]` with resolution details using the canonical format from `plans/bug-tracker/00-overview.md`
 7. **Update the fix section** — set status to `complete`, fill in exit criteria
 8. **Update the overview** — adjust open bug count in `plans/bug-tracker/00-overview.md`
+9. **Final commit gate** — run `/commit-push` to commit the closure artifacts (bug entry, fix section status, overview count). A fix reported as complete but with uncommitted closure updates creates drift between the tracker and git history.
 
 ### Phase 6: Report
 
@@ -282,7 +283,7 @@ Do NOT gloss over these as "not my bug" or "separate issue" — file them via `/
 - **`/add-bug`** — invoke during ANY phase when a new bug is discovered. This is the most common integration — fixing bugs surfaces more bugs, and every one must be filed.
 - **`/fix-next-bug`** — orchestrates picking bugs from the tracker and invoking this skill in priority order
 - **`/review-bugs`** — triages bugs; recommends `/fix-bug` for selected bugs
-- **`/create-plan`** — MANDATORY when Phase 1.5 determines the bug needs a plan instead of an inline fix. The plan IS the deliverable — do NOT skip this.
+- **`/create-plan`** — MANDATORY in interactive mode when Phase 1.5 determines the bug needs a plan. In autopilot mode, `/create-plan` is NOT invoked (it requires interactive approval gates) — instead the bug is marked `Escalated: requires plan` per Phase 1.5's autopilot exception.
 - **`/commit-push`** — used in Phase 4 to commit changes before review
 - **`/tpr-review`** — called during completion checklist
 - **`/impl-hygiene-review`** — called during completion checklist, AFTER TPR

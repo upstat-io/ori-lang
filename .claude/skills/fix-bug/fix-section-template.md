@@ -160,6 +160,7 @@ Reviews MUST complete before bug closure — a bug marked resolved before TPR/hy
 - [ ] Bug entry in `plans/bug-tracker/section-{NN}-*.md` updated: `- [x]` with resolution details (canonical format from `plans/bug-tracker/00-overview.md`)
 - [ ] Fix section frontmatter `status` updated to `complete`
 - [ ] Bug-tracker `00-overview.md` Quick Reference open bug count updated
+- [ ] Final `/commit-push` — commit closure artifacts (bug entry, fix section status, overview count)
 
 **Exit Criteria:** {Paragraph describing the measurable, testable condition
 that proves this fix is complete. Include specific test names, commands,
