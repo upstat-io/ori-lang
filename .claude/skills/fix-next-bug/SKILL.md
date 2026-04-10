@@ -197,11 +197,11 @@ After EVERY outcome, the next action is ALWAYS: commit gate → re-scan → pick
 
 ### Handling Plan Escalation
 
-When `/fix-bug` escalates a bug to `/create-plan` (Phase 1.5 scope assessment), this is a valid outcome — not a failure. The bug was too large for an inline fix, and a plan was created as the deliverable.
+When `/fix-bug` determines a bug needs a plan (Phase 1.5 scope assessment), this is a valid outcome — not a failure.
 
 In the loop:
-- **Interactive mode**: report the escalation, then ask to continue to the next bug as normal
-- **Autopilot mode**: note the escalation, run the Commit Verification Gate (the plan files need committing), then immediately continue to the next bug
+- **Interactive mode**: `/fix-bug` invokes `/create-plan` normally (with user approval gates), then reports the escalation. Ask to continue to the next bug as normal.
+- **Autopilot mode**: `/fix-bug` marks the bug entry with `Escalated: requires plan — {reason}` (it does NOT invoke `/create-plan` since that requires interactive approval). Run the Commit Verification Gate (the entry update needs committing), then immediately continue to the next bug. The user creates the plan after the autopilot session ends.
 
 Escalated and blocked bugs are already excluded by Step 1's lifecycle-marker filter — they will not appear in the re-scan.
 
@@ -219,9 +219,13 @@ Fixed: {N}
 {For each:}
   - [BUG-XX-NNN][severity] title — fixed
 
-Escalated to plans: {N}
+Escalated to plans (interactive — plan created): {N}
 {For each:}
   - [BUG-XX-NNN][severity] title — escalated to plans/{plan-name}/
+
+Escalated (autopilot — requires plan, user action needed): {N}
+{For each:}
+  - [BUG-XX-NNN][severity] title — requires plan: {reason}
 
 Blocked (prerequisite missing): {N}
 {For each:}
