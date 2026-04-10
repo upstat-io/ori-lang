@@ -1,7 +1,7 @@
 ---
 section: "07"
 title: "Integration + Polish"
-status: not-started
+status: in-progress
 reviewed: false
 goal: "Wire diagnostic hints into test-all.sh, fix ir-dump.sh DRIFT, add check-debug-flags.sh to CI, and update all documentation"
 success_criteria:
@@ -28,7 +28,7 @@ sections:
     status: not-started
   - id: "07.4"
     title: "Update documentation"
-    status: not-started
+    status: in-progress
   - id: "07.R"
     title: "Third Party Review Findings"
     status: not-started
