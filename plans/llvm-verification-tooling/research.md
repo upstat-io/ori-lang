@@ -2,14 +2,14 @@
 
 **Date**: 2026-04-09 (v2: expanded after dual-source TPR review)
 **Status**: Research complete, plan creation deferred
-**Blocked by**: `plans/diagnostic-tooling-improvements` (sections 03-07 not started)
+**Blocked by**: `plans/diagnostic-tooling-improvements` (§01-03 complete; §04-07 not started)
 **Impacts**: `plans/code-journey-rework` (should wait for this plan too)
 **Source**: Conversation analyzing LLVM diagnostic tools, reference compiler tooling, and Ori's current state; dual-source TPR review (codex + gemini, iteration 1)
 
 ## Dependency Chain
 
 ```
-diagnostic-tooling-improvements (in progress, §01-02 complete, §03-07 not started)
+diagnostic-tooling-improvements (in progress, §01-03 complete, §04-07 not started)
   └─ completes → stabilizes diagnostics/ scripts, test-all.sh
       └─ llvm-verification-tooling (THIS PLAN)
           └─ completes → adds AIMS verification, FileCheck, sanitizers, etc.
@@ -133,8 +133,8 @@ This is the highest-value tier because it tests Ori's **unique** verification su
 **The Problem**: The AIMS pipeline relies on a 7-dimensional product lattice (`AimsState` = AccessClass × Consumption × Cardinality × Uniqueness × Locality × ShapeClass × EffectClass). The backward dataflow analysis (step 4) must converge to a fixpoint, and the lattice meet/join operations must be monotone. Bugs in lattice operations can lead to unsound RC elision without triggering any existing verifier.
 
 **The Solution**: A verification pass that asserts lattice properties at pipeline boundaries:
-- **Monotonicity check**: for each block, verify that the lattice state at block entry is ≤ (in the lattice order) the state at block exit — backward analysis should only move "up" the lattice
-- **Convergence check**: after analysis completes, verify that re-running the transfer functions produces identical states (fixpoint confirmed)
+- **Monotonicity check**: verify that iterative worklist updates are non-decreasing across rounds. The AIMS backward analysis computes `block_entry_state` from `block_exit_state` by walking instructions backward and adding operand demand — demand can only increase across worklist iterations (defined via `a ≤ b iff a.join(b) == b`). The correct check is: for each worklist round, the new state for any block must be ≥ the previous state for that block. Do NOT assert entry ≤ exit within a single block — backward analysis works in the opposite direction.
+- **Convergence check**: after analysis completes, recompute `compute_block_exit_state` and `compute_block_entry_state` for all blocks and verify that the recomputed states match the stored `AimsStateMap`. If they differ, the fixpoint was not reached — this is a soundness bug.
 - **Dimension consistency**: verify that no `AimsState` has impossible dimension combinations (e.g., `Consumed` + `Unique` on the same variable)
 - **Gate via existing surface**: route through `AimsPipelineConfig.verify_arc` (already controls structural ARC verification and contract-vs-IR checks, enabled by `ORI_VERIFY_ARC=1` or `debug_assertions`; see `pipeline/aims_pipeline.rs:43-50`, `pipeline/mod.rs:122-161`, `oric/src/debug_flags.rs:126-132`). Do NOT introduce a separate `ORI_VERIFY_AIMS_LATTICE=1` — that would create a second parallel verifier toggle for the same pipeline, violating SSOT. The lattice checks are a natural extension of the existing AIMS verification surface.
 
@@ -314,11 +314,11 @@ Currently only Valgrind (20-50x slower, not in CI).
 
 **Integration**: Pass `-fsanitize=address,undefined` flags when emitting test binaries. Add to `test-all.sh` as an optional suite (gated by `ORI_SANITIZE=1`).
 
-**Timeout Scaling (CRITICAL)**: CLAUDE.md mandates a strict 150-second timeout for all tests. Sanitized binaries run at 2-3x overhead, so the test harness MUST scale timeouts when `ORI_SANITIZE=1`:
-- ASan: `timeout = base_timeout * 2` (300s max)
-- MSan: `timeout = base_timeout * 3` (450s max)
-- UBSan: `timeout = base_timeout * 1.5` (225s max)
-- The scaling must be documented in `test-all.sh` and enforced via env var, not by removing timeouts entirely
+**Timeout Compliance (CRITICAL)**: CLAUDE.md mandates a strict 150-second timeout for ALL test commands — no exceptions. Sanitized binaries run at 2-3x overhead, which means individual sanitizer test commands would routinely hit the 150s ceiling. The solution is NOT to raise the timeout (that violates project policy and masks hung tests). Instead:
+- **Shard sanitizer suites**: split AOT tests into smaller batches so each batch completes within 150s even with ASan/MSan overhead
+- **Narrow fixtures**: sanitizer tests should use the smallest programs that exercise the code path, not the full test corpus
+- **Separate sanitizer test commands**: each shard is its own `timeout 150` command, so a hang in one shard doesn't block others
+- If analysis shows that even sharded tests cannot complete in 150s, that is a prerequisite signal: either the test is too large (simplify it) or the project timeout policy needs a formal amendment before sanitizer integration proceeds
 
 **Effort**: Medium — requires LLVM pass configuration for sanitizer instrumentation of generated code + timeout scaling logic.
 
