@@ -49,9 +49,20 @@ If a similar proposal exists:
 
 Search `docs/ori_lang/proposals/approved/` for any proposals the new one depends on. If dependencies are in `drafts/` (not yet approved), note them in the `Depends On:` field.
 
-### Step 4: Generate the Proposal
+### Step 4: Purity Analysis (GATE — before file creation)
+
+**Before creating any file**, apply the purity principle from `.claude/rules/proposals.md`:
+- Can this be implemented in pure Ori? If YES, recommend library approach.
+- If it requires compiler support, identify the minimal compiler change.
+- If it's purely a stdlib addition, the proposal should document that and avoid requesting compiler changes.
+
+Present the purity assessment to the user. If the analysis suggests the feature belongs in stdlib rather than the compiler, use `AskUserQuestion` to confirm the user still wants a proposal (vs. just implementing the library feature directly).
+
+### Step 5: Generate the Proposal
 
 Create the file at `docs/ori_lang/proposals/drafts/<topic>-proposal.md`.
+
+Include the purity assessment in the proposal's Design section or as a dedicated `## Purity Analysis` section.
 
 **Template** (adapt sections based on scope — small proposals may not need every recommended section):
 
@@ -131,22 +142,14 @@ Create the file at `docs/ori_lang/proposals/drafts/<topic>-proposal.md`.
 <How other languages handle this: Rust, Swift, Gleam, Koka, etc.>
 ```
 
-### Step 5: Purity Analysis
-
-Before writing, apply the purity principle from `.claude/rules/proposals.md`:
-- Can this be implemented in pure Ori? If YES, recommend library approach.
-- If it requires compiler support, identify the minimal compiler change.
-
-Include the purity assessment in the proposal's Design section or as a note.
-
-### Step 6: Present for Review
+### Step 7: Present for Review
 
 After creating the file:
 1. Show the user the full proposal
 2. Ask if any sections need revision
 3. Suggest running `/review-draft-proposal <topic>` for formal review when ready
 
-### Step 7: Commit
+### Step 8: Commit
 
 If the user approves, invoke `/commit-push` with message:
 ```

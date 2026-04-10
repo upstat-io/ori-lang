@@ -23,7 +23,7 @@ Single source of truth for proposal format, naming, lifecycle, and required sect
 
 **Exceptions**: Some legacy proposals use `-language-feature`, `-syntax`, or `-revision` suffixes. New proposals MUST use `-proposal.md`. The review skill resolves arguments via: exact path > `<arg>.md` > `<arg>-proposal.md` > basename search in drafts/.
 
-## Required Header
+## Required Header (new proposals)
 
 ```markdown
 # Proposal: <Title>
@@ -31,14 +31,25 @@ Single source of truth for proposal format, naming, lifecycle, and required sect
 **Status:** Draft
 **Author:** <name> (with <assistant>)
 **Created:** YYYY-MM-DD
-**Affects:** <comma-separated: Compiler, runtime, type system, standard library, spec (Clause N), grammar>
 ```
 
-**Optional header fields** (add when applicable):
-- `**Approved:** YYYY-MM-DD` (set by review skill on approval)
+**Recommended header fields** (add when applicable — `/create-draft-proposal` includes these by default):
+- `**Affects:** <comma-separated: Compiler, runtime, type system, standard library, spec (Clause N), grammar>`
 - `**Depends On:** <filename>, <filename>` (proposals that must be approved first)
+- `**Approved:** YYYY-MM-DD` (set by review skill on approval)
 - `**Amends:** <filename>` (existing proposal this modifies)
 - `**Supersedes:** <filename>` (existing proposal this replaces)
+
+## Legacy Header Variants
+
+The existing corpus (170+ proposals) uses several header field variants that `/review-draft-proposal` must tolerate when reading existing proposals. These are NOT errors:
+
+- `**Depends on:**` (lowercase "on") — equivalent to `**Depends On:**`
+- `**Related:**` — cross-references without dependency
+- `**Superseded By:**` — inverse of `Supersedes`
+- `**Extends:**` — similar to `Amends`
+- `**Research:**` / `**Prerequisites:**` / `**Prior art:**` — informational context
+- Missing `**Affects:**` — many older proposals omit this field; not an error on existing proposals
 
 ## Required Sections
 

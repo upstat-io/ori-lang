@@ -161,11 +161,18 @@ Execute only after user confirms approval AND no blockers exist.
 
 ### Step 11: Update and Move Proposal
 
+Use the **resolved draft path** from argument resolution (Step 1) — do NOT re-derive the filename.
+
 - Apply all approved changes
 - Update `Status:` from `Draft` to `Approved`
 - Add `Approved: YYYY-MM-DD`
 - Remove any `## Blockers` section
-- `git mv docs/ori_lang/proposals/drafts/<name>.md docs/ori_lang/proposals/approved/`
+- `git mv <resolved-draft-path> docs/ori_lang/proposals/approved/<resolved-basename>`
+
+For example, if `/review-draft-proposal parallel-iterators` resolved to `docs/ori_lang/proposals/drafts/parallel-iterators-proposal.md`, then the move is:
+```
+git mv docs/ori_lang/proposals/drafts/parallel-iterators-proposal.md docs/ori_lang/proposals/approved/parallel-iterators-proposal.md
+```
 
 ### Step 12: Add to Roadmap via `/create-plan`
 
@@ -249,7 +256,7 @@ Key decisions:
 - [Decision 1]
 - [Decision 2]
 
-Proposal: docs/ori_lang/proposals/approved/<name>.md
+Proposal: docs/ori_lang/proposals/approved/<resolved-basename>
 ```
 
 ---
