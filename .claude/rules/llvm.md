@@ -55,10 +55,7 @@ paths:
 
 ## Derive Codegen
 
-- `codegen/derive_codegen/` — sync point with evaluator/type-checker | all 7 derived traits via strategy dispatch:
-  - `ForEachField` → Eq, Comparable, Hashable
-  - `FormatFields` → Printable, Debug
-  - `CloneFields` → Clone | `DefaultConstruct` → Default
+See `ir.md` §DerivedTrait for the canonical sync point list. This crate's sync point: `codegen/derive_codegen/` — all 7 derived traits via strategy dispatch (`ForEachField` → Eq/Comparable/Hashable, `FormatFields` → Printable/Debug, `CloneFields` → Clone, `DefaultConstruct` → Default).
 
 ## Type-Qualified Mangling
 
@@ -75,8 +72,7 @@ paths:
 | `ORI_LOG=ori_llvm=trace` | Per-instruction detail (very verbose) |
 | `ORI_AUDIT_CODEGEN=1` | In-pipeline RC/COW/ABI audit (add `ORI_AUDIT_STRICT=1` for pessimistic) |
 
-- **Runtime**: `ORI_TRACE_RC=1` | `ORI_RT_DEBUG=1` | `ORI_CHECK_LEAKS=1` (on compiled binary)
-- **Diagnostic scripts**: see @diagnostic.md §Diagnostic Scripts for full list and flags
+- **Runtime debug vars**: See `runtime.md`. **Diagnostic scripts**: See `diagnostic.md` §Diagnostic Scripts.
 - **Triage**: Verification fail = our codegen bug | optimization crash = `opt -verify-each -opt-bisect-limit=N` | runtime segfault = check ABI/GEP/aggregate loads | compare with `clang -emit-llvm -S -O0`
 - Tests run **sequentially** (not parallel) due to `Context::create()` contention
 

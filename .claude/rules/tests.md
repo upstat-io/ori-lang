@@ -9,6 +9,9 @@ paths:
 **Tests are MANDATORY.** There are zero scenarios where skipping tests is acceptable. Every code change — bug fix, feature, refactor, optimization — requires tests. No exceptions.
 
 ## TDD for Bugs
+
+The TDD *commitment* (you MUST do TDD, use `/fix-bug`) is in CLAUDE.md §TDD for Bugs. This section details the *methodology*.
+
 1. STOP — don't jump to fixing
 2. Consult spec for intended behavior
 3. Write MATRIX tests — not just "multiple":
@@ -50,6 +53,17 @@ let mut count = 0;
 for ty in ALL_TYPES { for pattern in ALL_PATTERNS { test(ty, pattern); count += 1; } }
 assert_eq!(count, ALL_TYPES.len() * ALL_PATTERNS.len()); // proves no cells skipped
 ```
+
+## Matrix Clamping — Pinning Correct Behavior from All Sides
+
+Matrix clamping uses tests to **narrow the solution space** until only the correct fix survives. Each matrix cell is a clamp — a constraint that pins behavior from one angle. The more clamps, the tighter the fix is held in place. The goal is not to limit the number of tests but to ensure every dimension of the bug is pinned so the fix cannot drift.
+
+- **Clamp from above and below**: for every "should work" cell, add a corresponding "should fail" cell at the boundary. If `int` works, does `float` also work? If `break` is correct, does `continue` in the same position produce the right different behavior? The gap between the passing and failing cells IS the specification of the feature.
+- **Clamp across type boundaries**: if a fix touches a code path shared by `str`, `[int]`, `Option<T>`, and closures, pin all four. A fix that passes for `str` but isn't clamped for `Option<str>` can silently regress when someone changes the Option handling.
+- **Clamp across pattern boundaries**: if a loop fix works for full iteration, clamp it with `break`, `yield`, guard, nested, and two-call patterns. Each pattern exercises a different exit path — unclamped paths are future regressions.
+- **Clamp across feature boundaries**: if the fix interacts with closures, generics, `?`, pattern matching, or traits, add cells for each interaction. Feature boundaries are where compilers break (see §Interaction Testing).
+- **The squeeze effect**: when all surrounding cells are clamped, the correct fix surface is surgically obvious — it must thread precisely between the passing and failing cells. A fix that's too broad breaks a clamped cell above; a fix that's too narrow leaves a clamped cell below. The matrix reveals exactly where the boundary is.
+- **Completeness test**: after writing the matrix, ask: "could a *different* fix also pass all these tests?" If yes, the matrix is not tight enough — add a cell that distinguishes the correct fix from the incorrect alternative.
 
 **Fix completeness checklist** — a fix is NOT done until:
 - [ ] Matrix tests cover every relevant type × pattern × feature combination
@@ -146,7 +160,7 @@ For Rust tests:
 fn test_nested_closure_iter_drop() { ... }
 ```
 
-**Regression test naming**: use descriptive names that follow the `<subject>_<scenario>_<expected>` shape. `test_cow_slice_double_free_nested_list` ✓, `test_issue_42` ✗. The name must describe the regression scenario so future readers understand what's being guarded **without looking up any external artifact**. NEVER encode ephemeral identifiers in the function name — no plan names, no section/subsection numbers (`section_04_3`, `4_3_2`, `§4.3`), no plan annotations (`TPR_04_005`, `CROSS_04_014`), no bug IDs (`BUG_04_045`), no dates, no initials. Tests are permanent; those artifacts are ephemeral. Provenance (regression origin, plan reference, bug link) belongs in the `///` or `//` doc comment ABOVE the test — that location can rot harmlessly, the function name cannot. Full rules and banned-weak-descriptor list: `.claude/rules/impl-hygiene.md` §Test Function Naming. Violations are fixed (renamed) in the same `/impl-hygiene-review` pass that finds them — never deferred. (Derived from Rust's tidy enforcement of descriptive naming + the Osherove/AAA/GWT three-part test-naming convention adopted by Rust stdlib, JUnit, xUnit.net, Roslyn, Swift stdlib, and Go.)
+**Regression test naming**: `<subject>_<scenario>_<expected>` shape. No ephemeral identifiers (plan names, section numbers, bug IDs) in function names — provenance in `///` doc comments only. Full naming convention, banned-descriptor list, and enforcement rules: `impl-hygiene.md` §Test Function Naming.
 
 **Crash/ICE regression tests**: if the compiler ever panics/crashes on valid or invalid input, that input becomes a permanent test — even before the fix is identified. Add it immediately as `#skip("ICE: <description>")` if it can't be fixed yet, but it MUST be recorded. (From Rust's `tests/crashes/` suite.)
 
@@ -232,13 +246,24 @@ fn test_nested_closure_iter_drop() { ... }
 - `#fail("substring")` — expect runtime failure
 
 ## Debugging / Tracing
-- `ORI_LOG=debug cargo st tests/spec/types/` — all phases; `ori_types=debug` type checker only; `ori_eval=debug` evaluator only; `ORI_LOG_TREE=1` hierarchical
-- Phase dumps: `ORI_DUMP_AFTER_PARSE=1`, `ORI_DUMP_AFTER_TYPECK=1`, `ORI_DUMP_AFTER_ARC=1`, `ORI_DUMP_AFTER_LLVM=1`
-- AOT failures: `diagnostics/diagnose-aot.sh`, `dual-exec-debug.sh`, `codegen-audit.sh`, `ORI_TRACE_RC=1 ORI_CHECK_LEAKS=1 ./binary`
-- Wrong result? `ORI_LOG=ori_eval=trace ORI_LOG_TREE=1`; type error? `ori_types=debug`; Salsa caching? `oric=debug`
+
+See `compiler.md` §Tracing for full env var reference and per-crate targets. See `diagnostic.md` §Diagnostic Scripts for script flags. Quick test debugging: `ORI_LOG=debug cargo st tests/spec/path/`.
 
 ## Coverage
 `cargo tarpaulin -p CRATE --lib --out Stdout` — target 60-80%
+
+## Property-Based Testing & Fuzzing
+
+`proptest` is a workspace dependency — use it for invariants that benefit from randomized input generation:
+
+- **Roundtrip properties**: `parse(print(ast)) == ast`, `format(parse(source)) == format(source)` — parser and formatter must agree
+- **Pass idempotency**: `pass(pass(ir)) == pass(ir)` for every compiler pass (see `impl-hygiene.md` §Pass Composition)
+- **Lattice monotonicity**: `join(a, b) >= a && join(a, b) >= b` for every AIMS lattice dimension
+- **Fuzz-to-crash**: `proptest! { |input: String| { let _ = parse(&input); } }` — parser must not panic on any input, ever
+- **Domain-aware shrinking**: use `prop_flat_map` to generate well-formed-ish inputs for deeper pipeline stages (typeck, eval, codegen) — pure random strings only exercise the parser's error recovery
+- **Observational equivalence**: for optimization passes, `eval(original) == eval(optimized)` on all generated inputs — the optimization must not change observable behavior
+
+Property tests live in the same sibling `tests.rs` file as unit tests, using `proptest!` blocks.
 
 ## Prior Art Reference
 

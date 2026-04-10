@@ -10,8 +10,11 @@ Default mode (`--schema`) reads the gemini stream-json stream from PATH:
   2. Verifies the terminal {"type":"result","status":"success"} event is present
   3. Searches the concatenated text for the BEGIN sentinel
   4. Extracts the fenced JSON block between BEGIN and END sentinels
-  5. Parses the JSON block, validates against the schema
-  6. Prints the envelope to stdout on success
+  5. Parses the JSON block
+  6. Runs the repair layer (repair_envelope.py) to normalize common schema
+     violations — missing fields, enum aliases, location format, etc.
+  7. Validates the (possibly repaired) envelope against the schema
+  8. Prints the envelope to stdout on success
 
 Recovery mode (`--recover-text`) dumps the raw concatenated assistant text
 to stdout without any sentinel or schema validation. Use this when default
@@ -29,6 +32,7 @@ Outcome codes (stderr first line on default-mode failure):
     missing_json_block      — sentinels present but no fenced JSON block
     parse_fail              — fenced JSON block is not valid JSON
     schema_violation        — JSON validates against neither shape nor schema
+                              (even after repair attempt)
     failed_partial          — envelope validates but status != "complete"
 
 Sentinel-less fallback:
@@ -40,6 +44,15 @@ Sentinel-less fallback:
     despite them being clearly specified in the reviewer skill file. The
     sentinel requirement remains in the skill file; this is a parser-level
     safety net, not an endorsement of sentinel-less output.
+
+Envelope repair:
+    After JSON parsing succeeds, the repair layer (repair_envelope.py) runs
+    BEFORE schema validation. It normalizes common LLM output violations:
+    missing required fields (schema_version, no_findings, etc.), enum aliases
+    ("info" → "informational"), location format (strip "./", add ":line"),
+    and type coercions (string ordinals → int). All repairs are logged to
+    stderr with a "REPAIR:" prefix so they're visible in postmortem. The
+    repair layer is idempotent — valid envelopes pass through unchanged.
 
 Recovery-mode failure (rare — only if the JSONL stream itself is unreadable):
     missing_envelope        — no assistant messages found in stream
@@ -57,6 +70,7 @@ import sys
 # import works regardless of caller cwd.
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from envelope_invariants import validate_envelope_invariants  # noqa: E402
+from repair_envelope import repair_envelope  # noqa: E402
 
 BEGIN_SENTINEL = "<!-- BEGIN-ORI-DUAL-TPR-V1 -->"
 END_SENTINEL = "<!-- END-ORI-DUAL-TPR-V1 -->"
@@ -204,11 +218,34 @@ def main():
         print(f"fenced JSON block is not valid JSON: {e}", file=sys.stderr)
         sys.exit(1)
 
+    # Repair layer: normalize common schema violations before validation.
+    # Gemini frequently omits required fields (schema_version, no_findings),
+    # uses enum aliases ("info" instead of "informational"), or produces
+    # location formats the invariant regex rejects. The repair layer fixes
+    # these in-place so a structurally-correct-but-sloppy envelope doesn't
+    # kill a 20-minute review. All repairs are logged to stderr.
+    envelope, repairs = repair_envelope(
+        envelope, default_reviewer="gemini", default_skill="review-work",
+    )
+    if repairs:
+        print(
+            f"REPAIR: applied {len(repairs)} auto-repair(s) to gemini envelope:",
+            file=sys.stderr,
+        )
+        for r in repairs:
+            print(f"  REPAIR: {r}", file=sys.stderr)
+
     try:
         jsonschema.validate(envelope, schema)
     except jsonschema.ValidationError as e:
         print("schema_violation", file=sys.stderr)
         print(f"{e.message}", file=sys.stderr)
+        if repairs:
+            print(
+                f"(repair layer applied {len(repairs)} fix(es) but envelope "
+                f"still fails validation)",
+                file=sys.stderr,
+            )
         sys.exit(1)
 
     # Validate code-level invariants (regex patterns, length limits, conditional

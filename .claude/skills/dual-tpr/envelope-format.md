@@ -58,6 +58,49 @@ care which reviewer produced a given envelope.
 
 ---
 
+## Envelope Repair Layer
+
+> **Added:** 2026-04-10. **Module:** `repair_envelope.py`.
+
+LLM reviewers (especially Gemini) frequently produce envelopes that are
+semantically correct but structurally non-conformant. The repair layer runs
+AFTER JSON parsing but BEFORE schema validation in both parsers
+(`parse-codex.py` and `parse-gemini.py`), normalizing common violations so
+a structurally-sloppy-but-substantively-correct review isn't wasted.
+
+### What the repair layer fixes
+
+| Category | Examples | Repair action |
+|---|---|---|
+| **Missing required fields** | `schema_version`, `reviewer`, `skill`, `no_findings`, `scope_actually_reviewed` | Inject defaults (e.g., `"1.0"`, `"gemini"`, derive `no_findings` from findings array) |
+| **Enum aliases** | `"info"` → `"informational"`, `"inferred"` → `"inference"`, `"commit"` → `"committed"` | Normalize via alias map |
+| **Type coercion** | String ordinals (`"1"` → `1`), non-bool `no_findings`, null findings | Coerce to correct type |
+| **Location format** | `./path:10`, `/absolute/path:10`, `path` (missing `:line`) | Strip prefix, append `:1` |
+| **Title cleanup** | Trailing period/semicolon, length > 200 chars | Strip punctuation, truncate |
+| **Inconsistency** | `no_findings: true` with non-empty findings array | Fix flag to match array |
+| **Single-finding wrapping** | `findings: {...}` (dict instead of array) | Wrap in `[...]` |
+
+### Properties
+
+- **Idempotent** — valid envelopes pass through unchanged with no repairs.
+- **Logged** — every repair is emitted to stderr with `REPAIR:` prefix for
+  postmortem visibility.
+- **Conservative** — only fills defaults or normalizes known aliases. Never
+  fabricates substantive content (evidence, impact, etc.).
+- **Symmetric** — both `parse-codex.py` and `parse-gemini.py` use the same
+  `repair_envelope()` function.
+
+### Retry classification change
+
+With the repair layer in place, `gemini_schema_violation` is reclassified
+from **terminal** to **retryable** in `dual-invoke-with-retry.sh`. Rationale:
+the repair layer fixes most systematic violations in-parser; remaining
+violations may succeed on retry with fresh Gemini output that is differently
+structured. `codex_schema_violation` remains terminal because Codex's JSON
+compliance is more reliable and doesn't benefit from the extra retry budget.
+
+---
+
 ## Sentinel format (Gemini only)
 
 The two sentinels are HTML comments that survive markdown rendering invisibly

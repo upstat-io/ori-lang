@@ -52,8 +52,8 @@ paths:
 - Salsa-compatible via `TypeCheckResult`
 
 ## Salsa Compatibility
-- All types: `Clone, Eq, PartialEq, Hash, Debug`
-- No `Arc<Mutex<T>>` or fn pointers | deterministic (no random/time/IO)
+
+See `impl-hygiene.md` §Salsa & Caching for full rules. Quick: all types `Clone, Eq, PartialEq, Hash, Debug`; no `Arc<Mutex<T>>` or fn pointers; deterministic.
 
 ## Tracing
 - Target: `ori_types` | `ORI_LOG=ori_types=debug` (phases) | `=trace` (per-expression) | `ORI_LOG_TREE=1` for call tree

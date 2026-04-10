@@ -66,7 +66,7 @@ LEAK:scattered-knowledge, SSOT, canonical surface
 ---
 
 ### Section 05: AIMS Pass Bisection
-**File:** `section-05-bisect-passes.md` | **Status:** In Progress
+**File:** `section-05-bisect-passes.md` | **Status:** Complete
 
 ```
 bisect-passes.sh, AIMS pipeline, phase bisection

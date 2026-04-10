@@ -44,7 +44,7 @@ paths:
   - `ori_eval/interpreter/derived_methods.rs` -- runtime dispatch
   - `ori_eval/derives/mod.rs` -- derive processing pipeline
   - `ori_llvm/codegen/derive_codegen.rs` -- LLVM IR generation
-- **DO NOT** modify without updating all sync points | see CLAUDE.md "Adding a New Derived Trait"
+- **DO NOT** modify without updating all sync points
 
 ## Tracing
 - `ori_ir` is a data structure crate -- no direct tracing | debug through consuming crates

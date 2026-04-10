@@ -90,11 +90,21 @@ fi
 #   gemini_missing_json_block      — sentinels present but no fenced JSON
 #                                    block between them; skill output format
 #                                    is broken.
-#   gemini_schema_violation        — same as codex.
 #   gemini_failed_partial          — same as codex.
 #
 # Retryable categories — could be transient, worth another attempt:
 #
+#   gemini_schema_violation        — gemini emitted JSON that fails schema
+#                                    validation even after the repair layer
+#                                    (repair_envelope.py) attempted to fix
+#                                    common violations. Previously terminal,
+#                                    reclassified as retryable because a fresh
+#                                    gemini invocation may produce different
+#                                    output that IS repairable. The 3-attempt
+#                                    budget bounds the cost for systematic
+#                                    failures. Codex schema_violation remains
+#                                    terminal because codex's JSON compliance
+#                                    is more reliable.
 #   launch_or_exit_fail            — dual-invoke.sh returned non-zero. This
 #                                    collapses ALL launch-time failures into
 #                                    one category because dual-invoke.sh
@@ -140,7 +150,6 @@ is_terminal_failure() {
     gemini_missing_envelope)       return 0 ;;
     gemini_missing_begin_sentinel) return 0 ;;
     gemini_missing_json_block)     return 0 ;;
-    gemini_schema_violation)       return 0 ;;
     gemini_failed_partial)         return 0 ;;
     *) return 1 ;;
   esac

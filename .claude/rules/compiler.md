@@ -11,6 +11,17 @@ paths:
 - **IO**: only in `oric`; core crates pure
 - **No phase bleeding**: parser != type-check, lexer != parse
 
+### Phase-Specific Purity
+
+- **Lexer**: scanning with minimal local state (nesting depth, mode stack); produces `(tag, len)`. No semantic state (names, types, scopes).
+- **Parser**: syntax only; builds AST from tokens; no name resolution or semantic validation
+- **Type Checker**: consumes AST, produces typed IR; no re-parsing, no codegen. Salsa queries must be pure.
+- **Evaluator**: interprets typed IR; no re-type-checking, no codegen
+- **ARC Pass**: analyzes ownership on IR; no codegen, no interpretation
+- **LLVM Codegen**: emits LLVM IR from typed IR; no interpretation, no re-type-checking
+- **Diagnostics**: formats and renders errors; no phase logic, no semantic analysis
+- **Optimization Passes**: reads IR, produces transformed IR; analysis is pass-local
+
 ## Memory
 
 - Arena + ID (`ExprArena`+`ExprId`), not `Box<Expr>`
@@ -100,16 +111,10 @@ paths:
 
 ## Bug Debugging Workflow
 
-1. **STOP** — do not jump to fixing
-2. **Consult spec** — `docs/ori_lang/v2026/spec/` for intended behavior
-3. **Run diagnostics** by symptom:
-   - Wrong output → `dual-exec-debug.sh` | Crash/segfault → `diagnose-aot.sh --valgrind`
-   - Memory leak → `ORI_CHECK_LEAKS=1` then `rc-stats.sh` (`--block-level` to localize) | RC corruption → `ORI_TRACE_RC=1` then `codegen-audit.sh --strict`
-   - Type error → `ORI_LOG=ori_types=debug ori check` | Wrong IR → `ir-dump.sh` + `ir-diff.sh`
-4. **Write tests** — MULTIPLE: exact case, edges, variations, guards
-5. **Verify tests fail** — proves understanding
-6. **Fix the code**
-7. **Tests pass unchanged**
+Follow TDD discipline from CLAUDE.md §TDD for Bugs. Then run diagnostics by symptom:
+- Wrong output → `dual-exec-debug.sh` | Crash/segfault → `diagnose-aot.sh --valgrind`
+- Memory leak → `ORI_CHECK_LEAKS=1` then `rc-stats.sh` (`--block-level` to localize) | RC corruption → `ORI_TRACE_RC=1` then `codegen-audit.sh --strict`
+- Type error → `ORI_LOG=ori_types=debug ori check` | Wrong IR → `ir-dump.sh` + `ir-diff.sh`
 
 ## Cascading Fixes = Architectural Smell
 
@@ -119,9 +124,7 @@ paths:
 
 ## Narrow the Front — One Fix at a Time
 
-- **Complete one fix fully before starting another.** RC + control-flow + lowering interactions multiply failure surfaces. Working on elem_dec_fn (Section 02) and for-yield scoping (Section 03) simultaneously created compounding failures that were harder to diagnose than either alone.
-- **"Fully" means: fix + matrix tests + semantic pins + plan update.** A fix without matrix tests is not complete. A fix with tests but no plan update (when cross-section) is not complete.
-- **Depth over breadth.** Fix one element type across all patterns before fixing a second element type. Fix one loop variant completely before the other. Fewer concurrent moving parts = failures are narrow, explainable, and quickly pinned by tests.
+See CLAUDE.md §Stabilization Discipline for the full narrow-the-front principle.
 
 ## Style
 
@@ -140,19 +143,24 @@ paths:
 - **TypeChecker (V2)**: InferEngine, Pool, Registries, ModuleChecker
 - **Method Dispatch**: BuiltinMethods → InherentImpl → TraitImpl (via MethodRegistry)
 
-## Crates
+## Crates (17 total)
 
-- `ori_ir`: AST, spans, TypeId | `ori_lexer`: tokenization | `ori_parse`: parser
-- `ori_types`: type checking (V2 — Pool, InferEngine, registries) | `ori_eval`: interpreter
-- `ori_patterns`: pattern system | `ori_llvm`: LLVM backend | `ori_rt`: AOT runtime
-- `ori_diagnostic`: error reporting | `oric`: CLI, Salsa
+- `oric`: CLI, Salsa orchestration | `ori_compiler`: compiler orchestration facade
+- `ori_ir`: AST, spans, TypeId, DerivedTrait | `ori_lexer_core`: core lexer types/interfaces | `ori_lexer`: tokenization
+- `ori_parse`: parser | `ori_types`: type checking (V2 — Pool, InferEngine, registries)
+- `ori_eval`: interpreter | `ori_patterns`: pattern system
+- `ori_canon`: canonicalization (AST → CanExpr) | `ori_arc`: ARC/AIMS pipeline
+- `ori_repr`: representation optimization | `ori_stack`: stack management
+- `ori_llvm`: LLVM backend | `ori_rt`: AOT runtime
+- `ori_registry`: builtin type behavior (pure data) | `ori_diagnostic`: error reporting
+- `ori_fmt`: Ori source formatter
 
 ## Change Locations
 
 - Expression: `ori_parse/grammar/expr/` | `ori_types/infer/expr/` | `ori_eval/interpreter/`
 - Type: `ori_ir/type_id.rs` | `ori_types/pool/` | `ori_types/check/`
 - Method: `ori_types/registry/methods/` | `ori_eval/interpreter/method_dispatch/`
-- Derive: `ori_ir/derives/mod.rs` (source of truth) | `ori_types/check/registration/` | `ori_eval/interpreter/derived_methods.rs` | `ori_llvm/codegen/derive_codegen/`
+- Derive: see `ir.md` §DerivedTrait for canonical sync point list
 
 ## Source of Truth
 
