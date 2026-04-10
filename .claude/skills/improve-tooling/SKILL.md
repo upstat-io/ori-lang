@@ -157,11 +157,11 @@ When invoked at the end of a section, after `/tpr-review` and `/impl-hygiene-rev
 
 1. **Verify per-subsection and bug-fix retrospectives actually ran.** For each subsection in this section, confirm there is either an "Improvements made" entry (with commits) or a documented "no gaps" negative finding. For each `/fix-bug` completed during this section, confirm the fix section's completion checklist has a "Tooling retrospective" entry. If any retrospective was skipped, **STOP** — go back and run it now. The sweep cannot substitute for the missing captures; it can only catch what they missed.
 
-2. **Look for cross-subsection patterns invisible at per-item scope:**
-   - Did I run the same command sequence transitioning between *different* subsections? (e.g., "every time I moved from a typeck change to a codegen change, I had to manually clear the salsa cache and re-run two diagnostic scripts")
-   - Did test failures from *interactions between* subsections give worse messages than failures *within* a subsection?
+2. **Look for cross-item patterns invisible at finer granularity:**
+   - Did I run the same command sequence transitioning between different subsections or between subsection work and bug-fix work? (e.g., "every time I moved from a typeck change to a codegen change, I had to manually clear the salsa cache and re-run two diagnostic scripts")
+   - Did test failures from *interactions between* items (subsections, bug fixes) give worse messages than failures *within* a single item?
    - Did integration steps require mentally cross-referencing files that no tool combined?
-   - Did any forward-looking instrumentation become obvious only after seeing all subsections together?
+   - Did any forward-looking instrumentation become obvious only after seeing all subsections and bug fixes together?
 
 3. **List concrete improvement candidates** for items the per-subsection and bug-fix captures could not have surfaced (see "Candidate Format" below).
 
@@ -173,23 +173,25 @@ When invoked at the end of a section, after `/tpr-review` and `/impl-hygiene-rev
 - **Cross-cutting improvements made** — list each tool changed + the integration pattern it addresses
 - **No new gaps beyond finer-grained captures** — "Section-close sweep: per-subsection and bug-fix retrospectives covered everything; no cross-cutting patterns required new tooling." This is a perfectly valid (and common) outcome when finer-grained captures were thorough.
 
+**Where to persist the outcome:** Record at the bottom of the section's plan file (e.g., as a `## Tooling Sweep` block or appended to the section's completion notes). The sweep outcome is the final verification that all finer-grained captures ran.
+
 ### Candidate Format (all granularities)
 
 For each candidate, articulate:
 - **Tool**: which script/harness needs the change (e.g., `diagnostics/codegen-audit.sh`)
 - **Gap**: what's missing or painful (e.g., "doesn't show RC balance per basic block, only per function")
 - **Improvement**: the specific change (e.g., "add `--per-block` flag")
-- **Payoff**: how it would have shortened *this* subsection/section's work, or how it sharpens future debugging
+- **Payoff**: how it would have shortened *this* item's work (subsection, bug fix, or section), or how it sharpens future debugging
 - **Source**: which subsection (`{NN}.M`), bug fix (`BUG-XX-NNN`), or cross-pattern surfaced it — used in commit messages
 
 ### Filter Criteria (all granularities)
 
 Not every small annoyance becomes a tool change. Apply this filter:
 
-- **DO improve** if the friction would recur: same workflow on similar bugs, same script run by other subsections, same output format misread by future implementers
+- **DO improve** if the friction would recur: same workflow on similar bugs or subsections, same script run across items, same output format misread by future implementers
 - **DO improve** if the manual workaround is non-obvious — meaning it relies on tribal knowledge nobody documented
 - **DO improve** if a 10-line script change saves 5+ minutes per future debugging session
-- **DO NOT improve** if the friction was a one-off due to unique subsection content with no recurring pattern
+- **DO NOT improve** if the friction was a one-off due to unique content (subsection or bug fix) with no recurring pattern
 - **DO NOT improve** if the "fix" would add complexity to a stable, simple tool for a marginal gain
 
 ### Anti-Patterns Specific to Retrospective Mode
@@ -198,8 +200,8 @@ Not every small annoyance becomes a tool change. Apply this filter:
 - **"I'll batch all my retrospectives at section close instead."** — BANNED. This is exactly the failure mode that motivated splitting into per-subsection granularity. By section close you have already forgotten the pain points from the early subsections. The section-close sweep can ONLY catch cross-cutting patterns; it cannot reconstruct per-item friction.
 - **"I'll add a TODO comment for the tool change."** — Banned. Either implement the improvement now or don't claim it's needed. Comments are not tracking.
 - **"The improvement would touch 3 scripts, that's too much."** — CLAUDE.md correctness rule applies: scope, effort, and complexity are irrelevant. If the right improvement crosses scripts, that IS the improvement.
-- **"This is a one-off, no future subsection will need it."** — Be honest. If you genuinely can't articulate a recurring use case, skip it. But "one-off" is often a rationalization — most debugging patterns recur.
-- **Combining tooling improvements into the subsection's main commit.** — Separate commits keep provenance clean and let `/improve-tooling` retrospectives be reviewed independently of feature work.
+- **"This is a one-off, no future debugging session will need it."** — Be honest. If you genuinely can't articulate a recurring use case, skip it. But "one-off" is often a rationalization — most debugging patterns recur.
+- **Combining tooling improvements into the item's main commit** (subsection or bug fix). — Separate commits keep provenance clean and let `/improve-tooling` retrospectives be reviewed independently of feature/fix work.
 - **Section-close sweep being used as the primary capture.** — If your section-close sweep produces 8 improvements while the per-subsection and bug-fix retrospectives produced 0, the finer-grained captures were skipped. Sweep findings should be small in number (often zero) and explicitly cross-cutting.
 
 ### Why Retrospective Mode Exists
