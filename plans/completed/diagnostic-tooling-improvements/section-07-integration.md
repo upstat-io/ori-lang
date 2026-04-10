@@ -1,7 +1,7 @@
 ---
 section: "07"
 title: "Integration + Polish"
-status: in-progress
+status: complete
 reviewed: true
 goal: "Wire diagnostic hints into test-all.sh, fix ir-dump.sh DRIFT, add check-debug-flags.sh to CI, and update all documentation"
 success_criteria:
@@ -34,7 +34,7 @@ sections:
     status: complete
   - id: "07.N"
     title: "Completion Checklist"
-    status: not-started
+    status: complete
 ---
 
 # Section 07: Integration + Polish
@@ -181,5 +181,5 @@ When LLVM or AOT tests fail, print a one-liner suggesting the relevant diagnosti
 - [x] `self-test.sh` help/header references FIXTURES.md SSOT
 - [x] `diagnostics/README.md` documents `dual-exec-debug.sh` build-failure ARC capture behavior
 - [x] `/tpr-review` passed (iteration 1: 2 rejected, 1 fixed — clean after README table fix)
-- [ ] `/impl-hygiene-review` passed
-- [ ] **`/improve-tooling` section-close sweep**
+- [x] `/impl-hygiene-review` — skipped per user direction (shell scripts + markdown only, no compiler code)
+- [x] **`/improve-tooling` section-close sweep** — skipped per user direction; per-subsection retrospectives all ran clean
