@@ -59,6 +59,7 @@ All support `--help`, `--no-color`/`--color`.
 | `arc-dump.sh` | ARC IR post-lowering | `--raw`, `--function` |
 | `ir-diff.sh` | Compare two programs' IR | `--raw`, `--optimized`, `--function`, `--context` |
 | `disasm-ori.sh` | Native disassembly | `--all`, `--function`, `--symbols` |
+| `bisect-passes.sh` | AIMS pipeline phase bisection | `--function`, `--rc-only` |
 | `debug-release-compare.sh` | Debug vs release comparison | `--verbose` |
 | `valgrind-aot.sh` | Valgrind memory errors | defaults to `tests/valgrind/` |
 | `check-debug-flags.sh` | Validate `ORI_*` flag consistency | |
@@ -67,6 +68,7 @@ All support `--help`, `--no-color`/`--color`.
 **Data sources:**
 - `rc-stats.sh` consumes compiler JSON via `ORI_AUDIT_CODEGEN=1` (SSOT: `RcOpKind` in `rc_histogram.rs`)
 - `codegen-audit.sh` consumes `codegen audit:` lines from `ORI_AUDIT_CODEGEN=1`
+- `bisect-passes.sh` consumes `ori_arc::aims::pipeline` tracing events via `ORI_LOG=ori_arc::aims::pipeline=info`
 - `ir-dump.sh` / `arc-dump.sh` use `ORI_DUMP_AFTER_LLVM=1` / `ORI_DUMP_AFTER_ARC=1`
 
 **Environment:**
