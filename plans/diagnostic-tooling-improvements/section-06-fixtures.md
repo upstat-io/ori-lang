@@ -108,6 +108,7 @@ Each fixture must: (1) compile under AOT, (2) produce deterministic output via `
 - [ ] All fixtures compile and run under both interpreter and AOT
 - [ ] `diagnostics/self-test.sh` passes
 - [ ] `timeout 150 ./test-all.sh` green — no regressions
+- [ ] **Doc update (SSOT):** Update `diagnostics/README.md` fixtures table with all new fixtures
 - [ ] `/tpr-review` passed
 - [ ] `/impl-hygiene-review` passed
 - [ ] **`/improve-tooling` section-close sweep**

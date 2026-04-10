@@ -133,6 +133,7 @@ Create a shell script that runs a program with `ORI_LOG=ori_arc::aims::pipeline=
 - [ ] `timeout 150 cargo t -p ori_arc` passes
 - [ ] `diagnostics/self-test.sh` passes
 - [ ] `timeout 150 ./test-all.sh` green — no regressions
+- [ ] **Doc update (SSOT):** Add `bisect-passes.sh` to `@diagnostic.md` §Diagnostic Scripts table and `diagnostics/README.md` usage section
 - [ ] `/tpr-review` passed
 - [ ] `/impl-hygiene-review` passed
 - [ ] **`/improve-tooling` section-close sweep**
