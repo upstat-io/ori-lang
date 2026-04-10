@@ -30,7 +30,7 @@ sections:
     status: complete
   - id: "06.4"
     title: "Fixture matrix and categorization"
-    status: not-started
+    status: complete
   - id: "06.5"
     title: "Update self-test.sh coverage"
     status: not-started
@@ -141,38 +141,18 @@ tp-help identified that failure fixtures were "optional and underspecified" — 
 
 tp-help identified scattered fixture knowledge as a LEAK — fixture names are repeated per-script in self-test with no single source of truth for what each fixture covers. This subsection creates the SSOT.
 
-- [ ] Create `diagnostics/fixtures/FIXTURES.md` with a categorization table:
+- [x] Create `diagnostics/fixtures/FIXTURES.md` with a categorization table:
+  Created with 18 fixtures (11 pass, 5 aims-heavy, 2 expected-fail) plus `build-fail-parse.ori` and `mismatch-wrapper.sh` infra entries. Includes full matrix table matching the plan specification. Also added `infra` category for supporting infrastructure files.
 
-  | Fixture | Category | Pattern | Key ARC/AIMS Paths | Expected Exit | bisect-passes? |
-  |---------|----------|---------|-------------------|---------------|----------------|
-  | `simple.ori` | pass | No collections, no RC | Baseline (no RC ops) | 0 | Yes |
-  | `clean.ori` | pass | Collections + balanced RC | RC alloc/dec, list ops | 0 | Yes |
-  | `chain.ori` | pass | Chained COW ops | COW clone path, sequential mutation | 0 | Yes |
-  | `closure.ori` | pass | Closure capture + call | PartialApply, closure env RC | 0 | Yes |
-  | `closure_escape.ori` | pass | Escaping closures | Closure lifetime beyond scope | 0 | Yes |
-  | `iterator_break.ori` | pass | Iterator early exit | Iterator drop, elem cleanup | 0 | Yes |
-  | `iterator_complex.ori` | pass | Nested/yield/guard iteration | Nested loop RC, partial collect | 0 | Yes |
-  | `nested_list.ori` | pass | Nested collections | elem_dec_fn propagation | 0 | Yes |
-  | `generic_mono.ori` | aims-heavy | Multi-type generic instantiation | Monomorphization RC correctness | 0 | Yes |
-  | `trait_dispatch.ori` | pass | Trait method dispatch | Trait vtable codegen, method RC | 0 | Yes |
-  | `pattern_match.ori` | pass | Sum type mixed variants | Decision tree, per-variant drop | 0 | Yes |
-  | `map_iteration.ori` | pass | Map create + iterate | Map RC, iterator cleanup | 0 | Yes |
-  | `question_mark.ori` | aims-heavy | `?` with fat values | Early-exit unwinding, drop all live | 0 | Yes |
-  | `recursive_tree.ori` | aims-heavy | Recursive fat pointer passing | Stack-frame RC across depth | 0 | Yes |
-  | `large_aggregate.ori` | aims-heavy | >16B struct pass/return | ABI compliance, large aggregate load | 0 | Yes |
-  | `cow_sharing.ori` | aims-heavy | COW sharing/fork | is_unique, COW clone barrier | 0 | Yes |
-  | `leak.ori` | expected-fail | Intentional leak | Leak detection path | non-zero | Yes (expect exit 1) |
-  | `mismatch_compute.ori` | expected-fail | Interpreter vs AOT mismatch | Mismatch detection path | non-zero | No |
+- [x] In `FIXTURES.md`, document the self-test contract for each category:
+  - **pass**: `ir-dump.sh` (non-empty), `arc-dump.sh` (non-empty), `diagnose-aot.sh` (exit 0), `dual-exec-debug.sh` (MATCH), `rc-stats.sh` (produces output), `bisect-passes.sh --rc-only` (phase table + "Leak check: clean")
+  - **aims-heavy**: same as pass, PLUS `bisect-passes.sh --rc-only` shows non-zero RC ops, AND feature-specific IR marker assertions
+  - **expected-fail**: `diagnose-aot.sh` / `dual-exec-debug.sh` must report failure, specific exit code + output pattern documented per fixture
 
-- [ ] In `FIXTURES.md`, document the self-test contract for each category:
-  - **pass**: `ir-dump.sh` (non-empty), `arc-dump.sh` (non-empty), `diagnose-aot.sh` (exit 0), `dual-exec-debug.sh` (MATCH), `rc-stats.sh` (produces output), `bisect-passes.sh` (phase table)
-  - **aims-heavy**: same as pass, PLUS `bisect-passes.sh` must show RC operations (not trivially empty), AND assertions on feature-specific IR markers
-  - **expected-fail**: `diagnose-aot.sh` must report failure (`run_test_expect_fail`), specific exit code documented per fixture
-
-- [ ] **Subsection close-out (06.4)** — MANDATORY before starting 06.5:
-  - [ ] All tasks above are `[x]` and verified
-  - [ ] Update this subsection's `status` in section frontmatter to `complete`
-  - [ ] **Run `/improve-tooling` retrospectively on THIS subsection**
+- [x] **Subsection close-out (06.4)** — MANDATORY before starting 06.5:
+  - [x] All tasks above are `[x]` and verified
+  - [x] Update this subsection's `status` in section frontmatter to `complete`
+  - [x] **Run `/improve-tooling` retrospectively on THIS subsection**
 
 ---
 
