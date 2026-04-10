@@ -21,6 +21,11 @@ pub enum NarrowingPolicy {
 }
 
 impl NarrowingPolicy {
+    /// Environment variable name for the repr-opt disable flag.
+    ///
+    /// Exported for compile-time sync assertions in `oric::debug_flags`.
+    pub const ENV_NO_REPR_OPT: &str = "ORI_NO_REPR_OPT";
+
     /// Check if `ORI_NO_REPR_OPT` env var is explicitly enabled.
     ///
     /// Accepts `"1"`, `"true"`, `"yes"` (case-insensitive for string values).
@@ -33,7 +38,7 @@ impl NarrowingPolicy {
     /// checking the env var directly.
     #[must_use]
     pub fn env_disabled() -> bool {
-        std::env::var("ORI_NO_REPR_OPT")
+        std::env::var(Self::ENV_NO_REPR_OPT)
             .ok()
             .is_some_and(|v| is_env_truthy(&v))
     }

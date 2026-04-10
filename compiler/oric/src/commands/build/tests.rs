@@ -157,9 +157,7 @@ fn collect_metadata_dependency_with_no_types() {
     assert!(result.is_empty());
 }
 
-// =============================================================================
 // Collection surface collection
-// =============================================================================
 
 /// Semantic pin: `collect_imported_collection_surfaces` gathers hashes from
 /// compiled dependency modules.

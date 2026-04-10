@@ -116,10 +116,8 @@ fn tuple_element_width(plan: &ReprPlan, idx: Idx, element_index: usize) -> Optio
     }
 }
 
-// ────────────────────────────────────────────────────
 // Semantic pin: Pixel { r, g, b, a: int } with 0..255 fields → i8
 // This test ONLY passes with integer narrowing enabled.
-// ────────────────────────────────────────────────────
 
 #[test]
 fn semantic_pin_pixel_struct_narrows_to_i8() {
@@ -150,9 +148,7 @@ fn semantic_pin_pixel_struct_narrows_to_i8() {
     }
 }
 
-// ────────────────────────────────────────────────────
 // Semantic pin: Pixel with [-128, 127] fields → i8
-// ────────────────────────────────────────────────────
 
 #[test]
 fn semantic_pin_pixel_signed_range_narrows_to_i8() {
@@ -181,9 +177,7 @@ fn semantic_pin_pixel_signed_range_narrows_to_i8() {
     }
 }
 
-// ────────────────────────────────────────────────────
 // Boundary: field range [0, 255] → i16 (NOT i8, since signed i8 max = 127)
-// ────────────────────────────────────────────────────
 
 #[test]
 fn boundary_unsigned_byte_range_narrows_to_i16() {
@@ -203,9 +197,7 @@ fn boundary_unsigned_byte_range_narrows_to_i16() {
     );
 }
 
-// ────────────────────────────────────────────────────
 // Boundary: [-128, 128] → i16 (exceeds i8 max by 1)
-// ────────────────────────────────────────────────────
 
 #[test]
 fn boundary_just_exceeds_i8_narrows_to_i16() {
@@ -225,9 +217,7 @@ fn boundary_just_exceeds_i8_narrows_to_i16() {
     );
 }
 
-// ────────────────────────────────────────────────────
 // Boundary: [-32768, 32767] → i16
-// ────────────────────────────────────────────────────
 
 #[test]
 fn boundary_exact_i16_range_narrows_to_i16() {
@@ -254,9 +244,7 @@ fn boundary_exact_i16_range_narrows_to_i16() {
     );
 }
 
-// ────────────────────────────────────────────────────
 // Boundary: [-32769, 0] → i32
-// ────────────────────────────────────────────────────
 
 #[test]
 fn boundary_just_exceeds_i16_narrows_to_i32() {
@@ -276,9 +264,7 @@ fn boundary_just_exceeds_i16_narrows_to_i32() {
     );
 }
 
-// ────────────────────────────────────────────────────
 // Top range → no narrowing (stays i64)
-// ────────────────────────────────────────────────────
 
 #[test]
 fn top_range_stays_i64() {
@@ -298,9 +284,7 @@ fn top_range_stays_i64() {
     );
 }
 
-// ────────────────────────────────────────────────────
 // Bottom range → i8 (unreachable code, smallest valid)
-// ────────────────────────────────────────────────────
 
 #[test]
 fn bottom_range_narrows_to_i8() {
@@ -320,9 +304,7 @@ fn bottom_range_narrows_to_i8() {
     );
 }
 
-// ────────────────────────────────────────────────────
 // #repr("c") struct: NOT narrowed (ABI contract)
-// ────────────────────────────────────────────────────
 
 #[test]
 fn repr_c_struct_not_narrowed() {
@@ -343,9 +325,7 @@ fn repr_c_struct_not_narrowed() {
     );
 }
 
-// ────────────────────────────────────────────────────
 // #repr("packed") struct: NOT narrowed
-// ────────────────────────────────────────────────────
 
 #[test]
 fn repr_packed_struct_not_narrowed() {
@@ -366,9 +346,7 @@ fn repr_packed_struct_not_narrowed() {
     );
 }
 
-// ────────────────────────────────────────────────────
 // #repr("transparent") struct: NOT narrowed
-// ────────────────────────────────────────────────────
 
 #[test]
 fn repr_transparent_struct_not_narrowed() {
@@ -389,9 +367,7 @@ fn repr_transparent_struct_not_narrowed() {
     );
 }
 
-// ────────────────────────────────────────────────────
 // #repr("aligned", 8) struct: CAN be narrowed (alignment is independent)
-// ────────────────────────────────────────────────────
 
 #[test]
 fn repr_aligned_struct_can_be_narrowed() {
@@ -412,9 +388,7 @@ fn repr_aligned_struct_can_be_narrowed() {
     );
 }
 
-// ────────────────────────────────────────────────────
 // #repr("c", aligned N) struct: NOT narrowed (C-ABI contract)
-// ────────────────────────────────────────────────────
 
 #[test]
 fn repr_c_aligned_struct_not_narrowed() {
@@ -435,9 +409,7 @@ fn repr_c_aligned_struct_not_narrowed() {
     );
 }
 
-// ────────────────────────────────────────────────────
 // Public type: NOT narrowed (ABI contract)
-// ────────────────────────────────────────────────────
 
 #[test]
 fn public_type_not_narrowed() {
@@ -458,9 +430,7 @@ fn public_type_not_narrowed() {
     );
 }
 
-// ────────────────────────────────────────────────────
 // Private type: IS narrowed normally complement
-// ────────────────────────────────────────────────────
 
 #[test]
 fn private_type_narrowed_normally() {
@@ -492,9 +462,7 @@ fn private_type_narrowed_normally() {
     );
 }
 
-// ────────────────────────────────────────────────────
 // NarrowingPolicy::Disabled → no narrowing
-// ────────────────────────────────────────────────────
 
 #[test]
 fn disabled_policy_skips_narrowing() {
@@ -514,9 +482,7 @@ fn disabled_policy_skips_narrowing() {
     );
 }
 
-// ────────────────────────────────────────────────────
 // Non-int fields are left alone
-// ────────────────────────────────────────────────────
 
 #[test]
 fn non_int_fields_untouched() {
@@ -546,9 +512,7 @@ fn non_int_fields_untouched() {
     }
 }
 
-// ────────────────────────────────────────────────────
 // Already-narrowed field (not I64) is left alone
-// ────────────────────────────────────────────────────
 
 #[test]
 fn already_narrow_field_untouched() {
@@ -568,9 +532,7 @@ fn already_narrow_field_untouched() {
     );
 }
 
-// ────────────────────────────────────────────────────
 // Tuple element narrowing
-// ────────────────────────────────────────────────────
 
 #[test]
 fn tuple_elements_not_narrowed_phase_a() {
@@ -607,9 +569,7 @@ fn tuple_elements_not_narrowed_phase_a() {
     );
 }
 
-// ────────────────────────────────────────────────────
 // Mixed: some fields narrow, some stay i64
-// ────────────────────────────────────────────────────
 
 #[test]
 fn mixed_fields_partial_narrowing() {
@@ -640,9 +600,7 @@ fn mixed_fields_partial_narrowing() {
     assert_eq!(struct_field_width(&plan, idx, 2), Some(IntWidth::I32));
 }
 
-// ────────────────────────────────────────────────────
 // Empty struct: no panic, no narrowing
-// ────────────────────────────────────────────────────
 
 #[test]
 fn empty_struct_no_panic() {
@@ -661,9 +619,7 @@ fn empty_struct_no_panic() {
     }
 }
 
-// ────────────────────────────────────────────────────
 // i32 range boundary: [-2^31, 2^31-1] → i32
-// ────────────────────────────────────────────────────
 
 #[test]
 fn boundary_exact_i32_range() {
@@ -690,9 +646,7 @@ fn boundary_exact_i32_range() {
     );
 }
 
-// ────────────────────────────────────────────────────
 // Exceeds i32: [-2^31, 2^31] → i64
-// ────────────────────────────────────────────────────
 
 #[test]
 fn boundary_just_exceeds_i32_stays_i64() {
@@ -719,9 +673,7 @@ fn boundary_just_exceeds_i32_stays_i64() {
     );
 }
 
-// ────────────────────────────────────────────────────
 // Single constant value: [42, 42] → i8
-// ────────────────────────────────────────────────────
 
 #[test]
 fn constant_value_narrows_to_i8() {
@@ -741,9 +693,7 @@ fn constant_value_narrows_to_i8() {
     );
 }
 
-// ────────────────────────────────────────────────────
 // FieldRepr.offset stays zero (§04/§06 interface contract)
-// ────────────────────────────────────────────────────
 
 #[test]
 fn field_offset_stays_zero_after_narrowing() {
@@ -770,9 +720,7 @@ fn field_offset_stays_zero_after_narrowing() {
     }
 }
 
-// ════════════════════════════════════════════════════
 // §04.2 — ABI Boundary Classification Tests
-// ════════════════════════════════════════════════════
 
 // Boundary classification priority
 
@@ -1129,9 +1077,7 @@ fn semantic_pin_width_preservation_internal_agreed() {
     );
 }
 
-// ════════════════════════════════════════════════════
 // §04.3 — Overflow Guard Insertion Tests
-// ════════════════════════════════════════════════════
 
 // can_overflow: addition
 

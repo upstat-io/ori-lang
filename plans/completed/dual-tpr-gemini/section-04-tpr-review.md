@@ -101,6 +101,8 @@ Tasks:
 - [x] **Subsection close-out (04.1)** — MANDATORY before starting 04.2:
   - [x] The new skill file exists, references Section 02's scripts correctly, and preserves the existing "fix and re-run" loop logic
   - [x] Update this subsection's `status` in section frontmatter to `complete`
+  - [ ] `/tpr-review` passed — independent review found no critical or major issues (or all findings triaged)
+  - [ ] `/impl-hygiene-review` passed — hygiene review clean. MUST run AFTER `/tpr-review` is clean.
   - [x] Run `/improve-tooling` retrospectively — was the rewrite tedious (copy existing sections, graft new transport calls)? Should there be a `generate-wrapper-from-template.sh` helper that scaffolds a new dual-source wrapper given a skill name + loop semantics? Implement improvements NOW and commit separately.
 
 ---
@@ -157,6 +159,8 @@ Tasks:
   - [x] Loop state machine and escalation text added to the skill file
   - [x] Merged finding format documented with agreement and gemini-only examples
   - [x] Update this subsection's `status` to `complete`
+  - [ ] `/tpr-review` passed — independent review found no critical or major issues (or all findings triaged)
+  - [ ] `/impl-hygiene-review` passed — hygiene review clean. MUST run AFTER `/tpr-review` is clean.
   - [x] Run `/improve-tooling` retrospectively — was the state machine documentation helpful or over-engineered? Implement improvements.
 
 ---
@@ -214,6 +218,8 @@ If any scenario fails, STOP. Do NOT mark Section 04 complete. Do NOT start Secti
   - [x] All four validation scenarios pass — Scenarios 3 and 4 done via `validate-dual-tpr.sh` stub harness (commit `816cb891`); Scenarios 1 and 2 verified via the 6-iteration real-reviewer loop documented in §04.R Loop Closure Summary.
   - [x] Scenario results documented in working notes — Scenarios 3 and 4 documented above with the BUG-08-002 discovery + fix narrative; Scenarios 1+2 documented in §04.R Loop Closure Summary (2026-04-08) with per-iteration wall times, reviewer agreement patterns, and citation examples.
   - [x] Update this subsection's `status` to `complete` — done 2026-04-08 via commit `b4ed0521`.
+  - [ ] `/tpr-review` passed — independent review found no critical or major issues (or all findings triaged)
+  - [ ] `/impl-hygiene-review` passed — hygiene review clean. MUST run AFTER `/tpr-review` is clean.
   - [x] Run `/improve-tooling` retrospectively — the validation scenarios are currently manual; should there be a `validate-dual-tpr.sh` that runs all four as an automated test suite? Implement improvements. **DONE 2026-04-08**: implemented `validate-dual-tpr.sh` covering Scenarios 3 and 4 via stubs (commit `816cb891`); the BUG-08-002 transport bug fix (commit `f092445f`) is the additional improvement that the harness surfaced. Scenarios 1 and 2 remain manual because they require real reviewer behavior (agreement, disagreement, citations) that cannot be meaningfully stubbed.
 
 ---

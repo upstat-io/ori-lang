@@ -253,9 +253,7 @@ pub(crate) fn resolve_type_id(engine: &mut InferEngine<'_>, type_id: TypeId) -> 
     }
 }
 
-// ============================================================================
 // Type Well-Formedness Checks (Inference Phase)
-// ============================================================================
 
 /// Check that map key types implement `Hashable` (E2031).
 ///

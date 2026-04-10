@@ -57,3 +57,15 @@ fn test_recursive_enum_falls_back_to_explicit_tag() {
         "recursive_enum_explicit_tag",
     );
 }
+
+/// Regression: explicit-tag enum Construct with `UnmanagedPtr` (iterator)
+/// payload requires `ptrtoint` before `insertvalue` into `[N x i64]` slot.
+/// Without the cast, LLVM rejects `insertvalue [1 x i64], ptr %p, 0`.
+/// 10+ variants forces explicit-tag, iterator is ptr type.
+#[test]
+fn test_explicit_tag_enum_with_iterator_payload_compiles_and_runs() {
+    assert_aot_success(
+        include_str!("fixtures/enum_tagged_ptr/explicit_tag_iterator_payload.ori"),
+        "explicit_tag_iterator_payload",
+    );
+}

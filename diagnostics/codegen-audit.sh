@@ -141,11 +141,8 @@ trap 'rm -rf "$tmpdir"' EXIT
 
 # Try `ori build` first (AOT path), fall back to `ori check` (JIT path)
 printf "${C_DIM}Compiling...${C_NC}\n"
-if "$ORI" build "$FILE" > "$tmpdir/stdout.txt" 2> "$tmpdir/stderr.txt"; then
+if "$ORI" build "$FILE" -o "$tmpdir/audit_binary" > "$tmpdir/stdout.txt" 2> "$tmpdir/stderr.txt"; then
     COMPILE_OK=1
-    # Clean up the built binary
-    BINARY="${FILE%.ori}"
-    [[ -f "$BINARY" ]] && rm -f "$BINARY"
 else
     # Check if compilation itself failed (vs just audit findings)
     if grep -q "^codegen audit:" "$tmpdir/stderr.txt"; then

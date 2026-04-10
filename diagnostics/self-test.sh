@@ -104,6 +104,27 @@ run_test_expect_fail() {
     rm -f "$tmpout"
 }
 
+# Usage: run_test_exit_code "description" EXPECTED_CODE command [args...]
+# Expects a specific exit code.
+run_test_exit_code() {
+    local desc="$1"
+    local expected="$2"
+    shift 2
+    local tmpout; tmpout=$(mktemp)
+    local rc=0
+
+    "$@" > "$tmpout" 2>&1 || rc=$?
+
+    if [[ $rc -eq $expected ]]; then
+        printf "  ${C_GREEN}PASS${C_NC}  %s (exit %d as expected)\n" "$desc" "$rc"
+        PASS=$((PASS + 1))
+    else
+        printf "  ${C_RED}FAIL${C_NC}  %s (expected exit %d, got %d)\n" "$desc" "$expected" "$rc"
+        FAIL=$((FAIL + 1))
+    fi
+    rm -f "$tmpout"
+}
+
 # Usage: run_test_output_contains "description" "pattern" command [args...]
 # Expects exit code 0 and stdout+stderr to contain pattern.
 run_test_output_contains() {
@@ -119,7 +140,7 @@ run_test_output_contains() {
         :
     fi
 
-    if grep -q "$pattern" "$tmpout"; then
+    if grep -qF -- "$pattern" "$tmpout"; then
         printf "  ${C_GREEN}PASS${C_NC}  %s\n" "$desc"
         PASS=$((PASS + 1))
     else
@@ -213,6 +234,27 @@ run_test "simple.ori passes all checks" \
     "$SCRIPT_DIR/diagnose-aot.sh" --no-color "$FIXTURES_DIR/simple.ori"
 run_test "clean.ori passes all checks" \
     "$SCRIPT_DIR/diagnose-aot.sh" --no-color "$FIXTURES_DIR/clean.ori"
+run_test_output_contains "diagnose-aot.sh --help shows --release" "--release" \
+    "$SCRIPT_DIR/diagnose-aot.sh" --help
+run_test_output_contains "diagnose-aot.sh --help shows --both-builds" "--both-builds" \
+    "$SCRIPT_DIR/diagnose-aot.sh" --help
+run_test_output_contains "diagnose-aot.sh --help shows Codegen Audit section" "Codegen Audit" \
+    "$SCRIPT_DIR/diagnose-aot.sh" --help
+run_test_output_contains "diagnose-aot.sh --help shows ARC IR section" "ARC IR" \
+    "$SCRIPT_DIR/diagnose-aot.sh" --help
+if [[ -x "$ROOT_DIR/target/release/ori" ]]; then
+    run_test "diagnose-aot.sh --release on simple.ori" \
+        "$SCRIPT_DIR/diagnose-aot.sh" --release --no-color "$FIXTURES_DIR/simple.ori"
+    run_test_output_contains "diagnose-aot.sh --release shows (release) in header" "(release)" \
+        "$SCRIPT_DIR/diagnose-aot.sh" --release --no-color "$FIXTURES_DIR/simple.ori"
+    run_test "diagnose-aot.sh --both-builds on simple.ori" \
+        "$SCRIPT_DIR/diagnose-aot.sh" --both-builds --no-color "$FIXTURES_DIR/simple.ori"
+    run_test_output_contains "diagnose-aot.sh --both-builds shows per-section comparison" "COMPARISON" \
+        "$SCRIPT_DIR/diagnose-aot.sh" --both-builds --no-color "$FIXTURES_DIR/simple.ori"
+else
+    printf "  ${C_DIM}SKIP${C_NC}  --release tests — release binary not found (run: cargo b --release)\n"
+    SKIP=$((SKIP + 4))
+fi
 echo ""
 
 # ─── dual-exec-debug.sh ───────────────────────────────────────────
@@ -221,6 +263,29 @@ run_test "simple.ori interpreter == AOT" \
     "$SCRIPT_DIR/dual-exec-debug.sh" --no-color "$FIXTURES_DIR/simple.ori"
 run_test "clean.ori interpreter == AOT" \
     "$SCRIPT_DIR/dual-exec-debug.sh" --no-color "$FIXTURES_DIR/clean.ori"
+
+# Mismatch path: verify auto-diagnostics output (uses ORI_BIN wrapper for deterministic divergence)
+SAVED_ORI_BIN="${ORI_BIN:-}"
+export ORI_BIN="$FIXTURES_DIR/mismatch-wrapper.sh"
+run_test_exit_code "mismatch wrapper triggers mismatch (exit 1)" 1 \
+    "$SCRIPT_DIR/dual-exec-debug.sh" --no-color "$FIXTURES_DIR/mismatch.ori"
+run_test_output_contains "mismatch auto-dumps ARC IR" "ARC IR saved to" \
+    "$SCRIPT_DIR/dual-exec-debug.sh" --no-color "$FIXTURES_DIR/mismatch.ori"
+run_test_output_contains "mismatch runs codegen-audit" "Codegen Audit" \
+    "$SCRIPT_DIR/dual-exec-debug.sh" --no-color "$FIXTURES_DIR/mismatch.ori"
+run_test_output_contains "mismatch shows keep-temp hint" "keep-temp" \
+    "$SCRIPT_DIR/dual-exec-debug.sh" --no-color "$FIXTURES_DIR/mismatch.ori"
+if [[ -n "$SAVED_ORI_BIN" ]]; then
+    export ORI_BIN="$SAVED_ORI_BIN"
+else
+    unset ORI_BIN
+fi
+
+# Build-failure path: verify exit code 2 and ARC IR capture attempt
+run_test_exit_code "build failure exits 2 (not 1)" 2 \
+    "$SCRIPT_DIR/dual-exec-debug.sh" --no-color "$FIXTURES_DIR/build-fail-parse.ori"
+run_test_output_contains "build failure shows ARC IR status" "ARC IR" \
+    "$SCRIPT_DIR/dual-exec-debug.sh" --no-color "$FIXTURES_DIR/build-fail-parse.ori"
 echo ""
 
 # ─── disasm-ori.sh ─────────────────────────────────────────────────
@@ -249,6 +314,29 @@ run_test_output_contains "dual-exec-verify.sh --help shows usage" "Usage:" \
 run_test_expect_fail "dual-exec-verify.sh with nonexistent path" \
     "$SCRIPT_DIR/dual-exec-verify.sh" --no-color /nonexistent/path
 # Skip actual batch execution (requires both binaries + full test suite)
+echo ""
+
+# ─── debug-release-compare.sh ─────────────────────────────────────
+printf "${C_BOLD}debug-release-compare.sh${C_NC}\n"
+if [[ -x "$ROOT_DIR/target/release/ori" ]]; then
+    run_test "simple.ori debug == release" \
+        "$SCRIPT_DIR/debug-release-compare.sh" --no-color "$FIXTURES_DIR/simple.ori"
+    run_test "clean.ori debug == release" \
+        "$SCRIPT_DIR/debug-release-compare.sh" --no-color "$FIXTURES_DIR/clean.ori"
+else
+    printf "  ${C_DIM}SKIP${C_NC}  release binary not found — run: cargo b --release\n"
+    SKIP=$((SKIP + 2))
+fi
+run_test_output_contains "debug-release-compare.sh --help shows usage" "Usage:" \
+    "$SCRIPT_DIR/debug-release-compare.sh" --help
+run_test_expect_fail "debug-release-compare.sh with no args" \
+    "$SCRIPT_DIR/debug-release-compare.sh" --no-color
+# Test infrastructure error exit code (exit 2) on invalid input
+bad_file=$(mktemp /tmp/self-test-bad-XXXX.ori)
+printf '@main () -> void = { let x = }\n' > "$bad_file"
+run_test_exit_code "debug-release-compare.sh exits 2 on compile failure" 2 \
+    "$SCRIPT_DIR/debug-release-compare.sh" --no-color "$bad_file"
+rm -f "$bad_file"
 echo ""
 
 # ─── Error handling ───────────────────────────────────────────────

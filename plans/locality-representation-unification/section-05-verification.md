@@ -16,7 +16,7 @@ success_criteria:
 inspired_by:
   - "Sections 00–04 of this plan (the entire system being verified)"
   - ".claude/skills/impl-hygiene-review/plan-annotations.sh (plan annotation scanner)"
-  - "diagnostics/aims-compare.sh (behavioral + RC comparison harness)"
+  - "diagnostics/debug-release-compare.sh (debug vs release behavioral comparison)"
 depends_on: ["04"]
 third_party_review:
   status: none
@@ -88,7 +88,7 @@ sections:
 
 - **`compiler/ori_arc/src/aims/lattice/tests.rs`** (post-Section-02.8): the test matrix this section verifies. Section 02.8 added the new variant cases; Section 05 verifies they are wired into the test runner.
 - **`.claude/skills/impl-hygiene-review/plan-annotations.sh`**: the scanner that detects stale plan annotations. Section 00.5/00.6 used it to find stale `Section 09.x` references; Section 05.3 uses it to verify this plan's own annotations are cleaned up.
-- **`diagnostics/aims-compare.sh`**: optional behavioral + RC comparison harness. Useful as a sanity check that this plan's changes don't affect codegen output (they shouldn't, since `repr-opt §08` hasn't shipped yet — `EscapeInfo` is empty, so `escapes()` still returns `true` for everything, matching the pre-plan behavior).
+- **`diagnostics/debug-release-compare.sh`**: debug vs release behavioral comparison. Useful as a sanity check that this plan's changes produce consistent output across build profiles. Note: the old `aims-compare.sh` (behavioral + RC parity) was removed — RC comparison capability will need a replacement tool if RC-level verification is required.
 - **`compiler/ori_arc/src/aims/lattice/mod.rs`** (post-Section-00 split): the dispatch hub whose module doc this section updates.
 
 **Depends on:** Section 04 (the cross-plan coordination must complete first; Section 05's `/review-plan` gate depends on `repr-opt` being internally consistent).
@@ -230,7 +230,7 @@ This test catches any boundary issue between the storage layer (Section 03) and 
 
 - [ ] Run `cargo test -p ori_repr -- full_pipeline` and verify the test passes.
 
-- [ ] If `diagnostics/aims-compare.sh` is feasible to run on a small synthetic test program: run it to verify behavioral parity (no codegen change). The expected outcome is "no change" because `EscapeInfo` is unpopulated in normal compilation (until `repr-opt §08` ships) and the conservative default still returns `true` for everything.
+- [ ] Run `diagnostics/debug-release-compare.sh` on a small synthetic test program to verify behavioral parity across debug/release builds (no codegen divergence). Note: the old `aims-compare.sh` RC comparison is no longer available — this step verifies behavioral (exit code + stdout) parity only, not RC operation counts.
 
 ---
 

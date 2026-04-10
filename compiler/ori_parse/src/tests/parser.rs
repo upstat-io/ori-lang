@@ -1558,9 +1558,7 @@ fn test_bare_chained_tuple_field_is_error() {
     );
 }
 
-// =============================================================================
 // $ immutability in let parsing paths (LEAK-1)
-// =============================================================================
 //
 // Three paths parse let bindings:
 // 1. parse_block_let_binding (blocks)     — correct: lets parse_binding_pattern handle $

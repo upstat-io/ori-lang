@@ -103,9 +103,7 @@ pub(crate) fn check_parsed_type_object_safety<C: ObjectSafetyChecker>(
     }
 }
 
-// ============================================================================
 // ModuleChecker implementation
-// ============================================================================
 
 impl ObjectSafetyChecker for super::ModuleChecker<'_> {
     fn is_well_known_concrete(&self, name: Name, num_args: usize) -> bool {

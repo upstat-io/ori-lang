@@ -290,9 +290,7 @@ impl<'pool> InferEngine<'pool> {
         self.loop_break_types.last().copied()
     }
 
-    // ========================================
     // Capability Management
-    // ========================================
 
     /// Set capabilities for the current function scope.
     ///
@@ -371,9 +369,7 @@ impl<'pool> InferEngine<'pool> {
         self.interner.map(|i| i.intern(s))
     }
 
-    // ========================================
     // Pool Access
-    // ========================================
 
     /// Get read-only access to the pool.
     #[inline]
@@ -399,9 +395,7 @@ impl<'pool> InferEngine<'pool> {
         &self.unify
     }
 
-    // ========================================
     // Environment Access
-    // ========================================
 
     /// Get the type environment.
     #[inline]
@@ -458,9 +452,7 @@ impl<'pool> InferEngine<'pool> {
         self.unify.exit_scope();
     }
 
-    // ========================================
     // Type Variable Creation
-    // ========================================
 
     /// Create a fresh unbound type variable.
     #[inline]
@@ -474,9 +466,7 @@ impl<'pool> InferEngine<'pool> {
         self.unify.fresh_named_var(name)
     }
 
-    // ========================================
     // Resolution & Unification
-    // ========================================
 
     /// Resolve a type by following links.
     #[inline]
@@ -490,9 +480,7 @@ impl<'pool> InferEngine<'pool> {
         self.unify.unify(a, b)
     }
 
-    // ========================================
     // Generalization & Instantiation
-    // ========================================
 
     /// Generalize a type at the current scope.
     ///
@@ -511,9 +499,7 @@ impl<'pool> InferEngine<'pool> {
         self.unify.instantiate(scheme)
     }
 
-    // ========================================
     // Expression Type Storage
-    // ========================================
 
     /// Store the inferred type for an expression.
     pub fn store_type(&mut self, expr: ExprIndex, ty: Idx) {
@@ -535,9 +521,7 @@ impl<'pool> InferEngine<'pool> {
         std::mem::take(&mut self.expr_types)
     }
 
-    // ========================================
     // Pattern Resolution
-    // ========================================
 
     /// Record that a `Binding` pattern was resolved to a unit variant.
     pub fn record_pattern_resolution(&mut self, key: PatternKey, res: PatternResolution) {
@@ -549,9 +533,7 @@ impl<'pool> InferEngine<'pool> {
         std::mem::take(&mut self.pattern_resolutions)
     }
 
-    // ========================================
     // Monomorphization Recording
-    // ========================================
 
     /// Record a concrete instantiation of a generic function.
     pub fn record_mono_instance(&mut self, instance: crate::MonoInstance) {
@@ -583,9 +565,7 @@ impl<'pool> InferEngine<'pool> {
         self.current_function
     }
 
-    // ========================================
     // Literal Inference Helpers
-    // ========================================
 
     /// Infer the type of an integer literal.
     #[inline]
@@ -629,9 +609,7 @@ impl<'pool> InferEngine<'pool> {
         Idx::UNIT
     }
 
-    // ========================================
     // Collection Inference Helpers
-    // ========================================
 
     /// Infer the type of an empty list.
     ///

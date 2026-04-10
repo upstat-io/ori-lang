@@ -27,9 +27,7 @@ use rustc_hash::FxHashMap;
 use super::ModuleChecker;
 use crate::{ConstParamInfo, FnWhereClause, FunctionSig, Idx};
 
-// ============================================================================
 // Pass 1: Signature Collection
-// ============================================================================
 
 /// Collect all function signatures.
 ///
@@ -89,9 +87,7 @@ fn store_signature(checker: &mut ModuleChecker<'_>, sig: FunctionSig) {
     checker.register_signature(sig);
 }
 
-// ============================================================================
 // Signature Inference
-// ============================================================================
 
 /// Infer the signature of a function.
 ///
@@ -350,9 +346,7 @@ fn infer_test_signature(checker: &mut ModuleChecker<'_>, test: &TestDef) -> Func
     }
 }
 
-// ============================================================================
 // Type Resolution with Generic Parameters
-// ============================================================================
 
 /// Resolve a const param's declared type to a Pool `Idx`.
 ///
