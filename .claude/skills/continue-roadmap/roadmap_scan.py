@@ -882,6 +882,7 @@ def classify_blocker_readiness(
             if psec and psec.status != "complete":
                 all_ok = False
                 chain.append(f"Section {parent} [{psec.status}]")
+                visited.add(parent)
                 current = parent
                 blocker_found = True
                 break
