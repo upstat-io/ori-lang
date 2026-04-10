@@ -2,7 +2,7 @@
 section: "03"
 title: "Enhance dual-exec-debug.sh"
 status: not-started
-reviewed: false
+reviewed: true
 goal: "Auto-dump ARC IR and run codegen-audit on mismatch, export ORI_BIN for child script consistency, add ARC dump to build-failure branch, bridge the gap between 'these differ' and 'here is why'"
 success_criteria:
   - "On mismatch, dual-exec-debug.sh auto-dumps ARC IR via arc-dump.sh alongside LLVM IR"
@@ -209,8 +209,12 @@ Extend the auto-diagnostics block (currently lines 240-265) to include ARC IR du
     - Add self-test: assert exit code 2 (infrastructure failure, not mismatch)
     - Add self-test: assert output contains "ARC IR dump unavailable" (NOT "ARC IR saved to")
   - **Post-lowering failure pin** (codegen failure → ARC IR IS available):
-    - Create `diagnostics/fixtures/build-fail-codegen.ori` — a valid `.ori` program that passes parsing and ARC lowering but fails during LLVM codegen. Strategy: use a program that triggers a known LLVM verification error, or use the `ORI_BIN` wrapper approach (a wrapper that delegates `arc-dump.sh`'s `ORI_DUMP_AFTER_ARC=1` mode but fails on plain `build -o`). If no natural codegen failure is available, the wrapper approach is acceptable — the key is that ARC IR was produced before the failure.
-    - Add self-test: assert exit code 2
+    - Create `diagnostics/fixtures/build-fail-codegen-wrapper.sh` — an `ORI_BIN` wrapper script that:
+      - **Passes through all commands to real `ori` by default** (same pass-through contract as `mismatch-wrapper.sh`)
+      - **On `ori build <file> -o <out>`**: delegates the build to real `ori` but forces it to fail after ARC lowering has completed. Strategy: run real `ori build` with `ORI_DUMP_AFTER_ARC=1` to capture ARC IR, then exit 1 (simulating codegen failure). The ARC IR is already emitted to stderr/file by the real `ori` before the wrapper kills the process.
+      - This guarantees: (a) `arc-dump.sh` called separately WILL produce ARC IR (the program is valid), (b) `dual-exec-debug.sh` sees build failure exit code, (c) the 03.2 ARC capture code runs and finds available ARC IR
+    - Create `diagnostics/fixtures/build-fail-codegen.ori` — a valid `.ori` program (same as `mismatch.ori` or similar). Does not need to actually trigger a codegen failure — the wrapper handles that.
+    - Add self-test: `env ORI_BIN="$FIXTURES_DIR/build-fail-codegen-wrapper.sh"` + assert exit code 2
     - Add self-test: assert output contains "ARC IR saved to" (proves the 03.2 capture behavior)
 - [ ] Add mismatch-path tests to `self-test.sh` in the `dual-exec-debug.sh` section (after line 266):
   ```bash
@@ -228,13 +232,13 @@ Extend the auto-diagnostics block (currently lines 240-265) to include ARC IR du
   run_test_output_contains "pre-lowering failure shows ARC unavailable" "ARC IR dump unavailable" \
       "$SCRIPT_DIR/dual-exec-debug.sh" --no-color "$FIXTURES_DIR/build-fail-parse.ori"
 
-  # Build-failure path (post-lowering): exit 2, ARC IR IS captured
+  # Build-failure path (post-lowering, wrapper-based): exit 2, ARC IR IS captured
   run_test_exit_code "post-lowering build failure exits 2" 2 \
-      "$SCRIPT_DIR/dual-exec-debug.sh" --no-color "$FIXTURES_DIR/build-fail-codegen.ori"
+      env ORI_BIN="$FIXTURES_DIR/build-fail-codegen-wrapper.sh" "$SCRIPT_DIR/dual-exec-debug.sh" --no-color "$FIXTURES_DIR/build-fail-codegen.ori"
   run_test_output_contains "post-lowering failure captures ARC IR" "ARC IR saved to" \
-      "$SCRIPT_DIR/dual-exec-debug.sh" --no-color "$FIXTURES_DIR/build-fail-codegen.ori"
+      env ORI_BIN="$FIXTURES_DIR/build-fail-codegen-wrapper.sh" "$SCRIPT_DIR/dual-exec-debug.sh" --no-color "$FIXTURES_DIR/build-fail-codegen.ori"
   ```
-- [ ] Update the fixture existence check at the top of `self-test.sh` (line 181) to include `mismatch.ori`, `mismatch-wrapper.sh`, `build-fail-parse.ori`, and `build-fail-codegen.ori`
+- [ ] Update the fixture existence check at the top of `self-test.sh` (line 181) to include `mismatch.ori`, `mismatch-wrapper.sh`, `build-fail-parse.ori`, `build-fail-codegen.ori`, and `build-fail-codegen-wrapper.sh`
 - [ ] Verify: `diagnostics/self-test.sh --verbose` passes with all new self-test entries
 
 - [ ] **Subsection close-out (03.4)** — MANDATORY before starting 03.R:
@@ -263,7 +267,11 @@ Extend the auto-diagnostics block (currently lines 240-265) to include ARC IR du
 - [x] `[TPR-03-002-codex][medium]` (iter 2) `section-03-dual-exec-debug.md:205` — Build-failure self-test needs pre-lowering AND post-lowering pins.
   Resolved: Fixed on 2026-04-09. Split into two fixture/test pairs: parse-fail (no ARC IR) and codegen-fail (ARC IR captured).
 - [x] `[TPR-03-003-codex][medium]` (iter 2) `section-07-integration.md:132` — Section 07.4 itself needs the new items, not just 03.N reference.
-  Resolved: Fixed on 2026-04-09. Made 03.N a hard GATE requiring Section 07.4 to own the doc items before Section 03 can close.
+  Resolved: Fixed on 2026-04-09. Made 03.N a hard GATE + edited Section 07.4 directly (line 132) to include auto codegen-audit, --keep-temp, build-failure ARC IR capture.
+- [x] `[TPR-03-001-codex][medium]` (iter 3) `section-03-dual-exec-debug.md:265` — Section 07.4 docs still only ARC IR.
+  Resolved: Fixed on 2026-04-09. Edited Section 07.4 line 132 directly to own all four new doc surfaces.
+- [x] `[TPR-03-002-codex][medium]` (iter 3) `section-03-dual-exec-debug.md:211` — Post-lowering build-failure pin not fully deterministic.
+  Resolved: Fixed on 2026-04-09. Promoted wrapper-based approach to primary with concrete artifact (build-fail-codegen-wrapper.sh).
 
 ---
 
