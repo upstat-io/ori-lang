@@ -186,13 +186,11 @@ pub fn debug_value(val: &Value, interner: &dyn StringLookup) -> String {
                     result.push_str(", ");
                 }
                 first = false;
-                // Map keys are internally prefixed (e.g. "s:name", "i:42").
-                // Strip the type prefix for debug display.
-                let display_key = k.split_once(':').map_or(k.as_str(), |(_, rest)| rest);
+                let decoded = Value::from_map_key(k);
                 let _ = write!(
                     result,
                     "{}: {}",
-                    escape_debug_str(display_key),
+                    debug_value(&decoded, interner),
                     debug_value(v, interner)
                 );
             }
