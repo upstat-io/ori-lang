@@ -54,7 +54,7 @@ backend comparison, codegen divergence
 ---
 
 ### Section 04: Block-level RC Stats
-**File:** `section-04-block-rc-stats.md` | **Status:** In Progress
+**File:** `section-04-block-rc-stats.md` | **Status:** Complete
 
 ```
 rc-stats.sh, --block-level, per-block, basic block
