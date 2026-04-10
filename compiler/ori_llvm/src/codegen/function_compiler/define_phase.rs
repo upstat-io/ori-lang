@@ -318,8 +318,18 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
             &self.aims_contracts,
             self.verify_arc,
         );
-        for problem in &arc_problems {
-            debug!(?problem, "ARC pipeline problem");
+        match arc_problems {
+            Ok(problems) => {
+                for problem in &problems {
+                    debug!(?problem, "ARC pipeline problem");
+                }
+            }
+            Err(verify_errors) => {
+                let func_name = self.interner.lookup(name);
+                for e in &verify_errors {
+                    tracing::error!(function = func_name, "ARC IR verification ICE: {e}");
+                }
+            }
         }
     }
 
@@ -416,8 +426,17 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
             &self.aims_contracts,
             self.verify_arc,
         );
-        for problem in &arc_problems {
-            debug!(?problem, "ARC pipeline problem (lambda)");
+        match arc_problems {
+            Ok(problems) => {
+                for problem in &problems {
+                    debug!(?problem, "ARC pipeline problem (lambda)");
+                }
+            }
+            Err(verify_errors) => {
+                for e in &verify_errors {
+                    tracing::error!("ARC IR verification ICE (lambda): {e}");
+                }
+            }
         }
 
         // Store capture param ownership so emit_partial_apply can generate
