@@ -112,6 +112,7 @@ This is the highest-value tier because it tests Ori's **unique** verification su
 | 6 | `verify()` | Check-only | **Already a verifier** — no snapshot needed |
 | 7 | `run_aims_verify()` | Check-only | **Already a verifier** — no snapshot needed |
 | 8 | `detect/rewrite_tail_calls` | IR rewrite | `.before.arc` / `.after.arc` / `.diff` |
+| 8b | `unwind_cleanup` / `add_invoke_unwind_cleanup` | IR rewrite | `.before.arc` / `.after.arc` / `.diff` (runs between tail calls and merge; see `aims_pipeline.rs:342-344`) |
 | 9 | `merge_blocks` | IR rewrite | `.before.arc` / `.after.arc` / `.diff` |
 | 10 | `realize_annotations` | IR rewrite | `.before.arc` / `.after.arc` / `.diff` — see **State Map Caveat** below |
 | 11 | `verify()` | Check-only | **Already a verifier** — no snapshot needed |
@@ -146,12 +147,15 @@ This is the highest-value tier because it tests Ori's **unique** verification su
 
 **The Problem**: Compiler-internal protocol functions (`__index`, `iter`, `__iter_next`, `ori_iter_drop`, `__collect_set`) have per-argument ownership semantics that must be correct for borrow inference to work. These are defined in `ori_ir/src/builtin_constants/protocol/mod.rs` and consumed by `ori_arc`. A change to the ownership of any argument is catastrophic.
 
-**Current State**: `ori_arc/src/aims/builtins/tests.rs:143-149` already pins protocol builtin contracts at test time.
+**Current State**: Protocol builtins have two existing test surfaces:
+- `ori_arc/src/aims/builtins/tests.rs:143-149` — existence check only (verifies every protocol builtin has *some* contract via `sigs.contains_key`; does NOT pin per-argument ownership)
+- `ori_ir/src/builtin_constants/protocol/tests.rs:20-58` — SSOT ownership pins (pins the actual per-argument `Ownership::Owned` / `Ownership::Borrowed` values for each protocol builtin)
+- Borrow-semantics tests in `ori_arc/src/borrow/tests.rs` pin `AnnotatedSig` contracts
 
 **The Solution**: Expand the existing pins into a full matrix:
 - Every protocol builtin × every ownership combination × every argument position
 - Assert that the AIMS pipeline produces the expected RC operations for each combination
-- **Additionally**: run the existing `rc_balance` checker (`verify/rc_balance.rs`) on the resulting ARC IR for each test case — pinning RC operations alone doesn't prove they're balanced. A test that perfectly pins an incorrect or unbalanced sequence of RC ops would pass without the balance check.
+- **Additionally**: verify RC balance for each test case. Note: the existing `rc_balance` checker (`ori_llvm/src/verify/rc_balance.rs`) operates on **LLVM IR** (`inkwell::module::Module`), not ARC IR. Two options: (a) compile protocol fixtures through LLVM and run the existing codegen audit / `rc_balance` checker on the LLVM module, or (b) build a new ARC-level RC balance checker that operates on `ArcFunction` directly. Option (a) reuses existing infrastructure; option (b) catches issues before LLVM lowering. The plan should choose one. Either way, pinning RC operations alone doesn't prove they're balanced — a test that perfectly pins an incorrect sequence would pass without the balance check.
 - Add a contract-drift detection test: if any ownership annotation changes, the test names the specific builtin and argument that changed
 
 **Effort**: Low — extends existing test infrastructure.
