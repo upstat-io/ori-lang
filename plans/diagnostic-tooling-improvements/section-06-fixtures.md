@@ -1,7 +1,7 @@
 ---
 section: "06"
 title: "Expand Fixtures + Self-Test"
-status: in-progress
+status: complete
 reviewed: true
 goal: "Add 13+ new diagnostic fixtures covering the code patterns that cause the most AOT/AIMS debugging churn, update self-test.sh to exercise them with feature-specific assertions, and establish a fixture categorization system"
 success_criteria:
@@ -39,7 +39,7 @@ sections:
     status: complete
   - id: "06.N"
     title: "Completion Checklist"
-    status: not-started
+    status: complete
 ---
 
 # Section 06: Expand Fixtures + Self-Test
@@ -48,15 +48,15 @@ sections:
 **Goal:** The diagnostic toolkit's self-test suite runs against only 3 basic fixtures (`simple.ori`, `clean.ori`, `chain.ori`). These don't exercise closures, iterators, nested structures, generics, trait dispatch, or failure modes — the exact code patterns that cause the most debugging churn. New fixtures ensure diagnostic scripts produce correct output for the patterns they'll actually be used to debug. The fixture suite must also cover escape closures, `?` unwinding, recursive tree walks, COW sharing, large aggregates, and mixed sum types — all identified as blind spots by tp-help consensus.
 
 **Success Criteria:**
-- [ ] At least 13 new `.ori` fixture files in `diagnostics/fixtures/`
-- [ ] Each fixture exercises a distinct code pattern relevant to AOT/AIMS debugging
-- [ ] Fixtures categorized as **pass** (exit 0, clean RC), **aims-heavy** (exit 0, exercises AIMS-specific paths like COW/reuse), or **expected-fail** (exit non-zero, validates diagnostic detection)
-- [ ] `self-test.sh` runs new fixtures through `diagnose-aot.sh`, `dual-exec-debug.sh`, `rc-stats.sh`, `ir-dump.sh`, `arc-dump.sh`, and `bisect-passes.sh` (added by Section 05)
-- [ ] `bisect-passes.sh` exercised on at minimum `closure.ori`, `iterator_break.ori`, and `generic_mono.ori` (the AIMS-relevant fixtures)
-- [ ] Self-test assertions are **feature-specific** — not just "non-empty output" but assertions on expected IR markers (e.g., `PartialApply` for closures, `Switch` for match, `RcInc`/`RcDec` for RC-heavy fixtures)
-- [ ] Expected-fail fixtures use `run_test_expect_fail` with explicit exit code assertions distinguishing leak vs crash vs mismatch
-- [ ] All fixtures verified under both debug and release builds (`cargo b` and `cargo b --release`)
-- [ ] Satisfies mission criterion: "7+ new diagnostic fixtures covering closures, iterators, nested structures, generics, trait dispatch, and failure modes"
+- [x] At least 13 new `.ori` fixture files in `diagnostics/fixtures/` — 14 new fixtures created
+- [x] Each fixture exercises a distinct code pattern relevant to AOT/AIMS debugging
+- [x] Fixtures categorized as **pass** (exit 0, clean RC), **aims-heavy** (exit 0, exercises AIMS-specific paths like COW/reuse), or **expected-fail** (exit non-zero, validates diagnostic detection)
+- [x] `self-test.sh` runs new fixtures through `diagnose-aot.sh`, `dual-exec-debug.sh`, `rc-stats.sh`, `ir-dump.sh`, `arc-dump.sh`, and `bisect-passes.sh` (added by Section 05)
+- [x] `bisect-passes.sh` exercised on at minimum `closure.ori`, `iterator_break.ori`, and `generic_mono.ori` (the AIMS-relevant fixtures) — all 13 pass/aims-heavy fixtures run through bisect-passes
+- [x] Self-test assertions are **feature-specific** — not just "non-empty output" but assertions on expected IR markers (e.g., `PartialApply` for closures, `Switch` for match, `RcInc`/`RcDec` for RC-heavy fixtures)
+- [x] Expected-fail fixtures use `run_test_expect_fail` with explicit exit code assertions distinguishing leak vs crash vs mismatch
+- [x] All fixtures verified under both debug and release builds (`cargo b` and `cargo b --release`)
+- [x] Satisfies mission criterion: "7+ new diagnostic fixtures covering closures, iterators, nested structures, generics, trait dispatch, and failure modes"
 
 **Context:** The current 3 fixtures (`simple.ori` — no collections/RC; `clean.ori` — collections, balanced RC; `chain.ori` — chained COW) were adequate when the toolkit was first built. But ARC/AIMS bugs predominantly appear in closure captures, iterator early-exit cleanup, nested aggregate drops, generic instantiation, and trait method dispatch — none of which are exercised. A diagnostic regression in these areas ships behind a green self-test.
 
@@ -216,15 +216,15 @@ tp-help identified scattered fixture knowledge as a LEAK — fixture names are r
 
 ## 06.N Completion Checklist
 
-- [ ] All subsections (06.1, 06.2, 06.3, 06.4, 06.5) complete
-- [ ] All pass/aims-heavy fixtures compile and run under both interpreter and AOT
-- [ ] All pass/aims-heavy fixtures produce identical results under debug and release builds
-- [ ] Expected-fail fixtures correctly trigger diagnostic detection
-- [ ] `diagnostics/fixtures/FIXTURES.md` exists and is the SSOT for fixture categorization
-- [ ] `diagnostics/self-test.sh` passes with all new fixtures
-- [ ] Feature-specific assertions validate real IR markers, not just "non-empty"
-- [ ] `timeout 150 ./test-all.sh` green — no regressions
-- [ ] `/tpr-review` passed
-- [ ] `/impl-hygiene-review` passed
-- [ ] **`/improve-tooling` section-close sweep**
-- [ ] **Strip plan annotations** — remove any `Section 06` / `§06` code comments from implemented files
+- [x] All subsections (06.1, 06.2, 06.3, 06.4, 06.5) complete
+- [x] All pass/aims-heavy fixtures compile and run under both interpreter and AOT
+- [x] All pass/aims-heavy fixtures produce identical results under debug and release builds
+- [x] Expected-fail fixtures correctly trigger diagnostic detection
+- [x] `diagnostics/fixtures/FIXTURES.md` exists and is the SSOT for fixture categorization
+- [x] `diagnostics/self-test.sh` passes with all new fixtures — 159 passed, 0 failed
+- [x] Feature-specific assertions validate real IR markers, not just "non-empty"
+- [x] `timeout 150 ./test-all.sh` green — 16954 passed, 0 failed
+- [x] `/tpr-review` passed — waived by user
+- [x] `/impl-hygiene-review` passed — waived by user
+- [x] **`/improve-tooling` section-close sweep** — per-subsection retrospectives covered all gaps; no cross-subsection patterns required new tooling
+- [x] **Strip plan annotations** — zero annotations found for diagnostic-tooling-improvements plan
