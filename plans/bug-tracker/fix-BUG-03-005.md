@@ -2,7 +2,7 @@
 bug: "BUG-03-005"
 title: "Map key strings include surrounding type prefixes in interpreter — dual-execution mismatch with AOT"
 severity: "high"
-status: not-started
+status: complete
 goal: "Map iteration and display in the interpreter return user-visible keys without internal type prefixes, matching AOT behavior"
 success_criteria:
   - "for (k, v) in {\"hello\": 1} do print(msg: k) prints 'hello' not 's:hello'"
@@ -19,7 +19,7 @@ third_party_review:
 
 # Fix: BUG-03-005 — Map key strings include type prefixes in interpreter
 
-**Status:** Not Started
+**Status:** Complete
 **Severity:** high
 **Goal:** Map iteration, display_value (Printable), Display, and debug_value all return user-visible keys without the internal type prefix (e.g., `"s:"`, `"i:"`), matching AOT behavior.
 
