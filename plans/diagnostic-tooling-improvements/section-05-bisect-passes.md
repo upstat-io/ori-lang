@@ -21,7 +21,7 @@ third_party_review:
 sections:
   - id: "05.PRE"
     title: "Mandatory file split of aims_pipeline.rs"
-    status: not-started
+    status: complete
   - id: "05.1"
     title: "Add per-phase trace checkpoints to AIMS pipeline"
     status: not-started
@@ -76,19 +76,19 @@ Per CLAUDE.md coding guidelines: "500 line limit (excl. tests). Stop and split b
 3. `verify_and_merge()` + `emit_postprocess()` + `check_fbip()` (post-emission processing) -- extract to `aims_pipeline/postprocess.rs`
 4. `run_aims_pipeline_all()` + `run_second_pass()` + `apply_aims_ownership()` + `param_contract_to_ownership()` (batch orchestration + second pass) -- extract to `aims_pipeline/batch.rs`
 
-- [ ] Convert `aims_pipeline.rs` to `aims_pipeline/mod.rs` with submodules
-- [ ] Extract `normalize_with_trmc()`, `verify_trmc_soundness()`, `detect_immortals()` into `aims_pipeline/trmc.rs` (~130 lines)
-- [ ] Extract `verify_and_merge()`, `emit_postprocess()`, `check_fbip()` into `aims_pipeline/postprocess.rs` (~60 lines)
-- [ ] Extract `run_aims_pipeline_all()`, `run_second_pass()`, `apply_aims_ownership()`, `param_contract_to_ownership()` into `aims_pipeline/batch.rs` (~200 lines)
-- [ ] Keep `AimsPipelineConfig`, `AimsPipelineResult`, `run_aims_pipeline()` in `aims_pipeline/mod.rs` (~180 lines)
-- [ ] Update `mod.rs` to reference `aims_pipeline` as a directory module (should work unchanged since it already has `mod aims_pipeline;`)
-- [ ] Verify: `timeout 150 cargo t -p ori_arc` passes -- no regressions from the split
-- [ ] Verify: `timeout 150 cargo cl -p ori_arc` (clippy) passes
-- [ ] Verify: no file in the split exceeds 300 lines
+- [x] Convert `aims_pipeline.rs` to `aims_pipeline/mod.rs` with submodules
+- [x] Extract `normalize_with_trmc()`, `verify_trmc_soundness()`, `detect_immortals()` into `aims_pipeline/trmc.rs` (146 lines)
+- [x] Extract `verify_and_merge()`, `emit_postprocess()`, `check_fbip()` into `aims_pipeline/postprocess.rs` (75 lines)
+- [x] Extract `run_aims_pipeline_all()`, `run_second_pass()`, `apply_aims_ownership()`, `param_contract_to_ownership()` into `aims_pipeline/batch.rs` (229 lines)
+- [x] Keep `AimsPipelineConfig`, `AimsPipelineResult`, `run_aims_pipeline()` in `aims_pipeline/mod.rs` (176 lines)
+- [x] Update `mod.rs` to reference `aims_pipeline` as a directory module (unchanged — `mod aims_pipeline;` resolves to directory automatically)
+- [x] Verify: `timeout 150 cargo t -p ori_arc` passes -- 1094 passed, 0 failed
+- [x] Verify: `cargo clippy -p ori_arc` passes (clippy clean, 0 warnings)
+- [x] Verify: no file in the split exceeds 300 lines (max: batch.rs at 229)
 
-- [ ] **Subsection close-out (05.PRE)** -- MANDATORY before starting 05.1:
-  - [ ] All tasks above are `[x]` and verified
-  - [ ] Update this subsection's `status` in section frontmatter to `complete`
+- [x] **Subsection close-out (05.PRE)** -- MANDATORY before starting 05.1:
+  - [x] All tasks above are `[x]` and verified
+  - [x] Update this subsection's `status` in section frontmatter to `complete`
 
 ---
 
