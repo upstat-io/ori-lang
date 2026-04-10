@@ -120,7 +120,7 @@ Follow TDD discipline from CLAUDE.md §TDD for Bugs. Then run diagnostics by sym
 
 - Fix at one callsite moves failure to next layer → STOP, diagnose the shared wrong assumption
 - Same logical fix at 3+ callsites → missing abstraction or violated boundary contract — fix at boundary, not consumers
-- Present 2-3 options to user (boundary fix, abstraction, workaround)
+- Present 2-3 options to user (boundary fix, abstraction, tracked plan when genuinely blocked)
 
 ## Narrow the Front — One Fix at a Time
 

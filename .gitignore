@@ -81,4 +81,6 @@ __pycache__/
 #claude
 .claude/discussions
 .claude/worktrees/
+.claude/settings.local.json
+CLAUDE.local.md
 scratchpad

@@ -223,6 +223,36 @@ fn test_nested_closure_iter_drop() { ... }
 - Clear naming: `test_parses_nested_generics`
 - AAA structure
 
+## Test Function Naming
+
+Test names have **inverted scope** from the things they often reference: the test name is permanent (it lives in every CI log, failure report, commit, and regression run forever), while the artifacts tests commonly reference -- plans, sections, subsections, bug IDs, TPR codes -- are deeply ephemeral. Encoding ephemeral identifiers into permanent names is a slow-burn footgun.
+
+**Required shape**: `<subject>_<scenario>_<expected>` -- the three-part convention (Arrange-Act-Assert / Given-When-Then / Roy Osherove). Reading the name alone must answer: (1) What is tested? (2) Under what conditions? (3) What outcome?
+
+**Good examples:**
+- `test_iterator_drop_when_break_inside_for_releases_remaining`
+- `test_cow_slice_with_two_borrows_does_not_double_free`
+- `test_parse_empty_input_returns_empty_ast`
+- `test_typeck_rejects_map_key_without_hashable`
+
+**Banned: ephemeral identifiers in test names.** These rot the moment the artifact is renamed, renumbered, merged, deleted, or completed:
+
+| Category | Banned examples |
+|---|---|
+| Plan names | `test_locality_repr_phase_a`, `test_capability_unification_step_2` |
+| Section / subsection numbers | `test_section_04_3_drop`, `test_4_3_2_nested_closure` |
+| Plan annotations | `test_TPR_04_005`, `test_CROSS_04_014` |
+| Bug / issue IDs | `test_BUG_04_045_install_paths`, `test_issue_42` |
+| Dates / authors / commits | `test_2026_03_15_fix`, `test_eric_fix`, `test_4590a6e6` |
+
+Provenance belongs in `///` (Rust) or `//` (Ori) doc comments above the test, **never** in the function name.
+
+**Banned: weak / empty descriptors:** `_works`, `_basic`, `_simple`, `_correct`, `_valid`, `_handles_X`, `_check_X`, bare unit names like `test_iterator`.
+
+**Allowed:** Long descriptive names, phase/backend qualifiers (`test_eval_iter_drop` vs `test_codegen_iter_drop`), spec vocabulary, positive + negative pairing in names.
+
+**`/impl-hygiene-review` enforcement**: any test function name containing an ephemeral identifier or weak descriptor is a **NAMING** violation and MUST be renamed in the same review pass -- never deferred.
+
 ## Directories
 - `tests/spec/` — conformance (`.ori` + inline `@test`)
 - `tests/compile-fail/` — expected failures (`#compile_fail`/`#fail`)
