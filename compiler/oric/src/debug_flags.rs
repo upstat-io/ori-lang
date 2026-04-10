@@ -157,6 +157,13 @@ flags! {
     /// Usage: `ORI_AUDIT_CODEGEN=1 ORI_AUDIT_FUNCTION=main ori build file.ori`
     ORI_AUDIT_FUNCTION
 
+    /// Run LLVM lint pass (`function(lint)`) to detect likely-undefined behavior.
+    ///
+    /// Detects division by potential zero, suspicious alignment, unreachable
+    /// patterns, and UB in instruction operands. Auto-enabled by `ORI_AUDIT_CODEGEN=1`.
+    /// Usage: `ORI_LLVM_LINT=1 ori build file.ori`
+    ORI_LLVM_LINT
+
     // === Existing Flags (migrated) ===
 
     /// Print LLVM IR to stderr before JIT compilation.

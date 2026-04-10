@@ -255,6 +255,12 @@ pub fn run_optimization_passes(
     // Build the pipeline string
     let mut pipeline = config.pipeline_string();
 
+    // Append lint pass when enabled — detects UB patterns the verifier misses.
+    // Uses function() adaptor since lint is a function-level pass.
+    if config.lint_enabled {
+        pipeline.push_str(",function(lint)");
+    }
+
     // Append extra passes if specified (using push_str to avoid allocation)
     if let Some(extra) = &config.extra_passes {
         pipeline.push(',');
@@ -422,3 +428,6 @@ pub fn run_lto_pipeline(
     // is_lto_phase is true)
     run_optimization_passes(module, target_machine, &lto_config)
 }
+
+#[cfg(test)]
+mod tests;
