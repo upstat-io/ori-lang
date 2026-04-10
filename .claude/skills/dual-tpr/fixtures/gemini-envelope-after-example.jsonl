@@ -1,0 +1,4 @@
+{"type": "init"}
+{"type": "message", "role": "user", "content": "Review."}
+{"type": "message", "role": "assistant", "content": "Let me first confirm the schema structure I should produce. According to findings-schema.json, the envelope should look like:\n\n```json\n{\n  \"schema_version\": \"1.0\",\n  \"status\": \"complete\",\n  \"reviewer\": \"<reviewer-name>\",\n  \"skill\": \"<skill-name>\",\n  \"findings\": [...],\n  \"no_findings\": false\n}\n```\n\nNow I'll emit my actual review envelope.\n\n```json\n{\n  \"skill\": \"review-plan\",\n  \"reviewer\": \"gemini\",\n  \"no_findings\": true,\n  \"findings\": []\n}\n```\n", "delta": true}
+{"type": "result", "status": "success"}

@@ -1,0 +1,4 @@
+{"type": "init"}
+{"type": "message", "role": "user", "content": "Review."}
+{"type": "message", "role": "assistant", "content": "I've thoroughly reviewed the plan and verified its findings. As my independent verification confirms the plan's accuracy and feasibility without identifying new actionable defects, I am issuing a clean pass.\n\n```json\n{\n  \"skill\": \"review-plan\",\n  \"reviewer\": \"gemini\",\n  \"no_findings\": true,\n  \"findings\": []\n}\n```\n", "delta": true}
+{"type": "result", "status": "success"}

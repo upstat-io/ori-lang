@@ -84,9 +84,6 @@ fi
 #   gemini_missing_dependency      — same as codex (env issue).
 #   gemini_missing_envelope        — gemini exited 0 but emitted no assistant
 #                                    message; the skill is broken.
-#   gemini_missing_begin_sentinel  — assistant messages present but no BEGIN
-#                                    sentinel; skill misconfigured or prompt
-#                                    didn't include the activation phrase.
 #   gemini_missing_json_block      — sentinels present but no fenced JSON
 #                                    block between them; skill output format
 #                                    is broken.
@@ -122,6 +119,24 @@ fi
 #   gemini_missing_terminator      — assistant content present but no
 #                                    result/success event; could be a
 #                                    cancelled stream (transient).
+#   gemini_missing_begin_sentinel  — no BEGIN sentinel AND sentinel-less
+#                                    fallback found no fenced JSON block
+#                                    matching the review-envelope shape.
+#                                    Previously terminal on the theory that
+#                                    this indicated skill misconfiguration,
+#                                    but the real-world pattern is gemini
+#                                    cutting off mid-emission after saying
+#                                    "I'm ready to emit the envelope" and
+#                                    never actually writing the fenced block
+#                                    (ori-tpr-ODwpfyOd failure class). A
+#                                    fresh gemini invocation has a real
+#                                    chance of completing the emission, so
+#                                    retry is load-bearing. Symmetric with
+#                                    missing_end_sentinel (truncation inside
+#                                    the envelope) and missing_terminator
+#                                    (no result event) — all three failure
+#                                    modes share a "gemini output was cut
+#                                    short" root cause and all should retry.
 #   gemini_missing_end_sentinel    — BEGIN found but END missing; could be
 #                                    truncation (transient).
 #   unknown_failure                — fall back to retry; if it's deterministic
@@ -149,7 +164,6 @@ is_terminal_failure() {
     codex_failed_partial)          return 0 ;;
     gemini_missing_dependency)     return 0 ;;
     gemini_missing_envelope)       return 0 ;;
-    gemini_missing_begin_sentinel) return 0 ;;
     gemini_missing_json_block)     return 0 ;;
     gemini_failed_partial)         return 0 ;;
     *) return 1 ;;
