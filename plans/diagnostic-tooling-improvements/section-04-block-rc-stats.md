@@ -94,17 +94,21 @@ sections:
     - `Dec`: `ori_rc_dec`, `ori_str_rc_dec`, `ori_buffer_rc_dec`, `ori_map_buffer_rc_dec`, `ori_set_buffer_rc_dec` (slice-aware typed RC dec)
     - `Free`: `ori_rc_free`
     - `Cow`: COW functions (via `super::is_cow_function`) — `ori_list_*_cow`, `ori_str_*_cow`, etc.
-    - **Source of truth for the function list:** `compiler/ori_llvm/src/codegen/runtime_decl/runtime_functions.rs` — grep for `ori_*_rc_` patterns. The classifier MUST be exhaustive over all runtime RC functions. Add a test that iterates all `runtime_fn` entries matching `*rc*` and asserts each is classified.
+    - **Source of truth for the function list:** `compiler/ori_llvm/src/codegen/runtime_decl/runtime_functions.rs`. The classifier must cover all RC counting operations (functions that perform alloc/inc/dec/free on refcounts or COW mutations). NOT all functions containing `rc` — non-counting helpers (`ori_rc_live_count`, `ori_rc_reset_live_count`, `ori_rc_is_unique`, `ori_rc_is_unique_or_null`, `ori_rc_realloc`) must return `None` from `classify_rc_call`. Add an exhaustiveness test with an explicit allowlist of classified patterns (`*_rc_inc`, `*_rc_dec`, exact `ori_rc_alloc`, exact `ori_rc_free`, `*_cow`) and explicit `None` assertions for `ori_rc_is_unique`, `ori_rc_live_count`, `ori_rc_realloc`, and unrelated names like `ori_str_to_uppercase`.
     - **Note:** The current awk parser in `rc-stats.sh` only matches the 5 base patterns (`ori_rc_alloc/inc/dec/free` + COW). The new classifier intentionally EXPANDS coverage to typed RC operations that the awk parser missed (e.g., `ori_buffer_rc_dec`, `ori_str_rc_inc`). The migration test matrix (Phase B) must account for this — the old awk totals may be LOWER than JSON totals for files with typed RC calls.
   - `pub(super) struct BlockHistogram { pub label: String, pub counts: [u32; 5] }` (indexed by `RcOpKind` discriminant) — `pub(super)` so sibling module `rc_stats.rs` can read it
   - `pub(super) struct FunctionHistogram { pub name: String, pub blocks: Vec<BlockHistogram> }` — same visibility rationale
   - `pub fn collect_module_histogram(module: &Module<'_>, options: &AuditOptions) -> Vec<FunctionHistogram>` — walks all functions/blocks, calls `classify_rc_call` on every call/invoke instruction, accumulates counts per block
   - Uses `super::callee_name()` (shared with rc_balance) to extract callee names
   - Uses `super::rc_balance::should_audit_fn()` for function filtering (already `pub(super)`)
-  - **Function name demangling:** The histogram MUST demangle Ori function names before storing them in `FunctionHistogram.name`. The current awk parser (rc-stats.sh lines 132-141) demangles `_ori_drop$X` → `drop<X>`, `_ori_X$$Y` → `@X impl Y`, `_ori_X$Y` → `@X.Y`. Either:
-    - (a) Add a `fn demangle_ori_name(llvm_name: &str) -> String` helper in `rc_histogram.rs` that applies the same rules, or
-    - (b) Reuse an existing demangler if one exists in `ori_llvm` (check `aot/` for demangling logic)
-    - The JSON output must contain demangled names so `rc-stats.sh` produces identical human-readable output in both awk and JSON modes. Add tests verifying demangling: `_ori_drop$Point` → `drop<Point>`, `_ori_Point$$Eq$equals` → `@Point impl Eq.equals`, `_ori_main` → `@main`
+  - **Function name demangling:** The histogram MUST demangle Ori function names before storing them in `FunctionHistogram.name`, matching the EXACT format the current awk parser produces (rc-stats.sh lines 132-141). Add a `fn demangle_ori_name(llvm_name: &str) -> String` helper in `rc_histogram.rs` that applies these rules:
+    - `_ori_drop$X` → `drop<X>` (e.g., `_ori_drop$Point` → `drop<Point>`)
+    - `_ori_X$$Y$Z` → `@X impl Y.Z` (e.g., `_ori_Point$$Eq$equals` → `@Point impl Eq.equals`)
+    - `_ori_X$Y` → `@X.Y` (e.g., `_ori_math$add` → `@math.add`)
+    - `_ori_X` → `@X` (e.g., `_ori_main` → `@main`)
+    - Non-`_ori_` names pass through unchanged
+    - **Do NOT reuse the existing AOT demangler** (`aot/mangle/parse.rs`) — it produces a different format (`math.@add`, `int::Eq.@equals`) that does NOT match rc-stats.sh's output contract. A dedicated helper with the awk format is needed.
+    - Add tests verifying output matches the awk format exactly for: module functions, trait impls, drop functions, and non-ori names
   - For block labels: use `BasicBlock::get_name()` if non-empty; otherwise generate `format!("bb_{}", block_index)` as a fallback. Many LLVM basic blocks are unnamed (empty `get_name()`) — the fallback ensures every block has a printable identifier in the JSON output and the rc-stats.sh table
 - [ ] Add `mod rc_histogram;` to `compiler/ori_llvm/src/verify/mod.rs`
 - [ ] **File size check:** `rc_histogram.rs` should be under 200 lines. The counting logic is simple — no state machine, just instruction classification and accumulation.
@@ -182,7 +186,7 @@ sections:
       pub cow: u32,
   }
   ```
-- [ ] Add `pub fn from_histograms(histograms: &[FunctionHistogram]) -> RcStatsReport` conversion that maps `FunctionHistogram` → `FunctionStats` with computed totals
+- [ ] Add `pub fn from_histograms(histograms: &[FunctionHistogram], optimized: bool) -> RcStatsReport` conversion that maps `FunctionHistogram` → `FunctionStats` with computed totals and sets `optimized` field accordingly
 - [ ] Add `mod rc_stats;` to `compiler/ori_llvm/src/verify/mod.rs`
 - [ ] **File size check:** `rc_stats.rs` should be under 100 lines — it is pure data types plus one conversion function.
 - [ ] Add Rust unit tests in `compiler/ori_llvm/src/verify/rc_stats/tests.rs`:
@@ -209,7 +213,13 @@ sections:
 
 - [ ] In `audit_module_with_options()` (`verify/mod.rs`), after the existing checks, call `rc_histogram::collect_module_histogram(module, options)` and convert to `RcStatsReport` via `rc_stats::RcStatsReport::from_histograms()`
 - [ ] Store the `RcStatsReport` in `AuditReport` (add a field: `pub rc_stats: Option<rc_stats::RcStatsReport>`) or return it alongside the report
-- [ ] **Optimized-IR histogram support (SSOT — eliminates awk parser entirely):** Add a `pub fn audit_module_histogram_only(module: &Module<'_>, options: &AuditOptions) -> RcStatsReport` entry point that runs ONLY the histogram pass (no lifecycle/COW/ABI/safety checks). This enables callers to collect stats on the post-optimization module without running the full audit pass. In the codegen pipeline (or the AOT `--release` path), after the LLVM optimization pass manager completes, call this function on the optimized module and emit a second JSON line with `"optimized": true` in the schema. This allows `rc-stats.sh --optimized` to consume compiler JSON instead of awk-parsing IR text, enabling complete removal of the awk parser.
+- [ ] **Optimized-IR histogram support (SSOT — eliminates awk parser entirely):** Add a `pub fn audit_module_histogram_only(module: &Module<'_>, options: &AuditOptions) -> RcStatsReport` entry point that runs ONLY the histogram pass (no lifecycle/COW/ABI/safety checks), calling `from_histograms(..., optimized: true)`. This enables callers to collect stats on the post-optimization module without running the full audit pass.
+  - **Hook points (MUST be gated behind `if verify::audit_requested()`):** The histogram emission for optimized IR must be wrapped in an `if verify::audit_requested() { ... }` block — without this gate, every normal `ori build --release` would run the histogram and spam stderr. The specific hook points are:
+    - `compiler/ori_llvm/src/aot/object.rs` in `verify_optimize_emit()` — after `run_optimization_passes()` completes but before object emission. This covers normal AOT object builds.
+    - `compiler/oric/src/commands/build/single.rs` — after `optimize_module()` for `--emit=llvm-ir` builds.
+  - Both paths emit a JSON line: `codegen stats: json: {..."optimized":true...}`
+  - **Smoke test:** `ORI_AUDIT_CODEGEN=1 cargo run -p oric --bin ori -- build --release diagnostics/fixtures/clean.ori -o /tmp/test_bin 2>&1 | grep "codegen stats: json:"` must produce TWO JSON lines: one with `"optimized":false` and one with `"optimized":true`.
+  - **Non-audit builds must NOT run the histogram:** `ori build --release diagnostics/fixtures/clean.ori` (without `ORI_AUDIT_CODEGEN=1`) must produce zero `codegen stats:` lines on stderr.
 - [ ] In the `emit_to_stderr()` method of `AuditReport` (or a new `emit_rc_stats_json()` function), after the existing text output, emit the JSON:
   ```rust
   if let Some(ref stats) = self.rc_stats {
@@ -305,6 +315,16 @@ This subsection has three phases: (A) add `--block-level` using compiler JSON, (
   Resolved: Fixed on 2026-04-09. Added demangling requirement to rc_histogram.rs with explicit rules matching current awk demangling logic. Added test examples.
 - [x] `[TPR-04-003-gemini][medium]` `section-04-block-rc-stats.md:73` — Handle unnamed BasicBlocks with fallback labels.
   Resolved: Fixed on 2026-04-09. Added fallback label generation (bb_0, bb_1, ...) for blocks where get_name() returns empty.
+- [x] `[TPR-04-001-codex][medium]` (iter 2) `section-04-block-rc-stats.md:97` — Restrict RcOpKind exhaustiveness test to counting operations only.
+  Resolved: Fixed on 2026-04-09. Replaced broad `*rc*` grep with explicit allowlist of counting patterns; added None assertions for non-counting helpers.
+- [x] `[TPR-04-002-codex][high]` (iter 2) `section-04-block-rc-stats.md:185` — Pass optimized flag into from_histograms conversion.
+  Resolved: Fixed on 2026-04-09. Updated function signature to `from_histograms(histograms, optimized: bool)`.
+- [x] `[TPR-04-003-codex][high]` (iter 2) `section-04-block-rc-stats.md:212` — Anchor optimized histogram at specific AOT hook points.
+  Resolved: Fixed on 2026-04-09. Named exact hook points (object.rs verify_optimize_emit, build/single.rs optimize_module). Added smoke test requiring both JSON lines.
+- [x] `[TPR-04-004-codex][medium]` (iter 2) `section-04-block-rc-stats.md:106` — Remove unsafe existing-demangler reuse option.
+  Resolved: Fixed on 2026-04-09. Deleted option (b), added explicit "do NOT reuse AOT demangler" note with format comparison.
+- [x] `[TPR-04-001-gemini][high]` (iter 2) `section-04-block-rc-stats.md:212` — Gate optimized histogram behind audit_requested check.
+  Resolved: Fixed on 2026-04-09. Added explicit audit_requested() gate at both hook points; added non-audit negative test.
 
 ---
 
