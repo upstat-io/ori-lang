@@ -58,16 +58,16 @@ sections:
 - [ ] `ORI_AUDIT_CODEGEN=1` emits per-block JSON to stderr with `codegen stats: json:` prefix (separate from `codegen audit:` lines)
 - [ ] `rc-stats.sh --block-level file.ori` renders a per-block table with balance per block
 - [ ] Per-block imbalance is a localization aid — exit code remains 0. Only function-level imbalance triggers exit 1 (current behavior preserved)
-- [ ] `rc-stats.sh` (no flag) backward compatible: identical output and exit behavior to today
-- [ ] `rc-stats.sh --optimized` continues working via awk parser (compiler audit runs in codegen pipeline; it only sees unoptimized IR)
-- [ ] Migration test matrix confirms awk totals match JSON totals before awk removal
+- [ ] `rc-stats.sh` (no flag) backward compatible: same table format and exit behavior (note: typed RC op totals may be higher than legacy awk counts — this is correct expanded coverage, not a regression)
+- [ ] `rc-stats.sh --optimized` works via compiler JSON from post-optimization histogram — awk parser completely removed
+- [ ] Migration test matrix confirms base-5 RC op parity before awk removal (typed RC expansions documented as expected divergence)
 - [ ] Satisfies mission criterion: "ORI_AUDIT_CODEGEN=1 emits per-block structured JSON; rc-stats.sh --block-level consumes it"
 
 **Context:** Both Codex and Gemini independently identified critical issues with the original plan:
 1. `rc_balance.rs` does NOT track `ori_rc_inc` or `ori_rc_free` — merging counting into it would silently corrupt the balance equation `(alloc + inc) - (dec + free)`.
 2. The `codegen audit:` prefix is consumed by `codegen-audit.sh` via grep — adding JSON lines with that prefix would break it.
 3. Per-block exit code 1 would produce false positives because RC ownership commonly crosses basic-block boundaries.
-4. The `--optimized` flag path has no compiler-side equivalent — the audit pass sees only unoptimized IR.
+4. The `--optimized` flag path originally had no compiler-side equivalent — resolved by adding post-optimization histogram support (04.3).
 5. Removing the awk parser without a migration safety net risks silent numeric divergence.
 
 **Reference implementations:**
@@ -92,13 +92,14 @@ sections:
     - `Alloc`: `ori_rc_alloc`
     - `Inc`: `ori_rc_inc`, `ori_str_rc_inc`, `ori_list_rc_inc` (slice-aware typed RC inc)
     - `Dec`: `ori_rc_dec`, `ori_str_rc_dec`, `ori_buffer_rc_dec`, `ori_map_buffer_rc_dec`, `ori_set_buffer_rc_dec` (slice-aware typed RC dec)
-    - `Free`: `ori_rc_free`
+    - `Free`: `ori_rc_free`, `ori_buffer_drop_unique`, `ori_set_buffer_drop_unique`, `ori_map_buffer_drop_unique` (unique-drop functions that skip atomic dec and directly free — these are RC cleanup operations that must be counted as releases)
     - `Cow`: COW functions (via `super::is_cow_function`) — `ori_list_*_cow`, `ori_str_*_cow`, etc.
+    - **Non-counting (returns None):** `ori_rc_is_unique`, `ori_rc_is_unique_or_null`, `ori_rc_live_count`, `ori_rc_reset_live_count`, `ori_rc_realloc`, `ori_list_reset_buffer` (internal reallocation — dec+alloc happen inside, not externally observable as separate RC events)
     - **Source of truth for the function list:** `compiler/ori_llvm/src/codegen/runtime_decl/runtime_functions.rs`. The classifier must cover all RC counting operations (functions that perform alloc/inc/dec/free on refcounts or COW mutations). NOT all functions containing `rc` — non-counting helpers (`ori_rc_live_count`, `ori_rc_reset_live_count`, `ori_rc_is_unique`, `ori_rc_is_unique_or_null`, `ori_rc_realloc`) must return `None` from `classify_rc_call`. Add an exhaustiveness test with an explicit allowlist of classified patterns (`*_rc_inc`, `*_rc_dec`, exact `ori_rc_alloc`, exact `ori_rc_free`, `*_cow`) and explicit `None` assertions for `ori_rc_is_unique`, `ori_rc_live_count`, `ori_rc_realloc`, and unrelated names like `ori_str_to_uppercase`.
     - **Note:** The current awk parser in `rc-stats.sh` only matches the 5 base patterns (`ori_rc_alloc/inc/dec/free` + COW). The new classifier intentionally EXPANDS coverage to typed RC operations that the awk parser missed (e.g., `ori_buffer_rc_dec`, `ori_str_rc_inc`). The migration test matrix (Phase B) must account for this — the old awk totals may be LOWER than JSON totals for files with typed RC calls.
   - `pub(super) struct BlockHistogram { pub label: String, pub counts: [u32; 5] }` (indexed by `RcOpKind` discriminant) — `pub(super)` so sibling module `rc_stats.rs` can read it
   - `pub(super) struct FunctionHistogram { pub name: String, pub blocks: Vec<BlockHistogram> }` — same visibility rationale
-  - `pub fn collect_module_histogram(module: &Module<'_>, options: &AuditOptions) -> Vec<FunctionHistogram>` — walks all functions/blocks, calls `classify_rc_call` on every call/invoke instruction, accumulates counts per block
+  - `pub(super) fn collect_module_histogram(module: &Module<'_>, options: &AuditOptions) -> Vec<FunctionHistogram>` — walks all functions/blocks, calls `classify_rc_call` on every call/invoke instruction, accumulates counts per block. Note: `pub(super)` matches `FunctionHistogram` visibility — `pub fn` would trigger E0446 (private type in public interface)
   - Uses `super::callee_name()` (shared with rc_balance) to extract callee names
   - Uses `super::rc_balance::should_audit_fn()` for function filtering (already `pub(super)`)
   - **Function name demangling:** The histogram MUST demangle Ori function names before storing them in `FunctionHistogram.name`, matching the EXACT format the current awk parser produces (rc-stats.sh lines 132-141). Add a `fn demangle_ori_name(llvm_name: &str) -> String` helper in `rc_histogram.rs` that applies these rules:
@@ -186,9 +187,10 @@ sections:
       pub cow: u32,
   }
   ```
-- [ ] Add `pub fn from_histograms(histograms: &[FunctionHistogram], optimized: bool) -> RcStatsReport` conversion that maps `FunctionHistogram` → `FunctionStats` with computed totals and sets `optimized` field accordingly
+- [ ] Add `pub(super) fn from_histograms(histograms: &[FunctionHistogram], optimized: bool) -> RcStatsReport` conversion that maps `FunctionHistogram` → `FunctionStats` with computed totals and sets `optimized` field accordingly. Note: `pub(super)` matches `FunctionHistogram` visibility
 - [ ] Add `mod rc_stats;` to `compiler/ori_llvm/src/verify/mod.rs`
-- [ ] **File size check:** `rc_stats.rs` should be under 100 lines — it is pure data types plus one conversion function.
+- [ ] Add `impl RcStatsReport { pub fn emit_to_stderr(&self) }` method that centralizes JSON serialization and emission: `eprintln!("codegen stats: json: {}", serde_json::to_string(self).expect("RcStatsReport serialization"))`. All hook points (verify/mod.rs, aot/object.rs, build/single.rs) call this method instead of manually constructing the JSON emission — prevents algorithmic duplication of the formatting contract.
+- [ ] **File size check:** `rc_stats.rs` should be under 120 lines — data types, conversion, and emit method.
 - [ ] Add Rust unit tests in `compiler/ori_llvm/src/verify/rc_stats/tests.rs`:
   - `test_empty_histogram_produces_version_one_empty_functions` — empty input → `RcStatsReport { schema_version: 1, functions: [] }`
   - `test_histogram_to_report_computes_function_totals` — two blocks with known counts → totals are sums
@@ -213,6 +215,7 @@ sections:
 
 - [ ] In `audit_module_with_options()` (`verify/mod.rs`), after the existing checks, call `rc_histogram::collect_module_histogram(module, options)` and convert to `RcStatsReport` via `rc_stats::RcStatsReport::from_histograms()`
 - [ ] Store the `RcStatsReport` in `AuditReport` (add a field: `pub rc_stats: Option<rc_stats::RcStatsReport>`) or return it alongside the report
+- [ ] **Prerequisite:** Change `AuditOptions::from_env()` visibility from `fn from_env()` to `pub fn from_env()` in `compiler/ori_llvm/src/verify/mod.rs` (line 55) — the optimized hook points in `aot/object.rs` and `build/single.rs` need to construct `AuditOptions` from the environment.
 - [ ] **Optimized-IR histogram support (SSOT — eliminates awk parser entirely):** Add a `pub fn audit_module_histogram_only(module: &Module<'_>, options: &AuditOptions) -> RcStatsReport` entry point that runs ONLY the histogram pass (no lifecycle/COW/ABI/safety checks), calling `from_histograms(..., optimized: true)`. This enables callers to collect stats on the post-optimization module without running the full audit pass.
   - **Hook points (MUST be gated behind `if verify::audit_requested()`):** The histogram emission for optimized IR must be wrapped in an `if verify::audit_requested() { ... }` block — without this gate, every normal `ori build --release` would run the histogram and spam stderr. The specific hook points are:
     - `compiler/ori_llvm/src/aot/object.rs` in `verify_optimize_emit()` — after `run_optimization_passes()` completes but before object emission. This covers normal AOT object builds.
@@ -220,14 +223,13 @@ sections:
   - Both paths emit a JSON line: `codegen stats: json: {..."optimized":true...}`
   - **Smoke test:** `ORI_AUDIT_CODEGEN=1 cargo run -p oric --bin ori -- build --release diagnostics/fixtures/clean.ori -o /tmp/test_bin 2>&1 | grep "codegen stats: json:"` must produce TWO JSON lines: one with `"optimized":false` and one with `"optimized":true`.
   - **Non-audit builds must NOT run the histogram:** `ori build --release diagnostics/fixtures/clean.ori` (without `ORI_AUDIT_CODEGEN=1`) must produce zero `codegen stats:` lines on stderr.
-- [ ] In the `emit_to_stderr()` method of `AuditReport` (or a new `emit_rc_stats_json()` function), after the existing text output, emit the JSON:
+- [ ] In the `emit_to_stderr()` method of `AuditReport`, after the existing text output, call the centralized emitter:
   ```rust
   if let Some(ref stats) = self.rc_stats {
-      if let Ok(json) = serde_json::to_string(stats) {
-          eprintln!("codegen stats: json: {json}");
-      }
+      stats.emit_to_stderr(); // Defined in rc_stats.rs — single JSON emission point
   }
   ```
+  Do NOT inline `serde_json::to_string` + `eprintln!` here — the `RcStatsReport::emit_to_stderr()` method (from 04.2) owns the formatting contract. All other hook points (aot/object.rs, build/single.rs) also call `report.emit_to_stderr()` directly.
 - [ ] **Verify `codegen-audit.sh` is unaffected:** The new line starts with `codegen stats:` not `codegen audit:` — the grep at line 163 of `codegen-audit.sh` (`grep "^codegen audit:"`) will not match it. Add a comment in the emitter noting this invariant.
 - [ ] Add Rust unit tests (in `verify/tests.rs` or a dedicated test):
   - `test_audit_module_populates_rc_stats` — synthetic module with RC calls → `report.rc_stats` is `Some` with correct counts
@@ -325,6 +327,16 @@ This subsection has three phases: (A) add `--block-level` using compiler JSON, (
   Resolved: Fixed on 2026-04-09. Deleted option (b), added explicit "do NOT reuse AOT demangler" note with format comparison.
 - [x] `[TPR-04-001-gemini][high]` (iter 2) `section-04-block-rc-stats.md:212` — Gate optimized histogram behind audit_requested check.
   Resolved: Fixed on 2026-04-09. Added explicit audit_requested() gate at both hook points; added non-audit negative test.
+- [x] `[TPR-04-001-codex][high]` (iter 3) `section-04-block-rc-stats.md:97` — Include unique-drop RC cleanup calls in classifier.
+  Resolved: Fixed on 2026-04-09. Added ori_buffer_drop_unique, ori_set_buffer_drop_unique, ori_map_buffer_drop_unique to Free category. Added ori_list_reset_buffer to explicit non-counting list.
+- [x] `[TPR-04-002-codex][medium]` (iter 3) `section-04-block-rc-stats.md:62` — Remove stale awk fallback references from body.
+  Resolved: Fixed on 2026-04-09. Synchronized body success criteria and context notes with current design (all modes use compiler JSON).
+- [x] `[TPR-04-001-gemini][high]` (iter 3) `section-04-block-rc-stats.md:189` — Fix E0446 by matching function and type visibility.
+  Resolved: Fixed on 2026-04-09. Changed collect_module_histogram and from_histograms to pub(super) fn.
+- [x] `[TPR-04-002-gemini][high]` (iter 3) `section-04-block-rc-stats.md:218` — Make AuditOptions::from_env public.
+  Resolved: Fixed on 2026-04-09. Added prerequisite item to change from_env visibility to pub.
+- [x] `[TPR-04-003-gemini][medium]` (iter 3) `section-04-block-rc-stats.md:220` — Centralize JSON emission in RcStatsReport::emit_to_stderr.
+  Resolved: Fixed on 2026-04-09. Added emit_to_stderr() method to rc_stats.rs; updated all hook points to use it.
 
 ---
 
