@@ -874,6 +874,7 @@ def classify_blocker_readiness(
         for parent in parents:
             if parent in visited:
                 chain.append(f"Section {parent} [CYCLE]")
+                all_ok = False
                 continue
             psec = next(
                 (s for s in focus_plan.sections if s.number == parent or s.number == f'"{parent}"'),
