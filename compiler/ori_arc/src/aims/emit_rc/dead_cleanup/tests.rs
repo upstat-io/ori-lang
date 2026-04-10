@@ -1,10 +1,10 @@
 //! Consumer-level tests for [`emit_dead_at_entry_decs`].
 //!
-//! BUG-04-052: the 5 unit tests for `let_alias_rep` in
-//! `take_project/tests.rs` only exercise the helper layer. These tests
-//! exercise the full `emit_dead_at_entry_decs` path with synthetic
-//! `BlockCtx` topologies to verify that the `let_alias_rep` dedup
-//! produces the correct number of `RcDec` instructions.
+//! The 5 unit tests for `let_alias_rep` in `take_project/tests.rs` only
+//! exercise the helper layer. These tests exercise the full
+//! `emit_dead_at_entry_decs` path with synthetic `BlockCtx` topologies
+//! to verify that the `let_alias_rep` dedup produces the correct number
+//! of `RcDec` instructions.
 
 use ori_ir::Name;
 use ori_types::{Idx, Pool};
@@ -95,9 +95,8 @@ impl DeadCleanupFixture {
 }
 
 /// Semantic pin: two phi-merged block params with DIFFERENT let-alias
-/// reps must each get their own `RcDec`. This is the regression guard
-/// for BUG-04-051 — if `let_alias_rep` dedup is reverted to
-/// `lineage_of`, this test fails (only 1 dec instead of 2).
+/// reps must each get their own `RcDec`. If `let_alias_rep` dedup is
+/// reverted to `lineage_of`, this test fails (only 1 dec instead of 2).
 ///
 /// Topology: block 1 has params v(2) and v(3). Both are in the same
 /// take-project class (same lineage), and block 1 is a bypass-safe
