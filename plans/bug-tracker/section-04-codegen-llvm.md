@@ -29,9 +29,9 @@ Bugs in LLVM IR generation, JIT/AOT compilation, monomorphization, ARC pipeline 
   Subsystem: `compiler/ori_arc/src/rc_insert/annotate.rs`
   Found: 2026-04-09 | Source: tpr-review | Reviewer: gemini
 
-- [ ] `[BUG-04-052][low]` **No consumer-level test exercises `emit_dead_at_entry_decs` with the new `let_alias_rep` dedup** — found by tpr-review (dual-source).
-  Repro: revert `dead_cleanup.rs` dedup from `let_alias_rep` back to `lineage_of` — all 5 new unit tests in `take_project/tests.rs` still pass because they only test the helper layer. Need a test that constructs a `BlockCleanupCtx` with swapped-phi topology and verifies two `RcDec`s are emitted.
-  Subsystem: `compiler/ori_arc/src/aims/emit_rc/dead_cleanup.rs`
+- [x] `[BUG-04-052][low]` **No consumer-level test exercises `emit_dead_at_entry_decs` with the new `let_alias_rep` dedup** — found by tpr-review (dual-source).
+  Resolved: Fixed 2026-04-10. Added 2 consumer-level tests in `dead_cleanup/tests.rs`: (1) `swapped_phi_params_emit_two_rc_decs` — semantic pin verifying that two phi params with different let-alias reps each get their own `RcDec`; (2) `let_alias_siblings_emit_one_rc_dec` — negative pin verifying that Let aliases (same rep) produce only one `RcDec`. Also added `TakeMoveFacts::with_bypass_entries` test constructor and converted `dead_cleanup.rs` to `dead_cleanup/mod.rs` + `tests.rs` per file organization rules. 16,966 tests passing.
+  Subsystem: `compiler/ori_arc/src/aims/emit_rc/dead_cleanup/`
   Found: 2026-04-09 | Source: tpr-review (dual-source, TPR-07-001-codex)
 
 - [x] `[BUG-04-051][high]` **AIMS dead_cleanup source-1 dedup conflates distinct phi-merged block params with the same lineage source set — leaks one value** — found by tpr-review (TPR-07-022 in plans/repr-opt/section-07-enum-repr.md).
