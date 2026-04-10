@@ -263,6 +263,29 @@ run_test "simple.ori interpreter == AOT" \
     "$SCRIPT_DIR/dual-exec-debug.sh" --no-color "$FIXTURES_DIR/simple.ori"
 run_test "clean.ori interpreter == AOT" \
     "$SCRIPT_DIR/dual-exec-debug.sh" --no-color "$FIXTURES_DIR/clean.ori"
+
+# Mismatch path: verify auto-diagnostics output (uses ORI_BIN wrapper for deterministic divergence)
+SAVED_ORI_BIN="${ORI_BIN:-}"
+export ORI_BIN="$FIXTURES_DIR/mismatch-wrapper.sh"
+run_test_exit_code "mismatch wrapper triggers mismatch (exit 1)" 1 \
+    "$SCRIPT_DIR/dual-exec-debug.sh" --no-color "$FIXTURES_DIR/mismatch.ori"
+run_test_output_contains "mismatch auto-dumps ARC IR" "ARC IR saved to" \
+    "$SCRIPT_DIR/dual-exec-debug.sh" --no-color "$FIXTURES_DIR/mismatch.ori"
+run_test_output_contains "mismatch runs codegen-audit" "Codegen Audit" \
+    "$SCRIPT_DIR/dual-exec-debug.sh" --no-color "$FIXTURES_DIR/mismatch.ori"
+run_test_output_contains "mismatch shows keep-temp hint" "keep-temp" \
+    "$SCRIPT_DIR/dual-exec-debug.sh" --no-color "$FIXTURES_DIR/mismatch.ori"
+if [[ -n "$SAVED_ORI_BIN" ]]; then
+    export ORI_BIN="$SAVED_ORI_BIN"
+else
+    unset ORI_BIN
+fi
+
+# Build-failure path: verify exit code 2 and ARC IR capture attempt
+run_test_exit_code "build failure exits 2 (not 1)" 2 \
+    "$SCRIPT_DIR/dual-exec-debug.sh" --no-color "$FIXTURES_DIR/build-fail-parse.ori"
+run_test_output_contains "build failure shows ARC IR status" "ARC IR" \
+    "$SCRIPT_DIR/dual-exec-debug.sh" --no-color "$FIXTURES_DIR/build-fail-parse.ori"
 echo ""
 
 # ─── disasm-ori.sh ─────────────────────────────────────────────────
