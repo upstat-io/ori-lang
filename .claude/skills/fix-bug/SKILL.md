@@ -79,7 +79,7 @@ Spending time checking out old commits to see if something "was already broken" 
    1. Verify the fix is real — run the repro AND check that the underlying code path is actually corrected, not just coincidentally passing
    2. Update the bug entry in the section file using the canonical OBE resolution format from `plans/bug-tracker/00-overview.md`:
       ```markdown
-      - [x] `[BUG-{section}-{ordinal}][{severity}]` **{Short title}** — found by {source}.
+      - [x] `[BUG-{section}-{ordinal}][{severity}]` **{Short title}**
         Resolved: OBE on {YYYY-MM-DD}. {What fixed it — commit, plan, or rewrite}.
       ```
    3. Update `plans/bug-tracker/00-overview.md` Quick Reference — decrement the open bug count for this subsystem
@@ -190,7 +190,7 @@ This is NOT `/tp-help`'s usual "stuck help" use case — it is **design consensu
 
 6. **Document consensus in the fix section file** (§ 1.5 Fix Consensus, per the template). The content is captured NOW; the file itself is written in Phase 2.
 
-**Interaction with Phase 1.5**: If `/tp-help` reveals the bug is actually systemic (requires architectural change across 4+ files, new abstractions, cross-crate redesign), **return to Phase 1.5** and re-assess. A consensus round that surfaces plan-escalation criteria is a WIN — cheaper than discovering it mid-implementation. Run `/create-plan` and stop per Phase 1.5's escalation protocol.
+**Interaction with Phase 1.5**: If `/tp-help` reveals the bug is actually systemic (requires architectural change across 4+ files, new abstractions, cross-crate redesign), **return to Phase 1.5** and re-assess. A consensus round that surfaces plan-escalation criteria is a WIN — cheaper than discovering it mid-implementation. Follow Phase 1.5's escalation protocol exactly — including the autopilot exception (which marks `Escalated: requires plan` instead of invoking `/create-plan`).
 
 **Runtime expectation**: `/tp-help` is ~10–15 min per round (dominated by gemini wall time). Budget 10–45 min for Phase 1.75 depending on whether reconciliation rounds are needed. This is deliberately expensive — one saved bad-approach cycle (where tests encode the wrong semantics and the fix has to be reverted) pays for many consensus calls.
 

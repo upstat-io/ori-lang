@@ -56,7 +56,7 @@ For each `- [ ]` entry, extract:
 
 These entries remain `- [ ]` (unchecked) because they are not resolved, but they are not actionable by `/fix-bug` until the plan completes or the blocker clears. Only genuinely open, unblocked, non-escalated bugs enter the priority queue.
 
-**Implementation note**: when scanning multi-line bug entries, the lifecycle markers appear in the body lines indented under the `- [ ]` checkbox line. Read each entry's full body (all indented lines following the checkbox) before classifying it.
+**Implementation note**: lifecycle markers can appear on the `- [ ]` checkbox line itself (e.g. `<!-- blocked-by:... -->` trailing the title) OR in the indented body lines below it. Scan the ENTIRE multi-line entry — checkbox line plus all indented continuation lines — before classifying it.
 
 ### Step 2: Sort by Priority
 
