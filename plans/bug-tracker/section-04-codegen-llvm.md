@@ -19,8 +19,8 @@ Bugs in LLVM IR generation, JIT/AOT compilation, monomorphization, ARC pipeline 
 
 ## Open Bugs
 
-- [ ] `[BUG-04-054][high]` **LLVM codegen fails when two types implement the same trait — "method exists for another type but receiver type not registered"**
-  Repro: Define `trait Measurable { @measure (self) -> int }`, impl for both `type Doc` and `type Container`. AOT build fails: `method exists for another type but receiver type not registered — likely missing enum derive codegen`. Interpreter works correctly. Single-type impl works in both.
+- [x] `[BUG-04-054][high]` **LLVM codegen fails when two types implement the same trait — "method exists for another type but receiver type not registered"**
+  Resolved: OBE on 2026-04-10. Tested 2 and 3 types implementing the same trait (with string fields/fat pointers) through interpreter, LLVM JIT, and AOT — all produce correct results. `impls.rs:278-279` correctly registers `type_idx_to_name` for each impl's self type, with `debug_assert!` guard at line 291. The `trait_dispatch.ori` fixture (which avoids the pattern) was written based on an earlier state of the code; the underlying issue has been resolved by subsequent impl/method resolution improvements.
   Subsystem: `compiler/ori_llvm/src/codegen/arc_emitter/` — method resolution table registers trait method for first implementing type but not the second
   Found: 2026-04-10 | Source: continue-roadmap (diagnostic-tooling-improvements §06.1 fixture creation)
 
