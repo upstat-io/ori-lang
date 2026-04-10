@@ -26,6 +26,12 @@ This skill auto-triggers when ANY of these are true:
 7. **Friction during debugging** — you spend more than 30 seconds interpreting tool output or running follow-up commands to get the information you actually need
 8. **Incomplete automation** — a multi-step manual process that should be a single command
 
+Additionally, this skill is **mandatorily invoked** as a retrospective at three boundaries — these are not optional auto-triggers but required workflow steps:
+
+9. **Per-subsection close** — immediately after marking a plan subsection complete (see Retrospective Mode §Per-Subsection)
+10. **Bug-fix close** — at `/fix-bug` Phase 5 completion checklist step 8 (see Retrospective Mode §Bug-Fix Close)
+11. **Section-close sweep** — at the end of a full section, after TPR and hygiene are clean (see Retrospective Mode §Section-Close Sweep)
+
 ## Tooling Scope
 
 These are the tools you own and must improve:
