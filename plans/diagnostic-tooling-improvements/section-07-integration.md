@@ -122,23 +122,21 @@ When LLVM or AOT tests fail, print a one-liner suggesting the relevant diagnosti
 
 ## 07.4 Update documentation
 
-**File(s):** `diagnostics/README.md`, `CLAUDE.md`, `.claude/rules/compiler.md`, `.claude/rules/arc.md`
+**SSOT architecture (established during Section 04):**
+- `@diagnostic.md` §Diagnostic Scripts — SSOT table with all scripts and flags
+- `diagnostics/README.md` — user-facing docs with usage examples and workflows
+- CLAUDE.md, compiler.md, llvm.md, runtime.md, aot.md, arc.md — all reference `@diagnostic.md`
 
-- [ ] Update `diagnostics/README.md`:
-  - Add `debug-release-compare.sh` to quick reference table and usage section
-  - Add `bisect-passes.sh` to quick reference table and usage section
-  - Update `diagnose-aot.sh` entry with new `--release`, `--both-builds` flags
-  - Update `rc-stats.sh` entry with new `--block-level` flag
-  - Update `dual-exec-debug.sh` entry noting: auto ARC IR dump on mismatch, auto codegen-audit on mismatch, `--keep-temp` flag for artifact persistence, build-failure ARC IR capture
-  - Verify `aims-compare.sh` / `aims-baseline.sh` / `aims-measure.sh` entries are absent (removal verified in Section 01.1)
-  - Update fixtures table with all new fixtures
-  - Add new "Common Debugging Workflows" entries for bisection and debug-vs-release
-- [ ] Update `CLAUDE.md` §Commands / §Diagnostic scripts:
-  - Add `debug-release-compare.sh` and `bisect-passes.sh`
-  - Update existing script entries with new flags
-  - (aims-compare reference removal done in Section 01.1; new debug-release-compare reference added in Section 01.2)
-- [ ] Update `.claude/rules/compiler.md` §Diagnostic Scripts section
-- [ ] Update `.claude/rules/arc.md` §Debugging section with `bisect-passes.sh` (aims-compare reference removed in Section 01.1; debug-release-compare reference added in Section 01.2)
+**Already done (Section 04 close-out):**
+- [x] `@diagnostic.md` §Diagnostic Scripts table created with all scripts/flags from sections 01-04
+- [x] CLAUDE.md, compiler.md, llvm.md, runtime.md, aot.md, arc.md deduplicated to `@diagnostic.md` references
+- [x] `diagnostics/README.md` updated with `--release`, `--both-builds`, `--keep-temp`, `--block-level`, `--optimized`, `--compare-awk`
+- [x] Stale `aims-compare`/`aims-baseline`/`aims-measure` references removed (Section 01)
+
+**Remaining (after sections 05-06):**
+- [ ] Update `@diagnostic.md` §Diagnostic Scripts with `bisect-passes.sh` (Section 05)
+- [ ] Update `diagnostics/README.md` with `bisect-passes.sh` usage section and workflow
+- [ ] Update `diagnostics/README.md` fixtures table with all Section 06 fixtures
 - [ ] Verify: no stale references to removed scripts remain (`grep -rn "aims-compare\|aims-baseline\|aims-measure" CLAUDE.md .claude/rules/ diagnostics/ plans/`)
 
 - [ ] **Subsection close-out (07.4)** — MANDATORY before starting 07.R:
