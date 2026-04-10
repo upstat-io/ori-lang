@@ -26,10 +26,10 @@ third_party_review:
 sections:
   - id: "04.1"
     title: "Create RcOpKind enum and rc_histogram.rs counting pass"
-    status: not-started
+    status: complete
   - id: "04.2"
     title: "Typed JSON schema structs with serde"
-    status: not-started
+    status: complete
   - id: "04.3"
     title: "Wire histogram into audit pipeline and emit JSON"
     status: not-started
@@ -86,7 +86,7 @@ sections:
 
 **Why a new file, not modifying rc_balance.rs:** `rc_balance.rs` is a semantic lifecycle verifier — it tracks pointer identity and state transitions (Live → CowConsumed → Decremented). The histogram is a syntactic counter — it counts instruction occurrences without tracking pointer identity. These are fundamentally different concerns. Mixing them would create a LEAK:phase-bleeding (histogram counting polluting the state machine) and risk corrupting `rc_balance.rs`'s invariants. The `RcOpKind` enum provides a shared vocabulary without coupling the implementations.
 
-- [ ] Create `compiler/ori_llvm/src/verify/rc_histogram.rs` containing:
+- [x] Create `compiler/ori_llvm/src/verify/rc_histogram.rs` containing:
   - `RcOpKind` enum: `Alloc`, `Inc`, `Dec`, `Free`, `Cow` — with `Debug`, `Clone`, `Copy`, `PartialEq`, `Eq`, `Hash` derives
   - `fn classify_rc_call(callee_name: &str) -> Option<RcOpKind>` — maps runtime RC functions to operation kinds. Must cover ALL RC operations emitted by the codegen, not just the 5 base names:
     - `Alloc`: `ori_rc_alloc`, `ori_list_alloc_data`, `ori_map_literal_alloc`, `ori_set_literal_alloc` (collection literal allocation wrappers that call ori_rc_alloc internally)
@@ -104,10 +104,10 @@ sections:
   - Uses `super::rc_balance::should_audit_fn()` for function filtering (already `pub(super)`)
   - **Function name demangling:** The histogram MUST demangle Ori function names before storing them in `FunctionHistogram.name`. **Reuse the canonical AOT demangler** (`aot/mangle/parse.rs` or its public API) — this is the SSOT for name demangling in `ori_llvm`. The demangled format will differ from the awk parser's legacy format (e.g., `math.@add` instead of `@math.add`) — this is intentional and correct: the compiler's canonical demangling is the authoritative format, and introducing a second bespoke demangler would be LEAK:scattered-knowledge. The Phase B migration test must account for this format difference (compare function-level RC totals, not exact name strings; or normalize names in the comparison).
   - For block labels: use `BasicBlock::get_name()` if non-empty; otherwise generate `format!("bb_{}", block_index)` as a fallback. Many LLVM basic blocks are unnamed (empty `get_name()`) — the fallback ensures every block has a printable identifier in the JSON output and the rc-stats.sh table
-- [ ] Add `mod rc_histogram;` to `compiler/ori_llvm/src/verify/mod.rs`
-- [ ] Add `#[cfg(test)] mod tests;` at the bottom of `rc_histogram.rs` (per CLAUDE.md — test bodies in sibling `tests.rs`, not inline)
-- [ ] **File size check:** `rc_histogram.rs` should be under 200 lines. The counting logic is simple — no state machine, just instruction classification and accumulation.
-- [ ] Add Rust unit tests in `compiler/ori_llvm/src/verify/rc_histogram/tests.rs`:
+- [x] Add `mod rc_histogram;` to `compiler/ori_llvm/src/verify/mod.rs`
+- [x] Add `#[cfg(test)] mod tests;` at the bottom of `rc_histogram.rs` (per CLAUDE.md — test bodies in sibling `tests.rs`, not inline)
+- [x] **File size check:** `rc_histogram.rs` should be under 200 lines. The counting logic is simple — no state machine, just instruction classification and accumulation.
+- [x] Add Rust unit tests in `compiler/ori_llvm/src/verify/rc_histogram/tests.rs`:
   - `test_classify_rc_call_alloc_returns_alloc` — `"ori_rc_alloc"` → `Some(RcOpKind::Alloc)`
   - `test_classify_rc_call_inc_returns_inc` — `"ori_rc_inc"` → `Some(RcOpKind::Inc)`
   - `test_classify_rc_call_dec_returns_dec` — `"ori_rc_dec"` → `Some(RcOpKind::Dec)`
@@ -117,14 +117,14 @@ sections:
   - `test_empty_module_produces_empty_histogram` — synthetic inkwell module with no functions → empty vec
   - `test_module_with_rc_alloc_and_dec_counts_per_block` — synthetic module with `ori_rc_alloc` in entry block and `ori_rc_dec` in exit block → correct per-block counts
   - Test naming follows `<subject>_<scenario>_<expected>` (CLAUDE.md §Test function naming). No ephemeral identifiers.
-- [ ] Run `timeout 150 cargo t -p ori_llvm -- rc_histogram` to verify tests pass
+- [x] Run `timeout 150 cargo t -p ori_llvm -- rc_histogram` to verify tests pass (19 tests pass)
 
 **CRITICAL: `rc_balance.rs` is NOT modified in this section.** The lifecycle verifier continues to track only alloc/dec/cow as before. If future work wants the lifecycle verifier to also track inc/free, that is a separate change with its own state-machine analysis.
 
-- [ ] **Subsection close-out (04.1)** — MANDATORY before starting 04.2:
-  - [ ] All tasks above are `[x]` and verified
-  - [ ] Update this subsection's `status` in section frontmatter to `complete`
-  - [ ] **Run `/improve-tooling` retrospectively on THIS subsection**
+- [x] **Subsection close-out (04.1)** — MANDATORY before starting 04.2:
+  - [x] All tasks above are `[x]` and verified
+  - [x] Update this subsection's `status` in section frontmatter to `complete`
+  - [x] **Retrospective 04.1:** No tooling gaps. `-D dead_code` forced early wiring into `audit_module_with_options()`. Demangle re-export path (`crate::aot::demangle`) preferred over private module path.
 
 ---
 
@@ -138,8 +138,8 @@ sections:
 
 **Why a schema_version field:** The JSON schema will be consumed by `rc-stats.sh` and potentially other tools. A version field enables backward-compatible schema evolution without breaking consumers. Version 1 is the initial schema defined here.
 
-- [ ] Add `serde_json = "1"` to `[dependencies]` in `compiler/ori_llvm/Cargo.toml` (serde is already present)
-- [ ] Create `compiler/ori_llvm/src/verify/rc_stats.rs` containing typed structs:
+- [x] Add `serde_json = "1"` to `[dependencies]` in `compiler/ori_llvm/Cargo.toml` (serde is already present)
+- [x] Create `compiler/ori_llvm/src/verify/rc_stats.rs` containing typed structs:
   ```rust
   use serde::Serialize;
 
@@ -181,22 +181,22 @@ sections:
       pub cow: u32,
   }
   ```
-- [ ] Add an associated constructor on `RcStatsReport`: `impl RcStatsReport { pub(super) fn from_histograms(histograms: &[FunctionHistogram], optimized: bool) -> Self { ... } }` — maps `FunctionHistogram` → `FunctionStats` with computed totals and sets `optimized` field. Note: `pub(super)` matches `FunctionHistogram` visibility
-- [ ] Add `mod rc_stats;` to `compiler/ori_llvm/src/verify/mod.rs`
-- [ ] Add `#[cfg(test)] mod tests;` at the bottom of `rc_stats.rs` (per CLAUDE.md — test bodies in sibling `tests.rs`)
-- [ ] Add `impl RcStatsReport { pub fn emit_to_stderr(&self) }` method that centralizes JSON serialization and emission: `eprintln!("codegen stats: json: {}", serde_json::to_string(self).expect("RcStatsReport serialization"))`. All hook points (verify/mod.rs, aot/object.rs, build/single.rs) call this method instead of manually constructing the JSON emission — prevents algorithmic duplication of the formatting contract.
-- [ ] **File size check:** `rc_stats.rs` should be under 120 lines — data types, conversion, and emit method.
-- [ ] Add Rust unit tests in `compiler/ori_llvm/src/verify/rc_stats/tests.rs`:
+- [x] Add an associated constructor on `RcStatsReport`: `impl RcStatsReport { pub(super) fn from_histograms(histograms: &[FunctionHistogram], optimized: bool) -> Self { ... } }` — maps `FunctionHistogram` → `FunctionStats` with computed totals and sets `optimized` field. Note: `pub(super)` matches `FunctionHistogram` visibility
+- [x] Add `mod rc_stats;` to `compiler/ori_llvm/src/verify/mod.rs`
+- [x] Add `#[cfg(test)] mod tests;` at the bottom of `rc_stats.rs` (per CLAUDE.md — test bodies in sibling `tests.rs`)
+- [x] Add `impl RcStatsReport { pub fn emit_to_stderr(&self) }` method that centralizes JSON serialization and emission: `eprintln!("codegen stats: json: {}", serde_json::to_string(self).expect("RcStatsReport serialization"))`. All hook points (verify/mod.rs, aot/object.rs, build/single.rs) call this method instead of manually constructing the JSON emission — prevents algorithmic duplication of the formatting contract.
+- [x] **File size check:** `rc_stats.rs` is 109 lines — under 120-line limit.
+- [x] Add Rust unit tests in `compiler/ori_llvm/src/verify/rc_stats/tests.rs`:
   - `test_empty_histogram_produces_version_one_empty_functions` — empty input → `RcStatsReport { schema_version: 1, functions: [] }`
   - `test_histogram_to_report_computes_function_totals` — two blocks with known counts → totals are sums
   - `test_report_serializes_to_valid_json` — `serde_json::to_string(&report)` succeeds and contains `"schema_version":1`
   - `test_function_name_with_special_chars_serializes_correctly` — function name containing `"` and `\` serializes without corruption (proves serde handles escaping)
-- [ ] Run `timeout 150 cargo t -p ori_llvm -- rc_stats` to verify tests pass
+- [x] Run `timeout 150 cargo t -p ori_llvm -- rc_stats` to verify tests pass (5 tests pass)
 
-- [ ] **Subsection close-out (04.2)** — MANDATORY before starting 04.3:
-  - [ ] All tasks above are `[x]` and verified
-  - [ ] Update this subsection's `status` in section frontmatter to `complete`
-  - [ ] **Run `/improve-tooling` retrospectively on THIS subsection**
+- [x] **Subsection close-out (04.2)** — MANDATORY before starting 04.3:
+  - [x] All tasks above are `[x]` and verified
+  - [x] Update this subsection's `status` in section frontmatter to `complete`
+  - [x] **Retrospective 04.2:** No tooling gaps. Wired `from_histograms` + `emit_to_stderr` directly into `audit_module_with_options` (04.3 early wiring, forced by `-D dead_code`).
 
 ---
 
