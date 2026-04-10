@@ -100,7 +100,7 @@ paths:
 
 - `diagnostics/diagnose-aot.sh file.ori` — all-in-one: build + run + leak check + RC stats + IR (add `--valgrind`)
 - `diagnostics/dual-exec-debug.sh file.ori` — interpreter vs AOT comparison (auto-dumps on mismatch)
-- `diagnostics/rc-stats.sh file.ori` — RC balance per function (flags imbalances)
+- `diagnostics/rc-stats.sh file.ori` — RC balance per function (`--block-level` per-block breakdown, `--optimized` post-opt IR)
 - `diagnostics/codegen-audit.sh file.ori` — static RC + COW + ABI analysis (`--strict`, `--function name`)
 - `diagnostics/ir-dump.sh file.ori` — annotated LLVM IR (`--raw` for undecorated)
 - `diagnostics/ir-diff.sh a.ori b.ori` — side-by-side IR comparison
@@ -114,7 +114,7 @@ paths:
 2. **Consult spec** — `docs/ori_lang/v2026/spec/` for intended behavior
 3. **Run diagnostics** by symptom:
    - Wrong output → `dual-exec-debug.sh` | Crash/segfault → `diagnose-aot.sh --valgrind`
-   - Memory leak → `ORI_CHECK_LEAKS=1` then `rc-stats.sh` | RC corruption → `ORI_TRACE_RC=1` then `codegen-audit.sh --strict`
+   - Memory leak → `ORI_CHECK_LEAKS=1` then `rc-stats.sh` (`--block-level` to localize) | RC corruption → `ORI_TRACE_RC=1` then `codegen-audit.sh --strict`
    - Type error → `ORI_LOG=ori_types=debug ori check` | Wrong IR → `ir-dump.sh` + `ir-diff.sh`
 4. **Write tests** — MULTIPLE: exact case, edges, variations, guards
 5. **Verify tests fail** — proves understanding
