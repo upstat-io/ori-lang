@@ -1,17 +1,17 @@
 # LLVM & AIMS Verification Tooling — Pre-Plan Research
 
 **Date**: 2026-04-09 (v2: expanded after dual-source TPR review)
-**Status**: Research complete, plan creation deferred
-**Blocked by**: `plans/diagnostic-tooling-improvements` (§01-03 complete; §04-07 not started)
+**Status**: Research complete, plan created (2026-04-10)
+**Blocked by**: ~~`plans/diagnostic-tooling-improvements`~~ — **COMPLETED** (archived to `plans/completed/diagnostic-tooling-improvements/` on 2026-04-09; all 13 mission criteria met, 16,964 tests passing). No longer blocking.
 **Impacts**: `plans/code-journey-rework` (should wait for this plan too)
 **Source**: Conversation analyzing LLVM diagnostic tools, reference compiler tooling, and Ori's current state; dual-source TPR review (codex + gemini, iteration 1)
 
 ## Dependency Chain
 
 ```
-diagnostic-tooling-improvements (in progress, §01-03 complete, §04-07 not started)
-  └─ completes → stabilizes diagnostics/ scripts, test-all.sh
-      └─ llvm-verification-tooling (THIS PLAN)
+diagnostic-tooling-improvements (COMPLETED — archived 2026-04-09)
+  └─ completed → diagnostics/ scripts stable, test-all.sh stable
+      └─ llvm-verification-tooling (THIS PLAN — UNBLOCKED)
           └─ completes → adds AIMS verification, FileCheck, sanitizers, etc.
               └─ code-journey-rework
                   └─ Section 03 orchestrator consumes ALL tools (old + new)

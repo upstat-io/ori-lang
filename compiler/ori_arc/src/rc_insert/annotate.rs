@@ -330,7 +330,7 @@ struct ConsumingCtx<'a> {
     var_types: &'a [ori_types::Idx],
     pool: &'a Pool,
     interner: &'a ori_ir::StringInterner,
-    /// Pre-interned method names for identity comparison (BUG-04-053).
+    /// Pre-interned method names for identity comparison.
     zip_name: ori_ir::Name,
     chain_name: ori_ir::Name,
     pop_name: ori_ir::Name,
