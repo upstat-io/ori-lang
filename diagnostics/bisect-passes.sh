@@ -140,9 +140,11 @@ sed 's/\x1b\[[0-9;]*m//g' "$TRACE_OUTPUT" > "$CLEAN_TRACE"
 
 # --- Extract checkpoint events ---
 EVENTS="$TMPDIR_BP/events.tsv"
+# Use || true to prevent pipefail from killing the script when grep finds no matches.
+# The empty-events check below provides the proper diagnostic + exit 2.
 grep "AIMS phase checkpoint" "$CLEAN_TRACE" | \
     sed -n 's/.*function="\([^"]*\)".*phase="\([^"]*\)".*rc_incs=\([0-9]*\).*rc_decs=\([0-9]*\).*blocks=\([0-9]*\).*vars=\([0-9]*\).*/\1\t\2\t\3\t\4\t\5\t\6/p' \
-    > "$EVENTS"
+    > "$EVENTS" || true
 
 if [[ ! -s "$EVENTS" ]]; then
     echo "Error: no AIMS pipeline checkpoint events found in trace output" >&2
