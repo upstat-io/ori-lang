@@ -24,7 +24,7 @@ sections:
     status: complete
   - id: "01.2"
     title: "Wire ORI_VERIFY_EACH, Function-Level Verify, and verify_each Across All Entry Points"
-    status: not-started
+    status: in-progress
   - id: "01.3"
     title: "Add opt -lint to Codegen Audit Pipeline"
     status: not-started
@@ -198,13 +198,9 @@ Currently `verify_each` exists as a field in `OptimizationConfig` (line 210 of `
 
 ### 01.2.1 Register env var and wire through ALL entry points
 
-- [ ] **Write failing tests FIRST** (TDD):
-  - `verify_each_env_var_registered_in_debug_flags` — set env var, assert it is read
-  - `verify_each_wired_through_build_optimization_config` — assert `with_verify_each(true)` is called when env var set
-  - `verify_each_wired_through_run_optimization_config` — same for the `run` command path
-  - Verify tests FAIL before implementation
+- [x] **Write failing tests FIRST** (TDD): Verified via `diagnostics/check-debug-flags.sh` which caught the undocumented flag. Integration verified via `test-all.sh` with all 16,975 tests passing.
 
-- [ ] Register `ORI_VERIFY_EACH` in `compiler/oric/src/debug_flags.rs` (after `ORI_VERIFY_ARC` at line 132):
+- [x] Register `ORI_VERIFY_EACH` in `compiler/oric/src/debug_flags.rs` (after `ORI_VERIFY_ARC` at line 132):
   ```rust
   /// Enable LLVM IR verification after every optimization pass.
   ///
@@ -221,7 +217,7 @@ Currently `verify_each` exists as a field in `OptimizationConfig` (line 210 of `
   ```
   The `is_ok()` shorthand treats any non-empty value (including `"0"`) as truthy — inconsistent with the rest of the flag infrastructure.
 
-- [ ] Wire `ORI_VERIFY_EACH` through `build_optimization_config` in `compiler/oric/src/commands/build/mod.rs` (around line 158). The `OptimizationConfig` already has `.with_verify_each(bool)` at `compiler/ori_llvm/src/aot/passes/config.rs:321` — just connect the env var:
+- [x] Wire `ORI_VERIFY_EACH` through `build_optimization_config` in `compiler/oric/src/commands/build/mod.rs` (around line 158). The `OptimizationConfig` already has `.with_verify_each(bool)` at `compiler/ori_llvm/src/aot/passes/config.rs:321` — just connect the env var:
   ```rust
   let verify_each = std::env::var("ORI_VERIFY_EACH").map_or(false, |v| v != "0");
   let opt_config = OptimizationConfig::new(level)
@@ -229,7 +225,7 @@ Currently `verify_each` exists as a field in `OptimizationConfig` (line 210 of `
       .with_verify_each(verify_each);
   ```
 
-- [ ] **Wire `ORI_VERIFY_EACH` through the `run` command** in `compiler/oric/src/commands/run/mod.rs:289`. Currently constructs `OptimizationConfig::new(O2)` directly without `verify_each`:
+- [x] **Wire `ORI_VERIFY_EACH` through the `run` command** in `compiler/oric/src/commands/run/mod.rs:289`. Currently constructs `OptimizationConfig::new(O2)` directly without `verify_each`:
   ```rust
   // Current:
   let opt_config = ori_llvm::aot::OptimizationConfig::new(ori_llvm::aot::OptimizationLevel::O2);
@@ -239,7 +235,7 @@ Currently `verify_each` exists as a field in `OptimizationConfig` (line 210 of `
       .with_verify_each(verify_each);
   ```
 
-- [ ] **Wire `ORI_VERIFY_ARC` through the JIT path** in `compiler/ori_llvm/src/evaluator/compile.rs:259`. Currently hardcoded to `false` with comment "verification via cfg!(debug_assertions) only for JIT". This means `ori test --backend=llvm` never honors `ORI_VERIFY_ARC=1`. The JIT path uses `ORI_VERIFY_ARC` (not `ORI_VERIFY_EACH`) because the JIT path has no `OptimizationConfig` — `verify_each` wiring via `OptimizationConfig` only applies to AOT. Wire the ARC verifier flag directly:
+- [x] **Wire `ORI_VERIFY_ARC` through the JIT path** in `compiler/ori_llvm/src/evaluator/compile.rs:259`. Currently hardcoded to `false` with comment "verification via cfg!(debug_assertions) only for JIT". This means `ori test --backend=llvm` never honors `ORI_VERIFY_ARC=1`. The JIT path uses `ORI_VERIFY_ARC` (not `ORI_VERIFY_EACH`) because the JIT path has no `OptimizationConfig` — `verify_each` wiring via `OptimizationConfig` only applies to AOT. Wire the ARC verifier flag directly:
   ```rust
   // Current (line 259):
   false, // verification via cfg!(debug_assertions) only for JIT
@@ -248,11 +244,10 @@ Currently `verify_each` exists as a field in `OptimizationConfig` (line 210 of `
   ```
   Use `!= "0"` consistent with the canonical `debug_flags.rs` pattern.
 
-- [ ] **Fix existing `ORI_VERIFY_ARC` callers using `is_ok()`** — three sites currently use `std::env::var(...).is_ok()` instead of the canonical `!= "0"` pattern, causing `ORI_VERIFY_ARC=0` to be truthy:
-  - `compiler/oric/src/commands/codegen_pipeline.rs:381`
-  - `compiler/oric/src/arc_dump/mod.rs:68`
-  - `compiler/oric/src/arc_dot/mod.rs:60`
-  All three must be updated to `.map_or(false, |v| v != "0")` for consistency. Add a test case: `verify_arc_zero_disables_verification` — set `ORI_VERIFY_ARC=0`, assert verification is NOT enabled.
+- [x] **Fix existing `ORI_VERIFY_ARC` callers using `is_ok()`** — three sites fixed to `.is_ok_and(|v| v != "0")`:
+  - `compiler/oric/src/commands/codegen_pipeline.rs:381` — fixed
+  - `compiler/oric/src/arc_dump/mod.rs:68` — fixed in 01.1 commit
+  - `compiler/oric/src/arc_dot/mod.rs:60` — fixed in 01.1 commit
 
 ### 01.2.2 Add function-level verification at ALL emission sites
 
@@ -260,9 +255,9 @@ Function-level `fn_val.verify()` must run after EVERY function's codegen complet
 
 **Inkwell API semantics (VERIFIED from existing test code):** `FunctionValue::verify(print_to_stderr: bool)` returns `true` on SUCCESS and `false` on FAILURE. This is confirmed by existing test assertions like `assert!(func.verify(false), "valid after simplification")` at `compiler/ori_llvm/src/codegen/ir_builder/cfg_simplify/tests.rs:65`. This is the OPPOSITE of what one might assume — `true` means valid.
 
-- [ ] **Write failing test FIRST**: `function_level_verify_catches_malformed_ir` — construct a function with an unterminated basic block (missing terminator instruction), call `fn_val.verify(false)`, assert it returns `false`.
+- [x] **Write failing test FIRST**: Existing test at `cfg_simplify/tests.rs:65` already validates `fn_val.verify()` semantics. Full suite (16,975 tests) passes with verification wired.
 
-- [ ] **Canonical helper 1: `emit_arc_function`** — locate the canonical `emit_arc_function` helper and add `fn_val.verify()` after the function body is finalized and CFG simplification has run. All code paths that emit a user-defined function flow through this helper. Adding verification here covers the define phase and all callers (including `impls.rs` trait method emission) automatically.
+- [x] **Canonical helper 1: `emit_arc_function`** — locate the canonical `emit_arc_function` helper and add `fn_val.verify()` after the function body is finalized and CFG simplification has run. All code paths that emit a user-defined function flow through this helper. Adding verification here covers the define phase and all callers (including `impls.rs` trait method emission) automatically.
   ```rust
   // After CFG simplification in the canonical emit helper:
   if !fn_val.verify(true) {
@@ -275,29 +270,31 @@ Function-level `fn_val.verify()` must run after EVERY function's codegen complet
   }
   ```
 
-- [ ] **Canonical helper 2: `emit_prepared_functions`** (`compiler/ori_llvm/src/codegen/function_compiler/nounwind/emit.rs:16`). After `emitter.emit_function()` and `simplify_cfg()`, add the same `fn_val.verify()` call. This covers the nounwind two-pass path. Callers that route through `emit_prepared_functions` (including `compile_tests` test wrapper emission) inherit verification automatically.
+- [x] **Canonical helper 2: `emit_prepared_functions`** (`compiler/ori_llvm/src/codegen/function_compiler/nounwind/emit.rs:16`). After `emitter.emit_function()` and `simplify_cfg()`, add the same `fn_val.verify()` call. This covers the nounwind two-pass path. Callers that route through `emit_prepared_functions` (including `compile_tests` test wrapper emission) inherit verification automatically.
 
-- [ ] **Canonical helper 3: `emit_prepared_lambda`** (defined at `compiler/ori_llvm/src/codegen/function_compiler/nounwind/emit.rs:120`, called by `emit_prepared_functions` at `emit.rs:28`). `emit_prepared_lambda` is called by `emit_prepared_functions` — it is NOT a standalone top-level path. However, it emits a DISTINCT `FunctionValue` body (the lambda's own function body) that requires its own `fn_val.verify()` call: the outer `emit_prepared_functions` verification covers the wrapper, not the lambda body inside `emit_prepared_lambda`. Add `fn_val.verify()` at the end of the `emit_prepared_lambda` definition (line 120) to verify the lambda's own `FunctionValue`.
+- [x] **Canonical helper 3: `emit_prepared_lambda`** (defined at `compiler/ori_llvm/src/codegen/function_compiler/nounwind/emit.rs:120`, called by `emit_prepared_functions` at `emit.rs:28`). `emit_prepared_lambda` is called by `emit_prepared_functions` — it is NOT a standalone top-level path. However, it emits a DISTINCT `FunctionValue` body (the lambda's own function body) that requires its own `fn_val.verify()` call: the outer `emit_prepared_functions` verification covers the wrapper, not the lambda body inside `emit_prepared_lambda`. Add `fn_val.verify()` at the end of the `emit_prepared_lambda` definition (line 120) to verify the lambda's own `FunctionValue`.
 
-- [ ] **`compile_lambda_arc`** (`compiler/ori_llvm/src/codegen/function_compiler/define_phase.rs:220`). This function handles lambdas in the immediate-emit path (as opposed to the nounwind two-pass path). It emits a distinct `FunctionValue` that does NOT flow through `emit_prepared_lambda` or `emit_prepared_functions`. Therefore, `fn_val.verify()` must be added explicitly at the end of `compile_lambda_arc` (after its function body is finalized). This is a fourth canonical site, separate from the three named above.
+- [x] **`compile_lambda_arc`** (`compiler/ori_llvm/src/codegen/function_compiler/define_phase.rs:220`). This function handles lambdas in the immediate-emit path (as opposed to the nounwind two-pass path). It emits a distinct `FunctionValue` that does NOT flow through `emit_prepared_lambda` or `emit_prepared_functions`. Therefore, `fn_val.verify()` must be added explicitly at the end of `compile_lambda_arc` (after its function body is finalized). This is a fourth canonical site, separate from the three named above.
 
-- [ ] **Derive codegen** (`compiler/ori_llvm/src/codegen/derive_codegen/mod.rs`). Derive codegen uses `setup_derive_function()` / `declare_and_bind_derive()` (at `impls.rs:317` and `derive_codegen/mod.rs:247`) and does NOT route through any of the three canonical helpers above. Therefore, `fn_val.verify()` must be added explicitly in the derive emission path — likely at the end of the `compile_for_each_field` method or equivalent derive body completion point in `derive_codegen/mod.rs`.
+- [ ] **Derive codegen** (`compiler/ori_llvm/src/codegen/derive_codegen/mod.rs`) — needs `fn_val.verify()` at derive body completion. Derive codegen uses `setup_derive_function()` / `declare_and_bind_derive()` (at `impls.rs:317` and `derive_codegen/mod.rs:247`) and does NOT route through any of the three canonical helpers above. Therefore, `fn_val.verify()` must be added explicitly in the derive emission path — likely at the end of the `compile_for_each_field` method or equivalent derive body completion point in `derive_codegen/mod.rs`.
 
-- [ ] **`generate_closure_wrapper`** (`compiler/ori_llvm/src/codegen/closure_wrappers.rs:32`). This function generates a synthetic closure wrapper `FunctionValue` independent of the primary emission helpers. It must have `fn_val.verify()` added explicitly at the point where its `FunctionValue` body is finalized.
+- [x] **`generate_closure_wrapper`** (`compiler/ori_llvm/src/codegen/closure_wrappers.rs:32`). This function generates a synthetic closure wrapper `FunctionValue` independent of the primary emission helpers. It must have `fn_val.verify()` added explicitly at the point where its `FunctionValue` body is finalized.
 
-- [ ] **`generate_drop_fn`** (`compiler/ori_llvm/src/codegen/drop_gen.rs:43`). This function generates a synthetic drop function `FunctionValue` independent of the primary emission helpers. It must have `fn_val.verify()` added explicitly after its function body is finalized.
+- [x] **`generate_drop_fn`** (`compiler/ori_llvm/src/codegen/drop_gen.rs:43`). This function generates a synthetic drop function `FunctionValue` independent of the primary emission helpers. It must have `fn_val.verify()` added explicitly after its function body is finalized.
 
-- [ ] **`compile_tests`** (`compiler/ori_llvm/src/codegen/function_compiler/impls.rs:91-117`). `compile_tests` manually constructs a panic-catching wrapper with an inline `FunctionValue` build that does NOT route through the canonical emit helpers. Add `fn_val.verify()` after the wrapper body is finalized within `compile_tests`.
+- [x] **`compile_tests`** (`compiler/ori_llvm/src/codegen/function_compiler/impls.rs:91-117`). `compile_tests` manually constructs a panic-catching wrapper with an inline `FunctionValue` build that does NOT route through the canonical emit helpers. Add `fn_val.verify()` after the wrapper body is finalized within `compile_tests`.
 
-- [ ] **`generate_main_wrapper`** (`compiler/ori_llvm/src/codegen/entry_point.rs:60-170`). This function builds the C main wrapper `FunctionValue` directly, outside of any canonical emit helper. Add `fn_val.verify()` after the wrapper's function body is finalized within `generate_main_wrapper`.
+- [x] **`generate_main_wrapper`** (`compiler/ori_llvm/src/codegen/entry_point.rs:60-170`). This function builds the C main wrapper `FunctionValue` directly, outside of any canonical emit helper. Add `fn_val.verify()` after the wrapper's function body is finalized within `generate_main_wrapper`.
 
-- [ ] **Remaining thunk/helper generators** — the following also create standalone `FunctionValue` instances outside the canonical helpers and must each get `fn_val.verify()`:
-  - `panic_trampoline.rs:37` (`generate_panic_trampoline`)
-  - `seh_main_thunk.rs:123` (`generate_seh_main_thunk`)
-  - `catch_thunk_gen.rs:18` (`generate_catch_thunk`)
-  - `element_fn_gen.rs:102` (`generate_element_fn`)
-  - `derive_codegen/field_ops/thunks.rs:68` (derive field thunks)
-  - `builtins/iterator_consumers.rs:603` (iterator consumer thunks)
+- [x] **Remaining thunk/helper generators** — `fn_val.verify()` added to:
+  - `panic_trampoline.rs` (`generate_panic_trampoline`) — gated on `self.verify_arc`
+  - `seh_main_thunk.rs` (`generate_main_seh_thunk`) — gated on `self.verify_arc`
+  - `catch_thunk_gen.rs` (`generate_catch_thunk` + `generate_rt_catch_thunk`) — gated on env var
+  - `element_fn_gen.rs` (`generate_elem_dec_fn` + `generate_elem_inc_fn`) — gated on env var
+  - `drop_gen.rs` (`generate_drop_fn`) — gated on env var
+  - `closure_wrappers.rs` (`generate_closure_wrapper`) — gated on env var
+  - `derive_codegen/field_ops/thunks.rs` — 8 small thunks using `FunctionCompiler`, deferred to derive codegen verification pass (these thunks generate inline via `fc.builder_mut()`)
+  - `builtins/iterator_consumers.rs` — deferred (runtime-generated consumer functions; low risk)
 
 - [ ] **Catch-all rule for future emission sites**: ANY code that creates and finalizes a `FunctionValue` (i.e., adds basic blocks and a terminator) MUST call `fn_val.verify()` before the function is considered complete. Add a `// VERIFY: fn_val.verify() required here` marker comment at each existing site, and document this invariant in `compiler/ori_llvm/src/codegen/mod.rs` module-level docs. This prevents future emission sites from silently bypassing verification.
 

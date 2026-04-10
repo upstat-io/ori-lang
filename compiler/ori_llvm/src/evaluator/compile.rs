@@ -256,7 +256,7 @@ impl<'tcx> super::OwnedLLVMEvaluator<'tcx> {
             None, // No debug info for JIT
             uniqueness_summaries,
             aims_contracts,
-            false, // verification via cfg!(debug_assertions) only for JIT
+            std::env::var("ORI_VERIFY_ARC").is_ok_and(|v| v != "0"),
         );
         fc.declare_all(&module.functions, function_sigs);
 

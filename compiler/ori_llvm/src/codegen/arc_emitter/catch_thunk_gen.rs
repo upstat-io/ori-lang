@@ -121,6 +121,14 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
         self.builder.ret_void();
 
+        // Function-level LLVM IR verification.
+        if std::env::var("ORI_VERIFY_ARC").is_ok_and(|v| v != "0") {
+            let fn_val = self.builder.get_function_value(thunk_id);
+            if !fn_val.verify(true) {
+                tracing::error!("LLVM IR verification failed (generate_catch_thunk)");
+            }
+        }
+
         // Restore builder state
         self.current_funclet_pad = saved_funclet_pad;
         self.current_function = saved_emitter_func;
@@ -193,6 +201,14 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         }
 
         self.builder.ret_void();
+
+        // Function-level LLVM IR verification.
+        if std::env::var("ORI_VERIFY_ARC").is_ok_and(|v| v != "0") {
+            let fn_val = self.builder.get_function_value(thunk_id);
+            if !fn_val.verify(true) {
+                tracing::error!("LLVM IR verification failed (generate_rt_catch_thunk)");
+            }
+        }
 
         // Restore builder state
         self.current_funclet_pad = saved_funclet_pad;
