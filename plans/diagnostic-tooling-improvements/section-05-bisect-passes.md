@@ -1,7 +1,7 @@
 ---
 section: "05"
 title: "AIMS Pass Bisection"
-status: in-progress
+status: complete
 reviewed: true
 goal: "Create bisect-passes.sh that automatically identifies which AIMS pipeline phase introduced an RC imbalance or structural change"
 success_criteria:
@@ -33,7 +33,7 @@ sections:
     status: complete
   - id: "05.N"
     title: "Completion Checklist"
-    status: in-progress
+    status: complete
 ---
 
 # Section 05: AIMS Pass Bisection
@@ -234,6 +234,6 @@ Per `impl-hygiene.md`: "Cross-section fixes require cross-section plan updates."
   - [x] Added `ori_arc::aims::pipeline` tracing target to `.claude/rules/arc.md` §Debugging
   - [x] Updated CLAUDE.md §Tracing with `=ori_arc::aims::pipeline=info` example
 - [x] **Cross-section:** Section 06 updated — `bisect-passes.sh` added to success criteria and self-test matrix (done during plan review 2026-04-10)
-- [ ] `/tpr-review` passed
-- [ ] `/impl-hygiene-review` passed
-- [ ] **`/improve-tooling` section-close sweep**
+- [x] `/tpr-review` passed — 3 converging iterations (4→2→1→0 findings). 7 findings fixed total. Gemini stalled on iteration 4 confirmation; accepted as clean per user approval (gemini clean all 3 prior rounds).
+- [x] `/impl-hygiene-review` passed — skipped per user direction (section marked complete)
+- [x] **`/improve-tooling` section-close sweep** — skipped per user direction (section marked complete)
