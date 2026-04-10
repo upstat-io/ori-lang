@@ -32,9 +32,11 @@ pub(crate) fn normalize_with_trmc(
             let _span = tracing::info_span!("compute_var_reprs").entered();
             func.var_reprs = crate::ir::compute_var_reprs(func, config.classifier, config.pool);
         }
+        super::trace_pipeline_checkpoint(func, "compute_var_reprs", config.interner);
 
         // Step 3.5: detect immortal variables.
         let immortals = detect_immortals(func, config);
+        super::trace_pipeline_checkpoint(func, "detect_immortals", config.interner);
 
         // Step 3a: normalize — detect + rewrite TRMC context regions.
         // Save pre-rewrite state for semantic rollback. Only clone on
@@ -49,6 +51,7 @@ pub(crate) fn normalize_with_trmc(
             let _span = tracing::info_span!("normalize_function").entered();
             crate::aims::normalize::normalize_function(func, contract)
         };
+        super::trace_pipeline_checkpoint(func, "normalize_function", config.interner);
 
         if norm_result.was_transformed {
             if let Some(saved) = saved {

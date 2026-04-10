@@ -13,23 +13,28 @@ pub(crate) fn verify_and_merge(func: &mut ArcFunction, config: &AimsPipelineConf
         let _span = tracing::info_span!("verify_post_emission").entered();
         crate::pipeline::run_verify(func, "after AIMS emission", config.verify_arc);
     }
+    super::trace_pipeline_checkpoint(func, "verify_post_emission", config.interner);
     if let Some(contract) = config.contracts.get(&func.name) {
         let _span = tracing::info_span!("aims_verify").entered();
         crate::pipeline::run_aims_verify(func, contract, "after AIMS emission", config.verify_arc);
     }
+    super::trace_pipeline_checkpoint(func, "aims_verify", config.interner);
     {
         let _span = tracing::info_span!("tail_calls").entered();
         func.tail_calls = crate::tail_call::detect_tail_calls(func);
         crate::tail_call::rewrite_tail_calls(func);
     }
+    super::trace_pipeline_checkpoint(func, "tail_calls", config.interner);
     {
         let _span = tracing::info_span!("unwind_cleanup").entered();
         crate::aims::emit_rc::unwind_cleanup::add_invoke_unwind_cleanup(func, config.interner);
     }
+    super::trace_pipeline_checkpoint(func, "unwind_cleanup", config.interner);
     {
         let _span = tracing::info_span!("merge_blocks").entered();
         crate::block_merge::merge_blocks(func);
     }
+    super::trace_pipeline_checkpoint(func, "merge_blocks", config.interner);
 }
 
 /// Post-emission steps: final verify + FBIP (steps 11–12).
@@ -41,8 +46,11 @@ pub(crate) fn emit_postprocess(
         let _span = tracing::info_span!("verify_final").entered();
         crate::pipeline::run_verify(func, "after AIMS pipeline", config.verify_arc);
     }
+    super::trace_pipeline_checkpoint(func, "verify_final", config.interner);
 
-    check_fbip(func, config)
+    let problems = check_fbip(func, config);
+    super::trace_pipeline_checkpoint(func, "fbip_enforcement", config.interner);
+    problems
 }
 
 /// Check FBIP enforcement and auto-FBIP detection (step 12).
