@@ -1,0 +1,65 @@
+// Diagnostic fixture: complex iterator patterns.
+// Nested for loops with fat values, for-yield with break producing partial
+// collection, continue with guard filtering, map iteration cleanup.
+
+@main () -> int = {
+    // Nested for loops with fat values at both levels
+    let outer_total = 0;
+    for s in ["hello", "world"] do {
+        for i in [1, 2, 3] do {
+            outer_total = outer_total + s.length();
+        };
+    };
+    let ok1 = outer_total == 30;
+
+    // Nested loops with break in inner loop
+    let count = 0;
+    for s in ["alpha", "beta"] do {
+        for i in [1, 2, 3] do {
+            if i == 2 then break;
+            count = count + s.length();
+        };
+    };
+    let ok2 = count == 9;
+
+    // For-yield producing a collection
+    let lengths = for s in ["abc", "de", "fghi", "j"] yield s.length();
+    let sum = 0;
+    for n in lengths do {
+        sum = sum + n;
+    };
+    let ok3 = sum == 10;
+
+    // For-yield with break — partial collection
+    let partial = for s in ["de", "fg", "abc", "ijkl"] yield {
+        if s.length() > 2 then break;
+        s.length()
+    };
+    let partial_sum = 0;
+    for n in partial do {
+        partial_sum = partial_sum + n;
+    };
+    let ok4 = partial_sum == 4;
+
+    // Continue with guard filtering via for-yield
+    let long_only = for s in ["hi", "hello", "ok", "world", "x"] yield {
+        if s.length() <= 2 then continue;
+        s.length()
+    };
+    let long_sum = 0;
+    for n in long_only do {
+        long_sum = long_sum + n;
+    };
+    let ok5 = long_sum == 10;
+
+    // Map iteration and cleanup
+    let m = {"a": 1, "b": 2, "c": 3};
+    let map_total = 0;
+    for (k, v) in m do {
+        map_total = map_total + v;
+    };
+    let ok6 = map_total == 6;
+
+    if ok1 && ok2 && ok3 && ok4 && ok5 && ok6
+        then 0 else 1
+}
