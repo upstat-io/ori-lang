@@ -1,0 +1,18 @@
+// Diagnostic fixture (expected-fail): intentional leak via panic with fat values.
+// Safe Ori code cannot create true RC leaks (no circular references, ARC manages
+// everything). However, panic with fat values in scope exercises the failure
+// detection path — the panic handler exits before cleanup runs, leaving RC
+// imbalances that diagnose-aot.sh and rc-stats.sh should detect as warnings.
+//
+// Expected behavior:
+//   - Exit code: non-zero (panic)
+//   - diagnose-aot.sh: FAIL (execution) + WARN (RC Stats imbalanced)
+//   - rc-stats.sh: shows over-release warnings for uncleaned fat values
+//   - ORI_CHECK_LEAKS=1: may not report (panic bypasses main return path)
+
+@main () -> int = {
+    let big_str = "abcdefghijklmnopqrstuvwxyz1234";
+    let items = [1, 2, 3, 4, 5];
+    let nested = [["hello", "world"], ["test"]];
+    panic(msg: "intentional leak fixture — fat values in scope at panic time")
+}
