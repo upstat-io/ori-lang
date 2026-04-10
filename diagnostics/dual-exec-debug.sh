@@ -6,18 +6,22 @@
 #
 # Options:
 #   --verbose          Add ORI_LOG=debug to both runs for trace comparison
+#   --keep-temp        Preserve diagnostic artifacts in tmpdir on mismatch
 #   --no-color         Disable color output
 #   --color            Force color output (default: auto-detect terminal)
 #   -h, --help         Show this help
 #
 # Runs a program through both the interpreter (ori run) and AOT backend
 # (ori build + execute), comparing exit codes and stdout. When results
-# differ, automatically runs ir-dump.sh and rc-stats.sh for diagnostics.
+# differ, automatically dumps LLVM IR, ARC IR, RC stats, and runs
+# codegen-audit for diagnostics. On build failure, attempts ARC IR
+# capture (ARC IR is emitted before codegen, so may be available even
+# when LLVM fails).
 #
 # Environment:
 #   ORI_BIN    Override path to ori binary
 #
-# Requires: ir-dump.sh, rc-stats.sh (in same directory)
+# Requires: ir-dump.sh, arc-dump.sh, rc-stats.sh, codegen-audit.sh (in same directory)
 #
 # Exit codes:
 #   0 = both backends match
@@ -29,16 +33,22 @@ set -uo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 source "$SCRIPT_DIR/_common.sh"
 find_ori_bin
+# Export ORI_BIN so child scripts (arc-dump.sh, codegen-audit.sh, ir-dump.sh)
+# use the same binary we resolved, rather than re-resolving via their own
+# find_ori_bin/find_any_ori_bin which may choose a different build profile.
+export ORI_BIN="$ORI"
 
 # --- Defaults ---
 VERBOSE=0
 USE_COLOR=auto
+KEEP_TEMP=0
 FILE=""
 
 # --- Parse arguments ---
 while [[ $# -gt 0 ]]; do
     case $1 in
         --verbose) VERBOSE=1; shift ;;
+        --keep-temp) KEEP_TEMP=1; shift ;;
         --color) USE_COLOR=yes; shift ;;
         --no-color) USE_COLOR=no; shift ;;
         -h|--help)
@@ -94,7 +104,9 @@ fi
 
 # --- Setup ---
 tmpdir=$(mktemp -d)
-trap 'rm -rf "$tmpdir"' EXIT
+if [[ "$KEEP_TEMP" -eq 0 ]]; then
+    trap 'rm -rf "$tmpdir"' EXIT
+fi
 basename_file="$(basename "$FILE")"
 
 # --- ORI_LOG for verbose mode ---
@@ -159,13 +171,25 @@ if ! "$ORI" build "$FILE" -o "$aot_binary" 2>"$tmpdir/build_err.txt"; then
     echo -e "  ${C_RED}Build failed${C_NC}:"
     sed 's/^/  │ /' "$tmpdir/build_err.txt"
     echo ""
+
+    # Attempt ARC IR capture even on build failure — ARC IR is emitted
+    # before codegen, so it may be available even when LLVM fails.
+    arc_file="$tmpdir/diag-arc.txt"
+    if "$SCRIPT_DIR/arc-dump.sh" --raw "$FILE" > "$arc_file" 2>/dev/null; then
+        arc_lines=$(wc -l < "$arc_file")
+        echo -e "  ARC IR saved to ${arc_file} (${arc_lines} lines)"
+    else
+        echo -e "  ${C_YELLOW}ARC IR dump unavailable${C_NC}"
+    fi
+    echo ""
+
     echo -e "${C_BOLD}Summary${C_NC}"
     echo "════════════════════════════════════════════════════════"
     echo -e "  Interpreter:  exit=${interp_exit}  (${interp_s}s)"
     echo -e "  AOT:          ${C_RED}BUILD FAILED${C_NC}"
     echo ""
     echo -e "${C_RED}Cannot compare: AOT compilation failed.${C_NC}"
-    exit 1
+    exit 2
 fi
 
 # Execute step
@@ -250,6 +274,15 @@ if [[ $has_mismatch -eq 1 ]]; then
         echo -e "  ${C_YELLOW}IR dump failed${C_NC}"
     fi
 
+    # Run arc-dump.sh — ARC IR shows pre-codegen state where AIMS bugs are visible
+    arc_file="$tmpdir/diag-arc.txt"
+    if "$SCRIPT_DIR/arc-dump.sh" --raw "$FILE" > "$arc_file" 2>/dev/null; then
+        arc_lines=$(wc -l < "$arc_file")
+        echo -e "  ARC IR saved to ${arc_file} (${arc_lines} lines)"
+    else
+        echo -e "  ${C_YELLOW}ARC IR dump failed${C_NC}"
+    fi
+
     # Run rc-stats.sh
     color_flag="--no-color"
     [[ "$USE_COLOR" == "yes" ]] && color_flag="--color"
@@ -259,6 +292,32 @@ if [[ $has_mismatch -eq 1 ]]; then
         echo "$rc_output" | sed 's/^/  │ /'
     else
         echo -e "  ${C_YELLOW}RC stats unavailable${C_NC}"
+    fi
+
+    # Run codegen-audit.sh — static RC/COW/ABI analysis
+    # Exit codes: 0=clean, 1=findings detected, 2=compilation/infra failure
+    audit_file="$tmpdir/codegen_audit.txt"
+    "$SCRIPT_DIR/codegen-audit.sh" "$color_flag" "$FILE" > "$audit_file" 2>&1
+    audit_exit=$?
+    case $audit_exit in
+        0)
+            echo -e "  Codegen Audit: ${C_GREEN}clean${C_NC}"
+            ;;
+        1)
+            echo -e "  Codegen Audit:"
+            sed 's/^/  │ /' "$audit_file"
+            ;;
+        2)
+            echo -e "  ${C_YELLOW}Codegen audit failed (infrastructure error)${C_NC}"
+            ;;
+    esac
+
+    if [[ "$KEEP_TEMP" -eq 1 ]]; then
+        echo ""
+        echo -e "  ${C_DIM}Diagnostic files preserved in: ${tmpdir}${C_NC}"
+    else
+        echo ""
+        echo -e "  ${C_DIM}(use --keep-temp to preserve diagnostic files)${C_NC}"
     fi
 
     echo ""
