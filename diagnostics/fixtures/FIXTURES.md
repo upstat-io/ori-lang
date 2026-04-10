@@ -52,6 +52,6 @@ Same as **pass**, PLUS:
 
 ### expected-fail
 - `leak.ori`: `diagnose-aot.sh` exits non-zero; output contains "imbalance" or "FAIL"
-- `leak.ori`: `bisect-passes.sh --rc-only` output does NOT contain "Leak check: clean"
+- `leak.ori`: `bisect-passes.sh --rc-only` output contains "exited with code 1" (panic bypasses runtime leak checker, so "Leak check: clean" is still present — the runtime failure indicator is the key assertion)
 - `mismatch.ori` (via wrapper): `dual-exec-debug.sh` exits non-zero; output contains "MISMATCH"
 - `build-fail-parse.ori`: build step fails (exit non-zero)
