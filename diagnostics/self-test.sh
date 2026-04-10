@@ -212,6 +212,12 @@ run_test "simple.ori has balanced RC (or no RC)" \
 # allocate internally — allocs are invisible in IR, only decs are visible.
 run_test_output_contains "clean.ori produces RC stats" "Function" \
     "$SCRIPT_DIR/rc-stats.sh" --no-color "$FIXTURES_DIR/clean.ori"
+run_test_output_contains "clean.ori --block-level shows block labels" "bb" \
+    "$SCRIPT_DIR/rc-stats.sh" --no-color --block-level "$FIXTURES_DIR/clean.ori"
+run_test_output_contains "clean.ori --block-level --optimized shows optimized blocks" "bb" \
+    "$SCRIPT_DIR/rc-stats.sh" --no-color --block-level --optimized "$FIXTURES_DIR/clean.ori"
+run_test_output_contains "clean.ori --optimized shows function stats" "Function" \
+    "$SCRIPT_DIR/rc-stats.sh" --no-color --optimized "$FIXTURES_DIR/clean.ori"
 echo ""
 
 # ─── codegen-audit.sh ─────────────────────────────────────────────
