@@ -223,6 +223,14 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
         // Emit ret void (handler returns normally → runtime proceeds with default)
         self.builder.ret_void();
 
+        // Function-level LLVM IR verification.
+        if self.verify_arc {
+            let fn_val = self.builder.get_function_value(trampoline_id);
+            if !fn_val.verify(true) {
+                tracing::error!("LLVM IR verification failed (generate_panic_trampoline)");
+            }
+        }
+
         Some(trampoline_id)
     }
 }

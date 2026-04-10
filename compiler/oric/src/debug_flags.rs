@@ -131,6 +131,13 @@ flags! {
     /// Usage: `ORI_VERIFY_ARC=1 ori build file.ori`
     ORI_VERIFY_ARC
 
+    /// Enable LLVM IR verification after every optimization pass.
+    ///
+    /// Catches which optimization pass breaks IR well-formedness.
+    /// Significant performance impact (~30-60% slower LLVM tests).
+    /// Usage: `ORI_VERIFY_EACH=1 ori build file.ori`
+    ORI_VERIFY_EACH
+
     /// Run in-pipeline RC audit on emitted LLVM IR.
     ///
     /// Detects leaks, double-frees, COW sequencing bugs, and ABI violations.

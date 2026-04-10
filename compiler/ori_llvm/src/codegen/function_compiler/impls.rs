@@ -115,6 +115,17 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
                     self.builder.call(cleanup_fn, &[exc_ptr], "");
                 }
                 self.builder.ret_void();
+
+                // Function-level LLVM IR verification for the outer wrapper.
+                if self.verify_arc {
+                    let outer_fn_val = self.builder.get_function_value(outer_func_id);
+                    if !outer_fn_val.verify(true) {
+                        tracing::error!(
+                            name = test_name_str,
+                            "LLVM IR verification failed (compile_tests outer wrapper)"
+                        );
+                    }
+                }
             } else {
                 // Windows JIT: single function, no invoke/landingpad wrapper.
                 // Panic recovery handled by jit_run_protected on the Rust side.
