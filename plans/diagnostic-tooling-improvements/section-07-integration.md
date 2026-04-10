@@ -14,8 +14,8 @@ success_criteria:
 inspired_by: []
 depends_on: ["01", "02", "03", "04", "05", "06"]
 third_party_review:
-  status: none
-  updated: null
+  status: resolved
+  updated: 2026-04-10
 sections:
   - id: "07.1"
     title: "Fix ir-dump.sh DRIFT"
@@ -31,7 +31,7 @@ sections:
     status: complete
   - id: "07.R"
     title: "Third Party Review Findings"
-    status: not-started
+    status: complete
   - id: "07.N"
     title: "Completion Checklist"
     status: not-started
@@ -157,7 +157,12 @@ When LLVM or AOT tests fail, print a one-liner suggesting the relevant diagnosti
 
 ## 07.R Third Party Review Findings
 
-- None.
+- [x] `[TPR-07-001-codex][medium]` `CLAUDE.md:141` — Remove legacy ORI_DEBUG_LLVM references from canonical surfaces.
+  Resolved: Rejected on 2026-04-10. The compiler (`ori_llvm/src/evaluator/mod.rs:39`) still supports `ORI_DEBUG_LLVM` as a legacy alias. CLAUDE.md, llvm.md, and README.md accurately document this — they are correct documentation, not drift. The plan's scope was specifically `ir-dump.sh`, not removing all legacy alias documentation.
+- [x] `[TPR-07-002-codex][medium]` `diagnostics/README.md:258` — README fixture table omits mismatch-wrapper.sh infra entry.
+  Resolved: Fixed on 2026-04-10. Added `mismatch-wrapper.sh` infra entry to README fixtures table (now 20 entries matching FIXTURES.md SSOT).
+- [x] `[TPR-07-001-gemini][low]` `CLAUDE.md:141` — Acknowledge ORI_DEBUG_LLVM legacy status.
+  Resolved: Rejected on 2026-04-10. Same as [TPR-07-001-codex] — gemini itself notes this is "technically not drift." The documentation accurately reflects the compiler's current behavior.
 
 ---
 
@@ -175,6 +180,6 @@ When LLVM or AOT tests fail, print a one-liner suggesting the relevant diagnosti
 - [x] `check-debug-flags.sh` integration blocks `test-all.sh` on flag inconsistencies (exit 1)
 - [x] `self-test.sh` help/header references FIXTURES.md SSOT
 - [x] `diagnostics/README.md` documents `dual-exec-debug.sh` build-failure ARC capture behavior
-- [ ] `/tpr-review` passed
+- [x] `/tpr-review` passed (iteration 1: 2 rejected, 1 fixed — clean after README table fix)
 - [ ] `/impl-hygiene-review` passed
 - [ ] **`/improve-tooling` section-close sweep**
