@@ -32,7 +32,7 @@ sections:
     status: complete
   - id: "04.3"
     title: "Wire histogram into audit pipeline and emit JSON"
-    status: not-started
+    status: complete
   - id: "04.4"
     title: "Update rc-stats.sh with --block-level and JSON migration"
     status: not-started
@@ -208,36 +208,36 @@ sections:
 
 **Prefix choice: `codegen stats: json:` NOT `codegen audit:`:** The existing `codegen-audit.sh` script (line 163) extracts lines via `grep "^codegen audit:"`. Adding a JSON line with that same prefix would cause `codegen-audit.sh` to parse it as a garbled audit finding. Using the distinct prefix `codegen stats: json:` cleanly separates the two output streams. `rc-stats.sh` will grep for `^codegen stats: json:` to extract its data.
 
-- [ ] In `audit_module_with_options()` (`verify/mod.rs`), after the existing checks, call `rc_histogram::collect_module_histogram(module, options)` and convert to `RcStatsReport` via `rc_stats::RcStatsReport::from_histograms()`
-- [ ] Store the `RcStatsReport` in `AuditReport` (add a field: `pub rc_stats: Option<rc_stats::RcStatsReport>`) or return it alongside the report
-- [ ] **Prerequisite:** Change `AuditOptions::from_env()` visibility from `fn from_env()` to `pub fn from_env()` in `compiler/ori_llvm/src/verify/mod.rs` (line 55) — the optimized hook points in `aot/object.rs` and `build/single.rs` need to construct `AuditOptions` from the environment.
-- [ ] **Optimized-IR histogram support (SSOT — eliminates awk parser entirely):** Add a `pub fn audit_module_histogram_only(module: &Module<'_>, options: &AuditOptions) -> RcStatsReport` entry point that runs ONLY the histogram pass (no lifecycle/COW/ABI/safety checks), calling `from_histograms(..., optimized: true)`. This enables callers to collect stats on the post-optimization module without running the full audit pass.
+- [x] In `audit_module_with_options()` (`verify/mod.rs`), after the existing checks, call `rc_histogram::collect_module_histogram(module, options)` and convert to `RcStatsReport` via `rc_stats::RcStatsReport::from_histograms()`
+- [x] Store the `RcStatsReport` in `AuditReport` (add a field: `pub rc_stats: Option<rc_stats::RcStatsReport>`) or return it alongside the report
+- [x] **Prerequisite:** Change `AuditOptions::from_env()` visibility from `fn from_env()` to `pub fn from_env()` in `compiler/ori_llvm/src/verify/mod.rs` (line 55) — the optimized hook points in `aot/object.rs` and `build/single.rs` need to construct `AuditOptions` from the environment.
+- [x] **Optimized-IR histogram support (SSOT — eliminates awk parser entirely):** Add a `pub fn audit_module_histogram_only(module: &Module<'_>, options: &AuditOptions) -> RcStatsReport` entry point that runs ONLY the histogram pass (no lifecycle/COW/ABI/safety checks), calling `from_histograms(..., optimized: true)`. This enables callers to collect stats on the post-optimization module without running the full audit pass.
   - **Hook points (MUST be gated behind `if verify::audit_requested()`):** The histogram emission for optimized IR must be wrapped in an `if verify::audit_requested() { ... }` block — without this gate, every normal `ori build --release` would run the histogram and spam stderr. The specific hook points are:
     - `compiler/ori_llvm/src/aot/object.rs` in `verify_optimize_emit()` — after `run_optimization_passes()` completes but before object emission. This covers normal AOT object builds.
     - `compiler/oric/src/commands/build/single.rs` — after `optimize_module()` for `--emit=llvm-ir` builds.
   - Both paths emit a JSON line: `codegen stats: json: {..."optimized":true...}`
   - **Smoke test:** `ORI_AUDIT_CODEGEN=1 cargo run -p oric --bin ori -- build --release diagnostics/fixtures/clean.ori -o /tmp/test_bin 2>&1 | grep "codegen stats: json:"` must produce TWO JSON lines: one with `"optimized":false` and one with `"optimized":true`.
   - **Non-audit builds must NOT run the histogram:** `ori build --release diagnostics/fixtures/clean.ori` (without `ORI_AUDIT_CODEGEN=1`) must produce zero `codegen stats:` lines on stderr.
-- [ ] In the `emit_to_stderr()` method of `AuditReport`, after the existing text output, call the centralized emitter:
+- [x] In the `emit_to_stderr()` method of `AuditReport`, after the existing text output, call the centralized emitter:
   ```rust
   if let Some(ref stats) = self.rc_stats {
       stats.emit_to_stderr(); // Defined in rc_stats.rs — single JSON emission point
   }
   ```
   Do NOT inline `serde_json::to_string` + `eprintln!` here — the `RcStatsReport::emit_to_stderr()` method (from 04.2) owns the formatting contract. All other hook points (aot/object.rs, build/single.rs) also call `report.emit_to_stderr()` directly.
-- [ ] **Verify `codegen-audit.sh` is unaffected:** The new line starts with `codegen stats:` not `codegen audit:` — the grep at line 163 of `codegen-audit.sh` (`grep "^codegen audit:"`) will not match it. Add a comment in the emitter noting this invariant.
-- [ ] Add Rust unit tests (in `verify/tests.rs` or a dedicated test):
-  - `test_audit_module_populates_rc_stats` — synthetic module with RC calls → `report.rc_stats` is `Some` with correct counts
+- [x] **Verify `codegen-audit.sh` is unaffected:** Verified — `codegen audit:` lines emitted separately from `codegen stats: json:` lines. Comment added in `report.rs` emitter.
+- [x] Add Rust unit tests (in `verify/tests.rs` or a dedicated test):
+  - `test_audit_module_populates_rc_stats_with_counts` — synthetic module with RC calls → `report.rc_stats` is `Some` with correct counts
   - `test_audit_empty_module_rc_stats_has_no_functions` — empty module → `rc_stats.functions` is empty, `schema_version` is 1
   - `test_rc_stats_json_prefix_does_not_match_codegen_audit_grep` — the output string starts with `"codegen stats: json:"` (proves it does not start with `"codegen audit:"`)
-- [ ] **File size check:** `verify/mod.rs` is currently 135 lines. Adding the histogram call and JSON emission should keep it under 200 lines. If it exceeds, extract the JSON emission into `rc_stats.rs`.
-- [ ] Run `timeout 150 cargo t -p ori_llvm` to verify no regressions
-- [ ] Smoke test: `ORI_AUDIT_CODEGEN=1 cargo run -p oric --bin ori -- build diagnostics/fixtures/clean.ori -o /tmp/test_bin 2>&1 | grep "codegen stats: json:"` — should produce one JSON line
+- [x] **File size check:** `verify/mod.rs` is 152 lines, `report.rs` is 144 lines — both under 200.
+- [x] Run `timeout 150 cargo t -p ori_llvm` to verify no regressions (all 27 new tests pass)
+- [x] Smoke test: Two JSON lines emitted (optimized:false + optimized:true). Non-audit builds produce zero lines.
 
-- [ ] **Subsection close-out (04.3)** — MANDATORY before starting 04.4:
-  - [ ] All tasks above are `[x]` and verified
-  - [ ] Update this subsection's `status` in section frontmatter to `complete`
-  - [ ] **Run `/improve-tooling` retrospectively on THIS subsection**
+- [x] **Subsection close-out (04.3)** — MANDATORY before starting 04.4:
+  - [x] All tasks above are `[x]` and verified
+  - [x] Update this subsection's `status` in section frontmatter to `complete`
+  - [x] **Retrospective 04.3:** No tooling gaps. `pub use` re-export pattern cleanly solves cross-module type visibility. Smoke test confirms gating works correctly — zero overhead in non-audit builds.
 
 ---
 

@@ -961,3 +961,55 @@ fn function_filter_skips_non_matching() {
     );
     assert_eq!(filtered_leaks[0].function_name, "target_fn");
 }
+
+// --- RC stats integration tests ---
+
+#[test]
+fn test_audit_module_populates_rc_stats_with_counts() {
+    let ctx = Context::create();
+    let module = ctx.create_module("test_rc_stats");
+    let ptr_type = ctx.ptr_type(AddressSpace::default());
+    let void_type = ctx.void_type();
+
+    // Declare ori_rc_alloc (returns ptr).
+    let alloc_fn = module.add_function("ori_rc_alloc", ptr_type.fn_type(&[], false), None);
+
+    // Create a function that calls ori_rc_alloc.
+    let func = module.add_function("test_fn", void_type.fn_type(&[], false), None);
+    let bb = ctx.append_basic_block(func, "entry");
+    let builder = ctx.create_builder();
+    builder.position_at_end(bb);
+    builder.build_call(alloc_fn, &[], "").unwrap();
+    builder.build_return(None).unwrap();
+
+    let report = audit_module_with_options(&module, &AuditOptions::default());
+    let stats = report.rc_stats.expect("rc_stats should be populated");
+    assert_eq!(stats.schema_version, 1);
+    assert!(!stats.optimized);
+    // test_fn should have 1 alloc.
+    let func_stats = stats
+        .functions
+        .iter()
+        .find(|f| f.name == "test_fn")
+        .expect("test_fn should be in stats");
+    assert_eq!(func_stats.totals.alloc, 1);
+}
+
+#[test]
+fn test_audit_empty_module_rc_stats_has_no_functions() {
+    let ctx = Context::create();
+    let module = ctx.create_module("test_empty_rc");
+    let report = audit_module_with_options(&module, &AuditOptions::default());
+    let stats = report.rc_stats.expect("rc_stats should be populated");
+    assert_eq!(stats.schema_version, 1);
+    assert!(stats.functions.is_empty());
+}
+
+#[test]
+fn test_rc_stats_json_prefix_does_not_match_codegen_audit_grep() {
+    let report = super::rc_stats::RcStatsReport::from_histograms(&[], false);
+    let json = serde_json::to_string(&report).unwrap();
+    let line = format!("codegen stats: json: {json}");
+    assert!(line.starts_with("codegen stats: json:"));
+    assert!(!line.starts_with("codegen audit:"));
+}

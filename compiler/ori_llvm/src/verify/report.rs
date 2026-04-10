@@ -80,6 +80,8 @@ pub struct AuditFinding {
 #[derive(Debug, Default)]
 pub struct AuditReport {
     pub findings: Vec<AuditFinding>,
+    /// Per-block RC operation histogram (typed JSON, emitted with "codegen stats: json:" prefix).
+    pub rc_stats: Option<super::rc_stats::RcStatsReport>,
 }
 
 impl AuditReport {
@@ -132,6 +134,11 @@ impl AuditReport {
             eprintln!(
                 "codegen audit summary: {errors} error(s), {warnings} warning(s), {notes} note(s)"
             );
+        }
+        // Emit RC stats JSON (prefix "codegen stats: json:" — NOT "codegen audit:").
+        // codegen-audit.sh greps for "^codegen audit:" and will not match this prefix.
+        if let Some(ref stats) = self.rc_stats {
+            stats.emit_to_stderr();
         }
     }
 }
