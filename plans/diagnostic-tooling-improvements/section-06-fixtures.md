@@ -24,7 +24,7 @@ sections:
     status: complete
   - id: "06.2"
     title: "Create ARC-interaction fixtures"
-    status: not-started
+    status: complete
   - id: "06.3"
     title: "Create expected-fail fixtures"
     status: not-started
@@ -99,19 +99,19 @@ These fixtures exercise ARC-specific interaction patterns that tp-help identifie
 
 **Category: aims-heavy** — all exit 0, but exercise AIMS-specific paths (COW, reuse, `?` unwinding, recursion).
 
-- [ ] **`question_mark.ori`** — `?` operator propagation with fat values in scope (heap `str`, `[int]`, struct-with-fat-field). Must include: `?` on `Option<str>` returning `None`, `?` on `Option<[int]>` returning `Some`, chained `?` with multiple fat locals in scope that must be cleaned up on early exit. tp-help identified this as mandatory ARC interaction coverage — `?` triggers early-exit unwinding that must drop all live fat values. Reference syntax: `tests/valgrind/fat_matrix/f15_question_mark.ori`
-- [ ] **`recursive_tree.ori`** — Recursive function passing fat pointer types through recursive call frames: heap `str` through `N` levels, `[int]` through recursion, struct with fat field returned from recursive base case. Exercises stack-frame RC correctness across recursive depth. Reference syntax: `tests/valgrind/fat_matrix/f16_recursion.ori`
-- [ ] **`generic_mono.ori`** — Generic function instantiated with **multiple concrete types**: scalar (`int`), heap string (`str`), list (`[int]`), and struct-with-fat-field. tp-help identified single-type generic coverage as insufficient — monomorphization must be tested across the type matrix to verify RC analysis is correct for each instantiation. Reference syntax: `tests/valgrind/fat_matrix/f10_generics.ori`
-- [ ] **`large_aggregate.ori`** — Struct with 3+ `int` fields (>16 bytes) passed to and returned from functions, exercising ABI compliance for large aggregates. Must verify that pass-by-reference codegen does not trigger unnecessary RC operations. Catches FastISel vs full pipeline regressions. Reference syntax: `tests/valgrind/fat_matrix/f10_generics.ori` (for struct patterns)
-- [ ] **`cow_sharing.ori`** — COW sharing barrier exercise: create a list, alias it (shared), mutate through one alias (triggers COW clone), verify original is unchanged. Also: multi-fork (3+ references to same backing), and push-after-share on both sides. Exercises `is_unique` check and COW clone path. Reference syntax: `tests/valgrind/cow/cow_list_push.ori`
+- [x] **`question_mark.ori`** — `?` operator propagation with fat values in scope (heap `str`, `[int]`, struct-with-fat-field). Must include: `?` on `Option<str>` returning `None`, `?` on `Option<[int]>` returning `Some`, chained `?` with multiple fat locals in scope that must be cleaned up on early exit. tp-help identified this as mandatory ARC interaction coverage — `?` triggers early-exit unwinding that must drop all live fat values. Reference syntax: `tests/valgrind/fat_matrix/f15_question_mark.ori`
+- [x] **`recursive_tree.ori`** — Recursive function passing fat pointer types through recursive call frames: heap `str` through `N` levels, `[int]` through recursion, struct with fat field returned from recursive base case. Exercises stack-frame RC correctness across recursive depth. Reference syntax: `tests/valgrind/fat_matrix/f16_recursion.ori`
+- [x] **`generic_mono.ori`** — Generic function instantiated with **multiple concrete types**: scalar (`int`), heap string (`str`), list (`[int]`), and struct-with-fat-field. tp-help identified single-type generic coverage as insufficient — monomorphization must be tested across the type matrix to verify RC analysis is correct for each instantiation. Reference syntax: `tests/valgrind/fat_matrix/f10_generics.ori`
+- [x] **`large_aggregate.ori`** — Struct with 3+ `int` fields (>16 bytes) passed to and returned from functions, exercising ABI compliance for large aggregates. Must verify that pass-by-reference codegen does not trigger unnecessary RC operations. Catches FastISel vs full pipeline regressions. Reference syntax: `tests/valgrind/fat_matrix/f10_generics.ori` (for struct patterns)
+- [x] **`cow_sharing.ori`** — COW sharing barrier exercise: create a list, alias it (shared), mutate through one alias (triggers COW clone), verify original is unchanged. Also: multi-fork (3+ references to same backing), and push-after-share on both sides. Exercises `is_unique` check and COW clone path. Reference syntax: `tests/valgrind/cow/cow_list_push.ori`
 
-- [ ] Verify each fixture: `cargo run -- run <fixture>` and `cargo run -- build <fixture> -o /tmp/test_fixture && /tmp/test_fixture` produce identical exit code 0
-- [ ] Verify each fixture under release build: `cargo run --release -- build <fixture> -o /tmp/test_fixture && /tmp/test_fixture` produces exit code 0
+- [x] Verify each fixture: `cargo run -- run <fixture>` and `cargo run -- build <fixture> -o /tmp/test_fixture && /tmp/test_fixture` produce identical exit code 0
+- [x] Verify each fixture under release build: `cargo run --release -- build <fixture> -o /tmp/test_fixture && /tmp/test_fixture` produces exit code 0
 
-- [ ] **Subsection close-out (06.2)** — MANDATORY before starting 06.3:
-  - [ ] All tasks above are `[x]` and verified
-  - [ ] Update this subsection's `status` in section frontmatter to `complete`
-  - [ ] **Run `/improve-tooling` retrospectively on THIS subsection**
+- [x] **Subsection close-out (06.2)** — MANDATORY before starting 06.3:
+  - [x] All tasks above are `[x]` and verified
+  - [x] Update this subsection's `status` in section frontmatter to `complete`
+  - [x] **Run `/improve-tooling` retrospectively on THIS subsection**
 
 ---
 
