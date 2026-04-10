@@ -2,7 +2,7 @@
 section: "01"
 title: "Verifier Gates & Quick Wins"
 status: not-started
-reviewed: false
+reviewed: true
 goal: "Make AIMS and LLVM verifier failures blocking gates under verification mode, wire verify_each to env var, add function-level verify and opt -lint — so all subsequent verification tooling has enforceable failure semantics"
 success_criteria:
   - "run_verify() and run_aims_verify() return Result::Err under ORI_VERIFY_ARC=1 instead of logging warnings"
