@@ -2,7 +2,7 @@
 section: "04"
 title: "Block-level RC Stats"
 status: not-started
-reviewed: false
+reviewed: true
 goal: "Create a new rc_histogram pass separate from rc_balance.rs that counts ALL RC ops (alloc/inc/dec/free/cow) per basic block, emit typed JSON via serde, and update rc-stats.sh to consume it — with migration safety net comparing awk totals to JSON totals before awk removal"
 success_criteria:
   - "New rc_histogram.rs counts ALL 5 RC ops (alloc, inc, dec, free, cow) per basic block — rc_balance.rs untouched"
