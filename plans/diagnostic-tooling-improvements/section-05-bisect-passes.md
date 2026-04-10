@@ -38,17 +38,17 @@ sections:
 
 # Section 05: AIMS Pass Bisection
 
-**Status:** Not Started
+**Status:** Complete
 **Goal:** When a program crashes, leaks, or produces wrong output through the AOT pipeline, `bisect-passes.sh` answers "which AIMS pipeline phase broke it?" Currently this requires manual trace-log spelunking with `ORI_LOG=ori_arc::aims::realize=trace` -- slow, error-prone, and expertise-dependent. The existing `trace_phase_snapshot` in `emit_unified.rs` only covers post-walk realization subphases (step 5 substeps), not the top-level pipeline steps or the steps inside helper functions like `normalize_with_trmc()`, `verify_and_merge()`, and `emit_postprocess()`.
 
 **Success Criteria:**
-- [ ] `aims_pipeline.rs` (590 lines, above 500-line limit) split into submodules BEFORE any checkpoint instrumentation
-- [ ] All logical AIMS pipeline phases emit a named checkpoint to tracing with per-phase RC operation counts AND structural metrics (block count, var count)
-- [ ] Checkpoints fire inside helper functions at each sub-step boundary -- not just at the top-level `run_aims_pipeline()` call sites
-- [ ] Checkpoints use the existing `rc_count::count_rc_ops()` helper (returns `RcOpCount { inc, dec }`) -- no new counting helpers are created
-- [ ] `bisect-passes.sh file.ori` compiles once with full tracing, parses the per-phase checkpoint events, and reports which phase first changed RC balance or structural metrics
-- [ ] Output is a human-readable table: Phase | RcInc | RcDec | Balance | Blocks | Vars | Delta
-- [ ] The script does NOT claim to execute intermediate phase results -- it analyzes the tracing output from a single full compilation
+- [x] `aims_pipeline.rs` (590 lines, above 500-line limit) split into submodules BEFORE any checkpoint instrumentation
+- [x] All logical AIMS pipeline phases emit a named checkpoint to tracing with per-phase RC operation counts AND structural metrics (block count, var count)
+- [x] Checkpoints fire inside helper functions at each sub-step boundary -- not just at the top-level `run_aims_pipeline()` call sites
+- [x] Checkpoints use the existing `rc_count::count_rc_ops()` helper (returns `RcOpCount { inc, dec }`) -- no new counting helpers are created
+- [x] `bisect-passes.sh file.ori` compiles once with full tracing, parses the per-phase checkpoint events, and reports which phase first changed RC balance or structural metrics
+- [x] Output is a human-readable table: Phase | RcInc | RcDec | Balance | Blocks | Vars | Delta
+- [x] The script does NOT claim to execute intermediate phase results -- it analyzes the tracing output from a single full compilation
 
 **Scope clarification:** This is a **trace-analysis bisector**, not a stop-after-phase executor. The AIMS pipeline runs all phases in a single compilation. The shell driver analyzes the per-phase snapshots to find where the balance first diverges or structural metrics change unexpectedly. It cannot execute the program at intermediate pipeline states -- that would require a stop-after-phase compiler surface which is out of scope. The trace-analysis approach is still enormously valuable: it answers "which phase changed the RC balance" and "which phase changed the block/var structure" without manual log spelunking.
 
