@@ -135,9 +135,9 @@ Write ALL tests BEFORE the fix. Verify they fail against current code.
 
 ## R. Third Party Review Findings
 
-TPR findings raised against this fix section are recorded here (same format as plan-section TPR blocks). `/tpr-review` files findings here when this fix section is the owning context. Findings are resolved inline during the completion checklist.
+TPR findings raised against this fix are recorded here by the executor (Claude) during Phase 5. When `/tpr-review` produces findings related to this bug fix, the executor transcribes them into this block using the standard reviewer-tagged format (e.g. `[TPR-XX-001-codex]`). This block is the permanent TPR audit trail for this fix — it stays with the fix section even after resolution.
 
-{Initially empty — populated by `/tpr-review` during Phase 5.}
+{Initially empty — populated by the executor during Phase 5 completion checklist.}
 
 ---
 

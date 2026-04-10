@@ -49,11 +49,14 @@ For each `- [ ]` entry, extract:
 - **Subsystem**: subsystem line if present
 - **Lifecycle markers**: check for `Escalated to plan:`, `Blocked:`, or `Escalated:` notes in the entry body
 
-**Exclude non-fixable entries** — remove from the candidate list any `- [ ]` entry whose body contains:
+**Exclude non-fixable entries** — remove from the candidate list any `- [ ]` entry whose body contains ANY of these lifecycle markers (check case-insensitively and account for markdown formatting):
 - `Escalated to plan:` or `Escalated:` — the bug has been promoted to a plan; it is no longer an inline fix candidate
-- `Blocked:` — the bug has a prerequisite that hasn't been met yet
+- `Blocked:` or `**Blocked**:` or `**Blocked:**` — the bug has a prerequisite that hasn't been met yet (existing entries use bold markdown formatting)
+- `<!-- blocked-by:` — HTML comment marker used for cross-section dependency tracking
 
 These entries remain `- [ ]` (unchecked) because they are not resolved, but they are not actionable by `/fix-bug` until the plan completes or the blocker clears. Only genuinely open, unblocked, non-escalated bugs enter the priority queue.
+
+**Implementation note**: when scanning multi-line bug entries, the lifecycle markers appear in the body lines indented under the `- [ ]` checkbox line. Read each entry's full body (all indented lines following the checkbox) before classifying it.
 
 ### Step 2: Sort by Priority
 
@@ -183,13 +186,13 @@ Loop:
 - "Session summary" or "progress report" mid-loop — the summary is ONLY printed when the queue is empty
 - "Natural stopping point" — there is no such thing; the loop continues until the queue is empty
 - "Already processed N bugs" — the count is irrelevant; the queue state is all that matters
-- "Bug was complex/couldn't fix" — escalate to `/create-plan` or mark blocked, then CONTINUE to the next bug
+- "Bug was complex/couldn't fix" — mark escalated or blocked, then CONTINUE to the next bug
 - "Bug was latent/OBE" — mark it, then CONTINUE to the next bug
 - Generating output that looks like a wrap-up — a session summary IS an exit; do NOT write one until the queue is empty
 
 **Valid `/fix-bug` outcomes in autopilot — ALL require continuing to the next bug:**
 - **Fixed** — bug resolved, tests pass, TPR clean → continue
-- **Escalated** — too large, `/create-plan` run → continue
+- **Escalated** — too large for inline fix, bug entry marked `Escalated: requires plan — {reason}` (no `/create-plan` in autopilot — user creates plan after session) → continue
 - **Blocked** — prerequisite missing, bug entry updated → continue
 - **OBE** — already fixed, marked resolved → continue
 
