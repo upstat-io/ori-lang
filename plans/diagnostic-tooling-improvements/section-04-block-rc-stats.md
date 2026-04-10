@@ -1,7 +1,7 @@
 ---
 section: "04"
 title: "Block-level RC Stats"
-status: not-started
+status: in-progress
 reviewed: true
 goal: "Create a new rc_histogram pass separate from rc_balance.rs that counts ALL RC ops (alloc/inc/dec/free/cow) per basic block, emit typed JSON via serde, and update rc-stats.sh to consume it — with migration safety net comparing awk totals to JSON totals before awk removal"
 success_criteria:
@@ -38,7 +38,7 @@ sections:
     status: not-started
   - id: "04.R"
     title: "Third Party Review Findings"
-    status: not-started
+    status: complete
   - id: "04.N"
     title: "Completion Checklist"
     status: not-started
@@ -46,7 +46,7 @@ sections:
 
 # Section 04: Block-level RC Stats
 
-**Status:** Not Started
+**Status:** In Progress
 **Goal:** Give developers the ability to localize RC leaks/over-releases to specific basic blocks within a function, not just the function as a whole. Currently `rc-stats.sh` reports per-function totals — "this function has +2 balance" — but cannot tell you WHICH loop or branch is responsible. The fix creates a **new** raw-counting pass (`rc_histogram.rs`) that is architecturally separate from the existing semantic lifecycle verifier (`rc_balance.rs`), emits typed JSON via serde, and updates the shell script to render it.
 
 **Critical architectural constraint (from dual-source review):** `rc_balance.rs` is a **semantic lifecycle state machine** tracking pointer ownership transitions (Live/CowConsumed/Decremented). It deliberately tracks only `ori_rc_alloc`, `ori_rc_dec`, and COW calls — this is correct for its purpose. The new per-block counting is a **syntactic histogram** — it counts ALL 5 RC op types (`ori_rc_alloc`, `ori_rc_inc`, `ori_rc_dec`, `ori_rc_free`, COW) without tracking pointer identity or state transitions. **These MUST be separate modules.** Mixing histogram counting into the lifecycle tracker would corrupt the state machine's invariants. The awk parser in `rc-stats.sh` already tracks all 5 ops — the new pass must match.
