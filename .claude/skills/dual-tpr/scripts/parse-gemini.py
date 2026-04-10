@@ -23,12 +23,23 @@ pass recovered text through findings merge tooling.
 Outcome codes (stderr first line on default-mode failure):
     missing_envelope        — no assistant messages found
     missing_terminator      — content present but no result/success event
-    missing_begin_sentinel  — content present but no BEGIN sentinel
+    missing_begin_sentinel  — content present, no BEGIN sentinel, AND no valid
+                              fenced JSON envelope found as fallback
     missing_end_sentinel    — BEGIN found but END missing (truncation)
     missing_json_block      — sentinels present but no fenced JSON block
     parse_fail              — fenced JSON block is not valid JSON
     schema_violation        — JSON validates against neither shape nor schema
     failed_partial          — envelope validates but status != "complete"
+
+Sentinel-less fallback:
+    When gemini omits the BEGIN/END sentinels but produces a fenced JSON block
+    (```json ... ```) that looks like a findings envelope (contains
+    "schema_version" and "status" keys), the parser falls back to extracting
+    that block directly. A WARNING is printed to stderr. This resilience
+    measure exists because gemini inconsistently follows sentinel instructions
+    despite them being clearly specified in the reviewer skill file. The
+    sentinel requirement remains in the skill file; this is a parser-level
+    safety net, not an endorsement of sentinel-less output.
 
 Recovery-mode failure (rare — only if the JSONL stream itself is unreadable):
     missing_envelope        — no assistant messages found in stream
@@ -135,29 +146,56 @@ def main():
 
     # Search for the BEGIN sentinel
     begin_idx = full_text.find(BEGIN_SENTINEL)
-    if begin_idx < 0:
-        print("missing_begin_sentinel", file=sys.stderr)
-        print(f"BEGIN sentinel not found in assistant text", file=sys.stderr)
-        sys.exit(1)
+    if begin_idx >= 0:
+        # Search for the END sentinel after BEGIN
+        end_idx = full_text.find(END_SENTINEL, begin_idx + len(BEGIN_SENTINEL))
+        if end_idx < 0:
+            print("missing_end_sentinel", file=sys.stderr)
+            print("BEGIN found but END missing (response may be truncated)", file=sys.stderr)
+            sys.exit(1)
 
-    # Search for the END sentinel after BEGIN
-    end_idx = full_text.find(END_SENTINEL, begin_idx + len(BEGIN_SENTINEL))
-    if end_idx < 0:
-        print("missing_end_sentinel", file=sys.stderr)
-        print("BEGIN found but END missing (response may be truncated)", file=sys.stderr)
-        sys.exit(1)
+        # Extract the text between sentinels
+        between = full_text[begin_idx + len(BEGIN_SENTINEL):end_idx]
 
-    # Extract the text between sentinels
-    between = full_text[begin_idx + len(BEGIN_SENTINEL):end_idx]
+        # Find the fenced JSON block
+        m = FENCE_RE.search(between)
+        if not m:
+            print("missing_json_block", file=sys.stderr)
+            print("sentinels present but no ```json...``` block between them", file=sys.stderr)
+            sys.exit(1)
 
-    # Find the fenced JSON block
-    m = FENCE_RE.search(between)
-    if not m:
-        print("missing_json_block", file=sys.stderr)
-        print("sentinels present but no ```json...``` block between them", file=sys.stderr)
-        sys.exit(1)
+        json_text = m.group(1)
+    else:
+        # Sentinel-less fallback: gemini sometimes omits sentinels but still
+        # produces a valid fenced JSON envelope. Try to extract a fenced JSON
+        # block that looks like a findings envelope (has "schema_version" key).
+        # This is a resilience measure — the sentinel requirement remains in
+        # the gemini skill file and the transport still prefers sentinel-wrapped
+        # envelopes. The fallback only fires when sentinels are truly absent.
+        m = FENCE_RE.search(full_text)
+        if not m:
+            print("missing_begin_sentinel", file=sys.stderr)
+            print("BEGIN sentinel not found in assistant text", file=sys.stderr)
+            sys.exit(1)
 
-    json_text = m.group(1)
+        candidate = m.group(1)
+        # Quick shape check: must look like a findings envelope
+        if '"schema_version"' not in candidate or '"status"' not in candidate:
+            print("missing_begin_sentinel", file=sys.stderr)
+            print(
+                "BEGIN sentinel not found; fenced JSON block present but does "
+                "not appear to be a findings envelope",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+
+        json_text = candidate
+        print(
+            "WARNING: sentinel-less fallback — gemini omitted BEGIN/END "
+            "sentinels but produced a valid-looking fenced JSON envelope. "
+            "Proceeding with schema validation.",
+            file=sys.stderr,
+        )
 
     try:
         envelope = json.loads(json_text)
