@@ -8,6 +8,8 @@ env:
   CARGO_TERM_COLOR: always
   RUSTFLAGS: "-D warnings"
   RUST_VERSION: "1.93.1"
+  ORI_VERIFY_ARC: "1"
+  ORI_VERIFY_EACH: "1"
 
 # Cancel previous runs on the same branch/PR
 concurrency:
