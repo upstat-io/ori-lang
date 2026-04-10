@@ -73,6 +73,55 @@ ori_rt         → consumed by: ori_llvm (FFI contract)
 
 ## Execution
 
+### Phase 0: Automated Static Analysis (Run Tools First)
+
+Before AI review begins, run the automated hygiene tools to handle all deterministic, pattern-based checks. This eliminates 60-70% of surface-level findings from AI context, freeing it for LEAK/SSOT/algorithmic DRY analysis.
+
+**All tools are in this skill's folder** (`.claude/skills/impl-hygiene-review/`).
+
+#### 0a. Run hygiene-lint.py (surface checks — ~2s)
+
+```bash
+# Full scan of review scope:
+hygiene-lint.py --scope <review-paths> --summary
+
+# Detailed findings:
+hygiene-lint.py --scope <review-paths>
+
+# Auto-fix banners and commented-out code:
+hygiene-lint.py --scope <review-paths> --fix --apply
+```
+
+Covers 15 project-specific checks (clippy handles the rest): file-length, fn-length, nesting-depth, test-ephemeral, test-weak, banners, commented-code, bare-todo, catch-all-arms, string-identity, lib-bodies, deny-unsafe, ignore-tracking, phase-bleeding, swallowed-error.
+
+#### 0b. Run enum-drift.py (cross-crate enum coverage — ~0.5s)
+
+```bash
+# All known IR enums:
+enum-drift.py --summary
+
+# Specific enum:
+enum-drift.py --enum CanExpr TypeTag
+```
+
+Detects match arms missing for enum variants across crate boundaries — the most dangerous drift pattern (Rust's exhaustive match only catches within a single crate).
+
+#### 0c. Run plan-annotations.py (stale plan refs — ~1s)
+
+```bash
+plan-annotations.sh --scope <review-paths> --cleanup-only
+```
+
+Already integrated — classifies plan annotations as stale/active/orphan.
+
+#### 0d. Review tool output, apply auto-fixes
+
+1. Apply auto-fixes: `hygiene-fix.py --scope <review-paths> --apply`
+2. Review remaining findings — these feed into Phase 3 Pass 4 (skip manual checks already covered by tools)
+3. Tool-reported findings that need AI judgment (e.g., test-weak false positives, string-identity in legitimate contexts) get verified during Pass 4
+
+**After Phase 0**: Passes 1-3 of Phase 3 (LEAK/DRY/Boundary) proceed unchanged — these require AI judgment. Pass 4 (Surface Hygiene) is substantially shorter because the tools already caught the mechanical violations.
+
 ### Phase 1: Load Rules & Context
 
 #### 1a. Load Rules
@@ -269,6 +318,7 @@ This pass reads the code *locally* — each file on its own terms.
 **Plan Annotation Hygiene:**
 - [ ] Run `plan-annotations.sh --scope <review-paths>` (in this skill's folder) to scan the review scope. The tool classifies each annotation as **stale-resolved** (ID is `[x]` in an active plan — REMOVE NOW), **stale-completed-plan** (ID is in an archived plan under `plans/completed/` — REMOVE NOW), **orphan** (ID references a plan that no longer exists — INVESTIGATE), **active-scaffolding** (ID is `[ ]` in an active plan — OK for now), or **permanent** (spec citations, architecture-internal). Use `--cleanup-only` to see just the removal candidates; `--active-only` to confirm what's being tracked as in-progress; `--orphans-only` to find broken references; `--all --count` for a full per-classification summary. The tool reads every plan's markdown content to build the ID→status map, so classifications are per-finding accurate.
 - [ ] For a quick hygiene-review scope check: `plan-annotations.sh --scope <paths> --cleanup-only` lists stale annotations grouped by finding ID, each showing the plan file and line where the finding was resolved. Every group is directly actionable.
+- [ ] **Ephemeral names in function/fixture names** are also scanned automatically: `plan-annotations.sh --cleanup-only` now includes an `EPHEMERAL NAMES` section that catches underscore-form IDs baked into `fn` names (e.g., `fn tpr_07_017_two_unrelated_...`) and `include_str!` fixture paths. These are classified with the same stale/active logic as comment annotations but require *renaming* (not comment stripping) — the output includes `[fn]`/`[fixture]` tags and the full name for each hit.
 - [ ] Active plan annotations (classification `active-scaffolding`) are acceptable only while the specific finding checkbox is `[ ]`; flip to stale the instant the checkbox becomes `[x]`
 - [ ] Spec references (`Spec: Clause N.M`), `AIMS Section N`, and `eval_v2 Section N` are permanent and always acceptable (classified as `permanent` / `arch-internal` by the tool)
 
@@ -299,20 +349,12 @@ This pass reads the code *locally* — each file on its own terms.
 - [ ] Provenance lives in `///` (Rust) or `//` (Ori) doc comments above the test, never in the function name?
 - [ ] **Action on any violation found**: rename the test in the same pass. Extract the behavioral scenario from the test body, build a new name from it, move any useful plan/bug/issue provenance into a `///` doc comment above the test. The rename is local to the test file (test names have no callers) — scope, complexity, and "it's just a test" are not valid reasons to defer.
 
-**Quick-scan commands for test-name violations** (run over the review scope):
+**Automated detection** (handled by Phase 0 tools — verify output, don't re-scan manually):
+- `hygiene-lint.py --check test-ephemeral,test-weak` detects both ephemeral IDs and weak descriptors in test names
+- `plan-annotations.sh --cleanup-only` detects ephemeral IDs classified against the plan index (stale vs active)
+- `fn-rename.py` can batch-rename violations found by the above tools
 
-```bash
-# Rust test functions — ephemeral identifier patterns
-rg -n '#\[test\]' -A 1 | rg -i '(fn test_.*(section|bug|issue|tpr|cross|phase|roadmap|§|_\d{4}_\d{2}_\d{2}))'
-
-# Ori spec tests — same patterns in @test declarations
-rg -n '@test.*(section|bug|issue|tpr|cross|phase|roadmap|§)' --type-add 'ori:*.ori' -t ori
-
-# Weak descriptor sweep
-rg -n 'fn test_(works|basic|simple|default|correct|valid|ok|sanity)[^a-z_]' --type rust
-```
-
-Results from these commands are candidate violations — read each one before renaming (a test named `test_cow_default_value_clone` legitimately contains `default` as a domain word, not a weak descriptor). The NAMING category requires *behavioral* judgment, not just grep matches.
+Results from tools are **candidate violations** — read each one before renaming (a test named `test_cow_default_value_clone` legitimately contains `default` as a domain word, not a weak descriptor). The NAMING category requires *behavioral* judgment, not just grep matches.
 
 Full rules: `.claude/rules/impl-hygiene.md` §Test Function Naming.
 

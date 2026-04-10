@@ -1,8 +1,9 @@
-//! LLVM initialization: fatal error handler and tracing setup.
+//! LLVM initialization: fatal error handler.
+//!
+//! Tracing initialization is the sole responsibility of `oric::tracing_setup`.
 
 use std::sync::Once;
 
-static TRACING_INIT: Once = Once::new();
 static FATAL_HANDLER_INIT: Once = Once::new();
 
 /// Install a custom LLVM fatal error handler that logs instead of aborting.
@@ -36,23 +37,4 @@ extern "C" fn llvm_fatal_error_handler(reason: *const std::ffi::c_char) {
             .into_owned()
     };
     eprintln!("LLVM fatal error (aborting): {msg}");
-}
-
-/// Initialize tracing for debug output.
-///
-/// Call this once at startup. Safe to call multiple times.
-/// Enable with `RUST_LOG=ori_llvm=debug` or `RUST_LOG=ori_llvm=trace`.
-pub fn init_tracing() {
-    TRACING_INIT.call_once(|| {
-        use tracing_subscriber::{fmt, prelude::*, EnvFilter};
-
-        // Only initialize if RUST_LOG is set
-        if std::env::var("RUST_LOG").is_ok() {
-            let filter = EnvFilter::from_default_env();
-            tracing_subscriber::registry()
-                .with(fmt::layer().with_target(true).with_level(true))
-                .with(filter)
-                .init();
-        }
-    });
 }

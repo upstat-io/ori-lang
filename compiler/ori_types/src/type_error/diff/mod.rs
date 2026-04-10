@@ -337,9 +337,7 @@ fn tag_name(tag: Tag) -> &'static str {
     }
 }
 
-// ════════════════════════════════════════════════════════════════════════════
 // Edit Distance (for typo detection)
-// ════════════════════════════════════════════════════════════════════════════
 
 /// Compute the Levenshtein edit distance between two strings.
 ///

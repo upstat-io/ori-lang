@@ -89,6 +89,13 @@ CASES = [
         make_envelope(no_findings=False, findings=[make_finding()]),
         None,
     ),
+    (
+        "envelope_with_informational_severity_finding_passes_invariants",
+        make_envelope(no_findings=False, findings=[
+            make_finding(severity="informational")
+        ]),
+        None,
+    ),
     # ── no_findings invariant ────────────────────────────────────────────────
     # Regression: the schema's top-level if/then formerly enforced this; the
     # OpenAI subset rejects if/then so it moved to envelope_invariants.py.

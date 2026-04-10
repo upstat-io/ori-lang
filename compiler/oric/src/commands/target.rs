@@ -395,6 +395,19 @@ fn check_wasi_sdk(sysroot: &std::path::Path) {
                 }
             }
 
+            #[cfg(windows)]
+            {
+                if std::os::windows::fs::symlink_dir(&wasi_sysroot, sysroot).is_err() {
+                    let _ = fs::remove_dir(sysroot);
+                    if let Err(e) = std::os::windows::fs::symlink_dir(&wasi_sysroot, sysroot) {
+                        eprintln!("warning: failed to create directory symlink: {e}");
+                        eprintln!(
+                            "hint: on Windows, creating symlinks may require Developer Mode or Administrator privileges"
+                        );
+                    }
+                }
+            }
+
             return;
         }
     }

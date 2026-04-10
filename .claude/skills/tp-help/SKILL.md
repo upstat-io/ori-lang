@@ -35,6 +35,14 @@ Invoke `/tp-help` IMMEDIATELY when ANY of these are true:
 - Questions about Ori syntax or spec (read the spec instead)
 - Minor implementation details with clear precedent in the codebase
 
+### Exception — Design Consensus Mode (called by /fix-bug)
+
+The "simple bugs" and "first attempt" non-triggers DO NOT apply when `/tp-help` is invoked by `/fix-bug` at Phase 1.75. In that calling context, `/tp-help` is used for **design consensus** — a pre-emptive pressure-test of a proposed fix approach before tests or implementation are written — NOT for **stuck help**.
+
+Design consensus runs for EVERY bug that reaches `/fix-bug` Phase 1.75 (including trivial one-liners), because what looks trivial often has architectural implications that only surface under independent review. The `/fix-bug` skill is responsible for enforcing this calling contract; `/tp-help` itself runs its normal workflow — the difference is purely in which non-triggers apply to the caller's decision to invoke.
+
+See `.claude/skills/fix-bug/SKILL.md` § Phase 1.75 for the full consensus protocol, the 3-call convergence cap, and autopilot deadlock handling.
+
 ### Example Scenario That MUST Trigger Auto-Invoke
 
 > "I've been trying multiple approaches but the pre-call RcInc leaks for borrowed-param closures while fixing capture closures. The RC ownership model for ApplyIndirect has a fundamental tension between borrowed-use and capture-use callees. Let me take the pragmatic approach: keep just the drop_hints fix and revert the AIMS-level RcInc."
@@ -103,15 +111,27 @@ Bash:
 
 ### Step 3: Write Both Reviewer Prompts
 
-**Step 3a — Codex prompt.** Write the full context package (adversarial framing + mandatory grounding + question + files + what you tried + constraints) to `$RUN/codex.prompt.md`. The prompt MUST include THREE blocks before the question, in this exact order: (1) the adversarial consultation framing, (2) the Mandatory Grounding Block instructing codex to read CLAUDE.md and the project rules FIRST, and (3) the question context.
+**Step 3a — Codex prompt (HARD RULES + adversarial framing + Mandatory Grounding Block).** Write the full context package to `$RUN/codex.prompt.md`. The prompt MUST include FOUR blocks before the question, in this exact order: (1) the HARD RULES read-only enforcement preamble, (2) the adversarial consultation framing, (3) the Mandatory Grounding Block instructing codex to read CLAUDE.md and the project rules FIRST, and (4) the question context.
 
 **Why these blocks are non-negotiable:**
+- **HARD RULES preamble** — Codex runs under `--full-auto` which gives it unrestricted file-editing authority. The `.codex/skills/tp-help/SKILL.md` file provides skill-level read-only enforcement, but the prompt-level HARD RULES are the belt to the skill-file's suspenders. On 2026-04-09, a `/tp-help` run WITHOUT prompt-level HARD RULES resulted in Codex editing `section-07-enum-repr.md` and `plan-schema.md` during a read-only consultation — the worktree guard caught and reverted the drift, but the edit should never have happened. `worktree-guard.sh` is post-hoc **detection**, not **prevention**. Both layers (skill file + prompt HARD RULES) are now mandatory.
 - **Adversarial framing** — same pattern as `.claude/commands/review-work.md:11-14`, `.claude/skills/dual-tpr/command-file.md`, and `.codex/skills/review-work/SKILL.md:12-16`. Without it, codex answers as a neutral generic assistant and produces smoothed responses instead of the sharp critique that justifies asking for a second opinion.
 - **Mandatory Grounding Block** — same pattern as `/tpr-review` SKILL.md §"Mandatory Grounding Block". Without it, codex answers from general knowledge and produces generic findings instead of project-native vocabulary (LEAK, DRIFT, GAP, WASTE from `impl-hygiene.md`). Reviewers that skip the grounding produce noise; this block exists because prior /tpr-review runs empirically showed that ungrounded findings are systematically weaker.
 
-Codex runs under `--full-auto` with `worktree-guard.sh` catching any drift (BUG-08-002 enforces it even in concat mode — the inline snapshot/compare in this skill is the guard), so there is no need for a read-only HARD RULES block on the codex side.
-
 ```
+You are being consulted for a third-party opinion on a specific problem.
+
+HARD RULES — DO NOT VIOLATE:
+- DO NOT modify any source files, plan files, or any other files. You have NO permission to edit, create, or delete files.
+- DO NOT run shell commands that mutate state. You MAY run read-only commands for verification: `grep`, `rg`, `find`, `cat`, `head`, `tail`, `git log`, `git diff`, `git blame`, `git show`, `git status`.
+- DO NOT run build commands, test commands, or anything that touches the working tree (no `cargo build`, `cargo test`, `./test-all.sh`, `npm`, `pnpm`, `pip install`, `mv`, `cp`, `rm`, `touch`, `mkdir`, `>`, `>>`, etc.).
+- DO NOT commit, push, pull, checkout, reset, stash, or otherwise touch git state.
+- Your ONLY job is to read the context, reason about it, and return your opinion as free-form prose to stdout.
+
+This is a third-party consultation, not an autonomous task. If you edit any file, you have violated the consultation contract and the worktree guard will revert your changes.
+
+---
+
 You are helping with the Ori compiler (Rust codebase, LLVM backend, ARC memory management).
 
 This is an independent, adversarial consultation:
@@ -148,7 +168,7 @@ Every concern you raise MUST use the vocabulary defined in `impl-hygiene.md` (LE
 **Step 3b — Gemini prompt (HARD RULES preamble + adversarial framing + Mandatory Grounding Block).** Gemini has NO dedicated `.gemini/skills/tp-help/` file (unlike `/review-work` and `/review-plan`, which each got a dedicated gemini skill in §03 of the dual-tpr-gemini plan). Without a dedicated skill file, gemini is invoked as a generic assistant under `--approval-mode yolo`, and the prompt text IS the ONLY guardrail for ALL THREE of: prompt discipline (the HARD RULES), adversarial posture (the framing), and rules grounding (the grounding block).
 
 The gemini prompt MUST begin with FOUR blocks in this exact order, before the question:
-1. **HARD RULES preamble** — read-only enforcement (codex doesn't need this because `--full-auto` + `worktree-guard.sh` enforces it at the launcher layer)
+1. **HARD RULES preamble** — read-only enforcement (both codex and gemini get this — codex also has `.codex/skills/tp-help/SKILL.md` as a second layer)
 2. **Adversarial consultation framing** — identical to Step 3a's framing (intentional SSOT symmetry)
 3. **Mandatory Grounding Block** — identical to Step 3a's grounding block (intentional SSOT symmetry)
 4. **Question context** — question + context + what I tried + constraints

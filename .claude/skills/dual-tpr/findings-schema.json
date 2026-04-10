@@ -51,7 +51,7 @@
             "type": "integer",
             "description": "1-indexed insertion order. Code-level invariant: ordinal >= 1 enforced in envelope_invariants.py."
           },
-          "severity": {"type": "string", "enum": ["high", "medium", "low"]},
+          "severity": {"type": "string", "enum": ["high", "medium", "low", "informational"], "description": "high/medium/low = actionable findings that must be fixed. informational = non-actionable observation (reviewer has no real issues but wants to note something). Informational findings do not block the TPR loop's clean-pass check."},
           "location": {
             "type": "string",
             "description": "Repo-relative path:line. No absolute paths, no leading ./, no line ranges. Dotfiles like .gitignore:3 ARE allowed; only the leading two-character ./ prefix is rejected. Code-level invariant: regex ^(?!/)(?!\\./)[a-zA-Z0-9_./-]+:[0-9]+$ enforced in envelope_invariants.py."

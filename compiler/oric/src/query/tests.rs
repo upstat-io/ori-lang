@@ -848,9 +848,7 @@ fn test_typed_determinism() {
     );
 }
 
-// ========================================================================
 // Field Access, Index Access, and Coalesce Tests
-// ========================================================================
 
 #[test]
 fn test_typed_list_indexing() {
@@ -1028,9 +1026,7 @@ fn test_typed_result_coalesce() {
     assert_eq!(find_fn(&db, &result, "main").return_type, Idx::INT);
 }
 
-// ========================================================================
 // tokens_with_metadata() Tests
-// ========================================================================
 
 #[test]
 fn test_tokens_with_metadata_returns_comments() {

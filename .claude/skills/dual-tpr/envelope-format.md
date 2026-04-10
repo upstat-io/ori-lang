@@ -41,7 +41,7 @@ Two reviewers run in parallel for every dual-tpr review round:
   because codex's JSONL wire format isolates the agent message cleanly on
   its own event type (`item.completed` / `agent_message`).
 
-- **Gemini** (`gemini --approval-mode yolo --output-format stream-json ...`)
+- **Gemini** (`gemini --model gemini-3.1-pro-preview --approval-mode yolo --output-format stream-json ...` — pinned to `gemini-3.1-pro-preview`)
   has no equivalent isolated-message event type. Its prompt instructs it to
   wrap the envelope between two HTML-comment sentinels at the END of the
   reviewer's free-form prose response. The transport layer (Section 02)

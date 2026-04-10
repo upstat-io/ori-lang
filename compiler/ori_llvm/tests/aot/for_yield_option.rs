@@ -10,9 +10,7 @@
 
 use crate::util::assert_aot_success;
 
-// -----------------------------------------------------------------------
 // str (heap-allocated, RC-tracked)
-// -----------------------------------------------------------------------
 
 /// `for x in Some(str) yield { break }` → empty list.
 #[test]
@@ -79,9 +77,7 @@ fn test_for_yield_option_str_conditional_continue_value() {
     );
 }
 
-// -----------------------------------------------------------------------
 // int (scalar, no RC)
-// -----------------------------------------------------------------------
 
 /// `for x in Some(int) yield { break }` → empty list.
 #[test]
@@ -110,9 +106,7 @@ fn test_for_yield_option_int_continue_value() {
     );
 }
 
-// -----------------------------------------------------------------------
 // Semantic pin: option for-yield break produces correct value
-// -----------------------------------------------------------------------
 
 /// Semantic pin: `break value` in option for-yield yields `[value]`, not error.
 /// This test ONLY passes when `LoopContext` is properly installed in the

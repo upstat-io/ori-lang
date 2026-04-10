@@ -52,6 +52,42 @@ Cite the original bug entry. 2-4 sentences.}
 
 ---
 
+## 1.5 Fix Consensus (via /tp-help)
+
+Independent dual-source design review of the proposed fix approach. Ran BEFORE tests or implementation to catch wrong-approach errors before they lock in. See `.claude/skills/fix-bug/SKILL.md` § Phase 1.75 for the calling contract.
+
+- **Proposed approach (pre-consensus)**: {Claude's initial plan before tp-help — what would have been written into § 3 Implementation if consensus had been skipped}
+- **tp-help run scratch dir**: `{$RUN path}`
+
+### Round 1
+- **Codex summary**: {brief summary of codex's response — key agreements and disagreements}
+- **Gemini summary**: {brief summary of gemini's response — key agreements and disagreements}
+- **Agreement points**: {where Claude + both reviewers converge}
+- **Disagreement points**: {where they diverge from Claude's proposal or from each other}
+- **Independent code verification**: {what Claude checked against actual code — file:line cites for each verified/refuted finding}
+- **Outcome**: {agreement → proceed | persuaded divergence → proceed with revised approach | unpersuaded divergence → round 2}
+
+### Round 2 *(if round 1 outcome was "unpersuaded divergence")*
+- **Follow-up question**: {the counter-argument or clarification Claude sent}
+- **Codex response summary**: {…}
+- **Gemini response summary**: {…}
+- **Independent code verification**: {file:line cites}
+- **Outcome**: {agreement | persuaded divergence | unpersuaded divergence → round 3}
+
+### Round 3 *(hard cap — if round 2 outcome was "unpersuaded divergence")*
+- **Follow-up question**: {…}
+- **Codex response summary**: {…}
+- **Gemini response summary**: {…}
+- **Independent code verification**: {file:line cites}
+- **Outcome**: {agreement | persuaded divergence | deadlock}
+
+### Final agreed approach
+{The fix approach that will be implemented in § 3 — either the original proposal, a persuaded-divergence revision, or (autopilot deadlock only) Claude's best-grounded approach. Must be concrete enough that § 2 TDD matrix and § 3 Implementation can be written directly from it.}
+
+{**If autopilot deadlock**: explicitly state "AUTOPILOT DEADLOCK" here. Include Claude's grounding for the chosen approach (which reviewer's critiques were addressed, which were deemed incorrect after code verification, and the residual uncertainty). /fix-next-bug's final session report will flag this bug for user audit.}
+
+---
+
 ## 2. TDD — Test Matrix
 
 Write ALL tests BEFORE the fix. Verify they fail against current code.

@@ -126,7 +126,7 @@ WRAPPER_SPECS = {
     "sudo":       {"positional_skip": 0, "flags_with_values": {"-u", "-g", "-h", "-U", "-C", "-c", "-D", "-r", "-R", "-t", "-T", "-p", "--user", "--group", "--host", "--other-user", "--close-from", "--login-class", "--chdir", "--role", "--type", "--prompt"}},
     "su":         {"positional_skip": 1, "flags_with_values": {"-s", "-m", "--shell"}, "shell_string_flags": {"-c", "--command"}},
     "ssh":        {"positional_skip": 1, "flags_with_values": {"-b", "-B", "-c", "-D", "-e", "-E", "-F", "-I", "-i", "-J", "-L", "-l", "-m", "-O", "-o", "-p", "-Q", "-R", "-S", "-W", "-w"}, "shell_string_first_positional": True},
-    "xargs":      {"positional_skip": 0, "flags_with_values": {"-n", "-I", "-L", "-P", "-d", "-s", "-E", "-a", "--max-args", "--replace", "--max-lines", "--max-procs", "--delimiter", "--max-chars", "--eof", "--arg-file"}},
+    "xargs":      {"positional_skip": 0, "flags_with_values": {"-n", "-I", "-L", "-P", "-d", "-s", "-E", "-a", "--max-args", "--replace", "--max-lines", "--max-procs", "--delimiter", "--max-chars", "--eof", "--arg-file", "--process-slot-var"}},
     "nohup":      {"positional_skip": 0},
     "setsid":     {"positional_skip": 0},
     "chrt":       {"positional_skip": 1},
@@ -136,7 +136,7 @@ WRAPPER_SPECS = {
     # Profiler / sandbox wrappers (iter 5)
     "strace":     {"positional_skip": 0, "flags_with_values": {"-e", "-o", "-O", "-p", "-s", "-S", "-u", "-E", "-I", "-A", "-P", "-x", "-X", "-Z"}},
     "ltrace":     {"positional_skip": 0, "flags_with_values": {"-e", "-o", "-p", "-s", "-u", "-l", "-x", "-A", "-D", "-X"}},
-    "gdb":        {"positional_skip": 0, "flags_with_values": {"-x", "-ex", "-iex", "-tty", "-ix", "-eix", "-cd", "-d", "-directory", "-r"}},
+    "gdb":        {"positional_skip": 0, "flags_with_values": {"-x", "-ex", "-iex", "-tty", "-ix", "-eix", "-cd", "-d", "-directory", "-r", "-p", "--pid"}},
     "valgrind":   {"positional_skip": 0, "flags_with_values": {"--tool", "--log-file", "--xml-file", "--suppressions", "--db-command"}},
     "firejail":   {"positional_skip": 0, "flags_with_values": {"--profile", "--name", "--hostname", "--ip", "--dns", "--bind", "--whitelist", "--blacklist", "--read-only", "--rlimit", "--shell"}},
     "bwrap":      {"positional_skip": 0, "flags_with_values": {"--bind", "--ro-bind", "--dev-bind", "--proc", "--dev", "--tmpfs", "--symlink", "--chdir", "--setenv", "--unsetenv"}},

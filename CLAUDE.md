@@ -139,7 +139,7 @@ When fixing any AIMS-related bug: ask "does this preserve system coherence?" A f
 **Primary**: `./test-all.sh`, `./clippy-all.sh`, `./fmt-all.sh`, `./build-all.sh` (includes LLVM)
 **Tests**: `cargo t` (Rust, incl. LLVM), `cargo st` (Ori), `cargo st tests/spec/path/` (specific), `./llvm-test.sh`
 **MANDATORY TIMEOUT**: NEVER run tests without a timeout. Max 150 seconds (2m30s). Use `timeout 150` prefix for shell commands, `--timeout 150000` for Bash tool calls. If a test hangs past the timeout, you introduced a hanging test — kill it, find the cause, fix it.
-**REVIEW/AGENT TIMEOUTS**: Review/analysis tasks (`/tpr-review`, `/tp-help`, `codex exec`, `gemini -p`, `/review-work`, `/independent-review`, Agent tool tasks) legitimately take 20–35 minutes in practice — reviews barely ever finish in under 10 minutes, so the operational sweet spot is 20–35 min. NEVER use short timeouts (shell `timeout 60 codex` or Bash `timeout: 60000`) on these — they kill reviews mid-stream. The `.claude/hooks/block-banned-commands.sh` hook enforces this: it blocks any `timeout` under 1200000 ms (20 min) or over 2100000 ms (35 min) on codex AND gemini commands. To run a full-length review, prefer `run_in_background: true` on the Bash tool (no timeout cap) and wait for the completion notification; if you must run foreground, use a Bash `timeout:` in the allowed 20–35 min window. Test commands are a separate rule (see "MANDATORY TIMEOUT" above — 150s max for tests).
+**REVIEW/AGENT TIMEOUTS**: Review/analysis tasks (`/tpr-review`, `/tp-help`, `codex exec`, `gemini -p`, `/review-work`, `/independent-review`, Agent tool tasks) legitimately take 20–45 minutes in practice — reviews barely ever finish in under 10 minutes, and gemini is substantially slower than codex (cold-starts of 8-10 min are routine), so the operational sweet spot is 20–45 min. NEVER use short timeouts (shell `timeout 60 codex` or Bash `timeout: 60000`) on these — they kill reviews mid-stream. The `.claude/hooks/block-banned-commands.sh` hook enforces this: it blocks any `timeout` under 1200000 ms (20 min) or over 2700000 ms (45 min) on codex AND gemini commands. To run a full-length review, prefer `run_in_background: true` on the Bash tool (no timeout cap) and wait for the completion notification; if you must run foreground, use a Bash `timeout:` in the allowed 20–45 min window. Test commands are a separate rule (see "MANDATORY TIMEOUT" above — 150s max for tests).
 **Build**: `cargo c`/`cl`/`b`/`fmt` (all crates incl. LLVM)
 **LLVM/AOT**: `cargo b` (debug), `cargo b --release` (release) — LLVM is a default feature; `cargo test -p ori_llvm` (LLVM tests)
 **Release LTO**: `cargo build --profile release-lto` — fat LTO, ~20% faster binary, ~3.5x longer build. Output: `target/release-lto/ori`. Regular `--release` unaffected.
@@ -147,7 +147,9 @@ When fixing any AIMS-related bug: ask "does this preserve system coherence?" A f
 **Phase dumps**: `ORI_DUMP_AFTER_PARSE=1` (AST) | `ORI_DUMP_AFTER_TYPECK=1` (typed IR) | `ORI_DUMP_AFTER_ARC=1` (ARC IR) | `ORI_DUMP_AFTER_LLVM=1` (LLVM IR, superset of `ORI_DEBUG_LLVM`) | `ORI_EMIT_ARC_DOT=1` (GraphViz DOT) — stderr, zero release overhead
 **Runtime debug**: `ORI_TRACE_RC=1` (RC log) | `ORI_RT_DEBUG=1` (assertions) | `ORI_CHECK_LEAKS=1` (leak report)
 **Codegen audit**: `ORI_AUDIT_CODEGEN=1` — RC balance, COW sequencing, ABI args, aggregate loads, safety checks. Zero cost off. `ORI_AUDIT_STRICT=1` (pessimistic) | `ORI_AUDIT_FUNCTION=name` (filter)
-**AIMS**: The ARC pipeline uses the AIMS unified lattice — no feature flags needed. `diagnostics/aims-compare.sh` for behavioral + RC comparison.
+**ARC verification**: `ORI_VERIFY_ARC=1` — extra ARC IR correctness checks (RC balance, drop placement) after the AIMS pipeline
+**Repr-opt disable**: `ORI_NO_REPR_OPT=1` — disable all representation optimizations (integer narrowing, enum packing). CLI: `--no-repr-opt`
+**AIMS**: The ARC pipeline uses the AIMS unified lattice — no feature flags needed.
 **Always run `./test-all.sh` after compiler changes.**
 **Perf baseline**: `./scripts/perf-baseline.sh [--release] [--include-cow]` | **COW benchmarks**: `./scripts/cow-benchmark.sh [--release] [--include-macro] [--compare baseline.json]` | **Consistency**: `diagnostics/check-debug-flags.sh` | **Cargo cache**: `./scripts/cache-doctor.sh [--print-cleanup|--clean]` — detects root-owned files in `target/` that cargo cannot update (accidental `sudo cargo build`); refuses destructive actions by default
 **Diagnostic scripts** (`diagnostics/`) — all support `--help`, `--no-color`/`--color`:
@@ -155,6 +157,7 @@ When fixing any AIMS-related bug: ask "does this preserve system coherence?" A f
 - `rc-stats.sh` — RC balance per function | `codegen-audit.sh` — static RC/COW/ABI analysis (`--strict`, `--function`)
 - `diagnose-aot.sh` — all-in-one: build + run + leak check + RC stats + IR (`--valgrind`, `--verbose`)
 - `dual-exec-debug.sh` — interpreter vs AOT comparison; auto-dumps on mismatch (`--verbose`)
+- `debug-release-compare.sh` — debug vs release behavioral comparison (exit codes + stdout + LLVM IR diff on mismatch)
 - `valgrind-aot.sh [file.ori ...]` — Valgrind memory errors (defaults to `tests/valgrind/`, not in test-all.sh)
 - `dual-exec-verify.sh [test-path]` — batch interpreter vs LLVM (`--test-only`, `--main-only`, `--json`)
 

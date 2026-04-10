@@ -384,9 +384,7 @@ fn test_aot_multiple_impl_blocks() {
     );
 }
 
-// -----------------------------------------------------------------------
 // 3.21: Operator Traits — user-defined operator dispatch
-// -----------------------------------------------------------------------
 
 #[test]
 fn test_aot_operator_trait_add() {
@@ -444,9 +442,7 @@ fn test_aot_operator_trait_not() {
     );
 }
 
-// =========================================================================
 // 3.14: Comparable/Hashable compound type methods
-// =========================================================================
 
 // -- String methods --
 
@@ -657,9 +653,7 @@ fn test_aot_char_hash() {
     );
 }
 
-// =========================================================================
 // 3.14: Hash contract edge cases (hygiene fixes)
-// =========================================================================
 
 // Float ±0.0 hash contract: -0.0 == 0.0 → hash must match
 
@@ -807,7 +801,6 @@ fn test_aot_int_into_float_zero() {
     );
 }
 
-// -----------------------------------------------------------------------
 // Regression: Analysis-only ARC lowering path coverage
 //
 // These tests exercise the impl-method analysis-only ARC lowering path
@@ -815,7 +808,6 @@ fn test_aot_int_into_float_zero() {
 // bodies into analysis-only ARC functions with type-qualified names. These
 // tests verify that the analysis-only lowering doesn't interfere with
 // normal codegen, including default trait methods and multi-impl types.
-// -----------------------------------------------------------------------
 
 /// Regression: multiple trait impls on the same type exercise
 /// the analysis-only ARC lowering path with ordinal-qualified names.

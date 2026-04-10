@@ -28,8 +28,10 @@ impl ArcTerminator {
                 SmallVec::from_slice(args)
             }
             ArcTerminator::InvokeIndirect { closure, args, .. } => {
-                let mut vars = SmallVec::from_slice(args);
+                // Closure first, then args — matches ApplyIndirect ordering.
+                let mut vars = SmallVec::with_capacity(1 + args.len());
                 vars.push(*closure);
+                vars.extend_from_slice(args);
                 vars
             }
             ArcTerminator::Branch { cond, .. } => smallvec![*cond],
@@ -90,10 +92,10 @@ impl ArcTerminator {
     /// Mirrors [`ArcInstr::is_owned_position`] but for terminators.
     ///
     /// - `Invoke`: `arg_ownership[pos]`, defaults to Owned (same as `Apply`).
-    /// - `InvokeIndirect`: `used_vars()` = `[...args, closure]` (closure LAST).
-    ///   Positions `0..args.len()` map to `arg_ownership[pos]`, defaults to
-    ///   Borrowed (conservative). The closure at position `args.len()` is
-    ///   always borrowed.
+    /// - `InvokeIndirect`: `used_vars()` = `[closure, ...args]` (closure FIRST,
+    ///   matching `ApplyIndirect`). Position 0 is closure (always borrowed).
+    ///   Positions `1..=args.len()` map to `arg_ownership[pos - 1]`, defaults
+    ///   to Borrowed (conservative).
     /// - All others: no owned positions.
     pub fn is_owned_position(&self, pos: usize) -> bool {
         match self {
@@ -112,12 +114,14 @@ impl ArcTerminator {
                 arg_ownership,
                 ..
             } => {
-                // used_vars() = [...args, closure]. Closure is at the end,
-                // not the beginning (opposite of ApplyIndirect). So pos
-                // maps directly to args[pos] with no offset.
-                pos < args.len()
+                // used_vars() = [closure, ...args]. pos=0 is closure
+                // (always borrowed). pos 1..=args.len() are user args.
+                // arg_ownership parallels args, so arg_ownership[i]
+                // corresponds to used_vars position i+1.
+                pos >= 1
+                    && pos <= args.len()
                     && arg_ownership
-                        .get(pos)
+                        .get(pos - 1)
                         .is_some_and(|o| *o == ArgOwnership::Owned)
             }
             _ => false,

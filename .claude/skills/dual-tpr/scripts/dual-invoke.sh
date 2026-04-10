@@ -142,7 +142,7 @@ if [[ "$REVIEWERS" == "gemini" || "$REVIEWERS" == "both" ]]; then
   (
     set +e
     START=$(date +%s)
-    gemini --approval-mode yolo --output-format stream-json -p "$(cat "$GEMINI_PROMPT")" 2>/dev/null > "$RUN/gemini.jsonl"
+    gemini --model gemini-3.1-pro-preview --approval-mode yolo --output-format stream-json -p "$(cat "$GEMINI_PROMPT")" 2>/dev/null > "$RUN/gemini.jsonl"
     GEMINI_RC=$?
     echo "$GEMINI_RC" > "$RUN/gemini.exit"
     echo "$(($(date +%s) - START))" > "$RUN/gemini.walltime"

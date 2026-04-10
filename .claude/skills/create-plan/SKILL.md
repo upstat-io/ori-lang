@@ -22,6 +22,8 @@ Create a new plan directory with index and section files using the standard plan
 - `description`: Optional one-line description of the plan's goal
 - **Existing plan mode**: If the input references an existing plan directory (e.g., "add X to plans/repr-opt", "add section to roadmap"), this command operates in **Existing Plan Mode** — see the dedicated section below.
 
+**Output directory override**: Set `ORI_PLAN_ROOT` to redirect plan output to a different root directory. When set, all plan files are written under `$ORI_PLAN_ROOT/{name}/` instead of `plans/{name}/`. Default behavior (no env var) is unchanged. This is primarily for test harnesses that need to exercise `/create-plan` non-destructively without writing into the repo's `plans/` directory.
+
 ---
 
 ## Mode Detection
@@ -617,16 +619,20 @@ Present:
 
 ### Step 10: Create Directory Structure
 
-Create the plan directory:
+**Plan root**: Use `$ORI_PLAN_ROOT` if set, otherwise `plans`. Check with `echo ${ORI_PLAN_ROOT:-plans}` — this is the base directory for the plan.
+
+Create the plan directory under the plan root:
 
 ```
-plans/{name}/
+{plan_root}/{name}/
 ├── index.md           # Already created in Step 8
 ├── 00-overview.md     # Already created in Step 8
 ├── section-01-*.md    # Written sequentially starting here
 ├── section-02-*.md    # Written after section-01 is complete
 └── section-NN-*.md    # Written after all prior sections are complete
 ```
+
+Where `{plan_root}` is `${ORI_PLAN_ROOT:-plans}`. When `ORI_PLAN_ROOT` is not set, this resolves to the standard `plans/{name}/`.
 
 ### Step 11: Write Sections Sequentially
 
@@ -668,8 +674,7 @@ For each section, in order from 01 to N:
 - Completion checklist at the end — MUST include `/tpr-review`, `/impl-hygiene-review`, AND `/improve-tooling` **section-close sweep** as final gates, in that order: TPR clean → hygiene clean → tooling sweep. The sweep is a SAFETY NET that (a) verifies every subsection's per-subsection retrospective actually ran, and (b) adds only NEW items from cross-subsection patterns invisible at per-item scope. The bulk of tooling growth must already be captured in per-subsection close-outs by the time the sweep runs. The sweep is mandatory at every section close (even when nothing felt painful), but it should produce few or zero new findings when per-subsection captures are thorough — that is the expected outcome. See `plan-schema.md` for the exact wording, and `.claude/skills/improve-tooling/SKILL.md` "Retrospective Mode" for both granularities.
 
 **`reviewed` field rules:**
-- **Section 01**: `reviewed: true` — it is the starting point of implementation and was validated during plan creation against the research findings.
-- **All other sections (02+)**: `reviewed: false` — they have NOT been validated against actual implementation reality. As Section 01 is implemented, assumptions in later sections may become stale or wrong.
+- **ALL sections**: `reviewed: false` at creation — plans are written against research findings, not validated against implementation reality. `/continue-roadmap`'s pre-implementation gate (Step 1.7) will trigger a single-section `/review-plan` before work begins on each section, flipping it to `reviewed: true` after validation.
 
 **After writing each section**, briefly verify:
 - File paths referenced in this section exist
@@ -746,7 +751,7 @@ Show the user:
 
 ```
 Skill: review-plan
-Args: plans/{name}/
+Args: {plan_root}/{name}/
 ```
 
 This runs the formal review pipeline as defined in the `/review-plan` skill. It will edit the plan files directly to fix any issues.
@@ -879,6 +884,63 @@ Report the final state to the user in a single paragraph:
 - The verification scanner output snippet
 - A reminder that `/continue-roadmap` will now pick up the new plan first (if active at order: 1) or queue it for promotion (if queued)
 
+### Step 19: Cross-Plan Review Invalidation (MANDATORY)
+
+A new cross-cutting plan can invalidate `reviewed: true` sections in other plans. If this plan touches files, types, or subsystems that other plan sections reference, those reviews are stale — they were validated against a codebase state that this plan will change.
+
+**Why this matters:** `reviewed: true` means "validated against the current codebase." A new plan that modifies overlapping files/types changes the codebase those reviews were validated against. Without invalidation, `/continue-roadmap` would start implementing a section whose review is stale, potentially building on wrong assumptions.
+
+#### Sub-step 19.1: Run invalidation detection
+
+```bash
+python3 .claude/skills/plan-audit/plan-invalidate.py {plan_root}/{name}/ --json
+```
+
+Read the JSON output. This scans ALL active plans (not completed, not the plan itself) for sections with `reviewed: true` whose file/symbol scope overlaps with the new plan's scope.
+
+#### Sub-step 19.2: Present findings to user
+
+If overlapping sections are found, present them to the user via `AskUserQuestion`:
+
+> **Cross-plan review invalidation detected.**
+>
+> This plan's scope overlaps with **N reviewed sections** across **M other plans**. These sections have `reviewed: true` but their reviews may be stale because this plan modifies files/types they reference.
+>
+> **High-impact overlaps** (weight ≥ 4):
+> - `plans/foo/section-03.md` — overlapping files: `compiler/ori_types/src/...` (weight: 8)
+> - `plans/bar/section-01.md` — overlapping symbols: `EnumRepr`, `IrBuilder` (weight: 5)
+>
+> **Lower-impact overlaps** (weight 2-3):
+> - `plans/baz/section-02.md` — 1 shared file (weight: 2)
+>
+> **Recommendation:** Flip `reviewed: true` → `reviewed: false` on affected sections so `/continue-roadmap` will re-review them before implementation begins.
+>
+> Options:
+> 1. **Apply all** — invalidate all N sections
+> 2. **Apply high-impact only** — invalidate only weight ≥ 4 sections
+> 3. **Skip** — leave reviews as-is (not recommended)
+
+#### Sub-step 19.3: Apply invalidation
+
+If the user approves (option 1 or 2), apply the invalidation:
+
+```bash
+# For "apply all":
+python3 .claude/skills/plan-audit/plan-invalidate.py {plan_root}/{name}/ --apply
+
+# For "high-impact only":
+python3 .claude/skills/plan-audit/plan-invalidate.py {plan_root}/{name}/ --apply --min-weight 4
+```
+
+Report what was changed:
+- How many sections were flipped to `reviewed: false`
+- Which plans were affected
+- Reminder: `/continue-roadmap` will re-review these sections when they come up for implementation
+
+#### Sub-step 19.4: No overlaps found
+
+If the detection returns zero stale sections, report: "No cross-plan review invalidation needed — no other plan sections' reviewed scopes overlap with this plan."
+
 ---
 
 ## Example
@@ -964,8 +1026,7 @@ The `reviewed: true/false` field in section frontmatter is a **pre-implementatio
 **Why this exists:** Plans are written with assumptions about how the code works. But as you implement Section 01, reality changes — deviations, discoveries, refactors, bug fixes. A section written before prior sections were implemented may reference stale file paths, wrong function signatures, or invalid approaches. `reviewed: false` means "not yet validated against implementation reality."
 
 **Rules:**
-- **Section 01** is always `reviewed: true` at creation — it's the starting point.
-- **All other sections** are `reviewed: false` at creation — plans, not validated reality.
+- **ALL sections** are `reviewed: false` at creation — plans are written against research, not validated implementation reality.
 - **Single-section review** (`/review-plan plans/foo/section-03.md`): This is the pre-implementation gate. After confirming accuracy, flip to `reviewed: true`.
 - **Whole-plan review** (`/review-plan plans/foo/`): Fixes issues, improves quality, but does NOT change `reviewed` values. You're improving the plan holistically, not gating specific sections.
 - **`/continue-roadmap`** starting a `reviewed: false` section: triggers a single-section review first, which flips to `true` after validation.

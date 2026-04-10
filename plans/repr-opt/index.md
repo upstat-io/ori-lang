@@ -4,7 +4,7 @@ name: "Repr Opt"
 full_name: "Representation Optimization & ARC Intelligence"
 status: active
 reviewed: false
-order: 1
+order: 3
 ---
 
 # Representation Optimization & ARC Intelligence Index

@@ -378,7 +378,7 @@ pub(super) fn run_codegen_pipeline<'ctx>(
             None, // Debug info wiring deferred to AOT pipeline integration
             uniqueness_summaries,
             aims_contracts,
-            std::env::var("ORI_VERIFY_ARC").is_ok(),
+            std::env::var(crate::debug_flags::ORI_VERIFY_ARC).is_ok(),
         );
 
         // Declare imports (no-op when import_sigs is empty for single-file compilation)

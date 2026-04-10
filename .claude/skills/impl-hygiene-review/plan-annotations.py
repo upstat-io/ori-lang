@@ -43,6 +43,17 @@ SECTION_REF
     These are harder to classify than finding IDs — a `§04.2` could
     belong to any plan with a section 04.2.
 
+Ephemeral Names
+---------------
+
+In addition to comment annotations, the tool scans for finding IDs
+embedded in test function names and fixture file paths in their
+underscore-lowercase form (e.g., `fn tpr_07_017_two_unrelated_...`
+or `include_str!("...tpr_07_019_phi_merge...")`). These are normalized
+(tpr_07_017 → TPR-07-017) and classified with the same stale/active
+logic. Remediation is different: rename the function/fixture rather
+than stripping a comment. The output tags each hit as [fn] or [fixture].
+
 Modes
 -----
 
@@ -209,6 +220,47 @@ SCAN_EXCLUDE_DIRS = [
     "_repos",
 ]
 
+# ─────────────────────────────────────────────────────────────
+# Ephemeral names — finding IDs embedded in test function names
+# or fixture file paths (underscore-lowercase form)
+# ─────────────────────────────────────────────────────────────
+
+# Matches underscore-lowercase finding IDs in identifiers:
+# tpr_07_017, bug_04_045, cross_04_014, tpr_bug_04_045
+UNDERSCORE_FINDING_RE = re.compile(
+    r"\b((?:tpr_bug|tpr|cross|bug|find|task|issue)_\d+_\d+)",
+    re.IGNORECASE,
+)
+
+# Grep pattern: fn definitions whose name contains an underscore-form ID.
+# Case-insensitive inline flag (?i:...) keeps the rest case-sensitive.
+EPHEMERAL_NAME_GREP_PATTERN = (
+    r"\bfn\s+\w*(?:tpr_bug|tpr|cross|bug|find|task|issue)_\d+_\d+"
+)
+
+# Grep pattern: include_str! references whose path contains an ID.
+EPHEMERAL_FIXTURE_GREP_PATTERN = (
+    r'include_str!\s*\(\s*"[^"]*(?:tpr_bug|tpr|cross|bug|find|task|issue)_\d+_\d+'
+)
+
+
+def normalize_underscore_id(raw: str) -> str:
+    """Normalize underscore-form ID to canonical hyphen form.
+
+    tpr_07_017 → TPR-07-017
+    bug_04_045 → BUG-04-045
+    tpr_bug_04_045 → TPR-BUG-04-045
+    """
+    lower = raw.lower()
+    if lower.startswith("tpr_bug_"):
+        rest = raw[8:]  # after "tpr_bug_"
+        nums = rest.split("_", 1)
+        return f"TPR-BUG-{'-'.join(p for p in nums if p)}"
+    parts = raw.split("_", 2)
+    if len(parts) < 3:
+        return raw.upper().replace("_", "-")
+    return f"{parts[0].upper()}-{parts[1]}-{parts[2]}"
+
 
 # ─────────────────────────────────────────────────────────────
 # Data model
@@ -262,6 +314,27 @@ class Annotation:
     plan_path_ref: str | None = None  # plans/repr-opt/section-07-... if a path ref
     classification: Classification | None = None
     plan_entry: PlanEntry | None = None  # Resolved entry, if any
+
+
+@dataclass
+class EphemeralName:
+    """A test function name or fixture path containing an ephemeral finding ID.
+
+    Unlike Annotation (which tracks IDs in comments), this tracks IDs baked
+    into Rust function names (e.g., `fn tpr_07_017_two_unrelated_...`) or
+    fixture file paths (e.g., `include_str!("...tpr_07_019_phi_merge...")`).
+    The remediation is different: rename the function/fixture, don't strip
+    a comment.
+    """
+
+    full_name: str  # The complete function name or fixture path
+    embedded_id: str  # Canonical form: TPR-07-017
+    raw_id_portion: str  # Underscore form as found: tpr_07_017
+    file: Path
+    line: int
+    kind: str  # "function" or "fixture_ref"
+    classification: Classification | None = None
+    plan_entry: PlanEntry | None = None
 
 
 # ─────────────────────────────────────────────────────────────
@@ -662,6 +735,135 @@ def classify_all(
     source_cache: dict[Path, list[str]] = {}
     for ann in annotations:
         classify_annotation(ann, plan_entries, plans, source_cache)
+
+
+# ─────────────────────────────────────────────────────────────
+# Ephemeral name scanning — IDs baked into fn names / fixtures
+# ─────────────────────────────────────────────────────────────
+
+
+def _run_grep_simple(
+    pattern: str, paths: list[Path], include_ori: bool = False
+) -> list[tuple[Path, int, str]]:
+    """Run a single grep pass and return (path, lineno, text) triples."""
+    if not paths:
+        paths = [REPO_ROOT]
+    cmd: list[str] = ["grep", "-rPn", "--include=*.rs"]
+    if include_ori:
+        cmd.append("--include=*.ori")
+    for d in SCAN_EXCLUDE_DIRS:
+        cmd.append(f"--exclude-dir={Path(d).name}")
+    cmd.append(pattern)
+    cmd.extend(str(p) for p in paths)
+    try:
+        proc = subprocess.run(
+            cmd, capture_output=True, text=True, check=False, cwd=REPO_ROOT
+        )
+    except (subprocess.SubprocessError, FileNotFoundError):
+        return []
+    results: list[tuple[Path, int, str]] = []
+    for raw_line in proc.stdout.splitlines():
+        parts = raw_line.split(":", 2)
+        if len(parts) < 3:
+            continue
+        try:
+            results.append((Path(parts[0]), int(parts[1]), parts[2]))
+        except ValueError:
+            continue
+    return results
+
+
+def scan_ephemeral_names(
+    scope_paths: list[Path],
+    plan_entries: dict[str, list[PlanEntry]],
+    plans: dict[str, Plan],
+    include_ori: bool = False,
+) -> list[EphemeralName]:
+    """Scan for test function names and fixture paths with embedded finding IDs.
+
+    Runs two grep passes:
+    1. `fn <name>` where <name> contains an underscore-form finding ID
+    2. `include_str!("path")` where path contains an underscore-form finding ID
+
+    Each hit is normalized (tpr_07_017 → TPR-07-017) and classified against
+    the plan index using the same logic as comment annotations.
+    """
+    results: list[EphemeralName] = []
+
+    # Pass 1: function definitions
+    for file, line, text in _run_grep_simple(
+        EPHEMERAL_NAME_GREP_PATTERN, scope_paths, include_ori
+    ):
+        fn_match = re.search(r"\bfn\s+(\w+)", text)
+        if not fn_match:
+            continue
+        fn_name = fn_match.group(1)
+        id_match = UNDERSCORE_FINDING_RE.search(fn_name)
+        if not id_match:
+            continue
+        raw_id = id_match.group(1)
+        canonical_id = normalize_underscore_id(raw_id)
+        results.append(
+            EphemeralName(
+                full_name=fn_name,
+                embedded_id=canonical_id,
+                raw_id_portion=raw_id,
+                file=file,
+                line=line,
+                kind="function",
+            )
+        )
+
+    # Pass 2: include_str! fixture references
+    for file, line, text in _run_grep_simple(
+        EPHEMERAL_FIXTURE_GREP_PATTERN, scope_paths, include_ori
+    ):
+        fix_match = re.search(r'include_str!\s*\(\s*"([^"]+)"', text)
+        if not fix_match:
+            continue
+        fixture_path = fix_match.group(1)
+        id_match = UNDERSCORE_FINDING_RE.search(fixture_path)
+        if not id_match:
+            continue
+        raw_id = id_match.group(1)
+        canonical_id = normalize_underscore_id(raw_id)
+        results.append(
+            EphemeralName(
+                full_name=fixture_path,
+                embedded_id=canonical_id,
+                raw_id_portion=raw_id,
+                file=file,
+                line=line,
+                kind="fixture_ref",
+            )
+        )
+
+    # Classify each hit against the plan index
+    for name in results:
+        matches = plan_entries.get(name.embedded_id, [])
+        if not matches:
+            name.classification = Classification.ORPHAN
+            continue
+        classified = False
+        for entry in matches:
+            if entry.is_resolved and not entry.plan.is_completed_archive:
+                name.classification = Classification.STALE_RESOLVED
+                name.plan_entry = entry
+                classified = True
+                break
+        if classified:
+            continue
+        for entry in matches:
+            if entry.plan.is_completed_archive or entry.plan.status == PlanStatus.COMPLETE:
+                name.classification = Classification.STALE_COMPLETED_PLAN
+                name.plan_entry = entry
+                classified = True
+                break
+        if not classified:
+            name.classification = Classification.ACTIVE_SCAFFOLDING
+            name.plan_entry = matches[0]
+
+    return results
 
 
 # ─────────────────────────────────────────────────────────────
@@ -1167,6 +1369,169 @@ def apply_file_edits(edits: list[FileEdit]) -> int:
     return written
 
 
+def plan_ephemeral_name_edits(
+    ephemeral_names: list[EphemeralName],
+    cleanup_classes: set[Classification],
+) -> list[FileEdit]:
+    """Plan edits to strip ephemeral finding ID prefixes from function
+    names, string arguments, and include_str! fixture paths.
+
+    For each affected file, every line containing ``{raw_id_portion}_``
+    (with trailing underscore) gets the prefix stripped. This covers
+    function definitions (``fn tpr_07_008_foo``), string arguments
+    (``"tpr_07_008_foo"``), and include_str! paths in a single pass.
+    """
+    stale = [
+        n for n in ephemeral_names
+        if n.classification in cleanup_classes
+    ]
+    if not stale:
+        return []
+
+    # Group unique raw_id_portions per file
+    by_file: dict[Path, set[str]] = defaultdict(set)
+    for en in stale:
+        by_file[en.file].add(en.raw_id_portion)
+
+    edits: list[FileEdit] = []
+    for file, raw_ids in sorted(by_file.items(), key=lambda kv: str(kv[0])):
+        try:
+            text = file.read_text(encoding="utf-8")
+        except OSError:
+            continue
+        lines = text.splitlines(keepends=False)
+        new_lines: list[str] = []
+        changed_indices: list[int] = []
+        for idx, original in enumerate(lines):
+            new_line = original
+            for raw_id in raw_ids:
+                # Strip the prefix + trailing underscore (e.g., "tpr_07_008_")
+                prefix = raw_id + "_"
+                if prefix in new_line:
+                    new_line = new_line.replace(prefix, "")
+            if new_line != original:
+                changed_indices.append(idx)
+            new_lines.append(new_line)
+        if changed_indices:
+            edits.append(
+                FileEdit(
+                    file=file,
+                    original_lines=lines,
+                    new_lines=new_lines,
+                    changed_line_indices=changed_indices,
+                    deleted_line_indices=[],
+                )
+            )
+    return edits
+
+
+@dataclass
+class FixtureRename:
+    """A fixture file that needs renaming on disk."""
+
+    old_path: Path
+    new_path: Path
+    source_file: Path  # The .rs file that references it
+    source_line: int
+
+
+def collect_fixture_renames(
+    ephemeral_names: list[EphemeralName],
+    cleanup_classes: set[Classification],
+) -> list[FixtureRename]:
+    """Collect fixture files that need renaming to strip ephemeral IDs.
+
+    For each stale fixture_ref, computes the old and new file paths by
+    stripping the ``{raw_id_portion}_`` prefix from the filename portion
+    of the fixture path. Deduplicates by old_path.
+    """
+    stale_fixtures = [
+        n for n in ephemeral_names
+        if n.classification in cleanup_classes and n.kind == "fixture_ref"
+    ]
+    if not stale_fixtures:
+        return []
+
+    seen: set[Path] = set()
+    renames: list[FixtureRename] = []
+    for en in stale_fixtures:
+        # full_name is the path inside include_str!, e.g.,
+        # "fixtures/iterator_drop/tpr_07_019_phi_merge_take_projects.ori"
+        # Resolve relative to the source file's directory
+        fixture_rel = Path(en.full_name)
+        old_path = (en.file.parent / fixture_rel).resolve()
+        if old_path in seen:
+            continue
+        seen.add(old_path)
+
+        # Strip the raw_id_portion_ prefix from the filename
+        old_name = old_path.name
+        prefix = en.raw_id_portion + "_"
+        if prefix not in old_name:
+            continue
+        new_name = old_name.replace(prefix, "", 1)
+        new_path = old_path.parent / new_name
+
+        renames.append(
+            FixtureRename(
+                old_path=old_path,
+                new_path=new_path,
+                source_file=en.file,
+                source_line=en.line,
+            )
+        )
+    return renames
+
+
+def apply_fixture_renames(renames: list[FixtureRename]) -> int:
+    """Execute fixture file renames via git mv. Returns count of renames."""
+    applied = 0
+    for r in renames:
+        if not r.old_path.exists():
+            print(
+                f"warning: fixture {_rel(r.old_path)} does not exist, skipping",
+                file=sys.stderr,
+            )
+            continue
+        try:
+            result = subprocess.run(
+                ["git", "mv", str(r.old_path), str(r.new_path)],
+                capture_output=True,
+                text=True,
+                check=False,
+                cwd=REPO_ROOT,
+            )
+            if result.returncode != 0:
+                print(
+                    f"error: git mv failed for {_rel(r.old_path)}: "
+                    f"{result.stderr.strip()}",
+                    file=sys.stderr,
+                )
+                continue
+            applied += 1
+        except (subprocess.SubprocessError, FileNotFoundError) as e:
+            print(f"error: git mv failed: {e}", file=sys.stderr)
+    return applied
+
+
+def format_fixture_renames(
+    renames: list[FixtureRename], color: bool = True
+) -> str:
+    """Human-readable preview of fixture file renames."""
+    if not renames:
+        return ""
+    lines = ["\nFixture file renames:"]
+    for r in renames:
+        old = _rel(r.old_path)
+        new = _rel(r.new_path)
+        if color:
+            lines.append(f"  \033[31m{old}\033[0m → \033[32m{new}\033[0m")
+        else:
+            lines.append(f"  {old} → {new}")
+        lines.append(f"    referenced by {_rel(r.source_file)}:{r.source_line}")
+    return "\n".join(lines) + "\n"
+
+
 # ─────────────────────────────────────────────────────────────
 # Output
 # ─────────────────────────────────────────────────────────────
@@ -1253,7 +1618,10 @@ def format_human(
     return "\n".join(out) + "\n" if out else ""
 
 
-def format_counts(annotations: list[Annotation]) -> str:
+def format_counts(
+    annotations: list[Annotation],
+    ephemeral_names: list[EphemeralName] | None = None,
+) -> str:
     """Per-classification counts."""
     counts: dict[Classification, int] = defaultdict(int)
     distinct_ids: dict[Classification, set[str]] = defaultdict(set)
@@ -1276,6 +1644,32 @@ def format_counts(annotations: list[Annotation]) -> str:
     total = sum(counts.values())
     out.append("─" * 56)
     out.append(f"{'TOTAL':<28}  {total:>7}")
+
+    # Ephemeral names (IDs in function/fixture names)
+    if ephemeral_names:
+        name_counts: dict[Classification, int] = defaultdict(int)
+        name_distinct: dict[Classification, set[str]] = defaultdict(set)
+        for en in ephemeral_names:
+            if en.classification is None:
+                continue
+            name_counts[en.classification] += 1
+            name_distinct[en.classification].add(en.embedded_id)
+        if any(name_counts.values()):
+            out.append("")
+            name_total = sum(name_counts.values())
+            out.append(
+                f"{'Ephemeral Names':<28}  {'Count':>7}  {'Distinct IDs':>13}"
+            )
+            out.append("─" * 56)
+            for cls in SEVERITY_ORDER:
+                n = name_counts.get(cls, 0)
+                ids = len(name_distinct.get(cls, set()))
+                if n == 0:
+                    continue
+                out.append(f"  {cls.value:<26}  {n:>7}  {ids:>13}")
+            out.append("─" * 56)
+            out.append(f"  {'TOTAL':<26}  {name_total:>7}")
+
     return "\n".join(out) + "\n"
 
 
@@ -1301,6 +1695,50 @@ def format_json(annotations: list[Annotation]) -> str:
             }
         payload.append(row)
     return json.dumps(payload, indent=2)
+
+
+def format_ephemeral_names(
+    names: list[EphemeralName],
+    shown_classes: set[Classification],
+    color: bool = True,
+) -> str:
+    """Human-readable output for ephemeral finding IDs in function/fixture names."""
+    filtered = [n for n in names if n.classification in shown_classes]
+    if not filtered:
+        return ""
+
+    # Group by (classification, embedded_id)
+    groups: dict[tuple[Classification, str], list[EphemeralName]] = defaultdict(list)
+    for en in filtered:
+        if en.classification is not None:
+            groups[(en.classification, en.embedded_id)].append(en)
+
+    out: list[str] = []
+    for cls in SEVERITY_ORDER:
+        cls_groups = [(k, v) for k, v in groups.items() if k[0] == cls]
+        if not cls_groups:
+            continue
+        total = sum(len(v) for _, v in cls_groups)
+        header = (
+            f"\n=== EPHEMERAL NAMES: {_label(cls, color)} "
+            f"({total} names, {len(cls_groups)} distinct IDs) ==="
+        )
+        out.append(header)
+        out.append(
+            "  Remediation: rename functions/fixtures to remove ephemeral IDs"
+        )
+        for (_, key_id), ens in sorted(cls_groups, key=lambda kv: kv[0][1]):
+            first = ens[0]
+            plan_info = ""
+            if first.plan_entry is not None:
+                pe = first.plan_entry
+                state = "[x]" if pe.is_resolved else "[ ]"
+                plan_info = f"  {state} in {_rel(pe.source_file)}:{pe.source_line}"
+            out.append(f"  {key_id}{plan_info}")
+            for en in ens:
+                kind_tag = "fn" if en.kind == "function" else "fixture"
+                out.append(f"    [{kind_tag}] {_rel(en.file)}:{en.line}  {en.full_name}")
+    return "\n".join(out) + "\n" if out else ""
 
 
 # ─────────────────────────────────────────────────────────────
@@ -1492,9 +1930,27 @@ def main(argv: list[str] | None = None) -> int:
     annotations = extract_annotations(grep_hits)
     classify_all(annotations, plan_entries, plans)
 
+    # 3.5. Scan ephemeral names (IDs in fn names / fixture paths)
+    ephemeral_names = scan_ephemeral_names(
+        scope_paths, plan_entries, plans, include_ori=args.include_ori
+    )
+
     # 4. Filter
     if args.plan:
         annotations = filter_by_plan(annotations, args.plan)
+        # Also filter ephemeral names by plan
+        plan_name = args.plan
+        numeric = plan_name.lstrip("0") if plan_name.isdigit() else None
+        filtered_names: list[EphemeralName] = []
+        for en in ephemeral_names:
+            if en.plan_entry is not None and plan_name in en.plan_entry.plan.name:
+                filtered_names.append(en)
+                continue
+            if numeric is not None:
+                m = re.match(r"^[A-Z-]+-(\d+)-", en.embedded_id)
+                if m and m.group(1).lstrip("0") == numeric:
+                    filtered_names.append(en)
+        ephemeral_names = filtered_names
 
     color = sys.stdout.isatty() and not args.no_color
 
@@ -1535,12 +1991,14 @@ def main(argv: list[str] | None = None) -> int:
             Classification.STALE_COMPLETED_PLAN,
             Classification.ORPHAN,
         }
+
+        # Part A: comment annotations (existing behavior)
         to_fix = [a for a in annotations if a.classification in cleanup_classes]
-        edits = plan_file_edits(to_fix)
+        comment_edits = plan_file_edits(to_fix)
 
         # Account for annotations that are NOT in safe comment regions and were skipped
         edited_locs: set[tuple[Path, int]] = set()
-        for e in edits:
+        for e in comment_edits:
             for idx in e.changed_line_indices:
                 edited_locs.add((e.file, idx + 1))
             for idx in e.deleted_line_indices:
@@ -1550,8 +2008,15 @@ def main(argv: list[str] | None = None) -> int:
             if (ann.file, ann.line) not in edited_locs:
                 skipped.append(ann)
 
-        if not edits:
-            print("No removable annotations found.")
+        # Part B: ephemeral names in function/fixture identifiers
+        name_edits = plan_ephemeral_name_edits(ephemeral_names, cleanup_classes)
+        fixture_renames = collect_fixture_renames(ephemeral_names, cleanup_classes)
+
+        all_edits = comment_edits + name_edits
+        has_work = bool(all_edits) or bool(fixture_renames)
+
+        if not has_work:
+            print("No removable annotations or ephemeral names found.")
             if skipped:
                 print(
                     f"Note: {len(skipped)} annotation(s) were classified for "
@@ -1563,17 +2028,23 @@ def main(argv: list[str] | None = None) -> int:
 
         if not args.apply:
             # Dry-run: print unified diff preview
-            for edit in edits:
+            for edit in all_edits:
                 print(format_edit_diff(edit, color=color))
                 print()
-            total_changed = sum(len(e.changed_line_indices) for e in edits)
-            total_deleted = sum(len(e.deleted_line_indices) for e in edits)
+            if fixture_renames:
+                print(format_fixture_renames(fixture_renames, color=color))
+            total_changed = sum(len(e.changed_line_indices) for e in all_edits)
+            total_deleted = sum(len(e.deleted_line_indices) for e in all_edits)
             print("─" * 56, file=sys.stderr)
-            print(
-                f"DRY-RUN: would edit {len(edits)} files "
-                f"({total_changed} lines modified, {total_deleted} lines deleted)",
-                file=sys.stderr,
-            )
+            parts = []
+            if all_edits:
+                parts.append(
+                    f"would edit {len(all_edits)} files "
+                    f"({total_changed} lines modified, {total_deleted} lines deleted)"
+                )
+            if fixture_renames:
+                parts.append(f"would rename {len(fixture_renames)} fixture file(s)")
+            print(f"DRY-RUN: {'; '.join(parts)}", file=sys.stderr)
             if skipped:
                 print(
                     f"  skipped {len(skipped)} annotation(s) — not in a comment "
@@ -1583,14 +2054,20 @@ def main(argv: list[str] | None = None) -> int:
             print("Pass --apply to write the changes.", file=sys.stderr)
             return 2  # non-zero so callers know preview-only
 
-        # Apply
-        written = apply_file_edits(edits)
-        total_changed = sum(len(e.changed_line_indices) for e in edits)
-        total_deleted = sum(len(e.deleted_line_indices) for e in edits)
+        # Apply file edits (comments + ephemeral names)
+        written = apply_file_edits(all_edits)
+        total_changed = sum(len(e.changed_line_indices) for e in all_edits)
+        total_deleted = sum(len(e.deleted_line_indices) for e in all_edits)
         print(
             f"applied {written} files: "
             f"{total_changed} lines modified, {total_deleted} lines deleted"
         )
+
+        # Apply fixture renames
+        if fixture_renames:
+            renamed = apply_fixture_renames(fixture_renames)
+            print(f"renamed {renamed} fixture file(s)")
+
         if skipped:
             print(
                 f"skipped {len(skipped)} annotation(s) — not in a comment "
@@ -1608,11 +2085,12 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     if args.count:
-        print(format_counts(annotations))
+        print(format_counts(annotations, ephemeral_names=ephemeral_names))
         return 0
 
     shown_classes = select_shown_classes(args)
     body = format_human(annotations, shown_classes, color=color)
+    names_body = format_ephemeral_names(ephemeral_names, shown_classes, color=color)
 
     # Summary always shows counts regardless of filter — honest accounting
     summary_lines: list[str] = []
@@ -1641,14 +2119,36 @@ def main(argv: list[str] | None = None) -> int:
     summary_lines.append(f"  Hidden by current mode: {hidden_total:>5}")
     summary_lines.append("─" * 56)
 
-    if shown_total == 0:
+    # Ephemeral name counts in summary
+    name_shown = [n for n in ephemeral_names if n.classification in shown_classes]
+    if ephemeral_names:
+        name_counts: dict[Classification, int] = defaultdict(int)
+        for en in ephemeral_names:
+            if en.classification is not None:
+                name_counts[en.classification] += 1
+        name_total = sum(name_counts.values())
+        summary_lines.append(f"  Ephemeral names:        {name_total:>5}")
+        for cls in SEVERITY_ORDER:
+            n = name_counts.get(cls, 0)
+            if n == 0:
+                continue
+            summary_lines.append(f"    {cls.value:<23} {n:>5}")
+        summary_lines.append("─" * 56)
+
+    if shown_total == 0 and not name_shown:
         print("No annotations match the current mode.")
     else:
-        print(body, end="")
+        if body:
+            print(body, end="")
+        if names_body:
+            print(names_body, end="")
     print("\n".join(summary_lines))
 
     # Exit code: non-zero if stale/orphan exist and default mode
-    if not (args.all or args.active_only) and shown_total > 0:
+    has_stale_names = any(
+        en.classification in CLEANUP_CLASSIFICATIONS for en in ephemeral_names
+    )
+    if not (args.all or args.active_only) and (shown_total > 0 or has_stale_names):
         return 1
     return 0
 
