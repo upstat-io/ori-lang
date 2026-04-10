@@ -50,17 +50,19 @@ All support `--help`, `--no-color`/`--color`.
 
 | Script | Purpose | Key flags |
 |--------|---------|-----------|
+| `diagnose-aot.sh` | All-in-one: build+run+leak+RC+IR | `--valgrind`, `--rc-trace`, `--verbose`, `--release`, `--both-builds` |
+| `dual-exec-debug.sh` | Interpreter vs AOT comparison | `--verbose`, `--keep-temp` |
+| `dual-exec-verify.sh` | Batch interpreter vs LLVM | `--test-only`, `--main-only`, `--json` |
+| `rc-stats.sh` | RC balance per function | `--block-level`, `--optimized`, `--compare-awk` |
+| `codegen-audit.sh` | Static RC/COW/ABI analysis | `--strict`, `--function` |
 | `ir-dump.sh` | LLVM IR | `--raw`, `--optimized`, `--function` |
 | `arc-dump.sh` | ARC IR post-lowering | `--raw`, `--function` |
-| `ir-diff.sh` | Compare two programs' IR | |
-| `disasm-ori.sh` | Native disassembly | |
-| `rc-stats.sh` | RC balance per function | `--block-level` (per-block breakdown), `--optimized` (post-opt IR), `--compare-awk` (migration check) |
-| `codegen-audit.sh` | Static RC/COW/ABI analysis | `--strict`, `--function` |
-| `diagnose-aot.sh` | All-in-one: build+run+leak+RC+IR | `--valgrind`, `--verbose`, `--both-builds` |
-| `dual-exec-debug.sh` | Interpreter vs AOT comparison | `--verbose` |
-| `debug-release-compare.sh` | Debug vs release comparison | |
+| `ir-diff.sh` | Compare two programs' IR | `--raw`, `--optimized`, `--function`, `--context` |
+| `disasm-ori.sh` | Native disassembly | `--all`, `--function`, `--symbols` |
+| `debug-release-compare.sh` | Debug vs release comparison | `--verbose` |
 | `valgrind-aot.sh` | Valgrind memory errors | defaults to `tests/valgrind/` |
-| `dual-exec-verify.sh` | Batch interpreter vs LLVM | `--test-only`, `--main-only`, `--json` |
+| `check-debug-flags.sh` | Validate `ORI_*` flag consistency | |
+| `self-test.sh` | Self-test all scripts against fixtures | |
 
 **Data sources:**
 - `rc-stats.sh` consumes compiler JSON via `ORI_AUDIT_CODEGEN=1` (SSOT: `RcOpKind` in `rc_histogram.rs`)
