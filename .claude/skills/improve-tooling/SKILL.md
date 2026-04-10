@@ -1,6 +1,6 @@
 ---
 name: improve-tooling
-description: "AUTO-TRIGGER: Improve testing, diagnostic, debugging, or developer tooling. TRIGGER when: (1) a script in diagnostics/ or scripts/ produces confusing output, missing information, or wrong results, (2) test-all.sh, clippy-all.sh, or any test harness has gaps, missing coverage, or unclear failure output, (3) dual-exec-verify.sh, diagnose-aot.sh, or any diagnostic script doesn't cover a case you need, (4) you work around a tool limitation instead of fixing the tool, (5) you notice a script is missing --help, error handling, or useful flags, (6) you manually do something a script should automate, (7) RETROSPECTIVE — PER SUBSECTION (primary): invoked immediately after marking a plan subsection complete (e.g., {NN}.1, {NN}.2) to look back at THAT subsection's debugging journey while pain points are still fresh, (8) RETROSPECTIVE — SECTION CLOSE (sweep): invoked at the end of a roadmap/plan section as an integration safety net that verifies per-subsection retrospectives ran and adds only NEW items from cross-subsection patterns. DO NOT TRIGGER for: normal tool usage that works correctly, or one-off ad-hoc commands."
+description: "AUTO-TRIGGER: Improve testing, diagnostic, debugging, or developer tooling. TRIGGER when: (1) a script in diagnostics/ or scripts/ produces confusing output, missing information, or wrong results, (2) test-all.sh, clippy-all.sh, or any test harness has gaps, missing coverage, or unclear failure output, (3) dual-exec-verify.sh, diagnose-aot.sh, or any diagnostic script doesn't cover a case you need, (4) you work around a tool limitation instead of fixing the tool, (5) you notice a script is missing --help, error handling, or useful flags, (6) you manually do something a script should automate, (7) RETROSPECTIVE — PER SUBSECTION (primary): invoked immediately after marking a plan subsection complete (e.g., {NN}.1, {NN}.2) to look back at THAT subsection's debugging journey while pain points are still fresh, (8) RETROSPECTIVE — BUG-FIX CLOSE: invoked at /fix-bug Phase 5 completion checklist step 8 to capture root-cause analysis tooling gaps, (9) RETROSPECTIVE — SECTION CLOSE (sweep): invoked at the end of a roadmap/plan section as an integration safety net that verifies per-subsection and bug-fix retrospectives ran and adds only NEW items from cross-cutting patterns. DO NOT TRIGGER for: normal tool usage that works correctly, or one-off ad-hoc commands."
 ---
 
 # Improve Tooling
@@ -11,7 +11,7 @@ When you encounter friction, gaps, or deficiencies in any developer tooling — 
 
 **Tooling grows organically.** You cannot predict every use case ahead of time. The way the diagnostic suite gets sharp is by ratcheting it up by one improvement after every subsection, every bug fix, every debugging session — guided by what was *actually* painful, not what was imagined to be painful. This skill has two trigger modes: **reactive** (mid-task friction, the original auto-trigger) and **reflective** (post-subsection and post-section retrospective — see Retrospective Mode below).
 
-**Pain memory decays fast.** This is why retrospectives must fire at the smallest natural unit of work, not at section close. By the time you've finished six subsections plus TPR plus hygiene review, the friction from subsection `.1` is days old and three reviews ago — you have already smoothed over it. Retrospective Mode therefore has TWO granularities: per-subsection (the primary capture mechanism, run while the journey is fresh) and section-close (an integration sweep that catches cross-subsection patterns invisible at per-item scope).
+**Pain memory decays fast.** This is why retrospectives must fire at the smallest natural unit of work, not at section close. By the time you've finished six subsections plus TPR plus hygiene review, the friction from subsection `.1` is days old and three reviews ago — you have already smoothed over it. Retrospective Mode therefore has THREE granularities: per-subsection (the primary capture mechanism, run while the journey is fresh), bug-fix close (captures root-cause analysis friction — mandated by `/fix-bug` Phase 5), and section-close (an integration sweep that catches cross-cutting patterns invisible at finer scope).
 
 ## Trigger Conditions
 
@@ -30,14 +30,14 @@ This skill auto-triggers when ANY of these are true:
 
 These are the tools you own and must improve:
 
-| Category | Location | Examples |
-|----------|----------|----------|
-| **Test harnesses** | `./test-all.sh`, `./clippy-all.sh`, `./fmt-all.sh`, `./build-all.sh` | Test coverage gaps, unclear failure output, missing test categories |
-| **Diagnostic scripts** | `diagnostics/` | `diagnose-aot.sh`, `dual-exec-verify.sh`, `ir-dump.sh`, `rc-stats.sh`, `codegen-audit.sh`, `valgrind-aot.sh` |
-| **Build/release scripts** | `scripts/` | `bump-build.sh`, `sync-version.sh`, `release.sh`, `perf-baseline.sh`, `cow-benchmark.sh` |
-| **Test utilities** | `scripts/regen_expected.py`, `scripts/extract_tests.py` | Missing features, poor error messages |
-| **Diagnostic common** | `diagnostics/_common.sh` | Shared helpers, color output, `--help` generation |
-| **LLVM test harness** | `./llvm-test.sh` | Missing test patterns, unclear failure reporting |
+| Category | Location | Canonical reference |
+|----------|----------|---------------------|
+| **Test harnesses** | `./test-all.sh`, `./clippy-all.sh`, `./fmt-all.sh`, `./build-all.sh` | `CLAUDE.md` §Commands |
+| **Diagnostic scripts** | `diagnostics/` | `.claude/rules/diagnostic.md` §Diagnostic Scripts — full table with all scripts and flags |
+| **Build/release scripts** | `scripts/` | `CLAUDE.md` §Commands |
+| **Test utilities** | `scripts/regen_expected.py`, `scripts/extract_tests.py` | — |
+| **Diagnostic common** | `diagnostics/_common.sh` | `.claude/rules/diagnostic.md` |
+| **LLVM test harness** | `./llvm-test.sh` | `CLAUDE.md` §Commands |
 
 ## Workflow
 
@@ -75,15 +75,7 @@ If the tool gained new flags or capabilities:
 
 ## Anti-Patterns (BANNED)
 
-These are all forms of "working around the tool" — they trigger this skill:
-
-- **Piping and grepping** script output to find what you need → fix the script's output format
-- **Running 3 commands** to get one answer → make a script that does all three
-- **Manually interpreting** IR/RC/codegen output → add a `--summary` or `--check` flag
-- **Copy-pasting** output between tools → add piping support or combine the tools
-- **Ignoring** a tool's wrong output and doing the check mentally → fix the tool
-- **Writing a one-off script** for something a permanent tool should do → extend the permanent tool
-- **Saying "the tool doesn't support X"** and moving on → add support for X
+The canonical list of banned tooling workarounds lives in `CLAUDE.md` §"ALWAYS improve tooling, NEVER work around it". All of those anti-patterns trigger this skill. In summary: any action that works *around* a tool's limitation instead of *fixing* the tool is banned — piping/grepping output, running multiple commands for one answer, manually interpreting output, ignoring wrong output, writing one-off scripts, or saying "the tool doesn't support X" and moving on.
 
 ## Quality Standards for Tool Improvements
 
@@ -101,14 +93,15 @@ Every tool improvement must meet these standards:
 
 Retrospective mode is **reflective, not reactive**. It runs even when nothing felt blocked. The premise: small frictions normalize and disappear from memory within hours, so you must capture them while the debugging journey is fresh.
 
-It has **two granularities**, fired at different boundaries:
+It has **three granularities**, fired at different boundaries:
 
 | Granularity | Trigger | Scope | Purpose |
 |---|---|---|---|
 | **Per-subsection** (PRIMARY) | Immediately after a subsection's tasks are all `[x]` and the subsection is marked `complete` — BEFORE moving to the next subsection | Just THIS subsection's debugging journey | Fresh-pain capture. The main mechanism by which tooling grows. |
-| **Section-close** (SWEEP) | At the end of a full section, after `/tpr-review` and `/impl-hygiene-review` are clean | The section as an integrated whole | Verify per-subsection retrospectives ran. Add only NEW items from cross-subsection patterns invisible at per-item scope. Safety net, not main capture. |
+| **Bug-fix close** | After `/fix-bug` completion checklist step 8 — AFTER TPR and hygiene are clean | The fix section's root-cause analysis and debugging journey | Bug fixes are the richest source of tooling gaps — you've just fought the diagnostic surface during root-cause analysis. Mandated by `/fix-bug` Phase 5. |
+| **Section-close** (SWEEP) | At the end of a full section, after `/tpr-review` and `/impl-hygiene-review` are clean | The section as an integrated whole | Verify per-subsection and bug-fix retrospectives ran. Add only NEW items from cross-cutting patterns invisible at finer scope. Safety net, not main capture. |
 
-**Why two granularities:** the per-subsection retrospective is where almost all real value lives — it fires while you can still remember which `dbg!` you added to chase what symptom in which file. The section-close sweep exists because some friction is only visible *after integration*: e.g., "I noticed I ran the same 3 commands every time I switched between subsections .2 and .4" or "the test failure messages from .1 only became confusing once they collided with the new variants from .3." Without the sweep, those cross-cutting patterns get lost. Without the per-subsection capture, *everything* gets lost.
+**Why three granularities:** the per-subsection retrospective is where almost all real value lives — it fires while you can still remember which `dbg!` you added to chase what symptom in which file. The bug-fix close retrospective captures tooling gaps from root-cause analysis — a different debugging shape than subsection work (more diagnostic scripts, more tracing, more ad-hoc instrumentation). The section-close sweep exists because some friction is only visible *after integration*: e.g., "I noticed I ran the same 3 commands every time I switched between subsections .2 and .4" or "the test failure messages from .1 only became confusing once they collided with the new variants from .3." Without the sweep, those cross-cutting patterns get lost. Without the per-subsection and bug-fix captures, *everything* gets lost.
 
 ### Per-Subsection Workflow (PRIMARY — fires after every subsection)
 
@@ -130,7 +123,7 @@ When invoked immediately after marking a subsection complete:
 
 5. **Implement accepted improvements NOW** — zero deferral. The improvement IS subsection close-out work. Do not start the next subsection until improvements are committed.
 
-6. **Commit improvements separately** via `/commit-push` with a message like `build(diagnostics): add --per-block flag to codegen-audit.sh — surfaced by {plan}/section-NN.M retrospective`. Tool improvements have their own provenance and reviewability — never bundled into the subsection's implementation commit. **Use a valid conventional-commit type** — `build` for dev scripts / build infra, `test` for test-harness changes, `chore` for general tooling, `ci` for CI config, `docs` for tool docs. Do NOT use `tools(...)` as a type — the pre-commit hook (`lefthook commit-msg`) enforces the standard set (`feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert`) and will reject any other type outright. Pick the type that reflects the change's actual nature, not a made-up category.
+6. **Commit improvements separately** via `/commit-push` with a message like `build(diagnostics): add --per-block flag to codegen-audit.sh — surfaced by {plan}/section-NN.M retrospective`. Tool improvements have their own provenance and reviewability — never bundled into the subsection's implementation commit. Use a valid conventional-commit type per `/commit-push` (e.g., `build` for dev scripts, `test` for test-harness, `chore` for general tooling, `ci` for CI, `docs` for tool docs).
 
 7. **Verify the improvement actually solves the friction** by re-running the original workflow against the improved tool. If it doesn't noticeably help, iterate until it does.
 
@@ -140,11 +133,30 @@ When invoked immediately after marking a subsection complete:
 - **Improvements made** — list each tool changed + the friction it removes, with commit hashes
 - **No gaps** — document the negative finding briefly: "Retrospective: no tooling gaps — subsection {NN}.M relied entirely on existing scripts X, Y which were sufficient." The negative finding is itself the deliverable — it proves you actually looked, not that you skipped.
 
+**Where to persist the outcome:** Record in the owning plan's subsection completion notes (e.g., append to the `[x]` line or add a sub-bullet: `Tooling retrospective: improvements in commits {hashes}` or `Tooling retrospective: no gaps`). This is the durable record that the section-close sweep checks in step 1. If no owning plan exists (ad-hoc work), record in the commit message body of the last improvement commit.
+
+### Bug-Fix Close Workflow (fires after every `/fix-bug` completion)
+
+When invoked at `/fix-bug` Phase 5 completion checklist step 8, AFTER TPR and hygiene are clean:
+
+1. **Reconstruct THIS bug's debugging journey.** The scope is the fix section (`fix-BUG-XX-NNN.md`), not a plan subsection. Ask:
+   - Which `diagnostics/` scripts did I run during root-cause analysis? Did any produce confusing or incomplete output?
+   - Where did I add `dbg!` / `tracing::debug!` to chase the root cause? What was each one looking for? Could a script flag have surfaced the same information?
+   - Where did the original failure message or test output fail to explain *why* something was wrong?
+   - Did the TDD matrix writing reveal missing test helpers or assertion utilities?
+   - Did I manually run `ORI_CHECK_LEAKS=1`, `ORI_TRACE_RC=1`, or other environment flags that a script should orchestrate?
+
+2. **Forward-look.** Ask: "If this same bug class recurs in a different code path, what tool/flag/diagnostic would make root-cause analysis 10 minutes faster?"
+
+3. **List, filter, implement, commit, verify, document** — same rules as per-subsection (zero deferral, separate commits per `/commit-push`, re-run verification, update docs).
+
+**Output:** Record in the fix section's completion checklist: either "Tooling retrospective: improvements in commits {hashes}" or "Tooling retrospective: no gaps — root-cause analysis used scripts X, Y which were sufficient." This is the durable record that the section-close sweep verifies.
+
 ### Section-Close Sweep Workflow (SAFETY NET — fires once per section)
 
 When invoked at the end of a section, after `/tpr-review` and `/impl-hygiene-review` are clean:
 
-1. **Verify per-subsection retrospectives actually ran.** For each subsection in this section, confirm there is either an "Improvements made" entry (with commits) or a documented "no gaps" negative finding. If any subsection skipped its retrospective, **STOP** — go back and run it now. The sweep cannot substitute for the missing per-subsection captures; it can only catch what they missed.
+1. **Verify per-subsection and bug-fix retrospectives actually ran.** For each subsection in this section, confirm there is either an "Improvements made" entry (with commits) or a documented "no gaps" negative finding. For each `/fix-bug` completed during this section, confirm the fix section's completion checklist has a "Tooling retrospective" entry. If any retrospective was skipped, **STOP** — go back and run it now. The sweep cannot substitute for the missing captures; it can only catch what they missed.
 
 2. **Look for cross-subsection patterns invisible at per-item scope:**
    - Did I run the same command sequence transitioning between *different* subsections? (e.g., "every time I moved from a typeck change to a codegen change, I had to manually clear the salsa cache and re-run two diagnostic scripts")
@@ -162,7 +174,7 @@ When invoked at the end of a section, after `/tpr-review` and `/impl-hygiene-rev
 - **Cross-cutting improvements made** — list each tool changed + the integration pattern it addresses
 - **No new gaps beyond per-subsection captures** — "Section-close sweep: per-subsection retrospectives covered everything; no cross-subsection patterns required new tooling." This is a perfectly valid (and common) outcome when per-subsection captures were thorough.
 
-### Candidate Format (both granularities)
+### Candidate Format (all granularities)
 
 For each candidate, articulate:
 - **Tool**: which script/harness needs the change (e.g., `diagnostics/codegen-audit.sh`)
@@ -171,7 +183,7 @@ For each candidate, articulate:
 - **Payoff**: how it would have shortened *this* subsection/section's work, or how it sharpens future debugging
 - **Source**: which subsection (`{NN}.M`) or which cross-pattern surfaced it — used in commit messages
 
-### Filter Criteria (both granularities)
+### Filter Criteria (all granularities)
 
 Not every small annoyance becomes a tool change. Apply this filter:
 
@@ -183,7 +195,7 @@ Not every small annoyance becomes a tool change. Apply this filter:
 
 ### Anti-Patterns Specific to Retrospective Mode
 
-- **"Nothing was painful, skipping retrospective."** — The retrospective is mandatory at every subsection close (and the section-close sweep). The fact that nothing *felt* painful is exactly why the look-back is needed: small frictions become invisible. Force yourself to enumerate the actual commands run; gaps will surface. If genuinely none, the negative-finding documentation IS the deliverable.
+- **"Nothing was painful, skipping retrospective."** — The retrospective is mandatory at every subsection close, bug-fix close, and section-close sweep. The fact that nothing *felt* painful is exactly why the look-back is needed: small frictions become invisible. Force yourself to enumerate the actual commands run; gaps will surface. If genuinely none, the negative-finding documentation IS the deliverable.
 - **"I'll batch all my retrospectives at section close instead."** — BANNED. This is exactly the failure mode that motivated splitting into per-subsection granularity. By section close you have already forgotten the pain points from the early subsections. The section-close sweep can ONLY catch cross-cutting patterns; it cannot reconstruct per-item friction.
 - **"I'll add a TODO comment for the tool change."** — Banned. Either implement the improvement now or don't claim it's needed. Comments are not tracking.
 - **"The improvement would touch 3 scripts, that's too much."** — CLAUDE.md correctness rule applies: scope, effort, and complexity are irrelevant. If the right improvement crosses scripts, that IS the improvement.
@@ -198,7 +210,7 @@ The reactive auto-trigger catches friction *as it happens*, but it has blind spo
 - Output that's *interpretable but slow* never triggers — you read it, you continue, the friction normalizes
 - Forward-looking instrumentation ("logging that doesn't exist yet but would help future debugging") cannot be reactive by definition
 
-Retrospective mode covers all three. The per-subsection cadence ensures the capture happens while memory is hot; the section-close sweep ensures cross-cutting patterns aren't lost. Together, they're the difference between a tooling suite that grows by accident and one that grows on purpose.
+Retrospective mode covers all three. The per-subsection cadence ensures the capture happens while memory is hot; the bug-fix close captures root-cause analysis friction (the richest source of tooling gaps); the section-close sweep ensures cross-cutting patterns aren't lost. Together, they're the difference between a tooling suite that grows by accident and one that grows on purpose.
 
 ## Examples
 
