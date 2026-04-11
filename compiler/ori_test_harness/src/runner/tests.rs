@@ -96,7 +96,7 @@ fn test_run_single_file_invokes_strategy_once() {
     create_test_file(dir.path(), "basic.ori", "// CHECK: some_pattern\n");
 
     let strategy = MockTestStrategy { succeed: true };
-    let summary = run_test_directory(dir.path(), &strategy);
+    let summary = run_test_directory(dir.path(), &strategy, false);
     assert!(
         summary.is_success(),
         "failures: {:?}, errors: {:?}",
@@ -117,7 +117,7 @@ fn test_run_with_revisions_invokes_strategy_per_revision() {
     );
 
     let strategy = MockTestStrategy { succeed: true };
-    let summary = run_test_directory(dir.path(), &strategy);
+    let summary = run_test_directory(dir.path(), &strategy, false);
     assert!(summary.is_success());
     assert_eq!(summary.passed, 2); // once per revision
 }
@@ -129,7 +129,7 @@ fn test_run_summary_reports_correct_pass_fail_counts() {
     create_test_file(dir.path(), "fail.ori", "// CHECK: ok\n");
 
     let strategy = FailVerifyStrategy;
-    let summary = run_test_directory(dir.path(), &strategy);
+    let summary = run_test_directory(dir.path(), &strategy, false);
     // Both files have CHECK directives, both get executed, both fail at verify
     assert_eq!(summary.failed, 2);
     assert!(!summary.is_success());
@@ -160,7 +160,7 @@ fn test_mock_strategy_mismatch_produces_diff_in_failure() {
     create_test_file(dir.path(), "mismatch.ori", "// CHECK: pattern\n");
 
     let strategy = FailVerifyStrategy;
-    let summary = run_test_directory(dir.path(), &strategy);
+    let summary = run_test_directory(dir.path(), &strategy, false);
     assert!(!summary.is_success());
     assert_eq!(summary.failed, 1);
     // Verify the failure message contains the verification error
@@ -185,7 +185,7 @@ fn test_mock_strategy_directive_filtering_by_revision() {
 
     // Strategy that succeeds — validates the runner calls execute per revision
     let strategy = MockTestStrategy { succeed: true };
-    let summary = run_test_directory(dir.path(), &strategy);
+    let summary = run_test_directory(dir.path(), &strategy, false);
     assert!(summary.is_success(), "failures: {:?}", summary.failures);
     // Two revisions → two execute calls → two passes
     assert_eq!(summary.passed, 2);
@@ -200,7 +200,7 @@ fn test_run_empty_directory_fails_as_empty_corpus() {
     let dir = tempfile::tempdir().expect("tempdir");
 
     let strategy = MockTestStrategy { succeed: true };
-    let summary = run_test_directory(dir.path(), &strategy);
+    let summary = run_test_directory(dir.path(), &strategy, false);
     assert!(!summary.is_success());
     assert_eq!(summary.failed, 1);
     assert!(summary.failures[0].contains("no .ori test files"));
@@ -216,7 +216,7 @@ fn test_run_file_with_zero_directives_fails_as_orphan() {
     );
 
     let strategy = MockTestStrategy { succeed: true };
-    let summary = run_test_directory(dir.path(), &strategy);
+    let summary = run_test_directory(dir.path(), &strategy, false);
     assert!(!summary.is_success());
     assert_eq!(summary.failed, 1);
     assert!(summary.failures[0].contains("no directives found"));
@@ -228,7 +228,7 @@ fn test_run_strategy_execute_error_counted_as_failure() {
     create_test_file(dir.path(), "exec_fail.ori", "// CHECK: pattern\n");
 
     let strategy = MockTestStrategy { succeed: false };
-    let summary = run_test_directory(dir.path(), &strategy);
+    let summary = run_test_directory(dir.path(), &strategy, false);
     assert!(!summary.is_success());
     assert_eq!(summary.failed, 1);
     assert!(summary.failures[0].contains("execute failed"));
@@ -240,7 +240,7 @@ fn test_run_strategy_verify_error_counted_as_failure() {
     create_test_file(dir.path(), "verify_fail.ori", "// CHECK: pattern\n");
 
     let strategy = FailVerifyStrategy;
-    let summary = run_test_directory(dir.path(), &strategy);
+    let summary = run_test_directory(dir.path(), &strategy, false);
     assert!(!summary.is_success());
     assert_eq!(summary.failed, 1);
     assert!(summary.failures[0].contains("verify failed"));
@@ -257,7 +257,7 @@ fn test_run_file_with_parse_errors_reports_them() {
     );
 
     let strategy = MockTestStrategy { succeed: true };
-    let summary = run_test_directory(dir.path(), &strategy);
+    let summary = run_test_directory(dir.path(), &strategy, false);
     assert!(!summary.is_success());
     assert_eq!(summary.failed, 1);
     assert!(!summary.errors.is_empty());
