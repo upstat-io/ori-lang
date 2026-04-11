@@ -92,21 +92,21 @@ fn test_bless_cleans_old_revision_files() {
 }
 
 #[test]
-fn test_bless_cleans_old_revision_specific_files() {
+fn test_bless_no_revisions_does_not_scan_directory() {
     let dir = tempfile::tempdir().expect("tempdir");
     let test_path = dir.path().join("basic.ori");
 
-    // Create stale revision-specific baselines (from before revisions were removed)
-    let stale_debug = dir.path().join("basic.debug.ll");
-    let stale_release = dir.path().join("basic.release.ll");
-    std::fs::write(&stale_debug, "debug baseline").expect("write");
-    std::fs::write(&stale_release, "release baseline").expect("write");
+    // Create files that LOOK like revision baselines but could be artifact roles
+    let role_file = dir.path().join("basic.before.ll");
+    std::fs::write(&role_file, "before baseline").expect("write");
 
-    // Now the test has no revisions — clean up stale revision baselines
+    // No revisions active — function should NOT scan and delete
     let deleted = clean_stale_baselines(&test_path, "ll", &[""]).expect("clean");
-    assert_eq!(deleted.len(), 2);
-    assert!(!stale_debug.exists());
-    assert!(!stale_release.exists());
+    assert!(deleted.is_empty(), "no-revision branch should not scan");
+    assert!(
+        role_file.exists(),
+        "artifact role files must not be deleted"
+    );
 }
 
 #[test]
