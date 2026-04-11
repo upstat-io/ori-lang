@@ -141,7 +141,7 @@ Extend the existing `trace_pipeline_checkpoint()` with an optional observer call
   }
   ```
 
-- [ ] Update all call sites of `trace_pipeline_checkpoint()` in `mod.rs`, `postprocess.rs`, and `trmc.rs` to pass `config.observer` as the new parameter. There are 15 existing call sites across these three files — verify each is updated.
+- [ ] Update all call sites of `trace_pipeline_checkpoint()` in `mod.rs`, `postprocess.rs`, and `trmc.rs` to pass `config.observer` as the new parameter. There are 16 existing call sites across these three files (3 in `trmc.rs`, 6 in `mod.rs`, 7 in `postprocess.rs`) — verify each is updated.
 
 - [ ] Add the observer field construction with `observer: None` to ALL existing `AimsPipelineConfig` construction sites (in `run_arc_pipeline()` at `compiler/ori_arc/src/pipeline/mod.rs:47` and in `run_aims_pipeline_all()` at `compiler/ori_arc/src/pipeline/aims_pipeline/batch.rs`). This ensures zero behavior change in production.
 
@@ -160,7 +160,7 @@ Extend the existing `trace_pipeline_checkpoint()` with an optional observer call
       uniqueness_summaries: &FxHashMap<Name, UniquenessSummary>,
       aims_contracts: &FxHashMap<Name, MemoryContract>,
       verify_arc: bool,
-      observer: &CheckpointObserver<'_>,
+      observer: &'a CheckpointObserver<'a>,
   ) -> Result<Vec<ArcProblem>, Vec<crate::verify::VerifyError>>
   ```
 
@@ -178,7 +178,7 @@ Extend the existing `trace_pipeline_checkpoint()` with an optional observer call
 
 ## 03.2 ARC IR Formatter Relocation and Snapshot Serialization
 
-**File(s):** `compiler/ori_arc/src/ir/format.rs` (new), `compiler/oric/src/arc_dump/mod.rs` (refactored)
+**File(s):** `compiler/ori_arc/src/ir/format.rs` (new), `compiler/oric/src/arc_dump/mod.rs` (refactored), `compiler/oric/src/arc_dot/node.rs` (updated imports)
 
 The ARC IR formatter (`dump_function`) currently lives in `compiler/oric/src/arc_dump/mod.rs`. This is downstream of `ori_arc` — `ori_arc` cannot call it. For snapshot tests to capture formatted IR from inside the observer callback, the core formatting logic must live in `ori_arc` (its canonical home — the IR is defined there). The `oric::arc_dump` module becomes a thin wrapper that calls the `ori_arc` formatter.
 
@@ -201,7 +201,9 @@ The ARC IR formatter (`dump_function`) currently lives in `compiler/oric/src/arc
 
 - [ ] Move the body of `dump_function()` and its helper functions (`format_type`, `fmt_instr`, `fmt_terminator`) from `compiler/oric/src/arc_dump/mod.rs` and `compiler/oric/src/arc_dump/instr.rs` into `compiler/ori_arc/src/ir/format.rs` (and `compiler/ori_arc/src/ir/format/instr.rs` if needed for the instruction formatter). The original code uses `ori_arc` types (`ArcFunction`, `Ownership`, `RcStrategy`, `ValueRepr`) and `ori_ir`/`ori_types` types — all available in `ori_arc`. The only `oric`-specific dependency is the call to `run_arc_pipeline_all()` inside `dump_arc_ir()`, which stays in `oric`.
 
-- [ ] Refactor `compiler/oric/src/arc_dump/mod.rs` to be a thin wrapper:
+- [ ] Update `compiler/oric/src/arc_dot/node.rs`: this file imports `crate::arc_dump::instr::{fmt_instr, fmt_terminator}` directly (line 17). After relocating the formatter helpers to `ori_arc::ir::format`, update `arc_dot/node.rs` to import from `ori_arc::ir::format` instead. If `arc_dump/instr.rs` is retained as a thin re-export wrapper, this import can stay — but verify compilation.
+
+- [ ] Refactor `compiler/oric/src/arc_dump/mod.rs` to be a thin wrapper (re-exporting `ori_arc::ir::format` helpers so `arc_dot` and other `oric`-internal consumers continue to compile):
   ```rust
   // dump_function now delegates to ori_arc's canonical formatter
   fn dump_function(out: &mut String, func: &ArcFunction, pool: &Pool, interner: &StringInterner) {
@@ -267,7 +269,7 @@ Wire the snapshot capture into cargo tests using the shared harness (§02). Test
 - [ ] Implement `AimsSnapshotStrategy` in `compiler/oric/tests/aims_snapshot_strategy.rs`:
   - `execute()`:
     1. Parse `// @test-arc-pass: <pass_name>` directives from the test file to determine which passes to snapshot
-    2. Compile the `.ori` file through the full pipeline using `CompilerDb`/`SourceFile`. The data flow is: `.ori` source → `CompilerDb` → type check → canonicalize → `lower_to_arc()` → `compute_aims_contracts()` → `run_arc_pipeline_with_observer()`. **Important visibility constraint**: `canonicalize_cached()` is `pub(crate)` in `oric` (`query/mod.rs:300`), and `codegen_pipeline.rs` is a private module (`commands/mod.rs:25`) with `run_codegen_pipeline` as `pub(super)`. Neither is callable from integration tests. **Required**: add a public test-support function to `oric` (e.g., `pub fn compile_to_arc_cache(source: &SourceFile, db: &CompilerDb) -> FxHashMap<Name, (ArcFunction, Vec<ArcFunction>)>`) gated behind `#[cfg(test)]` or in a `test_support` module. This avoids duplicating the lowering orchestration and provides a clean API for the snapshot strategy.
+    2. Compile the `.ori` file through the full pipeline using `CompilerDb`/`SourceFile`. The data flow is: `.ori` source → `CompilerDb` → type check → canonicalize → `lower_to_arc()` → `compute_aims_contracts()` → `run_arc_pipeline_with_observer()`. **Important visibility constraint**: `canonicalize_cached()` is `pub(crate)` in `oric` (`query/mod.rs:300`), and `codegen_pipeline.rs` is a private module (`commands/mod.rs:25`) with `run_codegen_pipeline` as `pub(super)`. Neither is callable from integration tests. **Required**: add a public test-support function to `oric` in an always-compiled `pub mod test_support` module (NOT `#[cfg(test)]` — integration tests compile the normal library build and cannot see `#[cfg(test)]` items). E.g., `pub fn compile_to_arc_cache(source: &SourceFile, db: &CompilerDb) -> FxHashMap<Name, (ArcFunction, Vec<ArcFunction>)>` in `compiler/oric/src/test_support.rs`. This avoids duplicating the lowering orchestration and provides a clean API for the snapshot strategy.
     3. **Capture `lowered.arc` baseline**: BEFORE calling `run_arc_pipeline_with_observer()`, format each `ArcFunction` from the `arc_cache` using `ori_arc::ir::format::format_function()`. This is the pre-AIMS-pipeline state. The checkpoint observer captures subsequent per-pass `.after.arc` snapshots.
     4. For each snapshot, resolve paths using the harness artifact API:
        - `expected = artifact::resolve_expected(test_path, "arc", revision)` — baseline lives alongside the `.ori` test file
@@ -279,7 +281,7 @@ Wire the snapshot capture into cargo tests using the shared harness (§02). Test
     2. If no baseline exists and bless mode is active, create it
     3. If no baseline exists and bless mode is inactive, fail with a clear message listing which artifact is missing
   - `baseline_suffix()`: return `Some("arc")` to enable stale baseline cleanup via `clean_stale_baselines()`
-  - `clean_stale_revisions()`: implement to clean up orphaned `{test_stem}.{function}.{pass}.after.arc` files when a test file is removed or renamed
+  - `clean_stale_revisions()`: implement to clean up revision-specific artifacts for the **current** `test_path` only (the harness only calls this hook for discovered test files, not for deleted/renamed files — see `runner/mod.rs:71-79`). For global orphan cleanup of deleted/renamed tests, add a separate bless-sweep task in 03.N (e.g., `ORI_BLESS=1 cargo test -p oric --test aims_snapshots` followed by manual review of unblessed baselines)
 
 - [ ] Add `ori_test_harness` as dev-dependency of `oric` (it is already a workspace crate from §02).
 
@@ -404,6 +406,23 @@ Create the initial corpus of snapshot tests covering the 5 priority passes. Each
   Impact: Naming convention violation.
   Basis: direct_file_inspection. Confidence: high.
   Resolved: Fixed on 2026-04-11. Renamed all proposed Rust test functions to AAA format (e.g., `checkpoint_observer_with_all_passes_configured_captures_all_phase_names_in_order`).
+
+**Round 3 findings (iteration 3):**
+
+- [x] `[TPR-03-001-codex-r3][medium]` `section-03-aims-snapshots.md:202` — GAP: `arc_dot/node.rs` imports `fmt_instr`/`fmt_terminator` from `arc_dump/instr.rs`. Moving helpers to `ori_arc` without updating `arc_dot` would break compilation.
+  Resolved: Fixed on 2026-04-11. Added `arc_dot/node.rs` to 03.2 file list and explicit import-update task.
+
+- [x] `[TPR-03-002-codex-r3][medium]` `section-03-aims-snapshots.md:270` — GAP: `#[cfg(test)]` items invisible to integration tests (they compile normal lib). Plan offered invalid `#[cfg(test)]` option.
+  Resolved: Fixed on 2026-04-11. Removed `#[cfg(test)]` option. Now requires always-compiled `pub mod test_support` module.
+
+- [x] `[TPR-03-003-codex-r3][low]` `section-03-aims-snapshots.md:282` — GAP: `clean_stale_revisions()` can't handle deleted/renamed tests (harness only calls hook for discovered files).
+  Resolved: Fixed on 2026-04-11. Scoped `clean_stale_revisions()` to current test_path only. Added separate bless-sweep step for global orphan cleanup.
+
+- [x] `[TPR-03-001-gemini-r3][medium]` `section-03-aims-snapshots.md:144` — DRIFT: Call site count is 16, not 15 (3 in trmc.rs, 6 in mod.rs, 7 in postprocess.rs).
+  Resolved: Fixed on 2026-04-11. Updated count to 16 with per-file breakdown.
+
+- [x] `[TPR-03-002-gemini-r3][low]` `section-03-aims-snapshots.md:162` — GAP: `run_arc_pipeline_with_observer` takes `&CheckpointObserver<'_>` but config expects `&'a CheckpointObserver<'a>`.
+  Resolved: Fixed on 2026-04-11. Changed to `&'a CheckpointObserver<'a>` with explicit lifetime parameter on function.
 
 ---
 
