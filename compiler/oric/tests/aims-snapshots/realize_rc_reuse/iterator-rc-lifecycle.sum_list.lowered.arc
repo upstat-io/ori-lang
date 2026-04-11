@@ -1,4 +1,4 @@
-fn @sum_list(%0: [int] [own]) -> int [entry: bb0]
+fn @sum_list(%0: [int] [borrow]) -> int [entry: bb0]
   bb0:
     %1: [int] [RcPtr] = %0
     %2: int [Scalar] = 0

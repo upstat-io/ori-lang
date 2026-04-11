@@ -60,18 +60,6 @@ fn extract_pass_names(directives: &[&DirectiveLine]) -> Vec<String> {
         .collect()
 }
 
-/// Collect all ARC functions from the cache into a flat Vec (parents + lambdas).
-fn collect_all_functions(
-    arc_cache: &FxHashMap<ori_ir::Name, (ArcFunction, Vec<ArcFunction>)>,
-) -> Vec<ArcFunction> {
-    arc_cache
-        .values()
-        .flat_map(|(parent, lambdas)| {
-            std::iter::once(parent.clone()).chain(lambdas.iter().cloned())
-        })
-        .collect()
-}
-
 impl TestStrategy for AimsSnapshotStrategy {
     type Error = SnapshotError;
 
@@ -100,90 +88,87 @@ impl TestStrategy for AimsSnapshotStrategy {
         let interner = compile_result.interner();
         let classifier = ArcClassifier::new(pool);
 
-        // Compute AIMS interprocedural contracts (matches production pipeline).
-        // This runs analyze_program() across ALL functions to produce MemoryContracts,
-        // then applies ownership annotations to parameters — the same sequence as
-        // codegen_pipeline.rs:361-366.
-        let aims_contracts = {
-            let mut all_funcs = collect_all_functions(&compile_result.arc_cache);
-            ori_arc::compute_aims_contracts(
-                &mut all_funcs,
-                &classifier,
-                interner,
-                &ori_arc::BuiltinOwnershipSets::new(interner),
-            )
-        };
+        // Compute AIMS interprocedural contracts and apply param ownership.
+        // This matches the production pipeline (codegen_pipeline.rs:361-366):
+        //   1. Flatten all functions from the cache
+        //   2. Run analyze_program() → MemoryContracts
+        //   3. Apply ownership annotations to parameters (Owned/Borrowed)
+        // The mutated functions in `all_funcs` now carry production-accurate
+        // param ownership — we iterate THESE, not fresh clones from arc_cache.
+        let mut all_funcs = compile_result.all_arc_functions();
+        let aims_contracts = ori_arc::compute_aims_contracts(
+            &mut all_funcs,
+            &classifier,
+            interner,
+            &ori_arc::BuiltinOwnershipSets::new(interner),
+        );
+
+        // Sort functions by name for deterministic output order.
+        all_funcs.sort_by_key(|f| interner.lookup(f.name).to_owned());
 
         let mut all_artifacts = Vec::new();
 
-        // Process each function in the arc cache.
-        let mut sorted_entries: Vec<_> = compile_result.arc_cache.iter().collect();
-        sorted_entries.sort_by_key(|(name, _)| interner.lookup(**name));
+        for func in &mut all_funcs {
+            let func_name_str = interner.lookup(func.name).to_owned();
 
-        for (_, (parent, lambdas)) in &sorted_entries {
-            let mut funcs: Vec<ArcFunction> = std::iter::once((*parent).clone())
-                .chain(lambdas.iter().cloned())
-                .collect();
+            // Capture lowered.arc baseline BEFORE AIMS pipeline.
+            // This captures the function WITH contract-applied ownership,
+            // matching the state production codegen sees before per-function
+            // pipeline execution (define_phase.rs:315-328).
+            let lowered_content = format_function(func, pool, interner);
+            let lowered_suffix = format!("{func_name_str}.lowered.arc");
+            write_artifact(
+                test_path,
+                &lowered_suffix,
+                &lowered_content,
+                &mut all_artifacts,
+            )?;
 
-            for func in &mut funcs {
-                let func_name_str = interner.lookup(func.name).to_owned();
+            // Capture per-pass snapshots via observer.
+            // Scoped block ensures the observer (which borrows `snapshots`)
+            // is dropped before we read `snapshots.into_inner()`.
+            let snapshots: RefCell<BTreeMap<String, String>> = RefCell::new(BTreeMap::new());
+            {
+                let pass_names_ref = &pass_names;
+                let observer: Box<CheckpointObserver<'_>> =
+                    Box::new(|f: &ArcFunction, phase: &str| {
+                        if pass_names_ref.iter().any(|p| p == phase) {
+                            let content = format_function(f, pool, interner);
+                            snapshots.borrow_mut().insert(phase.to_owned(), content);
+                        }
+                    });
 
-                // Capture lowered.arc baseline BEFORE AIMS pipeline.
-                let lowered_content = format_function(func, pool, interner);
-                let lowered_suffix = format!("{func_name_str}.lowered.arc");
-                write_artifact(
-                    test_path,
-                    &lowered_suffix,
-                    &lowered_content,
-                    &mut all_artifacts,
-                )?;
+                // Run AIMS pipeline with observer and real contracts.
+                let uniqueness = FxHashMap::default();
+                let sigs = FxHashMap::default();
+                let _ = ori_arc::run_arc_pipeline_with_observer(
+                    func,
+                    &classifier,
+                    &sigs,
+                    pool,
+                    interner,
+                    &uniqueness,
+                    &aims_contracts,
+                    false, // verify_arc
+                    &*observer,
+                );
+            } // observer dropped here — snapshots no longer borrowed
 
-                // Capture per-pass snapshots via observer.
-                // Scoped block ensures the observer (which borrows `snapshots`)
-                // is dropped before we read `snapshots.into_inner()`.
-                let snapshots: RefCell<BTreeMap<String, String>> = RefCell::new(BTreeMap::new());
-                {
-                    let pass_names_ref = &pass_names;
-                    let observer: Box<CheckpointObserver<'_>> =
-                        Box::new(|f: &ArcFunction, phase: &str| {
-                            if pass_names_ref.iter().any(|p| p == phase) {
-                                let content = format_function(f, pool, interner);
-                                snapshots.borrow_mut().insert(phase.to_owned(), content);
-                            }
-                        });
-
-                    // Run AIMS pipeline with observer and real contracts.
-                    let uniqueness = FxHashMap::default();
-                    let sigs = FxHashMap::default();
-                    let _ = ori_arc::run_arc_pipeline_with_observer(
-                        func,
-                        &classifier,
-                        &sigs,
-                        pool,
-                        interner,
-                        &uniqueness,
-                        &aims_contracts,
-                        false, // verify_arc
-                        &*observer,
-                    );
-                } // observer dropped here — snapshots no longer borrowed
-
-                // Write per-pass snapshots and assert all requested passes were captured.
-                let captured = snapshots.into_inner();
-                for pass_name in &pass_names {
-                    let content = captured.get(pass_name).ok_or_else(|| {
-                        SnapshotError(format!(
-                            "{}: pass '{}' was requested but never captured for function '{}'. \
-                             The AIMS pipeline did not invoke the observer for this phase — \
-                             either the pass name is wrong or the pipeline skipped it.",
-                            test_path.display(),
-                            pass_name,
-                            func_name_str,
-                        ))
-                    })?;
-                    let suffix = format!("{func_name_str}.{pass_name}.after.arc");
-                    write_artifact(test_path, &suffix, content, &mut all_artifacts)?;
-                }
+            // Write per-pass snapshots and assert all requested passes were captured.
+            let captured = snapshots.into_inner();
+            for pass_name in &pass_names {
+                let content = captured.get(pass_name).ok_or_else(|| {
+                    SnapshotError(format!(
+                        "{}: pass '{}' was requested but never captured for function '{}'. \
+                         The AIMS pipeline did not invoke the observer for this phase — \
+                         either the pass name is wrong or the pipeline skipped it.",
+                        test_path.display(),
+                        pass_name,
+                        func_name_str,
+                    ))
+                })?;
+                let suffix = format!("{func_name_str}.{pass_name}.after.arc");
+                write_artifact(test_path, &suffix, content, &mut all_artifacts)?;
             }
         }
 
