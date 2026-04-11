@@ -84,17 +84,24 @@ fi
 #   gemini_missing_dependency      — same as codex (env issue).
 #   gemini_missing_envelope        — gemini exited 0 but emitted no assistant
 #                                    message; the skill is broken.
-#   gemini_missing_begin_sentinel  — assistant messages present but no BEGIN
-#                                    sentinel; skill misconfigured or prompt
-#                                    didn't include the activation phrase.
 #   gemini_missing_json_block      — sentinels present but no fenced JSON
 #                                    block between them; skill output format
 #                                    is broken.
-#   gemini_schema_violation        — same as codex.
 #   gemini_failed_partial          — same as codex.
 #
 # Retryable categories — could be transient, worth another attempt:
 #
+#   gemini_schema_violation        — gemini emitted JSON that fails schema
+#                                    validation even after the repair layer
+#                                    (repair_envelope.py) attempted to fix
+#                                    common violations. Previously terminal,
+#                                    reclassified as retryable because a fresh
+#                                    gemini invocation may produce different
+#                                    output that IS repairable. The 3-attempt
+#                                    budget bounds the cost for systematic
+#                                    failures. Codex schema_violation remains
+#                                    terminal because codex's JSON compliance
+#                                    is more reliable.
 #   launch_or_exit_fail            — dual-invoke.sh returned non-zero. This
 #                                    collapses ALL launch-time failures into
 #                                    one category because dual-invoke.sh
@@ -112,6 +119,24 @@ fi
 #   gemini_missing_terminator      — assistant content present but no
 #                                    result/success event; could be a
 #                                    cancelled stream (transient).
+#   gemini_missing_begin_sentinel  — no BEGIN sentinel AND sentinel-less
+#                                    fallback found no fenced JSON block
+#                                    matching the review-envelope shape.
+#                                    Previously terminal on the theory that
+#                                    this indicated skill misconfiguration,
+#                                    but the real-world pattern is gemini
+#                                    cutting off mid-emission after saying
+#                                    "I'm ready to emit the envelope" and
+#                                    never actually writing the fenced block
+#                                    (ori-tpr-ODwpfyOd failure class). A
+#                                    fresh gemini invocation has a real
+#                                    chance of completing the emission, so
+#                                    retry is load-bearing. Symmetric with
+#                                    missing_end_sentinel (truncation inside
+#                                    the envelope) and missing_terminator
+#                                    (no result event) — all three failure
+#                                    modes share a "gemini output was cut
+#                                    short" root cause and all should retry.
 #   gemini_missing_end_sentinel    — BEGIN found but END missing; could be
 #                                    truncation (transient).
 #   unknown_failure                — fall back to retry; if it's deterministic
@@ -132,15 +157,14 @@ is_terminal_failure() {
   local category="$1"
   case "$category" in
     dirty_worktree)                return 0 ;;
+    reviewer_stalled_*)            return 0 ;;  # API-level hang — will recur on retry
     codex_missing_dependency)      return 0 ;;
     codex_missing_envelope)        return 0 ;;
     codex_schema_violation)        return 0 ;;
     codex_failed_partial)          return 0 ;;
     gemini_missing_dependency)     return 0 ;;
     gemini_missing_envelope)       return 0 ;;
-    gemini_missing_begin_sentinel) return 0 ;;
     gemini_missing_json_block)     return 0 ;;
-    gemini_schema_violation)       return 0 ;;
     gemini_failed_partial)         return 0 ;;
     *) return 1 ;;
   esac
@@ -159,7 +183,15 @@ while [[ $ATTEMPT -lt $MAX_RETRIES ]]; do
   # calls are gated by the same filter — skipping an absent JSONL file
   # would otherwise produce a spurious "missing_envelope" failure.
   if ! "$SCRIPT_DIR/dual-invoke.sh" "${ARGS[@]}"; then
-    FAILURE="launch_or_exit_fail"
+    # Check if failure was due to watchdog killing a stalled reviewer
+    if [[ -f "$RUN/codex.stalled" || -f "$RUN/gemini.stalled" ]]; then
+      local stalled_reviewers=""
+      [[ -f "$RUN/codex.stalled" ]] && stalled_reviewers="codex"
+      [[ -f "$RUN/gemini.stalled" ]] && stalled_reviewers="${stalled_reviewers:+$stalled_reviewers+}gemini"
+      FAILURE="reviewer_stalled_${stalled_reviewers}"
+    else
+      FAILURE="launch_or_exit_fail"
+    fi
     echo "[$(date +%s)] $FAILURE on attempt $ATTEMPT" >> "$RUN/round.log"
   elif [[ ( "$REVIEWERS" == "codex" || "$REVIEWERS" == "both" ) ]] && ! "$SCRIPT_DIR/parse-codex.py" --jsonl "$RUN/codex.jsonl" --schema "$SCHEMA" > "$RUN/codex.envelope.json" 2> "$RUN/codex.parse-error"; then
     FAILURE="codex_$(head -1 "$RUN/codex.parse-error")"

@@ -1,0 +1,48 @@
+// Diagnostic fixture: escaping closures.
+// Closures that outlive their creation scope — stored in lists, passed as
+// parameters, returned from functions, called after creating scope exits.
+// Stresses lifetime of captured values beyond lexical scope.
+
+@make_adder (base: int, label: str) -> (int) -> int =
+    (n: int) -> int = label.length() + base + n;
+
+@apply (f: (int) -> int, x: int) -> int = f(x);
+
+@call_all (fns: [(int) -> int], x: int) -> int = {
+    let total = 0;
+    for f in fns do {
+        total = total + f(x);
+    };
+    total
+}
+
+@main () -> int = {
+    // Closure returned from function — captures outlive creation scope
+    let adder = make_adder(base: 10, label: "hello");
+    let ok1 = adder(5) == 20;
+
+    // Closure passed to another function after creation scope
+    let items = [1, 2, 3];
+    let count_plus = (n: int) -> int = items.length() + n;
+    let ok2 = apply(f: count_plus, x: 7) == 10;
+
+    // Closures stored in a list — all escape creation context
+    let a_str = "alpha";
+    let b_str = "beta";
+    let c_str = "gamma";
+    let f1 = (n: int) -> int = a_str.length() + n;
+    let f2 = (n: int) -> int = b_str.length() + n;
+    let f3 = (n: int) -> int = c_str.length() + n;
+    let fns = [f1, f2, f3];
+    // 5+1 + 4+1 + 5+1 = 17
+    let ok3 = call_all(fns: fns, x: 1) == 17;
+
+    // Called after creating scope has exited (via returned closure)
+    let adder2 = make_adder(base: 100, label: "abcdefghijklmnopqrstuvwxyz1234");
+    let r1 = adder2(1);
+    let r2 = adder2(2);
+    let ok4 = r1 == 131 && r2 == 132;
+
+    if ok1 && ok2 && ok3 && ok4
+        then 0 else 1
+}

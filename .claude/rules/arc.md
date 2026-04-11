@@ -52,6 +52,16 @@ CanExpr → lower → ArcFunction
 
 Key constraint: step 10 uses `AimsStateMap` via ArcVarId-keyed lookups (`var_state_at_block_entry`), not the position-keyed `entry_states`/`exit_states` maps (invalidated by merge_blocks). The state map is accessed by walking the post-merge IR block indices and using those as block IDs into the pre-merge state map — this works because merge_blocks() preserves entry block IDs.
 
+### Fixpoint Convergence Obligations
+
+Any fixpoint analysis (interprocedural contract computation, intraprocedural backward dataflow) must satisfy:
+
+- **Finite lattice height**: every lattice dimension has bounded height. AimsState: 7 finite dimensions — each provably finite.
+- **Monotone transfer functions**: `state_after >= state_before` in the lattice partial order. Non-monotone transfer = unsound analysis.
+- **Deterministic worklist ordering**: iteration must be deterministic regardless of hash-map ordering. Use reverse-postorder or SCC-index-based ordering.
+- **Iteration bound**: maximum iteration count per SCC (default: 100). Log warning at 50 iterations. Abort with diagnostic at 100.
+- **Widening**: if convergence is slow due to lattice height, apply widening at loop headers. Currently not needed (all dimensions have height <= 5).
+
 ### Entry Points
 
 - `run_arc_pipeline()` (single fn) | `run_arc_pipeline_all()` (batch) — always use AIMS pipeline
@@ -168,11 +178,9 @@ Source: `ori_ir/src/builtin_constants/protocol/mod.rs`
 
 - **Tracing**: `ORI_LOG=ori_arc=debug` (function entry/exit, loops, lambdas, match, merges) | `ori_arc=trace` (per-expression lowering, scope bindings) | add `ORI_LOG_TREE=1` for hierarchical view
 - **Per-phase RC snapshot** (post-walk bisection): `ORI_LOG=ori_arc::aims::realize=trace ori build file.ori` — emits one event per `(phase, function, block)` summarising every `RcInc`/`RcDec` by `ArcVarId`. Phases: `after_phase_1_walk`, `after_phase_1_5_dead_invoke`, `after_phase_2_edge_cleanup`, `after_phase_2_1_escape_incs`, `after_phase_3_coalesce`. Use to bisect which post-walk pass modified a specific block's RC ops without inline `tracing::debug!` insertions. Zero overhead when disabled (gated behind `tracing::enabled!`). See `compiler/ori_arc/src/aims/realize/emit_unified.rs::trace_phase_snapshot`.
+- **Pipeline phase bisection**: `ORI_LOG=ori_arc::aims::pipeline=info cargo run -- build file.ori` — emits one checkpoint per pipeline step per function with RC counts + structural metrics (blocks, vars). Use `diagnostics/bisect-passes.sh file.ori` for automated table display with divergence detection. Coarser-grained than the `realize` snapshots above — answers "which pipeline step changed RC balance" without per-block detail.
 - **Phase dump**: `ORI_DUMP_AFTER_ARC=1 ori build file.ori` — ARC IR with RC strategy annotations
-- **Runtime RC**: `ORI_TRACE_RC=1 ./binary` | `ORI_RT_DEBUG=1 ./binary` | `ORI_CHECK_LEAKS=1 ./binary`
-- **Codegen audit**: `ORI_AUDIT_CODEGEN=1 ori build file.ori` (add `ORI_AUDIT_STRICT=1` | `ORI_AUDIT_FUNCTION=name`)
-- **Debug vs release comparison**: `diagnostics/debug-release-compare.sh file.ori` — compares debug vs release build output (exit codes + stdout + LLVM IR diff on mismatch)
-- **Diagnostic scripts**: `diagnostics/rc-stats.sh` | `codegen-audit.sh` | `diagnose-aot.sh` | `dual-exec-debug.sh` (see compiler.md for full list)
+- **Runtime RC / codegen audit / diagnostic scripts**: See `runtime.md` for `ORI_TRACE_RC`/`ORI_CHECK_LEAKS`, `diagnostic.md` §Diagnostic Scripts for full script table and flags
 - **Loop not terminating?** `ori_arc=debug` → break/continue jumps + mutable var counts
 - **Wrong var after if/match?** `ori_arc=trace` → mutable var merge divergence
 - **Lambda captures wrong?** `ori_arc=debug` → capture count, `trace` → each captured name
@@ -214,7 +222,7 @@ Never insert `RcDec` after a tail call — breaks TCO. Transfer ownership instea
 | `ori_arc/src/aims/intraprocedural/mod.rs` | Per-function backward dataflow |
 | `ori_arc/src/aims/emit_rc/mod.rs` | RC emission from state map |
 | `ori_arc/src/aims/emit_reuse/mod.rs` | Reuse emission (detect + plan + expand) |
-| `ori_arc/src/pipeline/aims_pipeline.rs` | AIMS pipeline orchestration |
+| `ori_arc/src/pipeline/aims_pipeline/` | AIMS pipeline orchestration (mod.rs: config+run, trmc.rs: TRMC, postprocess.rs: verify+FBIP, batch.rs: batch+second pass) |
 | `ori_llvm/src/codegen/arc_emitter/mod.rs` | ARC IR → LLVM emission |
 | `ori_llvm/src/codegen/arc_emitter/drop_gen.rs` | LLVM drop function generation |
 | `ori_llvm/tests/aot/arc.rs` | AOT integration tests for ARC |

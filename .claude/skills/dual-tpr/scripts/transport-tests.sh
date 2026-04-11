@@ -342,9 +342,48 @@ done
 
 echo ""
 echo "=== gemini parser fixture tests ==="
-for fixture in gemini-success gemini-missing-terminator gemini-no-begin gemini-no-end gemini-no-json-block gemini-fragmented; do
+# Fixture coverage matrix for parse-gemini.py:
+#   Positive pins (expected exit 0):
+#     gemini-success                 — canonical sentinel-wrapped envelope
+#     gemini-fragmented              — multi-chunk streamed envelope (concat semantic pin)
+#     gemini-minimal-envelope        — sentinel-less fallback + repair layer composition
+#                                      (bare {skill,reviewer,no_findings,findings} block —
+#                                      missing schema_version/status/scope_actually_reviewed
+#                                      that repair_envelope.py fills in before validation).
+#                                      Pins BUG-compose fix where the fallback guard was
+#                                      rejecting envelopes the repair layer would have fixed.
+#     gemini-envelope-after-example  — last-block-wins semantic pin: gemini shows a schema
+#                                      example in a fenced block earlier in its reasoning,
+#                                      then emits the real envelope in a later fenced block.
+#                                      Parser must prefer the LAST matching envelope block.
+#
+#   Negative pins (expected exit 1):
+#     gemini-missing-terminator      — assistant content but no result/success event
+#     gemini-no-begin                — no sentinels AND no fenced JSON block at all
+#     gemini-no-end                  — BEGIN present, END missing (truncation inside envelope)
+#     gemini-no-json-block           — sentinels present but no fenced JSON between them
+#     gemini-non-envelope-block      — sentinel-less + fenced JSON block present, but block
+#                                      is a random config dict with NO envelope marker keys.
+#                                      Pins that the fallback guard still rejects non-envelopes
+#                                      after the composition fix (must not silently accept any
+#                                      fenced JSON as "close enough").
+#     gemini-cutoff-midthought       — gemini said "I'm ready to emit" then finished without
+#                                      emitting any fenced JSON. Reproduces the ori-tpr-ODwpfyOd
+#                                      failure mode. Parser correctly fails with
+#                                      missing_begin_sentinel; the retry wrapper is responsible
+#                                      for classifying this as retryable (not the parser).
+for fixture in gemini-success \
+               gemini-missing-terminator \
+               gemini-no-begin \
+               gemini-no-end \
+               gemini-no-json-block \
+               gemini-fragmented \
+               gemini-minimal-envelope \
+               gemini-envelope-after-example \
+               gemini-non-envelope-block \
+               gemini-cutoff-midthought; do
   case "$fixture" in
-    gemini-success|gemini-fragmented) expected=0 ;;
+    gemini-success|gemini-fragmented|gemini-minimal-envelope|gemini-envelope-after-example) expected=0 ;;
     *) expected=1 ;;
   esac
   "$SCRIPT_DIR/parse-gemini.py" --jsonl "$FIXTURES/$fixture.jsonl" --schema "$SCHEMA" >/dev/null 2>&1

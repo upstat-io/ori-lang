@@ -53,4 +53,4 @@ paths:
 ## Debugging
 
 - For LLVM IR debugging workflow, tools, and verification strategy, see @llvm.md
-- **Diagnostic scripts**: `diagnostics/diagnose-aot.sh` | `dual-exec-debug.sh` | `ir-dump.sh` | `ir-diff.sh` | `rc-stats.sh` | `codegen-audit.sh` | `disasm-ori.sh` (see compiler.md for full list)
+- **Diagnostic scripts**: see @diagnostic.md §Diagnostic Scripts for full list and flags

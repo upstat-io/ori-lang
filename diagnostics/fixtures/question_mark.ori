@@ -1,0 +1,66 @@
+// Diagnostic fixture (aims-heavy): ? operator propagation with fat values.
+// Exercises early-exit unwinding that must drop all live fat values in scope.
+// The ? operator triggers cleanup paths for heap str, [int], and structs.
+
+type Named = { name: str, id: int }
+
+@get_length (opt: Option<str>) -> Option<int> = {
+    let s = opt?;
+    Some(s.length())
+}
+
+@get_list_len (opt: Option<[int]>) -> Option<int> = {
+    let xs = opt?;
+    Some(xs.length())
+}
+
+@chain_with_fat_locals (a: Option<int>, b: Option<int>) -> Option<int> = {
+    // Fat values in scope that must be cleaned up if ? propagates None
+    let label = "abcdefghijklmnopqrstuvwxyz1234";
+    let items = [1, 2, 3, 4, 5];
+    let x = a?;
+    let y = b?;
+    Some(x + y + label.length() + items.length())
+}
+
+@main () -> int = {
+    // ? on Option<str> returning Some
+    let ok1 = match get_length(opt: Some("hello")) {
+        Some(n) -> n == 5,
+        None -> false,
+    };
+
+    // ? on Option<str> returning None — early exit cleanup
+    let none_str: Option<str> = None;
+    let ok2 = match get_length(opt: none_str) {
+        Some(_) -> false,
+        None -> true,
+    };
+
+    // ? on Option<[int]> returning Some
+    let ok3 = match get_list_len(opt: Some([1, 2, 3])) {
+        Some(n) -> n == 3,
+        None -> false,
+    };
+
+    // Chained ? with multiple fat locals in scope — both succeed
+    let ok4 = match chain_with_fat_locals(a: Some(10), b: Some(20)) {
+        Some(n) -> n == 65,
+        None -> false,
+    };
+
+    // Chained ? — second fails, first's value + fat locals must be dropped
+    let ok5 = match chain_with_fat_locals(a: Some(10), b: None) {
+        Some(_) -> false,
+        None -> true,
+    };
+
+    // Chained ? — first fails immediately, fat locals must still be dropped
+    let ok6 = match chain_with_fat_locals(a: None, b: Some(20)) {
+        Some(_) -> false,
+        None -> true,
+    };
+
+    if ok1 && ok2 && ok3 && ok4 && ok5 && ok6
+        then 0 else 1
+}

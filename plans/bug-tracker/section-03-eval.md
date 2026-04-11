@@ -39,6 +39,11 @@ Bugs in expression evaluation, method dispatch, iterator machinery, closure hand
   Subsystem: `compiler/ori_eval/src/` — likely `environment.rs` (scope/env management), `interpreter/` (function dispatch), and multi-clause pattern matching overhead
   Found: 2026-04-04 | Source: manual (Rosetta Code Ackermann task)
 
+- [x] `[BUG-03-005][high]` **Map key strings include surrounding quotes in interpreter — dual-execution mismatch with AOT**
+  Resolved: Fixed 2026-04-10. Root cause: map keys stored as type-prefixed strings (`"s:hello"`, `"i:42"`) via `to_map_key()` were leaking through 4 code paths (iterator next, display_value, Display, debug_value). Fix: added `Value::from_map_key()` to `ori_patterns/value/conversions.rs` as SSOT inverse of `to_map_key()`, fixed all 4 leak paths, delegated `ori_eval`'s `decode_map_key()` to the canonical function. Tests: 10 spec tests (string/int/bool/empty/colon/multiple keys, semantic pin, negative pin). Fix section: `plans/bug-tracker/fix-BUG-03-005.md`. 16,964 tests passing.
+  Subsystem: `compiler/ori_patterns/src/value/conversions.rs`, `compiler/ori_patterns/src/value/iterator/next.rs`, `compiler/ori_patterns/src/value/traits.rs`, `compiler/ori_eval/src/methods/helpers/mod.rs`, `compiler/ori_eval/src/methods/collections.rs`
+  Found: 2026-04-10 | Source: continue-roadmap (diagnostic-tooling-improvements §06.1 fixture creation)
+
 ---
 
 ## Resolved Bugs

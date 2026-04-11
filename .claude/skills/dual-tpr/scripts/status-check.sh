@@ -227,19 +227,25 @@ def print_reviewer(name, jsonl_path, fmt_fn):
     envelope_file = os.path.join(RUN, f"{name}.envelope.json")
     parse_err_file = os.path.join(RUN, f"{name}.parse-error")
     skipped_file = os.path.join(RUN, f"{name}.skipped")
+    stalled_file = os.path.join(RUN, f"{name}.stalled")
 
-    # Header with subshell state. Three-state distinction (§07.3 TPR fix):
+    # Header with subshell state. Four-state distinction:
     #   1. `.skipped` exists  → reviewer was filtered out by ORI_TPR_REVIEWERS
-    #   2. `.exit` exists     → reviewer ran to completion (check rc for pass/fail)
-    #   3. neither exists     → reviewer still running
-    # Without the `.skipped` branch, a filtered-out reviewer would show as
-    # "running" forever, which was the original bug codex surfaced.
+    #   2. `.stalled` exists  → watchdog killed reviewer (API-level hang)
+    #   3. `.exit` exists     → reviewer ran to completion (check rc for pass/fail)
+    #   4. none of the above  → reviewer still running
     if os.path.exists(skipped_file):
         try:
             reason = open(skipped_file).read().strip()
         except Exception:
             reason = "?"
         status = f"{DIM}skipped{RESET} ({reason})"
+    elif os.path.exists(stalled_file):
+        try:
+            stall_info = open(stalled_file).read().strip()
+        except Exception:
+            stall_info = "?"
+        status = f"{RED}STALLED — killed by watchdog{RESET} ({stall_info})"
     elif os.path.exists(exit_file):
         try:
             rc = open(exit_file).read().strip()

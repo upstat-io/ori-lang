@@ -49,4 +49,4 @@ paths:
 
 - For LLVM IR debugging workflow and verification, see @llvm.md
 - **Runtime env vars**: `ORI_TRACE_RC=1` (RC event log) | `verbose` (adds backtraces) | `ORI_RT_DEBUG=1` (runtime assertions) | `ORI_CHECK_LEAKS=1` (leak report with attribution)
-- **Diagnostic scripts**: `diagnostics/rc-stats.sh` | `codegen-audit.sh` | `diagnose-aot.sh` | `dual-exec-debug.sh` (see compiler.md for full list)
+- **Diagnostic scripts**: see @diagnostic.md §Diagnostic Scripts for full list and flags

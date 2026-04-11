@@ -1,0 +1,4 @@
+{"type": "init"}
+{"type": "message", "role": "user", "content": "Review."}
+{"type": "message", "role": "assistant", "content": "I've identified four key findings: an inconsistency in how fn_val.verify() is gated, scattered knowledge of verification environment variables, missing verification for deferred thunks, and insufficient lint test coverage. Everything is in order, and I'm ready to emit the envelope.", "delta": true}
+{"type": "result", "status": "success"}

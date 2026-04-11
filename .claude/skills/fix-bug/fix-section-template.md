@@ -16,7 +16,7 @@ success_criteria:
   - "{Criterion 2 — with verification command}"
 subsystem: "{crate/file path}"
 found: "{YYYY-MM-DD}"
-source: "{tpr-review|code-journey|manual|continue-roadmap|review-work}"
+source: "{canonical source value from /add-bug SKILL.md}"
 third_party_review:
   status: none
   updated: null
@@ -133,7 +133,17 @@ Write ALL tests BEFORE the fix. Verify they fail against current code.
 
 ---
 
+## R. Third Party Review Findings
+
+TPR findings raised against this fix are recorded here by the executor (Claude) during Phase 5. When `/tpr-review` produces findings related to this bug fix, the executor transcribes them into this block using the standard reviewer-tagged format (e.g. `[TPR-XX-001-codex]`). This block is the permanent TPR audit trail for this fix — it stays with the fix section even after resolution.
+
+{Initially empty — populated by the executor during Phase 5 completion checklist.}
+
+---
+
 ## 4. Completion Checklist
+
+Reviews MUST complete before bug closure — a bug marked resolved before TPR/hygiene is a premature closure.
 
 - [ ] All new tests pass unchanged after fix (no test modifications needed)
 - [ ] Matrix completeness verified — every cell in type x pattern x feature grid has a test
@@ -144,12 +154,13 @@ Write ALL tests BEFORE the fix. Verify they fail against current code.
 - [ ] `timeout 150 ./clippy-all.sh` green
 - [ ] `cargo test -p {affected_crate}` green
 - [ ] `/commit-push` — commit all changes before review
-- [ ] Bug entry in `plans/bug-tracker/section-{NN}-*.md` updated: `- [x]` with resolution details
+- [ ] `/tpr-review` passed — independent dual-source review found no actionable findings. **MANDATORY for ALL severities** — per CLAUDE.md Fix Completeness, no severity carve-out.
+- [ ] `/impl-hygiene-review` passed — MUST run AFTER `/tpr-review` is clean. **MANDATORY for ALL severities.**
+- [ ] `/improve-tooling` retrospective completed — MANDATORY at fix close, after both reviews are clean. Reflect on the bug-finding journey: which `diagnostics/` scripts you ran during root cause analysis, where you added ad-hoc `dbg!`/`tracing` calls (and what each one was looking for), where the original failure message was unhelpful, where the matrix tests were tedious because helpers were missing, what instrumentation would have made the bug obvious in 1 minute instead of 30. Bug fixes are the richest source of tooling gaps because you've just spent time fighting the diagnostic surface — capture every gap. Implement every accepted improvement NOW (zero deferral) and commit each via SEPARATE `/commit-push` using a valid conventional-commit type (e.g., `build(diagnostics): add --bb-level RC tracking — surfaced by BUG-XX-NNN retrospective` — `build`/`test`/`chore`/`ci`/`docs` are the valid types; do NOT use `tools(...)`, the lefthook commit-msg hook rejects it). See `.claude/skills/improve-tooling/SKILL.md` "Retrospective Mode" for the full look-back protocol.
+- [ ] Bug entry in `plans/bug-tracker/section-{NN}-*.md` updated: `- [x]` with resolution details (canonical format from `plans/bug-tracker/00-overview.md`)
 - [ ] Fix section frontmatter `status` updated to `complete`
 - [ ] Bug-tracker `00-overview.md` Quick Reference open bug count updated
-- [ ] `/tpr-review` passed — independent Codex review found no critical or major issues (critical/high severity: MANDATORY; medium: expected; low: recommended but not required)
-- [ ] `/impl-hygiene-review` passed — MUST run AFTER `/tpr-review` is clean (critical/high: MANDATORY; medium: recommended; low: optional)
-- [ ] `/improve-tooling` retrospective completed — MANDATORY at fix close, after both reviews are clean. Reflect on the bug-finding journey: which `diagnostics/` scripts you ran during root cause analysis, where you added ad-hoc `dbg!`/`tracing` calls (and what each one was looking for), where the original failure message was unhelpful, where the matrix tests were tedious because helpers were missing, what instrumentation would have made the bug obvious in 1 minute instead of 30. Bug fixes are the richest source of tooling gaps because you've just spent time fighting the diagnostic surface — capture every gap. Implement every accepted improvement NOW (zero deferral) and commit each via SEPARATE `/commit-push` using a valid conventional-commit type (e.g., `build(diagnostics): add --bb-level RC tracking — surfaced by BUG-XX-NNN retrospective` — `build`/`test`/`chore`/`ci`/`docs` are the valid types; do NOT use `tools(...)`, the lefthook commit-msg hook rejects it). See `.claude/skills/improve-tooling/SKILL.md` "Retrospective Mode" for the full look-back protocol.
+- [ ] Final `/commit-push` — commit closure artifacts (bug entry, fix section status, overview count)
 
 **Exit Criteria:** {Paragraph describing the measurable, testable condition
 that proves this fix is complete. Include specific test names, commands,

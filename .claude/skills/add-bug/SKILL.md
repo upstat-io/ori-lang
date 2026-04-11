@@ -93,10 +93,10 @@ Do just enough to write a useful bug entry. DO NOT deep-dive — the code may ch
 Append to the `## Open Bugs` section of the target file:
 
 ```markdown
-- [ ] `[BUG-{section}-{ordinal}][{severity}]` **{Short title}** — found by {source}.
+- [ ] `[BUG-{section}-{ordinal}][{severity}]` **{Short title}**
   Repro: {test file path or minimal repro steps}
   Subsystem: {crate/file path}
-  Found: {YYYY-MM-DD} | Source: {tpr-review | code-journey | manual | continue-roadmap | review-work}
+  Found: {YYYY-MM-DD} | Source: {source value from the canonical list below}
 ```
 
 If a fix section already exists (from a prior `/fix-bug` that was interrupted), add a cross-ref:
@@ -104,12 +104,20 @@ If a fix section already exists (from a prior `/fix-bug` that was interrupted), 
   Fix: `plans/bug-tracker/fix-BUG-{section}-{ordinal}.md`
 ```
 
-**Source values:**
-- `tpr-review` — found by Codex TPR
-- `code-journey` — found by /code-journey
+**Canonical source values** (use exactly one — this is the SSOT for bug provenance):
+- `tpr-review` — found by `/tpr-review` dual-source review
+- `code-journey` — found by `/code-journey`
 - `manual` — found by the user or during manual work
 - `continue-roadmap` — found while working on the roadmap
-- `review-work` — found by /review-work
+- `review-work` — found by `/review-work`
+- `fix-bug` — found during an active `/fix-bug` workflow (Phase 1 investigation, Phase 3 TDD, Phase 4 test-all, Phase 5 TPR/hygiene)
+- `fix-next-bug` — found during `/fix-next-bug` autopilot iteration
+- `impl-hygiene-review` — found by `/impl-hygiene-review`
+- `review-bugs` — found during `/review-bugs` triage
+- `independent-review` — found by `/independent-review`
+- `design-pattern-review` — found by `/design-pattern-review`
+
+When filing a bug from a dual-source review, add reviewer provenance to the body (not the Source field): `Reviewer: codex`, `Reviewer: gemini`, or `Reviewers: codex + gemini (agreement)`.
 
 ### Step 6: Cross-Reference Check
 

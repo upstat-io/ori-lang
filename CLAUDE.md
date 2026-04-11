@@ -47,19 +47,11 @@ When you see two possible fixes — one simpler and one more correct — the sim
 NEVER fix without tests first:
 1. **STOP** — resist urge to immediately change code
 2. **Consult spec** (`docs/ori_lang/v2026/spec/`) for intended behavior
-3. **Write MATRIX tests** — not just "multiple." Every fix requires:
-   - **Exact failing case**: the specific input that triggered the bug
-   - **Edge cases**: empty, single-element, boundary conditions
-   - **Cross-type coverage**: if the fix is type-dependent, test ALL relevant types through the same code path (e.g., str, [int], Option<str>, closures, structs, maps, sets)
-   - **Cross-pattern coverage**: if the fix is pattern-dependent, test ALL relevant control-flow patterns (e.g., full iteration, break, yield, guard, nested, two-call)
-   - **Cross-feature coverage**: test interactions with other features that flow through the same code path (e.g., closures, generics, `?`, pattern matching, traits — see `.claude/rules/tests.md` §Interaction Testing)
-   - **Semantic pin**: at least one test that ONLY passes with the new semantics — this is the permanent regression guard
-   - **Negative pin**: at least one test that REJECTS the old/broken behavior — proves the compiler actively prevents regression
+3. **Write MATRIX tests** — exact failing case + edge cases + cross-type/pattern/feature coverage + semantic pin + negative pin. Full methodology: `.claude/rules/tests.md` §TDD for Bugs, §Matrix Testing Rule, §Interaction Testing.
 4. **Verify tests fail** — if they pass, you misunderstand the bug
 5. **Fix the code** — choose the most correct fix, not the simplest one
 6. **Tests pass unchanged** — needing to change tests = wrong tests or wrong fix
-7. **Verify matrix completeness** — missing cells in the type × pattern × feature matrix are future regressions
-8. **Matrix squeeze principle** — each matrix test narrows the gap between "works" and "crashes," triangulating the bug from multiple angles. When the matrix is dense, the correct fix surface becomes surgically obvious because all surrounding cases are pinned. Regressions from fixes are caught immediately by the existing matrix, forcing the fix to be precise rather than broad. A fix that breaks existing matrix cells was too broad; the matrix reveals exactly where the boundary is.
+7. **Verify matrix completeness** — missing cells in the type x pattern x feature matrix are future regressions. Matrix squeeze principle: dense matrices force surgical precision and catch regressions immediately.
 
 ## Fix Completeness
 
@@ -115,16 +107,18 @@ When fixing any AIMS-related bug: ask "does this preserve system coherence?" A f
 
 ## Compiler Coding Guidelines
 
-- **Architecture**: `oric` → `ori_types/eval` → `ori_parse` → `ori_lexer` → `ori_ir/diagnostic` (no upward); IO only in `oric`; no phase bleeding
+Quick reference — full rules: `compiler.md` (architecture, tracing), `impl-hygiene.md` (code quality, phase boundaries, Salsa).
+
+- **Architecture**: `oric` → `ori_types/eval` → `ori_parse` → `ori_lexer` → `ori_ir/diagnostic` (no upward); IO only in `oric`; no phase bleeding. Phase purity: see `compiler.md` §Phase-Specific Purity.
 - **Memory**: Arena + ID (`ExprArena`+`ExprId`); intern identifiers (`Name`); newtypes for IDs; no `Arc` in hot paths; `#[cold]` on error factories
-- **Salsa**: derive `Clone, Eq, PartialEq, Hash, Debug`; no `Arc<Mutex<T>>`, fn pointers, `dyn Trait`; deterministic; accumulate errors
+- **Salsa**: see `impl-hygiene.md` §Salsa & Caching for full rules. Quick: derive `Clone, Eq, PartialEq, Hash, Debug`; no `Arc<Mutex<T>>`, fn pointers, `dyn Trait`; deterministic; accumulate errors
 - **API**: >3-4 params → config struct; no boolean flags; RAII guards; return iterators not `Vec`
 - **Dispatch**: enum for fixed sets; `dyn Trait` only for user-extensible; cost: `&dyn` < `Box<dyn>` < `Arc<dyn>`
 - **Diagnostics**: all errors have spans; imperative suggestions; no `panic!` on user errors; accumulate
 - **Testing**: verify behavior not implementation; spec-based; multiple angles (happy, edge, error). **Test files**: sibling `tests.rs` (not inline); `#[cfg(test)] mod tests;` declaration only. `foo.rs` → `foo/tests.rs`; `mod.rs` → `bar/tests.rs`; `lib.rs`/`main.rs` → `tests.rs` in same dir
-- **Test function naming — behavior, not provenance**: test names follow the `<subject>_<scenario>_<expected>` shape (Arrange-Act-Assert / Given-When-Then / Roy Osherove three-part naming) and are self-explanatory — the name alone must answer *what is tested*, *under what conditions*, *with what outcome*. Examples: `test_iterator_drop_when_break_inside_for_releases_remaining`, `test_cow_slice_with_two_borrows_does_not_double_free`, `test_parse_empty_input_returns_empty_ast`. **NEVER encode ephemeral identifiers in test names** — no plan names, no section/subsection numbers (`section_04_3`, `4_3_2`, `§4.3`), no plan annotations (`TPR_04_005`, `CROSS_04_014`), no bug/issue IDs (`BUG_04_045`, `issue_42`), no dates, no author initials, no commit hashes. Tests are permanent; those artifacts are ephemeral, and encoding them creates names that rot the moment the artifact is renamed, renumbered, merged, or closed. Provenance belongs in `///` (Rust) or `//` (Ori) doc comments above the test (`/// Regression: ...`), never in the function name. **Banned weak descriptors**: `_works`, `_basic`, `_simple`, `_correct`, `_valid`, `_handles_X`, `_check_X`, bare unit names like `test_iterator`. **`/impl-hygiene-review` enforcement**: any test name containing an ephemeral identifier or weak descriptor is a NAMING violation and MUST be renamed in the same review pass — never deferred. The rename is mechanical and local to the test file; there is no scope or risk argument that excuses leaving an ephemeral name in place. Full rules: `.claude/rules/impl-hygiene.md` §Test Function Naming.
+- **Test function naming — behavior, not provenance**: `<subject>_<scenario>_<expected>` shape. No ephemeral identifiers (plan names, section numbers, bug IDs) in function names — provenance in `///` doc comments only. Full rules: `.claude/rules/impl-hygiene.md` §Test Function Naming.
 - **Performance**: O(n²) → O(n); hash lookups not linear scans; no alloc in hot loops; iterators over indexing
-- **ARM portability**: C string pointers in `ori_rt` use `std::ffi::c_char`, never `i8` — `c_char` is `i8` on x86_64 but `u8` on aarch64
+- **ARM portability**: `c_char` not `i8` in `ori_rt` — see `impl-hygiene.md` §Unsafe & FFI, `runtime.md` for affected functions
 - **Style**: no `#[allow(clippy)]` without justification; functions < 100 lines (target < 50); no dead/commented code; `//!`/`///` docs
 - **Plan annotations are temporary scaffolding**: Code annotations referencing plans (`TPR-04-005`, `CROSS-04-014`, `§04.3 Phase A`, `Section 04.2`) are allowed during active development — they aid navigation. But they are **ephemeral** and MUST be removed when the plan completes. Every plan MUST include a final cleanup section to strip all its code annotations. Stale annotations from completed plans are hygiene violations. Only **spec references** (`Spec: Clause N.M`) are permanent.
 - **File size**: 500 line limit (excl. tests). Stop and split before exceeding. Extract to submodules. `scripts/extract_tests.py` for test extraction.
@@ -143,23 +137,18 @@ When fixing any AIMS-related bug: ask "does this preserve system coherence?" A f
 **Build**: `cargo c`/`cl`/`b`/`fmt` (all crates incl. LLVM)
 **LLVM/AOT**: `cargo b` (debug), `cargo b --release` (release) — LLVM is a default feature; `cargo test -p ori_llvm` (LLVM tests)
 **Release LTO**: `cargo build --profile release-lto` — fat LTO, ~20% faster binary, ~3.5x longer build. Output: `target/release-lto/ori`. Regular `--release` unaffected.
-**Tracing** (USE FIRST): `ORI_LOG=debug ori check file.ori` | `=ori_types=trace ORI_LOG_TREE=1 ori check f.ori` | `=ori_eval=debug ori run file.ori` | `=oric=debug` (Salsa) | `=ori_arc::aims::realize=trace` (per-phase post-walk RC snapshots — bisect which AIMS pass touched a block) | Falls back to `RUST_LOG`
+**Tracing** (USE FIRST): `ORI_LOG=debug ori check file.ori` | `=ori_types=trace ORI_LOG_TREE=1 ori check f.ori` | `=ori_eval=debug ori run file.ori` | `=oric=debug` (Salsa) | `=ori_arc::aims::pipeline=info` (pipeline phase bisection — RC counts + structural metrics per step; use `diagnostics/bisect-passes.sh`) | `=ori_arc::aims::realize=trace` (per-phase post-walk RC snapshots — bisect which realization pass touched a block) | Falls back to `RUST_LOG`
 **Phase dumps**: `ORI_DUMP_AFTER_PARSE=1` (AST) | `ORI_DUMP_AFTER_TYPECK=1` (typed IR) | `ORI_DUMP_AFTER_ARC=1` (ARC IR) | `ORI_DUMP_AFTER_LLVM=1` (LLVM IR, superset of `ORI_DEBUG_LLVM`) | `ORI_EMIT_ARC_DOT=1` (GraphViz DOT) — stderr, zero release overhead
 **Runtime debug**: `ORI_TRACE_RC=1` (RC log) | `ORI_RT_DEBUG=1` (assertions) | `ORI_CHECK_LEAKS=1` (leak report)
-**Codegen audit**: `ORI_AUDIT_CODEGEN=1` — RC balance, COW sequencing, ABI args, aggregate loads, safety checks. Zero cost off. `ORI_AUDIT_STRICT=1` (pessimistic) | `ORI_AUDIT_FUNCTION=name` (filter)
-**ARC verification**: `ORI_VERIFY_ARC=1` — extra ARC IR correctness checks (RC balance, drop placement) after the AIMS pipeline
+**Codegen audit**: `ORI_AUDIT_CODEGEN=1` — RC balance, COW sequencing, ABI args, aggregate loads, safety checks, LLVM lint. Zero cost off. `ORI_AUDIT_STRICT=1` (pessimistic) | `ORI_AUDIT_FUNCTION=name` (filter)
+**LLVM lint**: `ORI_LLVM_LINT=1` — run LLVM `function(lint)` pass to detect likely-UB patterns (division by zero, suspicious alignment, unreachable). Auto-enabled by `ORI_AUDIT_CODEGEN=1`.
+**ARC verification**: `ORI_VERIFY_ARC=1` — extra ARC IR correctness checks (RC balance, drop placement) after the AIMS pipeline; also enables per-function LLVM IR verification at all emission sites
+**LLVM pass verification**: `ORI_VERIFY_EACH=1` — enable LLVM IR verification after every optimization pass (~30-60% slower); catches which pass breaks IR well-formedness
 **Repr-opt disable**: `ORI_NO_REPR_OPT=1` — disable all representation optimizations (integer narrowing, enum packing). CLI: `--no-repr-opt`
 **AIMS**: The ARC pipeline uses the AIMS unified lattice — no feature flags needed.
 **Always run `./test-all.sh` after compiler changes.**
 **Perf baseline**: `./scripts/perf-baseline.sh [--release] [--include-cow]` | **COW benchmarks**: `./scripts/cow-benchmark.sh [--release] [--include-macro] [--compare baseline.json]` | **Consistency**: `diagnostics/check-debug-flags.sh` | **Cargo cache**: `./scripts/cache-doctor.sh [--print-cleanup|--clean]` — detects root-owned files in `target/` that cargo cannot update (accidental `sudo cargo build`); refuses destructive actions by default
-**Diagnostic scripts** (`diagnostics/`) — all support `--help`, `--no-color`/`--color`:
-- `ir-dump.sh` — LLVM IR (`--raw`, `--optimized`, `--function`) | `arc-dump.sh` — ARC IR post-lowering (`--raw`, `--function`) — debug AIMS pipeline (alias chains, take-projects, lineage) | `ir-diff.sh` — compare two programs | `disasm-ori.sh` — native disassembly
-- `rc-stats.sh` — RC balance per function | `codegen-audit.sh` — static RC/COW/ABI analysis (`--strict`, `--function`)
-- `diagnose-aot.sh` — all-in-one: build + run + leak check + RC stats + IR (`--valgrind`, `--verbose`)
-- `dual-exec-debug.sh` — interpreter vs AOT comparison; auto-dumps on mismatch (`--verbose`)
-- `debug-release-compare.sh` — debug vs release behavioral comparison (exit codes + stdout + LLVM IR diff on mismatch)
-- `valgrind-aot.sh [file.ori ...]` — Valgrind memory errors (defaults to `tests/valgrind/`, not in test-all.sh)
-- `dual-exec-verify.sh [test-path]` — batch interpreter vs LLVM (`--test-only`, `--main-only`, `--json`)
+**Diagnostic scripts** (`diagnostics/`): see `.claude/rules/diagnostic.md` §Diagnostic Scripts for full table with flags. Key scripts: `rc-stats.sh` (`--block-level`, `--optimized`), `codegen-audit.sh` (`--strict`), `diagnose-aot.sh` (`--valgrind`), `dual-exec-debug.sh`, `ir-dump.sh`, `debug-release-compare.sh`, `bisect-passes.sh` (`--function`, `--rc-only`)
 
 ## Feature Flags
 

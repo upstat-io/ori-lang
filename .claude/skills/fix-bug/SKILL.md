@@ -36,7 +36,7 @@ When invoked with `--autopilot` (by `/fix-next-bug` in autopilot mode), the foll
 - **No hacks, no shortcuts, no workarounds** — follow CLAUDE.md's "The One Rule: Correctness Above All" with absolute fidelity. The correct fix is the ONLY fix. Scope, effort, complexity are irrelevant.
 - **Full rigor is non-negotiable** — every phase (investigation, TDD matrix, implementation, TPR, hygiene) runs to completion. Autopilot means autonomous, NOT abbreviated.
 - **New bugs → `/add-bug`** — file them and keep going. The `/fix-next-bug` loop will pick them up on the next re-scan.
-- **Fix interference → handle it** — if a newly discovered bug blocks this fix, shelve, fix the blocker first via a nested `/fix-bug --autopilot`, then resume.
+- **Fix interference → handle it** — if a newly discovered bug blocks this fix, **shelve** the current fix, fix the blocker first via a nested `/fix-bug --autopilot`, then resume. "Shelve" means: (1) commit any partial work via `/commit-push` with message `chore(fix-bug): shelve BUG-XX-NNN — blocked by BUG-YY-MMM`, (2) note the WIP commit hash in the fix section file's implementation notes, (3) after the nested fix returns, continue from where you left off — the WIP commit keeps your partial changes safe and separate from the nested fix's commits.
 - **Do NOT use `TaskCreate`** — the `/fix-next-bug` autopilot loop maintains a single persistent reminder task. Creating additional tasks would signal work completion and cause the loop to terminate prematurely. Track your progress via the fix section file, not tasks.
 
 When NOT in autopilot mode, `AskUserQuestion` is available as normal for genuinely ambiguous decisions.
@@ -73,7 +73,24 @@ Spending time checking out old commits to see if something "was already broken" 
 
 1. **Read the affected code** — not just the file listed in the bug entry, but the surrounding context. Understand the data flow, the invariants, and the phase boundaries. Read at least 2-3 files that interact with the buggy code.
 
-2. **Reproduce the bug** — run the repro from the bug entry. If it passes now, the bug may be OBE — verify and mark resolved if so.
+2. **Reproduce the bug** — run the repro from the bug entry. If it passes now, the bug may be OBE — follow the OBE exit path below.
+
+   **OBE Exit Path** (bug already fixed by other work):
+   1. Verify the fix is real — run the repro AND check that the underlying code path is actually corrected, not just coincidentally passing
+   2. Update the bug entry in the section file using the canonical OBE resolution format from `plans/bug-tracker/00-overview.md`:
+      ```markdown
+      - [x] `[BUG-{section}-{ordinal}][{severity}]` **{Short title}**
+        Resolved: OBE on {YYYY-MM-DD}. {What fixed it — commit, plan, or rewrite}.
+      ```
+   3. Update `plans/bug-tracker/00-overview.md` Quick Reference — decrement the open bug count for this subsystem
+   4. Commit via `/commit-push` (the entry update is a deliverable — it must be committed)
+   5. **Return OBE outcome** — report to the caller (user or `/fix-next-bug`):
+      ```
+      OBE: [BUG-{section}-{ordinal}][{severity}] {title}
+        Resolved by: {what fixed it}
+        Bug entry updated, overview count decremented.
+      ```
+   6. **Stop** — do NOT proceed to Phase 1.5 or beyond. The bug is resolved.
 
 3. **Consult the spec** — check `docs/ori_lang/v2026/spec/` for the intended behavior. The spec is authoritative.
 
@@ -131,7 +148,18 @@ After investigation, assess whether this bug is a **point fix** (inline bug fix)
    ```
 4. **Stop.** This bug is done for `/fix-bug` until the blocker is resolved.
 
-**In autopilot mode**: the same rules apply for ALL non-point-fix outcomes — escalate to `/create-plan`, mark as blocked, or mark as OBE, then return to the caller (`/fix-next-bug`) which will immediately pick the next bug. Autopilot means autonomous, not reckless. Creating a plan for a large-scope bug or correctly identifying a blocker IS the correct autonomous decision. The key: always return to the caller — never just "document and stop."
+**In autopilot mode**: the same rules apply for ALL non-point-fix outcomes, with one critical exception for `/create-plan`:
+
+- **OBE** → follow the OBE exit path (Phase 1), return OBE outcome to caller
+- **Blocked/latent** → update bug entry with `Blocked:` note, return blocked outcome to caller
+- **Plan needed** → **do NOT invoke `/create-plan`** (it has mandatory interactive approval gates that conflict with autopilot's zero-interaction contract). Instead:
+  1. Update the bug entry with `Escalated: requires plan — {brief reason why inline fix is insufficient}`
+  2. Return escalated outcome to caller with the reason
+  3. `/fix-next-bug` records this in the session summary; the user creates the plan after the autopilot run
+
+When NOT in autopilot mode, invoke `/create-plan` normally per the escalation protocol above.
+
+Autopilot means autonomous, not reckless. Correctly identifying that a bug needs a plan and deferring the plan creation to the interactive user IS the correct autonomous decision. The key: always return to the caller — never just "document and stop."
 
 ### Phase 1.75: Fix Consensus (via /tp-help) — MANDATORY GATE
 
@@ -162,7 +190,7 @@ This is NOT `/tp-help`'s usual "stuck help" use case — it is **design consensu
 
 6. **Document consensus in the fix section file** (§ 1.5 Fix Consensus, per the template). The content is captured NOW; the file itself is written in Phase 2.
 
-**Interaction with Phase 1.5**: If `/tp-help` reveals the bug is actually systemic (requires architectural change across 4+ files, new abstractions, cross-crate redesign), **return to Phase 1.5** and re-assess. A consensus round that surfaces plan-escalation criteria is a WIN — cheaper than discovering it mid-implementation. Run `/create-plan` and stop per Phase 1.5's escalation protocol.
+**Interaction with Phase 1.5**: If `/tp-help` reveals the bug is actually systemic (requires architectural change across 4+ files, new abstractions, cross-crate redesign), **return to Phase 1.5** and re-assess. A consensus round that surfaces plan-escalation criteria is a WIN — cheaper than discovering it mid-implementation. Follow Phase 1.5's escalation protocol exactly — including the autopilot exception (which marks `Escalated: requires plan` instead of invoking `/create-plan`).
 
 **Runtime expectation**: `/tp-help` is ~10–15 min per round (dominated by gemini wall time). Budget 10–45 min for Phase 1.75 depending on whether reconciliation rounds are needed. This is deliberately expensive — one saved bad-approach cycle (where tests encode the wrong semantics and the fix has to be reverted) pays for many consensus calls.
 
@@ -196,16 +224,17 @@ Update the fix section: check off implementation tasks, note any discoveries.
 
 ### Phase 5: Completion Checklist
 
-Work through the completion checklist in order:
+Work through the completion checklist in order. **Reviews MUST complete before bug closure** — a bug marked resolved before TPR/hygiene is a premature closure that hides unfinished work from `/fix-next-bug` and `/review-bugs`.
 
 1. **Verify all matrix items** — tests, builds, leak checks
-2. **Update the bug entry** in the section file — mark `- [x]` with resolution details
-3. **Update the fix section** — set status to `complete`, fill in exit criteria
-4. **Update the overview** — adjust open bug count
-5. **Run `/tpr-review`** — independent third-party review of the fix
-6. **Handle TPR findings** — fix any issues found, re-run if needed
-7. **Run `/impl-hygiene-review`** — AFTER TPR is clean
-8. **Run `/improve-tooling` retrospectively** — MANDATORY at fix close, AFTER both reviews are clean. Bug fixes are the richest source of tooling gaps because you've just spent time fighting the diagnostic surface during root cause analysis. Reflect on: which `diagnostics/` scripts you ran, where you added ad-hoc `dbg!`/`tracing` calls (and what each one was looking for), where the original failure message was unhelpful, where matrix tests were tedious because helpers were missing, what instrumentation would have made the bug obvious in 1 minute instead of 30. Capture every gap you noticed. Implement every accepted improvement NOW (zero deferral) and commit each via SEPARATE `/commit-push` using a valid conventional-commit type (e.g., `build(diagnostics): add --bb-level RC tracking — surfaced by BUG-XX-NNN retrospective` — use `build` for dev/diagnostic scripts, `test` for test-harness, `chore` for general tooling, `ci` for CI, `docs` for tool docs; do NOT use `tools(...)` — the lefthook commit-msg hook rejects any type outside the standard set `feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert`). The retrospective is mandatory even when nothing felt painful — this is exactly when blind spots accumulate. See `.claude/skills/improve-tooling/SKILL.md` "Retrospective Mode" for the full look-back protocol.
+2. **Run `/tpr-review`** — independent third-party review of the fix
+3. **Handle TPR findings** — fix any issues found, re-run until clean
+4. **Run `/impl-hygiene-review`** — AFTER TPR is clean
+5. **Run `/improve-tooling` retrospectively** — MANDATORY at fix close, AFTER both reviews are clean. Bug fixes are the richest source of tooling gaps because you've just spent time fighting the diagnostic surface during root cause analysis. Reflect on: which `diagnostics/` scripts you ran, where you added ad-hoc `dbg!`/`tracing` calls (and what each one was looking for), where the original failure message was unhelpful, where matrix tests were tedious because helpers were missing, what instrumentation would have made the bug obvious in 1 minute instead of 30. Capture every gap you noticed. Implement every accepted improvement NOW (zero deferral) and commit each via SEPARATE `/commit-push` using a valid conventional-commit type (e.g., `build(diagnostics): add --bb-level RC tracking — surfaced by BUG-XX-NNN retrospective` — use `build` for dev/diagnostic scripts, `test` for test-harness, `chore` for general tooling, `ci` for CI, `docs` for tool docs; do NOT use `tools(...)` — the lefthook commit-msg hook rejects any type outside the standard set `feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert`). The retrospective is mandatory even when nothing felt painful — this is exactly when blind spots accumulate. See `.claude/skills/improve-tooling/SKILL.md` "Retrospective Mode" for the full look-back protocol.
+6. **Update the bug entry** in the section file — mark `- [x]` with resolution details using the canonical format from `plans/bug-tracker/00-overview.md`
+7. **Update the fix section** — set status to `complete`, fill in exit criteria
+8. **Update the overview** — adjust open bug count in `plans/bug-tracker/00-overview.md`
+9. **Final commit gate** — run `/commit-push` to commit the closure artifacts (bug entry, fix section status, overview count). A fix reported as complete but with uncommitted closure updates creates drift between the tracker and git history.
 
 ### Phase 6: Report
 
@@ -215,6 +244,7 @@ Fixed: [BUG-{section}-{ordinal}][{severity}] {title}
   Fix section: plans/bug-tracker/fix-BUG-{section}-{ordinal}.md
   Tests added: {count} ({test file paths})
   Files changed: {list}
+  Consensus: {converged | converged after N rounds | deadlocked (autopilot — proceeded with Claude's approach)}
   TPR: {passed | findings resolved}
   Hygiene: {passed | findings resolved}
 ```
@@ -224,9 +254,7 @@ Fixed: [BUG-{section}-{ordinal}][{severity}] {title}
 ### Simple bugs (1-2 files, obvious fix)
 - The fix section is still MANDATORY — but sections 1-3 can be brief
 - TDD matrix can be smaller if the bug is narrowly scoped — but semantic + negative pins are ALWAYS required
-- Completion checklist is NEVER shortened for critical/high severity
-- For medium severity: TPR expected, hygiene recommended
-- For low severity: TPR + hygiene recommended but not required — document if skipped
+- **TPR and hygiene review are MANDATORY for ALL severities** — per CLAUDE.md Fix Completeness, a fix is not done until `/tpr-review` passed and `/impl-hygiene-review` passed, with no severity carve-out. The investigation/TDD phases scale down for simple bugs; the review gates do not.
 
 ### Complex bugs (3+ files, architectural)
 - Full investigation with reference compilers
@@ -255,7 +283,7 @@ Do NOT gloss over these as "not my bug" or "separate issue" — file them via `/
 - **`/add-bug`** — invoke during ANY phase when a new bug is discovered. This is the most common integration — fixing bugs surfaces more bugs, and every one must be filed.
 - **`/fix-next-bug`** — orchestrates picking bugs from the tracker and invoking this skill in priority order
 - **`/review-bugs`** — triages bugs; recommends `/fix-bug` for selected bugs
-- **`/create-plan`** — MANDATORY when Phase 1.5 determines the bug needs a plan instead of an inline fix. The plan IS the deliverable — do NOT skip this.
+- **`/create-plan`** — MANDATORY in interactive mode when Phase 1.5 determines the bug needs a plan. In autopilot mode, `/create-plan` is NOT invoked (it requires interactive approval gates) — instead the bug is marked `Escalated: requires plan` per Phase 1.5's autopilot exception.
 - **`/commit-push`** — used in Phase 4 to commit changes before review
 - **`/tpr-review`** — called during completion checklist
 - **`/impl-hygiene-review`** — called during completion checklist, AFTER TPR

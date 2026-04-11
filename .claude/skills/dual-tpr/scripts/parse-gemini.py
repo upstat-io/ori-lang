@@ -10,8 +10,11 @@ Default mode (`--schema`) reads the gemini stream-json stream from PATH:
   2. Verifies the terminal {"type":"result","status":"success"} event is present
   3. Searches the concatenated text for the BEGIN sentinel
   4. Extracts the fenced JSON block between BEGIN and END sentinels
-  5. Parses the JSON block, validates against the schema
-  6. Prints the envelope to stdout on success
+  5. Parses the JSON block
+  6. Runs the repair layer (repair_envelope.py) to normalize common schema
+     violations — missing fields, enum aliases, location format, etc.
+  7. Validates the (possibly repaired) envelope against the schema
+  8. Prints the envelope to stdout on success
 
 Recovery mode (`--recover-text`) dumps the raw concatenated assistant text
 to stdout without any sentinel or schema validation. Use this when default
@@ -29,17 +32,52 @@ Outcome codes (stderr first line on default-mode failure):
     missing_json_block      — sentinels present but no fenced JSON block
     parse_fail              — fenced JSON block is not valid JSON
     schema_violation        — JSON validates against neither shape nor schema
+                              (even after repair attempt)
     failed_partial          — envelope validates but status != "complete"
 
 Sentinel-less fallback:
     When gemini omits the BEGIN/END sentinels but produces a fenced JSON block
-    (```json ... ```) that looks like a findings envelope (contains
-    "schema_version" and "status" keys), the parser falls back to extracting
-    that block directly. A WARNING is printed to stderr. This resilience
-    measure exists because gemini inconsistently follows sentinel instructions
-    despite them being clearly specified in the reviewer skill file. The
+    (```json ... ```) that looks like a findings envelope, the parser falls
+    back to extracting that block directly. A WARNING is printed to stderr.
+    This resilience measure exists because gemini inconsistently follows
+    sentinel instructions despite them being clearly specified in the
+    reviewer skill file.
+
+    The fallback acceptance guard is composed with the repair layer
+    downstream: repair_envelope.py auto-fills missing `schema_version`,
+    `status`, `reviewer`, `skill`, and `scope_actually_reviewed`, so the
+    guard here only needs a strong-marker check that distinguishes a review
+    envelope from random fenced JSON (config blobs, package.json, schema
+    examples, etc.) WITHOUT requiring fields the repair layer would
+    synthesize. An earlier incarnation of this guard required literal
+    "schema_version" AND "status" substring matches, which rejected minimal
+    clean-pass envelopes like
+        {"skill":"review-plan","reviewer":"gemini","no_findings":true,"findings":[]}
+    that repair_envelope.py would have made fully valid — a composition
+    failure between the two resilience layers.
+
+    Strong markers accepted by the guard (any one is sufficient):
+      - "no_findings"             — unique top-level bool, review-envelope only
+      - "scope_actually_reviewed" — unique top-level nested object
+      - "reviewer" ∈ {codex, gemini}
+      - "findings" is a list AND "skill" ∈ {tpr-review, review-work,
+        review-plan, tp-help}
+
+    The parser collects ALL fenced JSON blocks in arrival order and picks
+    the LAST one that parses as a dict and matches the guard. "Last wins"
+    handles the case where gemini shows a schema example in an earlier
+    fenced block before emitting the real envelope in a later one. The
     sentinel requirement remains in the skill file; this is a parser-level
     safety net, not an endorsement of sentinel-less output.
+
+Envelope repair:
+    After JSON parsing succeeds, the repair layer (repair_envelope.py) runs
+    BEFORE schema validation. It normalizes common LLM output violations:
+    missing required fields (schema_version, no_findings, etc.), enum aliases
+    ("info" → "informational"), location format (strip "./", add ":line"),
+    and type coercions (string ordinals → int). All repairs are logged to
+    stderr with a "REPAIR:" prefix so they're visible in postmortem. The
+    repair layer is idempotent — valid envelopes pass through unchanged.
 
 Recovery-mode failure (rare — only if the JSONL stream itself is unreadable):
     missing_envelope        — no assistant messages found in stream
@@ -57,11 +95,45 @@ import sys
 # import works regardless of caller cwd.
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from envelope_invariants import validate_envelope_invariants  # noqa: E402
+from repair_envelope import repair_envelope  # noqa: E402
 
 BEGIN_SENTINEL = "<!-- BEGIN-ORI-DUAL-TPR-V1 -->"
 END_SENTINEL = "<!-- END-ORI-DUAL-TPR-V1 -->"
 # Fenced JSON block: ```json ... ```
 FENCE_RE = re.compile(r"```json\s*\n(.*?)\n```", re.DOTALL)
+
+# Envelope shape markers for sentinel-less fallback. A fenced JSON block is
+# accepted as a review envelope if it parses to a dict and satisfies AT LEAST
+# ONE of the markers below. All other fields (schema_version, status,
+# scope_actually_reviewed, etc.) are filled in by repair_envelope.py
+# downstream, so the guard does NOT check for them.
+_ENVELOPE_SKILLS = frozenset(("tpr-review", "review-work", "review-plan", "tp-help"))
+_ENVELOPE_REVIEWERS = frozenset(("codex", "gemini"))
+
+
+def looks_like_review_envelope(parsed: object) -> bool:
+    """Strong-marker shape check for sentinel-less fallback acceptance.
+
+    Returns True if ``parsed`` is a dict containing any field that is
+    virtually unique to review envelopes and would not be synthesized by
+    repair_envelope.py. See the module docstring §Sentinel-less fallback
+    for the full marker list and rationale.
+    """
+    if not isinstance(parsed, dict):
+        return False
+    # Strong markers — any one is sufficient.
+    if "no_findings" in parsed:
+        return True
+    if "scope_actually_reviewed" in parsed:
+        return True
+    if parsed.get("reviewer") in _ENVELOPE_REVIEWERS:
+        return True
+    # Medium marker: findings-list + skill-enum combination. Either alone is
+    # too weak (random JSON can have a "findings" key or a "skill" string),
+    # but the combination is load-bearing.
+    if isinstance(parsed.get("findings"), list) and parsed.get("skill") in _ENVELOPE_SKILLS:
+        return True
+    return False
 
 
 def read_assistant_text(jsonl_path):
@@ -167,33 +239,49 @@ def main():
         json_text = m.group(1)
     else:
         # Sentinel-less fallback: gemini sometimes omits sentinels but still
-        # produces a valid fenced JSON envelope. Try to extract a fenced JSON
-        # block that looks like a findings envelope (has "schema_version" key).
-        # This is a resilience measure — the sentinel requirement remains in
-        # the gemini skill file and the transport still prefers sentinel-wrapped
-        # envelopes. The fallback only fires when sentinels are truly absent.
-        m = FENCE_RE.search(full_text)
-        if not m:
-            print("missing_begin_sentinel", file=sys.stderr)
-            print("BEGIN sentinel not found in assistant text", file=sys.stderr)
-            sys.exit(1)
-
-        candidate = m.group(1)
-        # Quick shape check: must look like a findings envelope
-        if '"schema_version"' not in candidate or '"status"' not in candidate:
+        # produces a valid fenced JSON envelope. Collect ALL fenced JSON
+        # blocks in arrival order and pick the LAST one that parses as a
+        # dict matching the review-envelope shape guard. See the module
+        # docstring §Sentinel-less fallback for rationale; the guard
+        # composes with repair_envelope.py so minimal envelopes like
+        # {"skill":..., "reviewer":..., "no_findings":true, "findings":[]}
+        # are accepted and completed downstream.
+        all_blocks = FENCE_RE.findall(full_text)
+        if not all_blocks:
             print("missing_begin_sentinel", file=sys.stderr)
             print(
-                "BEGIN sentinel not found; fenced JSON block present but does "
-                "not appear to be a findings envelope",
+                "BEGIN sentinel not found in assistant text and no fenced "
+                "JSON block found as fallback",
                 file=sys.stderr,
             )
             sys.exit(1)
 
-        json_text = candidate
+        json_text = None
+        for block in reversed(all_blocks):  # last-block-wins
+            try:
+                parsed = json.loads(block)
+            except json.JSONDecodeError:
+                continue
+            if looks_like_review_envelope(parsed):
+                json_text = block
+                break
+
+        if json_text is None:
+            print("missing_begin_sentinel", file=sys.stderr)
+            print(
+                f"BEGIN sentinel not found; inspected {len(all_blocks)} fenced "
+                f"JSON block(s) but none matched review-envelope shape "
+                f"(need no_findings, scope_actually_reviewed, "
+                f"reviewer in {{codex,gemini}}, or findings-list + skill in "
+                f"{{tpr-review,review-work,review-plan,tp-help}})",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+
         print(
             "WARNING: sentinel-less fallback — gemini omitted BEGIN/END "
-            "sentinels but produced a valid-looking fenced JSON envelope. "
-            "Proceeding with schema validation.",
+            "sentinels but produced a fenced JSON block matching the review "
+            "envelope shape. Proceeding with repair + schema validation.",
             file=sys.stderr,
         )
 
@@ -204,11 +292,34 @@ def main():
         print(f"fenced JSON block is not valid JSON: {e}", file=sys.stderr)
         sys.exit(1)
 
+    # Repair layer: normalize common schema violations before validation.
+    # Gemini frequently omits required fields (schema_version, no_findings),
+    # uses enum aliases ("info" instead of "informational"), or produces
+    # location formats the invariant regex rejects. The repair layer fixes
+    # these in-place so a structurally-correct-but-sloppy envelope doesn't
+    # kill a 20-minute review. All repairs are logged to stderr.
+    envelope, repairs = repair_envelope(
+        envelope, default_reviewer="gemini", default_skill="review-work",
+    )
+    if repairs:
+        print(
+            f"REPAIR: applied {len(repairs)} auto-repair(s) to gemini envelope:",
+            file=sys.stderr,
+        )
+        for r in repairs:
+            print(f"  REPAIR: {r}", file=sys.stderr)
+
     try:
         jsonschema.validate(envelope, schema)
     except jsonschema.ValidationError as e:
         print("schema_violation", file=sys.stderr)
         print(f"{e.message}", file=sys.stderr)
+        if repairs:
+            print(
+                f"(repair layer applied {len(repairs)} fix(es) but envelope "
+                f"still fails validation)",
+                file=sys.stderr,
+            )
         sys.exit(1)
 
     # Validate code-level invariants (regex patterns, length limits, conditional

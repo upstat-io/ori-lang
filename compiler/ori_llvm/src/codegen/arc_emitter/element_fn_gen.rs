@@ -84,6 +84,14 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
         let func_id = self.generate_elem_dec_fn_body(element_type);
 
+        // Function-level LLVM IR verification.
+        if self.verify_arc {
+            let fn_val = self.builder.get_function_value(func_id);
+            if !fn_val.verify(true) {
+                tracing::error!("LLVM IR verification failed (generate_elem_dec_fn)");
+            }
+        }
+
         // Restore builder state, emitter's current function, and funclet pad
         self.current_funclet_pad = saved_funclet_pad;
         self.current_function = saved_emitter_func;
@@ -197,6 +205,14 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let saved_funclet_pad = self.current_funclet_pad.take();
 
         let func_id = self.generate_elem_inc_fn_body(element_type);
+
+        // Function-level LLVM IR verification.
+        if self.verify_arc {
+            let fn_val = self.builder.get_function_value(func_id);
+            if !fn_val.verify(true) {
+                tracing::error!("LLVM IR verification failed (generate_elem_inc_fn)");
+            }
+        }
 
         // Restore builder state, emitter's current function, and funclet pad
         self.current_funclet_pad = saved_funclet_pad;

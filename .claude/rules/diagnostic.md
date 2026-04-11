@@ -43,3 +43,36 @@ paths:
 - `diagnostic.rs`: Builder
 - `emitter/`: Output formats (terminal, json, sarif)
 - `queue.rs`: Accumulation
+
+## Diagnostic Scripts (`diagnostics/`)
+
+All support `--help`, `--no-color`/`--color`.
+
+| Script | Purpose | Key flags |
+|--------|---------|-----------|
+| `diagnose-aot.sh` | All-in-one: build+run+leak+RC+IR | `--valgrind`, `--rc-trace`, `--verbose`, `--release`, `--both-builds` |
+| `dual-exec-debug.sh` | Interpreter vs AOT comparison | `--verbose`, `--keep-temp` |
+| `dual-exec-verify.sh` | Batch interpreter vs LLVM | `--test-only`, `--main-only`, `--json` |
+| `rc-stats.sh` | RC balance per function | `--block-level`, `--optimized`, `--compare-awk` |
+| `codegen-audit.sh` | Static RC/COW/ABI analysis | `--strict`, `--function` |
+| `ir-dump.sh` | LLVM IR | `--raw`, `--optimized`, `--function` |
+| `arc-dump.sh` | ARC IR post-lowering | `--raw`, `--function` |
+| `ir-diff.sh` | Compare two programs' IR | `--raw`, `--optimized`, `--function`, `--context` |
+| `disasm-ori.sh` | Native disassembly | `--all`, `--function`, `--symbols` |
+| `bisect-passes.sh` | AIMS pipeline phase bisection | `--function`, `--rc-only` |
+| `debug-release-compare.sh` | Debug vs release comparison | `--verbose` |
+| `valgrind-aot.sh` | Valgrind memory errors | defaults to `tests/valgrind/` |
+| `check-debug-flags.sh` | Validate `ORI_*` flag consistency | |
+| `self-test.sh` | Self-test all scripts against fixtures | |
+
+**Data sources:**
+- `rc-stats.sh` consumes compiler JSON via `ORI_AUDIT_CODEGEN=1` (SSOT: `RcOpKind` in `rc_histogram.rs`)
+- `codegen-audit.sh` consumes `codegen audit:` lines from `ORI_AUDIT_CODEGEN=1`
+- `bisect-passes.sh` consumes `ori_arc::aims::pipeline` tracing events via `ORI_LOG=ori_arc::aims::pipeline=info`
+- `ir-dump.sh` / `arc-dump.sh` use `ORI_DUMP_AFTER_LLVM=1` / `ORI_DUMP_AFTER_ARC=1`
+
+**Environment:**
+- `ORI_BIN` — override path to ori binary (used by most scripts)
+- `ORI_AUDIT_CODEGEN=1` — enable in-pipeline audit (add `ORI_AUDIT_STRICT=1` | `ORI_AUDIT_FUNCTION=name`)
+
+**Self-test:** `diagnostics/self-test.sh` — runs all scripts against fixtures

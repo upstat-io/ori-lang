@@ -131,6 +131,13 @@ flags! {
     /// Usage: `ORI_VERIFY_ARC=1 ori build file.ori`
     ORI_VERIFY_ARC
 
+    /// Enable LLVM IR verification after every optimization pass.
+    ///
+    /// Catches which optimization pass breaks IR well-formedness.
+    /// Significant performance impact (~30-60% slower LLVM tests).
+    /// Usage: `ORI_VERIFY_EACH=1 ori build file.ori`
+    ORI_VERIFY_EACH
+
     /// Run in-pipeline RC audit on emitted LLVM IR.
     ///
     /// Detects leaks, double-frees, COW sequencing bugs, and ABI violations.
@@ -149,6 +156,13 @@ flags! {
     /// Only analyzes the function whose LLVM name contains the given string.
     /// Usage: `ORI_AUDIT_CODEGEN=1 ORI_AUDIT_FUNCTION=main ori build file.ori`
     ORI_AUDIT_FUNCTION
+
+    /// Run LLVM lint pass (`function(lint)`) to detect likely-undefined behavior.
+    ///
+    /// Detects division by potential zero, suspicious alignment, unreachable
+    /// patterns, and UB in instruction operands. Auto-enabled by `ORI_AUDIT_CODEGEN=1`.
+    /// Usage: `ORI_LLVM_LINT=1 ori build file.ori`
+    ORI_LLVM_LINT
 
     // === Existing Flags (migrated) ===
 

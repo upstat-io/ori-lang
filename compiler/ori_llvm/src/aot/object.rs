@@ -402,6 +402,13 @@ impl ObjectEmitter {
         super::passes::run_optimization_passes(module, &self.machine, opt_config)
             .map_err(ModulePipelineError::Optimization)?;
 
+        // Step 2.5: Post-optimization RC histogram (gated behind audit flag).
+        if crate::verify::audit_requested() {
+            let options = crate::verify::AuditOptions::from_env();
+            let stats = crate::verify::audit_module_histogram_only(module, &options);
+            stats.emit_to_stderr();
+        }
+
         // Step 3: Emit
         self.emit(module, path, format)
             .map_err(ModulePipelineError::Emission)?;

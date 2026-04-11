@@ -81,14 +81,7 @@ The complement of SSOT. Defined in detail in the "Side Logic" section below. Sid
 
 ### Phase-Specific Purity
 
-- **Lexer**: scanning with minimal local state (nesting depth, mode stack); produces `(tag, len)`. No semantic state (names, types, scopes).
-- **Parser**: syntax only; builds AST from tokens; no name resolution or semantic validation
-- **Type Checker**: consumes AST, produces typed IR; no re-parsing, no codegen. Salsa queries must be pure.
-- **Evaluator**: interprets typed IR; no re-type-checking, no codegen
-- **ARC Pass**: analyzes ownership on IR; no codegen, no interpretation
-- **LLVM Codegen**: emits LLVM IR from typed IR; no interpretation, no re-type-checking
-- **Diagnostics**: formats and renders errors; no phase logic, no semantic analysis
-- **Optimization Passes**: reads IR, produces transformed IR; analysis is pass-local
+See `compiler.md` §Phase-Specific Purity for the per-phase purity contracts (lexer, parser, type checker, evaluator, ARC, codegen, diagnostics, optimization).
 
 ### Error Recovery Per Phase
 
@@ -186,9 +179,7 @@ Hot: lexer scan loop, parser expression/statement parsing, type inference unific
 
 ### Diagnostic Message Quality
 
-- Plain language, not compiler internals; lead with what's wrong
-- Suggest how to fix it; show the fix, not just the problem
-- No "you" blame language; show code context when possible
+See `diagnostic.md` §Message Style for the full diagnostic message quality rules (plain language, show the fix, no blame language).
 
 ## Type Discipline
 
@@ -212,6 +203,8 @@ Hot: lexer scan loop, parser expression/statement parsing, type inference unific
 - **Explicit pass ordering**: dependencies documented in `//!` module doc of the pass manager and comments at each invocation site. Assert ordering with tests.
 - **No shared mutable state between passes**: inter-pass communication via IR only. Exception: diagnostic accumulation is append-only — passes may append but not read/mutate each other's diagnostics.
 - **Boundary validation**: `debug_assert!` invariants before crossing to next phase. Examples: all type variables resolved before codegen, no unreachable blocks in IR, RC ops balanced after ARC pass.
+- **Pass idempotency**: running any compiler pass twice must produce the same IR as running it once. A non-idempotent pass is a bug. Test by running the pass, saving the output, running it again on the output, and asserting equality. Exempt: intentionally non-idempotent passes (e.g., optimization passes with fuel limits) must document why.
+- **Pass determinism**: same input IR + same config = same output IR, always. No hash-map iteration order dependencies, no random seeds, no timestamp-dependent behavior.
 
 ### Cross-Phase Invariant Contracts
 
@@ -255,9 +248,7 @@ Debug and release builds must produce **identical observable output** for the sa
 
 ## Narrow the Front
 
-- **Complete one fix fully before starting another.** RC + control-flow + lowering interactions multiply failure surfaces. Concurrent changes across these domains compound risk.
-- **"Fully" means**: fix + matrix tests + semantic pin + plan update. A fix without matrix tests is incomplete. A fix with tests but without plan update (when cross-section) is incomplete.
-- **Prefer depth over breadth.** Fix one element type across all patterns before fixing a second element type. Fix one loop variant completely before the other. This reduces the number of concurrent moving parts and makes failures narrow and explainable.
+See CLAUDE.md §Stabilization Discipline for the full narrow-the-front principle (complete one fix fully before starting another, depth over breadth, fix interference = reorder).
 
 ## Registration Sync Points
 
@@ -584,6 +575,9 @@ Inline comments on struct fields when purpose isn't obvious.
 - No `Arc<Mutex<T>>` in query inputs or values
 - Prefer fine-grained queries over coarse
 - Salsa interned values automatically invalidated. For non-Salsa caches, document the invalidation strategy. Prefer Salsa queries over manual caches.
+- **Tracked input ownership**: every `#[salsa::input]` must have exactly one mutator. Multiple writers to the same input = data race at the query level.
+- **Dependency edge completeness**: if query A reads data that query B produces, A must transitively depend on B through Salsa. Reading through side channels (global state, files, env vars) breaks incremental.
+- **Query-key stability**: keys used in tracked queries must have stable identity across revisions. If a key changes identity (e.g., different `ExprId` for the same expression after re-parse), all dependent queries re-execute even if the content is unchanged — a performance cliff.
 
 ## Panic & Assertion
 
@@ -710,20 +704,6 @@ A failure log entry `test_works ... FAILED` is indistinguishable from any other 
 - No global mutable state (`static mut`, `lazy_static` with mutation). All state flows through function parameters or Salsa queries.
 - Thread-safety required only at `ori_rt` FFI boundary
 
-## CI & Build
+## CI, Build, Commit & Technical Debt
 
-- All code passes `./clippy-all.sh`, `./test-all.sh`, `./fmt-all.sh` before merge. No exceptions.
-- No warnings in CI
-- Build must succeed with default features and `--all-features`
-
-## Commit Hygiene
-
-- One logical change per commit; conventional commit format (`feat`/`fix`/`refactor`)
-- Cross-crate changes that must be in sync go in a single commit
-- Large refactors broken into phases: (1) add new API alongside old, (2) migrate consumers, (3) remove old API. Never break the build between phases.
-- No WIP/temp commits on dev/master
-
-## Technical Debt
-
-- Fix when you find it. If it can't be fixed in the current change, add an entry to the active plan or create a roadmap item. No untracked debt.
-- Experimental/prototype code lives in feature branches, never in dev/master.
+Process rules live in CLAUDE.md (§Commands, §Stabilization Discipline, §Ownership & Deferral). See there for CI gates, commit conventions, multi-commit ordering, and zero-deferral on technical debt.

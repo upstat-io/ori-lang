@@ -3,7 +3,7 @@ reroute: true
 name: "Journey Rework"
 full_name: "Code Journey Rework: From Broken Scoring to Real Bug-Finding"
 status: active
-order: 8
+order: 9
 ---
 
 # Code Journey Rework Index

@@ -13,7 +13,7 @@
 #   -h, --help         Show this help
 #
 # The default mode captures unoptimized IR (immediately after codegen, before
-# LLVM optimization passes) via ORI_DEBUG_LLVM=1. Use --optimized to see the
+# LLVM optimization passes) via ORI_DUMP_AFTER_LLVM=1. Use --optimized to see the
 # IR after LLVM's optimization pipeline has run.
 #
 # Annotations:
@@ -119,11 +119,11 @@ if [[ "$OPTIMIZED" -eq 1 ]]; then
     fi
     cat "$ir_file" > "$tmpdir/ir_clean.txt"
 else
-    # Unoptimized IR: ORI_DEBUG_LLVM=1 dumps to stderr between markers.
+    # Unoptimized IR: ORI_DUMP_AFTER_LLVM=1 dumps to stderr between markers.
     # The IR dump runs before verification/clone, so markers may be present
     # even when the build subsequently fails (e.g., LLVM IR verification error).
     build_exit=0
-    ORI_DEBUG_LLVM=1 "$ORI" build "$FILE" -o "$tmpdir/out" 2>"$tmpdir/ir_raw.txt" || build_exit=$?
+    ORI_DUMP_AFTER_LLVM=1 "$ORI" build "$FILE" -o "$tmpdir/out" 2>"$tmpdir/ir_raw.txt" || build_exit=$?
 
     # Extract IR between markers, stripping the marker lines themselves
     sed -n '/^=== LLVM IR/,/^=== END LLVM IR ===/p' "$tmpdir/ir_raw.txt" | \

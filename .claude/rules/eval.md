@@ -32,9 +32,8 @@ paths:
 - `with_binding(name, value, mutability, |s| { ... })`
 
 ## Derived Method Dispatch
-- `interpreter/derived_methods.rs` dispatches `#[derive(...)]` via strategy-based dispatch from `DerivedTrait::strategy()` (in `ori_ir`)
-- Strategies (FieldOp + CombineOp) drive unified `eval_derived_method()` -- no per-trait handlers
-- **DO NOT** add a DerivedTrait variant without verifying strategy dispatch covers it | see CLAUDE.md "Adding a New Derived Trait"
+
+See `ir.md` §DerivedTrait for the canonical sync point list. This crate's sync point: `interpreter/derived_methods.rs` dispatches via strategy-based dispatch from `DerivedTrait::strategy()` (FieldOp + CombineOp → unified `eval_derived_method()`).
 
 ## Tracing
 - Target: `ori_eval` | `ORI_LOG=ori_eval=debug` (method dispatch, function calls) | `=trace` (every eval call)

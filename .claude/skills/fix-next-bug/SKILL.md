@@ -41,12 +41,22 @@ plans/bug-tracker/section-07-tooling-cli.md
 plans/bug-tracker/section-08-spec-docs.md
 ```
 
-For each open bug, extract:
+For each `- [ ]` entry, extract:
 - **ID**: `BUG-{section}-{ordinal}`
 - **Severity**: critical, high, medium, or low
 - **Title**: the bold text after severity
 - **Repro**: repro line if present
 - **Subsystem**: subsystem line if present
+- **Lifecycle markers**: check for `Escalated to plan:`, `Blocked:`, or `Escalated:` notes in the entry body
+
+**Exclude non-fixable entries** — remove from the candidate list any `- [ ]` entry whose body contains ANY of these lifecycle markers (check case-insensitively and account for markdown formatting):
+- `Escalated to plan:` or `Escalated:` — the bug has been promoted to a plan; it is no longer an inline fix candidate
+- `Blocked:` or `**Blocked**:` or `**Blocked:**` — the bug has a prerequisite that hasn't been met yet (existing entries use bold markdown formatting)
+- `<!-- blocked-by:` — HTML comment marker used for cross-section dependency tracking
+
+These entries remain `- [ ]` (unchecked) because they are not resolved, but they are not actionable by `/fix-bug` until the plan completes or the blocker clears. Only genuinely open, unblocked, non-escalated bugs enter the priority queue.
+
+**Implementation note**: lifecycle markers can appear on the `- [ ]` checkbox line itself (e.g. `<!-- blocked-by:... -->` trailing the title) OR in the indented body lines below it. Scan the ENTIRE multi-line entry — checkbox line plus all indented continuation lines — before classifying it.
 
 ### Step 2: Sort by Priority
 
@@ -176,13 +186,13 @@ Loop:
 - "Session summary" or "progress report" mid-loop — the summary is ONLY printed when the queue is empty
 - "Natural stopping point" — there is no such thing; the loop continues until the queue is empty
 - "Already processed N bugs" — the count is irrelevant; the queue state is all that matters
-- "Bug was complex/couldn't fix" — escalate to `/create-plan` or mark blocked, then CONTINUE to the next bug
+- "Bug was complex/couldn't fix" — mark escalated or blocked, then CONTINUE to the next bug
 - "Bug was latent/OBE" — mark it, then CONTINUE to the next bug
 - Generating output that looks like a wrap-up — a session summary IS an exit; do NOT write one until the queue is empty
 
 **Valid `/fix-bug` outcomes in autopilot — ALL require continuing to the next bug:**
 - **Fixed** — bug resolved, tests pass, TPR clean → continue
-- **Escalated** — too large, `/create-plan` run → continue
+- **Escalated** — too large for inline fix, bug entry marked `Escalated: requires plan — {reason}` (no `/create-plan` in autopilot — user creates plan after session) → continue
 - **Blocked** — prerequisite missing, bug entry updated → continue
 - **OBE** — already fixed, marked resolved → continue
 
@@ -190,13 +200,13 @@ After EVERY outcome, the next action is ALWAYS: commit gate → re-scan → pick
 
 ### Handling Plan Escalation
 
-When `/fix-bug` escalates a bug to `/create-plan` (Phase 1.5 scope assessment), this is a valid outcome — not a failure. The bug was too large for an inline fix, and a plan was created as the deliverable.
+When `/fix-bug` determines a bug needs a plan (Phase 1.5 scope assessment), this is a valid outcome — not a failure.
 
 In the loop:
-- **Interactive mode**: report the escalation, then ask to continue to the next bug as normal
-- **Autopilot mode**: note the escalation, run the Commit Verification Gate (the plan files need committing), then immediately continue to the next bug
+- **Interactive mode**: `/fix-bug` invokes `/create-plan` normally (with user approval gates), then reports the escalation. Ask to continue to the next bug as normal.
+- **Autopilot mode**: `/fix-bug` marks the bug entry with `Escalated: requires plan — {reason}` (it does NOT invoke `/create-plan` since that requires interactive approval). Run the Commit Verification Gate (the entry update needs committing), then immediately continue to the next bug. The user creates the plan after the autopilot session ends.
 
-Do NOT re-select an escalated bug — it is no longer an open bug fix candidate (it has a plan reference in its entry).
+Escalated and blocked bugs are already excluded by Step 1's lifecycle-marker filter — they will not appear in the re-scan.
 
 ### Final Report
 
@@ -212,9 +222,13 @@ Fixed: {N}
 {For each:}
   - [BUG-XX-NNN][severity] title — fixed
 
-Escalated to plans: {N}
+Escalated to plans (interactive — plan created): {N}
 {For each:}
   - [BUG-XX-NNN][severity] title — escalated to plans/{plan-name}/
+
+Escalated (autopilot — requires plan, user action needed): {N}
+{For each:}
+  - [BUG-XX-NNN][severity] title — requires plan: {reason}
 
 Blocked (prerequisite missing): {N}
 {For each:}

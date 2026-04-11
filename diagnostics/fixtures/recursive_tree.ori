@@ -1,0 +1,52 @@
+// Diagnostic fixture (aims-heavy): recursive functions with fat pointer types.
+// Exercises stack-frame RC correctness across recursive depth — heap str,
+// [int], and structs must maintain correct RC through N levels of recursion.
+
+type Named = { name: str, id: int }
+
+@count_down (n: int, s: str) -> int = {
+    if n <= 0 then s.length()
+    else count_down(n: n - 1, s: s)
+}
+
+@list_recurse (n: int, xs: [int]) -> int = {
+    if n <= 0 then xs.length()
+    else list_recurse(n: n - 1, xs: xs)
+}
+
+@struct_recurse (n: int) -> Named = {
+    if n <= 0 then Named { name: "done", id: n }
+    else struct_recurse(n: n - 1)
+}
+
+@option_recurse (n: int) -> Option<str> = {
+    if n <= 0 then Some("found")
+    else option_recurse(n: n - 1)
+}
+
+@main () -> int = {
+    // Heap string through 10 levels of recursion
+    let ok1 = count_down(n: 10, s: "abcdefghijklmnopqrstuvwxyz1234") == 30;
+
+    // List through 5 levels of recursion
+    let ok2 = list_recurse(n: 5, xs: [1, 2, 3]) == 3;
+
+    // Struct with fat field returned from recursive base case
+    let result = struct_recurse(n: 5);
+    let ok3 = result.name.length() == 4 && result.id == 0;
+
+    // Option<str> returned from recursive base case
+    let ok4 = match option_recurse(n: 3) {
+        Some(s) -> s.length() == 5,
+        None -> false,
+    };
+
+    // SSO string through recursion (different RC path than heap)
+    let ok5 = count_down(n: 5, s: "hello") == 5;
+
+    // Deeper recursion to stress stack-frame cleanup
+    let ok6 = count_down(n: 50, s: "test") == 4;
+
+    if ok1 && ok2 && ok3 && ok4 && ok5 && ok6
+        then 0 else 1
+}

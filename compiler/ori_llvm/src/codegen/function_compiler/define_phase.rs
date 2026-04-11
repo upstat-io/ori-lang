@@ -184,6 +184,7 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
             func_id,
             &self.codegen_ctx,
         );
+        emitter.set_verify_arc(self.verify_arc);
         emitter.emit_function(&arc_func, abi);
 
         // Post-emission CFG simplification: eliminate empty blocks and
@@ -196,6 +197,14 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
                 blocks_removed = cfg_stats.blocks_removed,
                 branches_simplified = cfg_stats.branches_simplified,
                 "cfg_simplify"
+            );
+        }
+
+        // Function-level LLVM IR verification.
+        if self.verify_arc && !fn_val.verify(true) {
+            tracing::error!(
+                name = name_str,
+                "LLVM IR verification failed after codegen (emit_arc_function)"
             );
         }
 
@@ -246,11 +255,20 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
             func_id,
             &self.codegen_ctx,
         );
+        emitter.set_verify_arc(self.verify_arc);
         emitter.emit_function(lambda, &abi);
 
         // Post-emission CFG simplification
         let fn_val = self.builder.get_function_value(func_id);
         crate::codegen::ir_builder::cfg_simplify::simplify_cfg(fn_val);
+
+        // Function-level LLVM IR verification.
+        if self.verify_arc && !fn_val.verify(true) {
+            tracing::error!(
+                name = %self.interner.lookup(lambda_name),
+                "LLVM IR verification failed after codegen (compile_lambda_arc)"
+            );
+        }
 
         if is_nounwind {
             self.codegen_ctx.nounwind_functions.insert(lambda_name);
@@ -318,8 +336,18 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
             &self.aims_contracts,
             self.verify_arc,
         );
-        for problem in &arc_problems {
-            debug!(?problem, "ARC pipeline problem");
+        match arc_problems {
+            Ok(problems) => {
+                for problem in &problems {
+                    debug!(?problem, "ARC pipeline problem");
+                }
+            }
+            Err(verify_errors) => {
+                let func_name = self.interner.lookup(name);
+                for e in &verify_errors {
+                    tracing::error!(function = func_name, "ARC IR verification ICE: {e}");
+                }
+            }
         }
     }
 
@@ -416,8 +444,17 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
             &self.aims_contracts,
             self.verify_arc,
         );
-        for problem in &arc_problems {
-            debug!(?problem, "ARC pipeline problem (lambda)");
+        match arc_problems {
+            Ok(problems) => {
+                for problem in &problems {
+                    debug!(?problem, "ARC pipeline problem (lambda)");
+                }
+            }
+            Err(verify_errors) => {
+                for e in &verify_errors {
+                    tracing::error!("ARC IR verification ICE (lambda): {e}");
+                }
+            }
         }
 
         // Store capture param ownership so emit_partial_apply can generate
