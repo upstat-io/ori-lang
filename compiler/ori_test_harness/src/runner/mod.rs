@@ -42,7 +42,7 @@ pub trait TestStrategy {
         &self,
         test_path: &Path,
         revision: &revision::RevisionConfig,
-        directives: &[DirectiveLine],
+        directives: &[&DirectiveLine],
     ) -> Result<TestOutput, Self::Error>;
 
     /// Compare the actual output against expectations.
@@ -53,7 +53,7 @@ pub trait TestStrategy {
         &self,
         test_path: &Path,
         revision: &revision::RevisionConfig,
-        directives: &[DirectiveLine],
+        directives: &[&DirectiveLine],
         output: &TestOutput,
     ) -> Result<(), Self::Error>;
 }
@@ -162,10 +162,9 @@ pub fn run_test_directory<S: TestStrategy>(dir: &Path, strategy: &S) -> TestSumm
         for rev in &revisions {
             let filtered: Vec<&DirectiveLine> =
                 revision::filter_directives_for_revision(&directives, &rev.name);
-            let filtered_owned: Vec<DirectiveLine> = filtered.into_iter().cloned().collect();
 
-            match strategy.execute(test_path, rev, &filtered_owned) {
-                Ok(output) => match strategy.verify(test_path, rev, &filtered_owned, &output) {
+            match strategy.execute(test_path, rev, &filtered) {
+                Ok(output) => match strategy.verify(test_path, rev, &filtered, &output) {
                     Ok(()) => summary.passed += 1,
                     Err(e) => {
                         summary.failed += 1;
