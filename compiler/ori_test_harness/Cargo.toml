@@ -1,0 +1,18 @@
+[package]
+name = "ori_test_harness"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+# Minimal — this is a test utility library.
+# Does NOT depend on any compiler crate (ori_lexer, ori_parse, etc.).
+# Compiler crates depend on ori_test_harness as a dev-dependency.
+similar = "2.5"   # Diff generation (unified diff format)
+regex = "1"        # Line-anchored directive parsing (no Ori lexer dependency)
+walkdir = "2"      # Recursive test-file discovery
+
+[dev-dependencies]
+tempfile = "3"
+
+[lints]
+workspace = true

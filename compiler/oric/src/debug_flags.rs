@@ -164,6 +164,18 @@ flags! {
     /// Usage: `ORI_LLVM_LINT=1 ori build file.ori`
     ORI_LLVM_LINT
 
+    // === Test Harness Flags ===
+    // Note: Consumed directly in `ori_test_harness` (which can't depend on `oric`).
+    // Defined here for documentation and `check-debug-flags.sh` consistency.
+
+    /// Enable bless mode for the shared test harness.
+    ///
+    /// When set to `"1"`, `compare_or_bless()` writes actual output as the
+    /// new expected baseline instead of comparing. Only `"1"` is accepted —
+    /// `"0"`, `"false"`, `"true"` are all treated as disabled.
+    /// Usage: `ORI_BLESS=1 cargo test -p ori_arc -- aims_snapshot`
+    ORI_BLESS
+
     // === Existing Flags (migrated) ===
 
     /// Print LLVM IR to stderr before JIT compilation.
