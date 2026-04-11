@@ -143,6 +143,18 @@ Filed: [BUG-{section}-{ordinal}][{severity}] {title}
   Cross-ref: {any active plan sections, or "none"}
 ```
 
+### Step 8: Resume Prior Workflow — MANDATORY
+
+**`/add-bug` is almost always invoked mid-task** (proactive filing during `/continue-roadmap`, `/tpr-review`, `/fix-bug`, etc.). After confirming the filing, **immediately resume the interrupted workflow.** Do NOT stop, wait for user input, or present the filing as a standalone deliverable. The bug filing is a side-effect — the main task is still in progress.
+
+If you were in the middle of:
+- `/tpr-review` → continue fixing findings or re-running the transport
+- `/continue-roadmap` → continue implementing the current subsection
+- `/fix-bug` → continue with the current phase
+- Any other workflow → pick up exactly where you left off
+
+The user should not need to prompt you to continue.
+
 ## Fix Workflow — What Happens Next
 
 Filing a bug is capture only. When a bug is picked up for fixing (via `/review-bugs`, `/continue-roadmap`, or direct request), the **`/fix-bug`** command enforces plan-section rigor:
