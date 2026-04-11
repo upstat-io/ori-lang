@@ -11,16 +11,13 @@ use std::path::Path;
 
 mod aims_snapshot_strategy;
 
+/// Verifies that per-pass ARC IR snapshots match baselines across all
+/// 5 priority AIMS passes (`realize_rc_reuse`, `merge_blocks`,
+/// `realize_annotations`, `normalize_function`, `tail_calls`).
 #[test]
-fn aims_snapshot_tests() {
+fn aims_snapshots_across_all_passes_match_baselines() {
     let test_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/aims-snapshots");
     if !test_dir.exists() {
-        return;
-    }
-    let has_ori_files = test_dir.read_dir().is_ok_and(|mut d| {
-        d.any(|e| e.is_ok_and(|e| e.path().extension().is_some_and(|ext| ext == "ori")))
-    });
-    if !has_ori_files {
         return;
     }
     let strategy = aims_snapshot_strategy::AimsSnapshotStrategy::new();

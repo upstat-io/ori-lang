@@ -60,6 +60,18 @@ fn extract_pass_names(directives: &[&DirectiveLine]) -> Vec<String> {
         .collect()
 }
 
+/// Collect all ARC functions from the cache into a flat Vec (parents + lambdas).
+fn collect_all_functions(
+    arc_cache: &FxHashMap<ori_ir::Name, (ArcFunction, Vec<ArcFunction>)>,
+) -> Vec<ArcFunction> {
+    arc_cache
+        .values()
+        .flat_map(|(parent, lambdas)| {
+            std::iter::once(parent.clone()).chain(lambdas.iter().cloned())
+        })
+        .collect()
+}
+
 impl TestStrategy for AimsSnapshotStrategy {
     type Error = SnapshotError;
 
@@ -87,6 +99,20 @@ impl TestStrategy for AimsSnapshotStrategy {
         let pool = &compile_result.pool;
         let interner = compile_result.interner();
         let classifier = ArcClassifier::new(pool);
+
+        // Compute AIMS interprocedural contracts (matches production pipeline).
+        // This runs analyze_program() across ALL functions to produce MemoryContracts,
+        // then applies ownership annotations to parameters — the same sequence as
+        // codegen_pipeline.rs:361-366.
+        let aims_contracts = {
+            let mut all_funcs = collect_all_functions(&compile_result.arc_cache);
+            ori_arc::compute_aims_contracts(
+                &mut all_funcs,
+                &classifier,
+                interner,
+                &ori_arc::BuiltinOwnershipSets::new(interner),
+            )
+        };
 
         let mut all_artifacts = Vec::new();
 
@@ -126,8 +152,7 @@ impl TestStrategy for AimsSnapshotStrategy {
                             }
                         });
 
-                    // Run AIMS pipeline with observer.
-                    let contracts = FxHashMap::default();
+                    // Run AIMS pipeline with observer and real contracts.
                     let uniqueness = FxHashMap::default();
                     let sigs = FxHashMap::default();
                     let _ = ori_arc::run_arc_pipeline_with_observer(
@@ -137,19 +162,27 @@ impl TestStrategy for AimsSnapshotStrategy {
                         pool,
                         interner,
                         &uniqueness,
-                        &contracts,
+                        &aims_contracts,
                         false, // verify_arc
                         &*observer,
                     );
                 } // observer dropped here — snapshots no longer borrowed
 
-                // Write per-pass snapshots.
+                // Write per-pass snapshots and assert all requested passes were captured.
                 let captured = snapshots.into_inner();
                 for pass_name in &pass_names {
-                    if let Some(content) = captured.get(pass_name) {
-                        let suffix = format!("{func_name_str}.{pass_name}.after.arc");
-                        write_artifact(test_path, &suffix, content, &mut all_artifacts)?;
-                    }
+                    let content = captured.get(pass_name).ok_or_else(|| {
+                        SnapshotError(format!(
+                            "{}: pass '{}' was requested but never captured for function '{}'. \
+                             The AIMS pipeline did not invoke the observer for this phase — \
+                             either the pass name is wrong or the pipeline skipped it.",
+                            test_path.display(),
+                            pass_name,
+                            func_name_str,
+                        ))
+                    })?;
+                    let suffix = format!("{func_name_str}.{pass_name}.after.arc");
+                    write_artifact(test_path, &suffix, content, &mut all_artifacts)?;
                 }
             }
         }

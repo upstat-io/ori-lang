@@ -11,7 +11,7 @@ fn @is_even(%0: int [own]) -> bool [entry: bb0]
     %5: int [Scalar] = %0
     %6: int [Scalar] = 1
     %7: int [Scalar] = %5 - %6
-    %8: bool [Scalar] = Invoke @is_odd(%7 [borrow]) normal bb4 unwind bb5
+    %8: bool [Scalar] = Invoke @is_odd(%7 [own]) normal bb4 unwind bb5
   bb3: (%9: bool)
     Return %9
   bb4:
