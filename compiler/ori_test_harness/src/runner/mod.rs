@@ -10,6 +10,7 @@ use std::path::{Path, PathBuf};
 use walkdir::WalkDir;
 
 use crate::artifact::ArtifactPaths;
+use crate::bless;
 use crate::directive::{self, DirectiveLine};
 use crate::revision;
 
@@ -56,6 +57,16 @@ pub trait TestStrategy {
         directives: &[&DirectiveLine],
         output: &TestOutput,
     ) -> Result<(), Self::Error>;
+
+    /// Return the baseline file suffix used by this strategy (e.g., "ll", "arc").
+    ///
+    /// When `Some(suffix)` is returned and bless mode is active, the runner
+    /// calls `clean_stale_baselines()` once per test file to remove stale
+    /// revision-specific baselines. Return `None` if the strategy does not
+    /// produce baseline files.
+    fn baseline_suffix(&self) -> Option<&str> {
+        None
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -97,7 +108,10 @@ impl TestSummary {
 /// This is the SINGLE canonical test loop. Consumers call this with their
 /// `TestStrategy` impl. They never duplicate the traverse → parse → expand
 /// → invoke → diff algorithm.
-pub fn run_test_directory<S: TestStrategy>(dir: &Path, strategy: &S) -> TestSummary {
+///
+/// When `bless` is true and the strategy provides a `baseline_suffix()`,
+/// stale revision-specific baseline files are cleaned up per test file.
+pub fn run_test_directory<S: TestStrategy>(dir: &Path, strategy: &S, bless: bool) -> TestSummary {
     let mut summary = TestSummary::default();
 
     // 1. Discover test files
@@ -157,6 +171,19 @@ pub fn run_test_directory<S: TestStrategy>(dir: &Path, strategy: &S) -> TestSumm
 
         // 3. Expand revisions
         let revisions = revision::expand_revisions(&directives);
+
+        // 3b. In bless mode, clean stale baselines if strategy provides a suffix
+        if bless {
+            if let Some(suffix) = strategy.baseline_suffix() {
+                let rev_names: Vec<&str> = revisions.iter().map(|r| r.name.as_str()).collect();
+                if let Err(e) = bless::clean_stale_baselines(test_path, suffix, &rev_names) {
+                    summary.warnings.push(format!(
+                        "{}: stale baseline cleanup failed: {e}",
+                        test_path.display()
+                    ));
+                }
+            }
+        }
 
         // 4. For each revision: execute → verify
         for rev in &revisions {

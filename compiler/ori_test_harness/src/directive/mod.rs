@@ -89,11 +89,14 @@ static RE_AT_PREFIX: LazyLock<Regex> = LazyLock::new(|| {
 });
 
 /// Matches near-miss CHECK lines — `// CHECK` without a valid suffix/colon,
-/// or `// CHEKC`-style typos. Catches directives the author likely intended
-/// as CHECK assertions but that would silently be ignored.
+/// or common CHECK typos (`CHEKC`, `CHCK`, `CHECK`). Catches directives the
+/// author likely intended as CHECK assertions but that would silently be
+/// ignored as plain comments.
 static RE_CHECK_NEAR_MISS: LazyLock<Regex> = LazyLock::new(|| {
     #[expect(clippy::expect_used, reason = "compile-time constant regex")]
-    Regex::new(r"^\s*//\s*(?:@\[([^\]]+)\]\s*)?CHECK\S*[^:]*$").expect("check near-miss regex")
+    // Matches: (1) CHECK without colon (missing separator), (2) common typos of CHECK
+    Regex::new(r"^\s*//\s*(?:@\[([^\]]+)\]\s*)?(?:CHECK\S*[^:]*|(?:CHEKC|CHCK|CEHCK).*)$")
+        .expect("check near-miss regex")
 });
 
 /// Matches `// CHECK:`, `// CHECK-LABEL:`, `// CHECK-NOT:`, `// CHECK-NEXT:`

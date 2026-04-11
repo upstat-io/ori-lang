@@ -47,6 +47,8 @@ pub fn resolve_expected(test_path: &Path, suffix: &str, revision: Option<&str>) 
 pub fn resolve_actual(test_path: &Path, suffix: &str, revision: Option<&str>) -> PathBuf {
     let stem = test_path.file_stem().unwrap_or_default();
     let parent = test_path.parent().unwrap_or(Path::new(""));
+    // Strip root from absolute paths so Path::join doesn't discard the base
+    let relative_parent = parent.strip_prefix("/").unwrap_or(parent);
 
     let filename = match revision {
         Some(rev) if !rev.is_empty() => {
@@ -55,5 +57,7 @@ pub fn resolve_actual(test_path: &Path, suffix: &str, revision: Option<&str>) ->
         _ => format!("{}.{suffix}", stem.to_string_lossy()),
     };
 
-    Path::new("target/test-harness").join(parent).join(filename)
+    Path::new("target/test-harness")
+        .join(relative_parent)
+        .join(filename)
 }
