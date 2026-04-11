@@ -6,8 +6,8 @@ reviewed: false
 goal: "Build a single workspace library (ori_test_harness) that provides directive parsing, artifact naming, bless mode, revision expansion, diff generation, and a canonical test runner loop — consumed by both AIMS snapshot tests (§03) and FileCheck IR tests (§07). Consuming crates provide only a TestStrategy callback; the harness owns the traverse→parse→expand→invoke→diff algorithm."
 success_criteria:
   - "ori_test_harness crate exists in workspace with directive parser, bless mode, revision expansion, test runner loop"
-  - "Directive parser handles // @test-arc-pass:, // CHECK:, // @revisions: syntax via line-anchored regex (not the Ori lexer)"
-  - "Bless mode controlled exclusively via ORI_BLESS=1 env var; is_bless_enabled() is the single query point"
+  - "Directive parser handles // @<key>: <value> (generic Custom), // CHECK:, // @revisions: syntax via line-anchored regex (not the Ori lexer)"
+  - "Bless mode controlled exclusively via ORI_BLESS=1 env var (only value '1' accepted); is_bless_enabled() is the single query point"
   - "Revision system extracts revision names and per-revision compile-flags directives; flag-to-env-var translation belongs to consumer TestStrategy, not the harness"
   - "run_test_directory(path, strategy) provides the canonical orchestration loop — consumers never duplicate traverse→parse→expand→invoke→diff"
   - "Diff generation produces readable .diff artifacts on failure using the similar crate"
@@ -58,7 +58,7 @@ sections:
 **Success Criteria:**
 
 - [ ] `ori_test_harness` crate exists in workspace — satisfies mission criterion: "Shared harness, not fragmented tools"
-- [ ] Directive parser handles `// @test-arc-pass:`, `// CHECK:`, `// @revisions:` via line-anchored regex — satisfies §03 and §07 needs
+- [ ] Directive parser handles `// @<key>: <value>` (generic custom), `// CHECK:`, `// @revisions:` via line-anchored regex — satisfies §03 and §07 needs
 - [ ] `ORI_BLESS=1` env var is the single bless control plane — satisfies §03 and §07 needs
 - [ ] Revision system extracts names and per-revision `compile-flags` directives; flag translation is delegated to consumer `TestStrategy` — satisfies mission criterion: "FileCheck revision support"
 - [ ] `run_test_directory(path, strategy)` is the canonical orchestration loop; §03 and §07 call it with their `TestStrategy` impl — prevents algorithmic duplication
@@ -155,10 +155,16 @@ Parse test directives from `.ori` and `.rs` test files. Use **line-anchored rege
 - [ ] Define directive types:
   ```rust
   /// A parsed directive from a test file.
+  ///
+  /// The harness provides generic directives (revisions, compile-flags,
+  /// CHECK variants) and a `Custom` variant for consumer-specific
+  /// directives. This preserves the design principle that the harness
+  /// "knows nothing about the Ori compiler" — consumer-specific
+  /// directives like `// @test-arc-pass: realize_rc_reuse` are parsed
+  /// as `Custom { key: "test-arc-pass", value: "realize_rc_reuse" }`
+  /// and interpreted by the consumer's `TestStrategy` implementation.
   #[derive(Debug, Clone, PartialEq, Eq)]
   pub enum Directive {
-      /// `// @test-arc-pass: realize_rc_reuse` — capture AIMS pass snapshot
-      TestArcPass { pass_name: String },
       /// `// @revisions: debug release no-repr-opt` — define test revisions
       Revisions { names: Vec<String> },
       /// `// @compile-flags: --release` — extra flags for this revision
@@ -171,6 +177,11 @@ Parse test directives from `.ori` and `.rs` test files. Use **line-anchored rege
       CheckNot { pattern: String },
       /// `// CHECK-NEXT: <pattern>` — FileCheck next-line assertion
       CheckNext { pattern: String },
+      /// `// @<key>: <value>` — consumer-specific directive.
+      /// The harness parses the `key: value` structure; interpretation
+      /// is delegated to the consumer's `TestStrategy`. Examples:
+      /// `// @test-arc-pass: realize_rc_reuse` (§03 AIMS snapshots)
+      Custom { key: String, value: String },
   }
 
   /// A directive line with source location and revision gate.
@@ -213,7 +224,7 @@ Parse test directives from `.ori` and `.rs` test files. Use **line-anchored rege
   **Matrix dimensions:** directive_type × revision_gate × error_case
 
   **Positive (semantic pins — each verifies one directive type is parsed correctly):**
-  - `test_parse_arc_pass_directive_extracts_pass_name`
+  - `test_parse_custom_directive_extracts_key_and_value` (e.g., `// @test-arc-pass: realize_rc_reuse` → `Custom { key: "test-arc-pass", value: "realize_rc_reuse" }`)
   - `test_parse_revisions_directive_splits_on_whitespace`
   - `test_parse_compile_flags_directive_collects_flags`
   - `test_parse_check_directive_preserves_pattern`
@@ -245,16 +256,13 @@ Define how test artifacts (`.before.arc`, `.after.arc`, `.diff`, `.ll`) are name
 
 - [ ] Define artifact types:
   ```rust
-  /// The kind of artifact produced by a test.
-  #[derive(Debug, Clone, PartialEq, Eq)]
-  pub enum ArtifactKind {
-      /// AIMS pass snapshot: .before.arc / .after.arc / .diff
-      ArcSnapshot { pass_name: String, function_name: String },
-      /// LLVM IR dump: .ll
-      LlvmIr { function_name: Option<String> },
-  }
-
   /// Resolved paths for expected and actual artifact files.
+  ///
+  /// The harness provides generic path resolution and comparison.
+  /// Artifact NAMING (what the path looks like) is the consumer's
+  /// responsibility — the harness never decides whether an artifact
+  /// is `.arc`, `.ll`, or something else. This preserves the design
+  /// principle that the harness "knows nothing about the Ori compiler."
   #[derive(Debug, Clone)]
   pub struct ArtifactPaths {
       /// Expected baseline file (in source tree, alongside test file)
@@ -264,19 +272,19 @@ Define how test artifacts (`.before.arc`, `.after.arc`, `.diff`, `.ll`) are name
   }
   ```
 
-- [ ] Implement artifact naming convention:
-  - **AIMS snapshots**: `{test_name}.{function_name}.{pass_name}.before.arc`, `.after.arc`, `.diff`
-  - **LLVM IR**: `{test_name}.{revision}.ll` (or `{test_name}.ll` without revisions)
-  - **Revision suffix**: inserted before extension: `test.debug.realize_rc_reuse.diff`
+- [ ] Implement generic artifact path resolution helpers:
+  - `resolve_expected_path(test_path, suffix, revision)` — returns expected baseline path as sibling of test source file with revision inserted before extension
+  - `resolve_actual_path(test_path, suffix, revision)` — returns actual output path under `target/test-harness/` (deterministic, not `$TMPDIR`, so artifacts survive for debugging)
+  - **Revision suffix**: inserted before the consumer-provided extension: `test.debug.realize_rc_reuse.diff`
   - Expected files: same directory as test source
-  - Actual files: temp directory under `target/test-harness/` (deterministic, not `$TMPDIR`, so artifacts survive for debugging)
+  - The harness provides path RESOLUTION (where baselines live, how revision suffixes are inserted). Artifact NAMING (what the suffix/extension is — `.arc`, `.ll`, `.diff`) is decided by the consumer's `TestStrategy::execute()` return value, not the harness. This preserves the "knows nothing about the compiler" boundary.
 
-- [ ] **TDD: Write tests BEFORE implementing artifact naming.** Tests in `compiler/ori_test_harness/src/artifact/tests.rs`:
-  - `test_arc_snapshot_naming_includes_function_and_pass`
-  - `test_llvm_ir_naming_without_revision_omits_suffix`
-  - `test_llvm_ir_naming_with_revision_inserts_before_extension`
-  - `test_revision_suffix_ordering_is_deterministic`
+- [ ] **TDD: Write tests BEFORE implementing artifact path resolution.** Tests in `compiler/ori_test_harness/src/artifact/tests.rs`:
   - `test_expected_path_is_sibling_of_source_file`
+  - `test_actual_path_is_under_target_test_harness`
+  - `test_resolve_without_revision_omits_revision_suffix`
+  - `test_resolve_with_revision_inserts_suffix_before_extension`
+  - `test_revision_suffix_ordering_is_deterministic`
 
 - [ ] **Subsection close-out (02.3)** — MANDATORY before starting 02.4:
   - [ ] All tasks above are `[x]` and the subsection's behavior is verified
@@ -299,8 +307,7 @@ Implement bless mode and diff generation. **Bless mode is controlled exclusively
   /// variable. There is no CLI flag — `cargo test` rejects unrecognized flags.
   /// All harness code queries this function; no other mechanism exists.
   pub fn is_bless_enabled() -> bool {
-      std::env::var("ORI_BLESS")
-          .is_ok_and(|v| v == "1" || v == "true")
+      std::env::var("ORI_BLESS").is_ok_and(|v| v == "1")
   }
   ```
 
@@ -376,8 +383,9 @@ Implement bless mode and diff generation. **Bless mode is controlled exclusively
   - `test_bless_cleans_old_revision_files`
 
   **Negative pins:**
-  - `test_bless_disabled_when_env_is_zero`
-  - `test_bless_disabled_when_env_is_false`
+  - `test_bless_disabled_when_env_is_zero` (`ORI_BLESS=0` → disabled)
+  - `test_bless_disabled_when_env_is_false` (`ORI_BLESS=false` → disabled)
+  - `test_bless_disabled_when_env_is_true` (`ORI_BLESS=true` → disabled; only `1` is accepted)
   - `test_bless_disabled_when_env_unset`
 
 - [ ] Add tests in `compiler/ori_test_harness/src/diff/tests.rs`:
@@ -576,12 +584,20 @@ The harness owns the orchestration algorithm. Consumer crates provide a `TestStr
           };
           let parse_result = directive::parse_directives(&source);
 
-          // 2b. Report parse errors
-          for err in &parse_result.errors {
-              summary.errors.push(format!(
-                  "{}:{}: {}", test_path.display(),
-                  err.line_number, err.message
+          // 2b. Report parse errors and fail fast if any exist
+          if !parse_result.errors.is_empty() {
+              for err in &parse_result.errors {
+                  summary.errors.push(format!(
+                      "{}:{}: {}", test_path.display(),
+                      err.line_number, err.message
+                  ));
+              }
+              summary.failed += 1;
+              summary.failures.push(format!(
+                  "{}: {} parse error(s) — skipping execution",
+                  test_path.display(), parse_result.errors.len()
               ));
+              continue;
           }
 
           // 2c. Fail on zero actionable directives (orphan test prevention)
@@ -764,7 +780,20 @@ Validate that the harness orchestration, directive parsing, revision expansion, 
 - [x] `[TPR-02-003-gemini][high]` `section-02-shared-harness.md:254` — No validation for zero directives; test files with typos silently pass.
   Resolved: Fixed on 2026-04-10. Added orphan test prevention: `run_test_directory()` now fails files with zero parsed directives. Added `test_run_file_with_zero_directives_fails_as_orphan` negative pin.
 - [x] `[TPR-02-004-gemini][medium]` `section-02-shared-harness.md:170` — `is_bless_enabled()` uses `.is_ok()` which enables bless for ANY env value including `0`/`false`.
-  Resolved: Fixed on 2026-04-10. Changed to `.is_ok_and(|v| v == "1" || v == "true")`. Added negative pins for env=0, env=false, env=unset.
+  Resolved: Fixed on 2026-04-10. Changed to `.is_ok_and(|v| v == "1")` (only "1" accepted, per single-control-plane contract). Added negative pins for env=0, env=false, env=true, env=unset.
+**--- Round 2 findings (iteration 2) ---**
+- [x] `[TPR-02-001-codex-r2][high]` `00-overview.md:29` — Downstream sections still reference `tests/codegen/` and `tests/arc-opt/` instead of crate-local paths.
+  Resolved: Fixed on 2026-04-10. Updated `00-overview.md` paths to `compiler/ori_llvm/tests/codegen/`. Sibling sections (§03, §07, §09, §11) will be updated when those sections go through their own /review-plan pass — §02's cross-section note already documents this as MANDATORY.
+- [x] `[TPR-02-002-codex-r2][high]` `section-03-aims-snapshots.md:105` — §03/§07 still sketch bespoke loops bypassing `run_test_directory()`.
+  Resolved: Already documented in §02 cross-section notes as MANDATORY. Will be enforced when §03/§07 undergo their own /review-plan pass. §02 cannot edit sibling section files in single-section review mode.
+- [x] `[TPR-02-003-codex-r2][high]` `section-07-filecheck.md:123` — §07 needs AOT helper extraction task before `codegen_checks`.
+  Resolved: Already documented in §02 cross-section notes as a §07 dependency. Will be enforced when §07 undergoes its own /review-plan pass.
+- [x] `[TPR-02-004-codex-r2][medium]` `section-02-shared-harness.md:301` — `is_bless_enabled()` accepts both "1" and "true" but prose says only "ORI_BLESS=1".
+  Resolved: Fixed on 2026-04-10. Changed to accept only "1". Added `test_bless_disabled_when_env_is_true` negative pin.
+- [x] `[TPR-02-001-gemini-r2][high]` `section-02-shared-harness.md:161` — `TestArcPass` and `ArtifactKind` variants are compiler-specific; violate "knows nothing about compiler" design principle.
+  Resolved: Fixed on 2026-04-10. Replaced `TestArcPass` with generic `Custom { key, value }` directive. Removed `ArtifactKind` enum; artifact naming delegated to consumer `TestStrategy`. Harness provides only generic path resolution helpers.
+- [x] `[TPR-02-002-gemini-r2][medium]` `section-02-shared-harness.md:585` — Files with parse errors still get executed with partial directive sets.
+  Resolved: Fixed on 2026-04-10. Added fail-fast: `if !parse_result.errors.is_empty() { continue; }` after reporting errors. Added `test_run_file_with_parse_errors_reports_them` negative pin.
 
 ---
 
@@ -772,9 +801,10 @@ Validate that the harness orchestration, directive parsing, revision expansion, 
 
 - [ ] `ori_test_harness` crate exists in workspace, compiles, passes its own tests
 - [ ] Directive parser uses line-anchored regex (no Ori lexer dependency)
-- [ ] Directive parser handles all directive types (arc-pass, revisions, compile-flags, CHECK variants)
+- [ ] Directive parser handles all directive types (generic `Custom { key, value }`, revisions, compile-flags, CHECK variants)
 - [ ] Forbidden revision names validated and rejected
-- [ ] Artifact naming produces correct paths for AIMS and LLVM artifacts
+- [ ] Malformed directives produce `ParseError` (not silent drop); files with parse errors are not executed
+- [ ] Artifact path resolution produces correct sibling/target paths with revision suffixes
 - [ ] Bless mode controlled exclusively via `ORI_BLESS=1` env var; `is_bless_enabled()` is the single query point
 - [ ] Bless mode writes/deletes baselines correctly; creates parent directories
 - [ ] Revision expansion extracts names and per-revision compile-flags
