@@ -17,8 +17,8 @@ inspired_by:
   - "proptest documentation (proptest-rs/proptest) — Arbitrary strategy composition for product types"
 depends_on: []
 third_party_review:
-  status: none
-  updated: null
+  status: resolved
+  updated: 2026-04-11
 sections:
   - id: "04.1"
     title: "Add proptest to ori_arc and Define AimsState Strategy"
@@ -37,10 +37,10 @@ sections:
     status: complete
   - id: "04.R"
     title: "Third Party Review Findings"
-    status: not-started
+    status: complete
   - id: "04.N"
     title: "Completion Checklist"
-    status: not-started
+    status: in-progress
 ---
 
 # Section 04: AIMS Lattice Property Verification
@@ -526,7 +526,12 @@ When all findings are triaged:
 - `third_party_review.status` becomes `resolved` or `none`
 -->
 
-- None.
+- [x] `[TPR-04-round1][medium]` 5 findings (3 codex, 2 gemini): success criteria/repro accuracy, intrinsic predicate test gap, Shared preservation gap.
+  Resolved: Fixed in commits a3c918bd, 3b1c1a96 on 2026-04-11.
+- [x] `[TPR-04-round2-3][low-medium]` 7 findings across rounds 2-3: plan metadata accuracy, decorative banners, doc flow.
+  Resolved: Fixed in commits 965f59d8, f4ead58d on 2026-04-11.
+- [x] `[TPR-04-round4][medium]` 2 findings: false-green sampled associativity test, stale monotonicity claim in context.
+  Resolved: Fixed in commit f4ead58d on 2026-04-11. Also filed BUG-04-057 in bug tracker.
 
 ---
 
@@ -549,13 +554,13 @@ When all findings are triaged:
 - [x] All property tests pass: `timeout 150 cargo test -p ori_arc -- lattice::prop_tests` (22 pass, 1 ignored)
 - [x] No regressions: `timeout 150 ./test-all.sh` green (17,066 tests pass)
 - [x] `timeout 150 ./clippy-all.sh` green
-- [x] Plan annotation cleanup: no plan-specific annotations were added to source code (prop_tests.rs has no plan annotations)
-- [x] All intermediate TPR checkpoint findings resolved (no intermediate findings — TPR deferred to section-close)
-- [ ] **Plan sync** — update plan metadata:
-  - [ ] This section's frontmatter `status` → `complete`, subsection statuses updated
-  - [ ] `00-overview.md` Quick Reference updated
-  - [ ] `index.md` section status updated
-- [ ] `/tpr-review` passed (final, full-section)
+- [x] Plan annotation cleanup: decorative banners removed from prop_tests.rs (TPR-04-002-gemini round 3)
+- [x] All TPR findings resolved: 14 findings across 4 rounds, all fixed (see 04.R block)
+- [x] **Plan sync** — update plan metadata:
+  - [x] This section's frontmatter `status` → `in-progress`, subsection statuses updated
+  - [x] `00-overview.md` Quick Reference updated (Not Started → In Progress)
+  - [x] `index.md` section status updated
+- [x] `/tpr-review` passed (5 rounds, 14 findings fixed, both reviewers clean on final code)
 - [ ] `/impl-hygiene-review` passed — AFTER `/tpr-review` is clean
 - [ ] `/improve-tooling` **section-close sweep** — verify per-subsection retrospectives ran, add cross-cutting items.
 
