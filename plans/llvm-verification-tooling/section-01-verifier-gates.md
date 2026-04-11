@@ -24,7 +24,7 @@ sections:
     status: complete
   - id: "01.2"
     title: "Wire ORI_VERIFY_EACH, Function-Level Verify, and verify_each Across All Entry Points"
-    status: complete
+    status: in-progress
   - id: "01.3"
     title: "Add opt -lint to Codegen Audit Pipeline"
     status: complete
@@ -36,7 +36,7 @@ sections:
     status: complete
   - id: "01.N"
     title: "Completion Checklist"
-    status: not-started
+    status: in-progress
 ---
 
 # Section 01: Verifier Gates & Quick Wins
