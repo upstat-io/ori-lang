@@ -1,0 +1,10 @@
+// Negative pin: call in non-tail position, RcDec NOT hoisted.
+// When a recursive call is not in tail position (result is used
+// in further computation), tail call optimization must NOT fire.
+//
+// @test-arc-pass: tail_calls
+
+@sum_to (n: int) -> int = {
+    if n <= 0 then 0
+    else n + sum_to(n: n - 1)
+};

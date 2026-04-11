@@ -1,0 +1,15 @@
+// Mutual recursion tail call pattern.
+// Two functions calling each other in tail position — the tail call
+// detector should recognize both as tail calls.
+//
+// @test-arc-pass: tail_calls
+
+@is_even (n: int) -> bool = {
+    if n == 0 then true
+    else is_odd(n: n - 1)
+};
+
+@is_odd (n: int) -> bool = {
+    if n == 0 then false
+    else is_even(n: n - 1)
+};
