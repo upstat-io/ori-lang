@@ -87,6 +87,42 @@ fn test_bless_creates_parent_directories() {
     assert!(path.exists());
 }
 
+#[test]
+fn test_bless_cleans_old_revision_files() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let test_path = dir.path().join("basic.ori");
+
+    // Create a stale non-revision baseline (from before revisions were added)
+    let stale = dir.path().join("basic.ll");
+    std::fs::write(&stale, "old baseline").expect("write");
+
+    // Now the test has revisions — clean up stale baselines
+    let deleted = clean_stale_baselines(&test_path, "ll", &["debug", "release"]).expect("clean");
+    assert_eq!(deleted.len(), 1);
+    assert!(
+        !stale.exists(),
+        "stale non-revision baseline should be deleted"
+    );
+}
+
+#[test]
+fn test_bless_cleans_old_revision_specific_files() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let test_path = dir.path().join("basic.ori");
+
+    // Create stale revision-specific baselines (from before revisions were removed)
+    let stale_debug = dir.path().join("basic.debug.ll");
+    let stale_release = dir.path().join("basic.release.ll");
+    std::fs::write(&stale_debug, "debug baseline").expect("write");
+    std::fs::write(&stale_release, "release baseline").expect("write");
+
+    // Now the test has no revisions — clean up stale revision baselines
+    let deleted = clean_stale_baselines(&test_path, "ll", &[""]).expect("clean");
+    assert_eq!(deleted.len(), 2);
+    assert!(!stale_debug.exists());
+    assert!(!stale_release.exists());
+}
+
 // ---------------------------------------------------------------------------
 // Negative pins
 // ---------------------------------------------------------------------------
