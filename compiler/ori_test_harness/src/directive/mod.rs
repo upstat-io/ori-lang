@@ -1,0 +1,189 @@
+//! Directive parsing for test files.
+//!
+//! Parses `// @<key>: <value>` and `// CHECK:` style directives from test
+//! source files using line-anchored regex. Does NOT use the Ori lexer —
+//! the harness must not depend on any compiler crate.
+//!
+//! **Limitation**: Line-based parsing only. Cannot handle multi-line
+//! directives or directives inside block comments. This is acceptable —
+//! Rust's compiletest has the same limitation.
+
+use std::sync::LazyLock;
+
+use regex::Regex;
+
+#[cfg(test)]
+mod tests;
+
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
+
+/// A parsed directive from a test file.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Directive {
+    /// `// @revisions: debug release no-repr-opt`
+    Revisions { names: Vec<String> },
+    /// `// @compile-flags: --release`
+    CompileFlags { flags: Vec<String> },
+    /// `// CHECK: <pattern>`
+    Check { pattern: String },
+    /// `// CHECK-LABEL: <pattern>`
+    CheckLabel { pattern: String },
+    /// `// CHECK-NOT: <pattern>`
+    CheckNot { pattern: String },
+    /// `// CHECK-NEXT: <pattern>`
+    CheckNext { pattern: String },
+    /// `// @<key>: <value>` — consumer-specific directive.
+    /// The harness parses the `key: value` structure; interpretation
+    /// is delegated to the consumer's `TestStrategy`.
+    Custom { key: String, value: String },
+}
+
+/// A directive line with source location and revision gate.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DirectiveLine {
+    pub line_number: usize,
+    pub revision: Option<String>,
+    pub directive: Directive,
+}
+
+/// An error encountered during directive parsing.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ParseError {
+    pub line_number: usize,
+    pub message: String,
+}
+
+/// Result of parsing directives from a test file.
+#[derive(Debug)]
+pub struct ParseResult {
+    pub directives: Vec<DirectiveLine>,
+    pub errors: Vec<ParseError>,
+}
+
+// ---------------------------------------------------------------------------
+// Forbidden revision names (from Rust compiletest)
+// ---------------------------------------------------------------------------
+
+const FORBIDDEN_REVISION_NAMES: &[&str] = &[
+    "true", "false", "CHECK", "COM", "NEXT", "SAME", "EMPTY", "NOT", "COUNT", "DAG", "LABEL",
+];
+
+// ---------------------------------------------------------------------------
+// Regex patterns (compiled once via LazyLock)
+// ---------------------------------------------------------------------------
+
+/// Matches `// @[revision] key: value` or `// @key: value`
+static RE_AT_DIRECTIVE: LazyLock<Regex> = LazyLock::new(|| {
+    // SAFETY: regex is a compile-time constant; panic is a programming error
+    #[expect(clippy::expect_used, reason = "compile-time constant regex")]
+    Regex::new(r"^\s*//\s*@(?:\[([^\]]+)\]\s*)?(\S+?):\s*(.*)$").expect("directive regex")
+});
+
+/// Matches `// CHECK:`, `// CHECK-LABEL:`, `// CHECK-NOT:`, `// CHECK-NEXT:`
+/// with optional `[revision]` prefix.
+static RE_CHECK_DIRECTIVE: LazyLock<Regex> = LazyLock::new(|| {
+    #[expect(clippy::expect_used, reason = "compile-time constant regex")]
+    Regex::new(r"^\s*//\s*(?:@\[([^\]]+)\]\s*)?CHECK(-LABEL|-NOT|-NEXT)?:\s*(.*)$")
+        .expect("check directive regex")
+});
+
+// ---------------------------------------------------------------------------
+// Parsing
+// ---------------------------------------------------------------------------
+
+/// Parse directives from a test file's source text.
+///
+/// Returns both successfully parsed directives and any parse errors
+/// (forbidden revision names, malformed directives). Line numbers are
+/// 1-based.
+pub fn parse_directives(source: &str) -> ParseResult {
+    let mut directives = Vec::new();
+    let mut errors = Vec::new();
+
+    for (idx, line) in source.lines().enumerate() {
+        let line_number = idx + 1;
+
+        // Try CHECK-style directives first (they don't have the @ prefix)
+        if let Some(caps) = RE_CHECK_DIRECTIVE.captures(line) {
+            let revision = caps.get(1).map(|m| m.as_str().to_string());
+            let suffix = caps.get(2).map(|m| m.as_str());
+            let pattern = caps[3].trim().to_string();
+
+            let directive = match suffix {
+                None => Directive::Check { pattern },
+                Some("-LABEL") => Directive::CheckLabel { pattern },
+                Some("-NOT") => Directive::CheckNot { pattern },
+                Some("-NEXT") => Directive::CheckNext { pattern },
+                _ => {
+                    errors.push(ParseError {
+                        line_number,
+                        message: format!("unknown CHECK suffix: {}", suffix.unwrap_or("")),
+                    });
+                    continue;
+                }
+            };
+
+            if let Some(ref rev) = revision {
+                if let Some(err) = validate_revision_name(rev, line_number) {
+                    errors.push(err);
+                    continue;
+                }
+            }
+
+            directives.push(DirectiveLine {
+                line_number,
+                revision,
+                directive,
+            });
+            continue;
+        }
+
+        // Try @-style directives
+        if let Some(caps) = RE_AT_DIRECTIVE.captures(line) {
+            let revision = caps.get(1).map(|m| m.as_str().to_string());
+            let key = caps[2].to_string();
+            let value = caps[3].trim().to_string();
+
+            if let Some(ref rev) = revision {
+                if let Some(err) = validate_revision_name(rev, line_number) {
+                    errors.push(err);
+                    continue;
+                }
+            }
+
+            let directive = match key.as_str() {
+                "revisions" => Directive::Revisions {
+                    names: value.split_whitespace().map(String::from).collect(),
+                },
+                "compile-flags" => Directive::CompileFlags {
+                    flags: value.split_whitespace().map(String::from).collect(),
+                },
+                _ => Directive::Custom { key, value },
+            };
+
+            directives.push(DirectiveLine {
+                line_number,
+                revision,
+                directive,
+            });
+        }
+    }
+
+    ParseResult { directives, errors }
+}
+
+fn validate_revision_name(name: &str, line_number: usize) -> Option<ParseError> {
+    if FORBIDDEN_REVISION_NAMES
+        .iter()
+        .any(|&forbidden| forbidden.eq_ignore_ascii_case(name))
+    {
+        Some(ParseError {
+            line_number,
+            message: format!("forbidden revision name: '{name}'"),
+        })
+    } else {
+        None
+    }
+}
