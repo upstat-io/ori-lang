@@ -1,6 +1,6 @@
 ---
 section: "03"
-title: "Tracked Artifact Removal & .gitignore Drift Fix"
+title: "Tracked Artifact Removal & Gitignore Verification"
 status: not-started
 reviewed: false
 goal: "Remove the two tracked `build/debug/*` artifacts (`simplest_crash.ll` and `test_simple`) via `git rm --cached`. **No gitignore edit is needed** (TPR-XX-002-codex iteration 3 fix — the iteration 1 premise that `**/build/` doesn't match root-level `build/` was factually wrong; `**/build/` DOES match root-level `build/` as verified via `git check-ignore -v --no-index`; the files are tracked because they were committed before the rule was added, and tracked files override gitignore)."
@@ -35,7 +35,7 @@ sections:
     status: not-started
 ---
 
-# Section 03: Tracked Artifact Removal & .gitignore Drift Fix
+# Section 03: Tracked Artifact Removal & Gitignore Verification
 
 **Status:** Not Started
 **Goal:** Remove the two tracked `build/debug/*` artifacts (`simplest_crash.ll` and `test_simple`) that were committed to git before (or alongside) the existing `**/build/` gitignore rule was added, and that therefore persist as tracked despite the rule. **Important architectural correction (TPR-XX-002-codex iteration 3 fix — 2026-04-11)**: the `**/build/` gitignore rule ALREADY correctly matches these paths — verified empirically via `git check-ignore -v --no-index build/debug/simplest_crash.ll` which returns `.gitignore:5:**/build/`. The reason Pass 1 research saw "no output" from `git check-ignore` (without `--no-index`) is that git's `check-ignore` command by design returns "not ignored" for files that are already TRACKED — tracked files override ignore rules. This is **not a gitignore drift bug**; it's **already-tracked-files-that-should-be-untracked**. The fix is `git rm --cached` on the two files; no gitignore edit is needed (the `**/build/` rule already protects against future leaks).
@@ -118,11 +118,11 @@ Remove the two leaked files from git tracking (but not from disk — they stay a
   # Expected: 'deleted: build/debug/simplest_crash.ll' and similar for test_simple (staged)
   ```
 
-- [ ] Do NOT commit yet — the .gitignore fix in 03.2 must land in the same commit.
+- [ ] Do NOT commit yet — the §03.2 gitignore verification must run before the §03.3 commit to confirm the existing `**/build/` rule already covers root-level `build/`.
 
 - [ ] **Subsection close-out (03.1)** — MANDATORY before starting 03.2:
   - [ ] Both files are staged for removal (`git status` shows `deleted:` entries)
-  - [ ] Files still exist on disk (`ls build/debug/` shows them — they'll be gitignored after 03.2 commits)
+  - [ ] Files still exist on disk (`ls build/debug/` shows them — they're already covered by the existing `**/build/` rule at `.gitignore:5`, so after §03.3's commit removes them from the index they'll be gitignored automatically)
   - [ ] Update this subsection's `status` in section frontmatter to `complete`
   - [ ] **Run `/improve-tooling` retrospectively on THIS subsection** — reflect
         on whether `git ls-files build/` was the right discovery command.
@@ -346,7 +346,7 @@ Refs: plans/project-reorganization/section-03-tracked-artifacts.md"
 - [ ] `build/debug/simplest_crash.ll` removed from git tracking (03.1)
 - [ ] `build/debug/test_simple` removed from git tracking (03.1)
 - [ ] `.gitignore` verified UNCHANGED (03.2) — no `/build/` rule added; the existing `**/build/` rule already covers root-level `build/` per iteration 3's empirical `--no-index` verification
-- [ ] `git check-ignore -v build/debug/simplest_crash.ll` confirms new rule matches (03.2)
+- [ ] `git check-ignore -v --no-index build/debug/simplest_crash.ll` confirms the existing `**/build/` rule at `.gitignore:5` already matches (03.2 — no new rule added per iteration 3 correction)
 - [ ] Negative rules for `compiler/oric/src/commands/build/` verified intact (03.3)
 - [ ] `profile.json.gz` still tracked (NOT deleted by this section)
 - [ ] `./test-all.sh` green post-fix

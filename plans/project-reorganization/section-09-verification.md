@@ -428,13 +428,23 @@ The final step — mark the plan complete by updating the overview's mission suc
 
 - [ ] Update `index.md` Quick Reference table: all sections status → `Complete`
 
-- [ ] Update every section's frontmatter `status` field to `complete`:
+- [ ] Update every section's frontmatter `status` field to `complete`. **Handles both `not-started → complete` and `in-progress → complete` transitions** (TPR-XX-002-codex iteration 5 fix) — the plan-audit linter auto-flips top-level section status to `in-progress` when TPR findings land as `[x]` resolved in the .R blocks, even before implementation starts. §09.6 must therefore transition BOTH states to `complete`:
   ```bash
   cd /home/eric/projects/ori_lang
   for f in plans/project-reorganization/section-*.md; do
     sed -i 's/^status: not-started$/status: complete/' "$f"
+    sed -i 's/^status: in-progress$/status: complete/' "$f"
   done
-  grep -l 'status: not-started' plans/project-reorganization/ || echo "all sections complete"
+  # Verify both states are cleared
+  grep -lE '^status: (not-started|in-progress)' plans/project-reorganization/ \
+    || echo "all sections complete (both not-started and in-progress transitions handled)"
+  ```
+  Also update the body-level `**Status:**` headers (if any section has a `**Status:** In Progress (pre-execution)` note from iteration 5's linter-drift fix, update to `**Status:** Complete`):
+  ```bash
+  for f in plans/project-reorganization/section-*.md; do
+    sed -i 's|^\*\*Status:\*\* Not Started$|**Status:** Complete|' "$f"
+    sed -i 's|^\*\*Status:\*\* In Progress (pre-execution).*|**Status:** Complete|' "$f"
+  done
   ```
 
 - [ ] Commit the final plan-sync update:
@@ -462,7 +472,7 @@ Final state (vs §01 baseline):
 - profile.json.gz preserved (intentional)
 - install.sh + setup.sh preserved (public API)
 
-Refs: plans/project-reorganization/"
+Refs: plans/project-reorganization/00-overview.md"
   ```
 
 - [ ] Verify final commit:
