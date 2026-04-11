@@ -129,59 +129,79 @@ The mission must remove any blockers in its way. Before the mission can be fulfi
    - If the blocker is too large to include (would double the plan's scope): flag it via `AskUserQuestion` — the user decides whether to expand scope or split into prerequisite plans.
 4. **Cross-link format**: When resolving a blocker from another plan, add `<!-- resolved-by: plans/{this-plan}/section-NN -->` to the original location, and `<!-- resolves: plans/{other-plan}/section-MM item description -->` to this plan's item.
 
-### Step 1D: Consensus Loop with Codex (MANDATORY — ITERATE UNTIL AGREEMENT)
+### Step 1D: Dual-Source Consensus Loop — Codex + Gemini (MANDATORY — ITERATE UNTIL AGREEMENT)
 
 **SEQUENTIAL & FOREGROUND — MANDATORY.** Every `/tp-help` call in this loop MUST run in the foreground (NOT `run_in_background`). You MUST wait for each to complete and read its output before proceeding. Do NOT launch these in parallel with any other agent or skill invocation.
 
-This is not a single consultation — it is a **consensus loop**. You and Codex iterate on the mission's direction, approach, and integration points until you reach genuine agreement. The loop runs until one of two outcomes:
+This is not a single consultation — it is a **dual-source consensus loop**. `/tp-help` returns BOTH Codex AND Gemini responses concatenated with attribution sentinels (not a synthesis). You iterate with BOTH reviewers on the mission's direction, approach, and integration points until you reach genuine agreement with each. Silently ignoring one reviewer's input, treating either as "primary", or picking whichever response is most convenient is a contract violation — the whole point of dual-source is two independent perspectives.
 
-1. **Consensus reached**: You and Codex agree on how the plan integrates with Ori's architecture, what the approach should be, and that it's a good fit.
-2. **Agreed rejection**: You and Codex both agree that part or all of the proposed direction is not a good fit for Ori — in which case, document why and propose an alternative direction.
+**Trust tiers during verification (per the global reviewer-grounding rule):**
+- **Codex** — HIGH trust: spot-check its findings against actual code before acting
+- **Gemini** — LOWER trust: confabulation-prone; independently verify EVERY claim against actual code before incorporating it. Gemini is valuable for surfacing angles Codex misses, not as an authoritative source.
+- NEVER act on a reviewer claim without your own verification pass. Trust tiers set verification depth, not pass/fail.
+- The Round 1 prompt MUST instruct both reviewers to read `CLAUDE.md` and all `.claude/rules/*.md` (especially `impl-hygiene.md`) FIRST before reviewing.
+
+The loop runs until one of these outcomes:
+
+1. **Consensus reached**: You, Codex, AND Gemini all agree on how the plan integrates with Ori's architecture, what the approach should be, and that it's a good fit.
+2. **Agreed rejection**: All three parties agree that part or all of the proposed direction is not a good fit for Ori — document why and propose an alternative direction.
+3. **Persistent inter-reviewer disagreement (ESCALATE)**: If after 2+ rounds Codex and Gemini still fundamentally disagree with each other on the same point, surface this to the user via `AskUserQuestion` — do NOT silently pick a side. A persistent split between independent reviewers is a signal that the problem has a genuine design ambiguity the user must weigh in on.
 
 **Loop protocol:**
 
-**Round 1** — Present the full picture to Codex:
+**Round 1** — Present the full picture to both reviewers (one `/tp-help` call fans out to Codex + Gemini):
 
 Build a `/tp-help` prompt that includes:
+- **Reviewer grounding preamble**: "BEFORE reviewing, read `CLAUDE.md` and all `.claude/rules/*.md` (especially `impl-hygiene.md`)." — mandated by the global reviewer-grounding rule
 - The user's original generic mission statement
 - Your expanded mission (scope, deliverables, success criteria, boundaries) from Step 1B
 - The identified blockers and their resolution strategy from Step 1C
 - Your proposed direction and approach — how does this integrate with Ori's existing architecture?
 - Any open questions or uncertainties
 
-Ask Codex specifically:
+Ask both reviewers the same specific questions:
 - "Is this mission statement complete and executable? Are there gaps?"
 - "Are the identified blockers comprehensive, or am I missing dependencies?"
 - "Is the scope right — too broad, too narrow, or just right for a single plan?"
 - "Does this direction integrate well with Ori's architecture? Where are the natural integration points?"
 - "What would you change about the approach?"
 
-**Round 2+** — Respond to Codex's feedback:
+`/tp-help` returns both responses concatenated with HTML-comment attribution sentinels (`<!-- codex -->` / `<!-- gemini -->`). Read BOTH sections in full before drafting Round 2 — do not skim one to "confirm" the other.
 
-After each Codex response, evaluate:
-- **Points of agreement**: Lock these in. They become part of the consensus.
-- **Points of disagreement**: For each, either (a) accept Codex's point and update the mission, or (b) push back with specific reasoning and ask Codex to reconsider. Do NOT silently ignore disagreements.
-- **New concerns raised**: Address each one. If Codex identified a blocker or integration issue you missed, incorporate it.
-- **Integration fit**: If Codex questions whether something fits Ori, engage seriously — is there a better organic integration point? Or is this genuinely not the right approach?
-- **Scoping pushback**: If Codex suggests scoping something out because "the compiler doesn't support X yet" or "Y infrastructure is missing," push back — those are blockers to resolve, not scope exclusions. The only valid reason to exclude something is that it doesn't fit Ori's design. Missing prerequisites are what the plan exists to build.
+**Round 2+** — Respond to both reviewers' feedback:
+
+After each round, evaluate EACH reviewer's response INDEPENDENTLY first, then look across them for cross-reviewer patterns. Do NOT merge the two responses into a single list before evaluating — that loses attribution and hides disagreement between the models.
+
+- **Per-reviewer evaluation** — For Codex AND Gemini separately, categorize their points as: agreement, disagreement, new concern, integration flag, or scoping pushback. Keep attribution so you can name who said what in the next round.
+- **Cross-reviewer pattern analysis** — After evaluating each reviewer independently, compare:
+  - **Both reviewers agree with you**: lockable consensus point — highest-signal agreement.
+  - **Both reviewers agree with each other but disagree with you**: STRONG signal to reconsider your position. Two independent models converging on the same critique rarely means they're both wrong. Revise the mission before pushing back.
+  - **Reviewers disagree with each other**: investigate deeper. Do NOT pick whichever answer you prefer — the disagreement itself is the finding. Figure out which framing is load-bearing and ask BOTH reviewers a sharper question in Round N+1 that exposes the crux. If this persists after 2+ rounds, escalate to the user via `AskUserQuestion` (per outcome #3 above).
+  - **One reviewer raises a concern the other missed**: treat as valid, verify against actual code, then engage. Gemini often catches angles Codex doesn't and vice versa — that's the whole point of dual-source.
+- **Points of disagreement (you vs. a reviewer)**: For each, either (a) accept the reviewer's point and update the mission, or (b) push back with specific reasoning and ask them to reconsider in the next round. Do NOT silently ignore disagreements from EITHER reviewer.
+- **New concerns raised**: Address each one. If either reviewer identified a blocker or integration issue you missed, incorporate it — AFTER verifying the claim against actual code (especially for Gemini, per the trust-tier rule).
+- **Integration fit**: If either reviewer questions whether something fits Ori, engage seriously — is there a better organic integration point? Or is this genuinely not the right approach?
+- **Scoping pushback**: If either reviewer suggests scoping something out because "the compiler doesn't support X yet" or "Y infrastructure is missing," push back — those are blockers to resolve, not scope exclusions. The only valid reason to exclude something is that it doesn't fit Ori's design. Missing prerequisites are what the plan exists to build.
 
 Call `/tp-help` again with:
-- What you agree on so far (locked-in consensus points)
-- What you're still iterating on (with your response to Codex's feedback)
+- What all three parties agree on so far (locked-in consensus points)
+- What you're still iterating on, with your response to EACH reviewer's outstanding feedback, attributed: "Codex said X, my response is…; Gemini said Y, my response is…"
 - Updated mission statement reflecting changes from this round
-- Specific questions for the remaining disagreements
+- Specific questions for the remaining disagreements, including sharper cross-disagreement questions for any Codex/Gemini split from the prior round
 
-**Loop termination**: The loop ends when BOTH of these are true:
-- You and Codex agree on the mission direction, scope, approach, and integration points (or agree that something should be excluded and why)
-- There are no unresolved disagreements or open questions between you
+**Loop termination**: The loop ends when ALL of these are true:
+- You, Codex, AND Gemini all agree on the mission direction, scope, approach, and integration points (or all three agree that something should be excluded and why)
+- No reviewer has unresolved disagreements or open questions with you
+- No unresolved cross-reviewer disagreements remain — either Codex and Gemini agree with each other on the load-bearing points, OR a persistent split has been escalated to the user via `AskUserQuestion`
 
-**Do NOT cap the loop at a fixed number of rounds.** Most missions will converge in 2-3 rounds. Some may take 4-5. The loop runs until consensus, not until a counter expires.
+**Do NOT cap the loop at a fixed number of rounds.** Dual-source loops typically converge in 2–4 rounds; some take 5. If you reach round 6 without convergence, STOP and escalate via `AskUserQuestion` — persistent non-convergence after 5 rounds is itself a finding the user needs to hear about. The loop runs until consensus (or escalation), not until a counter expires.
 
 **After consensus**, compile the results:
 
-1. **Consensus points**: What you and Codex agreed on — direction, approach, integration points, scope
-2. **Rejected directions**: What you both agreed is not a good fit for Ori, and why
-3. **Draft execution outline**: A preliminary sketch of how the plan will be executed — approximate section structure, rough ordering, key phases. This is a draft (full planning hasn't run yet), but it gives the user a sense of shape:
+1. **Consensus points**: What you, Codex, and Gemini all agreed on — direction, approach, integration points, scope. Present as a unified position, not a transcript of each reviewer's wording.
+2. **Rejected directions**: What all three parties agreed is not a good fit for Ori, and why.
+3. **Verified reviewer claims**: For every reviewer-originated point that influenced the direction (especially Gemini's, per the confabulation-prone trust tier), note that you verified it against actual code. Do NOT pass through unverified reviewer claims into the plan.
+4. **Draft execution outline**: A preliminary sketch of how the plan will be executed — approximate section structure, rough ordering, key phases. This is a draft (full planning hasn't run yet), but it gives the user a sense of shape:
    - What gets built first (foundation/prerequisites)
    - What the core implementation phases are
    - What integration/verification looks like
@@ -194,7 +214,7 @@ Call `/tp-help` again with:
 Present:
 1. **Original input**: What the user said
 2. **Expanded mission**: The full executable mission statement (scope, deliverables, success criteria, boundaries)
-3. **Claude + Codex consensus**: What was agreed on — direction, approach, integration points. Present this as a unified position, not a transcript. The user should see what was decided and why.
+3. **Dual-source consensus (Claude + Codex + Gemini)**: What was agreed on — direction, approach, integration points — with all three independent perspectives aligned. Present this as a unified position, not a transcript of each reviewer's wording. The user should see what was decided and why. If any point required escalation due to persistent Codex/Gemini disagreement, surface that here too.
 4. **Rejected directions** (if any): What was considered and ruled out as not fitting Ori, with reasoning
 5. **Identified blockers**: Each blocker, where it's currently tracked (if anywhere), and how this plan will resolve it
 6. **Cross-plan impacts**: Which other plans/roadmap items will be updated as resolved when this plan executes
@@ -533,12 +553,17 @@ Build a `/tp-help` prompt that includes:
 - The 2-3 most important architectural decisions you're about to make
 - Your preliminary architectural direction
 
-Ask Codex specifically:
+Instruct both reviewers to read `CLAUDE.md` and all `.claude/rules/*.md` FIRST (per reviewer-grounding rule), then ask both reviewers specifically (one `/tp-help` call returns Codex + Gemini concatenated):
 - "Do you see any architectural risks I'm missing?"
 - "Is this the right decomposition for this problem?"
 - "Are there better patterns from the reference compilers for this specific case?"
 
-Evaluate Codex's response against your research — you have deeper codebase context, so filter accordingly. Incorporate useful insights into the architecture design.
+Evaluate BOTH reviewers' responses independently against your research — you have deeper codebase context, so filter accordingly. Look for:
+- **Codex + Gemini both flag the same risk** — highest-signal finding, address it
+- **Codex and Gemini disagree with each other** — investigate deeper; don't silently pick a side
+- **One reviewer catches something the other missed** — treat as valid, verify against actual code, then incorporate
+
+Per the trust-tier rule: Codex = HIGH (spot-check its findings), Gemini = LOWER (confabulation-prone, independently verify EVERY claim against actual code). Incorporate useful VERIFIED insights into the architecture design.
 
 ---
 
@@ -589,12 +614,12 @@ Build a `/tp-help` prompt that includes:
 - The content of `00-overview.md` (or a focused summary of: mission, dependency graph, implementation sequence, key design decisions)
 - The proposed section list with goals and ordering
 
-Ask Codex specifically:
+Instruct both reviewers to read `CLAUDE.md` and all `.claude/rules/*.md` FIRST (per reviewer-grounding rule), then ask both reviewers specifically (one `/tp-help` call returns Codex + Gemini concatenated):
 - "Does this section decomposition and ordering make sense?"
 - "Are there dependency ordering issues I'm missing?"
 - "Would you structure this differently?"
 
-Incorporate feedback into `00-overview.md` before presenting to the user. If Codex flags a fundamental issue, address it now — don't pass known problems to the user review.
+Incorporate feedback from BOTH reviewers into `00-overview.md` before presenting to the user. If EITHER reviewer flags a fundamental issue, address it now — don't pass known problems to the user review. Per the trust-tier rule: verify Gemini's claims against actual code before acting (confabulation-prone); spot-check Codex's claims. If Codex and Gemini disagree with each other on a structural point, investigate deeper and resolve it before proceeding — don't silently pick a side.
 
 ### Step 9: User Review of Architecture (MANDATORY — DO NOT SKIP)
 
