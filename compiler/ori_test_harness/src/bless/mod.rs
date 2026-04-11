@@ -48,6 +48,12 @@ pub fn clean_stale_baselines(
     active_revisions: &[&str],
 ) -> Result<Vec<PathBuf>, io::Error> {
     let parent = test_path.parent().unwrap_or(Path::new(""));
+    // Map empty parent to "." so fs::read_dir doesn't fail with ENOENT
+    let parent = if parent.as_os_str().is_empty() {
+        Path::new(".")
+    } else {
+        parent
+    };
     let stem = test_path.file_stem().unwrap_or_default().to_string_lossy();
     let mut deleted = Vec::new();
 
@@ -55,50 +61,32 @@ pub fn clean_stale_baselines(
         || active_revisions.len() == 1 && active_revisions[0].is_empty());
 
     if has_revisions {
-        // Test has revisions — delete non-revision baseline if it exists
+        // Test has revisions — delete non-revision baseline if it exists.
+        // Only deletes the unambiguous non-revision file (stem.suffix).
+        // Stale revision-specific cleanup is NOT done here because the
+        // naming convention (stem.<rev>.suffix) is ambiguous with artifact
+        // role suffixes (stem.before.suffix). Consumers handle specific
+        // revision cleanup in their TestStrategy implementation.
         let non_rev = parent.join(format!("{stem}.{suffix}"));
         if non_rev.exists() {
             fs::remove_file(&non_rev)?;
             deleted.push(non_rev);
         }
-        // Also delete stale revision-specific baselines for revisions no longer active
-        if let Ok(entries) = fs::read_dir(parent) {
-            let prefix = format!("{stem}.");
-            let ext = format!(".{suffix}");
-            for entry in entries.filter_map(Result::ok) {
-                let name = entry.file_name().to_string_lossy().to_string();
-                if name.starts_with(&prefix)
-                    && name.ends_with(&ext)
-                    && name != format!("{stem}.{suffix}")
-                {
-                    let middle = &name[prefix.len()..name.len() - ext.len()];
-                    if !middle.is_empty()
-                        && !middle.contains('.')
-                        && !active_revisions.contains(&middle)
-                    {
-                        fs::remove_file(entry.path())?;
-                        deleted.push(entry.path());
-                    }
-                }
-            }
-        }
     } else {
-        // Test has no revisions — delete any revision-specific baselines
-        // Pattern: stem.<rev>.suffix (single-dot revision name)
-        if let Ok(entries) = fs::read_dir(parent) {
+        // Test has no revisions — delete revision-specific baselines.
+        // Pattern: stem.<rev>.suffix (single-segment middle component)
+        for entry in fs::read_dir(parent)?.filter_map(Result::ok) {
+            let name = entry.file_name().to_string_lossy().to_string();
             let prefix = format!("{stem}.");
             let ext = format!(".{suffix}");
-            for entry in entries.filter_map(Result::ok) {
-                let name = entry.file_name().to_string_lossy().to_string();
-                if name.starts_with(&prefix)
-                    && name.ends_with(&ext)
-                    && name != format!("{stem}.{suffix}")
-                {
-                    let middle = &name[prefix.len()..name.len() - ext.len()];
-                    if !middle.is_empty() && !middle.contains('.') {
-                        fs::remove_file(entry.path())?;
-                        deleted.push(entry.path());
-                    }
+            if name.starts_with(&prefix)
+                && name.ends_with(&ext)
+                && name != format!("{stem}.{suffix}")
+            {
+                let middle = &name[prefix.len()..name.len() - ext.len()];
+                if !middle.is_empty() && !middle.contains('.') {
+                    fs::remove_file(entry.path())?;
+                    deleted.push(entry.path());
                 }
             }
         }
