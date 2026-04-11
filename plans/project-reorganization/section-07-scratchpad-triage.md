@@ -1,7 +1,7 @@
 ---
 section: "07"
 title: "Scratchpad Triage & Migration"
-status: not-started
+status: in-progress
 reviewed: false
 goal: "Audit all 30 files in `ori_lang/scratchpad/` (live count as of plan execution), migrate 12 canonical design documents to their proper `docs/` homes (7 to `docs/ori_lang/v2026/design/` with Astro `docsSchema`, 3 to `docs/compiler/design/` with `docsSchema`, 1 to `docs/tooling/` with `docsSchema`, 1 to `docs/ori_lang/proposals/drafts/` with **body-format proposal schema** parsed by `ori-lang-website/src/loaders/proposal-loader.ts` — H1 title + `**Author:** ...` / `**Created:** ...` body keys + `## Summary` paragraph, NOT YAML frontmatter), delete 18 superseded or throwaway files, then remove the `scratchpad/` directory entirely so 704K of gitignored drift goes away."
 success_criteria:
@@ -19,8 +19,8 @@ inspired_by:
   - "Roc `design/` directory — explicit separation of design history from spec and plans"
 depends_on: ["06"]
 third_party_review:
-  status: none
-  updated: null
+  status: resolved
+  updated: 2026-04-11
 sections:
   - id: "07.1"
     title: "Pre-Migration Re-verification"
@@ -45,7 +45,7 @@ sections:
     status: not-started
   - id: "07.R"
     title: "Third Party Review Findings"
-    status: not-started
+    status: complete
   - id: "07.N"
     title: "Completion Checklist"
     status: not-started

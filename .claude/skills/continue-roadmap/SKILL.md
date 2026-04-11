@@ -1,7 +1,7 @@
 ---
 name: continue-roadmap
 description: Resume work on the Ori compiler roadmap, picking up where we left off
-argument-hint: "[section]"
+argument-hint: "[section] [--autopilot]"
 ---
 
 # Continue Roadmap
@@ -11,12 +11,22 @@ Resume work on the Ori compiler roadmap, picking up where we left off.
 ## Usage
 
 ```
-/continue-roadmap [section]
+/continue-roadmap [section] [--autopilot]
 ```
 
 - No args: Auto-detect first incomplete item sequentially (00 → 01 → ...)
 - `section-4`, `4`, or `modules`: Continue Section 4 (Modules)
 - Any section number or keyword: Use `plans/roadmap/index.md` to find sections by keyword
+- `--autopilot` (alias: `--auto`): Run in **fully autonomous mode** — no prompts, no pauses, no mid-loop summaries. Pre-commits to the "Recommended" option at every gate, executes every normal workflow step (nothing is skipped), and drives the focus plan to completion in a single run. See **§Autopilot Mode** below.
+
+### Examples
+
+```
+/continue-roadmap                            # Interactive: resume where you left off
+/continue-roadmap section-5                  # Interactive: focus on Section 5
+/continue-roadmap --autopilot                # Autonomous: drive the current focus plan to completion
+/continue-roadmap --autopilot section-5      # Autonomous: start at Section 5, then continue until plan-complete
+```
 
 ## Finding Sections by Topic
 
@@ -24,7 +34,223 @@ Use `plans/roadmap/index.md` to find sections by keyword. The index contains sea
 
 ---
 
+## Autopilot Mode
+
+**Trigger**: `--autopilot` (alias `--auto`) flag on the command line.
+
+**Contract**: Autopilot drives the entire focus plan to completion fully automated — zero prompts, zero pauses, zero mid-loop summaries — while executing **every** normal workflow step. Autopilot is a *prompt replacement* layer, **not** a *step skipping* layer: the pre-committed defaults replace user prompts at each gate with the "Recommended" option, but subsection close-outs, TPR, impl-hygiene review, the `/improve-tooling` per-subsection retrospective, the section-close sweep, frontmatter updates, plan-wide accuracy audits, and `/commit-push` all still run as specified. **Nothing is skipped. Ever.**
+
+### Autopilot Discipline — Persistent Reminder Task (MANDATORY)
+
+**Before entering the loop**, create a persistent reminder task via `TaskCreate`:
+
+```
+Subject: "AUTOPILOT: Do NOT stop until focus plan is complete"
+Description: "After EVERY subsection close-out and EVERY section close-out: scanner re-run → next focus section → continue. The completion report is ONLY printed when the focus plan reports status: complete for ALL sections, TPR clean, hygiene clean, plan-wide audit clean, and plan archival done. There is NO 'natural stopping point.' The number of subsections or sections processed is irrelevant — only the plan state matters. If you are about to write a session summary, STOP and ask: is the focus plan complete? If no, re-run the scanner and pick the next focus section."
+```
+
+This task must remain `in_progress` for the entire autopilot session. Only mark it `completed` when you print the final completion report at plan completion. This reminder survives context compression and is the load-bearing guardrail against premature termination.
+
+**CRITICAL**: This is the **ONLY** task for the entire autopilot session. Do NOT use `TaskCreate` for any other purpose during autopilot — not for tracking subsection work, not for TPR cycles, not for individual checkboxes, not for anything. Additional tasks would become "the current work" and their completion would signal the loop is done, causing premature termination. Use `TaskList`/`TaskGet` for inspection only; do not create more tasks.
+
+### Pre-committed defaults at every prompt/gate
+
+| Step | Normal prompt | Autopilot default |
+|------|---------------|-------------------|
+| **1.5** Stale frontmatter | AskUserQuestion when frontmatter says `complete` but >5 items unchecked | **Trust the checkboxes** — set frontmatter to `in-progress` and continue. Checkbox state is the source of truth; per-subsection verification during implementation catches genuinely stale checkboxes |
+| **1.7** Unreviewed plan | AskUserQuestion when `reviewed: false` | **Run `/review-plan` on that specific section** via `Skill(review-plan, args: "plans/<plan>/section-NN.md")`, wait for completion, then continue. When the review passes, `reviewed: true` is set automatically. If `/review-plan` cannot complete autonomously, mark the section `reviewed: true` with a note `autopilot-unreviewed: auto-accepted; needs user audit` and continue — the audit note surfaces in the final report |
+| **1.9** TPR triage | Manual per-finding judgment | **Invoke `Skill(verify-tpr, ...)` on the focus section** — this is the skill specifically built for this gate. It validates every finding against actual code/spec/plan with full codebase rigor. Autopilot accepts all factually-real findings (adding plan tasks) and rejects ONLY factually-incorrect findings (with explicit rationale). Per CLAUDE.md, "unrelated", "pre-existing", "out of scope", "architectural limitation", "conservative", "future improvement" are BANNED rejection reasons — a finding may only be rejected as factually incorrect (the described issue does not actually exist in the codebase) |
+| **1.92** Bug tracker | AskUserQuestion when critical bugs exist | **Invoke `Skill(fix-bug, args: "--autopilot BUG-XX-NNN")` sequentially** for every critical bug in the mapped subsystem(s), then every high-severity bug in the mapped subsystem(s) (they WILL interfere with current work), then continue. Each bug gets full `/fix-bug` rigor (fix section, TDD matrix, /tp-help consensus, TPR, hygiene, commit) because `--autopilot` propagates |
+| **1.95** Clean working tree | AskUserQuestion when dirty | **Invoke `Skill(commit-push)` immediately**. The user preference "`/commit-push` ALWAYS commits AND pushes" means it completes without confirmation |
+| **2.6** Unplanned blockers | Investigate + `/create-plan` decision | **Fully automatic**. Investigate via an Explore agent, then: (a) if the fix is <200 lines / <5 files, implement it NOW as impediment resolution (still file via `/add-bug` so the work is tracked), then re-check the blocked items; (b) if it needs a new subsection in the current plan, invoke `Skill(create-plan, ...)` to add it and implement; if `/create-plan` cannot run autonomously, add the `- [ ]` subsection manually with clear description + commit + implement; (c) if it needs a new full plan, add an `autopilot-escalated: requires new plan — {reason}` marker to the blocked item and continue with OTHER unblocked work. Escalated items surface in the final report for user action |
+| **Step 5** "What to do?" | AskUserQuestion | **Start next task** — the first unblocked item in the focus subsection |
+| **Step 5.5** Pacing | AskUserQuestion full-section vs subsection-by-subsection | **Full section pacing** — no pause between subsections. Subsection close-out (including the `/improve-tooling` per-subsection retrospective in close-out step 3, and `/commit-push` for the subsection's implementation in close-out step 4) **still runs for every subsection**. Pacing only controls whether a review prompt fires; it does NOT skip close-out |
+| **Step 6** Gap detection | AskUserQuestion when a missing feature is discovered | **No AskUserQuestion**. Apply the scope rule: small (<200 lines / <5 files) → fix immediately; medium (new subsection needed in current plan) → `Skill(create-plan, ...)` to add it, then implement; large (new plan needed) → `Skill(add-bug, ...)` + add an `autopilot-escalated` note on the blocked item and continue with other unblocked work. **Never silently substitute a workaround** |
+| **Bug discovered during implementation** | Decision tree (CLAUDE.md) | **Same decision tree — fully automatic**. Critical or blocking → `Skill(fix-bug, args: "--autopilot BUG-XX-NNN")` NOW. High in current subsystem → `Skill(fix-bug, args: "--autopilot BUG-XX-NNN")` NOW (it will interfere). High outside current subsystem → `Skill(add-bug, ...)`, continue. Medium/low → `Skill(add-bug, ...)`, continue. Zero deferral, zero mental notes |
+| **Section close-out** | `/tpr-review`, `/impl-hygiene-review`, `/improve-tooling` sweep, `/commit-push`, plan-wide audit | **All run automatically in order**. If `/tpr-review` surfaces findings → triage (validate + fix every real finding) → re-run → repeat until clean. Then `/impl-hygiene-review` → fix → re-run `/tpr-review` (code changed) → re-run hygiene → repeat until both clean. Then section-close sweep → plan-wide audit → `/commit-push`. No "close enough" — clean or continue looping |
+| **Plan completion** | — | **Re-run scanner to confirm** every section is `complete`, frontmatter consistent across overview/index/sections, no open TPR findings, no outstanding blocking items in the plan. Run Plan Completion Frontmatter Gate, then Plan Archival Protocol (`git mv plans/{plan} plans/completed/{plan}` + `/commit-push`), then print the completion report, then mark the persistent reminder task `completed`. **Only then** does autopilot stop |
+
+### Sub-skill autopilot propagation
+
+When autopilot invokes other skills that support autopilot, the `--autopilot` flag **must** propagate:
+
+- `Skill(fix-bug, args: "--autopilot BUG-XX-NNN")` — `/fix-bug` runs autonomously with full rigor, no `AskUserQuestion`, full fix-section/TDD/TPR/hygiene pipeline
+- `Skill(commit-push)` — always commits and pushes per user preference; no flag needed
+- `Skill(review-plan, args: "plans/<plan>/section-NN.md")` — invoked normally; if it stalls on a prompt, apply the Step 1.7 fallback (mark `reviewed: true` with audit note)
+- `Skill(improve-tooling)` — invoked normally in per-subsection and section-close sweep modes; its retrospectives are internally reflective (no prompts)
+- `Skill(tpr-review)` — invoked normally; it is dual-source (Codex + Gemini) by design. Its findings are then triaged via `Skill(verify-tpr, ...)` per Step 1.9 defaults. The TPR + hygiene loop (see below) re-runs `/tpr-review` until BOTH reviewers come back clean
+- `Skill(verify-tpr, args: "plans/<plan>/section-NN.md")` — the triage skill specifically built for Step 1.9. Validates each finding against actual code/spec/plan with full codebase rigor, accepts or rejects per CLAUDE.md rules
+- `Skill(impl-hygiene-review)` — invoked normally; its findings are fixed and trigger a re-run of `/tpr-review` (code changed invalidates the previous TPR pass)
+- `Skill(create-plan, ...)` — invoked normally; if it stalls on prompts, fall back to manual subsection addition with a clear `- [ ]` description + commit, then implement
+- `Skill(add-bug, ...)` — invoked normally; minimal friction
+
+If any sub-skill stalls waiting on user input that cannot be defaulted from CLAUDE.md rules, autopilot treats that as Termination condition 3 (unresolvable user-owned decision) and uses `AskUserQuestion` ONCE for the specific stuck decision, then resumes.
+
+### TPR + Hygiene Review Loop Discipline — Loop Until ALL Clean (non-negotiable)
+
+**This is the most load-bearing rule in autopilot mode.** A section is not `complete` until EVERY review gate returns **all clean** on the same final code state. Autopilot loops the review gates as many times as necessary — there is no maximum iteration count, no "close enough", no "one reviewer is clean so we're mostly done".
+
+**What "all clean" means:**
+
+1. **`/tpr-review` is dual-source** — it runs **Codex AND Gemini** in parallel and merges findings per the dual-tpr skill. "TPR clean" means **BOTH reviewers** returned zero unresolved findings. If Codex returned clean but Gemini raised 3 findings, the section is NOT TPR-clean — triage Gemini's findings, fix every real one, and re-run `/tpr-review`. Same in reverse. A section passes only when BOTH reviewers simultaneously return zero unresolved findings on the SAME commit.
+2. **`/impl-hygiene-review` must return zero critical/major findings** — minor/nit findings are judgment calls at the section-close level, but critical and major findings MUST be fixed and re-reviewed.
+3. **Simultaneous clean state** — TPR clean and hygiene clean must hold on the SAME final commit. If `/impl-hygiene-review` triggers code changes after `/tpr-review` passed, the previous TPR pass is **invalidated**: the reviewers reviewed code that no longer exists. Autopilot MUST re-run `/tpr-review` on the new commit, then re-run `/impl-hygiene-review` on whatever commit TPR passed on, looping until both gates pass on the same final state with no further code changes between them.
+
+**The review loop (runs until both gates clean on the same final commit):**
+
+```
+loop:
+  1. Skill(tpr-review) — dual-source (Codex + Gemini)
+       |
+       +-- Codex clean AND Gemini clean?  -->  go to step 2
+       +-- Either reviewer has findings?
+             - Triage every finding via Step 1.9 autopilot defaults
+             - Validate each finding against actual code, spec, plan
+             - Accept all factually-real findings (add plan tasks)
+             - Reject ONLY factually-incorrect findings (with explicit rationale)
+             - BANNED rejections: "unrelated", "pre-existing", "out of scope",
+               "architectural limitation", "conservative", "future improvement"
+             - Fix every accepted finding, commit via /commit-push
+             - Restart the review loop from step 1 (both reviewers re-run)
+  2. Skill(impl-hygiene-review)
+       |
+       +-- Zero critical/major findings?  -->  go to step 3
+       +-- Any critical/major findings?
+             - Fix every one, commit via /commit-push
+             - Code changed --> previous TPR pass is invalidated
+             - Restart the review loop from step 1 (re-run TPR on new code)
+  3. Both gates clean on the same final commit  -->  exit review loop,
+     proceed to section-close /improve-tooling sweep
+```
+
+**Banned shortcuts (every one is a process failure):**
+
+- "We've done 3 rounds, that's enough" — there is no round count; loop until both clean
+- "Codex is clean, that's good enough" — no. Gemini must ALSO be clean
+- "Gemini is known to confabulate, skip it" — no. Per memory `feedback_reviewer_grounding_and_trust.md`, Gemini findings require verification but cannot be skipped
+- "The remaining Gemini findings are all low-severity" — irrelevant. An unresolved finding is an unresolved finding; triage it, fix or factually-reject it, re-run
+- "The hygiene findings are plumbing-layer nits" — critical/major hygiene findings are non-negotiable; fix them
+- "We just fixed hygiene, TPR was already clean once, we can skip re-running TPR" — no. Any code change after TPR clean INVALIDATES the TPR pass. Re-run
+- "The re-run will just say the same thing" — then the re-run will be fast. Run it anyway; the dual-source merge may surface a new finding on the changed code
+- "Dual-TPR polling is taking forever, let me skip one reviewer" — no. Use the mandatory 5-minute polling cadence per memory `feedback_dual_tpr_polling.md` and let both reviewers finish
+
+**Why this rule exists:** the moment you accept a one-reviewer-clean state as "good enough", you have created a silent regression path. The whole point of dual-source review is that Codex and Gemini catch different classes of issues — Codex is stronger on architectural/correctness, Gemini is stronger on breadth/completeness. Accepting one-clean-one-findings means you ship with the other reviewer's uncaught issues. Similarly, accepting TPR-clean-then-hygiene-fix as "done" means you ship with hygiene-modified code that TPR never reviewed. Both shortcuts create the exact failure modes CLAUDE.md's non-negotiable section-close rule was written to prevent.
+
+**Summary in one sentence**: In autopilot mode, `/tpr-review` and `/impl-hygiene-review` loop together on every section close until they BOTH return all-clean on the SAME final commit, no matter how many cycles it takes.
+
+### The autopilot loop
+
+1. **Scanner** → focus plan, focus section, focus subsection (Step 1)
+2. **Gates** → run 1.5 / 1.55 / 1.6 / 1.7 / 1.9 / 1.92 / 1.95 with autopilot defaults. Any gate that creates new work (TPR-accepted tasks, bug fixes, new subsections, new blockers) loops back to Step 1 for a fresh scan before implementation
+3. **Implementation** → read spec, implement first unblocked item, run tests
+4. **Subsection close-out** — Step 5.5 close-out sequence in order (every step runs):
+   - a. All subsection tasks `[x]`, behavior verified via tests
+   - b. Update the subsection's `status` in section frontmatter to `complete`
+   - c. `Skill(improve-tooling)` per-subsection retrospective — implement + commit improvements separately via `/commit-push`, OR document "Retrospective {NN}.M: no tooling gaps" as the negative finding
+   - d. `Skill(commit-push)` for the subsection's implementation commit (separate from tooling commits)
+5. **Step -1B** → re-read CLAUDE.md in full via the Read tool (context compression may have dropped rules)
+6. **More subsections in the current section?** → back to Step 3 (same section is still focus; no re-scan needed)
+7. **All subsections in the current section `complete`?** → section close-out:
+   - a. `Skill(tpr-review)` — if findings, triage via Step 1.9 defaults, fix all accepted findings, re-run `/tpr-review` until clean
+   - b. `Skill(impl-hygiene-review)` — if findings, fix, re-run `/tpr-review` (code changed), then re-run `/impl-hygiene-review` until both clean
+   - c. `Skill(improve-tooling)` section-close sweep — verify every subsection in this section has either an "improvements made" entry or a "no gaps" negative finding from its per-subsection retrospective; look for cross-subsection patterns; implement + commit any new items separately
+   - d. Plan-wide accuracy audit — overview, index, Quick Reference table, Estimated Effort table, sibling section statuses (fix any stale)
+   - e. Update parent plan files (`00-overview.md`, `index.md`)
+   - f. `Skill(commit-push)` for the section close commit (frontmatter updates + cleanup)
+8. **Re-run scanner** → fresh focus (may be a new section in the same plan, or a freshly activated reroute)
+9. **Scanner shows all-plan-complete?** → Plan Completion Frontmatter Gate → Plan Archival Protocol → final completion report → mark `TaskCreate` reminder `completed` → **STOP**
+10. **Scanner shows more work?** → back to Step 2
+
+### Termination conditions
+
+Autopilot ONLY stops when:
+
+1. **Plan completion**: scanner confirms every section is `complete`, overview/index frontmatter are consistent, no open TPR findings, no outstanding blocking items, no `autopilot-escalated` items still unresolved. Plan Completion Frontmatter Gate and Plan Archival Protocol both pass. Autopilot prints the completion report and marks the persistent reminder task `completed`.
+2. **Reroute activation mid-run**: if a new reroute becomes `active` during the run (e.g., a critical bug fix triggered one, or `/create-plan` produced a new reroute plan during impediment resolution), autopilot switches focus to the rerouted plan per the reroute priority rule and continues in autopilot on that plan. When the reroute completes, autopilot returns to the original plan. **Reroute switches are NOT termination** — autopilot keeps going.
+3. **Unresolvable user-owned decision**: a genuinely user-owned decision — spec ambiguity with two defensible interpretations, missing domain knowledge that cannot be derived from the codebase or spec, an architectural question with no defensible default per CLAUDE.md. In this case ONLY, use `AskUserQuestion` ONCE with a focused, specific question. Autopilot resumes after the answer. "I'm not sure which is cleaner" is NOT a user-owned decision — pick the most correct option per CLAUDE.md and continue.
+4. **Manual interrupt**: user sends Ctrl+C or equivalent. Autopilot halts at the next safe point — end of current subsection's close-out or end of current TPR/hygiene cycle, **never** mid-edit.
+
+### Banned stops — every one is a process failure, NOT a valid termination
+
+- "Section is too large" — size is irrelevant per CLAUDE.md
+- "`/tpr-review` surfaced findings" — triage, fix, re-run; that IS the workflow
+- "`/impl-hygiene-review` flagged issues" — fix, re-run TPR, re-run hygiene until both clean
+- "`test-all.sh` has failures that look unrelated" — there is no "unrelated" per CLAUDE.md; fix them, they are yours now
+- "Fix surfaced interference from another bug" — per CLAUDE.md, revert, `Skill(fix-bug, "--autopilot ...")` the interfering bug, re-apply; continue
+- "I've been running for a while, natural pause" — autopilot has no concept of "a while"
+- "Next subsection feels like a different topic" — subsections belong to the section because they belong to the section
+- "This seems like a good place to show progress to the user" — no. Termination conditions are exhaustive; nothing else counts
+- "Ran out of context" — context compression is handled by the scanner re-hydrating state on each iteration and by the persistent reminder task surviving compression
+- "Section complete — maybe the user wants to review before I continue" — no. Full-plan autopilot was the user's explicit choice; give them the final report, not mid-loop checkpoints
+- **Writing a session summary as a way to exit** — banned. The completion report is ONLY generated at Termination condition 1. If you find yourself writing a summary, check the persistent reminder task and ask "is the focus plan complete?" If no, re-run the scanner and continue
+
+### Discipline still applies in autopilot (all steps run — none are prompts)
+
+- **Step -1 / -1B (re-read CLAUDE.md)** — mandatory; run at session start AND between every subsection close-out and the next subsection's implementation
+- **Step 1.55 (stale annotations check)** — mandatory; run at session start, clean up any stale annotations before starting work
+- **Step 1.6 (schema compliance)** — mandatory after focus is identified
+- **Per-subsection `/improve-tooling` retrospective** — mandatory (Step 5.5 close-out step c); implement + commit every accepted improvement, or document "no gaps"
+- **Section-close `/improve-tooling` sweep** — mandatory at every section close; verifies per-subsection retrospectives ran and looks for cross-subsection patterns
+- **`/tpr-review` and `/impl-hygiene-review` at every section close** — MUST come back clean before the section is marked `complete`; loop fix/re-run until clean
+- **Plan-wide accuracy audit** — mandatory at every section completion (overview, index, Quick Reference, Estimated Effort tables, sibling statuses)
+- **Commits via `/commit-push` only** — never `git commit` directly; the skill commits and pushes per user preference
+- **Bug decision tree** — every discovered bug is filed via `/add-bug` or fixed via `/fix-bug --autopilot`; zero untracked bugs
+- **Frontmatter updates** — subsection status, section status, `third_party_review`, overview, index, reroute status all kept in sync
+- **Plan archival protocol** — runs at plan completion (`git mv plans/{plan} plans/completed/{plan}` + `/commit-push`)
+
+### Progress reporting (one-line status at natural boundaries)
+
+Autopilot emits brief one-line status updates at these boundaries so the user sees progress without interacting. These are for visibility ONLY — they are NOT mid-loop summaries and do NOT count as exit points.
+
+- **Session start**: `Autopilot: focus plan = {plan}, starting at {NN}.{M}, pacing = full-section, reminder task created`
+- **Every subsection close**: `Autopilot: {NN}.{M} complete — retrospective: {outcome}, commit: {hash}`
+- **Every section close**: `Autopilot: section {NN} complete — TPR clean, hygiene clean, sweep: {outcome}, commit: {hash}`
+- **Every `/fix-bug` invocation**: `Autopilot: /fix-bug --autopilot {BUG-XX-NNN} [{severity}] — {title}`
+- **Every reroute switch**: `Autopilot: reroute {name} activated — switching focus`
+- **Rare `AskUserQuestion` (termination condition 3 only)**: `Autopilot: pausing for user decision — {focused question}`
+- **Plan completion**: full completion report (see below)
+
+One line each, no filler.
+
+### Final completion report (plan-completion only)
+
+Generated ONLY at Termination condition 1 (plan completion). NEVER mid-loop.
+
+```
+## Continue Roadmap — Autopilot Session Complete
+
+Focus plan: {plan-name}
+Archived to: plans/completed/{plan-name}/
+
+Sections completed this session: {N}
+{For each:}
+  - Section {NN}: {title} — TPR clean ({M} cycles), hygiene clean ({K} cycles)
+
+Subsections closed: {total}
+Per-subsection retrospectives: {with-improvements} with improvements, {no-gaps} with no gaps
+Section-close sweeps: {with-cross-cutting} with cross-cutting items, {no-new} with no new findings
+
+Tooling improvements committed: {total}
+{For each:}
+  - {commit-hash} {commit-subject}
+
+Fix sections completed (bugs fixed during plan work): {N}
+{For each:}
+  - {BUG-XX-NNN} [{severity}] {title} — plans/bug-tracker/fix-{BUG-XX-NNN}.md
+
+Escalated items (require user action): {N}
+{For each:}
+  - {item} — {reason}: autopilot-escalated, needs user plan creation / review / decision
+
+Plan-wide audit: consistent across 00-overview.md, index.md, all section files
+Persistent reminder task: marked completed
+```
+
+---
+
 ## Workflow
+
+**Autopilot mode**: If `--autopilot` (or `--auto`) was passed, **every step below still runs**, but the user prompts in Steps 1.5, 1.7, 1.92, 1.95, 5, 5.5, 6 (gap detection), and the bug-discovery decision tree are replaced with pre-committed defaults per the §Autopilot Mode defaults table. The **first action in autopilot is `TaskCreate` for the persistent reminder task** (see §Autopilot Mode → Autopilot Discipline) — do this BEFORE proceeding to Step -1. Autopilot never skips steps; it only replaces prompts with defaults.
 
 ### ABSOLUTE RULE: Commits via /commit-push ONLY
 

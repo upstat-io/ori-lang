@@ -1,7 +1,7 @@
 ---
 section: "08"
 title: "Script Consolidation & Reference Sweep"
-status: not-started
+status: in-progress
 reviewed: false
 goal: "Execute the Option C hybrid script consolidation — move 4 cleanly-moved scripts (clippy-all, llvm-build, llvm-clippy, llvm-test) to `scripts/dev/`, install permanent thin-exec wrappers at root for the 4 hot-path scripts (test-all, full-check, fmt-all, build-all) while their real implementations live in `scripts/dev/`, move `diagnostics/` to `scripts/diagnostics/`, and atomically sweep every affected script reference (747 matches / 230 files per Pass 1 refreshed census) across CLAUDE.md, CONTRIBUTING.md, all .claude/rules/*.md, all .claude/skills/*/SKILL.md, all .claude/commands/*.md, .codex/skills/tp-help/SKILL.md, plans/**, docs/compiler/design/appendices/E-coding-guidelines.md, compiler/ori_llvm/tests/aot/util/aot.rs, scripts/release.sh, and .claude/rules/diagnostic.md — all in a single atomic commit."
 success_criteria:
@@ -36,8 +36,8 @@ inspired_by:
   - "gleam `bin/` + Makefile — root-level commands forwarding to internal scripts"
 depends_on: ["02", "03", "05", "06", "07"]
 third_party_review:
-  status: none
-  updated: null
+  status: resolved
+  updated: 2026-04-11
 sections:
   - id: "08.1"
     title: "Create scripts/dev/ and scripts/diagnostics/ Directories"
@@ -65,7 +65,7 @@ sections:
     status: not-started
   - id: "08.R"
     title: "Third Party Review Findings"
-    status: not-started
+    status: complete
   - id: "08.N"
     title: "Completion Checklist"
     status: not-started
