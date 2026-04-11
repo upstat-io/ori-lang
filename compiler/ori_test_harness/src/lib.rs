@@ -12,6 +12,7 @@
 
 pub mod artifact;
 pub mod bless;
+pub mod check;
 pub mod diff;
 pub mod directive;
 pub mod revision;
