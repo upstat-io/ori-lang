@@ -2,7 +2,7 @@
 section: "02"
 title: "Shared Test Harness Infrastructure"
 status: not-started
-reviewed: false
+reviewed: true
 goal: "Build a single workspace library (ori_test_harness) that provides directive parsing, artifact naming, bless mode, revision expansion, diff generation, and a canonical test runner loop — consumed by both AIMS snapshot tests (§03) and FileCheck IR tests (§07). Consuming crates provide only a TestStrategy callback; the harness owns the traverse→parse→expand→invoke→diff algorithm."
 success_criteria:
   - "ori_test_harness crate exists in workspace with directive parser, bless mode, revision expansion, test runner loop"
@@ -44,7 +44,7 @@ sections:
     status: not-started
   - id: "02.R"
     title: "Third Party Review Findings"
-    status: not-started
+    status: in-progress
   - id: "02.N"
     title: "Completion Checklist"
     status: not-started
