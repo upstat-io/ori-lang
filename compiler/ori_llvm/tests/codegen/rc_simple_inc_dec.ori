@@ -1,0 +1,7 @@
+// FileCheck test: list operations produce RC cleanup (buffer_rc_dec)
+// CHECK: ori_buffer_rc_dec
+
+@main () -> void = {
+    let xs = [1, 2, 3];
+    print(msg: xs.len().to_str())
+}

@@ -51,6 +51,7 @@ pretty_assertions = "1.4"
 wasmparser = "0.221"
 tempfile = "3.10"
 object = "0.36"
+ori_test_harness = { path = "../ori_test_harness" }
 
 [lints.rust]
 # unsafe_code is required for llvm-sys FFI calls
