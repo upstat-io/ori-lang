@@ -1,0 +1,7 @@
+// FileCheck test: list of strings uses element dec for cleanup
+// CHECK: ori_buffer_store_elem_dec
+
+@main () -> void = {
+    let xs = ["hello", "world"];
+    print(msg: xs.len().to_str())
+}
