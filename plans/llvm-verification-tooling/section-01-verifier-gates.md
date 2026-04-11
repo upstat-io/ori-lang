@@ -539,8 +539,8 @@ When all findings are triaged:
 - [x] `index.md` section status updated (In Progress, pending close-out)
 
 ### Final reviews
-- [ ] `/tpr-review` passed (final, full-section)
-- [ ] `/impl-hygiene-review` passed — AFTER `/tpr-review` is clean
+- [x] `/tpr-review` passed (final, full-section) — 4 semantic iterations (6→7→8→9 across the session), 9 findings fixed across 4 commits (ac8ff045, 15901623, 88d94ce8, c0a500cf). Clean on iteration 4 (Gemini 0 findings, Codex 1 low-severity test pin → fixed). Convergence: high→medium→low→low severity progression.
+- [x] `/impl-hygiene-review` passed — Auto Mode scoped to work arc (ori_arc, ori_llvm, oric). Phase 0 tools: 1 stale annotation cleaned (BUG-04-056 ref). All 19 verify sites consistent. No new LEAKs, no swallowed errors, no drift introduced. Pre-existing pattern variance (A vs B) non-blocking.
 - [ ] `/improve-tooling` **section-close sweep** — MANDATORY after both reviews are clean. Per-subsection captures from 01.1-01.4 should already be committed; the sweep verifies they ran and adds only NEW cross-cutting items. Document the negative finding if there are no cross-cutting gaps.
 
 **Exit Criteria:** `ORI_VERIFY_ARC=1 timeout 150 ./test-all.sh` passes with 0 failures and 0 regressions. Verification failures in ARC IR and LLVM IR are hard errors under verification mode, not warnings. `fn_val.verify()` runs per-function at all emission sites. `opt -lint` runs as part of codegen audit. All flags registered canonically in `debug_flags.rs`. Error propagation chain is complete from verification through compilation abort. `ORI_VERIFY_EACH=1` enabled if measured within timeout budget, otherwise gated to separate CI job with documented tradeoff.
