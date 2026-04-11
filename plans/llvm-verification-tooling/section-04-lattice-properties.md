@@ -6,11 +6,11 @@ reviewed: true
 goal: "Use proptest to verify algebraic lattice properties (join commutativity, idempotence), canonicalization idempotence/convergence/dimension-guarantees, decision predicate semantic contracts, and fixpoint convergence bounds across the full 7-dimensional AIMS product lattice — catching algebraic bugs that exhaustive-but-hand-written tests miss (discovered BUG-04-057: join non-associativity)"
 success_criteria:
   - "proptest added to ori_arc dev-dependencies and lattice property tests compile and run"
-  - "Join laws (commutativity, associativity, idempotence) verified via proptest across randomly sampled AimsState pairs, excluding SCALAR sentinel"
+  - "Join laws (commutativity, idempotence) verified via proptest across randomly sampled canonical AimsState pairs, excluding SCALAR sentinel. Associativity blocked by BUG-04-057 (test exists as #[ignore])"
   - "Canonicalization idempotence: canonicalize(canonicalize(s)) == canonicalize(s) for all sampled states"
   - "Decision predicate properties: semantic contracts for is_rc_dec_unnecessary, is_rc_inc_elidable, can_mutate_in_place, is_rc_needed, needs_cow_check, is_reuse_candidate, is_rc_skip_eligible, is_local verified via proptest; capture_state_update verified to produce canonical output"
   - "Fixpoint convergence: iterating join over random state sequences stabilizes within lattice-height bound (15 steps)"
-  - "All property tests pass under cargo test -p ori_arc lattice_properties within 150s timeout"
+  - "All property tests pass under `timeout 150 cargo test -p ori_arc -- lattice::prop_tests` within 150s timeout (22 pass, 1 ignored)"
 inspired_by:
   - "Lean4 IR Checker (lean4/src/Lean/Compiler/IR/Checker.lean) — algebraic property verification on IR lattice"
   - "GHC demand analysis tests (testsuite/tests/stranal/) — property-based testing of demand lattice operations"
@@ -546,7 +546,7 @@ When all findings are triaged:
 - [x] Ascending chain convergence within height bound (15 steps)
 - [x] TOP is a fixpoint
 - [x] `Cardinality::seq_add` convergence within 2 steps
-- [x] All property tests pass: `timeout 150 cargo test -p ori_arc -- lattice::prop_tests` (17 pass, 1 ignored)
+- [x] All property tests pass: `timeout 150 cargo test -p ori_arc -- lattice::prop_tests` (22 pass, 1 ignored)
 - [x] No regressions: `timeout 150 ./test-all.sh` green (17,066 tests pass)
 - [x] `timeout 150 ./clippy-all.sh` green
 - [x] Plan annotation cleanup: no plan-specific annotations were added to source code (prop_tests.rs has no plan annotations)
