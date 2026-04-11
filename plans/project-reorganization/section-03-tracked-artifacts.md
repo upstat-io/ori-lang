@@ -3,7 +3,7 @@ section: "03"
 title: "Tracked Artifact Removal & .gitignore Drift Fix"
 status: not-started
 reviewed: false
-goal: "Remove the two tracked `build/debug/*` artifacts (`simplest_crash.ll` and `test_simple`) that leaked past the `**/build/` gitignore pattern, and add a root-anchored `/build/` rule to `.gitignore` so future leaks cannot recur — without breaking the existing negative rules for `compiler/oric/src/commands/build/` which must continue to be tracked."
+goal: "Remove the two tracked `build/debug/*` artifacts (`simplest_crash.ll` and `test_simple`) via `git rm --cached`. **No gitignore edit is needed** (TPR-XX-002-codex iteration 3 fix — the iteration 1 premise that `**/build/` doesn't match root-level `build/` was factually wrong; `**/build/` DOES match root-level `build/` as verified via `git check-ignore -v --no-index`; the files are tracked because they were committed before the rule was added, and tracked files override gitignore)."
 success_criteria:
   - "`git ls-files build/` returns zero results after this section"
   - "`git check-ignore -v build/debug/simplest_crash.ll` returns a matched `.gitignore` rule (proves the leak is plugged for future files)"
@@ -38,32 +38,47 @@ sections:
 # Section 03: Tracked Artifact Removal & .gitignore Drift Fix
 
 **Status:** Not Started
-**Goal:** Fix the active `.gitignore` drift bug that caused `build/debug/simplest_crash.ll` and `build/debug/test_simple` to be tracked in git despite the `**/build/` pattern. The root cause is that `**/build/` does NOT match a root-level `/build/` directory due to gitignore pattern resolution rules — gitignore treats `**` as "zero or more path components," which sometimes excludes the root-level case. Fix: add a root-anchored `/build/` rule alongside the existing `**/build/` rule, remove the two leaked files via `git rm --cached`, and verify the existing negative rule for `compiler/oric/src/commands/build/` (a legitimate source-tree directory named `build`) is unaffected.
+**Goal:** Remove the two tracked `build/debug/*` artifacts (`simplest_crash.ll` and `test_simple`) that were committed to git before (or alongside) the existing `**/build/` gitignore rule was added, and that therefore persist as tracked despite the rule. **Important architectural correction (TPR-XX-002-codex iteration 3 fix — 2026-04-11)**: the `**/build/` gitignore rule ALREADY correctly matches these paths — verified empirically via `git check-ignore -v --no-index build/debug/simplest_crash.ll` which returns `.gitignore:5:**/build/`. The reason Pass 1 research saw "no output" from `git check-ignore` (without `--no-index`) is that git's `check-ignore` command by design returns "not ignored" for files that are already TRACKED — tracked files override ignore rules. This is **not a gitignore drift bug**; it's **already-tracked-files-that-should-be-untracked**. The fix is `git rm --cached` on the two files; no gitignore edit is needed (the `**/build/` rule already protects against future leaks).
 
 **Success Criteria:**
 
 - [ ] `git ls-files build/` returns empty — both leaked files are no longer tracked
-- [ ] `git check-ignore -v build/debug/simplest_crash.ll` returns a matched rule with the NEW `/build/` rule as the source
-- [ ] `git ls-files compiler/oric/src/commands/build/` returns its existing tracked files (negative rule unbroken)
+- [ ] `git check-ignore -v --no-index build/debug/simplest_crash.ll` returns a matched rule (verifying `**/build/` already covers the path for future files — using `--no-index` because `check-ignore` ignores tracked files by default)
+- [ ] `git ls-files compiler/oric/src/commands/build/` returns its existing tracked files (the negative rule `!compiler/oric/src/commands/build/` is still working)
 - [ ] `profile.json.gz` is still in `git ls-files` (this section does NOT delete it — it's intentionally tracked as a perf reference)
-- [ ] `.gitignore` has a new root-anchored `/build/` rule, documented with a comment explaining the pairing with `**/build/`
+- [ ] `.gitignore` is UNCHANGED from plan-start state (no new `/build/` rule added — that was my iteration 1 false premise corrected in iteration 3; the existing `**/build/` already handles root-level `/build/` correctly via its `**` path component semantics)
 - [ ] `./test-all.sh` green post-fix
-- [ ] Single atomic commit lands: `fix(plan): remove tracked build/debug leak + gitignore root anchor`
-- [ ] Satisfies mission criterion: "**Gitignore drift bug fixed**"
+- [ ] Single atomic commit lands: `fix(plan): remove tracked build/debug leak`
+- [ ] Satisfies mission criterion: "**Gitignore drift bug fixed**" (reclassified: the bug is tracked-files-that-should-not-be, NOT an actual gitignore pattern gap)
 
-**Context:** The Pass 1 research agent ran `git check-ignore -v build/debug/simplest_crash.ll` and received NO output, proving the file is not ignored by any rule. Simultaneously, `git ls-files build/` returned both `build/debug/simplest_crash.ll` and `build/debug/test_simple`, proving they're tracked. The overview's Known Bugs table documents this as an **active drift bug**, not historical residue.
+**Context (TPR iteration 3 rewrite):** The Pass 1 research agent ran `git check-ignore -v build/debug/simplest_crash.ll` and received NO output. I originally interpreted this as "the file is not ignored by any rule" and concluded `**/build/` had a pattern gap. **This was wrong.** Fresh empirical verification on 2026-04-11:
 
-Why does `**/build/` not match `/build/`? Because gitignore's `**` pattern requires at least one directory component before or after it in certain positions. `**/build/` matches `anything/build/` (where "anything" is one or more path components) but does NOT match a root-level `build/` because there's no "anything" before it. The correct fix is to pair it with a root-anchored `/build/` rule, which is exactly how rustc's `.gitignore` handles the same pattern for `target/`.
+```bash
+# Tests whether the PATH would be ignored IF it weren't tracked
+$ git check-ignore -v --no-index build/debug/simplest_crash.ll
+.gitignore:5:**/build/	build/debug/simplest_crash.ll
+
+# Tests whether the file is CURRENTLY subject to ignore (no for tracked files)
+$ git check-ignore -v build/debug/simplest_crash.ll
+(no output — because tracked files override ignore rules)
+```
+
+The `**/build/` rule works correctly — `**` matches zero or more path components, which INCLUDES the zero-component case (root-level `build/`). The rule matches `build/` at any depth, including root. My earlier claim ("gitignore treats `**` as zero-or-more path components, which sometimes excludes the root-level case") was incorrect. `**/build/` DOES match root-level `build/`, full stop.
+
+So why are the files tracked if the rule matches? Because **gitignore rules do not apply retroactively to already-tracked files**. Once a file is in the git index, subsequent additions to `.gitignore` don't remove it — you must explicitly `git rm --cached` it. This is git's normal behavior, not a bug. The files were likely committed before the `**/build/` rule was added to `.gitignore`, or via `git add -f` at some point. The `git check-ignore` command (without `--no-index`) reflects the CURRENT state, which correctly reports "not ignored" for tracked files.
+
+**Implication**: the fix is entirely `git rm --cached` on the two tracked files. The existing `**/build/` rule already prevents FUTURE leaks. No gitignore edit is needed. The previous iteration 1 / iteration 2 instruction to add a root-anchored `/build/` rule is withdrawn as unnecessary redundancy.
 
 The critical constraint is that `compiler/oric/src/commands/build/` is a legitimate source directory containing tracked Rust files. The existing `.gitignore` has two negative rules that preserve it:
 ```
 !compiler/oric/src/commands/build/
 !compiler/oric/src/commands/target/
 ```
-The new `/build/` rule we add MUST NOT conflict with these negative rules. Fortunately, `/build/` is root-anchored (starts with `/`), so it only matches a top-level `build/` directory — it does not match `compiler/oric/src/commands/build/`. The negative rules are safe.
+These negative rules continue working — no change needed. The `**/build/` rule + the negative rule correctly handle all cases: `build/debug/*` at root is ignored (for future files); `compiler/oric/src/commands/build/` is tracked (negative rule wins).
 
 **Reference implementations:**
-- **rustc** (`rust/.gitignore`): has both `/target/` (root-anchored) and `**/target/` (nested). This is the canonical pattern pairing for build-output directories that can appear at multiple levels.
+- **git gitignore documentation**: `**/build/` matches `build/` at any depth, including root level. The `**` glob matches zero or more path components.
+- **TPR iteration 3 empirical verification**: `git check-ignore -v --no-index build/debug/simplest_crash.ll` returned `.gitignore:5:**/build/` — confirming the rule matches. The `--no-index` flag is load-bearing: without it, `check-ignore` reports "not ignored" for tracked files by design, which is what led iteration 1 to the false root-cause.
 
 **Depends on:** §01 (baseline must prove the tracked state before the fix).
 
@@ -121,86 +136,62 @@ Remove the two leaked files from git tracking (but not from disk — they stay a
 
 ---
 
-## 03.2 .gitignore Root-Anchored /build/ Rule Addition
+## 03.2 Gitignore Verification (No Edit Required) — iteration 3 correction
 
-**File(s):** `.gitignore`
+**File(s):** `.gitignore` (READ-ONLY verification; NO edits per TPR-XX-002-codex iteration 3 fix)
 
-Add a root-anchored `/build/` rule to `.gitignore` so that any future root-level `build/` directory contents are ignored. The rule must be placed alongside the existing `**/build/` rule (so future readers understand the pairing) and must NOT break the existing negative rules for `compiler/oric/src/commands/build/`.
+**CORRECTION — iteration 3**: This subsection previously prescribed adding a root-anchored `/build/` rule to `.gitignore`. That was based on a factually incorrect reading of `git check-ignore` output (we ran it on tracked files without `--no-index`, which returns "not ignored" by design — git's check-ignore defers to the index for tracked files). Fresh empirical verification (2026-04-11):
 
-- [ ] Read the current `.gitignore` header section (first 15 lines) to confirm the existing rules and negative-rule placement:
+```bash
+$ git check-ignore -v --no-index build/debug/simplest_crash.ll
+.gitignore:5:**/build/	build/debug/simplest_crash.ll
+
+$ git check-ignore -v --no-index build/debug/test_simple
+.gitignore:5:**/build/	build/debug/test_simple
+```
+
+The existing `**/build/` rule at `.gitignore:5` **already matches both files**. No new gitignore rule is needed — the rule works correctly. This subsection is therefore a **verification-only step**, not an editing step.
+
+- [ ] Verify the `**/build/` rule already covers the root-level `build/` path with `--no-index` (bypassing the tracked-file override):
   ```bash
-  sed -n '1,15p' .gitignore
+  git check-ignore -v --no-index build/debug/simplest_crash.ll
+  git check-ignore -v --no-index build/debug/test_simple
+  # Expected output for each: .gitignore:5:**/build/	<path>
   ```
-  Expected current state (from Pass 1 research):
-  ```
-  # Build artifacts
-  /target/
-  /target-llvm/
-  **/target/
-  **/build/
-  # Source-tree subcommand directories that collide with the cargo build-dir
-  # patterns above. Add a negative rule for each subcommand directory under
-  # `compiler/oric/src/commands/` whose name matches `target` or `build`.
-  # Without these, `git add` silently ignores newly-added files in these
-  # directories, requiring `-f` and confusing contributors.
-  !compiler/oric/src/commands/build/
-  !compiler/oric/src/commands/target/
-  ```
+  - [ ] Both commands match `.gitignore:5:**/build/`
+  - [ ] Without `--no-index`, both return empty (because §03.1 already removed tracking, or because the files are still in the index). After §03.1 completes AND the commit lands, `git check-ignore -v <path>` (without `--no-index`) should ALSO match the rule because the files are no longer in the index.
 
-- [ ] Add `/build/` after `/target-llvm/` (before the nested `**/target/` and `**/build/` rules), so the root-anchored rules are grouped at the top:
+- [ ] Verify the existing negative rule for `compiler/oric/src/commands/build/` still applies (to guard against accidentally ignoring source code named `build`):
   ```bash
-  # Use Edit tool on .gitignore
-  # old_string: '/target-llvm/\n**/target/\n**/build/'
-  # new_string: '/target-llvm/\n/build/\n**/target/\n**/build/'
+  # Pick one tracked file from the compiler command directory
+  file=$(git ls-files compiler/oric/src/commands/build/ | head -1)
+  git check-ignore -v "$file" || echo "not ignored (expected — negative rule wins)"
   ```
+  - [ ] Exit code 1 (not ignored — meaning the negative rule at `.gitignore:11:!compiler/oric/src/commands/build/` correctly exempts these files)
 
-  Resulting `.gitignore` head (lines 1-15):
-  ```
-  # Build artifacts
-  /target/
-  /target-llvm/
-  /build/
-  **/target/
-  **/build/
-  # Source-tree subcommand directories that collide with the cargo build-dir
-  # patterns above. Add a negative rule for each subcommand directory under
-  # `compiler/oric/src/commands/` whose name matches `target` or `build`.
-  # Without these, `git add` silently ignores newly-added files in these
-  # directories, requiring `-f` and confusing contributors.
-  !compiler/oric/src/commands/build/
-  !compiler/oric/src/commands/target/
-  ```
-
-- [ ] Verify the edit:
+- [ ] `.gitignore` is UNCHANGED — verify:
   ```bash
-  sed -n '1,15p' .gitignore
-  # Verify /build/ appears on its own line after /target-llvm/
+  git diff .gitignore
+  # Expected: no output (no changes)
   ```
-
-- [ ] Test the new rule with `git check-ignore -v`:
-  ```bash
-  git check-ignore -v build/debug/simplest_crash.ll
-  # Expected output: .gitignore:<N>:/build/    build/debug/simplest_crash.ll
-  # where <N> is the line number of the new /build/ rule
-  ```
-  - [ ] Verify: the new rule is cited as the match source
-  - [ ] Verify: `git check-ignore -v compiler/oric/src/commands/build/hello.rs` (or any tracked file in that dir) returns `.gitignore:<M>:!compiler/oric/src/commands/build/` — the negative rule wins
+  - [ ] `.gitignore` diff is empty
 
 - [ ] **Subsection close-out (03.2)** — MANDATORY before starting 03.3:
-  - [ ] `.gitignore` edit applied and visible in `git diff .gitignore`
-  - [ ] `git check-ignore -v` confirms the new rule is matching the correct files
+  - [ ] `.gitignore` is NOT edited in this section (iteration 3 correction — the rule already works)
+  - [ ] `git check-ignore -v --no-index` confirms `**/build/` matches root-level `build/`
+  - [ ] Negative rule for `compiler/oric/src/commands/build/` still works
   - [ ] Update this subsection's `status` in section frontmatter to `complete`
-  - [ ] **Run `/improve-tooling` retrospectively on THIS subsection** — reflect
-        on the pattern-pairing discovery journey. Did I have to look up how
-        gitignore `**` resolution actually works (i.e., why `**/build/`
-        doesn't match root-level `/build/`)? Is that explanation captured
-        anywhere in the repo's docs? If not: is a brief
-        `docs/development/gitignore-patterns.md` or a CLAUDE.md note worth
-        adding so future maintainers don't re-discover this? If yes, commit
-        via `docs(development): document gitignore ** pattern resolution —
-        surfaced by project-reorganization/section-03.2 retrospective`. If
-        no: "Retrospective 03.2: pattern knowledge is general gitignore
-        knowledge; no Ori-specific docs gap."
+  - [ ] **Run `/improve-tooling` retrospectively on THIS subsection** — the
+        real tooling gap surfaced here is that `git check-ignore` without
+        `--no-index` silently returns "not ignored" for tracked files, which
+        misleads newcomers into thinking gitignore patterns don't match.
+        Is this gotcha documented anywhere in the repo? If not: is a brief
+        `docs/development/gitignore-gotchas.md` or a CLAUDE.md note worth
+        adding so future maintainers don't fall into the same trap iteration
+        1 fell into? Yes — add it. Commit via
+        `docs(development): document git check-ignore tracked-file gotcha —
+        surfaced by project-reorganization/section-03.2 retrospective (TPR
+        iteration 3)`.
 
 ---
 
@@ -239,24 +230,31 @@ Prove that the new `/build/` rule does NOT break the existing negative rules for
   # Expected: 'profile.json.gz'
   ```
 
-- [ ] Commit everything from §03 as a single atomic commit:
+- [ ] Commit everything from §03 as a single atomic commit. **Per TPR-XX-002-codex iteration 3 fix**: the commit does NOT include a `.gitignore` edit. Only the 2 `git rm --cached` removals land — the existing `**/build/` rule is unchanged.
   ```bash
   cd /home/eric/projects/ori_lang
-  git add .gitignore  # the new rule
-  # (build/debug/*.ll and test_simple are already staged for removal from 03.1)
-  git commit -m "fix(plan): remove tracked build/debug leak + gitignore root anchor
+  # build/debug/simplest_crash.ll and build/debug/test_simple are already staged
+  # for removal from 03.1. NO .gitignore edit — the existing **/build/ rule
+  # already covers root-level build/ (verified in 03.2 via --no-index).
+  git commit -m "fix(plan): remove tracked build/debug leak
 
-Two files leaked past the '**/build/' gitignore pattern:
+Two files were tracked despite the '**/build/' gitignore rule because
+they were committed before the rule was added to .gitignore (or via
+'git add -f' at some point). Once in the index, gitignore rules no
+longer apply — the fix is 'git rm --cached', NOT a gitignore edit.
+
   build/debug/simplest_crash.ll
   build/debug/test_simple
 
-Root cause: '**/build/' does not match root-level '/build/' due to
-gitignore ** pattern resolution. Fix: add root-anchored '/build/' rule
-alongside the existing nested '**/build/' rule.
+Empirical verification (2026-04-11 TPR iteration 3):
+  git check-ignore -v --no-index build/debug/simplest_crash.ll
+  → .gitignore:5:**/build/	build/debug/simplest_crash.ll
 
-The existing negative rules for compiler/oric/src/commands/build/ are
-preserved — the new rule is root-anchored, so it doesn't match nested
-source directories.
+The '**/build/' rule at .gitignore:5 already matches root-level build/.
+The iteration 1 premise that '**/build/ doesn't match root-level build/
+due to ** path component semantics' was factually wrong. The existing
+negative rules for compiler/oric/src/commands/build/ are preserved and
+continue to work.
 
 profile.json.gz stays tracked (intentional perf reference).
 
@@ -266,10 +264,12 @@ Refs: plans/project-reorganization/section-03-tracked-artifacts.md"
 - [ ] Verify the commit:
   ```bash
   git log --oneline -1
-  # Expected: fix(plan): remove tracked build/debug leak + gitignore root anchor
+  # Expected: fix(plan): remove tracked build/debug leak
 
   git show --stat HEAD
-  # Expected: .gitignore +1/-0, build/debug/simplest_crash.ll -1/-0 (deleted), build/debug/test_simple -1/-0 (deleted)
+  # Expected: build/debug/simplest_crash.ll -1/-0 (deleted),
+  #           build/debug/test_simple -1/-0 (deleted)
+  # NOT expected: .gitignore change (that was iteration 1's false premise)
   ```
 
 - [ ] **Subsection close-out (03.3)** — MANDATORY before 03.R:
@@ -293,9 +293,14 @@ Refs: plans/project-reorganization/section-03-tracked-artifacts.md"
 
 ## 03.R Third Party Review Findings
 
-<!-- Reserved for dual-source /tpr-review findings. -->
+<!-- Dual-source /tpr-review iteration 3 (2026-04-11) surfaced a factual correction: the iteration 1 premise that `**/build/` has a pattern gap was wrong. The rule works; the files are just tracked-too-early. Section rewritten. -->
 
-- None.
+- [x] `[TPR-XX-002-codex][high]` (iteration 3) `plans/project-reorganization/section-03-tracked-artifacts.md:41` — WASTE: Remove the false /build/ root-cause from §03.
+  Evidence: §03 claimed `**/build/` does NOT match root-level `build/` directory due to gitignore pattern resolution. Fresh empirical verification with `git check-ignore -v --no-index build/debug/simplest_crash.ll` returned `.gitignore:5:**/build/ build/debug/simplest_crash.ll` — the rule DOES match. The no-output probe cited in Pass 1 research was from `git check-ignore` WITHOUT `--no-index` run on TRACKED files; git's `check-ignore` defers to the index for tracked files, returning "not ignored" by design. The iteration 1 plan prescribed an unnecessary `/build/` root-anchored rule addition.
+  Impact: §03 and 00-overview.md were anchored to incorrect gitignore semantics, prescribing unnecessary `.gitignore` churn instead of identifying the real problem: tracked-files-that-should-not-be (committed before the rule existed, or via `git add -f`).
+  Required plan update: Rewrite §03 (goal, success_criteria, context, §03.2 subsection, commit message template) and 00-overview.md (mission success criterion, current-state diagram, Known Bugs table) to treat this as removal of already-tracked build artifacts under an existing ignore rule. Drop the `/build/` edit. Fix verification commands to use `git check-ignore --no-index` where pre-removal ignore semantics are being demonstrated.
+  Basis: fresh_verification. Confidence: high.
+  Resolved: Fixed on 2026-04-11 iteration 3. Rewrote §03 goal, success_criteria, context paragraph, reference implementations, and §03.2 subsection (now "Gitignore Verification (No Edit Required)" — verification-only, not editing). Updated commit message template to drop the `.gitignore` add. Updated 00-overview.md mission success criterion "Gitignore drift bug fixed" to "Tracked build/debug artifacts removed" with the empirical `--no-index` proof. Updated 00-overview.md Known Bugs row to reflect the correct root cause. The iteration 1 false premise is now explicitly documented and corrected inline.
 
 ---
 

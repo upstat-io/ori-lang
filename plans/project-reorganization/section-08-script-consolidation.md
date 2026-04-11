@@ -24,7 +24,7 @@ success_criteria:
   - "Pattern E sweep used explicit allow-list (CLAUDE.md, CONTRIBUTING.md, .claude/, .codex/, plans/ except plans/completed/, docs/, lefthook.yml) — NOT deny-list (Finding 2 fix)"
   - "`git diff --name-only HEAD~1 HEAD | grep '^compiler/'` returns ONLY `compiler/oric/src/llvm_dump/mod.rs` + `compiler/ori_llvm/tests/aot/util/aot.rs` (Finding 2 negative-pin)"
   - "`git diff --name-only HEAD~1 HEAD | grep '^library/'` returns empty (Finding 2 negative-pin)"
-  - "Invocation matrix (§08.7) all 29 cells PASS, SKIP (documented), or fail as documented limitation (C3 PWD assumption)"
+  - "Invocation matrix (§08.7) all 33 cells (29 exercisable + 4 PATH SKIP) PASS, SKIP (documented), or fail as documented limitation (C3 PWD assumption for cross-dir wrappers; C9 SKIP for PATH invocation)"
   - "`§08.8` atomic commit uses EXPLICIT path staging (no `git add -A`) with worktree cleanliness gate (Finding 4 fix)"
   - "`./test-all.sh` green post-sweep (validates hot-path wrappers work end-to-end)"
   - "Single atomic commit lands: `refactor(plan): consolidate dev scripts into scripts/dev/ + atomic reference sweep`"
@@ -1190,7 +1190,7 @@ This subsection runs per-script smoke tests. The full invocation matrix lives in
 |----|---------|-------|
 | C1 | direct-root (`./<script>.sh`) | Wrapper exec forwarding from root cwd |
 | C2 | direct-scripts-dev (`./scripts/dev/<script>.sh`) | Direct invocation of real impl |
-| C3 | cross-dir (`cd compiler && ../../<script>.sh`) | PWD assumption (scripts that assume cwd = repo root) |
+| C3 | cross-dir (`cd compiler && ../<script>.sh`) | PWD assumption (scripts that assume cwd = repo root) |
 | C4 | symlink (`ln -s $PWD/test-all.sh /tmp/t && /tmp/t`) | Symlink-safety of wrapper dirname resolution |
 | C5 | lefthook-context (`lefthook run pre-commit`) | Wrappers invoked from git hook runner |
 | C6 | internal-chain (`full-check` → `clippy-all` + `test-all` via `$SCRIPT_DIR`) | Inner-script sibling discovery |
@@ -1671,6 +1671,15 @@ Refs: plans/project-reorganization/section-08-script-consolidation.md"
   Basis: fresh_verification (codex) + direct_file_inspection (gemini). Confidence: high.
   Resolved: Fixed on 2026-04-11 iteration 2. (a) Added the 2 missing C3 cells for `../full-check.sh` and `../build-all.sh` — C3 now exercises all 4 wrappers from a subdirectory. (b) Reclassified C7 from "live test-code invocation" to "test-code error-message string literal" with updated verification (grep for Pattern D's post-sweep form + `cargo check` to verify syntax) — the Rust file at aot.rs:168 is a panic-message string, verified by reading the actual source. (c) Rewrote the "Cells that apply per script type" rule block to match implementation reality: C3 applies to wrappers only (C3 does NOT apply to cleanly-moved scripts); C8 applies to wrappers only and is 1 representative test (the thin wrapper template is identical across all 4, so one test is load-bearing for all). Updated the matrix completeness totals description with the full breakdown (C1=4, C1-neg=4, C2=8, C3=4, C4=4, C5=2, C6=1, C7=1, C8=1, C9=4 SKIP = 33 total).
 
+<!-- Iteration 3 (2026-04-11) surfaced 1 metadata propagation miss: frontmatter success_criteria, C3 context row, and completion checklist still said "29 cells" or used the wrong `cd compiler && ../../<script>.sh` pattern. Fixed inline. -->
+
+- [x] `[TPR-XX-004-codex][medium]` (iteration 3) `plans/project-reorganization/section-08-script-consolidation.md:27,1193,1690` — DRIFT: Propagate the 33-cell matrix contract through §08 metadata.
+  Evidence: Iteration 2 fixed the executable matrix body to 33 cells at §08.7 ("33 total", "29 exercisable + 4 SKIP"), but the frontmatter success criterion at line 27 still said "all 29 cells", the C3 context row at line 1193 still showed `cd compiler && ../../<script>.sh` even though the actual commands use `../<script>.sh`, and the completion checklist at line 1690 still said "all 29 cells". The section contract, matrix legend, and close-out checklist no longer agreed with the implementation.
+  Impact: Reviewers couldn't tell whether a 33-cell run was the intended end state or whether C3 was being exercised correctly.
+  Required plan update: Update the frontmatter, the C3 context row, and §08.N to the final matrix shape: 33 total cells, 29 exercisable plus 4 PATH SKIPs, with C3 documented as `cd compiler && ../<script>.sh`.
+  Basis: fresh_verification. Confidence: high.
+  Resolved: Fixed on 2026-04-11 iteration 3. Updated frontmatter success_criteria line 27 to "all 33 cells (29 exercisable + 4 PATH SKIP)" with the C3 + C9 skip rationale. Updated C3 context row in the matrix legend from `cd compiler && ../../<script>.sh` to `cd compiler && ../<script>.sh` to match the actual §08.7 C3 implementation. Updated §08.N completion checklist line to match the 33-cell shape. All three metadata locations now agree with the §08.7 body.
+
 ---
 
 ## 08.N Completion Checklist
@@ -1687,7 +1696,7 @@ Refs: plans/project-reorganization/section-08-script-consolidation.md"
 - [ ] CONTRIBUTING.md accurate
 - [ ] `.claude/rules/diagnostic.md` §Diagnostic Scripts accurate
 - [ ] compiler/ori_llvm/tests/aot/util/aot.rs updated if needed
-- [ ] Invocation matrix (08.7) complete — all 29 cells PASS, SKIP (documented), or fail as documented limitation (C3 PWD)
+- [ ] Invocation matrix (08.7) complete — all 33 cells (29 exercisable + 4 PATH SKIP) PASS, SKIP (documented), or fail as documented limitation (C3 PWD for cross-dir wrappers; C9 unsupported for PATH)
 - [ ] `./test-all.sh` green post-sweep (via wrapper)
 - [ ] `./scripts/dev/test-all.sh` green (direct)
 - [ ] `./full-check.sh` green (wrapper → internal chain)

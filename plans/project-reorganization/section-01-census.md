@@ -76,14 +76,25 @@ Capture the starting state of `ori_lang/` as immutable, committed artifacts that
   mkdir -p /home/eric/projects/ori_lang/plans/project-reorganization/baseline
   ```
 
-- [ ] Capture `./test-all.sh` baseline (MUST be green — if it's not green, the plan cannot proceed; fix the pre-existing failure via `/fix-bug` first per CLAUDE.md §Zero Deferral):
+- [ ] Capture `./test-all.sh` baseline (MUST be green — if it's not green, the plan cannot proceed; fix the pre-existing failure via `/fix-bug` first per CLAUDE.md §Zero Deferral). **Use `set -o pipefail` or capture via `${PIPESTATUS[0]}`** — a naked `cmd | tee file` followed by `$?` returns `tee`'s exit code (always 0), NOT the real `./test-all.sh` exit code, and a failing red baseline would silently be recorded as `exit code: 0`, poisoning every subsequent section (TPR-XX-001-codex iteration 3 fix — 2026-04-11):
   ```bash
   cd /home/eric/projects/ori_lang
   date "+Baseline captured %Y-%m-%d %H:%M:%S %Z" > plans/project-reorganization/baseline/test-all-before.log
+  # Enable pipefail so the pipeline exit code reflects test-all.sh, not tee
+  set -o pipefail
   timeout 150 ./test-all.sh 2>&1 | tee -a plans/project-reorganization/baseline/test-all-before.log
-  echo "test-all exit code: $?" >> plans/project-reorganization/baseline/test-all-before.log
+  test_all_exit=$?
+  set +o pipefail
+  echo "test-all exit code: $test_all_exit" >> plans/project-reorganization/baseline/test-all-before.log
   ```
-  - [ ] Verify the log shows a green run (no red failures, exit code 0)
+  Alternative using `${PIPESTATUS[0]}` (explicit producer-side capture, no pipefail required):
+  ```bash
+  timeout 150 ./test-all.sh 2>&1 | tee -a plans/project-reorganization/baseline/test-all-before.log
+  test_all_exit=${PIPESTATUS[0]}
+  echo "test-all exit code: $test_all_exit" >> plans/project-reorganization/baseline/test-all-before.log
+  ```
+  - [ ] Verify the log shows a green run (no red failures, `test-all exit code: 0`)
+  - [ ] Verify the recorded `test_all_exit` reflects `./test-all.sh`, NOT `tee` (sanity check: deliberately inject `false |` between `./test-all.sh` and `tee` in a scratch run — you should see `test-all exit code: 1`, not 0)
   - [ ] If red: STOP. Do not proceed with plan execution. File the failure via `/add-bug` and fix via `/fix-bug` before returning to this plan.
 
 - [ ] Capture `git status --porcelain` baseline (may be dirty — that's OK, this just records the starting point):
@@ -260,20 +271,14 @@ to detect mid-execution drift."
 
 ## 01.R Third Party Review Findings
 
-<!-- Reserved for the dual-source `/tpr-review` (Codex + Gemini) and other external reviewers. Findings may be tagged `-codex`, `-gemini`, or carry `agreement: true` when both reviewers flagged the same location/title.
+<!-- Dual-source /tpr-review iteration 3 (2026-04-11) surfaced one finding on §01.1 baseline capture. Resolved inline. -->
 
-If unresolved findings exist here:
-- section frontmatter `status` must be `in-progress`
-- `third_party_review.status` must be `findings`
-
-When all findings are triaged:
-- accepted findings are integrated into the relevant implementation subsection(s)
-- rejected findings are closed with rationale
-- all items in this block are marked resolved
-- `third_party_review.status` becomes `resolved` or `none`
--->
-
-- None.
+- [x] `[TPR-XX-001-codex][high]` (iteration 3) `plans/project-reorganization/section-01-census.md:83` — GAP: Capture the real test-all exit status in §01.
+  Evidence: §01.1 ran `timeout 150 ./test-all.sh 2>&1 | tee -a ...` and then captured `$?` on the next line. In POSIX shells without `pipefail`, `$?` reflects the LAST command in the pipeline (i.e., `tee`, which always exits 0 unless the log file is unwritable), NOT the producer (`./test-all.sh`). A failing red baseline would be written to `test-all-before.log` as `exit code: 0`, blessing a broken starting state as green.
+  Impact: Poisons every subsequent section that treats §01 as the plan's ground-truth baseline. If §01 passes green but test-all is actually red, every `./test-all.sh green` success criterion downstream becomes false.
+  Required plan update: Enable `set -o pipefail` for the capture block or read `${PIPESTATUS[0]}` to capture the producer's real exit code.
+  Basis: fresh_verification. Confidence: high.
+  Resolved: Fixed on 2026-04-11 iteration 3. Updated §01.1 to use `set -o pipefail` with explicit `test_all_exit=$?` capture, and provided an alternative form using `${PIPESTATUS[0]}`. Added a sanity-check verification item: "deliberately inject `false |` between `./test-all.sh` and `tee` in a scratch run — you should see `test-all exit code: 1`, not 0". The exit code in `test-all-before.log` now reflects the real `./test-all.sh` status.
 
 ---
 

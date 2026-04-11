@@ -46,7 +46,7 @@ sections:
 # Section 04: Blog Migration (Cross-Repo, Atomic)
 
 **Status:** Not Started
-**Goal:** Move `ori_lang/blog/`'s 3 files to `ori-lang-website/src/content/blog/`, update the website's Astro content-collection loader base to point at the new local path, and delete the source files from `ori_lang/`. Because this touches two repositories, the plan is executed as a strict sequence: **update the website loader first**, then **create the content files in the website** (so the website build is consistent at every intermediate state), then **delete the source files in ori_lang**. This sequencing means at no point is the website build broken — the loader is updated before files are removed from the old location, and files are added to the new location before the old location is deleted.
+**Goal:** Move `ori_lang/blog/`'s 3 files to `ori-lang-website/src/content/blog/`, update the website's Astro content-collection loader base to point at the new local path, and delete the source files from `ori_lang/`. Because this touches two repositories, the plan is executed as a strict sequence (TPR-XX-003-codex iteration 3 fix — prior goal prose said "loader first then content" which contradicted the actual §04.2 → §04.3 → §04.4 subsection order): **first create the content files** in `ori-lang-website/src/content/blog/` (§04.2), **then switch the loader base** in `content.config.ts` from `'../ori_lang/blog'` to `'./content/blog'` (§04.3), **then delete the source files** from `ori_lang/blog/` (§04.4). This ordering guarantees the website build is consistent at every intermediate state: at step 1 the website still reads from the old cross-repo path and sees all content; at step 2 the loader switch points at the new local path which now has all content; at step 3 the old path is deleted but no longer referenced. If the order were reversed (loader first), there would be a moment where the new local path is empty but already referenced, breaking the build.
 
 **Success Criteria:**
 
@@ -432,9 +432,14 @@ Refs: ../ori_lang/plans/project-reorganization/section-04-blog-migration.md"
 
 ## 04.R Third Party Review Findings
 
-<!-- Reserved for dual-source /tpr-review findings. -->
+<!-- Dual-source /tpr-review iteration 3 (2026-04-11) surfaced one finding: goal prose contradicted subsection order. Resolved inline. -->
 
-- None.
+- [x] `[TPR-XX-003-codex][medium]` (iteration 3) `plans/project-reorganization/section-04-blog-migration.md:49` — DRIFT: Reconcile §04 with the content-first blog migration order.
+  Evidence: The §04 section goal prose said the sequence is "**update the website loader first**, then **create the content files in the website**". But the same section's context analysis at lines 87-92 and the actual subsection structure (§04.2 Content Creation BEFORE §04.3 Loader Update BEFORE §04.4 ori_lang Removal) followed the correct content-first order. The goal prose and the subsection implementation disagreed about the ordering.
+  Impact: An executor or reviewer reading only the goal prose could follow the wrong order and create a broken-build window (update loader → new path empty → website fails to build → THEN populate new path). The subsection bodies were correct but the goal summary was misleading.
+  Required plan update: Rewrite the goal prose to match the final subsection order — create content files first, then switch the loader, then delete the old blog files.
+  Basis: fresh_verification. Confidence: high.
+  Resolved: Fixed on 2026-04-11 iteration 3. Rewrote §04 body-level goal prose with explicit 3-step sequencing that matches §04.2 → §04.3 → §04.4: (1) first create content files in `ori-lang-website/src/content/blog/`; (2) then switch the loader base in `content.config.ts`; (3) then delete the source files from `ori_lang/blog/`. Added explicit explanation of WHY this order is correct: at step 1 the website still reads from the old cross-repo path and sees all content; at step 2 the loader switches to the new path which now has all content; at step 3 the old path is deleted but no longer referenced. Noted that the reverse order would create a broken-build window.
 
 ---
 

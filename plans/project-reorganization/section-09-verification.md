@@ -248,12 +248,12 @@ Compare the post-plan state against the §01 baseline to produce a complete befo
   ```
   - [ ] Every category's result matches expectations from the plan sections
 
-- [ ] Expected category counts (from overview):
-  - **Added**: 4 hot-path wrappers at root + 14 scratchpad migrations + 4 test-all baseline artifacts + 9 section files + 2 plan index/overview (the plan itself) = ~33+ new files
-  - **Deleted**: ~20 LSP files + 3 blog files (moved cross-repo, so deletions) + 17-18 scratchpad deletions + 2 build/debug leaks + 1 .gitkeep + 1 rebuild-playground.sh + 1 samples/ dir = ~45 deletions
-  - **Renamed**: 8 scripts moved to scripts/dev/ + 16+ diagnostics scripts moved to scripts/diagnostics/ = ~24 renames
-  - **Modified**: .gitignore + Cargo.toml + sync-version.sh + auto-release.yml + CLAUDE.md + CONTRIBUTING.md + ~200 plans/**/*.md + .claude/rules/*.md + .claude/skills/* + LSP docs + formatter docs + roadmap section-22 = ~230+ modifications
-  - [ ] Actual counts approximately match
+- [ ] Expected category counts (from overview — reconciled with the 30/12/18 scratchpad math finalized in iteration 2 per TPR-XX-005-codex iteration 3 fix):
+  - **Added**: 4 hot-path wrappers at root + **12 scratchpad migrations** (11 with Astro `docsSchema` + 1 with body-format proposal schema) + 4 test-all baseline artifacts + 9 section files + 2 plan index/overview (the plan itself) + 1 new diagnostic helper (`scripts/diagnostics/_repo-root.sh`) = ~32 new files
+  - **Deleted**: ~20 LSP files + 3 blog files (moved cross-repo, so deletions on the ori_lang side) + **18 scratchpad deletions** (includes `07-modern-lang-repos.md` per conditional DELETE) + 2 build/debug leaks + 1 `.gitkeep` + 1 `rebuild-playground.sh` + 1 `samples/` dir (if still there) = ~45 deletions
+  - **Renamed**: 8 scripts moved to `scripts/dev/` + 16+ diagnostics scripts moved to `scripts/diagnostics/` = ~24 renames
+  - **Modified**: `.gitignore` (if §03 decides the `/build/` addition is redundant per iteration 3 finding — see updated §03) + `Cargo.toml` + `sync-version.sh` + `auto-release.yml` + CLAUDE.md + CONTRIBUTING.md + ~200 `plans/**/*.md` (Pattern A sweep) + `.claude/rules/*.md` + `.claude/skills/*` + LSP docs + formatter docs + roadmap section-22 + 7 edited diagnostic scripts (repo-root resolution fix) + `compiler/oric/src/llvm_dump/mod.rs` comment + `compiler/ori_llvm/tests/aot/util/aot.rs:168` string = ~240+ modifications
+  - [ ] Actual counts approximately match the reconciled estimates
 
 - [ ] **Subsection close-out (09.2)** — MANDATORY before starting 09.3:
   - [ ] Baseline commit hash captured
@@ -488,9 +488,16 @@ Refs: plans/project-reorganization/"
 
 ## 09.R Third Party Review Findings
 
-<!-- Reserved for dual-source /tpr-review findings from §09.4. -->
+<!-- Dual-source /tpr-review iteration 3 (2026-04-11) caught a low-severity propagation gap in §09.2's baseline reconciliation counts. Resolved inline. -->
 
-- None at plan start. Populated during §09.4 execution.
+- [x] `[TPR-XX-005-codex][low]` (iteration 3) `plans/project-reorganization/section-09-verification.md:252` — DRIFT: Finish the 12/18 scratchpad math update in §09.
+  Evidence: §09.2 still expected "14 scratchpad migrations" at line 252 and "17-18 scratchpad deletions" at line 253, even though §07 and the overview were reconciled in iteration 2 to 12 migrations and 18 deletions. The final commit template at line 457 was fixed in iteration 2, but the baseline-reconciliation bullets at §09.2 were not.
+  Impact: The final verification math still disagreed with the canonical §07 inventory, so the end-state diff review could look "wrong" even when the implementation matched the corrected 30-file scratchpad contract.
+  Required plan update: Update §09.2's expected added/deleted counts to the reconciled scratchpad numbers.
+  Basis: fresh_verification. Confidence: low.
+  Resolved: Fixed on 2026-04-11 iteration 3. Updated §09.2 "Expected category counts" bullets with the reconciled 12/18 math and the per-destination schema breakdown. Added the `_repo-root.sh` new helper to the Added count. Called out in the Modified bullet that `.gitignore` is UNCHANGED per the TPR-XX-002-codex iteration 3 correction (iteration 1's false-premise `/build/` edit was withdrawn).
+
+- None at plan start. Populated during §09.4 execution. (Updated 2026-04-11 iteration 3 with 1 resolved finding above.)
 
 ---
 
