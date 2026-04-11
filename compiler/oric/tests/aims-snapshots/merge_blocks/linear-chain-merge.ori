@@ -1,0 +1,12 @@
+// Semantic pin: sequential blocks merged.
+// A function with sequential statements produces a linear chain of blocks
+// that merge_blocks should coalesce into fewer blocks.
+//
+// @test-arc-pass: merge_blocks
+
+@sequential () -> int = {
+    let $a = 1;
+    let $b = 2;
+    let $c = a + b;
+    c
+};

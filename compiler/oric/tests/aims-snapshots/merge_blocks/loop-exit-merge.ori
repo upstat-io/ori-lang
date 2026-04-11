@@ -1,0 +1,13 @@
+// Loop exit blocks merged correctly.
+// A while loop creates entry/body/exit blocks — the exit block
+// should be merged with the continuation if possible.
+//
+// @test-arc-pass: merge_blocks
+
+@count_steps (n: int) -> int = {
+    let result = 0;
+    for i in 0..n do {
+        result = result + 1;
+    };
+    result
+};

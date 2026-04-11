@@ -1,0 +1,11 @@
+// Negative pin: aliased value retains RC ops.
+// When the same string is stored in two variables (let binding + use),
+// RC ops must be preserved to track both references.
+//
+// @test-arc-pass: realize_rc_reuse
+
+@alias_test () -> void = {
+    let $s = "hello";
+    print(msg: s);
+    print(msg: s);
+};
