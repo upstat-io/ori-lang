@@ -3,7 +3,7 @@ reroute: true
 name: "Test Health"
 full_name: "Test Suite Health: LCFail Elimination & Performance Optimization"
 status: active
-order: 6
+order: 7
 ---
 
 # Test Suite Health Index

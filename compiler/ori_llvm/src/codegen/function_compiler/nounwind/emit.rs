@@ -44,11 +44,20 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
                 func.func_id,
                 &self.codegen_ctx,
             );
+            emitter.set_verify_arc(self.verify_arc);
             emitter.emit_function(&func.arc_func, &func.abi);
 
             // Post-emission CFG simplification
             let fn_val = self.builder.get_function_value(func.func_id);
             crate::codegen::ir_builder::cfg_simplify::simplify_cfg(fn_val);
+
+            // Function-level LLVM IR verification.
+            if self.verify_arc && !fn_val.verify(true) {
+                tracing::error!(
+                    name = %self.interner.lookup(func.name),
+                    "LLVM IR verification failed after codegen (emit_prepared_functions)"
+                );
+            }
 
             if self.codegen_ctx.nounwind_functions.contains(&func.name) {
                 self.builder.add_nounwind_attribute(func.func_id);
@@ -129,11 +138,20 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
             lambda.func_id,
             &self.codegen_ctx,
         );
+        emitter.set_verify_arc(self.verify_arc);
         emitter.emit_function(&lambda.arc_func, &lambda.abi);
 
         // Post-emission CFG simplification
         let fn_val = self.builder.get_function_value(lambda.func_id);
         crate::codegen::ir_builder::cfg_simplify::simplify_cfg(fn_val);
+
+        // Function-level LLVM IR verification.
+        if self.verify_arc && !fn_val.verify(true) {
+            tracing::error!(
+                name = %self.interner.lookup(lambda.name),
+                "LLVM IR verification failed after codegen (emit_prepared_lambda)"
+            );
+        }
 
         if self.codegen_ctx.nounwind_functions.contains(&lambda.name) {
             self.builder.add_nounwind_attribute(lambda.func_id);

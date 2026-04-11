@@ -1,0 +1,54 @@
+// Diagnostic fixture: nested collections.
+// Exercises elem_dec_fn propagation for nested drops — [[str]] requires
+// the runtime to propagate element destructors through multiple levels.
+
+type Named = { name: str, id: int }
+
+@sum_inner_lengths (nested: [[int]]) -> int = {
+    let total = 0;
+    for inner in nested do {
+        total = total + inner.length();
+    };
+    total
+}
+
+@main () -> int = {
+    // Nested [[int]] — inner lists need RC cleanup
+    let nested_ints = [[1, 2], [3, 4, 5], [6]];
+    let ok1 = sum_inner_lengths(nested: nested_ints) == 6;
+
+    // Nested [[str]] — elem_dec_fn propagation for string elements
+    let nested_strs = [["hello", "world"], ["test"], ["a", "b", "c"]];
+    let str_count = 0;
+    for inner in nested_strs do {
+        for s in inner do {
+            str_count = str_count + s.length();
+        };
+    };
+    let ok2 = str_count == 17;
+
+    // Accessing inner elements of nested list
+    let matrix = [[10, 20], [30, 40], [50, 60]];
+    let ok3 = matrix[0][0] == 10 && matrix[1][1] == 40 && matrix[2][0] == 50;
+
+    // Passing nested list to function
+    let deep = [[1, 2, 3], [4, 5], [6, 7, 8, 9]];
+    let ok4 = sum_inner_lengths(nested: deep) == 9;
+
+    // List of structs with fat fields
+    let items = [Named { name: "alice", id: 1 }, Named { name: "bob", id: 2 }];
+    let name_total = 0;
+    for item in items do {
+        name_total = name_total + item.name.length() + item.id;
+    };
+    let ok5 = name_total == 11;
+
+    // Nested list created incrementally
+    let rows: [[int]] = [];
+    let rows = rows.push([1, 2]);
+    let rows = rows.push([3, 4, 5]);
+    let ok6 = rows.length() == 2 && sum_inner_lengths(nested: rows) == 5;
+
+    if ok1 && ok2 && ok3 && ok4 && ok5 && ok6
+        then 0 else 1
+}

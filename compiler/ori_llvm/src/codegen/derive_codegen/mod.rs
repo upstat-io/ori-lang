@@ -350,6 +350,24 @@ fn make_sig(
     ori_types::FunctionSig::synthetic(name, param_names, param_types, return_type)
 }
 
+/// Verify a derived function's LLVM IR after body emission.
+///
+/// Gated on `FunctionCompiler::verify_arc()` (i.e., `ORI_VERIFY_ARC=1`).
+/// Called at the end of each top-level derive body function — this is the
+/// single source of truth for derive function verification logic.
+pub(super) fn verify_derive_function<'a>(
+    fc: &mut FunctionCompiler<'_, 'a, 'a, '_>,
+    func_id: FunctionId,
+    context: &str,
+) {
+    if fc.verify_arc() {
+        let fn_val = fc.builder_mut().get_function_value(func_id);
+        if !fn_val.verify(true) {
+            tracing::error!(context, "LLVM IR verification failed (derive codegen)");
+        }
+    }
+}
+
 /// Emit return instruction respecting ABI (direct, sret, or void).
 ///
 /// Delegates to [`FunctionCompiler::emit_return`] which includes proper

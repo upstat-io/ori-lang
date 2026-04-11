@@ -22,7 +22,7 @@ use super::field_ops::emit_field_operation;
 use super::string_helpers::{
     emit_field_to_string, emit_str_concat, emit_str_literal, emit_str_rc_dec,
 };
-use super::{emit_derive_return, setup_derive_function, DeriveSetup};
+use super::{emit_derive_return, setup_derive_function, verify_derive_function, DeriveSetup};
 
 /// Translate a declaration-order field index to memory-order for LLVM.
 ///
@@ -94,6 +94,7 @@ pub(super) fn compile_for_each_field<'a>(
         CombineOp::Lexicographic => emit_lexicographic_body(fc, &setup, fields, field_op),
         CombineOp::HashCombine => emit_hash_combine_body(fc, &setup, fields, field_op),
     }
+    verify_derive_function(fc, setup.func_id, "compile_for_each_field");
 }
 
 /// Short-circuit AND: compare each field, branch to `false_bb` on first mismatch.
@@ -376,6 +377,7 @@ pub(super) fn compile_format_fields<'a>(
     emit_str_rc_dec(fc, suffix_str, "dec.suffix");
 
     emit_derive_return(fc, setup.func_id, &setup.abi, Some(result));
+    verify_derive_function(fc, setup.func_id, "compile_format_fields");
 }
 
 // CloneFields: Clone
@@ -421,6 +423,7 @@ pub(super) fn compile_clone_fields<'a>(
     }
 
     emit_derive_return(fc, setup.func_id, &setup.abi, Some(self_val));
+    verify_derive_function(fc, setup.func_id, "compile_clone_fields");
 }
 
 // DefaultConstruct: Default
@@ -442,4 +445,5 @@ pub(super) fn compile_default_construct<'a>(
     let result = fc.builder_mut().const_zero(struct_llvm_ty);
 
     emit_derive_return(fc, setup.func_id, &setup.abi, Some(result));
+    verify_derive_function(fc, setup.func_id, "compile_default_construct");
 }

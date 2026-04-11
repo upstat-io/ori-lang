@@ -346,3 +346,6 @@ pub(crate) fn emit_dead_invoke_dsts(
             .insert(0, ArcInstr::RcDec { var, strategy });
     }
 }
+
+#[cfg(test)]
+mod tests;

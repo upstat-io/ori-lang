@@ -1,0 +1,94 @@
+// Regression: BUG-03-005 — map iteration leaked internal type-prefixed keys
+// ("s:hello", "i:42") instead of user-visible values ("hello", 42).
+// See: plans/bug-tracker/fix-BUG-03-005.md
+
+use std.testing { assert_eq, assert }
+
+// Exact failing case — string key iteration
+
+@test_string_key_value_in_iteration tests _ () -> void = {
+    let m = {"hello": 1};
+    for (k, v) in m do {
+        assert_eq(actual: k, expected: "hello")
+    }
+}
+
+@test_string_key_length_in_iteration tests _ () -> void = {
+    let m = {"hello": 1};
+    for (k, v) in m do {
+        assert_eq(actual: k.length(), expected: 5)
+    }
+}
+
+// Edge cases
+
+@test_empty_string_key_iteration tests _ () -> void = {
+    let m = {"": 1};
+    for (k, v) in m do {
+        assert_eq(actual: k, expected: "");
+        assert_eq(actual: k.length(), expected: 0)
+    }
+}
+
+@test_string_key_with_colon_iteration tests _ () -> void = {
+    let m = {"a:b": 1};
+    for (k, v) in m do {
+        assert_eq(actual: k, expected: "a:b")
+    }
+}
+
+@test_multiple_string_keys_iteration tests _ () -> void = {
+    let m = {"alpha": 1, "beta": 2};
+    let keys = for (k, v) in m yield k;
+    assert(condition: keys.contains(value: "alpha"));
+    assert(condition: keys.contains(value: "beta"));
+    assert_eq(actual: keys.length(), expected: 2)
+}
+
+// Cross-type coverage — int key
+
+@test_int_key_iteration tests _ () -> void = {
+    let m = {42: "v"};
+    for (k, v) in m do {
+        assert_eq(actual: k, expected: 42)
+    }
+}
+
+// Cross-type coverage — bool key
+
+@test_bool_key_iteration tests _ () -> void = {
+    let m = {true: "yes"};
+    for (k, v) in m do {
+        assert_eq(actual: k, expected: true)
+    }
+}
+
+// Consistency — iteration keys match .keys()
+
+@test_iteration_keys_match_dot_keys tests _ () -> void = {
+    let m = {"x": 1, "y": 2};
+    let iter_keys = for (k, v) in m yield k;
+    let dot_keys = m.keys();
+    assert_eq(actual: iter_keys.length(), expected: dot_keys.length())
+}
+
+// Semantic pin — string key length is 5, not 7
+
+@test_semantic_pin_string_key_has_correct_length tests _ () -> void = {
+    let m = {"world": 99};
+    for (k, v) in m do {
+        // This ONLY passes with decoded keys (length 5).
+        // With the bug, k = "s:world" (length 7).
+        assert_eq(actual: k.length(), expected: 5)
+    }
+}
+
+// Negative pin — no type prefix in iteration output
+
+@test_negative_pin_no_type_prefix_in_key tests _ () -> void = {
+    let m = {"test": 1};
+    for (k, v) in m do {
+        // With the bug, k starts with "s:". After fix, k = "test".
+        assert(condition: k.starts_with(prefix: "s:") == false)
+    }
+}

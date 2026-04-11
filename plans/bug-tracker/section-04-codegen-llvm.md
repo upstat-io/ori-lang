@@ -19,15 +19,24 @@ Bugs in LLVM IR generation, JIT/AOT compilation, monomorphization, ARC pipeline 
 
 ## Open Bugs
 
-- [ ] `[BUG-04-053][medium]` **String comparison bypasses Name interning in rc_insert/annotate.rs** — found by tpr-review (dual-source, gemini).
-  Repro: `compiler/ori_arc/src/rc_insert/annotate.rs:370` uses `callee_str == "zip" || callee_str == "chain"` and `:406` uses `callee_str == "pop"` — comparing raw strings instead of interned Name IDs.
+- [ ] `[BUG-04-055][medium]` **LLVM lint: sret attribute not present on call-site for `ori_str_from_raw`**
+  Repro: `ORI_LLVM_LINT=1 ori build` any program using string literals — lint reports `Undefined behavior: ABI attribute sret not present on both function and call-site` for `ori_str_from_raw` calls
+  Subsystem: `compiler/ori_llvm/src/codegen/` — string literal emission calls `ori_str_from_raw` without matching sret attribute on the call-site argument
+  Found: 2026-04-10 | Source: continue-roadmap (discovered by newly-wired `function(lint)` pass in §01.3)
+
+- [x] `[BUG-04-054][high]` **LLVM codegen fails when two types implement the same trait — "method exists for another type but receiver type not registered"**
+  Resolved: OBE on 2026-04-10. Tested 2 and 3 types implementing the same trait (with string fields/fat pointers) through interpreter, LLVM JIT, and AOT — all produce correct results. `impls.rs:278-279` correctly registers `type_idx_to_name` for each impl's self type, with `debug_assert!` guard at line 291. The `trait_dispatch.ori` fixture (which avoids the pattern) was written based on an earlier state of the code; the underlying issue has been resolved by subsequent impl/method resolution improvements.
+  Subsystem: `compiler/ori_llvm/src/codegen/arc_emitter/` — method resolution table registers trait method for first implementing type but not the second
+  Found: 2026-04-10 | Source: continue-roadmap (diagnostic-tooling-improvements §06.1 fixture creation)
+
+- [x] `[BUG-04-053][medium]` **String comparison bypasses Name interning in rc_insert/annotate.rs** — found by tpr-review (dual-source, gemini).
+  Resolved: Fixed 2026-04-10. Added pre-interned `zip_name`, `chain_name`, `pop_name` fields to `ConsumingCtx`. Replaced 3 raw string comparisons (`interner.lookup(callee) == "zip"`) with Name equality (`callee == ctx.zip_name`). Removed 2 `interner.lookup()` calls. Fix section: `plans/bug-tracker/fix-BUG-04-053.md`. 16,964 tests passing.
   Subsystem: `compiler/ori_arc/src/rc_insert/annotate.rs`
   Found: 2026-04-09 | Source: tpr-review | Reviewer: gemini
-  Note: LEAK:scattered-knowledge per impl-hygiene.md §Interning Discipline. Should use pre-interned Name constants or `Name::from()` comparison.
 
-- [ ] `[BUG-04-052][low]` **No consumer-level test exercises `emit_dead_at_entry_decs` with the new `let_alias_rep` dedup** — found by tpr-review (dual-source).
-  Repro: revert `dead_cleanup.rs` dedup from `let_alias_rep` back to `lineage_of` — all 5 new unit tests in `take_project/tests.rs` still pass because they only test the helper layer. Need a test that constructs a `BlockCleanupCtx` with swapped-phi topology and verifies two `RcDec`s are emitted.
-  Subsystem: `compiler/ori_arc/src/aims/emit_rc/dead_cleanup.rs`
+- [x] `[BUG-04-052][low]` **No consumer-level test exercises `emit_dead_at_entry_decs` with the new `let_alias_rep` dedup** — found by tpr-review (dual-source).
+  Resolved: Fixed 2026-04-10. Added 2 consumer-level tests in `dead_cleanup/tests.rs`: (1) `swapped_phi_params_emit_two_rc_decs` — semantic pin verifying that two phi params with different let-alias reps each get their own `RcDec`; (2) `let_alias_siblings_emit_one_rc_dec` — negative pin verifying that Let aliases (same rep) produce only one `RcDec`. Also added `TakeMoveFacts::with_bypass_entries` test constructor and converted `dead_cleanup.rs` to `dead_cleanup/mod.rs` + `tests.rs` per file organization rules. 16,966 tests passing.
+  Subsystem: `compiler/ori_arc/src/aims/emit_rc/dead_cleanup/`
   Found: 2026-04-09 | Source: tpr-review (dual-source, TPR-07-001-codex)
 
 - [x] `[BUG-04-051][high]` **AIMS dead_cleanup source-1 dedup conflates distinct phi-merged block params with the same lineage source set — leaks one value** — found by tpr-review (TPR-07-022 in plans/repr-opt/section-07-enum-repr.md).

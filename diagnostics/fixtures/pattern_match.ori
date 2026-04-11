@@ -1,0 +1,60 @@
+// Diagnostic fixture: sum type pattern matching with mixed payloads.
+// Exercises decision tree codegen and per-variant drops for variants
+// with mixed scalar and fat-pointer payloads.
+
+type Shape = Circle(radius: int) | Label(text: str) | Points(coords: [int]);
+type Status = Success(value: int) | Failure(msg: str) | Waiting(items: [int]);
+
+@classify (s: Shape) -> int = match s {
+    Circle(radius) -> radius,
+    Label(text) -> text.length(),
+    Points(coords) -> coords.length(),
+};
+
+@main () -> int = {
+    // Match on 3-variant sum with scalar payload
+    let ok1 = classify(s: Circle(radius: 42)) == 42;
+
+    // Match on variant with fat pointer (str)
+    let ok2 = classify(s: Label(text: "hello")) == 5;
+
+    // Match on variant with fat pointer (list)
+    let ok3 = classify(s: Points(coords: [1, 2, 3, 4])) == 4;
+
+    // Match on heap string variant
+    let ok4 = classify(s: Label(text: "abcdefghijklmnopqrstuvwxyz1234")) == 30;
+
+    // Match with binding and further computation
+    let shape = Points(coords: [10, 20, 30]);
+    let total = match shape {
+        Circle(radius) -> radius * 2,
+        Label(text) -> text.length() * 2,
+        Points(coords) -> {
+            let sum = 0;
+            for c in coords do {
+                sum = sum + c;
+            };
+            sum
+        },
+    };
+    let ok5 = total == 60;
+
+    // 3-variant Status with mixed payloads
+    let r1 = Success(value: 10);
+    let r2 = Failure(msg: "fail");
+    let r3 = Waiting(items: [1, 2]);
+    let v1 = match r1 { Success(value) -> value, Failure(msg) -> msg.length(), Waiting(items) -> items.length() };
+    let v2 = match r2 { Success(value) -> value, Failure(msg) -> msg.length(), Waiting(items) -> items.length() };
+    let v3 = match r3 { Success(value) -> value, Failure(msg) -> msg.length(), Waiting(items) -> items.length() };
+    let ok6 = v1 == 10 && v2 == 4 && v3 == 2;
+
+    // Nested match — outer decides variant, inner processes payload
+    let item: Shape = Label(text: "test");
+    let ok7 = match item {
+        Label(text) -> if text.length() > 3 then 1 else 0,
+        _ -> 0,
+    } == 1;
+
+    if ok1 && ok2 && ok3 && ok4 && ok5 && ok6 && ok7
+        then 0 else 1
+}

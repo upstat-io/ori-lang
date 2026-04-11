@@ -1,0 +1,53 @@
+// Diagnostic fixture: trait method dispatch.
+// Exercises trait vtable codegen, method RC balance for types owning fat
+// pointers, required methods, default methods, and multiple traits.
+// Note: avoids two types implementing the SAME trait (BUG-04-054).
+
+trait Measurable {
+    @measure (self) -> int
+    @describe (self) -> str = "size=" + str(self.measure());
+}
+
+trait Processor {
+    @process (self, input: int) -> int
+}
+
+type Document = { title: str, pages: int }
+
+impl Measurable for Document {
+    @measure (self) -> int = self.title.length() + self.pages;
+}
+
+impl Processor for Document {
+    @process (self, input: int) -> int = self.pages + input;
+}
+
+@main () -> int = {
+    // Required method on type with fat pointers
+    let doc = Document { title: "hello", pages: 10 };
+    let ok1 = doc.measure() == 15;
+
+    // Default method calling required method — exercises self dispatch
+    let ok2 = doc.describe() == "size=15";
+
+    // Multiple traits on same type
+    let doc2 = Document { title: "abcdefghijklmnopqrstuvwxyz1234", pages: 5 };
+    let ok3 = doc2.measure() == 35 && doc2.process(input: 10) == 15;
+
+    // Trait method on value constructed inline
+    let ok4 = Document { title: "abc", pages: 3 }.measure() == 6;
+
+    // Chained trait + inherent operations
+    let doc3 = Document { title: "world", pages: 20 };
+    let size = doc3.measure();
+    let desc = doc3.describe();
+    let ok5 = size == 25 && desc == "size=25";
+
+    // Trait method result used in further computation
+    let doc4 = Document { title: "test", pages: 100 };
+    let total = doc4.measure() + doc4.process(input: 50);
+    let ok6 = total == 254;
+
+    if ok1 && ok2 && ok3 && ok4 && ok5 && ok6
+        then 0 else 1
+}

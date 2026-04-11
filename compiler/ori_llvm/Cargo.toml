@@ -24,6 +24,7 @@ rustc-hash = "2.1"
 
 # Serialization for incremental compilation cache
 serde = { version = "1", features = ["derive"] }
+serde_json = "1"
 bincode = "1"
 
 # Persistent (immutable) data structures for O(1)-clone scope nesting

@@ -38,11 +38,13 @@ Resolved → section entry marked [x], fix section status → complete
 ## Bug Entry Format
 
 ```markdown
-- [ ] `[BUG-{section}-{ordinal}][{severity}]` **{Short title}** — found by {source}.
+- [ ] `[BUG-{section}-{ordinal}][{severity}]` **{Short title}**
   Repro: {test file or minimal repro steps}
   Subsystem: {crate/file path}
-  Found: {YYYY-MM-DD} | Source: {tpr-review | code-journey | manual | continue-roadmap}
+  Found: {YYYY-MM-DD} | Source: {canonical source value — see /add-bug SKILL.md for the full list}
 ```
+
+**Canonical source values** are defined in `.claude/skills/add-bug/SKILL.md` (the SSOT for bug provenance). Common values: `tpr-review`, `code-journey`, `manual`, `continue-roadmap`, `review-work`, `fix-bug`, `impl-hygiene-review`, `review-bugs`, `independent-review`.
 
 When a fix section exists (created by `/fix-bug`):
 ```markdown
@@ -52,7 +54,7 @@ When a fix section exists (created by `/fix-bug`):
 When resolved via `/fix-bug`:
 
 ```markdown
-- [x] `[BUG-{section}-{ordinal}][{severity}]` **{Short title}** — found by {source}.
+- [x] `[BUG-{section}-{ordinal}][{severity}]` **{Short title}**
   Resolved: Fixed on {YYYY-MM-DD}. {Brief explanation}.
   Fix: `plans/bug-tracker/fix-BUG-{section}-{ordinal}.md`
 ```
@@ -60,7 +62,7 @@ When resolved via `/fix-bug`:
 When resolved as OBE (no fix section — fixed as side effect of other work):
 
 ```markdown
-- [x] `[BUG-{section}-{ordinal}][{severity}]` **{Short title}** — found by {source}.
+- [x] `[BUG-{section}-{ordinal}][{severity}]` **{Short title}**
   Resolved: OBE on {YYYY-MM-DD}. {What fixed it — commit, plan, or rewrite}.
 ```
 
@@ -78,7 +80,7 @@ Fix sections are permanent records — they stay in the bug tracker even after t
 - Proof that proper rigor was followed
 - Reference for future bugs in the same area
 
-See `plan-schema.md` § "Bug Fix Section Template" for the full template.
+See `.claude/skills/fix-bug/fix-section-template.md` for the full template.
 
 ## Severity Levels
 
@@ -104,8 +106,8 @@ See `plan-schema.md` § "Bug Fix Section Template" for the full template.
 | 01 | Parser & Lexer | `section-01-parser-lexer.md` | 0 |
 | 02 | Type Checker | `section-02-typeck.md` | 1 |
 | 03 | Evaluator | `section-03-eval.md` | 1 |
-| 04 | Codegen & LLVM | `section-04-codegen-llvm.md` | 3 |
+| 04 | Codegen & LLVM | `section-04-codegen-llvm.md` | 1 |
 | 05 | Runtime & ARC | `section-05-runtime-arc.md` | 0 |
 | 06 | Stdlib | `section-06-stdlib.md` | 0 |
-| 07 | Tooling & CLI | `section-07-tooling-cli.md` | 3 |
-| 08 | Spec & Docs | `section-08-spec-docs.md` | 3 |
+| 07 | Tooling & CLI | `section-07-tooling-cli.md` | 0 |
+| 08 | Spec & Docs | `section-08-spec-docs.md` | 0 |

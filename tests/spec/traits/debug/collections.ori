@@ -42,8 +42,9 @@ use std.testing { assert_eq }
 
 @test_map_debug tests @map_debug () -> void = {
     let m = { "x": 1 };
-    // Map debug shows key: value pairs
-    assert_eq(actual: m.debug(), expected: "{x: 1}")
+    // Map debug shows key: value pairs with string keys quoted (Debug semantics)
+    // BUG-03-005: was "{x: 1}" due to hand-rolled prefix stripping without type formatting
+    assert_eq(actual: m.debug(), expected: "{\"x\": 1}")
 }
 
 @map_debug () -> str = { { "x": 1 }.debug() }

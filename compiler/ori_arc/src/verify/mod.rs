@@ -68,6 +68,13 @@ pub enum VerifyError {
         expected: usize,
         actual: usize,
     },
+
+    /// FIP structural violation detected during pipeline verification.
+    ///
+    /// Wraps FIP verification errors (`CertifiedButUnboundedStack`,
+    /// `BoundedExceeded`) that represent genuine internal compiler bugs
+    /// — the interprocedural analysis produced an inconsistent contract.
+    FipStructural { message: String },
 }
 
 impl std::fmt::Display for VerifyError {
@@ -130,6 +137,9 @@ impl std::fmt::Display for VerifyError {
                     expected,
                     actual,
                 )
+            }
+            VerifyError::FipStructural { message } => {
+                write!(f, "FIP structural violation: {message}")
             }
         }
     }
