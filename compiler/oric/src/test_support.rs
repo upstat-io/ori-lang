@@ -113,6 +113,13 @@ pub fn compile_to_arc(source_path: &str, source_text: &str) -> Result<ArcCompile
         arc_cache.insert(arc_fn.name, (arc_fn, lambdas));
     }
 
+    if !arc_problems.is_empty() {
+        return Err(format!(
+            "ARC lowering problems in {source_path}: {} problem(s)",
+            arc_problems.len()
+        ));
+    }
+
     Ok(ArcCompileResult {
         arc_cache,
         pool,
