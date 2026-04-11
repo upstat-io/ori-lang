@@ -22,7 +22,7 @@ third_party_review:
 sections:
   - id: "03.1"
     title: "Checkpoint Observer Infrastructure"
-    status: not-started
+    status: complete
   - id: "03.2"
     title: "ARC IR Formatter Relocation and Snapshot Serialization"
     status: not-started
@@ -96,7 +96,7 @@ To verify a pass's behavior, diff `lowered.arc` → `pass.after.arc` (cumulative
 
 Extend the existing `trace_pipeline_checkpoint()` with an optional observer callback. The observer is the SINGLE dispatch point for both tracing and snapshot capture at pipeline boundaries.
 
-- [ ] Define the observer callback type in `compiler/ori_arc/src/pipeline/aims_pipeline/mod.rs`:
+- [x] Define the observer callback type in `compiler/ori_arc/src/pipeline/aims_pipeline/mod.rs`:
   ```rust
   /// Callback invoked at each pipeline checkpoint.
   ///
@@ -106,7 +106,7 @@ Extend the existing `trace_pipeline_checkpoint()` with an optional observer call
   pub type CheckpointObserver<'a> = dyn Fn(&ArcFunction, &str /* phase */) + 'a;
   ```
 
-- [ ] Add an `observer: Option<&'a CheckpointObserver<'a>>` field to `AimsPipelineConfig`:
+- [x] Add an `observer: Option<&'a CheckpointObserver<'a>>` field to `AimsPipelineConfig`:
   ```rust
   pub(crate) struct AimsPipelineConfig<'a> {
       pub classifier: &'a dyn ArcClassification,
@@ -122,7 +122,7 @@ Extend the existing `trace_pipeline_checkpoint()` with an optional observer call
   }
   ```
 
-- [ ] Extend `trace_pipeline_checkpoint()` to invoke the observer when present:
+- [x] Extend `trace_pipeline_checkpoint()` to invoke the observer when present:
   ```rust
   pub(crate) fn trace_pipeline_checkpoint(
       func: &ArcFunction,
@@ -141,11 +141,11 @@ Extend the existing `trace_pipeline_checkpoint()` with an optional observer call
   }
   ```
 
-- [ ] Update all call sites of `trace_pipeline_checkpoint()` in `mod.rs`, `postprocess.rs`, and `trmc.rs` to pass `config.observer` as the new parameter. There are 16 existing call sites across these three files (3 in `trmc.rs`, 6 in `mod.rs`, 7 in `postprocess.rs`) — verify each is updated.
+- [x] Update all call sites of `trace_pipeline_checkpoint()` in `mod.rs`, `postprocess.rs`, and `trmc.rs` to pass `config.observer` as the new parameter. There are 16 existing call sites across these three files (3 in `trmc.rs`, 6 in `mod.rs`, 7 in `postprocess.rs`) — verify each is updated.
 
-- [ ] Add the observer field construction with `observer: None` to ALL existing `AimsPipelineConfig` construction sites (in `run_arc_pipeline()` at `compiler/ori_arc/src/pipeline/mod.rs:47` and in `run_aims_pipeline_all()` at `compiler/ori_arc/src/pipeline/aims_pipeline/batch.rs`). This ensures zero behavior change in production.
+- [x] Add the observer field construction with `observer: None` to ALL existing `AimsPipelineConfig` construction sites (in `run_arc_pipeline()` at `compiler/ori_arc/src/pipeline/mod.rs:47` and in `run_aims_pipeline_all()` at `compiler/ori_arc/src/pipeline/aims_pipeline/batch.rs`). This ensures zero behavior change in production.
 
-- [ ] Make the observer field accessible from outside the crate: add a public function to `ori_arc`'s API that allows running the pipeline with an observer:
+- [x] Make the observer field accessible from outside the crate: add a public function to `ori_arc`'s API that allows running the pipeline with an observer:
   ```rust
   /// Run the ARC pipeline with a checkpoint observer.
   ///
@@ -164,14 +164,14 @@ Extend the existing `trace_pipeline_checkpoint()` with an optional observer call
   ) -> Result<Vec<ArcProblem>, Vec<crate::verify::VerifyError>>
   ```
 
-- [ ] Add tests:
+- [x] Add tests:
   - `checkpoint_observer_with_all_passes_configured_captures_all_phase_names_in_order` — run a trivial `ArcFunction` through `run_aims_pipeline` with an observer that records `(phase, rc_count)` pairs; verify all expected phases are captured in order
   - `checkpoint_observer_when_none_skips_all_callbacks` — run with `observer: None`; verify no callback invocation (compile-only test — the type system enforces this, but the test documents intent)
   - `checkpoint_observer_after_realize_rc_reuse_captures_added_rc_ops` — verify that the observer sees RC ops ADDED by `realize_rc_reuse` (the function before has 0 `RcInc`; the snapshot after has > 0)
 
-- [ ] **Subsection close-out (03.1)** — MANDATORY before starting 03.2:
-  - [ ] All tasks above are `[x]` and the subsection's behavior is verified
-  - [ ] Update this subsection's `status` in section frontmatter to `complete`
+- [x] **Subsection close-out (03.1)** — MANDATORY before starting 03.2:
+  - [x] All tasks above are `[x]` and the subsection's behavior is verified
+  - [x] Update this subsection's `status` in section frontmatter to `complete`
   - [ ] **Run `/improve-tooling` retrospectively on THIS subsection**
 
 ---

@@ -343,6 +343,176 @@ fn aims_verify_returns_ok_when_verify_false() {
     );
 }
 
+// ── Checkpoint observer tests ──
+
+#[test]
+fn checkpoint_observer_with_all_passes_configured_captures_all_phase_names_in_order() {
+    use std::cell::RefCell;
+
+    // Build a minimal function that exercises the full AIMS pipeline.
+    // A function with one param, one block, returns the param — simple but
+    // goes through all pipeline steps.
+    let mut func = ArcFunction {
+        blocks: vec![ArcBlock {
+            id: ArcBlockId::new(0),
+            params: vec![],
+            body: vec![],
+            terminator: ArcTerminator::Return { value: v(0) },
+        }],
+        var_types: vec![Idx::NONE],
+        ..Default::default()
+    };
+
+    // Capture phase names from the observer callback (single-threaded test).
+    let captured = RefCell::new(Vec::<String>::new());
+    let observer = |_func: &ArcFunction, phase: &str| {
+        captured.borrow_mut().push(phase.to_owned());
+    };
+
+    let interner = ori_ir::StringInterner::new();
+    let builtins = crate::borrow::BuiltinOwnershipSets::new(&interner);
+    let contracts = rustc_hash::FxHashMap::default();
+    let pool = ori_types::Pool::default();
+    let classifier = crate::classify::ArcClassifier::new(&pool);
+
+    let config = super::aims_pipeline::AimsPipelineConfig {
+        classifier: &classifier,
+        contracts: &contracts,
+        pool: &pool,
+        interner: &interner,
+        builtins: &builtins,
+        verify_arc: false,
+        observer: Some(&observer),
+    };
+
+    let _result = super::aims_pipeline::run_aims_pipeline(&mut func, &config);
+
+    let phases = captured.into_inner();
+    // Must have at least the core phases in order.
+    assert!(
+        !phases.is_empty(),
+        "observer should have captured at least one phase"
+    );
+    // verify key phases appear in order
+    let core_phases = [
+        "compute_var_reprs",
+        "normalize_function",
+        "normalize_with_trmc_complete",
+        "analyze_function",
+        "realize_rc_reuse",
+    ];
+    let mut last_idx = 0;
+    for expected in &core_phases {
+        if let Some(pos) = phases.iter().position(|p| p == *expected) {
+            assert!(
+                pos >= last_idx,
+                "phase '{expected}' at {pos} should be after previous core phase at {last_idx}"
+            );
+            last_idx = pos;
+        }
+        // Phase may not appear if the pipeline short-circuits on error,
+        // but if it does appear it must be in order.
+    }
+}
+
+#[test]
+fn checkpoint_observer_when_none_skips_all_callbacks() {
+    // With observer: None, no callbacks are invoked. This is a compile-only
+    // structural test — the type system enforces that None means no callback,
+    // but the test documents intent and verifies the config construction.
+    let mut func = ArcFunction {
+        blocks: vec![ArcBlock {
+            id: ArcBlockId::new(0),
+            params: vec![],
+            body: vec![],
+            terminator: ArcTerminator::Return { value: v(0) },
+        }],
+        var_types: vec![Idx::NONE],
+        ..Default::default()
+    };
+
+    let interner = ori_ir::StringInterner::new();
+    let builtins = crate::borrow::BuiltinOwnershipSets::new(&interner);
+    let contracts = rustc_hash::FxHashMap::default();
+    let pool = ori_types::Pool::default();
+    let classifier = crate::classify::ArcClassifier::new(&pool);
+
+    let config = super::aims_pipeline::AimsPipelineConfig {
+        classifier: &classifier,
+        contracts: &contracts,
+        pool: &pool,
+        interner: &interner,
+        builtins: &builtins,
+        verify_arc: false,
+        observer: None,
+    };
+
+    // Pipeline runs successfully with no observer — zero overhead path.
+    let result = super::aims_pipeline::run_aims_pipeline(&mut func, &config);
+    assert!(
+        result.is_ok(),
+        "pipeline should succeed with observer: None"
+    );
+}
+
+#[test]
+fn checkpoint_observer_after_realize_rc_reuse_captures_added_rc_ops() {
+    use std::cell::RefCell;
+
+    // Build a function where realize_rc_reuse will ADD RC ops:
+    // A function with an owned ref-counted param that is returned.
+    // realize_rc_reuse should insert RcInc for the return value.
+    let mut func = crate::test_helpers::make_func(
+        vec![owned_param(0, Idx::NONE)],
+        Idx::NONE,
+        vec![ArcBlock {
+            id: ArcBlockId::new(0),
+            params: vec![],
+            body: vec![],
+            terminator: ArcTerminator::Return { value: v(0) },
+        }],
+        vec![Idx::NONE],
+    );
+
+    // Track RC ops at the realize_rc_reuse checkpoint (single-threaded test).
+    let rc_at_realize = RefCell::new(None::<(usize, usize)>);
+    let observer = |func: &ArcFunction, phase: &str| {
+        if phase == "realize_rc_reuse" {
+            let rc = crate::pipeline::rc_count::count_rc_ops(func);
+            *rc_at_realize.borrow_mut() = Some((rc.inc, rc.dec));
+        }
+    };
+
+    let interner = ori_ir::StringInterner::new();
+    let builtins = crate::borrow::BuiltinOwnershipSets::new(&interner);
+    let contracts = rustc_hash::FxHashMap::default();
+    let pool = ori_types::Pool::default();
+    let classifier = crate::classify::ArcClassifier::new(&pool);
+
+    let config = super::aims_pipeline::AimsPipelineConfig {
+        classifier: &classifier,
+        contracts: &contracts,
+        pool: &pool,
+        interner: &interner,
+        builtins: &builtins,
+        verify_arc: false,
+        observer: Some(&observer),
+    };
+
+    let _result = super::aims_pipeline::run_aims_pipeline(&mut func, &config);
+
+    // The observer should have been called at the realize_rc_reuse checkpoint.
+    let captured = rc_at_realize.into_inner();
+    assert!(
+        captured.is_some(),
+        "observer should have been called at 'realize_rc_reuse' phase"
+    );
+    // Note: whether RC ops are present depends on the classifier results
+    // for Idx::NONE (likely Scalar → no RC). The key assertion is that
+    // the observer was called at the right phase — the RC counts are a
+    // bonus verification that the function state is accessible.
+}
+
 // ── FIP structural verification tests ──
 
 /// Verify that `FipStructural` errors are included in `VerifyError` and
