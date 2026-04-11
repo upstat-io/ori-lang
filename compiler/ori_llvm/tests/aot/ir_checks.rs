@@ -62,3 +62,23 @@ fn filecheck_rc_simple_inc_dec() {
 fn filecheck_rc_no_ops_for_int() {
     run_filecheck("tests/codegen/rc_no_ops_for_int.ori");
 }
+
+#[test]
+fn filecheck_rc_string_copy_inc() {
+    run_filecheck("tests/codegen/rc_string_copy_inc.ori");
+}
+
+#[test]
+fn filecheck_cow_is_shared_check() {
+    run_filecheck("tests/codegen/cow_is_shared_check.ori");
+}
+
+#[test]
+fn filecheck_iterator_for_loop_drop() {
+    run_filecheck("tests/codegen/iterator_for_loop_drop.ori");
+}
+
+#[test]
+fn filecheck_abi_sret_struct_return() {
+    run_filecheck("tests/codegen/abi_sret_struct_return.ori");
+}

@@ -1,0 +1,11 @@
+// FileCheck test: struct-returning function uses sret parameter
+// CHECK: sret
+
+type Point = { x: int, y: int }
+
+@make_point (x: int, y: int) -> Point = Point { x, y };
+
+@main () -> void = {
+    let p = make_point(x: 1, y: 2);
+    print(msg: p.x.to_str())
+}
