@@ -1,0 +1,9 @@
+// FileCheck test: list mutation uses buffer store operations
+// CHECK: ori_buffer_store_elem_dec
+// CHECK: ori_buffer_store_elem_count
+
+@main () -> void = {
+    let xs = [1, 2, 3];
+    xs[0] = 42;
+    print(msg: xs[0].to_str())
+}
