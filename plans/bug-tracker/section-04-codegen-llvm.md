@@ -25,6 +25,15 @@ Bugs in LLVM IR generation, JIT/AOT compilation, monomorphization, ARC pipeline 
   Found: 2026-04-10 | Source: continue-roadmap
   Resolved: Fixed on 2026-04-10. Demoted `AbsentParamHasUses` from hard error to non-blocking warning in `run_aims_verify()`. Added reachability filtering to `check_absent_param_no_uses()` for syntactically-unreachable blocks. Updated pipeline test to match new behavior.
 
+- [ ] `[BUG-04-057][high]` **AIMS lattice join is non-associative on canonical states — uniqueness dimension diverges**
+  Repro: `cargo test -p ori_arc -- lattice::prop_tests::join_associative`
+  Minimal counterexample: a={Owned,Dead,Absent,Unique,BlockLocal,NonReusable,{F,F,F}}, b={Borrowed,Dead,Absent,MaybeShared,BlockLocal,ReusableCtor(Struct),{F,T,F}}, c={Borrowed,Linear,Once,Unique,FunctionLocal,ReusableCtor(EnumVariant),{T,F,T}}. Left=(a.join(b)).join(c) has uniqueness=Unique; right=a.join(b.join(c)) has uniqueness=MaybeShared.
+  Root cause: `canonicalize_single_pass` resets uniqueness for Dead+Absent intermediates but not Linear+Once — order of joining produces different canonical intermediate states.
+  Impact: Could cause non-deterministic dataflow results depending on worklist order. Currently masked by deterministic reverse-postorder processing.
+  Subsystem: `compiler/ori_arc/src/aims/lattice/mod.rs` — `canonicalize_single_pass()`
+  Found: 2026-04-11 | Source: continue-roadmap
+  Note: Active work in `plans/llvm-verification-tooling` §04 (lattice property verification) — this bug was discovered by the proptest infrastructure being built there.
+
 - [ ] `[BUG-04-055][medium]` **LLVM lint: sret attribute not present on call-site for `ori_str_from_raw`**
   Repro: `ORI_LLVM_LINT=1 ori build` any program using string literals — lint reports `Undefined behavior: ABI attribute sret not present on both function and call-site` for `ori_str_from_raw` calls
   Subsystem: `compiler/ori_llvm/src/codegen/` — string literal emission calls `ori_str_from_raw` without matching sret attribute on the call-site argument
