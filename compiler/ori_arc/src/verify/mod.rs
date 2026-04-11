@@ -466,13 +466,17 @@ fn check_absent_param_no_uses(
     }
 }
 
-/// Compute blocks that are both forward-reachable from entry AND
-/// backward-reachable to a Return terminator (i.e., on a live path).
+/// Compute blocks that are both forward-reachable from `func.entry` AND
+/// backward-reachable to a real exit (Return or Resume).
+///
+/// A block on a path that always ends in `Unreachable` is dead.
+/// `Resume` IS a real exit (exceptional unwind path carries demand).
 fn live_blocks(func: &ArcFunction) -> FxHashSet<ArcBlockId> {
-    // Forward reachability: BFS from entry block.
+    // Forward reachability: BFS from func.entry (not hardcoded block 0 —
+    // TRMC normalization may create a prologue that moves entry).
     let forward = {
         let mut reached = FxHashSet::default();
-        let mut worklist = vec![ArcBlockId::new(0)];
+        let mut worklist = vec![func.entry];
         while let Some(id) = worklist.pop() {
             if !reached.insert(id) {
                 continue;
@@ -494,13 +498,21 @@ fn live_blocks(func: &ArcFunction) -> FxHashSet<ArcBlockId> {
         }
     }
 
-    // Backward reachability: BFS from all Return-terminator blocks.
+    // Backward reachability: BFS from all real-exit blocks.
+    // Return = normal exit, Resume = exceptional unwind exit.
+    // Unreachable is NOT a real exit — blocks leading only to
+    // Unreachable are dead code.
     let backward = {
         let mut reached = FxHashSet::default();
         let mut worklist: Vec<ArcBlockId> = func
             .blocks
             .iter()
-            .filter(|b| matches!(b.terminator, ArcTerminator::Return { .. }))
+            .filter(|b| {
+                matches!(
+                    b.terminator,
+                    ArcTerminator::Return { .. } | ArcTerminator::Resume
+                )
+            })
             .map(|b| b.id)
             .collect();
         while let Some(id) = worklist.pop() {
