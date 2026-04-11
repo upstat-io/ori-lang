@@ -91,6 +91,165 @@ printf '%s=== dual-tpr status @ %s ===%s\n' "$BOLD" "$(date '+%Y-%m-%d %H:%M:%S 
 printf '%srun:%s %s\n' "$DIM" "$RESET" "$RUN"
 printf '\n'
 
+# ── Retry summary — parse round.log structurally ────────────────────
+# dual-invoke-with-retry.sh writes a handful of well-known line formats to
+# round.log: attempt start, reviewer finish, failure-with-category, round
+# success, terminal classification, and sleep. A flat `tail -5` view hides
+# this structure — the operator has to mentally reconstruct which attempt
+# failed, which reviewers were narrowed in, and whether the current attempt
+# is in progress or terminal. The summary below parses round.log into a
+# per-attempt table so the retry state is immediately obvious.
+#
+# Implementation note: Python because the regex + state machine is too gnarly
+# in pure bash, and we already require python3 for the reviewer-activity block
+# below. Falls back silently if round.log is empty/missing.
+if [[ -s "$RUN/round.log" ]]; then
+  RUN="$RUN" GREEN="$GREEN" YELLOW="$YELLOW" RED="$RED" \
+  DIM="$DIM" BOLD="$BOLD" RESET="$RESET" python3 - <<'PY'
+import os, re, sys
+
+RUN = os.environ["RUN"]
+GREEN = os.environ.get("GREEN", "")
+YELLOW = os.environ.get("YELLOW", "")
+RED = os.environ.get("RED", "")
+DIM = os.environ.get("DIM", "")
+BOLD = os.environ.get("BOLD", "")
+RESET = os.environ.get("RESET", "")
+
+# Line patterns emitted by dual-invoke-with-retry.sh and dual-invoke.sh:
+#
+# ATTEMPT_RE   — `[TS] attempt N/M` or `[TS] attempt N/M (reviewers=X)` or
+#                `[TS] attempt N/M (selective retry: narrowed from X to Y — ...)`
+# FAILURE_RE   — `[TS] <category> on attempt N` where <category> is the
+#                reviewer-prefixed failure identifier. Note: this matches only
+#                lines whose message ends with "on attempt N" — ordinary log
+#                lines (e.g. "codex finished (rc=0)") don't match.
+# SUCCESS_RE   — `[TS] round succeeded on attempt N`
+# TERMINAL_RE  — `[TS] <category> is deterministic (terminal) — not retrying`
+ATTEMPT_RE  = re.compile(r"^\[(\d+)\] attempt (\d+)/(\d+)(?: \((.*)\))?$")
+FAILURE_RE  = re.compile(r"^\[(\d+)\] (\S[^\n]*?) on attempt (\d+)$")
+SUCCESS_RE  = re.compile(r"^\[(\d+)\] round succeeded on attempt (\d+)$")
+TERMINAL_RE = re.compile(r"^\[(\d+)\] .* is deterministic \(terminal\) — not retrying$")
+EXHAUSTED_RE = re.compile(r"^infra_retries_exhausted")
+
+attempts = {}   # attempt_num -> state dict
+current_n = None
+
+with open(os.path.join(RUN, "round.log")) as f:
+    for raw in f:
+        line = raw.rstrip("\n")
+        m = ATTEMPT_RE.match(line)
+        if m:
+            ts, n, total, suffix = m.groups()
+            n = int(n)
+            attempts[n] = {
+                "started_at": int(ts),
+                "total": int(total),
+                "suffix": suffix or "",
+                "failure": None,
+                "succeeded": False,
+                "terminal": False,
+            }
+            current_n = n
+            continue
+        m = FAILURE_RE.match(line)
+        if m and current_n is not None:
+            # FAILURE_RE can also match the SUCCESS_RE line (ends with "on
+            # attempt N"), so check for that collision first.
+            if SUCCESS_RE.match(line):
+                attempts[current_n]["succeeded"] = True
+                continue
+            _ts, category, attempt_n = m.groups()
+            attempt_n = int(attempt_n)
+            if attempt_n in attempts:
+                attempts[attempt_n]["failure"] = category
+            continue
+        m = SUCCESS_RE.match(line)
+        if m and current_n is not None:
+            _ts, n = m.groups()
+            n = int(n)
+            if n in attempts:
+                attempts[n]["succeeded"] = True
+            continue
+        m = TERMINAL_RE.match(line)
+        if m and current_n is not None:
+            if current_n in attempts:
+                attempts[current_n]["terminal"] = True
+            continue
+
+if attempts:
+    max_n = max(attempts.keys())
+    total = attempts[max_n]["total"]
+    last = attempts[max_n]
+
+    def _trunc_headline(s, n=100):
+        """Inline-truncate for the headline so a long category doesn't wrap."""
+        if not isinstance(s, str):
+            return str(s)
+        s = s.strip()
+        return s if len(s) <= n else s[:n-1] + "…"
+
+    # Headline: succeeded / terminal / retrying / in-progress
+    if last["succeeded"]:
+        headline = f"{GREEN}round succeeded on attempt {max_n}/{total}{RESET}"
+    elif last["failure"] and last["terminal"]:
+        headline = f"{RED}terminal failure on attempt {max_n}/{total} ({_trunc_headline(last['failure'])}){RESET}"
+    elif last["failure"] and max_n >= total:
+        headline = f"{RED}retries exhausted at attempt {max_n}/{total} ({_trunc_headline(last['failure'])}){RESET}"
+    elif last["failure"]:
+        headline = f"{YELLOW}attempt {max_n}/{total} failed — will retry ({_trunc_headline(last['failure'])}){RESET}"
+    else:
+        headline = f"{YELLOW}attempt {max_n}/{total} in progress{RESET}"
+
+    print(f"{BOLD}retries:{RESET} {headline}")
+
+    def _truncate_category(s, n=80):
+        """Truncate a long failure category for the per-attempt rollup.
+
+        Failure categories from parse-*.py are normally terse (e.g.
+        `gemini_schema_violation`), but regressions can leak long lines from
+        the parser's stderr (Python tracebacks, multi-line error messages,
+        advisory warnings that bypass the flush-advisory contract). The long
+        form is visible in `round.log (last 5 lines)` below — this rollup is
+        for scanning, not forensics, so we clip to the first 80 chars.
+        """
+        if not isinstance(s, str):
+            return str(s)
+        s = s.strip()
+        if len(s) <= n:
+            return s
+        return s[:n-1] + "…"
+
+    # Per-attempt rollup — only if there's more than one, otherwise the
+    # headline already says everything.
+    if max_n > 1 or last["failure"] or last["terminal"]:
+        for n in sorted(attempts.keys()):
+            a = attempts[n]
+            if a["succeeded"]:
+                marker = f"{GREEN}✓{RESET}"
+                desc = "succeeded"
+            elif a["failure"]:
+                marker = f"{RED}✗{RESET}"
+                desc = f"failed: {_truncate_category(a['failure'])}"
+                if a["terminal"]:
+                    desc += f" {RED}(terminal){RESET}"
+            elif n == max_n:
+                marker = f"{YELLOW}·{RESET}"
+                desc = "running"
+            else:
+                marker = f"{DIM}?{RESET}"
+                desc = "unknown"
+            # Suffix note (reviewers or narrowing info from ATTEMPT_RE
+            # capture group 4). Also truncated because narrowing messages
+            # include the "preserving prior-attempt success" explainer.
+            suffix_note = ""
+            if a["suffix"]:
+                suffix_note = f"  {DIM}{_truncate_category(a['suffix'], 100)}{RESET}"
+            print(f"  {marker} attempt {n}/{total}: {desc}{suffix_note}")
+    print()
+PY
+fi
+
 # ── Round log tail — authoritative progress record ──────────────────
 if [[ -s "$RUN/round.log" ]]; then
   printf '%sround.log (last 5 lines):%s\n' "$BOLD" "$RESET"
