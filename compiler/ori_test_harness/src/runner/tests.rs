@@ -135,6 +135,64 @@ fn test_run_summary_reports_correct_pass_fail_counts() {
     assert!(!summary.is_success());
 }
 
+#[test]
+fn test_mock_strategy_bless_mode_writes_baseline() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    create_test_file(dir.path(), "bless.ori", "// CHECK: some_pattern\n");
+
+    // Create a strategy that produces output with artifact paths
+    let bless_dir = tempfile::tempdir().expect("bless tempdir");
+    let baseline_path = bless_dir.path().join("bless.ll");
+
+    std::env::set_var("ORI_BLESS", "1");
+    let result = crate::bless::compare_or_bless(&baseline_path, "define void @main() {}");
+    std::env::remove_var("ORI_BLESS");
+
+    assert!(result.is_ok());
+    assert!(baseline_path.exists());
+    assert_eq!(
+        std::fs::read_to_string(&baseline_path).expect("read"),
+        "define void @main() {}"
+    );
+}
+
+#[test]
+fn test_mock_strategy_mismatch_produces_diff_in_failure() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    create_test_file(dir.path(), "mismatch.ori", "// CHECK: pattern\n");
+
+    let strategy = FailVerifyStrategy;
+    let summary = run_test_directory(dir.path(), &strategy);
+    assert!(!summary.is_success());
+    assert_eq!(summary.failed, 1);
+    // Verify the failure message contains the verification error
+    assert!(summary.failures[0].contains("verify failed"));
+    assert!(summary.failures[0].contains("pattern not found"));
+}
+
+#[test]
+fn test_mock_strategy_directive_filtering_by_revision() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    create_test_file(
+        dir.path(),
+        "filtered.ori",
+        "\
+// @revisions: alpha beta
+// @[alpha] compile-flags: --opt
+// CHECK: base_pattern
+// @[alpha] CHECK: alpha_only
+// @[beta] CHECK: beta_only
+",
+    );
+
+    // Strategy that succeeds — validates the runner calls execute per revision
+    let strategy = MockTestStrategy { succeed: true };
+    let summary = run_test_directory(dir.path(), &strategy);
+    assert!(summary.is_success(), "failures: {:?}", summary.failures);
+    // Two revisions → two execute calls → two passes
+    assert_eq!(summary.passed, 2);
+}
+
 // ---------------------------------------------------------------------------
 // Negative pins
 // ---------------------------------------------------------------------------

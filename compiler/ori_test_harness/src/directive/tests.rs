@@ -206,6 +206,17 @@ fn test_parse_directive_inside_string_literal_not_matched() {
 }
 
 #[test]
+fn test_parse_malformed_directive_produces_error() {
+    // `// @key` has the recognized `// @` prefix but no `: value` pattern
+    let source = "// @revisions\n";
+    let result = parse_directives(source);
+    assert!(result.directives.is_empty());
+    assert_eq!(result.errors.len(), 1);
+    assert!(result.errors[0].message.contains("malformed directive"));
+    assert_eq!(result.errors[0].line_number, 1);
+}
+
+#[test]
 fn test_parse_forbidden_revision_name_case_insensitive() {
     let source = "// @[true] compile-flags: --opt\n";
     let result = parse_directives(source);

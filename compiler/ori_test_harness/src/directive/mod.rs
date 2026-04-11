@@ -81,6 +81,13 @@ static RE_AT_DIRECTIVE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"^\s*//\s*@(?:\[([^\]]+)\]\s*)?(\S+?):\s*(.*)$").expect("directive regex")
 });
 
+/// Matches `// @` prefix lines that aren't valid directives — used to detect
+/// malformed directives (recognized prefix but unparseable structure).
+static RE_AT_PREFIX: LazyLock<Regex> = LazyLock::new(|| {
+    #[expect(clippy::expect_used, reason = "compile-time constant regex")]
+    Regex::new(r"^\s*//\s*@(?:\[([^\]]+)\])?\s*\S").expect("at-prefix regex")
+});
+
 /// Matches `// CHECK:`, `// CHECK-LABEL:`, `// CHECK-NOT:`, `// CHECK-NEXT:`
 /// with optional `[revision]` prefix.
 static RE_CHECK_DIRECTIVE: LazyLock<Regex> = LazyLock::new(|| {
@@ -167,6 +174,19 @@ pub fn parse_directives(source: &str) -> ParseResult {
                 line_number,
                 revision,
                 directive,
+            });
+            continue;
+        }
+
+        // Detect malformed directives: lines with `// @` prefix that didn't
+        // match a valid directive pattern (recognized prefix, unparseable value).
+        if RE_AT_PREFIX.is_match(line) {
+            errors.push(ParseError {
+                line_number,
+                message: format!(
+                    "malformed directive (expected `// @key: value`): {}",
+                    line.trim()
+                ),
             });
         }
     }

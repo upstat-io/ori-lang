@@ -7,7 +7,7 @@
 
 use std::fs;
 use std::io;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use crate::diff;
 
@@ -33,6 +33,57 @@ pub enum CompareOutcome {
     BlessedEmpty,
     /// Mismatch with unified diff.
     Mismatch { diff: String },
+}
+
+/// Clean up stale baseline files when revisions change.
+///
+/// When a test adds revisions, the old non-revision baseline becomes stale.
+/// When a test removes revisions, old revision-specific baselines become stale.
+/// Call this in bless mode before writing new baselines.
+///
+/// Returns the list of deleted file paths.
+pub fn clean_stale_baselines(
+    test_path: &Path,
+    suffix: &str,
+    active_revisions: &[&str],
+) -> Result<Vec<PathBuf>, io::Error> {
+    let parent = test_path.parent().unwrap_or(Path::new(""));
+    let stem = test_path.file_stem().unwrap_or_default().to_string_lossy();
+    let mut deleted = Vec::new();
+
+    let has_revisions = !(active_revisions.is_empty()
+        || active_revisions.len() == 1 && active_revisions[0].is_empty());
+
+    if has_revisions {
+        // Test has revisions — delete non-revision baseline if it exists
+        let non_rev = parent.join(format!("{stem}.{suffix}"));
+        if non_rev.exists() {
+            fs::remove_file(&non_rev)?;
+            deleted.push(non_rev);
+        }
+    } else {
+        // Test has no revisions — delete any revision-specific baselines
+        // Pattern: stem.<rev>.suffix (single-dot revision name)
+        if let Ok(entries) = fs::read_dir(parent) {
+            let prefix = format!("{stem}.");
+            let ext = format!(".{suffix}");
+            for entry in entries.filter_map(Result::ok) {
+                let name = entry.file_name().to_string_lossy().to_string();
+                if name.starts_with(&prefix)
+                    && name.ends_with(&ext)
+                    && name != format!("{stem}.{suffix}")
+                {
+                    let middle = &name[prefix.len()..name.len() - ext.len()];
+                    if !middle.is_empty() && !middle.contains('.') {
+                        fs::remove_file(entry.path())?;
+                        deleted.push(entry.path());
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(deleted)
 }
 
 /// Compare actual test output against the expected baseline, or bless it.
