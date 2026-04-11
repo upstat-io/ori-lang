@@ -170,10 +170,10 @@ pub(crate) fn run_aims_verify(
     contract: &crate::aims::contract::MemoryContract,
     phase: &str,
     verify: bool,
-) {
+) -> Result<(), Vec<crate::verify::VerifyError>> {
     let enabled = verify || cfg!(debug_assertions);
     if !enabled {
-        return;
+        return Ok(());
     }
 
     let errors = crate::verify::check_function_with_contract(func, contract);
@@ -184,16 +184,22 @@ pub(crate) fn run_aims_verify(
         .collect();
 
     if aims_errors.is_empty() {
-        return;
+        return Ok(());
     }
 
-    // AbsentParamHasUses is a precision gap between semantic analysis
-    // (backward dataflow correctly identifies zero forward demand) and
-    // syntactic IR (dead-code references still exist in CFG-reachable
-    // but semantically-unreachable blocks, e.g. after `if true then panic()`).
-    // This is NOT a safety violation — LLVM's DCE handles the dead code.
-    // Log as warning in all modes; never promote to hard error.
-    for e in &aims_errors {
-        tracing::warn!(phase, "AIMS consistency (non-blocking): {e}");
+    if verify {
+        // Explicit verification mode: hard error.
+        // Note: check_absent_param_no_uses already filters to only LIVE blocks
+        // (forward-reachable from entry AND backward-reachable to Return).
+        // Dead-code references (e.g., after `if true then panic()`) are excluded
+        // by the live_blocks() analysis. Any error reaching here is a genuine
+        // contract/IR inconsistency on a live path.
+        return Err(aims_errors);
     }
+
+    // debug_assertions only: warn but continue.
+    for e in &aims_errors {
+        tracing::warn!(phase, "AIMS consistency: {e}");
+    }
+    Ok(())
 }

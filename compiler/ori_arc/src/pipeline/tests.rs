@@ -146,8 +146,13 @@ fn aims_verify_warns_on_absent_param_has_uses() {
     );
     let contract = make_contract(vec![absent_param()]);
 
-    // AbsentParamHasUses is a non-blocking warning — verify it doesn't panic.
-    super::run_aims_verify(&func, &contract, "test", true);
+    // Live-path case: single block with return v0, no dead code.
+    // The absent param IS used on a live path → hard error.
+    let result = super::run_aims_verify(&func, &contract, "test", true);
+    assert!(
+        result.is_err(),
+        "run_aims_verify should return Err when absent param has uses on a live path"
+    );
 }
 
 #[test]
@@ -165,8 +170,11 @@ fn aims_verify_returns_ok_when_verify_false() {
     );
     let contract = make_contract(vec![absent_param()]);
 
-    // verify=false, warn only — verify it doesn't panic.
-    super::run_aims_verify(&func, &contract, "test", false);
+    let result = super::run_aims_verify(&func, &contract, "test", false);
+    assert!(
+        result.is_ok(),
+        "run_aims_verify should return Ok when verify=false (warn only)"
+    );
 }
 
 // ── FIP structural verification tests ──

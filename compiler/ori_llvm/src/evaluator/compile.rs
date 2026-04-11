@@ -377,7 +377,8 @@ impl<'tcx> super::OwnedLLVMEvaluator<'tcx> {
     ) -> Result<CompiledTestModule<'a>, LLVMEvalError> {
         use inkwell::OptimizationLevel;
 
-        // Bail out early if codegen produced type-mismatch errors.
+        // Bail out early if codegen produced errors (type mismatches,
+        // ARC IR verification failures, LLVM IR verification failures).
         // Feeding malformed IR to LLVM's verifier or JIT can cause
         // heap corruption (SIGABRT) that kills the entire process.
         if codegen_errors > 0 {
@@ -390,7 +391,7 @@ impl<'tcx> super::OwnedLLVMEvaluator<'tcx> {
                 format!(":\n  - {}", codegen_error_descriptions.join("\n  - "))
             };
             return Err(LLVMEvalError::new(format!(
-                "LLVM codegen had {codegen_errors} type-mismatch error(s) — skipping verification/JIT{details}",
+                "LLVM codegen had {codegen_errors} error(s) — skipping verification/JIT{details}",
             )));
         }
 

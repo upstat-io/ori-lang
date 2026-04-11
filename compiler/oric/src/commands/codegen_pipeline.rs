@@ -471,7 +471,7 @@ pub(super) fn run_codegen_pipeline<'ctx>(
             format!(":\n  - {}", codegen_descriptions.join("\n  - "))
         };
         return Err(format!(
-            "LLVM codegen had {codegen_errors} type-mismatch error(s) — aborting AOT compilation{details}",
+            "LLVM codegen had {codegen_errors} error(s) — aborting AOT compilation{details}",
         ));
     }
 
