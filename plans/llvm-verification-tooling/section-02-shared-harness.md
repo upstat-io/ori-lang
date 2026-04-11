@@ -23,31 +23,31 @@ third_party_review:
 sections:
   - id: "02.1"
     title: "Create ori_test_harness Crate"
-    status: not-started
+    status: complete
   - id: "02.2"
     title: "Directive Parser"
-    status: not-started
+    status: complete
   - id: "02.3"
     title: "Artifact Naming and Storage"
-    status: not-started
+    status: complete
   - id: "02.4"
     title: "Bless Mode and Diff Generation"
-    status: not-started
+    status: complete
   - id: "02.5"
     title: "Revision System"
-    status: not-started
+    status: complete
   - id: "02.6"
     title: "Test Runner Orchestration (TestStrategy Trait)"
-    status: not-started
+    status: complete
   - id: "02.7"
     title: "Seed Tests with Mock TestStrategy"
-    status: not-started
+    status: complete
   - id: "02.R"
     title: "Third Party Review Findings"
     status: complete
   - id: "02.N"
     title: "Completion Checklist"
-    status: not-started
+    status: in-progress
 ---
 
 # Section 02: Shared Test Harness Infrastructure
@@ -57,12 +57,12 @@ sections:
 
 **Success Criteria:**
 
-- [ ] `ori_test_harness` crate exists in workspace — satisfies mission criterion: "Shared harness, not fragmented tools"
-- [ ] Directive parser handles `// @<key>: <value>` (generic custom), `// CHECK:`, `// @revisions:` via line-anchored regex — satisfies §03 and §07 needs
-- [ ] `ORI_BLESS=1` env var is the single bless control plane — satisfies §03 and §07 needs
-- [ ] Revision system extracts names and per-revision `compile-flags` directives; flag translation is delegated to consumer `TestStrategy` — satisfies mission criterion: "FileCheck revision support"
-- [ ] `run_test_directory(path, strategy)` is the canonical orchestration loop; §03 and §07 call it with their `TestStrategy` impl — prevents algorithmic duplication
-- [ ] Seed tests use a `MockTestStrategy` to validate orchestration without real compiler integration
+- [x] `ori_test_harness` crate exists in workspace — satisfies mission criterion: "Shared harness, not fragmented tools"
+- [x] Directive parser handles `// @<key>: <value>` (generic custom), `// CHECK:`, `// @revisions:` via line-anchored regex — satisfies §03 and §07 needs
+- [x] `ORI_BLESS=1` env var is the single bless control plane — satisfies §03 and §07 needs
+- [x] Revision system extracts names and per-revision `compile-flags` directives; flag translation is delegated to consumer `TestStrategy` — satisfies mission criterion: "FileCheck revision support"
+- [x] `run_test_directory(path, strategy)` is the canonical orchestration loop; §03 and §07 call it with their `TestStrategy` impl — prevents algorithmic duplication
+- [x] Seed tests use a `MockTestStrategy` to validate orchestration without real compiler integration
 
 **Context:** The research identified a critical SSOT risk: AIMS pass-level snapshots (Tier 0.1) and FileCheck IR assertions (Tier 2.1) both need directive parsing, revision expansion, artifact naming, bless mode, and failure diffing. If built as separate harnesses, their duplicated logic will drift — the exact failure mode Rust avoided by having one `compiletest` tool for codegen, MIR-opt, and UI tests. The research proposes a shared "ori-check" runner binary, but the Codex+Gemini consensus (Round 1) recommends a workspace library + `oric` subcommand instead, to maintain SSOT for compiler behavior.
 
@@ -93,7 +93,7 @@ sections:
 
 Create a new workspace crate that holds the shared test infrastructure. This crate is a dev-dependency of `ori_arc` (for AIMS snapshots) and `ori_llvm` (for FileCheck tests) — it is NOT a production dependency.
 
-- [ ] Create `compiler/ori_test_harness/Cargo.toml`:
+- [x] Create `compiler/ori_test_harness/Cargo.toml`:
   ```toml
   [package]
   name = "ori_test_harness"
@@ -111,9 +111,9 @@ Create a new workspace crate that holds the shared test infrastructure. This cra
   ```
   Do NOT depend on `ori_llvm`, `ori_arc`, `ori_types`, or any compiler crate — the harness is generic infrastructure. Compiler crates depend on it (as dev-dependencies), not the other way. This is critical: the harness sits below all compiler crates in the dependency graph.
 
-- [ ] Add to workspace `Cargo.toml` `members` and `default-members` lists. **Requires explicit user permission per `.claude/rules/cargo.md`.**
+- [x] Add to workspace `Cargo.toml` `members` and `default-members` lists. **Requires explicit user permission per `.claude/rules/cargo.md`.**
 
-- [ ] Create `compiler/ori_test_harness/src/lib.rs` as an index with submodules (per `impl-hygiene.md` — `lib.rs` is an index, no function bodies):
+- [x] Create `compiler/ori_test_harness/src/lib.rs` as an index with submodules (per `impl-hygiene.md` — `lib.rs` is an index, no function bodies):
   ```rust
   //! Shared test harness for AIMS snapshot tests and FileCheck IR assertions.
   //!
@@ -135,12 +135,12 @@ Create a new workspace crate that holds the shared test infrastructure. This cra
   pub mod runner;       // Test runner orchestration (TestStrategy trait)
   ```
 
-- [ ] Verify `cargo check -p ori_test_harness` compiles with the empty modules.
+- [x] Verify `cargo check -p ori_test_harness` compiles with the empty modules.
 
-- [ ] **Subsection close-out (02.1)** — MANDATORY before starting 02.2:
-  - [ ] All tasks above are `[x]` and the subsection's behavior is verified
-  - [ ] Update this subsection's `status` in section frontmatter to `complete`
-  - [ ] **Run `/improve-tooling` retrospectively on THIS subsection**.
+- [x] **Subsection close-out (02.1)** — MANDATORY before starting 02.2:
+  - [x] All tasks above are `[x]` and the subsection's behavior is verified
+  - [x] Update this subsection's `status` in section frontmatter to `complete`
+  - [x] **Run `/improve-tooling` retrospectively on THIS subsection**.
 
 ---
 
@@ -152,7 +152,7 @@ Parse test directives from `.ori` and `.rs` test files. Use **line-anchored rege
 
 **Limitation acknowledgment:** Line-based parsing cannot handle multi-line directives or directives inside block comments. This is acceptable — Rust's compiletest has the same limitation, and all reference implementations (Rust, Zig, LLVM FileCheck) use line-based parsing.
 
-- [ ] Define directive types:
+- [x] Define directive types:
   ```rust
   /// A parsed directive from a test file.
   ///
@@ -193,7 +193,7 @@ Parse test directives from `.ori` and `.rs` test files. Use **line-anchored rege
   }
   ```
 
-- [ ] Define parse error type and result:
+- [x] Define parse error type and result:
   ```rust
   /// An error encountered during directive parsing.
   #[derive(Debug, Clone, PartialEq, Eq)]
@@ -210,7 +210,7 @@ Parse test directives from `.ori` and `.rs` test files. Use **line-anchored rege
   }
   ```
 
-- [ ] Implement `parse_directives(source: &str) -> ParseResult`:
+- [x] Implement `parse_directives(source: &str) -> ParseResult`:
   - Scan lines for `// @` prefix (line-anchored: must start at beginning of line after optional whitespace)
   - Handle `// @[revision_name] directive-name: value` syntax
   - Parse `// CHECK:`, `// CHECK-LABEL:`, etc. as FileCheck directives (also line-anchored)
@@ -219,7 +219,7 @@ Parse test directives from `.ori` and `.rs` test files. Use **line-anchored rege
   - Return `ParseResult` with both successfully parsed directives and errors, with 1-based line numbers
   - Use `regex` crate for the line-anchored patterns. Compile patterns once via `LazyLock` (not per-call).
 
-- [ ] **TDD: Write tests BEFORE implementing `parse_directives()`.** Verify tests fail first, then implement, then verify tests pass unchanged. Tests in `compiler/ori_test_harness/src/directive/tests.rs` (per `impl-hygiene.md` — sibling `tests.rs`, not inline):
+- [x] **TDD: Write tests BEFORE implementing `parse_directives()`.** Verify tests fail first, then implement, then verify tests pass unchanged. Tests in `compiler/ori_test_harness/src/directive/tests.rs` (per `impl-hygiene.md` — sibling `tests.rs`, not inline):
 
   **Matrix dimensions:** directive_type × revision_gate × error_case
 
@@ -241,10 +241,10 @@ Parse test directives from `.ori` and `.rs` test files. Use **line-anchored rege
   - `test_parse_non_directive_comment_ignored`
   - `test_parse_directive_inside_string_literal_not_matched` (line-based limitation acknowledgment)
 
-- [ ] **Subsection close-out (02.2)** — MANDATORY before starting 02.3:
-  - [ ] All tasks above are `[x]` and the subsection's behavior is verified
-  - [ ] Update this subsection's `status` in section frontmatter to `complete`
-  - [ ] **Run `/improve-tooling` retrospectively on THIS subsection**.
+- [x] **Subsection close-out (02.2)** — MANDATORY before starting 02.3:
+  - [x] All tasks above are `[x]` and the subsection's behavior is verified
+  - [x] Update this subsection's `status` in section frontmatter to `complete`
+  - [x] **Run `/improve-tooling` retrospectively on THIS subsection**.
 
 ---
 
@@ -254,7 +254,7 @@ Parse test directives from `.ori` and `.rs` test files. Use **line-anchored rege
 
 Define how test artifacts (`.before.arc`, `.after.arc`, `.diff`, `.ll`) are named, stored, and located. Follow Rust's MIR-opt pattern: expected baselines live alongside test source files.
 
-- [ ] Define artifact types:
+- [x] Define artifact types:
   ```rust
   /// Resolved paths for expected and actual artifact files.
   ///
@@ -272,24 +272,24 @@ Define how test artifacts (`.before.arc`, `.after.arc`, `.diff`, `.ll`) are name
   }
   ```
 
-- [ ] Implement generic artifact path resolution helpers:
+- [x] Implement generic artifact path resolution helpers:
   - `resolve_expected_path(test_path, suffix, revision)` — returns expected baseline path as sibling of test source file with revision inserted before extension
   - `resolve_actual_path(test_path, suffix, revision)` — returns actual output path under `target/test-harness/` (deterministic, not `$TMPDIR`, so artifacts survive for debugging)
   - **Revision suffix**: inserted before the consumer-provided extension: `test.debug.realize_rc_reuse.diff`
   - Expected files: same directory as test source
   - The harness provides path RESOLUTION (where baselines live, how revision suffixes are inserted). Artifact NAMING (what the suffix/extension is — `.arc`, `.ll`, `.diff`) is decided by the consumer's `TestStrategy::execute()` return value, not the harness. This preserves the "knows nothing about the compiler" boundary.
 
-- [ ] **TDD: Write tests BEFORE implementing artifact path resolution.** Tests in `compiler/ori_test_harness/src/artifact/tests.rs`:
+- [x] **TDD: Write tests BEFORE implementing artifact path resolution.** Tests in `compiler/ori_test_harness/src/artifact/tests.rs`:
   - `test_expected_path_is_sibling_of_source_file`
   - `test_actual_path_is_under_target_test_harness`
   - `test_resolve_without_revision_omits_revision_suffix`
   - `test_resolve_with_revision_inserts_suffix_before_extension`
   - `test_revision_suffix_ordering_is_deterministic`
 
-- [ ] **Subsection close-out (02.3)** — MANDATORY before starting 02.4:
-  - [ ] All tasks above are `[x]` and the subsection's behavior is verified
-  - [ ] Update this subsection's `status` in section frontmatter to `complete`
-  - [ ] **Run `/improve-tooling` retrospectively on THIS subsection**.
+- [x] **Subsection close-out (02.3)** — MANDATORY before starting 02.4:
+  - [x] All tasks above are `[x]` and the subsection's behavior is verified
+  - [x] Update this subsection's `status` in section frontmatter to `complete`
+  - [x] **Run `/improve-tooling` retrospectively on THIS subsection**.
 
 ---
 
@@ -299,7 +299,7 @@ Define how test artifacts (`.before.arc`, `.after.arc`, `.diff`, `.ll`) are name
 
 Implement bless mode and diff generation. **Bless mode is controlled exclusively via the `ORI_BLESS=1` environment variable.** There is no `--bless` CLI flag — `cargo test` rejects unrecognized CLI flags, so env var is the only viable control plane. The single query point is `bless::is_bless_enabled()`.
 
-- [ ] Implement `bless::is_bless_enabled()` — the **single query point** for bless mode:
+- [x] Implement `bless::is_bless_enabled()` — the **single query point** for bless mode:
   ```rust
   /// Check if bless mode is active.
   ///
@@ -311,7 +311,7 @@ Implement bless mode and diff generation. **Bless mode is controlled exclusively
   }
   ```
 
-- [ ] Implement `compare_or_bless()` (following Rust compiletest pattern):
+- [x] Implement `compare_or_bless()` (following Rust compiletest pattern):
   ```rust
   #[derive(Debug, PartialEq, Eq)]
   pub enum CompareOutcome {
@@ -358,7 +358,7 @@ Implement bless mode and diff generation. **Bless mode is controlled exclusively
   }
   ```
 
-- [ ] Implement diff generation using `similar` crate:
+- [x] Implement diff generation using `similar` crate:
   ```rust
   /// Generate a unified diff between expected and actual text.
   ///
@@ -370,9 +370,9 @@ Implement bless mode and diff generation. **Bless mode is controlled exclusively
   }
   ```
 
-- [ ] Bless mode must clean up old revision-specific files when revisions change (Rust compiletest deletes non-revision files when introducing revisions).
+- [x] Bless mode must clean up old revision-specific files when revisions change (Rust compiletest deletes non-revision files when introducing revisions).
 
-- [ ] **TDD: Write tests BEFORE implementing bless/diff.** Tests in `compiler/ori_test_harness/src/bless/tests.rs`:
+- [x] **TDD: Write tests BEFORE implementing bless/diff.** Tests in `compiler/ori_test_harness/src/bless/tests.rs`:
 
   **Positive (semantic pins):**
   - `test_bless_writes_new_baseline_when_env_set_to_1`
@@ -388,19 +388,19 @@ Implement bless mode and diff generation. **Bless mode is controlled exclusively
   - `test_bless_disabled_when_env_is_true` (`ORI_BLESS=true` → disabled; only `1` is accepted)
   - `test_bless_disabled_when_env_unset`
 
-- [ ] Add tests in `compiler/ori_test_harness/src/diff/tests.rs`:
+- [x] Add tests in `compiler/ori_test_harness/src/diff/tests.rs`:
   - `test_diff_shows_added_lines_with_plus_prefix`
   - `test_diff_shows_removed_lines_with_minus_prefix`
   - `test_diff_includes_context_lines`
   - `test_diff_empty_expected_shows_all_actual_as_added`
   - `test_diff_identical_inputs_produces_empty_output`
 
-- [ ] **TPR checkpoint** — `/tpr-review` covering 02.1-02.4 implementation work
+- [x] **TPR checkpoint** — `/tpr-review` covering 02.1-02.4 implementation work (covered by section-level TPR in 02.R, all 23 findings resolved)
 
-- [ ] **Subsection close-out (02.4)** — MANDATORY before starting 02.5:
-  - [ ] All tasks above are `[x]` and the subsection's behavior is verified
-  - [ ] Update this subsection's `status` in section frontmatter to `complete`
-  - [ ] **Run `/improve-tooling` retrospectively on THIS subsection**.
+- [x] **Subsection close-out (02.4)** — MANDATORY before starting 02.5:
+  - [x] All tasks above are `[x]` and the subsection's behavior is verified
+  - [x] Update this subsection's `status` in section frontmatter to `complete`
+  - [x] **Run `/improve-tooling` retrospectively on THIS subsection**.
 
 ---
 
@@ -410,7 +410,7 @@ Implement bless mode and diff generation. **Bless mode is controlled exclusively
 
 Implement the revision expansion system. **Critical design boundary:** the harness extracts revision *names* and per-revision `// @[rev] compile-flags:` directives. It does NOT translate revision names into compiler flags or env vars — that is the consumer's responsibility inside `TestStrategy::execute()`. Hardcoding `--release` or `ORI_NO_REPR_OPT=1` in the harness would violate SSOT (the harness would encode compiler-specific knowledge).
 
-- [ ] Define revision configuration:
+- [x] Define revision configuration:
   ```rust
   /// A single test revision extracted from directives.
   ///
@@ -439,7 +439,7 @@ Implement the revision expansion system. **Critical design boundary:** the harne
   }
   ```
 
-- [ ] Implement `filter_directives_for_revision()` — given a list of directives and an active revision name, return only the directives that apply (ungated directives + directives gated to this revision):
+- [x] Implement `filter_directives_for_revision()` — given a list of directives and an active revision name, return only the directives that apply (ungated directives + directives gated to this revision):
   ```rust
   pub fn filter_directives_for_revision<'a>(
       directives: &'a [DirectiveLine],
@@ -452,9 +452,9 @@ Implement the revision expansion system. **Critical design boundary:** the harne
   }
   ```
 
-- [ ] Revision-specific CHECK prefixes: when a revision named `debug` is active, `// @[debug] CHECK:` directives apply in addition to unprefixed `// CHECK:` directives. This is handled by `filter_directives_for_revision()` — no special prefix mechanism needed. (Simpler than Rust's approach of `// DEBUG-CHECK:` because our revision gating already covers this via `// @[debug] CHECK:`.)
+- [x] Revision-specific CHECK prefixes: when a revision named `debug` is active, `// @[debug] CHECK:` directives apply in addition to unprefixed `// CHECK:` directives. This is handled by `filter_directives_for_revision()` — no special prefix mechanism needed. (Simpler than Rust's approach of `// DEBUG-CHECK:` because our revision gating already covers this via `// @[debug] CHECK:`.)
 
-- [ ] **TDD: Write tests BEFORE implementing revision expansion.** Tests in `compiler/ori_test_harness/src/revision/tests.rs`:
+- [x] **TDD: Write tests BEFORE implementing revision expansion.** Tests in `compiler/ori_test_harness/src/revision/tests.rs`:
 
   **Positive:**
   - `test_no_revisions_directive_returns_single_default`
@@ -465,10 +465,10 @@ Implement the revision expansion system. **Critical design boundary:** the harne
   **Negative:**
   - `test_filter_directives_excludes_other_revision_directives`
 
-- [ ] **Subsection close-out (02.5)** — MANDATORY before starting 02.6:
-  - [ ] All tasks above are `[x]` and the subsection's behavior is verified
-  - [ ] Update this subsection's `status` in section frontmatter to `complete`
-  - [ ] **Run `/improve-tooling` retrospectively on THIS subsection**.
+- [x] **Subsection close-out (02.5)** — MANDATORY before starting 02.6:
+  - [x] All tasks above are `[x]` and the subsection's behavior is verified
+  - [x] Update this subsection's `status` in section frontmatter to `complete`
+  - [x] **Run `/improve-tooling` retrospectively on THIS subsection**.
 
 ---
 
@@ -480,7 +480,7 @@ This is the most critical subsection. Without a canonical test runner loop, §03
 
 The harness owns the orchestration algorithm. Consumer crates provide a `TestStrategy` callback that handles compiler-specific behavior (compilation, IR capture, flag/env-var translation). The harness never calls the compiler directly.
 
-- [ ] Define the `TestStrategy` trait:
+- [x] Define the `TestStrategy` trait:
   ```rust
   /// Consumer-provided strategy for test execution.
   ///
@@ -538,7 +538,7 @@ The harness owns the orchestration algorithm. Consumer crates provide a `TestStr
   }
   ```
 
-- [ ] Implement `run_test_directory()` — the canonical orchestration loop:
+- [x] Implement `run_test_directory()` — the canonical orchestration loop:
   ```rust
   /// Run all tests in a directory using the given strategy.
   ///
@@ -644,7 +644,7 @@ The harness owns the orchestration algorithm. Consumer crates provide a `TestStr
   }
   ```
 
-- [ ] Implement `discover_test_files()` using `walkdir` crate — simple recursive `.ori` file walker (do NOT import from `oric` — the harness must not depend on compiler crates):
+- [x] Implement `discover_test_files()` using `walkdir` crate — simple recursive `.ori` file walker (do NOT import from `oric` — the harness must not depend on compiler crates):
   ```rust
   fn discover_test_files(dir: &Path) -> Vec<PathBuf> {
       use walkdir::WalkDir;
@@ -663,7 +663,7 @@ The harness owns the orchestration algorithm. Consumer crates provide a `TestStr
   }
   ```
 
-- [ ] Define `TestSummary`:
+- [x] Define `TestSummary`:
   ```rust
   #[derive(Debug, Default)]
   pub struct TestSummary {
@@ -681,7 +681,7 @@ The harness owns the orchestration algorithm. Consumer crates provide a `TestStr
   }
   ```
 
-- [ ] **TDD: Write tests BEFORE implementing `run_test_directory()`.** Tests in `compiler/ori_test_harness/src/runner/tests.rs` using `MockTestStrategy`:
+- [x] **TDD: Write tests BEFORE implementing `run_test_directory()`.** Tests in `compiler/ori_test_harness/src/runner/tests.rs` using `MockTestStrategy`:
 
   **Positive (semantic pins):**
   - `test_run_single_file_invokes_strategy_once`
@@ -695,10 +695,10 @@ The harness owns the orchestration algorithm. Consumer crates provide a `TestStr
   - `test_run_strategy_verify_error_counted_as_failure`
   - `test_run_file_with_parse_errors_reports_them`
 
-- [ ] **Subsection close-out (02.6)** — MANDATORY before starting 02.7:
-  - [ ] All tasks above are `[x]` and the subsection's behavior is verified
-  - [ ] Update this subsection's `status` in section frontmatter to `complete`
-  - [ ] **Run `/improve-tooling` retrospectively on THIS subsection**.
+- [x] **Subsection close-out (02.6)** — MANDATORY before starting 02.7:
+  - [x] All tasks above are `[x]` and the subsection's behavior is verified
+  - [x] Update this subsection's `status` in section frontmatter to `complete`
+  - [x] **Run `/improve-tooling` retrospectively on THIS subsection**.
 
 ---
 
@@ -710,7 +710,7 @@ Validate that the harness orchestration, directive parsing, revision expansion, 
 
 **Why mock tests are necessary:** §03 and §07 cannot be started until §02 is complete. But §02's seed tests cannot exercise the full pipeline without §03/§07's `TestStrategy` implementations. A `MockTestStrategy` proves that the harness's orchestration algorithm is correct independently of compiler behavior. When §03 and §07 plug in their real strategies, they inherit a known-good orchestration loop.
 
-- [ ] Implement `MockTestStrategy` for harness-only validation:
+- [x] Implement `MockTestStrategy` for harness-only validation:
   ```rust
   /// A test strategy that returns predetermined output.
   ///
@@ -725,22 +725,22 @@ Validate that the harness orchestration, directive parsing, revision expansion, 
   }
   ```
 
-- [ ] Create seed test files in a temporary directory (not in `compiler/ori_llvm/tests/codegen/` or `compiler/ori_arc/tests/arc-opt/` — those are consumer directories created by §03/§07):
+- [x] Create seed test files in a temporary directory (not in `compiler/ori_llvm/tests/codegen/` or `compiler/ori_arc/tests/arc-opt/` — those are consumer directories created by §03/§07):
   - Seed file with `// @revisions: alpha beta` and `// @[alpha] compile-flags: --opt`
   - Seed file with `// @test-arc-pass: realize_rc_reuse`
   - Seed file with `// CHECK: some_pattern` and `// CHECK-NOT: bad_pattern`
 
-- [ ] Write integration tests proving:
+- [x] Write integration tests proving:
   - `test_mock_strategy_single_file_passes_when_output_matches`
   - `test_mock_strategy_revision_expansion_calls_execute_per_revision`
   - `test_mock_strategy_bless_mode_writes_baseline` (set `ORI_BLESS=1` in test env)
   - `test_mock_strategy_mismatch_produces_diff_in_failure`
   - `test_mock_strategy_directive_filtering_by_revision`
 
-- [ ] **Subsection close-out (02.7)** — MANDATORY before starting 02.R:
-  - [ ] All tasks above are `[x]` and the subsection's behavior is verified
-  - [ ] Update this subsection's `status` in section frontmatter to `complete`
-  - [ ] **Run `/improve-tooling` retrospectively on THIS subsection**.
+- [x] **Subsection close-out (02.7)** — MANDATORY before starting 02.R:
+  - [x] All tasks above are `[x]` and the subsection's behavior is verified
+  - [x] Update this subsection's `status` in section frontmatter to `complete`
+  - [x] **Run `/improve-tooling` retrospectively on THIS subsection**.
 
 ---
 
@@ -800,31 +800,31 @@ Validate that the harness orchestration, directive parsing, revision expansion, 
 
 ## 02.N Completion Checklist
 
-- [ ] `ori_test_harness` crate exists in workspace, compiles, passes its own tests
-- [ ] Directive parser uses line-anchored regex (no Ori lexer dependency)
-- [ ] Directive parser handles all directive types (generic `Custom { key, value }`, revisions, compile-flags, CHECK variants)
-- [ ] Forbidden revision names validated and rejected
-- [ ] Malformed directives produce `ParseError` (not silent drop); files with parse errors are not executed
-- [ ] Artifact path resolution produces correct sibling/target paths with revision suffixes
-- [ ] Bless mode controlled exclusively via `ORI_BLESS=1` env var; `is_bless_enabled()` is the single query point
-- [ ] Bless mode writes/deletes baselines correctly; creates parent directories
-- [ ] Revision expansion extracts names and per-revision compile-flags
-- [ ] Revision system does NOT hardcode compiler flags — flag translation delegated to `TestStrategy`
-- [ ] `TestStrategy` trait defines `execute` (with revision translation) and `verify`
-- [ ] `run_test_directory()` provides the canonical orchestration loop
-- [ ] `MockTestStrategy` validates orchestration without compiler integration
-- [ ] Seed tests demonstrate directive parsing, revision expansion, bless mode, and diff generation
-- [ ] **TDD discipline verified**: all tests were written BEFORE their implementation; tests failed before code, passed after
-- [ ] **Test matrix coverage**: directive_type × revision_gate × error_case dimensions covered; bless_mode × env_value × file_state dimensions covered; runner × directive_count × strategy_outcome dimensions covered
-- [ ] **Semantic pins**: at least one test per subsection that ONLY passes with the new behavior
-- [ ] **Negative pins**: forbidden revision names, malformed directives, zero directives (orphan), bless with env=0/false/unset
-- [ ] File sizes: all source files < 500 lines (per `impl-hygiene.md`); split if approaching limit
-- [ ] Tests in sibling `tests.rs` files, not inline (per `impl-hygiene.md`)
-- [ ] Test names follow `test_<subject>_<scenario>_<expected>` convention (per `impl-hygiene.md` §Test Function Naming)
-- [ ] No existing tests regressed: `timeout 150 ./test-all.sh` green
-- [ ] `timeout 150 ./clippy-all.sh` green
+- [x] `ori_test_harness` crate exists in workspace, compiles, passes its own tests
+- [x] Directive parser uses line-anchored regex (no Ori lexer dependency)
+- [x] Directive parser handles all directive types (generic `Custom { key, value }`, revisions, compile-flags, CHECK variants)
+- [x] Forbidden revision names validated and rejected
+- [x] Malformed directives produce `ParseError` (not silent drop); files with parse errors are not executed
+- [x] Artifact path resolution produces correct sibling/target paths with revision suffixes
+- [x] Bless mode controlled exclusively via `ORI_BLESS=1` env var; `is_bless_enabled()` is the single query point
+- [x] Bless mode writes/deletes baselines correctly; creates parent directories
+- [x] Revision expansion extracts names and per-revision compile-flags
+- [x] Revision system does NOT hardcode compiler flags — flag translation delegated to `TestStrategy`
+- [x] `TestStrategy` trait defines `execute` (with revision translation) and `verify`
+- [x] `run_test_directory()` provides the canonical orchestration loop
+- [x] `MockTestStrategy` validates orchestration without compiler integration
+- [x] Seed tests demonstrate directive parsing, revision expansion, bless mode, and diff generation
+- [x] **TDD discipline verified**: all tests were written BEFORE their implementation; tests failed before code, passed after
+- [x] **Test matrix coverage**: directive_type × revision_gate × error_case dimensions covered; bless_mode × env_value × file_state dimensions covered; runner × directive_count × strategy_outcome dimensions covered
+- [x] **Semantic pins**: at least one test per subsection that ONLY passes with the new behavior
+- [x] **Negative pins**: forbidden revision names, malformed directives, zero directives (orphan), bless with env=0/false/unset
+- [x] File sizes: all source files < 500 lines (per `impl-hygiene.md`); split if approaching limit
+- [x] Tests in sibling `tests.rs` files, not inline (per `impl-hygiene.md`)
+- [x] Test names follow `test_<subject>_<scenario>_<expected>` convention (per `impl-hygiene.md` §Test Function Naming)
+- [x] No existing tests regressed: `timeout 150 ./test-all.sh` green
+- [x] `timeout 150 ./clippy-all.sh` green
 - [ ] Plan annotation cleanup: `bash .claude/skills/impl-hygiene-review/plan-annotations.sh --plan 02` returns 0 annotations
-- [ ] All intermediate TPR checkpoint findings resolved
+- [x] All intermediate TPR checkpoint findings resolved
 - [ ] **Plan sync** — update plan metadata:
   - [ ] This section's frontmatter `status` → `complete`
   - [ ] `00-overview.md` Quick Reference updated
