@@ -122,8 +122,8 @@ impl TestSummary {
 pub fn run_test_directory<S: TestStrategy>(dir: &Path, strategy: &S, bless: bool) -> TestSummary {
     let mut summary = TestSummary::default();
 
-    // 1. Discover test files
-    let test_files = discover_test_files(dir, &mut summary.warnings);
+    // 1. Discover test files (traversal errors → hard errors, not warnings)
+    let test_files = discover_test_files(dir, &mut summary.errors);
     if test_files.is_empty() {
         summary.failed += 1;
         summary.failures.push(format!(
@@ -180,25 +180,15 @@ pub fn run_test_directory<S: TestStrategy>(dir: &Path, strategy: &S, bless: bool
         // 3. Expand revisions
         let revisions = revision::expand_revisions(&directives);
 
-        // 3b. In bless mode, clean stale baselines if strategy provides a suffix
-        if bless {
-            let rev_names: Vec<&str> = revisions.iter().map(|r| r.name.as_str()).collect();
-            if let Some(suffix) = strategy.baseline_suffix() {
-                if let Err(e) = bless::clean_stale_baselines(test_path, suffix, &rev_names) {
-                    summary.warnings.push(format!(
-                        "{}: stale baseline cleanup failed: {e}",
-                        test_path.display()
-                    ));
-                }
-            }
-            // Consumer-specific revision cleanup (naming-convention-aware)
-            if let Err(e) = strategy.clean_stale_revisions(test_path, &rev_names) {
-                summary.warnings.push(format!(
-                    "{}: consumer revision cleanup failed: {e}",
-                    test_path.display()
-                ));
-            }
-        }
+        // 3a-3b. Validate revisions and run bless cleanup
+        validate_and_cleanup(
+            test_path,
+            &directives,
+            &revisions,
+            bless,
+            strategy,
+            &mut summary,
+        );
 
         // 4. For each revision: execute → verify
         for rev in &revisions {
@@ -232,16 +222,65 @@ pub fn run_test_directory<S: TestStrategy>(dir: &Path, strategy: &S, bless: bool
     summary
 }
 
+// Validation and bless cleanup
+
+fn validate_and_cleanup<S: TestStrategy>(
+    test_path: &Path,
+    directives: &[DirectiveLine],
+    revisions: &[revision::RevisionConfig],
+    bless: bool,
+    strategy: &S,
+    summary: &mut TestSummary,
+) {
+    // Validate that gated directives reference declared revisions
+    let declared: std::collections::HashSet<&str> =
+        revisions.iter().map(|r| r.name.as_str()).collect();
+    let has_declared_revisions = !(declared.len() == 1 && declared.contains(""));
+    if has_declared_revisions {
+        for d in directives {
+            if let Some(ref gate) = d.revision {
+                if !declared.contains(gate.as_str()) {
+                    summary.warnings.push(format!(
+                        "{}:{}: revision gate '{}' not declared in // @revisions:",
+                        test_path.display(),
+                        d.line_number,
+                        gate
+                    ));
+                }
+            }
+        }
+    }
+
+    // In bless mode, clean stale baselines
+    if bless {
+        let rev_names: Vec<&str> = revisions.iter().map(|r| r.name.as_str()).collect();
+        if let Some(suffix) = strategy.baseline_suffix() {
+            if let Err(e) = bless::clean_stale_baselines(test_path, suffix, &rev_names) {
+                summary.warnings.push(format!(
+                    "{}: stale baseline cleanup failed: {e}",
+                    test_path.display()
+                ));
+            }
+        }
+        if let Err(e) = strategy.clean_stale_revisions(test_path, &rev_names) {
+            summary.warnings.push(format!(
+                "{}: consumer revision cleanup failed: {e}",
+                test_path.display()
+            ));
+        }
+    }
+}
+
 // File discovery
 
-fn discover_test_files(dir: &Path, warnings: &mut Vec<String>) -> Vec<PathBuf> {
+fn discover_test_files(dir: &Path, errors: &mut Vec<String>) -> Vec<PathBuf> {
     let dir_component_count = dir.components().count();
     let mut files = Vec::new();
 
     for entry in WalkDir::new(dir) {
         match entry {
             Err(e) => {
-                warnings.push(format!(
+                errors.push(format!(
                     "walk error in {}: {e}",
                     e.path()
                         .map_or_else(|| dir.display().to_string(), |p| p.display().to_string())
