@@ -209,6 +209,119 @@ fn aims_verify_allows_absent_param_in_dead_code() {
 }
 
 #[test]
+fn aims_verify_respects_nonzero_entry_block() {
+    // Regression: live_blocks() must use func.entry, not hardcoded block 0.
+    // TRMC normalization creates a prologue block and sets func.entry to it.
+    // CFG: b0(return v1) / b1(entry, branch → b0 or b2) / b2(uses v0, Unreachable)
+    // func.entry = b1. v0 used only in b2 (dead path) → Ok.
+    use crate::ir::{ArcInstr, RcStrategy};
+    let mut func = crate::test_helpers::make_func(
+        vec![owned_param(0, Idx::NONE), owned_param(1, Idx::NONE)],
+        Idx::NONE,
+        vec![
+            // Block 0: live path (return v1) — NOT the entry.
+            ArcBlock {
+                id: ArcBlockId::new(0),
+                params: vec![],
+                body: vec![],
+                terminator: ArcTerminator::Return { value: v(1) },
+            },
+            // Block 1: entry — branch to live (b0) or dead (b2).
+            ArcBlock {
+                id: ArcBlockId::new(1),
+                params: vec![],
+                body: vec![],
+                terminator: ArcTerminator::Branch {
+                    cond: v(1),
+                    then_block: ArcBlockId::new(0),
+                    else_block: ArcBlockId::new(2),
+                },
+            },
+            // Block 2: dead path — uses v0, ends in Unreachable.
+            ArcBlock {
+                id: ArcBlockId::new(2),
+                params: vec![],
+                body: vec![ArcInstr::RcInc {
+                    var: v(0),
+                    count: 1,
+                    strategy: RcStrategy::HeapPointer,
+                }],
+                terminator: ArcTerminator::Unreachable,
+            },
+        ],
+        vec![Idx::NONE; 2],
+    );
+    func.entry = ArcBlockId::new(1); // Entry is block 1, not 0.
+    let non_absent = ParamContract {
+        cardinality: Cardinality::Once,
+        ..absent_param()
+    };
+    let contract = make_contract(vec![absent_param(), non_absent]);
+
+    let result = super::run_aims_verify(&func, &contract, "test", true);
+    assert!(
+        result.is_ok(),
+        "live_blocks must use func.entry (b1), not hardcoded b0: {result:?}"
+    );
+}
+
+#[test]
+fn aims_verify_treats_resume_as_live_exit() {
+    // Regression: Resume is a real exit (exceptional unwind path).
+    // CFG: b0(entry) → return v1 / b1 uses v0, Resume
+    // v0 used on Resume path (live) → Err.
+    use crate::ir::{ArcInstr, RcStrategy};
+    let func = crate::test_helpers::make_func(
+        vec![owned_param(0, Idx::NONE), owned_param(1, Idx::NONE)],
+        Idx::NONE,
+        vec![
+            // Block 0: entry — branch to normal or unwind.
+            ArcBlock {
+                id: ArcBlockId::new(0),
+                params: vec![],
+                body: vec![],
+                terminator: ArcTerminator::Branch {
+                    cond: v(1),
+                    then_block: ArcBlockId::new(1),
+                    else_block: ArcBlockId::new(2),
+                },
+            },
+            // Block 1: unwind path — uses v0, ends in Resume (live exit).
+            ArcBlock {
+                id: ArcBlockId::new(1),
+                params: vec![],
+                body: vec![ArcInstr::RcInc {
+                    var: v(0),
+                    count: 1,
+                    strategy: RcStrategy::HeapPointer,
+                }],
+                terminator: ArcTerminator::Resume,
+            },
+            // Block 2: normal path — returns v1 (NOT v0).
+            ArcBlock {
+                id: ArcBlockId::new(2),
+                params: vec![],
+                body: vec![],
+                terminator: ArcTerminator::Return { value: v(1) },
+            },
+        ],
+        vec![Idx::NONE; 2],
+    );
+    let non_absent = ParamContract {
+        cardinality: Cardinality::Once,
+        ..absent_param()
+    };
+    let contract = make_contract(vec![absent_param(), non_absent]);
+
+    // v0 used on Resume path — Resume IS a real exit → live path → Err.
+    let result = super::run_aims_verify(&func, &contract, "test", true);
+    assert!(
+        result.is_err(),
+        "Resume is a live exit — absent param used on unwind path must be an error"
+    );
+}
+
+#[test]
 fn aims_verify_returns_ok_when_verify_false() {
     let func = crate::test_helpers::make_func(
         vec![owned_param(0, Idx::NONE)],
