@@ -52,6 +52,7 @@ pub(crate) fn run_aims_pipeline_all(
         interner,
         builtins,
         verify_arc,
+        observer: None,
     };
 
     let mut all_problems = Vec::new();
