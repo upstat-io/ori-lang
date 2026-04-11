@@ -1,4 +1,4 @@
-fn @map_list(%0: [int] [own], %1: (int) -> int [own]) -> [int] [entry: bb0]
+fn @map_list(%0: [int] [borrow], %1: (int) -> int [borrow]) -> [int] [entry: bb0]
   bb0:
     %2: [int] [RcPtr] = %0
     %3: bool [Scalar] = Invoke @is_empty(%2 [own]) normal bb1 unwind bb2

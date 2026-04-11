@@ -1,4 +1,4 @@
-fn @replicate(%0: int [own], %1: str [own]) -> [str] [entry: bb0]
+fn @replicate(%0: int [own], %1: str [borrow]) -> [str] [entry: bb0]
   bb0:
     %2: int [Scalar] = %0
     %3: int [Scalar] = 0
