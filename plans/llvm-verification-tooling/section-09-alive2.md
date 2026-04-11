@@ -10,7 +10,7 @@ success_criteria:
   - "Curated test corpus of ≥15 pure/arithmetic-heavy Ori functions passes alive-tv refinement checking"
   - "False positive suppression list handles known-benign counterexamples (runtime calls, RC ops)"
   - "Nightly CI job runs alive-tv on the curated corpus with zero unresolved refinement failures"
-  - "Weekly CI job runs alive-tv on all tests/codegen/ IR with timeout per function"
+  - "Weekly CI job runs alive-tv on all compiler/ori_llvm/tests/codegen/ IR with timeout per function"
 inspired_by:
   - "Alive2 alive-tv (~/projects/reference_repos/verification_tools/alive2/tools/alive-tv.cpp) — standalone translation validation comparing two LLVM IR files"
   - "Alive2 opt plugin (~/projects/reference_repos/verification_tools/alive2/tv/tv.cpp) — per-pass translation validation integrated into LLVM opt pipeline"
@@ -53,7 +53,7 @@ sections:
 - [ ] `alive-tv` binary available in CI — satisfies mission criterion: "Alive2 refinement checking curated subset"
 - [ ] ≥15 curated pure/arithmetic functions pass alive-tv — satisfies mission criterion: "nightly alive-tv green"
 - [ ] False positive suppression prevents spurious failures — satisfies mission criterion: "zero unresolved failures"
-- [ ] Nightly CI runs curated corpus; weekly CI runs full `tests/codegen/` — satisfies mission criterion: "CI fully integrated"
+- [ ] Nightly CI runs curated corpus; weekly CI runs full `compiler/ori_llvm/tests/codegen/` — satisfies mission criterion: "CI fully integrated"
 
 **Context:** Alive2 is the standard tool for formal verification of LLVM transformations. It uses the Z3 SMT solver to prove that for ALL possible inputs, the post-optimization IR produces the same observable behavior as the pre-optimization IR (or strictly more defined behavior — "refinement"). This is strictly stronger than testing: a test checks one input, Alive2 proves all inputs. However, Alive2 has significant limitations: it does not support inter-procedural transformations, loops are unrolled to a configurable bound (~256 max), exception handling (`invoke`/`landingpad`) is not modeled, function calls are approximated conservatively, and memory operations can produce false positives. For Ori, this means Alive2 is best applied to pure/arithmetic functions — NOT to RC operations, runtime calls, or programs with complex control flow. The curated subset is guided by the FileCheck test corpus from Section 07, which identifies which functions have clean, self-contained LLVM IR.
 
@@ -191,7 +191,7 @@ Build the diagnostic script that orchestrates alive-tv verification and curate t
 - [ ] Curate the initial function corpus (`tests/alive2/curated-corpus.txt`). Selection criteria:
   - **Include**: Pure arithmetic functions, simple control flow (no loops or loops with small bounds), no runtime calls (`_ori_rc_inc`, `_ori_rc_dec`, `_ori_alloc`, `_ori_panic`), no exception handling (`invoke`/`landingpad`)
   - **Exclude**: Functions with `call void @_ori_rc_*` (RC operations), functions with `invoke` (exception handling), functions calling external runtime (`_ori_*`), functions with large loop nests (>256 iterations), functions with `va_arg` or variadics
-  - **Source**: Start from `tests/codegen/` (Section 07's FileCheck tests) — functions that have clean CHECK patterns are good Alive2 candidates. Also include pure functions from `tests/spec/` that compile to small LLVM IR.
+  - **Source**: Start from `compiler/ori_llvm/tests/codegen/` (Section 07's FileCheck tests) — functions that have clean CHECK patterns are good Alive2 candidates. Also include pure functions from `tests/spec/` that compile to small LLVM IR.
   - Format: one line per entry: `<ori_file_path> <function_name>` (or `<ori_file_path> *` for all functions in the file)
 
 - [ ] Create `tests/alive2/` directory with the corpus file and a README explaining the selection criteria and how to add new entries.
@@ -216,7 +216,7 @@ Alive2 will produce false positives for Ori programs because it conservatively a
   [
     {
       "function": "_ori_main",
-      "file": "tests/codegen/rc/basic_rc.ori",
+      "file": "compiler/ori_llvm/tests/codegen/rc/basic_rc.ori",
       "reason": "Contains _ori_rc_inc/_ori_rc_dec runtime calls that Alive2 cannot model",
       "category": "runtime-call",
       "added": "2026-04-10",
@@ -292,7 +292,7 @@ Wire alive-tv into CI with tiered execution: nightly runs the curated corpus (fa
       - name: Run Alive2 on all codegen tests
         run: |
           exit_code=0
-          for f in tests/codegen/**/*.ori; do
+          for f in compiler/ori_llvm/tests/codegen/**/*.ori; do
             diagnostics/alive2-verify.sh "$f" --timeout 120 --json \
               --suppress tests/alive2/suppressed.json || exit_code=1
           done
@@ -365,4 +365,4 @@ When all findings are triaged:
 - [ ] `/impl-hygiene-review` passed — AFTER `/tpr-review` is clean
 - [ ] `/improve-tooling` **section-close sweep** — verify per-subsection retrospectives ran, add cross-cutting items.
 
-**Exit Criteria:** `diagnostics/alive2-verify.sh --corpus` passes with zero unresolved failures on the curated corpus of ≥15 pure/arithmetic functions. All false positives are documented in the suppression file with categories and rationale. Nightly CI runs the curated corpus; weekly CI runs the full `tests/codegen/` set. The `alive-tv` binary is cached in CI. Pre-opt and post-opt IR capture is gated behind `ORI_ALIVE2_CAPTURE=1` with zero overhead when disabled.
+**Exit Criteria:** `diagnostics/alive2-verify.sh --corpus` passes with zero unresolved failures on the curated corpus of ≥15 pure/arithmetic functions. All false positives are documented in the suppression file with categories and rationale. Nightly CI runs the curated corpus; weekly CI runs the full `compiler/ori_llvm/tests/codegen/` set. The `alive-tv` binary is cached in CI. Pre-opt and post-opt IR capture is gated behind `ORI_ALIVE2_CAPTURE=1` with zero overhead when disabled.

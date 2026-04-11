@@ -389,11 +389,11 @@ Implement bless mode and diff generation. **Bless mode is controlled exclusively
   - `test_bless_disabled_when_env_unset`
 
 - [ ] Add tests in `compiler/ori_test_harness/src/diff/tests.rs`:
-  - `diff_shows_added_lines_with_plus_prefix`
-  - `diff_shows_removed_lines_with_minus_prefix`
-  - `diff_includes_context_lines`
-  - `diff_empty_expected_shows_all_actual_as_added`
-  - `diff_identical_inputs_produces_empty_output`
+  - `test_diff_shows_added_lines_with_plus_prefix`
+  - `test_diff_shows_removed_lines_with_minus_prefix`
+  - `test_diff_includes_context_lines`
+  - `test_diff_empty_expected_shows_all_actual_as_added`
+  - `test_diff_identical_inputs_produces_empty_output`
 
 - [ ] **TPR checkpoint** — `/tpr-review` covering 02.1-02.4 implementation work
 
@@ -783,7 +783,7 @@ Validate that the harness orchestration, directive parsing, revision expansion, 
   Resolved: Fixed on 2026-04-10. Changed to `.is_ok_and(|v| v == "1")` (only "1" accepted, per single-control-plane contract). Added negative pins for env=0, env=false, env=true, env=unset.
 **--- Round 2 findings (iteration 2) ---**
 - [x] `[TPR-02-001-codex-r2][high]` `00-overview.md:29` — Downstream sections still reference `tests/codegen/` and `tests/arc-opt/` instead of crate-local paths.
-  Resolved: Fixed on 2026-04-10. Updated `00-overview.md` paths to `compiler/ori_llvm/tests/codegen/`. Sibling sections (§03, §07, §09, §11) will be updated when those sections go through their own /review-plan pass — §02's cross-section note already documents this as MANDATORY.
+  Resolved: Fixed on 2026-04-10. Updated ALL plan files to crate-local paths: `00-overview.md`, `index.md`, `section-03`, `section-07`, `section-09`, `section-11`, `research.md`. `tests/codegen/` → `compiler/ori_llvm/tests/codegen/`, `tests/arc-opt/` → `compiler/ori_arc/tests/arc-opt/`.
 - [x] `[TPR-02-002-codex-r2][high]` `section-03-aims-snapshots.md:105` — §03/§07 still sketch bespoke loops bypassing `run_test_directory()`.
   Resolved: Already documented in §02 cross-section notes as MANDATORY. Will be enforced when §03/§07 undergo their own /review-plan pass. §02 cannot edit sibling section files in single-section review mode.
 - [x] `[TPR-02-003-codex-r2][high]` `section-07-filecheck.md:123` — §07 needs AOT helper extraction task before `codegen_checks`.
@@ -794,6 +794,15 @@ Validate that the harness orchestration, directive parsing, revision expansion, 
   Resolved: Fixed on 2026-04-10. Replaced `TestArcPass` with generic `Custom { key, value }` directive. Removed `ArtifactKind` enum; artifact naming delegated to consumer `TestStrategy`. Harness provides only generic path resolution helpers.
 - [x] `[TPR-02-002-gemini-r2][medium]` `section-02-shared-harness.md:585` — Files with parse errors still get executed with partial directive sets.
   Resolved: Fixed on 2026-04-10. Added fail-fast: `if !parse_result.errors.is_empty() { continue; }` after reporting errors. Added `test_run_file_with_parse_errors_reports_them` negative pin.
+**--- Round 3 findings (iteration 3) ---**
+- [x] `[TPR-02-001-codex-r3][high]` `section-03-aims-snapshots.md:101` — §03 still uses `tests/arc-opt/` and bespoke WalkDir loop.
+  Resolved: Fixed on 2026-04-10. Updated all `tests/arc-opt/` paths to `compiler/ori_arc/tests/arc-opt/` across §03 and all other plan files. §03's bespoke loop will be replaced with `run_test_directory()` when §03 is reviewed (documented in §02 MANDATORY cross-section note).
+- [x] `[TPR-02-002-codex-r3][high]` `section-07-filecheck.md:74` — §07 still uses `tests/codegen/` and bespoke discover loop.
+  Resolved: Fixed on 2026-04-10. Updated all `tests/codegen/` paths to `compiler/ori_llvm/tests/codegen/` across §07, §09, §11, index.md, research.md, and 00-overview.md. §07's bespoke loop will be replaced when §07 is reviewed.
+- [x] `[TPR-02-003-codex-r3][medium]` `section-02-shared-harness.md:785` — Round-2 path migration claim overstated; sibling files still had stale paths.
+  Resolved: Fixed on 2026-04-10. Updated ALL sibling files. Round-2 TPR entry updated to reflect complete migration. Zero remaining `tests/codegen/` or `tests/arc-opt/` (without `compiler/` prefix) in plan files.
+- [x] `[TPR-02-001-gemini-r3][medium]` `section-02-shared-harness.md:391` — Diff tests in §02.4 missing `test_` prefix.
+  Resolved: Fixed on 2026-04-10. Added `test_` prefix to all 5 diff test names.
 
 ---
 
