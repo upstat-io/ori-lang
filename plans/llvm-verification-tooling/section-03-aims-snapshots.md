@@ -460,6 +460,20 @@ Create the initial corpus of snapshot tests covering the 5 priority passes. Each
 - [x] `[TPR-03-001-codex-impl-r3][low]` `compiler/oric/src/test_support.rs:38` — LEAK:algorithmic-duplication: `ArcCompileResult::all_arc_functions()` and `repr_setup::collect_all_arc_functions()` still duplicate the same flattening algorithm.
   Resolved: Fixed on 2026-04-11. Moved canonical `collect_all_arc_functions()` to `test_support.rs` (always-compiled, not feature-gated). `repr_setup` now delegates to it. Single source of truth for arc_cache flattening.
 
+**Implementation review round 4:**
+
+- [x] `[TPR-03-001-codex-impl-r4][low]` `compiler/ori_llvm/src/evaluator/compile.rs:168` — LEAK:algorithmic-duplication: JIT inlines arc_cache flattening instead of using canonical helper.
+  Resolved: Fixed on 2026-04-11. Moved canonical `collect_all_arc_functions()` to `ori_arc` (where `ArcFunction` lives). Updated JIT compile.rs:168 and :352 to call `ori_arc::collect_all_arc_functions()`. Also updated `oric::test_support` and `repr_setup` to delegate to `ori_arc`.
+
+- [x] `[TPR-03-001-gemini-impl-r4][low]` `compiler/oric/src/commands/repr_setup.rs:242` — LEAK:algorithmic-duplication: `collect_unconstrained_fn_names` duplicates `make_qualified_name` formatting.
+  Resolved: Filed as BUG-07-010 on 2026-04-11. Pre-existing duplication in repr_setup.rs unrelated to Section 03 snapshot infrastructure.
+
+- [x] `[TPR-03-002-gemini-impl-r4][low]` `compiler/oric/src/commands/repr_setup.rs:69` — LEAK:algorithmic-duplication: Method lowering dispatch duplicated between two functions.
+  Resolved: Filed as BUG-07-010 on 2026-04-11. Same bug entry (same file, same finding category).
+
+- [x] `[TPR-03-003-gemini-impl-r4][low]` `compiler/oric/src/test_support.rs:43` — Non-deterministic FxHashMap iteration in `collect_all_arc_functions`.
+  Resolved: Fixed on 2026-04-11. Added doc note that callers must sort for determinism. The snapshot strategy already sorts by name after flattening. The production pipeline also processes functions per-function (not order-dependent). `compute_aims_contracts` uses SCC analysis which is deterministic regardless of input order.
+
 ---
 
 ## 03.N Completion Checklist
