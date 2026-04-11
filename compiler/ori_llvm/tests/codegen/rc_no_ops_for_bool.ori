@@ -1,0 +1,12 @@
+// FileCheck test: pure scalar bool/int logic has no RC or buffer operations
+// CHECK: define void @_ori_main
+// CHECK-NOT: ori_rc_inc
+// CHECK-NOT: ori_str_rc_inc
+// CHECK-NOT: ori_buffer_rc
+
+@main () -> void = {
+    let x = true;
+    let y = !x;
+    let z = x && y;
+    if z then () else ()
+}

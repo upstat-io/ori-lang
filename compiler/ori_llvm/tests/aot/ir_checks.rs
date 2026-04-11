@@ -82,3 +82,33 @@ fn filecheck_iterator_for_loop_drop() {
 fn filecheck_abi_sret_struct_return() {
     run_filecheck("tests/codegen/abi_sret_struct_return.ori");
 }
+
+#[test]
+fn filecheck_closure_capture_env() {
+    run_filecheck("tests/codegen/closure_capture_env.ori");
+}
+
+#[test]
+fn filecheck_closure_no_env_for_empty_capture() {
+    run_filecheck("tests/codegen/closure_no_env_for_empty_capture.ori");
+}
+
+#[test]
+fn filecheck_rc_list_of_strings_cleanup() {
+    run_filecheck("tests/codegen/rc_list_of_strings_cleanup.ori");
+}
+
+#[test]
+fn filecheck_rc_no_ops_for_bool() {
+    run_filecheck("tests/codegen/rc_no_ops_for_bool.ori");
+}
+
+#[test]
+fn filecheck_iterator_break_cleanup() {
+    run_filecheck("tests/codegen/iterator_break_cleanup.ori");
+}
+
+#[test]
+fn filecheck_abi_void_return() {
+    run_filecheck("tests/codegen/abi_void_return.ori");
+}
