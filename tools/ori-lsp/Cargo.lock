@@ -76,6 +76,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "bincode"
+version = "1.3.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b1f45e9417d87227c7a56d22e471c6206462cba514c7590c09aff4cf6d1ddcad"
+dependencies = [
+ "serde",
+]
+
+[[package]]
 name = "bitflags"
 version = "1.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -86,6 +95,15 @@ name = "bitflags"
 version = "2.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "843867be96c8daad0d758b57df9392b6d8d271134fce549de6ce169ff98a92af"
+
+[[package]]
+name = "bitmaps"
+version = "2.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "031043d04099746d8db04daf1fa424b2bc8bd69d92b25962dcde24da39ab64a2"
+dependencies = [
+ "typenum",
+]
 
 [[package]]
 name = "boxcar"
@@ -500,6 +518,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "im"
+version = "15.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d0acd33ff0285af998aaf9b57342af478078f53492322fafc47450e09397e0e9"
+dependencies = [
+ "bitmaps",
+ "rand_core",
+ "rand_xoshiro",
+ "sized-chunks",
+ "typenum",
+ "version_check",
+]
+
+[[package]]
 name = "indexmap"
 version = "2.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -509,6 +541,30 @@ dependencies = [
  "hashbrown 0.16.1",
  "serde",
  "serde_core",
+]
+
+[[package]]
+name = "inkwell"
+version = "0.8.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1def4112dfb2ce2993db7027f7acdb43c1f4ee1c70a082a2eef306ed5d0df365"
+dependencies = [
+ "inkwell_internals",
+ "libc",
+ "llvm-sys",
+ "once_cell",
+ "thiserror",
+]
+
+[[package]]
+name = "inkwell_internals"
+version = "0.13.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "63736175c9a30ea123f7018de9f26163e0b39cd6978990ae486b510c4f3bad69"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
 ]
 
 [[package]]
@@ -606,6 +662,20 @@ name = "litemap"
 version = "0.8.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6373607a59f0be73a39b6fe456b8192fcc3585f602af20751600e974dd455e77"
+
+[[package]]
+name = "llvm-sys"
+version = "211.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "44007a7a44b73bdd877fa9c9ccef256036511220e90f65b4d50e7a15773c0ee3"
+dependencies = [
+ "anyhow",
+ "cc",
+ "lazy_static",
+ "libc",
+ "regex-lite",
+ "semver",
+]
 
 [[package]]
 name = "lock_api"
@@ -716,7 +786,7 @@ checksum = "42f5e15c9953c5e4ccceeb2e7382a716482c34515315f7b03532b8b4e8393d2d"
 
 [[package]]
 name = "ori-lsp"
-version = "0.1.0-alpha.9"
+version = "2026.4.6-alpha.1"
 dependencies = [
  "dashmap 5.5.3",
  "oric",
@@ -726,18 +796,21 @@ dependencies = [
 
 [[package]]
 name = "ori_arc"
-version = "0.1.0-alpha.10"
+version = "2026.4.6-alpha.1"
 dependencies = [
+ "bincode",
  "ori_ir",
+ "ori_registry",
  "ori_types",
  "rustc-hash",
+ "serde",
  "smallvec",
  "tracing",
 ]
 
 [[package]]
 name = "ori_canon"
-version = "0.1.0-alpha.10"
+version = "2026.4.6-alpha.1"
 dependencies = [
  "ori_arc",
  "ori_ir",
@@ -748,17 +821,18 @@ dependencies = [
 
 [[package]]
 name = "ori_diagnostic"
-version = "0.1.0-alpha.10"
+version = "2026.4.6-alpha.1"
 dependencies = [
  "ori_ir",
 ]
 
 [[package]]
 name = "ori_eval"
-version = "0.1.0-alpha.10"
+version = "2026.4.6-alpha.1"
 dependencies = [
  "ori_ir",
  "ori_patterns",
+ "ori_registry",
  "ori_stack",
  "parking_lot",
  "rustc-hash",
@@ -768,7 +842,7 @@ dependencies = [
 
 [[package]]
 name = "ori_fmt"
-version = "0.1.0-alpha.10"
+version = "2026.4.6-alpha.1"
 dependencies = [
  "ori_ir",
  "rustc-hash",
@@ -776,15 +850,16 @@ dependencies = [
 
 [[package]]
 name = "ori_ir"
-version = "0.1.0-alpha.10"
+version = "2026.4.6-alpha.1"
 dependencies = [
  "parking_lot",
  "rustc-hash",
+ "serde",
 ]
 
 [[package]]
 name = "ori_lexer"
-version = "0.1.0-alpha.10"
+version = "2026.4.6-alpha.1"
 dependencies = [
  "ori_ir",
  "ori_lexer_core",
@@ -793,14 +868,36 @@ dependencies = [
 
 [[package]]
 name = "ori_lexer_core"
-version = "0.1.0"
+version = "2026.4.6-alpha.1"
 dependencies = [
  "memchr",
 ]
 
 [[package]]
+name = "ori_llvm"
+version = "2026.4.6-alpha.1"
+dependencies = [
+ "bincode",
+ "im",
+ "inkwell",
+ "llvm-sys",
+ "ori_arc",
+ "ori_ir",
+ "ori_registry",
+ "ori_repr",
+ "ori_rt",
+ "ori_stack",
+ "ori_types",
+ "rustc-hash",
+ "serde",
+ "serde_json",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "ori_parse"
-version = "0.1.0-alpha.10"
+version = "2026.4.6-alpha.1"
 dependencies = [
  "ori_diagnostic",
  "ori_ir",
@@ -810,7 +907,7 @@ dependencies = [
 
 [[package]]
 name = "ori_patterns"
-version = "0.1.0-alpha.10"
+version = "2026.4.6-alpha.1"
 dependencies = [
  "ori_diagnostic",
  "ori_ir",
@@ -819,38 +916,66 @@ dependencies = [
 ]
 
 [[package]]
+name = "ori_registry"
+version = "2026.4.6-alpha.1"
+
+[[package]]
+name = "ori_repr"
+version = "2026.4.6-alpha.1"
+dependencies = [
+ "ori_arc",
+ "ori_ir",
+ "ori_types",
+ "rustc-hash",
+ "tracing",
+]
+
+[[package]]
+name = "ori_rt"
+version = "2026.4.6-alpha.1"
+dependencies = [
+ "cc",
+]
+
+[[package]]
 name = "ori_stack"
-version = "0.1.0-alpha.10"
+version = "2026.4.6-alpha.1"
 dependencies = [
  "stacker",
 ]
 
 [[package]]
 name = "ori_types"
-version = "0.1.0-alpha.10"
+version = "2026.4.6-alpha.1"
 dependencies = [
  "bitflags 2.11.0",
  "ori_diagnostic",
  "ori_ir",
+ "ori_registry",
  "ori_stack",
  "parking_lot",
  "rustc-hash",
+ "serde",
  "tracing",
 ]
 
 [[package]]
 name = "oric"
-version = "0.1.0-alpha.10"
+version = "2026.4.6-alpha.1"
 dependencies = [
  "notify",
+ "ori_arc",
  "ori_canon",
  "ori_diagnostic",
  "ori_eval",
  "ori_fmt",
  "ori_ir",
  "ori_lexer",
+ "ori_llvm",
  "ori_parse",
  "ori_patterns",
+ "ori_registry",
+ "ori_repr",
  "ori_types",
  "parking_lot",
  "rayon",
@@ -971,6 +1096,21 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "69cdb34c158ceb288df11e18b4bd39de994f6657d83847bdffdbd7f346754b0f"
 
 [[package]]
+name = "rand_core"
+version = "0.6.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ec0be4795e2f6a28069bec0b5ff3e2ac9bafc99e6a9a7dc3547996c5c816922c"
+
+[[package]]
+name = "rand_xoshiro"
+version = "0.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6f97cdb2a36ed4183de61b2f824cc45c9f1037f28afe0a322e9fff4c108b5aaa"
+dependencies = [
+ "rand_core",
+]
+
+[[package]]
 name = "rayon"
 version = "1.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1018,6 +1158,12 @@ dependencies = [
  "memchr",
  "regex-syntax",
 ]
+
+[[package]]
+name = "regex-lite"
+version = "0.1.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cab834c73d247e67f4fae452806d17d3c7501756d98c8808d7c9c7aa7d18f973"
 
 [[package]]
 name = "regex-syntax"
@@ -1192,6 +1338,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "sized-chunks"
+version = "0.6.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "16d69225bde7a69b235da73377861095455d298f2b970996eec25ddbb42b3d1e"
+dependencies = [
+ "bitmaps",
+ "typenum",
+]
+
+[[package]]
 name = "slab"
 version = "0.4.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1265,6 +1421,26 @@ dependencies = [
  "once_cell",
  "rustix",
  "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "thiserror"
+version = "2.0.18"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4288b5bcbc7920c07a1149a35cf9590a2aa808e0bc1eafaade0b80947865fbc4"
+dependencies = [
+ "thiserror-impl",
+]
+
+[[package]]
+name = "thiserror-impl"
+version = "2.0.18"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ebc4ee7f67670e9b64d05fa4253e753e016c6c95ff35b89b7941d6b856dec1d5"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
 ]
 
 [[package]]
@@ -1459,6 +1635,12 @@ dependencies = [
  "tracing-log",
  "tracing-subscriber",
 ]
+
+[[package]]
+name = "typenum"
+version = "1.19.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "562d481066bde0658276a35467c4af00bdc6ee726305698a55b86e61d7ad82bb"
 
 [[package]]
 name = "unicode-ident"
