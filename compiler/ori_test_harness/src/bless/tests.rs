@@ -5,9 +5,7 @@
 
 use super::*;
 
-// ---------------------------------------------------------------------------
 // Positive (semantic pins)
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_bless_writes_new_baseline_when_enabled() {
@@ -132,9 +130,7 @@ fn test_bless_with_revisions_only_deletes_non_revision_baseline() {
     assert!(stale_b.exists(), "revision baselines not touched");
 }
 
-// ---------------------------------------------------------------------------
 // Negative pins
-// ---------------------------------------------------------------------------
 
 /// Consolidated env var test — runs all `ORI_BLESS` variations sequentially
 /// in a single test to avoid parallel `set_var`/`remove_var` races.

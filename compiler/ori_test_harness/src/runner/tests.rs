@@ -10,9 +10,7 @@ use super::*;
 use crate::directive::DirectiveLine;
 use crate::revision::RevisionConfig;
 
-// ---------------------------------------------------------------------------
 // MockTestStrategy for harness-only validation
-// ---------------------------------------------------------------------------
 
 struct MockTestStrategy {
     /// If true, `execute()` succeeds. If false, returns an error.
@@ -86,9 +84,7 @@ fn create_test_file(dir: &Path, name: &str, content: &str) {
     f.write_all(content.as_bytes()).expect("write test file");
 }
 
-// ---------------------------------------------------------------------------
 // Positive (semantic pins)
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_run_single_file_invokes_strategy_once() {
@@ -191,9 +187,7 @@ fn test_mock_strategy_directive_filtering_by_revision() {
     assert_eq!(summary.passed, 2);
 }
 
-// ---------------------------------------------------------------------------
 // Negative pins
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_run_empty_directory_fails_as_empty_corpus() {

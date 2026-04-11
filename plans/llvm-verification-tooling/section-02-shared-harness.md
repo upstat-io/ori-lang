@@ -796,6 +796,19 @@ Validate that the harness orchestration, directive parsing, revision expansion, 
 - [x] `[TPR-02-001-gemini-r4][medium]` `section-02-shared-harness.md:745` — Stale `tests/codegen/` and `tests/arc-opt/` in §02.7.
   Resolved: Fixed on 2026-04-10 (mid-run). Updated to crate-local paths.
 
+**--- Round 5 iteration 4 findings ---**
+- [x] `[TPR-02-001-codex-r5i4][high]` `runner/mod.rs:228` — WalkDir silently drops traversal errors.
+  Resolved: Fixed on 2026-04-11. `discover_test_files` now reports walk errors as warnings. Changed to explicit match on `WalkDir` results.
+- [x] `[TPR-02-002-codex-r5i4][medium]` `runner/mod.rs:63` — No consumer hook for per-revision cleanup.
+  Resolved: Fixed on 2026-04-11. Added `clean_stale_revisions()` to TestStrategy with no-op default; runner calls it in bless mode.
+- [x] `[TPR-02-003-codex-r5i4][medium]` `directive/mod.rs:101` — CHECK.* near-miss regex catches CHECKPOINT.
+  Resolved: Fixed on 2026-04-11. Tightened to `CHECK(?:-\w+)?\b` — word boundary prevents matching CHECKPOINT/CHECKED. Added negative pin test.
+- [x] `[TPR-02-001-gemini-r5i4][low]` multiple files — Decorative banners (`// ---`) violate impl-hygiene.
+  Resolved: Fixed on 2026-04-11. Removed all decorative banners across 6 source files.
+- [x] `[TPR-02-002-gemini-r5i4][low]` `revision/mod.rs:25` — Multiple `// @revisions:` silently takes first.
+  Resolved: Fixed on 2026-04-11. Added duplicate detection with ParseError. Added test.
+- `[TPR-02-003-gemini-r5i4][low]` `artifact/mod.rs:37` — Hardcoded target path.
+  Rejected: cargo test runs from workspace root; `target/test-harness/` is correct. Gemini inferred CWD incorrectly.
 **--- Round 5 iteration 3 findings ---**
 - [x] `[TPR-02-001-codex-r5i3][high]` `bless/mod.rs:65` — Stale cleanup conflates revision suffixes with artifact roles.
   Resolved: Fixed on 2026-04-11. Removed aggressive dir scanning from has_revisions branch; only deletes unambiguous non-revision baseline.

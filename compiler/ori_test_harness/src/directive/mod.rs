@@ -15,9 +15,7 @@ use regex::Regex;
 #[cfg(test)]
 mod tests;
 
-// ---------------------------------------------------------------------------
 // Types
-// ---------------------------------------------------------------------------
 
 /// A parsed directive from a test file.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -62,17 +60,13 @@ pub struct ParseResult {
     pub errors: Vec<ParseError>,
 }
 
-// ---------------------------------------------------------------------------
 // Forbidden revision names (from Rust compiletest)
-// ---------------------------------------------------------------------------
 
 const FORBIDDEN_REVISION_NAMES: &[&str] = &[
     "true", "false", "CHECK", "COM", "NEXT", "SAME", "EMPTY", "NOT", "COUNT", "DAG", "LABEL",
 ];
 
-// ---------------------------------------------------------------------------
 // Regex patterns (compiled once via LazyLock)
-// ---------------------------------------------------------------------------
 
 /// Matches `// @[revision] key: value` or `// @key: value`
 static RE_AT_DIRECTIVE: LazyLock<Regex> = LazyLock::new(|| {
@@ -88,17 +82,16 @@ static RE_AT_PREFIX: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"^\s*//\s*@(?:\[([^\]]+)\])?\s*\S").expect("at-prefix regex")
 });
 
-/// Matches near-miss CHECK lines — `// CHECK` without a valid suffix/colon,
-/// or common CHECK typos (`CHEKC`, `CHCK`, `CHECK`). Catches directives the
-/// author likely intended as CHECK assertions but that would silently be
-/// ignored as plain comments.
+/// Matches near-miss CHECK lines — `// CHECK` with optional `-SUFFIX` but
+/// missing/wrong colon, or common typos (`CHEKC`, `CHCK`, `CEHCK`). Uses
+/// word boundary (`\b`) after CHECK to avoid matching non-directives like
+/// `// CHECKPOINT:` or `// CHECKED:`.
 static RE_CHECK_NEAR_MISS: LazyLock<Regex> = LazyLock::new(|| {
     #[expect(clippy::expect_used, reason = "compile-time constant regex")]
-    // Matches lines that look like CHECK directives but weren't consumed by
-    // RE_CHECK_DIRECTIVE: (1) valid CHECK prefix but missing/wrong separator,
-    // (2) common typos (CHEKC, CHCK, CEHCK). Safe because valid CHECK: lines
-    // are already consumed before this regex runs.
-    Regex::new(r"^\s*//\s*(?:@\[([^\]]+)\]\s*)?(?:CHECK.*|(?:CHEKC|CHCK|CEHCK).*)$")
+    // (1) CHECK with optional -SUFFIX and word boundary — catches `// CHECK foo`
+    //     and `// CHECK-TYPO:` but NOT `// CHECKPOINT:` or `// CHECKED:`.
+    // (2) Common typos: CHEKC, CHCK, CEHCK (always near-miss regardless of suffix)
+    Regex::new(r"^\s*//\s*(?:@\[([^\]]+)\]\s*)?(?:CHECK(?:-\w+)?\b.*|(?:CHEKC|CHCK|CEHCK).*)$")
         .expect("check near-miss regex")
 });
 
@@ -110,9 +103,7 @@ static RE_CHECK_DIRECTIVE: LazyLock<Regex> = LazyLock::new(|| {
         .expect("check directive regex")
 });
 
-// ---------------------------------------------------------------------------
 // Parsing
-// ---------------------------------------------------------------------------
 
 /// Parse directives from a test file's source text.
 ///
@@ -122,6 +113,7 @@ static RE_CHECK_DIRECTIVE: LazyLock<Regex> = LazyLock::new(|| {
 pub fn parse_directives(source: &str) -> ParseResult {
     let mut directives = Vec::new();
     let mut errors = Vec::new();
+    let mut seen_revisions = false;
 
     for (idx, line) in source.lines().enumerate() {
         let line_number = idx + 1;
@@ -175,52 +167,11 @@ pub fn parse_directives(source: &str) -> ParseResult {
 
         // Try @-style directives
         if let Some(caps) = RE_AT_DIRECTIVE.captures(line) {
-            let revision = caps.get(1).map(|m| m.as_str().to_string());
-            let key = caps[2].to_string();
-            let value = caps[3].trim().to_string();
-
-            if let Some(ref rev) = revision {
-                if let Some(err) = validate_revision_name(rev, line_number) {
-                    errors.push(err);
-                    continue;
-                }
+            if let Some(result) =
+                parse_at_directive(&caps, line_number, &mut seen_revisions, &mut errors)
+            {
+                directives.push(result);
             }
-
-            let directive = match key.as_str() {
-                "revisions" => {
-                    let names: Vec<String> = value.split_whitespace().map(String::from).collect();
-                    if names.is_empty() {
-                        errors.push(ParseError {
-                            line_number,
-                            message: "empty revisions list (expected at least one name)"
-                                .to_string(),
-                        });
-                        continue;
-                    }
-                    // Validate each revision name against forbidden list
-                    let mut has_error = false;
-                    for name in &names {
-                        if let Some(err) = validate_revision_name(name, line_number) {
-                            errors.push(err);
-                            has_error = true;
-                        }
-                    }
-                    if has_error {
-                        continue;
-                    }
-                    Directive::Revisions { names }
-                }
-                "compile-flags" => Directive::CompileFlags {
-                    flags: value.split_whitespace().map(String::from).collect(),
-                },
-                _ => Directive::Custom { key, value },
-            };
-
-            directives.push(DirectiveLine {
-                line_number,
-                revision,
-                directive,
-            });
             continue;
         }
 
@@ -238,6 +189,64 @@ pub fn parse_directives(source: &str) -> ParseResult {
     }
 
     ParseResult { directives, errors }
+}
+
+/// Parse a `// @key: value` directive from a regex capture.
+fn parse_at_directive(
+    caps: &regex::Captures<'_>,
+    line_number: usize,
+    seen_revisions: &mut bool,
+    errors: &mut Vec<ParseError>,
+) -> Option<DirectiveLine> {
+    let revision = caps.get(1).map(|m| m.as_str().to_string());
+    let key = caps[2].to_string();
+    let value = caps[3].trim().to_string();
+
+    if let Some(ref rev) = revision {
+        if let Some(err) = validate_revision_name(rev, line_number) {
+            errors.push(err);
+            return None;
+        }
+    }
+
+    let directive = match key.as_str() {
+        "revisions" => {
+            if *seen_revisions {
+                errors.push(ParseError {
+                    line_number,
+                    message: "duplicate revisions directive (only one allowed per file)"
+                        .to_string(),
+                });
+                return None;
+            }
+            *seen_revisions = true;
+            let names: Vec<String> = value.split_whitespace().map(String::from).collect();
+            if names.is_empty() {
+                errors.push(ParseError {
+                    line_number,
+                    message: "empty revisions list (expected at least one name)".to_string(),
+                });
+                return None;
+            }
+            for name in &names {
+                if let Some(err) = validate_revision_name(name, line_number) {
+                    errors.push(err);
+                    return None;
+                }
+            }
+            Directive::Revisions { names }
+        }
+        "compile-flags" => Directive::CompileFlags {
+            flags: value.split_whitespace().map(String::from).collect(),
+        },
+        _ => Directive::Custom { key, value },
+    };
+
+    Some(DirectiveLine {
+        line_number,
+        revision,
+        directive,
+    })
 }
 
 fn validate_revision_name(name: &str, line_number: usize) -> Option<ParseError> {
