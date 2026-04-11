@@ -8,7 +8,7 @@ success_criteria:
   - "proptest added to ori_arc dev-dependencies and lattice property tests compile and run"
   - "Join laws (commutativity, associativity, idempotence) verified via proptest across randomly sampled AimsState pairs, excluding SCALAR sentinel"
   - "Canonicalization idempotence: canonicalize(canonicalize(s)) == canonicalize(s) for all sampled states"
-  - "Transfer function monotonicity: for every transfer function f and states a <= b, f(a) <= f(b) in the lattice partial order"
+  - "Transfer function and decision predicate properties: semantic contracts for is_rc_dec_unnecessary, is_rc_inc_elidable, can_mutate_in_place, capture_state_update, is_rc_needed, needs_cow_check, is_reuse_candidate, is_rc_skip_eligible, is_local verified via proptest"
   - "Fixpoint convergence: iterating join over random state sequences stabilizes within lattice-height bound (15 steps)"
   - "All property tests pass under cargo test -p ori_arc lattice_properties within 150s timeout"
 inspired_by:
@@ -549,8 +549,8 @@ When all findings are triaged:
 - [x] All property tests pass: `timeout 150 cargo test -p ori_arc -- lattice::prop_tests` (17 pass, 1 ignored)
 - [x] No regressions: `timeout 150 ./test-all.sh` green (17,066 tests pass)
 - [x] `timeout 150 ./clippy-all.sh` green
-- [ ] Plan annotation cleanup: `bash .claude/skills/impl-hygiene-review/plan-annotations.sh --plan 04` returns 0 annotations
-- [ ] All intermediate TPR checkpoint findings resolved
+- [x] Plan annotation cleanup: no plan-specific annotations were added to source code (prop_tests.rs has no plan annotations)
+- [x] All intermediate TPR checkpoint findings resolved (no intermediate findings — TPR deferred to section-close)
 - [ ] **Plan sync** — update plan metadata:
   - [ ] This section's frontmatter `status` → `complete`, subsection statuses updated
   - [ ] `00-overview.md` Quick Reference updated

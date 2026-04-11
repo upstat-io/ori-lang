@@ -304,8 +304,15 @@ proptest! {
             "canonicalize must not change effect: input={a:?}"
         );
 
-        // Uniqueness: can move either direction (Rule 4 down, Rule 6 up)
-        // No assertion — just document that both directions are valid.
+        // Uniqueness: can move either direction (Rule 4 down, Rule 6 up),
+        // but Shared is never changed by any canonicalization rule.
+        if a.uniqueness == Uniqueness::Shared {
+            assert_eq!(
+                canonical.uniqueness,
+                Uniqueness::Shared,
+                "canonicalize must preserve Shared uniqueness: input={a:?}"
+            );
+        }
 
         // Shape: can move to NonReusable (top of flat lattice) via Rule 3
         if canonical.shape != a.shape {
@@ -391,6 +398,65 @@ proptest! {
             result, re,
             "capture_state_update must produce canonical state: \
              current={current:?}, closure={closure:?}, result={result:?}"
+        );
+    }
+
+    // ── Intrinsic AimsState decision predicates ───────────────────────
+
+    /// is_rc_needed: Owned + not-Dead + not-SCALAR.
+    #[test]
+    fn is_rc_needed_semantic_contract(a in canonical_aims_state_strategy()) {
+        let expected = a.access == AccessClass::Owned
+            && a.consumption != Consumption::Dead
+            && !a.is_scalar();
+        assert_eq!(
+            a.is_rc_needed(), expected,
+            "is_rc_needed must match semantic definition: a={a:?}"
+        );
+    }
+
+    /// needs_cow_check: uniqueness == MaybeShared.
+    #[test]
+    fn needs_cow_check_semantic_contract(a in canonical_aims_state_strategy()) {
+        let expected = a.uniqueness == Uniqueness::MaybeShared;
+        assert_eq!(
+            a.needs_cow_check(), expected,
+            "needs_cow_check must match semantic definition: a={a:?}"
+        );
+    }
+
+    /// is_reuse_candidate: Owned + not-Shared + reusable shape.
+    #[test]
+    fn is_reuse_candidate_semantic_contract(a in canonical_aims_state_strategy()) {
+        let expected = a.access == AccessClass::Owned
+            && a.uniqueness != Uniqueness::Shared
+            && !matches!(a.shape, ShapeClass::NonReusable);
+        assert_eq!(
+            a.is_reuse_candidate(), expected,
+            "is_reuse_candidate must match semantic definition: a={a:?}"
+        );
+    }
+
+    /// is_rc_skip_eligible: local + Owned + Linear + not-SCALAR.
+    #[test]
+    fn is_rc_skip_eligible_semantic_contract(a in canonical_aims_state_strategy()) {
+        let expected = a.is_local()
+            && a.access == AccessClass::Owned
+            && a.consumption == Consumption::Linear
+            && !a.is_scalar();
+        assert_eq!(
+            a.is_rc_skip_eligible(), expected,
+            "is_rc_skip_eligible must match semantic definition: a={a:?}"
+        );
+    }
+
+    /// is_local: BlockLocal or FunctionLocal.
+    #[test]
+    fn is_local_semantic_contract(a in canonical_aims_state_strategy()) {
+        let expected = matches!(a.locality, Locality::BlockLocal | Locality::FunctionLocal);
+        assert_eq!(
+            a.is_local(), expected,
+            "is_local must match semantic definition: a={a:?}"
         );
     }
 }

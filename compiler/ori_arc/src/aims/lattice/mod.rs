@@ -10,7 +10,9 @@
 //!   [`ShapeClass`] (precise since Section 09.2 Shape Activation — per-variable
 //!   shape map, cross-dimensional reuse/COW, TRMC `ContextHole` detection)
 //!
-//! Lattice properties: idempotent, commutative, associative join; monotonic
+//! Lattice properties: idempotent, commutative join; monotonic
+//! Note: join is NOT associative on canonical states (BUG-04-057) due to
+//! canonicalization Rule 4 interaction with uniqueness dimension.
 //! transfer; finite height 15. See tests for exhaustive verification.
 //!
 //! References: Perceus (PLDI 2021), GHC demand analysis (POPL 2014),
