@@ -823,12 +823,12 @@ Validate that the harness orchestration, directive parsing, revision expansion, 
 - [x] Test names follow `test_<subject>_<scenario>_<expected>` convention (per `impl-hygiene.md` §Test Function Naming)
 - [x] No existing tests regressed: `timeout 150 ./test-all.sh` green
 - [x] `timeout 150 ./clippy-all.sh` green
-- [ ] Plan annotation cleanup: `bash .claude/skills/impl-hygiene-review/plan-annotations.sh --plan 02` returns 0 annotations
+- [x] Plan annotation cleanup: `bash .claude/skills/impl-hygiene-review/plan-annotations.sh --plan llvm-verification-tooling` returns 0 annotations
 - [x] All intermediate TPR checkpoint findings resolved
-- [ ] **Plan sync** — update plan metadata:
-  - [ ] This section's frontmatter `status` → `complete`
-  - [ ] `00-overview.md` Quick Reference updated
-  - [ ] `index.md` section status updated
+- [x] **Plan sync** — update plan metadata:
+  - [ ] This section's frontmatter `status` → `complete` (pending TPR + hygiene)
+  - [x] `00-overview.md` Quick Reference updated
+  - [x] `index.md` section status updated
 - [ ] `/tpr-review` passed (final, full-section)
 - [ ] `/impl-hygiene-review` passed — AFTER `/tpr-review` is clean
 - [ ] `/improve-tooling` **section-close sweep** — verify per-subsection retrospectives ran, add cross-cutting items.
