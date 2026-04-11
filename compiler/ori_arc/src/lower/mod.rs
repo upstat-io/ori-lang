@@ -89,6 +89,13 @@ pub enum ArcProblem {
         achieved_count: usize,
         span: Span,
     },
+    /// Contract coherence violation: inferred contract disagrees with
+    /// what the realization pipeline actually emitted (oracle check).
+    /// Only reported under `ORI_VERIFY_ARC=1`.
+    ContractCoherenceViolation {
+        func_name: String,
+        mismatches: Vec<crate::aims::verify::oracle::CoherenceMismatch>,
+    },
 }
 
 // Public entry point

@@ -5,3 +5,4 @@
 //! `extract_contract()` claims and what realization achieved.
 
 pub mod fip;
+pub mod oracle;
