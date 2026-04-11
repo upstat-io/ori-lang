@@ -5,7 +5,7 @@
 //! The harness resolves WHERE baselines live and how revision suffixes are
 //! inserted — not WHAT the file extension or naming convention is.
 
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 
 #[cfg(test)]
 mod tests;
@@ -47,8 +47,12 @@ pub fn resolve_expected(test_path: &Path, suffix: &str, revision: Option<&str>) 
 pub fn resolve_actual(test_path: &Path, suffix: &str, revision: Option<&str>) -> PathBuf {
     let stem = test_path.file_stem().unwrap_or_default();
     let parent = test_path.parent().unwrap_or(Path::new(""));
-    // Strip root from absolute paths so Path::join doesn't discard the base
-    let relative_parent = parent.strip_prefix("/").unwrap_or(parent);
+    // Extract only normal components — strips roots, prefixes (C:\, /), and
+    // parent refs (..) so Path::join never discards the base. Cross-platform.
+    let relative_parent: PathBuf = parent
+        .components()
+        .filter(|c| matches!(c, Component::Normal(_)))
+        .collect();
 
     let filename = match revision {
         Some(rev) if !rev.is_empty() => {

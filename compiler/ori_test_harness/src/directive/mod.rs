@@ -94,8 +94,11 @@ static RE_AT_PREFIX: LazyLock<Regex> = LazyLock::new(|| {
 /// ignored as plain comments.
 static RE_CHECK_NEAR_MISS: LazyLock<Regex> = LazyLock::new(|| {
     #[expect(clippy::expect_used, reason = "compile-time constant regex")]
-    // Matches: (1) CHECK without colon (missing separator), (2) common typos of CHECK
-    Regex::new(r"^\s*//\s*(?:@\[([^\]]+)\]\s*)?(?:CHECK\S*[^:]*|(?:CHEKC|CHCK|CEHCK).*)$")
+    // Matches lines that look like CHECK directives but weren't consumed by
+    // RE_CHECK_DIRECTIVE: (1) valid CHECK prefix but missing/wrong separator,
+    // (2) common typos (CHEKC, CHCK, CEHCK). Safe because valid CHECK: lines
+    // are already consumed before this regex runs.
+    Regex::new(r"^\s*//\s*(?:@\[([^\]]+)\]\s*)?(?:CHECK.*|(?:CHEKC|CHCK|CEHCK).*)$")
         .expect("check near-miss regex")
 });
 
@@ -186,6 +189,14 @@ pub fn parse_directives(source: &str) -> ParseResult {
             let directive = match key.as_str() {
                 "revisions" => {
                     let names: Vec<String> = value.split_whitespace().map(String::from).collect();
+                    if names.is_empty() {
+                        errors.push(ParseError {
+                            line_number,
+                            message: "empty revisions list (expected at least one name)"
+                                .to_string(),
+                        });
+                        continue;
+                    }
                     // Validate each revision name against forbidden list
                     let mut has_error = false;
                     for name in &names {
