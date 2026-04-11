@@ -17,9 +17,7 @@ use crate::revision;
 #[cfg(test)]
 mod tests;
 
-// ---------------------------------------------------------------------------
 // TestStrategy trait
-// ---------------------------------------------------------------------------
 
 /// Consumer-provided strategy for test execution.
 ///
@@ -62,16 +60,28 @@ pub trait TestStrategy {
     ///
     /// When `Some(suffix)` is returned and bless mode is active, the runner
     /// calls `clean_stale_baselines()` once per test file to remove stale
-    /// revision-specific baselines. Return `None` if the strategy does not
+    /// non-revision baselines. Return `None` if the strategy does not
     /// produce baseline files.
     fn baseline_suffix(&self) -> Option<&str> {
         None
     }
+
+    /// Hook for consumer-specific stale revision cleanup in bless mode.
+    ///
+    /// Called once per test file AFTER revision expansion, with the full
+    /// list of active revision names. Consumers implement this to clean
+    /// up stale revision-specific baselines using their own naming
+    /// convention. The default is a no-op.
+    fn clean_stale_revisions(
+        &self,
+        _test_path: &Path,
+        _active_revisions: &[&str],
+    ) -> Result<(), Self::Error> {
+        Ok(())
+    }
 }
 
-// ---------------------------------------------------------------------------
 // TestOutput / TestSummary
-// ---------------------------------------------------------------------------
 
 /// Output produced by a test execution.
 #[derive(Debug, Clone)]
@@ -99,9 +109,7 @@ impl TestSummary {
     }
 }
 
-// ---------------------------------------------------------------------------
 // run_test_directory — the canonical orchestration loop
-// ---------------------------------------------------------------------------
 
 /// Run all tests in a directory using the given strategy.
 ///
@@ -115,7 +123,7 @@ pub fn run_test_directory<S: TestStrategy>(dir: &Path, strategy: &S, bless: bool
     let mut summary = TestSummary::default();
 
     // 1. Discover test files
-    let test_files = discover_test_files(dir);
+    let test_files = discover_test_files(dir, &mut summary.warnings);
     if test_files.is_empty() {
         summary.failed += 1;
         summary.failures.push(format!(
@@ -174,14 +182,21 @@ pub fn run_test_directory<S: TestStrategy>(dir: &Path, strategy: &S, bless: bool
 
         // 3b. In bless mode, clean stale baselines if strategy provides a suffix
         if bless {
+            let rev_names: Vec<&str> = revisions.iter().map(|r| r.name.as_str()).collect();
             if let Some(suffix) = strategy.baseline_suffix() {
-                let rev_names: Vec<&str> = revisions.iter().map(|r| r.name.as_str()).collect();
                 if let Err(e) = bless::clean_stale_baselines(test_path, suffix, &rev_names) {
                     summary.warnings.push(format!(
                         "{}: stale baseline cleanup failed: {e}",
                         test_path.display()
                     ));
                 }
+            }
+            // Consumer-specific revision cleanup (naming-convention-aware)
+            if let Err(e) = strategy.clean_stale_revisions(test_path, &rev_names) {
+                summary.warnings.push(format!(
+                    "{}: consumer revision cleanup failed: {e}",
+                    test_path.display()
+                ));
             }
         }
 
@@ -217,28 +232,43 @@ pub fn run_test_directory<S: TestStrategy>(dir: &Path, strategy: &S, bless: bool
     summary
 }
 
-// ---------------------------------------------------------------------------
 // File discovery
-// ---------------------------------------------------------------------------
 
-fn discover_test_files(dir: &Path) -> Vec<PathBuf> {
+fn discover_test_files(dir: &Path, warnings: &mut Vec<String>) -> Vec<PathBuf> {
     let dir_component_count = dir.components().count();
-    let mut files: Vec<PathBuf> = WalkDir::new(dir)
-        .into_iter()
-        .filter_map(Result::ok)
-        .filter(|e| e.file_type().is_file())
-        .filter(|e| e.path().extension().is_some_and(|ext| ext == "ori"))
-        .filter(|e| {
-            // Only filter hidden/target components WITHIN the walk root,
-            // not the root path itself (which may be a tempdir like .tmpXXX)
-            !e.path().components().skip(dir_component_count).any(|c| {
-                c.as_os_str()
-                    .to_str()
-                    .is_some_and(|s| s.starts_with('.') || s == "target")
-            })
-        })
-        .map(walkdir::DirEntry::into_path)
-        .collect();
+    let mut files = Vec::new();
+
+    for entry in WalkDir::new(dir) {
+        match entry {
+            Err(e) => {
+                warnings.push(format!(
+                    "walk error in {}: {e}",
+                    e.path()
+                        .map_or_else(|| dir.display().to_string(), |p| p.display().to_string())
+                ));
+            }
+            Ok(e) => {
+                if !e.file_type().is_file() {
+                    continue;
+                }
+                if e.path().extension().is_none_or(|ext| ext != "ori") {
+                    continue;
+                }
+                // Only filter hidden/target components WITHIN the walk root,
+                // not the root path itself (which may be a tempdir like .tmpXXX)
+                let dominated_by_hidden =
+                    e.path().components().skip(dir_component_count).any(|c| {
+                        c.as_os_str()
+                            .to_str()
+                            .is_some_and(|s| s.starts_with('.') || s == "target")
+                    });
+                if !dominated_by_hidden {
+                    files.push(e.into_path());
+                }
+            }
+        }
+    }
+
     files.sort();
     files
 }
