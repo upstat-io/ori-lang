@@ -23,7 +23,7 @@ pub(crate) fn verify_and_merge(
     super::trace_pipeline_checkpoint(func, "verify_post_emission", config.interner);
     if let Some(contract) = config.contracts.get(&func.name) {
         let _span = tracing::info_span!("aims_verify").entered();
-        crate::pipeline::run_aims_verify(func, contract, "after AIMS emission", config.verify_arc);
+        crate::pipeline::run_aims_verify(func, contract, "after AIMS emission", config.verify_arc)?;
     }
     super::trace_pipeline_checkpoint(func, "aims_verify", config.interner);
     {
