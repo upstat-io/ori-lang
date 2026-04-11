@@ -48,12 +48,6 @@ pub fn clean_stale_baselines(
     active_revisions: &[&str],
 ) -> Result<Vec<PathBuf>, io::Error> {
     let parent = test_path.parent().unwrap_or(Path::new(""));
-    // Map empty parent to "." so fs::read_dir doesn't fail with ENOENT
-    let parent = if parent.as_os_str().is_empty() {
-        Path::new(".")
-    } else {
-        parent
-    };
     let stem = test_path.file_stem().unwrap_or_default().to_string_lossy();
     let mut deleted = Vec::new();
 

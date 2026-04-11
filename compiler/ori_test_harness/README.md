@@ -39,7 +39,7 @@ impl TestStrategy for MyStrategy {
         &self,
         test_path: &Path,
         revision: &RevisionConfig,
-        directives: &[DirectiveLine],
+        directives: &[&DirectiveLine],
     ) -> Result<TestOutput, String> {
         // Compile, capture output, return it
     }
@@ -48,7 +48,7 @@ impl TestStrategy for MyStrategy {
         &self,
         test_path: &Path,
         revision: &RevisionConfig,
-        directives: &[DirectiveLine],
+        directives: &[&DirectiveLine],
         output: &TestOutput,
     ) -> Result<(), String> {
         // Compare output against expectations
@@ -57,7 +57,9 @@ impl TestStrategy for MyStrategy {
 
 #[test]
 fn my_tests() {
-    let summary = run_test_directory(Path::new("tests/my-suite"), &MyStrategy);
+    use ori_test_harness::bless;
+    let bless = bless::is_bless_enabled();
+    let summary = run_test_directory(Path::new("tests/my-suite"), &MyStrategy, bless);
     assert!(summary.is_success());
 }
 ```
