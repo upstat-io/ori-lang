@@ -1,0 +1,7 @@
+// Semantic pin: RC elision fires for a simple string pass-through.
+// The AIMS pipeline should recognize the parameter is consumed exactly
+// once (returned) and avoid inserting redundant RcInc/RcDec.
+//
+// @test-arc-pass: realize_rc_reuse
+
+@identity (s: str) -> str = s;

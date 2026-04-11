@@ -1,0 +1,7 @@
+// Empty cleanup blocks removed.
+// After RC emission, some blocks may contain only a Jump terminator
+// (no instructions). merge_blocks should eliminate these.
+//
+// @test-arc-pass: merge_blocks
+
+@pass_through (x: int) -> int = x;

@@ -1,0 +1,7 @@
+// Negative pin: all-scalar function gets no COW annotations.
+// Pure integer arithmetic has no heap data — realize_annotations
+// should not place any COW or drop annotations.
+//
+// @test-arc-pass: realize_annotations
+
+@add (a: int, b: int) -> int = a + b;

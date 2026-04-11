@@ -1,0 +1,6 @@
+// Semantic pin: unique owner elision — creating a string locally
+// and returning it should not require RC ops (single owner, no aliasing).
+//
+// @test-arc-pass: realize_rc_reuse
+
+@make_greeting () -> str = "hello world";

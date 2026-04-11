@@ -1,0 +1,9 @@
+// Semantic pin: COW uniqueness check placed correctly.
+// Mutating a list element requires a COW check — realize_annotations
+// should place the uniqueness annotation at the mutation site.
+//
+// @test-arc-pass: realize_annotations
+
+@push_item (items: [int], value: int) -> [int] = {
+    items.push(value: value)
+};
