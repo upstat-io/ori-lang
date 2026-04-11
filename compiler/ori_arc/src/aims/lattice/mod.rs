@@ -21,6 +21,8 @@
 // is the intended public API surface.
 pub mod dimensions;
 #[cfg(test)]
+mod prop_tests;
+#[cfg(test)]
 #[expect(
     clippy::unwrap_used,
     reason = "tests use unwrap for clearer failure messages"

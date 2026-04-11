@@ -792,6 +792,7 @@ dependencies = [
  "ori_registry",
  "ori_types",
  "pretty_assertions",
+ "proptest",
  "rustc-hash",
  "serde",
  "smallvec",
