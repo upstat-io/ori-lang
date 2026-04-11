@@ -26,7 +26,7 @@ Build world-class verification tooling for Ori's AIMS memory system and LLVM bac
 - [ ] **Contract coherence oracle**: After AIMS pipeline completion, an independent contract re-derivation from realized ARC IR (walking actual `RcInc`/`RcDec`/`Reuse` instructions) matches inferred `MemoryContract` — discrepancies are blocking errors under `ORI_VERIFY_ARC=1` (Section 05)
 - [ ] **Protocol builtin ownership pinned**: Every `ProtocolBuiltin` variant's per-argument expected ownership is pinned (not a Cartesian product — each position has ONE expected value), with RC balance verified through LLVM codegen audit for each protocol function (Section 06)
 - [x] **LLVM verification gates active**: `ORI_VERIFY_EACH=1` runs LLVM IR verifier after every optimization pass in `test-all.sh` and CI; function-level `fn_val.verify()` runs after each function's codegen; `opt -lint` runs in the codegen audit pipeline (Section 01) — Completed 2026-04-10. Both `ORI_VERIFY_ARC=1` and `ORI_VERIFY_EACH=1` enabled globally (54s, 36% of budget). `function(lint)` integrated. All 16,978 tests pass.
-- [ ] **FileCheck IR assertions**: `tests/codegen/` contains ≥30 directive-based IR pattern tests covering RC emission, COW patterns, closure codegen, ABI, and iterator patterns, with revision support for debug/release/no-repr-opt configurations (Section 07)
+- [ ] **FileCheck IR assertions**: `compiler/ori_llvm/tests/codegen/` contains ≥30 directive-based IR pattern tests covering RC emission, COW patterns, closure codegen, ABI, and iterator patterns, with revision support for debug/release/no-repr-opt configurations (Section 07)
 - [ ] **Sanitizer integration**: ASan/UBSan instrumentation on generated AOT binaries via LLVM pipeline; separate CI job with smoke subset on PRs and full sweep nightly (Section 08)
 - [ ] **Alive2 refinement checking**: Curated subset of pure/arithmetic-heavy functions verified via Alive2 `alive-tv` for pre-opt → post-opt LLVM IR refinement, running nightly (Section 09)
 - [ ] **Differential oracle fuzzing**: `fuzz/fuzz_targets/ori_differential.rs` generates random Ori programs, executes via eval AND LLVM, compares stdout + `ORI_CHECK_LEAKS` results; ≥24h cumulative fuzzing with zero unresolved divergences (Section 10)
@@ -185,10 +185,10 @@ Phase B - AIMS Verification (Ori-Unique)  [CRITICAL PATH]
   Gate: cargo test -p ori_arc aims_ passes; ORI_VERIFY_ARC=1 tests green
 
 Phase C - LLVM Verification (Industry Standard + Formal)
-  └─ §07: FileCheck-style IR pattern matching (tests/codegen/, 30+ tests)
+  └─ §07: FileCheck-style IR pattern matching (compiler/ori_llvm/tests/codegen/, 30+ tests)
   └─ §08: Sanitizer integration (ASan/UBSan on AOT, separate CI job)
   └─ §09: Alive2 formal verification (curated subset, nightly)
-  Gate: tests/codegen/ passes; ORI_SANITIZE=1 smoke passes; alive-tv nightly green
+  Gate: compiler/ori_llvm/tests/codegen/ passes; ORI_SANITIZE=1 smoke passes; alive-tv nightly green
 
 Phase D - Continuous Verification (Going Beyond)
   └─ §10: Differential oracle fuzzing (eval vs LLVM, cargo-fuzz)
