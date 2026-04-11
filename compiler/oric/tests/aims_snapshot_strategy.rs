@@ -149,15 +149,17 @@ impl TestStrategy for AimsSnapshotStrategy {
                     interner,
                     &uniqueness,
                     &aims_contracts,
-                    false, // verify_arc
+                    true, // verify_arc — snapshot tests verify pipeline output
                     &*observer,
                 );
                 if let Err(verify_errors) = pipeline_result {
+                    let msgs: Vec<String> =
+                        verify_errors.iter().map(|e| format!("  {e}")).collect();
                     return Err(SnapshotError(format!(
-                        "{}: ARC pipeline verification failed for '{}': {} error(s)",
+                        "{}: ARC pipeline verification failed for '{}':\n{}",
                         test_path.display(),
                         func_name_str,
-                        verify_errors.len(),
+                        msgs.join("\n"),
                     )));
                 }
             } // observer dropped here — snapshots no longer borrowed

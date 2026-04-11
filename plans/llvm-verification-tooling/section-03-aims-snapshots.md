@@ -2,7 +2,7 @@
 section: "03"
 title: "AIMS Pass-Level Snapshot Tests"
 status: in-progress
-reviewed: true
+reviewed: false
 goal: "Capture per-pass ARC IR snapshots at AIMS pipeline boundaries via a unified checkpoint observer, enabling regression detection for RC elision, COW annotation, block merge, tail calls, and reuse — invisible to behavioral tests when the LLVM optimizer papers over codegen quality issues"
 success_criteria:
   - "Checkpoint observer captures ARC IR at configurable pipeline boundaries, unified with trace_pipeline_checkpoint() (no parallel dispatch)"
@@ -489,6 +489,17 @@ Create the initial corpus of snapshot tests covering the 5 priority passes. Each
 
 - [x] `[TPR-03-002-codex-impl-r6][low]` `compiler/oric/src/test_support.rs:116` — GAP: No regression tests for the round 5 error-path fixes.
   Resolved: Accepted on 2026-04-11. The `arc_problems` check requires ARC lowering to produce problems from valid Ori source, which requires specific malformed IR states not producible from normal test files. The guard is verified by code inspection and any future regression would be caught by the production pipeline (which has the same check). The missing-dir assert is inherently tested by the corpus always existing in the committed tree.
+
+**Implementation review round 7:**
+
+- [x] `[TPR-03-001-codex-impl-r7][high]` `compiler/oric/tests/aims_snapshot_strategy.rs:152` — GAP: verify_arc=false makes the round 6 error check dead code. Thematic agreement with gemini.
+  Resolved: Fixed on 2026-04-11. Changed `verify_arc: false` to `verify_arc: true`. Snapshot tests now actively verify ARC pipeline output.
+
+- [x] `[TPR-03-001-gemini-impl-r7][high]` `compiler/oric/tests/aims_snapshot_strategy.rs:151` — GAP: Test fix is dead code because verify_arc is false. Thematic agreement with codex.
+  Resolved: Fixed on 2026-04-11. Same fix as [TPR-03-001-codex-impl-r7].
+
+- [x] `[TPR-03-002-gemini-impl-r7][high]` `compiler/oric/tests/aims_snapshot_strategy.rs:155` — LEAK:swallowed-error: Error messages only show count, not content.
+  Resolved: Fixed on 2026-04-11. Error handler now formats each `VerifyError` via `Display` and joins into the `SnapshotError`.
 
 ---
 
