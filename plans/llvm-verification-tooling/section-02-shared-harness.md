@@ -796,6 +796,15 @@ Validate that the harness orchestration, directive parsing, revision expansion, 
 - [x] `[TPR-02-001-gemini-r4][medium]` `section-02-shared-harness.md:745` — Stale `tests/codegen/` and `tests/arc-opt/` in §02.7.
   Resolved: Fixed on 2026-04-10 (mid-run). Updated to crate-local paths.
 
+**--- Round 5 iteration 6 findings ---**
+- [x] `[TPR-02-003-codex-r5i6][low]` `README.md:29` — README usage example shows old API.
+  Resolved: Fixed on 2026-04-11. Updated to `&[&DirectiveLine]` and `bless` param.
+- [x] `[TPR-02-001-gemini-r5i6][low]` `bless/mod.rs:51` — Stale empty-parent mapping for removed read_dir.
+  Resolved: Fixed on 2026-04-11. Removed dead code.
+- `[TPR-02-001-codex-r5i6][medium]` — Cleanup errors as warnings.
+  Rejected: Warnings correct for best-effort cleanup; `is_success()` measures test correctness.
+- `[TPR-02-002-codex-r5i6][low]` — Test root parameter.
+  Rejected: Same as iteration 5 — repeated finding. Functionally correct.
 **--- Round 5 iteration 5 findings ---**
 - [x] `[TPR-02-001-gemini-r5i5][high]` `bless/mod.rs:59` — No-revision branch deletes sibling/role artifacts.
   Resolved: Fixed on 2026-04-11. Removed directory scanning from no-revision branch entirely. Consumer cleanup via `clean_stale_revisions()`.
