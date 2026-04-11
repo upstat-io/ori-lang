@@ -1,7 +1,7 @@
 ---
 section: "03"
 title: "AIMS Pass-Level Snapshot Tests"
-status: not-started
+status: in-progress
 reviewed: true
 goal: "Capture per-pass ARC IR snapshots at AIMS pipeline boundaries via a unified checkpoint observer, enabling regression detection for RC elision, COW annotation, block merge, tail calls, and reuse — invisible to behavioral tests when the LLVM optimizer papers over codegen quality issues"
 success_criteria:
@@ -42,7 +42,7 @@ sections:
 
 # Section 03: AIMS Pass-Level Snapshot Tests
 
-**Status:** Not Started
+**Status:** In Progress
 **Goal:** Capture per-pass ARC IR snapshots at AIMS pipeline boundaries via a unified checkpoint observer, enabling regression detection for RC elision, COW annotation, block merge, tail calls, and reuse optimization changes. These changes are invisible to behavioral tests when the LLVM optimizer papers over codegen quality issues — the program produces correct output from terrible ARC IR. Snapshot tests catch this: if the IR shape changes, the snapshot diff catches it regardless of behavioral output.
 
 **Success Criteria:**
