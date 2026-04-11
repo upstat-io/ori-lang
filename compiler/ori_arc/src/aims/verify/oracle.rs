@@ -86,11 +86,8 @@ fn derive_single_param(rc_incs: u32, rc_decs: u32, use_count: u32) -> RealizedPa
     };
 
     // Consumption: derived from RC pattern
-    let consumption = if rc_incs > 0 && rc_decs > 0 {
-        // Both inc and dec → Unrestricted (value is copied and dropped)
-        Consumption::Unrestricted
-    } else if rc_incs > 0 {
-        // Inc only → value is shared (copied for another consumer)
+    let consumption = if rc_incs > 0 {
+        // Any RcInc → value is shared/copied (Unrestricted)
         Consumption::Unrestricted
     } else if rc_decs > 0 {
         // Dec only → Affine (may be dropped without further use)
@@ -117,18 +114,6 @@ fn derive_single_param(rc_incs: u32, rc_decs: u32, use_count: u32) -> RealizedPa
         consumption,
         cardinality,
     }
-}
-
-// Realized effects
-
-/// Effect summary re-derived from realized IR.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct RealizedEffects {
-    /// Whether the function body contains `Construct` instructions
-    /// that allocate heap memory.
-    pub may_allocate: bool,
-    /// Whether missed reuses were detected (from second pass).
-    pub may_deallocate: bool,
 }
 
 // Coherence comparison
