@@ -455,6 +455,11 @@ Create the initial corpus of snapshot tests covering the 5 priority passes. Each
 - [x] `[TPR-03-002-gemini-impl-r2][low]` `compiler/oric/tests/aims_snapshot_strategy.rs:63` — LEAK:algorithmic-duplication: `collect_all_functions()` duplicates `repr_setup::collect_all_arc_functions()`.
   Resolved: Fixed on 2026-04-11. Added `ArcCompileResult::all_arc_functions()` method to `test_support.rs`. Removed private `collect_all_functions()` from strategy. The `repr_setup` version remains for production use (separate input type).
 
+**Implementation review round 3 (final re-review):**
+
+- [x] `[TPR-03-001-codex-impl-r3][low]` `compiler/oric/src/test_support.rs:38` — LEAK:algorithmic-duplication: `ArcCompileResult::all_arc_functions()` and `repr_setup::collect_all_arc_functions()` still duplicate the same flattening algorithm.
+  Resolved: Fixed on 2026-04-11. Moved canonical `collect_all_arc_functions()` to `test_support.rs` (always-compiled, not feature-gated). `repr_setup` now delegates to it. Single source of truth for arc_cache flattening.
+
 ---
 
 ## 03.N Completion Checklist

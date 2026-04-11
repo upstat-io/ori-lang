@@ -34,16 +34,32 @@ impl ArcCompileResult {
 
     /// Flatten the arc cache into a single Vec of all functions (parents + lambdas).
     ///
-    /// This is the canonical flattening helper — also used by
-    /// `commands/repr_setup::collect_all_arc_functions` in the production pipeline.
+    /// Uses [`collect_all_arc_functions`] — the single canonical flattening
+    /// helper shared by both snapshot tests and the production pipeline
+    /// (`commands/repr_setup.rs` delegates to this same function).
     pub fn all_arc_functions(&self) -> Vec<ArcFunction> {
-        self.arc_cache
-            .values()
-            .flat_map(|(parent, lambdas)| {
-                std::iter::once(parent.clone()).chain(lambdas.iter().cloned())
-            })
-            .collect()
+        collect_all_arc_functions(&self.arc_cache)
     }
+}
+
+/// Flatten an ARC cache into a single Vec of all functions (parents + lambdas).
+///
+/// This is the **single canonical flattening helper** for the `(Name, (ArcFunction,
+/// Vec<ArcFunction>))` cache shape. Used by:
+/// - `ArcCompileResult::all_arc_functions()` (snapshot tests)
+/// - `commands::repr_setup::collect_all_arc_functions()` (production pipeline)
+#[expect(
+    clippy::implicit_hasher,
+    reason = "internal function always called with FxHashMap"
+)]
+pub fn collect_all_arc_functions(
+    arc_cache: &FxHashMap<Name, (ArcFunction, Vec<ArcFunction>)>,
+) -> Vec<ArcFunction> {
+    arc_cache
+        .values()
+        .flat_map(|(parent, lambdas)| std::iter::once(parent).chain(lambdas.iter()))
+        .cloned()
+        .collect()
 }
 
 /// Compile a source file to ARC IR (pre-AIMS pipeline).
