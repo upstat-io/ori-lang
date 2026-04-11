@@ -267,7 +267,7 @@ Note: §09 (Alive2) and §10 (fuzzing) estimates include tool installation, corp
 | ID | Title | File | Status |
 |----|-------|------|--------|
 | 01 | Verifier Gates & Quick Wins | `section-01-verifier-gates.md` | Complete |
-| 02 | Shared Test Harness Infrastructure | `section-02-shared-harness.md` | Not Started |
+| 02 | Shared Test Harness Infrastructure | `section-02-shared-harness.md` | In Progress |
 | 03 | AIMS Pass-Level Snapshot Tests | `section-03-aims-snapshots.md` | Not Started |
 | 04 | AIMS Lattice Property Verification | `section-04-lattice-properties.md` | Not Started |
 | 05 | Contract Coherence Oracle | `section-05-contract-oracle.md` | Not Started |

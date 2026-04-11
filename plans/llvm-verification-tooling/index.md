@@ -32,7 +32,7 @@ pipeline/mod.rs, postprocess.rs, debug_assert, FIP
 ---
 
 ### Section 02: Shared Test Harness Infrastructure
-**File:** `section-02-shared-harness.md` | **Status:** Not Started
+**File:** `section-02-shared-harness.md` | **Status:** In Progress
 
 ```
 directive parser, //@, CHECK:, CHECK-LABEL, CHECK-NOT
