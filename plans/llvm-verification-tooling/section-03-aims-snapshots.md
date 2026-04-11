@@ -102,35 +102,30 @@ Add configurable dump hooks at pipeline step boundaries. The hooks capture ARC I
 
 Wire the snapshot capture into cargo tests using the shared harness (§02). Tests use `// @test-arc-pass: realize_rc_reuse` directives to specify which pass to snapshot.
 
-- [ ] Create `compiler/ori_arc/tests/aims_snapshots.rs`:
+- [ ] Create `compiler/ori_arc/tests/aims_snapshots.rs` using `run_test_directory()` from the shared harness:
   ```rust
   //! AIMS pass-level snapshot tests.
-  //! 
-  //! Each test in compiler/ori_arc/tests/arc-opt/ uses directives to specify which AIMS pipeline
-  //! pass to snapshot. The shared harness (ori_test_harness) handles directive
-  //! parsing, artifact naming, and comparison/bless.
-  
-  use ori_test_harness::{directive, artifact, bless};
-  
+  //!
+  //! Uses the shared harness (ori_test_harness) for directive parsing,
+  //! revision expansion, bless mode, and test orchestration.
+  //! This crate provides only the AimsSnapshotStrategy — all orchestration
+  //! logic lives in the shared harness.
+
+  use ori_test_harness::runner::{run_test_directory, TestStrategy};
+  use std::path::Path;
+
   #[test]
   fn aims_snapshot_tests() {
-      let test_dir = Path::new("tests/arc-opt");
-      let bless = std::env::var("ORI_BLESS").is_ok();
-      
-      for entry in walkdir::WalkDir::new(test_dir).into_iter().filter_entry(|e| {
-          e.path().extension() == Some("ori".as_ref())
-      }) {
-          let path = entry.unwrap().path().to_path_buf();
-          run_snapshot_test(&path, bless);
-      }
+      let test_dir = Path::new("compiler/ori_arc/tests/arc-opt");
+      let strategy = AimsSnapshotStrategy::new();
+      let summary = run_test_directory(test_dir, &strategy);
+      assert!(summary.is_success(), "AIMS snapshot failures:\n{}", summary.failures.join("\n"));
   }
   ```
 
-- [ ] Implement `run_snapshot_test()` that:
-  1. Parses directives from the `.ori` file
-  2. Compiles through the AIMS pipeline with snapshot capture enabled
-  3. Compares captured artifacts against baseline using `bless::compare_or_bless()`
-  4. Reports diff on failure
+- [ ] Implement `AimsSnapshotStrategy` that implements `TestStrategy`:
+  - `execute()`: translates revision config into compiler flags, compiles through the AIMS pipeline with snapshot capture, interprets `Custom { key: "test-arc-pass", .. }` directives to select pass
+  - `verify()`: compares captured artifacts against baselines using `bless::compare_or_bless()`
 
 - [ ] Add `ori_test_harness` as dev-dependency of `ori_arc`.
 
