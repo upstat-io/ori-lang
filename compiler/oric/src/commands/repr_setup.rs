@@ -17,16 +17,15 @@ use rustc_hash::{FxHashMap, FxHashSet};
 /// Collect all ARC functions from the inference cache (parents + lambdas).
 ///
 /// The arc cache maps each top-level function name to `(parent, lambdas)`.
-/// This flattens the cache into a single owned `Vec` for consumption by
+/// Flatten the ARC cache into a single owned `Vec` for consumption by
 /// downstream passes (repr plan, uniqueness analysis, AIMS contracts).
+///
+/// Delegates to [`crate::test_support::collect_all_arc_functions`] — the
+/// single canonical implementation of this flattening algorithm.
 pub(super) fn collect_all_arc_functions(
     arc_cache: &FxHashMap<Name, (ori_arc::ArcFunction, Vec<ori_arc::ArcFunction>)>,
 ) -> Vec<ori_arc::ArcFunction> {
-    arc_cache
-        .values()
-        .flat_map(|(parent, lambdas)| std::iter::once(parent).chain(lambdas.iter()))
-        .cloned()
-        .collect()
+    crate::test_support::collect_all_arc_functions(arc_cache)
 }
 
 /// ARC-lower impl methods for interprocedural repr analysis.
