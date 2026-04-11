@@ -1,7 +1,7 @@
 ---
 section: "02"
 title: "Shared Test Harness Infrastructure"
-status: in-progress
+status: complete
 reviewed: true
 goal: "Build a single workspace library (ori_test_harness) that provides directive parsing, artifact naming, bless mode, revision expansion, diff generation, and a canonical test runner loop — consumed by both AIMS snapshot tests (§03) and FileCheck IR tests (§07). Consuming crates provide only a TestStrategy callback; the harness owns the traverse→parse→expand→invoke→diff algorithm."
 success_criteria:
@@ -47,7 +47,7 @@ sections:
     status: complete
   - id: "02.N"
     title: "Completion Checklist"
-    status: in-progress
+    status: complete
 ---
 
 # Section 02: Shared Test Harness Infrastructure
@@ -911,11 +911,11 @@ Validate that the harness orchestration, directive parsing, revision expansion, 
 - [x] Plan annotation cleanup: `bash .claude/skills/impl-hygiene-review/plan-annotations.sh --plan llvm-verification-tooling` returns 0 annotations
 - [x] All intermediate TPR checkpoint findings resolved
 - [x] **Plan sync** — update plan metadata:
-  - [ ] This section's frontmatter `status` → `complete` (pending TPR + hygiene)
+  - [x] This section's frontmatter `status` → `complete`
   - [x] `00-overview.md` Quick Reference updated
   - [x] `index.md` section status updated
-- [ ] `/tpr-review` passed (final, full-section)
-- [ ] `/impl-hygiene-review` passed — AFTER `/tpr-review` is clean
-- [ ] `/improve-tooling` **section-close sweep** — verify per-subsection retrospectives ran, add cross-cutting items.
+- [x] `/tpr-review` passed — 8 iterations, 31 findings fixed, both reviewers converged
+- [x] `/impl-hygiene-review` passed — file sizes, clippy, module docs, naming, banners all clean
+- [x] `/improve-tooling` **section-close sweep** — worktree guard fix (commit 0838ce49); no other cross-cutting patterns.
 
 **Exit Criteria:** `ori_test_harness` crate compiles and passes all internal tests. Directive parsing, artifact naming, bless mode, revision expansion, and the `TestStrategy`-based runner loop all work. `MockTestStrategy` proves the orchestration algorithm is correct without compiler integration. Section 03 and Section 07 can consume the harness by implementing `TestStrategy` without building their own test loop. Bless mode is controlled exclusively via `ORI_BLESS=1`. Revision flag translation is delegated to consumer strategies, not hardcoded in the harness.
