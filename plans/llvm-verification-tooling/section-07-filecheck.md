@@ -3,16 +3,16 @@ section: "07"
 title: "FileCheck-Style IR Pattern Matching"
 status: not-started
 reviewed: false
-goal: "Build a FileCheck-style IR assertion framework in tests/codegen/ with >=30 directive-based tests covering RC emission, COW patterns, closure codegen, ABI, and iterator patterns — using the shared harness from Section 02 for directive parsing, bless mode, and revision support"
+goal: "Build a FileCheck-style IR assertion framework in compiler/ori_llvm/tests/codegen/ with >=30 directive-based tests covering RC emission, COW patterns, closure codegen, ABI, and iterator patterns — using the shared harness from Section 02 for directive parsing, bless mode, and revision support"
 success_criteria:
-  - "tests/codegen/ contains >=30 FileCheck-style tests with // CHECK: directives"
+  - "compiler/ori_llvm/tests/codegen/ contains >=30 FileCheck-style tests with // CHECK: directives"
   - "Tests use .matches mode (order-independent substring matching) as default"
   - "Revision system supports debug/release/no-repr-opt configurations per test"
   - "Bless mode (--bless) updates expected baselines for .ll artifacts"
   - "Tests run via cargo test -p ori_llvm --test codegen_checks within 150s timeout"
   - "At least 6 tests per category: RC emission, COW patterns, closure codegen, ABI, iterator patterns"
 inspired_by:
-  - "Rust compiletest codegen tests (tests/codegen/) — CHECK directives in Ori source files"
+  - "Rust compiletest codegen tests (compiler/ori_llvm/tests/codegen/) — CHECK directives in Ori source files"
   - "Zig addCheckFile (test/src/LlvmIr.zig:45-73) — .matches mode for order-independent matching"
   - "LLVM FileCheck (llvm-project/llvm/utils/FileCheck/) — CHECK/CHECK-NOT/CHECK-LABEL/CHECK-NEXT"
 depends_on: ["02"]
@@ -46,11 +46,11 @@ sections:
 # Section 07: FileCheck-Style IR Pattern Matching
 
 **Status:** Not Started
-**Goal:** Build a FileCheck-style IR assertion framework in `tests/codegen/` with at least 30 directive-based tests covering RC emission, COW patterns, closure codegen, ABI, and iterator patterns. Tests use `// CHECK:` directives embedded in Ori source files, compiled through the full LLVM pipeline, with the resulting IR matched against the directives. The shared harness from Section 02 provides directive parsing, bless mode, and revision support. The default matching mode is `.matches` (order-independent substring search, following Zig's pattern), which is more robust against IR reordering by LLVM's optimizer than strict sequential matching.
+**Goal:** Build a FileCheck-style IR assertion framework in `compiler/ori_llvm/tests/codegen/` with at least 30 directive-based tests covering RC emission, COW patterns, closure codegen, ABI, and iterator patterns. Tests use `// CHECK:` directives embedded in Ori source files, compiled through the full LLVM pipeline, with the resulting IR matched against the directives. The shared harness from Section 02 provides directive parsing, bless mode, and revision support. The default matching mode is `.matches` (order-independent substring search, following Zig's pattern), which is more robust against IR reordering by LLVM's optimizer than strict sequential matching.
 
 **Success Criteria:**
 
-- [ ] 30+ FileCheck tests in `tests/codegen/` — satisfies mission criterion: "FileCheck IR assertions"
+- [ ] 30+ FileCheck tests in `compiler/ori_llvm/tests/codegen/` — satisfies mission criterion: "FileCheck IR assertions"
 - [ ] `.matches` mode as default — satisfies mission criterion: "FileCheck IR assertions"
 - [ ] Revision support for debug/release/no-repr-opt — satisfies mission criterion: "FileCheck revision support"
 - [ ] Bless mode updates baselines — satisfies mission criterion: "FileCheck IR assertions"
@@ -61,7 +61,7 @@ sections:
 **FastISel limitation:** Revisions testing debug vs release can detect behavioral differences but cannot catch FastISel bugs at the IR level — FastISel affects instruction selection (which LLVM instructions are emitted), not the IR. The IR patterns are identical between debug and release; the difference manifests only in the generated machine code. For FastISel-sensitive patterns (struct loads >16 bytes, aggregate spills), use AOT integration tests (`ori_llvm/tests/aot/`) that execute the generated binary, not IR-level checks.
 
 **Reference implementations:**
-- **Rust** `tests/codegen/`: CHECK directives in Rust source files, compiled with `--emit=llvm-ir`, matched against LLVM IR output. Revisions for optimization levels.
+- **Rust** `compiler/ori_llvm/tests/codegen/`: CHECK directives in Rust source files, compiled with `--emit=llvm-ir`, matched against LLVM IR output. Revisions for optimization levels.
 - **Zig** `test/src/LlvmIr.zig` (lines 45-73): `.matches` mode — order-independent substring search. More robust against IR reordering than LLVM's FileCheck sequential matching.
 - **LLVM** `llvm-project/llvm/utils/FileCheck/`: The reference FileCheck tool with CHECK/CHECK-NOT/CHECK-LABEL/CHECK-NEXT directives.
 
@@ -73,7 +73,7 @@ sections:
 
 **File(s):** `compiler/ori_llvm/tests/codegen_checks.rs` (new), `compiler/ori_test_harness/src/check.rs` (new)
 
-Build the test runner that: (1) reads `.ori` test files from `tests/codegen/`, (2) compiles each through the full LLVM pipeline to produce LLVM IR, (3) parses `// CHECK:` directives from the source, (4) matches directives against the LLVM IR output.
+Build the test runner that: (1) reads `.ori` test files from `compiler/ori_llvm/tests/codegen/`, (2) compiles each through the full LLVM pipeline to produce LLVM IR, (3) parses `// CHECK:` directives from the source, (4) matches directives against the LLVM IR output.
 
 - [ ] Add `check.rs` module to `ori_test_harness` with the matching engine:
   ```rust
@@ -120,18 +120,18 @@ Build the test runner that: (1) reads `.ori` test files from `tests/codegen/`, (
   }
   ```
 
-- [ ] Create `compiler/ori_llvm/tests/codegen_checks.rs` as an integration test that discovers and runs all `.ori` files in `tests/codegen/`:
+- [ ] Create `compiler/ori_llvm/tests/codegen_checks.rs` as an integration test that discovers and runs all `.ori` files in `compiler/ori_llvm/tests/codegen/`:
   ```rust
   //! FileCheck-style codegen tests.
   //!
-  //! Each `.ori` file in `tests/codegen/` is compiled through the full LLVM
+  //! Each `.ori` file in `compiler/ori_llvm/tests/codegen/` is compiled through the full LLVM
   //! pipeline, and `// CHECK:` directives in the source are matched against
   //! the emitted LLVM IR.
 
   use std::path::PathBuf;
 
   fn discover_test_files() -> Vec<PathBuf> {
-      // Walk tests/codegen/ recursively, collect .ori files
+      // Walk compiler/ori_llvm/tests/codegen/ recursively, collect .ori files
   }
 
   fn compile_to_ir(path: &Path) -> String {
@@ -143,7 +143,7 @@ Build the test runner that: (1) reads `.ori` test files from `tests/codegen/`, (
   #[test]
   fn run_all_codegen_checks() {
       let test_files = discover_test_files();
-      assert!(!test_files.is_empty(), "no codegen test files found in tests/codegen/");
+      assert!(!test_files.is_empty(), "no codegen test files found in compiler/ori_llvm/tests/codegen/");
 
       let mut failures = Vec::new();
       for file in &test_files {
@@ -178,11 +178,11 @@ Build the test runner that: (1) reads `.ori` test files from `tests/codegen/`, (
 
 ## 07.2 RC Emission Tests
 
-**File(s):** `tests/codegen/rc/` (new test files)
+**File(s):** `compiler/ori_llvm/tests/codegen/rc/` (new test files)
 
 Write FileCheck tests that pin RC emission patterns. These tests verify that the AIMS pipeline + LLVM codegen emits the expected RC operations for common patterns.
 
-- [ ] `tests/codegen/rc/basic_inc_dec.ori` — basic RC increment/decrement for shared values:
+- [ ] `compiler/ori_llvm/tests/codegen/rc/basic_inc_dec.ori` — basic RC increment/decrement for shared values:
   ```ori
   // @test: codegen
   // CHECK-LABEL: define {{.*}} @_ori_main
@@ -196,7 +196,7 @@ Write FileCheck tests that pin RC emission patterns. These tests verify that the
   }
   ```
 
-- [ ] `tests/codegen/rc/elision_unique_owner.ori` — RC elision for unique owners (no inc/dec when linear):
+- [ ] `compiler/ori_llvm/tests/codegen/rc/elision_unique_owner.ori` — RC elision for unique owners (no inc/dec when linear):
   ```ori
   // @test: codegen
   // Unique owner consumed linearly — no RC operations expected
@@ -209,7 +209,7 @@ Write FileCheck tests that pin RC emission patterns. These tests verify that the
   }
   ```
 
-- [ ] `tests/codegen/rc/param_borrowed.ori` — borrowed parameters have no RC ops:
+- [ ] `compiler/ori_llvm/tests/codegen/rc/param_borrowed.ori` — borrowed parameters have no RC ops:
   ```ori
   // @test: codegen
   // CHECK-LABEL: define {{.*}} @_ori_helper
@@ -224,7 +224,7 @@ Write FileCheck tests that pin RC emission patterns. These tests verify that the
   }
   ```
 
-- [ ] `tests/codegen/rc/param_owned_consumed.ori` — owned parameter consumed by callee has RC dec:
+- [ ] `compiler/ori_llvm/tests/codegen/rc/param_owned_consumed.ori` — owned parameter consumed by callee has RC dec:
   ```ori
   // @test: codegen
   // CHECK-LABEL: define {{.*}} @_ori_consumer
@@ -240,7 +240,7 @@ Write FileCheck tests that pin RC emission patterns. These tests verify that the
   @main () -> void = consumer(xs: [1, 2, 3])
   ```
 
-- [ ] `tests/codegen/rc/loop_inc_dec.ori` — RC in loops (the highest-risk pattern):
+- [ ] `compiler/ori_llvm/tests/codegen/rc/loop_inc_dec.ori` — RC in loops (the highest-risk pattern):
   ```ori
   // @test: codegen
   // @revisions: debug release
@@ -252,7 +252,7 @@ Write FileCheck tests that pin RC emission patterns. These tests verify that the
   }
   ```
 
-- [ ] `tests/codegen/rc/nested_struct.ori` — RC for nested struct fields:
+- [ ] `compiler/ori_llvm/tests/codegen/rc/nested_struct.ori` — RC for nested struct fields:
   ```ori
   // @test: codegen
   // CHECK-LABEL: define {{.*}} @_ori_main
@@ -277,11 +277,11 @@ Write FileCheck tests that pin RC emission patterns. These tests verify that the
 
 ## 07.3 COW Pattern Tests
 
-**File(s):** `tests/codegen/cow/` (new test files)
+**File(s):** `compiler/ori_llvm/tests/codegen/cow/` (new test files)
 
 Write FileCheck tests that pin COW (Copy-On-Write) codegen patterns. COW is one of the highest-risk codegen areas — a silent degradation from fast-path to always-copy is invisible to behavioral tests.
 
-- [ ] `tests/codegen/cow/is_shared_check.ori` — COW emits `IsShared` check before mutation:
+- [ ] `compiler/ori_llvm/tests/codegen/cow/is_shared_check.ori` — COW emits `IsShared` check before mutation:
   ```ori
   // @test: codegen
   // CHECK-LABEL: define {{.*}} @_ori_mutator
@@ -301,7 +301,7 @@ Write FileCheck tests that pin COW (Copy-On-Write) codegen patterns. COW is one 
   }
   ```
 
-- [ ] `tests/codegen/cow/unique_no_copy.ori` — unique owner mutation skips copy:
+- [ ] `compiler/ori_llvm/tests/codegen/cow/unique_no_copy.ori` — unique owner mutation skips copy:
   ```ori
   // @test: codegen
   // When the value is provably unique, COW should take the fast path
@@ -315,7 +315,7 @@ Write FileCheck tests that pin COW (Copy-On-Write) codegen patterns. COW is one 
   }
   ```
 
-- [ ] `tests/codegen/cow/shared_triggers_copy.ori` — shared value mutation triggers copy:
+- [ ] `compiler/ori_llvm/tests/codegen/cow/shared_triggers_copy.ori` — shared value mutation triggers copy:
   ```ori
   // @test: codegen
   // CHECK-LABEL: define {{.*}} @_ori_main
@@ -330,7 +330,7 @@ Write FileCheck tests that pin COW (Copy-On-Write) codegen patterns. COW is one 
   }
   ```
 
-- [ ] `tests/codegen/cow/struct_field_mutation.ori` — struct field mutation COW pattern:
+- [ ] `compiler/ori_llvm/tests/codegen/cow/struct_field_mutation.ori` — struct field mutation COW pattern:
   ```ori
   // @test: codegen
 
@@ -343,7 +343,7 @@ Write FileCheck tests that pin COW (Copy-On-Write) codegen patterns. COW is one 
   }
   ```
 
-- [ ] `tests/codegen/cow/map_update.ori` — map COW pattern:
+- [ ] `compiler/ori_llvm/tests/codegen/cow/map_update.ori` — map COW pattern:
   ```ori
   // @test: codegen
 
@@ -354,7 +354,7 @@ Write FileCheck tests that pin COW (Copy-On-Write) codegen patterns. COW is one 
   }
   ```
 
-- [ ] `tests/codegen/cow/drop_hints.ori` — drop hints emitted correctly for COW paths:
+- [ ] `compiler/ori_llvm/tests/codegen/cow/drop_hints.ori` — drop hints emitted correctly for COW paths:
   ```ori
   // @test: codegen
 
@@ -375,13 +375,13 @@ Write FileCheck tests that pin COW (Copy-On-Write) codegen patterns. COW is one 
 
 ## 07.4 Closure Codegen Tests
 
-**File(s):** `tests/codegen/closures/` (new test files)
+**File(s):** `compiler/ori_llvm/tests/codegen/closures/` (new test files)
 
 Write FileCheck tests for closure codegen — capture patterns, closure environment layout, and RC for captured values.
 
 **Note:** Capture stack spill patterns are sensitive to FastISel; ensure tests focus on IR-level environment layout, not machine-level spills.
 
-- [ ] `tests/codegen/closures/capture_by_value.ori` — closure captures value, RC incremented:
+- [ ] `compiler/ori_llvm/tests/codegen/closures/capture_by_value.ori` — closure captures value, RC incremented:
   ```ori
   // @test: codegen
   // CHECK-LABEL: define {{.*}} @_ori_main
@@ -393,7 +393,7 @@ Write FileCheck tests for closure codegen — capture patterns, closure environm
   }
   ```
 
-- [ ] `tests/codegen/closures/closure_env_layout.ori` — closure environment struct emitted:
+- [ ] `compiler/ori_llvm/tests/codegen/closures/closure_env_layout.ori` — closure environment struct emitted:
   ```ori
   // @test: codegen
 
@@ -405,7 +405,7 @@ Write FileCheck tests for closure codegen — capture patterns, closure environm
   }
   ```
 
-- [ ] `tests/codegen/closures/closure_as_argument.ori` — closure passed as function argument:
+- [ ] `compiler/ori_llvm/tests/codegen/closures/closure_as_argument.ori` — closure passed as function argument:
   ```ori
   // @test: codegen
 
@@ -418,7 +418,7 @@ Write FileCheck tests for closure codegen — capture patterns, closure environm
   }
   ```
 
-- [ ] `tests/codegen/closures/nested_closures.ori` — nested closures with RC chain:
+- [ ] `compiler/ori_llvm/tests/codegen/closures/nested_closures.ori` — nested closures with RC chain:
   ```ori
   // @test: codegen
 
@@ -432,7 +432,7 @@ Write FileCheck tests for closure codegen — capture patterns, closure environm
   }
   ```
 
-- [ ] `tests/codegen/closures/closure_in_loop.ori` — closure created inside loop:
+- [ ] `compiler/ori_llvm/tests/codegen/closures/closure_in_loop.ori` — closure created inside loop:
   ```ori
   // @test: codegen
 
@@ -445,7 +445,7 @@ Write FileCheck tests for closure codegen — capture patterns, closure environm
   }
   ```
 
-- [ ] `tests/codegen/closures/partial_application.ori` — partial application creates closure env:
+- [ ] `compiler/ori_llvm/tests/codegen/closures/partial_application.ori` — partial application creates closure env:
   ```ori
   // @test: codegen
 
@@ -468,29 +468,29 @@ Write FileCheck tests for closure codegen — capture patterns, closure environm
 
 ## 07.5 ABI and Iterator Pattern Tests
 
-**File(s):** `tests/codegen/abi/` (new), `tests/codegen/iterator/` (new)
+**File(s):** `compiler/ori_llvm/tests/codegen/abi/` (new), `compiler/ori_llvm/tests/codegen/iterator/` (new)
 
 Write FileCheck tests for ABI patterns (parameter passing modes, return conventions) and iterator codegen patterns.
 
 - [ ] **ABI tests** — verify parameter passing modes:
-  - `tests/codegen/abi/scalar_params.ori` — scalar params passed directly (not via pointer)
-  - `tests/codegen/abi/struct_sret.ori` — large struct returned via sret pointer
-  - `tests/codegen/abi/borrowed_param.ori` — borrowed param passed as pointer without RC
-  - `tests/codegen/abi/owned_param.ori` — owned param carries RC obligation
-  - `tests/codegen/abi/void_return.ori` — void return convention
-  - `tests/codegen/abi/multi_param.ori` — multiple params with mixed ownership
+  - `compiler/ori_llvm/tests/codegen/abi/scalar_params.ori` — scalar params passed directly (not via pointer)
+  - `compiler/ori_llvm/tests/codegen/abi/struct_sret.ori` — large struct returned via sret pointer
+  - `compiler/ori_llvm/tests/codegen/abi/borrowed_param.ori` — borrowed param passed as pointer without RC
+  - `compiler/ori_llvm/tests/codegen/abi/owned_param.ori` — owned param carries RC obligation
+  - `compiler/ori_llvm/tests/codegen/abi/void_return.ori` — void return convention
+  - `compiler/ori_llvm/tests/codegen/abi/multi_param.ori` — multiple params with mixed ownership
 
 - [ ] **Iterator tests** — verify iterator codegen patterns:
-  - `tests/codegen/iterator/for_loop_basic.ori` — basic for loop with iter/next/drop
-  - `tests/codegen/iterator/for_loop_break.ori` — early break triggers iter_drop
-  - `tests/codegen/iterator/for_yield.ori` — for-yield creates lazy iterator
-  - `tests/codegen/iterator/map_filter.ori` — chained iterator methods
-  - `tests/codegen/iterator/enumerate.ori` — enumerate produces (int, T) tuples
-  - `tests/codegen/iterator/collect.ori` — collect materializes iterator into list
+  - `compiler/ori_llvm/tests/codegen/iterator/for_loop_basic.ori` — basic for loop with iter/next/drop
+  - `compiler/ori_llvm/tests/codegen/iterator/for_loop_break.ori` — early break triggers iter_drop
+  - `compiler/ori_llvm/tests/codegen/iterator/for_yield.ori` — for-yield creates lazy iterator
+  - `compiler/ori_llvm/tests/codegen/iterator/map_filter.ori` — chained iterator methods
+  - `compiler/ori_llvm/tests/codegen/iterator/enumerate.ori` — enumerate produces (int, T) tuples
+  - `compiler/ori_llvm/tests/codegen/iterator/collect.ori` — collect materializes iterator into list
 
-- [ ] Verify test count: at this point, the full `tests/codegen/` directory should contain at least 30 tests across all categories. Count with:
+- [ ] Verify test count: at this point, the full `compiler/ori_llvm/tests/codegen/` directory should contain at least 30 tests across all categories. Count with:
   ```bash
-  find tests/codegen/ -name '*.ori' | wc -l
+  find compiler/ori_llvm/tests/codegen/ -name '*.ori' | wc -l
   ```
   If under 30, add additional tests in the thinnest category.
 
@@ -522,15 +522,15 @@ When all findings are triaged:
 ## 07.N Completion Checklist
 
 - [ ] `ori_test_harness/src/check.rs` implements `.matches` and `.exact` modes
-- [ ] `ori_llvm/tests/codegen_checks.rs` discovers and runs all `tests/codegen/*.ori` files
+- [ ] `ori_llvm/tests/codegen_checks.rs` discovers and runs all `compiler/ori_llvm/tests/codegen/*.ori` files
 - [ ] `.matches` mode is the default (order-independent substring matching)
 - [ ] Revision system works: debug/release/no-repr-opt configurations produce separate IR
 - [ ] Bless mode updates `.ll` baselines when `ORI_BLESS=1`
-- [ ] `tests/codegen/rc/` contains 6+ RC emission tests
-- [ ] `tests/codegen/cow/` contains 6+ COW pattern tests
-- [ ] `tests/codegen/closures/` contains 6+ closure codegen tests
-- [ ] `tests/codegen/abi/` contains 6+ ABI pattern tests
-- [ ] `tests/codegen/iterator/` contains 6+ iterator pattern tests
+- [ ] `compiler/ori_llvm/tests/codegen/rc/` contains 6+ RC emission tests
+- [ ] `compiler/ori_llvm/tests/codegen/cow/` contains 6+ COW pattern tests
+- [ ] `compiler/ori_llvm/tests/codegen/closures/` contains 6+ closure codegen tests
+- [ ] `compiler/ori_llvm/tests/codegen/abi/` contains 6+ ABI pattern tests
+- [ ] `compiler/ori_llvm/tests/codegen/iterator/` contains 6+ iterator pattern tests
 - [ ] Total: 30+ FileCheck tests across all categories
 - [ ] All FileCheck tests pass: `timeout 150 cargo test -p ori_llvm --test codegen_checks`
 - [ ] No regressions: `timeout 150 ./test-all.sh` green
@@ -546,4 +546,4 @@ When all findings are triaged:
 - [ ] `/impl-hygiene-review` passed — AFTER `/tpr-review` is clean
 - [ ] `/improve-tooling` **section-close sweep** — verify per-subsection retrospectives ran, add cross-cutting items.
 
-**Exit Criteria:** `tests/codegen/` contains 30+ FileCheck-style tests covering RC emission, COW patterns, closure codegen, ABI, and iterator patterns. All tests pass via `timeout 150 cargo test -p ori_llvm --test codegen_checks`. `.matches` mode is the default. Revision support works for debug/release/no-repr-opt. Bless mode updates baselines. A deliberately introduced codegen regression (e.g., removing an RC dec) causes the corresponding FileCheck test to fail.
+**Exit Criteria:** `compiler/ori_llvm/tests/codegen/` contains 30+ FileCheck-style tests covering RC emission, COW patterns, closure codegen, ABI, and iterator patterns. All tests pass via `timeout 150 cargo test -p ori_llvm --test codegen_checks`. `.matches` mode is the default. Revision support works for debug/release/no-repr-opt. Bless mode updates baselines. A deliberately introduced codegen regression (e.g., removing an RC dec) causes the corresponding FileCheck test to fail.

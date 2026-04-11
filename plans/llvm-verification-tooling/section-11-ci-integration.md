@@ -78,7 +78,7 @@ The every-commit tier runs on every PR. It must be fast (add at most 3 minutes t
 - [ ] Audit existing CI for gates that should already be present from earlier sections:
   - **§01**: `ORI_VERIFY_EACH=1` and `ORI_VERIFY_ARC=1` in env block
   - **§01**: Function-level `fn_val.verify()` (implicit — runs during `cargo test --workspace`)
-  - **§07**: FileCheck tests in `tests/codegen/` (via `cargo test --workspace` if integrated as Rust tests, or explicit `ori test --backend=llvm tests/codegen/`)
+  - **§07**: FileCheck tests in `compiler/ori_llvm/tests/codegen/` (via `cargo test --workspace` if integrated as Rust tests, or explicit `ori test --backend=llvm compiler/ori_llvm/tests/codegen/`)
   - **§08**: Sanitizer smoke (if §08 added a smoke job — check)
   - **MISSING (known)**: `ori test --backend=llvm tests/` — LLVM backend spec tests
 

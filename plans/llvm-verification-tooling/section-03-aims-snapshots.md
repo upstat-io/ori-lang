@@ -6,7 +6,7 @@ reviewed: false
 goal: "Capture .before.arc/.after.arc/.diff artifacts at configurable AIMS pipeline boundaries, enabling regression detection for RC elision, COW annotation, block merge, and reuse — invisible to behavioral tests when the LLVM optimizer papers over codegen quality issues"
 success_criteria:
   - "Per-pass dump hooks exist for priority passes: realize_rc_reuse, merge_blocks, realize_annotations, normalize_function"
-  - "tests/arc-opt/ contains ≥15 snapshot tests across the 4 priority passes"
+  - "compiler/ori_arc/tests/arc-opt/ contains ≥15 snapshot tests across the 4 priority passes"
   - "cargo test -p ori_arc --test aims_snapshots passes with all snapshots matching baselines"
   - "--bless mode updates snapshot baselines via shared harness (§02)"
   - "A deliberately introduced regression (e.g., disabling RC elision) causes snapshot diffs to fail"
@@ -98,7 +98,7 @@ Add configurable dump hooks at pipeline step boundaries. The hooks capture ARC I
 
 ## 03.2 Snapshot Test Runner Integration
 
-**File(s):** `compiler/ori_arc/tests/aims_snapshots.rs` (new integration test), `tests/arc-opt/`
+**File(s):** `compiler/ori_arc/tests/aims_snapshots.rs` (new integration test), `compiler/ori_arc/tests/arc-opt/`
 
 Wire the snapshot capture into cargo tests using the shared harness (§02). Tests use `// @test-arc-pass: realize_rc_reuse` directives to specify which pass to snapshot.
 
@@ -106,7 +106,7 @@ Wire the snapshot capture into cargo tests using the shared harness (§02). Test
   ```rust
   //! AIMS pass-level snapshot tests.
   //! 
-  //! Each test in tests/arc-opt/ uses directives to specify which AIMS pipeline
+  //! Each test in compiler/ori_arc/tests/arc-opt/ uses directives to specify which AIMS pipeline
   //! pass to snapshot. The shared harness (ori_test_harness) handles directive
   //! parsing, artifact naming, and comparison/bless.
   
@@ -143,7 +143,7 @@ Wire the snapshot capture into cargo tests using the shared harness (§02). Test
 
 ## 03.3 Initial Snapshot Corpus
 
-**File(s):** `tests/arc-opt/realize_rc_reuse/`, `tests/arc-opt/merge_blocks/`, `tests/arc-opt/realize_annotations/`, `tests/arc-opt/normalize_function/`
+**File(s):** `compiler/ori_arc/tests/arc-opt/realize_rc_reuse/`, `compiler/ori_arc/tests/arc-opt/merge_blocks/`, `compiler/ori_arc/tests/arc-opt/realize_annotations/`, `compiler/ori_arc/tests/arc-opt/normalize_function/`
 
 Create the initial corpus of snapshot tests covering the priority passes. Each test should cover a specific optimization behavior.
 
@@ -194,7 +194,7 @@ Create the initial corpus of snapshot tests covering the priority passes. Each t
 ## 03.N Completion Checklist
 
 - [ ] Per-pass dump hooks work for all 4 priority passes
-- [ ] ≥15 snapshot tests in `tests/arc-opt/` across priority passes
+- [ ] ≥15 snapshot tests in `compiler/ori_arc/tests/arc-opt/` across priority passes
 - [ ] `cargo test -p ori_arc --test aims_snapshots` passes
 - [ ] `ORI_BLESS=1 cargo test -p ori_arc --test aims_snapshots` updates baselines
 - [ ] Deliberate regression detected (snapshot diff fails)

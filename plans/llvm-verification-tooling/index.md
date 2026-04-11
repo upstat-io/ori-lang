@@ -52,7 +52,7 @@ test runner, snapshot comparison, diff generation
 AIMS pipeline, 12 steps, pass-level snapshots
 realize_rc_reuse, merge_blocks, realize_annotations, normalize_function
 .before.arc, .after.arc, .diff, per-pass dump hooks
-tests/arc-opt/, snapshot corpus, baseline artifacts
+compiler/ori_arc/tests/arc-opt/, snapshot corpus, baseline artifacts
 ORI_DUMP_AFTER_ARC, ArcFunction, ArcInstr, ArcTerminator
 MIR-opt pattern, EMIT_MIR, Rust compiletest
 ```
@@ -110,7 +110,7 @@ aims/builtins/tests.rs, AnnotatedSig
 ```
 FileCheck, CHECK:, CHECK-LABEL:, CHECK-NOT:
 directive-based, IR assertions, LLVM IR patterns
-tests/codegen/, RC emission, COW patterns
+compiler/ori_llvm/tests/codegen/, RC emission, COW patterns
 closure codegen, ABI patterns, iterator codegen
 revision system, debug, release, no-repr-opt
 .matches mode, .exact mode, Zig addCheckFile
