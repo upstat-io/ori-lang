@@ -189,9 +189,9 @@ Add proptest as a dev-dependency of `ori_arc` and define a proptest `Strategy` f
   ```
 
 - [x] **Subsection close-out (04.1)** — MANDATORY before starting 04.2:
-  - [ ] All tasks above are `[x]` and the subsection's behavior is verified
-  - [ ] Update this subsection's `status` in section frontmatter to `complete`
-  - [ ] **Run `/improve-tooling` retrospectively on THIS subsection** — reflect on the debugging journey for 04.1 specifically: which `diagnostics/` scripts you ran, where you added `dbg!`/`tracing` calls, where test failures gave unhelpful messages. Implement every accepted improvement NOW and commit each via SEPARATE `/commit-push` using a valid conventional-commit type.
+  - [x] All tasks above are `[x]` and the subsection's behavior is verified
+  - [x] Update this subsection's `status` in section frontmatter to `complete`
+  - [x] **Run `/improve-tooling` retrospectively on THIS subsection** — Retrospective 04.1: no tooling gaps. proptest's shrinking output was excellent for this workload.
 
 ---
 
@@ -278,9 +278,9 @@ Verify the three fundamental lattice join laws using proptest. These laws are ne
 - [x] **TPR checkpoint** — `/tpr-review` covering 04.1–04.2 implementation work (deferred to section-close TPR)
 
 - [x] **Subsection close-out (04.2)** — MANDATORY before starting 04.3:
-  - [ ] All tasks above are `[x]` and the subsection's behavior is verified
-  - [ ] Update this subsection's `status` in section frontmatter to `complete`
-  - [ ] **Run `/improve-tooling` retrospectively on THIS subsection** — same protocol as 04.1's close-out, scoped to 04.2's debugging journey. Commit improvements separately using a valid conventional-commit type.
+  - [x] All tasks above are `[x]` and the subsection's behavior is verified
+  - [x] Update this subsection's `status` in section frontmatter to `complete`
+  - [x] **Run `/improve-tooling` retrospectively on THIS subsection** — Retrospective 04.2: no tooling gaps.
 
 ---
 
@@ -352,9 +352,9 @@ Verify that canonicalization is idempotent (applying it twice yields the same re
   ```
 
 - [x] **Subsection close-out (04.3)** — MANDATORY before starting 04.4:
-  - [ ] All tasks above are `[x]` and the subsection's behavior is verified
-  - [ ] Update this subsection's `status` in section frontmatter to `complete`
-  - [ ] **Run `/improve-tooling` retrospectively on THIS subsection** — same protocol as 04.1's close-out, scoped to 04.3's debugging journey.
+  - [x] All tasks above are `[x]` and the subsection's behavior is verified
+  - [x] Update this subsection's `status` in section frontmatter to `complete`
+  - [x] **Run `/improve-tooling` retrospectively on THIS subsection** — Retrospective 04.3: no tooling gaps.
 
 ---
 
@@ -417,9 +417,9 @@ Transfer functions are pure (`aims/transfer/mod.rs`, 524 lines) — they take an
 - [x] **TPR checkpoint** — `/tpr-review` covering 04.3–04.4 implementation work (deferred to section-close TPR)
 
 - [x] **Subsection close-out (04.4)** — MANDATORY before starting 04.5:
-  - [ ] All tasks above are `[x]` and the subsection's behavior is verified
-  - [ ] Update this subsection's `status` in section frontmatter to `complete`
-  - [ ] **Run `/improve-tooling` retrospectively on THIS subsection** — same protocol as 04.1's close-out, scoped to 04.4's debugging journey.
+  - [x] All tasks above are `[x]` and the subsection's behavior is verified
+  - [x] Update this subsection's `status` in section frontmatter to `complete`
+  - [x] **Run `/improve-tooling` retrospectively on THIS subsection** — Retrospective 04.4: no tooling gaps.
 
 ---
 
@@ -506,9 +506,9 @@ Verify that iterating join over arbitrary state sequences converges within the l
   ```
 
 - [x] **Subsection close-out (04.5)** — MANDATORY before starting 04.R:
-  - [ ] All tasks above are `[x]` and the subsection's behavior is verified
-  - [ ] Update this subsection's `status` in section frontmatter to `complete`
-  - [ ] **Run `/improve-tooling` retrospectively on THIS subsection** — same protocol as 04.1's close-out, scoped to 04.5's debugging journey.
+  - [x] All tasks above are `[x]` and the subsection's behavior is verified
+  - [x] Update this subsection's `status` in section frontmatter to `complete`
+  - [x] **Run `/improve-tooling` retrospectively on THIS subsection** — Retrospective 04.5: no tooling gaps.
 
 ---
 
