@@ -397,8 +397,18 @@ RUN=$("$SCRIPT_DIR/scratch-dir.sh")
 "$SCRIPT_DIR/worktree-guard.sh" compare "$RUN/before.txt" >/dev/null 2>&1
 test_case "worktree guard clean state" "$?" "0"
 rm -rf "$RUN"
-# Note: dirty-state test deferred to manual run because it deliberately
-# modifies a tracked file and would interfere with concurrent test runs.
+
+# Test: untracked files should NOT trigger the guard (post-2026-04-11 fix)
+RUN=$("$SCRIPT_DIR/scratch-dir.sh")
+"$SCRIPT_DIR/worktree-guard.sh" snapshot "$RUN/before.txt"
+touch untracked_test_dummy.txt
+"$SCRIPT_DIR/worktree-guard.sh" compare "$RUN/before.txt" >/dev/null 2>&1
+test_case "worktree guard ignores untracked files" "$?" "0"
+rm -f untracked_test_dummy.txt
+rm -rf "$RUN"
+# Note: dirty-state test for TRACKED files deferred to manual run because
+# it deliberately modifies a tracked file and would interfere with concurrent
+# test runs.
 
 echo ""
 echo "=== merger fixture tests ==="
