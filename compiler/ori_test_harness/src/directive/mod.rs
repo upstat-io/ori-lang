@@ -88,6 +88,14 @@ static RE_AT_PREFIX: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"^\s*//\s*@(?:\[([^\]]+)\])?\s*\S").expect("at-prefix regex")
 });
 
+/// Matches near-miss CHECK lines — `// CHECK` without a valid suffix/colon,
+/// or `// CHEKC`-style typos. Catches directives the author likely intended
+/// as CHECK assertions but that would silently be ignored.
+static RE_CHECK_NEAR_MISS: LazyLock<Regex> = LazyLock::new(|| {
+    #[expect(clippy::expect_used, reason = "compile-time constant regex")]
+    Regex::new(r"^\s*//\s*(?:@\[([^\]]+)\]\s*)?CHECK\S*[^:]*$").expect("check near-miss regex")
+});
+
 /// Matches `// CHECK:`, `// CHECK-LABEL:`, `// CHECK-NOT:`, `// CHECK-NEXT:`
 /// with optional `[revision]` prefix.
 static RE_CHECK_DIRECTIVE: LazyLock<Regex> = LazyLock::new(|| {
@@ -147,6 +155,18 @@ pub fn parse_directives(source: &str) -> ParseResult {
             continue;
         }
 
+        // Detect near-miss CHECK lines (typos like "// CHEKC:" or "// CHECK foo")
+        if RE_CHECK_NEAR_MISS.is_match(line) {
+            errors.push(ParseError {
+                line_number,
+                message: format!(
+                    "malformed CHECK directive (missing colon or typo?): {}",
+                    line.trim()
+                ),
+            });
+            continue;
+        }
+
         // Try @-style directives
         if let Some(caps) = RE_AT_DIRECTIVE.captures(line) {
             let revision = caps.get(1).map(|m| m.as_str().to_string());
@@ -161,9 +181,21 @@ pub fn parse_directives(source: &str) -> ParseResult {
             }
 
             let directive = match key.as_str() {
-                "revisions" => Directive::Revisions {
-                    names: value.split_whitespace().map(String::from).collect(),
-                },
+                "revisions" => {
+                    let names: Vec<String> = value.split_whitespace().map(String::from).collect();
+                    // Validate each revision name against forbidden list
+                    let mut has_error = false;
+                    for name in &names {
+                        if let Some(err) = validate_revision_name(name, line_number) {
+                            errors.push(err);
+                            has_error = true;
+                        }
+                    }
+                    if has_error {
+                        continue;
+                    }
+                    Directive::Revisions { names }
+                }
                 "compile-flags" => Directive::CompileFlags {
                     flags: value.split_whitespace().map(String::from).collect(),
                 },

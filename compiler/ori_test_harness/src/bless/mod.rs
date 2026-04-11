@@ -61,6 +61,27 @@ pub fn clean_stale_baselines(
             fs::remove_file(&non_rev)?;
             deleted.push(non_rev);
         }
+        // Also delete stale revision-specific baselines for revisions no longer active
+        if let Ok(entries) = fs::read_dir(parent) {
+            let prefix = format!("{stem}.");
+            let ext = format!(".{suffix}");
+            for entry in entries.filter_map(Result::ok) {
+                let name = entry.file_name().to_string_lossy().to_string();
+                if name.starts_with(&prefix)
+                    && name.ends_with(&ext)
+                    && name != format!("{stem}.{suffix}")
+                {
+                    let middle = &name[prefix.len()..name.len() - ext.len()];
+                    if !middle.is_empty()
+                        && !middle.contains('.')
+                        && !active_revisions.contains(&middle)
+                    {
+                        fs::remove_file(entry.path())?;
+                        deleted.push(entry.path());
+                    }
+                }
+            }
+        }
     } else {
         // Test has no revisions — delete any revision-specific baselines
         // Pattern: stem.<rev>.suffix (single-dot revision name)
@@ -88,14 +109,24 @@ pub fn clean_stale_baselines(
 
 /// Compare actual test output against the expected baseline, or bless it.
 ///
-/// In bless mode (`ORI_BLESS=1`):
+/// The `bless` parameter controls whether to write baselines (true) or
+/// compare (false). Callers query `is_bless_enabled()` once at the top
+/// of the test run and pass the result here — this avoids process-global
+/// env var reads deep in the call stack and prevents test-parallelism
+/// race conditions.
+///
+/// In bless mode:
 /// - Non-empty actual → write to `expected_path` (creates parent dirs)
 /// - Empty actual → delete `expected_path` if it exists
 ///
 /// In normal mode:
 /// - Read expected, compare, return Match or Mismatch with diff
-pub fn compare_or_bless(expected_path: &Path, actual: &str) -> Result<CompareOutcome, io::Error> {
-    if is_bless_enabled() {
+pub fn compare_or_bless(
+    expected_path: &Path,
+    actual: &str,
+    bless: bool,
+) -> Result<CompareOutcome, io::Error> {
+    if bless {
         if actual.is_empty() && expected_path.exists() {
             fs::remove_file(expected_path)?;
             return Ok(CompareOutcome::BlessedEmpty);
@@ -111,7 +142,11 @@ pub fn compare_or_bless(expected_path: &Path, actual: &str) -> Result<CompareOut
     }
 
     // Normal mode: compare
-    let expected = fs::read_to_string(expected_path).unwrap_or_default();
+    let expected = match fs::read_to_string(expected_path) {
+        Ok(s) => s,
+        Err(e) if e.kind() == io::ErrorKind::NotFound => String::new(),
+        Err(e) => return Err(e),
+    };
     if expected == actual {
         Ok(CompareOutcome::Match)
     } else {

@@ -217,12 +217,30 @@ fn test_parse_malformed_directive_produces_error() {
 }
 
 #[test]
+fn test_parse_forbidden_revision_name_in_revisions_list_produces_error() {
+    let source = "// @revisions: CHECK release\n";
+    let result = parse_directives(source);
+    assert!(result.directives.is_empty());
+    assert!(!result.errors.is_empty());
+    assert!(result.errors[0].message.contains("forbidden revision name"));
+}
+
+#[test]
 fn test_parse_forbidden_revision_name_case_insensitive() {
     let source = "// @[true] compile-flags: --opt\n";
     let result = parse_directives(source);
     assert!(result.directives.is_empty());
     assert_eq!(result.errors.len(), 1);
     assert!(result.errors[0].message.contains("forbidden revision name"));
+}
+
+#[test]
+fn test_parse_check_without_colon_produces_error() {
+    let source = "// CHECK foo\n";
+    let result = parse_directives(source);
+    assert!(result.directives.is_empty());
+    assert_eq!(result.errors.len(), 1);
+    assert!(result.errors[0].message.contains("malformed CHECK"));
 }
 
 #[test]
