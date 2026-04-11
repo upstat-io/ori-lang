@@ -216,10 +216,14 @@ while [[ $ATTEMPT -lt $MAX_RETRIES ]]; do
   # succeeds). Codex invocations take ~5-10 minutes each, so re-running codex
   # on a gemini-only failure roughly doubles the total review wall time.
   #
-  # Success detection: a reviewer is "done" if its envelope file is non-empty
-  # AND its parse-error file is empty. This is the same pass/fail discriminant
-  # that the parse gates below use, so it tracks the wrapper's own notion of
-  # per-reviewer success.
+  # Success detection: a reviewer is "done" if its envelope file is non-empty.
+  # parse-codex.py and parse-gemini.py both emit the envelope to stdout ONLY
+  # on success — on failure they exit before any stdout write, leaving the
+  # redirected envelope file empty. The parse-error file may be non-empty even
+  # on success because the advisory-flush pattern (2026-04-11 fix) writes
+  # REPAIR/WARNING lines to stderr AFTER the envelope is on stdout, so
+  # parse-error size is NOT a reliable success discriminant. Only
+  # envelope.json size is.
   #
   # Operator filter composition: if the operator explicitly set
   # ORI_TPR_REVIEWERS=codex (or gemini), narrowing is a no-op — the attempt
@@ -234,10 +238,10 @@ while [[ $ATTEMPT -lt $MAX_RETRIES ]]; do
   if [[ $ATTEMPT -gt 1 && "$ORIGINAL_REVIEWERS" == "both" ]]; then
     CODEX_OK=0
     GEMINI_OK=0
-    if [[ -s "$RUN/codex.envelope.json" && ! -s "$RUN/codex.parse-error" ]]; then
+    if [[ -s "$RUN/codex.envelope.json" ]]; then
       CODEX_OK=1
     fi
-    if [[ -s "$RUN/gemini.envelope.json" && ! -s "$RUN/gemini.parse-error" ]]; then
+    if [[ -s "$RUN/gemini.envelope.json" ]]; then
       GEMINI_OK=1
     fi
 

@@ -43,6 +43,14 @@ set -uo pipefail
 MODE="${STUB_CODEX_MODE:-ok}"
 STATE="${STUB_CODEX_STATE:-/tmp/stub-codex-state}"
 
+# Optional invocation counter — if STUB_CODEX_COUNTER is set, append one line
+# per call. Used by Scenario 8 (selective-retry test, 2026-04-11) to assert
+# codex was invoked exactly once across a multi-attempt retry run, not N times.
+# The counter is advisory and does NOT affect mode behavior.
+if [[ -n "${STUB_CODEX_COUNTER:-}" ]]; then
+  printf 'call at %s mode=%s\n' "$(date +%s)" "$MODE" >> "$STUB_CODEX_COUNTER"
+fi
+
 case "$MODE" in
   fail-once)
     if [[ ! -f "$STATE" ]]; then
