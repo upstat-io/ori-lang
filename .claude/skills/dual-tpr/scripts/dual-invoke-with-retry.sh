@@ -43,9 +43,16 @@ done
 # retry wrapper must ALSO skip parsing its (absent) JSONL output.
 # Default is `both` so every existing caller (§04/§05 wrappers)
 # runs unchanged.
-REVIEWERS="${ORI_TPR_REVIEWERS:-both}"
-if [[ "$REVIEWERS" != "codex" && "$REVIEWERS" != "gemini" && "$REVIEWERS" != "both" ]]; then
-  echo "invalid ORI_TPR_REVIEWERS: $REVIEWERS (must be codex|gemini|both)" >&2
+#
+# ORIGINAL_REVIEWERS captures the operator's explicit choice (or the default
+# `both`) and is immutable across attempts. EFFECTIVE_REVIEWERS is recomputed
+# per attempt by the selective-retry logic (2026-04-11 fix) — on attempt 2+
+# it may be narrowed to ONLY the reviewers that failed on the prior attempt
+# so successful reviewers aren't wastefully re-run. See the selective-retry
+# block in the main loop below for the full rationale.
+ORIGINAL_REVIEWERS="${ORI_TPR_REVIEWERS:-both}"
+if [[ "$ORIGINAL_REVIEWERS" != "codex" && "$ORIGINAL_REVIEWERS" != "gemini" && "$ORIGINAL_REVIEWERS" != "both" ]]; then
+  echo "invalid ORI_TPR_REVIEWERS: $ORIGINAL_REVIEWERS (must be codex|gemini|both)" >&2
   exit 2
 fi
 
@@ -170,22 +177,98 @@ is_terminal_failure() {
   esac
 }
 
+# extract_failure_category — read the first NON-advisory line of a parse-error
+# file and prefix it with the reviewer name. Skip lines starting with
+# "WARNING:" or "REPAIR:" / "  REPAIR:" (advisory output from the parsers).
+# This is defense-in-depth: parse-codex.py and parse-gemini.py both buffer
+# their advisory lines and flush them AFTER the category (2026-04-11 fix), so
+# the first line SHOULD already be the category. This function is a belt-and-
+# suspenders check that survives future parser regressions — if either parser
+# ever re-introduces a pre-category advisory line, the retry classifier still
+# gets the real category instead of being mangled by e.g.
+# `gemini_WARNING: sentinel-less fallback ...`.
+extract_failure_category() {
+  local reviewer="$1"
+  local parse_error_file="$2"
+  local category
+  # awk: print the first line that doesn't start with WARNING:, REPAIR:, or
+  # "  REPAIR:", then exit. If no such line exists, print empty string.
+  category=$(awk '
+    /^WARNING:/ { next }
+    /^REPAIR:/  { next }
+    /^  REPAIR:/ { next }
+    { print; exit }
+  ' "$parse_error_file" 2>/dev/null)
+  printf '%s_%s' "$reviewer" "${category:-unknown_failure}"
+}
+
 ATTEMPT=0
 FAILURE=""
 while [[ $ATTEMPT -lt $MAX_RETRIES ]]; do
   ATTEMPT=$((ATTEMPT + 1))
-  echo "[$(date +%s)] attempt $ATTEMPT/$MAX_RETRIES" >> "$RUN/round.log"
+
+  # ── Selective retry: narrow to failing reviewers only ─────────────
+  #
+  # On attempt 2+, if the operator asked for BOTH reviewers, narrow the retry
+  # to ONLY the reviewers that still lack a valid envelope. Preserving a
+  # successful reviewer's attempt-N envelope across retries saves substantial
+  # wall time on the common failure mode (gemini schema violations while codex
+  # succeeds). Codex invocations take ~5-10 minutes each, so re-running codex
+  # on a gemini-only failure roughly doubles the total review wall time.
+  #
+  # Success detection: a reviewer is "done" if its envelope file is non-empty
+  # AND its parse-error file is empty. This is the same pass/fail discriminant
+  # that the parse gates below use, so it tracks the wrapper's own notion of
+  # per-reviewer success.
+  #
+  # Operator filter composition: if the operator explicitly set
+  # ORI_TPR_REVIEWERS=codex (or gemini), narrowing is a no-op — the attempt
+  # already runs only the chosen reviewer.
+  #
+  # Both-successful edge case: if both envelopes are valid but the wrapper
+  # reached this point anyway, the failure category must have been
+  # dirty_worktree (already classified terminal) or a future category that
+  # somehow leaves both envelopes untouched. Fall through to running both on
+  # the retry — conservative default that matches pre-fix behavior.
+  EFFECTIVE_REVIEWERS="$ORIGINAL_REVIEWERS"
+  if [[ $ATTEMPT -gt 1 && "$ORIGINAL_REVIEWERS" == "both" ]]; then
+    CODEX_OK=0
+    GEMINI_OK=0
+    if [[ -s "$RUN/codex.envelope.json" && ! -s "$RUN/codex.parse-error" ]]; then
+      CODEX_OK=1
+    fi
+    if [[ -s "$RUN/gemini.envelope.json" && ! -s "$RUN/gemini.parse-error" ]]; then
+      GEMINI_OK=1
+    fi
+
+    if [[ $CODEX_OK -eq 1 && $GEMINI_OK -eq 0 ]]; then
+      EFFECTIVE_REVIEWERS="gemini"
+    elif [[ $CODEX_OK -eq 0 && $GEMINI_OK -eq 1 ]]; then
+      EFFECTIVE_REVIEWERS="codex"
+    else
+      # Both failed (common case on transient network) OR both succeeded
+      # (edge case — fall through to retry both rather than hit a dead end).
+      EFFECTIVE_REVIEWERS="both"
+    fi
+  fi
+
+  if [[ "$EFFECTIVE_REVIEWERS" == "$ORIGINAL_REVIEWERS" ]]; then
+    echo "[$(date +%s)] attempt $ATTEMPT/$MAX_RETRIES (reviewers=$EFFECTIVE_REVIEWERS)" >> "$RUN/round.log"
+  else
+    echo "[$(date +%s)] attempt $ATTEMPT/$MAX_RETRIES (selective retry: narrowed from $ORIGINAL_REVIEWERS to $EFFECTIVE_REVIEWERS — preserving prior-attempt success)" >> "$RUN/round.log"
+  fi
 
   # Snapshot worktree before reviewer run
   "$SCRIPT_DIR/worktree-guard.sh" snapshot "$RUN/worktree-before.txt"
 
-  # Launch reviewers per ORI_TPR_REVIEWERS filter (default: both). Parser
-  # calls are gated by the same filter — skipping an absent JSONL file
-  # would otherwise produce a spurious "missing_envelope" failure.
-  if ! "$SCRIPT_DIR/dual-invoke.sh" "${ARGS[@]}"; then
+  # Launch reviewers per EFFECTIVE_REVIEWERS. dual-invoke.sh reads
+  # ORI_TPR_REVIEWERS from the environment — exporting it ONLY for this
+  # sub-command call scopes the narrowing to the retry iteration without
+  # polluting our own shell state.
+  if ! ORI_TPR_REVIEWERS="$EFFECTIVE_REVIEWERS" "$SCRIPT_DIR/dual-invoke.sh" "${ARGS[@]}"; then
     # Check if failure was due to watchdog killing a stalled reviewer
     if [[ -f "$RUN/codex.stalled" || -f "$RUN/gemini.stalled" ]]; then
-      local stalled_reviewers=""
+      stalled_reviewers=""
       [[ -f "$RUN/codex.stalled" ]] && stalled_reviewers="codex"
       [[ -f "$RUN/gemini.stalled" ]] && stalled_reviewers="${stalled_reviewers:+$stalled_reviewers+}gemini"
       FAILURE="reviewer_stalled_${stalled_reviewers}"
@@ -193,11 +276,11 @@ while [[ $ATTEMPT -lt $MAX_RETRIES ]]; do
       FAILURE="launch_or_exit_fail"
     fi
     echo "[$(date +%s)] $FAILURE on attempt $ATTEMPT" >> "$RUN/round.log"
-  elif [[ ( "$REVIEWERS" == "codex" || "$REVIEWERS" == "both" ) ]] && ! "$SCRIPT_DIR/parse-codex.py" --jsonl "$RUN/codex.jsonl" --schema "$SCHEMA" > "$RUN/codex.envelope.json" 2> "$RUN/codex.parse-error"; then
-    FAILURE="codex_$(head -1 "$RUN/codex.parse-error")"
+  elif [[ ( "$EFFECTIVE_REVIEWERS" == "codex" || "$EFFECTIVE_REVIEWERS" == "both" ) ]] && ! "$SCRIPT_DIR/parse-codex.py" --jsonl "$RUN/codex.jsonl" --schema "$SCHEMA" > "$RUN/codex.envelope.json" 2> "$RUN/codex.parse-error"; then
+    FAILURE="$(extract_failure_category codex "$RUN/codex.parse-error")"
     echo "[$(date +%s)] $FAILURE on attempt $ATTEMPT" >> "$RUN/round.log"
-  elif [[ ( "$REVIEWERS" == "gemini" || "$REVIEWERS" == "both" ) ]] && ! "$SCRIPT_DIR/parse-gemini.py" --jsonl "$RUN/gemini.jsonl" --schema "$SCHEMA" > "$RUN/gemini.envelope.json" 2> "$RUN/gemini.parse-error"; then
-    FAILURE="gemini_$(head -1 "$RUN/gemini.parse-error")"
+  elif [[ ( "$EFFECTIVE_REVIEWERS" == "gemini" || "$EFFECTIVE_REVIEWERS" == "both" ) ]] && ! "$SCRIPT_DIR/parse-gemini.py" --jsonl "$RUN/gemini.jsonl" --schema "$SCHEMA" > "$RUN/gemini.envelope.json" 2> "$RUN/gemini.parse-error"; then
+    FAILURE="$(extract_failure_category gemini "$RUN/gemini.parse-error")"
     echo "[$(date +%s)] $FAILURE on attempt $ATTEMPT" >> "$RUN/round.log"
   elif ! "$SCRIPT_DIR/worktree-guard.sh" compare "$RUN/worktree-before.txt" 2> "$RUN/worktree-error"; then
     FAILURE="dirty_worktree"

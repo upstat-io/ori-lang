@@ -161,6 +161,24 @@ def read_assistant_text(jsonl_path):
     return "".join(assistant_chunks), saw_terminator
 
 
+def _flush_advisory(deferred):
+    """Flush deferred advisory lines to stderr.
+
+    Advisory lines (WARNING, REPAIR) are emitted AFTER the primary output
+    (envelope on stdout, or category line on stderr) so they can't corrupt
+    `head -1 parse-error` extraction in dual-invoke-with-retry.sh.
+
+    The stderr-first-line-is-category contract is load-bearing: the retry
+    classifier in dual-invoke-with-retry.sh uses it to decide whether a
+    failure is terminal (don't retry) or retryable. Prior to this indirection,
+    sentinel-less fallback + schema violation corrupted the category to
+    `gemini_WARNING: sentinel-less fallback — gemini omitted BEGIN/END...`
+    which matched no classifier entry and was retried by accident.
+    """
+    for msg in deferred:
+        print(msg, file=sys.stderr)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--jsonl", required=True)
@@ -195,6 +213,14 @@ def main():
         sys.exit(0)
 
     # Default mode: full sentinel + schema validation
+
+    # deferred_advisory accumulates WARNING/REPAIR lines that would otherwise
+    # corrupt the stderr-first-line-is-category contract (see _flush_advisory
+    # docstring). Initialized here so every failure path below can safely
+    # reference it — even failures that happen before the sentinel-less
+    # fallback branch executes.
+    deferred_advisory = []
+
     try:
         import jsonschema
     except ImportError:
@@ -278,11 +304,21 @@ def main():
             )
             sys.exit(1)
 
-        print(
+        # Defer the sentinel-less fallback WARNING. Printing it NOW would
+        # violate parse-gemini.py's own contract — see the docstring "Outcome
+        # codes (stderr first line on default-mode failure)". If any downstream
+        # check (parse, repair, validate, invariants, status) fails, the
+        # failure category MUST be the first stderr line so that
+        # dual-invoke-with-retry.sh's `head -1 parse-error` gets the real
+        # category and not this advisory WARNING. `deferred_advisory` is
+        # flushed AFTER the category emission on the failure path, or after
+        # the primary output on the success path. (Observed 2026-04-11: the
+        # mangled category `gemini_WARNING: sentinel-less fallback ...` was
+        # tripping the retry classifier in round.log / status-check output.)
+        deferred_advisory.append(
             "WARNING: sentinel-less fallback — gemini omitted BEGIN/END "
             "sentinels but produced a fenced JSON block matching the review "
-            "envelope shape. Proceeding with repair + schema validation.",
-            file=sys.stderr,
+            "envelope shape. Proceeding with repair + schema validation."
         )
 
     try:
@@ -290,6 +326,7 @@ def main():
     except json.JSONDecodeError as e:
         print("parse_fail", file=sys.stderr)
         print(f"fenced JSON block is not valid JSON: {e}", file=sys.stderr)
+        _flush_advisory(deferred_advisory)
         sys.exit(1)
 
     # Repair layer: normalize common schema violations before validation.
@@ -297,17 +334,18 @@ def main():
     # uses enum aliases ("info" instead of "informational"), or produces
     # location formats the invariant regex rejects. The repair layer fixes
     # these in-place so a structurally-correct-but-sloppy envelope doesn't
-    # kill a 20-minute review. All repairs are logged to stderr.
+    # kill a 20-minute review. All repairs are deferred to `deferred_advisory`
+    # so they don't violate the stderr-first-line-is-category contract — see
+    # the sentinel-less WARNING comment above.
     envelope, repairs = repair_envelope(
         envelope, default_reviewer="gemini", default_skill="review-work",
     )
     if repairs:
-        print(
-            f"REPAIR: applied {len(repairs)} auto-repair(s) to gemini envelope:",
-            file=sys.stderr,
+        deferred_advisory.append(
+            f"REPAIR: applied {len(repairs)} auto-repair(s) to gemini envelope:"
         )
         for r in repairs:
-            print(f"  REPAIR: {r}", file=sys.stderr)
+            deferred_advisory.append(f"  REPAIR: {r}")
 
     try:
         jsonschema.validate(envelope, schema)
@@ -320,6 +358,7 @@ def main():
                 f"still fails validation)",
                 file=sys.stderr,
             )
+        _flush_advisory(deferred_advisory)
         sys.exit(1)
 
     # Validate code-level invariants (regex patterns, length limits, conditional
@@ -329,15 +368,18 @@ def main():
     if invariant_error is not None:
         print("schema_violation", file=sys.stderr)
         print(invariant_error, file=sys.stderr)
+        _flush_advisory(deferred_advisory)
         sys.exit(1)
 
     if envelope.get("status") != "complete":
         print("failed_partial", file=sys.stderr)
         print(f"envelope status: {envelope.get('status')}", file=sys.stderr)
+        _flush_advisory(deferred_advisory)
         sys.exit(1)
 
     json.dump(envelope, sys.stdout, indent=2)
     sys.stdout.write("\n")
+    _flush_advisory(deferred_advisory)
     sys.exit(0)
 
 
