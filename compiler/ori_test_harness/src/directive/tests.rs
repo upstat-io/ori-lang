@@ -1,8 +1,6 @@
 use super::*;
 
-// ---------------------------------------------------------------------------
 // Positive (semantic pins — each verifies one directive type parsed correctly)
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_parse_custom_directive_extracts_key_and_value() {
@@ -164,9 +162,7 @@ fn test_parse_whitespace_before_comment_marker_accepted() {
     );
 }
 
-// ---------------------------------------------------------------------------
 // Negative pins (verify rejection/ignoring of invalid input)
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_parse_forbidden_revision_name_produces_error() {
@@ -206,6 +202,17 @@ fn test_parse_directive_inside_string_literal_not_matched() {
 }
 
 #[test]
+fn test_parse_checkpoint_comment_not_flagged_as_near_miss() {
+    let source = "// CHECKPOINT: this is a regular comment\n";
+    let result = parse_directives(source);
+    assert!(
+        result.errors.is_empty(),
+        "CHECKPOINT should not trigger near-miss"
+    );
+    assert!(result.directives.is_empty());
+}
+
+#[test]
 fn test_parse_malformed_directive_produces_error() {
     // `// @key` has the recognized `// @` prefix but no `: value` pattern
     let source = "// @revisions\n";
@@ -232,6 +239,16 @@ fn test_parse_forbidden_revision_name_case_insensitive() {
     assert!(result.directives.is_empty());
     assert_eq!(result.errors.len(), 1);
     assert!(result.errors[0].message.contains("forbidden revision name"));
+}
+
+#[test]
+fn test_parse_duplicate_revisions_produces_error() {
+    let source = "// @revisions: a\n// @revisions: b\n";
+    let result = parse_directives(source);
+    assert_eq!(result.directives.len(), 1); // first one is kept
+    assert_eq!(result.errors.len(), 1);
+    assert!(result.errors[0].message.contains("duplicate revisions"));
+    assert_eq!(result.errors[0].line_number, 2);
 }
 
 #[test]

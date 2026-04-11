@@ -9,9 +9,7 @@ fn make_directive(line: usize, revision: Option<&str>, directive: Directive) -> 
     }
 }
 
-// ---------------------------------------------------------------------------
 // Positive
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_no_revisions_directive_returns_single_default() {
@@ -96,9 +94,7 @@ fn test_filter_directives_returns_ungated_plus_matching_revision() {
     assert_eq!(filtered[1].line_number, 2);
 }
 
-// ---------------------------------------------------------------------------
 // Negative
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_filter_directives_excludes_other_revision_directives() {
