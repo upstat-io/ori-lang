@@ -38,7 +38,7 @@ sections:
     title: "Migrate to docs/ori_lang/proposals/drafts/ (1 file)"
     status: not-started
   - id: "07.6"
-    title: "Delete Superseded & Throwaway Files (17 files)"
+    title: "Delete Superseded & Throwaway Files (18 files)"
     status: not-started
   - id: "07.7"
     title: "Remove scratchpad/ Directory & Verify Website Build"
@@ -53,7 +53,7 @@ sections:
 
 # Section 07: Scratchpad Triage & Migration
 
-**Status:** Not Started
+**Status:** In Progress (pre-execution) — frontmatter auto-flipped by the plan-audit linter when iteration-1 TPR findings landed with `[x]` resolutions in §07.R. The section's IMPLEMENTATION work (§07.1 through §07.7) has NOT begun; this status reflects "has TPR findings being resolved pre-execution", not "section is being implemented". Subsection statuses remain `not-started` accordingly. §09.6 plan-close handles both `not-started→complete` and `in-progress→complete` transitions.
 **Goal:** Pass 1 Agent 2 did the per-file triage of `ori_lang/scratchpad/` and produced destination recommendations. Fresh `find scratchpad -type f` at §01.1 baseline time confirmed **30 files** (not 31 — the pre-execution count in the original census had a one-off error). This section EXECUTES the recommendations against the 30-file live state: **12 files migrate** to their appropriate `docs/` homes (11 with Astro `docsSchema` frontmatter; 1 to `docs/ori_lang/proposals/drafts/` with body-format proposal schema), **18 files are deleted** (duplicate existing docs, superseded by later iterations, throwaway experiments, or — for `07-modern-lang-repos.md` — conditional delete per Agent 2's recommendation which §07.1 confirms), and `scratchpad/` as a directory is removed. Because several `docs/` subdirectories are **cross-repo globs consumed by `ori-lang-website/src/content.config.ts`**, every migration must use the correct schema for its destination — `docsSchema` (title + order) for `guide`, `spec`, `compiler-design`, `formatter`, `lsp` collections, and **body-format schema parsed by `proposal-loader.ts`** for the `proposals` collection.
 
 **Success Criteria:**
