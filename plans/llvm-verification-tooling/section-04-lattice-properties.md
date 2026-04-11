@@ -1,7 +1,7 @@
 ---
 section: "04"
 title: "AIMS Lattice Property Verification"
-status: in-progress
+status: complete
 reviewed: true
 goal: "Use proptest to verify algebraic lattice properties (join commutativity, idempotence), canonicalization idempotence/convergence/dimension-guarantees, decision predicate semantic contracts, and fixpoint convergence bounds across the full 7-dimensional AIMS product lattice — catching algebraic bugs that exhaustive-but-hand-written tests miss (discovered BUG-04-057: join non-associativity)"
 success_criteria:
@@ -40,12 +40,12 @@ sections:
     status: complete
   - id: "04.N"
     title: "Completion Checklist"
-    status: in-progress
+    status: complete
 ---
 
 # Section 04: AIMS Lattice Property Verification
 
-**Status:** In Progress
+**Status:** Complete
 **Goal:** Use proptest to verify algebraic lattice properties (join commutativity, idempotence), canonicalization idempotence/convergence/dimension-guarantees, decision predicate semantic contracts, and fixpoint convergence bounds across the full 7-dimensional AIMS product lattice. The existing exhaustive tests in `lattice/tests.rs` (2,365 lines) cover specific join laws and canonicalization for 2,880 sampled combinations. Property-based testing goes further: it generates random state pairs and triples, catching algebraic bugs in corners that hand-written exhaustive enumeration might miss — particularly in cross-dimension interactions (canonicalization rules 4-8). **Notable discovery: BUG-04-057 — join is non-associative on canonical states due to canonicalization Rule 4 interaction with uniqueness.**
 
 **Success Criteria:**
@@ -561,7 +561,7 @@ When all findings are triaged:
   - [x] `00-overview.md` Quick Reference updated (Not Started → In Progress)
   - [x] `index.md` section status updated
 - [x] `/tpr-review` passed (5 rounds, 14 findings fixed, both reviewers clean on final code)
-- [ ] `/impl-hygiene-review` passed — AFTER `/tpr-review` is clean
-- [ ] `/improve-tooling` **section-close sweep** — verify per-subsection retrospectives ran, add cross-cutting items.
+- [x] `/impl-hygiene-review` passed — zero critical/major findings (mod.rs BLOAT pre-existing, prop_tests.rs exempt as test file)
+- [x] `/improve-tooling` section-close sweep — per-subsection retrospective: no tooling gaps (proptest shrinking output was excellent); section-close: no cross-subsection patterns required new tooling
 
 **Exit Criteria:** `timeout 150 cargo test -p ori_arc -- lattice::prop_tests` runs all property-based lattice tests and passes (22 pass, 1 ignored). proptest has verified join commutativity/idempotence, canonicalization idempotence/convergence/dimension-guarantees, decision predicate semantic contracts, and fixpoint convergence across thousands of randomly generated `AimsState` values. BUG-04-057 discovered: join non-associativity in uniqueness dimension (test exists as `#[ignore]`). The `SCALAR` sentinel is excluded from all property tests. All tests complete within the 150-second timeout.
