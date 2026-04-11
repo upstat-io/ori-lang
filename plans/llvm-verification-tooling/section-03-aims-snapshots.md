@@ -2,7 +2,7 @@
 section: "03"
 title: "AIMS Pass-Level Snapshot Tests"
 status: not-started
-reviewed: false
+reviewed: true
 goal: "Capture per-pass ARC IR snapshots at AIMS pipeline boundaries via a unified checkpoint observer, enabling regression detection for RC elision, COW annotation, block merge, tail calls, and reuse — invisible to behavioral tests when the LLVM optimizer papers over codegen quality issues"
 success_criteria:
   - "Checkpoint observer captures ARC IR at configurable pipeline boundaries, unified with trace_pipeline_checkpoint() (no parallel dispatch)"
