@@ -1,7 +1,7 @@
 ---
 section: "01"
 title: "Verifier Gates & Quick Wins"
-status: in-progress
+status: complete
 reviewed: true
 goal: "Make AIMS and LLVM verifier failures blocking gates under verification mode, wire verify_each to env var, add function-level verify and opt -lint — so all subsequent verification tooling has enforceable failure semantics"
 success_criteria:
@@ -36,7 +36,7 @@ sections:
     status: complete
   - id: "01.N"
     title: "Completion Checklist"
-    status: in-progress
+    status: complete
 ---
 
 # Section 01: Verifier Gates & Quick Wins
@@ -533,7 +533,7 @@ When all findings are triaged:
 - [x] BLOAT: `arc_emitter/mod.rs` (630 lines) NOT touched by this section's changes — N/A
 
 ### Plan sync
-- [ ] This section's frontmatter `status` -> `complete`, subsection statuses updated (pending TPR/hygiene)
+- [x] This section's frontmatter `status` -> `complete`, subsection statuses updated
 - [x] `00-overview.md` Quick Reference table status updated for this section (In Progress)
 - [x] `00-overview.md` mission success criteria checkboxes updated (§01 checked off)
 - [x] `index.md` section status updated (In Progress, pending close-out)
@@ -541,6 +541,6 @@ When all findings are triaged:
 ### Final reviews
 - [x] `/tpr-review` passed (final, full-section) — 4 semantic iterations (6→7→8→9 across the session), 9 findings fixed across 4 commits (ac8ff045, 15901623, 88d94ce8, c0a500cf). Clean on iteration 4 (Gemini 0 findings, Codex 1 low-severity test pin → fixed). Convergence: high→medium→low→low severity progression.
 - [x] `/impl-hygiene-review` passed — Auto Mode scoped to work arc (ori_arc, ori_llvm, oric). Phase 0 tools: 1 stale annotation cleaned (BUG-04-056 ref). All 19 verify sites consistent. No new LEAKs, no swallowed errors, no drift introduced. Pre-existing pattern variance (A vs B) non-blocking.
-- [ ] `/improve-tooling` **section-close sweep** — MANDATORY after both reviews are clean. Per-subsection captures from 01.1-01.4 should already be committed; the sweep verifies they ran and adds only NEW cross-cutting items. Document the negative finding if there are no cross-cutting gaps.
+- [x] `/improve-tooling` **section-close sweep** — Per-subsection retrospectives (01.1-01.4) all documented "no gaps". One cross-session tooling improvement: `/add-bug` Step 8 (resume-after-filing, commit e43cdb84) — captured and committed during the TPR fix cycle. No additional cross-cutting patterns surfaced. Section-close sweep: per-subsection retrospectives covered everything; no cross-cutting gaps.
 
 **Exit Criteria:** `ORI_VERIFY_ARC=1 timeout 150 ./test-all.sh` passes with 0 failures and 0 regressions. Verification failures in ARC IR and LLVM IR are hard errors under verification mode, not warnings. `fn_val.verify()` runs per-function at all emission sites. `opt -lint` runs as part of codegen audit. All flags registered canonically in `debug_flags.rs`. Error propagation chain is complete from verification through compilation abort. `ORI_VERIFY_EACH=1` enabled if measured within timeout budget, otherwise gated to separate CI job with documented tradeoff.
