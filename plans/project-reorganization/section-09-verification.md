@@ -454,7 +454,7 @@ Final state (vs §01 baseline):
 - 8 internal dev scripts consolidated to scripts/dev/
 - 16 diagnostics consolidated to scripts/diagnostics/
 - tools/ori-lsp deleted
-- scratchpad/ triaged (14 migrated, 17 deleted, directory removed)
+- scratchpad/ triaged (12 migrated, 18 deleted, directory removed; 30 files processed matching §01 baseline)
 - blog/ migrated cross-repo to ori-lang-website
 - 2 build/debug leak files removed, .gitignore /build/ rule added
 - 2 stale website/ paths repaired
