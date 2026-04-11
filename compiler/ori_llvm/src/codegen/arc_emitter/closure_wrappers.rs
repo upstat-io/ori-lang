@@ -227,6 +227,17 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             self.builder.ret(zero);
         }
 
+        // Function-level LLVM IR verification for generated closure wrappers.
+        if self.verify_arc {
+            let fn_val = self.builder.get_function_value(wrapper_func_id);
+            if !fn_val.verify(true) {
+                tracing::error!(
+                    name = wrapper_name,
+                    "LLVM IR verification failed (generate_closure_wrapper)"
+                );
+            }
+        }
+
         // Restore builder position and emitter's current_function
         self.current_function = saved_current_function;
         self.builder.restore_position(saved_pos);

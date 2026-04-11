@@ -117,6 +117,17 @@ pub(super) fn generate_drop_fn<'a, 'scx: 'ctx, 'ctx, 'tcx>(
         }
     }
 
+    // Function-level LLVM IR verification for generated drop functions.
+    if emitter.verify_arc {
+        let fn_val = emitter.builder.get_function_value(func_id);
+        if !fn_val.verify(true) {
+            tracing::error!(
+                name = func_name,
+                "LLVM IR verification failed (generate_drop_fn)"
+            );
+        }
+    }
+
     func_id
 }
 

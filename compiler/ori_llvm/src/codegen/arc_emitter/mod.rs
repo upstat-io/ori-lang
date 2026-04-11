@@ -239,6 +239,11 @@ pub struct ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
     /// that `Switch` can emit niche-aware comparisons instead of a standard
     /// LLVM switch instruction.
     niche_scrutinees: FxHashMap<ArcVarId, Idx>,
+
+    /// Whether ARC/LLVM IR verification is enabled (`ORI_VERIFY_ARC=1`).
+    /// Set via [`set_verify_arc`] after construction; defaults to `false`.
+    /// SSOT: plumbed from `FunctionCompiler::verify_arc` — do NOT re-read env var.
+    verify_arc: bool,
 }
 
 impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
@@ -286,7 +291,16 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
             for_yield_int_elem_sizes: FxHashSet::default(),
             for_yield_elem_size_types: FxHashMap::default(),
             niche_scrutinees: FxHashMap::default(),
+            verify_arc: false,
         }
+    }
+
+    /// Set whether ARC/LLVM IR verification is enabled.
+    ///
+    /// Called by `FunctionCompiler` after construction to propagate its
+    /// `verify_arc` flag — eliminates env var re-reads in submodules.
+    pub fn set_verify_arc(&mut self, enable: bool) {
+        self.verify_arc = enable;
     }
 
     /// Check if a variable is rooted at a borrowed parameter.

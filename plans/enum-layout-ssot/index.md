@@ -4,7 +4,7 @@ name: "Enum SSOT"
 full_name: "Enum Layout SSOT & Take-Project Hardening"
 status: active
 reviewed: false
-order: 2
+order: 3
 ---
 
 # Enum Layout SSOT & Take-Project Hardening Index

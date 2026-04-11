@@ -2,7 +2,7 @@
 reroute: true
 name: "Diag Tooling"
 full_name: "Diagnostic Tooling Improvements"
-status: active
+status: resolved
 order: 1
 ---
 
@@ -54,7 +54,7 @@ backend comparison, codegen divergence
 ---
 
 ### Section 04: Block-level RC Stats
-**File:** `section-04-block-rc-stats.md` | **Status:** Not Started
+**File:** `section-04-block-rc-stats.md` | **Status:** Complete
 
 ```
 rc-stats.sh, --block-level, per-block, basic block
@@ -66,7 +66,7 @@ LEAK:scattered-knowledge, SSOT, canonical surface
 ---
 
 ### Section 05: AIMS Pass Bisection
-**File:** `section-05-bisect-passes.md` | **Status:** Not Started
+**File:** `section-05-bisect-passes.md` | **Status:** Complete
 
 ```
 bisect-passes.sh, AIMS pipeline, phase bisection
@@ -78,7 +78,7 @@ Swift sil-opt-pass-count, sequential checkpoint
 ---
 
 ### Section 06: Expand Fixtures + Self-Test
-**File:** `section-06-fixtures.md` | **Status:** Not Started
+**File:** `section-06-fixtures.md` | **Status:** Complete
 
 ```
 fixtures, closure.ori, iterator_break.ori, nested_list.ori
@@ -89,7 +89,7 @@ self-test.sh, diagnostic regression, coverage
 ---
 
 ### Section 07: Integration + Polish
-**File:** `section-07-integration.md` | **Status:** Not Started
+**File:** `section-07-integration.md` | **Status:** Complete
 
 ```
 test-all.sh, diagnostic hints, check-debug-flags.sh

@@ -160,6 +160,9 @@ pub fn annotate_arg_ownership(
         var_types: &func.var_types,
         pool,
         interner,
+        zip_name: interner.intern("zip"),
+        chain_name: interner.intern("chain"),
+        pop_name: interner.intern("pop"),
     };
 
     for block in &mut func.blocks {
@@ -327,6 +330,10 @@ struct ConsumingCtx<'a> {
     var_types: &'a [ori_types::Idx],
     pool: &'a Pool,
     interner: &'a ori_ir::StringInterner,
+    /// Pre-interned method names for identity comparison.
+    zip_name: ori_ir::Name,
+    chain_name: ori_ir::Name,
+    pop_name: ori_ir::Name,
 }
 
 fn apply_consuming_overrides(
@@ -366,8 +373,7 @@ fn apply_consuming_overrides(
     ) {
         arg_ownership[0] = ArgOwnership::Owned;
         // zip/chain take a second iterator — also consume it.
-        let callee_str = ctx.interner.lookup(callee);
-        if (callee_str == "zip" || callee_str == "chain")
+        if (callee == ctx.zip_name || callee == ctx.chain_name)
             && args.len() >= 2
             && arg_ownership.len() >= 2
         {
@@ -402,8 +408,7 @@ fn apply_consuming_overrides(
 
     // pop() is currently implemented as read-only (returns last element
     // without mutating). Keep as Borrowed until full COW pop is implemented.
-    let callee_str = ctx.interner.lookup(callee);
-    if callee_str == "pop" {
+    if callee == ctx.pop_name {
         return;
     }
 

@@ -50,15 +50,22 @@ pub fn emit_arc_dot(
         let mut funcs: Vec<ArcFunction> = std::iter::once(parent.clone())
             .chain(lambdas.iter().cloned())
             .collect();
-        let _problems = ori_arc::run_arc_pipeline_all(
+        let problems = ori_arc::run_arc_pipeline_all(
             &mut funcs,
             classifier,
             annotated_sigs,
             interner,
             pool,
             &builtins,
-            std::env::var(crate::debug_flags::ORI_VERIFY_ARC).is_ok(),
+            std::env::var(crate::debug_flags::ORI_VERIFY_ARC).is_ok_and(|v| v != "0"),
         );
+        // Log verification ICEs but don't abort the dot dump — it's a diagnostic tool.
+        if let Err(verify_errors) = &problems {
+            for e in verify_errors {
+                tracing::error!("ARC IR verification ICE during dot dump: {e}");
+            }
+        }
+        let _ = problems;
 
         for func in &funcs {
             emit_function_graph(&mut out, func, pool, interner);

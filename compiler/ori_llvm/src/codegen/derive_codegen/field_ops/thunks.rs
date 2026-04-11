@@ -12,6 +12,7 @@ use crate::codegen::type_info::TypeInfo;
 use crate::codegen::value_id::ValueId;
 
 use super::{compute_elem_size, needs_deep_comparison};
+use crate::codegen::derive_codegen::verify_derive_function;
 
 /// Get a function pointer to an equality thunk for use in map/list comparison.
 ///
@@ -91,6 +92,7 @@ pub(super) fn get_or_create_derive_eq_thunk<'a>(
         };
         fc.builder_mut().ret(result);
 
+        verify_derive_function(fc, func_id, "derive_thunk");
         fc.builder_mut().restore_position(saved_pos);
         if let Some(f) = saved_func {
             fc.builder_mut().set_current_function(f);
@@ -158,6 +160,7 @@ fn get_or_create_list_eq_thunk<'a>(
         };
         fc.builder_mut().ret(result);
 
+        verify_derive_function(fc, func_id, "derive_thunk");
         fc.builder_mut().restore_position(saved_pos);
         if let Some(f) = saved_func {
             fc.builder_mut().set_current_function(f);
@@ -237,6 +240,7 @@ fn get_or_create_option_eq_thunk<'a>(
             .select(tags_eq, same_result, false_val, "eq");
         fc.builder_mut().ret(result);
 
+        verify_derive_function(fc, func_id, "derive_thunk");
         fc.builder_mut().restore_position(saved_pos);
         if let Some(f) = saved_func {
             fc.builder_mut().set_current_function(f);
@@ -327,6 +331,7 @@ fn get_or_create_result_eq_thunk<'a>(
         let result = fc.builder_mut().select(tags_eq, same_eq, false_val, "eq");
         fc.builder_mut().ret(result);
 
+        verify_derive_function(fc, func_id, "derive_thunk");
         fc.builder_mut().restore_position(saved_pos);
         if let Some(f) = saved_func {
             fc.builder_mut().set_current_function(f);
@@ -420,6 +425,7 @@ fn get_or_create_tuple_eq_thunk<'a>(
 
         fc.builder_mut().ret(result);
 
+        verify_derive_function(fc, func_id, "derive_thunk");
         fc.builder_mut().restore_position(saved_pos);
         if let Some(f) = saved_func {
             fc.builder_mut().set_current_function(f);
@@ -465,6 +471,7 @@ fn get_or_create_user_type_eq_thunk<'a>(
             .unwrap_or_else(|| fc.builder_mut().const_bool(false));
         fc.builder_mut().ret(result);
 
+        verify_derive_function(fc, func_id, "derive_thunk");
         fc.builder_mut().restore_position(saved_pos);
         if let Some(f) = saved_func {
             fc.builder_mut().set_current_function(f);
@@ -546,6 +553,7 @@ pub(super) fn get_or_create_derive_hash_thunk<'a>(
         };
         fc.builder_mut().ret(result);
 
+        verify_derive_function(fc, func_id, "derive_thunk");
         fc.builder_mut().restore_position(saved_pos);
         if let Some(f) = saved_func {
             fc.builder_mut().set_current_function(f);
@@ -582,6 +590,7 @@ fn get_or_create_constant_hash_thunk<'a>(
         let zero = fc.builder_mut().const_i64(0);
         fc.builder_mut().ret(zero);
 
+        verify_derive_function(fc, func_id, "derive_thunk");
         fc.builder_mut().restore_position(saved_pos);
         if let Some(f) = saved_func {
             fc.builder_mut().set_current_function(f);

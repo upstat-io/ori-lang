@@ -1,0 +1,55 @@
+// Diagnostic fixture (aims-heavy): COW sharing barrier exercise.
+// Exercises is_unique check and COW clone path — create, alias (shared),
+// mutate through one alias (triggers COW clone), verify original unchanged.
+// Also: multi-fork (3+ references) and push-after-share on both sides.
+
+@main () -> int = {
+    // Basic COW: alias then mutate — original must be unchanged
+    let base = [10, 20, 30];
+    let shared = base;
+    let pushed = shared.push(40);
+    let ok1 = base.length() == 3 && pushed.length() == 4
+        && pushed.last().unwrap() == 40;
+
+    // Multi-fork: 3 references to same backing
+    let root = [1, 2];
+    let fork1 = root.push(3);
+    let fork2 = root.push(4);
+    let fork3 = root.push(5);
+    let ok2 = root.length() == 2
+        && fork1.length() == 3 && fork1.last().unwrap() == 3
+        && fork2.length() == 3 && fork2.last().unwrap() == 4
+        && fork3.length() == 3 && fork3.last().unwrap() == 5;
+
+    // Push-after-share on both sides
+    let orig = [1, 2];
+    let copy = orig;
+    let copy2 = copy.push(3);
+    let orig2 = orig.push(99);
+    let ok3 = orig.length() == 2 && copy.length() == 2
+        && copy2.length() == 3 && orig2.length() == 3
+        && copy2.last().unwrap() == 3 && orig2.last().unwrap() == 99;
+
+    // COW with string elements (RC'd elements through clone)
+    let strs = ["hello", "world"];
+    let strs2 = strs;
+    let strs3 = strs2.push("test");
+    let ok4 = strs.length() == 2 && strs3.length() == 3;
+
+    // Sequential mutations building up from shared base
+    let seq = [0];
+    let a = seq;
+    let a = a.push(1);
+    let a = a.push(2);
+    let a = a.push(3);
+    let ok5 = seq.length() == 1 && a.length() == 4
+        && a.last().unwrap() == 3;
+
+    // Empty list COW — sentinel to first allocation
+    let empty: [int] = [];
+    let from_empty = empty.push(1);
+    let ok6 = empty.length() == 0 && from_empty.length() == 1;
+
+    if ok1 && ok2 && ok3 && ok4 && ok5 && ok6
+        then 0 else 1
+}

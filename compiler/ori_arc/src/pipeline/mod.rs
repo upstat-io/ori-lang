@@ -42,7 +42,7 @@ pub fn run_arc_pipeline(
     uniqueness_summaries: &FxHashMap<Name, UniquenessSummary>,
     aims_contracts: &FxHashMap<Name, MemoryContract>,
     verify_arc: bool,
-) -> Vec<ArcProblem> {
+) -> Result<Vec<ArcProblem>, Vec<crate::verify::VerifyError>> {
     let _ = (sigs, uniqueness_summaries);
     let builtins = BuiltinOwnershipSets::new(interner);
     let config = aims_pipeline::AimsPipelineConfig {
@@ -53,7 +53,7 @@ pub fn run_arc_pipeline(
         builtins: &builtins,
         verify_arc,
     };
-    aims_pipeline::run_aims_pipeline(func, &config).problems
+    Ok(aims_pipeline::run_aims_pipeline(func, &config)?.problems)
 }
 
 /// Run the full ARC pipeline on all functions, including ownership application.
@@ -74,7 +74,7 @@ pub fn run_arc_pipeline_all(
     pool: &Pool,
     builtins: &BuiltinOwnershipSets,
     verify_arc: bool,
-) -> Vec<ArcProblem> {
+) -> Result<Vec<ArcProblem>, Vec<crate::verify::VerifyError>> {
     let _ = sigs;
     aims_pipeline::run_aims_pipeline_all(
         functions, classifier, interner, pool, builtins, verify_arc,
@@ -119,44 +119,82 @@ pub fn run_uniqueness_analysis(
 mod aims_pipeline;
 pub(crate) mod rc_count;
 
+#[cfg(test)]
+mod tests;
+
 /// Run ARC IR verification if enabled.
 ///
 /// Active under `debug_assertions` or when the caller passes `verify: true`
 /// (typically from `ORI_VERIFY_ARC=1` read in `oric`).
-/// Logs warnings for each error but does not panic — this is diagnostic,
-/// not blocking.
-fn run_verify(func: &ArcFunction, phase: &str, verify: bool) {
+///
+/// Under explicit verification mode (`verify=true`), returns `Err` with the
+/// list of verification errors — these are ICEs that must halt compilation.
+/// Under debug-assertions-only mode, logs warnings and returns `Ok(())`.
+pub(crate) fn run_verify(
+    func: &ArcFunction,
+    phase: &str,
+    verify: bool,
+) -> Result<(), Vec<crate::verify::VerifyError>> {
     let enabled = verify || cfg!(debug_assertions);
     if !enabled {
-        return;
+        return Ok(());
     }
 
     let errors = crate::verify::check_function(func);
+    if errors.is_empty() {
+        return Ok(());
+    }
+
+    if verify {
+        // Explicit verification mode: hard error.
+        return Err(errors);
+    }
+
+    // debug_assertions only: warn but continue.
     for e in &errors {
         tracing::warn!(phase, "ARC IR verification: {e}");
     }
+    Ok(())
 }
 
 /// Run AIMS-specific consistency checks (contract vs IR).
 ///
 /// Verifies that AIMS analysis results are consistent with the actual IR.
 /// For example, parameters with `Cardinality::Absent` should have no uses.
-fn run_aims_verify(
+///
+/// Under explicit verification mode (`verify=true`), returns `Err` with
+/// AIMS-specific verification errors. Under debug-assertions-only mode,
+/// logs warnings and returns `Ok(())`.
+pub(crate) fn run_aims_verify(
     func: &ArcFunction,
     contract: &crate::aims::contract::MemoryContract,
     phase: &str,
     verify: bool,
-) {
+) -> Result<(), Vec<crate::verify::VerifyError>> {
     let enabled = verify || cfg!(debug_assertions);
     if !enabled {
-        return;
+        return Ok(());
     }
 
     let errors = crate::verify::check_function_with_contract(func, contract);
     // Only report AIMS-specific errors (structural errors already reported by run_verify).
-    for e in &errors {
-        if matches!(e, crate::verify::VerifyError::AbsentParamHasUses { .. }) {
-            tracing::warn!(phase, "AIMS consistency: {e}");
-        }
+    let aims_errors: Vec<_> = errors
+        .into_iter()
+        .filter(|e| matches!(e, crate::verify::VerifyError::AbsentParamHasUses { .. }))
+        .collect();
+
+    if aims_errors.is_empty() {
+        return Ok(());
     }
+
+    if verify {
+        // Explicit verification mode: hard error.
+        return Err(aims_errors);
+    }
+
+    // debug_assertions only: warn but continue.
+    for e in &aims_errors {
+        tracing::warn!(phase, "AIMS consistency: {e}");
+    }
+    Ok(())
 }

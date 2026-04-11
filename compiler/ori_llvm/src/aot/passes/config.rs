@@ -172,6 +172,10 @@ impl fmt::Display for LtoMode {
 ///
 /// Provides fine-grained control over which optimizations are enabled.
 #[derive(Debug, Clone)]
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "4 independent on/off pipeline flags (is_lto_phase, verify_each, debug_logging, lint_enabled) — not a state machine"
+)]
 pub struct OptimizationConfig {
     /// Base optimization level.
     pub level: OptimizationLevel,
@@ -212,6 +216,10 @@ pub struct OptimizationConfig {
     /// Enable debug logging from pass manager.
     pub debug_logging: bool,
 
+    /// Enable LLVM lint pass (`function(lint)`) to detect likely UB patterns.
+    /// Gated by `ORI_LLVM_LINT=1`. Auto-enabled when `ORI_AUDIT_CODEGEN=1`.
+    pub lint_enabled: bool,
+
     /// Additional custom passes to run (comma-separated).
     /// Example: "instcombine,simplifycfg,dce"
     pub extra_passes: Option<String>,
@@ -233,6 +241,7 @@ impl OptimizationConfig {
             inliner_threshold: None,
             verify_each: false,
             debug_logging: false,
+            lint_enabled: false,
             extra_passes: None,
         }
     }
@@ -327,6 +336,16 @@ impl OptimizationConfig {
     #[must_use]
     pub fn with_debug_logging(mut self, enable: bool) -> Self {
         self.debug_logging = enable;
+        self
+    }
+
+    /// Enable LLVM lint pass (builder pattern).
+    ///
+    /// When enabled, appends `function(lint)` to the pipeline to detect
+    /// likely-undefined behavior that the standard IR verifier doesn't catch.
+    #[must_use]
+    pub fn with_lint(mut self, enable: bool) -> Self {
+        self.lint_enabled = enable;
         self
     }
 

@@ -183,6 +183,32 @@ impl TakeMoveFacts {
         }
     }
 
+    /// Test-only constructor for building `TakeMoveFacts` with specific
+    /// bypass-safe entries and let-alias representatives. Used by
+    /// consumer-level tests for `emit_dead_at_entry_decs`.
+    #[cfg(test)]
+    pub(crate) fn with_bypass_entries(
+        vars: &[ArcVarId],
+        let_reps: &[(ArcVarId, ArcVarId)],
+        bypass_safe_entry_blocks: &[usize],
+    ) -> Self {
+        let in_class: FxHashSet<ArcVarId> = vars.iter().copied().collect();
+        let mut var_to_lineage = FxHashMap::default();
+        for &var in vars {
+            var_to_lineage.insert(var, 0); // all share lineage 0
+        }
+        let let_alias_rep: FxHashMap<ArcVarId, ArcVarId> = let_reps.iter().copied().collect();
+        let lineages = vec![LineageInfo {
+            bypass_safe_entries: bypass_safe_entry_blocks.iter().copied().collect(),
+        }];
+        Self {
+            in_class,
+            var_to_lineage,
+            let_alias_rep,
+            lineages,
+        }
+    }
+
     /// Whether `var` participates in any take-project alias class.
     /// Uses the over-approximating membership set that includes
     /// phi-merged block params; consumers that need precise per-var

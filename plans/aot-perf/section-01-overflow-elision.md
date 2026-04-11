@@ -1,7 +1,7 @@
 ---
 section: 1
 title: "Overflow Check Elision"
-status: in-progress
+status: not-started
 reviewed: true
 goal: "Reduce unnecessary overflow checks from 19 to ≤8 for the compute benchmark, matching Rust with -C overflow-checks=yes"
 depends_on: []

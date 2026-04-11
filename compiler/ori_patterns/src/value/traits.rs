@@ -95,7 +95,8 @@ impl fmt::Display for Value {
                     if i > 0 {
                         write!(f, ", ")?;
                     }
-                    write!(f, "\"{k}\": {v}")?;
+                    let decoded = Value::from_map_key(k);
+                    write!(f, "{decoded}: {v}")?;
                 }
                 write!(f, "}}")
             }

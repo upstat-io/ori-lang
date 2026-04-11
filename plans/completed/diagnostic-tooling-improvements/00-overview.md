@@ -1,7 +1,7 @@
 ---
 plan: "diagnostic-tooling-improvements"
 title: "Diagnostic Tooling Improvements: Exhaustive Implementation Plan"
-status: in-progress
+status: complete
 references:
   - ".claude/rules/arc.md"
   - ".claude/rules/aot.md"
@@ -18,19 +18,19 @@ Reduce debugging churn when tracking down hard AOT/LLVM/ARC/AIMS issues by fixin
 
 ## Mission Success Criteria
 
-- [ ] `aims-compare.sh` removed; new `debug-release-compare.sh` functional and passing self-test
-- [ ] `diagnose-aot.sh` runs codegen-audit, dumps ARC IR, supports `--release` and `--both-builds`, enables `ORI_VERIFY_ARC`
-- [ ] `dual-exec-debug.sh` auto-dumps ARC IR on mismatch alongside LLVM IR
-- [ ] `ORI_AUDIT_CODEGEN=1` emits per-block structured JSON; `rc-stats.sh --block-level` consumes it
-- [ ] `bisect-passes.sh` can identify which AIMS pipeline phase introduced a failure for a given `.ori` file
-- [ ] 7+ new diagnostic fixtures covering closures, iterators, nested structures, generics, trait dispatch, and failure modes
-- [ ] `self-test.sh` exercises all new fixtures and scripts
-- [ ] `test-all.sh` prints diagnostic command suggestions on LLVM/AOT test failures
-- [ ] `check-debug-flags.sh` runs as part of `./test-all.sh` or `./clippy-all.sh`
-- [ ] `ir-dump.sh` uses canonical `ORI_DUMP_AFTER_LLVM` instead of legacy `ORI_DEBUG_LLVM`
-- [ ] `diagnostics/README.md` and `CLAUDE.md` updated to reflect all changes
-- [ ] `./test-all.sh` green — no regressions
-- [ ] All section success criteria met
+- [x] `aims-compare.sh` removed; new `debug-release-compare.sh` functional and passing self-test
+- [x] `diagnose-aot.sh` runs codegen-audit, dumps ARC IR, supports `--release` and `--both-builds`, enables `ORI_VERIFY_ARC`
+- [x] `dual-exec-debug.sh` auto-dumps ARC IR on mismatch alongside LLVM IR
+- [x] `ORI_AUDIT_CODEGEN=1` emits per-block structured JSON; `rc-stats.sh --block-level` consumes it
+- [x] `bisect-passes.sh` can identify which AIMS pipeline phase introduced a failure for a given `.ori` file
+- [x] 7+ new diagnostic fixtures covering closures, iterators, nested structures, generics, trait dispatch, and failure modes
+- [x] `self-test.sh` exercises all new fixtures and scripts
+- [x] `test-all.sh` prints diagnostic command suggestions on LLVM/AOT test failures
+- [x] `check-debug-flags.sh` runs as part of `./test-all.sh`
+- [x] `ir-dump.sh` uses canonical `ORI_DUMP_AFTER_LLVM` instead of legacy `ORI_DEBUG_LLVM`
+- [x] `diagnostics/README.md` and `CLAUDE.md` updated to reflect all changes
+- [x] `./test-all.sh` green — no regressions (16,964 passed, 0 failed)
+- [x] All section success criteria met
 
 ## Architecture
 
@@ -81,14 +81,15 @@ Reduce debugging churn when tracking down hard AOT/LLVM/ARC/AIMS issues by fixin
   02 (Enhance diagnose-aot) ──────┘────────┐          │
   03 (Enhance dual-exec-debug) ────────────┤          │
   04 (Block-level RC stats — Rust+shell) ──┤          │
-  05 (bisect-passes — Rust+shell) ─────────┤          │
-  06 (Expand fixtures + self-test) ────────┤          │
+  05 (bisect-passes — Rust+shell) ────┬────┤          │
+  06 (Expand fixtures + self-test) ───┘────┤          │
                                            ▼          ▼
                                 07 (Integration + polish + docs)
 ```
 
-- Sections 01, 03-06 are **independent** — each can be implemented without the others.
+- Sections 01, 03-05 are **independent** — each can be implemented without the others.
 - **Section 02 depends on Section 01** — 01.2 adds `find_ori_bin_profile()` and `require_both_builds()` to `_common.sh`, which 02.2 consumes for `--release` and `--both-builds` flags.
+- **Section 06 depends on Section 05** — 06.2 exercises `bisect-passes.sh` (created by Section 05) against all fixtures.
 - Section 07 depends on ALL prior sections (updates docs, integrates into test-all.sh).
 - Within sections 04 and 05, the Rust compiler change comes before the shell script update.
 
@@ -142,8 +143,8 @@ Phase 3 - Integration
 | Bug | Root Cause | Fix Location | Status |
 |-----|-----------|-------------|--------|
 | `aims-compare.sh` dead — `--features aims` no longer exists | AIMS became default, feature flag removed | Section 01 | Complete |
-| `ir-dump.sh` uses legacy `ORI_DEBUG_LLVM` instead of `ORI_DUMP_AFTER_LLVM` | DRIFT from flag rename | Section 07 | Not Started |
-| `rc-stats.sh` regex-matches RC ops (LEAK:scattered-knowledge) | Shell duplicates compiler knowledge | Section 04 | Not Started |
+| `ir-dump.sh` uses legacy `ORI_DEBUG_LLVM` instead of `ORI_DUMP_AFTER_LLVM` | DRIFT from flag rename | Section 07 | Complete |
+| `rc-stats.sh` regex-matches RC ops (LEAK:scattered-knowledge) | Shell duplicates compiler knowledge | Section 04 | Complete |
 
 ## Quick Reference
 
@@ -152,7 +153,7 @@ Phase 3 - Integration
 | 01 | Remove aims-compare + create debug-release-compare | `section-01-aims-compare.md` | Complete |
 | 02 | Enhance diagnose-aot.sh | `section-02-diagnose-aot.md` | Complete |
 | 03 | Enhance dual-exec-debug.sh | `section-03-dual-exec-debug.md` | Complete |
-| 04 | Block-level RC Stats | `section-04-block-rc-stats.md` | Not Started |
-| 05 | AIMS Pass Bisection | `section-05-bisect-passes.md` | Not Started |
-| 06 | Expand Fixtures + Self-Test | `section-06-fixtures.md` | Not Started |
-| 07 | Integration + Polish | `section-07-integration.md` | Not Started |
+| 04 | Block-level RC Stats | `section-04-block-rc-stats.md` | Complete |
+| 05 | AIMS Pass Bisection | `section-05-bisect-passes.md` | Complete |
+| 06 | Expand Fixtures + Self-Test | `section-06-fixtures.md` | Complete |
+| 07 | Integration + Polish | `section-07-integration.md` | Complete |

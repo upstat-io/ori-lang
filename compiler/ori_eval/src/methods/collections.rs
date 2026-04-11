@@ -13,34 +13,10 @@ use super::DispatchCtx;
 
 /// Decode an internal map key back to a `Value`.
 ///
-/// Map keys are stored with type prefixes (e.g., `"s:hello"`, `"i:42"`) via
-/// `Value::to_map_key()`. This reverses the encoding for user-facing methods
-/// like `keys()` and `entries()`.
+/// Delegates to `Value::from_map_key()` in `ori_patterns` — the SSOT
+/// for map key encode/decode. See `ori_patterns::value::conversions`.
 fn decode_map_key(key: &str) -> Value {
-    match key.split_once(':') {
-        Some(("s", rest)) => Value::string(rest.to_string()),
-        Some(("i", rest)) => rest
-            .parse::<i64>()
-            .map_or_else(|_| Value::string(key.to_string()), Value::int),
-        Some(("f", rest)) => rest
-            .parse::<f64>()
-            .map_or_else(|_| Value::string(key.to_string()), Value::Float),
-        Some(("b", rest)) => rest
-            .parse::<bool>()
-            .map_or_else(|_| Value::string(key.to_string()), Value::Bool),
-        Some(("c", rest)) => {
-            let mut chars = rest.chars();
-            match (chars.next(), chars.next()) {
-                (Some(c), None) => Value::Char(c),
-                _ => Value::string(key.to_string()),
-            }
-        }
-        Some(("y", rest)) => rest
-            .parse::<u8>()
-            .map_or_else(|_| Value::string(key.to_string()), Value::Byte),
-        // Complex keys (Duration, Size, nested) — fall back to raw string
-        _ => Value::string(key.to_string()),
-    }
+    Value::from_map_key(key)
 }
 
 /// Dispatch methods on string values.

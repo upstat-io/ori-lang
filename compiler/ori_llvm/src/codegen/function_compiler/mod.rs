@@ -541,6 +541,11 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
         self.codegen_ctx.type_idx_to_name.get(&idx).copied()
     }
 
+    /// Whether ARC/LLVM IR verification is enabled (`ORI_VERIFY_ARC=1`).
+    pub(crate) fn verify_arc(&self) -> bool {
+        self.verify_arc
+    }
+
     /// Look up a method function by type and method name.
     pub(crate) fn get_method_function(
         &self,
