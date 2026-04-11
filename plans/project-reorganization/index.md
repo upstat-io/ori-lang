@@ -104,7 +104,7 @@ tier-1 critical, tier-2 stale, tier-3 docs rewrite, tier-4 phantom
 **File:** `section-07-scratchpad-triage.md` | **Status:** Not Started
 
 ```
-scratchpad/ audit, 31 files, 14 migrate, 17 delete, 704K total
+scratchpad/ audit, 30 files, 12 migrate, 18 delete, 704K total
 docs/ori_lang/v2026/design/ (7 files): language-design-principles,
   syntax-design-principles, sigil-syntax-evaluation, language-beauty,
   syntax-improvements, let-mut-evaluation, block-expression-syntax
@@ -150,7 +150,7 @@ install.sh (PUBLIC API — stays), setup.sh (stays), rebuild-playground.sh (dele
   WITH canonical _repo-root.sh helper (Finding 1 fix — 9 broken $SCRIPT_DIR/..
   patterns replaced), 08.5 sweep A/B/C/D/E with Pattern E explicit allow-list
   (Finding 2 fix — negative-pin guards compiler/ library/ tests/), 08.6 smoke
-  validation, 08.7 NEW invocation matrix (29 cells: script × context —
+  validation, 08.7 NEW invocation matrix (33 cells: 29 exercisable + 4 PATH SKIP —
   Finding 5 fix), 08.8 NEW atomic commit with explicit path staging
   (Finding 4 fix — no git add -A), 08.N rollback strategy (Finding 6 fix)
 ```
