@@ -120,47 +120,32 @@ Build the test runner that: (1) reads `.ori` test files from `compiler/ori_llvm/
   }
   ```
 
-- [ ] Create `compiler/ori_llvm/tests/codegen_checks.rs` as an integration test that discovers and runs all `.ori` files in `compiler/ori_llvm/tests/codegen/`:
+- [ ] **Prerequisite: Extract AOT helpers to a shared location.** The LLVM IR capture helpers in `compiler/ori_llvm/tests/aot/util/aot.rs` (`compile_and_capture_ir`, `extract_function_ir`, `compile_to_llvm_ir`, `ori_binary`) live under the `aot` integration test target and cannot be imported by a separate `codegen_checks` target. Extract them to `compiler/ori_llvm/tests/test_util/` (or `compiler/ori_llvm/src/test_support.rs` behind `#[cfg(test)]`) so both `aot` and `codegen_checks` can share them.
+
+- [ ] Create `compiler/ori_llvm/tests/codegen_checks.rs` using `run_test_directory()` from the shared harness:
   ```rust
   //! FileCheck-style codegen tests.
   //!
-  //! Each `.ori` file in `compiler/ori_llvm/tests/codegen/` is compiled through the full LLVM
-  //! pipeline, and `// CHECK:` directives in the source are matched against
-  //! the emitted LLVM IR.
+  //! Uses the shared harness (ori_test_harness) for directive parsing,
+  //! revision expansion, bless mode, and test orchestration.
+  //! This crate provides only the FileCheckStrategy — all orchestration
+  //! logic lives in the shared harness.
 
-  use std::path::PathBuf;
-
-  fn discover_test_files() -> Vec<PathBuf> {
-      // Walk compiler/ori_llvm/tests/codegen/ recursively, collect .ori files
-  }
-
-  fn compile_to_ir(path: &Path) -> String {
-      // Use the compiler's LLVM pipeline to emit IR for the test file.
-      // Equivalent to: ORI_DUMP_AFTER_LLVM=1 ori build test.ori
-      // Capture the LLVM IR output as a string.
-  }
+  use ori_test_harness::runner::{run_test_directory, TestStrategy};
+  use std::path::Path;
 
   #[test]
   fn run_all_codegen_checks() {
-      let test_files = discover_test_files();
-      assert!(!test_files.is_empty(), "no codegen test files found in compiler/ori_llvm/tests/codegen/");
-
-      let mut failures = Vec::new();
-      for file in &test_files {
-          // Parse directives, expand revisions, compile, check
-          // Collect failures
-      }
-
-      if !failures.is_empty() {
-          panic!("{} codegen check(s) failed:\n{}", failures.len(),
-              failures.join("\n"));
-      }
+      let test_dir = Path::new("compiler/ori_llvm/tests/codegen");
+      let strategy = FileCheckStrategy::new();
+      let summary = run_test_directory(test_dir, &strategy);
+      assert!(summary.is_success(), "FileCheck failures:\n{}", summary.failures.join("\n"));
   }
   ```
 
-- [ ] Wire revision expansion: when a test has `// @revisions: debug release`, run the compilation and check for each revision with the appropriate flags. Store per-revision `.ll` artifacts.
-
-- [ ] Wire bless mode: when `ORI_BLESS=1` is set, instead of matching CHECK directives, dump the IR to the expected baseline file. (Bless mode is primarily for snapshot-style tests; for CHECK-directive tests, bless mode could regenerate the CHECK lines — but for v1, bless mode updates `.ll` baselines for visual inspection only.)
+- [ ] Implement `FileCheckStrategy` that implements `TestStrategy`:
+  - `execute()`: translates revision config into compiler flags (e.g., "release" → `--release`), compiles through LLVM pipeline to emit IR (reusing extracted AOT helpers), returns IR text
+  - `verify()`: matches CHECK directives against IR text; uses `bless::compare_or_bless()` for `.ll` baselines when `ORI_BLESS=1` is set
 
 - [ ] Add tests:
   - `test_check_matches_mode_finds_substring`

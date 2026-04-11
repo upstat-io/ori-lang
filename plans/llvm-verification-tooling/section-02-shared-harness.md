@@ -408,7 +408,7 @@ Implement bless mode and diff generation. **Bless mode is controlled exclusively
 
 **File(s):** `compiler/ori_test_harness/src/revision.rs`, `compiler/ori_test_harness/src/revision/tests.rs`
 
-Implement the revision expansion system. **Critical design boundary:** the harness extracts revision *names* and per-revision `// @[rev] compile-flags:` directives. It does NOT translate revision names into compiler flags or env vars — that is the consumer's responsibility via `TestStrategy::configure_revision()`. Hardcoding `--release` or `ORI_NO_REPR_OPT=1` in the harness would violate SSOT (the harness would encode compiler-specific knowledge).
+Implement the revision expansion system. **Critical design boundary:** the harness extracts revision *names* and per-revision `// @[rev] compile-flags:` directives. It does NOT translate revision names into compiler flags or env vars — that is the consumer's responsibility inside `TestStrategy::execute()`. Hardcoding `--release` or `ORI_NO_REPR_OPT=1` in the harness would violate SSOT (the harness would encode compiler-specific knowledge).
 
 - [ ] Define revision configuration:
   ```rust
@@ -417,7 +417,7 @@ Implement the revision expansion system. **Critical design boundary:** the harne
   /// The harness extracts the revision name and any explicit
   /// `// @[name] compile-flags:` directives. Translation of
   /// revision names into actual compiler flags/env vars belongs
-  /// in the consumer's `TestStrategy::configure_revision()`.
+  /// in the consumer's `TestStrategy::execute()`.
   #[derive(Debug, Clone, PartialEq, Eq)]
   pub struct RevisionConfig {
       /// Revision name (e.g., "debug", "release", "no-repr-opt")
@@ -722,8 +722,6 @@ Validate that the harness orchestration, directive parsing, revision expansion, 
   pub struct MockTestStrategy {
       /// Output to return from execute(). Keyed by (test_path, revision).
       pub outputs: HashMap<(PathBuf, String), String>,
-      /// Whether configure_revision should succeed.
-      pub configure_ok: bool,
   }
   ```
 
@@ -734,7 +732,7 @@ Validate that the harness orchestration, directive parsing, revision expansion, 
 
 - [ ] Write integration tests proving:
   - `test_mock_strategy_single_file_passes_when_output_matches`
-  - `test_mock_strategy_revision_expansion_calls_configure_per_revision`
+  - `test_mock_strategy_revision_expansion_calls_execute_per_revision`
   - `test_mock_strategy_bless_mode_writes_baseline` (set `ORI_BLESS=1` in test env)
   - `test_mock_strategy_mismatch_produces_diff_in_failure`
   - `test_mock_strategy_directive_filtering_by_revision`
