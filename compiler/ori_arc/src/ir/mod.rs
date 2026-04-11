@@ -17,6 +17,7 @@
 //! Values are named via [`ArcVarId`] (SSA-like). Control flow uses
 //! [`ArcBlockId`] references between blocks.
 
+pub mod format;
 mod function;
 mod instr;
 mod repr;

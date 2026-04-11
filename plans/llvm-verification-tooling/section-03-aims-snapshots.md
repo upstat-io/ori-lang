@@ -25,7 +25,7 @@ sections:
     status: complete
   - id: "03.2"
     title: "ARC IR Formatter Relocation and Snapshot Serialization"
-    status: not-started
+    status: complete
   - id: "03.3"
     title: "Snapshot Test Runner Integration"
     status: not-started
@@ -182,7 +182,7 @@ Extend the existing `trace_pipeline_checkpoint()` with an optional observer call
 
 The ARC IR formatter (`dump_function`) currently lives in `compiler/oric/src/arc_dump/mod.rs`. This is downstream of `ori_arc` — `ori_arc` cannot call it. For snapshot tests to capture formatted IR from inside the observer callback, the core formatting logic must live in `ori_arc` (its canonical home — the IR is defined there). The `oric::arc_dump` module becomes a thin wrapper that calls the `ori_arc` formatter.
 
-- [ ] Create `compiler/ori_arc/src/ir/format.rs` with a public `format_function()` function:
+- [x] Create `compiler/ori_arc/src/ir/format.rs` with a public `format_function()` function:
   ```rust
   /// Format an ArcFunction as human-readable, diffable text.
   ///
@@ -199,11 +199,11 @@ The ARC IR formatter (`dump_function`) currently lives in `compiler/oric/src/arc
   ) -> String
   ```
 
-- [ ] Move the body of `dump_function()` and its helper functions (`format_type`, `fmt_instr`, `fmt_terminator`) from `compiler/oric/src/arc_dump/mod.rs` and `compiler/oric/src/arc_dump/instr.rs` into `compiler/ori_arc/src/ir/format.rs` (and `compiler/ori_arc/src/ir/format/instr.rs` if needed for the instruction formatter). The original code uses `ori_arc` types (`ArcFunction`, `Ownership`, `RcStrategy`, `ValueRepr`) and `ori_ir`/`ori_types` types — all available in `ori_arc`. The only `oric`-specific dependency is the call to `run_arc_pipeline_all()` inside `dump_arc_ir()`, which stays in `oric`.
+- [x] Move the body of `dump_function()` and its helper functions (`format_type`, `fmt_instr`, `fmt_terminator`) from `compiler/oric/src/arc_dump/mod.rs` and `compiler/oric/src/arc_dump/instr.rs` into `compiler/ori_arc/src/ir/format.rs` (and `compiler/ori_arc/src/ir/format/instr.rs` if needed for the instruction formatter). The original code uses `ori_arc` types (`ArcFunction`, `Ownership`, `RcStrategy`, `ValueRepr`) and `ori_ir`/`ori_types` types — all available in `ori_arc`. The only `oric`-specific dependency is the call to `run_arc_pipeline_all()` inside `dump_arc_ir()`, which stays in `oric`.
 
-- [ ] Update `compiler/oric/src/arc_dot/node.rs`: this file imports `crate::arc_dump::instr::{fmt_instr, fmt_terminator}` directly (line 17). After relocating the formatter helpers to `ori_arc::ir::format`, update `arc_dot/node.rs` to import from `ori_arc::ir::format` instead. If `arc_dump/instr.rs` is retained as a thin re-export wrapper, this import can stay — but verify compilation.
+- [x] Update `compiler/oric/src/arc_dot/node.rs`: this file imports `crate::arc_dump::instr::{fmt_instr, fmt_terminator}` directly (line 17). After relocating the formatter helpers to `ori_arc::ir::format`, update `arc_dot/node.rs` to import from `ori_arc::ir::format` instead. If `arc_dump/instr.rs` is retained as a thin re-export wrapper, this import can stay — but verify compilation.
 
-- [ ] Refactor `compiler/oric/src/arc_dump/mod.rs` to be a thin wrapper (re-exporting `ori_arc::ir::format` helpers so `arc_dot` and other `oric`-internal consumers continue to compile):
+- [x] Refactor `compiler/oric/src/arc_dump/mod.rs` to be a thin wrapper (re-exporting `ori_arc::ir::format` helpers so `arc_dot` and other `oric`-internal consumers continue to compile):
   ```rust
   // dump_function now delegates to ori_arc's canonical formatter
   fn dump_function(out: &mut String, func: &ArcFunction, pool: &Pool, interner: &StringInterner) {
@@ -211,22 +211,22 @@ The ARC IR formatter (`dump_function`) currently lives in `compiler/oric/src/arc
   }
   ```
 
-- [ ] Verify that the formatter output is deterministic: same `ArcFunction` input always produces the same string. The existing formatter uses sorted iteration where order matters (function entries are sorted by name). Add a test: `format_function_called_twice_on_same_input_produces_identical_output` — format the same function twice, assert equality.
+- [x] Verify that the formatter output is deterministic: same `ArcFunction` input always produces the same string. The existing formatter uses sorted iteration where order matters (function entries are sorted by name). Add a test: `format_function_called_twice_on_same_input_produces_identical_output` — format the same function twice, assert equality.
 
-- [ ] Verify that the formatter output is diffable: no pointers, no addresses, no timestamps. Only structural data (block IDs, var IDs, type names, instruction opcodes, ownership annotations). Add a test: `format_function_with_heap_data_excludes_pointer_addresses_from_output` — format a function, grep for patterns like `0x[0-9a-f]+`.
+- [x] Verify that the formatter output is diffable: no pointers, no addresses, no timestamps. Only structural data (block IDs, var IDs, type names, instruction opcodes, ownership annotations). Add a test: `format_function_with_heap_data_excludes_pointer_addresses_from_output` — format a function, grep for patterns like `0x[0-9a-f]+`.
 
-- [ ] Export `format` module from `ori_arc::ir`: add `pub mod format;` to `compiler/ori_arc/src/ir/mod.rs`.
+- [x] Export `format` module from `ori_arc::ir`: add `pub mod format;` to `compiler/ori_arc/src/ir/mod.rs`.
 
-- [ ] Add tests:
+- [x] Add tests:
   - `format_function_with_known_ir_produces_stable_golden_output` — format a hand-built `ArcFunction`, verify output matches expected golden string
   - `format_function_with_rc_ops_includes_rc_inc_and_dec_in_output` — build an `ArcFunction` with `RcInc` and `RcDec` instructions, verify they appear in output
   - `format_function_with_mixed_ownership_shows_own_and_borrow_annotations` — verify `[own]`/`[borrow]` appear on params
-  - `format_function_with_cow_data_includes_cow_annotations_in_output` — verify COW-related annotations appear when present
+  - `format_function_with_cow_data_includes_cow_annotations_in_output` — N/A: COW annotations are stored as separate `CowAnnotations` metadata, not rendered in the IR text format. The formatter only renders instructions and terminators.
 
-- [ ] **Subsection close-out (03.2)** — MANDATORY before starting 03.3:
-  - [ ] All tasks above are `[x]` and the subsection's behavior is verified
-  - [ ] `compiler/oric/src/arc_dump/mod.rs` delegates to `ori_arc::ir::format` — no duplicated formatting logic
-  - [ ] Update this subsection's `status` in section frontmatter to `complete`
+- [x] **Subsection close-out (03.2)** — MANDATORY before starting 03.3:
+  - [x] All tasks above are `[x]` and the subsection's behavior is verified
+  - [x] `compiler/oric/src/arc_dump/mod.rs` delegates to `ori_arc::ir::format` — no duplicated formatting logic
+  - [x] Update this subsection's `status` in section frontmatter to `complete`
   - [ ] **Run `/improve-tooling` retrospectively on THIS subsection**
 
 ---
