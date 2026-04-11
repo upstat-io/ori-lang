@@ -212,7 +212,7 @@ After the scanner identifies the focus section, **check its frontmatter for `rev
 
 ### Step 1.9: Third Party Review Triage Gate
 
-After identifying the focus section, **check its frontmatter for `third_party_review.status: findings`**. This means an external reviewer (e.g. Codex) has recorded unresolved findings in the section's `## {NN}.R Third Party Review Findings` block.
+After identifying the focus section, **check its frontmatter for `third_party_review.status: findings`**. This means the dual-source `/tpr-review` (Codex + Gemini) has recorded unresolved findings in the section's `## {NN}.R Third Party Review Findings` block. Findings may be tagged `-codex` or `-gemini` (single-reviewer) or carry `agreement: true` (both reviewers flagged the same location/title).
 
 **If `third_party_review.status` is `findings`:**
 

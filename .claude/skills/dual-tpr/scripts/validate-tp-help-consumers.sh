@@ -249,10 +249,13 @@ run_one_tp_help_call() {
 # ── Scenario 1: impl-hygiene-review Phase 4 (ONE tp-help call) ───────
 #
 # Mirrors the call pattern of .claude/skills/impl-hygiene-review/SKILL.md
-# lines 319-360, which invokes /tp-help internally ONCE per phase 4 run.
-# The consumer wrapper's job (outside this stub) is to process the
-# concatenated prose and tag findings with [TP-CONFIRMED]/[TP-SURFACED];
-# this stub harness verifies only the transport layer — that both reviewer
+# §"Phase 4: Third-Party Cross-Check", which invokes /tp-help internally
+# ONCE per phase 4 run. The consumer wrapper's job (outside this stub) is
+# to process the concatenated dual-source prose from BOTH Codex and Gemini
+# and tag findings with attribution: [TP-CONFIRMED-codex] /
+# [TP-CONFIRMED-gemini] / [TP-CONFIRMED-both] for confirmations, and
+# [TP-SURFACED-codex] / [TP-SURFACED-gemini] for newly-surfaced findings.
+# This stub harness verifies only the transport layer — that both reviewer
 # markers reach the concatenated output and that the impl-hygiene-review
 # SKILL.md file itself is NOT mutated during a tp-help call.
 say ""

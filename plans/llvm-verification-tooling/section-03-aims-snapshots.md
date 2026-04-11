@@ -424,6 +424,26 @@ Create the initial corpus of snapshot tests covering the 5 priority passes. Each
 - [x] `[TPR-03-002-gemini-r3][low]` `section-03-aims-snapshots.md:162` — GAP: `run_arc_pipeline_with_observer` takes `&CheckpointObserver<'_>` but config expects `&'a CheckpointObserver<'a>`.
   Resolved: Fixed on 2026-04-11. Changed to `&'a CheckpointObserver<'a>` with explicit lifetime parameter on function.
 
+**Implementation review (code review — round 1):**
+
+- [x] `[TPR-03-001-codex-impl][high]` `compiler/oric/tests/aims_snapshot_strategy.rs:148` — GAP: Fail the strategy when a requested pass snapshot is missing. Strategy silently skipped uncaptured passes.
+  Resolved: Fixed on 2026-04-11. Changed `if let Some(content)` to `captured.get(pass_name).ok_or_else(...)` — missing pass now produces a hard error.
+
+- [x] `[TPR-03-002-codex-impl][high]` `compiler/oric/tests/aims_snapshot_strategy.rs:130` — GAP: Run the snapshot pipeline with real AIMS contracts. Strategy passed empty contracts/uniqueness/sigs maps.
+  Resolved: Fixed on 2026-04-11. Added `compute_aims_contracts()` call before pipeline execution, matching production codegen_pipeline.rs:361-366. Re-blessed baselines (mutual-recursive-tail ownership changed from `[borrow]` to `[own]` — correct interprocedural result).
+
+- [x] `[TPR-03-001-gemini-impl][high]` `compiler/oric/tests/aims_snapshot_strategy.rs:88` — GAP: Compute AIMS contracts instead of passing default maps to observer loop. Same root cause as TPR-03-002-codex-impl.
+  Resolved: Fixed on 2026-04-11. Same fix as [TPR-03-002-codex-impl] (thematic agreement).
+
+- [x] `[TPR-03-003-codex-impl][medium]` `compiler/oric/tests/aims_snapshots.rs:20` — GAP: Remove the top-level corpus probe that skips nested tests. Only alive because smoke-test.ori at root.
+  Resolved: Fixed on 2026-04-11. Removed fragile top-level `.ori` file check — `run_test_directory()` handles recursive discovery and empty-corpus errors.
+
+- [x] `[TPR-03-004-codex-impl][low]` `compiler/oric/tests/aims_snapshots.rs:15` — GAP: Rename the integration test function to a behavioral three-part name.
+  Resolved: Fixed on 2026-04-11. Renamed `aims_snapshot_tests` → `aims_snapshots_across_all_passes_match_baselines`.
+
+- [x] `[TPR-03-002-gemini-impl][low]` `compiler/oric/tests/aims_snapshots.rs:14` — Rename aims_snapshot_tests to follow behavioral naming rules.
+  Resolved: Fixed on 2026-04-11. Same fix as [TPR-03-004-codex-impl] (thematic agreement).
+
 ---
 
 ## 03.N Completion Checklist
