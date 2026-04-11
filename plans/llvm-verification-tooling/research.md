@@ -267,7 +267,7 @@ compiler/ori_llvm/tests/codegen/               # LLVM IR pattern tests
   closures/                  # Closure codegen
   abi/                       # ABI patterns
   iterator/                  # Iterator codegen
-compiler/ori_arc/tests/arc-opt/               # AIMS pass snapshot tests (Tier 0.1)
+compiler/oric/tests/aims-snapshots/            # AIMS pass snapshot tests (Tier 0.1, lives in oric for compiler driver access)
   realize_rc_reuse/          # Step 5 snapshots
   merge_blocks/              # Step 9 snapshots
   realize_annotations/       # Step 10 snapshots
@@ -285,7 +285,7 @@ Tier 0.1 (AIMS snapshots) and Tier 2.1 (LLVM IR assertions) both need directive 
   - Produces unified failure output consumable by the code-journey system
 - **Directory split** reflects artifact type, not harness split:
   - `compiler/ori_llvm/tests/codegen/` → LLVM IR assertions (`.matches` / `.exact` / `CHECK:`)
-  - `compiler/ori_arc/tests/arc-opt/` → AIMS pass snapshots (`.before.arc` / `.after.arc` / `.diff`)
+  - `compiler/oric/tests/aims-snapshots/` → AIMS pass snapshots (`lowered.arc` + per-pass `.after.arc`)
   - Both consumed by the same runner
 
 This prevents the SSOT failure mode where two overlapping harnesses with duplicated logic drift apart.

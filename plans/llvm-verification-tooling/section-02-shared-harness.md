@@ -490,7 +490,7 @@ The harness owns the orchestration algorithm. Consumer crates provide a `TestStr
   /// configuration, and result comparison.
   ///
   /// Implementations:
-  /// - `ori_arc` provides `AimsSnapshotStrategy` (§03)
+  /// - `oric` provides `AimsSnapshotStrategy` (§03, lives in oric because compilation requires the full driver)
   /// - `ori_llvm` provides `FileCheckStrategy` (§07)
   pub trait TestStrategy {
       /// The type of error this strategy can produce.
@@ -725,7 +725,7 @@ Validate that the harness orchestration, directive parsing, revision expansion, 
   }
   ```
 
-- [x] Create seed test files in a temporary directory (not in `compiler/ori_llvm/tests/codegen/` or `compiler/ori_arc/tests/arc-opt/` — those are consumer directories created by §03/§07):
+- [x] Create seed test files in a temporary directory (not in `compiler/ori_llvm/tests/codegen/` or `compiler/oric/tests/aims-snapshots/` — those are consumer directories created by §03/§07):
   - Seed file with `// @revisions: alpha beta` and `// @[alpha] compile-flags: --opt`
   - Seed file with `// @test-arc-pass: realize_rc_reuse`
   - Seed file with `// CHECK: some_pattern` and `// CHECK-NOT: bad_pattern`

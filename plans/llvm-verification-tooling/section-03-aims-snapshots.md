@@ -128,7 +128,7 @@ Extend the existing `trace_pipeline_checkpoint()` with an optional observer call
       func: &ArcFunction,
       phase: &str,
       interner: &ori_ir::StringInterner,
-      observer: Option<&CheckpointObserver>,
+      observer: Option<&CheckpointObserver<'_>>,
   ) {
       // Existing tracing logic (unchanged)
       if tracing::enabled!(target: "ori_arc::aims::pipeline", tracing::Level::INFO) {
@@ -267,12 +267,15 @@ Wire the snapshot capture into cargo tests using the shared harness (§02). Test
 - [ ] Implement `AimsSnapshotStrategy` in `compiler/oric/tests/aims_snapshot_strategy.rs`:
   - `execute()`:
     1. Parse `// @test-arc-pass: <pass_name>` directives from the test file to determine which passes to snapshot
-    2. Compile the `.ori` file through the full pipeline using `CompilerDb`/`SourceFile` and `query::typed()`/`typed_pool()`. The data flow is: `.ori` source → `CompilerDb` → `canonicalize_cached()` → `lower_to_arc()` → `compute_aims_contracts()` → `run_arc_pipeline_with_observer()`. Note: `canonicalize_cached()` is `pub(crate)` in `oric`; since this test lives in `oric/tests/`, we need either (a) a public compilation helper that returns the `arc_cache`, or (b) using the existing `codegen_pipeline.rs` path that already does this orchestration internally. Prefer (b) to avoid API bloat.
+    2. Compile the `.ori` file through the full pipeline using `CompilerDb`/`SourceFile`. The data flow is: `.ori` source → `CompilerDb` → type check → canonicalize → `lower_to_arc()` → `compute_aims_contracts()` → `run_arc_pipeline_with_observer()`. **Important visibility constraint**: `canonicalize_cached()` is `pub(crate)` in `oric` (`query/mod.rs:300`), and `codegen_pipeline.rs` is a private module (`commands/mod.rs:25`) with `run_codegen_pipeline` as `pub(super)`. Neither is callable from integration tests. **Required**: add a public test-support function to `oric` (e.g., `pub fn compile_to_arc_cache(source: &SourceFile, db: &CompilerDb) -> FxHashMap<Name, (ArcFunction, Vec<ArcFunction>)>`) gated behind `#[cfg(test)]` or in a `test_support` module. This avoids duplicating the lowering orchestration and provides a clean API for the snapshot strategy.
     3. **Capture `lowered.arc` baseline**: BEFORE calling `run_arc_pipeline_with_observer()`, format each `ArcFunction` from the `arc_cache` using `ori_arc::ir::format::format_function()`. This is the pre-AIMS-pipeline state. The checkpoint observer captures subsequent per-pass `.after.arc` snapshots.
-    4. Write all actual snapshot files to a temp directory (one per function per pass): `{test_stem}.{function_name}.lowered.arc` and `{test_stem}.{function_name}.{pass_name}.after.arc`
-    5. Return `TestOutput` with `artifacts` populated: one `ArtifactPaths` entry per snapshot file (listing `actual_path` pointing to the temp file and `expected_path` pointing to the baseline)
+    4. For each snapshot, resolve paths using the harness artifact API:
+       - `expected = artifact::resolve_expected(test_path, "arc", revision)` — baseline lives alongside the `.ori` test file
+       - `actual = artifact::resolve_actual(test_path, "arc", revision)` — actual output goes to `target/test-harness/` (deterministic, survives for debugging)
+       - For multi-artifact naming (function × pass), use compound suffixes: `{function_name}.{pass_name}.after.arc` and `{function_name}.lowered.arc`
+    5. Write actual snapshot content to `ArtifactPaths.actual` paths. Return `TestOutput` with `artifacts: Vec<ArtifactPaths>` populated — one `ArtifactPaths { expected, actual }` entry per snapshot file.
   - `verify()`:
-    1. For each artifact in `TestOutput.artifacts`, call `bless::compare_or_bless(expected_path, &actual_content, bless)` individually — one call per artifact file. The harness's `compare_or_bless()` is single-file; multi-artifact comparison is the strategy's responsibility.
+    1. For each artifact in `TestOutput.artifacts`, read the actual file content, then call `bless::compare_or_bless(&artifact.expected, &actual_content, bless)` individually — one call per artifact file. The harness's `compare_or_bless()` is single-file; multi-artifact comparison is the strategy's responsibility.
     2. If no baseline exists and bless mode is active, create it
     3. If no baseline exists and bless mode is inactive, fail with a clear message listing which artifact is missing
   - `baseline_suffix()`: return `Some("arc")` to enable stale baseline cleanup via `clean_stale_baselines()`
