@@ -13,7 +13,7 @@ success_criteria:
   - "`scratchpad/` directory removed (either via rmdir or via git clean — it's gitignored so no commit is needed for the deletion itself; the migrations are what commit)"
   - "`ori-lang-website` Astro build succeeds with all new `docs/*` collection entries — `content.config.ts` docsSchema validation passes for every migrated file (title + order at minimum)"
   - "`./test-all.sh` green post-migration (no test exercises scratchpad paths)"
-  - "Each of the 14 migrations has a commit: `docs(migration): move scratchpad/{old-path} to {new-path}` OR a batched commit per destination directory (`docs(design): migrate 7 design notes from scratchpad/ to docs/ori_lang/v2026/design/`)"
+  - "Each of the 12 migrations has a commit: `docs(migration): move scratchpad/{old-path} to {new-path}` OR a batched commit per destination directory (`docs(design): migrate 7 design notes from scratchpad/ to docs/ori_lang/v2026/design/`). 11 use Astro `docsSchema` frontmatter; 1 (package-system proposal) uses body-format schema per `proposal-loader.ts:22-59`."
 inspired_by:
   - "rustc `rust/dev-guide` migration — scattered design notes collected into a canonical design doc home with consistent frontmatter"
   - "Roc `design/` directory — explicit separation of design history from spec and plans"
@@ -58,7 +58,7 @@ sections:
 
 **Success Criteria:**
 
-- [ ] 14 files exist in their new `docs/` homes with proper Astro frontmatter
+- [ ] 12 files exist in their new `docs/` homes with proper per-destination frontmatter (11 with Astro `docsSchema`; 1 with body-format proposal schema per `proposal-loader.ts:22-59`)
 - [ ] 17+ files deleted from `scratchpad/`
 - [ ] `scratchpad/` directory absent (or empty + rmdir'd)
 - [ ] `ori-lang-website` Astro build succeeds with no schema errors on any docs collection
@@ -643,9 +643,14 @@ Delete everything that's not migrating. All files are in gitignored `scratchpad/
   Basis: fresh_verification. Confidence: high.
   Resolved: Fixed on 2026-04-11. Reconciled all count references across §07 frontmatter (goal, success_criteria), §07 context paragraph, §07.1 Pre-Migration expected count, §07.6 title + deletion math + verification, §07.N completion checklist, and 00-overview.md (mission success criterion, current state/target state diagrams, dependency graph prose, implementation sequence, scratchpad metrics table, code-deleted estimate) to the reconciled numbers: **30 total files, 12 migrations, 18 deletions**. The conditional `07-modern-lang-repos.md` is now explicit as a DELETE in the headline counts.
 
----
+<!-- Iteration 2 (2026-04-11) surfaced a propagation gap: the iteration 1 fix didn't land in every count reference. Additional stale "14 migrations / 17-18 deletions" references were found at §07:16, §07:61, §07:671, and §09:457. Fixed in iteration 2. -->
 
-## 07.N Completion Checklist
+- [x] `[TPR-XX-002-codex][medium]` (iteration 2) `plans/project-reorganization/section-07-scratchpad-triage.md:61,16,671` + `section-09-verification.md:457` — Finish the DRIFT cleanup for scratchpad migration counts.
+  Evidence: The iteration 1 scratchpad math fix didn't land everywhere. §07 line 16 still said "Each of the 14 migrations has a commit"; §07 line 61 still said "14 files exist in their new docs/ homes with proper Astro frontmatter"; §07 line 671 exit criteria still said "14 migrated files exist... 17-18 files deleted"; §09 line 457 commit template still said "scratchpad/ triaged (14 migrated, 17 deleted)". The reviewer ran a direct grep and found all four remaining stale references.
+  Impact: Conflicting execution contracts for §07 — an implementer could not rely on the section-level success criteria or final close-out text as authoritative counts.
+  Required plan update: Update remaining stale count references to the reconciled 12/18/30 numbers. Also distinguish the schema breakdown (11 docsSchema + 1 body-format proposal, not all Astro).
+  Basis: fresh_verification. Confidence: high.
+  Resolved: Fixed on 2026-04-11 iteration 2. Updated all 4 remaining stale references with consistent counts AND the 11+1 schema breakdown. §07:16 now says "12 migrations" with the explicit "11 use Astro docsSchema frontmatter; 1 (package-system proposal) uses body-format schema". §07:61 updated similarly. §07:671 exit criteria updated with the 12/18 counts + per-destination schema clarification. §09:457 commit template updated to "12 migrated, 18 deleted".
 
 - [ ] 7 files migrated to `docs/ori_lang/v2026/design/` with Astro frontmatter (07.2)
 - [ ] 3 files migrated to `docs/compiler/design/` with Astro frontmatter (07.3)
@@ -668,4 +673,4 @@ Delete everything that's not migrating. All files are in gitignored `scratchpad/
 - [ ] `/impl-hygiene-review` passed (AFTER TPR clean) — SSOT compliance (no duplicated content between migrated docs/ files and existing spec/rules), no BLOAT (did we preserve content that was already duplicated elsewhere?)
 - [ ] `/improve-tooling` **section-close sweep** — per-subsection retrospectives (07.1-07.7) should already be committed. Cross-subsection pattern check: the biggest insight is the `migrate-with-frontmatter.sh` helper (from 07.2), which enabled 07.3, 07.4, 07.5 to be faster. Verify the helper's generality — does it handle both `docsSchema` and `proposals` frontmatter shapes? If not, extend it now. Commit any extensions via `build(scripts): ... — surfaced by section-07 close sweep`. If helper was not built: re-evaluate decision — it was used 12 times, that's high reusability.
 
-**Exit Criteria:** `scratchpad/` directory absent. 14 migrated files exist at their destinations with frontmatter matching the expected schema. 17-18 files deleted. `ori-lang-website` Astro build succeeds with all new files validated. `./test-all.sh` green. Mission success criterion "Scratchpad is empty or absent" satisfied.
+**Exit Criteria:** `scratchpad/` directory absent. 12 migrated files exist at their destinations with frontmatter matching the expected schema per destination (11 with Astro `docsSchema` for the `design/` + `tooling/` collections, 1 with body-format proposal schema for the `proposals/drafts/` collection). 18 files deleted (including `07-modern-lang-repos.md` per the conditional DELETE in §07.1). `ori-lang-website` Astro build succeeds with all new files validated. `./test-all.sh` green. Mission success criterion "Scratchpad is empty or absent" satisfied.

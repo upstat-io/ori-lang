@@ -3,10 +3,10 @@ section: "05"
 title: "Orphan Cleanup"
 status: not-started
 reviewed: false
-goal: "Delete three confirmed orphan entries — the empty `samples/` directory, the phantom `compiler/ori_lsp/.gitkeep` placeholder (keeping the directory as a reserved canonical future home), and the obsolete `rebuild-playground.sh` script (confirmed 0 references, dead `./website/` path) — without touching the stale `tools/ori-lsp/` prototype which has its own dedicated §06 treatment."
+goal: "Delete three confirmed orphan entries — the empty `samples/` directory, the phantom `compiler/ori_lsp/.gitkeep` placeholder (and let the now-empty directory disappear from the filesystem since git doesn't track empty dirs; the canonical LSP reservation is preserved by `plans/roadmap/section-22-tooling.md:150-156`, not by an empty filesystem directory), and the obsolete `rebuild-playground.sh` script (confirmed 0 references, dead `./website/` path) — without touching the stale `tools/ori-lsp/` prototype which has its own dedicated §06 treatment."
 success_criteria:
   - "`samples/` does not exist (or is empty if the directory itself is gitignored per the current .gitignore rule `/samples/`)"
-  - "`git ls-files compiler/ori_lsp/` is empty (`.gitkeep` removed — directory itself stays reserved as future canonical LSP home)"
+  - "`git ls-files compiler/ori_lsp/` is empty (`.gitkeep` removed). The directory ITSELF may or may not exist on the filesystem after the deletion — both states are acceptable because git does not track empty directories. The LSP canonical-home reservation is a plan-level claim at `plans/roadmap/section-22-tooling.md:150-156`, NOT a filesystem-level claim."
   - "`git ls-files | grep rebuild-playground.sh` returns empty"
   - "No rebuild-playground.sh references appear anywhere in ori_lang, ori-lang-website, or any .github workflow"
   - "`./test-all.sh` green post-cleanup (nothing this section touches is exercised by the test suite)"
@@ -44,7 +44,7 @@ sections:
 
 - [ ] `samples/` removed from filesystem (if tracked) or confirmed as gitignored-and-absent
 - [ ] `compiler/ori_lsp/.gitkeep` removed from git tracking
-- [ ] `compiler/ori_lsp/` directory still exists (empty, reserved for future canonical LSP home per `plans/roadmap/section-22-tooling.md:150-156`)
+- [ ] `compiler/ori_lsp/` directory may or may not exist on the filesystem after the deletion — **both states are acceptable**. The canonical LSP reservation is preserved by `plans/roadmap/section-22-tooling.md:150-156` (a plan-level commitment), NOT by a filesystem artifact. When a real LSP crate is implemented later, `mkdir -p compiler/ori_lsp/` + `cargo new --lib .` will recreate the directory with actual content.
 - [ ] `rebuild-playground.sh` removed from git tracking and filesystem
 - [ ] `rg 'rebuild-playground' ori_lang/ ../ori-lang-website/` returns zero matches
 - [ ] `./test-all.sh` green post-cleanup
@@ -241,9 +241,14 @@ Refs: plans/project-reorganization/section-05-orphan-cleanup.md"
 
 ## 05.R Third Party Review Findings
 
-<!-- Reserved for dual-source /tpr-review findings. -->
+<!-- Dual-source /tpr-review iteration 2 (2026-04-11) surfaced a contract contradiction between §05 frontmatter and §05.2's architectural decision. Resolved inline. -->
 
-- None.
+- [x] `[TPR-XX-004-codex][medium]` `plans/project-reorganization/section-05-orphan-cleanup.md:6` — Reconcile the DRIFT in §05's `compiler/ori_lsp` reservation contract.
+  Evidence: §05 gave two incompatible contracts for the `compiler/ori_lsp/.gitkeep` cleanup. The frontmatter goal said "keeping the directory as a reserved canonical future home" (line 6), and the section-level success criterion said "directory itself stays reserved as future canonical LSP home" (line 46). But §05.2's subsection correctly re-evaluated the mechanics (lines 114-149) and concluded that the LSP reservation is a **plan-level claim** at `plans/roadmap/section-22-tooling.md:150-156`, NOT a filesystem artifact — and that deleting `.gitkeep` AND letting the empty directory disappear is the correct architectural choice.
+  Impact: The section was internally contradictory. An executor following the subsection's corrected decision would still fail the section's own frontmatter and top-level success criteria.
+  Required plan update: Align §05's frontmatter goal, success_criteria, and section-level success criteria with the §05.2 decision (delete `.gitkeep`, allow the empty directory to disappear, preserve the canonical LSP reservation via the roadmap commitment).
+  Basis: fresh_verification. Confidence: high.
+  Resolved: Fixed on 2026-04-11 iteration 2. Updated §05 frontmatter `goal` to explicitly say "let the now-empty directory disappear from the filesystem since git doesn't track empty dirs; the canonical LSP reservation is preserved by plans/roadmap/section-22-tooling.md:150-156, not by an empty filesystem directory". Updated frontmatter success_criteria row to match. Updated section-level success criterion to say "directory ITSELF may or may not exist on the filesystem after the deletion — both states are acceptable". All three places (frontmatter goal, frontmatter success_criteria, body success_criteria) now tell the same story as §05.2's implementation.
 
 ---
 
