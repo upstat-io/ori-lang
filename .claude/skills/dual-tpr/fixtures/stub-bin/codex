@@ -75,14 +75,36 @@ case "$MODE" in
     # Default. No pre-emit action.
     ;;
   bad-envelope)
-    # Emit a syntactically valid JSONL stream containing an envelope that
-    # is missing the required schema_version field. parse-codex.py will
-    # reject it with schema_violation. Used to verify the BUG-08-006
-    # terminal-failure classifier breaks the retry loop instead of
-    # wasting 3 attempts.
+    # Emit an envelope with a finding whose `location` contains spaces.
+    # parse-codex.py will:
+    #   1. Parse the JSON (OK)
+    #   2. Run repair_envelope.py (no-op — space-containing locations aren't
+    #      a pattern the repair layer handles; repair strips ./ prefixes,
+    #      absolute paths, and line ranges but doesn't normalize interior
+    #      whitespace)
+    #   3. Run jsonschema.validate (OK — the schema doesn't constrain
+    #      location's format, only its type)
+    #   4. Run envelope_invariants.validate_envelope_invariants, which
+    #      enforces the LOCATION_RE regex `^(?!/)(?!\./)[a-zA-Z0-9_./-]+:[0-9]+$`
+    #      at code level (moved out of the schema in BUG-08-003 because the
+    #      OpenAI Structured Outputs subset rejects regex patterns).
+    #
+    # The invariant check fires and parse-codex.py emits `schema_violation`
+    # as the stderr first line. dual-invoke-with-retry.sh classifies
+    # codex_schema_violation as terminal and breaks the retry loop after
+    # attempt 1. Used to verify the BUG-08-006 terminal-failure classifier
+    # (+ the 2026-04-11 selective-retry fix which must preserve this
+    # terminal behavior for codex failures even though gemini schema_violation
+    # is retryable).
+    #
+    # Earlier incarnation of this fixture emitted an envelope missing the
+    # schema_version field, but repair_envelope.py fills in missing
+    # schema_version as '1.0' before validation, so the envelope validated
+    # and the scenario silently no-op'd. Using the location regex instead
+    # gives us a schema violation the repair layer provably cannot fix.
     cat <<'JSONL'
 {"type": "turn.started"}
-{"type": "item.completed", "item": {"type": "agent_message", "text": "{\"status\":\"complete\",\"reviewer\":\"codex\",\"skill\":\"tpr-review\",\"scope_actually_reviewed\":{\"git_range\":null,\"files_read\":[],\"rules_consulted\":[],\"specs_consulted\":[],\"plans_consulted\":[],\"expanded_beyond_packet\":false},\"findings\":[],\"verification\":{\"tests_rerun\":[],\"diagnostics_run\":[],\"verification_gaps\":[]},\"no_findings\":true}"}}
+{"type": "item.completed", "item": {"type": "agent_message", "text": "{\"schema_version\":\"1.0\",\"status\":\"complete\",\"reviewer\":\"codex\",\"skill\":\"tpr-review\",\"scope_actually_reviewed\":{\"git_range\":null,\"files_read\":[],\"rules_consulted\":[],\"specs_consulted\":[],\"plans_consulted\":[],\"expanded_beyond_packet\":false},\"findings\":[{\"ordinal\":1,\"severity\":\"low\",\"location\":\"has spaces and punct!.rs:12\",\"title\":\"stub finding to force an invariant violation\",\"evidence\":\"stub fixture\",\"impact\":\"none (stub)\",\"basis\":\"direct_file_inspection\"}],\"verification\":{\"tests_rerun\":[],\"diagnostics_run\":[],\"verification_gaps\":[]},\"no_findings\":false}"}}
 {"type": "turn.completed"}
 JSONL
     exit 0
