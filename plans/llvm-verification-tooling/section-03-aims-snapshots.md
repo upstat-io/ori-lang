@@ -1,8 +1,8 @@
 ---
 section: "03"
 title: "AIMS Pass-Level Snapshot Tests"
-status: in-progress
-reviewed: false
+status: complete
+reviewed: true
 goal: "Capture per-pass ARC IR snapshots at AIMS pipeline boundaries via a unified checkpoint observer, enabling regression detection for RC elision, COW annotation, block merge, tail calls, and reuse — invisible to behavioral tests when the LLVM optimizer papers over codegen quality issues"
 success_criteria:
   - "Checkpoint observer captures ARC IR at configurable pipeline boundaries, unified with trace_pipeline_checkpoint() (no parallel dispatch)"
@@ -37,7 +37,7 @@ sections:
     status: complete
   - id: "03.N"
     title: "Completion Checklist"
-    status: in-progress
+    status: complete
 ---
 
 # Section 03: AIMS Pass-Level Snapshot Tests
@@ -520,8 +520,8 @@ Create the initial corpus of snapshot tests covering the 5 priority passes. Each
 - [x] `timeout 150 ./clippy-all.sh` green — verified: all clippy checks passed
 - [x] Plan annotation cleanup (remove any `§03` annotations from production code) — verified: 0 stale annotations
 - [x] **Plan sync** — update plan metadata (overview, index) — updated Quick Reference in both to "In Progress"
-- [ ] `/tpr-review` passed
-- [ ] `/impl-hygiene-review` passed
-- [ ] `/improve-tooling` section-close sweep
+- [x] `/tpr-review` passed — 7 rounds, 21 findings fixed (6→3→1→4→2→2→3), both reviewers clean on thematic convergence
+- [x] `/impl-hygiene-review` passed — 1 finding fixed (lib-bodies: moved collect_all_arc_functions to ir/mod.rs), 6 pre-existing
+- [x] `/improve-tooling` section-close sweep — per-subsection retrospectives (03.1-03.4) covered everything; no cross-subsection patterns required new tooling. TPR rounds 1-7 drove significant tooling improvements (canonical flattening, verification enablement, error formatting) that constitute the real tooling contribution of this section.
 
 **Exit Criteria:** `cargo test -p oric --test aims_snapshots` runs >= 15 snapshot tests across 5 priority passes, all matching baselines. Every priority pass has at least one semantic pin and one negative pin. The checkpoint observer is unified with `trace_pipeline_checkpoint()` (single dispatch point). Deliberately introducing an optimization regression causes at least one snapshot diff to fail. Bless mode updates baselines. The ARC IR formatter lives in `ori_arc::ir::format` (canonical home). No regressions in `test-all.sh`.

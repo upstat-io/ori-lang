@@ -46,7 +46,7 @@ test runner, snapshot comparison, diff generation
 ---
 
 ### Section 03: AIMS Pass-Level Snapshot Tests
-**File:** `section-03-aims-snapshots.md` | **Status:** In Progress
+**File:** `section-03-aims-snapshots.md` | **Status:** Complete
 
 ```
 AIMS pipeline, 12 steps, pass-level snapshots
