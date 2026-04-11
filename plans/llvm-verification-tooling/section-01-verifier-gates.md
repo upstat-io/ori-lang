@@ -24,7 +24,7 @@ sections:
     status: complete
   - id: "01.2"
     title: "Wire ORI_VERIFY_EACH, Function-Level Verify, and verify_each Across All Entry Points"
-    status: in-progress
+    status: complete
   - id: "01.3"
     title: "Add opt -lint to Codegen Audit Pipeline"
     status: complete
@@ -308,7 +308,7 @@ Function-level `fn_val.verify()` must run after EVERY function's codegen complet
 
 ### 01.2.3 TPR checkpoint and close-out
 
-- [ ] **TPR checkpoint** — `/tpr-review` covering 01.1-01.2 implementation work (deferred to section-close TPR per /continue-roadmap workflow — prior TPR iteration 4 already passed clean on 2026-04-10)
+- [x] **TPR checkpoint** — `/tpr-review` covering 01.1-01.2 implementation work (deferred to section-close TPR per /continue-roadmap workflow — completed in Iteration 6 dual-source TPR on 2026-04-10)
 
 - [x] **Subsection close-out (01.2)** — MANDATORY before starting 01.3:
   - [x] All tasks above are `[x]` and the subsection's behavior is verified
@@ -466,6 +466,23 @@ When all findings are triaged:
 
 - [x] **[TPR-01-002-codex-i5][medium] DRIFT: FindingKind::LlvmLint dead code — no producer** — `FindingKind::LlvmLint { message: String }` variant added in ed46c7d9 has no producer. LLVM's lint pass outputs via `dbgs()` (stderr), so structured capture via the audit report is not feasible.
   Resolved: Fixed on 2026-04-10. Removed the dead `LlvmLint` variant from `report.rs`. The plan already documents that lint output goes to stderr. The variant can be re-added if LLVM's lint pass gains diagnostic handler support in a future version.
+
+### Iteration 6 Findings (final section-close TPR — dual-source)
+
+- [x] `[TPR-01-001-codex][high]` `compiler/ori_llvm/src/codegen/function_compiler/define_phase.rs:345` — ARC pipeline errors swallowed: `process_arc_function()` and `declare_and_process_lambda()` log `Err(verify_errors)` via `tracing::error!` but return `()`, allowing codegen to proceed with invalid ARC IR.
+  Resolved: Fixed on 2026-04-10. Added `record_codegen_error_with_msg()` in both `Err` branches. Pipeline error count now catches ARC verification failures.
+
+- [x] `[TPR-01-001-gemini][high]` `compiler/ori_llvm/src/codegen/function_compiler/define_phase.rs:345` — Same issue as TPR-01-001-codex (de facto agreement — title/location match, merger didn't auto-detect due to slight title difference).
+  Resolved: Fixed on 2026-04-10. Same fix as [TPR-01-001-codex].
+
+- [x] `[TPR-01-002-codex][medium]` `compiler/ori_llvm/src/codegen/arc_emitter/closures.rs:189` — Three emission sites missing `fn_val.verify()`: `generate_env_drop_fn()`, `generate_trampoline_fn()` (`trampolines.rs:76`), `generate_join_to_str_trampoline()` (`iterator_consumers.rs:581`).
+  Resolved: Fixed on 2026-04-10. Added `fn_val.verify()` + `record_codegen_error()` to all 3 sites.
+
+- [x] `[TPR-01-002-gemini][medium]` `compiler/ori_llvm/src/codegen/function_compiler/define_phase.rs:204` — All 16 `fn_val.verify()` sites log via `tracing::error!` but never call `record_codegen_error()`, making LLVM IR verification failures invisible to the pipeline error count.
+  Resolved: Fixed on 2026-04-10. Added `record_codegen_error()` to all 16 existing `fn_val.verify()` failure paths plus 3 new sites.
+
+- [x] `[TPR-01-003-gemini][low]` `compiler/ori_llvm/src/evaluator/compile.rs:259` — JIT path reads `ORI_VERIFY_ARC` env var directly instead of `debug_flags.rs`.
+  Resolved: Rejected after verification on 2026-04-10. The JIT entry point is in `ori_llvm`, which cannot depend on `oric` (backward dependency). `debug_flags.rs` is in the `oric` crate (CLI layer). The JIT path's env var read is the legitimate initial read for its compilation unit, not a re-read or SSOT violation.
 
 ---
 

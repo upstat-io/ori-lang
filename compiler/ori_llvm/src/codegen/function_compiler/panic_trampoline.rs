@@ -228,6 +228,7 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
             let fn_val = self.builder.get_function_value(trampoline_id);
             if !fn_val.verify(true) {
                 tracing::error!("LLVM IR verification failed (generate_panic_trampoline)");
+                self.builder.record_codegen_error();
             }
         }
 

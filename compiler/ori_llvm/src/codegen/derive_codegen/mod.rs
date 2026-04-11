@@ -364,6 +364,7 @@ pub(super) fn verify_derive_function<'a>(
         let fn_val = fc.builder_mut().get_function_value(func_id);
         if !fn_val.verify(true) {
             tracing::error!(context, "LLVM IR verification failed (derive codegen)");
+            fc.builder_mut().record_codegen_error();
         }
     }
 }

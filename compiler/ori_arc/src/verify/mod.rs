@@ -411,12 +411,17 @@ pub fn check_function_with_contract(
     errors
 }
 
-/// Parameters with `Cardinality::Absent` must have no uses in the function body.
+/// Parameters with `Cardinality::Absent` must have no uses in *reachable*
+/// blocks of the function body.
 ///
 /// Absent means the backward analysis found zero forward demand for this
-/// parameter. If the IR actually references the parameter, the analysis
-/// result is inconsistent — either the analysis is wrong or the IR was
-/// mutated after analysis.
+/// parameter. If a reachable instruction references the parameter, the
+/// analysis result is inconsistent — either the analysis is wrong or the
+/// IR was mutated after analysis.
+///
+/// Uses in *unreachable* blocks (e.g., dead code after `if true then panic()`)
+/// are ignored — the backward analysis correctly classifies the parameter as
+/// absent when all uses are in dead code.
 fn check_absent_param_no_uses(
     func: &ArcFunction,
     contract: &MemoryContract,
@@ -436,9 +441,15 @@ fn check_absent_param_no_uses(
         return;
     }
 
-    // Collect all used variables across the function body.
+    // Compute reachable blocks from the entry block via BFS.
+    let reachable = reachable_blocks(func);
+
+    // Collect used variables only from reachable blocks.
     let mut used = FxHashSet::default();
     for block in &func.blocks {
+        if !reachable.contains(&block.id) {
+            continue;
+        }
         for instr in &block.body {
             for var in instr.used_vars() {
                 used.insert(var);
@@ -454,6 +465,23 @@ fn check_absent_param_no_uses(
             errors.push(VerifyError::AbsentParamHasUses { var, param_index });
         }
     }
+}
+
+/// Compute the set of blocks reachable from the entry block (block 0).
+fn reachable_blocks(func: &ArcFunction) -> FxHashSet<ArcBlockId> {
+    let mut reachable = FxHashSet::default();
+    let mut worklist = vec![ArcBlockId::new(0)];
+    while let Some(block_id) = worklist.pop() {
+        if !reachable.insert(block_id) {
+            continue;
+        }
+        if let Some(block) = func.blocks.iter().find(|b| b.id == block_id) {
+            for succ in successor_block_ids(&block.terminator) {
+                worklist.push(succ);
+            }
+        }
+    }
+    reachable
 }
 
 #[cfg(test)]

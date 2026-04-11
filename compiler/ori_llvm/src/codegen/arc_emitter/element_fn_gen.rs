@@ -89,6 +89,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             let fn_val = self.builder.get_function_value(func_id);
             if !fn_val.verify(true) {
                 tracing::error!("LLVM IR verification failed (generate_elem_dec_fn)");
+                self.builder.record_codegen_error();
             }
         }
 
@@ -211,6 +212,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             let fn_val = self.builder.get_function_value(func_id);
             if !fn_val.verify(true) {
                 tracing::error!("LLVM IR verification failed (generate_elem_inc_fn)");
+                self.builder.record_codegen_error();
             }
         }
 

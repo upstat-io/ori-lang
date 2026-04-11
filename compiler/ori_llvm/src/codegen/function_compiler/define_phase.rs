@@ -206,6 +206,7 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
                 name = name_str,
                 "LLVM IR verification failed after codegen (emit_arc_function)"
             );
+            self.builder.record_codegen_error();
         }
 
         // Mark nounwind after emission so LLVM's PruneEH pass can
@@ -268,6 +269,7 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
                 name = %self.interner.lookup(lambda_name),
                 "LLVM IR verification failed after codegen (compile_lambda_arc)"
             );
+            self.builder.record_codegen_error();
         }
 
         if is_nounwind {
@@ -347,6 +349,10 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
                 for e in &verify_errors {
                     tracing::error!(function = func_name, "ARC IR verification ICE: {e}");
                 }
+                self.builder.record_codegen_error_with_msg(format!(
+                    "ARC IR verification failed for function '{func_name}' ({} errors)",
+                    verify_errors.len()
+                ));
             }
         }
     }
@@ -454,6 +460,10 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
                 for e in &verify_errors {
                     tracing::error!("ARC IR verification ICE (lambda): {e}");
                 }
+                self.builder.record_codegen_error_with_msg(format!(
+                    "ARC IR verification failed for lambda ({} errors)",
+                    verify_errors.len()
+                ));
             }
         }
 
