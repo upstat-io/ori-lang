@@ -153,7 +153,7 @@ fn aims_verify_blocks_absent_param_used_on_live_path() {
 
 #[test]
 fn aims_verify_allows_absent_param_in_dead_code() {
-    // Dead-path regression test for BUG-04-056.
+    // Regression: AIMS verifier false positive on dead code after always-panic paths.
     // CFG: entry(b0) → Branch → b1(uses v0, Unreachable) / b2(return v1)
     // v0 used only in b1 (dead path to Unreachable) → no live-path use → Ok.
     use crate::ir::{ArcInstr, RcStrategy};
