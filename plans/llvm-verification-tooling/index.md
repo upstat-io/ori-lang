@@ -60,7 +60,7 @@ MIR-opt pattern, EMIT_MIR, Rust compiletest
 ---
 
 ### Section 04: AIMS Lattice Property Verification
-**File:** `section-04-lattice-properties.md` | **Status:** Not Started
+**File:** `section-04-lattice-properties.md` | **Status:** In Progress
 
 ```
 proptest, property-based testing, lattice axioms
