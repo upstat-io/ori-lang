@@ -85,6 +85,31 @@ pub(crate) fn run_aims_pipeline_all(
         verify_arc,
     )?;
 
+    // Contract coherence oracle: verify inferred contracts match what the
+    // realization pipeline actually emitted. Only under ORI_VERIFY_ARC=1.
+    if verify_arc {
+        let _span = tracing::info_span!("contract_coherence_oracle").entered();
+        for (func, &(_, missed_reuses)) in functions.iter().zip(reuse_updates.iter()) {
+            if let Some(contract) = contracts.get(&func.name) {
+                let mismatches = crate::aims::verify::oracle::verify_coherence(
+                    func,
+                    contract,
+                    u32::try_from(missed_reuses).unwrap_or(u32::MAX),
+                );
+                let unsafe_mismatches: Vec<_> = mismatches
+                    .into_iter()
+                    .filter(crate::aims::verify::oracle::CoherenceMismatch::is_unsafe)
+                    .collect();
+                if !unsafe_mismatches.is_empty() {
+                    all_problems.push(ArcProblem::ContractCoherenceViolation {
+                        func_name: interner.lookup(func.name).to_owned(),
+                        mismatches: unsafe_mismatches,
+                    });
+                }
+            }
+        }
+    }
+
     tracing::debug!(
         functions = functions.len(),
         rc_inc = total_rc.inc,
