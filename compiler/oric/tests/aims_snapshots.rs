@@ -17,9 +17,11 @@ mod aims_snapshot_strategy;
 #[test]
 fn aims_snapshots_across_all_passes_match_baselines() {
     let test_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/aims-snapshots");
-    if !test_dir.exists() {
-        return;
-    }
+    assert!(
+        test_dir.exists(),
+        "AIMS snapshot corpus directory missing: {}",
+        test_dir.display()
+    );
     let strategy = aims_snapshot_strategy::AimsSnapshotStrategy::new();
     let bless_mode = bless::is_bless_enabled();
     let summary = run_test_directory(&test_dir, &strategy, bless_mode);
