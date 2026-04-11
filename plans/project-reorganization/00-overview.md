@@ -154,7 +154,7 @@ Script-to-script internal calls use `$SCRIPT_DIR` relative resolution. When all 
               ┌───────────────────┼───────────────────┐
               │                   │                   │
           §02 Stale        §03 Artifacts &       §05 Orphans
-         website paths       gitignore fix    (samples, .gitkeep,
+         website paths     gitignore verify   (samples, .gitkeep,
               │                   │            rebuild-playground)
               │                   │                   │
               │                   │                   │
@@ -247,7 +247,7 @@ Phase 0 — Census and baseline  (§01)
 
 Phase 1 — Cleanup that unlocks everything else  (§02, §03, §05 — parallel)
   §02 Stale website path repair (test-all.sh:37, versioning.md:53)
-  §03 Tracked artifact removal + /build/ gitignore fix
+  §03 Tracked artifact removal (+ `.gitignore` verification; no edit — iteration 3 correction)
   §05 Orphan cleanup (samples/, compiler/ori_lsp/.gitkeep, rebuild-playground.sh)
   Gate: ./test-all.sh still green (proves no accidental breakage)
         git status clean (proves commits landed atomically)
@@ -379,7 +379,7 @@ Phase 6 — Final verification  (§09)
 |---------|-----------|------------|------------|
 | §01 Census & Classification Baseline | ~200 | Low | — |
 | §02 Stale Website Path Repair | ~150 | Low | §01 |
-| §03 Tracked Artifact + Gitignore Fix | ~180 | Low-Medium | §01 |
+| §03 Tracked Artifact Removal & Gitignore Verification | ~180 | Low | §01 |
 | §04 Blog Migration (Cross-Repo) | ~250 | Medium | §02 |
 | §05 Orphan Cleanup | ~150 | Low | §01 |
 | §06 LSP Disposition | ~400 | High | §01 (user permission gate) |

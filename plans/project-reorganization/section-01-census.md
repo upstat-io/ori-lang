@@ -87,8 +87,9 @@ Capture the starting state of `ori_lang/` as immutable, committed artifacts that
   set +o pipefail
   echo "test-all exit code: $test_all_exit" >> plans/project-reorganization/baseline/test-all-before.log
   ```
-  Alternative using `${PIPESTATUS[0]}` (explicit producer-side capture, no pipefail required):
+  Alternative using `${PIPESTATUS[0]}` — **bash-only**, does not work in zsh (zsh uses `${pipestatus[1]}` — lowercase, 1-indexed). The `set -o pipefail` block above is the portable default and is recommended; use this alternative ONLY if you are certain the invoking shell is bash and you want to avoid toggling pipefail state (TPR-XX-004-codex iteration 4 fix — 2026-04-11):
   ```bash
+  # BASH ONLY — zsh users: use the pipefail form above instead
   timeout 150 ./test-all.sh 2>&1 | tee -a plans/project-reorganization/baseline/test-all-before.log
   test_all_exit=${PIPESTATUS[0]}
   echo "test-all exit code: $test_all_exit" >> plans/project-reorganization/baseline/test-all-before.log
