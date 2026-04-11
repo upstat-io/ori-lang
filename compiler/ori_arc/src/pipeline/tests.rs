@@ -125,14 +125,12 @@ fn verify_detects_rc_on_scalar() {
     );
 }
 
-// ── run_aims_verify: absent-param-has-uses is non-blocking ──
+// ── run_aims_verify: absent-param-has-uses (live vs dead path) ──
 
 #[test]
-fn aims_verify_warns_on_absent_param_has_uses() {
-    // v0 = param (Absent cardinality), return v0
-    // v0 IS referenced in the Return terminator — inconsistent with Absent.
-    // This is a precision gap (semantic analysis vs syntactic IR), not a
-    // safety violation — run_aims_verify returns Ok and logs a warning.
+fn aims_verify_blocks_absent_param_used_on_live_path() {
+    // Live-path: single block `return v0`. The absent param IS used on a
+    // path that reaches Return → genuine contract/IR inconsistency → Err.
     let func = crate::test_helpers::make_func(
         vec![owned_param(0, Idx::NONE)],
         Idx::NONE,
@@ -146,12 +144,67 @@ fn aims_verify_warns_on_absent_param_has_uses() {
     );
     let contract = make_contract(vec![absent_param()]);
 
-    // Live-path case: single block with return v0, no dead code.
-    // The absent param IS used on a live path → hard error.
     let result = super::run_aims_verify(&func, &contract, "test", true);
     assert!(
         result.is_err(),
         "run_aims_verify should return Err when absent param has uses on a live path"
+    );
+}
+
+#[test]
+fn aims_verify_allows_absent_param_in_dead_code() {
+    // Dead-path regression test for BUG-04-056.
+    // CFG: entry(b0) → Branch → b1(uses v0, Unreachable) / b2(return v1)
+    // v0 used only in b1 (dead path to Unreachable) → no live-path use → Ok.
+    use crate::ir::{ArcInstr, RcStrategy};
+    let func = crate::test_helpers::make_func(
+        vec![owned_param(0, Idx::NONE), owned_param(1, Idx::NONE)],
+        Idx::NONE,
+        vec![
+            // Block 0: entry — branch to dead block or live block.
+            ArcBlock {
+                id: ArcBlockId::new(0),
+                params: vec![],
+                body: vec![],
+                terminator: ArcTerminator::Branch {
+                    cond: v(1),
+                    then_block: ArcBlockId::new(1),
+                    else_block: ArcBlockId::new(2),
+                },
+            },
+            // Block 1: dead path — uses v0, ends in Unreachable.
+            ArcBlock {
+                id: ArcBlockId::new(1),
+                params: vec![],
+                body: vec![ArcInstr::RcInc {
+                    var: v(0),
+                    count: 1,
+                    strategy: RcStrategy::HeapPointer,
+                }],
+                terminator: ArcTerminator::Unreachable,
+            },
+            // Block 2: live path — returns v1 (NOT v0).
+            ArcBlock {
+                id: ArcBlockId::new(2),
+                params: vec![],
+                body: vec![],
+                terminator: ArcTerminator::Return { value: v(1) },
+            },
+        ],
+        vec![Idx::NONE; 2],
+    );
+    let non_absent = ParamContract {
+        cardinality: Cardinality::Once,
+        ..absent_param()
+    };
+    let contract = make_contract(vec![absent_param(), non_absent]);
+
+    // v0 (absent) is used only in block 1 (dead path → Unreachable).
+    // live_blocks() excludes block 1 → no live-path use → Ok.
+    let result = super::run_aims_verify(&func, &contract, "test", true);
+    assert!(
+        result.is_ok(),
+        "run_aims_verify should return Ok when absent param is used only in dead code: {result:?}"
     );
 }
 

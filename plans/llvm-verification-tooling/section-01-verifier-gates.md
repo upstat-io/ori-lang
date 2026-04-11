@@ -484,6 +484,14 @@ When all findings are triaged:
 - [x] `[TPR-01-003-gemini][low]` `compiler/ori_llvm/src/evaluator/compile.rs:259` — JIT path reads `ORI_VERIFY_ARC` env var directly instead of `debug_flags.rs`.
   Resolved: Rejected after verification on 2026-04-10. The JIT entry point is in `ori_llvm`, which cannot depend on `oric` (backward dependency). `debug_flags.rs` is in the `oric` crate (CLI layer). The JIT path's env var read is the legitimate initial read for its compilation unit, not a re-read or SSOT violation.
 
+### Iteration 7 Findings (re-review after iteration 6 fixes — dual-source)
+
+- [x] `[TPR-01-001-codex-i7][high]` `compiler/ori_arc/src/pipeline/mod.rs:190` — AbsentParamHasUses demotion was too broad: suppressed ALL cases including live-path inconsistencies. Live-path Absent param with uses IS a soundness-relevant contract/IR drift.
+  Resolved: Fixed on 2026-04-10 in 15901623. Narrowed to dead-code uses only via `live_blocks()` (forward ∩ backward reachable). Live-path cases remain hard errors. Restored `Result` return type for `run_aims_verify()`. Split test distinguishes dead-path from live-path.
+
+- [x] `[TPR-01-002-codex-i7][low]` `compiler/oric/src/commands/codegen_pipeline.rs:474` — Abort message said "type-mismatch error(s)" but counter now includes verification errors.
+  Resolved: Fixed on 2026-04-10 in 15901623. Changed to generic "error(s)" in both AOT (`codegen_pipeline.rs`) and JIT (`evaluator/compile.rs`) paths.
+
 ---
 
 ## 01.N Completion Checklist
