@@ -66,7 +66,6 @@ pub(crate) mod verify;
 pub(crate) mod test_helpers;
 
 use ori_types::Idx;
-use rustc_hash::FxHashMap;
 
 pub use aims::contract::MemoryContract;
 pub use pipeline::{
@@ -106,27 +105,7 @@ pub use uniqueness::{
     CowAnnotations, CowMode, DropHints, Uniqueness, UniquenessMap, UniquenessSummary,
 };
 
-/// Flatten an ARC function cache into a single Vec (parents + lambdas).
-///
-/// This is the **single canonical implementation** of the flattening
-/// algorithm for the `(Name, (ArcFunction, Vec<ArcFunction>))` cache shape.
-/// All consumers that need a flat list of ARC functions MUST call this helper.
-///
-/// The cache uses `FxHashMap` which has non-deterministic iteration order.
-/// Callers that need deterministic ordering must sort the result.
-#[expect(
-    clippy::implicit_hasher,
-    reason = "internal function always called with FxHashMap"
-)]
-pub fn collect_all_arc_functions(
-    arc_cache: &FxHashMap<ori_ir::Name, (ArcFunction, Vec<ArcFunction>)>,
-) -> Vec<ArcFunction> {
-    arc_cache
-        .values()
-        .flat_map(|(parent, lambdas)| std::iter::once(parent).chain(lambdas.iter()))
-        .cloned()
-        .collect()
-}
+pub use ir::collect_all_arc_functions;
 
 /// ARC classification for a type.
 ///
