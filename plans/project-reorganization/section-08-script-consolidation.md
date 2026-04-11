@@ -73,7 +73,7 @@ sections:
 
 # Section 08: Script Consolidation & Reference Sweep
 
-**Status:** Not Started
+**Status:** In Progress (pre-execution) — frontmatter auto-flipped by the plan-audit linter when iteration-1 TPR findings landed with `[x]` resolutions in §08.R. The section's IMPLEMENTATION work (§08.1 through §08.8) has NOT begun; this status reflects "has TPR findings being resolved pre-execution", not "section is being implemented". Subsection statuses remain `not-started` accordingly. §09.6 plan-close handles both `not-started→complete` and `in-progress→complete` transitions.
 **Goal:** The load-bearing section for the entire reorganization plan. Execute the Option C hybrid script model: consolidate internal dev scripts under `scripts/dev/`, merge `diagnostics/` into `scripts/diagnostics/`, install permanent exec wrappers at root for the 4 daily-use scripts (so developer muscle memory is preserved), and atomically sweep 747 references across 230 files. This is the biggest section by both reference count (68% of all script references point at `test-all.sh` alone) and by number of touched file categories (CLAUDE.md, CONTRIBUTING.md, all .claude/* rule files and skills, all plan files, test code, doc appendices).
 
 **Success Criteria:** (see frontmatter above — extensive; summarized here)
@@ -1373,11 +1373,14 @@ This subsection runs per-script smoke tests. The full invocation matrix lives in
   - [ ] C4 symlink result captured; if failed, wrapper template updated + re-tested OR bug filed
   - [ ] Update this subsection's `status` in section frontmatter to `complete`
   - [ ] **Run `/improve-tooling` retrospectively on THIS subsection** — the
-        matrix had 29 cells manually exercised. A
-        `scripts/dev/verify-invocation-matrix.sh` helper that runs all 29
-        cells and reports pass/fail per cell would be broadly useful for
-        every future script-layout reorg. Build if time permits; otherwise
-        file as `/add-bug` for follow-up. Document outcome.
+        matrix had **33 cells** total (29 exercisable + 4 PATH SKIP). A
+        `scripts/dev/verify-invocation-matrix.sh` helper that runs all 33
+        cells (including validating the 4 C9 SKIP cells fail-closed with
+        the correct unsupported-PATH-invocation error rather than
+        accidentally succeeding) and reports pass/fail/skip per cell
+        would be broadly useful for every future script-layout reorg.
+        Build if time permits; otherwise file as `/add-bug` for follow-up.
+        Document outcome.
 
 ---
 

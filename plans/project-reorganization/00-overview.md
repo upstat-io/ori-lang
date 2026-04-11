@@ -434,7 +434,7 @@ These rules apply pervasively and MUST be reflected in each section's checklist 
 - **`projects/CLAUDE.md` (sibling-repo approval rule)** — **Every individual file edit to `ori-lang-website/` requires `AskUserQuestion` approval.** This applies specifically to `§04` (blog migration) which touches 4 website files (content.config.ts + 3 new blog posts) — 4 separate approvals.
 - **`.claude/rules/impl-hygiene.md` §SSOT** — No duplicated logic. Canonical homes for every moved/created file. No "future cleanup" phase.
 - **`.claude/rules/impl-hygiene.md` §No Side Logic** — No shim mechanisms. Hot-path 4 wrappers are permanent public-ish facades, not shims.
-- **`.claude/rules/tests.md` §Matrix Testing Rule** — Every section that modifies behavior must declare its test matrix dimensions. For file-move sections, the matrix is (moved file × call context: root / lefthook / CI / script-internal / test code). For the gitignore fix, it's (file × tracked-state × ignored-state).
+- **`.claude/rules/tests.md` §Matrix Testing Rule** — Every section that modifies behavior must declare its test matrix dimensions. For file-move sections, the matrix is (moved file × call context: root / lefthook / CI / script-internal / test code). For §03 tracked-artifact removal, it's (file × tracked-state × ignored-state) — with `.gitignore` unchanged per iteration 3 correction.
 - **`.claude/rules/impl-hygiene.md` §Test Function Naming** — No new test functions are added by this plan (it's a reorganization, not a code change), but any validation test harness scripts written for §09 follow the `<subject>_<scenario>_<expected>` shape.
 
 ## Reference implementations studied

@@ -44,9 +44,9 @@ DRIFT under SSOT, Phase-1 cleanup before blog move
 **File:** `section-03-tracked-artifacts.md` | **Status:** Not Started
 
 ```
-build/debug/simplest_crash.ll, build/debug/test_simple, tracked leak
-.gitignore drift bug, **/build/ vs /build/ root-anchor
-git rm --cached, git check-ignore -v, gitignore /build/ rule
+build/debug/simplest_crash.ll, build/debug/test_simple, tracked build/debug artifacts
+tracked-files-override-gitignore, **/build/ root-level match (verified via --no-index)
+git rm --cached, git check-ignore -v --no-index, gitignore verification (no edit)
 profile.json.gz (INTENTIONAL — keep), 365K performance reference
 negative rule interaction, compiler/oric/src/commands/build/
 ```
