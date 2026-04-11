@@ -141,7 +141,7 @@ impl TestStrategy for AimsSnapshotStrategy {
                 // Run AIMS pipeline with observer and real contracts.
                 let uniqueness = FxHashMap::default();
                 let sigs = FxHashMap::default();
-                let _ = ori_arc::run_arc_pipeline_with_observer(
+                let pipeline_result = ori_arc::run_arc_pipeline_with_observer(
                     func,
                     &classifier,
                     &sigs,
@@ -152,6 +152,14 @@ impl TestStrategy for AimsSnapshotStrategy {
                     false, // verify_arc
                     &*observer,
                 );
+                if let Err(verify_errors) = pipeline_result {
+                    return Err(SnapshotError(format!(
+                        "{}: ARC pipeline verification failed for '{}': {} error(s)",
+                        test_path.display(),
+                        func_name_str,
+                        verify_errors.len(),
+                    )));
+                }
             } // observer dropped here — snapshots no longer borrowed
 
             // Write per-pass snapshots and assert all requested passes were captured.

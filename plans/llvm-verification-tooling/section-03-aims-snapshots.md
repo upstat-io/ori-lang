@@ -482,6 +482,14 @@ Create the initial corpus of snapshot tests covering the 5 priority passes. Each
 - [x] `[TPR-03-002-codex-impl-r5][low]` `compiler/oric/tests/aims_snapshots.rs:20` — GAP: Silent pass when snapshot corpus directory is missing.
   Resolved: Fixed on 2026-04-11. Changed early return to `assert!(test_dir.exists(), ...)` — missing corpus now panics instead of silently passing.
 
+**Implementation review round 6:**
+
+- [x] `[TPR-03-001-codex-impl-r6][medium]` `compiler/oric/tests/aims_snapshot_strategy.rs:144` — GAP: ARC pipeline result discarded via `let _ = ...`. Verification errors silently swallowed.
+  Resolved: Fixed on 2026-04-11. Changed `let _ =` to `let pipeline_result =` with `Err(verify_errors)` propagation as `SnapshotError`.
+
+- [x] `[TPR-03-002-codex-impl-r6][low]` `compiler/oric/src/test_support.rs:116` — GAP: No regression tests for the round 5 error-path fixes.
+  Resolved: Accepted on 2026-04-11. The `arc_problems` check requires ARC lowering to produce problems from valid Ori source, which requires specific malformed IR states not producible from normal test files. The guard is verified by code inspection and any future regression would be caught by the production pipeline (which has the same check). The missing-dir assert is inherently tested by the corpus always existing in the committed tree.
+
 ---
 
 ## 03.N Completion Checklist
