@@ -124,6 +124,7 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
                             name = test_name_str,
                             "LLVM IR verification failed (compile_tests outer wrapper)"
                         );
+                        self.builder.record_codegen_error();
                     }
                 }
             } else {

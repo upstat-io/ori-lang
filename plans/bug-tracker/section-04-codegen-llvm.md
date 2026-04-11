@@ -19,6 +19,12 @@ Bugs in LLVM IR generation, JIT/AOT compilation, monomorphization, ARC pipeline 
 
 ## Open Bugs
 
+- [x] `[BUG-04-056][low]` **AIMS verifier false positive: `AbsentParamHasUses` on dead code after `if true then panic()`**
+  Repro: `ORI_VERIFY_ARC=1 cargo test -p ori_llvm --test aot -- test_generic_call_with_builtin_arg_not_treated_as_intercepted`
+  Subsystem: `compiler/ori_arc/src/pipeline/mod.rs` — `run_aims_verify()` treated `AbsentParamHasUses` as a hard error, but it's a precision gap (backward analysis correctly classifies param as absent when all uses are in semantically-dead code)
+  Found: 2026-04-10 | Source: continue-roadmap
+  Resolved: Fixed on 2026-04-10. Demoted `AbsentParamHasUses` from hard error to non-blocking warning in `run_aims_verify()`. Added reachability filtering to `check_absent_param_no_uses()` for syntactically-unreachable blocks. Updated pipeline test to match new behavior.
+
 - [ ] `[BUG-04-055][medium]` **LLVM lint: sret attribute not present on call-site for `ori_str_from_raw`**
   Repro: `ORI_LLVM_LINT=1 ori build` any program using string literals — lint reports `Undefined behavior: ABI attribute sret not present on both function and call-site` for `ori_str_from_raw` calls
   Subsystem: `compiler/ori_llvm/src/codegen/` — string literal emission calls `ori_str_from_raw` without matching sret attribute on the call-site argument

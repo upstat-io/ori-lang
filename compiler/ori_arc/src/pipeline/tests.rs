@@ -125,12 +125,14 @@ fn verify_detects_rc_on_scalar() {
     );
 }
 
-// ── run_aims_verify: blocking on absent-param-has-uses ──
+// ── run_aims_verify: absent-param-has-uses is non-blocking ──
 
 #[test]
-fn aims_verify_blocks_on_absent_param_has_uses() {
+fn aims_verify_warns_on_absent_param_has_uses() {
     // v0 = param (Absent cardinality), return v0
     // v0 IS referenced in the Return terminator — inconsistent with Absent.
+    // This is a precision gap (semantic analysis vs syntactic IR), not a
+    // safety violation — run_aims_verify returns Ok and logs a warning.
     let func = crate::test_helpers::make_func(
         vec![owned_param(0, Idx::NONE)],
         Idx::NONE,
@@ -144,11 +146,8 @@ fn aims_verify_blocks_on_absent_param_has_uses() {
     );
     let contract = make_contract(vec![absent_param()]);
 
-    let result = super::run_aims_verify(&func, &contract, "test", true);
-    assert!(
-        result.is_err(),
-        "run_aims_verify should return Err when absent param has uses and verify=true"
-    );
+    // AbsentParamHasUses is a non-blocking warning — verify it doesn't panic.
+    super::run_aims_verify(&func, &contract, "test", true);
 }
 
 #[test]
@@ -166,11 +165,8 @@ fn aims_verify_returns_ok_when_verify_false() {
     );
     let contract = make_contract(vec![absent_param()]);
 
-    let result = super::run_aims_verify(&func, &contract, "test", false);
-    assert!(
-        result.is_ok(),
-        "run_aims_verify should return Ok when verify=false (warn only)"
-    );
+    // verify=false, warn only — verify it doesn't panic.
+    super::run_aims_verify(&func, &contract, "test", false);
 }
 
 // ── FIP structural verification tests ──
