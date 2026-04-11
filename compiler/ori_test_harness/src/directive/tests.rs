@@ -244,6 +244,15 @@ fn test_parse_check_without_colon_produces_error() {
 }
 
 #[test]
+fn test_parse_check_typo_chekc_produces_error() {
+    let source = "// CHEKC: some pattern\n";
+    let result = parse_directives(source);
+    assert!(result.directives.is_empty());
+    assert_eq!(result.errors.len(), 1);
+    assert!(result.errors[0].message.contains("malformed CHECK"));
+}
+
+#[test]
 fn test_parse_empty_source_returns_empty() {
     let result = parse_directives("");
     assert!(result.directives.is_empty());

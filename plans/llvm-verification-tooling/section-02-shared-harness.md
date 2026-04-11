@@ -796,6 +796,15 @@ Validate that the harness orchestration, directive parsing, revision expansion, 
 - [x] `[TPR-02-001-gemini-r4][medium]` `section-02-shared-harness.md:745` — Stale `tests/codegen/` and `tests/arc-opt/` in §02.7.
   Resolved: Fixed on 2026-04-10 (mid-run). Updated to crate-local paths.
 
+**--- Round 5 iteration 2 findings ---**
+- [x] `[TPR-02-001-codex-r5i2][medium]` `compiler/ori_test_harness/src/artifact/mod.rs:58` — Absolute paths break resolve_actual (Path::join discards base).
+  Resolved: Fixed on 2026-04-11. Strip root from absolute paths before joining.
+- [x] `[TPR-02-002-codex-r5i2][medium]` `compiler/ori_test_harness/src/directive/mod.rs:96` — Near-miss regex doesn't catch CHEKC typos.
+  Resolved: Fixed on 2026-04-11. Added CHEKC/CHCK/CEHCK to near-miss alternation. Added test. Agreement: [TPR-02-002-gemini-r5i2].
+- [x] `[TPR-02-001-gemini-r5i2][high]` `compiler/ori_test_harness/src/bless/mod.rs:45` — clean_stale_baselines has no integration point in runner.
+  Resolved: Fixed on 2026-04-11. Added `baseline_suffix()` to TestStrategy trait; runner calls cleanup when bless + suffix available.
+- [x] `[TPR-02-002-gemini-r5i2][high]` `compiler/ori_test_harness/src/directive/mod.rs:59` — Same CHECK typo issue as [TPR-02-002-codex-r5i2].
+  Resolved: Fixed on 2026-04-11. Same fix as [TPR-02-002-codex-r5i2].
 **--- Round 5 findings (final section close-out TPR, iteration 1) ---**
 - [x] `[TPR-02-001-codex-r5][high]` `compiler/ori_test_harness/src/bless/mod.rs:114` — Swallowed read error in compare_or_bless.
   Resolved: Fixed on 2026-04-11. Changed `unwrap_or_default()` to propagate non-NotFound errors; only NotFound returns empty string.
