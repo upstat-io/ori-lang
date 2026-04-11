@@ -231,7 +231,7 @@ Parse test directives from `.ori` and `.rs` test files. Use **line-anchored rege
   - `test_parse_check_not_directive_preserves_pattern`
   - `test_parse_check_label_directive_preserves_pattern`
   - `test_parse_check_next_directive_preserves_pattern`
-  - `test_parse_revision_gated_directive_filters_by_active_revision`
+  - `test_parse_revision_gated_directive_records_revision_name`
   - `test_parse_mixed_directives_returns_source_order`
   - `test_parse_whitespace_before_comment_marker_accepted`
 
@@ -496,25 +496,17 @@ The harness owns the orchestration algorithm. Consumer crates provide a `TestStr
       /// The type of error this strategy can produce.
       type Error: std::fmt::Display;
 
-      /// Configure environment/flags for a specific revision.
+      /// Execute the test for a specific revision and produce output.
       ///
-      /// Called before invoking the test for each revision. The harness
-      /// passes the revision name and explicit compile-flags from directives.
-      /// The strategy translates these into compiler flags, env vars, etc.
+      /// The harness calls this once per revision. The strategy is
+      /// responsible for: (1) translating the revision config into
+      /// compiler flags/env vars, (2) compiling the test file, and
+      /// (3) capturing the relevant output. Revision translation is
+      /// done HERE so state is local to this call — no process-global
+      /// side effects or interior mutation needed.
       ///
-      /// Example: revision "release" → sets `--release` flag;
-      /// revision "no-repr-opt" → sets `ORI_NO_REPR_OPT=1` env var.
-      /// This translation lives HERE, not in the harness.
-      fn configure_revision(
-          &self,
-          revision: &RevisionConfig,
-      ) -> Result<(), Self::Error>;
-
-      /// Execute the test and produce output for comparison.
-      ///
-      /// The harness calls this once per revision. The strategy compiles
-      /// the test file, captures the relevant output (ARC IR snapshots,
-      /// LLVM IR, etc.), and returns it as a string for diffing/checking.
+      /// Example: revision "release" → pass `--release` to compiler;
+      /// revision "no-repr-opt" → set `ORI_NO_REPR_OPT=1` for this run.
       fn execute(
           &self,
           test_path: &Path,
@@ -564,8 +556,9 @@ The harness owns the orchestration algorithm. Consumer crates provide a `TestStr
       // 1. Discover test files (recursive walk, .ori extension)
       let test_files = discover_test_files(dir);
       if test_files.is_empty() {
-          summary.warnings.push(format!(
-              "no .ori test files found in {}",
+          summary.failed += 1;
+          summary.failures.push(format!(
+              "no .ori test files found in {} (empty corpus = failure, not warning)",
               dir.display()
           ));
           return summary;
@@ -620,14 +613,6 @@ The harness owns the orchestration algorithm. Consumer crates provide a `TestStr
               let filtered = revision::filter_directives_for_revision(
                   &directives, &rev.name
               );
-
-              if let Err(e) = strategy.configure_revision(rev) {
-                  summary.errors.push(format!(
-                      "{}[{}]: configure failed: {e}",
-                      test_path.display(), rev.name
-                  ));
-                  continue;
-              }
 
               match strategy.execute(test_path, rev, &filtered) {
                   Ok(output) => {
@@ -704,7 +689,7 @@ The harness owns the orchestration algorithm. Consumer crates provide a `TestStr
   - `test_run_summary_reports_correct_pass_fail_counts`
 
   **Negative pins:**
-  - `test_run_empty_directory_returns_warning`
+  - `test_run_empty_directory_fails_as_empty_corpus`
   - `test_run_file_with_zero_directives_fails_as_orphan`
   - `test_run_strategy_execute_error_counted_as_failure`
   - `test_run_strategy_verify_error_counted_as_failure`
@@ -742,7 +727,7 @@ Validate that the harness orchestration, directive parsing, revision expansion, 
   }
   ```
 
-- [ ] Create seed test files in a temporary directory (not in `tests/codegen/` or `tests/arc-opt/` — those are consumer directories created by §03/§07):
+- [ ] Create seed test files in a temporary directory (not in `compiler/ori_llvm/tests/codegen/` or `compiler/ori_arc/tests/arc-opt/` — those are consumer directories created by §03/§07):
   - Seed file with `// @revisions: alpha beta` and `// @[alpha] compile-flags: --opt`
   - Seed file with `// @test-arc-pass: realize_rc_reuse`
   - Seed file with `// CHECK: some_pattern` and `// CHECK-NOT: bad_pattern`
@@ -803,6 +788,15 @@ Validate that the harness orchestration, directive parsing, revision expansion, 
   Resolved: Fixed on 2026-04-10. Updated ALL sibling files. Round-2 TPR entry updated to reflect complete migration. Zero remaining `tests/codegen/` or `tests/arc-opt/` (without `compiler/` prefix) in plan files.
 - [x] `[TPR-02-001-gemini-r3][medium]` `section-02-shared-harness.md:391` — Diff tests in §02.4 missing `test_` prefix.
   Resolved: Fixed on 2026-04-10. Added `test_` prefix to all 5 diff test names.
+**--- Round 4 findings (iteration 4) ---**
+- [x] `[TPR-02-001-codex-r4][high]` `section-02-shared-harness.md:499` — `configure_revision()` returns no config object; revision state leaks via side effects.
+  Resolved: Fixed on 2026-04-10. Removed `configure_revision()` from `TestStrategy`; revision translation folded into `execute()` so state is local to each call. No process-global side effects.
+- [x] `[TPR-02-002-codex-r4][medium]` `section-02-shared-harness.md:566` — Empty test directory treated as warning (is_success() ignores warnings).
+  Resolved: Fixed on 2026-04-10. Empty corpus now fails (failed += 1). Test renamed to `test_run_empty_directory_fails_as_empty_corpus`.
+- [x] `[TPR-02-003-codex-r4][low]` `section-02-shared-harness.md:234` — Parser test named for revision filtering; belongs in §02.5.
+  Resolved: Fixed on 2026-04-10. Renamed to `test_parse_revision_gated_directive_records_revision_name` (asserts parser records the gate, not that filtering works).
+- [x] `[TPR-02-001-gemini-r4][medium]` `section-02-shared-harness.md:745` — Stale `tests/codegen/` and `tests/arc-opt/` in §02.7.
+  Resolved: Fixed on 2026-04-10 (mid-run). Updated to crate-local paths.
 
 ---
 
@@ -818,7 +812,7 @@ Validate that the harness orchestration, directive parsing, revision expansion, 
 - [ ] Bless mode writes/deletes baselines correctly; creates parent directories
 - [ ] Revision expansion extracts names and per-revision compile-flags
 - [ ] Revision system does NOT hardcode compiler flags — flag translation delegated to `TestStrategy`
-- [ ] `TestStrategy` trait defines `configure_revision`, `execute`, `verify`
+- [ ] `TestStrategy` trait defines `execute` (with revision translation) and `verify`
 - [ ] `run_test_directory()` provides the canonical orchestration loop
 - [ ] `MockTestStrategy` validates orchestration without compiler integration
 - [ ] Seed tests demonstrate directive parsing, revision expansion, bless mode, and diff generation
