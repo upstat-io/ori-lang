@@ -72,25 +72,12 @@ pub fn clean_stale_baselines(
             fs::remove_file(&non_rev)?;
             deleted.push(non_rev);
         }
-    } else {
-        // Test has no revisions — delete revision-specific baselines.
-        // Pattern: stem.<rev>.suffix (single-segment middle component)
-        for entry in fs::read_dir(parent)?.filter_map(Result::ok) {
-            let name = entry.file_name().to_string_lossy().to_string();
-            let prefix = format!("{stem}.");
-            let ext = format!(".{suffix}");
-            if name.starts_with(&prefix)
-                && name.ends_with(&ext)
-                && name != format!("{stem}.{suffix}")
-            {
-                let middle = &name[prefix.len()..name.len() - ext.len()];
-                if !middle.is_empty() && !middle.contains('.') {
-                    fs::remove_file(entry.path())?;
-                    deleted.push(entry.path());
-                }
-            }
-        }
     }
+    // No else branch: when there are no revisions, we do NOT scan for
+    // stale revision-specific baselines because the naming convention
+    // (stem.<middle>.suffix) is ambiguous with artifact role suffixes
+    // (stem.before.suffix) and sibling test baselines. Consumers handle
+    // specific cleanup in their TestStrategy::clean_stale_revisions().
 
     Ok(deleted)
 }

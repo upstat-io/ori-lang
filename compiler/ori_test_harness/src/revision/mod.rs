@@ -59,9 +59,7 @@ fn collect_flags_for_revision(directives: &[DirectiveLine], revision: &str) -> V
         .filter(|d| matches!(&d.directive, Directive::CompileFlags { .. }))
         .filter(|d| {
             // Ungated or matching revision
-            d.revision.is_none()
-                || d.revision.as_deref() == Some(revision)
-                || (revision.is_empty() && d.revision.is_none())
+            d.revision.is_none() || d.revision.as_deref() == Some(revision)
         })
         .flat_map(|d| {
             if let Directive::CompileFlags { flags } = &d.directive {

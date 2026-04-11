@@ -40,7 +40,7 @@ fn test_revision_suffix_ordering_is_deterministic() {
 }
 
 #[test]
-fn test_resolve_actual_with_revision() {
+fn test_resolve_actual_with_revision_inserts_suffix_before_extension() {
     let result = resolve_actual(Path::new("tests/rc/basic.ori"), "ll", Some("debug"));
     assert_eq!(
         result,

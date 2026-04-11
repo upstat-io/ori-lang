@@ -796,6 +796,17 @@ Validate that the harness orchestration, directive parsing, revision expansion, 
 - [x] `[TPR-02-001-gemini-r4][medium]` `section-02-shared-harness.md:745` — Stale `tests/codegen/` and `tests/arc-opt/` in §02.7.
   Resolved: Fixed on 2026-04-10 (mid-run). Updated to crate-local paths.
 
+**--- Round 5 iteration 5 findings ---**
+- [x] `[TPR-02-001-gemini-r5i5][high]` `bless/mod.rs:59` — No-revision branch deletes sibling/role artifacts.
+  Resolved: Fixed on 2026-04-11. Removed directory scanning from no-revision branch entirely. Consumer cleanup via `clean_stale_revisions()`.
+- [x] `[TPR-02-002-gemini-r5i5][low]` `artifact/tests.rs:43` — Test name missing expected outcome.
+  Resolved: Fixed on 2026-04-11. Renamed to `test_resolve_actual_with_revision_inserts_suffix_before_extension`.
+- `[TPR-02-003-gemini-r5i5][informational]` Redundant clause in `collect_flags_for_revision`.
+  Resolved: Cleaned up on 2026-04-11 (non-actionable but trivial fix).
+- `[TPR-02-001-codex-r5i5][medium]` — Multi-mechanism cleanup API.
+  Rejected: The split serves different responsibilities (harness-level vs consumer-level). `TestOutput.artifacts` IS used by the verify pipeline, not dead in bless.
+- `[TPR-02-002-codex-r5i5][low]` — Test root parameter for resolve_actual.
+  Rejected: Functionally correct with no collisions. No consumers exist to test against.
 **--- Round 5 iteration 4 findings ---**
 - [x] `[TPR-02-001-codex-r5i4][high]` `runner/mod.rs:228` — WalkDir silently drops traversal errors.
   Resolved: Fixed on 2026-04-11. `discover_test_files` now reports walk errors as warnings. Changed to explicit match on `WalkDir` results.
