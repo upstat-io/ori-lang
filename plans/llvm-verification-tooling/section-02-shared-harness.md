@@ -796,6 +796,10 @@ Validate that the harness orchestration, directive parsing, revision expansion, 
 - [x] `[TPR-02-001-gemini-r4][medium]` `section-02-shared-harness.md:745` — Stale `tests/codegen/` and `tests/arc-opt/` in §02.7.
   Resolved: Fixed on 2026-04-10 (mid-run). Updated to crate-local paths.
 
+**--- Round 5 iteration 8 findings ---**
+- [x] `[TPR-02-001-codex-r5i8][medium]` `runner/mod.rs` — Gated directives without declared revisions silently orphaned.
+  Resolved: Fixed on 2026-04-11. `validate_and_cleanup` now warns on revision gates when no `// @revisions:` exists.
+- Remaining 5 findings are design improvement suggestions (DRY extraction, WalkDir optimization, test coverage, path dedup, revision consolidation) — not correctness issues. Filed as informational after 8 rounds of 31 substantive fixes.
 **--- Round 5 iteration 7 findings ---**
 - [x] `[TPR-02-001-codex-r5i7][medium]` `runner/mod.rs` — Undeclared revision gates silently pass.
   Resolved: Fixed on 2026-04-11. Added cross-validation: gated directives checked against declared revision names. Warnings on mismatch.

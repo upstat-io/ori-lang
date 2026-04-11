@@ -236,9 +236,10 @@ fn validate_and_cleanup<S: TestStrategy>(
     let declared: std::collections::HashSet<&str> =
         revisions.iter().map(|r| r.name.as_str()).collect();
     let has_declared_revisions = !(declared.len() == 1 && declared.contains(""));
-    if has_declared_revisions {
-        for d in directives {
-            if let Some(ref gate) = d.revision {
+    for d in directives {
+        if let Some(ref gate) = d.revision {
+            if has_declared_revisions {
+                // With declared revisions: warn if gate doesn't match any
                 if !declared.contains(gate.as_str()) {
                     summary.warnings.push(format!(
                         "{}:{}: revision gate '{}' not declared in // @revisions:",
@@ -247,6 +248,14 @@ fn validate_and_cleanup<S: TestStrategy>(
                         gate
                     ));
                 }
+            } else {
+                // No declared revisions: gated directives are always orphaned
+                summary.warnings.push(format!(
+                    "{}:{}: revision gate '{}' but no // @revisions: declared",
+                    test_path.display(),
+                    d.line_number,
+                    gate
+                ));
             }
         }
     }
