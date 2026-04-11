@@ -22,7 +22,7 @@ sections:
     title: "Tracked Artifact Removal"
     status: not-started
   - id: "03.2"
-    title: ".gitignore Root-Anchored /build/ Rule Addition"
+    title: "Gitignore Verification (No Edit Required)"
     status: not-started
   - id: "03.3"
     title: "Negative Rule Verification"
@@ -106,7 +106,7 @@ Remove the two leaked files from git tracking (but not from disk — they stay a
   - [ ] If >2: STOP. Another file leaked through the gitignore pattern; investigate and add to the removal list.
   - [ ] If 0: the files were already removed; skip to 03.2 and document "already removed by {commit hash}"
 
-- [ ] Remove the tracked files from git index only (files stay on disk — they will be gitignored by the rule added in 03.2):
+- [ ] Remove the tracked files from git index only (files stay on disk — they are ALREADY covered by the existing `**/build/` rule at `.gitignore:5`, per iteration 3's `--no-index` verification; no new rule is added in 03.2):
   ```bash
   git rm --cached build/debug/simplest_crash.ll build/debug/test_simple
   ```
@@ -199,7 +199,7 @@ The existing `**/build/` rule at `.gitignore:5` **already matches both files**. 
 
 **File(s):** No edits — verification only
 
-Prove that the new `/build/` rule does NOT break the existing negative rules for `compiler/oric/src/commands/build/`. This is the regression guard: if the new rule accidentally shadowed the negative rules, legitimate tracked source files would suddenly become "should be ignored" and future `git add` operations would silently skip them.
+Prove that the existing `**/build/` rule still does NOT break the existing negative rules for `compiler/oric/src/commands/build/`. This is the regression guard: since we are NOT adding a new rule in iteration 3, this should be a trivial verification — the negative rules continue to work exactly as they did before this section ran.
 
 - [ ] Verify the tracked contents of `compiler/oric/src/commands/build/` are still tracked:
   ```bash
@@ -302,18 +302,55 @@ Refs: plans/project-reorganization/section-03-tracked-artifacts.md"
   Basis: fresh_verification. Confidence: high.
   Resolved: Fixed on 2026-04-11 iteration 3. Rewrote §03 goal, success_criteria, context paragraph, reference implementations, and §03.2 subsection (now "Gitignore Verification (No Edit Required)" — verification-only, not editing). Updated commit message template to drop the `.gitignore` add. Updated 00-overview.md mission success criterion "Gitignore drift bug fixed" to "Tracked build/debug artifacts removed" with the empirical `--no-index` proof. Updated 00-overview.md Known Bugs row to reflect the correct root cause. The iteration 1 false premise is now explicitly documented and corrected inline.
 
+<!-- Iteration 4 (2026-04-11) caught 4 §03 propagation misses from iteration 3's rewrite (frontmatter title, §03.1 body, §03.3 body, §03.N completion checklist, §03 exit criteria, §09 final commit, §00 overview implementation sequence + effort table, index.md). All fixed in one pass. -->
+
+- [x] `[TPR-XX-001-gemini][high]` + `[TPR-XX-001-codex][medium]` (iteration 4) `plans/project-reorganization/section-03-tracked-artifacts.md:multiple` — Remove vestigial gitignore edit references from §03 and propagate the §03 rewrite to every reference.
+  Evidence: Iteration 3's §03 rewrite updated the main body but left stale pre-rewrite text in multiple execution-critical places: §03 frontmatter sections list still titled §03.2 as ".gitignore Root-Anchored /build/ Rule Addition"; §03.1 body said "files will be gitignored by the rule added in 03.2"; §03.3 body said "new /build/ rule must not break..."; §03.N completion checklist had "`/build/` rule added to `.gitignore` (03.2)" and "gitignore root anchor" commit message; §03 exit criteria said "3 file operations (2 deletions + 1 gitignore edit)".
+  Impact: The §03 propagation was incomplete — executors following the checklist or reading the frontmatter sections list would still attempt to edit `.gitignore`, contradicting the corrected §03.2 body.
+  Required plan update: Rename §03.2 frontmatter title; remove `/build/ rule` text from §03.1 and §03.3 bodies; update §03.N completion checklist items; update §03 exit criteria to say "2 file operations (both deletions)".
+  Basis: direct_file_inspection + fresh_verification. Confidence: high.
+  Resolved: Fixed on 2026-04-11 iteration 4. (a) §03.2 frontmatter title → "Gitignore Verification (No Edit Required)". (b) §03.1 body: "gitignored by the rule added in 03.2" → "ALREADY covered by the existing `**/build/` rule at `.gitignore:5`, per iteration 3's `--no-index` verification". (c) §03.3 body: "Prove that the new `/build/` rule does NOT break..." → "Prove that the existing `**/build/` rule still does NOT break...". (d) §03.N checklist: "`/build/` rule added to `.gitignore` (03.2)" → "`.gitignore` verified UNCHANGED (03.2)"; "gitignore root anchor" commit message tag removed. (e) §03 exit criteria: "3 file operations (2 deletions + 1 gitignore edit)" → "**2 file operations** (both deletions; NO `.gitignore` edit)". Now every reference to iteration 1's false premise is corrected.
+
+- [x] `[TPR-XX-003-gemini][low]` + `[TPR-XX-002-gemini][medium]` (iteration 4) `plans/project-reorganization/00-overview.md:157,250,382` + `section-09-verification.md:255,459` — Remove vestigial gitignore edit from overview and §09 final commit template.
+  Evidence: 00-overview.md line 250 Implementation Sequence still said "§03 Tracked artifact removal + /build/ gitignore fix"; line 382 Estimated Effort table said "§03 Tracked Artifact + Gitignore Fix"; line 157 dependency graph comment said "gitignore fix". §09 final commit template line 459 still claimed ".gitignore /build/ rule added" and line 255 said "Modified: .gitignore (if §03 decides...)" which was vague.
+  Impact: Overview and §09 final commit template disagreed with §03's iteration 3 correction.
+  Required plan update: Update overview implementation sequence / effort table / dependency graph and §09 final commit template / modified files list to remove all ".gitignore rule added" references.
+  Basis: direct_file_inspection. Confidence: high.
+  Resolved: Fixed on 2026-04-11 iteration 4. (a) 00-overview dependency graph `gitignore fix` → `gitignore verify`. (b) Implementation Sequence `§03 Tracked artifact removal + /build/ gitignore fix` → `§03 Tracked artifact removal (+ `.gitignore` verification; no edit — iteration 3 correction)`. (c) Estimated Effort table `§03 Tracked Artifact + Gitignore Fix` → `§03 Tracked Artifact Removal & Gitignore Verification`. (d) §09 final commit template `2 build/debug leak files removed, .gitignore /build/ rule added` → `2 build/debug leak files removed via git rm --cached (no .gitignore edit — iteration 3 correction...)`. (e) §09.2 Modified bullet: `.gitignore (if §03 decides...)` removed; added explicit note that `.gitignore` is NOT modified + a verification gate `git diff BASELINE_COMMIT..HEAD --stat --diff-filter=M -- .gitignore` returns empty.
+
+- [x] `[TPR-XX-002-codex][medium]` (iteration 4) `plans/project-reorganization/section-09-verification.md:252` — Recompute §09.2 category counts from the actual baseline diff.
+  Evidence: §09.2 said it compared `BASELINE_COMMIT..HEAD`, but its expected counts were based on pre-baseline or non-git-visible work. The Added bullet counted files that already exist at the baseline commit (4 test-all baseline artifacts, 9 section files, 2 plan index/overview). The Deleted bullet counted filesystem-only cleanup (scratchpad/, samples/) that would not appear in git diff because those paths are gitignored.
+  Impact: The §09.2 expected-counts cross-check was mathematically wrong — executors could see a correct diff stat but compare it against non-git-visible estimates and conclude something was missing.
+  Required plan update: Recalculate Added/Deleted/Renamed/Modified expectations relative to `BASELINE_COMMIT..HEAD`: exclude pre-baseline plan files and baseline artifacts, exclude untracked scratchpad and samples cleanup from Deleted, use the real tracked `tools/ori-lsp/` footprint, and keep `.gitignore` out of Modified.
+  Basis: fresh_verification. Confidence: high.
+  Resolved: Fixed on 2026-04-11 iteration 4. Rewrote §09.2 "Expected category counts" with explicit "relative to `BASELINE_COMMIT..HEAD` (git-diff visible)" framing: Added = ~17 (dropped pre-baseline artifacts + section files + plan index/overview — they are committed AT baseline); Deleted = ~27 (git-tracked only — scratchpad + samples filesystem cleanup reported via §01 baseline snapshot comparison, NOT git diff); Modified = ~240+ WITHOUT `.gitignore`. Added an explicit verification gate: `git diff BASELINE_COMMIT..HEAD --stat --diff-filter=M -- .gitignore` returns empty.
+
+- [x] `[TPR-XX-003-codex][low]` (iteration 4) `plans/project-reorganization/index.md:107,153` + `section-07-scratchpad-triage.md:62,169,561` — Propagate the reconciled §07/§08 metadata into remaining navigation text.
+  Evidence: `index.md:107` still said "scratchpad/ audit, 31 files, 14 migrate, 17 delete"; `index.md:153` still said "08.7 NEW invocation matrix (29 cells"; §07:62 still said "17+ files deleted"; §07:169 still said "All 31 files classified"; §07:561 still said "17 or 18 depending on modern-lang-repos decision".
+  Impact: The iteration 2 / iteration 3 scratchpad math propagation missed the index.md keyword clusters and multiple §07 checklist items.
+  Required plan update: Update `index.md` §07 and §08 entries to 30/12/18 and 33-cell; rename §07.6 body "17 files" to "18 files"; remove "17+" / "17 or 18" wording.
+  Basis: fresh_verification. Confidence: low.
+  Resolved: Fixed on 2026-04-11 iteration 4. (a) `index.md:107` updated to "30 files, 12 migrate, 18 delete". (b) `index.md:153` updated to "33 cells: 29 exercisable + 4 PATH SKIP". (c) §07.N checklist "17+ files deleted" → "18 files deleted... reconciled math: 30 total − 12 migrations = 18 deletions". (d) §07.1 "All 31 files classified" → "All 30 files classified, live count at §01.1 baseline". (e) §07.6 "17 or 18 depending on modern-lang-repos decision" → "18 total, per reconciled math that includes `07-modern-lang-repos.md` in the DELETE list".
+
+- [x] `[TPR-XX-004-codex][low]` (iteration 4) `plans/project-reorganization/section-01-census.md:90` — Document PIPESTATUS alternative is bash-only.
+  Evidence: The primary §01.1 pipefail fix at lines 83-88 was correct. The documented alternative at lines 90-95 used `${PIPESTATUS[0]}`, which works in bash but is unset in zsh (zsh uses lowercase, 1-indexed `${pipestatus[1]}`). Presented as interchangeable with the portable pipefail form.
+  Impact: A zsh user following the "alternative" would record an empty exit code and silently pass red baselines.
+  Required plan update: Label the `${PIPESTATUS[0]}` snippet as bash-only or add a zsh alternative.
+  Basis: fresh_verification. Confidence: low.
+  Resolved: Fixed on 2026-04-11 iteration 4. Added explicit label "BASH ONLY — zsh users: use the pipefail form above instead" above the `${PIPESTATUS[0]}` snippet. Added prose explaining that `set -o pipefail` is the portable default and is recommended; the PIPESTATUS alternative is only safe if the invoking shell is known to be bash. Added a comment inside the bash-only code block.
+
 ---
 
 ## 03.N Completion Checklist
 
 - [ ] `build/debug/simplest_crash.ll` removed from git tracking (03.1)
 - [ ] `build/debug/test_simple` removed from git tracking (03.1)
-- [ ] `/build/` rule added to `.gitignore` (03.2)
+- [ ] `.gitignore` verified UNCHANGED (03.2) — no `/build/` rule added; the existing `**/build/` rule already covers root-level `build/` per iteration 3's empirical `--no-index` verification
 - [ ] `git check-ignore -v build/debug/simplest_crash.ll` confirms new rule matches (03.2)
 - [ ] Negative rules for `compiler/oric/src/commands/build/` verified intact (03.3)
 - [ ] `profile.json.gz` still tracked (NOT deleted by this section)
 - [ ] `./test-all.sh` green post-fix
-- [ ] Single atomic commit lands: `fix(plan): remove tracked build/debug leak + gitignore root anchor`
+- [ ] Single atomic commit lands: `fix(plan): remove tracked build/debug leak` (NO `+ gitignore root anchor` — iteration 3 correction)
 - [ ] Plan annotation cleanup: N/A (no `.rs` files modified)
 - [ ] **Plan sync** — update plan metadata:
   - [ ] This section's frontmatter `status` → `complete`
@@ -325,4 +362,4 @@ Refs: plans/project-reorganization/section-03-tracked-artifacts.md"
 - [ ] `/impl-hygiene-review` passed (AFTER TPR clean)
 - [ ] `/improve-tooling` **section-close sweep** — per-subsection retrospectives (03.1, 03.2, 03.3) should already be committed. Cross-subsection pattern check: is there a single reusable `scripts/dev/gitignore-sanity.sh` helper that combines the leak-finder (03.1), the pattern-pairing knowledge (03.2), and the negative-rule verifier (03.3)? If yes, consolidate the three per-subsection helpers (if any were built) into one and commit via `build(scripts): consolidate gitignore-sanity.sh — surfaced by section-03 close sweep`. If no cross-cutting value: document "Section-03 close sweep: per-subsection retrospectives covered everything; the three helpers are independent enough that consolidation is not warranted."
 
-**Exit Criteria:** `git ls-files build/` returns empty. `git check-ignore -v build/debug/simplest_crash.ll` matches the new `/build/` rule. `git ls-files compiler/oric/src/commands/build/` returns its tracked files (negative rule preserved). `profile.json.gz` still tracked. `./test-all.sh` green. A single commit (`fix(plan): remove tracked build/debug leak + gitignore root anchor`) contains exactly 3 file operations (2 deletions + 1 gitignore edit). Mission success criterion "Gitignore drift bug fixed" is satisfied.
+**Exit Criteria:** `git ls-files build/` returns empty. `git check-ignore -v --no-index build/debug/simplest_crash.ll` matches `.gitignore:5:**/build/` (the existing rule — no new rule needed). `git ls-files compiler/oric/src/commands/build/` returns its tracked files (negative rule preserved). `profile.json.gz` still tracked. `./test-all.sh` green. A single commit (`fix(plan): remove tracked build/debug leak`) contains exactly **2 file operations** (both deletions; NO `.gitignore` edit per iteration 3 correction). Mission success criterion "Tracked build/debug artifacts removed" is satisfied.

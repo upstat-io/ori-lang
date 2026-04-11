@@ -59,7 +59,7 @@ sections:
 **Success Criteria:**
 
 - [ ] 12 files exist in their new `docs/` homes with proper per-destination frontmatter (11 with Astro `docsSchema`; 1 with body-format proposal schema per `proposal-loader.ts:22-59`)
-- [ ] 17+ files deleted from `scratchpad/`
+- [ ] 18 files deleted from `scratchpad/` (reconciled math: 30 total − 12 migrations = 18 deletions, including `07-modern-lang-repos.md` per the conditional DELETE)
 - [ ] `scratchpad/` directory absent (or empty + rmdir'd)
 - [ ] `ori-lang-website` Astro build succeeds with no schema errors on any docs collection
 - [ ] `./test-all.sh` green post-migration
@@ -166,7 +166,7 @@ Before any migration runs, re-verify the Pass 1 triage classifications against t
 
 - [ ] **Subsection close-out (07.1)** — MANDATORY before starting 07.2:
   - [ ] Scratchpad inventory captured (file list baseline)
-  - [ ] All 31 files classified (reconciled with Agent 2's recommendations)
+  - [ ] All 30 files classified (reconciled with Agent 2's recommendations, live count at §01.1 baseline)
   - [ ] `content.config.ts` cross-repo glob coverage verified for each destination
   - [ ] Target directories identified (existing or to-be-created)
   - [ ] Update this subsection's `status` in section frontmatter to `complete`
@@ -558,7 +558,7 @@ Delete everything that's not migrating. All files are in gitignored `scratchpad/
 - [ ] No commit needed — all deletions are in gitignored `scratchpad/`, which doesn't touch git state. The commits for §07 are from 07.2, 07.3, 07.4, 07.5 which covered the migrations (additions + removals from git). §07.6 is filesystem-only cleanup.
 
 - [ ] **Subsection close-out (07.6)** — MANDATORY before starting 07.7:
-  - [ ] All non-migrated scratchpad files deleted (17 or 18 depending on modern-lang-repos decision)
+  - [ ] All non-migrated scratchpad files deleted (18 total, per reconciled math that includes `07-modern-lang-repos.md` in the DELETE list)
   - [ ] `scratchpad/` contains no more .md/.ori files (may still have empty subdirs)
   - [ ] Update this subsection's `status` in section frontmatter to `complete`
   - [ ] **Run `/improve-tooling` retrospectively on THIS subsection** — bulk

@@ -248,12 +248,13 @@ Compare the post-plan state against the §01 baseline to produce a complete befo
   ```
   - [ ] Every category's result matches expectations from the plan sections
 
-- [ ] Expected category counts (from overview — reconciled with the 30/12/18 scratchpad math finalized in iteration 2 per TPR-XX-005-codex iteration 3 fix):
-  - **Added**: 4 hot-path wrappers at root + **12 scratchpad migrations** (11 with Astro `docsSchema` + 1 with body-format proposal schema) + 4 test-all baseline artifacts + 9 section files + 2 plan index/overview (the plan itself) + 1 new diagnostic helper (`scripts/diagnostics/_repo-root.sh`) = ~32 new files
-  - **Deleted**: ~20 LSP files + 3 blog files (moved cross-repo, so deletions on the ori_lang side) + **18 scratchpad deletions** (includes `07-modern-lang-repos.md` per conditional DELETE) + 2 build/debug leaks + 1 `.gitkeep` + 1 `rebuild-playground.sh` + 1 `samples/` dir (if still there) = ~45 deletions
-  - **Renamed**: 8 scripts moved to `scripts/dev/` + 16+ diagnostics scripts moved to `scripts/diagnostics/` = ~24 renames
-  - **Modified**: `.gitignore` (if §03 decides the `/build/` addition is redundant per iteration 3 finding — see updated §03) + `Cargo.toml` + `sync-version.sh` + `auto-release.yml` + CLAUDE.md + CONTRIBUTING.md + ~200 `plans/**/*.md` (Pattern A sweep) + `.claude/rules/*.md` + `.claude/skills/*` + LSP docs + formatter docs + roadmap section-22 + 7 edited diagnostic scripts (repo-root resolution fix) + `compiler/oric/src/llvm_dump/mod.rs` comment + `compiler/ori_llvm/tests/aot/util/aot.rs:168` string = ~240+ modifications
+- [ ] Expected category counts **relative to `BASELINE_COMMIT..HEAD`** (i.e., files that appear in the diff stat — NOT filesystem-only cleanup or pre-baseline artifacts) — reconciled with the 30/12/18 scratchpad math finalized in iteration 2, §03 gitignore correction from iteration 3, and recomputed against baseline in iteration 4 per TPR-XX-002-codex:
+  - **Added (git-diff visible)**: 4 hot-path wrappers at root + **12 scratchpad migrations** (11 with Astro `docsSchema` + 1 with body-format proposal schema) + 1 new diagnostic helper (`scripts/diagnostics/_repo-root.sh`) = **~17 new files**. NOTE: §01 baseline artifacts, §01-§09 section files themselves, and the plan index/overview are committed AT the baseline commit and therefore DO NOT appear in `BASELINE_COMMIT..HEAD` as new files — they are pre-baseline state.
+  - **Deleted (git-diff visible)**: Git-tracked deletions only — ~20 LSP files (from `tools/ori-lsp/`) + 3 blog files (cross-repo migration) + 2 `build/debug/*` tracked leaks + 1 `compiler/ori_lsp/.gitkeep` + 1 `rebuild-playground.sh` = **~27 deletions**. NOTE: `scratchpad/` contents (gitignored, not tracked) and `samples/` (gitignored) do NOT appear in git diff — they are filesystem-only cleanup. The 18 scratchpad deletions and 1 samples/ deletion are reported via the §01 baseline `find scratchpad` snapshot comparison, NOT git diff.
+  - **Renamed (git rename-tracked)**: 8 scripts moved to `scripts/dev/` + 16+ diagnostic scripts moved to `scripts/diagnostics/` = ~24 renames
+  - **Modified (git-diff visible)**: `Cargo.toml` + `scripts/sync-version.sh` + `.github/workflows/auto-release.yml` + CLAUDE.md + CONTRIBUTING.md + ~200 `plans/**/*.md` (Pattern A sweep) + `.claude/rules/*.md` + `.claude/skills/*` + LSP docs + formatter docs + `plans/roadmap/section-22-tooling.md` + 7 edited diagnostic scripts (repo-root resolution fix) + `compiler/oric/src/llvm_dump/mod.rs` comment + `compiler/ori_llvm/tests/aot/util/aot.rs:168` string = **~240+ modifications**. **`.gitignore` is NOT modified** (iteration 3 correction: the `/build/` edit was withdrawn as unnecessary; the existing `**/build/` rule already works).
   - [ ] Actual counts approximately match the reconciled estimates
+  - [ ] Verification gate: `git diff BASELINE_COMMIT..HEAD --stat --diff-filter=M -- .gitignore` returns empty (proves `.gitignore` is unchanged per iteration 3 correction)
 
 - [ ] **Subsection close-out (09.2)** — MANDATORY before starting 09.3:
   - [ ] Baseline commit hash captured
@@ -456,7 +457,7 @@ Final state (vs §01 baseline):
 - tools/ori-lsp deleted
 - scratchpad/ triaged (12 migrated, 18 deleted, directory removed; 30 files processed matching §01 baseline)
 - blog/ migrated cross-repo to ori-lang-website
-- 2 build/debug leak files removed, .gitignore /build/ rule added
+- 2 build/debug leak files removed via `git rm --cached` (no `.gitignore` edit — iteration 3 correction: the existing `**/build/` rule already covers root-level `build/`, verified via `git check-ignore --no-index`)
 - 2 stale website/ paths repaired
 - profile.json.gz preserved (intentional)
 - install.sh + setup.sh preserved (public API)
