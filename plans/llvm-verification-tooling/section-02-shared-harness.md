@@ -796,6 +796,19 @@ Validate that the harness orchestration, directive parsing, revision expansion, 
 - [x] `[TPR-02-001-gemini-r4][medium]` `section-02-shared-harness.md:745` — Stale `tests/codegen/` and `tests/arc-opt/` in §02.7.
   Resolved: Fixed on 2026-04-10 (mid-run). Updated to crate-local paths.
 
+**--- Round 5 iteration 3 findings ---**
+- [x] `[TPR-02-001-codex-r5i3][high]` `bless/mod.rs:65` — Stale cleanup conflates revision suffixes with artifact roles.
+  Resolved: Fixed on 2026-04-11. Removed aggressive dir scanning from has_revisions branch; only deletes unambiguous non-revision baseline.
+- [x] `[TPR-02-002-codex-r5i3][high]` `directive/mod.rs:188` — Empty `// @revisions:` silently skips test.
+  Resolved: Fixed on 2026-04-11. Added non-empty validation; empty revisions list produces ParseError.
+- [x] `[TPR-02-003-codex-r5i3][medium]` `artifact/mod.rs:51` — Windows absolute paths not handled.
+  Resolved: Fixed on 2026-04-11. Uses `components().filter(Normal)` instead of strip_prefix("/"). Cross-platform.
+- [x] `[TPR-02-004-codex-r5i3][medium]` `bless/tests.rs:142` — Env var test races.
+  Resolved: Fixed on 2026-04-11. Consolidated 4 env var tests into single sequential test. Agreement: [TPR-02-001-gemini implied].
+- [x] `[TPR-02-001-gemini-r5i3][high]` `bless/mod.rs:43` — read_dir("") fails silently on empty parent.
+  Resolved: Fixed on 2026-04-11. Map empty parent to ".".
+- [x] `[TPR-02-002-gemini-r5i3][high]` `directive/mod.rs:59` — Near-miss regex [^:] blocks colon-containing typos.
+  Resolved: Fixed on 2026-04-11. Simplified first alt to `CHECK.*` (safe since valid CHECK: consumed first).
 **--- Round 5 iteration 2 findings ---**
 - [x] `[TPR-02-001-codex-r5i2][medium]` `compiler/ori_test_harness/src/artifact/mod.rs:58` — Absolute paths break resolve_actual (Path::join discards base).
   Resolved: Fixed on 2026-04-11. Strip root from absolute paths before joining.

@@ -112,55 +112,55 @@ fn test_bless_cleans_old_revision_specific_files() {
 }
 
 #[test]
-fn test_bless_cleans_stale_revision_when_revision_removed() {
+fn test_bless_with_revisions_only_deletes_non_revision_baseline() {
     let dir = tempfile::tempdir().expect("tempdir");
     let test_path = dir.path().join("basic.ori");
 
-    // Baseline for revision "b" exists, but now only revision "a" is active
-    let stale_b = dir.path().join("basic.b.ll");
+    // Non-revision baseline + revision baselines (including stale one)
+    let non_rev = dir.path().join("basic.ll");
     let active_a = dir.path().join("basic.a.ll");
-    std::fs::write(&stale_b, "b baseline").expect("write");
+    let stale_b = dir.path().join("basic.b.ll");
+    std::fs::write(&non_rev, "old baseline").expect("write");
     std::fs::write(&active_a, "a baseline").expect("write");
+    std::fs::write(&stale_b, "b baseline").expect("write");
 
+    // has_revisions only deletes the non-revision baseline (safe)
     let deleted = clean_stale_baselines(&test_path, "ll", &["a"]).expect("clean");
     assert_eq!(deleted.len(), 1);
-    assert!(
-        !stale_b.exists(),
-        "stale revision b baseline should be deleted"
-    );
-    assert!(
-        active_a.exists(),
-        "active revision a baseline should remain"
-    );
+    assert!(!non_rev.exists(), "non-revision baseline deleted");
+    assert!(active_a.exists(), "revision baselines not touched");
+    assert!(stale_b.exists(), "revision baselines not touched");
 }
 
 // ---------------------------------------------------------------------------
 // Negative pins
 // ---------------------------------------------------------------------------
 
+/// Consolidated env var test — runs all `ORI_BLESS` variations sequentially
+/// in a single test to avoid parallel `set_var`/`remove_var` races.
+#[allow(
+    deprecated,
+    reason = "set_var deprecated in newer Rust, safe in single-threaded test"
+)]
 #[test]
-fn test_bless_disabled_when_env_is_zero() {
+fn test_is_bless_enabled_contract() {
+    std::env::remove_var("ORI_BLESS");
+    assert!(!is_bless_enabled(), "unset = disabled");
+
     std::env::set_var("ORI_BLESS", "0");
-    assert!(!is_bless_enabled());
-    std::env::remove_var("ORI_BLESS");
-}
+    assert!(!is_bless_enabled(), "env=0 = disabled");
 
-#[test]
-fn test_bless_disabled_when_env_is_false() {
     std::env::set_var("ORI_BLESS", "false");
-    assert!(!is_bless_enabled());
-    std::env::remove_var("ORI_BLESS");
-}
+    assert!(!is_bless_enabled(), "env=false = disabled");
 
-#[test]
-fn test_bless_disabled_when_env_is_true() {
     std::env::set_var("ORI_BLESS", "true");
-    assert!(!is_bless_enabled());
-    std::env::remove_var("ORI_BLESS");
-}
+    assert!(
+        !is_bless_enabled(),
+        "env=true = disabled (only '1' accepted)"
+    );
 
-#[test]
-fn test_bless_disabled_when_env_unset() {
+    std::env::set_var("ORI_BLESS", "1");
+    assert!(is_bless_enabled(), "env=1 = enabled");
+
     std::env::remove_var("ORI_BLESS");
-    assert!(!is_bless_enabled());
 }
