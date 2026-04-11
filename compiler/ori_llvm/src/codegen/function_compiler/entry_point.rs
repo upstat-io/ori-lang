@@ -181,6 +181,7 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
                 tracing::error!(
                     "LLVM IR verification failed after codegen (generate_main_wrapper)"
                 );
+                self.builder.record_codegen_error();
             }
         }
 

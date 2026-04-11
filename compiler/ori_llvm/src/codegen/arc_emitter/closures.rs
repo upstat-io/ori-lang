@@ -304,6 +304,18 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             .call(rc_free_id, &[data_ptr, size_val, align_val], "");
         self.builder.ret_void();
 
+        // Function-level LLVM IR verification.
+        if self.verify_arc {
+            let fn_val = self.builder.get_function_value(func_id);
+            if !fn_val.verify(true) {
+                tracing::error!(
+                    name = func_name,
+                    "LLVM IR verification failed (generate_env_drop_fn)"
+                );
+                self.builder.record_codegen_error();
+            }
+        }
+
         // Restore builder position
         self.builder.restore_position(saved_pos);
         if let Some(f) = saved_func {

@@ -126,6 +126,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             let fn_val = self.builder.get_function_value(thunk_id);
             if !fn_val.verify(true) {
                 tracing::error!("LLVM IR verification failed (generate_catch_thunk)");
+                self.builder.record_codegen_error();
             }
         }
 
@@ -207,6 +208,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             let fn_val = self.builder.get_function_value(thunk_id);
             if !fn_val.verify(true) {
                 tracing::error!("LLVM IR verification failed (generate_rt_catch_thunk)");
+                self.builder.record_codegen_error();
             }
         }
 
