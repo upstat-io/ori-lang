@@ -20,12 +20,12 @@ use rustc_hash::{FxHashMap, FxHashSet};
 /// Flatten the ARC cache into a single owned `Vec` for consumption by
 /// downstream passes (repr plan, uniqueness analysis, AIMS contracts).
 ///
-/// Delegates to [`crate::test_support::collect_all_arc_functions`] — the
-/// single canonical implementation of this flattening algorithm.
+/// Delegates to [`ori_arc::collect_all_arc_functions`] — the single
+/// canonical implementation of this flattening algorithm.
 pub(super) fn collect_all_arc_functions(
     arc_cache: &FxHashMap<Name, (ori_arc::ArcFunction, Vec<ori_arc::ArcFunction>)>,
 ) -> Vec<ori_arc::ArcFunction> {
-    crate::test_support::collect_all_arc_functions(arc_cache)
+    ori_arc::collect_all_arc_functions(arc_cache)
 }
 
 /// ARC-lower impl methods for interprocedural repr analysis.
