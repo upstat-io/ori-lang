@@ -26,7 +26,7 @@ impl TestStrategy for MockTestStrategy {
         &self,
         _test_path: &Path,
         _revision: &RevisionConfig,
-        _directives: &[DirectiveLine],
+        _directives: &[&DirectiveLine],
     ) -> Result<TestOutput, String> {
         if self.succeed {
             Ok(TestOutput {
@@ -42,7 +42,7 @@ impl TestStrategy for MockTestStrategy {
         &self,
         _test_path: &Path,
         _revision: &RevisionConfig,
-        _directives: &[DirectiveLine],
+        _directives: &[&DirectiveLine],
         _output: &TestOutput,
     ) -> Result<(), String> {
         Ok(())
@@ -58,7 +58,7 @@ impl TestStrategy for FailVerifyStrategy {
         &self,
         _test_path: &Path,
         _revision: &RevisionConfig,
-        _directives: &[DirectiveLine],
+        _directives: &[&DirectiveLine],
     ) -> Result<TestOutput, String> {
         Ok(TestOutput {
             content: "output".into(),
@@ -70,7 +70,7 @@ impl TestStrategy for FailVerifyStrategy {
         &self,
         _test_path: &Path,
         _revision: &RevisionConfig,
-        _directives: &[DirectiveLine],
+        _directives: &[&DirectiveLine],
         _output: &TestOutput,
     ) -> Result<(), String> {
         Err("verify failed: pattern not found".into())
@@ -144,9 +144,7 @@ fn test_mock_strategy_bless_mode_writes_baseline() {
     let bless_dir = tempfile::tempdir().expect("bless tempdir");
     let baseline_path = bless_dir.path().join("bless.ll");
 
-    std::env::set_var("ORI_BLESS", "1");
-    let result = crate::bless::compare_or_bless(&baseline_path, "define void @main() {}");
-    std::env::remove_var("ORI_BLESS");
+    let result = crate::bless::compare_or_bless(&baseline_path, "define void @main() {}", true);
 
     assert!(result.is_ok());
     assert!(baseline_path.exists());

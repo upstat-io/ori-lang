@@ -1,7 +1,3 @@
-#![allow(
-    deprecated,
-    reason = "set_var/remove_var deprecated in newer Rust, safe in edition 2021"
-)]
 #![expect(
     clippy::expect_used,
     reason = "test code — panics are the assertion mechanism"
@@ -14,13 +10,11 @@ use super::*;
 // ---------------------------------------------------------------------------
 
 #[test]
-fn test_bless_writes_new_baseline_when_env_set_to_1() {
+fn test_bless_writes_new_baseline_when_enabled() {
     let dir = tempfile::tempdir().expect("tempdir");
     let path = dir.path().join("baseline.ll");
 
-    std::env::set_var("ORI_BLESS", "1");
-    let result = compare_or_bless(&path, "define void @main() {}");
-    std::env::remove_var("ORI_BLESS");
+    let result = compare_or_bless(&path, "define void @main() {}", true);
 
     assert_eq!(result.expect("should succeed"), CompareOutcome::Blessed);
     assert_eq!(
@@ -30,14 +24,12 @@ fn test_bless_writes_new_baseline_when_env_set_to_1() {
 }
 
 #[test]
-fn test_bless_deletes_empty_baseline_when_env_set() {
+fn test_bless_deletes_empty_baseline_when_enabled() {
     let dir = tempfile::tempdir().expect("tempdir");
     let path = dir.path().join("baseline.ll");
     std::fs::write(&path, "old content").expect("write");
 
-    std::env::set_var("ORI_BLESS", "1");
-    let result = compare_or_bless(&path, "");
-    std::env::remove_var("ORI_BLESS");
+    let result = compare_or_bless(&path, "", true);
 
     assert_eq!(
         result.expect("should succeed"),
@@ -52,8 +44,7 @@ fn test_compare_returns_match_when_content_identical() {
     let path = dir.path().join("baseline.ll");
     std::fs::write(&path, "same content").expect("write");
 
-    std::env::remove_var("ORI_BLESS");
-    let result = compare_or_bless(&path, "same content");
+    let result = compare_or_bless(&path, "same content", false);
     assert_eq!(result.expect("should succeed"), CompareOutcome::Match);
 }
 
@@ -63,8 +54,7 @@ fn test_compare_returns_mismatch_with_diff_when_content_differs() {
     let path = dir.path().join("baseline.ll");
     std::fs::write(&path, "expected line\n").expect("write");
 
-    std::env::remove_var("ORI_BLESS");
-    let result = compare_or_bless(&path, "actual line\n");
+    let result = compare_or_bless(&path, "actual line\n", false);
     match result.expect("should succeed") {
         CompareOutcome::Mismatch { diff } => {
             assert!(diff.contains("-expected line"));
@@ -79,9 +69,7 @@ fn test_bless_creates_parent_directories() {
     let dir = tempfile::tempdir().expect("tempdir");
     let path = dir.path().join("sub/dir/baseline.ll");
 
-    std::env::set_var("ORI_BLESS", "1");
-    let result = compare_or_bless(&path, "content");
-    std::env::remove_var("ORI_BLESS");
+    let result = compare_or_bless(&path, "content", true);
 
     assert_eq!(result.expect("should succeed"), CompareOutcome::Blessed);
     assert!(path.exists());
@@ -121,6 +109,29 @@ fn test_bless_cleans_old_revision_specific_files() {
     assert_eq!(deleted.len(), 2);
     assert!(!stale_debug.exists());
     assert!(!stale_release.exists());
+}
+
+#[test]
+fn test_bless_cleans_stale_revision_when_revision_removed() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let test_path = dir.path().join("basic.ori");
+
+    // Baseline for revision "b" exists, but now only revision "a" is active
+    let stale_b = dir.path().join("basic.b.ll");
+    let active_a = dir.path().join("basic.a.ll");
+    std::fs::write(&stale_b, "b baseline").expect("write");
+    std::fs::write(&active_a, "a baseline").expect("write");
+
+    let deleted = clean_stale_baselines(&test_path, "ll", &["a"]).expect("clean");
+    assert_eq!(deleted.len(), 1);
+    assert!(
+        !stale_b.exists(),
+        "stale revision b baseline should be deleted"
+    );
+    assert!(
+        active_a.exists(),
+        "active revision a baseline should remain"
+    );
 }
 
 // ---------------------------------------------------------------------------

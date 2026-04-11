@@ -796,6 +796,26 @@ Validate that the harness orchestration, directive parsing, revision expansion, 
 - [x] `[TPR-02-001-gemini-r4][medium]` `section-02-shared-harness.md:745` — Stale `tests/codegen/` and `tests/arc-opt/` in §02.7.
   Resolved: Fixed on 2026-04-10 (mid-run). Updated to crate-local paths.
 
+**--- Round 5 findings (final section close-out TPR, iteration 1) ---**
+- [x] `[TPR-02-001-codex-r5][high]` `compiler/ori_test_harness/src/bless/mod.rs:114` — Swallowed read error in compare_or_bless.
+  Resolved: Fixed on 2026-04-11. Changed `unwrap_or_default()` to propagate non-NotFound errors; only NotFound returns empty string.
+- [x] `[TPR-02-002-codex-r5][medium]` `compiler/ori_test_harness/src/artifact/mod.rs:47` — Artifact path collision for same-stem files.
+  Resolved: Fixed on 2026-04-11. `resolve_actual` now preserves parent directory under `target/test-harness/`. Added collision test.
+- [x] `[TPR-02-003-codex-r5][medium]` `compiler/ori_test_harness/src/directive/mod.rs:163` — Forbidden revision names not validated in `// @revisions:` list.
+  Resolved: Fixed on 2026-04-11. Added validation loop on revision names in Revisions directive. Added test.
+- [x] `[TPR-02-004-codex-r5][medium]` `compiler/ori_test_harness/src/bless/tests.rs:21` — Env var race in bless tests.
+  Resolved: Fixed on 2026-04-11. Refactored `compare_or_bless` to accept `bless: bool` parameter; tests no longer mutate process-global env vars. Agreement: [TPR-02-001-gemini-r5].
+- [x] `[TPR-02-001-gemini-r5][high]` `compiler/ori_test_harness/src/bless/tests.rs:24` — Same env var race (effective agreement with [TPR-02-004-codex-r5]).
+  Resolved: Fixed on 2026-04-11. Same fix as [TPR-02-004-codex-r5].
+- [x] `[TPR-02-002-gemini-r5][high]` `compiler/ori_test_harness/src/artifact/mod.rs:36` — Same artifact collision (effective agreement with [TPR-02-002-codex-r5]).
+  Resolved: Fixed on 2026-04-11. Same fix as [TPR-02-002-codex-r5].
+- [x] `[TPR-02-003-gemini-r5][medium]` `compiler/ori_test_harness/src/bless/mod.rs:44` — Stale revision cleanup incomplete (missing scan for removed revisions).
+  Resolved: Fixed on 2026-04-11. Added directory scan in `has_revisions` branch to delete stale revision-specific baselines. Added test.
+- [x] `[TPR-02-004-gemini-r5][medium]` `compiler/ori_test_harness/src/directive/mod.rs:114` — Missing CHECK typo detection.
+  Resolved: Fixed on 2026-04-11. Added `RE_CHECK_NEAR_MISS` regex to detect malformed CHECK directives. Added test.
+- [x] `[TPR-02-005-gemini-r5][low]` `compiler/ori_test_harness/src/runner/mod.rs:149` — Unnecessary directive cloning per revision.
+  Resolved: Fixed on 2026-04-11. Changed `TestStrategy` trait to accept `&[&DirectiveLine]`; removed clone in runner loop.
+
 ---
 
 ## 02.N Completion Checklist

@@ -42,9 +42,11 @@ pub fn resolve_expected(test_path: &Path, suffix: &str, revision: Option<&str>) 
 /// Resolve the actual output path for a test artifact.
 ///
 /// Actual outputs go under `target/test-harness/` (deterministic, survives
-/// for debugging — not `$TMPDIR`).
+/// for debugging — not `$TMPDIR`). Preserves the parent directory structure
+/// relative to the test root to prevent same-stem collisions.
 pub fn resolve_actual(test_path: &Path, suffix: &str, revision: Option<&str>) -> PathBuf {
     let stem = test_path.file_stem().unwrap_or_default();
+    let parent = test_path.parent().unwrap_or(Path::new(""));
 
     let filename = match revision {
         Some(rev) if !rev.is_empty() => {
@@ -53,5 +55,5 @@ pub fn resolve_actual(test_path: &Path, suffix: &str, revision: Option<&str>) ->
         _ => format!("{}.{suffix}", stem.to_string_lossy()),
     };
 
-    Path::new("target/test-harness").join(filename)
+    Path::new("target/test-harness").join(parent).join(filename)
 }
