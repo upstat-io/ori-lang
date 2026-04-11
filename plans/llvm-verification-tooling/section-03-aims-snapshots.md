@@ -444,6 +444,17 @@ Create the initial corpus of snapshot tests covering the 5 priority passes. Each
 - [x] `[TPR-03-002-gemini-impl][low]` `compiler/oric/tests/aims_snapshots.rs:14` — Rename aims_snapshot_tests to follow behavioral naming rules.
   Resolved: Fixed on 2026-04-11. Same fix as [TPR-03-004-codex-impl] (thematic agreement).
 
+**Implementation review round 2 (re-review of fixes):**
+
+- [x] `[TPR-03-001-codex-impl-r2][high]` `compiler/oric/tests/aims_snapshot_strategy.rs:123` — GAP: Apply contract-derived param ownership to the snapshotted functions. Mutated clones from `compute_aims_contracts()` were discarded; fresh clones from arc_cache didn't carry ownership.
+  Resolved: Fixed on 2026-04-11. Restructured strategy to iterate the mutated functions from `compute_aims_contracts()` directly — no more fresh clones from arc_cache. Lowered.arc now captures post-ownership state matching production `define_phase.rs:315-328`. Re-blessed all baselines.
+
+- [x] `[TPR-03-001-gemini-impl-r2][high]` `compiler/oric/tests/aims_snapshot_strategy.rs:160` — GAP: Apply AIMS param ownership before running snapshot observer loop. Same root cause as TPR-03-001-codex-impl-r2.
+  Resolved: Fixed on 2026-04-11. Same fix as [TPR-03-001-codex-impl-r2] (thematic agreement).
+
+- [x] `[TPR-03-002-gemini-impl-r2][low]` `compiler/oric/tests/aims_snapshot_strategy.rs:63` — LEAK:algorithmic-duplication: `collect_all_functions()` duplicates `repr_setup::collect_all_arc_functions()`.
+  Resolved: Fixed on 2026-04-11. Added `ArcCompileResult::all_arc_functions()` method to `test_support.rs`. Removed private `collect_all_functions()` from strategy. The `repr_setup` version remains for production use (separate input type).
+
 ---
 
 ## 03.N Completion Checklist

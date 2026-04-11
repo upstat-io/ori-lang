@@ -1,4 +1,4 @@
-fn @__lambda_make_greeter_0(%0: str [own]) -> () [entry: bb0]
+fn @__lambda_make_greeter_0(%0: str [borrow]) -> () [entry: bb0]
   captures: 1
   bb0:
     %1: str [FatVal] = %0
