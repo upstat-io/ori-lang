@@ -474,6 +474,14 @@ Create the initial corpus of snapshot tests covering the 5 priority passes. Each
 - [x] `[TPR-03-003-gemini-impl-r4][low]` `compiler/oric/src/test_support.rs:43` — Non-deterministic FxHashMap iteration in `collect_all_arc_functions`.
   Resolved: Fixed on 2026-04-11. Added doc note that callers must sort for determinism. The snapshot strategy already sorts by name after flattening. The production pipeline also processes functions per-function (not order-dependent). `compute_aims_contracts` uses SCC analysis which is deterministic regardless of input order.
 
+**Implementation review round 5:**
+
+- [x] `[TPR-03-001-codex-impl-r5][medium]` `compiler/oric/src/test_support.rs:116` — GAP: `compile_to_arc()` ignores `arc_problems`, returning Ok even when ARC lowering has issues.
+  Resolved: Fixed on 2026-04-11. Added `arc_problems` check before returning Ok — non-empty problems now return Err with count.
+
+- [x] `[TPR-03-002-codex-impl-r5][low]` `compiler/oric/tests/aims_snapshots.rs:20` — GAP: Silent pass when snapshot corpus directory is missing.
+  Resolved: Fixed on 2026-04-11. Changed early return to `assert!(test_dir.exists(), ...)` — missing corpus now panics instead of silently passing.
+
 ---
 
 ## 03.N Completion Checklist
