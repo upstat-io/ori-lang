@@ -1024,6 +1024,7 @@ dependencies = [
  "ori_registry",
  "ori_repr",
  "ori_rt",
+ "ori_test_harness",
  "ori_types",
  "parking_lot",
  "pretty_assertions",

@@ -1,0 +1,6 @@
+// Smoke test for AIMS snapshot infrastructure.
+// Verifies the full pipeline: compile → lower → observer → snapshot.
+//
+// @test-arc-pass: realize_rc_reuse
+
+@main () -> void = print(msg: "hello");
