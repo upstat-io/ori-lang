@@ -29,7 +29,7 @@ use super::{
     ShapeClass, Uniqueness,
 };
 
-// ── Dimension strategies ──────────────────────────────────────────────
+// Dimension strategies
 
 fn access_class_strategy() -> impl Strategy<Value = AccessClass> {
     prop_oneof![Just(AccessClass::Borrowed), Just(AccessClass::Owned)]
@@ -89,7 +89,7 @@ fn effect_class_strategy() -> impl Strategy<Value = EffectClass> {
     })
 }
 
-// ── Composite strategies ─────────────────────────────────────────────
+// Composite strategies
 
 /// Raw `AimsState` — may be non-canonical. Used for canonicalization tests.
 fn raw_aims_state_strategy() -> impl Strategy<Value = AimsState> {
@@ -132,7 +132,7 @@ fn lattice_leq(a: &AimsState, b: &AimsState) -> bool {
     a.join(b) == *b
 }
 
-// ── 04.1 Smoke tests ──────────────────────────────────────────────────
+// Smoke tests
 
 proptest! {
     #[test]
@@ -148,7 +148,7 @@ proptest! {
     }
 }
 
-// ── 04.2 Join law properties (canonical states only) ──────────────────
+// Join law properties (canonical states only)
 
 proptest! {
     #[test]
@@ -213,7 +213,7 @@ proptest! {
     }
 }
 
-// ── 04.3 Canonicalization properties (raw states) ─────────────────────
+// Canonicalization properties (raw states)
 
 proptest! {
     #[test]
@@ -326,7 +326,7 @@ proptest! {
     }
 }
 
-// ── 04.4 Transfer function properties (canonical states) ──────────────
+// Transfer function properties (canonical states)
 
 // Transfer functions in `aims/transfer/mod.rs` operate on ARC IR
 // instructions, not raw AimsState → AimsState. The pure state-level
@@ -401,7 +401,7 @@ proptest! {
         );
     }
 
-    // ── Intrinsic AimsState decision predicates ───────────────────────
+    // Intrinsic AimsState decision predicates
 
     /// is_rc_needed: Owned + not-Dead + not-SCALAR.
     #[test]
@@ -461,7 +461,7 @@ proptest! {
     }
 }
 
-// ── 04.5 Fixpoint convergence bounds ──────────────────────────────────
+// Fixpoint convergence bounds
 
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(1000))]
