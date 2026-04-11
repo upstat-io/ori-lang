@@ -160,7 +160,7 @@ The nightly tier runs on a schedule (e.g., 2:00 AM UTC). It runs more expensive 
       runs-on: ubuntu-latest
       timeout-minutes: 15
       steps:
-        # ... build + cargo test -p ori_arc --test aims_snapshots
+        # ... build + cargo test -p oric --test aims_snapshots
 
     arc-parity:
       name: ARC IR Parity (Debug vs Release)
@@ -171,7 +171,7 @@ The nightly tier runs on a schedule (e.g., 2:00 AM UTC). It runs more expensive 
   ```
 
 - [ ] Audit which nightly gates should already exist from earlier sections:
-  - **§03**: AIMS snapshot tests (`cargo test -p ori_arc --test aims_snapshots`)
+  - **§03**: AIMS snapshot tests (`cargo test -p oric --test aims_snapshots`)
   - **§08**: Full sanitizer suite (ASan/UBSan on AOT smoke subset)
   - **§09**: Alive2 curated corpus (`diagnostics/alive2-verify.sh --corpus`)
 

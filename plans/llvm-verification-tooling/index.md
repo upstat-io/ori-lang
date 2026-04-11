@@ -50,9 +50,9 @@ test runner, snapshot comparison, diff generation
 
 ```
 AIMS pipeline, 12 steps, pass-level snapshots
-realize_rc_reuse, merge_blocks, realize_annotations, normalize_function
-.before.arc, .after.arc, .diff, per-pass dump hooks
-compiler/ori_arc/tests/arc-opt/, snapshot corpus, baseline artifacts
+realize_rc_reuse, merge_blocks, realize_annotations, normalize_function, tail_calls
+lowered.arc, .after.arc, per-pass checkpoint observer
+compiler/oric/tests/aims-snapshots/, snapshot corpus, baseline artifacts
 ORI_DUMP_AFTER_ARC, ArcFunction, ArcInstr, ArcTerminator
 MIR-opt pattern, EMIT_MIR, Rust compiletest
 ```

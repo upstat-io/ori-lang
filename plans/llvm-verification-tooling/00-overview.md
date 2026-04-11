@@ -21,7 +21,7 @@ Build world-class verification tooling for Ori's AIMS memory system and LLVM bac
 
 ## Mission Success Criteria
 
-- [ ] **AIMS snapshot regression detection**: Running `cargo test -p ori_arc --test aims_snapshots` catches pass-level regressions in `realize_rc_reuse`, `merge_blocks`, `realize_annotations`, and `normalize_function` via `.before.arc`/`.after.arc`/`.diff` artifacts (Section 03)
+- [ ] **AIMS snapshot regression detection**: Running `cargo test -p oric --test aims_snapshots` catches pass-level regressions in `realize_rc_reuse`, `merge_blocks`, `realize_annotations`, `normalize_function`, and `tail_calls` via `lowered.arc` baseline + per-pass `.after.arc` artifacts (Section 03)
 - [ ] **Lattice property verification**: `cargo test -p ori_arc lattice_properties` runs proptest-generated tests verifying join commutativity, associativity, idempotence, transfer monotonicity, canonicalization idempotence, and fixpoint convergence bounds across the 11,520 raw lattice states (2×4×3×3×4×5×8 dimensions; existing exhaustive tests cover 2,880 sampled configurations) (Section 04)
 - [ ] **Contract coherence oracle**: After AIMS pipeline completion, an independent contract re-derivation from realized ARC IR (walking actual `RcInc`/`RcDec`/`Reuse` instructions) matches inferred `MemoryContract` — discrepancies are blocking errors under `ORI_VERIFY_ARC=1` (Section 05)
 - [ ] **Protocol builtin ownership pinned**: Every `ProtocolBuiltin` variant's per-argument expected ownership is pinned (not a Cartesian product — each position has ONE expected value), with RC balance verified through LLVM codegen audit for each protocol function (Section 06)
