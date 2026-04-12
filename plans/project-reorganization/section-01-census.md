@@ -22,7 +22,7 @@ third_party_review:
 sections:
   - id: "01.1"
     title: "Baseline Snapshot Capture"
-    status: in-progress
+    status: not-started
   - id: "01.2"
     title: "Reference Inventory Refresh"
     status: not-started
