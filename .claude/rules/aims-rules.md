@@ -198,7 +198,7 @@ Canonicalization enforces cross-dimensional feasibility invariants. It runs afte
 
 **CN-6** — Wide-locality uniqueness ceiling: `Locality ≥ HeapEscaping ∧ Uniqueness = Unique ⟹ Uniqueness := MaybeShared`.
 *Rationale*: A value stored in a heap structure may have aliases via heap paths. Uses `≥` because `Unknown` subsumes `HeapEscaping`.
-*Exception — return values*: CN-6 SHALL NOT apply to values whose HeapEscaping locality comes solely from being returned (IA-6). Return transfers ownership, creating a unique reference at the caller. The `ReturnContract` extraction SHALL use the pre-return-widening uniqueness. Fresh allocations returned from a function remain `Unique` in the `ReturnContract` even though their intraprocedural locality widens to HeapEscaping. This ensures RL-29 (noalias on fresh allocation returns) is achievable.
+*Exception — return values*: CN-6 fires unconditionally within the intraprocedural analysis (values widened by IA-6 do get demoted to MaybeShared in the function body). However, the `ReturnContract` extraction preserves the pre-widening uniqueness — see §1.9 Return Provenance for the precise mechanism. This ensures RL-29 (noalias on fresh allocation returns) is achievable even though CN-6 correctly fires within the function.
 
 **CN-7** — ~~REMOVED.~~ The former rule about Shared+CollectionBuffer forcing COW mode was a decision predicate result, not a lattice state mutation. The behavior is fully covered by DP-9 (`Shared ⟹ StaticShared`). Canonicalization rules SHALL only mutate lattice dimensions — assigning `cow_mode` is a decision, not a state mutation.
 
@@ -591,3 +591,150 @@ AIMS draws from multiple traditions. No single prior system has this combination
 ### What Makes AIMS Unique
 
 No prior system combines all of: (1) a multi-dimensional product lattice, (2) interprocedural contracts via SCC fixpoint, (3) FBIP certification, (4) escape-driven stack promotion, (5) RC header compression, (6) thread-locality analysis for non-atomic RC, (7) AIMS→LLVM fact export, (8) zero programmer annotation — all in a single unified framework where every decision is derived from one lattice and verified by a layered stack. Each individual technique exists in prior art; the integration into a single formally-grounded pipeline does not.
+
+---
+
+## Appendix A: Forward Transfer Matrix
+
+Exhaustive mapping of every `ArcInstr` and `ArcTerminator` variant to its output `AimsState` per dimension. Instructions that produce no definition are marked `—`. The `Rule` column references the governing TF rule from §3.
+
+| Instruction | Rule | Access | Consumption | Cardinality | Uniqueness | Locality | Shape | Effect |
+|---|---|---|---|---|---|---|---|---|
+| `Let { Literal }` | TF-1 | SCALAR | SCALAR | SCALAR | SCALAR | SCALAR | SCALAR | SCALAR |
+| `Let { Var(v) }` | TF-2 | `state(v)` | `state(v)` | `state(v)` | `state(v)` | `state(v)` | `state(v)` | `state(v)` |
+| `Let { PrimOp }` | TF-2a | SCALAR | SCALAR | SCALAR | SCALAR | SCALAR | SCALAR | SCALAR |
+| `Construct` | TF-3 | Owned | Linear | Once | Unique | BlockLocal | `shape_from_ctor` | `{may_alloc=T}` |
+| `Project` | TF-4 | Borrowed | Linear | Once | `src.uniq` | `src.loc` | NonReusable | NONE |
+| `Apply` (no contract) | TF-5 | Owned | Unrestricted | Many | MaybeShared | Unknown | NonReusable | ALL |
+| `Apply` (contract) | TF-6 | refined | refined | refined | refined | refined | refined | refined |
+| `ApplyIndirect` | TF-5a | Owned | Unrestricted | Many | MaybeShared | Unknown | NonReusable | ALL |
+| `PartialApply` | TF-7 | Owned | Linear | Once | Unique | BlockLocal | NonReusable | `{may_alloc=T}` |
+| `Select` | TF-8 | `⊔` | `⊔` | `⊔` | `⊔` | `⊔` | `⊔` | `⊔` |
+| `IsShared` | TF-10 | SCALAR | SCALAR | SCALAR | SCALAR | SCALAR | SCALAR | SCALAR |
+| `Reset` | TF-10a | SCALAR | SCALAR | SCALAR | SCALAR | SCALAR | SCALAR | SCALAR |
+| `Reuse` | TF-9 | Owned | Linear | Once | Unique | BlockLocal | `shape_from_ctor` | `{may_alloc=T}` |
+| `CollectionReuse` | TF-9a | Owned | Linear | Once | Unique | BlockLocal | CollectionBuffer | `{may_alloc=T}` |
+| `RcInc` | TF-N/A | — | — | — | — | — | — | — |
+| `RcDec` | TF-N/A | — | — | — | — | — | — | — |
+| `Set` | TF-N/A | — | — | — | — | — | — | — |
+| `SetTag` | TF-N/A | — | — | — | — | — | — | — |
+| `Invoke` (contract) | TF-6a | refined | refined | refined | refined | refined | refined | refined |
+| `Invoke` (no contract) | TF-6b | Owned | Unrestricted | Many | MaybeShared | Unknown | NonReusable | ALL |
+| `InvokeIndirect` | TF-6c | Owned | Unrestricted | Many | MaybeShared | Unknown | NonReusable | ALL |
+
+Legend: `⊔` = componentwise join of branch operands. `refined` = TOP narrowed by `callee.return_contract`. `NONE` = `{may_alloc=F, may_share=F, may_throw=F}`. `ALL` = `{may_alloc=T, may_share=T, may_throw=T}`. `shape_from_ctor`: Struct→ReusableCtor(Struct), EnumVariant→ReusableCtor(EnumVariant), ListLiteral/SetLiteral/MapLiteral→CollectionBuffer, Tuple/Closure→NonReusable.
+
+Terminators `Return`, `Jump`, `Branch`, `Switch`, `Resume`, `Unreachable` produce no definitions (no `dst`). `Invoke`/`InvokeIndirect` are listed above (they define `dst` on the normal path).
+
+---
+
+## Appendix B: Infeasible State Table
+
+The following dimension combinations are eliminated by canonicalization. They SHALL NOT appear in any converged `AimsStateMap`. An implementation that produces any of these states has a canonicalization bug.
+
+| Infeasible Combination | Eliminating Rule | Result |
+|---|---|---|
+| `Consumption = Dead ∧ Cardinality ≠ Absent` | CN-1 | `Cardinality := Absent` |
+| `Cardinality = Absent ∧ Consumption ≠ Dead` | CN-1 | `Consumption := Dead` |
+| `Consumption = Linear ∧ Cardinality = Absent` | CN-2 (+ CN-1) | `Consumption := Dead, Cardinality := Absent` |
+| `Uniqueness = Shared ∧ Shape ∈ ReusableCtor(*)` | CN-3 | `Shape := NonReusable` |
+| `Access = Borrowed ∧ Locality > FunctionLocal` | CN-8 | `Locality := FunctionLocal` |
+| `Locality ≥ HeapEscaping ∧ Uniqueness = Unique` | CN-6 | `Uniqueness := MaybeShared` |
+
+**Derived infeasible combinations** (follow from composing two or more active rules):
+
+| Derived Combination | Why Infeasible |
+|---|---|
+| `Access = Borrowed ∧ Locality ≥ HeapEscaping ∧ Uniqueness = Unique` | CN-8 fires first (Locality → FunctionLocal), so the state never reaches CN-6's trigger condition. The three-way combination is doubly eliminated. |
+| `Access = Borrowed ∧ Locality = Unknown` | CN-8 clamps all Borrowed+wide-locality to FunctionLocal — `Unknown` is unreachable for Borrowed values. |
+| `Access = Borrowed ∧ Locality = HeapEscaping` | Same as above — CN-8 forces FunctionLocal. |
+| `Access = Borrowed ∧ Locality = ArgEscaping` | Same as above — CN-8 fires for any Locality > FunctionLocal. |
+| `Consumption = Dead ∧ Cardinality ∈ {Once, Many}` | CN-1 forces Cardinality := Absent when Consumption = Dead. |
+| `Consumption ∈ {Linear, Affine, Unrestricted} ∧ Cardinality = Absent` | CN-1 forces Consumption := Dead when Cardinality = Absent. |
+
+**Reachable boundary states** (NOT infeasible — documented to prevent false positives):
+
+| Boundary State | Why Reachable |
+|---|---|
+| `Unique ∧ Dead ∧ ReusableCtor(*)` | CN-5: unique dead values preserve reuse shape (allocation available for reset) |
+| `MaybeShared ∧ BlockLocal` | Fresh values widened via cross-block flow (IA-4) retain BlockLocal if single-block; MaybeShared from join with shared path |
+| `Owned ∧ Absent ∧ Dead` | Dead parameters passed by callers — receives dec at entry (RL-5) |
+
+---
+
+## Appendix C: Decision Predicate Truth Tables
+
+Each predicate is a pure function of the lattice state. The tables below show the exact conditions for each decision. All predicates operate on canonical states only (post-canonicalization).
+
+### DP-1: `is_rc_needed(s)`
+
+| Access | Consumption | is_scalar | Result |
+|---|---|---|---|
+| Borrowed | any | any | **false** |
+| Owned | Dead | any | **false** |
+| Owned | ≠ Dead | true (SCALAR) | **false** |
+| Owned | ≠ Dead | false | **true** |
+
+### DP-2: `is_rc_dec_unnecessary(s)`
+
+| Cardinality | Consumption | Result |
+|---|---|---|
+| Absent | (must be Dead via CN-1) | **true** |
+| any | Dead | **true** |
+| Once | ≠ Dead | **false** |
+| Many | ≠ Dead | **false** |
+
+### DP-3: `is_rc_inc_elidable(s)`
+
+| Cardinality | Consumption | Result |
+|---|---|---|
+| Once | Linear | **true** |
+| Once | ≠ Linear | **false** |
+| ≠ Once | any | **false** |
+
+### DP-4: `needs_cow_check(s)`
+
+| Uniqueness | Result |
+|---|---|
+| Unique | **false** (static unique path) |
+| MaybeShared | **true** (runtime check needed) |
+| Shared | **false** (static shared path) |
+
+### DP-5: `can_mutate_in_place(s)`
+
+| Access | Uniqueness | Overlapping borrows? | Result |
+|---|---|---|---|
+| ≠ Owned | any | any | **false** |
+| Owned | ≠ Unique | any | **false** |
+| Owned | Unique | yes (same field) | **false** |
+| Owned | Unique | no (disjoint or none) | **true** |
+
+"Overlapping borrows" checked via `borrow_sources` side table (§1.9).
+
+### DP-6: `is_reuse_candidate(s)`
+
+| Access | Uniqueness | Shape | Result |
+|---|---|---|---|
+| ≠ Owned | any | any | **false** |
+| Owned | Shared | any | **false** |
+| Owned | ≠ Shared | NonReusable | **false** |
+| Owned | Unique or MaybeShared | ReusableCtor(*) or CollectionBuffer or ContextHole | **true** |
+
+### DP-7: `is_rc_skip_eligible(s)`
+
+| is_local | Access | Consumption | Uniqueness | is_scalar | Result |
+|---|---|---|---|---|---|
+| false | any | any | any | any | **false** |
+| true | ≠ Owned | any | any | any | **false** |
+| true | Owned | ≠ Linear | any | any | **false** |
+| true | Owned | Linear | ≠ Unique | any | **false** |
+| true | Owned | Linear | Unique | true | **false** |
+| true | Owned | Linear | Unique | false | **true** |
+
+### DP-9: `cow_mode(s)`
+
+| Uniqueness | Result |
+|---|---|
+| Unique | `StaticUnique` — in-place, no check |
+| MaybeShared | `Dynamic` — runtime IsShared check |
+| Shared | `StaticShared` — unconditional copy |
