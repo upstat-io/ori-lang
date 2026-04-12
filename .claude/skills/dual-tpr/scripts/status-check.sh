@@ -30,6 +30,13 @@
 # notification` phase of /tpr-review. See tpr-review/SKILL.md §Polling
 # Protocol for the full rule: poll append-only streams for situational
 # awareness, but NEVER poll envelope.json (atomic-write race hazard).
+#
+# Thoroughness comparison block: when BOTH reviewers reach a normal `done`
+# state, the output also includes a per-dimension asymmetry table
+# (walltime / event count / byte count) with max/min ratios and aggregate
+# verdict (HIGH / MODERATE / LOW). The block is ADVISORY ONLY — Claude
+# makes the accept/reject thoroughness decision per the SKILL.md loop
+# protocol. This script only surfaces the signals.
 
 set -uo pipefail
 
@@ -90,6 +97,165 @@ fi
 printf '%s=== dual-tpr status @ %s ===%s\n' "$BOLD" "$(date '+%Y-%m-%d %H:%M:%S %Z')" "$RESET"
 printf '%srun:%s %s\n' "$DIM" "$RESET" "$RUN"
 printf '\n'
+
+# ── Retry summary — parse round.log structurally ────────────────────
+# dual-invoke-with-retry.sh writes a handful of well-known line formats to
+# round.log: attempt start, reviewer finish, failure-with-category, round
+# success, terminal classification, and sleep. A flat `tail -5` view hides
+# this structure — the operator has to mentally reconstruct which attempt
+# failed, which reviewers were narrowed in, and whether the current attempt
+# is in progress or terminal. The summary below parses round.log into a
+# per-attempt table so the retry state is immediately obvious.
+#
+# Implementation note: Python because the regex + state machine is too gnarly
+# in pure bash, and we already require python3 for the reviewer-activity block
+# below. Falls back silently if round.log is empty/missing.
+if [[ -s "$RUN/round.log" ]]; then
+  RUN="$RUN" GREEN="$GREEN" YELLOW="$YELLOW" RED="$RED" \
+  DIM="$DIM" BOLD="$BOLD" RESET="$RESET" python3 - <<'PY'
+import os, re, sys
+
+RUN = os.environ["RUN"]
+GREEN = os.environ.get("GREEN", "")
+YELLOW = os.environ.get("YELLOW", "")
+RED = os.environ.get("RED", "")
+DIM = os.environ.get("DIM", "")
+BOLD = os.environ.get("BOLD", "")
+RESET = os.environ.get("RESET", "")
+
+# Line patterns emitted by dual-invoke-with-retry.sh and dual-invoke.sh:
+#
+# ATTEMPT_RE   — `[TS] attempt N/M` or `[TS] attempt N/M (reviewers=X)` or
+#                `[TS] attempt N/M (selective retry: narrowed from X to Y — ...)`
+# FAILURE_RE   — `[TS] <category> on attempt N` where <category> is the
+#                reviewer-prefixed failure identifier. Note: this matches only
+#                lines whose message ends with "on attempt N" — ordinary log
+#                lines (e.g. "codex finished (rc=0)") don't match.
+# SUCCESS_RE   — `[TS] round succeeded on attempt N`
+# TERMINAL_RE  — `[TS] <category> is deterministic (terminal) — not retrying`
+ATTEMPT_RE  = re.compile(r"^\[(\d+)\] attempt (\d+)/(\d+)(?: \((.*)\))?$")
+FAILURE_RE  = re.compile(r"^\[(\d+)\] (\S[^\n]*?) on attempt (\d+)$")
+SUCCESS_RE  = re.compile(r"^\[(\d+)\] round succeeded on attempt (\d+)$")
+TERMINAL_RE = re.compile(r"^\[(\d+)\] .* is deterministic \(terminal\) — not retrying$")
+EXHAUSTED_RE = re.compile(r"^infra_retries_exhausted")
+
+attempts = {}   # attempt_num -> state dict
+current_n = None
+
+with open(os.path.join(RUN, "round.log")) as f:
+    for raw in f:
+        line = raw.rstrip("\n")
+        m = ATTEMPT_RE.match(line)
+        if m:
+            ts, n, total, suffix = m.groups()
+            n = int(n)
+            attempts[n] = {
+                "started_at": int(ts),
+                "total": int(total),
+                "suffix": suffix or "",
+                "failure": None,
+                "succeeded": False,
+                "terminal": False,
+            }
+            current_n = n
+            continue
+        m = FAILURE_RE.match(line)
+        if m and current_n is not None:
+            # FAILURE_RE can also match the SUCCESS_RE line (ends with "on
+            # attempt N"), so check for that collision first.
+            if SUCCESS_RE.match(line):
+                attempts[current_n]["succeeded"] = True
+                continue
+            _ts, category, attempt_n = m.groups()
+            attempt_n = int(attempt_n)
+            if attempt_n in attempts:
+                attempts[attempt_n]["failure"] = category
+            continue
+        m = SUCCESS_RE.match(line)
+        if m and current_n is not None:
+            _ts, n = m.groups()
+            n = int(n)
+            if n in attempts:
+                attempts[n]["succeeded"] = True
+            continue
+        m = TERMINAL_RE.match(line)
+        if m and current_n is not None:
+            if current_n in attempts:
+                attempts[current_n]["terminal"] = True
+            continue
+
+if attempts:
+    max_n = max(attempts.keys())
+    total = attempts[max_n]["total"]
+    last = attempts[max_n]
+
+    def _trunc_headline(s, n=100):
+        """Inline-truncate for the headline so a long category doesn't wrap."""
+        if not isinstance(s, str):
+            return str(s)
+        s = s.strip()
+        return s if len(s) <= n else s[:n-1] + "…"
+
+    # Headline: succeeded / terminal / retrying / in-progress
+    if last["succeeded"]:
+        headline = f"{GREEN}round succeeded on attempt {max_n}/{total}{RESET}"
+    elif last["failure"] and last["terminal"]:
+        headline = f"{RED}terminal failure on attempt {max_n}/{total} ({_trunc_headline(last['failure'])}){RESET}"
+    elif last["failure"] and max_n >= total:
+        headline = f"{RED}retries exhausted at attempt {max_n}/{total} ({_trunc_headline(last['failure'])}){RESET}"
+    elif last["failure"]:
+        headline = f"{YELLOW}attempt {max_n}/{total} failed — will retry ({_trunc_headline(last['failure'])}){RESET}"
+    else:
+        headline = f"{YELLOW}attempt {max_n}/{total} in progress{RESET}"
+
+    print(f"{BOLD}retries:{RESET} {headline}")
+
+    def _truncate_category(s, n=80):
+        """Truncate a long failure category for the per-attempt rollup.
+
+        Failure categories from parse-*.py are normally terse (e.g.
+        `gemini_schema_violation`), but regressions can leak long lines from
+        the parser's stderr (Python tracebacks, multi-line error messages,
+        advisory warnings that bypass the flush-advisory contract). The long
+        form is visible in `round.log (last 5 lines)` below — this rollup is
+        for scanning, not forensics, so we clip to the first 80 chars.
+        """
+        if not isinstance(s, str):
+            return str(s)
+        s = s.strip()
+        if len(s) <= n:
+            return s
+        return s[:n-1] + "…"
+
+    # Per-attempt rollup — only if there's more than one, otherwise the
+    # headline already says everything.
+    if max_n > 1 or last["failure"] or last["terminal"]:
+        for n in sorted(attempts.keys()):
+            a = attempts[n]
+            if a["succeeded"]:
+                marker = f"{GREEN}✓{RESET}"
+                desc = "succeeded"
+            elif a["failure"]:
+                marker = f"{RED}✗{RESET}"
+                desc = f"failed: {_truncate_category(a['failure'])}"
+                if a["terminal"]:
+                    desc += f" {RED}(terminal){RESET}"
+            elif n == max_n:
+                marker = f"{YELLOW}·{RESET}"
+                desc = "running"
+            else:
+                marker = f"{DIM}?{RESET}"
+                desc = "unknown"
+            # Suffix note (reviewers or narrowing info from ATTEMPT_RE
+            # capture group 4). Also truncated because narrowing messages
+            # include the "preserving prior-attempt success" explainer.
+            suffix_note = ""
+            if a["suffix"]:
+                suffix_note = f"  {DIM}{_truncate_category(a['suffix'], 100)}{RESET}"
+            print(f"  {marker} attempt {n}/{total}: {desc}{suffix_note}")
+    print()
+PY
+fi
 
 # ── Round log tail — authoritative progress record ──────────────────
 if [[ -s "$RUN/round.log" ]]; then
@@ -229,22 +395,33 @@ def print_reviewer(name, jsonl_path, fmt_fn):
     skipped_file = os.path.join(RUN, f"{name}.skipped")
     stalled_file = os.path.join(RUN, f"{name}.stalled")
 
-    # Header with subshell state. Four-state distinction:
+    # Header with subshell state. Four-state distinction (these flags are
+    # also returned in the stats dict so the thoroughness-comparison block
+    # below can tell which reviewers are actually comparable — only two
+    # reviewers that both reached a normal `done` state can be asymmetry-
+    # checked):
     #   1. `.skipped` exists  → reviewer was filtered out by ORI_TPR_REVIEWERS
     #   2. `.stalled` exists  → watchdog killed reviewer (API-level hang)
     #   3. `.exit` exists     → reviewer ran to completion (check rc for pass/fail)
     #   4. none of the above  → reviewer still running
+    rc = None
+    wt = None
+    done = False
+    skipped = False
+    stalled = False
     if os.path.exists(skipped_file):
         try:
             reason = open(skipped_file).read().strip()
         except Exception:
             reason = "?"
+        skipped = True
         status = f"{DIM}skipped{RESET} ({reason})"
     elif os.path.exists(stalled_file):
         try:
             stall_info = open(stalled_file).read().strip()
         except Exception:
             stall_info = "?"
+        stalled = True
         status = f"{RED}STALLED — killed by watchdog{RESET} ({stall_info})"
     elif os.path.exists(exit_file):
         try:
@@ -252,6 +429,7 @@ def print_reviewer(name, jsonl_path, fmt_fn):
             wt = open(walltime_file).read().strip() if os.path.exists(walltime_file) else "?"
         except Exception:
             rc, wt = "?", "?"
+        done = True
         color = GREEN if rc == "0" else RED
         status = f"{color}done{RESET} (rc={rc}, walltime={wt}s)"
     else:
@@ -278,8 +456,136 @@ def print_reviewer(name, jsonl_path, fmt_fn):
         print(f"  {DIM}(no events yet){RESET}")
     print()
 
-print_reviewer("codex", os.path.join(RUN, "codex.jsonl"), fmt_codex_event)
-print_reviewer("gemini", os.path.join(RUN, "gemini.jsonl"), fmt_gemini_event)
+    return {
+        "name": name,
+        "events": len(events),
+        "bytes": size,
+        "walltime": wt,
+        "rc": rc,
+        "done": done,
+        "skipped": skipped,
+        "stalled": stalled,
+    }
+
+
+def print_thoroughness_comparison(a, b):
+    """Render an asymmetry comparison between two completed reviewers.
+
+    This block is ADVISORY, not gating. It surfaces walltime / event-count /
+    byte-count asymmetry between the two reviewers and flags large ratios
+    so Claude (the operator) can scrutinize the faster reviewer's activity
+    list before accepting a "no actionable findings" outcome as a genuine
+    clean pass. The actual accept / reject-for-insufficient-thoroughness
+    decision belongs to the SKILL.md loop protocol (see tpr-review and
+    review-work §Thoroughness Judgment), NOT this script. We only make the
+    signals legible — Claude makes the judgment.
+
+    The block renders only when BOTH reviewers reached a normal `done`
+    state because:
+      - still-running: ratios are transient and misleading
+      - skipped: no peer to compare against (filtered by ORI_TPR_REVIEWERS)
+      - stalled: watchdog already diagnosed the asymmetry; different
+        remediation than thoroughness rejection
+
+    Ratio semantics: max/min, so the direction (which reviewer was faster)
+    doesn't matter — we're measuring the gap, not assigning blame. The
+    event lists above the block already tell Claude which side was
+    thinner.
+
+    Thresholds (per dimension):
+      >= 3.0x  → RED FLAG:  very likely the faster reviewer skipped depth
+      >= 2.0x  → yellow:    worth a spot-check
+      <  2.0x  → normal:    comparable depth
+
+    Aggregate verdict:
+      HIGH     → 2+ dimensions red                   (reject-candidate)
+      MODERATE → 1 red, or 2+ yellow                 (spot-check)
+      LOW      → all dimensions below 2.0x           (accept-candidate)
+    """
+    if not (a.get("done") and b.get("done")):
+        return
+    if a.get("skipped") or b.get("skipped"):
+        return
+    if a.get("stalled") or b.get("stalled"):
+        return
+
+    def parse_num(s):
+        try:
+            return int(s)
+        except (ValueError, TypeError):
+            try:
+                return float(s) if s is not None else None
+            except (ValueError, TypeError):
+                return None
+
+    wt_a = parse_num(a.get("walltime"))
+    wt_b = parse_num(b.get("walltime"))
+    ev_a = a.get("events", 0) or 0
+    ev_b = b.get("events", 0) or 0
+    by_a = a.get("bytes", 0) or 0
+    by_b = b.get("bytes", 0) or 0
+
+    def ratio(x, y):
+        """max/min ratio for two positive numerics; None when either is
+        non-positive or unparseable (so the flag renders as n/a rather than
+        crashing or lying)."""
+        if x is None or y is None:
+            return None
+        try:
+            x = float(x); y = float(y)
+        except (ValueError, TypeError):
+            return None
+        if x <= 0 or y <= 0:
+            return None
+        return max(x, y) / min(x, y)
+
+    def flag(r):
+        if r is None:
+            return f"{DIM}n/a{RESET}"
+        if r >= 3.0:
+            return f"{RED}{r:.1f}x  (RED FLAG){RESET}"
+        if r >= 2.0:
+            return f"{YELLOW}{r:.1f}x  (yellow){RESET}"
+        return f"{GREEN}{r:.1f}x{RESET}"
+
+    r_wt = ratio(wt_a, wt_b)
+    r_ev = ratio(ev_a, ev_b)
+    r_by = ratio(by_a, by_b)
+
+    def fmt_val(v, suffix=""):
+        if v is None:
+            return f"{DIM}?{RESET}"
+        return f"{v}{suffix}"
+
+    print(f"{BOLD}thoroughness comparison:{RESET}")
+    print(f"  {'':12}{BOLD}{'codex':<14}{'gemini':<14}{'asymmetry':<18}{RESET}")
+    print(f"  {'walltime:':12}{fmt_val(wt_a, 's'):<14}{fmt_val(wt_b, 's'):<14}{flag(r_wt)}")
+    print(f"  {'events:':12}{str(ev_a):<14}{str(ev_b):<14}{flag(r_ev)}")
+    print(f"  {'bytes:':12}{str(by_a):<14}{str(by_b):<14}{flag(r_by)}")
+
+    ratios = [r for r in (r_wt, r_ev, r_by) if r is not None]
+    red = sum(1 for r in ratios if r >= 3.0)
+    yellow = sum(1 for r in ratios if 2.0 <= r < 3.0)
+
+    if red >= 2:
+        print(f"  {RED}ASYMMETRY: HIGH{RESET} — faster reviewer likely skipped depth.")
+        print(f"  Scrutinize the faster reviewer's event list above before accepting a")
+        print(f"  clean pass. If the activity is thin (few tool_use, few files read,")
+        print(f"  no diagnostics run), treat as {BOLD}INSUFFICIENT THOROUGHNESS{RESET}")
+        print(f"  and launch another round with strengthened language.")
+        print(f"  See tpr-review/SKILL.md §Thoroughness Judgment.")
+    elif red >= 1 or yellow >= 2:
+        print(f"  {YELLOW}ASYMMETRY: MODERATE{RESET} — one or two dimensions disagree.")
+        print(f"  Spot-check the faster reviewer's activity list above to confirm depth.")
+    else:
+        print(f"  {GREEN}ASYMMETRY: LOW{RESET} — reviewer depth appears comparable.")
+    print()
+
+
+codex_stats = print_reviewer("codex", os.path.join(RUN, "codex.jsonl"), fmt_codex_event)
+gemini_stats = print_reviewer("gemini", os.path.join(RUN, "gemini.jsonl"), fmt_gemini_event)
+
+print_thoroughness_comparison(codex_stats, gemini_stats)
 
 # Worktree state
 wt_err = os.path.join(RUN, "worktree-error")

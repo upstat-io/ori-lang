@@ -1,0 +1,9 @@
+// RC operations for nested struct access chains.
+// Accessing a field of a struct that contains heap-allocated data
+// requires RC management for the intermediate references.
+//
+// @test-arc-pass: realize_rc_reuse
+
+type Person = { name: str, age: int };
+
+@get_name (p: Person) -> str = p.name;

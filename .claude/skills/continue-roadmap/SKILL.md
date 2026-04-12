@@ -17,12 +17,19 @@ Resume work on the Ori compiler roadmap, picking up where we left off.
 - No args: Auto-detect first incomplete item sequentially (00 → 01 → ...)
 - `section-4`, `4`, or `modules`: Continue Section 4 (Modules)
 - Any section number or keyword: Use `plans/roadmap/index.md` to find sections by keyword
+### Examples
+
+```
+/continue-roadmap                            # Resume where you left off
+/continue-roadmap section-5                  # Focus on Section 5
+```
 
 ## Finding Sections by Topic
 
 Use `plans/roadmap/index.md` to find sections by keyword. The index contains searchable keyword clusters for each section.
 
 ---
+
 
 ## Workflow
 
@@ -212,7 +219,7 @@ After the scanner identifies the focus section, **check its frontmatter for `rev
 
 ### Step 1.9: Third Party Review Triage Gate
 
-After identifying the focus section, **check its frontmatter for `third_party_review.status: findings`**. This means an external reviewer (e.g. Codex) has recorded unresolved findings in the section's `## {NN}.R Third Party Review Findings` block.
+After identifying the focus section, **check its frontmatter for `third_party_review.status: findings`**. This means the dual-source `/tpr-review` (Codex + Gemini) has recorded unresolved findings in the section's `## {NN}.R Third Party Review Findings` block. Findings may be tagged `-codex` or `-gemini` (single-reviewer) or carry `agreement: true` (both reviewers flagged the same location/title).
 
 **If `third_party_review.status` is `findings`:**
 

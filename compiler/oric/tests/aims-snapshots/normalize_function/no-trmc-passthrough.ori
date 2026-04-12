@@ -1,0 +1,7 @@
+// Negative pin: non-TRMC function passes through unchanged.
+// A simple function with no tail-recursive construction should
+// pass through normalize_function without modification.
+//
+// @test-arc-pass: normalize_function
+
+@double (x: int) -> int = x * 2;

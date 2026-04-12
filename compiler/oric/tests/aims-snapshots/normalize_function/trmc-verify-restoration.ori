@@ -1,0 +1,15 @@
+// TRMC verify restoration: function where TRMC rewrite fires but
+// verify_trmc_soundness may restore pre-TRMC state.
+// Captures the post-normalize state to observe the TRMC transform
+// (or its absence if verification rolls it back).
+//
+// @test-arc-pass: normalize_function
+
+@map_list (items: [int], f: (int) -> int) -> [int] = {
+    if is_empty(collection: items) then []
+    else {
+        let $first = items[0];
+        let $rest = items.skip(count: 1).collect();
+        [f(first), ...map_list(items: rest, f: f)]
+    }
+};

@@ -1,0 +1,9 @@
+// FileCheck test: no RC operations for scalar int values
+// CHECK-NOT: ori_rc_inc
+// CHECK-NOT: ori_rc_dec
+
+@main () -> void = {
+    let x = 42;
+    let y = x + 1;
+    print(msg: y.to_str())
+}

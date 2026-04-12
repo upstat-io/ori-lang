@@ -356,6 +356,18 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             }
         }
 
+        // Function-level LLVM IR verification.
+        if self.verify_arc {
+            let fn_val = self.builder.get_function_value(func_id);
+            if !fn_val.verify(true) {
+                tracing::error!(
+                    name = tramp_name,
+                    "LLVM IR verification failed (generate_trampoline_fn)"
+                );
+                self.builder.record_codegen_error();
+            }
+        }
+
         // Restore builder position
         self.builder.restore_position(saved_pos);
         if let Some(f) = saved_func {

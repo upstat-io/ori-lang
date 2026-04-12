@@ -362,38 +362,53 @@ Full rules: `.claude/rules/impl-hygiene.md` §Test Function Naming.
 
 **MANDATORY for full project mode. Recommended for all other modes.**
 
-After Phase 3 agents return their findings, use `/tp-help` to cross-check the work. This creates a two-brain review: you found the patterns, now Codex validates them and looks for what you missed.
+After Phase 3 agents return their findings, use `/tp-help` to cross-check the work. This creates a **three-brain review**: you found the patterns, now BOTH Codex AND Gemini independently validate them and look for what you missed. `/tp-help` is dual-source concat mode — a single call returns Codex + Gemini responses concatenated with attribution sentinels. Silently ignoring one reviewer's half of the response is a contract violation.
+
+**Trust tiers (per the global reviewer-grounding rule):**
+- **Codex** — HIGH trust: spot-check findings against actual code, move on if they hold
+- **Gemini** — LOWER trust: confabulation-prone; independently verify EVERY claim against actual code before acting. Gemini is valuable for catching angles Codex missed, not as an authoritative source.
+- The `/tp-help` prompt MUST instruct both reviewers to read `CLAUDE.md` and all `.claude/rules/*.md` (especially `impl-hygiene.md`) FIRST before reviewing.
 
 #### 4a. Validate Findings
 
-Invoke `/tp-help` with a focused question. Pass a summary of 5-10 of the most significant findings (not all — pick the ones that are most ambiguous or architecturally significant) and ask Codex to validate:
+Invoke `/tp-help` with a focused question. Pass a summary of 5-10 of the most significant findings (not all — pick the ones that are most ambiguous or architecturally significant) and ask both reviewers to validate:
 
 ```
-/tp-help I'm running a hygiene review of [scope]. Here are my top findings — validate whether these are real violations or false positives, and tell me if I'm missing anything obvious in these areas:
+/tp-help BEFORE reviewing, read CLAUDE.md and .claude/rules/impl-hygiene.md. I'm running a hygiene review of [scope]. Here are my top findings — validate whether these are real violations or false positives, and tell me if I'm missing anything obvious in these areas:
 
 [List of 5-10 findings with file:line and brief description]
 
 Key files involved: [list the main files]
 ```
 
-**What to do with Codex's response:**
-- If Codex confirms a finding: increase confidence, keep it
-- If Codex challenges a finding: re-read the code, check if you misunderstood the pattern. Update or drop the finding if Codex is right.
-- If Codex surfaces NEW findings you missed: add them to the findings list. These are high-value discoveries — a fresh pair of eyes saw what you didn't.
+**What to do with the response (evaluate Codex and Gemini INDEPENDENTLY first, then look for cross-reviewer patterns):**
+
+Per-reviewer evaluation — for Codex AND Gemini separately:
+- If the reviewer confirms a finding: verify the confirmation against code (spot-check for Codex, full verification for Gemini per trust tier), then increase confidence and keep the finding
+- If the reviewer challenges a finding: re-read the code, check if you misunderstood the pattern. Update or drop the finding ONLY if code verification shows the challenge is correct
+- If the reviewer surfaces NEW findings you missed: verify each one against actual code, then add the verified ones to the findings list
+
+Cross-reviewer pattern analysis:
+- **Both reviewers confirm the same finding**: highest-signal agreement — lock in, prioritize in severity calibration
+- **Both reviewers challenge the same finding**: STRONG signal you misread the pattern — re-verify against code before dropping
+- **Reviewers disagree with each other on the same finding**: investigate deeper — read the code end-to-end, determine which framing holds, and do NOT silently pick the answer you prefer
+- **One reviewer surfaces a finding the other missed**: treat as valid after your own code verification — Gemini often catches angles Codex doesn't and vice versa (that's the whole point of dual-source)
 
 #### 4b. Probe Blind Spots
 
-After validating findings, use `/tp-help` again to probe areas you might have under-examined. Ask Codex to look at a specific area you didn't go deep on:
+After validating findings, use `/tp-help` again to probe areas you might have under-examined. Ask both reviewers to look at a specific area you didn't go deep on:
 
 ```
-/tp-help I reviewed [scope] and found [N] findings, but I'm worried I may have missed algorithmic duplication in [specific area]. Can you compare [file A] and [file B] structurally and tell me if their control-flow skeletons are duplicated?
+/tp-help BEFORE reviewing, read CLAUDE.md and .claude/rules/impl-hygiene.md. I reviewed [scope] and found [N] findings, but I'm worried I may have missed algorithmic duplication in [specific area]. Can you compare [file A] and [file B] structurally and tell me if their control-flow skeletons are duplicated?
 ```
 
 Or for cross-backend duplication:
 
 ```
-/tp-help Compare the eval path for [feature] in [eval file] with the LLVM codegen path in [llvm file]. Are these maintaining parallel dispatch tables that should be unified?
+/tp-help BEFORE reviewing, read CLAUDE.md and .claude/rules/impl-hygiene.md. Compare the eval path for [feature] in [eval file] with the LLVM codegen path in [llvm file]. Are these maintaining parallel dispatch tables that should be unified?
 ```
+
+Read BOTH reviewers' sections of the concatenated response in full — do not skim one to "confirm" the other.
 
 **When to probe:**
 - Any crate that yielded zero findings (suspiciously clean — likely under-examined)
@@ -403,7 +418,7 @@ Or for cross-backend duplication:
 
 #### 4c. Integrate Cross-Check Results
 
-Merge Codex's validated and new findings back into the main findings list. Tag findings that Codex confirmed with `[TP-CONFIRMED]` and findings Codex surfaced with `[TP-SURFACED]` — this helps the plan prioritize high-confidence issues.
+Merge BOTH reviewers' validated and newly-surfaced findings back into the main findings list. Tag findings that any reviewer confirmed with `[TP-CONFIRMED-codex]`, `[TP-CONFIRMED-gemini]`, or `[TP-CONFIRMED-both]` (when both independently confirmed it). Tag findings that either reviewer surfaced with `[TP-SURFACED-codex]` or `[TP-SURFACED-gemini]` — attribution matters both for prioritization and for the severity bump in §5c. Per trust tiers: every Gemini-originated claim (confirmed or surfaced) must be verified against actual code before being integrated — do NOT pass through unverified Gemini claims.
 
 ### Phase 5: Compile & Present Findings
 
@@ -426,7 +441,7 @@ Look for patterns across findings:
 Apply default severities from the finding categories, then adjust:
 - **LEAK:algorithmic-duplication** across 3+ sites → Critical (not just because it's a LEAK, but because the blast radius of protocol change is proportional to copy count)
 - **Cross-backend LEAKs** → always Critical (eval ↔ LLVM dispatch drift is a correctness risk, not just a maintainability concern)
-- Findings tagged `[TP-CONFIRMED]` → keep severity. Findings tagged `[TP-SURFACED]` → bump severity one level (Codex caught what you missed, which means it's less obvious and more likely to be missed again)
+- Findings tagged `[TP-CONFIRMED-codex]`, `[TP-CONFIRMED-gemini]`, or `[TP-CONFIRMED-both]` → keep severity (with `-both` agreement a strong correctness signal that may warrant a priority boost inside the same severity tier). Findings tagged `[TP-SURFACED-codex]` or `[TP-SURFACED-gemini]` → bump severity one level (an independent reviewer caught what you missed, which means it's less obvious and more likely to be missed again). Per trust tiers, every `-gemini` bump is conditional on you having independently verified the claim against actual code.
 
 #### 5d. Present to User
 

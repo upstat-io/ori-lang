@@ -69,7 +69,8 @@ use ori_types::Idx;
 
 pub use aims::contract::MemoryContract;
 pub use pipeline::{
-    compute_aims_contracts, run_arc_pipeline, run_arc_pipeline_all, run_uniqueness_analysis,
+    compute_aims_contracts, run_arc_pipeline, run_arc_pipeline_all, run_arc_pipeline_with_observer,
+    run_uniqueness_analysis, CheckpointObserver,
 };
 
 pub use borrow::{
@@ -103,6 +104,8 @@ pub use rc_insert::annotate_arg_ownership;
 pub use uniqueness::{
     CowAnnotations, CowMode, DropHints, Uniqueness, UniquenessMap, UniquenessSummary,
 };
+
+pub use ir::collect_all_arc_functions;
 
 /// ARC classification for a type.
 ///

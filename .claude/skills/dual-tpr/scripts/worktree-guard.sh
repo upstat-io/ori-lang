@@ -10,17 +10,21 @@
 # new in AFTER that weren't in BEFORE. A line that was in BEFORE and is now
 # absent in AFTER means the drift was CLEANED UP during the run (e.g., Claude
 # committed pre-existing uncommitted edits) — that is NOT a violation and
-# MUST NOT trigger the guard. The prior implementation used `diff -q` which
-# flagged ANY difference in either direction, producing false positives when
-# the worktree went dirty → clean during the run. Surfaced empirically during
-# plans/dual-tpr-gemini §07.3 Scenario 1 execution on 2026-04-08.
+# MUST NOT trigger the guard.
+#
+# UNTRACKED FILES ARE NOT VIOLATIONS (post-2026-04-11 fix): lines with `??`
+# prefix (untracked files) are filtered OUT of both snapshots before comparison.
+# Reviewers (especially gemini) create temp files in the repo root during
+# verification (e.g., `test_regex.rs`, `dummy.txt`) — these are NOT codebase
+# modifications. The guard only cares about changes to TRACKED files (M, A, D,
+# R, C status codes). Untracked files are cleaned up after the run.
 #
 # Usage:
 #   worktree-guard.sh snapshot OUT_FILE
-#     Saves `git status --porcelain` to OUT_FILE.
+#     Saves `git status --porcelain` to OUT_FILE (tracked files only).
 #
 #   worktree-guard.sh compare BEFORE_FILE [SAVE_AFTER_FILE]
-#     Compares current `git status --porcelain` to BEFORE_FILE, flagging only
+#     Compares current tracked-file status to BEFORE_FILE, flagging only
 #     NEW drift (lines in AFTER not present in BEFORE). Exit 0 if no new drift,
 #     exit 1 if new drift detected. On new drift: prints the new lines to
 #     stderr. If SAVE_AFTER_FILE is provided, the current snapshot is also
@@ -38,7 +42,8 @@ case "$MODE" in
       echo "usage: worktree-guard.sh snapshot OUT_FILE" >&2
       exit 2
     fi
-    git status --porcelain > "$OUT"
+    # Filter out untracked files (??) — only track modifications to tracked files
+    git status --porcelain | grep -v '^?? ' > "$OUT" || true
     ;;
   compare)
     BEFORE="${1:-}"
@@ -53,7 +58,8 @@ case "$MODE" in
     fi
     AFTER=$(mktemp)
     trap 'rm -f "$AFTER"' EXIT
-    git status --porcelain > "$AFTER"
+    # Filter out untracked files (??) — same as snapshot mode
+    git status --porcelain | grep -v '^?? ' > "$AFTER" || true
     if [[ -n "$SAVE_AFTER" ]]; then
       cp "$AFTER" "$SAVE_AFTER"
     fi

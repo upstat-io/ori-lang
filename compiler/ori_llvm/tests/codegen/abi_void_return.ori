@@ -1,0 +1,6 @@
+// FileCheck test: void-returning function uses void LLVM return type
+// CHECK: define void @_ori_main
+
+@main () -> void = {
+    print(msg: "hello")
+}

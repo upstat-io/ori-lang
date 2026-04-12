@@ -187,6 +187,12 @@ fn test_nested_closure_iter_drop() { ... }
 
 5. **Test file naming**: Ori spec tests use kebab-case matching the feature: `tests/spec/traits/iterator/map-filter-collect.ori`. Rust tests use snake_case: `test_map_filter_collect`. Both must be descriptive of what is being tested.
 
+## Cross-Platform Test Discipline
+- **Snapshot/bless comparisons must normalize line endings** to LF before comparing. `fs::read_to_string()` on Windows produces CRLF; committed baselines are LF. Normalize BOTH sides: `expected.replace("\r\n", "\n")` and `actual.replace("\r\n", "\n")`. The test harness (`ori_test_harness/src/bless/mod.rs`) is the canonical place for this normalization.
+- **Bless writes must produce LF** regardless of platform. Never write CRLF to a baseline file.
+- **Use `std::env::temp_dir()`** not `/tmp` for temp files in tests.
+- **CI runs on Linux, macOS, and Windows** — a test that passes on one platform but fails on another is a bug, not a platform quirk.
+
 ## Anti-patterns (NEVER)
 - Remove test "because it doesn't work" — investigate WHY
 - Change expected to match actual — fix the compiler

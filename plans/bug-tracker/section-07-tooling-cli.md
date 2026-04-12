@@ -77,6 +77,13 @@ Bugs in the CLI (`ori run`, `ori check`, `ori test`, `ori fmt`), formatter, diag
   Found: 2026-04-02 | Source: tpr-review
   Note: BUG-07-002 fix (exit code 3 for zero verifications) was incomplete — the `TOTAL_VERIFIED` counter was still inflated by the compile_fail_verified miscalculation. Now fixed.
 
+- [ ] `[BUG-07-010][low]` **`repr_setup.rs`: duplicated name mangling and method lowering dispatch**
+  Repro: `compiler/oric/src/commands/repr_setup.rs` — (1) `collect_unconstrained_fn_names` at lines 317,357 reimplements `__impl_{idx}_{method}_{ordinal}` formatting that `make_qualified_name` at line 128 already provides. (2) Method lowering dispatch block (~20 lines) is duplicated between `lower_impl_methods_for_analysis` and `lower_default_trait_methods`.
+  Subsystem: `compiler/oric/src/commands/repr_setup.rs`
+  Found: 2026-04-11 | Source: tpr-review
+  Reviewer: gemini (TPR round 4: [TPR-03-001-gemini-impl-r4], [TPR-03-002-gemini-impl-r4])
+  Note: Active work in repr-opt plan touches this area.
+
 ---
 
 ## Resolved Bugs

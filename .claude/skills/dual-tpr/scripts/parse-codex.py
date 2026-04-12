@@ -42,11 +42,32 @@ from envelope_invariants import validate_envelope_invariants  # noqa: E402
 from repair_envelope import repair_envelope  # noqa: E402
 
 
+def _flush_advisory(deferred):
+    """Flush deferred advisory lines to stderr.
+
+    REPAIR lines are emitted AFTER the primary output (envelope on stdout, or
+    category line on stderr) so they can't corrupt `head -1 parse-error`
+    extraction in dual-invoke-with-retry.sh. The stderr-first-line-is-category
+    contract is load-bearing: the retry classifier uses the first stderr line
+    to decide whether a failure is terminal. Prior to this indirection, a
+    REPAIR that was followed by a schema violation corrupted the category to
+    `codex_REPAIR: applied N auto-repair(s) to codex envelope:` which matched
+    no classifier entry and was retried by accident. Kept symmetric with
+    parse-gemini.py's _flush_advisory.
+    """
+    for msg in deferred:
+        print(msg, file=sys.stderr)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--jsonl", required=True)
     ap.add_argument("--schema", required=True)
     args = ap.parse_args()
+
+    # deferred_advisory accumulates REPAIR lines that would otherwise corrupt
+    # the stderr-first-line-is-category contract (see _flush_advisory).
+    deferred_advisory = []
 
     try:
         import jsonschema
@@ -90,16 +111,17 @@ def main():
 
     # Repair layer: normalize common schema violations before validation.
     # Symmetric with parse-gemini.py — both parsers use the same repair module.
+    # REPAIR lines are deferred to `deferred_advisory` so they don't violate
+    # the stderr-first-line-is-category contract (see _flush_advisory).
     envelope, repairs = repair_envelope(
         envelope, default_reviewer="codex", default_skill="review-work",
     )
     if repairs:
-        print(
-            f"REPAIR: applied {len(repairs)} auto-repair(s) to codex envelope:",
-            file=sys.stderr,
+        deferred_advisory.append(
+            f"REPAIR: applied {len(repairs)} auto-repair(s) to codex envelope:"
         )
         for r in repairs:
-            print(f"  REPAIR: {r}", file=sys.stderr)
+            deferred_advisory.append(f"  REPAIR: {r}")
 
     # Validate against schema (structural — OpenAI-compatible subset)
     try:
@@ -113,6 +135,7 @@ def main():
                 f"still fails validation)",
                 file=sys.stderr,
             )
+        _flush_advisory(deferred_advisory)
         sys.exit(1)
 
     # Validate code-level invariants (regex patterns, length limits, conditional
@@ -122,17 +145,20 @@ def main():
     if invariant_error is not None:
         print("schema_violation", file=sys.stderr)
         print(invariant_error, file=sys.stderr)
+        _flush_advisory(deferred_advisory)
         sys.exit(1)
 
     # Check status field
     if envelope.get("status") != "complete":
         print("failed_partial", file=sys.stderr)
         print(f"envelope status: {envelope.get('status')}", file=sys.stderr)
+        _flush_advisory(deferred_advisory)
         sys.exit(1)
 
     # Success — print envelope to stdout
     json.dump(envelope, sys.stdout, indent=2)
     sys.stdout.write("\n")
+    _flush_advisory(deferred_advisory)
     sys.exit(0)
 
 

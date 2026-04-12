@@ -261,13 +261,13 @@ Static lint for likely-undefined behavior in LLVM IR (beyond well-formedness):
 
 **Directory Layout**:
 ```
-tests/codegen/               # LLVM IR pattern tests
+compiler/ori_llvm/tests/codegen/               # LLVM IR pattern tests
   rc/                        # RC emission patterns
   cow/                       # COW patterns
   closures/                  # Closure codegen
   abi/                       # ABI patterns
   iterator/                  # Iterator codegen
-tests/arc-opt/               # AIMS pass snapshot tests (Tier 0.1)
+compiler/oric/tests/aims-snapshots/            # AIMS pass snapshot tests (Tier 0.1, lives in oric for compiler driver access)
   realize_rc_reuse/          # Step 5 snapshots
   merge_blocks/              # Step 9 snapshots
   realize_annotations/       # Step 10 snapshots
@@ -284,8 +284,8 @@ Tier 0.1 (AIMS snapshots) and Tier 2.1 (LLVM IR assertions) both need directive 
   - Implements `--bless` mode to update baselines across both artifact types
   - Produces unified failure output consumable by the code-journey system
 - **Directory split** reflects artifact type, not harness split:
-  - `tests/codegen/` → LLVM IR assertions (`.matches` / `.exact` / `CHECK:`)
-  - `tests/arc-opt/` → AIMS pass snapshots (`.before.arc` / `.after.arc` / `.diff`)
+  - `compiler/ori_llvm/tests/codegen/` → LLVM IR assertions (`.matches` / `.exact` / `CHECK:`)
+  - `compiler/oric/tests/aims-snapshots/` → AIMS pass snapshots (`lowered.arc` + per-pass `.after.arc`)
   - Both consumed by the same runner
 
 This prevents the SSOT failure mode where two overlapping harnesses with duplicated logic drift apart.
@@ -294,7 +294,7 @@ This prevents the SSOT failure mode where two overlapping harnesses with duplica
 
 | Compiler | Artifact Shape | Assertion Granularity | Trigger Point | Failure Output | Ori Decision |
 |----------|---------------|----------------------|---------------|----------------|-------------|
-| **Rust** (FileCheck) | `// CHECK:` directives in `.rs` files | Line-level, regex groups, ordered | `tests/codegen/` via compiletest | Shows expected vs actual IR | **Adopt**: directive syntax |
+| **Rust** (FileCheck) | `// CHECK:` directives in `.rs` files | Line-level, regex groups, ordered | `compiler/ori_llvm/tests/codegen/` via compiletest | Shows expected vs actual IR | **Adopt**: directive syntax |
 | **Rust** (MIR-opt) | `.before.mir` / `.after.mir` / `.diff` files | Per-pass snapshots | `tests/mir-opt/` via `EMIT_MIR` | Full diff of pass output | **Adopt**: for AIMS passes |
 | **Rust** (Revisions) | `//@ revisions: foo bar` | Per-config parameterization | Compiletest | Runs test N times with different flags | **Adopt**: revision system |
 | **Zig** | `.matches` / `.exact` modes | Substring vs full match | Custom `addCheckFile()` in `test/src/LlvmIr.zig:45-73` | Expected pattern not found in output | **Adopt**: `.matches` as default mode |
@@ -524,7 +524,7 @@ Expanded from the v1 comparison table into a design-input matrix with concrete m
 
 | Compiler | IR Test Infrastructure | Pass-Level Verification | Sanitizer Integration | Unique Approach | Ori Takeaway |
 |----------|----------------------|------------------------|----------------------|----------------|-------------|
-| **Rust** | `tests/codegen/` (FileCheck, hundreds of tests), `tests/mir-opt/` (.before/.after/.diff), revision system (`//@ revisions:`) | MIR-opt per-pass snapshots via `EMIT_MIR` directive, MIR validation passes | ASan/MSan/TSan/UBSan via LLVM instrumentation; `tests/ui/sanitizer/` | Two-layer testing: MIR (pre-LLVM) AND LLVM IR (post-lowering). Revision system for multi-config testing. | **Adopt all three**: FileCheck for LLVM IR, MIR-opt-style for AIMS passes, revisions for multi-config |
+| **Rust** | `compiler/ori_llvm/tests/codegen/` (FileCheck, hundreds of tests), `tests/mir-opt/` (.before/.after/.diff), revision system (`//@ revisions:`) | MIR-opt per-pass snapshots via `EMIT_MIR` directive, MIR validation passes | ASan/MSan/TSan/UBSan via LLVM instrumentation; `tests/ui/sanitizer/` | Two-layer testing: MIR (pre-LLVM) AND LLVM IR (post-lowering). Revision system for multi-config testing. | **Adopt all three**: FileCheck for LLVM IR, MIR-opt-style for AIMS passes, revisions for multi-config |
 | **Swift** | `test/IRGen/` (FileCheck), SIL tests | 7+ specialized SIL verifiers: Structural, Ownership, Flow-Sensitive, Debug, MemoryLifetime, TypeLayout, ARC. `-enable-sil-verify-all` runs all. | Full sanitizer support | Layered verification — different verifiers catch different bug classes. SILOwnershipVerifier specifically for ARC. | **Adapt**: expand AIMS verifiers (currently 4 → target 7+ covering lattice, monotonicity, convergence) |
 | **Zig** | Custom `addCheckFile()` with `.matches`/`.exact` modes (`test/src/LlvmIr.zig:45-73, 120-127`). 20+ compile flags per test. | Per-function verification | Minimal (TSan flag support) | Pragmatic `.matches` mode reduces test brittleness vs full FileCheck. | **Adopt**: `.matches` as default IR assertion mode |
 | **Lean4** | Minimal IR testing | IR Checker validates type consistency, variable uniqueness, scope validity (`Checker.lean:31-139`). Borrow analysis validates owned/borrowed semantics. | None | Formal verification via Lean's type system. IR Checker as compile-time invariant enforcement. | **Adapt**: lattice sanity checker (Tier 0.2) inspired by IR Checker's invariant approach |

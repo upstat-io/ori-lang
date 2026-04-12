@@ -1,0 +1,10 @@
+// Semantic pin: TRMC context region detected and function normalized.
+// A tail-recursive function building a list should trigger TRMC
+// detection and normalization.
+//
+// @test-arc-pass: normalize_function
+
+@replicate (n: int, value: str) -> [str] = {
+    if n <= 0 then []
+    else [value, ...replicate(n: n - 1, value: value)]
+};

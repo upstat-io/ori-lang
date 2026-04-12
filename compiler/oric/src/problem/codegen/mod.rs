@@ -36,6 +36,13 @@ pub enum CodegenProblem {
         span: Span,
     },
 
+    /// Contract coherence violation: inferred contract disagrees with
+    /// realized RC operations (oracle check, `ORI_VERIFY_ARC=1` only).
+    ArcContractCoherence {
+        func_name: String,
+        mismatch_count: usize,
+    },
+
     // ── LLVM Verification (E5001) ───────────────────────────────────
     /// LLVM module verification failed — indicates a compiler bug.
     VerificationFailed { message: String },
@@ -96,7 +103,8 @@ impl CodegenProblem {
             // ARC problems (E4xxx)
             Self::ArcUnsupportedPattern { .. }
             | Self::ArcInternalError { .. }
-            | Self::ArcFbipViolation { .. } => self.arc_diagnostic(),
+            | Self::ArcFbipViolation { .. }
+            | Self::ArcContractCoherence { .. } => self.arc_diagnostic(),
 
             // ── Verification (E5001) ────────────────────────────
             Self::VerificationFailed { message } => Diagnostic::error(ErrorCode::E5001)
@@ -225,6 +233,19 @@ impl CodegenProblem {
                     .with_suggestion("remove #fbip or restructure to enable constructor reuse")
             }
 
+            Self::ArcContractCoherence {
+                func_name,
+                mismatch_count,
+            } => Diagnostic::error(ErrorCode::E4005)
+                .with_message(format!(
+                    "contract coherence violation in '{func_name}': \
+                     {mismatch_count} mismatch(es) between inferred and realized contracts"
+                ))
+                .with_note(
+                    "the inferred contract was more optimistic than what the \
+                     realization pipeline emitted — this is a compiler bug",
+                ),
+
             _ => unreachable!("arc_diagnostic called with non-ARC variant"),
         }
     }
@@ -258,6 +279,13 @@ impl From<ori_arc::ArcProblem> for CodegenProblem {
                 missed_count,
                 achieved_count,
                 span,
+            },
+            ori_arc::ArcProblem::ContractCoherenceViolation {
+                func_name,
+                mismatches,
+            } => Self::ArcContractCoherence {
+                func_name,
+                mismatch_count: mismatches.len(),
             },
         }
     }

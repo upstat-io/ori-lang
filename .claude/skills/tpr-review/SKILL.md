@@ -98,15 +98,29 @@ Read CLAUDE.md (the project root one)
 |        |                                                |
 |  2. CLAUDE merges findings via merge-findings.py        |
 |        |                                                |
-|  3. Zero actionable findings? --YES--> DONE (clean)     |
+|  3. Zero actionable findings?                           |
 |        |                                                |
-|       NO                                                |
+|       NO -----> 5. FILE FINDINGS in plan/bug-tracker    |
+|                 6. FIX each finding (code + tests)      |
+|                 7. COMMIT via /commit-push              |
+|                 8. GOTO 1 (re-review fixed code)        |
 |        |                                                |
-|  4. CLAUDE files findings in plan/bug-tracker           |
-|  5. CLAUDE fixes each finding (code + tests)            |
-|  6. CLAUDE commits fixes via /commit-push               |
+|       YES                                               |
 |        |                                                |
-|  7. Go to step 1 (BOTH reviewers re-review fixed code)  |
+|  4. JUDGE THOROUGHNESS — CLAUDE's decision              |
+|     inputs: walltime / event / byte asymmetry between   |
+|             reviewers (from status-check.sh) +          |
+|             scope_actually_reviewed (from envelopes)    |
+|     signals: large ratio + thin event list of faster    |
+|              reviewer = INSUFFICIENT THOROUGHNESS       |
+|        |                                                |
+|       SUFFICIENT -----> 4a. DONE (genuine clean pass)   |
+|        |                                                |
+|       INSUFFICIENT                                      |
+|        |                                                |
+|  4b. GOTO 1 with Thoroughness Re-review Directive       |
+|      prepended to BOTH prompts. This is treated as a    |
+|      NON-AGREEMENT round — mandatory re-review.         |
 |                                                         |
 +---------------------------------------------------------+
 ```
@@ -116,19 +130,26 @@ Read CLAUDE.md (the project root one)
 - **Gemini** (external reviewer #2): runs `.gemini/skills/{skill_name}/SKILL.md`. Does NOT fix anything. Can issue `google_web_search` for external claim verification. Default: `review-work`; plan review: `review-plan`.
 - **Claude** (you): reads merged findings, fixes the code/plan, commits, re-invokes the transport.
 
-**A round succeeds only when BOTH reviewers complete cleanly AND the merged finding list contains zero actionable findings.** Filing findings without fixing and re-running is deferral. Fixing findings without re-running BOTH reviewers to confirm clean is incomplete. A partial re-run (only one reviewer) is NOT a valid clean pass.
+**A round succeeds only when BOTH reviewers complete cleanly AND the merged finding list contains zero actionable findings AND Claude judges reviewer thoroughness to be sufficient.** Filing findings without fixing and re-running is deferral. Fixing findings without re-running BOTH reviewers to confirm clean is incomplete. A partial re-run (only one reviewer) is NOT a valid clean pass. A "no findings" outcome from a thin/skimming review is ALSO not a valid clean pass — see Step 4 (Thoroughness Judgment) below.
 
-**Maximum semantic iterations: 10.** Infra retries inside `dual-invoke-with-retry.sh` do NOT count against this budget — the budget is for finding-fixing rounds, not transport failures. If after 10 semantic cycles findings are still surfacing, surface the remaining merged findings to the user via `AskUserQuestion`.
+**Maximum semantic iterations: 10** (finding-fixing rounds). **Maximum thoroughness-reject iterations: 3** (consecutive). Infra retries inside `dual-invoke-with-retry.sh` do NOT count against either budget — they are for transport failures, not semantic progress. If after 10 finding-fixing rounds findings are still surfacing, surface the remaining merged findings to the user via `AskUserQuestion`. If 3 thoroughness rejections in a row fail to elicit deeper review, escalate separately — prompt discipline alone cannot coax depth that's not there.
 
 ### Loop State Machine
 
 The loop protocol above is an illustrative diagram; the state machine below is the authoritative contract. Infra retries are invisible to `iteration_counter` — they happen inside step `dual-invoke-with-retry.sh` and either resolve (round continues) or exhaust (user escalation, counter untouched).
 
 ```
-iteration_counter = 0
-while iteration_counter < 10:
+iteration_counter = 0                # finding-fixing rounds (cap: 10)
+thoroughness_reject_counter = 0      # consecutive thoroughness rejects (cap: 3)
+strengthened_language_required = False
+while iteration_counter < 10 and thoroughness_reject_counter < 3:
     RUN = scratch-dir.sh
     write codex.prompt.md and gemini.prompt.md into RUN
+    if strengthened_language_required:
+        # previous round was rejected as insufficient thoroughness —
+        # prepend the Thoroughness Re-review Directive (see §Thoroughness
+        # Re-review Directive below) to BOTH prompts before the scope hint
+        prepend Thoroughness Re-review Directive to both prompts
     if dual-invoke-with-retry.sh fails:
         # infra retries (3 per reviewer, 1s/2s/4s backoff) already
         # exhausted inside the transport — do NOT increment, do NOT
@@ -139,23 +160,56 @@ while iteration_counter < 10:
         # both envelopes passed parser + schema + worktree-guard
         merged = merge-findings.py(codex.envelope.json, gemini.envelope.json)
         if merged.summary.actionable == 0:
-            CLEAN PASS — exit with iteration_counter for the report
-            # (informational findings are non-actionable — they don't block clean pass)
+            # Step 4 — Thoroughness Judgment (CLAUDE's decision, NOT a
+            # static rule). Re-run status-check.sh once for the final
+            # asymmetry snapshot, then inspect:
+            #   1. walltime / event / byte ratios from status-check.sh
+            #   2. scope_actually_reviewed.files_read on each envelope
+            #   3. scope_actually_reviewed.rules_consulted on each envelope
+            #   4. verification.tests_rerun / diagnostics_run on each envelope
+            # If the faster reviewer's envelope has thin files_read, empty
+            # rules_consulted, and status-check.sh shows ASYMMETRY: HIGH
+            # (or MODERATE with supporting evidence of skimming), reject.
+            if CLAUDE judges thoroughness_sufficient(codex_env, gemini_env, status_check):
+                CLEAN PASS — exit with iteration_counter for the report
+                # (informational findings are non-actionable; they don't block clean pass)
+            else:
+                # treat as NON-AGREEMENT — mandatory re-review with
+                # strengthened language, but NOT a finding-fixing round
+                thoroughness_reject_counter += 1
+                strengthened_language_required = True
+                # iteration_counter NOT incremented — this round produced
+                # no fixes, so it does not consume the finding-fixing budget
+                continue
+        # actionable findings exist — fix path
         for each actionable finding in merged (severity != "informational"):
             file into owning plan TPR block or bug-tracker
             fix the code
             run `timeout 150 ./test-all.sh`
         commit via /commit-push
         iteration_counter += 1
-# After 10 semantic iterations without a clean pass:
-surface remaining merged findings to user via AskUserQuestion
+        # findings prove reviewers CAN do deep work, so reset the
+        # consecutive-thoroughness-reject counter and drop the
+        # strengthened-language flag for the next round
+        thoroughness_reject_counter = 0
+        strengthened_language_required = False
+
+# Exit reasons — escalate to user via AskUserQuestion:
+if thoroughness_reject_counter >= 3:
+    surface "3 consecutive thoroughness rejections — prompt discipline
+             could not elicit deeper review. Last merged envelopes and
+             status-check.sh output are at $RUN." to user
+elif iteration_counter >= 10:
+    surface remaining merged findings to user
 ```
 
 **Invariants:**
-- `iteration_counter` increments ONLY after a successful round that found actionable findings AND those findings were fixed AND the commit landed. Any earlier exit (infra failure, clean pass) skips the increment.
-- Infra retries (inside the transport) and semantic iterations (this loop) are **orthogonal budgets**. One cannot consume the other. A transient network hiccup burning 3 infra retries still leaves the 10-iteration semantic budget untouched.
-- A clean pass on any iteration is a terminal state: the report includes `iteration_counter` at exit so "clean on iteration 1" vs "clean on iteration 3 after fixing N findings" are distinguishable in the final output.
-- The 10-iteration cap is a **user-facing stopping rule**, not a correctness guarantee — if findings keep surfacing, that is signal, not noise, and the user decides whether to continue, abandon, or dig into a recurring finding.
+- `iteration_counter` increments ONLY after a successful round that found actionable findings AND those findings were fixed AND the commit landed. Any earlier exit (infra failure, clean pass, thoroughness rejection) skips the increment.
+- `thoroughness_reject_counter` increments ONLY when a round produced zero actionable findings AND Claude judged reviewer thoroughness insufficient. It RESETS to zero on any subsequent round that produces actionable findings (findings prove depth is reachable — the thoroughness problem is a transient prompt-discipline issue, not a fundamental reviewer limitation).
+- Infra retries (inside the transport), finding-fixing iterations, and thoroughness-reject iterations are **three orthogonal budgets**. None can consume another. A transient network hiccup burning 3 infra retries leaves both semantic budgets untouched.
+- A clean pass on any iteration is a terminal state: the report includes `iteration_counter` AND `thoroughness_reject_counter` at exit so "clean on iteration 1" vs "clean on iteration 3 after fixing N findings and rejecting 1 skimming round" are distinguishable in the final output.
+- The 10-iteration cap is a **user-facing stopping rule**, not a correctness guarantee. The 3-thoroughness-reject cap is the same — if prompt discipline can't coax depth, the reviewers need a different intervention (scope change, model change, rubric change), not more rounds.
+- **Thoroughness judgment is Claude's call, not a static threshold.** `status-check.sh` surfaces ratios and flags them red/yellow/green, but the accept/reject decision belongs to Claude. Large ratios with thin `files_read` = reject. Large ratios with rich `files_read` on both sides (e.g., one reviewer was just faster) = accept. The script surfaces signals; Claude makes the call.
 
 ## Steps (Per Iteration)
 
@@ -349,13 +403,168 @@ After verification confirms a finding is real:
 
 **Agreement is not a substitute for verification.** Two reviewers can be wrong about the same thing — agreement amplifies the hypothesis but doesn't prove it. Verify the claim against the code even when both reviewers flagged it.
 
-### 6. If Zero Actionable Findings -> Clean Pass (EXIT)
+### 6. If Zero Actionable Findings -> Thoroughness Judgment (MANDATORY)
+
+**This step is MANDATORY whenever `merged.summary.actionable == 0`.** A "no findings" outcome is NOT automatically a clean pass — it is a clean-pass *candidate* pending Claude's thoroughness judgment. The reason is structural: "no findings" conflates two very different cases:
+
+1. ✅ **Genuine clean**: reviewers did a thorough investigation and correctly found nothing to fix.
+2. ❌ **Shallow skim**: reviewers did a superficial pass and therefore found nothing *because they did not look hard enough*.
+
+Case (2) is dangerous because it masquerades as convergence — the review terminates with no real verification. If Claude accepts a skimming pass as a clean exit, the entire /tpr-review ceremony becomes a rubber-stamp. This step exists to prevent that.
+
+**Thoroughness judgment is Claude's call**, not a static threshold. No set of numeric rules can perfectly distinguish "fast but thorough" from "fast because skimming" — some scopes really are quickly reviewable, and event count is noisy. The tooling (`status-check.sh`) surfaces the signals; Claude reads them and decides.
+
+#### 6a. Gather thoroughness signals
+
+Run `status-check.sh` one more time against the final `$RUN` for the asymmetry block:
+
+```
+Bash:
+  .claude/skills/dual-tpr/scripts/status-check.sh "$RUN" --events 10
+```
+
+The script's "thoroughness comparison:" block renders walltime, event count, and byte count for both reviewers side-by-side with max/min ratios. Each dimension is flagged:
+
+- **`r >= 3.0x`**: red flag — very likely the faster reviewer skipped depth
+- **`r >= 2.0x` and `r < 3.0x`**: yellow — worth a spot-check
+- **`r < 2.0x`**: comparable depth
+
+And the aggregate verdict:
+
+- **`ASYMMETRY: HIGH`** (2+ dimensions red) — reject-candidate
+- **`ASYMMETRY: MODERATE`** (1 red or 2+ yellow) — spot-check before accepting
+- **`ASYMMETRY: LOW`** (all dimensions < 2.0x) — accept-candidate
+
+Also read both envelopes directly (both are fully written by this point — completion notification has arrived):
+
+```
+Read: $RUN/codex.envelope.json
+Read: $RUN/gemini.envelope.json
+```
+
+From each envelope, extract:
+
+- `scope_actually_reviewed.files_read` — how many files did the reviewer actually read?
+- `scope_actually_reviewed.rules_consulted` — did the reviewer read the grounding rules?
+- `scope_actually_reviewed.specs_consulted` — did the reviewer check the spec for affected behavior?
+- `scope_actually_reviewed.expanded_beyond_packet` — did the reviewer broaden the scope as the methodology requires?
+- `verification.tests_rerun` — did the reviewer run any tests?
+- `verification.diagnostics_run` — did the reviewer run any diagnostic scripts?
+
+#### 6b. Make the judgment
+
+Using the signals from 6a, decide: **accept clean pass**, or **reject as insufficient thoroughness**.
+
+**Reject (insufficient thoroughness) when ANY of these are true:**
+
+- `status-check.sh` shows `ASYMMETRY: HIGH` (2+ red dimensions) AND the faster reviewer's envelope has thin `files_read` (e.g., fewer than a small handful of files on a non-trivial scope) OR empty `rules_consulted`.
+- `status-check.sh` shows `ASYMMETRY: MODERATE` AND the faster reviewer's envelope has OTHER symptoms of skimming: empty `rules_consulted`, empty `specs_consulted` on a subsystem the spec governs, or `files_read` clearly shorter than the diff's file list.
+- Either envelope has **empty `rules_consulted`** when the grounding block required at least `CLAUDE.md` + `.claude/rules/impl-hygiene.md` + `.claude/rules/tests.md`. Grounding skipped = methodology skipped; this alone can justify rejection even with `ASYMMETRY: LOW`.
+- Either envelope's `files_read` is **clearly shorter than the diff's file list** on a non-trivial scope. The methodology requires reading whole changed files, not just diff hunks.
+- Either envelope's `verification` block is empty when the scope clearly warranted a `fresh_verification` basis (e.g., a codegen change with no diagnostic run).
+- The faster reviewer's event stream (tail of `status-check.sh`) shows almost no `tool_use` / `command_execution` events — i.e., the reviewer "read nothing and ran nothing" before emitting the envelope.
+
+**Accept (clean pass) when ALL of these are true:**
+
+- `status-check.sh` shows `ASYMMETRY: LOW` OR `MODERATE` with thorough `files_read` / `rules_consulted` on both sides.
+- Both envelopes have non-empty `rules_consulted` covering at least `CLAUDE.md` + the relevant `.claude/rules/*.md`.
+- Both envelopes have `files_read` consistent with the scope (not obviously truncated).
+- At least one envelope has a `verification` basis (tests or diagnostics run) when the scope warranted it.
+
+**Judgment calls** between the two extremes — use sense. The goal is to filter out skimming passes, not to manufacture non-existent problems. A genuinely small scope with a short but correct review should pass; a broad scope with a quick skim should not.
+
+#### 6c. On ACCEPT — Report clean pass
 
 Report to the user:
-- "Dual-source TPR review passed clean — both reviewers returned zero actionable findings."
-- Iteration count (e.g. "clean on iteration 1" or "clean on iteration 3 after fixing N findings").
+- "Dual-source TPR review passed clean — both reviewers returned zero actionable findings and Claude's thoroughness judgment accepted the round."
+- Iteration count (e.g. "clean on iteration 1" or "clean on iteration 3 after fixing N findings and rejecting 1 skimming round").
+- Thoroughness summary: `ASYMMETRY: {LOW|MODERATE}` + one-sentence rationale referencing the envelopes' `files_read` / `rules_consulted` counts.
 - Merge summary from the final iteration (`codex_findings`, `gemini_findings`, `agreements`).
 - **This is the ONLY clean exit from the loop.**
+
+#### 6d. On REJECT — Mandatory re-review with strengthened language
+
+Do NOT treat a thoroughness-rejected round as a clean pass. Do NOT file "no findings" in the plan. Instead:
+
+1. Increment `thoroughness_reject_counter` (separate from `iteration_counter`; cap = 3).
+2. Set `strengthened_language_required = True`.
+3. Write a brief rejection note for yourself (what was thin, which reviewer, which signals) — this goes into your own context so the next round's prompt can reference specific deficiencies.
+4. `continue` the loop back to Step 1 — a new `$RUN`, new prompts, new transport invocation. The next round's prompts MUST include the **Thoroughness Re-review Directive** (see §Thoroughness Re-review Directive below) prepended to the scope hint of BOTH reviewers' prompts.
+5. Do NOT increment `iteration_counter` — a rejected round produced no fixes, so it does not consume the finding-fixing budget.
+6. After the re-review round, repeat Step 6 (Thoroughness Judgment) on the new envelopes. If the new round produces actionable findings, proceed to Step 7 (fix path); findings reset `thoroughness_reject_counter` to 0 and drop `strengthened_language_required`, because findings prove the reviewers CAN do deep work.
+7. If `thoroughness_reject_counter` reaches 3, escalate via `AskUserQuestion` — three consecutive thoroughness rejections means prompt discipline alone is not coaxing depth and the user needs to intervene (scope change, scope narrowing, or accepting the skimming pass as best-effort).
+
+**Why a separate counter.** Piggy-backing thoroughness rejections on `iteration_counter` would change what that counter means (from "finding-fixing rounds" to "rounds of any kind"), silently breaking the state-machine invariants. A separate counter keeps the existing contract stable while adding the new termination path.
+
+**Why reset-on-findings.** A subsequent round that produces actionable findings proves the reviewers are capable of depth — the prior thoroughness issue was a transient prompt-discipline problem, not a fundamental reviewer limitation. Carrying the counter forward would punish reviewers for having just demonstrated they can find things.
+
+### 6.5. Thoroughness Re-review Directive (prepend to BOTH prompts when `strengthened_language_required`)
+
+When the previous round was rejected as insufficient thoroughness, the next round's prompts MUST begin with this directive, prepended BEFORE the normal grounding block. The directive is SYMMETRIC — both reviewers receive the identical text, because rejecting one reviewer asymmetrically would introduce a new bias that breaks the dual-source independence contract. Both get the strengthened rubric; both must meet it.
+
+```
+## THOROUGHNESS RE-REVIEW DIRECTIVE — MANDATORY
+
+The previous review round terminated with zero actionable findings, but
+the round was REJECTED by the orchestrator for insufficient thoroughness.
+One or more of these asymmetry signals crossed the threshold where a
+"no findings" outcome cannot be trusted as a genuine clean pass:
+
+- walltime ratio (max/min) between the two reviewers
+- event-count ratio (max/min) between the two reviewers
+- stream-byte ratio (max/min) between the two reviewers
+- thin `scope_actually_reviewed.files_read` or empty
+  `scope_actually_reviewed.rules_consulted` in the prior envelope
+
+This re-review is MANDATORY. Both reviewers must now meet the "Deep
+Investigation Standard" from `.claude/skills/dual-tpr/command-file.md`
+before emitting an envelope. Specifically, on this re-review you MUST:
+
+1. READ EVERY CHANGED FILE IN FULL — not only the diff hunks. The diff
+   is a scope selector, not a content filter. `scope_actually_reviewed.
+   files_read` MUST list every changed file, not a subset.
+
+2. READ THE NEIGHBORING CODE required to understand invariants and
+   boundary contracts. If a function calls into another module, read
+   the callee. If a test asserts on a behavior, read the behavior's
+   implementation. Add those files to `files_read`.
+
+3. READ THE GROUNDING RULES IN FULL. `scope_actually_reviewed.
+   rules_consulted` MUST list at minimum `CLAUDE.md`,
+   `.claude/rules/impl-hygiene.md`, `.claude/rules/tests.md`, plus any
+   `.claude/rules/*.md` file relevant to the changed code's subsystem.
+   Empty `rules_consulted` on this re-review will be rejected AGAIN.
+
+4. TRACE DATA FLOW across at least two layers of call chain beyond the
+   diff — function → caller → caller, or function → callee → callee.
+   Record the traced files in `files_read`.
+
+5. RUN AT LEAST ONE DIAGNOSTIC OR TEST as a `fresh_verification` basis.
+   If there is genuinely nothing runnable for this scope, explain why
+   in `verification.verification_gaps`. "Nothing to run" is a weaker
+   basis — justify it.
+
+6. POPULATE `scope_actually_reviewed` HONESTLY. The orchestrator
+   compares `files_read` / `rules_consulted` / `specs_consulted` /
+   `verification` against the wall-time and event-count you spent.
+   Thin scope fields on this re-review WILL trigger another rejection.
+
+If after this deeper pass you STILL find zero actionable issues, that is
+a valid outcome — but your envelope must reflect real depth. Emit at
+least one `informational`-severity entry that describes WHAT you
+verified and WHY the changed code is sound, so the orchestrator can
+calibrate trust on the no-findings outcome. An informational entry is
+not a "finding" in the actionable sense; it is a proof-of-work note
+from a deep review that genuinely found nothing to fix.
+
+A superficial pass WILL be rejected again. The previous round's failure
+was not a disagreement about findings — it was a depth-of-investigation
+failure. This directive does not ask you to manufacture findings; it
+asks you to do the investigation at the level where a no-findings
+outcome is credible.
+```
+
+The directive is inserted BEFORE the normal grounding block (which reminds the reviewer WHAT to read), so the reviewer sees the "why this time is different" framing before the reading list. Do not edit the grounding block itself — keep the two concerns separate.
 
 ### 7. If Actionable Findings Exist -> Fix and Re-run
 
@@ -455,13 +664,33 @@ Run `/commit-push` to commit the fixes. The commit message should reference the 
 
 Go back to Step 1. BOTH reviewers re-review the FIXED code to confirm the issues are actually resolved and no new issues were introduced by the fixes. **This re-run is not optional, and a partial re-run (only one reviewer) is not a valid clean pass.**
 
-### 8. After Max Iterations (10) — User Escalation
+### 8. User Escalation — Finding-Fixing Cap or Thoroughness-Reject Cap
 
-If after 10 semantic iterations findings are still surfacing, surface the remaining merged findings to the user via `AskUserQuestion`:
+Two distinct cap-hit escalations exist. Use the right one; they describe different failure modes and warrant different user decisions.
+
+#### 8a. After Max Finding-Fixing Iterations (10) — findings keep surfacing
+
+If after 10 semantic iterations actionable findings are still surfacing, surface the remaining merged findings to the user via `AskUserQuestion`:
 - Summary of semantic iterations run
 - Count of findings per iteration (shows whether progress is being made)
 - The current merged finding list (from the latest `$RUN/merged.json`)
 - Ask: should we continue past the 10-iteration cap, file remaining findings and stop, or dig into a specific finding that keeps recurring?
+
+#### 8b. After Max Thoroughness Rejections (3) — prompt discipline not eliciting depth
+
+If `thoroughness_reject_counter` reaches 3, the reviewers have produced three consecutive "zero actionable findings" outcomes that Claude rejected as insufficient thoroughness. This is a fundamentally different failure mode from 8a: the loop has NOT been making progress, it has been going in circles while Claude refused to accept skimming passes.
+
+Surface to the user via `AskUserQuestion` with:
+- The three rejection rationales (which signals triggered each reject — walltime ratio, event count, thin `files_read`, empty `rules_consulted`, etc.)
+- The final `$RUN` path with both envelopes and `status-check.sh` output
+- The `status-check.sh` final asymmetry snapshot from the last round
+- Ask the user to choose one of:
+  1. **Accept the last round as a best-effort clean pass** — if the user reviews the envelopes directly and judges the depth acceptable, override Claude's rejection and exit clean. This is an informed override, not a concession.
+  2. **Narrow the scope** — the reviewers may be skimming because the scope is too broad for the time budget. A narrower scope often elicits deeper investigation.
+  3. **Change the intervention** — prompt discipline isn't working; the user may want to swap a reviewer, adjust the rubric in `command-file.md`, or escalate to a human review.
+  4. **Abandon this review** — if none of the above fits, stop the loop and leave the work un-reviewed with a note in any owning plan's working notes recording `$RUN` for later inspection.
+
+Never silently continue past the 3-thoroughness-reject cap. Doing so either (a) eventually accepts a skimming pass without informed override, defeating the whole thoroughness judgment mechanism, or (b) burns unbounded rounds chasing a depth the reviewers structurally cannot produce.
 
 ## Transport Failure Handling
 
@@ -575,8 +804,14 @@ When a finding is fixed (Step 7b), mark the entry `[x]` and append a `Resolved:`
 ## Final Report (After Loop Exits)
 
 Tell the user:
-- Total semantic iterations run
+- Total finding-fixing iterations run (`iteration_counter`)
+- Total consecutive thoroughness rejections that occurred (`thoroughness_reject_counter` peak value — often 0)
 - For each iteration: merged summary (`codex_findings` / `gemini_findings` / `agreements`)
 - Findings surfaced and fixed per iteration
-- Final status: `clean`, `max iterations reached with N remaining findings`, or `aborted due to transport failure`
+- For the final round: the thoroughness-judgment outcome (`ASYMMETRY: LOW|MODERATE|HIGH` from `status-check.sh`) and a one-sentence rationale referencing the envelopes' `files_read` / `rules_consulted` counts
+- Final status — one of:
+  - `clean` (both reviewers returned zero actionable findings AND thoroughness judgment accepted)
+  - `max iterations reached with N remaining findings` (10-iteration finding-fixing cap hit)
+  - `max thoroughness rejections reached` (3-reject cap hit — needs user intervention per §8b)
+  - `aborted due to transport failure`
 - Where each finding was filed (plan TPR section or bug-tracker)

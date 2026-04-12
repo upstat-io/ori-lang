@@ -1,0 +1,9 @@
+// FileCheck test: for loop produces iterator drop on normal exit
+// CHECK: ori_iter_drop
+
+@main () -> void = {
+    let xs = [1, 2, 3];
+    for x in xs do {
+        print(msg: x.to_str())
+    }
+}

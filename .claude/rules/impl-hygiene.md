@@ -238,6 +238,17 @@ Debug and release builds must produce **identical observable output** for the sa
 - **Test both modes**: `cargo test` (debug) and `cargo test --release` must both pass. A test that passes in debug but fails in release (or vice versa) indicates a parity violation.
 - **Optimization-sensitive codegen**: if codegen emits different IR depending on optimization level (e.g., inlining thresholds, loop unrolling hints), document why and ensure the semantic output is identical.
 
+### Cross-Platform Parity (Windows / macOS / Linux)
+
+All platforms must produce **identical observable output** for the same input program. CI runs on Linux, macOS, and Windows — a test that passes on Linux but fails on Windows is a bug.
+
+- **Line ending normalization**: any string comparison involving file I/O or generated output MUST normalize to LF (`.replace("\r\n", "\n")`) before comparing. Windows generates CRLF; committed baselines are LF. Direct `==` on `fs::read_to_string()` output vs generated content is a cross-platform bug. Normalize in the comparison infrastructure (test harness, bless/snapshot), not at individual test sites.
+- **Bless/baseline writes**: always write LF, never platform-native. `fs::write(path, content.replace("\r\n", "\n"))` on any baseline/snapshot file.
+- **Path separators**: use `std::path::Path` / `PathBuf`, never hardcoded `/` or `\\` in production code. Test fixtures may use `/` since Rust's `Path` handles it on all platforms.
+- **`c_char` signedness**: `c_char` is `i8` on x86 Linux but `u8` on ARM and some Windows targets. Use `std::ffi::c_char`, never `i8`/`u8` directly. (Also in `runtime.md`.)
+- **Temp file paths**: use `std::env::temp_dir()`, not hardcoded `/tmp`. Windows uses `C:\Users\...\AppData\Local\Temp`.
+- **File permissions**: `std::fs::set_permissions` is a no-op on Windows for Unix-style modes. Don't rely on file permission bits for correctness.
+
 ## Invariant Explicitness
 
 - **Implicit invariants are invisible regressions.** If correctness depends on a property (RC balanced after loop, scope restored after block, phantom var inserted before iteration, elem_dec_fn non-NULL for heap types), it MUST be either:

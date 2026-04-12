@@ -125,6 +125,7 @@ pub(super) fn generate_drop_fn<'a, 'scx: 'ctx, 'ctx, 'tcx>(
                 name = func_name,
                 "LLVM IR verification failed (generate_drop_fn)"
             );
+            emitter.builder.record_codegen_error();
         }
     }
 

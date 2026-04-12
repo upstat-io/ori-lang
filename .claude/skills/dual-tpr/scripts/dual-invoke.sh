@@ -61,6 +61,31 @@ fi
 
 echo "[$(date +%s)] dual-invoke start (skill=$SKILL run=$RUN reviewers=$REVIEWERS)" >> "$RUN/round.log"
 
+# Clear stale per-reviewer state from a prior attempt for reviewers that WILL
+# run in this launch. This is load-bearing for dual-invoke-with-retry.sh's
+# selective-retry path: when the wrapper re-runs a reviewer after a failure,
+# the prior attempt's .exit / .walltime / .parse-error / .envelope.json files
+# are stale and must be cleared so status-check.sh correctly shows "running"
+# during the re-run rather than reading the prior .exit value.
+#
+# CRITICAL asymmetry: for reviewers that are being SKIPPED-via-narrowing on
+# this attempt, we must NOT touch their state. dual-invoke-with-retry.sh relies
+# on the prior-attempt .exit / .envelope.json surviving across the retry so a
+# successful reviewer from attempt N is preserved into attempt N+1.
+#
+# The .stalled marker is also cleared so a subsequent normal run after a
+# watchdog-killed run doesn't inherit the stalled state.
+if [[ "$REVIEWERS" == "codex" || "$REVIEWERS" == "both" ]]; then
+  rm -f "$RUN/codex.exit" "$RUN/codex.walltime" \
+        "$RUN/codex.parse-error" "$RUN/codex.envelope.json" \
+        "$RUN/codex.skipped" "$RUN/codex.stalled"
+fi
+if [[ "$REVIEWERS" == "gemini" || "$REVIEWERS" == "both" ]]; then
+  rm -f "$RUN/gemini.exit" "$RUN/gemini.walltime" \
+        "$RUN/gemini.parse-error" "$RUN/gemini.envelope.json" \
+        "$RUN/gemini.skipped" "$RUN/gemini.stalled"
+fi
+
 # Track child PIDs so we can clean them up on early exit (BUG-08-005). Bash
 # inherits this script's traps into subshells, but the parent tracks the PIDs
 # explicitly and the EXIT trap below kills any survivors.
@@ -137,13 +162,32 @@ if [[ "$REVIEWERS" == "codex" || "$REVIEWERS" == "both" ]]; then
   ) &
   CODEX_PID=$!
 else
-  # Skipped reviewer: write an explicit .skipped marker so status-check.sh
-  # and downstream consumers can distinguish "skipped" from "still running"
-  # (§07.3 TPR finding: codex surfaced that ORI_TPR_REVIEWERS=codex left
-  # gemini showing 'running' forever because no .exit file was written).
-  # The marker content is the env value for postmortem traceability.
-  echo "ORI_TPR_REVIEWERS=$REVIEWERS" > "$RUN/codex.skipped"
-  echo "[$(date +%s)] codex skipped (ORI_TPR_REVIEWERS=$REVIEWERS)" >> "$RUN/round.log"
+  # Skipped reviewer: distinguish two cases.
+  #
+  # Case 1 — reviewer already completed in a prior attempt:
+  #   dual-invoke-with-retry.sh's selective-retry path (2026-04-11 fix) narrows
+  #   a retry to ONLY the failing reviewer. On attempt N+1 the successful
+  #   reviewer from attempt N is skipped — but its .exit and .envelope.json
+  #   must be preserved as the authoritative state. Writing a .skipped marker
+  #   here would clobber status-check.sh's view (.skipped takes precedence
+  #   over .exit in the state diagram) and would falsely show the completed
+  #   reviewer as "skipped" on the final status read.
+  #
+  # Case 2 — reviewer never ran in this wrapper invocation:
+  #   Operator explicitly set ORI_TPR_REVIEWERS=gemini (or codex). No prior
+  #   state exists. Write the .skipped marker so status-check.sh can
+  #   distinguish "filtered out at launch" from "still running" (§07.3 TPR
+  #   finding: without the marker a filtered-out reviewer showed as running
+  #   forever because no .exit was ever written).
+  #
+  # The .exit file existence is the discriminator: if present, the reviewer
+  # completed (Case 1); if absent, it's a fresh skip (Case 2).
+  if [[ -f "$RUN/codex.exit" ]]; then
+    echo "[$(date +%s)] codex preserved from prior attempt (.exit present, ORI_TPR_REVIEWERS=$REVIEWERS narrowed)" >> "$RUN/round.log"
+  else
+    echo "ORI_TPR_REVIEWERS=$REVIEWERS" > "$RUN/codex.skipped"
+    echo "[$(date +%s)] codex skipped (ORI_TPR_REVIEWERS=$REVIEWERS)" >> "$RUN/round.log"
+  fi
 fi
 
 # Launch gemini in the background. Same BUG-08-004 + TPR-04-002-gemini fix.
@@ -151,7 +195,7 @@ if [[ "$REVIEWERS" == "gemini" || "$REVIEWERS" == "both" ]]; then
   (
     set +e
     START=$(date +%s)
-    gemini --approval-mode yolo --output-format stream-json -p "$(cat "$GEMINI_PROMPT")" 2>/dev/null > "$RUN/gemini.jsonl"
+    gemini -m gemini-3.1-pro-preview --approval-mode yolo --output-format stream-json -p "$(cat "$GEMINI_PROMPT")" 2>/dev/null > "$RUN/gemini.jsonl"
     GEMINI_RC=$?
     echo "$GEMINI_RC" > "$RUN/gemini.exit"
     echo "$(($(date +%s) - START))" > "$RUN/gemini.walltime"
@@ -160,9 +204,15 @@ if [[ "$REVIEWERS" == "gemini" || "$REVIEWERS" == "both" ]]; then
   ) &
   GEMINI_PID=$!
 else
-  # Skipped reviewer: see the codex-side comment above for rationale.
-  echo "ORI_TPR_REVIEWERS=$REVIEWERS" > "$RUN/gemini.skipped"
-  echo "[$(date +%s)] gemini skipped (ORI_TPR_REVIEWERS=$REVIEWERS)" >> "$RUN/round.log"
+  # Skipped reviewer: see the codex-side comment above for the full Case 1
+  # (prior-attempt preserved via selective retry) vs Case 2 (fresh skip)
+  # rationale.
+  if [[ -f "$RUN/gemini.exit" ]]; then
+    echo "[$(date +%s)] gemini preserved from prior attempt (.exit present, ORI_TPR_REVIEWERS=$REVIEWERS narrowed)" >> "$RUN/round.log"
+  else
+    echo "ORI_TPR_REVIEWERS=$REVIEWERS" > "$RUN/gemini.skipped"
+    echo "[$(date +%s)] gemini skipped (ORI_TPR_REVIEWERS=$REVIEWERS)" >> "$RUN/round.log"
+  fi
 fi
 
 # --- Stall detection watchdog ---

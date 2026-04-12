@@ -441,7 +441,7 @@ What breaks if only one lands. Be specific about the failure mode.}
 
 ## {NN}.R Third Party Review Findings
 
-<!-- Reserved for Codex or other external reviewers.
+<!-- Reserved for the dual-source `/tpr-review` (Codex + Gemini) and other external reviewers. Findings may be tagged `-codex`, `-gemini`, or carry `agreement: true` when both reviewers flagged the same location/title.
 If unresolved findings exist here:
 - section frontmatter `status` must be `in-progress`
 - `third_party_review.status` must be `findings`
@@ -473,7 +473,7 @@ When all findings are triaged:
   - [ ] `index.md` section status updated
   - [ ] Cross-links to other plans updated if this section resolved external blockers (`<!-- resolved-by: ... -->`)
   - [ ] Next section's `depends_on` verified — no stale assumptions from this section's work
-- [ ] `/tpr-review` passed (final, full-section) — independent Codex review found no critical or major issues (or all findings triaged)
+- [ ] `/tpr-review` passed (final, full-section) — independent dual-source review (Codex + Gemini) found no critical or major issues (or all findings from both reviewers triaged)
 - [ ] `/impl-hygiene-review` passed — implementation hygiene review found no critical or major findings (or all findings triaged and fixed). MUST run AFTER `/tpr-review` is clean.
 - [ ] `/improve-tooling` **section-close sweep** — MANDATORY safety net after both reviews are clean. The PRIMARY tooling capture happens per-subsection (see each subsection's close-out block above) — by section close those captures should already be committed. The sweep does TWO things: (1) **Verify** every subsection in this section has either an "improvements made" entry (with commits) or a documented "no gaps" negative finding from its own per-subsection retrospective; if any subsection skipped its retrospective, STOP and run it now — the sweep cannot substitute for missed per-subsection captures. (2) **Look for cross-subsection patterns** invisible at per-item scope: command sequences repeated when transitioning between *different* subsections, integration test failures with worse messages than within-subsection failures, mental cross-referencing across files no tool combined, instrumentation that only became obvious after seeing all subsections together. Add ONLY new items that emerged from these cross-cutting patterns — do not duplicate per-subsection findings. Implement immediately (zero deferral), commit separately using a valid conventional-commit type (`build(diagnostics): add X — surfaced by section-{NN} close sweep` — use `build` for dev/diagnostic scripts, `test` for test-harness, `chore` for general tooling, `ci` for CI, `docs` for tool docs; the lefthook commit-msg hook rejects any non-standard type), verify against the original scenario. Most sweeps produce zero new findings when per-subsection captures are thorough — that is the expected, healthy outcome and must be documented: "Section-close sweep: per-subsection retrospectives covered everything; no cross-subsection patterns required new tooling." Do not silently skip.
 
@@ -590,7 +590,7 @@ escalation to map the exact boundary of what works.
 - [ ] Plan annotation cleanup: `plan-annotations.sh` returns 0 annotations for this plan's sections
 - [ ] `./test-all.sh` green
 - [ ] `./clippy-all.sh` green
-- [ ] `/tpr-review` passed — independent Codex review clean
+- [ ] `/tpr-review` passed — independent dual-source review (Codex + Gemini) clean
 - [ ] `/impl-hygiene-review` passed — hygiene review clean. MUST run AFTER `/tpr-review` is clean.
 - [ ] `/improve-tooling` **section-close sweep** — MANDATORY after both reviews are clean. Per-subsection captures from {NN}.1–{NN}.6 should already be committed via each subsection's own close-out block; the sweep verifies they ran (no skips) and adds only NEW cross-cutting items invisible at per-item scope. Verification sections especially benefit from cross-cutting capture because they exercise the full diagnostic surface — but the *primary* tooling growth still happens per-subsection. Look for: diagnostic scripts that were run during multiple subsections with the same output-interpretation friction, manual cross-referencing across dumps that no tool combined, stress-test or perf instrumentation that became obvious only after seeing the full verification picture. Implement immediately, commit separately using a valid conventional-commit type (`build(diagnostics): add X — surfaced by section-{NN} verification close sweep` — see the regular section-close sweep above for the type rules; the lefthook commit-msg hook rejects non-standard types like `tools(...)`), verify against the original scenario. Document the negative finding if there are no cross-cutting gaps. Do not silently skip.
 

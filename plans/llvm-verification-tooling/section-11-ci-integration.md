@@ -78,7 +78,7 @@ The every-commit tier runs on every PR. It must be fast (add at most 3 minutes t
 - [ ] Audit existing CI for gates that should already be present from earlier sections:
   - **§01**: `ORI_VERIFY_EACH=1` and `ORI_VERIFY_ARC=1` in env block
   - **§01**: Function-level `fn_val.verify()` (implicit — runs during `cargo test --workspace`)
-  - **§07**: FileCheck tests in `tests/codegen/` (via `cargo test --workspace` if integrated as Rust tests, or explicit `ori test --backend=llvm tests/codegen/`)
+  - **§07**: FileCheck tests in `compiler/ori_llvm/tests/codegen/` (via `cargo test --workspace` if integrated as Rust tests, or explicit `ori test --backend=llvm compiler/ori_llvm/tests/codegen/`)
   - **§08**: Sanitizer smoke (if §08 added a smoke job — check)
   - **MISSING (known)**: `ori test --backend=llvm tests/` — LLVM backend spec tests
 
@@ -160,7 +160,7 @@ The nightly tier runs on a schedule (e.g., 2:00 AM UTC). It runs more expensive 
       runs-on: ubuntu-latest
       timeout-minutes: 15
       steps:
-        # ... build + cargo test -p ori_arc --test aims_snapshots
+        # ... build + cargo test -p oric --test aims_snapshots
 
     arc-parity:
       name: ARC IR Parity (Debug vs Release)
@@ -171,7 +171,7 @@ The nightly tier runs on a schedule (e.g., 2:00 AM UTC). It runs more expensive 
   ```
 
 - [ ] Audit which nightly gates should already exist from earlier sections:
-  - **§03**: AIMS snapshot tests (`cargo test -p ori_arc --test aims_snapshots`)
+  - **§03**: AIMS snapshot tests (`cargo test -p oric --test aims_snapshots`)
   - **§08**: Full sanitizer suite (ASan/UBSan on AOT smoke subset)
   - **§09**: Alive2 curated corpus (`diagnostics/alive2-verify.sh --corpus`)
 

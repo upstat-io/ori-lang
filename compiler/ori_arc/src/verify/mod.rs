@@ -16,12 +16,12 @@
 //! a list of [`VerifyError`]s (empty = all invariants hold).
 
 use ori_ir::Span;
-use rustc_hash::FxHashSet;
+use rustc_hash::{FxHashMap, FxHashSet};
 
 use crate::aims::contract::MemoryContract;
 use crate::aims::lattice::Cardinality;
 use crate::graph::successor_block_ids;
-use crate::ir::{ArcBlockId, ArcFunction, ArcInstr, ArcVarId, ValueRepr};
+use crate::ir::{ArcBlockId, ArcFunction, ArcInstr, ArcTerminator, ArcVarId, ValueRepr};
 use crate::Ownership;
 
 /// A verification error found in the ARC IR.
@@ -411,18 +411,22 @@ pub fn check_function_with_contract(
     errors
 }
 
-/// Parameters with `Cardinality::Absent` must have no uses in the function body.
+/// Parameters with `Cardinality::Absent` must have no uses on *live* paths.
 ///
-/// Absent means the backward analysis found zero forward demand for this
-/// parameter. If the IR actually references the parameter, the analysis
-/// result is inconsistent — either the analysis is wrong or the IR was
-/// mutated after analysis.
+/// A block is "live" if it is both forward-reachable from entry AND
+/// backward-reachable to a Return terminator. A block on a path that
+/// always ends in panic/unreachable is "dead" — uses there are expected
+/// when the backward analysis correctly identifies zero forward demand
+/// through the live path (e.g., `if true then panic(); x` where `x` is
+/// only referenced in the dead else-branch return).
+///
+/// Uses in dead blocks are silently ignored. Uses in LIVE blocks are
+/// genuine inconsistencies between the AIMS analysis and the IR.
 fn check_absent_param_no_uses(
     func: &ArcFunction,
     contract: &MemoryContract,
     errors: &mut Vec<VerifyError>,
 ) {
-    // Collect parameter vars that the contract says are Absent.
     let absent_params: Vec<(usize, ArcVarId)> = func
         .params
         .iter()
@@ -436,9 +440,15 @@ fn check_absent_param_no_uses(
         return;
     }
 
-    // Collect all used variables across the function body.
+    // Live blocks = forward-reachable from entry ∩ backward-reachable to Return.
+    let live = live_blocks(func);
+
+    // Collect used variables only from live blocks.
     let mut used = FxHashSet::default();
     for block in &func.blocks {
+        if !live.contains(&block.id) {
+            continue;
+        }
         for instr in &block.body {
             for var in instr.used_vars() {
                 used.insert(var);
@@ -454,6 +464,72 @@ fn check_absent_param_no_uses(
             errors.push(VerifyError::AbsentParamHasUses { var, param_index });
         }
     }
+}
+
+/// Compute blocks that are both forward-reachable from `func.entry` AND
+/// backward-reachable to a real exit (Return or Resume).
+///
+/// A block on a path that always ends in `Unreachable` is dead.
+/// `Resume` IS a real exit (exceptional unwind path carries demand).
+fn live_blocks(func: &ArcFunction) -> FxHashSet<ArcBlockId> {
+    // Forward reachability: BFS from func.entry (not hardcoded block 0 —
+    // TRMC normalization may create a prologue that moves entry).
+    let forward = {
+        let mut reached = FxHashSet::default();
+        let mut worklist = vec![func.entry];
+        while let Some(id) = worklist.pop() {
+            if !reached.insert(id) {
+                continue;
+            }
+            if let Some(b) = func.blocks.iter().find(|b| b.id == id) {
+                for succ in successor_block_ids(&b.terminator) {
+                    worklist.push(succ);
+                }
+            }
+        }
+        reached
+    };
+
+    // Build predecessor map for backward reachability.
+    let mut preds: FxHashMap<ArcBlockId, Vec<ArcBlockId>> = FxHashMap::default();
+    for block in &func.blocks {
+        for succ in successor_block_ids(&block.terminator) {
+            preds.entry(succ).or_default().push(block.id);
+        }
+    }
+
+    // Backward reachability: BFS from all real-exit blocks.
+    // Return = normal exit, Resume = exceptional unwind exit.
+    // Unreachable is NOT a real exit — blocks leading only to
+    // Unreachable are dead code.
+    let backward = {
+        let mut reached = FxHashSet::default();
+        let mut worklist: Vec<ArcBlockId> = func
+            .blocks
+            .iter()
+            .filter(|b| {
+                matches!(
+                    b.terminator,
+                    ArcTerminator::Return { .. } | ArcTerminator::Resume
+                )
+            })
+            .map(|b| b.id)
+            .collect();
+        while let Some(id) = worklist.pop() {
+            if !reached.insert(id) {
+                continue;
+            }
+            if let Some(pred_list) = preds.get(&id) {
+                for &pred in pred_list {
+                    worklist.push(pred);
+                }
+            }
+        }
+        reached
+    };
+
+    // Live = intersection.
+    forward.intersection(&backward).copied().collect()
 }
 
 #[cfg(test)]

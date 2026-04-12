@@ -1,0 +1,10 @@
+// Negative pin: borrowed parameter retains RC ops.
+// When a parameter is used multiple times (passed to a function AND
+// returned), the parameter needs RC management — elision must NOT fire.
+//
+// @test-arc-pass: realize_rc_reuse
+
+@use_twice (s: str) -> str = {
+    print(msg: s);
+    s
+};

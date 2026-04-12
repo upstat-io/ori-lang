@@ -21,12 +21,12 @@ Build world-class verification tooling for Ori's AIMS memory system and LLVM bac
 
 ## Mission Success Criteria
 
-- [ ] **AIMS snapshot regression detection**: Running `cargo test -p ori_arc --test aims_snapshots` catches pass-level regressions in `realize_rc_reuse`, `merge_blocks`, `realize_annotations`, and `normalize_function` via `.before.arc`/`.after.arc`/`.diff` artifacts (Section 03)
-- [ ] **Lattice property verification**: `cargo test -p ori_arc lattice_properties` runs proptest-generated tests verifying join commutativity, associativity, idempotence, transfer monotonicity, canonicalization idempotence, and fixpoint convergence bounds across the 11,520 raw lattice states (2×4×3×3×4×5×8 dimensions; existing exhaustive tests cover 2,880 sampled configurations) (Section 04)
-- [ ] **Contract coherence oracle**: After AIMS pipeline completion, an independent contract re-derivation from realized ARC IR (walking actual `RcInc`/`RcDec`/`Reuse` instructions) matches inferred `MemoryContract` — discrepancies are blocking errors under `ORI_VERIFY_ARC=1` (Section 05)
-- [ ] **Protocol builtin ownership pinned**: Every `ProtocolBuiltin` variant's per-argument expected ownership is pinned (not a Cartesian product — each position has ONE expected value), with RC balance verified through LLVM codegen audit for each protocol function (Section 06)
+- [ ] **AIMS snapshot regression detection**: Running `cargo test -p oric --test aims_snapshots` catches pass-level regressions in `realize_rc_reuse`, `merge_blocks`, `realize_annotations`, `normalize_function`, and `tail_calls` via `lowered.arc` baseline + per-pass `.after.arc` artifacts (Section 03)
+- [ ] **Lattice property verification**: `timeout 150 cargo test -p ori_arc -- lattice::prop_tests` runs 23 proptest-generated tests (22 pass, 1 ignored) verifying join commutativity, idempotence, canonicalization idempotence/convergence/dimension-guarantees, decision predicate semantic contracts, and fixpoint convergence bounds. BUG-04-057 discovered: join non-associative due to canonicalization Rule 4 (Section 04) — **RESET 2026-04-11: autopilot work untrusted**
+- [ ] **Contract coherence oracle**: After AIMS pipeline completion, an independent contract re-derivation from realized ARC IR (walking actual `RcInc`/`RcDec`/`Reuse` instructions) matches inferred `MemoryContract` — discrepancies are blocking errors under `ORI_VERIFY_ARC=1` (Section 05) — **RESET 2026-04-11: autopilot work untrusted**
+- [ ] **Protocol builtin ownership pinned**: Every `ProtocolBuiltin` variant's per-argument expected ownership is pinned (not a Cartesian product — each position has ONE expected value), with RC balance verified through existing AOT tests exercising each protocol path (Section 06) — **RESET 2026-04-11: autopilot work untrusted**
 - [x] **LLVM verification gates active**: `ORI_VERIFY_EACH=1` runs LLVM IR verifier after every optimization pass in `test-all.sh` and CI; function-level `fn_val.verify()` runs after each function's codegen; `opt -lint` runs in the codegen audit pipeline (Section 01) — Completed 2026-04-10. Both `ORI_VERIFY_ARC=1` and `ORI_VERIFY_EACH=1` enabled globally (54s, 36% of budget). `function(lint)` integrated. All 16,978 tests pass.
-- [ ] **FileCheck IR assertions**: `tests/codegen/` contains ≥30 directive-based IR pattern tests covering RC emission, COW patterns, closure codegen, ABI, and iterator patterns, with revision support for debug/release/no-repr-opt configurations (Section 07)
+- [ ] **FileCheck IR assertions**: `compiler/ori_llvm/tests/codegen/` contains ≥30 directive-based IR pattern tests covering RC emission, COW patterns, closure codegen, ABI, and iterator patterns, with revision support for debug/release/no-repr-opt configurations (Section 07)
 - [ ] **Sanitizer integration**: ASan/UBSan instrumentation on generated AOT binaries via LLVM pipeline; separate CI job with smoke subset on PRs and full sweep nightly (Section 08)
 - [ ] **Alive2 refinement checking**: Curated subset of pure/arithmetic-heavy functions verified via Alive2 `alive-tv` for pre-opt → post-opt LLVM IR refinement, running nightly (Section 09)
 - [ ] **Differential oracle fuzzing**: `fuzz/fuzz_targets/ori_differential.rs` generates random Ori programs, executes via eval AND LLVM, compares stdout + `ORI_CHECK_LEAKS` results; ≥24h cumulative fuzzing with zero unresolved divergences (Section 10)
@@ -185,10 +185,10 @@ Phase B - AIMS Verification (Ori-Unique)  [CRITICAL PATH]
   Gate: cargo test -p ori_arc aims_ passes; ORI_VERIFY_ARC=1 tests green
 
 Phase C - LLVM Verification (Industry Standard + Formal)
-  └─ §07: FileCheck-style IR pattern matching (tests/codegen/, 30+ tests)
+  └─ §07: FileCheck-style IR pattern matching (compiler/ori_llvm/tests/codegen/, 30+ tests)
   └─ §08: Sanitizer integration (ASan/UBSan on AOT, separate CI job)
   └─ §09: Alive2 formal verification (curated subset, nightly)
-  Gate: tests/codegen/ passes; ORI_SANITIZE=1 smoke passes; alive-tv nightly green
+  Gate: compiler/ori_llvm/tests/codegen/ passes; ORI_SANITIZE=1 smoke passes; alive-tv nightly green
 
 Phase D - Continuous Verification (Going Beyond)
   └─ §10: Differential oracle fuzzing (eval vs LLVM, cargo-fuzz)
@@ -266,12 +266,12 @@ Note: §09 (Alive2) and §10 (fuzzing) estimates include tool installation, corp
 
 | ID | Title | File | Status |
 |----|-------|------|--------|
-| 01 | Verifier Gates & Quick Wins | `section-01-verifier-gates.md` | In Progress |
-| 02 | Shared Test Harness Infrastructure | `section-02-shared-harness.md` | Not Started |
-| 03 | AIMS Pass-Level Snapshot Tests | `section-03-aims-snapshots.md` | Not Started |
-| 04 | AIMS Lattice Property Verification | `section-04-lattice-properties.md` | Not Started |
-| 05 | Contract Coherence Oracle | `section-05-contract-oracle.md` | Not Started |
-| 06 | Protocol Builtin Verification Matrix | `section-06-protocol-builtins.md` | Not Started |
+| 01 | Verifier Gates & Quick Wins | `section-01-verifier-gates.md` | Complete |
+| 02 | Shared Test Harness Infrastructure | `section-02-shared-harness.md` | Complete |
+| 03 | AIMS Pass-Level Snapshot Tests | `section-03-aims-snapshots.md` | Complete |
+| 04 | AIMS Lattice Property Verification | `section-04-lattice-properties.md` | Not Started (RESET) |
+| 05 | Contract Coherence Oracle | `section-05-contract-oracle.md` | Not Started (RESET) |
+| 06 | Protocol Builtin Verification Matrix | `section-06-protocol-builtins.md` | Not Started (RESET) |
 | 07 | FileCheck-Style IR Pattern Matching | `section-07-filecheck.md` | Not Started |
 | 08 | Sanitizer Integration | `section-08-sanitizers.md` | Not Started |
 | 09 | Alive2 Formal Verification | `section-09-alive2.md` | Not Started |

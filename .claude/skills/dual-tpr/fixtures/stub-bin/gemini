@@ -9,17 +9,26 @@
 # Mode is read from STUB_GEMINI_MODE (default: ok). Modes match the codex
 # stub at fixtures/stub-bin/codex — see that file for full documentation.
 #
-#   ok          Emit a valid no-findings envelope wrapped in BEGIN/END
-#               sentinels and a fenced JSON block. Exit 0.
-#   slow-ok     Like ok, but sleep STUB_GEMINI_SLEEP seconds (default 3) before
-#               emitting. Used to verify dual-invoke.sh's wait-for-both contract:
-#               if codex fails fast and dual-invoke.sh fails to wait for gemini,
-#               gemini.exit will be missing because the orphaned subprocess
-#               wrote it after the parent gave up. Used by Scenario 5
-#               (BUG-08-004 + BUG-08-005 regression).
-#   fail-once   First call: write counter, exit 1. Second+ calls: succeed.
-#   dirty       Append to dirty-target.txt then emit envelope. Exit 0.
-#   always-fail Exit 1 every call.
+#   ok                    Emit a valid no-findings envelope wrapped in BEGIN/END
+#                         sentinels and a fenced JSON block. Exit 0.
+#   slow-ok               Like ok, but sleep STUB_GEMINI_SLEEP seconds (default 3)
+#                         before emitting. Used to verify dual-invoke.sh's
+#                         wait-for-both contract (Scenario 5: BUG-08-004 +
+#                         BUG-08-005 regression).
+#   fail-once             First call: write counter, exit 1. Second+ calls:
+#                         succeed. Tests launch-level retry.
+#   schema-fail-once      First call: exit 0 BUT emit an envelope that fails
+#                         schema validation (severity: 'planned' is not in the
+#                         enum). parse-gemini.py will reject it with
+#                         schema_violation, which dual-invoke-with-retry.sh
+#                         classifies as retryable. Second+ calls: emit a valid
+#                         envelope. Used for Scenario 8 (selective-retry fix,
+#                         2026-04-11): when codex succeeds on attempt 1 and
+#                         gemini trips schema_violation, attempt 2 should
+#                         narrow to gemini-only and preserve codex's attempt-1
+#                         envelope instead of wastefully re-running codex.
+#   dirty                 Append to dirty-target.txt then emit envelope. Exit 0.
+#   always-fail           Exit 1 every call.
 
 set -uo pipefail
 
@@ -33,6 +42,33 @@ case "$MODE" in
       printf 'stub-gemini: simulated launch failure (attempt 1)\n' >&2
       exit 1
     fi
+    ;;
+  schema-fail-once)
+    # First call: emit a syntactically broken fenced JSON block (missing
+    # closing brace) inside valid BEGIN/END sentinels. parse-gemini.py passes
+    # the sentinel + fenced-block extraction layers, then fails at
+    # `json.loads(json_text)` with stderr first line `parse_fail`. The retry
+    # classifier treats gemini_parse_fail as retryable, so attempt 2 fires
+    # with the selective-retry narrowing logic. Second+ calls fall through
+    # to the OK envelope below, simulating a transient model glitch that
+    # clears on retry.
+    #
+    # We deliberately avoid repairable violations (bad severity, missing
+    # fields, bogus locations) because repair_envelope.py would silently fix
+    # them — the only way to guarantee a parser failure against the repair
+    # layer is to break the JSON syntax itself, which repair can't reach
+    # because json.loads aborts first.
+    if [[ ! -f "$STATE" ]]; then
+      printf '1\n' > "$STATE"
+      cat <<'JSONL'
+{"type":"init"}
+{"type":"message","role":"user","content":"Review."}
+{"type":"message","role":"assistant","content":"<!-- BEGIN-ORI-DUAL-TPR-V1 -->\n```json\n{\"schema_version\":\"1.0\",\"status\":\"complete\",\"reviewer\":\"gemini\"\n```\n<!-- END-ORI-DUAL-TPR-V1 -->","delta":true}
+{"type":"result","status":"success"}
+JSONL
+      exit 0
+    fi
+    # Second+ call: fall through to OK envelope emission below.
     ;;
   always-fail)
     printf 'stub-gemini: always-fail mode\n' >&2
