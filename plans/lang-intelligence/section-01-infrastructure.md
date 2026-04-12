@@ -116,26 +116,26 @@ If any check fails, output the unavailable JSON and exit 0. The caller never see
 
 ## 01.2 Fix Existing query_graph.py Issues
 
-Real issues found in `~/projects/lang_intelligence/neo4j/query_graph.py` that must be fixed before any integration. All line references are from the current file.
+Real issues found in `~/projects/lang_intelligence/neo4j/query_graph.py` that must be fixed before any integration. Function names referenced below; use `grep -n 'def func_name' neo4j/query_graph.py` for current line numbers.
 
 ### 01.2a Error Handling & Robustness
 
-- [x] Unhandled Neo4j exceptions — `get_driver()` (line 35-36) is lazy: driver construction succeeds even when Neo4j is down; the real `ServiceUnavailable` exception fires at `session.run()` time inside each command function. Wrapping only `get_driver()` does nothing. Fix: wrap the command dispatch in `main()` (the routing block that calls `cmd_*`) in a centralized `try/except (ServiceUnavailable, AuthError, Exception)` that prints an actionable error message and exits non-zero. This catches all command-level failures in one place.
-- [x] No `try/finally` on `driver.close()` — every command function (e.g., `cmd_search` line 83-102, `cmd_compare` line 105-143) calls `driver.close()` at the end, but if the session query raises an exception, `driver.close()` is skipped and the connection leaks. Use context manager (`with get_driver() as driver:`) or try/finally.
-- [x] `_parse_flags` (line 53, 55) calls `int(args[i+1])` on `--limit` and `--depth` values with no validation — non-numeric input like `--limit foo` raises an unhandled `ValueError` traceback. Add `try/except ValueError` with a clear error message. Also fix positional numeric args in `cmd_related` (line 151) and `cmd_fix_chain` (line 202) which do `int(args[1])` without any validation — same crash on non-numeric input. Validate all positional numeric args in those commands with the same try/except pattern.
-- [x] No connection timeout — `GraphDatabase.driver()` (line 36) uses default timeout, which can hang indefinitely if the Bolt port is open but the server is wedged. Add `connection_timeout=5` to the driver constructor.
+- [x] Unhandled Neo4j exceptions — `get_driver()` is lazy: driver construction succeeds even when Neo4j is down; the real `ServiceUnavailable` exception fires at `session.run()` time inside each command function. Wrapping only `get_driver()` does nothing. Fix: wrap the command dispatch in `main()` in a centralized `try/except (ServiceUnavailable, AuthError, Exception)` that prints an actionable error message and exits non-zero. This catches all command-level failures in one place.
+- [x] No `try/finally` on `driver.close()` — every command function (e.g., `cmd_search`, `cmd_compare`) calls `driver.close()` at the end, but if the session query raises an exception, `driver.close()` is skipped and the connection leaks. Use context manager (`with get_driver() as driver:`) or try/finally.
+- [x] `_parse_flags` calls `int(args[i+1])` on `--limit` and `--depth` values with no validation — non-numeric input raises an unhandled `ValueError`. Validators now raise `ValueError`, caught by `main()`'s centralized try/except. Also fix positional numeric args in `cmd_related` and `cmd_fix_chain` which do `int(args[1])` — same pattern.
+- [x] No connection timeout — `GraphDatabase.driver()` uses default timeout, which can hang indefinitely if the Bolt port is open but the server is wedged. Add `connection_timeout=5` to the driver constructor.
 
 ### 01.2b Missing Functionality
 
 - [x] Implement `--health-check` command in `query_graph.py` — a lightweight probe that verifies TCP + Bolt handshake + auth using the configured credentials (env vars or defaults). Returns JSON `{"status":"ok"}` on success, `{"status":"error","reason":"..."}` on failure. Exit 0 always. This is called by `intel-query.sh` step 4 to validate connectivity without running a full query. Also verify that the full-text `issue_text` index exists (needed by `search`, `compare`, `fixed`, `pattern`).
-- [x] `label-graph` command (line 444) is a TODO stub: `lambda a: print("TODO: label co-occurrence")`. Implement the label co-occurrence graph query or remove it from the usage docstring — a silently no-op command is a trap.
+- [x] `cmd_label_graph` was a TODO stub. Implement the label co-occurrence graph query or remove it from the usage docstring — a silently no-op command is a trap.
 - [x] No `--json` output mode — all commands print human-readable text to stdout. Add `--json` flag that makes every command output structured JSON instead. This is required by `intel-query.sh` which needs machine-parseable results.
 - [x] No graph-emptiness detection in `cmd_stats` — if the graph has zero Issue nodes (e.g., after a fresh `schema.cypher` without any data import), `stats` prints empty tables with no warning. Add a "graph is empty — run the fetch pipeline first" message.
-- [x] Refactor `cmd_compare` (line 106) and `cmd_pattern` (line 256) to use `_parse_flags` for argument parsing — both currently do `" ".join(args)` which would include `--json` in the search terms if that flag appears in `args`. Using `_parse_flags` to strip global flags before joining ensures `--json` (and future flags) are intercepted rather than appended to the Cypher query string.
+- [x] Refactor `cmd_compare` and `cmd_pattern` to use `_parse_flags` for argument parsing — both used to do `" ".join(args)` which would include `--json` in the search terms. Using `_parse_flags` to strip global flags before joining ensures `--json` (and future flags) are intercepted.
 
 ### 01.2c Hardcoded Configuration
 
-- [x] Credentials hardcoded (lines 30-32): `bolt://localhost:7687`, `neo4j`, `intelligence` are inline constants. Read from environment variables (`NEO4J_URI`, `NEO4J_USER`, `NEO4J_PASS`) with the current values as defaults. This allows different environments (CI, remote, Docker Compose with different ports) without editing source.
+- [x] Credentials hardcoded: `bolt://localhost:7687`, `neo4j`, `intelligence` were inline constants. Read from environment variables (`NEO4J_URI`, `NEO4J_USER`, `NEO4J_PASS`) with the current values as defaults. This allows different environments (CI, remote, Docker Compose with different ports) without editing source.
 
 - [x] Validate Python fixes: test `query_graph.py --limit foo` exits cleanly with error message (not traceback), test `query_graph.py related rust notanumber` exits cleanly, test `query_graph.py --json stats` returns valid JSON
 
@@ -218,6 +218,11 @@ Real issues found in `~/projects/lang_intelligence/neo4j/query_graph.py` that mu
   Resolved: Fixed on 2026-04-12. Changed all validators to raise ValueError; caught by main()'s try/except → routed through `_handle_error(msg, json_mode)`.
 - [x] `[TPR-01-003-gemini][medium]` (close-out) `scripts/intel-query.sh:31` — Unsafe manual JSON construction (near-agreement with TPR-01-002-codex close-out).
   Resolved: Fixed on 2026-04-12. Same fix as TPR-01-002-codex close-out (python3 json.dump).
+- [x] `[TPR-01-001-codex][medium]` (close-out-2) `query_graph.py:702` — GAP: `query_graph.py --json` (no command) crashes with IndexError; `--json` stripped before length check.
+  Resolved: Fixed on 2026-04-12. Moved `--json` stripping before the `len(argv) < 2` check; returns JSON error in json_mode.
+- [x] `[TPR-01-002-codex][low]` (close-out-2) `section-01-infrastructure.md:119` — DRIFT: Stale line references in 01.2 checklist (shifted after fixes).
+  Resolved: Fixed on 2026-04-12. Removed fragile line numbers; use function names as stable identifiers with grep instructions.
+- [x] `[TPR-01-001-gemini][informational]` (close-out-2) `scripts/intel-query.sh:1` — All 7 fixes verified successfully; no architectural violations found. Proof-of-work from thorough re-review pass.
 
 ## 01.N Completion Checklist
 
