@@ -408,8 +408,8 @@ impl AimsStateMap {
     ///
     /// Examines all block exit states and counts variable-block pairs where
     /// the converged state shows evidence of cross-dimensional rule effects:
-    /// - Rule 4: `BlockLocal + Owned + ≤Once + Unique` (uniqueness from locality)
-    /// - Rule 6: `HeapEscaping + MaybeShared` where Unique was demoted
+    /// - Cross-dim: `BlockLocal + Owned + ≤Once + Unique` (from FRESH/transfer)
+    /// - Rule 6: `HeapEscaping/Unknown + MaybeShared` where Unique was demoted
     /// - Rule 8: `Borrowed + ≤FunctionLocal` where locality was capped
     ///
     /// Returns total count of cross-dim influenced variable-block pairs.
@@ -423,8 +423,8 @@ impl AimsStateMap {
                 if state.is_scalar() {
                     continue;
                 }
-                // Rule 4 evidence: state has Unique + BlockLocal + Owned + ≤Once.
-                // This combination is only reachable through Rule 4 promotion.
+                // Cross-dim evidence: state has Unique + BlockLocal + Owned + ≤Once.
+                // Reachable from FRESH allocation or transfer functions.
                 if state.uniqueness == Uniqueness::Unique
                     && state.locality == Locality::BlockLocal
                     && state.access == AccessClass::Owned

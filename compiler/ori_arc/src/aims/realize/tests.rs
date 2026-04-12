@@ -1310,10 +1310,12 @@ fn synergy_metrics_cross_dim_evidence() {
 }
 
 #[test]
+/// Regression: BUG-04-057 — Rule 4 removed. `BlockLocal`+`Owned`+`Once`+`MaybeShared`
+/// now produces 0 cross-dim fires and uniqueness stays `MaybeShared`.
 fn canonicalize_feedback_tracks_cross_dim_fires() {
     use crate::aims::lattice::{AimsState, Locality};
 
-    // Rule 4: BlockLocal + Owned + Once + MaybeShared → Unique.
+    // Rule 4 REMOVED: BlockLocal+Owned+Once+MaybeShared stays MaybeShared.
     let mut state = AimsState {
         access: AccessClass::Owned,
         consumption: Consumption::Linear,
@@ -1324,14 +1326,14 @@ fn canonicalize_feedback_tracks_cross_dim_fires() {
         effect: crate::aims::lattice::EffectClass::NONE,
     };
     let feedback = state.canonicalize_with_feedback();
-    assert!(
-        feedback.cross_dim_fires > 0,
-        "Rule 4 should register as cross-dim fire"
+    assert_eq!(
+        feedback.cross_dim_fires, 0,
+        "No cross-dim rule should fire (Rule 4 removed)"
     );
     assert_eq!(
         state.uniqueness,
-        Uniqueness::Unique,
-        "Rule 4 should promote to Unique"
+        Uniqueness::MaybeShared,
+        "Uniqueness should stay MaybeShared (Rule 4 removed)"
     );
 }
 
