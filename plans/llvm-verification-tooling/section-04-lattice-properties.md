@@ -54,19 +54,19 @@ sections:
 
 > **RESET (2026-04-11):** All work in this section was produced by an autopilot session with inadequate planning and TPR oversight. However, the existing code (`compiler/ori_arc/src/aims/lattice/prop_tests.rs`, 534 lines, 22 passing tests + 1 ignored) has been reviewed during this plan revision and is structurally sound — strategies, helpers, and test logic are correct. The tasks below are reframed as **audit + extend**: audit the existing code for correctness, then add the missing tests identified by blind-spot analysis (partial-order axioms, monotonicity, permutation-invariance, distributivity, BUG-04-057 soundness). The existing code should NOT be rewritten — it should be verified and built upon.
 
-**Status:** In Progress
-**Goal:** Audit and extend proptest-based verification of algebraic lattice properties (join commutativity, idempotence, partial-order axioms), canonicalization idempotence/convergence/dimension-guarantees, decision predicate semantic contracts and transfer function monotonicity, fixpoint convergence bounds, and BUG-04-057 soundness analysis across the full 7-dimensional AIMS product lattice. The existing exhaustive tests in `lattice/tests.rs` (2,365 lines) cover specific join laws and canonicalization for 2,880 sampled combinations. Property-based testing goes further: it generates random state pairs and triples, catching algebraic bugs in corners that hand-written exhaustive enumeration might miss — particularly in cross-dimension interactions (canonicalization rules 4-8). **Notable discovery: BUG-04-057 — join is non-associative on canonical states due to canonicalization Rule 4 interaction with uniqueness.**
+**Status:** In Progress (close-out TPR in progress)
+**Goal:** Audit and extend proptest-based verification of algebraic lattice properties (join commutativity, associativity, idempotence, partial-order axioms), canonicalization idempotence/convergence/dimension-guarantees, decision predicate semantic contracts and transfer function monotonicity, fixpoint convergence bounds, and BUG-04-057 soundness analysis across the 7-dimensional AIMS product lattice (4-variant Locality; ArgEscaping planned in `plans/locality-representation-unification/`).
 
 **Success Criteria:**
 
-- [x] Existing proptest infrastructure audited and verified correct (strategies, helpers, all 22→30 passing tests + 7 ignored) — satisfies mission criterion: "proptest infrastructure available"
-- [x] Join commutativity, idempotence verified for random AimsState pairs; associativity blocked by BUG-04-057 (test exists, `#[ignore]`) — satisfies mission criterion: "Lattice property verification"
-- [x] Partial-order axioms (reflexivity, antisymmetry, transitivity) verified for `lattice_leq` — **transitivity FAILS (BUG-04-057)**; `componentwise_leq` added as valid alternative (passes all 3 axioms) — satisfies mission criterion: "Lattice property verification"
+- [x] Existing proptest infrastructure audited and verified correct (strategies, helpers, 36 passing tests + 1 O(n^3) `#[ignore]`) — satisfies mission criterion: "proptest infrastructure available"
+- [x] Join commutativity, associativity, idempotence verified for random AimsState pairs — all pass after BUG-04-057 fix (Rule 4 removed) — satisfies mission criterion: "Lattice property verification"
+- [x] Partial-order axioms (reflexivity, antisymmetry, transitivity) verified for `lattice_leq` and `componentwise_leq` — all pass after BUG-04-057 fix — satisfies mission criterion: "Lattice property verification"
 - [x] Canonicalization idempotence verified for all sampled states — satisfies mission criterion: "Lattice property verification"
-- [x] Transfer function semantic contracts verified AND `capture_state_update` monotonicity tested — **NOT monotone (BUG-04-058)**: Rule 6 fires for HeapEscaping but not Unknown — satisfies mission criterion: "Transfer properties"
-- [x] Permutation-invariance for n-ary successor merge verified — **NOT invariant (BUG-04-057 CONFIRMED OPERATIONAL)**: fold order changes uniqueness, affecting RC/COW/reuse decisions — satisfies mission criterion: "Fixpoint convergence bounds"
+- [x] Transfer function semantic contracts verified AND `capture_state_update` monotonicity tested — all pass after BUG-04-058 fix (Rule 6 widened) — satisfies mission criterion: "Transfer properties"
+- [x] Permutation-invariance for n-ary successor merge verified — passes after BUG-04-057 fix — satisfies mission criterion: "Fixpoint convergence bounds"
 - [x] Fixpoint convergence within height bound (15 steps) — satisfies mission criterion: "Fixpoint convergence bounds"
-- [x] BUG-04-057 soundness formally analyzed — **Option B (fix required)**: exhaustive characterization finds decision divergence on first sensitive triple. `/fix-bug BUG-04-057` is the next action — satisfies mission criterion: "Lattice soundness"
+- [x] BUG-04-057 soundness formally analyzed and FIXED (3f7cf7c2) — Rule 4 removed, Rule 6 widened, all property tests pass — satisfies mission criterion: "Lattice soundness"
 
 **Context:** The AIMS lattice is a product of 7 dimensions: `AccessClass` (2 values), `Consumption` (4), `Cardinality` (3), `Uniqueness` (3), `Locality` (4), `ShapeClass` (5), `EffectClass` (8 = 2^3 boolean flags). Total raw state space: 2 * 4 * 3 * 3 * 4 * 5 * 8 = 11,520 states. After excluding the `SCALAR` sentinel (not a lattice element) and considering canonicalization (which collapses infeasible combinations), the effective lattice is smaller. The existing tests in `lattice/tests.rs` exhaustively verify join laws for the 2,880-state subset sampled in `representative_states()`. Property-based testing complements this by: (1) testing join on arbitrary canonical state pairs and triples (discovering BUG-04-057: non-associativity), (2) testing canonicalization dimension guarantees on raw states, (3) verifying decision predicate semantic contracts, and (4) testing fixpoint convergence bounds.
 
@@ -303,7 +303,7 @@ Audit the existing canonicalization property tests. These are complete and corre
   - access: unchanged (no rule touches it)
   - consumption: only decreases (Rule 1: -> Dead for Absent)
   - cardinality: only decreases (Rule 1: -> Absent for Dead)
-  - uniqueness: EITHER direction (Rule 4 down, Rule 6 up)
+  - uniqueness: only increases (CN-6 up: Unique→MaybeShared at HeapEscaping+; CN-4 REMOVED)
   - locality: only decreases (Rule 8: -> <=FunctionLocal for Borrowed)
   - shape: can move to NonReusable (Rule 3: Shared+ReusableCtor -> NonReusable)
   - effect: unchanged (no rule touches it)

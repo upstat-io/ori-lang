@@ -540,8 +540,8 @@ proptest! {
             "canonicalize must not change effect: input={a:?}"
         );
 
-        // Uniqueness: can move either direction (Rule 4 down, Rule 6 up),
-        // but Shared is never changed by any canonicalization rule.
+        // Uniqueness: can only move up (CN-6: Unique→MaybeShared at
+        // HeapEscaping+). Shared is never changed by canonicalization.
         if a.uniqueness == Uniqueness::Shared {
             assert_eq!(
                 canonical.uniqueness,
