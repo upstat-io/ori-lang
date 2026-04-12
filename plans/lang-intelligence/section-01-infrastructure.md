@@ -28,7 +28,7 @@ sections:
     status: complete
   - id: "01.N"
     title: "Completion Checklist"
-    status: not-started
+    status: in-progress
 third_party_review:
   status: resolved
   updated: 2026-04-12
@@ -139,7 +139,7 @@ Real issues found in `~/projects/lang_intelligence/neo4j/query_graph.py` that mu
 
 - [x] Validate Python fixes: test `query_graph.py --limit foo` exits cleanly with error message (not traceback), test `query_graph.py related rust notanumber` exits cleanly, test `query_graph.py --json stats` returns valid JSON
 
-- [ ] **Subsection close-out (01.2)** — MANDATORY before starting 01.N:
+- [x] **Subsection close-out (01.2)** — MANDATORY before starting 01.N:
   - [x] All tasks above are `[x]` and the subsection's behavior is verified
   - [x] Update this subsection's `status` in section frontmatter to `complete`
   - [x] **Run `/improve-tooling` retrospectively on THIS subsection** — Retrospective 01.2: no tooling gaps. Work was entirely Python changes in an external project (`~/projects/lang_intelligence/`). Ori compiler tooling (diagnostics, test harness, scripts) was not exercised. No improvements needed.
