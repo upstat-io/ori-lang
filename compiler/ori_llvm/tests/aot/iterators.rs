@@ -275,6 +275,25 @@ fn test_iter_join_int_after_filter() {
     );
 }
 
+/// Char join exercises `ori_str_from_char` via the `to_str` trampoline.
+#[test]
+fn test_iter_join_char() {
+    assert_aot_success(
+        include_str!("fixtures/iterators/iter_join_char.ori"),
+        "iter_join_char",
+    );
+}
+
+/// Long float join exercises heap-backed `OriStr` path (>23 bytes SSO).
+/// Regression guard for BUG-05-002 (`OriStr` temporary leak).
+#[test]
+fn test_iter_join_long_float() {
+    assert_aot_success(
+        include_str!("fixtures/iterators/iter_join_long_float.ori"),
+        "iter_join_long_float",
+    );
+}
+
 // zip adapter
 
 #[test]
