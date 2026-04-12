@@ -244,6 +244,12 @@ Real issues found in `~/projects/lang_intelligence/neo4j/query_graph.py` that mu
   Resolved: Fixed on 2026-04-12. Collapsed resolved items into single resolved-summary line.
 - [x] `[TPR-01-001-codex][medium]` (close-out-7) `scripts/intel-query.sh:157` — GAP: Human-mode status and proxy branches bypass QUERY_TIMEOUT — can hang indefinitely.
   Resolved: Fixed on 2026-04-12. Added `timeout "$QUERY_TIMEOUT"` to human-mode stats (line 157) and proxy (line 188) branches.
+- [x] `[TPR-01-001-codex][medium]` (close-out-8) `scripts/intel-query.sh:157` — GAP: Human-mode timeout failures silently swallowed — no `unavailable()` reporting.
+  Resolved: Fixed on 2026-04-12. Added RC check + stderr error message for both human-mode branches.
+- [x] `[TPR-01-002-codex][low]` (close-out-8) `scripts/intel-query.sh:167` — GAP: No-command human help path lacks timeout wrapper.
+  Resolved: Fixed on 2026-04-12. Added `timeout "$STEP_TIMEOUT"` to help invocation.
+- [x] `[TPR-01-001-gemini][medium]` (close-out-8) `scripts/intel-query.sh:167` — GAP: Same help-path timeout gap (near-agreement with TPR-01-002-codex).
+  Resolved: Fixed on 2026-04-12. Same fix as TPR-01-002-codex close-out-8.
 
 ## 01.N Completion Checklist
 

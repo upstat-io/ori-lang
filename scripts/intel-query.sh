@@ -155,6 +155,9 @@ except Exception:
         echo "Neo4j version: $VERSION"
         echo ""
         timeout "$QUERY_TIMEOUT" "$VENV_PYTHON" "$QUERY_SCRIPT" stats
+        if [[ $? -ne 0 ]]; then
+            printf 'Intelligence unavailable: stats query failed or timed out\n' >&2
+        fi
     fi
     exit 0
 fi
@@ -164,7 +167,7 @@ if [[ ${#PASS_ARGS[@]} -eq 0 ]]; then
     if is_json; then
         printf '{"status":"ok","data":{"help":"Usage: intel-query.sh <command> [args...]. Run with --human for full help."}}\n'
     else
-        "$VENV_PYTHON" "$QUERY_SCRIPT" 2>&1 || true
+        timeout "$STEP_TIMEOUT" "$VENV_PYTHON" "$QUERY_SCRIPT" 2>&1 || true
     fi
     exit 0
 fi
@@ -185,6 +188,9 @@ if is_json; then
     fi
     printf '{"status":"ok","data":%s}\n' "$RESULT"
 else
-    timeout "$QUERY_TIMEOUT" "$VENV_PYTHON" "$QUERY_SCRIPT" "${PASS_ARGS[@]}" || true
+    timeout "$QUERY_TIMEOUT" "$VENV_PYTHON" "$QUERY_SCRIPT" "${PASS_ARGS[@]}"
+    if [[ $? -ne 0 ]]; then
+        printf 'Intelligence unavailable: query failed or timed out\n' >&2
+    fi
 fi
 exit 0
