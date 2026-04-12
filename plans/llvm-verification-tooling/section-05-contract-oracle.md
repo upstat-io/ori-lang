@@ -28,7 +28,7 @@ sections:
     status: complete
   - id: "05.1"
     title: "Aliasing-Aware Contract Re-Derivation from Realized IR"
-    status: not-started
+    status: complete
   - id: "05.2"
     title: "May-Deallocate & Effect Derivation"
     status: not-started
@@ -147,7 +147,7 @@ Rewrite the oracle's core analysis to track parameter aliasing, handle batched i
 
 The oracle must track which variables are aliases of function parameters. A `Let { dst: v1, value: Var(param) }` instruction creates an alias — any RC operation on `v1` is semantically an RC operation on the parameter's value.
 
-- [ ] Implement `build_param_alias_map(func: &ArcFunction) -> FxHashMap<ArcVarId, usize>`. Walk all blocks in forward order. For each `Let { dst, value: ArcValue::Var(src), .. }` where `src` maps to a parameter index (directly or transitively through prior aliases), add `dst -> param_index` to the map. This is a simple forward dataflow — no fixed point needed because ARC IR is in SSA form (each `dst` is defined exactly once).
+- [x] Implement `build_param_alias_map(func: &ArcFunction) -> FxHashMap<ArcVarId, usize>`. Walk all blocks in forward order. For each `Let { dst, value: ArcValue::Var(src), .. }` where `src` maps to a parameter index (directly or transitively through prior aliases), add `dst -> param_index` to the map. This is a simple forward dataflow — no fixed point needed because ARC IR is in SSA form (each `dst` is defined exactly once).
 
   ```rust
   /// Maps every ArcVarId that is an alias of a function parameter to its
@@ -181,17 +181,17 @@ The oracle must track which variables are aliases of function parameters. A `Let
   }
   ```
 
-- [ ] **Block-parameter alias propagation:** ARC IR blocks have `params: Vec<(ArcVarId, Idx)>` — values passed from predecessor blocks via `Jump`. When `Jump { target: block_id, args: [v1, v2] }` targets a block whose params are `[(bp0, _), (bp1, _)]`, then `bp0` aliases `v1` and `bp1` aliases `v2`. If `v1` maps to a function parameter in the alias map, then `bp0` is also an alias of that parameter. This propagation requires a **worklist or fixpoint** because loop back-edges can carry aliases through block params that are defined after their first use in the iteration order. Implement a worklist that iterates until no new aliases are discovered. The existing contract extractor uses the same pattern (`compiler/ori_arc/src/aims/interprocedural/extract.rs:240-278`).
+- [x] **Block-parameter alias propagation:** ARC IR blocks have `params: Vec<(ArcVarId, Idx)>` — values passed from predecessor blocks via `Jump`. When `Jump { target: block_id, args: [v1, v2] }` targets a block whose params are `[(bp0, _), (bp1, _)]`, then `bp0` aliases `v1` and `bp1` aliases `v2`. If `v1` maps to a function parameter in the alias map, then `bp0` is also an alias of that parameter. This propagation requires a **worklist or fixpoint** because loop back-edges can carry aliases through block params that are defined after their first use in the iteration order. Implement a worklist that iterates until no new aliases are discovered. The existing contract extractor uses the same pattern (`compiler/ori_arc/src/aims/interprocedural/extract.rs:240-278`).
 
-- [ ] Add regression tests for block-parameter aliasing:
+- [x] Add regression tests for block-parameter aliasing:
   - `test_oracle_tracks_alias_through_jump_block_param` — Jump carries param alias to a successor block, RcInc on the block param is detected.
   - `test_oracle_tracks_alias_through_loop_carried_block_param` — loop back-edge carries param alias, worklist converges correctly.
 
-- [ ] **SSA form note:** Within a single block, ARC IR uses SSA (each `dst` defined once), so Let-based propagation is a single forward pass per block. But across blocks, block params can introduce aliases that require the worklist. Add a `debug_assert!` that verifies no `RcInc`/`RcDec` targets a variable absent from the alias map AND absent from the function's locals — this catches missed aliases.
+- [x] **SSA form note:** Within a single block, ARC IR uses SSA (each `dst` defined once), so Let-based propagation is a single forward pass per block. But across blocks, block params can introduce aliases that require the worklist. Add a `debug_assert!` that verifies no `RcInc`/`RcDec` targets a variable absent from the alias map AND absent from the function's locals — this catches missed aliases.
 
 ### 05.1.2 Per-Parameter RC Observation with Batched Counts
 
-- [ ] Replace `derive_param_contracts()` with `derive_param_observations()` that uses the alias map and handles `RcInc.count`:
+- [x] Replace `derive_param_contracts()` with `derive_param_observations()` that uses the alias map and handles `RcInc.count`:
 
   ```rust
   /// Per-parameter observations from walking realized IR.
@@ -211,17 +211,17 @@ The oracle must track which variables are aliases of function parameters. A `Let
   }
   ```
 
-- [ ] Walk all blocks and instructions using the alias map. For each instruction:
+- [x] Walk all blocks and instructions using the alias map. For each instruction:
   - `RcInc { var, count, .. }` — if `alias_map[var]` exists, add `count` (not 1) to `rc_incs[param_idx]`
   - `RcDec { var, .. }` — if `alias_map[var]` exists, increment `rc_decs[param_idx]`
   - **For ALL instruction types** (not just Apply/ApplyIndirect): iterate over `instr.used_vars()` and for each `(pos, used_var)` where `alias_map[used_var]` exists, check `instr.is_owned_position(pos)`. If owned, set `has_owned_transfer = true`. If not owned, increment `non_rc_uses`. This generalizes correctly to `Construct`, `PartialApply`, and `CollectionReuse` which also have owned positions (`compiler/ori_arc/src/ir/instr.rs:276-325`). Do NOT special-case individual instruction types — the `is_owned_position()` API is the canonical dispatcher.
   - **For terminators**: use `ArcTerminator::used_vars()` and `ArcTerminator::is_owned_position()` (`compiler/ori_arc/src/ir/terminator.rs:90-129`) for `Invoke` and `InvokeIndirect` — these have `arg_ownership` and carry the same owned-position semantics as `Apply`/`ApplyIndirect`. **Handle `Return` explicitly** — `is_owned_position()` does NOT cover `Return` (the current implementation returns `false` for Return). Return transfers ownership of the returned value; the oracle must handle this as a separate case: `ArcTerminator::Return { value, .. }` where `alias_map[value]` exists → set `has_owned_transfer = true` (the callee is consuming the parameter by returning it). The interprocedural extractor uses the same pattern (`compiler/ori_arc/src/aims/interprocedural/extract.rs:330-340`). **Handle `Jump` as alias propagation** — `Jump { target, args }` does NOT transfer ownership in the `is_owned_position` sense; it propagates aliases to successor block params (already handled in 05.1.1's worklist). Count Jump args as `non_rc_uses`.
 
-- [ ] Also count uses in terminators (Return, Jump args, Branch condition, Switch scrutinee) via `ArcTerminator::used_vars()`.
+- [x] Also count uses in terminators (Return, Jump args, Branch condition, Switch scrutinee) via `ArcTerminator::used_vars()`.
 
 ### 05.1.3 Derive `RealizedParamContract` from Observations
 
-- [ ] Expand `RealizedParamContract` to include `may_share`:
+- [x] Expand `RealizedParamContract` to include `may_share`:
 
   ```rust
   #[derive(Clone, Debug, PartialEq, Eq)]
@@ -238,7 +238,7 @@ The oracle must track which variables are aliases of function parameters. A `Let
 
   **Rationale for removing `cardinality`:** The naive use-count approach is unsound for branching CFGs (mutually exclusive paths inflate the count). Cardinality derivation requires path-sensitive analysis that is out of scope for the oracle. The oracle focuses on RC-observable dimensions per VF-3.
 
-- [ ] Implement `derive_single_param(obs: &ParamObservation) -> RealizedParamContract`:
+- [x] Implement `derive_single_param(obs: &ParamObservation) -> RealizedParamContract`:
 
   **Access derivation:**
   - `Owned` if `obs.rc_incs > 0 || obs.rc_decs > 0 || obs.has_owned_transfer`
@@ -257,7 +257,7 @@ The oracle must track which variables are aliases of function parameters. A `Let
   - `true` if `obs.rc_incs > 0` (per aims-rules IC-3)
   - `false` otherwise
 
-- [ ] Add tests covering the rewritten derivation:
+- [x] Add tests covering the rewritten derivation:
   - `test_derive_aliased_param_detects_rc_inc_on_alias` — RcInc on an alias of param0 detected as Owned+Unrestricted
   - `test_derive_batched_rc_inc_counts_correctly` — RcInc with count=3 counted as 3
   - `test_derive_owned_transfer_via_apply_arg_ownership` — param passed as Owned arg detected as access=Owned
@@ -271,12 +271,12 @@ The oracle must track which variables are aliases of function parameters. A `Let
   - `test_derive_owned_transfer_via_construct` — param passed to Construct at an owned position
   - `test_derive_owned_transfer_via_partial_apply` — param captured by PartialApply at an owned position
 
-- [ ] Verify all 05.PRE failing tests now PASS with the rewritten oracle.
+- [x] Verify all 05.PRE failing tests now PASS with the rewritten oracle. Result: 3 previously-ignored tests now pass (un-ignored, no assertion changes).
 
-- [ ] **Subsection close-out (05.1)** — MANDATORY before starting 05.2:
-  - [ ] All tasks above are `[x]` and the subsection's behavior is verified
-  - [ ] Update this subsection's `status` in section frontmatter to `complete`
-  - [ ] **Run `/improve-tooling` retrospectively on THIS subsection** — reflect on the debugging journey for 05.1 specifically.
+- [x] **Subsection close-out (05.1)** — MANDATORY before starting 05.2:
+  - [x] All tasks above are `[x]` and the subsection's behavior is verified
+  - [x] Update this subsection's `status` in section frontmatter to `complete`
+  - [x] **Run `/improve-tooling` retrospectively on THIS subsection** — Retrospective 05.1: no tooling gaps. The `is_owned_position()` API and `used_vars()` API were clean and well-documented. Test helpers worked well for constructing multi-block ARC IR. The only friction was needing to look up `CtorKind::Tuple` as a unit variant — documented in Rust autocompletion.
 
 ---
 
