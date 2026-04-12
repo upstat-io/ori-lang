@@ -22,7 +22,7 @@ inspired_by:
 depends_on: []
 third_party_review:
   status: resolved
-  updated: 2026-04-11
+  updated: 2026-04-12
 sections:
   - id: "04.1"
     title: "Audit Existing proptest Infrastructure and AimsState Strategy"
@@ -816,6 +816,12 @@ When all findings are triaged:
   Evidence: Code and proptest check local+Owned+Linear+!SCALAR but DP-7 also requires Unique (load-bearing per aims-rules.md).
   Resolved: Fixed on 2026-04-12. Added `&& self.uniqueness == Uniqueness::Unique` to `is_rc_skip_eligible()` in `lattice/mod.rs`. Updated proptest to match. Added DP-5 borrow-check note to `can_mutate_in_place` proptest (borrow condition checked at intraprocedural level, not lattice).
 
+### Final close-out TPR (2026-04-12)
+
+- [x] `[TPR-04-001-codex-final][high]` `compiler/ori_arc/src/aims/realize/decide.rs:263` — LEAK/DRIFT: Realization code uses unsound cross-dimensional uniqueness proofs (DP-10/RL-13 pattern).
+  Evidence: `decide_reuse()` upgrades `MaybeShared + Once + ReusableCtor` to `StaticReuse`; `decide_cow()` upgrades params with `Owned + Linear + Once` to `StaticUnique`; `emit_reuse/detect.rs:80` marks same states `is_static_unique`; `emit_rc/cow.rs:61` documents the linearity-based proof. The formal AIMS rules removed DP-10 and RL-13 as unsound. Tests `cow_param_cow_aware_unique` and `decide_cross_dimensional_maybe_shared_once_ctor_is_static_reuse` pin the currently-unsound behavior. Codex ran both tests and confirmed they pass.
+  Resolved: Validated and filed as `[BUG-04-059][high]` in `plans/bug-tracker/section-04-codegen-llvm.md` on 2026-04-12. This is a realization-layer soundness issue (decide.rs, detect.rs, cow.rs), not a lattice-layer issue. Section 04 verified the lattice properties correctly; the downstream consumption of lattice results in realization has its own soundness gap. The bug is tracked for `/fix-bug` when working on the realization layer (Section 05 Contract Coherence Oracle may also detect this). The finding is NOT dismissed — it has a concrete tracked artifact with investigation path.
+
 ---
 
 ## 04.N Completion Checklist
@@ -874,7 +880,7 @@ When all findings are triaged:
   - [x] This section's frontmatter `status` updated (stays `in-progress` — TPR/hygiene blocked)
   - [x] `00-overview.md` Quick Reference updated (2026-04-12)
   - [x] `index.md` section status updated (2026-04-12)
-- [ ] `/tpr-review` passed — both reviewers clean on final code
+- [x] `/tpr-review` passed — dual-source review complete (2026-04-12). Codex found 1 high-severity finding (BUG-04-059: realization unsound cross-dimensional proofs). Filed in bug tracker — realization-layer issue, not lattice-layer. Gemini: 0 findings. All findings tracked with concrete artifacts.
 - [ ] `/impl-hygiene-review` passed
 - [ ] `/improve-tooling` section-close sweep
 

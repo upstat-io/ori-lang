@@ -15,7 +15,7 @@ Build a cross-language design-memory system that gives the Ori compiler proactiv
 
 ## Mission Success Criteria
 
-- [ ] `scripts/intel-query.sh` returns structured results when Neo4j is available and silently skips when it is not
+- [ ] `scripts/intel-query.sh` returns JSON by default: `{"status":"ok","data":...}` when Neo4j is available, `{"status":"unavailable","reason":"..."}` when not (exit 0 in both cases)
 - [ ] `.claude/rules/intelligence.md` auto-loads and triggers intelligence queries during design decisions, bug fixes, and reviews
 - [ ] `/query-intel` command works from any conversation with search, compare, and Ori preset queries
 - [ ] `/tpr-review` evidence packets include cross-language prior art from the intelligence graph
@@ -152,4 +152,8 @@ Build a cross-language design-memory system that gives the Ori compiler proactiv
 - Rust fetch used v1 script (filtered PRs, no reviews) — needs re-fetch with v2 to pick up PR data
 - `--paginate` on `gh api` produces concatenated JSON arrays — needs `jq -s 'add'` post-processing
 - Fetch pipeline lacks incremental comment/review re-fetch for updated issues
-- `query_graph.py` has `sqlite3.Row.get()` bug and preset args are silently ignored
+- `query_graph.py` `get_driver()` has no try/except — Neo4j down = unhandled `ServiceUnavailable` traceback
+- `query_graph.py` `driver.close()` not in try/finally — exceptions leak the driver connection
+- `query_graph.py` `label-graph` command is a TODO stub (line 444)
+- `query_graph.py` has no `--json` output mode for machine-readable results
+- `query_graph.py` credentials hardcoded (bolt://localhost:7687, neo4j/intelligence) — should use env vars
