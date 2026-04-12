@@ -341,7 +341,7 @@ Bugs in LLVM IR generation, JIT/AOT compilation, monomorphization, ARC pipeline 
 
 - [x] `[BUG-04-039][high]` **LLVM codegen: `join` on non-string iterators crashes (missing `to_str_fn` trampoline)** — found by continue-roadmap.
   Resolved: 2026-04-06. Generated `to_str` trampoline in `emit_iter_join` for int, float, bool, char element types. Byte/Duration/Size/Ordering excluded — they need proper Printable method dispatch (codegen error produced instead of wrong output).
-  Fix: `plans/bug-tracker/fix-BUG-04-039.md` | 5 AOT tests added (`iter_join_int/float/bool/single_int/int_after_map`)
+  Fix: `plans/bug-tracker/fix-BUG-04-039.md` | 7 AOT tests added (`iter_join_int/float/bool/single_int/int_after_map/empty_int/int_after_filter`)
 
 - [x] `[BUG-04-040][medium]` **LLVM JIT spec test runner: path-dependent compilation context causes spurious LCFails** — found by tpr-review.
   Resolved: Misdiagnosis on 2026-04-06. The path-dependent behavior was caused by a **stale user-local stdlib** at `~/.local/share/ori/library/std/testing.ori` (from 2026-03-28) with older `assert_eq<T: Eq>` signatures (no Debug bound), while the project's current `library/std/testing.ori` has `assert_eq<T: Eq + Debug>`. Module resolution walks up from the file's directory: project-tree files found the correct project library; `/tmp/` files fell through to the stale user-local copy with simpler signatures that the JIT could handle. Stale user-local stdlib removed. Both paths now consistently use project stdlib. The underlying LCFail for `assert_eq` with `Debug` bound is a general codegen feature gap (unresolved type variables in imported generics), not a path-dependent issue.
