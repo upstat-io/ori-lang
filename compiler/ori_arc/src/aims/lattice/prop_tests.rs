@@ -611,7 +611,10 @@ proptest! {
         );
     }
 
-    /// can_mutate_in_place must match: Owned access AND Unique reference.
+    /// can_mutate_in_place lattice-level check: Owned + Unique (DP-5 subset).
+    /// NOTE: The full DP-5 also requires no overlapping active borrows, which
+    /// is checked via the borrow_sources side table at the intraprocedural
+    /// level — not testable at the AimsState lattice level.
     #[test]
     fn can_mutate_in_place_semantic_contract(a in canonical_aims_state_strategy()) {
         use crate::aims::transfer::can_mutate_in_place;
@@ -677,16 +680,17 @@ proptest! {
         );
     }
 
-    /// is_rc_skip_eligible: local + Owned + Linear + not-SCALAR.
+    /// is_rc_skip_eligible: local + Owned + Linear + Unique + not-SCALAR (DP-7).
     #[test]
     fn is_rc_skip_eligible_semantic_contract(a in canonical_aims_state_strategy()) {
         let expected = a.is_local()
             && a.access == AccessClass::Owned
             && a.consumption == Consumption::Linear
+            && a.uniqueness == Uniqueness::Unique
             && !a.is_scalar();
         assert_eq!(
             a.is_rc_skip_eligible(), expected,
-            "is_rc_skip_eligible must match semantic definition: a={a:?}"
+            "is_rc_skip_eligible must match DP-7 semantic definition: a={a:?}"
         );
     }
 

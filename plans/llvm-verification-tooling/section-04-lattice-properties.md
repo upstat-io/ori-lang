@@ -804,6 +804,18 @@ When all findings are triaged:
 - [x] `[TPR-04-003-gemini-r3][low]` `section-04-lattice-properties.md:794` — Missing path prefix for plan-annotations.sh.
   Resolved: Fixed on 2026-04-11. Added full path prefix.
 
+### Section close-out TPR (2026-04-12)
+
+- [x] `[TPR-04-001-codex-close][high]` `compiler/ori_arc/src/aims/lattice/dimensions.rs:152` — DRIFT: ArgEscaping in aims-rules.md but not in Locality enum.
+  Evidence: aims-rules.md §1.5 defines 5 Locality variants including ArgEscaping; code has 4. Section 04 claims are overstated.
+  Resolved: Fixed on 2026-04-12. Added implementation-status note to aims-rules.md §1.5 documenting that ArgEscaping is planned (tracked in plans/locality-representation-unification/) and Section 04 verifies the 4-variant lattice.
+- [x] `[TPR-04-002-codex-close][medium]` `compiler/ori_arc/src/aims/transfer/mod.rs:484` — DRIFT: FunctionLocal floor in capture_state_update violates TF-13.
+  Evidence: Code forces `closure_state.locality.max(Locality::FunctionLocal)` but TF-13 says no artificial floor.
+  Resolved: Fixed on 2026-04-12. Removed the floor — `capture_state_update()` now uses `max(current.locality, closure_state.locality)` per TF-13. Updated 2 tests: `transfer/tests.rs` and `intraprocedural/tests.rs` to assert BlockLocal for block-local closure captures.
+- [x] `[TPR-04-003-codex-close][medium]` `compiler/ori_arc/src/aims/lattice/prop_tests.rs:614` — DRIFT: is_rc_skip_eligible missing Uniqueness=Unique per DP-7.
+  Evidence: Code and proptest check local+Owned+Linear+!SCALAR but DP-7 also requires Unique (load-bearing per aims-rules.md).
+  Resolved: Fixed on 2026-04-12. Added `&& self.uniqueness == Uniqueness::Unique` to `is_rc_skip_eligible()` in `lattice/mod.rs`. Updated proptest to match. Added DP-5 borrow-check note to `can_mutate_in_place` proptest (borrow condition checked at intraprocedural level, not lattice).
+
 ---
 
 ## 04.N Completion Checklist
