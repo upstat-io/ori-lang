@@ -25,7 +25,7 @@ sections:
     status: complete
   - id: "06.2"
     title: "ori_arc Consumer Verification"
-    status: in-progress
+    status: complete
   - id: "06.3"
     title: "AOT End-to-End Type x Pattern Matrix"
     status: not-started
@@ -299,11 +299,11 @@ The critical failure mode is not the constants — it is the **consumers**. Test
   }
   ```
 
-- [ ] **TPR checkpoint** — `/tpr-review` covering 06.1–06.2 implementation work
+- [x] **TPR checkpoint** — `/tpr-review` covering 06.1–06.2 implementation work (2026-04-12). Clean on iteration 2. Iteration 1: convergent GAP fixed (missing __iter_next mixed-ownership test). Iteration 2: codex clean (16 files, ran all tests), gemini naming finding rejected after verification (matches established crate convention).
 
-- [ ] **Subsection close-out (06.2)** — MANDATORY before starting 06.3:
-  - [ ] All tasks above are `[x]` and the subsection's behavior is verified
-  - [ ] Update this subsection's `status` in section frontmatter to `complete`
+- [x] **Subsection close-out (06.2)** — MANDATORY before starting 06.3:
+  - [x] All tasks above are `[x]` and the subsection's behavior is verified
+  - [x] Update this subsection's `status` in section frontmatter to `complete`
 
 ---
 
@@ -392,6 +392,11 @@ When all findings are triaged:
   Impact: Mixed-ownership iteration logic in promote_callee_args unverified.
   Basis: direct_file_inspection. Confidence: high.
   Resolved: Fixed on 2026-04-12. Same fix as [TPR-06-001-codex] (convergent finding).
+- [x] `[TPR-06-002-gemini][low]` `compiler/ori_arc/src/aims/builtins/tests.rs:180` — Test functions lack mandatory shape and prefix.
+  Evidence: Claims test functions omit `test_` prefix and lack `<scenario>` component per impl-hygiene.md §Test Function Naming.
+  Impact: Low (naming convention concern).
+  Basis: direct_file_inspection. Confidence: high.
+  Resolved: Rejected after verification on 2026-04-12. The existing 30+ tests in borrow/tests.rs (pre-dating this work) all omit the `test_` prefix — this IS the established crate convention. The impl-hygiene.md shape definition is `<subject>_<scenario>_<expected>` (no `test_` in the shape). Adding the prefix would introduce inconsistency with the existing file. Names are descriptive and self-explanatory. Codex (HIGH trust, 16 files read, ran all tests) found zero naming issues.
 
 ---
 
