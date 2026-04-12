@@ -63,8 +63,8 @@ fn test_h15_reuse_survives_block_merge() {
     );
 }
 
-// H2: Lattice × TRMC — Canonicalize Rule 4 fires on context var in TRMC loop.
-// Context var is StaticUnique for in-place Set (no Dynamic COW check).
+// H2: Lattice × TRMC — context var starts Unique via TF-3 (fresh allocation)
+// in TRMC loop. StaticUnique for in-place Set (no Dynamic COW check).
 
 #[test]
 fn test_h2_lattice_trmc_context_var_unique() {

@@ -25,18 +25,18 @@ third_party_review:
 
 # Fix: BUG-04-057 — AIMS Lattice Join Non-Associative (+ BUG-04-058)
 
-**Status:** In Progress
+**Status:** Complete (fixed 3f7cf7c2, verified via Section 04 close-out TPR)
 **Severity:** Critical
 **Also fixes:** BUG-04-058 (capture_state_update non-monotone — same Rule 6 narrowness class)
 **Goal:** AIMS lattice join is associative on canonical states, lattice_leq is a valid partial order, and all transfer functions are monotone. The fixpoint analysis produces deterministic, order-independent results.
 
 **Success Criteria:**
-- [ ] join_associative proptest passes (5000 cases)
-- [ ] lattice_leq_transitive proptest passes (5000 cases)
-- [ ] nary_join_permutation_invariant proptest passes
-- [ ] capture_state_update monotonicity tests pass
-- [ ] All property tests green: `timeout 150 cargo test -p ori_arc -- lattice::prop_tests`
-- [ ] Full test suite: `timeout 150 ./test-all.sh` green
+- [x] join_associative proptest passes (5000 cases)
+- [x] lattice_leq_transitive proptest passes (5000 cases)
+- [x] nary_join_permutation_invariant proptest passes
+- [x] capture_state_update monotonicity tests pass
+- [x] All property tests green: `timeout 150 cargo test -p ori_arc -- lattice::prop_tests` — 36 pass, 1 O(n^3) ignored
+- [x] Full test suite: `timeout 150 ./test-all.sh` green — 17,120 passed
 
 **Context:** Discovered during plans/llvm-verification-tooling §04 (AIMS Lattice Property Verification). The proptest-based algebraic property tests revealed that `join(join(a,b), c) ≠ join(a, join(b,c))` for specific canonical state triples, and that `lattice_leq(a,b) && lattice_leq(b,c)` does not imply `lattice_leq(a,c)`. Root cause is anti-monotone canonicalization Rule 4 in `canonicalize_single_pass()`. BUG-04-058 shares the same root cause class (Rule 6 locality narrowness).
 
