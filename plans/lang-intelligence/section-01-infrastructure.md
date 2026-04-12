@@ -19,10 +19,10 @@ depends_on: []
 sections:
   - id: "01.1"
     title: "Canonical Helper Script"
-    status: in-progress
+    status: not-started
   - id: "01.2"
     title: "Fix Existing query_graph.py Issues"
-    status: in-progress
+    status: not-started
   - id: "01.R"
     title: "Third Party Review Findings"
     status: complete
