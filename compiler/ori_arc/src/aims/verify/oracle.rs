@@ -6,12 +6,167 @@
 //! contract but realization emits inconsistent RC instructions, or where
 //! the analysis infers an incorrect contract that happens to produce
 //! working code by accident.
+//!
+//! Layer 3 of the AIMS verification stack (see `.claude/rules/arc.md`
+//! §Verification Surface). Checks access, consumption, `may_share`, and
+//! effect dimensions — directionally tolerant (conservative inference OK,
+//! unsafe optimistic inference is a blocking error).
+
+use rustc_hash::FxHashMap;
 
 use crate::aims::contract::MemoryContract;
-use crate::aims::lattice::{AccessClass, Cardinality, Consumption};
-use crate::ir::{ArcFunction, ArcInstr, ArcVarId};
+use crate::aims::lattice::{AccessClass, Consumption};
+use crate::ir::{ArcFunction, ArcInstr, ArcTerminator, ArcValue, ArcVarId};
 
-// Re-derived contracts
+// ─── Alias Tracking (05.1.1) ───
+
+/// Maps every `ArcVarId` that is an alias of a function parameter to its
+/// parameter index. Handles transitive aliasing through `Let { value: Var(_) }`
+/// chains AND block-parameter propagation through `Jump` terminators.
+fn build_param_alias_map(func: &ArcFunction) -> FxHashMap<ArcVarId, usize> {
+    let mut alias_map: FxHashMap<ArcVarId, usize> = FxHashMap::default();
+
+    // Seed: direct parameter variables.
+    for (i, param) in func.params.iter().enumerate() {
+        alias_map.insert(param.var, i);
+    }
+
+    // Forward pass: propagate through Let { value: Var(_) } bindings.
+    // Within a single block, ARC IR is SSA so one pass suffices.
+    for block in &func.blocks {
+        for instr in &block.body {
+            if let ArcInstr::Let {
+                dst,
+                value: ArcValue::Var(src),
+                ..
+            } = instr
+            {
+                if let Some(&param_idx) = alias_map.get(src) {
+                    alias_map.insert(*dst, param_idx);
+                }
+            }
+        }
+    }
+
+    // Worklist: propagate through Jump → block-param edges.
+    // A Jump { target, args: [v1, v2] } targeting a block with params
+    // [(bp0, _), (bp1, _)] means bp0 aliases v1 and bp1 aliases v2.
+    // Loop back-edges require iterating until no new aliases are found.
+    let mut changed = true;
+    while changed {
+        changed = false;
+        for block in &func.blocks {
+            if let ArcTerminator::Jump { target, args } = &block.terminator {
+                let target_block = func.blocks.iter().find(|b| b.id == *target);
+                if let Some(target_block) = target_block {
+                    for (bp, arg) in target_block.params.iter().zip(args.iter()) {
+                        if let Some(&param_idx) = alias_map.get(arg) {
+                            if alias_map.insert(bp.0, param_idx).is_none() {
+                                changed = true;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    alias_map
+}
+
+// ─── Per-Parameter Observation (05.1.2) ───
+
+/// Per-parameter observations from walking realized IR.
+#[derive(Clone, Debug, Default)]
+struct ParamObservation {
+    /// Total RC increments (accounting for `RcInc.count` batching).
+    rc_incs: u32,
+    /// Total RC decrements.
+    rc_decs: u32,
+    /// Number of non-RC uses (appearances at non-owned positions).
+    non_rc_uses: u32,
+    /// Whether the param was passed to an owned position in any instruction.
+    has_owned_transfer: bool,
+}
+
+/// Derive per-parameter observations from the realized (post-pipeline) ARC IR
+/// using the alias map. Handles batched `RcInc.count`, ownership transfers via
+/// `is_owned_position()`, and explicit `Return` handling.
+fn derive_param_observations(
+    func: &ArcFunction,
+    alias_map: &FxHashMap<ArcVarId, usize>,
+) -> Vec<ParamObservation> {
+    let num_params = func.params.len();
+    let mut obs = vec![ParamObservation::default(); num_params];
+
+    for block in &func.blocks {
+        for instr in &block.body {
+            match instr {
+                ArcInstr::RcInc { var, count, .. } => {
+                    if let Some(&idx) = alias_map.get(var) {
+                        obs[idx].rc_incs += count;
+                    }
+                }
+                ArcInstr::RcDec { var, .. } => {
+                    if let Some(&idx) = alias_map.get(var) {
+                        obs[idx].rc_decs += 1;
+                    }
+                }
+                _ => {
+                    // For all other instructions: use used_vars() + is_owned_position()
+                    // to classify each use as owned transfer or non-RC use.
+                    let used = instr.used_vars();
+                    for (pos, used_var) in used.iter().enumerate() {
+                        if let Some(&idx) = alias_map.get(used_var) {
+                            if instr.is_owned_position(pos) {
+                                obs[idx].has_owned_transfer = true;
+                            } else {
+                                obs[idx].non_rc_uses += 1;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Terminator uses.
+        let term_used = block.terminator.used_vars();
+        match &block.terminator {
+            // Return transfers ownership of the returned value.
+            // is_owned_position() returns false for Return, so handle explicitly.
+            ArcTerminator::Return { value } => {
+                if let Some(&idx) = alias_map.get(value) {
+                    obs[idx].has_owned_transfer = true;
+                }
+            }
+            // Invoke/InvokeIndirect have arg_ownership — use is_owned_position().
+            ArcTerminator::Invoke { .. } | ArcTerminator::InvokeIndirect { .. } => {
+                for (pos, used_var) in term_used.iter().enumerate() {
+                    if let Some(&idx) = alias_map.get(used_var) {
+                        if block.terminator.is_owned_position(pos) {
+                            obs[idx].has_owned_transfer = true;
+                        } else {
+                            obs[idx].non_rc_uses += 1;
+                        }
+                    }
+                }
+            }
+            // Jump args propagate aliases (handled in alias map, not here).
+            // Count as non-RC uses for the parameter observation.
+            _ => {
+                for used_var in &term_used {
+                    if let Some(&idx) = alias_map.get(used_var) {
+                        obs[idx].non_rc_uses += 1;
+                    }
+                }
+            }
+        }
+    }
+
+    obs
+}
+
+// ─── Realized Contract Derivation (05.1.3) ───
 
 /// A contract re-derived from walking realized ARC IR.
 ///
@@ -19,104 +174,60 @@ use crate::ir::{ArcFunction, ArcInstr, ArcVarId};
 /// not from the analysis's inferred state.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RealizedParamContract {
-    /// Derived access: `Owned` if the param has any `RcInc`/`RcDec`, `Borrowed` otherwise.
+    /// Derived access: `Owned` if the param has any `RcInc`/`RcDec` or owned transfers.
     pub access: AccessClass,
-    /// Derived consumption based on RC operation pattern.
+    /// Derived consumption based on RC operation pattern (aliasing-aware).
     pub consumption: Consumption,
-    /// Derived cardinality based on forward use count.
-    pub cardinality: Cardinality,
+    /// Whether the callee may have incremented the parameter's RC.
+    /// Derived from `rc_incs > 0` (per `aims-rules` IC-3).
+    pub may_share: bool,
 }
 
-/// Derive per-parameter contracts from the realized (post-pipeline) ARC IR
-/// by observing actual RC operations emitted for each parameter variable.
-pub fn derive_param_contracts(func: &ArcFunction) -> Vec<RealizedParamContract> {
-    let num_params = func.params.len();
-    let mut rc_incs: Vec<u32> = vec![0; num_params];
-    let mut rc_decs: Vec<u32> = vec![0; num_params];
-    let mut use_counts: Vec<u32> = vec![0; num_params];
-
-    for block in &func.blocks {
-        for instr in &block.body {
-            match instr {
-                ArcInstr::RcInc { var, .. } => {
-                    if let Some(idx) = param_index(func, *var) {
-                        rc_incs[idx] += 1;
-                    }
-                }
-                ArcInstr::RcDec { var, .. } => {
-                    if let Some(idx) = param_index(func, *var) {
-                        rc_decs[idx] += 1;
-                    }
-                }
-                _ => {
-                    for used_var in instr.used_vars() {
-                        if let Some(idx) = param_index(func, used_var) {
-                            use_counts[idx] += 1;
-                        }
-                    }
-                }
-            }
-        }
-        // Also count uses in the terminator
-        for used_var in block.terminator.used_vars() {
-            if let Some(idx) = param_index(func, used_var) {
-                use_counts[idx] += 1;
-            }
-        }
-    }
-
-    (0..num_params)
-        .map(|i| derive_single_param(rc_incs[i], rc_decs[i], use_counts[i]))
-        .collect()
-}
-
-/// Map an `ArcVarId` to a parameter index, if the var is a parameter.
-fn param_index(func: &ArcFunction, var: ArcVarId) -> Option<usize> {
-    func.params.iter().position(|p| p.var == var)
-}
-
-/// Infer a `RealizedParamContract` from observed RC and use counts.
-fn derive_single_param(rc_incs: u32, rc_decs: u32, use_count: u32) -> RealizedParamContract {
-    // Access: Owned if any RC operations exist, Borrowed otherwise
-    let has_rc = rc_incs > 0 || rc_decs > 0;
-    let access = if has_rc {
+/// Derive `RealizedParamContract` from observed RC and use counts.
+fn derive_single_param(obs: &ParamObservation) -> RealizedParamContract {
+    // Access: Owned if any RC operations or ownership transfers exist.
+    let access = if obs.rc_incs > 0 || obs.rc_decs > 0 || obs.has_owned_transfer {
         AccessClass::Owned
     } else {
         AccessClass::Borrowed
     };
 
-    // Consumption: derived from RC pattern
-    let consumption = if rc_incs > 0 {
-        // Any RcInc → value is shared/copied (Unrestricted)
+    // Consumption: derived from aggregate counts (no intra-block ordering needed).
+    let consumption = if obs.rc_incs > 0 {
+        // Any RcInc → value was duplicated/shared (Unrestricted).
         Consumption::Unrestricted
-    } else if rc_decs > 0 {
-        // Dec only → Affine (may be dropped without further use)
-        Consumption::Affine
-    } else if use_count > 0 {
-        // Used but no RC → Linear (consumed once without RC)
+    } else if obs.rc_decs > 0 && obs.non_rc_uses > 0 {
+        // Used AND then dropped → Linear (consumed then cleaned up).
         Consumption::Linear
+    } else if obs.non_rc_uses > 0 || obs.has_owned_transfer {
+        // Used or ownership-transferred without RC ops → Linear.
+        Consumption::Linear
+    } else if obs.rc_decs > 0 {
+        // Only dropped, no non-RC uses, no ownership transfers → Affine.
+        Consumption::Affine
     } else {
-        // Not used at all → Dead
+        // Nothing at all → Dead.
         Consumption::Dead
     };
 
-    // Cardinality: derived from use count (excluding RC ops)
-    let cardinality = if use_count == 0 && !has_rc {
-        Cardinality::Absent
-    } else if use_count <= 1 && rc_incs == 0 {
-        Cardinality::Once
-    } else {
-        Cardinality::Many
-    };
+    // may_share: true if any RC increments exist.
+    let may_share = obs.rc_incs > 0;
 
     RealizedParamContract {
         access,
         consumption,
-        cardinality,
+        may_share,
     }
 }
 
-// Coherence comparison
+/// Public entry point: derive per-parameter contracts from post-pipeline ARC IR.
+pub fn derive_param_contracts(func: &ArcFunction) -> Vec<RealizedParamContract> {
+    let alias_map = build_param_alias_map(func);
+    let observations = derive_param_observations(func, &alias_map);
+    observations.iter().map(derive_single_param).collect()
+}
+
+// ─── Coherence Comparison (05.3) ───
 
 /// A coherence mismatch between inferred and realized contracts.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -124,16 +235,25 @@ pub enum CoherenceMismatch {
     /// Parameter access class differs (unsafe direction).
     ParamAccess {
         param_index: usize,
+        param_var: ArcVarId,
         inferred: AccessClass,
         realized: AccessClass,
     },
     /// Parameter consumption mode differs (unsafe direction).
     ParamConsumption {
         param_index: usize,
+        param_var: ArcVarId,
         inferred: Consumption,
         realized: Consumption,
     },
-    /// Effect summary disagrees.
+    /// Parameter `may_share` disagrees (unsafe direction).
+    ParamMayShare {
+        param_index: usize,
+        param_var: ArcVarId,
+        inferred: bool,
+        realized: bool,
+    },
+    /// Effect summary disagrees (unsafe direction).
     EffectMismatch {
         field: &'static str,
         inferred: bool,
@@ -143,9 +263,9 @@ pub enum CoherenceMismatch {
 
 impl CoherenceMismatch {
     /// Whether this mismatch is in the unsafe direction (analysis too optimistic).
+    /// All mismatches reported by `verify_coherence` are already filtered to the
+    /// unsafe direction, so this always returns `true`.
     pub fn is_unsafe(&self) -> bool {
-        // All mismatches reported by verify_coherence are already filtered
-        // to the unsafe direction (inferred more optimistic than realized).
         true
     }
 }
@@ -154,7 +274,7 @@ impl CoherenceMismatch {
 ///
 /// Only reports **unsafe mismatches** — where the analysis was more optimistic
 /// than what the realization actually needed. Conservative mismatches (analysis
-/// was more pessimistic than necessary) are acceptable and not reported.
+/// was more pessimistic than necessary) are tolerated per `aims-rules` RL-3/VF-6.
 ///
 /// `missed_reuses` comes from the second pass in `batch.rs`.
 pub fn verify_coherence(
@@ -171,10 +291,13 @@ pub fn verify_coherence(
         .zip(realized_params.iter())
         .enumerate()
     {
-        // Access: unsafe if inferred Borrowed but realized needs Owned
+        let param_var = func.params[i].var;
+
+        // Access: unsafe if inferred Borrowed but realized needs Owned.
         if inferred_p.access == AccessClass::Borrowed && realized_p.access == AccessClass::Owned {
             mismatches.push(CoherenceMismatch::ParamAccess {
                 param_index: i,
+                param_var,
                 inferred: inferred_p.access,
                 realized: realized_p.access,
             });
@@ -182,23 +305,64 @@ pub fn verify_coherence(
 
         // Consumption: unsafe if inferred is more optimistic than realized.
         // Lattice order: Dead < Linear < Affine < Unrestricted.
-        // Unsafe: inferred < realized (analysis says simpler, realization needs more).
         if inferred_p.consumption < realized_p.consumption {
             mismatches.push(CoherenceMismatch::ParamConsumption {
                 param_index: i,
+                param_var,
                 inferred: inferred_p.consumption,
                 realized: realized_p.consumption,
             });
         }
+
+        // may_share: unsafe if inferred false but realized true.
+        if !inferred_p.may_share && realized_p.may_share {
+            mismatches.push(CoherenceMismatch::ParamMayShare {
+                param_index: i,
+                param_var,
+                inferred: false,
+                realized: true,
+            });
+        }
     }
 
-    // Effects: may_deallocate
+    // Effects: check all three dimensions.
+    // may_deallocate: derived from missed reuses (second-pass corrected).
     let realized_may_deallocate = missed_reuses > 0;
     if !inferred.effects.may_deallocate && realized_may_deallocate {
         mismatches.push(CoherenceMismatch::EffectMismatch {
             field: "may_deallocate",
-            inferred: inferred.effects.may_deallocate,
-            realized: realized_may_deallocate,
+            inferred: false,
+            realized: true,
+        });
+    }
+
+    // may_allocate: derived from presence of Construct instructions.
+    // (Conservative: any Construct → may_allocate=true. The oracle cannot
+    // classify types, so this overestimates for scalar Constructs.)
+    let realized_may_allocate = func.blocks.iter().any(|b| {
+        b.body
+            .iter()
+            .any(|i| matches!(i, ArcInstr::Construct { .. }))
+    });
+    if !inferred.effects.may_allocate && realized_may_allocate {
+        mismatches.push(CoherenceMismatch::EffectMismatch {
+            field: "may_allocate",
+            inferred: false,
+            realized: true,
+        });
+    }
+
+    // may_share: function-level, derived from ANY RcInc in the entire function
+    // (not just parameter RcIncs — local variable RcInc also creates shared refs).
+    let realized_may_share = func
+        .blocks
+        .iter()
+        .any(|b| b.body.iter().any(|i| matches!(i, ArcInstr::RcInc { .. })));
+    if !inferred.effects.may_share && realized_may_share {
+        mismatches.push(CoherenceMismatch::EffectMismatch {
+            field: "may_share",
+            inferred: false,
+            realized: true,
         });
     }
 
