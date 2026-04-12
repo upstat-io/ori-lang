@@ -266,7 +266,7 @@ Scope: **parameter inc/dec pair elision only.** For Owned parameters where the c
 
 **IC-2** — Each parameter initializes to most optimistic: `(Borrowed, Dead, Absent, BlockLocal, Unique)`. Fixed-point iteration promotes toward conservative. Escape is derived from Locality (`locality > FunctionLocal ⟹ escapes`), not stored as a separate fact — the Locality dimension is the SSOT for escape classification.
 
-**IC-3** — Parameter contract join is componentwise max: `access(max), consumption(max), cardinality(max), locality(max), uniqueness(max)`. If join changes any dimension, iterate again. `may_share` is an EffectSummary field (IC-5), not a parameter contract field.
+**IC-3** — Parameter contract join is componentwise max: `access(max), consumption(max), cardinality(max), locality(max), uniqueness(max), may_share(OR)`. If join changes any dimension, iterate again. Note: `may_share` IS a per-parameter property (whether the callee may increment the parameter's RC) and remains on `ParamContract` — it is orthogonal to Locality. Only `may_escape` was removed (derived from `locality > FunctionLocal`).
 
 **IC-4** — Return contract: `uniqueness(join), preserves_freshness(AND), locality(join), shape(join)`. Freshness requires ALL return paths to preserve it.
 

@@ -78,6 +78,7 @@ CanExpr → lower → ArcFunction
     6. verify()                  — ARC IR sanity check
     7. run_aims_verify()         — AIMS contract vs IR consistency
     8. detect/rewrite tail calls — CFG optimization
+   8a. unwind_cleanup()          — Invoke-unwind RC cleanup (must precede merge)
     9. merge_blocks()            — CFG cleanup
    10. realize_annotations()     — Phase 2: COW + drop hints (post-merge)
    11. verify()                  — Final sanity check
