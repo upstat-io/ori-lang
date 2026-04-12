@@ -109,7 +109,7 @@ When emitting a function call, if the callee's `EffectSummary` indicates limited
 - [ ] If `effects.may_allocate == false && effects.may_deallocate == false && effects.may_throw == false`:
   - If also no writes to parameters → `memory(none)` (pure function)
   - If reads but no writes → `memory(read)` (readonly function)
-- [ ] If `effects.may_allocate == true` but no deallocation → `memory(argmem: readwrite)` (allocating but not freeing)
+- [ ] If `effects.may_allocate == true` and also accesses arguments → `memory(argmem: readwrite, inaccessiblemem: readwrite)` (allocating + arg access). If pure allocator (no arg access) → `memory(inaccessiblemem: readwrite)`. Per aims-rules.md RL-30: `memory(argmem: readwrite)` ALONE is wrong for allocators — misses global heap state.
 - [ ] Use existing `IrBuilder::add_memory_none_attribute()` / `add_memory_read_attribute()` patterns (attributes.rs already has these for function-level, adapt for call-site level)
 - [ ] Write failing AOT test FIRST (TDD): call a pure function inside a loop → before the fix, the call is NOT hoisted. This test will verify LICM after the fix.
 - [ ] Verify AOT test now passes: IR shows the pure function call hoisted above the loop header
