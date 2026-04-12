@@ -2,7 +2,7 @@
 section: "01"
 title: "Infrastructure & Canonical Helper"
 status: in-progress
-reviewed: false
+reviewed: true
 goal: "Create the single canonical helper script that all intelligence integrations call. Handles availability check, Neo4j health probe, venv activation, query execution, and structured output. Fix real bugs in query_graph.py before any integration."
 success_criteria:
   - "scripts/intel-query.sh exists and is executable"
