@@ -270,8 +270,8 @@ Note: §09 (Alive2) and §10 (fuzzing) estimates include tool installation, corp
 | 02 | Shared Test Harness Infrastructure | `section-02-shared-harness.md` | Complete |
 | 03 | AIMS Pass-Level Snapshot Tests | `section-03-aims-snapshots.md` | Complete |
 | 04 | AIMS Lattice Property Verification | `section-04-lattice-properties.md` | Complete |
-| 05 | Contract Coherence Oracle | `section-05-contract-oracle.md` | Complete |
-| 06 | Protocol Builtin Verification Matrix | `section-06-protocol-builtins.md` | Complete |
+| 05 | Contract Coherence Oracle | `section-05-contract-oracle.md` | In Progress |
+| 06 | Protocol Builtin Verification Matrix | `section-06-protocol-builtins.md` | In Progress |
 | 07 | FileCheck-Style IR Pattern Matching | `section-07-filecheck.md` | Not Started |
 | 08 | Sanitizer Integration | `section-08-sanitizers.md` | Not Started |
 | 09 | Alive2 Formal Verification | `section-09-alive2.md` | Not Started |
