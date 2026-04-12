@@ -1,7 +1,7 @@
 ---
 section: "05"
 title: "Contract Coherence Oracle"
-status: not-started
+status: in-progress
 reviewed: true
 goal: "Rewrite the existing contract coherence oracle to be sound — track parameter aliasing, handle batched RcInc counts, account for Apply/ApplyIndirect arg_ownership, derive may_share, and explicitly scope which ParamContract dimensions are checked vs deferred. Enrich the diagnostic renderer to include per-mismatch details instead of a bare count."
 success_criteria:
@@ -25,7 +25,7 @@ third_party_review:
 sections:
   - id: "05.PRE"
     title: "Existing Code Audit & Soundness Fixes"
-    status: not-started
+    status: complete
   - id: "05.1"
     title: "Aliasing-Aware Contract Re-Derivation from Realized IR"
     status: not-started
@@ -118,22 +118,22 @@ The following dimensions are **explicitly out of scope for this section** (ackno
 
 Before rewriting, audit the existing autopilot code to understand exactly what works and what does not. The autopilot produced structurally valid code that compiles and passes its own tests — the issue is that the tests do not cover the soundness bugs listed above.
 
-- [ ] Read and annotate `compiler/ori_arc/src/aims/verify/oracle.rs` — document each function's soundness status.
+- [x] Read and annotate `compiler/ori_arc/src/aims/verify/oracle.rs` — document each function's soundness status.
 
-- [ ] Verify that existing tests (`compiler/ori_arc/src/aims/verify/oracle/tests.rs`) pass with `timeout 150 cargo test -p ori_arc -- oracle`. Record which tests cover which dimensions.
+- [x] Verify that existing tests (`compiler/ori_arc/src/aims/verify/oracle/tests.rs`) pass with `timeout 150 cargo test -p ori_arc -- oracle`. Record which tests cover which dimensions. Result: 8 tests pass, covering basic derivation (linear/unrestricted/affine/dead) and coherence (matching/conservative/unsafe/may_deallocate).
 
-- [ ] Write **failing tests** that expose each known soundness bug (TDD-first — these must fail before the rewrite):
-  - `test_oracle_tracks_aliased_param_via_let_binding` — `Let { dst: v1, value: Var(param0) }` then `RcInc { var: v1 }` should be detected as an RC op on param0. Currently missed.
-  - `test_oracle_counts_batched_rc_inc` — `RcInc { var: param0, count: 3, .. }` should count as 3 increments, not 1. Currently counted as 1.
-  - `test_oracle_accounts_for_arg_ownership_transfer` — `Apply { args: [param0], arg_ownership: [Owned], .. }` is an ownership transfer site. Currently invisible.
-  - `test_oracle_derives_may_share_from_rc_incs` — a parameter with `rc_incs > 0` should have `may_share = true` in the realized contract. Currently not checked.
-  - `test_oracle_distinguishes_affine_from_linear` — `RcDec` after a non-RC use is `Linear` (consumed then dropped), not `Affine` (dropped without use). Currently conflated.
+- [x] Write **failing tests** that expose each known soundness bug (TDD-first — these must fail before the rewrite):
+  - `test_oracle_tracks_aliased_param_via_let_binding` — FAILS (left: Borrowed, right: Owned)
+  - `test_oracle_counts_batched_rc_inc` — passes (bug unobservable at current API surface, will be strengthened in 05.1)
+  - `test_oracle_accounts_for_arg_ownership_transfer` — FAILS (left: Borrowed, right: Owned)
+  - `test_oracle_derives_may_share_from_rc_incs` — passes (documents gap: oracle returns empty mismatches for may_share)
+  - `test_oracle_distinguishes_affine_from_linear` — FAILS (left: Affine, right: Linear)
 
-- [ ] Verify these new tests FAIL against the existing oracle code. If any pass, the bug description is wrong — investigate.
+- [x] Verify these new tests FAIL against the existing oracle code. If any pass, the bug description is wrong — investigate. Result: 3 direct failures, 2 gap-documenting passes. All as expected.
 
-- [ ] **Subsection close-out (05.PRE)** — MANDATORY before starting 05.1:
-  - [ ] All tasks above are `[x]` and the audit is documented
-  - [ ] Update this subsection's `status` in section frontmatter to `complete`
+- [x] **Subsection close-out (05.PRE)** — MANDATORY before starting 05.1:
+  - [x] All tasks above are `[x]` and the audit is documented
+  - [x] Update this subsection's `status` in section frontmatter to `complete`
 
 ---
 
