@@ -683,7 +683,7 @@ When all findings are triaged:
   - [ ] `00-overview.md` Quick Reference updated
   - [ ] `00-overview.md` mission success criteria checkboxes updated
 - [x] `/tpr-review` passed (final, full-section) — iter3 found 4 findings (alias fixpoint bug, PartialApply effect gap, may_allocate tolerance), all fixed and confirmed clean on iter4 (dual-source: Codex + Gemini, both zero findings)
-- [ ] `/impl-hygiene-review` passed — AFTER `/tpr-review` is clean
+- [x] `/impl-hygiene-review` passed — 6 findings fixed: extracted 5 helper functions (reduced nesting 7→4/5, fn-length 111→80), cleaned 6 stale plan annotations/banners. Residual: oracle.rs 535 lines (35 over, marginal single-responsibility file), codegen/mod.rs 586 lines (pre-existing). 17,142 tests pass.
 - [ ] `/improve-tooling` **section-close sweep** — verify per-subsection retrospectives ran, add cross-cutting items.
 
 **Exit Criteria:** `ORI_VERIFY_ARC=1 timeout 150 ./test-all.sh` passes with the rewritten contract coherence oracle active. The oracle walks post-pipeline ARC IR using aliasing-aware variable tracking, correctly handles batched `RcInc` counts and `arg_ownership` transfers, re-derives `access`, `consumption`, and `may_share` per parameter, compares against inferred `MemoryContract`, and reports zero unsafe mismatches for all test programs. The diagnostic renderer includes per-mismatch dimension details. Deliberately introduced mismatches are caught as blocking errors.
