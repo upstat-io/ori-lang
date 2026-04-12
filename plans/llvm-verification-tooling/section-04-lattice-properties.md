@@ -734,7 +734,7 @@ If the non-associativity only affects the uniqueness dimension in states that ar
 
 ### Option B: The bug affects RC decisions (fix required)
 
-If the characterization test reveals that associativity failures CAN change RC/COW/reuse decisions, the bug MUST be fixed before Sections 05/06 proceed. The fix would be in `canonicalize_single_pass()` — the root cause is that Rule 4 (BlockLocal+Owned+<=Once+MaybeShared -> Unique) fires on different intermediate states depending on fold order.
+If the characterization test reveals that associativity failures CAN change RC/COW/reuse decisions, the bug MUST be fixed before Section 05's correctness-gate authority can be trusted. Section 06 remains independently implementable per its `depends_on: ["01"]` unless this analysis proves a concrete dependency. The fix would be in `canonicalize_single_pass()` — the root cause is that Rule 4 (BlockLocal+Owned+<=Once+MaybeShared -> Unique) fires on different intermediate states depending on fold order.
 
 - [ ] If fix is required: file via `/fix-bug BUG-04-057` for full plan-section rigor (root cause analysis, TDD matrix, implementation). The fix section file will be at `plans/bug-tracker/fix-BUG-04-057.md`.
 
@@ -777,7 +777,7 @@ When all findings are triaged:
   Resolved: Fixed on 2026-04-11. Expanded consumer list in characterization test and formal argument section. Added direct `uniqueness == Unique` equality check to predicates_match.
 - [x] `[TPR-04-003-codex][medium]` `section-04-lattice-properties.md:459` — Resolve DRIFT in 05 vs 06 blocker text.
   Evidence: 04.5 and 04.N still referenced "Sections 05/06" despite revised dependency model.
-  Resolved: Fixed on 2026-04-11. Updated 04.5 and 04.N to reflect that only Section 05's correctness-gate authority is blocked; Section 06 is independently implementable.
+  Resolved: Fixed on 2026-04-11. Updated 04.5, 04.6 Option B, and 04.N to reflect that only Section 05's correctness-gate authority is blocked; Section 06 is independently implementable.
 - [x] `[TPR-04-001-gemini][medium]` `section-04-lattice-properties.md:401` — Include FIP conditional check in characterization.
   Evidence: `compute_effective_may_share` at block.rs:409 directly checks `uniqueness == Unique` but was not in the predicate list.
   Resolved: Fixed on 2026-04-11. Added direct `(uniqueness == Unique)` equality check to the characterization test, covering compute_effective_may_share and all other direct uniqueness consumers.
