@@ -170,8 +170,7 @@ Canonicalization enforces cross-dimensional feasibility invariants. It runs afte
 **CN-6** — Wide-locality uniqueness ceiling: `Locality ≥ HeapEscaping ∧ Uniqueness = Unique ⟹ Uniqueness := MaybeShared`.
 *Rationale*: A value reachable from the heap (or with unknown locality) may have aliases via heap paths. Only `ArgEscaping` (callee-scoped, no heap persistence) and below preserve uniqueness. Uses `≥` because `Unknown` subsumes `HeapEscaping` — if heap-escaping forces `MaybeShared`, unknown must also. (BUG-04-058 fix.)
 
-**CN-7** — Shared collection forces unconditional copy: `Uniqueness = Shared ∧ Shape = CollectionBuffer ⟹ cow_mode = StaticShared`. Shared collections bypass the runtime uniqueness check entirely — they always take the copy path (DP-9).
-*Rationale*: Shared values are definitively RC > 1. No runtime check is needed; the copy path is statically selected.
+**CN-7** — ~~REMOVED.~~ The former rule about Shared+CollectionBuffer forcing COW mode was a decision predicate result, not a lattice state mutation. The behavior is fully covered by DP-9 (`Shared ⟹ StaticShared`). Canonicalization rules SHALL only mutate lattice dimensions — assigning `cow_mode` is a decision, not a state mutation.
 
 **CN-8** — Borrowed locality ceiling: `Access = Borrowed ∧ Locality > FunctionLocal ⟹ Locality := FunctionLocal`.
 *Rationale*: A borrowed reference cannot escape its defining function — it is a temporary view. Placed before CN-4 and CN-6 so locality is precise when those rules fire.
@@ -215,8 +214,8 @@ Each operand of each instruction generates a `(variable, cardinality)` demand:
 **TF-12** — PartialApply emits NO backward demand from the standard demand system. Captured argument demand is handled entirely by `capture_state_update` to avoid double-counting.
 
 **TF-13** — `capture_state_update(current, closure_state)` (OxCaml LAM rule):
-- If closure cardinality ≤ Once: `consumption := max(current.consumption, Affine)`, `cardinality := max(current.cardinality, Once)`, locality widens to `max(current.locality, FunctionLocal)`. Preserves linearity/uniqueness.
-- If closure cardinality > Once: `consumption := Unrestricted`, `cardinality := Many`, locality widens. Multiple invocations = multiple consumptions.
+- If closure cardinality ≤ Once: `consumption := max(current.consumption, Affine)`, `cardinality := max(current.cardinality, Once)`, `locality := max(current.locality, closure_state.locality, FunctionLocal)`. Preserves linearity/uniqueness. Locality incorporates both current state AND closure's escape scope — if the closure escapes to heap, captured variables must also be at least HeapEscaping.
+- If closure cardinality > Once: `consumption := Unrestricted`, `cardinality := Many`, `locality := max(current.locality, closure_state.locality, FunctionLocal)`. Multiple invocations = multiple consumptions.
 
 **TF-13 SHALL be monotone**: if `a ≤ b` then `capture_state_update(a, c) ≤ capture_state_update(b, c)`.
 
@@ -337,7 +336,7 @@ Step 12: FBIP enforcement          — Read-only diagnostic
 
 TRMC is a pipeline-integrated rewrite that enables tail-call optimization for functions that construct on the return path. It is an active subsystem with formal rules, not future work.
 
-**PL-7** — TRMC normalization (Step 3a) SHALL detect tail-recursive functions that return constructor applications. The `ContextBehavior` contract on `MemoryContract` tracks: `is_trmc_candidate` (bool), `context_param_idx` (Option), `produces_context` (bool), and `consumes_context` (bool).
+**PL-7** — TRMC normalization (Step 3a) SHALL detect tail-recursive functions that return constructor applications. The `ContextBehavior` contract on `MemoryContract` tracks four fields (per Leijen & Lorenzen, JFP 2025): `preserves_context` (bool — function preserves the constructor context hole through recursive calls), `consumes_hole` (bool — function fills the context hole with a value), `requires_unique_context` (bool — context hole must be uniquely owned for soundness), `may_resume_nonlinearly` (bool — function may resume at the context hole more than once, e.g. via exceptions).
 
 **PL-8** — TRMC candidate predicate: a function is a TRMC candidate when it is self-recursive, the recursive call appears in tail position of a constructor argument, and the constructor is in the return path. The context region is the span from the recursive call to the constructor that wraps its result.
 
@@ -345,7 +344,7 @@ TRMC is a pipeline-integrated rewrite that enables tail-call optimization for fu
 
 **PL-10** — TRMC soundness verification: after rewrite AND after intraprocedural analysis (Step 4), `verify_trmc_soundness()` SHALL confirm that the rewritten function preserves observable behavior. If verification fails, the rewrite SHALL be rolled back to the pre-TRMC IR. Rollback is safe — it restores the original (correct but unoptimized) code.
 
-**PL-11** — `ContextBehavior` join: `is_trmc_candidate(AND)`, `produces_context(OR)`, `consumes_context(OR)`. Conservative: candidacy requires ALL paths, context production/consumption is any-path.
+**PL-11** — `ContextBehavior` join: `preserves_context(AND)`, `consumes_hole(AND)`, `requires_unique_context(OR)`, `may_resume_nonlinearly(OR)`. Conservative: preservation and consumption require ALL paths to agree; unique-context and non-linear-resumption are any-path (soundness obligations widen).
 
 ---
 
@@ -397,6 +396,10 @@ TRMC is a pipeline-integrated rewrite that enables tail-call optimization for fu
 
 **RL-18** — RC header width SHALL be narrowed: `Unique → none`, `Bounded(≤127) → i8`, `Bounded(≤32767) → i16`, `Bounded(≤2^31-1) → i32`, `Unbounded → i64`.
 
+### Unified Representation Constraint
+
+**RL-18a** — All escape-driven decisions (stack allocation via RL-14/15/16, header width via RL-17/18, atomic vs non-atomic via RL-19/20/21) SHALL consume the single unified `Locality` dimension. Parallel escape enums (`EscapeState`, `ThreadLocality`, `HeapEscapeStatus`, or any equivalent shadow representation) are FORBIDDEN. The `Locality` dimension is the SSOT for all escape classification. This constraint ensures that extending escape analysis extends ONE dimension, not N parallel data structures that drift independently.
+
 ### Non-Atomic RC
 
 **RL-19** — Thread-local values (no cross-thread escape) SHALL use non-atomic RC operations (plain load/store instead of atomic CAS).
@@ -429,7 +432,7 @@ TRMC is a pipeline-integrated rewrite that enables tail-call optimization for fu
 
 **RL-29** — Fresh allocation returns (`ReturnContract.uniqueness = Unique`) SHALL be marked with LLVM `noalias`.
 
-**RL-30** — Pure function calls (`may_allocate = false ∧ may_deallocate = false ∧ may_throw = false`) SHALL receive LLVM `memory(none)`.
+**RL-30** — Effect-based call annotations: pure calls (`may_allocate = false ∧ may_deallocate = false ∧ may_throw = false` and no writes to parameters) SHALL receive LLVM `memory(none)`. Readonly calls (reads but no writes, no allocation, no deallocation) SHALL receive LLVM `memory(read)`. Allocating-only calls (`may_allocate = true` but no deallocation) SHALL receive `memory(argmem: readwrite)`.
 
 **RL-31** — Disjoint borrowed parameters SHALL receive `!alias.scope` + `!noalias` metadata pairs.
 
@@ -491,7 +494,7 @@ AIMS draws from multiple traditions. No single prior system has this combination
 
 ### Clang/LLVM ObjC ARC
 - **Adopted**: Compile-time statistics for optimization measurement. PRE-style global RC code motion. COW compound contraction.
-- **Extended by AIMS**: Clang operates on a per-pointer state machine with no interprocedural reasoning; AIMS uses whole-program SCC-based contracts. Clang's KnownSafe is a local flag; AIMS derives it from the product lattice.
+- **Extended by AIMS**: Clang operates on a per-pointer state machine with no interprocedural reasoning; AIMS uses whole-program SCC-based contracts. Clang's KnownSafe is a local per-pointer flag; AIMS's KnownSafe (RL-22/23) is a post-emission physical-refcount analysis — distinct from the AIMS lattice, operating on realized RC ops rather than abstract state.
 
 ### What Makes AIMS Unique
 
