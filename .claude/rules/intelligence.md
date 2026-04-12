@@ -34,7 +34,7 @@ scripts/intel-query.sh search "pattern matching exhaustiveness"
 scripts/intel-query.sh compare "type inference"
 scripts/intel-query.sh fixed "memory leak" --repo rust,swift
 scripts/intel-query.sh hot --repo rust
-scripts/intel-query.sh ori-arc
+scripts/intel-query.sh ori-arc                          # also: ori-inference, ori-codegen, ori-patterns, ori-diagnostics
 scripts/intel-query.sh cypher "MATCH (i:Issue)-[:FIXES]->(b) RETURN count(i)"
 ```
 

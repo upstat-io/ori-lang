@@ -1,16 +1,17 @@
 //! Iterator-collection RC ownership matrix tests.
 //!
-//! Comprehensive combinatorial coverage: 6 element types × 8 iteration
-//! patterns × 2 loop variants = 88 tests. Exercises every RC-relevant
-//! combination to prevent regression.
+//! Comprehensive combinatorial coverage: 7 element types × 8 iteration
+//! patterns × 2 loop variants. Exercises every RC-relevant combination
+//! to prevent regression.
 //!
 //! Matrix dimensions:
 //!   Loop:    for-do (P1-P2, P4-P8), for-yield (P1-P8)
-//!   Type:    E1=str, E2=[int] nested, E3=Option<str>, E4=closure, E5=struct, E6=map
+//!   Type:    E1=str, E2=[int] nested, E3=Option<str>, E4=closure, E5=struct,
+//!            E6=map, E7=Set<int>
 //!   Pattern: P1=full, P2=break, P3=yield-transform, P4=two-call, P5=nested,
 //!            P6=guard, P7=unwind, P8=continue
 //!
-//! E7 (Set<str>) is excluded — Set<str> not yet implemented in AOT.
+//! E7 covers full + break patterns (Set iteration now works in AOT).
 //! E2×P5 for-yield excluded — nested yield of [int] collapses to flat int; covered by P1.
 
 #![allow(
@@ -363,6 +364,24 @@ fn test_iter_rc_for_do_map_continue() {
     assert_aot_success(
         include_str!("fixtures/iter_rc_matrix/iter_rc_for_do_map_continue.ori"),
         "iter_rc_for_do_map_continue",
+    );
+}
+
+// E7: Set<int> — for-do patterns (Set iteration now works in AOT)
+
+#[test]
+fn test_iter_rc_for_do_set_int_full() {
+    assert_aot_success(
+        include_str!("fixtures/iter_rc_matrix/iter_rc_for_do_set_int_full.ori"),
+        "iter_rc_for_do_set_int_full",
+    );
+}
+
+#[test]
+fn test_iter_rc_for_do_set_int_break() {
+    assert_aot_success(
+        include_str!("fixtures/iter_rc_matrix/iter_rc_for_do_set_int_break.ori"),
+        "iter_rc_for_do_set_int_break",
     );
 }
 
@@ -750,6 +769,24 @@ fn test_iter_rc_for_yield_map_continue() {
     assert_aot_success(
         include_str!("fixtures/iter_rc_matrix/iter_rc_for_yield_map_continue.ori"),
         "iter_rc_for_yield_map_continue",
+    );
+}
+
+// E7: Set<int> — for-yield patterns
+
+#[test]
+fn test_iter_rc_for_yield_set_int_full() {
+    assert_aot_success(
+        include_str!("fixtures/iter_rc_matrix/iter_rc_for_yield_set_int_full.ori"),
+        "iter_rc_for_yield_set_int_full",
+    );
+}
+
+#[test]
+fn test_iter_rc_for_yield_set_int_break() {
+    assert_aot_success(
+        include_str!("fixtures/iter_rc_matrix/iter_rc_for_yield_set_int_break.ori"),
+        "iter_rc_for_yield_set_int_break",
     );
 }
 

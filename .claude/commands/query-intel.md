@@ -2,7 +2,7 @@
 name: query-intel
 description: "Query the cross-language intelligence graph for prior art, similar bugs, and design patterns."
 allowed-tools: Bash, Read, Grep, Glob
-argument-hint: "[search|compare|fixed|hot|ori-arc|cypher|status] [args...]"
+argument-hint: "[search|compare|fixed|hot|ori-*|cypher|status] [args...] (ori presets: ori-arc, ori-inference, ori-codegen, ori-patterns, ori-diagnostics)"
 ---
 
 # /query-intel

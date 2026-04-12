@@ -1,0 +1,11 @@
+@main () -> int = {
+    let s = [10, 20, 30].iter().collect();
+    let found = 0;
+    for x in s do {
+        if x == 20 then {
+            found = x;
+            break
+        }
+    };
+    if found == 20 then 0 else 1
+}
