@@ -9,7 +9,38 @@ paths:
 
 **ARC is the runtime substrate. AIMS is the compile-time intelligence layer.** ARC is the refcount header, the atomic inc/dec primitives, the drop functions, the uniqueness check — the machinery that ships in `ori_rt` and executes at runtime. AIMS is everything in `ori_arc/src/aims/` + the surrounding passes (`borrow/`, `drop/`, `fbip/`, `uniqueness/`, `classify/`) that decide **at compile time** when RC operations are unnecessary and elides them. Plain ARC without AIMS would be a mediocre memory model; AIMS is what makes the substrate competitive. **The goal is RC rareness in emitted code, not RC speed.** Reasoning about AIMS as "RC placement" misses the point — placement is the fallback for the leftovers after elimination.
 
-AIMS exists to replace fragmented memory-management heuristics with a **single sound semantic framework**. RC placement, reuse, COW, FIP, contracts, TRMC, borrow inference, immortal detection, and locality/escape classification are **not separate features** — they are facets of one 7D lattice model and must agree. The goal is not partial implementation of many ideas, but one trustworthy system whose claims are enforceable in code and verification.
+AIMS exists to replace fragmented memory-management heuristics with a **single sound semantic framework**. RC placement, reuse, COW, FIP, contracts, TRMC, borrow inference, and locality/escape classification are **not separate features** — they are facets of one product-lattice model and must agree. Today the lattice has 7 dimensions (`AccessClass × Consumption × Cardinality × Uniqueness × Locality × ShapeClass × EffectClass`); the count is not architectural — dimensions are added, refined, or merged as analysis needs evolve (e.g. `plans/locality-representation-unification/` extends `Locality`). Complementary pre-passes like immortal-object detection (`aims/immortal/`) produce typed inputs that feed the lattice-driven analysis via `AimsStateMap::immortals` — they are part of the unified pipeline, but they are NOT lattice dimensions themselves. The goal is not partial implementation of many ideas, but one trustworthy system whose claims are enforceable in code and verification.
+
+### What AIMS does TODAY (shipped, not roadmap)
+
+- **Interprocedural RC elimination** via `MemoryContract` — callers skip inc/dec when callees prove non-consumption; callees skip redundant drops when callers prove uniqueness
+- **Intraprocedural RC elimination** via the AimsState lattice — proves locally that ownership already exists or that a value dies unused
+- **FBIP / reuse** — replaces entire alloc-copy-dealloc sequences with in-place updates when uniqueness is provable (Koka + Lean 4 style)
+- **TRMC** — tail-recursion modulo cons, eliminating RC ops on the return path of tail-call chains
+- **Immortal pre-pass** — heap-allocated constants are detected before backward analysis (`aims/immortal/`) and marked in a per-var `immortals: Vec<bool>` bitvector stored on `AimsStateMap`; the lattice-driven analysis consults that bitvector to skip RC/COW/reuse/drop-hint emission entirely for those vars
+- **Borrow inference** — per-parameter Owned/Borrowed ABI decisions at function boundaries
+
+### Where AIMS is HEADED (pending plans, all ARC-based extensions — none replace refcounting)
+
+- **Escape analysis → stack promotion** (`plans/repr-opt/section-08-escape-analysis.md`) — non-escaping allocations vanish entirely; no header, no RC ops, pure stack
+- **Unified locality dimension** (`plans/locality-representation-unification/`) — one canonical escape classification feeding stack promotion, header sizing, and cross-function reasoning; replaces 3+ parallel escape enums
+- **RC header compression** (`plans/repr-opt/section-09-arc-header.md`) — refcount field narrowed from i64 → i8/i16/i32 based on proven sharing bounds
+- **Non-atomic RC** (`plans/repr-opt/section-10-thread-local-arc.md`) — thread-local allocations use plain load/store instead of atomic CAS
+- **AIMS → LLVM fact export** (`plans/semantic-optimization-pipeline/section-03-aims-export.md`) — `noalias`, `alias.scope`, `memory(none)` attributes let standard LLVM passes exploit AIMS proofs
+- **Clang ARC patterns** (`plans/clang-arc-lessons/`) — KnownSafe flag, barrier analysis, RC motion, COW contraction, per-phase elimination statistics
+
+Every pending plan shrinks the problem space AIMS has to emit RC ops for. The endgame is emitted code where RC operations are rare enough to audit one-by-one.
+
+### Verification Surface
+
+The AIMS verification stack is **layered**, not a single function. Each layer catches a different class of inconsistency; a fix that passes one layer but regresses another is a correctness regression, not a partial win.
+
+1. **Structural ARC IR verification** (`pipeline::run_verify`) — RC balance, type sanity, drop placement, reachability. Runs after every relevant pipeline step.
+2. **AIMS contract consistency** (`pipeline::run_aims_verify` → `verify::check_function_with_contract`) — filters the general verifier's output to AIMS-specific inconsistencies. **Currently the only variant reported is `VerifyError::AbsentParamHasUses`** (parameters declared `Cardinality::Absent` must have no live uses on any forward-reachable path). It is NOT a whole-lattice oracle.
+3. **Oracle cross-check** (`aims::verify::oracle::verify_coherence`, `aims/verify/oracle.rs`) — re-derives a `MemoryContract` from the realized IR and compares it against the inferred contract along `access`, `consumption`, and `effects` dimensions; reports unsafe mismatches where analysis was more optimistic than realization needed. Runs in batch mode under `pipeline::aims_pipeline::batch` when `verify_arc` is enabled.
+4. **FIP certification** (`aims::verify::fip::verify_fip_contract`, `aims/verify/fip.rs`) — proves `FipContract::Certified` functions have zero unmatched allocations/deallocations in the realized IR.
+
+When CLAUDE.md or these docs refer to "verifying AIMS consistency," the claim is about this layered stack as a whole — not about any single function. Do NOT cite `run_aims_verify()` as the proof engine for the full AimsState model; it is one specific check in layer 2.
 
 **Every change to ARC/AIMS code must preserve system coherence.** Fixing one subsystem while leaving another inconsistent is not a fix — it's a new bug. When you touch RC emission, ask if contracts still agree. When you touch contracts, ask if realization still matches. When you touch COW, ask if reuse and drop hints still cohere. And ask: **does this fix preserve the through-line from proof to elimination?** A change that adds RC ops without pointing at a specific proof failure is a regression, not a correctness win.
 
@@ -21,6 +52,7 @@ These hold at all times. Any change that violates one is a bug, not a tradeoff.
 2. **Active rewrites must be sound.** `normalize_function()` transforms must produce identical observable behavior. Structural tests alone do not satisfy this — behavioral verification is required. If unverifiable, the rewrite must not run.
 3. **No pass may rely on stale summaries.** If a pipeline step modifies IR or updates an effect summary, all downstream consumers must see updated values. A verifier that runs before its inputs are available is a sequencing bug.
 4. **The enabled surface must be end-to-end verified.** Every active subsystem needs: implementation + invariant enforcement + verification (structural + behavioral + regression). Missing any of the three = incomplete.
+5. **The unified model must stay unified.** New analysis capabilities must either (a) extend a lattice dimension, (b) extend a contract field on `MemoryContract` / `ParamContract` / `ReturnContract` / `EffectSummary`, or (c) feed the lattice-driven analysis as a typed pre-pass input that lands on `AimsStateMap` (as `immortal` detection does via the `immortals: Vec<bool>` bitvector). What they must NOT do is spawn an independent RC emission path, a parallel escape enum, or a shadow uniqueness tracker that bypasses the lattice. If a fix looks like it needs a new top-level data structure next to `AimsStateMap`, pause and ask whether the facility belongs inside one of (a)/(b)/(c) instead.
 
 ---
 
@@ -58,7 +90,7 @@ Key constraint: step 10 uses `AimsStateMap` via ArcVarId-keyed lookups (`var_sta
 
 Any fixpoint analysis (interprocedural contract computation, intraprocedural backward dataflow) must satisfy:
 
-- **Finite lattice height**: every lattice dimension has bounded height. AimsState: 7 finite dimensions — each provably finite.
+- **Finite lattice height**: every lattice dimension has bounded height. The count of dimensions is a choice that can evolve; the invariant is that **each active dimension** must be provably finite. Current state: 7 dimensions, each proven finite — adding a new dimension requires re-proving finiteness for it.
 - **Monotone transfer functions**: `state_after >= state_before` in the lattice partial order. Non-monotone transfer = unsound analysis.
 - **Deterministic worklist ordering**: iteration must be deterministic regardless of hash-map ordering. Use reverse-postorder or SCC-index-based ordering.
 - **Iteration bound**: maximum iteration count per SCC (default: 100). Log warning at 50 iterations. Abort with diagnostic at 100.
@@ -82,7 +114,7 @@ Any fixpoint analysis (interprocedural contract computation, intraprocedural bac
 | `AnnotatedSig` | `ownership/` | Function signature with ownership annotations |
 | `DropInfo` / `DropKind` | `drop/` | Per-type drop requirements: None, Scalar, RcDec, Struct, Enum, ClosureEnv |
 | `ArcClassifier` | `classify/` | Pool-backed classifier with caching |
-| `AimsState` | `aims/lattice/` | 7D product lattice: AccessClass × Consumption × Cardinality × Uniqueness × Locality × ShapeClass × EffectClass |
+| `AimsState` | `aims/lattice/` | Product lattice over memory dimensions — today 7: AccessClass × Consumption × Cardinality × Uniqueness × Locality × ShapeClass × EffectClass (extensible) |
 | `MemoryContract` | `aims/contract/` | Per-function interprocedural summary (param contracts + return info + effects) |
 | `ParamContract` | `aims/contract/` | Per-parameter access, consumption, cardinality, locality_bound |
 | `AimsStateMap` | `aims/intraprocedural/` | Block-boundary analysis results (block_exit_states, block_entry_states, borrow_sources, events, scalars, immortals) |
@@ -133,7 +165,7 @@ Source: `ori_ir/src/builtin_constants/protocol/mod.rs`
 | `graph/` | Dominator tree construction |
 | `decision_tree/` | Pattern match compilation to decision trees |
 | `uniqueness/` | COW type definitions (CowAnnotations, DropHints, CowMode, Uniqueness, UniquenessSummary) |
-| `aims/lattice/` | 7D product lattice (AimsState) + dimension enums + join/meet/predicates |
+| `aims/lattice/` | AimsState product lattice + dimension enums + join/meet/predicates (extensible; currently 7 dimensions) |
 | `aims/transfer/` | Per-instruction transfer functions (backward dataflow) |
 | `aims/contract/` | MemoryContract, ParamContract, ReturnContract, EffectSummary |
 | `aims/intraprocedural/` | Per-function backward analysis + AimsStateMap + block-level computation |
@@ -218,7 +250,7 @@ Never insert `RcDec` after a tail call — breaks TCO. Transfer ownership instea
 | `ori_arc/src/lower/calls/mod.rs` | Function call + lambda lowering |
 | `ori_arc/src/borrow/mod.rs` | Borrow inference (LLVM ABI decisions) |
 | `ori_arc/src/drop/mod.rs` | Drop info computation |
-| `ori_arc/src/aims/mod.rs` | AIMS module root (7D lattice framework) |
+| `ori_arc/src/aims/mod.rs` | AIMS module root (lattice framework) |
 | `ori_arc/src/aims/lattice/mod.rs` | AimsState product lattice + operations |
 | `ori_arc/src/aims/interprocedural.rs` | SCC fixpoint for MemoryContract |
 | `ori_arc/src/aims/intraprocedural/mod.rs` | Per-function backward dataflow |
