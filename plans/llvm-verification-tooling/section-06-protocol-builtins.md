@@ -1,8 +1,8 @@
 ---
 section: "06"
 title: "Protocol Builtin Verification Matrix"
-status: in-progress
-reviewed: true
+status: not-started
+reviewed: false
 goal: "Pin every ProtocolBuiltin variant x argument position x ownership value in a test matrix, with RC balance verification through LLVM codegen audit for each protocol — ensuring that protocol builtin ownership changes never silently break RC correctness"
 success_criteria:
   - "Every ProtocolBuiltin variant (Index, Iter, IterNext, IterDrop, CollectSet) has its ownership per-arg pinned in a test"
@@ -20,31 +20,33 @@ third_party_review:
 sections:
   - id: "06.1"
     title: "Ownership Pin Matrix Tests"
-    status: complete
+    status: not-started
   - id: "06.2"
     title: "RC Balance Codegen Audit Tests"
-    status: complete
+    status: not-started
   - id: "06.3"
     title: "Exhaustiveness Guard"
-    status: complete
+    status: not-started
   - id: "06.R"
     title: "Third Party Review Findings"
-    status: complete
+    status: not-started
   - id: "06.N"
     title: "Completion Checklist"
-    status: complete
+    status: not-started
 ---
 
 # Section 06: Protocol Builtin Verification Matrix
 
-**Status:** Complete
+> **RESET (2026-04-11):** All work in this section was produced by an autopilot session with inadequate planning and TPR oversight. Implementation code may exist in the codebase (commits from the autopilot session) but the design, test coverage, and verification cannot be trusted as valid. This section must be re-done from scratch with proper planning, review (`/review-plan`), and verification (`/tpr-review` + `/impl-hygiene-review`). The existing code should be audited during re-implementation — it may be partially reusable but must not be assumed correct.
+
+**Status:** Not Started
 **Goal:** Pin every `ProtocolBuiltin` variant x argument position x ownership value in a test matrix, with RC balance verification through LLVM codegen audit for each protocol builtin. Protocol builtins (`ori_ir/src/builtin_constants/protocol/mod.rs`) are compiler-internal functions emitted by ARC lowering that carry per-argument ownership semantics. A wrong ownership value on a protocol builtin causes silent RC leaks or double-frees — the `__index` RC leak was caused by exactly this class of bug (unknown callee -> all Owned fallthrough). This section ensures that ownership changes to protocol builtins are caught by tests, not by users.
 
 **Success Criteria:**
 
-- [x] Every `ProtocolBuiltin` variant has per-arg ownership pinned — satisfies mission criterion: "Protocol builtin ownership pinned"
-- [x] RC balance verified through LLVM codegen audit for each builtin — satisfies mission criterion: "Protocol builtin ownership pinned"
-- [x] Exhaustiveness guard prevents unmatched new variants — satisfies mission criterion: "Protocol builtin ownership pinned"
+- [ ] Every `ProtocolBuiltin` variant has per-arg ownership pinned — satisfies mission criterion: "Protocol builtin ownership pinned"
+- [ ] RC balance verified through LLVM codegen audit for each builtin — satisfies mission criterion: "Protocol builtin ownership pinned"
+- [ ] Exhaustiveness guard prevents unmatched new variants — satisfies mission criterion: "Protocol builtin ownership pinned"
 
 **Context:** The `ProtocolBuiltin` enum has 5 variants: `Index`, `Iter`, `IterNext`, `IterDrop`, `CollectSet`. Each has a fixed `arg_count()` and `arg_ownership()` that determines how borrow inference treats its arguments. The existing tests in `protocol/tests.rs` (79 lines) cover existence, `from_name()`, and ownership per variant. The existing AIMS builtin tests in `ori_arc/src/aims/builtins/tests.rs` (98 lines) cover seed contract computation. What's missing: (1) RC balance verification through the full LLVM codegen pipeline for each protocol builtin, and (2) a test that will fail if a new `ProtocolBuiltin` variant is added without test coverage.
 
@@ -71,7 +73,7 @@ This is NOT a Cartesian product test — each argument position has exactly ONE 
 
 Extend the existing protocol tests to pin every ownership value explicitly. These are semantic pin tests — they exist to FAIL if someone changes the ownership of a protocol builtin argument without updating all downstream consumers.
 
-- [x] Add per-variant ownership pin tests. The existing `tests.rs` may already have some of these — extend to cover every arg position explicitly with clear pin semantics:
+- [ ] Add per-variant ownership pin tests. The existing `tests.rs` may already have some of these — extend to cover every arg position explicitly with clear pin semantics:
   ```rust
   use super::*;
 
@@ -127,7 +129,7 @@ Extend the existing protocol tests to pin every ownership value explicitly. Thes
   }
   ```
 
-- [x] Pin `is_intercepted()` behavior — the distinction between intercepted (emitted inline by LLVM emitter) and non-intercepted (real function calls) is load-bearing for codegen:
+- [ ] Pin `is_intercepted()` behavior — the distinction between intercepted (emitted inline by LLVM emitter) and non-intercepted (real function calls) is load-bearing for codegen:
   ```rust
   #[test]
   fn pin_intercepted_status() {
@@ -139,7 +141,7 @@ Extend the existing protocol tests to pin every ownership value explicitly. Thes
   }
   ```
 
-- [x] Pin `arg_count()` values:
+- [ ] Pin `arg_count()` values:
   ```rust
   #[test]
   fn pin_arg_counts() {
@@ -151,10 +153,10 @@ Extend the existing protocol tests to pin every ownership value explicitly. Thes
   }
   ```
 
-- [x] **Subsection close-out (06.1)** — MANDATORY before starting 06.2:
-  - [x] All tasks above are `[x]` and the subsection's behavior is verified
-  - [x] Update this subsection's `status` in section frontmatter to `complete`
-  - [x] **Run `/improve-tooling` retrospectively on THIS subsection** — reflect on the debugging journey for 06.1 specifically: which `diagnostics/` scripts you ran, where you added `dbg!`/`tracing` calls, where test failures gave unhelpful messages. Implement every accepted improvement NOW and commit each via SEPARATE `/commit-push` using a valid conventional-commit type.
+- [ ] **Subsection close-out (06.1)** — MANDATORY before starting 06.2:
+  - [ ] All tasks above are `[x]` and the subsection's behavior is verified
+  - [ ] Update this subsection's `status` in section frontmatter to `complete`
+  - [ ] **Run `/improve-tooling` retrospectively on THIS subsection** — reflect on the debugging journey for 06.1 specifically: which `diagnostics/` scripts you ran, where you added `dbg!`/`tracing` calls, where test failures gave unhelpful messages. Implement every accepted improvement NOW and commit each via SEPARATE `/commit-push` using a valid conventional-commit type.
 
 ---
 
@@ -164,7 +166,7 @@ Extend the existing protocol tests to pin every ownership value explicitly. Thes
 
 Verify RC balance through the full LLVM codegen pipeline for programs exercising each protocol builtin. These tests use `ORI_AUDIT_CODEGEN=1` (from Section 01's verifier gates) to check that the emitted LLVM IR has balanced RC operations.
 
-- [x] Create Ori test programs that exercise each protocol builtin. Each program must be minimal but must trigger the specific protocol path:
+- [ ] Create Ori test programs that exercise each protocol builtin. Each program must be minimal but must trigger the specific protocol path:
 
   - **Index** (`__index`): `let xs = [1, 2, 3]; let x = xs[0]`
   - **Iter** (`iter`): `for x in [1, 2, 3] do print(msg: x.to_str())`
@@ -172,7 +174,7 @@ Verify RC balance through the full LLVM codegen pipeline for programs exercising
   - **IterDrop** (`ori_iter_drop`): `for x in [1, 2, 3] do { if x == 2 then break }` (early exit triggers explicit drop)
   - **CollectSet** (`__collect_set`): requires a `Set` collection from an iterator (e.g., `for x in [1, 2, 3] yield x` collected into a `Set`)
 
-- [x] For each test program, compile via AOT and run the codegen audit:
+- [ ] For each test program, compile via AOT and run the codegen audit:
   ```rust
   #[test]
   fn protocol_index_rc_balance() {
@@ -182,7 +184,7 @@ Verify RC balance through the full LLVM codegen pipeline for programs exercising
   }
   ```
 
-- [x] Run each compiled binary with `ORI_CHECK_LEAKS=1` and verify zero leaks:
+- [ ] Run each compiled binary with `ORI_CHECK_LEAKS=1` and verify zero leaks:
   ```rust
   #[test]
   fn protocol_iter_drop_no_leaks() {
@@ -192,12 +194,12 @@ Verify RC balance through the full LLVM codegen pipeline for programs exercising
   }
   ```
 
-- [x] **TPR checkpoint** — `/tpr-review` covering 06.1–06.2 implementation work
+- [ ] **TPR checkpoint** — `/tpr-review` covering 06.1–06.2 implementation work
 
-- [x] **Subsection close-out (06.2)** — MANDATORY before starting 06.3:
-  - [x] All tasks above are `[x]` and the subsection's behavior is verified
-  - [x] Update this subsection's `status` in section frontmatter to `complete`
-  - [x] **Run `/improve-tooling` retrospectively on THIS subsection** — same protocol as 06.1's close-out, scoped to 06.2's debugging journey.
+- [ ] **Subsection close-out (06.2)** — MANDATORY before starting 06.3:
+  - [ ] All tasks above are `[x]` and the subsection's behavior is verified
+  - [ ] Update this subsection's `status` in section frontmatter to `complete`
+  - [ ] **Run `/improve-tooling` retrospectively on THIS subsection** — same protocol as 06.1's close-out, scoped to 06.2's debugging journey.
 
 ---
 
@@ -207,7 +209,7 @@ Verify RC balance through the full LLVM codegen pipeline for programs exercising
 
 Add a test that iterates `ProtocolBuiltin::ALL` and verifies every variant has test coverage. This guard ensures that adding a new `ProtocolBuiltin` variant without updating the test matrix causes an immediate test failure.
 
-- [x] Add an exhaustiveness test that checks `ALL` matches the expected count:
+- [ ] Add an exhaustiveness test that checks `ALL` matches the expected count:
   ```rust
   #[test]
   fn exhaustiveness_all_variants_covered() {
@@ -223,7 +225,7 @@ Add a test that iterates `ProtocolBuiltin::ALL` and verifies every variant has t
   }
   ```
 
-- [x] Add an exhaustiveness test that verifies every variant in `ALL` has a name and ownership:
+- [ ] Add an exhaustiveness test that verifies every variant in `ALL` has a name and ownership:
   ```rust
   #[test]
   fn exhaustiveness_all_variants_have_name_and_ownership() {
@@ -252,12 +254,12 @@ Add a test that iterates `ProtocolBuiltin::ALL` and verifies every variant has t
   }
   ```
 
-- [x] Add a compile-time enforcement consideration: the `match` in `arg_ownership()` already covers all variants exhaustively (Rust enforces this). The test-time guard above is defense-in-depth for the cases where a variant is added to the enum and to the match but NOT to the test assertions.
+- [ ] Add a compile-time enforcement consideration: the `match` in `arg_ownership()` already covers all variants exhaustively (Rust enforces this). The test-time guard above is defense-in-depth for the cases where a variant is added to the enum and to the match but NOT to the test assertions.
 
-- [x] **Subsection close-out (06.3)** — MANDATORY before starting 06.R:
-  - [x] All tasks above are `[x]` and the subsection's behavior is verified
-  - [x] Update this subsection's `status` in section frontmatter to `complete`
-  - [x] **Run `/improve-tooling` retrospectively on THIS subsection** — same protocol as 06.1's close-out, scoped to 06.3's debugging journey.
+- [ ] **Subsection close-out (06.3)** — MANDATORY before starting 06.R:
+  - [ ] All tasks above are `[x]` and the subsection's behavior is verified
+  - [ ] Update this subsection's `status` in section frontmatter to `complete`
+  - [ ] **Run `/improve-tooling` retrospectively on THIS subsection** — same protocol as 06.1's close-out, scoped to 06.3's debugging journey.
 
 ---
 
@@ -281,23 +283,23 @@ When all findings are triaged:
 
 ## 06.N Completion Checklist
 
-- [x] Every `ProtocolBuiltin` variant has per-arg ownership pinned in dedicated test functions
-- [x] `is_intercepted()` behavior pinned for all variants
-- [x] `arg_count()` values pinned for all variants
-- [x] RC balance verified via codegen audit for Index, Iter, IterNext, IterDrop, CollectSet
-- [x] Leak check passed for programs exercising each protocol builtin
-- [x] Exhaustiveness guard: adding a new variant without tests fails immediately
-- [x] `from_name()` round-trip verified for all variants
-- [x] No regressions: `timeout 150 ./test-all.sh` green
-- [x] `timeout 150 ./clippy-all.sh` green
-- [x] Plan annotation cleanup: `bash .claude/skills/impl-hygiene-review/plan-annotations.sh --plan 06` returns 0 annotations
-- [x] All intermediate TPR checkpoint findings resolved
-- [x] **Plan sync** — update plan metadata:
-  - [x] This section's frontmatter `status` → `complete`, subsection statuses updated
-  - [x] `00-overview.md` Quick Reference updated
-  - [x] `index.md` section status updated
-- [x] `/tpr-review` passed (final, full-section)
-- [x] `/impl-hygiene-review` passed — AFTER `/tpr-review` is clean
-- [x] `/improve-tooling` **section-close sweep** — verify per-subsection retrospectives ran, add cross-cutting items.
+- [ ] Every `ProtocolBuiltin` variant has per-arg ownership pinned in dedicated test functions
+- [ ] `is_intercepted()` behavior pinned for all variants
+- [ ] `arg_count()` values pinned for all variants
+- [ ] RC balance verified via codegen audit for Index, Iter, IterNext, IterDrop, CollectSet
+- [ ] Leak check passed for programs exercising each protocol builtin
+- [ ] Exhaustiveness guard: adding a new variant without tests fails immediately
+- [ ] `from_name()` round-trip verified for all variants
+- [ ] No regressions: `timeout 150 ./test-all.sh` green
+- [ ] `timeout 150 ./clippy-all.sh` green
+- [ ] Plan annotation cleanup: `bash .claude/skills/impl-hygiene-review/plan-annotations.sh --plan 06` returns 0 annotations
+- [ ] All intermediate TPR checkpoint findings resolved
+- [ ] **Plan sync** — update plan metadata:
+  - [ ] This section's frontmatter `status` → `complete`, subsection statuses updated
+  - [ ] `00-overview.md` Quick Reference updated
+  - [ ] `index.md` section status updated
+- [ ] `/tpr-review` passed (final, full-section)
+- [ ] `/impl-hygiene-review` passed — AFTER `/tpr-review` is clean
+- [ ] `/improve-tooling` **section-close sweep** — verify per-subsection retrospectives ran, add cross-cutting items.
 
 **Exit Criteria:** Every `ProtocolBuiltin` variant has its per-argument ownership semantics pinned in test assertions. RC balance is verified through the full LLVM codegen pipeline for programs exercising each protocol builtin. An exhaustiveness guard ensures new variants cannot be added without test coverage. `ORI_CHECK_LEAKS=1` reports zero leaks for all protocol builtin test programs. `timeout 150 ./test-all.sh` passes with all new tests included.
