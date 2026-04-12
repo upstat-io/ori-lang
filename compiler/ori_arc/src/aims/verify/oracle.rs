@@ -18,7 +18,7 @@ use crate::aims::contract::MemoryContract;
 use crate::aims::lattice::{AccessClass, Consumption};
 use crate::ir::{ArcFunction, ArcInstr, ArcTerminator, ArcValue, ArcVarId};
 
-// ─── Alias Tracking (05.1.1) ───
+// Alias tracking
 
 /// Maps every `ArcVarId` that is an alias of a function parameter to its
 /// parameter index. Handles transitive aliasing through `Let { value: Var(_) }`
@@ -39,45 +39,66 @@ fn build_param_alias_map(func: &ArcFunction) -> FxHashMap<ArcVarId, usize> {
     let mut changed = true;
     while changed {
         changed = false;
-
         for block in &func.blocks {
-            // Let { dst, Var(src) } — direct alias propagation.
-            for instr in &block.body {
-                if let ArcInstr::Let {
-                    dst,
-                    value: ArcValue::Var(src),
-                    ..
-                } = instr
-                {
-                    if let Some(&param_idx) = alias_map.get(src) {
-                        if !alias_map.contains_key(dst) {
-                            alias_map.insert(*dst, param_idx);
-                            changed = true;
-                        }
-                    }
-                }
-            }
-
-            // Jump { target, args } — args[i] flows to target.params[i].
-            if let ArcTerminator::Jump { target, args } = &block.terminator {
-                let target_block = func.blocks.iter().find(|b| b.id == *target);
-                if let Some(target_block) = target_block {
-                    for (bp, arg) in target_block.params.iter().zip(args.iter()) {
-                        if let Some(&param_idx) = alias_map.get(arg) {
-                            if alias_map.insert(bp.0, param_idx).is_none() {
-                                changed = true;
-                            }
-                        }
-                    }
-                }
-            }
+            changed |= propagate_let_aliases(block, &mut alias_map);
+            changed |= propagate_jump_aliases(block, func, &mut alias_map);
         }
     }
 
     alias_map
 }
 
-// ─── Per-Parameter Observation (05.1.2) ───
+/// Propagate aliases through `Let { value: Var(_) }` bindings in a block.
+fn propagate_let_aliases(
+    block: &crate::ir::ArcBlock,
+    alias_map: &mut FxHashMap<ArcVarId, usize>,
+) -> bool {
+    let mut changed = false;
+    for instr in &block.body {
+        let ArcInstr::Let {
+            dst,
+            value: ArcValue::Var(src),
+            ..
+        } = instr
+        else {
+            continue;
+        };
+        let Some(&param_idx) = alias_map.get(src) else {
+            continue;
+        };
+        if !alias_map.contains_key(dst) {
+            alias_map.insert(*dst, param_idx);
+            changed = true;
+        }
+    }
+    changed
+}
+
+/// Propagate aliases through Jump → block-param edges.
+fn propagate_jump_aliases(
+    block: &crate::ir::ArcBlock,
+    func: &ArcFunction,
+    alias_map: &mut FxHashMap<ArcVarId, usize>,
+) -> bool {
+    let ArcTerminator::Jump { target, args } = &block.terminator else {
+        return false;
+    };
+    let Some(target_block) = func.blocks.iter().find(|b| b.id == *target) else {
+        return false;
+    };
+    let mut changed = false;
+    for (bp, arg) in target_block.params.iter().zip(args.iter()) {
+        let Some(&param_idx) = alias_map.get(arg) else {
+            continue;
+        };
+        if alias_map.insert(bp.0, param_idx).is_none() {
+            changed = true;
+        }
+    }
+    changed
+}
+
+// Per-parameter observation
 
 /// Per-parameter observations from walking realized IR.
 #[derive(Clone, Debug, Default)]
@@ -103,73 +124,89 @@ fn derive_param_observations(
     let mut obs = vec![ParamObservation::default(); num_params];
 
     for block in &func.blocks {
-        for instr in &block.body {
-            match instr {
-                ArcInstr::RcInc { var, count, .. } => {
-                    if let Some(&idx) = alias_map.get(var) {
-                        obs[idx].rc_incs += count;
-                    }
-                }
-                ArcInstr::RcDec { var, .. } => {
-                    if let Some(&idx) = alias_map.get(var) {
-                        obs[idx].rc_decs += 1;
-                    }
-                }
-                _ => {
-                    // For all other instructions: use used_vars() + is_owned_position()
-                    // to classify each use as owned transfer or non-RC use.
-                    let used = instr.used_vars();
-                    for (pos, used_var) in used.iter().enumerate() {
-                        if let Some(&idx) = alias_map.get(used_var) {
-                            if instr.is_owned_position(pos) {
-                                obs[idx].has_owned_transfer = true;
-                            } else {
-                                obs[idx].non_rc_uses += 1;
-                            }
-                        }
-                    }
-                }
-            }
-        }
+        observe_block_body(block, alias_map, &mut obs);
+        observe_block_terminator(block, alias_map, &mut obs);
+    }
 
-        // Terminator uses.
-        let term_used = block.terminator.used_vars();
-        match &block.terminator {
-            // Return transfers ownership of the returned value.
-            // is_owned_position() returns false for Return, so handle explicitly.
-            ArcTerminator::Return { value } => {
-                if let Some(&idx) = alias_map.get(value) {
-                    obs[idx].has_owned_transfer = true;
+    obs
+}
+
+/// Record observations from instructions in a block body.
+fn observe_block_body(
+    block: &crate::ir::ArcBlock,
+    alias_map: &FxHashMap<ArcVarId, usize>,
+    obs: &mut [ParamObservation],
+) {
+    for instr in &block.body {
+        match instr {
+            ArcInstr::RcInc { var, count, .. } => {
+                if let Some(&idx) = alias_map.get(var) {
+                    obs[idx].rc_incs += count;
                 }
             }
-            // Invoke/InvokeIndirect have arg_ownership — use is_owned_position().
-            ArcTerminator::Invoke { .. } | ArcTerminator::InvokeIndirect { .. } => {
-                for (pos, used_var) in term_used.iter().enumerate() {
-                    if let Some(&idx) = alias_map.get(used_var) {
-                        if block.terminator.is_owned_position(pos) {
-                            obs[idx].has_owned_transfer = true;
-                        } else {
-                            obs[idx].non_rc_uses += 1;
-                        }
-                    }
+            ArcInstr::RcDec { var, .. } => {
+                if let Some(&idx) = alias_map.get(var) {
+                    obs[idx].rc_decs += 1;
                 }
             }
-            // Jump args propagate aliases (handled in alias map, not here).
-            // Count as non-RC uses for the parameter observation.
             _ => {
-                for used_var in &term_used {
-                    if let Some(&idx) = alias_map.get(used_var) {
+                // All other instructions: classify each use via is_owned_position().
+                for (pos, used_var) in instr.used_vars().iter().enumerate() {
+                    let Some(&idx) = alias_map.get(used_var) else {
+                        continue;
+                    };
+                    if instr.is_owned_position(pos) {
+                        obs[idx].has_owned_transfer = true;
+                    } else {
                         obs[idx].non_rc_uses += 1;
                     }
                 }
             }
         }
     }
-
-    obs
 }
 
-// ─── Realized Contract Derivation (05.1.3) ───
+/// Record observations from a block's terminator.
+fn observe_block_terminator(
+    block: &crate::ir::ArcBlock,
+    alias_map: &FxHashMap<ArcVarId, usize>,
+    obs: &mut [ParamObservation],
+) {
+    let term_used = block.terminator.used_vars();
+    match &block.terminator {
+        // Return transfers ownership of the returned value.
+        ArcTerminator::Return { value } => {
+            if let Some(&idx) = alias_map.get(value) {
+                obs[idx].has_owned_transfer = true;
+            }
+        }
+        // Invoke/InvokeIndirect have arg_ownership — use is_owned_position().
+        ArcTerminator::Invoke { .. } | ArcTerminator::InvokeIndirect { .. } => {
+            for (pos, used_var) in term_used.iter().enumerate() {
+                let Some(&idx) = alias_map.get(used_var) else {
+                    continue;
+                };
+                if block.terminator.is_owned_position(pos) {
+                    obs[idx].has_owned_transfer = true;
+                } else {
+                    obs[idx].non_rc_uses += 1;
+                }
+            }
+        }
+        // Jump args propagate aliases (handled in alias map, not here).
+        // Count as non-RC uses for the parameter observation.
+        _ => {
+            for used_var in &term_used {
+                let Some(&idx) = alias_map.get(used_var) else {
+                    continue;
+                };
+                obs[idx].non_rc_uses += 1;
+            }
+        }
+    }
+}
+
+// Realized contract derivation
 
 /// A contract re-derived from walking realized ARC IR.
 ///
@@ -230,7 +267,7 @@ pub fn derive_param_contracts(func: &ArcFunction) -> Vec<RealizedParamContract> 
     observations.iter().map(derive_single_param).collect()
 }
 
-// ─── Effect Derivation (05.2) ───
+// Effect derivation
 
 /// Effects re-derived from walking realized ARC IR.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -275,7 +312,7 @@ pub fn derive_effects(func: &ArcFunction, missed_reuses: u32) -> RealizedEffects
     }
 }
 
-// ─── Coherence Comparison (05.3) ───
+// Coherence comparison
 
 /// A coherence mismatch between inferred and realized contracts.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -442,9 +479,26 @@ pub fn verify_coherence(
         }
     }
 
-    // Effects: check all three dimensions via derive_effects().
+    // Effects: check unsafe mismatches, log conservative ones.
+    check_effect_coherence(func, inferred, missed_reuses, &mut mismatches);
+
+    mismatches
+}
+
+/// Check effect dimensions for unsafe mismatches.
+///
+/// `may_deallocate` and `may_share` are checked directionally (unsafe = error).
+/// `may_allocate` is treated as info-only because the oracle overestimates
+/// (cannot distinguish scalar from heap Construct).
+fn check_effect_coherence(
+    func: &ArcFunction,
+    inferred: &MemoryContract,
+    missed_reuses: u32,
+    mismatches: &mut Vec<CoherenceMismatch>,
+) {
     let effects = derive_effects(func, missed_reuses);
 
+    // may_deallocate: unsafe if analysis said no deallocation but missed reuses detected.
     if !inferred.effects.may_deallocate && effects.may_deallocate {
         mismatches.push(CoherenceMismatch::EffectMismatch {
             field: "may_deallocate",
@@ -455,19 +509,17 @@ pub fn verify_coherence(
         tracing::info!("conservative may_deallocate inference — no missed reuses detected");
     }
 
-    // may_allocate: the oracle's derivation is an OVERESTIMATE — it sees any
-    // Construct/PartialApply as allocation without type classification (can't
-    // distinguish scalar from heap). Per plan 05.2.1, treat oracle overestimate
-    // as conservative (info log), not as an unsafe error.
+    // may_allocate: oracle overestimates (can't classify types), so treat as info.
     if !inferred.effects.may_allocate && effects.may_allocate {
         tracing::info!(
-            "oracle may_allocate overestimate — oracle sees Construct/PartialApply \
+            "oracle may_allocate overestimate — Construct/PartialApply seen \
              but analysis says no allocation (likely scalar constructor)"
         );
     } else if inferred.effects.may_allocate && !effects.may_allocate {
         tracing::info!("conservative may_allocate inference — no Construct/PartialApply found");
     }
 
+    // may_share: unsafe if analysis said no sharing but RcInc instructions exist.
     if !inferred.effects.may_share && effects.may_share {
         mismatches.push(CoherenceMismatch::EffectMismatch {
             field: "may_share",
@@ -477,8 +529,6 @@ pub fn verify_coherence(
     } else if inferred.effects.may_share && !effects.may_share {
         tracing::info!("conservative may_share inference — no RcInc instructions found");
     }
-
-    mismatches
 }
 
 #[cfg(test)]
