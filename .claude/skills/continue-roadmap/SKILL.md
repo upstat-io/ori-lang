@@ -318,6 +318,8 @@ git status --short
    - **Run /commit-push (Recommended)** — commit and push all pending changes before continuing
    - **Proceed anyway** — continue with a dirty working tree (user accepts the risk of mixing work)
 
+**CRITICAL: NEVER discard uncommitted changes.** Do NOT use `git checkout --`, `git restore`, `git reset --hard`, `git clean`, or ANY destructive git command to "clean up" the working tree. The user runs parallel Claude sessions — uncommitted files are active work from other sessions. If `/commit-push` would include files from other sessions, that is acceptable (dirty commit). Lost work is never acceptable. Stage only your specific files with `git add <file1> <file2>` instead of `git add -A` when other dirty files exist.
+
 **Why:** This gate runs after TPR triage (Step 1.9) so that serious bugs surfaced by third-party review are fixed before the commit prompt. Committing before TPR triage would lock in code that may need immediate changes. After TPR fixes are applied, a clean working tree ensures the next section's work is cleanly separable in git history.
 
 ### Step 2: Determine Focus Section
