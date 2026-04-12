@@ -395,6 +395,85 @@ fn oracle_distinguishes_affine_from_linear() {
     );
 }
 
+// --- TPR-05-001 regression: Jump→Let alias propagation ---
+
+/// Regression: alias introduced via Let AFTER a Jump block-param propagation.
+/// Bug: the Let pass ran outside the fixpoint loop, so Let bindings in blocks
+/// reached by Jump were never resolved when the source was a block param.
+/// Fix: both Let and Jump propagation are now inside the fixpoint loop.
+#[test]
+fn oracle_tracks_alias_through_jump_then_let() {
+    // Block 0: Jump to block 1, passing param0 as arg
+    // Block 1: block param bp0 = v(100), then Let { dst: v(101), value: Var(bp0) }
+    //          then RcInc on v(101) — should be detected as param0 alias
+    let func = make_func(
+        vec![owned_param(0, Idx::UNIT)],
+        Idx::UNIT,
+        vec![
+            ArcBlock {
+                id: ArcBlockId::new(0),
+                params: vec![],
+                body: vec![],
+                terminator: ArcTerminator::Jump {
+                    target: ArcBlockId::new(1),
+                    args: vec![v(0)], // pass param0 to block 1
+                },
+            },
+            ArcBlock {
+                id: ArcBlockId::new(1),
+                params: vec![(v(100), Idx::UNIT)], // bp0 = v(100) aliases param0
+                body: vec![
+                    ArcInstr::Let {
+                        dst: v(101),
+                        ty: Idx::UNIT,
+                        value: crate::ir::ArcValue::Var(v(100)), // alias of bp0
+                    },
+                    ArcInstr::RcInc {
+                        var: v(101), // alias chain: param0 → bp0 → v(101)
+                        count: 1,
+                        strategy: RcStrategy::HeapPointer,
+                    },
+                ],
+                terminator: ArcTerminator::Return { value: v(999) },
+            },
+        ],
+        vec![Idx::UNIT; 1000],
+    );
+
+    let contracts = derive_param_contracts(&func);
+    assert_eq!(
+        contracts[0].access,
+        AccessClass::Owned,
+        "RcInc on Jump→Let alias of param0 should detect as Owned"
+    );
+    assert_eq!(contracts[0].consumption, Consumption::Unrestricted);
+    assert!(
+        contracts[0].may_share,
+        "RcInc on Jump→Let alias should detect may_share"
+    );
+}
+
+/// Regression: effect derivation must detect `PartialApply` as allocation source.
+/// Bug: `derive_effects()` only checked Construct, missing closure env allocation.
+#[test]
+fn oracle_detects_may_allocate_from_partial_apply() {
+    let func = func_with_body(
+        vec![],
+        vec![ArcInstr::PartialApply {
+            dst: v(1),
+            ty: Idx::UNIT,
+            func: ori_ir::Name::from_raw(200),
+            args: vec![v(10)],
+        }],
+    );
+
+    let effects = derive_effects(&func, 0);
+    assert!(
+        effects.may_allocate,
+        "PartialApply present -> may_allocate=true (closure env allocation)"
+    );
+}
+
 // --- 05.1.3 Additional matrix tests ---
 
 /// Transitive alias chain: param0 -> v1 -> v2, `RcInc` on v2 detected.

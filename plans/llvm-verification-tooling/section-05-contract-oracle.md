@@ -20,7 +20,7 @@ inspired_by:
   - "Swift SIL Verifier (swift/lib/SIL/Verifier/SILVerifier.cpp) — independent verification of SIL ownership invariants after each pass"
 depends_on: ["03", "04"]
 third_party_review:
-  status: resolved
+  status: findings
   updated: 2026-04-12
 sections:
   - id: "05.PRE"
@@ -642,6 +642,14 @@ When all findings are triaged:
   Resolved: Fixed on 2026-04-12. Updated Display impl to use param_var: ArcVarId.
 - [x] `[TPR-05-008-codex][medium]` (iter2) `section-05-contract-oracle.md:644` — Completion checklist uses pre-TPR ownership scope.
   Resolved: Fixed on 2026-04-12. Updated to match generalized is_owned_position + Invoke/InvokeIndirect + explicit Return scope.
+- [x] `[TPR-05-001-codex][high]` (iter3) `compiler/ori_arc/src/aims/verify/oracle.rs:34` — Close the GAP in block-param alias propagation.
+  Resolved: Fixed on 2026-04-12. Moved Let pass inside the fixpoint loop, matching the canonical pattern in interprocedural/extract.rs:244-277. Added `oracle_tracks_alias_through_jump_then_let` regression test.
+- [x] `[TPR-05-002-codex][medium]` (iter3) `compiler/ori_arc/src/aims/verify/oracle.rs:249` — Remove the LEAK from oracle effect derivation.
+  Resolved: Fixed on 2026-04-12. Added PartialApply to derive_effects() may_allocate check. Added `oracle_detects_may_allocate_from_partial_apply` regression test. Callee effect propagation (Apply/Invoke) is out of scope for the local-IR oracle by design.
+- [x] `[TPR-05-001-gemini][high]` (iter3) `compiler/ori_arc/src/aims/verify/oracle.rs:20` — Fix algorithmic duplication and missing transitive aliases.
+  Resolved: Fixed on 2026-04-12. Same root cause as TPR-05-001-codex iter3 — Let outside fixpoint loop. Shared helper extraction (to ir/alias.rs) deferred per SSOT — the oracle's alias map is parameter-index-keyed while extract.rs maps to ArcVarId→usize, so the signatures differ. The algorithmic pattern is now consistent.
+- [x] `[TPR-05-002-gemini][high]` (iter3) `compiler/ori_arc/src/aims/verify/oracle.rs:416` — Tolerate conservative may_allocate inference for scalar constructors.
+  Resolved: Fixed on 2026-04-12. Changed may_allocate unsafe direction to tracing::info! per plan 05.2.1 — oracle cannot classify types and its Construct/PartialApply check is an overestimate.
 
 ---
 
