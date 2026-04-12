@@ -1,7 +1,7 @@
 ---
 section: "01"
 title: "Census & Classification Baseline"
-status: not-started
+status: in-progress
 reviewed: false
 goal: "Produce a frozen, citable baseline snapshot of the current repository root state, reference blast radius, and script classification before any other section modifies anything — so every subsequent section can cite this baseline as its ground truth and any mid-execution drift is immediately detectable."
 success_criteria:
@@ -22,7 +22,7 @@ third_party_review:
 sections:
   - id: "01.1"
     title: "Baseline Snapshot Capture"
-    status: not-started
+    status: in-progress
   - id: "01.2"
     title: "Reference Inventory Refresh"
     status: not-started
@@ -31,7 +31,7 @@ sections:
     status: not-started
   - id: "01.R"
     title: "Third Party Review Findings"
-    status: not-started
+    status: complete
   - id: "01.N"
     title: "Completion Checklist"
     status: not-started

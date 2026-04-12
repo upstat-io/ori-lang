@@ -1,7 +1,7 @@
 ---
 section: "03"
 title: "Tracked Artifact Removal & Gitignore Verification"
-status: not-started
+status: in-progress
 reviewed: false
 goal: "Remove the two tracked `build/debug/*` artifacts (`simplest_crash.ll` and `test_simple`) via `git rm --cached`. **No gitignore edit is needed** (TPR-XX-002-codex iteration 3 fix — the iteration 1 premise that `**/build/` doesn't match root-level `build/` was factually wrong; `**/build/` DOES match root-level `build/` as verified via `git check-ignore -v --no-index`; the files are tracked because they were committed before the rule was added, and tracked files override gitignore)."
 success_criteria:
@@ -29,7 +29,7 @@ sections:
     status: not-started
   - id: "03.R"
     title: "Third Party Review Findings"
-    status: not-started
+    status: complete
   - id: "03.N"
     title: "Completion Checklist"
     status: not-started
