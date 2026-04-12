@@ -154,7 +154,7 @@ except Exception:
         echo "=== Language Intelligence Status ==="
         echo "Neo4j version: $VERSION"
         echo ""
-        "$VENV_PYTHON" "$QUERY_SCRIPT" stats
+        timeout "$QUERY_TIMEOUT" "$VENV_PYTHON" "$QUERY_SCRIPT" stats
     fi
     exit 0
 fi
@@ -185,6 +185,6 @@ if is_json; then
     fi
     printf '{"status":"ok","data":%s}\n' "$RESULT"
 else
-    "$VENV_PYTHON" "$QUERY_SCRIPT" "${PASS_ARGS[@]}" || true
+    timeout "$QUERY_TIMEOUT" "$VENV_PYTHON" "$QUERY_SCRIPT" "${PASS_ARGS[@]}" || true
 fi
 exit 0
