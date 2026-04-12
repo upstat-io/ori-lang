@@ -18,10 +18,11 @@
 //! # Canonical vs raw strategies
 //!
 //! The AIMS lattice `join()` applies `canonicalize()` after componentwise max.
-//! Lattice laws (commutativity, idempotence) hold on canonical states. However,
-//! **associativity does not hold** (see BUG-04-057) due to canonicalization
-//! Rule 4 (BlockLocal+Owned+≤Once+MaybeShared → Unique) creating order-
-//! dependent intermediate states.
+//! All lattice laws (commutativity, associativity, idempotence) hold on
+//! canonical states. Canonicalization rules are monotone (they only move
+//! dimensions toward top / more conservative). The formerly anti-monotone
+//! Rule 4 was removed by BUG-04-057 fix; Rule 6 was widened to `>= HeapEscaping`
+//! by BUG-04-058 fix.
 //!
 //! - `canonical_aims_state_strategy()` — for lattice law, transfer, fixpoint
 //! - `raw_aims_state_strategy()` — for canonicalization-specific tests
@@ -225,7 +226,7 @@ fn enriched_canonical_strategy() -> impl Strategy<Value = AimsState> {
 ///
 /// Standard lattice-theoretic definition. Only meaningful for canonical states.
 ///
-/// **WARNING:** This ordering is NOT transitive due to BUG-04-057. See
+/// Join-based partial order (now transitive after BUG-04-057 fix). See
 /// `lattice_leq_transitive` test (ignored). Use [`componentwise_leq`] for
 /// downstream monotonicity tests that require a valid partial order.
 fn lattice_leq(a: &AimsState, b: &AimsState) -> bool {
@@ -237,7 +238,7 @@ fn lattice_leq(a: &AimsState, b: &AimsState) -> bool {
 ///
 /// This is always a valid partial order (reflexive, antisymmetric, transitive)
 /// regardless of join associativity. Used for monotonicity tests (04.4) since
-/// BUG-04-057 makes the join-based [`lattice_leq`] non-transitive.
+/// After BUG-04-057 fix, the join-based [`lattice_leq`] is transitive.
 fn componentwise_leq(a: &AimsState, b: &AimsState) -> bool {
     a.access <= b.access
         && a.consumption <= b.consumption
@@ -306,7 +307,7 @@ proptest! {
     /// intermediate states. The uniqueness dimension diverges depending on
     /// whether the intermediate join result triggers the rule.
     #[test]
-    #[ignore = "BUG-04-057: join non-associative due to canonicalization rule interaction"]
+    // BUG-04-057 FIXED: Rule 4 removed from canonicalize, join is now associative.
     fn join_associative(
         a in canonical_aims_state_strategy(),
         b in canonical_aims_state_strategy(),
@@ -354,10 +355,10 @@ proptest! {
 // Partial-order axioms (canonical states only)
 //
 // Two orderings are tested:
-// 1. `lattice_leq`: `a.join(b) == b` — reflexive and antisymmetric, but NOT
-//    transitive (BUG-04-057). Cannot be used for monotonicity proofs.
+// 1. `lattice_leq`: `a.join(b) == b` — reflexive, antisymmetric, and transitive
+//    (after BUG-04-057 fix removed anti-monotone Rule 4). Valid partial order.
 // 2. `componentwise_leq`: per-dimension `<=` — always a valid partial order.
-//    Used for all downstream monotonicity tests (04.4).
+//    Used for downstream monotonicity tests (04.4).
 
 proptest! {
     // --- lattice_leq axioms (reflexive + antisymmetric only) ---
@@ -416,7 +417,7 @@ proptest! {
     /// b={Owned,Dead,Absent,Unique,BlockLocal}, c={...,FunctionLocal}.
     /// Rule 4 fires at BlockLocal (a<=b) but not at FunctionLocal (a<=c fails).
     #[test]
-    #[ignore = "BUG-04-057: join-based lattice_leq is non-transitive due to Rule 4 locality sensitivity"]
+    // BUG-04-057 FIXED: Rule 4 removed, lattice_leq is now transitive.
     fn lattice_leq_transitive(
         a in canonical_aims_state_strategy(),
         diff_ab in canonical_aims_state_strategy(),
@@ -711,7 +712,7 @@ proptest! {
     /// locality to HeapEscaping for small-locality inputs but preserves
     /// larger localities like Unknown, the function is non-monotone.
     #[test]
-    #[ignore = "BUG-04-058: capture_state_update non-monotone due to Rule 6 locality narrowness"]
+    // BUG-04-058 FIXED: Rule 6 widened to >= HeapEscaping, capture_state_update is now monotone.
     fn capture_state_update_monotone_in_current(
         a in canonical_aims_state_strategy(),
         diff in canonical_aims_state_strategy(),
@@ -733,7 +734,7 @@ proptest! {
     ///
     /// Same root cause as first-argument non-monotonicity: Rule 6 + locality.
     #[test]
-    #[ignore = "BUG-04-058: capture_state_update non-monotone due to Rule 6 locality narrowness"]
+    // BUG-04-058 FIXED: Rule 6 widened to >= HeapEscaping, capture_state_update is now monotone.
     fn capture_state_update_monotone_in_closure(
         current in canonical_aims_state_strategy(),
         c1 in canonical_aims_state_strategy(),
@@ -835,7 +836,7 @@ proptest! {
     /// (BlockLocal intermediate) but reverse fold doesn't (FunctionLocal
     /// intermediate). Analysis IS order-dependent.
     #[test]
-    #[ignore = "BUG-04-057: n-ary join non-permutation-invariant — analysis is order-dependent"]
+    // BUG-04-057 FIXED: Rule 4 removed, n-ary join is permutation-invariant.
     fn nary_join_permutation_invariant(
         states in proptest::collection::vec(canonical_aims_state_strategy(), 2..8),
     ) {
@@ -866,7 +867,7 @@ proptest! {
 
     /// BUG-04-057: Shuffled permutation test also fails (same root cause).
     #[test]
-    #[ignore = "BUG-04-057: n-ary join non-permutation-invariant — analysis is order-dependent"]
+    // BUG-04-057 FIXED: Rule 4 removed, n-ary join is permutation-invariant.
     fn nary_join_shuffled_permutations(
         states in proptest::collection::vec(canonical_aims_state_strategy(), 3..6),
         seed in any::<u64>(),
@@ -1038,9 +1039,12 @@ fn collect_all_canonical_states() -> Vec<AimsState> {
 /// RESULT: Decision divergence found on first sensitive triple. Option B
 /// (fix required) confirmed — uniqueness divergence (`MaybeShared` vs `Unique`)
 /// changes `needs_cow_check`, `can_mutate_in_place`, and reuse eligibility.
-/// Un-ignore when BUG-04-057 is fixed — test becomes regression guard.
+/// BUG-04-057 FIXED: With associative join, this scan finds 0 divergences.
+/// O(n³) exhaustive — too slow for CI (~3928³ ≈ 60B operations). The
+/// proptest `join_associative` provides fast regression coverage (5000 cases).
+/// Run this manually when modifying canonicalization rules.
 #[test]
-#[ignore = "BUG-04-057: decision divergence confirmed — fix required (Option B)"]
+#[ignore = "exhaustive O(n^3): confirms 0 associativity divergences — run manually after lattice changes"]
 fn associativity_divergence_with_canonical_triples_detects_decision_impact() {
     use crate::aims::transfer::can_mutate_in_place;
 

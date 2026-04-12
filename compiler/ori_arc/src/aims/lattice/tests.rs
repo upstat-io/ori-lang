@@ -736,10 +736,16 @@ mod canonicalization {
         assert_eq!(s.shape, before_shape);
     }
 
-    // Rule 4: BlockLocal + Owned + ≤Once + MaybeShared → Unique
+    // Rule 4: REMOVED (BUG-04-057) — was anti-monotone, broke join associativity.
+    // BlockLocal+Owned+≤Once no longer promotes MaybeShared → Unique in canonicalize.
+    // Uniqueness is established by transfer functions (FRESH starts Unique),
+    // not re-derived during canonicalization.
 
+    /// Regression: BUG-04-057 — Rule 4 removal semantic pin.
+    /// `BlockLocal`+`Owned`+`Once`+`MaybeShared` must stay `MaybeShared` after canonicalize.
+    /// This test would fail if Rule 4 is re-added.
     #[test]
-    fn rule4_block_local_owned_once_promotes_unique() {
+    fn canonicalize_preserves_maybe_shared_at_block_local() {
         let mut s = AimsState {
             access: AccessClass::Owned,
             consumption: Consumption::Linear,
@@ -750,11 +756,12 @@ mod canonicalization {
             effect: EffectClass::NONE,
         };
         s.canonicalize();
-        assert_eq!(s.uniqueness, Uniqueness::Unique);
+        assert_eq!(s.uniqueness, Uniqueness::MaybeShared);
     }
 
+    /// Canonicalize does not promote `MaybeShared` to `Unique` at `Unknown` locality.
     #[test]
-    fn rule4_does_not_fire_for_unknown_locality() {
+    fn canonicalize_preserves_maybe_shared_at_unknown_locality() {
         let mut s = AimsState {
             access: AccessClass::Owned,
             consumption: Consumption::Linear,
@@ -768,8 +775,9 @@ mod canonicalization {
         assert_eq!(s.uniqueness, Uniqueness::MaybeShared);
     }
 
+    /// Canonicalize does not promote `MaybeShared` to `Unique` at `FunctionLocal`.
     #[test]
-    fn rule4_does_not_fire_for_function_local() {
+    fn canonicalize_preserves_maybe_shared_at_function_local() {
         let mut s = AimsState {
             access: AccessClass::Owned,
             consumption: Consumption::Linear,
@@ -783,9 +791,9 @@ mod canonicalization {
         assert_eq!(s.uniqueness, Uniqueness::MaybeShared);
     }
 
+    /// Canonicalize does not override Shared at any locality.
     #[test]
-    fn rule4_does_not_override_shared() {
-        // Shared is definite knowledge (RC > 1), Rule 4 must not override it
+    fn canonicalize_preserves_shared_at_block_local() {
         let mut s = AimsState {
             access: AccessClass::Owned,
             consumption: Consumption::Linear,
@@ -799,8 +807,9 @@ mod canonicalization {
         assert_eq!(s.uniqueness, Uniqueness::Shared);
     }
 
+    /// Canonicalize does not promote `MaybeShared` with `Many` cardinality.
     #[test]
-    fn rule4_does_not_fire_for_many_cardinality() {
+    fn canonicalize_preserves_maybe_shared_with_many_cardinality() {
         let mut s = AimsState {
             access: AccessClass::Owned,
             consumption: Consumption::Unrestricted,
@@ -814,8 +823,9 @@ mod canonicalization {
         assert_eq!(s.uniqueness, Uniqueness::MaybeShared);
     }
 
+    /// Canonicalize does not promote `MaybeShared` for `Borrowed` access.
     #[test]
-    fn rule4_does_not_fire_for_borrowed() {
+    fn canonicalize_preserves_maybe_shared_for_borrowed() {
         let mut s = AimsState {
             access: AccessClass::Borrowed,
             consumption: Consumption::Linear,
@@ -948,10 +958,11 @@ mod canonicalization {
         assert_eq!(s.uniqueness, Uniqueness::Unique);
     }
 
+    /// Regression: BUG-04-058 — Rule 6 now fires at `Unknown` locality.
+    /// `Unknown` subsumes `HeapEscaping`; if `HeapEscaping` forces `MaybeShared`,
+    /// `Unknown` must also force `MaybeShared`.
     #[test]
-    fn rule6_does_not_fire_for_unknown_locality() {
-        // Unknown + Unique stays Unique — Unknown means conservative locality
-        // analysis hasn't run; we don't weaken uniqueness speculatively
+    fn rule6_forces_maybe_shared_at_unknown_locality() {
         let mut s = AimsState {
             access: AccessClass::Owned,
             consumption: Consumption::Linear,
@@ -962,7 +973,7 @@ mod canonicalization {
             effect: EffectClass::NONE,
         };
         s.canonicalize();
-        assert_eq!(s.uniqueness, Uniqueness::Unique);
+        assert_eq!(s.uniqueness, Uniqueness::MaybeShared);
     }
 
     // Rule 8: Borrowed → locality <= FunctionLocal
@@ -2161,10 +2172,10 @@ mod convergence_feedback {
         assert_eq!(s.cardinality, Cardinality::Absent);
     }
 
+    /// Regression: BUG-04-057 — Rule 4 removed. `BlockLocal`+`Owned`+`Once`+`MaybeShared`
+    /// now converges in 0 rounds (no rule fires), uniqueness stays `MaybeShared`.
     #[test]
-    fn feedback_one_round_rule4_promotion() {
-        // Rule 4 fires (BlockLocal+Owned+Once → Unique), but this doesn't
-        // create a precondition for another rule to fire in a second pass.
+    fn feedback_zero_rounds_block_local_maybe_shared_unchanged() {
         let mut s = AimsState {
             access: AccessClass::Owned,
             consumption: Consumption::Linear,
@@ -2175,9 +2186,9 @@ mod convergence_feedback {
             effect: EffectClass::NONE,
         };
         let feedback = s.canonicalize_with_feedback();
-        assert_eq!(feedback.rounds, 1);
+        assert_eq!(feedback.rounds, 0);
         assert!(!feedback.cross_dimension_fired());
-        assert_eq!(s.uniqueness, Uniqueness::Unique);
+        assert_eq!(s.uniqueness, Uniqueness::MaybeShared);
     }
 
     #[test]

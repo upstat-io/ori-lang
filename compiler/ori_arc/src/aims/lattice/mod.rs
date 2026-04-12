@@ -141,9 +141,10 @@ impl AimsState {
     /// Most optimistic state: componentwise bottom.
     ///
     /// Note: `(*, Dead, Absent, *)` is redundant by design — componentwise
-    /// bottom. `ShapeClass::NonReusable` is bottom because `ShapeClass` is a
-    /// flat lattice where the value is set by the defining instruction's
-    /// transfer function.
+    /// bottom. `ShapeClass::NonReusable` is top (the absorbing element of the
+    /// flat `ShapeClass` join: any two distinct shapes join to `NonReusable`).
+    /// It appears in both `TOP` and `BOTTOM` because the flat lattice has no
+    /// separate ⊥ element.
     pub const BOTTOM: Self = Self {
         access: AccessClass::Borrowed,
         consumption: Consumption::Dead,
@@ -282,20 +283,22 @@ impl AimsState {
     /// 1. `Dead` ↔ `Absent`: dead means zero future uses, and vice versa
     /// 2. `Linear` + `Absent` is infeasible → collapse to `Dead`
     /// 3. `Shared` + reusable shape → collapse shape to `NonReusable`
-    /// 4. `BlockLocal` + `Owned` + `≤Once` → `Unique` (Section 09.2/09.3)
+    /// 4. REMOVED (BUG-04-057) — was anti-monotone, broke join associativity
     /// 5. `Unique` + `Dead` → preserve `ReusableCtor` shape (implicit — no
     ///    rule collapses shape here; documented for clarity)
-    /// 6. `HeapEscaping` → uniqueness ceiling `MaybeShared` (Section 09.3)
+    /// 6. `HeapEscaping` or `Unknown` → uniqueness ceiling `MaybeShared`
+    ///    (Section 09.3, widened from `== HeapEscaping` to `>= HeapEscaping`
+    ///    by BUG-04-058 fix)
     /// 7. `Shared` + `CollectionBuffer` → force Dynamic COW (Section 09.3,
     ///    enforced at query sites via `needs_cow_check()`)
     /// 8. `Borrowed` → locality ceiling `FunctionLocal` (Section 09.3)
     ///
     /// # Ordering and termination
     ///
-    /// Rules are monotone within the product lattice. Rules 4 and 6 cannot
-    /// fire simultaneously on the same state (`BlockLocal` contradicts
-    /// `HeapEscaping`). Rule 8 forces locality down (away from `HeapEscaping`),
-    /// preventing Rule 6 from firing on the same state. Chain height is
+    /// All active rules are monotone within the product lattice (they only
+    /// move dimensions toward top / more conservative, or enforce same-level
+    /// consistency). Rule 8 forces locality down (away from `HeapEscaping`),
+    /// preventing Rule 6 from firing on Borrowed states. Chain height is
     /// bounded by the product of dimension heights. With current rules, one
     /// pass suffices (no rule creates a precondition for another rule to
     /// re-fire). The multi-round loop in [`canonicalize`](Self::canonicalize)
@@ -338,43 +341,39 @@ impl AimsState {
             cross_fires += 1; // Rule 8: Access → Locality (2 dimensions)
         }
 
-        // Rule 6 (Section 09.3): HeapEscaping → uniqueness >= MaybeShared.
-        // A value whose locality is HeapEscaping may be reachable from the
-        // heap. Unless the containing structure is provably Unique (checked
-        // in transfer, not canonicalize), the value cannot be assumed Unique.
+        // Rule 6 (Section 09.3): HeapEscaping or Unknown → uniqueness >= MaybeShared.
+        // A value whose locality is HeapEscaping or Unknown may be reachable
+        // from the heap. Unless the containing structure is provably Unique
+        // (checked in transfer, not canonicalize), the value cannot be assumed
+        // Unique. Uses `>=` because Unknown subsumes HeapEscaping in the
+        // locality lattice — if HeapEscaping forces MaybeShared, then Unknown
+        // (which is more conservative) must also force MaybeShared.
         // Only weakens Unique → MaybeShared. Does NOT affect MaybeShared or
         // Shared (already at or above the ceiling).
         // Spec: OxCaml §01.2 K1 — `global` modality forces `aliased`.
-        // Note: Rule 8 prevents Borrowed+HeapEscaping from reaching here,
-        // so this only fires on Owned+HeapEscaping states.
-        if self.locality == Locality::HeapEscaping && self.uniqueness == Uniqueness::Unique {
+        // Note: Rule 8 prevents Borrowed+HeapEscaping/Unknown from reaching
+        // here, so this only fires on Owned states with wide locality.
+        if self.locality >= Locality::HeapEscaping && self.uniqueness == Uniqueness::Unique {
             self.uniqueness = Uniqueness::MaybeShared;
             cross_fires += 1; // Rule 6: Locality → Uniqueness (2 dimensions)
         }
 
-        // Rule 4 (Section 09.2/09.3): BlockLocal + Owned + ≤Once → Unique.
-        // A block-local value that is owned and used at most once cannot have
-        // any other reference — the only way to create a second reference is
-        // via RcInc, which would violate the Once cardinality.
-        // Only promotes MaybeShared → Unique. Does NOT override Shared (which
-        // is definite knowledge of RC > 1, e.g. from Select join of branch
-        // states where one branch has a Shared source).
-        // Soundness: this rule requires precise locality (Section 09.2).
-        // BlockLocal implies precise locality — Unknown would never satisfy
-        // this condition.
-        // Note: cannot conflict with Rule 6 — BlockLocal ≠ HeapEscaping.
-        if self.locality == Locality::BlockLocal
-            && self.access == AccessClass::Owned
-            && self.cardinality <= Cardinality::Once
-            && self.uniqueness == Uniqueness::MaybeShared
-        {
-            self.uniqueness = Uniqueness::Unique;
-            cross_fires += 1; // Rule 4: Locality+Access+Cardinality → Uniqueness (3 dimensions)
-        }
+        // Rule 4: REMOVED (BUG-04-057).
+        //
+        // The former Rule 4 promoted MaybeShared → Unique when
+        // BlockLocal+Owned+≤Once. This was anti-monotone: it injected
+        // optimistic information at join points, breaking associativity
+        // (join(join(a,b),c) ≠ join(a,join(b,c))) and transitivity of the
+        // join-based partial order. Fresh allocations already start as
+        // Unique via AimsState::FRESH; no transfer function requires
+        // canonicalize to synthesize Unique from MaybeShared. Uniqueness
+        // is now established only by transfer functions and preserved
+        // (or lost) through joins — never re-derived in canonicalize.
+        // See: plans/bug-tracker/fix-BUG-04-057.md
 
         // Rule 5 (Section 09.3): Unique + Dead → preserve ReusableCtor.
         // A unique dead value's memory IS reusable — don't collapse shape.
-        // This is implicit: no rule above collapses shape for Unique+Dead.
+        // This is implicit: no active rule collapses shape for Unique+Dead.
         // Rule 3 only fires for Shared. This comment documents the invariant
         // explicitly so future rules don't accidentally break it.
 

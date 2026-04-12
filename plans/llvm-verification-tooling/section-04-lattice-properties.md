@@ -29,25 +29,25 @@ sections:
     status: complete
   - id: "04.2"
     title: "Join Law Properties and Partial-Order Axioms"
-    status: complete
+    status: in-progress
   - id: "04.3"
     title: "Canonicalization Properties"
     status: complete
   - id: "04.4"
     title: "Transfer Function Properties"
-    status: complete
+    status: in-progress
   - id: "04.5"
     title: "Fixpoint Convergence and Permutation Invariance"
     status: complete
   - id: "04.6"
     title: "BUG-04-057 Soundness Analysis"
-    status: complete
+    status: in-progress
   - id: "04.R"
     title: "Third Party Review Findings"
     status: complete
   - id: "04.N"
     title: "Completion Checklist"
-    status: not-started
+    status: in-progress
 ---
 
 # Section 04: AIMS Lattice Property Verification
