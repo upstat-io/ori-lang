@@ -37,7 +37,7 @@ sections:
     status: complete
   - id: "05.4"
     title: "Diagnostic Renderer Enrichment"
-    status: not-started
+    status: complete
   - id: "05.5"
     title: "Integration Verification"
     status: not-started
@@ -494,7 +494,7 @@ The current diagnostic path discards per-mismatch details. The `ArcProblem::Cont
 
 This is not actionable — the user (developer debugging the compiler) cannot tell which dimension mismatched or in which direction.
 
-- [ ] Update `CodegenProblem::ArcContractCoherence` to carry the full mismatch details:
+- [x] Update `CodegenProblem::ArcContractCoherence` to carry the full mismatch details:
   ```rust
   ArcContractCoherence {
       func_name: String,
@@ -502,9 +502,9 @@ This is not actionable — the user (developer debugging the compiler) cannot te
   },
   ```
 
-- [ ] Update the `From<ArcProblem>` conversion at line 283 to pass through the full `mismatches` Vec instead of just the count.
+- [x] Update the `From<ArcProblem>` conversion at line 283 to pass through the full `mismatches` Vec instead of just the count.
 
-- [ ] Update the `arc_diagnostic()` renderer at line 236 to include per-mismatch labels:
+- [x] Update the `arc_diagnostic()` renderer at line 236 to include per-mismatch labels:
   ```rust
   Self::ArcContractCoherence {
       func_name,
@@ -527,7 +527,7 @@ This is not actionable — the user (developer debugging the compiler) cannot te
   }
   ```
 
-- [ ] Implement `Display` for `CoherenceMismatch` in `compiler/ori_arc/src/aims/verify/oracle.rs`:
+- [x] Implement `Display` for `CoherenceMismatch` in `compiler/ori_arc/src/aims/verify/oracle.rs`:
   ```rust
   impl std::fmt::Display for CoherenceMismatch {
       fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -545,12 +545,12 @@ This is not actionable — the user (developer debugging the compiler) cannot te
   }
   ```
 
-- [ ] Add a test that verifies the diagnostic message includes mismatch details (not just a count).
+- [x] Add a test that verifies the diagnostic message includes mismatch details (not just a count). Tests: `test_contract_coherence_diagnostic_includes_mismatch_details` (oric), `display_param_access_mismatch_includes_index_and_direction` + `display_effect_mismatch_includes_field_name` (ori_arc).
 
-- [ ] **Subsection close-out (05.4)** — MANDATORY before starting 05.5:
-  - [ ] All tasks above are `[x]` and the subsection's behavior is verified
-  - [ ] Update this subsection's `status` in section frontmatter to `complete`
-  - [ ] **Run `/improve-tooling` retrospectively on THIS subsection**.
+- [x] **Subsection close-out (05.4)** — MANDATORY before starting 05.5:
+  - [x] All tasks above are `[x]` and the subsection's behavior is verified
+  - [x] Update this subsection's `status` in section frontmatter to `complete`
+  - [x] **Run `/improve-tooling` retrospectively on THIS subsection** — Retrospective 05.4: no tooling gaps. The existing test infrastructure (`CodegenProblem` test pattern) made adding the diagnostic test straightforward. Display impl was standard. No debugging friction.
 
 ---
 

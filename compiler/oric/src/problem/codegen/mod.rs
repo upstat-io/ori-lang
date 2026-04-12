@@ -40,7 +40,7 @@ pub enum CodegenProblem {
     /// realized RC operations (oracle check, `ORI_VERIFY_ARC=1` only).
     ArcContractCoherence {
         func_name: String,
-        mismatch_count: usize,
+        mismatches: Vec<ori_arc::aims::verify::oracle::CoherenceMismatch>,
     },
 
     // ── LLVM Verification (E5001) ───────────────────────────────────
@@ -235,16 +235,23 @@ impl CodegenProblem {
 
             Self::ArcContractCoherence {
                 func_name,
-                mismatch_count,
-            } => Diagnostic::error(ErrorCode::E4005)
-                .with_message(format!(
-                    "contract coherence violation in '{func_name}': \
-                     {mismatch_count} mismatch(es) between inferred and realized contracts"
-                ))
-                .with_note(
-                    "the inferred contract was more optimistic than what the \
-                     realization pipeline emitted — this is a compiler bug",
-                ),
+                mismatches,
+            } => {
+                let mut diag = Diagnostic::error(ErrorCode::E4005)
+                    .with_message(format!(
+                        "contract coherence violation in '{func_name}': \
+                         {} mismatch(es) between inferred and realized contracts",
+                        mismatches.len()
+                    ))
+                    .with_note(
+                        "the inferred contract was more optimistic than what the \
+                         realization pipeline emitted — this is a compiler bug",
+                    );
+                for mismatch in mismatches {
+                    diag = diag.with_note(format!("{mismatch}"));
+                }
+                diag
+            }
 
             _ => unreachable!("arc_diagnostic called with non-ARC variant"),
         }
@@ -285,7 +292,7 @@ impl From<ori_arc::ArcProblem> for CodegenProblem {
                 mismatches,
             } => Self::ArcContractCoherence {
                 func_name,
-                mismatch_count: mismatches.len(),
+                mismatches,
             },
         }
     }

@@ -310,6 +310,48 @@ impl CoherenceMismatch {
     }
 }
 
+impl std::fmt::Display for CoherenceMismatch {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::ParamAccess {
+                param_index,
+                param_var,
+                inferred,
+                realized,
+            } => write!(
+                f,
+                "param {param_index} (var {param_var:?}): access inferred={inferred:?}, realized={realized:?}"
+            ),
+            Self::ParamConsumption {
+                param_index,
+                param_var,
+                inferred,
+                realized,
+            } => write!(
+                f,
+                "param {param_index} (var {param_var:?}): consumption inferred={inferred:?}, realized={realized:?}"
+            ),
+            Self::ParamMayShare {
+                param_index,
+                param_var,
+                inferred,
+                realized,
+            } => write!(
+                f,
+                "param {param_index} (var {param_var:?}): may_share inferred={inferred}, realized={realized}"
+            ),
+            Self::EffectMismatch {
+                field,
+                inferred,
+                realized,
+            } => write!(
+                f,
+                "effect {field}: inferred={inferred}, realized={realized}"
+            ),
+        }
+    }
+}
+
 /// Compare the oracle's re-derived contract against the inferred contract.
 ///
 /// Only reports **unsafe mismatches** — where the analysis was more optimistic
