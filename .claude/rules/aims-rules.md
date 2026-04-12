@@ -99,8 +99,6 @@ Lineage: Marshall et al. (ESOP 2022) — uniqueness is PAST guarantee ("not dupl
 
 Order: `BlockLocal < FunctionLocal < ArgEscaping < HeapEscaping < Unknown`. Join: `max`. Height: 4.
 
-**Implementation status:** `ArgEscaping` is NOT YET IMPLEMENTED in the `Locality` enum (`dimensions.rs`). The current code has 4 variants (`BlockLocal < FunctionLocal < HeapEscaping < Unknown`, height 3). `ArgEscaping` is tracked in `plans/locality-representation-unification/` (queued reroute). Property tests in Section 04 verify the 4-variant lattice currently implemented. When `ArgEscaping` is added, `CHAIN_HEIGHT` and all proptest strategies must be updated.
-
 Both `seq_add` and `alt_join` coincide with `join` for Locality — escape scope widens monotonically.
 
 Lineage: OxCaml locality modes (ICFP 2024), Go `leakCallee`.
@@ -149,6 +147,35 @@ Three independent boolean flags. Join is componentwise OR. Height: 3.
 
 **L-10** — Adding a new dimension requires: (a) proving finite height, (b) defining join, (c) updating canonicalization, (d) proving the new product lattice satisfies L-1 through L-8.
 
+### §1.9 Side-Table Domains
+
+The product lattice is the primary analysis domain. Two auxiliary side tables carry per-variable provenance facts that the lattice dimensions alone cannot express. These are NOT lattice dimensions — they do not participate in join, do not have a height, and do not affect convergence bounds. They are **provenance annotations** consumed by specific decision predicates and realization rules.
+
+#### Borrow Sources (`borrow_sources`)
+
+A sparse map `ArcVarId → BorrowSource` tracking the origin of borrowed projections. Populated by TF-4 (Project): when `dst = src.field`, the map records `dst → BorrowSource { source: src, field: field }`.
+
+**Join**: borrow sources do NOT join. Each projected variable has exactly one borrow source (set at definition by TF-4). If a variable is defined by a non-Project instruction, it has no borrow source entry.
+
+**Consumers**:
+- **DP-5** (`can_mutate_in_place`): queries `borrow_sources` to check for active overlapping borrows. A `Unique` value with an active borrow from the same field is NOT safe for in-place mutation — the borrow would alias the mutated memory. Disjoint field borrows are safe (RL-10).
+- **TF-14** (backward propagation): when a projected variable's locality widens, the widening propagates to its borrow source via this table.
+
+**Invariants**:
+- Every `Project` instruction creates exactly one borrow source entry.
+- No other instruction creates borrow source entries.
+- The table is read-only after intraprocedural analysis (Step 4) completes.
+
+#### Return Provenance
+
+CN-6 exempts values whose `HeapEscaping` locality comes solely from being returned (IA-6). This exemption is enforced through **pipeline ordering**, not a lattice flag:
+- During intraprocedural analysis (Step 4), IA-6 widens returned values to `HeapEscaping`.
+- CN-6 fires and demotes `Unique → MaybeShared` for these values within the intraprocedural state.
+- The `ReturnContract` extraction (IC-4) runs AFTER intraprocedural analysis but reads the **pre-return-widening uniqueness** from the return instruction's operand state at the point before IA-6 fires.
+- This ensures fresh allocations returned from a function retain `Unique` in the `ReturnContract` (enabling RL-29 `noalias`) while correctly being `MaybeShared` within the function body after return.
+
+This is a pipeline-ordering guarantee (PL-2: analysis before realization), not a side-table. The key correctness property: the `ReturnContract` extraction SHALL read the operand's state at the return instruction, NOT the post-IA-6-widened block exit state.
+
 ---
 
 ## §2 Canonicalization Rules
@@ -188,33 +215,87 @@ Transfer functions define how each ARC IR instruction updates the lattice state.
 
 ### Forward (Definition)
 
-**TF-1** — Scalar literal: `dst.state := SCALAR`. Int, float, bool, char, byte, duration, size — no RC.
+Every `ArcInstr` and `ArcTerminator` variant that defines a `dst` variable has an explicit forward transfer rule below. Instructions that produce no definition (side-effect-only) are listed as `N/A`. This list SHALL be exhaustive — adding a new instruction variant without a corresponding TF rule is a spec gap.
+
+**TF-1** — Scalar literal (`Let { value = Literal }`): `dst.state := SCALAR`. Int, float, bool, char, byte, duration, size — no RC.
 
 **TF-2** — Variable binding (`Let { value = Var(v) }`): `dst.state := state(v)`. Inherits source state.
 
-**TF-3** — Construct allocation: `dst := FRESH(shape_from_ctor(ctor))`. Fresh means `(Owned, Linear, Once, Unique, BlockLocal, shape, {may_alloc=true})`. All constructors produce fresh heap memory with RC = 1.
+**TF-2a** — PrimOp (`Let { value = PrimOp { .. } }`): `dst.state := SCALAR`. Primitive operations (arithmetic, comparison, bitwise) produce scalars.
 
-**TF-4** — Field projection: `dst := (Borrowed, Linear, Once, source.uniqueness, source.locality, NonReusable, NONE)`. Projection borrows a view of the source. Borrow source is tracked in a sparse side table.
+**TF-3** — Construct allocation (`Construct`): `dst := FRESH(shape_from_ctor(ctor))`. Fresh means `(Owned, Linear, Once, Unique, BlockLocal, shape, {may_alloc=true})`. All constructors produce fresh heap memory with RC = 1. Shape mapping: `Struct → ReusableCtor(Struct)`, `EnumVariant → ReusableCtor(EnumVariant)`, `ListLiteral|SetLiteral|MapLiteral → CollectionBuffer`, `Tuple|Closure → NonReusable`.
 
-**TF-5** — Function call (no contract): `dst := TOP`. Conservative — return value may escape, be shared, have any effect.
+**TF-4** — Field projection (`Project`): `dst := (Borrowed, Linear, Once, source.uniqueness, source.locality, NonReusable, NONE)`. Projection borrows a view of the source. Borrow source tracked in the `borrow_sources` side table (§1.9).
 
-**TF-6** — Function call (with contract): `dst := refine(TOP, callee.return_contract)`. Contract narrows uniqueness, freshness, locality.
+**TF-5** — Direct function call without contract (`Apply`, no `MemoryContract`): `dst := TOP`. Conservative — return value may escape, be shared, have any effect.
 
-**TF-7** — Closure capture (`PartialApply`): `dst := FRESH(NonReusable)`. Captured variables updated via `capture_state_update`.
+**TF-5a** — Indirect function call (`ApplyIndirect`): `dst := TOP`. Closures have no interprocedural contract — always conservative.
+
+**TF-6** — Direct function call with contract (`Apply`, with `MemoryContract`): `dst := refine(TOP, callee.return_contract)`. Contract narrows uniqueness, freshness, locality.
+
+**TF-6a** — Invoke with contract (`Invoke`, with `MemoryContract`): Same as TF-6. The unwinding edge does not affect the definition on the normal path.
+
+**TF-6b** — Invoke without contract (`Invoke`, no `MemoryContract`): Same as TF-5.
+
+**TF-6c** — Indirect invoke (`InvokeIndirect`): Same as TF-5a. No contract available.
+
+**TF-7** — Closure capture (`PartialApply`): `dst := FRESH(NonReusable)`. Closures are not reusable. Captured variables updated via `capture_state_update` (TF-13).
 
 **TF-8** — Conditional selection (`Select`): `dst := state(true_val) ⊔ state(false_val)`. Merge of both branches.
 
 **TF-9** — Reuse (`Reuse { token }`): `dst := FRESH(shape_from_ctor(ctor))`. Reused memory gets fresh state.
 
-**TF-10** — IsShared/Reset: `dst := SCALAR`. Produces boolean or consumed value.
+**TF-9a** — Collection reuse (`CollectionReuse`): `dst := FRESH(CollectionBuffer)`. The old collection's allocation is recycled by the runtime; the result is a fresh collection with RC = 1.
+
+**TF-10** — IsShared (`IsShared`): `dst := SCALAR`. Produces a boolean — not a refcounted value. *Rationale*: `IsShared` queries the refcount header and returns a plain `bool`. The result is a scalar control-flow input, not a managed allocation.
+
+**TF-10a** — Reset (`Reset`): `dst := SCALAR` (the reuse token). *Rationale*: The reuse token is an opaque handle to the dead value's memory — it is NOT a refcounted allocation itself. It is consumed exactly once by the corresponding `Reuse` instruction. The linear consumption guarantee is enforced structurally by the reuse emission pass (emit_reuse): every `Reset` is paired with exactly one `Reuse` in the same block, and the pairing is validated at emission time. The backward demand system does not need to track token liveness because the reuse pass generates the `Reset`/`Reuse` pair atomically — there is no program point where a token exists without its consumer.
+
+**TF-N/A** — Side-effect-only instructions produce no definition:
+- `RcInc`: increments refcount of existing variable. No `dst`.
+- `RcDec`: decrements refcount of existing variable. No `dst`.
+- `Set`: in-place field mutation on existing variable. No `dst`.
+- `SetTag`: in-place tag mutation on existing variable. No `dst`.
 
 ### Backward (Demand)
 
-Each operand of each instruction generates a `(variable, cardinality)` demand:
+Each operand of each instruction generates a `(variable, cardinality)` demand. This list SHALL be exhaustive — every `ArcInstr` and `ArcTerminator` variant appears below.
 
-**TF-11** — Most instructions emit `(operand, Once)` per argument: Construct, Project, Set (base + value), Return, Jump args, Branch cond, Switch scrutinee. **Apply/Invoke**: emit `(arg, Once)` conservatively; callee contract refinement (IC-3, via interprocedural contracts) narrows demands using `ParamContract.cardinality` — an `Absent` parameter produces zero demand at the caller. **Select**: emit `(cond, Once)` and `(true_val, Once)` and `(false_val, Once)` as per-variable demands. If `true_val = false_val` (same variable), only one demand is emitted (alternative, not additive).
+**TF-11** — Standard `(operand, Once)` demand per argument. Applies to:
 
-**TF-12** — PartialApply emits NO backward demand from the standard demand system. Captured argument demand is handled entirely by `capture_state_update` to avoid double-counting.
+| Instruction | Demands |
+|-------------|---------|
+| `Let { value = Var(v) }` | `(v, Once)` |
+| `Let { value = Literal }` | none |
+| `Let { value = PrimOp { args } }` | `(arg, Once)` per arg |
+| `Construct { args }` | `(arg, Once)` per arg |
+| `Project { value }` | `(value, Once)` |
+| `Apply { args }` | `(arg, Once)` per arg; refined by callee contract (IC-3) — `Absent` parameter → zero demand |
+| `ApplyIndirect { closure, args }` | `(closure, Once)`, `(arg, Once)` per arg |
+| `Set { base, value }` | `(base, Once)`, `(value, Once)` |
+| `SetTag { base }` | `(base, Once)` |
+| `IsShared { var }` | `(var, Once)` |
+| `Reset { var }` | `(var, Once)` |
+| `Reuse { token, args }` | `(token, Once)`, `(arg, Once)` per arg |
+| `CollectionReuse { old_var, args }` | `(old_var, Once)`, `(arg, Once)` per arg |
+| `Select { cond, true_val, false_val }` | `(cond, Once)`, `(true_val, Once)`, `(false_val, Once)` — if `true_val = false_val` (same variable), only one demand emitted (alternative, not additive) |
+| `RcInc { var }` | none (RC operation, not a use) |
+| `RcDec { var }` | none (RC operation, not a use) |
+
+**TF-11a** — Terminator backward demands:
+
+| Terminator | Demands |
+|------------|---------|
+| `Return { value }` | `(value, Once)` |
+| `Jump { args }` | `(arg, Once)` per arg |
+| `Branch { cond }` | `(cond, Once)` |
+| `Switch { scrutinee }` | `(scrutinee, Once)` |
+| `Invoke { args }` | `(arg, Once)` per arg; refined by callee contract (IC-3) |
+| `InvokeIndirect { closure, args }` | `(closure, Once)`, `(arg, Once)` per arg |
+| `Resume` | none (terminal) |
+| `Unreachable` | none (terminal) |
+
+**TF-12** — PartialApply emits NO backward demand from the standard demand system. Captured argument demand is handled entirely by `capture_state_update` (TF-13) to avoid double-counting.
 
 **TF-13** — `capture_state_update(current, closure_state)` (OxCaml LAM rule):
 - If closure cardinality ≤ Once: `consumption := max(current.consumption, Affine)`, `cardinality := max(current.cardinality, Once)`, `locality := max(current.locality, closure_state.locality)`. Preserves linearity/uniqueness. Locality incorporates both current state AND closure's escape scope — if the closure escapes to heap, captured variables must also be at least HeapEscaping. No artificial `FunctionLocal` floor: a block-local closure capturing a block-local variable preserves BlockLocal locality (both are scoped to the same block).
