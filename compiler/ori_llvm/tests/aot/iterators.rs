@@ -10,7 +10,7 @@
     reason = "readability in test program literals"
 )]
 
-use crate::util::assert_aot_success;
+use crate::util::{assert_aot_success, compile_and_run_capture};
 
 // List.iter() — construct from list
 
@@ -291,6 +291,24 @@ fn test_iter_join_long_float() {
     assert_aot_success(
         include_str!("fixtures/iterators/iter_join_long_float.ori"),
         "iter_join_long_float",
+    );
+}
+
+/// Negative pin: unsupported element types (Duration) must NOT produce a successful
+/// join — the codegen error guard rejects them instead of generating wrong output.
+#[test]
+fn test_iter_join_unsupported_type_rejected() {
+    let source = r#"
+@main () -> int = {
+    let result = [1s, 2s].iter().join(separator: ", ");
+    if result == "1s, 2s" then 0 else 1
+}
+"#;
+    let (exit_code, _, _) = compile_and_run_capture(source);
+    // Must NOT succeed — Duration join has no to_str trampoline
+    assert_ne!(
+        exit_code, 0,
+        "Duration join should fail (codegen error), not silently succeed"
     );
 }
 
