@@ -1588,11 +1588,11 @@ fn callee_contract_function_local_preserves_arg() {
     );
 }
 
-/// Block-local construct gets `Unique` uniqueness via Rule 4.
+/// Block-local construct starts `Unique` via TF-3 (fresh allocation).
 ///
-/// A value constructed and consumed within the same block (`BlockLocal`)
-/// that is `Owned` and used at most `Once` gets `MaybeShared` promoted to
-/// `Unique` by canonicalize Rule 4.
+/// A value constructed within a block starts with `Uniqueness::Unique`
+/// because `Construct` produces a fresh allocation with RC == 1 (TF-3).
+/// Uniqueness is preserved through the block because no sharing occurs.
 #[test]
 fn block_local_value_gets_unique_without_runtime_check() {
     use super::super::lattice::Uniqueness;
