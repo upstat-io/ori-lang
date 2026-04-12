@@ -26,7 +26,7 @@ sections:
   - id: "01.R"
     title: "Third Party Review Findings"
     status: not-started
-  - id: "01.C"
+  - id: "01.N"
     title: "Completion Checklist"
     status: not-started
 third_party_review:
@@ -104,6 +104,7 @@ If any check fails, output the unavailable JSON and exit 0. The caller never see
 - [ ] Test: lang_intelligence repo missing → returns unavailable JSON, exit 0
 - [ ] Test: venv missing neo4j package → returns unavailable JSON, exit 0
 - [ ] Test: Neo4j container running but DB not ready (Bolt handshake fails) → returns unavailable JSON, not hang
+- [ ] Test: Neo4j reachable but `issue_text` full-text index missing → returns unavailable JSON with reason indicating missing index
 
 - [ ] **Subsection close-out (01.1)** — MANDATORY before starting 01.2:
   - [ ] All tasks above are `[x]` and the subsection's behavior is verified
@@ -125,6 +126,7 @@ Real issues found in `~/projects/lang_intelligence/neo4j/query_graph.py` that mu
 
 ### 01.2b Missing Functionality
 
+- [ ] Implement `--health-check` command in `query_graph.py` — a lightweight probe that verifies TCP + Bolt handshake + auth using the configured credentials (env vars or defaults). Returns JSON `{"status":"ok"}` on success, `{"status":"error","reason":"..."}` on failure. Exit 0 always. This is called by `intel-query.sh` step 4 to validate connectivity without running a full query. Also verify that the full-text `issue_text` index exists (needed by `search`, `compare`, `fixed`, `pattern`).
 - [ ] `label-graph` command (line 444) is a TODO stub: `lambda a: print("TODO: label co-occurrence")`. Implement the label co-occurrence graph query or remove it from the usage docstring — a silently no-op command is a trap.
 - [ ] No `--json` output mode — all commands print human-readable text to stdout. Add `--json` flag that makes every command output structured JSON instead. This is required by `intel-query.sh` which needs machine-parseable results.
 - [ ] No graph-emptiness detection in `cmd_stats` — if the graph has zero Issue nodes (e.g., after a fresh `schema.cypher` without any data import), `stats` prints empty tables with no warning. Add a "graph is empty — run the fetch pipeline first" message.
@@ -134,7 +136,7 @@ Real issues found in `~/projects/lang_intelligence/neo4j/query_graph.py` that mu
 
 - [ ] Credentials hardcoded (lines 30-32): `bolt://localhost:7687`, `neo4j`, `intelligence` are inline constants. Read from environment variables (`NEO4J_URI`, `NEO4J_USER`, `NEO4J_PASS`) with the current values as defaults. This allows different environments (CI, remote, Docker Compose with different ports) without editing source.
 
-- [ ] **Subsection close-out (01.2)** — MANDATORY before starting 01.C:
+- [ ] **Subsection close-out (01.2)** — MANDATORY before starting 01.N:
   - [ ] All tasks above are `[x]` and the subsection's behavior is verified
   - [ ] Update this subsection's `status` in section frontmatter to `complete`
   - [ ] **Run `/improve-tooling` retrospectively on THIS subsection** — reflect on the debugging/testing experience for 01.2: did fixing these issues surface any other problems in the query tool? Any commands that silently fail? Any missing error handling paths? Implement improvements NOW via separate `/commit-push`.
@@ -163,16 +165,31 @@ Real issues found in `~/projects/lang_intelligence/neo4j/query_graph.py` that mu
   Resolved: Fixed on 2026-04-12. Clarified: --human returns raw text (NOT JSON); added to contract and success criteria.
 - [x] `[TPR-01-005-gemini][medium]` `00-overview.md:150` — Overview missing 3 issues (near-agreement with TPR-01-005-codex).
   Resolved: Fixed on 2026-04-12. Same fix as TPR-01-005-codex.
-- [x] `[TPR-01-006-gemini][medium]` `section-01-infrastructure.md:19` — 01.R and 01.C missing from frontmatter sections.
+- [x] `[TPR-01-006-gemini][medium]` `section-01-infrastructure.md:19` — 01.R and 01.N missing from frontmatter sections.
   Resolved: Fixed on 2026-04-12. Added both to sections array.
 - [x] `[TPR-01-007-gemini][high]` `section-01-infrastructure.md:96` — Close-out blocks not in canonical checklist format.
   Resolved: Fixed on 2026-04-12. Replaced prose with canonical close-out checklist per plan-schema.md.
 - [x] `[TPR-01-008-gemini][high]` `section-01-infrastructure.md:133` — Missing plan-sync and annotation-cleanup in completion checklist.
-  Resolved: Fixed on 2026-04-12. Added both items to 01.C.
+  Resolved: Fixed on 2026-04-12. Added both items to 01.N.
+- [x] `[TPR-01-001-codex][high]` (iter2) `section-01-infrastructure.md:90` — --health-check not in 01.2 tasks.
+  Resolved: Fixed on 2026-04-12. Added --health-check implementation task to 01.2b.
+- [x] `[TPR-01-002-codex][medium]` (iter2) `section-01-infrastructure.md:29` — 01.C should be 01.N per schema.
+  Resolved: Fixed on 2026-04-12. Renamed all 01.C references to 01.N.
+- [x] `[TPR-01-003-codex][medium]` (iter2) `section-01-infrastructure.md:91` — Missing index-absent test scenario.
+  Resolved: Fixed on 2026-04-12. Added 6th test scenario and updated completion checklist count.
+- [x] `[TPR-01-001-gemini][medium]` (iter2) `section-01-infrastructure.md:188` — Missing index.md sync in plan-sync.
+  Resolved: Fixed on 2026-04-12. Added index.md update item.
+- [x] `[TPR-01-002-gemini][medium]` (iter2) `00-overview.md:150` — cmd_compare/_parse_flags not in overview.
+  Resolved: Fixed on 2026-04-12. Added to Known Issues.
+- [x] `[TPR-01-003-gemini][high]` (iter2) `section-01-infrastructure.md:126` — --health-check not in 01.2 tasks.
+  Resolved: Fixed on 2026-04-12. Same fix as iter2 TPR-01-001-codex (near-agreement).
+- [x] `[TPR-01-004-gemini][medium]` (iter2) `section-01-infrastructure.md:189` — Missing Exit Criteria block.
+  Resolved: Fixed on 2026-04-12. Added Exit Criteria paragraph.
 
-## 01.C Completion Checklist
+## 01.N Completion Checklist
 
-- [ ] `scripts/intel-query.sh` exists, executable, passes all 5 test scenarios (running, stopped, missing repo, missing venv, Bolt-not-ready)
+- [ ] `scripts/intel-query.sh` exists, executable, passes all 6 test scenarios (running, stopped, missing repo, missing venv, Bolt-not-ready, index-missing)
+- [ ] `query_graph.py` `--health-check` command implemented and used by `intel-query.sh` step 4
 - [ ] `query_graph.py` issues fixed: driver error handling, driver.close() leak, _parse_flags validation, connection timeout
 - [ ] `query_graph.py` label-graph command implemented (not a stub)
 - [ ] `query_graph.py` --json output mode works for all commands
@@ -186,6 +203,9 @@ Real issues found in `~/projects/lang_intelligence/neo4j/query_graph.py` that mu
 - [ ] **Plan annotation cleanup**: Run `plan-annotations.sh --cleanup-only --plan lang-intelligence` — remove any stale annotations
 - [ ] **Plan sync**:
   - [ ] Update section 01 frontmatter `status` to `complete`
+  - [ ] Update `index.md` section status
   - [ ] Update `00-overview.md` Quick Reference table — Section 01 status
   - [ ] Update `00-overview.md` mission success criteria checkboxes
   - [ ] Verify Section 02's `depends_on: [01]` is still accurate
+
+**Exit Criteria:** `scripts/intel-query.sh search "type inference"` returns valid JSON with `status:ok` when Neo4j is running, and `scripts/intel-query.sh search "type inference"` returns `{"status":"unavailable","reason":"..."}` with exit 0 when Neo4j is stopped. All 6 test scenarios pass. `query_graph.py --health-check` returns `{"status":"ok"}` when connected. `query_graph.py --json stats` returns structured JSON. `timeout 150 ./test-all.sh` green.
