@@ -230,7 +230,7 @@ Decision predicates map lattice states to RC/COW/reuse decisions. Each is a pure
 Only owned, live, non-scalar variables carry RC obligations.
 
 **DP-2** — `is_rc_dec_unnecessary(s) ⟺ s.cardinality = Absent ∨ s.consumption = Dead`.
-No future uses — decrement is redundant.
+No ADDITIONAL decrement beyond what the emission rules (RL-4 edge cleanup, RL-5 dead-at-entry) already handle. This predicate gates supplementary RC operations — the LAST dec that triggers the free is handled by RL-4/RL-5, not by DP-2.
 
 **DP-3** — `is_rc_inc_elidable(s) ⟺ s.cardinality = Once ∧ s.consumption = Linear`.
 Moved once — no duplication, no increment needed.
@@ -244,8 +244,8 @@ Unique ownership permits direct mutation without COW.
 **DP-6** — `is_reuse_candidate(s) ⟺ s.access = Owned ∧ s.uniqueness ≠ Shared ∧ s.shape ≠ NonReusable`.
 Reuse requires owned, non-shared, reusable shape.
 
-**DP-7** — `is_rc_skip_eligible(s) ⟺ s.is_local() ∧ s.access = Owned ∧ s.consumption = Linear ∧ ¬s.is_scalar()`.
-Local + owned + linear = lifetime precisely scoped; skip both inc and dec.
+**DP-7** — `is_rc_skip_eligible(s) ⟺ s.is_local() ∧ s.access = Owned ∧ s.consumption = Linear ∧ s.uniqueness = Unique ∧ ¬s.is_scalar()`.
+Local + owned + linear + unique = lifetime precisely scoped with RC == 1; skip both inc and dec. The `Uniqueness = Unique` requirement is load-bearing: a local+owned+linear value that is `Shared` or `MaybeShared` still has RC > 1 from upstream aliases — skipping dec would leak the +1 count. Stack-promoted values (RL-14) are a separate path — they have no RC header at all.
 
 **DP-8** — `is_local(s) ⟺ s.locality ∈ {BlockLocal, FunctionLocal}`.
 
@@ -272,7 +272,7 @@ Local + owned + linear = lifetime precisely scoped; skip both inc and dec.
 
 **IC-6** — FIP contract: `Never` absorbs all; `Conditional` absorbs `Bounded/Certified`; `Bounded(n) ⊔ Bounded(m) = Bounded(max(n,m))`. FipContract::Certified ⟺ zero unmatched allocations/deallocations in realized IR.
 
-**IC-7** — Convergence: finite domain (each dimension has bounded height × parameter count) guarantees termination. Iteration limit: `param_count × 6 + return × 4 + effects × 4`.
+**IC-7** — Convergence: finite domain guarantees termination. Parameter contract has 5 dimensions (access height 1 + consumption height 3 + cardinality height 2 + locality height 4 + uniqueness height 2 = 12 per param). Return contract has 4 dimensions. EffectSummary has 6 boolean fields. Iteration limit: `param_count × 12 + return_dims × 4 + effect_dims × 6`. If exceeded, widen all contracts to most conservative and emit a diagnostic.
 
 **IC-8** — ~~REMOVED (unsound — same root cause as DP-10).~~ The former rule derived parameter uniqueness from caller consumption patterns (`Owned ∧ Linear ∧ Once`). This is unsound: a caller with a `MaybeShared` argument that it uses linearly still holds a reference whose RC may be > 1 from upstream aliases. Parameter uniqueness is established by the SCC fixpoint (IC-2/IC-3): if ALL callers pass arguments whose `Uniqueness` dimension is `Unique`, the fixpoint converges to `ParamContract.uniqueness = Unique` naturally. No post-fixpoint tightening is needed or sound.
 
@@ -330,6 +330,8 @@ Step 12: FBIP enforcement          — Read-only diagnostic
 
 **PL-4** — Step 10 (realization phase 2) SHALL follow Step 9 (merge). Phase 2 uses ArcVarId-keyed lookups that survive merge.
 
+**PL-4a** — Step 8a (unwind_cleanup) SHALL precede Step 9 (merge_blocks). Unwind cleanup alters CFG connectivity (invoke/resume edges); merging before cleanup produces invalid CFG state.
+
 **PL-5** — No pass SHALL rely on stale summaries. If a step modifies IR or updates an effect summary, all downstream consumers SHALL see updated values.
 
 **PL-6** — Adding a new pass requires updating the pipeline ordering and proving it does not violate any existing ordering constraint.
@@ -344,7 +346,7 @@ TRMC is a pipeline-integrated rewrite that enables tail-call optimization for fu
 
 **PL-9** — TRMC rewrite: the candidate function is normalized to accept a `ContextHole` parameter (Shape = ContextHole). The recursive call fills the hole with the partially-constructed value instead of allocating a new frame. The rewrite SHALL be idempotent — a second pass produces identical IR.
 
-**PL-10** — TRMC soundness verification: after rewrite AND after intraprocedural analysis (Step 4), `verify_trmc_soundness()` SHALL confirm that the rewritten function preserves observable behavior. If verification fails, the rewrite SHALL be rolled back to the pre-TRMC IR. Rollback is safe — it restores the original (correct but unoptimized) code.
+**PL-10** — TRMC soundness verification: after Step 3a rewrite AND after Step 4 intraprocedural analysis (which operates on the rewritten IR), `verify_trmc_soundness()` SHALL confirm that the rewritten function preserves observable behavior. This verification runs between Step 4 and Step 5 (before realization). If verification fails, the rewrite SHALL be rolled back to the pre-TRMC IR AND Step 4 SHALL be re-run on the restored CFG (per PL-5: no stale summaries).
 
 **PL-11** — `ContextBehavior` join: `preserves_context(AND)`, `consumes_hole(AND)`, `requires_unique_context(OR)`, `may_resume_nonlinearly(OR)`. Conservative: preservation and consumption require ALL paths to agree; unique-context and non-linear-resumption are any-path (soundness obligations widen).
 
@@ -378,11 +380,11 @@ TRMC is a pipeline-integrated rewrite that enables tail-call optimization for fu
 
 ### Allocation Reuse
 
-**RL-11** — Same-block reuse: a dying value's allocation SHALL be reused for a fresh allocation of the same type in the same block, if: (a) the death precedes the allocation, (b) no intervening use exists, AND (c) the dying value is statically unique (`Uniqueness = Unique`) OR provably unique via cross-dimensional proof (`MaybeShared ∧ Cardinality = Once ∧ Shape = ReusableCtor` — fresh construction + single use = RC == 1). Reusing a Shared allocation corrupts other aliases.
+**RL-11** — Same-block reuse: a dying value's allocation SHALL be reused for a fresh allocation of the same type in the same block, if: (a) the death precedes the allocation, (b) no intervening use exists, AND (c) the dying value has `Uniqueness = Unique`. Reusing a non-unique allocation corrupts other aliases. For `MaybeShared` values, dynamic reuse (IsShared check + conditional) is available via DP-6 but requires a runtime guard.
 
 **RL-12** — Cross-block reuse: a dying value's allocation SHALL be reused across blocks when the death dominates and post-dominates the allocation, and the dying value is statically unique.
 
-**RL-13** — Cross-dimensional reuse proof: a value defined by `Construct` with `Cardinality = Once` is provably unique at death (fresh allocation + single use = RC == 1) regardless of `Uniqueness` dimension.
+**RL-13** — ~~REMOVED (unsound — same root cause as DP-10).~~ The former rule claimed `Construct + Once = RC == 1 at death`. This is false: the one use may be "store into a data structure," which creates an alias via RcInc. At death, the original variable's allocation is still alive via the alias. Reuse would overwrite live memory. Reuse eligibility is determined SOLELY by the Uniqueness dimension (DP-6 + RL-11/RL-12).
 
 ### Stack Promotion
 
@@ -404,7 +406,7 @@ TRMC is a pipeline-integrated rewrite that enables tail-call optimization for fu
 
 ### Non-Atomic RC
 
-**RL-19** — Thread-local values (no cross-thread escape) SHALL use non-atomic RC operations (plain load/store instead of atomic CAS).
+**RL-19** — Thread-local values (no cross-thread escape) SHALL use non-atomic RC operations (plain load/store instead of atomic CAS). Thread-locality is derived from `Locality` + call-graph analysis: if no escape path crosses a thread boundary (spawn, channel send, FFI), the value is thread-local. The `Locality` dimension provides escape scope; thread-sharing analysis is a program-wide property layered on top (similar to how RL-21 detects the whole-program no-spawn case). Future Locality extension with explicit `ThreadShared` level is planned but not required — thread analysis can derive from `HeapEscaping` + call-graph thread-boundary detection.
 
 **RL-20** — Thread-shared values SHALL use atomic RC operations.
 
@@ -434,7 +436,7 @@ TRMC is a pipeline-integrated rewrite that enables tail-call optimization for fu
 
 **RL-29** — Fresh allocation returns (`ReturnContract.uniqueness = Unique`) SHALL be marked with LLVM `noalias`.
 
-**RL-30** — Effect-based call annotations: pure calls (`may_allocate = false ∧ may_deallocate = false ∧ may_throw = false` and no writes to parameters) SHALL receive LLVM `memory(none)`. Readonly calls (reads but no writes, no allocation, no deallocation) SHALL receive LLVM `memory(read)`. Allocating calls (`may_allocate = true`) SHALL receive `memory(inaccessiblemem: readwrite)` — heap allocation touches global allocator state (inaccessible memory), not just argument memory. `memory(argmem: readwrite)` is WRONG for allocators and causes LLVM miscompilation (optimizer assumes no global side effects).
+**RL-30** — Effect-based call annotations: pure calls (`may_allocate = false ∧ may_deallocate = false ∧ may_throw = false` and no writes to parameters) SHALL receive LLVM `memory(none)`. Readonly calls (reads but no writes, no allocation, no deallocation) SHALL receive LLVM `memory(read)`. Allocating calls (`may_allocate = true`) that also access arguments SHALL receive `memory(argmem: readwrite, inaccessiblemem: readwrite)`. Pure allocators (no arg access) SHALL receive `memory(inaccessiblemem: readwrite)`. `memory(argmem: readwrite)` ALONE is WRONG for allocators (misses global heap state); omitting `argmem` is WRONG for functions that allocate AND read/write arguments (optimizer assumes args untouched).
 
 **RL-31** — Disjoint borrowed parameters SHALL receive `!alias.scope` + `!noalias` metadata pairs.
 
