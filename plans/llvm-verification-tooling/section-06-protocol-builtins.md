@@ -55,7 +55,7 @@ Protocol builtins (`compiler/ori_ir/src/builtin_constants/protocol/mod.rs`) are 
 - [x] New `ori_arc` consumer tests verify that `seed_builtin_contracts` produces correct `MemoryContract` params for each protocol builtin (access, consumption, cardinality=Once fields — all three dimensions pinned)
 - [x] New `ori_arc` consumer tests verify that `annotate_arg_ownership` produces correct `ArgOwnership` vectors when called with protocol builtin callees
 - [x] New `ori_arc` consumer tests verify that `promote_callee_args` correctly promotes/borrows params at protocol builtin call sites
-- [x] AOT programs pass `ORI_CHECK_LEAKS=1` across type x pattern matrix: `[str]`, `[int]`, `{str: int}`, `Set<int>` x full iteration, break, yield, nested
+- [x] AOT programs pass `ORI_CHECK_LEAKS=1` across type x pattern matrix: `[str]`, `[int]`, `{str: int}`, `{int: str}` x full iteration, break, yield, nested. Note: `Set<int>` blocked by BUG-04-063 (crashes); `Set<str>` verified via existing tests
 - [x] At least one negative pin demonstrates that wrong ownership (e.g., IterDrop=Borrowed) produces a double-free or leak
 - [x] Exhaustiveness guard: `ProtocolBuiltin::ALL.len() == 5` assertion prevents silent additions
 - [x] `IterDrop` doc comment fixed: "borrowed (freed internally)" -> "owned (consumed by cleanup)"
@@ -398,6 +398,11 @@ When all findings are triaged:
   Impact: CollectSet verification for non-trivial elements is limited to existing Set<str> coverage.
   Basis: fresh_verification. Confidence: high.
   Resolved: Fixed on 2026-04-12. Set<[int]> and Set<{str: int}> crash with SIGSEGV (filed BUG-04-063). Fixtures kept as list-collect tests (exercise elem_inc_fn for complex types). CollectSet with complex elements is blocked by BUG-04-063. Notes added to test comments.
+- [x] `[TPR-06-005-codex][medium]` `plans/llvm-verification-tooling/section-06-protocol-builtins.md:416` — Plan/implementation drift: checklist/overview claims Set<int> coverage while implementation documents it blocked.
+  Evidence: Checklist claims "Set iteration works in AOT, added Set<int> to iter_rc_matrix" and "CollectSet with complex element types tested" while fixtures and matrix header document BUG-04-063 blocker.
+  Impact: Section presented as complete on criteria not actually verified.
+  Basis: direct_file_inspection. Confidence: high.
+  Resolved: Fixed on 2026-04-12. Updated checklist items, success criteria, and overview to accurately state Set<int> blocked by BUG-04-063. All claims now match implementation reality.
 
 ---
 
@@ -412,8 +417,8 @@ When all findings are triaged:
 - [x] Negative pin (forbid-old-behavior): `assert_ne` pins that IterDrop is NOT Borrowed and Index receiver is NOT Owned — forbids the historic regression states
 - [x] Consistency pin (supplemental): contracts read from `arg_ownership()` — drift between constant and contract is caught
 - [x] AOT gap-fill: map indexing gap-fill (existing `{str:int}` covered; add `{int:str}` and looped indexing)
-- [x] AOT gap-fill: `CollectSet` with complex element types tested (nested list, map elements)
-- [x] Set iteration status evaluated — Set iteration works in AOT, added Set<int> to iter_rc_matrix (4 tests)
+- [x] AOT gap-fill: `CollectSet` with complex element types evaluated — Set<[int]>/Set<{str:int}> crash (BUG-04-063); list-collect equivalents added as regression guards; existing Set<str> coverage via `iter_collect_set_str.ori` exercises `__collect_set`
+- [x] Set iteration status evaluated — Set<int> iteration crashes in AOT (BUG-04-063); E7 fixtures exercise list-collect as regression guards; Set<str> iteration works (existing tests pass)
 - [x] `ORI_AUDIT_CODEGEN=1` harness integration evaluated — 38 unwind-path failures, NOT adding globally; filed BUG-04-062
 - [x] Debug AND release builds pass for all protocol-exercising AOT tests
 - [x] No regressions: `timeout 150 ./test-all.sh` green (17,167 tests pass)
