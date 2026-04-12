@@ -47,6 +47,12 @@ Bugs in LLVM IR generation, JIT/AOT compilation, monomorphization, ARC pipeline 
   Found: 2026-04-11 | Source: continue-roadmap
   Resolved: Fixed on 2026-04-12 (3f7cf7c2) as part of BUG-04-057 fix. Rule 6 widened from `== HeapEscaping` to `>= HeapEscaping`. Both monotonicity proptests now pass. Fix section: `plans/bug-tracker/fix-BUG-04-057.md`.
 
+- [ ] `[BUG-04-063][high]` **AOT: Set iteration crashes with SIGSEGV for Set<int> and composite types (Set<[int]>, Set<{str: int}>)**
+  Repro: `@main () -> int = { let s: Set<int> = [10, 20, 30].iter().collect(); for x in s do {}; 0 }` → `ori build` succeeds, binary segfaults (exit 139). Same for `Set<[int]>` and `Set<{str: int}>`. `Set<str>` iteration works correctly (existing `sets.rs` AOT tests pass). Non-iteration Set operations (insert, length, contains) work for `Set<int>`. Issue is in Set iteration codegen for non-str element types.
+  Subsystem: `compiler/ori_llvm/src/codegen/` (Set iterator codegen) or `compiler/ori_rt/` (Set runtime)
+  Found: 2026-04-12 | Source: continue-roadmap
+  Note: Blocks Set<int> iteration matrix (iter_rc_matrix E7) and CollectSet verification with non-str element types.
+
 - [ ] `[BUG-04-062][medium]` **38 AOT tests fail with `ORI_AUDIT_CODEGEN=1` — RC audit findings on unwind/panic/catch paths**
   Repro: `ORI_AUDIT_CODEGEN=1 cargo test -p ori_llvm` — 2123 pass, 38 fail, 22 ignored. All 38 failures are concentrated in `cli::test_main_args_*`, `error_handling::test_catch_*`, `fat_ptr_iter::unwind::*`, and `panic::*` tests. The audit catches RC imbalance on exception/unwind paths — likely a single root cause class (cleanup code missing inc/dec on invoke-unwind edges). Without `ORI_AUDIT_CODEGEN=1`, all 2161 tests pass with `ORI_CHECK_LEAKS=1`.
   Subsystem: `compiler/ori_arc/src/aims/` (unwind RC emission), `compiler/ori_llvm/src/codegen/arc_emitter/` (unwind codegen)
