@@ -227,6 +227,12 @@ Real issues found in `~/projects/lang_intelligence/neo4j/query_graph.py` that mu
   Resolved: Fixed on 2026-04-12. Added minimum-of-1 guard: `$(( $2 > 0 ? $2 : 1 ))` so `--timeout 0` is clamped to 1s.
 - [x] `[TPR-01-002-codex][low]` (close-out-3) `section-01-infrastructure.md:237` — DRIFT: test-all pass count stale (17120 vs 17140).
   Resolved: Fixed on 2026-04-12. Updated count to 17140 (current HEAD).
+- [x] `[TPR-01-001-codex][medium]` (close-out-4) `scripts/intel-query.sh:43` — GAP: Bash octal trap in `--timeout` arithmetic — `$(( $2 ))` treats `08`/`09` as invalid octal.
+  Resolved: Fixed on 2026-04-12. Added `10#` base-10 prefix: `$(( 10#$2 > 0 ? 10#$2 : 1 ))`.
+- [x] `[TPR-01-001-gemini][high]` (close-out-4) `scripts/intel-query.sh:42` — GAP: Same octal trap as TPR-01-001-codex (near-agreement).
+  Resolved: Fixed on 2026-04-12. Same fix as TPR-01-001-codex close-out-4.
+- [x] `[TPR-01-002-gemini][low]` (close-out-4) `section-01-infrastructure.md:246` — DRIFT: test-all count 17140 vs 17142.
+  Resolved: Rejected on 2026-04-12. Count 17140 is correct for committed HEAD; 17142 reflects uncommitted parallel-session tests in working tree.
 
 ## 01.N Completion Checklist
 
