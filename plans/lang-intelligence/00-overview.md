@@ -160,3 +160,5 @@ Build a cross-language design-memory system that gives the Ori compiler proactiv
 - `query_graph.py` `_parse_flags` and positional args lack numeric validation — non-numeric input to `--limit`, `--depth`, `cmd_related`, or `cmd_fix_chain` crashes with raw `ValueError` traceback
 - `query_graph.py` has no connection timeout — a hanging Neo4j (Bolt port open but server wedged) hangs the script indefinitely
 - `query_graph.py` `cmd_stats` has no graph-emptiness detection — empty graph shows blank tables with no warning
+- `query_graph.py` `cmd_compare` and `cmd_pattern` bypass `_parse_flags` — `" ".join(args)` includes flags like `--json` in search terms
+- `query_graph.py` has no `--health-check` command for lightweight connectivity verification
