@@ -10,6 +10,13 @@ success_criteria:
   - "Rule triggers intelligence queries during design decisions, bug fixes, and reviews"
   - "Command supports search, compare, fixed, hot, ori-* presets, and raw cypher"
 depends_on: ["01"]
+sections:
+  - id: "02.1"
+    title: "Intelligence Rule File"
+    status: not-started
+  - id: "02.2"
+    title: "Query Intel Command"
+    status: not-started
 third_party_review:
   status: none
   updated: null
