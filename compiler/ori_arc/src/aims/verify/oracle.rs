@@ -227,6 +227,46 @@ pub fn derive_param_contracts(func: &ArcFunction) -> Vec<RealizedParamContract> 
     observations.iter().map(derive_single_param).collect()
 }
 
+// ─── Effect Derivation (05.2) ───
+
+/// Effects re-derived from walking realized ARC IR.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RealizedEffects {
+    /// Whether the function body contains `Construct` instructions.
+    /// Conservative: any Construct → true (oracle cannot classify types).
+    pub may_allocate: bool,
+    /// Whether missed reuses were detected (from second-pass data).
+    /// NOT derived from the IR walk — comes from the pipeline's tracking.
+    pub may_deallocate: bool,
+    /// Whether the function body contains ANY `RcInc` instructions
+    /// (on parameters OR local variables). Per aims-rules IC-5.
+    pub may_share: bool,
+}
+
+/// Derive function-level effects from realized ARC IR.
+///
+/// `missed_reuses` comes from the batch pipeline's second pass.
+pub fn derive_effects(func: &ArcFunction, missed_reuses: u32) -> RealizedEffects {
+    let may_allocate = func.blocks.iter().any(|b| {
+        b.body
+            .iter()
+            .any(|i| matches!(i, ArcInstr::Construct { .. }))
+    });
+
+    let may_deallocate = missed_reuses > 0;
+
+    let may_share = func
+        .blocks
+        .iter()
+        .any(|b| b.body.iter().any(|i| matches!(i, ArcInstr::RcInc { .. })));
+
+    RealizedEffects {
+        may_allocate,
+        may_deallocate,
+        may_share,
+    }
+}
+
 // ─── Coherence Comparison (05.3) ───
 
 /// A coherence mismatch between inferred and realized contracts.
@@ -325,40 +365,24 @@ pub fn verify_coherence(
         }
     }
 
-    // Effects: check all three dimensions.
-    // may_deallocate: derived from missed reuses (second-pass corrected).
-    let realized_may_deallocate = missed_reuses > 0;
-    if !inferred.effects.may_deallocate && realized_may_deallocate {
+    // Effects: check all three dimensions via derive_effects().
+    let effects = derive_effects(func, missed_reuses);
+
+    if !inferred.effects.may_deallocate && effects.may_deallocate {
         mismatches.push(CoherenceMismatch::EffectMismatch {
             field: "may_deallocate",
             inferred: false,
             realized: true,
         });
     }
-
-    // may_allocate: derived from presence of Construct instructions.
-    // (Conservative: any Construct → may_allocate=true. The oracle cannot
-    // classify types, so this overestimates for scalar Constructs.)
-    let realized_may_allocate = func.blocks.iter().any(|b| {
-        b.body
-            .iter()
-            .any(|i| matches!(i, ArcInstr::Construct { .. }))
-    });
-    if !inferred.effects.may_allocate && realized_may_allocate {
+    if !inferred.effects.may_allocate && effects.may_allocate {
         mismatches.push(CoherenceMismatch::EffectMismatch {
             field: "may_allocate",
             inferred: false,
             realized: true,
         });
     }
-
-    // may_share: function-level, derived from ANY RcInc in the entire function
-    // (not just parameter RcIncs — local variable RcInc also creates shared refs).
-    let realized_may_share = func
-        .blocks
-        .iter()
-        .any(|b| b.body.iter().any(|i| matches!(i, ArcInstr::RcInc { .. })));
-    if !inferred.effects.may_share && realized_may_share {
+    if !inferred.effects.may_share && effects.may_share {
         mismatches.push(CoherenceMismatch::EffectMismatch {
             field: "may_share",
             inferred: false,

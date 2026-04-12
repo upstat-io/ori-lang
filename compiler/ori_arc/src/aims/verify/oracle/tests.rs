@@ -528,3 +528,79 @@ fn oracle_detects_owned_transfer_via_partial_apply() {
     );
     assert_eq!(contracts[0].consumption, Consumption::Linear);
 }
+
+// --- 05.2 Effect derivation tests ---
+
+/// `may_allocate` detected from `Construct` instruction in the function.
+#[test]
+fn oracle_detects_may_allocate_from_construct() {
+    let func = func_with_body(
+        vec![],
+        vec![ArcInstr::Construct {
+            dst: v(1),
+            ty: Idx::UNIT,
+            ctor: crate::ir::CtorKind::Tuple,
+            args: vec![v(10), v(11)],
+        }],
+    );
+
+    let effects = derive_effects(&func, 0);
+    assert!(
+        effects.may_allocate,
+        "Construct present -> may_allocate=true"
+    );
+    assert!(
+        !effects.may_deallocate,
+        "missed_reuses=0 -> may_deallocate=false"
+    );
+    assert!(!effects.may_share, "no RcInc -> may_share=false");
+}
+
+/// Function-level `may_share` detects `RcInc` on a local variable (not a param).
+#[test]
+fn oracle_detects_may_share_from_local_rc_inc() {
+    // v(10) is a local variable, not a function parameter.
+    let func = func_with_body(
+        vec![owned_param(0, Idx::UNIT)],
+        vec![ArcInstr::RcInc {
+            var: v(10), // local, not param
+            count: 1,
+            strategy: RcStrategy::HeapPointer,
+        }],
+    );
+
+    let effects = derive_effects(&func, 0);
+    assert!(
+        effects.may_share,
+        "RcInc on local variable -> function-level may_share=true"
+    );
+}
+
+/// `may_share` effect mismatch detected when inferred says no sharing but
+/// the function has `RcInc` on a local variable.
+#[test]
+fn oracle_coherence_catches_function_level_may_share_mismatch() {
+    let func = func_with_body(
+        vec![],
+        vec![ArcInstr::RcInc {
+            var: v(10), // local variable
+            count: 1,
+            strategy: RcStrategy::HeapPointer,
+        }],
+    );
+
+    let mut contract = make_contract(vec![]);
+    contract.effects.may_share = false; // claims no sharing
+
+    let mismatches = verify_coherence(&func, &contract, 0);
+    assert!(
+        mismatches.iter().any(|m| matches!(
+            m,
+            CoherenceMismatch::EffectMismatch {
+                field: "may_share",
+                ..
+            }
+        )),
+        "local RcInc should trigger function-level may_share mismatch"
+    );
+}
