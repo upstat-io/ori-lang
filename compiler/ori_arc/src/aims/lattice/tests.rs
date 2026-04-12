@@ -639,13 +639,9 @@ mod aims_state_join {
         }
     }
 
-    /// BUG-04-057: join is non-associative on canonical states due to
-    /// canonicalization Rule 4 interaction with uniqueness dimension.
-    /// This sampled test passes only because `representative_states()`
-    /// does not include the counterexample triple. The proptest in
-    /// `prop_tests.rs::join_associative` reproduces the failure.
+    /// Join associativity on sampled states (supplement to proptest).
+    /// Regression guard for BUG-04-057 (Rule 4 removal fixed associativity).
     #[test]
-    #[ignore = "BUG-04-057: join non-associative — sampled test gives false green"]
     fn associativity() {
         let states = representative_states();
         // Sample triples
