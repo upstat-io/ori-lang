@@ -210,7 +210,7 @@ Transfer functions define how each ARC IR instruction updates the lattice state.
 
 Each operand of each instruction generates a `(variable, cardinality)` demand:
 
-**TF-11** — Most instructions emit `(operand, Once)` per argument: Construct, Project, Set (base + value), Return, Jump args, Branch cond, Switch scrutinee. **Apply/Invoke**: emit `(arg, Once)` conservatively; callee contract refinement (IA-8) narrows demands using `ParamContract.cardinality` — an `Absent` parameter produces zero demand at the caller. **Select**: emit `(cond, Once)` and `(true_val, Once)` and `(false_val, Once)` as per-variable demands. If `true_val = false_val` (same variable), only one demand is emitted (alternative, not additive).
+**TF-11** — Most instructions emit `(operand, Once)` per argument: Construct, Project, Set (base + value), Return, Jump args, Branch cond, Switch scrutinee. **Apply/Invoke**: emit `(arg, Once)` conservatively; callee contract refinement (IC-3, via interprocedural contracts) narrows demands using `ParamContract.cardinality` — an `Absent` parameter produces zero demand at the caller. **Select**: emit `(cond, Once)` and `(true_val, Once)` and `(false_val, Once)` as per-variable demands. If `true_val = false_val` (same variable), only one demand is emitted (alternative, not additive).
 
 **TF-12** — PartialApply emits NO backward demand from the standard demand system. Captured argument demand is handled entirely by `capture_state_update` to avoid double-counting.
 
@@ -219,6 +219,8 @@ Each operand of each instruction generates a `(variable, cardinality)` demand:
 - If closure cardinality > Once: `consumption := Unrestricted`, `cardinality := Many`, `locality := max(current.locality, closure_state.locality)`. Multiple invocations = multiple consumptions.
 
 **TF-13 SHALL be monotone**: if `a ≤ b` then `capture_state_update(a, c) ≤ capture_state_update(b, c)`.
+
+**TF-14** — Project backward demand propagation: when a projected variable `dst` accumulates demand (locality widening, extended liveness), that demand SHALL be propagated to the borrow source `src` via the `borrow_sources` side table: `src.locality := max(src.locality, dst.locality)`. Without this propagation, `src` can be freed or stack-allocated while a reference to its projected field escapes or outlives it. This is the Ori equivalent of Lean 4's borrow liveness extension.
 
 ---
 
@@ -245,7 +247,7 @@ Unique ownership permits direct mutation without COW, BUT only when no active bo
 Reuse requires owned, non-shared, reusable shape.
 
 **DP-7** — `is_rc_skip_eligible(s) ⟺ s.is_local() ∧ s.access = Owned ∧ s.consumption = Linear ∧ s.uniqueness = Unique ∧ ¬s.is_scalar()`.
-Local + owned + linear + unique = lifetime precisely scoped with RC == 1; skip both inc and dec. The `Uniqueness = Unique` requirement is load-bearing: a local+owned+linear value that is `Shared` or `MaybeShared` still has RC > 1 from upstream aliases — skipping dec would leak the +1 count. Stack-promoted values (RL-14) are a separate path — they have no RC header at all.
+Scope: **parameter inc/dec pair elision only.** For Owned parameters where the caller increments and the callee decrements, if the parameter is local+linear+unique, the inc/dec pair cancels — skip both. This does NOT apply to the final dec that triggers the free for fresh allocations; that dec is always needed for heap-allocated values (only stack-promoted values via RL-14 skip it). The `Uniqueness = Unique` requirement is load-bearing: a Shared value's +1 inc from the caller is never balanced → leak.
 
 **DP-8** — `is_local(s) ⟺ s.locality ∈ {BlockLocal, FunctionLocal}`.
 
@@ -272,7 +274,7 @@ Local + owned + linear + unique = lifetime precisely scoped with RC == 1; skip b
 
 **IC-6** — FIP contract: `Never` absorbs all; `Conditional` absorbs `Bounded/Certified`; `Bounded(n) ⊔ Bounded(m) = Bounded(max(n,m))`. FipContract::Certified ⟺ zero unmatched allocations/deallocations in realized IR.
 
-**IC-7** — Convergence: finite domain guarantees termination. Parameter contract has 5 dimensions (access height 1 + consumption height 3 + cardinality height 2 + locality height 4 + uniqueness height 2 = 12 per param). Return contract has 4 dimensions. EffectSummary has 6 boolean fields. The iteration limit is derived from the domain: `param_count × 12 + return_dims × 4 + effect_dims × 6`. As a practical safety cap, the implementation uses `max(100, derived_limit)` — log warning at 50% of cap, abort with diagnostic at 100%. This document (`aims-rules.md`) is authoritative for the convergence bound formula; `arc.md` references it.
+**IC-7** — Convergence: finite domain guarantees termination. The iteration limit SHALL be derived from the domain heights: parameter contract 5 dimensions (access=1 + consumption=3 + cardinality=2 + locality=4 + uniqueness=2 = 12 per param), return contract 4 dimensions (uniqueness=2 + freshness=1 + locality=4 + shape=1 = 8 total), EffectSummary 6 boolean fields. Formula: `param_count × 12 + 8 + 6`. If exceeded, widen all contracts to most conservative and emit a diagnostic. This document (`aims-rules.md`) is authoritative for the convergence bound; `arc.md` references it.
 
 **IC-8** — ~~REMOVED (unsound — same root cause as DP-10).~~ The former rule derived parameter uniqueness from caller consumption patterns (`Owned ∧ Linear ∧ Once`). This is unsound: a caller with a `MaybeShared` argument that it uses linearly still holds a reference whose RC may be > 1 from upstream aliases. Parameter uniqueness is established by the SCC fixpoint (IC-2/IC-3): if ALL callers pass arguments whose `Uniqueness` dimension is `Unique`, the fixpoint converges to `ParamContract.uniqueness = Unique` naturally. No post-fixpoint tightening is needed or sound.
 
@@ -392,7 +394,7 @@ TRMC is a pipeline-integrated rewrite that enables tail-call optimization for fu
 
 **RL-15** — Non-escaping dynamic-size allocations SHALL use a function-local bump allocator. Entire region freed at function return.
 
-**RL-15a** — ArgEscaping allocations (`Locality = ArgEscaping`) SHALL be heap-allocated (they escape the function via argument, so stack allocation is unsound), BUT their uniqueness is preserved (CN-6 does not fire for ArgEscaping — only HeapEscaping and above). ArgEscaping values are candidates for callee-scoped optimizations: the callee knows ownership is temporary and can optimize RC ops accordingly via the interprocedural contract.
+**RL-15a** — ArgEscaping allocations (`Locality = ArgEscaping`) SHALL be stack-allocated in the CALLER. The caller's stack frame strictly outlives the callee's execution, so the allocation survives the callee's use. Uniqueness is preserved (CN-6 does not fire for ArgEscaping — only HeapEscaping and above). No RC header is needed. This is the key optimization that bridges "not local" and "not heap" — a value that escapes into a callee but not to the heap gets caller-stack lifetime without heap overhead.
 
 **RL-16** — Escaping allocations (`Locality ≥ HeapEscaping`) SHALL be heap-allocated with full RC header.
 
@@ -480,7 +482,7 @@ AIMS draws from multiple traditions. No single prior system has this combination
 
 ### Lean 4 — Counting Immutable Beans (Ullrich & de Moura, IFL 2019)
 - **Adopted**: Binary borrow inference (Owned/Borrowed) with monotone fixpoint. RC insertion driven by liveness analysis. Reset/reuse via IsShared runtime check (ExpandResetReuse.lean).
-- **Extended by AIMS**: Lean uses binary liveness (live/dead); AIMS uses a multi-dimensional product lattice with substructural consumption, cardinality, locality, shape, and effects. Lean's reuse is same-type only; AIMS adds cross-dimensional uniqueness proofs.
+- **Extended by AIMS**: Lean uses binary liveness (live/dead); AIMS uses a multi-dimensional product lattice with substructural consumption, cardinality, locality, shape, and effects — enabling richer optimization decisions (RC-skip for linear parameters, escape-driven stack promotion, effect-based LLVM annotations). Lean's reuse is same-type only; AIMS adds dynamic reuse with runtime uniqueness guards.
 
 ### Koka Perceus (Reinking, Lorenzen, Leijen & de Moura, PLDI 2021)
 - **Adopted**: Perceus garbage-free RC with reuse. Functional-but-in-place (FBIP) certification. Allocation credit tracking. Tail-recursion modulo cons (TRMC).
