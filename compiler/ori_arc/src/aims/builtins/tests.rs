@@ -242,7 +242,7 @@ fn protocol_contract_iter_borrowed_param() {
 // Negative pins — forbid the broken behavior that existed before the fix.
 
 /// Negative pin: `IterDrop` must NOT have Borrowed access.
-/// Before the fix (TPR-07-008), `IterDrop` was Borrowed, causing
+/// Before the fix, `IterDrop` was Borrowed, causing
 /// a double-free on iterator cleanup.
 #[test]
 fn protocol_contract_iter_drop_forbids_borrowed() {
