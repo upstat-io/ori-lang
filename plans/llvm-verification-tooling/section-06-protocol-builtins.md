@@ -25,7 +25,7 @@ sections:
     status: complete
   - id: "06.2"
     title: "ori_arc Consumer Verification"
-    status: not-started
+    status: in-progress
   - id: "06.3"
     title: "AOT End-to-End Type x Pattern Matrix"
     status: not-started
