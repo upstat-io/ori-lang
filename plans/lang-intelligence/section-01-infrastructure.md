@@ -95,6 +95,7 @@ If any check fails, output the unavailable JSON and exit 0. The caller never see
 **Implementation checklist**:
 - [ ] Create `scripts/intel-query.sh` with the availability check sequence (steps 1-5 above)
 - [ ] Each check step bounded by `timeout 5` (or Python `socket.settimeout`) — hanging Neo4j must not hang the script
+- [ ] Parse `--timeout N` flag from caller arguments (default 5s) — use this variable in all bounded check steps and pass it to `query_graph.py` via argument
 - [ ] Proxy all arguments to `../lang_intelligence/.venv/bin/python ../lang_intelligence/neo4j/query_graph.py --json [args]`
 - [ ] Pass `--human` through when specified by caller, otherwise default to `--json`
 - [ ] Add `status` subcommand that reports: Neo4j version, node/relationship counts, repo list, graph-emptiness check (warn if zero Issue nodes)
@@ -109,7 +110,7 @@ If any check fails, output the unavailable JSON and exit 0. The caller never see
 - [ ] **Subsection close-out (01.1)** — MANDATORY before starting 01.2:
   - [ ] All tasks above are `[x]` and the subsection's behavior is verified
   - [ ] Update this subsection's `status` in section frontmatter to `complete`
-  - [ ] **Run `/improve-tooling` retrospectively on THIS subsection** — reflect on the debugging/testing experience for 01.1: did `scripts/intel-query.sh` give clear output on failure? Was the availability check sequence easy to debug? Any flags or output formats that would have helped? Implement improvements NOW via separate `/commit-push`.
+  - [ ] **Run `/improve-tooling` retrospectively on THIS subsection** — reflect on the debugging/testing experience for 01.1: did `scripts/intel-query.sh` give clear output on failure? Was the availability check sequence easy to debug? Any flags or output formats that would have helped? Implement improvements NOW via separate `/commit-push`. Commit each via SEPARATE `/commit-push` using a valid conventional-commit type — `build` for dev/diagnostic scripts, `test` for test-harness, `chore` for general tooling, `ci` for CI, `docs` for tool docs. Do NOT use `tools(...)` — the lefthook commit-msg hook rejects it.
 
 ---
 
@@ -136,10 +137,12 @@ Real issues found in `~/projects/lang_intelligence/neo4j/query_graph.py` that mu
 
 - [ ] Credentials hardcoded (lines 30-32): `bolt://localhost:7687`, `neo4j`, `intelligence` are inline constants. Read from environment variables (`NEO4J_URI`, `NEO4J_USER`, `NEO4J_PASS`) with the current values as defaults. This allows different environments (CI, remote, Docker Compose with different ports) without editing source.
 
+- [ ] Validate Python fixes: test `query_graph.py --limit foo` exits cleanly with error message (not traceback), test `query_graph.py related rust notanumber` exits cleanly, test `query_graph.py --json stats` returns valid JSON
+
 - [ ] **Subsection close-out (01.2)** — MANDATORY before starting 01.N:
   - [ ] All tasks above are `[x]` and the subsection's behavior is verified
   - [ ] Update this subsection's `status` in section frontmatter to `complete`
-  - [ ] **Run `/improve-tooling` retrospectively on THIS subsection** — reflect on the debugging/testing experience for 01.2: did fixing these issues surface any other problems in the query tool? Any commands that silently fail? Any missing error handling paths? Implement improvements NOW via separate `/commit-push`.
+  - [ ] **Run `/improve-tooling` retrospectively on THIS subsection** — reflect on the debugging/testing experience for 01.2: did fixing these issues surface any other problems in the query tool? Any commands that silently fail? Any missing error handling paths? Implement improvements NOW via separate `/commit-push`. Commit each via SEPARATE `/commit-push` using a valid conventional-commit type — `build` for dev/diagnostic scripts, `test` for test-harness, `chore` for general tooling, `ci` for CI, `docs` for tool docs. Do NOT use `tools(...)` — the lefthook commit-msg hook rejects it.
 
 ---
 
@@ -185,6 +188,22 @@ Real issues found in `~/projects/lang_intelligence/neo4j/query_graph.py` that mu
   Resolved: Fixed on 2026-04-12. Same fix as iter2 TPR-01-001-codex (near-agreement).
 - [x] `[TPR-01-004-gemini][medium]` (iter2) `section-01-infrastructure.md:189` — Missing Exit Criteria block.
   Resolved: Fixed on 2026-04-12. Added Exit Criteria paragraph.
+- [x] `[TPR-01-001-codex][medium]` (iter3) `index.md` — index.md has no per-section status table; only keyword clusters.
+  Resolved: Fixed on 2026-04-12. Added Quick Reference table to index.md before keyword clusters section.
+- [x] `[TPR-01-002-codex][low]` (iter3) `00-overview.md:5` — overview frontmatter status still `not-started` with section 01 in-progress.
+  Resolved: Fixed on 2026-04-12. Updated overview frontmatter status to `in-progress` and Quick Reference table row 01 to `in-progress`.
+- [x] `[TPR-01-003-codex][low]` (iter3) `00-overview.md:102` — Implementation Sequence says "everything else depends on section 01" but sections 05-09 have `depends_on: []`.
+  Resolved: Fixed on 2026-04-12. Changed "everything else depends on this" to "sections 02-04 depend on this".
+- [x] `[TPR-01-001-gemini][low]` (iter3) `section-01-infrastructure.md:112` — close-out `/improve-tooling` bullet lacks conventional-commit type guidance.
+  Resolved: Fixed on 2026-04-12. Expanded both 01.1 and 01.2 close-out `/improve-tooling` bullets with conventional-commit type list and explicit `tools(...)` rejection note.
+- [x] `[TPR-01-002-gemini][low]` (iter3) `section-01-infrastructure.md:202` — 01.N section-close sweep bullet is bare; no guidance on what to verify or how to commit.
+  Resolved: Fixed on 2026-04-12. Expanded 01.N `/improve-tooling` section-close sweep item with cross-subsection pattern guidance and conventional-commit type requirements.
+- [x] `[TPR-01-003-gemini][medium]` (iter3) `section-01-infrastructure.md:97` — `--timeout N` flag described in contract but not in 01.1 implementation checklist.
+  Resolved: Fixed on 2026-04-12. Added `--timeout N` parsing task to 01.1 implementation checklist after the bounded-check-step item.
+- [x] `[TPR-01-004-gemini][medium]` (iter3) `section-01-infrastructure.md:139` — No test validation item for the Python fixes in 01.2.
+  Resolved: Fixed on 2026-04-12. Added validation item before 01.2 close-out block covering --limit, positional numeric, and --json tests.
+- [x] `[TPR-01-005-gemini][rejected]` (iter3) `section-01-infrastructure.md` — Claimed `depends_on: []` on section-01 frontmatter was incorrect (should list itself as a dependency).
+  Resolved: Rejected on 2026-04-12. `depends_on: []` on section 01 is correct — it has no dependencies. A section cannot depend on itself.
 
 ## 01.N Completion Checklist
 
@@ -199,7 +218,7 @@ Real issues found in `~/projects/lang_intelligence/neo4j/query_graph.py` that mu
 - [ ] No test regressions: `timeout 150 ./test-all.sh`
 - [ ] `/tpr-review` clean
 - [ ] `/impl-hygiene-review` clean
-- [ ] `/improve-tooling` section-close sweep
+- [ ] `/improve-tooling` **section-close sweep** — MANDATORY after both reviews are clean. Verify every subsection (01.1, 01.2) has an "improvements made" entry or a documented "no gaps" finding from its per-subsection retrospective. Look for cross-subsection patterns: command sequences repeated across subsections, integration failures with unhelpful messages, instrumentation that became obvious only after seeing both subsections. Implement immediately via separate `/commit-push` using valid conventional-commit types (`build`/`test`/`chore`/`ci`/`docs` — NOT `tools(...)`).
 - [ ] **Plan annotation cleanup**: Run `plan-annotations.sh --cleanup-only --plan lang-intelligence` — remove any stale annotations
 - [ ] **Plan sync**:
   - [ ] Update section 01 frontmatter `status` to `complete`

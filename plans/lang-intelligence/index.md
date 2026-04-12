@@ -6,6 +6,20 @@ reroute: false
 
 # Language Intelligence Graph
 
+## Quick Reference
+
+| # | Section | Status | Depends On |
+|---|---------|--------|------------|
+| 01 | Infrastructure & Canonical Helper | in-progress | — |
+| 02 | Claude Rules & Commands | not-started | 01 |
+| 03 | Skill Integration: TPR + Fix-Bug | not-started | 01, 02 |
+| 04 | Skill Integration: Remaining | not-started | 01, 02 |
+| 05 | Code Graph: Parser Adapters | not-started | — |
+| 06 | Code Graph: Symbol Extraction | not-started | 05 |
+| 07 | Code Graph: Import Pipeline | not-started | 06 |
+| 08 | Issue-to-Code Bridge | not-started | 07 |
+| 09 | Ori Live Sync | not-started | 06 |
+
 ## Keyword Clusters
 
 ### Infrastructure

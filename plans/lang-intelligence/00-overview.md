@@ -1,7 +1,7 @@
 ---
 plan: "lang-intelligence"
 title: "Language Intelligence Graph: Exhaustive Implementation Plan"
-status: not-started
+status: in-progress
 references:
   - "~/projects/lang_intelligence/CLAUDE.md"
   - "~/projects/lang_intelligence/neo4j/schema.cypher"
@@ -99,7 +99,7 @@ Build a cross-language design-memory system that gives the Ori compiler proactiv
 
 ## Implementation Sequence
 
-1. **Foundation**: Section 01 (canonical helper) — everything else depends on this
+1. **Foundation**: Section 01 (canonical helper) — sections 02-04 depend on this
 2. **Claude Integration**: Sections 02 → 03 → 04 (rules, high-value skills, remaining skills)
 3. **Code Graph**: Sections 05 → 06 → 07 (parsers, extraction, import)
 4. **Bridge + Sync**: Sections 08, 09 (connect the two pillars, add live sync)
@@ -108,7 +108,7 @@ Build a cross-language design-memory system that gives the Ori compiler proactiv
 
 | # | Section | Status | Files Touched | Depends On |
 |---|---------|--------|---------------|------------|
-| 01 | Infrastructure & Canonical Helper | not-started | `scripts/intel-query.sh`, `~/projects/lang_intelligence/` | — |
+| 01 | Infrastructure & Canonical Helper | in-progress | `scripts/intel-query.sh`, `~/projects/lang_intelligence/` | — |
 | 02 | Claude Rules & Commands | not-started | `.claude/rules/intelligence.md`, `.claude/commands/query-intel.md` | 01 |
 | 03 | Skill Integration: TPR + Fix-Bug | not-started | `.claude/skills/tpr-review/SKILL.md`, `.claude/skills/fix-bug/SKILL.md` | 01, 02 |
 | 04 | Skill Integration: Remaining | not-started | 4 skill files + `review-bugs.md` | 01, 02 |
