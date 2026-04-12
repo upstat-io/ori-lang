@@ -186,3 +186,46 @@ fn test_runtime_not_found_from() {
     let diag = codegen.into_diagnostic();
     assert_eq!(diag.code, ErrorCode::E5005);
 }
+
+#[test]
+fn test_contract_coherence_diagnostic_includes_mismatch_details() {
+    use ori_arc::aims::lattice::AccessClass;
+    use ori_arc::aims::verify::oracle::CoherenceMismatch;
+    use ori_arc::ir::ArcVarId;
+
+    let problem = ori_arc::ArcProblem::ContractCoherenceViolation {
+        func_name: "my_function".into(),
+        mismatches: vec![
+            CoherenceMismatch::ParamAccess {
+                param_index: 0,
+                param_var: ArcVarId::new(5),
+                inferred: AccessClass::Borrowed,
+                realized: AccessClass::Owned,
+            },
+            CoherenceMismatch::EffectMismatch {
+                field: "may_deallocate",
+                inferred: false,
+                realized: true,
+            },
+        ],
+    };
+    let codegen: CodegenProblem = problem.into();
+    assert!(codegen.is_error());
+    let diag = codegen.into_diagnostic();
+    assert_eq!(diag.code, ErrorCode::E4005);
+    assert!(diag.message.contains("my_function"));
+    assert!(diag.message.contains("2 mismatch(es)"));
+    // Per-mismatch details must appear in notes (not just the count).
+    assert!(
+        diag.notes
+            .iter()
+            .any(|n| n.contains("param 0") && n.contains("access")),
+        "diagnostic must include per-param access mismatch detail: {:#?}",
+        diag.notes
+    );
+    assert!(
+        diag.notes.iter().any(|n| n.contains("may_deallocate")),
+        "diagnostic must include effect mismatch detail: {:#?}",
+        diag.notes
+    );
+}

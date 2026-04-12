@@ -724,3 +724,39 @@ fn oracle_accepts_conservative_may_allocate_effect() {
         "conservative may_allocate (inferred=true, realized=false) should not produce mismatches: {mismatches:?}"
     );
 }
+
+// --- Display impl tests ---
+
+/// Display for `ParamAccess` mismatch produces actionable diagnostic text.
+#[test]
+fn display_param_access_mismatch_includes_index_and_direction() {
+    let mismatch = CoherenceMismatch::ParamAccess {
+        param_index: 2,
+        param_var: v(7),
+        inferred: AccessClass::Borrowed,
+        realized: AccessClass::Owned,
+    };
+    let text = format!("{mismatch}");
+    assert!(text.contains("param 2"), "should include param index");
+    assert!(text.contains("access"), "should identify the dimension");
+    assert!(
+        text.contains("Borrowed") && text.contains("Owned"),
+        "should include both directions: {text}"
+    );
+}
+
+/// Display for `EffectMismatch` includes the field name.
+#[test]
+fn display_effect_mismatch_includes_field_name() {
+    let mismatch = CoherenceMismatch::EffectMismatch {
+        field: "may_deallocate",
+        inferred: false,
+        realized: true,
+    };
+    let text = format!("{mismatch}");
+    assert!(text.contains("may_deallocate"), "should include field name");
+    assert!(
+        text.contains("false") && text.contains("true"),
+        "should include both values: {text}"
+    );
+}
