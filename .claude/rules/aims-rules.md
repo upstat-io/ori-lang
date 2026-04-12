@@ -333,6 +333,7 @@ Reuse requires owned, non-shared, reusable shape.
 Scope: **parameter inc/dec pair elision only.** For Owned parameters where the caller increments and the callee decrements, if the parameter is local+linear+unique, the inc/dec pair cancels — skip both. This does NOT apply to the final dec that triggers the free for fresh allocations; that dec is always needed for heap-allocated values (only stack-promoted values via RL-14 skip it). The `Uniqueness = Unique` requirement is load-bearing: a Shared value's +1 inc from the caller is never balanced → leak.
 
 **DP-8** — `is_local(s) ⟺ s.locality ∈ {BlockLocal, FunctionLocal}`.
+`ArgEscaping` is explicitly NOT local — the value escapes the defining function's scope (into a callee). While `ArgEscaping` values don't reach the heap, they cross the function boundary, which means the caller's inc/dec pair cannot be unconditionally elided (the callee may store the reference in a callee-local structure that outlives the call in unwinding scenarios). DP-7 (RC skip) requires `is_local()` precisely because local values never cross function boundaries. `ArgEscaping` values get their optimization through stack promotion in the caller (RL-15a), not through RC elision.
 
 **DP-9** — `cow_mode(s)`:
 - `Unique ⟹ StaticUnique` (in-place, no check)
