@@ -6,7 +6,7 @@ use rustc_hash::FxHashMap;
 use crate::borrow::BuiltinOwnershipSets;
 
 use super::super::contract::MemoryContract;
-use super::super::lattice::{AccessClass, Uniqueness};
+use super::super::lattice::{AccessClass, Cardinality, Consumption, Uniqueness};
 use super::*;
 
 fn setup() -> (StringInterner, BuiltinOwnershipSets) {
@@ -146,5 +146,167 @@ fn seed_covers_all_builtin_sets() {
             sigs.contains_key(&name),
             "missing contract for protocol builtin"
         );
+    }
+}
+
+// Protocol builtin consumer-level tests — verify that seed_builtin_contracts
+// produces MemoryContract with correct field values, not just "entry exists."
+
+/// Verify Index protocol has two Borrowed/Dead/Once params.
+#[test]
+fn protocol_contract_index_has_two_borrowed_params() {
+    let (interner, builtins) = setup();
+    let mut sigs = FxHashMap::default();
+    seed_builtin_contracts(&mut sigs, &builtins, &interner);
+    let name = interner.intern("__index");
+    let contract = &sigs[&name];
+    assert_eq!(contract.params.len(), 2);
+    for (i, param) in contract.params.iter().enumerate() {
+        assert_eq!(
+            param.access,
+            AccessClass::Borrowed,
+            "Index param {i} access"
+        );
+        assert_eq!(
+            param.consumption,
+            Consumption::Dead,
+            "Index param {i} consumption"
+        );
+        assert_eq!(
+            param.cardinality,
+            Cardinality::Once,
+            "Index param {i} cardinality"
+        );
+    }
+}
+
+/// Verify `IterDrop` protocol has one Owned/Linear/Once param.
+#[test]
+fn protocol_contract_iter_drop_has_owned_linear_param() {
+    let (interner, builtins) = setup();
+    let mut sigs = FxHashMap::default();
+    seed_builtin_contracts(&mut sigs, &builtins, &interner);
+    let name = interner.intern("ori_iter_drop");
+    let contract = &sigs[&name];
+    assert_eq!(contract.params.len(), 1);
+    assert_eq!(contract.params[0].access, AccessClass::Owned);
+    assert_eq!(contract.params[0].consumption, Consumption::Linear);
+    assert_eq!(contract.params[0].cardinality, Cardinality::Once);
+}
+
+/// Verify `IterNext` protocol has Owned first param, Borrowed second param.
+#[test]
+fn protocol_contract_iter_next_owned_then_borrowed() {
+    let (interner, builtins) = setup();
+    let mut sigs = FxHashMap::default();
+    seed_builtin_contracts(&mut sigs, &builtins, &interner);
+    let name = interner.intern("__iter_next");
+    let contract = &sigs[&name];
+    assert_eq!(contract.params.len(), 2);
+    assert_eq!(contract.params[0].access, AccessClass::Owned);
+    assert_eq!(contract.params[0].consumption, Consumption::Linear);
+    assert_eq!(contract.params[0].cardinality, Cardinality::Once);
+    assert_eq!(contract.params[1].access, AccessClass::Borrowed);
+    assert_eq!(contract.params[1].consumption, Consumption::Dead);
+    assert_eq!(contract.params[1].cardinality, Cardinality::Once);
+}
+
+/// Verify `CollectSet` protocol has one Owned/Linear/Once param.
+#[test]
+fn protocol_contract_collect_set_owned_linear() {
+    let (interner, builtins) = setup();
+    let mut sigs = FxHashMap::default();
+    seed_builtin_contracts(&mut sigs, &builtins, &interner);
+    let name = interner.intern("__collect_set");
+    let contract = &sigs[&name];
+    assert_eq!(contract.params.len(), 1);
+    assert_eq!(contract.params[0].access, AccessClass::Owned);
+    assert_eq!(contract.params[0].consumption, Consumption::Linear);
+    assert_eq!(contract.params[0].cardinality, Cardinality::Once);
+}
+
+/// Verify Iter protocol has one Borrowed/Dead/Once param.
+#[test]
+fn protocol_contract_iter_borrowed_param() {
+    let (interner, builtins) = setup();
+    let mut sigs = FxHashMap::default();
+    seed_builtin_contracts(&mut sigs, &builtins, &interner);
+    let name = interner.intern("iter");
+    let contract = &sigs[&name];
+    assert_eq!(contract.params.len(), 1);
+    assert_eq!(contract.params[0].access, AccessClass::Borrowed);
+    assert_eq!(contract.params[0].consumption, Consumption::Dead);
+    assert_eq!(contract.params[0].cardinality, Cardinality::Once);
+}
+
+// Negative pins — forbid the broken behavior that existed before the fix.
+
+/// Negative pin: `IterDrop` must NOT have Borrowed access.
+/// Before the fix (TPR-07-008), `IterDrop` was Borrowed, causing
+/// a double-free on iterator cleanup.
+#[test]
+fn protocol_contract_iter_drop_forbids_borrowed() {
+    let (interner, builtins) = setup();
+    let mut sigs = FxHashMap::default();
+    seed_builtin_contracts(&mut sigs, &builtins, &interner);
+    let name = interner.intern("ori_iter_drop");
+    let contract = &sigs[&name];
+    assert_ne!(
+        contract.params[0].access,
+        AccessClass::Borrowed,
+        "IterDrop MUST NOT be Borrowed — Borrowed ownership causes \
+         a second scope-exit RcDec (double-free)"
+    );
+}
+
+/// Negative pin: Index must NOT have Owned access on arg 0.
+/// The __index bug was caused by the "unknown callee -> all Owned"
+/// fallthrough.
+#[test]
+fn protocol_contract_index_forbids_owned_receiver() {
+    let (interner, builtins) = setup();
+    let mut sigs = FxHashMap::default();
+    seed_builtin_contracts(&mut sigs, &builtins, &interner);
+    let name = interner.intern("__index");
+    let contract = &sigs[&name];
+    assert_ne!(
+        contract.params[0].access,
+        AccessClass::Owned,
+        "Index receiver MUST NOT be Owned — Owned receiver causes \
+         the collection to be consumed on index lookup"
+    );
+}
+
+// Consistency pin — verify contracts match arg_ownership() for all builtins.
+
+/// Consistency pin: contract access class matches `arg_ownership()` for all
+/// protocol builtins. Catches drift between the ownership constant and the
+/// contract seeding path.
+#[test]
+fn protocol_contract_access_consistent_with_arg_ownership() {
+    use ori_ir::builtin_constants::protocol::{ProtocolArgOwnership, ProtocolBuiltin};
+
+    let (interner, builtins) = setup();
+    let mut sigs = FxHashMap::default();
+    seed_builtin_contracts(&mut sigs, &builtins, &interner);
+    for &pb in ProtocolBuiltin::ALL {
+        let name = interner.intern(pb.name());
+        let contract = &sigs[&name];
+        assert_eq!(
+            contract.params.len(),
+            pb.arg_ownership().len(),
+            "{pb:?}: param count mismatch"
+        );
+        for (i, arg_own) in pb.arg_ownership().iter().enumerate() {
+            let expected = match arg_own {
+                ProtocolArgOwnership::Borrowed => AccessClass::Borrowed,
+                ProtocolArgOwnership::Owned => AccessClass::Owned,
+            };
+            let actual = contract.params[i].access;
+            assert_eq!(
+                actual, expected,
+                "{pb:?} arg {i}: contract {actual:?} != expected {expected:?}"
+            );
+        }
     }
 }
