@@ -57,25 +57,7 @@ Two new files that wire the intelligence graph into Claude's automatic behavior:
 
 **Design**: Slash command that wraps `scripts/intel-query.sh` with convenience. Usage: `/query-intel <subcommand> [args]`
 
-```markdown
----
-name: query-intel
-description: "Query the cross-language intelligence graph for prior art, similar bugs, and design patterns."
-allowed-tools: Bash, Read, Grep, Glob
-argument-hint: "[search|compare|fixed|hot|ori-*|cypher|status] [args...] (ori presets: ori-arc, ori-inference, ori-codegen, ori-patterns, ori-diagnostics)"
----
-
-# /query-intel
-
-Run: `scripts/intel-query.sh $ARGUMENTS`
-
-If `$ARGUMENTS` is empty, run: `scripts/intel-query.sh status`
-
-Present results to the user with context. For search results, highlight:
-- Cross-repo patterns (same issue in 2+ languages)
-- High-signal items (many reactions, MEMBER authors, completed state_reason)
-- Ori-relevant items (features Ori is building or planning)
-```
+**Implemented content** — see `.claude/commands/query-intel.md` for the canonical source. The plan's original "Content design" snippet has been replaced with a reference to avoid plan↔implementation drift during TPR iteration.
 
 **Implementation checklist**:
 - [x] Create `.claude/commands/query-intel.md`
@@ -116,6 +98,10 @@ Present results to the user with context. For search results, highlight:
   Resolved: Fixed on 2026-04-12. Replaced embedded copy with reference to canonical source (SSOT fix — eliminates infinite plan↔implementation drift cascade).
 - [x] `[TPR-02-012-gemini][low]` `plans/lang-intelligence/section-02-claude-rules.md:42` — Same as TPR-02-011-codex (agreement on snippet drift).
   Resolved: Same fix as TPR-02-011-codex.
+- [x] `[TPR-02-013-codex][medium]` `plans/lang-intelligence/section-02-claude-rules.md:60` — DRIFT: 02.2 query-intel snippet still embedded as copy (only 02.1 was SSOT-fixed).
+  Resolved: Fixed on 2026-04-12. Replaced with reference to canonical `.claude/commands/query-intel.md`.
+- [x] `[TPR-02-014-gemini][high]` `plans/lang-intelligence/section-02-claude-rules.md:60` — Same as TPR-02-013-codex (agreement on SSOT violation).
+  Resolved: Same fix as TPR-02-013-codex.
 
 ## Completion Checklist
 
