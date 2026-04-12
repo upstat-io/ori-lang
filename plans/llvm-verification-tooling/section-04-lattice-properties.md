@@ -1,7 +1,7 @@
 ---
 section: "04"
 title: "AIMS Lattice Property Verification"
-status: in-progress
+status: complete
 reviewed: true
 goal: "Audit and extend proptest-based verification of algebraic lattice properties (join commutativity, idempotence, partial-order axioms), canonicalization idempotence/convergence/dimension-guarantees, decision predicate semantic contracts and transfer function monotonicity, fixpoint convergence bounds, and BUG-04-057 soundness analysis across the full 7-dimensional AIMS product lattice"
 success_criteria:
@@ -47,7 +47,7 @@ sections:
     status: complete
   - id: "04.N"
     title: "Completion Checklist"
-    status: in-progress
+    status: complete
 ---
 
 # Section 04: AIMS Lattice Property Verification
@@ -881,7 +881,7 @@ When all findings are triaged:
   - [x] `00-overview.md` Quick Reference updated (2026-04-12)
   - [x] `index.md` section status updated (2026-04-12)
 - [x] `/tpr-review` passed — dual-source review complete (2026-04-12). Codex found 1 high-severity finding (BUG-04-059: realization unsound cross-dimensional proofs). Filed in bug tracker — realization-layer issue, not lattice-layer. Gemini: 0 findings. All findings tracked with concrete artifacts.
-- [ ] `/impl-hygiene-review` passed
-- [ ] `/improve-tooling` section-close sweep
+- [x] `/impl-hygiene-review` passed — zero LEAK/DRIFT/GAP findings (2026-04-12). 23 minor BLOAT findings (file-length, fn-length, nesting-depth) all pre-existing in broader ori_arc crate. Test naming clean. SSOT clean. Algorithmic DRY clean. Plan annotations clean.
+- [x] `/improve-tooling` section-close sweep — all 6 subsections (04.1–04.6) have documented retrospectives with "no gaps" findings. Cross-subsection analysis: proptest was the primary tool across all subsections and performed excellently (minimal counterexamples, fast shrinking, clear output). `collect_all_canonical_states()` utility created in 04.6 is reusable. No cross-subsection patterns required new tooling. (2026-04-12)
 
 **Exit Criteria:** `timeout 150 cargo test -p ori_arc -- lattice::prop_tests` runs all property-based lattice tests and passes. proptest has verified join commutativity/idempotence, partial-order axioms, canonicalization idempotence/convergence/dimension-guarantees, decision predicate semantic contracts, `capture_state_update` monotonicity, permutation invariance for n-ary merges, and fixpoint convergence across thousands of randomly generated `AimsState` values. BUG-04-057 soundness formally analyzed with one of three outcomes documented. The `SCALAR` sentinel is excluded from all property tests. All tests complete within the 150-second timeout.
