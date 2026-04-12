@@ -131,6 +131,15 @@ Normative definitions here.
 Where `SECTION_NAME` matches headers in grammar.ebnf (LEXICAL GRAMMAR, TYPES, DECLARATIONS, EXPRESSIONS, PATTERNS).
 Where `OPERATOR_NAME` matches headers in operator-rules.md (Coalesce, Arithmetic, Comparison, etc.).
 
+## Proposal Gate — MANDATORY
+
+Spec files are protected by the proposal gate hook (`.claude/hooks/block-spec-edits.sh`). Before running this command, ensure:
+
+1. An approved proposal exists in `docs/ori_lang/proposals/approved/`
+2. Set the bypass: `export ORI_SPEC_PROPOSAL=<proposal-filename>.md`
+
+Without this, all Edit/Write calls to spec files will be **blocked by the hook**. This is intentional — spec changes without approved proposals are never allowed. See `.claude/rules/spec.md` §Proposal Gate.
+
 ## Update Process
 
 1. **Identify affected spec files** based on what changed
